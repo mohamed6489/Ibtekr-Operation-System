@@ -46,3 +46,4 @@ Task 2: minor (deferred): `filename: url.pathname` in the vm loader garbles Wind
 Task 2: minor (deferred): exact boundaries untested (lockedUntil at 900000 ms; idleState(28740) → 'active').
 Task 2: complete (commits 24be4ad..7fe3fa9, review clean)
 BASE before Task 3: (HEAD after ledger commit; see git log)
+BASE before Task 3: f0dcb0f. Task 3: implementer DONE_WITH_CONCERNS, commit 22410c4. Added by ruling: supabase/tests/_local_auth_stub.sql (local-only auth stand-in) + tools/db-test.sh (`npm run db:test`). Concerns to weigh in review: has_perm/is_admin ignore profiles.status; email_for_identifier is an enumeration oracle for anon (plan-mandated login path; rate limiting is a Task 5/Supabase concern); anon lost execute on has_perm/is_admin so Task 4 policies must be `to authenticated`; update guard limits non-admins to name/phone/twofa.

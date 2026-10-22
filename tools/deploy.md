@@ -70,7 +70,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 };
 ```
 
-ده مفتاح عام (الـ RLS هي اللي بتحمي البيانات) وعادي يتعمله commit. **الـ service_role key عمره ما يدخل الملف ده ولا أي ملف في git.**
+ده مفتاح عام (الـ RLS هي اللي بتحمي البيانات). **اعمل commit لـ `app/config.js` بمفتاح الإنتاج** — ده اللي `git checkout app/config.js` بيرجّعه بعد اختبار الـ staging (خطوة 5). **الـ service_role key عمره ما يدخل الملف ده ولا أي ملف في git.**
 
 ### 2.5 حسابات التطوير
 `tools/seed-dev-users.sql` بيعمل 3 حسابات بباسورد مكتوب في الملف نفسه (`IbtekrDev-2026`). يتشغّل **على مشروع dev/staging بس، عمره ما يتشغّل على الإنتاج** — على الإنتاج هيبقى باب خلفي بباسورد أدمن معروف لأي حد شاف الريبو.
@@ -119,7 +119,7 @@ select id, member_code, email, role_id, status from public.profiles where member
 ```bash
 export LFTP_PASSWORD='<ftp password>'   # في الترمينال بس، أو من .env
 lftp --env-password -u '<ftp user>' '<ftp host>' \
-  -e "set ftp:ssl-allow true; mirror -R --verbose app/ /; bye"
+  -e "set ftp:ssl-force true; mirror -R --verbose app/ /; bye"
 ```
 
 ده بافتراض إن حساب الـ FTP جذره هو فولدر الـ subdomain؛ لو جذره `public_html` العام، غيّر `/` لمسار الـ subdomain. `--delete` بيمسح من السيرفر اللي اتشال من `app/` — استخدمه في إعادة النشر بس بعد ما تتأكد من المسار.
@@ -168,6 +168,7 @@ git checkout app/config.js   # رجّع مفتاح الإنتاج
 
    (أو إضافة semgrep لو متاحة. لو `p/sql` مش موجود في الـ registry، استخدم `--config p/secrets` مكانه.)
 3. `get_advisors` (security + performance) مفيهوش غير المقبول في 2.2.
+   - ملحوظة CSP: `script-src` في `.htaccess` بيسمح بمسارين بس من cdnjs (`xlsx/0.18.5/` و`html2canvas/1.4.1/`). مهمة لاحقة: ننزّل المكتبتين في `app/js/vendor/` (ونرقّي xlsx بعد CVE-2023-30533 / CVE-2024-22363) ونرجع لـ `script-src 'self'` بس.
 4. مفيش أسرار في تاريخ git:
 
    ```bash
@@ -187,5 +188,5 @@ git checkout app/config.js   # رجّع مفتاح الإنتاج
   where section = 'general';
   ```
 
-- `main` يفضل فرع الدمج: اللي اتنشر لازم يكون هو اللي في `main`. إعادة النشر = نفس خطوة 4 (و`config.js` و`index.html` عليهم `no-cache` في `.htaccess`، فالتحديث بيظهر على طول؛ الـ css/js ممكن تفضل في كاش المتصفح لحد 7 أيام، فـ hard refresh لو التغيير مستعجل).
+- `main` يفضل فرع الدمج: اللي اتنشر لازم يكون هو اللي في `main`. إعادة النشر = نفس خطوة 4. كل ملفات html/js/css عليها `no-cache` في `.htaccess` (المتصفح بيسأل السيرفر كل مرة وياخد 304 لو مفيش تغيير)، فالتحديث بيظهر على طول من غير hard refresh؛ الاستثناء الوحيد `js/vendor/supabase.js` (نسخة مثبّتة) بكاش 7 أيام — لو حدّثته، غيّر اسمه أو استنى أسبوع.
 - الـ CSP في `app/.htaccess` مربوط بـ project ref `fsynculhaupcktzkfkdd`. لو المشروع اتغيّر، أو اتضاف مصدر خارجي جديد (مثلًا API بتاع WooCommerce من المتصفح)، لازم `connect-src`/`script-src` يتحدّثوا.

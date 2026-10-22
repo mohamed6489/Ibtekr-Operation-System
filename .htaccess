@@ -10,6 +10,8 @@ AddCharset UTF-8 .html .js .css
   Header always set X-Content-Type-Options "nosniff"
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
   Header always set X-Frame-Options "SAMEORIGIN"
+  # HTTPS only for a year on this host (Force HTTPS is on in hPanel). No includeSubDomains: other *.ibtekr.club hosts are not ours to pin.
+  Header always set Strict-Transport-Security "max-age=31536000"
   # No inline <script>, on*= attributes or eval in app/ (see task-7-report.md). The two cdnjs paths are
   # the lazy-loaded export libraries (blocks 10, 17, 28); vendor them later and drop these sources.
   # Inline styles come from the prototype.

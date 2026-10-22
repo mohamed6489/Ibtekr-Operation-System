@@ -105,3 +105,82 @@
    - MFA → TOTP enabled.
    - URL configuration: Site URL and Redirect URLs include the app origin and path, plus `#login-reset` (for example `http://localhost:4173/**` and the production origin).
    - Rate limits at defaults.
+
+---
+
+# Fix round 1
+
+**Status:** DONE. Commit `7ca4dde` fix(auth): require aal2 at the gate, handle password recovery, persist idle clock and remember-me, stricter Supabase mock. Not pushed.
+
+## Findings and fixes
+
+1. **CRITICAL: a reload skipped 2FA.**
+   - `IBAuth.checkTotp()` reads `mfa.getAuthenticatorAssuranceLevel()` from the session; it makes no network call. TOTP is pending when `nextLevel === 'aal2' && currentLevel !== 'aal2'`.
+   - `signIn` runs this check right after `signInWithPassword` and **before** `IBDirectory.load()`. If TOTP is pending it returns `{ ok:true, profile:null }`, and nothing about the member is loaded.
+   - `verifyTotp` lists the factors and challenges/verifies the first verified TOTP factor. Only then does it load the directory and check the profile is active (`loadMember`). It returns `bad | suspended | network`.
+   - The gate in block 28 runs `checkTotp()` before the directory and shows `showLogin('2fa')`.
+   - `signOut` clears `ls.trusted`.
+   - `doLogin` no longer skips the 2FA screen for `ls.trusted`. Any aal1 session that skips it would be stopped by the gate on the next load, and would have no member loaded. **This is a deviation:** "remember this device 30 days" cannot be honoured client-side against an aal2 server rule. The checkbox and `ls.trusted = true` are kept.
+2. **Password recovery.**
+   - `redirectTo` is now the app URL with no hash.
+   - `supabase-client.js` captures `type=recovery` from the URL fragment before the client clears it (`IBSupabase.recovery`, `IBAuth.recovery()`).
+   - The gate shows `reset` first.
+   - `onChange('PASSWORD_RECOVERY')` → `showLogin('reset')`. This is skipped when the flag already did it, because supabase-js fires the event in a `setTimeout` after init.
+   - `doReset`: after `updatePassword` succeeds it awaits the `auth.password.set` log, then `IBAuth.signOut()`, then shows the prototype's login view and toast. The invite view is unchanged.
+3. **Idle clock and remember-me across loads.**
+   - (a) Block 21 `touch()` updates `lastAct` and writes `localStorage['ib.lastAct']`. It is used by the activity listener, the «كمّل» button and `enterApp`.
+   - The gate: if a session exists and idle time is ≥ `AUTH.idleMinutes` since `ib.lastAct`, it calls `IBAuth.signOut()` and shows the `expired` view. When the gate passes, it refreshes `ib.lastAct`, because opening the app counts as activity.
+   - (b) `createClient(..., { auth: { storage } })` uses a small adapter:
+     - writes go to `sessionStorage` when `localStorage['ib.remember'] === '0'`, otherwise to `localStorage`, and the same key is removed from the other store;
+     - reads check both stores;
+     - remove clears both.
+   - `IBAuth.signIn(id, pw, remember)` sets `ib.remember`; block 21 passes `ls.remember`.
+4. **Stricter mock.**
+   - Every request needs `apikey: mock-anon-key`.
+   - On `/rest/v1/*`, the bearer must be the anon key or a token the mock issued, otherwise 401. `profiles`, `roles` and `log_activity` need an issued token.
+   - `select` is checked against the real `profiles`/`roles` columns from 0001; an unknown column gets 400 `42703`. The response is projected to the selected columns.
+   - `POST /auth/v1/logout` revokes the token.
+   - MFA endpoints are emulated: `GET /auth/v1/user` returns the factors, plus `POST /auth/v1/factors/:id/challenge` and `/verify`. Verify returns an aal2 session, or 422 `mfa_verification_failed`.
+   - Tokens carry `aal`/`amr` claims. Refresh keeps the aal level.
+   - Mock-only user `M03` (`twofa.dev@ibtekr.local`, twofa, verified factor, code `123456`).
+   - `mock.recoveryFragment(email)` builds a recovery link; `PUT /auth/v1/user` is recorded.
+
+## Found by the stricter mock
+
+The `auth.signout` activity log reached the server *after* `POST /logout` had revoked the token, so it was lost. The first version of this fix round failed `logout returns to login` because of it.
+
+Fix: `K.logEvent` now returns the `IBActivity.log` promise (block 14; it was fire-and-forget before). `signOut` and `doReset` await it before signing out.
+
+## Block edits this round
+
+- **14:** `logEvent` returns the promise.
+- **21:**
+  - `signOut` clears `ls.trusted` and awaits the log.
+  - New `touch()`, used by the activity listener, `sessionWarning` «كمّل» and `enterApp`.
+  - `doLogin` passes `ls.remember`, and the `!ls.trusted` skip is removed.
+  - `do2fa` maps the result reasons.
+  - `doReset` signs out after a successful reset.
+- **28:** the gate only.
+- `tools/blocks.lock.json` was regenerated (`npm run lock`).
+
+## Tests
+
+- **RED:** the 5 new cases failed, plus `logout returns to login` (the signout-log race above). The remember-me-on case passed already, since localStorage was the default.
+- **GREEN:** `npm run e2e` passed 16/16 on three runs in a row, with clean output.
+- **Live mode** with no credentials: 15 skipped, 1 passed.
+- `npm test`: 9/9.
+- `npm run db:test`: all passed.
+
+New cases:
+- 2FA wrong code, then the correct code → app shown, and no `profiles` request before aal2.
+- 2FA reload → still the 2FA view with `#root` hidden.
+- Recovery fragment → reset form → `PUT /auth/v1/user` → logout → login view.
+- `ib.lastAct` set 9 hours back + reload → «الجلسة خلصت» and a logout request.
+- Remember off → `sb-*` key only in sessionStorage, and the session survives a same-tab reload.
+- Remember on → `sb-*` key only in localStorage.
+
+## Concerns
+
+- **Live recovery not verified.** The recovery flow is verified against the mock's implicit-flow fragment only. The live project must use the implicit flow, which is the supabase-js default here, and must list the app URL under Auth › Redirect URLs.
+- **TOTP enrolment UI not built.** There is still no TOTP enrolment UI, so no live user can reach aal2 yet. `M03` exists only in the mock.
+- **Stale idle stamp in the background.** A session left idle in a background tab still keeps its stale `ib.lastAct`, and the in-page 8-hour timer runs as before.

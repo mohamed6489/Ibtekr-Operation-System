@@ -6,7 +6,8 @@
     "test": "node --test \"tests/**/*.test.mjs\"",
     "split": "node tools/split-prototype.mjs",
     "serve": "npx http-server app -p 4173 -c-1",
-    "e2e": "npx playwright test -c tests/playwright.config.mjs"
+    "e2e": "npx playwright test -c tests/playwright.config.mjs",
+    "db:test": "bash tools/db-test.sh --stub"
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",

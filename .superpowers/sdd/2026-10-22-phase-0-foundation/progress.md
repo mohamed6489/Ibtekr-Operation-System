@@ -95,3 +95,5 @@ Task 6: review — spec ❌ (1 Important: CI failure-artifact path `tests/test-r
 Task 6: minor (deferred): secrets mapped at job level (tighter: a HAS_LIVE flag + step-level env); push+pull_request double runs on PR branches; CLAUDE.md split line could mention `npm run lock` next; db job has no setup-node (bash-only today).
 Task 6: fix round 1/5 dispatched — commit 3718ca5 (artifact path → test-results/, if-no-files-found: warn). Re-review pending.
 CI run 1 (39828563069, commit 121c72c): both jobs green on GitHub Actions — test (npm test, mocked e2e; live step skipped) and db (postgres:17 migrations + RLS tests).
+Task 6: fix round 1/5 (1 addressed, 0 open; commits 02f0efd..3718ca5)
+Task 6: complete (commits 68a6d55..3718ca5, review clean; CI green on GitHub)

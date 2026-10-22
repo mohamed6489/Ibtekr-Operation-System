@@ -68,3 +68,6 @@ Ruling: (1) the actor trigger also forces `at = now()` and `id = nextval(...)`, 
 Ruling: (2) in phase 0 only user-targeted alerts (`user_id = auth.uid()`) can have `read_at` updated; role-wide alerts are read-only for members, and per-user read state for role alerts is deferred to the dashboard page plan (phase 1) as an `alert_reads(alert_id, user_id, read_at)` table — why: smallest change that removes the shared-state defect without inventing schema the UI does not use yet — cost if wrong: phase 1 adds the table (planned anyway).
 Task 4: minor (deferred): admins cannot `insert ... returning` alerts not targeted at them (UI task note); `status_map.direction` nullable; coverage gaps (spoofed updated_by, admin alert delete, suspended ops on settings, non-admin delete on settings/status_map); ops prefs insert reads as setup.
 Task 4: fix round 1/5 dispatched — commit 29fa339 (2 findings claimed fixed; re-review pending)
+Task 4: fix round 1/5 (2 addressed, 0 open; commits 8edab23..29fa339)
+Task 4: minor (deferred): activity_log trigger forces `at` for every role — a future historical import must disable the trigger or write through a definer import function; admins also cannot mark role-wide alerts read until phase-1 `alert_reads`.
+Task 4: complete (commits 4a8bc8b..29fa339, review clean)

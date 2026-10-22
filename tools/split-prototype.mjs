@@ -1,7 +1,8 @@
 // Splits the one-file prototype into app/: two stylesheets, one file per <script> block, and index.html.
-// split() keeps every byte it does not hand to a file, so join() in join-prototype.mjs rebuilds the
-// source exactly; tests/split.test.mjs proves join(split(src)) === src.
-import { readFileSync, writeFileSync, mkdirSync } from 'node:fs';
+// split() keeps every byte it does not hand to a file, so join() in join-prototype.mjs rebuilds the source exactly.
+// The split ran once: blocks are edited in app/ since Task 5, so writing them again needs --force
+// while tools/blocks.lock.json exists (tests/split.test.mjs checks the blocks against that lock).
+import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath, pathToFileURL } from 'node:url';
 
@@ -74,6 +75,10 @@ function indexHtml(blocks) {
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
   const root = fileURLToPath(new URL('..', import.meta.url));
+  if (existsSync(resolve(root, 'tools/blocks.lock.json')) && !process.argv.includes('--force')) {
+    console.error('split: app/js/blocks اتعدّلت بعد التقسيم (tools/blocks.lock.json) — blocks were edited after the split; rerun with --force to overwrite them, then npm run lock.');
+    process.exit(1);
+  }
   const parts = split(readFileSync(resolve(root, 'Prototype file', 'نظام إبتكر.html'), 'utf8'));
   const write = (file, text) => {
     const path = resolve(root, 'app', file);

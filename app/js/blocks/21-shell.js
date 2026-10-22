@@ -92,7 +92,8 @@
     const m = U.Modal({ title: 'إنت لسه على الدوام', body: [h('p', { style: 'margin:0' }, 'بقالك ' + K.hrs(worked()) + (sh.state === 'overtime' ? ' (منهم ' + K.hrs(otMin()) + ' وقت إضافي)' : '') + '. تحب تنهي الدوام قبل ما تخرج؟'), h('p', { class: 't-small help', style: 'margin:0' }, '«أخرج بس» بيسيب الدوام شغال — تقدر تنهيه من أي جهاز.')],
       footer: [Button({ label: 'أخرج بس', onClick: () => { m.close(); signOut(); } }), Button({ type: 'primary', label: 'أنهي الدوام وأخرج', onClick: () => { m.close(); endShift(signOut); } })] });
   }
-  function signOut(reason) { U.closePopover(); K.logEvent('auth.signout', reason || 'يدوي'); showLogin(reason === 'idle' ? 'expired' : 'login'); }
+  // logged before the Supabase sign-out so the server log still gets it; loggedOut first so the idle timer and SIGNED_OUT listener stand down
+  async function signOut(reason) { if (loggedOut) return; loggedOut = true; U.closePopover(); K.logEvent('auth.signout', reason || 'يدوي'); await window.IBAuth.signOut().catch(() => {}); showLogin(reason === 'idle' ? 'expired' : 'login'); }
   function signOutAll() { K.confirm({ title: 'خروج من كل الأجهزة', text: 'هيتعمل خروج من كل الأجهزة التانية. الجهاز ده هيفضل داخل.', okLabel: 'خروج من الكل', onOk: () => { K.logEvent('auth.signoutAll', K.member(K.ME).name); K.toast('اتعمل خروج من الأجهزة التانية', 'success'); } }); }
 
   // ================= session timeout: 8h idle, 1-minute warning =================
@@ -106,9 +107,9 @@
   }
 
   // ================= login (option B) =================
-  let loggedOut = false; let auth = O.loginInit(); let ls = { view: 'login', id: '', pw: '', err: '', code: '', channel: 'واتساب', remember: true, p1: '', p2: '', show: false, sentTo: '' };
-  const DEMO_PW = 'Ibtekr2026';
-  function findMember(id) { const x = O.toLatin(id).toLowerCase(); return S.members.find((m) => m.email.toLowerCase() === x || m.phone === x); }
+  let loggedOut = false; let auth = O.loginInit(); let ls = { view: 'login', id: '', pw: '', err: '', code: '', channel: 'تطبيق Authenticator', remember: true, p1: '', p2: '', show: false, sentTo: '' };
+  const TOTP_CH = 'تطبيق Authenticator'; const SOON = 'متاح بعد تشغيل جسر واتساب'; // only the Authenticator channel is live until the WhatsApp bridge exists
+  const netErr = () => (window.IBSupabase.client ? 'مشكلة في الاتصال — جرّب تاني' : 'النظام مش متوصّل بقاعدة البيانات — راجع config.js');
   function showLogin(view) { loggedOut = true; ls = Object.assign(ls, { view: view || 'login', err: '', pw: '', code: '' }); document.getElementById('root').hidden = true; let el = document.getElementById('login'); if (!el) { el = h('div', { id: 'login', dir: 'rtl', lang: 'ar' }); document.body.append(el); } el.hidden = false; drawLogin(); document.title = 'تسجيل الدخول — نظام إبتكر'; }
   function enterApp() { loggedOut = false; lastAct = now(); const el = document.getElementById('login'); if (el) el.hidden = true; document.getElementById('root').hidden = false; try { history.replaceState(null, '', '#dashboard'); } catch (e) { /* */ } window.dispatchEvent(new HashChangeEvent('hashchange')); K.toast('أهلاً ' + K.member(K.ME).name.split(' ')[0]); }
   function drawLogin() {
@@ -123,11 +124,10 @@
       body = [locked ? U.InlineNote({ kind: 'error', children: 'الحساب اتقفل مؤقتًا بعد 5 محاولات غلط. جرّب تاني بعد ' + Math.ceil((auth.lockedUntil - now()) / 60000) + ' دقيقة أو غيّر كلمة المرور.' }) : err,
         field('lg-id', 'الإيميل أو رقم الموبايل', 'id', 'text', { ac: 'username', errKey: 'id', onEnter: doLogin, attrs: { dir: 'ltr', inputmode: 'email' } }), field('lg-pw', 'كلمة المرور', 'pw', ls.show ? 'text' : 'password', { ac: 'current-password', errKey: 'pw', toggle: true, onEnter: doLogin }),
         h('div', { class: 'lg-row' }, K.Checkbox({ label: 'افتكرني على الجهاز ده', checked: ls.remember, onChange: (x) => { ls.remember = x; drawLogin(); } }), Button({ type: 'text', size: 'sm', label: 'نسيت كلمة المرور؟', onClick: () => { ls.view = 'forgot'; ls.err = ''; drawLogin(); } })),
-        Button({ type: 'primary', size: 'lg', label: 'دخول', disabled: locked, onClick: doLogin, attrs: { class: 'btn btn-primary lg block' } }),
-        h('p', { class: 't-small help demo-hint' }, 'للتجربة: safwat@ibtekr.club أو 01001234567 · كلمة المرور ' + DEMO_PW + ' · كود التحقق 123456')];
+        Button({ type: 'primary', size: 'lg', label: 'دخول', disabled: locked, onClick: doLogin, attrs: { class: 'btn btn-primary lg block' } })];
     } else if (v === '2fa') {
-      title = 'التحقق بخطوتين'; sub = 'بعتنالك كود من 6 أرقام على ' + ls.channel;
-      body = [err, U.Select({ id: 'lg-ch', label: 'ابعت الكود على', options: ['واتساب', 'إيميل', 'تطبيق Authenticator'].map((x) => ({ value: x, label: x })), value: ls.channel, onChange: (x) => { ls.channel = x; K.toast('اتبعت كود جديد على ' + x); drawLogin(); } }), field('lg-code', 'الكود', 'code', 'text', { ac: 'one-time-code', errKey: 'code', onEnter: do2fa, attrs: { inputmode: 'numeric', maxlength: 6, dir: 'ltr' } }),
+      title = 'التحقق بخطوتين'; sub = ls.channel === TOTP_CH ? 'اكتب الكود من 6 أرقام اللي في تطبيق Authenticator' : 'بعتنالك كود من 6 أرقام على ' + ls.channel;
+      body = [err, U.Select({ id: 'lg-ch', label: 'ابعت الكود على', help: 'واتساب وإيميل: ' + SOON, options: ['واتساب', 'إيميل', TOTP_CH].map((x) => ({ value: x, label: x === TOTP_CH ? x : x + ' — ' + SOON })), value: ls.channel, onChange: (x) => { if (x !== TOTP_CH) return K.toast(SOON); ls.channel = x; drawLogin(); } }), field('lg-code', 'الكود', 'code', 'text', { ac: 'one-time-code', errKey: 'code', onEnter: do2fa, attrs: { inputmode: 'numeric', maxlength: 6, dir: 'ltr' } }),
         K.Checkbox({ label: 'افتكر الجهاز ده 30 يوم', checked: ls.remember, onChange: (x) => { ls.remember = x; drawLogin(); } }), Button({ type: 'primary', size: 'lg', label: 'تأكيد', onClick: do2fa, attrs: { class: 'btn btn-primary lg block' } }), h('div', { class: 'lg-row' }, Button({ type: 'text', size: 'sm', label: 'ابعت الكود تاني', onClick: () => K.toast('اتبعت كود جديد') }), Button({ type: 'text', size: 'sm', label: 'استخدم كود احتياطي', onClick: () => { ls.err = ''; K.toast('اكتب أي كود من الـ 10 الاحتياطيين في نفس الخانة'); } }))];
     } else if (v === 'forgot') {
       title = 'نسيت كلمة المرور'; sub = 'اكتب الإيميل أو الموبايل وهنبعتلك لينك';
@@ -151,19 +151,21 @@
       h('p', { class: 'login-foot t-small' }, '© 2026 إبتكر كلوب · ', h('a', { href: '#', onClick: (e) => { e.preventDefault(); K.toast('محتاج مساعدة؟ كلّم الأدمن'); } }, 'مساعدة'))));
     setTimeout(() => { const f = el.querySelector('[aria-invalid=true]') || el.querySelector('input'); if (f) f.focus(); });
   }
-  function doLogin() {
+  async function doLogin() {
     if (O.isLocked(auth, now())) return drawLogin();
+    if (ls.busy) return;
     if (!O.identifierKind(ls.id)) { ls.err = 'اكتب إيميل صحيح أو رقم موبايل من 11 رقم'; return drawLogin(); }
-    const m = findMember(ls.id);
-    if (m && m.status === 'suspended') { ls.view = 'suspended'; return drawLogin(); }
-    if (!m || ls.pw !== DEMO_PW) { auth = O.loginFail(auth, now()); K.logEvent('auth.fail', O.toLatin(ls.id)); ls.err = O.isLocked(auth, now()) ? '' : 'الإيميل/الموبايل أو كلمة المرور غلط. فاضل ' + auth.left + ' محاولات قبل ما الحساب يتقفل 15 دقيقة.'; ls.pw = ''; return drawLogin(); }
+    ls.busy = true; let r; try { r = await window.IBAuth.signIn(ls.id, ls.pw); } finally { ls.busy = false; }
+    if (!r.ok && r.reason === 'suspended') { ls.view = 'suspended'; return drawLogin(); }
+    if (!r.ok && r.reason === 'bad') { auth = O.loginFail(auth, now()); K.logEvent('auth.fail', O.toLatin(ls.id)); ls.err = O.isLocked(auth, now()) ? '' : 'الإيميل/الموبايل أو كلمة المرور غلط. فاضل ' + auth.left + ' محاولات قبل ما الحساب يتقفل 15 دقيقة.'; ls.pw = ''; return drawLogin(); }
+    if (!r.ok) { ls.err = r.reason === 'rate_limited' ? 'محاولات كتير — استنى دقيقة وجرّب تاني' : netErr(); return drawLogin(); }
     auth = O.loginInit(); ls.err = '';
-    if (m.twofa && !ls.trusted) { ls.view = '2fa'; return drawLogin(); }
-    K.logEvent('auth.signin', m.name); enterApp();
+    if (window.IBAuth.needsTotp() && !ls.trusted) { ls.view = '2fa'; return drawLogin(); }
+    K.logEvent('auth.signin', r.profile.name); enterApp();
   }
-  function do2fa() { const c = O.toLatin(ls.code); if (c !== '123456' && !/^\d{4}-?\d{4}$/.test(c)) { ls.err = 'الكود غلط أو انتهى — جرّب تاني'; ls.code = ''; return drawLogin(); } if (ls.remember) ls.trusted = true; K.logEvent('auth.2fa', ls.channel); ls.err = ''; enterApp(); }
-  function doForgot() { if (!O.identifierKind(ls.id)) { ls.err = 'اكتب إيميل صحيح أو رقم موبايل من 11 رقم'; return drawLogin(); } ls.sentTo = O.identifierKind(ls.id) === 'email' ? O.toLatin(ls.id) : 'واتساب ' + O.toLatin(ls.id); ls.err = ''; ls.view = 'sent'; drawLogin(); }
-  function doReset() { const e = O.validatePassword(ls.p1, ls.p2); if (e) { ls.err = e; return drawLogin(); } K.logEvent('auth.password.set', ls.view); ls.err = ''; ls.p1 = ls.p2 = ''; if (ls.view === 'invite') return enterApp(); ls.view = 'login'; drawLogin(); K.toast('اتحفظت كلمة المرور — سجّل دخول', 'success'); }
+  async function do2fa() { const r = await window.IBAuth.verifyTotp(O.toLatin(ls.code)); if (!r.ok) { ls.err = 'الكود غلط أو انتهى — جرّب تاني'; ls.code = ''; return drawLogin(); } if (ls.remember) ls.trusted = true; K.logEvent('auth.2fa', ls.channel); ls.err = ''; enterApp(); }
+  async function doForgot() { if (!O.identifierKind(ls.id)) { ls.err = 'اكتب إيميل صحيح أو رقم موبايل من 11 رقم'; return drawLogin(); } const r = await window.IBAuth.resetPassword(ls.id); if (!r.ok) { ls.err = netErr(); return drawLogin(); } ls.sentTo = O.identifierKind(ls.id) === 'email' ? O.toLatin(ls.id) : 'واتساب ' + O.toLatin(ls.id); ls.err = ''; ls.view = 'sent'; drawLogin(); }
+  async function doReset() { const e = O.validatePassword(ls.p1, ls.p2); if (e) { ls.err = e; return drawLogin(); } const r = await window.IBAuth.updatePassword(ls.p1); if (!r.ok) { ls.err = window.IBSupabase.client ? 'معرفناش نحفظ كلمة المرور — افتح اللينك من الإيميل تاني وجرّب' : netErr(); return drawLogin(); } K.logEvent('auth.password.set', ls.view); ls.err = ''; ls.p1 = ls.p2 = ''; if (ls.view === 'invite') return enterApp(); ls.view = 'login'; drawLogin(); K.toast('اتحفظت كلمة المرور — سجّل دخول', 'success'); }
   function routeLogin(hs) { const map = { login: 'login', 'login-2fa': '2fa', 'login-forgot': 'forgot', 'login-reset': 'reset', invite: 'invite', 'invite-expired': 'expiredInvite', 'login-suspended': 'suspended', 'login-locked': 'login' }; if (!(hs in map)) return false; if (hs === 'login-locked') auth = { fails: 0, left: 5, lockedUntil: now() + 15 * 60000 }; showLogin(map[hs]); return true; }
 
   window.IBShell = { ClockWidget, AccountMenu, state, clockIn, endShift, sessionWarning, signOutAll, showLogin, routeLogin, isLoggedOut: () => loggedOut };

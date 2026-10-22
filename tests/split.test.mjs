@@ -1,15 +1,35 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
-import { split } from '../tools/split-prototype.mjs'; import { join } from '../tools/join-prototype.mjs';
+import { readFileSync } from 'node:fs'; import { createHash } from 'node:crypto';
+import { split } from '../tools/split-prototype.mjs';
+// The split ran once; blocks 14, 21 and 28 have been edited since (Task 5). tools/blocks.lock.json records,
+// per block, the sha256 of the prototype's block and of the file on disk (npm run lock regenerates it).
 const SRC = 'Prototype file/نظام إبتكر.html';
+const EDITED = ['14-kit.js', '21-shell.js', '28-app.js'];
+const sha = (text) => createHash('sha256').update(text).digest('hex');
+const parts = split(readFileSync(SRC, 'utf8'));
+const lock = JSON.parse(readFileSync('tools/blocks.lock.json', 'utf8'));
+const onDisk = (file) => readFileSync('app/js/blocks/' + file, 'utf8');
 test('split yields 29 blocks in order', () => {
-  const p = split(readFileSync(SRC, 'utf8'));
-  assert.equal(p.blocks.length, 29);
-  assert.equal(p.blocks[0].file, '01-dataio.js');
-  assert.equal(p.blocks[28].file, '29-orders-app.js');
-  assert.match(p.blocks[20].code, /window\.IBShell = /);
+  assert.equal(parts.blocks.length, 29);
+  assert.equal(parts.blocks[0].file, '01-dataio.js');
+  assert.equal(parts.blocks[28].file, '29-orders-app.js');
+  assert.match(parts.blocks[20].code, /window\.IBShell = /);
+  assert.deepEqual(Object.keys(lock), parts.blocks.map((b) => b.file));
 });
-test('join(split(x)) === x byte for byte', () => {
-  const src = readFileSync(SRC, 'utf8');
-  assert.equal(join(split(src)), src);
+test('only blocks 14, 21 and 28 differ from the prototype', () => {
+  assert.deepEqual(Object.keys(lock).filter((f) => lock[f].prototype !== lock[f].current), EDITED);
+});
+test('unedited blocks are byte-identical to the prototype', () => {
+  for (const b of parts.blocks.filter((x) => !EDITED.includes(x.file))) assert.equal(onDisk(b.file), b.code, b.file);
+});
+test('edited blocks match their lock entry', () => {
+  for (const b of parts.blocks.filter((x) => EDITED.includes(x.file))) {
+    assert.equal(lock[b.file].prototype, sha(b.code), b.file + ': prototype hash');
+    assert.equal(sha(onDisk(b.file)), lock[b.file].current, b.file + ': changed since `npm run lock`');
+  }
+});
+test('index.html loads the 29 blocks in tools/blocks.json order', () => {
+  const order = JSON.parse(readFileSync('tools/blocks.json', 'utf8')).map((b) => b.file);
+  const listed = [...readFileSync('app/index.html', 'utf8').matchAll(/<script src="js\/blocks\/([^"]+)"><\/script>/g)].map((m) => m[1]);
+  assert.deepEqual(listed, order);
 });

@@ -1876,6 +1876,19 @@
   // an order popup lives inside the orders page, so it is opened there (owner 22 Oct: before this, «فتح الأوردر» from other pages stayed hidden until you visited الأوردرات)
   window.IBShowOrders = () => { if (state.page !== 'orders') go('orders'); };
   window.IbtekrApp = Object.freeze({ eventLog: () => log.all(), aiRun, aiFilter, newTicket: (pre) => { showTickets(); openNewTicket(pre); }, logEvent: (ev) => log.append(Object.assign({ actor: ACTOR }, ev)) });
-  boot();
+  boot(); // synchronous: the orders block (next script) mounts into #orders, which boot() creates
+  // Session gate: #root stays hidden until the Supabase session is known; no session (or no active profile) → login screen.
+  (async () => {
+    const A = window.IBAuth, SH = window.IBShell, root = document.getElementById('root');
+    document.addEventListener('ib:directory', () => { const old = root.querySelector('.topbar .user'); if (old) old.replaceWith(SH.AccountMenu(go)); }); // header shows the signed-in member
+    if (!SH.isLoggedOut()) root.hidden = true;
+    await A.ready();
+    let ok = false;
+    if (A.session()) { try { await window.IBDirectory.load(); const me = window.IBDirectory.me(); ok = !!me && me.status === 'active'; } catch (e) { /* show login */ } if (!ok) await A.signOut(); }
+    A.onChange((event) => { if (event === 'SIGNED_OUT' && !SH.isLoggedOut()) SH.showLogin('login'); });
+    if (SH.isLoggedOut()) return; // routeLogin already put a login view up (#login-forgot, #login-reset, …)
+    if (!ok) return SH.showLogin('login');
+    root.hidden = false; window.dispatchEvent(new HashChangeEvent('hashchange'));
+  })();
 })();
 

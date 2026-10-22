@@ -1877,18 +1877,33 @@
   window.IBShowOrders = () => { if (state.page !== 'orders') go('orders'); };
   window.IbtekrApp = Object.freeze({ eventLog: () => log.all(), aiRun, aiFilter, newTicket: (pre) => { showTickets(); openNewTicket(pre); }, logEvent: (ev) => log.append(Object.assign({ actor: ACTOR }, ev)) });
   boot(); // synchronous: the orders block (next script) mounts into #orders, which boot() creates
-  // Session gate: #root stays hidden until the Supabase session is known; no session (or no active profile) → login screen.
+  // Session gate: #root stays hidden until the Supabase session is known. In order: a password-recovery link → reset form;
+  // no session → login; idle ≥ AUTH.idleMinutes since ib.lastAct (any earlier page load) → sign out, «الجلسة خلصت»;
+  // aal1 with a verified TOTP factor → 2FA view (the member is not loaded before aal2); no active profile → sign out, login.
   (async () => {
     const A = window.IBAuth, SH = window.IBShell, root = document.getElementById('root');
     document.addEventListener('ib:directory', () => { const old = root.querySelector('.topbar .user'); if (old) old.replaceWith(SH.AccountMenu(go)); }); // header shows the signed-in member
     if (!SH.isLoggedOut()) root.hidden = true;
+    let gated = false;
+    A.onChange((event) => { if (event === 'PASSWORD_RECOVERY' && !A.recovery()) SH.showLogin('reset'); else if (event === 'SIGNED_OUT' && gated && !SH.isLoggedOut()) SH.showLogin('login'); });
     await A.ready();
-    let ok = false;
-    if (A.session()) { try { await window.IBDirectory.load(); const me = window.IBDirectory.me(); ok = !!me && me.status === 'active'; } catch (e) { /* show login */ } if (!ok) await A.signOut(); }
-    A.onChange((event) => { if (event === 'SIGNED_OUT' && !SH.isLoggedOut()) SH.showLogin('login'); });
-    if (SH.isLoggedOut()) return; // routeLogin already put a login view up (#login-forgot, #login-reset, …)
-    if (!ok) return SH.showLogin('login');
-    root.hidden = false; window.dispatchEvent(new HashChangeEvent('hashchange'));
+    const lastAct = (() => { try { return Number(localStorage.getItem('ib.lastAct')) || 0; } catch (e) { return 0; } })();
+    const view = await (async () => {
+      if (A.recovery()) return 'reset';
+      if (!A.session()) return 'login';
+      if (lastAct && (Date.now() - lastAct) / 60000 >= window.IbtekrOps.AUTH.idleMinutes) { await A.signOut(); return 'expired'; }
+      if (await A.checkTotp().catch(() => false)) return '2fa';
+      try { await window.IBDirectory.load(); const me = window.IBDirectory.me(); if (me && me.status === 'active') return null; } catch (e) { /* sign out below */ }
+      await A.signOut(); return 'login';
+    })();
+    gated = true;
+    if (view === null) {
+      if (SH.isLoggedOut()) return; // routeLogin put a login view up (#login, #login-forgot, …)
+      try { localStorage.setItem('ib.lastAct', String(Date.now())); } catch (e) { /* storage blocked */ }
+      root.hidden = false; window.dispatchEvent(new HashChangeEvent('hashchange')); return;
+    }
+    if (view === 'login' && SH.isLoggedOut()) return;
+    SH.showLogin(view);
   })();
 })();
 

@@ -56,7 +56,8 @@ $$;
 
 grant usage on schema public, auth to anon, authenticated, service_role;
 
--- Supabase's default privileges: the API roles get everything; RLS is the gate.
-alter default privileges in schema public grant all on tables to anon, authenticated, service_role;
-alter default privileges in schema public grant all on sequences to anon, authenticated, service_role;
+-- Default privileges as observed on the live project (fsynculhaupcktzkfkdd, 2026-10-22): new tables
+-- give the API roles only TRUNCATE/REFERENCES/TRIGGER, no DML — every migration must grant DML
+-- explicitly (see 0004_grants.sql). Functions default to EXECUTE for PUBLIC (plain Postgres).
+alter default privileges in schema public grant truncate, references, trigger on tables to anon, authenticated, service_role;
 alter default privileges in schema public grant execute on functions to anon, authenticated, service_role;

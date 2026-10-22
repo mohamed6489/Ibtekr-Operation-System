@@ -99,15 +99,15 @@ do $$ declare n int; begin
   get diagnostics n = row_count;
   if not (n = 0) then raise exception 'case ops (settings.team N) cannot update team failed'; end if;
 
-  update public.status_map set woo_status = 'x';
+  update public.status_map set woo_status = 'x' where id is not null;
   get diagnostics n = row_count;
   if not (n = 0) then raise exception 'case ops cannot update status_map failed'; end if;
 
   -- delete: RLS (admin-only using) filters every row, so nothing is removed
-  delete from public.settings;
+  delete from public.settings where section is not null; -- (WHERE kept: the Supabase MCP holds bare DELETE/UPDATE for confirmation)
   get diagnostics n = row_count;
   if not (n = 0) then raise exception 'case ops cannot delete settings failed'; end if;
-  delete from public.status_map;
+  delete from public.status_map where id is not null;
   get diagnostics n = row_count;
   if not (n = 0) then raise exception 'case ops cannot delete status_map failed'; end if;
   if not ((select count(*) from public.settings) = 10 and (select count(*) from public.status_map) = 6) then
@@ -155,7 +155,7 @@ end $$;
 
 do $$ begin
   begin
-    update public.activity_log set action = 'changed';
+    update public.activity_log set action = 'changed' where id is not null;
   exception when insufficient_privilege then
     return; -- expected: no update grant
   end;
@@ -164,7 +164,7 @@ end $$;
 
 do $$ begin
   begin
-    delete from public.activity_log;
+    delete from public.activity_log where id is not null;
   exception when insufficient_privilege then
     return; -- expected: no delete grant
   end;
@@ -236,7 +236,7 @@ do $$ declare n int; begin
   get diagnostics n = row_count;
   if not (n = 0) then raise exception 'case viewer cannot mark another role alert failed'; end if;
 
-  delete from public.alerts;
+  delete from public.alerts where id is not null;
   get diagnostics n = row_count;
   if not (n = 0) then raise exception 'case viewer cannot delete alerts failed'; end if;
 

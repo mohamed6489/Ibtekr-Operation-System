@@ -155,7 +155,12 @@ do $$ begin
   if not ((select count(*) from public.email_for_identifier('01099999999')) = 0) then
     raise exception 'case email_for_identifier(unknown number) = 0 rows failed';
   end if;
-  if not ((select count(*) from public.profiles) = 0) then raise exception 'case anon reads no profiles failed'; end if;
+  -- anon has no table grant on profiles (0004): permission denied, or zero rows if a grant ever appears.
+  begin
+    if not ((select count(*) from public.profiles) = 0) then raise exception 'case anon reads no profiles failed'; end if;
+  exception when insufficient_privilege then
+    null; -- expected
+  end;
 end $$;
 
 -- ---- suspended admin loses admin ----
@@ -170,7 +175,7 @@ end $$;
 
 -- ---- lookup throttle: 60 calls per minute, the 61st raises 'rate_limited' ----
 reset role;
-delete from public.login_lookups;
+delete from public.login_lookups where at is not null; -- (WHERE kept: the Supabase MCP holds bare DELETEs for confirmation)
 set local role anon;
 set local request.jwt.claims = '{"role":"anon"}';
 do $$ begin

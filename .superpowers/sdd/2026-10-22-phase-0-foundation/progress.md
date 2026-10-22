@@ -72,3 +72,4 @@ Task 4: fix round 1/5 (2 addressed, 0 open; commits 8edab23..29fa339)
 Task 4: minor (deferred): activity_log trigger forces `at` for every role — a future historical import must disable the trigger or write through a definer import function; admins also cannot mark role-wide alerts read until phase-1 `alert_reads`.
 Task 4: complete (commits 4a8bc8b..29fa339, review clean)
 BASE before Task 5: 2223fa3
+Task 5: implementer DONE, commit 2e70cfe (base 8306a30). Deviations reported: boot() still runs immediately with #root hidden until the session is known (block 29 mounts into #orders); auth.signout logged before the Supabase sign-out; idle e2e fast-forwards the clock 8h; 2FA non-live channels show the note when picked; demo-credentials hint removed. Concerns: other pages still reference prototype sample member ids (HR phase); reset link `#login-reset` untested live. Review package excludes the vendor bundle (sha256 recorded in the package header).

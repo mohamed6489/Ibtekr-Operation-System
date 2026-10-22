@@ -5,10 +5,15 @@
   'use strict';
   const c = () => window.IBSupabase.client;
   const fail = (reason) => ({ ok: false, reason });
-  let current = null; let totp = false; const subs = [];
+  let current = null; let totp = false; let recovered = false; const subs = [];
+  let onRecovered = () => {};
   const ready = c() ? c().auth.getSession().then(({ data }) => { current = data.session; }, () => { current = null; }) : Promise.resolve();
-  if (c()) c().auth.onAuthStateChange((event, s) => { current = s; subs.forEach((cb) => { try { cb(event, s); } catch (e) { /* a bad listener must not stop the others */ } }); });
+  if (c()) c().auth.onAuthStateChange((event, s) => { current = s; if (event === 'PASSWORD_RECOVERY') { recovered = true; onRecovered(); } subs.forEach((cb) => { try { cb(event, s); } catch (e) { /* a bad listener must not stop the others */ } }); });
 
+  // True only when supabase-js confirmed a recovery link (PASSWORD_RECOVERY). It fires in a setTimeout after init, so with
+  // the fragment hint we wait for it (bounded); without the hint this is false at once and the stored session is gated as usual.
+  const recoveryCheck = !(c() && window.IBSupabase.recoveryHint) ? Promise.resolve(false)
+    : new Promise((res) => { onRecovered = () => res(true); ready.then(() => setTimeout(() => res(recovered), 1500)); });
   // identifier (email or 11-digit phone, any digits) → { row: {email, status} | null } | { error: 'rate_limited'|'network' }
   async function lookup(identifier) {
     const ident = window.IbtekrOps.toLatin(String(identifier || '')).trim();
@@ -17,10 +22,13 @@
     return { row: (Array.isArray(data) ? data[0] : data) || null };
   }
   // aal1 session of a user with a verified TOTP factor → true (and needsTotp() stays true until verifyTotp). No network call.
+  // Fails closed: an unreadable assurance level throws and leaves needsTotp() true.
   async function checkTotp() {
     if (!c() || !current) return (totp = false);
-    const { data } = await c().auth.mfa.getAuthenticatorAssuranceLevel();
-    return (totp = !!data && data.nextLevel === 'aal2' && data.currentLevel !== 'aal2');
+    totp = true;
+    const { data, error } = await c().auth.mfa.getAuthenticatorAssuranceLevel();
+    if (error || !data) throw error || new Error('assurance level unknown');
+    return (totp = data.nextLevel === 'aal2' && data.currentLevel !== 'aal2');
   }
   // The signed-in member (directory loaded) when active; otherwise signs out → 'suspended' (or 'network' if the load fails).
   async function loadMember() {
@@ -64,7 +72,7 @@
     } catch (e) { return fail('network'); }
   }
   async function signOut() {
-    totp = false;
+    totp = false; recovered = false;
     if (c()) { try { await c().auth.signOut(); } catch (e) { /* signed out locally anyway */ } }
     current = null;
   }
@@ -79,9 +87,10 @@
       return { ok: !error };
     } catch (e) { return { ok: false }; }
   }
+  // Only on a confirmed recovery session: a stored everyday session cannot change the password without the old one.
   async function updatePassword(p1) {
-    if (!c()) return { ok: false };
+    if (!c() || !recovered) return { ok: false };
     try { const { error } = await c().auth.updateUser({ password: p1 }); return { ok: !error }; } catch (e) { return { ok: false }; }
   }
-  window.IBAuth = { signIn, verifyTotp, needsTotp: () => totp, checkTotp, signOut, session: () => current, onChange: (cb) => { subs.push(cb); }, resetPassword, updatePassword, ready: () => ready, recovery: () => window.IBSupabase.recovery };
+  window.IBAuth = { signIn, verifyTotp, needsTotp: () => totp, checkTotp, signOut, session: () => current, onChange: (cb) => { subs.push(cb); }, resetPassword, updatePassword, ready: () => ready, recovery: () => recoveryCheck };
 })();

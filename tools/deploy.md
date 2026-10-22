@@ -1,10 +1,10 @@
 # النشر على subdomain في Hostinger
 
-الملف ده خطوات أول نشر للتطبيق (`app/`) على `https://<subdomain>.ibtekr.club`، بالترتيب. أي جلسة معاها Supabase MCP وإضافة Hostinger تقدر تخلّصه في دقايق؛ ومن غيرهم كل خطوة ليها بديل من اللوحة.
+الملف ده خطوات أول نشر للتطبيق (`app/`) على `https://operation-system.ibtekr.club`، بالترتيب. أي جلسة معاها Supabase MCP وإضافة Hostinger تقدر تخلّصه في دقايق؛ ومن غيرهم كل خطوة ليها بديل من اللوحة.
 
 مشروع Supabase: `fsynculhaupcktzkfkdd` (eu-central-1). الاستضافة: Hostinger shared hosting (Apache/LiteSpeed، ملفات static بس، مافيش build).
 
-في كل الملف: `<subdomain>` = اسم الـ subdomain اللي هيختاره صاحب المشروع (مثلًا `ops` → `https://ops.ibtekr.club`).
+الـ subdomain المختار (22 أكتوبر 2026): **`operation-system`** → `https://operation-system.ibtekr.club` (أسماء الدومين مش حساسة لحالة الحروف). صندوق البريد المستخدم للنظام وللأدمن الأول: `operation-operation-system@ibtekr.club`.
 
 ---
 
@@ -53,16 +53,16 @@
 - **Confirm email:** حسب اختيارك. لو شغّال، الدعوة هي اللي بتأكد الإيميل.
 - **Multi-Factor › TOTP:** enabled.
 - **URL Configuration:**
-  - Site URL: `https://<subdomain>.ibtekr.club`
+  - Site URL: `https://operation-system.ibtekr.club`
   - Redirect URLs:
-    - `https://<subdomain>.ibtekr.club/**`
+    - `https://operation-system.ibtekr.club/**`
     - `http://localhost:4173/**`
 - **Secure password change** (يطلب إعادة تأكيد قبل تغيير الباسورد): **شغّال**.
 - Rate limits: الافتراضي.
-- **SMTP Settings (Authentication › SMTP Settings / Emails):** شغّل **Custom SMTP** — الإيميل المدمج في Supabase عليه حد صغير جدًا في الساعة وبيبعت بس لإيميلات أعضاء فريق المشروع على Supabase، فلينكات الاسترجاع والدعوات مش هتوصل للفريق من غيره. البيانات من صندوق `system@ibtekr.club` على Hostinger (hPanel › Emails):
-  - Sender email: `system@ibtekr.club` — Sender name: `نظام إبتكر`
+- **SMTP Settings (Authentication › SMTP Settings / Emails):** شغّل **Custom SMTP** — الإيميل المدمج في Supabase عليه حد صغير جدًا في الساعة وبيبعت بس لإيميلات أعضاء فريق المشروع على Supabase، فلينكات الاسترجاع والدعوات مش هتوصل للفريق من غيره. البيانات من صندوق `operation-system@ibtekr.club` على Hostinger (hPanel › Emails):
+  - Sender email: `operation-system@ibtekr.club` — Sender name: `نظام إبتكر`
   - Host: `smtp.hostinger.com` — Port: `465` (SSL)
-  - Username: `system@ibtekr.club` — Password: باسورد الصندوق (يتكتب في لوحة Supabase بس، عمره ما يدخل git)
+  - Username: `operation-system@ibtekr.club` — Password: باسورد الصندوق (يتكتب في لوحة Supabase بس، عمره ما يدخل git)
 
 ### 2.4 مفتاح الـ anon في `app/config.js`
 خد المفتاح العام من Settings › API › "anon public" (أو MCP `get_publishable_keys`) وحطه في `supabaseAnonKey`:
@@ -84,13 +84,13 @@ window.IB_CONFIG = window.IB_CONFIG || {
 ## 3. أول حساب أدمن
 
 1. Supabase › Authentication › Users › **Invite user** بإيميلك (أو **Add user › Create new user** بإيميل وباسورد، وعلّم Auto Confirm).
-2. بعدها `execute_sql` (أو SQL editor) — بيجيب الـ id من `auth.users` بالإيميل، فمش محتاج تنسخه:
+2. بعدها `execute_sql` (أو SQL editor) — نفس الملف الجاهز `tools/first-admin.sql`؛ بيجيب الـ id من `auth.users` بالإيميل، فمش محتاج تنسخه:
 
 ```sql
 insert into public.profiles (id, member_code, name, email, phone, role_id, title, dept, status)
-select u.id, 'M01', '<الاسم>', u.email, '<01xxxxxxxxx>', 'admin', 'المؤسس والمدير العام', 'الإدارة', 'active'
+select u.id, 'M01', 'محمد', u.email, '01100007039', 'admin', 'المؤسس والمدير العام', 'الإدارة', 'active'
 from auth.users u
-where u.email = lower('<owner-email>');
+where u.email = 'operation-system@ibtekr.club';
 -- المتوقع: INSERT 0 1. لو 0 → الإيميل مش موجود في auth.users؛ راجع خطوة 1.
 
 select id, member_code, email, role_id, status from public.profiles where member_code = 'M01';
@@ -102,7 +102,7 @@ select id, member_code, email, role_id, status from public.profiles where member
 
 ## 4. رفع الملفات
 
-**اللي يترفع:** كل محتوى `app/` (مش الفولدر نفسه) على الـ document root بتاع الـ subdomain — ده `public_html/` الخاص بالـ subdomain زي ما hPanel بيعرضه (غالبًا `domains/ibtekr.club/public_html/<subdomain>/`). بما فيه `.htaccess` (ملف مخفي، اتأكد إنه اترفع):
+**اللي يترفع:** كل محتوى `app/` (مش الفولدر نفسه) على الـ document root بتاع الـ subdomain — ده `public_html/` الخاص بالـ subdomain زي ما hPanel بيعرضه (غالبًا `domains/ibtekr.club/public_html/operation-system/`). بما فيه `.htaccess` (ملف مخفي، اتأكد إنه اترفع):
 
 ```
 .htaccess   index.html   config.js   css/   js/adapter/   js/blocks/   js/vendor/
@@ -115,7 +115,7 @@ select id, member_code, email, role_id, status from public.profiles where member
 **قبل الرفع في hPanel:** اعمل الـ subdomain (Domains › Subdomains)، وفعّل SSL المجاني ليه، وشغّل Force HTTPS.
 
 ### الطريق المفضّل: إضافة Hostinger
-بعد `/mcp`، استخدم سكيل **`hostinger:hosting-deploy-static-site`**: المصدر `app/`، والهدف الـ subdomain `<subdomain>.ibtekr.club`.
+بعد `/mcp`، استخدم سكيل **`hostinger:hosting-deploy-static-site`**: المصدر `app/`، والهدف الـ subdomain `operation-system.ibtekr.club`.
 
 ### البديل: FTP
 الباسورد من متغير بيئة، مش مكتوب في الأمر:
@@ -132,7 +132,7 @@ lftp --env-password -u '<ftp user>' '<ftp host>' \
 
 ## 5. التحقق بعد النشر
 
-1. افتح `https://<subdomain>.ibtekr.club` → عنوان التبويب لازم يبقى **`تسجيل الدخول — نظام إبتكر`**، وشاشة الدخول ظاهرة.
+1. افتح `https://operation-system.ibtekr.club` → عنوان التبويب لازم يبقى **`تسجيل الدخول — نظام إبتكر`**، وشاشة الدخول ظاهرة.
 2. سجّل دخول بحساب الأدمن (خطوة 3) → التطبيق يفتح.
 3. اتأكد إن الدخول اتسجّل على السيرفر:
 
@@ -158,7 +158,7 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
 
 من غير `E2E_SUPABASE_URL` و`E2E_SUPABASE_ANON_KEY` الاختبارات الحقيقية بتتعمل skip (عمرها ما بتضرب اللي في `config.js`). في CI نفس الستة دول GitHub Secrets (`E2E_SUPABASE_URL`، `E2E_SUPABASE_ANON_KEY`، `E2E_ADMIN_EMAIL`، `E2E_ADMIN_PW`، `E2E_OPS_PW`، `E2E_VIEWER_PW`)، وخطوة الـ e2e الحقيقي بتشتغل بس لو `E2E_SUPABASE_URL` موجود — وكلهم لمشروع الـ staging، مش الإنتاج.
 
-6. **إيميل الاسترجاع بيوصل:** من شاشة الدخول اضغط «نسيت كلمة المرور؟» واكتب إيميل الأدمن → لازم يوصل إيميل من `system@ibtekr.club` (اتأكد من الـ Spam كمان)، واللينك بيفتح `https://<subdomain>.ibtekr.club` على فورم «كلمة مرور جديدة». لو ماوصلش: راجع SMTP Settings (خطوة 2.3) وAuthentication › Logs.
+6. **إيميل الاسترجاع بيوصل:** من شاشة الدخول اضغط «نسيت كلمة المرور؟» واكتب إيميل الأدمن → لازم يوصل إيميل من `operation-system@ibtekr.club` (اتأكد من الـ Spam كمان)، واللينك بيفتح `https://operation-system.ibtekr.club` على فورم «كلمة مرور جديدة». لو ماوصلش: راجع SMTP Settings (خطوة 2.3) وAuthentication › Logs.
 
 ليه مش على الإنتاج: الاختبارات محتاجة الحسابات التلاتة بباسوردات معروفة (أدمن وops وviewer موقوف) — وده بالظبط اللي ممنوع على الإنتاج (خطوة 2.5). وكمان بتكتب صفوف في `activity_log`، وبتضرب حد الـ 60 lookup في الدقيقة اللي ممكن يقفل الدخول بالموبايل على الفريق الحقيقي لمدة دقيقة. ومشروع الـ staging لازم يكون فيه `http://localhost:4173/**` في Redirect URLs.
 
@@ -193,7 +193,7 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
 - لو الـ subdomain مختلف عن `https://ibtekr.club` اللي في إعدادات النظام، حدّث صف الإعدادات العامة:
 
   ```sql
-  update public.settings set data = jsonb_set(data, '{site}', '"https://<subdomain>.ibtekr.club"')
+  update public.settings set data = jsonb_set(data, '{site}', '"https://operation-system.ibtekr.club"')
   where section = 'general';
   ```
 

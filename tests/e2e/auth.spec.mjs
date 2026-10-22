@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import { installSupabaseMock, LIVE, DEV_PW, SUPABASE_URL, TOTP_CODE } from './supabase-mock.mjs';
-// Dev users from tools/seed-dev-users.sql. Mocked by default; E2E_SUPABASE_LIVE=1 runs against the real project.
+import { installSupabaseMock, installLiveConfig, LIVE, LIVE_MISSING, DEV_PW, SUPABASE_URL, TOTP_CODE } from './supabase-mock.mjs';
+// Dev users from tools/seed-dev-users.sql. Mocked by default; E2E_SUPABASE_LIVE=1 runs against the staging project in E2E_SUPABASE_URL/E2E_SUPABASE_ANON_KEY.
 const env = process.env;
 const ADMIN = LIVE ? { id: env.E2E_ADMIN_EMAIL, pw: env.E2E_ADMIN_PW } : { id: 'admin.dev@ibtekr.local', pw: DEV_PW };
 const OPS_PW = LIVE ? env.E2E_OPS_PW : DEV_PW;
@@ -8,8 +8,11 @@ const VIEWER_PW = LIVE ? env.E2E_VIEWER_PW : DEV_PW;
 let mock = null; let pageErrors = [];
 test.beforeEach(async ({ page }) => {
   pageErrors = []; page.on('pageerror', (e) => pageErrors.push(e.message));
-  if (LIVE) test.skip(!ADMIN.id || !ADMIN.pw || !OPS_PW || !VIEWER_PW, 'E2E_ADMIN_EMAIL/E2E_ADMIN_PW/E2E_OPS_PW/E2E_VIEWER_PW not set');
-  else mock = await installSupabaseMock(page);
+  if (LIVE) {
+    test.skip(!!LIVE_MISSING, LIVE_MISSING);
+    test.skip(!ADMIN.id || !ADMIN.pw || !OPS_PW || !VIEWER_PW, 'E2E_ADMIN_EMAIL/E2E_ADMIN_PW/E2E_OPS_PW/E2E_VIEWER_PW not set');
+    await installLiveConfig(page);
+  } else mock = await installSupabaseMock(page);
 });
 test.afterEach(() => {
   expect(pageErrors).toEqual([]);

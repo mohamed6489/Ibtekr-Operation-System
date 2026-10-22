@@ -2,9 +2,15 @@
 // makes for the login flow, with the three dev users of tools/seed-dev-users.sql (+ M03, a mock-only 2FA user).
 // Strict like the real thing: apikey required, PostgREST bearer must be the anon key or a token issued here,
 // `select` columns checked against supabase/migrations/0001_identity.sql. Not a product feature.
-// Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1 (then they hit the real project).
+// Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
+// staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
 export const LIVE = process.env.E2E_SUPABASE_LIVE === '1';
+const LIVE_URL = process.env.E2E_SUPABASE_URL || ''; const LIVE_KEY = process.env.E2E_SUPABASE_ANON_KEY || '';
+export const LIVE_MISSING = LIVE && !(LIVE_URL && LIVE_KEY) ? 'E2E_SUPABASE_URL/E2E_SUPABASE_ANON_KEY (staging project) not set' : '';
+export async function installLiveConfig(page) {
+  await page.addInitScript(([url, key]) => { window.IB_CONFIG = { supabaseUrl: url, supabaseAnonKey: key }; }, [LIVE_URL, LIVE_KEY]);
+}
 export const DEV_PW = 'IbtekrDev-2026'; // same as tools/seed-dev-users.sql
 export const TOTP_CODE = '123456'; // the code M03's mocked authenticator accepts
 const ANON_KEY = 'mock-anon-key';

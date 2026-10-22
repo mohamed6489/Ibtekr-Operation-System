@@ -70,7 +70,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 };
 ```
 
-ده مفتاح عام (الـ RLS هي اللي بتحمي البيانات). **اعمل commit لـ `app/config.js` بمفتاح الإنتاج** — ده اللي `git checkout app/config.js` بيرجّعه بعد اختبار الـ staging (خطوة 5). **الـ service_role key عمره ما يدخل الملف ده ولا أي ملف في git.**
+ده مفتاح عام (الـ RLS هي اللي بتحمي البيانات). **اعمل commit لـ `app/config.js` بمفتاح الإنتاج** — الـ e2e الحقيقي مابيقراش الملف ده أصلًا، بياخد مشروع الـ staging من متغيرات البيئة (خطوة 5). **الـ service_role key عمره ما يدخل الملف ده ولا أي ملف في git.**
 
 ### 2.5 حسابات التطوير
 `tools/seed-dev-users.sql` بيعمل 3 حسابات بباسورد مكتوب في الملف نفسه (`IbtekrDev-2026`). يتشغّل **على مشروع dev/staging بس، عمره ما يتشغّل على الإنتاج** — على الإنتاج هيبقى باب خلفي بباسورد أدمن معروف لأي حد شاف الريبو.
@@ -145,13 +145,16 @@ limit 5;
 5. **الـ e2e على Supabase حقيقي** — من جهاز تطوير، على **مشروع staging** متعمل عليه نفس الـ migrations وعليه `tools/seed-dev-users.sql`:
 
 ```bash
-# مؤقتًا: supabaseUrl/supabaseAnonKey في app/config.js بتوع الـ staging (ماتعملهمش commit)
-E2E_SUPABASE_LIVE=1 E2E_ADMIN_EMAIL=admin.dev@ibtekr.local E2E_ADMIN_PW=IbtekrDev-2026 \
+# app/config.js مايتلمسش: الاختبار بيحقن الـ URL والمفتاح بتوع الـ staging في الصفحة (window.IB_CONFIG)
+E2E_SUPABASE_LIVE=1 \
+E2E_SUPABASE_URL='https://<staging-ref>.supabase.co' E2E_SUPABASE_ANON_KEY='<staging anon key>' \
+E2E_ADMIN_EMAIL=admin.dev@ibtekr.local E2E_ADMIN_PW=IbtekrDev-2026 \
 E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
-git checkout app/config.js   # رجّع مفتاح الإنتاج
 ```
 
-ليه مش على الإنتاج: الاختبارات محتاجة الحسابات التلاتة بباسوردات معروفة (أدمن وops وviewer موقوف) — وده بالظبط اللي ممنوع على الإنتاج (خطوة 2.5). وكمان بتكتب صفوف في `activity_log`، وبتضرب حد الـ 60 lookup في الدقيقة اللي ممكن يقفل الدخول على الفريق الحقيقي لمدة دقيقة. ومشروع الـ staging لازم يكون فيه `http://localhost:4173/**` في Redirect URLs.
+من غير `E2E_SUPABASE_URL` و`E2E_SUPABASE_ANON_KEY` الاختبارات الحقيقية بتتعمل skip (عمرها ما بتضرب اللي في `config.js`). في CI نفس الستة دول GitHub Secrets (`E2E_SUPABASE_URL`، `E2E_SUPABASE_ANON_KEY`، `E2E_ADMIN_EMAIL`، `E2E_ADMIN_PW`، `E2E_OPS_PW`، `E2E_VIEWER_PW`)، وخطوة الـ e2e الحقيقي بتشتغل بس لو `E2E_SUPABASE_URL` موجود — وكلهم لمشروع الـ staging، مش الإنتاج.
+
+ليه مش على الإنتاج: الاختبارات محتاجة الحسابات التلاتة بباسوردات معروفة (أدمن وops وviewer موقوف) — وده بالظبط اللي ممنوع على الإنتاج (خطوة 2.5). وكمان بتكتب صفوف في `activity_log`، وبتضرب حد الـ 60 lookup في الدقيقة اللي ممكن يقفل الدخول بالموبايل على الفريق الحقيقي لمدة دقيقة. ومشروع الـ staging لازم يكون فيه `http://localhost:4173/**` في Redirect URLs.
 
 ---
 

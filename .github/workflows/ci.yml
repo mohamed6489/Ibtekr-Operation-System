@@ -11,10 +11,8 @@ jobs:
   test:
     runs-on: ubuntu-latest
     env:
-      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
-      E2E_ADMIN_PW: ${{ secrets.E2E_ADMIN_PW }}
-      E2E_OPS_PW: ${{ secrets.E2E_OPS_PW }}
-      E2E_VIEWER_PW: ${{ secrets.E2E_VIEWER_PW }}
+      # only a flag at job level; the secrets themselves reach the live step alone
+      HAS_LIVE: ${{ secrets.E2E_SUPABASE_URL != '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -26,11 +24,18 @@ jobs:
       - run: npx playwright install --with-deps chromium
       - name: e2e (mocked Supabase)
         run: npm run e2e
-      - name: e2e (live Supabase, only when the E2E_* secrets exist)
-        if: env.E2E_ADMIN_EMAIL != ''
+      # Against the staging project in the E2E_SUPABASE_* secrets (injected as window.IB_CONFIG), never app/config.js.
+      - name: e2e (live staging Supabase, only when the E2E_* secrets exist)
+        if: env.HAS_LIVE == 'true'
         run: npm run e2e
         env:
           E2E_SUPABASE_LIVE: '1'
+          E2E_SUPABASE_URL: ${{ secrets.E2E_SUPABASE_URL }}
+          E2E_SUPABASE_ANON_KEY: ${{ secrets.E2E_SUPABASE_ANON_KEY }}
+          E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+          E2E_ADMIN_PW: ${{ secrets.E2E_ADMIN_PW }}
+          E2E_OPS_PW: ${{ secrets.E2E_OPS_PW }}
+          E2E_VIEWER_PW: ${{ secrets.E2E_VIEWER_PW }}
       - uses: actions/upload-artifact@v4
         if: failure()
         with:

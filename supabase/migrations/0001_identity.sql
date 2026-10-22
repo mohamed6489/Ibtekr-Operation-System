@@ -106,13 +106,15 @@ begin
 end
 $$;
 
--- Non-admins may change only name, phone and twofa on a profile (their own, per RLS).
+-- Non-admins may change only name and phone on a profile (their own, per RLS).
+-- twofa is admin-only: it will be set from a verified MFA factor (enrolment plan),
+-- so a user at aal1 cannot switch off a future "twofa needs aal2" rule.
 -- Enforced only for API roles; postgres / service_role (migrations, server jobs) are trusted.
 create function public.profiles_guard_update() returns trigger
 language plpgsql set search_path = public as $$
 begin
   if current_user in ('anon', 'authenticated') and not public.is_admin()
-     and (to_jsonb(new) - 'name' - 'phone' - 'twofa') is distinct from (to_jsonb(old) - 'name' - 'phone' - 'twofa') then
+     and (to_jsonb(new) - 'name' - 'phone') is distinct from (to_jsonb(old) - 'name' - 'phone') then
     raise exception 'only an admin can change this profile field' using errcode = '42501';
   end if;
   return new;

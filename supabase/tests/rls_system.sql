@@ -102,6 +102,17 @@ do $$ declare n int; begin
   update public.status_map set woo_status = 'x';
   get diagnostics n = row_count;
   if not (n = 0) then raise exception 'case ops cannot update status_map failed'; end if;
+
+  -- delete: RLS (admin-only using) filters every row, so nothing is removed
+  delete from public.settings;
+  get diagnostics n = row_count;
+  if not (n = 0) then raise exception 'case ops cannot delete settings failed'; end if;
+  delete from public.status_map;
+  get diagnostics n = row_count;
+  if not (n = 0) then raise exception 'case ops cannot delete status_map failed'; end if;
+  if not ((select count(*) from public.settings) = 10 and (select count(*) from public.status_map) = 6) then
+    raise exception 'case ops delete leaves settings/status_map intact failed';
+  end if;
 end $$;
 
 do $$ begin
@@ -165,9 +176,14 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000015","role":"authenticated"}';
 do $$ declare n int; begin
-  update public.settings set data = '{"x":1}' where section in ('team', 'integrations', 'security');
+  update public.settings set data = '{"x":1}', updated_by = '00000000-0000-4000-8000-000000000011'
+    where section in ('team', 'integrations', 'security');
   get diagnostics n = row_count;
   if not (n = 3) then raise exception 'case settings.team F updates team/integrations/security failed'; end if;
+  if exists (select 1 from public.settings where section in ('team', 'integrations', 'security')
+             and updated_by is distinct from auth.uid()) then
+    raise exception 'case spoofed updated_by is overridden by the trigger failed';
+  end if;
   if not exists (select 1 from public.settings where section = 'team' and updated_by = auth.uid()) then
     raise exception 'case settings.team F updated_by = caller failed';
   end if;

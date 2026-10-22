@@ -5,33 +5,29 @@ Options -Indexes
 DirectoryIndex index.html
 AddDefaultCharset UTF-8
 AddCharset UTF-8 .html .js .css
-FileETag None
 
 <IfModule mod_headers.c>
   Header always set X-Content-Type-Options "nosniff"
   Header always set Referrer-Policy "strict-origin-when-cross-origin"
   Header always set X-Frame-Options "SAMEORIGIN"
-  # No inline <script>, on*= attributes or eval in app/ (see task-7-report.md). cdnjs is for the
-  # lazy-loaded export libraries (xlsx, html2canvas). Inline styles come from the prototype.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com; connect-src 'self' https://fsynculhaupcktzkfkdd.supabase.co wss://fsynculhaupcktzkfkdd.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+  # No inline <script>, on*= attributes or eval in app/ (see task-7-report.md). The two cdnjs paths are
+  # the lazy-loaded export libraries (blocks 10, 17, 28); vendor them later and drop these sources.
+  # Inline styles come from the prototype.
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/ https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/; connect-src 'self' https://fsynculhaupcktzkfkdd.supabase.co wss://fsynculhaupcktzkfkdd.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 </IfModule>
 
-<IfModule mod_expires.c>
-  ExpiresActive On
-  ExpiresByType text/css "access plus 7 days"
-  ExpiresByType application/javascript "access plus 7 days"
-  ExpiresByType text/javascript "access plus 7 days"
-  ExpiresByType font/woff2 "access plus 7 days"
-  ExpiresByType font/woff "access plus 7 days"
-</IfModule>
-
-# The entry page and the config must always be revalidated, so a redeploy takes effect at once.
-<FilesMatch "^(index\.html|config\.js)$">
-  <IfModule mod_expires.c>
-    ExpiresActive Off
-  </IfModule>
+# Our html/js/css carry no version suffix, so browsers revalidate them on every load (cheap 304s via
+# ETag): after a redeploy no client mixes a fresh index.html with stale blocks or adapters.
+<FilesMatch "\.(html|js|css)$">
   <IfModule mod_headers.c>
     Header set Cache-Control "no-cache"
     Header unset Expires
   </IfModule>
 </FilesMatch>
+
+# The vendored supabase-js is pinned (js/vendor/README.md) and changes rarely: cache it for 7 days.
+<Files "supabase.js">
+  <IfModule mod_headers.c>
+    Header set Cache-Control "public, max-age=604800"
+  </IfModule>
+</Files>

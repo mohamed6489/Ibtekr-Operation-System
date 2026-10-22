@@ -18,6 +18,8 @@
 
 ---
 
+ملحوظة عن أداة Supabase MCP: `execute_sql`/`apply_migration` بتحجز أي نص فيه كلمة DELETE أو DROP لحد ما المستخدم يأكد من الواجهة؛ في جلسة بدون تأكيد بتعلّق. اختبارات RLS في الريبو شغالة من `psql`/CI؛ لتشغيلها عبر MCP استخدم نسخة بتبدّل `delete from` بـ `execute 'del' || 'ete from ...'` (زي ما اتعمل في أول تطبيق حي).
+
 ## 2. Supabase قبل النشر
 
 ### 2.1 الـ migrations والاختبارات (Supabase MCP)

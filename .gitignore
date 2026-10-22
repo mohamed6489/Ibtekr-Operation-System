@@ -10,6 +10,10 @@
 /dist/
 *.log
 
+# Playwright output
+test-results/
+playwright-report/
+
 # Design sources stay out of git (Figma is the source of truth)
 /Design file/
 

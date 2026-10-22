@@ -1,0 +1,61 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      E2E_ADMIN_EMAIL: ${{ secrets.E2E_ADMIN_EMAIL }}
+      E2E_ADMIN_PW: ${{ secrets.E2E_ADMIN_PW }}
+      E2E_OPS_PW: ${{ secrets.E2E_OPS_PW }}
+      E2E_VIEWER_PW: ${{ secrets.E2E_VIEWER_PW }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      - run: npm test
+      - run: npx playwright install --with-deps chromium
+      - name: e2e (mocked Supabase)
+        run: npm run e2e
+      - name: e2e (live Supabase, only when the E2E_* secrets exist)
+        if: env.E2E_ADMIN_EMAIL != ''
+        run: npm run e2e
+        env:
+          E2E_SUPABASE_LIVE: '1'
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: test-results
+          path: tests/test-results/
+          if-no-files-found: ignore
+
+  db:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_HOST_AUTH_METHOD: trust
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: migrations + RLS tests
+        run: npm run db:test
+        env:
+          DATABASE_URL: postgresql://postgres@localhost:5432/postgres

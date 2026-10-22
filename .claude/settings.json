@@ -1,0 +1,28 @@
+{
+  "extraKnownMarketplaces": {
+    "claude-plugins-official": {
+      "source": { "source": "github", "repo": "anthropics/claude-plugins-official" }
+    },
+    "trailofbits": {
+      "source": { "source": "github", "repo": "trailofbits/skills" }
+    }
+  },
+  "enabledPlugins": {
+    "superpowers@claude-plugins-official": true,
+    "security-guidance@claude-plugins-official": true,
+    "code-review@claude-plugins-official": true,
+    "semgrep@claude-plugins-official": true,
+    "context7@claude-plugins-official": true,
+    "playwright@claude-plugins-official": true,
+    "typescript-lsp@claude-plugins-official": true,
+    "supabase@claude-plugins-official": true,
+    "hostinger@claude-plugins-official": true,
+    "commit-commands@claude-plugins-official": true,
+    "differential-review@trailofbits": true,
+    "insecure-defaults@trailofbits": true,
+    "supply-chain-risk-auditor@trailofbits": true
+  },
+  "permissions": {
+    "allow": ["Bash(npm test)", "Bash(npm run e2e)", "Bash(npm run db:test)", "Bash(npm run lock)"]
+  }
+}

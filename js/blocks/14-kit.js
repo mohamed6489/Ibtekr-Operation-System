@@ -116,7 +116,7 @@
   const req = (f, keys, msgs = {}) => keys.reduce((e, k) => { if (f[k] == null || String(f[k]).trim() === '') e[k] = msgs[k] || 'الحقل ده مطلوب'; return e; }, {});
 
   // ---------- ops store (in-memory adapter; every mutation writes to the event log) ----------
-  const logEvent = (action, detail) => { if (window.IbtekrApp && window.IbtekrApp.logEvent) window.IbtekrApp.logEvent({ action, newValue: detail }); store.activity.unshift({ at: TODAY + ' ' + clockNow(), actor: member(ME).name, action, detail: typeof detail === 'string' ? detail : JSON.stringify(detail) }); if (window.IBActivity) window.IBActivity.log(action, detail).catch(() => {}); };
+  const logEvent = (action, detail) => { if (window.IbtekrApp && window.IbtekrApp.logEvent) window.IbtekrApp.logEvent({ action, newValue: detail }); store.activity.unshift({ at: TODAY + ' ' + clockNow(), actor: member(ME).name, action, detail: typeof detail === 'string' ? detail : JSON.stringify(detail) }); return window.IBActivity ? window.IBActivity.log(action, detail).catch(() => {}) : Promise.resolve(); };
   const clockNow = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
   const store = {
     members: [

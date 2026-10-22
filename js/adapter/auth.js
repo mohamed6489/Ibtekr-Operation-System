@@ -1,5 +1,6 @@
 // Sign-in behind the existing login screen: identifier → email_for_identifier → signInWithPassword → IBDirectory.
 // session() is synchronous: fed by the initial getSession() (await ready()) and onAuthStateChange.
+// Nothing about the member is loaded while the session is still aal1 with a verified TOTP factor (checkTotp()).
 (function () {
   'use strict';
   const c = () => window.IBSupabase.client;
@@ -15,9 +16,24 @@
     if (error) return { error: /rate_limited/.test(error.message || '') ? 'rate_limited' : 'network' };
     return { row: (Array.isArray(data) ? data[0] : data) || null };
   }
-  async function signIn(identifier, password) {
+  // aal1 session of a user with a verified TOTP factor → true (and needsTotp() stays true until verifyTotp). No network call.
+  async function checkTotp() {
+    if (!c() || !current) return (totp = false);
+    const { data } = await c().auth.mfa.getAuthenticatorAssuranceLevel();
+    return (totp = !!data && data.nextLevel === 'aal2' && data.currentLevel !== 'aal2');
+  }
+  // The signed-in member (directory loaded) when active; otherwise signs out → 'suspended' (or 'network' if the load fails).
+  async function loadMember() {
+    try { await window.IBDirectory.load(); } catch (e) { await signOut(); return fail('network'); }
+    const profile = window.IBDirectory.me();
+    if (!profile || profile.status !== 'active') { await signOut(); return fail('suspended'); }
+    return { ok: true, profile };
+  }
+  // remember=false keeps the session in this tab only (see supabase-client.js). With TOTP pending → { ok:true, profile:null }.
+  async function signIn(identifier, password, remember = true) {
     if (!c()) return fail('network');
     try {
+      try { localStorage.setItem('ib.remember', remember ? '1' : '0'); } catch (e) { /* storage blocked: default store */ }
       const l = await lookup(identifier);
       if (l.error) return fail(l.error);
       if (!l.row) return fail('bad');
@@ -25,28 +41,27 @@
       const { data, error } = await c().auth.signInWithPassword({ email: l.row.email, password });
       if (error) return fail(error.status === 429 ? 'rate_limited' : error.code === 'user_banned' ? 'suspended' : error.code === 'invalid_credentials' || error.status === 400 ? 'bad' : 'network');
       current = data.session;
-      await window.IBDirectory.load();
-      const profile = window.IBDirectory.me();
-      if (!profile || profile.status !== 'active') { await signOut(); return fail('suspended'); }
-      totp = false;
-      if (profile.twofa) { const r = await c().auth.mfa.getAuthenticatorAssuranceLevel(); totp = !!r.data && r.data.nextLevel === 'aal2' && r.data.currentLevel !== 'aal2'; }
-      return { ok: true, profile };
+      if (await checkTotp()) return { ok: true, profile: null };
+      return await loadMember();
     } catch (e) {
       if (current) await signOut();
       return fail('network');
     }
   }
-  // TOTP (Supabase MFA): challenge the first verified factor with the code.
+  // TOTP (Supabase MFA): challenge the first verified factor with the code; on aal2 load the member.
+  // → { ok:true, profile } | { ok:false, reason: 'bad'|'suspended'|'network' }
   async function verifyTotp(code) {
-    if (!c()) return { ok: false };
+    if (!c() || !current) return fail('bad');
     try {
       const { data, error } = await c().auth.mfa.listFactors();
-      const f = !error && data && (data.totp || []).find((x) => x.status === 'verified');
-      if (!f) return { ok: false };
+      if (error) return fail('network');
+      const f = (data.totp || []).find((x) => x.status === 'verified');
+      if (!f) return fail('bad');
       const r = await c().auth.mfa.challengeAndVerify({ factorId: f.id, code: String(code) });
-      if (r.error) return { ok: false };
-      totp = false; return { ok: true };
-    } catch (e) { return { ok: false }; }
+      if (r.error) return fail(r.error.status === 0 ? 'network' : 'bad');
+      totp = false;
+      return await loadMember();
+    } catch (e) { return fail('network'); }
   }
   async function signOut() {
     totp = false;
@@ -60,7 +75,7 @@
       const O = window.IbtekrOps; const id = O.toLatin(String(identifier || '')).trim();
       let email = id.toLowerCase();
       if (O.identifierKind(id) !== 'email') { const l = await lookup(id); if (l.error) return { ok: false }; if (!l.row) return { ok: true }; email = l.row.email; }
-      const { error } = await c().auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname + '#login-reset' });
+      const { error } = await c().auth.resetPasswordForEmail(email, { redirectTo: location.origin + location.pathname }); // back here with #…type=recovery
       return { ok: !error };
     } catch (e) { return { ok: false }; }
   }
@@ -68,5 +83,5 @@
     if (!c()) return { ok: false };
     try { const { error } = await c().auth.updateUser({ password: p1 }); return { ok: !error }; } catch (e) { return { ok: false }; }
   }
-  window.IBAuth = { signIn, verifyTotp, needsTotp: () => totp, signOut, session: () => current, onChange: (cb) => { subs.push(cb); }, resetPassword, updatePassword, ready: () => ready };
+  window.IBAuth = { signIn, verifyTotp, needsTotp: () => totp, checkTotp, signOut, session: () => current, onChange: (cb) => { subs.push(cb); }, resetPassword, updatePassword, ready: () => ready, recovery: () => window.IBSupabase.recovery };
 })();

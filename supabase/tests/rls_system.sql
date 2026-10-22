@@ -127,14 +127,37 @@ do $$ declare n int; begin
     raise exception 'case activity_log actor forced to auth.uid() failed';
   end if;
 
-  update public.activity_log set action = 'changed';
-  get diagnostics n = row_count;
-  if not (n = 0) then raise exception 'case activity_log has no update failed'; end if;
-  delete from public.activity_log;
-  get diagnostics n = row_count;
-  if not (n = 0) then raise exception 'case activity_log has no delete failed'; end if;
-
   insert into public.notification_prefs (user_id, data) values (auth.uid(), '{"push":true}');
+end $$;
+
+do $$ declare r record; begin
+  -- id and at are forced too: no backdating, no planted ids ahead of the sequence.
+  insert into public.activity_log (id, at, action) values (999999, '2000-01-01', 'forged')
+    returning id, at into r;
+  if not (r.id <> 999999 and r.id = currval(pg_get_serial_sequence('public.activity_log', 'id'))) then
+    raise exception 'case activity_log id forced to the sequence failed';
+  end if;
+  if not (r.at >= now() - interval '1 minute' and r.at <= now()) then
+    raise exception 'case activity_log at forced to now() failed';
+  end if;
+end $$;
+
+do $$ begin
+  begin
+    update public.activity_log set action = 'changed';
+  exception when insufficient_privilege then
+    return; -- expected: no update grant
+  end;
+  raise exception 'case activity_log update denied (42501) failed';
+end $$;
+
+do $$ begin
+  begin
+    delete from public.activity_log;
+  exception when insufficient_privilege then
+    return; -- expected: no delete grant
+  end;
+  raise exception 'case activity_log delete denied (42501) failed';
 end $$;
 
 -- ---- team manager (settings.team = F): team/integrations/security only ----
@@ -182,9 +205,16 @@ do $$ declare n int; begin
     raise exception 'case viewer does not see alert for another role failed';
   end if;
 
+  update public.alerts set read_at = now() where title = 'تنبيه شخصي للمشاهد';
+  get diagnostics n = row_count;
+  if not (n = 1) then raise exception 'case viewer marks own user alert read failed'; end if;
+
   update public.alerts set read_at = now() where title = 'تنبيه للمشاهدين';
   get diagnostics n = row_count;
-  if not (n = 1) then raise exception 'case viewer marks own-role alert read failed'; end if;
+  if not (n = 0) then raise exception 'case viewer cannot mark a role-wide alert read failed'; end if;
+  if not exists (select 1 from public.alerts where title = 'تنبيه للمشاهدين' and read_at is null) then
+    raise exception 'case role-wide alert read_at stays null failed';
+  end if;
 
   update public.alerts set read_at = now() where title = 'تنبيه للعمليات';
   get diagnostics n = row_count;
@@ -207,7 +237,7 @@ end $$;
 
 do $$ begin
   begin
-    update public.alerts set title = 'معدّل' where title = 'تنبيه للمشاهدين';
+    update public.alerts set title = 'معدّل' where title = 'تنبيه شخصي للمشاهد';
   exception when insufficient_privilege then
     return; -- expected: only read_at may change
   end;
@@ -301,8 +331,8 @@ end $$;
 -- ---- back as the runner: activity_log rows survived, actors are right ----
 reset role;
 do $$ begin
-  if not ((select count(*) from public.activity_log) = 3) then
-    raise exception 'case activity_log has exactly the three allowed rows failed';
+  if not ((select count(*) from public.activity_log) = 4) then
+    raise exception 'case activity_log has exactly the four allowed rows failed';
   end if;
   if not exists (select 1 from public.activity_log
                  where action = 'viewer.test' and actor = '00000000-0000-4000-8000-000000000013') then

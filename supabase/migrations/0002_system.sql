@@ -77,11 +77,14 @@ $$;
 create trigger settings_stamp before insert or update on public.settings
   for each row execute function public.settings_stamp();
 
--- activity_log.actor is always the caller, whatever was passed.
+-- activity_log.actor / at / id always come from the server, whatever was passed
+-- (no backdating, and no planted ids that would jam the sequence).
 create function public.activity_log_actor() returns trigger
 language plpgsql set search_path = public as $$
 begin
   new.actor := auth.uid();
+  new.at := now();
+  new.id := nextval(pg_get_serial_sequence('public.activity_log', 'id'));
   return new;
 end
 $$;
@@ -152,26 +155,29 @@ create policy status_map_delete on public.status_map for delete to authenticated
   using ((select public.is_admin()));
 
 -- activity_log: any active user inserts (actor forced by trigger); read with
--- settings.view; no update / delete policies at all.
+-- settings.view; no update / delete policies, and no update / delete grants either.
 create policy activity_log_insert on public.activity_log for insert to authenticated
   with check (exists (select 1 from public.profiles p
                       where p.id = (select auth.uid()) and p.status = 'active'));
 create policy activity_log_select on public.activity_log for select to authenticated
   using ((select public.has_perm('settings.view')) <> 'N');
+revoke update, delete, truncate on public.activity_log from anon, authenticated, service_role;
 
--- alerts: an active user sees / marks read alerts addressed to them or to their role
--- (column limit in alerts_guard_update); insert / delete admin only for now.
+-- alerts: an active user sees alerts addressed to them or to their role;
+-- insert / delete admin only for now.
 create policy alerts_select on public.alerts for select to authenticated
   using (exists (select 1 from public.profiles p
                  where p.id = (select auth.uid()) and p.status = 'active'
                    and (alerts.user_id = p.id or alerts.role_id = p.role_id)));
+-- Only user-targeted alerts can be marked read (column limit in alerts_guard_update);
+-- per-user read state for role alerts comes in phase 1 as an alert_reads table.
 create policy alerts_update on public.alerts for update to authenticated
-  using (exists (select 1 from public.profiles p
-                 where p.id = (select auth.uid()) and p.status = 'active'
-                   and (alerts.user_id = p.id or alerts.role_id = p.role_id)))
-  with check (exists (select 1 from public.profiles p
-                      where p.id = (select auth.uid()) and p.status = 'active'
-                        and (alerts.user_id = p.id or alerts.role_id = p.role_id)));
+  using (user_id = (select auth.uid())
+         and exists (select 1 from public.profiles p
+                     where p.id = (select auth.uid()) and p.status = 'active'))
+  with check (user_id = (select auth.uid())
+              and exists (select 1 from public.profiles p
+                          where p.id = (select auth.uid()) and p.status = 'active'));
 create policy alerts_insert on public.alerts for insert to authenticated
   with check ((select public.is_admin()));
 create policy alerts_delete on public.alerts for delete to authenticated

@@ -71,10 +71,16 @@
       return await loadMember();
     } catch (e) { return fail('network'); }
   }
-  async function signOut() {
+  // scope 'local' (default) ends this browser's session only; 'global' every session of the user (after a password reset).
+  async function signOut(scope = 'local') {
     totp = false; recovered = false;
-    if (c()) { try { await c().auth.signOut(); } catch (e) { /* signed out locally anyway */ } }
+    if (c()) { try { await c().auth.signOut({ scope }); } catch (e) { /* signed out locally anyway */ } }
     current = null;
+  }
+  // «خروج من كل الأجهزة»: ends the user's other sessions; this one stays signed in. → { ok }
+  async function signOutOthers() {
+    if (!c() || !current) return { ok: false };
+    try { const { error } = await c().auth.signOut({ scope: 'others' }); return { ok: !error }; } catch (e) { return { ok: false }; }
   }
   // Unknown accounts still answer ok (the "sent" view never says whether the account exists).
   async function resetPassword(identifier) {
@@ -92,5 +98,5 @@
     if (!c() || !recovered) return { ok: false };
     try { const { error } = await c().auth.updateUser({ password: p1 }); return { ok: !error }; } catch (e) { return { ok: false }; }
   }
-  window.IBAuth = { signIn, verifyTotp, needsTotp: () => totp, checkTotp, signOut, session: () => current, onChange: (cb) => { subs.push(cb); }, resetPassword, updatePassword, ready: () => ready, recovery: () => recoveryCheck };
+  window.IBAuth = { signIn, verifyTotp, needsTotp: () => totp, checkTotp, signOut, signOutOthers, session: () => current, onChange: (cb) => { subs.push(cb); }, resetPassword, updatePassword, ready: () => ready, recovery: () => recoveryCheck };
 })();

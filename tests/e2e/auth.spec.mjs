@@ -51,10 +51,14 @@ test('session survives a reload', async ({ page }) => {
   await expect(page.locator('#login')).toHaveCount(0);
 });
 
-test('suspended account is refused', async ({ page }) => {
-  await signIn(page, 'viewer.dev@ibtekr.local', VIEWER_PW);
+const sbKeys = (page) => page.evaluate(() => [...Object.keys(localStorage), ...Object.keys(sessionStorage)].filter((k) => k.startsWith('sb-')));
+
+test('suspended account is refused (phone: no password sent, no session stored)', async ({ page }) => {
+  await signIn(page, '01000000099', VIEWER_PW);
   await expect(page.locator('#lg-title')).toHaveText('الحساب موقوف');
   await expect(page.locator('#root')).toBeHidden();
+  if (!LIVE) expect(mock.requests.filter((r) => r === 'POST /auth/v1/token')).toEqual([]);
+  expect(await sbKeys(page)).toEqual([]);
 });
 
 test('wrong password shows remaining attempts', async ({ page }) => {
@@ -70,7 +74,7 @@ test('logout returns to login', async ({ page }) => {
   await page.getByRole('menuitem', { name: 'تسجيل الخروج' }).click();
   await expect(page.locator('#login')).toBeVisible();
   await expect(page.locator('#root')).toBeHidden();
-  if (!LIVE) await expect.poll(() => mock.logouts).toBe(1);
+  if (!LIVE) await expect.poll(() => mock.logoutScopes).toEqual(['local']); // this device only
   if (!LIVE) expect(mock.activity.map((a) => a.action)).toContain('auth.signout');
 });
 
@@ -82,7 +86,64 @@ test('8h idle signs out of Supabase and shows the expired view', async ({ page }
   await page.clock.fastForward('08:00:30');
   await expect(page.locator('#lg-title')).toHaveText('الجلسة خلصت');
   await expect(page.locator('#root')).toBeHidden();
-  await expect.poll(() => mock.logouts).toBe(1);
+  await expect.poll(() => mock.logoutScopes).toEqual(['local']);
+  await page.clock.runFor('02:00'); // timers keep running: nothing reaches Supabase after the logout
+  expect(mock.afterLogout).toBe(0);
+});
+
+test('idle counts activity in any tab: an active second tab keeps the first one signed in', async ({ page, context }) => {
+  mockOnly();
+  await page.clock.install(); // the context's clock: both tabs share it
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(page.locator('#root')).toBeVisible();
+  const tabB = await context.newPage();
+  await mock.attach(tabB);
+  await tabB.goto('/');
+  await expect(tabB.locator('#root')).toBeVisible();
+  await page.clock.setSystemTime(Date.now() + 9 * 3600 * 1000); // tab A's in-memory lastAct is now 9 h back; no timer fired
+  await tabB.evaluate(() => localStorage.setItem('ib.lastAct', String(Date.now()))); // tab B in use
+  await page.clock.runFor('01:00'); // tab A's idle check runs (every 15 s)
+  await expect(page.locator('#root')).toBeVisible();
+  await expect(page.locator('#login')).toBeHidden();
+  expect(mock.logouts).toBe(0);
+});
+
+test('«خروج من كل الأجهزة» ends the other sessions only', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(page.locator('#root')).toBeVisible();
+  await page.evaluate(() => { location.hash = 'profile-security'; });
+  await page.getByRole('button', { name: 'خروج من كل الأجهزة', exact: true }).click();
+  await page.getByRole('button', { name: 'خروج من الكل', exact: true }).click();
+  await expect(page.locator('.toast[role=status]')).toHaveText('اتعمل خروج من الأجهزة التانية');
+  expect(mock.logoutScopes).toEqual(['others']);
+  await expect(page.locator('#root')).toBeVisible();
+});
+
+test('a stalled activity log does not hold the screen: login shows at once, the logout follows', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(page.locator('#root')).toBeVisible();
+  mock.activityDelayMs = 10000;
+  await page.locator('.user-btn').click();
+  await page.getByRole('menuitem', { name: 'تسجيل الخروج' }).click();
+  await expect(page.locator('#login')).toBeVisible({ timeout: 1000 });
+  await expect(page.locator('#root')).toBeHidden({ timeout: 1000 });
+  await expect.poll(() => mock.logoutScopes, { timeout: 6000 }).toEqual(['local']); // after the 3 s cap on the log
+});
+
+test('«ابعت تاني» on the sent view sends the reset link again; no demo link button', async ({ page }) => {
+  mockOnly();
+  await page.goto('/');
+  await page.getByRole('button', { name: 'نسيت كلمة المرور؟' }).click();
+  await page.fill('#lg-fid', 'admin.dev@ibtekr.local');
+  await page.getByRole('button', { name: 'ابعت اللينك', exact: true }).click();
+  await expect(title(page)).toHaveText('اللينك اتبعت');
+  await expect(page.getByRole('button', { name: 'فتح اللينك (تجربة)' })).toHaveCount(0);
+  expect(mock.recovers).toEqual(['admin.dev@ibtekr.local']);
+  await page.getByRole('button', { name: 'ابعت تاني', exact: true }).click();
+  await expect.poll(() => mock.recovers).toEqual(['admin.dev@ibtekr.local', 'admin.dev@ibtekr.local']);
+  await expect(page.locator('.toast[role=status]')).toHaveText('اتبعت تاني');
 });
 
 test('rate-limited lookup asks to wait a minute', async ({ page }) => {
@@ -139,7 +200,7 @@ test('password recovery link shows the reset form, then the login view', async (
   await page.getByRole('button', { name: 'حفظ ودخول', exact: true }).click();
   await expect(title(page)).toHaveText('تسجيل الدخول');
   expect(mock.userUpdates).toEqual([expect.objectContaining({ email: 'admin.dev@ibtekr.local', password: 'NewPass2026' })]);
-  await expect.poll(() => mock.logouts).toBe(1);
+  await expect.poll(() => mock.logoutScopes).toEqual(['global']); // a reset ends every session of the user
   await expect(page.locator('#root')).toBeHidden();
 });
 

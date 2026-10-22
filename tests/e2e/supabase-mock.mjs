@@ -33,7 +33,9 @@ const claims = (token) => { try { return JSON.parse(Buffer.from(token.split('.')
 
 export async function installSupabaseMock(page) {
   const issued = new Set(); const refresh = new Map(); let n = 0;
-  const mock = { rateLimited: false, logouts: 0, activity: [], userUpdates: [], requests: [], unhandled: [] };
+  // logoutScopes: the ?scope= of each /logout; afterLogout: requests that reached the origin after the first logout;
+  // activityDelayMs: hold every log_activity call that long (a stalled network); recovers: emails sent a reset link.
+  const mock = { rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], userUpdates: [], recovers: [], requests: [], unhandled: [] };
   const session = (u, aal = 'aal1') => {
     const iat = Math.floor(Date.now() / 1000); n += 1;
     const access_token = [b64url({ alg: 'HS256', typ: 'JWT' }), b64url({ sub: u.id, email: u.email, role: 'authenticated', aud: 'authenticated', aal, amr: [{ method: aal === 'aal2' ? 'totp' : 'password', timestamp: iat }], iat, exp: iat + 3600, session_id: 's-' + u.id, n }), 'mock'].join('.');
@@ -42,14 +44,17 @@ export async function installSupabaseMock(page) {
   };
   // URL fragment of a password-recovery link for `email`, as GoTrue's implicit flow puts it on the redirect.
   mock.recoveryFragment = (email) => { const s = session(USERS.find((u) => u.email === email)); return new URLSearchParams({ access_token: s.access_token, expires_at: String(s.expires_at), expires_in: '3600', refresh_token: s.refresh_token, token_type: 'bearer', type: 'recovery' }).toString(); };
-  await page.addInitScript(([url, key]) => { window.IB_CONFIG = { supabaseUrl: url, supabaseAnonKey: key }; }, [SUPABASE_URL, ANON_KEY]);
-  await page.route(SUPABASE_URL + '/**', async (route) => {
+  // mock.attach(otherPage): a second tab of the same context answered by this same mock (same sessions, same counters)
+  const attach = async (p) => {
+  await p.addInitScript(([url, key]) => { window.IB_CONFIG = { supabaseUrl: url, supabaseAnonKey: key }; }, [SUPABASE_URL, ANON_KEY]);
+  await p.route(SUPABASE_URL + '/**', async (route) => {
     const req = route.request(); const url = new URL(req.url()); const path = url.pathname; const method = req.method(); const hd = req.headers();
     const cors = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS', 'access-control-allow-headers': hd['access-control-request-headers'] || '*', 'access-control-expose-headers': 'x-supabase-api-version' };
     const json = (status, body) => route.fulfill({ status, headers: { ...cors, 'content-type': 'application/json', 'x-supabase-api-version': '2024-01-01' }, body: JSON.stringify(body) });
     const empty = (status) => route.fulfill({ status, headers: cors });
     const body = () => { try { return req.postDataJSON() || {}; } catch { return {}; } };
     if (method === 'OPTIONS') return empty(204);
+    if (mock.logouts > 0) mock.afterLogout += 1;
     mock.requests.push(method + ' ' + path);
     if (hd.apikey !== ANON_KEY) return json(401, { message: 'No API key found in request' });
     const bearer = (hd.authorization || '').replace(/^Bearer /, '');
@@ -63,11 +68,16 @@ export async function installSupabaseMock(page) {
         const u = USERS.find((x) => x.email === b.email && b.password === DEV_PW);
         return u ? json(200, session(u)) : json(400, { code: 'invalid_credentials', message: 'Invalid login credentials' });
       }
+      if (method === 'POST' && path === '/auth/v1/recover') { mock.recovers.push(body().email); return json(200, {}); } // answers the same for unknown emails
       const u = tokenUser();
       if (!u) return json(401, { code: 'bad_jwt', message: 'invalid JWT' });
       if (method === 'GET' && path === '/auth/v1/user') return json(200, authUser(u));
       if (method === 'PUT' && path === '/auth/v1/user') { mock.userUpdates.push({ email: u.email, ...body() }); return json(200, authUser(u)); }
-      if (method === 'POST' && path === '/auth/v1/logout') { mock.logouts += 1; issued.delete(bearer); return empty(204); }
+      if (method === 'POST' && path === '/auth/v1/logout') { // GoTrue: local = this session, others = every other one, global = all
+        const scope = url.searchParams.get('scope') || 'global'; mock.logouts += 1; mock.logoutScopes.push(scope);
+        for (const t of [...issued]) { const mine = claims(t).sub === u.id; if (scope === 'local' ? t === bearer : scope === 'others' ? mine && t !== bearer : mine) issued.delete(t); }
+        return empty(204);
+      }
       const f = /^\/auth\/v1\/factors\/([^/]+)\/(challenge|verify)$/.exec(path);
       if (method === 'POST' && f && factorsOf(u).some((x) => x.id === f[1])) {
         if (f[2] === 'challenge') return json(200, { id: 'ch-' + f[1], type: 'totp', expires_at: Math.floor(Date.now() / 1000) + 300 });
@@ -97,10 +107,16 @@ export async function installSupabaseMock(page) {
         const rows = table[1] === 'roles' ? ROLES : u.status === 'active' && perm !== 'N' ? USERS : [u];
         return json(200, cols.includes('*') ? rows : rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null]))));
       }
-      if (method === 'POST' && path === '/rest/v1/rpc/log_activity') { mock.activity.push({ ...body(), aal: aal() }); return empty(204); }
+      if (method === 'POST' && path === '/rest/v1/rpc/log_activity') {
+        if (mock.activityDelayMs) await new Promise((r) => setTimeout(r, mock.activityDelayMs));
+        mock.activity.push({ ...body(), aal: aal() }); return empty(204).catch(() => {}); // the page may be gone after a long delay
+      }
     }
     mock.unhandled.push(method + ' ' + path);
     return json(404, { message: 'not mocked: ' + method + ' ' + path });
   });
+  };
+  mock.attach = attach;
+  await attach(page);
   return mock;
 }

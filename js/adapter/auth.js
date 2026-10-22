@@ -1,4 +1,4 @@
-// Sign-in behind the existing login screen: identifier → email_for_identifier → signInWithPassword → IBDirectory.
+// Sign-in behind the existing login screen: email → signInWithPassword; phone → email_for_identifier → signInWithPassword; then IBDirectory.
 // session() is synchronous: fed by the initial getSession() (await ready()) and onAuthStateChange.
 // Nothing about the member is loaded while the session is still aal1 with a verified TOTP factor (checkTotp()).
 (function () {
@@ -14,7 +14,7 @@
   // the fragment hint we wait for it (bounded); without the hint this is false at once and the stored session is gated as usual.
   const recoveryCheck = !(c() && window.IBSupabase.recoveryHint) ? Promise.resolve(false)
     : new Promise((res) => { onRecovered = () => res(true); ready.then(() => setTimeout(() => res(recovered), 1500)); });
-  // identifier (email or 11-digit phone, any digits) → { row: {email, status} | null } | { error: 'rate_limited'|'network' }
+  // phone (11 digits, any script) → { row: {email, status} | null } | { error: 'rate_limited'|'network' }. Never called for an email.
   async function lookup(identifier) {
     const ident = window.IbtekrOps.toLatin(String(identifier || '')).trim();
     const { data, error } = await c().rpc('email_for_identifier', { ident });
@@ -42,11 +42,17 @@
     if (!c()) return fail('network');
     try {
       try { localStorage.setItem('ib.remember', remember ? '1' : '0'); } catch (e) { /* storage blocked: default store */ }
-      const l = await lookup(identifier);
-      if (l.error) return fail(l.error);
-      if (!l.row) return fail('bad');
-      if (l.row.status === 'suspended') return fail('suspended');
-      const { data, error } = await c().auth.signInWithPassword({ email: l.row.email, password });
+      // an email goes straight to GoTrue (no lookup oracle); a suspended profile is caught by loadMember (sign-out → 'suspended')
+      const O = window.IbtekrOps; const id = O.toLatin(String(identifier || '')).trim();
+      let email = id.toLowerCase();
+      if (O.identifierKind(id) !== 'email') {
+        const l = await lookup(id);
+        if (l.error) return fail(l.error);
+        if (!l.row) return fail('bad');
+        if (l.row.status === 'suspended') return fail('suspended');
+        email = l.row.email;
+      }
+      const { data, error } = await c().auth.signInWithPassword({ email, password });
       if (error) return fail(error.status === 429 ? 'rate_limited' : error.code === 'user_banned' ? 'suspended' : error.code === 'invalid_credentials' || error.status === 400 ? 'bad' : 'network');
       current = data.session;
       if (await checkTotp()) return { ok: true, profile: null };

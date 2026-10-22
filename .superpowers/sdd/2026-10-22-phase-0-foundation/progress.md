@@ -107,3 +107,7 @@ Task 7: review — spec ❌ (cdnjs whole origin in script-src), 2 Important: (1)
 Ruling: js/css served `no-cache` with ETags (revalidation → 304s) in phase 0; only `js/vendor/supabase.js` gets the 7-day cache; cdnjs scoped to the two exact library paths (xlsx 0.18.5, html2canvas 1.4.1) — why: block files are unversioned and change every deploy; path-scoped CSP needs no block edits — cost if wrong: slightly more conditional requests per page load.
 Task 7: minor (deferred): runbook should say to commit config.js with the prod anon key; lftp `ssl-force`; add a modest HSTS header; dead `font/woff` expires lines; `p/sql` pack may not exist. Follow-up (phase 2 / orders page): vendor xlsx (upgrade past CVE-2023-30533 / CVE-2024-22363; `XL.read` parses uploads) and html2canvas into app/js/vendor and return to `script-src 'self'`.
 Task 7: fix round 1/5 dispatched — commit 06acfe0. Re-review pending.
+Task 7: fix round 1/5 (2 Important + 2 minors addressed, 0 open; commits 646ad2f..06acfe0)
+Task 7: minor (deferred): runbook step 5.4 should also check `Cache-Control: no-cache` on a block file and `max-age=604800` on js/vendor/supabase.js live; lftp `ssl-force` needs a hostname the certificate covers (never disable verification).
+Task 7: complete (commits 4531065..06acfe0, review clean; deploy itself blocked on owner inputs — see tools/deploy.md)
+Final review: MERGE_BASE 0b09805 (session-1 head on main) .. HEAD.

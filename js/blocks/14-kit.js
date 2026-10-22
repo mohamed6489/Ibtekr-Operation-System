@@ -7,7 +7,8 @@
   const { h, Icon, Button, IconButton } = U;
   const TODAY = '2026-10-21';
   const NOW_MIN = 14 * 60 + 14; // fixed demo clock for other members' live status (14:14 — Figma 363:42343)
-  const ME = 'M01'; // signed-in member (صفوت كمال, admin)
+  let ME = 'M01'; // signed-in member (صفوت كمال, admin); IBDirectory.load() sets the real one via setMe
+  const setMe = (code) => { ME = code; window.IBKit.ME = code; };
   const money = (n) => D.formatMoney(n);
   const n0 = (n) => Number(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
   const AR_MON = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
@@ -115,7 +116,7 @@
   const req = (f, keys, msgs = {}) => keys.reduce((e, k) => { if (f[k] == null || String(f[k]).trim() === '') e[k] = msgs[k] || 'الحقل ده مطلوب'; return e; }, {});
 
   // ---------- ops store (in-memory adapter; every mutation writes to the event log) ----------
-  const logEvent = (action, detail) => { if (window.IbtekrApp && window.IbtekrApp.logEvent) window.IbtekrApp.logEvent({ action, newValue: detail }); store.activity.unshift({ at: TODAY + ' ' + clockNow(), actor: member(ME).name, action, detail: typeof detail === 'string' ? detail : JSON.stringify(detail) }); };
+  const logEvent = (action, detail) => { if (window.IbtekrApp && window.IbtekrApp.logEvent) window.IbtekrApp.logEvent({ action, newValue: detail }); store.activity.unshift({ at: TODAY + ' ' + clockNow(), actor: member(ME).name, action, detail: typeof detail === 'string' ? detail : JSON.stringify(detail) }); if (window.IBActivity) window.IBActivity.log(action, detail).catch(() => {}); };
   const clockNow = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
   const store = {
     members: [
@@ -286,6 +287,6 @@
     },
   };
 
-  window.IBKit = { TODAY, NOW_MIN, ME, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+  window.IBKit = { TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
 })();
 

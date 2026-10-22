@@ -111,3 +111,35 @@ Not exercised: the cdnjs exports themselves (the sandbox proxy may block cdnjs),
    - creating the admin account.
 5. Optional: a staging Supabase project for the live e2e run (it must not be production).
 6. The owner's choice on "Confirm email".
+
+---
+
+# Fix round 1
+
+**Status:** DONE_WITH_CONCERNS. The fixes are done; the deploy itself is still blocked on owner inputs. **Commit:** `06acfe0 fix(deploy): no-cache for unversioned js/css, path-scoped cdnjs in CSP`. Not pushed.
+
+## Fixes
+1. **Mixed versions after a redeploy.**
+   - All `.html`, `.js` and `.css` files now get `Cache-Control: no-cache` and `Header unset Expires`, through `<FilesMatch "\.(html|js|css)$">`.
+   - `FileETag None` is removed, so the browser's revalidation gets cheap 304s by ETag.
+   - Only `js/vendor/supabase.js` keeps a 7-day cache, through `<Files "supabase.js">` with `Cache-Control: public, max-age=604800`. That filename is unique in `app/`. The `<Files>` section comes after the `FilesMatch`, so it overrides it.
+   - The whole `mod_expires` block is gone, including the unused `font/woff*` lines. Caching is now done only with `mod_headers`.
+   - Runbook §7: the "7 days, hard refresh" line now describes no-cache plus 304s, with supabase.js as the one exception (rename the file or wait a week after updating it).
+2. **Path-scoped cdnjs.**
+   - `script-src` is now `'self' https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/ https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/`.
+   - I checked these paths with `grep -noE "cdnjs.cloudflare.com/[^'\"]+" -r app/js/blocks`. It found `xlsx/0.18.5/xlsx.full.min.js` at 17:455, and `html2canvas/1.4.1/html2canvas.min.js` at 10:279 and at 28:671 and 28:1719.
+   - Runbook §6.3 has a note on the follow-up: vendor both libraries into `app/js/vendor/`, upgrade xlsx past CVE-2023-30533 / CVE-2024-22363, and go back to `script-src 'self'`.
+3. **Minors.**
+   - `lftp` now uses `set ftp:ssl-force true`.
+   - Runbook §2.4 now says to commit `app/config.js` with the production anon key, so that the later `git checkout app/config.js` restores it.
+
+## Checks
+- `.htaccess` is 33 lines. Every `Header` directive sits inside `<IfModule mod_headers.c>`, and no `Expires*` directives are left.
+- `npm test`: 9/9.
+- I re-ran the temporary CSP Playwright spec with the new policy string, parsed from `.htaccess`, and deleted the spec afterwards. Signing in and visiting all 10 sidebar pages caused 0 violations.
+- **Path scoping, positive check.** Loading `html2canvas/1.4.1/html2canvas.min.js` caused no CSP violation. Its `error` result came from the sandbox network, not from the CSP.
+- **Path scoping, negative check.** `cdnjs …/angular.js/1.8.2/angular.min.js` was refused: "violates … script-src".
+
+## Concerns
+- Still not checked on a real Apache or LiteSpeed server. In particular I have not confirmed that `<Files>` overriding `<FilesMatch>` merges the same way on Hostinger's LiteSpeed. Runbook step 5.4 checks the headers live; also check that `supabase.js` comes back with `max-age=604800`.
+- Every page load now sends about 36 conditional requests. With 304s this is cheap, and it is the trade-off the ruling chose.

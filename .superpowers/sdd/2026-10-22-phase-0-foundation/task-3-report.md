@@ -129,3 +129,53 @@ Never apply `supabase/tests/_local_auth_stub.sql` to Supabase.
 4. `execute_sql` with the contents of `supabase/tests/rls_identity.sql` → expect `NOTICE: rls_identity: ok`. Because of the ROLLBACK it leaves nothing behind. If `set local role` is refused in the MCP context, run it through `psql` as `postgres`.
 5. `get_advisors` type `security` → expect no RLS-disabled or function-search-path warnings for `roles`, `profiles`, `invites`, `is_admin`, `has_perm`, `email_for_identifier`, `profiles_guard_update`.
 6. (Optional) `select id, sort, name from public.roles order by sort` → 6 rows.
+
+---
+
+## Fix round 1
+
+Commit: `8e016f8 fix(db): hyphenated emails, server-side suspension, lookup throttle, live-schema identities` (not pushed)
+
+### Fixes
+1. **Emails containing a hyphen.** `email_for_identifier` now normalizes the two branches separately. Email: `e := lower(btrim(ident))`, matched against `lower(p.email)`. Phone: `d := ident` with whitespace and `-` stripped, must match `^[0-9]{11}$`, then matched against `p.phone`. The test admin is now `admin-one.dev@ibtekr-local.test`. New case: `' Admin-One.Dev@Ibtekr-Local.test '` returns that email with status `active`.
+2. **Suspension enforced on the server.** `is_admin()` adds the condition `status = 'active'`. `has_perm()` returns `'N'` first when `status <> 'active'`, which covers both `suspended` and `invited`. The `profiles` select policy is unchanged, so `id = auth.uid()` still lets a suspended user read their own row. New cases:
+   - suspended viewer: `has_perm('orders.view') = 'N'` (the role gives `P`); `count(*) = 1`; can read their own `status = 'suspended'`
+   - admin set to `suspended` inside the test: `is_admin() = false` and `has_perm('orders.edit') = 'N'`
+3. **Login-lookup throttle.** New table `public.login_lookups(at timestamptz not null default now())`. It has RLS enabled and no policies, and `revoke all … from public, anon, authenticated`. The catalog ACL now shows only `postgres` and `service_role`. `email_for_identifier` is now `volatile` (catalog `provolatile = v`), still `security definer`, `search_path = public`. On each call it:
+   - deletes rows older than 1 minute
+   - inserts a row
+   - if more than 60 rows fall within the last minute, raises `'rate_limited'` with SQLSTATE `P0001` (this contract is documented in the function's comment)
+
+   The output is still exactly `(email, status)`. A call that raises rolls back its own insert, so the count stays at 60 and calls keep failing until rows age out.
+
+   New cases, each run after clearing the table:
+   - anon `select` on `login_lookups` must fail with `insufficient_privilege`
+   - 59 calls, then a 60th call still returns the ops row
+   - the 61st call raises `rate_limited` (the case checks `sqlerrm`)
+4. **Live `auth.identities` schema.** The stub now declares `provider`, `provider_id` and `identity_data` as `not null`. The test inserts set `provider = 'email'`, `provider_id = id::text` and `identity_data = jsonb_build_object('sub', id::text, 'email', email)`.
+
+### Test results
+```
+$ npm run db:test
+db-test: recreating database ibtekr_test
+db-test: WARNING applying supabase/tests/_local_auth_stub.sql (local Postgres only, never on Supabase)
+db-test: migrate supabase/migrations/0001_identity.sql
+db-test: migrate supabase/migrations/0003_seed_roles.sql
+db-test: test supabase/tests/rls_identity.sql
+psql:supabase/tests/rls_identity.sql:138: NOTICE:  rls_identity: ok
+db-test: all passed
+```
+`npm test`: 6/6 pass.
+
+Mutation checks (each undoes one fix in a temporary copy of 0001; the file was restored afterwards):
+- whole-input strip restored → `case email_for_identifier(hyphenated email) failed`
+- `has_perm` status check removed → `case suspended viewer orders.view = N (role P) failed`
+- `is_admin` status check removed → `case suspended admin is_admin() = false failed`
+- cap raised to 1000 → `case 61st lookup raises rate_limited failed`
+- `revoke all on login_lookups` removed → `case anon cannot read login_lookups failed`
+
+### Concerns (new)
+- **Anyone can lock out everyone's login for a minute.** The throttle is global, as ruled, so 61 anonymous calls in a minute block every user's login lookup for up to a minute. That is a deliberate trade-off. If that becomes a problem, a later option is a per-identifier or per-IP limit (for example through Supabase's edge rate-limiting).
+- **Task 5 must call the RPC with POST.** The function is `volatile`, so PostgREST accepts it only over POST. supabase-js `rpc()` defaults to POST, so Task 5 must not pass `{ get: true }`. Task 5 should match the error message `rate_limited` (code `P0001`).
+- **Suspended users can still read rows open to everyone.** A suspended user with a valid JWT keeps any access a policy grants without `has_perm`/`is_admin`, which currently means `roles` select (`using (true)`) and their own profile. Task 4 policies should go through `has_perm` so suspension applies to them too.
+- **Live apply checklist:** unchanged. `apply_migration identity` now also creates `login_lookups`; `get_advisors` should list it as RLS enabled with no policies, which is intended (the advisor may report it at INFO level).

@@ -80,17 +80,18 @@ language sql stable security definer set search_path = public as $$
   ), 'N')
 $$;
 
--- Login lookup (called with the anon key): an email or an 11-digit mobile number
--- → that account's email and status only. Exact match on the normalized value:
--- email = lower(btrim(ident)); phone = ident without spaces and '-'.
+-- Login lookup for PHONE sign-in only (called with the anon key): an 11-digit
+-- mobile number (spaces and '-' stripped) → that account's email and status.
+-- Anything else (an email included) → zero rows: email sign-in goes straight
+-- to GoTrue, so this is no email-enumeration oracle.
 -- Throttled globally: more than 60 calls in one minute raises
 --   SQLSTATE P0001, message exactly 'rate_limited'  (the client matches on this).
+-- A sustained anonymous flood therefore degrades phone sign-in only.
 -- Volatile because it writes to login_lookups.
 create function public.email_for_identifier(ident text)
 returns table (email text, status text)
 language plpgsql volatile security definer set search_path = public as $$
 declare
-  e text := lower(btrim(coalesce(ident, '')));
   d text := regexp_replace(coalesce(ident, ''), '[[:space:]-]', '', 'g');
 begin
   delete from public.login_lookups where at < now() - interval '1 minute';
@@ -99,9 +100,7 @@ begin
     raise exception 'rate_limited' using errcode = 'P0001';
   end if;
 
-  if position('@' in e) > 0 then
-    return query select p.email, p.status from public.profiles p where lower(p.email) = e limit 1;
-  elsif d ~ '^[0-9]{11}$' then
+  if d ~ '^[0-9]{11}$' then
     return query select p.email, p.status from public.profiles p where p.phone = d limit 1;
   end if;
 end

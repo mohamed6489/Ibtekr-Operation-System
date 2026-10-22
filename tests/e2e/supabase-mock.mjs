@@ -34,8 +34,9 @@ const claims = (token) => { try { return JSON.parse(Buffer.from(token.split('.')
 export async function installSupabaseMock(page) {
   const issued = new Set(); const refresh = new Map(); let n = 0;
   // logoutScopes: the ?scope= of each /logout; afterLogout: requests that reached the origin after the first logout;
-  // activityDelayMs: hold every log_activity call that long (a stalled network); recovers: emails sent a reset link.
-  const mock = { rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], userUpdates: [], recovers: [], requests: [], unhandled: [] };
+  // activityDelayMs: hold every log_activity call that long (a stalled network); recovers: emails sent a reset link;
+  // lookups: the ident of each email_for_identifier call.
+  const mock = { rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [] };
   const session = (u, aal = 'aal1') => {
     const iat = Math.floor(Date.now() / 1000); n += 1;
     const access_token = [b64url({ alg: 'HS256', typ: 'JWT' }), b64url({ sub: u.id, email: u.email, role: 'authenticated', aud: 'authenticated', aal, amr: [{ method: aal === 'aal2' ? 'totp' : 'password', timestamp: iat }], iat, exp: iat + 3600, session_id: 's-' + u.id, n }), 'mock'].join('.');
@@ -92,8 +93,9 @@ export async function installSupabaseMock(page) {
       const u = tokenUser();
       if (method === 'POST' && path === '/rest/v1/rpc/email_for_identifier') {
         if (mock.rateLimited) return json(400, { code: 'P0001', details: null, hint: null, message: 'rate_limited' });
-        const ident = String(body().ident || ''); const e = ident.trim().toLowerCase(); const d = ident.replace(/[\s-]/g, '');
-        const x = USERS.find((y) => (e.includes('@') ? y.email === e : y.phone === d));
+        mock.lookups.push(String(body().ident || ''));
+        const d = String(body().ident || '').replace(/[\s-]/g, ''); // phone-only, like 0001_identity.sql: anything else → no rows
+        const x = /^[0-9]{11}$/.test(d) ? USERS.find((y) => y.phone === d) : null;
         return json(200, x ? [{ email: x.email, status: x.status }] : []);
       }
       if (!u) return json(401, { code: '42501', message: 'permission denied', details: null, hint: null }); // anon: no grants below

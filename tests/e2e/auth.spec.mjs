@@ -33,6 +33,7 @@ test('signs in and lands on dashboard', async ({ page }) => {
   await expect(page.locator('nav.sidebar .nav-item')).toHaveCount(10);
   await expect(page).not.toHaveTitle('تسجيل الدخول — نظام إبتكر');
   if (!LIVE) await expect.poll(() => mock.activity.map((a) => a.action)).toContain('auth.signin');
+  if (!LIVE) expect(mock.lookups).toEqual([]); // an email goes straight to GoTrue: no lookup RPC
 });
 
 test('arabic-digit phone identifier works', async ({ page }) => {
@@ -40,6 +41,7 @@ test('arabic-digit phone identifier works', async ({ page }) => {
   await expect(page.locator('#root')).toBeVisible();
   await expect(page.locator('#login')).toBeHidden();
   await expect(page.locator('.topbar .user-btn')).toContainText('سارة أحمد'); // header follows the signed-in member (M02)
+  if (!LIVE) expect(mock.lookups).toEqual(['01000000002']); // a phone still goes through the lookup
 });
 
 test('session survives a reload', async ({ page }) => {
@@ -58,6 +60,15 @@ test('suspended account is refused (phone: no password sent, no session stored)'
   await expect(page.locator('#lg-title')).toHaveText('الحساب موقوف');
   await expect(page.locator('#root')).toBeHidden();
   if (!LIVE) expect(mock.requests.filter((r) => r === 'POST /auth/v1/token')).toEqual([]);
+  expect(await sbKeys(page)).toEqual([]);
+});
+
+test('suspended account is refused (email: signed in by GoTrue, then signed out by the profile check)', async ({ page }) => {
+  await signIn(page, 'viewer.dev@ibtekr.local', VIEWER_PW);
+  await expect(page.locator('#lg-title')).toHaveText('الحساب موقوف');
+  await expect(page.locator('#root')).toBeHidden();
+  if (!LIVE) expect(mock.lookups).toEqual([]);
+  if (!LIVE) expect(mock.logoutScopes).toEqual(['local']);
   expect(await sbKeys(page)).toEqual([]);
 });
 
@@ -149,7 +160,7 @@ test('«ابعت تاني» on the sent view sends the reset link again; no demo
 test('rate-limited lookup asks to wait a minute', async ({ page }) => {
   mockOnly();
   mock.rateLimited = true;
-  await signIn(page, ADMIN.id, ADMIN.pw);
+  await signIn(page, '01000000001', ADMIN.pw); // only phone sign-in uses the (rate-limited) lookup
   await expect(loginError(page)).toContainText('محاولات كتير — استنى دقيقة وجرّب تاني');
   await expect(page.locator('#root')).toBeHidden();
 });

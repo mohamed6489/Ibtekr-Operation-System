@@ -77,13 +77,19 @@ do $$ begin
                  where email = 'ops.dev@ibtekr.local' and status = 'active') then
     raise exception 'case email_for_identifier(ops phone) = active failed';
   end if;
-  if not exists (select 1 from public.email_for_identifier('viewer.dev@ibtekr.local')
+  if not exists (select 1 from public.email_for_identifier('010-0000 0003')
                  where email = 'viewer.dev@ibtekr.local' and status = 'suspended') then
-    raise exception 'case email_for_identifier(suspended viewer) = suspended failed';
+    raise exception 'case email_for_identifier(suspended viewer phone, spaces/hyphens) = suspended failed';
   end if;
-  if not exists (select 1 from public.email_for_identifier(' Admin-One.Dev@Ibtekr-Local.test ')
-                 where email = 'admin-one.dev@ibtekr-local.test' and status = 'active') then
-    raise exception 'case email_for_identifier(hyphenated email) failed';
+  -- phone-only: an email (existing, suspended or hyphenated) returns zero rows — no enumeration oracle
+  if not ((select count(*) from public.email_for_identifier('viewer.dev@ibtekr.local')) = 0) then
+    raise exception 'case email_for_identifier(suspended viewer email) = 0 rows failed';
+  end if;
+  if not ((select count(*) from public.email_for_identifier(' Admin-One.Dev@Ibtekr-Local.test ')) = 0) then
+    raise exception 'case email_for_identifier(hyphenated admin email) = 0 rows failed';
+  end if;
+  if not ((select count(*) from public.email_for_identifier('0100000000')) = 0) then
+    raise exception 'case email_for_identifier(10 digits) = 0 rows failed';
   end if;
   if not ((select count(*) from public.email_for_identifier('01099999999')) = 0) then
     raise exception 'case email_for_identifier(unknown number) = 0 rows failed';

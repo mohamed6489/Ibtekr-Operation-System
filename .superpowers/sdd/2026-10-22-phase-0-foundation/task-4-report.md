@@ -106,3 +106,36 @@ db-test: all passed
 2. `execute_sql` with the contents of `supabase/tests/rls_system.sql`. Expect `NOTICE rls_system: ok` and no ERROR. It rolls back.
 3. `get_advisors` with type `security`: should show nothing new from 0002. Then type `performance`: only the 0001 items from Concerns 1 and 2 are expected.
 4. Spot check: `select section from settings order by 1` gives 10 rows, and `select * from status_map order by sort` gives 6 rows.
+
+---
+
+## Fix round 1
+
+Commit: `fix(db): activity_log id/at forced by trigger, role alerts read-only for members` (SHA in the reply / `git log`).
+
+### Finding 1: `activity_log` forgery and jamming
+- `activity_log_actor` (before insert) now also sets `new.at := now()` and `new.id := nextval(pg_get_serial_sequence('public.activity_log', 'id'))`. A client-supplied `id` or `at` is discarded, so rows cannot be backdated and no one can plant ids ahead of the sequence.
+- `revoke update, delete, truncate on public.activity_log from anon, authenticated, service_role`. "No update/delete" now holds at the grant level as well as in RLS, and the RLS is unchanged.
+- Tests:
+  - New: ops inserts with `id = 999999` and `at = '2000-01-01'`. The returned `id` is not 999999 and equals `currval` of the sequence, and `at` falls within the last minute.
+  - Changed: the ops `update` and `delete` cases on `activity_log` used to expect 0 rows. They now expect 42501.
+  - Changed: the final row count went from 3 to 4, because of the new forged-insert case.
+- Side effect: when the client omits `id`, the column default calls `nextval` and the trigger calls it again, so each insert uses two sequence numbers. There are gaps but no collisions. This is harmless, and it is what the ruling asked for.
+
+### Finding 2: role-wide `read_at` was shared
+- `alerts_update` (`using` and `with check`) is now `user_id = auth.uid()` plus the active-profile check. Role-wide alerts can still be selected by the role but members cannot update them. A one-line comment above the policy records that per-user read state for role alerts comes in phase 1 as `alert_reads`. `alerts_select` is unchanged.
+- Tests:
+  - The viewer marks its user-targeted alert read: 1 row.
+  - The viewer's update on the role-wide alert affects 0 rows (the RLS `using` filters it out), and its `read_at` stays null.
+  - The guard case (changing `title` raises 42501) now targets the user alert, since the role alert is no longer updatable.
+
+### Evidence
+- `npm run db:test`: `rls_identity: ok`, `rls_system: ok`, "db-test: all passed", and no ERROR or WARNING lines.
+- `npm test`: 6/6.
+- Mutation checks, each caught by the named case:
+  - the old trigger (actor only) → "id forced to the sequence"
+  - `grant update` restored → "update denied (42501)"
+  - `alerts_update` set to `using (true)` → "cannot mark a role-wide alert read"
+
+### Concerns
+No new concerns from this round. The 0001 advisor items listed earlier still stand.

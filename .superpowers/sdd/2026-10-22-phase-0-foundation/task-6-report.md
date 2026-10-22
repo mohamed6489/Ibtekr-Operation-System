@@ -20,7 +20,7 @@ Status: DONE. Commit `02f0efd chore: project context for any Claude session, plu
 | `db` job | `DATABASE_URL=… npm run db:test` (`tools/db-test.sh --stub`) |
 
 ## Deviations / decisions
-- **Artifact path is `tests/test-results/`, not `test-results/`.** Playwright's default `outputDir` is relative to the config file (`tests/playwright.config.mjs`), so its output lands in `tests/test-results/`. The unanchored `.gitignore` patterns cover both locations (checked with `git check-ignore`).
+- ~~Artifact path `tests/test-results/`~~. That reasoning was wrong and is corrected in fix round 1 below: the artifact path is now `test-results/` at the repo root.
 - **`npm run split -- --force` instead of `npm run split --force`.** Without the `--`, npm takes `--force` as its own flag and the script never receives it (`split-prototype.mjs` checks `process.argv`).
 - **`npm run split` dropped from the main command list.** The brief's Step 1 lists it as a regular command, but the lock now makes it refuse to run. It appears only as the intentional `-- --force` regeneration, per the ruling.
 - **Workflow-level `permissions: contents: read` added.** This is least-privilege hardening and was not in the ruling.
@@ -40,3 +40,11 @@ Status: DONE. Commit `02f0efd chore: project context for any Claude session, plu
 - **Plugin marketplace ids are unverified.** The brief's plugin names are pinned exactly as given. I can't confirm from here that every one exists in `claude-plugins-official` (for example `superpowers`, `hostinger`, `semgrep`, `supabase` may live in other marketplaces or have other ids), or that the three trailofbits plugins use exactly those ids in `trailofbits/skills`. Claude Code will report any unknown plugin when the session loads; check that on first use.
 - **The live e2e step is untested.** It needs the dev users seeded in the live project. If the secrets exist but the users don't, the live step will fail CI.
 - **The `db` job is unproven.** It assumes `_local_auth_stub.sql` works on a stock `postgres:17` image, the same as in the local runs. The first CI run will confirm it.
+
+## Fix round 1
+- Finding: the upload-artifact path `tests/test-results/` never exists, so the failure artifact was always empty.
+- Cause: my reasoning was wrong. Playwright 1.64 sets the default `outputDir` to `path.join(packageJsonDir, "test-results")`, where `packageJsonDir` is the folder of the nearest `package.json` at or above the config dir (`node_modules/playwright/lib/common/index.js`). Here that is the repo root, not `tests/`.
+- Fix: `.github/workflows/ci.yml` now uploads `path: test-results/` with `if-no-files-found: warn`, so an empty upload shows up as a warning.
+- Check:
+  - `npm run e2e` passed 21/21. Afterwards `ls -d test-results tests/test-results` showed only `test-results`, which I deleted before committing.
+  - `npm test` passed 9/9, and the YAML parses with PyYAML.

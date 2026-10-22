@@ -57,8 +57,12 @@
   - Redirect URLs:
     - `https://<subdomain>.ibtekr.club/**`
     - `http://localhost:4173/**`
-- **Secure password change** (يطلب إعادة تأكيد قبل تغيير الباسورد): يُفضّل يبقى شغّال.
+- **Secure password change** (يطلب إعادة تأكيد قبل تغيير الباسورد): **شغّال**.
 - Rate limits: الافتراضي.
+- **SMTP Settings (Authentication › SMTP Settings / Emails):** شغّل **Custom SMTP** — الإيميل المدمج في Supabase عليه حد صغير جدًا في الساعة وبيبعت بس لإيميلات أعضاء فريق المشروع على Supabase، فلينكات الاسترجاع والدعوات مش هتوصل للفريق من غيره. البيانات من صندوق `system@ibtekr.club` على Hostinger (hPanel › Emails):
+  - Sender email: `system@ibtekr.club` — Sender name: `نظام إبتكر`
+  - Host: `smtp.hostinger.com` — Port: `465` (SSL)
+  - Username: `system@ibtekr.club` — Password: باسورد الصندوق (يتكتب في لوحة Supabase بس، عمره ما يدخل git)
 
 ### 2.4 مفتاح الـ anon في `app/config.js`
 خد المفتاح العام من Settings › API › "anon public" (أو MCP `get_publishable_keys`) وحطه في `supabaseAnonKey`:
@@ -141,7 +145,7 @@ limit 5;
 -- المتوقع: صف حديث بـ member_code = 'M01'.
 ```
 
-4. افتح DevTools › Console: مايبقاش فيه أخطاء `Content-Security-Policy`. وفي Network: الـ response headers فيها `Content-Security-Policy` و`X-Content-Type-Options` (يعني `.htaccess` اترفع واشتغل).
+4. افتح DevTools › Console: مايبقاش فيه أخطاء `Content-Security-Policy`. وفي Network: الـ response headers فيها `Content-Security-Policy` و`X-Content-Type-Options` و`Strict-Transport-Security` (يعني `.htaccess` اترفع واشتغل).
 5. **الـ e2e على Supabase حقيقي** — من جهاز تطوير، على **مشروع staging** متعمل عليه نفس الـ migrations وعليه `tools/seed-dev-users.sql`:
 
 ```bash
@@ -153,6 +157,8 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
 ```
 
 من غير `E2E_SUPABASE_URL` و`E2E_SUPABASE_ANON_KEY` الاختبارات الحقيقية بتتعمل skip (عمرها ما بتضرب اللي في `config.js`). في CI نفس الستة دول GitHub Secrets (`E2E_SUPABASE_URL`، `E2E_SUPABASE_ANON_KEY`، `E2E_ADMIN_EMAIL`، `E2E_ADMIN_PW`، `E2E_OPS_PW`، `E2E_VIEWER_PW`)، وخطوة الـ e2e الحقيقي بتشتغل بس لو `E2E_SUPABASE_URL` موجود — وكلهم لمشروع الـ staging، مش الإنتاج.
+
+6. **إيميل الاسترجاع بيوصل:** من شاشة الدخول اضغط «نسيت كلمة المرور؟» واكتب إيميل الأدمن → لازم يوصل إيميل من `system@ibtekr.club` (اتأكد من الـ Spam كمان)، واللينك بيفتح `https://<subdomain>.ibtekr.club` على فورم «كلمة مرور جديدة». لو ماوصلش: راجع SMTP Settings (خطوة 2.3) وAuthentication › Logs.
 
 ليه مش على الإنتاج: الاختبارات محتاجة الحسابات التلاتة بباسوردات معروفة (أدمن وops وviewer موقوف) — وده بالظبط اللي ممنوع على الإنتاج (خطوة 2.5). وكمان بتكتب صفوف في `activity_log`، وبتضرب حد الـ 60 lookup في الدقيقة اللي ممكن يقفل الدخول بالموبايل على الفريق الحقيقي لمدة دقيقة. ومشروع الـ staging لازم يكون فيه `http://localhost:4173/**` في Redirect URLs.
 
@@ -191,5 +197,6 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
   where section = 'general';
   ```
 
+- **لحد صفحة الإعدادات (المرحلة 10): إيقاف عضو / تغيير دور / دعوة بتتعمل من SQL أو لوحة Supabase، الشاشة بتعرض بس.** (في الإعدادات › الفريق الأزرار بتظهر رسالة نجاح بس مابتكتبش في `profiles`.)
 - `main` يفضل فرع الدمج: اللي اتنشر لازم يكون هو اللي في `main`. إعادة النشر = نفس خطوة 4. كل ملفات html/js/css عليها `no-cache` في `.htaccess` (المتصفح بيسأل السيرفر كل مرة وياخد 304 لو مفيش تغيير)، فالتحديث بيظهر على طول من غير hard refresh؛ الاستثناء الوحيد `js/vendor/supabase.js` (نسخة مثبّتة) بكاش 7 أيام — لو حدّثته، غيّر اسمه أو استنى أسبوع.
 - الـ CSP في `app/.htaccess` مربوط بـ project ref `fsynculhaupcktzkfkdd`. لو المشروع اتغيّر، أو اتضاف مصدر خارجي جديد (مثلًا API بتاع WooCommerce من المتصفح)، لازم `connect-src`/`script-src` يتحدّثوا.

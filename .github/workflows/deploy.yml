@@ -1,0 +1,32 @@
+name: Deploy
+# Uploads app/ to the Hostinger subdomain over FTPS. Runs on demand (Actions › Deploy › Run workflow)
+# and on every push to main that touches app/. Needs four repository secrets (Settings › Secrets › Actions):
+#   FTP_SERVER      e.g. ftp.ibtekr.club  (hPanel › Files › FTP Accounts)
+#   FTP_USERNAME    the FTP account user
+#   FTP_PASSWORD    its password
+#   FTP_SERVER_DIR  the subdomain's document root as the FTP user sees it, with a trailing slash,
+#                   e.g. public_html/ or domains/ibtekr.club/public_html/operation-system/
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['app/**']
+permissions:
+  contents: read
+concurrency: deploy-hostinger
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Upload app/ over FTPS
+        uses: SamKirkland/FTP-Deploy-Action@v4.3.5
+        with:
+          server: ${{ secrets.FTP_SERVER }}
+          username: ${{ secrets.FTP_USERNAME }}
+          password: ${{ secrets.FTP_PASSWORD }}
+          protocol: ftps
+          local-dir: ./app/
+          server-dir: ${{ secrets.FTP_SERVER_DIR }}
+          exclude: |
+            **/README.md

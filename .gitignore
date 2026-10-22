@@ -1,0 +1,20 @@
+# Secrets and local config
+.env
+.env.*
+!.env.example
+
+# Dependencies
+/node_modules/
+
+# Build output and caches
+/dist/
+*.log
+
+# Design sources stay out of git (Figma is the source of truth)
+/Design file/
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/

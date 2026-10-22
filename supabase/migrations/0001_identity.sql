@@ -45,18 +45,31 @@ alter table public.invites enable row level security;
 
 -- ---------------------------------------------------------------- functions
 
--- True when the signed-in user's profile has role 'admin'.
+-- Global throttle for email_for_identifier. Only that definer function touches it:
+-- RLS on with no policies, and no grants to the API roles.
+create table public.login_lookups (
+  at timestamptz not null default now()
+);
+alter table public.login_lookups enable row level security;
+revoke all on public.login_lookups from public, anon, authenticated;
+
+-- True when the signed-in user's profile is an active admin.
 create function public.is_admin() returns boolean
 language sql stable security definer set search_path = public as $$
-  select exists (select 1 from public.profiles where id = auth.uid() and role_id = 'admin')
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role_id = 'admin' and status = 'active'
+  )
 $$;
 
--- 'F' | 'P' | 'N' for the signed-in user: admin → 'F'; else a custom_perms entry
--- (when the key is present, even 'N'); else the role's entry; else 'N'.
+-- 'F' | 'P' | 'N' for the signed-in user: not active (suspended/invited) → 'N';
+-- admin → 'F'; else a custom_perms entry (when the key is present, even 'N');
+-- else the role's entry; else 'N'.
 create function public.has_perm(key text) returns text
 language sql stable security definer set search_path = public as $$
   select coalesce((
     select case
+      when p.status <> 'active' then 'N'
       when p.role_id = 'admin' then 'F'
       when p.custom_perms ? key then p.custom_perms ->> key
       else r.permissions ->> key
@@ -68,17 +81,28 @@ language sql stable security definer set search_path = public as $$
 $$;
 
 -- Login lookup (called with the anon key): an email or an 11-digit mobile number
--- → that account's email and status only. Exact match on the normalized value.
+-- → that account's email and status only. Exact match on the normalized value:
+-- email = lower(btrim(ident)); phone = ident without spaces and '-'.
+-- Throttled globally: more than 60 calls in one minute raises
+--   SQLSTATE P0001, message exactly 'rate_limited'  (the client matches on this).
+-- Volatile because it writes to login_lookups.
 create function public.email_for_identifier(ident text)
 returns table (email text, status text)
-language plpgsql stable security definer set search_path = public as $$
+language plpgsql volatile security definer set search_path = public as $$
 declare
-  v text := lower(regexp_replace(coalesce(ident, ''), '[[:space:]-]', '', 'g'));
+  e text := lower(btrim(coalesce(ident, '')));
+  d text := regexp_replace(coalesce(ident, ''), '[[:space:]-]', '', 'g');
 begin
-  if position('@' in v) > 0 then
-    return query select p.email, p.status from public.profiles p where lower(p.email) = v limit 1;
-  elsif v ~ '^[0-9]{11}$' then
-    return query select p.email, p.status from public.profiles p where p.phone = v limit 1;
+  delete from public.login_lookups where at < now() - interval '1 minute';
+  insert into public.login_lookups default values;
+  if (select count(*) from public.login_lookups where at >= now() - interval '1 minute') > 60 then
+    raise exception 'rate_limited' using errcode = 'P0001';
+  end if;
+
+  if position('@' in e) > 0 then
+    return query select p.email, p.status from public.profiles p where lower(p.email) = e limit 1;
+  elsif d ~ '^[0-9]{11}$' then
+    return query select p.email, p.status from public.profiles p where p.phone = d limit 1;
   end if;
 end
 $$;

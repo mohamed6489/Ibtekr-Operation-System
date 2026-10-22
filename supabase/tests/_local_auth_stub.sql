@@ -28,9 +28,9 @@ create table auth.users (
 create table auth.identities (
   id uuid primary key default gen_random_uuid(),
   user_id uuid references auth.users on delete cascade,
-  provider text,
-  provider_id text,
-  identity_data jsonb
+  provider text not null,
+  provider_id text not null,
+  identity_data jsonb not null
 );
 
 create function auth.uid() returns uuid language sql stable as $$

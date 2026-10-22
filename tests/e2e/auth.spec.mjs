@@ -171,3 +171,61 @@ test('remember-me on keeps the session in localStorage', async ({ page }) => {
   expect(keys.local.length).toBeGreaterThan(0);
   expect(keys.session).toEqual([]);
 });
+
+// ---- fix round 2: a typed #type=recovery is not a recovery; the assurance check fails closed ----
+const typedRecovery = async (page) => { await page.evaluate(() => { location.hash = 'type=recovery'; }); await page.reload(); };
+
+test('typed #type=recovery on a stale stored session → session ended, no reset form', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(page.locator('#root')).toBeVisible();
+  await page.evaluate(() => localStorage.setItem('ib.lastAct', String(Date.now() - 9 * 3600 * 1000)));
+  await typedRecovery(page);
+  await expect(title(page)).toHaveText('الجلسة خلصت');
+  await expect(page.locator('#root')).toBeHidden();
+  await expect.poll(() => mock.logouts).toBe(1);
+  expect(mock.userUpdates).toEqual([]);
+});
+
+test('typed #type=recovery on an active stored session → the app, never the reset form', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(page.locator('#root')).toBeVisible();
+  await typedRecovery(page);
+  await expect(page.locator('#root')).toBeVisible();
+  await expect(page.locator('#login')).toHaveCount(0);
+  expect(mock.userUpdates).toEqual([]);
+});
+
+test('typed #type=recovery on an aal1 2FA session → still the 2FA view', async ({ page }) => {
+  mockOnly();
+  await signIn(page, TWOFA, DEV_PW);
+  await expect(title(page)).toHaveText('التحقق بخطوتين');
+  await typedRecovery(page);
+  await expect(title(page)).toHaveText('التحقق بخطوتين');
+  await expect(page.locator('#root')).toBeHidden();
+});
+
+test('#login-reset on an everyday session cannot change the password', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(page.locator('#root')).toBeVisible();
+  await page.evaluate(() => { location.hash = 'login-reset'; });
+  await expect(title(page)).toHaveText('كلمة مرور جديدة');
+  await page.fill('#lg-p1', 'NewPass2026');
+  await page.fill('#lg-p2', 'NewPass2026');
+  await page.getByRole('button', { name: 'حفظ ودخول', exact: true }).click();
+  await expect(loginError(page)).toContainText('معرفناش نحفظ كلمة المرور');
+  expect(mock.userUpdates).toEqual([]);
+});
+
+test('unreadable assurance level fails closed (login, #root hidden)', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(page.locator('#root')).toBeVisible();
+  await page.evaluate(() => { const k = Object.keys(localStorage).find((x) => x.startsWith('sb-')); const s = JSON.parse(localStorage.getItem(k)); s.access_token = 'x.y.z'; localStorage.setItem(k, JSON.stringify(s)); });
+  await page.reload();
+  await expect(title(page)).toHaveText('تسجيل الدخول');
+  await expect(page.locator('#root')).toBeHidden();
+  expect(mock.requests.filter((r) => r.includes('/rest/v1/profiles'))).toHaveLength(1); // only the first sign-in's load
+});

@@ -1877,22 +1877,23 @@
   window.IBShowOrders = () => { if (state.page !== 'orders') go('orders'); };
   window.IbtekrApp = Object.freeze({ eventLog: () => log.all(), aiRun, aiFilter, newTicket: (pre) => { showTickets(); openNewTicket(pre); }, logEvent: (ev) => log.append(Object.assign({ actor: ACTOR }, ev)) });
   boot(); // synchronous: the orders block (next script) mounts into #orders, which boot() creates
-  // Session gate: #root stays hidden until the Supabase session is known. In order: a password-recovery link → reset form;
+  // Session gate: #root stays hidden until the Supabase session is known. In order: a recovery link confirmed by supabase-js → reset form;
   // no session → login; idle ≥ AUTH.idleMinutes since ib.lastAct (any earlier page load) → sign out, «الجلسة خلصت»;
-  // aal1 with a verified TOTP factor → 2FA view (the member is not loaded before aal2); no active profile → sign out, login.
+  // aal1 with a verified TOTP factor → 2FA view (the member is not loaded before aal2; an unreadable level fails closed: sign out,
+  // login); no active profile → sign out, login. A typed #type=recovery is not a recovery: the stored session goes through every check.
   (async () => {
     const A = window.IBAuth, SH = window.IBShell, root = document.getElementById('root');
     document.addEventListener('ib:directory', () => { const old = root.querySelector('.topbar .user'); if (old) old.replaceWith(SH.AccountMenu(go)); }); // header shows the signed-in member
     if (!SH.isLoggedOut()) root.hidden = true;
     let gated = false;
-    A.onChange((event) => { if (event === 'PASSWORD_RECOVERY' && !A.recovery()) SH.showLogin('reset'); else if (event === 'SIGNED_OUT' && gated && !SH.isLoggedOut()) SH.showLogin('login'); });
+    A.onChange((event) => { if (event === 'PASSWORD_RECOVERY' && gated) SH.showLogin('reset'); else if (event === 'SIGNED_OUT' && gated && !SH.isLoggedOut()) SH.showLogin('login'); });
     await A.ready();
     const lastAct = (() => { try { return Number(localStorage.getItem('ib.lastAct')) || 0; } catch (e) { return 0; } })();
     const view = await (async () => {
-      if (A.recovery()) return 'reset';
+      if (await A.recovery()) return 'reset';
       if (!A.session()) return 'login';
       if (lastAct && (Date.now() - lastAct) / 60000 >= window.IbtekrOps.AUTH.idleMinutes) { await A.signOut(); return 'expired'; }
-      if (await A.checkTotp().catch(() => false)) return '2fa';
+      try { if (await A.checkTotp()) return '2fa'; } catch (e) { await A.signOut(); return 'login'; }
       try { await window.IBDirectory.load(); const me = window.IBDirectory.me(); if (me && me.status === 'active') return null; } catch (e) { /* sign out below */ }
       await A.signOut(); return 'login';
     })();

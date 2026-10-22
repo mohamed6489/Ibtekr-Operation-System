@@ -97,3 +97,5 @@ Task 6: fix round 1/5 dispatched — commit 3718ca5 (artifact path → test-resu
 CI run 1 (39828563069, commit 121c72c): both jobs green on GitHub Actions — test (npm test, mocked e2e; live step skipped) and db (postgres:17 migrations + RLS tests).
 Task 6: fix round 1/5 (1 addressed, 0 open; commits 02f0efd..3718ca5)
 Task 6: complete (commits 68a6d55..3718ca5, review clean; CI green on GitHub)
+BASE before Task 7: 4531065.
+Ruling: Task 7 delivers the runbook (tools/deploy.md) and app/.htaccess only; Steps 1–3 (Supabase Auth URL config, the upload, live verification with the owner's admin account) are blocked on owner inputs (subdomain name, Hostinger authorization/FTP, admin email) and on MCPs absent from this session — recorded as the phase-0 hand-off list — why: plan Task 7 itself names these as owner inputs — cost if wrong: none; the runbook is reusable.

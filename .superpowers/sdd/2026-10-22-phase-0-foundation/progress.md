@@ -71,3 +71,4 @@ Task 4: fix round 1/5 dispatched — commit 29fa339 (2 findings claimed fixed; r
 Task 4: fix round 1/5 (2 addressed, 0 open; commits 8edab23..29fa339)
 Task 4: minor (deferred): activity_log trigger forces `at` for every role — a future historical import must disable the trigger or write through a definer import function; admins also cannot mark role-wide alerts read until phase-1 `alert_reads`.
 Task 4: complete (commits 4a8bc8b..29fa339, review clean)
+BASE before Task 5: 2223fa3

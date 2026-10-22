@@ -184,3 +184,55 @@ New cases:
 - **Live recovery not verified.** The recovery flow is verified against the mock's implicit-flow fragment only. The live project must use the implicit flow, which is the supabase-js default here, and must list the app URL under Auth › Redirect URLs.
 - **TOTP enrolment UI not built.** There is still no TOTP enrolment UI, so no live user can reach aal2 yet. `M03` exists only in the mock.
 - **Stale idle stamp in the background.** A session left idle in a background tab still keeps its stale `ib.lastAct`, and the in-page 8-hour timer runs as before.
+
+---
+
+# Fix round 2
+
+**Status:** DONE. Commit: see the reply (`fix(auth): recovery requires a real recovery session; assurance check fails closed`). Not pushed.
+
+## Fixes
+
+1. **A hand-typed `#type=recovery` no longer bypasses the gate.**
+   - `supabase-client.js` treats the URL fragment only as a hint (`recoveryHint`), and only when it has both `type=recovery` and `access_token`.
+   - The source of truth is the `PASSWORD_RECOVERY` event from supabase-js. `auth.js` subscribes to it when the page loads.
+   - `IBAuth.recovery()` now returns a promise:
+     - without the hint, it is `false` at once;
+     - with the hint, it is `true` when the event fires, or `false` 1.5 s after `ready()`. That covers an invalid token: supabase-js then keeps the stored session and fires no event.
+   - The gate awaits it. Any session that is not a confirmed recovery goes through the idle → aal2 → profile checks. A typed `#type=recovery` therefore gives the «الجلسة خلصت» view, the app, or the 2FA view.
+   - Defence in depth: `IBAuth.updatePassword` refuses unless `PASSWORD_RECOVERY` was seen during this page load (`recovered`; `signOut` clears it). So a typed `#login-reset` (the prototype route) on an everyday session can't change the password either.
+   - Late `PASSWORD_RECOVERY` events (after the gate) still show the reset view.
+   - **Decision:** a *confirmed* recovery session is fresh (the email link was just used), so it is not put through the idle check of the previous session's `ib.lastAct`. Otherwise a person coming back after 8 hours idle could never reset their password.
+2. **`checkTotp` fails closed.**
+   - It sets `needsTotp()` to true before the check, and throws when `getAuthenticatorAssuranceLevel` returns an error or no data. A malformed JWT also throws inside supabase-js.
+   - Gate: an error signs out and shows the login view.
+   - `signIn`: an error goes to its catch, which signs out and returns `network`.
+
+## Block edits this round
+
+- **28**, the gate only:
+  - `await A.recovery()`
+  - `try { checkTotp } catch → signOut, 'login'`
+  - the `PASSWORD_RECOVERY` handler acts only after the gate has run
+- Blocks 14 and 21 are unchanged.
+- `tools/blocks.lock.json` was regenerated.
+
+## Tests
+
+New cases, all mocked:
+- typed `#type=recovery` + stale stored session (ib.lastAct 9 hours back) → «الجلسة خلصت», a logout request, and no `PUT /auth/v1/user`;
+- typed `#type=recovery` + active session → app shown, no `#login`, no PUT;
+- typed `#type=recovery` + aal1 2FA session → still the 2FA view;
+- `#login-reset` on an everyday session → submitting gives «معرفناش نحفظ كلمة المرور…», no PUT;
+- the stored access token corrupted to `x.y.z` + reload → login view with `#root` hidden, and no second `profiles` load.
+
+Results:
+- **RED:** with `app/` stashed back to the round-1 code, all 5 new cases failed.
+- **GREEN:** `npm run e2e` passed three runs in a row with the summary line `21 passed (34.4s)` (then 35.1s and 38.0s).
+- `npm test`: 9/9.
+- `npm run db:test`: all passed.
+
+## Concerns
+
+- **Slower page load after an invalid recovery link.** When the link's token is invalid, the gate waits up to 1.5 s before it falls back to the normal checks. A normal page load does not wait.
+- **The invite view cannot set a password yet.** `updatePassword` refuses everywhere outside a confirmed recovery, including the invite view. Invites are not wired yet, and the invite flow must add its own confirmed-session path when they are.

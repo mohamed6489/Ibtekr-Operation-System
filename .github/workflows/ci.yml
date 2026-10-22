@@ -35,8 +35,8 @@ jobs:
         if: failure()
         with:
           name: test-results
-          path: tests/test-results/
-          if-no-files-found: ignore
+          path: test-results/
+          if-no-files-found: warn
 
   db:
     runs-on: ubuntu-latest

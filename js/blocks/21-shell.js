@@ -92,19 +92,24 @@
     const m = U.Modal({ title: 'إنت لسه على الدوام', body: [h('p', { style: 'margin:0' }, 'بقالك ' + K.hrs(worked()) + (sh.state === 'overtime' ? ' (منهم ' + K.hrs(otMin()) + ' وقت إضافي)' : '') + '. تحب تنهي الدوام قبل ما تخرج؟'), h('p', { class: 't-small help', style: 'margin:0' }, '«أخرج بس» بيسيب الدوام شغال — تقدر تنهيه من أي جهاز.')],
       footer: [Button({ label: 'أخرج بس', onClick: () => { m.close(); signOut(); } }), Button({ type: 'primary', label: 'أنهي الدوام وأخرج', onClick: () => { m.close(); endShift(signOut); } })] });
   }
-  // logged before the Supabase sign-out so the server log still gets it; loggedOut first so the idle timer and SIGNED_OUT listener stand down
-  async function signOut(reason) { if (loggedOut) return; loggedOut = true; ls.trusted = false; U.closePopover(); await K.logEvent('auth.signout', reason || 'يدوي'); await window.IBAuth.signOut().catch(() => {}); showLogin(reason === 'idle' ? 'expired' : 'login'); }
-  function signOutAll() { K.confirm({ title: 'خروج من كل الأجهزة', text: 'هيتعمل خروج من كل الأجهزة التانية. الجهاز ده هيفضل داخل.', okLabel: 'خروج من الكل', onOk: () => { K.logEvent('auth.signoutAll', K.member(K.ME).name); K.toast('اتعمل خروج من الأجهزة التانية', 'success'); } }); }
+  // the server log never holds the screen: a stalled request is given up on after 3 s
+  const logWithin = (action, detail) => Promise.race([K.logEvent(action, detail), new Promise((r) => setTimeout(r, 3000))]);
+  // the app is hidden first; then the log (before the Supabase sign-out, so the server still takes it), then this device's sign-out.
+  // loggedOut first so the idle timer and SIGNED_OUT listener stand down
+  async function signOut(reason) { if (loggedOut) return; loggedOut = true; ls.trusted = false; U.closePopover(); showLogin(reason === 'idle' ? 'expired' : 'login'); await logWithin('auth.signout', reason || 'يدوي'); await window.IBAuth.signOut('local').catch(() => {}); }
+  function signOutAll() { K.confirm({ title: 'خروج من كل الأجهزة', text: 'هيتعمل خروج من كل الأجهزة التانية. الجهاز ده هيفضل داخل.', okLabel: 'خروج من الكل', onOk: async () => { const r = await window.IBAuth.signOutOthers().catch(() => ({ ok: false })); if (!r.ok) return K.toast('معرفناش نعمل خروج من الأجهزة التانية — جرّب تاني', 'error'); K.logEvent('auth.signoutAll', K.member(K.ME).name); K.toast('اتعمل خروج من الأجهزة التانية', 'success'); } }); }
 
   // ================= session timeout: 8h idle, 1-minute warning =================
-  let lastAct = now(); let warnOpen = null;
-  const touch = () => { lastAct = now(); try { localStorage.setItem('ib.lastAct', String(lastAct)); } catch (e) { /* storage blocked */ } }; // the gate (28-app.js) checks ib.lastAct on load
+  // ib.lastAct is shared by every tab (and read by the gate in 28-app.js on load); written at most once per 5 s
+  let lastAct = now(); let warnOpen = null; let lastWrite = 0;
+  const touch = () => { lastAct = now(); if (lastAct - lastWrite < 5000) return; lastWrite = lastAct; try { localStorage.setItem('ib.lastAct', String(lastAct)); } catch (e) { /* storage blocked */ } };
+  const idleSec = () => { let shared = 0; try { shared = Number(localStorage.getItem('ib.lastAct')) || 0; } catch (e) { /* storage blocked */ } return (now() - Math.max(lastAct, shared)) / 1000; }; // activity in any tab counts
   ['mousedown', 'keydown', 'touchstart', 'scroll'].forEach((e) => document.addEventListener(e, () => { if (!warnOpen) touch(); }, { passive: true }));
-  setInterval(() => { if (loggedOut) return; const s = O.idleState((now() - lastAct) / 1000); if (s === 'warn' && !warnOpen) sessionWarning(); if (s === 'expired') { if (warnOpen) warnOpen.close(); signOut('idle'); } }, 15000);
+  setInterval(() => { if (loggedOut) return; const s = O.idleState(idleSec()); if (s === 'active' && warnOpen) warnOpen.close(); if (s === 'warn' && !warnOpen) sessionWarning(); if (s === 'expired') { if (warnOpen) warnOpen.close(); signOut('idle'); } }, 15000);
   function sessionWarning() {
     let left = 60; const c = h('b', { class: 'num' }, '1:00');
     const m = U.Modal({ title: 'الجلسة هتخلص', body: [h('p', { style: 'margin:0' }, 'مفيش نشاط من فترة. هنعمل تسجيل خروج تلقائي خلال:'), h('div', { class: 'countdown' }, Icon('clock', 'sm'), c)], footer: [Button({ label: 'اخرج', onClick: () => { m.close(); signOut(); } }), Button({ type: 'primary', label: 'كمّل', onClick: () => { touch(); m.close(); } })], onClose: () => { clearInterval(t); warnOpen = null; } });
-    warnOpen = m; const t = setInterval(() => { left--; c.textContent = '0:' + String(Math.max(0, left)).padStart(2, '0'); if (left <= 0) { clearInterval(t); m.close(); signOut('idle'); } }, 1000);
+    warnOpen = m; const t = setInterval(() => { left--; c.textContent = '0:' + String(Math.max(0, left)).padStart(2, '0'); if (left <= 0) { clearInterval(t); m.close(); if (O.idleState(idleSec()) !== 'active') signOut('idle'); } }, 1000);
   }
 
   // ================= login (option B) =================
@@ -135,7 +140,7 @@
       body = [err, field('lg-fid', 'الإيميل أو رقم الموبايل', 'id', 'text', { errKey: 'id', onEnter: doForgot, attrs: { dir: 'ltr' } }), Button({ type: 'primary', size: 'lg', label: 'ابعت اللينك', onClick: doForgot, attrs: { class: 'btn btn-primary lg block' } }), Button({ type: 'text', label: 'رجوع لتسجيل الدخول', onClick: () => { ls.view = 'login'; ls.err = ''; drawLogin(); } })];
     } else if (v === 'sent') {
       title = 'اللينك اتبعت'; sub = '';
-      body = [U.InlineNote({ kind: 'success', children: 'لو الحساب موجود هيوصلك لينك على ' + ls.sentTo + '. اللينك صالح 30 دقيقة.' }), Button({ type: 'primary', size: 'lg', label: 'فتح اللينك (تجربة)', onClick: () => { ls.view = 'reset'; drawLogin(); }, attrs: { class: 'btn btn-primary lg block' } }), Button({ type: 'text', label: 'ابعت تاني', onClick: () => K.toast('اتبعت تاني') }), Button({ type: 'text', label: 'رجوع لتسجيل الدخول', onClick: () => { ls.view = 'login'; drawLogin(); } })];
+      body = [U.InlineNote({ kind: 'success', children: 'لو الحساب موجود هيوصلك لينك على ' + ls.sentTo + '. اللينك صالح 30 دقيقة.' }), Button({ type: 'text', label: 'ابعت تاني', onClick: async () => { const r = await window.IBAuth.resetPassword(ls.id); K.toast(r.ok ? 'اتبعت تاني' : netErr(), r.ok ? 'success' : 'error'); } }), Button({ type: 'text', label: 'رجوع لتسجيل الدخول', onClick: () => { ls.view = 'login'; drawLogin(); } })];
     } else if (v === 'reset' || v === 'invite') {
       title = v === 'invite' ? 'أهلاً بيك في فريق ابتكر' : 'كلمة مرور جديدة'; sub = v === 'invite' ? 'سارة عادل دعتك — اعمل كلمة المرور عشان تبدأ (الدعوة صالحة 7 أيام)' : 'اختار كلمة مرور جديدة';
       body = [err, v === 'invite' ? K.Kv([['الإيميل', 'new.member@ibtekr.club'], ['الدور', 'خدمة عملاء']]) : null, field('lg-p1', 'كلمة المرور', 'p1', ls.show ? 'text' : 'password', { errKey: 'p1', toggle: true, ac: 'new-password', help: '8 حروف على الأقل فيها حرف ورقم' }), field('lg-p2', 'أكّد كلمة المرور', 'p2', ls.show ? 'text' : 'password', { errKey: 'p2', ac: 'new-password', onEnter: doReset }),
@@ -166,7 +171,9 @@
   }
   async function do2fa() { const r = await window.IBAuth.verifyTotp(O.toLatin(ls.code)); if (!r.ok && r.reason === 'suspended') { ls.view = 'suspended'; return drawLogin(); } if (!r.ok) { ls.err = r.reason === 'network' ? netErr() : 'الكود غلط أو انتهى — جرّب تاني'; ls.code = ''; return drawLogin(); } if (ls.remember) ls.trusted = true; K.logEvent('auth.2fa', ls.channel); ls.err = ''; enterApp(); }
   async function doForgot() { if (!O.identifierKind(ls.id)) { ls.err = 'اكتب إيميل صحيح أو رقم موبايل من 11 رقم'; return drawLogin(); } const r = await window.IBAuth.resetPassword(ls.id); if (!r.ok) { ls.err = netErr(); return drawLogin(); } ls.sentTo = O.identifierKind(ls.id) === 'email' ? O.toLatin(ls.id) : 'واتساب ' + O.toLatin(ls.id); ls.err = ''; ls.view = 'sent'; drawLogin(); }
-  async function doReset() { const e = O.validatePassword(ls.p1, ls.p2); if (e) { ls.err = e; return drawLogin(); } const r = await window.IBAuth.updatePassword(ls.p1); if (!r.ok) { ls.err = window.IBSupabase.client ? 'معرفناش نحفظ كلمة المرور — افتح اللينك من الإيميل تاني وجرّب' : netErr(); return drawLogin(); } await K.logEvent('auth.password.set', ls.view); ls.err = ''; ls.p1 = ls.p2 = ''; if (ls.view === 'invite') return enterApp(); await window.IBAuth.signOut(); ls.view = 'login'; drawLogin(); K.toast('اتحفظت كلمة المرور — سجّل دخول', 'success'); }
+  async function doReset() { const e = O.validatePassword(ls.p1, ls.p2); if (e) { ls.err = e; return drawLogin(); } const r = await window.IBAuth.updatePassword(ls.p1); if (!r.ok) { ls.err = window.IBSupabase.client ? 'معرفناش نحفظ كلمة المرور — افتح اللينك من الإيميل تاني وجرّب' : netErr(); return drawLogin(); } ls.err = ''; ls.p1 = ls.p2 = ''; if (ls.view === 'invite') { await logWithin('auth.password.set', 'invite'); return enterApp(); }
+    // the login view first (sign-in held until the old sessions are gone), then the log, then every session of the user ends
+    ls.view = 'login'; ls.busy = true; drawLogin(); K.toast('اتحفظت كلمة المرور — سجّل دخول', 'success'); try { await logWithin('auth.password.set', 'reset'); await window.IBAuth.signOut('global').catch(() => {}); } finally { ls.busy = false; } }
   function routeLogin(hs) { const map = { login: 'login', 'login-2fa': '2fa', 'login-forgot': 'forgot', 'login-reset': 'reset', invite: 'invite', 'invite-expired': 'expiredInvite', 'login-suspended': 'suspended', 'login-locked': 'login' }; if (!(hs in map)) return false; if (hs === 'login-locked') auth = { fails: 0, left: 5, lockedUntil: now() + 15 * 60000 }; showLogin(map[hs]); return true; }
 
   window.IBShell = { ClockWidget, AccountMenu, state, clockIn, endShift, sessionWarning, signOutAll, showLogin, routeLogin, isLoggedOut: () => loggedOut };

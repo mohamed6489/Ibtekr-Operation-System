@@ -4,7 +4,7 @@
 
 مشروع Supabase: `fsynculhaupcktzkfkdd` (eu-central-1). الاستضافة: Hostinger shared hosting (Apache/LiteSpeed، ملفات static بس، مافيش build).
 
-الـ subdomain المختار (22 أكتوبر 2026): **`operation-system`** → `https://operation-system.ibtekr.club` (أسماء الدومين مش حساسة لحالة الحروف). صندوق البريد المستخدم للنظام وللأدمن الأول: `operation-operation-system@ibtekr.club`.
+الـ subdomain المختار (22 أكتوبر 2026): **`operation-system`** → `https://operation-system.ibtekr.club` (أسماء الدومين مش حساسة لحالة الحروف). صندوق البريد المستخدم للنظام وللأدمن الأول: `operation-system@ibtekr.club`.
 
 ---
 

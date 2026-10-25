@@ -133,7 +133,7 @@ lftp --env-password -u '<ftp user>' '<ftp host>' \
 ---
 
 ### 4.3 بديل تالت: GitHub Actions (مرة واحدة وبعدها تلقائي)
-الـ workflow `.github/workflows/deploy.yml` بيرفع `app/` عبر FTPS. اعمل حساب FTP مخصص من hPanel › Files › FTP Accounts ومجلده الرئيسي = مجلد الـ subdomain بس (مش الحساب الأساسي)، وضيف في GitHub › Settings › Secrets and variables › Actions الأربع أسرار: `FTP_SERVER`، `FTP_USERNAME`، `FTP_PASSWORD`، `FTP_SERVER_DIR` (مجلد الـ subdomain زي ما حساب FTP بيشوفه، بشرطة في الآخر). بعدها Actions › Deploy › Run workflow، وأي push على `main` يلمس `app/` بيرفع تلقائيًا.
+الـ workflow `.github/workflows/deploy.yml` بيرفع `app/` عبر FTPS. اعمل حساب FTP مخصص من hPanel › Files › FTP Accounts ومجلده الرئيسي = مجلد الـ subdomain بس (مش الحساب الأساسي)، وضيف في GitHub › Settings › Secrets and variables › Actions الأربع أسرار: `FTP_SERVER` (= اسم سيرفر Hostinger نفسه زي `srv1234.hstgr.io` من hPanel › Hosting › Plan details › Server؛ مش `ftp.ibtekr.club` لأنه بيعدّي من Cloudflare وCloudflare مابيمرّرش FTP، ومش IP لأن شهادة TLS بتتحقق بالاسم)، `FTP_USERNAME`، `FTP_PASSWORD`، `FTP_SERVER_DIR` (مجلد الـ subdomain زي ما حساب FTP بيشوفه؛ لو حساب FTP محصور في المجلد حط `./`). بعدها Actions › Deploy › Run workflow، وأي push على `main` يلمس `app/` بيرفع تلقائيًا.
 
 ## 5. التحقق بعد النشر
 

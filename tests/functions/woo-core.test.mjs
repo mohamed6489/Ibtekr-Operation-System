@@ -32,7 +32,12 @@ const MAP = [
 
 const PHONE = '+201200007052', EMAIL = 'rasha.test@example.com', STREET = 'شارع التجربة 12', FLAT = 'الدور الثالث';
 const BOSTA_PHONE = '01009998877', FB_ID = 'fbp.1.1700000000000.123456789', UA = 'Mozilla/5.0 (TestPhone) Safari/1.0';
-const PII = [PHONE, '1200007052', EMAIL, 'زيتوني', STREET, FLAT, BOSTA_PHONE, FB_ID, UA, '198.51.100.7', 'wc_order_TESTKEY', 'اتصلي قبل التوصيل', 'إلى سلوى مع الحب'];
+// Markers in places nobody listed (nested line meta, fee names, refund reasons, an unexpected billing key): raw is an
+// allow-list, so none of them may reach it.
+const SHIP_MARK = 'MARK-SHIP-META', FEE_MARK = 'MARK-FEE-NAME', COUPON_MARK = 'MARK-COUPON-META', REFUND_MARK = 'MARK-REFUND-REASON', WA_MARK = '01055554444';
+const LINE_MARK = 'MARK-LINE-EXTRA';
+const PII = [PHONE, '1200007052', EMAIL, 'زيتوني', STREET, FLAT, BOSTA_PHONE, FB_ID, UA, '198.51.100.7', 'wc_order_TESTKEY', 'اتصلي قبل التوصيل', 'إلى سلوى مع الحب',
+  SHIP_MARK, FEE_MARK, COUPON_MARK, REFUND_MARK, WA_MARK, LINE_MARK];
 
 const parent = (over = {}) => ({
   id: 181668, parent_id: 0, number: '181668', status: 'processing', currency: 'EGP', created_via: 'checkout',
@@ -41,13 +46,18 @@ const parent = (over = {}) => ({
   total: '1052.00', customer_id: 0, order_key: 'wc_order_TESTKEY', customer_ip_address: '198.51.100.7', customer_user_agent: UA,
   customer_note: 'اتصلي قبل التوصيل', payment_method: 'cod', payment_method_title: 'الدفع عند الاستلام',
   payment_url: 'https://stage.example.test/checkout/order-pay/181668/?pay_for_order=true&key=wc_order_TESTKEY',
-  billing: { first_name: 'سلوى', last_name: 'زيتوني', company: '', address_1: STREET, address_2: FLAT, city: 'القاهرة', state: 'EGC', postcode: '', country: 'EG', email: EMAIL, phone: PHONE },
+  billing: { first_name: 'سلوى', last_name: 'زيتوني', company: '', address_1: STREET, address_2: FLAT, city: 'القاهرة', state: 'EGC', postcode: '11511', country: 'EG', email: EMAIL, phone: PHONE, whatsapp: WA_MARK },
   shipping: { first_name: 'سلوى', last_name: 'زيتوني', company: '', address_1: '', address_2: '', city: '', state: '', postcode: '', country: 'EG', phone: '' },
   line_items: [{
     id: 9001, name: 'شمعة معطرة', product_id: 501, variation_id: 0, quantity: 2, subtotal: '1002.00', total: '1002.00', sku: 'SC-12', price: 501,
+    personalization: `اسم على الشمعة ${LINE_MARK}`, image: { id: 77, src: 'https://stage.example.test/candle.jpg' },
     meta_data: [{ id: 1, key: '_dokan_vendor_id', value: '77' }, { id: 2, key: 'gift_message', value: 'إلى سلوى مع الحب' }, { id: 3, key: '_reduced_stock', value: '2' }],
   }],
-  shipping_lines: [{ id: 9100, method_title: 'شحن', total: '50.00' }],
+  shipping_lines: [{ id: 9100, method_id: 'flat_rate', method_title: 'شحن', total: '50.00', meta_data: [{ id: 70, key: 'Items', value: `شمعة معطرة × 2 ${SHIP_MARK}` }] }],
+  fee_lines: [{ id: 9200, name: `رسوم ${FEE_MARK}`, total: '10.00', meta_data: [] }],
+  coupon_lines: [{ id: 9300, code: 'oct10', discount: '10.00', meta_data: [{ id: 71, key: 'coupon_info', value: COUPON_MARK }] }],
+  tax_lines: [{ id: 9400, rate_code: 'EG-VAT-1', label: 'VAT', tax_total: '0.00' }],
+  refunds: [{ id: 9500, reason: `العميلة سلوى ${REFUND_MARK}`, total: '-10.00' }],
   meta_data: [
     { id: 11, key: 'bosta_delivery_id', value: 'BD-TEST-1' },
     { id: 12, key: 'bosta_tracking_number', value: '7000000001' },
@@ -185,7 +195,15 @@ test('normalizePhone: digits only, Egyptian country code → leading 0', () => {
   assert.equal(normalizePhone('٠١٢٠٠٠٠٧٠٥٢'), '01200007052'); // Arabic-Indic digits typed at checkout
   assert.equal(normalizePhone('۰۱۲۰۰۰۰۷۰۵۲'), '01200007052'); // Persian digits
   assert.equal(normalizePhone('+971 50 123 4567'), '971501234567'); // other countries: digits only
-  assert.equal(normalizePhone('2012345'), '2012345'); // "20" not followed by 10 digits is not a country code
+  assert.equal(normalizePhone('2012345'), '2012345'); // a bare "20" counts only on a 12-digit number
+  assert.equal(normalizePhone('201012345678'), '01012345678');
+  assert.equal(normalizePhone('2001200007052'), '2001200007052');
+  assert.equal(normalizePhone('+20 2 2345 6789'), '0223456789'); // an explicit +20 / 0020 / 00 20 is stripped whatever follows (landline)
+  assert.equal(normalizePhone('0020 2 2345 6789'), '0223456789');
+  assert.equal(normalizePhone('00 20 120 000 7052'), '01200007052');
+  assert.equal(normalizePhone('(+20) 120 000 7052'), '01200007052');
+  assert.equal(normalizePhone('+٢٠ ١٢٠ ٠٠٠ ٧٠٥٢'), '01200007052');
+  assert.equal(normalizePhone('+20'), null);
   for (const empty of ['', '   ', '---', null, undefined]) assert.equal(normalizePhone(empty), null);
   assert.equal(normalizePhone(1200007052), '1200007052');
 });
@@ -278,17 +296,41 @@ test('mapOrder: a parent order → the orders row', () => {
   assert.deepEqual(input, before);
 });
 
-test('mapOrder: raw keeps the payload with billing/shipping redacted and the PII fields out', () => {
-  const { order } = mapOrder(parent(), { statusMap: MAP, vendorsByWooId: VENDORS, now: NOW });
+test('mapOrder: raw is an allow-list — listed scalars, place fields of billing/shipping, fixed line fields', () => {
+  const input = parent();
+  const { order, items } = mapOrder(input, { statusMap: MAP, vendorsByWooId: VENDORS, now: NOW });
   const raw = order.raw;
-  for (const k of ['first_name', 'last_name', 'email', 'phone', 'address_1', 'address_2']) assert.equal(raw.billing[k], R, k);
-  assert.equal(raw.billing.city, 'القاهرة');
-  assert.equal(raw.shipping.first_name, R);
-  for (const k of ['customer_note', 'customer_ip_address', 'customer_user_agent', 'order_key', 'payment_url']) assert.equal(k in raw, false, k);
+  assert.deepEqual(Object.keys(raw).sort(), ['billing', 'coupon_lines', 'created_via', 'currency', 'customer_id', 'date_created_gmt', 'date_modified_gmt', 'fee_lines',
+    'id', 'line_items', 'meta_data', 'number', 'parent_id', 'payment_method', 'payment_method_title', 'refunds', 'shipping', 'shipping_lines', 'status', 'tax_lines', 'total']);
+  const place = ({ city, state, postcode, country }) => ({ city, state, postcode, country });
+  assert.deepEqual(raw.billing, place(input.billing));
+  assert.deepEqual(raw.shipping, place(input.shipping));
+  assert.deepEqual(raw.shipping_lines, [{ id: 9100, method_id: 'flat_rate', method_title: 'شحن', total: '50.00' }]);
+  assert.equal(raw.shipping_lines[0].method_title, 'شحن');
+  assert.deepEqual(raw.fee_lines, [{ id: 9200, total: '10.00' }]);
+  assert.deepEqual(raw.coupon_lines, [{ id: 9300, code: 'oct10', discount: '10.00' }]);
+  assert.deepEqual(raw.tax_lines, [{ id: 9400, rate_code: 'EG-VAT-1', tax_total: '0.00' }]);
+  assert.deepEqual(raw.refunds, [{ id: 9500, total: '-10.00' }]);
   assert.equal(raw.id, 181668);
   assert.equal(raw.status, 'processing');
-  assert.equal(raw.shipping_lines[0].method_title, 'شحن');
   noPII(raw, 'order.raw');
+  for (const i of items) noPII(i.raw, 'item.raw');
+});
+
+test('mapOrder: an unexpected object under a listed key is not copied; nothing aliases the input', () => {
+  const input = parent({ cart_hash: { phone: PHONE }, total_tax: '0.00' });
+  const { order, items } = mapOrder(input, { statusMap: MAP, vendorsByWooId: VENDORS, now: NOW });
+  assert.equal('cart_hash' in order.raw, false);
+  assert.equal(order.raw.total_tax, '0.00');
+  order.raw.meta_data[0].value = 'changed'; items[0].raw.meta_data[0].value = 'changed';
+  assert.equal(input.meta_data[0].value, 'BD-TEST-1');
+  assert.equal(input.line_items[0].meta_data[0].value, '77');
+  // a kept meta value that is an object is a copy, not the input's object
+  const deep = parent();
+  deep.meta_data.push({ id: 80, key: '_dokan_shipping_info', value: { zone: 'cairo' } });
+  const kept = mapOrder(deep, { statusMap: MAP, vendorsByWooId: VENDORS, now: NOW }).order.raw.meta_data.find((m) => m.key === '_dokan_shipping_info');
+  kept.value.zone = 'changed';
+  assert.equal(deep.meta_data.at(-1).value.zone, 'cairo');
 });
 
 test('mapOrder: raw.meta_data keeps the allow-list only (removed, not redacted)', () => {
@@ -312,8 +354,8 @@ test('mapOrder: line items → order_items rows (vendor from the line meta)', ()
   assert.equal(r.items.length, 1);
   const { raw, ...item } = r.items[0];
   assert.deepEqual(item, { id: 9001, order_id: 181668, product_id: 501, sku: 'SC-12', name: 'شمعة معطرة', qty: 2, total: 1002, vendor_id: VENDORS[77] });
-  assert.deepEqual(raw.meta_data, [{ id: 1, key: '_dokan_vendor_id', value: '77' }]);
-  assert.equal(raw.price, 501);
+  assert.deepEqual(raw, { id: 9001, product_id: 501, variation_id: 0, name: 'شمعة معطرة', sku: 'SC-12', quantity: 2, price: 501, subtotal: '1002.00', total: '1002.00',
+    meta_data: [{ id: 1, key: '_dokan_vendor_id', value: '77' }] });
   noPII(raw, 'item.raw');
 });
 
@@ -396,6 +438,22 @@ test('mapOrder: skipped before START_DATE and for drafts (nothing to write)', ()
   assert.equal(mapOrder(parent({ status: 'checkout-draft' }), ctx).order, null);
 });
 
+test('mapOrder: invalid payloads skip; a null ctx is {}', () => {
+  const invalid = { skipped: 'invalid', order: null, items: [], unknownVendorIds: [], statusResult: null };
+  assert.deepEqual(mapOrder(undefined), invalid);
+  assert.deepEqual(mapOrder({}), invalid);
+  assert.deepEqual(mapOrder('{"id":1}', {}), invalid);
+  assert.deepEqual(mapOrder(parent({ id: 'abc' }), { statusMap: MAP }), invalid);
+  assert.deepEqual(mapOrder(parent({ date_created_gmt: null }), { statusMap: MAP }), invalid);
+  assert.deepEqual(mapOrder(parent({ date_created_gmt: 'yesterday' }), { statusMap: MAP }), invalid);
+  const r = mapOrder(parent(), null);
+  assert.equal(r.skipped, undefined);
+  assert.equal(r.order.status, 'قيد الانتظار'); // empty map: no row for 'processing' → the default, as a conflict
+  assert.equal(r.statusResult, 'conflict');
+  assert.equal(r.items[0].vendor_id, null);
+  assert.deepEqual(r.unknownVendorIds, [77]);
+});
+
 test('mapOrder: dates with a zone are not given a second one; now as a Date', () => {
   const r = mapOrder(parent({ date_created_gmt: '2026-10-19T09:12:00Z', date_modified_gmt: null }), { statusMap: MAP, now: new Date(NOW) });
   assert.equal(r.order.placed_at, '2026-10-19T09:12:00Z');
@@ -415,7 +473,9 @@ test('mapSubOrder: a staging sub-order (only _dokan_vendor_id) → earning and c
   assert.deepEqual(row, { order_id: 181668, vendor_id: U77, woo_order_id: 181700, woo_status: 'processing', total: 1002, dokan_earning: null, commission: null });
   assert.deepEqual(r.unknownVendorIds, []);
   assert.deepEqual(keysOfMeta(raw.meta_data), ['_dokan_vendor_id']);
-  assert.equal(raw.billing.phone, R);
+  assert.deepEqual(raw.billing, { city: 'القاهرة', state: 'EGC', postcode: '11511', country: 'EG' });
+  assert.deepEqual(raw.refunds, [{ id: 9500, total: '-10.00' }]);
+  assert.equal(raw.parent_id, 181668);
   noPII(raw, 'sub.raw');
   assert.deepEqual(input, before);
 });
@@ -436,6 +496,18 @@ test('mapSubOrder: Dokan commission meta and earning are converted to numbers', 
   // one commission key is enough for the object; an unusable value stays null
   assert.deepEqual(mapSubOrder(sub([{ id: 54, key: '_dokan_additional_fee', value: 'n/a' }]), { vendorsByWooId: VENDORS }).sub.commission,
     { rate: null, type: null, admin_fee: null, additional_fee: null });
+});
+
+test('mapSubOrder: invalid payloads skip; a null ctx is {}', () => {
+  const invalid = { skipped: 'invalid', sub: null, unknownVendorIds: [] };
+  assert.deepEqual(mapSubOrder(undefined), invalid);
+  assert.deepEqual(mapSubOrder({}), invalid);
+  assert.deepEqual(mapSubOrder(sub([], { parent_id: 0 }), { vendorsByWooId: VENDORS }), invalid);
+  assert.deepEqual(mapSubOrder(sub([], { id: null }), { vendorsByWooId: VENDORS }), invalid);
+  const r = mapSubOrder(sub(), null);
+  assert.equal(r.skipped, undefined);
+  assert.equal(r.sub.woo_order_id, 181700);
+  assert.deepEqual(r.unknownVendorIds, [77]);
 });
 
 test('mapSubOrder: unknown vendor → unknownVendorIds and vendor_id null', () => {
@@ -472,6 +544,15 @@ test('mapStore: Dokan store → vendors row with a lean raw', () => {
 
 test('mapStore: enabled:false → inactive; email only when shown', () => {
   assert.equal(mapStore(store({ enabled: false })).status, 'inactive');
+  for (const off of ['0', 'no', 0, false, undefined, null, '', 'false']) {
+    assert.equal(mapStore(store({ enabled: off })).status, 'inactive', String(off));
+    assert.equal(mapStore(store({ show_email: off })).email, null, String(off));
+  }
+  for (const on of [true, 1, '1', 'yes', 'true']) {
+    assert.equal(mapStore(store({ enabled: on })).status, 'active', String(on));
+    assert.equal(mapStore(store({ show_email: on })).email, 'maker.test@example.com', String(on));
+  }
+  assert.deepEqual(mapStore(store({ rating: { rating: '5', count: 1, reviewer: { email: 'x@example.com' } } })).raw.rating, { rating: '5', count: 1 });
   assert.equal(mapStore(store({ show_email: true })).email, 'maker.test@example.com');
   assert.equal(mapStore(store({ show_email: true, email: '' })).email, null);
   assert.equal(mapStore(store({ phone: '' })).phone, null);
@@ -490,9 +571,14 @@ test('nextCursor: newest date_modified_gmt − 60 s, never before the previous c
   assert.equal(nextCursor('2026-10-21T00:00:00Z', orders), '2026-10-21T00:00:00Z');
 });
 
-test('nextCursor: no usable dates → the previous cursor as given', () => {
+test('nextCursor: no usable dates → the previous cursor, in the same UTC form', () => {
   assert.equal(nextCursor('2026-10-18T00:00:00Z', []), '2026-10-18T00:00:00Z');
   assert.equal(nextCursor('2026-10-18T00:00:00Z', undefined), '2026-10-18T00:00:00Z');
   assert.equal(nextCursor('2026-10-18T00:00:00Z', [{ date_modified_gmt: null }, { date_modified_gmt: 'not a date' }, {}]), '2026-10-18T00:00:00Z');
+  assert.equal(nextCursor('2026-10-18T00:00:00', []), '2026-10-18T00:00:00Z');
+  assert.equal(nextCursor('2026-10-18T03:00:00+03:00', []), '2026-10-18T00:00:00Z');
+  assert.equal(nextCursor('2026-10-18T00:00:00.000Z', []), '2026-10-18T00:00:00Z');
+  assert.equal(nextCursor('2026-10-21T03:00:00+03:00', [{ date_modified_gmt: '2026-10-20T08:30:15' }]), '2026-10-21T00:00:00Z');
+  assert.equal(nextCursor('garbage', []), null);
   assert.equal(nextCursor(null, []), null);
 });

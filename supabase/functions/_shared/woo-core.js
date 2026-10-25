@@ -1,9 +1,12 @@
 // woo-core: the pure WooCommerce / Dokan sync core shared by the woo-webhook and woo-sync Edge Functions.
 // Contract: plain ESM with no imports, loaded unchanged by Deno (the Edge Functions) and Node (node:test). Standard
-// JS and Web APIs only (crypto.subtle, TextEncoder, btoa); no I/O, no clock (the caller passes `now`),
+// JS and Web APIs only (crypto.subtle, TextEncoder, btoa, structuredClone); no I/O, no clock (the caller passes `now`),
 // deterministic, inputs never mutated and never aliased by the output. Rows use the column names of 0007_orders.sql.
-// `raw` carries no personal data: billing / shipping redacted (redactPII), order meta cut to META_KEEP, line meta cut
-// to `_dokan_*`, and the customer note, IP, user agent, order key and pay link dropped.
+// `raw` is built from allow-lists, never by deleting known-bad keys, so nothing personal can reach it through a field
+// nobody listed: the RAW_* fields below (scalars only), billing / shipping cut to city/state/postcode/country, order
+// meta cut to META_KEEP, line_items as `{ id, _dokan_* meta }`, and fixed fields for shipping/coupon/fee/tax lines and
+// refunds (no fee names, no refund reasons, no meta on those lines); order_items raw = RAW_ITEM + `_dokan_*` meta;
+// vendors raw = RAW_STORE + rating. redactPII is kept for callers (logging); raw does not depend on it.
 
 export const START_DATE = '2026-10-01';
 export const OPEN_WOO = ['processing', 'pending', 'on-hold'];
@@ -19,9 +22,19 @@ export const META_KEEP = [
 const REDACTED = '<redacted>';
 // Same key rule as tools/woo-probe.mjs (Task 1): a personal field as a whole key or a suffix, with any qualifier.
 const PII_KEY = /(^|_)(first_name|last_name|email|phone|company|note|address)(_\w+)?$/i;
-const RAW_DROP = ['customer_note', 'customer_ip_address', 'customer_user_agent', 'order_key', 'payment_url'];
+// raw allow-lists (orders and sub-orders; order_items; vendors).
+const RAW_SCALARS = ['id', 'number', 'status', 'currency', 'total', 'subtotal', 'total_tax', 'shipping_total', 'discount_total',
+  'payment_method', 'payment_method_title', 'created_via', 'date_created_gmt', 'date_modified_gmt', 'date_paid_gmt',
+  'date_completed_gmt', 'parent_id', 'customer_id', 'cart_hash'];
+const RAW_ADDRESS = ['city', 'state', 'postcode', 'country'];
+const RAW_LISTS = {
+  shipping_lines: ['id', 'method_id', 'method_title', 'total'], coupon_lines: ['id', 'code', 'discount'],
+  fee_lines: ['id', 'total'], tax_lines: ['id', 'rate_code', 'tax_total'], refunds: ['id', 'total'],
+};
+const RAW_ITEM = ['id', 'product_id', 'variation_id', 'name', 'sku', 'quantity', 'price', 'subtotal', 'subtotal_tax', 'total',
+  'total_tax', 'tax_class', 'parent_name'];
+const RAW_STORE = ['id', 'store_name', 'shop_url', 'enabled', 'registered', 'featured', 'trusted'];
 const DRAFT = ['checkout-draft', 'trash'];
-const STORE_RAW = ['id', 'store_name', 'shop_url', 'rating', 'enabled', 'registered', 'featured', 'trusted'];
 const COMMISSION = { rate: '_dokan_commission_rate', type: '_dokan_commission_type', admin_fee: '_dokan_admin_fee', additional_fee: '_dokan_additional_fee' };
 const DEFAULT_STATUS = 'قيد الانتظار'; // only when the map is empty; otherwise its first row
 const START_MS = Date.parse(`${START_DATE}T00:00:00Z`);
@@ -47,7 +60,11 @@ const hasMeta = (meta, key) => objs(meta).some((e) => e.key === key);
 const keeper = (list) => (key) => typeof key === 'string' && list.some((k) => (k.endsWith('*') ? key.startsWith(k.slice(0, -1)) : key === k));
 const keepOrderMeta = keeper(META_KEEP);
 const keepDokanMeta = keeper(['_dokan_*']);
-const cutMeta = (meta, keep) => objs(meta).filter((e) => keep(e.key));
+const cutMeta = (meta, keep) => objs(meta).filter((e) => keep(e.key)).map((e) => ({ id: e.id ?? null, key: e.key, value: structuredClone(e.value ?? null) }));
+// Copies only the listed keys whose value is a scalar (an unexpected object under a listed key is not copied).
+const isScalar = (v) => v === null || ['string', 'number', 'boolean'].includes(typeof v);
+const pick = (o, keys) => Object.fromEntries(keys.filter((k) => isObj(o) && isScalar(o[k])).map((k) => [k, o[k]]));
+const isOn = (v) => v === true || v === 1 || v === '1' || v === 'yes' || v === 'true';
 
 const personName = (p) => `${str(p.first_name)} ${str(p.last_name)}`.trim();
 const addressOf = (p) => orNull(`${str(p.address_1)} ${str(p.address_2)}`);
@@ -73,30 +90,33 @@ export function redactPII(value) {
 }
 
 // An order / sub-order payload as stored in raw (see the header).
-function cleanRaw(payload) {
-  const out = Object.entries(payload)
-    .filter(([k]) => !RAW_DROP.includes(k))
-    .map(([k, v]) => [k,
-      k === 'meta_data' ? cutMeta(v, keepOrderMeta)
-        : k === 'line_items' ? objs(v).map((li) => ({ id: li.id ?? null, meta_data: cutMeta(li.meta_data, keepDokanMeta) }))
-          : v]);
-  return redactPII(Object.fromEntries(out));
+function cleanRaw(o) {
+  const raw = pick(o, RAW_SCALARS);
+  for (const k of ['billing', 'shipping']) if (isObj(o[k])) raw[k] = pick(o[k], RAW_ADDRESS);
+  if (Array.isArray(o.meta_data)) raw.meta_data = cutMeta(o.meta_data, keepOrderMeta);
+  if (Array.isArray(o.line_items)) raw.line_items = objs(o.line_items).map((li) => ({ id: li.id ?? null, meta_data: cutMeta(li.meta_data, keepDokanMeta) }));
+  for (const [k, keys] of Object.entries(RAW_LISTS)) if (Array.isArray(o[k])) raw[k] = objs(o[k]).map((e) => pick(e, keys));
+  return raw;
 }
 
-function itemRaw(line) {
-  const { meta_data: meta, ...rest } = line;
-  return redactPII({ ...rest, meta_data: cutMeta(meta, keepDokanMeta) });
-}
+const itemRaw = (line) => ({ ...pick(line, RAW_ITEM), meta_data: cutMeta(line.meta_data, keepDokanMeta) });
 
-/** Digits only (Arabic-Indic and Persian digits too); an Egyptian +20 / 0020 / 20 before 10 digits → a leading 0. */
+/**
+ * Digits only (Arabic-Indic and Persian digits too). An explicit Egyptian prefix (+20, 0020, 00 20) is replaced by a
+ * leading 0 whatever follows (mobiles and landlines); a bare 20 only on a 12-digit number (20 + a 10-digit mobile).
+ */
 export function normalizePhone(s) {
-  const digits = str(s)
-    .replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x0660))
-    .replace(/[۰-۹]/g, (c) => String(c.charCodeAt(0) - 0x06F0))
-    .replace(/\D/g, '');
+  const text = str(s)
+    .replace(/[\u0660-\u0669]/g, (c) => String(c.charCodeAt(0) - 0x0660))
+    .replace(/[\u06F0-\u06F9]/g, (c) => String(c.charCodeAt(0) - 0x06F0));
+  const prefixed = /^\(?\s*(?:\+|00)\s*20(.*)$/s.exec(text);
+  if (prefixed) {
+    const rest = prefixed[1].replace(/\D/g, '');
+    return !rest ? null : rest.startsWith('0') ? rest : `0${rest}`;
+  }
+  const digits = text.replace(/\D/g, '');
   if (!digits) return null;
-  const eg = /^(?:00)?20(0?\d{10})$/.exec(digits);
-  return eg ? (eg[1].startsWith('0') ? eg[1] : `0${eg[1]}`) : digits;
+  return /^20\d{10}$/.test(digits) ? `0${digits.slice(2)}` : digits;
 }
 
 // ---------------------------------------------------------------- webhook signature
@@ -161,12 +181,16 @@ export const isSubOrder = (wooOrder) => (num(wooOrder?.parent_id) ?? 0) > 0;
 
 /**
  * A Woo parent order → { order (orders row), items (order_items rows), unknownVendorIds, statusResult }, or
- * { skipped: 'before_start' | 'draft', order: null, items: [] }. ctx.currentStatus = the order's status in the DB.
+ * { skipped: 'invalid' | 'before_start' | 'draft', order: null, items: [] } (invalid = not an object, no numeric id or
+ * no date_created_gmt). ctx (null = {}): statusMap, vendorsByWooId, now, currentStatus (the order's status in the DB).
  * A line's vendor comes from its own _dokan_vendor_id, else the parent's (a single-vendor parent carries it itself).
  */
-export function mapOrder(wooOrder, { statusMap = [], vendorsByWooId = null, now = null, currentStatus = null } = {}) {
+export function mapOrder(wooOrder, ctx) {
+  const { statusMap = [], vendorsByWooId = null, now = null, currentStatus = null } = ctx ?? {};
   const o = isObj(wooOrder) ? wooOrder : {};
-  const skipped = (gmtMs(o.date_created_gmt) ?? Infinity) < START_MS ? 'before_start' : DRAFT.includes(o.status) ? 'draft' : null;
+  const created = gmtMs(o.date_created_gmt);
+  const skipped = wooId(o.id) === null || created === null ? 'invalid'
+    : created < START_MS ? 'before_start' : DRAFT.includes(o.status) ? 'draft' : null;
   if (skipped) return { skipped, order: null, items: [], unknownVendorIds: [], statusResult: null };
 
   const unknown = new Set();
@@ -202,9 +226,14 @@ export function mapOrder(wooOrder, { statusMap = [], vendorsByWooId = null, now 
   return { order, items, unknownVendorIds: [...unknown], statusResult: status.result };
 }
 
-/** A Dokan sub-order (a WC order with parent_id) → { sub (sub_orders row), unknownVendorIds }. */
-export function mapSubOrder(wooSubOrder, { vendorsByWooId = null } = {}) {
+/**
+ * A Dokan sub-order (a WC order with parent_id) → { sub (sub_orders row), unknownVendorIds }, or
+ * { skipped: 'invalid', sub: null, unknownVendorIds: [] } without a numeric id / parent_id. ctx null = {}.
+ */
+export function mapSubOrder(wooSubOrder, ctx) {
+  const { vendorsByWooId = null } = ctx ?? {};
   const o = isObj(wooSubOrder) ? wooSubOrder : {};
+  if (wooId(o.id) === null || wooId(o.parent_id) === null) return { skipped: 'invalid', sub: null, unknownVendorIds: [] };
   const vendor = wooId(metaValue(o.meta_data, '_dokan_vendor_id'));
   const uuid = vendorUuid(vendorsByWooId, vendor);
   const meta = (key) => metaValue(o.meta_data, key);
@@ -228,19 +257,21 @@ export function mapStore(dokanStore) {
     woo_vendor_id: id,
     name: str(s.store_name) || `#${id ?? ''}`,
     phone: orNull(s.phone),
-    email: s.show_email ? orNull(s.email) : null,
-    status: s.enabled ? 'active' : 'inactive',
-    raw: redactPII(Object.fromEntries(STORE_RAW.filter((k) => Object.hasOwn(s, k)).map((k) => [k, s[k]]))),
+    email: isOn(s.show_email) ? orNull(s.email) : null,
+    status: isOn(s.enabled) ? 'active' : 'inactive',
+    raw: { ...pick(s, RAW_STORE), ...(isObj(s.rating) ? { rating: pick(s.rating, ['rating', 'count']) } : {}) },
   };
 }
 
 // ---------------------------------------------------------------- cursor
 
-/** Backup-sync cursor: the newest date_modified_gmt − 60 s (late writes), never before the previous cursor. */
+/**
+ * Backup-sync cursor: the newest date_modified_gmt − 60 s (late writes), never before the previous cursor. Always
+ * `YYYY-MM-DDTHH:MM:SSZ` (the previous one is normalised too); null when neither gives a usable date.
+ */
 export function nextCursor(previousIso, orders) {
   const newest = objs(orders).reduce((max, o) => Math.max(max, gmtMs(o.date_modified_gmt) ?? -Infinity), -Infinity);
-  if (!Number.isFinite(newest)) return previousIso ?? null;
-  const next = newest - CURSOR_OVERLAP_MS;
   const prev = gmtMs(previousIso);
-  return prev !== null && prev >= next ? previousIso : isoSeconds(next);
+  const next = Number.isFinite(newest) ? Math.max(newest - CURSOR_OVERLAP_MS, prev ?? -Infinity) : prev;
+  return next === null ? null : isoSeconds(next);
 }

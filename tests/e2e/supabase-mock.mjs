@@ -60,10 +60,13 @@ function readSelect(table, select) {
   return { pick: (r) => Object.fromEntries(parts.flatMap((p) => p(r))) };
 }
 const NOT_FILTERS = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'columns']);
-// the horizontal filters of a PostgREST request (only eq. is emulated) → { match(row) } | { bad: 'param=value' }
-function readFilters(params) {
-  const f = [...params].filter(([k]) => !NOT_FILTERS.has(k)); const bad = f.find(([, v]) => !v.startsWith('eq.'));
-  return bad ? { bad: bad.join('=') } : { match: (r) => f.every(([k, v]) => String(r[k]) === v.slice(3)) };
+const IN_FILTERS = { alert_reads: ['alert_id'] }; // the only in.(…) filter the app sends: alerts.js asks the marks of the loaded alert ids
+// the horizontal filters of a PostgREST request (eq. everywhere; in.(a,b) on IN_FILTERS only) → { match(row) } | { bad: 'param=value' }
+function readFilters(params, table) {
+  const f = [...params].filter(([k]) => !NOT_FILTERS.has(k));
+  const bad = f.find(([k, v]) => !v.startsWith('eq.') && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)));
+  const one = ([k, v]) => { if (v.startsWith('eq.')) return (r) => String(r[k]) === v.slice(3); const set = v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1')); return (r) => set.includes(String(r[k])); };
+  return bad ? { bad: bad.join('=') } : { match: (r) => f.every((p) => one(p)(r)) };
 }
 const factorsOf = (u) => (u.twofa ? [{ id: 'f-' + u.member_code, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }] : []);
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
@@ -155,8 +158,8 @@ export async function installSupabaseMock(page) {
       const emulated = /^\/rest\/v1\/(user_prefs|activity_log|alerts|alert_reads)$/.exec(path);
       const METHODS = { user_prefs: ['GET', 'POST', 'DELETE'], activity_log: ['GET'], alerts: ['GET'], alert_reads: ['GET', 'POST'] };
       if (emulated && METHODS[emulated[1]].includes(method)) {
-        const t = emulated[1]; const f = readFilters(url.searchParams); const sel = readSelect(t, url.searchParams.get('select'));
-        if (f.bad) return json(400, { code: 'PGRST100', details: null, hint: null, message: 'mock: only eq. filters are emulated, got ' + f.bad });
+        const t = emulated[1]; const f = readFilters(url.searchParams, t); const sel = readSelect(t, url.searchParams.get('select'));
+        if (f.bad) return json(400, { code: 'PGRST100', details: null, hint: null, message: 'mock: only eq. filters (and in. on alert_reads.alert_id) are emulated, got ' + f.bad });
         if (method === 'GET' && sel.bad) return json(400, { code: '42703', details: null, hint: null, message: `column ${sel.bad} does not exist` });
         // a GET's order=col.dir and limit, then its select
         const answer = (rows) => {

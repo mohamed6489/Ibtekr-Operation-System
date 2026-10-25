@@ -1,7 +1,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs'; import { runInNewContext } from 'node:vm';
 import { stubClient, opsOf } from './stub-supabase.mjs';
-// alerts.js against a stub IBSupabase: alerts (RLS-filtered) + this user's alert_reads → the bell's «النظام» section.
+// alerts.js against a stub IBSupabase: alerts (RLS-filtered) + this user's alert_reads for those ids → the bell's «النظام» section.
 const src = readFileSync(new URL('../../app/js/adapter/alerts.js', import.meta.url), 'utf8');
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const A2 = { id: 2, at: '2026-10-25T09:00:00Z', kind: 'woo.sync.failed', title: 'فشل المزامنة', body: null, entity: 'settings-integrations', entity_id: null };
@@ -16,11 +16,12 @@ function load({ responses = loaded(), client = true, channelThrows = false, conf
 }
 const has = (calls, c) => calls.some((x) => JSON.stringify(x) === JSON.stringify(c));
 
-test('load merges reads', async () => {
+test('load merges reads, asked for the loaded alert ids only (bounded by the alerts limit)', async () => {
   const { A, calls } = load();
   await A.load();
   assert.deepEqual(opsOf(calls, 'alerts'), [{ op: 'select', args: ['id, at, kind, title, body, entity, entity_id'] }, { op: 'order', args: ['at', { ascending: false }] }, { op: 'limit', args: [200] }]);
-  assert.deepEqual(opsOf(calls, 'alert_reads'), [{ op: 'select', args: ['alert_id'] }, { op: 'eq', args: ['user_id', 'u2'] }]);
+  assert.deepEqual(opsOf(calls, 'alert_reads'), [{ op: 'select', args: ['alert_id'] }, { op: 'eq', args: ['user_id', 'u2'] }, { op: 'in', args: ['alert_id', [2, 1]] }]);
+  assert.ok(calls.findIndex((c) => c.table === 'alert_reads') > calls.findIndex((c) => c.table === 'alerts')); // after the alerts answered
   assert.equal(A.list()[0].id, 2);
   assert.equal(A.list()[1].read, true);
   assert.equal(A.unread(), 1);
@@ -167,6 +168,22 @@ test('section() is null before load', async () => {
   assert.equal(A.section(), null);
   assert.deepEqual(plain(A.list()), []);
   assert.equal(A.unread(), 0);
+});
+
+test('no alerts: no alert_reads request, an empty section', async () => {
+  const { A, calls, events } = load({ responses: { alerts: { data: [], error: null }, alert_reads: { data: [{ alert_id: 1 }], error: null } } });
+  await A.load();
+  assert.deepEqual(opsOf(calls, 'alert_reads'), []);
+  assert.deepEqual(plain(A.list()), []);
+  assert.equal(A.section().received, 0);
+  assert.ok(events.includes('ib:notify'));
+});
+
+test('a failed marks read leaves section() null (never every alert shown unread)', async () => {
+  const { A, responses } = load();
+  responses.alert_reads = { data: null, error: { message: 'x' } };
+  await A.load();
+  assert.equal(A.section(), null);
 });
 
 test('clear forgets the alerts; a failed load leaves section() null', async () => {

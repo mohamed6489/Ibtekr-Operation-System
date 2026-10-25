@@ -1,6 +1,7 @@
 // Server alerts for the bell's «النظام» section: alerts (RLS: addressed to this user or their role, active profile only)
-// joined with this user's alert_reads, newest first. alert_reads is the single per-user read state; it is granted
-// select + insert only, so a mark is an insert and a duplicate (23505: read on another device) counts as done.
+// joined with this user's alert_reads, newest first: the marks are asked for the loaded ids only (in.(…), so at most LIMIT
+// rows however long the read history; PostgREST cuts a response at max_rows). alert_reads is the single per-user read
+// state; it is granted select + insert only, so a mark is an insert and a duplicate (23505: read on another device) counts as done.
 // markRead/markAllRead change the cache first, then write; failures answer { ok:false } and are never thrown. Marking an
 // alert the cache already has as read is a no-op ({ ok:true }, no request, no ib:notify).
 // subscribe() adds Realtime inserts (skipped with IB_CONFIG.realtime === false). Every change dispatches ib:notify,
@@ -20,12 +21,13 @@
     const cl = c(); const id = uid();
     if (!cl || !id) return;
     try {
-      const [a, r] = await Promise.all([
-        cl.from('alerts').select('id, at, kind, title, body, entity, entity_id').order('at', { ascending: false }).limit(LIMIT),
-        cl.from('alert_reads').select('alert_id').eq('user_id', id)]);
-      if (a.error || r.error) return;
+      const a = await cl.from('alerts').select('id, at, kind, title, body, entity, entity_id').order('at', { ascending: false }).limit(LIMIT);
+      if (a.error) return;
+      const rows = a.data || []; const ids = rows.map((x) => x.id);
+      const r = ids.length ? await cl.from('alert_reads').select('alert_id').eq('user_id', id).in('alert_id', ids) : { data: [] }; // no alerts: no marks to ask for
+      if (r.error) return;
       const read = new Set((r.data || []).map((x) => x.alert_id));
-      items = (a.data || []).map((x) => toAlert(x, read.has(x.id)));
+      items = rows.map((x) => toAlert(x, read.has(x.id)));
       notify(); // the bell was drawn before the alerts arrived
     } catch (e) { /* offline: no server section */ }
   }

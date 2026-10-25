@@ -1,0 +1,55 @@
+# Fetches a SheetJS CE build from the official CDN and commits it under app/js/vendor/ (the Claude sandbox cannot
+# reach cdn.sheetjs.com, and npm stops at the vulnerable 0.18.5). Manual, pinned, hash printed in the log and
+# recorded in app/js/vendor/README.md by the task that uses it.
+name: Vendor fetch (SheetJS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "SheetJS CE version (e.g. 0.20.3) or 'latest'"
+        required: true
+        default: "0.20.3"
+      branch:
+        description: "Branch to commit the file to"
+        required: true
+        default: "main-gha10e"
+
+permissions:
+  contents: write
+
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ inputs.branch }}
+      - name: download from cdn.sheetjs.com
+        env:
+          VERSION: ${{ inputs.version }}
+        run: |
+          set -euo pipefail
+          [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+|latest)$ ]] || { echo "bad version"; exit 1; }
+          mkdir -p app/js/vendor
+          url="https://cdn.sheetjs.com/xlsx-${VERSION}/package/dist/xlsx.full.min.js"
+          curl -fsSL --retry 3 -o app/js/vendor/xlsx.full.min.js "$url"
+          test -s app/js/vendor/xlsx.full.min.js
+          head -c 200 app/js/vendor/xlsx.full.min.js | grep -q "xlsx" || { echo "unexpected content"; exit 1; }
+          ver=$(grep -o 'version:"[0-9.]*"' app/js/vendor/xlsx.full.min.js | head -1 | cut -d'"' -f2)
+          sha=$(sha256sum app/js/vendor/xlsx.full.min.js | cut -d' ' -f1)
+          echo "VENDOR xlsx.full.min.js version=${ver} sha256=${sha} source=${url}"
+          echo "ver=${ver}" >> "$GITHUB_ENV"
+          echo "sha=${sha}" >> "$GITHUB_ENV"
+      - name: commit
+        env:
+          BRANCH: ${{ inputs.branch }}
+        run: |
+          set -euo pipefail
+          [[ "$BRANCH" =~ ^[A-Za-z0-9._/-]+$ ]] || { echo "bad branch name"; exit 1; }
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add app/js/vendor/xlsx.full.min.js
+          if git diff --cached --quiet; then echo "no change"; exit 0; fi
+          git commit -m "chore(vendor): SheetJS CE ${ver} from cdn.sheetjs.com (sha256 ${sha})"
+          git push origin "HEAD:${BRANCH}"

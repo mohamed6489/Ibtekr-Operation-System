@@ -25,12 +25,17 @@ const ok = (data) => ({ data, error: null });
 const COLS = { order: 'id, customer_name, customer_phone, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, placed_at, cancel, ret',
   item: 'id, order_id, sub_order_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed', sub: 'id, order_id, vendor_id, woo_order_id, woo_status' };
 const seed = () => ({ orders_v: ok([O1, O2]), order_items: ok(ITEMS), sub_orders: ok(SUBS), vendors: ok(VENDORS), products: ok(PRODUCTS), status_map: ok(STATUSES), 'fn:woo-sync': ok({ action: 'push_status', result: 'ok', counts: { pushed: 1 } }) });
-function load({ responses = seed(), client = true, config = { supabaseUrl: 'https://proj.supabase.co' }, app = null, signedIn = true, channelThrows = false } = {}) {
+// the adapter's clock: local 2026-10-25 12:00 unless a test asks for the real one (now: null)
+const NOW = new Date(2026, 9, 25, 12, 0).getTime();
+const clockAt = (t) => class FakeDate extends Date { constructor(...a) { if (a.length) super(...a); else super(t); } static now() { return t; } };
+function load({ responses = seed(), client = true, config = { supabaseUrl: 'https://proj.supabase.co' }, app = null, signedIn = true, channelThrows = false, now = NOW } = {}) {
   const stub = stubClient({ responses, channelThrows }); const events = []; const logs = [];
   const window = { IBSupabase: { client: client ? stub.client : null }, IBAuth: { session: () => (signedIn ? { user: { id: 'u1' } } : null) }, IB_CONFIG: config,
-    IBKit: { TODAY: '2026-10-25', logEvent: (action, detail) => { logs.push([action, detail]); return Promise.resolve(); } } };
+    IBKit: { TODAY: '2026-10-21', logEvent: (action, detail) => { logs.push([action, detail]); return Promise.resolve(); } } };
   if (app) window.OrdersApp = app;
-  runInNewContext(src, { window, document: { dispatchEvent(e) { events.push(e.type); } }, Event });
+  const ctx = { window, document: { dispatchEvent(e) { events.push(e.type); } }, Event };
+  if (now !== null) ctx.Date = clockAt(now);
+  runInNewContext(src, ctx);
   return { O: window.IBOrders, window, calls: stub.calls, responses: stub.responses, emitChange: stub.emitChange, events, logs };
 }
 const selectOf = (calls, table) => opsOf(calls, table).filter((c) => c.op === 'select').map((c) => c.args[0]);
@@ -51,7 +56,7 @@ test('load names every column (no *, removed included) and asks for the last 12 
   assert.deepEqual(selectOf(calls, 'status_map'), ['system_status, woo_status, direction, sort']);
   const ov = opsOf(calls, 'orders_v');
   const gte = ov.find((c) => c.op === 'gte'); assert.equal(gte.args[0], 'placed_at');
-  const back = (Date.now() - Date.parse(gte.args[1])) / 864e5; assert.ok(back > 363 && back < 368, 'about 12 months back: ' + back);
+  assert.equal(gte.args[1], new Date(2025, 9, 25, 12, 0).toISOString()); // 12 months before the adapter's clock
   assert.deepEqual(ov.filter((c) => c.op === 'order'), [{ op: 'order', args: ['placed_at', { ascending: false }] }, { op: 'order', args: ['id', { ascending: false }] }]);
   assert.deepEqual(ov.filter((c) => c.op === 'range'), [{ op: 'range', args: [0, 999] }]);
   assert.deepEqual(opsOf(calls, 'order_items').filter((c) => c.op === 'in'), [{ op: 'in', args: ['order_id', [181668, 180686]] }]);
@@ -82,7 +87,7 @@ test('load builds the screen shape: multi-maker sid/raw from the Dokan sub-order
 
 test('toScreen, single maker without a sub-order: sid = the line id, raw = orders.woo_status; removed lines are skipped', async () => {
   const { O } = load();
-  const [o] = plain(O.toScreen([O2], ITEMS, SUBS, VENDORS, '2026-10-25'));
+  const [o] = plain(O.toScreen([O2], ITEMS, SUBS, VENDORS, { today: '2026-10-25' }));
   assert.equal(o.age, 8);
   assert.deepEqual({ pay: o.pay, dep: o.dep, tot: o.tot, note: o.note, cdate: o.cdate, confAt: o.confAt, city: o.city, addr: o.addr, ret: o.ret }, { pay: 'cod', dep: 300, tot: 1002, note: 'تبع اوردر 180668', cdate: '2026-10-18', confAt: '2026-10-18', city: '', addr: '', ret: { reason: 'x' } });
   assert.deepEqual(o.subs, [{ n: 5003, itemId: '5003', sid: '5003', oid: '180686', prod: 'Cushion', qty: 2, tot: 1002, raw: 'on-hold', vendor: '', cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', readyAt: '', waybill: null, pulled: false, ret: null, store: null }]);
@@ -91,12 +96,27 @@ test('toScreen, single maker without a sub-order: sid = the line id, raw = order
 test('toScreen: age counts whole days from the order date to today, never below 0; ready_at shows as the local clock', async () => {
   const { O } = load();
   const at = new Date(2026, 9, 20, 11, 5);
-  const [o] = plain(O.toScreen([{ ...O1, placed_at: '2026-10-13T12:00:00Z' }], [item({ id: 7, order_id: 181668, name: 'x', ready_at: at.toISOString(), waybill: { no: 'B1' }, pulled: true, store: { reason: 'r' } })], [], [], '2026-10-25'));
+  const [o] = plain(O.toScreen([{ ...O1, placed_at: '2026-10-13T12:00:00Z' }], [item({ id: 7, order_id: 181668, name: 'x', ready_at: at.toISOString(), waybill: { no: 'B1' }, pulled: true, store: { reason: 'r' } })], [], [], { today: '2026-10-25' }));
   assert.equal(o.age, 12);
   assert.deepEqual({ readyAt: o.subs[0].readyAt, waybill: o.subs[0].waybill, pulled: o.subs[0].pulled, store: o.subs[0].store }, { readyAt: stampLocal(at), waybill: { no: 'B1' }, pulled: true, store: { reason: 'r' } });
-  assert.equal(O.toScreen([{ ...O1, placed_at: '2026-10-28T12:00:00Z' }], [], [], [], '2026-10-25')[0].age, 0);
-  assert.equal(O.toScreen([O1], [], [], [])[0].age, 6); // default today: IBKit.TODAY
-  assert.equal(O.toScreen([{ ...O1, placed_at: '2026-10-19T12:00:00Z' }], [], [], [], '2026-10-25')[0].date, ymdLocal(new Date('2026-10-19T12:00:00Z')));
+  assert.equal(O.toScreen([{ ...O1, placed_at: '2026-10-28T12:00:00Z' }], [], [], [], { today: '2026-10-25' })[0].age, 0);
+  assert.equal(O.toScreen([{ ...O1, placed_at: '2026-10-19T12:00:00Z' }], [], [], [], { today: '2026-10-25' })[0].date, ymdLocal(new Date('2026-10-19T12:00:00Z')));
+  assert.equal(O.toScreen([O1], [], [], [], { today: '2026-10-31' })[0].age, 12);
+});
+
+test('today() is the real local date and the default of toScreen — never IBKit.TODAY (the prototype\'s fixed 2026-10-21)', async () => {
+  const { O, window } = load();
+  assert.equal(window.IBKit.TODAY, '2026-10-21');
+  assert.equal(O.today(), '2026-10-25'); // the adapter's clock
+  assert.equal(O.toScreen([O1], [], [], [])[0].age, 6); // 19 → 25 October; IBKit.TODAY would give 2
+  assert.equal(O.toScreen([O1], [], [], [], {})[0].age, 6);
+  const later = load({ now: new Date(2026, 10, 3, 9, 0).getTime() }); // after IBKit.TODAY + 11 days: no clamp to 0
+  assert.equal(later.O.today(), '2026-11-03');
+  await later.O.load();
+  assert.equal(later.O.data().orders[0].age, 15);
+  const real = load({ now: null });
+  const before = ymdLocal(new Date()); const got = real.O.today(); const after = ymdLocal(new Date());
+  assert.ok(got === before || got === after, got);
 });
 
 test('long lists: orders_v paged (cap 5000), in() lists chunked by 200 ids and 100 skus', async () => {
@@ -116,6 +136,43 @@ test('long lists: orders_v paged (cap 5000), in() lists chunked by 200 ids and 1
   await capped.O.load();
   assert.deepEqual(opsOf(capped.calls, 'orders_v').filter((c) => c.op === 'range').map((c) => c.args[0]), [0, 1000, 2000, 3000, 4000]);
   assert.equal(capped.O.data().orders.length, 5000);
+});
+
+test('a row repeated across two pages (an order placed while paging) is kept once', async () => {
+  const many = (from, n) => Array.from({ length: n }, (_, i) => ({ ...O1, id: from + i }));
+  const responses = { ...seed(), order_items: ok([]), orders_v: (ops) => ok(ops.find((c) => c.op === 'range').args[0] === 0 ? many(1, 1000) : many(1000, 11)) }; // 1000 is on both pages
+  const { O, calls } = load({ responses });
+  await O.load();
+  assert.equal(O.data().orders.length, 1010);
+  assert.equal(new Set(O.data().orders.map((o) => o.id)).size, 1010);
+  assert.equal(opsOf(calls, 'order_items').filter((c) => c.op === 'in').flatMap((c) => c.args[1]).length, 1010); // each id asked once
+});
+
+test('state(): idle → loading → ready; a failed load → error (load() again retries); clear → idle; each change dispatches ib:orders', async () => {
+  const { O, responses, events } = load();
+  assert.equal(O.state(), 'idle');
+  const pending = O.load();
+  assert.equal(O.state(), 'loading');
+  await pending;
+  assert.equal(O.state(), 'ready');
+  assert.equal(events.filter((e) => e === 'ib:orders').length, 2);
+  responses.orders_v = { data: null, error: { code: 'PGRST000', message: 'down' } };
+  await O.load();
+  assert.equal(O.state(), 'error');
+  assert.equal(O.data().orders.length, 2); // the last good load stays
+  responses.orders_v = ok([O1, O2]);
+  await O.load();
+  assert.equal(O.state(), 'ready');
+  O.clear();
+  assert.equal(O.state(), 'idle');
+  const abandoned = O.load(); O.clear(); await abandoned;
+  assert.equal(O.state(), 'idle'); // cleared mid-load: never 'error'
+  const first = load({ responses: { ...seed(), order_items: { data: null, error: { message: 'x' } } } });
+  await first.O.load();
+  assert.deepEqual([first.O.state(), first.O.data()], ['error', null]);
+  const none = load({ client: false });
+  await none.O.load();
+  assert.equal(none.O.state(), 'idle');
 });
 
 test('a failed read keeps data() as it was and never throws', async () => {
@@ -185,6 +242,16 @@ test('setConfirm and patchOrder write only the granted orders columns they were 
   assert.deepEqual(plain(await O.patchOrder('180686', {})), { ok: true }); // nothing to write: no request
   assert.deepEqual(calls, []);
   assert.deepEqual(logs, [['order.confirm', 'IB-181668 · مؤكد بعربون'], ['order.confirm', 'IB-181668 · غير مؤكد'], ['order.patch', 'IB-180686 · note, city, addr, dep'], ['order.patch', 'IB-180686 · dep']]);
+});
+
+test('patchOrder refuses a deposit that is not a finite number and writes nothing (never a silent 0)', async () => {
+  const { O, calls, logs } = load();
+  await O.load(); calls.length = 0;
+  for (const dep of ['abc', '', ' ', '12abc', null, NaN, Infinity, {}]) assert.deepEqual(plain(await O.patchOrder('180686', { note: 'x', dep })), { ok: false, reason: 'invalid' }, String(dep));
+  assert.deepEqual(calls, []);
+  assert.deepEqual(logs, []);
+  assert.deepEqual(plain(await O.patchOrder('180686', { dep: ' 250 ' })), { ok: true });
+  assert.deepEqual(opsOf(calls, 'orders')[0], { op: 'update', args: [{ deposit: 250 }] });
 });
 
 test('setItemStatus writes status + extras on order_items; setWaybill / setPulled their one column', async () => {
@@ -285,6 +352,25 @@ test('Realtime: a new order with an unknown maker and product asks for just thos
   assert.equal(O.data().orders[0].id, '182000');
   assert.equal(O.data().images['NEW-SKU'], 'https://stage.ibtekr.club/pouf.jpg');
   assert.deepEqual(plain(O.data().vendors), ['Antikiano', 'Art Craft', 'sala']);
+});
+
+test('Realtime: an order the screen does not have and placed before the 12-month window is left out', async () => {
+  const applied = [];
+  const { O, calls, responses, emitChange, events } = load({ app: { applyOrder: (o) => applied.push(plain(o)) } });
+  await O.load(); O.subscribe(); calls.length = 0; events.length = 0;
+  responses.orders_v = ok([{ ...O1, id: 150001, placed_at: '2025-10-20T12:00:00Z' }]); // before 2025-10-25 (12 months back)
+  responses.order_items = ok([item({ id: 9200, order_id: 150001, sku: 'OLD-SKU', name: 'قديم', vendor_id: 'a0000000-0000-4000-8000-000000000009' })]);
+  responses.sub_orders = ok([]);
+  await emitChange({ table: 'orders', eventType: 'UPDATE', new: { id: 150001 } });
+  assert.deepEqual(plain(O.data().orders.map((o) => o.id)), ['181668', '180686']);
+  assert.deepEqual(applied, []);
+  assert.equal(events.includes('ib:notify'), false);
+  assert.deepEqual(calls.filter((c) => c.table === 'vendors' || c.table === 'products'), []); // nothing asked for it
+  responses.orders_v = ok([{ ...O2, placed_at: '2025-10-20T12:00:00Z', status: 'مكتمل' }]); // one the screen has: still followed
+  responses.order_items = ok(ITEMS.filter((i) => i.order_id === 180686));
+  await emitChange({ table: 'orders', eventType: 'UPDATE', new: { id: 180686 } });
+  assert.equal(applied.length, 1);
+  assert.equal(O.data().orders.find((o) => o.id === '180686').st, 'مكتمل');
 });
 
 test('subscribe: realtime:false → no channel; a throwing channel is swallowed; no client or signed out → nothing', async () => {

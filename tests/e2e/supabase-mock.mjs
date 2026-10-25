@@ -296,8 +296,10 @@ export async function installSupabaseMock(page) {
           const rows = t === 'orders_v' ? mock.orders.map((o) => viewRow(u, o)) : t === 'order_items' ? mock.orderItems : t === 'sub_orders' ? mock.subOrders : t === 'vendors' ? mock.vendors : t === 'products' ? mock.products : mock.statusMap;
           return json(200, pageOf(visible ? rows.filter(f.match) : [], url.searchParams).map(sel.pick));
         }
-        // PATCH: update grants on the guard columns only, no returning row (select is not granted on every column); RLS using
-        // orders.view (else 0 rows, silently); the guard triggers and `with check` → 42501. One statement: every row or none.
+        // PATCH: one row named by id=eq.… (else 400, like Supabase's safeupdate guard for an UPDATE without WHERE); update grants
+        // on the guard columns only, no returning row (select is not granted on every column); RLS using orders.view (else 0
+        // rows, silently); the guard triggers and `with check` → 42501. One statement: every row or none.
+        if (!(url.searchParams.get('id') || '').startsWith('eq.')) return json(400, { code: '21000', details: null, hint: null, message: 'mock: a PATCH on ' + t + ' names its row (id=eq.…): UPDATE requires a WHERE clause' });
         const b = body(); const keys = Object.keys(b); const cols = t === 'orders' ? ORDER_STATUS_COLS.concat(ORDER_EDIT_COLS) : ITEM_COLS;
         if (/return=representation/.test(hd.prefer || '') || url.searchParams.has('select') || keys.some((k) => !cols.includes(k))) return denied('permission denied for table ' + t);
         const rows = hasPerm(u, 'orders.view') === 'N' ? [] : (t === 'orders' ? mock.orders : mock.orderItems).filter(f.match);

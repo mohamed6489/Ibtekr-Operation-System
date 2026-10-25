@@ -1,7 +1,11 @@
 // Orders (phase 2): the last 12 months of orders_v (its customer_phone is already masked for a role without
 // sensitive.customer_phone) with their lines (order_items; removed ones are never shown), the Dokan sub-orders, the
 // vendors' names, the shown products' images and status_map → block 29's screen shape (toScreen, pure), handed to
-// OrdersApp.hydrate (block 29 may also read data() when it starts after the load). data() is null until a load succeeded.
+// OrdersApp.hydrate (block 29 may also read data() when it starts after the load). data() is null until a load succeeded;
+// state() is 'idle' | 'loading' | 'ready' | 'error' (each change dispatches ib:orders; data() keeps the last good load, and
+// load() may be called again to retry). A row that repeats across two pages (an order placed mid-load) is kept once.
+// `age` counts days from the order's local date to today() — the real local date, never IBKit.TODAY (the prototype's
+// fixed date); never below 0.
 // Grants are column lists (0007): every read names its columns (select('*') on orders / order_items / sub_orders is
 // refused) and every write is an update of granted columns without .select() (return=minimal). The base table orders
 // is never read: its phone column is not granted.
@@ -13,7 +17,8 @@
 // as text — the id the item writes take. subscribe() adds Realtime INSERT/UPDATE on orders / order_items / sub_orders
 // (skipped with IB_CONFIG.realtime === false): each event re-reads that order from orders_v (a payload from orders
 // never carries the phone) with its lines and sub-orders, rebuilds it, hands it to OrdersApp.applyOrder and
-// dispatches ib:notify. clear() (IBDirectory.clear) unsubscribes and drops everything; a load in flight is abandoned.
+// dispatches ib:notify; an order the screen does not have and placed before the 12-month window is left out.
+// clear() (IBDirectory.clear) unsubscribes and drops everything (state 'idle'); a load in flight is abandoned.
 (function () {
   'use strict';
   const PAGE = 1000, CAP = 5000, IDS = 200, SKUS = 100; // PostgREST max_rows; ids / skus per in.(…) keep the URL short
@@ -22,7 +27,7 @@
     item: 'id, order_id, sub_order_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed',
     sub: 'id, order_id, vendor_id, woo_order_id, woo_status',
   };
-  let orders = null; let vendorRows = []; let images = {}; let statuses = []; let names = []; let channel = null; let gen = 0;
+  let orders = null; let vendorRows = []; let images = {}; let statuses = []; let names = []; let channel = null; let gen = 0; let st = 'idle';
   const asked = new Set(); // skus already asked of products
   const busy = new Map(); // order id → its running Realtime refetch
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
@@ -31,12 +36,15 @@
   // block 29's hooks: an error there must not stop the load or the ib:notify, but it is not hidden either (thrown later)
   const report = (fn) => { try { fn(); } catch (e) { if (typeof window.setTimeout === 'function') window.setTimeout(() => { throw e; }, 0); } };
   const notify = () => { document.dispatchEvent(new Event('ib:notify')); };
+  const setState = (v) => { if (st === v) return; st = v; document.dispatchEvent(new Event('ib:orders')); };
   const has = (o, k) => !!o && o[k] !== undefined;
 
   // ---------- the screen shape (pure) ----------
   const pad = (n) => String(n).padStart(2, '0');
   const ymd = (d) => d.getFullYear() + '-' + pad(d.getMonth() + 1) + '-' + pad(d.getDate());
   const local = (iso) => { const d = new Date(iso || NaN); return isNaN(d) ? null : d; }; // the browser's clock (Africa/Cairo)
+  const today = () => ymd(new Date()); // the real local date, 'YYYY-MM-DD'
+  const windowStart = () => { const d = new Date(); d.setMonth(d.getMonth() - 12); return d; }; // the oldest placed_at shown
   const localDate = (iso) => { const d = local(iso); return d ? ymd(d) : ''; };
   const localStamp = (iso) => { const d = local(iso); return d ? ymd(d) + ' ' + pad(d.getHours()) + ':' + pad(d.getMinutes()) : ''; };
   // block 29's 'YYYY-MM-DD HH:MM' (local clock) → ISO; '' / null → null
@@ -51,9 +59,10 @@
       raw: (so && so.woo_status) || o.woo_status || '', vendor: (vid && vname.get(String(vid))) || '', cm: it.comment || '', ss: it.status || '', exp: it.expected_at || '', sku: it.sku || '',
       readyAt: localStamp(it.ready_at), waybill: it.waybill || null, pulled: !!it.pulled, ret: it.ret || null, store: it.store || null };
   }
-  // orders_v rows + their order_items / sub_orders rows + vendors ({ id, name }) → the orders of block 29
-  function toScreen(rows, items, subs, vendors, today) {
-    const T = today || (window.IBKit && window.IBKit.TODAY) || ymd(new Date());
+  // orders_v rows + their order_items / sub_orders rows + vendors ({ id, name }) → the orders of block 29; ages up to
+  // opts.today ('YYYY-MM-DD'), by default today()
+  function toScreen(rows, items, subs, vendors, opts = {}) {
+    const T = (opts && opts.today) || today();
     const vname = new Map((vendors || []).map((v) => [String(v.id), v.name || '']));
     const subById = new Map((subs || []).map((s) => [String(s.id), s]));
     const lines = new Map();
@@ -70,6 +79,7 @@
   // ---------- load ----------
   const data = () => (orders ? { orders, vendors: names, images, statuses } : null);
   const stale = (g) => { if (g !== gen) throw new Error('stale'); };
+  const uniq = (rows) => { const seen = new Set(); return rows.filter((r) => { const k = String(r.id); if (seen.has(k)) return false; seen.add(k); return true; }); };
   // every page of one query (PostgREST answers at most max_rows); throws the first error, or once clear() ran
   async function pages(build, g, cap = Infinity) {
     const rows = [];
@@ -91,15 +101,16 @@
     const cl = c();
     if (!cl || !uid()) return;
     const g = ++gen;
+    setState('loading');
     try {
-      const since = new Date(); since.setMonth(since.getMonth() - 12);
-      const [rows, vs, sm] = await Promise.all([
-        pages(() => cl.from('orders_v').select(COLS.order).gte('placed_at', since.toISOString()).order('placed_at', { ascending: false }).order('id', { ascending: false }), g, CAP),
+      const [found, vs, sm] = await Promise.all([
+        pages(() => cl.from('orders_v').select(COLS.order).gte('placed_at', windowStart().toISOString()).order('placed_at', { ascending: false }).order('id', { ascending: false }), g, CAP),
         pages(() => cl.from('vendors').select('id, name').order('id', { ascending: true }), g),
         cl.from('status_map').select('system_status, woo_status, direction, sort').order('sort', { ascending: true }),
       ]);
       if (sm.error) throw sm.error;
       stale(g);
+      const rows = uniq(found); // an order placed while paging shifts the next page by one
       const ids = rows.map((r) => r.id);
       const [items, subs] = await Promise.all([within(cl, 'order_items', COLS.item, 'order_id', ids, IDS, g), within(cl, 'sub_orders', COLS.sub, 'order_id', ids, IDS, g)]);
       stale(g);
@@ -109,9 +120,10 @@
       vendorRows = vs; statuses = sm.data || []; images = {}; asked.clear();
       skus.forEach((s) => asked.add(s)); ps.forEach((p) => { if (p.image_url) images[p.sku] = p.image_url; });
       orders = toScreen(rows, items, subs, vendorRows); names = vendorNames(orders);
+      setState('ready');
       const app = window.OrdersApp; if (app && app.hydrate) report(() => app.hydrate(data()));
       notify(); // the bell and the dashboard read the orders
-    } catch (e) { /* offline, refused or cleared: the screen keeps what it had */ }
+    } catch (e) { if (g === gen) setState('error'); /* offline or refused: the screen keeps what it had; cleared: 'idle' */ }
   }
 
   // ---------- writes ----------
@@ -156,7 +168,9 @@
   async function patchOrder(id, f) {
     const keys = Object.keys(FIELDS).filter((k) => has(f, k));
     if (!keys.length) return { ok: true };
-    const patch = {}; keys.forEach((k) => { patch[FIELDS[k]] = k === 'dep' ? Number(f[k]) || 0 : f[k]; });
+    const dep = !has(f, 'dep') ? 0 : typeof f.dep === 'number' ? f.dep : typeof f.dep === 'string' && f.dep.trim() ? Number(f.dep) : NaN;
+    if (!Number.isFinite(dep)) return fail('invalid'); // never a silent 0
+    const patch = {}; keys.forEach((k) => { patch[FIELDS[k]] = k === 'dep' ? dep : f[k]; });
     const r = await update('orders', id, patch);
     if (r.ok) log('order.patch', 'IB-' + id + ' · ' + keys.join(', ')); // which fields, never their text
     return r;
@@ -209,6 +223,8 @@
     try {
       const [o, it, so] = await Promise.all([cl.from('orders_v').select(COLS.order).eq('id', id), cl.from('order_items').select(COLS.item).eq('order_id', id), cl.from('sub_orders').select(COLS.sub).eq('order_id', id)]);
       if (o.error || it.error || so.error || !(o.data || []).length) return;
+      const known = orders.some((x) => x.id === String(o.data[0].id));
+      if (!known && !(Date.parse(o.data[0].placed_at) >= windowStart().getTime())) return; // older than the screen's 12 months
       await fill(cl, it.data || [], so.data || [], g);
       if (!orders) return;
       const next = toScreen(o.data.slice(0, 1), it.data || [], so.data || [], vendorRows)[0];
@@ -246,7 +262,7 @@
     const ch = channel; channel = null;
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
-  function clear() { gen += 1; unsubscribe(); orders = null; vendorRows = []; images = {}; statuses = []; names = []; asked.clear(); busy.clear(); }
-  window.IBOrders = { load, data, setOrderStatus, setConfirm, patchOrder, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
+  function clear() { gen += 1; unsubscribe(); orders = null; vendorRows = []; images = {}; statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
+  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

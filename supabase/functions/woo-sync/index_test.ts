@@ -153,7 +153,7 @@ Deno.test('at most 50 pages per run: the run stops, keeps its cursor and says do
   assertEquals([state.pages, state.done, state.count, state.cursor], [50, false, 5000, '2026-10-17T01:59:59Z']);
 });
 
-Deno.test('a Dokan network error → the orders are written without a maker, one error row per batch, the id asked again on the next page', async () => {
+Deno.test('a Dokan network error → the orders are written without a maker; the store is asked once per run (one error row) and again on the next run', async () => {
   const many = Array.from({ length: 100 }, (_, i) => single(5000 + i, 777, '2026-10-21T10:00:00'));
   const routes = {
     'GET wc/v3/orders': (c: any) => (c.query.page === '1' ? page(many, 2) : page([single(6000, 777, '2026-10-22T08:00:00')], 2)),
@@ -162,11 +162,14 @@ Deno.test('a Dokan network error → the orders are written without a maker, one
   const { db, woo, deps } = setup({ routes });
   const { res, body } = await call(deps, { action: 'orders' });
   assertEquals([res.status, body.result], [200, 'ok']);
-  assertEquals(woo.calls.filter((c) => c.path === 'dokan/v1/stores/777').length, 2);
-  assertEquals(db.rows('woo_sync_log').filter((r: any) => r.entity === 'vendor').map((r: any) => [r.kind, r.entity_id, r.result]), [['sync', '777', 'error'], ['sync', '777', 'error']]);
+  const storeCalls = () => woo.calls.filter((c) => c.path === 'dokan/v1/stores/777').length;
+  const vendorRows = () => db.rows('woo_sync_log').filter((r: any) => r.entity === 'vendor').map((r: any) => [r.kind, r.entity_id, r.result]);
+  assertEquals([storeCalls(), vendorRows()], [1, [['sync', '777', 'error']]], '101 orders over two pages, one attempt');
   assertEquals(db.rows('orders').length, 101);
   assert(db.rows('order_items').every((i: any) => i.vendor_id === null));
   assertFalse(writtenText(db).includes(PHONE));
+  await call(deps, { action: 'orders' });
+  assertEquals(storeCalls(), 2, 'the next run asks again');
 });
 
 Deno.test('a sub-order whose parent fetch fails (500) → that sub-order is skipped with an error row; the rest of the page is processed', async () => {

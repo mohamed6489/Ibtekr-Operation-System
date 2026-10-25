@@ -9,7 +9,8 @@
 // that never finished can be redelivered; a duplicate of any other delivery → 200 duplicate, nothing else written; a
 // duplicate whose earlier row cannot be read back → error (500); no delivery id → processed, delivery_id null (no
 // dedupe) → dispatch by X-WC-Webhook-Topic: order.* (a sub-order → sub_orders only, recorded 'ignored'; a parent →
-// orders + lines, then its Dokan sub-orders from wc/v3/orders?parent={id}), product.* → products, anything else
+// orders + lines, then its Dokan sub-orders from wc/v3/orders?parent={id} — a failure of that list is logged, not
+// fatal: the sub-orders also arrive in their own deliveries and the backup sync), product.* → products, anything else
 // 'ignored' → the event row gets its status → 200 { status, id }. Headers are not signed, so the body must look like
 // the topic's resource. Any thrown error: the event is marked 'error' (scrubbed text), a woo_sync_log error row is added, 500.
 // woo_webhook_events.payload keeps { id, number, status, parent_id, date_modified_gmt, topic } only (no PII).
@@ -72,8 +73,15 @@ async function orderDelivery(o: Body, deps: Deps): Promise<Status> {
     return 'ignored'; // the maker's sub-order is mirrored; no operational status changes
   }
   if (!(await writeOrders(ctx, [o])).written.length) return 'ignored';
-  const { data } = await ctx.woo.get('wc/v3/orders', { parent: wooId(o.id), per_page: 100 });
-  await writeSubOrders(ctx, Array.isArray(data) ? data : []);
+  let subs: unknown;
+  try {
+    subs = (await ctx.woo.get('wc/v3/orders', { parent: wooId(o.id), per_page: 100 })).data;
+  } catch (e) {
+    // The parent and its lines are written; WooCommerce never re-sends a failed delivery, so answering 500 gains nothing.
+    await logSync(deps.db, { kind: 'webhook', direction: 'in', entity: 'sub_order', entity_id: String(wooId(o.id)), action: 'parent_list', result: 'error', detail: { error: errorText(e, ctx.woo.scrub) } });
+    return 'ok';
+  }
+  await writeSubOrders(ctx, Array.isArray(subs) ? subs : []);
   return 'ok';
 }
 

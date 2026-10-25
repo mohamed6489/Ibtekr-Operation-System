@@ -246,13 +246,15 @@ Deno.test('a store Dokan does not know (404) → a skipped log row and the line 
   assertEquals(db.rows('vendors').length, 2);
 });
 
-Deno.test('a Dokan store error other than 404 (500) → the order and its lines are written with vendor_id null, one vendor error row, 200', async () => {
+Deno.test('a Dokan store error other than 404 (500) → order, line and sub-order written with vendor_id null, the store asked once, one error row, 200', async () => {
   const order = wooOrder({ line_items: [{ id: 1, product_id: 501, name: 'كوباية', quantity: 1, total: '100', meta_data: [{ key: '_dokan_vendor_id', value: '777' }] }] });
-  const { db, deps } = setup({ routes: { 'GET dokan/v1/stores/777': { status: 500, text: `<b>fatal</b> for ${PHONE}` }, ...subsRoute([]) } });
+  const { db, woo, deps } = setup({ routes: { 'GET dokan/v1/stores/777': { status: 500, text: `<b>fatal</b> for ${PHONE}` }, ...subsRoute([wooSub(2001, 1001, 777)]) } });
   const { res, body } = await deliver(deps, order);
   assertEquals([res.status, body], [200, { status: 'ok', id: 1001 }]);
+  assertEquals(woo.calls.filter((c) => c.path === 'dokan/v1/stores/777').length, 1, 'lines and sub-order share one attempt per delivery');
   assertEquals(db.rows('orders').length, 1);
   assertEquals(db.row('order_items', 1).vendor_id, null);
+  assertEquals(db.row('sub_orders', 2001, 'woo_order_id').vendor_id, null);
   const rows = db.rows('woo_sync_log').filter((r: any) => r.entity === 'vendor');
   assertEquals(rows.map((r: any) => [r.kind, r.entity_id, r.action, r.result]), [['webhook', '777', 'fetch', 'error']]);
   assertStringIncludes(rows[0].detail.error, 'HTTP 500');
@@ -369,17 +371,16 @@ Deno.test('an unknown topic → ignored with the event recorded', async () => {
 
 // ---------------------------------------------------------------- failures
 
-Deno.test('a Woo failure → 500, the event is marked error, and neither the secret, the keys nor a phone reach the logs', async () => {
+Deno.test('the ?parent= sub-order list failing (500) → 200 ok, parent + lines written, one error row with neither the secret, the keys nor a phone', async () => {
   const page = `<html><b>Fatal</b> for ${PHONE} / ٠١٠١٢٣٤٥٦٧٨ secret=test-secret key ck_test_0001 cs_test_0002 ${WC_AUTH} test-secret</html>`;
   const { db, deps } = setup({ routes: { 'GET wc/v3/orders': { status: 500, text: page } } });
   const { res, body } = await deliver(deps, wooOrder());
-  assertEquals(res.status, 500);
-  assertEquals(body, { error: 'processing_failed' });
-  const ev = db.rows('woo_webhook_events')[0];
-  assertEquals(ev.status, 'error');
-  assertStringIncludes(ev.error, 'HTTP 500');
-  const log = db.rows('woo_sync_log').find((r: any) => r.result === 'error')!;
-  assertEquals([log.kind, log.entity, log.entity_id, log.action], ['webhook', 'order', '1001', 'order.updated']);
+  assertEquals([res.status, body], [200, { status: 'ok', id: 1001 }]);
+  assertEquals([db.rows('orders').length, db.rows('order_items').length, db.rows('sub_orders').length], [1, 2, 0]);
+  assertEquals(db.rows('woo_webhook_events')[0].status, 'ok');
+  const rows = db.rows('woo_sync_log');
+  assertEquals(rows.map((r: any) => [r.kind, r.entity, r.entity_id, r.action, r.result]), [['webhook', 'sub_order', '1001', 'parent_list', 'error']]);
+  assertStringIncludes(rows[0].detail.error, 'HTTP 500');
   const text = writtenText(db);
   for (const s of [PHONE, '٠١٠١٢٣٤٥٦٧٨', ENV.WOO_WEBHOOK_SECRET, ENV.WOO_CK, ENV.WOO_CS, WC_AUTH.slice(6)]) assertFalse(text.includes(s), `leaked ${s}`);
 });
@@ -389,6 +390,8 @@ Deno.test('a database error never puts PostgREST details (the failing row, a pho
   const { db, deps } = setup({ fail });
   const { res } = await deliver(deps, wooOrder());
   assertEquals(res.status, 500);
+  assertEquals(db.rows('woo_webhook_events')[0].status, 'error');
   assertStringIncludes(db.rows('woo_webhook_events')[0].error, 'violates check constraint');
+  assertEquals(db.rows('woo_sync_log').map((r: any) => [r.kind, r.entity, r.entity_id, r.action, r.result]), [['webhook', 'order', '1001', 'order.updated', 'error']]);
   assertFalse(writtenText(db).includes(PHONE));
 });

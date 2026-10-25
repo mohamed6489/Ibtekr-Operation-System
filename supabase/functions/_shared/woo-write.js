@@ -2,8 +2,9 @@
 // functions read and write the tables directly, never orders_v).
 // * Makers first: an unknown _dokan_vendor_id is looked up in vendors, then fetched from dokan/v1/stores/{id} and
 //   upserted on woo_vendor_id (mapStore never carries aliases / commission_pct, so the owner's values stay). A store
-//   Dokan does not know (404) → woo_sync_log 'skipped', the id is not asked again in this run; any other failure
-//   (401/403/5xx/timeout/network) → woo_sync_log 'error', the id is asked again next time. Either way the rows are
+//   Dokan does not know (404) → woo_sync_log 'skipped'; any other failure (401/403/5xx/timeout/network) →
+//   woo_sync_log 'error'. Either way the id is asked once per run / delivery (missingVendors / failedVendors) and
+//   again on the next one; the rows are
 //   still written, with vendor_id null, and the rest of the delivery / page goes on. Only then are rows mapped for good.
 // * Orders / lines are upserted with the sync-owned columns only (ORDER_COLUMNS / ITEM_COLUMNS), so an existing row
 //   keeps the team's operational values (orders.confirm*/deposit/note/cancel/ret, order_items.status/expected_at/
@@ -45,7 +46,7 @@ const lastById = (list) => [...new Map(list.map((o, i) => [wooId(o.id) ?? `#${i}
 export async function writeContext({ db, woo, kind, now }) {
   const { data, error } = await db.from('status_map').select('system_status, woo_status, direction, sort');
   if (error) throw new DbError('status_map', error);
-  return { db, woo, kind, now, statusMap: data ?? [], vendors: new Map(), missingVendors: new Set() };
+  return { db, woo, kind, now, statusMap: data ?? [], vendors: new Map(), missingVendors: new Set(), failedVendors: new Set() };
 }
 
 const log = (ctx, row) => logSync(ctx.db, { kind: ctx.kind, direction: 'in', ...row });
@@ -59,14 +60,15 @@ export async function saveVendors(ctx, rows) {
   return valid.length;
 }
 
-// The store as a vendors row, or null: 404 / another store → skipped (cached as missing for this run); any other
-// failure → an error row and not cached (the next delivery or run asks again).
+// The store as a vendors row, or null: 404 / another store → skipped (missingVendors); any other failure → an error
+// row (failedVendors). Both sets live for this run / delivery only, so the next one asks again.
 async function fetchStore(ctx, id) {
   let store = null;
   try {
     store = (await ctx.woo.get(`dokan/v1/stores/${id}`)).data;
   } catch (e) {
     if (e?.status !== 404) {
+      ctx.failedVendors.add(id);
       await log(ctx, { entity: 'vendor', entity_id: String(id), action: 'fetch', result: 'error', detail: { error: errorText(e, ctx.woo.scrub) } });
       return null;
     }
@@ -80,7 +82,7 @@ async function fetchStore(ctx, id) {
 
 /** Makes every given Dokan vendor id known to ctx.vendors (table first, then Dokan), or marks it missing. */
 export async function resolveVendors(ctx, wooIds) {
-  const wanted = [...new Set(wooIds)].filter((id) => !ctx.vendors.has(id) && !ctx.missingVendors.has(id));
+  const wanted = [...new Set(wooIds)].filter((id) => !ctx.vendors.has(id) && !ctx.missingVendors.has(id) && !ctx.failedVendors.has(id));
   if (!wanted.length) return;
   for (const v of await selectIn(ctx.db, 'vendors', 'id, woo_vendor_id', 'woo_vendor_id', wanted)) ctx.vendors.set(Number(v.woo_vendor_id), v.id);
   const stores = [];

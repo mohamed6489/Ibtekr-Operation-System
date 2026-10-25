@@ -233,3 +233,60 @@ There are no ✘, no flaky tests, and no page errors, and `mock.unhandled` is em
 1. **The 5-minute auto-refresh in block 25 has never fired.** Its guard `!document.querySelector('.scrim,.menu,[role=dialog]')` always matches the hidden AI panel. This is prototype code that I did not touch; it needs a ruling (the fix would be the same `:not([hidden])`).
 2. **Own-actions filter over a 5-row cache.** `IBActivity.refresh()` caches only the newest 5 rows the server returns. For a non-admin with `settings.view` P, such as ops, those 5 are everyone's newest, and the filter can leave their own older actions out, or empty the card, when others were busy. The same applies to the admin viewing as a member. Fixing this needs an adapter change, for example `refresh()` reading `.eq('actor', uid)` for non-admins or a larger limit, which is outside this task.
 3. semgrep was still not run (not installed in this sandbox).
+
+---
+
+# Fix round 2 (task review: Important finding, SIGNED_OUT from another tab or the server; plus one reviewer Minor)
+
+Commit: e671207 fix(dashboard): wipe memory on a SIGNED_OUT from another tab or the server (on main-gha10e, not pushed)
+
+## What changed
+### `app/js/blocks/28-app.js` (the gate's `A.onChange` handler only, per the controller ruling)
+- In the `SIGNED_OUT && gated && !SH.isLoggedOut()` branch, after `SH.showLogin('login')`: `try { sessionStorage.setItem('ib.loginView', 'login'); } catch (e) { /* storage blocked */ } location.reload();`. There is one English comment line above the handler. The rest of the gate is unchanged.
+- Why this cannot loop or misfire:
+  - This tab's own sign-outs leave the branch alone. Block 21's `signOut` sets `loggedOut` first, and `doReset` runs while the login view is up.
+  - The gate's own `A.signOut()` calls happen before `gated = true`.
+  - After the reload there is no session, so the gate shows login and no further SIGNED_OUT reaches the branch.
+
+### `tests/e2e/dashboard.spec.mjs`
+- **New test** (mockOnly), inside the sign-out `describe`: `in another tab: the SIGNED_OUT it receives reloads it, the members are gone`. It follows the two-tab pattern of `auth.spec.mjs` (`context.newPage()` + `mock.attach(tabB)` + `tabB.goto('/')`).
+  1. Admin signs in in tab A. Tab B opens and `#root` is visible. Tab B has dev-user emails in `IBKit.store.members`. Tab B is marked.
+  2. Tab A signs out from the account menu.
+  3. In tab B: `#login` is visible, the marker is gone (the page reloaded), the dev members are gone (`expect.poll`), and the title is «تسجيل الدخول» with `#root` hidden.
+  4. `mock.logoutScopes` equals `['local']`: only tab A called the server. Tab B has no page errors.
+  - **BroadcastChannel reached tab B under Playwright:** in the RED run, `#login` became visible in tab B (from the old `showLogin('login')`), and the test failed only on the reload check. So the real path is driven; `_notifyAllSubscribers` was not needed.
+- **Reviewer Minor:** the guard test now proves both outcomes with a probe on the card element.
+  - With the menu open: tag `data-probe="1"`, dispatch `ib:activity`, and the card still carries the tag (no redraw).
+  - After Escape: tag again, dispatch, and the card element no longer has the tag (redrawn), still showing «سجّل دخول».
+  - Listeners run synchronously in `dispatchEvent`, so both checks are deterministic.
+
+### `tools/blocks.lock.json`
+`npm run lock` → "29 blocks, edited since the split: 14-kit.js, 21-shell.js, 25-page-dashboard.js, 28-app.js".
+
+## TDD evidence
+- **RED** (spec written, block 28 not yet edited). Command: `npx playwright test -c tests/playwright.config.mjs tests/e2e/dashboard.spec.mjs -g "another tab|open menu"`.
+```
+  ✓  1 [chromium] › tests/e2e/dashboard.spec.mjs:142:1 › a server-log update does not redraw the dashboard under an open menu (1.6s)
+  ✘  2 [chromium] › tests/e2e/dashboard.spec.mjs:181:3 › sign-out leaves no member data in memory and keeps the expired message › in another tab: the SIGNED_OUT it receives reloads it, the members are gone (10.4s)
+    Expected: true
+    Received: false
+    - Timeout 5000ms exceeded while waiting on the predicate
+  1 failed
+  1 passed (14.3s)
+```
+  The failure is at `await expect.poll(() => reloaded(tabB)).toBe(true)` (spec line 195). Tab B showed `#login` but kept its memory, which is the finding.
+- **GREEN:** `npx playwright test -c tests/playwright.config.mjs tests/e2e/dashboard.spec.mjs` → 12 passed.
+  - `npm test`: `# tests 52 / # pass 52 / # fail 0`.
+  - `npm run e2e`:
+```
+  ✓  12 [chromium] › tests/e2e/auth.spec.mjs:84:1 › logout returns to login (1.8s)
+  ✓  17 [chromium] › tests/e2e/dashboard.spec.mjs:142:1 › a server-log update does not redraw the dashboard under an open menu (1.8s)
+  ✓  16 [chromium] › tests/e2e/auth.spec.mjs:108:1 › idle counts activity in any tab: an active second tab keeps the first one signed in (2.5s)
+  ✓  20 [chromium] › tests/e2e/dashboard.spec.mjs:181:3 › sign-out leaves no member data in memory and keeps the expired message › in another tab: the SIGNED_OUT it receives reloads it, the members are gone (4.8s)
+  38 passed (42.4s)
+```
+  - Stability: `--repeat-each 4 -g "another tab|idle counts|logout|open menu"` → 20 passed. The two-tab idle test in `auth.spec.mjs` is unaffected: no SIGNED_OUT happens there.
+- **Mutation note:** with a no-op `ib:activity` listener, the guard test fails (the card never shows «سجّل دخول»).
+
+## Concerns after fix round 2
+None new. Concerns 1 (the 5-minute refresh guard) and 2 (the 5-row cache under the own-actions filter) from fix round 1 have ledger rulings, and both are carried into Task 5. semgrep is still not run here (not installed).

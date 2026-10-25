@@ -571,6 +571,8 @@
   function viewSections(noDigest) {
     const raw = notifSections(); const m = viewer(); const NR = NRM();
     let secs = NR && m ? NR.filterSections(raw, accFor(m), {}) : raw.map((s) => Object.assign({}, s, { received: s.tabs[0][2].length }));
+    // server alerts (IBAlerts, already filtered by RLS) first, after the role filter; only for the signed-in member, never «عرض تنبيهات» another one
+    if (window.IBAlerts && (ntfState.viewer || window.IBKit.ME) === window.IBKit.ME) { const s = window.IBAlerts.section(); if (s) secs = [s].concat(secs); }
     if (!noDigest) secs = secs.concat(digestSection(m)); return secs;
   }
   window.IBNotifRoles = { viewSections, accFor, roleIdx, viewer, setViewer: (id) => { ntfState.viewer = id; } };

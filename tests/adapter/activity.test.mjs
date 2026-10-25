@@ -39,12 +39,12 @@ test('dashboard.customize is sent', async () => {
   assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_PREFIXES)), ['auth.', 'dashboard.']);
 });
 
-test('recent maps the embed and refresh dispatches ib:activity', async () => {
+test('recent maps the embed and refresh (newest 25) dispatches ib:activity', async () => {
   const rows = [{ id: 9, at: '2026-10-25T09:00:00Z', action: 'auth.signin', new_value: 'محمد', actor: { name: 'محمد' } }, { id: 8, at: '2026-10-25T08:00:00Z', action: 'dashboard.customize', new_value: { cards: 7 }, actor: null }];
   const { A, queries, events } = load({ rows });
   assert.equal(A.cached(), null);
   await A.refresh();
-  assert.deepEqual(opsOf(queries, 'activity_log'), [{ op: 'select', args: ['id, at, action, new_value, actor:profiles(name)'] }, { op: 'order', args: ['at', { ascending: false }] }, { op: 'limit', args: [5] }]);
+  assert.deepEqual(opsOf(queries, 'activity_log'), [{ op: 'select', args: ['id, at, action, new_value, actor:profiles(name)'] }, { op: 'order', args: ['at', { ascending: false }] }, { op: 'limit', args: [25] }]);
   assert.equal(A.cached()[0].actor, 'محمد');
   assert.equal(A.cached()[1].actor, '—');
   assert.deepEqual(JSON.parse(JSON.stringify(A.cached())), [{ id: 9, at: '2026-10-25T09:00:00Z', actor: 'محمد', action: 'auth.signin', detail: 'محمد' }, { id: 8, at: '2026-10-25T08:00:00Z', actor: '—', action: 'dashboard.customize', detail: '{"cards":7}' }]);

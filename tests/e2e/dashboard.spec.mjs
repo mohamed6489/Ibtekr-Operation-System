@@ -1,7 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { installSupabaseMock, installLiveConfig, LIVE, LIVE_MISSING, DEV_PW } from './supabase-mock.mjs';
 // The dashboard on the signed-in member (phase 1): role frame, customization saved per user on the server, «آخر نشاط» from
-// the server log, sign-out wipes the page's memory. Dev users of tools/seed-dev-users.sql; mocked by default,
+// the server log, server alerts in the bell («النظام») and in «محتاج منك دلوقتي» with a per-user read state, sign-out wipes
+// the page's memory. Dev users of tools/seed-dev-users.sql; mocked by default,
 // E2E_SUPABASE_LIVE=1 runs the unmarked tests against the staging project in E2E_SUPABASE_URL/E2E_SUPABASE_ANON_KEY.
 const env = process.env;
 const ADMIN = LIVE ? { id: env.E2E_ADMIN_EMAIL, pw: env.E2E_ADMIN_PW } : { id: 'admin.dev@ibtekr.local', pw: DEV_PW };
@@ -44,6 +45,15 @@ const hasDevMembers = (page) => settled(page, () => window.IBKit.store.members.s
 // set on the signed-in page; a reload starts a fresh window without it
 const markPage = (page) => page.evaluate(() => { window.__signedInPage = true; });
 const reloaded = (page) => settled(page, () => window.__signedInPage === undefined && !!window.IBKit);
+// the bell (block 28 NotificationsMenu): its dialog, a section of its nav, an item of the open section
+const bell = (page) => page.getByRole('dialog', { name: 'الإشعارات' });
+const bellSection = (page, label) => bell(page).locator('.ntf-nav-item', { has: page.locator('.lbl', { hasText: new RegExp('^' + label + '$') }) });
+const bellItem = (page, title) => bell(page).locator('.ntf-item', { hasText: title });
+// the bell's total: the prototype's sample sections (customers, suppliers, …) still count for every member and the badge caps
+// at «99+», so it is read uncapped from the button's aria-label «الإشعارات — N تنبيه» («الإشعارات» at 0)
+const bellCount = async (page) => Number((/(\d+)/.exec(await page.locator('.notif-btn').getAttribute('aria-label')) || [0, 0])[1]);
+// IBAlerts.load() answered (the «النظام» section exists); an open bell is not redrawn when it arrives, so wait before opening it
+const alertsLoaded = (page) => settled(page, () => !!(window.IBAlerts && window.IBAlerts.section()));
 
 test('dashboard greets the signed-in admin with the admin frame', async ({ page }) => {
   await signIn(page, ADMIN.id, ADMIN.pw);
@@ -139,6 +149,21 @@ test('a non-admin sees only their own actions in «آخر نشاط»', async ({ 
   await expect(act).toContainText('آخر 5 حاجات عملتها');
 });
 
+test('the activity card finds her rows behind newer rows of others (newest 25 read)', async ({ page }) => {
+  mockOnly();
+  // settings.view P: ops reads every row; 6 admin rows newer than her 2 would fill a 5-row read on their own
+  mock.activityRows.push(row(931, at(3, 10, 0), OPS_ID, 'auth.signout', 'يدوي'), row(932, at(3, 11, 0), OPS_ID, 'auth.password.set', 'reset'),
+    ...[0, 1, 2, 3, 4, 5].map((i) => row(940 + i, at(1, 9, i), ADMIN_ID, 'dashboard.customize', (9 - i) + ' كارت')));
+  await signIn(page, OPS.id, OPS.pw);
+  const act = card(page, 'activity');
+  await expect(act.locator('.da-row')).toHaveCount(3); // her sign-in now + her 2 seeded rows
+  await expect(act.locator('.da-row').nth(1)).toContainText('سارة أحمد');
+  await expect(act.locator('.da-row').nth(1)).toContainText('غيّر كلمة المرور — reset');
+  await expect(act.locator('.da-row').nth(2)).toContainText('سارة أحمد');
+  await expect(act.locator('.da-row').nth(2)).toContainText('سجّل خروج — يدوي');
+  await expect(act).not.toContainText('صفوت كمال');
+});
+
 test('a server-log update does not redraw the dashboard under an open menu', async ({ page }) => {
   mockOnly();
   await signIn(page, ADMIN.id, ADMIN.pw);
@@ -175,6 +200,121 @@ test('the activity card lists the newest 5 server rows: today, yesterday, then D
   await expect(rows.nth(3)).toHaveText('سارة أحمد · 04/01 10:00سجّل دخول — سارة أحمد');
   await expect(rows.nth(4)).toHaveText('سارة أحمد · 03/01 10:00خروج من كل الأجهزة — سارة أحمد');
   await expect(card(page, 'activity')).toContainText('آخر 5 حركات في السيستم');
+});
+
+test('a role alert from the server reaches the bell and the need card', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(card(page, 'need')).toContainText('فشل مزامنة WooCommerce'); // unread, error tone: ranked first (redrawn on ib:notify)
+  const total = await bellCount(page);
+  await page.locator('.notif-btn').click();
+  await expect(bell(page).locator('.ntf-nav-item').first()).toContainText('النظام'); // the server section comes first
+  await expect(bellSection(page, 'النظام').locator('.cnt')).toHaveText('1');
+  await bellSection(page, 'النظام').click();
+  await bellItem(page, 'فشل مزامنة WooCommerce').click();
+  await expect.poll(() => mock.alertReads).toEqual([{ alert_id: 1, user_id: ADMIN_ID }]);
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#settings-integrations');
+  await expect.poll(() => bellCount(page)).toBe(total - 1); // the badge no longer counts it
+  await page.goto('/#dashboard');
+  await expect(card(page, 'need')).toBeVisible();
+  await expect(card(page, 'need')).not.toContainText('فشل مزامنة WooCommerce'); // read: muted, so topNeed skips it
+  await page.reload();
+  await expect(page.locator('#root')).toBeVisible();
+  await expect.poll(() => alertsLoaded(page)).toBe(true);
+  expect(await bellCount(page)).toBe(total - 1);
+  await page.locator('.notif-btn').click();
+  await expect(bellSection(page, 'النظام').locator('.cnt')).toHaveText('0'); // the read state came back from the server
+  await bellSection(page, 'النظام').click();
+  await expect(bellItem(page, 'فشل مزامنة WooCommerce')).toHaveClass(/muted/);
+  await expect(card(page, 'need')).not.toContainText('فشل مزامنة WooCommerce');
+});
+
+test('ops sees only alerts addressed to them', async ({ page }) => {
+  mockOnly();
+  await signIn(page, OPS.id, OPS.pw);
+  await expect(card(page, 'need')).toContainText('تجميع متأخر IB-1042'); // the alerts arrived (the need card redraws on ib:notify)
+  await page.locator('.notif-btn').click();
+  await expect(bellSection(page, 'النظام').locator('.cnt')).toHaveText('1');
+  await bellSection(page, 'النظام').click();
+  await expect(bellItem(page, 'تجميع متأخر IB-1042')).toHaveCount(1);
+  await expect(bellItem(page, 'فشل مزامنة WooCommerce')).toHaveCount(0);
+  await expect(card(page, 'need')).not.toContainText('فشل مزامنة WooCommerce');
+});
+
+test('a mark the server refuses fails; one it already has (23505) counts as done', async ({ page }) => {
+  mockOnly();
+  await signIn(page, OPS.id, OPS.pw);
+  await expect(card(page, 'need')).toContainText('تجميع متأخر IB-1042');
+  expect(await page.evaluate(() => window.IBAlerts.markRead(1))).toEqual({ ok: false }); // the admin role's alert: RLS 42501
+  expect(await page.evaluate(() => window.IBAlerts.markRead(2))).toEqual({ ok: true });
+  expect(await page.evaluate(() => window.IBAlerts.markRead(2))).toEqual({ ok: true }); // as if read on another device: 409 23505
+  expect(mock.alertReads).toEqual([{ alert_id: 2, user_id: OPS_ID }]);
+});
+
+test('mark all read from the section header', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(card(page, 'need')).toContainText('فشل مزامنة WooCommerce');
+  const total = await bellCount(page);
+  await page.locator('.notif-btn').click();
+  await bellSection(page, 'النظام').click();
+  await bell(page).getByRole('button', { name: 'تعليم الكل كمقروء', exact: true }).click();
+  await expect.poll(() => mock.alertReads.length).toBe(1);
+  expect(mock.alertReads).toEqual([{ alert_id: 1, user_id: ADMIN_ID }]);
+  expect(mock.requests.filter((r) => r === 'POST /rest/v1/alert_reads')).toHaveLength(1); // one request for the whole section
+  await expect.poll(() => bellCount(page)).toBe(total - 1);
+  await expect(card(page, 'need')).not.toContainText('فشل مزامنة WooCommerce'); // the bell closed: the dashboard redrew
+  await page.reload();
+  await expect(page.locator('#root')).toBeVisible();
+  await expect.poll(() => alertsLoaded(page)).toBe(true);
+  await page.locator('.notif-btn').click();
+  await expect(bellSection(page, 'النظام').locator('.cnt')).toHaveText('0'); // persisted on the server
+  expect(await bellCount(page)).toBe(total - 1);
+});
+
+test('an alert that arrives later redraws «محتاج منك دلوقتي», not under an open menu', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(card(page, 'need')).toContainText('فشل مزامنة WooCommerce');
+  await expect(card(page, 'activity')).toContainText('سجّل دخول'); // the sign-in's own redraws are done
+  mock.alerts.push({ id: 3, at: new Date().toISOString(), kind: 'orders.sync.failed', title: 'فشل سحب الأوردرات', body: null, role_id: 'admin', user_id: null, entity: 'orders', entity_id: null });
+  await page.getByRole('button', { name: '+ إجراء سريع', exact: true }).click();
+  const menu = page.getByRole('menu');
+  await expect(menu).toBeVisible();
+  await page.evaluate(() => window.IBAlerts.load()); // dispatches ib:notify, as a Realtime insert does
+  await expect(menu).toBeVisible();
+  await expect(card(page, 'need')).not.toContainText('فشل سحب الأوردرات'); // not redrawn under the menu
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await page.evaluate(() => window.IBAlerts.load());
+  await expect(card(page, 'need')).toContainText('فشل سحب الأوردرات'); // ib:notify alone redrew the card
+});
+
+test('the dashboard redraws itself every 5 minutes while nothing is open', async ({ page }) => {
+  mockOnly();
+  await page.clock.install();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(card(page, 'activity')).toContainText('سجّل دخول');
+  await card(page, 'need').evaluate((el) => { el.dataset.probe = '1'; }); // a redraw replaces the element: the tag goes
+  await page.clock.runFor('04:30'); // the interval started with the page, a moment before the tag
+  await expect(card(page, 'need')).toHaveAttribute('data-probe', '1');
+  await page.clock.runFor('00:45');
+  await expect(card(page, 'need')).not.toHaveAttribute('data-probe', '1'); // the closed AI panel (hidden dialog) no longer blocks it
+});
+
+test('«عرض كـ» another member leaves my server alerts out', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(card(page, 'need')).toContainText('فشل مزامنة WooCommerce');
+  await page.locator('#dash-viewas').click();
+  await page.getByRole('option', { name: 'سارة أحمد — عمليات' }).click();
+  await expect(page.locator('.dash-viewing')).toContainText('سارة أحمد');
+  await expect(card(page, 'need')).toBeVisible();
+  await expect(card(page, 'need')).not.toContainText('فشل مزامنة WooCommerce'); // the server answered my alerts, not hers
+  await expect(card(page, 'need')).not.toContainText('تجميع متأخر IB-1042');
+  await page.locator('.notif-btn').click();
+  await expect(bellSection(page, 'النظام')).toHaveCount(0);
+  await expect(bell(page).locator('.ntf-nav-item').first()).toBeVisible();
 });
 
 test.describe('sign-out leaves no member data in memory and keeps the expired message', () => {

@@ -28,12 +28,19 @@ const ROLES = [
   { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'settings.view': 'P' }, sort: 2 },
   { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'settings.view': 'N' }, sort: 6 },
 ];
-const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log), 0006_dashboard.sql (user_prefs)
+const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts), 0006_dashboard.sql (user_prefs, alert_reads)
   profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'created_at'],
   roles: ['id', 'name', 'description', 'is_system', 'permissions', 'sort'],
   user_prefs: ['user_id', 'key', 'data', 'updated_at'],
   activity_log: ['id', 'at', 'actor', 'action', 'entity', 'entity_id', 'old_value', 'new_value'],
+  alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at'],
+  alert_reads: ['alert_id', 'user_id', 'read_at'],
 };
+// the alerts table at sign-in: one for the admin role, one addressed to ops.dev (M02) only
+const ALERTS = () => [
+  { id: 1, at: T0, kind: 'woo.sync.failed', title: 'فشل مزامنة WooCommerce', body: 'آخر محاولة 09:00', role_id: 'admin', user_id: null, entity: 'settings-integrations', entity_id: null },
+  { id: 2, at: T0, kind: 'stock.cons.late', title: 'تجميع متأخر IB-1042', body: null, role_id: null, user_id: '00000000-0000-4000-8000-000000000002', entity: 'inventory-consolidate', entity_id: null },
+];
 // has_perm('settings.view') of 0001: 'N' for a profile that is not active
 const viewPerm = (u) => (u.status === 'active' ? ROLES.find((r) => r.id === u.role_id).permissions['settings.view'] : 'N');
 const EMBEDS = { activity_log: { actor: 'profiles' } }; // FKs a select may embed (0002: activity_log.actor → profiles = USERS)
@@ -70,7 +77,8 @@ export async function installSupabaseMock(page) {
   // lookups: the ident of each email_for_identifier call. activity: each log_activity body; activityRows: the activity_log
   // table it fills ({ id, at, actor, action, new_value }; a spec may seed older rows); prefs: the user_prefs table
   // ({ user_id, key, data }); prefsDown: every user_prefs write answers 503 (the server is unreachable).
-  const mock = { rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [] };
+  // alerts: the alerts table (ALERTS; a spec may change it before sign-in); alertReads: the alert_reads table ({ alert_id, user_id }).
+  const mock = { rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [] };
   let activityId = 0;
   const session = (u, aal = 'aal1') => {
     const iat = Math.floor(Date.now() / 1000); n += 1;
@@ -144,18 +152,35 @@ export async function installSupabaseMock(page) {
         const rows = table[1] === 'roles' ? ROLES : u.status === 'active' && perm !== 'N' ? USERS : [u];
         return json(200, cols.includes('*') ? rows : rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null]))));
       }
-      // read at sign-in since phase 1 (IBDirectory.load → IBAlerts): empty until the alerts are emulated
-      if (method === 'GET' && /^\/rest\/v1\/(alerts|alert_reads)$/.test(path)) return json(200, []);
-      const emulated = /^\/rest\/v1\/(user_prefs|activity_log)$/.exec(path);
-      if (emulated && (emulated[1] === 'user_prefs' ? ['GET', 'POST', 'DELETE'] : ['GET']).includes(method)) {
+      const emulated = /^\/rest\/v1\/(user_prefs|activity_log|alerts|alert_reads)$/.exec(path);
+      const METHODS = { user_prefs: ['GET', 'POST', 'DELETE'], activity_log: ['GET'], alerts: ['GET'], alert_reads: ['GET', 'POST'] };
+      if (emulated && METHODS[emulated[1]].includes(method)) {
         const t = emulated[1]; const f = readFilters(url.searchParams); const sel = readSelect(t, url.searchParams.get('select'));
         if (f.bad) return json(400, { code: 'PGRST100', details: null, hint: null, message: 'mock: only eq. filters are emulated, got ' + f.bad });
         if (method === 'GET' && sel.bad) return json(400, { code: '42703', details: null, hint: null, message: `column ${sel.bad} does not exist` });
-        if (t === 'activity_log') { // RLS activity_log_select (0006): an active user's own rows; every row with settings.view
+        // a GET's order=col.dir and limit, then its select
+        const answer = (rows) => {
           const [col, dir] = (url.searchParams.get('order') || 'id.asc').split('.'); const limit = Number(url.searchParams.get('limit')) || Infinity;
-          const rows = mock.activityRows.filter((r) => (viewPerm(u) !== 'N' || (u.status === 'active' && r.actor === u.id)) && f.match(r));
           rows.sort((a, b) => (a[col] < b[col] ? -1 : a[col] > b[col] ? 1 : 0) * (dir === 'desc' ? -1 : 1));
           return json(200, rows.slice(0, limit).map(sel.pick));
+        };
+        // RLS activity_log_select (0006): an active user's own rows; every row with settings.view
+        if (t === 'activity_log') return answer(mock.activityRows.filter((r) => (viewPerm(u) !== 'N' || (u.status === 'active' && r.actor === u.id)) && f.match(r)));
+        // RLS alerts_select (0002): an active user sees the alerts addressed to them or to their role
+        const visible = (a) => u.status === 'active' && (a.user_id === u.id || a.role_id === u.role_id);
+        if (t === 'alerts') return answer(mock.alerts.filter((a) => visible(a) && f.match(a)));
+        if (t === 'alert_reads') {
+          // RLS alert_reads_select (0006): own marks; alert_reads_insert: own marks of a visible alert. Granted select + insert only.
+          if (method === 'GET') return answer(mock.alertReads.filter((r) => r.user_id === u.id && f.match(r)));
+          const rows = [].concat(body()); const ignore = /resolution=ignore-duplicates/.test(hd.prefer || ''); // upsert(…, { ignoreDuplicates }) = on conflict do nothing
+          const oc = url.searchParams.get('on_conflict'); // the primary key (alert_id, user_id) is the only unique constraint
+          if (oc && oc !== 'alert_id,user_id') return json(400, { code: '42P10', details: null, hint: null, message: 'there is no unique or exclusion constraint matching the ON CONFLICT specification' });
+          if (rows.some((r) => r.user_id !== u.id || !mock.alerts.some((a) => a.id === r.alert_id && visible(a)))) return json(401, { code: '42501', details: null, hint: null, message: 'new row violates row-level security policy for table "alert_reads"' });
+          const same = (a) => (b) => a.alert_id === b.alert_id && a.user_id === b.user_id; const fresh = []; let dup = false; // one statement: all rows or none
+          for (const r of rows) { if (mock.alertReads.some(same(r)) || fresh.some(same(r))) dup = true; else fresh.push({ alert_id: r.alert_id, user_id: r.user_id }); }
+          if (dup && !ignore) return json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "alert_reads_pkey"' });
+          mock.alertReads.push(...fresh);
+          return json(201, []);
         }
         // RLS user_prefs_owner (0006): the active owner only, every operation
         const own = (r) => r.user_id === u.id && u.status === 'active' && f.match(r);

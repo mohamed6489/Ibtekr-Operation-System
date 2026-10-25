@@ -3,8 +3,9 @@
 // events must not land in activity_log under the real user. Each phase that wires a page to real data adds its prefix here
 // (e.g. 'orders.' with the orders phase). The in-memory store.activity (14-kit.js) keeps every event as before.
 // recent(limit) reads the newest rows RLS lets this user see (own rows; every row with settings.view) with the actor's name
-// embedded; refresh() keeps the newest 5 for the dashboard's «آخر نشاط» card (cached(), null until the first refresh) and
-// dispatches ib:activity. A forwarded log refreshes once the server took it. Read errors give [] and are never thrown.
+// embedded; refresh() keeps the newest 25 for the dashboard's «آخر نشاط» card (cached(), null until the first refresh) and
+// dispatches ib:activity; the card shows 5 after its own-actions filter (a viewer with settings.view reads everyone's rows).
+// A forwarded log refreshes once the server took it. Read errors give [] and are never thrown.
 (function () {
   'use strict';
   const LOGGED_PREFIXES = ['auth.', 'dashboard.'];
@@ -25,7 +26,7 @@
   async function recent(limit = 5) { return (await read(limit)) || []; }
   async function refresh() {
     if (!client() || !signedIn()) return;
-    const r = await read(5);
+    const r = await read(25);
     rows = r || rows || [];
     try { document.dispatchEvent(new Event('ib:activity')); } catch (e) { /* a bad listener must not fail the log */ }
   }

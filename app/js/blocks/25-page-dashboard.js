@@ -209,8 +209,10 @@
   // the server log changed (IBActivity.refresh): redraw «آخر نشاط», unless an overlay is open (the 5-minute refresh's guard; the AI
   // panel is a [role=dialog] that stays in the DOM while closed, hence :not([hidden]))
   document.addEventListener('ib:activity', () => { if (!document.querySelector('.scrim,.menu,[role=dialog]:not([hidden])')) render(); });
+  // server alerts changed (IBAlerts load / mark read / Realtime insert): redraw «محتاج منك دلوقتي», same guard
+  document.addEventListener('ib:notify', () => { if (!document.querySelector('.scrim,.menu,[role=dialog]:not([hidden])')) render(); });
   // auto refresh every 5 minutes while the dashboard is open
-  setInterval(() => { if (window.IBPages.current === 'dashboard' && !document.querySelector('.scrim,.menu,[role=dialog]')) { st.updated = K.clockNow(); render(); } }, 5 * 60 * 1000);
+  setInterval(() => { if (window.IBPages.current === 'dashboard' && !document.querySelector('.scrim,.menu,[role=dialog]:not([hidden])')) { st.updated = K.clockNow(); render(); } }, 5 * 60 * 1000);
   window.IBPages.register('dashboard', { title: 'لوحة التحكم', hash: (hs) => /^(dashboard)?$/.test(hs), defaultHash: () => 'dashboard', view, canLeave: (proceed) => { if (st.viewAs) { st.viewAs = null; if (NR()) NR().setViewer(K.ME); } proceed(); },
     api: { setView, refresh, simulateError: (on) => { st.error = !!on; render(); }, state: st, customize } });
 })();

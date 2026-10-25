@@ -14,6 +14,10 @@ on:
         description: "Branch to commit the file to"
         required: true
         default: "main-gha10e"
+      sha256:
+        description: "Expected sha256 of the file (optional; the run fails on a mismatch)"
+        required: false
+        default: ""
 
 permissions:
   contents: write
@@ -28,6 +32,7 @@ jobs:
       - name: download from cdn.sheetjs.com
         env:
           VERSION: ${{ inputs.version }}
+          EXPECTED_SHA256: ${{ inputs.sha256 }}
         run: |
           set -euo pipefail
           [[ "$VERSION" =~ ^([0-9]+\.[0-9]+\.[0-9]+|latest)$ ]] || { echo "bad version"; exit 1; }
@@ -36,9 +41,18 @@ jobs:
           curl -fsSL --retry 3 -o app/js/vendor/xlsx.full.min.js "$url"
           test -s app/js/vendor/xlsx.full.min.js
           head -c 200 app/js/vendor/xlsx.full.min.js | grep -q "xlsx" || { echo "unexpected content"; exit 1; }
-          # XLSX.version, not the first `version:` string in the bundle (that one is the codepage table's)
-          ver=$(node -e 'const vm=require("vm");const s=require("fs").readFileSync(process.argv[1],"utf8");const c={};vm.createContext(c);vm.runInContext(s,c);process.stdout.write(String(c.XLSX&&c.XLSX.version||"unknown"))' app/js/vendor/xlsx.full.min.js)
+          # Never execute the downloaded bundle here (this job can push). The version is the requested one, or for
+          # 'latest' the SheetJS 0.x `version:"…"` string (the codepage table's 1.x string comes first in the file).
+          if [[ "$VERSION" == "latest" ]]; then
+            ver=$(grep -oE 'version:"0\.[0-9]+\.[0-9]+"' app/js/vendor/xlsx.full.min.js | head -1 | cut -d'"' -f2)
+          else
+            ver="$VERSION"
+            grep -q "version:\"${VERSION}\"" app/js/vendor/xlsx.full.min.js || { echo "bundle does not carry version ${VERSION}"; exit 1; }
+          fi
+          [[ "$ver" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "bad version string"; exit 1; }
           sha=$(sha256sum app/js/vendor/xlsx.full.min.js | cut -d' ' -f1)
+          [[ "$sha" =~ ^[0-9a-f]{64}$ ]] || { echo "bad hash"; exit 1; }
+          if [[ -n "${EXPECTED_SHA256}" && "${EXPECTED_SHA256}" != "$sha" ]]; then echo "sha256 mismatch: expected ${EXPECTED_SHA256}"; exit 1; fi
           echo "VENDOR xlsx.full.min.js version=${ver} sha256=${sha} source=${url}"
           echo "ver=${ver}" >> "$GITHUB_ENV"
           echo "sha=${sha}" >> "$GITHUB_ENV"

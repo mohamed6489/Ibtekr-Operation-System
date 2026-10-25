@@ -199,9 +199,38 @@ Deno.test('the sync writes only its own columns: an existing order and its lines
   assertEquals([i.status, i.expected_at, i.comment, i.ready_at, i.waybill, i.pulled, i.store, i.name], ['مؤكد', '2026-10-28', 'تمام', '2026-10-22T09:00:00Z', { no: 'W1' }, true, { at: 'x' }, 'كوباية']);
 
   const cols = (t: string) => Object.keys(db.writes(t).find((w: any) => w.op === 'upsert').rows[0]).sort();
-  assertEquals(cols('orders'), ['currency', 'customer_address', 'customer_city', 'customer_name', 'customer_note', 'customer_phone', 'id', 'number',
-    'payment_method', 'payment_title', 'placed_at', 'raw', 'status', 'synced_at', 'total', 'woo_status', 'woo_updated_at']);
+  assertEquals(cols('orders'), ['currency', 'customer_name', 'customer_note', 'customer_phone', 'id', 'number',
+    'payment_method', 'payment_title', 'placed_at', 'raw', 'status', 'synced_at', 'total', 'woo_status', 'woo_updated_at'], 'an existing order: no city / address');
   assertEquals(cols('order_items'), ['id', 'name', 'order_id', 'product_id', 'qty', 'raw', 'removed', 'sku', 'total', 'vendor_id']);
+});
+
+Deno.test('customer_city / customer_address: written when the order is new, never on an existing order (the team edits them)', async () => {
+  const fresh = setup({ routes: subsRoute([]) });
+  await deliver(fresh.deps, wooOrder());
+  const o = fresh.db.row('orders', 1001);
+  assertEquals([o.customer_city, o.customer_address], ['القاهرة', 'شارع 9']);
+  assertEquals(fresh.db.writes('orders').map((w: any) => ['customer_city', 'customer_address'].every((c) => c in w.rows[0])), [true]);
+
+  const seed = { orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'جاري التنفيذ', woo_status: 'processing', placed_at: '2026-10-20T10:00:00Z',
+    woo_updated_at: '2026-10-20T10:30:00Z', customer_city: 'الجيزة', customer_address: 'عنوان صحّحه الفريق' }] };
+  const { db, deps } = setup({ seed, routes: subsRoute([]) });
+  await deliver(deps, wooOrder({ shipping: { first_name: 'سلوى', last_name: 'زيتوني', city: 'طنطا', address_1: 'عنوان جديد في Woo' } }));
+  const kept = db.row('orders', 1001);
+  assertEquals([kept.customer_city, kept.customer_address, kept.customer_name], ['الجيزة', 'عنوان صحّحه الفريق', 'سلوى زيتوني']);
+  assertFalse(db.writes('orders').some((w: any) => w.rows.some((r: any) => 'customer_city' in r || 'customer_address' in r)));
+});
+
+Deno.test('Woo’s status unchanged (incoming slug = stored woo_status) → the team’s status stays; a real Woo change still applies', async () => {
+  const seed = { orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'جاهز للشحن', woo_status: 'processing', placed_at: '2026-10-20T10:00:00Z',
+    woo_updated_at: '2026-10-20T10:30:00Z' }] };
+  const { db, deps } = setup({ seed, routes: subsRoute([]) });
+  const first = await deliver(deps, wooOrder({ status: 'processing', customer_note: 'ملاحظة جديدة' }), { id: 'd-1' });
+  assertEquals(first.body.status, 'ok');
+  assertEquals([db.row('orders', 1001).status, db.row('orders', 1001).woo_status], ['جاهز للشحن', 'processing']);
+  assertEquals(db.rows('woo_sync_log').length, 0, 'unchanged is not a conflict');
+
+  await deliver(deps, wooOrder({ status: 'completed', date_modified_gmt: '2026-10-21T08:00:00' }), { id: 'd-2' });
+  assertEquals([db.row('orders', 1001).status, db.row('orders', 1001).woo_status], ['مكتمل', 'completed']);
 });
 
 Deno.test('a line that disappeared from WooCommerce is flagged removed (never deleted); a line that came back is unflagged', async () => {
@@ -295,13 +324,47 @@ Deno.test('a sub-order delivery → sub_orders only (event ignored): no orders /
   const { db, woo, deps } = setup({ seed });
   const { body } = await deliver(deps, wooSub(2001, 1001, 44, { status: 'completed' }));
   assertEquals(body, { status: 'ignored', id: 2001 });
-  assertEquals(ops(db).filter((o: string) => !o.endsWith('woo_webhook_events')), ['upsert sub_orders', 'update order_items']);
+  assertEquals(ops(db).filter((o: string) => !o.endsWith('woo_webhook_events')), ['upsert sub_orders', 'update order_items', 'update order_items'], 'by product, then by maker');
   const sub = db.row('sub_orders', 2001, 'woo_order_id');
   assertEquals([sub.order_id, sub.vendor_id, sub.woo_status], [1001, vendorId(44), 'completed']);
   assertEquals(db.rows('order_items').map((i: any) => [i.id, i.sub_order_id, i.status]), [[1, sub.id, 'مؤكد'], [2, null, '']]);
   assertEquals(db.row('orders', 1001).status, 'جاري التنفيذ');
   assertEquals(woo.calls.length, 0);
   assertEquals(db.rows('woo_webhook_events')[0].status, 'ignored');
+});
+
+Deno.test('a multi-vendor parent whose lines carry no _dokan_vendor_id → every line gets its sub-order and maker from the sub-orders’ product ids', async () => {
+  const parent = wooOrder({ meta_data: [], line_items: [
+    { id: 1, product_id: 501, name: 'كوباية', quantity: 2, total: '200.00', meta_data: [] },
+    { id: 2, product_id: 502, name: 'شنطة', quantity: 1, total: '250.00', meta_data: [] },
+    { id: 3, product_id: 503, variation_id: 7003, name: 'شمعة', quantity: 1, total: '80.00', meta_data: [] },
+  ] });
+  const subs = [
+    wooSub(2001, 1001, 44, { line_items: [{ id: 20010, product_id: 501, quantity: 2, meta_data: [] }] }),
+    wooSub(2002, 1001, 2376, { line_items: [{ id: 20020, product_id: 502, quantity: 1, meta_data: [] }, { id: 20021, product_id: 503, variation_id: 7003, quantity: 1, meta_data: [] }] }),
+  ];
+  let lists = 0; // the ?parent= list answers the first delivery only, so the second one cannot relink anything
+  const routes = { 'GET wc/v3/orders': (c: any) => (c.query.parent ? (lists++ === 0 ? { body: subs } : { status: 500, text: 'down' }) : undefined) };
+  const { db, deps } = setup({ routes });
+  assertEquals((await deliver(deps, parent)).body.status, 'ok');
+  const sub = (id: number) => db.row('sub_orders', id, 'woo_order_id').id;
+  const lines = () => db.rows('order_items').map((i: any) => [i.id, i.vendor_id, i.sub_order_id]);
+  const linked = [[1, vendorId(44), sub(2001)], [2, vendorId(2376), sub(2002)], [3, vendorId(2376), sub(2002)]];
+  assertEquals(lines(), linked);
+  assertEquals(db.rows('sub_orders').map((s: any) => s.vendor_id), [vendorId(44), vendorId(2376)]);
+
+  // The parent delivered again (still no line meta, e.g. a status change): the lines keep the makers their sub-orders gave them.
+  assertEquals((await deliver(deps, wooOrder({ ...parent, status: 'on-hold', date_modified_gmt: '2026-10-21T08:00:00' }), { id: 'd-2' })).body.status, 'ok');
+  assertEquals(lists, 2);
+  assertEquals(lines(), linked);
+  assertFalse(db.writes('order_items').some((w: any) => w.op === 'upsert' && w.rows.some((r: any) => 'vendor_id' in r)), 'an unknown maker is never written as null');
+});
+
+Deno.test('a line of another maker is never re-linked by product id (only lines with no maker yet are)', async () => {
+  const parent = wooOrder({ line_items: [{ id: 1, product_id: 501, name: 'كوباية', quantity: 1, total: '100', meta_data: [{ key: '_dokan_vendor_id', value: '2376' }] }] });
+  const { db, deps } = setup({ routes: subsRoute([wooSub(2001, 1001, 44, { line_items: [{ id: 20010, product_id: 501, quantity: 1, meta_data: [] }] })]) });
+  await deliver(deps, parent);
+  assertEquals([db.row('order_items', 1).vendor_id, db.row('order_items', 1).sub_order_id], [vendorId(2376), null]);
 });
 
 Deno.test('a sub-order whose parent is not stored yet → the parent is fetched and written first', async () => {
@@ -385,13 +448,40 @@ Deno.test('the ?parent= sub-order list failing (500) → 200 ok, parent + lines 
   for (const s of [PHONE, '٠١٠١٢٣٤٥٦٧٨', ENV.WOO_WEBHOOK_SECRET, ENV.WOO_CK, ENV.WOO_CS, WC_AUTH.slice(6)]) assertFalse(text.includes(s), `leaked ${s}`);
 });
 
+Deno.test('a sub-order or product delivery whose own row is refused (23505 / 22001) → event error, one row-level error row', async () => {
+  const seed = { orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'جاري التنفيذ', placed_at: '2026-10-20T10:00:00Z' }] };
+  const dup = (c: any) => (c.table === 'sub_orders' && c.op === 'upsert' ? { code: '23505', message: 'duplicate key value violates unique constraint "sub_orders_order_id_vendor_id_key"' } : null);
+  const sub = setup({ seed, fail: dup });
+  assertEquals((await deliver(sub.deps, wooSub(2001, 1001, 44))).res.status, 500);
+  assertEquals(sub.db.rows('woo_webhook_events')[0].status, 'error');
+  assertEquals(sub.db.rows('woo_sync_log').map((r: any) => [r.entity, r.entity_id, r.action, r.result]), [['sub_orders', '2001', 'upsert', 'error'], ['order', '2001', 'order.updated', 'error']]);
+  assertFalse(sub.db.writes('order_items').length > 0, 'no line linked to a sub-order that was not written');
+
+  const long = (c: any) => (c.table === 'products' && c.op === 'upsert' ? { code: '22001', message: 'value too long for type character varying(64)' } : null);
+  const prod = setup({ fail: long });
+  assertEquals((await deliver(prod.deps, wooProduct(501, 44), { topic: 'product.updated' })).res.status, 500);
+  assertEquals(prod.db.rows('woo_sync_log')[0].entity, 'products');
+  assertStringIncludes(prod.db.rows('woo_sync_log')[0].detail.error, 'value too long');
+});
+
 Deno.test('a database error never puts PostgREST details (the failing row, a phone) into the logs', async () => {
-  const fail = (c: any) => (c.table === 'orders' && c.op === 'upsert' ? { code: '23514', message: 'new row for relation "orders" violates check constraint', details: `Failing row contains (1001, ${PHONE})` } : null);
-  const { db, deps } = setup({ fail });
-  const { res } = await deliver(deps, wooOrder());
-  assertEquals(res.status, 500);
-  assertEquals(db.rows('woo_webhook_events')[0].status, 'error');
-  assertStringIncludes(db.rows('woo_webhook_events')[0].error, 'violates check constraint');
+  // A data error (23514): the order row is refused (one row-level error row) and the delivery is an error.
+  const check = (c: any) => (c.table === 'orders' && c.op === 'upsert' ? { code: '23514', message: 'new row for relation "orders" violates check constraint', details: `Failing row contains (1001, ${PHONE})` } : null);
+  const refused = setup({ fail: check });
+  assertEquals((await deliver(refused.deps, wooOrder())).res.status, 500);
+  assertEquals(refused.db.rows('woo_webhook_events')[0].status, 'error');
+  assertStringIncludes(refused.db.rows('woo_webhook_events')[0].error, 'refused');
+  const rows = refused.db.rows('woo_sync_log');
+  assertEquals(rows.map((r: any) => [r.kind, r.entity, r.entity_id, r.action, r.result]), [['webhook', 'orders', '1001', 'upsert', 'error'], ['webhook', 'order', '1001', 'order.updated', 'error']]);
+  assertStringIncludes(rows[0].detail.error, 'violates check constraint');
+  assertEquals(refused.db.writes('order_items').length, 0);
+  assertFalse(writtenText(refused.db).includes(PHONE));
+
+  // Any other error (a timeout) is thrown as before.
+  const timeout = (c: any) => (c.table === 'orders' && c.op === 'upsert' ? { code: '57014', message: 'canceling statement due to statement timeout', details: `Failing row contains (1001, ${PHONE})` } : null);
+  const { db, deps } = setup({ fail: timeout });
+  assertEquals((await deliver(deps, wooOrder())).res.status, 500);
+  assertStringIncludes(db.rows('woo_webhook_events')[0].error, 'statement timeout');
   assertEquals(db.rows('woo_sync_log').map((r: any) => [r.kind, r.entity, r.entity_id, r.action, r.result]), [['webhook', 'order', '1001', 'order.updated', 'error']]);
   assertFalse(writtenText(db).includes(PHONE));
 });

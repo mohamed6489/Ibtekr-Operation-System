@@ -263,6 +263,34 @@ test('incomingStatus: two system statuses on one slug keep the current one', () 
   assert.deepEqual(incomingStatus('processing', 'قيد الانتظار', shared), { status: 'جاري التنفيذ', result: 'ok' });
 });
 
+test('incomingStatus: Woo’s slug equal to the stored woo_status (Woo did not change it) keeps the current status → unchanged', () => {
+  // the team set «جاهز للشحن» while Woo still says processing: a delivery about anything else does not revert it
+  assert.deepEqual(incomingStatus('processing', 'جاهز للشحن', MAP, 'processing'), { status: 'جاهز للشحن', result: 'unchanged' });
+  assert.deepEqual(incomingStatus(' processing ', 'جاهز للشحن', MAP, 'processing'), { status: 'جاهز للشحن', result: 'unchanged' });
+  assert.deepEqual(incomingStatus('weird', 'قيد الشحن', MAP, 'weird'), { status: 'قيد الشحن', result: 'unchanged' }, 'an unknown slug Woo keeps sending is not a new conflict');
+  // a real change in Woo still applies
+  assert.deepEqual(incomingStatus('completed', 'جاهز للشحن', MAP, 'processing'), { status: 'مكتمل', result: 'ok' });
+  assert.deepEqual(incomingStatus('failed', 'جاهز للشحن', MAP, 'processing'), { status: 'ملغي', result: 'ok' });
+  // no current status (a new order) → the map decides
+  assert.deepEqual(incomingStatus('processing', null, MAP, 'processing'), { status: 'جاري التنفيذ', result: 'ok' });
+  // no stored slug (the 4th argument omitted, null or empty) → the rules as before
+  assert.deepEqual(incomingStatus('processing', 'جاهز للشحن', MAP), { status: 'جاري التنفيذ', result: 'ok' });
+  assert.deepEqual(incomingStatus('processing', 'جاهز للشحن', MAP, null), { status: 'جاري التنفيذ', result: 'ok' });
+  assert.deepEqual(incomingStatus('', 'قيد الشحن', MAP, ''), { status: 'قيد الشحن', result: 'conflict' }, 'two empty slugs are not "unchanged"');
+  // from_system still wins
+  assert.deepEqual(incomingStatus('completed', 'تم RTC', MAP, 'processing'), { status: 'تم RTC', result: 'unchanged' });
+});
+
+test('mapOrder: ctx.currentWooStatus = the incoming slug → the stored status stays (unchanged)', () => {
+  const ctx = { statusMap: MAP, vendorsByWooId: VENDORS, now: NOW, currentStatus: 'جاهز للشحن' };
+  let r = mapOrder(parent({ status: 'processing' }), { ...ctx, currentWooStatus: 'processing' });
+  assert.deepEqual([r.order.status, r.order.woo_status, r.statusResult], ['جاهز للشحن', 'processing', 'unchanged']);
+  r = mapOrder(parent({ status: 'completed' }), { ...ctx, currentWooStatus: 'processing' });
+  assert.deepEqual([r.order.status, r.order.woo_status, r.statusResult], ['مكتمل', 'completed', 'ok']);
+  r = mapOrder(parent({ status: 'processing' }), ctx);
+  assert.deepEqual([r.order.status, r.statusResult], ['جاري التنفيذ', 'ok'], 'without currentWooStatus: as before');
+});
+
 test('outgoingWooStatus: slug for both / from_system rows with a slug, else null', () => {
   assert.equal(outgoingWooStatus('تم RTC', MAP), null);
   assert.equal(outgoingWooStatus('مكتمل', MAP), 'completed');

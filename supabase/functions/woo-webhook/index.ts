@@ -13,6 +13,8 @@
 // fatal: the sub-orders also arrive in their own deliveries and the backup sync), product.* → products, anything else
 // 'ignored' → the event row gets its status → 200 { status, id }. Headers are not signed, so the body must look like
 // the topic's resource. Any thrown error: the event is marked 'error' (scrubbed text), a woo_sync_log error row is added, 500.
+// The delivered order / sub-order / product row itself refused by the database (a data error: woo-write logs it per
+// row) counts as an error too, so the event can be redelivered.
 // woo_webhook_events.payload keeps { id, number, status, parent_id, date_modified_gmt, topic } only (no PII).
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { isSubOrder, redactPII, verifySignature } from '../_shared/woo-core.js';
@@ -66,13 +68,20 @@ async function finishEvent(db: Db, id: number, patch: Body) {
   if (error) throw new Error(`woo_webhook_events: ${error.message}`);
 }
 
+// A delivery whose own row was refused (woo-write logged the reason per row).
+const refused = (what: string) => new Error(`${what}: the row was refused by the database (see woo_sync_log)`);
+
 async function orderDelivery(o: Body, deps: Deps): Promise<Status> {
   const ctx = await writeContext({ db: deps.db, woo: wooApi(deps.env, deps.fetch), kind: 'webhook', now: deps.now });
   if (isSubOrder(o)) {
-    await writeSubOrders(ctx, [o]);
+    if ((await writeSubOrders(ctx, [o])).failed) throw refused('sub_orders');
     return 'ignored'; // the maker's sub-order is mirrored; no operational status changes
   }
-  if (!(await writeOrders(ctx, [o])).written.length) return 'ignored';
+  const parent = await writeOrders(ctx, [o]);
+  if (!parent.written.length) {
+    if (parent.failed) throw refused('orders');
+    return 'ignored';
+  }
   let subs: unknown;
   try {
     subs = (await ctx.woo.get('wc/v3/orders', { parent: wooId(o.id), per_page: 100 })).data;
@@ -87,7 +96,9 @@ async function orderDelivery(o: Body, deps: Deps): Promise<Status> {
 
 async function productDelivery(p: Body, deps: Deps): Promise<Status> {
   const ctx = await writeContext({ db: deps.db, woo: wooApi(deps.env, deps.fetch), kind: 'webhook', now: deps.now });
-  return (await writeProducts(ctx, [p])).written.length ? 'ok' : 'ignored';
+  const r = await writeProducts(ctx, [p]);
+  if (!r.written.length && r.failed) throw refused('products');
+  return r.written.length ? 'ok' : 'ignored';
 }
 
 function dispatch(topic: string, body: unknown, deps: Deps): Promise<Status> {

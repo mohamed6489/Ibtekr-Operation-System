@@ -13,10 +13,10 @@ const MEMBERS: Record<string, { perm: unknown; admin: unknown }> = {
   'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
 };
 
-type Opts = { seed?: Record<string, any[]>; routes?: Record<string, any>; env?: Record<string, string>; secretAnswer?: (ok: boolean) => unknown };
-function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok }: Opts = {}) {
+type Opts = { seed?: Record<string, any[]>; routes?: Record<string, any>; env?: Record<string, string>; secretAnswer?: (ok: boolean) => unknown; fail?: (c: any) => any };
+function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fail }: Opts = {}) {
   const db = fakeDb({ status_map: STATUS_MAP, vendors: [vendorRow(44), vendorRow(2376)], ...seed }, {
-    rpc: { sync_secret_matches: ({ candidate }: any) => secretAnswer(candidate === SYNC_SECRET) },
+    rpc: { sync_secret_matches: ({ candidate }: any) => secretAnswer(candidate === SYNC_SECRET) }, fail,
   });
   const woo = fakeWoo(routes);
   const members: any[] = [];
@@ -37,6 +37,7 @@ async function call(deps: any, body: unknown, auth: { secret?: string; jwt?: str
   return { res, body: await res.json() };
 }
 
+const PUSH_ON = { WOO_PUSH_ENABLED: '1' };
 const pushSeed = { orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'جاهز للشحن', woo_status: 'processing', placed_at: '2026-10-20T10:00:00Z', woo_updated_at: '2026-10-20T11:00:00Z' }] };
 const page = (items: any[], totalPages = 1) => ({ body: items, headers: { 'X-WP-Total': String(items.length), 'X-WP-TotalPages': String(totalPages) } });
 const single = (id: number, vendor: number, modified: string) =>
@@ -112,7 +113,7 @@ Deno.test('the right X-Sync-Secret → system mode: orders pulled with the exact
   const { res, body } = await call(deps, { action: 'orders' });
   assertEquals(res.status, 200);
   assertEquals([body.action, body.result], ['orders', 'ok']);
-  assertEquals(body.counts.orders, { orders: 2, sub_orders: 2, skipped: 1, conflicts: 0, pages: 1, done: true });
+  assertEquals(body.counts.orders, { orders: 2, sub_orders: 2, skipped: 1, conflicts: 0, failed: 0, pages: 1, done: true });
 
   assertEquals(woo.calls.length, 1);
   assertEquals(woo.calls[0].query, { after: '2026-10-01T00:00:00', dates_are_gmt: 'true', orderby: 'modified', order: 'asc', status: 'any', per_page: '100', page: '1' });
@@ -183,6 +184,47 @@ Deno.test('a sub-order whose parent fetch fails (500) → that sub-order is skip
   assertEquals([log.kind, log.entity_id, log.result, log.detail.reason, log.detail.parent_id], ['sync', '3001', 'error', 'parent_fetch_failed', 9999]);
 });
 
+Deno.test('one row refused with a data error (22xxx / 23xxx) in a batch of three → the other two written, one error row for it, the page goes on', async () => {
+  const bad = (c: any) => c.table === 'orders' && c.op === 'upsert' && c.rows.some((r: any) => r.id === 1002)
+    ? { code: '22P02', message: 'invalid input syntax for type numeric', details: `Failing row contains (1002, ${PHONE})` } : null;
+  const items = [single(1001, 44, '2026-10-21T09:00:00'), single(1002, 44, '2026-10-21T09:10:00'), single(1003, 2376, '2026-10-21T09:20:00')];
+  const { db, deps } = setup({ routes: { 'GET wc/v3/orders': page(items) }, fail: bad });
+  const { res, body } = await call(deps, { action: 'orders' });
+  assertEquals([res.status, body.result], [200, 'ok']);
+  assertEquals([body.counts.orders.orders, body.counts.orders.failed], [2, 1]);
+  assertEquals(db.rows('orders').map((o: any) => o.id), [1001, 1003]);
+  assertEquals(db.rows('order_items').map((i: any) => i.order_id), [1001, 1003], 'the refused order takes its lines with it (no FK error rows)');
+  assertEquals(db.writes('orders').map((w: any) => w.rows.map((r: any) => r.id)), [[1001, 1002, 1003], [1001], [1002], [1003]], 'the batch, then row by row');
+  const errors = db.rows('woo_sync_log').filter((r: any) => r.result === 'error');
+  assertEquals(errors.map((r: any) => [r.kind, r.direction, r.entity, r.entity_id, r.action]), [['sync', 'in', 'orders', '1002', 'upsert']]);
+  assertEquals(errors[0].detail, { error: 'DbError: orders: invalid input syntax for type numeric' });
+  assertEquals(db.row('sync_state', 'orders', 'key').value.cursor, '2026-10-21T09:19:00Z', 'the cursor moves past the page');
+  assertFalse(writtenText(db).includes(PHONE));
+});
+
+Deno.test('any other database error (not 22xxx / 23xxx) still stops the part: 500 sync_failed, no row-by-row retry', async () => {
+  const down = (c: any) => (c.table === 'orders' && c.op === 'upsert' ? { code: '57014', message: 'canceling statement due to statement timeout' } : null);
+  const { db, deps } = setup({ routes: { 'GET wc/v3/orders': page([single(1001, 44, '2026-10-21T09:00:00'), single(1002, 44, '2026-10-21T09:10:00')]) }, fail: down });
+  const { res, body } = await call(deps, { action: 'orders' });
+  assertEquals([res.status, body.error, body.failed], [500, 'sync_failed', ['orders']]);
+  assertEquals(db.writes('orders').length, 1);
+  assertEquals(db.rows('woo_sync_log').map((r: any) => [r.entity, r.result, r.detail.error]), [['orders', 'error', 'DbError: orders: canceling statement due to statement timeout']]);
+});
+
+Deno.test('a multi-vendor parent whose lines carry no _dokan_vendor_id → each line linked to its sub-order by product id and given its maker', async () => {
+  const parent = wooOrder({ id: 1005, number: '1005', date_modified_gmt: '2026-10-21T09:00:00', meta_data: [], line_items: [
+    { id: 51, product_id: 501, name: 'كوباية', quantity: 1, total: '100', meta_data: [] },
+    { id: 52, product_id: 502, variation_id: 7001, name: 'شنطة', quantity: 1, total: '250', meta_data: [] },
+  ] });
+  const subA = wooSub(2051, 1005, 44, { line_items: [{ id: 510, product_id: 501, quantity: 1, meta_data: [] }] });
+  const subB = wooSub(2052, 1005, 2376, { line_items: [{ id: 520, product_id: 502, variation_id: 7001, quantity: 1, meta_data: [] }] });
+  const { db, deps } = setup({ routes: { 'GET wc/v3/orders': page([parent, subA, subB]) } });
+  assertEquals((await call(deps, { action: 'orders' })).res.status, 200);
+  const sub = (id: number) => db.row('sub_orders', id, 'woo_order_id');
+  assertEquals(db.rows('order_items').map((i: any) => [i.id, i.vendor_id, i.sub_order_id]), [[51, vendorId(44), sub(2051).id], [52, vendorId(2376), sub(2052).id]]);
+  assertEquals(db.rows('woo_sync_log').filter((r: any) => r.result !== 'ok').length, 0);
+});
+
 // ---------------------------------------------------------------- vendors / products / all
 
 Deno.test('vendors: every Dokan store upserted on woo_vendor_id, aliases / commission_pct untouched, no Authorization on dokan/', async () => {
@@ -209,13 +251,14 @@ Deno.test('products: pulled with the cursor params and upserted (image_url = ima
   assertEquals(db.row('sync_state', 'products', 'key').value.cursor, '2026-10-21T08:59:00Z');
 });
 
-Deno.test('all → vendors, then products, then orders', async () => {
+Deno.test('all → vendors, then orders, then products (the orders before the ~40 product pages)', async () => {
   const routes = { 'GET dokan/v1/stores': page([wooStore(44)]), 'GET wc/v3/products': page([wooProduct(501, 44)]), 'GET wc/v3/orders': page([single(1002, 44, '2026-10-21T09:30:00')]) };
   const { woo, deps } = setup({ routes });
   const { res, body } = await call(deps, { action: 'all' });
   assertEquals(res.status, 200);
-  assertEquals(woo.calls.map((c) => c.path), ['dokan/v1/stores', 'wc/v3/products', 'wc/v3/orders']);
-  assertEquals(Object.keys(body.counts), ['vendors', 'products', 'orders']);
+  assertEquals(woo.calls.map((c) => c.path), ['dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products']);
+  assertEquals(Object.keys(body.counts), ['vendors', 'orders', 'products']);
+  assertEquals(body.counts.products, { products: 1, failed: 0, pages: 1, done: true });
 });
 
 Deno.test('all keeps going when one part fails, answers 502 naming it, and the log holds neither the keys nor a phone', async () => {
@@ -225,7 +268,7 @@ Deno.test('all keeps going when one part fails, answers 502 naming it, and the l
   const { res, body } = await call(deps, { action: 'all' });
   assertEquals(res.status, 502);
   assertEquals([body.error, body.failed], ['sync_failed', ['vendors']]);
-  assertEquals(woo.calls.map((c) => c.path), ['dokan/v1/stores', 'wc/v3/products', 'wc/v3/orders']);
+  assertEquals(woo.calls.map((c) => c.path), ['dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products']);
   const err = db.rows('woo_sync_log').find((r: any) => r.result === 'error')!;
   assertEquals([err.entity, err.kind], ['vendors', 'cron']);
   for (const s of [PHONE, ENV.WOO_CK, ENV.WOO_CS]) assertFalse(writtenText(db).includes(s), `leaked ${s}`);
@@ -233,12 +276,40 @@ Deno.test('all keeps going when one part fails, answers 502 naming it, and the l
 
 // ---------------------------------------------------------------- push_status
 
+Deno.test('push_status without WOO_PUSH_ENABLED = 1 (the default; also "true", "0", "yes", "") → skipped/push_disabled, no Woo call', async () => {
+  for (const value of [undefined, 'true', '0', 'yes', '', '11']) {
+    const env: Record<string, string> = value === undefined ? {} : { WOO_PUSH_ENABLED: value };
+    const { db, woo, deps } = setup({ seed: pushSeed, env });
+    const { res, body } = await call(deps, { action: 'push_status', order_id: 1001, status: 'جاهز للشحن' }, { jwt: 'jwt-ops' });
+    assertEquals([res.status, body], [200, { action: 'push_status', result: 'skipped', reason: 'push_disabled', counts: { pushed: 0 } }], `WOO_PUSH_ENABLED=${value}`);
+    assertEquals(woo.calls.length, 0);
+    assertEquals(db.writes('orders').length, 0);
+    assertFalse(db.calls.some((c: any) => c.table === 'status_map'), 'nothing is prepared for a push that will not happen');
+    const log = db.rows('woo_sync_log');
+    assertEquals(log.map((r: any) => [r.kind, r.direction, r.entity, r.entity_id, r.result, r.detail]), [['push', 'out', 'order', '1001', 'skipped', { status: 'جاهز للشحن', reason: 'push_disabled' }]]);
+  }
+});
+
+Deno.test('push_status with WOO_PUSH_ENABLED = "1" (trimmed) pushes; the stale check still comes first', async () => {
+  const routes = {
+    'GET wc/v3/orders/1001': { body: { id: 1001, status: 'processing', date_modified_gmt: '2026-10-20T11:00:00' } },
+    'PUT wc/v3/orders/1001': { body: { id: 1001, status: 'ready-shipping', date_modified_gmt: '2026-10-25T12:00:01' } },
+  };
+  const { db, woo, deps } = setup({ seed: pushSeed, routes, env: { WOO_PUSH_ENABLED: ' 1 ' } });
+  const { body } = await call(deps, { action: 'push_status', order_id: 1001, status: 'جاهز للشحن' }, { jwt: 'jwt-ops' });
+  assertEquals([body.result, body.counts], ['ok', { pushed: 1 }]);
+  assertEquals(woo.calls.map((c) => c.method), ['GET', 'PUT']);
+  const stale = await call(deps, { action: 'push_status', order_id: 1001, status: 'مكتمل' }, { jwt: 'jwt-ops' });
+  assertEquals([stale.body.result, stale.body.reason], ['skipped', 'stale']);
+  assertEquals(db.row('orders', 1001).woo_status, 'ready-shipping');
+});
+
 Deno.test('push_status by a member with orders.status = F → PUT wc/v3/orders/{id} {status}; woo_status / woo_updated_at updated; push logged ok', async () => {
   const routes = {
     'GET wc/v3/orders/1001': { body: { id: 1001, status: 'processing', date_modified_gmt: '2026-10-20T11:00:00' } },
     'PUT wc/v3/orders/1001': (c: any) => ({ body: { id: 1001, status: c.body.status, date_modified_gmt: '2026-10-25T12:00:01' } }),
   };
-  const { db, woo, deps } = setup({ seed: pushSeed, routes });
+  const { db, woo, deps } = setup({ seed: pushSeed, routes, env: PUSH_ON });
   const { res, body } = await call(deps, { action: 'push_status', order_id: 1001, status: 'جاهز للشحن' }, { jwt: 'jwt-ops' });
   assertEquals(res.status, 200);
   assertEquals(body, { action: 'push_status', result: 'ok', conflict: false, counts: { pushed: 1 } });
@@ -252,7 +323,7 @@ Deno.test('push_status by a member with orders.status = F → PUT wc/v3/orders/{
 });
 
 Deno.test('push_status for a status with no Woo slug (تم RTC) → skipped, no Woo call', async () => {
-  const { db, woo, deps } = setup({ seed: { orders: [{ ...pushSeed.orders[0], status: 'تم RTC' }] } });
+  const { db, woo, deps } = setup({ seed: { orders: [{ ...pushSeed.orders[0], status: 'تم RTC' }] }, env: PUSH_ON });
   const { body } = await call(deps, { action: 'push_status', order_id: 1001, status: 'تم RTC' }, { jwt: 'jwt-ops' });
   assertEquals([body.action, body.result, body.reason], ['push_status', 'skipped', 'no_woo_status']);
   assertEquals(woo.calls.length, 0);
@@ -275,7 +346,7 @@ Deno.test('push_status when WooCommerce changed the status since our last sync �
     'GET wc/v3/orders/1001': { body: { id: 1001, status: 'on-hold', date_modified_gmt: '2026-10-22T00:00:00' } },
     'PUT wc/v3/orders/1001': { body: { id: 1001, status: 'ready-shipping', date_modified_gmt: '2026-10-25T12:00:01' } },
   };
-  const { db, woo, deps } = setup({ seed: pushSeed, routes });
+  const { db, woo, deps } = setup({ seed: pushSeed, routes, env: PUSH_ON });
   const { body } = await call(deps, { action: 'push_status', order_id: 1001, status: 'جاهز للشحن' }, { secret: SYNC_SECRET });
   assertEquals([body.result, body.conflict], ['ok', true]);
   assertEquals(woo.calls.map((c) => c.method), ['GET', 'PUT']);

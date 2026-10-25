@@ -154,7 +154,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 ### 2.6 الحالة على المشروع الحي
 - المرحلة صفر (2026-10-22): أول خمس migrations (`0001`–`0005`) اتطبّقوا، و`rls_identity` و`rls_system` خضر.
 - المرحلة 1 (2026-10-25): الـ migration `dashboard` (`0006`) اتطبّقت، و`rls_dashboard` أخضر.
-- المرحلة 2 (2026-10-25): `orders` (`0007`) اتطبّقت بدري عن الخطة (صفحة الأوردرات على `main` كانت بتعرض حالة الخطأ لحد ما الجداول تتعمل)، واتأكد اللي في §2.1؛ الـ advisors مازادش فيها غير `order_customer_phone` (مقصود، §2.2). الباقي — `mfa_cron` (`0008`)، `rls_orders`/`rls_mfa` على الحي، الدالتين، الأسرار (قيم الـ staging دلوقتي)، الـ webhooks، وأول مزامنة — خطوات المهمة 9 الحية (§2.1 و§2.7)، ونتيجتها بتتسجّل هنا وفي `.superpowers/sdd/2026-10-25-phase-2-orders/progress.md`.
+- المرحلة 2 (2026-10-25): `orders` (`0007`) و`mfa_cron` (`0008`) اتطبّقوا (`0007` بدري عن الخطة — صفحة الأوردرات على `main` كانت بتعرض حالة الخطأ لحد ما الجداول تتعمل)، واتأكد اللي في §2.1؛ الـ advisors مازادش فيها غير المقصود (§2.2). الدالتين `woo-webhook` و`woo-sync` اتنشروا (v1، `verify_jwt: false`، بالشكل اللي في §2.7.1). الـ cron اتأكد: 3 تشغيلات (21:30 و21:45 و22:00Z) `succeeded`، والرد 500 `not_configured` — متوقع لحد ما أسرار `WOO_*` تتحط (السر الداخلي طابق، يعني الطلب وصل للكود). **لسه:** الأسرار (§2.7.2، صاحب المشروع يدخلها)، وبعدها الـ webhooks (§2.7.4) وأول مزامنة (§2.7.5)؛ وتشغيل `rls_orders`/`rls_mfa` على الحي مش متسجّل في الدفتر. التفاصيل في `.superpowers/sdd/2026-10-25-phase-2-orders/progress.md`.
 
 ### 2.7 Edge Functions والأسرار والـ webhooks (المرحلة 2)
 دالتين Deno في `supabase/functions/`:
@@ -163,11 +163,20 @@ window.IB_CONFIG = window.IB_CONFIG || {
 
 منطقهم النقي في `_shared/woo-core.js` (بيتختبر بـ `npm test`)، ونقط الدخول بـ `npm run deno:check` و`npm run deno:test`. الترتيب على الحي: §2.1 (`0007` ثم `0008`) ← 2.7.1 النشر ← 2.7.2 الأسرار ← 2.7.4 الـ webhooks ← 2.7.5 أول مزامنة.
 
-**Dokan قراءة بس (قرار صاحب المشروع):** النظام عمره ما يكتب في حالة أوردر فرعي على Woo ولا في بيانات متجر. اللي بيتكتب في WooCommerce حاجتين بس: حالة الأوردر الأصلي (`push_status`، حسب `status_map` واتجاهها)، والـ webhooks بتاعتنا (`register_webhooks`). حالات الفرعيين (تأكيد، وصل المخزن، شحن، مرتجع) عايشة عندنا بس.
+**Dokan قراءة بس (قرار صاحب المشروع):** النظام عمره ما يكتب في حالة أوردر فرعي على Woo ولا في بيانات متجر. اللي بيتكتب في WooCommerce حاجتين بس: حالة الأوردر الأصلي (`push_status`، حسب `status_map` واتجاهها، ولما `WOO_PUSH_ENABLED = 1` بس — 2.7.2)، والـ webhooks بتاعتنا (`register_webhooks`). حالات الفرعيين (تأكيد، وصل المخزن، شحن، مرتجع) عايشة عندنا بس.
 
 #### 2.7.1 نشر الدالتين
 - `deploy_edge_function` (Supabase MCP) لكل دالة، **بـ `verify_jwt: false` صريح** — الافتراضي في الأداة `true`، ولو اتساب كده الـ gateway هيرفض WooCommerce والـ cron بـ 401 قبل ما الكود يشتغل. نفس القيمة في `supabase/config.toml` (`[functions.woo-webhook]` و`[functions.woo-sync]`)، فـ `supabase functions deploy` بياخدها لوحده. الدالتين بيعملوا المصادقة بنفسهم (2.7.3).
 - الملفات لكل دالة: `index.ts` (الـ entrypoint) و`deno.json`، ومعاهم الأربع ملفات المشتركة `_shared/woo-core.js` و`_shared/woo-api.js` و`_shared/woo-write.js` و`_shared/db.js` بنفس المسار النسبي اللي الـ imports بتستخدمه (`../_shared/…`). **مايترفعش:** `index_test.ts` ولا `_test/` (بدائل الاختبار).
+- **شكل الـ bundle اللي اشتغل مع `deploy_edge_function` (MCP، 2026-10-25):** أسماء الملفات في `files` جوه فولدر الدالة، والمشتركة جنبه:
+
+  | `name` في `files` | المحتوى من |
+  |---|---|
+  | `woo-<fn>/index.ts` | `supabase/functions/woo-<fn>/index.ts` |
+  | `woo-<fn>/deno.json` | `supabase/functions/woo-<fn>/deno.json` |
+  | `_shared/woo-core.js`، `_shared/woo-api.js`، `_shared/woo-write.js`، `_shared/db.js` | `supabase/functions/_shared/*.js` |
+
+  ومعاهم `entrypoint_path: woo-<fn>/index.ts` و`import_map_path: woo-<fn>/deno.json` و`verify_jwt: false` (`<fn>` = `webhook` أو `sync`). ليه: الـ imports `../_shared/…` بتتحل جوه الـ bundle من فولدر الدالة؛ لو `index.ts` اترفع في جذر الـ bundle، `../_shared/` بيطلع برّه الـ bundle والنشر بيبوظ.
 - supabase-js مثبّتة `npm:@supabase/supabase-js@2.118.0` (نفس نسخة الواجهة).
 - `SUPABASE_URL` و`SUPABASE_SERVICE_ROLE_KEY` و`SUPABASE_ANON_KEY` Supabase بيحطهم لوحده. `woo-sync` بيستخدم `SUPABASE_ANON_KEY` عشان يكلّم قاعدة البيانات بتوكن العضو؛ لو المشروع قفل مفاتيح الـ JWT القديمة (legacy)، اتأكد إن الاسم ده لسه موجود.
 - **فحص بعد النشر والأسرار** — بيأكد إن الكود نفسه هو اللي بيرد (مش الـ gateway):
@@ -192,6 +201,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 | `WOO_URL` | أصل الموقع بـ `https://`، من غير `/wp-json` ومن غير `user:pass@` (الدالة بتضيف `/wp-json/` وبترفض غير https) — دلوقتي `https://stage.ibtekr.club` |
 | `WOO_CK` / `WOO_CS` | مفاتيح WooCommerce REST (WooCommerce › Settings › Advanced › REST API) بصلاحية Read/Write: `push_status` و`register_webhooks` بيكتبوا |
 | `WOO_WEBHOOK_SECRET` | سر توقيع الـ webhooks: **حروف وأرقام بس** — WooCommerce بيعدّي السر على `wp_specialchars_decode`، فأي `&` أو `<` أو `'` ممكن يتغيّر ويبوّظ التوقيع. ولّده على جهازك (مثلًا `openssl rand -hex 32`) وحطه في اللوحة على طول. `register_webhooks` هو اللي بيحطه في Woo — ماتكتبوش هناك بإيدك |
+| `WOO_PUSH_ENABLED` | **اختياري:** `1` بالظبط (بعد trim) = `push_status` بيكتب حالة الأوردر في WooCommerce. أي قيمة تانية أو من غيره → الدفع بيتساب (`skipped`، `reason 'push_disabled'`، من غير أي نداء لـ Woo). ليه: الـ staging نسخة كاملة من الموقع بإيميلات عملاء حقيقية وتكامل بوسطة، فأي تغيير حالة هناك ممكن يبعت إيميل لعميل أو يحرّك شحنة. **على الـ staging:** ماتحطوش `1` غير بعد ما تتأكد إن WooCommerce › Settings › Emails (إيميلات الحالات للعميل) وبوسطة (وأي plugin متعلّق بتغيير الحالة) مقفولين أو على sandbox. **على الإنتاج:** عادةً `1` (2.7.8) |
 | `WOO_WP_USER` + `WOO_WP_APP_PASSWORD` | **اختياريين، الاتنين مع بعض:** مستخدم أدمن WordPress + Application Password (Users › Profile › Application Passwords). بيتبعتوا Basic على `dokan/v1` بس. لازمين بس لو عايز أرباح Dokan من `dokan/v1/orders`؛ من غيرهم المتاجر بتتقرا من النقطة العامة، و`sub_orders.dokan_earning`/`commission` بيفضلوا `null` (المرحلة 3 بتحسب الربح من `vendors.commission_pct`). الدوال الحالية بتقرا `dokan/v1/stores` بس |
 
 سر المزامنة الداخلي (`sync_secret`) مش من دول: بيتولّد جوه Postgres في `0008` وعايش في Vault، والـ cron بيقراه وقت التشغيل.
@@ -236,7 +246,15 @@ window.IB_CONFIG = window.IB_CONFIG || {
 **تغيير `WOO_WEBHOOK_SECRET` على نفس الموقع:** السر بيتبعت لـ Woo مع إعادة التفعيل بس، فالـ webhook الفعّال بيفضل بالسر القديم. وقّف الأربعة من صفحة Webhooks في Woo (Disabled)، وبعدها `register_webhooks` بيرجّعهم `active` بالسر الجديد.
 
 #### 2.7.5 أول مزامنة والتحقق
-- `action: 'all'` = المتاجر، ثم المنتجات، ثم الأوردرات (جزء بيفشل مابيوقفش الباقي، والرد 502/500 بقايمة اللي فشل). نفس الطريقتين اللي فوق: زرار «مزامنة» في صفحة الأوردرات (أدمن؛ `IBOrders.syncNow()`) أو `net.http_post` بالجسم `{"action":"all"}`.
+- `action: 'all'` = المتاجر، ثم الأوردرات، ثم المنتجات (جزء بيفشل مابيوقفش الباقي، والرد 502/500 بقايمة اللي فشل). الأوردرات قبل المنتجات عشان أول تشغيلة فيها ~40 صفحة منتجات (≈ 3991 منتج)، ولو اتقطعت عند مهلة الـ gateway تكون الأوردرات اتسحبت. نفس الطريقتين اللي فوق: زرار «مزامنة» في صفحة الأوردرات (أدمن؛ `IBOrders.syncNow()`) أو `net.http_post` بالجسم `{"action":"all"}`.
+- **لو `all` وقعت عند مهلة الـ gateway** (رد مش الـ JSON بتاعنا، أو `timed_out` في `net._http_response`): شغّل `orders` لوحده الأول من الواجهة بحساب الأدمن (بجلسة aal2 لو مفعّل التحقق بخطوتين) — DevTools › Console على `https://operation-system.ibtekr.club`:
+
+  ```js
+  await IBSupabase.client.functions.invoke('woo-sync', { body: { action: 'orders' } })     // → { data: { action: 'orders', result: 'ok', counts: … } }
+  await IBSupabase.client.functions.invoke('woo-sync', { body: { action: 'products' } })   // بعدها، ولو رجعت done: false شغّلها تاني
+  ```
+
+  (أو `net.http_post` زي 2.7.4 بالجسم `{"action":"orders"}`.) كل جزء بيكمّل من الـ cursor بتاعه لو اتقطع، ولما الاتنين يبقوا `done: true` في `sync_state` تشغيلات `all` (والـ cron) بتبقى خفيفة.
 - الأوردرات بتتسحب من `wc/v3/orders?after=2026-10-01T00:00:00&dates_are_gmt=true&modified_after=<cursor>&orderby=modified&order=asc&status=any`، صفحة صفحة (100 في الصفحة، لحد 50 صفحة في التشغيلة)، والـ cursor بيتحفظ في `sync_state` بعد كل صفحة. لو التشغيلة اتقطعت أو رجعت `done: false`، شغّلها تاني وهتكمّل من مكانها. اللي بيتساب: الـ drafts (`checkout-draft`، `trash`) وأي أوردر قبل 1 أكتوبر (حسب `date_created_gmt`).
 - التحقق:
 
@@ -254,7 +272,15 @@ window.IB_CONFIG = window.IB_CONFIG || {
   - `products` ≈ 3991 (نفس الفحص).
   - `sync_state`: `orders` و`products` فيهم `cursor` و`last_run` و`done: true`.
   - `woo_sync_log`: `ok` لكل جزء. `conflict` و`skipped` و`error` بيتقروا زي 2.7.7.
-- **Realtime من غير التليفون** (بند محمول من مراجعة المهمة 2): افتح صفحة الأوردرات وغيّر أوردر على الـ staging → الكارت يتحدّث لوحده. اتأكد في DevTools › Network › WS إن رسالة Realtime بتاعة `orders` مافيهاش `customer_phone` ولا `raw` (الواجهة بترجع تقرا الصف من `orders_v`)، وإن فلتر Realtime على `customer_phone` مابيكشفش حاجة.
+- **كل سطر في أوردر ليه فرعيين مربوط بفرعي** — المزامنة بتربط السطر بالفرعي بتاع نفس المبتكر، أو بمنتجات الفرعي (`line_items[*].product_id`/`variation_id`) لو السطر جاي من غير `_dokan_vendor_id` (ده العادي في الأوردر متعدد المبتكرين)، وساعتها السطر بياخد مبتكر الفرعي:
+
+  ```sql
+  select count(*) from public.order_items i
+  where i.sub_order_id is null and exists (select 1 from public.sub_orders s where s.order_id = i.order_id);
+  -- المتوقع: 0. أكتر من صفر = سطر منتجه مش في أي فرعي من فرعيين أوردره (اسحب الأوردر وفرعيينه تاني بـ orders، وبعدها افحص raw.line_items بتاع الفرعيين)
+  ```
+
+- **Realtime من غير التليفون** (بند محمول من مراجعة المهمة 2): افتح صفحة الأوردرات وغيّر أوردر على الـ staging → الكارت يتحدّث لوحده. اتأكد في DevTools › Network › WS إن رسالة Realtime بتاعة `orders` مافيهاش `customer_phone` ولا `raw` (الواجهة بترجع تقرا الصف من `orders_v`). **فلتر Realtime على `customer_phone` — اتأكد على الحي (2026-10-25، مراجعة الفرع كله):** `realtime.subscription_check_filters` بيبني الأعمدة المسموح الفلترة عليها من `has_column_privilege(role, …, 'SELECT')` وبيرفض غيرها بـ `invalid column for filter`، فـ `authenticated` مايقدرش يشترك بفلتر على عمود مالوش `SELECT` عليه (`customer_phone`، `raw`) — مافيش استفسار عن التليفون عبر Realtime.
 
 #### 2.7.6 المزامنة الاحتياطية وسلوك WooCommerce
 - `0008` بيعمل job `woo-sync-backup` كل 15 دقيقة (`*/15 * * * *` — القيمة الافتراضية في إعدادات البروتوتايب؛ صفحة الإعدادات في المرحلة 10 هي اللي هتغيّرها). بيعمل `net.http_post` لـ `woo-sync` بـ `{"action":"all"}` و`X-Sync-Secret` من Vault وقت التشغيل، بمهلة 150 ثانية. الفحص في §2.1 (خطوة 5).
@@ -277,7 +303,8 @@ from public.woo_webhook_events order by received_at desc limit 30;
 - **`woo_sync_log`:** سطر لكل حدث. `kind` (`webhook` | `sync` | `push` | `manual` | `cron`)، `direction` (`in` | `out`)، `entity`/`entity_id`/`action`، `result` (`ok` | `error` | `conflict` | `skipped`)، و`detail` (العدّادات أو نص الخطأ، متنضّف: من غير مفاتيح ولا تليفونات ولا إيميلات). أشهر الحالات:
   - `webhook` / `verify` / `error` → توقيع غلط: السر اللي في Woo غير `WOO_WEBHOOK_SECRET` (شوف «تغيير `WOO_WEBHOOK_SECRET`» في 2.7.4)، أو حد بيبعت طلبات مش من Woo.
   - `vendor` / `error` → متجر Dokan رد بحاجة غير 404. السطر اتحفظ بـ `vendor_id null`، وهيتصلّح لما الأوردر يتغيّر تاني (المرحلة 3 فيها backfill).
-  - `skipped` → متجر مش موجود (404)، أو أوردر أصلي مش موجود لفرعي (`parent_missing`)، أو دفع اتساب (`reason 'no_woo_status'` لـ «تم RTC»، أو `'stale'` لما الحالة اللي اتبعتت مش هي المتخزنة).
+  - `skipped` → متجر مش موجود (404)، أو أوردر أصلي مش موجود لفرعي (`parent_missing`)، أو دفع اتساب (`reason 'no_woo_status'` لـ «تم RTC»، أو `'stale'` لما الحالة اللي اتبعتت مش هي المتخزنة، أو `'push_disabled'` لما `WOO_PUSH_ENABLED` مش `1` — 2.7.2؛ الحالة اتحفظت عندنا بس).
+  - `orders` / `order_items` / `sub_orders` / `products` / `vendors` + `action 'upsert'` + `error` → قاعدة البيانات رفضت الصف ده بالذات (خطأ بيانات، SQLSTATE `22xxx`/`23xxx`؛ `entity_id` = مفتاحه، و`detail.error` = السبب). المزامنة جرّبت الدفعة صف صف وكمّلت الباقي؛ أوردر مرفوض بيتساب بسطوره، والـ delivery بتاعته بتتسجّل `error` في `woo_webhook_events`. أي خطأ تاني (timeout، صلاحيات) بيوقف الجزء كله زي الأول.
   - `conflict` → حالة جاية من Woo مش في `status_map` (الأوردر اتحفظ بالـ `woo_status` الخام وحالة النظام الحالية أو الافتراضية)، أو Woo غيّر الحالة بين آخر مزامنة والدفع (`detail.woo_before`؛ الدفع كمّل — «السيستم يكسب»).
   - `sub_order` / `parent_list` / `error` → جلب `?parent=` فشل بعد ما الأوردر اتكتب. الفرعيين هيوصلوا في deliveries بتاعتهم أو من المزامنة.
 - **`woo_webhook_events`:** صف لكل delivery. `status` (`ok` | `ignored` | `duplicate` | `error`)، و`payload` فيه 6 مفاتيح بس (`id, number, status, parent_id, date_modified_gmt, topic`). `ignored` طبيعي: أوردر فرعي (بيتكتب في `sub_orders` بس)، أوردر قبل 1 أكتوبر أو draft، payload أقدم من اللي عندنا، أو topic مش بتاعنا. `error` بنص بيبدأ بـ `in progress` = محاولة ماخلصتش.
@@ -285,7 +312,7 @@ from public.woo_webhook_events order by received_at desc limit 30;
 
 #### 2.7.8 التبديل من الـ staging للإنتاج
 دلوقتي الأسرار والـ webhooks على `https://stage.ibtekr.club`. لما صاحب المشروع يقرر نشتغل على الموقع الحقيقي (القرار يتكتب في الدفتر):
-1. **الأسرار الأربعة:** `WOO_URL` (الموقع الحقيقي)، `WOO_CK`/`WOO_CS` (مفاتيح REST من الموقع الحقيقي)، و`WOO_WEBHOOK_SECRET` **جديد** — كده أي delivery فاضلة من الـ staging بترجع 401. (و`WOO_WP_*` لو مستخدمينهم.)
+1. **الأسرار الأربعة:** `WOO_URL` (الموقع الحقيقي)، `WOO_CK`/`WOO_CS` (مفاتيح REST من الموقع الحقيقي)، و`WOO_WEBHOOK_SECRET` **جديد** — كده أي delivery فاضلة من الـ staging بترجع 401. (و`WOO_WP_*` لو مستخدمينهم.) و**`WOO_PUSH_ENABLED = 1`** عشان تغيير الحالة من النظام يوصل الموقع (من غيره الدفع بيتساب `push_disabled`). على الموقع الحقيقي إيميلات العملاء وبوسطة شغّالين بالقصد، فاتأكد إن الفريق عارف إن أي تغيير حالة من النظام بيوصلهم زي ما بيحصل من لوحة WooCommerce.
 2. **على الـ staging:** وقّف الأربعة `ibtekr-ops:*` من WooCommerce › Settings › Advanced › Webhooks (Disabled). الدوال عمرها ما بتوقف ولا بتمسح webhook.
 3. **`register_webhooks`** (2.7.4) → بيعمل الأربعة على الموقع الحقيقي، والـ webhooks اللي هناك (n8n وغيره) ماتتلمسش.
 4. **`sync_state`:** صفّر الـ cursors بتاعة `orders` و`products` (`value` يرجع `{}`، مثلًا `update public.sync_state set value = '{}'::jsonb where key in ('orders', 'products');`)، عشان أول مزامنة تسحب من 1 أكتوبر على الموقع الحقيقي.
@@ -312,7 +339,7 @@ from public.woo_webhook_events order by received_at desc limit 30;
 
 #### 2.7.10 الـ workflows اليدوية والـ CI
 - **`staging-probe.yml`** (`workflow_dispatch`، `contents: read`): بيشغّل `tools/woo-probe.mjs` على الـ staging بالأسرار `STAGING_WOO_URL`/`STAGING_WOO_CK`/`STAGING_WOO_CS` (GitHub Secrets، على مستوى الخطوة بس). GET بس، وكل قسم سطر JSON متنضّف من البيانات الشخصية: الحالات، عدد الأوردرات من 1 أكتوبر، عينات أصلي وفرعي، المتاجر، المنتجات، والـ webhooks. قسم المتاجر بيرجع 401 لأن السكريبت بيبعت مفاتيح WC على `dokan/v1` — ومن هنا طلعت قاعدة المصادقة (2.7.3) — فالتشغيلة بتخلص بـ exit 1 والباقي بيتطبع عادي. آخر تشغيلة: 40204355895 (2026-10-25).
-- **`vendor-fetch.yml`** (`workflow_dispatch`، `contents: write`): بينزّل SheetJS CE من `cdn.sheetjs.com` (الـ sandbox مابيوصلهوش، وnpm واقف عند 0.18.5 اللي فيها CVE-2023-30533 وCVE-2024-22363)، وبيعمل commit لـ `app/js/vendor/xlsx.full.min.js` على الفرع اللي تختاره. المدخلات: `version` (افتراضي `0.20.3`)، `branch`، و`sha256` اختياري (التشغيلة بتفشل لو الهاش مختلف). الهاش بيتطبع في اللوج؛ بعدها حدّث الإصدار والـ sha256 في `app/js/vendor/README.md`. html2canvas بيتحدّث يدويًا بـ `npm pack` (الخطوات في نفس الـ README).
+- **`vendor-fetch.yml`** (`workflow_dispatch`، `contents: write`): بينزّل SheetJS CE من `cdn.sheetjs.com` (الـ sandbox مابيوصلهوش، وnpm واقف عند 0.18.5 اللي فيها CVE-2023-30533 وCVE-2024-22363)، وبيعمل commit لـ `app/js/vendor/xlsx.full.min.js` على الفرع اللي تختاره. المدخلات: `version` (افتراضي `0.20.3`)، `branch` (**`main` مرفوض** — بأي شكل: `main` أو `heads/main` أو `refs/heads/main` — لأن الـ push على `main` بينشر الموقع؛ اعمل commit على فرع شغل وادمجه)، و`sha256` اختياري (التشغيلة بتفشل لو الهاش مختلف). الهاش بيتطبع في اللوج؛ بعدها حدّث الإصدار والـ sha256 في `app/js/vendor/README.md`. html2canvas بيتحدّث يدويًا بـ `npm pack` (الخطوات في نفس الـ README).
 - **CI (`ci.yml`)** مع كل push: `test` (`npm test` + e2e)، `db` (الـ migrations والـ RLS على Postgres 17)، `semgrep` (`npm run semgrep`، semgrep 1.182.1)، و`functions` (`npm run deno:check` + `npm run deno:test`).
 
 ---

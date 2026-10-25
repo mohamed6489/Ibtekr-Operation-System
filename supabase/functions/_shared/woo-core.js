@@ -152,17 +152,21 @@ export async function verifySignature(rawBody, signatureHeader, secret) {
 
 /**
  * Woo status → system status. A current status whose row is from_system (e.g. «تم RTC», set by the team) is never
- * overwritten: 'unchanged'. Else the both / from_woo row of that slug (the current status if it is one of them):
- * 'ok'; a slug with only from_system rows: 'unchanged'; WOO_FALLBACK: 'ok'; unknown: the current status (or the
- * map's first) as 'conflict'.
+ * overwritten: 'unchanged'. Nor is a current status when Woo's slug is the one already stored (currentWooStatus, the
+ * order's woo_status in the DB): Woo did not change its status, so a delivery about anything else (a note, an
+ * address) keeps the team's status: 'unchanged'. Else the both / from_woo row of that slug (the current status if it
+ * is one of them): 'ok'; a slug with only from_system rows: 'unchanged'; WOO_FALLBACK: 'ok'; unknown: the current
+ * status (or the map's first) as 'conflict'.
  */
-export function incomingStatus(wooStatus, currentSystemStatus, statusMap) {
+export function incomingStatus(wooStatus, currentSystemStatus, statusMap, currentWooStatus = null) {
   const rows = rowsOf(statusMap);
   const current = orNull(currentSystemStatus);
   const keep = current ?? rows[0]?.system_status ?? DEFAULT_STATUS;
   const currentRow = current && rows.find((r) => r.system_status === current);
   if (currentRow && dirOf(currentRow) === 'from_system') return { status: current, result: 'unchanged' };
   const slug = str(wooStatus);
+  const storedSlug = str(currentWooStatus);
+  if (current && storedSlug && slug === storedSlug) return { status: current, result: 'unchanged' };
   const matches = slug ? rows.filter((r) => r.woo_status === slug) : [];
   const usable = matches.filter((r) => ['both', 'from_woo'].includes(dirOf(r)));
   if (usable.length) return { status: (usable.find((r) => r.system_status === current) ?? usable[0]).system_status, result: 'ok' };
@@ -184,11 +188,13 @@ export const isSubOrder = (wooOrder) => (num(wooOrder?.parent_id) ?? 0) > 0;
 /**
  * A Woo parent order → { order (orders row), items (order_items rows), unknownVendorIds, statusResult }, or
  * { skipped: 'invalid' | 'before_start' | 'draft', order: null, items: [] } (invalid = not an object, no numeric id or
- * no date_created_gmt). ctx (null = {}): statusMap, vendorsByWooId, now, currentStatus (the order's status in the DB).
- * A line's vendor comes from its own _dokan_vendor_id, else the parent's (a single-vendor parent carries it itself).
+ * no date_created_gmt). ctx (null = {}): statusMap, vendorsByWooId, now, currentStatus / currentWooStatus (the
+ * order's status / woo_status in the DB). A line's vendor comes from its own _dokan_vendor_id, else the parent's (a
+ * single-vendor parent carries it itself); a multi-vendor parent's line without one gets its maker from the sub-order
+ * (woo-write links it by product id).
  */
 export function mapOrder(wooOrder, ctx) {
-  const { statusMap = [], vendorsByWooId = null, now = null, currentStatus = null } = ctx ?? {};
+  const { statusMap = [], vendorsByWooId = null, now = null, currentStatus = null, currentWooStatus = null } = ctx ?? {};
   const o = isObj(wooOrder) ? wooOrder : {};
   const created = gmtMs(o.date_created_gmt);
   const skipped = wooId(o.id) === null || created === null ? 'invalid'
@@ -212,7 +218,7 @@ export function mapOrder(wooOrder, ctx) {
 
   const b = isObj(o.billing) ? o.billing : {};
   const s = isObj(o.shipping) ? o.shipping : {};
-  const status = incomingStatus(o.status, currentStatus, statusMap);
+  const status = incomingStatus(o.status, currentStatus, statusMap, currentWooStatus);
   const order = {
     id: num(o.id), number: str(o.number ?? o.id),
     customer_name: personName(b) || personName(s),

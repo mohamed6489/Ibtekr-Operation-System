@@ -8,12 +8,20 @@
 //   still written, with vendor_id null, and the rest of the delivery / page goes on. Only then are rows mapped for good.
 // * Orders / lines are upserted with the sync-owned columns only (ORDER_COLUMNS / ITEM_COLUMNS), so an existing row
 //   keeps the team's operational values (orders.confirm*/deposit/note/cancel/ret, order_items.status/expected_at/
-//   comment/ready_at/waybill/pulled/ret/store, order_items.sub_order_id). orders.status comes from incomingStatus on
-//   the status stored now. A payload older than the stored woo_updated_at (an out-of-order or replayed delivery) is
-//   skipped as 'stale'. A line that disappeared from WooCommerce is flagged removed = true (never deleted).
+//   comment/ready_at/waybill/pulled/ret/store, order_items.sub_order_id). customer_city / customer_address are
+//   written on a new order only (the team edits them afterwards), and a line whose maker is not known from the
+//   payload keeps the vendor_id it has (its sub-order gave it). orders.status comes from incomingStatus on the status
+//   and woo_status stored now (Woo's slug unchanged → the team's status stays). A payload older than the stored
+//   woo_updated_at (an out-of-order or replayed delivery) is skipped as 'stale'. A line that disappeared from
+//   WooCommerce is flagged removed = true (never deleted).
 // * A Dokan sub-order is written once its parent is in orders (a missing parent is fetched from wc/v3/orders/{id}
 //   first; a 404 → 'skipped', any other failure → 'error', and only that sub-order waits for the next delivery / run),
-//   upserted on woo_order_id, then linked to the parent's lines of the same maker (order_items.sub_order_id).
+//   upserted on woo_order_id, then linked to the parent's lines (order_items.sub_order_id): those of the same maker,
+//   and those of its products (line_items[*].product_id / variation_id) whose maker is still unknown, which get the
+//   sub-order's maker — a multi-vendor parent's lines usually carry no _dokan_vendor_id.
+// * A row refused with a data error (upsertRows: SQLSTATE 22xxx / 23xxx) is skipped with one woo_sync_log error row
+//   (entity = the table, entity_id = its key) and the rest of the delivery / page goes on; a refused order takes its
+//   lines with it. Counted as `failed`.
 import { isSubOrder, mapOrder, mapStore, mapSubOrder, redactPII } from './woo-core.js';
 import { DbError, logSync, selectIn, upsertRows } from './db.js';
 import { errorText } from './woo-api.js';
@@ -21,6 +29,10 @@ import { errorText } from './woo-api.js';
 export const ORDER_COLUMNS = ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method',
   'payment_title', 'status', 'woo_status', 'total', 'currency', 'customer_note', 'placed_at', 'woo_updated_at', 'raw', 'synced_at'];
 export const ITEM_COLUMNS = ['id', 'order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'raw', 'removed'];
+// The team edits these after the first sync: an existing order is upserted without them.
+const TEAM_EDITED = ['customer_city', 'customer_address'];
+const ORDER_UPDATE_COLUMNS = ORDER_COLUMNS.filter((c) => !TEAM_EDITED.includes(c));
+const ITEM_COLUMNS_NO_VENDOR = ITEM_COLUMNS.filter((c) => c !== 'vendor_id');
 const SUB_COLUMNS = ['order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw'];
 const VENDOR_COLUMNS = ['woo_vendor_id', 'name', 'phone', 'email', 'status', 'raw'];
 // products.raw is readable by members: an allow-list of public product fields (no store owner name or address).
@@ -51,13 +63,23 @@ export async function writeContext({ db, woo, kind, now }) {
 
 const log = (ctx, row) => logSync(ctx.db, { kind: ctx.kind, direction: 'in', ...row });
 
+// upsertRows + one error row per row a data error refused. → { rows (the `returning` rows), bad: Set of keys }.
+async function save(ctx, table, rows, onConflict, returning = null) {
+  const res = await upsertRows(ctx.db, table, rows, onConflict, returning);
+  for (const b of res.bad) {
+    await log(ctx, { entity: table, entity_id: b.key, action: 'upsert', result: 'error', detail: { error: errorText(b.error, ctx.woo.scrub) } });
+  }
+  return { rows: res.rows, bad: new Set(res.bad.map((b) => b.key)) };
+}
+
 // ---------------------------------------------------------------- makers
 
 /** Upserts vendors rows (mapStore output) on woo_vendor_id and remembers their ids. → number written. */
 export async function saveVendors(ctx, rows) {
   const valid = rows.filter((r) => wooId(r.woo_vendor_id) !== null).map((r) => pick(r, VENDOR_COLUMNS));
-  for (const v of await upsertRows(ctx.db, 'vendors', valid, 'woo_vendor_id', 'id, woo_vendor_id')) ctx.vendors.set(Number(v.woo_vendor_id), v.id);
-  return valid.length;
+  const { rows: saved, bad } = await save(ctx, 'vendors', valid, 'woo_vendor_id', 'id, woo_vendor_id');
+  for (const v of saved) ctx.vendors.set(Number(v.woo_vendor_id), v.id);
+  return valid.length - bad.size;
 }
 
 // The store as a vendors row, or null: 404 / another store → skipped (missingVendors); any other failure → an error
@@ -119,36 +141,44 @@ async function flagRemovedLines(ctx, kept) {
 
 /**
  * Parent orders → orders + order_items (+ removed flags, conflict rows). Sub-orders in the list are ignored here.
- * → { written: [ids], skipped: n (before_start / draft / invalid / stale), conflicts: n }.
+ * → { written: [ids], skipped: n (before_start / draft / invalid / stale), conflicts: n, failed: n (refused rows) }.
  */
 export async function writeOrders(ctx, wooOrders) {
   const parents = lastById(wooOrders.filter((o) => isObj(o) && !isSubOrder(o)));
   const ids = parents.map((o) => wooId(o.id)).filter((id) => id !== null);
-  const stored = new Map((await selectIn(ctx.db, 'orders', 'id, status, woo_updated_at', 'id', ids)).map((r) => [Number(r.id), r]));
+  const stored = new Map((await selectIn(ctx.db, 'orders', 'id, status, woo_status, woo_updated_at', 'id', ids)).map((r) => [Number(r.id), r]));
   const now = ctx.now();
-  const mapped = await mapWithVendors(ctx, parents, (o) =>
-    mapOrder(o, { statusMap: ctx.statusMap, vendorsByWooId: ctx.vendors, now, currentStatus: stored.get(wooId(o.id))?.status ?? null }));
+  const mapped = await mapWithVendors(ctx, parents, (o) => {
+    const row = stored.get(wooId(o.id));
+    return mapOrder(o, { statusMap: ctx.statusMap, vendorsByWooId: ctx.vendors, now, currentStatus: row?.status ?? null, currentWooStatus: row?.woo_status ?? null });
+  });
   const kept = mapped.map((m, i) => ({ o: parents[i], m })).filter(({ o, m }) => {
     if (m.skipped) return false;
     const before = ms(stored.get(m.order.id)?.woo_updated_at), incoming = ms(o.date_modified_gmt);
     return before === null || incoming === null || incoming >= before;
   });
 
-  await upsertRows(ctx.db, 'orders', kept.map(({ m }) => pick(m.order, ORDER_COLUMNS)), 'id');
-  const items = kept.flatMap(({ m }) => m.items).filter((i) => i.id !== null).map((i) => pick({ ...i, removed: false }, ITEM_COLUMNS));
-  await upsertRows(ctx.db, 'order_items', items, 'id');
-  await flagRemovedLines(ctx, kept);
+  const isNew = ({ m }) => !stored.has(m.order.id);
+  const added = await save(ctx, 'orders', kept.filter(isNew).map(({ m }) => pick(m.order, ORDER_COLUMNS)), 'id');
+  const updated = await save(ctx, 'orders', kept.filter((k) => !isNew(k)).map(({ m }) => pick(m.order, ORDER_UPDATE_COLUMNS)), 'id');
+  const written = kept.filter(({ m }) => !added.bad.has(String(m.order.id)) && !updated.bad.has(String(m.order.id)));
+  const items = written.flatMap(({ m }) => m.items).filter((i) => i.id !== null).map((i) => ({ ...i, removed: false }));
+  const known = await save(ctx, 'order_items', items.filter((i) => i.vendor_id !== null).map((i) => pick(i, ITEM_COLUMNS)), 'id');
+  const unknown = await save(ctx, 'order_items', items.filter((i) => i.vendor_id === null).map((i) => pick(i, ITEM_COLUMNS_NO_VENDOR)), 'id');
+  await flagRemovedLines(ctx, written);
 
-  const conflicts = kept.filter(({ m }) => m.statusResult === 'conflict');
+  const conflicts = written.filter(({ m }) => m.statusResult === 'conflict');
   for (const { m } of conflicts) {
     await log(ctx, { entity: 'order', entity_id: String(m.order.id), action: 'status', result: 'conflict', detail: { woo_status: m.order.woo_status, status: m.order.status } });
   }
-  return { written: kept.map(({ m }) => m.order.id), skipped: parents.length - kept.length, conflicts: conflicts.length };
+  return { written: written.map(({ m }) => m.order.id), skipped: parents.length - kept.length, conflicts: conflicts.length,
+    failed: added.bad.size + updated.bad.size + known.bad.size + unknown.bad.size };
 }
 
 // ---------------------------------------------------------------- sub-orders
 
-// → { written } | { missing } (404, or a payload writeOrders skips) | { error } (any other Woo failure: scrubbed text).
+// → { written } | { missing } (404, or a payload writeOrders skips) | { error } (any other Woo failure: scrubbed text;
+// or the parent row refused by the database, logged by writeOrders).
 async function fetchParent(ctx, id) {
   let order;
   try {
@@ -156,16 +186,34 @@ async function fetchParent(ctx, id) {
   } catch (e) {
     return e?.status === 404 ? { missing: true } : { error: errorText(e, ctx.woo.scrub) };
   }
-  return isObj(order) && (await writeOrders(ctx, [order])).written.includes(id) ? { written: true } : { missing: true };
+  if (!isObj(order)) return { missing: true };
+  const r = await writeOrders(ctx, [order]);
+  return r.written.includes(id) ? { written: true } : r.failed ? { error: 'parent row refused by the database' } : { missing: true };
+}
+
+// The product and variation ids of a sub-order's lines.
+const productIdsOf = (o) => [...new Set((Array.isArray(o.line_items) ? o.line_items : []).filter(isObj)
+  .flatMap((li) => [wooId(li.product_id), wooId(li.variation_id)]).filter((id) => id !== null))];
+
+// A saved sub-order { id, order_id, vendor_id } → its parent's lines: those of its products whose maker is unknown
+// (they take the sub-order's maker: coalesce(vendor_id, s.vendor_id)), then every line of its maker.
+async function linkLines(ctx, s, productIds) {
+  const run = async (query) => { const { error } = await query; if (error) throw new DbError('order_items', error); };
+  if (productIds.length) {
+    await run(ctx.db.from('order_items').update({ sub_order_id: s.id, vendor_id: s.vendor_id ?? null })
+      .eq('order_id', s.order_id).in('product_id', productIds).is('vendor_id', null));
+  }
+  if (s.vendor_id) await run(ctx.db.from('order_items').update({ sub_order_id: s.id }).eq('order_id', s.order_id).eq('vendor_id', s.vendor_id));
 }
 
 /**
- * Dokan sub-orders → sub_orders (upsert on woo_order_id) + order_items.sub_order_id for the parent's lines of that
- * maker. Operational statuses are never touched. → { written: [woo_order_ids], skipped: n }.
+ * Dokan sub-orders → sub_orders (upsert on woo_order_id) + order_items.sub_order_id (and a missing vendor_id) for the
+ * parent's lines (linkLines). Operational statuses are never touched. → { written: [woo_order_ids], skipped: n,
+ * failed: n (refused rows) }.
  */
 export async function writeSubOrders(ctx, wooSubs) {
   const subs = lastById(wooSubs.filter((o) => isObj(o) && isSubOrder(o) && wooId(o.parent_id) !== null));
-  if (!subs.length) return { written: [], skipped: 0 };
+  if (!subs.length) return { written: [], skipped: 0, failed: 0 };
   const parentIds = [...new Set(subs.map((o) => wooId(o.parent_id)))];
   const present = new Set((await selectIn(ctx.db, 'orders', 'id', 'id', parentIds)).map((r) => Number(r.id)));
   const failed = new Map(); // parent id → error text
@@ -183,20 +231,19 @@ export async function writeSubOrders(ctx, wooSubs) {
   }
   const mapped = await mapWithVendors(ctx, ready, (o) => mapSubOrder(o, { vendorsByWooId: ctx.vendors }));
   const rows = mapped.filter((m) => !m.skipped).map((m) => pick(m.sub, SUB_COLUMNS));
-  const saved = await upsertRows(ctx.db, 'sub_orders', rows, 'woo_order_id', 'id, order_id, vendor_id');
-  for (const s of saved.filter((s) => s.vendor_id)) {
-    const { error } = await ctx.db.from('order_items').update({ sub_order_id: s.id }).eq('order_id', s.order_id).eq('vendor_id', s.vendor_id);
-    if (error) throw new DbError('order_items', error);
-  }
-  return { written: rows.map((r) => r.woo_order_id), skipped: subs.length - rows.length };
+  const products = new Map(ready.map((o) => [wooId(o.id), productIdsOf(o)])); // woo_order_id → its payload's products
+  const { rows: saved, bad } = await save(ctx, 'sub_orders', rows, 'woo_order_id', 'id, order_id, vendor_id, woo_order_id');
+  for (const s of saved) await linkLines(ctx, s, products.get(Number(s.woo_order_id)) ?? []);
+  return { written: rows.map((r) => r.woo_order_id).filter((id) => !bad.has(String(id))), skipped: subs.length - rows.length, failed: bad.size };
 }
 
-/** A sync page: parents first, then sub-orders. → { orders, sub_orders, skipped, conflicts }. */
+/** A sync page: parents first, then sub-orders. → { orders, sub_orders, skipped, conflicts, failed }. */
 export async function writeOrderPage(ctx, page) {
   const list = page.filter(isObj);
   const parents = await writeOrders(ctx, list.filter((o) => !isSubOrder(o)));
   const subs = await writeSubOrders(ctx, list.filter(isSubOrder));
-  return { orders: parents.written.length, sub_orders: subs.written.length, skipped: parents.skipped + subs.skipped, conflicts: parents.conflicts };
+  return { orders: parents.written.length, sub_orders: subs.written.length, skipped: parents.skipped + subs.skipped, conflicts: parents.conflicts,
+    failed: parents.failed + subs.failed };
 }
 
 // ---------------------------------------------------------------- products
@@ -217,11 +264,11 @@ export function mapProduct(p, vendorsByWooId) {
   };
 }
 
-/** Products → products (upsert on id). → { written: [ids], skipped: n }. */
+/** Products → products (upsert on id). → { written: [ids], skipped: n, failed: n (refused rows) }. */
 export async function writeProducts(ctx, wooProducts) {
   const list = lastById(wooProducts.filter(isObj));
   const mapped = await mapWithVendors(ctx, list, (p) => mapProduct(p, ctx.vendors));
   const rows = mapped.filter((m) => !m.skipped).map((m) => m.product);
-  await upsertRows(ctx.db, 'products', rows, 'id');
-  return { written: rows.map((r) => r.id), skipped: list.length - rows.length };
+  const { bad } = await save(ctx, 'products', rows, 'id');
+  return { written: rows.map((r) => r.id).filter((id) => !bad.has(String(id))), skipped: list.length - rows.length, failed: bad.size };
 }

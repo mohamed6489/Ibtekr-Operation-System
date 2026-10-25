@@ -7,10 +7,13 @@
 //              order=asc&status=any, page by page (100; at most 50 pages per run): parents + Dokan sub-orders;
 //              sync_state['orders'] = { cursor, last_run, count, pages, done } after every page.
 //   'vendors'  dokan/v1/stores → vendors on woo_vendor_id.  'products'  wc/v3/products?modified_after={cursor} → products.
-//   'all'      vendors, then products, then orders (a failed part does not stop the next ones).
+//   'all'      vendors, then orders, then products (a failed part does not stop the next ones; orders come before
+//              the ~40 product pages so a first run that hits the gateway's time limit has the orders already).
 //   'push_status' { order_id, status }  refused as skipped/stale unless `status` is the order's stored status (the
-//              adapter writes the row first, so a mismatch is a stale page); the system status → its Woo slug
-//              (outgoingWooStatus; none → skipped) → PUT
+//              adapter writes the row first, so a mismatch is a stale page); then skipped/push_disabled unless the
+//              secret WOO_PUSH_ENABLED is exactly 1 (staging is a full copy of the shop: real customers' e-mails and
+//              the Bosta integration fire on a status change), before any Woo call; the system status → its Woo
+//              slug (outgoingWooStatus; none → skipped) → PUT
 //              wc/v3/orders/{id}; "system wins": when Woo changed the status since our last sync, the push still goes
 //              and a 'conflict' row is logged; orders.woo_status / woo_updated_at follow Woo's answer.
 //   'register_webhooks' { delivery_url? }  ensures one active `ibtekr-ops:<topic>` webhook per topic pointing at
@@ -83,7 +86,7 @@ const pullOrders = (run: Run) => run.ctx().then((ctx) => cursorPull(run, 'orders
 
 const pullProducts = (run: Run) => run.ctx().then((ctx) => cursorPull(run, 'products', 'wc/v3/products',
   { dates_are_gmt: 'true', orderby: 'modified', order: 'asc' },
-  async (page) => ({ products: (await writeProducts(ctx, page)).written.length })));
+  async (page) => { const r = await writeProducts(ctx, page); return { products: r.written.length, failed: r.failed }; }));
 
 async function pullVendors(run: Run) {
   const ctx = await run.ctx();
@@ -92,7 +95,8 @@ async function pullVendors(run: Run) {
   return { vendors, pages: res.pages, done: res.done };
 }
 
-const PULLS: Record<string, (run: Run) => Promise<Json>> = { vendors: pullVendors, products: pullProducts, orders: pullOrders };
+// 'all' runs them in this order: the makers first (lines and products link to them), then orders, then products.
+const PULLS: Record<string, (run: Run) => Promise<Json>> = { vendors: pullVendors, orders: pullOrders, products: pullProducts };
 
 // One pull or 'all'; every part logs its own woo_sync_log row (ok with the counts, or error with scrubbed text).
 async function pull(run: Run, action: string) {
@@ -129,6 +133,8 @@ async function pushStatus(run: Run, args: Json) {
     return json(200, { action: 'push_status', result: 'skipped', reason, counts: { pushed: 0 } });
   };
   if (status !== order.status) return await skip('stale', { current: order.status });
+  // The guard sits after the stale check and before the status_map read and any Woo client or call.
+  if (run.env.WOO_PUSH_ENABLED?.trim() !== '1') return await skip('push_disabled');
   const ctx = await run.ctx();
   const slug = outgoingWooStatus(status, ctx.statusMap);
   if (!slug) return await skip('no_woo_status');

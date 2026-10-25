@@ -35,9 +35,9 @@ const BOSTA_PHONE = '01009998877', FB_ID = 'fbp.1.1700000000000.123456789', UA =
 // Markers in places nobody listed (nested line meta, fee names, refund reasons, an unexpected billing key): raw is an
 // allow-list, so none of them may reach it.
 const SHIP_MARK = 'MARK-SHIP-META', FEE_MARK = 'MARK-FEE-NAME', COUPON_MARK = 'MARK-COUPON-META', REFUND_MARK = 'MARK-REFUND-REASON', WA_MARK = '01055554444';
-const LINE_MARK = 'MARK-LINE-EXTRA';
+const LINE_MARK = 'MARK-LINE-EXTRA', META_MARK = 'MARK-META-NOTE', META_PHONE = '01077776666', META_EMAIL = 'meta.mark@example.com';
 const PII = [PHONE, '1200007052', EMAIL, 'زيتوني', STREET, FLAT, BOSTA_PHONE, FB_ID, UA, '198.51.100.7', 'wc_order_TESTKEY', 'اتصلي قبل التوصيل', 'إلى سلوى مع الحب',
-  SHIP_MARK, FEE_MARK, COUPON_MARK, REFUND_MARK, WA_MARK, LINE_MARK];
+  SHIP_MARK, FEE_MARK, COUPON_MARK, REFUND_MARK, WA_MARK, LINE_MARK, META_MARK, META_PHONE, META_EMAIL];
 
 const parent = (over = {}) => ({
   id: 181668, parent_id: 0, number: '181668', status: 'processing', currency: 'EGP', created_via: 'checkout',
@@ -342,6 +342,30 @@ test('mapOrder: raw.meta_data keeps the allow-list only (removed, not redacted)'
     assert.ok(!keysOfMeta(order.raw.meta_data).includes(k), k);
   }
   noPII(order.raw, 'order.raw');
+});
+
+test('mapOrder / mapSubOrder: an object value under a kept meta key is PII-redacted; scalars stay as they are', () => {
+  const objMeta = (id) => ({ id, key: '_dokan_commission_meta', value: { note: META_MARK, rate: 40, nested: { phone: META_PHONE }, list: [{ email: META_EMAIL, n: 1 }] } });
+  const redacted = { note: R, rate: 40, nested: { phone: R }, list: [{ email: R, n: 1 }] };
+  const p = singleVendor();
+  p.meta_data.push(objMeta(90));
+  p.line_items[0].meta_data = [{ id: 91, key: '_dokan_vendor_id', value: '2376' }, objMeta(92)];
+  const before = structuredClone(p);
+  const { order, items } = mapOrder(p, { statusMap: MAP, vendorsByWooId: VENDORS, now: NOW });
+  const kept = order.raw.meta_data.find((m) => m.key === '_dokan_commission_meta');
+  assert.deepEqual(kept, { id: 90, key: '_dokan_commission_meta', value: redacted });
+  assert.equal(kept.value.rate, 40);
+  assert.deepEqual(order.raw.meta_data.find((m) => m.key === '_dokan_vendor_id'), { id: 30, key: '_dokan_vendor_id', value: '2376' });
+  assert.equal(order.raw.meta_data.find((m) => m.key === 'bosta_tracking_number').value, '7000000001');
+  assert.deepEqual(order.raw.line_items[0].meta_data, [{ id: 91, key: '_dokan_vendor_id', value: '2376' }, { id: 92, key: '_dokan_commission_meta', value: redacted }]);
+  assert.deepEqual(items[0].raw.meta_data, [{ id: 91, key: '_dokan_vendor_id', value: '2376' }, { id: 92, key: '_dokan_commission_meta', value: redacted }]);
+  noPII(order.raw, 'order.raw');
+  for (const i of items) noPII(i.raw, 'item.raw');
+  const s = mapSubOrder(sub([objMeta(93)]), { vendorsByWooId: VENDORS }).sub;
+  assert.deepEqual(s.raw.meta_data.find((m) => m.key === '_dokan_commission_meta').value, redacted);
+  assert.deepEqual(s.raw.meta_data.find((m) => m.key === '_dokan_vendor_id'), { id: 40, key: '_dokan_vendor_id', value: '77' });
+  noPII(s.raw, 'sub.raw');
+  assert.deepEqual(p, before);
 });
 
 test('mapOrder: raw.line_items keep only the line id and its _dokan_* meta', () => {

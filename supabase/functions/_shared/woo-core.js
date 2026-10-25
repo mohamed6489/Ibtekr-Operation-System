@@ -1,12 +1,13 @@
 // woo-core: the pure WooCommerce / Dokan sync core shared by the woo-webhook and woo-sync Edge Functions.
 // Contract: plain ESM with no imports, loaded unchanged by Deno (the Edge Functions) and Node (node:test). Standard
-// JS and Web APIs only (crypto.subtle, TextEncoder, btoa, structuredClone); no I/O, no clock (the caller passes `now`),
+// JS and Web APIs only (crypto.subtle, TextEncoder, btoa); no I/O, no clock (the caller passes `now`),
 // deterministic, inputs never mutated and never aliased by the output. Rows use the column names of 0007_orders.sql.
 // `raw` is built from allow-lists, never by deleting known-bad keys, so nothing personal can reach it through a field
 // nobody listed: the RAW_* fields below (scalars only), billing / shipping cut to city/state/postcode/country, order
 // meta cut to META_KEEP, line_items as `{ id, _dokan_* meta }`, and fixed fields for shipping/coupon/fee/tax lines and
 // refunds (no fee names, no refund reasons, no meta on those lines); order_items raw = RAW_ITEM + `_dokan_*` meta;
-// vendors raw = RAW_STORE + rating. redactPII is kept for callers (logging); raw does not depend on it.
+// vendors raw = RAW_STORE + rating. A kept meta value is stored as-is only when it is a scalar; an object / array
+// value goes through redactPII first (a deep, redacted copy). redactPII is also exported for callers (logging).
 
 export const START_DATE = '2026-10-01';
 export const OPEN_WOO = ['processing', 'pending', 'on-hold'];
@@ -60,7 +61,8 @@ const hasMeta = (meta, key) => objs(meta).some((e) => e.key === key);
 const keeper = (list) => (key) => typeof key === 'string' && list.some((k) => (k.endsWith('*') ? key.startsWith(k.slice(0, -1)) : key === k));
 const keepOrderMeta = keeper(META_KEEP);
 const keepDokanMeta = keeper(['_dokan_*']);
-const cutMeta = (meta, keep) => objs(meta).filter((e) => keep(e.key)).map((e) => ({ id: e.id ?? null, key: e.key, value: structuredClone(e.value ?? null) }));
+// A kept meta entry: { id, key, value } with an object / array value redacted (redactPII returns a deep copy).
+const cutMeta = (meta, keep) => objs(meta).filter((e) => keep(e.key)).map((e) => ({ id: e.id ?? null, key: e.key, value: isScalar(e.value ?? null) ? e.value ?? null : redactPII(e.value) }));
 // Copies only the listed keys whose value is a scalar (an unexpected object under a listed key is not copied).
 const isScalar = (v) => v === null || ['string', 'number', 'boolean'].includes(typeof v);
 const pick = (o, keys) => Object.fromEntries(keys.filter((k) => isObj(o) && isScalar(o[k])).map((k) => [k, o[k]]));

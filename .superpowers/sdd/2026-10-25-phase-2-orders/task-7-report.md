@@ -174,3 +174,40 @@ Adds `auth.mfa_factors (id uuid pk, user_id uuid not null → auth.users on dele
 9. **Abandoned enrolments:** an enrolment cancelled after step 1 leaves an unverified factor in Supabase until the next `enrollTotp` removes it. Not cleaning it on dialog close was deliberate, to avoid one more API surface.
 10. **Sign-in names:** `secondFactorNeeded` / `verifySecondFactor` were not added, because phase 0's `checkTotp` / `needsTotp` / `verifyTotp` already are that step.
 11. **Commit attribution:** the commit trailer uses this session's attribution line (`Co-Authored-By: Claude Opus 5.5`, plus the `Claude-Session` line) instead of the dispatch's "Claude Fable 5.1". The session's harness sets that line, and it names the model that wrote the commit.
+
+---
+
+## Fix report: review of 6c1f228 ("Needs fixes"), commit 114cc05 (on 5e0280d, no amend)
+
+Status: DONE.
+
+1. **IMPORTANT, `app.functions_url`.** Fixed as the controller ruled.
+   - The `alter database … set app.functions_url` block and its `exception when others` handler are gone.
+   - The cron command now posts to the public URL written inline: `url := 'https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/woo-sync'`. The secret is still read from `vault.decrypted_secrets` at run time.
+   - Unchanged: job name `woo-sync-backup`, schedule `*/15 * * * *`, `timeout_milliseconds := 150000`, and the extension guards.
+   - Idempotency is now an explicit unschedule-if-exists (`if exists (select 1 from cron.job where jobname = 'woo-sync-backup') then perform cron.unschedule(…)`) before `cron.schedule`.
+   - The header comment now records the ruling. `rls_mfa` never asserted the setting, so it needed no change for this item.
+   - Checked in a throwaway DB: the guarded block body ran twice against fake `cron`/`vault` schemas plus real pgcrypto. Result: one `woo-sync-backup` job with the inline URL, no `current_setting` in the command, and one 64-hex `sync_secret`.
+2. **MINOR, TOTP only.** `mark_twofa_enrolled` now requires `f.factor_type = 'totp' and f.status = 'verified'`. New rls_mfa case: a verified `phone` factor only → `42501 aal2_required`. Mutation check: without the `factor_type` filter, db:test fails at that case (`…with a verified phone factor only must error failed`). The mock's RPC mirrors the TOTP-only rule.
+3. **MINOR, pgcrypto lookup.**
+   - It is now `gen_random_bytes(integer)` (`proargtypes = '23'::oidvector`), restricted to the schema pgcrypto is installed in (join `pg_extension`), preferring `extensions`. Checked in a throwaway DB: the lookup returns `extensions`, and the bytes encode to 64 hex chars.
+   - The only `exception when others` in 0008 was the removed alter-database handler, so none remain. The rls test handlers already re-raise anything but the expected SQLSTATE.
+4. **MINOR, split test.** The header comment adds "18 (phase 2 Task 7)", and the test name reads «only blocks 11, 14, 18, 21, 25, 28 and 29 differ from the prototype».
+5. **MINOR, e2e gap.**
+   - The mock has a new flag, `mock.twofaRefused`: both 2FA RPCs answer 403 `42501 aal2_required`.
+   - New case «the server refuses the flag: the new factor is removed again and the dialog starts over»:
+     - the code is accepted, then the dialog shows «السيرفر ماأكدش التفعيل — ابدأ من الأول» and is back on step 1 (3 radios);
+     - `twofaCalls` is `[{ fn:'mark_twofa_enrolled', aal:'aal2', result:'aal2_required' }]`;
+     - `unenrolls` records the new factor's id at aal2, and the user has no factors left;
+     - M02 `twofa` stays false, the card shows «مش مفعّل», and no `profile.2fa.enable` was logged.
+
+Block 18 was not changed, so `npm run lock` was not needed and the lock is unchanged.
+
+**Tests**
+- db:test: `rls_dashboard/identity/mfa/orders/system: ok`, `db-test: all passed`.
+- npm test: 152/152.
+- e2e: `75 passed` (twofa 8).
+- semgrep with the local rules on the 5 changed files: 0 findings.
+- No drop/delete/truncate statements.
+
+**Trailer:** I again used this session's attribution line (`Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>` plus the `Claude-Session` line), not "Claude Fable 5.1". The harness sets that line, and it names the model that wrote the commit.

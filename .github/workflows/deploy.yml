@@ -27,24 +27,34 @@ jobs:
       - name: No FTP secrets yet
         if: env.HAS_FTP != 'true'
         run: echo "FTP_SERVER secret not set; skipping the upload (see tools/deploy.md §4.3)."
-      - name: Normalize the server dir (must end with /; empty = ./)
+      - name: Normalize the secrets (trim stray spaces/newlines; dir must end with /, empty = ./)
         if: env.HAS_FTP == 'true'
-        id: dir
+        id: creds
         env:
+          RAW_SERVER: ${{ secrets.FTP_SERVER }}
+          RAW_USER: ${{ secrets.FTP_USERNAME }}
+          RAW_PASS: ${{ secrets.FTP_PASSWORD }}
           RAW_DIR: ${{ secrets.FTP_SERVER_DIR }}
         run: |
-          d="${RAW_DIR:-./}"
+          trim() { printf '%s' "$1" | tr -d '\r\n' | sed -e 's/^[[:space:]]*//' -e 's/[[:space:]]*$//'; }
+          server="$(trim "$RAW_SERVER")"; server="${server#ftp://}"; server="${server#ftps://}"; server="${server%/}"
+          user="$(trim "$RAW_USER")"
+          pass="$(trim "$RAW_PASS")"
+          d="$(trim "${RAW_DIR:-./}")"; [ -n "$d" ] || d="./"
           case "$d" in */) ;; *) d="$d/";; esac
-          echo "dir=$d" >> "$GITHUB_OUTPUT"
+          echo "::add-mask::$pass"
+          echo "::add-mask::$user"
+          { echo "server=$server"; echo "user=$user"; echo "pass=$pass"; echo "dir=$d"; } >> "$GITHUB_OUTPUT"
+          echo "server=$server user_length=${#user} pass_length=${#pass} dir=$d"
       - name: Upload app/ over FTPS
         if: env.HAS_FTP == 'true'
         uses: SamKirkland/FTP-Deploy-Action@8e83cea8672e3fbcbb9fdafff34debf6ae4c5f65 # v4.3.5 (pinned SHA)
         with:
-          server: ${{ secrets.FTP_SERVER }}
-          username: ${{ secrets.FTP_USERNAME }}
-          password: ${{ secrets.FTP_PASSWORD }}
+          server: ${{ steps.creds.outputs.server }}
+          username: ${{ steps.creds.outputs.user }}
+          password: ${{ steps.creds.outputs.pass }}
           protocol: ftps
           local-dir: ./app/
-          server-dir: ${{ steps.dir.outputs.dir }}
+          server-dir: ${{ steps.creds.outputs.dir }}
           exclude: |
             **/README.md

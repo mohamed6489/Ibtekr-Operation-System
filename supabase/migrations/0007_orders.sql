@@ -14,15 +14,25 @@
 --   columns each permission may change; WooCommerce columns are sync-only. The guards apply to anon / authenticated
 --   only (phase-0 pattern): postgres / service_role (the sync) pass, and their changes are recorded with source
 --   'woo' (no auth.uid()).
--- * The update policies of orders / order_items read `using (orders.view)` and put the brief's permission rule
---   (orders.status = F or orders.edit <> N) in `with check`, so a member who can see an order but may not change it
---   gets 42501 (guard or with check) instead of a silent "0 rows" — the screen must know the write was refused.
--- * customer_phone: authenticated gets SELECT on every orders column EXCEPT customer_phone (column grants), so the
---   raw number cannot be read from the table through PostgREST (or a filter on it used as an oracle), and Realtime,
---   which checks the subscriber's column privileges, does not carry it. orders_v (security_invoker) returns it
---   through order_customer_phone(id), a definer accessor that applies the masking rule: full when
---   has_perm('sensitive.customer_phone') = 'F', else mask_phone(); nothing without orders.view. Readers use orders_v;
---   writers update orders without asking for the row back (PostgREST return=minimal): `returning *` is refused.
+-- * The update policies of orders / order_items / vendors read `using (<table>.view)` and put the brief's permission
+--   rule in `with check`, so a member who can see a row but may not change it gets 42501 (guard or with check)
+--   instead of a silent "0 rows" — the screen must know the write was refused.
+-- * Column-level grants for authenticated (security review of T2):
+--   - UPDATE on orders / order_items lists only the columns the guards allow, so a WooCommerce column cannot even
+--     be written with its current value (no phone oracle through `update … set customer_phone = '<guess>'`); the
+--     guard triggers stay as the second layer and decide which permission each allowed column needs.
+--   - SELECT on orders lists every column except customer_phone and raw; on order_items / sub_orders every column
+--     except raw. raw (the WooCommerce payload) is service_role-only (sync and diagnostics). The front end names
+--     its columns: PostgREST `select=*` on these three tables is refused, and so is `returning *` on a write
+--     (writers use return=minimal).
+--   - customer_phone therefore cannot be read raw through PostgREST (nor filtered on as an oracle), and Realtime,
+--     which checks the subscriber's column privileges, does not carry it or raw. orders_v (security_invoker, every
+--     orders column but raw) returns the phone through order_customer_phone(id), a definer accessor that applies
+--     the masking rule: full when has_perm('sensitive.customer_phone') = 'F', else mask_phone(); nothing without
+--     orders.view (so service_role, which has no user, reads null there: the sync reads orders directly).
+-- * order_items.removed: the sync flags a line that disappeared from WooCommerce instead of deleting it.
+-- * orders.status references status_map(system_status) on update cascade: the settings page (phase 10) may rename a
+--   status once orders exist.
 -- * order_events never holds a phone: a customer_phone change is one row of kind 'phone' with null values. A
 --   woo_status change is recorded too (kind 'woo_status'), so a push or a webhook shows in the order's history.
 -- * returns rows come from the same triggers: an order that becomes «ملغي» / «استرجاع» with cancel / ret carrying a
@@ -71,7 +81,7 @@ create table public.orders (
   customer_address text,
   payment_method text,
   payment_title text,
-  status text not null references public.status_map (system_status),
+  status text not null references public.status_map (system_status) on update cascade,
   woo_status text,
   confirm text not null default 'غير مؤكد'
     check (confirm in ('مؤكد بعربون', 'مؤكد بدون عربون', 'غير مؤكد', 'في انتظار الرد')),
@@ -107,6 +117,7 @@ create table public.sub_orders (
 );
 
 -- status: the 11 sub-statuses of block 29 (SS, RET included) or '' (not set yet).
+-- removed: the line disappeared from WooCommerce (the sync flags it instead of deleting it).
 create table public.order_items (
   id bigint primary key,
   order_id bigint not null references public.orders on delete cascade,
@@ -128,6 +139,7 @@ create table public.order_items (
   pulled boolean not null default false,
   ret jsonb,
   store jsonb,
+  removed boolean not null default false,
   raw jsonb,
   updated_at timestamptz default now()
 );
@@ -217,12 +229,13 @@ alter table public.sync_state enable row level security;
 
 -- ---------------------------------------------------------------- functions / triggers
 
--- '01100007039' → '011••••7039'. null → null; fewer than 8 characters → unchanged (not a phone number).
+-- '01100007039' → '011••••7039' (10 characters or more: first 3, last 4). A shorter value never shows more than
+-- its last 2 characters: '0224779' → '••••79'. null and '' are returned as they are.
 create function public.mask_phone(p text) returns text
 language sql immutable set search_path = public as $$
   select case
-    when p is null then null
-    when char_length(p) < 8 then p
+    when p is null or p = '' then p
+    when char_length(p) < 10 then '••••' || right(p, least(2, char_length(p)))
     else left(p, 3) || '••••' || right(p, 4)
   end
 $$;
@@ -278,7 +291,7 @@ create trigger orders_guard_update before update on public.orders
   for each row execute function public.orders_guard_update();
 
 -- API roles: status / expected_at / ready_at / waybill / pulled / ret / store / comment need orders.status = F;
--- every other column of a line is sync-only → 42501.
+-- every other column of a line (name, qty, total, removed, raw, …) is sync-only → 42501.
 create function public.order_items_guard_update() returns trigger
 language plpgsql set search_path = public as $$
 declare
@@ -406,24 +419,25 @@ grant execute on function public.order_customer_phone(bigint) to authenticated, 
 
 -- ---------------------------------------------------------------- view
 
--- Every orders column, customer_phone masked unless sensitive.customer_phone = F. The adapter reads orders only here.
+-- Every orders column but raw, customer_phone masked unless sensitive.customer_phone = F. The adapter reads orders
+-- only here. It references only the columns granted to authenticated (plus the phone accessor), so `select *` works.
 create view public.orders_v with (security_invoker = true) as
 select o.id, o.number, o.customer_name,
        public.order_customer_phone(o.id) as customer_phone,
        o.customer_city, o.customer_address, o.payment_method, o.payment_title, o.status, o.woo_status,
        o.confirm, o.confirm_at, o.confirm_note, o.deposit, o.total, o.currency, o.note, o.customer_note,
-       o.placed_at, o.woo_updated_at, o.cancel, o.ret, o.raw, o.synced_at, o.created_at, o.updated_at
+       o.placed_at, o.woo_updated_at, o.cancel, o.ret, o.synced_at, o.created_at, o.updated_at
 from public.orders o;
 
 -- ---------------------------------------------------------------- policies
 
--- vendors: read with vendors.view; write as admin or with vendors.edit = F.
+-- vendors: read with vendors.view; write as admin or with vendors.edit = F (update: see the header for `using`).
 create policy vendors_select on public.vendors for select to authenticated
   using ((select public.has_perm('vendors.view')) <> 'N');
 create policy vendors_insert on public.vendors for insert to authenticated
   with check ((select public.is_admin()) or (select public.has_perm('vendors.edit')) = 'F');
 create policy vendors_update on public.vendors for update to authenticated
-  using ((select public.is_admin()) or (select public.has_perm('vendors.edit')) = 'F')
+  using ((select public.has_perm('vendors.view')) <> 'N')
   with check ((select public.is_admin()) or (select public.has_perm('vendors.edit')) = 'F');
 create policy vendors_delete on public.vendors for delete to authenticated
   using ((select public.is_admin()) or (select public.has_perm('vendors.edit')) = 'F');
@@ -492,15 +506,22 @@ create policy sync_state_select on public.sync_state for select to authenticated
 
 -- ---------------------------------------------------------------- grants (rule 4: explicit, see 0004_grants)
 
--- orders: every column but customer_phone is readable (orders_v serves the phone, masked as needed);
--- update on the table, the guard trigger decides the columns.
+-- orders / order_items / sub_orders: column lists (see the header). orders_v serves the phone, masked as needed;
+-- raw is service_role-only; update only on the columns the guard triggers allow (they decide the permission).
 grant select (id, number, customer_name, customer_city, customer_address, payment_method, payment_title,
               status, woo_status, confirm, confirm_at, confirm_note, deposit, total, currency, note,
-              customer_note, placed_at, woo_updated_at, cancel, ret, raw, synced_at, created_at, updated_at)
+              customer_note, placed_at, woo_updated_at, cancel, ret, synced_at, created_at, updated_at)
   on public.orders to authenticated;
-grant update on public.orders to authenticated;
-grant select, update on public.order_items to authenticated;
-grant select on public.sub_orders, public.order_events, public.returns, public.products, public.vendors,
+grant update (status, confirm, confirm_at, confirm_note, cancel, ret, note, customer_city, customer_address, deposit)
+  on public.orders to authenticated;
+grant select (id, order_id, sub_order_id, product_id, sku, name, qty, total, vendor_id, status, expected_at,
+              comment, ready_at, waybill, pulled, ret, store, removed, updated_at)
+  on public.order_items to authenticated;
+grant update (status, expected_at, comment, ready_at, waybill, pulled, ret, store)
+  on public.order_items to authenticated;
+grant select (id, order_id, vendor_id, woo_order_id, woo_status, total, dokan_earning, commission, updated_at)
+  on public.sub_orders to authenticated;
+grant select on public.order_events, public.returns, public.products, public.vendors,
   public.orders_v, public.woo_webhook_events, public.woo_sync_log, public.sync_state
   to authenticated;
 -- vendors: the policies decide (admin or vendors.edit = F).
@@ -525,7 +546,8 @@ grant usage, select on sequence
 
 -- ---------------------------------------------------------------- status_map: the nine system statuses
 
--- Screen order (block 29 ST): قيد الانتظار، جاري التنفيذ، معلّق، جاهز للشحن، قيد الشحن، تم RTC، مكتمل، استرجاع، ملغي.
+-- Order as ruled in the plan (Task 2): قيد الانتظار، جاري التنفيذ، معلّق، جاهز للشحن، قيد الشحن، تم RTC، مكتمل، استرجاع،
+-- ملغي (block 29's ST lists the same nine with «معلّق» first).
 -- Phase-0 rows are renamed / re-slugged in place; the three new ones are inserted. تم RTC has no Woo status: it is
 -- never pushed and never arrives (direction from_system).
 update public.status_map set system_status = 'استرجاع'

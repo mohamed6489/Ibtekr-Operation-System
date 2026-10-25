@@ -10,13 +10,15 @@ begin;
 
 -- Test users (fixed UUIDs): admin, ops (orders.status F / orders.edit P), cs (orders.status F / orders.edit N /
 -- sensitive.customer_phone F), accounts (orders.status N / orders.edit N / sensitive.customer_phone N),
--- suspended viewer. Every value comes from the built-in role matrix of 0003_seed_roles (no overrides).
+-- suspended viewer, vendors follow-up (orders.status F / sensitive.customer_phone N / vendors.edit F).
+-- Every value comes from the built-in role matrix of 0003_seed_roles (no overrides).
 insert into auth.users (id, email, phone) values
   ('00000000-0000-4000-8000-000000000031', 'ord-admin.dev@ibtekr.local',    '01000000031'),
   ('00000000-0000-4000-8000-000000000032', 'ord-ops.dev@ibtekr.local',      '01000000032'),
   ('00000000-0000-4000-8000-000000000033', 'ord-cs.dev@ibtekr.local',       '01000000033'),
   ('00000000-0000-4000-8000-000000000034', 'ord-accounts.dev@ibtekr.local', '01000000034'),
-  ('00000000-0000-4000-8000-000000000035', 'ord-susp.dev@ibtekr.local',     '01000000035');
+  ('00000000-0000-4000-8000-000000000035', 'ord-susp.dev@ibtekr.local',     '01000000035'),
+  ('00000000-0000-4000-8000-000000000036', 'ord-vf.dev@ibtekr.local',       '01000000036');
 
 insert into auth.identities (user_id, provider, provider_id, identity_data)
 select u.id, 'email', u.id::text, jsonb_build_object('sub', u.id::text, 'email', u.email)
@@ -25,17 +27,19 @@ where u.id in ('00000000-0000-4000-8000-000000000031',
                '00000000-0000-4000-8000-000000000032',
                '00000000-0000-4000-8000-000000000033',
                '00000000-0000-4000-8000-000000000034',
-               '00000000-0000-4000-8000-000000000035');
+               '00000000-0000-4000-8000-000000000035',
+               '00000000-0000-4000-8000-000000000036');
 
 insert into public.profiles (id, name, email, phone, role_id, status, custom_perms) values
   ('00000000-0000-4000-8000-000000000031', 'أدمن الأوردرات',   'ord-admin.dev@ibtekr.local',    '01000000031', 'admin',    'active',    '{}'),
   ('00000000-0000-4000-8000-000000000032', 'عمليات الأوردرات', 'ord-ops.dev@ibtekr.local',      '01000000032', 'ops',      'active',    '{}'),
   ('00000000-0000-4000-8000-000000000033', 'خدمة العملاء',     'ord-cs.dev@ibtekr.local',       '01000000033', 'cs',       'active',    '{}'),
   ('00000000-0000-4000-8000-000000000034', 'الحسابات',         'ord-accounts.dev@ibtekr.local', '01000000034', 'accounts', 'active',    '{}'),
-  ('00000000-0000-4000-8000-000000000035', 'مشاهد موقوف',      'ord-susp.dev@ibtekr.local',     '01000000035', 'viewer',   'suspended', '{}');
+  ('00000000-0000-4000-8000-000000000035', 'مشاهد موقوف',      'ord-susp.dev@ibtekr.local',     '01000000035', 'viewer',   'suspended', '{}'),
+  ('00000000-0000-4000-8000-000000000036', 'متابعة الموردين',  'ord-vf.dev@ibtekr.local',       '01000000036', 'vendors_followup', 'active', '{}');
 
--- One Dokan vendor, two products, order 181668 with one Dokan sub-order and two lines; one sync log row and
--- one webhook delivery. Written by the runner, as the sync would.
+-- One Dokan vendor, two products, order 181668 with one Dokan sub-order and two lines, order 181700 with no lines;
+-- one sync log row and one webhook delivery. Written by the runner, as the sync would.
 insert into public.vendors (id, woo_vendor_id, name, phone) values
   ('00000000-0000-4000-8000-0000000000a1', 77, 'متجر سلمى', '01000000077');
 
@@ -46,7 +50,9 @@ insert into public.products (id, sku, name, vendor_id, price, status) values
 insert into public.orders (id, number, customer_name, customer_phone, customer_city, customer_address,
                            payment_method, payment_title, status, woo_status, total, placed_at, woo_updated_at) values
   (181668, '181668', 'سلوى زيتوني', '01100007039', 'القاهرة', 'شارع التحرير',
-   'cod', 'الدفع عند الاستلام', 'قيد الانتظار', 'pending', 1252, '2026-10-19T09:12:00Z', '2026-10-19T09:12:00Z');
+   'cod', 'الدفع عند الاستلام', 'قيد الانتظار', 'pending', 1252, '2026-10-19T09:12:00Z', '2026-10-19T09:12:00Z'),
+  (181700, '181700', 'منى سامي', '01011112222', 'الجيزة', 'شارع الهرم',
+   'cod', 'الدفع عند الاستلام', 'جاري التنفيذ', 'processing', 400, '2026-10-20T10:00:00Z', '2026-10-20T10:00:00Z');
 
 insert into public.sub_orders (order_id, vendor_id, woo_order_id, woo_status, total) values
   (181668, '00000000-0000-4000-8000-0000000000a1', 181669, 'pending', 1252);
@@ -83,7 +89,20 @@ do $$ begin
   if not (public.mask_phone('01100007039') = '011••••7039') then raise exception 'case mask_phone 11 digits failed'; end if;
   if not (public.mask_phone(null) is null) then raise exception 'case mask_phone(null) is null failed'; end if;
   if not (public.mask_phone('') = '') then raise exception 'case mask_phone empty string unchanged failed'; end if;
-  if not (public.mask_phone('12345') = '12345') then raise exception 'case mask_phone short string unchanged failed'; end if;
+  if not (public.mask_phone('0223456789') = '022••••6789') then raise exception 'case mask_phone 10 characters failed'; end if;
+  if not (public.mask_phone('0224779') = '••••79') then raise exception 'case mask_phone short value shows the last 2 only failed'; end if;
+  if not (public.mask_phone('1') = '••••1') then raise exception 'case mask_phone one character failed'; end if;
+
+  -- raw is service_role-only: orders_v does not carry it at all.
+  if not ((select count(*) from information_schema.columns
+           where table_schema = 'public' and table_name = 'orders_v' and column_name = 'raw') = 0) then
+    raise exception 'case orders_v has no raw column failed';
+  end if;
+  if not ((select count(*) from information_schema.columns
+           where table_schema = 'public' and table_name = 'order_items' and column_name = 'removed'
+             and data_type = 'boolean' and is_nullable = 'NO' and column_default = 'false') = 1) then
+    raise exception 'case order_items.removed boolean not null default false failed';
+  end if;
 end $$;
 
 do $$ begin
@@ -122,7 +141,7 @@ end $$;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000034","role":"authenticated"}';
 do $$ begin
-  if not ((select count(*) from public.orders_v) = 1) then raise exception 'case accounts reads orders_v (1 row) failed'; end if;
+  if not ((select count(*) from public.orders_v) = 2) then raise exception 'case accounts reads orders_v (2 rows) failed'; end if;
   if not ((select customer_phone from public.orders_v where id = 181668) = '011••••7039') then
     raise exception 'case accounts (sensitive.customer_phone N) sees the phone masked 011••••7039 failed';
   end if;
@@ -148,6 +167,17 @@ do $$ begin
     raise exception 'case accounts reads orders.customer_phone directly: expected 42501, got % (%)', sqlstate, sqlerrm;
   end;
   raise exception 'case accounts reads orders.customer_phone directly must error failed';
+end $$;
+
+-- No phone oracle through UPDATE: setting the phone to its CURRENT value is refused too (column-level grant).
+do $$ begin
+  begin
+    update public.orders set customer_phone = '01100007039' where id = 181668;
+  exception when others then
+    if sqlstate = '42501' then return; end if; -- expected: no update privilege on orders.customer_phone
+    raise exception 'case accounts sets customer_phone to its current value: expected 42501, got % (%)', sqlstate, sqlerrm;
+  end;
+  raise exception 'case accounts sets customer_phone to its current value must error failed';
 end $$;
 
 do $$ begin
@@ -247,6 +277,11 @@ do $$ declare n int; begin
                    and note = 'صورة على الواتساب' and on_date = '2026-10-26' and by_user = auth.uid()) then
     raise exception 'case ops refund with a reason writes returns kind order_refund failed';
   end if;
+  if not exists (select 1 from public.order_events
+                 where order_id = 181668 and kind = 'ret' and old_value is null and new_value like '%المنتج مكسور%'
+                   and source = 'user' and actor = auth.uid()) then
+    raise exception 'case ops refund writes order_events kind ret failed';
+  end if;
 
   update public.order_items set status = 'مرتجع للمخزن', ret = '{"reason":"مقاس غلط"}' where id = 9001;
   get diagnostics n = row_count;
@@ -271,10 +306,81 @@ do $$ declare n int; begin
     raise exception 'case ops waybill/pulled/expected_at write order_events failed';
   end if;
 
+  update public.order_items set status = 'مرتجع للمورد', ret = '{"reason":"عيب صناعة","date":"2026-10-27"}' where id = 9002;
+  if not exists (select 1 from public.returns
+                 where order_id = 181668 and item_id = 9002 and kind = 'item_to_vendor' and reason = 'عيب صناعة'
+                   and on_date = '2026-10-27' and by_user = auth.uid()) then
+    raise exception 'case ops item return to vendor writes returns kind item_to_vendor failed';
+  end if;
+
+  -- a cancel without a reason changes the status (and is logged) but is no return
+  update public.orders set status = 'ملغي', cancel = '{"date":"2026-10-25"}' where id = 181700;
+  get diagnostics n = row_count;
+  if not (n = 1) then raise exception 'case ops cancels order 181700 without a reason failed'; end if;
+  if exists (select 1 from public.returns where order_id = 181700) then
+    raise exception 'case cancel without a reason writes no returns row failed';
+  end if;
+  if not exists (select 1 from public.order_events where order_id = 181700 and kind = 'status' and new_value = 'ملغي') then
+    raise exception 'case cancel without a reason still writes order_events kind status failed';
+  end if;
+
+  -- columns by name work; raw is not among them, select * on orders_v works
+  if not ((select count(*) from (select id, status, removed from public.order_items where not removed) x) = 2) then
+    raise exception 'case ops selects id, status, removed from order_items failed';
+  end if;
+  if not ((select count(*) from (select * from public.orders_v) x) = 2) then
+    raise exception 'case ops select * from orders_v failed';
+  end if;
+
   if not ((select count(*) from public.woo_sync_log) = 1 and (select count(*) from public.woo_webhook_events) = 1
           and (select count(*) from public.sync_state) = 1) then
     raise exception 'case ops (settings.view P) reads woo_sync_log/woo_webhook_events/sync_state failed';
   end if;
+end $$;
+
+do $$
+declare t text;
+begin
+  foreach t in array array['orders', 'order_items', 'sub_orders'] loop
+    begin
+      execute format('select raw from public.%I limit 1', t);
+      raise exception 'case ops select raw from % must error failed', t;
+    exception when others then
+      if sqlstate <> '42501' then -- expected: raw is service_role-only (column grants)
+        raise exception 'case ops select raw from %: expected 42501, got % (%)', t, sqlstate, sqlerrm;
+      end if;
+    end;
+  end loop;
+end $$;
+
+do $$ begin
+  begin
+    update public.orders set customer_name = 'سلوى زيتوني' where id = 181668;
+  exception when others then
+    if sqlstate = '42501' then return; end if; -- expected: no update privilege on a WooCommerce column, same value or not
+    raise exception 'case ops sets customer_name to its current value: expected 42501, got % (%)', sqlstate, sqlerrm;
+  end;
+  raise exception 'case ops sets customer_name to its current value must error failed';
+end $$;
+
+do $$ begin
+  begin
+    update public.order_items set qty = 2, removed = false where id = 9001;
+  exception when others then
+    if sqlstate = '42501' then return; end if; -- expected: no update privilege on a sync-only line column, same value or not
+    raise exception 'case ops sets item qty/removed to their current values: expected 42501, got % (%)', sqlstate, sqlerrm;
+  end;
+  raise exception 'case ops sets item qty/removed to their current values must error failed';
+end $$;
+
+do $$ begin
+  begin
+    update public.vendors set aliases = '{"سلمى"}' where woo_vendor_id = 77;
+  exception when others then
+    if sqlstate = '42501' then return; end if; -- expected: vendors.edit P is not F (with check)
+    raise exception 'case ops (vendors.edit P) updates a vendor: expected 42501, got % (%)', sqlstate, sqlerrm;
+  end;
+  raise exception 'case ops (vendors.edit P) updates a vendor must error failed';
 end $$;
 
 do $$ begin
@@ -348,6 +454,32 @@ do $$ declare n int; begin
   if not (n = 0) then raise exception 'case suspended viewer updates zero orders failed'; end if;
 end $$;
 
+-- ================================================================ vendors follow-up: orders.status F, phone N, vendors.edit F
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000036","role":"authenticated"}';
+do $$ declare n int; begin
+  if not ((select customer_phone from public.orders_v where id = 181668) = '011••••7039') then
+    raise exception 'case vendors follow-up (sensitive.customer_phone N) sees the phone masked failed';
+  end if;
+  update public.vendors set aliases = '{"سلمى", "Salma"}' where woo_vendor_id = 77;
+  get diagnostics n = row_count;
+  if not (n = 1) then raise exception 'case vendors follow-up (vendors.edit F, not admin) updates a vendor failed'; end if;
+end $$;
+
+-- orders.status F is enough to pass the update policy, so a guess that matches would succeed if the column were
+-- writable: the grant refuses the phone column whatever its value.
+do $$ begin
+  begin
+    update public.orders set customer_phone = '01100007039' where id = 181668;
+  exception when others then
+    if sqlstate = '42501' then return; end if; -- expected: no update privilege on orders.customer_phone
+    raise exception 'case vendors follow-up sets customer_phone to its current value: expected 42501, got % (%)', sqlstate, sqlerrm;
+  end;
+  raise exception 'case vendors follow-up sets customer_phone to its current value must error failed';
+end $$;
+
 -- ================================================================ admin: vendors yes, Woo columns no
 
 reset role;
@@ -412,12 +544,13 @@ do $$ declare n int; begin
     raise exception 'case order_events never stores a phone value failed';
   end if;
 
-  -- a refused change leaves no event: exactly the three user status changes and nothing from accounts.
-  if not ((select count(*) from public.order_events where kind = 'status' and source = 'user') = 3) then
-    raise exception 'case order_events holds exactly the three accepted status changes failed';
+  -- a refused change leaves no event: exactly the four user status changes and nothing from accounts.
+  if not ((select count(*) from public.order_events where kind = 'status' and source = 'user') = 4) then
+    raise exception 'case order_events holds exactly the four accepted status changes failed';
   end if;
-  if not ((select count(*) from public.returns) = 3) then
-    raise exception 'case returns holds exactly order_cancel, order_refund, item_to_stock failed';
+  if not ((select string_agg(kind, ',' order by id) from public.returns)
+          = 'order_cancel,order_refund,item_to_stock,item_to_vendor') then
+    raise exception 'case returns holds exactly order_cancel, order_refund, item_to_stock, item_to_vendor failed';
   end if;
 end $$;
 
@@ -432,6 +565,24 @@ do $$ begin
   raise exception 'case duplicate webhook delivery_id must error failed';
 end $$;
 
+-- ================================================================ admin renames a status in use: orders follow
+
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000031","role":"authenticated"}';
+do $$ declare n int; begin
+  update public.status_map set system_status = 'استرجاع كامل' where system_status = 'استرجاع';
+  get diagnostics n = row_count;
+  if not (n = 1) then raise exception 'case admin renames a status_map row in use failed'; end if;
+  if not ((select status from public.orders where id = 181668) = 'استرجاع كامل') then
+    raise exception 'case orders.status follows the rename (on update cascade) failed';
+  end if;
+  if not exists (select 1 from public.order_events
+                 where order_id = 181668 and kind = 'status' and old_value = 'استرجاع' and new_value = 'استرجاع كامل') then
+    raise exception 'case the cascaded rename is recorded in order_events failed';
+  end if;
+end $$;
+
+reset role;
 rollback;
 
 do $$ begin raise notice 'rls_orders: ok'; end $$;

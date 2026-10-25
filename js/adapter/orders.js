@@ -5,7 +5,7 @@
 // state() is 'idle' | 'loading' | 'ready' | 'error' (each change dispatches ib:orders; data() keeps the last good load, and
 // load() may be called again to retry). A row that repeats across two pages (an order placed mid-load) is kept once.
 // `age` counts days from the order's local date to today() — the real local date, never IBKit.TODAY (the prototype's
-// fixed date); never below 0.
+// fixed date); never below 0. `cnote` is orders.customer_note, the customer's checkout note (read-only, like name and phone).
 // Grants are column lists (0007): every read names its columns (select('*') on orders / order_items / sub_orders is
 // refused) and every write is an update of granted columns without .select() (return=minimal). The base table orders
 // is never read: its phone column is not granted.
@@ -23,7 +23,7 @@
   'use strict';
   const PAGE = 1000, CAP = 5000, IDS = 200, SKUS = 100; // PostgREST max_rows; ids / skus per in.(…) keep the URL short
   const COLS = {
-    order: 'id, customer_name, customer_phone, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, placed_at, cancel, ret',
+    order: 'id, customer_name, customer_phone, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret',
     item: 'id, order_id, sub_order_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed',
     sub: 'id, order_id, vendor_id, woo_order_id, woo_status',
   };
@@ -70,7 +70,7 @@
     return (rows || []).map((r) => {
       const id = String(r.id); const date = localDate(r.placed_at);
       return { id, name: r.customer_name || '', phone: r.customer_phone || '', pay: r.payment_title || r.payment_method || '', date, st: r.status, cf: r.confirm, dep: Number(r.deposit) || 0, tot: Number(r.total) || 0,
-        age: days(date, T), note: r.note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', city: r.customer_city || '', addr: r.customer_address || '', cancel: r.cancel || null, ret: r.ret || null,
+        age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', city: r.customer_city || '', addr: r.customer_address || '', cancel: r.cancel || null, ret: r.ret || null,
         subs: (lines.get(id) || []).map((it) => sub(it, r, subById, vname)) };
     });
   }

@@ -1,7 +1,8 @@
 // Server activity log: log(action, detail) → rpc log_activity, only while signed in. Returns a promise; callers fire and forget.
 // Only actions starting with one of LOGGED_PREFIXES reach the server: the other pages still act on sample data, and their
 // events must not land in activity_log under the real user. Each phase that wires a page to real data adds its prefix here
-// (e.g. 'orders.' with the orders phase). The in-memory store.activity (14-kit.js) keeps every event as before.
+// (phase 2: 'order.' and 'suborder.', the orders page's writes through IBOrders). The in-memory store.activity (14-kit.js)
+// keeps every event as before.
 // recent(limit) reads the newest rows RLS lets this user see (own rows; every row with settings.view) with the actor's name
 // embedded; refresh() keeps the newest 25 for the dashboard's «آخر نشاط» card (cached(), null until the first refresh) and
 // dispatches ib:activity; the card shows 5 after its own-actions filter (a viewer with settings.view reads everyone's rows).
@@ -9,7 +10,7 @@
 // sign-out window). Read errors give [] and are never thrown.
 (function () {
   'use strict';
-  const LOGGED_PREFIXES = ['auth.', 'dashboard.'];
+  const LOGGED_PREFIXES = ['auth.', 'dashboard.', 'order.', 'suborder.'];
   let rows = null;
   const forwarded = (action) => LOGGED_PREFIXES.some((p) => String(action || '').startsWith(p));
   const client = () => (window.IBSupabase && window.IBSupabase.client) || null;

@@ -6,201 +6,7 @@ var CSS=":host{display:block;overflow-x:auto;--bg-base:#fff7ef;--bg-layout:#fff3
 R.innerHTML='<style>'+CSS+'</style><div class="oroot" dir="rtl" lang="ar" id="oroot"></div><div class="toast" id="toast" hidden></div>';
 var ROOT=R.getElementById('oroot');
 
-var RAW=`180492|Customer 48|01100007040|C|2026-10-13|P|Y|2000|19045|6|تم التاكيد 13/10
-180545|Customer 43|01000007006|C|2026-10-14|P|U||3008|5|في انتظار التاكيد
-178750|Customer 41|01100007034|C|2026-10-12|P|N||6384|7|تم التاكيد 12/10
-181297|عميل 13|01000007007|C|2026-10-18|P|U||2682|1|في انتظار التاكيد
-174597|Customer 11|01100007041|C|2026-09-26|D|Y|1000|4594|23|تم التاكيد 28/9
-175913|Customer 27|01000007021|C|2026-09-28|D|Y||17747|21|
-180678|Customer 37|01000007015|C|2026-10-16|P|U||3927|3|لم يتم التاكيد
-177902|Customer 01|01100007045|C|2026-10-10|P|U||6407|9|في انتظار التاكيد
-172382|Customer 18|01000007022|C|2026-09-17|S|N||7598|32|تم التاكيد 1/10~تم المتابعة 14/10
-176494|Customer 19|01200007047|K|2026-10-02|D|Y|11074|1710|17|تم التاكيد 3/10
-177542|Customer 22|01100007032|C|2026-10-08|S|Y|1000|5339|11|
-177597|Customer 36|01200007051|C|2026-10-08|P|Y|300|988|11|تم التاكيد 10/10
-174599|عميل 59|01100007046|A|2026-09-27|S|N||4143|22|تم التاكيد 27/9
-174354|عميل 44|01000007001|C|2026-09-22|S|Y|3000|10780|27|تم التاكيد 23/9~هتحتاج القطعة المفتوحة فقط يوم 6/10
-176790|عميل 52|01200007055|C|2026-10-04|D|Y|500|6175|15|تم التاكيد 4/10
-180543|Customer 26|01000007004|C|2026-10-13|P|N||7151|6|تم التاكيد 15/10
-170840|Customer 25|01000007010|C|2026-09-11|D|Y|3700|18340|38|تم التاكيد 13/9
-178497|Customer 09|01100007033|C|2026-10-11|S|Y|500|1412|8|تم التاكيد 12/10
-180661|Customer 10|01000007014|C|2026-10-15|P|Y||2772|4|تم التاكيد 17/10~تبع اوردر 180671
-178496|Customer 29|01100007038|C|2026-10-11|D|Y|500|1884|8|تم التاكيد 11/10
-176329|عميل 50|01000007028|C|2026-10-01|S|N||584|18|
-171400|عميل 02|01100007040|C|2026-09-16|D|U||4122|33|
-180254|Customer 24|01000007009|C|2026-10-13|P|N||417|6|تم التاكيد 13/10
-178499|Customer 49|01000007020|C|2026-10-12|P|N||2460|7|تم التاكيد 12/10
-176513|Customer 47|01100007036|C|2026-10-03|D|Y|2000|10441|16|تم التاكيد 4/10
-177663|Customer 42|01100007043|A|2026-10-10|P|Y|500|2928|9|تم التاكيد 11/10
-180671|Customer 10|01000007014|C|2026-10-15|P|Y|500|2077|4|تم التاكيد 17/10
-177611|Customer 16|01100007035|C|2026-10-08|P|Y|5000|18252|11|تم التاكيد 10/10
-180683|Customer 58|01000007013|C|2026-10-16|P|U||2539|3|لم يتم التاكيد~في انتظار اتصال منها للتاكيد
-178498|عميل 60|01000007008|C|2026-10-11|D|N||667|8|تم التاكيد 11/10
-181295|عميل 30|01000007023|C|2026-10-18|P|U||2250|1|في انتظار الرد
-180684|Customer 46|01000007002|C|2026-10-16|P|Y|300|584|3|تم التاكيد 17/10
-180668|Customer 03|01200007049|C|2026-10-15|P|Y|1000|3557|4|تم التاكيد 17/10~تم اختيار قطع تانية
-180686|هدير عميل|01000007030|C|2026-10-17|P|N||1002|2|تم التاكيد 17/10
-177573|Customer 14|01000007024|B|2026-10-08|P|Y|15076|12618|11|تم التاكيد 8/10
-180687|Customer 20|01000007031|C|2026-10-18|P|N||584|1|تم التاكيد 18/10~تاكيد اللون اوف وايت
-180672|Customer 31|01000007005|C|2026-10-15|P|N||607|4|تم التاكيد 17/10
-180662|Customer 07|01200007056|C|2026-10-15|H|U||10973|4|لم يتم التاكيد~هتاكد الاسبوع اللي جاي
-180676|عميل 39|01200007053|C|2026-10-16|P|Y|200|417|3|تم التاكيد 17/10
-177928|عميل 61|01000007003|C|2026-10-10|P|Y|400|865|9|تم التاكيد 10/10
-180548|Customer 45|01000007026|C|2026-10-14|P|U||2281|5|لم يتم التاكيد
-177350|عميل 55|01000007018|C|2026-10-06|D|Y|300|752|13|تم التاكيد 6/10
-177408|Customer 34|01200007048|C|2026-10-08|S|Y|1000|3189|11|تم التاكيد 10/10
-180685|Customer 05|01000007011|C|2026-10-16|P|Y|1000|1427|3|تم التاكيد 17/10
-180656|Customer 35|01000007016|B|2026-10-15|X|U||899|4|
-170923|عميل 08|01100007040|C|2026-09-13|S|Y|1000|3894|36|تم التاكيد 13/9
-176503|Customer 04|01000007025|K|2026-10-03|D|Y|13840|12855|16|تم التاكيد 3/10
-173816|Customer 28|01000007019|C|2026-09-22|D|Y|7000|35723|27|تم التاكيد 22/9
-180660|Customer 40|01000007029|C|2026-10-15|S|N||898|4|تم التاكيد 18/10
-177614|Customer 17|01000007017|A|2026-10-09|X|N||2705|10|تم التاكيد 10/10
-174602|عميل 56|01500007057|A|2026-09-27|D|Y|5000|49955|22|تم التاكيد 27/9
-181668|سلوى زيتوني|01200007052|C|2026-10-19|P|U||1002|0|
-177341|Customer 38|01200007050|C|2026-10-05|D|Y|500|3231|14|تم التاكيد 6/10
-165278|عميل 12|01100007044|C|2026-08-14|S|U||18461|66|تم المتابعة 14/9 في انتظار دفع الديبوزيت الاسبوع ده، العميل محتاج كمان شهر
-181296|Customer 51|01000007027|C|2026-10-18|P|U||584|1|في انتظار التاكيد
-180673|Customer 15|01200007049|C|2026-10-16|P|Y||1950|3|تم التاكيد 17/10~تبع اوردر 180668
-179237|Customer 33|01100007037|C|2026-10-13|S|Y|500|1466|6|تم التاكيد 13/10
-177950|Customer 23|01100007045|C|2026-10-10|P|U||1776|9|في انتظار التاكيد
-177546|عميل 57|01100007040|C|2026-10-08|P|Y|600|1349|11|تم التاكيد 8/10
-180677|Customer 06|01200007054|C|2026-10-16|P|Y|500|2424|3|تم التاكيد 19/10
-180681|Customer 21|01100007042|B|2026-10-16|P|Y|500|1648|3|تم التاكيد 18/10
-168559|Customer 32|01000007012|C|2026-09-09|H|U||76920|40|تم التاكيد منتظر الدفع 10/9~تم المتابعة وهتاكد الدفع والاستلام شهر اكتوبر`;
-var RS=`176329|176329|Cushion|1|584|in shipping|Art Craft|بوسطه استلمت من الفندور الاربعاء 7/10 ورايح للعميله ع طول|IBTA4040OAHC000008
-176504|176503|fiberglass Chandeliers|1|2759|completed|glasstora|استلم العميل|IBTA113
-174354|174354|Abaya|1|5390|in shipping|Dokan Elbanna||IBTDBABYBK1
-177928|177928|Wool Rug|1|865|processing|rufaida_store|تم تبليغ الفندور للتنفيذ11/10|IBTS67
-180656|180656|Macrame Feathers|1|899|cancelled|Antikiano||IBTB0CSW6RFTM
-180684|180684|Cushion|1|584|processing|Art Craft|تم تبليغ الفندور للتنفيذ 18/10|IBTA4040OAHC000008
-177543|177542|Macrame Mirror|1|1228|in shipping|HANDS_Crafts|ف الطريق للعميله 19/10|IBTHMDM000013
-180494|180492|Floor Lamp|1|8171|processing|Bian eg|تم تبليغ الفندور للتنفيذ 13/10|IBTK20035BBLM00000321
-180494|180492|Floor Lamp|1|7775|processing|Bian eg|تم تبليغ الفندور للتنفيذ 13/10|IBTK22035BBLM000001
-165278|165278|Boho Bookshelf Organizer|1|18461|in shipping|Bian eg|بوسطه هيستلم من الفندور يوم الاربعاء 23/9 رايح للعميله ع طول|IBTK20035BBLM000003213
-177579|177573|2 Cushion Cover|2|2160|in shipping|Antikiano|ف الطريق للعميله 19/10|IBT4040BSMCC000163
-168559|168559|Boho mirror|1|19230|on-hold|Bian eg|محتاجه تاكيد من العميل عشان الفندور 9/9|IBTK20035BBLM000003214
-180547|180545|٣ قطع معلقة نباتات|1|851|processing|Antikiano|لم يتاكد|IBTB0DBSXKRXQ
-177544|177542|2 Macrame Wall Decor|1|1405|in shipping|Antikiano|في المخزن|IBTANTB2100030
-168559|168559|Boho mirror|1|19230|on-hold|Bian eg|محتاجه تاكيد من العميل عشان الفندور 9/9|IBTK20035BBLM000003214
-176496|176494|غطاء وسادة|2|1109|completed|Medo .crafts|بوسطه استلمت من الفندور 8/10|IBTMCCCMC45X4515
-172382|172382|Wool Rug|1|4122|in shipping|rufaida_store|تم المتابعه مع الفندور 18/10 ..متوقع تسليمه الثلاثاء 20/10|IBTS78
-180665|180662|Boho Walls set 6 items|1|2000|on-hold|HANDS_Crafts||IBTHMDB000011
-173820|173816|Wool Rug|1|2262|completed|rufaida_store|وصل للعميله|IBTS90
-177904|177902|Boho Walls set 4 items|1|2182|processing|HANDS_Crafts||IBTK10030MHWDT000009
-170924|170923|wall clock|1|2584|in shipping|Alaa Anas|اتسلم ل بوسطه يوم الخميس17/9 ..ولم يصل للعميله فيه مشكله مع بوسطه وبنتواصل مع معاهم|IBTA50BAW000022
-173818|173816|Floor Lamp|1|8639|completed|Bian eg|وصل للعميله|IBTK20035BBLM000008
-174601|174599|Makrami Floor Lamp|1|1679|in shipping|tbs|الفندور هيوصله المخزن ..14/10|IBTFl_Bo_Ma_005
-176516|176513|Wool Rug|1|1939|completed|rufaida_store|بوسطه هتستلم من الفندور السبت 10/10 ورايح للعميله ع طول|IBTS166
-172382|172382|Wool Rug|1|1537|in shipping|rufaida_store|تم المتابعه مع الفندور 18/10 ..متوقع تسليمه الثلاثاء 20/10|IBTS101
-180686|180686|Cushion|2|1002|processing|Art Craft|تم تبليغ الفندور للتنفيذ 18/10|IBTA4040PAHC000013
-177612|177611|Mini Cross Bag|1|945|in shipping|cralaa|هيوصل المخزن الاثنين 19/10|IBTAP51
-173819|173816|4 Macrame Wall Decor|1|2424|completed|Antikiano|وصل للعميله|IBTANTB2300032
-180672|180672|Photo Display|1|607|processing|Antikiano|تم تبليغ الفندور للتنفيذ 18/10|IBTB0CFTL5SZ6
-180683|180683|Macrame Curtain|1|2539|processing|Antikiano||IBTAMCTOWM200X10014
-176497|176494|Cushion Cover|1|601|completed|Art Craft|في الطريق للمخزن ...8/10|IBTK5050MRHC000010
-177950|177950|Pouf Chair|1|1776|processing|sala||IBTK3560BSHPC000006
-180666|180662|Cushion Cover|1|667|on-hold|Art Craft||IBTK5035MRHC000002
-179237|179237|غطاء وسادة صوف|2|1466|in shipping|rufaida_store|تم تبليغ الفندور للتنفيذ 13/10|IBTS419
-177664|177663|وسادة|1|501|processing|Art Craft|في المخزن|IBTA4040GAHC000005
-173819|173816|4 Macrame Wall Decor|1|2424|completed|Antikiano|وصل للعميله|IBTANTB2300032
-180677|180677|4 Macrame Wall Decor|1|2424|processing|Antikiano|تم تبليغ الفندور للتنفيذ 19/10|IBTANTB2300032
-180663|180662|Hanging Basket Set|1|999|on-hold|cralaa||IBTCRSB316
-177614|177614|Cushion|2|902|cancelled|Art Craft|تم تبليغ الفندور للتنفيذ11/10|IBTA4040OAHC000004
-168559|168559|Boho mirror|1|19230|on-hold|Bian eg|محتاجه تاكيد من العميل عشان الفندور 9/9|IBTK20035BBLM000003214
-180660|180660|Large Rectangular Tray|1|898|in shipping|Home Kitchen Art||IBTA4030MHHL000027
-172382|172382|Wool Rug|1|1939|in shipping|rufaida_store|تم المتابعه مع الفندور 18/10 ..متوقع تسليمه الثلاثاء 20/10|IBTS70
-177341|177341|Wool Rug|1|3231|completed|rufaida_store|تم تبليغ الفندور الثلاثاء 6/10|IBTS157
-180661|180661|Cushion Cover|2|1386|processing|Medo .crafts|تم تبليغ الفندور للتنفيذ 18/10|IBTMCCCMC45X4511
-177580|177573|MIRROR|1|6254|processing|zana|تم تبليغ الفندور للتنفيذ11/10|IBTBRMI158
-174602|174602|Floor Lamp|4|36316|completed|Bian eg|الفندور هيسلم للعميل الاحد 18/10 هيوصل للعميلا ع طول|IBTK20035BBLM00000321
-173820|173816|Wool Rug|1|2262|completed|rufaida_store|وصل للعميله|IBTS90
-176504|176503|fiberglass Chandeliers|1|2759|completed|glasstora|استلم العميل|IBTA112
-173819|173816|4 Macrame Wall Decor|1|2424|completed|Antikiano|وصل للعميله|IBTANTB2300032
-177903|177902|3Pcs Macrame Plant Hangers (Without Plants)|1|788|processing|Antikiano||IBTB088822MP6
-177613|177611|Boho mirror|1|17307|processing|Bian eg|تم تبليغ الفندور للتنفيذ11/10|IBTK20035BBLM000003214
-180664|180662|fiberglass Chandeliers|1|3516|on-hold|glasstora||IBTA120
-181295|181295|The palm of a Quran|1|2250|processing|antekama|لم يتاكد|IBTA1410GAAT000004
-177906|177902|Cushion Cover|1|693|processing|Medo .crafts||IBTMCCCMC45X454
-177408|177408|fiberglass Chandeliers|1|3189|in shipping|glasstora|تم تبليغ الفندور للتنفيذ 11/10|IBTA103
-181668|181668|Cushion|2|1002|processing|Art Craft||IBTA4040PAHC000013
-176515|176513|Pouf Chair|2|3552|completed|sala|في الطريق للمخزن....9/10|IBTK3560BSHPC000006
-180667|180662|2 Cushion Cover|1|1154|on-hold|Antikiano||IBT4040WSMCC000165
-177903|177902|2 Cushion Cover|1|1080|processing|Antikiano||IBTB0BBMKZWT2
-180676|180676|3 planet Decor|1|417|processing|sala|تم تبليغ الفندور للتنفيذ 18/10|IBTKBSHP000003
-174597|174597|Wool Rug|1|4594|completed|rufaida_store|تم المتابعه مع الفندور و ف التصنيع 12/10|IBTS26
-180670|180668|Cushion Cover|2|1201|cancelled|Art Craft|تم تبليغ الفندور للتنفيذ 18/10|IBTK5050MRHC000010
-174602|174602|Floor Lamp|1|13639|completed|Bian eg|الفندور هيسلم للعميل الاحد 18/10 هيوصل للعميلا ع طول|IBTK20035BBLM00000321-1
-180680|180678|Decoupage Serving Tray|1|592|processing|Dokan Elbanna|لم يتاكد|IBTD75
-177582|177573|Dream Catcher|1|722|in shipping|W&R|في المخزن|IBTW7040MWD000008
-180685|180685|Padded Laundry Basket|1|1427|processing|sala|تم تبليغ الفندور للتنفيذ 18/10|IBTK5040BSHPL000003
-180669|180668|Cushion Cover|2|1247|processing|Medo .crafts|تم تبليغ الفندور للتنفيذ 18/10|IBTMCCCMC45X454
-170840|170840|Boho Bookshelf Organizer|1|18340|completed|Bian eg|بوسطه هيستلم من الفندور يوم الاربعاء 23/9 رايح للعميله ع طول|IBTK20035BBLM000003213
-180254|180254|3 planet Decor|1|417|processing|sala|تم تبليغ الفندور للتنفيذ 13/10|IBTKBSHP000003
-175915|175913|Wooden Mortar|1|468|completed|Home Kitchen Art||IBTA1113MHHW000001
-180661|180661|Cushion Cover|2|1386|processing|Medo .crafts|تم تبليغ الفندور للتنفيذ 18/10|IBTMCCCMC45X453
-177578|177573|Boho Walls set 5 items|1|2374|in shipping|HANDS_Crafts|ف الطريق للعميله 19/10|IBTHMDB000017
-178499|178499|Floor Runner - 200*70 cm|1|1230|processing|Magic gift shop|تم تبليغ الفندور للتنفيذ12/10|IBTHRFRMC200X7025
-180493|180492|2Plant Stand|1|1815|processing|sala|تم تبليغ الفندور للتنفيذ 13/10|IBTK25110MH000015
-177614|177614|Cushion|2|901|cancelled|Art Craft|تم تبليغ الفندور للتنفيذ11/10|IBTA4040GAHC000005
-181298|181297|Cushion Cover|1|601|processing|Art Craft|لم يتاكد|IBTK5035MRHC000002
-176505|176503|Makrami Ceiling Lamp|1|1819|completed|tbs|الفندور هيوصله للعميل ع طول الاربعاء14/10|IBTCe_Bo_Ma_032
-177597|177597|Wool Rug|1|988|processing|rufaida_store|بوسطه استلم و رايح للعميل|IBTS66
-173820|173816|Wool Rug|1|2262|completed|rufaida_store|وصل للعميله|IBTS90
-178750|178750|Wool Rug|1|4122|processing|rufaida_store|تم تبليغ الفندور للتنفيذ12/10|IBTS52
-180547|180545|Photo Display|1|737|processing|Antikiano|لم يتاكد|IBTAPDSB100X85106
-180493|180492|Plant Stand|1|1284|processing|sala|تم تبليغ الفندور للتنفيذ 13/10|IBTK6020MSHP000014
-178498|178498|Cushion Coverr|1|667|completed|Art Craft|تم تبليغ الفندور للتنفيذ12/10|IBTK5050MRHC000005
-174354|174354|Abaya|1|5390|in shipping|Dokan Elbanna||IBTDBABYGY2
-180547|180545|Leaves Wall Hanging|1|273|processing|Antikiano|لم يتاكد|IBT1040OSMLW000003
-177903|177902|Cushion Cover 2 pieces|1|1080|processing|Antikiano||IBT3535OLCCC000003
-176514|176513|The palm of a Quran|1|2250|completed|antekama|في المخزن|IBTA1410GAAT000004
-177905|177902|Cushion|1|584|processing|Art Craft||IBTA4040BAHC000009
-177544|177542|Macrame Wall Decor|1|1405|in shipping|Antikiano|في المخزن|IBTAMWDM80X90102
-176504|176503|fiberglass Chandeliers|1|2759|completed|glasstora|استلم العميل|IBTA121
-180547|180545|Macrame Leaf Feather Wall Hanging - Off white|1|212|processing|Antikiano|لم يتاكد|IBT1535BSMML000177
-180687|180687|Cushion|1|584|processing|Art Craft|تم تبليغ الفندور للتنفيذ 18/10|IBTA4040BAHC000009
-174600|174599|غطاء وسادة|4|2464|in shipping|Medo .crafts|في المخزن|IBTMCCCMC45X4515
-180669|180668|Cushion Cover|2|1109|processing|Medo .crafts|تم تبليغ الفندور للتنفيذ 18/10|IBTMCCCMC45X456
-173820|173816|Wool Rug|1|2262|completed|rufaida_store|وصل للعميله|IBTS90
-178496|178496|Macrame wall hanging|1|1884|completed|Antikiano|تم تبليغ الفندور للتنفيذ12/10|IBT7575BSMMW000030
-175916|175913|Crochet Hair Bandana|1|350|completed|vanlia hand crafts|تم تسليم الاوردر للعميل|IBTVGVC000008
-180679|180678|Tapestry bag|1|3335|processing|vanlia hand crafts|لم يتاكد|IBTV1820MVFT000002
-177545|177542|Rectangular Rug ( 120*60 CM )|1|842|in shipping|sala|في المخزن|IBTK60120BSHR000011
-178750|178750|Wool Rug|1|2262|processing|rufaida_store|تم تبليغ الفندور للتنفيذ12/10|IBTS90
-181296|181296|Cushion|1|584|processing|Art Craft|لم يتاكد|IBTA4040OAHC000008
-180671|180671|Wall hanging|1|2077|processing|Antikiano|تم تبليغ الفندور للتنفيذ 18/10|IBTKSC60 80MSWWH000006
-180681|180681|Macrame Wall Hanging|1|1648|processing|Antikiano|تم تبليغ الفندور للتنفيذ 18/10|IBTB0B7RGF13R
-177545|177542|storage Basket|1|459|in shipping|sala|في المخزن|IBTK3030BH000017
-180674|180673|Cushion Cover|2|1109|processing|Medo .crafts|تم تبليغ الفندور للتنفيذ 18/10|IBTMCCCMC45X4515
-177665|177663|Wool Cushion Cover|1|733|processing|rufaida_store|تم تبليغ الفندور للتنفيذ11/10|IBTS414
-176790|176790|Wool Rug|1|6175|completed|rufaida_store|تم تبليغ الفندور للتنفيذ5/10|IBTS90
-177350|177350|Dream Catcher|1|752|completed|W&R|تم تبليغ الفندور للتنفيذ الاربعاء 7/10|IBTW8030MWD000007
-180543|180543|Fiberglass Coffe Table|1|7151|processing|glasstora|تم تبليغ الفندور للتنفيذ 18/10|IBTGLST3WH50X45
-173817|173816|hammock chair|1|8340|completed|zana||IBTBRHC235
-180550|180548|Wool Rug|1|1383|processing|rufaida_store||IBTS90
-177666|177663|غطاء وسادة|1|847|processing|Medo .crafts|تم تبليغ الفندور للتنفيذ11/10|IBTMCCCMC45X4514
-177547|177546|Cushion Cover|1|616|Ready for shiping|Medo .crafts|ف المخزن|IBTMCCCMC45X456
-178499|178499|Floor Runner - 200*145 cm|1|1230|processing|Magic gift shop|تم تبليغ الفندور للتنفيذ12/10|IBTHRFRMC200X14525
-180675|180673|Rectangular Rug ( 120*60 CM )|1|841|processing|sala|تم تبليغ الفندور للتنفيذ 18/10|IBTK60120BSHR000011
-177548|177546|غطاء وسادة صوف|1|733|processing|rufaida_store|تم تبليغ الفندور للتنفيذ8/10|IBTS437
-177614|177614|وسادة|2|902|cancelled|Art Craft|تم تبليغ الفندور للتنفيذ11/10|IBTA4040OAHC000006
-176504|176503|fiberglass Chandeliers|1|2759|completed|glasstora|استلم العميل|IBTA120
-171401|171400|Wool Rug|1|4122|completed|rufaida_store||IBTS78
-175914|175913|Boho Bookshelf Organizer 4 shelves|1|16929|completed|Bian eg|الفندور هيسلم للعميل الخميس15/10|IBTK20035BBLM000003213
-177576|177573|Dervish set 3 pieces|1|1108|in shipping|Magic gift shop|ف الطريق للعميله 19/10|IBT302522BD000018
-180546|180545|Rectangular Rug ( 120*60 CM )|1|935|processing|sala|لم يتاكد|IBTK60120BSHR000011
-181300|181297|غطاء وسادة|1|762|processing|Medo .crafts|لم يتاكد|IBTMDCC00014
-178497|178497|Macrame Wall Decor|1|1412|in shipping|Antikiano|تم تبليغ الفندور للتنفيذ12/10|IBTANT00078
-180665|180662|Boho Walls set 5 items|1|2637|on-hold|HANDS_Crafts||IBTHMDB000017
-176514|176513|باب الكعبة - 17*11 سم|1|2700|completed|antekama|في المخزن|IBTA1218GAAB000112S
-177666|177663|Cushion Cover|1|847|processing|Medo .crafts|تم تبليغ الفندور للتنفيذ11/10|IBTMDCC00014
-173819|173816|4 Macrame Wall Decor|1|2424|completed|Antikiano|وصل للعميله|IBTANTB2300032
-170925|170923|Wool Wall Rug|1|1310|completed|rufaida_store|تم تبليغ الفندور للتنفيذ14/9|IBTS403
-168559|168559|Boho mirror|1|19230|on-hold|Bian eg|محتاجه تاكيد من العميل عشان الفندور 9/9|IBTK20035BBLM000003214
-180549|180548|Large Rectangular Tray|1|898|processing|Home Kitchen Art||IBTA4030MHHL000027
-181299|181297|Wool Cushion Cover|2|1319|processing|rufaida_store|لم يتاكد|IBTS426`;
-var IMG=window.IB_PRODUCT_IMG||{};
+var IMG={}; // sku → products.image_url (hydrate); window.IB_PRODUCT_IMG is the fallback (thumb)
 var IC={
 sparkle:'<path d="M10.5 2.25L12.6 8.4L18.75 10.5L12.6 12.6L10.5 18.75L8.4 12.6L2.25 10.5L8.4 8.4Z M18.75 15.75L19.65 18.3L22.2 19.2L19.65 20.1L18.75 22.65L17.85 20.1L15.3 19.2L17.85 18.3Z"/>',
 home:'<path d="M3 10.5 12 3l9 7.5V20a1 1 0 0 1-1 1h-5v-6H9v6H4a1 1 0 0 1-1-1z"/>',
@@ -243,19 +49,22 @@ var RET=['مرتجع للمخزن','مرتجع للمورد'];
 var OSTY={'جاري التنفيذ':['proc','activity'],'معلّق':['yel','pause'],'قيد الانتظار':['yel','clock'],'جاهز للشحن':['info','box'],'قيد الشحن':['info','truck'],'تم RTC':['ok','checkc'],'مكتمل':['ok','checkc'],'استرجاع':['err','undo'],'ملغي':['err','xc']};
 var SSTY={'غير مؤكد':['yel','clock'],'مؤكد':['ok','check'],'قيد التنفيذ':['proc','activity'],'جاهز للشحن من المورد للعميل':['info','box'],'جاهز للشحن من المخزن للعميل':['info','box'],'جاهز للشحن من المورد للمخزن':['info','box'],'تم الشحن للمخزن':['info','truck'],'وصل المخزن':['ok','box'],'تم الشحن للعميل':['ok','checkc'],'مرتجع للمخزن':['warn','box'],'مرتجع للمورد':['err','truck']};
 var PAYN={C:'دفع عند الاستلام',A:'دفع عند الاستلام',K:'بطاقة بنكية',B:'تقسيط بنكي'};
-var SM={P:'جاري التنفيذ',D:'مكتمل',S:'قيد الشحن',H:'معلّق',X:'ملغي'},CM={Y:CF[0],N:CF[1],U:CF[2]};
 var OPEN={processing:1,pending:1,'on-hold':1};
 var DONE=['مكتمل','ملغي','استرجاع'];
 var MON=['يناير','فبراير','مارس','أبريل','مايو','يونيو','يوليو','أغسطس','سبتمبر','أكتوبر','نوفمبر','ديسمبر'];
 function dt(s){if(!s)return'—';var p=s.split('-');return(+p[2])+' '+MON[+p[1]-1]+' '+p[0]}
 function fmt(n){return n.toLocaleString('en-US')}
 function esc(t){return String(t==null?'':t).replace(/[&<>"]/g,function(c){return{'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]})}
-var O=RAW.split('\n').map(function(l){var p=l.split('|');return{id:p[0],name:p[1],phone:p[2],pay:p[3],date:p[4],st:SM[p[5]],cf:CM[p[6]],dep:p[7]?+p[7]:0,tot:+p[8],age:+p[9],note:(p[10]||'').replace(/~/g,'\n'),cdate:'',subs:[]}});
-var OM={};O.forEach(function(o){OM[o.id]=o});
-RS.split('\n').forEach(function(l,i){var p=l.split('|');var s={n:i,sid:p[0],oid:p[1],prod:p[2],qty:+p[3],tot:+p[4],raw:p[5],vendor:p[6],cm:p[7]||'',ss:'',exp:'',sku:p[8]||''};if(OM[s.oid])OM[s.oid].subs.push(s)});
-opsLink();
-(function(){var R=['جاهز للشحن من المورد للعميل','جاهز للشحن من المخزن للعميل','جاهز للشحن من المورد للمخزن'],at=['2026-10-20 11:00','2026-10-21 10:30','2026-10-21 12:15'],i=0;O.forEach(function(o){if(i<3&&o.st==='قيد الشحن'){var s=o.subs.find(function(x){return !x.ss});if(s){s.ss=R[i];s.readyAt=at[i];i++}}})})();
-var V=[];O.forEach(function(o){o.subs.forEach(function(s){if(V.indexOf(s.vendor)<0)V.push(s.vendor)})});V.sort(function(a,b){return a.toLowerCase()<b.toLowerCase()?-1:1});
+function imgUrl(sku){var u=String(IMG[sku]||(window.IB_PRODUCT_IMG||{})[sku]||'');return /^(https?:|data:image\/)/i.test(u)?u:''} // anything else: no image
+function thumbHtml(sku){var u=sku?imgUrl(sku):'';return'<div class="th">'+(u?'<img alt="" src="'+esc(u)+'">':ic('box'))+'</div>'}
+function dial(o){return /^\d{8,15}$/.test(o.phone||'')} // a full number (a masked one gets no tel / WhatsApp link)
+function payName(o){return PAYN[o.pay]||o.pay||'—'} // the site's payment title
+var O=[],OM={},V=[],HYD=false; // the orders of the last 12 months (IBOrders: hydrate / applyOrder); HYD: hydrated at least once
+function byV(a,b){return a.toLowerCase()<b.toLowerCase()?-1:1}
+function hydrate(d){if(!d)return;O=(d.orders||[]).slice();OM={};O.forEach(function(o){OM[o.id]=o});V=(d.vendors||[]).filter(function(v,i,a){return v&&a.indexOf(v)===i}).sort(byV);IMG=d.images||{};
+ if(!HYD){HYD=true;S.open={};sorted(O).slice(0,2).forEach(function(o){S.open[o.id]=1})}draw()}
+// one order from Realtime: replaced in place (or added first), the sort / filters / page stay
+function applyOrder(o){if(!o||o.id==null)return;var id=String(o.id),i=O.findIndex(function(x){return x.id===id});if(i>=0)O[i]=o;else O.unshift(o);OM[id]=o;(o.subs||[]).forEach(function(s){if(s.vendor&&V.indexOf(s.vendor)<0)V.push(s.vendor)});V.sort(byV);HYD=true;draw(1)}
 function vcount(o){var m={};o.subs.forEach(function(s){m[s.vendor]=1});return Object.keys(m).length}
 function openCount(o){return o.subs.filter(function(s){return OPEN[s.raw]}).length}
 function late(o){return o.age>11&&openCount(o)>0&&DONE.indexOf(o.st)<0}
@@ -281,11 +90,11 @@ function match(o,skipStatus){
  if(S.vc){var n=vcount(o);if(S.vc==='2'?n<2:n!==1)return false}
  if(S.fb.items.length&&!fbEval(S.fb,o))return false;
  return true}
-function opts(list,cur,all){return(all?'<option value="">'+all+'</option>':'')+list.map(function(x){return'<option'+(x===cur?' selected':'')+'>'+x+'</option>'}).join('')}
+function opts(list,cur,all){return(all?'<option value="">'+all+'</option>':'')+list.map(function(x){return'<option'+(x===cur?' selected':'')+'>'+esc(x)+'</option>'}).join('')}
 function sdd(sty,st,attr,w,list,sub){
  var m=sty[st];var cls=m?'s-'+m[0]:'sempty';
- return'<label class="dd sdd '+cls+(sub?' sub':'')+'" style="'+(sub?'':'')+'"><span class="l">'+(m?ic(m[1]):'')+'<span>'+(st||'— اختر الحالة —')+'</span></span>'+ic('down')+'<select '+attr+' aria-label="الحالة">'+opts(list,st,st?'':'— اختر الحالة —')+'</select></label>'}
-function dfield(key,v,label,sm,ph){return'<div class="in'+(sm?' sm':'')+' dpf'+(v?' has':'')+'" style="width:100%"><input class="dpt" data-fi="'+key+'" value="'+dt(v==''?'':v).replace('—','')+'" placeholder="'+(ph||'—')+'" aria-label="'+label+'" aria-haspopup="dialog" autocomplete="off" inputmode="numeric"><button type="button" class="dpx" data-dx="'+key+'" aria-label="مسح التاريخ" tabindex="-1">'+ic('xc')+'</button><button type="button" class="dpi" data-dp="'+key+'" aria-label="فتح التقويم" tabindex="-1">'+ic('cal')+'</button></div>'}
+ return'<label class="dd sdd '+cls+(sub?' sub':'')+'" style="'+(sub?'':'')+'"><span class="l">'+(m?ic(m[1]):'')+'<span>'+esc(st||'— اختر الحالة —')+'</span></span>'+ic('down')+'<select '+attr+' aria-label="الحالة">'+opts(list,st,st?'':'— اختر الحالة —')+'</select></label>'}
+function dfield(key,v,label,sm,ph){return'<div class="in'+(sm?' sm':'')+' dpf'+(v?' has':'')+'" style="width:100%"><input class="dpt" data-fi="'+key+'" value="'+esc(dt(v==''?'':v).replace('—',''))+'" placeholder="'+(ph||'—')+'" aria-label="'+label+'" aria-haspopup="dialog" autocomplete="off" inputmode="numeric"><button type="button" class="dpx" data-dx="'+key+'" aria-label="مسح التاريخ" tabindex="-1">'+ic('xc')+'</button><button type="button" class="dpi" data-dp="'+key+'" aria-label="فتح التقويم" tabindex="-1">'+ic('cal')+'</button></div>'}
 function field(lbl,icn,val,w,extra){return'<div class="fld" style="width:'+w+'px"><div class="lb">'+ic(icn)+'<span>'+lbl+'</span></div>'+val+'</div>'}
 function header(o,l,open){
  var cd=o.cdate;
@@ -294,7 +103,7 @@ function header(o,l,open){
  +field('تاريخ الأوردر','cal','<div class="vv"><b style="font-weight:600">'+dt(o.date)+'</b></div>',100)
  +field('الأوردرات الفرعية','box','<div class="vv">'+o.subs.length+(o.subs.length>2?' أوردرات':' أوردر')+'</div>',115)
  +field('إجمالي القيمة','coins','<div class="vv"><b style="font-weight:600">'+fmt(o.tot)+' ج.م</b></div>',104)
- +field('حالة التأكيد','check','<label class="in dd" style="justify-content:flex-start;width:100%;padding-inline:8px;gap:8px">'+ic('down')+'<span style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis"'+(o.cf==='غير مؤكد'?' class="unconf"':'')+'>'+o.cf+'</span><select data-cf="'+o.id+'" aria-label="حالة التأكيد">'+opts(CF,o.cf)+'</select></label>',148)
+ +field('حالة التأكيد','check','<label class="in dd" style="justify-content:flex-start;width:100%;padding-inline:8px;gap:8px">'+ic('down')+'<span style="flex:1;text-align:right;overflow:hidden;text-overflow:ellipsis"'+(o.cf==='غير مؤكد'?' class="unconf"':'')+'>'+esc(o.cf)+'</span><select data-cf="'+o.id+'" aria-label="حالة التأكيد">'+opts(CF,o.cf)+'</select></label>',148)
  +field('تاريخ التأكيد','cal',''+dfield('cd:'+o.id,cd,'تاريخ التأكيد',0,'أضف تاريخ التأكيد')+'',134)
  +field('قيمة العربون','coins','<div class="vv" style="width:100%"><label class="in" style="width:100%"><input class="t" data-dep="'+o.id+'" value="'+(o.dep?fmt(o.dep)+' ج.م':'0 ج.م')+'" aria-label="قيمة العربون"></label></div>',100)
  +'<div class="grow"></div>'
@@ -306,8 +115,8 @@ function band(o){
  var ph=o.phone.replace(/^(\d{4})(\d{3})(\d{4})$/,'$1 $2 $3');
  return'<div class="band"><span class="g">'+ic('user')+'<span>بيانات العميل</span></span>'
  +'<span class="inf"><small>الاسم:</small><b>'+esc(o.name)+'</b></span>'
- +'<span class="inf"><small>الهاتف:</small><b dir="ltr">'+ph+'</b><a class="wa" href="https://wa.me/2'+o.phone+'" target="_blank" rel="noopener" aria-label="واتساب" style="color:inherit">'+ic('wa')+'</a></span>'
- +'<span class="inf"><small>طريقة الدفع:</small><b>'+PAYN[o.pay]+'</b></span><div class="grow"></div>'
+ +'<span class="inf"><small>الهاتف:</small><b dir="ltr">'+esc(ph)+'</b>'+(dial(o)?'<a class="wa" href="https://wa.me/2'+o.phone+'" target="_blank" rel="noopener" aria-label="واتساب" style="color:inherit">'+ic('wa')+'</a>':'')+'</span>'
+ +'<span class="inf"><small>طريقة الدفع:</small><b>'+esc(payName(o))+'</b></span><div class="grow"></div>'
  +'<span class="g">المتبقي بعد العربون: '+fmt(Math.max(0,o.tot-o.dep))+' ج.م</span></div>'}
 function notes(o){
  var ed=S.edit==='n'+o.id;
@@ -318,7 +127,7 @@ function subrow(o,s,l){
  var el=Math.min(s.exp?daysSince(s.exp):o.age,99),pct=Math.min(el/15,1)*100,sl=OPEN[s.raw]?l:'ok';
  var ce=S.edit==='c'+s.n;
  return'<div class="row"><div class="c c1" data-l="الأوردر الفرعي"><span class="sid">#'+s.sid+'</span></div>'
- +'<div class="c c2" data-l="المنتج"><div class="prod"><div class="th">'+(IMG[s.sku]?'<img alt="" src="data:image/jpeg;base64,'+IMG[s.sku]+'">':ic('box'))+'</div><div class="pt"><b>'+esc(s.prod)+' × '+s.qty+'</b><span dir="ltr" style="text-align:right">'+esc(s.sku)+'</span></div></div></div>'
+ +'<div class="c c2" data-l="المنتج"><div class="prod">'+thumbHtml(s.sku)+'<div class="pt"><b>'+esc(s.prod)+' × '+s.qty+'</b><span dir="ltr" style="text-align:right">'+esc(s.sku)+'</span></div></div></div>'
  +'<div class="c c3" data-l="المورد">'+vcell(s)+'</div>'
  +'<div class="c c4" data-l="الحالة">'+sdd(SSTY,s.ss,'data-ss="'+s.n+'"',110,SS,1)+'</div>'
  +'<div class="c c5" data-l="القيمة"><b style="font-weight:600">'+fmt(s.tot)+' ج.م</b></div>'
@@ -345,7 +154,7 @@ function headerT(o,l,open){
  return'<div class="oh t"><div class="trow">'+titleBlock(o)+'<div class="bdw">'+dbadge(l)+'</div>'+sdd(OSTY,o.st,'data-st="'+o.id+'"',140,ST)+tgBtn(o,open)+moreBtn('o:'+o.id)+'</div>'+kpiStrip(o)+'</div>'}
 function lbl(icn,t){return'<div class="lb">'+ic(icn)+'<span>'+t+'</span></div>'}
 function confSec(o,m){
- var cf='<div class="fld">'+lbl('check','حالة التأكيد')+'<label class="in dd cfdd">'+ic('down')+'<span'+(o.cf==='غير مؤكد'?' class="unconf"':'')+'>'+o.cf+'</span><select data-cf="'+o.id+'" aria-label="حالة التأكيد">'+opts(CF,o.cf)+'</select></label></div>';
+ var cf='<div class="fld">'+lbl('check','حالة التأكيد')+'<label class="in dd cfdd">'+ic('down')+'<span'+(o.cf==='غير مؤكد'?' class="unconf"':'')+'>'+esc(o.cf)+'</span><select data-cf="'+o.id+'" aria-label="حالة التأكيد">'+opts(CF,o.cf)+'</select></label></div>';
  var dep='<div class="fld">'+lbl('coins','قيمة العربون (ج.م)')+'<label class="in"><input class="t" data-dep="'+o.id+'" value="'+(o.dep?fmt(o.dep)+' ج.م':'0 ج.م')+'" aria-label="قيمة العربون"></label></div>';
  var cd='<div class="fld">'+lbl('cal','تاريخ التأكيد')+dfield('cd:'+o.id,o.cdate,'تاريخ التأكيد',0,'أضف تاريخ التأكيد')+'</div>';
  return'<div class="sec conf">'+(m?cf+'<div class="frow">'+cd+dep+'</div>':'<div class="frow">'+cf+dep+cd+'</div>')+'</div>'}
@@ -353,8 +162,8 @@ function custSec(o,m){
  var ph=o.phone.replace(/^(\d{4})(\d{3})(\d{4})$/,'$1 $2 $3');
  return'<div class="sec cust"><div class="sttl">العميل</div><div class="crow'+(m?'':' t')+'">'
  +'<div class="inf2"><small>الاسم</small><b>'+esc(o.name)+'</b></div>'
- +'<div class="inf2"><small>الهاتف</small><b><a href="tel:+2'+o.phone+'" dir="ltr">'+ph+'</a><a class="wa" href="https://wa.me/2'+o.phone+'" target="_blank" rel="noopener" aria-label="واتساب">'+ic('wa')+'</a></b></div>'
- +'<div class="inf2"><small>طريقة الدفع</small><b>'+PAYN[o.pay]+'</b></div>'
+ +'<div class="inf2"><small>الهاتف</small><b>'+(dial(o)?'<a href="tel:+2'+o.phone+'" dir="ltr">'+esc(ph)+'</a><a class="wa" href="https://wa.me/2'+o.phone+'" target="_blank" rel="noopener" aria-label="واتساب">'+ic('wa')+'</a>':'<span dir="ltr">'+esc(ph)+'</span>')+'</b></div>'
+ +'<div class="inf2"><small>طريقة الدفع</small><b>'+esc(payName(o))+'</b></div>'
  +'<div class="inf2"><small>المتبقي بعد العربون</small><b>'+fmt(Math.max(0,o.tot-o.dep))+' ج.م</b></div></div></div>'}
 function notesM(o){
  var ed=S.edit==='n'+o.id;
@@ -365,7 +174,7 @@ function notesM(o){
  +'<details class="acc"'+(ed?' open':'')+'><summary>'+ic('down')+'<span class="tx"><b>تعليق خدمة العملاء</b><small>'+prev+'</small></span></summary><div class="note"><div class="nh"><b>تعليقات الأوردر الرئيسي (خدمة العملاء)</b></div><div class="nb">'+body+'</div></div></details></div>'}
 function subcard(o,s,l,m){
  var el=Math.min(s.exp?daysSince(s.exp):o.age,99),pct=Math.min(el/15,1)*100,sl=OPEN[s.raw]?l:'ok',ce=S.edit==='c'+s.n;
- var thumb='<div class="th">'+(IMG[s.sku]?'<img alt="" src="data:image/jpeg;base64,'+IMG[s.sku]+'">':ic('box'))+'</div>';
+ var thumb=thumbHtml(s.sku);
  var pt='<div class="pt"><b>'+esc(s.prod)+' × '+s.qty+'</b><span dir="ltr" style="text-align:right">'+esc(s.sku)+'</span><div class="vrow">'+(s.pulled?'<span class="vchip pull" title="مخزن ابتكر">مخزن ابتكر</span><small>سحب تلقائي · فرعي #'+s.sid+'</small>':'<span class="vchip" title="'+esc(s.vendor)+'">'+esc(s.vendor)+'</span><small>فرعي #'+s.sid+'</small>')+'</div></div>';
  var st='<div class="fld">'+lbl('check','حالة الفرعي')+sdd(SSTY,s.ss,'data-ss="'+s.n+'"',110,SS,1)+'</div>';
  var val='<div class="fld val">'+lbl('coins','القيمة')+'<div class="vv"><b>'+fmt(s.tot)+' ج.م</b></div></div>';
@@ -384,9 +193,9 @@ function card(o){var l=dstate(o),op=S.open[o.id];if(MODE==='m')return cardM(o,l,
 function shell(){
  var nav=[['home','لوحة التحكم'],['box','الأوردرات'],['users','المبتكرين'],['wallet','الحسابات'],['tag','المخزون'],['headset','خدمة العملاء'],['chart','التقارير'],['sliders','الإعدادات']];
  return''
-+'<div class="content"><div class="ph"><div class="tb"><div class="tr"><h1>الأوردرات</h1><span class="chip-n" id="cn"></span></div><small>نفس بيانات Airtable بعرض أوضح · آخر مزامنة قبل 3 دقائق</small></div><div class="grow"></div>'
++'<div class="content"><div class="ph"><div class="tb"><div class="tr"><h1>الأوردرات</h1><span class="chip-n" id="cn"></span></div></div><div class="grow"></div>'
  +'<label class="dd btn">'+ic('sliders')+'<span>ترتيب حسب</span>'+ic('down')+'<select id="so" aria-label="ترتيب حسب"><option value="new">الأحدث أولًا</option><option value="old">الأقدم أولًا</option><option value="val">الأعلى قيمة</option><option value="late">المتأخرة أولًا</option></select></label>'
- +'<button class="btn" id="fbtn" aria-haspopup="dialog" aria-expanded="false">'+ic('filter')+'<span>فلتر'+(S.fb.items.length?' ('+fbCount(S.fb)+')':'')+'</span>'+ic('down')+'</button><button class="btn" id="actbtn" aria-haspopup="menu" aria-expanded="false"><span>الإجراءات</span>'+ic('down')+'</button><button class="btn pri" id="sync">مزامنة مع Airtable</button></div>'
+ +'<button class="btn" id="fbtn" aria-haspopup="dialog" aria-expanded="false">'+ic('filter')+'<span>فلتر'+(S.fb.items.length?' ('+fbCount(S.fb)+')':'')+'</span>'+ic('down')+'</button><button class="btn" id="actbtn" aria-haspopup="menu" aria-expanded="false"><span>الإجراءات</span>'+ic('down')+'</button><button class="btn pri" id="sync">مزامنة مع الموقع</button></div>'
  +'<div class="toolbar"><div class="chips" id="chips"></div><div class="ff"><label class="sq">'+ic('search')+'<input id="oq" placeholder="رقم الأوردر · العميل · الهاتف" aria-label="بحث الأوردرات"></label>'
  +'<label class="sel"><span id="v1"></span>'+ic('down')+'<select id="fv" aria-label="المورد"></select></label>'
  +'<label class="sel"><span id="v2"></span>'+ic('down')+'<select id="fc" aria-label="حالة التأكيد"></select></label>'
@@ -407,12 +216,15 @@ function drawFilters(){
  $('fn').innerHTML='<option value="">عدد الموردين: الكل</option><option value="1"'+(S.vc==='1'?' selected':'')+'>مورد واحد</option><option value="2"'+(S.vc==='2'?' selected':'')+'>موردين متعددين</option>';
  $('v4').textContent=S.vc==='1'?'عدد الموردين: مورد واحد':S.vc==='2'?'عدد الموردين: موردين متعددين':'عدد الموردين: الكل';
 }
+// the list when nothing is shown: before the first hydrate it follows IBOrders.state()
+function emptyMsg(){if(HYD)return O.length?'مفيش أوردرات مطابقة للفلاتر':'مافيش أوردرات في آخر 12 شهر';var B=window.IBOrders,st=B&&B.state?B.state():'loading';
+ return st==='error'?'معرفناش نحمّل الأوردرات — جرّب تاني <button type="button" class="btn" data-oretry>إعادة المحاولة</button>':'بيحمّل الأوردرات…'}
 function draw(keepFilters){
  var rows=sorted(O.filter(function(o){return match(o)}));
  var pages=Math.max(1,Math.ceil(rows.length/S.size));if(S.page>pages)S.page=pages;
  var a=(S.page-1)*S.size,pr=rows.slice(a,a+S.size);
  $('cn').textContent=rows.length;
- $('list').innerHTML=pr.length?pr.map(card).join(''):'<div class="empty">مفيش أوردرات مطابقة للفلاتر</div>';
+ $('list').innerHTML=pr.length?pr.map(card).join(''):'<div class="empty">'+emptyMsg()+'</div>';
  var h='<div class="p"><button class="btn" data-pg="'+(S.page-1)+'"'+(S.page<=1?' disabled':'')+'>السابق</button>';
  var ps=[];for(var i=1;i<=pages;i++)ps.push(i);
  h+=ps.map(function(p){return'<button class="btn'+(p===S.page?' on':'')+'" data-pg="'+p+'">'+p+'</button>'}).join('');
@@ -423,38 +235,48 @@ function draw(keepFilters){
  $('so').value=S.sort;
  var fbb=$('fbtn');if(fbb){fbb.querySelector('span').textContent='فلتر'+(S.fb.items.length?' ('+fbCount(S.fb)+')':'')}
 }
-function shipReady(o,s,v){var OPS=window.IbtekrOps;if(!OPS||!OPS.isShipReady||!OPS.isShipReady(v)||s.ss===v)return;var K=window.IBKit;s.readyAt=(K?K.TODAY:o.date)+' '+(K&&K.clockNow?K.clockNow():'12:00');s.waybill=null;
+function shipReady(o,s,v){var OPS=window.IbtekrOps;if(!OPS||!OPS.isShipReady||!OPS.isShipReady(v)||s.ss===v)return;var K=window.IBKit;s.readyAt=(window.IBOrders?window.IBOrders.today():K?K.TODAY:o.date)+' '+(K&&K.clockNow?K.clockNow():'12:00');s.waybill=null;
  if(window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'delivery.waybill.request',newValue:'IB-'+o.id+' · #'+s.sid+' · '+v});toast('اتبعت للمسؤول عن التوصيل: بوليصة بوسطة '+v.replace('جاهز للشحن ',''));try{document.dispatchEvent(new Event('ib:notify'))}catch(e){}}
 function setCf(o,v,changes){var old=o.cf;if(old===v)return [];o.cf=v;var OPS=window.IbtekrOps;if(!OPS||!OPS.subsOnConfirm)return [];
- if(!OPS.isConfirmed(old)&&OPS.isConfirmed(v))o.confAt=(window.IBKit&&window.IBKit.TODAY)||o.date;
- var ch=OPS.subsOnConfirm(o.subs,old,v);ch.forEach(function(c){o.subs.forEach(function(s){if(String(s.sid)===c.sid&&(s.ss||'')===c.from)s.ss=c.to})});
+ if(!OPS.isConfirmed(old)&&OPS.isConfirmed(v))o.confAt=(window.IBOrders?window.IBOrders.today():window.IBKit&&window.IBKit.TODAY)||o.date;
+ var ch=OPS.subsOnConfirm(o.subs,old,v);ch.forEach(function(c){o.subs.forEach(function(s){if(String(s.sid)===c.sid&&(s.ss||'')===c.from){var b=snapS(s);s.ss=c.to;subW(s,b)}})});
  if(ch.length){var msg=(OPS.isConfirmed(v)?'اتأكد ':'رجع غير مؤكد ')+ch.length+' أوردر فرعي تلقائي';if(changes)changes.push('الأوردرات الفرعية: '+ch.map(function(c){return '#'+c.sid+' «'+(c.from||'—')+'» ← «'+c.to+'»'}).join(' · '));
   if(window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'suborder.autoconfirm',newValue:'IB-'+o.id+' · '+old+' ← '+v+' · '+ch.length+' فرعي ← '+ch[0].to});toast(msg)}
  return ch}
 function toast(t){var e=$('toast');e.textContent=t;e.hidden=false;clearTimeout(toast.t);toast.t=setTimeout(function(){e.hidden=true},2200)}
+/* ---- write-through (phase 2): every edit changes the page's copy first, then IBOrdersStore (= IBOrders); a refused write
+   puts the old values back (while they still hold what was written) and says why. No store: the local change stays. ---- */
+function WS(){return window.IBOrdersStore||null}
+function wt(p,undo){if(!p||typeof p.then!=='function')return;var no=function(r){if(undo)undo();draw();toast(r&&r.reason==='forbidden'?'مش من صلاحياتك':'معرفناش نحفظ — جرّب تاني')};p.then(function(r){if(r&&r.ok===false)no(r)},function(){no(null)})}
+function rv(t,b,keys){var a=keys.map(function(k){return t[k]});return function(){if(keys.every(function(k,i){return t[k]===a[i]}))keys.forEach(function(k){t[k]=b[k]})}}
+function snapO(o){return{st:o.st,cancel:o.cancel,ret:o.ret,cf:o.cf,cdate:o.cdate,confAt:o.confAt,note:o.note,city:o.city,addr:o.addr,dep:o.dep}}
+// what changed on order o since snapshot b → setOrderStatus (pushed to the site by the adapter) / setConfirm / patchOrder
+function ordW(o,b){var ws=WS();if(!ws||!o)return;var same=function(k){return(o[k]==null?'':o[k])===(b[k]==null?'':b[k])};
+ if(!same('st')){var x={};if(o.cancel&&o.cancel!==b.cancel)x.cancel=o.cancel;if(o.ret&&o.ret!==b.ret)x.ret=o.ret;wt(ws.setOrderStatus(o.id,o.st,x),rv(o,b,['st','cancel','ret']))}
+ var cp={};if(!same('cdate'))cp.confAt=o.cdate||null;else if(!same('confAt')&&!o.cdate)cp.confAt=o.confAt||null; // one column: confirm_at
+ if(!same('cf')||'confAt' in cp)wt(ws.setConfirm(o.id,same('cf')?null:o.cf,cp),rv(o,b,['cf','cdate','confAt']));
+ var pp={};['note','city','addr'].forEach(function(k){if(!same(k))pp[k]=o[k]||''});if(Number(o.dep)!==Number(b.dep))pp.dep=Number(String(o.dep).replace(/[^\d.]/g,''))||0; // cleared → 0
+ if(Object.keys(pp).length)wt(ws.patchOrder(o.id,pp),rv(o,b,['note','city','addr','dep']))}
+function snapS(s){return{ss:s.ss,exp:s.exp,cm:s.cm,readyAt:s.readyAt,ret:s.ret,store:s.store,waybill:s.waybill,pulled:s.pulled,vendor:s.vendor}}
+// what changed on line s since snapshot b → setItemStatus / setWaybill (a cleared one) / setPulled; never pushed
+function subW(s,b){var ws=WS();if(!ws||!s)return;var id=s.itemId||String(s.n),f={},ss=null,same=function(k){return(s[k]==null?'':s[k])===(b[k]==null?'':b[k])};
+ if(!same('ss'))ss=s.ss||'';['exp','cm','readyAt'].forEach(function(k){if(!same(k))f[k]=s[k]||''});['ret','store'].forEach(function(k){if(s[k]!==b[k])f[k]=s[k]||null});
+ if(ss!==null||Object.keys(f).length)wt(ws.setItemStatus(id,ss,f),rv(s,b,['ss','exp','cm','readyAt','ret','store']));
+ if(!same('waybill')&&s.waybill==null)wt(ws.setWaybill(id,null),rv(s,b,['waybill']));
+ if(!!s.pulled!==!!b.pulled)wt(ws.setPulled(id,!!s.pulled),rv(s,b,['pulled','vendor']))}
 /* ---- inventory hub links (Figma orders 385:20898 auto-pull, 391:21463 consolidation, 385:21259/385:21407 returns) ---- */
 function vcell(s){return s.pulled?'<span class="vchip pull">مخزن ابتكر</span><small class="pullsub">سحب تلقائي</small>':esc(s.vendor)}
 function pullNote(s){return'<div class="pulln">'+ic('box')+'<span>من مخزن ابتكر — مفيش تبليغ مورد ولا عدّاد</span></div>'}
 function consBar(o){var c=window.IBOrdersOps&&window.IBOrdersOps.cons(o.id);if(!c)return'';var a=c.subs.filter(function(x){return x[2]==='وصل المخزن'}).length,rd=a===c.subs.length;
  return'<div class="consbar'+(rd?' rdy':'')+'">'+ic('box')+'<b>بيتجمع في المخزن · '+a+' من '+c.subs.length+' وصلوا</b><span>منطقة '+esc(c.zone)+'</span>'+(rd?'<span class="tagok">جاهز يطلع كامل</span>':'')+'<div class="cbar"><i style="width:'+Math.round(a/c.subs.length*100)+'%"></i></div></div>'}
 function orderSnap(o){return{id:o.id,name:o.name,subs:o.subs.map(function(s){return{sid:s.sid,vendor:s.vendor,ss:s.ss,prod:s.prod,sku:s.sku,tot:s.tot,pulled:!!s.pulled}})}}
-function orderStatus(o,v){var RS=['استرجاع','ملغي'];if(RS.indexOf(v)>=0&&o.st!==v&&window.IBOrdersOps&&window.IBOrdersOps.orderReasonPopup){draw();window.IBOrdersOps.orderReasonPopup({kind:v,order:o.id,name:o.name,tot:o.tot,from:o.st,subs:o.subs.length},function(r){var old=o.st;o.st=v;if(v==='ملغي')o.cancel=r;else o.ret=r;if(window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:v==='ملغي'?'order.cancel':'order.refund',newValue:'IB-'+o.id+' · '+(old||'—')+' ← '+v+' · '+r.reason});draw()});return}
- o.st=v;draw()}
+function orderStatus(o,v){var RS=['استرجاع','ملغي'];if(RS.indexOf(v)>=0&&o.st!==v&&window.IBOrdersOps&&window.IBOrdersOps.orderReasonPopup){draw();window.IBOrdersOps.orderReasonPopup({kind:v,order:o.id,name:o.name,tot:o.tot,from:o.st,subs:o.subs.length},function(r){var b=snapO(o),old=o.st;o.st=v;if(v==='ملغي')o.cancel=r;else o.ret=r;if(window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:v==='ملغي'?'order.cancel':'order.refund',newValue:'IB-'+o.id+' · '+(old||'—')+' ← '+v+' · '+r.reason});draw();ordW(o,b)});return}
+ var b=snapO(o);o.st=v;draw();ordW(o,b)}
 function subStatus(s,v){var o=OM[s.oid];
- if(v==='وصل المخزن'&&s.ss!==v&&window.IBOrdersOps&&window.IBOrdersOps.arrivalPopup){draw(1);window.IBOrdersOps.arrivalPopup({order:o.id,sid:s.sid,prod:s.prod,sku:s.sku,vendor:s.vendor,qty:s.qty,tot:s.tot},function(r){var old=s.ss;s.ss=v;s.store=r;if(window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'suborder.arrived',newValue:'#'+s.sid+' (IB-'+o.id+') · '+(old||'—')+' ← '+v+' · سبب التخزين: '+r.reason});window.IBOrdersOps.subChanged(o.id,s.sid,v,s,{stockAdded:true});draw(1)});return}
- if(RET.indexOf(v)>=0&&window.IBOrdersOps){draw(1);window.IBOrdersOps.returnPopup({order:o.id,sid:s.sid,prod:s.prod,sku:s.sku,vendor:s.vendor,tot:s.tot,status:v},function(r){var old=s.ss;s.ss=v;s.ret=r;if(window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'suborder.return',newValue:'#'+s.sid+' (IB-'+o.id+') · '+(old||'—')+' ← '+v+' · '+r.reason});draw(1)});return}
- shipReady(o,s,v);s.ss=v;if(window.IBOrdersOps)window.IBOrdersOps.subChanged(o.id,s.sid,v,s);draw(1)}
-window.OrdersSetSub=function(sid,v){if(v!=null)O.forEach(function(o){o.subs.forEach(function(s){if(String(s.sid)===String(sid))s.ss=v})});draw(1)};
-function opsLink(){var K=window.IBKit;if(!K)return;var ST=K.store;
- var c=O.filter(function(o){return o.subs.length>=2&&DONE.indexOf(o.st)<0}).sort(function(a,b){return a.date<b.date?1:a.date>b.date?-1:0});
- var first=OM['180662'];if(first){c=[first].concat(c.filter(function(o){return o!==first}))}if(c.length<4)return;
- var stFor=function(i,j,n){if(i===1)return'وصل المخزن';if(i===0)return j<n-1?'وصل المخزن':'تم الشحن للمخزن';return j===0?'قيد التنفيذ':'تم الشحن للمخزن'};
- ST.consolidations.forEach(function(cn,i){var o=c[i];cn.order=o.id;cn.customer=o.name;cn.subs=o.subs.map(function(s,j){var st=stFor(i,j,o.subs.length);s.ss=st;
-   if(st==='وصل المخزن'){var key='L-'+o.id+'-'+s.sid+'-'+j;ST.stock.unshift({key:key,sku:s.sku||('SUB-'+s.sid),name:s.prod,vendor:s.vendor,reason:'تجميع أوردر',status:i===1?'جاهز يطلع كامل':'وصل المخزن',ref:'IB-'+o.id,sub:s.sid,order:o.id,since:cn.since,loc:cn.zone,cost:s.tot});ST.ledger.push({at:cn.since+' 12:00',key:key,type:'in',qty:s.qty||1,label:'دخول — تجميع',reason:'تجميع أوردر',ref:'IB-'+o.id+' · #'+s.sid,by:'هبة محمود',note:'وصل من '+s.vendor})}
-   return[s.sid,s.vendor,st]})});
- var p=c[3],s=p.subs[0],it=ST.stock.filter(function(x){return x.key==='L-WH-SALE'})[0];
- if(it){it.ref='IB-'+p.id;it.order=p.id;ST.ledger.forEach(function(m){if(m.key==='L-WH-SALE'&&m.ref==='IB-180655')m.ref='IB-'+p.id});s.pulled=it.key;s.vendor='مخزن ابتكر';s.ss='جاهز للشحن'}
- ST.ledger.sort(function(a,b){return a.at<b.at?1:a.at>b.at?-1:0})}
+ if(v==='وصل المخزن'&&s.ss!==v&&window.IBOrdersOps&&window.IBOrdersOps.arrivalPopup){draw(1);window.IBOrdersOps.arrivalPopup({order:o.id,sid:s.sid,prod:s.prod,sku:s.sku,vendor:s.vendor,qty:s.qty,tot:s.tot},function(r){var b=snapS(s),old=s.ss;s.ss=v;s.store=r;if(window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'suborder.arrived',newValue:'#'+s.sid+' (IB-'+o.id+') · '+(old||'—')+' ← '+v+' · سبب التخزين: '+r.reason});window.IBOrdersOps.subChanged(o.id,s.sid,v,s,{stockAdded:true});draw(1);subW(s,b)});return}
+ if(RET.indexOf(v)>=0&&window.IBOrdersOps){draw(1);window.IBOrdersOps.returnPopup({order:o.id,sid:s.sid,prod:s.prod,sku:s.sku,vendor:s.vendor,tot:s.tot,status:v},function(r){var b=snapS(s),old=s.ss;s.ss=v;s.ret=r;if(window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'suborder.return',newValue:'#'+s.sid+' (IB-'+o.id+') · '+(old||'—')+' ← '+v+' · '+r.reason});draw(1);subW(s,b)});return}
+ var b=snapS(s);shipReady(o,s,v);s.ss=v;if(window.IBOrdersOps)window.IBOrdersOps.subChanged(o.id,s.sid,v,s);draw(1);subW(s,b)}
+window.OrdersSetSub=function(sid,v){if(v!=null)O.forEach(function(o){o.subs.forEach(function(s){if(String(s.sid)===String(sid)){var b=snapS(s);s.ss=v;subW(s,b)}})});draw(1)};
 function allSub(n){var r;O.forEach(function(o){o.subs.forEach(function(s){if(s.n==n)r=s})});return r}
 var MP=null; // open "more" menu {key, btn}
 var DEL_REASONS=['العميل عايز يعدل الأوردر','أوردر تجريبي','أخرى'];
@@ -536,7 +358,7 @@ function orderInfoHtml(o,id,withSubs){
  function sel(name,list,cur,lab){return'<select class="sel2'+(cur==='غير مؤكد'?' unconf':'')+'" data-f="'+name+'" aria-label="'+lab+'">'+list.map(function(x){return'<option'+(x===cur?' selected':'')+'>'+x+'</option>'}).join('')+'</select>'}
  var payOpts=Object.keys(PAYN).filter(function(k,i,a){return a.map(function(x){return PAYN[x]}).indexOf(PAYN[k])===i});
  return'<div class="sec"><h3>معلومات العميل</h3><div class="g2">'+fd('اسم العميل <span style="color:var(--err)">*</span>','<input class="sel2" data-f="name" value="'+esc(o.name)+'" maxlength="80">')+fd('الهاتف (واتساب) <span style="color:var(--err)">*</span>','<input class="sel2" data-f="phone" dir="ltr" inputmode="tel" value="'+esc(o.phone)+'" maxlength="11">')+'</div>'
-  +'<div class="g2">'+fd('طريقة الدفع','<select class="sel2" data-f="pay" aria-label="طريقة الدفع">'+payOpts.map(function(k){return'<option value="'+k+'"'+(PAYN[k]===PAYN[o.pay]?' selected':'')+'>'+PAYN[k]+'</option>'}).join('')+'</select>')+fd('ملاحظة العميل من الموقع','<div class="ro">لا توجد ملاحظة من العميل</div>')+'</div>'
+  +'<div class="g2">'+fd('طريقة الدفع','<select class="sel2" data-f="pay" aria-label="طريقة الدفع">'+(PAYN[o.pay]?'':'<option value="'+esc(o.pay)+'" selected>'+esc(o.pay||'—')+'</option>')+payOpts.map(function(k){return'<option value="'+k+'"'+(PAYN[k]===PAYN[o.pay]?' selected':'')+'>'+PAYN[k]+'</option>'}).join('')+'</select>')+fd('ملاحظة العميل من الموقع','<div class="ro">لا توجد ملاحظة من العميل</div>')+'</div>'
   +'<div class="err" id="eerr" role="alert" hidden></div></div>'
   +'<div class="sec"><h3>تفاصيل الأوردر</h3><div class="g2">'+fd('رقم الأوردر','<div class="ro" dir="ltr">IB-'+esc(id)+'</div>')+fd('تاريخ الأوردر','<div class="ro">'+dt(o.date)+' · عمره '+o.age+' يوم</div>')+'</div>'
   +'<div class="g2">'+fd('حالة الأوردر',sel('st',ST,o.st,'حالة الأوردر'))+fd('حالة التأكيد',sel('cf',CF,o.cf,'حالة التأكيد'))+'</div>'
@@ -546,11 +368,11 @@ function orderInfoHtml(o,id,withSubs){
   +(withSubs?'<div class="subs">'+o.subs.map(function(x){return'<div class="sr"><span>#'+esc(x.sid)+' · '+esc(x.prod)+' × '+x.qty+'</span><span>'+esc(x.vendor)+' · '+esc(x.ss||'—')+' · '+fmt(x.tot)+' ج.م</span></div>'}).join('')+'</div>':'')+'</div>'}
 /* validates + applies the info form; returns {ok,msg,changes} */
 function applyOrderInfo(w,o){var g=function(n){var el=w.querySelector('[data-f="'+n+'"]');return el?el.value:null};if(g('name')===null)return{ok:true,changes:[]};
- var err=w.querySelector('#eerr'),name=g('name').trim(),phone=g('phone').replace(/[^\d]/g,''),cd=g('cdate').trim(),dep=parseInt(g('dep').replace(/[^\d]/g,''),10)||0;
- var msg='';if(!name)msg='اكتب اسم العميل';else if(!/^01\d{9}$/.test(phone))msg='رقم الموبايل لازم يكون 11 رقم ويبدأ بـ 01';else if(cd&&parseTyped(cd)===null)msg='تاريخ التأكيد لازم يكون بصيغة يوم/شهر/سنة';else if(dep>o.tot)msg='العربون أكبر من إجمالي الأوردر';
+ var err=w.querySelector('#eerr'),name=g('name').trim(),phone=g('phone')===o.phone?o.phone:g('phone').replace(/[^\d]/g,''),cd=g('cdate').trim(),dep=parseInt(g('dep').replace(/[^\d]/g,''),10)||0;
+ var msg='';if(!name)msg='اكتب اسم العميل';else if(phone!==o.phone&&!/^01\d{9}$/.test(phone))msg='رقم الموبايل لازم يكون 11 رقم ويبدأ بـ 01';else if(cd&&parseTyped(cd)===null)msg='تاريخ التأكيد لازم يكون بصيغة يوم/شهر/سنة';else if(dep>o.tot)msg='العربون أكبر من إجمالي الأوردر';
  if(msg){if(err){err.textContent=msg;err.hidden=false}return{ok:false,msg:msg,changes:[]}}
- var changes=[];var apply=function(k,v,lab){if(String(o[k]||'')!==String(v||'')){changes.push(lab+': «'+(o[k]||'—')+'» ← «'+(v||'—')+'»');o[k]=v}};
- apply('name',name,'الاسم');apply('phone',phone,'الهاتف');apply('pay',g('pay'),'طريقة الدفع');if((g('st')==='استرجاع'||g('st')==='ملغي')&&o.st!==g('st'))o._pendingRet=g('st');else apply('st',g('st'),'الحالة');if(g('cf')!==null&&g('cf')!==o.cf){changes.push('حالة التأكيد: «'+(o.cf||'—')+'» ← «'+g('cf')+'»');setCf(o,g('cf'),changes)}apply('cdate',cd?parseTyped(cd):'','تاريخ التأكيد');apply('dep',dep,'العربون');apply('note',g('note').trim(),'التعليق');
+ var changes=[],b=snapO(o);var apply=function(k,v,lab){if(String(o[k]||'')!==String(v||'')){changes.push(lab+': «'+(o[k]||'—')+'» ← «'+(v||'—')+'»');o[k]=v}};
+ apply('name',name,'الاسم');apply('phone',phone,'الهاتف');apply('pay',g('pay'),'طريقة الدفع');if((g('st')==='استرجاع'||g('st')==='ملغي')&&o.st!==g('st'))o._pendingRet=g('st');else apply('st',g('st'),'الحالة');if(g('cf')!==null&&g('cf')!==o.cf){changes.push('حالة التأكيد: «'+(o.cf||'—')+'» ← «'+g('cf')+'»');setCf(o,g('cf'),changes)}apply('cdate',cd?parseTyped(cd):'','تاريخ التأكيد');apply('dep',dep,'العربون');apply('note',g('note').trim(),'التعليق');ordW(o,b);
  return{ok:true,changes:changes}}
 function dlgKeys(w,tryClose){return function(e){var all=R.querySelectorAll('#cscrim');if(all[all.length-1]!==w)return;if(e.key==='Escape'){if(R.getElementById('uscrim')||R.getElementById('dpop')||R.getElementById('mpop'))return;e.preventDefault();e.stopPropagation();tryClose()}if(e.key==='Tab'){if(R.getElementById('uscrim'))return;var f=[].slice.call(w.querySelectorAll('button,select,input,textarea,[tabindex="0"]')).filter(function(x){return x.offsetParent!==null&&!x.disabled});var i=f.indexOf(R.activeElement);if(e.shiftKey&&i<=0){e.preventDefault();f[f.length-1].focus()}else if(!e.shiftKey&&i===f.length-1){e.preventDefault();f[0].focus()}}}}
 function editOrder(id){var o=OM[id];if(!o)return;
@@ -565,7 +387,7 @@ function editOrder(id){var o=OM[id];if(!o)return;
  w.addEventListener('click',function(e){if(e.target.closest('[data-cc]')){tryClose();return}
   if(e.target.closest('[data-eok]')){var r=applyOrderInfo(w,o);if(!r.ok)return;
    if(r.changes.length&&window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'order.edit',newValue:'IB-'+id+' · '+r.changes.join(' · ')});
-   close();draw(1);if(o._pendingRet){var pv=o._pendingRet;delete o._pendingRet;orderStatus(o,pv)}else toast(r.changes.length?'تم حفظ '+r.changes.length+' تعديل (تجريبي — لسه مش بيكتب على Airtable)':'مفيش تعديلات')}});}
+   close();draw(1);if(o._pendingRet){var pv=o._pendingRet;delete o._pendingRet;orderStatus(o,pv)}else toast(r.changes.length?'تم حفظ '+r.changes.length+' تعديل':'مفيش تعديلات')}});}
 /* Order details popup (from notifications / vendor late-orders): tabs بيانات الأوردر | الأوردرات الفرعية (same cards as the orders page) */
 var DET=null;
 function subSnap(o){return JSON.stringify(o.subs.map(function(s){return[s.vendor,s.ss,s.exp,s.cm,s.qty,s.tot]}))}
@@ -587,8 +409,8 @@ function orderDetails(id,tab){var o=OM[id];if(!o)return;if(DET)DET.close();
  function save(){var r=applyOrderInfo(w,o);if(!r.ok){if(cur!=='info'){cur='info';render();r=applyOrderInfo(w,o)}if(!r.ok)return false}
   var ch=r.changes.slice();if(subSnap(o)!==snap)ch.push('تعديلات في الأوردرات الفرعية');
   if(ch.length&&window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'order.edit',newValue:'IB-'+id+' · '+ch.join(' · ')});
-  snap=subSnap(o);infoDirty=false;syncDirty();draw(1);if(o._pendingRet){var pv=o._pendingRet;delete o._pendingRet;close();orderStatus(o,pv)}toast(ch.length?'تم حفظ التعديلات (تجريبي — لسه مش بيكتب على Airtable)':'مفيش تعديلات');return true}
- function discard(){var old=JSON.parse(snap);o.subs.forEach(function(s,i){var v=old[i];if(!v)return;s.vendor=v[0];s.ss=v[1];s.exp=v[2];s.cm=v[3];s.qty=v[4];s.tot=v[5]});draw(1);close()}
+  snap=subSnap(o);infoDirty=false;syncDirty();draw(1);if(o._pendingRet){var pv=o._pendingRet;delete o._pendingRet;close();orderStatus(o,pv)}toast(ch.length?'تم حفظ التعديلات':'مفيش تعديلات');return true}
+ function discard(){var old=JSON.parse(snap);o.subs.forEach(function(s,i){var v=old[i];if(!v)return;var b=snapS(s);s.vendor=v[0];s.ss=v[1];s.exp=v[2];s.cm=v[3];s.qty=v[4];s.tot=v[5];subW(s,b)});draw(1);close()}
  function tryClose(){if(DG.dirty){confirmUnsaved('','الأوردر IB-'+id,function(){if(save())close()},discard)}else close()}
  var keys=dlgKeys(w,tryClose);R.addEventListener('keydown',keys,true);
  w.addEventListener('mousedown',function(e){if(e.target===w)tryClose()});
@@ -606,7 +428,7 @@ function editSub(n){var s=allSub(n);if(!s)return;var o=OM[s.oid];if(!o)return;
   +'<div class="g2">'+fd('الأوردر الرئيسي','<div class="ro" dir="ltr">IB-'+esc(o.id)+'</div>')+fd('طريقة الدفع','<div class="ro">'+esc(PAYN[o.pay]||o.pay||'—')+'</div>')+'</div>'
   +'<div class="lead">بيانات العميل بتتعدّل من الأوردر الرئيسي.</div>'
   +'<div class="err" id="eerr" role="alert" hidden></div></div>'
-  +'<div class="sec"><h3>تفاصيل الأوردر الفرعي</h3><div class="g2">'+fd('رقم الفرعي','<div class="ro" dir="ltr">#'+esc(s.sid)+'</div>')+fd('المورد','<select class="sel2" data-f="vendor" aria-label="المورد">'+V.map(function(v){return'<option'+(v===s.vendor?' selected':'')+'>'+esc(v)+'</option>'}).join('')+'</select>')+'</div>'
+  +'<div class="sec"><h3>تفاصيل الأوردر الفرعي</h3><div class="g2">'+fd('رقم الفرعي','<div class="ro" dir="ltr">#'+esc(s.sid)+'</div>')+fd('المورد','<select class="sel2" data-f="vendor" aria-label="المورد">'+(V.indexOf(s.vendor)<0?'<option selected>'+esc(s.vendor)+'</option>':'')+V.map(function(v){return'<option'+(v===s.vendor?' selected':'')+'>'+esc(v)+'</option>'}).join('')+'</select>')+'</div>'
   +'<div class="g2">'+fd('المنتج','<div class="ro">'+esc(s.prod)+(s.sku?' · <span dir="ltr">'+esc(s.sku)+'</span>':'')+'</div>')+fd('حالة الفرعي','<select class="sel2" data-f="ss" aria-label="حالة الفرعي"><option value=""'+(s.ss?'':' selected')+'>— اختر الحالة —</option>'+SS.map(function(x){return'<option'+(x===s.ss?' selected':'')+'>'+x+'</option>'}).join('')+'</select>')+'</div>'
   +'<div class="g2">'+fd('الكمية','<input class="sel2" data-f="qty" dir="ltr" inputmode="numeric" value="'+s.qty+'">')+fd('القيمة (ج.م)','<input class="sel2" data-f="tot" dir="ltr" inputmode="numeric" value="'+s.tot+'">')+'</div>'
   +'<div class="g2">'+fd('تاريخ تبليغ المورد','<input class="sel2" data-f="exp" dir="ltr" placeholder="dd/mm/yyyy" value="'+(s.exp?numFmt(s.exp):'')+'">')+fd('مدة التصنيع','<div class="ro">12 إلى 15 يوم</div>')+'</div>'
@@ -624,9 +446,9 @@ function editSub(n){var s=allSub(n);if(!s)return;var o=OM[s.oid];if(!o)return;
    var msg='';if(!(qty>0))msg='الكمية لازم تكون رقم أكبر من صفر';else if(!(tot>=0))msg='اكتب قيمة صحيحة';else if(ex&&parseTyped(ex)===null)msg='تاريخ تبليغ المورد لازم يكون بصيغة يوم/شهر/سنة';
    if(msg){err.textContent=msg;err.hidden=false;return}
    var changes=[];var apply=function(k,v,lab){if(String(s[k]||'')!==String(v||'')){changes.push(lab+': «'+(s[k]||'—')+'» ← «'+(v||'—')+'»');s[k]=v}};
-   var nss=g('ss'),isRet=(RET.indexOf(nss)>=0||nss==='وصل المخزن')&&nss!==s.ss;apply('vendor',g('vendor'),'المورد');if(!isRet)apply('ss',nss,'الحالة');apply('qty',qty,'الكمية');apply('tot',tot,'القيمة');apply('exp',ex?parseTyped(ex):'','تاريخ تبليغ المورد');apply('cm',g('cm').trim(),'الملاحظة');
+   var sb=snapS(s),nss=g('ss'),isRet=(RET.indexOf(nss)>=0||nss==='وصل المخزن')&&nss!==s.ss;apply('vendor',g('vendor'),'المورد');if(!isRet)apply('ss',nss,'الحالة');apply('qty',qty,'الكمية');apply('tot',tot,'القيمة');apply('exp',ex?parseTyped(ex):'','تاريخ تبليغ المورد');apply('cm',g('cm').trim(),'الملاحظة');
    if(changes.length&&window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'suborder.edit',newValue:'#'+s.sid+' (IB-'+o.id+') · '+changes.join(' · ')});
-   close();S.open[o.id]=true;draw(1);if(isRet)subStatus(s,nss);toast(changes.length?'تم حفظ '+changes.length+' تعديل (تجريبي — لسه مش بيكتب على Airtable)':'مفيش تعديلات')}});}
+   close();S.open[o.id]=true;draw(1);subW(s,sb);if(isRet)subStatus(s,nss);toast(changes.length?'تم حفظ '+changes.length+' تعديل':'مفيش تعديلات')}});}
 function confirmDelete(kind,id){var sub=kind==='s'?allSub(id):null,label=kind==='o'?'الأوردر IB-'+id:'الأوردر الفرعي #'+(sub?sub.sid:id);
  var w=document.createElement('div');w.id='cscrim';
  w.innerHTML='<div id="cdlg" role="dialog" aria-modal="true" aria-labelledby="cdt"><div class="ch"><h2 id="cdt">مسح '+esc(label)+'؟</h2><button type="button" class="ibtn" data-cc aria-label="إغلاق">'+ic('xx')+'</button></div>'
@@ -645,7 +467,7 @@ function confirmDelete(kind,id){var sub=kind==='s'?allSub(id):null,label=kind===
    if(kind==='o'){var ix=O.findIndex(function(x){return x.id===id});if(ix>-1)O.splice(ix,1);delete OM[id];delete S.open[id];}
    else{O.forEach(function(x){var j=x.subs.indexOf(sub);if(j>-1)x.subs.splice(j,1)});}
    if(window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:kind==='o'?'order.delete':'suborder.delete',newValue:(kind==='o'?'IB-'+id:'#'+(sub?sub.sid:id))+' · '+reason});
-   close();draw(1);toast('تم المسح (تجريبي — لسه مش بيكتب على Airtable) · السبب: '+reason)}});}
+   close();draw(1);toast('اتشال من القايمة · السبب: '+reason)}});}
 R.addEventListener('keydown',function(e){if(!MP)return;var mi=[].slice.call(R.querySelectorAll('#mpop [role=menuitem]')),ci=mi.indexOf(R.activeElement);if(e.key==='Escape'){e.preventDefault();e.stopPropagation();mpClose(1);return}if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();mi[(ci+(e.key==='ArrowDown'?1:mi.length-1))%mi.length].focus()}},true);
 R.addEventListener('click',function(e){
  var t=e.target;var b;
@@ -656,22 +478,24 @@ R.addEventListener('click',function(e){
  if(b=t.closest('[data-tg]')){S.open[b.dataset.tg]=!S.open[b.dataset.tg];draw(1);return}
  if(b=t.closest('[data-pg]')){if(!b.disabled){S.page=+b.dataset.pg;draw(1);window.scrollTo(0,0)}return}
  if(b=t.closest('[data-ne2]')){var id=b.dataset.ne2;S.edit=S.edit==='n'+id?null:'n'+id;draw(1);return}
- if(b=t.closest('[data-ns]')){var id2=b.dataset.ns,ta=b.parentNode.querySelector('[data-ne]');OM[id2].note=ta.value.trim();S.edit=null;draw(1);toast('تم حفظ التعليق (تجريبي)');return}
- if(b=t.closest('[data-cs]')){var cn=b.dataset.cs,cta=b.parentNode.querySelector('[data-ce]');allSub(cn).cm=cta.value.trim();S.edit=null;draw(1);toast('تم حفظ التعليق (تجريبي — لسه مش بيكتب على Airtable)');return}
+ if(b=t.closest('[data-ns]')){var id2=b.dataset.ns,ta=b.parentNode.querySelector('[data-ne]');var no=OM[id2],nb=snapO(no);no.note=ta.value.trim();S.edit=null;draw(1);ordW(no,nb);toast('تم حفظ التعليق');return}
+ if(b=t.closest('[data-cs]')){var cn=b.dataset.cs,cta=b.parentNode.querySelector('[data-ce]');var cs=allSub(cn),cb=snapS(cs);cs.cm=cta.value.trim();S.edit=null;draw(1);subW(cs,cb);toast('تم حفظ التعليق');return}
  if(b=t.closest('[data-cm2]')){var cn2=b.dataset.cm2;S.edit=S.edit==='c'+cn2?null:'c'+cn2;draw(1);if(S.edit){var ci=R.querySelector('[data-ce="'+cn2+'"]');if(ci){ci.focus();ci.setSelectionRange(ci.value.length,ci.value.length)}}return}
  if(t.closest('#clr')){S.q='';S.st='الكل';S.deliv='';S.conf='';S.vendor='';S.vc='';S.fb={op:'and',items:[]};S.page=1;$('oq').value='';(R.getElementById('gq')||{}).value='';draw();return}
- if(t.closest('#sync')){toast('تمت المزامنة (نسخة تجريبية — بدون كتابة على Airtable)');return}
+ if(t.closest('#sync')){var ws=WS(),bad=function(r){toast(r&&r.reason==='forbidden'?'مش من صلاحياتك':'معرفناش نعمل مزامنة — جرّب تاني')};if(!ws||!ws.syncNow){bad(null);return}toast('بنزامن مع الموقع…');
+  ws.syncNow().then(function(r){if(!r||!r.ok)return bad(r);var c=r.counts||{},n=function(k){var x=c[k]||{};return typeof x[k]==='number'?x[k]:typeof x.upserted==='number'?x.upserted:0};toast('تمت المزامنة · '+n('orders')+' أوردر · '+n('products')+' منتج · '+n('vendors')+' مبتكر')},bad);return}
+ if(t.closest('[data-oretry]')){if(window.IBOrders&&window.IBOrders.load)window.IBOrders.load();return}
 
 });
 R.addEventListener('change',function(e){var t=e.target;if(t&&t.tagName==='SELECT'&&(t.dataset.f==='cf'||t.dataset.cf!==undefined))t.classList.toggle('unconf',t.value==='غير مؤكد')});
 R.addEventListener('input',function(e){var t=e.target;if(t.dataset&&(t.dataset.ce!==undefined||t.dataset.ne!==undefined)){var b=t.parentNode.querySelector('[data-cs],[data-ns]');if(b)b.hidden=(t.value.trim()===(t.dataset.orig||'').trim())}});
 R.addEventListener('change',function(e){var t=e.target,d=t.dataset;
  if(d.st){orderStatus(OM[d.st],t.value)}
- else if(d.cf){setCf(OM[d.cf],t.value);draw(1)}
- else if(d.cd){OM[d.cd].cdate=t.value;draw(1)}
+ else if(d.cf){var co=OM[d.cf],cb=snapO(co);setCf(co,t.value);draw(1);ordW(co,cb)}
+ else if(d.cd){var xo=OM[d.cd],xb=snapO(xo);xo.cdate=t.value;draw(1);ordW(xo,xb)}
  else if(d.ss!==undefined){subStatus(allSub(d.ss),t.value)}
- else if(d.ex!==undefined){allSub(d.ex).exp=t.value;draw(1)}
- else if(d.dep){var v=parseInt(String(t.value).replace(/[^\d]/g,''),10)||0;OM[d.dep].dep=v;draw(1)}
+ else if(d.ex!==undefined){var es=allSub(d.ex),eb=snapS(es);es.exp=t.value;draw(1);subW(es,eb)}
+ else if(d.dep){var v=parseInt(String(t.value).replace(/[^\d]/g,''),10)||0,po=OM[d.dep],pb=snapO(po);po.dep=v;draw(1);ordW(po,pb)}
  else if(d.ce!==undefined){}
  else if(t.id==='fv'){S.vendor=t.value;S.page=1;draw()}
  else if(t.id==='fc'){S.conf=t.value;S.page=1;draw()}
@@ -721,14 +545,14 @@ function dpOpen(inp){
  var f=inp.closest('.dpf'),r=f.getBoundingClientRect(),W=288,left=Math.min(Math.max(8,r.right-W),document.documentElement.clientWidth-W-8);
  w.style.left=(left+window.scrollX)+'px';w.style.top=(r.bottom+window.scrollY+4)+'px';
  inp.value=numFmt(v||'');inp.select()}
-function dpSet(v){var k=DP.k,id=DP.id,key=k+':'+id;if(k==='cd')OM[id].cdate=v;else allSub(id).exp=v;dpClose(0);draw(1);var n=R.querySelector('[data-fi="'+key+'"]');if(n){DPSUP=true;n.focus({preventScroll:true});DPSUP=false}}
+function dpSet(v){var k=DP.k,id=DP.id,key=k+':'+id,o2=k==='cd'?OM[id]:null,s2=o2?null:allSub(id),b2=o2?snapO(o2):snapS(s2);if(o2)o2.cdate=v;else s2.exp=v;dpClose(0);draw(1);if(o2)ordW(o2,b2);else subW(s2,b2);var n=R.querySelector('[data-fi="'+key+'"]');if(n){DPSUP=true;n.focus({preventScroll:true});DPSUP=false}}
 function dpErr(on,msg){var f=dpInput();if(!f)return;f.closest('.dpf').classList.toggle('err',on);var h=R.getElementById('dph');if(h){h.classList.toggle('e',on);h.textContent=on?(msg||'التاريخ مش صحيح — اكتبه بصيغة يوم/شهر/سنة، مثال 25/10/2026'):''}}
 function dpCommit(){var inp=dpInput();if(!inp)return true;var v=parseTyped(inp.value);if(v===null){dpErr(true);return false}dpSet(v);return true}
 R.addEventListener('focusin',function(e){var t=e.target;if(t.matches&&t.matches('[data-fi]')&&!DPSUP)dpOpen(t)});
 R.addEventListener('input',function(e){var t=e.target;if(!(DP&&t.matches&&t.matches('[data-fi]')))return;var v=parseTyped(t.value);if(v===null){dpErr(false);return}if(v){var p=pIso(v);DP.y=p.y;DP.m=p.m;DP.f=v;DP.dec=Math.floor(p.y/10)*10;DP.mode='day';DP.v=v;dpErr(false);dpRender()}else dpErr(false)});
 R.addEventListener('click',function(e){
  var t=e.target,b;
- if(b=t.closest('[data-dx]')){e.stopPropagation();var kk=b.dataset.dx.split(':');if(kk[0]==='cd')OM[kk[1]].cdate='';else allSub(kk[1]).exp='';dpClose(0);draw(1);return}
+ if(b=t.closest('[data-dx]')){e.stopPropagation();var kk=b.dataset.dx.split(':'),xo=kk[0]==='cd'?OM[kk[1]]:null,xs=xo?null:allSub(kk[1]),xb=xo?snapO(xo):snapS(xs);if(xo)xo.cdate='';else xs.exp='';dpClose(0);draw(1);if(xo)ordW(xo,xb);else subW(xs,xb);return}
  if(b=t.closest('.dpi')){e.stopPropagation();var inp=b.closest('.dpf').querySelector('.dpt');if(DP&&DP.k+':'+DP.id===inp.dataset.fi){dpClose(1)}else inp.focus();return}
  if(t.closest('.dpt')){if(!DP)dpOpen(t.closest('.dpt'));return}
  if(t.closest('#dpop')){
@@ -766,9 +590,9 @@ if(e.key==='Escape'&&e.target.dataset&&e.target.dataset.ce!==undefined){S.edit=n
 });
 function setQ(v){S.q=v;S.page=1;$('oq').value=v;(R.getElementById('gq')||{}).value=v;draw()}
 $('oq').addEventListener('input',function(e){setQ(e.target.value)});
+document.addEventListener('ib:orders',function(){var B=window.IBOrders;if(!B)return;if(HYD&&!B.data()&&B.state()==='idle'){O=[];OM={};V=[];IMG={};S.open={};HYD=false}if(!HYD)draw()}); // clear() (sign-out): nothing kept
+(function(){var B=window.IBOrders,d=B&&B.data&&B.data();if(d)hydrate(d);else draw()})();
 
-draw();
-
-window.OrdersApp={setQuery:setQ,query:function(f,n){var old=S;S=Object.assign({},old,{q:'',st:'الكل',deliv:'',conf:'',vendor:'',vc:''},f||{});var rows,st={},dl={late:0,risk:0,ok:0};try{rows=sorted(O.filter(function(o){return match(o)}))}finally{S=old}rows.forEach(function(o){st[o.st]=(st[o.st]||0)+1;dl[dstate(o)]++});return{total:rows.length,byStatus:st,delivery:dl,rows:rows.slice(0,n===undefined?10:n).map(function(o){var vs={};o.subs.forEach(function(s){vs[s.vendor]=1});return{id:o.id,customer:o.name,status:o.st,confirm:o.cf,ageDays:o.age,total:o.tot,delivery:dstate(o),vendors:Object.keys(vs),reason:o.st==='ملغي'?((o.cancel&&o.cancel.reason)||''):o.st==='استرجاع'?((o.ret&&o.ret.reason)||''):''}})}},alerts:function(){var f=[],u=[],w=[],lo=[],lv={},rv={};O.forEach(function(o){if(DONE.indexOf(o.st)>=0)return;if(late(o))lo.push({id:o.id,name:o.name,age:o.age});if(o.st==='معلّق')f.push({id:o.id,name:o.name});if(o.cf==='غير مؤكد')u.push({id:o.id,name:o.name});if(o.cf==='في انتظار الرد')w.push({id:o.id,name:o.name});if(risk(o))o.subs.forEach(function(s){if(OPEN[s.raw])rv[s.vendor]=(rv[s.vendor]||0)+1});if(late(o))o.subs.forEach(function(s){if(OPEN[s.raw])lv[s.vendor]=(lv[s.vendor]||0)+1})});return{follow:f,unconfirmed:u,waiting:w,lateOrders:lo.sort(function(a,b){return b.age-a.age}),riskVendors:Object.keys(rv).map(function(k){return{vendor:k,count:rv[k]}}).sort(function(a,b){return b.count-a.count}),lateVendors:Object.keys(lv).map(function(k){return{vendor:k,count:lv[k]}}).sort(function(a,b){return b.count-a.count})}},vendors:function(){return V.slice()},statuses:function(){return ST.slice()},get:function(id){var o=OM[String(id)];if(!o)return null;return{id:o.id,name:o.name,phone:o.phone,pay:PAYN[o.pay]||o.pay,date:o.date,age:o.age,st:o.st,cf:o.cf,cdate:o.cdate,confAt:o.confAt||'',city:o.city||'',addr:o.addr||'',dep:o.dep,tot:o.tot,note:o.note,ret:o.ret||null,cancel:o.cancel||null,delivery:dstate(o),subs:o.subs.map(function(s){return{n:s.n,sid:s.sid,prod:s.prod,qty:s.qty,tot:s.tot,vendor:s.vendor,ss:s.ss,exp:s.exp,cm:s.cm,sku:s.sku,readyAt:s.readyAt||'',waybill:s.waybill||null,open:!!OPEN[s.raw]}})}},details:function(id,tab){if(window.IBShowOrders)window.IBShowOrders();orderDetails(String(id),tab)},patch:function(id,f){var o=OM[String(id)];if(!o)return null;var old={};Object.keys(f).forEach(function(k){old[k]=o[k];if(k==='cf')setCf(o,f[k]);else o[k]=f[k]});draw(1);return old},patchSub:function(sid,f){var hit=null,ho=null;O.some(function(o){return o.subs.some(function(x){if(String(x.sid)===String(sid)){hit=x;ho=o;return true}return false})});if(!hit)return null;var old={};Object.keys(f).forEach(function(k){old[k]=hit[k];if(k==='ss')shipReady(ho,hit,f[k]);hit[k]=f[k]});draw(1);return old},waybill:function(oid,sid,w){var o=OM[String(oid)];if(!o)return null;var s=o.subs.find(function(x){return String(x.sid)===String(sid)});if(!s)return null;s.waybill=w;draw(1);return s},subStatuses:function(){return SS.slice()},confirms:function(){return CF.slice()},edit:function(id){editOrder(String(id))},editSub:function(n){editSub(n)},thumb:function(sku){return IMG[sku]?'data:image/jpeg;base64,'+IMG[sku]:''},lateOrders:function(vendor,kind){var out=[];O.forEach(function(o){var st=dstate(o);if(kind==='all'?(st!=='risk'&&st!=='late'):(kind==='risk'?st!=='risk':st!=='late'))return;o.subs.forEach(function(s){if(s.vendor===vendor&&OPEN[s.raw])out.push({id:o.id,name:o.name,phone:o.phone,age:o.age,n:s.n,sid:s.sid,prod:s.prod,qty:s.qty,sku:s.sku,ss:s.ss,exp:s.exp,tot:s.tot,state:st})})});return out.sort(function(a,b){return b.age-a.age})},apply:function(f){if(f.q!==undefined){S.q=f.q;var a=R.getElementById('oq');if(a)a.value=f.q}if(f.conf)S.conf=f.conf;if(f.st)S.st=f.st;if(f.deliv)S.deliv=f.deliv;if(f.vendor){var m=V.filter(function(x){return x.toLowerCase()===String(f.vendor).toLowerCase()})[0];if(m)S.vendor=m}S.page=1;draw();return O.filter(function(o){return match(o)}).length},clear:function(){S.q='';S.st='الكل';S.deliv='';S.conf='';S.vendor='';S.vc='';S.page=1;var a=R.getElementById('oq');if(a)a.value='';draw()}};
+window.OrdersApp={hydrate:hydrate,applyOrder:applyOrder,setQuery:setQ,query:function(f,n){var old=S;S=Object.assign({},old,{q:'',st:'الكل',deliv:'',conf:'',vendor:'',vc:''},f||{});var rows,st={},dl={late:0,risk:0,ok:0};try{rows=sorted(O.filter(function(o){return match(o)}))}finally{S=old}rows.forEach(function(o){st[o.st]=(st[o.st]||0)+1;dl[dstate(o)]++});return{total:rows.length,byStatus:st,delivery:dl,rows:rows.slice(0,n===undefined?10:n).map(function(o){var vs={};o.subs.forEach(function(s){vs[s.vendor]=1});return{id:o.id,customer:o.name,status:o.st,confirm:o.cf,ageDays:o.age,total:o.tot,delivery:dstate(o),vendors:Object.keys(vs),reason:o.st==='ملغي'?((o.cancel&&o.cancel.reason)||''):o.st==='استرجاع'?((o.ret&&o.ret.reason)||''):''}})}},alerts:function(){var f=[],u=[],w=[],lo=[],lv={},rv={};O.forEach(function(o){if(DONE.indexOf(o.st)>=0)return;if(late(o))lo.push({id:o.id,name:o.name,age:o.age});if(o.st==='معلّق')f.push({id:o.id,name:o.name});if(o.cf==='غير مؤكد')u.push({id:o.id,name:o.name});if(o.cf==='في انتظار الرد')w.push({id:o.id,name:o.name});if(risk(o))o.subs.forEach(function(s){if(OPEN[s.raw])rv[s.vendor]=(rv[s.vendor]||0)+1});if(late(o))o.subs.forEach(function(s){if(OPEN[s.raw])lv[s.vendor]=(lv[s.vendor]||0)+1})});return{follow:f,unconfirmed:u,waiting:w,lateOrders:lo.sort(function(a,b){return b.age-a.age}),riskVendors:Object.keys(rv).map(function(k){return{vendor:k,count:rv[k]}}).sort(function(a,b){return b.count-a.count}),lateVendors:Object.keys(lv).map(function(k){return{vendor:k,count:lv[k]}}).sort(function(a,b){return b.count-a.count})}},vendors:function(){return V.slice()},statuses:function(){return ST.slice()},get:function(id){var o=OM[String(id)];if(!o)return null;return{id:o.id,name:o.name,phone:o.phone,pay:PAYN[o.pay]||o.pay,date:o.date,age:o.age,st:o.st,cf:o.cf,cdate:o.cdate,confAt:o.confAt||'',city:o.city||'',addr:o.addr||'',dep:o.dep,tot:o.tot,note:o.note,ret:o.ret||null,cancel:o.cancel||null,delivery:dstate(o),subs:o.subs.map(function(s){return{n:s.n,sid:s.sid,prod:s.prod,qty:s.qty,tot:s.tot,vendor:s.vendor,ss:s.ss,exp:s.exp,cm:s.cm,sku:s.sku,readyAt:s.readyAt||'',waybill:s.waybill||null,open:!!OPEN[s.raw]}})}},details:function(id,tab){if(window.IBShowOrders)window.IBShowOrders();orderDetails(String(id),tab)},patch:function(id,f){var o=OM[String(id)];if(!o)return null;var old={},b=snapO(o);Object.keys(f).forEach(function(k){old[k]=o[k];if(k==='cf')setCf(o,f[k]);else o[k]=f[k]});draw(1);ordW(o,b);return old},patchSub:function(sid,f){var hit=null,ho=null;O.some(function(o){return o.subs.some(function(x){if(String(x.sid)===String(sid)){hit=x;ho=o;return true}return false})});if(!hit)return null;var old={},b=snapS(hit);Object.keys(f).forEach(function(k){old[k]=hit[k];if(k==='ss')shipReady(ho,hit,f[k]);hit[k]=f[k]});draw(1);subW(hit,b);return old},waybill:function(oid,sid,w){var o=OM[String(oid)];if(!o)return null;var s=o.subs.find(function(x){return String(x.sid)===String(sid)});if(!s)return null;var b=snapS(s),ws=WS();s.waybill=w;draw(1);if(ws)wt(ws.setWaybill(s.itemId||String(s.n),w),rv(s,b,['waybill']));return s},subStatuses:function(){return SS.slice()},confirms:function(){return CF.slice()},edit:function(id){editOrder(String(id))},editSub:function(n){editSub(n)},thumb:function(sku){return sku?imgUrl(sku):''},lateOrders:function(vendor,kind){var out=[];O.forEach(function(o){var st=dstate(o);if(kind==='all'?(st!=='risk'&&st!=='late'):(kind==='risk'?st!=='risk':st!=='late'))return;o.subs.forEach(function(s){if(s.vendor===vendor&&OPEN[s.raw])out.push({id:o.id,name:o.name,phone:o.phone,age:o.age,n:s.n,sid:s.sid,prod:s.prod,qty:s.qty,sku:s.sku,ss:s.ss,exp:s.exp,tot:s.tot,state:st})})});return out.sort(function(a,b){return b.age-a.age})},apply:function(f){if(f.q!==undefined){S.q=f.q;var a=R.getElementById('oq');if(a)a.value=f.q}if(f.conf)S.conf=f.conf;if(f.st)S.st=f.st;if(f.deliv)S.deliv=f.deliv;if(f.vendor){var m=V.filter(function(x){return x.toLowerCase()===String(f.vendor).toLowerCase()})[0];if(m)S.vendor=m}S.page=1;draw();return O.filter(function(o){return match(o)}).length},clear:function(){S.q='';S.st='الكل';S.deliv='';S.conf='';S.vendor='';S.vc='';S.page=1;var a=R.getElementById('oq');if(a)a.value='';draw()}};
 })();
 

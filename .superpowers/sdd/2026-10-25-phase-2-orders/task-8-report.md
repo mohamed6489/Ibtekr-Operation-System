@@ -80,3 +80,22 @@ vendor-fetch commits landed while I worked, I did not touch that workflow).
 4. Block 17's comment word change is outside "URL strings only" (needed for the grep rule); CLAUDE.md rule 2 still lists only
    14/21/25/28 as edited — now 10, 11, 14, 17, 18, 21, 25, 28, 29 (CLAUDE.md is not in my file list).
 5. The vendored libs get the generic `no-cache` revalidation from `.htaccess` (only `supabase.js` has the 7-day rule); left as is.
+
+## Fix report (review of 16bcfb5) — commit `4720091` (base `47bb16a`, no amend)
+1. **Ruling — `img-src 'self' data: blob: https:`** in `app/.htaccess`; every other directive unchanged; one comment line says
+   why (the share-as-image fallback of blocks 10/28 shows `URL.createObjectURL(blob)`; only our own scripts can mint one).
+   The CSP e2e now drives the real flow under the production header: `navigator.clipboard.write` stubbed to reject
+   (`NotAllowedError`), `html2canvas` checked absent first, then dashboard KPI «التفاصيل» (`.dash-kpis .kpi-details`) →
+   DetailsModal → `[data-share]` → menuitem «إيميل…» → block 10's `shareVia` loads `js/vendor/html2canvas.min.js` through its
+   own loader (exactly one such `<script>` afterwards) → fallback `img.share-img` with `src` `blob:http://localhost:4173/…`,
+   `complete && naturalWidth > 0`, toast «…الصورة جاهزة في النافذة», no `Refused to`/`Content Security Policy` console line;
+   the mailto: popup is closed. SheetJS is still checked via a `<script src="js/vendor/xlsx.full.min.js">` (`0.20.3`), then the
+   cdnjs control (one refusal). Red before the fix: with the old `img-src` the test failed at `naturalWidth` (received 0).
+2. **Minor — instant retry**: the mocked 503 now sends `Retry-After: 0` plus `Access-Control-Expose-Headers: retry-after`
+   (the header is not CORS-safelisted, so without the expose postgrest-js reads null and backs off). Measured: the 4 GETs
+   (1 + 3 retries) now land within ~45 ms; the poll's 15 s timeout went back to the default.
+3. **Minor — semgrep**: `npm run semgrep` has `--metrics=off` (semgrep only refuses that with `--config auto`); CI pins
+   `pip install semgrep==1.182.1` (the local version; it requires Python >=3.10, CI uses 3.12).
+- No block changed (lock untouched; split test 5/5).
+- Tests: `npm test` 152/152; `npm run e2e` 77 passed (1.3m); local-rules semgrep (same flags, `--metrics=off`) `Ran 86 rules
+  on 105 files: 0 findings.` exit 0.

@@ -132,8 +132,11 @@ lftp --env-password -u '<ftp user>' '<ftp host>' \
 
 ---
 
-### 4.3 بديل تالت: GitHub Actions (مرة واحدة وبعدها تلقائي)
-الـ workflow `.github/workflows/deploy.yml` بيرفع `app/` عبر FTPS. اعمل حساب FTP مخصص من hPanel › Files › FTP Accounts ومجلده الرئيسي = مجلد الـ subdomain بس (مش الحساب الأساسي)، وضيف في GitHub › Settings › Secrets and variables › Actions الأربع أسرار: `FTP_SERVER` (= اسم سيرفر Hostinger نفسه زي `srv1234.hstgr.io` من hPanel › Hosting › Plan details › Server؛ مش `ftp.ibtekr.club` لأنه بيعدّي من Cloudflare وCloudflare مابيمرّرش FTP، ومش IP لأن شهادة TLS بتتحقق بالاسم)، `FTP_USERNAME`، `FTP_PASSWORD`، `FTP_SERVER_DIR` (مجلد الـ subdomain زي ما حساب FTP بيشوفه؛ لو حساب FTP محصور في المجلد حط `./`). بعدها Actions › Deploy › Run workflow، وأي push على `main` يلمس `app/` بيرفع تلقائيًا.
+### 4.3 الطريقة الدائمة: نشر من Git (بدون FTP)
+- فرع `deploy` في الريبو محتواه ملفات `app/` بس (بيتولّد بـ `git subtree split`)، والـ workflow `.github/workflows/deploy.yml` بيحدّثه تلقائيًا مع أي push على `main` يلمس `app/`.
+- Hostinger بيسحب الفرع ده على مجلد الـ subdomain عبر **Git auto-deployment**: مرة واحدة من hPanel › Websites › `operation-system.ibtekr.club` › Manage › Advanced › **Git** › ربط حساب GitHub، وبعدها إعدادات النشر التلقائي (الريبو `mohamed6489/Ibtekr-Operation-System`، الفرع `deploy`، المجلد = جذر الموقع) عبر الـ API أو من نفس الصفحة. كل push على `deploy` بيعمل pull تلقائي.
+- أول مرة لازم مجلد الـ subdomain يكون فاضي (Hostinger بيرفض الـ clone على مجلد فيه ملفات). بعدها التحديثات بتتعمل في مكانها.
+- مفيش أسرار FTP محتاجة؛ لو كانت اتضافت قبل كده في GitHub ممكن تتمسح، وحساب الـ FTP المخصص ممكن يتحذف من hPanel.
 
 ## 5. التحقق بعد النشر
 

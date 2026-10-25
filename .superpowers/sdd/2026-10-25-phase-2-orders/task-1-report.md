@@ -4,6 +4,7 @@
 **Commits on `main-gha10e` (not pushed):**
 - `72a89c1` chore(woo): staging probe workflow (redacted shape of orders, sub-orders, stores, statuses)
 - `6b0e418` fix(woo-probe): never echo 2xx bodies, origin-only webhook targets, reject userinfo URLs
+- fix wave 2: fix(woo-probe): scrub own credentials and host from error text, strip script/style, Arabic digits (hash in the hand-back)
 
 ## What was implemented
 
@@ -25,13 +26,14 @@
 - Redaction:
   - Every stdout line (data, WARN and ERROR) goes through one function: `print(section, obj) → out(section + ' ' + JSON.stringify(redact(obj)))`.
   - `redact` is a recursive, non-mutating copy. It replaces the value of any key matching `(^|_)(first_name|last_name|email|phone|company|note|address)(_\w+)?$` (the brief's list, plus suffixes like `billing_email` and `customer_ip_address`, a whole `address` object, `phone_number`) or `(^|_)(secret|token|password|signature|key)$` (credentials in an error body).
-  - `scrubText` is the string mode. It masks query-like credentials (`token=`, `key=`, `secret=`, `sig=`, `auth=`, `pass=`…), `consumer_*` values, WC `ck_`/`cs_` keys, anything containing an `@`, and phone-like runs of 7+ digits.
+  - `scrubText` is the string mode. It masks `Basic`/`Bearer` credentials, query-like credentials (`token=`, `key=`, `secret=`, `sig=`, `auth=`, `pass=`…), `consumer_*` values, WC `ck_`/`cs_` keys, anything containing an `@`, and phone-like runs of 7+ digits (ASCII, Arabic-Indic `٠-٩` and Persian `۰-۹`).
+  - The probe's own values are masked first. In `run()`, the exact values `[base64(ck:cs), ck, cs, WOO_URL hostname]` (≥4 chars, longest first) are replaced with `<redacted>` by split/join, not regex, in every free-text path: `errorText`, `thrownText`, and the 2xx `prefix`. The `prefix` gets this before the 80-character cut, so a key split by the cut is still caught. Only then does the generic `scrubText` run.
 - Body handling:
   - A **2xx body is never echoed**.
   - If it is JSON, it is used.
   - If it is JSON with junk around it (a PHP notice, a BOM), meaning it parses after trimming to the first `[`/`{` and its matching last `]`/`}`, the data is used normally. A `WARN {"section","issue":"junk around JSON","prefix_len","suffix_len"}` line is printed before the section, and the exit code stays 0.
   - Otherwise: `ERROR {"section","status","body":"not JSON","length","prefix","suffix_len"}`. `prefix` is the text before the first `[`/`{`, cut to 80 characters (a word split by the cut is dropped), tag-stripped and scrubbed. Nothing after those 80 characters can appear.
-  - A non-2xx JSON body is key-redacted. Any other non-2xx body is tag-stripped. Both are then scrubbed and cut to 200 characters.
+  - A non-2xx JSON body is key-redacted. Any other non-2xx body is tag-stripped, and `<script>`/`<style>` blocks go with their contents. Both are then masked of the probe's own values, scrubbed and cut to 200 characters.
   - A thrown fetch prints status 0 and `name: message: cause.code`, scrubbed.
 - Failure contract: after an ERROR the remaining sections still run, and the probe exits 1 at the end. The orders listing feeds both sample sections, so if it fails each of them gets an ERROR line. Each section prints its WARN lines, if any, then exactly one data or ERROR line.
 - Exports for the offline tests: `redact`, `scrubText`, `maskUrl`, `summarizeOrder`, `summarizeStore`, `summarizeWebhook`, `pickSample`, `run({env, fetch, out, err}) → exit code`, `SINCE`.
@@ -54,6 +56,12 @@
   - A missing `X-WP-Total` on `orders_since` and `products_total` → ERROR, exit 1.
   - A `user:pass@` `WOO_URL` → exit 2, and the password is not in stderr.
   - The import test also asserts that `process.exitCode` is undefined or 0.
+- **New in fix wave 2:**
+  - The own-credentials test: a 400 text echo of `Authorization: Basic base64('ck_test:cs_test')` plus the host and raw keys, a 2xx not-JSON prefix, a 401 JSON message, and a thrown fetch message. stdout holds none of the base64, `ck_test`, `cs_test` or `stage.example.com`; the 400 body reads `…Authorization: Basic <redacted>; Host: <redacted>; keys <redacted> <redacted>`.
+  - `scrubText`: `Basic …`/`bearer …` and Arabic-Indic/Persian phone runs.
+  - A 403 WAF page with `<style>`/`<script>` → body `Blocked by firewall`.
+  - `maskUrl(12345)`/`maskUrl({…})` → `<redacted>`.
+  - `WOO_URL=https://stage.example.com/shop//?x#y`: every request starts with `https://stage.example.com/shop/wp-json/`, with no `#`, no `//wp-json` and no `x` param. The stub fetch now routes on the path after `/wp-json/`.
 
 ## TDD evidence
 - Original RED: `node --test tests/tools/woo-probe.test.mjs` → `# fail 1`, `ERR_MODULE_NOT_FOUND … tools/woo-probe.mjs`. Original GREEN: 11/11.
@@ -62,7 +70,8 @@
   - Making the main guard always fire → `not ok 16 - importing the module makes no request and sets no exit code`.
   - Echoing the raw 2xx body in the not-JSON error → `not ok 11` and `not ok 12`.
   - The file was restored byte-identical (`cmp`).
-- GREEN: `node --test tests/tools/woo-probe.test.mjs` → `# tests 16 / # pass 16 / # fail 0`; `npm test` → `# tests 75 / # pass 75 / # fail 0`.
+- Fix wave 2 mutation check: with the exact-value mask turned off (`own = (s) => String(s)`), only the new test fails (`not ok 15 - the probe masks its own header, keys and host in every free-text path`). The generic `Basic` rule alone does not catch the raw `ck_test` or the host. The file was restored byte-identical.
+- GREEN: `node --test tests/tools/woo-probe.test.mjs` → `# tests 19 / # pass 19 / # fail 0`; `npm test` → `# tests 78 / # pass 78 / # fail 0`.
 - CLI by hand: `WOO_URL=https://admin:pw@127.0.0.1` → the user:pass message, exit 2; an unreachable host → `ERROR {"section":"statuses","status":0,"body":"TypeError: fetch failed: ENOTFOUND"}` … exit 1.
 
 ## Files changed
@@ -72,7 +81,7 @@
 - No block, adapter or lock file touched.
 
 ## Self-review
-- Redaction before every print: the only stdout path is `print()` → `redact()`. stderr carries only fixed messages with no env values. No raw 2xx body text can reach stdout: a 2xx contributes parsed, allow-listed fields, lengths, or an 80-character tag-stripped, scrubbed prefix. Non-2xx text and thrown messages are scrubbed. Tests (a) and (b) check the real stdout, and a mutation shows they catch a body echo.
+- Redaction before every print: the only stdout path is `print()` → `redact()`. stderr carries only fixed messages with no env values. No raw 2xx body text can reach stdout: a 2xx contributes parsed, allow-listed fields, lengths, or an 80-character tag-stripped, scrubbed prefix. Non-2xx text and thrown messages are scrubbed, and the probe's own header, keys and host are masked by exact value in every free-text path. Tests (a) and (b) check the real stdout, and a mutation shows they catch a body echo.
 - No network at import, and no exit code at import: tested, and mutation-checked.
 - Exit codes: 0 (WARN allowed) / 1 (after all sections) / 2 (before any request).
 - Read-only: `GET` only. The workflow has `contents: read`, the secrets reach the probe step only, and checkout does not persist credentials.

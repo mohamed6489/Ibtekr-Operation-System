@@ -60,6 +60,7 @@ test('summarizeStore and summarizeWebhook keep their fields only (webhook target
   assert.equal(maskUrl('http://10.0.0.5:8080/h'), 'http://10.0.0.5:8080/<redacted>');
   assert.equal(maskUrl('not a url'), '<redacted>');
   assert.equal(summarizeWebhook({}).delivery_url, null);
+  assert.equal(maskUrl(12345), '<redacted>'); assert.equal(maskUrl({ href: 'https://x.example.com/s' }), '<redacted>'); assert.equal(maskUrl(''), '');
 });
 
 test('scrubText masks emails, phone-like digit runs, query credentials and WC keys in free text', () => {
@@ -68,6 +69,8 @@ test('scrubText masks emails, phone-like digit runs, query credentials and WC ke
     'https://x.example.com/?consumer_key=<redacted>&consumer_secret=<redacted>&token=<redacted>&a=1');
   assert.equal(scrubText('{"consumer_key":"ck_abcdef123456","key":"x","api_key=abc"}'), '{"consumer_key":"<redacted>","key":"x","api_key=<redacted>"}');
   assert.equal(scrubText('order 1234 on line 12, HTTP 401'), 'order 1234 on line 12, HTTP 401');
+  assert.equal(scrubText('Authorization: Basic Y2tfdGVzdDpjc190ZXN0 / bearer abc.def-123_x'), 'Authorization: <redacted> / <redacted>');
+  assert.equal(scrubText('اتصل على ٠١٠٠٠٠٠٠٠٠١ أو ۰۱۰۰۰۰۰۰۰۰۱'), 'اتصل على <redacted> أو <redacted>');
   assert.deepEqual(redact({ code: 'x', data: { secret: 's', consumer_key: 'ck', token: 't', status: 401 } }), { code: 'x', data: { secret: '<redacted>', consumer_key: '<redacted>', token: '<redacted>', status: 401 } });
 });
 
@@ -97,7 +100,7 @@ function stubFetch(overrides = {}) {
   const fetch = async (url, init) => {
     calls.push({ url: String(url), init });
     const u = new URL(url);
-    const path = u.pathname.replace(/^\/wp-json\//, '');
+    const path = u.pathname.slice(u.pathname.indexOf('/wp-json/') + '/wp-json/'.length);
     const key = Object.keys(routes).find((k) => { const [p, q] = k.split('?'); return p === path && (!q || u.search.includes(q)); });
     if (!key) throw new Error('unexpected request ' + url);
     return routes[key](u);
@@ -204,6 +207,36 @@ test('a non-2xx HTML page is tag-stripped and scrubbed (emails, phones, keys, to
   assert.equal(e.section, 'products_total'); assert.equal(e.status, 503); assert.ok(e.body.length <= 200);
   assert.equal(e.body, 'Maintenance Write to <redacted> or call <redacted>. Retry https://x.example.com/?consumer_key=<redacted>&token=<redacted>');
   noLeak(out, ['ops@example.com', '100 000 0001', 'ck_abcdef123456', 'T0KEN-SECRET', '<h1>']);
+});
+
+test('a non-2xx WAF page loses its <script>/<style> blocks', async () => {
+  const page = '<html><head><style>body{color:red}</style><script type="text/javascript">var t="abc"; if (a<b) go();</script></head><body>Blocked by firewall</body></html>';
+  const { parsed } = await probe(ENV, { 'wc/v3/products': () => raw(page, { status: 403 }) });
+  assert.deepEqual(parsed.find((p) => p.section === 'ERROR').data, { section: 'products_total', status: 403, body: 'Blocked by firewall' });
+});
+
+test('the probe masks its own header, keys and host in every free-text path', async () => {
+  const b64 = Buffer.from('ck_test:cs_test').toString('base64');
+  const echo = `Bad request. Headers: Authorization: Basic ${b64}; Host: stage.example.com; keys ck_test cs_test`;
+  const { code, out, parsed } = await probe(ENV, {
+    'wc/v3/reports/orders/totals': () => raw(echo, { status: 400 }), // non-2xx text
+    'wc/v3/orders?per_page=1': () => raw(`<p>stage.example.com ${b64} ck_test</p>`), // 2xx not-JSON prefix
+    'dokan/v1/stores': () => json({ message: `denied for ${b64} at https://stage.example.com/wp-json`, ck: 'ck_test' }, { status: 401 }), // non-2xx JSON
+    'wc/v3/webhooks': () => { throw new Error('connect to stage.example.com failed, auth ' + b64); }, // thrown fetch
+  });
+  assert.equal(code, 1);
+  noLeak(out, [b64, 'ck_test', 'cs_test', 'stage.example.com', 'Y2tf']);
+  assert.deepEqual(parsed.filter((p) => p.section === 'ERROR').map((p) => p.data.section), ['statuses', 'orders_since', 'stores', 'webhooks']);
+  assert.equal(parsed[0].data.body, 'Bad request. Headers: Authorization: Basic <redacted>; Host: <redacted>; keys <redacted> <redacted>');
+});
+
+test('WOO_URL in a subdirectory: requests go to <dir>/wp-json/, trailing slashes, query and fragment dropped', async () => {
+  const { code, calls } = await probe({ ...ENV, WOO_URL: 'https://stage.example.com/shop//?x#y' });
+  assert.equal(code, 0);
+  for (const c of calls) {
+    assert.ok(c.url.startsWith('https://stage.example.com/shop/wp-json/'), c.url);
+    assert.ok(!c.url.includes('#') && !c.url.includes('//wp-json') && !new URL(c.url).searchParams.has('x'), c.url);
+  }
 });
 
 test('a missing X-WP-Total on orders_since / products_total is an ERROR, exit 1', async () => {

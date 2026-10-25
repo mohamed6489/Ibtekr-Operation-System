@@ -17,13 +17,16 @@ const ORDER_FIELDS = [...ORDER_KEYS, 'line_items', 'meta_data', 'billing', 'ship
 // (billing_phone, customer_ip_address), with any address_* and a trailing qualifier (phone_number) too.
 const PII_KEY = /(^|_)(first_name|last_name|email|phone|company|note|address)(_\w+)?$/i;
 const SECRET_KEY = /(^|_)(secret|token|password|signature|key)$/i; // credentials by name (consumer_key, secret) in an error body
-// String mode: credentials in query-like text, WC keys, anything with an @ (emails), phone-like runs of 7+ digits.
+// String mode: auth headers, credentials in query-like text, WC keys, anything with an @ (emails), phone-like runs of
+// 7+ digits (ASCII, Arabic-Indic and Persian). run() masks its own keys and host by exact value before this.
+const DIGIT = '[\\d\\u0660-\\u0669\\u06F0-\\u06F9]';
 const SCRUB = [
+  [/\b(?:Basic|Bearer)\s+[A-Za-z0-9+/=._~-]{8,}/gi, REDACTED],
   [/((?:token|key|secret|sig|signature|auth|password|pass|pwd)=)[^&\s"'<>]*/gi, `$1${REDACTED}`],
   [/(consumer_[a-z]*)(["']?\s*[:=]\s*["']?)[^&\s"'<>,}]+/gi, `$1$2${REDACTED}`],
   [/\b(?:ck|cs)_[A-Za-z0-9]{6,}/g, REDACTED],
   [/[^\s<>"'(),;:]*@[^\s<>"'(),;]*/g, REDACTED],
-  [/\+?\d(?:[ ().-]?\d){6,}/g, REDACTED],
+  [new RegExp(`\\+?${DIGIT}(?:[ ().-]?${DIGIT}){6,}`, 'g'), REDACTED],
 ];
 
 const has = (o, k) => o !== null && typeof o === 'object' && Object.hasOwn(o, k);
@@ -31,7 +34,8 @@ const pick = (o, keys) => Object.fromEntries(keys.map((k) => [k, has(o, k) && o[
 const keysOf = (o) => (o !== null && typeof o === 'object' && !Array.isArray(o) ? Object.keys(o) : []);
 const typeOnly = (v) => (Array.isArray(v) ? '<array>' : v !== null && typeof v === 'object' ? '<object>' : v);
 const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? null : Number(v));
-const stripTags = (s) => s.replace(/<[^>]*(>|$)/g, ' ').replace(/\s+/g, ' ').trim();
+// Tags out, and <script>/<style> blocks with their contents (a WAF page's first 200 chars are not JS/CSS).
+const stripTags = (s) => s.replace(/<(script|style)\b[^>]*>[\s\S]*?(<\/\1\s*>|$)/gi, ' ').replace(/<[^>]*(>|$)/g, ' ').replace(/\s+/g, ' ').trim();
 // Cut to max and drop a word the cut split in two (half an email or a token never shows).
 const cut = (s, max) => (s.length <= max ? s : s.slice(0, max).replace(/[^\s"',;:{}[\]<>&=]+$/, ''));
 
@@ -80,7 +84,9 @@ function maskHost(host) {
 /** Where a webhook points, never its secret: scheme + registrable host (+ port); a path becomes /<redacted>, and a
  *  query, fragment or user:pass@ adds ?<redacted>. */
 export function maskUrl(u) {
-  if (typeof u !== 'string' || u === '') return u ?? null;
+  if (u == null) return null;
+  if (typeof u !== 'string') return REDACTED;
+  if (u === '') return '';
   try {
     const x = new URL(u);
     return `${x.protocol}//${maskHost(x.hostname)}${x.port ? ':' + x.port : ''}`
@@ -96,23 +102,24 @@ export const pickSample = (list, n) => (Array.isArray(list) ? list.slice(0, Math
 class ProbeError extends Error {
   constructor(status, body, extra = {}) { super(`HTTP ${status}`); this.status = status; this.body = body; this.extra = extra; }
 }
+// Free text below gets own() first (run()'s exact-value mask of its keys and host), then scrubText, then the cut.
 // A non-2xx body: JSON is key-redacted, anything else tag-stripped; then scrubbed and cut.
-function errorText(text) {
+function errorText(text, own) {
   let s;
   try { s = JSON.stringify(redact(JSON.parse(text))); } catch { s = stripTags(String(text ?? '')); }
-  return cut(scrubText(s), BODY_MAX);
+  return cut(scrubText(own(s)), BODY_MAX);
 }
-const thrownText = (e) => cut(scrubText([e?.name, e?.message, e?.cause?.code].filter(Boolean).join(': ')), BODY_MAX);
+const thrownText = (e, own) => cut(scrubText(own([e?.name, e?.message, e?.cause?.code].filter(Boolean).join(': '))), BODY_MAX);
 
 /** A 2xx body: JSON, or JSON with junk around it (PHP notices, BOM) → {data, junk}, or {fail} describing it without its content. */
-function parseBody(text) {
+function parseBody(text, own) {
   try { return { data: JSON.parse(text) }; } catch { /* look for the JSON inside */ }
   const start = text.search(/[[{]/);
   const end = start < 0 ? -1 : text.lastIndexOf(text[start] === '[' ? ']' : '}');
   if (end > start) {
     try { return { data: JSON.parse(text.slice(start, end + 1)), junk: { prefix_len: start, suffix_len: text.length - end - 1 } }; } catch { /* not JSON either */ }
   }
-  const head = start < 0 ? text : text.slice(0, start);
+  const head = own(start < 0 ? text : text.slice(0, start)); // before the cut, so a key split by it is still caught
   return { fail: { length: text.length, prefix: scrubText(stripTags(cut(head, PREFIX_MAX))), suffix_len: end > start ? text.length - end - 1 : 0 } };
 }
 
@@ -126,7 +133,11 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
   if (parsed.protocol !== 'https:') { err('woo-probe: WOO_URL must be https:// (the keys travel in the Authorization header)'); return 2; }
   if (parsed.username || parsed.password) { err('woo-probe: WOO_URL must not contain user:pass@ (the keys go in WOO_CK/WOO_CS)'); return 2; }
   const base = parsed.origin + parsed.pathname.replace(/\/+$/, '') + '/wp-json/';
-  const headers = { Authorization: 'Basic ' + Buffer.from(`${ck}:${cs}`).toString('base64'), Accept: 'application/json' };
+  const basic = Buffer.from(`${ck}:${cs}`).toString('base64');
+  const headers = { Authorization: 'Basic ' + basic, Accept: 'application/json' };
+  // Exact values, longest first, split/join (no regex): an error page that echoes our header, keys or host prints none of them.
+  const mine = [basic, ck, cs, parsed.hostname].filter((v) => v.length >= 4).sort((a, b) => b.length - a.length);
+  const own = (s) => mine.reduce((t, v) => t.split(v).join(REDACTED), String(s ?? ''));
   let warnings = [];
 
   async function get(path) {
@@ -135,10 +146,10 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
       res = await fetch(base + path, { method: 'GET', headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
       text = await res.text();
     } catch (e) {
-      throw new ProbeError(res?.status ?? 0, thrownText(e));
+      throw new ProbeError(res?.status ?? 0, thrownText(e, own));
     }
-    if (!res.ok) throw new ProbeError(res.status, errorText(text));
-    const body = parseBody(text);
+    if (!res.ok) throw new ProbeError(res.status, errorText(text, own));
+    const body = parseBody(text, own);
     if (body.fail) throw new ProbeError(res.status, 'not JSON', body.fail);
     if (body.junk) warnings.push({ issue: 'junk around JSON', ...body.junk }); // not "note": that key is redacted
     return { data: body.data, total: num(res.headers.get('x-wp-total')), pages: num(res.headers.get('x-wp-totalpages')), status: res.status };
@@ -189,7 +200,7 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
       lines = sections.map((s, i) => [s, payloads[i]]);
     } catch (e) {
       failed = true;
-      const error = e instanceof ProbeError ? { status: e.status, body: e.body, ...e.extra } : { status: 0, body: thrownText(e) };
+      const error = e instanceof ProbeError ? { status: e.status, body: e.body, ...e.extra } : { status: 0, body: thrownText(e, own) };
       lines = sections.map((section) => ['ERROR', { section, ...error }]);
     }
     sections.forEach((section, i) => {

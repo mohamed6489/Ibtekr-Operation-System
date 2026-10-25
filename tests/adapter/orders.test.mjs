@@ -36,7 +36,7 @@ function load({ responses = seed(), client = true, config = { supabaseUrl: 'http
   const ctx = { window, document: { dispatchEvent(e) { events.push(e.type); } }, Event };
   if (now !== null) ctx.Date = clockAt(now);
   runInNewContext(src, ctx);
-  return { O: window.IBOrders, window, calls: stub.calls, responses: stub.responses, emitChange: stub.emitChange, events, logs };
+  return { O: window.IBOrders, window, calls: stub.calls, responses: stub.responses, emitChange: stub.emitChange, emitStatus: stub.emitStatus, events, logs };
 }
 const selectOf = (calls, table) => opsOf(calls, table).filter((c) => c.op === 'select').map((c) => c.args[0]);
 const invokes = (calls) => calls.filter((c) => c.op === 'invoke').map((c) => c.args);
@@ -292,10 +292,63 @@ test('a throwing OrdersApp hook does not stop the load or ib:notify, and is re-t
   assert.ok(events.includes('ib:notify'));
   O.subscribe(); events.length = 0;
   await emitChange({ table: 'orders', eventType: 'UPDATE', new: { id: 181668 } });
-  assert.ok(events.includes('ib:notify'));
-  assert.equal(later.length, 2);
+  assert.equal(later.length, 3); // the two re-throws, then the burst's ib:notify timer
   assert.throws(later[0], /hydrate bug/);
   assert.throws(later[1], /applyOrder bug/);
+  assert.equal(events.includes('ib:notify'), false);
+  later[2]();
+  assert.ok(events.includes('ib:notify'));
+});
+
+// a fake window timer: the scheduled { fn, ms } in order; run(i) fires one; cleared ones are marked
+const timers = (window) => {
+  const list = [];
+  window.setTimeout = (fn, ms) => { list.push({ fn, ms, cleared: false }); return list.length; };
+  window.clearTimeout = (id) => { if (list[id - 1]) list[id - 1].cleared = true; };
+  return list;
+};
+const flush = () => new Promise((r) => setImmediate(r)); // every pending microtask (the stub answers with promises)
+
+test('Realtime: a burst of refetches dispatches one ib:notify, 250 ms after the first; clear() drops a pending one', async () => {
+  const applied = [];
+  const { O, window, responses, emitChange, events } = load({ app: { applyOrder: (o) => applied.push(o.id) } });
+  await O.load(); O.subscribe();
+  const t = timers(window); events.length = 0;
+  responses.orders_v = (ops) => ok([O1, O2].filter((o) => String(o.id) === String(ops.find((c) => c.op === 'eq').args[1])));
+  await emitChange({ table: 'orders', eventType: 'UPDATE', new: { id: 181668 } });
+  await emitChange({ table: 'orders', eventType: 'UPDATE', new: { id: 180686 } });
+  await emitChange({ table: 'order_items', eventType: 'UPDATE', new: { id: 5001, order_id: 181668 } });
+  assert.deepEqual(applied, ['181668', '180686', '181668']); // every order is still drawn at once
+  assert.deepEqual(t.map((x) => x.ms), [250]); // one timer for the burst
+  assert.equal(events.includes('ib:notify'), false);
+  t[0].fn();
+  assert.deepEqual(events.filter((e) => e === 'ib:notify'), ['ib:notify']);
+  await emitChange({ table: 'orders', eventType: 'UPDATE', new: { id: 180686 } }); // a later change: a new burst
+  assert.equal(t.length, 2);
+  O.clear();
+  assert.equal(t[1].cleared, true);
+  assert.deepEqual(events.filter((e) => e === 'ib:notify'), ['ib:notify']);
+});
+
+test('Realtime: subscribed again after the socket was down → one load(); a first SUBSCRIBED or an old channel → nothing', async () => {
+  const hydrated = [];
+  const { O, calls, emitStatus } = load({ app: { hydrate: (d) => hydrated.push(d.orders.length) } });
+  await O.load(); O.subscribe(); calls.length = 0; hydrated.length = 0;
+  const loads = () => opsOf(calls, 'orders_v').filter((c) => c.op === 'gte').length;
+  emitStatus('SUBSCRIBED'); await flush(); // the first join: nothing was missed
+  assert.equal(loads(), 0);
+  emitStatus('CHANNEL_ERROR'); await flush();
+  assert.equal(loads(), 0); // down: nothing to read yet
+  emitStatus('SUBSCRIBED'); await flush();
+  assert.equal(loads(), 1);
+  assert.deepEqual(hydrated, [2]);
+  emitStatus('SUBSCRIBED'); await flush(); // once per drop
+  assert.equal(loads(), 1);
+  emitStatus('TIMED_OUT'); emitStatus('CLOSED'); emitStatus('SUBSCRIBED'); await flush();
+  assert.equal(loads(), 2);
+  O.unsubscribe(); // the channel this adapter let go of: its CLOSED / SUBSCRIBED are not a drop
+  emitStatus('CLOSED'); emitStatus('SUBSCRIBED'); await flush();
+  assert.equal(loads(), 2);
 });
 
 test('syncNow and registerWebhooks call woo-sync; a refusal answers forbidden', async () => {

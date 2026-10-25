@@ -1,8 +1,9 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs'; import { runInNewContext } from 'node:vm';
 import { stubClient, opsOf } from './stub-supabase.mjs';
-// activity.js against a stub IBSupabase: only auth.* / dashboard.* / order.* / suborder.* / profile.2fa.* actions reach rpc('log_activity') until a page is wired
-// to real data; recent() reads activity_log with the actor's name embedded; refresh() caches it and announces ib:activity.
+// activity.js against a stub IBSupabase: only auth.* / dashboard.* / profile.2fa.* actions and the six named actions of IBOrders
+// reach rpc('log_activity') until a page is wired to real data; recent() reads activity_log with the actor's name embedded;
+// refresh() caches it and announces ib:activity.
 const src = readFileSync(new URL('../../app/js/adapter/activity.js', import.meta.url), 'utf8');
 function load({ signedIn = true, rows = [] } = {}) {
   const calls = []; const events = [];
@@ -36,15 +37,20 @@ test('dashboard.customize is sent', async () => {
   const { log, calls, A } = load();
   await log('dashboard.customize', '7 كارت');
   assert.deepEqual(calls, [{ fn: 'log_activity', args: { action: 'dashboard.customize', entity: null, entity_id: null, old_value: null, new_value: '7 كارت' } }]);
-  assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_PREFIXES)), ['auth.', 'dashboard.', 'order.', 'suborder.', 'profile.2fa.']);
+  assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_PREFIXES)), ['auth.', 'dashboard.', 'profile.2fa.']);
 });
 
-test('the orders page writes (order.* / suborder.*) are sent; a look-alike prefix is not', async () => {
-  const { log, calls } = load();
-  await log('order.status', 'IB-181668 · قيد الشحن');
-  await log('suborder.waybill', 'IB-181668 · #5001');
-  await log('orders.export', 'x'); // not 'order.'
-  assert.deepEqual(calls.map((c) => c.args.action), ['order.status', 'suborder.waybill']);
+test('the orders writes IBOrders logs are sent by name; block 22\'s demo order.* / suborder.* events are not', async () => {
+  const { log, calls, A } = load();
+  const OWN = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled'];
+  assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_ACTIONS)), OWN);
+  for (const a of OWN) await log(a, 'IB-181668 · #5001');
+  // logged by block 22 / 29 before any server write (a free-text reason, sample stock): never reach activity_log
+  for (const a of ['order.consolidate', 'order.cancel', 'order.refund', 'order.edit', 'suborder.returnToStock', 'suborder.returnToVendor', 'suborder.autoconfirm', 'suborder.arrived'])
+    await log(a, 'سبب مكتوب بإيد العميل');
+  await log('orders.export', 'x'); // a look-alike
+  await log('order.status.extra', 'x'); // a name is matched whole, not as a prefix
+  assert.deepEqual(calls.map((c) => c.args.action), OWN);
 });
 
 test('the 2FA enrolment events (profile.2fa.*) are sent; the other «ملفي» events (sample data) are not', async () => {

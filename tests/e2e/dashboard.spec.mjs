@@ -296,6 +296,36 @@ test('an alert that arrives later redraws «محتاج منك دلوقتي», no
   await expect(card(page, 'need')).toContainText('فشل سحب الأوردرات'); // ib:notify alone redrew the card
 });
 
+// «النهارده» of the dashboard is the real date the orders' ages count to (IBOrders.today), never the prototype's K.TODAY: the
+// greeting, the default range, the report's order dates (today − ageDays) and the 30-day confirmation window. The browser
+// clock is fixed at the moment the mock dated its orders, in UTC like the mock's 10:00Z placed_at (no midnight in between).
+test.describe('the dashboard on the real clock', () => {
+  test.use({ timezoneId: 'UTC' });
+  test('greeting, default range, report dates and the 30-day confirmation window count from today', async ({ page }) => {
+    mockOnly();
+    const now = Date.now();
+    await page.clock.setFixedTime(now);
+    const ago = (d) => { const t = new Date(now - d * 864e5); t.setUTCHours(10, 0, 0, 0); return t.toISOString(); };
+    const order = (id) => mock.orders.find((o) => o.id === id);
+    order(180686).placed_at = ago(31); // «مؤكد بدون عربون»: out of the last 30 days
+    order(180656).placed_at = ago(29); // «في انتظار الرد»: the window's first day (K.TODAY would put it on 2026-10-20 − 29: out)
+    await signIn(page, ADMIN.id, ADMIN.pw);
+    const today = new Date(now).toISOString().slice(0, 10);
+    expect(await page.evaluate(() => window.IBOrders.today())).toBe(today);
+    const label = await page.evaluate((t) => window.IBKit.dayName(t) + ' ' + window.IBKit.dlabel(t), today);
+    await expect(page.locator('.dash-hi')).toContainText(label);
+    expect(await page.evaluate(() => [window.IBDashData.today(), window.IBDashData.TODAY, JSON.parse(JSON.stringify(window.IBDashData.range()))]))
+      .toEqual([today, today, { from: today, to: today, preset: 'today' }]);
+    // each order lands on its own placed date (today − its real age)
+    const on = (id) => page.evaluate((id) => { const d = window.OrdersApp.get(id).date; return [d, window.IBDashData.report({ from: d, to: d }).rows.map((r) => r.id)]; }, id);
+    expect(await on('181668')).toEqual([ago(6).slice(0, 10), ['181668']]);
+    expect(await on('180656')).toEqual([ago(29).slice(0, 10), ['180656']]);
+    // the confirmation card's window (the last render's snapshot): 181668 (6 days) and 180656 (29 days), not 180686 (31 days)
+    await expect.poll(() => settled(page, () => { const c = window.IBPages.all().dashboard.api.state.last.conf; return { count: c.count, by: c.byConfirm }; }))
+      .toEqual({ count: 2, by: [['غير مؤكد', 1], ['في انتظار الرد', 1]] });
+  });
+});
+
 test('the dashboard redraws itself every 5 minutes while nothing is open', async ({ page }) => {
   mockOnly();
   await page.clock.install();

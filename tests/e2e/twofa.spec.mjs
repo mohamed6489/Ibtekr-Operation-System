@@ -171,6 +171,31 @@ test('an unfinished enrolment is replaced on the next try', async ({ page }) => 
   expect(mock.factors.filter((f) => f.user_id === profile('M02').id).map((f) => f.id)).toEqual([mock.enrolls[1].id]);
 });
 
+test('the code screen: the recovery text, no resend / backup code / 30-day device; «رجوع لتسجيل الدخول» signs the aal1 session out', async ({ page }) => {
+  await password(page, TWOFA);
+  await expect(title(page)).toHaveText('التحقق بخطوتين');
+  const screen = page.locator('#login .login-card');
+  await expect(screen).toContainText('لو ضيّعت التطبيق، الأدمن يقدر يشيل التحقق من لوحة Supabase لحد ما نضيف أكواد احتياطية');
+  // nothing sends a code again, there are no backup codes and no trusted device: those controls are gone
+  await expect(screen.getByRole('button', { name: 'ابعت الكود تاني' })).toHaveCount(0);
+  await expect(screen.getByRole('button', { name: 'استخدم كود احتياطي' })).toHaveCount(0);
+  await expect(screen.getByRole('checkbox')).toHaveCount(0);
+  await expect(screen).not.toContainText('افتكر الجهاز');
+  expect(mock.logoutScopes).toEqual([]);
+  await screen.getByRole('button', { name: 'رجوع لتسجيل الدخول', exact: true }).click();
+  await expect(title(page)).toHaveText('تسجيل الدخول');
+  expect(mock.logoutScopes).toEqual(['local']); // this browser's aal1 session ended before the login view
+  await expect(page.locator('#root')).toBeHidden();
+  // the remembered session is gone: a reload shows the login view, not the code screen again
+  await page.reload();
+  await expect(title(page)).toHaveText('تسجيل الدخول');
+  await expect(page.locator('#root')).toBeHidden();
+  // and the next sign-in asks for the code again
+  await password(page, TWOFA, { open: false });
+  await code(page);
+  await expect(page.locator('.topbar .user-btn')).toContainText('محمد علي');
+});
+
 test('disable needs aal2', async ({ page }) => {
   // M03's profile says twofa but its factor is gone (an admin removed it in the dashboard): the sign-in stays aal1, so
   // has_perm gives nothing and «إيقاف» is refused before any server call

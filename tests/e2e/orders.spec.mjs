@@ -348,6 +348,73 @@ test('a Realtime order redraws its own card only, never over a field in use; cou
   expect(mock.patches).toEqual([{ table: 'orders', id: 181668, note: 'لسه بكتب' }]); // the Realtime orders are not written back
 });
 
+test('a new Realtime order (or one that leaves the filters) redraws the list, never over a field in use; unsaved comments survive', async ({ page }) => {
+  await openOrders(page);
+  // a brand-new order as the adapter hands it to applyOrder: placed today, so the newest (first in «الأحدث أولًا»)
+  const arrive = (id) => page.evaluate((id) => {
+    const o = window.IBOrders.data().orders.find((x) => x.id === '181668');
+    const s = Object.assign({}, o.subs[0], { n: Number(id), itemId: id, oid: id, sid: id, cm: '' });
+    window.OrdersApp.applyOrder(Object.assign({}, o, { id, name: 'عميل جديد ' + id, date: window.IBOrders.today(), age: 0, note: '', cnote: '', subs: [s] }));
+  }, id);
+  const cn = page.locator('#orders #cn');
+  await arrive('182001');
+  await expect(cards(page)).toHaveCount(4);
+  await expect(cards(page).first()).toHaveAttribute('data-o', '182001');
+  await expect(card(page, '182001')).toContainText('IB-182001'); // folded: a new order is not opened
+  await expect(cn).toHaveText('4');
+  await expect(page.locator('#orders [data-sc="الكل"] i')).toHaveText('4');
+  // a field in use in another card: counted at once, drawn when the list is left
+  const other = page.locator('#orders textarea[data-ne="180686"]');
+  await other.focus();
+  await arrive('182002');
+  await expect(cn).toHaveText('5');
+  await expect(page.locator('#orders [data-sc="الكل"] i')).toHaveText('5');
+  await expect(card(page, '182002')).toHaveCount(0);
+  await expect(cards(page)).toHaveCount(4);
+  await expect(other).toBeFocused();
+  await page.locator('#orders #oq').focus();
+  await expect(card(page, '182002')).toHaveCount(1);
+  await expect(cards(page)).toHaveCount(5);
+  await expect(cards(page).first()).toHaveAttribute('data-o', '182002');
+  // a comment typed and not saved survives every full redraw: a new order, a sort change, a card folded, a status chip
+  const mine = page.locator('#orders textarea[data-ne="181668"]');
+  await mine.fill('لسه ماتحفظش');
+  await page.locator('#orders #oq').focus();
+  await arrive('182003');
+  await expect(cards(page)).toHaveCount(6);
+  await expect(mine).toHaveValue('لسه ماتحفظش');
+  await expect(page.locator('#orders [data-ns="181668"]')).toBeVisible();
+  await page.locator('#orders #so').selectOption('old');
+  await expect(cards(page).first()).toHaveAttribute('data-o', '180656');
+  await expect(mine).toHaveValue('لسه ماتحفظش');
+  await page.locator('#orders [data-tg="180686"]').click();
+  await expect(page.locator('#orders textarea[data-ne="180686"]')).toHaveCount(0); // folded
+  await expect(mine).toHaveValue('لسه ماتحفظش');
+  await page.locator('#orders [data-sc="جاري التنفيذ"]').click();
+  await expect(cards(page)).toHaveCount(5); // 180656 is «معلّق»
+  await expect(mine).toHaveValue('لسه ماتحفظش');
+  // an order that leaves the filters is taken out of the list (and out of the counts)
+  await page.evaluate(() => { const o = window.IBOrders.data().orders.find((x) => x.id === '180686'); window.OrdersApp.applyOrder(Object.assign({}, o, { st: 'مكتمل' })); });
+  await expect(card(page, '180686')).toHaveCount(0);
+  await expect(cards(page)).toHaveCount(4);
+  await expect(cn).toHaveText('4');
+  await expect(page.locator('#orders [data-sc="مكتمل"] i')).toHaveText('1');
+  // the save writes the comment typed four redraws ago; nothing Realtime brought is written back
+  await page.locator('#orders [data-ns="181668"]').click();
+  await expect.poll(() => mock.patches.length).toBe(1);
+  expect(mock.patches).toEqual([{ table: 'orders', id: 181668, note: 'لسه ماتحفظش' }]);
+});
+
+test('Escape on a sub-order comment drops what was typed (a redraw keeps only unsaved comments)', async ({ page }) => {
+  await openOrders(page);
+  const cm = page.locator('#orders textarea[data-ce="5002"]');
+  await cm.fill('مش هتتحفظ');
+  await cm.press('Escape');
+  await expect(page.locator('#orders textarea[data-ce="5002"]')).toHaveValue('تم تبليغ المورد');
+  await expect(page.locator('#orders [data-cs="5002"]')).toBeHidden();
+  expect(mock.patches).toEqual([]);
+});
+
 test('WooCommerce owns name, phone, payment, maker, quantity and total: read-only; nothing is deleted', async ({ page }) => {
   await openOrders(page);
   const menu = page.locator('#orders #mpop'); const dlg = page.locator('#orders #cdlg');

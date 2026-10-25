@@ -151,3 +151,40 @@ The block has 20 `innerHTML` sinks: lines 6, 206, 210, 212, 213, 214, 216, 227, 
 6. **Realtime replaces the order object** (`applyOrder`). An open details dialog for that order keeps editing the old object until it is reopened. Also, `draw(1)` (as the brief says) leaves the status chip counts stale until the next full draw.
 7. **One database column holds the confirmation date.** `cdate` and `confAt` are both `confirm_at`. Confirming an order whose date is empty writes today's date. A date the user typed is kept.
 8. **«مزامنة» does not reload the orders.** After a sync the page relies on Realtime or the next load.
+
+---
+
+## Fix report (review of 920da13): commit `32e003d`
+
+**Status:** DONE. One new commit on `main-gha10e`, on top of the coordinator's `3295e47` and `e8ad867`; nothing was amended. Line numbers below are from `app/js/blocks/29-orders-app.js` at `32e003d` (589 lines).
+
+**Files changed:**
+- `app/js/blocks/29-orders-app.js` and `tools/blocks.lock.json` (from `npm run lock`);
+- `app/js/adapter/orders.js` and `tests/adapter/orders.test.mjs` (item 7 only);
+- `tests/e2e/orders.spec.mjs`;
+- `tests/e2e/supabase-mock.mjs` (item 9).
+
+Block 11 and `tests/split.test.mjs` needed no change.
+
+**Trailer:** `Co-Authored-By: Claude Opus 5.5`, from this session's system attribution, again. The brief asked for Fable 5.1.
+
+| # | Item | What changed (line) | e2e |
+|---|---|---|---|
+| 1 | Details popup tab switch | Leaving the info tab only stores the form's enabled fields in `stash` (`formVals` 409; click switch 428, arrow-key switch 426). Nothing is applied locally and nothing is written. `render` (411) puts the stashed values back into the info tab. `save` (418) applies `applyOrderInfo(w, o, stash)` from either tab; if the stashed values are invalid it switches to the info tab to show the error. «ليس الآن» (`discard`, 422) and close drop the stash. `applyOrderInfo(w, o, vals)` (378) reads `vals` or the enabled fields only. | «details popup: a tab switch keeps the typed info without writing it…»: type, switch tabs, the value is still there but not applied; «ليس الآن» → no `mock.patches` and the card note is unchanged. A later write proves nothing was sent before it. Saving from the lines tab writes `{note}`. |
+| 2 | Realtime redraw per card, never over typing | `applyOrder` (69) updates `O`/`OM`/`V`, then calls `redrawCard(id)` and `refreshCounts()`. Before the first hydrate it does a full `draw()`. `redrawCard` (75) replaces only that card in place, or does nothing if the card is not on the current page. If `cardBusy` (74) finds a focused field, the open date picker, or a `[data-orig]` comment that differs from its saved text, the card waits in `PEND` (73). The waiting card is drawn on focusout (560) once it is no longer busy, or by the full `draw` that a save or revert already does (`draw` resets `PEND`, 232). `refreshCounts` (77) updates `#cn`, the chips (`drawChips` split out of `drawFilters`, 218) and the `#fv` maker options (left alone while focused). | «a Realtime order redraws its own card only…»: typing in another card survives three updates and keeps focus; the changed card shows the new status; chips 1/1 and `#cn` = 3; a new maker appears in `#fv`. A focused card is drawn only on blur. A card with an unsaved comment is still not drawn after blur; the save draws it. Only the note is written. |
+| 3 | WooCommerce-owned fields are read-only | `woo()` hint (62). Order form: name, phone and payment are `disabled` inputs with «بيتعدّل من WooCommerce», not validated or applied; focus opens on the status field. Line form: maker, quantity and total `disabled` with the same hint (440, 442), no qty/total validation, not applied. The lead text now reads «بيانات العميل بتتعدّل من WooCommerce.» (438). `subSnap` and `discard` cover only status, date and comment. «مسح» is gone from the menu (296), with `mpAct`'s `del` branch, `confirmDelete` and `DEL_REASONS`. | «WooCommerce owns name, phone, payment, maker, quantity and total…»: all six fields `toBeDisabled`, the hint is shown, no `del` item and no «مسح» in either menu; only the `{note}` and `{comment}` patches go out, with no customer, quantity, total or maker column. |
+| 4 | A failed push is shown | `wt(p, undo, ok)` (260). The `setOrderStatus` callback (265) toasts «اتحفظت هنا، بس ماوصلتش لـ WooCommerce — المزامنة هتحاول تاني» on `push: 'error'`; the local change stays. `skipped` stays silent. | «a status saved while WooCommerce is unreachable says so and stays» (`mock.wooDown` → 502): toast shown, the patch is there, no push, the status stays. The «تم RTC» case now also asserts the toast is hidden. |
+| 5 | Confirmation date fills at once | `setCf` (251) fills `o.cdate` with `confAt` when it is empty; a date the user typed is kept. `applyOrderInfo` now applies the date before the confirmation, so an empty form date does not wipe what `setCf` filled. | The confirmation case asserts `get('181668').cdate === today` and the date field is not empty. |
+| 6 | Minor fixes | `esc` maps `'` → `&#39;` (57). `invalid` → «القيمة مش صح» (260). Images: `https:` / `data:image/` only (58). Removed the dead load-time `sorted(O).slice(0,2)`. «مفيش أوردرات في آخر 12 شهر». | Image case: `javascript:` and `http:` both give no image. Empty-window case uses the new text. `invalid` cannot be reached from the block (it always sends numbers), so it has no e2e. |
+| 7 | Customer note from the data | Adapter: `customer_note` added to the `orders_v` select (granted in 0007), mapped to `cnote`, header comment added. Block: `cnote()` (63) shows the note in the desktop panel (133), the mobile panel and its summary (182) and the edit dialog (368), with `pre-line`; «مفيش ملاحظة من العميل» only when empty. The mobile comment preview falls back to the confirmation state (180); the «آخر تعديل» part is gone. | Adapter tests: `COLS.order` includes `customer_note`; `cnote` is mapped (multi-line on O1, `''` on O2). e2e: 181668 shows «اتصلوا قبل التوصيل», 180686 shows «مفيش ملاحظة من العميل», the edit dialog shows the note, and the injection case covers `cnote`. |
+| 8 | Sign-out clears search and filters | The `clear()` branch (584) also resets `S.q`, every filter, `S.fb`, the page, `S.edit` and the `#oq` value. | The clear case types «0122» and sets a confirmation filter; after `clear()` both are empty. |
+| 9 | Mock answers `all` like woo-sync | `counts: { vendors: { vendors, pages, done }, products: { products, pages, done }, orders: { orders, sub_orders, skipped, conflicts, pages, done } }`: the keys of `pull()`, `cursorPull`, `pullVendors` and `writeOrderPage`. The block's `upserted` fallback stays. | The sync case passes through the real path: «تمت المزامنة · 4 أوردر · 4 منتج · 3 مبتكر». |
+
+**Tests:**
+- `npm test`: **141/141 pass**. The adapter assertions were extended, not added as new tests.
+- `npm run e2e`: **67 passed (1.3m)**: 47 existing plus 20 orders cases (4 new).
+- semgrep with the local OSS rules on the changed files: the same rule kinds as before; nothing in the adapter, spec or mock. Block 29 has 18 `innerHTML` pairs instead of 17: `redrawCard`'s card markup and `refreshCounts`' escaped options were added, and `confirmDelete` was removed.
+
+**Notes:**
+- Saving a comment in one card still does the prototype's full `draw(1)`, which redraws every card and so drops unsaved text typed in another card. The ruling covers Realtime, and Realtime never does this. The e2e checks the other card's text before that save.
+- The `.danger` and `.dgr` CSS rules are now unused; I left them in the block's CSS string.

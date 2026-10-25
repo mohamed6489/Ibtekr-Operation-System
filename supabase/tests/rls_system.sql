@@ -44,12 +44,14 @@ do $$ begin
                  and (data ->> 'hidePhones')::boolean) then
     raise exception 'case seed: settings.general = C.general failed';
   end if;
-  if not ((select string_agg(system_status || '=' || woo_status, ',' order by sort) from public.status_map)
-          = 'جاري التنفيذ=processing,مكتمل=completed,قيد الشحن=shipped,معلّق=on-hold,ملغي=cancelled,مرتجع=refunded') then
-    raise exception 'case seed: status_map six rows in STATUS_ORDER failed';
+  -- status_map: the six 0002 rows as reseeded by 0007_orders into nine (checked in full in rls_orders.sql).
+  if not ((select string_agg(system_status || '=' || coalesce(woo_status, '∅'), ',' order by sort) from public.status_map)
+          = 'قيد الانتظار=pending,جاري التنفيذ=processing,معلّق=on-hold,جاهز للشحن=ready-shipping,'
+            || 'قيد الشحن=in-shipping,تم RTC=∅,مكتمل=completed,استرجاع=refunded,ملغي=cancelled') then
+    raise exception 'case seed: status_map nine rows (0002 seed as reseeded by 0007) failed';
   end if;
-  if exists (select 1 from public.status_map where direction <> 'both') then
-    raise exception 'case seed: status_map direction = both failed';
+  if exists (select 1 from public.status_map where direction <> 'both' and system_status <> 'تم RTC') then
+    raise exception 'case seed: status_map direction = both (except تم RTC) failed';
   end if;
 end $$;
 
@@ -110,7 +112,7 @@ do $$ declare n int; begin
   delete from public.status_map where id is not null;
   get diagnostics n = row_count;
   if not (n = 0) then raise exception 'case ops cannot delete status_map failed'; end if;
-  if not ((select count(*) from public.settings) = 10 and (select count(*) from public.status_map) = 6) then
+  if not ((select count(*) from public.settings) = 10 and (select count(*) from public.status_map) = 9) then
     raise exception 'case ops delete leaves settings/status_map intact failed';
   end if;
 end $$;
@@ -209,7 +211,7 @@ set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000013","r
 do $$ declare n int; begin
   if not ((select count(*) from public.settings) = 0) then raise exception 'case viewer (settings.view N) reads zero settings failed'; end if;
   if not ((select count(*) from public.activity_log) = 0) then raise exception 'case viewer reads zero activity_log failed'; end if;
-  if not ((select count(*) from public.status_map) = 6) then raise exception 'case viewer reads status_map failed'; end if;
+  if not ((select count(*) from public.status_map) = 9) then raise exception 'case viewer reads status_map failed'; end if;
 
   if not exists (select 1 from public.alerts where title = 'تنبيه للمشاهدين') then
     raise exception 'case viewer sees alert for own role failed';

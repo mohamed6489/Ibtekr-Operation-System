@@ -1,0 +1,27 @@
+name: Staging probe
+
+# Manual, read-only look at the staging WooCommerce/Dokan data shape (phase 2 Task 1).
+# tools/woo-probe.mjs prints one redacted JSON line per section; the keys reach that step alone.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: probe staging (GET only, personal data redacted)
+        run: node tools/woo-probe.mjs
+        env:
+          WOO_URL: ${{ secrets.STAGING_WOO_URL }}
+          WOO_CK: ${{ secrets.STAGING_WOO_CK }}
+          WOO_CS: ${{ secrets.STAGING_WOO_CS }}

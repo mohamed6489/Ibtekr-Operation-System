@@ -53,7 +53,7 @@ export async function installSupabaseMock(page) {
   mock.recoveryFragment = (email) => { const s = session(USERS.find((u) => u.email === email)); return new URLSearchParams({ access_token: s.access_token, expires_at: String(s.expires_at), expires_in: '3600', refresh_token: s.refresh_token, token_type: 'bearer', type: 'recovery' }).toString(); };
   // mock.attach(otherPage): a second tab of the same context answered by this same mock (same sessions, same counters)
   const attach = async (p) => {
-  await p.addInitScript(([url, key]) => { window.IB_CONFIG = { supabaseUrl: url, supabaseAnonKey: key }; }, [SUPABASE_URL, ANON_KEY]);
+  await p.addInitScript(([url, key]) => { window.IB_CONFIG = { supabaseUrl: url, supabaseAnonKey: key, realtime: false }; }, [SUPABASE_URL, ANON_KEY]); // no Realtime socket to mock
   await p.route(SUPABASE_URL + '/**', async (route) => {
     const req = route.request(); const url = new URL(req.url()); const path = url.pathname; const method = req.method(); const hd = req.headers();
     const cors = { 'access-control-allow-origin': '*', 'access-control-allow-methods': 'GET,POST,PUT,PATCH,DELETE,OPTIONS', 'access-control-allow-headers': hd['access-control-request-headers'] || '*', 'access-control-expose-headers': 'x-supabase-api-version' };
@@ -115,6 +115,8 @@ export async function installSupabaseMock(page) {
         const rows = table[1] === 'roles' ? ROLES : u.status === 'active' && perm !== 'N' ? USERS : [u];
         return json(200, cols.includes('*') ? rows : rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null]))));
       }
+      // read at sign-in since phase 1 (IBDirectory.load → IBPrefs / IBAlerts / IBActivity): empty here; the dashboard specs emulate them
+      if (method === 'GET' && /^\/rest\/v1\/(user_prefs|alerts|alert_reads|activity_log)$/.test(path)) return json(200, []);
       if (method === 'POST' && path === '/rest/v1/rpc/log_activity') {
         if (mock.activityDelayMs) await new Promise((r) => setTimeout(r, mock.activityDelayMs));
         mock.activity.push({ ...body(), aal: aal() }); return empty(204).catch(() => {}); // the page may be gone after a long delay

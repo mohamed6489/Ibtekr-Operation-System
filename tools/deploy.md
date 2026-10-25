@@ -136,6 +136,7 @@ lftp --env-password -u '<ftp user>' '<ftp host>' \
 - فرع `deploy` في الريبو محتواه ملفات `app/` بس (بيتولّد بـ `git subtree split`)، والـ workflow `.github/workflows/deploy.yml` بيحدّثه تلقائيًا مع أي push على `main` يلمس `app/`.
 - Hostinger بيسحب الفرع ده على مجلد الـ subdomain عبر **Git auto-deployment**: مرة واحدة من hPanel › Websites › `operation-system.ibtekr.club` › Manage › Advanced › **Git** › ربط حساب GitHub، وبعدها إعدادات النشر التلقائي (الريبو `mohamed6489/Ibtekr-Operation-System`، الفرع `deploy`، المجلد = جذر الموقع) عبر الـ API أو من نفس الصفحة. كل push على `deploy` بيعمل pull تلقائي.
 - أول مرة لازم مجلد الـ subdomain يكون فاضي (Hostinger بيرفض الـ clone على مجلد فيه ملفات). بعدها التحديثات بتتعمل في مكانها.
+- بديل لو مش عايز تربط GitHub في hPanel: ضيف مفتاح SSH بتاع حساب الاستضافة (`hosting_git_generate-ssh-key` / hPanel › Git) كـ **Deploy key** للقراءة بس في GitHub (Settings › Deploy keys)، وبعدها النشر بيتعمل بـ `hosting_git_deploy-website-repository` (الـ URL بصيغة SSH، الفرع `deploy`). بس كده الـ push مش هيعمل نشر تلقائي؛ كل نشر محتاج نداء API.
 - مفيش أسرار FTP محتاجة؛ لو كانت اتضافت قبل كده في GitHub ممكن تتمسح، وحساب الـ FTP المخصص ممكن يتحذف من hPanel.
 
 ## 5. التحقق بعد النشر

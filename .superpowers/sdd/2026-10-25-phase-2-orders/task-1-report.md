@@ -1,64 +1,91 @@
 # Task 1 report — staging probe (read-only, redacted)
 
-**Status:** DONE_WITH_CONCERNS (all built and tested offline; the concerns are about the live run, which only the controller can do)
-**Commit:** `72a89c1` chore(woo): staging probe workflow (redacted shape of orders, sub-orders, stores, statuses) — on `main-gha10e`, not pushed.
+**Status:** DONE (fix wave applied; the remaining notes are about the live run, which only the controller can do)
+**Commits on `main-gha10e` (not pushed):**
+- `72a89c1` chore(woo): staging probe workflow (redacted shape of orders, sub-orders, stores, statuses)
+- fix wave: fix(woo-probe): never echo 2xx bodies, origin-only webhook targets, reject userinfo URLs (hash in the hand-back)
 
 ## What was implemented
 
 ### `tools/woo-probe.mjs` (Node 22 ESM, no dependencies)
-- Env: `WOO_URL`, `WOO_CK`, `WOO_CS` (values trimmed). Missing → stderr names the missing ones, **exit 2**. Bad URL or non-`https:` → **exit 2** (the keys travel in the Basic auth header, so plain http is refused). No env value is ever printed.
+- Env: `WOO_URL`, `WOO_CK`, `WOO_CS` (values trimmed). The probe exits 2 before any request when an env value is missing (stderr names it), when `WOO_URL` is not a valid URL, when it is not `https:`, or when it carries `user:pass@`. No env value is ever printed. The base is `origin + path + /wp-json/`, so any query or fragment in `WOO_URL` is dropped.
 - Requests: `GET` only, `Authorization: Basic base64(ck:cs)`, `Accept: application/json`, 30 s `AbortSignal.timeout` each, run one after another. Keys never go in the URL.
 - Output: one line per section on stdout, `SECTION {json}`, in this order:
   | Section | Request | Payload |
   |---|---|---|
-  | `statuses` | `wc/v3/reports/orders/totals` | `{count, items:[{slug,name,total}]}` |
-  | `orders_since` | `wc/v3/orders?after=2026-10-01T00:00:00&per_page=1&_fields=id` | `{after, total}` (from `X-WP-Total`) |
+  | `statuses` | `wc/v3/reports/orders/totals` (no `_fields`) | `{count, items:[{slug,name,total}]}` |
+  | `orders_since` | `wc/v3/orders?after=2026-10-01T00:00:00&per_page=1&_fields=id` | `{after, total}` from `X-WP-Total`; a missing header is an ERROR |
   | `parents_sample` / `subs_sample` | `wc/v3/orders?after=…&per_page=20&_fields=<order fields>`, plus `&page=2` when page 1 has < 3 sub-orders and more pages exist (`X-WP-TotalPages > 1`, or a full page if that header is missing) | `{scanned, found, items:[≤3 summaries]}`; split by `parent_id === 0` vs `> 0` in code (no `parent` param sent) |
   | `stores` | `dokan/v1/stores?per_page=100&_fields=id,store_name,enabled,registered` | `{total, count, items:[{id,store_name,enabled,registered}]}` |
-  | `products_total` | `wc/v3/products?per_page=1&_fields=id` | `{total}` |
+  | `products_total` | `wc/v3/products?per_page=1&_fields=id` | `{total}` from `X-WP-Total`; a missing header is an ERROR |
   | `webhooks` | `wc/v3/webhooks?per_page=50&_fields=id,name,topic,status,delivery_url` | `{total, count, items:[{id,name,topic,status,delivery_url}]}` |
+- `_fields` is on every call except `statuses`, and it keeps every field the brief lists. It is WP core's global response filter, so it also applies to the Dokan route.
 - Order summary (`summarizeOrder`): exactly `id, number, status, created_via, date_created, date_modified, parent_id, payment_method, payment_method_title, total, currency, line_items_count, meta_keys, billing_keys, shipping_keys`; absent fields come out as `null`. Sub-orders (`parent_id > 0`) add `dokan_meta`: every `meta_data` entry whose key starts with `_dokan` → value, objects/arrays shown as `"<object>"`/`"<array>"`. Line items are only counted; billing/shipping only contribute key names; `customer_note` is not in the allow-list.
-- `_fields` was added to every list call and keeps every field the brief lists (it is WP core's global response filter, so it also applies to the Dokan route).
-- Redaction: one print function, `print(section, obj) → out(section + ' ' + JSON.stringify(redact(obj)))`; every stdout line (data and ERROR) goes through it. `redact` is a recursive, non-mutating copy that replaces the value of any key matching `(^|_)(first_name|last_name|email|phone|company|note|address)(_\w+)?$` (case-insensitive) with `"<redacted>"`. That covers the brief's list (`first_name|last_name|email|phone|address_1|address_2|company|customer_note|note`) and, on purpose, a few more: suffixes (`billing_email`, `customer_ip_address`), a whole `address` object (Dokan stores), `phone_number`. `name`/`store_name` are kept (the brief's test: the product name stays).
-- Failure contract: any non-2xx, a 2xx whose body is not JSON (or is not the expected array), or a thrown fetch (status 0, `name: message: cause.code`, so no hostname) → `ERROR {"section","status","body"}`. The body is passed through `redact` first when it is JSON, then cut to 200 characters. The remaining sections still run; **exit 1** at the end. The one orders listing feeds both sample sections, so if it fails each of them gets an ERROR line. Invariant: each of the 7 sections prints exactly one line, data or ERROR.
-- Exports for the offline tests: `redact`, `summarizeOrder`, `summarizeStore`, `summarizeWebhook`, `maskUrl`, `pickSample`, `run({env, fetch, out, err}) → exit code`, `SINCE`.
-- CLI guard: `realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))` (the phase-0 ledger's robust form; works through a symlink, which I checked). Then `process.exitCode = await run()` (not `process.exit`, so stdout is flushed). Importing the module sends no request.
+- Webhook target (`maskUrl`): the scheme plus the registrable host. That is the last two labels, or three after a short second-level label such as `com.eg`; extra labels become `<redacted>.`, IP literals stay, and the port is kept. A non-root path becomes `/<redacted>`. A query, fragment or `user:pass@` adds `?<redacted>`. Example: `https://hooks.zapier.com/hooks/catch/123/abcSECRET/` → `https://<redacted>.zapier.com/<redacted>`.
+- Redaction:
+  - Every stdout line (data, WARN and ERROR) goes through one function: `print(section, obj) → out(section + ' ' + JSON.stringify(redact(obj)))`.
+  - `redact` is a recursive, non-mutating copy. It replaces the value of any key matching `(^|_)(first_name|last_name|email|phone|company|note|address)(_\w+)?$` (the brief's list, plus suffixes like `billing_email` and `customer_ip_address`, a whole `address` object, `phone_number`) or `(^|_)(secret|token|password|signature|key)$` (credentials in an error body).
+  - `scrubText` is the string mode. It masks query-like credentials (`token=`, `key=`, `secret=`, `sig=`, `auth=`, `pass=`…), `consumer_*` values, WC `ck_`/`cs_` keys, anything containing an `@`, and phone-like runs of 7+ digits.
+- Body handling:
+  - A **2xx body is never echoed**.
+  - If it is JSON, it is used.
+  - If it is JSON with junk around it (a PHP notice, a BOM), meaning it parses after trimming to the first `[`/`{` and its matching last `]`/`}`, the data is used normally. A `WARN {"section","issue":"junk around JSON","prefix_len","suffix_len"}` line is printed before the section, and the exit code stays 0.
+  - Otherwise: `ERROR {"section","status","body":"not JSON","length","prefix","suffix_len"}`. `prefix` is the text before the first `[`/`{`, cut to 80 characters (a word split by the cut is dropped), tag-stripped and scrubbed. Nothing after those 80 characters can appear.
+  - A non-2xx JSON body is key-redacted. Any other non-2xx body is tag-stripped. Both are then scrubbed and cut to 200 characters.
+  - A thrown fetch prints status 0 and `name: message: cause.code`, scrubbed.
+- Failure contract: after an ERROR the remaining sections still run, and the probe exits 1 at the end. The orders listing feeds both sample sections, so if it fails each of them gets an ERROR line. Each section prints its WARN lines, if any, then exactly one data or ERROR line.
+- Exports for the offline tests: `redact`, `scrubText`, `maskUrl`, `summarizeOrder`, `summarizeStore`, `summarizeWebhook`, `pickSample`, `run({env, fetch, out, err}) → exit code`, `SINCE`.
+- CLI guard: `realpathSync(process.argv[1]) === realpathSync(fileURLToPath(import.meta.url))`, which also works through a symlink. Then `process.exitCode = await run()`. Importing the module sends no request and sets no exit code.
 
 ### `.github/workflows/staging-probe.yml`
-`on: workflow_dispatch` only, `permissions: contents: read`, `timeout-minutes: 10`. Steps: `actions/checkout@v4` (`persist-credentials: false`), `actions/setup-node@v4` with node 22, then one step `node tools/woo-probe.mjs` whose step-level `env` maps `WOO_URL/WOO_CK/WOO_CS` from `secrets.STAGING_WOO_URL/CK/CS`. Actions pinned to major tags like `ci.yml`. No `npm ci`, because the script has no dependencies.
+`on: workflow_dispatch` only, `permissions: contents: read`, `timeout-minutes: 10`. Steps: `actions/checkout@v4` (`persist-credentials: false`), `actions/setup-node@v4` with node 22, then one step `node tools/woo-probe.mjs` whose step-level `env` maps `WOO_URL/WOO_CK/WOO_CS` from `secrets.STAGING_WOO_URL/CK/CS`. Unchanged in the fix wave.
 
-### `tests/tools/woo-probe.test.mjs` (node:test, 11 tests, no network)
-- `redact`: `billing.phone`, nested `shipping.address_1`, `customer_note` → `<redacted>`; `line_items[0].quantity`, `line_items[0].name`, `id`, `billing.city` kept; all 7 billing PII keys; nested arrays, suffix keys, `address` object, `note`; input not mutated.
-- `summarizeOrder`: exact key list, `line_items_count`, `meta_keys`, `billing_keys`/`shipping_keys`, no `dokan_meta` on a parent, no PII string in the output; sub-order `dokan_meta` (`_dokan*` only, `<object>`/`<array>`); empty-order defaults.
-- `summarizeStore` / `summarizeWebhook` allow-lists; `delivery_url` with `user:pass@` and `?token=` → `https://hook.example.com/in?<redacted>`.
-- `pickSample`: at most n, keeps order, `[]` for empty/non-array input.
-- `run` with a stub `fetch`: the 7 sections in order, one line each, no PII string anywhere in stdout (names, emails, phones, address, note, IP, the `_billing_address_index` value, vendor email/phone, webhook token); Basic auth header; https `/wp-json/(wc/v3|dokan/v1)/` URLs with no keys in them; `after=2026-10-01T00:00:00`, `per_page` 1/20/100/50, no `parent` param; page 2 read when page 1 has 1 sub-order, and only one page read when it already has 3.
-- Failure: a 401 JSON body (with an email inside) and a 502 HTML body → two ERROR lines (status, body ≤ 200, email absent), the other sections still print, exit 1; a 500 on the orders listing → ERROR for both sample sections; a thrown fetch → status 0; missing/empty/non-https/invalid env → exit 2, no request, no stdout, no key in stderr; a fresh `import()` with a throwing global `fetch` → no request.
+### `tests/tools/woo-probe.test.mjs` (node:test, 16 tests, no network)
+- `redact`: `billing.phone`, nested `shipping.address_1`, `customer_note` → `<redacted>`; `line_items[0].quantity`, `line_items[0].name`, `id` kept; the brief's keys, suffix keys, `address` object, `note`, credential keys; input not mutated.
+- `scrubText`: emails, `+20 100 000 0001` and `01000000001`, `consumer_key=`/`consumer_secret=`/`token=`/`api_key=`, JSON `"consumer_key":"ck_…"`; short numbers (`line 12`, `HTTP 401`) left alone.
+- `summarizeOrder`: exact keys, counts, key names, sub-order `dokan_meta`, defaults. `summarizeStore`: allow-list.
+- `maskUrl`: userinfo + query, a Zapier path (`abcSECRET` and `/hooks/catch/123` never appear), a Pipedream subdomain, a bare domain, `com.eg`, an IP:port, a non-URL, a missing value.
+- `pickSample`.
+- `run` with a stub fetch: the happy path (7 sections in order, no PII, Basic auth, URLs/params, page 2 logic), the one-page case, non-2xx JSON and HTML, a failing orders listing, a thrown fetch.
+- **New in the fix wave:**
+  - (a) A webhooks 2xx with `?token=SECRET-TOKEN`, with a PHP notice after and then before the JSON: WARN plus the section, exit 0, and neither the token nor the notice in stdout. A version still unparseable after trimming gives ERROR `not JSON` with `prefix: ''` and no token or host.
+  - (b) A pure-HTML 2xx: ERROR with `length` and `prefix: 'Contact <redacted> / <redacted>'`. Nothing from after character 80 appears (token, marker, second email, filler), and no tags appear.
+  - A non-2xx HTML page is tag-stripped and scrubbed (email, phone, ck_ key, token).
+  - A missing `X-WP-Total` on `orders_since` and `products_total` → ERROR, exit 1.
+  - A `user:pass@` `WOO_URL` → exit 2, and the password is not in stderr.
+  - The import test also asserts that `process.exitCode` is undefined or 0.
 
 ## TDD evidence
-- RED: `node --test tests/tools/woo-probe.test.mjs` → `# tests 1 / # fail 1`, `Error [ERR_MODULE_NOT_FOUND]: Cannot find module '/home/user/Ibtekr-Operation-System/tools/woo-probe.mjs'`.
-- GREEN: `node --test tests/tools/woo-probe.test.mjs` → `# tests 11 / # pass 11 / # fail 0`.
-- Full suite: `npm test` → `# tests 70 / # pass 70 / # fail 0` (59 before + 11 new).
-- CLI by hand: no env → stderr message, exit 2; `WOO_URL=http://…` → exit 2; `WOO_URL=https://127.0.0.1:1` → 7 `ERROR {…,"status":0,"body":"TypeError: fetch failed"}` lines, exit 1; run through a symlink → the guard fires (exit 2 on missing env); plain `import()` → exports listed, nothing run.
+- Original RED: `node --test tests/tools/woo-probe.test.mjs` → `# fail 1`, `ERR_MODULE_NOT_FOUND … tools/woo-probe.mjs`. Original GREEN: 11/11.
+- Fix wave: the new tests first failed against the first rewrite on two real bugs. The `consumer_` rule masked a value that was already masked (`<redacted><redacted>`), and redact masked the WARN's `note` field, because `note` is one of the brief's redacted keys. Both were fixed, and the field is now named `issue`.
+- Mutation checks:
+  - Making the main guard always fire → `not ok 16 - importing the module makes no request and sets no exit code`.
+  - Echoing the raw 2xx body in the not-JSON error → `not ok 11` and `not ok 12`.
+  - The file was restored byte-identical (`cmp`).
+- GREEN: `node --test tests/tools/woo-probe.test.mjs` → `# tests 16 / # pass 16 / # fail 0`; `npm test` → `# tests 75 / # pass 75 / # fail 0`.
+- CLI by hand: `WOO_URL=https://admin:pw@127.0.0.1` → the user:pass message, exit 2; an unreachable host → `ERROR {"section":"statuses","status":0,"body":"TypeError: fetch failed: ENOTFOUND"}` … exit 1.
 
 ## Files changed
-- `/home/user/Ibtekr-Operation-System/tools/woo-probe.mjs` (new)
-- `/home/user/Ibtekr-Operation-System/.github/workflows/staging-probe.yml` (new)
-- `/home/user/Ibtekr-Operation-System/tests/tools/woo-probe.test.mjs` (new)
-- No block, adapter or lock file touched. The uncommitted one-line ruling in `progress.md` is the controller's and was left out of the commit.
+- `/home/user/Ibtekr-Operation-System/tools/woo-probe.mjs`
+- `/home/user/Ibtekr-Operation-System/tests/tools/woo-probe.test.mjs`
+- `/home/user/Ibtekr-Operation-System/.github/workflows/staging-probe.yml` (first commit only)
+- No block, adapter or lock file touched.
 
 ## Self-review
-- Redaction before every print: the only stdout path is `print()` → `redact()`. stderr carries only three fixed messages that hold no env values. Orders, stores and webhooks are also cut to allow-lists before redaction, so redaction is the second safeguard, not the only one. The no-PII run test checks the real stdout.
-- No network at import: the top level only defines things, behind the realpath main guard, and a test checks it.
-- Exit codes: 0 / 1 (after all sections) / 2 (before any request), all tested; `process.exitCode` is used so stdout is not cut off.
-- Read-only: `GET` only (asserted). The workflow has `contents: read`, the secrets reach the probe step only, and checkout does not persist credentials.
-- Semgrep: installed, but every ruleset needs `semgrep.dev`, which the sandbox proxy refuses, so it could not run here. The plan adds semgrep to CI later.
+- Redaction before every print: the only stdout path is `print()` → `redact()`. stderr carries only fixed messages with no env values. No raw 2xx body text can reach stdout: a 2xx contributes parsed, allow-listed fields, lengths, or an 80-character tag-stripped, scrubbed prefix. Non-2xx text and thrown messages are scrubbed. Tests (a) and (b) check the real stdout, and a mutation shows they catch a body echo.
+- No network at import, and no exit code at import: tested, and mutation-checked.
+- Exit codes: 0 (WARN allowed) / 1 (after all sections) / 2 (before any request).
+- Read-only: `GET` only. The workflow has `contents: read`, the secrets reach the probe step only, and checkout does not persist credentials.
+- Semgrep could not run here, because the sandbox proxy refuses semgrep.dev for every ruleset.
 
-## Concerns / for the live run
-1. **Deviation (security), `delivery_url`:** printed as origin + path; a query string or fragment becomes `?<redacted>`, and `user:pass@` is dropped. Webhook URLs often carry a token, and Actions logs are readable by anyone who can read the repo. The host and path are enough to tell where each webhook points. If you need the full URL, it is a one-line change in `maskUrl`.
-2. **`redact` is broader than the brief's list** (suffix keys, `address`, `*_number` and similar qualifiers). It only adds redaction, and no field in the allow-listed output is affected.
-3. **Auth on the Dokan route:** WC consumer keys authenticate `dokan/v1/*` only if Dokan opts into WC's REST auth. If they don't, `stores` comes back as the public list (maybe enabled stores only), and T4's "disabled → inactive" mirror would need another source. Compare `stores.total` with the store count in wp-admin.
-4. **Authorization header stripping:** some shared hosts (CGI/FastCGI) drop the `Authorization` header, and WC then answers 401 `woocommerce_rest_cannot_view`. The fallback would be `consumer_key`/`consumer_secret` in the query string, which puts the keys in server access logs. I deliberately did not do that; decide if it shows up.
-5. **Sub-order visibility:** if Dokan hides sub-orders from the REST list, `subs_sample.found` will be 0 even though parents have `has_sub_order` in `meta_keys`. The next probe would then use `wc/v3/orders?parent=<id>`. Not built, to stay inside the brief.
-6. `dokan_meta` is printed for sub-orders only, as the brief says. Single-vendor parents that carry `_dokan_vendor_id` still show it in `meta_keys` (key only).
-7. If the staging site prints PHP notices before the JSON (WP_DEBUG display), a section fails with `not JSON: …`. That is a real finding about staging, not a probe bug.
+## Deviations from the review instructions
+1. **WARN field `issue` instead of `note`:** `note` is a redacted key in the brief's own list, so keeping it would have printed `"note":"<redacted>"` unless WARN skipped `redact()`. I renamed the field and kept the single choke point.
+2. **Host masked beyond "origin only":** webhook services also put endpoint ids in subdomains (`xyz.m.pipedream.net`), so only the registrable host is kept. The service still shows (`<redacted>.zapier.com`, `<redacted>.supabase.co`). If the full origin is needed, drop `maskHost`.
+3. **Commit trailer:** the commit uses the session's attribution line, `Co-Authored-By: Claude Opus 5.5`, not the `Claude Fable 5.1` the message suggested, because the attribution guidance I was given names Opus 5.5 and that is the model doing the work. The `Claude-Session` line is as given.
+
+## Notes for the live run (unchanged)
+1. WC consumer keys may not authenticate on `dokan/v1/*`. If they don't, `stores` is the public list (maybe enabled stores only); compare `stores.total` with wp-admin.
+2. The host may strip the `Authorization` header and return 401 `woocommerce_rest_cannot_view`. I deliberately did not add the fallback of keys in the query string.
+3. If Dokan hides sub-orders from the REST list, `subs_sample.found` will be 0 while parents show `has_sub_order` in `meta_keys`. The next probe would then use `wc/v3/orders?parent=<id>`.
+4. `dokan_meta` is printed for sub-orders only (parents show `_dokan_vendor_id` in `meta_keys`, key only). Nested values are collapsed to their type, as the controller ruled.
+5. Webhook `name` and `store_name` are free text and printed as-is (the brief lists them).

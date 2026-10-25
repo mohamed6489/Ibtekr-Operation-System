@@ -1,5 +1,5 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
-import { redact, summarizeOrder, summarizeStore, summarizeWebhook, pickSample, run } from '../../tools/woo-probe.mjs';
+import { redact, scrubText, maskUrl, summarizeOrder, summarizeStore, summarizeWebhook, pickSample, run } from '../../tools/woo-probe.mjs';
 // tools/woo-probe.mjs offline: the pure helpers, and run() against a stub fetch (the staging site is never reached from tests).
 const PII = ['Mona', 'Adel', 'Nile Co', '12 Nile St', 'Flat 3', 'mona@example.com', '01000000001', 'call after 5', '10.1.2.3', 'Mona Adel 12 Nile St', 'vendor@example.com', '01111111111', 'secret-token'];
 const person = () => ({ first_name: 'Mona', last_name: 'Adel', company: 'Nile Co', address_1: '12 Nile St', address_2: 'Flat 3', city: 'Cairo', state: 'C', postcode: '11511', country: 'EG', email: 'mona@example.com', phone: '01000000001' });
@@ -46,12 +46,29 @@ test('summarizeOrder on a sub-order adds dokan_meta: every _dokan* entry, object
   assert.deepEqual(summarizeOrder({ id: 1 }), { id: 1, number: null, status: null, created_via: null, date_created: null, date_modified: null, parent_id: null, payment_method: null, payment_method_title: null, total: null, currency: null, line_items_count: 0, meta_keys: [], billing_keys: [], shipping_keys: [] });
 });
 
-test('summarizeStore and summarizeWebhook keep their fields only (webhook query strings masked)', () => {
+test('summarizeStore and summarizeWebhook keep their fields only (webhook target: registrable host only)', () => {
   assert.deepEqual(summarizeStore({ id: 7, store_name: 'متجر', enabled: true, registered: '2025-01-01 10:00:00', email: 'vendor@example.com', phone: '01111111111', payment: { bank: {} } }),
     { id: 7, store_name: 'متجر', enabled: true, registered: '2025-01-01 10:00:00' });
   assert.deepEqual(summarizeWebhook({ id: 3, name: 'Order updated', topic: 'order.updated', status: 'active', delivery_url: 'https://u:p@hook.example.com/in?token=secret-token', secret: 'x' }),
-    { id: 3, name: 'Order updated', topic: 'order.updated', status: 'active', delivery_url: 'https://hook.example.com/in?<redacted>' });
-  assert.equal(summarizeWebhook({ delivery_url: 'https://hook.example.com/in' }).delivery_url, 'https://hook.example.com/in');
+    { id: 3, name: 'Order updated', topic: 'order.updated', status: 'active', delivery_url: 'https://<redacted>.example.com/<redacted>?<redacted>' });
+  const zap = maskUrl('https://hooks.zapier.com/hooks/catch/123/abcSECRET/');
+  assert.equal(zap, 'https://<redacted>.zapier.com/<redacted>');
+  assert.ok(!zap.includes('abcSECRET') && !zap.includes('/hooks/catch/123'));
+  assert.equal(maskUrl('https://eo1a2b3c4d5e6f.m.pipedream.net'), 'https://<redacted>.pipedream.net');
+  assert.equal(maskUrl('https://ibtekr.club/'), 'https://ibtekr.club');
+  assert.equal(maskUrl('https://shop.example.com.eg/wc#x'), 'https://<redacted>.example.com.eg/<redacted>?<redacted>');
+  assert.equal(maskUrl('http://10.0.0.5:8080/h'), 'http://10.0.0.5:8080/<redacted>');
+  assert.equal(maskUrl('not a url'), '<redacted>');
+  assert.equal(summarizeWebhook({}).delivery_url, null);
+});
+
+test('scrubText masks emails, phone-like digit runs, query credentials and WC keys in free text', () => {
+  assert.equal(scrubText('write to ops@example.com or call +20 100 000 0001 / 01000000001'), 'write to <redacted> or call <redacted> / <redacted>');
+  assert.equal(scrubText('https://x.example.com/?consumer_key=ck_abcdef123456&consumer_secret=cs_abcdef123456&token=T0K&a=1'),
+    'https://x.example.com/?consumer_key=<redacted>&consumer_secret=<redacted>&token=<redacted>&a=1');
+  assert.equal(scrubText('{"consumer_key":"ck_abcdef123456","key":"x","api_key=abc"}'), '{"consumer_key":"<redacted>","key":"x","api_key=<redacted>"}');
+  assert.equal(scrubText('order 1234 on line 12, HTTP 401'), 'order 1234 on line 12, HTTP 401');
+  assert.deepEqual(redact({ code: 'x', data: { secret: 's', consumer_key: 'ck', token: 't', status: 401 } }), { code: 'x', data: { secret: '<redacted>', consumer_key: '<redacted>', token: '<redacted>', status: 401 } });
 });
 
 test('pickSample returns at most n, in order', () => {
@@ -108,7 +125,7 @@ test('run prints the seven sections, one JSON line each, with no personal data, 
   assert.ok(!('dokan_meta' in by.parents_sample.items[0]));
   assert.deepEqual(by.stores, { total: 1, count: 1, items: [{ id: 7, store_name: 'متجر', enabled: true, registered: '2025-01-01 10:00:00' }] });
   assert.deepEqual(by.products_total, { total: 140 });
-  assert.equal(by.webhooks.items[0].delivery_url, 'https://hook.example.com/in?<redacted>');
+  assert.equal(by.webhooks.items[0].delivery_url, 'https://<redacted>.example.com/<redacted>?<redacted>');
   const auth = 'Basic ' + Buffer.from('ck_test:cs_test').toString('base64');
   for (const c of calls) { assert.equal(c.init.headers.Authorization, auth); assert.match(c.url, /^https:\/\/stage\.example\.com\/wp-json\/(wc\/v3|dokan\/v1)\//); assert.ok(!c.url.includes('ck_test') && !c.url.includes('cs_test')); assert.ok(!c.init.method || c.init.method === 'GET'); }
   const urls = calls.map((c) => new URL(c.url));
@@ -135,7 +152,7 @@ test('a non-2xx prints ERROR {section, status, body ≤200}, the other sections 
   assert.deepEqual(parsed.map((p) => p.section), ['statuses', 'orders_since', 'parents_sample', 'subs_sample', 'ERROR', 'ERROR', 'webhooks']);
   const [e1, e2] = parsed.filter((p) => p.section === 'ERROR').map((p) => p.data);
   assert.equal(e1.section, 'stores'); assert.equal(e1.status, 401); assert.ok(e1.body.length <= 200); assert.match(e1.body, /woocommerce_rest_cannot_view/);
-  assert.deepEqual(e2, { section: 'products_total', status: 502, body: '<html>Bad Gateway</html>' });
+  assert.deepEqual(e2, { section: 'products_total', status: 502, body: 'Bad Gateway' }); // tags stripped
   for (const l of out) assert.ok(!l.includes('mona@example.com'));
 });
 
@@ -147,18 +164,71 @@ test('a failing orders page errors both sample sections; a thrown fetch is statu
   assert.match(errs[2].body, /fetch failed/);
 });
 
+const HOOKS = [{ id: 3, name: 'sync', topic: 'order.updated', status: 'active', delivery_url: 'https://hook.example.com/in?token=SECRET-TOKEN' }];
+const NOTICE = '<br />\n<b>Notice</b>:  Undefined index: x in <b>/var/www/html/wp-content/plugins/p.php</b> on line <b>12</b><br />\n';
+const raw = (text, { status = 200, total = 1 } = {}) => new Response(text, { status, headers: { 'x-wp-total': String(total) } });
+const noLeak = (out, words) => { for (const l of out) for (const w of words) assert.ok(!l.includes(w), w + ' leaked in: ' + l); };
+
+test('a 2xx body with junk around its JSON: WARN (lengths only) then the section, never the body', async () => {
+  for (const [body, prefix_len, suffix_len] of [[JSON.stringify(HOOKS) + NOTICE, 0, NOTICE.length], [NOTICE + JSON.stringify(HOOKS), NOTICE.length, 0]]) {
+    const { code, out, parsed } = await probe(ENV, { 'wc/v3/webhooks': () => raw(body) });
+    assert.equal(code, 0);
+    noLeak(out, ['SECRET-TOKEN', 'Notice', '/var/www', 'Undefined']);
+    const i = parsed.findIndex((p) => p.section === 'WARN');
+    assert.deepEqual(parsed[i].data, { section: 'webhooks', issue: 'junk around JSON', prefix_len, suffix_len });
+    assert.equal(parsed[i + 1].section, 'webhooks');
+    assert.equal(parsed[i + 1].data.items[0].delivery_url, 'https://<redacted>.example.com/<redacted>?<redacted>');
+    assert.equal(parsed.filter((p) => p.section === 'WARN').length, 1);
+  }
+  const broken = JSON.stringify(HOOKS).slice(0, -2) + NOTICE; // still unparseable after trimming
+  const { code, out, parsed } = await probe(ENV, { 'wc/v3/webhooks': () => raw(broken) });
+  assert.equal(code, 1);
+  noLeak(out, ['SECRET-TOKEN', 'Notice', '/var/www', 'hook.example.com']);
+  assert.deepEqual(parsed.at(-1), { section: 'ERROR', data: { section: 'webhooks', status: 200, body: 'not JSON', length: broken.length, prefix: '', suffix_len: 0 } });
+});
+
+test('a 2xx pure-HTML body: ERROR with its length and a scrubbed ≤80-char prefix, nothing after it', async () => {
+  const html = '<!doctype html><html><body><p>Contact admin@example.com / 01000000001</p><div>' + 'x'.repeat(40) + '</div><p>token=SECRET-TOKEN tail-marker mona@example.com</p></body></html>';
+  const { code, out, parsed } = await probe(ENV, { 'wc/v3/reports/orders/totals': () => raw(html) });
+  assert.equal(code, 1);
+  assert.deepEqual(parsed[0], { section: 'ERROR', data: { section: 'statuses', status: 200, body: 'not JSON', length: html.length, prefix: 'Contact <redacted> / <redacted>', suffix_len: 0 } });
+  noLeak(out, ['SECRET-TOKEN', 'tail-marker', 'admin@example.com', 'mona@example.com', '01000000001', 'xxxx', '<p>', 'doctype']);
+  assert.equal(parsed.length, 7);
+});
+
+test('a non-2xx HTML page is tag-stripped and scrubbed (emails, phones, keys, tokens)', async () => {
+  const page = '<html><body><h1>Maintenance</h1> Write to ops@example.com or call +20 100 000 0001. Retry https://x.example.com/?consumer_key=ck_abcdef123456&token=T0KEN-SECRET</body></html>';
+  const { code, out, parsed } = await probe(ENV, { 'wc/v3/products': () => raw(page, { status: 503 }) });
+  assert.equal(code, 1);
+  const e = parsed.find((p) => p.section === 'ERROR').data;
+  assert.equal(e.section, 'products_total'); assert.equal(e.status, 503); assert.ok(e.body.length <= 200);
+  assert.equal(e.body, 'Maintenance Write to <redacted> or call <redacted>. Retry https://x.example.com/?consumer_key=<redacted>&token=<redacted>');
+  noLeak(out, ['ops@example.com', '100 000 0001', 'ck_abcdef123456', 'T0KEN-SECRET', '<h1>']);
+});
+
+test('a missing X-WP-Total on orders_since / products_total is an ERROR, exit 1', async () => {
+  const { code, parsed } = await probe(ENV, { 'wc/v3/orders?per_page=1': () => json([{ id: 12 }]), 'wc/v3/products': () => json([{ id: 1 }]) });
+  assert.equal(code, 1);
+  assert.deepEqual(parsed.filter((p) => p.section === 'ERROR').map((p) => p.data), [
+    { section: 'orders_since', status: 200, body: 'missing X-WP-Total header' },
+    { section: 'products_total', status: 200, body: 'missing X-WP-Total header' },
+  ]);
+});
+
 test('missing or non-https env exits 2 before any request', async () => {
-  for (const env of [{}, { ...ENV, WOO_CS: '' }, { ...ENV, WOO_URL: 'http://stage.example.com' }, { ...ENV, WOO_URL: 'not a url' }]) {
+  for (const env of [{}, { ...ENV, WOO_CS: '' }, { ...ENV, WOO_URL: 'http://stage.example.com' }, { ...ENV, WOO_URL: 'not a url' }, { ...ENV, WOO_URL: 'https://admin:pw-secret@stage.example.com' }]) {
     const { code, out, err, calls } = await probe(env);
     assert.equal(code, 2); assert.deepEqual(out, []); assert.equal(calls.length, 0); assert.equal(err.length, 1);
-    assert.ok(!err[0].includes('cs_test') && !err[0].includes('ck_test'));
+    assert.ok(!err[0].includes('cs_test') && !err[0].includes('ck_test') && !err[0].includes('pw-secret'));
   }
+  assert.match((await probe({ ...ENV, WOO_URL: 'https://admin:pw-secret@stage.example.com' })).err[0], /user:pass@/);
   assert.match((await probe({ WOO_URL: 'https://x.example.com' })).err[0], /WOO_CK, WOO_CS/);
 });
 
-test('importing the module makes no request', async () => {
+test('importing the module makes no request and sets no exit code', async () => {
   const real = globalThis.fetch; let hit = 0;
   globalThis.fetch = async () => { hit++; throw new Error('network at import'); };
   try { await import('../../tools/woo-probe.mjs?fresh=1'); } finally { globalThis.fetch = real; }
   assert.equal(hit, 0);
+  assert.ok(process.exitCode === undefined || process.exitCode === 0, 'main guard fired on import: exitCode ' + process.exitCode);
 });

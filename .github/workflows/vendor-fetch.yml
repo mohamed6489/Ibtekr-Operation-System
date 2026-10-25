@@ -36,7 +36,8 @@ jobs:
           curl -fsSL --retry 3 -o app/js/vendor/xlsx.full.min.js "$url"
           test -s app/js/vendor/xlsx.full.min.js
           head -c 200 app/js/vendor/xlsx.full.min.js | grep -q "xlsx" || { echo "unexpected content"; exit 1; }
-          ver=$(grep -o 'version:"[0-9.]*"' app/js/vendor/xlsx.full.min.js | head -1 | cut -d'"' -f2)
+          # XLSX.version, not the first `version:` string in the bundle (that one is the codepage table's)
+          ver=$(node -e 'const vm=require("vm");const s=require("fs").readFileSync(process.argv[1],"utf8");const c={};vm.createContext(c);vm.runInContext(s,c);process.stdout.write(String(c.XLSX&&c.XLSX.version||"unknown"))' app/js/vendor/xlsx.full.min.js)
           sha=$(sha256sum app/js/vendor/xlsx.full.min.js | cut -d' ' -f1)
           echo "VENDOR xlsx.full.min.js version=${ver} sha256=${sha} source=${url}"
           echo "ver=${ver}" >> "$GITHUB_ENV"

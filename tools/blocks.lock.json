@@ -81,7 +81,7 @@
   },
   "21-shell.js": {
     "prototype": "da3316ca93e76c490b7a58d4f817bdc7852887e007200bb438efa591045a05f9",
-    "current": "93ac5a81bd115fa7233c09b29494141c6e5def1e6cc144da72639abfb80eb6ac"
+    "current": "b962180a58fbb65e5455c33af85407874268877dc856dae6a3eecf9bb9291940"
   },
   "22-orders-ops.js": {
     "prototype": "840c4a2093e78030058acaac11c712410a8107419aa1d34bea7da2526ee80885",
@@ -97,7 +97,7 @@
   },
   "25-page-dashboard.js": {
     "prototype": "f0ac7e16f52f393457bde9d1617eab227f9d9a3d36da857ec81c7b7684e3bb84",
-    "current": "f0ac7e16f52f393457bde9d1617eab227f9d9a3d36da857ec81c7b7684e3bb84"
+    "current": "c6561f945164ae6e15c878cf4869c77133afba9b6c6f6af2128ad164e9c48e25"
   },
   "26-data-actions.js": {
     "prototype": "fafccd1bfeb257fa467d090d00589b9d01bcfe738dbf77d17cc8c26c4c0da6f4",
@@ -109,7 +109,7 @@
   },
   "28-app.js": {
     "prototype": "bd4633b8a0d0d7e11424fe2319656da1b4fcabc82d994de167533cf2ad3665ac",
-    "current": "990d52076ff3e649e05c5b876bb5e00b8f8cac94625ec214b1366eec9ab79515"
+    "current": "f4cde229eae3d056303c222928977b84913d0863fa233bf9bbd5502d888dd20d"
   },
   "29-orders-app.js": {
     "prototype": "181427392c14d05ce7a2df0b4cadb4792885f1f15672d595638aebfd2363c5d8",

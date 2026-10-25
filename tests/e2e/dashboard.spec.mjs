@@ -116,7 +116,7 @@ test('«عرض كـ» another member shows their role frame in its default order
   await expect(act).not.toContainText('صفوت كمال');
 });
 
-test('a customization the server refused stays on this device and says so', async ({ page }) => {
+test('a customization the server refused applies to this page only and says so', async ({ page }) => {
   mockOnly();
   await signIn(page, ADMIN.id, ADMIN.pw);
   mock.prefsDown = true;
@@ -124,7 +124,7 @@ test('a customization the server refused stays on this device and says so', asyn
   await cardSwitch(page, 'الفريق دلوقتي').click();
   await page.getByRole('dialog').getByRole('button', { name: 'حفظ', exact: true }).click();
   await expect(card(page, 'team')).toHaveCount(0);
-  await expect(page.locator('.toast[role=status]')).toHaveText('اتحفظ على الجهاز بس — معرفناش نحفظه على السيرفر');
+  await expect(page.locator('.toast[role=status]')).toHaveText('اتطبّق دلوقتي بس — معرفناش نحفظه على السيرفر، جرّب تاني');
   await expect(page.locator('.toast[role=status]')).toHaveClass(/error/);
   expect(mock.prefs).toEqual([]);
 });

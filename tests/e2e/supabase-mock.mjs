@@ -3,7 +3,8 @@
 // mock-only 2FA user, and M04, a mock-only accounts user: orders.status N, sensitive.customer_phone N).
 // Strict like the real thing: apikey required, PostgREST bearer must be the anon key or a token issued here,
 // `select` columns checked against supabase/migrations (0001, 0002, 0006, 0007), RLS of each emulated table, the column-level
-// grants and guard triggers of the orders tables (0007), woo-sync's push_status contract. Not a product feature.
+// grants and guard triggers of the orders tables (0007), woo-sync's push_status contract, the aal2 rule of has_perm and the
+// 2FA RPCs (0008) with GoTrue's MFA endpoints (enroll / challenge / verify / unenroll). Not a product feature.
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
@@ -14,7 +15,10 @@ export async function installLiveConfig(page) {
   await page.addInitScript(([url, key]) => { window.IB_CONFIG = { supabaseUrl: url, supabaseAnonKey: key }; }, [LIVE_URL, LIVE_KEY]);
 }
 export const DEV_PW = 'IbtekrDev-2026'; // same as tools/seed-dev-users.sql
-export const TOTP_CODE = '123456'; // the code M03's mocked authenticator accepts
+export const TOTP_CODE = '123456'; // the code every mocked authenticator accepts (M03's and any factor enrolled in a spec)
+export const TOTP_SECRET = 'MOCKTOTPSECRETAAAAAAAAAA'; // the base32 key a mocked enrolment hands out (not a real secret)
+// GoTrue answers the QR as raw SVG markup (supabase-js prefixes `data:image/svg+xml;utf-8,`); the '#' must survive as an <img>
+export const QR_SVG = '<svg xmlns="http://www.w3.org/2000/svg" width="4" height="4" viewBox="0 0 4 4"><path d="M0 0h2v2H0zM2 2h2v2H2z" fill="#000"/></svg>';
 const ANON_KEY = 'mock-anon-key';
 
 const ADMIN = '00000000-0000-4000-8000-000000000001';
@@ -53,8 +57,8 @@ const ALERTS = () => [
   { id: 1, at: T0, kind: 'woo.sync.failed', title: 'فشل مزامنة WooCommerce', body: 'آخر محاولة 09:00', role_id: 'admin', user_id: null, entity: 'settings-integrations', entity_id: null },
   { id: 2, at: T0, kind: 'stock.cons.late', title: 'تجميع متأخر IB-1042', body: null, role_id: null, user_id: '00000000-0000-4000-8000-000000000002', entity: 'inventory-consolidate', entity_id: null },
 ];
-// has_perm('settings.view') of 0001: 'N' for a profile that is not active
-const viewPerm = (u) => (u.status === 'active' ? ROLES.find((r) => r.id === u.role_id).permissions['settings.view'] : 'N');
+// has_perm('settings.view') (0001 + the aal2 rule of 0008)
+const viewPerm = (u) => hasPerm(u, 'settings.view');
 const EMBEDS = { activity_log: { actor: 'profiles' } }; // FKs a select may embed (0002: activity_log.actor → profiles = USERS)
 // a PostgREST `select` → { pick(row) } projecting a row to it, or { bad: 'table.column' }; embeds as alias:table(cols) along EMBEDS
 function readSelect(table, select) {
@@ -136,8 +140,12 @@ function ordersSeed() {
     statusMap: STATUS_MAP.map((r) => ({ ...r })),
   };
 }
-// has_perm of 0001: 'N' for a profile that is not active, 'F' for admin, else custom_perms, then the role's matrix
-const hasPerm = (u, key) => (u.status !== 'active' ? 'N' : u.role_id === 'admin' ? 'F' : (u.custom_perms || {})[key] || ROLES.find((r) => r.id === u.role_id).permissions[key] || 'N');
+// `u` below is the caller: its profile row plus the token's aal (tokenUser). 0008: a profile enrolled in 2FA (twofa) on a token
+// that is not aal2 gets nothing from has_perm / is_admin.
+const aalGated = (u) => !!u.twofa && u.aal !== 'aal2';
+// has_perm of 0001 + 0008: 'N' for a profile that is not active or aal-gated, 'F' for admin, else custom_perms, then the role's matrix
+const hasPerm = (u, key) => (u.status !== 'active' || aalGated(u) ? 'N' : u.role_id === 'admin' ? 'F' : (u.custom_perms || {})[key] || ROLES.find((r) => r.id === u.role_id).permissions[key] || 'N');
+const isAdmin = (u) => u.status === 'active' && u.role_id === 'admin' && !aalGated(u);
 // mask_phone of 0007: the first 3 and last 4 characters (10 or more), else •••• and the last 2
 const maskPhone = (p) => (!p ? p : p.length < 10 ? '••••' + p.slice(-2) : p.slice(0, 3) + '••••' + p.slice(-4));
 // a row of orders_v as `u` reads it: every column but raw, the phone through order_customer_phone (full with
@@ -146,9 +154,8 @@ const viewRow = (u, o) => ({ ...Object.fromEntries(COLUMNS.orders_v.map((c) => [
 // the columns the guard triggers and the update grants of 0007 allow, by the permission they need
 const ORDER_STATUS_COLS = ['status', 'confirm', 'confirm_at', 'confirm_note', 'cancel', 'ret']; const ORDER_EDIT_COLS = ['note', 'customer_city', 'customer_address', 'deposit'];
 const ITEM_COLS = ['status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store'];
-const factorsOf = (u) => (u.twofa ? [{ id: 'f-' + u.member_code, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }] : []);
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
-const authUser = (u) => ({ id: u.id, aud: 'authenticated', role: 'authenticated', email: u.email, phone: '', app_metadata: { provider: 'email', providers: ['email'] }, user_metadata: {}, identities: [], factors: factorsOf(u), created_at: T0 });
+const authUser = (u, factors) => ({ id: u.id, aud: 'authenticated', role: 'authenticated', email: u.email, phone: '', app_metadata: { provider: 'email', providers: ['email'] }, user_metadata: {}, identities: [], factors, created_at: T0 });
 const claims = (token) => { try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()); } catch { return null; } };
 
 export async function installSupabaseMock(page) {
@@ -163,17 +170,24 @@ export async function installSupabaseMock(page) {
   // patches: each successful PATCH as { table: 'orders'|'order_items', id, ...columns }; ordersDown: those tables answer 503.
   // pushes: each woo-sync push_status as { action, order_id, status, result, reason? }; syncs: each other woo-sync call ({ action });
   // wooDown: woo-sync answers 502 (WooCommerce unreachable).
-  const mock = { rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
+  // profiles: this install's copy of USERS (the 2FA RPCs change twofa there); factors: auth.mfa_factors ({ id, user_id,
+  // friendly_name, factor_type, status }; M03's verified factor seeded); enrolls / unenrolls: each POST / DELETE of a factor;
+  // twofaCalls: each mark_twofa_enrolled / mark_twofa_disabled call as { fn, aal, result }.
+  const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
+  const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
+  const mock = { profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false };
   let activityId = 0;
+  const profileOf = (id) => mock.profiles.find((x) => x.id === id) || null;
+  const userJson = (u) => authUser(u, mock.factors.filter((x) => x.user_id === u.id).map(({ user_id, ...x }) => ({ ...x })));
   const session = (u, aal = 'aal1') => {
     const iat = Math.floor(Date.now() / 1000); n += 1;
     const access_token = [b64url({ alg: 'HS256', typ: 'JWT' }), b64url({ sub: u.id, email: u.email, role: 'authenticated', aud: 'authenticated', aal, amr: [{ method: aal === 'aal2' ? 'totp' : 'password', timestamp: iat }], iat, exp: iat + 3600, session_id: 's-' + u.id, n }), 'mock'].join('.');
-    const refresh_token = 'rt-' + n; issued.add(access_token); refresh.set(refresh_token, { u, aal });
-    return { access_token, token_type: 'bearer', expires_in: 3600, expires_at: iat + 3600, refresh_token, user: authUser(u) };
+    const refresh_token = 'rt-' + n; issued.add(access_token); refresh.set(refresh_token, { id: u.id, aal });
+    return { access_token, token_type: 'bearer', expires_in: 3600, expires_at: iat + 3600, refresh_token, user: userJson(u) };
   };
   // URL fragment of a password-recovery link for `email`, as GoTrue's implicit flow puts it on the redirect.
-  mock.recoveryFragment = (email) => { const s = session(USERS.find((u) => u.email === email)); return new URLSearchParams({ access_token: s.access_token, expires_at: String(s.expires_at), expires_in: '3600', refresh_token: s.refresh_token, token_type: 'bearer', type: 'recovery' }).toString(); };
+  mock.recoveryFragment = (email) => { const s = session(mock.profiles.find((u) => u.email === email)); return new URLSearchParams({ access_token: s.access_token, expires_at: String(s.expires_at), expires_in: '3600', refresh_token: s.refresh_token, token_type: 'bearer', type: 'recovery' }).toString(); };
   // mock.attach(otherPage): a second tab of the same context answered by this same mock (same sessions, same counters)
   const attach = async (p) => {
   await p.addInitScript(([url, key]) => { window.IB_CONFIG = { supabaseUrl: url, supabaseAnonKey: key, realtime: false }; }, [SUPABASE_URL, ANON_KEY]); // no Realtime socket to mock
@@ -188,32 +202,55 @@ export async function installSupabaseMock(page) {
     mock.requests.push(method + ' ' + path);
     if (hd.apikey !== ANON_KEY) return json(401, { message: 'No API key found in request' });
     const bearer = (hd.authorization || '').replace(/^Bearer /, '');
-    const tokenUser = () => (issued.has(bearer) ? USERS.find((u) => u.id === claims(bearer).sub) || null : null);
+    // the caller: a snapshot of its profile row with the token's aal (writes go through profileOf)
+    const tokenUser = () => { const row = issued.has(bearer) ? profileOf(claims(bearer).sub) : null; return row ? { ...row, aal: claims(bearer).aal } : null; };
     const aal = () => (issued.has(bearer) ? claims(bearer).aal : null);
 
     if (path.startsWith('/auth/v1/')) {
       if (method === 'POST' && path === '/auth/v1/token') {
         const b = body();
-        if (url.searchParams.get('grant_type') === 'refresh_token') { const r = refresh.get(b.refresh_token); return r ? json(200, session(r.u, r.aal)) : json(400, { code: 'refresh_token_not_found', message: 'Invalid Refresh Token' }); }
-        const u = USERS.find((x) => x.email === b.email && b.password === DEV_PW);
+        if (url.searchParams.get('grant_type') === 'refresh_token') { const r = refresh.get(b.refresh_token); return r ? json(200, session(profileOf(r.id), r.aal)) : json(400, { code: 'refresh_token_not_found', message: 'Invalid Refresh Token' }); }
+        const u = mock.profiles.find((x) => x.email === b.email && b.password === DEV_PW);
         return u ? json(200, session(u)) : json(400, { code: 'invalid_credentials', message: 'Invalid login credentials' });
       }
       if (method === 'POST' && path === '/auth/v1/recover') { mock.recovers.push(body().email); return json(200, {}); } // answers the same for unknown emails
       const u = tokenUser();
       if (!u) return json(401, { code: 'bad_jwt', message: 'invalid JWT' });
-      if (method === 'GET' && path === '/auth/v1/user') return json(200, authUser(u));
-      if (method === 'PUT' && path === '/auth/v1/user') { mock.userUpdates.push({ email: u.email, ...body() }); return json(200, authUser(u)); }
+      if (method === 'GET' && path === '/auth/v1/user') return json(200, userJson(u));
+      if (method === 'PUT' && path === '/auth/v1/user') { mock.userUpdates.push({ email: u.email, ...body() }); return json(200, userJson(u)); }
       if (method === 'POST' && path === '/auth/v1/logout') { // GoTrue: local = this session, others = every other one, global = all
         const scope = url.searchParams.get('scope') || 'global'; mock.logouts += 1; mock.logoutScopes.push(scope);
         for (const t of [...issued]) { const mine = claims(t).sub === u.id; if (scope === 'local' ? t === bearer : scope === 'others' ? mine && t !== bearer : mine) issued.delete(t); }
         return empty(204);
       }
+      // MFA: enroll a TOTP factor (unverified until its first verify; GoTrue refuses a second factor with the same friendly
+      // name), challenge / verify one of the caller's factors (→ an aal2 session; the factor becomes verified), unenroll
+      // (a verified factor needs an aal2 token: 403 insufficient_aal).
+      if (method === 'POST' && path === '/auth/v1/factors') {
+        const b = body();
+        if (b.factor_type !== 'totp') return json(422, { code: 'validation_failed', message: 'mock: only totp factors are enrolled' });
+        if (mock.factors.some((x) => x.user_id === u.id && x.friendly_name === b.friendly_name)) return json(422, { code: 'mfa_factor_name_conflict', message: `A factor with the friendly name "${b.friendly_name}" for this user already exists` });
+        n += 1; const id = 'f-new-' + n;
+        mock.factors.push({ id, user_id: u.id, friendly_name: b.friendly_name, factor_type: 'totp', status: 'unverified', created_at: T0, updated_at: T0 });
+        mock.enrolls.push({ id, friendly_name: b.friendly_name, aal: u.aal });
+        return json(200, { id, type: 'totp', friendly_name: b.friendly_name, totp: { qr_code: QR_SVG, secret: TOTP_SECRET, uri: `otpauth://totp/Ibtekr:${encodeURIComponent(u.email)}?secret=${TOTP_SECRET}&issuer=Ibtekr` } });
+      }
       const f = /^\/auth\/v1\/factors\/([^/]+)\/(challenge|verify)$/.exec(path);
-      if (method === 'POST' && f && factorsOf(u).some((x) => x.id === f[1])) {
+      const factor = f ? mock.factors.find((x) => x.id === f[1] && x.user_id === u.id) : null;
+      if (method === 'POST' && factor) {
         if (f[2] === 'challenge') return json(200, { id: 'ch-' + f[1], type: 'totp', expires_at: Math.floor(Date.now() / 1000) + 300 });
         const b = body();
         if (b.challenge_id !== 'ch-' + f[1] || b.code !== TOTP_CODE) return json(422, { code: 'mfa_verification_failed', message: 'Invalid TOTP code entered' });
+        factor.status = 'verified';
         return json(200, session(u, 'aal2'));
+      }
+      const del = /^\/auth\/v1\/factors\/([^/]+)$/.exec(path);
+      if (method === 'DELETE' && del) {
+        const i = mock.factors.findIndex((x) => x.id === del[1] && x.user_id === u.id);
+        if (i < 0) return json(404, { code: 'mfa_factor_not_found', message: 'Factor not found' });
+        if (mock.factors[i].status === 'verified' && u.aal !== 'aal2') return json(403, { code: 'insufficient_aal', message: 'AAL2 required to unenroll verified factor' });
+        mock.unenrolls.push({ id: del[1], aal: u.aal }); mock.factors.splice(i, 1);
+        return json(200, { id: del[1] });
       }
     }
 
@@ -224,18 +261,28 @@ export async function installSupabaseMock(page) {
         if (mock.rateLimited) return json(400, { code: 'P0001', details: null, hint: null, message: 'rate_limited' });
         mock.lookups.push(String(body().ident || ''));
         const d = String(body().ident || '').replace(/[\s-]/g, ''); // phone-only, like 0001_identity.sql: anything else → no rows
-        const x = /^[0-9]{11}$/.test(d) ? USERS.find((y) => y.phone === d) : null;
+        const x = /^[0-9]{11}$/.test(d) ? mock.profiles.find((y) => y.phone === d) : null;
         return json(200, x ? [{ email: x.email, status: x.status }] : []);
       }
       if (!u) return json(401, { code: '42501', message: 'permission denied', details: null, hint: null }); // anon: no grants below
+      // 0008: profiles.twofa follows these two definer RPCs; both need an aal2 token (enrolled: also a verified factor of the
+      // caller), else 42501 'aal2_required' (PostgREST: 403 for a signed-in caller); void → 204
+      const mfa = /^\/rest\/v1\/rpc\/(mark_twofa_enrolled|mark_twofa_disabled)$/.exec(path);
+      if (method === 'POST' && mfa) {
+        const on = mfa[1] === 'mark_twofa_enrolled';
+        const ok = u.aal === 'aal2' && (!on || mock.factors.some((x) => x.user_id === u.id && x.status === 'verified'));
+        mock.twofaCalls.push({ fn: mfa[1], aal: u.aal, result: ok ? 'ok' : 'aal2_required' });
+        if (!ok) return json(403, { code: '42501', details: null, hint: null, message: 'aal2_required' });
+        profileOf(u.id).twofa = on;
+        return empty(204);
+      }
       const table = /^\/rest\/v1\/(profiles|roles)$/.exec(path);
       if (method === 'GET' && table) {
         const cols = (url.searchParams.get('select') || '*').split(',').map((c) => c.trim());
         const bad = cols.find((c) => c !== '*' && !COLUMNS[table[1]].includes(c));
         if (bad) return json(400, { code: '42703', details: null, hint: null, message: `column ${table[1]}.${bad} does not exist` });
-        // RLS profiles_select: own row, or every row with settings.view (active profile); roles: everyone signed in.
-        const perm = ROLES.find((r) => r.id === u.role_id).permissions['settings.view'];
-        const rows = table[1] === 'roles' ? ROLES : u.status === 'active' && perm !== 'N' ? USERS : [u];
+        // RLS profiles_select: own row, or every row with has_perm('settings.view') <> 'N'; roles: everyone signed in.
+        const rows = table[1] === 'roles' ? ROLES : viewPerm(u) !== 'N' ? mock.profiles : mock.profiles.filter((x) => x.id === u.id);
         return json(200, cols.includes('*') ? rows : rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null]))));
       }
       const emulated = /^\/rest\/v1\/(user_prefs|activity_log|alerts|alert_reads)$/.exec(path);
@@ -328,7 +375,7 @@ export async function installSupabaseMock(page) {
     // or has no WooCommerce slug ('no_woo_status': تم RTC), else the order's woo_status follows the slug.
     if (method === 'POST' && path === '/functions/v1/woo-sync') {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : u.status === 'active' && u.role_id === 'admin')) return json(401, { error: 'unauthorized' });
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : isAdmin(u))) return json(401, { error: 'unauthorized' });
       if (mock.wooDown) return json(502, { error: 'woo_error' });
       if (action === 'push_status') {
         const o = mock.orders.find((x) => x.id === Number(b.order_id));

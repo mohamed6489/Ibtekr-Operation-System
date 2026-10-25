@@ -178,7 +178,7 @@
   // ---------- الحساب والأمان ----------
   function security(m) {
     return [K.Section('بيانات الدخول', K.Kv([['الإيميل', m.email], ['الموبايل', h('span', { dir: 'ltr' }, m.phone)], ['آخر تغيير لكلمة المرور', '12 سبتمبر 2026']]), [Button({ label: 'تعديل بياناتي', onClick: () => editInfo(m) }), Button({ type: 'primary', label: 'تغيير كلمة المرور', onClick: () => changePassword() })]),
-      K.Section('التحقق بخطوتين', [h('div', { class: 'set-row' }, h('div', null, h('b', null, m.twofa ? 'مفعّل — واتساب' : 'مش مفعّل'), h('div', { class: 't-small help' }, 'اختياري للكل · واتساب أو إيميل أو تطبيق Authenticator + 10 أكواد احتياطية')), m.twofa ? Button({ label: 'إيقاف', onClick: () => K.confirm({ title: 'إيقاف التحقق بخطوتين', text: 'حسابك هيبقى محمي بكلمة المرور بس.', okType: 'danger', okLabel: 'إيقاف', onOk: () => { m.twofa = false; rerender(); } }) }) : Button({ type: 'primary', label: 'تفعيل', onClick: () => enable2fa(m) }))]),
+      K.Section('التحقق بخطوتين', [h('div', { class: 'set-row' }, h('div', null, h('b', null, m.twofa ? 'مفعّل — تطبيق Authenticator' : 'مش مفعّل'), h('div', { class: 't-small help' }, isAdminView() ? 'العضو بيفعّله أو يوقفه من ملفه' : 'اختياري للكل · تطبيق Authenticator (واتساب وإيميل ' + SOON_2FA + ')')), isAdminView() ? null : m.twofa ? Button({ label: 'إيقاف', onClick: () => K.confirm({ title: 'إيقاف التحقق بخطوتين', text: 'حسابك هيبقى محمي بكلمة المرور بس.', okType: 'danger', okLabel: 'إيقاف', onOk: disable2fa }) }) : Button({ type: 'primary', label: 'تفعيل', onClick: () => enable2fa(m) }))]),
       K.Section('الأجهزة', U.Table({ headers: ['الجهاز', 'المكان', 'آخر نشاط'], rows: [['Chrome — Windows', 'القاهرة', 'دلوقتي (الجهاز ده)'], ['Safari — iPhone', 'القاهرة', 'من ساعتين']] }), [Button({ label: 'خروج من كل الأجهزة', onClick: () => window.IBShell.signOutAll() })])];
   }
   function prefs() {
@@ -191,13 +191,57 @@
   function editInfo(m) { K.form({ title: 'تعديل بياناتي', values: { phone: m.phone, email: m.email }, fields: (f, e, set) => [K.field.text('phone', 'الموبايل', f, e, set, { required: true, inputmode: 'tel' }), K.field.text('email', 'الإيميل', f, e, set, { required: true, help: 'تغيير الإيميل محتاج تأكيد من اللينك اللي هيوصلك' })], validate: (f) => { const e = {}; if (O.identifierKind(f.phone) !== 'phone') e.phone = 'رقم موبايل مصري صحيح'; if (O.identifierKind(f.email) !== 'email') e.email = 'إيميل صحيح'; return e; }, submitLabel: 'حفظ', submit: (f) => { m.phone = O.toLatin(f.phone); if (f.email !== m.email) K.toast('اتبعت لينك تأكيد لـ ' + f.email); else K.toast('اتحفظ', 'success'); K.logEvent('profile.edit', m.name); rerender(); } }); }
   function editJob(m) { K.form({ title: 'تعديل الوظيفة والمرتب — ' + m.name, values: { title: m.title, salary: String(m.salary), holdback: String(m.holdback), from: '2026-11-01' }, fields: (f, e, set) => [K.field.text('title', 'الوظيفة', f, e, set, { required: true }), K.two(K.field.text('salary', 'المرتب', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }), K.field.text('holdback', 'الحجز للبونص', f, e, set, { inputmode: 'decimal', suffix: 'ج.م' })), K.field.date('from', 'يبدأ من', f, e, set, { required: true }), K.field.area('reason', 'السبب', f, e, set, { placeholder: 'مثلاً: زيادة سنوية' })], validate: (f) => { const e = K.req(f, ['title', 'salary', 'from']); if (Number(f.holdback) >= Number(f.salary)) e.holdback = 'الحجز لازم أقل من المرتب'; return e; }, submitLabel: 'حفظ', submit: (f) => { const old = m.salary; m.title = f.title; m.salary = Number(f.salary); m.holdback = Number(f.holdback) || 0; K.logEvent('profile.salary', m.name + ' ' + old + ' → ' + m.salary + ' من ' + f.from); K.toast('اتحفظ', 'success'); rerender(); } }); }
   function changePassword() { K.form({ title: 'تغيير كلمة المرور', values: {}, fields: (f, e, set) => [K.field.text('cur', 'كلمة المرور الحالية', f, e, set, { required: true }), K.field.text('p1', 'كلمة المرور الجديدة', f, e, set, { required: true, help: '8 حروف على الأقل فيها حرف ورقم' }), K.field.text('p2', 'أكّد كلمة المرور', f, e, set, { required: true })], validate: (f) => { const e = K.req(f, ['cur']); const p = O.validatePassword(f.p1 || '', f.p2 || ''); if (p) e[p.includes('مش زي') ? 'p2' : 'p1'] = p; return e; }, submitLabel: 'تغيير', submit: () => { K.logEvent('profile.password', K.member(K.ME).name); K.toast('اتغيرت كلمة المرور — الأجهزة التانية هتخرج', 'success'); } }); setTimeout(() => document.querySelectorAll('.modal-b input').forEach((i) => { i.type = 'password'; })); }
+  // التحقق بخطوتين (phase 2 Task 7, decision): the Authenticator app is the only live channel (واتساب / إيميل wait for the WhatsApp
+  // bridge). 1 channel → 2 QR + key (IBAuth.enrollTotp) → 3 the first 6-digit code (IBAuth.verifyEnroll) → done. m.twofa is the
+  // directory's copy of the server's profiles.twofa (IBAuth updates it); this dialog never sets it.
+  const SOON_2FA = 'بعد تشغيل جسر واتساب';
+  const RECOVERY_2FA = 'لو ضيّعت التطبيق، الأدمن يقدر يشيل التحقق من لوحة Supabase لحد ما نضيف أكواد احتياطية';
+  const netMsg = (r) => (r.reason === 'network' ? 'مشكلة في الاتصال — جرّب تاني' : 'معرفناش نكمّل من السيرفر — جرّب تاني');
   function enable2fa(m) {
-    let step = 1; let ch = 'واتساب'; let code = ''; let err = '';
-    const md = U.Modal({ title: 'تفعيل التحقق بخطوتين', body: [] });
-    const codes = ['4821-9930', '1174-5582', '8803-2241', '6620-1197', '3358-7740', '9012-4486', '2275-6613', '7741-0328', '5569-8812', '0934-2257'];
-    const draw = () => { md.setBody(...(step === 1 ? [K.Radios({ label: 'هيوصلك الكود فين', value: ch, onChange: (v) => { ch = v; draw(); }, options: [{ value: 'واتساب', label: 'واتساب على ' + m.phone }, { value: 'إيميل', label: 'إيميل على ' + m.email }, { value: 'تطبيق', label: 'تطبيق Authenticator' }] })] : step === 2 ? [h('p', { style: 'margin:0' }, ch === 'تطبيق' ? 'امسح الكود من التطبيق واكتب الـ 6 أرقام.' : 'بعتنالك كود من 6 أرقام على ' + ch + '. (للتجربة: 123456)'), U.TextInput({ id: '2fa-code', label: 'الكود', value: code, inputmode: 'numeric', maxlength: 6, error: err, onInput: (v) => { code = v; } })] : [U.InlineNote({ kind: 'success', children: 'اتفعّل التحقق بخطوتين.' }), h('p', { class: 't-small', style: 'margin:0' }, 'احفظ الأكواد الاحتياطية في مكان آمن — كل كود يستخدم مرة واحدة:'), h('div', { class: 'codes', dir: 'ltr' }, codes.map((c) => h('code', null, c)))]));
-      md.setFooter(...(step < 3 ? [Button({ label: 'إلغاء', onClick: () => md.close() }), Button({ type: 'primary', label: step === 1 ? 'ابعت الكود' : 'تأكيد', onClick: () => { if (step === 2) { if (O.toLatin(code) !== '123456') { err = 'الكود غلط — جرّب تاني'; return draw(); } m.twofa = true; K.logEvent('profile.2fa.enable', ch); } step++; err = ''; draw(); } })] : [Button({ label: 'نسخ الأكواد', icon: 'copy', onClick: () => { try { navigator.clipboard.writeText(codes.join('\n')).then(() => K.toast('اتنسخت'), () => K.toast('حدد الأكواد وانسخها')); } catch (e) { K.toast('حدد الأكواد وانسخها'); } } }), Button({ type: 'primary', label: 'خلصت', onClick: () => { md.close(); rerender(); } })])); };
+    let step = 1; let code = ''; let err = ''; let busy = false; let f = null;
+    const md = U.Modal({ title: 'تفعيل التحقق بخطوتين', body: [], onClose: () => { if (step === 4) rerender(); } });
+    const opt = (label, hint, on) => h('button', { type: 'button', role: 'radio', class: 'radio', 'aria-checked': String(on), disabled: !on }, h('i'), h('span', null, label), h('small', { class: 't-small help' }, hint));
+    const channels = () => h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'هيوصلك الكود فين'), h('div', { class: 'radios', role: 'radiogroup', 'aria-label': 'هيوصلك الكود فين' },
+      opt('واتساب على ' + m.phone, SOON_2FA, false), opt('إيميل على ' + m.email, SOON_2FA, false), opt('تطبيق Authenticator', 'Google Authenticator أو Microsoft Authenticator أو أي تطبيق زيهم', true)));
+    // the QR only as a data:image URI from Supabase; the key as plain text (both are set through the DOM, never as markup)
+    const qr = () => (f && /^data:image\//.test(f.qr) ? h('img', { src: f.qr, alt: 'كود QR لتطبيق Authenticator', width: 180, height: 180, style: 'display:block;margin:8px auto;background:#fff;padding:8px;border-radius:8px' }) : null);
+    const copyKey = () => { try { navigator.clipboard.writeText(f.secret).then(() => K.toast('اتنسخ المفتاح'), () => K.toast('حدد المفتاح وانسخه')); } catch (e) { K.toast('حدد المفتاح وانسخه'); } };
+    const note = () => (err ? U.InlineNote({ kind: 'error', children: err }) : null);
+    async function start() {
+      if (busy) return; busy = true; err = ''; draw();
+      const r = await window.IBAuth.enrollTotp(); busy = false;
+      if (!r.ok) { err = netMsg(r); return draw(); }
+      f = r; step = 2; draw();
+    }
+    async function confirmCode() {
+      if (busy) return; busy = true; err = ''; draw();
+      const r = await window.IBAuth.verifyEnroll(f.factorId, code); busy = false;
+      if (r.ok) { step = 4; return draw(); }
+      code = '';
+      if (r.reason === 'code') err = 'الكود غلط — جرّب تاني';
+      else if (r.reason === 'server') { err = 'السيرفر ماأكدش التفعيل — ابدأ من الأول'; step = 1; f = null; } // the factor was removed again
+      else err = netMsg(r);
+      draw();
+    }
+    const draw = () => {
+      md.setBody(...[note()].concat(step === 1 ? [channels()]
+        : step === 2 ? [h('p', { style: 'margin:0' }, 'افتح التطبيق وامسح الكود ده. لو مش عارف تمسحه، اكتب المفتاح بإيدك:'), qr(), h('div', { class: 'codes', dir: 'ltr' }, h('code', { style: 'user-select:all;word-break:break-all' }, f.secret))]
+          : step === 3 ? [h('p', { style: 'margin:0' }, 'اكتب الـ 6 أرقام اللي ظاهرة في التطبيق دلوقتي.'), U.TextInput({ id: 'tfa-code', label: 'الكود', value: code, inputmode: 'numeric', maxlength: 6, onInput: (v) => { code = v; } })]
+            : [U.InlineNote({ kind: 'success', children: 'اتفعّل التحقق بخطوتين. من المرة الجاية هنطلب الكود بعد كلمة المرور.' }), h('p', { class: 't-small', style: 'margin:0' }, RECOVERY_2FA)]).filter(Boolean));
+      const cancel = Button({ label: 'إلغاء', onClick: () => md.close() });
+      md.setFooter(...(step === 1 ? [cancel, Button({ type: 'primary', label: 'كمّل', disabled: busy, onClick: start })]
+        : step === 2 ? [Button({ label: 'نسخ المفتاح', icon: 'copy', onClick: copyKey }), cancel, Button({ type: 'primary', label: 'كمّل', onClick: () => { step = 3; err = ''; draw(); } })]
+          : step === 3 ? [Button({ label: 'رجوع', onClick: () => { step = 2; err = ''; draw(); } }), cancel, Button({ type: 'primary', label: 'تأكيد', disabled: busy, onClick: confirmCode })]
+            : [Button({ type: 'primary', label: 'خلصت', onClick: () => md.close() })]));
+      if (step === 3) setTimeout(() => { const i = md.el.querySelector('#tfa-code'); if (i) i.focus(); });
+    };
     draw();
+  }
+  // «إيقاف»: only on a session signed in with the code (aal2); IBAuth clears the server flag, then the factor
+  async function disable2fa() {
+    const r = await window.IBAuth.unenrollTotp();
+    if (!r.ok) return K.toast(r.reason === 'aal1' ? 'سجّل دخول بالكود الأول' : netMsg(r), 'error');
+    K.toast('اتوقف التحقق بخطوتين', 'success'); rerender();
   }
 
   window.IBPages.register('profile', { title: 'ملفي', hash: (hs) => { let m = /^profile(?:-([a-z]+))?$/.exec(hs); if (m) { st.who = K.ME; st.tab = m[1] && TABS.some((t) => t[0] === m[1]) ? m[1] : 'overview'; if (m[1] === 'requests' && K.member(K.ME).role === 'أدمن') st.reqSub = 'need'; return true; } m = /^member-(M\d{2})$/.exec(hs); if (m && S.members.some((x) => x.id === m[1])) { if (st.who !== m[1]) st.tab = 'overview'; st.who = m[1] === K.ME ? K.ME : m[1]; return true; } return false; },

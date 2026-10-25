@@ -1,6 +1,10 @@
 // Sign-in behind the existing login screen: email → signInWithPassword; phone → email_for_identifier → signInWithPassword; then IBDirectory.
 // session() is synchronous: fed by the initial getSession() (await ready()) and onAuthStateChange.
-// Nothing about the member is loaded while the session is still aal1 with a verified TOTP factor (checkTotp()).
+// Nothing about the member is loaded while the session is still aal1 with a verified TOTP factor (checkTotp()): that is the
+// sign-in's second step (checkTotp / needsTotp / verifyTotp, the 2FA view of 21-shell.js).
+// «ملفي» › التحقق بخطوتين: enrollTotp / verifyEnroll / unenrollTotp (Supabase MFA TOTP). profiles.twofa is the server's: it
+// follows mark_twofa_enrolled / mark_twofa_disabled (0008_mfa_cron.sql, aal2 only), and has_perm gives an enrolled member
+// nothing below aal2. The directory's copy follows a confirmed change; codes and keys are never logged.
 (function () {
   'use strict';
   const c = () => window.IBSupabase.client;
@@ -79,6 +83,74 @@
       return await loadMember();
     } catch (e) { return fail('network'); }
   }
+  // ---- 2FA enrolment («ملفي») ----
+  const why = (err) => (err && err.status === 0 ? 'network' : 'server'); // supabase-js: status 0 = the request never got an answer
+  const digits = (code) => window.IbtekrOps.toLatin(String(code == null ? '' : code)).trim();
+  // supabase-js hands GoTrue's raw SVG behind `data:image/svg+xml;utf-8,`; percent-encoded here so a '#' in it cannot end the URI.
+  // Anything that is not a data:image URI → '' (the page shows the key alone).
+  const RAW_SVG = 'data:image/svg+xml;utf-8,';
+  const qrUri = (q) => (typeof q !== 'string' ? '' : q.startsWith(RAW_SVG) ? 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(q.slice(RAW_SVG.length)) : /^data:image\//.test(q) ? q : '');
+  // after the server took the change: the signed-in row and its member card (same objects the pages read), then ib:directory
+  function setTwofa(on) {
+    const D = window.IBDirectory; const me = D && D.me && D.me(); if (!me) return;
+    me.twofa = on;
+    const m = (D.members() || []).find((x) => x.id === me.member_code); if (m) m.twofa = on;
+    try { document.dispatchEvent(new Event('ib:directory')); } catch (e) { /* a bad listener must not undo the change */ }
+  }
+  const logged = (action) => { const K = window.IBKit; if (K && K.logEvent) K.logEvent(action, 'Authenticator'); }; // the channel only
+  // A new TOTP factor (unverified until verifyEnroll) → { ok:true, factorId, qr (data:image URI or ''), secret, uri }
+  // | { ok:false, reason: 'network'|'server' }. An unfinished enrolment (unverified TOTP factor) is removed first: GoTrue refuses
+  // a second factor with the same friendly name.
+  async function enrollTotp() {
+    if (!c() || !current) return fail('network');
+    try {
+      const l = await c().auth.mfa.listFactors();
+      if (l.error) return fail(why(l.error));
+      for (const f of (l.data && l.data.all) || []) {
+        if (f.factor_type === 'totp' && f.status === 'unverified') { const u = await c().auth.mfa.unenroll({ factorId: f.id }); if (u.error) return fail(why(u.error)); }
+      }
+      const { data, error } = await c().auth.mfa.enroll({ factorType: 'totp', friendlyName: 'Authenticator' });
+      if (error || !data || !data.totp) return fail(why(error));
+      return { ok: true, factorId: data.id, qr: qrUri(data.totp.qr_code), secret: String(data.totp.secret || ''), uri: String(data.totp.uri || '') };
+    } catch (e) { return fail('network'); }
+  }
+  // The first code from the app: challenge + verify (the session becomes aal2), then the server flag. → { ok:true }
+  // | { ok:false, reason: 'code' (wrong / expired / not 6 digits: try again) | 'network' | 'server' (the flag was refused: the
+  // factor is removed again, start over) }
+  async function verifyEnroll(factorId, code) {
+    if (!c() || !current) return fail('network');
+    const d = digits(code);
+    if (!/^[0-9]{6}$/.test(d)) return fail('code');
+    try {
+      const v = await c().auth.mfa.challengeAndVerify({ factorId, code: d });
+      if (v.error) return fail(v.error.status === 0 ? 'network' : 'code');
+      const r = await c().rpc('mark_twofa_enrolled');
+      // if this unenroll fails too, the factor stays verified without the flag: the sign-in still asks for the code
+      if (r.error) { try { await c().auth.mfa.unenroll({ factorId }); } catch (e) { /* reported as 'server' all the same */ } return fail('server'); }
+      setTwofa(true); logged('profile.2fa.enable');
+      return { ok: true };
+    } catch (e) { return fail('network'); }
+  }
+  // «إيقاف»: only on an aal2 session (signed in with the code). The server flag first (it needs aal2 too), then every verified
+  // TOTP factor; a factor that will not go puts the flag back. → { ok:true } | { ok:false, reason: 'aal1'|'network'|'server' }
+  async function unenrollTotp() {
+    if (!c() || !current) return fail('network');
+    try {
+      const lv = await c().auth.mfa.getAuthenticatorAssuranceLevel();
+      if (lv.error || !lv.data) return fail(why(lv.error));
+      if (lv.data.currentLevel !== 'aal2') return fail('aal1');
+      const l = await c().auth.mfa.listFactors();
+      if (l.error) return fail(why(l.error));
+      const r = await c().rpc('mark_twofa_disabled');
+      if (r.error) return fail(/aal2_required/.test(r.error.message || '') ? 'aal1' : 'server');
+      for (const f of (l.data && l.data.totp) || []) {
+        const u = await c().auth.mfa.unenroll({ factorId: f.id });
+        if (u.error) { await c().rpc('mark_twofa_enrolled'); return fail(why(u.error)); }
+      }
+      setTwofa(false); logged('profile.2fa.disable');
+      return { ok: true };
+    } catch (e) { return fail('network'); }
+  }
   // scope 'local' (default) ends this browser's session only; 'global' every session of the user (after a password reset).
   // The member's data in memory (directory, prefs, alerts, activity) is cleared first: IBDirectory.clear.
   async function signOut(scope = 'local') {
@@ -108,5 +180,5 @@
     if (!c() || !recovered) return { ok: false };
     try { const { error } = await c().auth.updateUser({ password: p1 }); return { ok: !error }; } catch (e) { return { ok: false }; }
   }
-  window.IBAuth = { signIn, verifyTotp, needsTotp: () => totp, checkTotp, signOut, signOutOthers, session: () => current, onChange: (cb) => { subs.push(cb); }, resetPassword, updatePassword, ready: () => ready, recovery: () => recoveryCheck };
+  window.IBAuth = { signIn, verifyTotp, needsTotp: () => totp, checkTotp, enrollTotp, verifyEnroll, unenrollTotp, signOut, signOutOthers, session: () => current, onChange: (cb) => { subs.push(cb); }, resetPassword, updatePassword, ready: () => ready, recovery: () => recoveryCheck };
 })();

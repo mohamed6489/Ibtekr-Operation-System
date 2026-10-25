@@ -1,6 +1,6 @@
 -- LOCAL ONLY. NEVER run this on Supabase.
 -- A minimal stand-in for what a fresh Supabase project already has (API roles,
--- the auth schema, auth.users/auth.identities, auth.uid()/role()/jwt() and the
+-- the auth schema, auth.users/auth.identities/auth.mfa_factors, auth.uid()/role()/jwt() (claims may carry "aal") and the
 -- default grants), so supabase/migrations and supabase/tests run unchanged on a
 -- plain local Postgres via `tools/db-test.sh --stub`.
 
@@ -31,6 +31,18 @@ create table auth.identities (
   provider text not null,
   provider_id text not null,
   identity_data jsonb not null
+);
+
+-- MFA factors (0008_mfa_cron reads the verified ones). Live: factor_type / status are enums (auth.factor_type,
+-- auth.factor_status) plus more columns; text here, the literals 'totp' / 'verified' compare the same on both.
+create table auth.mfa_factors (
+  id uuid primary key,
+  user_id uuid not null references auth.users on delete cascade,
+  friendly_name text,
+  factor_type text not null,
+  status text not null,
+  created_at timestamptz not null,
+  updated_at timestamptz not null
 );
 
 create function auth.uid() returns uuid language sql stable as $$

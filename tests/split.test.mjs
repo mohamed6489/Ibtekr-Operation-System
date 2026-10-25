@@ -4,7 +4,7 @@ import { split } from '../tools/split-prototype.mjs';
 // The split ran once; blocks 14, 21 and 28 have been edited since (phase 0 Task 5), 25 (phase 1 Task 4), 11 and 29 (phase 2 Task 6). tools/blocks.lock.json records,
 // per block, the sha256 of the prototype's block and of the file on disk (npm run lock regenerates it).
 const SRC = 'Prototype file/نظام إبتكر.html';
-const EDITED = ['11-seed-product-images.js', '14-kit.js', '21-shell.js', '25-page-dashboard.js', '28-app.js', '29-orders-app.js'];
+const EDITED = ['11-seed-product-images.js', '14-kit.js', '18-page-profile.js', '21-shell.js', '25-page-dashboard.js', '28-app.js', '29-orders-app.js'];
 const sha = (text) => createHash('sha256').update(text).digest('hex');
 const parts = split(readFileSync(SRC, 'utf8'));
 const lock = JSON.parse(readFileSync('tools/blocks.lock.json', 'utf8'));

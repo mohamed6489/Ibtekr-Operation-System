@@ -6,7 +6,12 @@
 // channel() records too and returns { on, subscribe } (or throws with channelThrows); emit(row) plays a Realtime INSERT on alerts
 // to the last handler, emitChange(payload) plays a postgres_changes payload ({ table, eventType, new }) to every matching handler.
 // functions.invoke(name, opts) records { op: 'invoke', args } and answers responses['fn:' + name] (a value or a function of opts).
+// rpc(fn, args) records { op: 'rpc', args: [fn, args] } and answers responses['rpc:' + fn] (a value or a function of args).
 // auth: storageKey, getSession (nothing stored) and onAuthStateChange; emitAuth(event, session) plays an auth event to its listener.
+// auth.mfa.<method>(args) records { op: 'mfa.<method>', args: [args] } and answers responses['mfa:' + method] (a value or a
+// function of args; default { data: null, error: null }), for listFactors / enroll / challengeAndVerify / unenroll /
+// getAuthenticatorAssuranceLevel.
+const MFA = ['listFactors', 'enroll', 'challenge', 'verify', 'challengeAndVerify', 'unenroll', 'getAuthenticatorAssuranceLevel'];
 const OPS = ['select', 'eq', 'in', 'gte', 'order', 'limit', 'range', 'upsert', 'insert', 'update', 'delete', 'match'];
 const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 export function stubClient({ responses = {}, channelThrows = false } = {}) {
@@ -29,6 +34,7 @@ export function stubClient({ responses = {}, channelThrows = false } = {}) {
       return ch;
     },
     removeChannel: () => { rec({ op: 'removeChannel' }); return Promise.resolve('ok'); },
+    rpc: (fn, args) => { rec({ op: 'rpc', args: [fn, args] }); return Promise.resolve().then(() => answer(responses['rpc:' + fn], plain(args)) || { data: null, error: null }); },
     functions: {
       invoke: (name, opts) => { rec({ op: 'invoke', args: [name, opts] }); return Promise.resolve().then(() => answer(responses['fn:' + name], plain(opts)) || { data: null, error: null }); },
     },
@@ -36,6 +42,7 @@ export function stubClient({ responses = {}, channelThrows = false } = {}) {
       storageKey: 'sb-stub-auth-token',
       getSession: () => Promise.resolve({ data: { session: null }, error: null }),
       onAuthStateChange: (cb) => { authHandler = cb; return { data: { subscription: { unsubscribe() {} } } }; },
+      mfa: Object.fromEntries(MFA.map((m) => [m, (args) => { rec({ op: 'mfa.' + m, args: args === undefined ? [] : [args] }); return Promise.resolve().then(() => answer(responses['mfa:' + m], plain(args)) || { data: null, error: null }); }])),
     },
   };
   const emitChange = (p) => Promise.all(handlers.filter(({ filter }) => filter && filter.table === p.table && (filter.event === '*' || filter.event === p.eventType)).map(({ cb }) => cb({ schema: 'public', ...p })));

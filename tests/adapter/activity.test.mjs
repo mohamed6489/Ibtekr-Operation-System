@@ -1,7 +1,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs'; import { runInNewContext } from 'node:vm';
 import { stubClient, opsOf } from './stub-supabase.mjs';
-// activity.js against a stub IBSupabase: only auth.* / dashboard.* / order.* / suborder.* actions reach rpc('log_activity') until a page is wired
+// activity.js against a stub IBSupabase: only auth.* / dashboard.* / order.* / suborder.* / profile.2fa.* actions reach rpc('log_activity') until a page is wired
 // to real data; recent() reads activity_log with the actor's name embedded; refresh() caches it and announces ib:activity.
 const src = readFileSync(new URL('../../app/js/adapter/activity.js', import.meta.url), 'utf8');
 function load({ signedIn = true, rows = [] } = {}) {
@@ -36,7 +36,7 @@ test('dashboard.customize is sent', async () => {
   const { log, calls, A } = load();
   await log('dashboard.customize', '7 كارت');
   assert.deepEqual(calls, [{ fn: 'log_activity', args: { action: 'dashboard.customize', entity: null, entity_id: null, old_value: null, new_value: '7 كارت' } }]);
-  assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_PREFIXES)), ['auth.', 'dashboard.', 'order.', 'suborder.']);
+  assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_PREFIXES)), ['auth.', 'dashboard.', 'order.', 'suborder.', 'profile.2fa.']);
 });
 
 test('the orders page writes (order.* / suborder.*) are sent; a look-alike prefix is not', async () => {
@@ -45,6 +45,15 @@ test('the orders page writes (order.* / suborder.*) are sent; a look-alike prefi
   await log('suborder.waybill', 'IB-181668 · #5001');
   await log('orders.export', 'x'); // not 'order.'
   assert.deepEqual(calls.map((c) => c.args.action), ['order.status', 'suborder.waybill']);
+});
+
+test('the 2FA enrolment events (profile.2fa.*) are sent; the other «ملفي» events (sample data) are not', async () => {
+  const { log, calls } = load();
+  await log('profile.2fa.enable', 'Authenticator');
+  await log('profile.2fa.disable', 'Authenticator');
+  await log('profile.edit', 'سارة أحمد');
+  await log('profile.salary', 'x');
+  assert.deepEqual(calls.map((c) => c.args.action), ['profile.2fa.enable', 'profile.2fa.disable']);
 });
 
 test('recent maps the embed and refresh (newest 25) dispatches ib:activity', async () => {

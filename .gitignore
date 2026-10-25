@@ -33,3 +33,6 @@ Thumbs.db
 !/.superpowers/sdd/2026-10-22-phase-0-foundation/progress.md
 !/.superpowers/sdd/2026-10-22-phase-0-foundation/task-*-brief.md
 !/.superpowers/sdd/2026-10-22-phase-0-foundation/task-*-report.md
+
+# agent worktrees (temporary working copies)
+/.claude/worktrees/

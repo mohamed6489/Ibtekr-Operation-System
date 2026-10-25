@@ -95,8 +95,9 @@
   // the server log never holds the screen: a stalled request is given up on after 3 s
   const logWithin = (action, detail) => Promise.race([K.logEvent(action, detail), new Promise((r) => setTimeout(r, 3000))]);
   // the app is hidden first; then the log (before the Supabase sign-out, so the server still takes it), then this device's sign-out.
-  // loggedOut first so the idle timer and SIGNED_OUT listener stand down
-  async function signOut(reason) { if (loggedOut) return; loggedOut = true; ls.trusted = false; U.closePopover(); showLogin(reason === 'idle' ? 'expired' : 'login'); await logWithin('auth.signout', reason || 'يدوي'); await window.IBAuth.signOut('local').catch(() => {}); }
+  // loggedOut first so the idle timer and SIGNED_OUT listener stand down. Then a reload: the only way every in-memory store
+  // (directory, edited sample stores, conversations) starts over; the gate shows the same view again from ib.loginView.
+  async function signOut(reason) { if (loggedOut) return; loggedOut = true; ls.trusted = false; U.closePopover(); showLogin(reason === 'idle' ? 'expired' : 'login'); await logWithin('auth.signout', reason || 'يدوي'); await window.IBAuth.signOut('local').catch(() => {}); try { sessionStorage.setItem('ib.loginView', reason === 'idle' ? 'expired' : 'login'); } catch (e) { /* storage blocked: the gate shows login */ } location.reload(); }
   function signOutAll() { K.confirm({ title: 'خروج من كل الأجهزة', text: 'هيتعمل خروج من كل الأجهزة التانية. الجهاز ده هيفضل داخل.', okLabel: 'خروج من الكل', onOk: async () => { const r = await window.IBAuth.signOutOthers().catch(() => ({ ok: false })); if (!r.ok) return K.toast('معرفناش نعمل خروج من الأجهزة التانية — جرّب تاني', 'error'); K.logEvent('auth.signoutAll', K.member(K.ME).name); K.toast('اتعمل خروج من الأجهزة التانية', 'success'); } }); }
 
   // ================= session timeout: 8h idle, 1-minute warning =================

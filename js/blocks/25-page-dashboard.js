@@ -136,12 +136,16 @@
     const bk = pages().settings && pages().settings.api.backup ? pages().settings.api.backup() : null;
     items.push(bk && bk.daily ? { tone: 'ok', title: 'نسخة احتياطية', sub: 'اليوم 03:00 · نجحت', run: () => go('settings-data') } : { tone: 'warning', title: 'النسخ الاحتياطي اليومي مقفول', sub: 'شغّله من الإعدادات › البيانات', run: () => go('settings-data') });
     return card('system', 'تنبيهات النظام', 'الربط والقنوات', items.length ? h('div', { class: 'dash-need' }, items.slice(0, 5).map((it) => h('button', { type: 'button', class: 'dn-item tone-' + it.tone, onClick: it.run }, h('span', { class: 'dn-ic' }, Icon(it.tone === 'error' ? 'alert' : it.tone === 'ok' ? 'check' : 'link', 'sm')), h('span', { class: 'dn-txt' }, h('b', null, it.title), h('small', { class: 't-small' }, it.sub || ''))))) : K.Empty('كل الربط شغال', 'الأوردرات والقنوات متزامنة'), link('الإعدادات › الربط بالمنصات', () => go('settings-integrations'))); }
+  // a server timestamp in local time: the same day → «اليوم HH:MM», the day before → «أمس HH:MM», else «DD/MM HH:MM»
+  const fmtAt = (iso) => { const d = new Date(iso); if (isNaN(d)) return ''; const p = (n) => String(n).padStart(2, '0'); const day = (x) => new Date(x.getFullYear(), x.getMonth(), x.getDate()).getTime(); const t = new Date(); const hm = p(d.getHours()) + ':' + p(d.getMinutes()); return day(d) === day(t) ? 'اليوم ' + hm : day(d) === new Date(t.getFullYear(), t.getMonth(), t.getDate() - 1).getTime() ? 'أمس ' + hm : p(d.getDate()) + '/' + p(d.getMonth() + 1) + ' ' + hm; };
   function activity() {
-    const ACT = { 'dashboard.viewAs': 'عرض لوحة موظف', 'dashboard.customize': 'تخصيص اللوحة', 'task.done': 'خلّص مهمة', 'task.undo': 'رجّع مهمة' };
+    const ACT = { 'dashboard.viewAs': 'عرض لوحة موظف', 'dashboard.customize': 'تخصيص اللوحة', 'task.done': 'خلّص مهمة', 'task.undo': 'رجّع مهمة', 'auth.signin': 'سجّل دخول', 'auth.signout': 'سجّل خروج', 'auth.2fa': 'تحقق بخطوتين', 'auth.password.set': 'غيّر كلمة المرور', 'auth.signoutAll': 'خروج من كل الأجهزة' };
     const now = (K.store.activity || []).map((a) => ({ who: a.actor, what: (ACT[a.action] || a.action) + (a.detail ? ' — ' + a.detail : ''), at: 'اليوم ' + String(a.at || '').slice(-5) }));
     const seed = (pages().settings && pages().settings.api.activityLog ? pages().settings.api.activityLog() : []).map((r) => ({ who: r[1], what: r[3] + (r[4] ? ' — ' + (typeof r[4] === 'string' ? r[4] : '') : ''), at: r[0] }));
     const mine = role() === 'أدمن' ? null : me().name; // admin sees everyone; every other role sees its own actions
-    const list = now.concat(seed).filter((a) => !mine || a.who === mine).slice(0, 5);
+    // signed in (IBActivity.cached() not null): the server log only, newest first; RLS decides whose rows. Otherwise the prototype's events
+    const srv = window.IBActivity ? window.IBActivity.cached() : null;
+    const list = srv ? srv.slice(0, 5).map((r) => ({ who: r.actor, what: (ACT[r.action] || r.action) + (r.detail ? ' — ' + r.detail : ''), at: fmtAt(r.at) })) : now.concat(seed).filter((a) => !mine || a.who === mine).slice(0, 5);
     return card('activity', 'آخر نشاط', mine ? 'آخر 5 حاجات عملتها' : 'آخر 5 حركات في السيستم', list.length ? h('div', { class: 'dash-act' }, list.map((a) => h('div', { class: 'da-row' }, h('small', { class: 't-small' }, a.who + ' · ' + a.at), h('span', null, a.what)))) : K.Empty('لسه مفيش نشاط النهارده', 'أي تعديل في السيستم هيظهر هنا'), link('سجل النشاط كامل', () => go('settings-activity'))); }
   const CARDS = { daily, need, weeks, health, confirm: confirmCard, followCustomers, stockToday, money: moneyCard, expByType, vendors: vendorsCard, statements, team, system, activity };
 
@@ -162,14 +166,16 @@
   function setView(id) { st.viewAs = id; if (NR()) NR().setViewer(id || K.ME); render(); document.dispatchEvent(new Event('ib:notify')); } // read-only view: not a data change, so not in the activity log
   function customize() {
     const owner = K.ME; const L = DD.layout(K.member(owner).role, prefsOf(owner));
+    // saved per user on the server (IBPrefs → user_prefs, owner-only RLS); a refused write keeps the change on this device
+    const synced = (r) => { if (!r.ok) K.toast('اتحفظ على الجهاز بس — معرفناش نحفظه على السيرفر', 'error'); };
     K.form({ title: 'تخصيص اللوحة', wide: true, values: { list: L.map((c) => ({ id: c.id, label: c.label, locked: c.locked, hidden: c.hidden })) },
       note: U.InlineNote({ children: 'اختار الكروت اللي تظهر ورتّبها بالأسهم. «محتاج منك دلوقتي» مايتشالش. التخصيص بيتحفظ ليك انت بس.' }),
       fields: (f, e, set) => [h('div', { class: 'dash-cust', role: 'list' }, f.list.map((c, i) => h('div', { class: 'dc-row', role: 'listitem' },
         h('span', { class: 'dc-ord' }, Button({ type: 'text', size: 'sm', label: '↑', disabled: i === 0, attrs: { 'aria-label': 'لفوق — ' + c.label }, onClick: () => { const l = f.list.slice(); [l[i - 1], l[i]] = [l[i], l[i - 1]]; set('list', l, true); } }), Button({ type: 'text', size: 'sm', label: '↓', disabled: i === f.list.length - 1, attrs: { 'aria-label': 'لتحت — ' + c.label }, onClick: () => { const l = f.list.slice(); [l[i + 1], l[i]] = [l[i], l[i + 1]]; set('list', l, true); } })),
         h('span', { class: 'dc-l' }, h('b', null, c.label), c.locked ? h('small', { class: 't-small help' }, 'مقفول — دايمًا ظاهر') : null),
         K.Switch({ id: 'dc-' + c.id, label: c.label, checked: !c.hidden, disabled: c.locked, onChange: (v) => { c.hidden = !v; set('list', f.list.slice(), true); } }))))],
-      extraFooter: (f, m) => h('span', { class: 'rp-del' }, Button({ type: 'text', label: 'رجوع للافتراضي', onClick: () => { delete K.store.dashPrefs[owner]; K.toast('رجعت اللوحة للافتراضي'); m.close(); render(); } })),
-      submitLabel: 'حفظ', submit: (f) => { K.store.dashPrefs = K.store.dashPrefs || {}; K.store.dashPrefs[owner] = { order: f.list.map((c) => c.id), hidden: f.list.filter((c) => c.hidden).map((c) => c.id) }; K.logEvent('dashboard.customize', f.list.filter((c) => !c.hidden).length + ' كارت'); K.toast('اتحفظ تخصيص اللوحة', 'success'); render(); } });
+      extraFooter: (f, m) => h('span', { class: 'rp-del' }, Button({ type: 'text', label: 'رجوع للافتراضي', onClick: () => { delete K.store.dashPrefs[owner]; if (window.IBPrefs) window.IBPrefs.remove('dashboard').then(synced); K.toast('رجعت اللوحة للافتراضي'); m.close(); render(); } })),
+      submitLabel: 'حفظ', submit: (f) => { K.store.dashPrefs = K.store.dashPrefs || {}; K.store.dashPrefs[owner] = { order: f.list.map((c) => c.id), hidden: f.list.filter((c) => c.hidden).map((c) => c.id) }; if (window.IBPrefs) window.IBPrefs.set('dashboard', K.store.dashPrefs[owner]).then(synced); K.logEvent('dashboard.customize', f.list.filter((c) => !c.hidden).length + ' كارت'); K.toast('اتحفظ تخصيص اللوحة', 'success'); render(); } });
   }
 
   // ---------- view ----------
@@ -199,6 +205,8 @@
     out.push(grid, h('p', { class: 't-small dash-src' }, 'المصادر: الأوردرات (Airtable) · الحسابات (شيت Monthly Performance) · المبتكرين · الموارد البشرية · خدمة العملاء · المخزن — الأرقام بتتحدّث كل 5 دقايق · كل كارت قابل للضغط'));
     return out;
   }
+  // the server log changed (IBActivity.refresh): redraw «آخر نشاط»
+  document.addEventListener('ib:activity', render);
   // auto refresh every 5 minutes while the dashboard is open
   setInterval(() => { if (window.IBPages.current === 'dashboard' && !document.querySelector('.scrim,.menu,[role=dialog]')) { st.updated = K.clockNow(); render(); } }, 5 * 60 * 1000);
   window.IBPages.register('dashboard', { title: 'لوحة التحكم', hash: (hs) => /^(dashboard)?$/.test(hs), defaultHash: () => 'dashboard', view, canLeave: (proceed) => { if (st.viewAs) { st.viewAs = null; if (NR()) NR().setViewer(K.ME); } proceed(); },

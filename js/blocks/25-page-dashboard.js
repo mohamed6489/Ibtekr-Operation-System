@@ -168,7 +168,7 @@
   function customize() {
     const owner = K.ME; const L = DD.layout(K.member(owner).role, prefsOf(owner));
     // saved per user on the server (IBPrefs → user_prefs, owner-only RLS); a refused write keeps the change on this device
-    const synced = (r) => { if (!r.ok) K.toast('اتحفظ على الجهاز بس — معرفناش نحفظه على السيرفر', 'error'); };
+    const synced = (r) => { if (!r.ok) K.toast('اتطبّق دلوقتي بس — معرفناش نحفظه على السيرفر، جرّب تاني', 'error'); };
     K.form({ title: 'تخصيص اللوحة', wide: true, values: { list: L.map((c) => ({ id: c.id, label: c.label, locked: c.locked, hidden: c.hidden })) },
       note: U.InlineNote({ children: 'اختار الكروت اللي تظهر ورتّبها بالأسهم. «محتاج منك دلوقتي» مايتشالش. التخصيص بيتحفظ ليك انت بس.' }),
       fields: (f, e, set) => [h('div', { class: 'dash-cust', role: 'list' }, f.list.map((c, i) => h('div', { class: 'dc-row', role: 'listitem' },

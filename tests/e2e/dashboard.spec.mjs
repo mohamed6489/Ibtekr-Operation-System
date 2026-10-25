@@ -32,6 +32,9 @@ async function signIn(page, id, pw) {
   await expect(page.locator('#root')).toBeVisible();
 }
 const card = (page, id) => page.locator(`[data-card="${id}"]`);
+// an activity_log row as the server keeps it (seeded into mock.activityRows before sign-in); `daysBack` days ago at hh:mm local time
+const at = (daysBack, hh, mm) => { const d = new Date(); d.setDate(d.getDate() - daysBack); d.setHours(hh, mm, 0, 0); return d; };
+const row = (id, when, actor, action, value) => ({ id, at: when.toISOString(), actor, action, new_value: value });
 const customizeButton = (page) => page.getByRole('button', { name: 'تخصيص اللوحة', exact: true });
 // the dialog's switch for a card: <button role="switch" aria-label="…"> (K.Switch); the ↑/↓ buttons only contain the label
 const cardSwitch = (page, label) => page.getByRole('dialog').getByRole('switch', { name: label, exact: true });
@@ -79,9 +82,11 @@ test('customization is saved to the server and survives a reload', async ({ page
   expect(mock.activity.map((a) => a.action)).toContain('dashboard.customize');
 });
 
-test('«عرض كـ» another member shows their role frame in its default order, not my customization', async ({ page }) => {
+test('«عرض كـ» another member shows their role frame in its default order, not my customization, and only their actions', async ({ page }) => {
   mockOnly();
+  mock.activityRows.push(row(921, at(1, 9, 5), OPS_ID, 'auth.signin', 'سارة أحمد'));
   await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(card(page, 'activity')).toContainText('سارة أحمد · أمس 09:05'); // the admin sees everyone's rows
   await customizeButton(page).click();
   await cardSwitch(page, 'الفريق دلوقتي').click();
   await page.getByRole('dialog').getByRole('button', { name: 'حفظ', exact: true }).click();
@@ -92,6 +97,12 @@ test('«عرض كـ» another member shows their role frame in its default order
   // the ops frame (24-dash-domain.js BY_ROLE) in its default order, «الفريق دلوقتي» included: her preferences are hers (RLS), never mine
   await expect.poll(() => page.locator('.dash-grid [data-card]').evaluateAll((els) => els.map((e) => e.dataset.card)))
     .toEqual(['daily', 'need', 'weeks', 'health', 'stockToday', 'vendors', 'team', 'activity']);
+  // «آخر نشاط» as she sees it: her own rows only (the admin's sign-in and customization are left out)
+  const act = card(page, 'activity');
+  await expect(act).toContainText('آخر 5 حاجات عملتها');
+  await expect(act.locator('.da-row')).toHaveCount(1);
+  await expect(act).toContainText('سارة أحمد · أمس 09:05');
+  await expect(act).not.toContainText('صفوت كمال');
 });
 
 test('a customization the server refused stays on this device and says so', async ({ page }) => {
@@ -114,10 +125,38 @@ test('the activity card shows server rows with Arabic labels', async ({ page }) 
   await expect(card(page, 'activity')).toContainText('صفوت كمال');
 });
 
+test('a non-admin sees only their own actions in «آخر نشاط»', async ({ page }) => {
+  mockOnly();
+  // settings.view P: the server returns every row to ops; the card keeps hers
+  mock.activityRows.push(row(911, at(2, 18, 30), OPS_ID, 'auth.signout', 'يدوي'), row(912, at(1, 9, 0), ADMIN_ID, 'auth.signin', 'صفوت كمال'),
+    row(913, at(1, 9, 10), ADMIN_ID, 'dashboard.customize', '9 كارت'));
+  await signIn(page, OPS.id, OPS.pw);
+  const act = card(page, 'activity');
+  await expect(act.locator('.da-row')).toHaveCount(2); // her sign-in now + her sign-out two days ago
+  await expect(act.locator('.da-row').first()).toContainText('سجّل دخول — سارة أحمد');
+  await expect(act).toContainText('سارة أحمد');
+  await expect(act).not.toContainText('صفوت كمال');
+  await expect(act).toContainText('آخر 5 حاجات عملتها');
+});
+
+test('a server-log update does not redraw the dashboard under an open menu', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(card(page, 'activity')).toContainText('سجّل دخول');
+  await page.getByRole('button', { name: '+ إجراء سريع', exact: true }).click();
+  const menu = page.getByRole('menu');
+  await expect(menu).toBeVisible();
+  await page.evaluate(() => document.dispatchEvent(new Event('ib:activity'))); // as IBActivity.refresh() does
+  await expect(menu).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await page.evaluate(() => document.dispatchEvent(new Event('ib:activity'))); // no overlay: the card redraws as before
+  await expect(card(page, 'activity')).toContainText('سجّل دخول');
+});
+
 test('the activity card lists the newest 5 server rows: today, yesterday, then DD/MM', async ({ page }) => {
   mockOnly();
-  const yesterday = new Date(); yesterday.setDate(yesterday.getDate() - 1); yesterday.setHours(9, 5, 0, 0);
-  const row = (id, at, actor, action, value) => ({ id, at: at.toISOString(), actor, action, new_value: value });
+  const yesterday = at(1, 9, 5);
   mock.activityRows.push(row(901, new Date(2026, 0, 1, 10, 0), OPS_ID, 'auth.signout', 'يدوي'), row(902, new Date(2026, 0, 2, 10, 0), OPS_ID, 'auth.signout', 'يدوي'),
     row(903, new Date(2026, 0, 3, 10, 0), OPS_ID, 'auth.signoutAll', 'سارة أحمد'), row(904, new Date(2026, 0, 4, 10, 0), OPS_ID, 'auth.signin', 'سارة أحمد'),
     row(905, new Date(2026, 0, 5, 8, 7), OPS_ID, 'auth.password.set', 'reset'), row(906, yesterday, ADMIN_ID, 'auth.2fa', null));

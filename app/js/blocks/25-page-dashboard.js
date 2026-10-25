@@ -143,9 +143,10 @@
     const now = (K.store.activity || []).map((a) => ({ who: a.actor, what: (ACT[a.action] || a.action) + (a.detail ? ' — ' + a.detail : ''), at: 'اليوم ' + String(a.at || '').slice(-5) }));
     const seed = (pages().settings && pages().settings.api.activityLog ? pages().settings.api.activityLog() : []).map((r) => ({ who: r[1], what: r[3] + (r[4] ? ' — ' + (typeof r[4] === 'string' ? r[4] : '') : ''), at: r[0] }));
     const mine = role() === 'أدمن' ? null : me().name; // admin sees everyone; every other role sees its own actions
-    // signed in (IBActivity.cached() not null): the server log only, newest first; RLS decides whose rows. Otherwise the prototype's events
+    // signed in (IBActivity.cached() not null): the server log only, newest first, under the same own-actions rule. Otherwise the prototype's events
     const srv = window.IBActivity ? window.IBActivity.cached() : null;
-    const list = srv ? srv.slice(0, 5).map((r) => ({ who: r.actor, what: (ACT[r.action] || r.action) + (r.detail ? ' — ' + r.detail : ''), at: fmtAt(r.at) })) : now.concat(seed).filter((a) => !mine || a.who === mine).slice(0, 5);
+    const rows = srv ? srv.map((r) => ({ who: r.actor, what: (ACT[r.action] || r.action) + (r.detail ? ' — ' + r.detail : ''), at: fmtAt(r.at) })) : now.concat(seed);
+    const list = rows.filter((a) => !mine || a.who === mine).slice(0, 5);
     return card('activity', 'آخر نشاط', mine ? 'آخر 5 حاجات عملتها' : 'آخر 5 حركات في السيستم', list.length ? h('div', { class: 'dash-act' }, list.map((a) => h('div', { class: 'da-row' }, h('small', { class: 't-small' }, a.who + ' · ' + a.at), h('span', null, a.what)))) : K.Empty('لسه مفيش نشاط النهارده', 'أي تعديل في السيستم هيظهر هنا'), link('سجل النشاط كامل', () => go('settings-activity'))); }
   const CARDS = { daily, need, weeks, health, confirm: confirmCard, followCustomers, stockToday, money: moneyCard, expByType, vendors: vendorsCard, statements, team, system, activity };
 
@@ -205,8 +206,9 @@
     out.push(grid, h('p', { class: 't-small dash-src' }, 'المصادر: الأوردرات (Airtable) · الحسابات (شيت Monthly Performance) · المبتكرين · الموارد البشرية · خدمة العملاء · المخزن — الأرقام بتتحدّث كل 5 دقايق · كل كارت قابل للضغط'));
     return out;
   }
-  // the server log changed (IBActivity.refresh): redraw «آخر نشاط»
-  document.addEventListener('ib:activity', render);
+  // the server log changed (IBActivity.refresh): redraw «آخر نشاط», unless an overlay is open (the 5-minute refresh's guard; the AI
+  // panel is a [role=dialog] that stays in the DOM while closed, hence :not([hidden]))
+  document.addEventListener('ib:activity', () => { if (!document.querySelector('.scrim,.menu,[role=dialog]:not([hidden])')) render(); });
   // auto refresh every 5 minutes while the dashboard is open
   setInterval(() => { if (window.IBPages.current === 'dashboard' && !document.querySelector('.scrim,.menu,[role=dialog]')) { st.updated = K.clockNow(); render(); } }, 5 * 60 * 1000);
   window.IBPages.register('dashboard', { title: 'لوحة التحكم', hash: (hs) => /^(dashboard)?$/.test(hs), defaultHash: () => 'dashboard', view, canLeave: (proceed) => { if (st.viewAs) { st.viewAs = null; if (NR()) NR().setViewer(K.ME); } proceed(); },

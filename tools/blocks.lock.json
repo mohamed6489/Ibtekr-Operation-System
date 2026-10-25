@@ -41,7 +41,7 @@
   },
   "11-seed-product-images.js": {
     "prototype": "e378804fb28fedc3fccfbf1a287ebfb2ac99a23d28529f86e8e0afd319be6187",
-    "current": "e378804fb28fedc3fccfbf1a287ebfb2ac99a23d28529f86e8e0afd319be6187"
+    "current": "db0b9bf588dfc6107e08a47c45e6cf41bd682265be564e117baf58c4ab748e08"
   },
   "12-ops-domain.js": {
     "prototype": "61b358d0af069a9ee879baebcac093a7e606e7b8f38aec2a6ed69bca0ccffcc1",
@@ -113,6 +113,6 @@
   },
   "29-orders-app.js": {
     "prototype": "181427392c14d05ce7a2df0b4cadb4792885f1f15672d595638aebfd2363c5d8",
-    "current": "181427392c14d05ce7a2df0b4cadb4792885f1f15672d595638aebfd2363c5d8"
+    "current": "74275f5cce65dd0666a49451a74b3c26a0c4019fe8e695768e5c1b766e5e063a"
   }
 }

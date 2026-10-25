@@ -1,10 +1,10 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs'; import { createHash } from 'node:crypto';
 import { split } from '../tools/split-prototype.mjs';
-// The split ran once; blocks 14, 21 and 28 have been edited since (phase 0 Task 5), and 25 (phase 1 Task 4). tools/blocks.lock.json records,
+// The split ran once; blocks 14, 21 and 28 have been edited since (phase 0 Task 5), 25 (phase 1 Task 4), 11 and 29 (phase 2 Task 6). tools/blocks.lock.json records,
 // per block, the sha256 of the prototype's block and of the file on disk (npm run lock regenerates it).
 const SRC = 'Prototype file/نظام إبتكر.html';
-const EDITED = ['14-kit.js', '21-shell.js', '25-page-dashboard.js', '28-app.js'];
+const EDITED = ['11-seed-product-images.js', '14-kit.js', '21-shell.js', '25-page-dashboard.js', '28-app.js', '29-orders-app.js'];
 const sha = (text) => createHash('sha256').update(text).digest('hex');
 const parts = split(readFileSync(SRC, 'utf8'));
 const lock = JSON.parse(readFileSync('tools/blocks.lock.json', 'utf8'));
@@ -16,7 +16,7 @@ test('split yields 29 blocks in order', () => {
   assert.match(parts.blocks[20].code, /window\.IBShell = /);
   assert.deepEqual(Object.keys(lock), parts.blocks.map((b) => b.file));
 });
-test('only blocks 14, 21, 25 and 28 differ from the prototype', () => {
+test('only blocks 11, 14, 21, 25, 28 and 29 differ from the prototype', () => {
   assert.deepEqual(Object.keys(lock).filter((f) => lock[f].prototype !== lock[f].current), EDITED);
 });
 test('unedited blocks are byte-identical to the prototype', () => {

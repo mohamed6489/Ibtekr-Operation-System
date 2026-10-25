@@ -2,6 +2,9 @@
 # Uploaded with the rest of app/ to the subdomain's document root.
 
 Options -Indexes
+# The document root is a Git checkout (Hostinger Git deploy of the `deploy` branch): never serve
+# the repository metadata or any other dot-path.
+RedirectMatch 404 "(^|/)\.(git|svn|hg|env)(/|$)"
 DirectoryIndex index.html
 AddDefaultCharset UTF-8
 AddCharset UTF-8 .html .js .css

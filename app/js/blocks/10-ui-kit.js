@@ -276,7 +276,7 @@
     let note = '';
     if (el) {
       try {
-        if (!window.html2canvas) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+        if (!window.html2canvas) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'js/vendor/html2canvas.min.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
         const canvas = await window.html2canvas(el, { backgroundColor: getComputedStyle(document.body).backgroundColor, scale: 2 });
         const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
         try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); note = 'الصورة اتنسخت — الصقها في الرسالة.'; }

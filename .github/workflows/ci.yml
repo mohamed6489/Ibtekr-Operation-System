@@ -64,3 +64,28 @@ jobs:
         run: npm run db:test
         env:
           DATABASE_URL: postgresql://postgres@localhost:5432/postgres
+
+  # ERROR-level findings of the registry's JavaScript and secrets packs fail the build. Left out: app/js/blocks (prototype code,
+  # reviewed by hand with the notes in the ledgers; every block edit goes through a reviewer) and app/js/vendor (pinned
+  # third-party builds, js/vendor/README.md).
+  semgrep:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+      - run: pip install semgrep
+      - run: npm run semgrep
+
+  # The Edge Functions (supabase/functions): type check, then the handler tests (fake Woo and Supabase; no network but 127.0.0.1).
+  # npm: / jsr: imports come from Deno's own cache (--node-modules-dir=none), as on Supabase, so no npm ci here.
+  functions:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: denoland/setup-deno@v2
+        with:
+          deno-version: v2.x
+      - run: npm run deno:check
+      - run: npm run deno:test

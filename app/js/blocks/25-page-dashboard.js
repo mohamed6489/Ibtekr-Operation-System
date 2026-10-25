@@ -211,8 +211,9 @@
   document.addEventListener('ib:activity', () => { if (!document.querySelector('.scrim,.menu,[role=dialog]:not([hidden])')) render(); });
   // server alerts changed (IBAlerts load / mark read / Realtime insert): redraw «محتاج منك دلوقتي», same guard
   document.addEventListener('ib:notify', () => { if (!document.querySelector('.scrim,.menu,[role=dialog]:not([hidden])')) render(); });
-  // auto refresh every 5 minutes while the dashboard is open
-  setInterval(() => { if (window.IBPages.current === 'dashboard' && !document.querySelector('.scrim,.menu,[role=dialog]:not([hidden])')) { st.updated = K.clockNow(); render(); } }, 5 * 60 * 1000);
+  // auto refresh every 5 minutes while the dashboard is open; «آخر نشاط» re-reads the server log too (IBActivity.refresh, phase 2:
+  // not awaited, a failed read keeps the rows it has, and its ib:activity redraws the card once the answer lands)
+  setInterval(() => { if (window.IBPages.current === 'dashboard' && !document.querySelector('.scrim,.menu,[role=dialog]:not([hidden])')) { st.updated = K.clockNow(); try { const p = window.IBActivity && window.IBActivity.refresh(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* the redraw below still runs */ } render(); } }, 5 * 60 * 1000);
   window.IBPages.register('dashboard', { title: 'لوحة التحكم', hash: (hs) => /^(dashboard)?$/.test(hs), defaultHash: () => 'dashboard', view, canLeave: (proceed) => { if (st.viewAs) { st.viewAs = null; if (NR()) NR().setViewer(K.ME); } proceed(); },
     api: { setView, refresh, simulateError: (on) => { st.error = !!on; render(); }, state: st, customize } });
 })();

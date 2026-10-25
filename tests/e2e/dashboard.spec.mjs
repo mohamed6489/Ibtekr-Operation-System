@@ -1,3 +1,4 @@
+import { readFileSync } from 'node:fs';
 import { test, expect } from '@playwright/test';
 import { installSupabaseMock, installLiveConfig, LIVE, LIVE_MISSING, DEV_PW } from './supabase-mock.mjs';
 // The dashboard on the signed-in member (phase 1): role frame, customization saved per user on the server, «آخر نشاط» from
@@ -305,6 +306,61 @@ test('the dashboard redraws itself every 5 minutes while nothing is open', async
   await expect(card(page, 'need')).toHaveAttribute('data-probe', '1');
   await page.clock.runFor('00:45');
   await expect(card(page, 'need')).not.toHaveAttribute('data-probe', '1'); // the closed AI panel (hidden dialog) no longer blocks it
+});
+
+test('the 5-minute refresh re-reads «آخر نشاط» from the server log; a failed read keeps what the card shows', async ({ page }) => {
+  mockOnly();
+  await page.clock.install();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  const act = card(page, 'activity');
+  await expect(act).toContainText('سجّل دخول');
+  // a row the page has not read yet (another member's sign-in on another device): nothing on the page asks for it
+  mock.activityRows.push(row(941, new Date(Date.now() - 60 * 1000), OPS_ID, 'auth.signin', 'تابلت المخزن'));
+  await page.clock.runFor('04:30');
+  await expect(act).not.toContainText('تابلت المخزن');
+  await page.clock.runFor('00:45'); // the tick: IBActivity.refresh(), then the redraw when its ib:activity lands
+  await expect(act).toContainText('سارة أحمد');
+  await expect(act).toContainText('سجّل دخول — تابلت المخزن');
+  // the next read fails (503, supabase-js retries it): the tick still redraws, the finished refresh keeps the card's rows and
+  // nothing throws (afterEach: no page error)
+  let failed = 0;
+  await page.route('**/rest/v1/activity_log?*', (route) => {
+    if (route.request().method() !== 'GET') return route.fallback();
+    failed += 1;
+    return route.fulfill({ status: 503, headers: { 'access-control-allow-origin': '*', 'content-type': 'application/json' }, body: '{"message":"unavailable"}' });
+  });
+  await page.evaluate(() => { window.__activityEvents = 0; document.addEventListener('ib:activity', () => { window.__activityEvents += 1; }); });
+  await card(page, 'need').evaluate((el) => { el.dataset.probe = '1'; });
+  await page.clock.runFor('05:00');
+  await expect(card(page, 'need')).not.toHaveAttribute('data-probe', '1');
+  await expect.poll(() => page.evaluate(() => window.__activityEvents), { timeout: 15000 }).toBe(1); // refresh() gave up and said so
+  expect(failed).toBeGreaterThan(0);
+  await expect(act).toContainText('سجّل دخول — تابلت المخزن');
+});
+
+// app/.htaccess's Content-Security-Policy header, put on the page here: npm run serve (http-server) does not read .htaccess
+const CSP = /Header always set Content-Security-Policy "([^"]+)"/.exec(readFileSync(new URL('../../app/.htaccess', import.meta.url), 'utf8'))[1];
+test('under the production CSP the dashboard loads with nothing refused, and both export libraries load from js/vendor', async ({ page }) => {
+  mockOnly(); // its connect-src names the production project; the live run talks to the staging one
+  const refused = []; page.on('console', (m) => { if (/Refused to|Content Security Policy/i.test(m.text())) refused.push(m.text()); });
+  await page.route((url) => url.port === '4173' && /^\/(index\.html)?$/.test(url.pathname), async (route) => {
+    const res = await route.fetch();
+    await route.fulfill({ response: res, headers: { ...res.headers(), 'content-security-policy': CSP } });
+  });
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(card(page, 'activity')).toContainText('سجّل دخول');
+  // what the lazy loaders of blocks 10, 17 and 28 do: a <script src="js/vendor/…"> (same origin under script-src 'self')
+  expect(await page.evaluate(() => Promise.all(['js/vendor/xlsx.full.min.js', 'js/vendor/html2canvas.min.js'].map((src) => new Promise((res, rej) => {
+    const sc = document.createElement('script'); sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error(src)); document.head.appendChild(sc);
+  }))).then(() => [window.XLSX.version, typeof window.html2canvas]))).toEqual(['0.20.3', 'function']);
+  expect(await card(page, 'activity').evaluate(async (el) => (await window.html2canvas(el, { logging: false })).width > 0)).toBe(true);
+  expect(refused).toEqual([]);
+  // the policy is in force: the old CDN build is refused by script-src
+  expect(await page.evaluate(() => new Promise((res) => {
+    document.addEventListener('securitypolicyviolation', (e) => res(e.effectiveDirective + ' ' + e.blockedURI), { once: true });
+    const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; document.head.appendChild(sc);
+  }))).toBe('script-src-elem https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js');
+  await expect.poll(() => refused.length).toBe(1);
 });
 
 test('«عرض كـ» another member leaves my server alerts out', async ({ page }) => {

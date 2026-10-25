@@ -141,6 +141,25 @@ test('wrong code keeps the dialog', async ({ page }) => {
   expect(profile('M02').twofa).toBe(true);
 });
 
+test('the server refuses the flag: the new factor is removed again and the dialog starts over', async ({ page }) => {
+  mock.twofaRefused = true; // mark_twofa_enrolled answers 42501 aal2_required
+  await signIn(page, OPS);
+  await security(page);
+  await startEnrol(page);
+  await dialog(page).getByRole('button', { name: 'كمّل', exact: true }).click();
+  await dialog(page).locator('#tfa-code').fill(TOTP_CODE);
+  await dialog(page).getByRole('button', { name: 'تأكيد', exact: true }).click();
+  await expect(dialog(page)).toContainText('السيرفر ماأكدش التفعيل — ابدأ من الأول');
+  await expect(dialog(page).getByRole('radio')).toHaveCount(3); // back on step 1
+  expect(mock.twofaCalls).toEqual([{ fn: 'mark_twofa_enrolled', aal: 'aal2', result: 'aal2_required' }]);
+  expect(mock.unenrolls).toEqual([{ id: mock.enrolls[0].id, aal: 'aal2' }]); // verified a moment ago: removed on the aal2 session
+  expect(mock.factors.filter((f) => f.user_id === profile('M02').id)).toEqual([]);
+  expect(profile('M02').twofa).toBe(false);
+  await dialog(page).getByRole('button', { name: 'إلغاء', exact: true }).click();
+  await expect(section(page)).toContainText('مش مفعّل');
+  expect(mock.activity.map((a) => a.action)).not.toContain('profile.2fa.enable');
+});
+
 test('an unfinished enrolment is replaced on the next try', async ({ page }) => {
   await signIn(page, OPS);
   await security(page);

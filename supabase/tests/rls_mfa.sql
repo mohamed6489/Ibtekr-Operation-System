@@ -126,7 +126,23 @@ do $$ begin
   raise exception 'case mark_twofa_enrolled at aal2 without a factor must error failed';
 end $$;
 
--- ---- aal2 with an unverified factor only (enrolment not finished) → 42501 ----
+-- ---- aal2 with a verified factor that is not TOTP (phone) → 42501: only a TOTP factor counts ----
+reset role;
+insert into auth.mfa_factors (id, user_id, friendly_name, factor_type, status, created_at, updated_at) values
+  ('00000000-0000-4000-8000-0000000005f3', '00000000-0000-4000-8000-000000000055', 'Phone', 'phone', 'verified', now(), now());
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000055","role":"authenticated","aal":"aal2"}';
+do $$ begin
+  begin
+    perform public.mark_twofa_enrolled();
+  exception when others then
+    if sqlstate = '42501' and sqlerrm = 'aal2_required' then return; end if; -- expected
+    raise exception 'case mark_twofa_enrolled with a verified phone factor only: expected 42501 aal2_required, got % (%)', sqlstate, sqlerrm;
+  end;
+  raise exception 'case mark_twofa_enrolled with a verified phone factor only must error failed';
+end $$;
+
+-- ---- aal2 with an unverified TOTP factor (enrolment not finished) → 42501 ----
 reset role;
 insert into auth.mfa_factors (id, user_id, friendly_name, factor_type, status, created_at, updated_at) values
   ('00000000-0000-4000-8000-0000000005f1', '00000000-0000-4000-8000-000000000055', 'Authenticator', 'totp', 'unverified', now(), now());

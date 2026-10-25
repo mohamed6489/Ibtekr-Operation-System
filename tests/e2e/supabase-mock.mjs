@@ -172,10 +172,11 @@ export async function installSupabaseMock(page) {
   // wooDown: woo-sync answers 502 (WooCommerce unreachable).
   // profiles: this install's copy of USERS (the 2FA RPCs change twofa there); factors: auth.mfa_factors ({ id, user_id,
   // friendly_name, factor_type, status }; M03's verified factor seeded); enrolls / unenrolls: each POST / DELETE of a factor;
-  // twofaCalls: each mark_twofa_enrolled / mark_twofa_disabled call as { fn, aal, result }.
+  // twofaCalls: each mark_twofa_enrolled / mark_twofa_disabled call as { fn, aal, result }; twofaRefused: both answer 42501
+  // aal2_required whatever the token (a server that does not take the flag).
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
-  const mock = { profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
+  const mock = { profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false };
   let activityId = 0;
   const profileOf = (id) => mock.profiles.find((x) => x.id === id) || null;
@@ -265,12 +266,12 @@ export async function installSupabaseMock(page) {
         return json(200, x ? [{ email: x.email, status: x.status }] : []);
       }
       if (!u) return json(401, { code: '42501', message: 'permission denied', details: null, hint: null }); // anon: no grants below
-      // 0008: profiles.twofa follows these two definer RPCs; both need an aal2 token (enrolled: also a verified factor of the
+      // 0008: profiles.twofa follows these two definer RPCs; both need an aal2 token (enrolled: also a verified TOTP factor of the
       // caller), else 42501 'aal2_required' (PostgREST: 403 for a signed-in caller); void → 204
       const mfa = /^\/rest\/v1\/rpc\/(mark_twofa_enrolled|mark_twofa_disabled)$/.exec(path);
       if (method === 'POST' && mfa) {
         const on = mfa[1] === 'mark_twofa_enrolled';
-        const ok = u.aal === 'aal2' && (!on || mock.factors.some((x) => x.user_id === u.id && x.status === 'verified'));
+        const ok = !mock.twofaRefused && u.aal === 'aal2' && (!on || mock.factors.some((x) => x.user_id === u.id && x.factor_type === 'totp' && x.status === 'verified'));
         mock.twofaCalls.push({ fn: mfa[1], aal: u.aal, result: ok ? 'ok' : 'aal2_required' });
         if (!ok) return json(403, { code: '42501', details: null, hint: null, message: 'aal2_required' });
         profileOf(u.id).twofa = on;

@@ -18,11 +18,12 @@
 --   It compares SHA-256 digests byte by byte with an XOR accumulator: the time does not depend on where a guess differs.
 -- * Vault + pg_cron + pg_net run only where the three extensions are available (Supabase; the local stub skips them).
 --   The secret is generated inside Postgres once (never in this file, never printed); the cron body reads it from
---   vault.decrypted_secrets at run time. cron.schedule with an existing job name updates that job (pg_cron >= 1.4),
---   so a re-run keeps one 'woo-sync-backup' job. Every 15 minutes = the prototype's default backup interval (the
---   settings page of phase 10 changes it).
--- * app.functions_url is a database setting read by the cron body; set here only on the live database ('postgres'),
---   with a notice instead of a failure when the role may not set it (then: set it from the dashboard SQL editor).
+--   vault.decrypted_secrets at run time. A re-run unschedules the existing 'woo-sync-backup' job first, so there is
+--   always one. Every 15 minutes = the prototype's default backup interval (the settings page of phase 10 changes it).
+-- * The cron body posts to the project's public functions URL, written inline
+--   (https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/woo-sync; the project ref is public in app/config.js). Only
+--   X-Sync-Secret is secret, and it stays in Vault. Ruling (T7 review): no custom database setting (app.*) — on Supabase
+--   the postgres role may not `alter database … set` a placeholder parameter, and every run would fail with 42704.
 
 -- ---------------------------------------------------------------- has_perm / is_admin (aal2 for enrolled members)
 
@@ -62,13 +63,15 @@ grant execute on function public.has_perm(text) to authenticated, service_role;
 
 -- ---------------------------------------------------------------- 2FA enrolment RPCs
 
--- After a successful TOTP verify (the session is aal2 and the factor verified): profiles.twofa = true for the caller.
+-- After a successful TOTP verify (the session is aal2 and the caller has a verified TOTP factor; another verified factor
+-- type does not count): profiles.twofa = true for the caller.
 create or replace function public.mark_twofa_enrolled() returns void
 language plpgsql volatile security definer set search_path = public as $$
 begin
   if auth.uid() is null
      or coalesce(auth.jwt() ->> 'aal', 'aal1') <> 'aal2'
-     or not exists (select 1 from auth.mfa_factors f where f.user_id = auth.uid() and f.status = 'verified') then
+     or not exists (select 1 from auth.mfa_factors f
+                    where f.user_id = auth.uid() and f.factor_type = 'totp' and f.status = 'verified') then
     raise exception 'aal2_required' using errcode = '42501';
   end if;
   update public.profiles set twofa = true where id = auth.uid();
@@ -135,10 +138,13 @@ begin
   create extension if not exists pg_net with schema extensions;
   create extension if not exists supabase_vault with schema vault;
 
-  -- the shared secret: 32 random bytes as hex, generated here once and kept in Vault (pgcrypto's schema looked up)
+  -- the shared secret: 32 random bytes as hex, generated here once and kept in Vault (pgcrypto's gen_random_bytes(integer)
+  -- looked up: 'extensions' on Supabase, else wherever pgcrypto is installed)
   if not exists (select 1 from vault.secrets where name = 'sync_secret') then
     select n.nspname into rnd_schema from pg_proc p join pg_namespace n on n.oid = p.pronamespace
-      where p.proname = 'gen_random_bytes' limit 1;
+      join pg_extension e on e.extname = 'pgcrypto' and e.extnamespace = n.oid
+      where p.proname = 'gen_random_bytes' and p.proargtypes = '23'::oidvector -- (integer)
+      order by (n.nspname = 'extensions') desc limit 1;
     if rnd_schema is null then
       create extension if not exists pgcrypto with schema extensions;
       rnd_schema := 'extensions';
@@ -148,24 +154,16 @@ begin
   end if;
 
   -- every 15 minutes: woo-sync action 'all' (vendors, products, orders) with the secret read from Vault at run time
+  if exists (select 1 from cron.job where jobname = 'woo-sync-backup') then
+    perform cron.unschedule('woo-sync-backup');
+  end if;
   perform cron.schedule('woo-sync-backup', '*/15 * * * *', $cron$
     select net.http_post(
-      url := current_setting('app.functions_url') || '/woo-sync',
+      url := 'https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/woo-sync',
       headers := jsonb_build_object('Content-Type', 'application/json',
                                     'X-Sync-Secret', (select decrypted_secret from vault.decrypted_secrets where name = 'sync_secret')),
       body := '{"action":"all"}'::jsonb,
       timeout_milliseconds := 150000
     )
   $cron$);
-end $$;
-
--- the functions URL the cron body reads (live database only; a notice when the role may not set it)
-do $$ begin
-  if current_database() = 'postgres' then
-    begin
-      execute 'alter database postgres set app.functions_url = ''https://fsynculhaupcktzkfkdd.supabase.co/functions/v1''';
-    exception when others then
-      raise notice '0008_mfa_cron: could not set app.functions_url (% %) — set it from the dashboard SQL editor', sqlstate, sqlerrm;
-    end;
-  end if;
 end $$;

@@ -17,9 +17,16 @@ concurrency: deploy-hostinger
 jobs:
   deploy:
     runs-on: ubuntu-latest
+    # Skips cleanly (no failure) until the FTP secrets exist.
+    env:
+      HAS_FTP: ${{ secrets.FTP_SERVER != '' }}
     steps:
       - uses: actions/checkout@v4
+      - name: No FTP secrets yet
+        if: env.HAS_FTP != 'true'
+        run: echo "FTP_SERVER secret not set; skipping the upload (see tools/deploy.md §4.3)."
       - name: Upload app/ over FTPS
+        if: env.HAS_FTP == 'true'
         uses: SamKirkland/FTP-Deploy-Action@8e83cea8672e3fbcbb9fdafff34debf6ae4c5f65 # v4.3.5 (pinned SHA)
         with:
           server: ${{ secrets.FTP_SERVER }}

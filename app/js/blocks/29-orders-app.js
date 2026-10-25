@@ -72,11 +72,12 @@ function applyOrder(o){if(!o||o.id==null)return;var id=String(o.id),i=O.findInde
  if(i>=0)O[i]=o;else O.unshift(o);OM[id]=o;(o.subs||[]).forEach(function(s){if(s.vendor&&V.indexOf(s.vendor)<0)V.push(s.vendor)});V.sort(byV);HYD=true;
  if(!was){draw();return}if(moved){full();return}redrawCard(id);refreshCounts()}
 // the list drawn again (draw keeps the unsaved comments); while a field of the list is in use (focused input / textarea / select,
-// the date picker or the details popup open) it waits in FULL and is drawn on focusout. Counts follow at once either way.
-var FULL=false;
-function listBusy(){var a=R.activeElement;return!!(DP||DET||a&&$('list').contains(a)&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))}
+// the date picker, the «more» menu or the details popup open, a mouse press under way) it waits in FULL and is drawn after the
+// click, when those close, or on a focusout that leaves the list: never under the control being pressed. Counts follow at once.
+var FULL=false,PRESS=false; // PRESS: Safari / Firefox on macOS don't focus a pressed button, the field just blurs
+function listBusy(){var a=R.activeElement;return!!(PRESS||DP||DET||MP||a&&$('list').contains(a)&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))}
 function full(){if(listBusy()){FULL=true;refreshCounts();return}draw(1);refreshCounts()}
-function flush(){if(!FULL||listBusy())return false;draw(1);refreshCounts();return true} // focusout / the details popup closed
+function flush(){if(!FULL||listBusy())return false;draw(1);refreshCounts();return true} // a click, a focusout out of the list, a popup closed
 // only that order's card is drawn again; while the user is in one of its fields (focused, or a comment that differs from
 // its saved text) it waits in PEND and is drawn on blur, or by the full draw a save / revert does. Not on this page: counts only.
 var PEND={};
@@ -305,7 +306,7 @@ function subStatus(s,v){var o=OM[s.oid];
 window.OrdersSetSub=function(sid,v){if(v!=null)O.forEach(function(o){o.subs.forEach(function(s){if(String(s.sid)===String(sid)){var b=snapS(s);s.ss=v;subW(s,b)}})});draw(1)};
 function allSub(n){var r;O.forEach(function(o){o.subs.forEach(function(s){if(s.n==n)r=s})});return r}
 var MP=null; // open "more" menu {key, btn}
-function mpClose(refocus){var e=R.getElementById('mpop');if(e)e.remove();if(MP){MP.btn.setAttribute('aria-expanded','false');if(refocus)MP.btn.focus();}MP=null}
+function mpClose(refocus){var e=R.getElementById('mpop');if(e)e.remove();if(MP){MP.btn.setAttribute('aria-expanded','false');if(refocus)MP.btn.focus();}MP=null;setTimeout(flush,0)}
 function mpOpen(btn){var key=btn.dataset.more;if(MP&&MP.key===key){mpClose(1);return}mpClose();dpClose(0);
  var w=document.createElement('div');w.id='mpop';w.setAttribute('role','menu');w.setAttribute('aria-label','إجراءات');w.dataset.key=key;
  var OX=window.IBOrdersOps,cx=key.charAt(0)==='o'&&OX?OX.cons(key.slice(2)):null,extra=key.charAt(0)!=='o'||!OX?'':cx?'<button type="button" role="menuitem" data-ma="shipall">'+ic('truck')+'<span>شحن كامل من المخزن</span></button><button type="button" role="menuitem" data-ma="uncons">'+ic('xx')+'<span>إلغاء التجميع</span></button>':'<button type="button" role="menuitem" data-ma="cons">'+ic('box')+'<span>تجميع في المخزن</span></button>';
@@ -475,7 +476,7 @@ function editSub(n){var s=allSub(n);if(!s)return;var o=OM[s.oid];if(!o)return;
    if(changes.length&&window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'suborder.edit',newValue:'#'+s.sid+' (IB-'+o.id+') · '+changes.join(' · ')});
    close();S.open[o.id]=true;draw(1);subW(s,sb);if(isRet)subStatus(s,nss);toast(changes.length?'تم حفظ '+changes.length+' تعديل':'مفيش تعديلات')}});}
 R.addEventListener('keydown',function(e){if(!MP)return;var mi=[].slice.call(R.querySelectorAll('#mpop [role=menuitem]')),ci=mi.indexOf(R.activeElement);if(e.key==='Escape'){e.preventDefault();e.stopPropagation();mpClose(1);return}if(e.key==='ArrowDown'||e.key==='ArrowUp'){e.preventDefault();mi[(ci+(e.key==='ArrowDown'?1:mi.length-1))%mi.length].focus()}},true);
-R.addEventListener('click',function(e){
+R.addEventListener('click',function(e){setTimeout(flush,0);
  var t=e.target;var b;
  if(b=t.closest('[data-more]')){e.stopPropagation();mpOpen(b);return}
  if(t.closest('#mpop')){var mb=t.closest('[data-ma]');if(mb)mpAct(mb.dataset.ma);return}
@@ -541,7 +542,7 @@ function dpRender(){
  else{var ys='';for(var y=DP.dec-1;y<=DP.dec+10;y++)ys+='<button type="button" class="mc'+(DP.v&&pIso(DP.v).y===y?' s':(new Date().getFullYear()===y?' t':''))+(y<DP.dec||y>DP.dec+9?' o':'')+'" data-yv="'+y+'">'+y+'</button>';body='<div class="mg">'+ys+'</div>'}
  el.innerHTML=hd+body+'<div class="ft"><button type="button" class="btn" data-dv="">مسح</button><button type="button" class="btn" data-dv="'+td+'">اليوم الحالي</button></div>';
  if(DP.grid&&DP.mode==='day'){var f=el.querySelector('.d.f');if(f)f.focus({preventScroll:true})}}
-function dpClose(refocus){var e=R.getElementById('dpop');var inp=DP&&dpInput();if(e)e.remove();DP=null;if(refocus&&inp){DPSUP=true;inp.focus({preventScroll:true});DPSUP=false}}
+function dpClose(refocus){var e=R.getElementById('dpop');var inp=DP&&dpInput();if(e)e.remove();DP=null;if(refocus&&inp){DPSUP=true;inp.focus({preventScroll:true});DPSUP=false}setTimeout(flush,0)}
 function dpOpen(inp){
  if(DP&&DP.k+':'+DP.id===inp.dataset.fi)return;dpClose();
  var k=inp.dataset.fi.split(':'),v=k[0]==='cd'?OM[k[1]].cdate:allSub(k[1]).exp,base=v||todayIso(),p=pIso(base);
@@ -573,7 +574,8 @@ R.addEventListener('click',function(e){
   if(b=t.closest('[data-dv]')){dpSet(b.dataset.dv);return}
   return}
  if(DP)dpClose(0)},true);
-R.addEventListener('focusout',function(){setTimeout(function(){if(flush())return;Object.keys(PEND).forEach(redrawCard)},0)}); // the list / a card Realtime changed while in use
+R.addEventListener('pointerdown',function(e){if(e.isPrimary&&e.button===0)PRESS=true},true);document.addEventListener('pointerup',function(){PRESS=false},true);document.addEventListener('pointercancel',function(){PRESS=false},true);
+R.addEventListener('focusout',function(e){var n=e.relatedTarget,inL=!!(n&&$('list').contains(n));setTimeout(function(){if(!inL&&flush())return;Object.keys(PEND).forEach(redrawCard)},0)}); // the list / a card Realtime changed while in use (focus moved to a control of the list: the list waits for its click)
 R.addEventListener('focusout',function(e){var t=e.target;if(!(DP&&t.matches&&t.matches('[data-fi]')))return;var n=e.relatedTarget;if(n&&n.closest&&(n.closest('#dpop')||n.closest('.dpf')))return;setTimeout(function(){if(!DP)return;var a=R.activeElement;if(a&&a.closest&&(a.closest('#dpop')||a.closest('.dpf')))return;var inp=dpInput();var v=inp?parseTyped(inp.value):'';var key=DP.k+':'+DP.id;if(v===null){toast('التاريخ مش صحيح — اتساب القيمة القديمة');dpClose(0);draw(1)}else{DP.v=v;dpSet(v)}},0)});
 R.addEventListener('keydown',function(e){
  if(!DP)return;var t=e.target,inField=t.matches&&t.matches('[data-fi]'),inPop=t.closest&&t.closest('#dpop');

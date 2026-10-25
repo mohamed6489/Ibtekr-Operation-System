@@ -405,6 +405,89 @@ test('a new Realtime order (or one that leaves the filters) redraws the list, ne
   expect(mock.patches).toEqual([{ table: 'orders', id: 181668, note: 'لسه ماتحفظش' }]);
 });
 
+// a brand-new order as the adapter's Realtime path hands it to applyOrder: placed today, so first in «الأحدث أولًا»
+const arrive = (page, id) => page.evaluate((id) => {
+  const o = window.IBOrders.data().orders.find((x) => x.id === '181668');
+  const s = Object.assign({}, o.subs[0], { n: Number(id), itemId: id, oid: id, sid: id, cm: '' });
+  window.OrdersApp.applyOrder(Object.assign({}, o, { id, name: 'عميل جديد ' + id, date: window.IBOrders.today(), age: 0, note: '', cnote: '', subs: [s] }));
+}, id);
+
+test('a held full redraw never replaces the control being pressed: «حفظ» and the fold button work with a human press, mouse or keyboard', async ({ page }) => {
+  await openOrders(page);
+  const cn = page.locator('#orders #cn');
+  // a comment typed (its field still focused) when a new order comes in: held; a 50 ms press on «حفظ» saves it, then the list is drawn
+  const mine = page.locator('#orders textarea[data-ne="181668"]');
+  await mine.fill('اتكتب قبل الضغطة');
+  await arrive(page, '182001');
+  await expect(cn).toHaveText('4');
+  await expect(cards(page)).toHaveCount(3);
+  await page.locator('#orders [data-ns="181668"]').click({ delay: 50 });
+  await expect(toast(page)).toHaveText('تم حفظ التعليق');
+  await expect.poll(() => mock.patches.length).toBe(1);
+  expect(mock.patches).toEqual([{ table: 'orders', id: 181668, note: 'اتكتب قبل الضغطة' }]);
+  await expect(cards(page)).toHaveCount(4);
+  await expect(cards(page).first()).toHaveAttribute('data-o', '182001');
+  await expect(page.locator('#orders [data-ns="181668"]')).toBeHidden();
+  // the fold button in a browser that does not focus a pressed button (Safari, Firefox on macOS): on mousedown the field
+  // loses focus to nothing, so only the press itself holds the redraw
+  await page.locator('#orders textarea[data-ne="180686"]').focus();
+  await arrive(page, '182002');
+  await expect(cards(page)).toHaveCount(4);
+  await page.evaluate(() => {
+    const R = document.getElementById('orders').shadowRoot;
+    R.addEventListener('mousedown', function once(e) { R.removeEventListener('mousedown', once, true); e.preventDefault(); R.activeElement.blur(); }, true);
+  });
+  await expect(page.locator('#orders [data-tg="180656"]')).toHaveAttribute('aria-label', 'فتح');
+  await page.locator('#orders [data-tg="180656"]').click({ delay: 50 });
+  await expect(page.locator('#orders [data-tg="180656"]')).toHaveAttribute('aria-label', 'طي');
+  await expect(page.locator('#orders textarea[data-ne="180656"]')).toHaveCount(1);
+  await expect(cards(page)).toHaveCount(5);
+  await expect(cards(page).first()).toHaveAttribute('data-o', '182002');
+  // the keyboard: Tab from the comment to its «حفظ» (a control of the list: still held), Enter saves, then the list is drawn
+  const kb = page.locator('#orders textarea[data-ne="180686"]');
+  await kb.fill('من الكيبورد');
+  await arrive(page, '182003');
+  await expect(cards(page)).toHaveCount(5);
+  await kb.press('Tab');
+  await expect(page.locator('#orders [data-ns="180686"]')).toBeFocused();
+  await expect(cards(page)).toHaveCount(5);
+  await page.keyboard.press('Enter');
+  await expect.poll(() => mock.patches.length).toBe(2);
+  expect(mock.patches[1]).toEqual({ table: 'orders', id: 180686, note: 'من الكيبورد' });
+  await expect(cards(page)).toHaveCount(6);
+  await expect(cards(page).first()).toHaveAttribute('data-o', '182003');
+  await expect(cn).toHaveText('6');
+});
+
+test('the date picker and the «more» menu hold a full redraw; closing them draws the list', async ({ page }) => {
+  await openOrders(page);
+  const cn = page.locator('#orders #cn'); const dp = page.locator('#orders #dpop'); const menu = page.locator('#orders #mpop');
+  // the date picker: a click inside it keeps it open (still held); a click outside closes it and draws what came in
+  await page.locator('#orders [data-fi="cd:181668"]').click();
+  await expect(dp).toHaveCount(1);
+  await arrive(page, '182001');
+  await expect(cn).toHaveText('4');
+  await expect(cards(page)).toHaveCount(3);
+  await dp.locator('[data-act="nm"]').click();
+  await expect(dp).toHaveCount(1);
+  await expect(cards(page)).toHaveCount(3);
+  await page.locator('#orders h1').click();
+  await expect(dp).toHaveCount(0);
+  await expect(cards(page)).toHaveCount(4);
+  await expect(cards(page).first()).toHaveAttribute('data-o', '182001');
+  // the «more» menu: what comes in while it is open waits (the menu never ends up beside another card); closing it draws
+  await card(page, '181668').locator('[data-more="o:181668"]').click();
+  await expect(menu).toBeVisible();
+  await arrive(page, '182002');
+  await expect(cn).toHaveText('5');
+  await expect(cards(page)).toHaveCount(4);
+  await page.keyboard.press('Escape');
+  await expect(menu).toHaveCount(0);
+  await expect(cards(page)).toHaveCount(5);
+  await expect(cards(page).first()).toHaveAttribute('data-o', '182002');
+  expect(mock.patches).toEqual([]);
+});
+
 test('Escape on a sub-order comment drops what was typed (a redraw keeps only unsaved comments)', async ({ page }) => {
   await openOrders(page);
   const cm = page.locator('#orders textarea[data-ce="5002"]');

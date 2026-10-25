@@ -37,6 +37,21 @@ test('markRead inserts and updates the cache first', async () => {
   assert.ok(events.includes('ib:notify'));
 });
 
+test('markRead of an alert already read is a no-op: no request, no ib:notify', async () => {
+  const { A, calls, events } = load();
+  await A.load(); events.length = 0; calls.length = 0;
+  assert.equal(A.list().find((a) => a.id === 1).read, true); // read on load (alert_reads)
+  assert.deepEqual(plain(await A.markRead(1)), { ok: true });
+  assert.deepEqual(calls, []);
+  assert.deepEqual(events, []);
+  assert.deepEqual(plain(await A.markRead(2)), { ok: true }); // unread: written once
+  calls.length = 0; events.length = 0;
+  assert.deepEqual(plain(await A.markRead(2)), { ok: true }); // now read here: no second request
+  assert.deepEqual(calls, []);
+  assert.deepEqual(events, []);
+  assert.equal(A.unread(), 0);
+});
+
 test('duplicate read (23505) is ok', async () => {
   const { A, responses } = load();
   await A.load();

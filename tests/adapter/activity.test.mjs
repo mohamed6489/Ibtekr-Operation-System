@@ -70,3 +70,12 @@ test('signed out: recent is empty and refresh asks nothing', async () => {
   assert.equal(A.cached(), null);
   assert.deepEqual(queries, []);
 });
+
+test('auth.signout is sent, but no activity_log read follows (the page reloads next)', async () => {
+  const { log, A, calls, queries, events } = load();
+  await log('auth.signout', 'يدوي');
+  assert.deepEqual(calls, [{ fn: 'log_activity', args: { action: 'auth.signout', entity: null, entity_id: null, old_value: null, new_value: 'يدوي' } }]);
+  assert.deepEqual(queries, []);
+  assert.equal(A.cached(), null);
+  assert.equal(events.includes('ib:activity'), false);
+});

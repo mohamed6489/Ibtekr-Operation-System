@@ -24,11 +24,12 @@ test.afterEach(() => {
 });
 const mockOnly = () => test.skip(LIVE, 'asserts on the mocked Supabase');
 
-async function signIn(page, id, pw) {
+async function signIn(page, id, pw, { remember = true } = {}) {
   await page.goto('/');
   await expect(page.locator('#login')).toBeVisible();
   await page.fill('#lg-id', id);
   await page.fill('#lg-pw', pw);
+  if (!remember) await page.getByRole('checkbox', { name: 'افتكرني على الجهاز ده' }).click();
   await page.getByRole('button', { name: 'دخول', exact: true }).click();
   await expect(page.locator('#root')).toBeVisible();
 }
@@ -241,13 +242,17 @@ test('ops sees only alerts addressed to them', async ({ page }) => {
   await expect(card(page, 'need')).not.toContainText('فشل مزامنة WooCommerce');
 });
 
-test('a mark the server refuses fails; one it already has (23505) counts as done', async ({ page }) => {
+test('a mark the server refuses fails; one it already has (23505) counts as done; an alert read here is not sent again', async ({ page }) => {
   mockOnly();
   await signIn(page, OPS.id, OPS.pw);
   await expect(card(page, 'need')).toContainText('تجميع متأخر IB-1042');
+  const posts = () => mock.requests.filter((r) => r === 'POST /rest/v1/alert_reads').length;
   expect(await page.evaluate(() => window.IBAlerts.markRead(1))).toEqual({ ok: false }); // the admin role's alert: RLS 42501
-  expect(await page.evaluate(() => window.IBAlerts.markRead(2))).toEqual({ ok: true });
-  expect(await page.evaluate(() => window.IBAlerts.markRead(2))).toEqual({ ok: true }); // as if read on another device: 409 23505
+  mock.alertReads.push({ alert_id: 2, user_id: OPS_ID }); // read on another device after this page loaded
+  expect(await page.evaluate(() => window.IBAlerts.markRead(2))).toEqual({ ok: true }); // 409 23505
+  expect(posts()).toBe(2);
+  expect(await page.evaluate(() => window.IBAlerts.markRead(2))).toEqual({ ok: true }); // already read in this page: no request
+  expect(posts()).toBe(2);
   expect(mock.alertReads).toEqual([{ alert_id: 2, user_id: OPS_ID }]);
 });
 
@@ -337,9 +342,41 @@ test.describe('sign-out leaves no member data in memory and keeps the expired me
     await expect(tabB.locator('#lg-title')).toHaveText('تسجيل الدخول');
     await expect(tabB.locator('#root')).toBeHidden();
     expect(mock.logoutScopes).toEqual(['local']); // only tab A called the server
+    expect(mock.afterLogout).toBe(0); // neither tab asked Supabase anything after the sign-out
     expect(errorsB).toEqual([]);
   });
 
+  test('remember-me off, duplicated tab: its copy of the session goes with the SIGNED_OUT and it stays signed out', async ({ page, context }) => {
+    mockOnly();
+    await page.clock.install(); // the context's clock: both tabs
+    await signIn(page, ADMIN.id, ADMIN.pw, { remember: false }); // the session lives in tab A's sessionStorage only
+    const copy = await page.evaluate(() => Object.entries(sessionStorage).filter(([k]) => k.startsWith('sb-')));
+    expect(copy.length).toBeGreaterThan(0);
+    const tabB = await context.newPage();
+    const errorsB = []; tabB.on('pageerror', (e) => errorsB.push(e.message));
+    await mock.attach(tabB);
+    await tabB.goto('/');
+    await expect(tabB.locator('#login')).toBeVisible(); // a new tab starts with an empty sessionStorage
+    await tabB.evaluate((entries) => { entries.forEach(([k, v]) => sessionStorage.setItem(k, v)); }, copy); // what a duplicated tab gets
+    await tabB.goto('/');
+    await expect(tabB.locator('#root')).toBeVisible();
+    expect(await hasDevMembers(tabB)).toBe(true);
+    await markPage(tabB);
+    await page.locator('.user-btn').click();
+    await page.getByRole('menuitem', { name: 'تسجيل الخروج' }).click();
+    await expect(page.locator('#login')).toBeVisible();
+    await expect.poll(() => reloaded(tabB)).toBe(true);
+    await expect(tabB.locator('#login')).toBeVisible();
+    await expect(tabB.locator('#lg-title')).toHaveText('تسجيل الدخول');
+    await expect(tabB.locator('#root')).toBeHidden();
+    expect(await hasDevMembers(tabB)).toBe(false);
+    expect(await tabB.evaluate(() => [...Object.keys(sessionStorage), ...Object.keys(localStorage)].filter((k) => k.startsWith('sb-')))).toEqual([]);
+    await tabB.clock.runFor('00:30');
+    await expect(tabB.locator('#root')).toBeHidden(); // still signed out: the gate found no session after the reload
+    expect(mock.afterLogout).toBe(0);
+    expect(mock.logoutScopes).toEqual(['local']);
+    expect(errorsB).toEqual([]);
+  });
 
   test('from the account menu: the members are gone and the page reloaded', async ({ page }) => {
     mockOnly();

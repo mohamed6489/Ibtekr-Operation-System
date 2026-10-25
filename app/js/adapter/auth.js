@@ -8,7 +8,9 @@
   let current = null; let totp = false; let recovered = false; const subs = [];
   let onRecovered = () => {};
   const ready = c() ? c().auth.getSession().then(({ data }) => { current = data.session; }, () => { current = null; }) : Promise.resolve();
-  if (c()) c().auth.onAuthStateChange((event, s) => { current = s; if (event === 'PASSWORD_RECOVERY') { recovered = true; onRecovered(); } subs.forEach((cb) => { try { cb(event, s); } catch (e) { /* a bad listener must not stop the others */ } }); });
+  // a SIGNED_OUT from another tab must not leave this tab's copy behind (supabase-js only notifies; a duplicated tab keeps its sessionStorage)
+  const forget = () => { try { const k = c().auth.storageKey; sessionStorage.removeItem(k); localStorage.removeItem(k); } catch (e) { /* storage blocked */ } };
+  if (c()) c().auth.onAuthStateChange((event, s) => { current = s; if (event === 'SIGNED_OUT') forget(); if (event === 'PASSWORD_RECOVERY') { recovered = true; onRecovered(); } subs.forEach((cb) => { try { cb(event, s); } catch (e) { /* a bad listener must not stop the others */ } }); });
 
   // True only when supabase-js confirmed a recovery link (PASSWORD_RECOVERY). It fires in a setTimeout after init, so with
   // the fragment hint we wait for it (bounded); without the hint this is false at once and the stored session is gated as usual.

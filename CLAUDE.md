@@ -24,7 +24,7 @@
 
 ملحوظة: لحد صفحة الإعدادات (المرحلة 10): إيقاف عضو / تغيير دور / دعوة بتتعمل من SQL أو لوحة Supabase، الشاشة بتعرض بس.
 
-ملحوظة: `IBActivity.LOGGED_PREFIXES` في `app/js/adapter/activity.js` هي اللي بتحدد أنهي أحداث `K.logEvent` توصل `activity_log` (دلوقتي `auth.` و`dashboard.` و`order.` و`suborder.` و`profile.2fa.`)؛ كل مرحلة بتربط صفحة ببيانات حقيقية بتضيف البادئة بتاعتها هناك.
+ملحوظة: `IBActivity.LOGGED_PREFIXES` في `app/js/adapter/activity.js` هي اللي بتحدد أنهي أحداث `K.logEvent` توصل `activity_log` (بادئات: `auth.` و`dashboard.` و`profile.2fa.`؛ وأحداث الأوردرات بالاسم بالظبط في `LOGGED_ACTIONS`: `order.status`, `order.confirm`, `order.patch`, `suborder.status`, `suborder.waybill`, `suborder.pulled` — عشان أحداث الكتلة 22 التجريبية ماتوصلش)؛ كل مرحلة بتربط صفحة ببيانات حقيقية بتضيف البادئة بتاعتها هناك.
 
 **Dokan قراءة بس:** النظام عمره ما يكتب في WooCommerce حالة أوردر فرعي ولا بيانات متجر. اللي بيتكتب هناك: حالة الأوردر الأصلي بس (حسب `status_map` واتجاهها، عبر `woo-sync` `push_status`)، والـ webhooks بتاعتنا (`ibtekr-ops:*`) — وأي webhook تاني على الموقع (n8n) مايتلمسش.
 

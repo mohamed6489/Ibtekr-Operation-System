@@ -146,11 +146,16 @@ test('a server-log update does not redraw the dashboard under an open menu', asy
   await page.getByRole('button', { name: '+ إجراء سريع', exact: true }).click();
   const menu = page.getByRole('menu');
   await expect(menu).toBeVisible();
-  await page.evaluate(() => document.dispatchEvent(new Event('ib:activity'))); // as IBActivity.refresh() does
+  const tag = () => card(page, 'activity').evaluate((el) => { el.dataset.probe = '1'; }); // a redraw replaces the element: the tag goes
+  await tag();
+  await page.evaluate(() => document.dispatchEvent(new Event('ib:activity'))); // as IBActivity.refresh() does (listeners run synchronously)
   await expect(menu).toBeVisible();
+  await expect(card(page, 'activity')).toHaveAttribute('data-probe', '1'); // not redrawn
   await page.keyboard.press('Escape');
   await expect(menu).toHaveCount(0);
-  await page.evaluate(() => document.dispatchEvent(new Event('ib:activity'))); // no overlay: the card redraws as before
+  await tag();
+  await page.evaluate(() => document.dispatchEvent(new Event('ib:activity'))); // no overlay: the dashboard redraws
+  await expect(card(page, 'activity')).not.toHaveAttribute('data-probe', '1');
   await expect(card(page, 'activity')).toContainText('سجّل دخول');
 });
 
@@ -173,6 +178,29 @@ test('the activity card lists the newest 5 server rows: today, yesterday, then D
 });
 
 test.describe('sign-out leaves no member data in memory and keeps the expired message', () => {
+  test('in another tab: the SIGNED_OUT it receives reloads it, the members are gone', async ({ page, context }) => {
+    mockOnly();
+    await signIn(page, ADMIN.id, ADMIN.pw);
+    const tabB = await context.newPage();
+    const errorsB = []; tabB.on('pageerror', (e) => errorsB.push(e.message));
+    await mock.attach(tabB);
+    await tabB.goto('/');
+    await expect(tabB.locator('#root')).toBeVisible();
+    expect(await hasDevMembers(tabB)).toBe(true);
+    await markPage(tabB);
+    await page.locator('.user-btn').click(); // tab A signs out; supabase-js tells tab B (BroadcastChannel) → SIGNED_OUT there
+    await page.getByRole('menuitem', { name: 'تسجيل الخروج' }).click();
+    await expect(page.locator('#login')).toBeVisible();
+    await expect(tabB.locator('#login')).toBeVisible();
+    await expect.poll(() => reloaded(tabB)).toBe(true);
+    await expect.poll(() => hasDevMembers(tabB)).toBe(false);
+    await expect(tabB.locator('#lg-title')).toHaveText('تسجيل الدخول');
+    await expect(tabB.locator('#root')).toBeHidden();
+    expect(mock.logoutScopes).toEqual(['local']); // only tab A called the server
+    expect(errorsB).toEqual([]);
+  });
+
+
   test('from the account menu: the members are gone and the page reloaded', async ({ page }) => {
     mockOnly();
     await page.clock.install();

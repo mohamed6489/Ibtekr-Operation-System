@@ -7,7 +7,7 @@ const src = readFileSync(new URL('../../app/js/adapter/orders.js', import.meta.u
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const V1 = 'a0000000-0000-4000-8000-000000000001', V2 = 'a0000000-0000-4000-8000-000000000002';
 // multi-maker: two lines in two Dokan sub-orders; single-maker: one line, no sub-order (+ one removed line)
-const O1 = { id: 181668, customer_name: 'سلوى زيتوني', customer_phone: '012••••7052', customer_city: 'القاهرة', customer_address: 'مدينة نصر', payment_method: 'cod', payment_title: 'الدفع عند الاستلام', status: 'جاري التنفيذ', woo_status: 'processing', confirm: 'غير مؤكد', confirm_at: null, deposit: 0, total: 3541, note: null, placed_at: '2026-10-19T12:00:00+00:00', cancel: null, ret: null };
+const O1 = { id: 181668, customer_name: 'سلوى زيتوني', customer_phone: '012••••7052', customer_city: 'القاهرة', customer_address: 'مدينة نصر', payment_method: 'cod', payment_title: 'الدفع عند الاستلام', status: 'جاري التنفيذ', woo_status: 'processing', confirm: 'غير مؤكد', confirm_at: null, deposit: 0, total: 3541, note: null, customer_note: 'اتصلوا قبل التوصيل\nالدور التالت', placed_at: '2026-10-19T12:00:00+00:00', cancel: null, ret: null };
 const O2 = { id: 180686, customer_name: 'هدير عميل', customer_phone: '01000007030', customer_city: null, customer_address: null, payment_method: 'cod', payment_title: null, status: 'معلّق', woo_status: 'on-hold', confirm: 'مؤكد بعربون', confirm_at: '2026-10-18', deposit: '300.00', total: '1002.00', note: 'تبع اوردر 180668', placed_at: '2026-10-17T12:00:00+00:00', cancel: null, ret: { reason: 'x' } };
 const SUBS = [{ id: 1, order_id: 181668, vendor_id: V1, woo_order_id: 181669, woo_status: 'processing' }, { id: 2, order_id: 181668, vendor_id: V2, woo_order_id: 181670, woo_status: 'on-hold' }];
 const item = (o) => ({ sub_order_id: null, sku: null, qty: 1, total: 0, vendor_id: null, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, ...o });
@@ -22,7 +22,7 @@ const PRODUCTS = [{ sku: 'IBTA4040PAHC000013', image_url: 'https://stage.ibtekr.
 const STATUSES = [{ system_status: 'قيد الانتظار', woo_status: 'pending', direction: 'both', sort: 1 }, { system_status: 'تم RTC', woo_status: null, direction: 'from_system', sort: 6 }];
 const ok = (data) => ({ data, error: null });
 // the granted columns the adapter names (0007 grants: no raw, no customer_phone on orders — the view masks it)
-const COLS = { order: 'id, customer_name, customer_phone, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, placed_at, cancel, ret',
+const COLS = { order: 'id, customer_name, customer_phone, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret',
   item: 'id, order_id, sub_order_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed', sub: 'id, order_id, vendor_id, woo_order_id, woo_status' };
 const seed = () => ({ orders_v: ok([O1, O2]), order_items: ok(ITEMS), sub_orders: ok(SUBS), vendors: ok(VENDORS), products: ok(PRODUCTS), status_map: ok(STATUSES), 'fn:woo-sync': ok({ action: 'push_status', result: 'ok', counts: { pushed: 1 } }) });
 // the adapter's clock: local 2026-10-25 12:00 unless a test asks for the real one (now: null)
@@ -72,7 +72,7 @@ test('load builds the screen shape: multi-maker sid/raw from the Dokan sub-order
   await O.load();
   const d = plain(O.data());
   assert.deepEqual(d.orders.map((o) => o.id), ['181668', '180686']);
-  assert.deepEqual(d.orders[0], { id: '181668', name: 'سلوى زيتوني', phone: '012••••7052', pay: 'الدفع عند الاستلام', date: '2026-10-19', st: 'جاري التنفيذ', cf: 'غير مؤكد', dep: 0, tot: 3541, age: 6, note: '', cdate: '', confAt: '', city: 'القاهرة', addr: 'مدينة نصر', cancel: null, ret: null,
+  assert.deepEqual(d.orders[0], { id: '181668', name: 'سلوى زيتوني', phone: '012••••7052', pay: 'الدفع عند الاستلام', date: '2026-10-19', st: 'جاري التنفيذ', cf: 'غير مؤكد', dep: 0, tot: 3541, age: 6, note: '', cnote: 'اتصلوا قبل التوصيل\nالدور التالت', cdate: '', confAt: '', city: 'القاهرة', addr: 'مدينة نصر', cancel: null, ret: null,
     subs: [
       { n: 5001, itemId: '5001', sid: '181669', oid: '181668', prod: 'Cushion', qty: 2, tot: 1002, raw: 'processing', vendor: 'Art Craft', cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', readyAt: '', waybill: null, pulled: false, ret: null, store: null },
       { n: 5002, itemId: '5002', sid: '181670', oid: '181668', prod: 'Macrame Curtain', qty: 1, tot: 2539, raw: 'on-hold', vendor: 'Antikiano', cm: 'تم تبليغ المورد', ss: 'مؤكد', exp: '2026-10-20', sku: 'IBTAMCTOWM200X10014', readyAt: '', waybill: null, pulled: false, ret: null, store: null },
@@ -89,7 +89,7 @@ test('toScreen, single maker without a sub-order: sid = the line id, raw = order
   const { O } = load();
   const [o] = plain(O.toScreen([O2], ITEMS, SUBS, VENDORS, { today: '2026-10-25' }));
   assert.equal(o.age, 8);
-  assert.deepEqual({ pay: o.pay, dep: o.dep, tot: o.tot, note: o.note, cdate: o.cdate, confAt: o.confAt, city: o.city, addr: o.addr, ret: o.ret }, { pay: 'cod', dep: 300, tot: 1002, note: 'تبع اوردر 180668', cdate: '2026-10-18', confAt: '2026-10-18', city: '', addr: '', ret: { reason: 'x' } });
+  assert.deepEqual({ pay: o.pay, dep: o.dep, tot: o.tot, note: o.note, cnote: o.cnote, cdate: o.cdate, confAt: o.confAt, city: o.city, addr: o.addr, ret: o.ret }, { pay: 'cod', dep: 300, tot: 1002, note: 'تبع اوردر 180668', cnote: '', cdate: '2026-10-18', confAt: '2026-10-18', city: '', addr: '', ret: { reason: 'x' } });
   assert.deepEqual(o.subs, [{ n: 5003, itemId: '5003', sid: '5003', oid: '180686', prod: 'Cushion', qty: 2, tot: 1002, raw: 'on-hold', vendor: '', cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', readyAt: '', waybill: null, pulled: false, ret: null, store: null }]);
 });
 

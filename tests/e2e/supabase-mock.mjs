@@ -340,7 +340,8 @@ export async function installSupabaseMock(page) {
         return json(200, reason ? { action, result: 'skipped', reason, counts: { pushed: 0 } } : { action, result: 'ok', conflict: false, counts: { pushed: 1 } });
       }
       const hook = SUPABASE_URL + '/functions/v1/woo-webhook';
-      if (action === 'all') { mock.syncs.push({ action }); return json(200, { action, result: 'ok', counts: { vendors: { upserted: mock.vendors.length }, products: { upserted: mock.products.length }, orders: { upserted: mock.orders.length, pages: 1 } } }); }
+      // 'all' answers like woo-sync's pull(): each part's counts as its cursorPull / pullVendors return them (woo-write.js writeOrderPage)
+      if (action === 'all') { mock.syncs.push({ action }); return json(200, { action, result: 'ok', counts: { vendors: { vendors: mock.vendors.length, pages: 1, done: true }, products: { products: mock.products.length, pages: 1, done: true }, orders: { orders: mock.orders.length, sub_orders: mock.subOrders.length, skipped: 0, conflicts: 0, pages: 1, done: true } } }); }
       if (action === 'register_webhooks') {
         if (b.delivery_url !== undefined && b.delivery_url !== hook) return json(400, { error: 'delivery_url_mismatch' });
         mock.syncs.push({ action });

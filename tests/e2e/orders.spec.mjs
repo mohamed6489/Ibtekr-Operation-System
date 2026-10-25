@@ -50,6 +50,8 @@ test('the orders page lists real orders and no seed', async ({ page }) => {
   await expect(card(page, '181668').locator('.band')).toContainText('0120 000 7052');
   await expect(card(page, '181668').locator('.band a.wa')).toHaveAttribute('href', 'https://wa.me/201200007052');
   await expect(card(page, '181668').locator('.band')).toContainText('الدفع عند الاستلام'); // the site's payment title
+  await expect(card(page, '181668').locator('.note.web')).toContainText('اتصلوا قبل التوصيل'); // orders.customer_note
+  await expect(card(page, '180686').locator('.note.web')).toContainText('مفيش ملاحظة من العميل');
   await expect(page.locator('#orders .oroot')).not.toContainText('Customer 48');
   await expect(page.locator('#orders .oroot')).not.toContainText('IB-150001'); // older than 12 months: never asked
   await expect(page.locator('#orders .ph')).not.toContainText('Airtable');
@@ -75,7 +77,7 @@ test('every site string renders as text: cards (desktop, tablet, mobile), filter
   await openOrders(page);
   await page.evaluate((evil) => {
     const d = window.IBOrders.data(); const o = d.orders.find((x) => x.id === '181668');
-    Object.assign(o, { name: evil, phone: evil, pay: evil, note: evil, city: evil, addr: evil, st: evil, cf: evil });
+    Object.assign(o, { name: evil, phone: evil, pay: evil, note: evil, cnote: evil, city: evil, addr: evil, st: evil, cf: evil });
     Object.assign(o.subs[0], { prod: evil, sku: evil, vendor: evil, cm: evil, ss: evil, exp: evil });
     d.vendors = d.vendors.concat(evil); d.images = Object.assign({}, d.images, { [evil]: 'javascript:alert(1)' });
     window.OrdersApp.hydrate(d);
@@ -91,6 +93,7 @@ test('every site string renders as text: cards (desktop, tablet, mobile), filter
   await page.setViewportSize({ width: 1280, height: 720 });
   await page.evaluate(() => window.OrdersApp.edit('181668'));
   await expect(page.locator('#orders #cdlg [data-f="name"]')).toHaveValue(EVIL);
+  await expect(page.locator('#orders #cdlg')).toContainText(EVIL); // the customer's note
   await inert(page);
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.OrdersApp.editSub(5001));
@@ -119,6 +122,18 @@ test('a status with no Woo slug is saved but not pushed', async ({ page }) => {
   expect(mock.patches).toEqual([{ table: 'orders', id: 181668, status: 'تم RTC' }]);
   expect(mock.pushes[0]).toEqual({ action: 'push_status', order_id: 181668, status: 'تم RTC', result: 'skipped', reason: 'no_woo_status' });
   expect(mock.orders.find((o) => o.id === 181668).woo_status).toBe('processing');
+  await expect(toast(page)).toBeHidden(); // skipped: nothing to tell
+});
+
+test('a status saved while WooCommerce is unreachable says so and stays', async ({ page }) => {
+  await openOrders(page);
+  mock.wooDown = true; // woo-sync answers 502: the adapter resolves { ok: true, push: 'error' }
+  await page.locator('#orders select[data-st="180656"]').selectOption('جاري التنفيذ');
+  await expect(toast(page)).toHaveText('اتحفظت هنا، بس ماوصلتش لـ WooCommerce — المزامنة هتحاول تاني');
+  expect(mock.patches).toEqual([{ table: 'orders', id: 180656, status: 'جاري التنفيذ' }]);
+  expect(mock.pushes).toEqual([]);
+  await expect(page.locator('#orders select[data-st="180656"]')).toHaveValue('جاري التنفيذ');
+  expect(await page.evaluate(() => window.OrdersApp.get('180656').st)).toBe('جاري التنفيذ');
 });
 
 test('a forbidden status change reverts', async ({ page }) => {
@@ -160,10 +175,12 @@ test('the product image comes from products', async ({ page }) => {
   await expect(row(5005).locator('.th img')).toHaveCount(0); // Macrame Feathers: no image_url → the box icon
   await expect(row(5005).locator('.th svg')).toHaveCount(1);
   expect(await page.evaluate(() => [window.OrdersApp.thumb('IBTA4040PAHC000013'), window.OrdersApp.thumb('IBTB0CSW6RFTM')])).toEqual([IMG.cushion, '']);
-  // only http(s) and data:image URLs are used
-  await page.evaluate(() => { const d = window.IBOrders.data(); d.images = Object.assign({}, d.images, { IBTA4040PAHC000013: 'javascript:alert(1)' }); window.OrdersApp.hydrate(d); });
-  await expect(row(5001).locator('.th img')).toHaveCount(0);
-  expect(await page.evaluate(() => window.OrdersApp.thumb('IBTA4040PAHC000013'))).toBe('');
+  // only https and data:image URLs are used (CSP img-src: https / data)
+  for (const bad of ['javascript:alert(1)', 'http://example.com/a.jpg']) {
+    await page.evaluate((u) => { const d = window.IBOrders.data(); d.images = Object.assign({}, d.images, { IBTA4040PAHC000013: u }); window.OrdersApp.hydrate(d); }, bad);
+    await expect(row(5001).locator('.th img')).toHaveCount(0);
+    expect(await page.evaluate(() => window.OrdersApp.thumb('IBTA4040PAHC000013'))).toBe('');
+  }
 });
 
 test('confirmation, deposit and note are written through; a network failure puts the old value back', async ({ page }) => {
@@ -174,6 +191,8 @@ test('confirmation, deposit and note are written through; a network failure puts
   await expect.poll(() => mock.patches.length).toBe(2);
   expect(mock.patches).toContainEqual({ table: 'orders', id: 181668, confirm: 'مؤكد بعربون', confirm_at: today });
   expect(mock.patches).toContainEqual({ table: 'order_items', id: 5001, status: 'مؤكد' });
+  expect(await page.evaluate(() => window.OrdersApp.get('181668').cdate)).toBe(today); // «تاريخ التأكيد» shows at once
+  await expect(page.locator('#orders input[data-fi="cd:181668"]')).not.toHaveValue('');
   const dep = page.locator('#orders input[data-dep="181668"]');
   await dep.fill('500'); await dep.press('Tab');
   await expect.poll(() => mock.patches.length).toBe(3);
@@ -247,16 +266,113 @@ test('an empty 12-month window says so', async ({ page }) => {
   mock.orders = mock.orders.filter((o) => o.id === 150001); // only the order older than 12 months
   await signIn(page, ADMIN);
   await page.evaluate(() => { location.hash = 'orders'; });
-  await expect(page.locator('#orders #list')).toHaveText('مافيش أوردرات في آخر 12 شهر');
+  await expect(page.locator('#orders #list')).toHaveText('مفيش أوردرات في آخر 12 شهر');
   await expect(page.locator('#orders #cn')).toHaveText('0');
   expect(await page.evaluate(() => window.IBOrders.state())).toBe('ready');
 });
 
-test('IBOrders.clear() (sign-out) leaves no order on the page', async ({ page }) => {
+test('IBOrders.clear() (sign-out) leaves no order, search or filter on the page', async ({ page }) => {
   await openOrders(page);
+  await page.locator('#orders #fc').selectOption('غير مؤكد');
+  await page.locator('#orders #oq').fill('0122');
+  await expect(cards(page)).toHaveCount(1);
   await page.evaluate(() => window.IBOrders.clear());
+  await expect(page.locator('#orders #oq')).toHaveValue('');
+  await expect(page.locator('#orders #fc')).toHaveValue('');
   await expect(cards(page)).toHaveCount(0);
   await expect(page.locator('#orders #list')).toHaveText('بيحمّل الأوردرات…');
   expect(await page.evaluate(() => [window.OrdersApp.get('181668'), window.OrdersApp.query({}, 5).total, window.OrdersApp.vendors(), window.OrdersApp.thumb('IBTA4040PAHC000013')])).toEqual([null, 0, [], '']);
   await expect(page.locator('#orders .oroot')).not.toContainText('سلوى زيتوني');
+});
+
+test('the details popup: a tab switch keeps the typed info without writing it; «ليس الآن» drops it, «حفظ التعديلات» writes it', async ({ page }) => {
+  await openOrders(page);
+  const dlg = page.locator('#orders #cdlg');
+  await page.evaluate(() => window.OrdersApp.details('181668'));
+  await dlg.locator('[data-f="note"]').fill('ملاحظة مش هتتحفظ');
+  await dlg.locator('[data-dtab="subs"]').click();
+  await dlg.locator('[data-dtab="info"]').click();
+  await expect(dlg.locator('[data-f="note"]')).toHaveValue('ملاحظة مش هتتحفظ'); // stashed, not applied
+  expect(await page.evaluate(() => window.OrdersApp.get('181668').note)).toBe('');
+  await dlg.locator('[data-dtab="subs"]').click();
+  await dlg.locator('[data-cc]').first().click();
+  await page.locator('#orders #udlg [data-ud]').click(); // «ليس الآن»
+  await expect(dlg).toHaveCount(0);
+  await expect(page.locator('#orders textarea[data-ne="181668"]')).toHaveValue('');
+  expect(await page.evaluate(() => window.OrdersApp.get('181668').note)).toBe('');
+  await page.locator('#orders select[data-ss="5002"]').selectOption('قيد التنفيذ'); // a write that does go out: nothing went before it
+  await expect.poll(() => mock.patches.length).toBe(1);
+  expect(mock.patches).toEqual([{ table: 'order_items', id: 5002, status: 'قيد التنفيذ' }]);
+  await page.evaluate(() => window.OrdersApp.details('181668'));
+  await dlg.locator('[data-f="note"]').fill('اتصلوا الصبح');
+  await dlg.locator('[data-dtab="subs"]').click();
+  await dlg.locator('[data-eok]').click(); // saved from the lines tab: the stashed form is written
+  await expect.poll(() => mock.patches.length).toBe(2);
+  expect(mock.patches[1]).toEqual({ table: 'orders', id: 181668, note: 'اتصلوا الصبح' });
+});
+
+test('a Realtime order redraws its own card only, never over a field in use; counts follow', async ({ page }) => {
+  await openOrders(page);
+  // the adapter's Realtime path: a rebuilt order handed to applyOrder (the mock runs without a Realtime socket)
+  const realtime = (id, st, vendor) => page.evaluate(([id, st, vendor]) => {
+    const o = window.IBOrders.data().orders.find((x) => x.id === id);
+    window.OrdersApp.applyOrder(Object.assign({}, o, { st, subs: o.subs.map((s, i) => (i || !vendor ? s : Object.assign({}, s, { vendor }))) }));
+  }, [id, st, vendor]);
+  const other = page.locator('#orders textarea[data-ne="180686"]');
+  await other.fill('بكتب دلوقتي'); // typing in another card
+  await realtime('181668', 'قيد الشحن', 'Medo .crafts');
+  await expect(page.locator('#orders select[data-st="181668"]')).toHaveValue('قيد الشحن');
+  await expect(other).toHaveValue('بكتب دلوقتي');
+  await expect(other).toBeFocused();
+  await expect(page.locator('#orders [data-sc="قيد الشحن"] i')).toHaveText('1');
+  await expect(page.locator('#orders [data-sc="جاري التنفيذ"] i')).toHaveText('1');
+  await expect(page.locator('#orders #cn')).toHaveText('3');
+  await expect(page.locator('#orders #fv option', { hasText: 'Medo .crafts' })).toHaveCount(1);
+  // the card being edited: focused → drawn on blur
+  const mine = page.locator('#orders textarea[data-ne="181668"]');
+  await mine.focus();
+  await realtime('181668', 'جاهز للشحن');
+  await expect(page.locator('#orders select[data-st="181668"]')).toHaveValue('قيد الشحن');
+  await page.locator('#orders #oq').focus();
+  await expect(page.locator('#orders select[data-st="181668"]')).toHaveValue('جاهز للشحن');
+  // a comment typed and left unsaved: still not drawn over after the blur; the save draws it
+  await page.locator('#orders textarea[data-ne="181668"]').fill('لسه بكتب');
+  await realtime('181668', 'مكتمل');
+  await page.locator('#orders #oq').focus();
+  await expect(page.locator('#orders select[data-st="181668"]')).toHaveValue('جاهز للشحن');
+  await expect(page.locator('#orders textarea[data-ne="181668"]')).toHaveValue('لسه بكتب');
+  await expect(other).toHaveValue('بكتب دلوقتي'); // three Realtime updates later, the other card's typing is still there
+  await page.locator('#orders [data-ns="181668"]').click();
+  await expect(page.locator('#orders select[data-st="181668"]')).toHaveValue('مكتمل');
+  await expect.poll(() => mock.patches.length).toBe(1);
+  expect(mock.patches).toEqual([{ table: 'orders', id: 181668, note: 'لسه بكتب' }]); // the Realtime orders are not written back
+});
+
+test('WooCommerce owns name, phone, payment, maker, quantity and total: read-only; nothing is deleted', async ({ page }) => {
+  await openOrders(page);
+  const menu = page.locator('#orders #mpop'); const dlg = page.locator('#orders #cdlg');
+  await card(page, '181668').locator('[data-more="o:181668"]').click();
+  await expect(menu.locator('[data-ma="edit"]')).toHaveCount(1);
+  await expect(menu.locator('[data-ma="del"]')).toHaveCount(0);
+  await expect(menu).not.toContainText('مسح');
+  await menu.locator('[data-ma="edit"]').click();
+  for (const f of ['name', 'phone', 'pay']) await expect(dlg.locator(`[data-f="${f}"]`)).toBeDisabled();
+  await expect(dlg.locator('[data-f="pay"]')).toHaveValue('الدفع عند الاستلام');
+  await expect(dlg).toContainText('بيتعدّل من WooCommerce');
+  await expect(dlg).toContainText('اتصلوا قبل التوصيل'); // the customer's note from the site
+  await dlg.locator('[data-f="note"]').fill('ملاحظة من التعديل');
+  await dlg.locator('[data-eok]').click();
+  await expect.poll(() => mock.patches.length).toBe(1);
+  expect(mock.patches).toEqual([{ table: 'orders', id: 181668, note: 'ملاحظة من التعديل' }]);
+  await card(page, '181668').locator('[data-more="s:5001"]').click();
+  await expect(menu.locator('[data-ma="del"]')).toHaveCount(0);
+  await menu.locator('[data-ma="edit"]').click();
+  for (const f of ['vendor', 'qty', 'tot']) await expect(dlg.locator(`[data-f="${f}"]`)).toBeDisabled();
+  await expect(dlg.locator('[data-f="vendor"]')).toHaveValue('Art Craft');
+  await expect(dlg).toContainText('بيتعدّل من WooCommerce');
+  await dlg.locator('[data-f="cm"]').fill('تعليق من التعديل');
+  await dlg.locator('[data-eok]').click();
+  await expect.poll(() => mock.patches.length).toBe(2);
+  expect(mock.patches[1]).toEqual({ table: 'order_items', id: 5001, comment: 'تعليق من التعديل' });
+  expect(mock.patches.some((x) => ['customer_name', 'customer_phone', 'payment_title', 'qty', 'total', 'vendor_id'].some((k) => k in x))).toBe(false);
 });

@@ -17,7 +17,7 @@ function setup({ seed = {}, routes = {}, env = {}, fail }: Opts = {}) {
 
 type Delivery = { topic?: string | null; id?: string | null; signature?: string | null; secret?: string; contentType?: string };
 async function deliver(deps: any, payload: unknown, o: Delivery = {}) {
-  const body = typeof payload === 'string' ? payload : JSON.stringify(payload);
+  const body = (payload instanceof Uint8Array || typeof payload === 'string' ? payload : JSON.stringify(payload)) as string | Uint8Array<ArrayBuffer>;
   const headers: Record<string, string> = { 'content-type': o.contentType ?? 'application/json', 'x-wc-webhook-id': '901' };
   const topic = o.topic === undefined ? 'order.updated' : o.topic;
   if (topic) headers['x-wc-webhook-topic'] = topic;
@@ -29,6 +29,8 @@ async function deliver(deps: any, payload: unknown, o: Delivery = {}) {
   return { res, body: await res.json() };
 }
 
+// The woo_webhook_events.delivery_id a delivery is deduplicated on: `<delivery id>:<signature>`.
+const keyOf = async (payload: unknown, id = 'd-1') => `${id}:${await sign(JSON.stringify(payload), ENV.WOO_WEBHOOK_SECRET)}`;
 const subsRoute = (subs: any[]) => ({ 'GET wc/v3/orders': (c: any) => (c.query.parent ? { body: subs } : undefined) });
 const ops = (db: any) => db.writes().filter((w: any) => !w.error).map((w: any) => `${w.op} ${w.table}`);
 
@@ -92,8 +94,8 @@ Deno.test('GET → 405', async () => {
 
 // ---------------------------------------------------------------- idempotency
 
-Deno.test('a duplicate delivery id → 200 duplicate and no further writes or Woo calls', async () => {
-  const { db, woo, deps } = setup({ seed: { woo_webhook_events: [{ id: 1, delivery_id: 'd-1', topic: 'order.updated', status: 'ok' }] } });
+Deno.test('a duplicate delivery (same delivery id, same signed body) → 200 duplicate and no further writes or Woo calls', async () => {
+  const { db, woo, deps } = setup({ seed: { woo_webhook_events: [{ id: 1, delivery_id: await keyOf(wooOrder()), topic: 'order.updated', status: 'ok' }] } });
   const { res, body } = await deliver(deps, wooOrder());
   assertEquals(res.status, 200);
   assertEquals(body, { status: 'duplicate' });
@@ -105,12 +107,44 @@ Deno.test('a duplicate delivery id → 200 duplicate and no further writes or Wo
 });
 
 Deno.test('a redelivery of a delivery that failed is processed again on the same event row', async () => {
-  const { db, deps } = setup({ seed: { woo_webhook_events: [{ id: 1, delivery_id: 'd-1', topic: 'order.updated', status: 'error', error: 'boom' }] }, routes: subsRoute([]) });
+  const { db, deps } = setup({ seed: { woo_webhook_events: [{ id: 1, delivery_id: await keyOf(wooOrder()), topic: 'order.updated', status: 'error', error: 'boom' }] }, routes: subsRoute([]) });
   const { body } = await deliver(deps, wooOrder());
   assertEquals(body, { status: 'ok', id: 1001 });
   assertEquals(db.rows('woo_webhook_events').length, 1);
   assertEquals([db.row('woo_webhook_events', 1).status, db.row('woo_webhook_events', 1).error], ['ok', null]);
   assertEquals(db.rows('orders').length, 1);
+});
+
+Deno.test('two deliveries sharing a delivery id (one webhook, same second) with different bodies → both processed; the same body again → duplicate', async () => {
+  const { db, deps } = setup({ routes: subsRoute([]) });
+  const later = wooOrder({ status: 'completed', date_modified_gmt: '2026-10-20T11:00:01' });
+  assertEquals((await deliver(deps, wooOrder())).body, { status: 'ok', id: 1001 });
+  assertEquals((await deliver(deps, later)).body, { status: 'ok', id: 1001 });
+  assertEquals(db.row('orders', 1001).status, 'مكتمل');
+  assertEquals((await deliver(deps, later)).body, { status: 'duplicate' });
+  assertEquals(db.rows('woo_webhook_events').map((e: any) => [e.delivery_id, e.status]), [[await keyOf(wooOrder()), 'ok'], [await keyOf(later), 'ok']]);
+});
+
+Deno.test('after a duplicate key, an earlier event row that cannot be read back (read error, or no row) → 500 and an error row, not "duplicate"', async () => {
+  const readFails = (c: any) => (c.table === 'woo_webhook_events' && c.op === 'select' ? { code: 'XX000', message: 'read failed' } : null);
+  const insertCollides = (c: any) => (c.table === 'woo_webhook_events' && c.op === 'insert' ? { code: '23505', message: 'duplicate key value' } : null);
+  const seeded = { woo_webhook_events: [{ id: 1, delivery_id: await keyOf(wooOrder()), topic: 'order.updated', status: 'ok' }] };
+  for (const [seed, fail] of [[seeded, readFails], [{}, insertCollides]] as const) {
+    const { db, woo, deps } = setup({ seed, fail });
+    const { res, body } = await deliver(deps, wooOrder());
+    assertEquals([res.status, body], [500, { error: 'processing_failed' }]);
+    assertEquals(db.rows('woo_sync_log').map((r: any) => [r.kind, r.result]), [['webhook', 'error']]);
+    assertEquals(db.rows('orders').length + woo.calls.length, 0);
+  }
+});
+
+Deno.test('the signature covers the raw body bytes (a body that is not valid UTF-8 still verifies)', async () => {
+  const enc = new TextEncoder();
+  const bytes = new Uint8Array([...enc.encode('{"id":501,"name":"منتج","status":"publish","description":"'), 0xff, ...enc.encode('"}')]);
+  const { db, deps } = setup();
+  const { res, body } = await deliver(deps, bytes, { topic: 'product.updated' });
+  assertEquals([res.status, body], [200, { status: 'ok', id: 501 }]);
+  assertEquals(db.row('products', 501).name, 'منتج');
 });
 
 Deno.test('a delivery without a delivery id is processed and stored with delivery_id null', async () => {
@@ -142,9 +176,10 @@ Deno.test('a parent order → orders + lines upserted, ?parent= fetched, sub_ord
   assertEquals(woo.calls.map((c) => [c.method, c.path, c.query]), [['GET', 'wc/v3/orders', { parent: '1001', per_page: '100' }]]);
   assertEquals(woo.calls[0].headers.authorization, WC_AUTH);
   assert(woo.calls[0].timed, 'Woo requests carry a timeout signal');
+  assertEquals(woo.calls[0].redirect, 'error', 'the Basic header never follows a redirect');
 
   const ev = db.rows('woo_webhook_events')[0];
-  assertEquals([ev.delivery_id, ev.webhook_id, ev.topic, ev.resource_id, ev.status, ev.error], ['d-1', '901', 'order.updated', 1001, 'ok', null]);
+  assertEquals([ev.delivery_id, ev.webhook_id, ev.topic, ev.resource_id, ev.status, ev.error], [await keyOf(wooOrder()), '901', 'order.updated', 1001, 'ok', null]);
   assertEquals(Object.keys(ev.payload).sort(), ['date_modified_gmt', 'id', 'number', 'parent_id', 'status', 'topic']);
   assertFalse(writtenText(db).includes(PHONE));
 });
@@ -209,6 +244,37 @@ Deno.test('a store Dokan does not know (404) → a skipped log row and the line 
   const log = db.rows('woo_sync_log').find((r: any) => r.entity === 'vendor')!;
   assertEquals([log.kind, log.entity_id, log.result], ['webhook', '777', 'skipped']);
   assertEquals(db.rows('vendors').length, 2);
+});
+
+Deno.test('a Dokan store error other than 404 (500) → the order and its lines are written with vendor_id null, one vendor error row, 200', async () => {
+  const order = wooOrder({ line_items: [{ id: 1, product_id: 501, name: 'كوباية', quantity: 1, total: '100', meta_data: [{ key: '_dokan_vendor_id', value: '777' }] }] });
+  const { db, deps } = setup({ routes: { 'GET dokan/v1/stores/777': { status: 500, text: `<b>fatal</b> for ${PHONE}` }, ...subsRoute([]) } });
+  const { res, body } = await deliver(deps, order);
+  assertEquals([res.status, body], [200, { status: 'ok', id: 1001 }]);
+  assertEquals(db.rows('orders').length, 1);
+  assertEquals(db.row('order_items', 1).vendor_id, null);
+  const rows = db.rows('woo_sync_log').filter((r: any) => r.entity === 'vendor');
+  assertEquals(rows.map((r: any) => [r.kind, r.entity_id, r.action, r.result]), [['webhook', '777', 'fetch', 'error']]);
+  assertStringIncludes(rows[0].detail.error, 'HTTP 500');
+  assertFalse(writtenText(db).includes(PHONE));
+  assertEquals(db.rows('woo_webhook_events')[0].status, 'ok');
+});
+
+Deno.test('a non-integer _dokan_vendor_id ("../../x") → no Woo fetch for it, the line keeps vendor_id null', async () => {
+  const order = wooOrder({ line_items: [{ id: 1, product_id: 501, name: 'كوباية', quantity: 1, total: '100', meta_data: [{ key: '_dokan_vendor_id', value: '../../x' }] }] });
+  const { db, woo, deps } = setup({ routes: subsRoute([]) });
+  assertEquals((await deliver(deps, order)).body.status, 'ok');
+  assertEquals(woo.calls.map((c) => c.path), ['wc/v3/orders']);
+  assertEquals(db.row('order_items', 1).vendor_id, null);
+});
+
+Deno.test('a sub-order whose parent is unknown to WooCommerce (404) → a skipped row, nothing written', async () => {
+  const { db, deps } = setup({ routes: { 'GET wc/v3/orders/1001': { status: 404, body: { code: 'woocommerce_rest_shop_order_invalid_id' } } } });
+  const { body } = await deliver(deps, wooSub(2001, 1001, 44));
+  assertEquals(body, { status: 'ignored', id: 2001 });
+  assertEquals(db.rows('sub_orders').length + db.rows('orders').length, 0);
+  const log = db.rows('woo_sync_log')[0];
+  assertEquals([log.entity, log.entity_id, log.result, log.detail], ['sub_order', '2001', 'skipped', { reason: 'parent_missing', parent_id: 1001 }]);
 });
 
 Deno.test('with WOO_WP_USER + WOO_WP_APP_PASSWORD, dokan/ calls carry their Basic header (never the WC keys)', async () => {

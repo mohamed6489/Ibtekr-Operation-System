@@ -1,1 +1,7 @@
 project_id = "fsynculhaupcktzkfkdd"
+
+[functions.woo-webhook]
+verify_jwt = false
+
+[functions.woo-sync]
+verify_jwt = false

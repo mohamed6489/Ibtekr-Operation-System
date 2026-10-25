@@ -8,13 +8,15 @@
 //              sync_state['orders'] = { cursor, last_run, count, pages, done } after every page.
 //   'vendors'  dokan/v1/stores → vendors on woo_vendor_id.  'products'  wc/v3/products?modified_after={cursor} → products.
 //   'all'      vendors, then products, then orders (a failed part does not stop the next ones).
-//   'push_status' { order_id, status }  the system status → its Woo slug (outgoingWooStatus; none → skipped) → PUT
+//   'push_status' { order_id, status }  refused as skipped/stale unless `status` is the order's stored status (the
+//              adapter writes the row first, so a mismatch is a stale page); the system status → its Woo slug
+//              (outgoingWooStatus; none → skipped) → PUT
 //              wc/v3/orders/{id}; "system wins": when Woo changed the status since our last sync, the push still goes
 //              and a 'conflict' row is logged; orders.woo_status / woo_updated_at follow Woo's answer.
 //   'register_webhooks' { delivery_url? }  ensures one active `ibtekr-ops:<topic>` webhook per topic pointing at
 //              {SUPABASE_URL}/functions/v1/woo-webhook; any other webhook on the site (n8n's) is never touched.
 // Answer: 200 { action, result, counts, … } or 4xx / 5xx { error }. CORS for the browser's functions.invoke.
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { START_DATE, mapStore, nextCursor, outgoingWooStatus } from '../_shared/woo-core.js';
 import { getState, logSync, setState } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
@@ -121,13 +123,15 @@ async function pushStatus(run: Run, args: Json) {
   const { data: order, error } = await run.db.from('orders').select('id, status, woo_status, woo_updated_at').eq('id', id).maybeSingle();
   if (error) throw new Error(`orders: ${error.message}`);
   if (!order) return json(404, { error: 'order_not_found' });
+  const entry = { kind: 'push', direction: 'out', entity: 'order', entity_id: String(id), action: 'status' };
+  const skip = async (reason: string, extra: Json = {}) => {
+    await logSync(run.db, { ...entry, result: 'skipped', detail: { status, reason, ...extra } });
+    return json(200, { action: 'push_status', result: 'skipped', reason, counts: { pushed: 0 } });
+  };
+  if (status !== order.status) return await skip('stale', { current: order.status });
   const ctx = await run.ctx();
   const slug = outgoingWooStatus(status, ctx.statusMap);
-  const entry = { kind: 'push', direction: 'out', entity: 'order', entity_id: String(id), action: 'status' };
-  if (!slug) {
-    await logSync(run.db, { ...entry, result: 'skipped', detail: { status, reason: 'no_woo_status' } });
-    return json(200, { action: 'push_status', result: 'skipped', counts: { pushed: 0 } });
-  }
+  if (!slug) return await skip('no_woo_status');
   // Conflict: WooCommerce changed the status after the version we last stored (neither ours nor the one pushed).
   const before = (await ctx.woo.get(`wc/v3/orders/${id}`)).data ?? {};
   const newer = (ms(before.date_modified_gmt) ?? 0) > (ms(order.woo_updated_at) ?? Infinity);
@@ -151,7 +155,7 @@ async function registerWebhooks(run: Run, args: Json) {
   const woo = run.woo();
   const all: Json[] = [];
   await woo.eachPage('wc/v3/webhooks', {}, (page: Json[]) => { all.push(...page.filter(isObj)); });
-  const ours = all.filter((h) => typeof h.name === 'string' && h.name.startsWith(PREFIX) && h.delivery_url === url);
+  const ours = all.filter((h) => wooId(h.id) !== null && typeof h.name === 'string' && h.name.startsWith(PREFIX) && h.delivery_url === url);
   const counts = { created: 0, updated: 0, unchanged: 0 };
   const result: Json[] = [];
   for (const topic of TOPICS) {
@@ -160,7 +164,7 @@ async function registerWebhooks(run: Run, args: Json) {
       result.push((await woo.post('wc/v3/webhooks', { name: `${PREFIX}${topic}`, topic, delivery_url: url, secret, status: 'active' })).data);
       counts.created++;
     } else if (hook.status !== 'active') {
-      result.push((await woo.put(`wc/v3/webhooks/${hook.id}`, { status: 'active', secret })).data);
+      result.push((await woo.put(`wc/v3/webhooks/${wooId(hook.id)}`, { status: 'active', secret })).data);
       counts.updated++;
     } else {
       result.push(hook);

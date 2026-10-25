@@ -3,10 +3,11 @@
 // Basic base64(WOO_CK:WOO_CS); `dokan/` paths get no Authorization header at all (the store list and a single store are
 // public; Dokan answers 401 invalid_username to the WC header), unless WOO_WP_USER and WOO_WP_APP_PASSWORD are both set
 // (a WordPress Application Password, sent as Basic on dokan/ paths only). Any other namespace is refused.
-// Every request has a 30 s timeout; a non-2xx answer (or a body that is not JSON) throws a WooError with the status and
-// a scrubbed excerpt of at most 200 characters. Scrubbing: our own keys / secrets by exact value (and the Basic header
-// values), then patterns for auth headers, credentials in query-like text, WC keys, emails and phone-like digit runs
-// (ASCII, Arabic-Indic, Persian) — the same rules as tools/woo-probe.mjs.
+// Every request has a 30 s timeout and refuses redirects (the Basic header never follows one); a non-2xx answer (or
+// a body that is not JSON) throws a WooError with the status and a scrubbed excerpt of at most 200 characters.
+// Scrubbing: our own keys / secrets by exact value (and the Basic header values), then patterns for auth headers,
+// credentials in query-like text, WC keys, emails and phone-like digit runs (ASCII, Arabic-Indic, Persian) — the same
+// rules as tools/woo-probe.mjs.
 import { redactPII } from './woo-core.js';
 
 export const PER_PAGE = 100;
@@ -102,7 +103,7 @@ export function wooApi(env, fetchFn) {
     const what = `${method} ${path}`;
     let res, text;
     try {
-      res = await fetchFn(base + path + (qs ? `?${qs}` : ''), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), signal: AbortSignal.timeout(TIMEOUT_MS) });
+      res = await fetchFn(base + path + (qs ? `?${qs}` : ''), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
       text = await res.text();
     } catch (e) {
       throw new WooError(res?.status ?? 0, what, scrub(`${e?.name ?? 'Error'}: ${e?.message ?? ''}`, EXCERPT_MAX));

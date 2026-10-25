@@ -7,14 +7,16 @@ import { ENV, NOW, PHONE, STATUS_MAP, WC_AUTH, fakeDb, fakeWoo, vendorId, vendor
 const SYNC_SECRET = 'sync-test-secret';
 const OURS = `${ENV.SUPABASE_URL}/functions/v1/woo-webhook`;
 // Member tokens → what has_perm('orders.status') / is_admin() answer for them.
-const MEMBERS: Record<string, { perm: string; admin: boolean }> = {
+// (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
+const MEMBERS: Record<string, { perm: unknown; admin: unknown }> = {
   'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false }, 'jwt-acct': { perm: 'P', admin: false },
+  'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
 };
 
-type Opts = { seed?: Record<string, any[]>; routes?: Record<string, any>; env?: Record<string, string> };
-function setup({ seed = {}, routes = {}, env = {} }: Opts = {}) {
+type Opts = { seed?: Record<string, any[]>; routes?: Record<string, any>; env?: Record<string, string>; secretAnswer?: (ok: boolean) => unknown };
+function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok }: Opts = {}) {
   const db = fakeDb({ status_map: STATUS_MAP, vendors: [vendorRow(44), vendorRow(2376)], ...seed }, {
-    rpc: { sync_secret_matches: ({ candidate }: any) => candidate === SYNC_SECRET },
+    rpc: { sync_secret_matches: ({ candidate }: any) => secretAnswer(candidate === SYNC_SECRET) },
   });
   const woo = fakeWoo(routes);
   const members: any[] = [];
@@ -35,6 +37,7 @@ async function call(deps: any, body: unknown, auth: { secret?: string; jwt?: str
   return { res, body: await res.json() };
 }
 
+const pushSeed = { orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'جاهز للشحن', woo_status: 'processing', placed_at: '2026-10-20T10:00:00Z', woo_updated_at: '2026-10-20T11:00:00Z' }] };
 const page = (items: any[], totalPages = 1) => ({ body: items, headers: { 'X-WP-Total': String(items.length), 'X-WP-TotalPages': String(totalPages) } });
 const single = (id: number, vendor: number, modified: string) =>
   wooOrder({ id, number: String(id), date_modified_gmt: modified, meta_data: [{ key: '_dokan_vendor_id', value: String(vendor) }],
@@ -67,6 +70,20 @@ Deno.test('a sync action by a member who is not admin → 401; push_status by a 
   assertEquals(members[1].client.calls.map((c: any) => [c.name, c.args]), [['has_perm', { key: 'orders.status' }]]);
   assertEquals(woo.calls.length, 0);
   assertEquals(db.writes().length, 0);
+});
+
+Deno.test('only an exact true / \'F\' authorizes: sync_secret_matches or is_admin answering "true" or 1, has_perm \'f\' or \'F \' → 401', async () => {
+  for (const answer of ['true', 1]) {
+    const { woo, deps } = setup({ secretAnswer: (ok) => (ok ? answer : false) });
+    assertEquals((await call(deps, { action: 'orders' })).res.status, 401);
+    assertEquals(woo.calls.length, 0);
+  }
+  const { woo, deps } = setup({ seed: pushSeed });
+  for (const jwt of ['jwt-admin-text', 'jwt-admin-one']) {
+    assertEquals((await call(deps, { action: 'orders' }, { jwt })).res.status, 401);
+    assertEquals((await call(deps, { action: 'push_status', order_id: 1001, status: 'جاهز للشحن' }, { jwt })).res.status, 401);
+  }
+  assertEquals(woo.calls.length, 0);
 });
 
 Deno.test('an unknown token → 401; an unknown action by an admin → 400; a body that is not JSON → 400', async () => {
@@ -136,6 +153,33 @@ Deno.test('at most 50 pages per run: the run stops, keeps its cursor and says do
   assertEquals([state.pages, state.done, state.count, state.cursor], [50, false, 5000, '2026-10-17T01:59:59Z']);
 });
 
+Deno.test('a Dokan network error → the orders are written without a maker, one error row per batch, the id asked again on the next page', async () => {
+  const many = Array.from({ length: 100 }, (_, i) => single(5000 + i, 777, '2026-10-21T10:00:00'));
+  const routes = {
+    'GET wc/v3/orders': (c: any) => (c.query.page === '1' ? page(many, 2) : page([single(6000, 777, '2026-10-22T08:00:00')], 2)),
+    'GET dokan/v1/stores/777': { error: new TypeError(`error sending request for url (https://woo.test/wp-json/dokan/v1/stores/777) ${PHONE}`) },
+  };
+  const { db, woo, deps } = setup({ routes });
+  const { res, body } = await call(deps, { action: 'orders' });
+  assertEquals([res.status, body.result], [200, 'ok']);
+  assertEquals(woo.calls.filter((c) => c.path === 'dokan/v1/stores/777').length, 2);
+  assertEquals(db.rows('woo_sync_log').filter((r: any) => r.entity === 'vendor').map((r: any) => [r.kind, r.entity_id, r.result]), [['sync', '777', 'error'], ['sync', '777', 'error']]);
+  assertEquals(db.rows('orders').length, 101);
+  assert(db.rows('order_items').every((i: any) => i.vendor_id === null));
+  assertFalse(writtenText(db).includes(PHONE));
+});
+
+Deno.test('a sub-order whose parent fetch fails (500) → that sub-order is skipped with an error row; the rest of the page is processed', async () => {
+  const items = [wooOrder(), wooSub(2001, 1001, 44), wooSub(3001, 9999, 44), single(1002, 44, '2026-10-21T09:30:00')];
+  const { db, deps } = setup({ routes: { 'GET wc/v3/orders': page(items), 'GET wc/v3/orders/9999': { status: 500, text: 'down' } } });
+  const { res, body } = await call(deps, { action: 'orders' });
+  assertEquals([res.status, body.result], [200, 'ok']);
+  assertEquals(db.rows('orders').map((o: any) => o.id), [1001, 1002]);
+  assertEquals(db.rows('sub_orders').map((s: any) => s.woo_order_id), [2001]);
+  const log = db.rows('woo_sync_log').find((r: any) => r.entity === 'sub_order')!;
+  assertEquals([log.kind, log.entity_id, log.result, log.detail.reason, log.detail.parent_id], ['sync', '3001', 'error', 'parent_fetch_failed', 9999]);
+});
+
 // ---------------------------------------------------------------- vendors / products / all
 
 Deno.test('vendors: every Dokan store upserted on woo_vendor_id, aliases / commission_pct untouched, no Authorization on dokan/', async () => {
@@ -186,8 +230,6 @@ Deno.test('all keeps going when one part fails, answers 502 naming it, and the l
 
 // ---------------------------------------------------------------- push_status
 
-const pushSeed = { orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'جاهز للشحن', woo_status: 'processing', placed_at: '2026-10-20T10:00:00Z', woo_updated_at: '2026-10-20T11:00:00Z' }] };
-
 Deno.test('push_status by a member with orders.status = F → PUT wc/v3/orders/{id} {status}; woo_status / woo_updated_at updated; push logged ok', async () => {
   const routes = {
     'GET wc/v3/orders/1001': { body: { id: 1001, status: 'processing', date_modified_gmt: '2026-10-20T11:00:00' } },
@@ -207,12 +249,22 @@ Deno.test('push_status by a member with orders.status = F → PUT wc/v3/orders/{
 });
 
 Deno.test('push_status for a status with no Woo slug (تم RTC) → skipped, no Woo call', async () => {
-  const { db, woo, deps } = setup({ seed: pushSeed });
+  const { db, woo, deps } = setup({ seed: { orders: [{ ...pushSeed.orders[0], status: 'تم RTC' }] } });
   const { body } = await call(deps, { action: 'push_status', order_id: 1001, status: 'تم RTC' }, { jwt: 'jwt-ops' });
-  assertEquals([body.action, body.result], ['push_status', 'skipped']);
+  assertEquals([body.action, body.result, body.reason], ['push_status', 'skipped', 'no_woo_status']);
   assertEquals(woo.calls.length, 0);
   assertEquals(db.writes('orders').length, 0);
   assertEquals(db.rows('woo_sync_log')[0].result, 'skipped');
+});
+
+Deno.test('push_status with a status that is not the stored one (a stale page) → skipped/stale, no Woo call', async () => {
+  const { db, woo, deps } = setup({ seed: pushSeed });
+  const { res, body } = await call(deps, { action: 'push_status', order_id: 1001, status: 'مكتمل' }, { jwt: 'jwt-ops' });
+  assertEquals([res.status, body.result, body.reason], [200, 'skipped', 'stale']);
+  assertEquals(woo.calls.length, 0);
+  assertEquals(db.writes('orders').length, 0);
+  const log = db.rows('woo_sync_log')[0];
+  assertEquals([log.kind, log.result, log.detail], ['push', 'skipped', { status: 'مكتمل', reason: 'stale', current: 'جاهز للشحن' }]);
 });
 
 Deno.test('push_status when WooCommerce changed the status since our last sync → still pushed (system wins), conflict logged', async () => {
@@ -245,6 +297,7 @@ Deno.test('register_webhooks creates ours next to the n8n ones, re-activates our
     { id: 75, name: 'n8n', topic: 'order.updated', status: 'disabled', delivery_url: 'https://x.app.n8n.cloud/webhook/def' },
     { id: 80, name: 'ibtekr-ops:order.updated', topic: 'order.updated', status: 'active', delivery_url: 'https://elsewhere.test/hook' },
     { id: 81, name: 'ibtekr-ops:order.created', topic: 'order.created', status: 'disabled', delivery_url: OURS },
+    { id: '1/../2', name: 'ibtekr-ops:product.created', topic: 'product.created', status: 'disabled', delivery_url: OURS },
   ];
   let next = 100;
   const routes = {
@@ -263,6 +316,7 @@ Deno.test('register_webhooks creates ours next to the n8n ones, re-activates our
     ({ name: `ibtekr-ops:${topic}`, topic, delivery_url: OURS, secret: ENV.WOO_WEBHOOK_SECRET, status: 'active' })));
   assert(woo.calls.every((c) => c.headers.authorization === WC_AUTH));
   assertFalse(woo.calls.some((c) => /\/(66|75|80)$/.test(c.path)), 'foreign webhooks untouched');
+  assert(writes.every((c) => /^wc\/v3\/webhooks(\/\d+)?$/.test(c.path)), 'a webhook id that is not an integer is never put in a path');
 
   assertEquals(body.counts, { created: 3, updated: 1, unchanged: 0 });
   assertEquals(body.webhooks.map((h: any) => [h.id, h.topic, h.status]), [[81, 'order.created', 'active'], [100, 'order.updated', 'active'], [101, 'product.created', 'active'], [102, 'product.updated', 'active']]);

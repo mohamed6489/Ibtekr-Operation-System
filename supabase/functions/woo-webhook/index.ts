@@ -1,16 +1,19 @@
 // woo-webhook: WooCommerce → Postgres deliveries (deployed with verify_jwt false: the HMAC signature authenticates).
 // Flow: POST only → WOO_WEBHOOK_SECRET must be set (500 otherwise, never "allow") → WooCommerce's activation ping (no
 // topic header, body `webhook_id=N`, sent unsigned) gets 200 ignored with no read or write → X-WC-Webhook-Signature
-// over the raw body (bad or missing → 401 + a woo_sync_log error row) → JSON → idempotency: the
-// X-WC-Webhook-Delivery-ID is claimed by inserting the woo_webhook_events row (unique key; the row starts as
-// 'error'/'in progress' so a delivery that never finished can be redelivered; a duplicate of any other delivery →
-// 200 duplicate, nothing else written; no delivery id → processed, stored with delivery_id null) → dispatch by
-// X-WC-Webhook-Topic: order.* (a sub-order → sub_orders only, recorded 'ignored'; a parent → orders + lines, then its
-// Dokan sub-orders from wc/v3/orders?parent={id}), product.* → products, anything else 'ignored' → the event row gets
-// its status → 200 { status, id }. Headers are not signed, so the body must look like the topic's resource.
-// Any thrown error: the event is marked 'error' (scrubbed text), a woo_sync_log error row is added, 500.
+// over the raw body bytes (bad or missing → 401 + a woo_sync_log error row) → JSON → idempotency: the delivery is
+// claimed by inserting the woo_webhook_events row whose unique delivery_id is the key
+// `<X-WC-Webhook-Delivery-ID>:<X-WC-Webhook-Signature>` — WooCommerce builds the delivery id from the webhook id and
+// the current second, so two deliveries of one webhook within a second share it; the signature (the body's HMAC)
+// keeps them apart while an exact replay stays a duplicate. The row starts as 'error'/'in progress' so a delivery
+// that never finished can be redelivered; a duplicate of any other delivery → 200 duplicate, nothing else written; a
+// duplicate whose earlier row cannot be read back → error (500); no delivery id → processed, delivery_id null (no
+// dedupe) → dispatch by X-WC-Webhook-Topic: order.* (a sub-order → sub_orders only, recorded 'ignored'; a parent →
+// orders + lines, then its Dokan sub-orders from wc/v3/orders?parent={id}), product.* → products, anything else
+// 'ignored' → the event row gets its status → 200 { status, id }. Headers are not signed, so the body must look like
+// the topic's resource. Any thrown error: the event is marked 'error' (scrubbed text), a woo_sync_log error row is added, 500.
 // woo_webhook_events.payload keeps { id, number, status, parent_id, date_modified_gmt, topic } only (no PII).
-import { createClient } from 'npm:@supabase/supabase-js@2';
+import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { isSubOrder, redactPII, verifySignature } from '../_shared/woo-core.js';
 import { logSync } from '../_shared/db.js';
 import { errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
@@ -50,8 +53,8 @@ async function claimDelivery(db: Db, row: Body): Promise<Claim> {
   if (!ins.error) return { id: ins.data.id };
   if (ins.error.code !== '23505') throw new Error(`woo_webhook_events: ${ins.error.message}`);
   const prev = await db.from('woo_webhook_events').select('id, status').eq('delivery_id', row.delivery_id).maybeSingle();
-  if (prev.error) throw new Error(`woo_webhook_events: ${prev.error.message}`);
-  if (prev.data?.status !== 'error') return { duplicate: true };
+  if (prev.error || !prev.data) throw new Error(`woo_webhook_events: duplicate delivery key, earlier row unreadable${prev.error ? ` (${prev.error.message})` : ''}`);
+  if (prev.data.status !== 'error') return { duplicate: true };
   const again = await db.from('woo_webhook_events').update({ error: 'in progress (redelivery)' }).eq('id', prev.data.id);
   if (again.error) throw new Error(`woo_webhook_events: ${again.error.message}`);
   return { id: prev.data.id };
@@ -94,10 +97,12 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     await verifyFailed(deps.db, 'not_configured');
     return json(500, { error: 'not_configured' });
   }
-  const raw = await req.text();
+  const bytes = new Uint8Array(await req.arrayBuffer()); // the HMAC covers these exact bytes
+  const raw = new TextDecoder().decode(bytes);
   const topic = header(req, 'x-wc-webhook-topic', 64) ?? '';
   if (!topic && isPing(raw)) return json(200, { status: 'ignored' });
-  if (!(await verifySignature(raw, req.headers.get('x-wc-webhook-signature'), secret))) {
+  const signature = (req.headers.get('x-wc-webhook-signature') ?? '').trim();
+  if (!(await verifySignature(bytes, signature, secret))) {
     await verifyFailed(deps.db, 'bad_signature');
     return json(401, { error: 'bad_signature' });
   }
@@ -112,10 +117,11 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   const b = isObj(body) ? body : {};
   const resourceId = wooId(b.id);
   const payload = redactPII({ id: scalar(b.id), number: scalar(b.number), status: scalar(b.status), parent_id: scalar(b.parent_id), date_modified_gmt: scalar(b.date_modified_gmt), topic: topic || null });
+  const deliveryId = header(req, 'x-wc-webhook-delivery-id', 128);
   let eventId: number | null = null;
   try {
     const claim = await claimDelivery(deps.db, {
-      delivery_id: header(req, 'x-wc-webhook-delivery-id', 128), webhook_id: header(req, 'x-wc-webhook-id', 32), topic: topic || 'unknown', resource_id: resourceId, payload,
+      delivery_id: deliveryId ? `${deliveryId}:${signature}` : null, webhook_id: header(req, 'x-wc-webhook-id', 32), topic: topic || 'unknown', resource_id: resourceId, payload,
     });
     if ('duplicate' in claim) return json(200, { status: 'duplicate' });
     eventId = claim.id;

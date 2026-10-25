@@ -5,7 +5,8 @@
 //   maybeSingle, and rpc(). It knows the 0007 columns, not-null columns, checks, unique keys and the foreign keys the
 //   sync relies on, so a wrong column, a bad value or a missing parent fails like PostgREST would ({ data, error },
 //   23505 for a duplicate key). A statement is atomic. Every call is recorded in `calls` in order.
-// fakeWoo: a fetch that routes "METHOD path" (path after /wp-json/) to a reply and records every request.
+// fakeWoo: a fetch that routes "METHOD path" (path after /wp-json/) to a reply (or a network error) and records every
+//   request.
 
 type Row = Record<string, any>;
 type DbErr = { code: string; message: string; details?: string };
@@ -201,8 +202,8 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
   };
 }
 
-export type WooCall = { method: string; path: string; query: Record<string, string>; headers: Record<string, string>; body: any; timed: boolean };
-export type Reply = { status?: number; body?: unknown; text?: string; headers?: Record<string, string> };
+export type WooCall = { method: string; path: string; query: Record<string, string>; headers: Record<string, string>; body: any; timed: boolean; redirect?: string };
+export type Reply = { status?: number; body?: unknown; text?: string; headers?: Record<string, string>; error?: Error };
 
 export function fakeWoo(routes: Record<string, Reply | ((call: WooCall) => Reply | undefined)> = {}) {
   const calls: WooCall[] = [];
@@ -211,12 +212,13 @@ export function fakeWoo(routes: Record<string, Reply | ((call: WooCall) => Reply
     const call: WooCall = {
       method: init.method ?? 'GET', path: url.pathname.replace(/^\/wp-json\//, ''), query: Object.fromEntries(url.searchParams),
       headers: Object.fromEntries(new Headers(init.headers).entries()), body: init.body ? JSON.parse(String(init.body)) : undefined,
-      timed: init.signal instanceof AbortSignal,
+      timed: init.signal instanceof AbortSignal, redirect: init.redirect,
     };
     calls.push(call);
     const route = routes[`${call.method} ${call.path}`];
     const reply = typeof route === 'function' ? route(call) : route;
     if (!reply) return Promise.resolve(new Response(JSON.stringify({ code: 'rest_no_route', message: 'No route' }), { status: 404 }));
+    if (reply.error) return Promise.reject(reply.error);
     return Promise.resolve(new Response(reply.text ?? JSON.stringify(reply.body ?? null), { status: reply.status ?? 200, headers: { 'content-type': 'application/json', ...reply.headers } }));
   };
   return { fetch: fetch as typeof globalThis.fetch, calls };
@@ -283,10 +285,10 @@ export function wooProduct(id: number, vendor: number | null, extra: Row = {}): 
 }
 
 /** Base64(HMAC-SHA256(body, secret)) — the X-WC-Webhook-Signature value. */
-export async function sign(body: string, secret: string): Promise<string> {
+export async function sign(body: string | Uint8Array, secret: string): Promise<string> {
   const enc = new TextEncoder();
   const key = await crypto.subtle.importKey('raw', enc.encode(secret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
-  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, enc.encode(body)));
+  const mac = new Uint8Array(await crypto.subtle.sign('HMAC', key, typeof body === 'string' ? enc.encode(body) : (body as BufferSource)));
   return btoa(String.fromCharCode(...mac));
 }
 

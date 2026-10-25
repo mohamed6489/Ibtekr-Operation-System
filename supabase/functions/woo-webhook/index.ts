@@ -6,7 +6,7 @@
 // `<X-WC-Webhook-Delivery-ID>:<X-WC-Webhook-Signature>` — WooCommerce builds the delivery id from the webhook id and
 // the current second, so two deliveries of one webhook within a second share it; the signature (the body's HMAC)
 // keeps them apart while an exact replay stays a duplicate. The row starts as 'error'/'in progress' so a delivery
-// that never finished can be redelivered; a duplicate of any other delivery → 200 duplicate, nothing else written; a
+// that never finished is processed again if it arrives again; a duplicate of any other delivery → 200 duplicate, nothing else written; a
 // duplicate whose earlier row cannot be read back → error (500); no delivery id → processed, delivery_id null (no
 // dedupe) → dispatch by X-WC-Webhook-Topic: order.* (a sub-order → sub_orders only, recorded 'ignored'; a parent →
 // orders + lines, then its Dokan sub-orders from wc/v3/orders?parent={id} — a failure of that list is logged, not
@@ -14,7 +14,8 @@
 // 'ignored' → the event row gets its status → 200 { status, id }. Headers are not signed, so the body must look like
 // the topic's resource. Any thrown error: the event is marked 'error' (scrubbed text), a woo_sync_log error row is added, 500.
 // The delivered order / sub-order / product row itself refused by the database (a data error: woo-write logs it per
-// row) counts as an error too, so the event can be redelivered.
+// row) counts as an error too (500; the event reads 'error', not 'ignored' — WooCommerce never re-sends a failed
+// delivery; the backup sync picks the object up again when it changes or the cursor is reset).
 // woo_webhook_events.payload keeps { id, number, status, parent_id, date_modified_gmt, topic } only (no PII).
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { isSubOrder, redactPII, verifySignature } from '../_shared/woo-core.js';

@@ -154,7 +154,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 ### 2.6 الحالة على المشروع الحي
 - المرحلة صفر (2026-10-22): أول خمس migrations (`0001`–`0005`) اتطبّقوا، و`rls_identity` و`rls_system` خضر.
 - المرحلة 1 (2026-10-25): الـ migration `dashboard` (`0006`) اتطبّقت، و`rls_dashboard` أخضر.
-- المرحلة 2 (2026-10-25): `orders` (`0007`) و`mfa_cron` (`0008`) اتطبّقوا (`0007` بدري عن الخطة — صفحة الأوردرات على `main` كانت بتعرض حالة الخطأ لحد ما الجداول تتعمل)، واتأكد اللي في §2.1؛ الـ advisors مازادش فيها غير المقصود (§2.2). الدالتين `woo-webhook` و`woo-sync` اتنشروا (v1، `verify_jwt: false`، بالشكل اللي في §2.7.1). الـ cron اتأكد: 3 تشغيلات (21:30 و21:45 و22:00Z) `succeeded`، والرد 500 `not_configured` — متوقع لحد ما أسرار `WOO_*` تتحط (السر الداخلي طابق، يعني الطلب وصل للكود). **لسه:** الأسرار (§2.7.2، صاحب المشروع يدخلها)، وبعدها الـ webhooks (§2.7.4) وأول مزامنة (§2.7.5)؛ وتشغيل `rls_orders`/`rls_mfa` على الحي مش متسجّل في الدفتر. التفاصيل في `.superpowers/sdd/2026-10-25-phase-2-orders/progress.md`.
+- المرحلة 2 (2026-10-25): `orders` (`0007`) و`mfa_cron` (`0008`) اتطبّقوا (`0007` بدري عن الخطة — صفحة الأوردرات على `main` كانت بتعرض حالة الخطأ لحد ما الجداول تتعمل)، واتأكد اللي في §2.1؛ الـ advisors مازادش فيها غير المقصود (§2.2). الدالتين `woo-webhook` و`woo-sync` اتنشروا (v1)، وبعد موجة الإصلاح الختامية اتنشروا تاني **v2** بكود الفرع النهائي (22:47Z و23:08Z، `verify_jwt: false`، بالشكل اللي في §2.7.1) — قبل ما الأسرار تتحط، عشان أول delivery وأول مزامنة يشتغلوا بالكود الصح. القاعدة: أي تعديل في `_shared/` أو في `index.ts` بتاعة دالة = إعادة نشر الدالتين. الـ cron اتأكد: 3 تشغيلات (21:30 و21:45 و22:00Z) `succeeded`، والرد 500 `not_configured` — متوقع لحد ما أسرار `WOO_*` تتحط (السر الداخلي طابق، يعني الطلب وصل للكود). **لسه:** الأسرار (§2.7.2، صاحب المشروع يدخلها)، وبعدها الـ webhooks (§2.7.4) وأول مزامنة (§2.7.5)؛ وتشغيل `rls_orders`/`rls_mfa` على الحي مش متسجّل في الدفتر. التفاصيل في `.superpowers/sdd/2026-10-25-phase-2-orders/progress.md`.
 
 ### 2.7 Edge Functions والأسرار والـ webhooks (المرحلة 2)
 دالتين Deno في `supabase/functions/`:
@@ -167,7 +167,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 
 #### 2.7.1 نشر الدالتين
 - `deploy_edge_function` (Supabase MCP) لكل دالة، **بـ `verify_jwt: false` صريح** — الافتراضي في الأداة `true`، ولو اتساب كده الـ gateway هيرفض WooCommerce والـ cron بـ 401 قبل ما الكود يشتغل. نفس القيمة في `supabase/config.toml` (`[functions.woo-webhook]` و`[functions.woo-sync]`)، فـ `supabase functions deploy` بياخدها لوحده. الدالتين بيعملوا المصادقة بنفسهم (2.7.3).
-- الملفات لكل دالة: `index.ts` (الـ entrypoint) و`deno.json`، ومعاهم الأربع ملفات المشتركة `_shared/woo-core.js` و`_shared/woo-api.js` و`_shared/woo-write.js` و`_shared/db.js` بنفس المسار النسبي اللي الـ imports بتستخدمه (`../_shared/…`). **مايترفعش:** `index_test.ts` ولا `_test/` (بدائل الاختبار).
+- الملفات لكل دالة: `index.ts` (الـ entrypoint) و`deno.json`، ومعاهم الأربع ملفات المشتركة `_shared/woo-core.js` و`_shared/woo-api.js` و`_shared/woo-write.js` و`_shared/db.js` بنفس المسار النسبي اللي الـ imports بتستخدمه (`../_shared/…`). **مايترفعش:** `index_test.ts` ولا `_test/` (بدائل الاختبار). وأي تعديل في `_shared/` بيلزم إعادة نشر الدالتين (كل واحدة شايلة نسختها جوه الـ bundle).
 - **شكل الـ bundle اللي اشتغل مع `deploy_edge_function` (MCP، 2026-10-25):** أسماء الملفات في `files` جوه فولدر الدالة، والمشتركة جنبه:
 
   | `name` في `files` | المحتوى من |
@@ -277,7 +277,10 @@ window.IB_CONFIG = window.IB_CONFIG || {
   ```sql
   select count(*) from public.order_items i
   where i.sub_order_id is null and exists (select 1 from public.sub_orders s where s.order_id = i.order_id);
-  -- المتوقع: 0. أكتر من صفر = سطر منتجه مش في أي فرعي من فرعيين أوردره (اسحب الأوردر وفرعيينه تاني بـ orders، وبعدها افحص raw.line_items بتاع الفرعيين)
+  -- المتوقع: 0. أكتر من صفر = سطر منتجه مش في أي فرعي من فرعيين أوردره. للتشخيص: قارن line_items[*].product_id بتاعة الفرعي من الموقع نفسه
+  -- (wc/v3/orders/<رقم الفرعي>) مع product_id بتاع السطر — raw.line_items في sub_orders فيها id والـ _dokan_* بس، من غير product_id.
+  -- وعشان تعيد السحب: المزامنة بالـ cursor مابتجيبش أوردر ماتغيّرش، فإما عدّل الأوردر على الموقع (ملاحظة مثلًا) وإما صفّر
+  -- sync_state['orders'] (value = '{}') وشغّل orders تاني.
   ```
 
 - **Realtime من غير التليفون** (بند محمول من مراجعة المهمة 2): افتح صفحة الأوردرات وغيّر أوردر على الـ staging → الكارت يتحدّث لوحده. اتأكد في DevTools › Network › WS إن رسالة Realtime بتاعة `orders` مافيهاش `customer_phone` ولا `raw` (الواجهة بترجع تقرا الصف من `orders_v`). **فلتر Realtime على `customer_phone` — اتأكد على الحي (2026-10-25، مراجعة الفرع كله):** `realtime.subscription_check_filters` بيبني الأعمدة المسموح الفلترة عليها من `has_column_privilege(role, …, 'SELECT')` وبيرفض غيرها بـ `invalid column for filter`، فـ `authenticated` مايقدرش يشترك بفلتر على عمود مالوش `SELECT` عليه (`customer_phone`، `raw`) — مافيش استفسار عن التليفون عبر Realtime.
@@ -305,7 +308,7 @@ from public.woo_webhook_events order by received_at desc limit 30;
   - `vendor` / `error` → متجر Dokan رد بحاجة غير 404. السطر اتحفظ بـ `vendor_id null`، وهيتصلّح لما الأوردر يتغيّر تاني (المرحلة 3 فيها backfill).
   - `skipped` → متجر مش موجود (404)، أو أوردر أصلي مش موجود لفرعي (`parent_missing`)، أو دفع اتساب (`reason 'no_woo_status'` لـ «تم RTC»، أو `'stale'` لما الحالة اللي اتبعتت مش هي المتخزنة، أو `'push_disabled'` لما `WOO_PUSH_ENABLED` مش `1` — 2.7.2؛ الحالة اتحفظت عندنا بس).
   - `orders` / `order_items` / `sub_orders` / `products` / `vendors` + `action 'upsert'` + `error` → قاعدة البيانات رفضت الصف ده بالذات (خطأ بيانات، SQLSTATE `22xxx`/`23xxx`؛ `entity_id` = مفتاحه، و`detail.error` = السبب). المزامنة جرّبت الدفعة صف صف وكمّلت الباقي؛ أوردر مرفوض بيتساب بسطوره، والـ delivery بتاعته بتتسجّل `error` في `woo_webhook_events`. أي خطأ تاني (timeout، صلاحيات) بيوقف الجزء كله زي الأول.
-  - `conflict` → حالة جاية من Woo مش في `status_map` (الأوردر اتحفظ بالـ `woo_status` الخام وحالة النظام الحالية أو الافتراضية)، أو Woo غيّر الحالة بين آخر مزامنة والدفع (`detail.woo_before`؛ الدفع كمّل — «السيستم يكسب»).
+  - `conflict` → حالة جاية من Woo مش في `status_map` (الأوردر اتحفظ بالـ `woo_status` الخام وحالة النظام الحالية أو الافتراضية)، أو Woo غيّر الحالة بين آخر مزامنة والدفع (`detail.woo_before`؛ الدفع كمّل — «السيستم يكسب»). وصف جديد في `status_map` مابيعيدش تحويل الأوردرات المتخزنة: حالتهم بتفضل زي ما هي لحد ما Woo يغيّر الحالة (أو الفريق).
   - `sub_order` / `parent_list` / `error` → جلب `?parent=` فشل بعد ما الأوردر اتكتب. الفرعيين هيوصلوا في deliveries بتاعتهم أو من المزامنة.
 - **`woo_webhook_events`:** صف لكل delivery. `status` (`ok` | `ignored` | `duplicate` | `error`)، و`payload` فيه 6 مفاتيح بس (`id, number, status, parent_id, date_modified_gmt, topic`). `ignored` طبيعي: أوردر فرعي (بيتكتب في `sub_orders` بس)، أوردر قبل 1 أكتوبر أو draft، payload أقدم من اللي عندنا، أو topic مش بتاعنا. `error` بنص بيبدأ بـ `in progress` = محاولة ماخلصتش.
 - أعمدة `raw` في `orders`/`order_items`/`sub_orders` لـ `service_role` بس. بتظهر في SQL editor، ومتنضّفة من البيانات الشخصية بالتصميم — بس ماتنقلهاش برّه.

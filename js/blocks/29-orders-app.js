@@ -64,15 +64,25 @@ function cnote(o){return o.cnote?esc(o.cnote):'مفيش ملاحظة من الع
 var O=[],OM={},V=[],HYD=false; // the orders of the last 12 months (IBOrders: hydrate / applyOrder); HYD: hydrated at least once
 function byV(a,b){return a.toLowerCase()<b.toLowerCase()?-1:1}
 function hydrate(d){if(!d)return;O=(d.orders||[]).slice();OM={};O.forEach(function(o){OM[o.id]=o});V=(d.vendors||[]).filter(function(v,i,a){return v&&a.indexOf(v)===i}).sort(byV);IMG=d.images||{};
- if(!HYD){HYD=true;S.open={};sorted(O).slice(0,2).forEach(function(o){S.open[o.id]=1})}draw()}
-// one order from Realtime: replaced in place (or added first), the sort / filters / page stay
-function applyOrder(o){if(!o||o.id==null)return;var id=String(o.id),i=O.findIndex(function(x){return x.id===id}),was=HYD;if(i>=0)O[i]=o;else O.unshift(o);OM[id]=o;(o.subs||[]).forEach(function(s){if(s.vendor&&V.indexOf(s.vendor)<0)V.push(s.vendor)});V.sort(byV);HYD=true;
- if(!was){draw();return}redrawCard(id);refreshCounts()}
+ if(!HYD){HYD=true;S.open={};sorted(O).slice(0,2).forEach(function(o){S.open[o.id]=1});draw();return}full()} // a reload (retry, «مزامنة», Realtime back): not over a field in use
+// one order from Realtime: replaced in place (or added first), the sort / filters / page stay. A new order, or one that comes into /
+// leaves the filters or moves in the sort, redraws the whole list (full); any other change redraws its own card only.
+function skey(o){return S.sort==='val'?String(o.tot):S.sort==='late'?(late(o)?1:0)+':'+o.age:o.date} // what its place in the sort hangs on
+function applyOrder(o){if(!o||o.id==null)return;var id=String(o.id),i=O.findIndex(function(x){return x.id===id}),was=HYD,p=i>=0?O[i]:null,m=match(o),moved=p?match(p)!==m||m&&skey(p)!==skey(o):m;
+ if(i>=0)O[i]=o;else O.unshift(o);OM[id]=o;(o.subs||[]).forEach(function(s){if(s.vendor&&V.indexOf(s.vendor)<0)V.push(s.vendor)});V.sort(byV);HYD=true;
+ if(!was){draw();return}if(moved){full();return}redrawCard(id);refreshCounts()}
+// the list drawn again (draw keeps the unsaved comments); while a field of the list is in use (focused input / textarea / select,
+// the date picker or the details popup open) it waits in FULL and is drawn on focusout. Counts follow at once either way.
+var FULL=false;
+function listBusy(){var a=R.activeElement;return!!(DP||DET||a&&$('list').contains(a)&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))}
+function full(){if(listBusy()){FULL=true;refreshCounts();return}draw(1);refreshCounts()}
+function flush(){if(!FULL||listBusy())return false;draw(1);refreshCounts();return true} // focusout / the details popup closed
 // only that order's card is drawn again; while the user is in one of its fields (focused, or a comment that differs from
 // its saved text) it waits in PEND and is drawn on blur, or by the full draw a save / revert does. Not on this page: counts only.
 var PEND={};
 function cardBusy(el){var a=R.activeElement,d=DP&&dpInput();if(a&&el.contains(a)||d&&el.contains(d))return true;return[].some.call(el.querySelectorAll('[data-orig]'),function(t){return t.value.trim()!==(t.dataset.orig||'').trim()})}
-function redrawCard(id){var el=$('list').querySelector('.card[data-o="'+(window.CSS&&CSS.escape?CSS.escape(id):id)+'"]');if(!el){delete PEND[id];return}if(cardBusy(el)){PEND[id]=1;return}delete PEND[id];
+function cssEsc(v){return window.CSS&&window.CSS.escape?window.CSS.escape(String(v)):String(v)} // window.CSS: this block's own CSS is the style text
+function redrawCard(id){var el=$('list').querySelector('.card[data-o="'+cssEsc(id)+'"]');if(!el){delete PEND[id];return}if(cardBusy(el)){PEND[id]=1;return}delete PEND[id];
  var t=document.createElement('div');t.innerHTML=OM[id]?card(OM[id]):'';if(t.firstElementChild)el.replaceWith(t.firstElementChild);else el.remove()}
 function refreshCounts(){$('cn').textContent=O.filter(function(o){return match(o)}).length;drawChips();var fv=$('fv');if(R.activeElement!==fv)fv.innerHTML=opts(V,S.vendor,'المورد: الكل')}
 function vcount(o){var m={};o.subs.forEach(function(s){m[s.vendor]=1});return Object.keys(m).length}
@@ -229,12 +239,18 @@ function drawFilters(){
 // the list when nothing is shown: before the first hydrate it follows IBOrders.state()
 function emptyMsg(){if(HYD)return O.length?'مفيش أوردرات مطابقة للفلاتر':'مفيش أوردرات في آخر 12 شهر';var B=window.IBOrders,st=B&&B.state?B.state():'loading';
  return st==='error'?'معرفناش نحمّل الأوردرات — جرّب تاني <button type="button" class="btn" data-oretry>إعادة المحاولة</button>':'بيحمّل الأوردرات…'}
-function draw(keepFilters){PEND={};
+// comments typed and not saved yet (a value that differs from data-orig) survive a redraw of the list: put back in the same
+// field (unless it now holds that text), its «حفظ» shown. A save / revert changes data-orig or the value first, so it is not kept.
+function unsaved(){var k=[];[].forEach.call($('list').querySelectorAll('textarea[data-orig]'),function(t){if(t.value.trim()===(t.dataset.orig||'').trim())return;var ne=t.dataset.ne!==undefined;k.push([ne?'ne':'ce',ne?t.dataset.ne:t.dataset.ce,t.value])});return k}
+function restore(k){k.forEach(function(x){var t=$('list').querySelector('textarea[data-'+x[0]+'="'+cssEsc(x[1])+'"]');if(!t||x[2].trim()===(t.dataset.orig||'').trim())return;t.value=x[2];var b=t.parentNode.querySelector('[data-cs],[data-ns]');if(b)b.hidden=false})}
+function draw(keepFilters){PEND={};FULL=false;
  var rows=sorted(O.filter(function(o){return match(o)}));
  var pages=Math.max(1,Math.ceil(rows.length/S.size));if(S.page>pages)S.page=pages;
  var a=(S.page-1)*S.size,pr=rows.slice(a,a+S.size);
  $('cn').textContent=rows.length;
+ var keep=unsaved();
  $('list').innerHTML=pr.length?pr.map(card).join(''):'<div class="empty">'+emptyMsg()+'</div>';
+ restore(keep);
  var h='<div class="p"><button class="btn" data-pg="'+(S.page-1)+'"'+(S.page<=1?' disabled':'')+'>السابق</button>';
  var ps=[];for(var i=1;i<=pages;i++)ps.push(i);
  h+=ps.map(function(p){return'<button class="btn'+(p===S.page?' on':'')+'" data-pg="'+p+'">'+p+'</button>'}).join('');
@@ -414,7 +430,7 @@ function orderDetails(id,tab){var o=OM[id];if(!o)return;if(DET)DET.close();
  function syncDirty(){DG.set(infoDirty||subSnap(o)!==snap)}
  w.addEventListener('input',function(e){if(e.target.closest('#dbody')&&cur==='info')infoDirty=true});
  w.addEventListener('change',function(e){if(e.target.closest('#dbody')&&cur==='info')infoDirty=true});
- function close(){w.remove();R.removeEventListener('keydown',keys,true);DET=null;if(prev&&prev.focus)prev.focus()}
+ function close(){w.remove();R.removeEventListener('keydown',keys,true);DET=null;if(prev&&prev.focus)prev.focus();setTimeout(flush,0)}
  function save(){var r=applyOrderInfo(w,o,cur==='info'?null:stash);if(!r.ok){if(cur!=='info'){cur='info';render();r=applyOrderInfo(w,o)}if(!r.ok)return false}stash=null;
   var ch=r.changes.slice();if(subSnap(o)!==snap)ch.push('تعديلات في الأوردرات الفرعية');
   if(ch.length&&window.IbtekrApp&&window.IbtekrApp.logEvent)window.IbtekrApp.logEvent({action:'order.edit',newValue:'IB-'+id+' · '+ch.join(' · ')});
@@ -557,7 +573,7 @@ R.addEventListener('click',function(e){
   if(b=t.closest('[data-dv]')){dpSet(b.dataset.dv);return}
   return}
  if(DP)dpClose(0)},true);
-R.addEventListener('focusout',function(){setTimeout(function(){Object.keys(PEND).forEach(redrawCard)},0)}); // a card Realtime changed while in use
+R.addEventListener('focusout',function(){setTimeout(function(){if(flush())return;Object.keys(PEND).forEach(redrawCard)},0)}); // the list / a card Realtime changed while in use
 R.addEventListener('focusout',function(e){var t=e.target;if(!(DP&&t.matches&&t.matches('[data-fi]')))return;var n=e.relatedTarget;if(n&&n.closest&&(n.closest('#dpop')||n.closest('.dpf')))return;setTimeout(function(){if(!DP)return;var a=R.activeElement;if(a&&a.closest&&(a.closest('#dpop')||a.closest('.dpf')))return;var inp=dpInput();var v=inp?parseTyped(inp.value):'';var key=DP.k+':'+DP.id;if(v===null){toast('التاريخ مش صحيح — اتساب القيمة القديمة');dpClose(0);draw(1)}else{DP.v=v;dpSet(v)}},0)});
 R.addEventListener('keydown',function(e){
  if(!DP)return;var t=e.target,inField=t.matches&&t.matches('[data-fi]'),inPop=t.closest&&t.closest('#dpop');
@@ -577,7 +593,7 @@ R.addEventListener('keydown',function(e){
 R.addEventListener('keydown',function(e){
  if(e.key==='/'&&!/INPUT|TEXTAREA|SELECT/.test(R.activeElement.tagName)){e.preventDefault();(R.getElementById('gq')||{focus:function(){}}).focus()}
  if(e.key==='Enter'&&e.target.dataset&&e.target.dataset.ce!==undefined){e.preventDefault();var sb=e.target.parentNode.querySelector('[data-cs]');if(sb&&!sb.hidden)sb.click()}
-if(e.key==='Escape'&&e.target.dataset&&e.target.dataset.ce!==undefined){S.edit=null;draw(1)}
+if(e.key==='Escape'&&e.target.dataset&&e.target.dataset.ce!==undefined){e.target.value=e.target.dataset.orig||'';S.edit=null;draw(1)} // the typed comment is dropped (draw keeps unsaved ones)
 });
 function setQ(v){S.q=v;S.page=1;$('oq').value=v;(R.getElementById('gq')||{}).value=v;draw()}
 $('oq').addEventListener('input',function(e){setQ(e.target.value)});

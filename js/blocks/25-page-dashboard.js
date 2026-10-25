@@ -19,13 +19,16 @@
   const go = (hash) => { location.hash = hash; };
   const shell = () => { const s = window.IBShell && window.IBShell.state; return (typeof s === 'function' ? s() : s) || {}; };
   const daysAgo = (d) => (d ? K.daysBetween(d, K.TODAY) : 0);
+  // the dashboard's «النهارده» (IBDashData.today: the real date the orders' ages count to) for the greeting and the 30-day
+  // confirmation window; the sample stores (consolidations, statements) still count from K.TODAY
+  const today = () => { const D = DATA(); return D && D.today ? D.today() : K.TODAY; };
 
   // ---------- data snapshot (one per render) ----------
   function snapshot() {
     const D = DATA(); if (!D) throw new Error('no data');
     const rows = D.rows(); const r = D.range(); const al = D.alerts();
     const end = r.to; const start = addDays(end, -34); // last 5 Saturday weeks ending at the period end
-    const rep = D.report({ from: start, to: end }); const conf = D.report({ from: addDays(K.TODAY, -29), to: K.TODAY });
+    const rep = D.report({ from: start, to: end }); const t = today(); const conf = D.report({ from: addDays(t, -29), to: t });
     const sections = NR() ? NR().viewSections(true) : [];
     const canMoney = !['مشاهد'].includes(DD.roleOf(role()));
     return { rows, range: r, al, rep, conf, sections, health: DD.health(rows), money: canMoney ? D.money() : null, full: D.full() };
@@ -187,7 +190,7 @@
     const m = me(); const r = role(); const D = DATA(); st.updated = st.updated || K.clockNow();
     const min = new Date().getHours() * 60 + new Date().getMinutes();
     const head = h('div', { class: 'page-head row dash-head' }, h('div', null, h('h1', { class: 't-h3' }, 'لوحة التحكم'),
-        h('p', { class: 't-small dash-hi' }, Icon('clock', 'sm'), DD.greeting(min) + ' يا ' + K.member(K.ME).name.split(' ')[0] + ' · ' + K.dayName(K.TODAY) + ' ' + K.dlabel(K.TODAY) + ' · ', h('span', { 'aria-live': 'polite' }, 'آخر تحديث ' + st.updated), ' — بيتحدّث كل 5 دقايق ', h('button', { type: 'button', class: 'dash-link', onClick: refresh, 'aria-label': 'تحديث دلوقتي' }, Icon('refresh', 'sm'), 'تحديث'))),
+        h('p', { class: 't-small dash-hi' }, Icon('clock', 'sm'), DD.greeting(min) + ' يا ' + K.member(K.ME).name.split(' ')[0] + ' · ' + K.dayName(today()) + ' ' + K.dlabel(today()) + ' · ', h('span', { 'aria-live': 'polite' }, 'آخر تحديث ' + st.updated), ' — بيتحدّث كل 5 دقايق ', h('button', { type: 'button', class: 'dash-link', onClick: refresh, 'aria-label': 'تحديث دلوقتي' }, Icon('refresh', 'sm'), 'تحديث'))),
       h('div', { class: 'actions' }, quickActions(), Button({ label: 'تخصيص اللوحة', icon: 'sliders', onClick: customize, disabled: !!st.viewAs, attrs: st.viewAs ? { title: 'رجّع للوحتك الأول عشان تخصصها' } : null }), h('div', { class: 'dash-period' }, D.DateRangeField()), isAdminReal() ? viewAsSelect() : null));
     const out = [head];
     if (st.viewAs) out.push(h('div', { class: 'dash-viewing', role: 'status' }, Icon('eye', 'sm'), h('span', null, 'بتشوف لوحة ', h('b', null, m.name), ' (' + m.role + ') — للقراءة بس، والجرس كمان بعينه'), Button({ size: 'sm', label: 'رجوع للوحتي', onClick: () => setView(null) })));

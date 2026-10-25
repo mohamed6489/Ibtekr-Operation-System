@@ -873,7 +873,7 @@
   const dashRangeLabel = (r) => { const p = PRESETS.find((x) => x[0] === r.preset); if (!p || r.preset === 'custom') return D.rangeLabel(r.from, r.to) + ' · مقارنة بالفترة اللي قبلها'; return 'الفترة: ' + p[1] + ' · ' + (r.preset === 'today' ? 'مقارنة بأمس' : 'مقارنة بالفترة اللي قبلها'); };
   const rangeOf = (target) => (target === 'reports' ? state.rrange : target === 'dash' ? state.drange : state.range);
   function RangePicker(close, target = 'accounts') {
-    const TODAY = target === 'dash' && window.IBKit ? window.IBKit.TODAY : TODAY_APP; // dashboard follows the team's today (kit)
+    const TODAY = target === 'dash' ? dashToday() : TODAY_APP; // the dashboard's presets / calendar follow its real today (dashToday)
     const cur = rangeOf(target); const draft = { from: cur.from, to: cur.to, preset: cur.preset };
     let [y, m] = draft.from.split('-').map(Number); let picking = false, hover = null, err = '';
     const dp = h('div', { class: 'dp range', role: 'dialog', 'aria-modal': 'true', 'aria-label': 'اختيار الفترة', 'data-popover-root': '', 'data-focus': 'no' });
@@ -1862,11 +1862,15 @@
     return out && out.items.length ? { filter: out, mode: 'ai' } : { filter: local, mode: 'local' };
   }
   // owner 22 Oct: dashboard (لوحة التحكم) reads everything through this — Figma 526:35690
-  const DTODAY = window.IBKit ? window.IBKit.TODAY : TODAY; state.drange = state.drange || { from: DTODAY, to: DTODAY, preset: 'today' };
+  // the dashboard's one «النهارده»: the real local date the orders' ages count to (IBOrders.today), for the default range,
+  // the range picker, ordersReport (dates = today − ageDays) and block 25's greeting / 30-day window. K.TODAY (the
+  // prototype's fixed date) only without the orders adapter; the sample stores (contracts, money) keep their own date.
+  function dashToday() { return window.IBOrders && window.IBOrders.today ? window.IBOrders.today() : window.IBKit ? window.IBKit.TODAY : TODAY; }
+  const DTODAY = window.IBKit ? window.IBKit.TODAY : TODAY; const DT0 = dashToday(); state.drange = state.drange || { from: DT0, to: DT0, preset: 'today' };
   window.IBDashData = {
-    TODAY, range: () => state.drange, DateRangeField: () => DateRangeField('dash'),
+    get TODAY() { return dashToday(); }, today: dashToday, range: () => state.drange, DateRangeField: () => DateRangeField('dash'),
     rows: ordersRows, full: allOrders, alerts,
-    report: (range) => R.ordersReport(ordersRows(), range, TODAY),
+    report: (range) => R.ordersReport(ordersRows(), range, dashToday()),
     money: () => { const acc = accountsNow().balances; const vs = D.vendorSummary(vendorsNow()); const P = D.potential(acc, SEED.inProgressShare, vs.deposits);
       const mon = TODAY.slice(0, 7); const [yy, mm] = mon.split('-').map(Number);
       return { acc, actual: P.actual, vs, vendors: vendorsNow(), sales: SEED.salesTotal, salesRows: SEED.sales, expSept: D.categoryTotals(SEED.expenseSeed, store.expenses, '2026-09-01', '2026-09-30'), expNow: D.categoryTotals(SEED.expenseSeed, store.expenses, mon + '-01', mon + '-' + lastDay(yy, mm)), transport: trAll(), payroll: payrollInfo(), cycle: cycleLabel() }; },

@@ -17,7 +17,8 @@
 // as text — the id the item writes take. subscribe() adds Realtime INSERT/UPDATE on orders / order_items / sub_orders
 // (skipped with IB_CONFIG.realtime === false): each event re-reads that order from orders_v (a payload from orders
 // never carries the phone) with its lines and sub-orders, rebuilds it, hands it to OrdersApp.applyOrder and
-// dispatches ib:notify; an order the screen does not have and placed before the 12-month window is left out.
+// dispatches ib:notify (one per 250 ms burst); an order the screen does not have and placed before the 12-month window is
+// left out. The channel subscribed again after the socket was down → one load() (the events missed meanwhile).
 // clear() (IBDirectory.clear) unsubscribes and drops everything (state 'idle'); a load in flight is abandoned.
 (function () {
   'use strict';
@@ -36,6 +37,14 @@
   // block 29's hooks: an error there must not stop the load or the ib:notify, but it is not hidden either (thrown later)
   const report = (fn) => { try { fn(); } catch (e) { if (typeof window.setTimeout === 'function') window.setTimeout(() => { throw e; }, 0); } };
   const notify = () => { document.dispatchEvent(new Event('ib:notify')); };
+  // Realtime refetches: one ib:notify per burst (NOTIFY_MS after the first of them), so a bulk sync does not redraw the
+  // dashboard / the bell per order. No timer function (a bare test context): at once.
+  const NOTIFY_MS = 250; let notifyT = null;
+  const notifySoon = () => {
+    if (typeof window.setTimeout !== 'function') return notify();
+    if (notifyT === null) notifyT = window.setTimeout(() => { notifyT = null; notify(); }, NOTIFY_MS);
+  };
+  const cancelNotify = () => { if (notifyT !== null && typeof window.clearTimeout === 'function') window.clearTimeout(notifyT); notifyT = null; };
   const setState = (v) => { if (st === v) return; st = v; document.dispatchEvent(new Event('ib:orders')); };
   const has = (o, k) => !!o && o[k] !== undefined;
 
@@ -232,7 +241,7 @@
       if (i >= 0) orders[i] = next; else orders.unshift(next);
       names = vendorNames(orders);
       const app = window.OrdersApp; if (app && app.applyOrder) report(() => app.applyOrder(next));
-      notify();
+      notifySoon();
     } catch (e) { /* the next event or load brings it */ }
   }
   // one refetch per order at a time; events that arrive meanwhile ask for one more round
@@ -249,20 +258,27 @@
     const id = p.table === 'orders' ? row.id : row.order_id;
     return id == null ? undefined : refetch(String(id));
   }
+  // the channel's status: SUBSCRIBED again after CHANNEL_ERROR / TIMED_OUT / CLOSED (the socket was down; supabase-js rejoins
+  // by itself) → one load(), so the changes missed meanwhile are not lost. A channel unsubscribe() let go of is ignored.
+  const DOWN = ['CHANNEL_ERROR', 'TIMED_OUT', 'CLOSED'];
   function subscribe() {
     const cl = c(); const cfg = window.IB_CONFIG || {};
     if (channel || !cl || !uid() || cfg.realtime === false) return;
     try {
-      let ch = cl.channel('orders');
+      let ch = cl.channel('orders'); let lost = false;
       ['orders', 'order_items', 'sub_orders'].forEach((table) => ['INSERT', 'UPDATE'].forEach((event) => { ch = ch.on('postgres_changes', { event, schema: 'public', table }, onChange); }));
-      channel = ch.subscribe();
+      const mine = ch;
+      channel = ch.subscribe((status) => {
+        if (channel !== mine) return;
+        if (status === 'SUBSCRIBED') { if (lost) { lost = false; load(); } } else if (DOWN.includes(status)) lost = true;
+      });
     } catch (e) { channel = null; /* no live updates; load() still works */ }
   }
   function unsubscribe() {
     const ch = channel; channel = null;
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
-  function clear() { gen += 1; unsubscribe(); orders = null; vendorRows = []; images = {}; statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
+  function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; vendorRows = []; images = {}; statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
   window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

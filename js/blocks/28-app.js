@@ -1886,7 +1886,8 @@
     document.addEventListener('ib:directory', () => { const old = root.querySelector('.topbar .user'); if (old) old.replaceWith(SH.AccountMenu(go)); }); // header shows the signed-in member
     if (!SH.isLoggedOut()) root.hidden = true;
     let gated = false;
-    A.onChange((event) => { if (event === 'PASSWORD_RECOVERY' && gated) SH.showLogin('reset'); else if (event === 'SIGNED_OUT' && gated && !SH.isLoggedOut()) SH.showLogin('login'); });
+    // a SIGNED_OUT this tab did not start (another tab signed out, or the server ended the session) must wipe memory too: reload as 21-shell.js signOut does
+    A.onChange((event) => { if (event === 'PASSWORD_RECOVERY' && gated) SH.showLogin('reset'); else if (event === 'SIGNED_OUT' && gated && !SH.isLoggedOut()) { SH.showLogin('login'); try { sessionStorage.setItem('ib.loginView', 'login'); } catch (e) { /* storage blocked */ } location.reload(); } });
     await A.ready();
     const lastAct = (() => { try { return Number(localStorage.getItem('ib.lastAct')) || 0; } catch (e) { return 0; } })();
     // the view a sign-out put up before it reloaded the page (21-shell.js signOut); read once

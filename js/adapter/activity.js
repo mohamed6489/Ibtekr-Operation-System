@@ -5,7 +5,8 @@
 // recent(limit) reads the newest rows RLS lets this user see (own rows; every row with settings.view) with the actor's name
 // embedded; refresh() keeps the newest 25 for the dashboard's «آخر نشاط» card (cached(), null until the first refresh) and
 // dispatches ib:activity; the card shows 5 after its own-actions filter (a viewer with settings.view reads everyone's rows).
-// A forwarded log refreshes once the server took it. Read errors give [] and are never thrown.
+// A forwarded log refreshes once the server took it, except auth.signout (the page reloads next: no GET inside the 3 s
+// sign-out window). Read errors give [] and are never thrown.
 (function () {
   'use strict';
   const LOGGED_PREFIXES = ['auth.', 'dashboard.'];
@@ -34,7 +35,7 @@
     const c = client();
     if (!forwarded(action) || !c || !signedIn()) return Promise.resolve();
     return c.rpc('log_activity', { action, entity: null, entity_id: null, old_value: null, new_value: detail === undefined ? null : detail })
-      .then((res) => (res && res.error ? undefined : refresh()));
+      .then((res) => ((res && res.error) || action === 'auth.signout' ? undefined : refresh()));
   }
   window.IBActivity = { log, LOGGED_PREFIXES, recent, cached: () => rows, refresh, clear: () => { rows = null; } };
 })();

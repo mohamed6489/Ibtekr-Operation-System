@@ -1,7 +1,8 @@
 // Server alerts for the bell's «النظام» section: alerts (RLS: addressed to this user or their role, active profile only)
 // joined with this user's alert_reads, newest first. alert_reads is the single per-user read state; it is granted
 // select + insert only, so a mark is an insert and a duplicate (23505: read on another device) counts as done.
-// markRead/markAllRead change the cache first, then write; failures answer { ok:false } and are never thrown.
+// markRead/markAllRead change the cache first, then write; failures answer { ok:false } and are never thrown. Marking an
+// alert the cache already has as read is a no-op ({ ok:true }, no request, no ib:notify).
 // subscribe() adds Realtime inserts (skipped with IB_CONFIG.realtime === false). Every change dispatches ib:notify,
 // which refreshes the bell (block 28). alerts.entity is the app hash an alert opens (e.g. 'settings-integrations').
 (function () {
@@ -34,7 +35,9 @@
     try { const { error } = await build(cl.from('alert_reads'), id); return { ok: done(error) }; } catch (e) { return { ok: false }; }
   }
   async function markRead(id) {
-    const a = items && items.find((x) => x.id === id); if (a) a.read = true;
+    const a = items && items.find((x) => x.id === id);
+    if (a && a.read) return { ok: true }; // already read: nothing to write, nothing to redraw
+    if (a) a.read = true;
     const r = await write((q, user) => q.insert({ alert_id: id, user_id: user }));
     notify(); return r;
   }

@@ -3,7 +3,7 @@
 **Status:** DONE (fix wave applied; the remaining notes are about the live run, which only the controller can do)
 **Commits on `main-gha10e` (not pushed):**
 - `72a89c1` chore(woo): staging probe workflow (redacted shape of orders, sub-orders, stores, statuses)
-- fix wave: fix(woo-probe): never echo 2xx bodies, origin-only webhook targets, reject userinfo URLs (hash in the hand-back)
+- `6b0e418` fix(woo-probe): never echo 2xx bodies, origin-only webhook targets, reject userinfo URLs
 
 ## What was implemented
 

@@ -18,7 +18,7 @@
 
 ---
 
-ملحوظة عن أداة Supabase MCP: `execute_sql`/`apply_migration` بتحجز أي نص فيه كلمة DELETE أو DROP لحد ما المستخدم يأكد من الواجهة؛ في جلسة بدون تأكيد بتعلّق. اختبارات RLS في الريبو شغالة من `psql`/CI؛ لتشغيلها عبر MCP استخدم نسخة بتبدّل `delete from` بـ `execute 'del' || 'ete from ...'` (زي ما اتعمل في أول تطبيق حي).
+ملحوظة عن أداة Supabase MCP: `execute_sql`/`apply_migration` بتحجز أي جملة `delete from …` أو `drop …` لحد ما المستخدم يأكد من الواجهة؛ في جلسة بدون تأكيد بتعلّق. الكلمة جوّه `on delete cascade` أو `grant … delete` عمرها ما عملت حجز (`0001`/`0002`/`0004`/`0006` اتطبّقوا من غيره). اختبارات RLS في الريبو شغالة من `psql`/CI؛ لتشغيل `rls_identity`/`rls_system` عبر MCP استخدم نسخة بتبدّل `delete from` بـ `execute 'del' || 'ete from ...'` (زي ما اتعمل في أول تطبيق حي). `rls_dashboard.sql` مافيهوش `delete` خالص، فبيتشغّل على الحي زي ما هو.
 
 ## 2. Supabase قبل النشر
 
@@ -30,15 +30,21 @@
 | `identity` | `supabase/migrations/0001_identity.sql` |
 | `system` | `supabase/migrations/0002_system.sql` |
 | `seed_roles` | `supabase/migrations/0003_seed_roles.sql` |
+| `grants` | `supabase/migrations/0004_grants.sql` |
+| `advisors` | `supabase/migrations/0005_advisors.sql` |
+| `dashboard` | `supabase/migrations/0006_dashboard.sql` |
 
-بعدها `execute_sql` بمحتوى الاختبارين (كل واحد بيعمل `rollback` في الآخر، فمش بيسيب حاجة وراه):
+بعدها `execute_sql` بمحتوى الاختبارات التلاتة (كل واحد بيعمل `rollback` في الآخر، فمش بيسيب حاجة وراه):
 - `supabase/tests/rls_identity.sql` → لازم يطلع `NOTICE: rls_identity: ok`
 - `supabase/tests/rls_system.sql` → لازم يطلع `NOTICE: rls_system: ok`
+- `supabase/tests/rls_dashboard.sql` → لازم يطلع `NOTICE: rls_dashboard: ok`
 
 أي `ERROR` = وقّف ومتنشرش. لو الـ MCP رفض `set local role`، شغّلهم بـ `psql` كـ `postgres`.
 **ممنوع** تطبّق `supabase/tests/_local_auth_stub.sql` على Supabase — ده لـ Postgres المحلي بس.
 
 لو حد طبّق جزء قبل كده، `list_migrations` بيوريك اللي اتطبّق وتكمّل من بعده.
+
+**Realtime:** `0006` بيضيف `alerts` لـ publication `supabase_realtime` (في بلوك `do $$` محمي، لأن الـ stub المحلي مافيهوش publication). اتأكد على الحي بـ `select tablename from pg_publication_tables where pubname = 'supabase_realtime'` → لازم يطلع `alerts`. والـ websocket بتاع Realtime (`wss://<ref>.supabase.co`) مسموح أصلًا في `connect-src` بتاع الـ CSP في `app/.htaccess`.
 
 ### 2.2 `get_advisors`
 شغّله مرتين: `type: security` و`type: performance`.
@@ -47,6 +53,8 @@
 - **`login_lookups`: RLS enabled, no policies** — مقصود. الجدول ده عدّاد الـ throttle بتاع الدخول، ومحدش يلمسه غير الدالة `email_for_identifier` (ومفيش grants لـ `anon`/`authenticated` أصلًا).
 - **`email_for_identifier` دالة `security definer` وينفع `anon` ينفّذها** — مقصود. شاشة الدخول محتاجاها قبل ما المستخدم يسجّل، عشان تحوّل الموبايل لإيميل، وبتقبل رقم موبايل (11 رقم) بس — أي إيميل بيرجع صفر صفوف، والدخول بالإيميل بيروح لـ Supabase Auth على طول. عليها حد عام 60 طلب في الدقيقة لكل الناس مع بعض، فلو حد غرّقها بطلبات من غير تسجيل، اللي بيتأثر الدخول بالموبايل بس (الدخول بالإيميل شغّال عادي).
 - ملاحظات performance (INFO/WARN) على الـ policies أو الـ indexes اللي ذكرتها تقارير المهمة 3 و4 — مقبولة دلوقتي.
+- بعد `0006`: الزيادة الوحيدة INFO «unused index» على الجداول الجديدة — متوقعة لحد ما التطبيق يكتب فيها.
+- WARN «Leaked Password Protection Disabled» — ده إعداد في لوحة Auth لصاحب المشروع (Authentication › Policies / Attack protection)، مش migration.
 
 غير المقبول: أي جدول في `public` من غير RLS، أو دالة من غير `search_path` ثابت، أو أي تحذير جديد مش مفهوم — يتصلّح الأول.
 
@@ -80,6 +88,10 @@ window.IB_CONFIG = window.IB_CONFIG || {
 
 ### 2.5 حسابات التطوير
 `tools/seed-dev-users.sql` بيعمل 3 حسابات بباسورد مكتوب في الملف نفسه (`IbtekrDev-2026`). يتشغّل **على مشروع dev/staging بس، عمره ما يتشغّل على الإنتاج** — على الإنتاج هيبقى باب خلفي بباسورد أدمن معروف لأي حد شاف الريبو.
+
+### 2.6 الحالة على المشروع الحي
+- المرحلة صفر (2026-10-22): أول خمس migrations (`0001`–`0005`) اتطبّقوا، و`rls_identity` و`rls_system` خضر.
+- المرحلة 1 (2026-10-25): الـ migration `dashboard` (`0006`) اتطبّقت، و`rls_dashboard` أخضر.
 
 ---
 

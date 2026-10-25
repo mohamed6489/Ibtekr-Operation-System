@@ -75,7 +75,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: '3.12'
-      - run: pip install semgrep
+      - run: pip install semgrep==1.182.1
       - run: npm run semgrep
 
   # The Edge Functions (supabase/functions): type check, then the handler tests (fake Woo and Supabase; no network but 127.0.0.1).

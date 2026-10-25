@@ -18,8 +18,9 @@ AddCharset UTF-8 .html .js .css
   Header always set Strict-Transport-Security "max-age=31536000"
   # No inline <script>, on*= attributes or eval in app/ (see task-7-report.md). The lazy-loaded export libraries
   # (blocks 10, 17, 28) are vendored under js/vendor/ (README.md there), so every script is same-origin.
-  # Inline styles come from the prototype.
-  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self' https://fsynculhaupcktzkfkdd.supabase.co wss://fsynculhaupcktzkfkdd.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
+  # Inline styles come from the prototype. blob: images: the share-as-image fallback (blocks 10, 28) shows its
+  # canvas as URL.createObjectURL(blob); only our own scripts (script-src 'self') can mint one.
+  Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self' https://fsynculhaupcktzkfkdd.supabase.co wss://fsynculhaupcktzkfkdd.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 </IfModule>
 
 # Our html/js/css carry no version suffix, so browsers revalidate them on every load (cheap 304s via

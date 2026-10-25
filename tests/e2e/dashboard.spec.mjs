@@ -327,33 +327,47 @@ test('the 5-minute refresh re-reads «آخر نشاط» from the server log; a f
   await page.route('**/rest/v1/activity_log?*', (route) => {
     if (route.request().method() !== 'GET') return route.fallback();
     failed += 1;
-    return route.fulfill({ status: 503, headers: { 'access-control-allow-origin': '*', 'content-type': 'application/json' }, body: '{"message":"unavailable"}' });
+    // Retry-After: 0 (exposed to the page) → postgrest-js retries at once instead of backing off
+    return route.fulfill({ status: 503, headers: { 'access-control-allow-origin': '*', 'access-control-expose-headers': 'retry-after', 'retry-after': '0', 'content-type': 'application/json' }, body: '{"message":"unavailable"}' });
   });
   await page.evaluate(() => { window.__activityEvents = 0; document.addEventListener('ib:activity', () => { window.__activityEvents += 1; }); });
   await card(page, 'need').evaluate((el) => { el.dataset.probe = '1'; });
   await page.clock.runFor('05:00');
   await expect(card(page, 'need')).not.toHaveAttribute('data-probe', '1');
-  await expect.poll(() => page.evaluate(() => window.__activityEvents), { timeout: 15000 }).toBe(1); // refresh() gave up and said so
+  await expect.poll(() => page.evaluate(() => window.__activityEvents)).toBe(1); // refresh() gave up and said so
   expect(failed).toBeGreaterThan(0);
   await expect(act).toContainText('سجّل دخول — تابلت المخزن');
 });
 
 // app/.htaccess's Content-Security-Policy header, put on the page here: npm run serve (http-server) does not read .htaccess
 const CSP = /Header always set Content-Security-Policy "([^"]+)"/.exec(readFileSync(new URL('../../app/.htaccess', import.meta.url), 'utf8'))[1];
-test('under the production CSP the dashboard loads with nothing refused, and both export libraries load from js/vendor', async ({ page }) => {
+test('under the production CSP the dashboard loads with nothing refused, a shared popup becomes an image, and both export libraries load from js/vendor', async ({ page }) => {
   mockOnly(); // its connect-src names the production project; the live run talks to the staging one
   const refused = []; page.on('console', (m) => { if (/Refused to|Content Security Policy/i.test(m.text())) refused.push(m.text()); });
   await page.route((url) => url.port === '4173' && /^\/(index\.html)?$/.test(url.pathname), async (route) => {
     const res = await route.fetch();
     await route.fulfill({ response: res, headers: { ...res.headers(), 'content-security-policy': CSP } });
   });
+  page.on('popup', (p) => p.close().catch(() => {})); // the mailto: tab shareVia opens
   await signIn(page, ADMIN.id, ADMIN.pw);
   await expect(card(page, 'activity')).toContainText('سجّل دخول');
-  // what the lazy loaders of blocks 10, 17 and 28 do: a <script src="js/vendor/…"> (same origin under script-src 'self')
-  expect(await page.evaluate(() => Promise.all(['js/vendor/xlsx.full.min.js', 'js/vendor/html2canvas.min.js'].map((src) => new Promise((res, rej) => {
-    const sc = document.createElement('script'); sc.src = src; sc.onload = res; sc.onerror = () => rej(new Error(src)); document.head.appendChild(sc);
-  }))).then(() => [window.XLSX.version, typeof window.html2canvas]))).toEqual(['0.20.3', 'function']);
-  expect(await card(page, 'activity').evaluate(async (el) => (await window.html2canvas(el, { logging: false })).width > 0)).toBe(true);
+  // share a KPI's details by email (block 10: DetailsModal → ShareButton → shareVia): html2canvas comes from its lazy loader
+  // (js/vendor, script-src 'self'); the browser refuses the clipboard, so the image is shown as <img src="blob:…"> (img-src blob:)
+  await page.evaluate(() => { navigator.clipboard.write = () => Promise.reject(new DOMException('denied', 'NotAllowedError')); });
+  expect(await page.evaluate(() => typeof window.html2canvas)).toBe('undefined');
+  await page.locator('.dash-kpis .kpi-details').first().click();
+  const details = page.locator('[role=dialog][data-details]');
+  await details.locator('[data-share]').click();
+  await page.getByRole('menuitem', { name: /^إيميل/ }).click();
+  const img = page.locator('img.share-img');
+  await expect(img).toHaveAttribute('src', /^blob:http:\/\/localhost:4173\//);
+  await expect.poll(() => img.evaluate((el) => el.complete && el.naturalWidth)).toBeGreaterThan(0);
+  await expect(page.locator('.toast[role=status]')).toContainText('الصورة جاهزة في النافذة');
+  expect(await page.evaluate(() => [typeof window.html2canvas, document.querySelectorAll('script[src="js/vendor/html2canvas.min.js"]').length])).toEqual(['function', 1]);
+  // block 17's SheetJS: the same <script src="js/vendor/…"> as its loadXLSX
+  expect(await page.evaluate(() => new Promise((res, rej) => {
+    const sc = document.createElement('script'); sc.src = 'js/vendor/xlsx.full.min.js'; sc.onload = () => res(window.XLSX.version); sc.onerror = () => rej(new Error(sc.src)); document.head.appendChild(sc);
+  }))).toBe('0.20.3');
   expect(refused).toEqual([]);
   // the policy is in force: the old CDN build is refused by script-src
   expect(await page.evaluate(() => new Promise((res) => {

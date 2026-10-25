@@ -14,7 +14,7 @@
     "db:test": "bash tools/db-test.sh --stub",
     "deno:check": "deno check --node-modules-dir=none --no-lock supabase/functions/woo-webhook/index.ts supabase/functions/woo-sync/index.ts",
     "deno:test": "deno test --allow-env --allow-net=127.0.0.1 --node-modules-dir=none --no-lock supabase/functions",
-    "semgrep": "semgrep scan --config p/javascript --config p/secrets --severity ERROR --error --exclude app/js/blocks --exclude app/js/vendor ."
+    "semgrep": "semgrep scan --metrics=off --config p/javascript --config p/secrets --severity ERROR --error --exclude app/js/blocks --exclude app/js/vendor ."
   },
   "devDependencies": {
     "@playwright/test": "1.64.1",

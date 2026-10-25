@@ -25,6 +25,15 @@ jobs:
       - name: No FTP secrets yet
         if: env.HAS_FTP != 'true'
         run: echo "FTP_SERVER secret not set; skipping the upload (see tools/deploy.md §4.3)."
+      - name: Normalize the server dir (must end with /; empty = ./)
+        if: env.HAS_FTP == 'true'
+        id: dir
+        env:
+          RAW_DIR: ${{ secrets.FTP_SERVER_DIR }}
+        run: |
+          d="${RAW_DIR:-./}"
+          case "$d" in */) ;; *) d="$d/";; esac
+          echo "dir=$d" >> "$GITHUB_OUTPUT"
       - name: Upload app/ over FTPS
         if: env.HAS_FTP == 'true'
         uses: SamKirkland/FTP-Deploy-Action@8e83cea8672e3fbcbb9fdafff34debf6ae4c5f65 # v4.3.5 (pinned SHA)
@@ -34,6 +43,6 @@ jobs:
           password: ${{ secrets.FTP_PASSWORD }}
           protocol: ftps
           local-dir: ./app/
-          server-dir: ${{ secrets.FTP_SERVER_DIR }}
+          server-dir: ${{ steps.dir.outputs.dir }}
           exclude: |
             **/README.md

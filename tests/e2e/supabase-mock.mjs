@@ -1,7 +1,9 @@
-// Test-only stand-in for the Supabase project: answers exactly the auth / PostgREST calls supabase-js 2.118
-// makes for the login flow and the dashboard, with the three dev users of tools/seed-dev-users.sql (+ M03, a mock-only 2FA user).
+// Test-only stand-in for the Supabase project: answers exactly the auth / PostgREST / Edge Function calls supabase-js 2.118
+// makes for the login flow, the dashboard and the orders page, with the three dev users of tools/seed-dev-users.sql (+ M03, a
+// mock-only 2FA user, and M04, a mock-only accounts user: orders.status N, sensitive.customer_phone N).
 // Strict like the real thing: apikey required, PostgREST bearer must be the anon key or a token issued here,
-// `select` columns checked against supabase/migrations (0001, 0002, 0006), RLS of each emulated table. Not a product feature.
+// `select` columns checked against supabase/migrations (0001, 0002, 0006, 0007), RLS of each emulated table, the column-level
+// grants and guard triggers of the orders tables (0007), woo-sync's push_status contract. Not a product feature.
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
@@ -21,20 +23,30 @@ export const USERS = [
   { id: ADMIN, member_code: 'M01', name: 'صفوت كمال', email: 'admin.dev@ibtekr.local', phone: '01000000001', role_id: 'admin', title: 'المؤسس والمدير العام', dept: 'الإدارة', manager_id: null, status: 'active', twofa: false, custom_perms: {}, created_at: T0 },
   { id: '00000000-0000-4000-8000-000000000002', member_code: 'M02', name: 'سارة أحمد', email: 'ops.dev@ibtekr.local', phone: '01000000002', role_id: 'ops', title: 'مديرة العمليات', dept: 'العمليات', manager_id: ADMIN, status: 'active', twofa: false, custom_perms: {}, created_at: T0 },
   { id: '00000000-0000-4000-8000-000000000003', member_code: 'M03', name: 'محمد علي', email: 'twofa.dev@ibtekr.local', phone: '01000000003', role_id: 'ops', title: 'العمليات', dept: 'العمليات', manager_id: ADMIN, status: 'active', twofa: true, custom_perms: {}, created_at: T0 },
+  { id: '00000000-0000-4000-8000-000000000004', member_code: 'M04', name: 'منى حسن', email: 'accounts.dev@ibtekr.local', phone: '01000000004', role_id: 'accounts', title: 'الحسابات', dept: 'الحسابات', manager_id: ADMIN, status: 'active', twofa: false, custom_perms: {}, created_at: T0 },
   { id: '00000000-0000-4000-8000-000000000099', member_code: 'M99', name: 'مشاهد تجريبي', email: 'viewer.dev@ibtekr.local', phone: '01000000099', role_id: 'viewer', title: 'مشاهد', dept: 'الإدارة', manager_id: ADMIN, status: 'suspended', twofa: false, custom_perms: {}, created_at: T0 },
 ];
+// permissions: the keys the emulated tables read, as in 0003_seed_roles.sql
 const ROLES = [
-  { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'settings.view': 'F' }, sort: 1 },
-  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'settings.view': 'P' }, sort: 2 },
-  { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'settings.view': 'N' }, sort: 6 },
+  { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'settings.view': 'F', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'F', 'vendors.view': 'F', 'sensitive.customer_phone': 'F' }, sort: 1 },
+  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'sensitive.customer_phone': 'F' }, sort: 2 },
+  { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'sensitive.customer_phone': 'N' }, sort: 4 },
+  { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'sensitive.customer_phone': 'N' }, sort: 6 },
 ];
-const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts), 0006_dashboard.sql (user_prefs, alert_reads)
+const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts, status_map), 0006_dashboard.sql (user_prefs,
+  // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw)
   profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'created_at'],
   roles: ['id', 'name', 'description', 'is_system', 'permissions', 'sort'],
   user_prefs: ['user_id', 'key', 'data', 'updated_at'],
   activity_log: ['id', 'at', 'actor', 'action', 'entity', 'entity_id', 'old_value', 'new_value'],
   alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at'],
   alert_reads: ['alert_id', 'user_id', 'read_at'],
+  orders_v: ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method', 'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note', 'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'synced_at', 'created_at', 'updated_at'],
+  order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'updated_at'],
+  sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'updated_at'],
+  vendors: ['id', 'woo_vendor_id', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at'],
+  products: ['id', 'sku', 'name', 'image_url', 'vendor_id', 'price', 'status', 'raw', 'updated_at'],
+  status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
 };
 // the alerts table at sign-in: one for the admin role, one addressed to ops.dev (M02) only
 const ALERTS = () => [
@@ -60,14 +72,80 @@ function readSelect(table, select) {
   return { pick: (r) => Object.fromEntries(parts.flatMap((p) => p(r))) };
 }
 const NOT_FILTERS = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'columns']);
-const IN_FILTERS = { alert_reads: ['alert_id'] }; // the only in.(…) filter the app sends: alerts.js asks the marks of the loaded alert ids
-// the horizontal filters of a PostgREST request (eq. everywhere; in.(a,b) on IN_FILTERS only) → { match(row) } | { bad: 'param=value' }
+// the in.(…) filters the app sends: alerts.js asks the marks of the loaded alert ids; orders.js the lines / sub-orders of the
+// loaded orders, the images of their skus and (Realtime) the names of makers it does not know yet
+const IN_FILTERS = { alert_reads: ['alert_id'], order_items: ['order_id'], sub_orders: ['order_id'], products: ['sku'], vendors: ['id'] };
+const GTE_FILTERS = { orders_v: ['placed_at'] }; // orders.js: the last 12 months
+// the horizontal filters of a PostgREST request (eq. everywhere; in.(a,b) on IN_FILTERS, gte. on GTE_FILTERS only) → { match(row) } | { bad: 'param=value' }
 function readFilters(params, table) {
   const f = [...params].filter(([k]) => !NOT_FILTERS.has(k));
-  const bad = f.find(([k, v]) => !v.startsWith('eq.') && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)));
-  const one = ([k, v]) => { if (v.startsWith('eq.')) return (r) => String(r[k]) === v.slice(3); const set = v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1')); return (r) => set.includes(String(r[k])); };
+  const bad = f.find(([k, v]) => !v.startsWith('eq.') && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)) && !((GTE_FILTERS[table] || []).includes(k) && v.startsWith('gte.')));
+  const one = ([k, v]) => {
+    if (v.startsWith('eq.')) return (r) => String(r[k]) === v.slice(3);
+    if (v.startsWith('gte.')) { const t = Date.parse(v.slice(4)); return (r) => Date.parse(r[k]) >= t; }
+    const set = v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1')); return (r) => set.includes(String(r[k]));
+  };
   return bad ? { bad: bad.join('=') } : { match: (r) => f.every((p) => one(p)(r)) };
 }
+const MAX_ROWS = 1000; // the project's PostgREST max_rows
+// a GET's order=a.desc,b.asc, then offset / limit (capped at max_rows)
+function pageOf(rows, params) {
+  const keys = (params.get('order') || '').split(',').filter(Boolean).map((k) => { const [col, dir] = k.split('.'); return [col, dir === 'desc' ? -1 : 1]; });
+  const cmp = (a, b) => { for (const [col, d] of keys) { if (a[col] < b[col]) return -d; if (a[col] > b[col]) return d; } return 0; };
+  const off = Number(params.get('offset')) || 0; const lim = Math.min(Number(params.get('limit')) || MAX_ROWS, MAX_ROWS);
+  return [...rows].sort(cmp).slice(off, off + lim);
+}
+
+// ---- the orders tables (0007_orders.sql), seeded per install: three orders of the last days — a multi-maker one with two
+// Dokan sub-orders, a single-maker one (no sub-order; one line removed from WooCommerce) and one whose customer name is HTML —
+// plus one older than 12 months that the orders page never asks for. Images are inline data: URLs (no outside request).
+export const XSS_NAME = '<img src=x onerror="window.__xss=1">';
+export const IMG = { cushion: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', curtain: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' };
+const VND = (n) => 'a0000000-0000-4000-8000-00000000000' + n;
+// status_map after 0007 (system status ↔ WooCommerce slug); تم RTC has no slug: never pushed
+const STATUS_MAP = [['قيد الانتظار', 'pending', 'both'], ['جاري التنفيذ', 'processing', 'both'], ['معلّق', 'on-hold', 'both'], ['جاهز للشحن', 'ready-shipping', 'both'], ['قيد الشحن', 'in-shipping', 'both'],
+  ['تم RTC', null, 'from_system'], ['مكتمل', 'completed', 'both'], ['استرجاع', 'refunded', 'both'], ['ملغي', 'cancelled', 'both']].map(([system_status, woo_status, direction], i) => ({ id: i + 1, system_status, woo_status, direction, sort: i + 1 }));
+// order_items.status check list (0007): block 29's 11 sub-statuses or ''
+const ITEM_STATUSES = ['', 'غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المورد للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المورد للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمورد'];
+function ordersSeed() {
+  const ago = (d) => { const t = new Date(Date.now() - d * 864e5); t.setUTCHours(10, 0, 0, 0); return t.toISOString(); };
+  const vendor = (n, woo, name, status = 'active') => ({ id: VND(n), woo_vendor_id: woo, name, aliases: [], phone: null, email: null, status, commission_pct: null, raw: { id: woo }, created_at: T0, updated_at: T0 });
+  const product = (id, sku, name, image_url, v) => ({ id, sku, name, image_url, vendor_id: VND(v), price: null, status: 'publish', raw: { id }, updated_at: T0 });
+  const order = (o) => ({ number: String(o.id), customer_city: null, customer_address: null, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', confirm: 'غير مؤكد', confirm_at: null, confirm_note: null, deposit: 0, currency: 'EGP', note: null, customer_note: null, cancel: null, ret: null, raw: { id: o.id }, woo_updated_at: o.placed_at, synced_at: o.placed_at, created_at: o.placed_at, updated_at: o.placed_at, ...o });
+  const sub = (id, order_id, v, woo_order_id, woo_status, total) => ({ id, order_id, vendor_id: VND(v), woo_order_id, woo_status, total, dokan_earning: null, commission: null, raw: { id: woo_order_id }, updated_at: T0 });
+  const line = (o) => ({ sub_order_id: null, product_id: null, qty: 1, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, raw: { id: o.id }, updated_at: T0, ...o, vendor_id: VND(o.vendor_id) });
+  return {
+    vendors: [vendor(1, 2376, 'Art Craft'), vendor(2, 44, 'Antikiano'), vendor(3, 2047, 'Bian eg', 'inactive')], // Bian eg: no order
+    products: [product(9001, 'IBTA4040PAHC000013', 'Cushion', IMG.cushion, 1), product(9002, 'IBTAMCTOWM200X10014', 'Macrame Curtain', IMG.curtain, 2),
+      product(9003, 'IBTB0CSW6RFTM', 'Macrame Feathers', null, 2), product(9004, 'IBTK20035BBLM000003214', 'Boho mirror', IMG.cushion, 3)],
+    orders: [
+      order({ id: 181668, customer_name: 'سلوى زيتوني', customer_phone: '01200007052', customer_city: 'القاهرة', customer_address: 'مدينة نصر', status: 'جاري التنفيذ', woo_status: 'processing', total: 3541, customer_note: 'اتصلوا قبل التوصيل', placed_at: ago(6) }),
+      order({ id: 180686, customer_name: 'هدير عميل', customer_phone: '01000007030', status: 'جاري التنفيذ', woo_status: 'processing', confirm: 'مؤكد بدون عربون', confirm_at: ago(5).slice(0, 10), total: 1002, placed_at: ago(8) }),
+      order({ id: 180656, customer_name: XSS_NAME, customer_phone: '01000007016', status: 'معلّق', woo_status: 'on-hold', confirm: 'في انتظار الرد', total: 899, note: 'هتأكد الأسبوع الجاي', placed_at: ago(10) }),
+      order({ id: 150001, customer_name: 'أوردر قديم', customer_phone: '01000000000', status: 'مكتمل', woo_status: 'completed', total: 500, placed_at: ago(400) }),
+    ],
+    subOrders: [sub(1, 181668, 1, 181669, 'processing', 1002), sub(2, 181668, 2, 181670, 'on-hold', 2539)],
+    orderItems: [
+      line({ id: 5001, order_id: 181668, sub_order_id: 1, product_id: 9001, sku: 'IBTA4040PAHC000013', name: 'Cushion', qty: 2, total: 1002, vendor_id: 1 }),
+      line({ id: 5002, order_id: 181668, sub_order_id: 2, product_id: 9002, sku: 'IBTAMCTOWM200X10014', name: 'Macrame Curtain', total: 2539, vendor_id: 2, status: 'مؤكد', comment: 'تم تبليغ المورد' }),
+      line({ id: 5003, order_id: 180686, product_id: 9001, sku: 'IBTA4040PAHC000013', name: 'Cushion', qty: 2, total: 1002, vendor_id: 1 }),
+      line({ id: 5004, order_id: 180686, sku: 'IBTK5050MRHC000010', name: 'Cushion Cover', total: 601, vendor_id: 1, removed: true }),
+      line({ id: 5005, order_id: 180656, product_id: 9003, sku: 'IBTB0CSW6RFTM', name: 'Macrame Feathers', total: 899, vendor_id: 2 }),
+      line({ id: 5006, order_id: 150001, sku: 'IBT-OLD-1', name: 'قطعة قديمة', total: 500, vendor_id: 1 }),
+    ],
+    statusMap: STATUS_MAP.map((r) => ({ ...r })),
+  };
+}
+// has_perm of 0001: 'N' for a profile that is not active, 'F' for admin, else custom_perms, then the role's matrix
+const hasPerm = (u, key) => (u.status !== 'active' ? 'N' : u.role_id === 'admin' ? 'F' : (u.custom_perms || {})[key] || ROLES.find((r) => r.id === u.role_id).permissions[key] || 'N');
+// mask_phone of 0007: the first 3 and last 4 characters (10 or more), else •••• and the last 2
+const maskPhone = (p) => (!p ? p : p.length < 10 ? '••••' + p.slice(-2) : p.slice(0, 3) + '••••' + p.slice(-4));
+// a row of orders_v as `u` reads it: every column but raw, the phone through order_customer_phone (full with
+// sensitive.customer_phone = F, masked otherwise, null without orders.view)
+const viewRow = (u, o) => ({ ...Object.fromEntries(COLUMNS.orders_v.map((c) => [c, o[c] ?? null])), customer_phone: hasPerm(u, 'orders.view') === 'N' ? null : hasPerm(u, 'sensitive.customer_phone') === 'F' ? o.customer_phone : maskPhone(o.customer_phone) });
+// the columns the guard triggers and the update grants of 0007 allow, by the permission they need
+const ORDER_STATUS_COLS = ['status', 'confirm', 'confirm_at', 'confirm_note', 'cancel', 'ret']; const ORDER_EDIT_COLS = ['note', 'customer_city', 'customer_address', 'deposit'];
+const ITEM_COLS = ['status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store'];
 const factorsOf = (u) => (u.twofa ? [{ id: 'f-' + u.member_code, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }] : []);
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const authUser = (u) => ({ id: u.id, aud: 'authenticated', role: 'authenticated', email: u.email, phone: '', app_metadata: { provider: 'email', providers: ['email'] }, user_metadata: {}, identities: [], factors: factorsOf(u), created_at: T0 });
@@ -81,7 +159,12 @@ export async function installSupabaseMock(page) {
   // table it fills ({ id, at, actor, action, new_value }; a spec may seed older rows); prefs: the user_prefs table
   // ({ user_id, key, data }); prefsDown: every user_prefs write answers 503 (the server is unreachable).
   // alerts: the alerts table (ALERTS; a spec may change it before sign-in); alertReads: the alert_reads table ({ alert_id, user_id }).
-  const mock = { rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [] };
+  // orders tables: orders (with the full phone and raw), orderItems, subOrders, vendors, products, statusMap (ordersSeed());
+  // patches: each successful PATCH as { table: 'orders'|'order_items', id, ...columns }; ordersDown: those tables answer 503.
+  // pushes: each woo-sync push_status as { action, order_id, status, result, reason? }; syncs: each other woo-sync call ({ action });
+  // wooDown: woo-sync answers 502 (WooCommerce unreachable).
+  const mock = { rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
+    ...ordersSeed(), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false };
   let activityId = 0;
   const session = (u, aal = 'aal1') => {
     const iat = Math.floor(Date.now() / 1000); n += 1;
@@ -196,12 +279,73 @@ export async function installSupabaseMock(page) {
         for (const r of rows) { const i = mock.prefs.findIndex((x) => x.user_id === r.user_id && x.key === r.key); const row = { user_id: r.user_id, key: r.key, data: r.data ?? {} }; if (i >= 0) mock.prefs[i] = row; else mock.prefs.push(row); }
         return json(201, []);
       }
+      const ot = /^\/rest\/v1\/(orders|orders_v|order_items|sub_orders|vendors|products|status_map)$/.exec(path);
+      const OT_METHODS = { orders: ['PATCH'], orders_v: ['GET'], order_items: ['GET', 'PATCH'], sub_orders: ['GET'], vendors: ['GET'], products: ['GET'], status_map: ['GET'] };
+      if (ot && OT_METHODS[ot[1]].includes(method)) {
+        const t = ot[1]; const f = readFilters(url.searchParams, t);
+        const denied = (message) => json(403, { code: '42501', details: null, hint: null, message });
+        if (f.bad) return json(400, { code: 'PGRST100', details: null, hint: null, message: 'mock: unexpected filter ' + f.bad });
+        if (mock.ordersDown) return json(503, { code: 'PGRST000', details: null, hint: null, message: 'mock: the orders tables are down' });
+        if (method === 'GET') {
+          const asked = url.searchParams.get('select') || '*'; const graded = t === 'order_items' || t === 'sub_orders'; // column-level select grants: no raw, so no *
+          if (graded && asked.split(',').some((c) => c.trim() === '*')) return denied('permission denied for table ' + t);
+          const sel = readSelect(t, asked);
+          if (sel.bad) return graded && sel.bad === t + '.raw' ? denied('permission denied for table ' + t) : json(400, { code: '42703', details: null, hint: null, message: `column ${sel.bad} does not exist` });
+          // RLS (0007, 0002 status_map): vendors with vendors.view, every other table with orders.view
+          const visible = hasPerm(u, t === 'vendors' ? 'vendors.view' : 'orders.view') !== 'N';
+          const rows = t === 'orders_v' ? mock.orders.map((o) => viewRow(u, o)) : t === 'order_items' ? mock.orderItems : t === 'sub_orders' ? mock.subOrders : t === 'vendors' ? mock.vendors : t === 'products' ? mock.products : mock.statusMap;
+          return json(200, pageOf(visible ? rows.filter(f.match) : [], url.searchParams).map(sel.pick));
+        }
+        // PATCH: update grants on the guard columns only, no returning row (select is not granted on every column); RLS using
+        // orders.view (else 0 rows, silently); the guard triggers and `with check` → 42501. One statement: every row or none.
+        const b = body(); const keys = Object.keys(b); const cols = t === 'orders' ? ORDER_STATUS_COLS.concat(ORDER_EDIT_COLS) : ITEM_COLS;
+        if (/return=representation/.test(hd.prefer || '') || url.searchParams.has('select') || keys.some((k) => !cols.includes(k))) return denied('permission denied for table ' + t);
+        const rows = hasPerm(u, 'orders.view') === 'N' ? [] : (t === 'orders' ? mock.orders : mock.orderItems).filter(f.match);
+        const same = (x, y) => JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
+        for (const r of rows) {
+          const changed = keys.filter((k) => !same(r[k], b[k]));
+          if ((t === 'order_items' ? changed.length > 0 : changed.some((k) => ORDER_STATUS_COLS.includes(k))) && hasPerm(u, 'orders.status') !== 'F') return denied(t === 'orders' ? 'orders.status = F is required to change an order status or confirmation' : 'orders.status = F is required to change an order line');
+          if (t === 'orders' && changed.some((k) => ORDER_EDIT_COLS.includes(k)) && hasPerm(u, 'orders.edit') === 'N') return denied('orders.edit is required to change an order note, address or deposit');
+          if (hasPerm(u, 'orders.status') !== 'F' && hasPerm(u, 'orders.edit') === 'N') return denied(`new row violates row-level security policy for table "${t}"`);
+        }
+        if (t === 'orders' && 'status' in b && !mock.statusMap.some((x) => x.system_status === b.status)) return json(409, { code: '23503', details: null, hint: null, message: 'insert or update on table "orders" violates foreign key constraint "orders_status_fkey"' });
+        if (t === 'order_items' && 'status' in b && !ITEM_STATUSES.includes(b.status)) return json(400, { code: '23514', details: null, hint: null, message: 'new row for relation "order_items" violates check constraint "order_items_status_check"' });
+        const at = new Date().toISOString();
+        for (const r of rows) { Object.assign(r, b, { updated_at: at }); mock.patches.push({ table: t, id: r.id, ...b }); }
+        return empty(204);
+      }
       if (method === 'POST' && path === '/rest/v1/rpc/log_activity') {
         if (mock.activityDelayMs) await new Promise((r) => setTimeout(r, mock.activityDelayMs));
         const b = body(); mock.activity.push({ ...b, aal: aal() });
         activityId += 1; mock.activityRows.push({ id: activityId, at: new Date().toISOString(), actor: u.id, action: b.action, new_value: b.new_value ?? null }); // actor / at / id: the server's (0002 trigger)
         return empty(204).catch(() => {}); // the page may be gone after a long delay
       }
+    }
+    // woo-sync (supabase/functions/woo-sync, verify_jwt false: it checks the member's JWT itself): push_status needs
+    // orders.status = F, every other action admin; push_status is skipped when the status is not the stored one ('stale')
+    // or has no WooCommerce slug ('no_woo_status': تم RTC), else the order's woo_status follows the slug.
+    if (method === 'POST' && path === '/functions/v1/woo-sync') {
+      const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : u.status === 'active' && u.role_id === 'admin')) return json(401, { error: 'unauthorized' });
+      if (mock.wooDown) return json(502, { error: 'woo_error' });
+      if (action === 'push_status') {
+        const o = mock.orders.find((x) => x.id === Number(b.order_id));
+        if (!o) return json(404, { error: 'order_not_found' });
+        const slug = (mock.statusMap.find((x) => x.system_status === b.status) || {}).woo_status || null;
+        const reason = b.status !== o.status ? 'stale' : !slug ? 'no_woo_status' : null;
+        if (!reason) o.woo_status = slug;
+        mock.pushes.push({ action, order_id: o.id, status: b.status, result: reason ? 'skipped' : 'ok', ...(reason ? { reason } : {}) });
+        return json(200, reason ? { action, result: 'skipped', reason, counts: { pushed: 0 } } : { action, result: 'ok', conflict: false, counts: { pushed: 1 } });
+      }
+      const hook = SUPABASE_URL + '/functions/v1/woo-webhook';
+      if (action === 'all') { mock.syncs.push({ action }); return json(200, { action, result: 'ok', counts: { vendors: { upserted: mock.vendors.length }, products: { upserted: mock.products.length }, orders: { upserted: mock.orders.length, pages: 1 } } }); }
+      if (action === 'register_webhooks') {
+        if (b.delivery_url !== undefined && b.delivery_url !== hook) return json(400, { error: 'delivery_url_mismatch' });
+        mock.syncs.push({ action });
+        const webhooks = ['order.created', 'order.updated', 'product.created', 'product.updated'].map((topic, i) => ({ id: 101 + i, name: 'ibtekr-ops:' + topic, topic, status: 'active', delivery_url: hook }));
+        return json(200, { action, result: 'ok', counts: { created: 4, updated: 0, unchanged: 0 }, webhooks });
+      }
+      return json(400, { error: 'unknown_action' });
     }
     mock.unhandled.push(method + ' ' + path);
     return json(404, { message: 'not mocked: ' + method + ' ' + path });

@@ -1,7 +1,7 @@
 // Member directory: profiles + roles (RLS decides which rows) → IBKit.store.members in the prototype's member shape.
 // load() is where a session's data is loaded (gate and sign-in both call it): after the members, an active member's
-// preferences, server alerts and recent activity follow (each failure is ignored: none of them may fail the sign-in),
-// then the Realtime alerts subscription. clear() is where it is all forgotten again (IBAuth.signOut calls it).
+// preferences, server alerts, recent activity and orders follow (each failure is ignored: none of them may fail the
+// sign-in), then the Realtime alerts and orders subscriptions. clear() is where it is all forgotten again (IBAuth.signOut calls it).
 (function () {
   'use strict';
   let meRow = null;
@@ -22,18 +22,20 @@
     document.dispatchEvent(new Event('ib:directory'));
     // only for an active member (K.ME is theirs now); a suspended or missing profile is signed out by the caller
     if (!meRow || meRow.status !== 'active') return;
-    const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity;
-    await Promise.allSettled([P && P.load(), A && A.load(), L && L.refresh && L.refresh()]);
+    const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity, Or = window.IBOrders;
+    await Promise.allSettled([P && P.load(), A && A.load(), L && L.refresh && L.refresh(), Or && Or.load()]);
     if (A) quiet(() => A.subscribe());
+    if (Or) quiet(() => Or.subscribe());
   }
   // sign-out: the members (same array, emptied), the signed-in row and every session store hanging off them
   function clear() {
     const K = window.IBKit; if (K && K.store && K.store.members) K.store.members.length = 0;
     meRow = null;
-    const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity;
+    const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity, Or = window.IBOrders;
     if (P) quiet(() => P.clear());
     if (A) { quiet(() => A.unsubscribe()); quiet(() => A.clear()); }
     if (L && L.clear) quiet(() => L.clear());
+    if (Or) quiet(() => Or.clear()); // unsubscribes too
   }
   window.IBDirectory = { load, clear, me: () => meRow, members: () => window.IBKit.store.members };
 })();

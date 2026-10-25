@@ -78,8 +78,10 @@
     } catch (e) { return fail('network'); }
   }
   // scope 'local' (default) ends this browser's session only; 'global' every session of the user (after a password reset).
+  // The member's data in memory (directory, prefs, alerts, activity) is cleared first: IBDirectory.clear.
   async function signOut(scope = 'local') {
     totp = false; recovered = false;
+    if (window.IBDirectory && window.IBDirectory.clear) { try { window.IBDirectory.clear(); } catch (e) { /* signing out matters more */ } }
     if (c()) { try { await c().auth.signOut({ scope }); } catch (e) { /* signed out locally anyway */ } }
     current = null;
   }

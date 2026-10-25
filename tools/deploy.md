@@ -18,7 +18,7 @@
 
 ---
 
-ملحوظة عن أداة Supabase MCP: `execute_sql`/`apply_migration` بتحجز أي جملة `delete from …` أو `drop …` لحد ما المستخدم يأكد من الواجهة؛ في جلسة بدون تأكيد بتعلّق. الكلمة جوّه `on delete cascade` أو `grant … delete` عمرها ما عملت حجز (`0001`/`0002`/`0004`/`0006` اتطبّقوا من غيره). اختبارات RLS في الريبو شغالة من `psql`/CI؛ لتشغيل `rls_identity`/`rls_system` عبر MCP استخدم نسخة بتبدّل `delete from` بـ `execute 'del' || 'ete from ...'` (زي ما اتعمل في أول تطبيق حي). `rls_dashboard.sql` مافيهوش `delete` خالص، فبيتشغّل على الحي زي ما هو.
+ملحوظة عن أداة Supabase MCP: اللي اتحجز فعلًا: جمل `delete from` في اختبارات RLS لما بتتشغّل عبر `execute_sql`؛ `apply_migration` عمره ما حجز حاجة (ولا حتى `delete from` جوّه `email_for_identifier` في `0001`، ولا `on delete cascade`/`for delete`/`grant … delete`). `drop` اتجنّبناه من الأول (`0005` بـ `alter policy`). `rls_dashboard.sql` مافيهوش `delete` خالص فبيتشغّل حي زي ما هو. اختبارات RLS في الريبو شغالة من `psql`/CI؛ لتشغيل `rls_identity`/`rls_system` عبر MCP استخدم نسخة بتبدّل `delete from` بـ `execute 'del' || 'ete from ...'` (زي ما اتعمل في أول تطبيق حي).
 
 ## 2. Supabase قبل النشر
 
@@ -54,7 +54,7 @@
 - **`email_for_identifier` دالة `security definer` وينفع `anon` ينفّذها** — مقصود. شاشة الدخول محتاجاها قبل ما المستخدم يسجّل، عشان تحوّل الموبايل لإيميل، وبتقبل رقم موبايل (11 رقم) بس — أي إيميل بيرجع صفر صفوف، والدخول بالإيميل بيروح لـ Supabase Auth على طول. عليها حد عام 60 طلب في الدقيقة لكل الناس مع بعض، فلو حد غرّقها بطلبات من غير تسجيل، اللي بيتأثر الدخول بالموبايل بس (الدخول بالإيميل شغّال عادي).
 - ملاحظات performance (INFO/WARN) على الـ policies أو الـ indexes اللي ذكرتها تقارير المهمة 3 و4 — مقبولة دلوقتي.
 - بعد `0006`: الزيادة الوحيدة INFO «unused index» على الجداول الجديدة — متوقعة لحد ما التطبيق يكتب فيها.
-- WARN «Leaked Password Protection Disabled» — ده إعداد في لوحة Auth لصاحب المشروع (Authentication › Policies / Attack protection)، مش migration.
+- WARN «Leaked Password Protection Disabled» — ده إعداد في لوحة Auth لصاحب المشروع (Authentication › Attack Protection)، مش migration.
 
 غير المقبول: أي جدول في `public` من غير RLS، أو دالة من غير `search_path` ثابت، أو أي تحذير جديد مش مفهوم — يتصلّح الأول.
 

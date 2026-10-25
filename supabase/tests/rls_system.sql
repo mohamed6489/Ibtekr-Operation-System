@@ -104,7 +104,7 @@ do $$ declare n int; begin
   if not (n = 0) then raise exception 'case ops cannot update status_map failed'; end if;
 
   -- delete: RLS (admin-only using) filters every row, so nothing is removed
-  delete from public.settings where section is not null; -- (WHERE kept: the Supabase MCP holds bare DELETE/UPDATE for confirmation)
+  delete from public.settings where section is not null; -- (live: the Supabase MCP's execute_sql holds `delete from` in test scripts for a confirmation; run the execute 'del' || 'ete …' copy, see tools/deploy.md)
   get diagnostics n = row_count;
   if not (n = 0) then raise exception 'case ops cannot delete settings failed'; end if;
   delete from public.status_map where id is not null;

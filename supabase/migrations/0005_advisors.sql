@@ -1,7 +1,8 @@
 -- 0005_advisors: fixes from the live advisors run (2026-10-22).
 -- 1) profiles policies: wrap auth.uid() in (select ...) so it is evaluated once per query, not per row.
---    (alter policy, not drop/create: the Supabase MCP holds any statement text containing DROP/DELETE for a
---    confirmation that a headless session cannot give.)
+--    (alter policy, not drop/create: drop is avoided from the start. What the Supabase MCP really held for a
+--    confirmation a headless session cannot give: `delete from` statements in the RLS test scripts run through
+--    execute_sql; apply_migration never held anything. See the note in tools/deploy.md.)
 -- 2) covering indexes for the three unindexed foreign keys.
 -- 3) Supabase's own "automatic RLS" event-trigger function is executable by the API roles by default
 --    (advisors 0028/0029). It can only run as an event trigger, but revoke anyway. Guarded: absent locally.

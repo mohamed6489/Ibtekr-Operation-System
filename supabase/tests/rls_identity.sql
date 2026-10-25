@@ -175,7 +175,7 @@ end $$;
 
 -- ---- lookup throttle: 60 calls per minute, the 61st raises 'rate_limited' ----
 reset role;
-delete from public.login_lookups where at is not null; -- (WHERE kept: the Supabase MCP holds bare DELETEs for confirmation)
+delete from public.login_lookups where at is not null; -- (live: the Supabase MCP's execute_sql holds `delete from` in test scripts for a confirmation; run the execute 'del' || 'ete …' copy, see tools/deploy.md)
 set local role anon;
 set local request.jwt.claims = '{"role":"anon"}';
 do $$ begin

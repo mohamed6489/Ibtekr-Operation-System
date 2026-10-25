@@ -670,7 +670,7 @@
       const href = via === 'whatsapp' ? 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text) : 'mailto:' + (v && v.email ? v.email : '') + '?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(text);
       let note = '';
       try {
-        if (!window.html2canvas) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
+        if (!window.html2canvas) await new Promise((res, rej) => { const s = document.createElement('script'); s.src = 'js/vendor/html2canvas.min.js'; s.onload = res; s.onerror = rej; document.head.appendChild(s); });
         const canvas = await window.html2canvas(m.el.querySelector('.modal-b'), { backgroundColor: getComputedStyle(document.body).backgroundColor, scale: 2 });
         const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
         try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); note = 'الصورة اتنسخت — الصقها في الرسالة.'; }
@@ -1718,7 +1718,7 @@
         const href = via === 'whatsapp' ? 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text) : 'mailto:' + (v.email || '') + '?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(text);
         let note = '';
         try {
-          if (!window.html2canvas) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
+          if (!window.html2canvas) await new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'js/vendor/html2canvas.min.js'; sc.onload = res; sc.onerror = rej; document.head.appendChild(sc); });
           const canvas = await window.html2canvas(m.el.querySelector('.modal-b'), { backgroundColor: getComputedStyle(document.body).backgroundColor, scale: 2 });
           const blob = await new Promise((res) => canvas.toBlob(res, 'image/png'));
           try { await navigator.clipboard.write([new ClipboardItem({ 'image/png': blob })]); note = 'صورة الجدول اتنسخت — الصقها في الرسالة.'; }

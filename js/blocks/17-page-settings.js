@@ -451,8 +451,8 @@
     draw();
     md.setFooter(Button({ type: 'text', label: 'إغلاق', onClick: () => md.close() }), Button({ label: 'نسخ CSV', onClick: () => copy(csv(), 'اتنسخ القالب CSV') }), Button({ type: 'primary', label: 'نسخ للصق في Google Sheets', attrs: { 'data-copy-sheet': '' }, onClick: () => copy(tsv(), 'اتنسخ — الصقه في أول خانة في الشيت') }));
   }
-  // Excel files are read with SheetJS (cdnjs) only when someone picks one
-  const loadXLSX = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js'; sc.onload = () => res(window.XLSX); sc.onerror = rej; document.head.appendChild(sc); }));
+  // Excel files are read with SheetJS (js/vendor) only when someone picks one
+  const loadXLSX = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'js/vendor/xlsx.full.min.js'; sc.onload = () => res(window.XLSX); sc.onerror = rej; document.head.appendChild(sc); }));
   function importWizard(g, mode0, opts) {
     const X = DX(); const st2 = { step: 1, mode: modesOf(g).includes(mode0) ? mode0 : modesOf(g)[0], text: '', name: '', parsed: null, map: {}, res: null, applied: null, err: '', sheets: null, wb: null };
     const F = () => { const all = g.fields(); return X.templateCols(all, st2.mode, g.key).map((c) => Object.assign({}, all.find((x) => x.key === c.key), { required: c.required })); };

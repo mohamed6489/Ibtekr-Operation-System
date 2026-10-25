@@ -27,3 +27,6 @@ Task 1: review clean (spec ✅, quality Approved; 0 Critical/Important). ⚠️ 
 Task 1: minor (deferred): Realtime comment overstates RLS (DELETE events carry only the id) — reword at 0006:9; `user_prefs.data` unbounded (optional `pg_column_size(data) <= 16384`); insert path of `user_prefs_stamp` untested with a forged updated_at; `alert_reads_select` lacks the active-profile check (brief text; harmless); test header omits 0005/0006; no duplicate-read (23505) test.
 Task 1: complete (commits dfeffaa..f964713, review clean)
 Task 2: implementer DONE, commit 557929d (base 80ae26c). 13 tests, no expectation changes, mutation check 6/6.
+Task 2: review clean (spec ✅, quality Approved; 0 Critical/Important). ⚠️ suite run / mutation check are the implementer's evidence (report shows 25/25); accepted.
+Task 2: minor (deferred): countIn fixture has no date before `from`; no `delivery:'risk'` row in the health fixture; `topNeed(…, 2)` could assert the kept titles; packRows first case never stretches (fixture data from the brief).
+Task 2: complete (commits 80ae26c..557929d, review clean)

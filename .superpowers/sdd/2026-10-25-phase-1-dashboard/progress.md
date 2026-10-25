@@ -30,3 +30,4 @@ Task 2: implementer DONE, commit 557929d (base 80ae26c). 13 tests, no expectatio
 Task 2: review clean (spec ✅, quality Approved; 0 Critical/Important). ⚠️ suite run / mutation check are the implementer's evidence (report shows 25/25); accepted.
 Task 2: minor (deferred): countIn fixture has no date before `from`; no `delivery:'risk'` row in the health fixture; `topNeed(…, 2)` could assert the kept titles; packRows first case never stretches (fixture data from the brief).
 Task 2: complete (commits 80ae26c..557929d, review clean)
+Task 3: implementer DONE_WITH_CONCERNS, commit 6b40b52 (base 7d50bf1). Hand-off: markAllRead sends ONE array body with ignore-duplicates → Task 5 mock must accept arrays (carried). Extras: follow-up loads only for an active member; load() dispatches ib:notify; Realtime event 'INSERT'; IBPrefs.clear() drops K.store.dashPrefs[ME]; shared stub tests/adapter/stub-supabase.mjs. 52/52 unit, 26/26 e2e.

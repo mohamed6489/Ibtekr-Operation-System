@@ -240,13 +240,13 @@ test('the address has its own row under the customer data: governorate · city �
 });
 
 // the website note's text block (.wn) of a card or the popup: its text as is, its box and how it scrolls
-const noteBox = (loc) => loc.evaluate((e) => { const c = getComputedStyle(e); return { text: e.textContent, ws: c.whiteSpace, wrap: c.overflowWrap, oy: c.overflowY, max: c.maxHeight, lh: c.lineHeight, h: e.clientHeight, sh: e.scrollHeight }; });
+const noteBox = (loc) => loc.evaluate((e) => { const c = getComputedStyle(e); return { text: e.textContent, ws: c.whiteSpace, wrap: c.overflowWrap, oy: c.overflowY, ob: c.overscrollBehaviorY, max: c.maxHeight, lh: c.lineHeight, h: e.clientHeight, sh: e.scrollHeight }; });
 const NOTE3 = 'اتصلوا قبل التوصيل\nالدور التالت\nالشقة 12'; // the mock's 181668
 const NOTE5 = 'من فضلكم اتصلوا قبل التوصيل بساعة\nالعمارة اللي جنب الصيدلية\nالدور التالت\nالشقة 12 على الشمال\nماتسيبوش الطرد مع البواب';
 test('the website note reads in full: its own lines, 3 shown, a longer one scrolls inside (desktop, tablet, mobile, popup)', async ({ page }) => {
   await openOrders(page);
   const wn = (id) => card(page, id).locator('.note.web .wn');
-  const css = { ws: 'pre-wrap', wrap: 'anywhere', oy: 'auto', max: '64px', lh: '20px' }; // max-height = 3 lines of 20px + 4px for the last line's descenders
+  const css = { ws: 'pre-wrap', wrap: 'anywhere', oy: 'auto', ob: 'auto', max: '64px', lh: '20px' }; // max-height = 3 lines of 20px + 4px for the last line's descenders; ob: a wheel or a swipe past the note's end goes on to the page (no overscroll-behavior:contain)
   let b = await noteBox(wn('181668'));
   expect(b).toMatchObject({ text: NOTE3, ...css }); // the lines as written, no « · »
   expect(b.sh).toBeLessThanOrEqual(b.h); // 3 lines: all shown, nothing to scroll

@@ -488,7 +488,9 @@ do $$ declare n int; begin
   if not ((select string_agg(id || '=' || commission_rate || '/' || commission_fee || '→' || round(total - (total * commission_rate / 100 + commission_fee), 2), ',' order by id)
            from public.order_items where order_id = 181800)
           = '9401=35.00/0.00→650.00,9402=40.00/10.00→640.00') then
-    raise exception 'case ops (orders.view F) reads order_items.commission_rate / commission_fee failed';
+    raise exception 'case ops (orders.view F) reads order_items.commission_rate / commission_fee failed: got %',
+      coalesce((select string_agg(id || '=' || coalesce(commission_rate::text, '∅') || '/' || coalesce(commission_fee::text, '∅') || '→' || coalesce(round(total - (total * commission_rate / 100 + commission_fee), 2)::text, '∅'), ',' order by id)
+                from public.order_items where order_id = 181800), '<no rows>');
   end if;
 end $$;
 

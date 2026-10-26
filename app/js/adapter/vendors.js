@@ -176,7 +176,7 @@
   // vendor.* → activity_log with the vendor as entity (IBActivity forwards 'vendor.'); the drawer's timeline follows when it is open
   function logEvent(action, detail, id) {
     const A = window.IBActivity; if (!A || !A.log) return Promise.resolve();
-    return Promise.resolve(quiet(() => A.log(action, detail, { entity: 'vendor', entity_id: String(id) }))).catch(() => undefined).then(() => (timeline.has(String(id)) ? loadEvents(id) : undefined)).catch(() => undefined);
+    return Promise.resolve(quiet(() => A.log(action, detail, { entity: 'vendor', entity_id: String(id) }))).catch(() => undefined).then(() => (timeline.has(String(id)) ? fetchEvents(id) : undefined)).catch(() => undefined);
   }
   // the server write of a local change already applied to `v` (the row in the map): a refusal puts `old` back (unless a reload
   // replaced the row meanwhile) and announces the reason; a success logs, reloads (the server's row is the truth) and announces
@@ -320,13 +320,15 @@
     emit({ id, written: true });
     return get(id) || { id, name: row.name };
   }
-  // that vendor's activity_log (entity 'vendor'), newest 50, kept ascending for the drawer; resets the reveal log of that vendor
-  async function loadEvents(id) {
-    const k = String(id); revealed.delete(k);
+  // that vendor's activity_log (entity 'vendor'), newest 50, kept ascending for the drawer
+  async function fetchEvents(id) {
+    const k = String(id);
     const r = await call((cl) => cl.from('activity_log').select(COLS.event).eq('entity', 'vendor').eq('entity_id', k).order('at', { ascending: false }).limit(EVENTS));
     if (r.ok) timeline.set(k, (r.data || []).slice().reverse().map(toEvent)); else if (!timeline.has(k)) timeline.set(k, []);
     return events(k);
   }
+  // the drawer opening on a vendor: its events, and a fresh reveal log (the refresh after a write keeps it)
+  function loadEvents(id) { revealed.delete(String(id)); return fetchEvents(id); }
 
   // ---------- stats: block 28's per-vendor numbers from the loaded orders ----------
   function stats() {

@@ -89,7 +89,7 @@ test('the admin adds a complete maker (basics + link + bank): the inserts in ord
   const ins = writes().filter((w) => w.op === 'insert');
   expect(ins.map((w) => w.table)).toEqual(['vendors', 'vendor_rates', 'vendor_logins', 'vendor_bank']);
   expect(ins[0]).toEqual({ table: 'vendors', op: 'insert', name: 'Wood & Rope', category: 'ديكور منزلي', phone: '01000000009', email: 'wood.dev@ibtekr.local', status: 'active', lead_days: 7, aliases: [], joined_at: ins[0].joined_at });
-  expect(ins[2]).toEqual({ table: 'vendor_logins', op: 'insert', vendor_id: NEW1, username: 'wood.rope', email: 'wood.dev@ibtekr.local', pw_mode: 'link', created_by: ADMIN_ID });
+  expect(ins[2]).toEqual({ table: 'vendor_logins', op: 'insert', vendor_id: NEW1, username: 'wood.rope', email: 'wood.dev@ibtekr.local', pw_mode: 'link', created_by: 'صفوت كمال' }); // created_by: the member's name, like set_by / updated_by
   expect(ins[3]).toEqual({ table: 'vendor_bank', op: 'insert', vendor_id: NEW1, method: 'bank', bank_name: 'بنك مصر', holder: 'Wood & Rope', iban: 'EG380003000100000000000004821', wallet: null, updated_by: 'صفوت كمال' }); // the IBAN upper-cased, no spaces
   expect(mock.rpcs).toEqual([]); // a link: no password
   await expect.poll(() => acts('vendor.login')).toEqual([{ action: 'vendor.login', entity: 'vendor', entity_id: NEW1, new_value: 'username, email' }]);
@@ -154,7 +154,7 @@ test('the username: suggested from the name until typed, a taken one refused loc
   await expect(m.locator('#v-login-user-err')).toHaveText('اسم المستخدم ده مستخدم قبل كده — جرّب antikiano2'); // lower-cased: Antikiano's
   expect(writes()).toEqual([]);
   await m.locator('#v-login-user').fill('antik.store');
-  mock.vendorLogins.push({ vendor_id: V1, username: 'antik.store', email: 'other.dev@ibtekr.local', pw_mode: 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: ADMIN_ID, created_at: '2026-10-22T00:00:00Z', updated_at: '2026-10-22T00:00:00Z' }); // another member took it
+  mock.vendorLogins.push({ vendor_id: V1, username: 'antik.store', email: 'other.dev@ibtekr.local', pw_mode: 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: 'سارة أحمد', created_at: '2026-10-22T00:00:00Z', updated_at: '2026-10-22T00:00:00Z' }); // another member took it
   await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
   await expect(drawer(page)).toBeVisible();
   await expect(note(page)).toContainText('اتضاف المبتكر Antik Store — ناقص: بيانات الدخول (اسم المستخدم ده مستخدم قبل كده). كمّله من ملفه.');
@@ -314,7 +314,7 @@ test('«ناقص» in the drawer header (the admin sees the three pieces); the l
   await expect(modal(page).locator('#l-login-user-err')).toHaveText('اسم المستخدم ده مستخدم قبل كده — جرّب antikiano2');
   await modal(page).locator('#l-login-user').fill('art.craft');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect.poll(() => writes().filter((w) => w.table === 'vendor_logins')).toEqual([{ table: 'vendor_logins', op: 'insert', vendor_id: V1, username: 'art.craft', email: 'art.dev@ibtekr.local', pw_mode: 'link', created_by: ADMIN_ID }]);
+  await expect.poll(() => writes().filter((w) => w.table === 'vendor_logins')).toEqual([{ table: 'vendor_logins', op: 'insert', vendor_id: V1, username: 'art.craft', email: 'art.dev@ibtekr.local', pw_mode: 'link', created_by: 'صفوت كمال' }]);
   await expect(drawer(page).locator('[data-missing]')).toHaveText('ناقص: الحساب البنكي');
   await expect(loginSec(page).locator('[data-login-status]')).toHaveText('مستني التفعيل');
   await expect.poll(() => acts('vendor.login')).toEqual([{ action: 'vendor.login', entity: 'vendor', entity_id: V1, new_value: 'username, email' }]);
@@ -349,7 +349,7 @@ test('«ناقص» in the drawer header (the admin sees the three pieces); the l
     const c = window.IBSupabase.client; const code = (r) => (r.error ? r.error.code : 'ok');
     const up = await c.from('vendor_logins').upsert({ vendor_id: v2, username: 'antikiano', email: 'a.dev@ibtekr.local', pw_mode: 'link' }, { onConflict: 'vendor_id' });
     const srv = await c.from('vendor_logins').update({ must_change: false }).eq('vendor_id', v2);
-    const cb = await c.from('vendor_logins').update({ created_by: '00000000-0000-4000-8000-000000000002' }).eq('vendor_id', v2);
+    const cb = await c.from('vendor_logins').update({ created_by: 'سارة أحمد' }).eq('vendor_id', v2);
     const act = await c.from('vendor_logins').update({ status: 'active' }).eq('vendor_id', v2);
     const noMail = await c.from('vendor_logins').insert({ vendor_id: 'b0000000-0000-4000-8000-000000000009', username: 'no.mail', pw_mode: 'link' });
     const rv = await c.rpc('vendor_login_reveal', { p_vendor: 'b0000000-0000-4000-8000-000000000009' });
@@ -360,7 +360,7 @@ test('«ناقص» in the drawer header (the admin sees the three pieces); the l
   expect(direct).toEqual(['42501', '42501', '42501', '42501', '23502', 'P0002', 'P0002', '22023']);
   expect(mock.rpcs.slice(-3).map((r) => r.result)).toEqual(['P0002', 'P0002', '22023']);
   expect(serverActs('vendor.login.reveal')).toEqual([]);
-  expect(mock.vendorLogins.find((l) => l.vendor_id === V2)).toMatchObject({ must_change: true, status: 'invited', created_by: ADMIN_ID });
+  expect(mock.vendorLogins.find((l) => l.vendor_id === V2)).toMatchObject({ must_change: true, status: 'invited', created_by: 'صفوت كمال' });
 });
 
 test('the add popup\'s dropdowns float above the modal and are not clipped; Esc closes the dropdown first, then the modal', async ({ page }) => {

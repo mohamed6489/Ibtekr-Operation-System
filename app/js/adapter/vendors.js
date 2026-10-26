@@ -26,7 +26,7 @@
 // vendor_rates (canRate) → vendor_logins (input.login) → rpc vendor_login_set_password (pwMode temp) → vendor_bank (canBank and
 // input.bank); a step refused after the vendor's insert never undoes the vendor: the result is { vendor, missing: [...], reasons }
 // so the page can say what is still missing. setLogin upserts the row (insert when there is none), setLoginStatus writes
-// invited / disabled, setLoginPassword and revealPassword are the two RPCs (Promises; the server logs vendor.login.password /
+// invited / disabled (created_by on the insert is the member's name, like set_by / updated_by), setLoginPassword and revealPassword are the two RPCs (Promises; the server logs vendor.login.password /
 // vendor.login.reveal itself, the password is never kept, logged or emitted here), usernameTaken is the local check (the server's
 // unique index is the judge: 23505 → duplicate_username), canLogin = admin or vendors.edit = F, missing(id) lists what the maker
 // still lacks (login, e-mail, bank — the bank only when the caller can see bank rows).
@@ -346,7 +346,7 @@
     const old = copy(v);
     v.login = Object.assign(v.login || emptyLogin(), { username: u, email }); v.lastUpdate = new Date().toISOString();
     emit({ id, changed: ['login'] });
-    const row = had ? Object.fromEntries(changed.map((k) => [k, k === 'username' ? u : email])) : { vendor_id: id, username: u, email, pw_mode: 'link', created_by: uid() };
+    const row = had ? Object.fromEntries(changed.map((k) => [k, k === 'username' ? u : email])) : { vendor_id: id, username: u, email, pw_mode: 'link', created_by: (actor && actor.name) || null }; // created_by: the member's name, like set_by / updated_by (review A)
     write(id, v, old, async () => { const r = await call((cl) => (had ? cl.from('vendor_logins').update(row).eq('vendor_id', id) : cl.from('vendor_logins').insert(row))); return r.ok ? r : fail(loginReason(r.reason)); }, () => logEvent('vendor.login', changed.join(', '), id));
     return get(id);
   }
@@ -409,7 +409,7 @@
       if (rr.ok) logs.push(logEvent('vendor.rate', rate + '% من ' + since, id)); else refused('rate', rr);
     }
     if (login) {
-      const lr = await call((cl) => cl.from('vendor_logins').insert({ vendor_id: id, username: login.username, email: login.email, pw_mode: login.pwMode, created_by: uid() }));
+      const lr = await call((cl) => cl.from('vendor_logins').insert({ vendor_id: id, username: login.username, email: login.email, pw_mode: login.pwMode, created_by: (actor && actor.name) || null }));
       if (lr.ok) {
         logs.push(logEvent('vendor.login', 'username, email', id));
         if (login.pwMode === 'temp') { const pr = await call((cl) => cl.rpc('vendor_login_set_password', { p_vendor: id, p_password: pw })); if (!pr.ok) refused('password', pr); }

@@ -24,8 +24,8 @@ const RATES = [{ id: 1, vendor_id: V1, rate: '35.00', since: '2026-03-01', set_b
   { id: 3, vendor_id: V2, rate: 45, since: '2026-10-01', set_by: 'صفوت كمال', created_at: T0 }, { id: 4, vendor_id: V2, rate: 50, since: '2027-01-01', set_by: 'صفوت كمال', created_at: T0 }];
 const BANK = [{ vendor_id: V3, method: 'bank', bank_name: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: IBAN, wallet: null, updated_by: 'منى حسن', updated_at: T0 }];
 // vendor_logins as the client reads it (no secret_id): Antikiano with a temporary password set, Bian eg invited by link and disabled
-const LOGINS = [{ vendor_id: V2, username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: T0, created_by: 'u1', created_at: T0, updated_at: T0 },
-  { vendor_id: V3, username: 'bian.eg', email: 'bian.dev@ibtekr.local', pw_mode: 'link', status: 'disabled', must_change: true, invite_sent_at: null, password_set_at: null, created_by: 'u1', created_at: T0, updated_at: T0 }];
+const LOGINS = [{ vendor_id: V2, username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: T0, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 },
+  { vendor_id: V3, username: 'bian.eg', email: 'bian.dev@ibtekr.local', pw_mode: 'link', status: 'disabled', must_change: true, invite_sent_at: null, password_set_at: null, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 }];
 const NEW = 'a0000000-0000-4000-8000-000000000009';
 const BASE = { name: 'zaan', category: 'هدايا', phone: '01000000009', rate: '40', leadDays: '7', status: 'active', aliases: '', email: 'zaan.dev@ibtekr.local' };
 const TEST_PW = 'Test1234'; // the fake test password
@@ -435,13 +435,13 @@ test('vendor_logins refused or empty → login null, state ready; a leave row re
 test('create with a login (link) and a bank: vendors → vendor_rates → vendor_logins → vendor_bank, no rpc, every step logged; { vendor, missing: [] }', async () => {
   const { V, S, calls, responses, logs } = load();
   await V.load(); calls.length = 0;
-  const newLogin = { vendor_id: NEW, username: 'zaan', email: 'zaan.dev@ibtekr.local', pw_mode: 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, created_by: 'u1', created_at: T0, updated_at: T0 };
+  const newLogin = { vendor_id: NEW, username: 'zaan', email: 'zaan.dev@ibtekr.local', pw_mode: 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 };
   responses.vendors = (ops) => (ops.some((c) => c.op === 'insert') ? ok({ id: NEW }) : ok(VENDORS.concat([row({ id: NEW, name: 'zaan', category: 'هدايا', phone: '01000000009', email: 'zaan.dev@ibtekr.local' })])));
   responses.vendor_logins = (ops) => (ops.some((c) => c.op === 'insert') ? ok([]) : ok(LOGINS.concat([newLogin])));
   const out = await S.create({ ...BASE, login: { username: ' Zaan ', pwMode: 'link', password: '' }, bank: { method: 'bank', holder: 'Zaan', bankName: 'بنك مصر', iban: 'eg38 0003 0001 0000 0000 0000 0482 1', wallet: '' } }, S.actor());
   assert.deepEqual(plain([out.vendor.id, out.missing, out.reasons]), [NEW, [], {}]);
   assert.deepEqual(calls.filter((c) => ['insert', 'rpc'].includes(c.op)).map((c) => c.table || c.op), ['vendors', 'vendor_rates', 'vendor_logins', 'vendor_bank']);
-  assert.deepEqual(opsOf(calls, 'vendor_logins').find((c) => c.op === 'insert').args[0], { vendor_id: NEW, username: 'zaan', email: 'zaan.dev@ibtekr.local', pw_mode: 'link', created_by: 'u1' });
+  assert.deepEqual(opsOf(calls, 'vendor_logins').find((c) => c.op === 'insert').args[0], { vendor_id: NEW, username: 'zaan', email: 'zaan.dev@ibtekr.local', pw_mode: 'link', created_by: 'صفوت كمال' }); // created_by: the member's name (review A)
   const b = opsOf(calls, 'vendor_bank').find((c) => c.op === 'insert').args[0];
   assert.deepEqual({ ...b, updated_at: 'x' }, { vendor_id: NEW, method: 'bank', bank_name: 'بنك مصر', holder: 'Zaan', iban: 'EG380003000100000000000004821', wallet: null, updated_by: 'صفوت كمال', updated_at: 'x' }); // the IBAN upper-cased
   assert.deepEqual(logs.map((l) => l[0]), ['vendor.create', 'vendor.rate', 'vendor.login', 'vendor.bank']);
@@ -501,7 +501,7 @@ test('create: a refused rate / login (23505 → duplicate_username) / password (
   assert.deepEqual(plain([o3.vendor.id, o3.missing, o3.reasons]), [NEW, ['rate'], { rate: 'forbidden' }]);
 });
 
-test('setLogin: an insert (vendor_id, username, email, pw_mode link, created_by) when the maker has no row, the changed columns after; validated locally; a duplicate refused locally; 23505 → duplicate_username and the row back', async () => {
+test('setLogin: an insert (vendor_id, username, email, pw_mode link, created_by = the member\'s name) when the maker has no row, the changed columns after; validated locally; a duplicate refused locally; 23505 → duplicate_username and the row back', async () => {
   const { V, S, calls, responses, logs, events } = load({ admin: false, perms: { ...OPS, 'vendors.edit': 'F' } });
   await V.load(); calls.length = 0;
   assert.throws(() => S.setLogin(V1, { username: 'ab', email: 'x' }, S.actor()), /invalid login: username,email/);
@@ -510,7 +510,7 @@ test('setLogin: an insert (vendor_id, username, email, pw_mode link, created_by)
   const out = S.setLogin(V1, { username: ' Art.Craft ', email: ' art.dev@ibtekr.local ' }, S.actor());
   assert.deepEqual(plain(out.login), { username: 'art.craft', email: 'art.dev@ibtekr.local', pwMode: 'link', status: 'invited', mustChange: true, passwordSetAt: null, inviteSentAt: null, hasPassword: false });
   await settle();
-  assert.deepEqual(opsOf(calls, 'vendor_logins').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: V1, username: 'art.craft', email: 'art.dev@ibtekr.local', pw_mode: 'link', created_by: 'u1' }]);
+  assert.deepEqual(opsOf(calls, 'vendor_logins').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: V1, username: 'art.craft', email: 'art.dev@ibtekr.local', pw_mode: 'link', created_by: 'سارة أحمد' }]);
   assert.deepEqual(logs, [['vendor.login', 'username, email', { entity: 'vendor', entity_id: V1 }]]);
   // an existing row: the e-mail alone changes → one PATCH of email (no .select())
   calls.length = 0; logs.length = 0;

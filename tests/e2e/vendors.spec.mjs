@@ -472,7 +472,7 @@ test('«إضافة مبتكر» (phase 3.1: basics + login + bank) creates the m
   expect(ins[0]).toEqual({ table: 'vendors', op: 'insert', name: 'zaan', category: 'هدايا', phone: '01000000009', email: 'zaan.dev@ibtekr.local', status: 'active', lead_days: 7, aliases: ['zana', 'Zaan'], joined_at: ins[0].joined_at });
   expect(ins[0].joined_at).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   expect(ins[1]).toEqual({ table: 'vendor_rates', op: 'insert', vendor_id: 'b0000000-0000-4000-8000-000000000001', rate: 40, since: ins[1].since, set_by: 'صفوت كمال' });
-  expect(ins[2]).toEqual({ table: 'vendor_logins', op: 'insert', vendor_id: 'b0000000-0000-4000-8000-000000000001', username: 'zaan', email: 'zaan.dev@ibtekr.local', pw_mode: 'link', created_by: '00000000-0000-4000-8000-000000000001' });
+  expect(ins[2]).toEqual({ table: 'vendor_logins', op: 'insert', vendor_id: 'b0000000-0000-4000-8000-000000000001', username: 'zaan', email: 'zaan.dev@ibtekr.local', pw_mode: 'link', created_by: 'صفوت كمال' }); // created_by: the member's name
   await expect.poll(() => acts('vendor.create')).toEqual([{ action: 'vendor.create', entity: 'vendor', entity_id: 'b0000000-0000-4000-8000-000000000001', new_value: 'zaan' }]);
   await expect(drawer(page).locator('.drawer-h')).toContainText('نسبة إبتكر 40%');
   await expect(rows(page)).toHaveCount(3);

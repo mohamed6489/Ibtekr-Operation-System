@@ -37,16 +37,18 @@
 | `mfa_cron` | `supabase/migrations/0008_mfa_cron.sql` |
 | `failed_note_permalink` | `supabase/migrations/0009_failed_note_permalink.sql` |
 | `state_names` | `supabase/migrations/0010_state_names.sql` |
+| `vendors` | `supabase/migrations/0011_vendors.sql` |
 
-بعدها `execute_sql` بمحتوى الاختبارات الخمسة (كل واحد بيعمل `rollback` في الآخر، فمش بيسيب حاجة وراه):
+بعدها `execute_sql` بمحتوى الاختبارات الستة (كل واحد بيعمل `rollback` في الآخر، فمش بيسيب حاجة وراه):
 - `supabase/tests/rls_identity.sql` → لازم يطلع `NOTICE: rls_identity: ok`
 - `supabase/tests/rls_system.sql` → لازم يطلع `NOTICE: rls_system: ok` (بيتوقع `status_map` زي ما `0009` بتسيبه: 9 صفوف، «فشل» مكان «تم RTC» بـ `from_woo`، والباقي `both` — يعني بعد `0009`)
 - `supabase/tests/rls_dashboard.sql` → لازم يطلع `NOTICE: rls_dashboard: ok`
 - `supabase/tests/rls_orders.sql` → لازم يطلع `NOTICE: rls_orders: ok` (من المرحلة 2.1 بيتوقع `0009` كمان: «فشل» في `status_map`، و`products.permalink` بيتقرا للأعضاء؛ ومن المرحلة 2.2 بيتوقع `0010`: `orders.customer_state` بيتقرا ومابيتكتبش، و`woo_states`)
 - `supabase/tests/rls_mfa.sql` → لازم يطلع `NOTICE: rls_mfa: ok` (بيكتب factors تجريبية في `auth.mfa_factors` بكل الأعمدة الإجبارية بتاعة الجدول الحي، وكلها بتروح مع الـ rollback)
+- `supabase/tests/rls_vendors.sql` → لازم يطلع `NOTICE: rls_vendors: ok` (المرحلة 3: بيتوقع `0011` — أعمدة `vendors` ومنحها بقايمة، والحارس بالعمود، و`vendor_rates`/`vendor_bank`، و`order_items.commission_rate`؛ على الحي بيتأكد كمان من الـ bucket `vendor-contracts` وسياساته؛ live-safe: مابيمسحش حاجة، والـ deletes اللي فيه متوقع ترتفض — 42501 أو 23503 — والـ rollback في الآخر)
 
 أي `ERROR` = وقّف ومتنشرش. لو الـ MCP رفض `set local role`، شغّلهم بـ `psql` كـ `postgres`.
-`supabase/tests/migrate_0009.sql` و`supabase/tests/migrate_0010.sql` **محلي بس** (`npm run db:test`): بيبنوا الحالة اللي قبل الـ migration جوه transaction وبيطبّقوا الملف نفسه تاني بـ `\ir` (أمر `psql`، فمايتشغّلش عبر `execute_sql`). على الحي `0009` و`0010` بيتفحصوا بالاستعلامات اللي تحت.
+`supabase/tests/migrate_0009.sql` و`supabase/tests/migrate_0010.sql` و`supabase/tests/migrate_0011.sql` **محلي بس** (`npm run db:test`): بيبنوا الحالة اللي قبل الـ migration جوه transaction وبيطبّقوا الملف نفسه تاني بـ `\ir` (أمر `psql`، فمايتشغّلش عبر `execute_sql`). على الحي `0009` و`0010` و`0011` بيتفحصوا بالاستعلامات اللي تحت.
 **ممنوع** تطبّق `supabase/tests/_local_auth_stub.sql` على Supabase — ده لـ Postgres المحلي بس.
 
 لو حد طبّق جزء قبل كده، `list_migrations` بيوريك اللي اتطبّق وتكمّل من بعده.
@@ -215,6 +217,91 @@
 
    لو `error`: شوف §2.7.7. الأوردرات مابتتأثرش، والكارت بيعرض الكود لحد ما الأسماء توصل.
 
+**`0011_vendors` (المرحلة 3) — قبل التطبيق وبعده.** الملف بيتعاد من غير ما يغيّر حاجة (مافيهوش `drop` ولا `delete` ولا `truncate`؛ سياستين `0007` بيتعدّلوا في مكانهم بـ `alter policy`). اللي بيعمله:
+- `vendors` +12 عمود للفريق (`legal_name`، `category` بقايمة الفئات السبعة، `alt_phone`، `address`، `instagram`، `store_url`، `lead_days` 1–60 افتراضي 7، `deposit_policy`، `notes`، `joined_at`، `contract` jsonb، `opening_balance` افتراضي 0) + تعبئة `joined_at` من `raw.registered` (الجزء التاريخ من `YYYY-MM-DD HH:MM:SS`؛ لو مش تاريخ → `created_at`) و`store_url` من `raw.shop_url` (اللي بيبدأ بـ `https://` بس) — للصفوف اللي العمود فيها فاضي بس.
+- `order_items.commission_rate` / `commission_fee` (نسبة الموقع الفعلية ورسمها الثابت على كل سطر، من `_dokan_commission_rate` / `_dokan_additional_fee`) + تعبئة من `raw.meta_data` (الفاضي = null، والأرقام العادية بس) + `select` للأعضاء مع باقي أعمدة السطر (`orders.view`)؛ المزامنة بتكتبهم كل مرة.
+- `vendor_rates` (النسبة بتاريخ سريان؛ RLS `select`/`insert` بـ `sensitive.commission = F`، من غير `update`/`delete` للأعضاء؛ trigger بعد الإدراج بيحدّث `vendors.commission_pct` بالنسبة السارية النهارده — security definer بملكية `postgres`) و`vendor_bank` (صف لكل مبتكر؛ RLS `select`/`insert`/`update` بـ `sensitive.vendor_bank = F`). الاتنين `references vendors(id) on delete cascade`.
+- منح `vendors` لـ `authenticated` بقايمة أعمدة بعد `revoke`: الأعضاء مابيقروش `commission_pct` (النسبة من `vendor_rates`)، ومابيكتبوش `woo_vendor_id`/`commission_pct`/`raw`/`opening_balance` بأي قيمة؛ `contract` بيتعدّل ومابيتدرجش. يعني PostgREST `select=*` على `vendors` بيترفض — الواجهة بتسمّي أعمدتها.
+- السياسات: `vendors_update` ← `with check (is_admin() or vendors.edit <> 'N' or sensitive.vendor_bank = 'F')` (الأخيرة عشان الحسابات — `vendors.edit = N` — تقدر تسجّل العقد؛ الحارس بيحصرها في عمود `contract`)، و`vendors_delete` ← الأدمن بس (وبيفشل 23503 لو عليه سطور). الحارس `vendors_guard_update` (على `anon`/`authenticated` بس) بالقرار 8: `status` ← `vendors.toggle = F`؛ `contract` ← `sensitive.vendor_bank = F`؛ الاسم/الاسم القانوني/الفئة/الأسماء البديلة/مدة التجهيز/سياسة العربون/تاريخ الانضمام ← `vendors.edit = F`؛ التواصل والملاحظات ← `vendors.edit` في (F, P)؛ أي عمود تاني ← 42501.
+- Storage: الـ bucket `vendor-contracts` خاص (10 ميجا، PDF/PNG/JPEG) + 3 سياسات على `storage.objects` (`select`/`insert`/`update` بـ `sensitive.vendor_bank = F`، من غير `delete`) — في بلوك `do $$` محروس بوجود schema `storage` (§2.8).
+
+1. قبل:
+
+   ```sql
+   select count(*) as vendors,
+          count(*) filter (where (raw ->> 'registered') ~ '^\d{4}-\d{2}-\d{2}') as with_registered,
+          count(*) filter (where btrim(raw ->> 'shop_url') like 'https://%') as with_https
+   from public.vendors;
+   -- 55 / 55 / 55 (اتأكد 26 أكتوبر؛ لو with_registered أقل: الباقي هياخد created_at)
+   select count(*) as lines,
+          count(*) filter (where jsonb_typeof(raw -> 'meta_data') = 'array'
+                             and exists (select 1 from jsonb_array_elements(raw -> 'meta_data') e
+                                         where e ->> 'key' = '_dokan_commission_rate' and btrim(e ->> 'value') ~ '^\d{1,3}(\.\d+)?$')) as with_rate
+   from public.order_items;
+   -- 210 / 210 (اتأكد 26 أكتوبر؛ + أي سطر جديد)
+   select to_regclass('public.vendor_rates') as rates, to_regclass('public.vendor_bank') as bank,
+          (select count(*) from storage.buckets where id = 'vendor-contracts') as bucket;
+   -- null / null / 0
+   ```
+
+2. `apply_migration` بالاسم `vendors`.
+3. بعد:
+
+   ```sql
+   select count(*) as vendors, count(joined_at) as with_joined, count(store_url) as with_url,
+          count(*) filter (where joined_at = left(raw ->> 'registered', 10)::date) as from_registered,
+          count(*) filter (where store_url like 'https://%') as https_only
+   from public.vendors;
+   -- 55 / 55 / 55 / 55 / 55
+
+   select count(*) as lines, count(commission_rate) as with_rate, count(commission_fee) as with_fee,
+          count(*) filter (where commission_fee is null) as blank_fee
+   from public.order_items;
+   -- 210 / 210 / (الرسم '' = null، و0 بيتسجّل 0.00: with_fee + blank_fee = 210)
+
+   select has_column_privilege('authenticated', 'public.vendors', 'commission_pct', 'SELECT') as pct_read,        -- false
+          has_column_privilege('authenticated', 'public.vendors', 'contract', 'UPDATE') as contract_write,         -- true
+          has_column_privilege('authenticated', 'public.vendors', 'contract', 'INSERT') as contract_insert,        -- false
+          has_column_privilege('authenticated', 'public.vendors', 'woo_vendor_id', 'UPDATE') as woo_write,         -- false
+          has_column_privilege('authenticated', 'public.vendors', 'raw', 'SELECT') as raw_read,                    -- true
+          has_table_privilege('authenticated', 'public.vendors', 'SELECT') as table_select,                        -- false (قايمة أعمدة)
+          has_table_privilege('authenticated', 'public.vendors', 'DELETE') as table_delete,                        -- true (السياسة أدمن بس)
+          has_column_privilege('authenticated', 'public.order_items', 'commission_rate', 'SELECT') as rate_read,   -- true
+          has_column_privilege('authenticated', 'public.order_items', 'commission_rate', 'UPDATE') as rate_write,  -- false
+          has_table_privilege('authenticated', 'public.vendor_rates', 'INSERT') as rates_insert,                   -- true
+          has_table_privilege('authenticated', 'public.vendor_rates', 'UPDATE') as rates_update,                   -- false
+          has_table_privilege('authenticated', 'public.vendor_bank', 'UPDATE') as bank_update,                     -- true
+          has_table_privilege('authenticated', 'public.vendor_bank', 'DELETE') as bank_delete,                     -- false
+          has_table_privilege('anon', 'public.vendor_bank', 'SELECT') as anon_reads;                               -- false
+
+   select relname, relrowsecurity from pg_class where oid in ('public.vendor_rates'::regclass, 'public.vendor_bank'::regclass);  -- true / true
+   select tablename, policyname, cmd from pg_policies where schemaname = 'public' and tablename in ('vendors', 'vendor_rates', 'vendor_bank') order by 1, 2;
+   -- vendor_bank: insert / select / update؛ vendor_rates: insert / select؛ vendors: delete / insert / select / update
+   select policyname, with_check from pg_policies where schemaname = 'public' and tablename = 'vendors' and policyname = 'vendors_update';
+   -- فيها is_admin و vendors.edit و sensitive.vendor_bank
+   select tgname, tgrelid::regclass from pg_trigger where tgname in ('vendors_guard_update', 'vendor_rates_apply');  -- 2 صفوف
+   select proname, prosecdef, proowner::regrole from pg_proc where proname in ('vendors_guard_update', 'vendor_rates_apply');
+   -- vendors_guard_update false / vendor_rates_apply true، والاتنين postgres
+
+   select id, public, file_size_limit, allowed_mime_types from storage.buckets where id = 'vendor-contracts';
+   -- صف واحد: public = false، 10485760، {application/pdf,image/png,image/jpeg}
+   select policyname, cmd from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'vendor_contracts_%' order by 1;
+   -- 3 صفوف: insert / select / update (مافيش delete)
+   ```
+
+4. `rls_vendors` على الحي (فوق) — live-safe، وبيتأكد من الـ bucket كمان. **`migrate_0011` محلي/CI بس** (نفس سبب `0009`/`0010`). `rls_orders` اتعدّل عشان `0011` (الإدراج من غير `woo_vendor_id`، و`raw` بيتقرا بقايمة) — محلي/CI بس زي ما هو.
+5. إعادة نشر الدالتين (§2.7.1) **بعد** `0011` مش قبلها: الكود الجديد بيكتب `vendors.joined_at` عند أول إدراج لأي متجر و`order_items.commission_rate`/`commission_fee` على كل سطر — وقبل الأعمدة PostgREST بيرفض الصف كله (عمود مش موجود، مش خطأ بيانات): جزء الأوردرات في الـ cron بيفشل وكل delivery بترجع 500 (وWooCommerce بيوقف الـ webhook بعد 5 مرات فشل، §2.7.6). وبعد النشر شغّل جملتين التعبئة مرة كمان (`execute_sql`؛ مابيغيّروش حاجة اتعملت) عشان يلحقوا أي متجر أو سطر الكود القديم كتبه بين التطبيق والنشر — هما نفس الجملتين اللي في `0011` (من `update public.vendors set joined_at` ومن `update public.order_items i` لحد نهايتها؛ انسخهم من الملف).
+6. تشغيلة `vendors` (الـ cron بتبدأ بـ `states` ثم `vendors`، أو يدويًا بالجسم `{"action":"vendors"}` زي §2.7.5). بعدها:
+
+   ```sql
+   select at, result, detail from public.woo_sync_log where entity = 'vendors' order by at desc limit 1;
+   -- ok و detail.vendors = 55
+   select count(*) filter (where status = 'active') as active, count(*) filter (where name = raw ->> 'store_name') as same_name,
+          count(joined_at) as with_joined
+   from public.vendors;
+   -- 55 / نفس الرقم اللي قبل التشغيلة (المزامنة مابتلمسش الاسم ولا الحالة على متجر موجود) / 55
+   ```
+
 ### 2.2 `get_advisors`
 شغّله مرتين: `type: security` و`type: performance`.
 
@@ -267,14 +354,16 @@ window.IB_CONFIG = window.IB_CONFIG || {
 - المرحلة 2 (2026-10-25): `orders` (`0007`) و`mfa_cron` (`0008`) اتطبّقوا (`0007` بدري عن الخطة — صفحة الأوردرات على `main` كانت بتعرض حالة الخطأ لحد ما الجداول تتعمل)، واتأكد اللي في §2.1؛ الـ advisors مازادش فيها غير المقصود (§2.2). الدالتين `woo-webhook` و`woo-sync` اتنشروا (v1)، وبعد موجة الإصلاح الختامية اتنشروا تاني **v2** بكود الفرع النهائي (22:47Z و23:08Z، `verify_jwt: false`، بالشكل اللي في §2.7.1) — قبل ما الأسرار تتحط، عشان أول delivery وأول مزامنة يشتغلوا بالكود الصح. القاعدة: أي تعديل في `_shared/` أو في `index.ts` بتاعة دالة = إعادة نشر الدالتين. الـ cron اتأكد: 3 تشغيلات (21:30 و21:45 و22:00Z) `succeeded`، والرد 500 `not_configured` — متوقع لحد ما أسرار `WOO_*` تتحط (السر الداخلي طابق، يعني الطلب وصل للكود). **26 أكتوبر:** الأسرار الأربعة اتدخلت من اللوحة (صاحب المشروع، بعد ما طلب `create_edge_function_secret` اتقفل مرتين من غير إجابة)؛ أول مزامنة `orders` يدويًا 07:22Z عبر `net.http_post` بسر الـ Vault: 104 أوردر + 86 فرعي = 190 (نفس الفحص)، 206 سطر، 0 سطر غير مربوط بفرعي، 0 تعارض؛ الـ webhooks الأربعة اتسجّلت 07:24Z (ids 79–82، active) وأول deliveries وصلت `ok` 07:34Z؛ المنتجات 3620 بعد تشغيلتين (الأولى وقفت عند مهلة 150 ثانية بعد 29 صفحة والتانية كمّلت من الـ cursor؛ الفحص قال 3991 — فرق للمراجعة في المرحلة 4)؛ المتاجر 55 كلها `active` من تشغيلة 08:00Z بعد إعادة النشر **v4** (07:42Z/07:47Z: `mapStore` بيعتبر غياب `enabled` = نشط). **لسه:** `WOO_PUSH_ENABLED` (قرار صاحب المشروع بعد التأكد إن الإيميلات وبوسطة متقفلين على الـ staging)؛ وتشغيل `rls_orders`/`rls_mfa` على الحي مش متسجّل في الدفتر. التفاصيل في `.superpowers/sdd/2026-10-25-phase-2-orders/progress.md`.
 - المرحلة 2.1 (2026-10-26): `failed_note_permalink` (`0009`) اتطبّقت على الحي 09:41Z (`status_map` 9 صفوف، «فشل» `failed`/`from_woo` مكان «تم RTC»؛ 17 تعليق اتملى من ملاحظة الموقع مع 17 سطر `order_events`؛ `products.permalink` 3620 معبّى و0 فاضي؛ الأعضاء بيقروه)، وبعدها الدالتين اتنشروا **v5** 09:58Z (`_shared/woo-core.js` و`_shared/woo-write.js`)، وجملتين الداتا اتشغّلوا تاني (0 متبقّي)، وتشغيلة cron 10:00Z `ok` بالكود الجديد. الواجهة الجديدة نزلت على `main` (a9bdd45) بعد كل ده بالترتيب.
 - المرحلة 2.2 (2026-10-26): `state_names` (`0010`) اتطبّقت على الحي 13:29Z (105/105 أوردر فيهم `customer_state` من `raw`، 14 كود؛ `orders_v` 26 عمود؛ الأعضاء بيقروا العمود ومابيكتبوهوش؛ `woo_states` بسياسة `select` للأعضاء وبدون `insert`)، وبعدها الدالتين اتنشروا **v7** (`woo-webhook` 13:34Z، `woo-sync` 13:44Z) بكود 2.2؛ جملة التعبئة مالهاش متبقّي (0 `null`)؛ تشغيلة cron 13:45Z `all` ok على v7 (`states` 27، المتاجر 55، أوردرات 0 جديد)، وتشغيلة `states` يدويًا 13:47Z: 27 محافظة مكتوبة، 0 متخطّي، 0 فاشل، وكل الـ 105 كود ليهم اسم. **ملحوظة:** قايمة الموقع بالإنجليزي (Cairo, Alexandria, Giza…) — لو صاحب المشروع عايزها عربي: نجرّب `?lang=ar` على نفس الـ endpoint (WPML) أو عمود اسم عربي في `woo_states` (قرار مكتوب). الواجهة الجديدة نزلت على `main` بعد كل ده بالترتيب.
+- المرحلة 3 (2026-10-26): `vendors` (`0011`) **لسه ماتطبّقتش** — الكنترولر بيطبّقها بعد المراجعتين (الترتيب الحي §4 في خطة المرحلة 3)، والدالتين لسه على **v7**. بعد التطبيق: `rls_vendors` على الحي، ثم إعادة نشر الدالتين (v8؛ `_shared/woo-core.js` و`_shared/woo-write.js` اتغيّروا)، ثم جملتين التعبئة مرة كمان، ثم تشغيلة `vendors` (55 متجر، 0 تغيير في الاسم/الحالة، `raw` محدّث). التفاصيل في `.superpowers/sdd/2026-10-26-phase-3-vendors/progress.md`.
 
 ### 2.7 Edge Functions والأسرار والـ webhooks (المرحلة 2)
 دالتين Deno في `supabase/functions/`:
 - **`woo-webhook`**: بتستقبل webhooks بتاعة WooCommerce (توقيع HMAC، منع التكرار، أوردرات وفرعيين Dokan ومنتجات).
 - **`woo-sync`**: المزامنة الاحتياطية (`states` / `orders` / `vendors` / `products` / `all`)، دفع حالة الأوردر للموقع (`push_status`)، وتسجيل الـ webhooks (`register_webhooks`).
 
-منطقهم النقي في `_shared/woo-core.js` (بيتختبر بـ `npm test`)، ونقط الدخول بـ `npm run deno:check` و`npm run deno:test`. الترتيب على الحي: §2.1 (`0007` ثم `0008`، ومن المرحلة 2.1 `0009`، ومن المرحلة 2.2 `0010`) ← 2.7.1 النشر ← 2.7.2 الأسرار ← 2.7.4 الـ webhooks ← 2.7.5 أول مزامنة.
+منطقهم النقي في `_shared/woo-core.js` (بيتختبر بـ `npm test`)، ونقط الدخول بـ `npm run deno:check` و`npm run deno:test`. الترتيب على الحي: §2.1 (`0007` ثم `0008`، ومن المرحلة 2.1 `0009`، ومن المرحلة 2.2 `0010`، ومن المرحلة 3 `0011`) ← 2.7.1 النشر ← 2.7.2 الأسرار ← 2.7.4 الـ webhooks ← 2.7.5 أول مزامنة.
 **المرحلة 2.2 بالترتيب:** `0010` على الحي (§2.1؛ الواجهة الجديدة بتقرا `customer_state` و`woo_states`) ← إعادة نشر الدالتين (2.7.1؛ `_shared` و`woo-sync` اتغيّروا) ← جملة التعبئة مرة كمان ← تشغيلة `states` يدويًا أو انتظار الـ cron (2.7.5) ← `main`.
+**المرحلة 3 بالترتيب:** `0011` على الحي (§2.1؛ الواجهة الجديدة بتقرا `vendors` بقايمة أعمدة و`vendor_rates`/`vendor_bank` وترفع العقود على الـ bucket — §2.8) ← `rls_vendors` على الحي ← إعادة نشر الدالتين (2.7.1؛ `_shared` اتغيّر) ← جملتين التعبئة مرة كمان ← تشغيلة `vendors` (2.7.5) ← `main`.
 
 **Dokan قراءة بس (قرار صاحب المشروع):** النظام عمره ما يكتب في حالة أوردر فرعي على Woo ولا في بيانات متجر. اللي بيتكتب في WooCommerce حاجتين بس: حالة الأوردر الأصلي (`push_status`، حسب `status_map` واتجاهها، ولما `WOO_PUSH_ENABLED = 1` بس — 2.7.2)، والـ webhooks بتاعتنا (`register_webhooks`). حالات الفرعيين (تأكيد، وصل المخزن، شحن، مرتجع) عايشة عندنا بس.
 
@@ -283,6 +372,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 - الملفات لكل دالة: `index.ts` (الـ entrypoint) و`deno.json`، ومعاهم الأربع ملفات المشتركة `_shared/woo-core.js` و`_shared/woo-api.js` و`_shared/woo-write.js` و`_shared/db.js` بنفس المسار النسبي اللي الـ imports بتستخدمه (`../_shared/…`). **مايترفعش:** `index_test.ts` ولا `_test/` (بدائل الاختبار). وأي تعديل في `_shared/` بيلزم إعادة نشر الدالتين (كل واحدة شايلة نسختها جوه الـ bundle).
 - **المرحلة 2.1:** `_shared/woo-core.js` و`_shared/woo-write.js` اتغيّروا (`failed` بقى في الجدول، `note` عند الإنشاء، `permalink`)، فالدالتين لازم يتنشروا تاني — **بعد** ما `0009` يتطبّق (§2.1): الكود الجديد بيكتب `products.permalink`، وقبل العمود جزء المنتجات بيفشل.
 - **المرحلة 2.2:** `_shared/woo-core.js` و`_shared/woo-write.js` (`customer_state`، `writeStates`) و`woo-sync/index.ts` (جزء `states`) اتغيّروا، فالدالتين يتنشروا تاني — **بعد** ما `0010` يتطبّق (§2.1 خطوة 5 بتاعة `0010`): الكود الجديد بيكتب `orders.customer_state` و`woo_states`، وقبلهم الأوردرات الجديدة (cron وwebhooks) بتفشل.
+- **المرحلة 3:** `_shared/woo-core.js` (`mapStore` بيرجّع `joined_at` من `registered`، وسطور الأوردر بتشيل `commission_rate`/`commission_fee` من ميتا Dokan) و`_shared/woo-write.js` (`saveVendors`: المتجر الموجود بياخد `raw` بس — الفريق صاحب الاسم والحالة والتواصل — والجديد الصف كامل؛ `ITEM_COLUMNS` زادت العمودين) اتغيّروا، فالدالتين يتنشروا تاني (v8) — **بعد** ما `0011` يتطبّق (§2.1 خطوة 5 بتاعة `0011`): الكود الجديد بيكتب أعمدة مش موجودة قبلها، وPostgREST بيرفض الصف كله (كل delivery لأوردر فيه سطور بترجع 500، وأول متجر جديد في الـ cron بيفشل). الدالة `woo-sync` نفسها (`index.ts`) ماتغيّرتش في المرحلة دي.
 - **شكل الـ bundle اللي اشتغل مع `deploy_edge_function` (MCP، 2026-10-25):** أسماء الملفات في `files` جوه فولدر الدالة، والمشتركة جنبه:
 
   | `name` في `files` | المحتوى من |
@@ -462,6 +552,20 @@ from public.woo_webhook_events order by received_at desc limit 30;
 - **`staging-probe.yml`** (`workflow_dispatch`، `contents: read`): بيشغّل `tools/woo-probe.mjs` على الـ staging بالأسرار `STAGING_WOO_URL`/`STAGING_WOO_CK`/`STAGING_WOO_CS` (GitHub Secrets، على مستوى الخطوة بس). GET بس، وكل قسم سطر JSON متنضّف من البيانات الشخصية: الحالات، عدد الأوردرات من 1 أكتوبر، عينات أصلي وفرعي، المتاجر، المنتجات، والـ webhooks. قسم المتاجر بيرجع 401 لأن السكريبت بيبعت مفاتيح WC على `dokan/v1` — ومن هنا طلعت قاعدة المصادقة (2.7.3) — فالتشغيلة بتخلص بـ exit 1 والباقي بيتطبع عادي. آخر تشغيلة: 40204355895 (2026-10-25).
 - **`vendor-fetch.yml`** (`workflow_dispatch`، `contents: write`): بينزّل SheetJS CE من `cdn.sheetjs.com` (الـ sandbox مابيوصلهوش، وnpm واقف عند 0.18.5 اللي فيها CVE-2023-30533 وCVE-2024-22363)، وبيعمل commit لـ `app/js/vendor/xlsx.full.min.js` على الفرع اللي تختاره. المدخلات: `version` (افتراضي `0.20.3`)، `branch` (**`main` مرفوض** — بأي شكل: `main` أو `heads/main` أو `refs/heads/main` — لأن الـ push على `main` بينشر الموقع؛ اعمل commit على فرع شغل وادمجه)، و`sha256` اختياري (التشغيلة بتفشل لو الهاش مختلف). الهاش بيتطبع في اللوج؛ بعدها حدّث الإصدار والـ sha256 في `app/js/vendor/README.md`. html2canvas بيتحدّث يدويًا بـ `npm pack` (الخطوات في نفس الـ README).
 - **CI (`ci.yml`)** مع كل push: `test` (`npm test` + e2e)، `db` (الـ migrations والـ RLS على Postgres 17)، `semgrep` (`npm run semgrep`، semgrep 1.182.1)، و`functions` (`npm run deno:check` + `npm run deno:test`).
+
+### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
+- الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.
+- السياسات على `storage.objects` (من الملف نفسه، بادئة `vendor_contracts_`): `select` و`insert` و`update` لـ `authenticated` بشرط `bucket_id = 'vendor-contracts'` و`has_perm('sensitive.vendor_bank') = 'F'` (الأدمن والحسابات في مصفوفة `0003`). مافيش سياسة `delete`: استبدال العقد = ملف جديد والقديم بيفضل (قرار 7)، ومافيش تنظيف للملفات القديمة (تكلفة صغيرة).
+- الوصول الوحيد من الواجهة عبر السياسات دي: الرفع على `vendor-contracts/<uuid المبتكر>/<unix ms>-<اسم آمن>` بـ `upsert: false`، والعرض/التحميل برابط موقّع 60 ثانية (`createSignedUrl` بصلاحية العضو نفسه) — ومافيش رابط عام أصلًا لأن الـ bucket خاص. عضو من غير `sensitive.vendor_bank = F` مايقدرش يرفع ولا يقرا الملف ولا يعمل رابط موقّع. بيانات العقد (المسار والاسم والحجم وتاريخ الانتهاء) في `vendors.contract`، وتغييرها محروس بنفس المفتاح (الحارس).
+- التأكد من اللوحة: Storage › Buckets → `vendor-contracts` موجود و"Public" مطفي والحد 10 MB؛ Storage › Policies → 3 سياسات باسم `vendor_contracts_*` على `objects` (مافيش delete). أو بـ SQL (نفس استعلامات §2.1 خطوة 3 بتاعة `0011`):
+
+  ```sql
+  select id, public, file_size_limit, allowed_mime_types from storage.buckets where id = 'vendor-contracts';
+  select policyname, cmd, roles from pg_policies where schemaname = 'storage' and tablename = 'objects' and policyname like 'vendor_contracts_%' order by 1;
+  ```
+
+- فحص يدوي بعد النشر: من حساب أدمن ارفع PDF صغير من درج مبتكر → الملف يظهر في اللوحة تحت فولدر الـ uuid بتاعه، و«عرض» يفتحه برابط موقّع؛ من حساب عمليات (`sensitive.vendor_bank = N`) القسم بيقول «مخفي» ومحاولة فتح نفس المسار بترجع مرفوضة. `rls_vendors` على الحي بيتأكد من الـ bucket والسياسات الثلاثة بالـ SQL.
+- ملحوظة: `0011` بتعمل الـ bucket والسياسات جوه بلوك `do $$` محروس بوجود schema `storage`، فعلى Postgres المحلي (`npm run db:test`) الجزء ده بيتخطّى، و`rls_vendors` بيفحصه بس لما الـ schema موجود (الحي).
 
 ---
 

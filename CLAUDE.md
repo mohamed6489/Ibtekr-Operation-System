@@ -30,6 +30,8 @@
 
 ملحوظة: أعمدة `raw` في `orders`/`order_items`/`sub_orders` لـ `service_role` بس، و`customer_phone` بيتقرا مطموس عبر `orders_v` بس؛ الواجهة بتطلب أعمدتها بالاسم (`select=*` على الجداول دي بيترفض). المزامنة (Edge Functions) بتكتب الجداول مباشرة بـ service_role.
 
+ملحوظة (المرحلة 3): `vendors` بيتقرا بقايمة أعمدة هو كمان (`select=*` بيترفض — `commission_pct` لـ `service_role` بس)، والنسبة في `vendor_rates` (بتاريخ سريان، `sensitive.commission = F`) والحساب البنكي في `vendor_bank` (`sensitive.vendor_bank = F`) كل واحد في جدوله مش في `vendors`؛ والمزامنة على متجر موجود بتحدّث `raw` بس — الفريق صاحب الاسم والحالة والتواصل بعد أول إدراج (`saveVendors` في `_shared/woo-write.js`).
+
 ## أوامر التشغيل
 ```bash
 npm install        # مرة واحدة

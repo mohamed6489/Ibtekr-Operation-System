@@ -1490,6 +1490,16 @@
   const ageLabel = (a) => (a == null ? '—' : a === 0 ? 'اليوم' : a === 1 ? 'أمس' : D.formatDateLong(R.orderDate({ ageDays: a }, VTODAY())));
   function copyText(text, label) { const done = () => vnotify('success', 'اتنسخ ' + label + '.'); const fail = () => vnotify('error', 'تعذّر النسخ من المتصفح.'); try { navigator.clipboard.writeText(String(text)).then(done, fail); } catch (e) { fail(); } }
 
+  // phase 3.2, decision 5 (c): the search also finds a maker by the names and aliases of the brands he holds or held (IBVendors
+  // namesOf); the other filters stay VD.filterVendors'. The prototype's store (a bare page) has no brands: the base list alone.
+  function vfilter(all, stats, f) {
+    const base = VD.filterVendors(all, stats, f, VTODAY()); const q = VD.norm(f.q || '');
+    if (!q || !vstore.namesOf) return base;
+    const seen = new Set(base.map((v) => v.id)); const more = all.filter((v) => !seen.has(v.id) && vstore.namesOf(v.id).some((n) => VD.norm(n).includes(q)));
+    return more.length ? base.concat(VD.filterVendors(more, stats, Object.assign({}, f, { q: '' }), VTODAY())) : base;
+  }
+  // decision 5 (d): under the maker's name, the brands he holds whose name is not his (after a transfer) — a grey line, text only
+  const brandLine = (v) => { const names = (v.brands || []).map((b) => b.name).filter((n) => VD.norm(n) !== VD.norm(v.name)); return names.length ? h('span', { class: 't-small brand-line', 'data-brands': '' }, names.join(' · ')) : null; };
   function VendorsPageView() {
     const all = vstore.all(); const stats = vendorStats(); const sum = VD.summary(all, stats);
     // «التفاصيل» on the 4 KPIs (owner, 22 Oct) — rows from VD.summaryDetails, a row opens the vendor file.
@@ -1500,14 +1510,14 @@
       if (kind === 'due') { const l = d.due; return { title: 'مستحقات المبتكرين — ' + money(sum.due) + ' ج.م', sub: l.length + ' مبتكر ليهم رصيد لصالحهم', summary: [{ label: 'الإجمالي', value: money(sum.due) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }, { label: 'أكبر رصيد', value: l.length ? l[0].name + ' — ' + money(l[0].balance) : '—' }], headers: ['المبتكر', 'الرصيد (له)', 'من الإجمالي'], rows: l.map((r) => [r.name, money(r.balance), (sum.due ? Math.round(r.balance / sum.due * 100) : 0) + '%']), total: ['الإجمالي', money(l.reduce((x, r) => x + r.balance, 0)), '100%'], onRow: open(l), source: 'الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر (الافتتاحي والعرابين من مرحلة الحسابات)' }; }
       const l = d.negative; return { title: 'مبتكرين عندهم رصيد سالب (عرابين / مواصلات) — ' + l.length, sub: 'عرابين اتدفعت لهم قبل ما الأوردرات تكتمل — بتتخصم من مستحقاتهم', summary: [{ label: 'إجمالي العرابين', value: money(sum.negativeTotal) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }], headers: ['المبتكر', 'العربون', 'المواصلات', 'الرصيد (عليه)', 'أوردرات مفتوحة'], rows: l.map((r) => [r.name, money(r.deposits), money((vendorsNow().find((x) => x.name === r.name) || {}).transport || 0), money(r.balance), String((stats[r.id] || {}).open || 0)]), total: ['الإجمالي', money(l.reduce((x, r) => x + r.deposits, 0)), money(l.reduce((x, r) => x + ((vendorsNow().find((y) => y.name === r.name) || {}).transport || 0), 0)), money(l.reduce((x, r) => x + r.balance, 0)), String(l.reduce((x, r) => x + ((stats[r.id] || {}).open || 0), 0))], onRow: open(l), source: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات' };
     };
-    const list = VD.sortVendors(VD.filterVendors(all, stats, state.vfilter, VTODAY()), stats, state.vsort);
+    const list = VD.sortVendors(vfilter(all, stats, state.vfilter), stats, state.vsort);
     const pages = Math.max(1, Math.ceil(list.length / VPAGE)); if (state.vpage > pages) state.vpage = pages;
     const slice = list.slice((state.vpage - 1) * VPAGE, state.vpage * VPAGE);
     const setF = (k, v) => { state.vfilter[k] = v; state.vpage = 1; renderVendors(); };
     const sel = (label, options, value, key) => { const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '', style: 'display:block' }); const cur = options.find((o) => o.value === value);
       const btn = h('button', { type: 'button', class: 'select', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-label': label, style: 'width:auto;min-width:140px' }, Icon('chevD', 'sm'), h('span', { class: 'val' }, label + ': ' + (cur ? cur.label : '—')));
       const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options, value, onSelect: (v) => { close(); setF(key, v); } })); btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap; };
-    const search = h('input', { type: 'search', class: 'input', placeholder: 'ابحث بالاسم أو الهاتف أو الاسم البديل', 'aria-label': 'بحث في المبتكرين', value: state.vfilter.q, style: 'width:320px;max-width:100%' });
+    const search = h('input', { type: 'search', class: 'input', placeholder: 'ابحث بالاسم أو الهاتف أو الاسم البديل أو البراند', 'aria-label': 'بحث في المبتكرين', value: state.vfilter.q, style: 'width:320px;max-width:100%' });
     search.addEventListener('input', () => { state.vfilter.q = search.value; state.vpage = 1; renderVendors(true); });
     const check = (key, label) => h('label', { class: 'check', style: 'display:flex;align-items:center;gap:8px;cursor:pointer' }, (() => { const c = h('input', { type: 'checkbox', checked: state.vfilter[key] }); c.addEventListener('change', () => setF(key, c.checked)); return c; })(), label);
     // «فلتر» + «ترتيب حسب» (owner, 22 Oct) — same pattern as the orders page header; active filters show as removable chips under the header.
@@ -1523,7 +1533,7 @@
           h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'الفئة'), h('div', { class: 'chips' }, [['all', 'الكل']].concat(CATS.map((c) => [c, c])).map(([v, l]) => h('button', { type: 'button', class: 'chip', 'aria-pressed': String(d.category === v), onClick: () => { d.category = v; draw(); } }, l)))),
           radio('balance', 'الرصيد'), radio('contract', 'العقد'),
           h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'المتابعة'), K.Checkbox({ label: 'عنده أوردرات قابلة للتأخير / متأخرة', checked: d.late, onChange: (v) => { d.late = v; draw(); } }), K.Checkbox({ label: 'عليه تذاكر مفتوحة', checked: d.tickets, onChange: (v) => { d.tickets = v; draw(); } }))];
-          const preview = VD.filterVendors(all, stats, Object.assign({}, d, { q: state.vfilter.q }), VTODAY()).length;
+          const preview = vfilter(all, stats, Object.assign({}, d, { q: state.vfilter.q })).length;
           el.replaceChildren(h('div', { class: 'vf-h' }, h('b', { class: 't-h5' }, 'فلتر المبتكرين'), IconButton({ icon: 'close', label: 'إغلاق', onClick: close })), h('div', { class: 'vf-b' }, ...body),
             h('div', { class: 'vf-f' }, Button({ type: 'primary', label: 'عرض ' + preview + ' مبتكر', attrs: { 'data-vapply': '' }, onClick: () => { Object.assign(state.vfilter, d, { negative: false }); state.vpage = 1; close(); renderVendors(); } }), Button({ type: 'text', label: 'مسح الكل', onClick: () => { Object.assign(d, { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false }); draw(); } }))); };
         el = h('div', { class: 'menu vfilter-pop', role: 'dialog', 'aria-label': 'فلتر المبتكرين', 'data-focus': 'no' }); draw(); return el; });
@@ -1549,7 +1559,7 @@
     }
     const headers = ['المبتكر', 'الحالة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'العربون', 'المواصلات', 'مستحقاته (من 1 أكتوبر)', 'آخر أوردر', 'تذاكر مفتوحة'];
     const later = (phase) => h('span', { class: 't-small', style: 'color:var(--color-text-secondary)', title: 'من مرحلة ' + phase }, '—'); // decision 4: deposits / transport with phase 4, tickets with phase 7
-    const cells = (v) => { const st = stats[v.id]; return [h('span', { class: 'vendor-cell' }, U.VendorLogo({ letter: v.logoLetter, size: 'sm' }), h('span', { class: 't-label' }, v.name)), U.VendorStatus(v.status), v.rate == null ? '—' : num(v.rate + '%'), num(String(st.open)), num(String(st.late)), later(4), later(4), h('span', { class: st.balance < 0 ? 'bal-neg' : '' }, num(D.formatMoney(st.balance))), num(ageLabel(st.lastAge)), later(7)]; }; // مستحقاته = الافتتاحي + حقه من الأوردرات المكتملة
+    const cells = (v) => { const st = stats[v.id]; return [h('span', { class: 'vendor-cell' }, U.VendorLogo({ letter: v.logoLetter, size: 'sm' }), h('span', { class: 'vnames' }, h('span', { class: 't-label' }, v.name), brandLine(v))), U.VendorStatus(v.status), v.rate == null ? '—' : num(v.rate + '%'), num(String(st.open)), num(String(st.late)), later(4), later(4), h('span', { class: st.balance < 0 ? 'bal-neg' : '' }, num(D.formatMoney(st.balance))), num(ageLabel(st.lastAge)), later(7)]; }; // مستحقاته = الافتتاحي + حقه من الأوردرات المكتملة
     const table = h('div', { class: 'scroll-x' }, h('table', { class: 'tickets-table' }, h('thead', null, h('tr', null, headers.map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, slice.map((v) => { const tr = h('tr', { 'data-id': v.id, tabindex: '0', role: 'button', 'aria-label': 'فتح ملف ' + v.name }, cells(v).map((c) => h('td', null, c))); tr.addEventListener('click', () => openVendor(v.id)); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openVendor(v.id); } }); return tr; }))));
     const cards = h('div', { class: 'kv-list' }, slice.map((v) => { const cs = cells(v); const c = h('div', { class: 'card list-card', tabindex: '0', role: 'button' }, h('div', { class: 'title' }, cs[0]), headers.slice(1).map((k, i) => h('div', { class: 'kv' }, h('span', { class: 't-small' }, k), h('span', { class: 't-body' }, cs[i + 1])))); c.addEventListener('click', () => openVendor(v.id)); c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openVendor(v.id); }); return c; }));
     const pager = h('div', { class: 'pager' }, h('div', { class: 'pages' }, Button({ type: 'text', size: 'sm', label: 'السابق', disabled: state.vpage <= 1, onClick: () => { state.vpage--; renderVendors(); } }), Array.from({ length: pages }, (_, i) => Button({ type: i + 1 === state.vpage ? 'primary' : 'text', size: 'sm', label: String(i + 1), onClick: () => { state.vpage = i + 1; renderVendors(); } })), Button({ type: 'text', size: 'sm', label: 'التالي', disabled: state.vpage >= pages, onClick: () => { state.vpage++; renderVendors(); } })),
@@ -1802,6 +1812,108 @@
       m = U.Modal({ title, body, footer: [shareWrap, Button({ label: 'فتح في الأوردرات', onClick: () => { m.close(); vdrawer.close(); showOrders({ vendor: v.name }); } }), Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })] });
       m.el.classList.add('wide'); m.el.dataset.vorders = kind; m.el.dataset.share = '1';
     }
+    // ----- brands (phase 3.2, decision 5 a / b): «البراندات» after the agreement — the brands the maker holds today (name, code, aliases,
+    // «متجر على الموقع», the rate column with sensitive.commission, since / «مؤقت لحد»), the «كان عنده» lines, «إضافة براند» and the ⋮ menu
+    // per brand (edit / special rate / transfer / return) for the admin and vendors.edit = F (the server's policy: vstore.canBrands).
+    // Every popup refuses locally (block 06 validateBrand / validateTransfer, the store's own checks) before any request. A brand's
+    // name / code / aliases / reason are text nodes everywhere: HTML in them stays text.
+    const canBrands = () => !!(vstore.canBrands && vstore.canBrands());
+    const dateCell = (iso) => num(D.formatDateNumeric(iso));
+    function brandMenu(v, b) {
+      const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const trig = IconButton({ icon: 'more', label: 'خيارات البراند ' + b.name, attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'data-brand-menu': b.id } });
+      const opts = [{ value: 'edit', label: 'تعديل' }, vstore.canRate() ? { value: 'rate', label: 'النسبة الخاصة' } : null, { value: 'transfer', label: 'نقل لمبتكر تاني' }, b.owner !== b.origin ? { value: 'return', label: 'رجوع لصاحبه' } : null].filter(Boolean);
+      const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (val) => { close(); if (val === 'edit') brandForm(v, b); if (val === 'rate') brandRateForm(v, b); if (val === 'transfer') brandTransferForm(v, b); if (val === 'return') brandReturnForm(v, b); } }));
+      trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
+    }
+    function brandsSection(v) {
+      const canRate = vstore.canRate(); const edit = canBrands();
+      const head = ['البراند'].concat(canRate ? ['النسبة'] : [], ['منذ'], edit ? [''] : []);
+      const cell = (b) => h('td', null, h('span', { class: 'brand-cell' }, h('b', null, b.name), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, 'الكود ', h('span', { dir: 'ltr' }, b.code), b.aliases.length ? ' · ' + b.aliases.join('، ') : ''), b.store ? h('span', null, h('span', { class: 'tg tg-neutral' }, 'متجر على الموقع')) : null));
+      const rows = (v.brands || []).map((b) => h('tr', { 'data-brand': b.id }, cell(b),
+        canRate ? h('td', { 'data-brand-rate': '' }, b.rate == null ? 'نسبة المبتكر' : num('خاصة ' + b.rate + '%')) : null,
+        h('td', null, b.since ? dateCell(b.since) : '—', b.temp && b.returnOn ? h('span', { class: 't-small', style: 'display:block;color:var(--color-text-secondary)' }, num('مؤقت لحد ' + D.formatDateNumeric(b.returnOn))) : null),
+        edit ? h('td', null, brandMenu(v, b)) : null));
+      const ever = (v.brandsEver || []).map((b) => h('p', { class: 't-small brand-ever', style: 'margin:0;color:var(--color-text-secondary)' }, 'كان عنده: ', h('b', null, b.name), num(' لحد ' + (b.until ? D.formatDateNumeric(b.until) : '—') + ' → دلوقتي مع '), h('b', null, b.now)));
+      return section('البراندات', edit ? Button({ type: 'text', size: 'sm', icon: 'plus', label: 'إضافة براند', attrs: { 'data-add-brand': '' }, onClick: () => brandForm(v, null) }) : null,
+        rows.length ? h('div', { class: 'scroll-x' }, h('table', { class: 'brands-table mini-table' }, h('thead', null, h('tr', null, head.map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, rows))) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'مفيش براندات على المبتكر ده دلوقتي.'),
+        ever, h('p', { class: 't-small help', style: 'margin:0' }, 'الأوردرات بتتحسب للي البراند كان تحته يوم الأوردر، والـ SKU مش بيتغير. النسبة = نسبة المبتكر إلا لو البراند ليه نسبة خاصة.'));
+    }
+    // «إضافة براند» / «تعديل»: the name, the code (suggested from the name until it is typed), the aliases, and — adding, with
+    // sensitive.commission — a special rate. A taken name (the store's brandByName) is refused here; the server's 23505 says the same.
+    function brandForm(v, b) {
+      const f = { name: b ? b.name : '', code: b ? b.code : '', aliases: b ? b.aliases.join('، ') : '', rate: '', codeTouched: !!b }; let errs = {}; let m = null;
+      const redraw = () => m.setBody(...body());
+      const body = () => [h('div', { class: 'row cols2' },
+          U.TextInput({ id: 'br-name', label: 'اسم البراند', required: true, maxlength: 80, value: f.name, error: errs.name, help: 'الاسم اللي المنتجات بتتباع بيه', onInput: (x) => { f.name = x; if (!f.codeTouched) { f.code = VD.brandCode(x); const el = document.getElementById('br-code'); if (el) el.value = f.code; } } }),
+          U.TextInput({ id: 'br-code', label: 'الكود', dir: 'ltr', maxlength: 3, value: f.code, error: errs.code, help: 'من 1 لـ 3 حروف إنجليزي كبيرة أو أرقام — معلوماتي، الـ SKU مش بيتغير', onInput: (x) => { f.code = x.toUpperCase(); f.codeTouched = true; } })),
+        U.TextInput({ id: 'br-aliases', label: 'أسماء بديلة', value: f.aliases, placeholder: 'W&R، WOOD & ROPE', help: 'لتوحيد الأسماء من الأوردرات والشيت — افصل بفاصلة', onInput: (x) => { f.aliases = x; } }),
+        !b && vstore.canRate() ? U.TextInput({ id: 'br-rate', label: 'نسبة خاصة', inputmode: 'decimal', suffix: '%', value: f.rate, error: errs.rate, help: 'سيبها فاضية = نسبة المبتكر', onInput: (x) => { f.rate = x; } }) : null,
+        errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: b ? 'التعديل بيتسجل في سجل النشاط باسمك.' : 'البراند هيبقى على ' + v.name + ' من تاريخ انضمامه (' + D.formatDateNumeric(v.joinedAt) + ')، وبيتسجل في سجل النشاط باسمك.' })].filter(Boolean);
+      function save() {
+        errs = VD.validateBrand(f);
+        if (!errs.name) { const dup = vstore.brandByName ? vstore.brandByName(f.name) : null; if (dup && (!b || dup.id !== b.id)) errs.name = 'فيه براند بنفس الاسم (' + dup.name + ') — اختار اسم تاني'; }
+        if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; redraw(); const bad = m.el.querySelector('[aria-invalid=true]'); if (bad) bad.focus(); return; }
+        if (b) { m.close(); act(() => vstore.updateBrand(b.id, { name: f.name, code: f.code, aliases: f.aliases }, vstore.actor()), 'اتحفظ البراند.'); return; }
+        const STEP = { owner: 'صف الملكية', rate: 'النسبة الخاصة' };
+        Promise.resolve().then(() => vstore.addBrand(id, { name: f.name, code: f.code, aliases: f.aliases, rate: f.rate }, vstore.actor())).then((res) => {
+          m.close(); log.append({ action: 'vendor.update', actor: ME.name, newValue: id });
+          const miss = (res.missing || []).map((k) => (STEP[k] || k) + (res.reasons && VMSG[res.reasons[k]] ? ' (' + VMSG[res.reasons[k]] + ')' : ''));
+          vnotify(miss.length ? 'warning' : 'success', 'اتضاف البراند ' + res.brand.name + (miss.length ? ' — ناقص: ' + miss.join('، ') + '.' : '.')); draw();
+        }, (e) => { errs._form = e.message; redraw(); });
+      }
+      m = U.Modal({ title: b ? 'تعديل البراند — ' + b.name : 'إضافة براند — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: b ? 'حفظ' : 'إضافة البراند', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+      const first = m.el && m.el.querySelector('input'); if (first) first.focus();
+    }
+    // «النسبة الخاصة» (sensitive.commission): a dated row; blank = no special rate from that date (the maker's rate again)
+    function brandRateForm(v, b) {
+      const f = { rate: b.rate == null ? '' : String(b.rate), since: VTODAY() }; let errs = {}; let m = null; const redraw = () => m.setBody(...body());
+      const body = () => [h('div', { class: 'row cols2' }, U.TextInput({ id: 'br-rate', label: 'النسبة الخاصة للبراند', inputmode: 'decimal', suffix: '%', value: f.rate, error: errs.rate, help: 'سيبها فاضية = من غير نسبة خاصة (نسبة المبتكر)', onInput: (x) => { f.rate = x; } }),
+          U.DateField({ id: 'br-since', label: 'سارية من', required: true, value: f.since, error: errs.since, today: VTODAY(), onChange: (iso, e) => { if (!e) f.since = iso; errs.since = e || undefined; redraw(); } })),
+        U.InlineNote({ kind: 'warning', children: 'النسبة الخاصة بتغلب نسبة المبتكر على أوردرات البراند من التاريخ ده — السطر اللي ليه نسبة من الموقع بيفضل بنسبته.' }),
+        errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: 'بتتسجل في سجل النشاط باسمك.' })].filter(Boolean);
+      function save() {
+        errs = {}; const e = VD.validateBrand({ name: b.name, rate: f.rate }); if (e.rate) errs.rate = e.rate; if (!f.since) errs.since = 'اختار تاريخ السريان';
+        if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; redraw(); return; }
+        m.close(); act(() => vstore.setBrandRate(b.id, f.rate, f.since, vstore.actor()), 'اتحفظت النسبة الخاصة للبراند ' + b.name + '.');
+      }
+      m = U.Modal({ title: 'النسبة الخاصة — ' + b.name, body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+      const first = m.el && m.el.querySelector('input'); if (first) first.focus();
+    }
+    // «نقل لمبتكر تاني»: the receiving maker (not the holder), the start date (today by default; not before the last transfer), «نقل
+    // مؤقت؟» → the return date (after the start), the reason. The local rules (block 06 validateTransfer) before any request.
+    function brandTransferForm(v, b) {
+      const K = window.IBKit; const makers = vstore.all().filter((x) => x.id !== b.owner).sort((a, c) => a.name.localeCompare(c.name, 'ar'));
+      const f = { to: '', since: VTODAY(), temp: false, returnOn: '', reason: '' }; let errs = {}; let m = null; const redraw = () => m.setBody(...body());
+      const body = () => [U.Select({ id: 'br-to', label: 'المبتكر المستلم', required: true, options: makers.map((x) => ({ value: x.id, label: x.name + (x.status !== 'active' ? ' (' + VD.label(VD.STATUSES, x.status) + ')' : '') })), value: f.to, error: errs.to, placeholder: 'اختار المبتكر', onChange: (x) => { f.to = x; redraw(); } }),
+        U.DateField({ id: 'br-since', label: 'من تاريخ', required: true, value: f.since, error: errs.since, today: VTODAY(), help: 'الأوردرات من التاريخ ده بتتحسب للمستلم' + (b.lastSince ? ' — آخر نقل ' + D.formatDateNumeric(b.lastSince) : ''), onChange: (iso, e) => { if (!e) f.since = iso; errs.since = e || undefined; redraw(); } }),
+        K.Checkbox({ label: 'نقل مؤقت؟', checked: f.temp, onChange: (x) => { f.temp = x; if (!x) f.returnOn = ''; redraw(); } }),
+        f.temp ? U.DateField({ id: 'br-return', label: 'تاريخ الرجوع', required: true, value: f.returnOn || null, error: errs.returnOn, today: VTODAY(), help: 'للتذكير — الرجوع نفسه بيتعمل من «رجوع لصاحبه»', onChange: (iso, e) => { if (!e) f.returnOn = iso || ''; errs.returnOn = e || undefined; redraw(); } }) : null,
+        U.TextInput({ id: 'br-reason', label: 'السبب', maxlength: 200, value: f.reason, onInput: (x) => { f.reason = x; } }),
+        U.InlineNote({ children: 'الـ SKU وبيانات الشحن بتفضل بتاعة المتجر — اللي بيتغير هو مين بيتحاسب على أوردرات البراند من التاريخ ده. بيتسجل على المبتكرين الاتنين.' }),
+        errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : null].filter(Boolean);
+      function save() {
+        errs = VD.validateTransfer({ since: f.since, lastSince: b.lastSince, returnOn: f.temp ? f.returnOn : null, toId: f.to, ownerId: b.owner });
+        if (f.temp && !f.returnOn && !errs.returnOn) errs.returnOn = 'اكتب تاريخ الرجوع';
+        if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; redraw(); return; }
+        const to = makers.find((x) => x.id === f.to); m.close();
+        act(() => vstore.transferBrand(b.id, f.to, { since: f.since, returnOn: f.temp ? f.returnOn : null, reason: f.reason }, vstore.actor()), 'اتنقل البراند ' + b.name + ' لـ ' + (to ? to.name : '') + ' من ' + D.formatDateNumeric(f.since) + (f.temp ? ' (مؤقت لحد ' + D.formatDateNumeric(f.returnOn) + ')' : '') + '.');
+      }
+      m = U.Modal({ title: 'نقل البراند — ' + b.name, body: body(), footer: [Button({ type: 'primary', label: 'نقل البراند', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+    }
+    // «رجوع لصاحبه»: to the maker before a temporary transfer, else the origin (the store's `back`); the date not before the last transfer
+    function brandReturnForm(v, b) {
+      const backV = vstore.get(b.back); const backName = backV ? backV.name : '—';
+      const f = { since: VTODAY() }; let errs = {}; let m = null; const redraw = () => m.setBody(...body());
+      const body = () => [U.InfoRow({ label: 'هيرجع لـ', value: backName }),
+        U.DateField({ id: 'br-since', label: 'من تاريخ', required: true, value: f.since, error: errs.since, today: VTODAY(), help: 'الأوردرات من التاريخ ده بترجع تتحسب له' + (b.lastSince ? ' — آخر نقل ' + D.formatDateNumeric(b.lastSince) : ''), onChange: (iso, e) => { if (!e) f.since = iso; errs.since = e || undefined; redraw(); } }),
+        errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: 'بيتسجل على المبتكرين الاتنين في سجل النشاط باسمك.' })].filter(Boolean);
+      function save() {
+        errs = VD.validateTransfer({ since: f.since, lastSince: b.lastSince, toId: b.back, ownerId: b.owner }); if (errs.to) errs._form = errs.to;
+        if (Object.keys(errs).length) { errs._form = errs._form || 'راجع الحقول المعلّمة بالأحمر'; redraw(); return; }
+        m.close(); act(() => vstore.returnBrand(b.id, { since: f.since }, vstore.actor()), 'رجع البراند ' + b.name + ' لـ ' + backName + ' من ' + D.formatDateNumeric(f.since) + '.');
+      }
+      m = U.Modal({ title: 'رجوع البراند لصاحبه — ' + b.name, body: body(), footer: [Button({ type: 'primary', label: 'رجوع', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+    }
     function draw() {
       const v = vstore.get(id); if (!v) { vdrawer.close(); return; } const st = vendorStats()[v.id]; const canEdit = vstore.canEdit(), canBank = vstore.canBank(), canRate = vstore.canRate(), canLogin = !!(vstore.canLogin && vstore.canLogin()); const cstat = VD.contractStatus(v, VTODAY());
       // decision 9 c: what the maker still lacks (login / e-mail / bank), from the store
@@ -1841,6 +1953,7 @@
           section('التواصل', editBtn(v, 'contact'), U.InfoRow({ label: 'الهاتف (واتساب)', value: v.phone ? h('span', { class: 'wa-ph' }, num(v.phone), h('a', { class: 'wa-a', href: waHref(v.phone), target: '_blank', rel: 'noopener', 'aria-label': 'واتساب ' + v.name, title: 'فتح واتساب' }, Icon('whatsapp', 'sm'))) : null, copy: true, onCopy: () => copy(v.phone, 'الهاتف') }), U.InfoRow({ label: 'هاتف بديل', value: v.altPhone ? h('span', { class: 'wa-ph' }, num(v.altPhone), h('a', { class: 'wa-a', href: waHref(v.altPhone), target: '_blank', rel: 'noopener', 'aria-label': 'واتساب — هاتف بديل', title: 'فتح واتساب' }, Icon('whatsapp', 'sm'))) : null, copy: !!v.altPhone, onCopy: () => copy(v.altPhone, 'هاتف بديل') }), U.InfoRow({ label: 'الإيميل', value: v.email, copy: true, onCopy: copy }), U.InfoRow({ label: 'العنوان (الاستلام)', value: v.address }), U.InfoRow({ label: 'إنستجرام', value: v.instagram, copy: true, onCopy: copy }), U.InfoRow({ label: 'صفحة المتجر', value: v.storeUrl, copy: true, onCopy: copy })),
           loginSection(),
           section('الاتفاق التجاري', editBtn(v, 'terms'), U.InfoRow({ label: 'نسبة إبتكر', value: !canRate ? '—' : v.rate == null ? 'لسه مفيش نسبة متسجلة' : num(v.rate + '% — سارية من ' + D.formatDateLong(v.rateSince) + ' (على الأوردرات الجديدة فقط)') }), U.InfoRow({ label: 'مدة التجهيز المتفق عليها', value: num(v.leadDays + ' أيام') }), U.InfoRow({ label: 'سياسة العربون', value: v.depositPolicy }), U.InfoRow({ label: 'ملاحظات الاتفاق', value: v.notes }), canRate && v.rateHistory.length > 1 ? U.InfoRow({ label: 'سجل النسبة', value: num(v.rateHistory.map((x) => x.rate + '% من ' + D.formatDateNumeric(x.since)).join(' ← ')) }) : null),
+          brandsSection(v),
           section('العقد', null, U.ContractCard({ status: cstat, title: cstat === 'missing' ? 'العقد غير مرفوع' : cstat === 'expired' ? 'العقد منتهي' : cstat === 'expiring' ? 'العقد بينتهي خلال 30 يوم' : 'عقد التعاون',
             sub: cstat === 'missing' ? 'ارفع نسخة موقّعة (PDF أو صورة، حتى 10 ميجا) أو حمّل قالب العقد وابعته للمبتكر' : (v.contract.expires ? (cstat === 'expired' ? 'انتهى ' : 'ساري حتى ') + D.formatDateLong(v.contract.expires) + ' · ' : '') + 'رفعه ' + (v.contract.uploadedBy || '—') + ' في ' + D.formatDateLong(v.contract.uploadedAt.slice(0, 10)) + ' · ' + v.contract.fileName.split('.').pop().toUpperCase() + ' ' + (v.contract.size / 1048576).toFixed(1) + ' ميجا',
             canManage: canBank, onUpload: () => contractForm(v), onTemplate: () => vnotify('success', 'قالب العقد هيتحمّل من السيرفر في النسخة الحقيقية.'), onView: openContract, onDownload: openContract })),

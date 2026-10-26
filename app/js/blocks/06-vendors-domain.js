@@ -316,6 +316,51 @@
       ['', 'اتأكدت — ابدأ فيها (' + r.confirmed.length + ')'], r.confirmed.map((x) => '• #' + x.oid + ' · ' + x.prod)).join('\n');
   }
 
-  return Object.freeze({ LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
+  // Brands (owner 26 Oct, phase 3.2 decision 6): the pure rules of the prototype's brands domain. المبتكر = اللي بنحاسبه · البراند =
+  // الاسم اللي المنتجات بتتباع بيه. A maker may own several brands, a brand moves to another maker from a date (temporarily until a
+  // return date, or for good), the orders count for whoever held the brand on the order's day, the SKU never changes (the code is
+  // informational), the rate = the owner's unless the brand carries a special one. The history and the rates live on the server
+  // (brand_owners / brand_rates, add-only); these functions judge a form before any request and read a history / a rate list.
+  const BRAND_CODE_RE = /^[A-Z0-9]{1,3}$/;
+  // the code the trigger derives: the first Latin letter of the name upper-cased, else X
+  function brandCode(name) { const m = /[A-Za-z]/.exec(String(name == null ? '' : name)); return m ? m[0].toUpperCase() : 'X'; }
+  // { name, code, aliases, rate } of the add / edit popup → { field: message }; the code is optional (suggested from the name), the
+  // rate optional ('' / null = no special rate)
+  function validateBrand(input) {
+    const e = {}; const b = input || {};
+    if (!clean(b.name, 80)) e.name = 'اكتب اسم البراند';
+    else if (clean(b.name, 200).length > 80) e.name = 'اسم البراند لحد 80 حرف';
+    const code = latin(b.code == null ? '' : b.code).trim().toUpperCase();
+    if (code && !BRAND_CODE_RE.test(code)) e.code = 'الكود من 1 لـ 3: حروف إنجليزي كبيرة أو أرقام';
+    if (b.rate !== undefined && b.rate !== null && String(b.rate).trim() !== '') { const r = Number(latin(b.rate)); if (!Number.isFinite(r) || r < 0 || r > 65) e.rate = 'النسبة الخاصة من 0% إلى 65%'; }
+    return e;
+  }
+  // history rows [{ vendor, since }] (since ascending) → the owner on `date` ('YYYY-MM-DD'; none = today's): the last row that had
+  // started, else the first row (orders older than the history belong to the first owner); null for an empty history
+  function ownerAt(history, date) {
+    const h = (history || []).slice().sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
+    if (!h.length) return null;
+    let o = h[0].vendor; for (const x of h) if (!date || x.since <= date) o = x.vendor; return o;
+  }
+  // rate rows [{ rate, since }] (rate null = no special rate from that date) → the special rate on `date`, the prototype's rateAt rule
+  // (the earliest row until one has started); null without rows or when the row in force says none
+  function effectiveRate(rows, date) {
+    const h = (rows || []).slice().sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
+    if (!h.length) return null;
+    let r = h[0].rate; for (const x of h) if (!date || x.since <= date) r = x.rate;
+    return r == null ? null : Number(r);
+  }
+  // the transfer / return popup: { since, lastSince (the brand's latest history row), returnOn, toId, ownerId } → { field: message }
+  function validateTransfer(input) {
+    const e = {}; const t = input || {};
+    if (!isIso(t.since)) e.since = 'اكتب تاريخ البداية';
+    else if (t.lastSince && t.since < t.lastSince) e.since = 'التاريخ ده قبل آخر نقل للبراند (' + t.lastSince + ') — اختار تاريخ بعده';
+    if (t.returnOn) { if (!isIso(t.returnOn)) e.returnOn = 'اكتب تاريخ الرجوع'; else if (isIso(t.since) && t.returnOn <= t.since) e.returnOn = 'تاريخ الرجوع لازم يكون بعد تاريخ البداية'; }
+    if (!t.toId) e.to = 'اختار المبتكر';
+    else if (t.ownerId && String(t.toId) === String(t.ownerId)) e.to = 'البراند أصلًا عند المبتكر ده';
+    return e;
+  }
+
+  return Object.freeze({ validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
 });
 

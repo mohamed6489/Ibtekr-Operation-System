@@ -73,3 +73,59 @@ test('createStore.setBank stores the IBAN upper-cased and without spaces (the pr
   s.setBank(v.id, { method: 'bank', holder: 'Zaan', bankName: 'بنك مصر', iban: 'eg38 0003 0001 0000 0000 0000 0482 1' }, me);
   assert.equal(s.get(v.id).bank.iban, 'EG380003000100000000000004821');
 });
+// Phase 3.2 (decision 6): the brands rules ported from the prototype's brands domain — the add / edit form, the trigger's code,
+// the owner on a date, the special rate in force, the transfer / return form.
+test('brandCode: the first Latin letter upper-cased, else X (the trigger\'s rule)', () => {
+  assert.equal(V.brandCode('antikiano'), 'A');
+  assert.equal(V.brandCode(' 3d Wood & Rope'), 'D');
+  assert.equal(V.brandCode('مبتكر'), 'X');
+  assert.equal(V.brandCode(''), 'X');
+  assert.equal(V.brandCode(null), 'X');
+});
+test('validateBrand: the name (1–80), the code (optional; 1–3 of A–Z / 0–9 after upper-casing), the special rate (optional; 0–65)', () => {
+  assert.deepEqual(V.validateBrand({ name: '', code: '', aliases: '', rate: '' }), { name: 'اكتب اسم البراند' });
+  assert.deepEqual(V.validateBrand({ name: '  ' }), { name: 'اكتب اسم البراند' });
+  assert.deepEqual(V.validateBrand({ name: 'a'.repeat(81) }), { name: 'اسم البراند لحد 80 حرف' });
+  assert.deepEqual(V.validateBrand({ name: 'Wood & Rope', code: 'wr', aliases: 'W&R', rate: '' }), {}); // lower-case is upper-cased before the check
+  assert.deepEqual(V.validateBrand({ name: 'Wood & Rope', code: 'WOOD' }), { code: 'الكود من 1 لـ 3: حروف إنجليزي كبيرة أو أرقام' });
+  assert.deepEqual(V.validateBrand({ name: 'Wood & Rope', code: 'W-1' }), { code: 'الكود من 1 لـ 3: حروف إنجليزي كبيرة أو أرقام' });
+  assert.deepEqual(V.validateBrand({ name: 'Wood & Rope', code: '٣' }), {}); // Arabic digits read as Latin
+  assert.deepEqual(V.validateBrand({ name: 'Wood & Rope', rate: '70' }), { rate: 'النسبة الخاصة من 0% إلى 65%' });
+  assert.deepEqual(V.validateBrand({ name: 'Wood & Rope', rate: 'abc' }), { rate: 'النسبة الخاصة من 0% إلى 65%' });
+  assert.deepEqual(V.validateBrand({ name: 'Wood & Rope', rate: '٣٥' }), {});
+  assert.deepEqual(V.validateBrand({ name: 'Wood & Rope', rate: 0 }), {});
+  assert.deepEqual(V.validateBrand({ name: 'Wood & Rope', rate: null }), {});
+});
+test('ownerAt: the last row that had started on the date, else the first row; today without a date; null for no history', () => {
+  const h = [{ vendor: 'B', since: '2026-10-18' }, { vendor: 'A', since: '2026-03-01' }, { vendor: 'A', since: '2026-11-20' }]; // unsorted on purpose
+  assert.equal(V.ownerAt(h, '2026-10-17'), 'A');
+  assert.equal(V.ownerAt(h, '2026-10-18'), 'B');
+  assert.equal(V.ownerAt(h, '2026-11-01'), 'B');
+  assert.equal(V.ownerAt(h, '2026-11-20'), 'A');
+  assert.equal(V.ownerAt(h, '2025-01-01'), 'A'); // before the history: the first owner
+  assert.equal(V.ownerAt(h, null), 'A'); // no date: the latest row
+  assert.equal(V.ownerAt([], '2026-10-17'), null);
+  assert.equal(V.ownerAt(null, '2026-10-17'), null);
+});
+test('effectiveRate: the row in force on the date (the earliest until one has started, like rateAt); a null row means no special rate', () => {
+  const rows = [{ rate: 30, since: '2026-10-01' }, { rate: null, since: '2026-11-01' }, { rate: '25.00', since: '2026-12-01' }];
+  assert.equal(V.effectiveRate(rows, '2026-10-15'), 30);
+  assert.equal(V.effectiveRate(rows, '2026-11-15'), null); // «no special rate» from November
+  assert.equal(V.effectiveRate(rows, '2026-12-01'), 25);
+  assert.equal(V.effectiveRate(rows, '2026-09-01'), 30); // only future rows: the earliest (the prototype's rule)
+  assert.equal(V.effectiveRate([], '2026-10-15'), null);
+  assert.equal(V.effectiveRate(null, '2026-10-15'), null);
+  assert.equal(V.effectiveRate([{ rate: null, since: '2026-01-01' }], '2026-10-15'), null);
+});
+test('validateTransfer: a start date, not before the last transfer; a return date after the start; a maker, not the current owner', () => {
+  assert.deepEqual(V.validateTransfer({ since: '', toId: '', ownerId: 'A' }), { since: 'اكتب تاريخ البداية', to: 'اختار المبتكر' });
+  assert.deepEqual(V.validateTransfer({ since: '2026-13-01', toId: 'B', ownerId: 'A' }), { since: 'اكتب تاريخ البداية' });
+  assert.deepEqual(V.validateTransfer({ since: '2026-10-10', lastSince: '2026-10-18', toId: 'B', ownerId: 'A' }), { since: 'التاريخ ده قبل آخر نقل للبراند (2026-10-18) — اختار تاريخ بعده' });
+  assert.deepEqual(V.validateTransfer({ since: '2026-10-18', lastSince: '2026-10-18', toId: 'B', ownerId: 'A' }), {}); // the same day: the server's unique key judges (23505)
+  assert.deepEqual(V.validateTransfer({ since: '2026-10-20', lastSince: '2026-10-18', returnOn: '2026-10-20', toId: 'B', ownerId: 'A' }), { returnOn: 'تاريخ الرجوع لازم يكون بعد تاريخ البداية' });
+  assert.deepEqual(V.validateTransfer({ since: '2026-10-20', returnOn: '2026-10-19', toId: 'B', ownerId: 'A' }), { returnOn: 'تاريخ الرجوع لازم يكون بعد تاريخ البداية' });
+  assert.deepEqual(V.validateTransfer({ since: '2026-10-20', returnOn: 'soon', toId: 'B', ownerId: 'A' }), { returnOn: 'اكتب تاريخ الرجوع' });
+  assert.deepEqual(V.validateTransfer({ since: '2026-10-20', toId: 'A', ownerId: 'A' }), { to: 'البراند أصلًا عند المبتكر ده' });
+  assert.deepEqual(V.validateTransfer({ since: '2026-10-20', returnOn: '2026-11-20', toId: 'B', ownerId: 'A', lastSince: '2026-03-01' }), {});
+  assert.deepEqual(V.validateTransfer({ since: '2026-10-20', returnOn: null, toId: 'B' }), {});
+});

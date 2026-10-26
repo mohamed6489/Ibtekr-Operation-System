@@ -459,6 +459,7 @@ test('create with a temporary password: the rpc right after the login insert; th
   responses.vendors = (ops) => (ops.some((c) => c.op === 'insert') ? ok({ id: NEW }) : ok(VENDORS));
   responses['rpc:vendor_login_set_password'] = ok(T0);
   await assert.rejects(() => S.create({ ...BASE, login: { username: 'zaan', pwMode: 'temp', password: 'weak' } }, S.actor()), /invalid login: password/);
+  await assert.rejects(() => S.create({ ...BASE, login: { username: 'zaan', pwMode: 'temp', password: 'Test1234' + 'x'.repeat(121) } }, S.actor()), /أطول من 128 حرف/);
   await assert.rejects(() => S.create({ ...BASE, login: { username: 'Za', pwMode: 'link' } }, S.actor()), /invalid login: username/);
   await assert.rejects(() => S.create({ ...BASE, email: '', login: { username: 'zaan', pwMode: 'link' } }, S.actor()), /invalid login: email/);
   await assert.rejects(() => S.create({ ...BASE, bank: { method: 'bank', holder: '', bankName: '', iban: '' } }, S.actor()), /invalid bank: holder,bankName,iban/);
@@ -555,6 +556,7 @@ test('setLoginPassword / revealPassword: the two RPCs; the password in the rpc o
   await V.load(); calls.length = 0;
   await assert.rejects(() => S.setLoginPassword(V1, TEST_PW, S.actor()), /اعمل اسم مستخدم الأول/);
   await assert.rejects(() => S.setLoginPassword(V2, 'short', S.actor()), /الباسورد لازم: 8 حروف على الأقل، رقم/);
+  await assert.rejects(() => S.setLoginPassword(V2, 'Test1234' + 'x'.repeat(121), S.actor()), /أطول من 128 حرف/); // the server's cap, checked first
   assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
   responses['rpc:vendor_login_set_password'] = ok('2026-10-25T10:00:00+00:00');
   assert.equal(await S.setLoginPassword(V2, TEST_PW, S.actor()), '2026-10-25T10:00:00+00:00');
@@ -576,6 +578,8 @@ test('setLoginPassword / revealPassword: the two RPCs; the password in the rpc o
   await assert.rejects(() => S.setLoginPassword(V2, TEST_PW, S.actor()), /Vault/);
   responses['rpc:vendor_login_reveal'] = { data: null, error: { code: '42501', message: 'permission denied' } };
   await assert.rejects(() => S.revealPassword(V2, S.actor()), /مش من صلاحياتك/);
+  responses['rpc:vendor_login_reveal'] = { data: null, error: { code: 'P0002', message: 'vendor login not found' } }; // the row went meanwhile
+  await assert.rejects(() => S.revealPassword(V2, S.actor()), /اعمل اسم مستخدم الأول/);
   const ops = load({ admin: false }); await ops.V.load(); ops.calls.length = 0;
   await assert.rejects(() => ops.S.setLoginPassword(V2, TEST_PW, ops.S.actor()), /مش من صلاحياتك/);
   await assert.rejects(() => ops.S.revealPassword(V2, ops.S.actor()), /مش من صلاحياتك/);

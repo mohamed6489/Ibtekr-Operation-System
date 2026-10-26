@@ -1145,3 +1145,17 @@ b.pos{color:var(--color-success-text)}
 .cs-lh .search input,.search-field input{border:0;height:auto;padding:0;background:transparent;box-shadow:none}
 .drawer>.tabs,.drawer>.dr-h,.drawer>.tags,.drawer>.dr-b{flex:none}.drawer>.tabs{padding:0 16px}
 
+/* Phase 3.1 (owner 26 Oct): floating dropdowns (10-ui-kit.js floatOver) — fixed above sections / drawers / modal content */
+.floating{z-index:1100;margin:0}
+.floating[data-dir=up]{animation:none}
+/* Phase 3.1: «إضافة مبتكر» sections, the temporary-password field and the login section of the drawer */
+.form-sec{display:flex;flex-direction:column;gap:2px;padding-top:var(--space-sm);border-top:1px solid var(--color-border-subtle,var(--color-border))}
+.form-sec h3{margin:0;color:var(--color-brand-primary,var(--color-text-primary))}
+.form-sec p{margin:0}
+.pw-acts{display:inline-flex;gap:2px;align-items:center}
+.pw-rules{display:flex;flex-wrap:wrap;gap:4px 12px;margin:-8px 0 0;padding:0;list-style:none;font-size:12px;color:var(--color-text-secondary)}
+.pw-rules li::before{content:'○ ';}
+.pw-rules li.ok{color:var(--color-status-success-text,var(--color-text-secondary))}
+.pw-rules li.ok::before{content:'✓ ';}
+.pw-cell{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}.pw-val{font-family:inherit;letter-spacing:.04em}
+.vs-leave{background:var(--color-bg-tint);border-color:var(--color-chart-2);color:var(--color-text-primary)}

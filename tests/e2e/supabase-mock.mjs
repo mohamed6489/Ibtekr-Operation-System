@@ -12,7 +12,11 @@
 // server columns, 23505 on a duplicate username, the two Vault RPCs vendor_login_set_password / vendor_login_reveal with
 // 42501 / 22023 / 0A000, every reveal and every password set logged by the server; vendors.status taking leave), woo-sync's
 // push_status contract, the aal2 rule of has_perm and the 2FA RPCs (0008) with GoTrue's MFA endpoints (enroll / challenge /
-// verify / unenroll). Not a product feature.
+// verify / unenroll), and the brands of phase 3.2 as the plan's contract for 0013 (brands / brand_owners / brand_rates: column-list
+// insert grants, update of name / code / aliases on brands only, no upsert and no delete, RLS by vendors.view / vendors.edit = F /
+// sensitive.commission, the guards brand_owners_guard (22023 'since before the last transfer' / 'same vendor') and the name index
+// (23505 brands_name_key), the vendors insert trigger making the automatic brand + owner row, the delete guard
+// vendors_brands_guard_delete (23503 naming brand_owners_vendor_id_fkey) and the cascade of the origin's brands). Not a product feature.
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
@@ -70,6 +74,9 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   products: ['id', 'sku', 'name', 'image_url', 'permalink', 'vendor_id', 'price', 'status', 'raw', 'updated_at'],
   status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
   woo_states: ['code', 'name', 'updated_at'],
+  brands: ['id', 'name', 'code', 'aliases', 'store_vendor_id', 'origin_vendor_id', 'created_by', 'created_at', 'updated_at'], // 0013 (phase 3.2): the select grants are table-level
+  brand_owners: ['id', 'brand_id', 'vendor_id', 'since', 'return_on', 'reason', 'set_by', 'created_at'],
+  brand_rates: ['id', 'brand_id', 'rate', 'since', 'set_by', 'created_at'],
 };
 // the alerts table at sign-in: one for the admin role, one addressed to ops.dev (M02) only
 const ALERTS = () => [
@@ -132,12 +139,17 @@ export const CONTRACT_BYTES = Buffer.from('%PDF-1.4\n% mock contract of Antikian
 export const SITE = 'https://ibtekr.stage.test';
 export const IMG = { cushion: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', curtain: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' };
 const VND = (n) => 'a0000000-0000-4000-8000-00000000000' + n;
+export const BRAND = (n) => 'd0000000-0000-4000-8000-00000000000' + n; // the automatic brand of maker n (0013 backfill)
+export const NEW_BRAND = (n) => 'e0000000-0000-4000-8000-' + String(n).padStart(12, '0'); // the n-th brand inserted on this install (by the popup or the trigger)
+// phase 3.2 (decision 7): with installSupabaseMock(page, { transfer: true }) Antikiano's brand is with Bian eg from 8 days ago,
+// temporarily (back in 30 days) — order 181668 (6 days ago) falls after that date, 180656 (10 days ago) before it
+export const TRANSFER_SINCE = ymd(new Date(Date.now() - 8 * 86400000)); export const TRANSFER_RETURN = ymd(new Date(Date.now() + 30 * 86400000));
 // status_map after 0009 (system status ↔ WooCommerce slug): 0007's «تم RTC» row (id 6) became «فشل» = failed, from_woo, sort 10
 const STATUS_MAP = [['قيد الانتظار', 'pending', 'both'], ['جاري التنفيذ', 'processing', 'both'], ['معلّق', 'on-hold', 'both'], ['جاهز للشحن', 'ready-shipping', 'both'], ['قيد الشحن', 'in-shipping', 'both'],
   ['فشل', 'failed', 'from_woo', 10], ['مكتمل', 'completed', 'both'], ['استرجاع', 'refunded', 'both'], ['ملغي', 'cancelled', 'both']].map(([system_status, woo_status, direction, sort], i) => ({ id: i + 1, system_status, woo_status, direction, sort: sort || i + 1 }));
 // order_items.status check list (0007): block 29's 11 sub-statuses or ''
 const ITEM_STATUSES = ['', 'غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المورد للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المورد للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمورد'];
-function ordersSeed() {
+function ordersSeed(opts = {}) {
   const ago = (d) => { const t = new Date(Date.now() - d * 864e5); t.setUTCHours(10, 0, 0, 0); return t.toISOString(); };
   const vendor = (n, woo, name, status = 'active', more = {}) => ({ id: VND(n), woo_vendor_id: woo, name, aliases: [], phone: null, email: null, status, commission_pct: null, raw: { id: woo, shop_url: SITE + '/store/' + name.toLowerCase().replace(/\s+/g, '-') + '/' }, created_at: T0, updated_at: T0,
     legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: '2026-03-01', contract: null, opening_balance: 0, ...more });
@@ -175,6 +187,11 @@ function ordersSeed() {
       line({ id: 5005, order_id: 180656, product_id: 9003, sku: 'IBTB0CSW6RFTM', name: 'Macrame Feathers', total: 899, vendor_id: 2 }),
       line({ id: 5006, order_id: 150001, sku: 'IBT-OLD-1', name: 'قطعة قديمة', total: 500, vendor_id: 1 }),
     ],
+    // 0013: the automatic brand of each maker (code = the first Latin letter, aliases = the maker's, the store tied, owned since joined_at)
+    brands: [[1, 'Art Craft', 'A', ['ArtCraft']], [2, 'Antikiano', 'A', ['Antikiano store']], [3, 'Bian eg', 'B', ['Bian']]].map(([n, name, code, aliases]) => ({ id: BRAND(n), name, code, aliases, store_vendor_id: VND(n), origin_vendor_id: VND(n), created_by: 'system', created_at: T0, updated_at: T0 })),
+    brandOwners: [1, 2, 3].map((n) => ({ id: n, brand_id: BRAND(n), vendor_id: VND(n), since: '2026-03-01', return_on: null, reason: null, set_by: 'system', created_at: T0 }))
+      .concat(opts.transfer ? [{ id: 4, brand_id: BRAND(2), vendor_id: VND(3), since: TRANSFER_SINCE, return_on: TRANSFER_RETURN, reason: 'إجازة الصيف', set_by: 'صفوت كمال', created_at: T0 }] : []),
+    brandRates: [],
     statusMap: STATUS_MAP.map((r) => ({ ...r })),
     wooStates: [['EG-01', 'القاهرة'], ['EG-02', 'الجيزة'], ['EG-03', 'الإسكندرية']].map(([code, name]) => ({ code, name, updated_at: T0 })), // no EG-14
   };
@@ -205,7 +222,7 @@ const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const authUser = (u, factors) => ({ id: u.id, aud: 'authenticated', role: 'authenticated', email: u.email, phone: '', app_metadata: { provider: 'email', providers: ['email'] }, user_metadata: {}, identities: [], factors, created_at: T0 });
 const claims = (token) => { try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()); } catch { return null; } };
 
-export async function installSupabaseMock(page) {
+export async function installSupabaseMock(page, opts = {}) {
   const issued = new Set(); const refresh = new Map(); let n = 0;
   // logoutScopes: the ?scope= of each /logout; afterLogout: requests that reached the origin after the first logout;
   // activityDelayMs: hold every log_activity call that long (a stalled network); recovers: emails sent a reset link;
@@ -227,7 +244,20 @@ export async function installSupabaseMock(page) {
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
   const mock = { profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
-    ...ordersSeed(), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false };
+    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [] };
+  // brands / brandOwners / brandRates: the 0013 tables (ordersSeed(opts): opts.transfer seeds the temporary transfer); brandWrites: each
+  // insert / update the client sent them as { table, op, ...columns } — the trigger's own rows (the automatic brand) are not writes of the client
+  let brandSeq = 0; let ownerSeq = mock.brandOwners.length; let brandRateSeq = 0;
+  const nameKey = (n) => String(n ?? '').trim().toLowerCase(); // brands_name_key: unique on lower(btrim(name))
+  // vendors_brand_after_insert (0013): a brand of the maker's own name (code = the first Latin letter upper-cased, else X; the store tied
+  // when woo_vendor_id is set) and its first owner row, unless the name is blank / over 80 / taken — then nothing, and the insert passes
+  const autoBrand = (v, now) => {
+    const name = String(v.name ?? '').trim();
+    if (!name || name.length > 80 || mock.brands.some((b) => b.origin_vendor_id === v.id || b.store_vendor_id === v.id) || mock.brands.some((b) => nameKey(b.name) === nameKey(name))) return;
+    brandSeq += 1; const m = /[A-Za-z]/.exec(name); const id = NEW_BRAND(brandSeq);
+    mock.brands.push({ id, name, code: m ? m[0].toUpperCase() : 'X', aliases: v.aliases ?? [], store_vendor_id: v.woo_vendor_id != null ? v.id : null, origin_vendor_id: v.id, created_by: 'system', created_at: now, updated_at: now });
+    ownerSeq += 1; mock.brandOwners.push({ id: ownerSeq, brand_id: id, vendor_id: v.id, since: v.joined_at || now.slice(0, 10), return_on: null, reason: null, set_by: 'system', created_at: now });
+  };
   // vendorLogins / vault: the 0012 table and vault.secrets (ordersSeed()); rpcs: each vendor_login_set_password / vendor_login_reveal call
   // as { fn, vendor_id, by, result } — never the password; vaultDown: both RPCs answer 0A000 (a Postgres without Vault).
   let vendorSeq = 0; let rateSeq = 3;
@@ -462,7 +492,7 @@ export async function installSupabaseMock(page) {
           if (t === 'vendor_logins' && list.some((r) => usernameTaken(r.username, null))) return dupUser();
           const out = [];
           for (const r of list) {
-            if (t === 'vendors') { vendorSeq += 1; const row = { ...VENDOR_DEFAULTS(), ...r, id: 'b0000000-0000-4000-8000-' + String(vendorSeq).padStart(12, '0'), created_at: now, updated_at: now }; mock.vendors.push(row); out.push({ id: row.id }); }
+            if (t === 'vendors') { vendorSeq += 1; const row = { ...VENDOR_DEFAULTS(), ...r, id: 'b0000000-0000-4000-8000-' + String(vendorSeq).padStart(12, '0'), created_at: now, updated_at: now }; mock.vendors.push(row); autoBrand(row, now); out.push({ id: row.id }); }
             else if (t === 'vendor_rates') { rateSeq += 1; const row = { id: rateSeq, vendor_id: r.vendor_id, rate: Number(r.rate), since: r.since, set_by: r.set_by ?? null, created_at: now }; mock.vendorRates.push(row); effectiveRate(r.vendor_id); out.push({ id: row.id }); }
             else if (t === 'vendor_logins') { mock.vendorLogins.push({ vendor_id: r.vendor_id, username: r.username, email: r.email ?? null, pw_mode: r.pw_mode ?? 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: r.created_by ?? u.name, created_at: now, updated_at: now }); out.push({ vendor_id: r.vendor_id }); } // created_by: the member's name (0012, like set_by / updated_by)
             else { mock.vendorBank.push({ method: 'bank', bank_name: null, holder: null, iban: null, wallet: null, updated_by: null, updated_at: now, ...r }); out.push({ vendor_id: r.vendor_id }); }
@@ -498,9 +528,92 @@ export async function installSupabaseMock(page) {
         // DELETE (vendors): the policy admits the admin only (0 rows for anyone else); the fk from order_items / sub_orders refuses
         if (!(url.searchParams.get('id') || '').startsWith('eq.')) return json(400, { code: '21000', details: null, hint: null, message: 'mock: a DELETE on vendors names its row (id=eq.…)' });
         const target = isAdmin(u) ? mock.vendors.filter(f.match) : [];
+        // vendors_brands_guard_delete (0013, before delete): a maker in the ownership history of another maker's brand stays
+        if (target.some((r) => mock.brandOwners.some((o) => o.vendor_id === r.id && (mock.brands.find((b) => b.id === o.brand_id) || {}).origin_vendor_id !== r.id))) return json(409, { code: '23503', details: null, hint: null, message: 'the maker holds or held a brand of another maker (brand_owners_vendor_id_fkey): transfer or return it first' });
         if (target.some((r) => mock.orderItems.some((x) => x.vendor_id === r.id) || mock.subOrders.some((x) => x.vendor_id === r.id))) return json(409, { code: '23503', details: null, hint: null, message: 'update or delete on table "vendors" violates foreign key constraint "order_items_vendor_id_fkey" on table "order_items"' });
-        for (const r of target) { mock.vendors.splice(mock.vendors.indexOf(r), 1); mock.vendorRates = mock.vendorRates.filter((x) => x.vendor_id !== r.id); mock.vendorBank = mock.vendorBank.filter((x) => x.vendor_id !== r.id); mock.vendorLogins = mock.vendorLogins.filter((x) => x.vendor_id !== r.id); mock.vendorWrites.push({ table: t, op: 'delete', id: r.id }); } // the sensitive rows and the login cascade
+        for (const r of target) { mock.vendors.splice(mock.vendors.indexOf(r), 1); mock.vendorRates = mock.vendorRates.filter((x) => x.vendor_id !== r.id); mock.vendorBank = mock.vendorBank.filter((x) => x.vendor_id !== r.id); mock.vendorLogins = mock.vendorLogins.filter((x) => x.vendor_id !== r.id); mock.vendorWrites.push({ table: t, op: 'delete', id: r.id }); // the sensitive rows and the login cascade
+          const gone = new Set(mock.brands.filter((b) => b.origin_vendor_id === r.id || b.store_vendor_id === r.id).map((b) => b.id)); // 0013: the maker's own brands cascade with their history and rates
+          mock.brands = mock.brands.filter((b) => !gone.has(b.id)); mock.brandOwners = mock.brandOwners.filter((o) => !gone.has(o.brand_id)); mock.brandRates = mock.brandRates.filter((o) => !gone.has(o.brand_id)); }
         return representation ? json(200, target.map((r) => ({ id: r.id }))) : empty(204);
+      }
+      // ---- the brands tables (0013, phase 3.2): table-level select (RLS by vendors.view; brand_rates by sensitive.commission → [] for the
+      // others), column-list inserts (brands: name / code / aliases / origin_vendor_id / created_by — never store_vendor_id; brand_owners;
+      // brand_rates), update of name / code / aliases on brands only, no upsert (no update grant on the keys), no delete; the policies
+      // (admin or vendors.edit = F; sensitive.commission = F for the rates) → 42501; the check constraints (23514), the name index and
+      // the (brand_id, since) keys (23505), the foreign keys (23503), brand_owners_guard (22023). One statement: every row or none.
+      const bt = /^\/rest\/v1\/(brands|brand_owners|brand_rates)$/.exec(path);
+      const BT_METHODS = { brands: ['GET', 'POST', 'PATCH'], brand_owners: ['GET', 'POST'], brand_rates: ['GET', 'POST'] };
+      const BT_INSERT = { brands: ['name', 'code', 'aliases', 'origin_vendor_id', 'created_by'], brand_owners: ['brand_id', 'vendor_id', 'since', 'return_on', 'reason', 'set_by'], brand_rates: ['brand_id', 'rate', 'since', 'set_by'] };
+      if (bt && BT_METHODS[bt[1]].includes(method)) {
+        const t = bt[1]; const f = readFilters(url.searchParams, t); const now = new Date().toISOString();
+        const denied = (message) => json(403, { code: '42501', details: null, hint: null, message });
+        const check = (name) => json(400, { code: '23514', details: null, hint: null, message: `new row for relation "${t}" violates check constraint "${name}"` });
+        const dup = (name) => json(409, { code: '23505', details: null, hint: null, message: `duplicate key value violates unique constraint "${name}"` });
+        const fk = (name) => json(409, { code: '23503', details: null, hint: null, message: `insert or update on table "${t}" violates foreign key constraint "${name}"` });
+        const ISO = /^\d{4}-\d{2}-\d{2}$/; const CODE_RE = /^[A-Z0-9]{1,3}$/;
+        if (f.bad) return json(400, { code: 'PGRST100', details: null, hint: null, message: 'mock: unexpected filter ' + f.bad });
+        if (mock.vendorsDown) return json(503, { code: 'PGRST000', details: null, hint: null, message: 'mock: the vendors tables are down' });
+        const representation = /return=representation/.test(hd.prefer || '') || url.searchParams.has('select');
+        const single = /vnd\.pgrst\.object\+json/.test(hd.accept || '');
+        const rows = () => (t === 'brands' ? mock.brands : t === 'brand_owners' ? mock.brandOwners : mock.brandRates);
+        const visible = t === 'brand_rates' ? hasPerm(u, 'sensitive.commission') === 'F' : hasPerm(u, 'vendors.view') !== 'N';
+        const mayWrite = t === 'brand_rates' ? hasPerm(u, 'sensitive.commission') === 'F' : isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F';
+        if (method === 'GET') {
+          const sel = readSelect(t, url.searchParams.get('select') || '*');
+          if (sel.bad) return json(400, { code: '42703', details: null, hint: null, message: `column ${sel.bad} does not exist` });
+          return json(200, pageOf(visible ? rows().filter(f.match) : [], url.searchParams).map(sel.pick));
+        }
+        if (representation && (url.searchParams.get('select') || 'id') !== 'id') return denied('permission denied for table ' + t); // mock: a returning row names id only
+        if (url.searchParams.has('on_conflict') || /resolution=/.test(hd.prefer || '')) return denied('permission denied for table ' + t); // no upsert: no update grant on the key columns
+        if (method === 'POST') {
+          const list = [].concat(body()); const cols = BT_INSERT[t];
+          if (list.some((r) => Object.keys(r).some((k) => !cols.includes(k)))) return denied('permission denied for table ' + t);
+          if (!mayWrite) return denied(`new row violates row-level security policy for table "${t}"`);
+          for (const r of list) {
+            if (t === 'brands') {
+              const n = String(r.name ?? '').trim(); if (!(n.length >= 1 && n.length <= 80)) return check('brands_name_check');
+              if (!CODE_RE.test(String(r.code ?? ''))) return check('brands_code_check');
+              if (!mock.vendors.some((v) => v.id === r.origin_vendor_id)) return fk('brands_origin_vendor_id_fkey');
+              if (mock.brands.some((b) => nameKey(b.name) === nameKey(n))) return dup('brands_name_key');
+            } else {
+              if (!mock.brands.some((b) => b.id === r.brand_id)) return fk(t + '_brand_id_fkey');
+              if (!ISO.test(String(r.since ?? ''))) return json(400, { code: '22007', details: null, hint: null, message: 'invalid input syntax for type date' });
+              if (rows().some((x) => x.brand_id === r.brand_id && x.since === r.since)) return dup(t + '_brand_id_since_key');
+            }
+            if (t === 'brand_owners') {
+              if (!mock.vendors.some((v) => v.id === r.vendor_id)) return fk('brand_owners_vendor_id_fkey');
+              if (r.return_on != null && !(ISO.test(String(r.return_on)) && r.return_on > r.since)) return check('brand_owners_return_on_check');
+              if (r.reason != null && String(r.reason).length > 200) return check('brand_owners_reason_check');
+              // brand_owners_guard (before insert): against the latest row by (since, id)
+              const last = mock.brandOwners.filter((o) => o.brand_id === r.brand_id).sort((a, b) => (a.since < b.since ? 1 : a.since > b.since ? -1 : b.id - a.id))[0];
+              if (last && r.since < last.since) return json(400, { code: '22023', details: null, hint: null, message: 'since before the last transfer' });
+              if (last && r.vendor_id === last.vendor_id) return json(400, { code: '22023', details: null, hint: null, message: 'same vendor' });
+            }
+            if (t === 'brand_rates' && r.rate != null && !(Number(r.rate) >= 0 && Number(r.rate) <= 65)) return check('brand_rates_rate_check');
+          }
+          const out = [];
+          for (const r of list) {
+            if (t === 'brands') { brandSeq += 1; const row = { id: NEW_BRAND(brandSeq), name: r.name, code: r.code, aliases: r.aliases ?? [], store_vendor_id: null, origin_vendor_id: r.origin_vendor_id, created_by: r.created_by ?? null, created_at: now, updated_at: now }; mock.brands.push(row); out.push({ id: row.id }); }
+            else if (t === 'brand_owners') { ownerSeq += 1; mock.brandOwners.push({ id: ownerSeq, brand_id: r.brand_id, vendor_id: r.vendor_id, since: r.since, return_on: r.return_on ?? null, reason: r.reason ?? null, set_by: r.set_by ?? null, created_at: now }); out.push({ id: ownerSeq }); }
+            else { brandRateSeq += 1; mock.brandRates.push({ id: brandRateSeq, brand_id: r.brand_id, rate: r.rate == null ? null : Number(r.rate), since: r.since, set_by: r.set_by ?? null, created_at: now }); out.push({ id: brandRateSeq }); }
+            mock.brandWrites.push({ table: t, op: 'insert', ...r });
+          }
+          return representation ? json(201, single ? out[0] : out) : json(201, []);
+        }
+        // PATCH brands: one row by id; name / code / aliases only (the column grants, then brands_guard); RLS using vendors.view, with check the editors
+        if (!(url.searchParams.get('id') || '').startsWith('eq.')) return json(400, { code: '21000', details: null, hint: null, message: 'mock: a PATCH on brands names its row (id=eq.…): UPDATE requires a WHERE clause' });
+        const b = body(); const keys = Object.keys(b);
+        if (representation || keys.some((k) => !['name', 'code', 'aliases'].includes(k))) return denied('permission denied for table brands');
+        const target = visible ? mock.brands.filter(f.match) : [];
+        if (target.length && !mayWrite) return denied('new row violates row-level security policy for table "brands"');
+        for (const r of target) {
+          const next = { ...r, ...b }; const n = String(next.name ?? '').trim();
+          if (!(n.length >= 1 && n.length <= 80)) return check('brands_name_check');
+          if (!CODE_RE.test(String(next.code ?? ''))) return check('brands_code_check');
+          if (mock.brands.some((x) => x !== r && nameKey(x.name) === nameKey(n))) return dup('brands_name_key');
+        }
+        for (const r of target) { Object.assign(r, b, { updated_at: now }); mock.brandWrites.push({ table: 'brands', op: 'update', id: r.id, ...b }); }
+        return empty(204);
       }
       const ot = /^\/rest\/v1\/(orders|orders_v|order_items|sub_orders|products|status_map|woo_states)$/.exec(path);
       const OT_METHODS = { orders: ['PATCH'], orders_v: ['GET'], order_items: ['GET', 'PATCH'], sub_orders: ['GET'], products: ['GET'], status_map: ['GET'], woo_states: ['GET'] };

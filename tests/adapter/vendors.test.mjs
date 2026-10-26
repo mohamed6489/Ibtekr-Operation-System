@@ -8,6 +8,9 @@ import { stubClient, opsOf } from './stub-supabase.mjs';
 // Phase 3.1 (decision 10): the login shape from vendor_logins (no secret_id), the create sequence with { vendor, missing }, setLogin /
 // setLoginStatus / setLoginPassword / revealPassword / usernameTaken / canLogin / missing, the status «في إجازة»; the password
 // reaches the RPC and nothing else.
+// Phase 3.2 (decisions 3 / 4): the brands tables → `brands` / `brandsEver` on the vendor, addBrand / updateBrand / setBrandRate /
+// transferBrand / returnBrand (local refusals first, the server's codes mapped to the same messages, two events on a transfer),
+// ownerAt / storeOwnerAt / rateFor / brandByName / namesOf, the attribution and the rate in stats / lineShare — unchanged without a transfer.
 const src = readFileSync(new URL('../../app/js/adapter/vendors.js', import.meta.url), 'utf8');
 const domain = readFileSync(new URL('../../app/js/blocks/06-vendors-domain.js', import.meta.url), 'utf8');
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -28,11 +31,22 @@ const BANK = [{ vendor_id: V3, method: 'bank', bank_name: 'البنك الأهل
 const LOGINS = [{ vendor_id: V2, username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: T0, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 },
   { vendor_id: V3, username: 'bian.eg', email: 'bian.dev@ibtekr.local', pw_mode: 'link', status: 'disabled', must_change: true, invite_sent_at: null, password_set_at: null, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 }];
 const NEW = 'a0000000-0000-4000-8000-000000000009';
+// 0013: the automatic brand of each maker (its store tied, the maker the origin, owned since joined_at) and a hand-added one for Art Craft
+const B1 = 'd0000000-0000-4000-8000-000000000001', B2 = 'd0000000-0000-4000-8000-000000000002', B3 = 'd0000000-0000-4000-8000-000000000003', B4 = 'd0000000-0000-4000-8000-000000000004', NEWB = 'd0000000-0000-4000-8000-000000000009';
+const brandRow = (o) => ({ aliases: [], store_vendor_id: null, created_by: 'system', created_at: T0, updated_at: T0, ...o });
+const BRANDS = [brandRow({ id: B2, name: 'Antikiano', code: 'A', aliases: ['Antikiano store'], store_vendor_id: V2, origin_vendor_id: V2 }), brandRow({ id: B1, name: 'Art Craft', code: 'A', aliases: ['ArtCraft', 'آرت كرافت'], store_vendor_id: V1, origin_vendor_id: V1 }),
+  brandRow({ id: B3, name: 'Bian eg', code: 'B', store_vendor_id: V3, origin_vendor_id: V3 }), brandRow({ id: B4, name: 'Wood & Rope', code: 'W', aliases: ['W&R'], origin_vendor_id: V1, created_by: 'صفوت كمال' })];
+const ownerRow = (id, brand_id, vendor_id, since, more = {}) => ({ id, brand_id, vendor_id, since, return_on: null, reason: null, set_by: 'system', created_at: T0, ...more });
+const OWNERS = [ownerRow(1, B1, V1, '2026-03-01'), ownerRow(2, B2, V2, '2026-03-01'), ownerRow(3, B3, V3, '2026-03-01'), ownerRow(4, B4, V1, '2026-09-01', { set_by: 'صفوت كمال' })];
+// Antikiano's brand with Bian eg from 18 October, temporarily (back on 20 November)
+const TRANSFER = ownerRow(5, B2, V3, '2026-10-18', { return_on: '2026-11-20', reason: 'إجازة', set_by: 'صفوت كمال' });
 const BASE = { name: 'zaan', category: 'هدايا', phone: '01000000009', rate: '40', leadDays: '7', status: 'active', aliases: '', email: 'zaan.dev@ibtekr.local' };
 const TEST_PW = 'Test1234'; // the fake test password
 const ok = (data) => ({ data, error: null });
 const denied = () => ({ data: null, error: { code: '42501', message: 'permission denied' } });
-const seed = () => ({ vendors: ok(VENDORS), vendor_rates: ok(RATES), vendor_bank: ok(BANK), vendor_logins: ok(LOGINS), activity_log: ok([]) });
+const seed = () => ({ vendors: ok(VENDORS), vendor_rates: ok(RATES), vendor_bank: ok(BANK), vendor_logins: ok(LOGINS), activity_log: ok([]), brands: ok(BRANDS), brand_owners: ok(OWNERS), brand_rates: ok([]) });
+const B1_SHAPE = { id: B1, name: 'Art Craft', code: 'A', aliases: ['ArtCraft', 'آرت كرافت'], since: '2026-03-01', returnOn: null, temp: false, rate: null, store: V1, origin: V1, owner: V1, lastSince: '2026-03-01' };
+const B4_SHAPE = { id: B4, name: 'Wood & Rope', code: 'W', aliases: ['W&R'], since: '2026-09-01', returnOn: null, temp: false, rate: null, store: null, origin: V1, owner: V1, lastSince: '2026-09-01' };
 const NOW = new Date(2026, 9, 25, 12, 0).getTime(); // the adapter's clock: local 2026-10-25
 const clockAt = (t) => class FakeDate extends Date { constructor(...a) { if (a.length) super(...a); else super(t); } static now() { return t; } };
 const OPS = { 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' };
@@ -71,7 +85,11 @@ test('load names every column (no *, no commission_pct), reads the rates and the
   assert.deepEqual(opsOf(calls, 'vendors').filter((c) => c.op === 'range'), [{ op: 'range', args: [0, 999] }]);
   assert.deepEqual(plain(S.get(V1)), { id: V1, name: 'Art Craft', legalName: null, category: 'فنون ولوحات', aliases: ['ArtCraft', 'آرت كرافت'], status: 'active', phone: '01000000003', altPhone: null, email: null, address: null, instagram: null, storeUrl: null,
     rate: 35, rateSince: '2026-03-01', rateHistory: [{ rate: 35, since: '2026-03-01', by: 'صفوت كمال' }], ratesVisible: true, leadDays: 7, depositPolicy: null, notes: 'الشحن على المبتكر', logoLetter: 'A', joinedAt: '2026-03-01',
-    contract: null, bank: null, login: null, openingBalance: 0, wooVendorId: 2376, shopUrl: 'https://ibtekr.club/store/art-craft/', createdAt: T0, lastUpdate: T0 });
+    contract: null, bank: null, login: null, openingBalance: 0, wooVendorId: 2376, shopUrl: 'https://ibtekr.club/store/art-craft/', createdAt: T0, lastUpdate: T0, brands: [B1_SHAPE, B4_SHAPE], brandsEver: [] });
+  for (const t of ['brands', 'brand_owners', 'brand_rates']) for (const s of selectOf(calls, t)) assert.doesNotMatch(s, /\*/, t); // phase 3.2: column lists
+  assert.equal(selectOf(calls, 'brands')[0], 'id, name, code, aliases, store_vendor_id, origin_vendor_id, created_by, created_at, updated_at');
+  assert.equal(selectOf(calls, 'brand_owners')[0], 'id, brand_id, vendor_id, since, return_on, reason, set_by, created_at');
+  assert.equal(selectOf(calls, 'brand_rates')[0], 'id, brand_id, rate, since, set_by, created_at');
   const a = S.get(V2);
   assert.deepEqual(plain([a.rate, a.rateSince, a.rateHistory.map((x) => x.rate)]), [45, '2026-10-01', [40, 45, 50]]); // the effective one today; a future row waits
   assert.deepEqual(plain(a.login), { username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pwMode: 'temp', status: 'invited', mustChange: true, passwordSetAt: T0, inviteSentAt: null, hasPassword: true });
@@ -628,4 +646,246 @@ test('canLogin (admin or vendors.edit = F), usernameTaken (case-insensitive, exc
   assert.equal(vf.S.canLogin(), true);
   const acc = load({ admin: false, perms: ACCOUNTS }); await acc.V.load();
   assert.deepEqual(plain([acc.S.canLogin(), acc.S.missing(V2)]), [false, ['الحساب البنكي']]);
+});
+
+// ---------- phase 3.2: the brands ----------
+test('brands: the shape on each maker (held today / held before), the rates only with sensitive.commission (no request without it), a refused read is no error', async () => {
+  const { V, S, calls } = load({ responses: { ...seed(), brand_owners: ok(OWNERS.concat([TRANSFER])), brand_rates: ok([{ id: 1, brand_id: B2, rate: 30, since: '2026-10-01', set_by: 'منى حسن', created_at: T0 }, { id: 2, brand_id: B2, rate: null, since: '2027-01-01', set_by: 'منى حسن', created_at: T0 }]) } });
+  await V.load();
+  assert.deepEqual(plain(S.get(V3).brands), [{ id: B2, name: 'Antikiano', code: 'A', aliases: ['Antikiano store'], since: '2026-10-18', returnOn: '2026-11-20', temp: true, rate: 30, store: V2, origin: V2, owner: V3, lastSince: '2026-10-18' },
+    { id: B3, name: 'Bian eg', code: 'B', aliases: [], since: '2026-03-01', returnOn: null, temp: false, rate: null, store: V3, origin: V3, owner: V3, lastSince: '2026-03-01' }]);
+  assert.deepEqual(plain(S.get(V2).brands), []);
+  assert.deepEqual(plain(S.get(V2).brandsEver), [{ id: B2, name: 'Antikiano', code: 'A', aliases: ['Antikiano store'], since: '2026-10-18', returnOn: '2026-11-20', temp: true, rate: 30, store: V2, origin: V2, owner: V3, lastSince: '2026-10-18', until: '2026-10-18', now: 'Bian eg' }]);
+  assert.deepEqual(plain([S.ownerAt(B2, '2026-10-17'), S.ownerAt(B2, '2026-10-18'), S.ownerAt(B2), S.ownerAt(B2, '2025-01-01'), S.ownerAt('nope')]), [V2, V3, V3, V2, null]); // before the history: the first owner
+  assert.deepEqual(plain([S.storeOwnerAt(V2, '2026-10-17'), S.storeOwnerAt(V2, '2026-10-19'), S.storeOwnerAt(V1, '2026-10-19'), S.storeOwnerAt('no-store', '2026-10-19')]), [V2, V3, V1, 'no-store']);
+  assert.deepEqual(plain(S.namesOf(V3)), ['Bian eg', 'Antikiano', 'Antikiano store']); // his own, then the brand he holds
+  assert.deepEqual(plain(S.namesOf(V1)), ['Art Craft', 'ArtCraft', 'آرت كرافت', 'Wood & Rope', 'W&R']);
+  assert.deepEqual(plain([S.brandByName('antikiano store').id, S.brandByName(' W&R ').id, S.brandByName('nobody'), S.brandByName('')]), [B2, B4, null, null]);
+  assert.deepEqual(plain(V.data().brands.map((b) => b.name)), ['Antikiano', 'Art Craft', 'Bian eg', 'Wood & Rope']);
+  // rateFor: the special rate in force beats the owner's; null from 2027 → the owner's rate that day; a store without a brand: its own rate
+  assert.deepEqual([S.rateFor(V2, '2026-10-19'), S.rateFor(V2, '2026-09-30'), S.rateFor(V2, '2027-01-05'), S.rateFor(V1, '2026-10-19'), S.rateFor(V3, '2026-10-19'), S.rateFor('no-store', '2026-10-19')], [30, 30, null, 35, null, null]); // 2026-09-30: the earliest row until one has started (rateAt's rule); 2027: Bian eg has no rate
+  assert.deepEqual(plain(V.lineShare({ tot: 1000, rate: null, fee: null, vendorId: V2 }, S.get(V3), '2026-10-19')), { share: 700, noRate: false });
+  assert.deepEqual(plain(V.lineShare({ tot: 1000, rate: null, fee: null, vendorId: V2 }, S.get(V3), '2027-01-05')), { share: 1000, noRate: true }); // no special rate any more, the holder has none
+  assert.deepEqual(plain(V.lineShare({ tot: 1000, rate: 40, fee: 10, vendorId: V2 }, S.get(V3), '2026-10-19')), { share: 590, noRate: false }); // the website's rate on the line wins
+  const ops = load({ admin: false, responses: { ...seed(), brand_rates: ok([{ id: 1, brand_id: B2, rate: 30, since: '2026-10-01' }]) } });
+  await ops.V.load();
+  assert.deepEqual(selectOf(ops.calls, 'brand_rates'), []); // no sensitive.commission: not asked
+  assert.deepEqual(plain([ops.S.get(V2).brands[0].rate, ops.S.rateFor(V2, '2026-10-19')]), [null, null]);
+  const refused = load({ responses: { ...seed(), brand_rates: denied() } });
+  await refused.V.load();
+  assert.deepEqual([refused.V.state(), refused.S.get(V2).brands[0].rate, refused.S.rateFor(V2, '2026-10-19')], ['ready', null, 45]); // the brand rates unknown: the owner's rate
+  const noBrands = load({ responses: { ...seed(), brands: denied(), brand_owners: denied() } });
+  await noBrands.V.load();
+  assert.deepEqual([noBrands.V.state(), plain(noBrands.S.get(V1).brands), noBrands.S.storeOwnerAt(V2, '2026-10-19')], ['ready', [], V2]);
+});
+
+test('addBrand: brands (insert + select id) → brand_owners (since = the maker\'s joining date) → brand_rates (a special rate, canRate); logged; local refusals before any request; a later step refused is named in missing', async () => {
+  const { V, S, calls, responses, logs } = load();
+  await V.load(); calls.length = 0;
+  await assert.rejects(() => S.addBrand(V1, { name: '', code: '', aliases: '', rate: '' }, S.actor()), /invalid brand: name/);
+  await assert.rejects(() => S.addBrand(V1, { name: 'Zaan', code: 'ZAAN' }, S.actor()), /invalid brand: code/);
+  await assert.rejects(() => S.addBrand(V1, { name: 'Zaan', rate: '70' }, S.actor()), /invalid brand: rate/);
+  await assert.rejects(() => S.addBrand(V1, { name: ' antikiano ' }, S.actor()), /فيه براند بنفس الاسم/);
+  await assert.rejects(() => S.addBrand(V1, { name: 'w&r' }, S.actor()), /فيه براند بنفس الاسم/); // an alias too
+  assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
+  responses.brands = (ops) => (ops.some((c) => c.op === 'insert') ? ok({ id: NEWB }) : ok(BRANDS.concat([brandRow({ id: NEWB, name: 'Zaan', code: 'Z', aliases: ['zana'], origin_vendor_id: V1, created_by: 'صفوت كمال' })])));
+  responses.brand_owners = (ops) => (ops.some((c) => c.op === 'insert') ? ok([]) : ok(OWNERS.concat([ownerRow(9, NEWB, V1, '2026-03-01', { set_by: 'صفوت كمال' })])));
+  const out = await S.addBrand(V1, { name: ' Zaan ', code: ' z ', aliases: 'zana', rate: '٣٠' }, S.actor());
+  assert.deepEqual(plain([out.missing, out.reasons, out.brand.name, out.brand.code, out.brand.owner, out.brand.since]), [[], {}, 'Zaan', 'Z', V1, '2026-03-01']);
+  assert.deepEqual(calls.filter((c) => c.op === 'insert').map((c) => [c.table, c.args[0]]), [['brands', { name: 'Zaan', code: 'Z', aliases: ['zana'], origin_vendor_id: V1, created_by: 'صفوت كمال' }], ['brand_owners', { brand_id: NEWB, vendor_id: V1, since: '2026-03-01', set_by: 'صفوت كمال' }], ['brand_rates', { brand_id: NEWB, rate: 30, since: '2026-03-01', set_by: 'صفوت كمال' }]]);
+  assert.deepEqual(opsOf(calls, 'brands').slice(0, 3).map((c) => c.op), ['insert', 'select', 'single']);
+  assert.deepEqual(logs, [['vendor.brand', 'add: Zaan', { entity: 'vendor', entity_id: V1 }], ['vendor.brand.rate', 'Zaan: 30% من 2026-03-01', { entity: 'vendor', entity_id: V1 }]]);
+  assert.deepEqual(plain(S.get(V1).brands.map((b) => b.name)), ['Art Craft', 'Wood & Rope', 'Zaan']);
+  // the code suggested from the name when blank; no rate → no brand_rates row; a given since
+  calls.length = 0; logs.length = 0;
+  await S.addBrand(V2, { name: 'مبتكر جديد', aliases: '', rate: '', since: '2026-10-01' }, S.actor());
+  assert.deepEqual(calls.filter((c) => c.op === 'insert').map((c) => [c.table, c.args[0].code || c.args[0].since]), [['brands', 'X'], ['brand_owners', '2026-10-01']]);
+  // the server's 23505 on the name index → the message; nothing else written
+  calls.length = 0;
+  responses.brands = (ops) => (ops.some((c) => c.op === 'insert') ? { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "brands_name_key"' } } : ok(BRANDS));
+  await assert.rejects(() => S.addBrand(V1, { name: 'Taken meanwhile' }, S.actor()), /فيه براند بنفس الاسم/);
+  assert.deepEqual(calls.filter((c) => c.op === 'insert').map((c) => c.table), ['brands']);
+  // the owner row refused after the brand's insert: named in missing, the brand stays
+  calls.length = 0; logs.length = 0;
+  responses.brands = (ops) => (ops.some((c) => c.op === 'insert') ? ok({ id: NEWB }) : ok(BRANDS));
+  responses.brand_owners = (ops) => (ops.some((c) => c.op === 'insert') ? denied() : ok(OWNERS));
+  const o2 = await S.addBrand(V1, { name: 'Zaan 2', rate: '' }, S.actor());
+  assert.deepEqual(plain([o2.missing, o2.reasons]), [['owner'], { owner: 'forbidden' }]);
+  assert.equal(V.MESSAGES.brand_exists, 'فيه براند بنفس الاسم — اختار اسم تاني');
+  // ops (vendors.edit = P) and accounts: refused before any request; vendors.edit = F may
+  const ops = load({ admin: false }); await ops.V.load(); ops.calls.length = 0;
+  await assert.rejects(() => ops.S.addBrand(V1, { name: 'Zaan' }, ops.S.actor()), /مش من صلاحياتك/);
+  assert.deepEqual([ops.S.canBrands(), ops.calls.filter((c) => c.op !== 'from')], [false, []]);
+  const vf = load({ admin: false, perms: { ...OPS, 'vendors.edit': 'F' } }); await vf.V.load();
+  assert.equal(vf.S.canBrands(), true);
+  vf.calls.length = 0; vf.responses.brands = (o) => (o.some((c) => c.op === 'insert') ? ok({ id: NEWB }) : ok(BRANDS));
+  await vf.S.addBrand(V1, { name: 'Zaan', rate: '30' }, vf.S.actor());
+  assert.deepEqual(vf.calls.filter((c) => c.op === 'insert').map((c) => c.table), ['brands', 'brand_owners']); // no sensitive.commission: the rate is not sent
+});
+
+test('updateBrand: name / code / aliases, the changed columns only (a PATCH, no .select()), logged on the owner today; a taken name refused locally; 42501 puts the brand back', async () => {
+  const { V, S, calls, logs, events, responses } = load();
+  await V.load(); calls.length = 0; events.length = 0;
+  assert.throws(() => S.updateBrand(B1, { name: '' }, S.actor()), /invalid brand: name/);
+  assert.throws(() => S.updateBrand(B1, { name: 'Antikiano Store' }, S.actor()), /فيه براند بنفس الاسم/);
+  assert.throws(() => S.updateBrand('nope', { name: 'x' }, S.actor()), /brand not found/);
+  assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
+  assert.deepEqual(plain(S.updateBrand(B1, { name: 'Art Craft', code: 'A', aliases: 'ArtCraft، آرت كرافت' }, S.actor())), B1_SHAPE); // nothing changed: nothing sent
+  assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
+  const out = S.updateBrand(B1, { name: ' Art Craft Studio ', code: 'ac', aliases: 'ArtCraft، آرت كرافت' }, S.actor());
+  assert.deepEqual(plain([out.name, out.code, S.get(V1).brands[0].name]), ['Art Craft Studio', 'AC', 'Art Craft Studio']); // at once
+  assert.deepEqual(events[0], { type: 'ib:vendors', detail: { id: V1, changed: ['brands'] } });
+  await settle();
+  assert.deepEqual(writesOf(calls, 'brands').slice(0, 2), [{ op: 'update', args: [{ name: 'Art Craft Studio', code: 'AC' }] }, { op: 'eq', args: ['id', B1] }]);
+  assert.notEqual(writesOf(calls, 'brands')[2] && writesOf(calls, 'brands')[2].args[0], 'id');
+  assert.deepEqual(logs, [['vendor.brand', 'update: Art Craft Studio (name, code)', { entity: 'vendor', entity_id: V1 }]]);
+  assert.equal(S.get(V1).brands[0].name, 'Art Craft'); // the reload: the stub serves the seed
+  calls.length = 0; logs.length = 0; events.length = 0;
+  responses.brands = (ops) => (ops.some((c) => c.op === 'update') ? denied() : ok(BRANDS));
+  S.updateBrand(B1, { aliases: 'AC' }, S.actor());
+  assert.deepEqual(plain(S.get(V1).brands[0].aliases), ['AC']);
+  await settle();
+  assert.deepEqual(plain([S.get(V1).brands[0].aliases, events.filter((e) => e.detail.reason).map((e) => e.detail), logs]), [['ArtCraft', 'آرت كرافت'], [{ id: V1, reason: 'forbidden' }], []]);
+  const ops = load({ admin: false }); await ops.V.load(); ops.calls.length = 0;
+  assert.throws(() => ops.S.updateBrand(B1, { name: 'x' }, ops.S.actor()), /مش من صلاحياتك/);
+  assert.deepEqual(ops.calls.filter((c) => c.op !== 'from'), []);
+});
+
+test('setBrandRate: a dated row (null = no special rate), one insert into brand_rates, logged on the owner with the rate and date; the same date refused locally; sensitive.commission required', async () => {
+  const { V, S, calls, logs, responses, events } = load();
+  await V.load(); calls.length = 0;
+  assert.throws(() => S.setBrandRate(B2, 70, '2026-11-01', S.actor()), /rate out of range/);
+  assert.throws(() => S.setBrandRate(B2, 30, '2026-11-31', S.actor()), /since required/);
+  assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
+  const out = S.setBrandRate(B2, '٣٠', '2026-10-01', S.actor());
+  assert.deepEqual([out.rate, S.get(V2).brands[0].rate, S.rateFor(V2, '2026-10-19')], [30, 30, 30]); // at once
+  assert.throws(() => S.setBrandRate(B2, 35, '2026-10-01', S.actor()), /فيه نسبة متسجلة بنفس تاريخ السريان/);
+  S.setBrandRate(B2, '', '2026-12-01', S.actor()); // none from December
+  assert.deepEqual([S.rateFor(V2, '2026-12-05'), S.rateFor(V2, '2026-11-05')], [45, 30]);
+  await settle();
+  assert.deepEqual(opsOf(calls, 'brand_rates').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ brand_id: B2, rate: 30, since: '2026-10-01', set_by: 'صفوت كمال' }, { brand_id: B2, rate: null, since: '2026-12-01', set_by: 'صفوت كمال' }]);
+  assert.deepEqual(opsOf(calls, 'brand_rates').filter((c) => c.op === 'select' && c.args[0] === 'id'), []);
+  assert.deepEqual(logs, [['vendor.brand.rate', 'Antikiano: 30% من 2026-10-01', { entity: 'vendor', entity_id: V2 }], ['vendor.brand.rate', 'Antikiano: — من 2026-12-01', { entity: 'vendor', entity_id: V2 }]]);
+  events.length = 0;
+  responses.brand_rates = (ops) => (ops.some((c) => c.op === 'insert') ? { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "brand_rates_brand_id_since_key"' } } : ok([]));
+  S.setBrandRate(B2, 20, '2026-10-05', S.actor()); await settle();
+  assert.deepEqual([S.get(V2).brands[0].rate, events.filter((e) => e.detail.reason).map((e) => e.detail.reason)], [null, ['duplicate']]);
+  const acc = load({ admin: false, perms: ACCOUNTS }); await acc.V.load(); acc.calls.length = 0;
+  assert.throws(() => acc.S.setBrandRate(B2, 30, '2026-10-01', acc.S.actor()), /مش من صلاحياتك/);
+  assert.deepEqual(acc.calls.filter((c) => c.op !== 'from'), []);
+});
+
+test('transferBrand: the local rules first (the same maker, a date before the last transfer, a return date not after the start — no request), then one brand_owners insert and two events (one per maker); the server\'s 22023 puts the history back', async () => {
+  const { V, S, calls, logs, events, responses } = load({ responses: { ...seed(), brand_owners: ok(OWNERS.concat([TRANSFER])) } });
+  await V.load(); calls.length = 0;
+  assert.throws(() => S.transferBrand(B2, V3, { since: '2026-10-25' }, S.actor()), /البراند أصلًا عند المبتكر ده/);
+  assert.throws(() => S.transferBrand(B2, V1, { since: '2026-10-10' }, S.actor()), /قبل آخر نقل للبراند \(2026-10-18\)/);
+  assert.throws(() => S.transferBrand(B2, V1, { since: '2026-10-25', returnOn: '2026-10-25' }, S.actor()), /تاريخ الرجوع لازم يكون بعد تاريخ البداية/);
+  assert.throws(() => S.transferBrand(B2, V1, { since: 'x' }, S.actor()), /اكتب تاريخ البداية/);
+  assert.throws(() => S.transferBrand(B2, 'nobody', { since: '2026-10-25' }, S.actor()), /vendor not found/);
+  assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
+  events.length = 0;
+  const out = S.transferBrand(B1, V2, { since: '2026-10-20', returnOn: '2026-11-20', reason: ' إجازة ' }, S.actor());
+  assert.deepEqual(plain([out.owner, out.since, out.returnOn, out.temp, S.get(V2).brands.map((b) => b.name), S.get(V1).brands.map((b) => b.name), S.get(V1).brandsEver.map((b) => [b.name, b.until, b.now])]), [V2, '2026-10-20', '2026-11-20', true, ['Art Craft'], ['Wood & Rope'], [['Art Craft', '2026-10-20', 'Antikiano']]]); // at once
+  assert.deepEqual(events.slice(0, 2).map((e) => e.detail), [{ id: V1, changed: ['brands'] }, { id: V2, changed: ['brands'] }]);
+  await settle();
+  assert.deepEqual(opsOf(calls, 'brand_owners').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ brand_id: B1, vendor_id: V2, since: '2026-10-20', return_on: '2026-11-20', reason: 'إجازة', set_by: 'صفوت كمال' }]);
+  assert.deepEqual(logs, [['vendor.brand.transfer', 'Art Craft → Antikiano من 2026-10-20 لحد 2026-11-20', { entity: 'vendor', entity_id: V1 }], ['vendor.brand.transfer', 'Art Craft → Antikiano من 2026-10-20 لحد 2026-11-20', { entity: 'vendor', entity_id: V2 }]]);
+  assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.id), [V1, V2]);
+  // the same day as the last transfer passes locally (the unique key is the judge); a permanent move has no «لحد»
+  calls.length = 0; logs.length = 0;
+  S.transferBrand(B2, V1, { since: '2026-10-18' }, S.actor()); await settle();
+  assert.deepEqual(opsOf(calls, 'brand_owners').find((c) => c.op === 'insert').args[0], { brand_id: B2, vendor_id: V1, since: '2026-10-18', return_on: null, reason: null, set_by: 'صفوت كمال' });
+  assert.equal(logs[0][1], 'Antikiano → Art Craft من 2026-10-18');
+  // 22023 from the server (a row written meanwhile): the history back, the reason by its message
+  events.length = 0; logs.length = 0;
+  responses.brand_owners = (ops) => (ops.some((c) => c.op === 'insert') ? { data: null, error: { code: '22023', message: 'since before the last transfer' } } : ok(OWNERS.concat([TRANSFER])));
+  S.transferBrand(B2, V1, { since: '2026-10-25' }, S.actor());
+  assert.equal(S.get(V1).brands.some((b) => b.id === B2), true);
+  await settle();
+  assert.deepEqual([S.get(V1).brands.some((b) => b.id === B2), S.get(V3).brands.some((b) => b.id === B2), events.filter((e) => e.detail.reason).map((e) => e.detail.reason), logs], [false, true, ['brand_since_before'], []]);
+  responses.brand_owners = (ops) => (ops.some((c) => c.op === 'insert') ? { data: null, error: { code: '22023', message: 'same vendor' } } : ok(OWNERS.concat([TRANSFER])));
+  events.length = 0; S.transferBrand(B2, V1, { since: '2026-10-25' }, S.actor()); await settle();
+  assert.deepEqual(events.filter((e) => e.detail.reason).map((e) => e.detail.reason), ['brand_same_vendor']);
+  responses.brand_owners = (ops) => (ops.some((c) => c.op === 'insert') ? { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "brand_owners_brand_id_since_key"' } } : ok(OWNERS.concat([TRANSFER])));
+  events.length = 0; S.transferBrand(B2, V1, { since: '2026-10-18' }, S.actor()); await settle();
+  assert.deepEqual(events.filter((e) => e.detail.reason).map((e) => e.detail.reason), ['duplicate']);
+  assert.deepEqual([V.MESSAGES.brand_since_before, V.MESSAGES.brand_same_vendor], ['التاريخ ده قبل آخر نقل للبراند — اختار تاريخ بعده', 'البراند أصلًا عند المبتكر ده']);
+  const ops = load({ admin: false }); await ops.V.load(); ops.calls.length = 0;
+  assert.throws(() => ops.S.transferBrand(B1, V2, { since: '2026-10-25' }, ops.S.actor()), /مش من صلاحياتك/);
+  assert.deepEqual(ops.calls.filter((c) => c.op !== 'from'), []);
+});
+
+test('returnBrand: to the maker before the temporary transfer (else the origin), a new row with the reason «رجوع لصاحبه», two vendor.brand.return events; refused when the brand is already there', async () => {
+  const { V, S, calls, logs } = load({ responses: { ...seed(), brand_owners: ok(OWNERS.concat([TRANSFER])) } });
+  await V.load(); calls.length = 0;
+  assert.throws(() => S.returnBrand(B1, { since: '2026-10-25' }, S.actor()), /البراند أصلًا عند صاحبه/);
+  assert.throws(() => S.returnBrand(B2, { since: '2026-10-10' }, S.actor()), /قبل آخر نقل/);
+  assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
+  const out = S.returnBrand(B2, { since: '2026-10-25' }, S.actor());
+  assert.deepEqual([out.owner, out.temp, out.since], [V2, false, '2026-10-25']);
+  await settle();
+  assert.deepEqual(opsOf(calls, 'brand_owners').find((c) => c.op === 'insert').args[0], { brand_id: B2, vendor_id: V2, since: '2026-10-25', return_on: null, reason: 'رجوع لصاحبه', set_by: 'صفوت كمال' });
+  assert.deepEqual(logs, [['vendor.brand.return', 'Antikiano → Antikiano من 2026-10-25', { entity: 'vendor', entity_id: V3 }], ['vendor.brand.return', 'Antikiano → Antikiano من 2026-10-25', { entity: 'vendor', entity_id: V2 }]]);
+  // a permanent chain V2 → V3 → V1: the return goes to the origin (V2), not to V3
+  const chain = load({ responses: { ...seed(), brand_owners: ok(OWNERS.concat([ownerRow(5, B2, V3, '2026-10-01'), ownerRow(6, B2, V1, '2026-10-10')])) } });
+  await chain.V.load(); chain.calls.length = 0;
+  chain.S.returnBrand(B2, { since: '2026-10-25' }, chain.S.actor()); await settle();
+  assert.equal(opsOf(chain.calls, 'brand_owners').find((c) => c.op === 'insert').args[0].vendor_id, V2);
+  // a temporary one in the middle of a chain goes back one step
+  const mid = load({ responses: { ...seed(), brand_owners: ok(OWNERS.concat([ownerRow(5, B2, V3, '2026-10-01'), ownerRow(6, B2, V1, '2026-10-10', { return_on: '2026-12-01' })])) } });
+  await mid.V.load(); mid.calls.length = 0;
+  mid.S.returnBrand(B2, {}, mid.S.actor()); await settle();
+  assert.deepEqual([opsOf(mid.calls, 'brand_owners').find((c) => c.op === 'insert').args[0].vendor_id, opsOf(mid.calls, 'brand_owners').find((c) => c.op === 'insert').args[0].since], [V3, '2026-10-25']); // today
+});
+
+test('stats with the store uuids (decision 4): without a transfer the numbers are those of phase 3; with Antikiano\'s brand at Bian eg from 18 October his store\'s later orders are Bian eg\'s and the earlier stay his; a special rate changes the share of a line without a website rate', async () => {
+  const orders = [
+    { id: '181668', st: 'مكتمل', date: '2026-10-19', subs: [{ vendor: 'Art Craft', vendorId: V1, tot: 1002, rate: 35, fee: 0 }, { vendor: 'Antikiano', vendorId: V2, tot: 2539, rate: 40, fee: 10 }] },
+    { id: '180686', st: 'جاري التنفيذ', date: '2026-10-17', subs: [{ vendor: 'Art Craft', vendorId: V1, tot: 1002, rate: null, fee: null }] },
+    { id: '180656', st: 'ملغي', date: '2026-10-15', subs: [{ vendor: 'Antikiano', vendorId: V2, tot: 899, rate: null, fee: null }] },
+  ];
+  const rows = [{ id: '181668', customer: 'سلوى', status: 'مكتمل', ageDays: 6, total: 3541, delivery: 'ok', vendors: ['Art Craft', 'Antikiano'] }, { id: '180686', customer: 'هدير', status: 'جاري التنفيذ', ageDays: 8, total: 1002, delivery: 'risk', vendors: ['Art Craft'] }, { id: '180656', customer: 'x', status: 'ملغي', ageDays: 10, total: 899, delivery: 'late', vendors: ['Antikiano'] }];
+  const app = { query: () => ({ rows }) };
+  const pick = (x) => ({ ids: x.orders.map((o) => o.id), open: x.open, late: x.late, lastAge: x.lastAge, sales: x.sales, earned: x.earned, ibtekrShare: x.ibtekrShare, pending: x.pending, pendingSales: x.pendingSales, noRate: x.noRate, balance: x.balance, byStatus: x.byStatus });
+  const same = load({ orders: { orders }, app }); await same.V.load();
+  const st0 = plain(same.V.stats());
+  assert.deepEqual(pick(st0[V1]), { ids: ['181668', '180686'], open: 1, late: 1, lastAge: 6, sales: 1002, earned: 651.3, ibtekrShare: 350.7, pending: 651.3, pendingSales: 1002, noRate: 0, balance: 651.3, byStatus: { c: [1, 1002, 651.3], p: [1, 1002, 651.3], x: [0, 0, 0] } }); // the phase-3 expectations
+  assert.deepEqual(pick(st0[V2]), { ids: ['181668', '180656'], open: 0, late: 0, lastAge: 6, sales: 2539, earned: 1513.4, ibtekrShare: 1025.6, pending: 0, pendingSales: 0, noRate: 0, balance: 1513.4, byStatus: { c: [1, 2539, 1513.4], p: [0, 0, 0], x: [1, 899, 494.45] } });
+  assert.deepEqual([st0[V3].orders, st0[V3].balance], [[], 150]);
+  // the transfer: 181668 (19 October) is Bian eg's with the website's rate on the line; 180656 (15 October) stays Antikiano's
+  const moved = load({ orders: { orders }, app, responses: { ...seed(), brand_owners: ok(OWNERS.concat([TRANSFER])) } }); await moved.V.load();
+  const st1 = plain(moved.V.stats());
+  assert.deepEqual([st1[V2].orders.map((o) => o.id), st1[V2].earned, st1[V2].byStatus.x, st1[V2].balance], [['180656'], 0, [1, 899, 494.45], 0]);
+  assert.deepEqual([st1[V3].orders.map((o) => [o.id, o.sales, o.share]), st1[V3].earned, st1[V3].balance, st1[V3].lastAge], [[['181668', 2539, 1513.4]], 1513.4, 1663.4, 6]); // opening 150 + earned
+  assert.deepEqual(pick(st1[V1]), pick(st0[V1])); // Art Craft untouched
+  // a special rate on Antikiano's brand (30% from 1 October): the cancelled line (no website rate) is shared at 30%, the completed one keeps the line's own rate
+  const special = load({ orders: { orders }, app, responses: { ...seed(), brand_rates: ok([{ id: 1, brand_id: B2, rate: 30, since: '2026-10-01' }]) } }); await special.V.load();
+  const st2 = plain(special.V.stats());
+  assert.deepEqual([st2[V2].byStatus.x, st2[V2].earned], [[1, 899, 629.3], 1513.4]);
+  // a sub without a store uuid (not on the live data): the old match by name
+  const named = load({ orders: { orders: orders.map((o) => ({ ...o, subs: o.subs.map(({ vendorId, ...s }) => s) })) }, app, responses: { ...seed(), brand_owners: ok(OWNERS.concat([TRANSFER])) } }); await named.V.load();
+  assert.deepEqual(pick(plain(named.V.stats())[V2]), pick(st0[V2]));
+});
+
+test('remove: 23503 from vendors_brands_guard_delete (the maker holds or held another maker\'s brand) → has_brands and the vendor is back; the orders\' 23503 still reads in_use', async () => {
+  const { V, S, responses, events } = load();
+  await V.load();
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'delete') ? { data: null, error: { code: '23503', message: 'the maker holds or held a brand of another maker (brand_owners_vendor_id_fkey): transfer or return it first' } } : ok(VENDORS));
+  events.length = 0; S.remove(V3, S.actor()); await settle();
+  assert.deepEqual([S.get(V3).name, events.filter((e) => e.detail.reason).map((e) => e.detail.reason)], ['Bian eg', ['has_brands']]);
+  assert.equal(V.MESSAGES.has_brands, 'ماينفعش يتمسح — عليه براندات (ماسك أو كان ماسك براند مبتكر تاني): انقلها أو رجّعها الأول');
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'delete') ? { data: null, error: { code: '23503', message: 'update or delete on table "vendors" violates foreign key constraint "order_items_vendor_id_fkey" on table "order_items"' } } : ok(VENDORS));
+  events.length = 0; S.remove(V3, S.actor()); await settle();
+  assert.deepEqual(events.filter((e) => e.detail.reason).map((e) => e.detail.reason), ['in_use']);
+});
+
+test('loadEvents: the brand events read as sentences', async () => {
+  const rows = [{ id: 1, at: '2026-10-20T10:00:00+00:00', action: 'vendor.brand', new_value: 'add: Zaan', actor: { name: 'صفوت كمال' } }, { id: 2, at: '2026-10-21T10:00:00+00:00', action: 'vendor.brand', new_value: 'update: Zaan (name, code)', actor: { name: 'صفوت كمال' } },
+    { id: 3, at: '2026-10-22T10:00:00+00:00', action: 'vendor.brand.rate', new_value: 'Zaan: 30% من 2026-10-01', actor: { name: 'منى حسن' } }, { id: 4, at: '2026-10-23T10:00:00+00:00', action: 'vendor.brand.transfer', new_value: 'Zaan → Antikiano من 2026-10-20 لحد 2026-11-20', actor: { name: 'هدى سمير' } },
+    { id: 5, at: '2026-10-24T10:00:00+00:00', action: 'vendor.brand.return', new_value: 'Zaan → Art Craft من 2026-10-24', actor: { name: 'هدى سمير' } }];
+  const { V } = load({ responses: { ...seed(), activity_log: ok(rows.slice().reverse()) } }); // the server answers newest first
+  await V.load();
+  const ev = await V.loadEvents(V1);
+  assert.deepEqual(plain(ev.map((e) => e.text)), ['صفوت كمال أضاف البراند Zaan', 'صفوت كمال عدّل البراند Zaan (name, code)', 'منى حسن حدّد النسبة الخاصة للبراند (Zaan: 30% من 2026-10-01)', 'هدى سمير نقل البراند (Zaan → Antikiano من 2026-10-20 لحد 2026-11-20)', 'هدى سمير رجّع البراند لصاحبه (Zaan → Art Craft من 2026-10-24)']);
 });

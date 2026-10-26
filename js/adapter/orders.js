@@ -8,6 +8,9 @@
 // fixed date); never below 0. `cnote` is orders.customer_note, the customer's checkout note (read-only, like name and phone).
 // A line's `link` is its product's page on the website: products.permalink (https only, by sku), else <origin>/?p=<product_id>
 // (WordPress redirects it to the product) with the origin of any known permalink, else '' (no link).
+// `state` is orders.customer_state, the governorate's code on the website's own list (e.g. EG-01) or ''; `stateName` its name
+// from woo_states (code → name, read once per load() — an empty or unreadable table is no error; the sync fills it from the
+// website), else the code itself, else ''.
 // Grants are column lists (0007): every read names its columns (select('*') on orders / order_items / sub_orders is
 // refused) and every write is an update of granted columns without .select() (return=minimal). The base table orders
 // is never read: its phone column is not granted.
@@ -26,11 +29,11 @@
   'use strict';
   const PAGE = 1000, CAP = 5000, IDS = 200, SKUS = 100; // PostgREST max_rows; ids / skus per in.(…) keep the URL short
   const COLS = {
-    order: 'id, customer_name, customer_phone, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret',
+    order: 'id, customer_name, customer_phone, customer_state, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret',
     item: 'id, order_id, sub_order_id, product_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed',
     sub: 'id, order_id, vendor_id, woo_order_id, woo_status',
   };
-  let orders = null; let vendorRows = []; let images = {}; let links = {}; let statuses = []; let names = []; let channel = null; let gen = 0; let st = 'idle';
+  let orders = null; let vendorRows = []; let images = {}; let links = {}; let states = new Map(); let statuses = []; let names = []; let channel = null; let gen = 0; let st = 'idle';
   const asked = new Set(); // skus already asked of products
   const busy = new Map(); // order id → its running Realtime refetch
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
@@ -76,19 +79,24 @@
       raw: (so && so.woo_status) || o.woo_status || '', vendor: (vid && vname.get(String(vid))) || '', cm: it.comment || '', ss: it.status || '', exp: it.expected_at || '', sku: it.sku || '', link: linkOf(it, lk, origin),
       readyAt: localStamp(it.ready_at), waybill: it.waybill || null, pulled: !!it.pulled, ret: it.ret || null, store: it.store || null };
   }
+  const text = (v) => (v == null ? '' : String(v).trim());
+  // woo_states rows ({ code, name }) → Map code → name (a row without a code or a name is skipped)
+  const stateMap = (rows) => new Map((Array.isArray(rows) ? rows : []).map((r) => [text(r && r.code), text(r && r.name)]).filter(([k, v]) => k && v));
   // orders_v rows + their order_items / sub_orders rows + vendors ({ id, name }) → the orders of block 29; ages up to
-  // opts.today ('YYYY-MM-DD'), by default today(); the lines' links from opts.links (sku → permalink)
+  // opts.today ('YYYY-MM-DD'), by default today(); the lines' links from opts.links (sku → permalink); the governorates'
+  // names from opts.states (a Map code → name, or woo_states rows)
   function toScreen(rows, items, subs, vendors, opts = {}) {
     const T = (opts && opts.today) || today();
     const lk = (opts && opts.links) || {}; const origin = originOf(lk);
+    const sn = opts && opts.states && typeof opts.states.get === 'function' ? opts.states : stateMap(opts && opts.states);
     const vname = new Map((vendors || []).map((v) => [String(v.id), v.name || '']));
     const subById = new Map((subs || []).map((s) => [String(s.id), s]));
     const lines = new Map();
     (items || []).filter((it) => !it.removed).sort((a, b) => Number(a.id) - Number(b.id)).forEach((it) => { const k = String(it.order_id); if (!lines.has(k)) lines.set(k, []); lines.get(k).push(it); });
     return (rows || []).map((r) => {
-      const id = String(r.id); const date = localDate(r.placed_at);
+      const id = String(r.id); const date = localDate(r.placed_at); const state = text(r.customer_state); const stateName = (state && text(sn.get(state))) || state;
       return { id, name: r.customer_name || '', phone: r.customer_phone || '', pay: r.payment_title || r.payment_method || '', date, st: r.status, cf: r.confirm, dep: Number(r.deposit) || 0, tot: Number(r.total) || 0,
-        age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', city: r.customer_city || '', addr: r.customer_address || '', cancel: r.cancel || null, ret: r.ret || null,
+        age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', state, stateName, city: r.customer_city || '', addr: r.customer_address || '', cancel: r.cancel || null, ret: r.ret || null,
         subs: (lines.get(id) || []).map((it) => sub(it, r, subById, vname, lk, origin)) };
     });
   }
@@ -122,10 +130,11 @@
     const g = ++gen;
     setState('loading');
     try {
-      const [found, vs, sm] = await Promise.all([
+      const [found, vs, sm, ws] = await Promise.all([
         pages(() => cl.from('orders_v').select(COLS.order).gte('placed_at', windowStart().toISOString()).order('placed_at', { ascending: false }).order('id', { ascending: false }), g, CAP),
         pages(() => cl.from('vendors').select('id, name').order('id', { ascending: true }), g),
         cl.from('status_map').select('system_status, woo_status, direction, sort').order('sort', { ascending: true }),
+        cl.from('woo_states').select('code, name').order('code', { ascending: true }), // small: the website's list
       ]);
       if (sm.error) throw sm.error;
       stale(g);
@@ -137,8 +146,9 @@
       const ps = await within(cl, 'products', 'sku, image_url, permalink', 'sku', skus, SKUS, g);
       stale(g);
       vendorRows = vs; statuses = sm.data || []; images = {}; links = {}; asked.clear();
+      if (ws && !ws.error) states = stateMap(ws.data); // refused (no grant yet) or down: the last list stays, the codes show without one
       skus.forEach((s) => asked.add(s)); ps.forEach(keep);
-      orders = toScreen(rows, items, subs, vendorRows, { links }); names = vendorNames(orders);
+      orders = toScreen(rows, items, subs, vendorRows, { links, states }); names = vendorNames(orders);
       setState('ready');
       const app = window.OrdersApp; if (app && app.hydrate) report(() => app.hydrate(data()));
       notify(); // the bell and the dashboard read the orders
@@ -246,7 +256,7 @@
       if (!known && !(Date.parse(o.data[0].placed_at) >= windowStart().getTime())) return; // older than the screen's 12 months
       await fill(cl, it.data || [], so.data || [], g);
       if (!orders) return;
-      const next = toScreen(o.data.slice(0, 1), it.data || [], so.data || [], vendorRows, { links })[0];
+      const next = toScreen(o.data.slice(0, 1), it.data || [], so.data || [], vendorRows, { links, states })[0];
       const i = orders.findIndex((x) => x.id === next.id);
       if (i >= 0) orders[i] = next; else orders.unshift(next);
       names = vendorNames(orders);
@@ -288,7 +298,7 @@
     const ch = channel; channel = null;
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
-  function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; vendorRows = []; images = {}; links = {}; statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
+  function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; vendorRows = []; images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
   window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

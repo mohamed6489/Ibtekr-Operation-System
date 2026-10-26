@@ -23,9 +23,10 @@
 // Balance in this phase = opening_balance (0 until the phase-4 import) + the shares of the completed orders.
 // Phase 3.1 (decision 10): a vendor also carries `login` — its vendor_logins row (username, email, pwMode, status, mustChange,
 // passwordSetAt, inviteSentAt, hasPassword) or null — read by column list without secret_id. create(input) runs vendors →
-// vendor_rates (canRate) → vendor_logins (input.login) → rpc vendor_login_set_password (pwMode temp) → vendor_bank (canBank and
-// input.bank); a step refused after the vendor's insert never undoes the vendor: the result is { vendor, missing: [...], reasons }
-// so the page can say what is still missing. setLogin upserts the row (insert when there is none), setLoginStatus writes
+// vendor_rates (canRate) → vendor_logins (input.login) → rpc vendor_login_set_password (the temporary password — the only mode since
+// 26 Oct, no invite link) → vendor_bank (canBank and input.bank); a step refused after the vendor's insert never undoes the vendor: the
+// result is { vendor, missing: [...], reasons } so the page can say what is still missing. addLogin creates the row with its password
+// (the same two steps), setLogin patches username / e-mail of an existing row, setLoginStatus writes
 // invited / disabled (created_by on the insert is the member's name, like set_by / updated_by), setLoginPassword and revealPassword are the two RPCs (Promises; the server logs vendor.login.password /
 // vendor.login.reveal itself, the password is never kept, logged or emitted here), usernameTaken is the local check (the server's
 // unique index is the judge: 23505 → duplicate_username), canLogin = admin or vendors.edit = F, missing(id) lists what the maker
@@ -47,7 +48,7 @@
   // the vendors columns the team writes, by the prototype's field names
   const COL = { name: 'name', legalName: 'legal_name', category: 'category', aliases: 'aliases', status: 'status', phone: 'phone', altPhone: 'alt_phone', email: 'email', address: 'address', instagram: 'instagram', storeUrl: 'store_url', leadDays: 'lead_days', depositPolicy: 'deposit_policy', notes: 'notes', joinedAt: 'joined_at' };
   const MESSAGES = { forbidden: 'مش من صلاحياتك', network: 'الشبكة مش متاحة — التغيير ما اتحفظش، جرّب تاني', in_use: 'ماينفعش يتمسح — عليه أوردرات', too_large: 'الملف أكبر من 10 ميجا', bad_type: 'نوع الملف مش مقبول — PDF أو صورة (PNG / JPG) بس', duplicate: 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني',
-    duplicate_username: 'اسم المستخدم ده مستخدم قبل كده', weak_password: 'الباسورد لازم: 8 حروف على الأقل، حرف إنجليزي، رقم، من غير مسافات', no_vault: 'الباسورد المؤقت مش متاح على السيرفر ده دلوقتي (Vault مش شغّال)', no_login: 'اعمل اسم مستخدم الأول', long_password: 'الباسورد أطول من 128 حرف' };
+    duplicate_username: 'اسم المستخدم ده مستخدم قبل كده', login_exists: 'المبتكر ده عنده بيانات دخول — عدّلها من ملفه', weak_password: 'الباسورد لازم: 8 حروف على الأقل، حرف إنجليزي، رقم، من غير مسافات', no_vault: 'الباسورد المؤقت مش متاح على السيرفر ده دلوقتي (Vault مش شغّال)', no_login: 'اعمل اسم مستخدم الأول', long_password: 'الباسورد أطول من 128 حرف' };
   const PW_MAX = 128; // the server's cap (22023 past it)
   const LOGIN_STATUSES = ['invited', 'active', 'disabled'];
   const DONE = ['مكتمل']; const OUT = ['ملغي', 'استرجاع', 'فشل', 'مرتجع', 'مسترد', 'ملغي / مرتجع'];
@@ -329,26 +330,45 @@
   const bankErrs = (b) => { const D = VD(); return D && D.validateBank ? D.validateBank(b) : {}; };
   const pwIssues = (p) => { const D = VD(); return D && D.passwordIssues ? D.passwordIssues(p) : []; };
   const loginReason = (reason) => (reason === 'duplicate' ? 'duplicate_username' : reason); // 23505 on vendor_logins: the unique username
-  const emptyLogin = () => ({ username: null, email: null, pwMode: 'link', status: 'invited', mustChange: true, passwordSetAt: null, inviteSentAt: null, hasPassword: false });
   // local check over the loaded logins (lower-cased); the server's unique index on lower(username) is the judge
   function usernameTaken(username, exceptId) { const n = String(username || '').trim().toLowerCase(); if (!n) return false; for (const v of vendors.values()) if (String(v.id) !== String(exceptId || '') && v.login && v.login.username && v.login.username.toLowerCase() === n) return true; return false; }
   // what the maker still lacks to work on the system (the drawer's «ناقص» line); the bank only when the caller can see bank rows
   function missing(id) { const v = must(id); const out = []; if (!v.login || !v.login.username) out.push('بيانات الدخول'); if (!v.email && !(v.login && v.login.email)) out.push('الإيميل'); if (canBank() && !v.bank) out.push('الحساب البنكي'); return out; }
-  // username + e-mail: an insert when the maker has no row, else the changed columns; the row's status stays
+  // username + e-mail of an existing row: the changed columns only (a PATCH); the row's status stays. A maker without a row → no_login:
+  // the row is born with its temporary password through addLogin (owner 26 Oct: no invite link, so no login without a password).
   function setLogin(id, l, actor) {
-    const v = must(id); if (!canLogin()) throw noPerm();
+    const v = must(id); if (!canLogin()) throw noPerm(); if (!v.login || !v.login.username) throw new Error(MESSAGES.no_login);
     const u = String((l && l.username) || '').trim().toLowerCase(); const email = clean(l && l.email, 120);
     const errs = loginErrs({ username: u, email }); const bad = Object.keys(errs); if (bad.length) throw new Error('invalid login: ' + bad.join(','));
     if (usernameTaken(u, id)) throw new Error(MESSAGES.duplicate_username);
-    const had = !!(v.login && v.login.username); const changed = [];
-    if (!had || v.login.username !== u) changed.push('username'); if (!had || (v.login.email || null) !== email) changed.push('email');
+    const changed = [];
+    if (v.login.username !== u) changed.push('username'); if ((v.login.email || null) !== email) changed.push('email');
     if (!changed.length) return get(id);
     const old = copy(v);
-    v.login = Object.assign(v.login || emptyLogin(), { username: u, email }); v.lastUpdate = new Date().toISOString();
+    v.login = Object.assign(v.login, { username: u, email }); v.lastUpdate = new Date().toISOString();
     emit({ id, changed: ['login'] });
-    const row = had ? Object.fromEntries(changed.map((k) => [k, k === 'username' ? u : email])) : { vendor_id: id, username: u, email, pw_mode: 'link', created_by: (actor && actor.name) || null }; // created_by: the member's name, like set_by / updated_by (review A)
-    write(id, v, old, async () => { const r = await call((cl) => (had ? cl.from('vendor_logins').update(row).eq('vendor_id', id) : cl.from('vendor_logins').insert(row))); return r.ok ? r : fail(loginReason(r.reason)); }, () => logEvent('vendor.login', changed.join(', '), id));
+    const row = Object.fromEntries(changed.map((k) => [k, k === 'username' ? u : email]));
+    write(id, v, old, async () => { const r = await call((cl) => cl.from('vendor_logins').update(row).eq('vendor_id', id)); return r.ok ? r : fail(loginReason(r.reason)); }, () => logEvent('vendor.login', changed.join(', '), id));
     return get(id);
+  }
+  // the drawer's «إضافة بيانات الدخول»: the row and its temporary password in one go — the insert (vendor_id, username, email,
+  // pw_mode temp, created_by = the member's name), then rpc vendor_login_set_password (it needs the row). A refused insert rejects
+  // with its message (the duplicate username included) and nothing is written; a refused password leaves the row and comes back in
+  // `missing` with its reason, as create does. The password is local to this call. Resolves after the reload.
+  async function addLogin(id, l, actor) {
+    const v = must(id); if (!canLogin()) throw noPerm(); if (v.login && v.login.username) throw new Error(MESSAGES.login_exists);
+    const u = String((l && l.username) || '').trim().toLowerCase(); const email = clean(l && l.email, 120); const pw = String((l && l.password) || '');
+    const errs = loginErrs({ username: u, email, pwMode: 'temp', password: pw }); const bad = Object.keys(errs); if (bad.length) throw new Error('invalid login: ' + bad.join(','));
+    if (pw.length > PW_MAX) throw new Error(MESSAGES.long_password);
+    if (usernameTaken(u, id)) throw new Error(MESSAGES.duplicate_username);
+    const lr = await call((cl) => cl.from('vendor_logins').insert({ vendor_id: id, username: u, email, pw_mode: 'temp', created_by: (actor && actor.name) || null }));
+    if (!lr.ok) throw new Error(MESSAGES[loginReason(lr.reason)] || MESSAGES.network);
+    const logs = [logEvent('vendor.login', 'username, email', id)]; const missing = []; const reasons = {};
+    const pr = await call((cl) => cl.rpc('vendor_login_set_password', { p_vendor: id, p_password: pw }));
+    if (!pr.ok) { missing.push('password'); reasons.password = pr.reason; }
+    await Promise.all(logs.concat([timeline.has(String(id)) ? fetchEvents(id) : undefined, load()]));
+    emit({ id, written: true });
+    return { vendor: get(id), missing, reasons };
   }
   // the client may set invited / disabled only (active is the portal's, when the maker makes his own password)
   function setLoginStatus(id, status, actor) {
@@ -386,10 +406,10 @@
   async function create(input, actor) {
     if (!(isAdmin() || perm('vendors.edit') === 'F')) throw noPerm(); // vendors_insert: vendors.edit = F
     invalid(validate(input));
-    const login = input.login && input.login.username ? { username: String(input.login.username).trim().toLowerCase(), email: clean(input.email, 120) || clean(input.login.email, 120), pwMode: input.login.pwMode === 'temp' ? 'temp' : 'link' } : null;
-    const pw = login && login.pwMode === 'temp' ? String(input.login.password || '') : ''; // local to this call only
+    const login = input.login && input.login.username ? { username: String(input.login.username).trim().toLowerCase(), email: clean(input.email, 120) || clean(input.login.email, 120) } : null;
+    const pw = login ? String(input.login.password || '') : ''; // the temporary password — the only mode (owner 26 Oct); local to this call only
     if (login) {
-      const le = loginErrs({ username: login.username, email: login.email, pwMode: login.pwMode, password: pw }); const bad = Object.keys(le); if (bad.length) throw new Error('invalid login: ' + bad.join(','));
+      const le = loginErrs({ username: login.username, email: login.email, pwMode: 'temp', password: pw }); const bad = Object.keys(le); if (bad.length) throw new Error('invalid login: ' + bad.join(','));
       if (pw.length > PW_MAX) throw new Error(MESSAGES.long_password);
       if (usernameTaken(login.username)) throw new Error(MESSAGES.duplicate_username);
     }
@@ -409,10 +429,10 @@
       if (rr.ok) logs.push(logEvent('vendor.rate', rate + '% من ' + since, id)); else refused('rate', rr);
     }
     if (login) {
-      const lr = await call((cl) => cl.from('vendor_logins').insert({ vendor_id: id, username: login.username, email: login.email, pw_mode: login.pwMode, created_by: (actor && actor.name) || null }));
+      const lr = await call((cl) => cl.from('vendor_logins').insert({ vendor_id: id, username: login.username, email: login.email, pw_mode: 'temp', created_by: (actor && actor.name) || null }));
       if (lr.ok) {
         logs.push(logEvent('vendor.login', 'username, email', id));
-        if (login.pwMode === 'temp') { const pr = await call((cl) => cl.rpc('vendor_login_set_password', { p_vendor: id, p_password: pw })); if (!pr.ok) refused('password', pr); }
+        const pr = await call((cl) => cl.rpc('vendor_login_set_password', { p_vendor: id, p_password: pw })); if (!pr.ok) refused('password', pr);
       } else refused('login', { reason: loginReason(lr.reason) });
     }
     if (bank) {
@@ -456,6 +476,6 @@
     return out;
   }
 
-  const store = { get, all, events, update, setRate, setBank, reveal, setContract, findByName, remove, restoreMoney, create, setLogin, setLoginStatus, setLoginPassword, revealPassword, usernameTaken, missing, canEdit, canBank, canToggle, canRate, canLogin, actor };
+  const store = { get, all, events, update, setRate, setBank, reveal, setContract, findByName, remove, restoreMoney, create, addLogin, setLogin, setLoginStatus, setLoginPassword, revealPassword, usernameTaken, missing, canEdit, canBank, canToggle, canRate, canLogin, actor };
   window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, setContract, contractUrl, stats, toVendor, lineShare, rateAt, safeName, norm, today, MESSAGES, BUCKET };
 })();

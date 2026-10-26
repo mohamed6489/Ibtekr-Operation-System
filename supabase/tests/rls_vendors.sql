@@ -513,7 +513,8 @@ begin
   ) as v (stmt, needle) loop
     begin
       execute stmt;
-      raise exception 'case ops must error failed: %', stmt;
+      raise exception 'case ops must error failed: % (user %, has_perm(vendors.edit) %, category now %, name now %)', stmt, current_user,
+        public.has_perm('vendors.edit'), (select category from public.vendors where woo_vendor_id = 441), (select name from public.vendors where woo_vendor_id = 441);
     exception when others then
       if sqlstate <> '42501' or sqlerrm not like '%' || needle || '%' then -- expected: the named rule
         raise exception 'case ops: expected 42501 mentioning %, got % (%) for %', needle, sqlstate, sqlerrm, stmt;

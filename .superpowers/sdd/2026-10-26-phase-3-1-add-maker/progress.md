@@ -36,3 +36,4 @@ Rulings: the plan's decisions 1–13; the written `drop constraint` exception (d
 - **Deploy:** `main` at 2128fb7 → Deploy run 23 green (18:03Z): the front end of phases 3 and 3.1 is on Hostinger.
 - **Cost:** start $576.11 → $663.83 at the close (≈ $87.70 for phase 3.1; ≈ $159.20 for phases 3 + 3.1 together since $504.61).
 - **Owner's open questions (plan):** brands as a phase 3.2; the maker portal's shape (where the invite e-mail and the login live); a daily cap on password reveals.
+- **RLS live workflow (19:12Z):** `.github/workflows/rls-live.yml` + `tools/rls-live.sh` run the live-safe files from the `SUPABASE_DB_URL` secret; run 4 passed `rls_vendors` and `rls_vendor_logins` on the live project. The path for every file the MCP tool holds from now on.

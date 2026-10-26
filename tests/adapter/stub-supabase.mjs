@@ -13,7 +13,7 @@
 // function of args; default { data: null, error: null }), for listFactors / enroll / challengeAndVerify / unenroll /
 // getAuthenticatorAssuranceLevel.
 const MFA = ['listFactors', 'enroll', 'challenge', 'verify', 'challengeAndVerify', 'unenroll', 'getAuthenticatorAssuranceLevel'];
-const OPS = ['select', 'eq', 'in', 'gte', 'order', 'limit', 'range', 'upsert', 'insert', 'update', 'delete', 'match'];
+const OPS = ['select', 'eq', 'in', 'gte', 'order', 'limit', 'range', 'upsert', 'insert', 'update', 'delete', 'match', 'single'];
 const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 export function stubClient({ responses = {}, channelThrows = false } = {}) {
   const calls = []; let handler = null; let authHandler = null; const handlers = []; let statusCb = null;

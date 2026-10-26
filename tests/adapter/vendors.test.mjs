@@ -1,0 +1,382 @@
+import { test } from 'node:test'; import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs'; import { runInNewContext } from 'node:vm';
+import { stubClient, opsOf } from './stub-supabase.mjs';
+// vendors.js against a stub IBSupabase (+ block 06 for the prototype's validation, as the browser has it): vendors +
+// vendor_rates + vendor_bank → the prototype's vendor shape (toVendor, pure); write-through store (named columns, no .select()
+// on an update, .select('id') on an insert; 42501 → the old value back + ib:vendors { reason }); the share / balance math of
+// decision 4 / 5 (lineShare, stats); the contract upload path; findByName on aliases; vendor.* events with the vendor as entity.
+const src = readFileSync(new URL('../../app/js/adapter/vendors.js', import.meta.url), 'utf8');
+const domain = readFileSync(new URL('../../app/js/blocks/06-vendors-domain.js', import.meta.url), 'utf8');
+const plain = (v) => JSON.parse(JSON.stringify(v));
+const V1 = 'a0000000-0000-4000-8000-000000000001', V2 = 'a0000000-0000-4000-8000-000000000002', V3 = 'a0000000-0000-4000-8000-000000000003';
+const T0 = '2026-10-20T08:00:00+00:00'; const IBAN = 'EG38000300010000000000000482'; // a fake IBAN
+const row = (o) => ({ woo_vendor_id: null, aliases: [], phone: null, email: null, status: 'active', raw: null, created_at: T0, updated_at: T0, legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: null, contract: null, opening_balance: 0, ...o });
+const CONTRACT = { path: V2 + '/1700000000000-antikiano.pdf', file_name: 'antikiano.pdf', size: 980000, expires: '2026-11-15', uploaded_by: 'منى حسن', uploaded_at: T0 };
+const VENDORS = [
+  row({ id: V2, woo_vendor_id: 44, name: 'Antikiano', category: 'إكسسوارات ومجوهرات', phone: '01000000001', contract: CONTRACT }),
+  row({ id: V1, woo_vendor_id: 2376, name: 'Art Craft', aliases: ['ArtCraft', 'آرت كرافت'], phone: '01000000003', category: 'فنون ولوحات', raw: { id: 2376, shop_url: 'https://ibtekr.club/store/art-craft/' }, joined_at: '2026-03-01', notes: 'الشحن على المبتكر' }),
+  row({ id: V3, woo_vendor_id: 2047, name: 'Bian eg', status: 'inactive', opening_balance: '150.00' }),
+];
+const RATES = [{ id: 1, vendor_id: V1, rate: '35.00', since: '2026-03-01', set_by: 'صفوت كمال', created_at: T0 }, { id: 2, vendor_id: V2, rate: 40, since: '2026-03-01', set_by: 'صفوت كمال', created_at: T0 },
+  { id: 3, vendor_id: V2, rate: 45, since: '2026-10-01', set_by: 'صفوت كمال', created_at: T0 }, { id: 4, vendor_id: V2, rate: 50, since: '2027-01-01', set_by: 'صفوت كمال', created_at: T0 }];
+const BANK = [{ vendor_id: V3, method: 'bank', bank_name: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: IBAN, wallet: null, updated_by: 'منى حسن', updated_at: T0 }];
+const ok = (data) => ({ data, error: null });
+const denied = () => ({ data: null, error: { code: '42501', message: 'permission denied' } });
+const seed = () => ({ vendors: ok(VENDORS), vendor_rates: ok(RATES), vendor_bank: ok(BANK), activity_log: ok([]) });
+const NOW = new Date(2026, 9, 25, 12, 0).getTime(); // the adapter's clock: local 2026-10-25
+const clockAt = (t) => class FakeDate extends Date { constructor(...a) { if (a.length) super(...a); else super(t); } static now() { return t; } };
+const OPS = { 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' };
+const ACCOUNTS = { 'vendors.view': 'F', 'vendors.edit': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' };
+function load({ responses = seed(), admin = true, perms = OPS, signedIn = true, orders = null, app = null } = {}) {
+  const stub = stubClient({ responses }); const events = []; const logs = []; const storage = [];
+  stub.client.storage = { from: (bucket) => ({
+    upload: async (path, body, opts) => { storage.push(plain({ op: 'upload', bucket, path, bytes: body.byteLength, opts })); const r = responses['storage:upload']; return (typeof r === 'function' ? r(path) : r) || ok({ path, id: 'obj-1', fullPath: bucket + '/' + path }); },
+    createSignedUrl: async (path, seconds) => { storage.push({ op: 'sign', bucket, path, seconds }); return responses['storage:sign'] || ok({ signedUrl: 'https://proj.supabase.co/storage/v1/object/sign/' + bucket + '/' + path + '?token=t' }); } }) };
+  const me = { id: 'u1', role_id: admin ? 'admin' : 'ops', status: 'active', name: admin ? 'صفوت كمال' : 'سارة أحمد' };
+  const window = { IBSupabase: { client: stub.client }, IBAuth: { session: () => (signedIn ? { user: { id: 'u1' } } : null) },
+    IBDirectory: { perm: (k) => (admin ? 'F' : perms[k] || 'N'), me: () => me },
+    IBKit: { ME: 'M02', member: () => ({ id: 'M02', name: me.name, role: admin ? 'أدمن' : 'عمليات' }) },
+    IBActivity: { log: (action, detail, meta) => { logs.push(plain([action, detail, meta])); return Promise.resolve(); } },
+    IBOrders: { data: () => orders, load: () => { logs.push(['orders.load']); return Promise.resolve(); } } };
+  if (app) window.OrdersApp = app;
+  const ctx = { window, document: { dispatchEvent(e) { events.push(plain({ type: e.type, detail: e.detail })); } }, Event, Date: clockAt(NOW) };
+  runInNewContext(domain, ctx); window.IbtekrVendors = ctx.IbtekrVendors; // block 06 (UMD, pure)
+  runInNewContext(src, ctx);
+  return { V: window.IBVendors, S: window.IBVendors.store, calls: stub.calls, responses: stub.responses, storage, events, logs, window };
+}
+const tick = () => new Promise((r) => setTimeout(r, 0));
+const settle = async () => { for (let i = 0; i < 8; i += 1) await tick(); }; // the write, its log and the reload
+const selectOf = (calls, table) => opsOf(calls, table).filter((c) => c.op === 'select').map((c) => c.args[0]);
+const writesOf = (calls, table) => opsOf(calls, table).filter((c) => ['insert', 'update', 'delete', 'eq', 'select'].includes(c.op));
+
+test('load names every column (no *, no commission_pct), reads the rates and the bank rows, builds the prototype shape', async () => {
+  const { V, S, calls, events } = load();
+  assert.equal(V.state(), 'idle');
+  await V.load();
+  assert.equal(V.state(), 'ready');
+  assert.deepEqual(events.map((e) => e.detail.state), ['loading', 'ready']);
+  for (const t of ['vendors', 'vendor_rates', 'vendor_bank']) for (const s of selectOf(calls, t)) { assert.doesNotMatch(s, /\*/, t); assert.doesNotMatch(s, /commission_pct/, t); }
+  assert.match(selectOf(calls, 'vendors')[0], /\bcontract\b.*\bopening_balance\b/);
+  assert.deepEqual(opsOf(calls, 'vendors').filter((c) => c.op === 'range'), [{ op: 'range', args: [0, 999] }]);
+  assert.deepEqual(plain(S.get(V1)), { id: V1, name: 'Art Craft', legalName: null, category: 'فنون ولوحات', aliases: ['ArtCraft', 'آرت كرافت'], status: 'active', phone: '01000000003', altPhone: null, email: null, address: null, instagram: null, storeUrl: null,
+    rate: 35, rateSince: '2026-03-01', rateHistory: [{ rate: 35, since: '2026-03-01', by: 'صفوت كمال' }], ratesVisible: true, leadDays: 7, depositPolicy: null, notes: 'الشحن على المبتكر', logoLetter: 'A', joinedAt: '2026-03-01',
+    contract: null, bank: null, openingBalance: 0, wooVendorId: 2376, shopUrl: 'https://ibtekr.club/store/art-craft/', createdAt: T0, lastUpdate: T0 });
+  const a = S.get(V2);
+  assert.deepEqual(plain([a.rate, a.rateSince, a.rateHistory.map((x) => x.rate)]), [45, '2026-10-01', [40, 45, 50]]); // the effective one today; a future row waits
+  assert.deepEqual(plain(a.contract), { fileName: 'antikiano.pdf', size: 980000, expires: '2026-11-15', uploadedBy: 'منى حسن', uploadedAt: T0, path: CONTRACT.path });
+  assert.equal(a.joinedAt, '2026-10-20'); // no joined_at: the created_at date
+  const b = S.get(V3);
+  assert.deepEqual(plain([b.status, b.openingBalance, b.rate, b.rateHistory, b.bank]), ['inactive', 150, null, [], { method: 'bank', bankName: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: IBAN, wallet: null }]);
+  assert.deepEqual(plain(S.all().map((v) => v.name)), ['Antikiano', 'Art Craft', 'Bian eg']);
+  assert.deepEqual(V.data().ratesVisible, true);
+});
+
+test('rates refused (42501) or empty, bank empty → not visible / null, state ready (no error); without sensitive.commission the rates stay hidden', async () => {
+  const r = load({ responses: { ...seed(), vendor_rates: denied(), vendor_bank: ok([]) } });
+  await r.V.load();
+  assert.equal(r.V.state(), 'ready');
+  assert.deepEqual(plain([r.S.get(V1).rate, r.S.get(V1).rateHistory, r.S.get(V1).ratesVisible, r.S.get(V3).bank, r.V.data().ratesVisible]), [null, [], false, null, false]);
+  const e = load({ responses: { ...seed(), vendor_rates: ok([]) } });
+  await e.V.load();
+  assert.deepEqual([e.S.get(V1).rate, e.S.get(V1).ratesVisible, e.V.data().ratesVisible], [null, true, true]); // admin, no rate yet: visible, «—»
+  const ops = load({ admin: false });
+  await ops.V.load();
+  assert.deepEqual(plain([ops.S.get(V1).rate, ops.S.get(V1).rateHistory, ops.S.get(V1).ratesVisible]), [null, [], false]);
+  const down = load({ responses: { ...seed(), vendors: { data: null, error: { code: 'PGRST000' } } } });
+  await down.V.load();
+  assert.equal(down.V.state(), 'error');
+  assert.equal(down.V.data(), null);
+});
+
+test('toVendor (pure): aliases as text, defaults, a contract without a file name is none, a date column stays as is', () => {
+  const { V } = load();
+  const v = V.toVendor({ id: 'x', name: ' Zaan ', aliases: 'zana، Zaan ', status: 'weird', lead_days: null, joined_at: '2026-02-28', contract: { path: 'p' } }, [], null, { ratesVisible: true, today: '2026-10-25' });
+  assert.deepEqual(plain([v.name, v.aliases, v.status, v.leadDays, v.joinedAt, v.contract, v.logoLetter, v.rate, v.rateHistory]), ['Zaan', ['zana', 'Zaan'], 'active', 7, '2026-02-28', null, 'Z', null, []]);
+  const w = V.toVendor({ id: 'x', name: 'A', created_at: '2026-10-20T23:30:00+03:00' }, [{ vendor_id: 'x', rate: 30, since: '2026-11-01' }], null, { ratesVisible: true, today: '2026-10-25' });
+  assert.deepEqual(plain([w.rate, w.rateSince, w.joinedAt]), [30, '2026-11-01', '2026-10-20']); // only a future rate: it is the one shown (prototype's rateAt)
+});
+
+test('lineShare (decision 4): total − (total × rate / 100 + fee); no rate → our rate on the order date when visible, else the full total marked noRate', () => {
+  const { V } = load();
+  const v = { ratesVisible: true, rate: 35, rateHistory: [{ rate: 30, since: '2026-01-01' }, { rate: 35, since: '2026-06-01' }] };
+  assert.deepEqual(plain(V.lineShare({ tot: 1000, rate: 35, fee: 0 }, v, '2026-10-19')), { share: 650, noRate: false });
+  assert.deepEqual(plain(V.lineShare({ tot: 1000, rate: 35, fee: 10 }, v, '2026-10-19')), { share: 640, noRate: false });
+  assert.deepEqual(plain(V.lineShare({ tot: 1000, rate: 40, fee: 10 }, v, '2026-10-19')), { share: 590, noRate: false });
+  assert.deepEqual(plain(V.lineShare({ tot: '1000', rate: '35.00', fee: null }, v, '2026-10-19')), { share: 650, noRate: false });
+  assert.deepEqual(plain(V.lineShare({ tot: 1000, rate: null, fee: null }, v, '2026-10-19')), { share: 650, noRate: false }); // 35% since June
+  assert.deepEqual(plain(V.lineShare({ tot: 1000, rate: null, fee: null }, v, '2026-03-01')), { share: 700, noRate: false }); // 30% then
+  assert.deepEqual(plain(V.lineShare({ tot: 1000, rate: null, fee: null }, { ratesVisible: false, rate: null, rateHistory: [] }, '2026-10-19')), { share: 1000, noRate: true });
+  assert.deepEqual(plain(V.lineShare({ tot: 1000 }, { ratesVisible: true, rate: null, rateHistory: [] }, '2026-10-19')), { share: 1000, noRate: true }); // visible but no rate yet
+});
+
+test('stats (decision 4 + 5): per vendor the orders (with his sales / share), open / late / lastAge, earned on the completed ones, pending on the open ones, noRate, balance = opening + earned, by status', async () => {
+  const orders = [
+    { id: '181668', st: 'مكتمل', date: '2026-10-19', subs: [{ vendor: 'Art Craft', tot: 1002, rate: 35, fee: 0 }, { vendor: 'Antikiano', tot: 2539, rate: 40, fee: 10 }] },
+    { id: '180686', st: 'جاري التنفيذ', date: '2026-10-17', subs: [{ vendor: 'Art Craft', tot: 1002, rate: null, fee: null }] },
+    { id: '180656', st: 'ملغي', date: '2026-10-15', subs: [{ vendor: 'Antikiano', tot: 899, rate: null, fee: null }] },
+  ];
+  const rows = [{ id: '181668', customer: 'سلوى', status: 'مكتمل', ageDays: 6, total: 3541, delivery: 'ok', vendors: ['Art Craft', 'Antikiano'] }, { id: '180686', customer: 'هدير', status: 'جاري التنفيذ', ageDays: 8, total: 1002, delivery: 'risk', vendors: ['Art Craft'] }, { id: '180656', customer: 'x', status: 'ملغي', ageDays: 10, total: 899, delivery: 'late', vendors: ['Antikiano'] }];
+  const app = { query: () => ({ rows }) };
+  const { V } = load({ orders: { orders }, app });
+  await V.load();
+  const st = plain(V.stats());
+  const art = st[V1];
+  assert.deepEqual(art.orders.map((o) => [o.id, o.sales, o.share]), [['181668', 1002, 651.3], ['180686', 1002, 651.3]]); // the open line has no rate: ours (35%) on its date
+  assert.deepEqual({ open: art.open, late: art.late, lastAge: art.lastAge, sales: art.sales, earned: art.earned, ibtekrShare: art.ibtekrShare, pending: art.pending, pendingSales: art.pendingSales, noRate: art.noRate, balance: art.balance, openingBalance: art.openingBalance, deposits: art.deposits, transport: art.transport, tickets: art.tickets, seed: art.seed },
+    { open: 1, late: 1, lastAge: 6, sales: 1002, earned: 651.3, ibtekrShare: 350.7, pending: 651.3, pendingSales: 1002, noRate: 0, balance: 651.3, openingBalance: 0, deposits: 0, transport: { total: 0, trips: 0, last: null }, tickets: [], seed: null });
+  assert.deepEqual(art.byStatus, { c: [1, 1002, 651.3], p: [1, 1002, 651.3], x: [0, 0, 0] });
+  const an = st[V2];
+  assert.deepEqual([an.earned, an.pending, an.open, an.late, an.byStatus.x], [1513.4, 0, 0, 0, [1, 899, 494.45]]); // 2539 − (1015.6 + 10); the cancelled line: 45% since October
+  assert.deepEqual([st[V3].orders, st[V3].balance, st[V3].lastAge], [[], 150, null]); // the opening balance alone
+  const ops = load({ admin: false, orders: { orders }, app });
+  await ops.V.load();
+  const o = plain(ops.V.stats())[V1];
+  assert.deepEqual([o.earned, o.pending, o.noRate, o.orders[1].share], [651.3, 1002, 1, 1002]); // the rates are hidden: the open line counts in full and is marked
+});
+
+test('safeName: [A-Za-z0-9._-] kept, the rest _, never empty or dot-led, at most 100 chars (the tail keeps the extension)', () => {
+  const { V } = load();
+  assert.equal(V.safeName('عقد بيان 2026.pdf'), '_'.repeat(9) + '2026.pdf'); // every Arabic letter and space → _
+  assert.equal(V.safeName('Bian eg/contract (1).PDF'), 'Bian_eg_contract__1_.PDF');
+  assert.equal(V.safeName('.hidden.pdf'), 'hidden.pdf');
+  assert.equal(V.safeName(''), 'file');
+  assert.equal(V.safeName('a'.repeat(120) + '.pdf').length, 100);
+  assert.match(V.safeName('a'.repeat(120) + '.pdf'), /\.pdf$/);
+});
+
+test('findByName: the name or an alias, case / digits / separators normalised; unknown → null', async () => {
+  const { S } = load();
+  const { V, S: S2 } = load(); await V.load();
+  assert.equal(S2.findByName('artcraft').id, V1);
+  assert.equal(S2.findByName(' ART  CRAFT ').id, V1);
+  assert.equal(S2.findByName('Art-Craft').id, V1);
+  assert.equal(S2.findByName('آرت كرافت').id, V1);
+  assert.equal(S2.findByName('bian_eg').id, V3);
+  assert.equal(S2.findByName('nobody'), null);
+  assert.equal(S2.findByName(''), null);
+  assert.equal(S.findByName('Art Craft'), null); // nothing loaded
+});
+
+test('update: the local copy changes first, then one PATCH of the changed columns only (snake_case, no .select()), then the log with the vendor as entity and a reload', async () => {
+  const { V, S, calls, logs, events } = load({ admin: false });
+  await V.load(); calls.length = 0; events.length = 0;
+  const out = S.update(V1, { phone: '٠١٠٠٠٠٠٠٠٠٩', email: ' new@ibtekr.local ', notes: 'الشحن على المبتكر', altPhone: '' }, S.actor());
+  assert.deepEqual([out.phone, out.email, S.get(V1).phone], ['01000000009', 'new@ibtekr.local', '01000000009']); // at once
+  assert.deepEqual(events[0], { type: 'ib:vendors', detail: { id: V1, changed: ['phone', 'email'] } }); // notes / altPhone unchanged: not sent
+  await settle();
+  const w = writesOf(calls, 'vendors');
+  assert.deepEqual(w.slice(0, 2), [{ op: 'update', args: [{ phone: '01000000009', email: 'new@ibtekr.local' }] }, { op: 'eq', args: ['id', V1] }]);
+  assert.notEqual(w[2] && w[2].args[0], 'id'); // no returning row: the next select is the reload's column list
+  assert.deepEqual(logs, [['vendor.update', 'phone, email', { entity: 'vendor', entity_id: V1 }]]);
+  assert.ok(events.some((e) => e.detail.written), 'announced after the reload');
+  assert.equal(S.get(V1).phone, '01000000003'); // the stub's vendors answer is the seed: the reload is the server's truth
+});
+
+test('update refused (42501): the old value comes back, ib:vendors says forbidden, nothing logged; any other failure says network', async () => {
+  const { V, S, responses, logs, events } = load({ admin: false });
+  await V.load(); events.length = 0;
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'update') ? denied() : ok(VENDORS));
+  S.update(V1, { name: 'Art Craft Studio' }, S.actor());
+  assert.equal(S.get(V1).name, 'Art Craft Studio');
+  await settle();
+  assert.equal(S.get(V1).name, 'Art Craft');
+  assert.deepEqual(events.filter((e) => e.detail.reason), [{ type: 'ib:vendors', detail: { id: V1, reason: 'forbidden' } }]);
+  assert.deepEqual(logs, []);
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'update') ? { data: null, error: { code: 'PGRST000', message: 'down' } } : ok(VENDORS));
+  S.update(V1, { phone: '01000000008' }, S.actor());
+  await settle();
+  assert.deepEqual([S.get(V1).phone, events.filter((e) => e.detail.reason).pop().detail.reason], ['01000000003', 'network']);
+});
+
+test('update validates like the prototype (the patched fields only) and throws before any write; a status change logs vendor.status; a rename reloads the orders', async () => {
+  const { V, S, calls, logs } = load();
+  await V.load(); calls.length = 0;
+  assert.throws(() => S.update(V1, { phone: '123' }, S.actor()), /invalid vendor: phone/);
+  assert.throws(() => S.update(V1, { category: 'غير موجودة' }, S.actor()), /invalid vendor: category/);
+  assert.throws(() => S.update(V1, { joinedAt: '2026-13-01' }, S.actor()), /joinedAt/);
+  assert.deepEqual(writesOf(calls, 'vendors'), []);
+  S.update(V3, { status: 'active', phone: '01000000005' }, S.actor()); // Bian eg has no phone / category: only the patched fields are checked
+  await settle();
+  assert.deepEqual(logs.filter((l) => l[0] !== 'orders.load'), [['vendor.status', 'active', { entity: 'vendor', entity_id: V3 }], ['vendor.update', 'phone', { entity: 'vendor', entity_id: V3 }]]);
+  logs.length = 0; calls.length = 0;
+  S.update(V1, { name: 'Art Craft Studio', aliases: 'ArtCraft، Art Craft' }, S.actor());
+  assert.deepEqual(plain([S.get(V1).logoLetter, S.get(V1).aliases]), ['A', ['ArtCraft', 'Art Craft']]);
+  await settle();
+  assert.ok(logs.some((l) => l[0] === 'orders.load'), 'IBOrders.load after a rename (the orders carry vendors.name)');
+  assert.deepEqual(writesOf(calls, 'vendors').find((c) => c.op === 'update').args[0], { name: 'Art Craft Studio', aliases: ['ArtCraft', 'Art Craft'] });
+});
+
+test('canEdit / canBank / canToggle / canRate follow IBDirectory.perm; a write without the permission throws before anything is sent', async () => {
+  const ops = load({ admin: false });
+  await ops.V.load(); ops.calls.length = 0;
+  assert.deepEqual([ops.S.canEdit(), ops.S.canBank(), ops.S.canToggle(), ops.S.canRate()], [true, false, false, false]);
+  assert.throws(() => ops.S.setRate(V1, 30, '2026-11-01', ops.S.actor()), /مش من صلاحياتك/);
+  assert.throws(() => ops.S.setBank(V1, { method: 'bank' }, ops.S.actor()), /مش من صلاحياتك/);
+  assert.throws(() => ops.S.reveal(V3, 'iban', ops.S.actor()), /مش من صلاحياتك/);
+  assert.throws(() => ops.S.remove(V1, ops.S.actor()), /مش من صلاحياتك/);
+  assert.deepEqual(ops.calls.filter((c) => c.op !== 'from'), []);
+  const acc = load({ admin: false, perms: ACCOUNTS });
+  await acc.V.load();
+  assert.deepEqual([acc.S.canEdit(), acc.S.canBank(), acc.S.canToggle(), acc.S.canRate()], [false, true, false, false]);
+  assert.throws(() => acc.S.update(V1, { phone: '01000000009' }, acc.S.actor()), /مش من صلاحياتك/);
+  const admin = load();
+  await admin.V.load();
+  assert.deepEqual([admin.S.canEdit(), admin.S.canBank(), admin.S.canToggle(), admin.S.canRate()], [true, true, true, true]);
+  assert.deepEqual(plain(admin.S.actor()), { name: 'صفوت كمال', role: 'أدمن' });
+});
+
+test('setRate: the history gains a dated row (the effective one today shown), one insert into vendor_rates, the event carries the rate and date', async () => {
+  const { V, S, calls, logs } = load();
+  await V.load(); calls.length = 0;
+  S.setRate(V1, '٤٠', '2026-11-01', S.actor()); // a future rate: the history shows it, today's rate stays 35
+  assert.deepEqual(plain([S.get(V1).rate, S.get(V1).rateSince, S.get(V1).rateHistory.map((x) => x.rate + '@' + x.since)]), [35, '2026-03-01', ['35@2026-03-01', '40@2026-11-01']]);
+  S.setRate(V1, 30, '2026-10-01', S.actor());
+  assert.deepEqual([S.get(V1).rate, S.get(V1).rateSince], [30, '2026-10-01']);
+  await settle();
+  assert.deepEqual(opsOf(calls, 'vendor_rates').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: V1, rate: 40, since: '2026-11-01', set_by: 'صفوت كمال' }, { vendor_id: V1, rate: 30, since: '2026-10-01', set_by: 'صفوت كمال' }]);
+  assert.deepEqual(opsOf(calls, 'vendor_rates').filter((c) => c.op === 'select' && c.args[0] === 'id'), []); // no returning row asked
+  assert.deepEqual(logs.filter((l) => l[0] === 'vendor.rate'), [['vendor.rate', '40% من 2026-11-01', { entity: 'vendor', entity_id: V1 }], ['vendor.rate', '30% من 2026-10-01', { entity: 'vendor', entity_id: V1 }]]);
+  assert.throws(() => S.setRate(V1, 70, '2026-11-01', S.actor()), /rate out of range/);
+  assert.throws(() => S.setRate(V1, 30, '2026-11-31', S.actor()), /since required/);
+});
+
+test('setBank: an insert for the first row, an update (vendor_id) after; the event names the method only — never the IBAN', async () => {
+  const { V, S, calls, logs } = load({ admin: false, perms: ACCOUNTS });
+  await V.load(); calls.length = 0;
+  S.setBank(V1, { method: 'instapay', bankName: ' بنك مصر ', holder: 'Art Craft', iban: 'EG38 0003 0001 0000 0000 0000 0482', wallet: '٠١٠٠٠٠٠٠٠٠٣' }, S.actor());
+  assert.deepEqual(plain(S.get(V1).bank), { method: 'instapay', bankName: 'بنك مصر', holder: 'Art Craft', iban: IBAN, wallet: '01000000003' });
+  S.setBank(V3, { method: 'cash' }, S.actor());
+  await settle();
+  const w = opsOf(calls, 'vendor_bank').filter((c) => ['insert', 'update', 'eq'].includes(c.op));
+  assert.equal(w[0].op, 'insert'); assert.deepEqual({ ...w[0].args[0], updated_at: 'x' }, { vendor_id: V1, method: 'instapay', bank_name: 'بنك مصر', holder: 'Art Craft', iban: IBAN, wallet: '01000000003', updated_by: 'سارة أحمد', updated_at: 'x' });
+  assert.equal(w[1].op, 'update'); assert.deepEqual([w[1].args[0].method, w[1].args[0].vendor_id, w[2]], ['cash', undefined, { op: 'eq', args: ['vendor_id', V3] }]);
+  assert.deepEqual(logs, [['vendor.bank', 'instapay', { entity: 'vendor', entity_id: V1 }], ['vendor.bank', 'cash', { entity: 'vendor', entity_id: V3 }]]);
+  assert.doesNotMatch(JSON.stringify(logs), /0482/);
+});
+
+test('reveal: the value behind the mask, logged once per field until the drawer loads its events again; null without a value', async () => {
+  const { V, S, logs } = load({ admin: false, perms: ACCOUNTS });
+  await V.load();
+  assert.equal(S.reveal(V3, 'iban', S.actor()), IBAN);
+  assert.equal(S.reveal(V3, 'iban', S.actor()), IBAN); // a redraw
+  assert.equal(S.reveal(V3, 'wallet', S.actor()), null);
+  assert.equal(S.reveal(V1, 'iban', S.actor()), null);
+  await settle();
+  assert.deepEqual(logs, [['vendor.reveal', 'IBAN', { entity: 'vendor', entity_id: V3 }]]);
+  await V.loadEvents(V3);
+  S.reveal(V3, 'iban', S.actor());
+  await settle();
+  assert.equal(logs.length, 2);
+  assert.doesNotMatch(JSON.stringify(logs), /0482/);
+});
+
+test('setContract: type and size checked locally, the upload at <uuid>/<ms>-<safe name> (upsert false, the file\'s mime), then vendors.contract; a refused upload puts the old card back', async () => {
+  const { V, S, calls, storage, logs, events, responses } = load({ admin: false, perms: ACCOUNTS });
+  await V.load(); calls.length = 0;
+  const file = (fileName, size) => ({ fileName, size, expires: '2027-10-01', file: { arrayBuffer: async () => new ArrayBuffer(size) } });
+  assert.throws(() => S.setContract(V1, file('virus.exe', 100), S.actor()), /PDF/);
+  assert.throws(() => S.setContract(V1, file('big.pdf', 10 * 1024 * 1024 + 1), S.actor()), /PDF/);
+  assert.throws(() => S.setContract(V1, { fileName: '', size: 0 }, S.actor()), /اختار ملف العقد/);
+  assert.throws(() => S.setContract(V1, { ...file('ok.pdf', 10), expires: '2026-02-30' }, S.actor()), /expires invalid/);
+  assert.deepEqual(storage, []);
+  S.setContract(V1, file('عقد Art Craft 2026.pdf', 2 * 1048576), S.actor());
+  const c = S.get(V1).contract;
+  assert.deepEqual([c.fileName, c.size, c.expires, c.uploadedBy, c.path], ['عقد Art Craft 2026.pdf', 2097152, '2027-10-01', 'سارة أحمد', null]); // at once, the file not up yet
+  await settle();
+  assert.equal(storage.length, 1);
+  assert.match(storage[0].path, new RegExp('^' + V1 + '/' + NOW + '-____Art_Craft_2026\\.pdf$')); // «عقد » → ____
+  assert.deepEqual([storage[0].bucket, storage[0].bytes, storage[0].opts], ['vendor-contracts', 2097152, { contentType: 'application/pdf', upsert: false }]);
+  const up = writesOf(calls, 'vendors').find((x) => x.op === 'update').args[0];
+  assert.deepEqual(up, { contract: { path: storage[0].path, file_name: 'عقد Art Craft 2026.pdf', size: 2097152, expires: '2027-10-01', uploaded_by: 'سارة أحمد', uploaded_at: new Date(NOW).toISOString() } });
+  assert.deepEqual(logs, [['vendor.contract', 'PDF · 2.0 ميجا · حتى 2027-10-01', { entity: 'vendor', entity_id: V1 }]]);
+  // the stored contract keeps its file; only the expiry changes → no upload, one update
+  calls.length = 0; storage.length = 0; events.length = 0;
+  S.setContract(V2, { fileName: 'antikiano.pdf', size: 980000, expires: '2027-01-01' }, S.actor());
+  await settle();
+  assert.deepEqual(storage, []);
+  assert.deepEqual(writesOf(calls, 'vendors').find((x) => x.op === 'update').args[0].contract, { ...CONTRACT, expires: '2027-01-01' });
+  // refused by storage (no sensitive.vendor_bank on the server): the card is back as it was
+  responses['storage:upload'] = { data: null, error: { status: 403, statusCode: '403', message: 'new row violates row-level security policy' } };
+  S.setContract(V1, file('again.png', 1000), S.actor());
+  assert.equal(S.get(V1).contract.fileName, 'again.png');
+  await settle();
+  assert.equal(S.get(V1).contract, null);
+  assert.deepEqual(events.filter((e) => e.detail.reason).map((e) => e.detail), [{ id: V1, reason: 'forbidden' }]);
+  responses['storage:upload'] = { data: null, error: { status: 413, statusCode: '413', message: 'too large' } };
+  S.setContract(V1, file('again.jpg', 1000), S.actor()); await settle();
+  assert.equal(events.filter((e) => e.detail.reason).pop().detail.reason, 'too_large');
+});
+
+test('contractUrl: a 60 s signed URL of the stored file; none without a stored file; the storage refusal is the reason', async () => {
+  const { V, storage, responses } = load({ admin: false, perms: ACCOUNTS });
+  await V.load();
+  assert.deepEqual(plain(await V.contractUrl(V2)), { ok: true, url: 'https://proj.supabase.co/storage/v1/object/sign/vendor-contracts/' + CONTRACT.path + '?token=t' });
+  assert.deepEqual(storage, [{ op: 'sign', bucket: 'vendor-contracts', path: CONTRACT.path, seconds: 60 }]);
+  assert.deepEqual(plain(await V.contractUrl(V1)), { ok: false, reason: 'network' });
+  responses['storage:sign'] = { data: null, error: { status: 400, statusCode: '403', message: 'Unauthorized' } };
+  assert.deepEqual(plain(await V.contractUrl(V2)), { ok: false, reason: 'forbidden' });
+});
+
+test('remove (admin): the row goes locally, DELETE … select(id) confirms it; no row deleted → forbidden and the vendor is back; 23503 (orders) → in_use and back', async () => {
+  const { V, S, calls, responses, logs, events } = load();
+  await V.load(); calls.length = 0;
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'delete') ? ok([{ id: V3 }]) : ok(VENDORS.filter((v) => v.id !== V3)));
+  assert.equal(S.remove(V3, S.actor()), true);
+  assert.equal(S.get(V3), null);
+  await settle();
+  assert.deepEqual(writesOf(calls, 'vendors').slice(0, 3), [{ op: 'delete', args: [] }, { op: 'eq', args: ['id', V3] }, { op: 'select', args: ['id'] }]);
+  assert.deepEqual(logs, [['vendor.remove', 'Bian eg', { entity: 'vendor', entity_id: V3 }]]);
+  assert.equal(S.get(V3), null);
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'delete') ? ok([]) : ok(VENDORS)); // RLS: not admin on the server
+  await V.load(); events.length = 0;
+  S.remove(V1, S.actor()); await settle();
+  assert.deepEqual([S.get(V1).name, events.filter((e) => e.detail.reason).map((e) => e.detail.reason)], ['Art Craft', ['forbidden']]);
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'delete') ? { data: null, error: { code: '23503', message: 'violates foreign key constraint' } } : ok(VENDORS));
+  events.length = 0; S.remove(V1, S.actor()); await settle();
+  assert.deepEqual([S.get(V1).name, events.filter((e) => e.detail.reason).map((e) => e.detail.reason)], ['Art Craft', ['in_use']]);
+  assert.deepEqual(logs.length, 1);
+});
+
+test('create: one insert of the granted columns with .select(\'id\'), the first rate when the caller may set rates, a reload, the vendor back; refused → rejects with the message', async () => {
+  const { V, S, calls, responses, logs } = load();
+  await V.load(); calls.length = 0;
+  const NEW = 'a0000000-0000-4000-8000-000000000009';
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'insert') ? ok({ id: NEW }) : ok(VENDORS.concat([row({ id: NEW, name: 'zaan', category: 'هدايا', phone: '01000000009' })])));
+  const input = { name: ' zaan ', category: 'هدايا', phone: '01000000009', rate: '40', leadDays: '7', status: 'active', aliases: 'zana، Zaan', legalName: '', email: '', address: '', instagram: '', storeUrl: '', depositPolicy: '', notes: '' };
+  await assert.rejects(() => S.create({ ...input, phone: 'x' }, S.actor()), /invalid vendor: phone/);
+  assert.deepEqual(writesOf(calls, 'vendors'), []);
+  const v = await S.create(input, S.actor());
+  assert.deepEqual([v.id, v.name, S.get(NEW).name], [NEW, 'zaan', 'zaan']);
+  const ins = writesOf(calls, 'vendors');
+  assert.deepEqual(ins[0], { op: 'insert', args: [{ name: 'zaan', category: 'هدايا', phone: '01000000009', status: 'active', lead_days: 7, aliases: ['zana', 'Zaan'], joined_at: '2026-10-25' }] });
+  assert.deepEqual(ins[1], { op: 'select', args: ['id'] });
+  assert.deepEqual(opsOf(calls, 'vendor_rates').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: NEW, rate: 40, since: '2026-10-25', set_by: 'صفوت كمال' }]);
+  assert.deepEqual(logs, [['vendor.create', 'zaan', { entity: 'vendor', entity_id: NEW }], ['vendor.rate', '40% من 2026-10-25', { entity: 'vendor', entity_id: NEW }]]);
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'insert') ? denied() : ok(VENDORS));
+  await assert.rejects(() => S.create(input, S.actor()), /مش من صلاحياتك/);
+  const ops = load({ admin: false }); await ops.V.load(); ops.calls.length = 0;
+  ops.responses.vendors = (o) => (o.some((c) => c.op === 'insert') ? ok({ id: NEW }) : ok(VENDORS));
+  await ops.S.create(input, ops.S.actor());
+  assert.deepEqual(opsOf(ops.calls, 'vendor_rates').filter((c) => c.op === 'insert'), []); // no sensitive.commission: the rate is not sent
+});
+
+test('loadEvents / events: that vendor\'s activity_log (entity vendor, newest 50) kept oldest first, with the actor\'s text', async () => {
+  const rows = [{ id: 2, at: '2026-10-21T10:00:00+00:00', action: 'vendor.reveal', new_value: 'IBAN', actor: { name: 'منى حسن' } }, { id: 1, at: '2026-10-20T10:00:00+00:00', action: 'vendor.update', new_value: 'phone', actor: { name: 'سارة أحمد' } }];
+  const { V, S, calls } = load({ responses: { ...seed(), activity_log: ok(rows) } });
+  await V.load(); calls.length = 0;
+  assert.deepEqual(plain(S.events(V1)), []);
+  const ev = await V.loadEvents(V1);
+  assert.deepEqual(opsOf(calls, 'activity_log'), [{ op: 'select', args: ['id, at, action, new_value, actor:profiles(name)'] }, { op: 'eq', args: ['entity', 'vendor'] }, { op: 'eq', args: ['entity_id', V1] }, { op: 'order', args: ['at', { ascending: false }] }, { op: 'limit', args: [50] }]);
+  assert.deepEqual(plain(ev.map((e) => [e.at, e.text, e.actor.name])), [['2026-10-20T10:00:00+00:00', 'سارة أحمد عدّل بيانات المبتكر (phone)', 'سارة أحمد'], ['2026-10-21T10:00:00+00:00', 'منى حسن أظهر (IBAN)', 'منى حسن']]);
+  assert.deepEqual(plain(S.events(V1)), plain(ev));
+});
+
+test('clear forgets everything (state idle); nothing is read or written while signed out', async () => {
+  const { V, S, calls } = load();
+  await V.load();
+  V.clear();
+  assert.deepEqual(plain([V.state(), S.all(), V.data()]), ['idle', [], null]);
+  const out = load({ signedIn: false });
+  await out.V.load();
+  assert.deepEqual([out.V.state(), plain(out.calls)], ['idle', []]);
+});

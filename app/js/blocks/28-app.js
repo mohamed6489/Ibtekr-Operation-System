@@ -60,14 +60,14 @@
   }
   function openVendorReport(name) {
     const OA = window.OrdersApp; const orders = OA ? OA.query({}, 10000).rows.map((r) => OA.get(r.id)).filter(Boolean) : [];
-    const v = vstore.findByName(name); const seed = vendorsNow().find((x) => VD.norm(x.name) === VD.norm(name)) || { balance: 0 };
-    const r = VD.vendorReport(orders, v ? [v.name, ...v.aliases] : [name], seed.balance); const fmt = (n) => D.formatMoney(n);
-    U.DetailsModal({ title: 'تقرير ' + name, sub: 'الأوردرات المكتملة والملغية بس · ' + r.orders + ' أوردر · الرصيد من شيت Balances_Payouts · اضغط على أي أوردر يفتحه',
-      summary: [{ label: 'الرصيد', value: fmt(r.balance) + ' ج.م' }, { label: 'منه مواصلات اتخصمت', value: fmt(seed.transport || 0) + ' ج.م' }, { label: 'مكتمل', value: String(r.completed) + ' أوردر' }, { label: 'ملغي', value: String(r.cancelled) + ' أوردر' }],
+    const v = vstore.findByName(name); const st = (v && vendorStats()[v.id]) || { balance: 0 }; // phase 3: opening + completed shares (IBVendors.stats); deposits / transport from phase 4
+    const r = VD.vendorReport(orders, v ? [v.name, ...v.aliases] : [name], st.balance); const fmt = (n) => D.formatMoney(n);
+    U.DetailsModal({ title: 'تقرير ' + name, sub: 'الأوردرات المكتملة والملغية بس · ' + r.orders + ' أوردر · الرصيد = الافتتاحي + حقه من المكتملة من 1 أكتوبر · اضغط على أي أوردر يفتحه',
+      summary: [{ label: 'الرصيد', value: fmt(r.balance) + ' ج.م' }, { label: 'منه مواصلات اتخصمت', value: '— (من مرحلة 4)' }, { label: 'مكتمل', value: String(r.completed) + ' أوردر' }, { label: 'ملغي', value: String(r.cancelled) + ' أوردر' }],
       headers: ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'حالة الأوردر'],
       rows: r.rows.map((x) => [prodThumb(x.sku, x.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + x.oid), x.sid !== x.oid ? h('small', null, ' · فرعي ', h('bdi', { dir: 'ltr' }, '#' + x.sid)) : null), fmt(x.tot), x.status]),
       total: r.rows.length ? ['الإجمالي', String(r.orders) + ' أوردر', fmt(r.value), ''] : null,
-      onRow: (i) => showOrders({ q: r.rows[i].oid }), phone: v && v.phone, email: v && v.email, empty: 'مفيش أوردرات مكتملة أو ملغية للمورد ده.', source: 'الأوردرات (Airtable) + شيت Balances_Payouts' }, { label: 'تقرير ' + name });
+      onRow: (i) => showOrders({ q: r.rows[i].oid }), phone: v && v.phone, email: v && v.email, empty: 'مفيش أوردرات مكتملة أو ملغية للمورد ده.', source: 'الأوردرات (الموقع) + مستحقات المرحلة 3' }, { label: 'تقرير ' + name });
   }
 
 
@@ -1483,8 +1483,11 @@
   // live stats per vendor (decision 4 / 5): IBVendors.stats — the orders behind each maker with his shares (the website's rate on
   // each line), his balance in this phase (opening + completed shares); deposits / transport / tickets come with phases 4 and 7
   function vendorStats() { return window.IBVendors ? window.IBVendors.stats() : {}; }
-  function vendorTasks() { return vstore.all().filter((v) => v.status === 'active').map((v) => ({ v, st: VD.contractStatus(v, TODAY) })).filter((x) => x.st === 'expiring' || x.st === 'expired').map((x) => ({ id: x.v.id, name: x.v.name, prio: x.st === 'expired' ? 'urgent' : 'high', sub: x.st === 'expired' ? 'العقد منتهي' : 'العقد بينتهي ' + D.formatDateLong(x.v.contract.expires) })); }
-  const ageLabel = (a) => (a == null ? '—' : a === 0 ? 'اليوم' : a === 1 ? 'أمس' : D.formatDateLong(R.orderDate({ ageDays: a }, TODAY)));
+  // the real clock for the vendors section (review B of phase 3): the agreement's «سارية من», the contract expiry, «آخر أوردر», the
+  // contract statuses and the filter all read it; the prototype's fixed TODAY stays for the accounts pages until their phase
+  const VTODAY = () => (window.IBVendors && window.IBVendors.today ? window.IBVendors.today() : TODAY);
+  function vendorTasks() { return vstore.all().filter((v) => v.status === 'active').map((v) => ({ v, st: VD.contractStatus(v, VTODAY()) })).filter((x) => x.st === 'expiring' || x.st === 'expired').map((x) => ({ id: x.v.id, name: x.v.name, prio: x.st === 'expired' ? 'urgent' : 'high', sub: x.st === 'expired' ? 'العقد منتهي' : 'العقد بينتهي ' + D.formatDateLong(x.v.contract.expires) })); }
+  const ageLabel = (a) => (a == null ? '—' : a === 0 ? 'اليوم' : a === 1 ? 'أمس' : D.formatDateLong(R.orderDate({ ageDays: a }, VTODAY())));
   function copyText(text, label) { const done = () => vnotify('success', 'اتنسخ ' + label + '.'); const fail = () => vnotify('error', 'تعذّر النسخ من المتصفح.'); try { navigator.clipboard.writeText(String(text)).then(done, fail); } catch (e) { fail(); } }
 
   function VendorsPageView() {
@@ -1497,7 +1500,7 @@
       if (kind === 'due') { const l = d.due; return { title: 'مستحقات المبتكرين — ' + money(sum.due) + ' ج.م', sub: l.length + ' مبتكر ليهم رصيد لصالحهم', summary: [{ label: 'الإجمالي', value: money(sum.due) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }, { label: 'أكبر رصيد', value: l.length ? l[0].name + ' — ' + money(l[0].balance) : '—' }], headers: ['المبتكر', 'الرصيد (له)', 'من الإجمالي'], rows: l.map((r) => [r.name, money(r.balance), (sum.due ? Math.round(r.balance / sum.due * 100) : 0) + '%']), total: ['الإجمالي', money(l.reduce((x, r) => x + r.balance, 0)), '100%'], onRow: open(l), source: 'الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر (الافتتاحي والعرابين من مرحلة الحسابات)' }; }
       const l = d.negative; return { title: 'مبتكرين عندهم رصيد سالب (عرابين / مواصلات) — ' + l.length, sub: 'عرابين اتدفعت لهم قبل ما الأوردرات تكتمل — بتتخصم من مستحقاتهم', summary: [{ label: 'إجمالي العرابين', value: money(sum.negativeTotal) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }], headers: ['المبتكر', 'العربون', 'المواصلات', 'الرصيد (عليه)', 'أوردرات مفتوحة'], rows: l.map((r) => [r.name, money(r.deposits), money((vendorsNow().find((x) => x.name === r.name) || {}).transport || 0), money(r.balance), String((stats[r.id] || {}).open || 0)]), total: ['الإجمالي', money(l.reduce((x, r) => x + r.deposits, 0)), money(l.reduce((x, r) => x + ((vendorsNow().find((y) => y.name === r.name) || {}).transport || 0), 0)), money(l.reduce((x, r) => x + r.balance, 0)), String(l.reduce((x, r) => x + ((stats[r.id] || {}).open || 0), 0))], onRow: open(l), source: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات' };
     };
-    const list = VD.sortVendors(VD.filterVendors(all, stats, state.vfilter, TODAY), stats, state.vsort);
+    const list = VD.sortVendors(VD.filterVendors(all, stats, state.vfilter, VTODAY()), stats, state.vsort);
     const pages = Math.max(1, Math.ceil(list.length / VPAGE)); if (state.vpage > pages) state.vpage = pages;
     const slice = list.slice((state.vpage - 1) * VPAGE, state.vpage * VPAGE);
     const setF = (k, v) => { state.vfilter[k] = v; state.vpage = 1; renderVendors(); };
@@ -1520,7 +1523,7 @@
           h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'الفئة'), h('div', { class: 'chips' }, [['all', 'الكل']].concat(CATS.map((c) => [c, c])).map(([v, l]) => h('button', { type: 'button', class: 'chip', 'aria-pressed': String(d.category === v), onClick: () => { d.category = v; draw(); } }, l)))),
           radio('balance', 'الرصيد'), radio('contract', 'العقد'),
           h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'المتابعة'), K.Checkbox({ label: 'عنده أوردرات قابلة للتأخير / متأخرة', checked: d.late, onChange: (v) => { d.late = v; draw(); } }), K.Checkbox({ label: 'عليه تذاكر مفتوحة', checked: d.tickets, onChange: (v) => { d.tickets = v; draw(); } }))];
-          const preview = VD.filterVendors(all, stats, Object.assign({}, d, { q: state.vfilter.q }), TODAY).length;
+          const preview = VD.filterVendors(all, stats, Object.assign({}, d, { q: state.vfilter.q }), VTODAY()).length;
           el.replaceChildren(h('div', { class: 'vf-h' }, h('b', { class: 't-h5' }, 'فلتر المبتكرين'), IconButton({ icon: 'close', label: 'إغلاق', onClick: close })), h('div', { class: 'vf-b' }, ...body),
             h('div', { class: 'vf-f' }, Button({ type: 'primary', label: 'عرض ' + preview + ' مبتكر', attrs: { 'data-vapply': '' }, onClick: () => { Object.assign(state.vfilter, d, { negative: false }); state.vpage = 1; close(); renderVendors(); } }), Button({ type: 'text', label: 'مسح الكل', onClick: () => { Object.assign(d, { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false }); draw(); } }))); };
         el = h('div', { class: 'menu vfilter-pop', role: 'dialog', 'aria-label': 'فلتر المبتكرين', 'data-focus': 'no' }); draw(); return el; });
@@ -1561,7 +1564,7 @@
         U.KpiTile({ label: 'عندهم أوردرات قابلة للتأخير', value: String(sum.withDelay), unit: 'مبتكرين', compare: sum.withDelay ? 'negative' : 'off', delta: { text: 'متابعة', caption: 'نفس مصدر إشعار «موردين متأخرين»' }, note: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة', details: () => vdet('delay') }),
         U.KpiTile({ label: 'إجمالي مستحقات المبتكرين', value: D.formatMoney(sum.due), unit: 'ج.م', compare: 'off', note: 'من الأوردرات المكتملة من 1 أكتوبر · الافتتاحي والعرابين من مرحلة 4', details: () => vdet('due') }),
         U.KpiTile({ label: 'عندهم رصيد سالب (عرابين)', value: String(sum.negative), unit: 'مبتكرين', compare: 'off', note: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات', details: () => vdet('negative') }),
-        (() => { const t = trAll(); return U.KpiTile({ label: 'مواصلات المبتكرين', value: D.formatMoney(t.vendors), unit: 'ج.م', compare: 'off', note: [num(String(t.vendorTrips)), ' مشوار لـ ', num(String(t.vendorCount)), ' مبتكرين · من البداية'], details: () => transportDetails('') }); })()),
+        U.KpiTile({ label: 'مواصلات المبتكرين', value: '—', compare: 'off', note: 'بتتسجل من مرحلة الحسابات (4)' })),
       TableCard({ title: 'المبتكرين', count: list.length + ' مبتكر · مرتبين بعدد الأوردرات المفتوحة', body: list.length === 0 ? U.EmptyState('مفيش مبتكر بالاسم ده', 'جرّب اسم بديل أو رقم الهاتف، أو اضغط «إضافة مبتكر» لو جديد.') : [tableOrList(() => table, () => cards), pager] }),
       h('p', { class: 'source' }, 'المصدر: جدول المبتكرين (متاجر الموقع من المزامنة + اللي الفريق بيكمّله) — الأسماء البديلة لتوحيد الأوردرات والشيت · المستحقات من الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر · الأوردرات والتأخير لايف من الأوردرات')];
   }
@@ -1621,7 +1624,7 @@
     }
     // Per-section edit (owner, 21 Oct): every data group has its own «تعديل» that opens a popup with that group's fields only (Figma: Modal / Vendor edit — Identity | Contact | Terms).
     function editGroup(v, g) {
-      const G = VD.EDIT_GROUPS[g]; const f = { name: v.name, legalName: v.legalName || '', category: v.category, aliases: v.aliases.join('، '), status: v.status, phone: v.phone, altPhone: v.altPhone || '', email: v.email || '', address: v.address || '', instagram: v.instagram || '', storeUrl: v.storeUrl || '', leadDays: String(v.leadDays), depositPolicy: v.depositPolicy || '', notes: v.notes || '', rate: v.rate == null ? '' : String(v.rate), since: TODAY };
+      const G = VD.EDIT_GROUPS[g]; const f = { name: v.name, legalName: v.legalName || '', category: v.category, aliases: v.aliases.join('، '), status: v.status, phone: v.phone, altPhone: v.altPhone || '', email: v.email || '', address: v.address || '', instagram: v.instagram || '', storeUrl: v.storeUrl || '', leadDays: String(v.leadDays), depositPolicy: v.depositPolicy || '', notes: v.notes || '', rate: v.rate == null ? '' : String(v.rate), since: VTODAY() };
       let errs = {}; let m = null;
       const txt = (fid, label, key, opts = {}) => U.TextInput(Object.assign({ id: fid, label, value: f[key], error: errs[key], onInput: (x) => { f[key] = x; } }, opts));
       const two = (a, b) => h('div', { class: 'row cols2' }, a, b);
@@ -1632,7 +1635,7 @@
         contact: () => [two(txt('g-phone', 'الهاتف (واتساب)', 'phone', { required: true, inputmode: 'tel', placeholder: '01xxxxxxxxx' }), txt('g-alt', 'هاتف بديل', 'altPhone', { inputmode: 'tel', placeholder: '01xxxxxxxxx' })),
           two(txt('g-email', 'الإيميل', 'email', { inputmode: 'email' }), txt('g-ig', 'إنستجرام', 'instagram', { placeholder: '@name' })),
           txt('g-addr', 'العنوان (الاستلام)', 'address'), txt('g-url', 'صفحة المتجر', 'storeUrl', { placeholder: 'https://ibtekr.club/…' })],
-        terms: () => [vstore.canRate() ? two(txt('g-rate', 'نسبة إبتكر', 'rate', { inputmode: 'decimal', suffix: '%', help: v.rate == null ? 'لسه مفيش نسبة متسجلة' : undefined }), U.DateField({ id: 'g-since', label: 'النسبة الجديدة سارية من', required: true, value: f.since, error: errs.since, today: TODAY, onChange: (iso, e) => { if (!e) f.since = iso; errs.since = e || undefined; m.setBody(...body()); } })) : null,
+        terms: () => [vstore.canRate() ? two(txt('g-rate', 'نسبة إبتكر', 'rate', { inputmode: 'decimal', suffix: '%', help: v.rate == null ? 'لسه مفيش نسبة متسجلة' : undefined }), U.DateField({ id: 'g-since', label: 'النسبة الجديدة سارية من', required: true, value: f.since, error: errs.since, today: VTODAY(), onChange: (iso, e) => { if (!e) f.since = iso; errs.since = e || undefined; m.setBody(...body()); } })) : null,
           vstore.canRate() ? U.InlineNote({ kind: 'warning', children: 'لو غيّرت النسبة: بتنطبق على الأوردرات الجديدة من التاريخ ده فقط — الأوردرات القديمة بتفضل بنسبتها ' + (v.rate == null ? '—' : v.rate + '%') + '.' }) : null,
           two(txt('g-lead', 'مدة التجهيز المتفق عليها (أيام)', 'leadDays', { required: true, inputmode: 'numeric', help: 'بتغذي قاعدة التأخير' }), txt('g-dep', 'سياسة العربون', 'depositPolicy')),
           U.Textarea({ id: 'g-notes', label: 'ملاحظات الاتفاق', value: f.notes, onInput: (x) => { f.notes = x; } })] };
@@ -1660,7 +1663,7 @@
     function contractForm(v) {
       const f = { fileName: '', size: 0, expires: v.contract ? v.contract.expires : '' }; let err = null; let m = null;
       const input = h('input', { type: 'file', accept: '.pdf,.png,.jpg,.jpeg', 'aria-label': 'ملف العقد' }); input.addEventListener('change', () => { const file = input.files && input.files[0]; if (file) { f.fileName = file.name; f.size = file.size; f.file = file; } });
-      const body = () => [U.FieldShell({ id: 'c-file', label: 'ملف العقد (PDF أو صورة، حتى 10 ميجا)', required: true }, input), U.DateField({ id: 'c-exp', label: 'تاريخ انتهاء العقد', value: f.expires || null, error: err, today: TODAY, help: 'هيوصلك تنبيه قبل الانتهاء بـ 30 يوم', onChange: (iso, e) => { if (!e) f.expires = iso || ''; err = e; m.setBody(...body()); } })];
+      const body = () => [U.FieldShell({ id: 'c-file', label: 'ملف العقد (PDF أو صورة، حتى 10 ميجا)', required: true }, input), U.DateField({ id: 'c-exp', label: 'تاريخ انتهاء العقد', value: f.expires || null, error: err, today: VTODAY(), help: 'هيوصلك تنبيه قبل الانتهاء بـ 30 يوم', onChange: (iso, e) => { if (!e) f.expires = iso || ''; err = e; m.setBody(...body()); } })];
       m = U.Modal({ title: (v.contract ? 'استبدال' : 'رفع') + ' عقد التعاون — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'رفع العقد', onClick: () => { if (!f.fileName) { vnotify('error', 'اختار ملف العقد الأول.'); m.close(); return; } m.close(); act(() => vstore.setContract(id, f, vstore.actor()), 'اترفع العقد.'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
     }
     // Every KPI tile in «الأوردرات» opens a popup with its orders (owner, 21 Oct). Figma: Modal / Vendor orders.
@@ -1683,7 +1686,7 @@
         h('tbody', null, rows.map((o) => h('tr', { 'data-id': o.id },
           h('td', { 'data-l': 'رقم الأوردر' }, h('button', { type: 'button', class: 'vlo-link', onClick: () => { m.close(); if (OA() && OA().details) OA().details(o.id, 'info'); } }, num('IB-' + o.id), Icon('external', 'sm'))),
           h('td', { 'data-l': 'العميل' }, o.customer),
-          h('td', { 'data-l': 'التاريخ' }, num(D.formatDateNumeric(R.orderDate(o, TODAY)))),
+          h('td', { 'data-l': 'التاريخ' }, num(D.formatDateNumeric(R.orderDate(o, VTODAY())))),
           h('td', { 'data-l': 'الحالة' }, o.status),
           h('td', { 'data-l': 'حالة التأخير' }, open(o) ? U.DelayBadge(o.delivery) : '—'),
           h('td', { 'data-l': 'عمر الأوردر' }, num(o.ageDays + ' يوم')),
@@ -1717,7 +1720,7 @@
       m.el.classList.add('wide'); m.el.dataset.vorders = kind; m.el.dataset.share = '1';
     }
     function draw() {
-      const v = vstore.get(id); if (!v) { vdrawer.close(); return; } const st = vendorStats()[v.id]; const canEdit = vstore.canEdit(), canBank = vstore.canBank(), canRate = vstore.canRate(); const cstat = VD.contractStatus(v, TODAY);
+      const v = vstore.get(id); if (!v) { vdrawer.close(); return; } const st = vendorStats()[v.id]; const canEdit = vstore.canEdit(), canBank = vstore.canBank(), canRate = vstore.canRate(); const cstat = VD.contractStatus(v, VTODAY());
       const header = h('div', { class: 'drawer-h' },
         h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, U.VendorLogo({ letter: v.logoLetter, size: 'lg' }), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status)), h('span', { class: 't-small' }, num((v.category || 'بدون فئة') + ' · نسبة إبتكر ' + (canRate && v.rate != null ? v.rate + '%' : '—') + ' · مبتكر من ' + D.formatDateLong(v.joinedAt) + (v.wooVendorId ? ' · متجر #' + v.wooVendorId : ' · بدون متجر على الموقع'))))),
           h('div', { class: 'actions' }, moreMenu(v), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => vdrawer.close() }))),

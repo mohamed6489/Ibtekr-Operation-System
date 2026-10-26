@@ -214,6 +214,9 @@ test('canEdit / canBank / canToggle / canRate follow IBDirectory.perm; a write w
   assert.throws(() => ops.S.setBank(V1, { method: 'bank' }, ops.S.actor()), /مش من صلاحياتك/);
   assert.throws(() => ops.S.reveal(V3, 'iban', ops.S.actor()), /مش من صلاحياتك/);
   assert.throws(() => ops.S.remove(V1, ops.S.actor()), /مش من صلاحياتك/);
+  assert.throws(() => ops.S.update(V1, { status: 'inactive' }, ops.S.actor()), /مش من صلاحياتك/); // the guard's rule 1, locally too
+  assert.equal(ops.S.get(V1).status, 'active');
+  assert.deepEqual(plain(await ops.V.contractUrl(V3)), { ok: false, reason: 'forbidden' }); // the Storage policies need the key: no request
   assert.deepEqual(ops.calls.filter((c) => c.op !== 'from'), []);
   const acc = load({ admin: false, perms: ACCOUNTS });
   await acc.V.load();
@@ -238,6 +241,21 @@ test('setRate: the history gains a dated row (the effective one today shown), on
   assert.deepEqual(logs.filter((l) => l[0] === 'vendor.rate'), [['vendor.rate', '40% من 2026-11-01', { entity: 'vendor', entity_id: V1 }], ['vendor.rate', '30% من 2026-10-01', { entity: 'vendor', entity_id: V1 }]]);
   assert.throws(() => S.setRate(V1, 70, '2026-11-01', S.actor()), /rate out of range/);
   assert.throws(() => S.setRate(V1, 30, '2026-11-31', S.actor()), /since required/);
+  calls.length = 0;
+  assert.throws(() => S.setRate(V1, 42, '2026-03-01', S.actor()), /فيه نسبة متسجلة بنفس تاريخ السريان/); // unique (vendor_id, since): the stored row of that day
+  assert.deepEqual(opsOf(calls, 'vendor_rates'), []);
+  assert.deepEqual(plain(S.get(V1).rateHistory.map((x) => x.rate + '@' + x.since)), ['35@2026-03-01']); // the reload after the writes: the stub serves the seed
+});
+
+test('setRate: a 23505 from the server (a rate written meanwhile) reads as duplicate — the history goes back, nothing else is touched', async () => {
+  const { V, S, responses, events } = load();
+  await V.load();
+  responses.vendor_rates = (ops) => (ops.some((c) => c.op === 'insert') ? { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "vendor_rates_vendor_id_since_key"' } } : ok(RATES));
+  S.setRate(V1, 42, '2026-12-01', S.actor());
+  await settle();
+  assert.deepEqual(plain(S.get(V1).rateHistory.map((x) => x.rate + '@' + x.since)), ['35@2026-03-01']);
+  assert.deepEqual(events.filter((e) => e.detail && e.detail.reason).map((e) => e.detail.reason), ['duplicate']);
+  assert.equal(V.MESSAGES.duplicate, 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني');
 });
 
 test('setBank: an insert for the first row, an update (vendor_id) after; the event names the method only — never the IBAN', async () => {
@@ -355,9 +373,13 @@ test('create: one insert of the granted columns with .select(\'id\'), the first 
   responses.vendors = (ops) => (ops.some((c) => c.op === 'insert') ? denied() : ok(VENDORS));
   await assert.rejects(() => S.create(input, S.actor()), /مش من صلاحياتك/);
   const ops = load({ admin: false }); await ops.V.load(); ops.calls.length = 0;
-  ops.responses.vendors = (o) => (o.some((c) => c.op === 'insert') ? ok({ id: NEW }) : ok(VENDORS));
-  await ops.S.create(input, ops.S.actor());
-  assert.deepEqual(opsOf(ops.calls, 'vendor_rates').filter((c) => c.op === 'insert'), []); // no sensitive.commission: the rate is not sent
+  await assert.rejects(() => ops.S.create(input, ops.S.actor()), /مش من صلاحياتك/); // vendors_insert needs vendors.edit = F: refused before any request
+  assert.deepEqual(ops.calls.filter((c) => c.op !== 'from'), []);
+  const vf = load({ admin: false, perms: { ...OPS, 'vendors.edit': 'F' } }); await vf.V.load(); vf.calls.length = 0;
+  vf.responses.vendors = (o) => (o.some((c) => c.op === 'insert') ? ok({ id: NEW }) : ok(VENDORS));
+  await vf.S.create(input, vf.S.actor());
+  assert.deepEqual(writesOf(vf.calls, 'vendors')[0].op, 'insert');
+  assert.deepEqual(opsOf(vf.calls, 'vendor_rates').filter((c) => c.op === 'insert'), []); // no sensitive.commission: the rate is not sent
 });
 
 test('loadEvents / events: that vendor\'s activity_log (entity vendor, newest 50) kept oldest first, with the actor\'s text', async () => {

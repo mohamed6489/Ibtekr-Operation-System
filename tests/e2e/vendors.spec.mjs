@@ -1,5 +1,10 @@
 import { test, expect } from '@playwright/test';
-import { installSupabaseMock, LIVE, DEV_PW, XSS_NAME, IBAN, CONTRACT_PATH, CONTRACT_BYTES, SUPABASE_URL } from './supabase-mock.mjs';
+import { installSupabaseMock, LIVE, DEV_PW, XSS_NAME, IBAN, CONTRACT_PATH, CONTRACT_BYTES, CONTRACT_EXPIRES, SUPABASE_URL } from './supabase-mock.mjs';
+
+// the page reads the real clock (IBVendors.today, local date); the browser runs on this machine
+const ymd = (d) => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+const TODAY = ymd(new Date());
+const dmy = (iso) => iso.split('-').reverse().join('/'); // D.formatDateNumeric
 // The vendors page (block 28) on the sync's vendors table (phase 3 Task B): the list and the drawer from IBVendors, every edit
 // written through its write-through store (a refused write puts the old value back and says why), the rates and the bank behind
 // their sensitive keys, the contract in the private bucket, the maker's shares (decision 4) and his balance in this phase
@@ -119,8 +124,8 @@ test('the drawer: identity, contact, agreement, contract and the activity log fr
   await expect(info(section(page, 'التواصل'), page, 'الهاتف (واتساب)')).toContainText('01000000001');
   await expect(info(section(page, 'الاتفاق التجاري'), page, 'نسبة إبتكر')).toContainText('45%');
   await expect(info(section(page, 'الاتفاق التجاري'), page, 'سجل النسبة')).toContainText('40% من 01/03/2026');
-  await expect(section(page, 'العقد')).toContainText('العقد بينتهي خلال 30 يوم'); // expires 15 Nov, within 30 days of the prototype's fixed date
-  await expect(section(page, 'العقد')).toContainText('ساري حتى 15 نوفمبر 2026');
+  await expect(section(page, 'العقد')).toContainText('العقد بينتهي خلال 30 يوم'); // the mock's contract expires 20 days from the clock
+  await expect(section(page, 'العقد')).toContainText('ساري حتى ' + await page.evaluate((iso) => window.IbtekrDomain.formatDateLong(iso), CONTRACT_EXPIRES));
   await expect(section(page, 'العقد')).toContainText('PDF');
   await expect(section(page, 'العقد')).toContainText('رفعه منى حسن');
   await expect(section(page, 'سجل النشاط')).toContainText('لسه مفيش نشاط');
@@ -171,14 +176,22 @@ test('the admin toggles the status and sets a dated rate; the history shows both
   await expect(rows(page)).toHaveCount(1); // the list shows the active ones
   await section(page, 'الاتفاق التجاري').getByRole('button', { name: 'تعديل بيانات الاتفاق التجاري' }).click();
   await expect(modal(page).locator('#g-rate')).toHaveValue('35');
-  await modal(page).locator('#g-rate').fill('40'); // since: the form's date (today)
+  await modal(page).locator('#g-rate').fill('40'); // since: the form's date (the real today)
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect.poll(() => writes().filter((w) => w.table === 'vendor_rates')).toEqual([{ table: 'vendor_rates', op: 'insert', vendor_id: V1, rate: 40, since: '2026-10-20', set_by: 'صفوت كمال' }]);
-  await expect.poll(() => acts('vendor.rate')).toEqual([{ action: 'vendor.rate', entity: 'vendor', entity_id: V1, new_value: '40% من 2026-10-20' }]);
-  await expect(info(section(page, 'الاتفاق التجاري'), page, 'سجل النسبة')).toContainText('35% من 01/03/2026 ← 40% من 20/10/2026');
+  await expect.poll(() => writes().filter((w) => w.table === 'vendor_rates')).toEqual([{ table: 'vendor_rates', op: 'insert', vendor_id: V1, rate: 40, since: TODAY, set_by: 'صفوت كمال' }]);
+  await expect.poll(() => acts('vendor.rate')).toEqual([{ action: 'vendor.rate', entity: 'vendor', entity_id: V1, new_value: '40% من ' + TODAY }]);
+  await expect(info(section(page, 'الاتفاق التجاري'), page, 'سجل النسبة')).toContainText('35% من 01/03/2026 ← 40% من ' + dmy(TODAY));
   await expect(drawer(page).locator('.drawer-h')).toContainText('نسبة إبتكر 40%');
-  await expect(section(page, 'سجل النشاط')).toContainText('غيّر نسبة إبتكر (40% من 2026-10-20)');
+  await expect(section(page, 'سجل النشاط')).toContainText('غيّر نسبة إبتكر (40% من ' + TODAY + ')');
   expect(mock.vendors.find((v) => v.id === V1).commission_pct).toBe(40); // the trigger
+  // a second rate dated the same day is refused before any write (unique (vendor_id, since); rates are never rewritten)
+  await section(page, 'الاتفاق التجاري').getByRole('button', { name: 'تعديل بيانات الاتفاق التجاري' }).click();
+  await expect(modal(page).locator('#g-rate')).toHaveValue('40');
+  await modal(page).locator('#g-rate').fill('42');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(note(page)).toContainText('فيه نسبة متسجلة بنفس تاريخ السريان');
+  expect(writes().filter((w) => w.table === 'vendor_rates')).toHaveLength(1);
+  await expect(drawer(page).locator('.drawer-h')).toContainText('نسبة إبتكر 40%');
 });
 
 test('accounts sees the bank row and reveals the IBAN (logged, never with the number); ops sees «مخفي» and no error', async ({ page }) => {
@@ -300,7 +313,8 @@ test('a member without sensitive.vendor_bank can neither upload nor sign a URL; 
   await expect(section(page, 'العقد').getByRole('button', { name: 'استبدال' })).toHaveCount(0); // canManage = canBank
   await page.evaluate(() => { window.__opened = []; window.open = (u, t, f) => { window.__opened.push([u, t, f]); return null; }; });
   await section(page, 'العقد').getByRole('button', { name: 'عرض' }).click();
-  await expect(note(page)).toContainText('التغيير ما اتحفظش'); // the server hid the object
+  await expect(note(page)).toContainText('مش من صلاحياتك'); // refused before any request: the Storage policies need the key
+  expect(mock.signs.filter((s) => s.by === OPS)).toHaveLength(1); // the direct client call above only: «عرض» sent nothing
   expect(await page.evaluate(() => window.__opened)).toEqual([]);
   // accounts: the signed URL opens in a new tab and serves the file with its type
   await signOut(page);

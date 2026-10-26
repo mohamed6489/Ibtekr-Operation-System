@@ -43,6 +43,7 @@
   // has_perm(key) on the loaded rows → 'F' | 'P' | 'N' (see the header)
   function perm(key) {
     if (!meRow || meRow.status !== 'active') return 'N';
+    if (meRow.twofa && window.IBAuth && window.IBAuth.needsTotp && window.IBAuth.needsTotp()) return 'N'; // 0008: an enrolled member below aal2 has nothing
     if (meRow.role_id === 'admin') return 'F';
     const cp = meRow.custom_perms && typeof meRow.custom_perms === 'object' ? meRow.custom_perms : {};
     if (Object.prototype.hasOwnProperty.call(cp, key)) return cp[key] || 'N';

@@ -3,7 +3,8 @@
 // fakeDb: an in-memory stand-in for the supabase-js client with the surface the functions use — from(t).select /
 //   insert / upsert({onConflict}) / update, the filters eq / in / not('in') / is, select-after-write, single /
 //   maybeSingle, and rpc(). It knows the 0007 columns (+ products.permalink of 0009, orders.customer_state and woo_states
-//   of 0010), not-null columns, checks, unique keys and the foreign keys the sync relies on, so a wrong column, a bad
+//   of 0010, the team columns of vendors and order_items.commission_rate / commission_fee of 0011), not-null columns,
+//   checks, unique keys and the foreign keys the sync relies on, so a wrong column, a bad
 //   value or a missing parent fails like PostgREST would ({ data, error }, 23505 for a duplicate key). A statement is
 //   atomic. Every call is recorded in `calls` in order.
 // fakeWoo: a fetch that routes "METHOD path" (path after /wp-json/) to a reply (or a network error) and records every
@@ -14,14 +15,15 @@ type DbErr = { code: string; message: string; details?: string };
 
 const COLUMNS: Record<string, string[]> = {
   status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
-  vendors: ['id', 'woo_vendor_id', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at'],
+  vendors: ['id', 'woo_vendor_id', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at',
+    'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance'],
   products: ['id', 'sku', 'name', 'image_url', 'vendor_id', 'price', 'status', 'raw', 'updated_at', 'permalink'],
   orders: ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method',
     'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note',
     'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'raw', 'synced_at', 'created_at', 'updated_at', 'customer_state'],
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw', 'updated_at'],
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status',
-    'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'raw', 'updated_at'],
+    'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'raw', 'updated_at', 'commission_rate', 'commission_fee'],
   woo_webhook_events: ['id', 'received_at', 'delivery_id', 'webhook_id', 'topic', 'resource_id', 'status', 'error', 'payload'],
   woo_sync_log: ['id', 'at', 'kind', 'direction', 'entity', 'entity_id', 'action', 'result', 'detail'],
   sync_state: ['key', 'value', 'updated_at'],
@@ -29,7 +31,7 @@ const COLUMNS: Record<string, string[]> = {
 };
 const DEFAULTS: Record<string, Row> = {
   status_map: { direction: 'both' },
-  vendors: { aliases: [], status: 'active' },
+  vendors: { aliases: [], status: 'active', lead_days: 7, opening_balance: 0 },
   orders: { confirm: 'غير مؤكد', deposit: 0, total: 0, currency: 'EGP' },
   order_items: { qty: 1, total: 0, status: '', pulled: false, removed: false },
   sync_state: { value: {} },
@@ -274,7 +276,10 @@ export function wooSub(id: number, parentId: number, vendor: number, extra: Row 
   };
 }
 
-export const wooStore = (id: number, extra: Row = {}): Row => ({ id, store_name: `Store ${id}`, enabled: true, phone: '01000000000', email: 'store@example.test', show_email: false, ...extra });
+export const wooStore = (id: number, extra: Row = {}): Row => ({
+  id, store_name: `Store ${id}`, enabled: true, phone: '01000000000', email: 'store@example.test', show_email: false,
+  shop_url: `https://woo.test/store/${id}/`, registered: '2025-01-02 10:00:00', ...extra,
+});
 
 export function wooProduct(id: number, vendor: number | null, extra: Row = {}): Row {
   return {

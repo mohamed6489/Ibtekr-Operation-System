@@ -230,19 +230,38 @@ Deno.test('a multi-vendor parent whose lines carry no _dokan_vendor_id → each 
 
 // ---------------------------------------------------------------- vendors / products / all
 
-Deno.test('vendors: every Dokan store upserted on woo_vendor_id, aliases / commission_pct untouched, no Authorization on dokan/', async () => {
-  const seed = { vendors: [vendorRow(44, { aliases: ['قديم'], commission_pct: 12.5 })] };
-  const { db, woo, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStore(44, { enabled: false }), wooStore(900)]) } });
+Deno.test('vendors: a new store is inserted whole (joined_at from registered); an existing one gets raw only — the team’s name / status / phone / aliases / rate stay (decision 2); no Authorization on dokan/', async () => {
+  const seed = { vendors: [vendorRow(44, { name: 'اسم الفريق', status: 'inactive', phone: '01000000044', aliases: ['قديم'], commission_pct: 12.5, category: 'هدايا',
+    joined_at: '2024-12-31', raw: { id: 44, store_name: 'Old 44' } })] };
+  const { db, woo, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStore(44, { enabled: true, store_name: 'Store 44 renamed', phone: '01000000999' }), wooStore(900)]) } });
   const { body } = await call(deps, { action: 'vendors' }, { jwt: 'jwt-admin' });
   assertEquals([body.result, body.counts.vendors.vendors], ['ok', 2]);
   assertEquals([woo.calls[0].path, woo.calls[0].query], ['dokan/v1/stores', { per_page: '100', page: '1' }]);
   assertFalse('authorization' in woo.calls[0].headers);
   const v44 = db.row('vendors', 44, 'woo_vendor_id');
-  assertEquals([v44.id, v44.status, v44.aliases, v44.commission_pct, v44.name], [vendorId(44), 'inactive', ['قديم'], 12.5, 'Store 44']);
-  assertEquals(db.row('vendors', 900, 'woo_vendor_id').status, 'active');
-  const cols = Object.keys(db.writes('vendors')[0].rows[0]).sort();
-  assertEquals(cols, ['email', 'name', 'phone', 'raw', 'status', 'woo_vendor_id']);
+  assertEquals([v44.id, v44.name, v44.status, v44.phone, v44.aliases, v44.commission_pct, v44.category, v44.joined_at],
+    [vendorId(44), 'اسم الفريق', 'inactive', '01000000044', ['قديم'], 12.5, 'هدايا', '2024-12-31'], 'the team’s values stay on an existing store');
+  assertEquals(v44.raw, { id: 44, store_name: 'Store 44 renamed', shop_url: 'https://woo.test/store/44/', enabled: true, registered: '2025-01-02 10:00:00' }, 'raw follows the site');
+  const v900 = db.row('vendors', 900, 'woo_vendor_id');
+  assertEquals([v900.name, v900.status, v900.phone, v900.email, v900.joined_at, v900.aliases, v900.commission_pct, v900.lead_days],
+    ['Store 900', 'active', '01000000000', null, '2025-01-02', [], null, 7], 'a new store: the full mapStore row, the team columns at their defaults');
+  const writes = db.writes('vendors').map((w: any) => [w.op, w.onConflict, w.rows.map((r: any) => Object.keys(r).sort())]);
+  assertEquals(writes, [['upsert', 'woo_vendor_id', [['email', 'joined_at', 'name', 'phone', 'raw', 'status', 'woo_vendor_id']]],
+    ['upsert', 'woo_vendor_id', [['raw', 'woo_vendor_id']]]], 'new: the full row; existing: raw only');
   assertEquals(db.rows('woo_sync_log').at(-1).kind, 'manual');
+});
+
+Deno.test('vendors: a second run over the same stores writes raw only for every one of them (ctx knows them after the first page)', async () => {
+  const { db, deps } = setup({ seed: { vendors: [] }, routes: { 'GET dokan/v1/stores': page([wooStore(44), wooStore(900)]) } });
+  await call(deps, { action: 'vendors' }, { jwt: 'jwt-admin' });
+  assertEquals(db.rows('vendors').map((v: any) => [v.woo_vendor_id, v.name, v.joined_at]), [[44, 'Store 44', '2025-01-02'], [900, 'Store 900', '2025-01-02']]);
+  // the team renames one in between (as the screen would), the site renames both
+  const { db: db2, deps: deps2 } = setup({ seed: { vendors: [vendorRow(44, { name: 'اسم الفريق' }), vendorRow(900)] },
+    routes: { 'GET dokan/v1/stores': page([wooStore(44, { store_name: 'Site 44' }), wooStore(900, { store_name: 'Site 900' })]) } });
+  const { body } = await call(deps2, { action: 'vendors' }, { jwt: 'jwt-admin' });
+  assertEquals(body.counts.vendors.vendors, 2);
+  assertEquals(db2.rows('vendors').map((v: any) => [v.woo_vendor_id, v.name, v.raw.store_name]), [[44, 'اسم الفريق', 'Site 44'], [900, 'متجر 900', 'Site 900']]);
+  assertEquals(db2.writes('vendors').map((w: any) => w.rows.map((r: any) => Object.keys(r).sort())), [[['raw', 'woo_vendor_id'], ['raw', 'woo_vendor_id']]]);
 });
 
 Deno.test('products: pulled with the cursor params and upserted (image_url = images[0].src, maker linked or null, permalink https only)', async () => {

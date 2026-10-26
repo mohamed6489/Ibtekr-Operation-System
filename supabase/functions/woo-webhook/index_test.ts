@@ -201,7 +201,17 @@ Deno.test('the sync writes only its own columns: an existing order and its lines
   const cols = (t: string) => Object.keys(db.writes(t).find((w: any) => w.op === 'upsert').rows[0]).sort();
   assertEquals(cols('orders'), ['currency', 'customer_name', 'customer_note', 'customer_phone', 'id', 'number',
     'payment_method', 'payment_title', 'placed_at', 'raw', 'status', 'synced_at', 'total', 'woo_status', 'woo_updated_at'], 'an existing order: no city / address / state / note');
-  assertEquals(cols('order_items'), ['id', 'name', 'order_id', 'product_id', 'qty', 'raw', 'removed', 'sku', 'total', 'vendor_id']);
+  assertEquals(cols('order_items'), ['commission_fee', 'commission_rate', 'id', 'name', 'order_id', 'product_id', 'qty', 'raw', 'removed', 'sku', 'total', 'vendor_id']);
+});
+
+Deno.test('a line’s commission_rate / commission_fee come from its _dokan_* meta and are rewritten on every delivery (sync-owned, 0011)', async () => {
+  const line = (rate: unknown, fee: unknown) => ({ id: 1, product_id: 501, name: 'كوباية', quantity: 1, total: '100',
+    meta_data: [{ key: '_dokan_vendor_id', value: '44' }, { key: '_dokan_commission_rate', value: rate }, { key: '_dokan_additional_fee', value: fee }] });
+  const { db, deps } = setup({ routes: subsRoute([]) });
+  await deliver(deps, wooOrder({ line_items: [line('35', '')] }), { id: 'd-1' });
+  assertEquals([db.row('order_items', 1).commission_rate, db.row('order_items', 1).commission_fee], [35, null]);
+  await deliver(deps, wooOrder({ date_modified_gmt: '2026-10-20T12:00:00', line_items: [line('40', '10')] }), { id: 'd-2' });
+  assertEquals([db.row('order_items', 1).commission_rate, db.row('order_items', 1).commission_fee], [40, 10]);
 });
 
 Deno.test('customer_city / customer_address / customer_state: written when the order is new, never on an existing order (the team edits city and address; the state code stays with them)', async () => {
@@ -289,12 +299,25 @@ Deno.test('an unknown maker → dokan/v1/stores/{id} fetched WITHOUT an Authoriz
   assertEquals(woo.calls.find((c) => c.path === 'wc/v3/orders')!.headers.authorization, WC_AUTH);
 
   const v = db.row('vendors', 777, 'woo_vendor_id');
-  assertEquals([v.name, v.status, v.email, v.aliases], ['Store 777', 'active', null, []]);
+  assertEquals([v.name, v.status, v.email, v.aliases, v.joined_at], ['Store 777', 'active', null, [], '2025-01-02'], 'a new store: whole row, joined_at from registered');
   assertEquals(db.row('order_items', 1).vendor_id, v.id);
   const order_ = ops(db);
   assert(order_.indexOf('upsert vendors') < order_.indexOf('upsert order_items'), order_.join(' → '));
-  const vendorCols = Object.keys(db.writes('vendors')[0].rows[0]);
+  const vendorCols = Object.keys(db.writes('vendors')[0].rows[0]).sort();
+  assertEquals(vendorCols, ['email', 'joined_at', 'name', 'phone', 'raw', 'status', 'woo_vendor_id']);
   assertFalse(vendorCols.includes('aliases') || vendorCols.includes('commission_pct'), vendorCols.join(','));
+});
+
+Deno.test('a maker already in the table is neither fetched from Dokan nor rewritten: the team’s name / status / phone stay (decision 2 of phase 3)', async () => {
+  const seed = { vendors: [vendorRow(44, { name: 'اسم الفريق', status: 'inactive', phone: '01000000044' }), vendorRow(2376)] };
+  const { db, woo, deps } = setup({ seed, routes: { 'GET dokan/v1/stores/44': { body: wooStore(44) }, ...subsRoute([]) } });
+  const { body } = await deliver(deps, wooOrder());
+  assertEquals(body.status, 'ok');
+  assertFalse(woo.calls.some((c) => c.path.startsWith('dokan/')), 'no store fetch for a known maker');
+  assertEquals(db.writes('vendors'), [], 'no vendors write');
+  const v = db.row('vendors', 44, 'woo_vendor_id');
+  assertEquals([v.name, v.status, v.phone], ['اسم الفريق', 'inactive', '01000000044']);
+  assertEquals(db.row('order_items', 1).vendor_id, v.id);
 });
 
 Deno.test('a store Dokan does not know (404) → a skipped log row and the line keeps vendor_id null', async () => {

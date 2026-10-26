@@ -421,10 +421,29 @@ test('mapOrder: line items → order_items rows (vendor from the line meta)', ()
   const r = mapOrder(parent(), { statusMap: MAP, vendorsByWooId: VENDORS, now: NOW });
   assert.equal(r.items.length, 1);
   const { raw, ...item } = r.items[0];
-  assert.deepEqual(item, { id: 9001, order_id: 181668, product_id: 501, sku: 'SC-12', name: 'شمعة معطرة', qty: 2, total: 1002, vendor_id: VENDORS[77] });
+  assert.deepEqual(item, { id: 9001, order_id: 181668, product_id: 501, sku: 'SC-12', name: 'شمعة معطرة', qty: 2, total: 1002, vendor_id: VENDORS[77],
+    commission_rate: null, commission_fee: null });
   assert.deepEqual(raw, { id: 9001, product_id: 501, variation_id: 0, name: 'شمعة معطرة', sku: 'SC-12', quantity: 2, price: 501, subtotal: '1002.00', total: '1002.00',
     meta_data: [{ id: 1, key: '_dokan_vendor_id', value: '77' }] });
   noPII(raw, 'item.raw');
+});
+
+test('mapOrder: commission_rate / commission_fee = the line\'s _dokan_commission_rate / _dokan_additional_fee as numbers; \'\' or absent → null (0011)', () => {
+  const withMeta = (meta) => { const p = parent(); p.line_items[0].meta_data = [{ id: 1, key: '_dokan_vendor_id', value: '77' }, ...meta]; return p; };
+  const fields = (meta) => {
+    const { commission_rate, commission_fee } = mapOrder(withMeta(meta), { statusMap: MAP, vendorsByWooId: VENDORS, now: NOW }).items[0];
+    return [commission_rate, commission_fee];
+  };
+  // the live shapes (26 Oct): rate '35' … '50' as strings, the fee '' or 0
+  assert.deepEqual(fields([{ id: 2, key: '_dokan_commission_rate', value: '35' }, { id: 3, key: '_dokan_additional_fee', value: '' }]), [35, null]);
+  assert.deepEqual(fields([{ id: 2, key: '_dokan_commission_rate', value: '40' }, { id: 3, key: '_dokan_additional_fee', value: '10' }]), [40, 10]);
+  assert.deepEqual(fields([{ id: 2, key: '_dokan_commission_rate', value: 45.5 }, { id: 3, key: '_dokan_additional_fee', value: 0 }]), [45.5, 0]);
+  assert.deepEqual(fields([{ id: 2, key: '_dokan_commission_rate', value: 'n/a' }, { id: 3, key: '_dokan_additional_fee', value: ' ' }]), [null, null]);
+  assert.deepEqual(fields([{ id: 2, key: '_dokan_commission_type', value: 'fixed' }]), [null, null]);
+  assert.deepEqual(fields([]), [null, null]);
+  // the meta stays in raw as well (the backfill of 0011 reads it there for older lines)
+  const { raw } = mapOrder(withMeta([{ id: 2, key: '_dokan_commission_rate', value: '35' }]), { statusMap: MAP, vendorsByWooId: VENDORS, now: NOW }).items[0];
+  assert.deepEqual(raw.meta_data.map((m) => m.key), ['_dokan_vendor_id', '_dokan_commission_rate']);
 });
 
 test('mapOrder: a single-vendor parent gives its _dokan_vendor_id to lines without one', () => {
@@ -620,8 +639,8 @@ test('mapStore: Dokan store → vendors row with a lean raw', () => {
   const input = store();
   const before = structuredClone(input);
   const v = mapStore(input);
-  assert.deepEqual(Object.keys(v).sort(), ['email', 'name', 'phone', 'raw', 'status', 'woo_vendor_id']);
-  assert.deepEqual({ ...v, raw: undefined }, { woo_vendor_id: 2376, name: 'ورشة التجربة', phone: '01111111111', email: null, status: 'active', raw: undefined });
+  assert.deepEqual(Object.keys(v).sort(), ['email', 'joined_at', 'name', 'phone', 'raw', 'status', 'woo_vendor_id']);
+  assert.deepEqual({ ...v, raw: undefined }, { woo_vendor_id: 2376, name: 'ورشة التجربة', phone: '01111111111', email: null, status: 'active', joined_at: '2025-01-02', raw: undefined });
   assert.deepEqual(v.raw, { id: 2376, store_name: 'ورشة التجربة', shop_url: 'https://stage.example.test/store/test/', rating: { rating: '4.5', count: 2 },
     enabled: true, registered: '2025-01-02 10:00:00', featured: false, trusted: true });
   const s = JSON.stringify(v.raw);
@@ -652,6 +671,20 @@ test('mapStore: enabled:false → inactive, enabled absent / null → active (Do
   assert.equal(mapStore(store({ phone: '' })).phone, null);
   assert.equal(mapStore(store({ id: '77', store_name: '' })).woo_vendor_id, 77);
   assert.equal(mapStore(store({ id: '77', store_name: '  ' })).name, '#77'); // vendors.name is not null
+});
+
+test('mapStore: joined_at = the date part of `registered` (a local datetime, never shifted by a zone); absent / blank / not a real date → null (0011)', () => {
+  assert.equal(mapStore(store()).joined_at, '2025-01-02');
+  assert.equal(mapStore(store({ registered: '2025-01-02 23:59:59' })).joined_at, '2025-01-02');
+  assert.equal(mapStore(store({ registered: '2025-03-04T08:00:00' })).joined_at, '2025-03-04');
+  assert.equal(mapStore(store({ registered: '2025-03-04' })).joined_at, '2025-03-04');
+  assert.equal(mapStore(store({ registered: '2024-02-29 00:00:00' })).joined_at, '2024-02-29');
+  for (const bad of ['', '  ', null, undefined, 'yesterday', '2025-02-30 10:00:00', '2025-13-01', '25-01-02', '2025-01-0210:00:00', 20250102, { date: '2025-01-02' }]) {
+    assert.equal(mapStore(store({ registered: bad })).joined_at, null, String(bad));
+  }
+  const { registered: _omitted, ...noDate } = store();
+  assert.equal(mapStore(noDate).joined_at, null, 'no registered key at all');
+  assert.ok(!('registered' in mapStore(noDate).raw), 'raw carries no registered when Dokan sent none');
 });
 
 // ---------------------------------------------------------------- mapProduct (woo-write.js)

@@ -1,7 +1,9 @@
 // woo-core: the pure WooCommerce / Dokan sync core shared by the woo-webhook and woo-sync Edge Functions.
 // Contract: plain ESM with no imports, loaded unchanged by Deno (the Edge Functions) and Node (node:test). Standard
 // JS and Web APIs only (crypto.subtle, TextEncoder, btoa); no I/O, no clock (the caller passes `now`),
-// deterministic, inputs never mutated and never aliased by the output. Rows use the column names of 0007_orders.sql.
+// deterministic, inputs never mutated and never aliased by the output. Rows use the column names of 0007_orders.sql
+// (+ 0011_vendors: vendors.joined_at from the store's `registered`, order_items.commission_rate / commission_fee from
+// the line's _dokan_commission_rate / _dokan_additional_fee — the site's own commission on that line).
 // `raw` is built from allow-lists, never by deleting known-bad keys, so nothing personal can reach it through a field
 // nobody listed: the RAW_* fields below (scalars only), billing / shipping cut to city/state/postcode/country, order
 // meta cut to META_KEEP, line_items as `{ id, _dokan_* meta }`, and fixed fields for shipping/coupon/fee/tax lines and
@@ -56,6 +58,15 @@ const gmtIso = (v) => { const s = str(v); return !s ? null : /(Z|[+-]\d{2}:?\d{2
 const gmtMs = (v) => { const s = gmtIso(v); const ms = s ? Date.parse(s) : NaN; return Number.isFinite(ms) ? ms : null; };
 const isoSeconds = (ms) => new Date(ms).toISOString().replace(/\.\d{3}Z$/, 'Z');
 const toIso = (now) => (now instanceof Date ? now.toISOString() : typeof now === 'number' ? new Date(now).toISOString() : orNull(now));
+// 'YYYY-MM-DD …' (Dokan's `registered`: a local 'YYYY-MM-DD HH:MM:SS') → its date part when it is a real calendar date,
+// else null (no zone shift: the day the store registered is the day the site shows).
+const dateOnly = (v) => {
+  const m = /^(\d{4})-(\d{2})-(\d{2})(?:$|[ T])/.exec(str(v));
+  if (!m) return null;
+  const [y, mo, d] = [Number(m[1]), Number(m[2]), Number(m[3])];
+  const date = new Date(Date.UTC(y, mo - 1, d));
+  return date.getUTCFullYear() === y && date.getUTCMonth() === mo - 1 && date.getUTCDate() === d ? `${m[1]}-${m[2]}-${m[3]}` : null;
+};
 
 const metaValue = (meta, key) => objs(meta).find((e) => e.key === key)?.value;
 const hasMeta = (meta, key) => objs(meta).some((e) => e.key === key);
@@ -214,6 +225,9 @@ export function mapOrder(wooOrder, ctx) {
     id: num(li.id), order_id: num(o.id), product_id: num(li.product_id) || null, sku: orNull(li.sku), name: str(li.name),
     qty: num(li.quantity) ?? 1, total: num(li.total) ?? 0,
     vendor_id: vendorOf(wooId(metaValue(li.meta_data, '_dokan_vendor_id')) ?? parentVendor),
+    // the site's commission on this line when the order was placed (decision 4 of phase 3); '' / absent → null
+    commission_rate: num(metaValue(li.meta_data, COMMISSION.rate)),
+    commission_fee: num(metaValue(li.meta_data, COMMISSION.additional_fee)),
     raw: itemRaw(li),
   }));
 
@@ -264,6 +278,8 @@ export function mapSubOrder(wooSubOrder, ctx) {
  * A dokan/v1/stores item → vendors row (raw keeps the public store fields only). status: 'inactive' only when Dokan says
  * so (`enabled` off); the public REST omits `enabled` (seen live, 2026-10-26: list and single store), so an absent / null
  * flag reads 'active' — a store Dokan lists, or one that has orders, is selling until the flag says otherwise.
+ * joined_at: the date part of `registered` ('YYYY-MM-DD HH:MM:SS' local), null when absent or not a date. The whole row
+ * is written for a new store only; an existing one gets raw (woo-write saveVendors, decision 2 of phase 3).
  */
 export function mapStore(dokanStore) {
   const s = isObj(dokanStore) ? dokanStore : {};
@@ -274,6 +290,7 @@ export function mapStore(dokanStore) {
     phone: orNull(s.phone),
     email: isOn(s.show_email) ? orNull(s.email) : null,
     status: s.enabled == null || isOn(s.enabled) ? 'active' : 'inactive',
+    joined_at: dateOnly(s.registered),
     raw: { ...pick(s, RAW_STORE), ...(isObj(s.rating) ? { rating: pick(s.rating, ['rating', 'count']) } : {}) },
   };
 }

@@ -1,12 +1,16 @@
 // woo-write: the WooCommerce → Postgres write path shared by woo-webhook and woo-sync (service_role client: the
 // functions read and write the tables directly, never orders_v).
 // * Makers first: an unknown _dokan_vendor_id is looked up in vendors, then fetched from dokan/v1/stores/{id} and
-//   upserted on woo_vendor_id (mapStore never carries aliases / commission_pct, so the owner's values stay). A store
-//   Dokan does not know (404) → woo_sync_log 'skipped'; any other failure (401/403/5xx/timeout/network) →
-//   woo_sync_log 'error'. Either way the id is asked once per run / delivery (missingVendors / failedVendors) and
-//   again on the next one; the rows are
-//   still written, with vendor_id null, and the rest of the delivery / page goes on. Only then are rows mapped for good.
-// * Orders / lines are upserted with the sync-owned columns only (ORDER_COLUMNS / ITEM_COLUMNS), so an existing row
+//   upserted on woo_vendor_id. saveVendors writes a store that is already in the table with raw (and woo_vendor_id)
+//   only — the team owns name / status / phone / email and the phase-3 columns after the first insert (decision 2 of
+//   phase 3: Dokan's public REST returns neither `enabled` nor a phone, and a full rewrite every 15 minutes would undo
+//   the team's edits) — and a new store with the full mapStore row (joined_at from `registered`; never aliases /
+//   commission_pct / the other team columns). A store Dokan does not know (404) → woo_sync_log 'skipped'; any other
+//   failure (401/403/5xx/timeout/network) → woo_sync_log 'error'. Either way the id is asked once per run / delivery
+//   (missingVendors / failedVendors) and again on the next one; the rows are still written, with vendor_id null, and
+//   the rest of the delivery / page goes on. Only then are rows mapped for good.
+// * Orders / lines are upserted with the sync-owned columns only (ORDER_COLUMNS / ITEM_COLUMNS — commission_rate /
+//   commission_fee among them, written on every run: the site's commission on the line), so an existing row
 //   keeps the team's operational values (orders.confirm*/deposit/note/cancel/ret, order_items.status/expected_at/
 //   comment/ready_at/waybill/pulled/ret/store, order_items.sub_order_id). customer_city / customer_address /
 //   customer_state and note (= the website note, customer_note) are written on a new order only (the team edits city,
@@ -31,14 +35,16 @@ import { errorText } from './woo-api.js';
 export const ORDER_COLUMNS = ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'customer_state',
   'payment_method', 'payment_title', 'status', 'woo_status', 'total', 'currency', 'customer_note', 'note', 'placed_at', 'woo_updated_at',
   'raw', 'synced_at'];
-export const ITEM_COLUMNS = ['id', 'order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'raw', 'removed'];
+export const ITEM_COLUMNS = ['id', 'order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'commission_rate', 'commission_fee', 'raw', 'removed'];
 // Written on a new order only: an existing order is upserted without them (the team edits city / address / note after
 // the first sync; customer_state, display only, stays with that first address).
 const TEAM_EDITED = ['customer_city', 'customer_address', 'customer_state', 'note'];
 const ORDER_UPDATE_COLUMNS = ORDER_COLUMNS.filter((c) => !TEAM_EDITED.includes(c));
 const ITEM_COLUMNS_NO_VENDOR = ITEM_COLUMNS.filter((c) => c !== 'vendor_id');
 const SUB_COLUMNS = ['order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw'];
-const VENDOR_COLUMNS = ['woo_vendor_id', 'name', 'phone', 'email', 'status', 'raw'];
+// A new store: the full mapStore row. An existing store: raw only (decision 2 of phase 3; the key names the row).
+const VENDOR_COLUMNS = ['woo_vendor_id', 'name', 'phone', 'email', 'status', 'joined_at', 'raw'];
+const VENDOR_UPDATE_COLUMNS = ['woo_vendor_id', 'raw'];
 // products.raw is readable by members: an allow-list of public product fields (no store owner name or address).
 const PRODUCT_RAW = ['id', 'name', 'slug', 'type', 'status', 'sku', 'price', 'regular_price', 'sale_price', 'on_sale', 'stock_status',
   'stock_quantity', 'date_created_gmt', 'date_modified_gmt', 'permalink', 'parent_id'];
@@ -78,12 +84,23 @@ async function save(ctx, table, rows, onConflict, returning = null) {
 
 // ---------------------------------------------------------------- makers
 
-/** Upserts vendors rows (mapStore output) on woo_vendor_id and remembers their ids. → number written. */
+/**
+ * mapStore rows → vendors, upserted on woo_vendor_id, their ids remembered in ctx.vendors. A store already in the table
+ * (ctx.vendors, else looked up) gets raw only; a new one is inserted with the full row (see the header). → number
+ * written.
+ */
 export async function saveVendors(ctx, rows) {
-  const valid = rows.filter((r) => wooId(r.woo_vendor_id) !== null).map((r) => pick(r, VENDOR_COLUMNS));
-  const { rows: saved, bad } = await save(ctx, 'vendors', valid, 'woo_vendor_id', 'id, woo_vendor_id');
-  for (const v of saved) ctx.vendors.set(Number(v.woo_vendor_id), v.id);
-  return valid.length - bad.size;
+  const valid = rows.filter((r) => wooId(r.woo_vendor_id) !== null);
+  const ids = [...new Set(valid.map((r) => wooId(r.woo_vendor_id)))];
+  const known = new Set(ids.filter((id) => ctx.vendors.has(id)));
+  for (const v of await selectIn(ctx.db, 'vendors', 'id, woo_vendor_id', 'woo_vendor_id', ids.filter((id) => !known.has(id)))) {
+    known.add(Number(v.woo_vendor_id));
+    ctx.vendors.set(Number(v.woo_vendor_id), v.id);
+  }
+  const added = await save(ctx, 'vendors', valid.filter((r) => !known.has(wooId(r.woo_vendor_id))).map((r) => pick(r, VENDOR_COLUMNS)), 'woo_vendor_id', 'id, woo_vendor_id');
+  const kept = await save(ctx, 'vendors', valid.filter((r) => known.has(wooId(r.woo_vendor_id))).map((r) => pick(r, VENDOR_UPDATE_COLUMNS)), 'woo_vendor_id', 'id, woo_vendor_id');
+  for (const v of [...added.rows, ...kept.rows]) ctx.vendors.set(Number(v.woo_vendor_id), v.id);
+  return valid.length - added.bad.size - kept.bad.size;
 }
 
 // The store as a vendors row, or null: 404 / another store → skipped (missingVendors); any other failure → an error

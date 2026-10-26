@@ -359,8 +359,8 @@ export async function installSupabaseMock(page) {
           logRow('vendor.login.password');
           return json(200, at);
         }
-        if (!row) return refuse(400, 'P0002', 'vendor login not found');
-        logRow('vendor.login.reveal'); // every call that reaches a row, even one without a password
+        logRow('vendor.login.reveal'); // every call, as 0012 does: the row is logged before the read, even without a login row or a password
+        if (!row) return json(200, null);
         const secret = row.secret_id ? mock.vault.get(row.secret_id) : null;
         return json(200, secret ?? null);
       }

@@ -172,7 +172,7 @@ test('a maker already in the registry (by name or alias, normalised) is refused 
   await pickOption(page, 'v-cat', 'هدايا'); await m.locator('#v-phone').fill('01000000008'); await m.locator('#v-login-email').fill('x.dev@ibtekr.local');
   await pickOption(page, 'v-bank-method', 'نقدي عند التسليم');
   await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
-  await expect(m.locator('#v-name-err')).toHaveText('المبتكر ده موجود — افتح ملفه');
+  await expect(m.locator('#v-name-err')).toContainText('المبتكر ده موجود (');
   expect(writes()).toEqual([]);
   await m.locator('[data-open-dup]').click();
   await expect(modal(page)).toHaveCount(0);
@@ -183,7 +183,7 @@ test('a maker already in the registry (by name or alias, normalised) is refused 
   await pickOption(page, 'v-cat', 'هدايا'); await m2.locator('#v-phone').fill('01000000008'); await m2.locator('#v-login-email').fill('x.dev@ibtekr.local');
   await pickOption(page, 'v-bank-method', 'نقدي عند التسليم');
   await m2.getByRole('button', { name: 'إضافة المبتكر' }).click();
-  await expect(m2.locator('#v-name-err')).toHaveText('المبتكر ده موجود — افتح ملفه');
+  await expect(m2.locator('#v-name-err')).toContainText('المبتكر ده موجود (');
   expect(writes()).toEqual([]);
 });
 
@@ -211,6 +211,11 @@ test('ops (vendors.edit = P) and accounts: the login writes and the RPCs refused
   await expect(ls.locator('[data-login-toggle]')).toHaveCount(0);
   await expect(ls).toContainText('بيديرها الأدمن ومتابعة المبتكرين');
   await expect(drawer(page).locator('[data-missing]')).toHaveCount(0); // no sensitive.vendor_bank: the bank is not judged; the login is there
+  // ops copies the login of a temp-mode maker without the key: no password and no promise of a link (review B, I1)
+  await captureClipboard(page);
+  await ls.locator('[data-copy-login]').click();
+  await expect.poll(() => page.evaluate(() => window.__copied)).toEqual(['اسم المستخدم: antikiano\nالإيميل: antikiano.dev@ibtekr.local\nالباسورد المؤقت: اطلبه من الأدمن أو متابعة المبتكرين']);
+  expect(mock.rpcs).toEqual([]); // nothing asked of the server
   // straight at the server (what a tampered page could send): the two RPCs, an insert and secret_id are refused
   const codes = await page.evaluate(async (id) => {
     const c = window.IBSupabase.client;
@@ -357,9 +362,9 @@ test('«ناقص» in the drawer header (the admin sees the three pieces); the l
     const long = await c.rpc('vendor_login_set_password', { p_vendor: v2, p_password: 'Test1234' + 'x'.repeat(121) });
     return [code(up), code(srv), code(cb), code(act), code(noMail), code(rv), code(sp), code(long)];
   }, [V1, V2]);
-  expect(direct).toEqual(['42501', '42501', '42501', '42501', '23502', 'P0002', 'P0002', '22023']);
-  expect(mock.rpcs.slice(-3).map((r) => r.result)).toEqual(['P0002', 'P0002', '22023']);
-  expect(serverActs('vendor.login.reveal')).toEqual([]);
+  expect(direct).toEqual(['42501', '42501', '42501', '42501', '23502', 'ok', 'P0002', '22023']); // reveal without a row: null, logged (0012)
+  expect(mock.rpcs.slice(-3).map((r) => r.result)).toEqual(['ok', 'P0002', '22023']);
+  expect(serverActs('vendor.login.reveal').map((r) => r.entity_id)).toEqual(['b0000000-0000-4000-8000-000000000009']);
   expect(mock.vendorLogins.find((l) => l.vendor_id === V2)).toMatchObject({ must_change: true, status: 'invited', created_by: 'صفوت كمال' });
 });
 

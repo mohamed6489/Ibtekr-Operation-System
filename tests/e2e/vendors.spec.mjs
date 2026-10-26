@@ -450,7 +450,7 @@ test('delete (admin): refused while order lines point at the maker, with a clear
   expect(writes().filter((w) => w.op === 'delete')).toHaveLength(1);
 });
 
-test('«إضافة مبتكر» (the form as it is) creates the maker on the server with its first rate and opens its drawer; ops is refused by the server', async ({ page }) => {
+test('«إضافة مبتكر» (phase 3.1: basics + login + bank) creates the maker on the server with its first rate, its login and its bank row, and opens its drawer; ops is refused before any request', async ({ page }) => {
   await openVendors(page);
   await page.getByRole('button', { name: 'إضافة مبتكر' }).click();
   await modal(page).locator('#v-name').fill(' zaan ');
@@ -458,15 +458,21 @@ test('«إضافة مبتكر» (the form as it is) creates the maker on the ser
   await page.locator('[role=listbox] [role=option]', { hasText: 'هدايا' }).click();
   await modal(page).locator('#v-phone').fill('01000000009');
   await modal(page).locator('#v-aliases').fill('zana، Zaan');
+  await expect(modal(page).locator('#v-login-user')).toHaveValue('zaan');
+  await modal(page).locator('#v-login-email').fill('zaan.dev@ibtekr.local');
+  await modal(page).locator('#v-bank-method').click();
+  await page.locator('[role=listbox] [role=option]', { hasText: 'نقدي عند التسليم' }).click();
   await modal(page).getByRole('button', { name: 'إضافة المبتكر' }).click();
   await expect(drawer(page)).toBeVisible();
   await expect(drawer(page).locator('.drawer-h h2')).toHaveText('zaan');
   await expect(drawer(page).locator('.drawer-h')).toContainText('بدون متجر على الموقع');
   await expect(page).toHaveURL(/#makers\/b0000000-0000-4000-8000-000000000001$/);
   const ins = writes().filter((w) => w.op === 'insert');
-  expect(ins[0]).toEqual({ table: 'vendors', op: 'insert', name: 'zaan', category: 'هدايا', phone: '01000000009', status: 'active', lead_days: 7, aliases: ['zana', 'Zaan'], joined_at: ins[0].joined_at });
+  expect(ins.map((w) => w.table)).toEqual(['vendors', 'vendor_rates', 'vendor_logins', 'vendor_bank']);
+  expect(ins[0]).toEqual({ table: 'vendors', op: 'insert', name: 'zaan', category: 'هدايا', phone: '01000000009', email: 'zaan.dev@ibtekr.local', status: 'active', lead_days: 7, aliases: ['zana', 'Zaan'], joined_at: ins[0].joined_at });
   expect(ins[0].joined_at).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   expect(ins[1]).toEqual({ table: 'vendor_rates', op: 'insert', vendor_id: 'b0000000-0000-4000-8000-000000000001', rate: 40, since: ins[1].since, set_by: 'صفوت كمال' });
+  expect(ins[2]).toEqual({ table: 'vendor_logins', op: 'insert', vendor_id: 'b0000000-0000-4000-8000-000000000001', username: 'zaan', email: 'zaan.dev@ibtekr.local', pw_mode: 'link', created_by: '00000000-0000-4000-8000-000000000001' });
   await expect.poll(() => acts('vendor.create')).toEqual([{ action: 'vendor.create', entity: 'vendor', entity_id: 'b0000000-0000-4000-8000-000000000001', new_value: 'zaan' }]);
   await expect(drawer(page).locator('.drawer-h')).toContainText('نسبة إبتكر 40%');
   await expect(rows(page)).toHaveCount(3);
@@ -477,9 +483,48 @@ test('«إضافة مبتكر» (the form as it is) creates the maker on the ser
   await modal(page).locator('#v-cat').click();
   await page.locator('[role=listbox] [role=option]', { hasText: 'هدايا' }).click();
   await modal(page).locator('#v-phone').fill('01000000007');
+  await modal(page).locator('#v-login-email').fill('nope.dev@ibtekr.local');
+  await expect(modal(page).locator('#v-bank-method')).toHaveCount(0); // no sensitive.vendor_bank: the bank section says accounts completes it
+  await expect(modal(page)).toContainText('البيانات البنكية بيكمّلها قسم الحسابات بس');
   await modal(page).getByRole('button', { name: 'إضافة المبتكر' }).click();
   await expect(modal(page)).toContainText('مش من صلاحياتك');
-  expect(writes().filter((w) => w.op === 'insert')).toHaveLength(2);
+  expect(writes().filter((w) => w.op === 'insert')).toHaveLength(4);
+});
+
+test('«في إجازة» (phase 3.1): a status like the others — from «المزيد», in the tag, the filter, the KPI and the edit popups; the maker leaves the active list', async ({ page }) => {
+  await openVendors(page);
+  await expect(page.locator('#vendors .kpi[aria-label="مبتكرين نشطين"] .t-h3')).toHaveText('2');
+  await openDrawer(page, V2);
+  await drawer(page).getByRole('button', { name: 'المزيد' }).click();
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تحويل لـ «في إجازة»', 'تحويل لغير نشط', 'تغيير النسبة (الأوردرات الجديدة فقط)', 'نسخ رابط الملف', 'إنشاء تذكرة على المبتكر']);
+  await page.locator('[role=menu] [role=menuitem]', { hasText: 'في إجازة' }).click();
+  await expect(drawer(page).locator('.drawer-h .vstatus')).toHaveText('في إجازة');
+  await expect.poll(() => writes()).toEqual([{ table: 'vendors', op: 'update', id: V2, status: 'leave' }]);
+  await expect.poll(() => acts('vendor.status')).toEqual([{ action: 'vendor.status', entity: 'vendor', entity_id: V2, new_value: 'leave' }]);
+  expect(mock.vendors.find((v) => v.id === V2).status).toBe('leave'); // the check constraint takes it (0012)
+  await expect(info(section(page, 'الهوية'), page, 'الحالة')).toHaveText('في إجازة');
+  await drawer(page).getByRole('button', { name: 'المزيد' }).click();
+  await expect(page.locator('[role=menu] [role=menuitem]').first()).toHaveText('تفعيل المبتكر');
+  await page.keyboard.press('Escape');
+  await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
+  await expect(rows(page)).toHaveCount(1); // not active any more
+  await expect(page.locator('#vendors .kpi[aria-label="مبتكرين نشطين"] .t-h3')).toHaveText('1');
+  expect(await page.evaluate(() => window.IbtekrVendors.summary(window.IBVendors.store.all(), {}).active)).toBe(1); // leave counts as inactive everywhere (tasks, KPI)
+  await statusFilter(page, 'في إجازة');
+  await expect(rows(page)).toHaveCount(1);
+  await expect(row(page, V2).locator('.vstatus')).toHaveText('في إجازة');
+  await expect(page.locator('#vendors .fchips')).toContainText('الحالة: في إجازة');
+  await openByHash(page, V2);
+  await section(page, 'الهوية').getByRole('button', { name: 'تعديل بيانات الهوية' }).click();
+  await expect(modal(page).locator('#g-status .val')).toHaveText('في إجازة');
+  await modal(page).locator('#g-status').click();
+  await expect(page.locator('[role=listbox] [role=option]')).toHaveText(['نشط', 'في إجازة', 'غير نشط']);
+  await page.keyboard.press('Escape');
+  await modal(page).getByRole('button', { name: 'إلغاء' }).click();
+  await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
+  await page.getByRole('button', { name: 'إضافة مبتكر' }).click();
+  await modal(page).locator('#v-status').click();
+  await expect(page.locator('[role=listbox] [role=option]')).toHaveText(['نشط', 'في إجازة', 'غير نشط']);
 });
 
 test('sign-out leaves no maker on the page', async ({ page }) => {

@@ -2,14 +2,15 @@ import { test } from 'node:test'; import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs'; import { runInNewContext } from 'node:vm';
 import { stubClient, opsOf } from './stub-supabase.mjs';
 // orders.js against a stub IBSupabase: orders_v (last 12 months) + order_items + sub_orders + vendors + products + status_map
-// → block 29's screen shape (with each line's link to its product on the website); write-through updates (named, granted
+// + woo_states → block 29's screen shape (with each line's link to its product on the website and the governorate's name from
+// the website's list); write-through updates (named, granted
 // columns, no .select()), the woo-sync push, Realtime refetch.
 const src = readFileSync(new URL('../../app/js/adapter/orders.js', import.meta.url), 'utf8');
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const V1 = 'a0000000-0000-4000-8000-000000000001', V2 = 'a0000000-0000-4000-8000-000000000002';
 // multi-maker: two lines in two Dokan sub-orders; single-maker: one line, no sub-order (+ one removed line)
-const O1 = { id: 181668, customer_name: 'سلوى زيتوني', customer_phone: '012••••7052', customer_city: 'القاهرة', customer_address: 'مدينة نصر', payment_method: 'cod', payment_title: 'الدفع عند الاستلام', status: 'جاري التنفيذ', woo_status: 'processing', confirm: 'غير مؤكد', confirm_at: null, deposit: 0, total: 3541, note: null, customer_note: 'اتصلوا قبل التوصيل\nالدور التالت', placed_at: '2026-10-19T12:00:00+00:00', cancel: null, ret: null };
-const O2 = { id: 180686, customer_name: 'هدير عميل', customer_phone: '01000007030', customer_city: null, customer_address: null, payment_method: 'cod', payment_title: null, status: 'معلّق', woo_status: 'on-hold', confirm: 'مؤكد بعربون', confirm_at: '2026-10-18', deposit: '300.00', total: '1002.00', note: 'تبع اوردر 180668', placed_at: '2026-10-17T12:00:00+00:00', cancel: null, ret: { reason: 'x' } };
+const O1 = { id: 181668, customer_name: 'سلوى زيتوني', customer_phone: '012••••7052', customer_state: 'EG-01', customer_city: 'القاهرة', customer_address: 'مدينة نصر', payment_method: 'cod', payment_title: 'الدفع عند الاستلام', status: 'جاري التنفيذ', woo_status: 'processing', confirm: 'غير مؤكد', confirm_at: null, deposit: 0, total: 3541, note: null, customer_note: 'اتصلوا قبل التوصيل\nالدور التالت', placed_at: '2026-10-19T12:00:00+00:00', cancel: null, ret: null };
+const O2 = { id: 180686, customer_name: 'هدير عميل', customer_phone: '01000007030', customer_state: null, customer_city: null, customer_address: null, payment_method: 'cod', payment_title: null, status: 'معلّق', woo_status: 'on-hold', confirm: 'مؤكد بعربون', confirm_at: '2026-10-18', deposit: '300.00', total: '1002.00', note: 'تبع اوردر 180668', placed_at: '2026-10-17T12:00:00+00:00', cancel: null, ret: { reason: 'x' } };
 const SUBS = [{ id: 1, order_id: 181668, vendor_id: V1, woo_order_id: 181669, woo_status: 'processing' }, { id: 2, order_id: 181668, vendor_id: V2, woo_order_id: 181670, woo_status: 'on-hold' }];
 const item = (o) => ({ sub_order_id: null, product_id: null, sku: null, qty: 1, total: 0, vendor_id: null, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, ...o });
 const ITEMS = [
@@ -21,12 +22,13 @@ const ITEMS = [
 const VENDORS = [{ id: V2, name: 'Antikiano' }, { id: V1, name: 'Art Craft' }];
 const SITE = 'https://stage.ibtekr.test'; // a fake staging host
 const PRODUCTS = [{ sku: 'IBTA4040PAHC000013', image_url: 'https://stage.ibtekr.club/cushion.jpg', permalink: SITE + '/product/cushion/' }, { sku: 'IBTAMCTOWM200X10014', image_url: null, permalink: null }];
+const STATES = [{ code: 'EG-02', name: 'الجيزة' }, { code: 'EG-01', name: 'القاهرة' }]; // woo_states: the website's list (0010)
 const STATUSES = [{ system_status: 'قيد الانتظار', woo_status: 'pending', direction: 'both', sort: 1 }, { system_status: 'فشل', woo_status: 'failed', direction: 'from_woo', sort: 10 }];
 const ok = (data) => ({ data, error: null });
 // the granted columns the adapter names (0007 grants: no raw, no customer_phone on orders — the view masks it)
-const COLS = { order: 'id, customer_name, customer_phone, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret',
+const COLS = { order: 'id, customer_name, customer_phone, customer_state, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret',
   item: 'id, order_id, sub_order_id, product_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed', sub: 'id, order_id, vendor_id, woo_order_id, woo_status' };
-const seed = () => ({ orders_v: ok([O1, O2]), order_items: ok(ITEMS), sub_orders: ok(SUBS), vendors: ok(VENDORS), products: ok(PRODUCTS), status_map: ok(STATUSES), 'fn:woo-sync': ok({ action: 'push_status', result: 'ok', counts: { pushed: 1 } }) });
+const seed = () => ({ orders_v: ok([O1, O2]), order_items: ok(ITEMS), sub_orders: ok(SUBS), vendors: ok(VENDORS), products: ok(PRODUCTS), status_map: ok(STATUSES), woo_states: ok(STATES), 'fn:woo-sync': ok({ action: 'push_status', result: 'ok', counts: { pushed: 1 } }) });
 // the adapter's clock: local 2026-10-25 12:00 unless a test asks for the real one (now: null)
 const NOW = new Date(2026, 9, 25, 12, 0).getTime();
 const clockAt = (t) => class FakeDate extends Date { constructor(...a) { if (a.length) super(...a); else super(t); } static now() { return t; } };
@@ -48,7 +50,7 @@ const stampLocal = (d) => ymdLocal(d) + ' ' + String(d.getHours()).padStart(2, '
 test('load names every column (no *, removed included) and asks for the last 12 months, newest first, by pages of 1000', async () => {
   const { O, calls } = load();
   await O.load();
-  for (const t of ['orders_v', 'order_items', 'sub_orders', 'vendors', 'products', 'status_map']) for (const s of selectOf(calls, t)) assert.doesNotMatch(s, /\*/, t);
+  for (const t of ['orders_v', 'order_items', 'sub_orders', 'vendors', 'products', 'status_map', 'woo_states']) for (const s of selectOf(calls, t)) assert.doesNotMatch(s, /\*/, t);
   assert.deepEqual(selectOf(calls, 'orders_v'), [COLS.order]);
   assert.deepEqual(selectOf(calls, 'order_items'), [COLS.item]);
   assert.match(COLS.item, /\bremoved\b/);
@@ -57,6 +59,9 @@ test('load names every column (no *, removed included) and asks for the last 12 
   assert.deepEqual(selectOf(calls, 'vendors'), ['id, name']);
   assert.deepEqual(selectOf(calls, 'products'), ['sku, image_url, permalink']);
   assert.deepEqual(selectOf(calls, 'status_map'), ['system_status, woo_status, direction, sort']);
+  assert.match(COLS.order, /\bcustomer_state\b/); // the governorate's code (0010)
+  assert.deepEqual(selectOf(calls, 'woo_states'), ['code, name']); // once per load, no filter
+  assert.deepEqual(opsOf(calls, 'woo_states').filter((c) => c.op !== 'select' && c.op !== 'order'), []);
   const ov = opsOf(calls, 'orders_v');
   const gte = ov.find((c) => c.op === 'gte'); assert.equal(gte.args[0], 'placed_at');
   assert.equal(gte.args[1], new Date(2025, 9, 25, 12, 0).toISOString()); // 12 months before the adapter's clock
@@ -75,7 +80,7 @@ test('load builds the screen shape: multi-maker sid/raw from the Dokan sub-order
   await O.load();
   const d = plain(O.data());
   assert.deepEqual(d.orders.map((o) => o.id), ['181668', '180686']);
-  assert.deepEqual(d.orders[0], { id: '181668', name: 'سلوى زيتوني', phone: '012••••7052', pay: 'الدفع عند الاستلام', date: '2026-10-19', st: 'جاري التنفيذ', cf: 'غير مؤكد', dep: 0, tot: 3541, age: 6, note: '', cnote: 'اتصلوا قبل التوصيل\nالدور التالت', cdate: '', confAt: '', city: 'القاهرة', addr: 'مدينة نصر', cancel: null, ret: null,
+  assert.deepEqual(d.orders[0], { id: '181668', name: 'سلوى زيتوني', phone: '012••••7052', pay: 'الدفع عند الاستلام', date: '2026-10-19', st: 'جاري التنفيذ', cf: 'غير مؤكد', dep: 0, tot: 3541, age: 6, note: '', cnote: 'اتصلوا قبل التوصيل\nالدور التالت', cdate: '', confAt: '', state: 'EG-01', stateName: 'القاهرة', city: 'القاهرة', addr: 'مدينة نصر', cancel: null, ret: null,
     subs: [
       { n: 5001, itemId: '5001', sid: '181669', oid: '181668', prod: 'Cushion', qty: 2, tot: 1002, raw: 'processing', vendor: 'Art Craft', cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', link: SITE + '/product/cushion/', readyAt: '', waybill: null, pulled: false, ret: null, store: null },
       { n: 5002, itemId: '5002', sid: '181670', oid: '181668', prod: 'Macrame Curtain', qty: 1, tot: 2539, raw: 'on-hold', vendor: 'Antikiano', cm: 'تم تبليغ المورد', ss: 'مؤكد', exp: '2026-10-20', sku: 'IBTAMCTOWM200X10014', link: SITE + '/?p=9002', readyAt: '', waybill: null, pulled: false, ret: null, store: null }, // no permalink: the site's ?p=
@@ -93,7 +98,7 @@ test('toScreen, single maker without a sub-order: sid = the parent order id (the
   const { O } = load();
   const [o] = plain(O.toScreen([O2], ITEMS, SUBS, VENDORS, { today: '2026-10-25' }));
   assert.equal(o.age, 8);
-  assert.deepEqual({ pay: o.pay, dep: o.dep, tot: o.tot, note: o.note, cnote: o.cnote, cdate: o.cdate, confAt: o.confAt, city: o.city, addr: o.addr, ret: o.ret }, { pay: 'cod', dep: 300, tot: 1002, note: 'تبع اوردر 180668', cnote: '', cdate: '2026-10-18', confAt: '2026-10-18', city: '', addr: '', ret: { reason: 'x' } });
+  assert.deepEqual({ pay: o.pay, dep: o.dep, tot: o.tot, note: o.note, cnote: o.cnote, cdate: o.cdate, confAt: o.confAt, state: o.state, stateName: o.stateName, city: o.city, addr: o.addr, ret: o.ret }, { pay: 'cod', dep: 300, tot: 1002, note: 'تبع اوردر 180668', cnote: '', cdate: '2026-10-18', confAt: '2026-10-18', state: '', stateName: '', city: '', addr: '', ret: { reason: 'x' } });
   assert.deepEqual(o.subs, [{ n: 5003, itemId: '5003', sid: '180686', oid: '180686', prod: 'Cushion', qty: 2, tot: 1002, raw: 'on-hold', vendor: '', cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', link: '', readyAt: '', waybill: null, pulled: false, ret: null, store: null }]); // no opts.links: no link
 });
 
@@ -113,6 +118,42 @@ test('toScreen links: the sku\'s permalink (https only), else <origin>/?p=<produ
   assert.deepEqual(got({}), Array(13).fill(''));
   // the origin of the first permalink with a plain host (and port)
   assert.deepEqual(got({ X: 'https://user@evil.test/x', A: 'https://site.test:8443/product/a' }).slice(0, 2), ['https://site.test:8443/product/a', 'https://site.test:8443/?p=77']);
+});
+
+test('toScreen governorate: state = the code (trimmed) or \'\', stateName = its name from opts.states (a Map or woo_states rows), else the code, else \'\'', async () => {
+  const { O } = load();
+  const rows = [{ ...O1, id: 1, customer_state: 'EG-01' }, { ...O1, id: 2, customer_state: 'EG-14' }, { ...O1, id: 3, customer_state: null }, { ...O1, id: 4, customer_state: ' ' },
+    { ...O1, id: 5, customer_state: ' EG-02 ' }, { ...O1, id: 6, customer_state: 'EG-03' }, { ...O1, id: 7, customer_state: 'constructor' }, { ...O1, id: 8, customer_state: '__proto__' }];
+  const got = (states) => plain(O.toScreen(rows, [], [], [], { today: '2026-10-25', states }).map((o) => [o.state, o.stateName]));
+  const map = new Map([['EG-01', 'القاهرة'], ['EG-02', 'الجيزة'], ['EG-03', ' ']]);
+  const frozen = JSON.stringify([...map]);
+  const want = [['EG-01', 'القاهرة'], ['EG-14', 'EG-14'], ['', ''], ['', ''], ['EG-02', 'الجيزة'], ['EG-03', 'EG-03'], ['constructor', 'constructor'], ['__proto__', '__proto__']]; // an unknown code / a blank name: the code
+  assert.deepEqual(got(map), want);
+  assert.equal(JSON.stringify([...map]), frozen); // pure: the map is not changed
+  assert.deepEqual(got([{ code: 'EG-01', name: 'القاهرة' }, { code: 'EG-02', name: 'الجيزة' }, { code: 'EG-03', name: null }, { code: null, name: 'x' }]), want); // woo_states rows
+  const none = want.map(([c]) => [c, c]);
+  assert.deepEqual(got(undefined), none); // no list: the codes
+  assert.deepEqual(got([]), none);
+  assert.deepEqual(got({ 'EG-01': 'القاهرة' }), none); // neither a Map nor rows
+});
+
+test('load: woo_states empty or refused is no error — the codes show; a refused one keeps the last good list', async () => {
+  const { O, responses } = load();
+  responses.woo_states = ok([]);
+  await O.load();
+  assert.equal(O.state(), 'ready');
+  assert.deepEqual(plain(O.data().orders.map((o) => [o.state, o.stateName])), [['EG-01', 'EG-01'], ['', '']]);
+  responses.woo_states = ok(STATES);
+  await O.load();
+  assert.equal(O.data().orders[0].stateName, 'القاهرة');
+  responses.woo_states = { data: null, error: { code: '42501', message: 'permission denied for table woo_states' } };
+  await O.load();
+  assert.equal(O.state(), 'ready');
+  assert.equal(O.data().orders[0].stateName, 'القاهرة'); // the last list stays
+  const fresh = load({ responses: { ...seed(), woo_states: { data: null, error: { code: '42P01', message: 'relation "public.woo_states" does not exist' } } } });
+  await fresh.O.load();
+  assert.equal(fresh.O.state(), 'ready');
+  assert.deepEqual(plain(fresh.O.data().orders.map((o) => o.stateName)), ['EG-01', '']);
 });
 
 test('toScreen: age counts whole days from the order date to today, never below 0; ready_at shows as the local clock', async () => {
@@ -402,6 +443,8 @@ test('Realtime: INSERT/UPDATE on the three tables re-read that order from orders
   assert.equal(applied.length, 1);
   assert.deepEqual({ id: applied[0].id, st: applied[0].st, phone: applied[0].phone, cms: applied[0].subs.map((s) => s.cm), sids: applied[0].subs.map((s) => s.sid) }, { id: '181668', st: 'قيد الشحن', phone: '012••••7052', cms: ['اتحدث', 'اتحدث'], sids: ['181669', '181670'] });
   assert.deepEqual(applied[0].subs.map((s) => s.link), [SITE + '/product/cushion/', SITE + '/?p=9002']); // the load's links (and their origin) still apply
+  assert.deepEqual([applied[0].state, applied[0].stateName], ['EG-01', 'القاهرة']); // customer_state re-read; the load's names still apply
+  assert.equal(calls.some((c) => c.table === 'woo_states'), false); // not asked again per event
   assert.equal(O.data().orders[0].st, 'قيد الشحن'); // the cache follows
   assert.ok(events.includes('ib:notify'));
   await emitChange({ table: 'orders', eventType: 'UPDATE', new: { id: 180686, status: 'مكتمل' } }); // an orders payload: its own id
@@ -482,5 +525,5 @@ test('clear unsubscribes and drops the data; a load still in flight is abandoned
   const pending = O.load(); O.clear(); await pending;
   assert.equal(O.data(), null);
   assert.deepEqual(hydrated, []);
-  assert.deepEqual(calls.filter((c) => c.table && c.table !== 'orders_v' && c.table !== 'vendors' && c.table !== 'status_map'), []); // nothing asked after the clear
+  assert.deepEqual(calls.filter((c) => c.table && !['orders_v', 'vendors', 'status_map', 'woo_states'].includes(c.table)), []); // nothing asked after the clear
 });

@@ -2,7 +2,7 @@
 // makes for the login flow, the dashboard and the orders page, with the three dev users of tools/seed-dev-users.sql (+ M03, a
 // mock-only 2FA user, and M04, a mock-only accounts user: orders.status N, sensitive.customer_phone N).
 // Strict like the real thing: apikey required, PostgREST bearer must be the anon key or a token issued here,
-// `select` columns checked against supabase/migrations (0001, 0002, 0006, 0007, 0009), RLS of each emulated table, the column-level
+// `select` columns checked against supabase/migrations (0001, 0002, 0006, 0007, 0009, 0010), RLS of each emulated table, the column-level
 // grants and guard triggers of the orders tables (0007), woo-sync's push_status contract, the aal2 rule of has_perm and the
 // 2FA RPCs (0008) with GoTrue's MFA endpoints (enroll / challenge / verify / unenroll). Not a product feature.
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
@@ -39,19 +39,20 @@ const ROLES = [
 ];
 const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts, status_map), 0006_dashboard.sql (user_prefs,
   // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw),
-  // 0009 (products.permalink)
+  // 0009 (products.permalink), 0010 (orders_v.customer_state: the governorate's code on the website; woo_states: its names)
   profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'created_at'],
   roles: ['id', 'name', 'description', 'is_system', 'permissions', 'sort'],
   user_prefs: ['user_id', 'key', 'data', 'updated_at'],
   activity_log: ['id', 'at', 'actor', 'action', 'entity', 'entity_id', 'old_value', 'new_value'],
   alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at'],
   alert_reads: ['alert_id', 'user_id', 'read_at'],
-  orders_v: ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method', 'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note', 'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'synced_at', 'created_at', 'updated_at'],
+  orders_v: ['id', 'number', 'customer_name', 'customer_phone', 'customer_state', 'customer_city', 'customer_address', 'payment_method', 'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note', 'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'synced_at', 'created_at', 'updated_at'],
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'updated_at'],
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'updated_at'],
   vendors: ['id', 'woo_vendor_id', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at'],
   products: ['id', 'sku', 'name', 'image_url', 'permalink', 'vendor_id', 'price', 'status', 'raw', 'updated_at'],
   status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
+  woo_states: ['code', 'name', 'updated_at'],
 };
 // the alerts table at sign-in: one for the admin role, one addressed to ops.dev (M02) only
 const ALERTS = () => [
@@ -105,6 +106,7 @@ function pageOf(rows, params) {
 // Dokan sub-orders, a single-maker one (no sub-order; one line removed from WooCommerce) and one whose customer name is HTML —
 // plus one older than 12 months that the orders page never asks for. Images are inline data: URLs (no outside request);
 // permalinks are https URLs on a fake staging host (SITE), never reached (a spec that opens one answers it itself).
+// Governorates (0010): 181668 is EG-01 (a name in woo_states), 180656 EG-14 (a code the list has no name for), 180686 none.
 export const XSS_NAME = '<img src=x onerror="window.__xss=1">';
 export const SITE = 'https://ibtekr.stage.test';
 export const IMG = { cushion: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', curtain: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' };
@@ -118,7 +120,7 @@ function ordersSeed() {
   const ago = (d) => { const t = new Date(Date.now() - d * 864e5); t.setUTCHours(10, 0, 0, 0); return t.toISOString(); };
   const vendor = (n, woo, name, status = 'active') => ({ id: VND(n), woo_vendor_id: woo, name, aliases: [], phone: null, email: null, status, commission_pct: null, raw: { id: woo }, created_at: T0, updated_at: T0 });
   const product = (id, sku, name, image_url, v, slug) => ({ id, sku, name, image_url, permalink: SITE + '/product/' + slug + '/', vendor_id: VND(v), price: null, status: 'publish', raw: { id }, updated_at: T0 });
-  const order = (o) => ({ number: String(o.id), customer_city: null, customer_address: null, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', confirm: 'غير مؤكد', confirm_at: null, confirm_note: null, deposit: 0, currency: 'EGP', note: null, customer_note: null, cancel: null, ret: null, raw: { id: o.id }, woo_updated_at: o.placed_at, synced_at: o.placed_at, created_at: o.placed_at, updated_at: o.placed_at, ...o });
+  const order = (o) => ({ number: String(o.id), customer_state: null, customer_city: null, customer_address: null, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', confirm: 'غير مؤكد', confirm_at: null, confirm_note: null, deposit: 0, currency: 'EGP', note: null, customer_note: null, cancel: null, ret: null, raw: { id: o.id }, woo_updated_at: o.placed_at, synced_at: o.placed_at, created_at: o.placed_at, updated_at: o.placed_at, ...o });
   const sub = (id, order_id, v, woo_order_id, woo_status, total) => ({ id, order_id, vendor_id: VND(v), woo_order_id, woo_status, total, dokan_earning: null, commission: null, raw: { id: woo_order_id }, updated_at: T0 });
   const line = (o) => ({ sub_order_id: null, product_id: null, qty: 1, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, raw: { id: o.id }, updated_at: T0, ...o, vendor_id: VND(o.vendor_id) });
   return {
@@ -126,9 +128,9 @@ function ordersSeed() {
     products: [product(9001, 'IBTA4040PAHC000013', 'Cushion', IMG.cushion, 1, 'cushion'), product(9002, 'IBTAMCTOWM200X10014', 'Macrame Curtain', IMG.curtain, 2, 'macrame-curtain'),
       product(9003, 'IBTB0CSW6RFTM', 'Macrame Feathers', null, 2, 'macrame-feathers'), product(9004, 'IBTK20035BBLM000003214', 'Boho mirror', IMG.cushion, 3, 'boho-mirror')],
     orders: [
-      order({ id: 181668, customer_name: 'سلوى زيتوني', customer_phone: '01200007052', customer_city: 'القاهرة', customer_address: 'مدينة نصر', status: 'جاري التنفيذ', woo_status: 'processing', total: 3541, customer_note: 'اتصلوا قبل التوصيل', placed_at: ago(6) }),
+      order({ id: 181668, customer_name: 'سلوى زيتوني', customer_phone: '01200007052', customer_state: 'EG-01', customer_city: 'مدينة نصر', customer_address: 'شارع عباس العقاد', status: 'جاري التنفيذ', woo_status: 'processing', total: 3541, customer_note: 'اتصلوا قبل التوصيل\nالدور التالت\nالشقة 12', placed_at: ago(6) }),
       order({ id: 180686, customer_name: 'هدير عميل', customer_phone: '01000007030', status: 'جاري التنفيذ', woo_status: 'processing', confirm: 'مؤكد بدون عربون', confirm_at: ago(5).slice(0, 10), total: 1002, placed_at: ago(8) }),
-      order({ id: 180656, customer_name: XSS_NAME, customer_phone: '01000007016', status: 'معلّق', woo_status: 'on-hold', confirm: 'في انتظار الرد', total: 899, note: 'هتأكد الأسبوع الجاي', placed_at: ago(10) }),
+      order({ id: 180656, customer_name: XSS_NAME, customer_phone: '01000007016', customer_state: 'EG-14', customer_address: 'ش التحرير', status: 'معلّق', woo_status: 'on-hold', confirm: 'في انتظار الرد', total: 899, note: 'هتأكد الأسبوع الجاي', placed_at: ago(10) }),
       order({ id: 150001, customer_name: 'أوردر قديم', customer_phone: '01000000000', status: 'مكتمل', woo_status: 'completed', total: 500, placed_at: ago(400) }),
     ],
     subOrders: [sub(1, 181668, 1, 181669, 'processing', 1002), sub(2, 181668, 2, 181670, 'on-hold', 2539)],
@@ -141,6 +143,7 @@ function ordersSeed() {
       line({ id: 5006, order_id: 150001, sku: 'IBT-OLD-1', name: 'قطعة قديمة', total: 500, vendor_id: 1 }),
     ],
     statusMap: STATUS_MAP.map((r) => ({ ...r })),
+    wooStates: [['EG-01', 'القاهرة'], ['EG-02', 'الجيزة'], ['EG-03', 'الإسكندرية']].map(([code, name]) => ({ code, name, updated_at: T0 })), // no EG-14
   };
 }
 // `u` below is the caller: its profile row plus the token's aal (tokenUser). 0008: a profile enrolled in 2FA (twofa) on a token
@@ -169,7 +172,7 @@ export async function installSupabaseMock(page) {
   // table it fills ({ id, at, actor, action, new_value }; a spec may seed older rows); prefs: the user_prefs table
   // ({ user_id, key, data }); prefsDown: every user_prefs write answers 503 (the server is unreachable).
   // alerts: the alerts table (ALERTS; a spec may change it before sign-in); alertReads: the alert_reads table ({ alert_id, user_id }).
-  // orders tables: orders (with the full phone and raw), orderItems, subOrders, vendors, products, statusMap (ordersSeed());
+  // orders tables: orders (with the full phone and raw), orderItems, subOrders, vendors, products, statusMap, wooStates (ordersSeed());
   // patches: each successful PATCH as { table: 'orders'|'order_items', id, ...columns }; ordersDown: those tables answer 503.
   // pushes: each woo-sync push_status as { action, order_id, status, result, reason? }; syncs: each other woo-sync call ({ action });
   // wooDown: woo-sync answers 502 (WooCommerce unreachable).
@@ -330,8 +333,8 @@ export async function installSupabaseMock(page) {
         for (const r of rows) { const i = mock.prefs.findIndex((x) => x.user_id === r.user_id && x.key === r.key); const row = { user_id: r.user_id, key: r.key, data: r.data ?? {} }; if (i >= 0) mock.prefs[i] = row; else mock.prefs.push(row); }
         return json(201, []);
       }
-      const ot = /^\/rest\/v1\/(orders|orders_v|order_items|sub_orders|vendors|products|status_map)$/.exec(path);
-      const OT_METHODS = { orders: ['PATCH'], orders_v: ['GET'], order_items: ['GET', 'PATCH'], sub_orders: ['GET'], vendors: ['GET'], products: ['GET'], status_map: ['GET'] };
+      const ot = /^\/rest\/v1\/(orders|orders_v|order_items|sub_orders|vendors|products|status_map|woo_states)$/.exec(path);
+      const OT_METHODS = { orders: ['PATCH'], orders_v: ['GET'], order_items: ['GET', 'PATCH'], sub_orders: ['GET'], vendors: ['GET'], products: ['GET'], status_map: ['GET'], woo_states: ['GET'] };
       if (ot && OT_METHODS[ot[1]].includes(method)) {
         const t = ot[1]; const f = readFilters(url.searchParams, t);
         const denied = (message) => json(403, { code: '42501', details: null, hint: null, message });
@@ -342,9 +345,10 @@ export async function installSupabaseMock(page) {
           if (graded && asked.split(',').some((c) => c.trim() === '*')) return denied('permission denied for table ' + t);
           const sel = readSelect(t, asked);
           if (sel.bad) return graded && sel.bad === t + '.raw' ? denied('permission denied for table ' + t) : json(400, { code: '42703', details: null, hint: null, message: `column ${sel.bad} does not exist` });
-          // RLS (0007, 0002 status_map): vendors with vendors.view, every other table with orders.view
-          const visible = hasPerm(u, t === 'vendors' ? 'vendors.view' : 'orders.view') !== 'N';
-          const rows = t === 'orders_v' ? mock.orders.map((o) => viewRow(u, o)) : t === 'order_items' ? mock.orderItems : t === 'sub_orders' ? mock.subOrders : t === 'vendors' ? mock.vendors : t === 'products' ? mock.products : mock.statusMap;
+          // RLS (0007, 0002 status_map, 0010 woo_states): woo_states for any signed-in member, vendors with vendors.view, every
+          // other table with orders.view
+          const visible = t === 'woo_states' || hasPerm(u, t === 'vendors' ? 'vendors.view' : 'orders.view') !== 'N';
+          const rows = t === 'orders_v' ? mock.orders.map((o) => viewRow(u, o)) : t === 'order_items' ? mock.orderItems : t === 'sub_orders' ? mock.subOrders : t === 'vendors' ? mock.vendors : t === 'products' ? mock.products : t === 'woo_states' ? mock.wooStates : mock.statusMap;
           return json(200, pageOf(visible ? rows.filter(f.match) : [], url.searchParams).map(sel.pick));
         }
         // PATCH: one row named by id=eq.… (else 400, like Supabase's safeupdate guard for an UPDATE without WHERE); update grants

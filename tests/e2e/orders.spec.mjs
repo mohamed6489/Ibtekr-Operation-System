@@ -77,7 +77,7 @@ test('every site string renders as text: cards (desktop, tablet, mobile), filter
   await openOrders(page);
   await page.evaluate((evil) => {
     const d = window.IBOrders.data(); const o = d.orders.find((x) => x.id === '181668');
-    Object.assign(o, { name: evil, phone: evil, pay: evil, note: evil, cnote: evil, city: evil, addr: evil, st: evil, cf: evil });
+    Object.assign(o, { name: evil, phone: evil, pay: evil, note: evil, cnote: evil, state: evil, stateName: evil, city: evil, addr: evil, st: evil, cf: evil });
     Object.assign(o.subs[0], { prod: evil, sku: evil, vendor: evil, cm: evil, ss: evil, exp: evil, link: 'https://x.test/' + evil });
     o.subs[1].link = 'javascript:alert(1)';
     d.vendors = d.vendors.concat(evil); d.images = Object.assign({}, d.images, { [evil]: 'javascript:alert(1)' });
@@ -97,6 +97,7 @@ test('every site string renders as text: cards (desktop, tablet, mobile), filter
   await page.evaluate(() => window.OrdersApp.edit('181668'));
   await expect(page.locator('#orders #cdlg [data-f="name"]')).toHaveValue(EVIL);
   await expect(page.locator('#orders #cdlg')).toContainText(EVIL); // the customer's note
+  await expect(page.locator('#orders #cdlg .fd', { hasText: 'المحافظة' }).locator('.ro')).toHaveText(EVIL); // the governorate
   await inert(page);
   await page.keyboard.press('Escape');
   await page.evaluate(() => window.OrdersApp.editSub(5001));
@@ -205,19 +206,105 @@ test('the product image comes from products', async ({ page }) => {
   }
 });
 
-test('the card shows the address (city · address) read-only, «—» without one: desktop, tablet, mobile', async ({ page }) => {
+// the address row and the band / customer data above it, by their boxes: the row starts at or below their bottom
+const below = async (upper, lower) => { const a = await upper.boundingBox(); const b = await lower.boundingBox(); expect(b.y).toBeGreaterThanOrEqual(a.y + a.height - 1); };
+test('the address has its own row under the customer data: governorate · city · address, the code without a name, «—» without any (desktop, tablet, mobile)', async ({ page }) => {
   await openOrders(page);
-  const adr = (id) => card(page, id).locator('.band .inf.adr');
-  await expect(adr('181668')).toContainText('العنوان:');
-  await expect(adr('181668').locator('b')).toHaveText('القاهرة · مدينة نصر');
-  await expect(adr('180686').locator('b')).toHaveText('—'); // no city, no address
-  await expect(adr('181668').locator('input, textarea, select, button')).toHaveCount(0);
-  await page.evaluate(() => { const d = window.IBOrders.data(); Object.assign(d.orders.find((x) => x.id === '180686'), { city: ' ', addr: 'الدقي' }); window.OrdersApp.hydrate(d); });
-  await expect(adr('180686').locator('b')).toHaveText('الدقي'); // an empty part is skipped
-  for (const width of [800, 375]) { // tablet, mobile: the customer section
+  await card(page, '180656').locator('[data-tg="180656"]').click();
+  const row = (id) => card(page, id).locator('.arow');
+  await expect(card(page, '181668').locator('.band')).not.toContainText('العنوان'); // out of the band
+  await expect(row('181668').locator('small')).toHaveText('العنوان:');
+  await expect(row('181668').locator('b')).toHaveText('القاهرة · مدينة نصر · شارع عباس العقاد'); // EG-01 → its name in woo_states
+  await expect(row('180656').locator('b')).toHaveText('EG-14 · ش التحرير'); // a code the website's list has no name for: the code
+  await expect(row('180686').locator('b')).toHaveText('—'); // no governorate, city or address
+  await expect(row('181668').locator('input, textarea, select, button, a')).toHaveCount(0); // read-only
+  expect(await card(page, '181668').locator('.band').evaluate((b) => b.nextElementSibling && b.nextElementSibling.className)).toBe('arow');
+  await below(card(page, '181668').locator('.band'), row('181668'));
+  expect(await row('181668').evaluate((e) => getComputedStyle(e.querySelector('b')).overflowWrap)).toBe('anywhere');
+  await page.evaluate(() => { const d = window.IBOrders.data(); Object.assign(d.orders.find((x) => x.id === '181668'), { city: 'القاهرة' }); Object.assign(d.orders.find((x) => x.id === '180686'), { city: ' ', addr: 'الدقي' }); window.OrdersApp.hydrate(d); });
+  await expect(row('181668').locator('b')).toHaveText('القاهرة · شارع عباس العقاد'); // a part that repeats the governorate shows once
+  await expect(row('180686').locator('b')).toHaveText('الدقي'); // an empty part is skipped
+  for (const width of [800, 375]) { // tablet, mobile: a row of its own under the customer section's fields
     await page.setViewportSize({ width, height: 900 });
-    await expect(card(page, '181668').locator('.cust .inf2', { has: page.locator('small', { hasText: 'العنوان' }) }).locator('b')).toHaveText('القاهرة · مدينة نصر');
+    const sec = card(page, '181668').locator('.sec.cust');
+    await expect(sec.locator('.crow')).not.toContainText('العنوان');
+    await expect(sec.locator('.inf2.adr small')).toHaveText('العنوان');
+    await expect(sec.locator('.inf2.adr b')).toHaveText('القاهرة · شارع عباس العقاد');
+    await expect(card(page, '180686').locator('.sec.cust .inf2.adr b')).toHaveText('الدقي');
+    await expect(card(page, '180656').locator('.sec.cust .inf2.adr b')).toHaveText('EG-14 · ش التحرير');
+    expect(await sec.locator('.crow').evaluate((c) => c.nextElementSibling && c.nextElementSibling.className)).toBe('inf2 adr');
+    await below(sec.locator('.crow'), sec.locator('.inf2.adr'));
   }
+  await page.evaluate(() => { const d = window.IBOrders.data(); Object.assign(d.orders.find((x) => x.id === '180686'), { addr: '' }); window.OrdersApp.hydrate(d); });
+  await expect(card(page, '180686').locator('.sec.cust .inf2.adr b')).toHaveText('—');
+});
+
+// the website note's text block (.wn) of a card or the popup: its text as is, its box and how it scrolls
+const noteBox = (loc) => loc.evaluate((e) => { const c = getComputedStyle(e); return { text: e.textContent, ws: c.whiteSpace, wrap: c.overflowWrap, oy: c.overflowY, max: c.maxHeight, lh: c.lineHeight, h: e.clientHeight, sh: e.scrollHeight }; });
+const NOTE3 = 'اتصلوا قبل التوصيل\nالدور التالت\nالشقة 12'; // the mock's 181668
+const NOTE5 = 'من فضلكم اتصلوا قبل التوصيل بساعة\nالعمارة اللي جنب الصيدلية\nالدور التالت\nالشقة 12 على الشمال\nماتسيبوش الطرد مع البواب';
+test('the website note reads in full: its own lines, 3 shown, a longer one scrolls inside (desktop, tablet, mobile, popup)', async ({ page }) => {
+  await openOrders(page);
+  const wn = (id) => card(page, id).locator('.note.web .wn');
+  const css = { ws: 'pre-wrap', wrap: 'anywhere', oy: 'auto', max: '64px', lh: '20px' }; // max-height = 3 lines of 20px + 4px for the last line's descenders
+  let b = await noteBox(wn('181668'));
+  expect(b).toMatchObject({ text: NOTE3, ...css }); // the lines as written, no « · »
+  expect(b.sh).toBeLessThanOrEqual(b.h); // 3 lines: all shown, nothing to scroll
+  expect(b.h).toBe(64);
+  await expect(card(page, '181668').locator('.note.web .nh b')).toHaveText('ملاحظة العميل من الموقع');
+  await expect(card(page, '181668').locator('.note.web').locator('input, textarea, select, button')).toHaveCount(0); // read-only
+  await page.evaluate(() => window.OrdersApp.details('181668'));
+  b = await noteBox(page.locator('#orders #cdlg .wn'));
+  expect(b).toMatchObject({ text: NOTE3, ...css });
+  expect(b.sh).toBeLessThanOrEqual(b.h); // the popup too: 3 lines, no scroll
+  await page.keyboard.press('Escape');
+  await page.evaluate(([n5]) => { const d = window.IBOrders.data(); d.orders.find((x) => x.id === '181668').cnote = n5; d.orders.find((x) => x.id === '180686').cnote = 'سطر واحد طويل من غير سطور جديدة '.repeat(20); window.OrdersApp.hydrate(d); }, [NOTE5]);
+  for (const width of [1400, 800, 375]) {
+    await page.setViewportSize({ width, height: 900 });
+    for (const id of ['181668', '180686']) { // five lines; one long line that wraps
+      b = await noteBox(wn(id));
+      expect(b).toMatchObject(css);
+      expect(b.h).toBe(64); // 3 lines shown
+      expect(b.sh).toBeGreaterThan(b.h); // the rest scrolls
+    }
+    expect((await noteBox(wn('181668'))).text).toBe(NOTE5);
+    const end = await wn('181668').evaluate((e) => { e.scrollTop = e.scrollHeight; return e.scrollTop; });
+    expect(end).toBeGreaterThan(0);
+  }
+  // mobile: the note is shown, not an accordion line cut with «…»
+  await expect(card(page, '181668').locator('summary', { hasText: 'ملاحظة العميل من الموقع' })).toHaveCount(0);
+  await expect(wn('181668')).toBeVisible();
+  await expect(card(page, '181668').locator('summary', { hasText: 'تعليق خدمة العملاء' })).toHaveCount(1); // the team's comment keeps its accordion
+  await page.setViewportSize({ width: 1280, height: 900 });
+  await page.evaluate(() => window.OrdersApp.details('181668'));
+  b = await noteBox(page.locator('#orders #cdlg .wn'));
+  expect(b).toMatchObject({ text: NOTE5, ...css });
+  expect(b.sh).toBeGreaterThan(b.h);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => window.OrdersApp.details('180686'));
+  await expect(page.locator('#orders #cdlg .wn')).toHaveText(/^سطر واحد طويل/);
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => { const d = window.IBOrders.data(); d.orders.find((x) => x.id === '180686').cnote = '  \n '; window.OrdersApp.hydrate(d); });
+  await expect(wn('180686')).toHaveText('مفيش ملاحظة من العميل'); // blank: no note
+});
+
+test('the details popup shows the governorate read-only next to the city: its name, else its code, else «—»', async ({ page }) => {
+  await openOrders(page);
+  const dlg = page.locator('#orders #cdlg');
+  const fd = (label) => dlg.locator('.fd', { has: page.locator('label', { hasText: new RegExp('^' + label + '$') }) });
+  for (const [id, state, city] of [['181668', 'القاهرة', 'مدينة نصر'], ['180656', 'EG-14', '—'], ['180686', '—', '—']]) {
+    await page.evaluate((x) => window.OrdersApp.details(x), id);
+    await expect(fd('المحافظة').locator('.ro')).toHaveText(state);
+    await expect(fd('المدينة').locator('.ro')).toHaveText(city);
+    await expect(fd('المحافظة').locator('input, select, textarea')).toHaveCount(0); // no edit: the code comes from the website's list
+    expect(await fd('المحافظة').evaluate((e) => e.nextElementSibling && e.nextElementSibling.textContent)).toContain('المدينة'); // side by side
+    await page.keyboard.press('Escape');
+    await expect(dlg).toHaveCount(0);
+  }
+  await page.evaluate(() => window.OrdersApp.edit('181668')); // the edit popup has the same section
+  await expect(fd('المحافظة').locator('.ro')).toHaveText('القاهرة');
+  await page.keyboard.press('Escape');
+  expect(mock.patches).toEqual([]);
 });
 
 test('the product image and name open the product on the website: its permalink, else <origin>/?p=<product_id>, else no link', async ({ page }) => {

@@ -1635,7 +1635,7 @@
         Object.assign(errs, VD.validateLogin(f));
         if (!errs.username && vstore.usernameTaken(f.username)) errs.username = 'اسم المستخدم ده مستخدم قبل كده — جرّب ' + VD.suggestUsername(f.username, (u) => vstore.usernameTaken(u));
         if (canBank && (bankReq || f.method)) Object.assign(errs, VD.validateBank(f));
-        if (!errs.name) { dup = vstore.findByName(f.name) || VD.parseAliases(f.aliases).map((a) => vstore.findByName(a)).find(Boolean) || null; if (dup) errs.name = 'المبتكر ده موجود — افتح ملفه'; }
+        if (!errs.name) { dup = vstore.findByName(f.name) || VD.parseAliases(f.aliases).map((a) => vstore.findByName(a)).find(Boolean) || null; if (dup) errs.name = 'المبتكر ده موجود (' + dup.name + ') — افتح ملفه'; }
       }
       if (Object.keys(errs).length) { errs._form = dup ? 'المبتكر ده موجود — افتح ملفه' : 'راجع الحقول المعلّمة بالأحمر'; draw(); const bad = modal.el.querySelector('[aria-invalid=true]'); if (bad) bad.focus(); return; }
       if (existing) { try { vstore.update(existing.id, f, vstore.actor()); log.append({ action: 'vendor.update', actor: ME.name, newValue: existing.id }); modal.close(); vnotify('success', 'اتحفظت بيانات ' + f.name + '.'); if (vdrawer) openVendor(existing.id); } catch (e) { errs._form = e.message; draw(); } return; }
@@ -1662,7 +1662,7 @@
     const v0 = vstore.get(id); if (!v0) { vnotify('error', 'المبتكر ' + id + ' مش موجود.'); return; }
     if (vdrawer) vdrawer.close(); shown.clear(); pwShown = null;
     try { history.replaceState(null, '', '#makers/' + id); } catch (e) { /* sandboxed */ }
-    vdrawer = U.Drawer({ label: 'ملف المبتكر ' + v0.name, onClose: () => { vdrawer = null; vredraw = null; try { history.replaceState(null, '', '#makers'); } catch (e) { /* sandboxed */ } renderVendors(); } });
+    vdrawer = U.Drawer({ label: 'ملف المبتكر ' + v0.name, onClose: () => { vdrawer = null; vredraw = null; pwShown = null; try { history.replaceState(null, '', '#makers'); } catch (e) { /* sandboxed */ } renderVendors(); } });
     const act = (fn, ok) => { try { fn(); log.append({ action: 'vendor.update', actor: ME.name, newValue: id }); if (ok) vnotify('success', ok); draw(); } catch (e) { vnotify('error', e.message); draw(); } };
     const section = (title, action, ...kids) => h('section', { class: 'vsection' }, h('div', { class: 'head' }, h('h3', { class: 't-label' }, title), action || null), kids);
     function moreMenu(v) {
@@ -1812,10 +1812,10 @@
         const loginSection = () => {
           const L0 = v.login && v.login.username ? v.login : null; const ls = L0 ? L0.status : 'none'; const email = (L0 && L0.email) || v.email || '';
           const LTONE = { none: 'neutral', invited: 'gold', active: 'success', disabled: 'error' };
-          const pwCell = !L0 ? null : !L0.hasPassword ? h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, 'لينك التفعيل — بيتبعت مع البوابة')
+          const pwCell = !L0 ? null : !L0.hasPassword ? h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, L0.pwMode === 'temp' ? 'باسورد مؤقت — لسه ماتعملش' : 'لينك التفعيل — بيتبعت مع البوابة')
             : h('span', { class: 'pw-cell' }, h('span', { dir: 'ltr', class: 'pw-val' }, pwShown != null ? pwShown : '••••••••'),
               canLogin ? Button({ type: 'text', size: 'sm', label: pwShown != null ? 'إخفاء' : 'إظهار', attrs: { 'data-pw-reveal': '', 'aria-pressed': String(pwShown != null) }, onClick: () => { if (pwShown != null) { pwShown = null; draw(); return; } vstore.revealPassword(id, vstore.actor()).then((p) => { pwShown = p == null ? '—' : p; draw(); }, (e) => vnotify('error', e.message)); } }) : null);
-          const copyLogin = () => { const lines = ['اسم المستخدم: ' + L0.username, 'الإيميل: ' + (email || '—')]; const done = (pw) => copyText(lines.concat([pw ? 'الباسورد المؤقت: ' + pw : 'لينك التفعيل: هيوصله لما بوابة المبتكر تشتغل']).join('\n'), 'بيانات الدخول');
+          const copyLogin = () => { const lines = ['اسم المستخدم: ' + L0.username, 'الإيميل: ' + (email || '—')]; const done = (pw) => copyText(lines.concat([pw ? 'الباسورد المؤقت: ' + pw : L0.pwMode === 'temp' || L0.hasPassword ? 'الباسورد المؤقت: اطلبه من الأدمن أو متابعة المبتكرين' : 'لينك التفعيل: هيوصله لما بوابة المبتكر تشتغل']).join('\n'), 'بيانات الدخول');
             if (canLogin && L0.hasPassword) vstore.revealPassword(id, vstore.actor()).then(done, (e) => vnotify('error', e.message)); else done(null); };
           return section('بيانات الدخول', canLogin ? Button({ type: 'text', size: 'sm', label: L0 ? 'تعديل' : 'إضافة', attrs: { 'aria-label': (L0 ? 'تعديل' : 'إضافة') + ' بيانات الدخول', 'data-edit': 'login' }, onClick: () => loginForm(v) }) : null,
             U.InfoRow({ label: 'اسم المستخدم', value: L0 ? h('span', { dir: 'ltr' }, L0.username) : null, copy: !!L0, onCopy: () => copy(L0.username, 'اسم المستخدم') }),

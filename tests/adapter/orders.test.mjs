@@ -21,7 +21,7 @@ const ITEMS = [
 const VENDORS = [{ id: V2, name: 'Antikiano' }, { id: V1, name: 'Art Craft' }];
 const SITE = 'https://stage.ibtekr.test'; // a fake staging host
 const PRODUCTS = [{ sku: 'IBTA4040PAHC000013', image_url: 'https://stage.ibtekr.club/cushion.jpg', permalink: SITE + '/product/cushion/' }, { sku: 'IBTAMCTOWM200X10014', image_url: null, permalink: null }];
-const STATUSES = [{ system_status: 'قيد الانتظار', woo_status: 'pending', direction: 'both', sort: 1 }, { system_status: 'فشل', woo_status: 'failed', direction: 'both', sort: 10 }];
+const STATUSES = [{ system_status: 'قيد الانتظار', woo_status: 'pending', direction: 'both', sort: 1 }, { system_status: 'فشل', woo_status: 'failed', direction: 'from_woo', sort: 10 }];
 const ok = (data) => ({ data, error: null });
 // the granted columns the adapter names (0007 grants: no raw, no customer_phone on orders — the view masks it)
 const COLS = { order: 'id, customer_name, customer_phone, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret',

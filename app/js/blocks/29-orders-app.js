@@ -141,7 +141,7 @@ function band(o){
  return'<div class="band"><span class="g">'+ic('user')+'<span>بيانات العميل</span></span>'
  +'<span class="inf"><small>الاسم:</small><b>'+esc(o.name)+'</b></span>'
  +'<span class="inf"><small>الهاتف:</small><b dir="ltr">'+esc(ph)+'</b>'+(dial(o)?'<a class="wa" href="https://wa.me/2'+o.phone+'" target="_blank" rel="noopener" aria-label="واتساب" style="color:inherit">'+ic('wa')+'</a>':'')+'</span>'
- +'<span class="inf adr"><small>العنوان:</small><b>'+addrText(o)+'</b></span>'
+ +'<span class="inf adr"><small>العنوان:</small><b style="overflow-wrap:anywhere">'+addrText(o)+'</b></span>'
  +'<span class="inf"><small>طريقة الدفع:</small><b>'+esc(payName(o))+'</b></span><div class="grow"></div>'
  +'<span class="g">المتبقي بعد العربون: '+fmt(Math.max(0,o.tot-o.dep))+' ج.م</span></div>'}
 function notes(o){
@@ -189,7 +189,7 @@ function custSec(o,m){
  return'<div class="sec cust"><div class="sttl">العميل</div><div class="crow'+(m?'':' t')+'">'
  +'<div class="inf2"><small>الاسم</small><b>'+esc(o.name)+'</b></div>'
  +'<div class="inf2"><small>الهاتف</small><b>'+(dial(o)?'<a href="tel:+2'+o.phone+'" dir="ltr">'+esc(ph)+'</a><a class="wa" href="https://wa.me/2'+o.phone+'" target="_blank" rel="noopener" aria-label="واتساب">'+ic('wa')+'</a>':'<span dir="ltr">'+esc(ph)+'</span>')+'</b></div>'
- +'<div class="inf2"><small>العنوان</small><b>'+addrText(o)+'</b></div>'
+ +'<div class="inf2"><small>العنوان</small><b style="overflow-wrap:anywhere">'+addrText(o)+'</b></div>'
  +'<div class="inf2"><small>طريقة الدفع</small><b>'+esc(payName(o))+'</b></div>'
  +'<div class="inf2"><small>المتبقي بعد العربون</small><b>'+fmt(Math.max(0,o.tot-o.dep))+' ج.م</b></div></div></div>'}
 function notesM(o){

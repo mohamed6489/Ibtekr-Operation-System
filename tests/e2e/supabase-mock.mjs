@@ -376,7 +376,7 @@ export async function installSupabaseMock(page) {
     }
     // woo-sync (supabase/functions/woo-sync, verify_jwt false: it checks the member's JWT itself): push_status needs
     // orders.status = F, every other action admin; push_status is skipped when the status is not the stored one ('stale')
-    // or has no outgoing WooCommerce slug ('no_woo_status': a from_woo row like «فشل», or a from_system row — none today), else the order's woo_status follows the slug.
+    // or has no outgoing WooCommerce slug ('no_woo_status': a from_woo row like «فشل», or a row without a slug — none today; a from_system row WITH a slug is pushed), else the order's woo_status follows the slug.
     if (method === 'POST' && path === '/functions/v1/woo-sync') {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : isAdmin(u))) return json(401, { error: 'unauthorized' });

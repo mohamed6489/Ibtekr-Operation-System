@@ -136,7 +136,7 @@ test('«فشل» replaces «تم RTC»: a chip and an option styled like «مل�
   await expect(page.locator('#orders [data-sc="فشل"] i')).toHaveText('1');
 });
 
-test('a status whose map row is from_system is saved but not pushed (none today: one flipped here)', async ({ page }) => {
+test('a status whose map row has no outgoing slug (a from_system row without a slug, 0007\'s old «تم RTC» shape; none today) is saved but not pushed', async ({ page }) => {
   mock.statusMap.find((r) => r.system_status === 'مكتمل').direction = 'from_system'; mock.statusMap.find((r) => r.system_status === 'مكتمل').woo_status = null;
   await openOrders(page);
   await page.locator('#orders select[data-st="181668"]').selectOption('مكتمل');

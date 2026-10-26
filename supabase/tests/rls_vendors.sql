@@ -303,7 +303,11 @@ do $$ declare n int; begin
                                  from public.vendors) v) = 2
           and (select raw ->> 'store_name' from public.vendors where woo_vendor_id = 441) = 'ورشة النور'
           and (select joined_at from public.vendors where woo_vendor_id = 441) = '2025-01-02') then
-    raise exception 'case admin reads the vendors list by column list (raw, joined_at included) failed';
+    raise exception 'case admin reads the vendors list by column list (raw, joined_at included) failed: rows % / store_name % / joined_at % / user % / uid % / vendors.view %',
+      (select count(*) from public.vendors where woo_vendor_id in (441, 442)),
+      coalesce((select raw ->> 'store_name' from public.vendors where woo_vendor_id = 441), '∅'),
+      coalesce((select joined_at::text from public.vendors where woo_vendor_id = 441), '∅'),
+      current_user, coalesce(auth.uid()::text, '∅'), public.has_perm('vendors.view');
   end if;
 
   update public.vendors set status = 'inactive' where woo_vendor_id = 442;

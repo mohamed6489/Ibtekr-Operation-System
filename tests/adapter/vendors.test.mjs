@@ -45,8 +45,8 @@ const TEST_PW = 'Test1234'; // the fake test password
 const ok = (data) => ({ data, error: null });
 const denied = () => ({ data: null, error: { code: '42501', message: 'permission denied' } });
 const seed = () => ({ vendors: ok(VENDORS), vendor_rates: ok(RATES), vendor_bank: ok(BANK), vendor_logins: ok(LOGINS), activity_log: ok([]), brands: ok(BRANDS), brand_owners: ok(OWNERS), brand_rates: ok([]) });
-const B1_SHAPE = { id: B1, name: 'Art Craft', code: 'A', aliases: ['ArtCraft', 'آرت كرافت'], since: '2026-03-01', returnOn: null, temp: false, rate: null, store: V1, origin: V1, owner: V1, lastSince: '2026-03-01' };
-const B4_SHAPE = { id: B4, name: 'Wood & Rope', code: 'W', aliases: ['W&R'], since: '2026-09-01', returnOn: null, temp: false, rate: null, store: null, origin: V1, owner: V1, lastSince: '2026-09-01' };
+const B1_SHAPE = { id: B1, name: 'Art Craft', code: 'A', aliases: ['ArtCraft', 'آرت كرافت'], since: '2026-03-01', returnOn: null, temp: false, rate: null, store: V1, origin: V1, owner: V1, lastSince: '2026-03-01', back: V1 };
+const B4_SHAPE = { id: B4, name: 'Wood & Rope', code: 'W', aliases: ['W&R'], since: '2026-09-01', returnOn: null, temp: false, rate: null, store: null, origin: V1, owner: V1, lastSince: '2026-09-01', back: V1 };
 const NOW = new Date(2026, 9, 25, 12, 0).getTime(); // the adapter's clock: local 2026-10-25
 const clockAt = (t) => class FakeDate extends Date { constructor(...a) { if (a.length) super(...a); else super(t); } static now() { return t; } };
 const OPS = { 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' };
@@ -652,10 +652,10 @@ test('canLogin (admin or vendors.edit = F), usernameTaken (case-insensitive, exc
 test('brands: the shape on each maker (held today / held before), the rates only with sensitive.commission (no request without it), a refused read is no error', async () => {
   const { V, S, calls } = load({ responses: { ...seed(), brand_owners: ok(OWNERS.concat([TRANSFER])), brand_rates: ok([{ id: 1, brand_id: B2, rate: 30, since: '2026-10-01', set_by: 'منى حسن', created_at: T0 }, { id: 2, brand_id: B2, rate: null, since: '2027-01-01', set_by: 'منى حسن', created_at: T0 }]) } });
   await V.load();
-  assert.deepEqual(plain(S.get(V3).brands), [{ id: B2, name: 'Antikiano', code: 'A', aliases: ['Antikiano store'], since: '2026-10-18', returnOn: '2026-11-20', temp: true, rate: 30, store: V2, origin: V2, owner: V3, lastSince: '2026-10-18' },
-    { id: B3, name: 'Bian eg', code: 'B', aliases: [], since: '2026-03-01', returnOn: null, temp: false, rate: null, store: V3, origin: V3, owner: V3, lastSince: '2026-03-01' }]);
+  assert.deepEqual(plain(S.get(V3).brands), [{ id: B2, name: 'Antikiano', code: 'A', aliases: ['Antikiano store'], since: '2026-10-18', returnOn: '2026-11-20', temp: true, rate: 30, store: V2, origin: V2, owner: V3, lastSince: '2026-10-18', back: V2 },
+    { id: B3, name: 'Bian eg', code: 'B', aliases: [], since: '2026-03-01', returnOn: null, temp: false, rate: null, store: V3, origin: V3, owner: V3, lastSince: '2026-03-01', back: V3 }]);
   assert.deepEqual(plain(S.get(V2).brands), []);
-  assert.deepEqual(plain(S.get(V2).brandsEver), [{ id: B2, name: 'Antikiano', code: 'A', aliases: ['Antikiano store'], since: '2026-10-18', returnOn: '2026-11-20', temp: true, rate: 30, store: V2, origin: V2, owner: V3, lastSince: '2026-10-18', until: '2026-10-18', now: 'Bian eg' }]);
+  assert.deepEqual(plain(S.get(V2).brandsEver), [{ id: B2, name: 'Antikiano', code: 'A', aliases: ['Antikiano store'], since: '2026-10-18', returnOn: '2026-11-20', temp: true, rate: 30, store: V2, origin: V2, owner: V3, lastSince: '2026-10-18', back: V2, until: '2026-10-18', now: 'Bian eg' }]);
   assert.deepEqual(plain([S.ownerAt(B2, '2026-10-17'), S.ownerAt(B2, '2026-10-18'), S.ownerAt(B2), S.ownerAt(B2, '2025-01-01'), S.ownerAt('nope')]), [V2, V3, V3, V2, null]); // before the history: the first owner
   assert.deepEqual(plain([S.storeOwnerAt(V2, '2026-10-17'), S.storeOwnerAt(V2, '2026-10-19'), S.storeOwnerAt(V1, '2026-10-19'), S.storeOwnerAt('no-store', '2026-10-19')]), [V2, V3, V1, 'no-store']);
   assert.deepEqual(plain(S.namesOf(V3)), ['Bian eg', 'Antikiano', 'Antikiano store']); // his own, then the brand he holds

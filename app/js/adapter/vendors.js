@@ -33,7 +33,7 @@
 // still lacks (login, e-mail, bank — the bank only when the caller can see bank rows).
 // Phase 3.2 (decisions 3 / 4): the brands. load() also reads brands + brand_owners (column lists) and brand_rates when the caller
 // has sensitive.commission (refused / empty → no special rates known). A vendor carries `brands` (the brands he holds today:
-// { id, name, code, aliases, since, returnOn, temp, rate, store, origin, owner, lastSince }) and `brandsEver` (those he held and
+// { id, name, code, aliases, since, returnOn, temp, rate, store, origin, owner, lastSince, back }) and `brandsEver` (those he held and
 // holds no more: { …, until, now }). The owner of a brand on a date = the last history row that had started, else the first row
 // (the server's brand_owner_at rule); the history and the rates are add-only on the server, so a transfer / return is a new row
 // (transferBrand / returnBrand, two client events — one on each maker), a special rate a new dated row (setBrandRate), and
@@ -152,10 +152,12 @@
   // the special rate in force on `date` (block 06 effectiveRate: the earliest row until one has started; null = none)
   function brandRateAt(b, date) { if (!b.rates.length) return null; let r = b.rates[0].rate; for (const x of b.rates) if (!date || x.since <= date) r = x.rate; return r == null ? null : r; }
   // the drawer's brand shape: the row in force today gives since / returnOn / temp; rate = the special rate today (null without one, or
-  // when the rates are not visible); owner = the maker today; lastSince = the latest row's date (a transfer may not go before it)
+  // when the rates are not visible); owner = the maker today; lastSince = the latest row's date (a transfer may not go before it);
+  // back = where «رجوع لصاحبه» sends it (the maker before a temporary transfer, else the origin)
+  const backOf = (b, T) => { const cur = rowAt(b, T); const i = cur ? b.history.indexOf(cur) : -1; return cur && cur.returnOn && i > 0 ? b.history[i - 1].vendor : b.origin; };
   function brandShape(b, T) {
     const cur = rowAt(b, T); const last = lastRow(b);
-    return { id: b.id, name: b.name, code: b.code, aliases: b.aliases.slice(), since: cur ? cur.since : null, returnOn: cur && cur.returnOn ? cur.returnOn : null, temp: !!(cur && cur.returnOn), rate: brandRatesOk && canRate() ? brandRateAt(b, T) : null, store: b.store, origin: b.origin, owner: ownerOf(b, T), lastSince: last ? last.since : null };
+    return { id: b.id, name: b.name, code: b.code, aliases: b.aliases.slice(), since: cur ? cur.since : null, returnOn: cur && cur.returnOn ? cur.returnOn : null, temp: !!(cur && cur.returnOn), rate: brandRatesOk && canRate() ? brandRateAt(b, T) : null, store: b.store, origin: b.origin, owner: ownerOf(b, T), lastSince: last ? last.since : null, back: backOf(b, T) };
   }
   const ownerName = (vid) => { const v = vendors.get(String(vid)); return v ? v.name : '—'; };
   const brandsOf = (vid, T) => [...brands.values()].filter((b) => ownerOf(b, T) === String(vid)).sort((a, b) => a.name.localeCompare(b.name)).map((b) => brandShape(b, T));
@@ -632,9 +634,7 @@
   // when the brand is already there
   function returnBrand(id, opts, actor) {
     const b = brandMust(id); if (!canBrands()) throw noPerm();
-    const cur = rowAt(b, today()); const i = cur ? b.history.indexOf(cur) : -1;
-    const back = cur && cur.returnOn && i > 0 ? b.history[i - 1].vendor : b.origin;
-    const last = lastRow(b); if (back === (last ? last.vendor : b.origin)) throw new Error(MESSAGES.brand_with_origin);
+    const back = backOf(b, today()); const last = lastRow(b); if (back === (last ? last.vendor : b.origin)) throw new Error(MESSAGES.brand_with_origin);
     return moveBrand(id, back, { since: (opts && opts.since) || today(), reason: 'رجوع لصاحبه' }, actor, 'return');
   }
   // that vendor's activity_log (entity 'vendor'), newest 50, kept ascending for the drawer

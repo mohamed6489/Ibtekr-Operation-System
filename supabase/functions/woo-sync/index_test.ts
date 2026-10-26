@@ -245,9 +245,9 @@ Deno.test('vendors: a new store is inserted whole (joined_at from registered); a
   const v900 = db.row('vendors', 900, 'woo_vendor_id');
   assertEquals([v900.name, v900.status, v900.phone, v900.email, v900.joined_at, v900.aliases, v900.commission_pct, v900.lead_days],
     ['Store 900', 'active', '01000000000', null, '2025-01-02', [], null, 7], 'a new store: the full mapStore row, the team columns at their defaults');
-  const writes = db.writes('vendors').map((w: any) => [w.op, w.onConflict, w.rows.map((r: any) => Object.keys(r).sort())]);
-  assertEquals(writes, [['upsert', 'woo_vendor_id', [['email', 'joined_at', 'name', 'phone', 'raw', 'status', 'woo_vendor_id']]],
-    ['upsert', 'woo_vendor_id', [['raw', 'woo_vendor_id']]]], 'new: the full row; existing: raw only');
+  const writes = db.writes('vendors').map((w: any) => [w.op, w.onConflict ?? null, w.rows ? w.rows.map((r: any) => Object.keys(r).sort()) : Object.keys(w.patch).sort(), w.filters]);
+  assertEquals(writes, [['upsert', 'woo_vendor_id', [['email', 'joined_at', 'name', 'phone', 'raw', 'status', 'woo_vendor_id']], []],
+    ['update', null, ['raw'], [['eq', 'woo_vendor_id', 44]]]], 'new: the full row upserted; existing: raw only, by an update on woo_vendor_id (an upsert cannot carry a partial row)');
   assertEquals(db.rows('woo_sync_log').at(-1).kind, 'manual');
 });
 
@@ -261,7 +261,8 @@ Deno.test('vendors: a second run over the same stores writes raw only for every 
   const { body } = await call(deps2, { action: 'vendors' }, { jwt: 'jwt-admin' });
   assertEquals(body.counts.vendors.vendors, 2);
   assertEquals(db2.rows('vendors').map((v: any) => [v.woo_vendor_id, v.name, v.raw.store_name]), [[44, 'اسم الفريق', 'Site 44'], [900, 'متجر 900', 'Site 900']]);
-  assertEquals(db2.writes('vendors').map((w: any) => w.rows.map((r: any) => Object.keys(r).sort())), [[['raw', 'woo_vendor_id'], ['raw', 'woo_vendor_id']]]);
+  assertEquals(db2.writes('vendors').map((w: any) => [w.op, Object.keys(w.patch).sort(), w.filters]), [['update', ['raw'], [['eq', 'woo_vendor_id', 44]]], ['update', ['raw'], [['eq', 'woo_vendor_id', 900]]]]);
+  assertEquals(db2.rows('woo_sync_log').filter((r: any) => r.result !== 'ok').length, 0, 'no error row: the raw-only write is an update, never a partial upsert');
 });
 
 Deno.test('products: pulled with the cursor params and upserted (image_url = images[0].src, maker linked or null, permalink https only)', async () => {

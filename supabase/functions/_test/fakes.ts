@@ -148,6 +148,9 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       const hit = new Set<Row>();
       for (const r of q.rows) {
         const found = next[table].find((x) => key.every((c) => same(x[c], r[c])));
+        // Postgres forms the proposed tuple before `on conflict`: a not-null column without a default that is missing from the
+        // upserted row fails even when the conflicting row carries it (seen live on vendors.name, 26 Oct)
+        for (const c of NOT_NULL[table] ?? []) if ((!(c in r) && !(c in (DEFAULTS[table] ?? {}))) || r[c] === null) return done(null, err('23502', `null value in column "${c}" of relation "${table}" violates not-null constraint`));
         if (found && hit.has(found)) return done(null, err('21000', 'ON CONFLICT DO UPDATE command cannot affect row a second time'));
         if (found) { Object.assign(found, clone(r)); hit.add(found); touched.push(found); } else { const row = complete(table, r); next[table].push(row); hit.add(row); touched.push(row); }
       }

@@ -1,8 +1,8 @@
 // woo-write: the WooCommerce → Postgres write path shared by woo-webhook and woo-sync (service_role client: the
 // functions read and write the tables directly, never orders_v).
 // * Makers first: an unknown _dokan_vendor_id is looked up in vendors, then fetched from dokan/v1/stores/{id} and
-//   upserted on woo_vendor_id. saveVendors writes a store that is already in the table with raw (and woo_vendor_id)
-//   only — the team owns name / status / phone / email and the phase-3 columns after the first insert (decision 2 of
+//   upserted on woo_vendor_id. saveVendors writes a store that is already in the table with raw only, by an UPDATE on
+//   woo_vendor_id — the team owns name / status / phone / email and the phase-3 columns after the first insert (decision 2 of
 //   phase 3: Dokan's public REST returns neither `enabled` nor a phone, and a full rewrite every 15 minutes would undo
 //   the team's edits) — and a new store with the full mapStore row (joined_at from `registered`; never aliases /
 //   commission_pct / the other team columns). A store Dokan does not know (404) → woo_sync_log 'skipped'; any other
@@ -42,9 +42,10 @@ const TEAM_EDITED = ['customer_city', 'customer_address', 'customer_state', 'not
 const ORDER_UPDATE_COLUMNS = ORDER_COLUMNS.filter((c) => !TEAM_EDITED.includes(c));
 const ITEM_COLUMNS_NO_VENDOR = ITEM_COLUMNS.filter((c) => c !== 'vendor_id');
 const SUB_COLUMNS = ['order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw'];
-// A new store: the full mapStore row. An existing store: raw only (decision 2 of phase 3; the key names the row).
+// A new store: the full mapStore row, upserted. An existing store: raw only (decision 2 of phase 3), as an UPDATE by
+// woo_vendor_id — never an upsert: Postgres checks the not-null columns of the proposed row before `on conflict`, so a
+// raw-only upsert fails with 23502 on `name` for every store (seen live, 26 Oct, every cron run after the v8 deploy).
 const VENDOR_COLUMNS = ['woo_vendor_id', 'name', 'phone', 'email', 'status', 'joined_at', 'raw'];
-const VENDOR_UPDATE_COLUMNS = ['woo_vendor_id', 'raw'];
 // products.raw is readable by members: an allow-list of public product fields (no store owner name or address).
 const PRODUCT_RAW = ['id', 'name', 'slug', 'type', 'status', 'sku', 'price', 'regular_price', 'sale_price', 'on_sale', 'stock_status',
   'stock_quantity', 'date_created_gmt', 'date_modified_gmt', 'permalink', 'parent_id'];
@@ -86,7 +87,8 @@ async function save(ctx, table, rows, onConflict, returning = null) {
 
 /**
  * mapStore rows → vendors, upserted on woo_vendor_id, their ids remembered in ctx.vendors. A store already in the table
- * (ctx.vendors, else looked up) gets raw only; a new one is inserted with the full row (see the header). → number
+ * (ctx.vendors, else looked up) gets raw only, by one UPDATE per store; a new one is inserted with the full row (see the
+ * header). → number
  * written.
  */
 export async function saveVendors(ctx, rows) {
@@ -98,9 +100,24 @@ export async function saveVendors(ctx, rows) {
     ctx.vendors.set(Number(v.woo_vendor_id), v.id);
   }
   const added = await save(ctx, 'vendors', valid.filter((r) => !known.has(wooId(r.woo_vendor_id))).map((r) => pick(r, VENDOR_COLUMNS)), 'woo_vendor_id', 'id, woo_vendor_id');
-  const kept = await save(ctx, 'vendors', valid.filter((r) => known.has(wooId(r.woo_vendor_id))).map((r) => pick(r, VENDOR_UPDATE_COLUMNS)), 'woo_vendor_id', 'id, woo_vendor_id');
-  for (const v of [...added.rows, ...kept.rows]) ctx.vendors.set(Number(v.woo_vendor_id), v.id);
+  const kept = await updateVendorRaw(ctx, valid.filter((r) => known.has(wooId(r.woo_vendor_id))));
+  for (const v of added.rows) ctx.vendors.set(Number(v.woo_vendor_id), v.id);
   return valid.length - added.bad.size - kept.bad.size;
+}
+
+// raw of each existing store, one UPDATE by woo_vendor_id (the team owns every other column). A row refused with a data
+// error (SQLSTATE 22xxx / 23xxx) gets one woo_sync_log error row and the others go on; any other error throws.
+async function updateVendorRaw(ctx, rows) {
+  const bad = new Set();
+  for (const r of rows) {
+    const id = wooId(r.woo_vendor_id);
+    const { error } = await ctx.db.from('vendors').update({ raw: r.raw }).eq('woo_vendor_id', id);
+    if (!error) continue;
+    if (!/^2[23]/.test(String(error.code ?? ''))) throw new DbError('vendors', error);
+    bad.add(String(id));
+    await log(ctx, { entity: 'vendors', entity_id: String(id), action: 'update', result: 'error', detail: { error: errorText(new DbError('vendors', error), ctx.woo.scrub) } });
+  }
+  return { bad };
 }
 
 // The store as a vendors row, or null: 404 / another store → skipped (missingVendors); any other failure → an error

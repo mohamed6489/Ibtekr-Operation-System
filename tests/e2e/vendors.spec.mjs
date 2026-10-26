@@ -141,6 +141,7 @@ test('ops (vendors.edit = P) changes a phone: written, logged with the vendor as
   await expect.poll(() => acts('vendor.update')).toEqual([{ action: 'vendor.update', entity: 'vendor', entity_id: V1, new_value: 'phone' }]);
   await expect(section(page, 'سجل النشاط')).toContainText('سارة أحمد عدّل بيانات المبتكر (phone)');
   await expect(info(section(page, 'التواصل'), page, 'الهاتف (واتساب)')).toContainText('01000000009'); // after the reload: the server's row
+  await expect.poll(() => page.evaluate((id) => window.IBVendors.store.get(id).lastUpdate, V1)).not.toBe('2026-10-22T00:00:00Z'); // vendors.updated_at: bumped by the server on every write
   // the name: vendors.edit = F on the server → 42501 → the old name back, the reason on the page
   await section(page, 'الهوية').getByRole('button', { name: 'تعديل بيانات الهوية' }).click();
   await modal(page).locator('#g-name').fill('Art Craft Studio');
@@ -252,6 +253,14 @@ test('a 2 MB PDF contract uploads to <uuid>/<ms>-<safe name> and lands in vendor
   await expect(section(page, 'العقد')).toContainText('رفعه منى حسن');
   await expect.poll(() => acts('vendor.contract')).toEqual([{ action: 'vendor.contract', entity: 'vendor', entity_id: V1, new_value: 'PDF · 2.0 ميجا' }]);
   await expect(section(page, 'العقد').getByRole('button', { name: 'استبدال' })).toBeVisible();
+  // decision 8 (amended): accounts (vendors.edit = N) may change the contract and nothing else — the guard refuses every other column
+  const refused = await page.evaluate(async (id) => {
+    const c = window.IBSupabase.client; const out = [];
+    for (const patch of [{ phone: '01000000008' }, { name: 'x' }, { status: 'inactive' }]) { const { error } = await c.from('vendors').update(patch).eq('id', id); out.push(error ? error.code + ' ' + error.message : 'ok'); }
+    return out;
+  }, V1);
+  expect(refused).toEqual(['42501 vendors.edit (F or P) is required to change a vendor contact or notes', '42501 vendors.edit = F is required to change a vendor name, category, aliases or terms', '42501 vendors.toggle = F is required to change a vendor status']);
+  expect(writes().filter((x) => x.table === 'vendors')).toHaveLength(1); // the contract write alone
 });
 
 test('the server refuses a wrong type, an oversized file, a key outside the layout and a member without the key; the page checks the type first', async ({ page }) => {

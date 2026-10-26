@@ -423,16 +423,16 @@ export async function installSupabaseMock(page) {
           const same = (x, y) => JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
           for (const r of target) {
             const changed = keys.filter((k) => !same(r[k], b[k]));
-            if (t === 'vendors') { // vendors_guard_update (decision 8), then the policy's with check
+            if (t === 'vendors') { // vendors_guard_update (decision 8, amended: a member with sensitive.vendor_bank = F may change the contract and nothing else), then the policy's with check
               if (changed.includes('status') && hasPerm(u, 'vendors.toggle') !== 'F') return denied('vendors.toggle = F is required to change a vendor status');
               if (changed.includes('contract') && !F) return denied('sensitive.vendor_bank = F is required to change a vendor contract');
               if (changed.some((k) => VENDOR_IDENTITY_COLS.includes(k)) && hasPerm(u, 'vendors.edit') !== 'F') return denied('vendors.edit = F is required to change a vendor name, category, aliases or terms');
-              if (changed.some((k) => VENDOR_CONTACT_COLS.includes(k)) && hasPerm(u, 'vendors.edit') === 'N') return denied('vendors.edit is required to change a vendor contact or notes');
+              if (changed.some((k) => VENDOR_CONTACT_COLS.includes(k)) && hasPerm(u, 'vendors.edit') === 'N') return denied('vendors.edit (F or P) is required to change a vendor contact or notes');
               if (!(isAdmin(u) || hasPerm(u, 'vendors.edit') !== 'N' || F)) return denied('new row violates row-level security policy for table "vendors"');
             }
             const c = bad({ ...r, ...b }); if (c) return check(c);
           }
-          for (const r of target) { Object.assign(r, b, { updated_at: now }); mock.vendorWrites.push({ table: t, op: 'update', [key]: r[key], ...b }); }
+          for (const r of target) { Object.assign(r, b, { updated_at: now }); mock.vendorWrites.push({ table: t, op: 'update', [key]: r[key], ...b }); } // updated_at: the server bumps it on every write
           return empty(204);
         }
         // DELETE (vendors): the policy admits the admin only (0 rows for anyone else); the fk from order_items / sub_orders refuses

@@ -36,7 +36,7 @@
   const PAY_METHODS = ['bank', 'instapay', 'wallet', 'cash'];
   // the vendors columns the team writes, by the prototype's field names
   const COL = { name: 'name', legalName: 'legal_name', category: 'category', aliases: 'aliases', status: 'status', phone: 'phone', altPhone: 'alt_phone', email: 'email', address: 'address', instagram: 'instagram', storeUrl: 'store_url', leadDays: 'lead_days', depositPolicy: 'deposit_policy', notes: 'notes', joinedAt: 'joined_at' };
-  const MESSAGES = { forbidden: 'مش من صلاحياتك', network: 'الشبكة مش متاحة — التغيير ما اتحفظش، جرّب تاني', in_use: 'ماينفعش يتمسح — عليه أوردرات', too_large: 'الملف أكبر من 10 ميجا', bad_type: 'نوع الملف مش مقبول — PDF أو صورة (PNG / JPG) بس' };
+  const MESSAGES = { forbidden: 'مش من صلاحياتك', network: 'الشبكة مش متاحة — التغيير ما اتحفظش، جرّب تاني', in_use: 'ماينفعش يتمسح — عليه أوردرات', too_large: 'الملف أكبر من 10 ميجا', bad_type: 'نوع الملف مش مقبول — PDF أو صورة (PNG / JPG) بس', duplicate: 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني' };
   const DONE = ['مكتمل']; const OUT = ['ملغي', 'استرجاع', 'فشل', 'مرتجع', 'مسترد', 'ملغي / مرتجع'];
   let vendors = new Map(); const timeline = new Map(); const revealed = new Map(); let gen = 0; let st = 'idle'; let ratesOk = false;
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
@@ -166,7 +166,7 @@
   const events = (id) => (timeline.get(String(id)) || []).slice();
   function findByName(name) { const n = norm(name); if (!n) return null; for (const v of vendors.values()) { if (norm(v.name) === n || v.aliases.some((a) => norm(a) === n)) return copy(v); } return null; }
   const fail = (reason) => ({ ok: false, reason });
-  const reasonOf = (e) => (!e ? 'network' : e.code === '42501' || e.status === 403 || e.status === 401 || e.statusCode === '403' || e.statusCode === '401' ? 'forbidden' : e.code === '23503' ? 'in_use' : e.statusCode === '413' || e.status === 413 ? 'too_large' : e.statusCode === '415' || e.status === 415 ? 'bad_type' : 'network');
+  const reasonOf = (e) => (!e ? 'network' : e.code === '42501' || e.status === 403 || e.status === 401 || e.statusCode === '403' || e.statusCode === '401' ? 'forbidden' : e.code === '23503' ? 'in_use' : e.code === '23505' ? 'duplicate' : e.statusCode === '413' || e.status === 413 ? 'too_large' : e.statusCode === '415' || e.status === 415 ? 'bad_type' : 'network');
   // one call of the client → { ok, data } | { ok:false, reason }, never thrown
   async function call(fn) {
     const cl = c();
@@ -205,6 +205,7 @@
   // a patch in the prototype's field names → the changed vendors columns of `v` (the server guard checks per column)
   function update(id, patch, actor) {
     const v = must(id); if (!canEdit()) throw noPerm();
+    if (patch.status !== undefined && patch.status !== v.status && !canToggle()) throw noPerm(); // the guard's rule 1 (vendors.toggle)
     const errs = validate(Object.assign({}, v, { aliases: v.aliases.join('،') }, patch)); invalid(errs, Object.keys(patch).filter((k) => patch[k] !== undefined));
     if (patch.joinedAt !== undefined && patch.joinedAt && !isIso(patch.joinedAt)) throw new Error('invalid vendor: joinedAt');
     const old = copy(v); const row = {}; const changed = [];
@@ -229,6 +230,7 @@
   function setRate(id, rate, since, actor) {
     const v = must(id); if (!canRate()) throw noPerm();
     const r = Number(latin(rate)); if (!Number.isFinite(r) || r < 0 || r > 65) throw new Error('rate out of range'); if (!isIso(since)) throw new Error('since required');
+    if (v.rateHistory.some((x) => x.since === since)) throw new Error(MESSAGES.duplicate); // unique (vendor_id, since): rates are never rewritten
     const old = copy(v); const T = today();
     v.rateHistory = v.rateHistory.filter((x) => x.since !== since).concat([{ rate: r, since, by: actor && actor.name }]).sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
     let cur = null; for (const x of v.rateHistory) if (x.since <= T) cur = x; if (!cur) cur = v.rateHistory[0];
@@ -276,6 +278,7 @@
   }
   // «عرض / تحميل»: a signed URL (60 s) of the stored file → { ok, url } | { ok:false, reason }
   async function contractUrl(id) {
+    if (!canBank()) return fail('forbidden'); // the Storage policies need the key; no request without it
     const v = vendors.get(String(id)); const path = v && v.contract && v.contract.path;
     if (!path) return fail('network');
     const r = await call((cl) => cl.storage.from(BUCKET).createSignedUrl(path, SIGN_SECONDS));
@@ -302,7 +305,7 @@
   }
   // the add-vendor modal: the row, then its first rate when the caller may set rates; resolves after the reload with the vendor
   async function create(input, actor) {
-    if (!canEdit()) throw noPerm();
+    if (!(isAdmin() || perm('vendors.edit') === 'F')) throw noPerm(); // vendors_insert: vendors.edit = F
     invalid(validate(input));
     const row = {}; for (const k of Object.keys(COL)) { if (k === 'joinedAt') continue; const nv = cleanField(k, input[k] === undefined ? '' : input[k]); if (nv !== null && nv !== '' && !(Array.isArray(nv) && !nv.length)) row[COL[k]] = nv; }
     row.name = clean(input.name, 80); row.status = input.status; row.lead_days = Number(latin(input.leadDays)); row.aliases = parseAliases(input.aliases || '');

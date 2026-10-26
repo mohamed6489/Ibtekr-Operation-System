@@ -303,10 +303,17 @@ do $$ declare n int; begin
                                  from public.vendors) v) = 2
           and (select raw ->> 'store_name' from public.vendors where woo_vendor_id = 441) = 'ورشة النور'
           and (select joined_at from public.vendors where woo_vendor_id = 441) = '2025-01-02') then
-    raise exception 'case admin reads the vendors list by column list (raw, joined_at included) failed: rows % / store_name % / joined_at % / user % / uid % / vendors.view %',
+    raise exception 'case admin reads the vendors list by column list (raw, joined_at included) failed: A(count22) % / B(store_name) % / C(joined_at) % / rows % / name hex % vs literal hex % / client % server % / user % / uid % / vendors.view %',
+      ((select count(*) from (select id, woo_vendor_id, name, aliases, phone, email, status, raw, created_at, updated_at, legal_name,
+                                      category, alt_phone, address, instagram, store_url, lead_days, deposit_policy, notes, joined_at,
+                                      contract, opening_balance
+                               from public.vendors where woo_vendor_id in (441, 442)) v) = 2)::text,
+      ((select raw ->> 'store_name' from public.vendors where woo_vendor_id = 441) = 'ورشة النور')::text,
+      ((select joined_at from public.vendors where woo_vendor_id = 441) = '2025-01-02')::text,
       (select count(*) from public.vendors where woo_vendor_id in (441, 442)),
-      coalesce((select raw ->> 'store_name' from public.vendors where woo_vendor_id = 441), '∅'),
-      coalesce((select joined_at::text from public.vendors where woo_vendor_id = 441), '∅'),
+      coalesce((select encode(convert_to(raw ->> 'store_name', 'UTF8'), 'hex') from public.vendors where woo_vendor_id = 441), '∅'),
+      encode(convert_to('ورشة النور', 'UTF8'), 'hex'),
+      current_setting('client_encoding'), current_setting('server_encoding'),
       current_user, coalesce(auth.uid()::text, '∅'), public.has_perm('vendors.view');
   end if;
 

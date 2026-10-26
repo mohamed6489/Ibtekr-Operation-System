@@ -111,9 +111,9 @@
           for (const r of rows) { const d = r.data; const ex = vstore.findByName(d.name);
             const input = { name: d.name, legalName: d.legalName, category: d.category, status: vcode(d.status), phone: d.phone, email: d.email, rate: d.rate, leadDays: d.leadDays, address: d.address };
             if (ex && onMatch === 'تخطّي') continue;
-            if (ex && onMatch !== 'إنشاء نسخة') { const patch = {}; ['legalName', 'category', 'status', 'phone', 'email', 'leadDays', 'address'].forEach((k) => { if (input[k] !== undefined && input[k] !== '') patch[k] = input[k]; }); const old = {}; Object.keys(patch).forEach((k) => { old[k] = ex[k]; }); vstore.update(ex.id, patch, ME); done.updated.push({ id: ex.id, old }); }
-            else { const v = vstore.create(Object.assign({}, input, ex ? { name: d.name + ' (نسخة)' } : {}), ME); done.created.push(v.id); } }
-          return { done, undo: () => { done.created.forEach((id) => { try { vstore.remove(id, ME); } catch (e) { /* already gone */ } }); done.updated.forEach((u) => { try { vstore.update(u.id, u.old, ME); } catch (e) { /* skip */ } }); } }; } },
+            if (ex && onMatch !== 'إنشاء نسخة') { const patch = {}; ['legalName', 'category', 'status', 'phone', 'email', 'leadDays', 'address'].forEach((k) => { if (input[k] !== undefined && input[k] !== '') patch[k] = input[k]; }); const old = {}; Object.keys(patch).forEach((k) => { old[k] = ex[k]; }); vstore.update(ex.id, patch, vstore.actor()); done.updated.push({ id: ex.id, old }); }
+            else { const v = vstore.create(Object.assign({}, input, ex ? { name: d.name + ' (نسخة)' } : {}), vstore.actor()); done.created.push(v && v.id); } }
+          return { done, undo: () => { done.created.forEach((id) => { try { if (id) vstore.remove(id, vstore.actor()); } catch (e) { /* already gone */ } }); done.updated.forEach((u) => { try { vstore.update(u.id, u.old, vstore.actor()); } catch (e) { /* skip */ } }); } }; } },
       { id: 'expenses', label: 'الحسابات (المصروفات)', modes: ['add'], dateKey: 'date', filter: { key: 'category', label: 'النوع', options: () => D.CATEGORIES.slice() },
         fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }, { key: 'category', label: 'النوع', en: 'Category', type: 'enum', options: D.CATEGORIES.slice(), required: true }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['سحب', 'إيداع'] }, { key: 'beneficiary', label: 'المستفيد', en: 'Beneficiary' }],
         presets: { accountant: ['date', 'amount', 'category', 'direction', 'beneficiary'] },
@@ -191,11 +191,11 @@
         apply: (rows) => { const done = { created: [], updated: [] };
           for (const r of rows) { const d = r.data; const v = vstore.findByName(d.name); if (!v) continue; const u = { id: v.id, snap: vstore.get(v.id) };
             const bk = ['method', 'bankName', 'holder', 'iban', 'wallet'].filter((k) => d[k] !== undefined && d[k] !== '');
-            if (bk.length) { const nb = Object.assign({}, v.bank || {}); bk.forEach((k) => { nb[k] = k === 'method' ? (VD.PAY_METHODS.find((x) => x[1] === d.method) || ['bank'])[0] : d[k]; }); vstore.setBank(v.id, nb, ME); }
-            if (d.contractExpires) vstore.setContract(v.id, Object.assign({}, v.contract, { expires: d.contractExpires }), ME);
-            if (d.rate !== undefined && d.rate !== '') vstore.setRate(v.id, d.rate, d.rateSince, ME);
+            if (bk.length) { const nb = Object.assign({}, v.bank || {}); bk.forEach((k) => { nb[k] = k === 'method' ? (VD.PAY_METHODS.find((x) => x[1] === d.method) || ['bank'])[0] : d[k]; }); vstore.setBank(v.id, nb, vstore.actor()); }
+            if (d.contractExpires) vstore.setContract(v.id, Object.assign({}, v.contract, { expires: d.contractExpires }), vstore.actor());
+            if (d.rate !== undefined && d.rate !== '') vstore.setRate(v.id, d.rate, d.rateSince, vstore.actor());
             done.updated.push(u); }
-          return { done, undo: () => done.updated.forEach((u) => { try { vstore.restoreMoney(u.id, u.snap, ME); } catch (e) { /* skip */ } }) }; } },
+          return { done, undo: () => done.updated.forEach((u) => { try { vstore.restoreMoney(u.id, u.snap, vstore.actor()); } catch (e) { /* skip */ } }) }; } },
       { id: 'orderEdit', label: 'الأوردرات — التأكيد والعربون والتعليق', key: 'oid', modes: ['update'], note: 'تعديل بس — الأوردرات الجديدة بتيجي من الموقع / Airtable.',
         fields: () => [{ key: 'oid', label: 'رقم الأوردر', en: 'Order #', required: true }, { key: 'customer', label: 'العميل', en: 'Customer', readOnly: true }, { key: 'confirm', label: 'حالة التأكيد', en: 'Confirmation', type: 'enum', options: OA() && OA().confirms ? OA().confirms() : [] },
           { key: 'cdate', label: 'تاريخ التأكيد', en: 'Confirmed on', type: 'date' }, { key: 'deposit', label: 'العربون (ج.م)', en: 'Deposit (EGP)', type: 'number' }, { key: 'note', label: 'تعليق مهم عن الأوردر', en: 'Order note' }],
@@ -300,7 +300,7 @@
   state.rrange = Object.assign(D.presetRange('last30', TODAY), { preset: 'last30' });
   state.rcompare = false;
   const ticketOf = (hash) => { const m = /^tickets(?:\/(TKT-\d{4}))?$/.exec(hash); return m ? (m[1] || '') : null; };
-  const vendorOf = (hash) => { const m = /^makers(?:\/(VND-\d{4}))?$/.exec(hash); return m ? (m[1] || '') : null; }; // #makers — '#vendors' stays the accounts tab
+  const vendorOf = (hash) => { const m = /^makers(?:\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))?$/i.exec(hash); return m ? (m[1] || '') : null; }; // #makers/<vendor uuid> (phase 3) — '#vendors' stays the accounts tab
   const modPage = (hs) => (window.IBPages ? window.IBPages.match(hs) : null);
   state.page = modPage(location.hash.slice(1)) || (location.hash.slice(1) === 'orders' ? 'orders' : reportTabOf(location.hash.slice(1)) ? 'reports' : ticketOf(location.hash.slice(1)) !== null ? 'tickets' : vendorOf(location.hash.slice(1)) !== null ? 'vendors' : 'accounts');
 
@@ -1462,44 +1462,27 @@
   // ---------- Vendors / المبتكرين (Figma: المبتكرين — Desktop 1440; Modal / Add vendor; Drawer / Vendor Tab=Info/Orders) ----------
   const VD = window.IbtekrVendors;
   const CATS = VD.CATEGORIES;
-  let vseedClock = null;
-  const vstore = VD.createStore({ now: () => vseedClock || new Date().toISOString(), seed: seedVendors });
-  function seedVendors(api) {
-    const S = { name: 'سارة أحمد', role: 'خدمة العملاء' }, Hb = { name: 'هبة سمير', role: 'الحسابات' }, Ad = { name: ACTOR, role: VD.ADMIN };
-    const legacy = { name: 'نظام إبتكر', role: VD.ADMIN };
-    vseedClock = '2026-03-01T09:00:00.000Z';
-    const pct = (v) => { const n = parseFloat(v.pct); return Number.isFinite(n) ? n : 40; };
-    const extra = { 'Bian eg': { category: 'ديكور منزلي', phone: '01000000000', aliases: 'Bian، bian_eg', legalName: 'Bian Egypt للديكور', email: 'bian@example.com', address: 'مدينة نصر، القاهرة', instagram: '@bian.eg', storeUrl: 'ibtekr.club/vendor/bian-eg', depositPolicy: '50% من قيمة الأوردر', notes: 'الشحن على المبتكر داخل القاهرة' },
-      'Antikiano': { category: 'إكسسوارات ومجوهرات', phone: '01000000001', aliases: 'Antikiano store', instagram: '@antikiano' }, 'rufaida_store': { category: 'هدايا', phone: '01000000002', aliases: 'Rufaida، rufaida' }, 'Art Craft': { category: 'فنون ولوحات', phone: '01000000003', aliases: 'ArtCraft' },
-      'Medo .crafts': { category: 'مستلزمات حرف', phone: '01000000004', aliases: 'Medo crafts، medo' }, 'sala': { category: 'ملابس ومنسوجات', phone: '01000000005', aliases: 'Sala store' }, 'Dokan Elbanna': { category: 'أطعمة وحلويات', phone: '01000000006', aliases: 'دكان البنا' }, 'HANDS_Crafts': { category: 'مستلزمات حرف', phone: '01000000007', aliases: 'HANDS، Hands Crafts' }, 'W&R': { category: 'ديكور منزلي', phone: '01000000008', aliases: 'WOOD & ROPE، wood and rope' }, 'zaan': { category: 'هدايا', phone: '01000000009', aliases: 'zana، Zaan' } };
-    let i = 0;
-    for (const v of SEED.vendors) {
-      if (v.name === 'zana' || v.name === 'Ibtekr') continue; // zana = alias of zaan (data audit); Ibtekr is internal, not a vendor
-      const x = extra[v.name] || {};
-      const created = api.create({ name: v.name, category: x.category || CATS[i % CATS.length], phone: x.phone || '0100000' + String(10 + i).padStart(4, '0'), rate: pct(v), leadDays: 7, status: v.name === 'Knit nest' || v.name === 'Donia' ? 'inactive' : 'active', aliases: x.aliases || '', legalName: x.legalName, email: x.email, address: x.address, instagram: x.instagram, storeUrl: x.storeUrl, depositPolicy: x.depositPolicy, notes: x.notes, joinedAt: '2026-03-01' }, legacy);
-      if (v.name === 'Bian eg') { vseedClock = '2026-10-20T08:05:00.000Z'; api.setBank(created.id, { method: 'bank', bankName: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: 'EG380003000100000000000004821', wallet: '01000000000' }, Hb); api.setContract(created.id, { fileName: 'bian-contract-2026.pdf', size: 1258291, expires: '2027-10-20' }, Hb); }
-      if (v.name === 'Antikiano') { vseedClock = '2025-10-20T08:05:00.000Z'; api.setContract(created.id, { fileName: 'antikiano-contract.pdf', size: 980000, expires: '2026-11-15' }, Hb); vseedClock = '2026-03-01T09:30:00.000Z'; api.setRate(created.id, pct(v), '2026-03-01', Ad); }
-      if (v.name === 'Dokan Elbanna') { vseedClock = '2026-09-02T10:00:00.000Z'; api.setBank(created.id, { method: 'instapay', bankName: 'بنك مصر', holder: 'دكان البنا', iban: 'EG120002000200000000000007733', wallet: '01000000006' }, Hb); }
-      vseedClock = '2026-03-01T09:00:00.000Z'; i++;
-    }
-    vseedClock = null;
-  }
+  // Phase 3 (decision 1): the registry is IBVendors.store — the sync's vendors table completed by the team, write-through — and
+  // the prototype's seed is gone. Without the adapter (a bare prototype page) an empty in-memory store keeps the page alive.
+  const vstore = window.IBVendors ? window.IBVendors.store : VD.createStore();
+  const VMSG = (window.IBVendors && window.IBVendors.MESSAGES) || {};
+  // the store announces ib:vendors: a load (state), a local change, a write the server took, or a refused write ({ reason } —
+  // the adapter already put the old value back; the page says why) → the list and the open drawer redraw
+  let vredraw = null; // the open drawer's draw()
+  document.addEventListener('ib:vendors', (e) => {
+    const d = (e && e.detail) || {};
+    if (d.state === 'loading') return;
+    if (d.reason) vnote = { kind: 'error', text: VMSG[d.reason] || 'التغيير ما اتحفظش.' };
+    if (state.page === 'vendors') renderVendors(true);
+    if (vredraw) vredraw();
+  });
+  // the orders behind the stats changed (IBOrders: a load, a Realtime burst) — not while a menu or the filter is open
+  document.addEventListener('ib:notify', () => { if (state.page === 'vendors' && !document.querySelector('.pop-anchor .menu, .pop-anchor [role=dialog]')) renderVendors(true); if (vredraw) vredraw(); });
   state.vfilter = { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false, q: '' }; state.vsort = 'open'; state.vpage = 1; const VPAGE = 9;
   let vnote = null; const vnotify = (kind, text) => { vnote = { kind, text }; renderVendors(); };
-  // live stats per vendor: open orders + delay (orders), balance (accounts sheet), open tickets
-  function vendorStats() {
-    const rows = ordersRows(); const seed = vendorsNow(); const tk = tstore.all(); const out = {};
-    for (const v of vstore.all()) {
-      const names = [v.name, ...v.aliases].map(VD.norm);
-      const mine = rows.filter((r) => (r.vendors || []).some((n) => names.includes(VD.norm(n))));
-      const open = mine.filter((r) => TK.OPEN.has(r.status) || r.status === 'قيد الشحن' || r.status === 'جاري التنفيذ' || r.status === 'معلّق');
-      const sd = seed.find((x) => names.includes(VD.norm(x.name)));
-      const trv = trVendor(sd ? sd.name : v.name);
-      const last = mine.length ? Math.min(...mine.map((r) => r.ageDays)) : null;
-      out[v.id] = { transport: { total: trv.total, trips: trv.trips, last: trv.last }, orders: mine, open: open.length, late: open.filter((r) => r.delivery !== 'ok').length, balance: sd ? sd.balance : 0, deposits: sd ? sd.deposits : 0, seed: sd, lastAge: last, tickets: tk.filter((t) => t.type === 'vendor' && TK.OPEN.has(t.status) && names.includes(VD.norm(t.vendor || ''))) };
-    }
-    return out;
-  }
+  // live stats per vendor (decision 4 / 5): IBVendors.stats — the orders behind each maker with his shares (the website's rate on
+  // each line), his balance in this phase (opening + completed shares); deposits / transport / tickets come with phases 4 and 7
+  function vendorStats() { return window.IBVendors ? window.IBVendors.stats() : {}; }
   function vendorTasks() { return vstore.all().filter((v) => v.status === 'active').map((v) => ({ v, st: VD.contractStatus(v, TODAY) })).filter((x) => x.st === 'expiring' || x.st === 'expired').map((x) => ({ id: x.v.id, name: x.v.name, prio: x.st === 'expired' ? 'urgent' : 'high', sub: x.st === 'expired' ? 'العقد منتهي' : 'العقد بينتهي ' + D.formatDateLong(x.v.contract.expires) })); }
   const ageLabel = (a) => (a == null ? '—' : a === 0 ? 'اليوم' : a === 1 ? 'أمس' : D.formatDateLong(R.orderDate({ ageDays: a }, TODAY)));
   function copyText(text, label) { const done = () => vnotify('success', 'اتنسخ ' + label + '.'); const fail = () => vnotify('error', 'تعذّر النسخ من المتصفح.'); try { navigator.clipboard.writeText(String(text)).then(done, fail); } catch (e) { fail(); } }
@@ -1509,10 +1492,10 @@
     // «التفاصيل» on the 4 KPIs (owner, 22 Oct) — rows from VD.summaryDetails, a row opens the vendor file.
     const vdet = (kind) => { const d = VD.summaryDetails(all, stats); const money = (x) => D.formatMoney(x); const vstat = (v) => stats[v.id] || {};
       const open = (list) => (i) => openVendor(list[i].id);
-      if (kind === 'active') { const l = d.active.slice().sort((a, b) => (vstat(b).open || 0) - (vstat(a).open || 0)); return { title: 'المبتكرين النشطين — ' + l.length, sub: 'من ' + sum.total + ' مبتكر مسجّل · مرتبين بعدد الأوردرات المفتوحة · اضغط على أي صف يفتح ملفه', summary: [{ label: 'نشط', value: String(sum.active) }, { label: 'غير نشط', value: String(sum.total - sum.active) }, { label: 'أوردرات مفتوحة', value: String(l.reduce((x, v) => x + (vstat(v).open || 0), 0)) }], headers: ['المبتكر', 'الفئة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'الرصيد', 'آخر أوردر'], rows: l.map((v) => [v.name, v.category, v.rate + '%', String(vstat(v).open || 0), String(vstat(v).late || 0), money(vstat(v).balance || 0), ageLabel(vstat(v).lastAge)]), onRow: open(l), source: 'جدول المبتكرين + الأوردرات لايف' }; }
+      if (kind === 'active') { const l = d.active.slice().sort((a, b) => (vstat(b).open || 0) - (vstat(a).open || 0)); return { title: 'المبتكرين النشطين — ' + l.length, sub: 'من ' + sum.total + ' مبتكر مسجّل · مرتبين بعدد الأوردرات المفتوحة · اضغط على أي صف يفتح ملفه', summary: [{ label: 'نشط', value: String(sum.active) }, { label: 'غير نشط', value: String(sum.total - sum.active) }, { label: 'أوردرات مفتوحة', value: String(l.reduce((x, v) => x + (vstat(v).open || 0), 0)) }], headers: ['المبتكر', 'الفئة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'مستحقاته', 'آخر أوردر'], rows: l.map((v) => [v.name, v.category || '—', v.rate == null ? '—' : v.rate + '%', String(vstat(v).open || 0), String(vstat(v).late || 0), money(vstat(v).balance || 0), ageLabel(vstat(v).lastAge)]), onRow: open(l), source: 'جدول المبتكرين + الأوردرات لايف' }; }
       if (kind === 'delay') { const l = d.delay; return { title: 'مبتكرين عندهم أوردرات قابلة للتأخير / متأخرة — ' + l.length, sub: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة · نفس مصدر إشعار «موردين متأخرين»', summary: [{ label: 'مبتكرين', value: String(l.length) }, { label: 'قابل للتأخير', value: String(l.reduce((x, r) => x + r.risk, 0)) + ' أوردر' }, { label: 'متأخر', value: String(l.reduce((x, r) => x + r.late, 0)) + ' أوردر' }], headers: ['المبتكر', 'قابل للتأخير', 'متأخر', 'أوردرات مفتوحة', 'أقدم أوردر مفتوح', 'الموبايل'], rows: l.map((r) => { const v = all.find((x) => x.id === r.id); return [r.name, String(r.risk), String(r.late), String(r.open), r.oldest + ' يوم', v && v.phone || '—']; }), total: ['الإجمالي', String(l.reduce((x, r) => x + r.risk, 0)), String(l.reduce((x, r) => x + r.late, 0)), String(l.reduce((x, r) => x + r.open, 0)), '—', '—'], onRow: (i) => openVendorLate(l[i].name, 'all'), note: 'قابل للتأخير = عمر الأوردر 9–11 يوم · متأخر = أكتر من 11 يوم (مدة التسليم 12–15 يوم).', source: 'الأوردرات لايف' }; }
-      if (kind === 'due') { const l = d.due; return { title: 'مستحقات المبتكرين — ' + money(sum.due) + ' ج.م', sub: l.length + ' مبتكر ليهم رصيد لصالحهم', summary: [{ label: 'الإجمالي', value: money(sum.due) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }, { label: 'أكبر رصيد', value: l.length ? l[0].name + ' — ' + money(l[0].balance) : '—' }], headers: ['المبتكر', 'الرصيد (له)', 'من الإجمالي'], rows: l.map((r) => [r.name, money(r.balance), (sum.due ? Math.round(r.balance / sum.due * 100) : 0) + '%']), total: ['الإجمالي', money(l.reduce((x, r) => x + r.balance, 0)), '100%'], onRow: open(l), source: 'شيت Balances_Payouts حتى تأكيد النسب' }; }
-      const l = d.negative; return { title: 'مبتكرين عندهم رصيد سالب (عرابين / مواصلات) — ' + l.length, sub: 'عرابين اتدفعت لهم قبل ما الأوردرات تكتمل — بتتخصم من مستحقاتهم', summary: [{ label: 'إجمالي العرابين', value: money(sum.negativeTotal) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }], headers: ['المبتكر', 'العربون', 'المواصلات', 'الرصيد (عليه)', 'أوردرات مفتوحة'], rows: l.map((r) => [r.name, money(r.deposits), money((vendorsNow().find((x) => x.name === r.name) || {}).transport || 0), money(r.balance), String((stats[r.id] || {}).open || 0)]), total: ['الإجمالي', money(l.reduce((x, r) => x + r.deposits, 0)), money(l.reduce((x, r) => x + ((vendorsNow().find((y) => y.name === r.name) || {}).transport || 0), 0)), money(l.reduce((x, r) => x + r.balance, 0)), String(l.reduce((x, r) => x + ((stats[r.id] || {}).open || 0), 0))], onRow: open(l), source: 'شيت Balances_Payouts + الحركات المالية' };
+      if (kind === 'due') { const l = d.due; return { title: 'مستحقات المبتكرين — ' + money(sum.due) + ' ج.م', sub: l.length + ' مبتكر ليهم رصيد لصالحهم', summary: [{ label: 'الإجمالي', value: money(sum.due) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }, { label: 'أكبر رصيد', value: l.length ? l[0].name + ' — ' + money(l[0].balance) : '—' }], headers: ['المبتكر', 'الرصيد (له)', 'من الإجمالي'], rows: l.map((r) => [r.name, money(r.balance), (sum.due ? Math.round(r.balance / sum.due * 100) : 0) + '%']), total: ['الإجمالي', money(l.reduce((x, r) => x + r.balance, 0)), '100%'], onRow: open(l), source: 'الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر (الافتتاحي والعرابين من مرحلة الحسابات)' }; }
+      const l = d.negative; return { title: 'مبتكرين عندهم رصيد سالب (عرابين / مواصلات) — ' + l.length, sub: 'عرابين اتدفعت لهم قبل ما الأوردرات تكتمل — بتتخصم من مستحقاتهم', summary: [{ label: 'إجمالي العرابين', value: money(sum.negativeTotal) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }], headers: ['المبتكر', 'العربون', 'المواصلات', 'الرصيد (عليه)', 'أوردرات مفتوحة'], rows: l.map((r) => [r.name, money(r.deposits), money((vendorsNow().find((x) => x.name === r.name) || {}).transport || 0), money(r.balance), String((stats[r.id] || {}).open || 0)]), total: ['الإجمالي', money(l.reduce((x, r) => x + r.deposits, 0)), money(l.reduce((x, r) => x + ((vendorsNow().find((y) => y.name === r.name) || {}).transport || 0), 0)), money(l.reduce((x, r) => x + r.balance, 0)), String(l.reduce((x, r) => x + ((stats[r.id] || {}).open || 0), 0))], onRow: open(l), source: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات' };
     };
     const list = VD.sortVendors(VD.filterVendors(all, stats, state.vfilter, TODAY), stats, state.vsort);
     const pages = Math.max(1, Math.ceil(list.length / VPAGE)); if (state.vpage > pages) state.vpage = pages;
@@ -1561,25 +1544,26 @@
       if (chips.length > 1) chips.push(Button({ type: 'text', size: 'sm', label: 'مسح الكل', onClick: () => { Object.assign(f, { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false }); state.vpage = 1; renderVendors(); } }));
       return chips.length ? h('div', { class: 'fchips' }, ...chips) : null;
     }
-    const headers = ['المبتكر', 'الحالة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'العربون', 'المواصلات', 'الرصيد الحالي', 'آخر أوردر', 'تذاكر مفتوحة'];
-    const cells = (v) => { const st = stats[v.id]; return [h('span', { class: 'vendor-cell' }, U.VendorLogo({ letter: v.logoLetter, size: 'sm' }), h('span', { class: 't-label' }, v.name)), U.VendorStatus(v.status), num(v.rate + '%'), num(String(st.open)), num(String(st.late)), h('span', { class: 'dep-neg' }, num(st.deposits ? '−' + D.formatMoney(st.deposits) : '0.00')), num(D.formatMoney(st.transport.total)), h('span', { class: st.balance < 0 ? 'bal-neg' : '' }, num(D.formatMoney(st.balance))), num(ageLabel(st.lastAge)), num(String(st.tickets.length))]; }; // العربون بالسالب — الرصيد الحالي = المستحق − العربون
+    const headers = ['المبتكر', 'الحالة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'العربون', 'المواصلات', 'مستحقاته (من 1 أكتوبر)', 'آخر أوردر', 'تذاكر مفتوحة'];
+    const later = (phase) => h('span', { class: 't-small', style: 'color:var(--color-text-secondary)', title: 'من مرحلة ' + phase }, '—'); // decision 4: deposits / transport with phase 4, tickets with phase 7
+    const cells = (v) => { const st = stats[v.id]; return [h('span', { class: 'vendor-cell' }, U.VendorLogo({ letter: v.logoLetter, size: 'sm' }), h('span', { class: 't-label' }, v.name)), U.VendorStatus(v.status), v.rate == null ? '—' : num(v.rate + '%'), num(String(st.open)), num(String(st.late)), later(4), later(4), h('span', { class: st.balance < 0 ? 'bal-neg' : '' }, num(D.formatMoney(st.balance))), num(ageLabel(st.lastAge)), later(7)]; }; // مستحقاته = الافتتاحي + حقه من الأوردرات المكتملة
     const table = h('div', { class: 'scroll-x' }, h('table', { class: 'tickets-table' }, h('thead', null, h('tr', null, headers.map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, slice.map((v) => { const tr = h('tr', { 'data-id': v.id, tabindex: '0', role: 'button', 'aria-label': 'فتح ملف ' + v.name }, cells(v).map((c) => h('td', null, c))); tr.addEventListener('click', () => openVendor(v.id)); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openVendor(v.id); } }); return tr; }))));
     const cards = h('div', { class: 'kv-list' }, slice.map((v) => { const cs = cells(v); const c = h('div', { class: 'card list-card', tabindex: '0', role: 'button' }, h('div', { class: 'title' }, cs[0]), headers.slice(1).map((k, i) => h('div', { class: 'kv' }, h('span', { class: 't-small' }, k), h('span', { class: 't-body' }, cs[i + 1])))); c.addEventListener('click', () => openVendor(v.id)); c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openVendor(v.id); }); return c; }));
     const pager = h('div', { class: 'pager' }, h('div', { class: 'pages' }, Button({ type: 'text', size: 'sm', label: 'السابق', disabled: state.vpage <= 1, onClick: () => { state.vpage--; renderVendors(); } }), Array.from({ length: pages }, (_, i) => Button({ type: i + 1 === state.vpage ? 'primary' : 'text', size: 'sm', label: String(i + 1), onClick: () => { state.vpage = i + 1; renderVendors(); } })), Button({ type: 'text', size: 'sm', label: 'التالي', disabled: state.vpage >= pages, onClick: () => { state.vpage++; renderVendors(); } })),
       h('span', { class: 't-small' }, num(list.length ? 'عرض ' + ((state.vpage - 1) * VPAGE + 1) + '–' + Math.min(list.length, state.vpage * VPAGE) + ' من ' + list.length : '')));
     return [
       h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'المبتكرين'), h('p', { class: 't-small' }, 'ملف كل مبتكر: البيانات والعقد والحساب البنكي، وأوردراته ورصيده — المبتكر هو المرجع الأساسي للأوردرات والنسب')),
-        h('div', { class: 'actions' }, vFilterBtn(), vSortBtn(), window.IBDataActions.Menu(window.IBDataActions.PAGES.vendors), Button({ type: 'brand', icon: 'plus', label: 'إضافة مبتكر', disabled: !VD.canEdit(ME), onClick: () => openAddVendor() }))),
+        h('div', { class: 'actions' }, vFilterBtn(), vSortBtn(), window.IBDataActions.Menu(window.IBDataActions.PAGES.vendors), Button({ type: 'brand', icon: 'plus', label: 'إضافة مبتكر', disabled: !vstore.canEdit(), onClick: () => openAddVendor() }))),
       h('div', { class: 'toolbar vtoolbar' }, search, vChips(), h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(list.length + ' مبتكر · ' + (VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label))),
       vnote ? (() => { const n = vnote; vnote = null; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); return el; })() : null,
       h('div', { class: 'cards five' },
         U.KpiTile({ label: 'مبتكرين نشطين', value: String(sum.active), unit: 'مبتكر', compare: 'off', note: 'من ' + sum.total + ' مبتكر مسجّل', details: () => vdet('active') }),
         U.KpiTile({ label: 'عندهم أوردرات قابلة للتأخير', value: String(sum.withDelay), unit: 'مبتكرين', compare: sum.withDelay ? 'negative' : 'off', delta: { text: 'متابعة', caption: 'نفس مصدر إشعار «موردين متأخرين»' }, note: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة', details: () => vdet('delay') }),
-        U.KpiTile({ label: 'إجمالي مستحقات المبتكرين', value: D.formatMoney(sum.due), unit: 'ج.م', compare: 'off', note: 'أرصدة لصالحهم من شيت Balances_Payouts', details: () => vdet('due') }),
-        U.KpiTile({ label: 'عندهم رصيد سالب (عرابين)', value: String(sum.negative), unit: 'مبتكرين', compare: 'off', note: ['إجمالي ', num(D.formatMoney(sum.negativeTotal)), ' ج.م مدفوعة مقدمًا'], details: () => vdet('negative') }),
+        U.KpiTile({ label: 'إجمالي مستحقات المبتكرين', value: D.formatMoney(sum.due), unit: 'ج.م', compare: 'off', note: 'من الأوردرات المكتملة من 1 أكتوبر · الافتتاحي والعرابين من مرحلة 4', details: () => vdet('due') }),
+        U.KpiTile({ label: 'عندهم رصيد سالب (عرابين)', value: String(sum.negative), unit: 'مبتكرين', compare: 'off', note: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات', details: () => vdet('negative') }),
         (() => { const t = trAll(); return U.KpiTile({ label: 'مواصلات المبتكرين', value: D.formatMoney(t.vendors), unit: 'ج.م', compare: 'off', note: [num(String(t.vendorTrips)), ' مشوار لـ ', num(String(t.vendorCount)), ' مبتكرين · من البداية'], details: () => transportDetails('') }); })()),
       TableCard({ title: 'المبتكرين', count: list.length + ' مبتكر · مرتبين بعدد الأوردرات المفتوحة', body: list.length === 0 ? U.EmptyState('مفيش مبتكر بالاسم ده', 'جرّب اسم بديل أو رقم الهاتف، أو اضغط «إضافة مبتكر» لو جديد.') : [tableOrList(() => table, () => cards), pager] }),
-      h('p', { class: 'source' }, 'المصدر: جدول المبتكرين (Vendors) هو المرجع — Vendor ID ثابت والأسماء البديلة لتوحيد الأوردرات والشيت · الرصيد من شيت Balances_Payouts حتى تأكيد النسب · الأوردرات والتأخير لايف من الأوردرات')];
+      h('p', { class: 'source' }, 'المصدر: جدول المبتكرين (متاجر الموقع من المزامنة + اللي الفريق بيكمّله) — الأسماء البديلة لتوحيد الأوردرات والشيت · المستحقات من الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر · الأوردرات والتأخير لايف من الأوردرات')];
   }
   function renderVendors(keepFocus) {
     U.closePopover(); const main = document.getElementById('vendors'); if (!main) return; const sc = window.scrollY; const had = keepFocus && document.activeElement && document.activeElement.type === 'search';
@@ -1609,9 +1593,9 @@
     }
     function submit() {
       errs = VD.validateVendor(f); if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; draw(); return; }
-      try { if (existing) { vstore.update(existing.id, f, ME); log.append({ action: 'vendor.update', actor: ME.name, newValue: existing.id }); modal.close(); vnotify('success', 'اتحفظت بيانات ' + f.name + '.'); if (vdrawer) openVendor(existing.id); }
-        else { const v = vstore.create(f, ME); log.append({ action: 'vendor.create', actor: ME.name, newValue: v.id }); modal.close(); state.vfilter.q = ''; vnotify('success', 'اتضاف المبتكر ' + v.name + ' (' + v.id + ').'); openVendor(v.id); } }
-      catch (e) { errs._form = e.message; draw(); }
+      if (existing) { try { vstore.update(existing.id, f, vstore.actor()); log.append({ action: 'vendor.update', actor: ME.name, newValue: existing.id }); modal.close(); vnotify('success', 'اتحفظت بيانات ' + f.name + '.'); if (vdrawer) openVendor(existing.id); } catch (e) { errs._form = e.message; draw(); } return; }
+      // decision 9: the real store's create (the id comes from the server); the owner redesigns this form after the phase
+      Promise.resolve().then(() => vstore.create(f, vstore.actor())).then((v) => { log.append({ action: 'vendor.create', actor: ME.name, newValue: v.id }); modal.close(); state.vfilter.q = ''; vnotify('success', 'اتضاف المبتكر ' + v.name + '.'); openVendor(v.id); }, (e) => { errs._form = e.message; draw(); });
     }
     modal = U.Modal({ title: existing ? 'تعديل بيانات ' + existing.name : 'إضافة مبتكر', body: [], footer: [] }); draw(); const first = modal.el.querySelector('#v-name'); if (first) first.focus();
   }
@@ -1622,14 +1606,14 @@
     const v0 = vstore.get(id); if (!v0) { vnotify('error', 'المبتكر ' + id + ' مش موجود.'); return; }
     if (vdrawer) vdrawer.close(); shown.clear();
     try { history.replaceState(null, '', '#makers/' + id); } catch (e) { /* sandboxed */ }
-    vdrawer = U.Drawer({ label: 'ملف المبتكر ' + v0.name, onClose: () => { vdrawer = null; try { history.replaceState(null, '', '#makers'); } catch (e) { /* sandboxed */ } renderVendors(); } });
+    vdrawer = U.Drawer({ label: 'ملف المبتكر ' + v0.name, onClose: () => { vdrawer = null; vredraw = null; try { history.replaceState(null, '', '#makers'); } catch (e) { /* sandboxed */ } renderVendors(); } });
     const act = (fn, ok) => { try { fn(); log.append({ action: 'vendor.update', actor: ME.name, newValue: id }); if (ok) vnotify('success', ok); draw(); } catch (e) { vnotify('error', e.message); draw(); } };
     const section = (title, action, ...kids) => h('section', { class: 'vsection' }, h('div', { class: 'head' }, h('h3', { class: 't-label' }, title), action || null), kids);
     function moreMenu(v) {
       const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const trig = IconButton({ icon: 'more', label: 'المزيد', attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false' } });
-      const opts = [{ value: 'status', label: v.status === 'active' ? 'تحويل لغير نشط' : 'تفعيل المبتكر' }, { value: 'rate', label: 'تغيير النسبة (الأوردرات الجديدة فقط)' }, { value: 'copy', label: 'نسخ رابط الملف' }, { value: 'ticket', label: 'إنشاء تذكرة على المبتكر' }];
+      const opts = [vstore.canToggle() ? { value: 'status', label: v.status === 'active' ? 'تحويل لغير نشط' : 'تفعيل المبتكر' } : null, vstore.canRate() ? { value: 'rate', label: 'تغيير النسبة (الأوردرات الجديدة فقط)' } : null, { value: 'copy', label: 'نسخ رابط الملف' }, { value: 'ticket', label: 'إنشاء تذكرة على المبتكر' }].filter(Boolean);
       const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (val) => { close();
-        if (val === 'status') act(() => vstore.update(id, { status: v.status === 'active' ? 'inactive' : 'active' }, ME), 'اتغيرت الحالة.');
+        if (val === 'status') act(() => vstore.update(id, { status: v.status === 'active' ? 'inactive' : 'active' }, vstore.actor()), 'اتغيرت الحالة.');
         if (val === 'rate') editGroup(v, 'terms');
         if (val === 'copy') copyText(location.href.split('#')[0] + '#makers/' + id, 'رابط الملف');
         if (val === 'ticket') { vdrawer.close(); showTickets(); openNewTicket(); } } }));
@@ -1637,7 +1621,7 @@
     }
     // Per-section edit (owner, 21 Oct): every data group has its own «تعديل» that opens a popup with that group's fields only (Figma: Modal / Vendor edit — Identity | Contact | Terms).
     function editGroup(v, g) {
-      const G = VD.EDIT_GROUPS[g]; const f = { name: v.name, legalName: v.legalName || '', category: v.category, aliases: v.aliases.join('، '), status: v.status, phone: v.phone, altPhone: v.altPhone || '', email: v.email || '', address: v.address || '', instagram: v.instagram || '', storeUrl: v.storeUrl || '', leadDays: String(v.leadDays), depositPolicy: v.depositPolicy || '', notes: v.notes || '', rate: String(v.rate), since: TODAY };
+      const G = VD.EDIT_GROUPS[g]; const f = { name: v.name, legalName: v.legalName || '', category: v.category, aliases: v.aliases.join('، '), status: v.status, phone: v.phone, altPhone: v.altPhone || '', email: v.email || '', address: v.address || '', instagram: v.instagram || '', storeUrl: v.storeUrl || '', leadDays: String(v.leadDays), depositPolicy: v.depositPolicy || '', notes: v.notes || '', rate: v.rate == null ? '' : String(v.rate), since: TODAY };
       let errs = {}; let m = null;
       const txt = (fid, label, key, opts = {}) => U.TextInput(Object.assign({ id: fid, label, value: f[key], error: errs[key], onInput: (x) => { f[key] = x; } }, opts));
       const two = (a, b) => h('div', { class: 'row cols2' }, a, b);
@@ -1648,36 +1632,36 @@
         contact: () => [two(txt('g-phone', 'الهاتف (واتساب)', 'phone', { required: true, inputmode: 'tel', placeholder: '01xxxxxxxxx' }), txt('g-alt', 'هاتف بديل', 'altPhone', { inputmode: 'tel', placeholder: '01xxxxxxxxx' })),
           two(txt('g-email', 'الإيميل', 'email', { inputmode: 'email' }), txt('g-ig', 'إنستجرام', 'instagram', { placeholder: '@name' })),
           txt('g-addr', 'العنوان (الاستلام)', 'address'), txt('g-url', 'صفحة المتجر', 'storeUrl', { placeholder: 'https://ibtekr.club/…' })],
-        terms: () => [two(txt('g-rate', 'نسبة إبتكر', 'rate', { required: true, inputmode: 'decimal', suffix: '%' }), U.DateField({ id: 'g-since', label: 'النسبة الجديدة سارية من', required: true, value: f.since, error: errs.since, today: TODAY, onChange: (iso, e) => { if (!e) f.since = iso; errs.since = e || undefined; m.setBody(...body()); } })),
-          U.InlineNote({ kind: 'warning', children: 'لو غيّرت النسبة: بتنطبق على الأوردرات الجديدة من التاريخ ده فقط — الأوردرات القديمة بتفضل بنسبتها ' + v.rate + '%.' }),
+        terms: () => [vstore.canRate() ? two(txt('g-rate', 'نسبة إبتكر', 'rate', { inputmode: 'decimal', suffix: '%', help: v.rate == null ? 'لسه مفيش نسبة متسجلة' : undefined }), U.DateField({ id: 'g-since', label: 'النسبة الجديدة سارية من', required: true, value: f.since, error: errs.since, today: TODAY, onChange: (iso, e) => { if (!e) f.since = iso; errs.since = e || undefined; m.setBody(...body()); } })) : null,
+          vstore.canRate() ? U.InlineNote({ kind: 'warning', children: 'لو غيّرت النسبة: بتنطبق على الأوردرات الجديدة من التاريخ ده فقط — الأوردرات القديمة بتفضل بنسبتها ' + (v.rate == null ? '—' : v.rate + '%') + '.' }) : null,
           two(txt('g-lead', 'مدة التجهيز المتفق عليها (أيام)', 'leadDays', { required: true, inputmode: 'numeric', help: 'بتغذي قاعدة التأخير' }), txt('g-dep', 'سياسة العربون', 'depositPolicy')),
           U.Textarea({ id: 'g-notes', label: 'ملاحظات الاتفاق', value: f.notes, onInput: (x) => { f.notes = x; } })] };
-      const body = () => groups[g]().concat(errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: 'التعديل بيتسجل في سجل النشاط باسمك.' }));
+      const body = () => groups[g]().filter(Boolean).concat(errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: 'التعديل بيتسجل في سجل النشاط باسمك.' }));
       function save() {
         errs = VD.validateGroup(g, Object.assign({}, v, { aliases: v.aliases.join('، ') }), f);
         let rateChanged = false;
-        if (g === 'terms') { const r = Number(String(f.rate).replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660))); if (!(r >= 0 && r <= 65)) errs.rate = 'النسبة من 0% إلى 65%'; else rateChanged = r !== v.rate; if (rateChanged && !f.since) errs.since = 'اختار تاريخ سريان النسبة'; }
+        if (g === 'terms' && vstore.canRate()) { const raw = String(f.rate).trim(); if (raw === '') { if (v.rate != null) errs.rate = 'النسبة من 0% إلى 65%'; } else { const r = Number(raw.replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660))); if (!(r >= 0 && r <= 65)) errs.rate = 'النسبة من 0% إلى 65%'; else rateChanged = r !== v.rate; if (rateChanged && !f.since) errs.since = 'اختار تاريخ سريان النسبة'; } }
         if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; m.setBody(...body()); return; }
         m.close();
-        act(() => { vstore.update(id, VD.groupPatch(g, f), ME); if (rateChanged) vstore.setRate(id, Number(f.rate), f.since, ME); }, 'اتحفظت ' + G.title + '.');
+        act(() => { vstore.update(id, VD.groupPatch(g, f), vstore.actor()); if (rateChanged) vstore.setRate(id, Number(f.rate), f.since, vstore.actor()); }, 'اتحفظت ' + G.title + '.');
       }
       m = U.Modal({ title: G.title + ' — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
       const first = m.el && m.el.querySelector('input'); if (first) first.focus();
     }
-    const editBtn = (v, g) => (VD.canEdit(ME) ? Button({ type: 'text', size: 'sm', label: 'تعديل', attrs: { 'aria-label': 'تعديل ' + VD.EDIT_GROUPS[g].title, 'data-edit': g }, onClick: () => editGroup(v, g) }) : null);
+    const editBtn = (v, g) => (vstore.canEdit() ? Button({ type: 'text', size: 'sm', label: 'تعديل', attrs: { 'aria-label': 'تعديل ' + VD.EDIT_GROUPS[g].title, 'data-edit': g }, onClick: () => editGroup(v, g) }) : null);
     function bankForm(v) {
       const b = v.bank || {}; const f = { method: b.method || 'bank', bankName: b.bankName || '', holder: b.holder || '', iban: b.iban || '', wallet: b.wallet || '' }; let m = null;
       const body = () => [U.Select({ id: 'b-method', label: 'طريقة الدفع المفضلة', required: true, options: VD.PAY_METHODS.map(([k, l]) => ({ value: k, label: l })), value: f.method, onChange: (x) => { f.method = x; m.setBody(...body()); } }),
         h('div', { class: 'row cols2' }, U.TextInput({ id: 'b-bank', label: 'البنك', value: f.bankName, onInput: (x) => { f.bankName = x; } }), U.TextInput({ id: 'b-holder', label: 'اسم صاحب الحساب', value: f.holder, onInput: (x) => { f.holder = x; } })),
         U.TextInput({ id: 'b-iban', label: 'IBAN / رقم الحساب', value: f.iban, placeholder: 'EG…', onInput: (x) => { f.iban = x; } }), U.TextInput({ id: 'b-wallet', label: 'رقم المحفظة / إنستاباي', value: f.wallet, inputmode: 'tel', onInput: (x) => { f.wallet = x; } }),
         U.InlineNote({ kind: 'warning', children: 'بيانات حساسة — التعديل بيتسجل في السجل باسمك.' })];
-      m = U.Modal({ title: 'بيانات الحساب البنكي — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: () => { m.close(); act(() => vstore.setBank(id, f, ME), 'اتحفظ الحساب البنكي.'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+      m = U.Modal({ title: 'بيانات الحساب البنكي — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: () => { m.close(); act(() => vstore.setBank(id, f, vstore.actor()), 'اتحفظ الحساب البنكي.'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
     }
     function contractForm(v) {
       const f = { fileName: '', size: 0, expires: v.contract ? v.contract.expires : '' }; let err = null; let m = null;
-      const input = h('input', { type: 'file', accept: '.pdf,.png,.jpg,.jpeg', 'aria-label': 'ملف العقد' }); input.addEventListener('change', () => { const file = input.files && input.files[0]; if (file) { f.fileName = file.name; f.size = file.size; } });
+      const input = h('input', { type: 'file', accept: '.pdf,.png,.jpg,.jpeg', 'aria-label': 'ملف العقد' }); input.addEventListener('change', () => { const file = input.files && input.files[0]; if (file) { f.fileName = file.name; f.size = file.size; f.file = file; } });
       const body = () => [U.FieldShell({ id: 'c-file', label: 'ملف العقد (PDF أو صورة، حتى 10 ميجا)', required: true }, input), U.DateField({ id: 'c-exp', label: 'تاريخ انتهاء العقد', value: f.expires || null, error: err, today: TODAY, help: 'هيوصلك تنبيه قبل الانتهاء بـ 30 يوم', onChange: (iso, e) => { if (!e) f.expires = iso || ''; err = e; m.setBody(...body()); } })];
-      m = U.Modal({ title: (v.contract ? 'استبدال' : 'رفع') + ' عقد التعاون — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'رفع العقد', onClick: () => { if (!f.fileName) { vnotify('error', 'اختار ملف العقد الأول.'); m.close(); return; } m.close(); act(() => vstore.setContract(id, f, ME), 'اترفع العقد.'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+      m = U.Modal({ title: (v.contract ? 'استبدال' : 'رفع') + ' عقد التعاون — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'رفع العقد', onClick: () => { if (!f.fileName) { vnotify('error', 'اختار ملف العقد الأول.'); m.close(); return; } m.close(); act(() => vstore.setContract(id, f, vstore.actor()), 'اترفع العقد.'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
     }
     // Every KPI tile in «الأوردرات» opens a popup with its orders (owner, 21 Oct). Figma: Modal / Vendor orders.
     function tileOpen(tile, v, kind, all) {
@@ -1690,9 +1674,9 @@
     function openVendorOrders(v, kind, all) {
       const delay = kind === 'risk' || kind === 'late' || kind === 'onTime';
       const rows = VD.ordersByKind(all, kind).slice().sort((a, b) => (delay || kind === 'inProgress' ? b.ageDays - a.ageDays : a.ageDays - b.ageDays));
-      const rate = v.rate / 100; const tot = rows.reduce((x, o) => x + o.total, 0); let m = null;
+      const tot = rows.reduce((x, o) => x + o.total, 0); const hisShare = rows.reduce((x, o) => x + (o.share || 0), 0); let m = null; // decision 4: his share per line
       const title = ({ risk: 'أوردرات قابلة للتأخير', late: 'أوردرات متأخرة', onTime: 'أوردرات غير متأخرة' }[kind] || VD.ORDER_KINDS[kind]) + ' — ' + v.name;
-      const sub = h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, num(rows.length + ' أوردر · بقيمة ' + D.formatMoney(tot) + ' ج.م · حصته ' + D.formatMoney(tot * (1 - rate)) + ' ج.م' + (rows.length && (delay || kind === 'inProgress') ? ' · أقدمها ' + Math.max(...rows.map((o) => o.ageDays)) + ' يوم' : '') + (delay ? ' · قابل للتأخير 9–11 يوم، متأخر بعد 11 يوم (مدة التسليم 12–15)' : '')));
+      const sub = h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, num(rows.length + ' أوردر · بقيمة ' + D.formatMoney(tot) + ' ج.م · حصته ' + D.formatMoney(hisShare) + ' ج.م' + (rows.length && (delay || kind === 'inProgress') ? ' · أقدمها ' + Math.max(...rows.map((o) => o.ageDays)) + ' يوم' : '') + (delay ? ' · قابل للتأخير 9–11 يوم، متأخر بعد 11 يوم (مدة التسليم 12–15)' : '')));
       const open = (o) => !(o.status === 'مكتمل' || ['ملغي', 'مرتجع', 'مسترد', 'ملغي / مرتجع'].includes(o.status));
       const table = h('table', { class: 'vlo-table' },
         h('thead', null, h('tr', null, ['رقم الأوردر', 'العميل', 'التاريخ', 'الحالة', 'حالة التأخير', 'عمر الأوردر', 'الإجمالي', 'حصته'].map((x) => h('th', { scope: 'col' }, x)))),
@@ -1704,7 +1688,7 @@
           h('td', { 'data-l': 'حالة التأخير' }, open(o) ? U.DelayBadge(o.delivery) : '—'),
           h('td', { 'data-l': 'عمر الأوردر' }, num(o.ageDays + ' يوم')),
           h('td', { 'data-l': 'الإجمالي' }, num(D.formatMoney(o.total))),
-          h('td', { 'data-l': 'حصته' }, num(D.formatMoney(o.total * (1 - rate))))))));
+          h('td', { 'data-l': 'حصته' }, num(D.formatMoney(o.share || 0)))))));
       const body = h('div', { style: 'display:flex;flex-direction:column;gap:12px' }, sub, rows.length ? h('div', { style: 'overflow-x:auto' }, table) : U.EmptyState('مفيش أوردرات هنا', delay ? 'مفيش أوردرات مفتوحة في الحالة دي للمبتكر ده.' : 'مفيش أوردرات في الحالة دي للمبتكر ده.'));
       // «مشاركة» (owner, 22 Oct): WhatsApp to the vendor's number or email — same pattern as Modal / Vendor late orders.
       const shareWrap = h('div', { class: 'pop-anchor', 'data-popover-root': '', style: 'position:relative' });
@@ -1733,26 +1717,28 @@
       m.el.classList.add('wide'); m.el.dataset.vorders = kind; m.el.dataset.share = '1';
     }
     function draw() {
-      const v = vstore.get(id); const st = vendorStats()[v.id]; const canEdit = VD.canEdit(ME), canBank = VD.canSeeBank(ME); const cstat = VD.contractStatus(v, TODAY);
+      const v = vstore.get(id); if (!v) { vdrawer.close(); return; } const st = vendorStats()[v.id]; const canEdit = vstore.canEdit(), canBank = vstore.canBank(), canRate = vstore.canRate(); const cstat = VD.contractStatus(v, TODAY);
       const header = h('div', { class: 'drawer-h' },
-        h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, U.VendorLogo({ letter: v.logoLetter, size: 'lg' }), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status)), h('span', { class: 't-small' }, num(v.category + ' · نسبة إبتكر ' + v.rate + '% · مبتكر من ' + D.formatDateLong(v.joinedAt) + ' · ' + v.id)))),
+        h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, U.VendorLogo({ letter: v.logoLetter, size: 'lg' }), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status)), h('span', { class: 't-small' }, num((v.category || 'بدون فئة') + ' · نسبة إبتكر ' + (canRate && v.rate != null ? v.rate + '%' : '—') + ' · مبتكر من ' + D.formatDateLong(v.joinedAt) + (v.wooVendorId ? ' · متجر #' + v.wooVendorId : ' · بدون متجر على الموقع'))))),
           h('div', { class: 'actions' }, moreMenu(v), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => vdrawer.close() }))),
         U.Tabs({ items: [{ id: 'info', label: 'معلومات المورد' }, { id: 'orders', label: 'الأوردرات' }, { id: 'accounts', label: 'الحسابات' }], active: vtab, onChange: (t) => { vtab = t; draw(); } }));
       let body;
         const copy = (val, label) => copyText(val, label);
-        const bank = v.bank; const sec = (field, label) => U.SecureField({ label, masked: VD.mask(bank && bank[field]), value: shown.has(field) ? (vstore.reveal(id, field, ME) || '—') : '', state: !canBank ? 'hidden' : shown.has(field) ? 'shown' : 'masked', onToggle: () => { if (shown.has(field)) shown.delete(field); else { shown.add(field); log.append({ action: 'vendor.reveal', actor: ME.name, newValue: id + ':' + field }); } draw(); }, onCopy: () => { const val = vstore.reveal(id, field, ME); if (val) copy(val, label); } });
+        // decision 10: «عرض / تحميل» = a signed URL (60 s) from the private bucket, opened in a new tab
+        const openContract = () => { if (!window.IBVendors) return; window.IBVendors.contractUrl(id).then((r) => { if (r.ok) window.open(r.url, '_blank', 'noopener'); else vnotify('error', VMSG[r.reason] || 'تعذّر فتح العقد.'); }); };
+        const bank = v.bank; const sec = (field, label) => U.SecureField({ label, masked: VD.mask(bank && bank[field]), value: shown.has(field) ? (vstore.reveal(id, field, vstore.actor()) || '—') : '', state: !canBank ? 'hidden' : shown.has(field) ? 'shown' : 'masked', onToggle: () => { if (shown.has(field)) shown.delete(field); else { shown.add(field); log.append({ action: 'vendor.reveal', actor: ME.name, newValue: id + ':' + field }); } draw(); }, onCopy: () => { const val = vstore.reveal(id, field, vstore.actor()); if (val) copy(val, label); } });
       if (vtab === 'info') {
         body = h('div', { class: 'drawer-b' },
           section('الهوية', editBtn(v, 'identity'), U.InfoRow({ label: 'الاسم المعروض', value: v.name }), U.InfoRow({ label: 'الاسم التجاري', value: v.legalName }), U.InfoRow({ label: 'الفئة الأساسية', value: v.category }), U.InfoRow({ label: 'الأسماء البديلة', value: v.aliases.join('، ') }), U.InfoRow({ label: 'تاريخ الانضمام', value: num(D.formatDateLong(v.joinedAt)) }), U.InfoRow({ label: 'الحالة', value: U.VendorStatus(v.status) })),
           section('التواصل', editBtn(v, 'contact'), U.InfoRow({ label: 'الهاتف (واتساب)', value: v.phone ? h('span', { class: 'wa-ph' }, num(v.phone), h('a', { class: 'wa-a', href: waHref(v.phone), target: '_blank', rel: 'noopener', 'aria-label': 'واتساب ' + v.name, title: 'فتح واتساب' }, Icon('whatsapp', 'sm'))) : null, copy: true, onCopy: () => copy(v.phone, 'الهاتف') }), U.InfoRow({ label: 'هاتف بديل', value: v.altPhone ? h('span', { class: 'wa-ph' }, num(v.altPhone), h('a', { class: 'wa-a', href: waHref(v.altPhone), target: '_blank', rel: 'noopener', 'aria-label': 'واتساب — هاتف بديل', title: 'فتح واتساب' }, Icon('whatsapp', 'sm'))) : null, copy: !!v.altPhone, onCopy: () => copy(v.altPhone, 'هاتف بديل') }), U.InfoRow({ label: 'الإيميل', value: v.email, copy: true, onCopy: copy }), U.InfoRow({ label: 'العنوان (الاستلام)', value: v.address }), U.InfoRow({ label: 'إنستجرام', value: v.instagram, copy: true, onCopy: copy }), U.InfoRow({ label: 'صفحة المتجر', value: v.storeUrl, copy: true, onCopy: copy })),
-          section('الاتفاق التجاري', editBtn(v, 'terms'), U.InfoRow({ label: 'نسبة إبتكر', value: num(v.rate + '% — سارية من ' + D.formatDateLong(v.rateSince) + ' (على الأوردرات الجديدة فقط)') }), U.InfoRow({ label: 'مدة التجهيز المتفق عليها', value: num(v.leadDays + ' أيام') }), U.InfoRow({ label: 'سياسة العربون', value: v.depositPolicy }), U.InfoRow({ label: 'ملاحظات الاتفاق', value: v.notes }), v.rateHistory.length > 1 ? U.InfoRow({ label: 'سجل النسبة', value: num(v.rateHistory.map((x) => x.rate + '% من ' + D.formatDateNumeric(x.since)).join(' ← ')) }) : null),
+          section('الاتفاق التجاري', editBtn(v, 'terms'), U.InfoRow({ label: 'نسبة إبتكر', value: !canRate ? '—' : v.rate == null ? 'لسه مفيش نسبة متسجلة' : num(v.rate + '% — سارية من ' + D.formatDateLong(v.rateSince) + ' (على الأوردرات الجديدة فقط)') }), U.InfoRow({ label: 'مدة التجهيز المتفق عليها', value: num(v.leadDays + ' أيام') }), U.InfoRow({ label: 'سياسة العربون', value: v.depositPolicy }), U.InfoRow({ label: 'ملاحظات الاتفاق', value: v.notes }), canRate && v.rateHistory.length > 1 ? U.InfoRow({ label: 'سجل النسبة', value: num(v.rateHistory.map((x) => x.rate + '% من ' + D.formatDateNumeric(x.since)).join(' ← ')) }) : null),
           section('العقد', null, U.ContractCard({ status: cstat, title: cstat === 'missing' ? 'العقد غير مرفوع' : cstat === 'expired' ? 'العقد منتهي' : cstat === 'expiring' ? 'العقد بينتهي خلال 30 يوم' : 'عقد التعاون',
-            sub: cstat === 'missing' ? 'ارفع نسخة موقّعة (PDF أو صورة، حتى 10 ميجا) أو حمّل قالب العقد وابعته للمبتكر' : (v.contract.expires ? (cstat === 'expired' ? 'انتهى ' : 'ساري حتى ') + D.formatDateLong(v.contract.expires) + ' · ' : '') + 'رفعه ' + v.contract.uploadedBy + ' في ' + D.formatDateLong(v.contract.uploadedAt.slice(0, 10)) + ' · ' + v.contract.fileName.split('.').pop().toUpperCase() + ' ' + (v.contract.size / 1048576).toFixed(1) + ' ميجا',
-            canManage: canBank, onUpload: () => contractForm(v), onTemplate: () => vnotify('success', 'قالب العقد هيتحمّل من السيرفر في النسخة الحقيقية.'), onView: () => vnotify('success', 'العقد ' + v.contract.fileName + ' هيتفتح من التخزين في النسخة الحقيقية.'), onDownload: () => vnotify('success', 'التحميل هيبقى من التخزين في النسخة الحقيقية.') })),
-          section('سجل النشاط', null, h('div', { class: 'tl' }, vstore.events(id).slice().reverse().slice(0, 8).map((e) => U.TimelineEvent({ text: e.text, time: fmtTime(e.at) })))));
+            sub: cstat === 'missing' ? 'ارفع نسخة موقّعة (PDF أو صورة، حتى 10 ميجا) أو حمّل قالب العقد وابعته للمبتكر' : (v.contract.expires ? (cstat === 'expired' ? 'انتهى ' : 'ساري حتى ') + D.formatDateLong(v.contract.expires) + ' · ' : '') + 'رفعه ' + (v.contract.uploadedBy || '—') + ' في ' + D.formatDateLong(v.contract.uploadedAt.slice(0, 10)) + ' · ' + v.contract.fileName.split('.').pop().toUpperCase() + ' ' + (v.contract.size / 1048576).toFixed(1) + ' ميجا',
+            canManage: canBank, onUpload: () => contractForm(v), onTemplate: () => vnotify('success', 'قالب العقد هيتحمّل من السيرفر في النسخة الحقيقية.'), onView: openContract, onDownload: openContract })),
+          section('سجل النشاط', null, h('div', { class: 'tl' }, (() => { const ev = vstore.events(id).slice().reverse().slice(0, 8); return ev.length ? ev.map((e) => U.TimelineEvent({ text: e.text, time: fmtTime(e.at) })) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'لسه مفيش نشاط متسجل على المبتكر ده.'); })())));
       } else if (vtab === 'orders') {
         const cnt = VD.orderCounts(st.orders); const pf = VD.performance(st.orders, v.leadDays); const dc = VD.delayCounts(st.orders);
-        const orders = st.orders.slice().sort((a, b) => a.ageDays - b.ageDays).slice(0, 8); const rate = v.rate / 100;
+        const orders = st.orders.slice().sort((a, b) => a.ageDays - b.ageDays).slice(0, 8);
         const vtone = pf.verdict === 'محتاج متابعة' ? 'warning' : '';
         body = h('div', { class: 'drawer-b' },
           section('حالات التأخير — الأوردرات قيد التنفيذ', h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, 'قاعدة 9 / 11 يوم'),
@@ -1774,45 +1760,47 @@
             U.InfoRow({ label: 'قابلة للتأخير / متأخرة دلوقتي', value: num(String(pf.late)) }),
             U.InfoRow({ label: 'تذاكر مفتوحة عليه', value: num(String(st.tickets.length)) }),
             U.InlineNote({ kind: vtone, children: pf.verdict === 'ممتاز' ? 'ملتزم بالمواعيد ومفيش تأخير ولا إلغاء ملحوظ.' : pf.verdict === 'جيد' ? 'أداء كويس — تابع الأوردرات القابلة للتأخير قبل ما تتأخر.' : pf.verdict === 'محتاج متابعة' ? 'نسبة الإلغاء أو التأخير عالية — اتواصل معاه وافتح تذكرة لو محتاج.' : 'هيظهر الملخص أول ما يبقى عنده أوردرات.' })),
-          section('أوردرات المبتكر', Button({ type: 'text', size: 'sm', label: 'فتح في الأوردرات', onClick: () => { vdrawer.close(); showOrders({ vendor: v.name }); } }), orders.length ? U.Table({ cls: 'mini-table', headers: ['رقم الأوردر', 'العميل', 'الحالة', 'التسليم', 'الإجمالي', 'حصته'], rows: orders.map((o) => [num(o.id), o.customer, o.status, U.DelayBadge(o.delivery), num(D.formatMoney(o.total)), num(D.formatMoney(o.total * (1 - rate)))]) }) : U.EmptyState('مفيش أوردرات', 'المبتكر ده ما عندوش أوردرات في الأوردرات الحالية.')),
+          section('أوردرات المبتكر', Button({ type: 'text', size: 'sm', label: 'فتح في الأوردرات', onClick: () => { vdrawer.close(); showOrders({ vendor: v.name }); } }), orders.length ? U.Table({ cls: 'mini-table', headers: ['رقم الأوردر', 'العميل', 'الحالة', 'التسليم', 'الإجمالي', 'حصته'], rows: orders.map((o) => [num(o.id), o.customer, o.status, U.DelayBadge(o.delivery), num(D.formatMoney(o.total)), num(D.formatMoney(o.share || 0))]) }) : U.EmptyState('مفيش أوردرات', 'المبتكر ده ما عندوش أوردرات في الأوردرات الحالية.')),
           section('التذاكر المفتوحة على المبتكر', Button({ type: 'text', size: 'sm', label: 'إنشاء تذكرة', onClick: () => { vdrawer.close(); showTickets(); openNewTicket(); } }), st.tickets.length ? st.tickets.map((t) => { const b = h('button', { type: 'button', class: 'opt', style: 'display:flex;justify-content:space-between;gap:8px;width:100%', onClick: () => { vdrawer.close(); showTickets(); openTicket(t.id); } }, h('span', null, num(t.id) + ' — ' + t.title), h('span', { style: 'display:flex;gap:8px' }, U.TicketStatus(t.status), U.PriorityTag(t.priority))); return b; }) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'مفيش تذاكر مفتوحة على المبتكر ده.')));
       } else {
-        const sd = st.seed || { c: [0, 0, 0], p: [0, 0, 0], x: [0, 0, 0] }; const total = sd.c[0] + sd.p[0] + sd.x[0];
-        const L = VD.ledger(st.seed, st.balance, st.deposits, (st.seed || {}).transport); const money = (x) => num(D.formatMoney(x));
-        const mv = store.vendorMoves.filter((m) => m.vendor === v.name); const mvRow = (m) => [num(D.formatDateNumeric(m.date)), m.type === 'أخرى' ? m.typeName : m.type, m.direction === 'deposit' ? 'إيداع' : 'سحب', D.formatMoney(m.amount)];
-        const ledgerRows = [['مبيعات الأوردرات المكتملة', D.formatMoney(L.sales)], ['حصة إبتكر (' + v.rate + '%)', D.formatMoney(L.ibtekrShare)], ['حقه من الأوردرات المكتملة', D.formatMoney(L.earned)], ['مواصلات (اتخصمت من رصيده)', D.formatMoney(L.transport)], ['اللي وصله (تحويلات + عرابين)', D.formatMoney(L.received)], ['منها عرابين', D.formatMoney(L.deposits)], ['الرصيد الحالي', D.formatMoney(L.balance) + ' (' + L.position + ')']];
-        const adt = (k) => { const base = { phone: v.phone, email: v.email, source: 'شيت Balances_Payouts + الحركات المالية' };
-          if (k === 'bal') return Object.assign(base, { title: 'رصيد ' + v.name + ' عندنا — ' + D.formatMoney(L.balance) + ' ج.م (' + L.position + ')', sub: L.balance < 0 ? (L.transport > 0 ? 'عليه عربون و/أو مواصلات اتدفعت عنه — بتتخصم من مستحقاته' : 'عربون اتدفع له قبل ما الأوردرات تكتمل') : L.balance > 0 ? 'مستحق للمبتكر' : 'الحساب متصفّي', summary: [{ label: 'الرصيد', value: D.formatMoney(L.balance) + ' ج.م' }, { label: 'العربون', value: D.formatMoney(L.deposits) + ' ج.م' }], headers: ['البند', 'المبلغ'], rows: ledgerRows.concat(mv.map((m) => [D.formatDateNumeric(m.date) + ' · ' + (m.type === 'أخرى' ? m.typeName : m.type) + ' — ' + (m.direction === 'deposit' ? 'إيداع' : 'سحب'), D.formatMoney(m.amount)])) });
-          if (k === 'dep') { const l = mv.filter((m) => /عربون/.test(m.type + ' ' + (m.typeName || ''))); return Object.assign(base, { title: 'عرابين ' + v.name + ' — ' + D.formatMoney(L.deposits) + ' ج.م', sub: 'مدفوعة مقدمًا وبتتخصم من رصيده لما الأوردرات تكتمل', summary: [{ label: 'إجمالي العرابين', value: D.formatMoney(L.deposits) + ' ج.م' }, { label: 'حركات عربون مسجلة', value: String(l.length) }], headers: ['التاريخ', 'النوع', 'الاتجاه', 'المبلغ'], rows: l.map(mvRow), empty: 'العرابين جاية من الشيت ولسه مفيش حركة عربون مسجلة في السيستم.' }); }
-          if (k === 'recv') return Object.assign(base, { title: 'اللي وصل ' + v.name + ' من بداية الشغل — ' + D.formatMoney(L.received) + ' ج.م', sub: 'اللي وصله = حقه من المكتمل − المواصلات − رصيده الحالي', summary: [{ label: 'حقه من المكتمل', value: D.formatMoney(L.earned) + ' ج.م' }, { label: 'رصيده الحالي', value: D.formatMoney(L.balance) + ' ج.م' }, { label: 'اللي وصله', value: D.formatMoney(L.received) + ' ج.م' }], headers: ['البند', 'المبلغ'], rows: ledgerRows, note: 'رقم محسوب لحد ما سجل التحويلات الفعلي يتربط — راجعه على الحسابات.' });
-          const l = VD.ordersByKind(st.orders, 'inProgress'); const rate = v.rate / 100; return Object.assign(base, { title: v.name + ' هيستحق بعد التنفيذ — ' + D.formatMoney(L.pending) + ' ج.م', sub: 'حقه من الأوردرات اللي قيد التنفيذ (شيت الحسابات) · تحت الأوردرات المفتوحة دلوقتي في السيستم', summary: [{ label: 'هيستحق (الشيت)', value: D.formatMoney(L.pending) + ' ج.م' }, { label: 'أوردرات مفتوحة (السيستم)', value: String(l.length) }, { label: 'حصته منها', value: D.formatMoney(l.reduce((x, o) => x + o.total * (1 - rate), 0)) + ' ج.م' }], headers: ['رقم الأوردر', 'العميل', 'الحالة', 'التسليم', 'الإجمالي', 'حصته'], rows: l.map((o) => [num('IB-' + o.id), o.customer, o.status, U.DelayBadge(o.delivery), D.formatMoney(o.total), D.formatMoney(o.total * (1 - rate))]), onRow: (i) => { if (OA() && OA().details) OA().details(l[i].id, 'info'); } }); };
+        // decision 5: this phase's numbers — his shares of the completed orders (decision 4) over the opening balance (0 until the
+        // phase-4 import); deposits, transport and the money moves come with the accounts phase; the agreement (Ibtekr's share)
+        // only with sensitive.commission
+        const money = (x) => num(D.formatMoney(x)); const bs = st.byStatus; const tot = (i) => bs.c[i] + bs.p[i] + bs.x[i];
+        const later = (note) => h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, note);
+        const kindRows = (kind) => VD.ordersByKind(st.orders, kind).map((o) => [num('IB-' + o.id), o.customer, o.status, U.DelayBadge(o.delivery), D.formatMoney(o.sales || 0), D.formatMoney(o.share || 0)]);
+        const openKind = (kind) => (i) => { const l = VD.ordersByKind(st.orders, kind); if (OA() && OA().details) OA().details(l[i].id, 'info'); };
+        const adt = (k) => { const base = { phone: v.phone, email: v.email, headers: ['رقم الأوردر', 'العميل', 'الحالة', 'التسليم', 'مبيعاته', 'حصته'], source: 'الأوردرات — نسبة الموقع على كل سطر وقت الأوردر' };
+          if (k === 'pend') return Object.assign(base, { title: v.name + ' هيستحق بعد التنفيذ — ' + D.formatMoney(st.pending) + ' ج.م', sub: 'حقه من الأوردرات اللي قيد التنفيذ دلوقتي', summary: [{ label: 'أوردرات مفتوحة', value: String(bs.p[0]) }, { label: 'مبيعاتها', value: D.formatMoney(st.pendingSales) + ' ج.م' }, { label: 'حصته منها', value: D.formatMoney(st.pending) + ' ج.م' }], rows: kindRows('inProgress'), onRow: openKind('inProgress'), empty: 'مفيش أوردرات قيد التنفيذ للمبتكر ده.' });
+          return Object.assign(base, { title: 'مستحقات ' + v.name + ' (من 1 أكتوبر) — ' + D.formatMoney(st.balance) + ' ج.م', sub: 'الرصيد الافتتاحي + حقه من الأوردرات المكتملة · الافتتاحي والعرابين والمواصلات بيتضافوا من مرحلة الحسابات', summary: [{ label: 'الرصيد الافتتاحي', value: D.formatMoney(st.openingBalance) + ' ج.م' }, { label: 'حقه من المكتملة', value: D.formatMoney(st.earned) + ' ج.م' }, { label: 'أوردرات مكتملة', value: String(bs.c[0]) }], rows: kindRows('completed'), onRow: openKind('completed'), empty: 'مفيش أوردرات مكتملة للمبتكر ده.' }); };
         const tmap = { c: 'مكتمل', p: 'قيد التنفيذ', x: 'ملغي / مرتجع' };
         body = h('div', { class: 'drawer-b' },
           h('div', { class: 'cards', style: 'grid-template-columns:repeat(2,minmax(0,1fr))' },
-            U.KpiTile({ label: 'رصيده عندنا', value: D.formatMoney(L.balance), unit: 'ج.م', compare: L.balance < 0 ? 'negative' : L.balance > 0 ? 'positive' : 'off', delta: { text: L.position, caption: L.balance < 0 ? (L.transport > 0 ? 'عربون / مواصلات عليه' : 'عربون مدفوع له قبل التسليم') : 'مستحق للمبتكر' }, note: 'شيت Balances_Payouts − المواصلات', details: () => adt('bal') }),
-            U.KpiTile({ label: 'العربون', value: L.deposits ? '−' + D.formatMoney(L.deposits) : '0.00', unit: 'ج.م', compare: L.deposits ? 'negative' : 'off', note: 'مدفوع مقدمًا وبيتخصم من رصيده', details: () => adt('dep') }),
-            U.KpiTile({ label: 'اللي وصله من بداية الشغل', value: D.formatMoney(L.received), unit: 'ج.م', compare: 'off', note: 'تحويلات + عرابين من أول أوردر', details: () => adt('recv') }),
-            U.KpiTile({ label: 'هيستحق بعد التنفيذ', value: D.formatMoney(L.pending), unit: 'ج.م', compare: 'off', note: 'حقه من الأوردرات اللي قيد التنفيذ', details: () => adt('pend') }),
-            (() => { const t = trVendor(sd.name || v.name); const tile = U.KpiTile({ label: 'المواصلات', value: D.formatMoney(t.total), unit: 'ج.م', compare: 'off', note: t.trips ? ['اتخصمت من رصيده · ', num(String(t.trips)), ' مشوار · آخر مشوار ', num(D.formatDateNumeric(t.last))] : 'مفيش مشاوير متسجلة', details: () => Object.assign(transportDetails(sd.name || v.name), { phone: v.phone, email: v.email }) }); tile.style.gridColumn = '1 / -1'; return tile; })()),
+            U.KpiTile({ label: 'رصيده عندنا', value: D.formatMoney(st.balance), unit: 'ج.م', compare: st.balance > 0 ? 'positive' : st.balance < 0 ? 'negative' : 'off', delta: { text: st.balance > 0 ? 'له' : st.balance < 0 ? 'عليه' : 'متصفّي', caption: 'مستحقاته من 1 أكتوبر' }, note: ['الافتتاحي ', num(D.formatMoney(st.openingBalance)), ' + حقه من المكتملة · الافتتاحي من مرحلة 4'], details: () => adt('bal') }),
+            U.KpiTile({ label: 'حقه من المكتملة', value: D.formatMoney(st.earned), unit: 'ج.م', compare: 'off', note: ['من ', num(String(bs.c[0])), ' أوردر مكتمل بمبيعات ', num(D.formatMoney(st.sales)), ' ج.م'], details: () => adt('bal') }),
+            U.KpiTile({ label: 'هيستحق بعد التنفيذ', value: D.formatMoney(st.pending), unit: 'ج.م', compare: 'off', note: 'حقه من الأوردرات اللي قيد التنفيذ', details: () => adt('pend') }),
+            canRate ? U.KpiTile({ label: 'حصة إبتكر من المكتملة', value: D.formatMoney(st.ibtekrShare), unit: 'ج.م', compare: 'off', note: 'نسبة الموقع على كل سطر وقت الأوردر' }) : null,
+            U.KpiTile({ label: 'العربون', value: '—', compare: 'off', note: 'من مرحلة الحسابات' }),
+            U.KpiTile({ label: 'المواصلات', value: '—', compare: 'off', note: 'من مرحلة الحسابات' })),
+          st.noRate ? U.InlineNote({ kind: 'warning', children: num(st.noRate + ' سطر بدون نسبة — محسوب بالإجمالي لحد ما نسبة الموقع تتسجل عليه.') }) : null,
           section('ملخص حسابه معانا', Button({ type: 'text', size: 'sm', icon: 'chart', label: 'تقرير المورد', attrs: { 'data-vreport': v.name }, onClick: () => openVendorReport(v.name) }),
-            U.InfoRow({ label: 'مبيعات الأوردرات المكتملة', value: money(L.sales) }),
-            U.InfoRow({ label: 'حصة إبتكر (' + v.rate + '%)', value: money(L.ibtekrShare) }),
-            U.InfoRow({ label: 'حقه من الأوردرات المكتملة', value: money(L.earned) }),
-            U.InfoRow({ label: 'اللي وصله (تحويلات + عرابين)', value: money(L.received) }),
-            U.InfoRow({ label: 'منها عرابين', value: money(L.deposits) }),
-            U.InfoRow({ label: 'المواصلات (من البداية)', value: money(trVendor(sd.name || v.name).total) }),
-            U.InfoRow({ label: 'الرصيد الحالي', value: num(D.formatMoney(L.balance) + (L.position === 'متصفّي' ? ' (متصفّي)' : ' (' + L.position + ')')) }),
-            U.InlineNote({ children: 'اللي وصله = حقه من المكتمل − رصيده الحالي. الرصيد السالب معناه عربون اتدفع قبل ما الأوردرات تكتمل.' })),
-          section('حسب حالة الأوردر (شيت الحسابات)', null, U.Table({ cls: 'mini-table', headers: ['الحالة', 'العدد', 'المبيعات', 'حصة إبتكر', 'حقه'], rows: ['c', 'p', 'x'].map((k) => [tmap[k], num(String(sd[k][0])), money(sd[k][1]), money(sd[k][2]), money(sd[k][1] - sd[k][2])]), totalRow: ['الإجمالي', num(String(total)), money(sd.c[1] + sd.p[1] + sd.x[1]), money(sd.c[2] + sd.p[2] + sd.x[2]), money(sd.c[1] + sd.p[1] + sd.x[1] - sd.c[2] - sd.p[2] - sd.x[2])] })),
-          section('الحركات المالية', h('div', { style: 'display:flex;gap:8px' }, Button({ type: 'primary', size: 'sm', label: 'إضافة مبلغ', onClick: () => openForm('vendorMoves', 'withdraw', null, false, { vendor: v.name }) }), Button({ size: 'sm', label: 'تصفية الحساب', disabled: st.balance === 0, onClick: () => openForm('vendorMoves', st.balance > 0 ? 'withdraw' : 'deposit', null, false, { vendor: v.name, amount: String(Math.abs(st.balance)), type: 'أخرى', otherName: 'تصفية الحساب' }) })),
-            store.vendorMoves.filter((m) => m.vendor === v.name).map((m) => U.InfoRow({ label: num(D.formatDateNumeric(m.date)) + ' · ' + (m.type === 'أخرى' ? m.typeName : m.type) + ' — ' + (m.direction === 'deposit' ? 'إيداع' : 'سحب'), value: money(m.amount) })), U.InfoRow({ label: 'الرصيد بعد الحركات', value: num(D.formatMoney(st.balance) + (st.balance < 0 ? ' (عليه)' : st.balance > 0 ? ' (له)' : '')) })),
+            U.InfoRow({ label: 'مبيعات الأوردرات المكتملة', value: money(st.sales) }),
+            canRate ? U.InfoRow({ label: 'حصة إبتكر' + (v.rate != null ? ' (' + v.rate + '% دلوقتي)' : ''), value: money(st.ibtekrShare) }) : null,
+            U.InfoRow({ label: 'حقه من الأوردرات المكتملة', value: money(st.earned) }),
+            U.InfoRow({ label: 'العربون', value: later('من مرحلة الحسابات') }),
+            U.InfoRow({ label: 'المواصلات', value: later('من مرحلة الحسابات') }),
+            U.InfoRow({ label: 'مستحقاته (من 1 أكتوبر)', value: num(D.formatMoney(st.balance) + (st.balance > 0 ? ' (له)' : st.balance < 0 ? ' (عليه)' : ' (متصفّي)')) }),
+            U.InlineNote({ children: 'حصة كل سطر = إجماليه − نسبة الموقع عليه وقت الأوردر (ورسمها الثابت). الرصيد الافتتاحي والعرابين والمواصلات بيتضافوا من مرحلة الحسابات.' })),
+          section('حسب حالة الأوردر', null, U.Table({ cls: 'mini-table', headers: ['الحالة', 'العدد', 'المبيعات', 'حقه'].concat(canRate ? ['حصة إبتكر'] : []), rows: ['c', 'p', 'x'].map((k) => [tmap[k], num(String(bs[k][0])), money(bs[k][1]), money(bs[k][2])].concat(canRate ? [money(bs[k][1] - bs[k][2])] : [])), totalRow: ['الإجمالي', num(String(tot(0))), money(tot(1)), money(tot(2))].concat(canRate ? [money(tot(1) - tot(2))] : []) })),
+          section('الحركات المالية', null, h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'بتتسجل من مرحلة الحسابات.')),
           section('الحساب البنكي', canBank ? Button({ type: 'text', size: 'sm', label: bank ? 'تعديل' : 'إضافة حساب', attrs: { 'aria-label': (bank ? 'تعديل' : 'إضافة') + ' بيانات الحساب البنكي', 'data-edit': 'bank' }, onClick: () => bankForm(v) }) : null,
             canBank ? [U.InfoRow({ label: 'طريقة الدفع المفضلة', value: bank ? VD.label(VD.PAY_METHODS, bank.method) : null }), U.InfoRow({ label: 'البنك', value: bank && bank.bankName }), U.InfoRow({ label: 'اسم صاحب الحساب', value: bank && bank.holder }), sec('iban', 'IBAN'), sec('wallet', 'رقم المحفظة / إنستاباي')] : [U.SecureField({ label: 'IBAN', state: 'hidden' }), U.SecureField({ label: 'رقم المحفظة', state: 'hidden' })],
             U.InlineNote({ children: 'الإظهار والنسخ والتعديل متاحين للأدمن ودور الحسابات فقط، وكل إظهار أو تعديل بيتسجل في السجل.' })));
       }
       vdrawer.set(header, body);
     }
-    draw(); const c = vdrawer.el.querySelector('.icon-btn'); if (c) c.focus();
+    draw(); vredraw = draw; const c = vdrawer.el.querySelector('.icon-btn'); if (c) c.focus();
+    if (window.IBVendors) window.IBVendors.loadEvents(id).then(() => { if (vredraw === draw) draw(); }); // decision 6: the vendor's activity_log, once per open
   }
 
   function render() {

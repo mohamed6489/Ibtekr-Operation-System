@@ -32,6 +32,8 @@
 
 ملحوظة (المرحلة 3): `vendors` بيتقرا بقايمة أعمدة هو كمان (`select=*` بيترفض — `commission_pct` لـ `service_role` بس)، والنسبة في `vendor_rates` (بتاريخ سريان، `sensitive.commission = F`) والحساب البنكي في `vendor_bank` (`sensitive.vendor_bank = F`) كل واحد في جدوله مش في `vendors`؛ والمزامنة على متجر موجود بتحدّث `raw` بس — الفريق صاحب الاسم والحالة والتواصل بعد أول إدراج (`saveVendors` في `_shared/woo-write.js`).
 
+ملحوظة (المرحلة 3.1): بيانات دخول المبتكر في `vendor_logins` (مش في `vendors`؛ بتتقرا بقايمة أعمدة — `select=*` بيترفض، و`secret_id` لـ `service_role` بس)، والباسورد المؤقت في Vault عبر RPC بس (`vendor_login_set_password` / `vendor_login_reveal`: أدمن أو `vendors.edit = F`؛ كل نداء بيتسجل في `activity_log` من غير الباسورد؛ من غير Vault → 0A000)؛ و`vendors.status` بيقبل `leave` («في إجازة») من `0012`.
+
 ## أوامر التشغيل
 ```bash
 npm install        # مرة واحدة

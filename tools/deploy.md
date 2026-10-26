@@ -38,17 +38,19 @@
 | `failed_note_permalink` | `supabase/migrations/0009_failed_note_permalink.sql` |
 | `state_names` | `supabase/migrations/0010_state_names.sql` |
 | `vendors` | `supabase/migrations/0011_vendors.sql` |
+| `vendor_logins` | `supabase/migrations/0012_vendor_logins.sql` |
 
-بعدها `execute_sql` بمحتوى الاختبارات الستة (كل واحد بيعمل `rollback` في الآخر، فمش بيسيب حاجة وراه):
+بعدها `execute_sql` بمحتوى الاختبارات السبعة (كل واحد بيعمل `rollback` في الآخر، فمش بيسيب حاجة وراه):
 - `supabase/tests/rls_identity.sql` → لازم يطلع `NOTICE: rls_identity: ok`
 - `supabase/tests/rls_system.sql` → لازم يطلع `NOTICE: rls_system: ok` (بيتوقع `status_map` زي ما `0009` بتسيبه: 9 صفوف، «فشل» مكان «تم RTC» بـ `from_woo`، والباقي `both` — يعني بعد `0009`)
 - `supabase/tests/rls_dashboard.sql` → لازم يطلع `NOTICE: rls_dashboard: ok`
 - `supabase/tests/rls_orders.sql` → لازم يطلع `NOTICE: rls_orders: ok` (من المرحلة 2.1 بيتوقع `0009` كمان: «فشل» في `status_map`، و`products.permalink` بيتقرا للأعضاء؛ ومن المرحلة 2.2 بيتوقع `0010`: `orders.customer_state` بيتقرا ومابيتكتبش، و`woo_states`)
 - `supabase/tests/rls_mfa.sql` → لازم يطلع `NOTICE: rls_mfa: ok` (بيكتب factors تجريبية في `auth.mfa_factors` بكل الأعمدة الإجبارية بتاعة الجدول الحي، وكلها بتروح مع الـ rollback)
 - `supabase/tests/rls_vendors.sql` → لازم يطلع `NOTICE: rls_vendors: ok` (المرحلة 3: بيتوقع `0011` — أعمدة `vendors` ومنحها بقايمة، والحارس بالعمود، و`vendor_rates`/`vendor_bank`، و`order_items.commission_rate`؛ على الحي بيتأكد كمان من الـ bucket `vendor-contracts` وسياساته؛ live-safe: مابيمسحش حاجة، والـ deletes اللي فيه متوقع ترتفض — 42501 أو 23503 — والـ rollback في الآخر)
+- `supabase/tests/rls_vendor_logins.sql` → لازم يطلع `NOTICE: rls_vendor_logins: ok` (المرحلة 3.1: بيتوقع `0012` — `leave` في `vendors.status`، و`vendor_logins` بمنحها بقايمة أعمدة من غير `secret_id` والحارس والدالتين؛ **على الحي** Vault موجود فالدالتين بيتختبروا فعلًا: الأدمن ومتابعة المبتكرين بيحطوا باسورد تجريبي `Test1234` ويظهروه ويستبدلوه، وكل ده بيتسجل في `activity_log` من غير الباسورد — والسر في `vault.secrets` اسمه `vendor-login:<uuid تجريبي>` بيروح مع الـ rollback؛ محلي من غير Vault بيتأكد من `0A000` بس؛ live-safe: مابيمسحش حاجة، والـ delete الوحيد اللي فيه متوقع يترفض 42501)
 
 أي `ERROR` = وقّف ومتنشرش. لو الـ MCP رفض `set local role`، شغّلهم بـ `psql` كـ `postgres`.
-`supabase/tests/migrate_0009.sql` و`supabase/tests/migrate_0010.sql` و`supabase/tests/migrate_0011.sql` **محلي بس** (`npm run db:test`): بيبنوا الحالة اللي قبل الـ migration جوه transaction وبيطبّقوا الملف نفسه تاني بـ `\ir` (أمر `psql`، فمايتشغّلش عبر `execute_sql`). على الحي `0009` و`0010` و`0011` بيتفحصوا بالاستعلامات اللي تحت.
+`supabase/tests/migrate_0009.sql` و`supabase/tests/migrate_0010.sql` و`supabase/tests/migrate_0011.sql` و`supabase/tests/migrate_0012.sql` **محلي بس** (`npm run db:test`): بيبنوا الحالة اللي قبل الـ migration جوه transaction وبيطبّقوا الملف نفسه تاني بـ `\ir` (أمر `psql`، فمايتشغّلش عبر `execute_sql`). على الحي `0009` و`0010` و`0011` و`0012` بيتفحصوا بالاستعلامات اللي تحت.
 **ممنوع** تطبّق `supabase/tests/_local_auth_stub.sql` على Supabase — ده لـ Postgres المحلي بس.
 
 لو حد طبّق جزء قبل كده، `list_migrations` بيوريك اللي اتطبّق وتكمّل من بعده.
@@ -302,6 +304,75 @@
    -- 55 / نفس الرقم اللي قبل التشغيلة (المزامنة مابتلمسش الاسم ولا الحالة على متجر موجود) / 55
    ```
 
+**`0012_vendor_logins` (المرحلة 3.1) — قبل التطبيق وبعده.** الملف بيتعاد من غير ما يغيّر حاجة (مافيهوش `delete` ولا `truncate`؛ الـ `drop` الوحيد فيه هو قيد `vendors_status_check` بتاع `0007` — القرار 6 المكتوب في خطة المرحلة 3.1 — وبيتعمل بس لو القيد لسه مش فيه `leave`، وفي نفس البلوك بيتضاف القيد الجديد). اللي بيعمله:
+- `vendors.status` بقى يقبل `leave` («في إجازة») جنب `active`/`inactive` — نفس اسم القيد `vendors_status_check`. الحارس `vendors_guard_update` زي ما هو (`vendors.toggle = F` لأي تغيير حالة)، والمزامنة ماتغيّرتش (`mapStore` بيكتب `active`/`inactive` على المتجر الجديد بس).
+- `vendor_logins` (بيانات دخول المبتكر — صف لكل مبتكر، `vendor_id` pk → `vendors(id) on delete cascade`): `username` (`^[a-z0-9][a-z0-9._]{2,29}$`، فريد على `lower(username)` → 23505 للمكرر)، `email` (شكل إيميل بسيط، 120 حرف)، `pw_mode` (`link`|`temp`)، `status` (`invited`|`active`|`disabled`، افتراضي `invited`)، `must_change` (افتراضي true)، `invite_sent_at`، `password_set_at`، `secret_id` (معرّف السر في Vault)، `created_by` (اسم العضو، زي `set_by`)، `created_at`، `updated_at`. RLS: `select` بـ `vendors.view <> 'N'`؛ `insert`/`update` بـ `is_admin() or vendors.edit = 'F'` (الـ `using` بتاع التعديل `vendors.view` عشان اللي شايف الصف ومايقدرش يعدّله ياخد 42501 مش «0 صفوف» — نمط `0011`)؛ مافيش `delete` للأعضاء (الـ cascade بس). المنح بقايمة أعمدة: `select` كل الأعمدة **من غير `secret_id`** (يعني `select=*` بيترفض — الواجهة بتسمّي أعمدتها)، `insert (vendor_id, username, email, pw_mode, created_by)`، `update (username, email, pw_mode, status)`؛ `service_role` كل حاجة؛ ومن غير `truncate`/`references`/`trigger` لحد. (upsert بتاع PostgREST بيحتاج `update` على `vendor_id`/`created_by` فمش هيعدّي — الـ adapter بيدرج لو مفيش صف وبيعدّل لو فيه.) الحارس `vendor_logins_guard` (before update، على `anon`/`authenticated` بس): العميل يغيّر `username`/`email`/`pw_mode` و`status` لـ `invited`/`disabled` بس (`active` بتاعة البوابة لما المبتكر يعمل باسورده)؛ `must_change`/`invite_sent_at`/`password_set_at`/`secret_id` وباقي الأعمدة للسيرفر → 42501 برسالة إنجليزي واضحة؛ و`updated_at` بيتحدّث مع كل كتابة.
+- الدالتين `vendor_login_set_password(uuid, text)` و`vendor_login_reveal(uuid)` — `security definer` بملكية `postgres` و`search_path = public`: الصلاحية `is_admin() or vendors.edit = 'F'` وإلا 42501؛ قواعد الباسورد على السيرفر (8 حروف على الأقل، حرف إنجليزي، رقم، من غير مسافات، ومش أكتر من 128) وإلا 22023؛ مبتكر من غير صف دخول → P0002؛ من غير Vault → 0A000 `vault is not available`. الباسورد المؤقت بيتخزن في Vault كسر اسمه `vendor-login:<uuid المبتكر>` (`vault.create_secret` أول مرة و`vault.update_secret` بعدها)، والصف بياخد `secret_id` و`password_set_at` و`must_change = true` و`pw_mode = 'temp'`. كل نداء (حط أو إظهار — حتى لو رجّع `null`) بيكتب صف في `activity_log` (`vendor.login.password` / `vendor.login.reveal`، `entity = 'vendor'`، `entity_id` = uuid المبتكر، `actor = auth.uid()` من الـ trigger، `new_value = null`) — الباسورد عمره ما يتكتب في `activity_log`. `execute` لـ `authenticated` و`service_role` بس (`revoke` من `public`/`anon`). **ملحوظة:** `service_role` معاه `execute` زي ما الخطة قالت، بس الدالتين بيشيكوا `has_perm` (محتاجة `auth.uid()`)، فنداء من `service_role` من غير JWT عضو بيرجع 42501.
+- **الإيميل مابيتبعتش** (القرار 5): `pw_mode = 'link'` بيتسجل كاختيار بس و`invite_sent_at` بتفضل `null` لحد بوابة المبتكر. والسر في Vault مابيتمسحش لما المبتكر يتمسح بالـ cascade (Later في الخطة).
+
+1. قبل:
+
+   ```sql
+   select pg_get_constraintdef(oid) as status_check from pg_constraint
+   where conrelid = 'public.vendors'::regclass and conname = 'vendors_status_check';
+   -- CHECK ((status = ANY (ARRAY['active'::text, 'inactive'::text])))
+   select to_regclass('public.vendor_logins') as logins,
+          to_regprocedure('public.vendor_login_set_password(uuid, text)') as set_pw,
+          to_regprocedure('public.vendor_login_reveal(uuid)') as reveal;
+   -- null / null / null
+   select count(*) as vendors, count(*) filter (where status = 'active') as active,
+          count(*) filter (where status = 'inactive') as inactive
+   from public.vendors;
+   -- 55 / 55 / 0 (26 أكتوبر؛ + أي متجر جديد — active + inactive = vendors)
+   select name, created_at from vault.secrets where name like 'vendor-login:%';
+   -- 0 صفوف (عمرك ما تعمل select لـ decrypted_secret ولا لعمود secret)
+   ```
+
+2. `apply_migration` بالاسم `vendor_logins`.
+3. بعد:
+
+   ```sql
+   select conname, pg_get_constraintdef(oid) from pg_constraint
+   where conrelid = 'public.vendors'::regclass and contype = 'c' and pg_get_constraintdef(oid) like '%status%';
+   -- صف واحد: vendors_status_check | CHECK ((status = ANY (ARRAY['active'::text, 'leave'::text, 'inactive'::text])))
+   select count(*) as vendors, count(*) filter (where status = 'active') as active,
+          count(*) filter (where status = 'inactive') as inactive
+   from public.vendors;
+   -- نفس أرقام «قبل» (القيد الجديد اتضاف على الصفوف زي ما هي)
+
+   select relrowsecurity from pg_class where oid = 'public.vendor_logins'::regclass;                       -- true
+   select policyname, cmd from pg_policies where schemaname = 'public' and tablename = 'vendor_logins' order by 1;
+   -- 3 صفوف: vendor_logins_insert / vendor_logins_select / vendor_logins_update (مافيش delete)
+   select has_column_privilege('authenticated', 'public.vendor_logins', 'secret_id', 'SELECT') as secret_read,   -- false
+          has_column_privilege('authenticated', 'public.vendor_logins', 'username', 'SELECT') as username_read,  -- true
+          has_table_privilege('authenticated', 'public.vendor_logins', 'SELECT') as table_select,               -- false (قايمة أعمدة)
+          has_column_privilege('authenticated', 'public.vendor_logins', 'status', 'INSERT') as status_insert,    -- false
+          has_column_privilege('authenticated', 'public.vendor_logins', 'status', 'UPDATE') as status_update,    -- true (الحارس بيمنع active)
+          has_column_privilege('authenticated', 'public.vendor_logins', 'must_change', 'UPDATE') as mc_update,   -- false
+          has_table_privilege('authenticated', 'public.vendor_logins', 'DELETE') as member_delete,              -- false
+          has_table_privilege('service_role', 'public.vendor_logins', 'DELETE') as server_delete,               -- true
+          has_table_privilege('service_role', 'public.vendor_logins', 'TRUNCATE') as server_truncate,           -- false
+          has_table_privilege('anon', 'public.vendor_logins', 'SELECT') as anon_reads;                          -- false
+   select count(*) from information_schema.column_privileges
+   where grantee = 'authenticated' and table_schema = 'public' and table_name = 'vendor_logins' and privilege_type = 'SELECT';  -- 11
+   select indexdef from pg_indexes
+   where schemaname = 'public' and tablename = 'vendor_logins' and indexname = 'vendor_logins_username_key';
+   -- CREATE UNIQUE INDEX vendor_logins_username_key ON public.vendor_logins USING btree (lower(username))
+
+   select tgname, tgrelid::regclass from pg_trigger where tgname = 'vendor_logins_guard';                   -- صف واحد على vendor_logins
+   select p.proname, p.prosecdef, p.proowner::regrole, p.proconfig,
+          has_function_privilege('authenticated', p.oid, 'execute') as member_exec,
+          has_function_privilege('anon', p.oid, 'execute') as anon_exec
+   from pg_proc p where p.proname in ('vendor_login_set_password', 'vendor_login_reveal', 'vendor_logins_guard');
+   -- set_password / reveal: prosecdef true، postgres، {search_path=public}، member_exec true، anon_exec false
+   -- vendor_logins_guard: prosecdef false، postgres، {search_path=public}، member_exec false
+   select count(*) from public.vendor_logins;                                                               -- 0 لحد أول إضافة من الـ popup
+   ```
+
+4. `rls_vendor_logins` على الحي (فوق) — live-safe، وبيختبر الدالتين مع Vault فعلًا (السر التجريبي بيروح مع الـ rollback: `select count(*) from vault.secrets where name like 'vendor-login:%'` بعده = 0 لحد أول باسورد حقيقي). و`rls_vendors` على الحي زي ما هو (مش متأثر بـ `0012`). **`migrate_0012` محلي/CI بس** (نفس سبب `0009`/`0010`/`0011`).
+5. `get_advisors` (§2.2): الدالتين الجداد `security definer` و`authenticated` بينفّذهم — مقصود (تحت).
+6. **مافيش إعادة نشر** للدالتين (`woo-webhook`/`woo-sync`) في المرحلة دي: `_shared` و`index.ts` ماتغيّروش.
+
 ### 2.2 `get_advisors`
 شغّله مرتين: `type: security` و`type: performance`.
 
@@ -311,6 +382,7 @@
 - **`has_perm`/`is_admin` دوال `security definer` وينفع `authenticated` ينفّذها** — مقصود: كل السياسات والحراس بيعدّوا عليهم.
 - بعد `0007`: **`order_customer_phone` دالة `security definer` وينفع `authenticated` ينفّذها** — مقصود: هي اللي بتغذّي عمود التليفون في `orders_v`، وبتشيك `orders.view` وبتطمس التليفون (`sensitive.customer_phone`) بنفسها.
 - بعد `0008`: **`mark_twofa_enrolled`/`mark_twofa_disabled` دوال `security definer` وينفع `authenticated` ينفّذها** — مقصود: كل واحدة بتشترط جلسة aal2 (و`enrolled` كمان factor TOTP `verified` للمستخدم نفسه في `auth.mfa_factors`)، وبتغيّر صف المستخدم نفسه بس. (`sync_secret_matches` لـ `service_role` بس، فمش المفروض تظهر.)
+- بعد `0012`: **`vendor_login_set_password`/`vendor_login_reveal` دوال `security definer` وينفع `authenticated` ينفّذها** — مقصود: الباسورد المؤقت في Vault والعضو مالوش `usage` على schema `vault`؛ كل واحدة بتشيك `is_admin() or vendors.edit = F` بنفسها (42501) وبتسجّل كل نداء في `activity_log`، وعمرها ما ترجّع غير سر المبتكر اللي اتطلب.
 - ملاحظات performance (INFO/WARN) على الـ policies أو الـ indexes اللي ذكرتها تقارير المهمة 3 و4 — مقبولة دلوقتي.
 - بعد `0006`: الزيادة الوحيدة INFO «unused index» على الجداول الجديدة — متوقعة لحد ما التطبيق يكتب فيها.
 - WARN «Leaked Password Protection Disabled» — ده إعداد في لوحة Auth لصاحب المشروع (Authentication › Attack Protection)، مش migration.
@@ -355,6 +427,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 - المرحلة 2.1 (2026-10-26): `failed_note_permalink` (`0009`) اتطبّقت على الحي 09:41Z (`status_map` 9 صفوف، «فشل» `failed`/`from_woo` مكان «تم RTC»؛ 17 تعليق اتملى من ملاحظة الموقع مع 17 سطر `order_events`؛ `products.permalink` 3620 معبّى و0 فاضي؛ الأعضاء بيقروه)، وبعدها الدالتين اتنشروا **v5** 09:58Z (`_shared/woo-core.js` و`_shared/woo-write.js`)، وجملتين الداتا اتشغّلوا تاني (0 متبقّي)، وتشغيلة cron 10:00Z `ok` بالكود الجديد. الواجهة الجديدة نزلت على `main` (a9bdd45) بعد كل ده بالترتيب.
 - المرحلة 2.2 (2026-10-26): `state_names` (`0010`) اتطبّقت على الحي 13:29Z (105/105 أوردر فيهم `customer_state` من `raw`، 14 كود؛ `orders_v` 26 عمود؛ الأعضاء بيقروا العمود ومابيكتبوهوش؛ `woo_states` بسياسة `select` للأعضاء وبدون `insert`)، وبعدها الدالتين اتنشروا **v7** (`woo-webhook` 13:34Z، `woo-sync` 13:44Z) بكود 2.2؛ جملة التعبئة مالهاش متبقّي (0 `null`)؛ تشغيلة cron 13:45Z `all` ok على v7 (`states` 27، المتاجر 55، أوردرات 0 جديد)، وتشغيلة `states` يدويًا 13:47Z: 27 محافظة مكتوبة، 0 متخطّي، 0 فاشل، وكل الـ 105 كود ليهم اسم. **ملحوظة:** قايمة الموقع بالإنجليزي (Cairo, Alexandria, Giza…) — لو صاحب المشروع عايزها عربي: نجرّب `?lang=ar` على نفس الـ endpoint (WPML) أو عمود اسم عربي في `woo_states` (قرار مكتوب). الواجهة الجديدة نزلت على `main` بعد كل ده بالترتيب.
 - المرحلة 3 (2026-10-26): `vendors` (`0011`) **اتطبّقت** 15:38Z (`20261026153800 vendors`)، وفحوص ما بعد التطبيق (§2.1) مطابقة. الدالتين على **v8**: `woo-webhook` 15:44Z و`woo-sync` 15:54Z (أول محاولة لـ `woo-sync` فشلت على parse error في نسخة ملصوقة من `_shared/woo-write.js`؛ اتنشرت تاني بالملف زي ما هو في الريبو). الباقي من الترتيب الحي (§4 في خطة المرحلة 3): `rls_vendors` على الحي ← جملتين التعبئة مرة كمان ← تشغيلة `vendors` (55 متجر، 0 تغيير في الاسم/الحالة، `raw` محدّث) — **مستنيين موافقة صاحب المشروع على تنفيذ SQL من الجلسة** (طلب الإذن اتعمل ومحدش جاوب في المهلة). التفاصيل في `.superpowers/sdd/2026-10-26-phase-3-vendors/progress.md`.
+- المرحلة 3.1 (2026-10-26): `vendor_logins` (`0012`) **لسه ماتطبّقتش** (الكنترولر — بعد مراجعة A/B وبالترتيب اللي في §2.7؛ فحوص قبل/بعد في §2.1). مافيش تغيير في الدالتين. الدفتر: `.superpowers/sdd/2026-10-26-phase-3-1-add-maker/progress.md`.
 
 ### 2.7 Edge Functions والأسرار والـ webhooks (المرحلة 2)
 دالتين Deno في `supabase/functions/`:
@@ -364,6 +437,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 منطقهم النقي في `_shared/woo-core.js` (بيتختبر بـ `npm test`)، ونقط الدخول بـ `npm run deno:check` و`npm run deno:test`. الترتيب على الحي: §2.1 (`0007` ثم `0008`، ومن المرحلة 2.1 `0009`، ومن المرحلة 2.2 `0010`، ومن المرحلة 3 `0011`) ← 2.7.1 النشر ← 2.7.2 الأسرار ← 2.7.4 الـ webhooks ← 2.7.5 أول مزامنة.
 **المرحلة 2.2 بالترتيب:** `0010` على الحي (§2.1؛ الواجهة الجديدة بتقرا `customer_state` و`woo_states`) ← إعادة نشر الدالتين (2.7.1؛ `_shared` و`woo-sync` اتغيّروا) ← جملة التعبئة مرة كمان ← تشغيلة `states` يدويًا أو انتظار الـ cron (2.7.5) ← `main`.
 **المرحلة 3 بالترتيب:** `0011` على الحي (§2.1؛ الواجهة الجديدة بتقرا `vendors` بقايمة أعمدة و`vendor_rates`/`vendor_bank` وترفع العقود على الـ bucket — §2.8) ← `rls_vendors` على الحي ← إعادة نشر الدالتين (2.7.1؛ `_shared` اتغيّر) ← جملتين التعبئة مرة كمان ← تشغيلة `vendors` (2.7.5) ← `main`.
+**المرحلة 3.1 بالترتيب:** `0012` على الحي (§2.1؛ الواجهة الجديدة بتقرا `vendor_logins` بقايمة أعمدة وبتنادي الدالتين بـ RPC) ← `rls_vendor_logins` + `rls_vendors` على الحي ← `main`. **مافيش تغيير في الدالتين** (`_shared` و`index.ts` زي ما هم) — مافيش إعادة نشر في المرحلة دي.
 
 **Dokan قراءة بس (قرار صاحب المشروع):** النظام عمره ما يكتب في حالة أوردر فرعي على Woo ولا في بيانات متجر. اللي بيتكتب في WooCommerce حاجتين بس: حالة الأوردر الأصلي (`push_status`، حسب `status_map` واتجاهها، ولما `WOO_PUSH_ENABLED = 1` بس — 2.7.2)، والـ webhooks بتاعتنا (`register_webhooks`). حالات الفرعيين (تأكيد، وصل المخزن، شحن، مرتجع) عايشة عندنا بس.
 

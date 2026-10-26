@@ -51,8 +51,9 @@ do $$ begin
             || 'قيد الشحن=in-shipping,مكتمل=completed,استرجاع=refunded,ملغي=cancelled,فشل=failed') then
     raise exception 'case seed: status_map nine rows (0002 seed as reseeded by 0007 and 0009) failed';
   end if;
-  if exists (select 1 from public.status_map where direction is distinct from 'both') then
-    raise exception 'case seed: status_map direction = both on every row failed';
+  if exists (select 1 from public.status_map where direction is distinct from 'both' and system_status <> 'فشل')
+     or not exists (select 1 from public.status_map where system_status = 'فشل' and direction = 'from_woo') then
+    raise exception 'case seed: status_map direction = both on every row except «فشل» (from_woo) failed';
   end if;
 end $$;
 

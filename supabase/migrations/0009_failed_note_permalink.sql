@@ -2,11 +2,13 @@
 -- orders.note seeded from the website note (customer_note); products.permalink (column, backfill from raw, grants).
 -- Uses status_map (0002, reseeded by 0007), orders / products / orders_log_events (0007), the grant rules (0004).
 --
--- Decision (plan, phase 2.1 item 1): the «تم RTC» row becomes ('فشل', 'failed', 'both', sort 10) with one update, so
+-- Decision (plan, phase 2.1 item 1): the «تم RTC» row becomes ('فشل', 'failed', 'from_woo', sort 10) with one update, so
 --   its id stays. Why: «تم RTC» has no Woo status and no order uses it (checked live), while Woo's `failed` had no row
 --   and fell back to «ملغي» (woo-core WOO_FALLBACK, now empty). orders.status references status_map(system_status)
 --   on update cascade, so an order on «تم RTC» would follow the rename. Cost if wrong: a failed Woo order reads «فشل»
---   instead of «ملغي».
+--   instead of «ملغي». Direction from_woo (controller ruling, 26 Oct): `failed` is WooCommerce's "payment failed"; the
+--   team never sets it on the site, and pushing it would fire the customer's failed-order e-mail once WOO_PUSH_ENABLED
+--   is on, so a «فشل» set in the system stays here (push skipped as no_woo_status).
 -- Decision (item 2): orders.note (the team's editable comment) starts as the website note. From now on the sync writes
 --   it on a new order only (woo-write TEAM_EDITED, like customer_city / customer_address); here the existing orders
 --   with a website note and an empty comment get it once. Cost if wrong: a later edit of the website note does not
@@ -28,7 +30,7 @@
 -- ---------------------------------------------------------------- status_map: «تم RTC» → «فشل» (failed)
 
 update public.status_map
-set system_status = 'فشل', woo_status = 'failed', direction = 'both', sort = 10
+set system_status = 'فشل', woo_status = 'failed', direction = 'from_woo', sort = 10
 where system_status = 'تم RTC'
   and not exists (select 1 from public.status_map where system_status = 'فشل');
 

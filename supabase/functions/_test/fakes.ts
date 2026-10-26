@@ -235,10 +235,10 @@ export const WC_AUTH = 'Basic ' + btoa('ck_test_0001:cs_test_0002');
 export const NOW = '2026-10-25T12:00:00.000Z';
 export const PHONE = '01012345678';
 
-// The nine rows of 0007 as 0009 leaves them: «تم RTC» (sort 6) became «فشل» = failed (sort 10) on the same row.
+// The nine rows of 0007 as 0009 leaves them: «تم RTC» (sort 6) became «فشل» = failed, from_woo (sort 10) on the same row.
 export const STATUS_MAP: Row[] = [
   ['قيد الانتظار', 'pending', 'both', 1], ['جاري التنفيذ', 'processing', 'both', 2], ['معلّق', 'on-hold', 'both', 3],
-  ['جاهز للشحن', 'ready-shipping', 'both', 4], ['قيد الشحن', 'in-shipping', 'both', 5], ['فشل', 'failed', 'both', 10],
+  ['جاهز للشحن', 'ready-shipping', 'both', 4], ['قيد الشحن', 'in-shipping', 'both', 5], ['فشل', 'failed', 'from_woo', 10],
   ['مكتمل', 'completed', 'both', 7], ['استرجاع', 'refunded', 'both', 8], ['ملغي', 'cancelled', 'both', 9],
 ].map(([system_status, woo_status, direction, sort], i) => ({ id: i + 1, system_status, woo_status, direction, sort }));
 

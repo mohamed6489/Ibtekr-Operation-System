@@ -39,7 +39,7 @@
 
 بعدها `execute_sql` بمحتوى الاختبارات الخمسة (كل واحد بيعمل `rollback` في الآخر، فمش بيسيب حاجة وراه):
 - `supabase/tests/rls_identity.sql` → لازم يطلع `NOTICE: rls_identity: ok`
-- `supabase/tests/rls_system.sql` → لازم يطلع `NOTICE: rls_system: ok` (بيتوقع `status_map` زي ما `0009` بتسيبه: 9 صفوف، «فشل» مكان «تم RTC»، وكلها `both` — يعني بعد `0009`)
+- `supabase/tests/rls_system.sql` → لازم يطلع `NOTICE: rls_system: ok` (بيتوقع `status_map` زي ما `0009` بتسيبه: 9 صفوف، «فشل» مكان «تم RTC» بـ `from_woo`، والباقي `both` — يعني بعد `0009`)
 - `supabase/tests/rls_dashboard.sql` → لازم يطلع `NOTICE: rls_dashboard: ok`
 - `supabase/tests/rls_orders.sql` → لازم يطلع `NOTICE: rls_orders: ok` (من المرحلة 2.1 بيتوقع `0009` كمان: «فشل» في `status_map`، و`products.permalink` بيتقرا للأعضاء)
 - `supabase/tests/rls_mfa.sql` → لازم يطلع `NOTICE: rls_mfa: ok` (بيكتب factors تجريبية في `auth.mfa_factors` بكل الأعمدة الإجبارية بتاعة الجدول الحي، وكلها بتروح مع الـ rollback)
@@ -108,7 +108,7 @@
    ```
 
 **`0009_failed_note_permalink` (المرحلة 2.1) — قبل التطبيق وبعده.** الملف بيعمل تلات حاجات، وكلها بتتعاد من غير ما تغيّر حاجة (مافيهوش `drop` ولا `delete` ولا `truncate`):
-- `status_map`: صف «تم RTC» بيتحوّل بـ `update` (نفس الـ id) لـ («فشل»، `failed`، `both`، sort 10). أوردر Woo حالته `failed` بقى «فشل» بدل «ملغي» (القاعدة الاحتياطية `WOO_FALLBACK` في `woo-core` بقت فاضية)، والفريق لما يحط «فشل» بتتبعت للموقع `failed` (لما `WOO_PUSH_ENABLED = 1`، §2.7.2). `orders.status` مربوط بـ `on update cascade`، فأي أوردر على «تم RTC» بيمشي مع الاسم الجديد.
+- `status_map`: صف «تم RTC» بيتحوّل بـ `update` (نفس الـ id) لـ («فشل»، `failed`، `from_woo`، sort 10). أوردر Woo حالته `failed` بقى «فشل» بدل «ملغي» (القاعدة الاحتياطية `WOO_FALLBACK` في `woo-core` بقت فاضية). الاتجاه `from_woo` قرار: `failed` معناها على الموقع «الدفع فشل»، والفريق مش بيحطها هناك، ولو اتبعتت كان العميل هيوصله إيميل فشل من النظام لما `WOO_PUSH_ENABLED = 1` — فلو الفريق حط «فشل» عندنا بتتحفظ بس ومابتتبعتش (`skipped` / `no_woo_status`). `orders.status` مربوط بـ `on update cascade`، فأي أوردر على «تم RTC» بيمشي مع الاسم الجديد.
 - `orders.note` (تعليق خدمة العملاء) بيتملى من `customer_note` (ملاحظة العميل من الموقع) للأوردرات اللي تعليقها فاضي وعندها ملاحظة. كل أوردر اتملى بيكتب سطر `order_events` (`kind 'note'`، `source 'woo'`). من بعدها المزامنة بتكتب `note` = ملاحظة الموقع عند إنشاء الأوردر بس (زي المدينة والعنوان) — الفريق صاحب الخانة بعد كده.
 - `products.permalink` (رابط صفحة المنتج على الموقع): العمود + تعبئة من `raw->>'permalink'` (اللي بيبدأ بـ `https://` بس، وللصفوف اللي العمود فيها فاضي بس) + الـ grants (`select` للأعضاء زي باقي أعمدة `products`، وكل الـ DML لـ `service_role`). الـ RLS زي ما هي.
 
@@ -127,7 +127,7 @@
    ```sql
    select system_status, woo_status, direction, sort from public.status_map order by sort;
    -- 9 صفوف من غير «تم RTC»: قيد الانتظار pending، جاري التنفيذ processing، معلّق on-hold، جاهز للشحن ready-shipping،
-   -- قيد الشحن in-shipping، مكتمل completed، استرجاع refunded، ملغي cancelled، فشل failed (sort 10) — وكلها both
+   -- قيد الشحن in-shipping، مكتمل completed، استرجاع refunded، ملغي cancelled، فشل failed (sort 10، from_woo) — والباقي both
 
    select count(*) from public.orders where note = customer_note and customer_note <> '';
    -- 17 (+ أي أوردر جديد بملاحظة من الموقع بعد كده)

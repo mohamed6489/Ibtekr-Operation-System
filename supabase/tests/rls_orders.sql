@@ -78,7 +78,7 @@ do $$ begin
            from public.status_map)
           = 'قيد الانتظار=pending/both,جاري التنفيذ=processing/both,معلّق=on-hold/both,'
             || 'جاهز للشحن=ready-shipping/both,قيد الشحن=in-shipping/both,'
-            || 'مكتمل=completed/both,استرجاع=refunded/both,ملغي=cancelled/both,فشل=failed/both') then
+            || 'مكتمل=completed/both,استرجاع=refunded/both,ملغي=cancelled/both,فشل=failed/from_woo') then
     raise exception 'case status_map nine rows in screen order (slugs from the staging probe; فشل from 0009) failed';
   end if;
   -- 0009 turned «تم RTC» (sort 6) into «فشل» (sort 10) in place.

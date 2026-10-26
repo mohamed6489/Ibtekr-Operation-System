@@ -323,16 +323,18 @@ Deno.test('push_status by a member with orders.status = F → PUT wc/v3/orders/{
   assertEquals([log.kind, log.direction, log.entity, log.entity_id, log.result], ['push', 'out', 'order', '1001', 'ok']);
 });
 
-Deno.test('push_status «فشل» (0009: failed / both) → PUT wc/v3/orders/{id} { status: failed }', async () => {
+Deno.test('push_status «فشل» (0009: failed / from_woo) → skipped no_woo_status, no Woo call (never pushed to the site)', async () => {
   const routes = {
     'GET wc/v3/orders/1001': { body: { id: 1001, status: 'processing', date_modified_gmt: '2026-10-20T11:00:00' } },
     'PUT wc/v3/orders/1001': (c: any) => ({ body: { id: 1001, status: c.body.status, date_modified_gmt: '2026-10-25T12:00:01' } }),
   };
   const { db, woo, deps } = setup({ seed: { orders: [{ ...pushSeed.orders[0], status: 'فشل' }] }, routes, env: PUSH_ON });
   const { body } = await call(deps, { action: 'push_status', order_id: 1001, status: 'فشل' }, { jwt: 'jwt-ops' });
-  assertEquals([body.result, body.counts], ['ok', { pushed: 1 }]);
-  assertEquals(woo.calls.find((c) => c.method === 'PUT')!.body, { status: 'failed' });
-  assertEquals([db.row('orders', 1001).status, db.row('orders', 1001).woo_status], ['فشل', 'failed']);
+  assertEquals([body.result, body.reason, body.counts], ['skipped', 'no_woo_status', { pushed: 0 }]);
+  assertEquals(woo.calls.length, 0);
+  assertEquals([db.row('orders', 1001).status, db.row('orders', 1001).woo_status], ['فشل', pushSeed.orders[0].woo_status]);
+  const log = db.rows('woo_sync_log')[0];
+  assertEquals([log.kind, log.direction, log.result, log.detail.reason], ['push', 'out', 'skipped', 'no_woo_status']);
 });
 
 Deno.test('push_status for a status with no Woo slug (a from_system row; none today) → skipped, no Woo call', async () => {

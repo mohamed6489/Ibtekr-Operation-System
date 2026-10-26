@@ -53,8 +53,8 @@ do $$ begin
   end if;
   if not exists (select 1 from public.status_map
                  where id = current_setting('migrate_0009.rtc_id')::int
-                   and system_status = 'فشل' and woo_status = 'failed' and direction = 'both' and sort = 10) then
-    raise exception 'case «تم RTC» became (فشل, failed, both, 10) on the same row (id kept) failed';
+                   and system_status = 'فشل' and woo_status = 'failed' and direction = 'from_woo' and sort = 10) then
+    raise exception 'case «تم RTC» became (فشل, failed, from_woo, 10) on the same row (id kept) failed';
   end if;
   if not ((select status from public.orders where id = 990006) = 'فشل') then
     raise exception 'case an order on «تم RTC» follows the rename to «فشل» (on update cascade) failed';

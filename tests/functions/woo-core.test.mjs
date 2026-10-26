@@ -31,7 +31,7 @@ const MAP = [
   { system_status: 'مكتمل', woo_status: 'completed', direction: 'both' },
   { system_status: 'استرجاع', woo_status: 'refunded', direction: 'both' },
   { system_status: 'ملغي', woo_status: 'cancelled', direction: 'both' },
-  { system_status: 'فشل', woo_status: 'failed', direction: 'both' },
+  { system_status: 'فشل', woo_status: 'failed', direction: 'from_woo' },
 ];
 // No row is from_system today: the rule is tested on a synthetic team-only status with no Woo slug.
 const TEAM = 'حالة داخلية';
@@ -135,10 +135,10 @@ test('the test status map matches the 0007 reseed and the 0009 rename (names, sl
     const slug = r.woo_status === null ? 'null' : `'${r.woo_status}'`;
     assert.match(sql, new RegExp(`\\('${r.system_status}',\\s*${slug},\\s*'${r.direction}'`), r.system_status);
   }
-  // 0009: the «تم RTC» row of 0007 becomes («فشل», failed, both, 10) in place
+  // 0009: the «تم RTC» row of 0007 becomes («فشل», failed, from_woo, 10) in place — from_woo: never pushed to the site
   assert.match(sql, /\('تم RTC',\s*null,\s*'from_system',\s*6\)/);
-  assert.match(sql9, /update public\.status_map\s+set system_status = 'فشل', woo_status = 'failed', direction = 'both', sort = 10\s+where system_status = 'تم RTC'/);
-  assert.equal(MAP.filter((m) => m.direction !== 'both').length, 0);
+  assert.match(sql9, /update public\.status_map\s+set system_status = 'فشل', woo_status = 'failed', direction = 'from_woo', sort = 10\s+where system_status = 'تم RTC'/);
+  assert.deepEqual(MAP.filter((m) => m.direction !== 'both').map((m) => m.system_status), ['فشل']);
 });
 
 // ---------------------------------------------------------------- verifySignature
@@ -308,7 +308,7 @@ test('mapOrder: ctx.currentWooStatus = the incoming slug → the stored status s
 
 test('outgoingWooStatus: slug for both / from_system rows with a slug, else null', () => {
   assert.equal(outgoingWooStatus(TEAM, TEAM_MAP), null);
-  assert.equal(outgoingWooStatus('فشل', MAP), 'failed');
+  assert.equal(outgoingWooStatus('فشل', MAP), null); // from_woo: a «فشل» set in the system is never pushed
   assert.equal(outgoingWooStatus('مكتمل', MAP), 'completed');
   assert.equal(outgoingWooStatus('جاهز للشحن', MAP), 'ready-shipping');
   assert.equal(outgoingWooStatus('ملغي', MAP), 'cancelled');

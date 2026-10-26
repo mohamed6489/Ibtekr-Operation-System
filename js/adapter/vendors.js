@@ -47,7 +47,8 @@
   // the vendors columns the team writes, by the prototype's field names
   const COL = { name: 'name', legalName: 'legal_name', category: 'category', aliases: 'aliases', status: 'status', phone: 'phone', altPhone: 'alt_phone', email: 'email', address: 'address', instagram: 'instagram', storeUrl: 'store_url', leadDays: 'lead_days', depositPolicy: 'deposit_policy', notes: 'notes', joinedAt: 'joined_at' };
   const MESSAGES = { forbidden: 'مش من صلاحياتك', network: 'الشبكة مش متاحة — التغيير ما اتحفظش، جرّب تاني', in_use: 'ماينفعش يتمسح — عليه أوردرات', too_large: 'الملف أكبر من 10 ميجا', bad_type: 'نوع الملف مش مقبول — PDF أو صورة (PNG / JPG) بس', duplicate: 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني',
-    duplicate_username: 'اسم المستخدم ده مستخدم قبل كده', weak_password: 'الباسورد لازم: 8 حروف على الأقل، حرف إنجليزي، رقم، من غير مسافات', no_vault: 'الباسورد المؤقت مش متاح على السيرفر ده دلوقتي (Vault مش شغّال)', no_login: 'اعمل اسم مستخدم الأول' };
+    duplicate_username: 'اسم المستخدم ده مستخدم قبل كده', weak_password: 'الباسورد لازم: 8 حروف على الأقل، حرف إنجليزي، رقم، من غير مسافات', no_vault: 'الباسورد المؤقت مش متاح على السيرفر ده دلوقتي (Vault مش شغّال)', no_login: 'اعمل اسم مستخدم الأول', long_password: 'الباسورد أطول من 128 حرف' };
+  const PW_MAX = 128; // the server's cap (22023 past it)
   const LOGIN_STATUSES = ['invited', 'active', 'disabled'];
   const DONE = ['مكتمل']; const OUT = ['ملغي', 'استرجاع', 'فشل', 'مرتجع', 'مسترد', 'ملغي / مرتجع'];
   let vendors = new Map(); const timeline = new Map(); const revealed = new Map(); let gen = 0; let st = 'idle'; let ratesOk = false;
@@ -183,7 +184,7 @@
   const events = (id) => (timeline.get(String(id)) || []).slice();
   function findByName(name) { const n = norm(name); if (!n) return null; for (const v of vendors.values()) { if (norm(v.name) === n || v.aliases.some((a) => norm(a) === n)) return copy(v); } return null; }
   const fail = (reason) => ({ ok: false, reason });
-  const reasonOf = (e) => (!e ? 'network' : e.code === '42501' || e.status === 403 || e.status === 401 || e.statusCode === '403' || e.statusCode === '401' ? 'forbidden' : e.code === '23503' ? 'in_use' : e.code === '23505' ? 'duplicate' : e.code === '22023' ? 'weak_password' : e.code === '0A000' ? 'no_vault' : e.statusCode === '413' || e.status === 413 ? 'too_large' : e.statusCode === '415' || e.status === 415 ? 'bad_type' : 'network');
+  const reasonOf = (e) => (!e ? 'network' : e.code === '42501' || e.status === 403 || e.status === 401 || e.statusCode === '403' || e.statusCode === '401' ? 'forbidden' : e.code === '23503' ? 'in_use' : e.code === '23505' ? 'duplicate' : e.code === '22023' ? 'weak_password' : e.code === '0A000' ? 'no_vault' : e.code === 'P0002' ? 'no_login' : e.statusCode === '413' || e.status === 413 ? 'too_large' : e.statusCode === '415' || e.status === 415 ? 'bad_type' : 'network');
   // one call of the client → { ok, data } | { ok:false, reason }, never thrown
   async function call(fn) {
     const cl = c();
@@ -363,7 +364,7 @@
   // and nowhere else; the server stores it in Vault and logs vendor.login.password itself. Resolves to password_set_at.
   async function setLoginPassword(id, password, actor) {
     const v = must(id); if (!canLogin()) throw noPerm(); if (!v.login || !v.login.username) throw new Error(MESSAGES.no_login);
-    const iss = pwIssues(password); if (iss.length) throw new Error('الباسورد لازم: ' + iss.join('، '));
+    const iss = pwIssues(password); if (iss.length) throw new Error('الباسورد لازم: ' + iss.join('، ')); if (String(password).length > PW_MAX) throw new Error(MESSAGES.long_password);
     const r = await call((cl) => cl.rpc('vendor_login_set_password', { p_vendor: id, p_password: String(password) }));
     if (!r.ok) throw new Error(MESSAGES[r.reason] || MESSAGES.network);
     await Promise.all([timeline.has(String(id)) ? fetchEvents(id) : undefined, load()]);
@@ -376,7 +377,7 @@
     const v = must(id); if (!canLogin()) throw noPerm(); if (!v.login || !v.login.hasPassword) return null;
     const r = await call((cl) => cl.rpc('vendor_login_reveal', { p_vendor: id }));
     if (!r.ok) throw new Error(MESSAGES[r.reason] || MESSAGES.network);
-    if (timeline.has(String(id))) fetchEvents(id).catch(() => undefined);
+    if (timeline.has(String(id))) await fetchEvents(id).catch(() => undefined); // the server's vendor.login.reveal row, so the drawer's redraw shows it
     return typeof r.data === 'string' ? r.data : null;
   }
   // the add-vendor modal (decision 10): vendors → vendor_rates (canRate) → vendor_logins (input.login) → rpc vendor_login_set_password
@@ -389,6 +390,7 @@
     const pw = login && login.pwMode === 'temp' ? String(input.login.password || '') : ''; // local to this call only
     if (login) {
       const le = loginErrs({ username: login.username, email: login.email, pwMode: login.pwMode, password: pw }); const bad = Object.keys(le); if (bad.length) throw new Error('invalid login: ' + bad.join(','));
+      if (pw.length > PW_MAX) throw new Error(MESSAGES.long_password);
       if (usernameTaken(login.username)) throw new Error(MESSAGES.duplicate_username);
     }
     const bank = canBank() && input.bank && input.bank.method ? cleanBank(input.bank) : null;

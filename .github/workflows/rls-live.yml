@@ -9,7 +9,7 @@ on:
     inputs:
       files:
         description: 'test names without .sql, space-separated (letters, digits, _)'
-        default: 'rls_vendors rls_vendor_logins'
+        default: 'rls_vendors rls_vendor_logins rls_brands'
         required: false
 permissions:
   contents: read

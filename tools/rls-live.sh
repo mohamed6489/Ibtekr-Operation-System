@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # Runs live-safe RLS test files against DATABASE_URL (the live project): each file is one transaction that rolls back
-# and ends with NOTICE '<name>: ok'. Usage: DATABASE_URL=postgresql://… bash tools/rls-live.sh [rls_vendors rls_vendor_logins …]
-# Default: the two tests the Supabase MCP tool holds for approval (their text-only `delete from` statements). The URL is
+# and ends with NOTICE '<name>: ok'. Usage: DATABASE_URL=postgresql://… bash tools/rls-live.sh [rls_vendors rls_vendor_logins rls_brands …]
+# Default: the three tests the Supabase MCP tool holds for approval (their text-only `delete from` statements). The URL is
 # never printed; a failing file prints the tail of psql's output (test values only, no live rows) and the script exits 1.
 set -euo pipefail
 : "${DATABASE_URL:?DATABASE_URL (the live Session-pooler connection string) is required}"
-files="${*:-rls_vendors rls_vendor_logins}"
+files="${*:-rls_vendors rls_vendor_logins rls_brands}"
 status=0
 for name in $files; do
   if ! [[ "$name" =~ ^[a-z0-9_]+$ ]]; then echo "rls-live: refused test name: $name"; exit 2; fi

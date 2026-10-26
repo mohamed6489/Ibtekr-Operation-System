@@ -20,7 +20,7 @@
 
 ملحوظة عن أداة Supabase MCP: اللي اتحجز فعلًا: جمل `delete from` في اختبارات RLS لما بتتشغّل عبر `execute_sql`؛ `apply_migration` عمره ما حجز حاجة (ولا حتى `delete from` جوّه `email_for_identifier` في `0001`، ولا `on delete cascade`/`for delete`/`grant … delete`). `drop` اتجنّبناه من الأول (`0005` بـ `alter policy`). `rls_dashboard.sql` و`rls_orders.sql` و`rls_mfa.sql` مافيهمش `delete` خالص فبيتشغّلوا حي زي ما هما. اختبارات RLS في الريبو شغالة من `psql`/CI؛ لتشغيل `rls_identity`/`rls_system` عبر MCP استخدم نسخة بتبدّل `delete from` بـ `execute 'del' || 'ete from ...'` (زي ما اتعمل في أول تطبيق حي).
 
-**البديل لما الأداة تحجز الملف (`rls_vendors` مثلًا):** workflow «RLS live» في GitHub Actions (`.github/workflows/rls-live.yml` ← `tools/rls-live.sh`): بيشغّل الملفات الـ live-safe على المشروع الحي من السر `SUPABASE_DB_URL` (= connection string بوضع **Session pooler** من Dashboard → Project Settings → Database → Connection string؛ الـ direct host IPv6 بس وrunners GitHub مالهاش IPv6). السر بيتضاف من GitHub → Settings → Secrets and variables → Actions، وعمره ما يتكتب في الشات أو الكود. التشغيل: Actions → RLS live → Run workflow (الافتراضي `rls_vendors rls_vendor_logins`؛ ممكن تكتب أسماء تانية). كل ملف transaction بتعمل rollback، والـ URL مابيتطبعش.
+**البديل لما الأداة تحجز الملف (`rls_vendors` مثلًا):** workflow «RLS live» في GitHub Actions (`.github/workflows/rls-live.yml` ← `tools/rls-live.sh`): بيشغّل الملفات الـ live-safe على المشروع الحي من السر `SUPABASE_DB_URL` (= connection string بوضع **Session pooler** من Dashboard → Project Settings → Database → Connection string؛ الـ direct host IPv6 بس وrunners GitHub مالهاش IPv6). السر بيتضاف من GitHub → Settings → Secrets and variables → Actions، وعمره ما يتكتب في الشات أو الكود. التشغيل: Actions → RLS live → Run workflow (الافتراضي `rls_vendors rls_vendor_logins rls_brands`؛ ممكن تكتب أسماء تانية). كل ملف transaction بتعمل rollback، والـ URL مابيتطبعش.
 
 ## 2. Supabase قبل النشر
 
@@ -41,8 +41,9 @@
 | `state_names` | `supabase/migrations/0010_state_names.sql` |
 | `vendors` | `supabase/migrations/0011_vendors.sql` |
 | `vendor_logins` | `supabase/migrations/0012_vendor_logins.sql` |
+| `brands` | `supabase/migrations/0013_brands.sql` |
 
-بعدها `execute_sql` بمحتوى الاختبارات السبعة (كل واحد بيعمل `rollback` في الآخر، فمش بيسيب حاجة وراه):
+بعدها `execute_sql` بمحتوى الاختبارات التمانية (كل واحد بيعمل `rollback` في الآخر، فمش بيسيب حاجة وراه):
 - `supabase/tests/rls_identity.sql` → لازم يطلع `NOTICE: rls_identity: ok`
 - `supabase/tests/rls_system.sql` → لازم يطلع `NOTICE: rls_system: ok` (بيتوقع `status_map` زي ما `0009` بتسيبه: 9 صفوف، «فشل» مكان «تم RTC» بـ `from_woo`، والباقي `both` — يعني بعد `0009`)
 - `supabase/tests/rls_dashboard.sql` → لازم يطلع `NOTICE: rls_dashboard: ok`
@@ -50,9 +51,10 @@
 - `supabase/tests/rls_mfa.sql` → لازم يطلع `NOTICE: rls_mfa: ok` (بيكتب factors تجريبية في `auth.mfa_factors` بكل الأعمدة الإجبارية بتاعة الجدول الحي، وكلها بتروح مع الـ rollback)
 - `supabase/tests/rls_vendors.sql` → لازم يطلع `NOTICE: rls_vendors: ok` (المرحلة 3: بيتوقع `0011` — أعمدة `vendors` ومنحها بقايمة، والحارس بالعمود، و`vendor_rates`/`vendor_bank`، و`order_items.commission_rate`؛ على الحي بيتأكد كمان من الـ bucket `vendor-contracts` وسياساته؛ live-safe: مابيمسحش حاجة، والـ deletes اللي فيه متوقع ترتفض — 42501 أو 23503 — والـ rollback في الآخر)
 - `supabase/tests/rls_vendor_logins.sql` → لازم يطلع `NOTICE: rls_vendor_logins: ok` (المرحلة 3.1: بيتوقع `0012` — `leave` في `vendors.status`، و`vendor_logins` بمنحها بقايمة أعمدة من غير `secret_id` والحارس والدالتين؛ **على الحي** Vault موجود فالدالتين بيتختبروا فعلًا: الأدمن ومتابعة المبتكرين بيحطوا باسورد تجريبي `Test1234` ويظهروه ويستبدلوه، وكل ده بيتسجل في `activity_log` من غير الباسورد — والسر في `vault.secrets` اسمه `vendor-login:<uuid تجريبي>` بيروح مع الـ rollback؛ محلي من غير Vault بيتأكد من `0A000` بس؛ live-safe: مابيمسحش حاجة، والـ delete الوحيد اللي فيه متوقع يترفض 42501)
+- `supabase/tests/rls_brands.sql` → لازم يطلع `NOTICE: rls_brands: ok` (المرحلة 3.2: بيتوقع `0013` — `brands`/`brand_owners`/`brand_rates` بمنحها وسياساتها، الحرّاس التلاتة، التريجر على `vendors` (إدراج متجر ويدوي والاسم المأخوذ) وإعادة التعبئة، الدالتين `brand_owner_at`/`store_owner_at` قبل وبعد نقل ونقل مؤقت ورجوع، و23503 لحذف مبتكر في تاريخ ملكية براند غيره؛ live-safe: كل عدّ مربوط بصفوفه هو — الحي فيه 56 براند — وفيه `delete from` كنص (اتنين متوقع يترفضوا 23503 وواحد cascade على مبتكر الملف نفسه بيروح مع الـ rollback) فالأداة بتحجزه: شغّله عبر workflow «RLS live»)
 
 أي `ERROR` = وقّف ومتنشرش. لو الـ MCP رفض `set local role`، شغّلهم بـ `psql` كـ `postgres`.
-`supabase/tests/migrate_0009.sql` و`supabase/tests/migrate_0010.sql` و`supabase/tests/migrate_0011.sql` و`supabase/tests/migrate_0012.sql` **محلي بس** (`npm run db:test`): بيبنوا الحالة اللي قبل الـ migration جوه transaction وبيطبّقوا الملف نفسه تاني بـ `\ir` (أمر `psql`، فمايتشغّلش عبر `execute_sql`). على الحي `0009` و`0010` و`0011` و`0012` بيتفحصوا بالاستعلامات اللي تحت.
+`supabase/tests/migrate_0009.sql` و`supabase/tests/migrate_0010.sql` و`supabase/tests/migrate_0011.sql` و`supabase/tests/migrate_0012.sql` و`supabase/tests/migrate_0013.sql` **محلي بس** (`npm run db:test`): بيبنوا الحالة اللي قبل الـ migration جوه transaction وبيطبّقوا الملف نفسه تاني بـ `\ir` (أمر `psql`، فمايتشغّلش عبر `execute_sql`). على الحي `0009` و`0010` و`0011` و`0012` و`0013` بيتفحصوا بالاستعلامات اللي تحت.
 **ممنوع** تطبّق `supabase/tests/_local_auth_stub.sql` على Supabase — ده لـ Postgres المحلي بس.
 
 لو حد طبّق جزء قبل كده، `list_migrations` بيوريك اللي اتطبّق وتكمّل من بعده.
@@ -378,6 +380,88 @@
 5. `get_advisors` (§2.2): الدالتين الجداد `security definer` و`authenticated` بينفّذهم — مقصود (تحت).
 6. **مافيش إعادة نشر** للدالتين (`woo-webhook`/`woo-sync`) في المرحلة دي: `_shared` و`index.ts` ماتغيّروش.
 
+**`0013_brands` (المرحلة 3.2) — قبل التطبيق وبعده.** الملف بيتعاد من غير ما يغيّر حاجة (مافيهوش `drop` ولا `delete` ولا `truncate`؛ إعادة التعبئة محروسة بـ `not exists`). اللي بيعمله:
+- `brands` (البراند = الاسم اللي المنتجات بتتباع بيه): `id`، `name` (1–80، **فريد على `lower(btrim(name))`** → 23505 للمكرر)، `code` (`^[A-Z0-9]{1,3}$`)، `aliases`، `store_vendor_id` (المتجر اللي أوردراته بتتباع بالبراند — `unique`، `references vendors(id) on delete cascade`، **السيرفر بس** بيحطه: مافيش `insert`/`update` عليه للأعضاء)، `origin_vendor_id` (المبتكر اللي اتعمل له البراند، `on delete cascade`)، `created_by`، `created_at`، `updated_at`. `brand_owners` (تاريخ الملكية — صفوف بتتضاف بس): `brand_id` (cascade)، `vendor_id` (**من غير cascade** — `deferrable initially immediate`، شوف الحارس تحت)، `since`، `return_on` (`null` أو `> since` — القيد `brand_owners_return_on_check`)، `reason` (≤ 200)، `set_by`، `created_at`؛ `unique (brand_id, since)`. `brand_rates` (النسبة الخاصة بتاريخ؛ `rate` `null` = «من غير نسبة خاصة» من التاريخ ده، وإلا 0–65): `brand_id` (cascade)، `rate`، `since`، `set_by`، `created_at`؛ `unique (brand_id, since)`؛ إضافة بس.
+- RLS: `brands`/`brand_owners` — `select` بـ `vendors.view <> 'N'`، `insert` (و`update` على `brands` بس) بـ `is_admin() or vendors.edit = 'F'` (الـ `using` بتاع التعديل `vendors.view` — نمط `0011`/`0012`: 42501 مش «0 صفوف»)؛ `brand_rates` — `select`/`insert` بـ `sensitive.commission = F` زي `vendor_rates`. مافيش `delete` للأعضاء على التلاتة (الـ cascade بس). المنح: `select` كل الأعمدة (على مستوى الجدول — مافيش عمود حساس؛ `select=*` بيعدّي، والواجهة بتسمّي أعمدتها برضه)، `insert` بقايمة أعمدة (`brands`: `name, code, aliases, origin_vendor_id, created_by`؛ `brand_owners`: `brand_id, vendor_id, since, return_on, reason, set_by`؛ `brand_rates`: `brand_id, rate, since, set_by`)، `update (name, code, aliases)` على `brands` بس؛ `service_role` كل حاجة؛ ومن غير `truncate`/`references`/`trigger` لحد.
+- الحرّاس (على `anon`/`authenticated` بس): `brands_guard` (before update) — غير `name`/`code`/`aliases` → 42501 (المنح بالعمود بترفض قبله بـ «permission denied for column»)، و`updated_at` بيتحدّث مع كل كتابة؛ `brand_owners_guard` (before insert) — `since` أقدم من آخر `since` للبراند → 22023 `since before the last transfer`، و`vendor_id` = صاحب آخر صف → 22023 `same vendor` (التاريخ المكرر = 23505 من المفتاح). و`vendors_brands_guard_delete` (before delete على `vendors`، لكل الأدوار): مبتكر موجود في تاريخ ملكية براند مبتكر تاني (دلوقتي أو قبل كده) → 23503 برسالة فيها `brand_owners_vendor_id_fkey`؛ غير كده بيأجّل المفتاح ده للـ transaction عشان cascade براناته هو يكمّل (Postgres بيفحص مفتاح `no action` قبل ما الـ cascade من المستوى التاني يمسح صفوف ملكيته — من غير الحارس ده صاحب الأصل عمره ما كان هيتمسح).
+- التريجر `vendors_brand_after_insert` (after insert على `vendors`؛ دالة `security definer` بملكية `postgres` و`search_path = public`، بتنادي `vendor_brand_auto(uuid)`): لو مفيش براند بنفس الاسم (lower/btrim) بيضيف براند باسم المبتكر (الاسم بعد `btrim`، الكود = أول حرف لاتيني كبير وإلا `X`، `aliases` بتاعته، `store_vendor_id = id` لو `woo_vendor_id` مش null، `origin = id`، `created_by = 'system'`) + صف ملكية (`since = coalesce(joined_at, current_date)`، `set_by = 'system'`). بيشتغل مع إدراج المزامنة (`service_role`) ومع الـ popup (`authenticated`) من غير أي تغيير في الدوال ولا الـ adapter. الاسم مأخوذ / فاضي / أطول من 80 → مافيش براند تلقائي، والإدراج نفسه بيعدّي (المزامنة ماتقفش أبدًا بسبب البراند).
+- **إعادة التعبئة** في نفس الملف: نفس الدالة لكل صف `vendors` من غير براند، بالأقدم أولًا (`created_at, id`). الحي: 56 صف (أسماء كلها مختلفة) → 56 براند (55 مربوط بمتجره + 1 يدوي من غير متجر) + 56 صف ملكية.
+- الدالتين `brand_owner_at(uuid, date)` / `store_owner_at(uuid, date)` (`stable`، `security invoker` — RLS على اللي بينادي، `execute` لـ `authenticated`/`service_role` بس): صاحب البراند في التاريخ (آخر صف `since <= D` وإلا الأول؛ `null` التاريخ = النهارده)، وصاحب براند المتجر يومها وإلا المتجر نفسه لو مفيش براند. للتقارير الجاية؛ الواجهة بتحسب محليًا.
+
+1. قبل:
+
+   ```sql
+   select to_regclass('public.brands') as brands, to_regclass('public.brand_owners') as owners, to_regclass('public.brand_rates') as rates,
+          to_regprocedure('public.brand_owner_at(uuid, date)') as owner_at, to_regprocedure('public.store_owner_at(uuid, date)') as store_owner_at;
+   -- null / null / null / null / null
+   select count(*) as vendors, count(*) filter (where woo_vendor_id is not null) as stores,
+          count(*) filter (where woo_vendor_id is null) as hand_added,
+          count(*) - count(distinct lower(btrim(name))) as duplicate_names,
+          count(*) filter (where length(btrim(name)) not between 1 and 80) as unfit_names
+   from public.vendors;
+   -- 56 / 55 / 1 / 0 / 0 (26 أكتوبر؛ لو duplicate_names أو unfit_names > 0: الصفوف دي مش هتاخد براند تلقائي والفريق يضيفه باليد — سجّلها قبل التطبيق)
+   select tgname from pg_trigger where tgrelid = 'public.vendors'::regclass and not tgisinternal order by 1;
+   -- vendors_guard_update بس
+   ```
+
+2. `apply_migration` بالاسم `brands`.
+3. بعد:
+
+   ```sql
+   select (select count(*) from public.vendors) as vendors, (select count(*) from public.brands) as brands,
+          (select count(*) from public.brand_owners) as owners, (select count(*) from public.brand_rates) as rates;
+   -- 56 / 56 / 56 / 0 (brands = vendors − duplicate_names − unfit_names من «قبل»)
+   select count(*) filter (where b.store_vendor_id = v.id) as tied_stores,
+          count(*) filter (where v.woo_vendor_id is null and b.store_vendor_id is null) as free_hand,
+          count(*) filter (where (v.woo_vendor_id is not null) <> (b.store_vendor_id is not null)) as mismatched
+   from public.vendors v join public.brands b on b.origin_vendor_id = v.id;
+   -- 55 / 1 / 0 (store_vendor_id متحطوط للمتاجر بالظبط)
+   select count(*) from public.vendors v where not exists (select 1 from public.brands b where b.origin_vendor_id = v.id);   -- 0
+   select count(*) from public.brands b join public.vendors v on v.id = b.origin_vendor_id
+   where b.name <> btrim(v.name) or b.created_by is distinct from 'system' or b.code !~ '^[A-Z0-9]{1,3}$' or b.aliases <> v.aliases;   -- 0
+   select count(*) from public.brand_owners o join public.brands b on b.id = o.brand_id join public.vendors v on v.id = b.origin_vendor_id
+   where o.vendor_id <> v.id or o.since <> coalesce(v.joined_at, current_date) or o.set_by is distinct from 'system' or o.return_on is not null;   -- 0
+
+   select relname, relrowsecurity from pg_class where oid in ('public.brands'::regclass, 'public.brand_owners'::regclass, 'public.brand_rates'::regclass);  -- true ×3
+   select tablename, policyname, cmd from pg_policies where schemaname = 'public' and tablename in ('brands', 'brand_owners', 'brand_rates') order by 1, 2;
+   -- 7 صفوف: brand_owners insert / select؛ brand_rates insert / select؛ brands insert / select / update (مافيش delete)
+   select has_table_privilege('authenticated', 'public.brands', 'SELECT') as brands_read,                        -- true
+          has_column_privilege('authenticated', 'public.brands', 'store_vendor_id', 'INSERT') as store_insert,    -- false
+          has_column_privilege('authenticated', 'public.brands', 'store_vendor_id', 'UPDATE') as store_update,    -- false
+          has_column_privilege('authenticated', 'public.brands', 'name', 'UPDATE') as name_update,                -- true
+          has_column_privilege('authenticated', 'public.brand_owners', 'since', 'INSERT') as owner_insert,        -- true
+          has_table_privilege('authenticated', 'public.brand_owners', 'UPDATE') as owner_update,                  -- false
+          has_column_privilege('authenticated', 'public.brand_rates', 'rate', 'INSERT') as rate_insert,           -- true
+          has_table_privilege('authenticated', 'public.brand_rates', 'INSERT') as rate_table_insert,              -- false (قايمة أعمدة)
+          has_table_privilege('authenticated', 'public.brands', 'DELETE') as member_delete,                       -- false
+          has_table_privilege('service_role', 'public.brands', 'DELETE') as server_delete,                        -- true
+          has_table_privilege('service_role', 'public.brands', 'TRUNCATE') as server_truncate,                    -- false
+          has_table_privilege('anon', 'public.brands', 'SELECT') as anon_reads;                                   -- false
+   select indexdef from pg_indexes where schemaname = 'public' and indexname = 'brands_name_key';
+   -- CREATE UNIQUE INDEX brands_name_key ON public.brands USING btree (lower(btrim(name)))
+   select condeferrable, condeferred from pg_constraint where conname = 'brand_owners_vendor_id_fkey';   -- true / false
+
+   select tgname, tgrelid::regclass from pg_trigger
+   where tgname in ('brands_guard', 'brand_owners_guard', 'vendors_brand_after_insert', 'vendors_brands_guard_delete') order by 1;
+   -- 4 صفوف: brand_owners_guard على brand_owners، brands_guard على brands، vendors_brand_after_insert وvendors_brands_guard_delete على vendors
+   select p.proname, p.prosecdef, p.proowner::regrole, p.provolatile, p.proconfig,
+          has_function_privilege('authenticated', p.oid, 'execute') as member_exec,
+          has_function_privilege('anon', p.oid, 'execute') as anon_exec
+   from pg_proc p where p.pronamespace = 'public'::regnamespace
+     and p.proname in ('brand_owner_at', 'store_owner_at', 'vendor_brand_auto', 'vendors_brand_after_insert', 'brands_guard', 'brand_owners_guard', 'vendors_brands_guard_delete')
+   order by 1;
+   -- brand_owner_at / store_owner_at: prosecdef false، postgres، s (stable)، {search_path=public}، member_exec true، anon_exec false
+   -- vendor_brand_auto / vendors_brand_after_insert: prosecdef true، postgres، v، {search_path=public}، member_exec false
+   -- brands_guard / brand_owners_guard / vendors_brands_guard_delete: prosecdef false، postgres، member_exec false
+   select count(*) filter (where public.store_owner_at(v.id, current_date) = v.id) as own, count(*) as stores
+   from public.vendors v where v.woo_vendor_id is not null;
+   -- 55 / 55 (قبل أي نقل كل متجر صاحبه نفسه)
+   ```
+
+4. `rls_brands` على الحي عبر workflow «RLS live» (الملف فيه `delete from` كنص — الأداة بتحجزه؛ الافتراضي بقى `rls_vendors rls_vendor_logins rls_brands`) — live-safe: كل عدّ مربوط بصفوفه، والـ delete الوحيد اللي بيعدّي فيه على مبتكر هو اللي عمله وبيروح مع الـ rollback. و`rls_vendors` + `rls_vendor_logins` زي ما هم (الحارس الجديد على `vendors` مابيغيّرش نتيجتهم). **`migrate_0013` محلي/CI بس** (نفس سبب `0009`–`0012`).
+5. `get_advisors` (§2.2): مافيش جديد متوقع — الدالتين الـ definer (`vendor_brand_auto`/`vendors_brand_after_insert`) مش قابلين للتنفيذ من الأعضاء، والدالتين العامتين `security invoker`.
+6. **مافيش إعادة نشر** للدالتين (`woo-webhook`/`woo-sync`): `_shared` و`index.ts` ماتغيّروش — التريجر بيشتغل مع إدراج المزامنة زي ما هو.
+
 ### 2.2 `get_advisors`
 شغّله مرتين: `type: security` و`type: performance`.
 
@@ -433,6 +517,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 - المرحلة 2.2 (2026-10-26): `state_names` (`0010`) اتطبّقت على الحي 13:29Z (105/105 أوردر فيهم `customer_state` من `raw`، 14 كود؛ `orders_v` 26 عمود؛ الأعضاء بيقروا العمود ومابيكتبوهوش؛ `woo_states` بسياسة `select` للأعضاء وبدون `insert`)، وبعدها الدالتين اتنشروا **v7** (`woo-webhook` 13:34Z، `woo-sync` 13:44Z) بكود 2.2؛ جملة التعبئة مالهاش متبقّي (0 `null`)؛ تشغيلة cron 13:45Z `all` ok على v7 (`states` 27، المتاجر 55، أوردرات 0 جديد)، وتشغيلة `states` يدويًا 13:47Z: 27 محافظة مكتوبة، 0 متخطّي، 0 فاشل، وكل الـ 105 كود ليهم اسم. **ملحوظة:** قايمة الموقع بالإنجليزي (Cairo, Alexandria, Giza…) — لو صاحب المشروع عايزها عربي: نجرّب `?lang=ar` على نفس الـ endpoint (WPML) أو عمود اسم عربي في `woo_states` (قرار مكتوب). الواجهة الجديدة نزلت على `main` بعد كل ده بالترتيب.
 - المرحلة 3 (2026-10-26): `vendors` (`0011`) **اتطبّقت** 15:38Z (`20261026153800 vendors`)، وفحوص ما بعد التطبيق (§2.1) مطابقة. الدالتين على **v9**: `woo-sync` 17:43Z و`woo-webhook` 17:47Z — v8 (15:44Z/15:54Z) كان فيها غلطة: `saveVendors` كانت بتكتب `raw` للمتجر الموجود بـ upsert ناقص، وPostgres بيفحص الأعمدة not-null قبل `on conflict`، فكل تشغيلة cron من 16:00Z لـ 17:30Z سجّلت 55 صف خطأ («null value in column name») ومحدّثتش حاجة (385 صف خطأ فاضلين في `woo_sync_log`، مابنمسحش). v9 بتعمل UPDATE لكل متجر موجود؛ تشغيلة 17:45Z: 55 متجر، `raw`/`updated_at` اتحدّثوا، الأسماء والحالات زي ما هي، 0 أخطاء. جملتين التعبئة مش محتاجين إعادة (بالقراءة 17:30Z: 210 سطر بنسبة و0 سطر ناقص، و`joined_at` على الـ 55). `rls_vendors` **اتشغّل على الحي** عبر workflow «RLS live» (التشغيلة 4، 19:12Z) ورجّع `ok` مع `rls_vendor_logins` — بعد ما التشغيلات 1–3 كشفت إن الملف كان بيعدّ كل المبتكرين اللي الأدمن شايفهم ويتوقع 2 (صح على CI الفاضي بس؛ الحي فيه 55 متجر)، فكل عدّ اتربط بصفوف الملف نفسه (8395f4b). أداة الـ MCP بتحجز الملف ده (فيه `delete` كنص)، فالـ workflow هو الطريق ليه. التفاصيل في `.superpowers/sdd/2026-10-26-phase-3-vendors/progress.md`.
 - المرحلة 3.1 (2026-10-26): `vendor_logins` (`0012`) **اتطبّقت** 17:52Z (`20261026175216 vendor_logins`) بعد المراجعتين، وفحوص ما بعد التطبيق (§2.1) مطابقة: القيد بـ `leave` (قيد واحد)، الجدول موجود وفاضي، الدالتين `security definer` بملكية `postgres` و`search_path = public`، `secret_id` مش مرئي لـ `authenticated`، مافيش delete/truncate للأعضاء، `anon` مايقدرش ينفّذ الدالتين، 3 سياسات، الحارس شغّال، 0 أسرار `vendor-login:%`. مافيش تغيير في الدوال. `rls_vendor_logins` **اتشغّل على الحي** 17:58Z ورجّع `ok` (rollback) — أول تشغيل حقيقي لمسار Vault: `create_secret` ثم `update_secret` كـ postgres، والإظهار بيرجّع نفس القيمة، وصفوف `activity_log` بالعدد المتوقع.
+- المرحلة 3.2: `0013` لسه ماتطبّقتش (البراندات: `brands`/`brand_owners`/`brand_rates`، التريجر `vendors_brand_after_insert` وإعادة التعبئة — 56 براند متوقعة — والحارس `vendors_brands_guard_delete`، والدالتين `brand_owner_at`/`store_owner_at`). بعد التطبيق: فحوص §2.1 ثم `rls_brands` عبر workflow «RLS live».
 
 ### 2.7 Edge Functions والأسرار والـ webhooks (المرحلة 2)
 دالتين Deno في `supabase/functions/`:
@@ -443,6 +528,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 **المرحلة 2.2 بالترتيب:** `0010` على الحي (§2.1؛ الواجهة الجديدة بتقرا `customer_state` و`woo_states`) ← إعادة نشر الدالتين (2.7.1؛ `_shared` و`woo-sync` اتغيّروا) ← جملة التعبئة مرة كمان ← تشغيلة `states` يدويًا أو انتظار الـ cron (2.7.5) ← `main`.
 **المرحلة 3 بالترتيب:** `0011` على الحي (§2.1؛ الواجهة الجديدة بتقرا `vendors` بقايمة أعمدة و`vendor_rates`/`vendor_bank` وترفع العقود على الـ bucket — §2.8) ← `rls_vendors` على الحي ← إعادة نشر الدالتين (2.7.1؛ `_shared` اتغيّر) ← جملتين التعبئة مرة كمان ← تشغيلة `vendors` (2.7.5) ← `main`.
 **المرحلة 3.1 بالترتيب:** `0012` على الحي (§2.1؛ الواجهة الجديدة بتقرا `vendor_logins` بقايمة أعمدة وبتنادي الدالتين بـ RPC) ← `rls_vendor_logins` + `rls_vendors` على الحي ← `main`. **مافيش تغيير في الدالتين** (`_shared` و`index.ts` زي ما هم) — مافيش إعادة نشر في المرحلة دي.
+**المرحلة 3.2 بالترتيب:** `0013` على الحي (§2.1؛ الواجهة الجديدة بتقرا `brands`/`brand_owners` بقايمة أعمدة و`brand_rates` لمن معاه `sensitive.commission = F`) ← فحوص ما بعد التطبيق (56 براند / 56 ملكية) ← `rls_brands` + `rls_vendors` + `rls_vendor_logins` عبر workflow «RLS live» ← `main`. **مافيش تغيير في الدالتين** — التريجر بيلحق إدراج المزامنة من غير إعادة نشر.
 
 **Dokan قراءة بس (قرار صاحب المشروع):** النظام عمره ما يكتب في حالة أوردر فرعي على Woo ولا في بيانات متجر. اللي بيتكتب في WooCommerce حاجتين بس: حالة الأوردر الأصلي (`push_status`، حسب `status_map` واتجاهها، ولما `WOO_PUSH_ENABLED = 1` بس — 2.7.2)، والـ webhooks بتاعتنا (`register_webhooks`). حالات الفرعيين (تأكيد، وصل المخزن، شحن، مرتجع) عايشة عندنا بس.
 

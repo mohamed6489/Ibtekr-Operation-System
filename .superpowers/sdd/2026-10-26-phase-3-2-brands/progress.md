@@ -21,3 +21,4 @@ Cost reading at the start of the phase: $718.60 (get_session; phase 3.1 closed a
 Rulings: the plan's decisions 1–10. Sequential agents at effort high (owner).
 
 ## Progress (controller)
+- **Automated security review on 0013 (while Task A was writing it):** (1) backdated transfers redirect past payouts — accepted by design (the owner's definition: a brand moves «من تاريخ معيّن»; rows are append-only with `created_at` / `set_by`, two activity rows with `actor = auth.uid()`, and the same permission as rates and bank). A lock on closed payout periods is phase 4's (Later). (2) `created_by` / `set_by` in the insert grants — the display-name pattern of `vendor_rates.set_by` / `vendor_bank.updated_by` / `vendor_logins.created_by` (phase 3.1 review A); the audit identity is `activity_log.actor`, server-set. No change.

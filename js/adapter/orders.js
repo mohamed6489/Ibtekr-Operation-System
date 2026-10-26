@@ -74,12 +74,15 @@
   // the parent id as its "Sub Order ID" in that case). Never the line id: that number exists nowhere on the website.
   // rate / fee: the website's own commission on the line at the time of the order (order_items.commission_rate / commission_fee,
   // phase 3; null when the sync has none) — IBVendors.stats reads them for the maker's share; block 29 ignores them.
+  // vendorId (phase 3.2, decision 4): the store's vendors uuid of the line (its own vendor_id, else its sub-order's) as a string, null
+  // when neither has one — IBVendors.stats hands it to storeOwnerAt / rateFor (the maker who owned the store's brand that day); `vendor`
+  // stays the store's name for the orders page.
   const numOrNull = (v) => (v == null || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null);
   function sub(it, o, subById, vname, lk, origin) {
     const so = it.sub_order_id == null ? null : subById.get(String(it.sub_order_id)) || null;
     const vid = it.vendor_id || (so && so.vendor_id);
     return { n: Number(it.id), itemId: String(it.id), sid: so && so.woo_order_id != null ? String(so.woo_order_id) : String(o.id), oid: String(o.id), prod: it.name || '', qty: Number(it.qty) || 0, tot: Number(it.total) || 0,
-      raw: (so && so.woo_status) || o.woo_status || '', vendor: (vid && vname.get(String(vid))) || '', cm: it.comment || '', ss: it.status || '', exp: it.expected_at || '', sku: it.sku || '', link: linkOf(it, lk, origin),
+      raw: (so && so.woo_status) || o.woo_status || '', vendor: (vid && vname.get(String(vid))) || '', vendorId: vid ? String(vid) : null, cm: it.comment || '', ss: it.status || '', exp: it.expected_at || '', sku: it.sku || '', link: linkOf(it, lk, origin),
       readyAt: localStamp(it.ready_at), waybill: it.waybill || null, pulled: !!it.pulled, ret: it.ret || null, store: it.store || null, rate: numOrNull(it.commission_rate), fee: numOrNull(it.commission_fee) };
   }
   const text = (v) => (v == null ? '' : String(v).trim());

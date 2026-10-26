@@ -85,12 +85,12 @@ test('load builds the screen shape: multi-maker sid/raw from the Dokan sub-order
   assert.ok(events.includes('ib:notify'));
 });
 
-test('toScreen, single maker without a sub-order: sid = the line id, raw = orders.woo_status; removed lines are skipped', async () => {
+test('toScreen, single maker without a sub-order: sid = the parent order id (the website\'s number, as the n8n → Airtable automation sends it), raw = orders.woo_status; removed lines are skipped', async () => {
   const { O } = load();
   const [o] = plain(O.toScreen([O2], ITEMS, SUBS, VENDORS, { today: '2026-10-25' }));
   assert.equal(o.age, 8);
   assert.deepEqual({ pay: o.pay, dep: o.dep, tot: o.tot, note: o.note, cnote: o.cnote, cdate: o.cdate, confAt: o.confAt, city: o.city, addr: o.addr, ret: o.ret }, { pay: 'cod', dep: 300, tot: 1002, note: 'تبع اوردر 180668', cnote: '', cdate: '2026-10-18', confAt: '2026-10-18', city: '', addr: '', ret: { reason: 'x' } });
-  assert.deepEqual(o.subs, [{ n: 5003, itemId: '5003', sid: '5003', oid: '180686', prod: 'Cushion', qty: 2, tot: 1002, raw: 'on-hold', vendor: '', cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', readyAt: '', waybill: null, pulled: false, ret: null, store: null }]);
+  assert.deepEqual(o.subs, [{ n: 5003, itemId: '5003', sid: '180686', oid: '180686', prod: 'Cushion', qty: 2, tot: 1002, raw: 'on-hold', vendor: '', cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', readyAt: '', waybill: null, pulled: false, ret: null, store: null }]);
 });
 
 test('toScreen: age counts whole days from the order date to today, never below 0; ready_at shows as the local clock', async () => {
@@ -131,7 +131,7 @@ test('long lists: orders_v paged (cap 5000), in() lists chunked by 200 ids and 1
   assert.deepEqual(lens('sub_orders', 'order_id'), [200, 200, 200, 200, 200, 200, 200, 50]);
   assert.deepEqual(lens('products', 'sku'), Array(14).fill(100).concat([50]));
   assert.equal(O.data().orders.length, 1450);
-  assert.equal(O.data().orders[1449].subs[0].sid, '14500');
+  assert.equal(O.data().orders[1449].subs[0].sid, '1450'); // no Dokan sub-order → the parent order id, never the line id (14500)
   const capped = load({ responses: { ...seed(), orders_v: (ops) => ok(many(ops.find((c) => c.op === 'range').args[0] + 1, 1000)) } });
   await capped.O.load();
   assert.deepEqual(opsOf(capped.calls, 'orders_v').filter((c) => c.op === 'range').map((c) => c.args[0]), [0, 1000, 2000, 3000, 4000]);

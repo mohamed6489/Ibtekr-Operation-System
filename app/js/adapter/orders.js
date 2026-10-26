@@ -61,10 +61,13 @@
   const utc = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? Date.UTC(+m[1], m[2] - 1, +m[3]) : NaN; };
   const days = (from, to) => { const n = Math.round((utc(to) - utc(from)) / 864e5); return Number.isFinite(n) ? Math.max(0, n) : 0; };
   const byName = (a, b) => { const x = a.toLowerCase(), y = b.toLowerCase(); return x < y ? -1 : x > y ? 1 : 0; };
+  // sid = the website's number for the line's sub-order: Dokan's sub-order id when the line is linked to one, else the
+  // parent order's own id (Dokan makes no sub-order for a single-maker order, and the n8n → Airtable automation sends
+  // the parent id as its "Sub Order ID" in that case). Never the line id: that number exists nowhere on the website.
   function sub(it, o, subById, vname) {
     const so = it.sub_order_id == null ? null : subById.get(String(it.sub_order_id)) || null;
     const vid = it.vendor_id || (so && so.vendor_id);
-    return { n: Number(it.id), itemId: String(it.id), sid: so && so.woo_order_id != null ? String(so.woo_order_id) : String(it.id), oid: String(o.id), prod: it.name || '', qty: Number(it.qty) || 0, tot: Number(it.total) || 0,
+    return { n: Number(it.id), itemId: String(it.id), sid: so && so.woo_order_id != null ? String(so.woo_order_id) : String(o.id), oid: String(o.id), prod: it.name || '', qty: Number(it.qty) || 0, tot: Number(it.total) || 0,
       raw: (so && so.woo_status) || o.woo_status || '', vendor: (vid && vname.get(String(vid))) || '', cm: it.comment || '', ss: it.status || '', exp: it.expected_at || '', sku: it.sku || '',
       readyAt: localStamp(it.ready_at), waybill: it.waybill || null, pulled: !!it.pulled, ret: it.ret || null, store: it.store || null };
   }

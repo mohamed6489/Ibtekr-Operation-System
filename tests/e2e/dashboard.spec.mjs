@@ -326,6 +326,21 @@ test.describe('the dashboard on the real clock', () => {
   });
 });
 
+// block 24's DONE (phase 2.1): «فشل» (Woo failed) is done like «ملغي», never an open order; «تم RTC» is no status any more
+test('a failed order («فشل») is not an open order on the dashboard', async ({ page }) => {
+  mockOnly();
+  Object.assign(mock.orders.find((o) => o.id === 181668), { status: 'فشل', woo_status: 'failed' });
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect.poll(() => settled(page, () => { const S = window.IBPages.all().dashboard.api.state.last; return S && S.rows.length ? [S.rows.length, S.health.open] : null; })).toEqual([3, 2]);
+  const open = page.getByRole('group', { name: 'أوردرات مفتوحة' });
+  await expect(open.locator('.kpi-val .t-h3')).toHaveText('2');
+  await open.locator('.kpi-details').click();
+  const details = page.locator('[role=dialog][data-details]');
+  await expect(details).toContainText('IB-180686');
+  await expect(details).toContainText('IB-180656');
+  await expect(details).not.toContainText('IB-181668');
+});
+
 test('the dashboard redraws itself every 5 minutes while nothing is open', async ({ page }) => {
   mockOnly();
   await page.clock.install();

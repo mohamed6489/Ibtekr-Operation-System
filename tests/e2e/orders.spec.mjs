@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { installSupabaseMock, LIVE, DEV_PW, XSS_NAME, IMG } from './supabase-mock.mjs';
+import { installSupabaseMock, LIVE, DEV_PW, XSS_NAME, IMG, SITE } from './supabase-mock.mjs';
 // The orders page (block 29) on the orders of the last 12 months (phase 2 Task 6): hydrated from IBOrders, every edit written
 // through IBOrdersStore (a refused write puts the old value back), site strings rendered as text, no prototype seed left.
 // Mock only: the cases assert the mock's seed (3 orders of the last days + one older than 12 months) and the writes it
@@ -78,12 +78,15 @@ test('every site string renders as text: cards (desktop, tablet, mobile), filter
   await page.evaluate((evil) => {
     const d = window.IBOrders.data(); const o = d.orders.find((x) => x.id === '181668');
     Object.assign(o, { name: evil, phone: evil, pay: evil, note: evil, cnote: evil, city: evil, addr: evil, st: evil, cf: evil });
-    Object.assign(o.subs[0], { prod: evil, sku: evil, vendor: evil, cm: evil, ss: evil, exp: evil });
+    Object.assign(o.subs[0], { prod: evil, sku: evil, vendor: evil, cm: evil, ss: evil, exp: evil, link: 'https://x.test/' + evil });
+    o.subs[1].link = 'javascript:alert(1)';
     d.vendors = d.vendors.concat(evil); d.images = Object.assign({}, d.images, { [evil]: 'javascript:alert(1)' });
     window.OrdersApp.hydrate(d);
   }, EVIL);
   await expect(card(page, '181668')).toContainText(EVIL);
   await expect(page.locator('#orders #fv option', { hasText: EVIL })).toHaveCount(1);
+  await expect(card(page, '181668').locator('a.plink')).toHaveCount(2); // the first line only: javascript: is no link
+  for (const a of await card(page, '181668').locator('a.plink').all()) await expect(a).toHaveAttribute('href', 'https://x.test/' + EVIL);
   await inert(page);
   for (const width of [800, 375]) { // tablet, mobile templates
     await page.setViewportSize({ width, height: 900 });
@@ -115,12 +118,31 @@ test('a status change writes the order and pushes it to the site', async ({ page
   await expect(card(page, '180656').locator('.sdd')).toContainText('جاري التنفيذ');
 });
 
-test('a status with no Woo slug is saved but not pushed', async ({ page }) => {
+test('«فشل» replaces «تم RTC»: a chip and an option styled like «ملغي», saved and pushed to the site as failed', async ({ page }) => {
   await openOrders(page);
-  await page.locator('#orders select[data-st="181668"]').selectOption('تم RTC');
+  await expect(page.locator('#orders [data-sc="فشل"]')).toHaveCount(1);
+  await expect(page.locator('#orders [data-sc="تم RTC"]')).toHaveCount(0);
+  await expect(page.locator('#orders .oroot')).not.toContainText('RTC');
+  const sel = page.locator('#orders select[data-st="181668"]');
+  expect(await sel.locator('option').allTextContents()).toEqual(['معلّق', 'قيد الانتظار', 'جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل']);
+  await sel.selectOption('فشل');
   await expect.poll(() => mock.pushes.length).toBe(1);
-  expect(mock.patches).toEqual([{ table: 'orders', id: 181668, status: 'تم RTC' }]);
-  expect(mock.pushes[0]).toEqual({ action: 'push_status', order_id: 181668, status: 'تم RTC', result: 'skipped', reason: 'no_woo_status' });
+  expect(mock.patches).toEqual([{ table: 'orders', id: 181668, status: 'فشل' }]);
+  expect(mock.pushes[0]).toEqual({ action: 'push_status', order_id: 181668, status: 'فشل', result: 'ok' });
+  expect(mock.orders.find((o) => o.id === 181668).woo_status).toBe('failed');
+  const dd = card(page, '181668').locator('label.sdd', { has: page.locator('select[data-st="181668"]') });
+  await expect(dd).toHaveClass(/\bs-err\b/); // the tone and the icon of «ملغي»
+  await expect(dd.locator('.l svg path[d="m9 9 6 6m0-6-6 6"]')).toHaveCount(1);
+  await expect(page.locator('#orders [data-sc="فشل"] i')).toHaveText('1');
+});
+
+test('a status whose map row has no Woo slug is saved but not pushed', async ({ page }) => {
+  mock.statusMap.find((r) => r.system_status === 'فشل').woo_status = null; // no row of 0009 has none: one blanked here
+  await openOrders(page);
+  await page.locator('#orders select[data-st="181668"]').selectOption('فشل');
+  await expect.poll(() => mock.pushes.length).toBe(1);
+  expect(mock.patches).toEqual([{ table: 'orders', id: 181668, status: 'فشل' }]);
+  expect(mock.pushes[0]).toEqual({ action: 'push_status', order_id: 181668, status: 'فشل', result: 'skipped', reason: 'no_woo_status' });
   expect(mock.orders.find((o) => o.id === 181668).woo_status).toBe('processing');
   await expect(toast(page)).toBeHidden(); // skipped: nothing to tell
 });
@@ -181,6 +203,64 @@ test('the product image comes from products', async ({ page }) => {
     await expect(row(5001).locator('.th img')).toHaveCount(0);
     expect(await page.evaluate(() => window.OrdersApp.thumb('IBTA4040PAHC000013'))).toBe('');
   }
+});
+
+test('the card shows the address (city · address) read-only, «—» without one: desktop, tablet, mobile', async ({ page }) => {
+  await openOrders(page);
+  const adr = (id) => card(page, id).locator('.band .inf.adr');
+  await expect(adr('181668')).toContainText('العنوان:');
+  await expect(adr('181668').locator('b')).toHaveText('القاهرة · مدينة نصر');
+  await expect(adr('180686').locator('b')).toHaveText('—'); // no city, no address
+  await expect(adr('181668').locator('input, textarea, select, button')).toHaveCount(0);
+  await page.evaluate(() => { const d = window.IBOrders.data(); Object.assign(d.orders.find((x) => x.id === '180686'), { city: ' ', addr: 'الدقي' }); window.OrdersApp.hydrate(d); });
+  await expect(adr('180686').locator('b')).toHaveText('الدقي'); // an empty part is skipped
+  for (const width of [800, 375]) { // tablet, mobile: the customer section
+    await page.setViewportSize({ width, height: 900 });
+    await expect(card(page, '181668').locator('.cust .inf2', { has: page.locator('small', { hasText: 'العنوان' }) }).locator('b')).toHaveText('القاهرة · مدينة نصر');
+  }
+});
+
+test('the product image and name open the product on the website: its permalink, else <origin>/?p=<product_id>, else no link', async ({ page }) => {
+  // two lines the products table does not know: one with a WooCommerce product id, one with neither (a custom piece)
+  const extra = (o) => ({ sub_order_id: null, qty: 1, total: 0, vendor_id: 'a0000000-0000-4000-8000-000000000002', status: '', removed: false, pulled: false, ...o });
+  mock.orderItems.push(extra({ id: 5007, order_id: 180656, product_id: 9100, sku: 'IBT-GONE-1', name: 'Gone Lamp' }), extra({ id: 5008, order_id: 180656, product_id: null, sku: null, name: 'Custom piece' }));
+  const opened = []; // the website, never reached: each product page opened answers here
+  await page.context().route((url) => url.origin === SITE, (route) => { opened.push(route.request().url()); return route.fulfill({ status: 200, contentType: 'text/html', body: '<title>product</title>' }); });
+  await openOrders(page);
+  await card(page, '180656').locator('[data-tg="180656"]').click();
+  const row = (n) => page.locator('#orders .row', { has: page.locator(`[data-ss="${n}"]`) });
+  const links = (n) => row(n).locator('a.plink');
+  const hrefs = async (n) => { const l = await links(n).all(); return Promise.all(l.map((a) => a.getAttribute('href'))); };
+  expect(await hrefs(5001)).toEqual([SITE + '/product/cushion/', SITE + '/product/cushion/']); // the thumbnail, then the name
+  expect(await hrefs(5005)).toEqual([SITE + '/product/macrame-feathers/', SITE + '/product/macrame-feathers/']);
+  expect(await hrefs(5007)).toEqual([SITE + '/?p=9100', SITE + '/?p=9100']); // no products row: the site's ?p=
+  expect(await hrefs(5008)).toEqual([]); // neither: the markup as before
+  await expect(row(5008).locator('.prod > .th')).toHaveCount(1);
+  await expect(row(5008).locator('.pt b')).toHaveText('Custom piece × 1');
+  for (const a of await links(5001).all()) { await expect(a).toHaveAttribute('target', '_blank'); await expect(a).toHaveAttribute('rel', 'noopener noreferrer'); }
+  await expect(links(5001).first().locator('.th img')).toHaveAttribute('src', IMG.cushion);
+  await expect(links(5001).first()).toHaveAttribute('tabindex', '-1'); // the name's link is the one the keyboard gets
+  await expect(links(5001).nth(1)).toHaveText('Cushion');
+  // a click opens the product in a new tab and is no card control: the card stays open, nothing written
+  const [tab] = await Promise.all([page.context().waitForEvent('page'), links(5007).nth(1).click()]);
+  await tab.waitForLoadState();
+  expect(tab.url()).toBe(SITE + '/?p=9100');
+  await tab.close();
+  const [tab2] = await Promise.all([page.context().waitForEvent('page'), links(5001).first().click()]);
+  await tab2.waitForLoadState();
+  await tab2.close();
+  expect(opened).toEqual([SITE + '/?p=9100', SITE + '/product/cushion/']);
+  await expect(page.locator('#orders [data-tg="180656"]')).toHaveAttribute('aria-label', 'طي');
+  expect(mock.patches).toEqual([]);
+  await card(page, '180656').locator('[data-tg="180656"]').click(); // the fold still works
+  await expect(row(5007)).toHaveCount(0);
+  // the details popup shows the same links; Shift+Tab from one moves back, not to the dialog's end
+  await page.evaluate(() => window.OrdersApp.details('180656', 'subs'));
+  const name = page.locator('#orders #cdlg .row', { has: page.locator('[data-ss="5005"]') }).locator('a.plink').nth(1);
+  await expect(name).toHaveAttribute('href', SITE + '/product/macrame-feathers/');
+  await name.focus();
+  await page.keyboard.press('Shift+Tab');
+  await expect(page.locator('#orders #cdlg [data-dtab="subs"]')).toBeFocused();
 });
 
 test('confirmation, deposit and note are written through; a network failure puts the old value back', async ({ page }) => {

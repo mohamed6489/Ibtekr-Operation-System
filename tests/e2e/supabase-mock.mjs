@@ -2,7 +2,7 @@
 // makes for the login flow, the dashboard and the orders page, with the three dev users of tools/seed-dev-users.sql (+ M03, a
 // mock-only 2FA user, and M04, a mock-only accounts user: orders.status N, sensitive.customer_phone N).
 // Strict like the real thing: apikey required, PostgREST bearer must be the anon key or a token issued here,
-// `select` columns checked against supabase/migrations (0001, 0002, 0006, 0007), RLS of each emulated table, the column-level
+// `select` columns checked against supabase/migrations (0001, 0002, 0006, 0007, 0009), RLS of each emulated table, the column-level
 // grants and guard triggers of the orders tables (0007), woo-sync's push_status contract, the aal2 rule of has_perm and the
 // 2FA RPCs (0008) with GoTrue's MFA endpoints (enroll / challenge / verify / unenroll). Not a product feature.
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
@@ -38,7 +38,8 @@ const ROLES = [
   { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'sensitive.customer_phone': 'N' }, sort: 6 },
 ];
 const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts, status_map), 0006_dashboard.sql (user_prefs,
-  // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw)
+  // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw),
+  // 0009 (products.permalink)
   profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'created_at'],
   roles: ['id', 'name', 'description', 'is_system', 'permissions', 'sort'],
   user_prefs: ['user_id', 'key', 'data', 'updated_at'],
@@ -49,7 +50,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'updated_at'],
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'updated_at'],
   vendors: ['id', 'woo_vendor_id', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at'],
-  products: ['id', 'sku', 'name', 'image_url', 'vendor_id', 'price', 'status', 'raw', 'updated_at'],
+  products: ['id', 'sku', 'name', 'image_url', 'permalink', 'vendor_id', 'price', 'status', 'raw', 'updated_at'],
   status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
 };
 // the alerts table at sign-in: one for the admin role, one addressed to ops.dev (M02) only
@@ -77,7 +78,7 @@ function readSelect(table, select) {
 }
 const NOT_FILTERS = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'columns']);
 // the in.(…) filters the app sends: alerts.js asks the marks of the loaded alert ids; orders.js the lines / sub-orders of the
-// loaded orders, the images of their skus and (Realtime) the names of makers it does not know yet
+// loaded orders, the images / permalinks of their skus and (Realtime) the names of makers it does not know yet
 const IN_FILTERS = { alert_reads: ['alert_id'], order_items: ['order_id'], sub_orders: ['order_id'], products: ['sku'], vendors: ['id'] };
 const GTE_FILTERS = { orders_v: ['placed_at'] }; // orders.js: the last 12 months
 // the horizontal filters of a PostgREST request (eq. everywhere; in.(a,b) on IN_FILTERS, gte. on GTE_FILTERS only) → { match(row) } | { bad: 'param=value' }
@@ -102,26 +103,28 @@ function pageOf(rows, params) {
 
 // ---- the orders tables (0007_orders.sql), seeded per install: three orders of the last days — a multi-maker one with two
 // Dokan sub-orders, a single-maker one (no sub-order; one line removed from WooCommerce) and one whose customer name is HTML —
-// plus one older than 12 months that the orders page never asks for. Images are inline data: URLs (no outside request).
+// plus one older than 12 months that the orders page never asks for. Images are inline data: URLs (no outside request);
+// permalinks are https URLs on a fake staging host (SITE), never reached (a spec that opens one answers it itself).
 export const XSS_NAME = '<img src=x onerror="window.__xss=1">';
+export const SITE = 'https://ibtekr.stage.test';
 export const IMG = { cushion: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', curtain: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' };
 const VND = (n) => 'a0000000-0000-4000-8000-00000000000' + n;
-// status_map after 0007 (system status ↔ WooCommerce slug); تم RTC has no slug: never pushed
+// status_map after 0009 (system status ↔ WooCommerce slug): 0007's «تم RTC» row (id 6) became «فشل» = failed, sort 10
 const STATUS_MAP = [['قيد الانتظار', 'pending', 'both'], ['جاري التنفيذ', 'processing', 'both'], ['معلّق', 'on-hold', 'both'], ['جاهز للشحن', 'ready-shipping', 'both'], ['قيد الشحن', 'in-shipping', 'both'],
-  ['تم RTC', null, 'from_system'], ['مكتمل', 'completed', 'both'], ['استرجاع', 'refunded', 'both'], ['ملغي', 'cancelled', 'both']].map(([system_status, woo_status, direction], i) => ({ id: i + 1, system_status, woo_status, direction, sort: i + 1 }));
+  ['فشل', 'failed', 'both', 10], ['مكتمل', 'completed', 'both'], ['استرجاع', 'refunded', 'both'], ['ملغي', 'cancelled', 'both']].map(([system_status, woo_status, direction, sort], i) => ({ id: i + 1, system_status, woo_status, direction, sort: sort || i + 1 }));
 // order_items.status check list (0007): block 29's 11 sub-statuses or ''
 const ITEM_STATUSES = ['', 'غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المورد للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المورد للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمورد'];
 function ordersSeed() {
   const ago = (d) => { const t = new Date(Date.now() - d * 864e5); t.setUTCHours(10, 0, 0, 0); return t.toISOString(); };
   const vendor = (n, woo, name, status = 'active') => ({ id: VND(n), woo_vendor_id: woo, name, aliases: [], phone: null, email: null, status, commission_pct: null, raw: { id: woo }, created_at: T0, updated_at: T0 });
-  const product = (id, sku, name, image_url, v) => ({ id, sku, name, image_url, vendor_id: VND(v), price: null, status: 'publish', raw: { id }, updated_at: T0 });
+  const product = (id, sku, name, image_url, v, slug) => ({ id, sku, name, image_url, permalink: SITE + '/product/' + slug + '/', vendor_id: VND(v), price: null, status: 'publish', raw: { id }, updated_at: T0 });
   const order = (o) => ({ number: String(o.id), customer_city: null, customer_address: null, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', confirm: 'غير مؤكد', confirm_at: null, confirm_note: null, deposit: 0, currency: 'EGP', note: null, customer_note: null, cancel: null, ret: null, raw: { id: o.id }, woo_updated_at: o.placed_at, synced_at: o.placed_at, created_at: o.placed_at, updated_at: o.placed_at, ...o });
   const sub = (id, order_id, v, woo_order_id, woo_status, total) => ({ id, order_id, vendor_id: VND(v), woo_order_id, woo_status, total, dokan_earning: null, commission: null, raw: { id: woo_order_id }, updated_at: T0 });
   const line = (o) => ({ sub_order_id: null, product_id: null, qty: 1, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, raw: { id: o.id }, updated_at: T0, ...o, vendor_id: VND(o.vendor_id) });
   return {
     vendors: [vendor(1, 2376, 'Art Craft'), vendor(2, 44, 'Antikiano'), vendor(3, 2047, 'Bian eg', 'inactive')], // Bian eg: no order
-    products: [product(9001, 'IBTA4040PAHC000013', 'Cushion', IMG.cushion, 1), product(9002, 'IBTAMCTOWM200X10014', 'Macrame Curtain', IMG.curtain, 2),
-      product(9003, 'IBTB0CSW6RFTM', 'Macrame Feathers', null, 2), product(9004, 'IBTK20035BBLM000003214', 'Boho mirror', IMG.cushion, 3)],
+    products: [product(9001, 'IBTA4040PAHC000013', 'Cushion', IMG.cushion, 1, 'cushion'), product(9002, 'IBTAMCTOWM200X10014', 'Macrame Curtain', IMG.curtain, 2, 'macrame-curtain'),
+      product(9003, 'IBTB0CSW6RFTM', 'Macrame Feathers', null, 2, 'macrame-feathers'), product(9004, 'IBTK20035BBLM000003214', 'Boho mirror', IMG.cushion, 3, 'boho-mirror')],
     orders: [
       order({ id: 181668, customer_name: 'سلوى زيتوني', customer_phone: '01200007052', customer_city: 'القاهرة', customer_address: 'مدينة نصر', status: 'جاري التنفيذ', woo_status: 'processing', total: 3541, customer_note: 'اتصلوا قبل التوصيل', placed_at: ago(6) }),
       order({ id: 180686, customer_name: 'هدير عميل', customer_phone: '01000007030', status: 'جاري التنفيذ', woo_status: 'processing', confirm: 'مؤكد بدون عربون', confirm_at: ago(5).slice(0, 10), total: 1002, placed_at: ago(8) }),
@@ -373,7 +376,7 @@ export async function installSupabaseMock(page) {
     }
     // woo-sync (supabase/functions/woo-sync, verify_jwt false: it checks the member's JWT itself): push_status needs
     // orders.status = F, every other action admin; push_status is skipped when the status is not the stored one ('stale')
-    // or has no WooCommerce slug ('no_woo_status': تم RTC), else the order's woo_status follows the slug.
+    // or has no WooCommerce slug ('no_woo_status': no row of 0009 has none; a spec may blank one), else the order's woo_status follows the slug.
     if (method === 'POST' && path === '/functions/v1/woo-sync') {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : isAdmin(u))) return json(401, { error: 'unauthorized' });

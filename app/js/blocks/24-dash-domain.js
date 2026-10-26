@@ -47,7 +47,7 @@
     const sorted = items.map((x, i) => [x, i]).sort((a, b) => ((RANK[a[0].tone] ?? 3) - (RANK[b[0].tone] ?? 3)) || a[1] - b[1]).map((x) => x[0]);
     return { items: sorted.slice(0, n || 5), total: items.length };
   }
-  const DONE = new Set(['مكتمل', 'ملغي', 'استرجاع', 'تم RTC']);
+  const DONE = new Set(['مكتمل', 'ملغي', 'استرجاع', 'فشل']);
   function health(rows) {
     const open = (rows || []).filter((r) => !DONE.has(r.status)); const n = open.length;
     const c = (f) => open.filter(f).length;

@@ -61,6 +61,8 @@ test('health counts open orders by state with shares', () => {
   assert.equal(h.open, 4);
   assert.deepEqual(h.rows.map((r) => [r.key, r.count]), [['progress', 1], ['shipping', 2], ['unconf', 1], ['risk', 0], ['late', 1]]);
   assert.equal(h.rows[1].pct, 0.5);
+  // «فشل» (Woo failed, phase 2.1) is done like «ملغي»; «تم RTC» is no status any more: it would count as open
+  assert.deepEqual(['مكتمل', 'ملغي', 'استرجاع', 'فشل', 'تم RTC', 'جاري التنفيذ'].map((status) => DD.health([{ status }]).open), [0, 0, 0, 0, 1, 1]);
   const empty = DD.health([]);
   assert.equal(empty.open, 0);
   assert.equal(empty.rows[0].pct, 0);

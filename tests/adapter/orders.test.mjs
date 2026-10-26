@@ -2,7 +2,8 @@ import { test } from 'node:test'; import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs'; import { runInNewContext } from 'node:vm';
 import { stubClient, opsOf } from './stub-supabase.mjs';
 // orders.js against a stub IBSupabase: orders_v (last 12 months) + order_items + sub_orders + vendors + products + status_map
-// → block 29's screen shape; write-through updates (named, granted columns, no .select()), the woo-sync push, Realtime refetch.
+// → block 29's screen shape (with each line's link to its product on the website); write-through updates (named, granted
+// columns, no .select()), the woo-sync push, Realtime refetch.
 const src = readFileSync(new URL('../../app/js/adapter/orders.js', import.meta.url), 'utf8');
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const V1 = 'a0000000-0000-4000-8000-000000000001', V2 = 'a0000000-0000-4000-8000-000000000002';
@@ -10,20 +11,21 @@ const V1 = 'a0000000-0000-4000-8000-000000000001', V2 = 'a0000000-0000-4000-8000
 const O1 = { id: 181668, customer_name: 'سلوى زيتوني', customer_phone: '012••••7052', customer_city: 'القاهرة', customer_address: 'مدينة نصر', payment_method: 'cod', payment_title: 'الدفع عند الاستلام', status: 'جاري التنفيذ', woo_status: 'processing', confirm: 'غير مؤكد', confirm_at: null, deposit: 0, total: 3541, note: null, customer_note: 'اتصلوا قبل التوصيل\nالدور التالت', placed_at: '2026-10-19T12:00:00+00:00', cancel: null, ret: null };
 const O2 = { id: 180686, customer_name: 'هدير عميل', customer_phone: '01000007030', customer_city: null, customer_address: null, payment_method: 'cod', payment_title: null, status: 'معلّق', woo_status: 'on-hold', confirm: 'مؤكد بعربون', confirm_at: '2026-10-18', deposit: '300.00', total: '1002.00', note: 'تبع اوردر 180668', placed_at: '2026-10-17T12:00:00+00:00', cancel: null, ret: { reason: 'x' } };
 const SUBS = [{ id: 1, order_id: 181668, vendor_id: V1, woo_order_id: 181669, woo_status: 'processing' }, { id: 2, order_id: 181668, vendor_id: V2, woo_order_id: 181670, woo_status: 'on-hold' }];
-const item = (o) => ({ sub_order_id: null, sku: null, qty: 1, total: 0, vendor_id: null, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, ...o });
+const item = (o) => ({ sub_order_id: null, product_id: null, sku: null, qty: 1, total: 0, vendor_id: null, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, ...o });
 const ITEMS = [
-  item({ id: 5002, order_id: 181668, sub_order_id: 2, sku: 'IBTAMCTOWM200X10014', name: 'Macrame Curtain', qty: 1, total: '2539.00', vendor_id: V2, status: 'مؤكد', expected_at: '2026-10-20', comment: 'تم تبليغ المورد' }),
-  item({ id: 5001, order_id: 181668, sub_order_id: 1, sku: 'IBTA4040PAHC000013', name: 'Cushion', qty: 2, total: 1002, vendor_id: V1 }),
-  item({ id: 5003, order_id: 180686, sku: 'IBTA4040PAHC000013', name: 'Cushion', qty: 2, total: 1002 }),
+  item({ id: 5002, order_id: 181668, sub_order_id: 2, product_id: 9002, sku: 'IBTAMCTOWM200X10014', name: 'Macrame Curtain', qty: 1, total: '2539.00', vendor_id: V2, status: 'مؤكد', expected_at: '2026-10-20', comment: 'تم تبليغ المورد' }),
+  item({ id: 5001, order_id: 181668, sub_order_id: 1, product_id: 9001, sku: 'IBTA4040PAHC000013', name: 'Cushion', qty: 2, total: 1002, vendor_id: V1 }),
+  item({ id: 5003, order_id: 180686, product_id: 9001, sku: 'IBTA4040PAHC000013', name: 'Cushion', qty: 2, total: 1002 }),
   item({ id: 5004, order_id: 180686, sku: 'IBTK5050MRHC000010', name: 'Cushion Cover', removed: true }),
 ];
 const VENDORS = [{ id: V2, name: 'Antikiano' }, { id: V1, name: 'Art Craft' }];
-const PRODUCTS = [{ sku: 'IBTA4040PAHC000013', image_url: 'https://stage.ibtekr.club/cushion.jpg' }, { sku: 'IBTAMCTOWM200X10014', image_url: null }];
-const STATUSES = [{ system_status: 'قيد الانتظار', woo_status: 'pending', direction: 'both', sort: 1 }, { system_status: 'تم RTC', woo_status: null, direction: 'from_system', sort: 6 }];
+const SITE = 'https://stage.ibtekr.test'; // a fake staging host
+const PRODUCTS = [{ sku: 'IBTA4040PAHC000013', image_url: 'https://stage.ibtekr.club/cushion.jpg', permalink: SITE + '/product/cushion/' }, { sku: 'IBTAMCTOWM200X10014', image_url: null, permalink: null }];
+const STATUSES = [{ system_status: 'قيد الانتظار', woo_status: 'pending', direction: 'both', sort: 1 }, { system_status: 'فشل', woo_status: 'failed', direction: 'both', sort: 10 }];
 const ok = (data) => ({ data, error: null });
 // the granted columns the adapter names (0007 grants: no raw, no customer_phone on orders — the view masks it)
 const COLS = { order: 'id, customer_name, customer_phone, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret',
-  item: 'id, order_id, sub_order_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed', sub: 'id, order_id, vendor_id, woo_order_id, woo_status' };
+  item: 'id, order_id, sub_order_id, product_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed', sub: 'id, order_id, vendor_id, woo_order_id, woo_status' };
 const seed = () => ({ orders_v: ok([O1, O2]), order_items: ok(ITEMS), sub_orders: ok(SUBS), vendors: ok(VENDORS), products: ok(PRODUCTS), status_map: ok(STATUSES), 'fn:woo-sync': ok({ action: 'push_status', result: 'ok', counts: { pushed: 1 } }) });
 // the adapter's clock: local 2026-10-25 12:00 unless a test asks for the real one (now: null)
 const NOW = new Date(2026, 9, 25, 12, 0).getTime();
@@ -50,9 +52,10 @@ test('load names every column (no *, removed included) and asks for the last 12 
   assert.deepEqual(selectOf(calls, 'orders_v'), [COLS.order]);
   assert.deepEqual(selectOf(calls, 'order_items'), [COLS.item]);
   assert.match(COLS.item, /\bremoved\b/);
+  assert.match(COLS.item, /\bproduct_id\b/); // the ?p= fallback of a line without a known permalink
   assert.deepEqual(selectOf(calls, 'sub_orders'), [COLS.sub]);
   assert.deepEqual(selectOf(calls, 'vendors'), ['id, name']);
-  assert.deepEqual(selectOf(calls, 'products'), ['sku, image_url']);
+  assert.deepEqual(selectOf(calls, 'products'), ['sku, image_url, permalink']);
   assert.deepEqual(selectOf(calls, 'status_map'), ['system_status, woo_status, direction, sort']);
   const ov = opsOf(calls, 'orders_v');
   const gte = ov.find((c) => c.op === 'gte'); assert.equal(gte.args[0], 'placed_at');
@@ -65,7 +68,7 @@ test('load names every column (no *, removed included) and asks for the last 12 
   assert.equal(calls.some((c) => c.table === 'orders'), false); // the base table is never read (orders_v masks the phone)
 });
 
-test('load builds the screen shape: multi-maker sid/raw from the Dokan sub-order, ages from K.TODAY, images, vendors, statuses', async () => {
+test('load builds the screen shape: multi-maker sid/raw from the Dokan sub-order, ages from K.TODAY, images, links, vendors, statuses', async () => {
   const hydrated = [];
   const { O, events } = load({ app: { hydrate: (d) => hydrated.push(d) } });
   assert.equal(O.data(), null);
@@ -74,10 +77,11 @@ test('load builds the screen shape: multi-maker sid/raw from the Dokan sub-order
   assert.deepEqual(d.orders.map((o) => o.id), ['181668', '180686']);
   assert.deepEqual(d.orders[0], { id: '181668', name: 'سلوى زيتوني', phone: '012••••7052', pay: 'الدفع عند الاستلام', date: '2026-10-19', st: 'جاري التنفيذ', cf: 'غير مؤكد', dep: 0, tot: 3541, age: 6, note: '', cnote: 'اتصلوا قبل التوصيل\nالدور التالت', cdate: '', confAt: '', city: 'القاهرة', addr: 'مدينة نصر', cancel: null, ret: null,
     subs: [
-      { n: 5001, itemId: '5001', sid: '181669', oid: '181668', prod: 'Cushion', qty: 2, tot: 1002, raw: 'processing', vendor: 'Art Craft', cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', readyAt: '', waybill: null, pulled: false, ret: null, store: null },
-      { n: 5002, itemId: '5002', sid: '181670', oid: '181668', prod: 'Macrame Curtain', qty: 1, tot: 2539, raw: 'on-hold', vendor: 'Antikiano', cm: 'تم تبليغ المورد', ss: 'مؤكد', exp: '2026-10-20', sku: 'IBTAMCTOWM200X10014', readyAt: '', waybill: null, pulled: false, ret: null, store: null },
+      { n: 5001, itemId: '5001', sid: '181669', oid: '181668', prod: 'Cushion', qty: 2, tot: 1002, raw: 'processing', vendor: 'Art Craft', cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', link: SITE + '/product/cushion/', readyAt: '', waybill: null, pulled: false, ret: null, store: null },
+      { n: 5002, itemId: '5002', sid: '181670', oid: '181668', prod: 'Macrame Curtain', qty: 1, tot: 2539, raw: 'on-hold', vendor: 'Antikiano', cm: 'تم تبليغ المورد', ss: 'مؤكد', exp: '2026-10-20', sku: 'IBTAMCTOWM200X10014', link: SITE + '/?p=9002', readyAt: '', waybill: null, pulled: false, ret: null, store: null }, // no permalink: the site's ?p=
     ] });
   assert.deepEqual(d.images, { IBTA4040PAHC000013: 'https://stage.ibtekr.club/cushion.jpg' }); // no image_url → no entry
+  assert.deepEqual(d.links, { IBTA4040PAHC000013: SITE + '/product/cushion/' }); // no permalink → no entry
   assert.deepEqual(d.vendors, ['Antikiano', 'Art Craft']);
   assert.deepEqual(d.statuses, STATUSES);
   assert.equal(hydrated.length, 1);
@@ -90,7 +94,25 @@ test('toScreen, single maker without a sub-order: sid = the parent order id (the
   const [o] = plain(O.toScreen([O2], ITEMS, SUBS, VENDORS, { today: '2026-10-25' }));
   assert.equal(o.age, 8);
   assert.deepEqual({ pay: o.pay, dep: o.dep, tot: o.tot, note: o.note, cnote: o.cnote, cdate: o.cdate, confAt: o.confAt, city: o.city, addr: o.addr, ret: o.ret }, { pay: 'cod', dep: 300, tot: 1002, note: 'تبع اوردر 180668', cnote: '', cdate: '2026-10-18', confAt: '2026-10-18', city: '', addr: '', ret: { reason: 'x' } });
-  assert.deepEqual(o.subs, [{ n: 5003, itemId: '5003', sid: '180686', oid: '180686', prod: 'Cushion', qty: 2, tot: 1002, raw: 'on-hold', vendor: '', cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', readyAt: '', waybill: null, pulled: false, ret: null, store: null }]);
+  assert.deepEqual(o.subs, [{ n: 5003, itemId: '5003', sid: '180686', oid: '180686', prod: 'Cushion', qty: 2, tot: 1002, raw: 'on-hold', vendor: '', cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', link: '', readyAt: '', waybill: null, pulled: false, ret: null, store: null }]); // no opts.links: no link
+});
+
+test('toScreen links: the sku\'s permalink (https only), else <origin>/?p=<product_id> (a positive integer) with the origin of any known permalink, else none', async () => {
+  const { O } = load();
+  const line = (id, sku, product_id) => item({ id, order_id: 181668, sku, product_id, name: 'p' + id });
+  const links = { A: 'https://site.test/product/a/', H: 'http://site.test/product/h/', J: 'javascript:alert(1)' };
+  const frozen = JSON.stringify(links);
+  const its = [line(1, 'A', 11), line(2, 'B', 77), line(3, 'B', '88'), line(4, 'B', null), line(5, null, 99), line(6, 'H', 12), line(7, 'J', 13),
+    line(8, 'B', 0), line(9, 'B', -1), line(10, 'B', 1.5), line(11, 'B', '12abc'), line(12, 'constructor', null), line(13, '__proto__', 14)];
+  const got = (lk) => plain(O.toScreen([O1], its, [], [], { today: '2026-10-25', links: lk })[0].subs.map((x) => x.link));
+  assert.deepEqual(got(links), ['https://site.test/product/a/', 'https://site.test/?p=77', 'https://site.test/?p=88', '', 'https://site.test/?p=99',
+    'https://site.test/?p=12', 'https://site.test/?p=13', '', '', '', '', '', 'https://site.test/?p=14']); // http: / javascript: are never a link
+  assert.equal(JSON.stringify(links), frozen); // pure: the map is not changed
+  assert.deepEqual(got(links), got(links));
+  assert.deepEqual(got({ H: 'http://site.test/h', J: 'javascript:alert(1)' }), Array(13).fill('')); // no https permalink: no origin, no link
+  assert.deepEqual(got({}), Array(13).fill(''));
+  // the origin of the first permalink with a plain host (and port)
+  assert.deepEqual(got({ X: 'https://user@evil.test/x', A: 'https://site.test:8443/product/a' }).slice(0, 2), ['https://site.test:8443/product/a', 'https://site.test:8443/?p=77']);
 });
 
 test('toScreen: age counts whole days from the order date to today, never below 0; ready_at shows as the local clock', async () => {
@@ -379,6 +401,7 @@ test('Realtime: INSERT/UPDATE on the three tables re-read that order from orders
   assert.deepEqual(opsOf(calls, 'sub_orders'), [{ op: 'select', args: [COLS.sub] }, { op: 'eq', args: ['order_id', '181668'] }]);
   assert.equal(applied.length, 1);
   assert.deepEqual({ id: applied[0].id, st: applied[0].st, phone: applied[0].phone, cms: applied[0].subs.map((s) => s.cm), sids: applied[0].subs.map((s) => s.sid) }, { id: '181668', st: 'قيد الشحن', phone: '012••••7052', cms: ['اتحدث', 'اتحدث'], sids: ['181669', '181670'] });
+  assert.deepEqual(applied[0].subs.map((s) => s.link), [SITE + '/product/cushion/', SITE + '/?p=9002']); // the load's links (and their origin) still apply
   assert.equal(O.data().orders[0].st, 'قيد الشحن'); // the cache follows
   assert.ok(events.includes('ib:notify'));
   await emitChange({ table: 'orders', eventType: 'UPDATE', new: { id: 180686, status: 'مكتمل' } }); // an orders payload: its own id
@@ -397,13 +420,16 @@ test('Realtime: a new order with an unknown maker and product asks for just thos
   responses.order_items = ok([item({ id: 9100, order_id: 182000, sku: 'NEW-SKU', name: 'Pouf', vendor_id: V3 })]);
   responses.sub_orders = ok([]);
   responses.vendors = ok([{ id: V3, name: 'sala' }]);
-  responses.products = ok([{ sku: 'NEW-SKU', image_url: 'https://stage.ibtekr.club/pouf.jpg' }]);
+  responses.products = ok([{ sku: 'NEW-SKU', image_url: 'https://stage.ibtekr.club/pouf.jpg', permalink: SITE + '/product/pouf/' }]);
   await emitChange({ table: 'orders', eventType: 'INSERT', new: { id: 182000 } });
   assert.deepEqual(opsOf(calls, 'vendors').filter((c) => c.op === 'in'), [{ op: 'in', args: ['id', [V3]] }]);
   assert.deepEqual(opsOf(calls, 'products').filter((c) => c.op === 'in'), [{ op: 'in', args: ['sku', ['NEW-SKU']] }]);
+  assert.deepEqual(selectOf(calls, 'products'), ['sku, image_url, permalink']);
   assert.equal(applied[0].subs[0].vendor, 'sala');
+  assert.equal(applied[0].subs[0].link, SITE + '/product/pouf/');
   assert.equal(O.data().orders[0].id, '182000');
   assert.equal(O.data().images['NEW-SKU'], 'https://stage.ibtekr.club/pouf.jpg');
+  assert.equal(O.data().links['NEW-SKU'], SITE + '/product/pouf/');
   assert.deepEqual(plain(O.data().vendors), ['Antikiano', 'Art Craft', 'sala']);
 });
 

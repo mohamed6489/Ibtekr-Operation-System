@@ -6,6 +6,8 @@
 // load() may be called again to retry). A row that repeats across two pages (an order placed mid-load) is kept once.
 // `age` counts days from the order's local date to today() — the real local date, never IBKit.TODAY (the prototype's
 // fixed date); never below 0. `cnote` is orders.customer_note, the customer's checkout note (read-only, like name and phone).
+// A line's `link` is its product's page on the website: products.permalink (https only, by sku), else <origin>/?p=<product_id>
+// (WordPress redirects it to the product) with the origin of any known permalink, else '' (no link).
 // Grants are column lists (0007): every read names its columns (select('*') on orders / order_items / sub_orders is
 // refused) and every write is an update of granted columns without .select() (return=minimal). The base table orders
 // is never read: its phone column is not granted.
@@ -25,10 +27,10 @@
   const PAGE = 1000, CAP = 5000, IDS = 200, SKUS = 100; // PostgREST max_rows; ids / skus per in.(…) keep the URL short
   const COLS = {
     order: 'id, customer_name, customer_phone, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret',
-    item: 'id, order_id, sub_order_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed',
+    item: 'id, order_id, sub_order_id, product_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed',
     sub: 'id, order_id, vendor_id, woo_order_id, woo_status',
   };
-  let orders = null; let vendorRows = []; let images = {}; let statuses = []; let names = []; let channel = null; let gen = 0; let st = 'idle';
+  let orders = null; let vendorRows = []; let images = {}; let links = {}; let statuses = []; let names = []; let channel = null; let gen = 0; let st = 'idle';
   const asked = new Set(); // skus already asked of products
   const busy = new Map(); // order id → its running Realtime refetch
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
@@ -61,20 +63,24 @@
   const utc = (s) => { const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(s || ''); return m ? Date.UTC(+m[1], m[2] - 1, +m[3]) : NaN; };
   const days = (from, to) => { const n = Math.round((utc(to) - utc(from)) / 864e5); return Number.isFinite(n) ? Math.max(0, n) : 0; };
   const byName = (a, b) => { const x = a.toLowerCase(), y = b.toLowerCase(); return x < y ? -1 : x > y ? 1 : 0; };
+  const HTTPS = /^https:\/\//;
+  const originOf = (lk) => { for (const k of Object.keys(lk || {})) { const m = typeof lk[k] === 'string' && /^https:\/\/[a-z0-9.-]+(:\d+)?(?=[/?#]|$)/i.exec(lk[k]); if (m) return m[0]; } return ''; };
+  const linkOf = (it, lk, origin) => { const p = it.sku && lk[it.sku]; if (typeof p === 'string' && HTTPS.test(p)) return p; const id = String(it.product_id == null ? '' : it.product_id); return origin && /^[1-9]\d{0,15}$/.test(id) ? origin + '/?p=' + id : ''; };
   // sid = the website's number for the line's sub-order: Dokan's sub-order id when the line is linked to one, else the
   // parent order's own id (Dokan makes no sub-order for a single-maker order, and the n8n → Airtable automation sends
   // the parent id as its "Sub Order ID" in that case). Never the line id: that number exists nowhere on the website.
-  function sub(it, o, subById, vname) {
+  function sub(it, o, subById, vname, lk, origin) {
     const so = it.sub_order_id == null ? null : subById.get(String(it.sub_order_id)) || null;
     const vid = it.vendor_id || (so && so.vendor_id);
     return { n: Number(it.id), itemId: String(it.id), sid: so && so.woo_order_id != null ? String(so.woo_order_id) : String(o.id), oid: String(o.id), prod: it.name || '', qty: Number(it.qty) || 0, tot: Number(it.total) || 0,
-      raw: (so && so.woo_status) || o.woo_status || '', vendor: (vid && vname.get(String(vid))) || '', cm: it.comment || '', ss: it.status || '', exp: it.expected_at || '', sku: it.sku || '',
+      raw: (so && so.woo_status) || o.woo_status || '', vendor: (vid && vname.get(String(vid))) || '', cm: it.comment || '', ss: it.status || '', exp: it.expected_at || '', sku: it.sku || '', link: linkOf(it, lk, origin),
       readyAt: localStamp(it.ready_at), waybill: it.waybill || null, pulled: !!it.pulled, ret: it.ret || null, store: it.store || null };
   }
   // orders_v rows + their order_items / sub_orders rows + vendors ({ id, name }) → the orders of block 29; ages up to
-  // opts.today ('YYYY-MM-DD'), by default today()
+  // opts.today ('YYYY-MM-DD'), by default today(); the lines' links from opts.links (sku → permalink)
   function toScreen(rows, items, subs, vendors, opts = {}) {
     const T = (opts && opts.today) || today();
+    const lk = (opts && opts.links) || {}; const origin = originOf(lk);
     const vname = new Map((vendors || []).map((v) => [String(v.id), v.name || '']));
     const subById = new Map((subs || []).map((s) => [String(s.id), s]));
     const lines = new Map();
@@ -83,13 +89,14 @@
       const id = String(r.id); const date = localDate(r.placed_at);
       return { id, name: r.customer_name || '', phone: r.customer_phone || '', pay: r.payment_title || r.payment_method || '', date, st: r.status, cf: r.confirm, dep: Number(r.deposit) || 0, tot: Number(r.total) || 0,
         age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', city: r.customer_city || '', addr: r.customer_address || '', cancel: r.cancel || null, ret: r.ret || null,
-        subs: (lines.get(id) || []).map((it) => sub(it, r, subById, vname)) };
+        subs: (lines.get(id) || []).map((it) => sub(it, r, subById, vname, lk, origin)) };
     });
   }
   const vendorNames = (list) => [...new Set(list.flatMap((o) => o.subs.map((s) => s.vendor)).filter(Boolean))].sort(byName);
 
   // ---------- load ----------
-  const data = () => (orders ? { orders, vendors: names, images, statuses } : null);
+  const data = () => (orders ? { orders, vendors: names, images, links, statuses } : null);
+  const keep = (p) => { if (p.image_url) images[p.sku] = p.image_url; if (typeof p.permalink === 'string' && HTTPS.test(p.permalink)) links[p.sku] = p.permalink; }; // a products row → images / links
   const stale = (g) => { if (g !== gen) throw new Error('stale'); };
   const uniq = (rows) => { const seen = new Set(); return rows.filter((r) => { const k = String(r.id); if (seen.has(k)) return false; seen.add(k); return true; }); };
   // every page of one query (PostgREST answers at most max_rows); throws the first error, or once clear() ran
@@ -127,11 +134,11 @@
       const [items, subs] = await Promise.all([within(cl, 'order_items', COLS.item, 'order_id', ids, IDS, g), within(cl, 'sub_orders', COLS.sub, 'order_id', ids, IDS, g)]);
       stale(g);
       const skus = [...new Set(items.filter((it) => !it.removed && it.sku).map((it) => it.sku))];
-      const ps = await within(cl, 'products', 'sku, image_url', 'sku', skus, SKUS, g);
+      const ps = await within(cl, 'products', 'sku, image_url, permalink', 'sku', skus, SKUS, g);
       stale(g);
-      vendorRows = vs; statuses = sm.data || []; images = {}; asked.clear();
-      skus.forEach((s) => asked.add(s)); ps.forEach((p) => { if (p.image_url) images[p.sku] = p.image_url; });
-      orders = toScreen(rows, items, subs, vendorRows); names = vendorNames(orders);
+      vendorRows = vs; statuses = sm.data || []; images = {}; links = {}; asked.clear();
+      skus.forEach((s) => asked.add(s)); ps.forEach(keep);
+      orders = toScreen(rows, items, subs, vendorRows, { links }); names = vendorNames(orders);
       setState('ready');
       const app = window.OrdersApp; if (app && app.hydrate) report(() => app.hydrate(data()));
       notify(); // the bell and the dashboard read the orders
@@ -218,16 +225,16 @@
   }
 
   // ---------- Realtime ----------
-  // vendors and product images the maps do not know yet (a maker or a product new since the load)
+  // vendors and product images / links the maps do not know yet (a maker or a product new since the load)
   async function fill(cl, items, subs, g) {
     const known = new Set(vendorRows.map((v) => String(v.id)));
     const vids = [...new Set(items.concat(subs).map((x) => x.vendor_id).filter((v) => v && !known.has(String(v))))];
     const skus = [...new Set(items.filter((x) => !x.removed && x.sku && !asked.has(x.sku)).map((x) => x.sku))];
     const none = { data: [], error: null };
-    const [v, p] = await Promise.all([vids.length ? cl.from('vendors').select('id, name').in('id', vids) : none, skus.length ? cl.from('products').select('sku, image_url').in('sku', skus) : none]);
+    const [v, p] = await Promise.all([vids.length ? cl.from('vendors').select('id, name').in('id', vids) : none, skus.length ? cl.from('products').select('sku, image_url, permalink').in('sku', skus) : none]);
     stale(g);
     if (!v.error) vendorRows = vendorRows.concat(v.data || []);
-    if (!p.error) { skus.forEach((s) => asked.add(s)); (p.data || []).forEach((x) => { if (x.image_url) images[x.sku] = x.image_url; }); }
+    if (!p.error) { skus.forEach((s) => asked.add(s)); (p.data || []).forEach(keep); }
   }
   async function refresh(id) {
     const cl = c(); const g = gen;
@@ -239,7 +246,7 @@
       if (!known && !(Date.parse(o.data[0].placed_at) >= windowStart().getTime())) return; // older than the screen's 12 months
       await fill(cl, it.data || [], so.data || [], g);
       if (!orders) return;
-      const next = toScreen(o.data.slice(0, 1), it.data || [], so.data || [], vendorRows)[0];
+      const next = toScreen(o.data.slice(0, 1), it.data || [], so.data || [], vendorRows, { links })[0];
       const i = orders.findIndex((x) => x.id === next.id);
       if (i >= 0) orders[i] = next; else orders.unshift(next);
       names = vendorNames(orders);
@@ -281,7 +288,7 @@
     const ch = channel; channel = null;
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
-  function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; vendorRows = []; images = {}; statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
+  function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; vendorRows = []; images = {}; links = {}; statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
   window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

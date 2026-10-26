@@ -23,10 +23,13 @@ test('passwordIssues: 8 chars, a latin letter, a digit, no spaces — each missi
   assert.deepEqual(V.passwordIssues('Test1234'), []);
   assert.deepEqual(V.passwordIssues(null), ['8 حروف على الأقل', 'حرف إنجليزي', 'رقم']);
 });
-test('genPassword: 10 unambiguous characters that pass the rules, from the given random source', () => {
-  for (let i = 0; i < 50; i += 1) { const p = V.genPassword(); assert.match(p, /^[a-hj-km-np-zA-HJ-NP-Z2-9]{10}$/); assert.deepEqual(V.passwordIssues(p), []); }
+test('genPassword: 10 unambiguous characters that pass the rules; crypto-random without a source (200 differ), deterministic with an injected one', () => {
+  const made = []; for (let i = 0; i < 200; i += 1) { const p = V.genPassword(); assert.match(p, /^[a-hj-km-np-zA-HJ-NP-Z2-9]{10}$/); assert.deepEqual(V.passwordIssues(p), []); made.push(p); }
+  assert.ok(new Set(made).size > 1, 'not all equal');
   const p = V.genPassword(seq(0, 0.5, 0.99)); assert.equal(p.length, 10); assert.deepEqual(V.passwordIssues(p), []);
-  assert.equal(V.genPassword(seq(0.5)), V.genPassword(seq(0.5))); // deterministic for a fixed source
+  assert.equal(V.genPassword(seq(0, 0.5, 0.99)), p); // deterministic for a fixed source
+  assert.equal(V.genPassword(seq(0.5)), V.genPassword(seq(0.5)));
+  assert.notEqual(V.genPassword(seq(0.1, 0.7)), V.genPassword(seq(0.5)));
 });
 test('suggestUsername: the name in lower-case latin with dots, 3–24 chars, skipping the taken ones', () => {
   assert.equal(V.suggestUsername('Wood & Rope'), 'wood.rope');

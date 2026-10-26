@@ -27,7 +27,16 @@
   const userOk = (u) => /^[a-z0-9][a-z0-9._]{2,29}$/.test(String(u || ''));
   const emailOk = (m) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean(m, 120));
   function passwordIssues(p) { const s = String(p || ''); const out = []; if (s.length < 8) out.push('8 حروف على الأقل'); if (!/[A-Za-z]/.test(s)) out.push('حرف إنجليزي'); if (!/[0-9]/.test(s)) out.push('رقم'); if (/\s/.test(s)) out.push('من غير مسافات'); return out; }
-  function genPassword(rand) { const r = rand || Math.random; const L = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ', N = '23456789', A = L + N; let s = L[Math.floor(r() * L.length)] + N[Math.floor(r() * N.length)]; while (s.length < 10) s += A[Math.floor(r() * A.length)]; return s.split('').sort(() => r() - 0.5).join(''); }
+  // genPassword (controller amendment to decision 7, CWE-338): the prototype's alphabet and shape (a letter, a digit, then up to 10 from
+  // both), but every index comes from crypto.getRandomValues with rejection sampling (no modulo bias) and the shuffle is Fisher–Yates;
+  // `rand` (a function → [0, 1)) is injected by tests only.
+  function genPassword(rand) {
+    const pick = (n) => { if (rand) return Math.floor(rand() * n); const buf = new Uint32Array(1); const lim = 0x100000000 - (0x100000000 % n); do { crypto.getRandomValues(buf); } while (buf[0] >= lim); return buf[0] % n; };
+    const L = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ', N = '23456789', A = L + N;
+    const s = [L[pick(L.length)], N[pick(N.length)]]; while (s.length < 10) s.push(A[pick(A.length)]);
+    for (let i = s.length - 1; i > 0; i -= 1) { const j = pick(i + 1); const t = s[i]; s[i] = s[j]; s[j] = t; }
+    return s.join('');
+  }
   function suggestUsername(name, taken) { const base = latin(name).toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '').slice(0, 24) || 'maker'; let u = base.length < 3 ? base + '.ib' : base; let i = 2; while (taken && taken(u)) u = base + i++; return u; }
   const ibanOk = (x) => /^EG\d{27}$/.test(x) || /^\d{8,20}$/.test(x);
   function validateLogin(l) {

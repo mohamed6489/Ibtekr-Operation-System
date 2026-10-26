@@ -44,14 +44,15 @@ do $$ begin
                  and (data ->> 'hidePhones')::boolean) then
     raise exception 'case seed: settings.general = C.general failed';
   end if;
-  -- status_map: the six 0002 rows as reseeded by 0007_orders into nine (checked in full in rls_orders.sql).
+  -- status_map: the six 0002 rows as reseeded by 0007_orders into nine, «تم RTC» turned into «فشل» by
+  -- 0009_failed_note_permalink (checked in full in rls_orders.sql).
   if not ((select string_agg(system_status || '=' || coalesce(woo_status, '∅'), ',' order by sort) from public.status_map)
           = 'قيد الانتظار=pending,جاري التنفيذ=processing,معلّق=on-hold,جاهز للشحن=ready-shipping,'
-            || 'قيد الشحن=in-shipping,تم RTC=∅,مكتمل=completed,استرجاع=refunded,ملغي=cancelled') then
-    raise exception 'case seed: status_map nine rows (0002 seed as reseeded by 0007) failed';
+            || 'قيد الشحن=in-shipping,مكتمل=completed,استرجاع=refunded,ملغي=cancelled,فشل=failed') then
+    raise exception 'case seed: status_map nine rows (0002 seed as reseeded by 0007 and 0009) failed';
   end if;
-  if exists (select 1 from public.status_map where direction <> 'both' and system_status <> 'تم RTC') then
-    raise exception 'case seed: status_map direction = both (except تم RTC) failed';
+  if exists (select 1 from public.status_map where direction is distinct from 'both') then
+    raise exception 'case seed: status_map direction = both on every row failed';
   end if;
 end $$;
 

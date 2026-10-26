@@ -1,6 +1,8 @@
 -- RLS / permission / trigger tests for 0007_orders (vendors, products, orders, sub_orders, order_items,
--- order_events, returns, woo_webhook_events, woo_sync_log, sync_state, orders_v, mask_phone, status_map reseed).
--- Depends on 0001_identity … 0007_orders.
+-- order_events, returns, woo_webhook_events, woo_sync_log, sync_state, orders_v, mask_phone, status_map reseed) and
+-- the schema side of 0009_failed_note_permalink («فشل» in status_map, products.permalink readable by members; its data
+-- statements are tested on older rows in migrate_0009.sql).
+-- Depends on 0001_identity … 0009_failed_note_permalink.
 -- Runs in one transaction and rolls back; prints NOTICE 'rls_orders: ok' only if every case passed.
 -- Each case switches role explicitly: the runner (postgres) owns the tables, bypasses RLS and plays the
 -- trusted sync (service_role) — the trigger guards apply to anon/authenticated only.
@@ -43,9 +45,9 @@ insert into public.profiles (id, name, email, phone, role_id, status, custom_per
 insert into public.vendors (id, woo_vendor_id, name, phone) values
   ('00000000-0000-4000-8000-0000000000a1', 77, 'متجر سلمى', '01000000077');
 
-insert into public.products (id, sku, name, vendor_id, price, status) values
-  (501, 'SC-12', 'شمعة معطرة', '00000000-0000-4000-8000-0000000000a1', 501, 'publish'),
-  (502, 'SC-13', 'كوب فخار',   '00000000-0000-4000-8000-0000000000a1', 250, 'publish');
+insert into public.products (id, sku, name, vendor_id, price, status, permalink) values
+  (501, 'SC-12', 'شمعة معطرة', '00000000-0000-4000-8000-0000000000a1', 501, 'publish', 'https://stage.example.test/product/sc-12/'),
+  (502, 'SC-13', 'كوب فخار',   '00000000-0000-4000-8000-0000000000a1', 250, 'publish', null);
 
 insert into public.orders (id, number, customer_name, customer_phone, customer_city, customer_address,
                            payment_method, payment_title, status, woo_status, total, placed_at, woo_updated_at) values
@@ -75,12 +77,16 @@ do $$ begin
   if not ((select string_agg(system_status || '=' || coalesce(woo_status, '∅') || '/' || direction, ',' order by sort)
            from public.status_map)
           = 'قيد الانتظار=pending/both,جاري التنفيذ=processing/both,معلّق=on-hold/both,'
-            || 'جاهز للشحن=ready-shipping/both,قيد الشحن=in-shipping/both,تم RTC=∅/from_system,'
-            || 'مكتمل=completed/both,استرجاع=refunded/both,ملغي=cancelled/both') then
-    raise exception 'case status_map nine rows in screen order (slugs from the staging probe) failed';
+            || 'جاهز للشحن=ready-shipping/both,قيد الشحن=in-shipping/both,'
+            || 'مكتمل=completed/both,استرجاع=refunded/both,ملغي=cancelled/both,فشل=failed/both') then
+    raise exception 'case status_map nine rows in screen order (slugs from the staging probe; فشل from 0009) failed';
   end if;
-  if not ((select array_agg(sort order by sort) from public.status_map) = array[1, 2, 3, 4, 5, 6, 7, 8, 9]) then
-    raise exception 'case status_map sort 1..9 failed';
+  -- 0009 turned «تم RTC» (sort 6) into «فشل» (sort 10) in place.
+  if not ((select array_agg(sort order by sort) from public.status_map) = array[1, 2, 3, 4, 5, 7, 8, 9, 10]) then
+    raise exception 'case status_map sort 1..5, 7..10 failed';
+  end if;
+  if exists (select 1 from public.status_map where system_status = 'تم RTC') then
+    raise exception 'case status_map has no «تم RTC» row (0009) failed';
   end if;
   if exists (select 1 from public.status_map where system_status in ('مرتجع') or woo_status = 'shipped') then
     raise exception 'case status_map phase-0 names renamed (مرتجع → استرجاع, shipped → in-shipping) failed';
@@ -102,6 +108,21 @@ do $$ begin
            where table_schema = 'public' and table_name = 'order_items' and column_name = 'removed'
              and data_type = 'boolean' and is_nullable = 'NO' and column_default = 'false') = 1) then
     raise exception 'case order_items.removed boolean not null default false failed';
+  end if;
+
+  -- products.permalink (0009): text, nullable; members read it, the sync (service_role) writes it, anon has nothing.
+  if not ((select count(*) from information_schema.columns
+           where table_schema = 'public' and table_name = 'products' and column_name = 'permalink'
+             and data_type = 'text' and is_nullable = 'YES') = 1) then
+    raise exception 'case products.permalink text null failed';
+  end if;
+  if not (has_column_privilege('authenticated', 'public.products', 'permalink', 'SELECT')
+          and not has_column_privilege('authenticated', 'public.products', 'permalink', 'UPDATE')
+          and has_column_privilege('service_role', 'public.products', 'permalink', 'SELECT')
+          and has_column_privilege('service_role', 'public.products', 'permalink', 'INSERT')
+          and has_column_privilege('service_role', 'public.products', 'permalink', 'UPDATE')
+          and not has_column_privilege('anon', 'public.products', 'permalink', 'SELECT')) then
+    raise exception 'case products.permalink grants (authenticated select, service_role select/insert/update, anon none) failed';
   end if;
 end $$;
 
@@ -151,6 +172,11 @@ do $$ begin
   if not ((select count(*) from public.order_items) = 2 and (select count(*) from public.sub_orders) = 1
           and (select count(*) from public.products) = 2 and (select count(*) from public.vendors) = 1) then
     raise exception 'case accounts reads order_items/sub_orders/products/vendors failed';
+  end if;
+  if not ((select string_agg(id || '=' || coalesce(permalink, '∅'), ',' order by id)
+           from (select id, sku, image_url, permalink from public.products where id in (501, 502)) p)
+          = '501=https://stage.example.test/product/sc-12/,502=∅') then
+    raise exception 'case accounts (orders.view) reads products.permalink (0009) failed';
   end if;
   if not ((select count(*) from public.woo_sync_log) = 0 and (select count(*) from public.woo_webhook_events) = 0
           and (select count(*) from public.sync_state) = 0) then

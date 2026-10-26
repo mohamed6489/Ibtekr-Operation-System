@@ -1,13 +1,18 @@
 // Test-only stand-in for the Supabase project: answers exactly the auth / PostgREST / Storage / Edge Function calls supabase-js
 // 2.118 makes for the login flow, the dashboard, the orders page and the vendors page, with the three dev users of
-// tools/seed-dev-users.sql (+ M03, a mock-only 2FA user, and M04, a mock-only accounts user: orders.status N,
-// sensitive.customer_phone N, sensitive.vendor_bank F).
+// tools/seed-dev-users.sql (+ M03, a mock-only 2FA user, M04, a mock-only accounts user: orders.status N,
+// sensitive.customer_phone N, sensitive.vendor_bank F, and M05, a mock-only «متابعة الموردين» user: vendors.edit F,
+// vendors.toggle N, no sensitive key).
 // Strict like the real thing: apikey required, PostgREST bearer must be the anon key or a token issued here,
 // `select` columns checked against supabase/migrations (0001, 0002, 0006, 0007, 0009, 0010, 0011), RLS of each emulated table, the column-level
 // grants and guard triggers of the orders tables (0007) and of the vendors tables (0011: the per-column guard of phase 3's
 // decision 8, vendor_rates / vendor_bank behind their sensitive keys, the private bucket vendor-contracts with its size / mime /
-// layout rules and signed URLs), woo-sync's push_status contract, the aal2 rule of has_perm and the
-// 2FA RPCs (0008) with GoTrue's MFA endpoints (enroll / challenge / verify / unenroll). Not a product feature.
+// layout rules and signed URLs), the maker logins of phase 3.1 as the plan's contract for 0012 (vendor_logins: column-list
+// select without secret_id, insert / update for the admin or vendors.edit = F, the guard refusing status = active and the
+// server columns, 23505 on a duplicate username, the two Vault RPCs vendor_login_set_password / vendor_login_reveal with
+// 42501 / 22023 / 0A000, every reveal and every password set logged by the server; vendors.status taking leave), woo-sync's
+// push_status contract, the aal2 rule of has_perm and the 2FA RPCs (0008) with GoTrue's MFA endpoints (enroll / challenge /
+// verify / unenroll). Not a product feature.
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
@@ -18,6 +23,7 @@ export async function installLiveConfig(page) {
   await page.addInitScript(([url, key]) => { window.IB_CONFIG = { supabaseUrl: url, supabaseAnonKey: key }; }, [LIVE_URL, LIVE_KEY]);
 }
 export const DEV_PW = 'IbtekrDev-2026'; // same as tools/seed-dev-users.sql
+export const TEST_PW = 'Test1234'; // the fake temporary password of the mock's maker login (Antikiano) and of the specs
 export const TOTP_CODE = '123456'; // the code every mocked authenticator accepts (M03's and any factor enrolled in a spec)
 export const TOTP_SECRET = 'MOCKTOTPSECRETAAAAAAAAAA'; // the base32 key a mocked enrolment hands out (not a real secret)
 // GoTrue answers the QR as raw SVG markup (supabase-js prefixes `data:image/svg+xml;utf-8,`); the '#' must survive as an <img>
@@ -33,6 +39,7 @@ export const USERS = [
   { id: '00000000-0000-4000-8000-000000000002', member_code: 'M02', name: 'سارة أحمد', email: 'ops.dev@ibtekr.local', phone: '01000000002', role_id: 'ops', title: 'مديرة العمليات', dept: 'العمليات', manager_id: ADMIN, status: 'active', twofa: false, custom_perms: {}, created_at: T0 },
   { id: '00000000-0000-4000-8000-000000000003', member_code: 'M03', name: 'محمد علي', email: 'twofa.dev@ibtekr.local', phone: '01000000003', role_id: 'ops', title: 'العمليات', dept: 'العمليات', manager_id: ADMIN, status: 'active', twofa: true, custom_perms: {}, created_at: T0 },
   { id: '00000000-0000-4000-8000-000000000004', member_code: 'M04', name: 'منى حسن', email: 'accounts.dev@ibtekr.local', phone: '01000000004', role_id: 'accounts', title: 'الحسابات', dept: 'الحسابات', manager_id: ADMIN, status: 'active', twofa: false, custom_perms: {}, created_at: T0 },
+  { id: '00000000-0000-4000-8000-000000000005', member_code: 'M05', name: 'هدى سمير', email: 'vf.dev@ibtekr.local', phone: '01000000005', role_id: 'vendors_followup', title: 'متابعة الموردين', dept: 'العمليات', manager_id: ADMIN, status: 'active', twofa: false, custom_perms: {}, created_at: T0 },
   { id: '00000000-0000-4000-8000-000000000099', member_code: 'M99', name: 'مشاهد تجريبي', email: 'viewer.dev@ibtekr.local', phone: '01000000099', role_id: 'viewer', title: 'مشاهد', dept: 'الإدارة', manager_id: ADMIN, status: 'suspended', twofa: false, custom_perms: {}, created_at: T0 },
 ];
 // permissions: the keys the emulated tables read, as in 0003_seed_roles.sql
@@ -40,6 +47,7 @@ const ROLES = [
   { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'settings.view': 'F', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'F', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'F', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'F' }, sort: 1 },
   { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
   { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
+  { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
   { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
 ];
 const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts, status_map), 0006_dashboard.sql (user_prefs,
@@ -58,6 +66,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   vendors: ['id', 'woo_vendor_id', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at', 'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance'],
   vendor_rates: ['id', 'vendor_id', 'rate', 'since', 'set_by', 'created_at'],
   vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at'],
+  vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'status', 'must_change', 'invite_sent_at', 'password_set_at', 'secret_id', 'created_by', 'created_at', 'updated_at'], // 0012 (plan 3.1): secret_id is never granted to the client
   products: ['id', 'sku', 'name', 'image_url', 'permalink', 'vendor_id', 'price', 'status', 'raw', 'updated_at'],
   status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
   woo_states: ['code', 'name', 'updated_at'],
@@ -118,6 +127,7 @@ function pageOf(rows, params) {
 export const XSS_NAME = '<img src=x onerror="window.__xss=1">';
 export const IBAN = 'EG38000300010000000000000482'; // a made-up IBAN (Bian eg's bank row)
 export const CONTRACT_PATH = 'a0000000-0000-4000-8000-000000000002/1700000000000-antikiano.pdf'; // Antikiano's stored contract in vendor-contracts
+const SECRET_ID = 'c0000000-0000-4000-8000-000000000001'; // the vault id of Antikiano's temporary password
 export const CONTRACT_BYTES = Buffer.from('%PDF-1.4\n% mock contract of Antikiano\n%%EOF\n');
 export const SITE = 'https://ibtekr.stage.test';
 export const IMG = { cushion: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', curtain: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' };
@@ -143,6 +153,10 @@ function ordersSeed() {
       vendor(3, 2047, 'Bian eg', 'inactive', { aliases: ['Bian'], phone: '01000000000', category: 'ديكور منزلي' })],
     vendorRates: [rate(1, 1, 35, '2026-03-01'), rate(2, 2, 40, '2026-03-01'), rate(3, 2, 45, '2026-10-01')],
     vendorBank: [{ vendor_id: VND(3), method: 'bank', bank_name: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: IBAN, wallet: '01000000000', updated_by: 'منى حسن', updated_at: T0 }],
+    // 0012 (plan 3.1): Antikiano with a temporary password in the vault (secret_id → the vault entry), Bian eg invited by link
+    vendorLogins: [{ vendor_id: VND(2), username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: T0, secret_id: SECRET_ID, created_by: ADMIN, created_at: T0, updated_at: T0 },
+      { vendor_id: VND(3), username: 'bian.eg', email: 'bian.dev@ibtekr.local', pw_mode: 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: ADMIN, created_at: T0, updated_at: T0 }],
+    vault: new Map([[SECRET_ID, TEST_PW]]), // vault.secrets: id → the decrypted secret (never read by the client)
     objects: new Map([[CONTRACT_PATH, { type: 'application/pdf', bytes: CONTRACT_BYTES }]]), // the bucket vendor-contracts
     products: [product(9001, 'IBTA4040PAHC000013', 'Cushion', IMG.cushion, 1, 'cushion'), product(9002, 'IBTAMCTOWM200X10014', 'Macrame Curtain', IMG.curtain, 2, 'macrame-curtain'),
       product(9003, 'IBTB0CSW6RFTM', 'Macrame Feathers', null, 2, 'macrame-feathers'), product(9004, 'IBTK20035BBLM000003214', 'Boho mirror', IMG.cushion, 3, 'boho-mirror')],
@@ -181,8 +195,10 @@ const ORDER_STATUS_COLS = ['status', 'confirm', 'confirm_at', 'confirm_note', 'c
 const ITEM_COLS = ['status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store'];
 // 0011: the vendors columns granted for insert / update to authenticated (never woo_vendor_id, commission_pct, raw, opening_balance), by the rule they need
 const VENDOR_IDENTITY_COLS = ['name', 'legal_name', 'category', 'aliases', 'lead_days', 'deposit_policy', 'joined_at']; const VENDOR_CONTACT_COLS = ['phone', 'alt_phone', 'email', 'address', 'instagram', 'store_url', 'notes'];
-const VT_INSERT = { vendors: ['name', 'aliases', 'phone', 'email', 'status', 'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at'], vendor_rates: ['vendor_id', 'rate', 'since', 'set_by'], vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at'] };
-const VT_UPDATE = { vendors: VT_INSERT.vendors.concat(['contract']), vendor_bank: VT_INSERT.vendor_bank.filter((c) => c !== 'vendor_id') };
+const VT_INSERT = { vendors: ['name', 'aliases', 'phone', 'email', 'status', 'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at'], vendor_rates: ['vendor_id', 'rate', 'since', 'set_by'], vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at'], vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'created_by'] };
+const VT_UPDATE = { vendors: VT_INSERT.vendors.concat(['contract']), vendor_bank: VT_INSERT.vendor_bank.filter((c) => c !== 'vendor_id'), vendor_logins: ['username', 'email', 'pw_mode', 'status'] }; // 0012: must_change / invite_sent_at / password_set_at / secret_id are the server's
+const USERNAME_RE = /^[a-z0-9][a-z0-9._]{2,29}$/; const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+const canLogin = (u) => isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F'; // 0012: vendor_logins insert / update and the two RPCs
 const VENDOR_CATEGORIES = ['ديكور منزلي', 'إكسسوارات ومجوهرات', 'ملابس ومنسوجات', 'فنون ولوحات', 'هدايا', 'مستلزمات حرف', 'أطعمة وحلويات'];
 const VENDOR_DEFAULTS = () => ({ woo_vendor_id: null, aliases: [], phone: null, email: null, status: 'active', commission_pct: null, raw: null, legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: null, contract: null, opening_balance: 0 });
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
@@ -211,7 +227,9 @@ export async function installSupabaseMock(page) {
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
   const mock = { profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
-    ...ordersSeed(), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map() };
+    ...ordersSeed(), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false };
+  // vendorLogins / vault: the 0012 table and vault.secrets (ordersSeed()); rpcs: each vendor_login_set_password / vendor_login_reveal call
+  // as { fn, vendor_id, by, result } — never the password; vaultDown: both RPCs answer 0A000 (a Postgres without Vault).
   let vendorSeq = 0; let rateSeq = 3;
   // the after-insert trigger of vendor_rates: vendors.commission_pct = the rate effective today
   const effectiveRate = (vid) => { const today = new Date().toISOString().slice(0, 10); const v = mock.vendors.find((x) => x.id === vid); if (!v) return; const cur = mock.vendorRates.filter((r) => r.vendor_id === vid && r.since <= today).sort((a, b) => (a.since < b.since ? -1 : 1)).pop(); v.commission_pct = cur ? cur.rate : null; };
@@ -320,6 +338,32 @@ export async function installSupabaseMock(page) {
         profileOf(u.id).twofa = on;
         return empty(204);
       }
+      // 0012 (plan 3.1): the two definer RPCs on the maker's temporary password — the admin or vendors.edit = F (else 42501), the
+      // password rules again on the server (22023), 0A000 without Vault; the secret lives in the vault under the row's secret_id;
+      // every set and every reveal writes its own activity_log row (actor = the caller, new_value null). Scalars come back as JSON.
+      const vrpc = /^\/rest\/v1\/rpc\/(vendor_login_set_password|vendor_login_reveal)$/.exec(path);
+      if (method === 'POST' && vrpc) {
+        const fn = vrpc[1]; const b = body(); const vid = String(b.p_vendor || '');
+        const rec = { fn, vendor_id: vid, by: u.email, result: 'ok' }; mock.rpcs.push(rec);
+        const refuse = (status, code, message) => { rec.result = code; return json(status, { code, details: null, hint: null, message }); };
+        if (!canLogin(u)) return refuse(403, '42501', 'vendors.edit = F is required to manage a maker login');
+        if (mock.vaultDown) return refuse(400, '0A000', 'vault is not available');
+        const row = mock.vendorLogins.find((x) => x.vendor_id === vid); const at = new Date().toISOString();
+        const logRow = (action) => { activityId += 1; mock.activityRows.push({ id: activityId, at, actor: u.id, action, entity: 'vendor', entity_id: vid, new_value: null }); };
+        if (fn === 'vendor_login_set_password') {
+          const pw = String(b.p_password ?? '');
+          if (pw.length < 8 || pw.length > 128 || !/[A-Za-z]/.test(pw) || !/[0-9]/.test(pw) || /\s/.test(pw)) return refuse(400, '22023', 'password: 8 to 128 characters, a latin letter, a digit and no spaces');
+          if (!row) return refuse(400, 'P0002', 'vendor login not found');
+          if (!row.secret_id) { n += 1; row.secret_id = 'c0000000-0000-4000-8000-' + String(n).padStart(12, '0'); }
+          mock.vault.set(row.secret_id, pw); Object.assign(row, { password_set_at: at, must_change: true, pw_mode: 'temp', updated_at: at });
+          logRow('vendor.login.password');
+          return json(200, at);
+        }
+        if (!row) return refuse(400, 'P0002', 'vendor login not found');
+        logRow('vendor.login.reveal'); // every call that reaches a row, even one without a password
+        const secret = row.secret_id ? mock.vault.get(row.secret_id) : null;
+        return json(200, secret ?? null);
+      }
       const table = /^\/rest\/v1\/(profiles|roles)$/.exec(path);
       if (method === 'GET' && table) {
         const cols = (url.searchParams.get('select') || '*').split(',').map((c) => c.trim());
@@ -374,8 +418,8 @@ export async function installSupabaseMock(page) {
       // guard of decision 8 (42501 with the rule's message), vendor_rates / vendor_bank behind sensitive.commission /
       // sensitive.vendor_bank (RLS using → [] for the others; a write → 42501), the rate trigger, delete by the admin only and
       // refused while order lines point at the maker (23503). One statement: every row or none.
-      const vt = /^\/rest\/v1\/(vendors|vendor_rates|vendor_bank)$/.exec(path);
-      const VT_METHODS = { vendors: ['GET', 'POST', 'PATCH', 'DELETE'], vendor_rates: ['GET', 'POST'], vendor_bank: ['GET', 'POST', 'PATCH'] };
+      const vt = /^\/rest\/v1\/(vendors|vendor_rates|vendor_bank|vendor_logins)$/.exec(path);
+      const VT_METHODS = { vendors: ['GET', 'POST', 'PATCH', 'DELETE'], vendor_rates: ['GET', 'POST'], vendor_bank: ['GET', 'POST', 'PATCH'], vendor_logins: ['GET', 'POST', 'PATCH'] };
       if (vt && VT_METHODS[vt[1]].includes(method)) {
         const t = vt[1]; const f = readFilters(url.searchParams, t); const now = new Date().toISOString();
         const denied = (message) => json(403, { code: '42501', details: null, hint: null, message });
@@ -384,47 +428,61 @@ export async function installSupabaseMock(page) {
         if (mock.vendorsDown) return json(503, { code: 'PGRST000', details: null, hint: null, message: 'mock: the vendors tables are down' });
         const representation = /return=representation/.test(hd.prefer || '') || url.searchParams.has('select');
         const single = /vnd\.pgrst\.object\+json/.test(hd.accept || '');
-        const sensitive = t === 'vendor_rates' ? 'sensitive.commission' : 'sensitive.vendor_bank';
-        const F = hasPerm(u, sensitive) === 'F';
-        const rows = () => (t === 'vendors' ? mock.vendors : t === 'vendor_rates' ? mock.vendorRates : mock.vendorBank);
-        // the check constraints of 0011 (category, lead_days, status; rate; method)
-        const bad = (r) => (t === 'vendors' ? (r.category != null && !VENDOR_CATEGORIES.includes(r.category) ? 'vendors_category_check' : r.lead_days != null && !(Number.isInteger(Number(r.lead_days)) && r.lead_days >= 1 && r.lead_days <= 60) ? 'vendors_lead_days_check' : r.status != null && !['active', 'inactive'].includes(r.status) ? 'vendors_status_check' : null)
-          : t === 'vendor_rates' ? (!(Number(r.rate) >= 0 && Number(r.rate) <= 65) ? 'vendor_rates_rate_check' : null) : (r.method != null && !['bank', 'instapay', 'wallet', 'cash'].includes(r.method) ? 'vendor_bank_method_check' : null));
+        // the key of the writes: sensitive.commission / sensitive.vendor_bank for the money tables, vendors.edit = F (or admin) for the logins
+        const F = t === 'vendor_logins' ? canLogin(u) : hasPerm(u, t === 'vendor_rates' ? 'sensitive.commission' : 'sensitive.vendor_bank') === 'F';
+        const rows = () => (t === 'vendors' ? mock.vendors : t === 'vendor_rates' ? mock.vendorRates : t === 'vendor_bank' ? mock.vendorBank : mock.vendorLogins);
+        // the check constraints of 0011 (category, lead_days, status — leave since 0012; rate; method) and 0012 (username, email, pw_mode, status)
+        const bad = (r) => (t === 'vendors' ? (r.category != null && !VENDOR_CATEGORIES.includes(r.category) ? 'vendors_category_check' : r.lead_days != null && !(Number.isInteger(Number(r.lead_days)) && r.lead_days >= 1 && r.lead_days <= 60) ? 'vendors_lead_days_check' : r.status != null && !['active', 'leave', 'inactive'].includes(r.status) ? 'vendors_status_check' : null)
+          : t === 'vendor_rates' ? (!(Number(r.rate) >= 0 && Number(r.rate) <= 65) ? 'vendor_rates_rate_check' : null)
+          : t === 'vendor_logins' ? (!USERNAME_RE.test(String(r.username ?? '')) ? 'vendor_logins_username_check' : r.email != null && !EMAIL_RE.test(String(r.email)) ? 'vendor_logins_email_check' : r.pw_mode != null && !['link', 'temp'].includes(r.pw_mode) ? 'vendor_logins_pw_mode_check' : r.status != null && !['invited', 'active', 'disabled'].includes(r.status) ? 'vendor_logins_status_check' : null)
+          : (r.method != null && !['bank', 'instapay', 'wallet', 'cash'].includes(r.method) ? 'vendor_bank_method_check' : null));
+        const usernameTaken = (name, except) => mock.vendorLogins.some((x) => x !== except && x.username.toLowerCase() === String(name).toLowerCase()); // the unique index on lower(username)
+        const dupUser = () => json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "vendor_logins_username_key"' });
         if (method === 'GET') {
           const asked = url.searchParams.get('select') || '*';
           if (t === 'vendors' && asked.split(',').some((c) => c.trim() === '*' || c.trim() === 'commission_pct')) return denied('permission denied for table vendors'); // the select grant is a column list without commission_pct
+          if (t === 'vendor_logins' && asked.split(',').some((c) => c.trim() === '*' || c.trim() === 'secret_id')) return denied('permission denied for table vendor_logins'); // 0012: the select grant is a column list without secret_id
           const sel = readSelect(t, asked);
           if (sel.bad) return json(400, { code: '42703', details: null, hint: null, message: `column ${sel.bad} does not exist` });
-          const visible = t === 'vendors' ? hasPerm(u, 'vendors.view') !== 'N' : F;
+          const visible = t === 'vendors' || t === 'vendor_logins' ? hasPerm(u, 'vendors.view') !== 'N' : F;
           return json(200, pageOf(visible ? rows().filter(f.match) : [], url.searchParams).map(sel.pick));
         }
         if (t !== 'vendors' && !F) return denied(`new row violates row-level security policy for table "${t}"`);
         if (representation && (url.searchParams.get('select') || 'id') !== 'id') return denied('permission denied for table ' + t); // mock: a returning row names id only
         if (method === 'POST') {
           const b = body(); const list = Array.isArray(b) ? b : [b]; const cols = VT_INSERT[t];
+          if (t === 'vendor_logins' && (url.searchParams.has('on_conflict') || /resolution=/.test(hd.prefer || ''))) return denied('permission denied for table vendor_logins'); // 0012: no update grant on vendor_id / created_by — an upsert needs it
           if (list.some((r) => Object.keys(r).some((k) => !cols.includes(k)))) return denied('permission denied for table ' + t);
+          if (t === 'vendor_logins' && list.some((r) => r.email == null || r.email === '')) return json(400, { code: '23502', details: null, hint: null, message: 'null value in column "email" of relation "vendor_logins" violates not-null constraint' });
           if (t === 'vendors' && !(isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F')) return denied('new row violates row-level security policy for table "vendors"');
           for (const r of list) { const c = bad(r); if (c) return check(c); if (t !== 'vendors' && !mock.vendors.some((v) => v.id === r.vendor_id)) return json(409, { code: '23503', details: null, hint: null, message: `insert or update on table "${t}" violates foreign key constraint "${t}_vendor_id_fkey"` }); }
           if (t === 'vendor_rates' && list.some((r) => mock.vendorRates.some((x) => x.vendor_id === r.vendor_id && x.since === r.since))) return json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "vendor_rates_vendor_id_since_key"' });
           if (t === 'vendor_bank' && list.some((r) => mock.vendorBank.some((x) => x.vendor_id === r.vendor_id))) return json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "vendor_bank_pkey"' });
+          if (t === 'vendor_logins' && list.some((r) => mock.vendorLogins.some((x) => x.vendor_id === r.vendor_id))) return json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "vendor_logins_pkey"' });
+          if (t === 'vendor_logins' && list.some((r) => usernameTaken(r.username, null))) return dupUser();
           const out = [];
           for (const r of list) {
             if (t === 'vendors') { vendorSeq += 1; const row = { ...VENDOR_DEFAULTS(), ...r, id: 'b0000000-0000-4000-8000-' + String(vendorSeq).padStart(12, '0'), created_at: now, updated_at: now }; mock.vendors.push(row); out.push({ id: row.id }); }
             else if (t === 'vendor_rates') { rateSeq += 1; const row = { id: rateSeq, vendor_id: r.vendor_id, rate: Number(r.rate), since: r.since, set_by: r.set_by ?? null, created_at: now }; mock.vendorRates.push(row); effectiveRate(r.vendor_id); out.push({ id: row.id }); }
+            else if (t === 'vendor_logins') { mock.vendorLogins.push({ vendor_id: r.vendor_id, username: r.username, email: r.email ?? null, pw_mode: r.pw_mode ?? 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: r.created_by ?? u.id, created_at: now, updated_at: now }); out.push({ vendor_id: r.vendor_id }); }
             else { mock.vendorBank.push({ method: 'bank', bank_name: null, holder: null, iban: null, wallet: null, updated_by: null, updated_at: now, ...r }); out.push({ vendor_id: r.vendor_id }); }
             mock.vendorWrites.push({ table: t, op: 'insert', ...r });
           }
           return representation ? json(201, single ? out[0] : out) : json(201, []);
         }
         if (method === 'PATCH') {
-          const key = t === 'vendor_bank' ? 'vendor_id' : 'id';
+          const key = t === 'vendor_bank' || t === 'vendor_logins' ? 'vendor_id' : 'id';
           if (!(url.searchParams.get(key) || '').startsWith('eq.')) return json(400, { code: '21000', details: null, hint: null, message: 'mock: a PATCH on ' + t + ' names its row (' + key + '=eq.…): UPDATE requires a WHERE clause' });
           const b = body(); const keys = Object.keys(b); const cols = VT_UPDATE[t];
           if (representation || keys.some((k) => !cols.includes(k))) return denied('permission denied for table ' + t);
-          const target = t === 'vendors' ? (hasPerm(u, 'vendors.view') === 'N' ? [] : mock.vendors.filter(f.match)) : mock.vendorBank.filter(f.match);
+          const target = t === 'vendors' ? (hasPerm(u, 'vendors.view') === 'N' ? [] : mock.vendors.filter(f.match)) : t === 'vendor_logins' ? mock.vendorLogins.filter(f.match) : mock.vendorBank.filter(f.match);
           const same = (x, y) => JSON.stringify(x ?? null) === JSON.stringify(y ?? null);
           for (const r of target) {
             const changed = keys.filter((k) => !same(r[k], b[k]));
+            if (t === 'vendor_logins') { // vendor_logins_guard (0012): the client sets invited / disabled only; the unique username
+              if (changed.includes('status') && b.status === 'active') return denied('vendor_logins.status: the client may set invited or disabled only (active is set by the portal)');
+              if (changed.includes('username') && usernameTaken(b.username, r)) return dupUser();
+            }
             if (t === 'vendors') { // vendors_guard_update (decision 8, amended: a member with sensitive.vendor_bank = F may change the contract and nothing else), then the policy's with check
               if (changed.includes('status') && hasPerm(u, 'vendors.toggle') !== 'F') return denied('vendors.toggle = F is required to change a vendor status');
               if (changed.includes('contract') && !F) return denied('sensitive.vendor_bank = F is required to change a vendor contract');
@@ -441,7 +499,7 @@ export async function installSupabaseMock(page) {
         if (!(url.searchParams.get('id') || '').startsWith('eq.')) return json(400, { code: '21000', details: null, hint: null, message: 'mock: a DELETE on vendors names its row (id=eq.…)' });
         const target = isAdmin(u) ? mock.vendors.filter(f.match) : [];
         if (target.some((r) => mock.orderItems.some((x) => x.vendor_id === r.id) || mock.subOrders.some((x) => x.vendor_id === r.id))) return json(409, { code: '23503', details: null, hint: null, message: 'update or delete on table "vendors" violates foreign key constraint "order_items_vendor_id_fkey" on table "order_items"' });
-        for (const r of target) { mock.vendors.splice(mock.vendors.indexOf(r), 1); mock.vendorRates = mock.vendorRates.filter((x) => x.vendor_id !== r.id); mock.vendorBank = mock.vendorBank.filter((x) => x.vendor_id !== r.id); mock.vendorWrites.push({ table: t, op: 'delete', id: r.id }); } // the sensitive rows cascade
+        for (const r of target) { mock.vendors.splice(mock.vendors.indexOf(r), 1); mock.vendorRates = mock.vendorRates.filter((x) => x.vendor_id !== r.id); mock.vendorBank = mock.vendorBank.filter((x) => x.vendor_id !== r.id); mock.vendorLogins = mock.vendorLogins.filter((x) => x.vendor_id !== r.id); mock.vendorWrites.push({ table: t, op: 'delete', id: r.id }); } // the sensitive rows and the login cascade
         return representation ? json(200, target.map((r) => ({ id: r.id }))) : empty(204);
       }
       const ot = /^\/rest\/v1\/(orders|orders_v|order_items|sub_orders|products|status_map|woo_states)$/.exec(path);

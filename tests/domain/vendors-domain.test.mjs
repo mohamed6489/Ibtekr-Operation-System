@@ -41,14 +41,14 @@ test('suggestUsername: the name in lower-case latin with dots, 3–24 chars, ski
   assert.equal(V.suggestUsername('Bian eg ٢'), 'bian.eg.2');
   assert.equal(V.suggestUsername('a'.repeat(40)).length, 24);
 });
-test('validateLogin: username rules, email rules, the temporary password only in temp mode', () => {
-  assert.deepEqual(V.validateLogin({ username: '', email: '' }), { username: 'اكتب اسم المستخدم', email: 'اكتب الإيميل — عليه بيوصل لينك التفعيل واسترجاع الباسورد' });
+test('validateLogin: username rules, email rules, the temporary password when the form carries one (pwMode temp — the only mode since 26 Oct)', () => {
+  assert.deepEqual(V.validateLogin({ username: '', email: '' }), { username: 'اكتب اسم المستخدم', email: 'اكتب الإيميل — عليه بيوصل استرجاع الباسورد من بوابة المبتكر' });
   assert.deepEqual(V.validateLogin({ username: 'ab', email: 'x' }), { username: 'من 3 لـ 30: حروف إنجليزي صغيرة وأرقام و . _ بس', email: 'اكتب إيميل صحيح' });
   assert.deepEqual(V.validateLogin({ username: '.abc', email: 'a@b.co' }), { username: 'من 3 لـ 30: حروف إنجليزي صغيرة وأرقام و . _ بس' });
   assert.deepEqual(V.validateLogin({ username: 'wood-rope', email: 'a@b.co' }), { username: 'من 3 لـ 30: حروف إنجليزي صغيرة وأرقام و . _ بس' });
   assert.deepEqual(V.validateLogin({ username: 'a'.repeat(31), email: 'a@b.co' }), { username: 'من 3 لـ 30: حروف إنجليزي صغيرة وأرقام و . _ بس' });
   assert.deepEqual(V.validateLogin({ username: ' Wood.Rope ', email: ' name@example.com ' }), {}); // trimmed and lower-cased before the check
-  assert.deepEqual(V.validateLogin({ username: 'wood.rope', email: 'a@b.co', pwMode: 'link', password: '' }), {});
+  assert.deepEqual(V.validateLogin({ username: 'wood.rope', email: 'a@b.co' }), {}); // username + e-mail alone (the drawer's edit): no password check
   assert.deepEqual(V.validateLogin({ username: 'wood.rope', email: 'a@b.co', pwMode: 'temp', password: 'short' }), { password: 'الباسورد لازم: 8 حروف على الأقل، رقم' });
   assert.deepEqual(V.validateLogin({ username: 'wood.rope', email: 'a@b.co', pwMode: 'temp', password: 'Test1234' }), {});
 });

@@ -65,7 +65,7 @@ async function openAdd(page) { await page.getByRole('button', { name: 'إضاف�
 // what the page copies (the clipboard is not readable in the test browser)
 async function captureClipboard(page) { await page.evaluate(() => { window.__copied = []; navigator.clipboard.writeText = (t) => { window.__copied.push(t); return Promise.resolve(); }; }); }
 
-test('the admin adds a complete maker (basics + link + bank): the inserts in order, the drawer opens with the login and no «ناقص»; nothing says an e-mail was sent', async ({ page }) => {
+test('the admin adds a complete maker (basics + login with its temporary password + bank): no link option, the password required, the inserts in order and the RPC after the login insert, the drawer opens with the login and no «ناقص»; nothing says anything was sent', async ({ page }) => {
   await openVendors(page);
   const m = await openAdd(page);
   await expect(m).toContainText('بيانات الدخول'); await expect(m).toContainText('الحساب البنكي');
@@ -74,12 +74,15 @@ test('the admin adds a complete maker (basics + link + bank): the inserts in ord
   await pickOption(page, 'v-cat', 'ديكور منزلي');
   await m.locator('#v-phone').fill('01000000009');
   await m.locator('#v-login-email').fill('wood.dev@ibtekr.local');
-  await expect(m.locator('[data-pwmode=link]')).toHaveAttribute('aria-checked', 'true'); // the default: a link (recorded as a choice)
-  await expect(m).toContainText('مفيش إيميل بيتبعت');
-  await expect(m.locator('#v-login-pw')).toHaveCount(0);
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click(); // the bank is required when the caller sees it
+  await expect(m.locator('[data-pwmode]')).toHaveCount(0); // no «ابعتله لينك يعمل الباسورد بنفسه» (owner, 26 Oct): the temporary password is the only way
+  await expect(m).not.toContainText('لينك');
+  await expect(m.locator('#v-login-pw')).toHaveAttribute('type', 'password');
+  await m.getByRole('button', { name: 'إضافة المبتكر' }).click(); // the password and the bank are required
+  await expect(m.locator('#v-login-pw-err')).toContainText('الباسورد لازم');
   await expect(m).toContainText('اختار طريقة التحويل');
-  expect(writes()).toEqual([]);
+  expect(writes()).toEqual([]); expect(mock.rpcs).toEqual([]);
+  await m.locator('[data-genpw]').click();
+  const pw = await m.locator('#v-login-pw').inputValue(); expect(pw).toMatch(PW_RE);
   await pickOption(page, 'v-bank-method', 'تحويل بنكي');
   await m.locator('#v-bank-holder').fill('Wood & Rope'); await m.locator('#v-bank-bank').fill('بنك مصر'); await m.locator('#v-bank-iban').fill('eg38 0003 0001 0000 0000 0000 0482 1');
   await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
@@ -89,29 +92,33 @@ test('the admin adds a complete maker (basics + link + bank): the inserts in ord
   const ins = writes().filter((w) => w.op === 'insert');
   expect(ins.map((w) => w.table)).toEqual(['vendors', 'vendor_rates', 'vendor_logins', 'vendor_bank']);
   expect(ins[0]).toEqual({ table: 'vendors', op: 'insert', name: 'Wood & Rope', category: 'ديكور منزلي', phone: '01000000009', email: 'wood.dev@ibtekr.local', status: 'active', lead_days: 7, aliases: [], joined_at: ins[0].joined_at });
-  expect(ins[2]).toEqual({ table: 'vendor_logins', op: 'insert', vendor_id: NEW1, username: 'wood.rope', email: 'wood.dev@ibtekr.local', pw_mode: 'link', created_by: 'صفوت كمال' }); // created_by: the member's name, like set_by / updated_by
+  expect(ins[2]).toEqual({ table: 'vendor_logins', op: 'insert', vendor_id: NEW1, username: 'wood.rope', email: 'wood.dev@ibtekr.local', pw_mode: 'temp', created_by: 'صفوت كمال' }); // created_by: the member's name, like set_by / updated_by
   expect(ins[3]).toEqual({ table: 'vendor_bank', op: 'insert', vendor_id: NEW1, method: 'bank', bank_name: 'بنك مصر', holder: 'Wood & Rope', iban: 'EG380003000100000000000004821', wallet: null, updated_by: 'صفوت كمال' }); // the IBAN upper-cased, no spaces
-  expect(mock.rpcs).toEqual([]); // a link: no password
+  expect(mock.rpcs).toEqual([{ fn: 'vendor_login_set_password', vendor_id: NEW1, by: ADMIN, result: 'ok' }]); // right after the login insert
+  expect(JSON.stringify([mock.vendorWrites, mock.activity, mock.activityRows])).not.toContain(pw);
   await expect.poll(() => acts('vendor.login')).toEqual([{ action: 'vendor.login', entity: 'vendor', entity_id: NEW1, new_value: 'username, email' }]);
   await expect.poll(() => acts('vendor.bank')).toEqual([{ action: 'vendor.bank', entity: 'vendor', entity_id: NEW1, new_value: 'bank' }]);
   await expect(note(page)).toContainText('اتضاف المبتكر Wood & Rope');
-  await expect(note(page)).toContainText('هيوصله لينك التفعيل لما بوابة المبتكر تشتغل');
+  await expect(note(page)).toContainText('الباسورد المؤقت جاهز تبعته له');
   await expect(note(page)).not.toContainText('اتبعت');
+  await expect(note(page)).not.toContainText('لينك');
   const ls = loginSec(page);
   await expect(info(ls, page, 'اسم المستخدم')).toHaveText('wood.rope');
   await expect(info(ls, page, 'الإيميل')).toHaveText('wood.dev@ibtekr.local');
   await expect(ls.locator('[data-login-status]')).toHaveText('مستني التفعيل');
-  await expect(info(ls, page, 'الباسورد')).toContainText('لينك التفعيل — بيتبعت مع البوابة');
-  await expect(ls.getByRole('button', { name: 'إظهار' })).toHaveCount(0);
-  expect(mock.vendorLogins.find((l) => l.vendor_id === NEW1)).toMatchObject({ status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null });
+  await expect(info(ls, page, 'الباسورد')).toContainText('••••••••');
+  await expect(ls.getByRole('button', { name: 'إظهار' })).toHaveCount(1);
+  await expect(ls).not.toContainText('لينك');
+  await expect(page.locator('body')).not.toContainText(pw);
+  expect(mock.vendorLogins.find((l) => l.vendor_id === NEW1)).toMatchObject({ status: 'invited', must_change: true, invite_sent_at: null, pw_mode: 'temp' });
+  expect(mock.vendorLogins.find((l) => l.vendor_id === NEW1).password_set_at).not.toBeNull();
 });
 
 test('a temporary password from the generator passes the rules and reaches the RPC alone: in no write, no client log, nowhere on the page after; the server logs vendor.login.password; the note says it is ready to send', async ({ page }) => {
   await openVendors(page);
   const m = await openAdd(page);
   await m.locator('#v-name').fill('Zaan'); await pickOption(page, 'v-cat', 'هدايا'); await m.locator('#v-phone').fill('01000000008'); await m.locator('#v-login-email').fill('zaan.dev@ibtekr.local');
-  await m.locator('[data-pwmode=temp]').click();
-  await expect(m.locator('#v-login-pw')).toHaveAttribute('type', 'password');
+  await expect(m.locator('#v-login-pw')).toHaveAttribute('type', 'password'); // there from the start: the only mode
   await m.locator('#v-login-pw').fill('short');
   await expect(m.locator('.pw-rules li.ok')).toHaveCount(2); // a letter, no spaces; not 8 chars, no digit
   await m.locator('[data-genpw]').click();
@@ -149,17 +156,18 @@ test('the username: suggested from the name until typed, a taken one refused loc
   await m.locator('#v-login-user').fill('Antikiano');
   await m.locator('#v-name').fill('Antik Store'); await expect(m.locator('#v-login-user')).toHaveValue('Antikiano'); // typed once: the name no longer drives it
   await pickOption(page, 'v-cat', 'هدايا'); await m.locator('#v-phone').fill('01000000008'); await m.locator('#v-login-email').fill('antik.dev@ibtekr.local');
-  await pickOption(page, 'v-bank-method', 'نقدي عند التسليم');
+  await pickOption(page, 'v-bank-method', 'نقدي عند التسليم'); await m.locator('[data-genpw]').click();
   await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
   await expect(m.locator('#v-login-user-err')).toHaveText('اسم المستخدم ده مستخدم قبل كده — جرّب antikiano2'); // lower-cased: Antikiano's
   expect(writes()).toEqual([]);
   await m.locator('#v-login-user').fill('antik.store');
-  mock.vendorLogins.push({ vendor_id: V1, username: 'antik.store', email: 'other.dev@ibtekr.local', pw_mode: 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: 'سارة أحمد', created_at: '2026-10-22T00:00:00Z', updated_at: '2026-10-22T00:00:00Z' }); // another member took it
+  mock.vendorLogins.push({ vendor_id: V1, username: 'antik.store', email: 'other.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: 'سارة أحمد', created_at: '2026-10-22T00:00:00Z', updated_at: '2026-10-22T00:00:00Z' }); // another member took it
   await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
   await expect(drawer(page)).toBeVisible();
   await expect(note(page)).toContainText('اتضاف المبتكر Antik Store — ناقص: بيانات الدخول (اسم المستخدم ده مستخدم قبل كده). كمّله من ملفه.');
   await expect(drawer(page).locator('[data-missing]')).toHaveText('ناقص: بيانات الدخول');
   expect(writes().filter((w) => w.op === 'insert').map((w) => w.table)).toEqual(['vendors', 'vendor_rates', 'vendor_bank']); // the login insert was refused, the rest stands
+  expect(mock.rpcs).toEqual([]); // no password without a login row
   expect(mock.rpcs).toEqual([]);
   await expect(loginSec(page).locator('[data-login-status]')).toHaveText('مفيش حساب دخول');
   await expect(loginSec(page).getByRole('button', { name: 'إضافة بيانات الدخول' })).toBeVisible();
@@ -221,7 +229,7 @@ test('ops (vendors.edit = P) and accounts: the login writes and the RPCs refused
     const c = window.IBSupabase.client;
     const a = await c.rpc('vendor_login_reveal', { p_vendor: id });
     const b = await c.rpc('vendor_login_set_password', { p_vendor: id, p_password: 'Test1234' });
-    const d = await c.from('vendor_logins').insert({ vendor_id: 'a0000000-0000-4000-8000-000000000001', username: 'x.y.z', email: 'x.dev@ibtekr.local', pw_mode: 'link' });
+    const d = await c.from('vendor_logins').insert({ vendor_id: 'a0000000-0000-4000-8000-000000000001', username: 'x.y.z', email: 'x.dev@ibtekr.local', pw_mode: 'temp' });
     const e = await c.from('vendor_logins').select('vendor_id, secret_id');
     const f = await c.from('vendor_logins').select('*');
     return [a.error && a.error.code, b.error && b.error.code, d.error && d.error.code, e.error && e.error.code, f.error && f.error.code];
@@ -303,7 +311,7 @@ test('«متابعة الموردين» (vendors.edit = F): reveals the temporar
   await expect(info(loginSec(page), page, 'الباسورد')).toContainText('••••••••');
 });
 
-test('«ناقص» in the drawer header (the admin sees the three pieces); the login added from the drawer is an insert and shrinks it; a weak password or a server without Vault is refused with a clear message', async ({ page }) => {
+test('«ناقص» in the drawer header (the admin sees the three pieces); the login added from the drawer comes with its temporary password (the insert, then the RPC) and shrinks it; a weak password is refused on the page; a server without Vault keeps the row and names the password as missing', async ({ page }) => {
   await openVendors(page);
   await openDrawer(page, V1);
   await expect(drawer(page).locator('[data-missing]')).toHaveText('ناقص: بيانات الدخول / الإيميل / الحساب البنكي');
@@ -312,33 +320,43 @@ test('«ناقص» in the drawer header (the admin sees the three pieces); the l
   await expect(loginSec(page).locator('[data-copy-login]')).toHaveCount(0);
   await loginSec(page).getByRole('button', { name: 'إضافة بيانات الدخول' }).click();
   await expect(modal(page).locator('#l-login-user')).toHaveValue('art.craft');
-  await expect(modal(page).locator('[data-newpw]')).toHaveCount(0); // no temporary password before the row exists
+  await expect(modal(page).locator('[data-newpw]')).toHaveCount(0); // the password field is already there: a new login carries its password
+  await expect(modal(page).locator('#l-login-pw')).toHaveAttribute('type', 'password');
+  await expect(modal(page).locator('[data-pwmode]')).toHaveCount(0); await expect(modal(page)).not.toContainText('لينك');
   await modal(page).locator('#l-login-user').fill('antikiano');
   await modal(page).locator('#l-login-email').fill('art.dev@ibtekr.local');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect(modal(page).locator('#l-login-user-err')).toHaveText('اسم المستخدم ده مستخدم قبل كده — جرّب antikiano2');
-  await modal(page).locator('#l-login-user').fill('art.craft');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect.poll(() => writes().filter((w) => w.table === 'vendor_logins')).toEqual([{ table: 'vendor_logins', op: 'insert', vendor_id: V1, username: 'art.craft', email: 'art.dev@ibtekr.local', pw_mode: 'link', created_by: 'صفوت كمال' }]);
-  await expect(drawer(page).locator('[data-missing]')).toHaveText('ناقص: الحساب البنكي');
-  await expect(loginSec(page).locator('[data-login-status]')).toHaveText('مستني التفعيل');
-  await expect.poll(() => acts('vendor.login')).toEqual([{ action: 'vendor.login', entity: 'vendor', entity_id: V1, new_value: 'username, email' }]);
-  await expect(section(page, 'سجل النشاط')).toContainText('صفوت كمال عدّل بيانات الدخول (username, email)');
-  // a new temporary password now possible; a weak one is refused on the page, a server without Vault with its message
-  await loginSec(page).getByRole('button', { name: 'تعديل بيانات الدخول' }).click();
-  await modal(page).locator('[data-newpw]').click();
   await modal(page).locator('#l-login-pw').fill('weak');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(modal(page).locator('#l-login-user-err')).toHaveText('اسم المستخدم ده مستخدم قبل كده — جرّب antikiano2');
   await expect(modal(page).locator('#l-login-pw-err')).toContainText('الباسورد لازم');
-  expect(mock.rpcs).toEqual([]);
-  mock.vaultDown = true;
+  expect(writes()).toEqual([]); expect(mock.rpcs).toEqual([]);
+  await modal(page).locator('#l-login-user').fill('art.craft');
   await modal(page).locator('#l-login-pw').fill('Test1234');
+  // a server without Vault: the row is inserted, the password step refused → the note names it, the drawer shows the row without a password
+  mock.vaultDown = true;
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(note(page)).toContainText('اتحفظت بيانات الدخول — ناقص: الباسورد المؤقت (');
   await expect(note(page)).toContainText('Vault مش شغّال');
+  await expect.poll(() => writes().filter((w) => w.table === 'vendor_logins')).toEqual([{ table: 'vendor_logins', op: 'insert', vendor_id: V1, username: 'art.craft', email: 'art.dev@ibtekr.local', pw_mode: 'temp', created_by: 'صفوت كمال' }]);
   expect(mock.rpcs).toEqual([{ fn: 'vendor_login_set_password', vendor_id: V1, by: ADMIN, result: '0A000' }]);
   expect(mock.vault.size).toBe(1);
-  await expect(info(loginSec(page), page, 'الباسورد')).toContainText('لينك التفعيل — بيتبعت مع البوابة'); // still none
+  await expect(drawer(page).locator('[data-missing]')).toHaveText('ناقص: الحساب البنكي');
+  await expect(loginSec(page).locator('[data-login-status]')).toHaveText('مستني التفعيل');
+  await expect(info(loginSec(page), page, 'الباسورد')).toContainText('باسورد مؤقت — لسه ماتعملش');
+  await expect(loginSec(page)).not.toContainText('لينك');
+  await expect.poll(() => acts('vendor.login')).toEqual([{ action: 'vendor.login', entity: 'vendor', entity_id: V1, new_value: 'username, email' }]);
+  await expect(section(page, 'سجل النشاط')).toContainText('صفوت كمال عدّل بيانات الدخول (username, email)');
+  // «تعديل» on the row: username + e-mail, the password behind «اعمل باسورد مؤقت جديد» — with Vault back the RPC alone
   mock.vaultDown = false;
+  await loginSec(page).getByRole('button', { name: 'تعديل بيانات الدخول' }).click();
+  await expect(modal(page).locator('#l-login-pw')).toHaveCount(0);
+  await modal(page).locator('[data-newpw]').click();
+  await modal(page).locator('#l-login-pw').fill('Test1234');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(note(page)).toContainText('الباسورد المؤقت جاهز تبعته له');
+  expect(mock.rpcs.map((r) => r.result)).toEqual(['0A000', 'ok']);
+  expect(writes().filter((w) => w.table === 'vendor_logins')).toHaveLength(1); // the password is no table write
+  await expect(info(loginSec(page), page, 'الباسورد')).toContainText('••••••••');
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   await openDrawer(page, V2);
   await expect(drawer(page).locator('[data-missing]')).toHaveText('ناقص: الحساب البنكي');
@@ -346,17 +364,17 @@ test('«ناقص» in the drawer header (the admin sees the three pieces); the l
   await openByHash(page, V3);
   await expect(drawer(page).locator('[data-missing]')).toHaveCount(0);
   await expect(loginSec(page).locator('[data-login-status]')).toHaveText('مستني التفعيل');
-  await expect(info(loginSec(page), page, 'الباسورد')).toContainText('لينك التفعيل — بيتبعت مع البوابة');
+  await expect(info(loginSec(page), page, 'الباسورد')).toContainText('باسورد مؤقت — لسه ماتعملش'); // a row whose password step was refused
   // Task A's contract, straight at the server with the admin's token: an upsert on vendor_logins (no update grant on vendor_id /
   // created_by), a PATCH of a server column and of created_by are refused (42501); a missing e-mail is 23502; the RPCs on a maker
   // without a login row raise P0002 (nothing logged); a password past 128 characters is 22023
   const direct = await page.evaluate(async ([v1, v2]) => {
     const c = window.IBSupabase.client; const code = (r) => (r.error ? r.error.code : 'ok');
-    const up = await c.from('vendor_logins').upsert({ vendor_id: v2, username: 'antikiano', email: 'a.dev@ibtekr.local', pw_mode: 'link' }, { onConflict: 'vendor_id' });
+    const up = await c.from('vendor_logins').upsert({ vendor_id: v2, username: 'antikiano', email: 'a.dev@ibtekr.local', pw_mode: 'temp' }, { onConflict: 'vendor_id' });
     const srv = await c.from('vendor_logins').update({ must_change: false }).eq('vendor_id', v2);
     const cb = await c.from('vendor_logins').update({ created_by: 'سارة أحمد' }).eq('vendor_id', v2);
     const act = await c.from('vendor_logins').update({ status: 'active' }).eq('vendor_id', v2);
-    const noMail = await c.from('vendor_logins').insert({ vendor_id: 'b0000000-0000-4000-8000-000000000009', username: 'no.mail', pw_mode: 'link' });
+    const noMail = await c.from('vendor_logins').insert({ vendor_id: 'b0000000-0000-4000-8000-000000000009', username: 'no.mail', pw_mode: 'temp' });
     const rv = await c.rpc('vendor_login_reveal', { p_vendor: 'b0000000-0000-4000-8000-000000000009' });
     const sp = await c.rpc('vendor_login_set_password', { p_vendor: 'b0000000-0000-4000-8000-000000000009', p_password: 'Test1234' });
     const long = await c.rpc('vendor_login_set_password', { p_vendor: v2, p_password: 'Test1234' + 'x'.repeat(121) });

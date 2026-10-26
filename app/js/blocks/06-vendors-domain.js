@@ -42,8 +42,8 @@
   function validateLogin(l) {
     const e = {}; const u = String(l.username || '').trim().toLowerCase();
     if (!u) e.username = 'اكتب اسم المستخدم'; else if (!userOk(u)) e.username = 'من 3 لـ 30: حروف إنجليزي صغيرة وأرقام و . _ بس';
-    if (!clean(l.email, 120)) e.email = 'اكتب الإيميل — عليه بيوصل لينك التفعيل واسترجاع الباسورد'; else if (!emailOk(l.email)) e.email = 'اكتب إيميل صحيح';
-    if (l.pwMode === 'temp') { const iss = passwordIssues(l.password); if (iss.length) e.password = 'الباسورد لازم: ' + iss.join('، '); }
+    if (!clean(l.email, 120)) e.email = 'اكتب الإيميل — عليه بيوصل استرجاع الباسورد من بوابة المبتكر'; else if (!emailOk(l.email)) e.email = 'اكتب إيميل صحيح';
+    if (l.pwMode === 'temp') { const iss = passwordIssues(l.password); if (iss.length) e.password = 'الباسورد لازم: ' + iss.join('، '); } // pwMode temp = this form carries the temporary password (the only mode since 26 Oct: no invite link)
     return e;
   }
   function validateBank(b) {

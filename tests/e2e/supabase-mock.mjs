@@ -153,9 +153,9 @@ function ordersSeed() {
       vendor(3, 2047, 'Bian eg', 'inactive', { aliases: ['Bian'], phone: '01000000000', category: 'ديكور منزلي' })],
     vendorRates: [rate(1, 1, 35, '2026-03-01'), rate(2, 2, 40, '2026-03-01'), rate(3, 2, 45, '2026-10-01')],
     vendorBank: [{ vendor_id: VND(3), method: 'bank', bank_name: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: IBAN, wallet: '01000000000', updated_by: 'منى حسن', updated_at: T0 }],
-    // 0012 (plan 3.1): Antikiano with a temporary password in the vault (secret_id → the vault entry), Bian eg invited by link
+    // 0012 (plan 3.1): Antikiano with a temporary password in the vault (secret_id → the vault entry), Bian eg with a row but no password yet
     vendorLogins: [{ vendor_id: VND(2), username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: T0, secret_id: SECRET_ID, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 },
-      { vendor_id: VND(3), username: 'bian.eg', email: 'bian.dev@ibtekr.local', pw_mode: 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 }],
+      { vendor_id: VND(3), username: 'bian.eg', email: 'bian.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 }], // bian.eg: a row whose password step was refused (no password yet)
     vault: new Map([[SECRET_ID, TEST_PW]]), // vault.secrets: id → the decrypted secret (never read by the client)
     objects: new Map([[CONTRACT_PATH, { type: 'application/pdf', bytes: CONTRACT_BYTES }]]), // the bucket vendor-contracts
     products: [product(9001, 'IBTA4040PAHC000013', 'Cushion', IMG.cushion, 1, 'cushion'), product(9002, 'IBTAMCTOWM200X10014', 'Macrame Curtain', IMG.curtain, 2, 'macrame-curtain'),

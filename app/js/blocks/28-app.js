@@ -1583,12 +1583,10 @@
         rules(f.password), Button({ size: 'sm', icon: 'sparkle', label: 'اقترح باسورد قوي', attrs: { 'data-genpw': '' }, onClick: () => { f.password = VD.genPassword(); f.showPw = true; redraw(); } })]; };
     return [h('div', { class: 'row cols2' },
         U.TextInput({ id: px + '-user', label: 'اسم المستخدم', required: true, dir: 'ltr', autocomplete: 'off', value: f.username, error: errs.username, placeholder: 'wood.rope', help: 'للدخول على بوابة المبتكر — حروف إنجليزي صغيرة وأرقام و . _', onInput: (x) => { f.username = x.trim().toLowerCase(); f.userTouched = true; } }),
-        U.TextInput({ id: px + '-email', label: 'الإيميل', required: true, dir: 'ltr', inputmode: 'email', autocomplete: 'off', value: f.email, error: errs.email, placeholder: 'name@example.com', help: 'عليه لينك التفعيل واسترجاع الباسورد', onInput: (x) => { f.email = x; } })),
-      opts.noPassword ? null : U.FieldShell({ id: px + '-pwmode', label: 'الباسورد', required: true }, h('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'طريقة الباسورد' },
-        [['link', 'ابعتله لينك يعمل الباسورد بنفسه'], ['temp', 'اكتب باسورد مؤقت']].map(([k, l]) => h('button', { type: 'button', class: 'chip', role: 'radio', 'aria-checked': String(f.pwMode === k), 'aria-pressed': String(f.pwMode === k), 'data-pwmode': k, onClick: () => { f.pwMode = k; redraw(); } }, l)))),
-      opts.noPassword ? null : (f.pwMode === 'temp' ? pwBox() : null),
-      // decision 5 (honest): the link is recorded as a choice — the e-mail goes out with the maker portal, nothing is sent today
-      opts.noPassword ? null : U.InlineNote({ children: f.pwMode === 'temp' ? 'الباسورد المؤقت بيتحفظ مشفّر عشان الدعم: الأدمن ومتابعة المبتكرين يقدروا يظهروه من ملف المبتكر (وكل إظهار بيتسجل). لما المبتكر يغيّره بنفسه مش بيتحفظ.' : 'هيوصله لينك يعمل منه الباسورد بنفسه لما بوابة المبتكر تشتغل — دلوقتي اختيارك بيتسجل بس ومفيش إيميل بيتبعت. اسم المستخدم والإيميل بيفضلوا ظاهرين عندك في ملفه.' })].flat().filter(Boolean);
+        U.TextInput({ id: px + '-email', label: 'الإيميل', required: true, dir: 'ltr', inputmode: 'email', autocomplete: 'off', value: f.email, error: errs.email, placeholder: 'name@example.com', help: 'لاسترجاع الباسورد من بوابة المبتكر', onInput: (x) => { f.email = x; } })),
+      // owner 26 Oct (evening): no «ابعتله لينك يعمل الباسورد بنفسه» — the temporary password is the only way (decision 5 withdrawn)
+      opts.noPassword ? null : pwBox(),
+      opts.noPassword ? null : U.InlineNote({ children: 'الباسورد المؤقت بيتحفظ مشفّر عشان الدعم: الأدمن ومتابعة المبتكرين يقدروا يظهروه من ملف المبتكر (وكل إظهار بيتسجل). لما المبتكر يغيّره بنفسه مش بيتحفظ.' })].flat().filter(Boolean);
   }
   function bankFields(f, errs, redraw, px) {
     const m = f.method; const t = (id, label, key, o = {}) => U.TextInput(Object.assign({ id: px + '-' + id, label, value: f[key], error: errs[key], onInput: (x) => { f[key] = x; } }, o));
@@ -1601,13 +1599,13 @@
   }
 
   // ----- add vendor modal (Figma: Modal / Add vendor; the owner's prototype of 26 Oct — phase 3.1 decision 9) -----
-  // Three sections for a new maker: the basics, «بيانات الدخول» (username, e-mail, a link or a temporary password) and «الحساب البنكي»
-  // (when the caller sees bank rows). The link is the default; the bank is required when its section shows (no IBMakerDefaults).
+  // Three sections for a new maker: the basics, «بيانات الدخول» (username, e-mail and the temporary password — required; the invite
+  // link was withdrawn by the owner on 26 Oct) and «الحساب البنكي» (when the caller sees bank rows; required when it shows — no IBMakerDefaults).
   // The edit popup of an existing maker (openAddVendor(existing)) is unchanged. A name or alias already in the registry is refused
   // (decision 2: every Dokan store is already here) and the file is one click away.
   function openAddVendor(existing) {
     const f = existing ? { name: existing.name, legalName: existing.legalName || '', category: existing.category, phone: existing.phone, altPhone: existing.altPhone || '', email: existing.email || '', address: existing.address || '', instagram: existing.instagram || '', storeUrl: existing.storeUrl || '', rate: String(existing.rate), leadDays: String(existing.leadDays), status: existing.status, aliases: existing.aliases.join('، '), depositPolicy: existing.depositPolicy || '', notes: existing.notes || '' }
-      : { name: '', legalName: '', category: '', phone: '', altPhone: '', email: '', address: '', instagram: '', storeUrl: '', rate: '40', leadDays: '7', status: 'active', aliases: '', depositPolicy: '', notes: '', username: '', pwMode: 'link', password: '', method: '', bankName: '', holder: '', iban: '', wallet: '' };
+      : { name: '', legalName: '', category: '', phone: '', altPhone: '', email: '', address: '', instagram: '', storeUrl: '', rate: '40', leadDays: '7', status: 'active', aliases: '', depositPolicy: '', notes: '', username: '', pwMode: 'temp', password: '', method: '', bankName: '', holder: '', iban: '', wallet: '' };
     const canBank = vstore.canBank(); const bankReq = true;
     let errs = {}; let modal = null; let dup = null;
     const txt = (id, label, key, opts = {}) => U.TextInput(Object.assign({ id, label, value: f[key], error: errs[key], onInput: (v) => { f[key] = v; } }, opts));
@@ -1642,13 +1640,13 @@
       // decision 10: the store's create runs the sequence (vendor → rate → login → password → bank); a step refused after the vendor's
       // insert leaves the vendor and is named here — the password travels inside `login` only and is dropped once the call is done
       const input = { name: f.name, legalName: f.legalName, category: f.category, phone: f.phone, altPhone: f.altPhone, email: f.email, address: f.address, instagram: f.instagram, storeUrl: f.storeUrl, rate: f.rate, leadDays: f.leadDays, status: f.status, aliases: f.aliases, depositPolicy: f.depositPolicy, notes: f.notes,
-        login: { username: f.username, pwMode: f.pwMode, password: f.pwMode === 'temp' ? f.password : '' }, bank: canBank && f.method ? { method: f.method, bankName: f.bankName, holder: f.holder, iban: f.iban, wallet: f.wallet } : null };
+        login: { username: f.username, password: f.password }, bank: canBank && f.method ? { method: f.method, bankName: f.bankName, holder: f.holder, iban: f.iban, wallet: f.wallet } : null };
       const STEP = { rate: 'النسبة', login: 'بيانات الدخول', password: 'الباسورد المؤقت', bank: 'الحساب البنكي' };
       Promise.resolve().then(() => vstore.create(input, vstore.actor())).then((res) => {
         const v = res.vendor; const miss = (res.missing || []).map((k) => STEP[k] + (res.reasons && VMSG[res.reasons[k]] ? ' (' + VMSG[res.reasons[k]] + ')' : ''));
         input.login.password = ''; f.password = '';
         log.append({ action: 'vendor.create', actor: ME.name, newValue: v.id }); modal.close(); state.vfilter.q = '';
-        vnotify(miss.length ? 'warning' : 'success', 'اتضاف المبتكر ' + v.name + (miss.length ? ' — ناقص: ' + miss.join('، ') + '. كمّله من ملفه.' : ' · ' + (f.pwMode === 'temp' ? 'الباسورد المؤقت جاهز تبعته له' : 'هيوصله لينك التفعيل لما بوابة المبتكر تشتغل') + '.'));
+        vnotify(miss.length ? 'warning' : 'success', 'اتضاف المبتكر ' + v.name + (miss.length ? ' — ناقص: ' + miss.join('، ') + '. كمّله من ملفه.' : ' · الباسورد المؤقت جاهز تبعته له.'));
         openVendor(v.id);
       }, (e) => { errs._form = e.message; draw(); });
     }
@@ -1714,19 +1712,29 @@
         U.InlineNote({ kind: 'warning', children: 'بيانات حساسة — التعديل بيتسجل في السجل باسمك.' })];
       m = U.Modal({ title: 'بيانات الحساب البنكي — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: () => { m.close(); act(() => vstore.setBank(id, f, vstore.actor()), 'اتحفظ الحساب البنكي.'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
     }
-    // «بيانات الدخول» popup (decision 9 b): username + e-mail (loginFields without the password section); «اعمل باسورد مؤقت جديد» opens the
-    // password field with the generator for a maker who already has a login (the RPC needs his row). Writes: setLogin, then setLoginPassword.
+    // «بيانات الدخول» popup (decision 9 b; owner 26 Oct: no invite link). A maker without a login row gets username + e-mail + the
+    // temporary password together — vstore.addLogin (the row, then the RPC: it needs the row). An existing row edits username + e-mail
+    // (setLogin); «اعمل باسورد مؤقت جديد» opens the password field with the generator (setLoginPassword).
     function loginForm(v) {
       const L0 = v.login || {}; const had = !!L0.username;
-      const f = { username: L0.username || VD.suggestUsername(v.name, (u) => vstore.usernameTaken(u, id)), email: L0.email || v.email || '', pwMode: 'temp', password: '', showPw: false, newPw: false }; let errs = {}; let m = null;
+      const f = { username: L0.username || VD.suggestUsername(v.name, (u) => vstore.usernameTaken(u, id)), email: L0.email || v.email || '', pwMode: 'temp', password: '', showPw: false, newPw: !had }; let errs = {}; let m = null;
       const redraw = () => m.setBody(...body());
       const body = () => [loginFields(f, errs, redraw, 'l-login', { noPassword: !f.newPw }),
-        had && !f.newPw ? Button({ size: 'sm', icon: 'sparkle', label: 'اعمل باسورد مؤقت جديد', attrs: { 'data-newpw': '' }, onClick: () => { f.newPw = true; f.pwMode = 'temp'; f.password = VD.genPassword(); f.showPw = true; redraw(); } }) : null,
-        errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: had ? 'التعديل بيتسجل في سجل النشاط باسمك.' : 'بيانات الدخول بتتسجل في النظام — لينك التفعيل بيتبعت مع بوابة المبتكر.' })].flat().filter(Boolean);
+        had && !f.newPw ? Button({ size: 'sm', icon: 'sparkle', label: 'اعمل باسورد مؤقت جديد', attrs: { 'data-newpw': '' }, onClick: () => { f.newPw = true; f.password = VD.genPassword(); f.showPw = true; redraw(); } }) : null,
+        errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: had ? 'التعديل بيتسجل في سجل النشاط باسمك.' : 'الإضافة بتتسجل في سجل النشاط باسمك.' })].flat().filter(Boolean);
       function save() {
-        errs = VD.validateLogin({ username: f.username, email: f.email, pwMode: f.newPw ? 'temp' : 'link', password: f.password });
+        errs = VD.validateLogin(f.newPw ? { username: f.username, email: f.email, pwMode: 'temp', password: f.password } : { username: f.username, email: f.email });
         if (!errs.username && vstore.usernameTaken(f.username, id)) errs.username = 'اسم المستخدم ده مستخدم قبل كده — جرّب ' + VD.suggestUsername(f.username, (u) => vstore.usernameTaken(u, id));
         if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; redraw(); return; }
+        if (!had) { // the row and its password in one call; a refused insert keeps the popup open with the message (the password still typed)
+          const pw = f.password;
+          Promise.resolve().then(() => vstore.addLogin(id, { username: f.username, email: f.email, password: pw }, vstore.actor())).then((res) => {
+            f.password = ''; m.close(); pwShown = null; log.append({ action: 'vendor.update', actor: ME.name, newValue: id });
+            const miss = res.missing && res.missing.length;
+            vnotify(miss ? 'warning' : 'success', 'اتحفظت بيانات الدخول' + (miss ? ' — ناقص: الباسورد المؤقت' + (res.reasons && VMSG[res.reasons.password] ? ' (' + VMSG[res.reasons.password] + ')' : '') + '. اعمله من «تعديل».' : ' والباسورد المؤقت جاهز تبعته له.')); draw();
+          }, (e) => { errs._form = e.message; redraw(); });
+          return;
+        }
         try { vstore.setLogin(id, { username: f.username, email: f.email }, vstore.actor()); } catch (e) { errs._form = e.message; redraw(); return; }
         m.close(); log.append({ action: 'vendor.update', actor: ME.name, newValue: id });
         if (f.newPw) { const pw = f.password; f.password = ''; vstore.setLoginPassword(id, pw, vstore.actor()).then(() => { pwShown = null; vnotify('success', 'اتحفظت بيانات الدخول والباسورد المؤقت جاهز تبعته له.'); draw(); }, (e) => { vnotify('error', e.message); draw(); }); }
@@ -1808,14 +1816,14 @@
         const openContract = () => { if (!window.IBVendors) return; window.IBVendors.contractUrl(id).then((r) => { if (r.ok) window.open(r.url, '_blank', 'noopener'); else vnotify('error', VMSG[r.reason] || 'تعذّر فتح العقد.'); }); };
         // decision 9 b: «بيانات الدخول» — the username, the e-mail, the login status, the temporary password behind «إظهار» (the server logs
         // every reveal), «انسخ بيانات الدخول للمبتكر» (the password fetched at copy time), «تعديل» and «وقف / شغّل حساب الدخول» for the
-        // admin and vendors.edit = F. Nothing here says a link or a password was sent: the link goes out with the maker portal.
+        // admin and vendors.edit = F. Nothing here says the password was sent: the member sends it to the maker himself (no invite link, 26 Oct).
         const loginSection = () => {
           const L0 = v.login && v.login.username ? v.login : null; const ls = L0 ? L0.status : 'none'; const email = (L0 && L0.email) || v.email || '';
           const LTONE = { none: 'neutral', invited: 'gold', active: 'success', disabled: 'error' };
-          const pwCell = !L0 ? null : !L0.hasPassword ? h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, L0.pwMode === 'temp' ? 'باسورد مؤقت — لسه ماتعملش' : 'لينك التفعيل — بيتبعت مع البوابة')
+          const pwCell = !L0 ? null : !L0.hasPassword ? h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, 'باسورد مؤقت — لسه ماتعملش')
             : h('span', { class: 'pw-cell' }, h('span', { dir: 'ltr', class: 'pw-val' }, pwShown != null ? pwShown : '••••••••'),
               canLogin ? Button({ type: 'text', size: 'sm', label: pwShown != null ? 'إخفاء' : 'إظهار', attrs: { 'data-pw-reveal': '', 'aria-pressed': String(pwShown != null) }, onClick: () => { if (pwShown != null) { pwShown = null; draw(); return; } vstore.revealPassword(id, vstore.actor()).then((p) => { pwShown = p == null ? '—' : p; draw(); }, (e) => vnotify('error', e.message)); } }) : null);
-          const copyLogin = () => { const lines = ['اسم المستخدم: ' + L0.username, 'الإيميل: ' + (email || '—')]; const done = (pw) => copyText(lines.concat([pw ? 'الباسورد المؤقت: ' + pw : L0.pwMode === 'temp' || L0.hasPassword ? 'الباسورد المؤقت: اطلبه من الأدمن أو متابعة المبتكرين' : 'لينك التفعيل: هيوصله لما بوابة المبتكر تشتغل']).join('\n'), 'بيانات الدخول');
+          const copyLogin = () => { const lines = ['اسم المستخدم: ' + L0.username, 'الإيميل: ' + (email || '—')]; const done = (pw) => copyText(lines.concat([pw ? 'الباسورد المؤقت: ' + pw : L0.hasPassword ? 'الباسورد المؤقت: اطلبه من الأدمن أو متابعة المبتكرين' : 'الباسورد المؤقت: لسه ماتعملش']).join('\n'), 'بيانات الدخول');
             if (canLogin && L0.hasPassword) vstore.revealPassword(id, vstore.actor()).then(done, (e) => vnotify('error', e.message)); else done(null); };
           return section('بيانات الدخول', canLogin ? Button({ type: 'text', size: 'sm', label: L0 ? 'تعديل' : 'إضافة', attrs: { 'aria-label': (L0 ? 'تعديل' : 'إضافة') + ' بيانات الدخول', 'data-edit': 'login' }, onClick: () => loginForm(v) }) : null,
             U.InfoRow({ label: 'اسم المستخدم', value: L0 ? h('span', { dir: 'ltr' }, L0.username) : null, copy: !!L0, onCopy: () => copy(L0.username, 'اسم المستخدم') }),
@@ -1824,7 +1832,7 @@
             U.InfoRow({ label: 'الباسورد', value: pwCell }),
             L0 ? h('div', { class: 'acts-inline' }, Button({ size: 'sm', icon: 'copy', label: 'انسخ بيانات الدخول للمبتكر', attrs: { 'data-copy-login': '' }, onClick: copyLogin }),
               canLogin ? Button({ type: 'text', size: 'sm', label: ls === 'disabled' ? 'شغّل حساب الدخول' : 'وقف حساب الدخول', attrs: { 'data-login-toggle': '' }, onClick: () => act(() => vstore.setLoginStatus(id, ls === 'disabled' ? 'invited' : 'disabled', vstore.actor()), ls === 'disabled' ? 'اتشغّل حساب الدخول.' : 'اتوقف حساب الدخول.') }) : null) : null,
-            U.InlineNote({ children: canLogin ? 'إظهار الباسورد ونسخه بيتسجلوا في السجل باسمك. لينك التفعيل بيتبعت مع بوابة المبتكر.' : 'بيانات الدخول بيديرها الأدمن ومتابعة المبتكرين.' }));
+            U.InlineNote({ children: canLogin ? 'إظهار الباسورد ونسخه بيتسجلوا في السجل باسمك.' : 'بيانات الدخول بيديرها الأدمن ومتابعة المبتكرين.' }));
         };
         const bank = v.bank; const sec = (field, label) => U.SecureField({ label, masked: VD.mask(bank && bank[field]), value: shown.has(field) ? (vstore.reveal(id, field, vstore.actor()) || '—') : '', state: !canBank ? 'hidden' : shown.has(field) ? 'shown' : 'masked', onToggle: () => { if (shown.has(field)) shown.delete(field); else { shown.add(field); log.append({ action: 'vendor.reveal', actor: ME.name, newValue: id + ':' + field }); } draw(); }, onCopy: () => { const val = vstore.reveal(id, field, vstore.actor()); if (val) copy(val, label); } });
       if (vtab === 'info') {

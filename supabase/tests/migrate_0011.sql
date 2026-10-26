@@ -103,7 +103,7 @@ do $$ begin
      from information_schema.column_privileges where table_schema = 'public' and table_name in ('vendors', 'order_items')),
     (select string_agg(table_name || ':' || grantee || ':' || privilege_type, ',' order by table_name, grantee, privilege_type)
      from information_schema.role_table_grants where table_schema = 'public' and table_name in ('vendors', 'vendor_rates', 'vendor_bank', 'order_items')),
-    (select string_agg(t.tgname || ':' || c.relname || ':' || t.tgenabled, ',' order by t.tgname)
+    (select string_agg(t.tgname || ':' || c.relname || ':' || t.tgenabled::text, ',' order by t.tgname)
      from pg_trigger t join pg_class c on c.oid = t.tgrelid where not t.tgisinternal and c.relname in ('vendors', 'vendor_rates')),
     (select string_agg(md5(pg_get_functiondef(oid)) || ':' || prosecdef, ',' order by proname) from pg_proc where proname in ('vendors_guard_update', 'vendor_rates_apply')),
     (select string_agg(conname || ':' || pg_get_constraintdef(oid), ',' order by conname)
@@ -127,7 +127,7 @@ do $$ begin
                from information_schema.column_privileges where table_schema = 'public' and table_name in ('vendors', 'order_items')),
               (select string_agg(table_name || ':' || grantee || ':' || privilege_type, ',' order by table_name, grantee, privilege_type)
                from information_schema.role_table_grants where table_schema = 'public' and table_name in ('vendors', 'vendor_rates', 'vendor_bank', 'order_items')),
-              (select string_agg(t.tgname || ':' || c.relname || ':' || t.tgenabled, ',' order by t.tgname)
+              (select string_agg(t.tgname || ':' || c.relname || ':' || t.tgenabled::text, ',' order by t.tgname)
                from pg_trigger t join pg_class c on c.oid = t.tgrelid where not t.tgisinternal and c.relname in ('vendors', 'vendor_rates')),
               (select string_agg(md5(pg_get_functiondef(oid)) || ':' || prosecdef, ',' order by proname) from pg_proc where proname in ('vendors_guard_update', 'vendor_rates_apply')),
               (select string_agg(conname || ':' || pg_get_constraintdef(oid), ',' order by conname)

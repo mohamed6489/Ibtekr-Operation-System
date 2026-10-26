@@ -97,18 +97,18 @@ do $$ begin
     raise exception 'case vendor_bank columns failed';
   end if;
   -- keys: conname:contype:columns:referenced table:on delete ('c' = cascade, ' ' when not a foreign key)
-  if not ((select string_agg(c.conname || ':' || c.contype || ':' || (select string_agg(a.attname, ',' order by k.ord)
-                                                                     from unnest(c.conkey) with ordinality k (attnum, ord)
-                                                                     join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
-                             || ':' || coalesce((select relname from pg_class where oid = c.confrelid), '∅') || ':' || coalesce(nullif(c.confdeltype, ' '), '∅'), ',' order by c.conname)
+  if not ((select string_agg(c.conname || ':' || c.contype::text || ':' || (select string_agg(a.attname::text, ',' order by k.ord)
+                                                                           from unnest(c.conkey) with ordinality k (attnum, ord)
+                                                                           join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+                             || ':' || coalesce((select relname::text from pg_class where oid = c.confrelid), '∅') || ':' || coalesce(nullif(c.confdeltype::text, ' '), '∅'), ',' order by c.conname)
            from pg_constraint c where c.conrelid = 'public.vendor_rates'::regclass and c.contype in ('p', 'u', 'f'))
           = 'vendor_rates_pkey:p:id:∅:∅,vendor_rates_vendor_id_fkey:f:vendor_id:vendors:c,vendor_rates_vendor_id_since_key:u:vendor_id,since:∅:∅') then
     raise exception 'case vendor_rates keys (pk id, unique (vendor_id, since), fk vendors on delete cascade) failed';
   end if;
-  if not ((select string_agg(c.conname || ':' || c.contype || ':' || (select string_agg(a.attname, ',' order by k.ord)
-                                                                     from unnest(c.conkey) with ordinality k (attnum, ord)
-                                                                     join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
-                             || ':' || coalesce((select relname from pg_class where oid = c.confrelid), '∅') || ':' || coalesce(nullif(c.confdeltype, ' '), '∅'), ',' order by c.conname)
+  if not ((select string_agg(c.conname || ':' || c.contype::text || ':' || (select string_agg(a.attname::text, ',' order by k.ord)
+                                                                           from unnest(c.conkey) with ordinality k (attnum, ord)
+                                                                           join pg_attribute a on a.attrelid = c.conrelid and a.attnum = k.attnum)
+                             || ':' || coalesce((select relname::text from pg_class where oid = c.confrelid), '∅') || ':' || coalesce(nullif(c.confdeltype::text, ' '), '∅'), ',' order by c.conname)
            from pg_constraint c where c.conrelid = 'public.vendor_bank'::regclass and c.contype in ('p', 'f'))
           = 'vendor_bank_pkey:p:vendor_id:∅:∅,vendor_bank_vendor_id_fkey:f:vendor_id:vendors:c') then
     raise exception 'case vendor_bank keys (pk vendor_id, fk vendors on delete cascade) failed';

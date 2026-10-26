@@ -58,6 +58,11 @@
     const m = window.IB_PRODUCT_IMG || {}; const k = String(sku || '').trim();
     return h('span', { class: 'vr-prod' }, k && m[k] ? h('span', { class: 'thumb' }, h('img', { src: 'data:image/jpeg;base64,' + m[k], alt: name || '', loading: 'lazy' })) : h('span', { class: 'thumb', role: 'img', 'aria-label': 'مفيش صورة' }, Icon('box', 'sm')), h('span', null, name || '—'));
   }
+  // review I3 (phase 3.2): the maker report, the period statement, the weekly / daily reports and the shared text still match sub-orders by
+  // store name; only the balance and the drawer KPIs follow a brand transfer (IBVendors.stats). Until phase 4 moves the reports onto the
+  // attribution, a maker touched by a transfer gets this line on each of them.
+  const brandNote = (v) => (v && ((v.brandsEver && v.brandsEver.length) || (v.brands || []).some((b) => !b.origin)) ? 'ملحوظة: التقرير ده بيطابق الأوردرات باسم المتجر — نقل البراندات بيتحسب في رصيد المبتكر والـ KPIs في ملفه بس (التقارير بتاخد النقل في مرحلة الحسابات).' : '');
+  const bn = (v) => (brandNote(v) ? ' · ' + brandNote(v) : '');
   function openVendorReport(name) {
     const OA = window.OrdersApp; const orders = OA ? OA.query({}, 10000).rows.map((r) => OA.get(r.id)).filter(Boolean) : [];
     const v = vstore.findByName(name); const st = (v && vendorStats()[v.id]) || { balance: 0 }; // phase 3: opening + completed shares (IBVendors.stats); deposits / transport from phase 4
@@ -67,7 +72,7 @@
       headers: ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'حالة الأوردر'],
       rows: r.rows.map((x) => [prodThumb(x.sku, x.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + x.oid), x.sid !== x.oid ? h('small', null, ' · فرعي ', h('bdi', { dir: 'ltr' }, '#' + x.sid)) : null), fmt(x.tot), x.status]),
       total: r.rows.length ? ['الإجمالي', String(r.orders) + ' أوردر', fmt(r.value), ''] : null,
-      onRow: (i) => showOrders({ q: r.rows[i].oid }), phone: v && v.phone, email: v && v.email, empty: 'مفيش أوردرات مكتملة أو ملغية للمورد ده.', source: 'الأوردرات (الموقع) + مستحقات المرحلة 3' }, { label: 'تقرير ' + name });
+      onRow: (i) => showOrders({ q: r.rows[i].oid }), phone: v && v.phone, email: v && v.email, empty: 'مفيش أوردرات مكتملة أو ملغية للمورد ده.', note: brandNote(v) || null, source: 'الأوردرات (الموقع) + مستحقات المرحلة 3' }, { label: 'تقرير ' + name });
   }
 
 
@@ -411,7 +416,7 @@
       headers: ['المنتج', 'رقم الأوردر', 'التاريخ', 'القيمة (ج.م)', 'الحالة'],
       rows: r.rows.map((o) => [prodThumb(o.sku, o.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + o.oid)), arDate(o.date), fmt(o.tot), o.status]),
       total: r.rows.length ? ['الإجمالي', String(r.orders) + ' أوردر', '', fmt(r.value), ''] : null,
-      onRow: (i) => showOrders({ q: r.rows[i].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, empty: 'مفيش أوردرات ناجحة أو فاشلة في الفترة دي.', note: 'العربون في الفترة = حركات «عربون» المسجّلة من السيستم بتاريخها (عرابين شيت Balances_Payouts مالهاش تاريخ فمش داخلة). المواصلات = مشاوير المورد في الفترة (من غير المرتجعات).', source: 'الأوردرات + الحركات المالية + شيت المواصلات' }, { label: 'كشف حساب ' + name });
+      onRow: (i) => showOrders({ q: r.rows[i].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, empty: 'مفيش أوردرات ناجحة أو فاشلة في الفترة دي.', note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'العربون في الفترة = حركات «عربون» المسجّلة من السيستم بتاريخها (عرابين شيت Balances_Payouts مالهاش تاريخ فمش داخلة). المواصلات = مشاوير المورد في الفترة (من غير المرتجعات).', source: 'الأوردرات + الحركات المالية + شيت المواصلات' }, { label: 'كشف حساب ' + name });
   }
   // ---------- weekly vendor report (owner 22 Oct): every Sunday on WhatsApp — late + in progress + completed in the week + actual account ----------
   const weeklyCfg = () => ((window.IBKit && window.IBKit.store.vendorWeekly) || { weekday: 'الأحد', at: '10:00 ص' });
@@ -437,7 +442,7 @@
       rows: list.map(([o, k]) => [prodThumb(o.sku, o.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + o.oid)), kindOf(o, k), o.age + ' يوم', fmt(o.tot)]),
       total: r.completed.length ? ['قيمة المكتملة', String(r.completed.length) + ' أوردر', '', '', fmt(r.completedValue)] : null,
       onRow: (i) => showOrders({ q: list[i][0].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, shareText: VD.weeklyVendorText(name, r, per), empty: 'مفيش أوردرات للمورد ده الأسبوع ده.',
-      note: 'الحساب الفعلي = مستحق المورد من الأوردرات المكتملة في الأسبوع (بعد نسبة إبتكر على تاريخ كل أوردر) − المواصلات − العربون في نفس الأسبوع. رسالة المورد مفيهاش نسبة إبتكر.', source: 'الأوردرات + الحركات المالية + شيت المواصلات' }, { label: 'التقرير الأسبوعي ' + name });
+      note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'الحساب الفعلي = مستحق المورد من الأوردرات المكتملة في الأسبوع (بعد نسبة إبتكر على تاريخ كل أوردر) − المواصلات − العربون في نفس الأسبوع. رسالة المورد مفيهاش نسبة إبتكر.', source: 'الأوردرات + الحركات المالية + شيت المواصلات' }, { label: 'التقرير الأسبوعي ' + name });
   }
   // ---------- daily vendor follow-up (owner 22 Oct): replaces the daily late alert — late + at risk + confirmed since yesterday ----------
   function dailyRange() { const t = window.IBKit ? window.IBKit.TODAY : '2026-10-21'; const y = new Date(Date.parse(t + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10); return { from: y, to: t }; }
@@ -452,7 +457,7 @@
       headers: ['المنتج', 'رقم الأوردر', 'الحالة', 'عمر الأوردر', 'القيمة (ج.م)'],
       rows: list.map(([o, k]) => [prodThumb(o.sku, o.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + o.oid)), k, o.age + ' يوم', fmt(o.tot)]),
       onRow: (i) => showOrders({ q: list[i][0].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, shareText: VD.dailyVendorText(name, r, rg.to), empty: 'مفيش حاجة للمورد ده النهارده.',
-      note: 'بدل تنبيه «مورد متأخر» اليومي. الأوردرات الفرعية بتبقى «مؤكد» تلقائي أول ما الأوردر الرئيسي يتأكد.', source: 'الأوردرات' }, { label: 'المتابعة اليومية ' + name });
+      note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'بدل تنبيه «مورد متأخر» اليومي. الأوردرات الفرعية بتبقى «مؤكد» تلقائي أول ما الأوردر الرئيسي يتأكد.', source: 'الأوردرات' }, { label: 'المتابعة اليومية ' + name });
   }
   // ---------- delivery (owner 22 Oct): a sub-order «جاهز للشحن من …» → Bosta waybill for the delivery owner (sender, receiver, total / deposit / remaining) ----------
   const dcfg = () => (window.IBKit && window.IBKit.store.delivery) || { company: 'بوسطة', owner: 'M07', whName: 'مخزن إبتكر', whAddress: '', whPhone: '' };
@@ -1794,7 +1799,7 @@
         h('button', { type: 'button', class: 'opt', role: 'menuitem', 'data-via': 'email', onClick: () => { close(); share('email'); } }, Icon('mail', 'sm'), 'إيميل' + (v.email ? ' — ' + v.email : ''))));
       shareWrap.append(shareBtn);
       async function share(via) {
-        const text = VD.shareText(title, rows); const phone = VD.waPhone(v.phone);
+        const text = VD.shareText(title, rows) + (brandNote(v) ? '\n' + brandNote(v) : ''); const phone = VD.waPhone(v.phone);
         const href = via === 'whatsapp' ? 'https://wa.me/' + phone + '?text=' + encodeURIComponent(text) : 'mailto:' + (v.email || '') + '?subject=' + encodeURIComponent(title) + '&body=' + encodeURIComponent(text);
         let note = '';
         try {

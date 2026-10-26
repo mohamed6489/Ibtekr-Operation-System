@@ -66,7 +66,7 @@
   const MESSAGES = { forbidden: 'مش من صلاحياتك', network: 'الشبكة مش متاحة — التغيير ما اتحفظش، جرّب تاني', in_use: 'ماينفعش يتمسح — عليه أوردرات', too_large: 'الملف أكبر من 10 ميجا', bad_type: 'نوع الملف مش مقبول — PDF أو صورة (PNG / JPG) بس', duplicate: 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني',
     duplicate_username: 'اسم المستخدم ده مستخدم قبل كده', login_exists: 'المبتكر ده عنده بيانات دخول — عدّلها من ملفه', weak_password: 'الباسورد لازم: 8 حروف على الأقل، حرف إنجليزي، رقم، من غير مسافات', no_vault: 'الباسورد المؤقت مش متاح على السيرفر ده دلوقتي (Vault مش شغّال)', no_login: 'اعمل اسم مستخدم الأول', long_password: 'الباسورد أطول من 128 حرف',
     // phase 3.2: the brands (the local refusals and the server's 23505 / 22023 / 23503 say the same)
-    brand_exists: 'فيه براند بنفس الاسم — اختار اسم تاني', brand_same_vendor: 'البراند أصلًا عند المبتكر ده', brand_since_before: 'التاريخ ده قبل آخر نقل للبراند — اختار تاريخ بعده',
+    brand_exists: 'فيه براند بنفس الاسم — اختار اسم تاني', brand_same_vendor: 'البراند أصلًا عند المبتكر ده', brand_same_date: 'فيه نقل للبراند بنفس التاريخ — اختار تاريخ بعده', brand_since_before: 'التاريخ ده قبل آخر نقل للبراند — اختار تاريخ بعده',
     brand_return_before: 'تاريخ الرجوع لازم يكون بعد تاريخ البداية', brand_with_origin: 'البراند أصلًا عند صاحبه', has_brands: 'ماينفعش يتمسح — عليه براندات (ماسك أو كان ماسك براند مبتكر تاني): انقلها أو رجّعها الأول' };
   const PW_MAX = 128; // the server's cap (22023 past it)
   const LOGIN_STATUSES = ['invited', 'active', 'disabled'];
@@ -149,8 +149,9 @@
   function rowAt(b, date) { const h = b.history; if (!h.length) return null; let row = h[0]; for (const x of h) if (!date || x.since <= date) row = x; return row; }
   const ownerOf = (b, date) => { const row = rowAt(b, date); return row ? row.vendor : b.origin; }; // no history yet: the origin
   const lastRow = (b) => (b.history.length ? b.history[b.history.length - 1] : null); // the latest row, the one the server's guard compares with
-  // the special rate in force on `date` (block 06 effectiveRate: the earliest row until one has started; null = none)
-  function brandRateAt(b, date) { if (!b.rates.length) return null; let r = b.rates[0].rate; for (const x of b.rates) if (!date || x.since <= date) r = x.rate; return r == null ? null : r; }
+  // the special rate in force on `date` (block 06 effectiveRate): none until a row has started — a rate «من التاريخ ده» never re-prices
+  // the orders before it (review I1); null = none
+  function brandRateAt(b, date) { let r = null; for (const x of b.rates) if (!date || x.since <= date) r = x.rate; return r == null ? null : r; }
   // the drawer's brand shape: the row in force today gives since / returnOn / temp; rate = the special rate today (null without one, or
   // when the rates are not visible); owner = the maker today; lastSince = the latest row's date (a transfer may not go before it);
   // back = where «رجوع لصاحبه» sends it (the maker before a temporary transfer, else the origin)
@@ -265,7 +266,7 @@
   // the brands' own codes (0013) are told apart by their message: 23503 of vendors_brands_guard_delete names brand_owners_vendor_id_fkey,
   // 23505 of the name index brands_name_key, 22023 of brand_owners_guard says which rule
   const msgOf = (e) => String((e && e.message) || '');
-  const reasonOf = (e) => (!e ? 'network' : e.code === '42501' || e.status === 403 || e.status === 401 || e.statusCode === '403' || e.statusCode === '401' ? 'forbidden' : e.code === '23503' ? (/brand_owners_vendor_id_fkey/.test(msgOf(e)) ? 'has_brands' : 'in_use') : e.code === '23505' ? (/brands_name_key/.test(msgOf(e)) ? 'brand_exists' : 'duplicate') : e.code === '22023' ? (/since before the last transfer/.test(msgOf(e)) ? 'brand_since_before' : /same vendor/.test(msgOf(e)) ? 'brand_same_vendor' : 'weak_password') : e.code === '23514' && /return_on/.test(msgOf(e)) ? 'brand_return_before' : e.code === '0A000' ? 'no_vault' : e.code === 'P0002' ? 'no_login' : e.statusCode === '413' || e.status === 413 ? 'too_large' : e.statusCode === '415' || e.status === 415 ? 'bad_type' : 'network');
+  const reasonOf = (e) => (!e ? 'network' : e.code === '42501' || e.status === 403 || e.status === 401 || e.statusCode === '403' || e.statusCode === '401' ? 'forbidden' : e.code === '23503' ? (/brand_owners_vendor_id_fkey/.test(msgOf(e)) ? 'has_brands' : 'in_use') : e.code === '23505' ? (/brands_name_key/.test(msgOf(e)) ? 'brand_exists' : /brand_owners_brand_id_since_key/.test(msgOf(e)) ? 'brand_same_date' : 'duplicate') : e.code === '22023' ? (/since before the last transfer/.test(msgOf(e)) ? 'brand_since_before' : /same vendor/.test(msgOf(e)) ? 'brand_same_vendor' : 'weak_password') : e.code === '23514' && /return_on/.test(msgOf(e)) ? 'brand_return_before' : e.code === '0A000' ? 'no_vault' : e.code === 'P0002' ? 'no_login' : e.statusCode === '413' || e.status === 413 ? 'too_large' : e.statusCode === '415' || e.status === 415 ? 'bad_type' : 'network');
   // one call of the client → { ok, data } | { ok:false, reason }, never thrown
   async function call(fn) {
     const cl = c();

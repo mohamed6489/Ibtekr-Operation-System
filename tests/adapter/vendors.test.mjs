@@ -663,7 +663,7 @@ test('brands: the shape on each maker (held today / held before), the rates only
   assert.deepEqual(plain([S.brandByName('antikiano store').id, S.brandByName(' W&R ').id, S.brandByName('nobody'), S.brandByName('')]), [B2, B4, null, null]);
   assert.deepEqual(plain(V.data().brands.map((b) => b.name)), ['Antikiano', 'Art Craft', 'Bian eg', 'Wood & Rope']);
   // rateFor: the special rate in force beats the owner's; null from 2027 → the owner's rate that day; a store without a brand: its own rate
-  assert.deepEqual([S.rateFor(V2, '2026-10-19'), S.rateFor(V2, '2026-09-30'), S.rateFor(V2, '2027-01-05'), S.rateFor(V1, '2026-10-19'), S.rateFor(V3, '2026-10-19'), S.rateFor('no-store', '2026-10-19')], [30, 30, null, 35, null, null]); // 2026-09-30: the earliest row until one has started (rateAt's rule); 2027: Bian eg has no rate
+  assert.deepEqual([S.rateFor(V2, '2026-10-19'), S.rateFor(V2, '2026-09-30'), S.rateFor(V2, '2027-01-05'), S.rateFor(V1, '2026-10-19'), S.rateFor(V3, '2026-10-19'), S.rateFor('no-store', '2026-10-19')], [30, 40, null, 35, null, null]); // 2026-09-30: before the first special row → Antikiano's own rate that day (review I1); 2027: Bian eg has no rate
   assert.deepEqual(plain(V.lineShare({ tot: 1000, rate: null, fee: null, vendorId: V2 }, S.get(V3), '2026-10-19')), { share: 700, noRate: false });
   assert.deepEqual(plain(V.lineShare({ tot: 1000, rate: null, fee: null, vendorId: V2 }, S.get(V3), '2027-01-05')), { share: 1000, noRate: true }); // no special rate any more, the holder has none
   assert.deepEqual(plain(V.lineShare({ tot: 1000, rate: 40, fee: 10, vendorId: V2 }, S.get(V3), '2026-10-19')), { share: 590, noRate: false }); // the website's rate on the line wins
@@ -792,11 +792,13 @@ test('transferBrand: the local rules first (the same maker, a date before the la
   assert.deepEqual(opsOf(calls, 'brand_owners').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ brand_id: B1, vendor_id: V2, since: '2026-10-20', return_on: '2026-11-20', reason: 'إجازة', set_by: 'صفوت كمال' }]);
   assert.deepEqual(logs, [['vendor.brand.transfer', 'Art Craft → Antikiano من 2026-10-20 لحد 2026-11-20', { entity: 'vendor', entity_id: V1 }], ['vendor.brand.transfer', 'Art Craft → Antikiano من 2026-10-20 لحد 2026-11-20', { entity: 'vendor', entity_id: V2 }]]);
   assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.id), [V1, V2]);
-  // the same day as the last transfer passes locally (the unique key is the judge); a permanent move has no «لحد»
+  // the same day as the last transfer is refused locally (review I2); the day after passes — a permanent move has no «لحد»
   calls.length = 0; logs.length = 0;
-  S.transferBrand(B2, V1, { since: '2026-10-18' }, S.actor()); await settle();
-  assert.deepEqual(opsOf(calls, 'brand_owners').find((c) => c.op === 'insert').args[0], { brand_id: B2, vendor_id: V1, since: '2026-10-18', return_on: null, reason: null, set_by: 'صفوت كمال' });
-  assert.equal(logs[0][1], 'Antikiano → Art Craft من 2026-10-18');
+  assert.throws(() => S.transferBrand(B2, V1, { since: '2026-10-18' }, S.actor()), /بنفس التاريخ \(2026-10-18\)/);
+  assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
+  S.transferBrand(B2, V1, { since: '2026-10-19' }, S.actor()); await settle();
+  assert.deepEqual(opsOf(calls, 'brand_owners').find((c) => c.op === 'insert').args[0], { brand_id: B2, vendor_id: V1, since: '2026-10-19', return_on: null, reason: null, set_by: 'صفوت كمال' });
+  assert.equal(logs[0][1], 'Antikiano → Art Craft من 2026-10-19');
   // 22023 from the server (a row written meanwhile): the history back, the reason by its message
   events.length = 0; logs.length = 0;
   responses.brand_owners = (ops) => (ops.some((c) => c.op === 'insert') ? { data: null, error: { code: '22023', message: 'since before the last transfer' } } : ok(OWNERS.concat([TRANSFER])));
@@ -808,8 +810,9 @@ test('transferBrand: the local rules first (the same maker, a date before the la
   events.length = 0; S.transferBrand(B2, V1, { since: '2026-10-25' }, S.actor()); await settle();
   assert.deepEqual(events.filter((e) => e.detail.reason).map((e) => e.detail.reason), ['brand_same_vendor']);
   responses.brand_owners = (ops) => (ops.some((c) => c.op === 'insert') ? { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "brand_owners_brand_id_since_key"' } } : ok(OWNERS.concat([TRANSFER])));
-  events.length = 0; S.transferBrand(B2, V1, { since: '2026-10-18' }, S.actor()); await settle();
-  assert.deepEqual(events.filter((e) => e.detail.reason).map((e) => e.detail.reason), ['duplicate']);
+  events.length = 0; S.transferBrand(B2, V1, { since: '2026-10-19' }, S.actor()); await settle(); // a row that landed meanwhile: the server's unique key
+  assert.deepEqual(events.filter((e) => e.detail.reason).map((e) => e.detail.reason), ['brand_same_date']); // the unique (brand_id, since) key, not a rates duplicate (review I2)
+  assert.match(V.MESSAGES.brand_same_date, /بنفس التاريخ/);
   assert.deepEqual([V.MESSAGES.brand_since_before, V.MESSAGES.brand_same_vendor], ['التاريخ ده قبل آخر نقل للبراند — اختار تاريخ بعده', 'البراند أصلًا عند المبتكر ده']);
   const ops = load({ admin: false }); await ops.V.load(); ops.calls.length = 0;
   assert.throws(() => ops.S.transferBrand(B1, V2, { since: '2026-10-25' }, ops.S.actor()), /مش من صلاحياتك/);

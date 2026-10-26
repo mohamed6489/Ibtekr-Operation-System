@@ -107,12 +107,12 @@ test('ownerAt: the last row that had started on the date, else the first row; to
   assert.equal(V.ownerAt([], '2026-10-17'), null);
   assert.equal(V.ownerAt(null, '2026-10-17'), null);
 });
-test('effectiveRate: the row in force on the date (the earliest until one has started, like rateAt); a null row means no special rate', () => {
+test('effectiveRate: the row in force on the date — none before the first row has started; a null row means no special rate', () => {
   const rows = [{ rate: 30, since: '2026-10-01' }, { rate: null, since: '2026-11-01' }, { rate: '25.00', since: '2026-12-01' }];
   assert.equal(V.effectiveRate(rows, '2026-10-15'), 30);
   assert.equal(V.effectiveRate(rows, '2026-11-15'), null); // «no special rate» from November
   assert.equal(V.effectiveRate(rows, '2026-12-01'), 25);
-  assert.equal(V.effectiveRate(rows, '2026-09-01'), 30); // only future rows: the earliest (the prototype's rule)
+  assert.equal(V.effectiveRate(rows, '2026-09-01'), null); // before the first row: no special rate yet (review I1)
   assert.equal(V.effectiveRate([], '2026-10-15'), null);
   assert.equal(V.effectiveRate(null, '2026-10-15'), null);
   assert.equal(V.effectiveRate([{ rate: null, since: '2026-01-01' }], '2026-10-15'), null);
@@ -121,7 +121,7 @@ test('validateTransfer: a start date, not before the last transfer; a return dat
   assert.deepEqual(V.validateTransfer({ since: '', toId: '', ownerId: 'A' }), { since: 'اكتب تاريخ البداية', to: 'اختار المبتكر' });
   assert.deepEqual(V.validateTransfer({ since: '2026-13-01', toId: 'B', ownerId: 'A' }), { since: 'اكتب تاريخ البداية' });
   assert.deepEqual(V.validateTransfer({ since: '2026-10-10', lastSince: '2026-10-18', toId: 'B', ownerId: 'A' }), { since: 'التاريخ ده قبل آخر نقل للبراند (2026-10-18) — اختار تاريخ بعده' });
-  assert.deepEqual(V.validateTransfer({ since: '2026-10-18', lastSince: '2026-10-18', toId: 'B', ownerId: 'A' }), {}); // the same day: the server's unique key judges (23505)
+  assert.deepEqual(V.validateTransfer({ since: '2026-10-18', lastSince: '2026-10-18', toId: 'B', ownerId: 'A' }), { since: 'فيه نقل للبراند بنفس التاريخ (2026-10-18) — اختار تاريخ بعده' }); // the same day: refused before the server's 23505 (review I2)
   assert.deepEqual(V.validateTransfer({ since: '2026-10-20', lastSince: '2026-10-18', returnOn: '2026-10-20', toId: 'B', ownerId: 'A' }), { returnOn: 'تاريخ الرجوع لازم يكون بعد تاريخ البداية' });
   assert.deepEqual(V.validateTransfer({ since: '2026-10-20', returnOn: '2026-10-19', toId: 'B', ownerId: 'A' }), { returnOn: 'تاريخ الرجوع لازم يكون بعد تاريخ البداية' });
   assert.deepEqual(V.validateTransfer({ since: '2026-10-20', returnOn: 'soon', toId: 'B', ownerId: 'A' }), { returnOn: 'اكتب تاريخ الرجوع' });

@@ -37,7 +37,7 @@ test('dashboard.customize is sent', async () => {
   const { log, calls, A } = load();
   await log('dashboard.customize', '7 كارت');
   assert.deepEqual(calls, [{ fn: 'log_activity', args: { action: 'dashboard.customize', entity: null, entity_id: null, old_value: null, new_value: '7 كارت' } }]);
-  assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_PREFIXES)), ['auth.', 'dashboard.', 'profile.2fa.']);
+  assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_PREFIXES)), ['auth.', 'dashboard.', 'profile.2fa.', 'vendor.']);
 });
 
 test('the orders writes IBOrders logs are sent by name; block 22\'s demo order.* / suborder.* events are not', async () => {
@@ -101,4 +101,13 @@ test('auth.signout is sent, but no activity_log read follows (the page reloads n
   assert.deepEqual(queries, []);
   assert.equal(A.cached(), null);
   assert.equal(events.includes('ib:activity'), false);
+});
+
+test('vendor.* is forwarded with the entity columns of its third argument (IBVendors: entity vendor + the uuid); other actions keep them null', async () => {
+  const { log, calls } = load();
+  await log('vendor.update', 'phone, email', { entity: 'vendor', entity_id: 'a0000000-0000-4000-8000-000000000001' });
+  await log('auth.signin', 'x');
+  assert.deepEqual(calls, [
+    { fn: 'log_activity', args: { action: 'vendor.update', entity: 'vendor', entity_id: 'a0000000-0000-4000-8000-000000000001', old_value: null, new_value: 'phone, email' } },
+    { fn: 'log_activity', args: { action: 'auth.signin', entity: null, entity_id: null, old_value: null, new_value: 'x' } }]);
 });

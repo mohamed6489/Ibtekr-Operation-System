@@ -10,7 +10,7 @@
 // (WordPress redirects it to the product) with the origin of any known permalink, else '' (no link).
 // `state` is orders.customer_state, the governorate's code on the website's own list (e.g. EG-01) or ''; `stateName` its name
 // from woo_states (code → name, read once per load() — an empty or unreadable table is no error; the sync fills it from the
-// website), else the code itself, else ''.
+// website), else the code itself, else ''. A sub's `rate` / `fee` are the line's commission_rate / commission_fee (phase 3).
 // Grants are column lists (0007): every read names its columns (select('*') on orders / order_items / sub_orders is
 // refused) and every write is an update of granted columns without .select() (return=minimal). The base table orders
 // is never read: its phone column is not granted.
@@ -30,7 +30,7 @@
   const PAGE = 1000, CAP = 5000, IDS = 200, SKUS = 100; // PostgREST max_rows; ids / skus per in.(…) keep the URL short
   const COLS = {
     order: 'id, customer_name, customer_phone, customer_state, customer_city, customer_address, payment_method, payment_title, status, woo_status, confirm, confirm_at, deposit, total, note, customer_note, placed_at, cancel, ret',
-    item: 'id, order_id, sub_order_id, product_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed',
+    item: 'id, order_id, sub_order_id, product_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed, commission_rate, commission_fee',
     sub: 'id, order_id, vendor_id, woo_order_id, woo_status',
   };
   let orders = null; let vendorRows = []; let images = {}; let links = {}; let states = new Map(); let statuses = []; let names = []; let channel = null; let gen = 0; let st = 'idle';
@@ -72,12 +72,15 @@
   // sid = the website's number for the line's sub-order: Dokan's sub-order id when the line is linked to one, else the
   // parent order's own id (Dokan makes no sub-order for a single-maker order, and the n8n → Airtable automation sends
   // the parent id as its "Sub Order ID" in that case). Never the line id: that number exists nowhere on the website.
+  // rate / fee: the website's own commission on the line at the time of the order (order_items.commission_rate / commission_fee,
+  // phase 3; null when the sync has none) — IBVendors.stats reads them for the maker's share; block 29 ignores them.
+  const numOrNull = (v) => (v == null || v === '' ? null : Number.isFinite(Number(v)) ? Number(v) : null);
   function sub(it, o, subById, vname, lk, origin) {
     const so = it.sub_order_id == null ? null : subById.get(String(it.sub_order_id)) || null;
     const vid = it.vendor_id || (so && so.vendor_id);
     return { n: Number(it.id), itemId: String(it.id), sid: so && so.woo_order_id != null ? String(so.woo_order_id) : String(o.id), oid: String(o.id), prod: it.name || '', qty: Number(it.qty) || 0, tot: Number(it.total) || 0,
       raw: (so && so.woo_status) || o.woo_status || '', vendor: (vid && vname.get(String(vid))) || '', cm: it.comment || '', ss: it.status || '', exp: it.expected_at || '', sku: it.sku || '', link: linkOf(it, lk, origin),
-      readyAt: localStamp(it.ready_at), waybill: it.waybill || null, pulled: !!it.pulled, ret: it.ret || null, store: it.store || null };
+      readyAt: localStamp(it.ready_at), waybill: it.waybill || null, pulled: !!it.pulled, ret: it.ret || null, store: it.store || null, rate: numOrNull(it.commission_rate), fee: numOrNull(it.commission_fee) };
   }
   const text = (v) => (v == null ? '' : String(v).trim());
   // woo_states rows ({ code, name }) → Map code → name (a row without a code or a name is skipped)

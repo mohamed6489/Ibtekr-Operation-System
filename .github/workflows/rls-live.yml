@@ -1,0 +1,27 @@
+name: RLS live
+# Runs the live-safe RLS tests against the live Supabase project through the SUPABASE_DB_URL secret: the project's
+# Session-pooler connection string (Dashboard → Project Settings → Database → Connection string → Session mode —
+# GitHub runners have no IPv6 and the direct host is IPv6-only; session mode keeps `set local role` working). Each file
+# is one transaction that rolls back, so nothing is left behind; the URL is never printed. On demand only — the path for
+# the files the Supabase MCP tool holds for approval (tools/deploy.md §2.1).
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: 'test names without .sql, space-separated (letters, digits, _)'
+        default: 'rls_vendors rls_vendor_logins'
+        required: false
+permissions:
+  contents: read
+concurrency: rls-live
+jobs:
+  rls-live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      - name: live-safe RLS tests (rolled back)
+        run: bash tools/rls-live.sh $FILES
+        env:
+          FILES: ${{ inputs.files }}
+          DATABASE_URL: ${{ secrets.SUPABASE_DB_URL }}

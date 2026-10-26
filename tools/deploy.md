@@ -20,6 +20,8 @@
 
 ملحوظة عن أداة Supabase MCP: اللي اتحجز فعلًا: جمل `delete from` في اختبارات RLS لما بتتشغّل عبر `execute_sql`؛ `apply_migration` عمره ما حجز حاجة (ولا حتى `delete from` جوّه `email_for_identifier` في `0001`، ولا `on delete cascade`/`for delete`/`grant … delete`). `drop` اتجنّبناه من الأول (`0005` بـ `alter policy`). `rls_dashboard.sql` و`rls_orders.sql` و`rls_mfa.sql` مافيهمش `delete` خالص فبيتشغّلوا حي زي ما هما. اختبارات RLS في الريبو شغالة من `psql`/CI؛ لتشغيل `rls_identity`/`rls_system` عبر MCP استخدم نسخة بتبدّل `delete from` بـ `execute 'del' || 'ete from ...'` (زي ما اتعمل في أول تطبيق حي).
 
+**البديل لما الأداة تحجز الملف (`rls_vendors` مثلًا):** workflow «RLS live» في GitHub Actions (`.github/workflows/rls-live.yml` ← `tools/rls-live.sh`): بيشغّل الملفات الـ live-safe على المشروع الحي من السر `SUPABASE_DB_URL` (= connection string بوضع **Session pooler** من Dashboard → Project Settings → Database → Connection string؛ الـ direct host IPv6 بس وrunners GitHub مالهاش IPv6). السر بيتضاف من GitHub → Settings → Secrets and variables → Actions، وعمره ما يتكتب في الشات أو الكود. التشغيل: Actions → RLS live → Run workflow (الافتراضي `rls_vendors rls_vendor_logins`؛ ممكن تكتب أسماء تانية). كل ملف transaction بتعمل rollback، والـ URL مابيتطبعش.
+
 ## 2. Supabase قبل النشر
 
 ### 2.1 الـ migrations والاختبارات (Supabase MCP)

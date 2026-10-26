@@ -3,8 +3,11 @@
 -- the schema side of 0009_failed_note_permalink («فشل» in status_map, products.permalink readable by members; its data
 -- statements are tested on older rows in migrate_0009.sql) and of 0010_state_names (orders.customer_state readable
 -- through orders and orders_v but never writable by members; woo_states read by every signed-in member, written by
--- the sync only; the backfill is tested in migrate_0010.sql).
--- Depends on 0001_identity … 0010_state_names.
+-- the sync only; the backfill is tested in migrate_0010.sql), and what 0011_vendors changes in this file's cases
+-- (vendors is read by column list — raw included — and written by column list: woo_vendor_id is the sync's; the guard
+-- decides per column, so vendors.edit = P passes the update policy but not an aliases change; rls_vendors.sql has the
+-- rest of 0011).
+-- Depends on 0001_identity … 0011_vendors.
 -- Runs in one transaction and rolls back; prints NOTICE 'rls_orders: ok' only if every case passed.
 -- Each case switches role explicitly: the runner (postgres) owns the tables, bypasses RLS and plays the
 -- trusted sync (service_role) — the trigger guards apply to anon/authenticated only.
@@ -44,8 +47,8 @@ insert into public.profiles (id, name, email, phone, role_id, status, custom_per
 
 -- One Dokan vendor, two products, order 181668 with one Dokan sub-order and two lines, order 181700 with no lines;
 -- one sync log row and one webhook delivery. Written by the runner, as the sync would.
-insert into public.vendors (id, woo_vendor_id, name, phone) values
-  ('00000000-0000-4000-8000-0000000000a1', 77, 'متجر سلمى', '01000000077');
+insert into public.vendors (id, woo_vendor_id, name, phone, raw, joined_at) values
+  ('00000000-0000-4000-8000-0000000000a1', 77, 'متجر سلمى', '01000000077', '{"id":77,"store_name":"متجر سلمى"}', '2025-01-02');
 
 insert into public.products (id, sku, name, vendor_id, price, status, permalink) values
   (501, 'SC-12', 'شمعة معطرة', '00000000-0000-4000-8000-0000000000a1', 501, 'publish', 'https://stage.example.test/product/sc-12/'),
@@ -460,6 +463,10 @@ do $$ declare n int; begin
   if not ((select count(*) from (select * from public.orders_v) x) = 2) then
     raise exception 'case ops select * from orders_v failed';
   end if;
+  -- vendors (0011): read by column list; raw (the public store fields) stays readable by members
+  if not ((select (raw ->> 'store_name') || '/' || joined_at from public.vendors where woo_vendor_id = 77) = 'متجر سلمى/2025-01-02') then
+    raise exception 'case ops reads vendors.raw and joined_at by column list (0011) failed';
+  end if;
 
   if not ((select count(*) from public.woo_sync_log) = 1 and (select count(*) from public.woo_webhook_events) = 1
           and (select count(*) from public.sync_state) = 1) then
@@ -523,10 +530,10 @@ do $$ begin
   begin
     update public.vendors set aliases = '{"سلمى"}' where woo_vendor_id = 77;
   exception when others then
-    if sqlstate = '42501' then return; end if; -- expected: vendors.edit P is not F (with check)
-    raise exception 'case ops (vendors.edit P) updates a vendor: expected 42501, got % (%)', sqlstate, sqlerrm;
+    if sqlstate = '42501' then return; end if; -- expected: aliases needs vendors.edit = F (0011's guard; the with check admits P since 0011)
+    raise exception 'case ops (vendors.edit P) updates a vendor''s aliases: expected 42501, got % (%)', sqlstate, sqlerrm;
   end;
-  raise exception 'case ops (vendors.edit P) updates a vendor must error failed';
+  raise exception 'case ops (vendors.edit P) updates a vendor''s aliases must error failed';
 end $$;
 
 do $$ begin
@@ -561,9 +568,9 @@ end $$;
 
 do $$ begin
   begin
-    insert into public.vendors (woo_vendor_id, name) values (78, 'متجر جديد');
+    insert into public.vendors (name) values ('متجر جديد');
   exception when others then
-    if sqlstate = '42501' then return; end if; -- expected: vendors.edit P is not F
+    if sqlstate = '42501' then return; end if; -- expected: vendors.edit P is not F (the insert policy)
     raise exception 'case ops (vendors.edit P) inserts a vendor: expected 42501, got % (%)', sqlstate, sqlerrm;
   end;
   raise exception 'case ops (vendors.edit P) inserts a vendor must error failed';
@@ -636,9 +643,20 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000031","role":"authenticated"}';
 do $$ declare n int; begin
-  insert into public.vendors (woo_vendor_id, name, aliases) values (78, 'متجر جديد', '{"جديد"}');
+  insert into public.vendors (name, aliases) values ('متجر جديد', '{"جديد"}');
   get diagnostics n = row_count;
-  if not (n = 1) then raise exception 'case admin inserts a vendor failed'; end if;
+  if not (n = 1) then raise exception 'case admin inserts a vendor (without a store id: a maker added from the screen) failed'; end if;
+end $$;
+
+-- woo_vendor_id is the sync's (0011 column grants): not insertable from the API, admin included.
+do $$ begin
+  begin
+    insert into public.vendors (woo_vendor_id, name) values (78, 'متجر بمعرّف');
+  exception when others then
+    if sqlstate = '42501' then return; end if; -- expected: no insert privilege on vendors.woo_vendor_id
+    raise exception 'case admin inserts a vendor with woo_vendor_id: expected 42501, got % (%)', sqlstate, sqlerrm;
+  end;
+  raise exception 'case admin inserts a vendor with woo_vendor_id must error failed';
 end $$;
 
 do $$ begin

@@ -347,7 +347,7 @@
   function effectiveRate(rows, date) {
     const h = (rows || []).slice().sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
     if (!h.length) return null;
-    let r = h[0].rate; for (const x of h) if (!date || x.since <= date) r = x.rate;
+    let r = null; for (const x of h) if (!date || x.since <= date) r = x.rate; // none before the first row: a special rate starts on its date (review I1)
     return r == null ? null : Number(r);
   }
   // the transfer / return popup: { since, lastSince (the brand's latest history row), returnOn, toId, ownerId } → { field: message }
@@ -355,6 +355,7 @@
     const e = {}; const t = input || {};
     if (!isIso(t.since)) e.since = 'اكتب تاريخ البداية';
     else if (t.lastSince && t.since < t.lastSince) e.since = 'التاريخ ده قبل آخر نقل للبراند (' + t.lastSince + ') — اختار تاريخ بعده';
+    else if (t.lastSince && t.since === t.lastSince) e.since = 'فيه نقل للبراند بنفس التاريخ (' + t.lastSince + ') — اختار تاريخ بعده'; // the server's unique key would say 23505 (review I2)
     if (t.returnOn) { if (!isIso(t.returnOn)) e.returnOn = 'اكتب تاريخ الرجوع'; else if (isIso(t.since) && t.returnOn <= t.since) e.returnOn = 'تاريخ الرجوع لازم يكون بعد تاريخ البداية'; }
     if (!t.toId) e.to = 'اختار المبتكر';
     else if (t.ownerId && String(t.toId) === String(t.ownerId)) e.to = 'البراند أصلًا عند المبتكر ده';

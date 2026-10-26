@@ -1,8 +1,10 @@
 -- RLS / permission / trigger tests for 0007_orders (vendors, products, orders, sub_orders, order_items,
 -- order_events, returns, woo_webhook_events, woo_sync_log, sync_state, orders_v, mask_phone, status_map reseed) and
 -- the schema side of 0009_failed_note_permalink («فشل» in status_map, products.permalink readable by members; its data
--- statements are tested on older rows in migrate_0009.sql).
--- Depends on 0001_identity … 0009_failed_note_permalink.
+-- statements are tested on older rows in migrate_0009.sql) and of 0010_state_names (orders.customer_state readable
+-- through orders and orders_v but never writable by members; woo_states read by every signed-in member, written by
+-- the sync only; the backfill is tested in migrate_0010.sql).
+-- Depends on 0001_identity … 0010_state_names.
 -- Runs in one transaction and rolls back; prints NOTICE 'rls_orders: ok' only if every case passed.
 -- Each case switches role explicitly: the runner (postgres) owns the tables, bypasses RLS and plays the
 -- trusted sync (service_role) — the trigger guards apply to anon/authenticated only.
@@ -49,12 +51,15 @@ insert into public.products (id, sku, name, vendor_id, price, status, permalink)
   (501, 'SC-12', 'شمعة معطرة', '00000000-0000-4000-8000-0000000000a1', 501, 'publish', 'https://stage.example.test/product/sc-12/'),
   (502, 'SC-13', 'كوب فخار',   '00000000-0000-4000-8000-0000000000a1', 250, 'publish', null);
 
-insert into public.orders (id, number, customer_name, customer_phone, customer_city, customer_address,
+insert into public.orders (id, number, customer_name, customer_phone, customer_city, customer_address, customer_state,
                            payment_method, payment_title, status, woo_status, total, placed_at, woo_updated_at) values
-  (181668, '181668', 'سلوى زيتوني', '01100007039', 'القاهرة', 'شارع التحرير',
+  (181668, '181668', 'سلوى زيتوني', '01100007039', 'القاهرة', 'شارع التحرير', 'TS-01',
    'cod', 'الدفع عند الاستلام', 'قيد الانتظار', 'pending', 1252, '2026-10-19T09:12:00Z', '2026-10-19T09:12:00Z'),
-  (181700, '181700', 'منى سامي', '01011112222', 'الجيزة', 'شارع الهرم',
+  (181700, '181700', 'منى سامي', '01011112222', 'الجيزة', 'شارع الهرم', null,
    'cod', 'الدفع عند الاستلام', 'جاري التنفيذ', 'processing', 400, '2026-10-20T10:00:00Z', '2026-10-20T10:00:00Z');
+
+-- Two governorate names as the sync's `states` part writes them (test codes: the site's are EG-01 … EG-25).
+insert into public.woo_states (code, name) values ('TS-01', 'محافظة تجربة'), ('TS-02', 'محافظة تانية');
 
 insert into public.sub_orders (order_id, vendor_id, woo_order_id, woo_status, total) values
   (181668, '00000000-0000-4000-8000-0000000000a1', 181669, 'pending', 1252);
@@ -124,6 +129,76 @@ do $$ begin
           and not has_column_privilege('anon', 'public.products', 'permalink', 'SELECT')) then
     raise exception 'case products.permalink grants (authenticated select, service_role select/insert/update, anon none) failed';
   end if;
+
+  -- orders.customer_state (0010): text, nullable; members read it (orders and orders_v) and never write it, the sync
+  -- (service_role) writes it, anon has nothing. 25 member columns on orders now (24 in 0007).
+  if not ((select count(*) from information_schema.columns
+           where table_schema = 'public' and table_name = 'orders' and column_name = 'customer_state'
+             and data_type = 'text' and is_nullable = 'YES') = 1) then
+    raise exception 'case orders.customer_state text null failed';
+  end if;
+  if not (has_column_privilege('authenticated', 'public.orders', 'customer_state', 'SELECT')
+          and not has_column_privilege('authenticated', 'public.orders', 'customer_state', 'UPDATE')
+          and not has_column_privilege('authenticated', 'public.orders', 'customer_state', 'INSERT')
+          and has_column_privilege('service_role', 'public.orders', 'customer_state', 'SELECT')
+          and has_column_privilege('service_role', 'public.orders', 'customer_state', 'INSERT')
+          and has_column_privilege('service_role', 'public.orders', 'customer_state', 'UPDATE')
+          and not has_column_privilege('anon', 'public.orders', 'customer_state', 'SELECT')) then
+    raise exception 'case orders.customer_state grants (authenticated select only, service_role select/insert/update, anon none) failed';
+  end if;
+  if not ((select count(*) from information_schema.column_privileges
+           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'orders' and privilege_type = 'SELECT') = 25
+          and not exists (select 1 from information_schema.column_privileges
+                          where grantee = 'authenticated' and table_schema = 'public' and table_name = 'orders'
+                            and privilege_type = 'SELECT' and column_name in ('customer_phone', 'raw'))) then
+    raise exception 'case authenticated selects 25 orders columns, never customer_phone or raw failed';
+  end if;
+  -- orders_v: the 0007 columns in the same order, customer_state appended (create or replace view can only append).
+  if not ((select string_agg(column_name, ',' order by ordinal_position) from information_schema.columns
+           where table_schema = 'public' and table_name = 'orders_v')
+          = 'id,number,customer_name,customer_phone,customer_city,customer_address,payment_method,payment_title,status,'
+            || 'woo_status,confirm,confirm_at,confirm_note,deposit,total,currency,note,customer_note,placed_at,woo_updated_at,'
+            || 'cancel,ret,synced_at,created_at,updated_at,customer_state') then
+    raise exception 'case orders_v keeps the 0007 columns and appends customer_state failed';
+  end if;
+  if not (coalesce((select reloptions from pg_class where oid = 'public.orders_v'::regclass), '{}') @> array['security_invoker=true']) then
+    raise exception 'case orders_v keeps security_invoker = true failed';
+  end if;
+
+  -- woo_states (0010): code text primary key, name text not null, updated_at timestamptz not null default now(); RLS on,
+  -- one select policy for authenticated (using true), no write policy.
+  if not ((select string_agg(column_name || ':' || data_type || ':' || is_nullable, ',' order by ordinal_position)
+           from information_schema.columns where table_schema = 'public' and table_name = 'woo_states')
+          = 'code:text:NO,name:text:NO,updated_at:timestamp with time zone:NO'
+          and (select column_default from information_schema.columns
+               where table_schema = 'public' and table_name = 'woo_states' and column_name = 'updated_at') = 'now()'
+          and (select string_agg(a.attname, ',') from pg_index i
+               join pg_attribute a on a.attrelid = i.indrelid and a.attnum = any (i.indkey)
+               where i.indrelid = 'public.woo_states'::regclass and i.indisprimary) = 'code') then
+    raise exception 'case woo_states (code text primary key, name text not null, updated_at timestamptz not null default now()) failed';
+  end if;
+  if not (select relrowsecurity from pg_class where oid = 'public.woo_states'::regclass) then
+    raise exception 'case woo_states has RLS enabled failed';
+  end if;
+  if not ((select string_agg(policyname || ':' || cmd || ':' || array_to_string(roles, '|') || ':' || coalesce(qual, '∅'), ',')
+           from pg_policies where schemaname = 'public' and tablename = 'woo_states')
+          = 'woo_states_select:SELECT:authenticated:true') then
+    raise exception 'case woo_states has exactly one policy: select to authenticated using (true) failed';
+  end if;
+  if not (has_table_privilege('authenticated', 'public.woo_states', 'SELECT')
+          and not has_table_privilege('authenticated', 'public.woo_states', 'INSERT')
+          and not has_table_privilege('authenticated', 'public.woo_states', 'UPDATE')
+          and not has_table_privilege('authenticated', 'public.woo_states', 'DELETE')
+          and not has_table_privilege('authenticated', 'public.woo_states', 'TRUNCATE')
+          and has_table_privilege('service_role', 'public.woo_states', 'SELECT')
+          and has_table_privilege('service_role', 'public.woo_states', 'INSERT')
+          and has_table_privilege('service_role', 'public.woo_states', 'UPDATE')
+          and has_table_privilege('service_role', 'public.woo_states', 'DELETE')
+          and not has_table_privilege('service_role', 'public.woo_states', 'TRUNCATE')
+          and not has_table_privilege('anon', 'public.woo_states', 'SELECT')
+          and not has_table_privilege('anon', 'public.woo_states', 'TRUNCATE')) then
+    raise exception 'case woo_states grants (authenticated select only, service_role select/insert/update/delete, anon none, no truncate) failed';
+  end if;
 end $$;
 
 do $$ begin
@@ -178,6 +253,15 @@ do $$ begin
           = '501=https://stage.example.test/product/sc-12/,502=∅') then
     raise exception 'case accounts (orders.view) reads products.permalink (0009) failed';
   end if;
+  if not ((select string_agg(id || '=' || coalesce(customer_state, '∅'), ',' order by id) from public.orders_v) = '181668=TS-01,181700=∅'
+          and (select customer_state from public.orders where id = 181668) = 'TS-01') then
+    raise exception 'case accounts reads customer_state through orders_v and orders (0010) failed';
+  end if;
+  -- the screen's lookup: the code from orders_v, its name from woo_states (the code itself when the site gave no name)
+  if not ((select string_agg(o.id || '=' || coalesce(s.name, o.customer_state, '—'), ',' order by o.id)
+           from public.orders_v o left join public.woo_states s on s.code = o.customer_state) = '181668=محافظة تجربة,181700=—') then
+    raise exception 'case accounts reads woo_states names for the order codes (0010) failed';
+  end if;
   if not ((select count(*) from public.woo_sync_log) = 0 and (select count(*) from public.woo_webhook_events) = 0
           and (select count(*) from public.sync_state) = 0) then
     raise exception 'case accounts (settings.view N) reads zero woo_sync_log/woo_webhook_events/sync_state failed';
@@ -224,6 +308,25 @@ do $$ begin
     raise exception 'case accounts changes an item status: expected 42501, got % (%)', sqlstate, sqlerrm;
   end;
   raise exception 'case accounts changes an item status must error failed';
+end $$;
+
+-- woo_states is the sync's: no member writes a name (no insert / update / delete grant, no write policy).
+do $$
+declare stmt text;
+begin
+  foreach stmt in array array[
+    'insert into public.woo_states (code, name) values (''TS-03'', ''محافظة مزيفة'')',
+    'update public.woo_states set name = ''اسم تاني'' where code = ''TS-01''',
+    'delete from public.woo_states where code = ''TS-02'''] loop
+    begin
+      execute stmt;
+      raise exception 'case accounts writes woo_states must error failed: %', stmt;
+    exception when others then
+      if sqlstate <> '42501' then -- expected: no write privilege on woo_states
+        raise exception 'case accounts writes woo_states: expected 42501, got % (%) for %', sqlstate, sqlerrm, stmt;
+      end if;
+    end;
+  end loop;
 end $$;
 
 -- ================================================================ cs: full phone, confirms, no edit
@@ -389,6 +492,23 @@ do $$ begin
   raise exception 'case ops sets customer_name to its current value must error failed';
 end $$;
 
+-- customer_state (0010) is display only: orders.edit P passes the update policy, the grant refuses the column (a new
+-- value and its current value alike).
+do $$
+declare v text;
+begin
+  foreach v in array array['TS-02', 'TS-01'] loop
+    begin
+      update public.orders set customer_state = v where id = 181668;
+      raise exception 'case ops sets customer_state to % must error failed', v;
+    exception when others then
+      if sqlstate <> '42501' then -- expected: no update privilege on orders.customer_state
+        raise exception 'case ops sets customer_state to %: expected 42501, got % (%)', v, sqlstate, sqlerrm;
+      end if;
+    end;
+  end loop;
+end $$;
+
 do $$ begin
   begin
     update public.order_items set qty = 2, removed = false where id = 9001;
@@ -475,6 +595,10 @@ do $$ declare n int; begin
   if not (public.order_customer_phone(181668) is null) then
     raise exception 'case suspended viewer gets no phone through order_customer_phone failed';
   end if;
+  -- woo_states is `using (true)` for authenticated (0010): the names are the site's public checkout list.
+  if not ((select count(*) from public.woo_states where code in ('TS-01', 'TS-02')) = 2) then
+    raise exception 'case woo_states is readable by any signed-in member (using true) failed';
+  end if;
   update public.orders set note = 'x' where id = 181668;
   get diagnostics n = row_count;
   if not (n = 0) then raise exception 'case suspended viewer updates zero orders failed'; end if;
@@ -527,6 +651,16 @@ do $$ begin
   raise exception 'case admin changes total must error failed';
 end $$;
 
+do $$ begin
+  begin
+    insert into public.woo_states (code, name) values ('TS-03', 'محافظة الأدمن');
+  exception when others then
+    if sqlstate = '42501' then return; end if; -- expected: woo_states is written by the sync only, admin included
+    raise exception 'case admin inserts into woo_states: expected 42501, got % (%)', sqlstate, sqlerrm;
+  end;
+  raise exception 'case admin inserts into woo_states must error failed';
+end $$;
+
 -- ================================================================ anon: zero rows or permission denied
 
 reset role;
@@ -536,7 +670,7 @@ do $$
 declare t text; n bigint;
 begin
   foreach t in array array['vendors', 'products', 'orders', 'orders_v', 'sub_orders', 'order_items', 'order_events',
-                           'returns', 'woo_webhook_events', 'woo_sync_log', 'sync_state'] loop
+                           'returns', 'woo_webhook_events', 'woo_sync_log', 'sync_state', 'woo_states'] loop
     begin
       execute format('select count(*) from public.%I', t) into strict n;
       if n <> 0 then raise exception 'case anon reads zero rows (%) failed', t; end if;
@@ -568,6 +702,22 @@ do $$ declare n int; begin
   if exists (select 1 from public.order_events
              where concat(old_value, new_value, detail::text) ~ '(9941|8888|01100007039|01099998888)') then
     raise exception 'case order_events never stores a phone value failed';
+  end if;
+
+  -- the sync's `states` part: upsert on code (a new name for a known code, a new code), never a delete.
+  insert into public.woo_states (code, name, updated_at) values
+    ('TS-01', 'محافظة تجربة الجديدة', '2026-10-26T12:00:00Z'), ('TS-03', 'محافظة تالتة', '2026-10-26T12:00:00Z')
+  on conflict (code) do update set name = excluded.name, updated_at = excluded.updated_at;
+  if not ((select string_agg(code || '=' || name, ',' order by code) from public.woo_states where code like 'TS-%')
+          = 'TS-01=محافظة تجربة الجديدة,TS-02=محافظة تانية,TS-03=محافظة تالتة') then
+    raise exception 'case the sync upserts woo_states on code (TS-02 kept) failed';
+  end if;
+  -- customer_state is a sync column: the runner writes it, and no order_events row is recorded for it.
+  n := (select count(*) from public.order_events where order_id = 181700);
+  update public.orders set customer_state = 'TS-02' where id = 181700;
+  if not ((select customer_state from public.orders where id = 181700) = 'TS-02'
+          and (select count(*) from public.order_events where order_id = 181700) = n) then
+    raise exception 'case the sync writes orders.customer_state (no order_events row) failed';
   end if;
 
   -- a refused change leaves no event: exactly the four user status changes and nothing from accounts.

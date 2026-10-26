@@ -118,7 +118,7 @@ test('a status change writes the order and pushes it to the site', async ({ page
   await expect(card(page, '180656').locator('.sdd')).toContainText('جاري التنفيذ');
 });
 
-test('«فشل» replaces «تم RTC»: a chip and an option styled like «ملغي», saved and pushed to the site as failed', async ({ page }) => {
+test('«فشل» replaces «تم RTC»: a chip and an option styled like «ملغي», saved here but never pushed to the site (from_woo)', async ({ page }) => {
   await openOrders(page);
   await expect(page.locator('#orders [data-sc="فشل"]')).toHaveCount(1);
   await expect(page.locator('#orders [data-sc="تم RTC"]')).toHaveCount(0);
@@ -128,21 +128,21 @@ test('«فشل» replaces «تم RTC»: a chip and an option styled like «مل�
   await sel.selectOption('فشل');
   await expect.poll(() => mock.pushes.length).toBe(1);
   expect(mock.patches).toEqual([{ table: 'orders', id: 181668, status: 'فشل' }]);
-  expect(mock.pushes[0]).toEqual({ action: 'push_status', order_id: 181668, status: 'فشل', result: 'ok' });
-  expect(mock.orders.find((o) => o.id === 181668).woo_status).toBe('failed');
+  expect(mock.pushes[0]).toEqual({ action: 'push_status', order_id: 181668, status: 'فشل', result: 'skipped', reason: 'no_woo_status' });
+  expect(mock.orders.find((o) => o.id === 181668).woo_status).toBe('processing'); // the site never learns «فشل» from us
   const dd = card(page, '181668').locator('label.sdd', { has: page.locator('select[data-st="181668"]') });
   await expect(dd).toHaveClass(/\bs-err\b/); // the tone and the icon of «ملغي»
   await expect(dd.locator('.l svg path[d="m9 9 6 6m0-6-6 6"]')).toHaveCount(1);
   await expect(page.locator('#orders [data-sc="فشل"] i')).toHaveText('1');
 });
 
-test('a status whose map row has no Woo slug is saved but not pushed', async ({ page }) => {
-  mock.statusMap.find((r) => r.system_status === 'فشل').woo_status = null; // no row of 0009 has none: one blanked here
+test('a status whose map row is from_system is saved but not pushed (none today: one flipped here)', async ({ page }) => {
+  mock.statusMap.find((r) => r.system_status === 'مكتمل').direction = 'from_system'; mock.statusMap.find((r) => r.system_status === 'مكتمل').woo_status = null;
   await openOrders(page);
-  await page.locator('#orders select[data-st="181668"]').selectOption('فشل');
+  await page.locator('#orders select[data-st="181668"]').selectOption('مكتمل');
   await expect.poll(() => mock.pushes.length).toBe(1);
-  expect(mock.patches).toEqual([{ table: 'orders', id: 181668, status: 'فشل' }]);
-  expect(mock.pushes[0]).toEqual({ action: 'push_status', order_id: 181668, status: 'فشل', result: 'skipped', reason: 'no_woo_status' });
+  expect(mock.patches).toEqual([{ table: 'orders', id: 181668, status: 'مكتمل' }]);
+  expect(mock.pushes[0]).toEqual({ action: 'push_status', order_id: 181668, status: 'مكتمل', result: 'skipped', reason: 'no_woo_status' });
   expect(mock.orders.find((o) => o.id === 181668).woo_status).toBe('processing');
   await expect(toast(page)).toBeHidden(); // skipped: nothing to tell
 });

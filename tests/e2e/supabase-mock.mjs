@@ -109,9 +109,9 @@ export const XSS_NAME = '<img src=x onerror="window.__xss=1">';
 export const SITE = 'https://ibtekr.stage.test';
 export const IMG = { cushion: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', curtain: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' };
 const VND = (n) => 'a0000000-0000-4000-8000-00000000000' + n;
-// status_map after 0009 (system status ↔ WooCommerce slug): 0007's «تم RTC» row (id 6) became «فشل» = failed, sort 10
+// status_map after 0009 (system status ↔ WooCommerce slug): 0007's «تم RTC» row (id 6) became «فشل» = failed, from_woo, sort 10
 const STATUS_MAP = [['قيد الانتظار', 'pending', 'both'], ['جاري التنفيذ', 'processing', 'both'], ['معلّق', 'on-hold', 'both'], ['جاهز للشحن', 'ready-shipping', 'both'], ['قيد الشحن', 'in-shipping', 'both'],
-  ['فشل', 'failed', 'both', 10], ['مكتمل', 'completed', 'both'], ['استرجاع', 'refunded', 'both'], ['ملغي', 'cancelled', 'both']].map(([system_status, woo_status, direction, sort], i) => ({ id: i + 1, system_status, woo_status, direction, sort: sort || i + 1 }));
+  ['فشل', 'failed', 'from_woo', 10], ['مكتمل', 'completed', 'both'], ['استرجاع', 'refunded', 'both'], ['ملغي', 'cancelled', 'both']].map(([system_status, woo_status, direction, sort], i) => ({ id: i + 1, system_status, woo_status, direction, sort: sort || i + 1 }));
 // order_items.status check list (0007): block 29's 11 sub-statuses or ''
 const ITEM_STATUSES = ['', 'غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المورد للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المورد للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمورد'];
 function ordersSeed() {
@@ -376,7 +376,7 @@ export async function installSupabaseMock(page) {
     }
     // woo-sync (supabase/functions/woo-sync, verify_jwt false: it checks the member's JWT itself): push_status needs
     // orders.status = F, every other action admin; push_status is skipped when the status is not the stored one ('stale')
-    // or has no WooCommerce slug ('no_woo_status': no row of 0009 has none; a spec may blank one), else the order's woo_status follows the slug.
+    // or has no outgoing WooCommerce slug ('no_woo_status': a from_woo row like «فشل», or a from_system row — none today), else the order's woo_status follows the slug.
     if (method === 'POST' && path === '/functions/v1/woo-sync') {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : isAdmin(u))) return json(401, { error: 'unauthorized' });
@@ -384,7 +384,9 @@ export async function installSupabaseMock(page) {
       if (action === 'push_status') {
         const o = mock.orders.find((x) => x.id === Number(b.order_id));
         if (!o) return json(404, { error: 'order_not_found' });
-        const slug = (mock.statusMap.find((x) => x.system_status === b.status) || {}).woo_status || null;
+        // outgoingWooStatus (woo-core): a both / from_system row with a slug; a from_woo row («فشل») is never pushed
+        const row = mock.statusMap.find((x) => x.system_status === b.status) || {};
+        const slug = row.woo_status && ['both', 'from_system'].includes(row.direction || 'both') ? row.woo_status : null;
         const reason = b.status !== o.status ? 'stale' : !slug ? 'no_woo_status' : null;
         if (!reason) o.woo_status = slug;
         mock.pushes.push({ action, order_id: o.id, status: b.status, result: reason ? 'skipped' : 'ok', ...(reason ? { reason } : {}) });

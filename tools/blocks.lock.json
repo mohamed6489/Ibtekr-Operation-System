@@ -97,7 +97,7 @@
   },
   "25-page-dashboard.js": {
     "prototype": "f0ac7e16f52f393457bde9d1617eab227f9d9a3d36da857ec81c7b7684e3bb84",
-    "current": "11eb88cfd0d63238677f2422e52a8e2b0bb1ab91f9aae746dad22d1f7b999957"
+    "current": "c7671942de0de1c04f52edc47c201a898b23838cc3510280dc83d53a8b3cf2b0"
   },
   "26-data-actions.js": {
     "prototype": "fafccd1bfeb257fa467d090d00589b9d01bcfe738dbf77d17cc8c26c4c0da6f4",
@@ -113,6 +113,6 @@
   },
   "29-orders-app.js": {
     "prototype": "181427392c14d05ce7a2df0b4cadb4792885f1f15672d595638aebfd2363c5d8",
-    "current": "7190bead20e978651de6591db643c7dbd7a6ab10c91aaf9d4b1b71a5f3b36cab"
+    "current": "321abaff4858386d2f8ac1af7a025c0ee73d6796b9607ed516b772d1df546941"
   }
 }

@@ -9,7 +9,7 @@
   'use strict';
   const ADMIN = 'مدير النظام', ACCOUNTS = 'الحسابات', VENDOR_FOLLOW = 'متابعة الموردين';
   const CATEGORIES = Object.freeze(['ديكور منزلي', 'إكسسوارات ومجوهرات', 'ملابس ومنسوجات', 'فنون ولوحات', 'هدايا', 'مستلزمات حرف', 'أطعمة وحلويات']);
-  const STATUSES = Object.freeze([['active', 'نشط'], ['inactive', 'غير نشط']]);
+  const STATUSES = Object.freeze([['active', 'نشط'], ['leave', 'في إجازة'], ['inactive', 'غير نشط']]);
   const PAY_METHODS = Object.freeze([['bank', 'تحويل بنكي'], ['instapay', 'إنستاباي'], ['wallet', 'محفظة إلكترونية (فودافون كاش)'], ['cash', 'نقدي عند التسليم']]);
   const CONTRACT_TYPES = Object.freeze(['pdf', 'png', 'jpg', 'jpeg']);
   const CONTRACT_MAX = 10 * 1024 * 1024, EXPIRY_WARN_DAYS = 30, DAY = 86400000;
@@ -20,6 +20,31 @@
   const phoneOk = (p) => /^01[0-9]{9}$/.test(latin(p).replace(/[\s-]/g, ''));
   const norm = (s) => clean(latin(s), 80).toLowerCase().replace(/[\s_.-]+/g, ' ');
   const parseAliases = (s) => clean(s, 400).split(/[,،]/).map((x) => x.trim()).filter(Boolean);
+
+  // Login + payout data (owner 26 Oct, phase 3.1 decision 7): every maker gets a portal login (username + email + password) and payout
+  // details at creation. Pure rules only — the login's life cycle (invite, temporary password, reveal) lives on the server (vendor_logins).
+  const LOGIN_STATUS = Object.freeze([['none', 'مفيش حساب دخول'], ['invited', 'مستني التفعيل'], ['active', 'مفعّل'], ['disabled', 'موقوف']]);
+  const userOk = (u) => /^[a-z0-9][a-z0-9._]{2,29}$/.test(String(u || ''));
+  const emailOk = (m) => /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean(m, 120));
+  function passwordIssues(p) { const s = String(p || ''); const out = []; if (s.length < 8) out.push('8 حروف على الأقل'); if (!/[A-Za-z]/.test(s)) out.push('حرف إنجليزي'); if (!/[0-9]/.test(s)) out.push('رقم'); if (/\s/.test(s)) out.push('من غير مسافات'); return out; }
+  function genPassword(rand) { const r = rand || Math.random; const L = 'abcdefghjkmnpqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ', N = '23456789', A = L + N; let s = L[Math.floor(r() * L.length)] + N[Math.floor(r() * N.length)]; while (s.length < 10) s += A[Math.floor(r() * A.length)]; return s.split('').sort(() => r() - 0.5).join(''); }
+  function suggestUsername(name, taken) { const base = latin(name).toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '').slice(0, 24) || 'maker'; let u = base.length < 3 ? base + '.ib' : base; let i = 2; while (taken && taken(u)) u = base + i++; return u; }
+  const ibanOk = (x) => /^EG\d{27}$/.test(x) || /^\d{8,20}$/.test(x);
+  function validateLogin(l) {
+    const e = {}; const u = String(l.username || '').trim().toLowerCase();
+    if (!u) e.username = 'اكتب اسم المستخدم'; else if (!userOk(u)) e.username = 'من 3 لـ 30: حروف إنجليزي صغيرة وأرقام و . _ بس';
+    if (!clean(l.email, 120)) e.email = 'اكتب الإيميل — عليه بيوصل لينك التفعيل واسترجاع الباسورد'; else if (!emailOk(l.email)) e.email = 'اكتب إيميل صحيح';
+    if (l.pwMode === 'temp') { const iss = passwordIssues(l.password); if (iss.length) e.password = 'الباسورد لازم: ' + iss.join('، '); }
+    return e;
+  }
+  function validateBank(b) {
+    const e = {}; const m = b.method; if (!PAY_METHODS.some((x) => x[0] === m)) { e.method = 'اختار طريقة التحويل'; return e; }
+    if (m === 'cash') return e;
+    if (!clean(b.holder, 120)) e.holder = 'اكتب اسم صاحب الحساب زي ما هو في البنك';
+    if (m === 'bank') { if (!clean(b.bankName, 80)) e.bankName = 'اكتب اسم البنك'; const ib = latin(b.iban || '').replace(/\s/g, '').toUpperCase(); if (!ib) e.iban = 'اكتب IBAN أو رقم الحساب'; else if (!ibanOk(ib)) e.iban = 'IBAN مصري = EG + 27 رقم، أو رقم حساب من 8 لـ 20 رقم'; }
+    else { const w = latin(b.wallet || '').replace(/[\s-]/g, ''); if (!w) e.wallet = m === 'instapay' ? 'اكتب رقم الموبايل أو عنوان إنستاباي' : 'اكتب رقم المحفظة'; else if (!(phoneOk(w) || (m === 'instapay' && /^[a-z0-9._-]+@instapay$/i.test(w)))) e.wallet = m === 'instapay' ? 'رقم موبايل (01…) أو عنوان زي name@instapay' : 'رقم موبايل مصري 11 رقم'; }
+    return e;
+  }
 
   function validateVendor(input) {
     const e = {};
@@ -116,7 +141,7 @@
     }
     function setBank(id, bank, actor) {
       const v = must(id); if (!canSeeBank(actor)) throw noPerm();
-      v.bank = { method: PAY_METHODS.some((m) => m[0] === bank.method) ? bank.method : 'bank', bankName: clean(bank.bankName, 80) || null, holder: clean(bank.holder, 120) || null, iban: latin(bank.iban || '').replace(/\s/g, '') || null, wallet: latin(bank.wallet || '').replace(/\s/g, '') || null };
+      v.bank = { method: PAY_METHODS.some((m) => m[0] === bank.method) ? bank.method : 'bank', bankName: clean(bank.bankName, 80) || null, holder: clean(bank.holder, 120) || null, iban: latin(bank.iban || '').replace(/\s/g, '').toUpperCase() || null, wallet: latin(bank.wallet || '').replace(/\s/g, '') || null };
       event(id, actor.name + ' عدّل بيانات الحساب البنكي', actor);
     }
     function reveal(id, field, actor) {
@@ -282,6 +307,6 @@
       ['', 'اتأكدت — ابدأ فيها (' + r.confirmed.length + ')'], r.confirmed.map((x) => '• #' + x.oid + ' · ' + x.prod)).join('\n');
   }
 
-  return Object.freeze({ dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
+  return Object.freeze({ LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
 });
 

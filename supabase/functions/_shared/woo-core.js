@@ -257,7 +257,11 @@ export function mapSubOrder(wooSubOrder, ctx) {
   return { sub, unknownVendorIds: vendor !== null && uuid === null ? [vendor] : [] };
 }
 
-/** A dokan/v1/stores item → vendors row (raw keeps the public store fields only). */
+/**
+ * A dokan/v1/stores item → vendors row (raw keeps the public store fields only). status: 'inactive' only when Dokan says
+ * so (`enabled` off); the public REST omits `enabled` (seen live, 2026-10-26: list and single store), so an absent / null
+ * flag reads 'active' — a store Dokan lists, or one that has orders, is selling until the flag says otherwise.
+ */
 export function mapStore(dokanStore) {
   const s = isObj(dokanStore) ? dokanStore : {};
   const id = wooId(s.id);
@@ -266,7 +270,7 @@ export function mapStore(dokanStore) {
     name: str(s.store_name) || `#${id ?? ''}`,
     phone: orNull(s.phone),
     email: isOn(s.show_email) ? orNull(s.email) : null,
-    status: isOn(s.enabled) ? 'active' : 'inactive',
+    status: s.enabled == null || isOn(s.enabled) ? 'active' : 'inactive',
     raw: { ...pick(s, RAW_STORE), ...(isObj(s.rating) ? { rating: pick(s.rating, ['rating', 'count']) } : {}) },
   };
 }

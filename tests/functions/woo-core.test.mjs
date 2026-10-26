@@ -594,12 +594,19 @@ test('mapStore: Dokan store → vendors row with a lean raw', () => {
   assert.deepEqual(input, before);
 });
 
-test('mapStore: enabled:false → inactive; email only when shown', () => {
+test('mapStore: enabled:false → inactive, enabled absent / null → active (Dokan\'s public REST omits it); email only when shown', () => {
   assert.equal(mapStore(store({ enabled: false })).status, 'inactive');
-  for (const off of ['0', 'no', 0, false, undefined, null, '', 'false']) {
+  for (const off of ['0', 'no', 0, false, '', 'false']) {
     assert.equal(mapStore(store({ enabled: off })).status, 'inactive', String(off));
     assert.equal(mapStore(store({ show_email: off })).email, null, String(off));
   }
+  for (const unknown of [undefined, null]) {
+    assert.equal(mapStore(store({ enabled: unknown })).status, 'active', String(unknown));
+    assert.equal(mapStore(store({ show_email: unknown })).email, null, String(unknown));
+  }
+  const { enabled: _omitted, ...noFlag } = store();
+  assert.equal(mapStore(noFlag).status, 'active', 'no enabled key at all');
+  assert.ok(!('enabled' in mapStore(noFlag).raw), 'raw carries no enabled when Dokan sent none');
   for (const on of [true, 1, '1', 'yes', 'true']) {
     assert.equal(mapStore(store({ enabled: on })).status, 'active', String(on));
     assert.equal(mapStore(store({ show_email: on })).email, 'maker.test@example.com', String(on));

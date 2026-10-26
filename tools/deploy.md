@@ -268,7 +268,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
   ```
 
   - `orders` + `subs` ≈ 190 + اللي اتعمل بعد الفحص. فحص الـ staging يوم 25 أكتوبر لقى 190 أوردر من 1 أكتوبر، **والرقم ده شامل الفرعيين** (قايمة Woo فيها أوردرات Dokan الفرعية). فرق صغير عند الحد مقبول: الفحص عدّ بتوقيت الموقع، والمزامنة بـ GMT.
-  - `vendors` ≈ عدد المتاجر في Dokan (المتجر المقفول بيتسجّل `inactive`، وعمره ما بيتمسح). المزامنة مابتلمسش `aliases` ولا `commission_pct`.
+  - `vendors` ≈ عدد المتاجر في Dokan (المتجر المقفول بيتسجّل `inactive` لو Dokan رجّع خانة `enabled` مقفولة؛ REST العام بتاع Dokan مابيرجّعش الخانة دي أصلًا، فمن غيرها المتجر بيتسجّل `active`، وعمره ما بيتمسح). المزامنة مابتلمسش `aliases` ولا `commission_pct`.
   - `products` ≈ 3991 (نفس الفحص).
   - `sync_state`: `orders` و`products` فيهم `cursor` و`last_run` و`done: true`.
   - `woo_sync_log`: `ok` لكل جزء. `conflict` و`skipped` و`error` بيتقروا زي 2.7.7.

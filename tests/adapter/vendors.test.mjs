@@ -5,6 +5,9 @@ import { stubClient, opsOf } from './stub-supabase.mjs';
 // vendor_rates + vendor_bank → the prototype's vendor shape (toVendor, pure); write-through store (named columns, no .select()
 // on an update, .select('id') on an insert; 42501 → the old value back + ib:vendors { reason }); the share / balance math of
 // decision 4 / 5 (lineShare, stats); the contract upload path; findByName on aliases; vendor.* events with the vendor as entity.
+// Phase 3.1 (decision 10): the login shape from vendor_logins (no secret_id), the create sequence with { vendor, missing }, setLogin /
+// setLoginStatus / setLoginPassword / revealPassword / usernameTaken / canLogin / missing, the status «في إجازة»; the password
+// reaches the RPC and nothing else.
 const src = readFileSync(new URL('../../app/js/adapter/vendors.js', import.meta.url), 'utf8');
 const domain = readFileSync(new URL('../../app/js/blocks/06-vendors-domain.js', import.meta.url), 'utf8');
 const plain = (v) => JSON.parse(JSON.stringify(v));
@@ -20,9 +23,15 @@ const VENDORS = [
 const RATES = [{ id: 1, vendor_id: V1, rate: '35.00', since: '2026-03-01', set_by: 'صفوت كمال', created_at: T0 }, { id: 2, vendor_id: V2, rate: 40, since: '2026-03-01', set_by: 'صفوت كمال', created_at: T0 },
   { id: 3, vendor_id: V2, rate: 45, since: '2026-10-01', set_by: 'صفوت كمال', created_at: T0 }, { id: 4, vendor_id: V2, rate: 50, since: '2027-01-01', set_by: 'صفوت كمال', created_at: T0 }];
 const BANK = [{ vendor_id: V3, method: 'bank', bank_name: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: IBAN, wallet: null, updated_by: 'منى حسن', updated_at: T0 }];
+// vendor_logins as the client reads it (no secret_id): Antikiano with a temporary password set, Bian eg invited by link and disabled
+const LOGINS = [{ vendor_id: V2, username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: T0, created_by: 'u1', created_at: T0, updated_at: T0 },
+  { vendor_id: V3, username: 'bian.eg', email: 'bian.dev@ibtekr.local', pw_mode: 'link', status: 'disabled', must_change: true, invite_sent_at: null, password_set_at: null, created_by: 'u1', created_at: T0, updated_at: T0 }];
+const NEW = 'a0000000-0000-4000-8000-000000000009';
+const BASE = { name: 'zaan', category: 'هدايا', phone: '01000000009', rate: '40', leadDays: '7', status: 'active', aliases: '', email: 'zaan.dev@ibtekr.local' };
+const TEST_PW = 'Test1234'; // the fake test password
 const ok = (data) => ({ data, error: null });
 const denied = () => ({ data: null, error: { code: '42501', message: 'permission denied' } });
-const seed = () => ({ vendors: ok(VENDORS), vendor_rates: ok(RATES), vendor_bank: ok(BANK), activity_log: ok([]) });
+const seed = () => ({ vendors: ok(VENDORS), vendor_rates: ok(RATES), vendor_bank: ok(BANK), vendor_logins: ok(LOGINS), activity_log: ok([]) });
 const NOW = new Date(2026, 9, 25, 12, 0).getTime(); // the adapter's clock: local 2026-10-25
 const clockAt = (t) => class FakeDate extends Date { constructor(...a) { if (a.length) super(...a); else super(t); } static now() { return t; } };
 const OPS = { 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' };
@@ -55,14 +64,17 @@ test('load names every column (no *, no commission_pct), reads the rates and the
   await V.load();
   assert.equal(V.state(), 'ready');
   assert.deepEqual(events.map((e) => e.detail.state), ['loading', 'ready']);
-  for (const t of ['vendors', 'vendor_rates', 'vendor_bank']) for (const s of selectOf(calls, t)) { assert.doesNotMatch(s, /\*/, t); assert.doesNotMatch(s, /commission_pct/, t); }
+  for (const t of ['vendors', 'vendor_rates', 'vendor_bank', 'vendor_logins']) for (const s of selectOf(calls, t)) { assert.doesNotMatch(s, /\*/, t); assert.doesNotMatch(s, /commission_pct/, t); assert.doesNotMatch(s, /secret_id/, t); }
+  assert.match(selectOf(calls, 'vendor_logins')[0], /^vendor_id, username, email, pw_mode, status, must_change, invite_sent_at, password_set_at, created_by, created_at, updated_at$/);
   assert.match(selectOf(calls, 'vendors')[0], /\bcontract\b.*\bopening_balance\b/);
   assert.deepEqual(opsOf(calls, 'vendors').filter((c) => c.op === 'range'), [{ op: 'range', args: [0, 999] }]);
   assert.deepEqual(plain(S.get(V1)), { id: V1, name: 'Art Craft', legalName: null, category: 'فنون ولوحات', aliases: ['ArtCraft', 'آرت كرافت'], status: 'active', phone: '01000000003', altPhone: null, email: null, address: null, instagram: null, storeUrl: null,
     rate: 35, rateSince: '2026-03-01', rateHistory: [{ rate: 35, since: '2026-03-01', by: 'صفوت كمال' }], ratesVisible: true, leadDays: 7, depositPolicy: null, notes: 'الشحن على المبتكر', logoLetter: 'A', joinedAt: '2026-03-01',
-    contract: null, bank: null, openingBalance: 0, wooVendorId: 2376, shopUrl: 'https://ibtekr.club/store/art-craft/', createdAt: T0, lastUpdate: T0 });
+    contract: null, bank: null, login: null, openingBalance: 0, wooVendorId: 2376, shopUrl: 'https://ibtekr.club/store/art-craft/', createdAt: T0, lastUpdate: T0 });
   const a = S.get(V2);
   assert.deepEqual(plain([a.rate, a.rateSince, a.rateHistory.map((x) => x.rate)]), [45, '2026-10-01', [40, 45, 50]]); // the effective one today; a future row waits
+  assert.deepEqual(plain(a.login), { username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pwMode: 'temp', status: 'invited', mustChange: true, passwordSetAt: T0, inviteSentAt: null, hasPassword: true });
+  assert.deepEqual(plain([S.get(V3).login.status, S.get(V3).login.hasPassword, S.get(V3).login.pwMode]), ['disabled', false, 'link']);
   assert.deepEqual(plain(a.contract), { fileName: 'antikiano.pdf', size: 980000, expires: '2026-11-15', uploadedBy: 'منى حسن', uploadedAt: T0, path: CONTRACT.path });
   assert.equal(a.joinedAt, '2026-10-20'); // no joined_at: the created_at date
   const b = S.get(V3);
@@ -363,8 +375,9 @@ test('create: one insert of the granted columns with .select(\'id\'), the first 
   const input = { name: ' zaan ', category: 'هدايا', phone: '01000000009', rate: '40', leadDays: '7', status: 'active', aliases: 'zana، Zaan', legalName: '', email: '', address: '', instagram: '', storeUrl: '', depositPolicy: '', notes: '' };
   await assert.rejects(() => S.create({ ...input, phone: 'x' }, S.actor()), /invalid vendor: phone/);
   assert.deepEqual(writesOf(calls, 'vendors'), []);
-  const v = await S.create(input, S.actor());
-  assert.deepEqual([v.id, v.name, S.get(NEW).name], [NEW, 'zaan', 'zaan']);
+  const { vendor: v, missing } = await S.create(input, S.actor());
+  assert.deepEqual(plain([v.id, v.name, S.get(NEW).name, missing]), [NEW, 'zaan', 'zaan', []]);
+  assert.deepEqual(opsOf(calls, 'vendor_logins').filter((c) => c.op === 'insert'), []); // no login asked: none written
   const ins = writesOf(calls, 'vendors');
   assert.deepEqual(ins[0], { op: 'insert', args: [{ name: 'zaan', category: 'هدايا', phone: '01000000009', status: 'active', lead_days: 7, aliases: ['zana', 'Zaan'], joined_at: '2026-10-25' }] });
   assert.deepEqual(ins[1], { op: 'select', args: ['id'] });
@@ -401,4 +414,183 @@ test('clear forgets everything (state idle); nothing is read or written while si
   const out = load({ signedIn: false });
   await out.V.load();
   assert.deepEqual([out.V.state(), plain(out.calls)], ['idle', []]);
+});
+
+test('vendor_logins refused or empty → login null, state ready; a leave row reads as leave, an unknown status as active; toLogin defaults', async () => {
+  const r = load({ responses: { ...seed(), vendor_logins: denied() } });
+  await r.V.load();
+  assert.deepEqual([r.V.state(), r.S.get(V2).login], ['ready', null]);
+  const { V } = load();
+  assert.equal(V.toVendor({ id: 'x', name: 'A', status: 'leave' }, [], null, { ratesVisible: true, today: '2026-10-25' }).status, 'leave');
+  assert.equal(V.toVendor({ id: 'x', name: 'A', status: 'inactive' }, [], null, {}).status, 'inactive');
+  assert.equal(V.toVendor({ id: 'x', name: 'A', status: 'vacation' }, [], null, {}).status, 'active');
+  assert.deepEqual(plain(V.toVendor({ id: 'x', name: 'A' }, [], null, { login: { vendor_id: 'x', username: 'a.b', email: null, pw_mode: 'weird', status: 'nonsense', must_change: false, password_set_at: null } }).login), { username: 'a.b', email: null, pwMode: 'link', status: 'invited', mustChange: false, passwordSetAt: null, inviteSentAt: null, hasPassword: false });
+  // «في إجازة» is a status change like any other: one PATCH, logged vendor.status (the admin may toggle)
+  const a = load(); await a.V.load(); a.calls.length = 0;
+  a.S.update(V1, { status: 'leave' }, a.S.actor()); await settle();
+  assert.deepEqual(writesOf(a.calls, 'vendors').slice(0, 2), [{ op: 'update', args: [{ status: 'leave' }] }, { op: 'eq', args: ['id', V1] }]);
+  assert.deepEqual(a.logs.filter((l) => l[0] === 'vendor.status'), [['vendor.status', 'leave', { entity: 'vendor', entity_id: V1 }]]);
+});
+
+test('create with a login (link) and a bank: vendors → vendor_rates → vendor_logins → vendor_bank, no rpc, every step logged; { vendor, missing: [] }', async () => {
+  const { V, S, calls, responses, logs } = load();
+  await V.load(); calls.length = 0;
+  const newLogin = { vendor_id: NEW, username: 'zaan', email: 'zaan.dev@ibtekr.local', pw_mode: 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, created_by: 'u1', created_at: T0, updated_at: T0 };
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'insert') ? ok({ id: NEW }) : ok(VENDORS.concat([row({ id: NEW, name: 'zaan', category: 'هدايا', phone: '01000000009', email: 'zaan.dev@ibtekr.local' })])));
+  responses.vendor_logins = (ops) => (ops.some((c) => c.op === 'insert') ? ok([]) : ok(LOGINS.concat([newLogin])));
+  const out = await S.create({ ...BASE, login: { username: ' Zaan ', pwMode: 'link', password: '' }, bank: { method: 'bank', holder: 'Zaan', bankName: 'بنك مصر', iban: 'eg38 0003 0001 0000 0000 0000 0482 1', wallet: '' } }, S.actor());
+  assert.deepEqual(plain([out.vendor.id, out.missing, out.reasons]), [NEW, [], {}]);
+  assert.deepEqual(calls.filter((c) => ['insert', 'rpc'].includes(c.op)).map((c) => c.table || c.op), ['vendors', 'vendor_rates', 'vendor_logins', 'vendor_bank']);
+  assert.deepEqual(opsOf(calls, 'vendor_logins').find((c) => c.op === 'insert').args[0], { vendor_id: NEW, username: 'zaan', email: 'zaan.dev@ibtekr.local', pw_mode: 'link', created_by: 'u1' });
+  const b = opsOf(calls, 'vendor_bank').find((c) => c.op === 'insert').args[0];
+  assert.deepEqual({ ...b, updated_at: 'x' }, { vendor_id: NEW, method: 'bank', bank_name: 'بنك مصر', holder: 'Zaan', iban: 'EG380003000100000000000004821', wallet: null, updated_by: 'صفوت كمال', updated_at: 'x' }); // the IBAN upper-cased
+  assert.deepEqual(logs.map((l) => l[0]), ['vendor.create', 'vendor.rate', 'vendor.login', 'vendor.bank']);
+  assert.deepEqual(plain(out.vendor.login), { username: 'zaan', email: 'zaan.dev@ibtekr.local', pwMode: 'link', status: 'invited', mustChange: true, passwordSetAt: null, inviteSentAt: null, hasPassword: false });
+  // a cash bank row carries no numbers; a bank the caller may not see is not sent (ops with vendors.edit = F)
+  const vf = load({ admin: false, perms: { ...OPS, 'vendors.edit': 'F' } }); await vf.V.load(); vf.calls.length = 0;
+  vf.responses.vendors = (o) => (o.some((c) => c.op === 'insert') ? ok({ id: NEW }) : ok(VENDORS));
+  const o2 = await vf.S.create({ ...BASE, bank: { method: 'cash' } }, vf.S.actor());
+  assert.deepEqual([plain(o2.missing), opsOf(vf.calls, 'vendor_bank').filter((c) => c.op === 'insert')], [[], []]);
+});
+
+test('create with a temporary password: the rpc right after the login insert; the password is in no other call, no log, no event, not kept; a weak one or a bad login is refused before any write', async () => {
+  const { V, S, calls, responses, logs, events } = load();
+  await V.load(); calls.length = 0; events.length = 0;
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'insert') ? ok({ id: NEW }) : ok(VENDORS));
+  responses['rpc:vendor_login_set_password'] = ok(T0);
+  await assert.rejects(() => S.create({ ...BASE, login: { username: 'zaan', pwMode: 'temp', password: 'weak' } }, S.actor()), /invalid login: password/);
+  await assert.rejects(() => S.create({ ...BASE, login: { username: 'Za', pwMode: 'link' } }, S.actor()), /invalid login: username/);
+  await assert.rejects(() => S.create({ ...BASE, email: '', login: { username: 'zaan', pwMode: 'link' } }, S.actor()), /invalid login: email/);
+  await assert.rejects(() => S.create({ ...BASE, bank: { method: 'bank', holder: '', bankName: '', iban: '' } }, S.actor()), /invalid bank: holder,bankName,iban/);
+  assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
+  const out = await S.create({ ...BASE, login: { username: 'zaan', pwMode: 'temp', password: TEST_PW } }, S.actor());
+  assert.deepEqual(plain([out.vendor.id, out.missing]), [NEW, []]);
+  assert.deepEqual(calls.filter((c) => c.op === 'rpc'), [{ op: 'rpc', args: ['vendor_login_set_password', { p_vendor: NEW, p_password: TEST_PW }] }]);
+  assert.equal(opsOf(calls, 'vendor_logins').find((c) => c.op === 'insert').args[0].pw_mode, 'temp');
+  assert.doesNotMatch(JSON.stringify(calls.filter((c) => c.op !== 'rpc')), new RegExp(TEST_PW));
+  assert.doesNotMatch(JSON.stringify(logs), new RegExp(TEST_PW));
+  assert.doesNotMatch(JSON.stringify(events), new RegExp(TEST_PW));
+  assert.doesNotMatch(JSON.stringify(plain([S.all(), out])), new RegExp(TEST_PW));
+  assert.deepEqual(logs.map((l) => l[0]), ['vendor.create', 'vendor.rate', 'vendor.login']); // the password's event is the server's
+});
+
+test('create: a refused rate / login (23505 → duplicate_username) / password (0A000) / bank step leaves the vendor and names it in missing; a known duplicate username is refused locally', async () => {
+  const { V, S, calls, responses, logs } = load();
+  await V.load(); calls.length = 0;
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'insert') ? ok({ id: NEW }) : ok(VENDORS));
+  await assert.rejects(() => S.create({ ...BASE, login: { username: 'Antikiano', pwMode: 'link' } }, S.actor()), /اسم المستخدم ده مستخدم قبل كده/);
+  assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
+  responses.vendor_logins = (ops) => (ops.some((c) => c.op === 'insert') ? { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "vendor_logins_username_key"' } } : ok(LOGINS));
+  responses.vendor_bank = (ops) => (ops.some((c) => c.op === 'insert') ? denied() : ok(BANK));
+  const out = await S.create({ ...BASE, login: { username: 'zaan', pwMode: 'temp', password: TEST_PW }, bank: { method: 'cash' } }, S.actor());
+  assert.deepEqual(plain([out.vendor.id, out.missing, out.reasons]), [NEW, ['login', 'bank'], { login: 'duplicate_username', bank: 'forbidden' }]);
+  assert.deepEqual(calls.filter((c) => c.op === 'rpc'), []); // no password without a login row
+  assert.deepEqual(logs.map((l) => l[0]), ['vendor.create', 'vendor.rate']);
+  // the password step alone refused (no Vault on that server): the login row stays, the password is what is missing
+  calls.length = 0; logs.length = 0; responses.vendor_logins = ok(LOGINS); responses.vendor_bank = ok(BANK);
+  responses['rpc:vendor_login_set_password'] = { data: null, error: { code: '0A000', message: 'vault is not available' } };
+  const o2 = await S.create({ ...BASE, login: { username: 'zaan', pwMode: 'temp', password: TEST_PW } }, S.actor());
+  assert.deepEqual(plain([o2.missing, o2.reasons]), [['password'], { password: 'no_vault' }]);
+  assert.match(V.MESSAGES.no_vault, /Vault/);
+  assert.deepEqual(logs.map((l) => l[0]), ['vendor.create', 'vendor.rate', 'vendor.login']);
+  // the first rate refused: named too, nothing else touched
+  calls.length = 0; delete responses['rpc:vendor_login_set_password'];
+  responses.vendor_rates = (ops) => (ops.some((c) => c.op === 'insert') ? denied() : ok(RATES));
+  const o3 = await S.create(BASE, S.actor());
+  assert.deepEqual(plain([o3.vendor.id, o3.missing, o3.reasons]), [NEW, ['rate'], { rate: 'forbidden' }]);
+});
+
+test('setLogin: an insert (vendor_id, username, email, pw_mode link, created_by) when the maker has no row, the changed columns after; validated locally; a duplicate refused locally; 23505 → duplicate_username and the row back', async () => {
+  const { V, S, calls, responses, logs, events } = load({ admin: false, perms: { ...OPS, 'vendors.edit': 'F' } });
+  await V.load(); calls.length = 0;
+  assert.throws(() => S.setLogin(V1, { username: 'ab', email: 'x' }, S.actor()), /invalid login: username,email/);
+  assert.throws(() => S.setLogin(V1, { username: 'Antikiano', email: 'a@b.co' }, S.actor()), /اسم المستخدم ده مستخدم قبل كده/);
+  assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
+  const out = S.setLogin(V1, { username: ' Art.Craft ', email: ' art.dev@ibtekr.local ' }, S.actor());
+  assert.deepEqual(plain(out.login), { username: 'art.craft', email: 'art.dev@ibtekr.local', pwMode: 'link', status: 'invited', mustChange: true, passwordSetAt: null, inviteSentAt: null, hasPassword: false });
+  await settle();
+  assert.deepEqual(opsOf(calls, 'vendor_logins').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: V1, username: 'art.craft', email: 'art.dev@ibtekr.local', pw_mode: 'link', created_by: 'u1' }]);
+  assert.deepEqual(logs, [['vendor.login', 'username, email', { entity: 'vendor', entity_id: V1 }]]);
+  // an existing row: the e-mail alone changes → one PATCH of email (no .select())
+  calls.length = 0; logs.length = 0;
+  S.setLogin(V2, { username: 'antikiano', email: 'new.dev@ibtekr.local' }, S.actor());
+  await settle();
+  assert.deepEqual(opsOf(calls, 'vendor_logins').filter((c) => ['update', 'eq', 'insert'].includes(c.op)), [{ op: 'update', args: [{ email: 'new.dev@ibtekr.local' }] }, { op: 'eq', args: ['vendor_id', V2] }]);
+  assert.deepEqual(logs, [['vendor.login', 'email', { entity: 'vendor', entity_id: V2 }]]);
+  calls.length = 0; S.setLogin(V2, { username: 'antikiano', email: 'antikiano.dev@ibtekr.local' }, S.actor()); await settle(); // nothing changed: nothing sent
+  assert.deepEqual(opsOf(calls, 'vendor_logins').filter((c) => c.op === 'update'), []);
+  // 23505 from the server (taken meanwhile): the old username back, the reason duplicate_username
+  events.length = 0;
+  responses.vendor_logins = (ops) => (ops.some((c) => c.op === 'update') ? { data: null, error: { code: '23505', message: 'duplicate key' } } : ok(LOGINS));
+  S.setLogin(V2, { username: 'taken.name', email: 'antikiano.dev@ibtekr.local' }, S.actor());
+  assert.equal(S.get(V2).login.username, 'taken.name');
+  await settle();
+  assert.equal(S.get(V2).login.username, 'antikiano');
+  assert.deepEqual(events.filter((e) => e.detail.reason).map((e) => e.detail.reason), ['duplicate_username']);
+  assert.equal(V.MESSAGES.duplicate_username, 'اسم المستخدم ده مستخدم قبل كده');
+  const ops = load({ admin: false }); await ops.V.load(); ops.calls.length = 0; // vendors.edit = P: refused before any request
+  assert.throws(() => ops.S.setLogin(V1, { username: 'art.craft', email: 'a@b.co' }, ops.S.actor()), /مش من صلاحياتك/);
+  assert.deepEqual(ops.calls.filter((c) => c.op !== 'from'), []);
+});
+
+test('setLoginStatus: invited / disabled only, one PATCH of status, logged vendor.login.status; refused without a login row or the permission', async () => {
+  const { S, V, calls, logs } = load();
+  await V.load(); calls.length = 0;
+  assert.throws(() => S.setLoginStatus(V2, 'active', S.actor()), /bad status/);
+  assert.throws(() => S.setLoginStatus(V1, 'disabled', S.actor()), /اعمل اسم مستخدم الأول/);
+  S.setLoginStatus(V2, 'disabled', S.actor());
+  assert.equal(S.get(V2).login.status, 'disabled');
+  await settle();
+  assert.deepEqual(opsOf(calls, 'vendor_logins').filter((c) => ['update', 'eq'].includes(c.op)), [{ op: 'update', args: [{ status: 'disabled' }] }, { op: 'eq', args: ['vendor_id', V2] }]);
+  assert.deepEqual(logs, [['vendor.login.status', 'disabled', { entity: 'vendor', entity_id: V2 }]]);
+  calls.length = 0; S.setLoginStatus(V3, 'disabled', S.actor()); await settle(); // already disabled: nothing sent
+  assert.deepEqual(opsOf(calls, 'vendor_logins').filter((c) => c.op === 'update'), []);
+  const ops = load({ admin: false }); await ops.V.load(); ops.calls.length = 0;
+  assert.throws(() => ops.S.setLoginStatus(V2, 'disabled', ops.S.actor()), /مش من صلاحياتك/);
+  assert.deepEqual(ops.calls.filter((c) => c.op !== 'from'), []);
+});
+
+test('setLoginPassword / revealPassword: the two RPCs; the password in the rpc only, never kept, nothing logged here (the server logs); refused → the reason\'s message; ops refused before any request', async () => {
+  const { V, S, calls, responses, logs, events } = load();
+  await V.load(); calls.length = 0;
+  await assert.rejects(() => S.setLoginPassword(V1, TEST_PW, S.actor()), /اعمل اسم مستخدم الأول/);
+  await assert.rejects(() => S.setLoginPassword(V2, 'short', S.actor()), /الباسورد لازم: 8 حروف على الأقل، رقم/);
+  assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
+  responses['rpc:vendor_login_set_password'] = ok('2026-10-25T10:00:00+00:00');
+  assert.equal(await S.setLoginPassword(V2, TEST_PW, S.actor()), '2026-10-25T10:00:00+00:00');
+  assert.deepEqual(calls.filter((c) => c.op === 'rpc'), [{ op: 'rpc', args: ['vendor_login_set_password', { p_vendor: V2, p_password: TEST_PW }] }]);
+  assert.doesNotMatch(JSON.stringify(calls.filter((c) => c.op !== 'rpc')), new RegExp(TEST_PW));
+  assert.deepEqual(logs, []); assert.doesNotMatch(JSON.stringify(events), new RegExp(TEST_PW));
+  assert.ok(events.some((e) => e.detail.written), 'reloaded after the rpc');
+  assert.doesNotMatch(JSON.stringify(plain(S.all())), new RegExp(TEST_PW));
+  calls.length = 0;
+  responses['rpc:vendor_login_reveal'] = ok(TEST_PW);
+  assert.equal(await S.revealPassword(V2, S.actor()), TEST_PW);
+  assert.deepEqual(calls.filter((c) => c.op === 'rpc'), [{ op: 'rpc', args: ['vendor_login_reveal', { p_vendor: V2 }] }]);
+  assert.equal(await S.revealPassword(V3, S.actor()), null); // no temporary password set: no request
+  assert.equal(calls.filter((c) => c.op === 'rpc').length, 1);
+  assert.deepEqual(logs, []); assert.doesNotMatch(JSON.stringify(plain(S.all())), new RegExp(TEST_PW));
+  responses['rpc:vendor_login_set_password'] = { data: null, error: { code: '22023', message: 'weak password' } };
+  await assert.rejects(() => S.setLoginPassword(V2, TEST_PW, S.actor()), /الباسورد لازم/);
+  responses['rpc:vendor_login_set_password'] = { data: null, error: { code: '0A000', message: 'vault is not available' } };
+  await assert.rejects(() => S.setLoginPassword(V2, TEST_PW, S.actor()), /Vault/);
+  responses['rpc:vendor_login_reveal'] = { data: null, error: { code: '42501', message: 'permission denied' } };
+  await assert.rejects(() => S.revealPassword(V2, S.actor()), /مش من صلاحياتك/);
+  const ops = load({ admin: false }); await ops.V.load(); ops.calls.length = 0;
+  await assert.rejects(() => ops.S.setLoginPassword(V2, TEST_PW, ops.S.actor()), /مش من صلاحياتك/);
+  await assert.rejects(() => ops.S.revealPassword(V2, ops.S.actor()), /مش من صلاحياتك/);
+  assert.deepEqual(ops.calls.filter((c) => c.op !== 'from'), []);
+});
+
+test('canLogin (admin or vendors.edit = F), usernameTaken (case-insensitive, exceptId), missing (login / e-mail / bank — the bank only when the caller sees bank rows)', async () => {
+  const admin = load(); await admin.V.load();
+  assert.equal(admin.S.canLogin(), true);
+  assert.deepEqual([admin.S.usernameTaken('ANTIKIANO'), admin.S.usernameTaken('antikiano', V2), admin.S.usernameTaken('bian.eg', V2), admin.S.usernameTaken(''), admin.S.usernameTaken('nobody')], [true, false, true, false, false]);
+  assert.deepEqual(plain([admin.S.missing(V1), admin.S.missing(V2), admin.S.missing(V3)]), [['بيانات الدخول', 'الإيميل', 'الحساب البنكي'], ['الحساب البنكي'], []]);
+  const ops = load({ admin: false }); await ops.V.load();
+  assert.deepEqual(plain([ops.S.canLogin(), ops.S.missing(V1)]), [false, ['بيانات الدخول', 'الإيميل']]); // no sensitive.vendor_bank: the bank is not judged
+  const vf = load({ admin: false, perms: { ...OPS, 'vendors.edit': 'F' } }); await vf.V.load();
+  assert.equal(vf.S.canLogin(), true);
+  const acc = load({ admin: false, perms: ACCOUNTS }); await acc.V.load();
+  assert.deepEqual(plain([acc.S.canLogin(), acc.S.missing(V2)]), [false, ['الحساب البنكي']]);
 });

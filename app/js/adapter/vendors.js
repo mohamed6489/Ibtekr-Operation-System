@@ -21,6 +21,15 @@
 // the loaded orders: a line's share is total − (total × its Dokan rate / 100 + fee) (order_items.commission_rate / fee, decision
 // 4); a line without one uses our rate on the order's date when the rates are visible, else counts in full and is marked noRate.
 // Balance in this phase = opening_balance (0 until the phase-4 import) + the shares of the completed orders.
+// Phase 3.1 (decision 10): a vendor also carries `login` — its vendor_logins row (username, email, pwMode, status, mustChange,
+// passwordSetAt, inviteSentAt, hasPassword) or null — read by column list without secret_id. create(input) runs vendors →
+// vendor_rates (canRate) → vendor_logins (input.login) → rpc vendor_login_set_password (pwMode temp) → vendor_bank (canBank and
+// input.bank); a step refused after the vendor's insert never undoes the vendor: the result is { vendor, missing: [...], reasons }
+// so the page can say what is still missing. setLogin upserts the row (insert when there is none), setLoginStatus writes
+// invited / disabled, setLoginPassword and revealPassword are the two RPCs (Promises; the server logs vendor.login.password /
+// vendor.login.reveal itself, the password is never kept, logged or emitted here), usernameTaken is the local check (the server's
+// unique index is the judge: 23505 → duplicate_username), canLogin = admin or vendors.edit = F, missing(id) lists what the maker
+// still lacks (login, e-mail, bank — the bank only when the caller can see bank rows).
 (function () {
   'use strict';
   const PAGE = 1000; // PostgREST max_rows
@@ -28,6 +37,7 @@
     vendor: 'id, woo_vendor_id, name, aliases, phone, email, status, raw, created_at, updated_at, legal_name, category, alt_phone, address, instagram, store_url, lead_days, deposit_policy, notes, joined_at, contract, opening_balance',
     rate: 'id, vendor_id, rate, since, set_by, created_at',
     bank: 'vendor_id, method, bank_name, holder, iban, wallet, updated_by, updated_at',
+    login: 'vendor_id, username, email, pw_mode, status, must_change, invite_sent_at, password_set_at, created_by, created_at, updated_at', // never secret_id (server only)
     event: 'id, at, action, new_value, actor:profiles(name)',
   };
   const BUCKET = 'vendor-contracts'; const SIGN_SECONDS = 60; const EVENTS = 50;
@@ -36,7 +46,9 @@
   const PAY_METHODS = ['bank', 'instapay', 'wallet', 'cash'];
   // the vendors columns the team writes, by the prototype's field names
   const COL = { name: 'name', legalName: 'legal_name', category: 'category', aliases: 'aliases', status: 'status', phone: 'phone', altPhone: 'alt_phone', email: 'email', address: 'address', instagram: 'instagram', storeUrl: 'store_url', leadDays: 'lead_days', depositPolicy: 'deposit_policy', notes: 'notes', joinedAt: 'joined_at' };
-  const MESSAGES = { forbidden: 'مش من صلاحياتك', network: 'الشبكة مش متاحة — التغيير ما اتحفظش، جرّب تاني', in_use: 'ماينفعش يتمسح — عليه أوردرات', too_large: 'الملف أكبر من 10 ميجا', bad_type: 'نوع الملف مش مقبول — PDF أو صورة (PNG / JPG) بس', duplicate: 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني' };
+  const MESSAGES = { forbidden: 'مش من صلاحياتك', network: 'الشبكة مش متاحة — التغيير ما اتحفظش، جرّب تاني', in_use: 'ماينفعش يتمسح — عليه أوردرات', too_large: 'الملف أكبر من 10 ميجا', bad_type: 'نوع الملف مش مقبول — PDF أو صورة (PNG / JPG) بس', duplicate: 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني',
+    duplicate_username: 'اسم المستخدم ده مستخدم قبل كده', weak_password: 'الباسورد لازم: 8 حروف على الأقل، حرف إنجليزي، رقم، من غير مسافات', no_vault: 'الباسورد المؤقت مش متاح على السيرفر ده دلوقتي (Vault مش شغّال)', no_login: 'اعمل اسم مستخدم الأول' };
+  const LOGIN_STATUSES = ['invited', 'active', 'disabled'];
   const DONE = ['مكتمل']; const OUT = ['ملغي', 'استرجاع', 'فشل', 'مرتجع', 'مسترد', 'ملغي / مرتجع'];
   let vendors = new Map(); const timeline = new Map(); const revealed = new Map(); let gen = 0; let st = 'idle'; let ratesOk = false;
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
@@ -82,6 +94,8 @@
   // ---------- the vendor shape (pure) ----------
   // a vendors row + its vendor_rates rows + its vendor_bank row (or null) → the prototype's vendor; opts.ratesVisible says
   // whether the caller may see the rates (rate / rateSince / rateHistory stay null / [] otherwise); opts.today for the effective rate
+  // a vendor_logins row (without secret_id) → the login shape; hasPassword = a temporary password was set on the server
+  const toLogin = (l) => (l ? { username: text(l.username), email: l.email || null, pwMode: l.pw_mode === 'temp' ? 'temp' : 'link', status: LOGIN_STATUSES.includes(l.status) ? l.status : 'invited', mustChange: !!l.must_change, passwordSetAt: l.password_set_at || null, inviteSentAt: l.invite_sent_at || null, hasPassword: !!l.password_set_at } : null);
   function toVendor(r, rates, bank, opts = {}) {
     const T = (opts && opts.today) || today(); const visible = !!(opts && opts.ratesVisible);
     const hist = (rates || []).filter((x) => x.vendor_id == null || String(x.vendor_id) === String(r.id)).map((x) => ({ rate: Number(x.rate), since: localDate(x.since), by: text(x.set_by) })).filter((x) => Number.isFinite(x.rate) && x.since).sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
@@ -91,16 +105,16 @@
     const contract = ct && ct.file_name ? { fileName: text(ct.file_name), size: Number(ct.size) || 0, expires: ct.expires || null, uploadedBy: text(ct.uploaded_by), uploadedAt: text(ct.uploaded_at), path: text(ct.path) } : null;
     const b = bank ? { method: PAY_METHODS.includes(bank.method) ? bank.method : 'bank', bankName: bank.bank_name || null, holder: bank.holder || null, iban: bank.iban || null, wallet: bank.wallet || null } : null;
     const name = text(r.name);
-    return { id: String(r.id), name, legalName: r.legal_name || null, category: r.category || null, aliases: parseAliases(r.aliases || []), status: r.status === 'inactive' ? 'inactive' : 'active',
+    return { id: String(r.id), name, legalName: r.legal_name || null, category: r.category || null, aliases: parseAliases(r.aliases || []), status: r.status === 'inactive' || r.status === 'leave' ? r.status : 'active',
       phone: r.phone || null, altPhone: r.alt_phone || null, email: r.email || null, address: r.address || null, instagram: r.instagram || null, storeUrl: r.store_url || null,
       rate: visible && cur ? cur.rate : null, rateSince: visible && cur ? cur.since : null, rateHistory: visible ? hist : [], ratesVisible: visible,
       leadDays: Number(r.lead_days) || 7, depositPolicy: r.deposit_policy || null, notes: r.notes || null, logoLetter: name.charAt(0),
-      joinedAt: localDate(r.joined_at) || localDate(r.created_at) || T, contract, bank: b, openingBalance: Number(r.opening_balance) || 0,
+      joinedAt: localDate(r.joined_at) || localDate(r.created_at) || T, contract, bank: b, login: toLogin(opts && opts.login), openingBalance: Number(r.opening_balance) || 0,
       wooVendorId: r.woo_vendor_id == null ? null : Number(r.woo_vendor_id), shopUrl: text(raw.shop_url), createdAt: text(r.created_at), lastUpdate: text(r.updated_at) || text(r.created_at) };
   }
   const contractRow = (ct) => (ct ? { path: ct.path || null, file_name: ct.fileName, size: ct.size, expires: ct.expires || null, uploaded_by: ct.uploadedBy, uploaded_at: ct.uploadedAt } : null);
   // an activity_log row → the drawer's timeline event (text in the actor's voice, like the prototype's events)
-  const VERB = { 'vendor.create': 'أضاف المبتكر', 'vendor.update': 'عدّل بيانات المبتكر', 'vendor.status': 'غيّر حالة المبتكر', 'vendor.rate': 'غيّر نسبة إبتكر', 'vendor.bank': 'عدّل بيانات الحساب البنكي', 'vendor.reveal': 'أظهر', 'vendor.contract': 'رفع عقد التعاون', 'vendor.remove': 'حذف المبتكر', 'vendor.share': 'شارك أوردرات المبتكر' };
+  const VERB = { 'vendor.create': 'أضاف المبتكر', 'vendor.update': 'عدّل بيانات المبتكر', 'vendor.status': 'غيّر حالة المبتكر', 'vendor.rate': 'غيّر نسبة إبتكر', 'vendor.bank': 'عدّل بيانات الحساب البنكي', 'vendor.reveal': 'أظهر', 'vendor.contract': 'رفع عقد التعاون', 'vendor.remove': 'حذف المبتكر', 'vendor.share': 'شارك أوردرات المبتكر', 'vendor.login': 'عدّل بيانات الدخول', 'vendor.login.status': 'غيّر حالة حساب الدخول', 'vendor.login.password': 'عمل باسورد مؤقت للمبتكر', 'vendor.login.reveal': 'أظهر باسورد الدخول (دعم)' };
   function toEvent(r) {
     const actor = (r.actor && r.actor.name) || '—'; const detail = typeof r.new_value === 'string' ? r.new_value : r.new_value == null ? '' : JSON.stringify(r.new_value);
     return { id: r.id, at: r.at, action: r.action, actor: { name: actor }, text: actor + ' ' + (VERB[r.action] || r.action) + (detail ? ' (' + detail + ')' : '') };
@@ -113,6 +127,7 @@
   const canBank = () => perm('sensitive.vendor_bank') === 'F';
   const canToggle = () => perm('vendors.toggle') === 'F';
   const canRate = () => perm('sensitive.commission') === 'F';
+  const canLogin = () => isAdmin() || perm('vendors.edit') === 'F'; // vendor_logins insert / update and the two RPCs
   // the signed-in member as the prototype's actor { name, role }
   function actor() {
     const K = window.IBKit; const m = K && K.member && K.ME ? K.member(K.ME) : null;
@@ -141,17 +156,19 @@
     const g = ++gen;
     setState('loading');
     try {
-      const [vs, rs, bs] = await Promise.all([
+      const [vs, rs, bs, ls] = await Promise.all([
         pages(() => cl.from('vendors').select(COLS.vendor).order('name', { ascending: true }).order('id', { ascending: true }), g),
         cl.from('vendor_rates').select(COLS.rate).order('since', { ascending: true }).order('id', { ascending: true }),
         cl.from('vendor_bank').select(COLS.bank),
+        cl.from('vendor_logins').select(COLS.login),
       ]);
       stale(g);
       ratesOk = !rs.error; const visible = ratesOk && canRate();
       const byVendor = new Map(); (rs.error ? [] : rs.data || []).forEach((x) => { const k = String(x.vendor_id); if (!byVendor.has(k)) byVendor.set(k, []); byVendor.get(k).push(x); });
       const bankOf = new Map((bs.error ? [] : bs.data || []).map((b) => [String(b.vendor_id), b]));
+      const loginOf = new Map((ls.error ? [] : ls.data || []).map((l) => [String(l.vendor_id), l])); // refused or empty: no login known
       const T = today();
-      vendors = new Map(vs.map((r) => [String(r.id), toVendor(r, byVendor.get(String(r.id)) || [], bankOf.get(String(r.id)) || null, { ratesVisible: visible, today: T })]));
+      vendors = new Map(vs.map((r) => [String(r.id), toVendor(r, byVendor.get(String(r.id)) || [], bankOf.get(String(r.id)) || null, { ratesVisible: visible, today: T, login: loginOf.get(String(r.id)) || null })]));
       setState('ready');
     } catch (e) { if (g === gen) setState('error'); /* offline or refused: the screen keeps what it had; cleared: 'idle' */ }
   }
@@ -166,7 +183,7 @@
   const events = (id) => (timeline.get(String(id)) || []).slice();
   function findByName(name) { const n = norm(name); if (!n) return null; for (const v of vendors.values()) { if (norm(v.name) === n || v.aliases.some((a) => norm(a) === n)) return copy(v); } return null; }
   const fail = (reason) => ({ ok: false, reason });
-  const reasonOf = (e) => (!e ? 'network' : e.code === '42501' || e.status === 403 || e.status === 401 || e.statusCode === '403' || e.statusCode === '401' ? 'forbidden' : e.code === '23503' ? 'in_use' : e.code === '23505' ? 'duplicate' : e.statusCode === '413' || e.status === 413 ? 'too_large' : e.statusCode === '415' || e.status === 415 ? 'bad_type' : 'network');
+  const reasonOf = (e) => (!e ? 'network' : e.code === '42501' || e.status === 403 || e.status === 401 || e.statusCode === '403' || e.statusCode === '401' ? 'forbidden' : e.code === '23503' ? 'in_use' : e.code === '23505' ? 'duplicate' : e.code === '22023' ? 'weak_password' : e.code === '0A000' ? 'no_vault' : e.statusCode === '413' || e.status === 413 ? 'too_large' : e.statusCode === '415' || e.status === 415 ? 'bad_type' : 'network');
   // one call of the client → { ok, data } | { ok:false, reason }, never thrown
   async function call(fn) {
     const cl = c();
@@ -238,13 +255,16 @@
     emit({ id, changed: ['rate'] });
     write(id, v, old, () => call((cl) => cl.from('vendor_rates').insert({ vendor_id: id, rate: r, since, set_by: (actor && actor.name) || null })), () => logEvent('vendor.rate', r + '% من ' + since, id));
   }
+  // the prototype's cleaning of a bank form (the IBAN upper-cased, decision 7) and its vendor_bank row
+  const cleanBank = (bank) => ({ method: PAY_METHODS.includes(bank.method) ? bank.method : 'bank', bankName: clean(bank.bankName, 80) || null, holder: clean(bank.holder, 120) || null, iban: latin(bank.iban || '').replace(/\s/g, '').toUpperCase() || null, wallet: latin(bank.wallet || '').replace(/\s/g, '') || null });
+  const bankRow = (b, actor) => ({ method: b.method, bank_name: b.bankName, holder: b.holder, iban: b.iban, wallet: b.wallet, updated_by: (actor && actor.name) || null, updated_at: new Date().toISOString() });
   function setBank(id, bank, actor) {
     const v = must(id); if (!canBank()) throw noPerm();
     const old = copy(v); const had = !!v.bank;
-    v.bank = { method: PAY_METHODS.includes(bank.method) ? bank.method : 'bank', bankName: clean(bank.bankName, 80) || null, holder: clean(bank.holder, 120) || null, iban: latin(bank.iban || '').replace(/\s/g, '') || null, wallet: latin(bank.wallet || '').replace(/\s/g, '') || null };
+    v.bank = cleanBank(bank);
     v.lastUpdate = new Date().toISOString();
     emit({ id, changed: ['bank'] });
-    const row = { method: v.bank.method, bank_name: v.bank.bankName, holder: v.bank.holder, iban: v.bank.iban, wallet: v.bank.wallet, updated_by: (actor && actor.name) || null, updated_at: new Date().toISOString() };
+    const row = bankRow(v.bank, actor);
     write(id, v, old, () => call((cl) => (had ? cl.from('vendor_bank').update(row).eq('vendor_id', id) : cl.from('vendor_bank').insert(Object.assign({ vendor_id: id }, row)))), () => logEvent('vendor.bank', v.bank.method, id));
   }
   // the value behind a masked field; logged once per field per drawer open (loadEvents resets it)
@@ -303,25 +323,103 @@
     }
     if (s.rate != null && canRate() && Number(s.rate) !== v.rate) setRate(id, s.rate, s.rateSince || today(), actor);
   }
-  // the add-vendor modal: the row, then its first rate when the caller may set rates; resolves after the reload with the vendor
+  // ---------- login (phase 3.1, decision 10) ----------
+  const loginErrs = (l) => { const D = VD(); return D && D.validateLogin ? D.validateLogin(l) : {}; };
+  const bankErrs = (b) => { const D = VD(); return D && D.validateBank ? D.validateBank(b) : {}; };
+  const pwIssues = (p) => { const D = VD(); return D && D.passwordIssues ? D.passwordIssues(p) : []; };
+  const loginReason = (reason) => (reason === 'duplicate' ? 'duplicate_username' : reason); // 23505 on vendor_logins: the unique username
+  const emptyLogin = () => ({ username: null, email: null, pwMode: 'link', status: 'invited', mustChange: true, passwordSetAt: null, inviteSentAt: null, hasPassword: false });
+  // local check over the loaded logins (lower-cased); the server's unique index on lower(username) is the judge
+  function usernameTaken(username, exceptId) { const n = String(username || '').trim().toLowerCase(); if (!n) return false; for (const v of vendors.values()) if (String(v.id) !== String(exceptId || '') && v.login && v.login.username && v.login.username.toLowerCase() === n) return true; return false; }
+  // what the maker still lacks to work on the system (the drawer's «ناقص» line); the bank only when the caller can see bank rows
+  function missing(id) { const v = must(id); const out = []; if (!v.login || !v.login.username) out.push('بيانات الدخول'); if (!v.email && !(v.login && v.login.email)) out.push('الإيميل'); if (canBank() && !v.bank) out.push('الحساب البنكي'); return out; }
+  // username + e-mail: an insert when the maker has no row, else the changed columns; the row's status stays
+  function setLogin(id, l, actor) {
+    const v = must(id); if (!canLogin()) throw noPerm();
+    const u = String((l && l.username) || '').trim().toLowerCase(); const email = clean(l && l.email, 120);
+    const errs = loginErrs({ username: u, email }); const bad = Object.keys(errs); if (bad.length) throw new Error('invalid login: ' + bad.join(','));
+    if (usernameTaken(u, id)) throw new Error(MESSAGES.duplicate_username);
+    const had = !!(v.login && v.login.username); const changed = [];
+    if (!had || v.login.username !== u) changed.push('username'); if (!had || (v.login.email || null) !== email) changed.push('email');
+    if (!changed.length) return get(id);
+    const old = copy(v);
+    v.login = Object.assign(v.login || emptyLogin(), { username: u, email }); v.lastUpdate = new Date().toISOString();
+    emit({ id, changed: ['login'] });
+    const row = had ? Object.fromEntries(changed.map((k) => [k, k === 'username' ? u : email])) : { vendor_id: id, username: u, email, pw_mode: 'link', created_by: uid() };
+    write(id, v, old, async () => { const r = await call((cl) => (had ? cl.from('vendor_logins').update(row).eq('vendor_id', id) : cl.from('vendor_logins').insert(row))); return r.ok ? r : fail(loginReason(r.reason)); }, () => logEvent('vendor.login', changed.join(', '), id));
+    return get(id);
+  }
+  // the client may set invited / disabled only (active is the portal's, when the maker makes his own password)
+  function setLoginStatus(id, status, actor) {
+    const v = must(id); if (!canLogin()) throw noPerm(); if (status !== 'invited' && status !== 'disabled') throw new Error('bad status');
+    if (!v.login || !v.login.username) throw new Error(MESSAGES.no_login);
+    if (v.login.status === status) return get(id);
+    const old = copy(v); v.login.status = status; v.lastUpdate = new Date().toISOString();
+    emit({ id, changed: ['login'] });
+    write(id, v, old, () => call((cl) => cl.from('vendor_logins').update({ status }).eq('vendor_id', id)), () => logEvent('vendor.login.status', status, id));
+    return get(id);
+  }
+  // rpc vendor_login_set_password: the rules checked here first (the server checks them again: 22023), the password goes to the RPC
+  // and nowhere else; the server stores it in Vault and logs vendor.login.password itself. Resolves to password_set_at.
+  async function setLoginPassword(id, password, actor) {
+    const v = must(id); if (!canLogin()) throw noPerm(); if (!v.login || !v.login.username) throw new Error(MESSAGES.no_login);
+    const iss = pwIssues(password); if (iss.length) throw new Error('الباسورد لازم: ' + iss.join('، '));
+    const r = await call((cl) => cl.rpc('vendor_login_set_password', { p_vendor: id, p_password: String(password) }));
+    if (!r.ok) throw new Error(MESSAGES[r.reason] || MESSAGES.network);
+    await Promise.all([timeline.has(String(id)) ? fetchEvents(id) : undefined, load()]);
+    emit({ id, written: true });
+    return r.data || null;
+  }
+  // rpc vendor_login_reveal: the temporary password for support — every call is logged by the server (vendor.login.reveal);
+  // nothing is kept here. null when no temporary password was set.
+  async function revealPassword(id, actor) {
+    const v = must(id); if (!canLogin()) throw noPerm(); if (!v.login || !v.login.hasPassword) return null;
+    const r = await call((cl) => cl.rpc('vendor_login_reveal', { p_vendor: id }));
+    if (!r.ok) throw new Error(MESSAGES[r.reason] || MESSAGES.network);
+    if (timeline.has(String(id))) fetchEvents(id).catch(() => undefined);
+    return typeof r.data === 'string' ? r.data : null;
+  }
+  // the add-vendor modal (decision 10): vendors → vendor_rates (canRate) → vendor_logins (input.login) → rpc vendor_login_set_password
+  // (pwMode temp) → vendor_bank (canBank and input.bank); the first insert refused → rejects with the reason's message; a later step
+  // refused never undoes the vendor: it is named in `missing` (with its reason in `reasons`). Resolves after the reload.
   async function create(input, actor) {
     if (!(isAdmin() || perm('vendors.edit') === 'F')) throw noPerm(); // vendors_insert: vendors.edit = F
     invalid(validate(input));
+    const login = input.login && input.login.username ? { username: String(input.login.username).trim().toLowerCase(), email: clean(input.email, 120) || clean(input.login.email, 120), pwMode: input.login.pwMode === 'temp' ? 'temp' : 'link' } : null;
+    const pw = login && login.pwMode === 'temp' ? String(input.login.password || '') : ''; // local to this call only
+    if (login) {
+      const le = loginErrs({ username: login.username, email: login.email, pwMode: login.pwMode, password: pw }); const bad = Object.keys(le); if (bad.length) throw new Error('invalid login: ' + bad.join(','));
+      if (usernameTaken(login.username)) throw new Error(MESSAGES.duplicate_username);
+    }
+    const bank = canBank() && input.bank && input.bank.method ? cleanBank(input.bank) : null;
+    if (bank) { const be = bankErrs(input.bank); const bad = Object.keys(be); if (bad.length) throw new Error('invalid bank: ' + bad.join(',')); }
     const row = {}; for (const k of Object.keys(COL)) { if (k === 'joinedAt') continue; const nv = cleanField(k, input[k] === undefined ? '' : input[k]); if (nv !== null && nv !== '' && !(Array.isArray(nv) && !nv.length)) row[COL[k]] = nv; }
     row.name = clean(input.name, 80); row.status = input.status; row.lead_days = Number(latin(input.leadDays)); row.aliases = parseAliases(input.aliases || '');
     row.joined_at = input.joinedAt && isIso(input.joinedAt) ? input.joinedAt : today();
     const r = await call((cl) => cl.from('vendors').insert(row).select('id').single());
     if (!r.ok || !r.data || r.data.id == null) throw new Error(MESSAGES[r.ok ? 'network' : r.reason]);
-    const id = String(r.data.id); const rate = Number(latin(input.rate));
+    const id = String(r.data.id); const rate = Number(latin(input.rate)); const missingSteps = []; const reasons = {};
     const logs = [logEvent('vendor.create', row.name, id)];
+    const refused = (step, res) => { missingSteps.push(step); reasons[step] = res.reason; };
     if (canRate() && Number.isFinite(rate)) { // a refused first rate does not undo the vendor
       const since = input.rateSince && isIso(input.rateSince) ? input.rateSince : today();
       const rr = await call((cl) => cl.from('vendor_rates').insert({ vendor_id: id, rate, since, set_by: (actor && actor.name) || null }));
-      if (rr.ok) logs.push(logEvent('vendor.rate', rate + '% من ' + since, id));
+      if (rr.ok) logs.push(logEvent('vendor.rate', rate + '% من ' + since, id)); else refused('rate', rr);
+    }
+    if (login) {
+      const lr = await call((cl) => cl.from('vendor_logins').insert({ vendor_id: id, username: login.username, email: login.email, pw_mode: login.pwMode, created_by: uid() }));
+      if (lr.ok) {
+        logs.push(logEvent('vendor.login', 'username, email', id));
+        if (login.pwMode === 'temp') { const pr = await call((cl) => cl.rpc('vendor_login_set_password', { p_vendor: id, p_password: pw })); if (!pr.ok) refused('password', pr); }
+      } else refused('login', { reason: loginReason(lr.reason) });
+    }
+    if (bank) {
+      const br = await call((cl) => cl.from('vendor_bank').insert(Object.assign({ vendor_id: id }, bankRow(bank, actor))));
+      if (br.ok) logs.push(logEvent('vendor.bank', bank.method, id)); else refused('bank', br);
     }
     await Promise.all(logs.concat([load()]));
     emit({ id, written: true });
-    return get(id) || { id, name: row.name };
+    return { vendor: get(id) || { id, name: row.name }, missing: missingSteps, reasons };
   }
   // that vendor's activity_log (entity 'vendor'), newest 50, kept ascending for the drawer
   async function fetchEvents(id) {
@@ -356,6 +454,6 @@
     return out;
   }
 
-  const store = { get, all, events, update, setRate, setBank, reveal, setContract, findByName, remove, restoreMoney, create, canEdit, canBank, canToggle, canRate, actor };
+  const store = { get, all, events, update, setRate, setBank, reveal, setContract, findByName, remove, restoreMoney, create, setLogin, setLoginStatus, setLoginPassword, revealPassword, usernameTaken, missing, canEdit, canBank, canToggle, canRate, canLogin, actor };
   window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, setContract, contractUrl, stats, toVendor, lineShare, rateAt, safeName, norm, today, MESSAGES, BUCKET };
 })();

@@ -392,6 +392,10 @@ tr.total td{background:var(--color-bg-tint)!important;font-weight:600}
 .contract-expiring,.contract-expired{background:var(--color-orange-bg);border-color:var(--color-orange-border)}
 .contract-expired{background:var(--color-error-bg);border-color:var(--color-error-border)}
 .vendor-cell{display:flex;align-items:center;gap:8px}
+.vendor-cell .vnames{display:flex;flex-direction:column;gap:2px;min-width:0}.brand-line{color:var(--color-text-secondary)}
+/* brands (phase 3.2) — the prototype's rules; RTL as the rest of the page */
+.brand-cell{display:flex;flex-direction:column;gap:2px}.brand-cell b{font-weight:600}
+.brands-table{width:100%;min-width:0;table-layout:auto}.brands-table td,.brands-table th{vertical-align:middle;white-space:normal;padding:8px}.brands-table th:nth-child(2),.brands-table td:nth-child(2){white-space:nowrap}.brands-table td:last-child{width:40px}
 .vdrawer-id{display:flex;align-items:center;gap:12px}
 .vdrawer-id .names{display:flex;flex-direction:column;gap:2px}
 .vdrawer-id .name-row{display:flex;align-items:center;gap:8px;flex-wrap:wrap}

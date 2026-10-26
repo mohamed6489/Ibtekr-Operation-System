@@ -36,16 +36,17 @@
 | `orders` | `supabase/migrations/0007_orders.sql` |
 | `mfa_cron` | `supabase/migrations/0008_mfa_cron.sql` |
 | `failed_note_permalink` | `supabase/migrations/0009_failed_note_permalink.sql` |
+| `state_names` | `supabase/migrations/0010_state_names.sql` |
 
 بعدها `execute_sql` بمحتوى الاختبارات الخمسة (كل واحد بيعمل `rollback` في الآخر، فمش بيسيب حاجة وراه):
 - `supabase/tests/rls_identity.sql` → لازم يطلع `NOTICE: rls_identity: ok`
 - `supabase/tests/rls_system.sql` → لازم يطلع `NOTICE: rls_system: ok` (بيتوقع `status_map` زي ما `0009` بتسيبه: 9 صفوف، «فشل» مكان «تم RTC» بـ `from_woo`، والباقي `both` — يعني بعد `0009`)
 - `supabase/tests/rls_dashboard.sql` → لازم يطلع `NOTICE: rls_dashboard: ok`
-- `supabase/tests/rls_orders.sql` → لازم يطلع `NOTICE: rls_orders: ok` (من المرحلة 2.1 بيتوقع `0009` كمان: «فشل» في `status_map`، و`products.permalink` بيتقرا للأعضاء)
+- `supabase/tests/rls_orders.sql` → لازم يطلع `NOTICE: rls_orders: ok` (من المرحلة 2.1 بيتوقع `0009` كمان: «فشل» في `status_map`، و`products.permalink` بيتقرا للأعضاء؛ ومن المرحلة 2.2 بيتوقع `0010`: `orders.customer_state` بيتقرا ومابيتكتبش، و`woo_states`)
 - `supabase/tests/rls_mfa.sql` → لازم يطلع `NOTICE: rls_mfa: ok` (بيكتب factors تجريبية في `auth.mfa_factors` بكل الأعمدة الإجبارية بتاعة الجدول الحي، وكلها بتروح مع الـ rollback)
 
 أي `ERROR` = وقّف ومتنشرش. لو الـ MCP رفض `set local role`، شغّلهم بـ `psql` كـ `postgres`.
-`supabase/tests/migrate_0009.sql` **محلي بس** (`npm run db:test`): بيرجّع الحالة اللي قبل `0009` جوه transaction وبيطبّق الملف نفسه تاني بـ `\ir` (أمر `psql`، فمايتشغّلش عبر `execute_sql`). على الحي `0009` بيتفحص بالاستعلامات اللي تحت.
+`supabase/tests/migrate_0009.sql` و`supabase/tests/migrate_0010.sql` **محلي بس** (`npm run db:test`): بيبنوا الحالة اللي قبل الـ migration جوه transaction وبيطبّقوا الملف نفسه تاني بـ `\ir` (أمر `psql`، فمايتشغّلش عبر `execute_sql`). على الحي `0009` و`0010` بيتفحصوا بالاستعلامات اللي تحت.
 **ممنوع** تطبّق `supabase/tests/_local_auth_stub.sql` على Supabase — ده لـ Postgres المحلي بس.
 
 لو حد طبّق جزء قبل كده، `list_migrations` بيوريك اللي اتطبّق وتكمّل من بعده.
@@ -61,7 +62,7 @@
   select count(*) as cols, count(*) filter (where column_name in ('customer_phone', 'raw')) as forbidden
   from information_schema.column_privileges
   where grantee = 'authenticated' and table_schema = 'public' and table_name = 'orders' and privilege_type = 'SELECT';
-  -- المتوقع: cols = 24, forbidden = 0
+  -- المتوقع: cols = 24, forbidden = 0 (من 0010: cols = 25 — زاد customer_state)
   ```
 
 **`0008_mfa_cron` — قبل التطبيق وبعده.** الملف بيعيد تعريف `has_perm`/`is_admin` (aal2 للي مفعّل التحقق بخطوتين)، وبيعمل `mark_twofa_enrolled`/`mark_twofa_disabled` و`sync_secret_matches`، وجوه بلوك محروس (لو `pg_cron` و`pg_net` و`supabase_vault` متاحين بس): بيسطّب `pg_cron` (schema `pg_catalog`) و`pg_net` (schema `extensions`)، بيولّد سر `sync_secret` في Vault مرة واحدة (32 بايت عشوائي hex جوه Postgres — عمره ما بيتكتب في الملف ولا بيتطبع)، وبيعمل job `woo-sync-backup` (§2.7.6). الـ URL بتاع الدالة مكتوب في الملف نفسه: `postgres` على الحي مش superuser (`rolsuper = false`) ومايقدرش يعمل `alter database … set app.*`.
@@ -151,6 +152,69 @@
 
    وبعدها تشغيلة cron ناجحة (§2.1 خطوة 5 بتاعة `0008`).
 
+**`0010_state_names` (المرحلة 2.2) — قبل التطبيق وبعده.** الملف بيعمل حاجتين، وبيتعاد من غير ما يغيّر حاجة (مافيهوش `drop` ولا `delete` ولا `truncate`):
+- `orders.customer_state` (كود المحافظة من قايمة الموقع، زي `EG-01`): العمود + تعبئة من `raw` (`shipping.state` وإلا `billing.state`، بعد `btrim`، والفاضي = مش موجود — نفس قاعدة `mapOrder`؛ للصفوف اللي العمود فيها فاضي بس، ومن غير سطور `order_events`) + `select (customer_state)` للأعضاء من غير `update` (عرض بس: الكود من قايمة الموقع) + `select/insert/update` لـ `service_role`. والـ view `orders_v` اتعملت تاني بنفس الـ 25 عمود وبنفس الترتيب و`customer_state` في الآخر (`create or replace view` مابيقدرش غير يزوّد في الآخر)، و`security_invoker` والتليفون المطموس زي ما هم. المزامنة بتكتب العمود عند إنشاء الأوردر بس (زي المدينة والعنوان).
+- `woo_states (code, name, updated_at)`: أسماء المحافظات من الموقع نفسه (جزء `states` في `woo-sync`، §2.7.5). RLS: `select` لأي عضو مسجّل (`using (true)` — دي قايمة الـ checkout العامة)، ومافيش policy كتابة؛ الـ grants: `select` للأعضاء، و`select/insert/update/delete` لـ `service_role`، ومن غير `truncate`/`references`/`trigger` لحد، ومن غير أي حاجة لـ `anon`. الصفوف عمرها ما بتتمسح (أوردر قديم ممكن يكون شايل كود الموقع شاله).
+
+1. قبل:
+
+   ```sql
+   select count(*) as orders,
+          count(coalesce(nullif(btrim(raw -> 'shipping' ->> 'state'), ''), nullif(btrim(raw -> 'billing' ->> 'state'), ''))) as with_code,
+          count(distinct coalesce(nullif(btrim(raw -> 'shipping' ->> 'state'), ''), nullif(btrim(raw -> 'billing' ->> 'state'), ''))) as codes
+   from public.orders;
+   -- 104 / 104 / 14 (اتأكد 26 أكتوبر؛ + أي أوردر جديد)
+   select to_regclass('public.woo_states') as woo_states,
+          (select count(*) from information_schema.columns
+           where table_schema = 'public' and table_name = 'orders' and column_name = 'customer_state') as has_column;
+   -- null / 0
+   ```
+
+2. `apply_migration` بالاسم `state_names`.
+3. بعد:
+
+   ```sql
+   select count(*) as orders, count(customer_state) as with_state, count(distinct customer_state) as codes from public.orders;
+   -- 104 / 104 / 14 (نفس أرقام «قبل»)
+
+   select has_column_privilege('authenticated', 'public.orders', 'customer_state', 'SELECT') as member_reads,   -- true
+          has_column_privilege('authenticated', 'public.orders', 'customer_state', 'UPDATE') as member_writes,  -- false
+          has_table_privilege('authenticated', 'public.woo_states', 'SELECT') as names_read,                   -- true
+          has_table_privilege('authenticated', 'public.woo_states', 'INSERT') as names_write,                  -- false
+          has_table_privilege('anon', 'public.woo_states', 'SELECT') as anon_reads,                            -- false
+          has_table_privilege('service_role', 'public.woo_states', 'INSERT') as sync_writes;                   -- true
+
+   select count(*) from information_schema.columns
+   where table_schema = 'public' and table_name = 'orders_v' and column_name = 'customer_state';            -- 1
+   select relrowsecurity from pg_class where oid = 'public.woo_states'::regclass;                           -- true
+   select policyname, cmd, roles, qual from pg_policies where schemaname = 'public' and tablename = 'woo_states';
+   -- صف واحد: woo_states_select | SELECT | {authenticated} | true
+   select count(*) from public.woo_states;                                                                  -- 0 لحد أول تشغيلة states
+   ```
+
+   وفحص `cols` بتاع `0007` فوق بقى 25.
+4. `rls_system` على الحي (فوق) زي ما هو. **`rls_orders` و`migrate_0010` محلي/CI بس** (نفس سبب `0009`).
+5. إعادة نشر الدالتين (§2.7.1) **بعد** `0010` مش قبلها: الكود الجديد بيكتب `orders.customer_state` عند إنشاء أي أوردر، وقبل العمود PostgREST بيرفض الكتابة دي كلها (عمود مش موجود، مش خطأ بيانات): جزء الأوردرات في الـ cron بيفشل لو الصفحة فيها أوردر جديد، وكل delivery لأوردر جديد بترجع 500 — وWooCommerce بيوقف الـ webhook بعد 5 مرات فشل ورا بعض (§2.7.6). (تحديث أوردر موجود مابيكتبش العمود، فبيعدّي.) وجزء `states` قبل الجدول بيفشل هو كمان. وبعد النشر شغّل جملة التعبئة مرة كمان (`execute_sql`؛ مابتغيّرش حاجة اتعملت) عشان تلحق أي أوردر الكود القديم أنشأه بين التطبيق والنشر — الكود الجديد مابيكتبش العمود على أوردر موجود:
+
+   ```sql
+   update public.orders
+   set customer_state = coalesce(nullif(btrim(raw -> 'shipping' ->> 'state'), ''), nullif(btrim(raw -> 'billing' ->> 'state'), ''))
+   where customer_state is null and raw is not null;
+   ```
+
+6. أول تشغيلة `states`: يدويًا (`IBSupabase.client.functions.invoke('woo-sync', { body: { action: 'states' } })` بحساب الأدمن، أو `net.http_post` زي §2.7.4 بالجسم `{"action":"states"}`) أو استنى الـ cron (`all` بيبدأ بيها). بعدها:
+
+   ```sql
+   select count(*) as names from public.woo_states;                                      -- > 0 (قايمة الموقع: EG-01 … EG-25)
+   select o.customer_state, s.name, count(*) from public.orders o
+   left join public.woo_states s on s.code = o.customer_state group by 1, 2 order by 1;
+   -- كل كود مستخدم ليه اسم؛ name فاضي = الموقع مارجّعش الكود ده، والكارت بيعرض الكود زي ما هو
+   select at, kind, result, detail from public.woo_sync_log where entity = 'states' order by at desc limit 3;
+   -- ok و detail.states = عدد الأسماء
+   ```
+
+   لو `error`: شوف §2.7.7. الأوردرات مابتتأثرش، والكارت بيعرض الكود لحد ما الأسماء توصل.
+
 ### 2.2 `get_advisors`
 شغّله مرتين: `type: security` و`type: performance`.
 
@@ -202,13 +266,15 @@ window.IB_CONFIG = window.IB_CONFIG || {
 - المرحلة 1 (2026-10-25): الـ migration `dashboard` (`0006`) اتطبّقت، و`rls_dashboard` أخضر.
 - المرحلة 2 (2026-10-25): `orders` (`0007`) و`mfa_cron` (`0008`) اتطبّقوا (`0007` بدري عن الخطة — صفحة الأوردرات على `main` كانت بتعرض حالة الخطأ لحد ما الجداول تتعمل)، واتأكد اللي في §2.1؛ الـ advisors مازادش فيها غير المقصود (§2.2). الدالتين `woo-webhook` و`woo-sync` اتنشروا (v1)، وبعد موجة الإصلاح الختامية اتنشروا تاني **v2** بكود الفرع النهائي (22:47Z و23:08Z، `verify_jwt: false`، بالشكل اللي في §2.7.1) — قبل ما الأسرار تتحط، عشان أول delivery وأول مزامنة يشتغلوا بالكود الصح. القاعدة: أي تعديل في `_shared/` أو في `index.ts` بتاعة دالة = إعادة نشر الدالتين. الـ cron اتأكد: 3 تشغيلات (21:30 و21:45 و22:00Z) `succeeded`، والرد 500 `not_configured` — متوقع لحد ما أسرار `WOO_*` تتحط (السر الداخلي طابق، يعني الطلب وصل للكود). **26 أكتوبر:** الأسرار الأربعة اتدخلت من اللوحة (صاحب المشروع، بعد ما طلب `create_edge_function_secret` اتقفل مرتين من غير إجابة)؛ أول مزامنة `orders` يدويًا 07:22Z عبر `net.http_post` بسر الـ Vault: 104 أوردر + 86 فرعي = 190 (نفس الفحص)، 206 سطر، 0 سطر غير مربوط بفرعي، 0 تعارض؛ الـ webhooks الأربعة اتسجّلت 07:24Z (ids 79–82، active) وأول deliveries وصلت `ok` 07:34Z؛ المنتجات 3620 بعد تشغيلتين (الأولى وقفت عند مهلة 150 ثانية بعد 29 صفحة والتانية كمّلت من الـ cursor؛ الفحص قال 3991 — فرق للمراجعة في المرحلة 4)؛ المتاجر 55 كلها `active` من تشغيلة 08:00Z بعد إعادة النشر **v4** (07:42Z/07:47Z: `mapStore` بيعتبر غياب `enabled` = نشط). **لسه:** `WOO_PUSH_ENABLED` (قرار صاحب المشروع بعد التأكد إن الإيميلات وبوسطة متقفلين على الـ staging)؛ وتشغيل `rls_orders`/`rls_mfa` على الحي مش متسجّل في الدفتر. التفاصيل في `.superpowers/sdd/2026-10-25-phase-2-orders/progress.md`.
 - المرحلة 2.1 (2026-10-26): `failed_note_permalink` (`0009`) اتطبّقت على الحي 09:41Z (`status_map` 9 صفوف، «فشل» `failed`/`from_woo` مكان «تم RTC»؛ 17 تعليق اتملى من ملاحظة الموقع مع 17 سطر `order_events`؛ `products.permalink` 3620 معبّى و0 فاضي؛ الأعضاء بيقروه)، وبعدها الدالتين اتنشروا **v5** 09:58Z (`_shared/woo-core.js` و`_shared/woo-write.js`)، وجملتين الداتا اتشغّلوا تاني (0 متبقّي)، وتشغيلة cron 10:00Z `ok` بالكود الجديد. الواجهة الجديدة نزلت على `main` (a9bdd45) بعد كل ده بالترتيب.
+- المرحلة 2.2: `state_names` (`0010`) لسه ماتطبّقتش على الحي (الكنترولر)، والدالتين لسه على v5 — الترتيب في §2.7.
 
 ### 2.7 Edge Functions والأسرار والـ webhooks (المرحلة 2)
 دالتين Deno في `supabase/functions/`:
 - **`woo-webhook`**: بتستقبل webhooks بتاعة WooCommerce (توقيع HMAC، منع التكرار، أوردرات وفرعيين Dokan ومنتجات).
-- **`woo-sync`**: المزامنة الاحتياطية (`orders` / `vendors` / `products` / `all`)، دفع حالة الأوردر للموقع (`push_status`)، وتسجيل الـ webhooks (`register_webhooks`).
+- **`woo-sync`**: المزامنة الاحتياطية (`states` / `orders` / `vendors` / `products` / `all`)، دفع حالة الأوردر للموقع (`push_status`)، وتسجيل الـ webhooks (`register_webhooks`).
 
-منطقهم النقي في `_shared/woo-core.js` (بيتختبر بـ `npm test`)، ونقط الدخول بـ `npm run deno:check` و`npm run deno:test`. الترتيب على الحي: §2.1 (`0007` ثم `0008`، ومن المرحلة 2.1 `0009`) ← 2.7.1 النشر ← 2.7.2 الأسرار ← 2.7.4 الـ webhooks ← 2.7.5 أول مزامنة.
+منطقهم النقي في `_shared/woo-core.js` (بيتختبر بـ `npm test`)، ونقط الدخول بـ `npm run deno:check` و`npm run deno:test`. الترتيب على الحي: §2.1 (`0007` ثم `0008`، ومن المرحلة 2.1 `0009`، ومن المرحلة 2.2 `0010`) ← 2.7.1 النشر ← 2.7.2 الأسرار ← 2.7.4 الـ webhooks ← 2.7.5 أول مزامنة.
+**المرحلة 2.2 بالترتيب:** `0010` على الحي (§2.1؛ الواجهة الجديدة بتقرا `customer_state` و`woo_states`) ← إعادة نشر الدالتين (2.7.1؛ `_shared` و`woo-sync` اتغيّروا) ← جملة التعبئة مرة كمان ← تشغيلة `states` يدويًا أو انتظار الـ cron (2.7.5) ← `main`.
 
 **Dokan قراءة بس (قرار صاحب المشروع):** النظام عمره ما يكتب في حالة أوردر فرعي على Woo ولا في بيانات متجر. اللي بيتكتب في WooCommerce حاجتين بس: حالة الأوردر الأصلي (`push_status`، حسب `status_map` واتجاهها، ولما `WOO_PUSH_ENABLED = 1` بس — 2.7.2)، والـ webhooks بتاعتنا (`register_webhooks`). حالات الفرعيين (تأكيد، وصل المخزن، شحن، مرتجع) عايشة عندنا بس.
 
@@ -216,6 +282,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 - `deploy_edge_function` (Supabase MCP) لكل دالة، **بـ `verify_jwt: false` صريح** — الافتراضي في الأداة `true`، ولو اتساب كده الـ gateway هيرفض WooCommerce والـ cron بـ 401 قبل ما الكود يشتغل. نفس القيمة في `supabase/config.toml` (`[functions.woo-webhook]` و`[functions.woo-sync]`)، فـ `supabase functions deploy` بياخدها لوحده. الدالتين بيعملوا المصادقة بنفسهم (2.7.3).
 - الملفات لكل دالة: `index.ts` (الـ entrypoint) و`deno.json`، ومعاهم الأربع ملفات المشتركة `_shared/woo-core.js` و`_shared/woo-api.js` و`_shared/woo-write.js` و`_shared/db.js` بنفس المسار النسبي اللي الـ imports بتستخدمه (`../_shared/…`). **مايترفعش:** `index_test.ts` ولا `_test/` (بدائل الاختبار). وأي تعديل في `_shared/` بيلزم إعادة نشر الدالتين (كل واحدة شايلة نسختها جوه الـ bundle).
 - **المرحلة 2.1:** `_shared/woo-core.js` و`_shared/woo-write.js` اتغيّروا (`failed` بقى في الجدول، `note` عند الإنشاء، `permalink`)، فالدالتين لازم يتنشروا تاني — **بعد** ما `0009` يتطبّق (§2.1): الكود الجديد بيكتب `products.permalink`، وقبل العمود جزء المنتجات بيفشل.
+- **المرحلة 2.2:** `_shared/woo-core.js` و`_shared/woo-write.js` (`customer_state`، `writeStates`) و`woo-sync/index.ts` (جزء `states`) اتغيّروا، فالدالتين يتنشروا تاني — **بعد** ما `0010` يتطبّق (§2.1 خطوة 5 بتاعة `0010`): الكود الجديد بيكتب `orders.customer_state` و`woo_states`، وقبلهم الأوردرات الجديدة (cron وwebhooks) بتفشل.
 - **شكل الـ bundle اللي اشتغل مع `deploy_edge_function` (MCP، 2026-10-25):** أسماء الملفات في `files` جوه فولدر الدالة، والمشتركة جنبه:
 
   | `name` في `files` | المحتوى من |
@@ -294,7 +361,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 **تغيير `WOO_WEBHOOK_SECRET` على نفس الموقع:** السر بيتبعت لـ Woo مع إعادة التفعيل بس، فالـ webhook الفعّال بيفضل بالسر القديم. وقّف الأربعة من صفحة Webhooks في Woo (Disabled)، وبعدها `register_webhooks` بيرجّعهم `active` بالسر الجديد.
 
 #### 2.7.5 أول مزامنة والتحقق
-- `action: 'all'` = المتاجر، ثم الأوردرات، ثم المنتجات (جزء بيفشل مابيوقفش الباقي، والرد 502/500 بقايمة اللي فشل). الأوردرات قبل المنتجات عشان أول تشغيلة فيها ~40 صفحة منتجات (≈ 3991 منتج)، ولو اتقطعت عند مهلة الـ gateway تكون الأوردرات اتسحبت. نفس الطريقتين اللي فوق: زرار «مزامنة» في صفحة الأوردرات (أدمن؛ `IBOrders.syncNow()`) أو `net.http_post` بالجسم `{"action":"all"}`.
+- `action: 'all'` = أسماء المحافظات (`states`)، ثم المتاجر، ثم الأوردرات، ثم المنتجات (جزء بيفشل مابيوقفش الباقي، والرد 502/500 بقايمة اللي فشل). الأوردرات قبل المنتجات عشان أول تشغيلة فيها ~40 صفحة منتجات (≈ 3991 منتج)، ولو اتقطعت عند مهلة الـ gateway تكون الأوردرات اتسحبت. نفس الطريقتين اللي فوق: زرار «مزامنة» في صفحة الأوردرات (أدمن؛ `IBOrders.syncNow()`) أو `net.http_post` بالجسم `{"action":"all"}`.
 - **لو `all` وقعت عند مهلة الـ gateway** (رد مش الـ JSON بتاعنا، أو `timed_out` في `net._http_response`): شغّل `orders` لوحده الأول من الواجهة بحساب الأدمن (بجلسة aal2 لو مفعّل التحقق بخطوتين) — DevTools › Console على `https://operation-system.ibtekr.club`:
 
   ```js
@@ -303,6 +370,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
   ```
 
   (أو `net.http_post` زي 2.7.4 بالجسم `{"action":"orders"}`.) كل جزء بيكمّل من الـ cursor بتاعه لو اتقطع، ولما الاتنين يبقوا `done: true` في `sync_state` تشغيلات `all` (والـ cron) بتبقى خفيفة.
+- **`states`** (من المرحلة 2.2): طلب واحد `GET wc/v3/data/countries/EG` بمفاتيح WC (مسار `wc/`) → `states[]` بتاعة الرد (`{ code, name }` بقايمة الموقع نفسه، حتى لو إضافة هي اللي معرّفاها) → upsert في `woo_states` على `code` (الاسم والكود بعد `trim`؛ العنصر اللي من غير كود أو اسم نصي بيتساب ويتعدّ في `skipped`؛ ومافيش مسح). رد من غير `states` array = خطأ للجزء (`expected an object with a states array`) ومابيتكتبش حاجة. العدّادات: `{ states, skipped, failed }`. ممكن يتشغّل لوحده بـ `{"action":"states"}` (أدمن أو سر الـ cron).
 - الأوردرات بتتسحب من `wc/v3/orders?after=2026-10-01T00:00:00&dates_are_gmt=true&modified_after=<cursor>&orderby=modified&order=asc&status=any`، صفحة صفحة (100 في الصفحة، لحد 50 صفحة في التشغيلة)، والـ cursor بيتحفظ في `sync_state` بعد كل صفحة. لو التشغيلة اتقطعت أو رجعت `done: false`، شغّلها تاني وهتكمّل من مكانها. اللي بيتساب: الـ drafts (`checkout-draft`، `trash`) وأي أوردر قبل 1 أكتوبر (حسب `date_created_gmt`).
 - التحقق:
 
@@ -319,6 +387,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
   - `vendors` ≈ عدد المتاجر في Dokan (المتجر المقفول بيتسجّل `inactive` لو Dokan رجّع خانة `enabled` مقفولة؛ REST العام بتاع Dokan مابيرجّعش الخانة دي أصلًا، فمن غيرها المتجر بيتسجّل `active`، وعمره ما بيتمسح). المزامنة مابتلمسش `aliases` ولا `commission_pct`.
   - `products` ≈ 3991 (نفس الفحص).
   - `sync_state`: `orders` و`products` فيهم `cursor` و`last_run` و`done: true`.
+  - `woo_states`: عدد صفوف أكتر من صفر بعد أول `states` (`select count(*) from public.woo_states`)، و`orders.customer_state` معبّى للأوردرات اللي الموقع عرف محافظتها.
   - `woo_sync_log`: `ok` لكل جزء. `conflict` و`skipped` و`error` بيتقروا زي 2.7.7.
 - **كل سطر في أوردر ليه فرعيين مربوط بفرعي** — المزامنة بتربط السطر بالفرعي بتاع نفس المبتكر، أو بمنتجات الفرعي (`line_items[*].product_id`/`variation_id`) لو السطر جاي من غير `_dokan_vendor_id` (ده العادي في الأوردر متعدد المبتكرين)، وساعتها السطر بياخد مبتكر الفرعي:
 
@@ -355,7 +424,8 @@ from public.woo_webhook_events order by received_at desc limit 30;
   - `webhook` / `verify` / `error` → توقيع غلط: السر اللي في Woo غير `WOO_WEBHOOK_SECRET` (شوف «تغيير `WOO_WEBHOOK_SECRET`» في 2.7.4)، أو حد بيبعت طلبات مش من Woo.
   - `vendor` / `error` → متجر Dokan رد بحاجة غير 404. السطر اتحفظ بـ `vendor_id null`، وهيتصلّح لما الأوردر يتغيّر تاني (المرحلة 3 فيها backfill).
   - `skipped` → متجر مش موجود (404)، أو أوردر أصلي مش موجود لفرعي (`parent_missing`)، أو دفع اتساب (`reason 'no_woo_status'` لحالة مابتتبعتش للموقع: «فشل» اتجاهها `from_woo`، أو أي حالة `from_system` من غير slug — مافيش واحدة دلوقتي، أو `'stale'` لما الحالة اللي اتبعتت مش هي المتخزنة، أو `'push_disabled'` لما `WOO_PUSH_ENABLED` مش `1` — 2.7.2؛ الحالة اتحفظت عندنا بس).
-  - `orders` / `order_items` / `sub_orders` / `products` / `vendors` + `action 'upsert'` + `error` → قاعدة البيانات رفضت الصف ده بالذات (خطأ بيانات، SQLSTATE `22xxx`/`23xxx`؛ `entity_id` = مفتاحه، و`detail.error` = السبب). المزامنة جرّبت الدفعة صف صف وكمّلت الباقي؛ أوردر مرفوض بيتساب بسطوره، والـ delivery بتاعته بتتسجّل `error` في `woo_webhook_events`. أي خطأ تاني (timeout، صلاحيات) بيوقف الجزء كله زي الأول.
+  - `states` / `sync` / `error` (من المرحلة 2.2) → طلب أسماء المحافظات فشل: 401/403 = غالبًا المستخدم صاحب مفاتيح WC مالوش صلاحية مدير المتجر (`manage_woocommerce`، زي اللي `register_webhooks` محتاجها)، 404 = الموقع مالوش الـ endpoint، `expected an object with a states array` = رد بشكل تاني. باقي `all` بيكمّل عادي (بس الرد 502 بـ `failed: ['states']`، فزرار «مزامنة» في الواجهة بيقول إنها ماتمتش)، والأوردرات بتفضل بالكود والكارت بيعرضه لحد ما الأسماء توصل.
+  - `orders` / `order_items` / `sub_orders` / `products` / `vendors` / `woo_states` + `action 'upsert'` + `error` → قاعدة البيانات رفضت الصف ده بالذات (خطأ بيانات، SQLSTATE `22xxx`/`23xxx`؛ `entity_id` = مفتاحه، و`detail.error` = السبب). المزامنة جرّبت الدفعة صف صف وكمّلت الباقي؛ أوردر مرفوض بيتساب بسطوره، والـ delivery بتاعته بتتسجّل `error` في `woo_webhook_events`. أي خطأ تاني (timeout، صلاحيات) بيوقف الجزء كله زي الأول.
   - `conflict` → حالة جاية من Woo مش في `status_map` (الأوردر اتحفظ بالـ `woo_status` الخام وحالة النظام الحالية أو الافتراضية؛ `failed` مش منهم: من `0009` ليها صف «فشل»)، أو Woo غيّر الحالة بين آخر مزامنة والدفع (`detail.woo_before`؛ الدفع كمّل — «السيستم يكسب»). وصف جديد في `status_map` مابيعيدش تحويل الأوردرات المتخزنة: حالتهم بتفضل زي ما هي لحد ما Woo يغيّر الحالة (أو الفريق).
   - `sub_order` / `parent_list` / `error` → جلب `?parent=` فشل بعد ما الأوردر اتكتب. الفرعيين هيوصلوا في deliveries بتاعتهم أو من المزامنة.
 - **`woo_webhook_events`:** صف لكل delivery. `status` (`ok` | `ignored` | `duplicate` | `error`)، و`payload` فيه 6 مفاتيح بس (`id, number, status, parent_id, date_modified_gmt, topic`). `ignored` طبيعي: أوردر فرعي (بيتكتب في `sub_orders` بس)، أوردر قبل 1 أكتوبر أو draft، payload أقدم من اللي عندنا، أو topic مش بتاعنا. `error` بنص بيبدأ بـ `in progress` = محاولة ماخلصتش.

@@ -8,7 +8,7 @@ You are the implementer of **Task B** of `docs/superpowers/plans/2026-10-26-phas
 3. `app/js/blocks/28-app.js`: the 12 written decisions of Task B, nothing else; then `npm run lock` (block 28 is already in `EDITED`). Keep `openAddVendor` as it is (only the real `vstore.create` behind it). Keep the drawer's visual structure; where a value is not available in this phase show «—» with the note the plan names. Escape nothing by hand — the block builds DOM with `h()`; make sure no data string reaches `innerHTML`.
 4. `tests/e2e/supabase-mock.mjs`: the plan's list (vendors GET/POST/PATCH/DELETE with the column-level guard and the permission rules; `vendor_rates`; `vendor_bank`; Storage upload / sign / fetch; `order_items.commission_rate/fee` on the three mock orders' lines: 35/0, 40/10, null). The three mock vendors gain the new columns (one with a contract, one with bank data, rates for two). Every existing spec must keep passing.
 5. `tests/e2e/vendors.spec.mjs`: the plan's cases (use the existing users: admin.dev, ops.dev, accounts.dev, viewer.dev; sign-in helper pattern from orders.spec; the page is `#vendors` reached via the sidebar «المبتكرين»). Add the `atWidth`-style wait if you change viewports (see orders.spec).
-6. `tests/adapter/vendors.test.mjs` (node:test): `toVendor`, the share/balance math (1000 @35/0 → 650; @40/10 → 560 + «noRate» when null), the safe file name, `findByName` on aliases.
+6. `tests/adapter/vendors.test.mjs` (node:test): `toVendor`, the share/balance math (1000 @35/0 → 650; @40/10 → 590; @35/10 → 640; + «noRate» when null), the safe file name, `findByName` on aliases.
 7. Run: `npm test`, `node --test tests/split.test.mjs`, `npm run e2e` (the whole suite, not only vendors). Ports: 4173 must be free before/after.
 
 ## Rules

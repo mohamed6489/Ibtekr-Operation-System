@@ -69,3 +69,7 @@ Files: `supabase/migrations/0009_failed_note_permalink.sql` (new), `supabase/tes
 - **Pushing «فشل».** The row is `both` (as ruled), so a team member who sets «فشل» pushes `failed` to WooCommerce once `WOO_PUSH_ENABLED = 1`. On the real shop that can trigger the "failed order" e-mail and status hooks, the same as from the WooCommerce dashboard.
 - **Grants.** `products.permalink` is reachable through the existing table-wide `select` (which includes `products.raw`, as before). No column-level change was needed. If products ever move to column-list grants, `permalink` has to be listed.
 - The functions are not redeployed, and 0009 is not applied live (controller).
+
+## Controller addendum (26 Oct, after review A)
+- The «فشل» row is `from_woo`, not `both` (commit 215a0f7): `failed` is WooCommerce's "payment failed", the team never sets it there, and pushing it would send the customer a failed-order e-mail once `WOO_PUSH_ENABLED` is on. The "Pushing «فشل»" concern above is therefore resolved; `outgoingWooStatus('فشل')` is null and the push is skipped as `no_woo_status`.
+- Review A: Approved. Minors fixed by the controller: 0009 now raises if the map is not in the expected state after the update; §2.1 step 4 marks `rls_orders` / `migrate_0009` as local/CI only; §2.1 step 5 names the second wrong-order consequence (incoming `failed` → conflict); §2.7.7 names «فشل» as the live `no_woo_status` case.

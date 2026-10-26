@@ -140,8 +140,8 @@
    select has_column_privilege('authenticated', 'public.products', 'permalink', 'SELECT') as member_reads;  -- true
    ```
 
-4. `rls_system` و`rls_orders` على الحي (فوق) — الاتنين بيتوقعوا `0009`.
-5. إعادة نشر الدالتين (§2.7.1) **بعد** `0009` مش قبلها: `mapProduct` الجديدة بتكتب `permalink`، وقبل العمود PostgREST بيرفض الصف وجزء المنتجات كله بيفشل. وبعد النشر شغّل جملتين الداتا بتوع `0009` مرة كمان (`execute_sql`؛ مابيغيّروش حاجة اتعملت) عشان يلحقوا أي أوردر أو منتج الكود القديم كتبه بين التطبيق والنشر:
+4. `rls_system` على الحي (فوق) — بيتوقع `0009`. **`rls_orders` و`migrate_0009` محلي/CI بس:** بيبنوا صفوف اختبار (أوردرات 181668/181700، منتجات 501/502) وبيتوقعوا عدد صفوف محدد، فعلى الحي بيفشلوا بالتصميم مش عشان في مشكلة.
+5. إعادة نشر الدالتين (§2.7.1) **بعد** `0009` مش قبلها: `mapProduct` الجديدة بتكتب `permalink`، وقبل العمود PostgREST بيرفض الصف وجزء المنتجات كله بيفشل؛ وكمان `WOO_FALLBACK` بقت فاضية، فأوردر `failed` جاي قبل صف «فشل» بيتسجّل تعارض بحالة «قيد الانتظار». وبعد النشر شغّل جملتين الداتا بتوع `0009` مرة كمان (`execute_sql`؛ مابيغيّروش حاجة اتعملت) عشان يلحقوا أي أوردر أو منتج الكود القديم كتبه بين التطبيق والنشر:
 
    ```sql
    update public.orders set note = customer_note where coalesce(note, '') = '' and coalesce(customer_note, '') <> '';
@@ -354,7 +354,7 @@ from public.woo_webhook_events order by received_at desc limit 30;
 - **`woo_sync_log`:** سطر لكل حدث. `kind` (`webhook` | `sync` | `push` | `manual` | `cron`)، `direction` (`in` | `out`)، `entity`/`entity_id`/`action`، `result` (`ok` | `error` | `conflict` | `skipped`)، و`detail` (العدّادات أو نص الخطأ، متنضّف: من غير مفاتيح ولا تليفونات ولا إيميلات). أشهر الحالات:
   - `webhook` / `verify` / `error` → توقيع غلط: السر اللي في Woo غير `WOO_WEBHOOK_SECRET` (شوف «تغيير `WOO_WEBHOOK_SECRET`» في 2.7.4)، أو حد بيبعت طلبات مش من Woo.
   - `vendor` / `error` → متجر Dokan رد بحاجة غير 404. السطر اتحفظ بـ `vendor_id null`، وهيتصلّح لما الأوردر يتغيّر تاني (المرحلة 3 فيها backfill).
-  - `skipped` → متجر مش موجود (404)، أو أوردر أصلي مش موجود لفرعي (`parent_missing`)، أو دفع اتساب (`reason 'no_woo_status'` لحالة اتجاهها `from_system` من غير slug — مافيش ولا واحدة دلوقتي، أو `'stale'` لما الحالة اللي اتبعتت مش هي المتخزنة، أو `'push_disabled'` لما `WOO_PUSH_ENABLED` مش `1` — 2.7.2؛ الحالة اتحفظت عندنا بس).
+  - `skipped` → متجر مش موجود (404)، أو أوردر أصلي مش موجود لفرعي (`parent_missing`)، أو دفع اتساب (`reason 'no_woo_status'` لحالة مابتتبعتش للموقع: «فشل» اتجاهها `from_woo`، أو أي حالة `from_system` من غير slug — مافيش واحدة دلوقتي، أو `'stale'` لما الحالة اللي اتبعتت مش هي المتخزنة، أو `'push_disabled'` لما `WOO_PUSH_ENABLED` مش `1` — 2.7.2؛ الحالة اتحفظت عندنا بس).
   - `orders` / `order_items` / `sub_orders` / `products` / `vendors` + `action 'upsert'` + `error` → قاعدة البيانات رفضت الصف ده بالذات (خطأ بيانات، SQLSTATE `22xxx`/`23xxx`؛ `entity_id` = مفتاحه، و`detail.error` = السبب). المزامنة جرّبت الدفعة صف صف وكمّلت الباقي؛ أوردر مرفوض بيتساب بسطوره، والـ delivery بتاعته بتتسجّل `error` في `woo_webhook_events`. أي خطأ تاني (timeout، صلاحيات) بيوقف الجزء كله زي الأول.
   - `conflict` → حالة جاية من Woo مش في `status_map` (الأوردر اتحفظ بالـ `woo_status` الخام وحالة النظام الحالية أو الافتراضية؛ `failed` مش منهم: من `0009` ليها صف «فشل»)، أو Woo غيّر الحالة بين آخر مزامنة والدفع (`detail.woo_before`؛ الدفع كمّل — «السيستم يكسب»). وصف جديد في `status_map` مابيعيدش تحويل الأوردرات المتخزنة: حالتهم بتفضل زي ما هي لحد ما Woo يغيّر الحالة (أو الفريق).
   - `sub_order` / `parent_list` / `error` → جلب `?parent=` فشل بعد ما الأوردر اتكتب. الفرعيين هيوصلوا في deliveries بتاعتهم أو من المزامنة.

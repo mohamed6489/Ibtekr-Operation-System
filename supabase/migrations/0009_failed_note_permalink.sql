@@ -34,6 +34,15 @@ set system_status = 'فشل', woo_status = 'failed', direction = 'from_woo', sor
 where system_status = 'تم RTC'
   and not exists (select 1 from public.status_map where system_status = 'فشل');
 
+-- Loud, not silent (review A, minor 3): the map must now hold «فشل» = failed / from_woo and no «تم RTC». A table that
+-- already had both rows, or neither, would otherwise pass the update untouched; here it stops the migration instead.
+do $$ begin
+  if exists (select 1 from public.status_map where system_status = 'تم RTC')
+     or not exists (select 1 from public.status_map where system_status = 'فشل' and woo_status = 'failed' and direction = 'from_woo') then
+    raise exception '0009: status_map is not in the expected state («فشل» = failed / from_woo, no «تم RTC»); fix the rows by hand, then re-run';
+  end if;
+end $$;
+
 -- ---------------------------------------------------------------- orders.note from the website note
 
 update public.orders

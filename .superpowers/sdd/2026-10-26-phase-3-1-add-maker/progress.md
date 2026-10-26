@@ -22,3 +22,11 @@ Cost reading at the start of the phase: $576.11 (get_session, end of phase 3's l
 | B ↔ phase-3 fix wave | `VTODAY()`, duplicate rate, canLogin alongside canEdit/canBank/… | B builds on 900cc18. |
 
 Rulings: the plan's decisions 1–13; the written `drop constraint` exception (decision 6); the Vault password store follows the owner's own prototype comment.
+
+## Progress (controller)
+- **Task A** (Fable, worktree): DONE_WITH_CONCERNS → `p31-a-report.md`; 4 commits cherry-picked (43da0ae…fadb057). Its contract notes went to B: no PostgREST upsert on `vendor_logins` (insert-or-PATCH), `email` not null, P0002 without a login row, a 128-char password cap.
+- **Review A** (Fable) → `review-a.md`: no Critical; I1 (the live test counted every maker's activity rows — scoped to its three makers), I2 (the real `vault.update_secret` path never ran — the runbook's "before" block now checks postgres' execute on both Vault functions; checked live 26 Oct: true / true), M2 (NBSP), M4 (the RPCs also need `vendors.view <> N`) → 60210fd; M7 (`created_by` = the member's name) → B (adeac0e). M1 (orphan Vault secrets after a cascade delete), M5 (the client may move active → invited), M6, M11 (service_role gets 42501 from the RPCs: a future portal function needs a member JWT or a written branch) → Later.
+- **Security review (automated, CWE-338):** the prototype's `genPassword` on `Math.random` → decision 7 amended (CSPRNG + rejection sampling + Fisher–Yates), B implemented it (bec3208).
+- **Task B** (Fable, worktree): DONE_WITH_CONCERNS → `p31-b-report.md`; 9 commits cherry-picked (87a0f4c…d6562e6 → adeac0e). Merged branch: unit 205, split 5, e2e 118; CI green through 60210fd.
+- **Live pre-checks (read-only, 26 Oct 17:30Z):** `vendors_status_check` = active/inactive, `vendor_logins` absent, 0 `vendor-login:%` secrets, 55 makers all active, postgres may call `vault.create_secret` / `vault.update_secret`.
+- **Side finding while verifying phase 3's vendors run:** the v8 `saveVendors` partial upsert failed on every store (see phase 3's ledger) → fixed in 7bd0589, functions v9, verified at 17:45Z.

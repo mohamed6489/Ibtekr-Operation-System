@@ -91,14 +91,37 @@
   document.addEventListener('mousedown', (e) => { if (popStack.length && !e.target.closest('[data-popover-root]')) while (popStack.length) popStack[popStack.length - 1].close(); });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && openClose) { e.stopImmediatePropagation(); closePopover(); } }, true);
 
+  // Dropdowns float above everything (owner 26 Oct): a popover that CSS places «absolute» under its trigger is switched to
+  // position:fixed at the trigger's spot, so no card / section / drawer with overflow can clip it. Opens upward when there's
+  // more room above, clamps to the viewport, follows scroll/resize. Bottom sheets and already-fixed panels are left alone.
+  function floatOver(el, trigger) {
+    if (getComputedStyle(el).position !== 'absolute') return null;
+    const end = el.classList.contains('end'); el.classList.add('floating');
+    const place = () => {
+      if (!el.isConnected) return; const r = trigger.getBoundingClientRect(); const vw = document.documentElement.clientWidth, vh = window.innerHeight, gap = 4, pad = 8;
+      el.style.position = 'fixed'; el.style.inset = 'auto'; el.style.minWidth = Math.max(r.width, 0) + 'px'; el.style.maxHeight = '';
+      const below = vh - r.bottom - gap - pad, above = r.top - gap - pad; const natural = el.scrollHeight;
+      const up = natural > below && above > below; const room = Math.max(120, up ? above : below);
+      if (natural > room) el.style.maxHeight = Math.floor(room) + 'px';
+      const hgt = Math.min(natural, room); el.style.top = Math.round(up ? r.top - gap - hgt : r.bottom + gap) + 'px';
+      const w = el.offsetWidth; const rtl = getComputedStyle(trigger).direction === 'rtl';
+      let left = (rtl ? !end : end) ? r.right - w : r.left; left = Math.min(Math.max(pad, left), vw - w - pad);
+      el.style.left = Math.round(left) + 'px'; el.dataset.dir = up ? 'up' : 'down';
+    };
+    place(); requestAnimationFrame(place);
+    const onMove = (e) => { if (e && e.target && e.target.nodeType === 1 && el.contains(e.target)) return; place(); };
+    window.addEventListener('scroll', onMove, true); window.addEventListener('resize', onMove);
+    return () => { window.removeEventListener('scroll', onMove, true); window.removeEventListener('resize', onMove); };
+  }
   function popover(anchorEl, trigger, build) {
     // anchorEl: wrapper (position:relative); build(close) -> element
     let el = null;
-    const close = () => { if (el) { el.remove(); el = null; trigger.setAttribute('aria-expanded', 'false'); } const i = popStack.findIndex((p) => p.close === close); if (i >= 0) popStack.splice(i, 1); syncTop(); };
+    let unfloat = null;
+    const close = () => { if (unfloat) { unfloat(); unfloat = null; } if (el) { el.remove(); el = null; trigger.setAttribute('aria-expanded', 'false'); } const i = popStack.findIndex((p) => p.close === close); if (i >= 0) popStack.splice(i, 1); syncTop(); };
     const open = () => {
       while (popStack.length && !popStack[popStack.length - 1].el.contains(anchorEl)) popStack[popStack.length - 1].close();
       el = build(() => { close(); trigger.focus(); });
-      anchorEl.append(el); trigger.setAttribute('aria-expanded', 'true'); popStack.push({ close, el }); syncTop();
+      anchorEl.append(el); unfloat = floatOver(el, trigger); trigger.setAttribute('aria-expanded', 'true'); popStack.push({ close, el }); syncTop();
       const first = el.querySelector('[role=option][aria-selected=true],[role=menuitem],[role=option]'); if (first && el.dataset.focus !== 'no') first.focus();
     };
     return { open, close, toggle: () => (el ? (close(), trigger.focus()) : open()) };
@@ -187,10 +210,10 @@
     return FieldShell({ id, label, required, error, help: help || 'الشكل: يوم/شهر/سنة' }, wrap);
   }
 
-  function TextInput({ id, label, required, value, error, placeholder, onInput, inputmode, suffix, help, maxlength, disabled }) {
-    const input = h('input', { id, type: 'text', value: value || '', placeholder, inputmode, maxlength, disabled: disabled ? '' : false, 'aria-invalid': error ? 'true' : false, 'aria-describedby': error ? id + '-err' : false });
+  function TextInput({ id, label, required, value, error, placeholder, onInput, inputmode, suffix, help, maxlength, disabled, type, autocomplete, dir, trail }) {
+    const input = h('input', { id, type: type || 'text', value: value || '', placeholder, inputmode, maxlength, autocomplete, dir, disabled: disabled ? '' : false, 'aria-invalid': error ? 'true' : false, 'aria-describedby': error ? id + '-err' : false });
     input.addEventListener('input', () => onInput(input.value));
-    return FieldShell({ id, label, required, error, help }, h('div', { class: 'input' + (error ? ' err' : '') + (disabled ? ' is-disabled' : '') }, suffix ? h('span', { class: 'help' }, suffix) : null, input));
+    return FieldShell({ id, label, required, error, help }, h('div', { class: 'input' + (error ? ' err' : '') + (disabled ? ' is-disabled' : '') }, suffix ? h('span', { class: 'help' }, suffix) : null, input, trail || null));
   }
 
   // ---- Modal ----
@@ -382,7 +405,7 @@
 
   // ---- Vendors components (Figma: Vendor logo, Info row, Secure field, Contract card, Vendor status) ----
   function VendorLogo({ letter, size = 'md' }) { return h('span', { class: 'vlogo vlogo-' + size, 'aria-hidden': 'true' }, (letter || '؟').charAt(0)); }
-  function VendorStatus(status) { return h('span', { class: 'vstatus vs-' + status }, status === 'active' ? 'نشط' : 'غير نشط'); }
+  function VendorStatus(status) { return h('span', { class: 'vstatus vs-' + status }, status === 'active' ? 'نشط' : status === 'leave' ? 'في إجازة' : 'غير نشط'); }
   function InfoRow({ label, value, copy, onCopy }) {
     return h('div', { class: 'info-row' }, h('span', { class: 't-body lab' }, label),
       h('span', { class: 'val' }, h('span', { class: 't-body' }, value == null || value === '' ? '—' : value), copy && value ? IconButton({ icon: 'copy', label: 'نسخ ' + label, onClick: () => onCopy(value, label) }) : null));

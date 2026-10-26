@@ -499,7 +499,7 @@ declare stmt text; needle text;
 begin
   for stmt, needle in select * from (values
     ('update public.vendors set name = ''اسم من العمليات'' where woo_vendor_id = 441', 'vendors.edit = F'),
-    ('update public.vendors set category = ''هدايا'' where woo_vendor_id = 441', 'vendors.edit = F'),
+    ('update public.vendors set category = ''أطعمة وحلويات'' where woo_vendor_id = 441', 'vendors.edit = F'), -- a value that changes: the admin set هدايا above
     ('update public.vendors set aliases = ''{"x"}'' where woo_vendor_id = 441', 'vendors.edit = F'),
     ('update public.vendors set joined_at = ''2026-01-01'' where woo_vendor_id = 441', 'vendors.edit = F'),
     ('update public.vendors set status = ''inactive'' where woo_vendor_id = 441', 'vendors.toggle'),

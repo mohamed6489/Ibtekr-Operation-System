@@ -272,6 +272,9 @@ begin
       raise exception 'vendors.edit (F or P) is required to change a vendor phone, e-mail, address, instagram, store URL or notes' using errcode = '42501';
     end if;
   end if;
+  -- Every row write bumps updated_at (a BEFORE trigger may set a column the caller cannot update): members' edits and
+  -- the sync's raw-only upsert alike; after the comparisons above, so rule 1 still sees the stored value.
+  new.updated_at := now();
   return new;
 end
 $$;

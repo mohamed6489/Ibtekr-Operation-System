@@ -326,6 +326,9 @@
    -- 55 / 55 / 0 (26 أكتوبر؛ + أي متجر جديد — active + inactive = vendors)
    select name, created_at from vault.secrets where name like 'vendor-login:%';
    -- 0 صفوف (عمرك ما تعمل select لـ decrypted_secret ولا لعمود secret)
+   select has_function_privilege('postgres', 'vault.create_secret(text, text, text, uuid)', 'execute') as can_create,
+          has_function_privilege('postgres', 'vault.update_secret(uuid, text, text, text, uuid)', 'execute') as can_update;
+   -- true / true (الدالتين بتاعتنا بيتنفّذوا كـ postgres؛ `update_secret` عمره ما اتنادى في المشروع قبل 0012 — لو false، وقّف واسأل قبل التطبيق)
    ```
 
 2. `apply_migration` بالاسم `vendor_logins`.

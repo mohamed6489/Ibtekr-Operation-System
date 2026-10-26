@@ -377,7 +377,8 @@ set local request.jwt.claims = '';
 do $$ declare has_vault boolean := current_setting('rls_vendor_logins.has_vault') = 'true'; begin
   -- the password is nowhere in activity_log, whatever happened
   if exists (select 1 from public.activity_log
-             where coalesce(old_value::text, '') || coalesce(new_value::text, '') || coalesce(action, '') || coalesce(entity_id, '')
+             where entity_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')
+               and coalesce(old_value::text, '') || coalesce(new_value::text, '') || coalesce(action, '')
                    like any (array['%Test1234%', '%Test5678%'])) then
     raise exception 'case the password never reaches activity_log failed';
   end if;
@@ -392,10 +393,10 @@ do $$ declare has_vault boolean := current_setting('rls_vendor_logins.has_vault'
             and (select count(*) from public.activity_log
                  where action = 'vendor.login.reveal' and entity = 'vendor' and entity_id = '00000000-0000-4000-8000-0000000000d2'
                    and actor = '00000000-0000-4000-8000-000000000051') = 1
-            and (select count(*) from public.activity_log where action like 'vendor.login.%') = 5) then
+            and (select count(*) from public.activity_log where action like 'vendor.login.%' and entity_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = 5) then
       raise exception 'case the RPCs write one activity_log row per call (2 password + 3 reveal, actor = the caller, new_value null) failed: %',
         coalesce((select string_agg(action || ':' || coalesce(entity_id, '∅') || ':' || coalesce(actor::text, '∅') || ':' || coalesce(new_value::text, '∅'), ',' order by id)
-                  from public.activity_log where action like 'vendor.login.%'), '<none>');
+                  from public.activity_log where action like 'vendor.login.%' and entity_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')), '<none>');
     end if;
     -- one Vault secret for the maker, named by their uuid, the same row after the replacement; the login row points at it
     if not ((select count(*) from vault.secrets where name = 'vendor-login:00000000-0000-4000-8000-0000000000d1') = 1
@@ -408,7 +409,7 @@ do $$ declare has_vault boolean := current_setting('rls_vendor_logins.has_vault'
     end if;
   else
     -- nothing was written by the refused calls
-    if not ((select count(*) from public.activity_log where action like 'vendor.login.%') = 0
+    if not ((select count(*) from public.activity_log where action like 'vendor.login.%' and entity_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = 0
             and (select secret_id is null and password_set_at is null and must_change and pw_mode = 'link'
                  from public.vendor_logins where vendor_id = '00000000-0000-4000-8000-0000000000d1')) then
       raise exception 'case refused RPC calls (22023 / P0002 / 0A000) write nothing failed';
@@ -665,9 +666,10 @@ do $$ declare has_vault boolean := current_setting('rls_vendor_logins.has_vault'
       (select string_agg(l.vendor_id::text || '=' || l.username || '/' || l.status || '/' || l.pw_mode || '/' || coalesce(l.created_by, '∅') || '/' || v.status, ',' order by l.vendor_id)
        from public.vendor_logins l join public.vendors v on v.id = l.vendor_id);
   end if;
-  -- the activity rows of this file: with Vault 2 + 3 by the admin and 1 + 1 by vendors follow-up, else none
-  if not ((select count(*) from public.activity_log where action like 'vendor.login.%') = case when has_vault then 7 else 0 end
-          and (select count(*) from public.activity_log where action like 'vendor.login.%' and actor = '00000000-0000-4000-8000-000000000052')
+  -- the activity rows of this file (scoped to its makers: a live re-run finds real vendor.login.* rows of other makers):
+  -- with Vault 2 + 3 by the admin and 1 + 1 by vendors follow-up, else none
+  if not ((select count(*) from public.activity_log where action like 'vendor.login.%' and entity_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = case when has_vault then 7 else 0 end
+          and (select count(*) from public.activity_log where action like 'vendor.login.%' and entity_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3') and actor = '00000000-0000-4000-8000-000000000052')
               = case when has_vault then 2 else 0 end) then
     raise exception 'case every accepted RPC call and no refused one left an activity_log row failed';
   end if;

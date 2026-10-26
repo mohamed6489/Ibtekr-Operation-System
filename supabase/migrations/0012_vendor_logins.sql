@@ -173,7 +173,7 @@ declare
   v_secret uuid;
   v_at timestamptz;
 begin
-  if not (public.is_admin() or public.has_perm('vendors.edit') = 'F') then
+  if not (public.is_admin() or (public.has_perm('vendors.edit') = 'F' and public.has_perm('vendors.view') <> 'N')) then
     raise exception 'vendors.edit = F (or admin) is required to set a maker login password' using errcode = '42501';
   end if;
   if p_password is null or length(p_password) < 8 then
@@ -188,7 +188,7 @@ begin
   if p_password !~ '[0-9]' then
     raise exception 'the password must contain a digit' using errcode = '22023';
   end if;
-  if p_password ~ '[[:space:]]' then
+  if p_password ~ ('[[:space:]' || chr(160) || ']') then -- U+00A0 too: the client's /\s/ refuses it
     raise exception 'the password must not contain spaces' using errcode = '22023';
   end if;
   if p_vendor is null or not exists (select 1 from public.vendor_logins l where l.vendor_id = p_vendor) then
@@ -232,7 +232,7 @@ declare
   v_secret uuid;
   v_value text;
 begin
-  if not (public.is_admin() or public.has_perm('vendors.edit') = 'F') then
+  if not (public.is_admin() or (public.has_perm('vendors.edit') = 'F' and public.has_perm('vendors.view') <> 'N')) then
     raise exception 'vendors.edit = F (or admin) is required to reveal a maker login password' using errcode = '42501';
   end if;
   if to_regclass('vault.decrypted_secrets') is null then

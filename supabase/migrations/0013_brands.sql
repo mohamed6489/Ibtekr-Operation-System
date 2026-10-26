@@ -20,8 +20,9 @@
 --     A–Z / 0–9 (informational, the SKU stays the store's); aliases; store_vendor_id (unique, on delete cascade — the
 --     server alone sets it: no insert / update grant on it for the members); origin_vendor_id (the maker the brand was
 --     created for, on delete cascade); created_by; created_at / updated_at.
---   * brand_owners: brand_id (on delete cascade), vendor_id (NO cascade: a maker who holds somebody else's brand cannot
---     be deleted — 23503 → «عليه براندات»; their own brands go with them through brands.origin_vendor_id), since,
+--   * brand_owners: brand_id (on delete cascade), vendor_id (NO cascade: a maker who holds, or ever held, somebody
+--     else's brand cannot be deleted — 23503 → «عليه براندات»; their own brands go with them through
+--     brands.origin_vendor_id, together with every owner row of those brands, whoever holds them today), since,
 --     return_on (null or > since: 23514), reason (≤ 200: 23514), set_by, created_at; unique (brand_id, since). Rows
 --     are only added (no update / delete grant or policy for the members): a transfer and a return are new rows.
 --   * brand_rates: brand_id (on delete cascade), rate (null, or 0–65: 23514), since, set_by, created_at; unique
@@ -60,6 +61,15 @@
 --   the brand insert is `on conflict do nothing` on the name index so two makers of the same name inserted at once
 --   make one brand, not an error. The backfill walks the makers by created_at, id: when two existing rows share a
 --   name, the older one gets the brand.
+-- Decision (this file): the no-cascade key brand_owners.vendor_id is `deferrable initially immediate`, and the guard
+--   vendors_brands_guard_delete (before delete on vendors, every role) refuses with 23503 — the message names
+--   brand_owners_vendor_id_fkey, like the key's own error — a maker found in the ownership history of a brand of
+--   another maker, and otherwise defers that one key for the rest of the transaction. Why: Postgres checks a plain
+--   NO ACTION key at the end of the statement but before the second-level cascade (vendors → brands → brand_owners)
+--   has removed the maker's own owner rows, so without this the origin maker could never be deleted (proved in
+--   rls_brands.sql's cascade case). Inserts into brand_owners are still checked at once (initially immediate); the
+--   deferred check at commit stays as the backstop. The guard reads the history as the caller (RLS applies): the
+--   delete policy admits the admin only, who sees every row; postgres / service_role bypass RLS.
 -- Decision (this file): brand_owners.set_by of the automatic row is 'system', like brands.created_by (the plan names
 --   created_by only). An owner lookup with a null date reads as current_date. store_owner_at of a store without a
 --   brand — a taken name, or a uuid that is no store at all — is the store itself.
@@ -104,9 +114,9 @@ create index if not exists brands_origin_vendor_id_idx on public.brands (origin_
 create table if not exists public.brand_owners (
   id bigserial primary key,
   brand_id uuid not null references public.brands (id) on delete cascade,
-  vendor_id uuid not null references public.vendors (id),
+  vendor_id uuid not null constraint brand_owners_vendor_id_fkey references public.vendors (id) deferrable initially immediate,
   since date not null,
-  return_on date check (return_on is null or return_on > since),
+  return_on date constraint brand_owners_return_on_check check (return_on is null or return_on > since),
   reason text check (reason is null or length(reason) <= 200),
   set_by text,
   created_at timestamptz not null default now(),
@@ -242,6 +252,28 @@ create or replace trigger brand_owners_guard before insert on public.brand_owner
   for each row execute function public.brand_owners_guard();
 
 revoke execute on function public.brand_owners_guard() from public, anon, authenticated;
+
+-- ---------------------------------------------------------------- vendors_brands_guard_delete: the history rule (before delete)
+
+-- A maker in the ownership history of a brand of another maker cannot be deleted (23503, the same message pattern as
+-- the key); otherwise the maker's own brands cascade: brand_owners_vendor_id_fkey is deferred for this transaction so
+-- the second-level cascade (their brands' owner rows) completes before the key is checked at commit.
+create or replace function public.vendors_brands_guard_delete() returns trigger
+language plpgsql set search_path = public as $$
+begin
+  if exists (select 1 from public.brand_owners o join public.brands b on b.id = o.brand_id
+             where o.vendor_id = old.id and b.origin_vendor_id <> old.id) then
+    raise exception 'the maker holds or held a brand of another maker (brand_owners_vendor_id_fkey): transfer or return it first' using errcode = '23503';
+  end if;
+  set constraints public.brand_owners_vendor_id_fkey deferred;
+  return old;
+end
+$$;
+
+create or replace trigger vendors_brands_guard_delete before delete on public.vendors
+  for each row execute function public.vendors_brands_guard_delete();
+
+revoke execute on function public.vendors_brands_guard_delete() from public, anon, authenticated;
 
 -- ---------------------------------------------------------------- the automatic brand (the trigger and the backfill)
 

@@ -8,12 +8,12 @@
 //   still written, with vendor_id null, and the rest of the delivery / page goes on. Only then are rows mapped for good.
 // * Orders / lines are upserted with the sync-owned columns only (ORDER_COLUMNS / ITEM_COLUMNS), so an existing row
 //   keeps the team's operational values (orders.confirm*/deposit/note/cancel/ret, order_items.status/expected_at/
-//   comment/ready_at/waybill/pulled/ret/store, order_items.sub_order_id). customer_city / customer_address are
-//   written on a new order only (the team edits them afterwards), and a line whose maker is not known from the
-//   payload keeps the vendor_id it has (its sub-order gave it). orders.status comes from incomingStatus on the status
-//   and woo_status stored now (Woo's slug unchanged → the team's status stays). A payload older than the stored
-//   woo_updated_at (an out-of-order or replayed delivery) is skipped as 'stale'. A line that disappeared from
-//   WooCommerce is flagged removed = true (never deleted).
+//   comment/ready_at/waybill/pulled/ret/store, order_items.sub_order_id). customer_city / customer_address and note
+//   (= the website note, customer_note) are written on a new order only (the team edits them afterwards), and a line
+//   whose maker is not known from the payload keeps the vendor_id it has (its sub-order gave it). orders.status comes
+//   from incomingStatus on the status and woo_status stored now (Woo's slug unchanged → the team's status stays). A
+//   payload older than the stored woo_updated_at (an out-of-order or replayed delivery) is skipped as 'stale'. A line
+//   that disappeared from WooCommerce is flagged removed = true (never deleted).
 // * A Dokan sub-order is written once its parent is in orders (a missing parent is fetched from wc/v3/orders/{id}
 //   first; a 404 → 'skipped', any other failure → 'error', and only that sub-order waits for the next delivery / run),
 //   upserted on woo_order_id, then linked to the parent's lines (order_items.sub_order_id): those of the same maker,
@@ -27,10 +27,10 @@ import { DbError, logSync, selectIn, upsertRows } from './db.js';
 import { errorText } from './woo-api.js';
 
 export const ORDER_COLUMNS = ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method',
-  'payment_title', 'status', 'woo_status', 'total', 'currency', 'customer_note', 'placed_at', 'woo_updated_at', 'raw', 'synced_at'];
+  'payment_title', 'status', 'woo_status', 'total', 'currency', 'customer_note', 'note', 'placed_at', 'woo_updated_at', 'raw', 'synced_at'];
 export const ITEM_COLUMNS = ['id', 'order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'raw', 'removed'];
 // The team edits these after the first sync: an existing order is upserted without them.
-const TEAM_EDITED = ['customer_city', 'customer_address'];
+const TEAM_EDITED = ['customer_city', 'customer_address', 'note'];
 const ORDER_UPDATE_COLUMNS = ORDER_COLUMNS.filter((c) => !TEAM_EDITED.includes(c));
 const ITEM_COLUMNS_NO_VENDOR = ITEM_COLUMNS.filter((c) => c !== 'vendor_id');
 const SUB_COLUMNS = ['order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw'];
@@ -248,18 +248,23 @@ export async function writeOrderPage(ctx, page) {
 
 // ---------------------------------------------------------------- products
 
-/** A wc/v3/products item → { product (products row), unknownVendorIds } or { skipped: 'invalid' } (no id / name). */
+/**
+ * A wc/v3/products item → { product (products row), unknownVendorIds } or { skipped: 'invalid' } (no id / name).
+ * permalink: the product page on the site when it is an https:// URL, else null (the orders screen links to it).
+ */
 export function mapProduct(p, vendorsByWooId) {
   const id = wooId(p?.id);
   if (id === null || typeof p.name !== 'string') return { skipped: 'invalid', product: null, unknownVendorIds: [] };
   const maker = wooId(isObj(p.store) ? p.store.id : null); // Dokan adds `store` to the WC product response
   const uuid = maker === null ? null : vendorsByWooId.get(maker) ?? null;
   const image = Array.isArray(p.images) && isObj(p.images[0]) ? orNull(p.images[0].src) : null;
+  const link = typeof p.permalink === 'string' ? p.permalink.trim() : '';
   const raw = { ...pickScalars(p, PRODUCT_RAW),
     ...(Array.isArray(p.categories) ? { categories: p.categories.filter(isObj).map((c) => pickScalars(c, ['id', 'name', 'slug'])) } : {}),
     ...(isObj(p.store) ? { store: pickScalars(p.store, ['id', 'shop_name']) } : {}) };
   return {
-    product: { id, sku: orNull(p.sku), name: p.name.trim() || `#${id}`, image_url: image, vendor_id: uuid, price: num(p.price), status: orNull(p.status), raw: redactPII(raw) },
+    product: { id, sku: orNull(p.sku), name: p.name.trim() || `#${id}`, image_url: image, permalink: link.startsWith('https://') ? link : null,
+      vendor_id: uuid, price: num(p.price), status: orNull(p.status), raw: redactPII(raw) },
     unknownVendorIds: maker !== null && uuid === null ? [maker] : [],
   };
 }

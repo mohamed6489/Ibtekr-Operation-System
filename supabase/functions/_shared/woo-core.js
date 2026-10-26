@@ -11,7 +11,8 @@
 
 export const START_DATE = '2026-10-01';
 export const OPEN_WOO = ['processing', 'pending', 'on-hold'];
-export const WOO_FALLBACK = { failed: 'ملغي' };
+// Woo slug → system status for a slug with no status_map row (none today: `failed` has its own row «فشل» since 0009).
+export const WOO_FALLBACK = {};
 // Order meta kept in raw (a trailing * is a prefix); every other key is removed, not redacted — staging carries
 // phones (bosta_customer_phone), Facebook ids and user agents in meta.
 export const META_KEEP = [
@@ -151,7 +152,7 @@ export async function verifySignature(rawBody, signatureHeader, secret) {
 // ---------------------------------------------------------------- status rules
 
 /**
- * Woo status → system status. A current status whose row is from_system (e.g. «تم RTC», set by the team) is never
+ * Woo status → system status. A current status whose row is from_system (set by the team; no such row today) is never
  * overwritten: 'unchanged'. Nor is a current status when Woo's slug is the one already stored (currentWooStatus, the
  * order's woo_status in the DB): Woo did not change its status, so a delivery about anything else (a note, an
  * address) keeps the team's status: 'unchanged'. Else the both / from_woo row of that slug (the current status if it
@@ -228,6 +229,7 @@ export function mapOrder(wooOrder, ctx) {
     payment_method: orNull(o.payment_method), payment_title: orNull(o.payment_method_title),
     status: status.status, woo_status: orNull(o.status),
     total: num(o.total) ?? 0, currency: orNull(o.currency) ?? 'EGP', customer_note: orNull(o.customer_note),
+    note: orNull(o.customer_note), // the team's comment starts as the website note (woo-write writes it on insert only)
     placed_at: gmtIso(o.date_created_gmt), woo_updated_at: gmtIso(o.date_modified_gmt), synced_at: toIso(now),
     raw: cleanRaw(o),
   };

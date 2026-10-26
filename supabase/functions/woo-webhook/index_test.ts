@@ -220,6 +220,32 @@ Deno.test('customer_city / customer_address: written when the order is new, neve
   assertFalse(db.writes('orders').some((w: any) => w.rows.some((r: any) => 'customer_city' in r || 'customer_address' in r)));
 });
 
+Deno.test('note (the team’s comment) = the website note on a new order only; an existing order keeps its comment while customer_note follows Woo', async () => {
+  const fresh = setup({ routes: subsRoute([]) });
+  await deliver(fresh.deps, wooOrder({ customer_note: '  رن قبل ما تيجي ' }));
+  const o = fresh.db.row('orders', 1001);
+  assertEquals([o.note, o.customer_note], ['رن قبل ما تيجي', 'رن قبل ما تيجي']);
+  const none = setup({ routes: subsRoute([]) });
+  await deliver(none.deps, wooOrder());
+  assertEquals([none.db.row('orders', 1001).note, none.db.row('orders', 1001).customer_note], [null, null], 'no website note → no comment');
+
+  const seed = { orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'جاري التنفيذ', woo_status: 'processing', placed_at: '2026-10-20T10:00:00Z',
+    woo_updated_at: '2026-10-20T10:30:00Z', note: 'تعليق خدمة العملاء', customer_note: 'رن قبل ما تيجي' }] };
+  const { db, deps } = setup({ seed, routes: subsRoute([]) });
+  await deliver(deps, wooOrder({ customer_note: 'ملاحظة اتعدّلت على الموقع' }));
+  const kept = db.row('orders', 1001);
+  assertEquals([kept.note, kept.customer_note], ['تعليق خدمة العملاء', 'ملاحظة اتعدّلت على الموقع']);
+  assertFalse(db.writes('orders').some((w: any) => w.rows.some((r: any) => 'note' in r)));
+});
+
+Deno.test('a failed Woo order arrives as «فشل» (its status_map row since 0009), not «ملغي»', async () => {
+  const { db, deps } = setup({ routes: subsRoute([]) });
+  const { body } = await deliver(deps, wooOrder({ status: 'failed' }));
+  assertEquals(body.status, 'ok');
+  assertEquals([db.row('orders', 1001).status, db.row('orders', 1001).woo_status], ['فشل', 'failed']);
+  assertEquals(db.rows('woo_sync_log').length, 0, 'no conflict row');
+});
+
 Deno.test('Woo’s status unchanged (incoming slug = stored woo_status) → the team’s status stays; a real Woo change still applies', async () => {
   const seed = { orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'جاهز للشحن', woo_status: 'processing', placed_at: '2026-10-20T10:00:00Z',
     woo_updated_at: '2026-10-20T10:30:00Z' }] };
@@ -421,6 +447,7 @@ Deno.test('product.updated → products upserted with image_url = images[0].src 
   assertEquals(body, { status: 'ok', id: 501 });
   const p = db.row('products', 501);
   assertEquals([p.name, p.sku, p.image_url, p.vendor_id, p.price, p.status], ['منتج 501', 'SKU-501', 'https://woo.test/img/501-a.jpg', vendorId(44), 120, 'publish']);
+  assertEquals(p.permalink, 'https://woo.test/p/501');
   assertFalse(JSON.stringify(p.raw).includes('Owner Name'), 'raw keeps the shop name only');
   assertEquals(woo.calls.length, 0);
 });

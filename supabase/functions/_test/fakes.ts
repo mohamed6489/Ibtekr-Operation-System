@@ -2,9 +2,10 @@
 // Test doubles for the Woo Edge Functions (never deployed: nothing outside this folder imports it).
 // fakeDb: an in-memory stand-in for the supabase-js client with the surface the functions use — from(t).select /
 //   insert / upsert({onConflict}) / update, the filters eq / in / not('in') / is, select-after-write, single /
-//   maybeSingle, and rpc(). It knows the 0007 columns, not-null columns, checks, unique keys and the foreign keys the
-//   sync relies on, so a wrong column, a bad value or a missing parent fails like PostgREST would ({ data, error },
-//   23505 for a duplicate key). A statement is atomic. Every call is recorded in `calls` in order.
+//   maybeSingle, and rpc(). It knows the 0007 columns (+ products.permalink of 0009), not-null columns, checks, unique
+//   keys and the foreign keys the sync relies on, so a wrong column, a bad value or a missing parent fails like
+//   PostgREST would ({ data, error }, 23505 for a duplicate key). A statement is atomic. Every call is recorded in
+//   `calls` in order.
 // fakeWoo: a fetch that routes "METHOD path" (path after /wp-json/) to a reply (or a network error) and records every
 //   request.
 
@@ -14,7 +15,7 @@ type DbErr = { code: string; message: string; details?: string };
 const COLUMNS: Record<string, string[]> = {
   status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
   vendors: ['id', 'woo_vendor_id', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at'],
-  products: ['id', 'sku', 'name', 'image_url', 'vendor_id', 'price', 'status', 'raw', 'updated_at'],
+  products: ['id', 'sku', 'name', 'image_url', 'vendor_id', 'price', 'status', 'raw', 'updated_at', 'permalink'],
   orders: ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method',
     'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note',
     'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'raw', 'synced_at', 'created_at', 'updated_at'],
@@ -234,10 +235,10 @@ export const WC_AUTH = 'Basic ' + btoa('ck_test_0001:cs_test_0002');
 export const NOW = '2026-10-25T12:00:00.000Z';
 export const PHONE = '01012345678';
 
-// The nine rows of 0007 (+ the phase-0 ids).
+// The nine rows of 0007 as 0009 leaves them: «تم RTC» (sort 6) became «فشل» = failed (sort 10) on the same row.
 export const STATUS_MAP: Row[] = [
   ['قيد الانتظار', 'pending', 'both', 1], ['جاري التنفيذ', 'processing', 'both', 2], ['معلّق', 'on-hold', 'both', 3],
-  ['جاهز للشحن', 'ready-shipping', 'both', 4], ['قيد الشحن', 'in-shipping', 'both', 5], ['تم RTC', null, 'from_system', 6],
+  ['جاهز للشحن', 'ready-shipping', 'both', 4], ['قيد الشحن', 'in-shipping', 'both', 5], ['فشل', 'failed', 'both', 10],
   ['مكتمل', 'completed', 'both', 7], ['استرجاع', 'refunded', 'both', 8], ['ملغي', 'cancelled', 'both', 9],
 ].map(([system_status, woo_status, direction, sort], i) => ({ id: i + 1, system_status, woo_status, direction, sort }));
 

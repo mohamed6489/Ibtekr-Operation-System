@@ -6,29 +6,36 @@ import {
   verifySignature, isSubOrder, normalizePhone, redactPII,
   incomingStatus, outgoingWooStatus, mapOrder, mapSubOrder, mapStore, nextCursor,
 } from '../../supabase/functions/_shared/woo-core.js';
-// supabase/functions/_shared/woo-core.js: the pure sync core shared by the woo-webhook / woo-sync Edge Functions.
+import { mapProduct } from '../../supabase/functions/_shared/woo-write.js';
+// supabase/functions/_shared/woo-core.js: the pure sync core shared by the woo-webhook / woo-sync Edge Functions
+// (mapProduct, the one pure mapper in woo-write.js, is tested here too).
 // Fixtures follow the staging shapes from the Task 1 probe; every name, phone, email and address here is made up.
 
 const SRC = new URL('../../supabase/functions/_shared/woo-core.js', import.meta.url);
 const MIGRATION = new URL('../../supabase/migrations/0007_orders.sql', import.meta.url);
+const MIGRATION_0009 = new URL('../../supabase/migrations/0009_failed_note_permalink.sql', import.meta.url);
 const R = '<redacted>';
 const U77 = '00000000-0000-4000-8000-000000000077';
 const U2376 = '00000000-0000-4000-8000-000000002376';
 const VENDORS = { 77: U77, 2376: U2376 };
 const NOW = '2026-10-25T08:00:00.000Z';
 
-// status_map exactly as 0007_orders.sql leaves it (order = sort).
+// status_map exactly as 0007_orders.sql + 0009_failed_note_permalink.sql leave it (order = sort; 0009 turned «تم RTC»
+// into «فشل», sort 10).
 const MAP = [
   { system_status: 'قيد الانتظار', woo_status: 'pending', direction: 'both' },
   { system_status: 'جاري التنفيذ', woo_status: 'processing', direction: 'both' },
   { system_status: 'معلّق', woo_status: 'on-hold', direction: 'both' },
   { system_status: 'جاهز للشحن', woo_status: 'ready-shipping', direction: 'both' },
   { system_status: 'قيد الشحن', woo_status: 'in-shipping', direction: 'both' },
-  { system_status: 'تم RTC', woo_status: null, direction: 'from_system' },
   { system_status: 'مكتمل', woo_status: 'completed', direction: 'both' },
   { system_status: 'استرجاع', woo_status: 'refunded', direction: 'both' },
   { system_status: 'ملغي', woo_status: 'cancelled', direction: 'both' },
+  { system_status: 'فشل', woo_status: 'failed', direction: 'both' },
 ];
+// No row is from_system today: the rule is tested on a synthetic team-only status with no Woo slug.
+const TEAM = 'حالة داخلية';
+const TEAM_MAP = [...MAP, { system_status: TEAM, woo_status: null, direction: 'from_system' }];
 
 const PHONE = '+201200007052', EMAIL = 'rasha.test@example.com', STREET = 'شارع التجربة 12', FLAT = 'الدور الثالث';
 const BOSTA_PHONE = '01009998877', FB_ID = 'fbp.1.1700000000000.123456789', UA = 'Mozilla/5.0 (TestPhone) Safari/1.0';
@@ -113,7 +120,7 @@ test('module is pure: no imports, no environment globals, no clock', () => {
 test('constants', () => {
   assert.equal(START_DATE, '2026-10-01');
   assert.deepEqual(OPEN_WOO, ['processing', 'pending', 'on-hold']);
-  assert.deepEqual(WOO_FALLBACK, { failed: 'ملغي' });
+  assert.deepEqual(WOO_FALLBACK, {});
   for (const k of ['_dokan_*', 'bosta_delivery_id', 'bosta_tracking_number', 'bosta_status', 'bosta_sync_status', 'wpml_language',
     '_wc_order_attribution_source_type', '_wc_order_attribution_utm_source', '_wc_order_attribution_utm_medium', '_wc_order_attribution_utm_campaign']) {
     assert.ok(META_KEEP.includes(k), k);
@@ -121,12 +128,17 @@ test('constants', () => {
   assert.equal(META_KEEP.length, 10);
 });
 
-test('the test status map matches the 0007 reseed (names, slugs, directions)', () => {
+test('the test status map matches the 0007 reseed and the 0009 rename (names, slugs, directions)', () => {
   const sql = readFileSync(MIGRATION, 'utf8');
-  for (const r of MAP) {
+  const sql9 = readFileSync(MIGRATION_0009, 'utf8');
+  for (const r of MAP.filter((m) => m.system_status !== 'فشل')) {
     const slug = r.woo_status === null ? 'null' : `'${r.woo_status}'`;
     assert.match(sql, new RegExp(`\\('${r.system_status}',\\s*${slug},\\s*'${r.direction}'`), r.system_status);
   }
+  // 0009: the «تم RTC» row of 0007 becomes («فشل», failed, both, 10) in place
+  assert.match(sql, /\('تم RTC',\s*null,\s*'from_system',\s*6\)/);
+  assert.match(sql9, /update public\.status_map\s+set system_status = 'فشل', woo_status = 'failed', direction = 'both', sort = 10\s+where system_status = 'تم RTC'/);
+  assert.equal(MAP.filter((m) => m.direction !== 'both').length, 0);
 });
 
 // ---------------------------------------------------------------- verifySignature
@@ -231,9 +243,12 @@ test('incomingStatus: the map rows (both / from_woo) decide', () => {
   assert.deepEqual(incomingStatus('paid', 'قيد الانتظار', fromWoo), { status: 'مدفوع', result: 'ok' });
 });
 
-test('incomingStatus: failed → ملغي (WOO_FALLBACK)', () => {
-  assert.deepEqual(incomingStatus('failed', null, MAP), { status: 'ملغي', result: 'ok' });
-  assert.deepEqual(incomingStatus('failed', 'جاري التنفيذ', MAP), { status: 'ملغي', result: 'ok' });
+test('incomingStatus: failed → فشل (its own row since 0009); without that row it is unknown (no fallback any more)', () => {
+  assert.deepEqual(incomingStatus('failed', null, MAP), { status: 'فشل', result: 'ok' });
+  assert.deepEqual(incomingStatus('failed', 'جاري التنفيذ', MAP), { status: 'فشل', result: 'ok' });
+  const noFailed = MAP.filter((r) => r.woo_status !== 'failed');
+  assert.deepEqual(incomingStatus('failed', 'جاري التنفيذ', noFailed), { status: 'جاري التنفيذ', result: 'conflict' });
+  assert.deepEqual(incomingStatus('failed', null, noFailed), { status: 'قيد الانتظار', result: 'conflict' });
 });
 
 test('incomingStatus: unknown Woo status → keep the current one (or the first map status) as a conflict', () => {
@@ -247,10 +262,10 @@ test('incomingStatus: unknown Woo status → keep the current one (or the first 
 });
 
 test('incomingStatus: from_system never takes an incoming status → unchanged', () => {
-  // the team set «تم RTC» (from_system): whatever Woo sends next does not overwrite it
-  assert.deepEqual(incomingStatus('in-shipping', 'تم RTC', MAP), { status: 'تم RTC', result: 'unchanged' });
-  assert.deepEqual(incomingStatus('completed', 'تم RTC', MAP), { status: 'تم RTC', result: 'unchanged' });
-  assert.deepEqual(incomingStatus('failed', 'تم RTC', MAP), { status: 'تم RTC', result: 'unchanged' });
+  // the team set a from_system status: whatever Woo sends next does not overwrite it
+  assert.deepEqual(incomingStatus('in-shipping', TEAM, TEAM_MAP), { status: TEAM, result: 'unchanged' });
+  assert.deepEqual(incomingStatus('completed', TEAM, TEAM_MAP), { status: TEAM, result: 'unchanged' });
+  assert.deepEqual(incomingStatus('failed', TEAM, TEAM_MAP), { status: TEAM, result: 'unchanged' });
   // a slug whose only row is from_system is not taken from Woo either
   const pushOnly = [...MAP, { system_status: 'مؤرشف', woo_status: 'archived', direction: 'from_system' }];
   assert.deepEqual(incomingStatus('archived', 'مكتمل', pushOnly), { status: 'مكتمل', result: 'unchanged' });
@@ -270,7 +285,7 @@ test('incomingStatus: Woo’s slug equal to the stored woo_status (Woo did not c
   assert.deepEqual(incomingStatus('weird', 'قيد الشحن', MAP, 'weird'), { status: 'قيد الشحن', result: 'unchanged' }, 'an unknown slug Woo keeps sending is not a new conflict');
   // a real change in Woo still applies
   assert.deepEqual(incomingStatus('completed', 'جاهز للشحن', MAP, 'processing'), { status: 'مكتمل', result: 'ok' });
-  assert.deepEqual(incomingStatus('failed', 'جاهز للشحن', MAP, 'processing'), { status: 'ملغي', result: 'ok' });
+  assert.deepEqual(incomingStatus('failed', 'جاهز للشحن', MAP, 'processing'), { status: 'فشل', result: 'ok' });
   // no current status (a new order) → the map decides
   assert.deepEqual(incomingStatus('processing', null, MAP, 'processing'), { status: 'جاري التنفيذ', result: 'ok' });
   // no stored slug (the 4th argument omitted, null or empty) → the rules as before
@@ -278,7 +293,7 @@ test('incomingStatus: Woo’s slug equal to the stored woo_status (Woo did not c
   assert.deepEqual(incomingStatus('processing', 'جاهز للشحن', MAP, null), { status: 'جاري التنفيذ', result: 'ok' });
   assert.deepEqual(incomingStatus('', 'قيد الشحن', MAP, ''), { status: 'قيد الشحن', result: 'conflict' }, 'two empty slugs are not "unchanged"');
   // from_system still wins
-  assert.deepEqual(incomingStatus('completed', 'تم RTC', MAP, 'processing'), { status: 'تم RTC', result: 'unchanged' });
+  assert.deepEqual(incomingStatus('completed', TEAM, TEAM_MAP, 'processing'), { status: TEAM, result: 'unchanged' });
 });
 
 test('mapOrder: ctx.currentWooStatus = the incoming slug → the stored status stays (unchanged)', () => {
@@ -292,7 +307,8 @@ test('mapOrder: ctx.currentWooStatus = the incoming slug → the stored status s
 });
 
 test('outgoingWooStatus: slug for both / from_system rows with a slug, else null', () => {
-  assert.equal(outgoingWooStatus('تم RTC', MAP), null);
+  assert.equal(outgoingWooStatus(TEAM, TEAM_MAP), null);
+  assert.equal(outgoingWooStatus('فشل', MAP), 'failed');
   assert.equal(outgoingWooStatus('مكتمل', MAP), 'completed');
   assert.equal(outgoingWooStatus('جاهز للشحن', MAP), 'ready-shipping');
   assert.equal(outgoingWooStatus('ملغي', MAP), 'cancelled');
@@ -310,13 +326,13 @@ test('mapOrder: a parent order → the orders row', () => {
   const r = mapOrder(input, { statusMap: MAP, vendorsByWooId: VENDORS, now: NOW });
   assert.equal(r.skipped, undefined);
   assert.equal('skipped' in r, false);
-  assert.deepEqual(Object.keys(r.order).sort(), ['currency', 'customer_address', 'customer_city', 'customer_name', 'customer_note', 'customer_phone', 'id', 'number',
+  assert.deepEqual(Object.keys(r.order).sort(), ['currency', 'customer_address', 'customer_city', 'customer_name', 'customer_note', 'customer_phone', 'id', 'note', 'number',
     'payment_method', 'payment_title', 'placed_at', 'raw', 'status', 'synced_at', 'total', 'woo_status', 'woo_updated_at']);
   const { raw, ...row } = r.order;
   assert.deepEqual(row, {
     id: 181668, number: '181668', customer_name: 'سلوى زيتوني', customer_phone: '01200007052', customer_city: 'القاهرة',
     customer_address: `${STREET} ${FLAT}`, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', status: 'جاري التنفيذ',
-    woo_status: 'processing', total: 1052, currency: 'EGP', customer_note: 'اتصلي قبل التوصيل',
+    woo_status: 'processing', total: 1052, currency: 'EGP', customer_note: 'اتصلي قبل التوصيل', note: 'اتصلي قبل التوصيل',
     placed_at: '2026-10-19T09:12:00Z', woo_updated_at: '2026-10-19T10:00:00Z', synced_at: NOW,
   });
   assert.equal(r.statusResult, 'ok');
@@ -461,6 +477,8 @@ test('mapOrder: customer fields fall back sensibly', () => {
   assert.equal(rb.order.customer_city, null);
   assert.equal(rb.order.customer_address, null);
   assert.equal(rb.order.customer_note, null);
+  assert.equal(rb.order.note, null, 'no website note → no comment');
+  assert.equal(mapOrder(parent({ customer_note: '  رني قبل ما تيجي  ' }), { statusMap: MAP, now: NOW }).order.note, 'رني قبل ما تيجي', 'trimmed like customer_note');
   const empty = mapOrder(parent({ billing: {}, shipping: {} }), { statusMap: MAP, now: NOW }).order;
   assert.equal(empty.customer_name, '');
   assert.equal(empty.customer_phone, null);
@@ -470,12 +488,12 @@ test('mapOrder: the status goes through incomingStatus with the current DB statu
   const ctx = { statusMap: MAP, vendorsByWooId: VENDORS, now: NOW };
   let r = mapOrder(parent({ status: 'on-hold' }), { ...ctx, currentStatus: 'جاري التنفيذ' });
   assert.equal(r.order.status, 'معلّق'); assert.equal(r.statusResult, 'ok'); assert.equal(r.order.woo_status, 'on-hold');
-  r = mapOrder(parent({ status: 'processing' }), { ...ctx, currentStatus: 'تم RTC' });
-  assert.equal(r.order.status, 'تم RTC'); assert.equal(r.statusResult, 'unchanged');
+  r = mapOrder(parent({ status: 'processing' }), { ...ctx, statusMap: TEAM_MAP, currentStatus: TEAM });
+  assert.equal(r.order.status, TEAM); assert.equal(r.statusResult, 'unchanged');
   r = mapOrder(parent({ status: 'weird' }), { ...ctx, currentStatus: 'قيد الشحن' });
   assert.equal(r.order.status, 'قيد الشحن'); assert.equal(r.statusResult, 'conflict');
   r = mapOrder(parent({ status: 'failed' }), ctx);
-  assert.equal(r.order.status, 'ملغي'); assert.equal(r.statusResult, 'ok');
+  assert.equal(r.order.status, 'فشل'); assert.equal(r.statusResult, 'ok');
   r = mapOrder(parent({ status: 'ready-shipping' }), ctx);
   assert.equal(r.order.status, 'جاهز للشحن');
 });
@@ -617,6 +635,34 @@ test('mapStore: enabled:false → inactive, enabled absent / null → active (Do
   assert.equal(mapStore(store({ phone: '' })).phone, null);
   assert.equal(mapStore(store({ id: '77', store_name: '' })).woo_vendor_id, 77);
   assert.equal(mapStore(store({ id: '77', store_name: '  ' })).name, '#77'); // vendors.name is not null
+});
+
+// ---------------------------------------------------------------- mapProduct (woo-write.js)
+
+const product = (over = {}) => ({
+  id: 501, name: 'شمعة معطرة', sku: 'SC-12', status: 'publish', price: '501', permalink: 'https://stage.example.test/product/sc-12/',
+  images: [{ id: 1, src: 'https://stage.example.test/sc-12.jpg' }], store: { id: 77, shop_name: 'متجر التجربة', name: 'منى تجربة' },
+  ...over,
+});
+
+test('mapProduct: the products row carries permalink (the product page on the site); raw keeps it too', () => {
+  const r = mapProduct(product(), new Map([[77, U77]]));
+  assert.deepEqual(Object.keys(r.product).sort(), ['id', 'image_url', 'name', 'permalink', 'price', 'raw', 'sku', 'status', 'vendor_id']);
+  assert.deepEqual({ ...r.product, raw: undefined }, { id: 501, sku: 'SC-12', name: 'شمعة معطرة', image_url: 'https://stage.example.test/sc-12.jpg',
+    permalink: 'https://stage.example.test/product/sc-12/', vendor_id: U77, price: 501, status: 'publish', raw: undefined });
+  assert.equal(r.product.raw.permalink, 'https://stage.example.test/product/sc-12/');
+});
+
+test('mapProduct: permalink only when it is an https:// URL (trimmed), else null', () => {
+  const link = (permalink) => mapProduct(product({ permalink }), new Map()).product.permalink;
+  assert.equal(link('  https://stage.example.test/product/sc-12/ '), 'https://stage.example.test/product/sc-12/');
+  assert.equal(link('https://stage.example.test/?p=501'), 'https://stage.example.test/?p=501');
+  for (const bad of ['http://stage.example.test/product/sc-12/', 'javascript:alert(1)', '//stage.example.test/product/sc-12/', '/product/sc-12/',
+    'HTTPS://stage.example.test/product/sc-12/', ' ', '', null, undefined, 501, { href: 'https://stage.example.test/' }, ['https://stage.example.test/']]) {
+    assert.equal(link(bad), null, JSON.stringify(bad) ?? String(bad));
+  }
+  const { permalink: _none, ...noLink } = product();
+  assert.equal(mapProduct(noLink, new Map()).product.permalink, null, 'no permalink key at all');
 });
 
 // ---------------------------------------------------------------- nextCursor

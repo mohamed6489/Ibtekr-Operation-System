@@ -242,12 +242,13 @@ Deno.test('vendors: every Dokan store upserted on woo_vendor_id, aliases / commi
   assertEquals(db.rows('woo_sync_log').at(-1).kind, 'manual');
 });
 
-Deno.test('products: pulled with the cursor params and upserted (image_url = images[0].src, maker linked or null)', async () => {
-  const { db, woo, deps } = setup({ routes: { 'GET wc/v3/products': page([wooProduct(501, 44), wooProduct(502, null, { images: [] })]) } });
+Deno.test('products: pulled with the cursor params and upserted (image_url = images[0].src, maker linked or null, permalink https only)', async () => {
+  const { db, woo, deps } = setup({ routes: { 'GET wc/v3/products': page([wooProduct(501, 44), wooProduct(502, null, { images: [], permalink: 'http://woo.test/p/502' })]) } });
   const { body } = await call(deps, { action: 'products' });
   assertEquals(body.counts.products.products, 2);
   assertEquals(woo.calls[0].query, { dates_are_gmt: 'true', orderby: 'modified', order: 'asc', per_page: '100', page: '1' });
-  assertEquals(db.rows('products').map((p: any) => [p.id, p.vendor_id, p.image_url]), [[501, vendorId(44), 'https://woo.test/img/501-a.jpg'], [502, null, null]]);
+  assertEquals(db.rows('products').map((p: any) => [p.id, p.vendor_id, p.image_url, p.permalink]),
+    [[501, vendorId(44), 'https://woo.test/img/501-a.jpg', 'https://woo.test/p/501'], [502, null, null, null]]);
   assertEquals(db.row('sync_state', 'products', 'key').value.cursor, '2026-10-21T08:59:00Z');
 });
 
@@ -322,9 +323,22 @@ Deno.test('push_status by a member with orders.status = F → PUT wc/v3/orders/{
   assertEquals([log.kind, log.direction, log.entity, log.entity_id, log.result], ['push', 'out', 'order', '1001', 'ok']);
 });
 
-Deno.test('push_status for a status with no Woo slug (تم RTC) → skipped, no Woo call', async () => {
-  const { db, woo, deps } = setup({ seed: { orders: [{ ...pushSeed.orders[0], status: 'تم RTC' }] }, env: PUSH_ON });
-  const { body } = await call(deps, { action: 'push_status', order_id: 1001, status: 'تم RTC' }, { jwt: 'jwt-ops' });
+Deno.test('push_status «فشل» (0009: failed / both) → PUT wc/v3/orders/{id} { status: failed }', async () => {
+  const routes = {
+    'GET wc/v3/orders/1001': { body: { id: 1001, status: 'processing', date_modified_gmt: '2026-10-20T11:00:00' } },
+    'PUT wc/v3/orders/1001': (c: any) => ({ body: { id: 1001, status: c.body.status, date_modified_gmt: '2026-10-25T12:00:01' } }),
+  };
+  const { db, woo, deps } = setup({ seed: { orders: [{ ...pushSeed.orders[0], status: 'فشل' }] }, routes, env: PUSH_ON });
+  const { body } = await call(deps, { action: 'push_status', order_id: 1001, status: 'فشل' }, { jwt: 'jwt-ops' });
+  assertEquals([body.result, body.counts], ['ok', { pushed: 1 }]);
+  assertEquals(woo.calls.find((c) => c.method === 'PUT')!.body, { status: 'failed' });
+  assertEquals([db.row('orders', 1001).status, db.row('orders', 1001).woo_status], ['فشل', 'failed']);
+});
+
+Deno.test('push_status for a status with no Woo slug (a from_system row; none today) → skipped, no Woo call', async () => {
+  const teamOnly = { id: 10, system_status: 'حالة داخلية', woo_status: null, direction: 'from_system', sort: 11 };
+  const { db, woo, deps } = setup({ seed: { status_map: [...STATUS_MAP, teamOnly], orders: [{ ...pushSeed.orders[0], status: teamOnly.system_status }] }, env: PUSH_ON });
+  const { body } = await call(deps, { action: 'push_status', order_id: 1001, status: teamOnly.system_status }, { jwt: 'jwt-ops' });
   assertEquals([body.action, body.result, body.reason], ['push_status', 'skipped', 'no_woo_status']);
   assertEquals(woo.calls.length, 0);
   assertEquals(db.writes('orders').length, 0);

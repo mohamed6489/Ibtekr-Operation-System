@@ -300,21 +300,13 @@ do $$ declare n int; begin
   if not ((select count(*) from (select id, woo_vendor_id, name, aliases, phone, email, status, raw, created_at, updated_at, legal_name,
                                         category, alt_phone, address, instagram, store_url, lead_days, deposit_policy, notes, joined_at,
                                         contract, opening_balance
-                                 from public.vendors) v) = 2
+                                 from public.vendors where woo_vendor_id in (441, 442)) v) = 2 -- this file's stores: live has the real ones too
           and (select raw ->> 'store_name' from public.vendors where woo_vendor_id = 441) = 'ورشة النور'
           and (select joined_at from public.vendors where woo_vendor_id = 441) = '2025-01-02') then
-    raise exception 'case admin reads the vendors list by column list (raw, joined_at included) failed: A(count22) % / B(store_name) % / C(joined_at) % / rows % / name hex % vs literal hex % / client % server % / user % / uid % / vendors.view %',
-      ((select count(*) from (select id, woo_vendor_id, name, aliases, phone, email, status, raw, created_at, updated_at, legal_name,
-                                      category, alt_phone, address, instagram, store_url, lead_days, deposit_policy, notes, joined_at,
-                                      contract, opening_balance
-                               from public.vendors where woo_vendor_id in (441, 442)) v) = 2)::text,
-      ((select raw ->> 'store_name' from public.vendors where woo_vendor_id = 441) = 'ورشة النور')::text,
-      ((select joined_at from public.vendors where woo_vendor_id = 441) = '2025-01-02')::text,
+    raise exception 'case admin reads the vendors list by column list (raw, joined_at included) failed: rows % / store_name % / joined_at % / vendors.view %',
       (select count(*) from public.vendors where woo_vendor_id in (441, 442)),
-      coalesce((select encode(convert_to(raw ->> 'store_name', 'UTF8'), 'hex') from public.vendors where woo_vendor_id = 441), '∅'),
-      encode(convert_to('ورشة النور', 'UTF8'), 'hex'),
-      current_setting('client_encoding'), current_setting('server_encoding'),
-      current_user, coalesce(auth.uid()::text, '∅'), public.has_perm('vendors.view');
+      coalesce((select raw ->> 'store_name' from public.vendors where woo_vendor_id = 441), '∅'),
+      coalesce((select joined_at::text from public.vendors where woo_vendor_id = 441), '∅'), public.has_perm('vendors.view');
   end if;
 
   update public.vendors set status = 'inactive' where woo_vendor_id = 442;
@@ -547,7 +539,7 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000044","role":"authenticated"}';
 do $$ declare n int; begin
-  if not ((select count(*) from public.vendors) = 4) then raise exception 'case accounts (vendors.view F) reads the 4 makers failed'; end if;
+  if not ((select count(*) from public.vendors where woo_vendor_id in (441, 442) or name in ('مبتكر يدوي', 'مبتكر المتابعة')) = 4) then raise exception 'case accounts (vendors.view F) reads the 4 makers failed'; end if;
   if not ((select method || '/' || bank_name || '/' || iban from public.vendor_bank where vendor_id = '00000000-0000-4000-8000-0000000000b1')
           = 'bank/بنك التجربة/EG00TEST00000000000000000441') then
     raise exception 'case accounts (sensitive.vendor_bank F) reads vendor_bank failed';
@@ -559,7 +551,7 @@ do $$ declare n int; begin
   insert into public.vendor_bank (vendor_id, method, wallet, updated_by) values
     ('00000000-0000-4000-8000-0000000000b2', 'wallet', '01000000447', 'حسابات المبتكرين');
   get diagnostics n = row_count;
-  if not (n = 1 and (select count(*) from public.vendor_bank) = 2) then raise exception 'case accounts inserts vendor_bank failed'; end if;
+  if not (n = 1 and (select count(*) from public.vendor_bank where vendor_id in ('00000000-0000-4000-8000-0000000000b1', '00000000-0000-4000-8000-0000000000b2')) = 2) then raise exception 'case accounts inserts vendor_bank failed'; end if;
   -- the contract (decision 7: admin + accounts): the policy admits sensitive.vendor_bank = F, the guard allows contract alone
   update public.vendors
   set contract = ('{"path":"00000000-0000-4000-8000-0000000000b2/1761480000001-contract.pdf","file_name":"contract.pdf","size":1024,'
@@ -607,7 +599,7 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000043","role":"authenticated"}';
 do $$ declare n int; begin
-  if not ((select count(*) from public.vendors) = 4
+  if not ((select count(*) from public.vendors where woo_vendor_id in (441, 442) or name in ('مبتكر يدوي', 'مبتكر المتابعة')) = 4
           and (select name || '/' || phone || '/' || coalesce(category, '∅') from public.vendors where woo_vendor_id = 441)
               = 'ورشة النور الجديدة/01000000444/هدايا') then
     raise exception 'case cs (vendors.view P) reads the list with its phone and category (decision 9: no masking) failed';
@@ -691,8 +683,8 @@ end $$;
 reset role;
 set local request.jwt.claims = '';
 do $$ begin
-  if not ((select count(*) from public.vendors) = 4 and (select count(*) from public.vendor_rates) = 5
-          and (select count(*) from public.vendor_bank) = 2 and (select count(*) from public.order_items where order_id = 181800) = 2) then
+  if not ((select count(*) from public.vendors where woo_vendor_id in (441, 442) or name in ('مبتكر يدوي', 'مبتكر المتابعة')) = 4 and (select count(*) from public.vendor_rates where vendor_id in ('00000000-0000-4000-8000-0000000000b1', '00000000-0000-4000-8000-0000000000b2')) = 5
+          and (select count(*) from public.vendor_bank where vendor_id in ('00000000-0000-4000-8000-0000000000b1', '00000000-0000-4000-8000-0000000000b2')) = 2 and (select count(*) from public.order_items where order_id = 181800) = 2) then
     raise exception 'case the refused deletes removed nothing failed';
   end if;
   if not ((select string_agg(woo_vendor_id || '=' || coalesce(commission_pct::text, '∅'), ',' order by woo_vendor_id)

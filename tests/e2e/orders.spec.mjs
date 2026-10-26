@@ -36,6 +36,16 @@ async function openOrders(page, email = ADMIN) {
 }
 const cards = (page) => page.locator('#orders #list .card');
 const card = (page, id) => page.locator(`#orders .card[data-o="${id}"]`);
+// A viewport change makes the block redraw the list once its mode changes (desktop / tablet <= 1023 / mobile <= 767) — on the
+// resize event, after setViewportSize resolves — so a locator read right after can hit a card about to be replaced (CI run 146:
+// every computed style empty = a detached element). Wait for a card of the new mode before reading anything in it.
+const atWidth = async (page, width, height = 900) => {
+  await page.setViewportSize({ width, height });
+  const want = width <= 767 ? 'm' : width <= 1023 ? 't' : 'd';
+  await expect(async () => {
+    expect(await card(page, '181668').evaluate((e) => (e.classList.contains('m') ? 'm' : e.classList.contains('t') ? 't' : 'd'))).toBe(want);
+  }).toPass({ timeout: 5000 });
+};
 const toast = (page) => page.locator('#orders #toast');
 // nothing a site string carried ran or became an element (the shadow root and the light DOM)
 const inert = async (page) => {
@@ -89,11 +99,11 @@ test('every site string renders as text: cards (desktop, tablet, mobile), filter
   for (const a of await card(page, '181668').locator('a.plink').all()) await expect(a).toHaveAttribute('href', 'https://x.test/' + EVIL);
   await inert(page);
   for (const width of [800, 375]) { // tablet, mobile templates
-    await page.setViewportSize({ width, height: 900 });
+    await atWidth(page, width);
     await expect(card(page, '181668')).toContainText(EVIL);
     await inert(page);
   }
-  await page.setViewportSize({ width: 1280, height: 720 });
+  await atWidth(page, 1280, 720);
   await page.evaluate(() => window.OrdersApp.edit('181668'));
   await expect(page.locator('#orders #cdlg [data-f="name"]')).toHaveValue(EVIL);
   await expect(page.locator('#orders #cdlg')).toContainText(EVIL); // the customer's note
@@ -225,7 +235,7 @@ test('the address has its own row under the customer data: governorate · city �
   await expect(row('181668').locator('b')).toHaveText('القاهرة · شارع عباس العقاد'); // a part that repeats the governorate shows once
   await expect(row('180686').locator('b')).toHaveText('الدقي'); // an empty part is skipped
   for (const width of [800, 375]) { // tablet, mobile: a row of its own under the customer section's fields
-    await page.setViewportSize({ width, height: 900 });
+    await atWidth(page, width);
     const sec = card(page, '181668').locator('.sec.cust');
     await expect(sec.locator('.crow')).not.toContainText('العنوان');
     await expect(sec.locator('.inf2.adr small')).toHaveText('العنوان');
@@ -260,7 +270,7 @@ test('the website note reads in full: its own lines, 3 shown, a longer one scrol
   await page.keyboard.press('Escape');
   await page.evaluate(([n5]) => { const d = window.IBOrders.data(); d.orders.find((x) => x.id === '181668').cnote = n5; d.orders.find((x) => x.id === '180686').cnote = 'سطر واحد طويل من غير سطور جديدة '.repeat(20); window.OrdersApp.hydrate(d); }, [NOTE5]);
   for (const width of [1400, 800, 375]) {
-    await page.setViewportSize({ width, height: 900 });
+    await atWidth(page, width);
     for (const id of ['181668', '180686']) { // five lines; one long line that wraps
       b = await noteBox(wn(id));
       expect(b).toMatchObject(css);
@@ -275,7 +285,7 @@ test('the website note reads in full: its own lines, 3 shown, a longer one scrol
   await expect(card(page, '181668').locator('summary', { hasText: 'ملاحظة العميل من الموقع' })).toHaveCount(0);
   await expect(wn('181668')).toBeVisible();
   await expect(card(page, '181668').locator('summary', { hasText: 'تعليق خدمة العملاء' })).toHaveCount(1); // the team's comment keeps its accordion
-  await page.setViewportSize({ width: 1280, height: 900 });
+  await atWidth(page, 1280);
   await page.evaluate(() => window.OrdersApp.details('181668'));
   b = await noteBox(page.locator('#orders #cdlg .wn'));
   expect(b).toMatchObject({ text: NOTE5, ...css });

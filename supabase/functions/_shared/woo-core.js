@@ -226,6 +226,7 @@ export function mapOrder(wooOrder, ctx) {
     customer_phone: normalizePhone(b.phone) ?? normalizePhone(s.phone),
     customer_city: orNull(s.city) ?? orNull(b.city),
     customer_address: addressOf(s) ?? addressOf(b),
+    customer_state: orNull(s.state) ?? orNull(b.state), // the site's governorate code (EG-01 …); names in woo_states
     payment_method: orNull(o.payment_method), payment_title: orNull(o.payment_method_title),
     status: status.status, woo_status: orNull(o.status),
     total: num(o.total) ?? 0, currency: orNull(o.currency) ?? 'EGP', customer_note: orNull(o.customer_note),

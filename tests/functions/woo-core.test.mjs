@@ -326,12 +326,12 @@ test('mapOrder: a parent order → the orders row', () => {
   const r = mapOrder(input, { statusMap: MAP, vendorsByWooId: VENDORS, now: NOW });
   assert.equal(r.skipped, undefined);
   assert.equal('skipped' in r, false);
-  assert.deepEqual(Object.keys(r.order).sort(), ['currency', 'customer_address', 'customer_city', 'customer_name', 'customer_note', 'customer_phone', 'id', 'note', 'number',
-    'payment_method', 'payment_title', 'placed_at', 'raw', 'status', 'synced_at', 'total', 'woo_status', 'woo_updated_at']);
+  assert.deepEqual(Object.keys(r.order).sort(), ['currency', 'customer_address', 'customer_city', 'customer_name', 'customer_note', 'customer_phone', 'customer_state', 'id', 'note',
+    'number', 'payment_method', 'payment_title', 'placed_at', 'raw', 'status', 'synced_at', 'total', 'woo_status', 'woo_updated_at']);
   const { raw, ...row } = r.order;
   assert.deepEqual(row, {
     id: 181668, number: '181668', customer_name: 'سلوى زيتوني', customer_phone: '01200007052', customer_city: 'القاهرة',
-    customer_address: `${STREET} ${FLAT}`, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', status: 'جاري التنفيذ',
+    customer_address: `${STREET} ${FLAT}`, customer_state: 'EGC', payment_method: 'cod', payment_title: 'الدفع عند الاستلام', status: 'جاري التنفيذ',
     woo_status: 'processing', total: 1052, currency: 'EGP', customer_note: 'اتصلي قبل التوصيل', note: 'اتصلي قبل التوصيل',
     placed_at: '2026-10-19T09:12:00Z', woo_updated_at: '2026-10-19T10:00:00Z', synced_at: NOW,
   });
@@ -482,6 +482,23 @@ test('mapOrder: customer fields fall back sensibly', () => {
   const empty = mapOrder(parent({ billing: {}, shipping: {} }), { statusMap: MAP, now: NOW }).order;
   assert.equal(empty.customer_name, '');
   assert.equal(empty.customer_phone, null);
+});
+
+test('mapOrder: customer_state = the site\'s governorate code, shipping first then billing (like city / address), trimmed, else null', () => {
+  const at = (billing, shipping) => mapOrder(parent({ billing, shipping }), { statusMap: MAP, now: NOW }).order.customer_state;
+  assert.equal(at({ state: 'EG-02' }, { state: 'EG-01' }), 'EG-01', 'shipping wins');
+  assert.equal(at({ state: 'EG-02' }, { state: '' }), 'EG-02', 'empty shipping → billing');
+  assert.equal(at({ state: 'EG-02' }, { state: '   ' }), 'EG-02', 'blank shipping → billing');
+  assert.equal(at({ state: 'EG-02' }, {}), 'EG-02', 'no shipping state → billing');
+  assert.equal(at({ state: ' EG-03 ' }, null), 'EG-03', 'no shipping object; trimmed');
+  assert.equal(at({ state: '' }, { state: '' }), null);
+  assert.equal(at({}, {}), null);
+  assert.equal(at({ state: null }, { state: undefined }), null);
+  assert.equal(at({ state: { code: 'EG-01' } }, { state: ['EG-01'] }), null, 'an object / array is not a code');
+  assert.equal(mapOrder(parent({ billing: undefined, shipping: undefined }), { statusMap: MAP, now: NOW }).order.customer_state, null);
+  // raw keeps both codes as before (RAW_ADDRESS): the 0010 backfill reads them there.
+  const { raw } = mapOrder(parent({ billing: { state: 'EG-02' }, shipping: { state: 'EG-01' } }), { statusMap: MAP, now: NOW }).order;
+  assert.deepEqual([raw.shipping.state, raw.billing.state], ['EG-01', 'EG-02']);
 });
 
 test('mapOrder: the status goes through incomingStatus with the current DB status', () => {

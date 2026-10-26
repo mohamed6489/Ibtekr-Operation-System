@@ -40,6 +40,9 @@ async function call(deps: any, body: unknown, auth: { secret?: string; jwt?: str
 const PUSH_ON = { WOO_PUSH_ENABLED: '1' };
 const pushSeed = { orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'جاهز للشحن', woo_status: 'processing', placed_at: '2026-10-20T10:00:00Z', woo_updated_at: '2026-10-20T11:00:00Z' }] };
 const page = (items: any[], totalPages = 1) => ({ body: items, headers: { 'X-WP-Total': String(items.length), 'X-WP-TotalPages': String(totalPages) } });
+// wc/v3/data/countries/EG as WooCommerce answers it (the site's own codes; names made up for the tests).
+const STATES = 'GET wc/v3/data/countries/EG';
+const country = (states: unknown) => ({ body: { code: 'EG', name: 'Egypt', states, _links: { self: [{ href: 'https://woo.test/wp-json/wc/v3/data/countries/eg' }] } } });
 const single = (id: number, vendor: number, modified: string) =>
   wooOrder({ id, number: String(id), date_modified_gmt: modified, meta_data: [{ key: '_dokan_vendor_id', value: String(vendor) }],
     line_items: [{ id: id * 10, product_id: 9, name: 'x', quantity: 1, total: '10', meta_data: [] }] });
@@ -252,27 +255,97 @@ Deno.test('products: pulled with the cursor params and upserted (image_url = ima
   assertEquals(db.row('sync_state', 'products', 'key').value.cursor, '2026-10-21T08:59:00Z');
 });
 
-Deno.test('all → vendors, then orders, then products (the orders before the ~40 product pages)', async () => {
-  const routes = { 'GET dokan/v1/stores': page([wooStore(44)]), 'GET wc/v3/products': page([wooProduct(501, 44)]), 'GET wc/v3/orders': page([single(1002, 44, '2026-10-21T09:30:00')]) };
-  const { woo, deps } = setup({ routes });
+Deno.test('all → states, then vendors, then orders, then products (one request for the names first; the orders before the ~40 product pages)', async () => {
+  const routes = { [STATES]: country([{ code: 'EG-01', name: 'محافظة 1' }]), 'GET dokan/v1/stores': page([wooStore(44)]), 'GET wc/v3/products': page([wooProduct(501, 44)]),
+    'GET wc/v3/orders': page([single(1002, 44, '2026-10-21T09:30:00')]) };
+  const { db, woo, deps } = setup({ routes });
   const { res, body } = await call(deps, { action: 'all' });
   assertEquals(res.status, 200);
-  assertEquals(woo.calls.map((c) => c.path), ['dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products']);
-  assertEquals(Object.keys(body.counts), ['vendors', 'orders', 'products']);
+  assertEquals(woo.calls.map((c) => c.path), ['wc/v3/data/countries/EG', 'dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products']);
+  assertEquals(Object.keys(body.counts), ['states', 'vendors', 'orders', 'products']);
+  assertEquals(body.counts.states, { states: 1, skipped: 0, failed: 0 });
   assertEquals(body.counts.products, { products: 1, failed: 0, pages: 1, done: true });
+  assertEquals(db.rows('woo_sync_log').map((r: any) => [r.entity, r.result]), [['states', 'ok'], ['vendors', 'ok'], ['orders', 'ok'], ['products', 'ok']]);
 });
 
 Deno.test('all keeps going when one part fails, answers 502 naming it, and the log holds neither the keys nor a phone', async () => {
   const echo = `{"code":"invalid_username","message":"bad ${ENV.WOO_CK}:${ENV.WOO_CS} for ${PHONE}","data":{"billing_phone":"${PHONE}"}}`;
-  const routes = { 'GET dokan/v1/stores': { status: 401, text: echo }, 'GET wc/v3/products': page([]), 'GET wc/v3/orders': page([]) };
+  const routes = { [STATES]: country([]), 'GET dokan/v1/stores': { status: 401, text: echo }, 'GET wc/v3/products': page([]), 'GET wc/v3/orders': page([]) };
   const { db, woo, deps } = setup({ routes });
   const { res, body } = await call(deps, { action: 'all' });
   assertEquals(res.status, 502);
   assertEquals([body.error, body.failed], ['sync_failed', ['vendors']]);
-  assertEquals(woo.calls.map((c) => c.path), ['dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products']);
+  assertEquals(woo.calls.map((c) => c.path), ['wc/v3/data/countries/EG', 'dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products']);
   const err = db.rows('woo_sync_log').find((r: any) => r.result === 'error')!;
   assertEquals([err.entity, err.kind], ['vendors', 'cron']);
   for (const s of [PHONE, ENV.WOO_CK, ENV.WOO_CS]) assertFalse(writtenText(db).includes(s), `leaked ${s}`);
+});
+
+// ---------------------------------------------------------------- states (the site's governorate names)
+
+Deno.test('states: GET wc/v3/data/countries/EG with the WC keys → woo_states upserted on code (trimmed, last name wins), malformed items skipped, nothing deleted, logged ok', async () => {
+  const seed = { woo_states: [{ code: 'EG-01', name: 'اسم قديم', updated_at: '2026-10-01T00:00:00Z' }, { code: 'EG-25', name: 'محافظة اتشالت', updated_at: '2026-10-01T00:00:00Z' }] };
+  const states = [
+    { code: 'EG-01', name: 'محافظة 1' }, { code: ' EG-02 ', name: ' محافظة 2 ' }, { code: 'EG-03', name: 'محافظة 3 قديمة' }, { code: 'EG-03', name: 'محافظة 3' },
+    { code: '', name: 'من غير كود' }, { code: 'EG-04', name: '  ' }, { code: 5, name: 'كود رقم' }, { code: 'EG-06' }, { name: 'اسم بس' },
+    { code: 'EG-07', name: { ar: 'كائن' } }, null, 'EG-08', ['EG-09', 'x'],
+  ];
+  const { db, woo, deps } = setup({ seed, routes: { [STATES]: country(states) } });
+  assertEquals((await call(deps, { action: 'states' }, { jwt: 'jwt-ops' })).res.status, 401, 'a member who is not admin');
+  assertEquals(woo.calls.length, 0);
+
+  const { res, body } = await call(deps, { action: 'states' }, { jwt: 'jwt-admin' });
+  assertEquals([res.status, body.action, body.result], [200, 'states', 'ok']);
+  assertEquals(body.counts, { states: { states: 3, skipped: 9, failed: 0 } });
+  assertEquals(woo.calls.map((c) => [c.method, c.path, c.query, c.headers.authorization]), [['GET', 'wc/v3/data/countries/EG', {}, WC_AUTH]]);
+  assertEquals(db.rows('woo_states').map((r: any) => [r.code, r.name, r.updated_at]), [
+    ['EG-01', 'محافظة 1', NOW], ['EG-25', 'محافظة اتشالت', '2026-10-01T00:00:00Z'], ['EG-02', 'محافظة 2', NOW], ['EG-03', 'محافظة 3', NOW]]);
+  assertEquals(db.writes('woo_states').map((w: any) => [w.op, w.onConflict, w.rows.map((r: any) => Object.keys(r).sort().join(','))]),
+    [['upsert', 'code', ['code,name,updated_at', 'code,name,updated_at', 'code,name,updated_at']]], 'one upsert on code, these three columns only');
+  assertEquals(db.rows('woo_sync_log').map((r: any) => [r.kind, r.direction, r.entity, r.action, r.result, r.detail]),
+    [['manual', 'in', 'states', 'sync', 'ok', { states: 3, skipped: 9, failed: 0 }]]);
+});
+
+Deno.test('states: no endpoint on the site (404) or an answer without a states array → an error row for the part, woo_states untouched, 502', async () => {
+  const replies = [undefined, { body: { code: 'EG', name: 'Egypt' } }, { body: [{ code: 'EG-01', name: 'محافظة 1' }] }, country({ 'EG-01': 'محافظة 1' }), { body: null }];
+  for (const reply of replies) {
+    const seed = { woo_states: [{ code: 'EG-01', name: 'محافظة 1', updated_at: '2026-10-01T00:00:00Z' }] };
+    const { db, deps } = setup({ seed, routes: reply ? { [STATES]: reply } : {} });
+    const { res, body } = await call(deps, { action: 'states' });
+    assertEquals([res.status, body.error, body.failed], [502, 'sync_failed', ['states']], JSON.stringify(reply));
+    assertEquals(db.writes('woo_states').length, 0);
+    assertEquals(db.rows('woo_states').map((r: any) => [r.code, r.updated_at]), [['EG-01', '2026-10-01T00:00:00Z']]);
+    const log = db.rows('woo_sync_log');
+    assertEquals(log.map((r: any) => [r.kind, r.entity, r.action, r.result]), [['cron', 'states', 'sync', 'error']]);
+    assert(/^WooError: GET wc\/v3\/data\/countries\/EG → HTTP (404|200)/.test(log[0].detail.error), log[0].detail.error);
+  }
+});
+
+Deno.test('all: the states part failing (403) logs its error; vendors, orders and products still run and write', async () => {
+  const routes = {
+    [STATES]: { status: 403, text: '{"code":"woocommerce_rest_cannot_view","message":"Sorry, you cannot list resources.","data":{"status":403}}' },
+    'GET dokan/v1/stores': page([wooStore(44)]), 'GET wc/v3/products': page([wooProduct(501, 44)]), 'GET wc/v3/orders': page([single(1002, 44, '2026-10-21T09:30:00')]),
+  };
+  const { db, woo, deps } = setup({ routes });
+  const { res, body } = await call(deps, { action: 'all' });
+  assertEquals([res.status, body.error, body.failed], [502, 'sync_failed', ['states']]);
+  assertEquals(woo.calls.map((c) => c.path), ['wc/v3/data/countries/EG', 'dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products']);
+  assertEquals(Object.keys(body.counts), ['vendors', 'orders', 'products']);
+  assertEquals([db.rows('orders').map((o: any) => o.id), db.rows('products').map((p: any) => p.id), db.rows('woo_states').length], [[1002], [501], 0]);
+  assertEquals(db.rows('woo_sync_log').map((r: any) => [r.entity, r.result]), [['states', 'error'], ['vendors', 'ok'], ['orders', 'ok'], ['products', 'ok']]);
+  assert(db.rows('woo_sync_log')[0].detail.error.includes('HTTP 403'));
+});
+
+Deno.test('states: a name refused with a data error (22xxx) → that code gets one error row, the others are written', async () => {
+  const bad = (c: any) => c.table === 'woo_states' && c.op === 'upsert' && c.rows.some((r: any) => r.code === 'EG-02')
+    ? { code: '22001', message: 'value too long for type character varying(10)' } : null;
+  const states = [{ code: 'EG-01', name: 'محافظة 1' }, { code: 'EG-02', name: 'محافظة 2' }, { code: 'EG-03', name: 'محافظة 3' }];
+  const { db, deps } = setup({ routes: { [STATES]: country(states) }, fail: bad });
+  const { res, body } = await call(deps, { action: 'states' });
+  assertEquals([res.status, body.result, body.counts.states], [200, 'ok', { states: 2, skipped: 0, failed: 1 }]);
+  assertEquals(db.rows('woo_states').map((r: any) => r.code), ['EG-01', 'EG-03']);
+  assertEquals(db.rows('woo_sync_log').map((r: any) => [r.kind, r.direction, r.entity, r.entity_id, r.action, r.result]),
+    [['sync', 'in', 'woo_states', 'EG-02', 'upsert', 'error'], ['cron', 'in', 'states', null, 'sync', 'ok']]);
 });
 
 // ---------------------------------------------------------------- push_status

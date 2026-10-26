@@ -2,10 +2,10 @@
 // Test doubles for the Woo Edge Functions (never deployed: nothing outside this folder imports it).
 // fakeDb: an in-memory stand-in for the supabase-js client with the surface the functions use — from(t).select /
 //   insert / upsert({onConflict}) / update, the filters eq / in / not('in') / is, select-after-write, single /
-//   maybeSingle, and rpc(). It knows the 0007 columns (+ products.permalink of 0009), not-null columns, checks, unique
-//   keys and the foreign keys the sync relies on, so a wrong column, a bad value or a missing parent fails like
-//   PostgREST would ({ data, error }, 23505 for a duplicate key). A statement is atomic. Every call is recorded in
-//   `calls` in order.
+//   maybeSingle, and rpc(). It knows the 0007 columns (+ products.permalink of 0009, orders.customer_state and woo_states
+//   of 0010), not-null columns, checks, unique keys and the foreign keys the sync relies on, so a wrong column, a bad
+//   value or a missing parent fails like PostgREST would ({ data, error }, 23505 for a duplicate key). A statement is
+//   atomic. Every call is recorded in `calls` in order.
 // fakeWoo: a fetch that routes "METHOD path" (path after /wp-json/) to a reply (or a network error) and records every
 //   request.
 
@@ -18,13 +18,14 @@ const COLUMNS: Record<string, string[]> = {
   products: ['id', 'sku', 'name', 'image_url', 'vendor_id', 'price', 'status', 'raw', 'updated_at', 'permalink'],
   orders: ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method',
     'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note',
-    'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'raw', 'synced_at', 'created_at', 'updated_at'],
+    'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'raw', 'synced_at', 'created_at', 'updated_at', 'customer_state'],
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw', 'updated_at'],
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status',
     'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'raw', 'updated_at'],
   woo_webhook_events: ['id', 'received_at', 'delivery_id', 'webhook_id', 'topic', 'resource_id', 'status', 'error', 'payload'],
   woo_sync_log: ['id', 'at', 'kind', 'direction', 'entity', 'entity_id', 'action', 'result', 'detail'],
   sync_state: ['key', 'value', 'updated_at'],
+  woo_states: ['code', 'name', 'updated_at'],
 };
 const DEFAULTS: Record<string, Row> = {
   status_map: { direction: 'both' },
@@ -37,13 +38,13 @@ const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uu
 const UNIQUE: Record<string, string[][]> = {
   status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
-  woo_webhook_events: [['id'], ['delivery_id']], woo_sync_log: [['id']], sync_state: [['key']],
+  woo_webhook_events: [['id'], ['delivery_id']], woo_sync_log: [['id']], sync_state: [['key']], woo_states: [['code']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],
   orders: ['number', 'customer_name', 'status', 'confirm', 'deposit', 'total', 'placed_at'],
   order_items: ['order_id', 'name', 'qty', 'total', 'status', 'pulled', 'removed'], sub_orders: ['order_id'],
-  woo_webhook_events: ['topic', 'status'], woo_sync_log: ['kind', 'result'], sync_state: ['value'],
+  woo_webhook_events: ['topic', 'status'], woo_sync_log: ['kind', 'result'], sync_state: ['value'], woo_states: ['code', 'name'],
 };
 const CHECK: Record<string, Record<string, unknown[]>> = {
   vendors: { status: ['active', 'inactive'] },

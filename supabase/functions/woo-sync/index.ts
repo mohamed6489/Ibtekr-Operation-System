@@ -3,12 +3,15 @@
 // { candidate }) → system mode; else a member's Authorization: Bearer <jwt> → a client with that token:
 // push_status needs has_perm('orders.status') = 'F', every other action is_admin(); anything else → 401. Writes
 // always go through the service client (deps.db). Body { action, ...args }:
+//   'states'   wc/v3/data/countries/EG (one request) → its states[] { code, name } → woo_states on code: the site's
+//              own governorate list (EG-01 …, not WooCommerce's EGALX …), shown by name for orders.customer_state.
 //   'orders'   wc/v3/orders?after=2026-10-01T00:00:00&dates_are_gmt=true&modified_after={cursor}&orderby=modified&
 //              order=asc&status=any, page by page (100; at most 50 pages per run): parents + Dokan sub-orders;
 //              sync_state['orders'] = { cursor, last_run, count, pages, done } after every page.
 //   'vendors'  dokan/v1/stores → vendors on woo_vendor_id.  'products'  wc/v3/products?modified_after={cursor} → products.
-//   'all'      vendors, then orders, then products (a failed part does not stop the next ones; orders come before
-//              the ~40 product pages so a first run that hits the gateway's time limit has the orders already).
+//   'all'      states, then vendors, then orders, then products (a failed part does not stop the next ones; states
+//              cost one request; orders come before the ~40 product pages so a first run that hits the gateway's time
+//              limit has the orders already).
 //   'push_status' { order_id, status }  refused as skipped/stale unless `status` is the order's stored status (the
 //              adapter writes the row first, so a mismatch is a stale page); then skipped/push_disabled unless the
 //              secret WOO_PUSH_ENABLED is exactly 1 (staging is a full copy of the shop: real customers' e-mails and
@@ -23,7 +26,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { START_DATE, mapStore, nextCursor, outgoingWooStatus } from '../_shared/woo-core.js';
 import { getState, logSync, setState } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
-import { gmtIso, saveVendors, wooId, writeContext, writeOrderPage, writeProducts } from '../_shared/woo-write.js';
+import { gmtIso, saveVendors, wooId, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -33,7 +36,8 @@ export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetc
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
-const ACTIONS = ['orders', 'vendors', 'products', 'all', 'push_status', 'register_webhooks'];
+const ACTIONS = ['states', 'orders', 'vendors', 'products', 'all', 'push_status', 'register_webhooks'];
+const STATES_PATH = 'wc/v3/data/countries/EG'; // a wc/ path: the WC keys authenticate it
 const TOPICS = ['order.created', 'order.updated', 'product.created', 'product.updated'];
 const PREFIX = 'ibtekr-ops:';
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
@@ -95,8 +99,18 @@ async function pullVendors(run: Run) {
   return { vendors, pages: res.pages, done: res.done };
 }
 
-// 'all' runs them in this order: the makers first (lines and products link to them), then orders, then products.
-const PULLS: Record<string, (run: Run) => Promise<Json>> = { vendors: pullVendors, orders: pullOrders, products: pullProducts };
+// The site's governorates: one GET; an answer without a states array is an upstream error (nothing written).
+async function pullStates(run: Run) {
+  const ctx = await run.ctx();
+  const { data } = await ctx.woo.get(STATES_PATH);
+  if (!isObj(data) || !Array.isArray(data.states)) throw new WooError(200, `GET ${STATES_PATH}`, 'expected an object with a states array');
+  const r = await writeStates(ctx, data.states);
+  return { states: r.written.length, skipped: r.skipped, failed: r.failed };
+}
+
+// 'all' runs them in this order: the governorate names (one request), the makers (lines and products link to them),
+// then orders, then products.
+const PULLS: Record<string, (run: Run) => Promise<Json>> = { states: pullStates, vendors: pullVendors, orders: pullOrders, products: pullProducts };
 
 // One pull or 'all'; every part logs its own woo_sync_log row (ok with the counts, or error with scrubbed text).
 async function pull(run: Run, action: string) {

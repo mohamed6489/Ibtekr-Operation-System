@@ -8,8 +8,9 @@
 //   still written, with vendor_id null, and the rest of the delivery / page goes on. Only then are rows mapped for good.
 // * Orders / lines are upserted with the sync-owned columns only (ORDER_COLUMNS / ITEM_COLUMNS), so an existing row
 //   keeps the team's operational values (orders.confirm*/deposit/note/cancel/ret, order_items.status/expected_at/
-//   comment/ready_at/waybill/pulled/ret/store, order_items.sub_order_id). customer_city / customer_address and note
-//   (= the website note, customer_note) are written on a new order only (the team edits them afterwards), and a line
+//   comment/ready_at/waybill/pulled/ret/store, order_items.sub_order_id). customer_city / customer_address /
+//   customer_state and note (= the website note, customer_note) are written on a new order only (the team edits city,
+//   address and note afterwards; the governorate code stays with that first address, display only), and a line
 //   whose maker is not known from the payload keeps the vendor_id it has (its sub-order gave it). orders.status comes
 //   from incomingStatus on the status and woo_status stored now (Woo's slug unchanged → the team's status stays). A
 //   payload older than the stored woo_updated_at (an out-of-order or replayed delivery) is skipped as 'stale'. A line
@@ -22,15 +23,18 @@
 // * A row refused with a data error (upsertRows: SQLSTATE 22xxx / 23xxx) is skipped with one woo_sync_log error row
 //   (entity = the table, entity_id = its key) and the rest of the delivery / page goes on; a refused order takes its
 //   lines with it. Counted as `failed`.
+// * The site's governorates (woo-sync part `states`): upserted on code into woo_states, never deleted.
 import { isSubOrder, mapOrder, mapStore, mapSubOrder, redactPII } from './woo-core.js';
 import { DbError, logSync, selectIn, upsertRows } from './db.js';
 import { errorText } from './woo-api.js';
 
-export const ORDER_COLUMNS = ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method',
-  'payment_title', 'status', 'woo_status', 'total', 'currency', 'customer_note', 'note', 'placed_at', 'woo_updated_at', 'raw', 'synced_at'];
+export const ORDER_COLUMNS = ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'customer_state',
+  'payment_method', 'payment_title', 'status', 'woo_status', 'total', 'currency', 'customer_note', 'note', 'placed_at', 'woo_updated_at',
+  'raw', 'synced_at'];
 export const ITEM_COLUMNS = ['id', 'order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'raw', 'removed'];
-// The team edits these after the first sync: an existing order is upserted without them.
-const TEAM_EDITED = ['customer_city', 'customer_address', 'note'];
+// Written on a new order only: an existing order is upserted without them (the team edits city / address / note after
+// the first sync; customer_state, display only, stays with that first address).
+const TEAM_EDITED = ['customer_city', 'customer_address', 'customer_state', 'note'];
 const ORDER_UPDATE_COLUMNS = ORDER_COLUMNS.filter((c) => !TEAM_EDITED.includes(c));
 const ITEM_COLUMNS_NO_VENDOR = ITEM_COLUMNS.filter((c) => c !== 'vendor_id');
 const SUB_COLUMNS = ['order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw'];
@@ -276,4 +280,21 @@ export async function writeProducts(ctx, wooProducts) {
   const rows = mapped.filter((m) => !m.skipped).map((m) => m.product);
   const { bad } = await save(ctx, 'products', rows, 'id');
   return { written: rows.map((r) => r.id).filter((id) => !bad.has(String(id))), skipped: list.length - rows.length, failed: bad.size };
+}
+
+// ---------------------------------------------------------------- governorates
+
+/**
+ * The site's state list (wc/v3/data/countries/EG → states: [{ code, name }]) → woo_states, upserted on code with
+ * updated_at = ctx.now(). An item without a non-empty string code and name (trimmed) is skipped; a code listed twice
+ * keeps its last name. Nothing is deleted (an old order may still carry a code the site dropped).
+ * → { written: [codes], skipped: n (malformed items), failed: n (refused rows) }.
+ */
+export async function writeStates(ctx, states) {
+  const list = Array.isArray(states) ? states : [];
+  const valid = list.filter((s) => isObj(s) && typeof s.code === 'string' && s.code.trim() !== '' && typeof s.name === 'string' && s.name.trim() !== '');
+  const now = ctx.now();
+  const rows = [...new Map(valid.map((s) => [s.code.trim(), { code: s.code.trim(), name: s.name.trim(), updated_at: now }])).values()];
+  const { bad } = await save(ctx, 'woo_states', rows, 'code');
+  return { written: rows.map((r) => r.code).filter((code) => !bad.has(code)), skipped: list.length - valid.length, failed: bad.size };
 }

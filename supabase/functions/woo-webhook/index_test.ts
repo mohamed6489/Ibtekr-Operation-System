@@ -200,24 +200,31 @@ Deno.test('the sync writes only its own columns: an existing order and its lines
 
   const cols = (t: string) => Object.keys(db.writes(t).find((w: any) => w.op === 'upsert').rows[0]).sort();
   assertEquals(cols('orders'), ['currency', 'customer_name', 'customer_note', 'customer_phone', 'id', 'number',
-    'payment_method', 'payment_title', 'placed_at', 'raw', 'status', 'synced_at', 'total', 'woo_status', 'woo_updated_at'], 'an existing order: no city / address');
+    'payment_method', 'payment_title', 'placed_at', 'raw', 'status', 'synced_at', 'total', 'woo_status', 'woo_updated_at'], 'an existing order: no city / address / state / note');
   assertEquals(cols('order_items'), ['id', 'name', 'order_id', 'product_id', 'qty', 'raw', 'removed', 'sku', 'total', 'vendor_id']);
 });
 
-Deno.test('customer_city / customer_address: written when the order is new, never on an existing order (the team edits them)', async () => {
+Deno.test('customer_city / customer_address / customer_state: written when the order is new, never on an existing order (the team edits city and address; the state code stays with them)', async () => {
   const fresh = setup({ routes: subsRoute([]) });
-  await deliver(fresh.deps, wooOrder());
+  const order = wooOrder();
+  await deliver(fresh.deps, { ...order, billing: { ...order.billing, state: 'EG-02' }, shipping: { ...order.shipping, state: 'EG-01' } });
   const o = fresh.db.row('orders', 1001);
-  assertEquals([o.customer_city, o.customer_address], ['القاهرة', 'شارع 9']);
-  assertEquals(fresh.db.writes('orders').map((w: any) => ['customer_city', 'customer_address'].every((c) => c in w.rows[0])), [true]);
+  assertEquals([o.customer_city, o.customer_address, o.customer_state], ['القاهرة', 'شارع 9', 'EG-01'], 'the shipping state first');
+  assertEquals(fresh.db.writes('orders').map((w: any) => ['customer_city', 'customer_address', 'customer_state'].every((c) => c in w.rows[0])), [true]);
+  const billingOnly = setup({ routes: subsRoute([]) });
+  await deliver(billingOnly.deps, { ...order, billing: { ...order.billing, state: ' EG-02 ' } });
+  assertEquals(billingOnly.db.row('orders', 1001).customer_state, 'EG-02', 'no shipping state → the billing one, trimmed');
+  const none = setup({ routes: subsRoute([]) });
+  await deliver(none.deps, order);
+  assertEquals(none.db.row('orders', 1001).customer_state, null);
 
   const seed = { orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'جاري التنفيذ', woo_status: 'processing', placed_at: '2026-10-20T10:00:00Z',
-    woo_updated_at: '2026-10-20T10:30:00Z', customer_city: 'الجيزة', customer_address: 'عنوان صحّحه الفريق' }] };
+    woo_updated_at: '2026-10-20T10:30:00Z', customer_city: 'الجيزة', customer_address: 'عنوان صحّحه الفريق', customer_state: 'EG-01' }] };
   const { db, deps } = setup({ seed, routes: subsRoute([]) });
-  await deliver(deps, wooOrder({ shipping: { first_name: 'سلوى', last_name: 'زيتوني', city: 'طنطا', address_1: 'عنوان جديد في Woo' } }));
+  await deliver(deps, wooOrder({ shipping: { first_name: 'سلوى', last_name: 'زيتوني', city: 'طنطا', state: 'EG-07', address_1: 'عنوان جديد في Woo' } }));
   const kept = db.row('orders', 1001);
-  assertEquals([kept.customer_city, kept.customer_address, kept.customer_name], ['الجيزة', 'عنوان صحّحه الفريق', 'سلوى زيتوني']);
-  assertFalse(db.writes('orders').some((w: any) => w.rows.some((r: any) => 'customer_city' in r || 'customer_address' in r)));
+  assertEquals([kept.customer_city, kept.customer_address, kept.customer_state, kept.customer_name], ['الجيزة', 'عنوان صحّحه الفريق', 'EG-01', 'سلوى زيتوني']);
+  assertFalse(db.writes('orders').some((w: any) => w.rows.some((r: any) => 'customer_city' in r || 'customer_address' in r || 'customer_state' in r)));
 });
 
 Deno.test('note (the team’s comment) = the website note on a new order only; an existing order keeps its comment while customer_note follows Woo', async () => {

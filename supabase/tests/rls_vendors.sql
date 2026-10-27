@@ -94,8 +94,8 @@ do $$ begin
   end if;
   if not ((select string_agg(column_name || ':' || data_type || ':' || is_nullable, ',' order by ordinal_position)
            from information_schema.columns where table_schema = 'public' and table_name = 'vendor_bank')
-          = 'vendor_id:uuid:NO,method:text:NO,bank_name:text:YES,holder:text:YES,iban:text:YES,wallet:text:YES,updated_by:text:YES,updated_at:timestamp with time zone:NO') then
-    raise exception 'case vendor_bank columns failed';
+          = 'vendor_id:uuid:NO,method:text:NO,bank_name:text:YES,holder:text:YES,iban:text:YES,wallet:text:YES,updated_by:text:YES,updated_at:timestamp with time zone:NO,account_number:text:YES,account_type:text:YES,bank_address:text:YES,routing_number:text:YES,swift:text:YES') then
+    raise exception 'case vendor_bank columns (+ the five Dokan columns of 0017) failed';
   end if;
   -- keys: conname:contype:columns:referenced table:on delete ('c' = cascade, ' ' when not a foreign key)
   if not ((select string_agg(c.conname || ':' || c.contype::text || ':' || (select string_agg(a.attname::text, ',' order by k.ord)

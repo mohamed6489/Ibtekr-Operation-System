@@ -2,7 +2,8 @@
 -- update / delete policies, the column guard vendors_guard_update, vendor_rates + the commission_pct trigger,
 -- vendor_bank, order_items.commission_rate / commission_fee, the Storage bucket vendor-contracts when the storage
 -- schema exists). The backfills of 0011 are tested on older rows in migrate_0011.sql (local only).
--- Depends on 0001_identity … 0011_vendors.
+-- Depends on 0001_identity … 0011_vendors (and expects 0014_vendor_sync: vendor_rates.flat and the eight readable
+-- phase-3.3 columns of vendors are counted below; their behaviour is tested in rls_vendor_sync.sql).
 -- Runs in one transaction and rolls back; prints NOTICE 'rls_vendors: ok' only if every case passed.
 -- Each case switches role explicitly: the runner (postgres) owns the tables, bypasses RLS and plays the trusted sync
 -- (service_role) — the guard applies to anon / authenticated only.
@@ -88,8 +89,8 @@ do $$ begin
   -- vendor_rates / vendor_bank: columns, keys, RLS.
   if not ((select string_agg(column_name || ':' || data_type || ':' || is_nullable, ',' order by ordinal_position)
            from information_schema.columns where table_schema = 'public' and table_name = 'vendor_rates')
-          = 'id:bigint:NO,vendor_id:uuid:NO,rate:numeric:NO,since:date:NO,set_by:text:YES,created_at:timestamp with time zone:NO') then
-    raise exception 'case vendor_rates columns failed';
+          = 'id:bigint:NO,vendor_id:uuid:NO,rate:numeric:NO,since:date:NO,set_by:text:YES,created_at:timestamp with time zone:NO,flat:numeric:YES') then
+    raise exception 'case vendor_rates columns (+ flat of 0014) failed';
   end if;
   if not ((select string_agg(column_name || ':' || data_type || ':' || is_nullable, ',' order by ordinal_position)
            from information_schema.columns where table_schema = 'public' and table_name = 'vendor_bank')
@@ -163,9 +164,10 @@ do $$ begin
           and not has_table_privilege('authenticated', 'public.vendors', 'SELECT')) then
     raise exception 'case authenticated selects vendors by column list, never commission_pct failed';
   end if;
+  -- 22 of 0011 + the 8 of 0014 (never woo_snapshot, never commission_pct)
   if not ((select count(*) from information_schema.column_privileges
-           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'vendors' and privilege_type = 'SELECT') = 22) then
-    raise exception 'case authenticated selects exactly 22 vendors columns failed';
+           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'vendors' and privilege_type = 'SELECT') = 30) then
+    raise exception 'case authenticated selects exactly 30 vendors columns (22 of 0011 + 8 of 0014) failed';
   end if;
   if not (has_column_privilege('authenticated', 'public.vendors', 'name', 'INSERT')
           and has_column_privilege('authenticated', 'public.vendors', 'joined_at', 'INSERT')

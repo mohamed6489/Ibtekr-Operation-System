@@ -2005,7 +2005,8 @@
     // children); the editing is in the terms popup. Nothing for a member without sensitive.commission or a maker on fixed.
     function categoryRatesBlock(v) {
       if (!vstore.canRate() || v.commissionType !== 'category_based') return v.wooVendorId && vstore.canRate() ? [U.InlineNote({ children: 'النسبة بتتبعت للموقع مع الحفظ.' })] : [];
-      const rows = (v.categoryRates || []).map((c) => h('tr', { 'data-cat-rate': c.wooCategoryId }, h('td', null, c.name), h('td', null, num(c.rate + '%')), h('td', null, c.flat != null && c.flat > 0 ? num(D.formatMoney(c.flat)) : '—')));
+      const cats = vstore.categories ? vstore.categories() : []; // plan 3.4 decision 9: a child category shows its path
+      const rows = (v.categoryRates || []).map((c) => h('tr', { 'data-cat-rate': c.wooCategoryId }, h('td', { dir: 'auto' }, VD.categoryPath(cats, c.wooCategoryId) || c.name), h('td', null, num(c.rate + '%')), h('td', null, c.flat != null && c.flat > 0 ? num(D.formatMoney(c.flat)) : '—')));
       return [h('div', { class: 'head', style: 'margin-top:8px' }, h('h3', { class: 't-label' }, 'عمولة حسب الفئة')),
         rows.length ? h('div', { class: 'scroll-x' }, h('table', { class: 'mini-table cat-rates-table' }, h('thead', null, h('tr', null, ['الفئة', 'النسبة', 'رسوم ثابتة'].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, rows))) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)', 'data-no-cat-rates': '' }, 'مفيش فئة ليها رقم خاص — كل الفئات بنسبة الفئات اللي مالهاش رقم.'),
         h('p', { class: 't-small help', style: 'margin:0' }, 'الفئات الفرعية بتاخد رقم الفئة اللي فوقها إلا لو ليها رقم خاص. التعديل من «تعديل» في الاتفاق التجاري.'),

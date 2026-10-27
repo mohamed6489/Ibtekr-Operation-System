@@ -21,7 +21,7 @@
   },
   "06-vendors-domain.js": {
     "prototype": "eee7f82bb5af1440fc5a7454dcad65932f5253b0af6e583a6f2eaf969e7c2bfa",
-    "current": "cee3afa17c8bf2320c00e367ef8b2a3be221fd7aed3806b5f3d54413e3703be7"
+    "current": "03ffa30292ab6a28ee57bb8bfdf4a674d59eabc9d071da86886e39ca9710055f"
   },
   "07-seed-transport.js": {
     "prototype": "84d9d31ca645b87c12872fee47293ed68b8a1ce9e6c1b50df1d1668eab278789",
@@ -109,7 +109,7 @@
   },
   "28-app.js": {
     "prototype": "bd4633b8a0d0d7e11424fe2319656da1b4fcabc82d994de167533cf2ad3665ac",
-    "current": "6332e08e3454bc5b44354395e92cfe98d2f03f6d864731a9faff3478f6cb9337"
+    "current": "5d9c192b4eb8aa1f771e72136f78251718e1f191fea0fdacc16bee40707a1171"
   },
   "29-orders-app.js": {
     "prototype": "181427392c14d05ce7a2df0b4cadb4792885f1f15672d595638aebfd2363c5d8",

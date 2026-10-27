@@ -276,6 +276,8 @@ test('the commission by category (plan 3.4): the type picker, the tree of the si
   expect(mock.requests.filter((r) => r === 'POST /rest/v1/vendor_category_rates' || r === 'POST /rest/v1/vendor_rates')).toHaveLength(0);
   await expect(agreement(page).locator('tr[data-cat-rate="15"]')).toContainText('28%');
   await expect(agreement(page).locator('tr[data-cat-rate="152"]')).toContainText('20%');
+  await expect(agreement(page).locator('tr[data-cat-rate="152"] td').first()).toHaveText('ديكور › إضاءة › أباجورات'); // a child shows its path (decision 9)
+  await expect(agreement(page).locator('tr[data-cat-rate="15"] td').first()).toHaveText('ديكور');
   // emptying the child the same day: back to inheriting (a null rate), the day's row replaced
   await agreement(page).getByRole('button', { name: 'تعديل بيانات الاتفاق التجاري' }).click();
   await modal(page).locator('[data-cat-toggle="15"]').click();

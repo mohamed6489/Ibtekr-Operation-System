@@ -204,3 +204,13 @@ test('categoryTree / categoryFigures (3.4): the site categories as a tree by nam
   assert.deepEqual([f[200], f[300]], [{ rate: 40, flat: null, inherited: true }, { rate: 40, flat: null, inherited: true }]);
   assert.deepEqual(V.categoryTree(null), []);
 });
+
+test('categoryPath (3.4, decision 9): a child category as its path from the top, a top-level one by name, an unknown id empty, a loop stops', () => {
+  const cats = [{ id: 100, name: 'Furniture', parentId: null }, { id: 110, name: 'Lighting', parentId: 100 }, { id: 111, name: 'Lamps', parentId: 110 }, { id: 7, name: 'A', parentId: 8 }, { id: 8, name: 'B', parentId: 7 }];
+  assert.equal(V.categoryPath(cats, 111), 'Furniture › Lighting › Lamps');
+  assert.equal(V.categoryPath(cats, '110'), 'Furniture › Lighting');
+  assert.equal(V.categoryPath(cats, 100), 'Furniture');
+  assert.equal(V.categoryPath(cats, 999), '');
+  assert.equal(V.categoryPath(null, 1), '');
+  assert.equal(V.categoryPath(cats, 7), 'B › A');
+});

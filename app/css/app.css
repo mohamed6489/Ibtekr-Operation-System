@@ -1179,3 +1179,15 @@ b.pos{color:var(--color-success-text)}
 .cat-toggle{width:24px;height:24px;border:1px solid var(--color-border, #ccc);border-radius:4px;background:transparent;cursor:pointer;line-height:1;font-size:16px;color:var(--color-brand, #7c3aed)}
 .cat-toggle-sp{width:24px}
 @media (max-width:480px){.cat-head,.cat-row{grid-template-columns:24px 1fr 72px 72px}.cat-head{grid-template-columns:1fr 72px 72px}}
+
+/* Phase 3.6: star picker of the customer rating popup (from the prototype of 27 Oct) */
+.star-pick{display:inline-flex;gap:4px;direction:rtl}
+.star-pick .sp{all:unset;cursor:pointer;width:36px;height:36px;display:inline-flex;align-items:center;justify-content:center;border-radius:8px;color:var(--color-border-default)}
+.star-pick .sp .ic{width:24px;height:24px}
+.star-pick .sp.on{color:var(--color-chart-2)}
+.star-pick .sp.on .ic{fill:currentColor}
+.star-pick .sp:hover{background:var(--color-bg-tint)}
+.star-pick .sp:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:1px}
+.star-pick[aria-invalid=true] .sp{color:var(--color-status-error-border,var(--color-status-error-base))}
+.sp-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+.star-field .flabel{display:block;margin-bottom:4px}

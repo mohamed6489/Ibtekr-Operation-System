@@ -14,7 +14,7 @@
     K.form({ title: info.status + ' — فرعي #' + info.sid, values: { date: K.TODAY },
       note: U.InlineNote({ children: info.prod + ' · ' + info.vendor + ' · IB-' + info.order + ' · ' + K.money(info.tot) + ' ج.م' }),
       fields: (f, e, set) => [K.field.select('reason', 'سبب المرتجع', O.RETURN_REASONS, f, e, set, { required: true }), f.reason === 'أخرى' ? K.field.area('other', 'اكتب السبب', f, e, set, { required: true }) : null, K.field.date('date', 'تاريخ المرتجع', f, e, set, { required: true }),
-        U.InlineNote({ kind: 'warning', children: toStock ? 'الأثر: القطعة هتتسجل في المخزن «مرتجع — بانتظار الفحص» (لازم تتفحص خلال ' + S.invSettings.returnsInspect + ' ساعة) وقيمتها تتشال من مبيعات الأوردر لحد قرار الفحص.' : 'الأثر: حصة المورد في الفرعي ده بس هتتلغي (' + K.money(info.tot) + ' ج.م) والقطعة هترجع للمورد مباشرة — باقي الأوردر زي ما هو.' }),
+        U.InlineNote({ kind: 'warning', children: toStock ? 'الأثر: القطعة هتتسجل في المخزن «مرتجع — بانتظار الفحص» (لازم تتفحص خلال ' + S.invSettings.returnsInspect + ' ساعة) وقيمتها تتشال من مبيعات الأوردر لحد قرار الفحص.' : 'الأثر: حصة المبتكر في الفرعي ده بس هتتلغي (' + K.money(info.tot) + ' ج.م) والقطعة هترجع للمبتكر مباشرة — باقي الأوردر زي ما هو.' }),
         K.field.area('note', 'ملاحظة', f, e, set, { placeholder: 'اختياري' })],
       validate: (f) => { const err = O.validateReturn({ reason: f.reason, other: f.other }); const e = {}; if (err) e[err === 'اكتب السبب' ? 'other' : 'reason'] = err; if (!f.date) e.date = 'اختار التاريخ'; return e; },
       submitType: toStock ? 'primary' : 'danger', submitLabel: 'تسجيل ' + info.status,
@@ -23,7 +23,7 @@
         const key = 'L-R-' + info.sid + '-' + Date.now();
         if (toStock) { S.stock.unshift({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: 'مرتجع', status: 'بانتظار الفحص', ref: '#' + info.sid, order: info.order, since: f.date, loc: 'R-02', cost: info.tot, mode: 'أمانة' });
           S.ledger.unshift({ at: f.date + ' ' + K.clockNow(), key, type: 'in', qty: 1, label: 'دخول — مرتجع', reason: 'مرتجع', ref: '#' + info.sid, by: K.member(K.ME).name, note: 'بانتظار الفحص' }); K.notify({ title: 'مرتجع وصل المخزن — ' + info.prod, link: '#inventory-returns' }); }
-        S.returns.unshift({ name: info.prod, vendor: info.vendor, mode: 'أمانة', sub: '#' + info.sid, type: info.status, reason, at: K.dshort(f.date), status: toStock ? 'بانتظار الفحص' : 'اتسلم للمورد', effect: toStock ? '+ 1 بعد الفحص' : 'نصيب ' + info.vendor + ' اتلغى', key: toStock ? key : null });
+        S.returns.unshift({ name: info.prod, vendor: info.vendor, mode: 'أمانة', sub: '#' + info.sid, type: info.status, reason, at: K.dshort(f.date), status: toStock ? 'بانتظار الفحص' : 'اتسلم للمبتكر', effect: toStock ? '+ 1 بعد الفحص' : 'نصيب ' + info.vendor + ' اتلغى', key: toStock ? key : null });
         K.logEvent('suborder.' + (toStock ? 'returnToStock' : 'returnToVendor'), '#' + info.sid + ' · ' + reason);
         ok({ reason, date: f.date, note: f.note || '' }); K.toast('اتسجل ' + info.status, 'success'); rerenderInv();
       } });
@@ -35,7 +35,7 @@
     K.form({ title: (cancel ? 'إلغاء' : 'استرجاع') + ' — IB-' + info.order, values: { date: K.TODAY },
       note: U.InlineNote({ children: info.name + ' · IB-' + info.order + ' · ' + K.money(info.tot) + ' ج.م · ' + info.subs + ' أوردر فرعي · الحالة الحالية «' + (info.from || '—') + '»' }),
       fields: (f, e, set) => [K.field.select('reason', 'سبب ' + word, cancel ? O.CANCEL_REASONS : O.RETURN_REASONS, f, e, set, { required: true }), f.reason === 'أخرى' ? K.field.area('other', 'اكتب السبب', f, e, set, { required: true }) : null, K.field.date('date', 'تاريخ ' + word, f, e, set, { required: true }),
-        U.InlineNote({ kind: 'warning', children: cancel ? 'الأثر: الأوردر هيتقفل كـ «ملغي» وقيمته (' + K.money(info.tot) + ' ج.م) مش هتتحسب في المبيعات. السبب بيظهر في تقارير الأوردرات › أوردرات ملغية.' : 'الأثر: الأوردر هيتقفل كـ «استرجاع» وقيمته (' + K.money(info.tot) + ' ج.م) تتشال من المبيعات. الأوردرات الفرعية اللي هترجع للمخزن أو للمورد تتسجل من حالة كل فرعي.' }),
+        U.InlineNote({ kind: 'warning', children: cancel ? 'الأثر: الأوردر هيتقفل كـ «ملغي» وقيمته (' + K.money(info.tot) + ' ج.م) مش هتتحسب في المبيعات. السبب بيظهر في تقارير الأوردرات › أوردرات ملغية.' : 'الأثر: الأوردر هيتقفل كـ «استرجاع» وقيمته (' + K.money(info.tot) + ' ج.م) تتشال من المبيعات. الأوردرات الفرعية اللي هترجع للمخزن أو للمبتكر تتسجل من حالة كل فرعي.' }),
         K.field.area('note', 'ملاحظة', f, e, set, { placeholder: 'اختياري' })],
       validate: (f) => { const err = cancel ? O.validateCancel({ reason: f.reason, other: f.other }) : O.validateReturn({ reason: f.reason, other: f.other }); const e = {}; if (err) e[err === 'اكتب السبب' ? 'other' : 'reason'] = err === 'اختار سبب المرتجع' ? 'اختار سبب الاسترجاع' : err; if (!f.date) e.date = 'اختار التاريخ'; return e; },
       submitType: 'danger', submitLabel: 'تأكيد', cancelLabel: 'ليس الآن',
@@ -64,7 +64,21 @@
   }
   // «وصل المخزن» on a sub-order → choose the storage reason (owner 22 Oct). The stock row is added by the popup.
   const arrivalPopup = (info, ok) => inv().arrival(Object.assign({ inConsolidation: !!cons(info.order) }, info), ok);
-  window.IBOrdersOps = { cons, returnPopup, orderReturnPopup, orderReasonPopup, subChanged, arrivalPopup, consolidate: consPopup,
+  // Main order → «مكتمل» (owner 27 Oct — phase 3.6, decision 4): الموظف يقيّم العميل — رضا · أخلاق (نجوم 1–5) + ملاحظة.
+  // ok({ sat, manners, note }) — block 29 writes it with the status (IBOrders.setOrderStatus → order_complete: التقييم و«مكتمل» مع بعض).
+  // «ليس الآن» = الحالة ما تتغيرش.
+  function ratePopup(info, ok) {
+    const CS = window.IbtekrCS; const KEYS = CS.RATE_KEYS;
+    K.form({ title: 'قيّم العميل — IB-' + info.order, values: { sat: 0, manners: 0, note: '' },
+      note: U.InlineNote({ children: info.name + (info.phone ? ' · ' + info.phone : '') + ' · IB-' + info.order + ' · ' + K.money(info.tot) + ' ج.م · الأوردر هيتقفل «مكتمل» بعد التقييم.' }),
+      fields: (f, e, set) => KEYS.map(([k, l]) => K.StarPicker({ id: 'rt-' + k, label: l, required: true, value: f[k], error: e[k], onChange: (n) => set(k, n, true) }))
+        .concat([K.field.area('note', 'ملاحظة على العميل', f, e, set, { placeholder: 'اختياري — مثلاً: ذوق جداً، أو كان متعصب من التأخير' }),
+          h('p', { class: 't-small help', style: 'margin:0' }, 'التقييم بيتسجل على الأوردر، وهيظهر في ملف العميل لما صفحة «خدمة العملاء» تشتغل.')]),
+      validate: (f) => { const e = CS.validateTeamRating({ sat: f.sat, manners: f.manners }); if ((f.note || '').trim().length > 500) e.note = 'الملاحظة 500 حرف بالكتير'; return e; },
+      submitLabel: 'احفظ التقييم وقفّل الأوردر', cancelLabel: 'ليس الآن',
+      submit: (f) => { ok({ sat: f.sat, manners: f.manners, note: (f.note || '').trim() }); } });
+  }
+  window.IBOrdersOps = { cons, returnPopup, orderReturnPopup, orderReasonPopup, ratePopup, subChanged, arrivalPopup, consolidate: consPopup,
     shipall: (o) => { const c = cons(o.id); if (c) inv().shipAll(c); },
     uncons: (o) => { const c = cons(o.id); if (c) inv().cancelCons(c); } };
 })();

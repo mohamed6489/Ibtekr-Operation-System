@@ -151,6 +151,9 @@ test('a status whose map row has no outgoing slug (a from_system row without a s
   mock.statusMap.find((r) => r.system_status === 'مكتمل').direction = 'from_system'; mock.statusMap.find((r) => r.system_status === 'مكتمل').woo_status = null;
   await openOrders(page);
   await page.locator('#orders select[data-st="181668"]').selectOption('مكتمل');
+  const rate = page.getByRole('dialog', { name: /قيّم العميل — IB-181668/ }); // «مكتمل» asks for the rating first (phase 3.6)
+  await rate.locator('#rt-sat [data-star="4"]').click(); await rate.locator('#rt-manners [data-star="4"]').click();
+  await rate.getByRole('button', { name: 'احفظ التقييم وقفّل الأوردر' }).click();
   await expect.poll(() => mock.pushes.length).toBe(1);
   expect(mock.patches).toEqual([{ table: 'orders', id: 181668, status: 'مكتمل' }]);
   expect(mock.pushes[0]).toEqual({ action: 'push_status', order_id: 181668, status: 'مكتمل', result: 'skipped', reason: 'no_woo_status' });
@@ -702,4 +705,62 @@ test('WooCommerce owns name, phone, payment, maker, quantity and total: read-onl
   await expect.poll(() => mock.patches.length).toBe(2);
   expect(mock.patches[1]).toEqual({ table: 'order_items', id: 5001, comment: 'تعليق من التعديل' });
   expect(mock.patches.some((x) => ['customer_name', 'customer_phone', 'payment_title', 'qty', 'total', 'vendor_id'].some((k) => k in x))).toBe(false);
+});
+
+// Phase 3.6 (plan decision 4): «مكتمل» on a main order asks for the customer's rating first — رضا · أخلاق (stars 1–5) and an
+// optional note; «ليس الآن» leaves the status; saving writes the rating and the status in one call (order_complete) and pushes.
+const rateDialog = (page) => page.getByRole('dialog', { name: /قيّم العميل — IB-180656/ });
+test('«مكتمل» asks for the customer rating: «ليس الآن» keeps the status, the stars are required, saving writes both and pushes', async ({ page }) => {
+  await openOrders(page);
+  const sel = page.locator('#orders select[data-st="180656"]');
+  await sel.selectOption('مكتمل');
+  await expect(rateDialog(page)).toBeVisible();
+  await expect(rateDialog(page)).toContainText('الأوردر هيتقفل «مكتمل» بعد التقييم');
+  await rateDialog(page).getByRole('button', { name: 'ليس الآن' }).click();
+  await expect(rateDialog(page)).toHaveCount(0);
+  await expect(sel).toHaveValue('معلّق');
+  expect(mock.patches).toEqual([]); expect(mock.ratings).toEqual([]); expect(mock.pushes).toEqual([]);
+
+  await sel.selectOption('مكتمل');
+  await rateDialog(page).getByRole('button', { name: 'احفظ التقييم وقفّل الأوردر' }).click();
+  await expect(rateDialog(page)).toContainText('اختار رضا العميل من 1 لـ 5');
+  await expect(rateDialog(page)).toContainText('اختار أخلاق العميل من 1 لـ 5');
+  expect(mock.ratings).toEqual([]);
+  await rateDialog(page).locator('#rt-sat [data-star="5"]').click();
+  await rateDialog(page).locator('#rt-manners [data-star="4"]').click();
+  await expect(rateDialog(page).locator('#rt-sat [aria-checked="true"]')).toHaveAttribute('data-star', '5');
+  await rateDialog(page).locator('textarea').fill('ذوق جداً');
+  await rateDialog(page).getByRole('button', { name: 'احفظ التقييم وقفّل الأوردر' }).click();
+  await expect(rateDialog(page)).toHaveCount(0);
+  await expect.poll(() => mock.pushes.length).toBe(1);
+  expect(mock.ratings).toEqual([{ order_id: 180656, sat: 5, manners: 4, note: 'ذوق جداً', by_user: mock.profiles.find((p) => p.email === ADMIN).id }]);
+  expect(mock.patches).toEqual([{ table: 'orders', id: 180656, status: 'مكتمل' }]);
+  expect(mock.pushes).toEqual([{ action: 'push_status', order_id: 180656, status: 'مكتمل', result: 'ok' }]);
+  await expect(card(page, '180656').locator('.sdd')).toContainText('مكتمل');
+  await expect.poll(() => mock.activity.filter((a) => JSON.stringify(a).includes('order.rating')).length).toBe(1);
+  const logged = JSON.stringify(mock.activity.find((a) => JSON.stringify(a).includes('order.rating')));
+  expect(logged).toContain('IB-180656 · رضا 5 · أخلاق 4');
+  expect(logged).not.toContain('ذوق'); // the note stays in customer_ratings only
+});
+
+test('a rating by a member who may not change the status reverts the order to its status', async ({ page }) => {
+  await openOrders(page, ACCOUNTS);
+  const sel = page.locator('#orders select[data-st="180656"]');
+  await sel.selectOption('مكتمل');
+  await rateDialog(page).locator('#rt-sat [data-star="3"]').click();
+  await rateDialog(page).locator('#rt-manners [data-star="3"]').click();
+  await rateDialog(page).getByRole('button', { name: 'احفظ التقييم وقفّل الأوردر' }).click();
+  await expect(toast(page)).toHaveText('مش من صلاحياتك');
+  await expect(sel).toHaveValue('معلّق');
+  expect(mock.ratings).toEqual([]); expect(mock.patches).toEqual([]); expect(mock.pushes).toEqual([]);
+});
+
+test('the orders page says «المبتكر», never «المورد» (plan decision 2): filters, sub-order statuses, comments', async ({ page }) => {
+  await openOrders(page);
+  // the page's own text: without what a member typed (the comment boxes) and the stylesheets
+  const text = await page.evaluate(() => { const r = document.getElementById('orders').shadowRoot; return [...r.querySelectorAll('*')].filter((e) => !e.closest('textarea, style')).map((e) => [...e.childNodes].filter((n) => n.nodeType === 3).map((n) => n.textContent).join('')).join(' '); });
+  expect(text).not.toMatch(/مورد/);
+  expect(text).toContain('المبتكر: الكل');
+  expect(text).toContain('عدد المبتكرين: الكل');
+  expect(await page.locator('#orders select[data-ss="5001"] option').allTextContents()).toEqual(expect.arrayContaining(['جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المبتكر للمخزن', 'مرتجع للمبتكر']));
 });

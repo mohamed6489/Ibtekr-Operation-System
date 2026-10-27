@@ -42,11 +42,11 @@ test('dashboard.customize is sent', async () => {
 
 test('the orders writes IBOrders logs are sent by name; block 22\'s demo order.* / suborder.* events are not', async () => {
   const { log, calls, A } = load();
-  const OWN = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled'];
+  const OWN = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating'];
   assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_ACTIONS)), OWN);
   for (const a of OWN) await log(a, 'IB-181668 · #5001');
   // logged by block 22 / 29 before any server write (a free-text reason, sample stock): never reach activity_log
-  for (const a of ['order.consolidate', 'order.cancel', 'order.refund', 'order.edit', 'suborder.returnToStock', 'suborder.returnToVendor', 'suborder.autoconfirm', 'suborder.arrived'])
+  for (const a of ['order.complete', 'order.consolidate', 'order.cancel', 'order.refund', 'order.edit', 'suborder.returnToStock', 'suborder.returnToVendor', 'suborder.autoconfirm', 'suborder.arrived'])
     await log(a, 'سبب مكتوب بإيد العميل');
   await log('orders.export', 'x'); // a look-alike
   await log('order.status.extra', 'x'); // a name is matched whole, not as a prefix

@@ -156,7 +156,7 @@ export const TRANSFER_SINCE = ymd(new Date(Date.now() - 8 * 86400000)); export c
 const STATUS_MAP = [['قيد الانتظار', 'pending', 'both'], ['جاري التنفيذ', 'processing', 'both'], ['معلّق', 'on-hold', 'both'], ['جاهز للشحن', 'ready-shipping', 'both'], ['قيد الشحن', 'in-shipping', 'both'],
   ['فشل', 'failed', 'from_woo', 10], ['مكتمل', 'completed', 'both'], ['استرجاع', 'refunded', 'both'], ['ملغي', 'cancelled', 'both']].map(([system_status, woo_status, direction, sort], i) => ({ id: i + 1, system_status, woo_status, direction, sort: sort || i + 1 }));
 // order_items.status check list (0007): block 29's 11 sub-statuses or ''
-const ITEM_STATUSES = ['', 'غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المورد للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المورد للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمورد'];
+const ITEM_STATUSES = ['', 'غير مؤكد', 'مؤكد', 'قيد التنفيذ', 'جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المبتكر للمخزن', 'تم الشحن للمخزن', 'وصل المخزن', 'تم الشحن للعميل', 'مرتجع للمخزن', 'مرتجع للمبتكر'];
 function ordersSeed(opts = {}) {
   const ago = (d) => { const t = new Date(Date.now() - d * 864e5); t.setUTCHours(10, 0, 0, 0); return t.toISOString(); };
   const vendor = (n, woo, name, status = 'active', more = {}) => ({ id: VND(n), woo_vendor_id: woo, name, aliases: [], phone: null, email: null, status, commission_pct: null, raw: { id: woo, shop_url: SITE + '/store/' + name.toLowerCase().replace(/\s+/g, '-') + '/' }, created_at: T0, updated_at: T0,
@@ -255,6 +255,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // alerts: the alerts table (ALERTS; a spec may change it before sign-in); alertReads: the alert_reads table ({ alert_id, user_id }).
   // orders tables: orders (with the full phone and raw), orderItems, subOrders, vendors, products, statusMap, wooStates (ordersSeed());
   // patches: each successful PATCH as { table: 'orders'|'order_items', id, ...columns }; ordersDown: those tables answer 503.
+  // ratings: the customer_ratings rows order_complete (0018, phase 3.6) wrote ({ order_id, sat, manners, note, by_user }).
   // pushes: each woo-sync push_status as { action, order_id, status, result, reason? }; syncs: each other woo-sync call ({ action });
   // wooDown: woo-sync answers 502 (WooCommerce unreachable). vendors / vendorRates / vendorBank: the 0011 tables (ordersSeed());
   // vendorWrites: each insert / update / delete the vendors tables took as { table, op, ...columns }; vendorsDown: those tables
@@ -267,7 +268,7 @@ export async function installSupabaseMock(page, opts = {}) {
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
   const mock = { profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
-    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true };
+    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [] };
   // phase 3.3: vendorCategoryRates / wooCategories: the 0014 tables (ordersSeed()); vendorPushes: each woo-sync push_vendor as { vendor_id, fields, by, result, reason? }
   // (the body names the fields only — the mock reads the row like the server); pushEnabled: WOO_PUSH_ENABLED on the server (false → skipped/push_disabled,
   // the fields added to push_pending); wooDown → 502 pending:true with the fields in push_pending; wooRefuses → 502 pending:false, nothing
@@ -409,6 +410,21 @@ export async function installSupabaseMock(page, opts = {}) {
       // set_by[, flat] } (flat only when given, like the insert path).
       // 0016 (plan 3.4): vendor_commission_set — the type, the default rate / flat and the hand-set categories at once; today, a same-day
       // change replacing the day's rows; recorded in vendorWrites as { table: 'vendor_commission', vendor_id, type, rate, flat, categories }
+      // 0018 (phase 3.6): order_complete — the rating and «مكتمل» in one call; orders.status = F (else 42501, as the guard);
+      // figures 1–5 and a note of 500 characters at most (else 22023); an order the caller cannot see → P0002. The status change
+      // is recorded in patches like a PATCH, the rating in ratings.
+      if (method === 'POST' && path === '/rest/v1/rpc/order_complete') {
+        if (mock.ordersDown) return json(503, { message: 'mock: orders down' });
+        const b = body(); const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        const ok = (n) => Number.isInteger(n) && n >= 1 && n <= 5; const note = typeof b.p_note === 'string' && b.p_note.trim() ? b.p_note.trim() : null;
+        if (!ok(b.p_sat) || !ok(b.p_manners) || (note && note.length > 500)) return refuse(400, '22023', 'the rating figures are 1 to 5');
+        const o = hasPerm(u, 'orders.view') === 'N' ? null : mock.orders.find((x) => Number(x.id) === Number(b.p_order));
+        if (!o) return refuse(400, 'P0002', 'order not found');
+        if (hasPerm(u, 'orders.status') !== 'F') return refuse(403, '42501', 'orders.status = F is required to change an order status or confirmation');
+        Object.assign(o, { status: 'مكتمل', updated_at: new Date().toISOString() }); mock.patches.push({ table: 'orders', id: o.id, status: 'مكتمل' });
+        mock.ratings.push({ order_id: o.id, sat: b.p_sat, manners: b.p_manners, note, by_user: u.id });
+        return json(200, mock.ratings.length);
+      }
       if (method === 'POST' && path === '/rest/v1/rpc/vendor_commission_set') {
         const b = body(); const vid = String(b.p_vendor || '').toLowerCase();
         const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });

@@ -6,7 +6,7 @@ import { split } from '../tools/split-prototype.mjs';
 // rules and «في إجازة»). tools/blocks.lock.json records,
 // per block, the sha256 of the prototype's block and of the file on disk (npm run lock regenerates it).
 const SRC = 'Prototype file/نظام إبتكر.html';
-const EDITED = ['06-vendors-domain.js', '10-ui-kit.js', '11-seed-product-images.js', '14-kit.js', '17-page-settings.js', '18-page-profile.js', '21-shell.js', '24-dash-domain.js', '25-page-dashboard.js', '28-app.js', '29-orders-app.js'];
+const EDITED = ['06-vendors-domain.js', '10-ui-kit.js', '11-seed-product-images.js', '14-kit.js', '17-page-settings.js', '18-page-profile.js', '19-cs-domain.js', '21-shell.js', '22-orders-ops.js', '24-dash-domain.js', '25-page-dashboard.js', '28-app.js', '29-orders-app.js'];
 const sha = (text) => createHash('sha256').update(text).digest('hex');
 const parts = split(readFileSync(SRC, 'utf8'));
 const lock = JSON.parse(readFileSync('tools/blocks.lock.json', 'utf8'));

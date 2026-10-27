@@ -275,6 +275,26 @@ test('setOrderStatus carries cancel / ret when given; the push result is answere
   assert.deepEqual(plain(await O.setOrderStatus('181668', 'مكتمل')), { ok: true, push: 'error' });
 });
 
+test('«مكتمل» with a rating goes through order_complete (rating + status together), logs the figures only, then pushes', async () => {
+  const { O, calls, logs, responses } = load();
+  await O.load(); calls.length = 0;
+  responses['rpc:order_complete'] = { data: 7, error: null };
+  assert.deepEqual(plain(await O.setOrderStatus('181668', 'مكتمل', { rating: { sat: 5, manners: 4, note: '  ذوق جداً ' } })), { ok: true, push: 'ok' });
+  assert.deepEqual(calls.filter((c) => c.op === 'rpc').map((c) => ({ op: c.op, args: c.args })), [{ op: 'rpc', args: ['order_complete', { p_order: 181668, p_sat: 5, p_manners: 4, p_note: 'ذوق جداً' }] }]);
+  assert.deepEqual(opsOf(calls, 'orders'), []); // no separate status update
+  assert.deepEqual(invokes(calls), [['woo-sync', { body: { action: 'push_status', order_id: 181668, status: 'مكتمل' } }]]);
+  assert.deepEqual(logs, [['order.rating', 'IB-181668 · رضا 5 · أخلاق 4'], ['order.status', 'IB-181668 · مكتمل']]); // never the note
+  calls.length = 0; logs.length = 0;
+  responses['rpc:order_complete'] = { data: null, error: { code: '42501', message: 'orders.status = F is required' } };
+  assert.deepEqual(plain(await O.setOrderStatus('181668', 'مكتمل', { rating: { sat: 3, manners: 3 } })), { ok: false, reason: 'forbidden' });
+  assert.deepEqual(invokes(calls), []); assert.deepEqual(logs, []);
+  responses['rpc:order_complete'] = { data: null, error: { code: '22023', message: 'the rating figures are 1 to 5' } };
+  assert.deepEqual(plain(await O.setOrderStatus('181668', 'مكتمل', { rating: { sat: 3, manners: 3 } })), { ok: false, reason: 'invalid' });
+  calls.length = 0;
+  assert.deepEqual(plain(await O.setOrderStatus('181668', 'مكتمل', { rating: { sat: 0, manners: 3 } })), { ok: false, reason: 'invalid' }); // refused before the call
+  assert.deepEqual(calls.filter((c) => c.op === 'rpc'), []);
+});
+
 test('a refused write (42501) answers forbidden: no push, no log; any other error answers network', async () => {
   const { O, calls, responses, logs } = load();
   await O.load(); calls.length = 0;
@@ -325,14 +345,14 @@ test('setItemStatus writes status + extras on order_items; setWaybill / setPulle
   assert.deepEqual(plain(await O.setItemStatus('5001', 'مرتجع للمخزن', { ret })), { ok: true });
   assert.deepEqual(opsOf(calls, 'order_items'), [{ op: 'update', args: [{ status: 'مرتجع للمخزن', ret }] }, { op: 'eq', args: ['id', '5001'] }]);
   calls.length = 0;
-  assert.deepEqual(plain(await O.setItemStatus(5002, 'جاهز للشحن من المورد للعميل', { exp: '', cm: 'هيتسلم بكرة', store: { reason: 'تجميع' }, readyAt: '2026-10-20 11:00' })), { ok: true });
+  assert.deepEqual(plain(await O.setItemStatus(5002, 'جاهز للشحن من المبتكر للعميل', { exp: '', cm: 'هيتسلم بكرة', store: { reason: 'تجميع' }, readyAt: '2026-10-20 11:00' })), { ok: true });
   await O.setItemStatus(5002, undefined, { cm: 'تعليق بس' });
   await O.setWaybill(5002, { no: 'BST-1', at: '2026-10-25' });
   await O.setPulled(5003, true);
   assert.deepEqual(opsOf(calls, 'order_items').filter((c) => c.op === 'update').map((c) => c.args[0]), [
-    { status: 'جاهز للشحن من المورد للعميل', expected_at: null, comment: 'هيتسلم بكرة', store: { reason: 'تجميع' }, ready_at: new Date(2026, 9, 20, 11, 0).toISOString() },
+    { status: 'جاهز للشحن من المبتكر للعميل', expected_at: null, comment: 'هيتسلم بكرة', store: { reason: 'تجميع' }, ready_at: new Date(2026, 9, 20, 11, 0).toISOString() },
     { comment: 'تعليق بس' }, { waybill: { no: 'BST-1', at: '2026-10-25' } }, { pulled: true }]);
-  assert.deepEqual(logs, [['suborder.status', 'IB-181668 · #5001 · مرتجع للمخزن'], ['suborder.status', 'IB-181668 · #5002 · جاهز للشحن من المورد للعميل'], ['suborder.status', 'IB-181668 · #5002'], ['suborder.waybill', 'IB-181668 · #5002'], ['suborder.pulled', 'IB-180686 · #5003 · سحب من المتاح']]);
+  assert.deepEqual(logs, [['suborder.status', 'IB-181668 · #5001 · مرتجع للمخزن'], ['suborder.status', 'IB-181668 · #5002 · جاهز للشحن من المبتكر للعميل'], ['suborder.status', 'IB-181668 · #5002'], ['suborder.waybill', 'IB-181668 · #5002'], ['suborder.pulled', 'IB-180686 · #5003 · سحب من المتاح']]);
   for (const [, d] of logs) assert.doesNotMatch(d, /سلوى|هدير|01\d|القاهرة|مقاس|تعليق|هيتسلم/); // ids and statuses only
 });
 

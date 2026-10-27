@@ -237,6 +237,7 @@ Deno.test('probe_store: the field names of one store and nothing else — no val
   assertEquals(res.status, 200);
   assertEquals([body.store_id, body.auth, body.address_keys, body.has, body.show_email], [44, false, ['city', 'country', 'street_1'], { phone: true, email: true, address: true, banner: false, social: true, payment: false }, false]);
   assert(body.keys.includes('store_name') && body.keys.includes('phone'));
+  assertEquals([body.shapes.address, body.shapes.social, body.commission.type], [{ city: 'string:filled', country: 'string:filled', street_1: 'string:filled' }, { fb: 'string:filled' }, 'undefined']); // shapes, never values
   assertFalse(JSON.stringify(body).includes('01000000999') || JSON.stringify(body).includes('ibtekr.local') || JSON.stringify(body).includes('القاهرة'));
   assertEquals([woo.calls[0].path, woo.calls[0].query], ['dokan/v1/stores', { per_page: '1', page: '1' }]);
   // with the WordPress password: Basic on dokan/ and auth true; store_id picks the single-store route

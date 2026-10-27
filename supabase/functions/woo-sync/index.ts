@@ -216,11 +216,23 @@ async function probeStore(run: Run, args: Json) {
   if (!store) return json(502, { error: 'woo_error', action: 'probe_store' });
   const filled = (v: unknown) => v != null && String(v).trim() !== '';
   const address = isObj(store.address) ? store.address : null;
+  // The shape of a value, never its content: objects → their keys with the shape of each value (3 levels), arrays →
+  // their length and the first item's shape, scalars → their type ('string' adds 'filled' / 'empty'; a number its
+  // value only when it is a commission figure the caller asked for — never here). No string value ever comes back.
+  const shape = (v: unknown, depth = 0): unknown => {
+    if (Array.isArray(v)) return { array: v.length, item: v.length && depth < 3 ? shape(v[0], depth + 1) : undefined };
+    if (isObj(v)) return depth < 3 ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, shape(v[k], depth + 1)])) : 'object';
+    if (typeof v === 'string') return v.trim() ? 'string:filled' : 'string:empty';
+    return v === null ? 'null' : typeof v;
+  };
+  const SHAPED = ['address', 'social', 'payment', 'admin_category_commission', 'withdraw_options', 'active_payment_methods', 'location', 'store_toc'];
   return json(200, {
     action: 'probe_store', store_id: storeId, auth: woo.hasDokanAuth, keys: Object.keys(store).sort(),
     address_keys: address ? Object.keys(address).sort() : null,
     has: { phone: filled(store.phone), email: filled(store.email), address: !!address && Object.values(address).some(filled), banner: filled(store.banner), social: isObj(store.social), payment: isObj(store.payment) },
     show_email: store.show_email ?? null, enabled: store.enabled ?? null,
+    commission: { type: typeof store.admin_commission_type === 'string' ? store.admin_commission_type : shape(store.admin_commission_type), admin_commission: shape(store.admin_commission), admin_additional_fee: shape(store.admin_additional_fee) },
+    shapes: Object.fromEntries(SHAPED.filter((k) => k in store).map((k) => [k, shape(store[k])])),
   });
 }
 

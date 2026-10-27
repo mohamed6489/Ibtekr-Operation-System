@@ -89,8 +89,8 @@ do $$ begin
   -- vendor_rates / vendor_bank: columns, keys, RLS.
   if not ((select string_agg(column_name || ':' || data_type || ':' || is_nullable, ',' order by ordinal_position)
            from information_schema.columns where table_schema = 'public' and table_name = 'vendor_rates')
-          = 'id:bigint:NO,vendor_id:uuid:NO,rate:numeric:NO,since:date:NO,set_by:text:YES,created_at:timestamp with time zone:NO,flat:numeric:YES') then
-    raise exception 'case vendor_rates columns (+ flat of 0014) failed';
+          = 'id:bigint:NO,vendor_id:uuid:NO,rate:numeric:NO,since:date:NO,set_by:text:YES,created_at:timestamp with time zone:NO,flat:numeric:YES,commission_type:text:NO') then
+    raise exception 'case vendor_rates columns (+ flat of 0014, commission_type of 0016) failed';
   end if;
   if not ((select string_agg(column_name || ':' || data_type || ':' || is_nullable, ',' order by ordinal_position)
            from information_schema.columns where table_schema = 'public' and table_name = 'vendor_bank')

@@ -276,7 +276,7 @@ Deno.test('vendors: a new store is inserted whole (the phase-3.3 columns, its fi
     ['Store 900', 'active', '01000000000', null, '2025-01-02', [], null, 7, 'Maker Owner 900', 'شارع 900، القاهرة، EG-01', 'https://woo.test/g/900.jpg', 'https://woo.test/b/900.jpg', ['bank'], NOW], 'a new store: the full mapStore row, the team columns at their defaults');
   assertEquals(v900.address_parts, { street_1: 'شارع 900', street_2: '', city: 'القاهرة', state: 'EG-01', zip: '', country: 'EG' });
   assertEquals(v900.social.fb, 'https://fb.test/900');
-  assertEquals(v900.woo_snapshot.rate, { rate: 30, flat: null });
+  assertEquals(v900.woo_snapshot.rate, { type: 'fixed', rate: 30, flat: null });
   assertEquals(db.rows('vendor_rates').filter((r: any) => r.vendor_id === v900.id).map((r: any) => [r.rate, r.flat, r.since, r.set_by]), [[30, null, NOW.slice(0, 10), 'الموقع']], 'the site\'s commission of a new store → its first rate row');
   const writes = db.writes('vendors').map((w: any) => [w.op, w.onConflict ?? null, w.rows ? w.rows.map((r: any) => Object.keys(r).sort()) : Object.keys(w.patch).sort(), w.filters]);
   assertEquals(writes, [['upsert', 'woo_vendor_id', [['address', 'address_parts', 'banner_url', 'contact_name', 'email', 'joined_at', 'logo_url', 'name', 'phone', 'raw', 'social', 'status', 'woo_payment_methods', 'woo_snapshot', 'woo_synced_at', 'woo_vendor_id']], []],
@@ -640,7 +640,7 @@ Deno.test('store sync — a future-dated rate (review I-2) is held: pending `rat
   const r2 = await call(late, { action: 'vendors' });
   const put = woo.calls.find((c) => c.method === 'PUT')!;
   assertEquals([r2.body.counts.vendors.pushed, r2.body.counts.vendors.push_held, put.body], [1, 0, { admin_commission_type: 'fixed', admin_commission: '50' }]);
-  assertEquals([db.row('vendors', 44, 'woo_vendor_id').push_pending, db.row('vendors', 44, 'woo_vendor_id').woo_snapshot.rate], [null, { rate: 50, flat: null }]);
+  assertEquals([db.row('vendors', 44, 'woo_vendor_id').push_pending, db.row('vendors', 44, 'woo_vendor_id').woo_snapshot.rate], [null, { type: 'fixed', rate: 50, flat: null }]);
 });
 Deno.test('cairoDate: the team\'s day is Cairo\'s (UTC+3 in October, UTC+2 in December); a bad value falls back to its first ten characters', () => {
   assertEquals([cairoDate('2026-10-25T22:30:00.000Z'), cairoDate('2026-10-25T12:00:00.000Z'), cairoDate('2026-12-01T22:30:00Z'), cairoDate('2026-12-01T21:30:00Z'), cairoDate('2026-13-99')],
@@ -709,24 +709,54 @@ Deno.test('store sync — the commission (decision 2): a site-side change of the
   const { db, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([store]) } });
   await call(deps, { action: 'vendors' });
   const today = NOW.slice(0, 10);
-  assertEquals(db.rows('vendor_rates').map((r: any) => [r.rate, r.flat, r.since, r.set_by]), [[30, null, '2026-10-01', 'x'], [35, 5, today, 'الموقع']]);
+  assertEquals(db.rows('vendor_rates').map((r: any) => [r.rate, r.flat, r.since, r.set_by, r.commission_type ?? 'fixed']), [[30, null, '2026-10-01', 'x', 'fixed'], [35, 5, today, 'الموقع', 'category_based']]);
   assertEquals(db.rows('vendor_category_rates').map((r: any) => [r.woo_category_id, r.rate, r.flat, r.since, r.set_by]), [[15, 20, 0, today, 'الموقع'], [16, 25, null, today, 'الموقع']]);
   const v = db.row('vendors', 44, 'woo_vendor_id');
-  assertEquals([v.commission_pct, v.woo_snapshot.rate, v.woo_snapshot.category_rates], [35, { rate: 35, flat: 5 }, [{ woo_category_id: 15, rate: 20, flat: 0 }, { woo_category_id: 16, rate: 25, flat: null }]]);
+  assertEquals([v.commission_pct, v.woo_snapshot.rate, v.woo_snapshot.category_rates], [35, { type: 'category_based', rate: 35, flat: 5 }, [{ woo_category_id: 15, rate: 20, flat: 0 }, { woo_category_id: 16, rate: 25, flat: null }]]);
   assertEquals(activity(db), [['vendor.sync', vendorId(44), 'rate, category_rates']]);
   // the same payload again: nothing changed since the snapshot → no new rows, no activity
   const w2 = setup({ seed: { vendors: [v], vendor_rates: db.rows('vendor_rates'), vendor_category_rates: db.rows('vendor_category_rates') }, routes: { 'GET dokan/v1/stores': page([store]) } });
   await call(w2.deps, { action: 'vendors' });
   assertEquals([w2.db.rows('vendor_rates').length, w2.db.rows('vendor_category_rates').length, activity(w2.db)], [2, 2, []]);
-  // the site drops category 16 and goes back to fixed 30: a 30 row for today (replacing today's 35: last change wins), 15 and 16 removed
+  // the site goes back to fixed 30: a fixed 30 row for today (replacing today's 35: last change wins); our hand-set category rows stay
+  // (plan 3.4, decision 4: a site on `fixed` leaves them alone — a later switch back to category_based finds them)
   const w3 = setup({ seed: { vendors: [v], vendor_rates: db.rows('vendor_rates'), vendor_category_rates: db.rows('vendor_category_rates') }, routes: { 'GET dokan/v1/stores': page([wooStoreFull(44)]) } });
   await call(w3.deps, { action: 'vendors' });
-  assertEquals(w3.db.rows('vendor_rates').map((r: any) => [r.rate, r.flat, r.since]), [[30, null, '2026-10-01'], [30, null, today]]);
-  assertEquals(w3.db.rows('vendor_category_rates').map((r: any) => [r.woo_category_id, r.rate]), [[15, null], [16, null]]);
+  assertEquals(w3.db.rows('vendor_rates').map((r: any) => [r.rate, r.flat, r.since, r.commission_type ?? 'fixed']), [[30, null, '2026-10-01', 'fixed'], [30, null, today, 'fixed']]);
+  assertEquals(w3.db.rows('vendor_category_rates').map((r: any) => [r.woo_category_id, r.rate]), [[15, 20], [16, 25]]);
   assertEquals(w3.db.row('vendors', 44, 'woo_vendor_id').commission_pct, 30);
   assertFalse(JSON.stringify(w3.db.rows('activity_log')).includes('30'), 'no figure in activity_log');
 });
 
+Deno.test('plan 3.4 — category_based on the tree: the push sends every category with its figure (a parent\'s figure inherited by its children, a hand-set child kept, the rest the default); the pull reads inherited items back as inherited (no rows), a hand-set child as hand-set', async () => {
+  // the tree: 100 → 110 → 111, 100 → 120; 200 alone
+  const cats = [{ id: 100, name: 'A', parent_id: null }, { id: 110, name: 'A1', parent_id: 100 }, { id: 111, name: 'A11', parent_id: 110 }, { id: 120, name: 'A2', parent_id: 100 }, { id: 200, name: 'B', parent_id: null }];
+  const store = wooStoreFull(44);
+  const routes = { 'PUT dokan/v1/stores/44': (c: any) => ({ body: { ...store, ...c.body } }) };
+  const seed = { vendors: [PUSH_ROW], woo_categories: cats, vendor_rates: [rate44(40, '2026-10-20', { commission_type: 'category_based' })],
+    vendor_category_rates: [{ vendor_id: vendorId(44), woo_category_id: 100, rate: 30, flat: 0, since: '2026-10-21' }, { vendor_id: vendorId(44), woo_category_id: 111, rate: 20, flat: 0, since: '2026-10-21' }] };
+  const { woo, deps, db } = setup({ seed, routes, env: PUSH_ON });
+  const { body } = await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['rate', 'category_rates'] }, { jwt: 'jwt-admin' });
+  assertEquals([body.result, body.accepted], ['ok', ['rate', 'category_rates']]);
+  const fig = (p: string, f = '0') => ({ percentage: p, flat: f });
+  assertEquals(woo.calls[0].body.admin_category_commission, { all: { percentage: '40', flat: '' }, items: { '100': fig('30'), '110': fig('30'), '111': fig('20'), '120': fig('30'), '200': { percentage: '40', flat: '' } } },
+    'A and its children 30 (inherited), A11 20 (by hand), B the default');
+  // the pull of the same items: nothing changes (the meaning is the same), no rows, no activity
+  const pulled = wooStoreFull(44, { admin_commission_type: 'category_based', admin_commission: '40', admin_category_commission: woo.calls[0].body.admin_category_commission });
+  const w2 = setup({ seed: { vendors: [db.row('vendors', 44, 'woo_vendor_id')], woo_categories: cats, vendor_rates: seed.vendor_rates, vendor_category_rates: seed.vendor_category_rates },
+    routes: { 'GET dokan/v1/stores': page([pulled]) } });
+  await call(w2.deps, { action: 'vendors' });
+  assertEquals([w2.db.rows('vendor_rates').length, w2.db.rows('vendor_category_rates').length, activity(w2.db)], [1, 2, []]);
+  // the site changes A to 35 and sets A2 to 10: A becomes 35 (by hand), A1 inherits (no row), A11 stays 20, A2 10 by hand
+  const changed = structuredClone(pulled);
+  Object.assign(changed.admin_category_commission.items, { '100': fig('35'), '110': fig('35'), '120': fig('10') });
+  const w3 = setup({ seed: { vendors: [db.row('vendors', 44, 'woo_vendor_id')], woo_categories: cats, vendor_rates: seed.vendor_rates, vendor_category_rates: seed.vendor_category_rates },
+    routes: { 'GET dokan/v1/stores': page([changed]) } });
+  await call(w3.deps, { action: 'vendors' });
+  const today = NOW.slice(0, 10);
+  assertEquals(w3.db.rows('vendor_category_rates').filter((r: any) => r.since === today).map((r: any) => [r.woo_category_id, r.rate]), [[100, 35], [120, 10]]);
+  assertEquals(activity(w3.db), [['vendor.sync', vendorId(44), 'category_rates']]);
+});
 Deno.test('store sync — the site\'s commission figure missing (the public shape) says nothing: our rate stays, no row, no conflict', async () => {
   const seed = { vendors: [vendorRow(44, { name: 'Store 44' })], vendor_rates: [rate44(30)] };
   const { db, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStore(44)]) } });
@@ -759,7 +789,7 @@ Deno.test('push_vendor by a vendors follow-up member (vendors.edit F): the row\'
 Deno.test('push_vendor: the commission fields need sensitive.commission = F (the admin passes); the PUT carries toDokanCommission of the effective rows', async () => {
   const store = wooStoreFull(44);
   const routes = { 'PUT dokan/v1/stores/44': (c: any) => ({ body: { ...store, ...c.body } }) };
-  const seed = { vendors: [PUSH_ROW], vendor_rates: [rate44(30), rate44(40, '2026-10-20', { flat: 2 })],
+  const seed = { vendors: [PUSH_ROW], vendor_rates: [rate44(30), rate44(40, '2026-10-20', { flat: 2, commission_type: 'category_based' })],
     vendor_category_rates: [{ vendor_id: vendorId(44), woo_category_id: 15, rate: 20, flat: null, since: '2026-10-02' }, { vendor_id: vendorId(44), woo_category_id: 15, rate: 22, flat: 1, since: '2026-10-21' }, { vendor_id: vendorId(44), woo_category_id: 16, rate: null, since: '2026-10-21' }] };
   const { woo, deps, db } = setup({ seed, routes, env: PUSH_ON });
   assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['rate'] }, { jwt: 'jwt-vf' })).res.status, 401, 'vendors.edit F without sensitive.commission');
@@ -775,7 +805,7 @@ Deno.test('push_vendor: the commission fields need sensitive.commission = F (the
   const { res, body } = await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['rate', 'category_rates'] }, { jwt: 'jwt-admin' });
   assertEquals([res.status, body.result, body.accepted], [200, 'ok', ['rate', 'category_rates']]);
   assertEquals(woo.calls[0].body, { admin_commission_type: 'category_based', admin_category_commission: { all: { percentage: '40', flat: '2' }, items: { '15': { percentage: '22', flat: '1' } } } }, 'the effective rows today: 40 / 2, category 15 at 22 (16 removed)');
-  assertEquals(db.row('vendors', 44, 'woo_vendor_id').woo_snapshot.rate, { rate: 40, flat: 2 });
+  assertEquals(db.row('vendors', 44, 'woo_vendor_id').woo_snapshot.rate, { type: 'category_based', rate: 40, flat: 2 });
   // without category rates: fixed
   const w2 = setup({ seed: { vendors: [PUSH_ROW], vendor_rates: [rate44(30)] }, routes, env: PUSH_ON });
   await call(w2.deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['rate'] }, { jwt: 'jwt-admin' });

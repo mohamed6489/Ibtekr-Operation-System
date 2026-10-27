@@ -374,26 +374,100 @@ export function commissionOf(store) {
 }
 
 const money = (n) => (n === null || n === undefined ? '' : String(n));
+/** Dokan's commission type as ours (phase 3.4): 'category_based' stays, anything else (fixed, the legacy percentage / combine / flat, none) is 'fixed'. */
+export const commissionType = (t) => (str(t) === 'category_based' ? 'category_based' : 'fixed');
+const sameFig = (a, b) => num(a?.rate) === num(b?.rate) && flatOf(a?.flat) === flatOf(b?.flat);
 
 /**
- * The commission fields of a dokan/v1/stores PUT (decision 2): with category rates → `category_based` with
- * all = { percentage: rate, flat } and items = the category rates (the removed ones, rate null, are left out); else
- * `fixed` with admin_commission = rate (+ admin_additional_fee when a flat fee is known). Numbers are sent as the
- * numeric strings Dokan itself returns. null when there is no rate to send.
+ * The site's category tree as a Map id → parent id (null for a top-level one) from woo_categories rows / site
+ * categories ({ id, parent_id } or { id, parent }). Ids that are not positive integers are skipped.
  */
-export function toDokanCommission({ rate, flat = null, categoryRates = [] } = {}) {
+export function categoryTree(rows) {
+  const m = new Map();
+  for (const r of objs(rows)) { const id = wooId(r.id); if (id !== null) m.set(id, wooId(r.parent_id ?? r.parent)); }
+  return m;
+}
+
+// The figure of every category of the tree (plan 3.4, decision 1): the nearest hand-set figure on it or its ancestors
+// (`explicit`: Map id → { rate, flat }, rate not null), else the default. → Map id → { rate, flat }. A cycle stops.
+function treeFigures(explicit, def, tree) {
+  const out = new Map();
+  const figure = (id) => {
+    const seen = new Set();
+    for (let c = id; c !== null && c !== undefined && !seen.has(c); c = tree.get(c) ?? null) {
+      seen.add(c);
+      if (explicit.has(c)) return explicit.get(c);
+    }
+    return def;
+  };
+  for (const id of tree.keys()) out.set(id, figure(id));
+  for (const [id, v] of explicit) if (!out.has(id)) out.set(id, v);
+  return out;
+}
+const explicitMap = (list) => new Map(categoryList(list).map((c) => [c.woo_category_id, { rate: c.rate, flat: c.flat }]));
+const asTree = (tree) => (tree instanceof Map ? tree : categoryTree(tree));
+
+/**
+ * The meaning of a maker's category commission, for comparing two sides (plan 3.4, decision 4): with type
+ * 'category_based', the categories whose figure (hand-set or inherited along `tree`) differs from the default
+ * (`rateObj` = { type, rate, flat }), sorted, as [{ woo_category_id, rate, flat }]; with 'fixed', []. Without a tree
+ * the hand-set list alone (minus the ones equal to the default).
+ */
+export function canonicalCategories(rateObj, list, tree) {
+  const r = isObj(rateObj) ? rateObj : {};
+  if (commissionType(r.type) !== 'category_based') return [];
+  const def = { rate: num(r.rate), flat: num(r.flat) };
+  const figures = treeFigures(explicitMap(list), def, asTree(tree));
+  return [...figures].filter(([, v]) => v.rate !== null && !sameFig(v, def)).sort((a, b) => a[0] - b[0])
+    .map(([id, v]) => ({ woo_category_id: id, rate: num(v.rate), flat: num(v.flat) }));
+}
+
+/**
+ * The site's category items read back as figures set by hand (plan 3.4, decision 4): an item whose figure equals the
+ * figure its parent has (the parent's item, else the nearest ancestor's, else the default) is inherited, the rest are
+ * hand-set. Without a tree every item is hand-set. → [{ woo_category_id, rate, flat }] sorted.
+ */
+export function explicitCategories(rateObj, list, tree) {
+  const r = isObj(rateObj) ? rateObj : {};
+  const def = { rate: num(r.rate), flat: num(r.flat) };
+  const items = explicitMap(list);
+  const t = asTree(tree);
+  if (!t.size) return categoryList(list);
+  const parentFigure = (id) => {
+    const seen = new Set([id]);
+    for (let c = t.get(id) ?? null; c !== null && !seen.has(c); c = t.get(c) ?? null) { seen.add(c); if (items.has(c)) return items.get(c); }
+    return def;
+  };
+  return [...items].filter(([id, v]) => !sameFig(v, parentFigure(id))).sort((a, b) => a[0] - b[0])
+    .map(([id, v]) => ({ woo_category_id: id, rate: num(v.rate), flat: num(v.flat) }));
+}
+
+/**
+ * The commission fields of a dokan/v1/stores PUT. Phase 3.4 (decision 3): `type` 'fixed' → admin_commission_type fixed +
+ * admin_commission (+ admin_additional_fee when a flat fee is known); 'category_based' → all = { percentage: rate, flat }
+ * and items = every category of `tree` with its figure (hand-set or inherited, the default when neither) — the site then
+ * matches the screen whether Dokan merges or replaces the items; without a tree the hand-set figures alone. With no
+ * `type` (an older caller) the type follows the list (category rates → category_based). Numbers are sent as the numeric
+ * strings Dokan itself returns. null when there is no rate to send.
+ */
+export function toDokanCommission({ type = null, rate, flat = null, categoryRates = [], tree = null } = {}) {
   const pct = num(rate);
-  const items = categoryList(categoryRates);
-  if (items.length) {
+  const listed = categoryList(categoryRates);
+  const kind = type === null || type === undefined ? (listed.length ? 'category_based' : 'fixed') : commissionType(type);
+  if (pct === null) return null;
+  if (kind === 'category_based') {
+    const t = asTree(tree ?? []);
+    const def = { rate: pct, flat: num(flat) };
+    const figures = t.size ? treeFigures(explicitMap(listed), def, t) : explicitMap(listed);
+    const items = [...figures].filter(([, v]) => num(v.rate) !== null).sort((a, b) => a[0] - b[0]);
     return {
       admin_commission_type: 'category_based',
       admin_category_commission: {
         all: { percentage: money(pct), flat: money(num(flat)) },
-        items: Object.fromEntries(items.map((c) => [String(c.woo_category_id), { percentage: money(c.rate), flat: money(c.flat) }])),
+        items: Object.fromEntries(items.map(([id, v]) => [String(id), { percentage: money(num(v.rate)), flat: money(num(v.flat)) }])),
       },
     };
   }
-  if (pct === null) return null;
   return { admin_commission_type: 'fixed', admin_commission: money(pct), ...(num(flat) === null ? {} : { admin_additional_fee: money(num(flat)) }) };
 }
 
@@ -404,7 +478,7 @@ function normField(field, value) {
   if (field === 'address_parts') return JSON.stringify(keyed(value, ADDRESS_KEYS));
   if (field === 'social') return JSON.stringify(socialOf(value));
   if (field === 'status') return str(value) === 'inactive' ? 'inactive' : 'active';
-  if (field === 'rate') { const r = isObj(value) ? value : {}; return `${num(r.rate) ?? ''}|${flatOf(r.flat)}`; }
+  if (field === 'rate') { const r = isObj(value) ? value : {}; return `${commissionType(r.type)}|${num(r.rate) ?? ''}|${flatOf(r.flat)}`; }
   if (field === 'category_rates') return JSON.stringify(categoryList(value).map((c) => [c.woo_category_id, c.rate, flatOf(c.flat)]));
   return str(value);
 }
@@ -431,7 +505,7 @@ export function storeSnapshot(mapped) {
   return {
     name: orNull(m.name), phone: orNull(m.phone), email: orNull(m.email), contact_name: orNull(m.contact_name),
     address_parts: keyed(m.address_parts, ADDRESS_KEYS), social: socialOf(m.social),
-    status: normField('status', m.status), rate: { rate: num(c.rate), flat: num(c.flat) },
+    status: normField('status', m.status), rate: { type: commissionType(c.type), rate: num(c.rate), flat: num(c.flat) },
     category_rates: objs(c.categories).map((x) => categoryItem(x.woo_category_id, x.rate, x.flat)).filter((x) => x.woo_category_id !== null),
   };
 }

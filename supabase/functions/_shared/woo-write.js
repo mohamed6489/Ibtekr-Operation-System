@@ -48,7 +48,7 @@
 //   lines with it. Counted as `failed`.
 // * The site's governorates (woo-sync part `states`): upserted on code into woo_states, never deleted. The site's
 //   product categories (part `categories`, phase 3.3): upserted on id into woo_categories, never deleted.
-import { SYNC_FIELDS, addressText, diffStore, isSubOrder, mapOrder, mapStore, mapSubOrder, redactPII, sameField, storeSnapshot, toDokanStore } from './woo-core.js';
+import { SYNC_FIELDS, addressText, canonicalCategories, categoryTree, commissionType, diffStore, explicitCategories, isSubOrder, mapOrder, mapStore, mapSubOrder, redactPII, sameField, storeSnapshot, toDokanStore } from './woo-core.js';
 import { DbError, logSync, selectIn, upsertRows } from './db.js';
 import { WooError, errorText } from './woo-api.js';
 
@@ -188,7 +188,7 @@ async function updateVendor(ctx, wooVendorId, patch) {
  */
 export async function effectiveRates(ctx, vendorIds, now) {
   const today = dateOf(now);
-  const out = new Map(vendorIds.map((id) => [id, { rate: { rate: null, flat: null }, category_rates: [], future: { rate: false, category_rates: false } }]));
+  const out = new Map(vendorIds.map((id) => [id, { rate: { type: 'fixed', rate: null, flat: null }, category_rates: [], future: { rate: false, category_rates: false } }]));
   if (!vendorIds.length) return out;
   // `future.<field>` = a row dated after today exists (review I-2): the field's push waits for that day instead of
   // sending the current figure as if it were the new one.
@@ -198,8 +198,8 @@ export async function effectiveRates(ctx, vendorIds, now) {
     for (const r of rows.filter((x) => String(x.since) <= today).sort((x, y) => String(x.since).localeCompare(String(y.since)) || Number(x.id) - Number(y.id))) m.set(keyOf(r), r);
     return [...m.values()];
   };
-  for (const r of latest(await selectIn(ctx.db, 'vendor_rates', 'id, vendor_id, rate, flat, since', 'vendor_id', vendorIds), (r) => r.vendor_id, 'rate')) {
-    out.get(r.vendor_id).rate = { rate: num(r.rate), flat: num(r.flat) };
+  for (const r of latest(await selectIn(ctx.db, 'vendor_rates', 'id, vendor_id, rate, flat, since, commission_type', 'vendor_id', vendorIds), (r) => r.vendor_id, 'rate')) {
+    out.get(r.vendor_id).rate = { type: commissionType(r.commission_type), rate: num(r.rate), flat: num(r.flat) };
   }
   for (const r of latest(await selectIn(ctx.db, 'vendor_category_rates', 'id, vendor_id, woo_category_id, rate, flat, since', 'vendor_id', vendorIds), (r) => `${r.vendor_id}|${r.woo_category_id}`, 'category_rates')) {
     if (num(r.rate) !== null) out.get(r.vendor_id).category_rates.push({ woo_category_id: Number(r.woo_category_id), rate: num(r.rate), flat: num(r.flat) });
@@ -211,8 +211,23 @@ export async function effectiveRates(ctx, vendorIds, now) {
 export const systemSnapshot = (row, rates) => ({
   name: row.name ?? null, phone: row.phone ?? null, email: row.email ?? null, contact_name: row.contact_name ?? null,
   address_parts: row.address_parts ?? null, social: row.social ?? null, status: row.status ?? 'active',
-  rate: rates?.rate ?? { rate: null, flat: null }, category_rates: rates?.category_rates ?? [],
+  rate: rates?.rate ?? { type: 'fixed', rate: null, flat: null }, category_rates: rates?.category_rates ?? [],
 });
+
+/** The site's category tree (woo_categories: id → parent id), read once per run (plan 3.4). Never throws: [] on error. */
+export async function loadTree(ctx) {
+  if (ctx.tree) return ctx.tree;
+  try {
+    const { data, error } = await ctx.db.from('woo_categories').select('id, parent_id').range(0, 9999);
+    ctx.tree = categoryTree(error ? [] : data ?? []);
+  } catch {
+    ctx.tree = new Map();
+  }
+  return ctx.tree;
+}
+// A snapshot with its category commission read for its meaning on the tree (plan 3.4, decision 4), for diffStore and
+// the acceptance check; null stays null.
+const canon = (snap, tree) => (isObj(snap) ? { ...snap, category_rates: canonicalCategories(snap.rate, snap.category_rates, tree) } : snap);
 
 // The site's commission (a snapshot's `rate` / `category_rates`) → vendor_rates / vendor_category_rates rows dated
 // today, set_by «الموقع», for what differs from ours (`ours` = effectiveRates entry, null for a new store). Upserted on
@@ -221,12 +236,13 @@ async function writeSiteRates(ctx, vendorUuid, site, ours, now, which = RATE_FIE
   const since = dateOf(now);
   const patch = {};
   if (which.includes('rate') && site.rate?.rate !== null && site.rate?.rate !== undefined && !(ours && sameField('rate', site.rate, ours.rate))) {
-    const { bad } = await save(ctx, 'vendor_rates', [{ vendor_id: vendorUuid, rate: site.rate.rate, flat: site.rate.flat ?? null, since, set_by: SET_BY_SITE }], 'vendor_id,since');
+    const { bad } = await save(ctx, 'vendor_rates', [{ vendor_id: vendorUuid, rate: site.rate.rate, flat: site.rate.flat ?? null, since, set_by: SET_BY_SITE, commission_type: commissionType(site.rate.type) }], 'vendor_id,since');
     if (!bad.size) patch.commission_pct = site.rate.rate;
   }
-  if (which.includes('category_rates')) {
+  // the hand-set figures read back from the site's items (plan 3.4, decision 4); a site on `fixed` leaves ours alone
+  if (which.includes('category_rates') && commissionType(site.rate?.type) === 'category_based') {
     const mine = new Map((ours?.category_rates ?? []).map((c) => [c.woo_category_id, c]));
-    const theirs = (site.category_rates ?? []).filter((c) => c.rate !== null && c.rate !== undefined);
+    const theirs = explicitCategories(site.rate, site.category_rates ?? [], await loadTree(ctx));
     const rows = theirs.filter((c) => !mine.has(c.woo_category_id) || !sameField('category_rates', [c], [mine.get(c.woo_category_id)]))
       .map((c) => ({ vendor_id: vendorUuid, woo_category_id: c.woo_category_id, rate: c.rate, flat: c.flat ?? null, since, set_by: SET_BY_SITE }));
     for (const c of mine.values()) {
@@ -249,13 +265,14 @@ async function writeSiteRates(ctx, vendorUuid, site, ours, now, which = RATE_FIE
 export async function pushStoreFields(ctx, row, fields, rates) {
   // a rate field whose newest row is still future-dated is held (review I-2): it stays pending until that day's run
   const held = (Array.isArray(fields) ? fields : []).filter((f) => RATE_FIELDS.includes(f) && rates?.future?.[f]);
-  const { body, sent, dropped } = toDokanStore(row, (Array.isArray(fields) ? fields : []).filter((f) => !held.includes(f)), { rate: rates?.rate?.rate ?? null, flat: rates?.rate?.flat ?? null, categoryRates: rates?.category_rates ?? [] });
+  const tree = await loadTree(ctx);
+  const { body, sent, dropped } = toDokanStore(row, (Array.isArray(fields) ? fields : []).filter((f) => !held.includes(f)), { type: rates?.rate?.type ?? 'fixed', rate: rates?.rate?.rate ?? null, flat: rates?.rate?.flat ?? null, categoryRates: rates?.category_rates ?? [], tree });
   if (!body) return { sent, dropped, held, accepted: [], refused: [], answer: null };
   const id = wooId(row.woo_vendor_id);
   const { data } = await ctx.woo.put(`dokan/v1/stores/${id}`, body);
   const answer = isObj(data) && wooId(data.id) === id ? storeSnapshot(mapStore(data)) : null;
-  const shown = answer === null ? null : { ...answer, email: typeof data.email === 'string' ? orNull(data.email) : answer.email };
-  const ours = systemSnapshot(row, rates);
+  const shown = answer === null ? null : canon({ ...answer, email: typeof data.email === 'string' ? orNull(data.email) : answer.email }, tree);
+  const ours = canon(systemSnapshot(row, rates), tree);
   const accepted = sent.filter((f) => shown === null || sameField(f, shown[f], ours[f]));
   return { sent, dropped, held, accepted, refused: sent.filter((f) => !accepted.includes(f)), answer };
 }
@@ -289,7 +306,8 @@ async function syncVendor(ctx, site, row, rates, now) {
   const siteSnap = storeSnapshot(site);
   const ours = systemSnapshot(row, rates);
   const snap = isObj(row.woo_snapshot) ? row.woo_snapshot : null;
-  const diff = diffStore(snap, siteSnap, ours);
+  const tree = await loadTree(ctx);
+  const diff = diffStore(canon(snap, tree), canon(siteSnap, tree), canon(ours, tree));
   // A site without a commission figure (the public shape, or no rate set there) says nothing about the rate: ours
   // stays and no change / conflict is recorded for the two rate fields. A `#id` placeholder name never overwrites ours.
   const ignored = (f) => (RATE_FIELDS.includes(f) && siteSnap.rate.rate === null) || (f === 'name' && String(siteSnap.name ?? '').startsWith('#'));

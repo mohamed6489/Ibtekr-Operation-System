@@ -6,6 +6,7 @@ import {
   verifySignature, isSubOrder, normalizePhone, redactPII,
   incomingStatus, outgoingWooStatus, mapOrder, mapSubOrder, mapStore, nextCursor,
   SYNC_FIELDS, ADDRESS_KEYS, SOCIAL_KEYS, addressText, storeSnapshot, diffStore, sameField, commissionOf, toDokanCommission, toDokanStore,
+  commissionType, categoryTree, canonicalCategories, explicitCategories,
 } from '../../supabase/functions/_shared/woo-core.js';
 import { mapProduct } from '../../supabase/functions/_shared/woo-write.js';
 // supabase/functions/_shared/woo-core.js: the pure sync core shared by the woo-webhook / woo-sync Edge Functions
@@ -799,10 +800,10 @@ test('storeSnapshot: the SYNC_FIELDS of a mapped store, rate = { rate, flat }, c
   const m = mapStore(fullStore({ admin_commission_type: 'category_based', admin_category_commission: { all: { percentage: '35', flat: '5' }, items: { 15: { percentage: '20', flat: '' } } } }));
   const snap = storeSnapshot(m);
   assert.deepEqual(Object.keys(snap), SYNC_FIELDS);
-  assert.deepEqual([snap.name, snap.phone, snap.status, snap.rate, snap.category_rates], ['ورشة التجربة', '01111111111', 'active', { rate: 35, flat: 5 }, [{ woo_category_id: 15, rate: 20, flat: null }]]);
+  assert.deepEqual([snap.name, snap.phone, snap.status, snap.rate, snap.category_rates], ['ورشة التجربة', '01111111111', 'active', { type: 'category_based', rate: 35, flat: 5 }, [{ woo_category_id: 15, rate: 20, flat: null }]]);
   snap.address_parts.city = 'changed';
   assert.equal(m.address_parts.city, 'القاهرة', 'no aliasing');
-  assert.deepEqual(storeSnapshot(null).rate, { rate: null, flat: null });
+  assert.deepEqual(storeSnapshot(null).rate, { type: 'fixed', rate: null, flat: null });
 });
 
 test('sameField: trimmed strings with \'\' = null, keyed objects, leave = active, rate with no flat = 0, category lists in any order without the removed ones', () => {
@@ -872,4 +873,48 @@ test('toDokanStore: the PUT body from the row for the asked fields only; a #plac
   const before = structuredClone(row);
   toDokanStore(row, SYNC_FIELDS, { rate: 1 });
   assert.deepEqual(row, before, 'input untouched');
+});
+
+// ---------------------------------------------------------------- phase 3.4: the commission type and the category tree
+
+const TREE = categoryTree([{ id: 100, parent_id: null }, { id: 110, parent_id: 100 }, { id: 111, parent: 110 }, { id: 120, parent_id: 100 }, { id: 200, parent_id: 0 }, { id: 'x', parent_id: 1 }]);
+
+test('commissionType / categoryTree (3.4): category_based stays, anything else is fixed; the tree is id → parent (0 / absent → null), bad ids skipped', () => {
+  assert.deepEqual(['category_based', 'fixed', 'percentage', 'flat', '', null].map(commissionType), ['category_based', 'fixed', 'fixed', 'fixed', 'fixed', 'fixed']);
+  assert.deepEqual([...TREE], [[100, null], [110, 100], [111, 110], [120, 100], [200, null]]);
+});
+
+test('toDokanCommission (3.4): category_based sends `all` + every category of the tree with its figure — a parent\'s figure inherited by its children, a hand-set child kept, the rest the default; fixed ignores the list', () => {
+  const list = [{ woo_category_id: 100, rate: 30, flat: 0 }, { woo_category_id: 111, rate: 20, flat: 2 }, { woo_category_id: 120, rate: null }];
+  assert.deepEqual(toDokanCommission({ type: 'category_based', rate: 40, flat: 1, categoryRates: list, tree: TREE }), {
+    admin_commission_type: 'category_based',
+    admin_category_commission: { all: { percentage: '40', flat: '1' }, items: {
+      100: { percentage: '30', flat: '0' }, 110: { percentage: '30', flat: '0' }, 111: { percentage: '20', flat: '2' }, 120: { percentage: '30', flat: '0' }, 200: { percentage: '40', flat: '1' } } } });
+  assert.deepEqual(toDokanCommission({ type: 'fixed', rate: 40, categoryRates: list, tree: TREE }), { admin_commission_type: 'fixed', admin_commission: '40' });
+  // no tree (the categories not synced yet): the hand-set figures only
+  assert.deepEqual(Object.keys(toDokanCommission({ type: 'category_based', rate: 40, categoryRates: list }).admin_category_commission.items), ['100', '111']);
+  assert.equal(toDokanCommission({ type: 'category_based', rate: null, categoryRates: list, tree: TREE }), null, 'no default rate → nothing to send');
+});
+
+test('canonicalCategories (3.4): the meaning — the categories whose figure differs from the default, inherited ones included; equal meanings compare equal whatever was hand-set; fixed → []', () => {
+  const rate = { type: 'category_based', rate: 40, flat: null };
+  const ours = canonicalCategories(rate, [{ woo_category_id: 100, rate: 30 }, { woo_category_id: 111, rate: 20 }], TREE);
+  assert.deepEqual(ours.map((c) => [c.woo_category_id, c.rate]), [[100, 30], [110, 30], [111, 20], [120, 30]]);
+  // the site lists every category (Dokan items after our push): the same meaning
+  const site = canonicalCategories(rate, [100, 110, 120].map((id) => ({ woo_category_id: id, rate: 30 })).concat([{ woo_category_id: 111, rate: 20 }, { woo_category_id: 200, rate: 40 }]), TREE);
+  assert.ok(sameField('category_rates', ours, site));
+  // a hand-set figure equal to the default means nothing
+  assert.deepEqual(canonicalCategories(rate, [{ woo_category_id: 200, rate: 40 }], TREE), []);
+  assert.deepEqual(canonicalCategories({ type: 'fixed', rate: 40 }, [{ woo_category_id: 100, rate: 30 }], TREE), []);
+});
+
+test('explicitCategories (3.4): a site item equal to its parent\'s figure is inherited, the rest hand-set; a top-level item equal to the default is inherited; no tree → every item', () => {
+  const items = [{ woo_category_id: 100, rate: 35 }, { woo_category_id: 110, rate: 35 }, { woo_category_id: 111, rate: 20 }, { woo_category_id: 120, rate: 10 }, { woo_category_id: 200, rate: 40 }];
+  assert.deepEqual(explicitCategories({ rate: 40 }, items, TREE).map((c) => [c.woo_category_id, c.rate]), [[100, 35], [111, 20], [120, 10]]);
+  assert.deepEqual(explicitCategories({ rate: 40 }, items, new Map()).length, 5);
+});
+
+test('sameField rate (3.4): the type is part of the rate — fixed 40 ≠ category_based 40; a snapshot without a type reads fixed', () => {
+  assert.ok(!sameField('rate', { type: 'fixed', rate: 40 }, { type: 'category_based', rate: 40 }));
+  assert.ok(sameField('rate', { rate: 40 }, { type: 'fixed', rate: 40, flat: 0 }));
 });

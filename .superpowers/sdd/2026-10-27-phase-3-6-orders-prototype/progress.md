@@ -15,3 +15,7 @@ In-session, sequential, no agents.
 - **Orders page (6c8555f):** blocks 29/22 renamed (every phrase checked against the prototype text), ratePopup (22), StarPicker (14), RATE_KEYS / validateTeamRating (19), adapter completeOrder via order_complete, activity order.rating; mock + tests.
 - **Menu:** block 28 NAV (+ المنتجات, التسويق), SOON list closed in the sidebar, the mobile bar and its sheet, goNow and hashchange guards (→ dashboard + note); block 10 `package` icon; CSS.
 - Tests: unit 258, e2e 138, db:test 19. semgrep blocked in this sandbox (CI's gate).
+
+## Live (staging, 27 Oct)
+- 0018 applied (`orders_maker_rating`): the check names «المبتكر» and no «المورد»; 0 order_items rows with an old name; customer_ratings RLS on, policies insert / select; authenticated has no update; anon has no select and no execute on order_complete; the trigger has «مرتجع للمبتكر».
+- RLS live run 11 (`rls_customer_ratings rls_orders`): rls_customer_ratings **ok** (statuses, the returns row of «مرتجع للمبتكر», ratings, order_complete, grants); rls_orders failed before its first case — its fixture inserts store woo_vendor_id 77, which exists on staging (23505): the file was written for CI's empty database and was never live-safe (not run live before). Its one change here (the status name) is covered on CI and by rls_customer_ratings live. Making it live-safe is left for the orders follow-up.

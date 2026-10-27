@@ -1489,6 +1489,18 @@
   document.addEventListener('ib:notify', () => { if (state.page === 'vendors' && !document.querySelector('.pop-anchor .menu, .pop-anchor [role=dialog]')) renderVendors(true); if (vredraw) vredraw(); });
   state.vfilter = { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false, q: '' }; state.vsort = 'open'; state.vpage = 1; const VPAGE = 9;
   let vnote = null; const vnotify = (kind, text) => { vnote = { kind, text }; renderVendors(); };
+  // plan 3.4 decision 10 (owner, 27 Oct): «مزامنة دلوقتي» — the site's store changes now instead of at the next quarter-hour run (admin)
+  function syncNowBtn() {
+    if (!vstore.canSyncNow || !vstore.canSyncNow()) return null;
+    const busy = vstore.syncing();
+    return Button({ label: busy ? 'بيزامن مع الموقع…' : 'مزامنة دلوقتي', disabled: busy, attrs: { 'data-sync-now': '', 'aria-busy': busy ? 'true' : 'false', title: 'هات تعديلات المتاجر من الموقع دلوقتي' }, onClick: () => {
+      vstore.syncNow().then((r) => {
+        if (r.result === 'busy') return;
+        if (r.result === 'ok') vnotify(r.conflicts ? 'warning' : 'success', r.fromSite ? 'اتزامن مع الموقع — اتحدّث ' + r.fromSite + ' مبتكر من الموقع' + (r.conflicts ? '، و' + r.conflicts + ' فيهم تعارض (الموقع كسب)' : '') + '.' : 'اتزامن مع الموقع — مفيش تعديلات جديدة.');
+        else vnotify('error', r.reason === 'woo_down' ? 'الموقع مش بيرد دلوقتي — جرّب كمان شوية.' : r.reason === 'forbidden' ? 'مش من صلاحياتك' : 'المزامنة ماكملتش — جرّب تاني.');
+      });
+    } });
+  }
   // live stats per vendor (decision 4 / 5): IBVendors.stats — the orders behind each maker with his shares (the website's rate on
   // each line), his balance in this phase (opening + completed shares); deposits / transport / tickets come with phases 4 and 7
   function vendorStats() { return window.IBVendors ? window.IBVendors.stats() : {}; }
@@ -1575,7 +1587,7 @@
       h('span', { class: 't-small' }, num(list.length ? 'عرض ' + ((state.vpage - 1) * VPAGE + 1) + '–' + Math.min(list.length, state.vpage * VPAGE) + ' من ' + list.length : '')));
     return [
       h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'المبتكرين'), h('p', { class: 't-small' }, 'ملف كل مبتكر: البيانات والعقد والحساب البنكي، وأوردراته ورصيده — المبتكر هو المرجع الأساسي للأوردرات والنسب')),
-        h('div', { class: 'actions' }, vFilterBtn(), vSortBtn(), window.IBDataActions.Menu(window.IBDataActions.PAGES.vendors), Button({ type: 'brand', icon: 'plus', label: 'إضافة مبتكر', disabled: !vstore.canEdit(), onClick: () => openAddVendor() }))),
+        h('div', { class: 'actions' }, vFilterBtn(), vSortBtn(), window.IBDataActions.Menu(window.IBDataActions.PAGES.vendors), syncNowBtn(), Button({ type: 'brand', icon: 'plus', label: 'إضافة مبتكر', disabled: !vstore.canEdit(), onClick: () => openAddVendor() }))),
       h('div', { class: 'toolbar vtoolbar' }, search, vChips(), h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(list.length + ' مبتكر · ' + (VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label))),
       vnote ? (() => { const n = vnote; vnote = null; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); return el; })() : null,
       h('div', { class: 'cards five' },

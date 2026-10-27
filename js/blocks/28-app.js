@@ -307,7 +307,14 @@
   const ticketOf = (hash) => { const m = /^tickets(?:\/(TKT-\d{4}))?$/.exec(hash); return m ? (m[1] || '') : null; };
   const vendorOf = (hash) => { const m = /^makers(?:\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))?$/i.exec(hash); return m ? (m[1] || '') : null; }; // #makers/<vendor uuid> (phase 3) — '#vendors' stays the accounts tab
   const modPage = (hs) => (window.IBPages ? window.IBPages.match(hs) : null);
-  state.page = modPage(location.hash.slice(1)) || (location.hash.slice(1) === 'orders' ? 'orders' : reportTabOf(location.hash.slice(1)) ? 'reports' : ticketOf(location.hash.slice(1)) !== null ? 'tickets' : vendorOf(location.hash.slice(1)) !== null ? 'vendors' : 'accounts');
+  const pageOfHash = (hs) => modPage(hs) || (hs === 'orders' ? 'orders' : reportTabOf(hs) ? 'reports' : ticketOf(hs) !== null ? 'tickets' : vendorOf(hs) !== null ? 'vendors' : 'accounts');
+  // Phase 3.6 (plan decision 5): the pages not built on real data yet are closed — «soon» in the menus; any way in (a link, an
+  // alert, a typed hash) lands on the dashboard with a note. Open: لوحة التحكم، الأوردرات، المبتكرين، and «ملفي» (account menu).
+  const SOON = ['accounts', 'inventory', 'products', 'cs', 'tickets', 'reports', 'marketing', 'hr', 'settings'];
+  const isSoon = (page) => SOON.includes(page);
+  const soonNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي لسه — soon'); };
+  state.page = pageOfHash(location.hash.slice(1));
+  if (isSoon(state.page)) { state.page = 'dashboard'; try { history.replaceState(null, '', '#dashboard'); } catch (e) { /* sandboxed */ } }
 
   // ---------- derived helpers ----------
   const lastDay = (y, m) => new Date(Date.UTC(y, m, 0)).getUTCDate();
@@ -321,21 +328,25 @@
   const setNote = (n) => { state.note = n; };
 
   // ---------- shell ----------
-  const NAV = [['home', 'لوحة التحكم', 'dashboard'], ['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['tag', 'المخزون', 'inventory'], ['headset', 'خدمة العملاء', 'cs'], ['ticket', 'تذاكر الفريق', 'tickets'], ['chart', 'التقارير', 'reports'], ['briefcase', 'الموارد البشرية', 'hr'], ['gear', 'الإعدادات', 'settings']];
+  const NAV = [['home', 'لوحة التحكم', 'dashboard'], ['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['tag', 'المخزون', 'inventory'], ['package', 'المنتجات', 'products'], ['headset', 'خدمة العملاء', 'cs'], ['ticket', 'تذاكر الفريق', 'tickets'], ['chart', 'التقارير', 'reports'], ['megaphone', 'التسويق', 'marketing'], ['briefcase', 'الموارد البشرية', 'hr'], ['gear', 'الإعدادات', 'settings']];
+  const soonTag = () => h('span', { class: 'soon' }, 'soon');
   function Sidebar() {
     return h('nav', { class: 'sidebar', 'aria-label': 'القائمة الرئيسية' },
       h('a', { class: 'brand', href: '#dashboard', 'aria-label': 'إبتكر كلوب — بيت لكل مبتكر' }, window.IBLogo.Logo({ tone: 'reversed', width: 150 }), h('small', { class: 'tagline' }, window.IBLogo.TAGLINE)),
-      NAV.map(([ic, lb, page]) => h('button', { type: 'button', class: 'nav-item', 'data-page': page || false, 'aria-disabled': page ? false : 'true', title: page ? lb : lb + ' — غير متاح في النموذج', onClick: page ? () => go(page) : null }, Icon(ic), h('span', null, lb))));
+      NAV.map(([ic, lb, page]) => isSoon(page) ? h('button', { type: 'button', class: 'nav-item', 'data-page': page, 'data-soon': '', 'aria-disabled': 'true', title: lb + ' — soon', onClick: soonNote }, Icon(ic), h('span', null, lb), soonTag())
+        : h('button', { type: 'button', class: 'nav-item', 'data-page': page || false, 'aria-disabled': page ? false : 'true', title: page ? lb : lb + ' — غير متاح في النموذج', onClick: page ? () => go(page) : null }, Icon(ic), h('span', null, lb))));
   }
   // Bottom nav (mobile <=767) — Figma: Bottom nav 266:478 / Bottom nav item 266:476. 5 items; «المزيد» opens a sheet with the rest of the menu.
   const BN = [['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['ticket', 'تذاكر الفريق', 'tickets']];
   function BottomNav() {
-    const item = (ic, lb, page, extra) => h('button', Object.assign({ type: 'button', class: 'bn-item', 'data-page': page || false, onClick: page ? () => go(page) : null }, extra || {}), h('span', { class: 'pill' }, Icon(ic)), h('span', { class: 'bn-lbl' }, lb));
+    const item = (ic, lb, page, extra) => isSoon(page) ? h('button', { type: 'button', class: 'bn-item', 'data-page': page, 'data-soon': '', 'aria-disabled': 'true', title: lb + ' — soon', onClick: soonNote }, h('span', { class: 'pill' }, Icon(ic)), h('span', { class: 'bn-lbl' }, lb), soonTag())
+      : h('button', Object.assign({ type: 'button', class: 'bn-item', 'data-page': page || false, onClick: page ? () => go(page) : null }, extra || {}), h('span', { class: 'pill' }, Icon(ic)), h('span', { class: 'bn-lbl' }, lb));
     const wrap = h('div', { class: 'pop-anchor bn-more', 'data-popover-root': '' });
     const more = item('more', 'المزيد', null, { 'aria-haspopup': 'dialog', 'aria-expanded': 'false' });
     const pop = U.popover(wrap, more, (close) => h('div', { class: 'menu bn-sheet', role: 'dialog', 'aria-label': 'القائمة', 'data-popover-root': '' },
       h('div', { class: 't-label bn-sheet-h' }, 'القائمة'),
-      NAV.map(([ic, lb, page]) => h('button', { type: 'button', role: 'menuitem', class: 'opt bn-opt', 'data-page': page || false, 'aria-disabled': page ? false : 'true', 'aria-current': page && page === state.page ? 'page' : false, onClick: page ? () => { close(); go(page); } : null }, Icon(ic), h('span', null, lb), page ? null : h('small', null, 'غير متاح في النموذج')))));
+      NAV.map(([ic, lb, page]) => isSoon(page) ? h('button', { type: 'button', role: 'menuitem', class: 'opt bn-opt', 'data-page': page, 'data-soon': '', 'aria-disabled': 'true', onClick: soonNote }, Icon(ic), h('span', null, lb), h('small', null, 'soon'))
+        : h('button', { type: 'button', role: 'menuitem', class: 'opt bn-opt', 'data-page': page || false, 'aria-disabled': page ? false : 'true', 'aria-current': page && page === state.page ? 'page' : false, onClick: page ? () => { close(); go(page); } : null }, Icon(ic), h('span', null, lb), page ? null : h('small', null, 'غير متاح في النموذج')))));
     more.addEventListener('click', () => pop.toggle()); wrap.append(more);
     return h('nav', { class: 'bottom-nav', 'aria-label': 'القائمة السفلية' }, BN.map(([ic, lb, page]) => item(ic, lb, page)), wrap);
   }
@@ -368,6 +379,7 @@
     goNow(page);
   }
   function goNow(page) {
+    if (isSoon(page)) { soonNote(); if (isSoon(state.page)) goNow('dashboard'); return; } // phase 3.6: closed pages
     const mods = window.IBPages.all();
     if (mods[page]) { U.closePopover(); state.page = page; try { history.replaceState(null, '', '#' + mods[page].defaultHash()); } catch (e) { /* sandboxed */ } showPage(); window.IBPages.render(page, false); window.scrollTo(0, 0); return; }
     U.closePopover(); state.page = page;
@@ -2193,7 +2205,7 @@
     root.className = 'app';
     root.replaceChildren(Sidebar(), h('div', { class: 'main' }, TopHeader(), h('main', { class: 'content', id: 'main' }), h('main', { class: 'content', id: 'reports' }), h('main', { class: 'content', id: 'tickets' }), h('main', { class: 'content', id: 'vendors' }), Object.keys(window.IBPages.all()).map((id) => h('main', { class: 'content mod', id: 'pg-' + id, hidden: true })), h('div', { id: 'orders' })), BottomNav());
     U.setModalRoot(document.body); document.body.append(AiPanel()); aiInitChat();
-    window.addEventListener('hashchange', () => { const hs = location.hash.slice(1); if (window.IBShell.routeLogin(hs)) return; const mp = modPage(hs); if (mp) { state.page = mp; showPage(); window.IBPages.render(mp, false); window.scrollTo(0, 0); return; } if (location.hash.slice(1) === 'orders') { if (state.page !== 'orders') go('orders'); return; } const rt = reportTabOf(location.hash.slice(1)); if (rt) { state.rtab = rt; if (state.page !== 'reports') { state.page = 'reports'; showPage(); } renderReports(); return; } const tk = ticketOf(location.hash.slice(1)); if (tk !== null) { if (state.page !== 'tickets') { state.page = 'tickets'; showPage(); } renderTickets(); if (tk) openTicket(tk); return; } const vd = vendorOf(location.hash.slice(1)); if (vd !== null) { if (state.page !== 'vendors') { state.page = 'vendors'; showPage(); } renderVendors(); if (vd) openVendor(vd); return; } const t = hashTab(); if (t) { state.tab = t; if (state.page !== 'accounts') { state.page = 'accounts'; showPage(); } render(); } });
+    window.addEventListener('hashchange', () => { const hs = location.hash.slice(1); if (window.IBShell.routeLogin(hs)) return; if (isSoon(pageOfHash(hs))) { try { history.replaceState(null, '', '#dashboard'); } catch (e) { /* sandboxed */ } soonNote(); goNow('dashboard'); return; } const mp = modPage(hs); if (mp) { state.page = mp; showPage(); window.IBPages.render(mp, false); window.scrollTo(0, 0); return; } if (location.hash.slice(1) === 'orders') { if (state.page !== 'orders') go('orders'); return; } const rt = reportTabOf(location.hash.slice(1)); if (rt) { state.rtab = rt; if (state.page !== 'reports') { state.page = 'reports'; showPage(); } renderReports(); return; } const tk = ticketOf(location.hash.slice(1)); if (tk !== null) { if (state.page !== 'tickets') { state.page = 'tickets'; showPage(); } renderTickets(); if (tk) openTicket(tk); return; } const vd = vendorOf(location.hash.slice(1)); if (vd !== null) { if (state.page !== 'vendors') { state.page = 'vendors'; showPage(); } renderVendors(); if (vd) openVendor(vd); return; } const t = hashTab(); if (t) { state.tab = t; if (state.page !== 'accounts') { state.page = 'accounts'; showPage(); } render(); } });
     showPage(); render(); if (state.page === 'reports') renderReports(); if (state.page === 'tickets') { renderTickets(); const tk = ticketOf(location.hash.slice(1)); if (tk) openTicket(tk); }
     if (window.IBPages.all()[state.page]) window.IBPages.render(state.page, false);
     if (window.IBShell.routeLogin(location.hash.slice(1))) { /* login screen over the app */ }

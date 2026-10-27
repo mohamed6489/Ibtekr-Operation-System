@@ -1191,3 +1191,10 @@ b.pos{color:var(--color-success-text)}
 .star-pick[aria-invalid=true] .sp{color:var(--color-status-error-border,var(--color-status-error-base))}
 .sp-row{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
 .star-field .flabel{display:block;margin-bottom:4px}
+
+/* Phase 3.6 (plan decision 5): pages not started yet are closed in the menus with a «soon» tag */
+.nav-item[data-soon],.bn-item[data-soon],.bn-opt[data-soon]{opacity:.6;cursor:not-allowed}
+.nav-item[data-soon]:hover{background:transparent}
+.soon{margin-inline-start:auto;padding:0 6px;border-radius:999px;background:rgba(255,247,239,.18);color:var(--color-text-gold);font-size:10px;line-height:16px;font-weight:600;letter-spacing:.02em;direction:ltr}
+.bn-item .soon{margin:0;background:var(--color-bg-tint);color:var(--color-text-secondary)}
+@media (max-width:1023px){.nav-item .soon{margin:0}}

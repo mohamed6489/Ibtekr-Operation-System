@@ -203,3 +203,48 @@ alter policy activity_log_insert on public.activity_log
   with check (exists (select 1 from public.profiles p
                       where p.id = (select auth.uid()) and p.status = 'active')
               and action not like 'vendor.sync%');
+
+-- ---------------------------------------------------------------- vendor_push_pending (review of phase 3.3, finding I-1)
+
+-- Decision (this file, review I-1): a push that never reached woo-sync (the network, a cold start, an expired session)
+-- must still be retried by the next sync run, yet push_pending is the server's column. The adapter calls this function
+-- with the field names after such a failure. It checks the push rule itself — the same rule as push_vendor: the admin,
+-- or vendors.edit = F (a rate field with sensitive.commission = F too), or vendors.edit = P for the contact fields
+-- alone — keeps the synced field names only, unions them into push_pending and returns the new list. Security definer:
+-- the guard (API roles only) does not see this write. 22023 without a vendor / a synced field; 42501 outside the rule;
+-- P0002 for an unknown vendor. Re-runnable (create or replace).
+create or replace function public.vendor_push_pending(p_vendor uuid, p_fields text[]) returns jsonb
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  synced constant text[] := array['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates'];
+  contact constant text[] := array['phone', 'email', 'contact_name', 'address_parts', 'social'];
+  rate_fields constant text[] := array['rate', 'category_rates'];
+  v_fields text[];
+  v_all text[];
+  v_edit text;
+  v_current jsonb;
+begin
+  select coalesce(array_agg(distinct f), '{}') into v_fields from unnest(coalesce(p_fields, '{}'::text[])) f where f = any(synced);
+  if p_vendor is null or coalesce(array_length(v_fields, 1), 0) = 0 then
+    raise exception 'a vendor and at least one synced field are required' using errcode = '22023';
+  end if;
+  v_edit := public.has_perm('vendors.edit');
+  if not (public.is_admin() or v_edit = 'F' or (v_edit = 'P' and v_fields <@ contact)) then
+    raise exception 'vendors.edit = F (or P for the contact fields) is required to queue a push to the site' using errcode = '42501';
+  end if;
+  if v_fields && rate_fields and not (public.is_admin() or public.has_perm('sensitive.commission') = 'F') then
+    raise exception 'sensitive.commission = F is required to queue a commission push to the site' using errcode = '42501';
+  end if;
+  select v.push_pending into v_current from public.vendors v where v.id = p_vendor;
+  if not found then
+    raise exception 'vendor not found' using errcode = 'P0002';
+  end if;
+  select coalesce(array_agg(distinct f order by f), '{}') into v_all
+  from (select jsonb_array_elements_text(case when jsonb_typeof(v_current) = 'array' then v_current else '[]'::jsonb end) as f
+        union all select unnest(v_fields)) t
+  where f = any(synced);
+  update public.vendors set push_pending = to_jsonb(v_all) where id = p_vendor;
+  return to_jsonb(v_all);
+end $$;
+revoke execute on function public.vendor_push_pending(uuid, text[]) from public, anon;
+grant execute on function public.vendor_push_pending(uuid, text[]) to authenticated, service_role;

@@ -23,6 +23,8 @@
 9. **الاختبارات:** Deno: `push_vendor` (الحقول، placeholder، pending، disabled، 4xx)، pull بالمقارنة (الحالات الأربع للقرار 3 + التعبئة الأولى + `enabled`)، `categories`؛ `rls_vendor_sync.sql` live-safe (الأعمدة والمنح والحارس، `vendor_category_rates`, `woo_categories`)؛ `migrate_0014.sql`؛ Node: `woo-core` (`mapStore` الجديد، `diffStore`, `commissionOf`, `toDokanCommission`)؛ adapter/domain/e2e (الـ mock بيحاكي `functions.invoke` و`push_vendor`).
 10. **الترتيب الحي (§4 — على الـ staging):** `0014` (`apply_migration`) ← `rls_vendor_sync` عبر الـ workflow ← نشر `woo-sync` ← تشغيلة `vendors` أولى (التعبئة: تقرير الفروقات في `woo_sync_log`) ← فحص القبول (PUT بنفس القيم) ← تعديل حقيقي على متجر يحدده صاحب المشروع ← `main` ← الدفتر ← التقرير.
 
+11. **إصلاحات المراجعة (27 أكتوبر، المراجع: approve with fixes — I-1/I-2/I-3؛ اتنفذت في الجلسة):** (I-1) الـ toast بيوعد «هيتبعت مع المزامنة الجاية» لكن الفشل اللي ماوصلش للدالة (شبكة/cold start/جلسة منتهية/5xx) ماكانش بيعلّم `push_pending` → RPC `vendor_push_pending(p_vendor uuid, p_fields text[])` في `0014` (security definer، نفس قاعدة صلاحية `push_vendor`، الأسماء المتزامنة بس، اتحاد مرتّب) بيناديها الـ adapter على أي خطأ غير 502 الدالة؛ ولو هي كمان فشلت الرسالة صادقة (`push_lost`). (I-2) نسبة بتاريخ مستقبلي كانت بتتبعت بالقيمة الحالية وبتتشال من `push_pending` على إنها «متساوية» → `effectiveRates` بترجع `future` لكل حقل، `pushStoreFields` بتحجز الحقل (`held`)، `push_vendor` بيرد `skipped/future` والحقل بيفضل pending لحد يومه، والتشغيلة مابتشيلوش (`push_held`)؛ و«النهارده» = تاريخ القاهرة (`cairoDate`). (I-3) 4xx نهائي على حقل pending كان بيتعاد كل 15 دقيقة للأبد بصف خطأ → `retryablePush`: غير 401/403/408/429 و5xx والشبكة = رفض نهائي: الحقول بتتشال من `push_pending`، صف `woo_sync_log` `skipped` بـ `reason: 'refused'` (القيد `result in (ok, error, conflict, skipped)` زي ما هو — مافيش drop)، صف `activity_log` `vendor.sync.refused` («الموقع رفض التعديل في: …»)، والـ 502 المباشر بيرجع `pending: false` (`push_refused`). الـ Minors اللي اتسجّلت للـ Later: upsert نسبة الموقع في نفس يوم صف عضو، `vendors.toggle` مقابل `vendors.edit` للحالة، `all.percentage: ''` من غير نسبة أساسية، إعادة كتابة كل صف كل تشغيلة (`woo_synced_at`)، تعارضات أول تشغيلة الصامتة، ظهور صفوف المزامنة لـ `settings.view` بس. تكلفة الغلط: تعديل من السيستم يضيع من غير ما حد يعرف.
+
 ## قيود عامة
 - Dokan: كتابة على **بيانات المتجر بس** وبالحقول المذكورة؛ الأوردرات الفرعية والمنتجات والـ webhooks بتاعة n8n ماتتلمسش. مافيش حذف. مافيش PII في الـ fixtures ولا السجلات. الكتل بقرار + lock. عربي مصري.
 
@@ -46,5 +48,7 @@
 2. المتاجر الستة من غير اسم على الموقع: الاسم اللي الفريق بيكتبه في السيستم **بيتبعت للموقع عادي** (اللي مش بيتبعت هو الاسم المؤقت `#<id>` بس).
 
 ## Later
+- Minors المراجعة (قرار 11): upsert نسبة الموقع في نفس يوم صف عضو؛ `vendors.toggle` مش `vendors.edit` لدفع الحالة؛ `all.percentage` فاضية من غير نسبة أساسية؛ `woo_synced_at` بيتكتب لكل صف كل تشغيلة؛ تعارضات أول تشغيلة صامتة (في `woo_sync_log` بس)؛ صفوف `vendor.sync*` ظاهرة في سجل المبتكر لـ `settings.view` بس.
+- تغيير `email` من السيستم بيغيّر إيميل دخول المبتكر على WordPress (Dokan بيكتبه على المستخدم) — يتقال للفريق، أو يتشال من الحقول المدفوعة بقرار لاحق.
 - إشعار فوري من الموقع (إضافة صغيرة على WordPress) بدل المقارنة كل 15 دقيقة.
 - البانر/الصورة في الاتجاهين (رفع ملفات).

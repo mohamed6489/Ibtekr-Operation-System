@@ -1480,7 +1480,7 @@
     if (d.reason) vnote = { kind: 'error', text: VMSG[d.reason] || 'التغيير ما اتحفظش.' };
     // phase 3.3 (decision 5): the row was taken and pushed to the site — a failed push (the fields wait in push_pending) or a member who
     // may not push says so; ok / skipped (no store, the push gate, a placeholder name) add nothing to the save's own note
-    if (d.push && d.push.result === 'error') vnote = { kind: 'warning', text: VMSG.push_failed };
+    if (d.push && d.push.result === 'error') vnote = { kind: 'warning', text: d.push.reason === 'woo_refused' ? VMSG.push_refused : d.push.pending === false ? VMSG.push_lost : VMSG.push_failed };
     else if (d.push && d.push.result === 'skipped' && d.push.reason === 'no_permission') vnote = { kind: 'warning', text: VMSG.push_forbidden };
     if (state.page === 'vendors') renderVendors(true);
     if (vredraw) vredraw();

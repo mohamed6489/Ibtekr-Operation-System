@@ -949,7 +949,7 @@ test('update (3.3): the contact popup writes contact_name / address_parts / soci
   assert.deepEqual(invokes(calls), [['woo-sync', { body: { action: 'push_vendor', vendor_id: V1, fields: ['contact_name', 'address_parts', 'social'] } }]]); // after the row, the names only
   assert.ok(calls.findIndex((c) => c.op === 'invoke') > calls.findIndex((c) => c.op === 'update'), 'the row first');
   assert.deepEqual(logs, [['vendor.update', 'contactName, addressParts, social', { entity: 'vendor', entity_id: V1 }]]);
-  assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'ok', fields: ['contact_name', 'address_parts', 'social'], accepted: ['contact_name', 'address_parts', 'social'], refused: [], dropped: [] }]);
+  assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'ok', fields: ['contact_name', 'address_parts', 'social'], accepted: ['contact_name', 'address_parts', 'social'], refused: [], dropped: [], held: [] }]);
   // a status change pushes status; a notes change pushes nothing; the parts cleared on a synced row → address null with them
   calls.length = 0; events.length = 0;
   S.update(V1, { status: 'leave', notes: 'x' }, S.actor());
@@ -981,15 +981,32 @@ test('pushVendor answers (3.3): skipped reasons pass through, 502 / 500 / networ
     events.length = 0; S.update(V1, { phone: '0100000000' + (5 + i) }, S.actor()); await settle(); // a phone the seed does not have
     assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'skipped', reason, fields: ['phone'] }], reason);
   }
-  for (const [status, want] of [[502, 'woo_error'], [500, 'failed'], [404, 'failed'], [401, 'forbidden'], [403, 'forbidden']]) {
+  // review I-1: a failure that never reached the site (500 / 404 / 401 / 403 of the function, the network) queues the fields through the
+  // RPC vendor_push_pending (pending: true when it answered); a 502 is the function's own answer — the fields already wait (pending true)
+  // unless its body says pending:false (the site's final refusal: woo_refused, nothing queued)
+  const rpcs = () => calls.filter((c) => c.op === 'rpc').map((c) => c.args);
+  for (const [status, want, queued] of [[502, 'woo_error', 0], [500, 'failed', 1], [404, 'failed', 1], [401, 'forbidden', 1], [403, 'forbidden', 1]]) {
     responses['fn:woo-sync'] = () => ({ data: null, error: { name: 'FunctionsHttpError', message: 'Edge Function returned a non-2xx status code', context: { status } } });
-    events.length = 0; S.update(V1, { phone: '01000000009' }, S.actor()); await settle();
-    assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'error', reason: want, status, fields: ['phone'] }], String(status));
+    events.length = 0; calls.length = 0; S.update(V1, { phone: '01000000009' }, S.actor()); await settle();
+    assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'error', reason: want, status, fields: ['phone'], pending: true }], String(status));
+    assert.deepEqual(rpcs(), Array(queued).fill(['vendor_push_pending', { p_vendor: V1, p_fields: ['phone'] }]), 'queued ' + status);
   }
+  responses['fn:woo-sync'] = () => ({ data: null, error: { name: 'FunctionsHttpError', message: 'non-2xx', context: { status: 502, json: async () => ({ error: 'woo_error', fields: ['phone'], pending: false }) } } });
+  events.length = 0; calls.length = 0; S.update(V1, { phone: '01000000009' }, S.actor()); await settle();
+  assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'error', reason: 'woo_refused', status: 502, fields: ['phone'], pending: false }]);
+  assert.deepEqual(rpcs(), [], 'a final refusal queues nothing');
   responses['fn:woo-sync'] = () => { throw new Error('offline'); };
+  events.length = 0; calls.length = 0; S.update(V1, { phone: '01000000009' }, S.actor()); await settle();
+  assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'error', reason: 'network', fields: ['phone'], pending: true }]);
+  assert.deepEqual(rpcs(), [['vendor_push_pending', { p_vendor: V1, p_fields: ['phone'] }]]);
+  // the queue refused too (the session expired, say) → pending false: the screen says the fields will not go by themselves
+  responses['rpc:vendor_push_pending'] = () => ({ data: null, error: { code: '42501', message: 'vendors.edit = F (or P for the contact fields) is required to queue a push to the site' } });
   events.length = 0; S.update(V1, { phone: '01000000009' }, S.actor()); await settle();
-  assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'error', reason: 'network', fields: ['phone'] }]);
+  assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'error', reason: 'network', fields: ['phone'], pending: false }]);
+  delete responses['rpc:vendor_push_pending'];
   assert.equal(V.MESSAGES.push_failed, 'اتحفظ في السيستم، ومابعتش للموقع — هيتبعت مع المزامنة الجاية');
+  assert.equal(V.MESSAGES.push_lost, 'اتحفظ في السيستم، ومابعتش للموقع — ومش هيتبعت لوحده: افتح التعديل واحفظ تاني');
+  assert.equal(V.MESSAGES.push_refused, 'اتحفظ في السيستم بس — الموقع رفض التعديل ده، راجع القيم');
   // a maker without a store: saved, nothing sent (the server would say no_store)
   const ns = load({ responses: { ...seed(), vendors: ok([VENDORS[0], VENDORS[1], row({ id: V3, name: 'Bian eg', phone: '01000000000' })]) } });
   await ns.V.load(); ns.calls.length = 0; ns.events.length = 0;
@@ -1005,12 +1022,12 @@ test('pushVendor answers (3.3): skipped reasons pass through, 502 / 500 / networ
   await ops.V.load(); ops.responses['fn:woo-sync'] = PUSH_OK; ops.calls.length = 0; ops.events.length = 0;
   ops.S.update(V1, { phone: '01000000009' }, ops.S.actor()); await settle();
   assert.deepEqual(invokes(ops.calls).map((a) => a[1].body.fields), [['phone']]);
-  assert.deepEqual(ops.events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'ok', fields: ['phone'], accepted: ['phone'], refused: [], dropped: [] }]);
+  assert.deepEqual(ops.events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'ok', fields: ['phone'], accepted: ['phone'], refused: [], dropped: [], held: [] }]);
   assert.deepEqual([ops.S.canPush(['phone', 'social']), ops.S.canPush(['name']), ops.S.canPush(['phone', 'status']), ops.S.canPush(), S.canPush()], [true, false, false, false, true]);
   assert.deepEqual(plain(await ops.S.pushVendor(V1, ['status'])), { result: 'skipped', reason: 'no_permission', fields: ['status'] });
   const vf = load({ admin: false, perms: { 'vendors.view': 'F', 'vendors.edit': 'F', 'sensitive.commission': 'N' } }); // vendors follow-up: may push the contact, not the rate
   await vf.V.load();
-  assert.deepEqual(plain([await vf.S.pushVendor(V1, ['phone']), await vf.S.pushVendor(V1, ['rate']), await vf.S.pushVendor(V1, ['bogus'])]), [{ result: 'ok', fields: ['phone'], accepted: ['phone'], refused: [], dropped: [] }, { result: 'skipped', reason: 'no_permission', fields: ['rate'] }, { result: 'skipped', reason: 'no_fields', fields: [] }]);
+  assert.deepEqual(plain([await vf.S.pushVendor(V1, ['phone']), await vf.S.pushVendor(V1, ['rate']), await vf.S.pushVendor(V1, ['bogus'])]), [{ result: 'ok', fields: ['phone'], accepted: ['phone'], refused: [], dropped: [], held: [] }, { result: 'skipped', reason: 'no_permission', fields: ['rate'] }, { result: 'skipped', reason: 'no_fields', fields: [] }]);
 });
 
 test('setRate (3.3): an optional flat fee in the row (absent without one), shown as rateFlat, in the event; the new rate is pushed as [rate]', async () => {
@@ -1073,5 +1090,8 @@ test('loadEvents (3.3): the server\'s vendor.sync / vendor.sync.conflict rows (a
   const forged = V.toEvent({ id: 6, at: 'x', action: 'vendor.sync', new_value: 'phone', actor: { name: 'سارة أحمد' } });
   assert.deepEqual(plain([forged.text, forged.actor.name]), ['سارة أحمد vendor.sync (phone)', 'سارة أحمد']);
   assert.deepEqual(plain(V.toEvent({ id: 7, at: 'x', action: 'vendor.sync.conflict', new_value: 'name', actor: { name: 'سارة أحمد' } }).text), 'سارة أحمد vendor.sync.conflict (name)');
+  // review I-3: the site's final refusal of a pending push reads in the site's voice too
+  const refused = V.toEvent({ id: 8, at: 'x', action: 'vendor.sync.refused', new_value: 'phone, social', actor: null });
+  assert.deepEqual(plain([refused.text, refused.actor.name]), ['الموقع رفض التعديل في: التليفون، السوشيال', 'الموقع']);
   assert.equal(V.toEvent({ id: 8, at: 'x', action: 'vendor.sync', new_value: 'phone' }).actor.name, 'الموقع'); // no actor key at all: the server's
 });

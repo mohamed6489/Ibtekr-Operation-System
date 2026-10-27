@@ -546,6 +546,93 @@ begin
   end loop;
 end $$;
 
+-- ================================================================ vendor_push_pending (review I-1): the push rule, the union, the codes
+
+-- admin: any synced field; unknown names are dropped; the list comes back sorted and unioned; a rate field passes
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000071","role":"authenticated"}';
+do $$ declare r jsonb; begin
+  r := public.vendor_push_pending('00000000-0000-4000-8000-0000000000f1', array['name', 'bogus', 'name']);
+  if r <> '["name"]'::jsonb then raise exception 'case admin queues name (unknown names dropped) failed: %', r; end if;
+  r := public.vendor_push_pending('00000000-0000-4000-8000-0000000000f1', array['rate']);
+  if r <> '["name", "rate"]'::jsonb then raise exception 'case admin queues rate (union, sorted) failed: %', r; end if;
+  begin
+    perform public.vendor_push_pending('00000000-0000-4000-8000-0000000000f1', array['bogus']);
+    raise exception 'case admin with no synced field must error failed';
+  exception when others then
+    if sqlstate <> '22023' then raise exception 'case admin with no synced field: expected 22023, got % (%)', sqlstate, sqlerrm; end if;
+  end;
+  begin
+    perform public.vendor_push_pending('00000000-0000-4000-8000-0000000000ff', array['phone']);
+    raise exception 'case admin with an unknown vendor must error failed';
+  exception when others then
+    if sqlstate <> 'P0002' then raise exception 'case admin with an unknown vendor: expected P0002, got % (%)', sqlstate, sqlerrm; end if;
+  end;
+end $$;
+
+-- vendors follow-up (edit F, commission N): a contact field yes, a rate field no
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000072","role":"authenticated"}';
+do $$ declare r jsonb; begin
+  r := public.vendor_push_pending('00000000-0000-4000-8000-0000000000f1', array['phone']);
+  if r <> '["name", "phone", "rate"]'::jsonb then raise exception 'case vendors follow-up queues phone failed: %', r; end if;
+  begin
+    perform public.vendor_push_pending('00000000-0000-4000-8000-0000000000f1', array['category_rates']);
+    raise exception 'case vendors follow-up queues a rate field must error failed';
+  exception when others then
+    if sqlstate <> '42501' or sqlerrm not like '%sensitive.commission%' then raise exception 'case vendors follow-up on a rate field: expected 42501 mentioning sensitive.commission, got % (%)', sqlstate, sqlerrm; end if;
+  end;
+end $$;
+
+-- ops (edit P): the contact fields alone
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000073","role":"authenticated"}';
+do $$ declare r jsonb; begin
+  r := public.vendor_push_pending('00000000-0000-4000-8000-0000000000f1', array['social', 'phone']);
+  if r <> '["name", "phone", "rate", "social"]'::jsonb then raise exception 'case ops queues the contact fields failed: %', r; end if;
+  begin
+    perform public.vendor_push_pending('00000000-0000-4000-8000-0000000000f1', array['phone', 'name']);
+    raise exception 'case ops queues name must error failed';
+  exception when others then
+    if sqlstate <> '42501' or sqlerrm not like '%vendors.edit%' then raise exception 'case ops on name: expected 42501 mentioning vendors.edit, got % (%)', sqlstate, sqlerrm; end if;
+  end;
+  begin
+    perform public.vendor_push_pending('00000000-0000-4000-8000-0000000000f1', array['status']);
+    raise exception 'case ops queues status must error failed';
+  exception when others then
+    if sqlstate <> '42501' then raise exception 'case ops on status: expected 42501, got % (%)', sqlstate, sqlerrm; end if;
+  end;
+end $$;
+
+-- accounts (edit N), cs (view P), the suspended viewer: 42501 before any write
+do $$ declare who text; begin
+  foreach who in array array['74', '75', '76'] loop
+    perform set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000000' || who || '","role":"authenticated"}', true);
+    begin
+      perform public.vendor_push_pending('00000000-0000-4000-8000-0000000000f1', array['phone']);
+      raise exception 'case user …% queues a push must error failed', who;
+    exception when others then
+      if sqlstate <> '42501' then raise exception 'case user …%: expected 42501, got % (%)', who, sqlstate, sqlerrm; end if;
+    end;
+  end loop;
+end $$;
+
+-- anon: no execute
+reset role;
+set local role anon;
+set local request.jwt.claims = '{"role":"anon"}';
+do $$ begin
+  begin
+    perform public.vendor_push_pending('00000000-0000-4000-8000-0000000000f1', array['phone']);
+    raise exception 'case anon calls vendor_push_pending must error failed';
+  exception when insufficient_privilege then
+    null;
+  end;
+end $$;
+
 -- ================================================================ runner: the refused writes left the rows as they were; nothing was deleted
 
 reset role;
@@ -554,6 +641,7 @@ do $$ begin
   if not ((select contact_name || '/' || (address_parts ->> 'street_1') || '/' || logo_url || '/' || coalesce(woo_snapshot ->> 'name', '∅') from public.vendors where woo_vendor_id = 9941)
           = 'صاحب العمليات/شارع 3/https://stage.example.test/g.jpg/ورشة المزامنة'
           and (select push_pending ->> 0 from public.vendors where woo_vendor_id = 9942) = 'phone'
+          and (select push_pending from public.vendors where woo_vendor_id = 9941) = '["name", "phone", "rate", "social"]'::jsonb
           and (select count(*) from public.vendor_category_rates where vendor_id in ('00000000-0000-4000-8000-0000000000f1', '00000000-0000-4000-8000-0000000000f2')) = 5
           and (select count(*) from public.woo_categories where id in (9900001, 9900002)) = 2
           and (select name from public.woo_categories where id = 9900001) = 'هدايا المزامنة'

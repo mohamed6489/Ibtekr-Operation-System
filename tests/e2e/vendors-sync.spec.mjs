@@ -91,6 +91,7 @@ test('the drawer shows the synced store data: the site\'s logo, the owner\'s nam
   // the server's rows read in the site's voice with the Arabic labels (the admin sees every row)
   await expect(activity(page)).toContainText('اتعدل من الموقع: التليفون، العنوان');
   await expect(activity(page)).toContainText('تعارض — الموقع كسب في: الاسم');
+  await expect(activity(page)).toContainText('الموقع رفض التعديل في: السوشيال');
   await expect(activity(page)).not.toContainText('vendor.sync');
   expect(mock.requests.filter((r) => r === 'GET /rest/v1/vendor_category_rates').length).toBeGreaterThanOrEqual(1);
   expect(mock.requests.filter((r) => r === 'GET /rest/v1/woo_categories').length).toBeGreaterThanOrEqual(1);
@@ -194,6 +195,36 @@ test('the push fails (502): saved here, the message, the fields wait in «في �
   await expect(info(contact(page), page, 'في انتظار الإرسال')).toHaveText('اسم صاحب المتجر، العنوان'); // still waiting: a push names its own fields only
 });
 
+test('review I-1 / I-3: the function unreachable → saved, the fields queued through vendor_push_pending and «في انتظار الإرسال»; the site\'s final refusal (502 pending:false) → saved, its own message, nothing waiting; the queue refused too → the honest message', async ({ page }) => {
+  await openVendors(page);
+  await openDrawer(page, V1);
+  mock.functionsDown = true;
+  await openContact(page);
+  await modal(page).locator('#g-contact').fill('منى عادل حسن');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(note(page)).toContainText('اتحفظ في السيستم، ومابعتش للموقع — هيتبعت مع المزامنة الجاية');
+  await expect.poll(() => mock.rpcs.filter((r) => r.fn === 'vendor_push_pending').map(({ by, ...r }) => r)).toEqual([{ fn: 'vendor_push_pending', vendor_id: V1, fields: ['contact_name'], result: 'ok' }]);
+  expect(pushes()).toEqual([]); // the function never answered
+  await expect(info(contact(page), page, 'في انتظار الإرسال')).toHaveText('اسم صاحب المتجر');
+  await expect(info(contact(page), page, 'اسم صاحب المتجر')).toHaveText('منى عادل حسن');
+  mock.functionsDown = false; mock.wooRefuses = true;
+  await openContact(page);
+  await modal(page).locator('#g-city').fill('الجيزة');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(note(page)).toContainText('اتحفظ في السيستم بس — الموقع رفض التعديل ده، راجع القيم');
+  await expect.poll(() => pushes()).toEqual([{ vendor_id: V1, fields: ['address_parts'], result: 'refused' }]);
+  await expect(info(contact(page), page, 'في انتظار الإرسال')).toHaveText('اسم صاحب المتجر'); // the refused field is not queued
+  await expect(info(contact(page), page, 'العنوان')).toContainText('الجيزة'); // the row was taken
+  // the function and the queue both unreachable (the session expired, say): the message says the fields will not go by themselves
+  mock.wooRefuses = false; mock.functionsDown = true;
+  await page.route('**/rest/v1/rpc/vendor_push_pending', (route) => route.abort('failed'));
+  await openContact(page);
+  await modal(page).locator('#g-contact').fill('منى عادل');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(note(page)).toContainText('ومش هيتبعت لوحده: افتح التعديل واحفظ تاني');
+  await page.unroute('**/rest/v1/rpc/vendor_push_pending');
+  mock.functionsDown = false;
+});
 test('the per-category commission (sensitive.commission): the admin adds a dated row for a site category and edits one — one insert each, logged with the category name, pushed as category_rates; the same date refused before any request; ops sees nothing and a tampered write is refused', async ({ page }) => {
   await openVendors(page);
   await openDrawer(page, V1);

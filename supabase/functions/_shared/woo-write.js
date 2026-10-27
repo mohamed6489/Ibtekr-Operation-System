@@ -101,7 +101,7 @@ export async function writeContext({ db, woo, kind, now, pushEnabled = false }) 
   if (error) throw new DbError('status_map', error);
   return { db, woo, kind, now, pushEnabled: pushEnabled === true, statusMap: data ?? [], vendors: new Map(), missingVendors: new Set(), failedVendors: new Set(),
     // the store sync's counters of this run (pullVendors reports them): makers changed from the site, conflicts, pushes
-    vendorSync: { from_site: 0, conflicts: 0, pushed: 0, push_failed: 0 } };
+    vendorSync: { from_site: 0, conflicts: 0, pushed: 0, push_failed: 0, push_refused: 0, push_held: 0 } };
 }
 
 const log = (ctx, row) => logSync(ctx.db, { kind: ctx.kind, direction: 'in', ...row });
@@ -147,13 +147,22 @@ export async function saveVendors(ctx, rows) {
 
 // ---------------------------------------------------------------- store sync (phase 3.3)
 
-const dateOf = (iso) => String(iso).slice(0, 10);
+// The team's "today" is Cairo's calendar date (a rate dated today applies from Cairo midnight, not UTC's — review I-2).
+const CAIRO = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' });
+export const cairoDate = (iso) => { const d = new Date(iso); return Number.isNaN(d.getTime()) ? String(iso).slice(0, 10) : CAIRO.format(d); };
+const dateOf = cairoDate;
+/**
+ * Whether a failed PUT is worth retrying by the next sync run (review I-3): a network / timeout failure (not a WooError),
+ * any 5xx, and the four 4xx that say "not now" (401 / 403 — the application password, 408, 429). Every other 4xx (400,
+ * 404, 422, …) is the site's final answer to these values: the fields leave push_pending with one `refused` row.
+ */
+export const retryablePush = (e) => !(e instanceof WooError) || !(e.status >= 400 && e.status < 500) || [401, 403, 408, 429].includes(e.status);
 const union = (a, b) => [...new Set([...a, ...b])];
 const asPending = (v) => (Array.isArray(v) ? v.filter((f) => SYNC_FIELDS.includes(f)) : []);
 const pendingOrNull = (list) => (list.length ? list : null);
 
 /** One activity_log row written by the server (actor null): the field names only, never a value. Never throws. */
-async function logActivity(ctx, action, vendorUuid, fields) {
+export async function logActivity(ctx, action, vendorUuid, fields) {
   try {
     const { error } = await ctx.db.from('activity_log').insert({ action, entity: 'vendor', entity_id: vendorUuid, old_value: null, new_value: fields.join(', ') });
     if (error) console.error(`activity_log insert failed (${error.code ?? 'error'})`);
@@ -179,17 +188,20 @@ async function updateVendor(ctx, wooVendorId, patch) {
  */
 export async function effectiveRates(ctx, vendorIds, now) {
   const today = dateOf(now);
-  const out = new Map(vendorIds.map((id) => [id, { rate: { rate: null, flat: null }, category_rates: [] }]));
+  const out = new Map(vendorIds.map((id) => [id, { rate: { rate: null, flat: null }, category_rates: [], future: { rate: false, category_rates: false } }]));
   if (!vendorIds.length) return out;
-  const latest = (rows, keyOf) => {
+  // `future.<field>` = a row dated after today exists (review I-2): the field's push waits for that day instead of
+  // sending the current figure as if it were the new one.
+  const latest = (rows, keyOf, field) => {
     const m = new Map();
+    for (const r of rows) if (String(r.since) > today && out.has(r.vendor_id)) out.get(r.vendor_id).future[field] = true;
     for (const r of rows.filter((x) => String(x.since) <= today).sort((x, y) => String(x.since).localeCompare(String(y.since)) || Number(x.id) - Number(y.id))) m.set(keyOf(r), r);
     return [...m.values()];
   };
-  for (const r of latest(await selectIn(ctx.db, 'vendor_rates', 'id, vendor_id, rate, flat, since', 'vendor_id', vendorIds), (r) => r.vendor_id)) {
+  for (const r of latest(await selectIn(ctx.db, 'vendor_rates', 'id, vendor_id, rate, flat, since', 'vendor_id', vendorIds), (r) => r.vendor_id, 'rate')) {
     out.get(r.vendor_id).rate = { rate: num(r.rate), flat: num(r.flat) };
   }
-  for (const r of latest(await selectIn(ctx.db, 'vendor_category_rates', 'id, vendor_id, woo_category_id, rate, flat, since', 'vendor_id', vendorIds), (r) => `${r.vendor_id}|${r.woo_category_id}`)) {
+  for (const r of latest(await selectIn(ctx.db, 'vendor_category_rates', 'id, vendor_id, woo_category_id, rate, flat, since', 'vendor_id', vendorIds), (r) => `${r.vendor_id}|${r.woo_category_id}`, 'category_rates')) {
     if (num(r.rate) !== null) out.get(r.vendor_id).category_rates.push({ woo_category_id: Number(r.woo_category_id), rate: num(r.rate), flat: num(r.flat) });
   }
   return out;
@@ -235,15 +247,17 @@ async function writeSiteRates(ctx, vendorUuid, site, ours, now, which = RATE_FIE
  * field was dropped. Throws a WooError on a non-2xx answer (the caller logs it and marks the fields pending).
  */
 export async function pushStoreFields(ctx, row, fields, rates) {
-  const { body, sent, dropped } = toDokanStore(row, fields, { rate: rates?.rate?.rate ?? null, flat: rates?.rate?.flat ?? null, categoryRates: rates?.category_rates ?? [] });
-  if (!body) return { sent, dropped, accepted: [], refused: [], answer: null };
+  // a rate field whose newest row is still future-dated is held (review I-2): it stays pending until that day's run
+  const held = (Array.isArray(fields) ? fields : []).filter((f) => RATE_FIELDS.includes(f) && rates?.future?.[f]);
+  const { body, sent, dropped } = toDokanStore(row, (Array.isArray(fields) ? fields : []).filter((f) => !held.includes(f)), { rate: rates?.rate?.rate ?? null, flat: rates?.rate?.flat ?? null, categoryRates: rates?.category_rates ?? [] });
+  if (!body) return { sent, dropped, held, accepted: [], refused: [], answer: null };
   const id = wooId(row.woo_vendor_id);
   const { data } = await ctx.woo.put(`dokan/v1/stores/${id}`, body);
   const answer = isObj(data) && wooId(data.id) === id ? storeSnapshot(mapStore(data)) : null;
   const shown = answer === null ? null : { ...answer, email: typeof data.email === 'string' ? orNull(data.email) : answer.email };
   const ours = systemSnapshot(row, rates);
   const accepted = sent.filter((f) => shown === null || sameField(f, shown[f], ours[f]));
-  return { sent, dropped, accepted, refused: sent.filter((f) => !accepted.includes(f)), answer };
+  return { sent, dropped, held, accepted, refused: sent.filter((f) => !accepted.includes(f)), answer };
 }
 
 /**
@@ -254,7 +268,7 @@ export async function pushStoreFields(ctx, row, fields, rates) {
 export async function applyPushResult(ctx, row, result, now) {
   const base = isObj(row.woo_snapshot) ? row.woo_snapshot : null;
   const ours = systemSnapshot(row, null);
-  const patch = { woo_synced_at: now, push_pending: pendingOrNull(asPending(row.push_pending).filter((f) => !result.sent.includes(f) && !result.dropped.includes(f))) };
+  const patch = { woo_synced_at: now, push_pending: pendingOrNull(union(asPending(row.push_pending), result.held ?? []).filter((f) => !result.sent.includes(f) && !result.dropped.includes(f))) };
   if (base !== null) {
     const snap = { ...base };
     for (const f of result.sent) snap[f] = result.answer === null ? (RATE_FIELDS.includes(f) ? base[f] ?? null : ours[f]) : result.answer[f];
@@ -282,7 +296,9 @@ async function syncVendor(ctx, site, row, rates, now) {
   const pending = asPending(row.push_pending);
   const fromSite = SYNC_FIELDS.filter((f) => ['site', 'both', 'fill'].includes(diff[f]) && !ignored(f));
   const conflicts = SYNC_FIELDS.filter((f) => ['both', 'conflict'].includes(diff[f]) && !ignored(f));
-  const toPush = snap === null ? [] : pending.filter((f) => diff[f] === 'system');
+  const future = (f) => RATE_FIELDS.includes(f) && rates?.future?.[f] === true; // review I-2: waits for its day
+  const toPush = snap === null ? [] : pending.filter((f) => diff[f] === 'system' && !future(f));
+  if (pending.some(future)) ctx.vendorSync.push_held += 1;
   const patch = { ...pick(site, MIRROR_COLUMNS), woo_synced_at: now };
   const newSnap = { ...siteSnap };
 
@@ -306,12 +322,22 @@ async function syncVendor(ctx, site, row, rates, now) {
       }
     } catch (e) {
       if (!(e instanceof WooError)) throw e;
-      ctx.vendorSync.push_failed += 1;
-      await logSync(ctx.db, { kind: 'push', direction: 'out', entity: 'vendor', entity_id: String(id), action: 'vendor', result: 'error', detail: { vendor_id: row.id, fields: toPush, error: errorText(e, ctx.woo.scrub) } });
+      if (retryablePush(e)) {
+        ctx.vendorSync.push_failed += 1;
+        await logSync(ctx.db, { kind: 'push', direction: 'out', entity: 'vendor', entity_id: String(id), action: 'vendor', result: 'error', detail: { vendor_id: row.id, fields: toPush, error: errorText(e, ctx.woo.scrub) } });
+      } else {
+        // the site's final answer to these values (review I-3): the fields leave push_pending — one skipped/refused row
+        // (woo_sync_log.result has no 'refused' value; the reason sits in detail), one activity row (the field names
+        // only) — instead of an error row every quarter hour for ever
+        ctx.vendorSync.push_refused += 1;
+        settled = [...settled, ...toPush];
+        await logSync(ctx.db, { kind: 'push', direction: 'out', entity: 'vendor', entity_id: String(id), action: 'vendor', result: 'skipped', detail: { vendor_id: row.id, fields: toPush, reason: 'refused', error: errorText(e, ctx.woo.scrub) } });
+        await logActivity(ctx, 'vendor.sync.refused', row.id, toPush);
+      }
     }
   }
   patch.woo_snapshot = newSnap;
-  patch.push_pending = pendingOrNull(pending.filter((f) => !settled.includes(f) && !['same', 'site', 'both', 'keep', 'fill'].includes(diff[f])));
+  patch.push_pending = pendingOrNull(pending.filter((f) => !settled.includes(f) && (future(f) || !['same', 'site', 'both', 'keep', 'fill'].includes(diff[f]))));
 
   if (!(await updateVendor(ctx, id, patch))) return false;
   if (fromSite.length) {

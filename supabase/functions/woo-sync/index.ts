@@ -35,7 +35,11 @@
 //              dokan/v1/stores/{id} with those fields only (toDokanStore). Success → woo_snapshot takes the site's
 //              answer for the sent fields, woo_synced_at, push_pending minus them; the answer lists `accepted` and
 //              `refused` (a field Dokan took vs one it silently kept — the acceptance check of decision 4 e). A
-//              non-2xx answer → the fields join push_pending, a woo_sync_log out/vendor error row, 502.
+//              retryable failure (network, 5xx, 401 / 403 / 408 / 429) → the fields join push_pending, an out/vendor
+//              error row, 502 { pending: true }; any other 4xx is the site's final answer → nothing pending, a
+//              `refused` row + activity vendor.sync.refused, 502 { pending: false } (review I-3). A rate field whose
+//              newest row is still future-dated is held pending (`held`; alone → skipped/future) until that day's
+//              run (review I-2).
 //   'register_webhooks' { delivery_url? }  ensures one active `ibtekr-ops:<topic>` webhook per topic pointing at
 //              {SUPABASE_URL}/functions/v1/woo-webhook; any other webhook on the site (n8n's) is never touched.
 // Answer: 200 { action, result, counts, … } or 4xx / 5xx { error }. CORS for the browser's functions.invoke.
@@ -43,7 +47,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from '../_shared/woo-core.js';
 import { getState, logSync, setState } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
-import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, markPushPending, pushStoreFields, saveVendors, wooId, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
+import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -232,14 +236,20 @@ async function pushVendor(run: Run, args: Json) {
     r = await pushStoreFields(ctx, row, fields, rates);
   } catch (e) {
     if (!(e instanceof WooError)) throw e;
-    await markPushPending(ctx, row, fields);
-    await logSync(run.db, { ...entry, result: 'error', detail: { vendor_id: vendorId, fields, error: errorText(e, ctx.woo.scrub) } });
-    return json(502, { error: 'woo_error', action: 'push_vendor', fields });
+    // a retryable failure (network, 5xx, 401 / 403 / 408 / 429) waits in push_pending for the next run; any other 4xx is the
+    // site's final answer to these values (review I-3): nothing pending, one refused row, one activity row (names only)
+    const pending = retryablePush(e);
+    if (pending) await markPushPending(ctx, row, fields);
+    else await logActivity(ctx, 'vendor.sync.refused', vendorId, fields);
+    await logSync(run.db, { ...entry, result: pending ? 'error' : 'skipped', detail: { vendor_id: vendorId, fields, ...(pending ? {} : { reason: 'refused' }), error: errorText(e, ctx.woo.scrub) } });
+    return json(502, { error: 'woo_error', action: 'push_vendor', fields, pending });
   }
+  // a rate field whose newest row is future-dated is held pending until that day's run (review I-2)
+  if (r.held.length && !r.sent.length) { await markPushPending(ctx, row, r.held); return await skip('future', false); }
   if (!r.sent.length) return await skip('placeholder', false);
   await applyPushResult(ctx, row, r, run.now());
   await logSync(run.db, { ...entry, result: 'ok', detail: { vendor_id: vendorId, fields: r.sent, accepted: r.accepted, refused: r.refused, dropped: r.dropped } });
-  return json(200, { action: 'push_vendor', result: 'ok', fields: r.sent, accepted: r.accepted, refused: r.refused, dropped: r.dropped, counts: { pushed: 1 } });
+  return json(200, { action: 'push_vendor', result: 'ok', fields: r.sent, accepted: r.accepted, refused: r.refused, dropped: r.dropped, held: r.held, counts: { pushed: 1 } });
 }
 
 // ---------------------------------------------------------------- register_webhooks

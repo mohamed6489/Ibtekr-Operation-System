@@ -180,7 +180,7 @@ function ordersSeed(opts = {}) {
     vendorCategoryRates: [{ id: 1, vendor_id: VND(1), woo_category_id: 15, rate: 30, flat: 0, since: '2026-03-01', set_by: 'الموقع', created_at: T0 }],
     wooCategories: [{ id: 15, name: 'ديكور', slug: 'decor', parent_id: 0, updated_at: T0 }, { id: 22, name: 'هدايا', slug: 'gifts', parent_id: 0, updated_at: T0 }],
     // the server's sync rows on Art Craft (actor null, new_value the field names): a change taken from the site, a conflict the site won
-    syncActivity: [{ id: 1, at: T0, actor: null, action: 'vendor.sync', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'phone, address_parts' }, { id: 2, at: T0, actor: null, action: 'vendor.sync.conflict', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'name' }],
+    syncActivity: [{ id: 1, at: T0, actor: null, action: 'vendor.sync', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'phone, address_parts' }, { id: 2, at: T0, actor: null, action: 'vendor.sync.conflict', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'name' }, { id: 3, at: T0, actor: null, action: 'vendor.sync.refused', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'social' }],
     vendorBank: [{ vendor_id: VND(3), method: 'bank', bank_name: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: IBAN, wallet: '01000000000', updated_by: 'منى حسن', updated_at: T0 }],
     // 0012 (plan 3.1): Antikiano with a temporary password in the vault (secret_id → the vault entry), Bian eg with a row but no password yet
     vendorLogins: [{ vendor_id: VND(2), username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: T0, secret_id: SECRET_ID, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 },
@@ -265,10 +265,11 @@ export async function installSupabaseMock(page, opts = {}) {
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
   const mock = { profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
-    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true };
+    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true };
   // phase 3.3: vendorCategoryRates / wooCategories: the 0014 tables (ordersSeed()); vendorPushes: each woo-sync push_vendor as { vendor_id, fields, by, result, reason? }
   // (the body names the fields only — the mock reads the row like the server); pushEnabled: WOO_PUSH_ENABLED on the server (false → skipped/push_disabled,
-  // the fields added to push_pending); wooDown → 502 with the fields in push_pending. installSupabaseMock(page, { syncRows: true }) seeds the
+  // the fields added to push_pending); wooDown → 502 pending:true with the fields in push_pending; wooRefuses → 502 pending:false, nothing
+  // pending (the site's final answer); functionsDown → the request is aborted (the adapter queues the fields through vendor_push_pending). installSupabaseMock(page, { syncRows: true }) seeds the
   // server's sync rows (ordersSeed().syncActivity) into activity_log — opt-in, so the dashboard's «newest 5» expectations stay exact.
   if (opts.syncRows) mock.activityRows.push(...mock.syncActivity);
   // brands / brandOwners / brandRates: the 0013 tables (ordersSeed(opts): opts.transfer seeds the temporary transfer); brandWrites: each
@@ -397,6 +398,22 @@ export async function installSupabaseMock(page, opts = {}) {
       // 0012 (plan 3.1): the two definer RPCs on the maker's temporary password — the admin or vendors.edit = F (else 42501), the
       // password rules again on the server (22023), 0A000 without Vault; the secret lives in the vault under the row's secret_id;
       // every set and every reveal writes its own activity_log row (actor = the caller, new_value null). Scalars come back as JSON.
+      // phase 3.3 (review I-1) vendor_push_pending(p_vendor, p_fields): the push rule of push_vendor (the admin, vendors.edit F — a rate
+      // field with sensitive.commission F too —, or vendors.edit P for the contact fields alone), the synced names only (22023 when none),
+      // P0002 for an unknown maker; push_pending ∪ fields, sorted; the new list comes back. Recorded in mock.rpcs.
+      if (method === 'POST' && path === '/rest/v1/rpc/vendor_push_pending') {
+        const b = body(); const vid = String(b.p_vendor || ''); const asked = (Array.isArray(b.p_fields) ? b.p_fields : []).filter((f) => SYNC_FIELDS.includes(f));
+        const rec = { fn: 'vendor_push_pending', vendor_id: vid, fields: asked, by: u.email, result: 'ok' }; mock.rpcs.push(rec);
+        const refuse = (status, code, message) => { rec.result = code; return json(status, { code, details: null, hint: null, message }); };
+        if (!asked.length) return refuse(400, '22023', 'a vendor and at least one synced field are required');
+        const edit = hasPerm(u, 'vendors.edit'); const contact = ['phone', 'email', 'contact_name', 'address_parts', 'social'];
+        if (!(isAdmin(u) || edit === 'F' || (edit === 'P' && asked.every((f) => contact.includes(f))))) return refuse(403, '42501', 'vendors.edit = F (or P for the contact fields) is required to queue a push to the site');
+        if (asked.some((f) => f === 'rate' || f === 'category_rates') && !(isAdmin(u) || hasPerm(u, 'sensitive.commission') === 'F')) return refuse(403, '42501', 'sensitive.commission = F is required to queue a commission push to the site');
+        const v = mock.vendors.find((x) => x.id === vid.toLowerCase());
+        if (!v) return refuse(400, 'P0002', 'vendor not found');
+        v.push_pending = [...new Set((Array.isArray(v.push_pending) ? v.push_pending : []).concat(asked))].sort();
+        return json(200, v.push_pending);
+      }
       const vrpc = /^\/rest\/v1\/rpc\/(vendor_login_set_password|vendor_login_reveal)$/.exec(path);
       if (method === 'POST' && vrpc) {
         const fn = vrpc[1]; const b = body(); const vid = String(b.p_vendor || '');
@@ -726,6 +743,7 @@ export async function installSupabaseMock(page, opts = {}) {
     // skipped/placeholder; WooCommerce down → 502 woo_error with the fields in push_pending; else ok: woo_synced_at = now, push_pending
     // minus the fields, accepted = the fields.
     if (method === 'POST' && path === '/functions/v1/woo-sync') {
+      if (mock.functionsDown) return route.abort('failed'); // the function never answers (review I-1): the adapter queues through the RPC
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
       const CONTACT_PUSH = ['phone', 'email', 'contact_name', 'address_parts', 'social']; // vendors.edit = P may push these alone (the guard's contact rule)
       const rateAsked = () => Array.isArray(b.fields) && b.fields.some((f) => f === 'rate' || f === 'category_rates');
@@ -742,7 +760,8 @@ export async function installSupabaseMock(page, opts = {}) {
         const skip = (reason) => { rec.result = 'skipped'; rec.reason = reason; return json(200, { action, result: 'skipped', reason, fields, counts: { pushed: 0 } }); };
         if (v.woo_vendor_id == null) return skip('no_store');
         if (!mock.pushEnabled) { pend(); return skip('push_disabled'); }
-        if (mock.wooDown) { pend(); rec.result = 'error'; return json(502, { error: 'woo_error', action, fields }); }
+        if (mock.wooDown) { pend(); rec.result = 'error'; return json(502, { error: 'woo_error', action, fields, pending: true }); }
+        if (mock.wooRefuses) { rec.result = 'refused'; return json(502, { error: 'woo_error', action, fields, pending: false }); } // the site's final answer (review I-3): nothing waits
         const sent = fields.filter((f) => !(f === 'name' && /^#/.test(String(v.name || '').trim())));
         if (!sent.length) return skip('placeholder');
         const now = new Date().toISOString(); v.woo_synced_at = now; v.updated_at = now;

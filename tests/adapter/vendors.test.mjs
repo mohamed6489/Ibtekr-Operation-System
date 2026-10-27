@@ -1068,4 +1068,9 @@ test('loadEvents (3.3): the server\'s vendor.sync / vendor.sync.conflict rows (a
   const ev = await V.loadEvents(V1);
   assert.deepEqual(plain(ev.map((e) => [e.text, e.actor.name])), [['اتعدل من الموقع: التليفون، العنوان، عمولة الفئات', 'الموقع'], ['تعارض — الموقع كسب في: الاسم', 'الموقع'], ['اتعدل من الموقع: bogus', 'الموقع'], ['صفوت كمال حدّد عمولة الفئة (هدايا: 35% من 2026-10-25)', 'صفوت كمال']]);
   assert.equal(V.toEvent({ id: 5, at: 'x', action: 'vendor.sync', new_value: '', actor: null }).text, 'اتعدل من الموقع: —');
+  // security review: a vendor.sync* row WITH an actor (a member logged the action himself) is never dressed as the site — his name, the generic wording
+  const forged = V.toEvent({ id: 6, at: 'x', action: 'vendor.sync', new_value: 'phone', actor: { name: 'سارة أحمد' } });
+  assert.deepEqual(plain([forged.text, forged.actor.name]), ['سارة أحمد vendor.sync (phone)', 'سارة أحمد']);
+  assert.deepEqual(plain(V.toEvent({ id: 7, at: 'x', action: 'vendor.sync.conflict', new_value: 'name', actor: { name: 'سارة أحمد' } }).text), 'سارة أحمد vendor.sync.conflict (name)');
+  assert.equal(V.toEvent({ id: 8, at: 'x', action: 'vendor.sync', new_value: 'phone' }).actor.name, 'الموقع'); // no actor key at all: the server's
 });

@@ -44,9 +44,17 @@ const BASE = { name: 'zaan', category: 'هدايا', phone: '01000000009', rate:
 const TEST_PW = 'Test1234'; // the fake test password
 const ok = (data) => ({ data, error: null });
 const denied = () => ({ data: null, error: { code: '42501', message: 'permission denied' } });
-const seed = () => ({ vendors: ok(VENDORS), vendor_rates: ok(RATES), vendor_bank: ok(BANK), vendor_logins: ok(LOGINS), activity_log: ok([]), brands: ok(BRANDS), brand_owners: ok(OWNERS), brand_rates: ok([]) });
+const seed = () => ({ vendors: ok(VENDORS), vendor_rates: ok(RATES), vendor_bank: ok(BANK), vendor_logins: ok(LOGINS), activity_log: ok([]), brands: ok(BRANDS), brand_owners: ok(OWNERS), brand_rates: ok([]), vendor_category_rates: ok([]), woo_categories: ok(CATEGORIES), 'fn:woo-sync': PUSH_OK });
 const B1_SHAPE = { id: B1, name: 'Art Craft', code: 'A', aliases: ['ArtCraft', 'آرت كرافت'], since: '2026-03-01', returnOn: null, temp: false, rate: null, store: V1, origin: V1, owner: V1, lastSince: '2026-03-01', back: V1 };
 const B4_SHAPE = { id: B4, name: 'Wood & Rope', code: 'W', aliases: ['W&R'], since: '2026-09-01', returnOn: null, temp: false, rate: null, store: null, origin: V1, owner: V1, lastSince: '2026-09-01', back: V1 };
+// phase 3.3 (0014): the empty synced shapes, the site's categories, Art Craft's category rates and a push_vendor answer
+const EMPTY_PARTS = { street_1: '', street_2: '', city: '', state: '', zip: '', country: '' };
+const EMPTY_SOCIAL = { fb: '', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' };
+const CATEGORIES = [{ id: 22, name: 'هدايا', slug: 'gifts', parent_id: 0, updated_at: T0 }, { id: 15, name: 'ديكور', slug: 'decor', parent_id: 0, updated_at: T0 }];
+const CAT_RATES = [{ id: 1, vendor_id: V1, woo_category_id: 15, rate: '30.00', flat: '0.00', since: '2026-03-01', set_by: 'الموقع', created_at: T0 }, { id: 2, vendor_id: V1, woo_category_id: 22, rate: 25, flat: null, since: '2026-10-01', set_by: 'صفوت كمال', created_at: T0 },
+  { id: 3, vendor_id: V1, woo_category_id: 22, rate: null, flat: null, since: '2026-10-20', set_by: 'صفوت كمال', created_at: T0 }, { id: 4, vendor_id: V1, woo_category_id: 15, rate: 33, flat: 5, since: '2027-01-01', set_by: 'صفوت كمال', created_at: T0 }];
+const PUSH_OK = (opts) => ({ data: { action: 'push_vendor', result: 'ok', fields: opts.body.fields, accepted: opts.body.fields, refused: [], dropped: [], counts: { pushed: 1 } }, error: null });
+const invokes = (calls) => calls.filter((c) => c.op === 'invoke').map((c) => c.args);
 const NOW = new Date(2026, 9, 25, 12, 0).getTime(); // the adapter's clock: local 2026-10-25
 const clockAt = (t) => class FakeDate extends Date { constructor(...a) { if (a.length) super(...a); else super(t); } static now() { return t; } };
 const OPS = { 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' };
@@ -63,7 +71,7 @@ function load({ responses = seed(), admin = true, perms = OPS, signedIn = true, 
     IBActivity: { log: (action, detail, meta) => { logs.push(plain([action, detail, meta])); return Promise.resolve(); } },
     IBOrders: { data: () => orders, load: () => { logs.push(['orders.load']); return Promise.resolve(); } } };
   if (app) window.OrdersApp = app;
-  const ctx = { window, document: { dispatchEvent(e) { events.push(plain({ type: e.type, detail: e.detail })); } }, Event, Date: clockAt(NOW) };
+  const ctx = { window, document: { dispatchEvent(e) { events.push(plain({ type: e.type, detail: e.detail })); } }, Event, URL, Date: clockAt(NOW) }; // URL: block 06 / the adapter judge the https links with it, as the browser does
   runInNewContext(domain, ctx); window.IbtekrVendors = ctx.IbtekrVendors; // block 06 (UMD, pure)
   runInNewContext(src, ctx);
   return { V: window.IBVendors, S: window.IBVendors.store, calls: stub.calls, responses: stub.responses, storage, events, logs, window };
@@ -84,8 +92,14 @@ test('load names every column (no *, no commission_pct), reads the rates and the
   assert.match(selectOf(calls, 'vendors')[0], /\bcontract\b.*\bopening_balance\b/);
   assert.deepEqual(opsOf(calls, 'vendors').filter((c) => c.op === 'range'), [{ op: 'range', args: [0, 999] }]);
   assert.deepEqual(plain(S.get(V1)), { id: V1, name: 'Art Craft', legalName: null, category: 'فنون ولوحات', aliases: ['ArtCraft', 'آرت كرافت'], status: 'active', phone: '01000000003', altPhone: null, email: null, address: null, instagram: null, storeUrl: null,
-    rate: 35, rateSince: '2026-03-01', rateHistory: [{ rate: 35, since: '2026-03-01', by: 'صفوت كمال' }], ratesVisible: true, leadDays: 7, depositPolicy: null, notes: 'الشحن على المبتكر', logoLetter: 'A', joinedAt: '2026-03-01',
+    contactName: null, addressParts: EMPTY_PARTS, social: EMPTY_SOCIAL, logoUrl: null, bannerUrl: null, wooPaymentMethods: [], wooSyncedAt: null, pushPending: [], categoryRates: [], rateFlat: null, // phase 3.3: no synced data on this row
+    rate: 35, rateSince: '2026-03-01', rateHistory: [{ rate: 35, flat: null, since: '2026-03-01', by: 'صفوت كمال' }], ratesVisible: true, leadDays: 7, depositPolicy: null, notes: 'الشحن على المبتكر', logoLetter: 'A', joinedAt: '2026-03-01',
     contract: null, bank: null, login: null, openingBalance: 0, wooVendorId: 2376, shopUrl: 'https://ibtekr.club/store/art-craft/', createdAt: T0, lastUpdate: T0, brands: [B1_SHAPE, B4_SHAPE], brandsEver: [] });
+  assert.match(selectOf(calls, 'vendors')[0], /\bcontact_name, address_parts, social, logo_url, banner_url, woo_payment_methods, push_pending, woo_synced_at$/); // 0014: by name, never woo_snapshot
+  assert.doesNotMatch(selectOf(calls, 'vendors')[0], /woo_snapshot/);
+  assert.equal(selectOf(calls, 'vendor_rates')[0], 'id, vendor_id, rate, flat, since, set_by, created_at');
+  assert.equal(selectOf(calls, 'vendor_category_rates')[0], 'id, vendor_id, woo_category_id, rate, flat, since, set_by, created_at');
+  assert.equal(selectOf(calls, 'woo_categories')[0], 'id, name, slug, parent_id, updated_at');
   for (const t of ['brands', 'brand_owners', 'brand_rates']) for (const s of selectOf(calls, t)) assert.doesNotMatch(s, /\*/, t); // phase 3.2: column lists
   assert.equal(selectOf(calls, 'brands')[0], 'id, name, code, aliases, store_vendor_id, origin_vendor_id, created_by, created_at, updated_at');
   assert.equal(selectOf(calls, 'brand_owners')[0], 'id, brand_id, vendor_id, since, return_on, reason, set_by, created_at');
@@ -891,4 +905,167 @@ test('loadEvents: the brand events read as sentences', async () => {
   await V.load();
   const ev = await V.loadEvents(V1);
   assert.deepEqual(plain(ev.map((e) => e.text)), ['صفوت كمال أضاف البراند Zaan', 'صفوت كمال عدّل البراند Zaan (name, code)', 'منى حسن حدّد النسبة الخاصة للبراند (Zaan: 30% من 2026-10-01)', 'هدى سمير نقل البراند (Zaan → Antikiano من 2026-10-20 لحد 2026-11-20)', 'هدى سمير رجّع البراند لصاحبه (Zaan → Art Craft من 2026-10-24)']);
+});
+
+// Phase 3.3 (decision 5): the synced store data on the vendor shape, the contact write with its derived columns and the push to the
+// site through woo-sync push_vendor (the member's client, the field names only), every answer of the contract, the rate's flat fee,
+// the per-category commission, the site's categories, the sync rows' texts.
+const SYNCED = row({ id: V1, woo_vendor_id: 2376, name: 'Art Craft', phone: '01000000003', category: 'فنون ولوحات', contact_name: 'منى عادل', address: '12 شارع المعز، القاهرة، الجمالية',
+  address_parts: { street_1: '12 شارع المعز', street_2: '', city: 'القاهرة', state: 'الجمالية', zip: '11511', country: 'EG' }, instagram: 'https://www.instagram.com/artcraft.dev',
+  social: { fb: 'https://www.facebook.com/artcraft.dev', instagram: 'https://www.instagram.com/artcraft.dev', twitter: 'javascript:alert(1)', youtube: 'http://youtube.com/a', threads: 'https://www.threads.net/@a"><img src=x>' },
+  logo_url: 'https://ibtekr.stage.test/wp-content/uploads/artcraft.png', banner_url: 'http://ibtekr.stage.test/banner.png', woo_payment_methods: ['bank', 'paypal'], push_pending: ['phone', 'bogus'], woo_synced_at: '2026-10-25T07:00:00+00:00' });
+const syncedSeed = () => ({ ...seed(), vendors: ok([SYNCED, VENDORS[0], VENDORS[2]]), vendor_rates: ok(RATES.concat([{ id: 9, vendor_id: V1, rate: 38, flat: '10.00', since: '2026-10-10', set_by: 'الموقع', created_at: T0 }])), vendor_category_rates: ok(CAT_RATES) });
+
+test('toVendor (3.3): the synced columns read by name — the parts and the links always whole (https:// or nothing), the mirrors https:// or null, the pending names filtered, the flat fee with the rate', async () => {
+  const { V, S } = load({ responses: syncedSeed() });
+  await V.load();
+  const v = S.get(V1);
+  assert.deepEqual(plain([v.contactName, v.address, v.addressParts]), ['منى عادل', '12 شارع المعز، القاهرة، الجمالية', { street_1: '12 شارع المعز', street_2: '', city: 'القاهرة', state: 'الجمالية', zip: '11511', country: 'EG' }]);
+  assert.deepEqual(plain(v.social), { fb: 'https://www.facebook.com/artcraft.dev', instagram: 'https://www.instagram.com/artcraft.dev', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: 'https://www.threads.net/@a"><img src=x>', flickr: '' });
+  assert.deepEqual(plain([v.logoUrl, v.bannerUrl, v.wooPaymentMethods, v.pushPending, v.wooSyncedAt]), ['https://ibtekr.stage.test/wp-content/uploads/artcraft.png', null, ['bank', 'paypal'], ['phone'], '2026-10-25T07:00:00+00:00']);
+  assert.deepEqual(plain([v.rate, v.rateFlat, v.rateSince, v.rateHistory]), [38, 10, '2026-10-10', [{ rate: 35, flat: null, since: '2026-03-01', by: 'صفوت كمال' }, { rate: 38, flat: 10, since: '2026-10-10', by: 'الموقع' }]]);
+  // the category rates in force on 2026-10-25: category 15 at 30% (the 2027 row waits), category 22 removed on 20 October (a null row)
+  assert.deepEqual(plain(v.categoryRates), [{ wooCategoryId: 15, name: 'ديكور', rate: 30, flat: 0, since: '2026-03-01' }]);
+  assert.deepEqual(plain(V.categories()), [{ id: 15, name: 'ديكور', slug: 'decor', parentId: 0 }, { id: 22, name: 'هدايا', slug: 'gifts', parentId: 0 }]); // by name
+  const ops = load({ admin: false, responses: syncedSeed() });
+  await ops.V.load();
+  assert.deepEqual(plain([ops.S.get(V1).categoryRates, ops.S.get(V1).rateFlat, ops.S.get(V1).contactName]), [[], null, 'منى عادل']); // no sensitive.commission: no category rates (and no request for them), the contact data for everyone
+  assert.deepEqual(opsOf(ops.calls, 'vendor_category_rates'), []);
+  const noCats = load({ responses: { ...syncedSeed(), woo_categories: denied() } });
+  await noCats.V.load();
+  assert.deepEqual([noCats.V.state(), noCats.S.get(V1).categoryRates[0].name], ['ready', '#15']); // the names refused: the id shows
+});
+
+test('update (3.3): the contact popup writes contact_name / address_parts / social with the derived address + instagram, then push_vendor names the synced fields; the reload carries the answer', async () => {
+  const { V, S, calls, logs, events } = load();
+  await V.load(); calls.length = 0; events.length = 0;
+  S.update(V1, { contactName: ' منى عادل ', addressParts: { street_1: '12 شارع المعز', city: 'القاهرة', state: 'الجمالية', zip: '11511', country: 'eg' }, social: { fb: 'https://www.facebook.com/artcraft.dev', instagram: 'https://www.instagram.com/artcraft.dev' }, phone: '01000000003' }, S.actor());
+  const v = S.get(V1);
+  assert.deepEqual(plain([v.contactName, v.address, v.instagram, v.addressParts.country]), ['منى عادل', '12 شارع المعز، القاهرة، الجمالية', 'https://www.instagram.com/artcraft.dev', 'EG']); // at once, the derived columns with their source
+  assert.deepEqual(events[0].detail, { id: V1, changed: ['contactName', 'addressParts', 'social'] }); // the phone unchanged: not sent
+  await settle();
+  const w = writesOf(calls, 'vendors');
+  assert.deepEqual(w[0], { op: 'update', args: [{ contact_name: 'منى عادل', address_parts: { street_1: '12 شارع المعز', street_2: '', city: 'القاهرة', state: 'الجمالية', zip: '11511', country: 'EG' }, social: { fb: 'https://www.facebook.com/artcraft.dev', instagram: 'https://www.instagram.com/artcraft.dev', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' }, address: '12 شارع المعز، القاهرة، الجمالية', instagram: 'https://www.instagram.com/artcraft.dev' }] });
+  assert.deepEqual(invokes(calls), [['woo-sync', { body: { action: 'push_vendor', vendor_id: V1, fields: ['contact_name', 'address_parts', 'social'] } }]]); // after the row, the names only
+  assert.ok(calls.findIndex((c) => c.op === 'invoke') > calls.findIndex((c) => c.op === 'update'), 'the row first');
+  assert.deepEqual(logs, [['vendor.update', 'contactName, addressParts, social', { entity: 'vendor', entity_id: V1 }]]);
+  assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'ok', fields: ['contact_name', 'address_parts', 'social'], accepted: ['contact_name', 'address_parts', 'social'], refused: [], dropped: [] }]);
+  // a status change pushes status; a notes change pushes nothing; the parts cleared on a synced row → address null with them
+  calls.length = 0; events.length = 0;
+  S.update(V1, { status: 'leave', notes: 'x' }, S.actor());
+  await settle();
+  assert.deepEqual(writesOf(calls, 'vendors')[0].args[0], { status: 'leave', notes: 'x' });
+  assert.deepEqual(invokes(calls)[0][1].body.fields, ['status']);
+  calls.length = 0;
+  S.update(V1, { notes: 'y', leadDays: 9 }, S.actor());
+  await settle();
+  assert.deepEqual(invokes(calls), []);
+  const sy = load({ responses: syncedSeed() });
+  await sy.V.load(); sy.calls.length = 0;
+  sy.S.update(V1, { addressParts: {}, social: {} }, sy.S.actor());
+  assert.deepEqual([sy.S.get(V1).address, sy.S.get(V1).instagram], [null, null]);
+  await settle();
+  assert.deepEqual(writesOf(sy.calls, 'vendors')[0].args[0], { address_parts: EMPTY_PARTS, social: EMPTY_SOCIAL, address: null, instagram: null });
+  assert.deepEqual(invokes(sy.calls)[0][1].body.fields, ['address_parts', 'social']);
+  // an invalid link or part is refused before any write, like the popup
+  assert.throws(() => S.update(V1, { social: { fb: 'http://f.com/a' } }, S.actor()), /invalid vendor: social/);
+  assert.throws(() => S.update(V1, { addressParts: { country: 'Egypt' } }, S.actor()), /invalid vendor: addressParts/);
+  assert.throws(() => S.update(V1, { contactName: 'a'.repeat(121) }, S.actor()), /invalid vendor: contactName/);
+});
+
+test('pushVendor answers (3.3): skipped reasons pass through, 502 / 500 / network are errors (the fields wait in push_pending), 401 is forbidden; no request without the permission or without a store; a refused row write pushes nothing', async () => {
+  const { V, S, calls, responses, events } = load();
+  await V.load();
+  for (const [i, reason] of ['push_disabled', 'no_store', 'placeholder'].entries()) {
+    responses['fn:woo-sync'] = () => ({ data: { action: 'push_vendor', result: 'skipped', reason, fields: ['phone'], counts: { pushed: 0 } }, error: null });
+    events.length = 0; S.update(V1, { phone: '0100000000' + (5 + i) }, S.actor()); await settle(); // a phone the seed does not have
+    assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'skipped', reason, fields: ['phone'] }], reason);
+  }
+  for (const [status, want] of [[502, 'woo_error'], [500, 'failed'], [404, 'failed'], [401, 'forbidden'], [403, 'forbidden']]) {
+    responses['fn:woo-sync'] = () => ({ data: null, error: { name: 'FunctionsHttpError', message: 'Edge Function returned a non-2xx status code', context: { status } } });
+    events.length = 0; S.update(V1, { phone: '01000000009' }, S.actor()); await settle();
+    assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'error', reason: want, status, fields: ['phone'] }], String(status));
+  }
+  responses['fn:woo-sync'] = () => { throw new Error('offline'); };
+  events.length = 0; S.update(V1, { phone: '01000000009' }, S.actor()); await settle();
+  assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'error', reason: 'network', fields: ['phone'] }]);
+  assert.equal(V.MESSAGES.push_failed, 'اتحفظ في السيستم، ومابعتش للموقع — هيتبعت مع المزامنة الجاية');
+  // a maker without a store: saved, nothing sent (the server would say no_store)
+  const ns = load({ responses: { ...seed(), vendors: ok([VENDORS[0], VENDORS[1], row({ id: V3, name: 'Bian eg', phone: '01000000000' })]) } });
+  await ns.V.load(); ns.calls.length = 0; ns.events.length = 0;
+  ns.S.update(V3, { phone: '01000000009' }, ns.S.actor()); await settle();
+  assert.deepEqual(invokes(ns.calls), []);
+  assert.deepEqual(ns.events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'skipped', reason: 'no_store', fields: ['phone'] }]);
+  // the row refused: no push
+  responses['fn:woo-sync'] = PUSH_OK; responses.vendors = (ops) => (ops.some((c) => c.op === 'update') ? denied() : ok(VENDORS)); calls.length = 0;
+  S.update(V1, { phone: '01000000008' }, S.actor()); await settle();
+  assert.deepEqual(invokes(calls), []);
+  // ops (vendors.edit = P) saves the contact here and may not push: no request, the answer says so (the sync does not carry it)
+  const ops = load({ admin: false });
+  await ops.V.load(); ops.calls.length = 0; ops.events.length = 0;
+  ops.S.update(V1, { phone: '01000000009' }, ops.S.actor()); await settle();
+  assert.deepEqual(invokes(ops.calls), []);
+  assert.deepEqual(ops.events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'skipped', reason: 'no_permission', fields: ['phone'] }]);
+  assert.deepEqual([ops.S.canPush(), S.canPush()], [false, true]);
+  const vf = load({ admin: false, perms: { 'vendors.view': 'F', 'vendors.edit': 'F', 'sensitive.commission': 'N' } }); // vendors follow-up: may push the contact, not the rate
+  await vf.V.load();
+  assert.deepEqual(plain([await vf.S.pushVendor(V1, ['phone']), await vf.S.pushVendor(V1, ['rate']), await vf.S.pushVendor(V1, ['bogus'])]), [{ result: 'ok', fields: ['phone'], accepted: ['phone'], refused: [], dropped: [] }, { result: 'skipped', reason: 'no_permission', fields: ['rate'] }, { result: 'skipped', reason: 'no_fields', fields: [] }]);
+});
+
+test('setRate (3.3): an optional flat fee in the row (absent without one), shown as rateFlat, in the event; the new rate is pushed as [rate]', async () => {
+  const { V, S, calls, logs, events } = load();
+  await V.load(); calls.length = 0; events.length = 0;
+  S.setRate(V1, 40, '2026-10-01', S.actor(), { flat: '١٠' });
+  assert.deepEqual(plain([S.get(V1).rate, S.get(V1).rateFlat, S.get(V1).rateHistory.map((x) => x.rate + '@' + x.since + '+' + x.flat)]), [40, 10, ['35@2026-03-01+null', '40@2026-10-01+10']]);
+  await settle();
+  assert.deepEqual(opsOf(calls, 'vendor_rates').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: V1, rate: 40, since: '2026-10-01', set_by: 'صفوت كمال', flat: 10 }]);
+  assert.deepEqual(invokes(calls), [['woo-sync', { body: { action: 'push_vendor', vendor_id: V1, fields: ['rate'] } }]]);
+  assert.deepEqual(logs, [['vendor.rate', '40% من 2026-10-01 + 10 ج.م', { entity: 'vendor', entity_id: V1 }]]);
+  assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push.result), ['ok']);
+  calls.length = 0;
+  S.setRate(V1, 42, '2026-11-01', S.actor(), { flat: '' }); await settle();
+  assert.deepEqual(opsOf(calls, 'vendor_rates').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: V1, rate: 42, since: '2026-11-01', set_by: 'صفوت كمال' }]); // no flat column without a fee
+  assert.throws(() => S.setRate(V1, 42, '2026-12-01', S.actor(), { flat: '-1' }), /flat out of range/);
+});
+
+test('setCategoryRate (3.3): one insert into vendor_category_rates (the category of the site, rate null = removed from that date), logged with the category name, pushed as [category_rates]; the same date refused locally, 23505 reads category_duplicate; sensitive.commission required', async () => {
+  const { V, S, calls, logs, events, responses } = load({ responses: syncedSeed() });
+  await V.load(); calls.length = 0; events.length = 0;
+  S.setCategoryRate(V1, '٢٢', { rate: '35', flat: '' }, '2026-10-25', S.actor());
+  assert.deepEqual(plain(S.get(V1).categoryRates), [{ wooCategoryId: 15, name: 'ديكور', rate: 30, flat: 0, since: '2026-03-01' }, { wooCategoryId: 22, name: 'هدايا', rate: 35, flat: null, since: '2026-10-25' }]); // at once
+  assert.deepEqual(events[0].detail, { id: V1, changed: ['categoryRates'] });
+  await settle();
+  assert.deepEqual(opsOf(calls, 'vendor_category_rates').filter((c) => ['insert', 'select'].includes(c.op) && c.args[0] !== 'id, vendor_id, woo_category_id, rate, flat, since, set_by, created_at').map((c) => c.args[0]), [{ vendor_id: V1, woo_category_id: 22, rate: 35, flat: null, since: '2026-10-25', set_by: 'صفوت كمال' }]); // no returning row
+  assert.deepEqual(invokes(calls), [['woo-sync', { body: { action: 'push_vendor', vendor_id: V1, fields: ['category_rates'] } }]]);
+  assert.deepEqual(logs, [['vendor.category_rate', 'هدايا: 35% من 2026-10-25', { entity: 'vendor', entity_id: V1 }]]);
+  assert.deepEqual(plain(S.get(V1).categoryRates.map((x) => x.wooCategoryId)), [15]); // the reload: the stub serves the seed again
+  calls.length = 0; logs.length = 0;
+  S.setCategoryRate(V1, 15, { rate: '', flat: '7' }, '2026-10-25', S.actor()); await settle(); // removed from today, a flat fee kept for display
+  assert.deepEqual(opsOf(calls, 'vendor_category_rates').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: V1, woo_category_id: 15, rate: null, flat: 7, since: '2026-10-25', set_by: 'صفوت كمال' }]);
+  assert.deepEqual(logs, [['vendor.category_rate', 'ديكور: — + 7 ج.م من 2026-10-25', { entity: 'vendor', entity_id: V1 }]]);
+  calls.length = 0;
+  assert.throws(() => S.setCategoryRate(V1, 15, { rate: 30 }, '2026-03-01', S.actor()), /فيه عمولة للفئة دي بنفس تاريخ السريان/); // (vendor, category, since) exists
+  assert.throws(() => S.setCategoryRate(V1, 99, { rate: 30 }, '2026-10-26', S.actor()), /اختار فئة من فئات الموقع/);
+  assert.throws(() => S.setCategoryRate(V1, 15, { rate: 70 }, '2026-10-26', S.actor()), /invalid category rate: rate/);
+  assert.throws(() => S.setCategoryRate(V1, 15, { rate: 30 }, '2026-13-01', S.actor()), /since required/);
+  assert.deepEqual(opsOf(calls, 'vendor_category_rates'), []);
+  responses.vendor_category_rates = (ops) => (ops.some((c) => c.op === 'insert') ? { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "vendor_category_rates_vendor_id_woo_category_id_since_key"' } } : ok(CAT_RATES));
+  events.length = 0; S.setCategoryRate(V1, 22, { rate: 20 }, '2026-10-26', S.actor()); await settle();
+  assert.deepEqual(events.filter((e) => e.detail.reason).map((e) => e.detail.reason), ['category_duplicate']);
+  assert.deepEqual(plain(S.get(V1).categoryRates.map((x) => x.wooCategoryId)), [15]); // back
+  assert.equal(V.MESSAGES.category_duplicate, 'فيه عمولة للفئة دي بنفس تاريخ السريان — اختار تاريخ تاني');
+  const ops = load({ admin: false, responses: syncedSeed() });
+  await ops.V.load(); ops.calls.length = 0;
+  assert.throws(() => ops.S.setCategoryRate(V1, 22, { rate: 20 }, '2026-10-26', ops.S.actor()), /مش من صلاحياتك/);
+  assert.deepEqual(opsOf(ops.calls, 'vendor_category_rates'), []);
+});
+
+test('loadEvents (3.3): the server\'s vendor.sync / vendor.sync.conflict rows (actor null) read in the site\'s voice with the Arabic field labels', async () => {
+  const rows = [{ id: 1, at: '2026-10-25T07:00:00+00:00', action: 'vendor.sync', new_value: 'phone, address_parts, category_rates', actor: null }, { id: 2, at: '2026-10-25T07:15:00+00:00', action: 'vendor.sync.conflict', new_value: 'name', actor: null },
+    { id: 3, at: '2026-10-25T07:30:00+00:00', action: 'vendor.sync', new_value: 'bogus', actor: null }, { id: 4, at: '2026-10-25T07:45:00+00:00', action: 'vendor.category_rate', new_value: 'هدايا: 35% من 2026-10-25', actor: { name: 'صفوت كمال' } }];
+  const { V } = load({ responses: { ...seed(), activity_log: ok(rows.slice().reverse()) } });
+  await V.load();
+  const ev = await V.loadEvents(V1);
+  assert.deepEqual(plain(ev.map((e) => [e.text, e.actor.name])), [['اتعدل من الموقع: التليفون، العنوان، عمولة الفئات', 'الموقع'], ['تعارض — الموقع كسب في: الاسم', 'الموقع'], ['اتعدل من الموقع: bogus', 'الموقع'], ['صفوت كمال حدّد عمولة الفئة (هدايا: 35% من 2026-10-25)', 'صفوت كمال']]);
+  assert.equal(V.toEvent({ id: 5, at: 'x', action: 'vendor.sync', new_value: '', actor: null }).text, 'اتعدل من الموقع: —');
 });

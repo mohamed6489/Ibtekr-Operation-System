@@ -129,3 +129,65 @@ test('validateTransfer: a start date, not before the last transfer; a return dat
   assert.deepEqual(V.validateTransfer({ since: '2026-10-20', returnOn: '2026-11-20', toId: 'B', ownerId: 'A', lastSince: '2026-03-01' }), {});
   assert.deepEqual(V.validateTransfer({ since: '2026-10-20', returnOn: null, toId: 'B' }), {});
 });
+// Phase 3.3 (decisions 1 / 5 / 6): the synced store data — the address parts and their joined text (the server's rule), the social
+// links (https:// or nothing), the per-category commission form, the Arabic labels of the synced fields, the widened contact group.
+test('ADDRESS_KEYS / SOCIAL_KEYS / SYNC_FIELD_LABELS: Dokan\'s six address keys, its eight social keys with Arabic labels, a label for every synced field', () => {
+  assert.deepEqual(V.ADDRESS_KEYS, ['street_1', 'street_2', 'city', 'state', 'zip', 'country']);
+  assert.deepEqual(V.ADDRESS_LABELS.map((x) => x[0]), V.ADDRESS_KEYS);
+  assert.deepEqual(V.SOCIAL_KEYS.map((x) => x[0]), ['fb', 'instagram', 'twitter', 'youtube', 'linkedin', 'pinterest', 'threads', 'flickr']);
+  assert.equal(V.label(V.SOCIAL_KEYS, 'fb'), 'فيسبوك');
+  assert.deepEqual(Object.keys(V.SYNC_FIELD_LABELS), ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates']);
+  assert.deepEqual([V.SYNC_FIELD_LABELS.phone, V.SYNC_FIELD_LABELS.address_parts, V.SYNC_FIELD_LABELS.category_rates], ['التليفون', 'العنوان', 'عمولة الفئات']);
+});
+test('addressText: the filled street_1 / street_2 / city / state joined by «، » (zip and country never), null when none — the server\'s rule', () => {
+  assert.equal(V.addressText({ street_1: '12 شارع المعز', street_2: '', city: 'القاهرة', state: 'الجمالية', zip: '11511', country: 'EG' }), '12 شارع المعز، القاهرة، الجمالية');
+  assert.equal(V.addressText({ street_1: ' 12 شارع المعز ', street_2: 'الدور 3', city: 'القاهرة', state: 'الجمالية' }), '12 شارع المعز، الدور 3، القاهرة، الجمالية');
+  assert.equal(V.addressText({ zip: '11511', country: 'EG' }), null);
+  assert.equal(V.addressText({}), null);
+  assert.equal(V.addressText(null), null);
+  assert.equal(V.addressText({ city: 'الجيزة' }), 'الجيزة');
+});
+test('cleanAddressParts: always the six keys, trimmed and capped, the country upper-cased latin; cleanSocial: always the eight keys, https:// or empty', () => {
+  assert.deepEqual(V.cleanAddressParts({ street_1: '  12 شارع   المعز ', city: 'القاهرة', country: 'eg', extra: 'x' }), { street_1: '12 شارع المعز', street_2: '', city: 'القاهرة', state: '', zip: '', country: 'EG' });
+  assert.deepEqual(V.cleanAddressParts(null), { street_1: '', street_2: '', city: '', state: '', zip: '', country: '' });
+  assert.equal(V.cleanAddressParts({ street_1: 'a'.repeat(200) }).street_1.length, 120);
+  assert.deepEqual(V.cleanSocial({ fb: ' https://www.facebook.com/artcraft ', instagram: 'javascript:alert(1)', twitter: 'http://x.com/a', youtube: '@artcraft', linkedin: 'https://', threads: 'https://www.threads.net/@a"><img src=x>' }),
+    { fb: 'https://www.facebook.com/artcraft', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: 'https://www.threads.net/@a"><img src=x>', flickr: '' }); // html inside an https link stays text for the screen; a non-https value is nothing
+  assert.deepEqual(V.cleanSocial(null), { fb: '', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' });
+  assert.equal(V.cleanSocial({ fb: 'https://x.com/' + 'a'.repeat(200) }).fb, ''); // over 200: blanked
+  assert.equal(V.cleanSocial({ fb: 'HTTPS://X.COM/A' }).fb, 'HTTPS://X.COM/A');
+});
+test('validateAddressParts: each part within its length, the zip latin letters / digits, the country a two-letter code or empty', () => {
+  assert.deepEqual(V.validateAddressParts({ street_1: '12 شارع المعز', city: 'القاهرة', state: 'الجمالية', zip: '11511', country: 'EG' }), {});
+  assert.deepEqual(V.validateAddressParts({}), {});
+  assert.deepEqual(V.validateAddressParts(null), {});
+  assert.deepEqual(V.validateAddressParts({ street_1: 'a'.repeat(121), city: 'b'.repeat(81), zip: '١١٥١١', country: 'Egypt' }), { street_1: 'لحد 120 حرف', city: 'لحد 80 حرف', country: 'كود الدولة حرفين إنجليزي (مثلًا EG)' }); // Arabic digits in the zip read as latin
+  assert.deepEqual(V.validateAddressParts({ zip: '11511-ش', country: 'eg' }), { zip: 'الرمز البريدي أرقام وحروف إنجليزي بس' });
+  assert.deepEqual(V.validateAddressParts({ zip: 'a'.repeat(21) }), { zip: 'لحد 20 حرف' });
+});
+test('validateSocial: empty is fine; a link must be a full https:// address (no http, no handle, no javascript:) up to 200 characters', () => {
+  assert.deepEqual(V.validateSocial({ fb: 'https://www.facebook.com/artcraft', instagram: '' }), {});
+  assert.deepEqual(V.validateSocial({}), {});
+  assert.deepEqual(V.validateSocial(null), {});
+  assert.deepEqual(V.validateSocial({ fb: 'http://www.facebook.com/artcraft', instagram: '@artcraft', twitter: 'javascript:alert(1)', youtube: 'https://', linkedin: 'https://x.com/' + 'a'.repeat(200) }),
+    { fb: 'الرابط لازم يبدأ بـ https://', instagram: 'الرابط لازم يبدأ بـ https://', twitter: 'الرابط لازم يبدأ بـ https://', youtube: 'الرابط لازم يبدأ بـ https://', linkedin: 'الرابط أطول من 200 حرف' });
+  assert.deepEqual(V.validateSocial({ unknown: 'x' }), {}); // only the eight keys are judged
+});
+test('validateCategoryRate: a positive category id; the rate empty (none from that date) or 0–65; the flat fee empty or ≥ 0', () => {
+  assert.deepEqual(V.validateCategoryRate({ wooCategoryId: 15, rate: '30', flat: '' }), {});
+  assert.deepEqual(V.validateCategoryRate({ wooCategoryId: '15', rate: '', flat: '0' }), {}); // blank rate = the category rate is removed from that date
+  assert.deepEqual(V.validateCategoryRate({ wooCategoryId: '٢٢', rate: '٣٥', flat: '١٠' }), {}); // Arabic digits
+  assert.deepEqual(V.validateCategoryRate({}), { wooCategoryId: 'اختار الفئة' });
+  assert.deepEqual(V.validateCategoryRate({ wooCategoryId: 0, rate: 70, flat: -1 }), { wooCategoryId: 'اختار الفئة', rate: 'النسبة من 0% إلى 65%', flat: 'الرسوم الثابتة رقم من 0 أو أكتر' });
+  assert.deepEqual(V.validateCategoryRate({ wooCategoryId: 1.5, rate: 'abc', flat: 'x' }), { wooCategoryId: 'اختار الفئة', rate: 'النسبة من 0% إلى 65%', flat: 'الرسوم الثابتة رقم من 0 أو أكتر' });
+  assert.deepEqual(V.validateCategoryRate({ wooCategoryId: 15, rate: null, flat: null }), {});
+});
+test('EDIT_GROUPS.contact carries contactName / addressParts / social (instagram lives in social); validateGroup nests their errors; groupPatch keeps the objects', () => {
+  assert.deepEqual([...V.EDIT_GROUPS.contact.fields], ['phone', 'altPhone', 'email', 'contactName', 'addressParts', 'social', 'storeUrl']);
+  const cur = ok({ contactName: 'منى عادل', addressParts: { city: 'القاهرة' }, social: { fb: '' } });
+  assert.deepEqual(V.validateGroup('contact', cur, { phone: '01000000009', addressParts: { street_1: 'x', country: 'Egypt' }, social: { fb: 'http://f.com/a' } }), { addressParts: { country: 'كود الدولة حرفين إنجليزي (مثلًا EG)' }, social: { fb: 'الرابط لازم يبدأ بـ https://' } });
+  assert.deepEqual(V.validateGroup('contact', cur, { phone: '01000000009', addressParts: { street_1: 'x', country: 'EG' }, social: { fb: 'https://f.com/a' } }), {});
+  assert.deepEqual(V.validateGroup('contact', cur, { phone: '123', contactName: 'a'.repeat(121) }), { phone: 'اكتب رقم موبايل مصري صحيح (11 رقم يبدأ بـ 01)', contactName: 'اسم صاحب المتجر لحد 120 حرف' });
+  assert.deepEqual(V.validateGroup('identity', cur, { name: 'Zaan', addressParts: { country: 'Egypt' } }), {}); // another group never judges the contact objects
+  assert.deepEqual(V.groupPatch('contact', { social: { fb: 'https://f.com/a' }, name: 'x' }), { social: { fb: 'https://f.com/a' } });
+});

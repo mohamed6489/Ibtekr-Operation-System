@@ -44,12 +44,29 @@
 // match by name only for a sub without vendorId), and its share uses rateFor (the brand's special rate in force, else the
 // owner's rate that day) — without any transfer or special rate the numbers are those of phase 3. A brand without a history
 // row (an owner insert refused after the brand's) belongs to its origin until a row is written.
+// Phase 3.3 (decision 5, the store data two-way with Dokan): the vendor shape gains the synced columns of 0014 — contactName,
+// addressParts (the six Dokan keys), social (the eight keys, each https:// or ''), the read-only mirrors logoUrl / bannerUrl /
+// wooPaymentMethods, wooSyncedAt and pushPending (field names waiting for the site), rateFlat (the flat fee shown with the rate; the
+// history rows carry `flat`) and categoryRates (the per-category commission in force today, read from vendor_category_rates with
+// sensitive.commission); categories() lists woo_categories for the pickers. A contact edit writes contact_name / address_parts /
+// social and, with them, `address` (block 06 addressText — the server's rule) and `instagram` (= social.instagram, decision 1); then the
+// row is pushed to the site: pushVendor(id, fields) = functions.invoke('woo-sync', { body: { action: 'push_vendor', vendor_id, fields } })
+// with the member's session — the values pushed are the row's, the body names the fields only. Only the admin and vendors.edit = F may
+// push (the server's rule, canPush): anyone else saves here and the result says 'no_permission' without a request; a maker without a
+// store is 'no_store' without a request. The answers: ok (wooSyncedAt / pushPending refreshed by the reload), skipped (no_store /
+// push_disabled / placeholder: saved, nothing more to say), an error (502 and the rest: MESSAGES.push_failed — the fields wait in
+// push_pending for the next sync run). setRate carries an optional flat fee and pushes ['rate']; setCategoryRate inserts a dated
+// vendor_category_rates row (rate null = removed from that date; unique (vendor, category, since) → 23505 category_duplicate) and
+// pushes ['category_rates']. The server's vendor.sync / vendor.sync.conflict rows (actor null) read «اتعدل من الموقع: …» / «تعارض —
+// الموقع كسب في: …» with the field labels of block 06. The screen never calls WooCommerce: every push is this one Edge Function.
 (function () {
   'use strict';
   const PAGE = 1000; // PostgREST max_rows
   const COLS = {
-    vendor: 'id, woo_vendor_id, name, aliases, phone, email, status, raw, created_at, updated_at, legal_name, category, alt_phone, address, instagram, store_url, lead_days, deposit_policy, notes, joined_at, contract, opening_balance',
-    rate: 'id, vendor_id, rate, since, set_by, created_at',
+    vendor: 'id, woo_vendor_id, name, aliases, phone, email, status, raw, created_at, updated_at, legal_name, category, alt_phone, address, instagram, store_url, lead_days, deposit_policy, notes, joined_at, contract, opening_balance, contact_name, address_parts, social, logo_url, banner_url, woo_payment_methods, push_pending, woo_synced_at', // 0014: never woo_snapshot (service_role only)
+    rate: 'id, vendor_id, rate, flat, since, set_by, created_at',
+    catRate: 'id, vendor_id, woo_category_id, rate, flat, since, set_by, created_at', // 0014 (phase 3.3): sensitive.commission
+    category: 'id, name, slug, parent_id, updated_at', // 0014: woo_categories (vendors.view)
     bank: 'vendor_id, method, bank_name, holder, iban, wallet, updated_by, updated_at',
     login: 'vendor_id, username, email, pw_mode, status, must_change, invite_sent_at, password_set_at, created_by, created_at, updated_at', // never secret_id (server only)
     event: 'id, at, action, new_value, actor:profiles(name)',
@@ -62,8 +79,15 @@
   const CONTRACT_MAX = 10 * 1024 * 1024;
   const PAY_METHODS = ['bank', 'instapay', 'wallet', 'cash'];
   // the vendors columns the team writes, by the prototype's field names
-  const COL = { name: 'name', legalName: 'legal_name', category: 'category', aliases: 'aliases', status: 'status', phone: 'phone', altPhone: 'alt_phone', email: 'email', address: 'address', instagram: 'instagram', storeUrl: 'store_url', leadDays: 'lead_days', depositPolicy: 'deposit_policy', notes: 'notes', joinedAt: 'joined_at' };
+  const COL = { name: 'name', legalName: 'legal_name', category: 'category', aliases: 'aliases', status: 'status', phone: 'phone', altPhone: 'alt_phone', email: 'email', address: 'address', instagram: 'instagram', storeUrl: 'store_url', leadDays: 'lead_days', depositPolicy: 'deposit_policy', notes: 'notes', joinedAt: 'joined_at',
+    contactName: 'contact_name', addressParts: 'address_parts', social: 'social' }; // phase 3.3 (0014): the three synced contact columns
+  // phase 3.3: the vendors fields the site mirrors (push_vendor's `fields`), by the prototype's field name → the server's name
+  const SYNC_OF = { name: 'name', phone: 'phone', email: 'email', contactName: 'contact_name', addressParts: 'address_parts', social: 'social', status: 'status' };
+  const SYNC_FIELDS = ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates'];
+  const ADDRESS_KEYS = ['street_1', 'street_2', 'city', 'state', 'zip', 'country']; const SOCIAL_KEYS = ['fb', 'instagram', 'twitter', 'youtube', 'linkedin', 'pinterest', 'threads', 'flickr'];
   const MESSAGES = { forbidden: 'مش من صلاحياتك', network: 'الشبكة مش متاحة — التغيير ما اتحفظش، جرّب تاني', in_use: 'ماينفعش يتمسح — عليه أوردرات', too_large: 'الملف أكبر من 10 ميجا', bad_type: 'نوع الملف مش مقبول — PDF أو صورة (PNG / JPG) بس', duplicate: 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني',
+    // phase 3.3: the push to the site and the per-category commission
+    push_failed: 'اتحفظ في السيستم، ومابعتش للموقع — هيتبعت مع المزامنة الجاية', push_forbidden: 'اتحفظ في السيستم بس — إرسال التعديل للموقع محتاج صلاحية تعديل المبتكرين الكاملة', category_duplicate: 'فيه عمولة للفئة دي بنفس تاريخ السريان — اختار تاريخ تاني', bad_rate: 'النسبة من 0% إلى 65% والرسوم الثابتة من 0 أو أكتر', bad_category: 'اختار فئة من فئات الموقع',
     duplicate_username: 'اسم المستخدم ده مستخدم قبل كده', login_exists: 'المبتكر ده عنده بيانات دخول — عدّلها من ملفه', weak_password: 'الباسورد لازم: 8 حروف على الأقل، حرف إنجليزي، رقم، من غير مسافات', no_vault: 'الباسورد المؤقت مش متاح على السيرفر ده دلوقتي (Vault مش شغّال)', no_login: 'اعمل اسم مستخدم الأول', long_password: 'الباسورد أطول من 128 حرف',
     // phase 3.2: the brands (the local refusals and the server's 23505 / 22023 / 23503 say the same)
     brand_exists: 'فيه براند بنفس الاسم — اختار اسم تاني', brand_same_vendor: 'البراند أصلًا عند المبتكر ده', brand_same_date: 'فيه نقل للبراند بنفس التاريخ — اختار تاريخ بعده', brand_since_before: 'التاريخ ده قبل آخر نقل للبراند — اختار تاريخ بعده',
@@ -73,6 +97,7 @@
   const DONE = ['مكتمل']; const OUT = ['ملغي', 'استرجاع', 'فشل', 'مرتجع', 'مسترد', 'ملغي / مرتجع'];
   let vendors = new Map(); const timeline = new Map(); const revealed = new Map(); let gen = 0; let st = 'idle'; let ratesOk = false;
   let brands = new Map(); let brandRatesOk = false; // phase 3.2: id → { id, name, code, aliases, store, origin, history, rates, … }
+  let catRates = new Map(); let catRatesOk = false; let categoriesMap = new Map(); // phase 3.3: vendor → vendor_category_rates rows (since ascending); woo_categories by id
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
   const uid = () => { const s = window.IBAuth && window.IBAuth.session(); return (s && s.user && s.user.id) || null; };
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
@@ -115,6 +140,16 @@
   }
   const kindOf = (status) => (DONE.includes(status) ? 'c' : OUT.includes(status) ? 'x' : 'p');
 
+  // phase 3.3: an https:// URL (the site's logo / banner / links), else null — the screen makes a link or an image from these only
+  const httpsOrNull = (v) => { const s = text(v); if (!/^https:\/\//i.test(s)) return null; try { return new URL(s).protocol === 'https:' ? s : null; } catch (e) { return null; } };
+  // vendor_category_rates rows of one maker → the row in force today per category (the last `since <= T`), those with a rate (a null
+  // rate = removed from that date): [{ wooCategoryId, name, rate, flat, since }] by category name
+  function effectiveCategoryRates(rows, T) {
+    const cur = new Map();
+    for (const x of (rows || []).slice().sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : (Number(a.id) || 0) - (Number(b.id) || 0)))) { const s = localDate(x.since); if (s && s <= T) cur.set(String(x.woo_category_id), Object.assign({}, x, { since: s })); }
+    return [...cur.values()].filter((x) => x.rate != null && Number.isFinite(Number(x.rate))).map((x) => ({ wooCategoryId: Number(x.woo_category_id), name: categoryName(x.woo_category_id), rate: Number(x.rate), flat: x.flat == null ? null : num(x.flat), since: x.since })).sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+  }
+  const categoryName = (id) => { const c = categoriesMap.get(String(id)); return c ? c.name : '#' + id; };
   // ---------- the vendor shape (pure) ----------
   // a vendors row + its vendor_rates rows + its vendor_bank row (or null) → the prototype's vendor; opts.ratesVisible says
   // whether the caller may see the rates (rate / rateSince / rateHistory stay null / [] otherwise); opts.today for the effective rate
@@ -122,15 +157,22 @@
   const toLogin = (l) => (l ? { username: text(l.username), email: l.email || null, pwMode: l.pw_mode === 'temp' ? 'temp' : 'link', status: LOGIN_STATUSES.includes(l.status) ? l.status : 'invited', mustChange: !!l.must_change, passwordSetAt: l.password_set_at || null, inviteSentAt: l.invite_sent_at || null, hasPassword: !!l.password_set_at } : null);
   function toVendor(r, rates, bank, opts = {}) {
     const T = (opts && opts.today) || today(); const visible = !!(opts && opts.ratesVisible);
-    const hist = (rates || []).filter((x) => x.vendor_id == null || String(x.vendor_id) === String(r.id)).map((x) => ({ rate: Number(x.rate), since: localDate(x.since), by: text(x.set_by) })).filter((x) => Number.isFinite(x.rate) && x.since).sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
+    const hist = (rates || []).filter((x) => x.vendor_id == null || String(x.vendor_id) === String(r.id)).map((x) => ({ rate: Number(x.rate), flat: x.flat == null ? null : num(x.flat), since: localDate(x.since), by: text(x.set_by) })).filter((x) => Number.isFinite(x.rate) && x.since).sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
     let cur = null; for (const x of hist) if (x.since <= T) cur = x; if (!cur && hist.length) cur = hist[0];
     const raw = r.raw && typeof r.raw === 'object' ? r.raw : {};
     const ct = r.contract && typeof r.contract === 'object' ? r.contract : null;
     const contract = ct && ct.file_name ? { fileName: text(ct.file_name), size: Number(ct.size) || 0, expires: ct.expires || null, uploadedBy: text(ct.uploaded_by), uploadedAt: text(ct.uploaded_at), path: text(ct.path) } : null;
     const b = bank ? { method: PAY_METHODS.includes(bank.method) ? bank.method : 'bank', bankName: bank.bank_name || null, holder: bank.holder || null, iban: bank.iban || null, wallet: bank.wallet || null } : null;
     const name = text(r.name);
+    // phase 3.3: the synced store data — the parts and the links always carry every key; the mirrors are https:// or null
+    const D = VD(); const parts = D && D.cleanAddressParts ? D.cleanAddressParts(r.address_parts) : Object.fromEntries(ADDRESS_KEYS.map((k) => [k, text(r.address_parts && r.address_parts[k])]));
+    const social = D && D.cleanSocial ? D.cleanSocial(r.social) : Object.fromEntries(SOCIAL_KEYS.map((k) => [k, httpsOrNull(r.social && r.social[k]) || '']));
+    const pending = Array.isArray(r.push_pending) ? r.push_pending.filter((f) => SYNC_FIELDS.includes(f)) : [];
+    const cats = visible ? effectiveCategoryRates(opts.categoryRates || [], T) : [];
     return { id: String(r.id), name, legalName: r.legal_name || null, category: r.category || null, aliases: parseAliases(r.aliases || []), status: r.status === 'inactive' || r.status === 'leave' ? r.status : 'active',
       phone: r.phone || null, altPhone: r.alt_phone || null, email: r.email || null, address: r.address || null, instagram: r.instagram || null, storeUrl: r.store_url || null,
+      contactName: text(r.contact_name) || null, addressParts: parts, social, logoUrl: httpsOrNull(r.logo_url), bannerUrl: httpsOrNull(r.banner_url), wooPaymentMethods: Array.isArray(r.woo_payment_methods) ? r.woo_payment_methods.map(text).filter(Boolean) : [],
+      wooSyncedAt: text(r.woo_synced_at) || null, pushPending: pending, categoryRates: cats, rateFlat: visible && cur ? cur.flat : null,
       rate: visible && cur ? cur.rate : null, rateSince: visible && cur ? cur.since : null, rateHistory: visible ? hist : [], ratesVisible: visible,
       leadDays: Number(r.lead_days) || 7, depositPolicy: r.deposit_policy || null, notes: r.notes || null, logoLetter: name.charAt(0),
       joinedAt: localDate(r.joined_at) || localDate(r.created_at) || T, contract, bank: b, login: toLogin(opts && opts.login), openingBalance: Number(r.opening_balance) || 0,
@@ -176,7 +218,17 @@
   function syncVendorBrands() { const T = today(); for (const v of vendors.values()) { v.brands = brandsOf(v.id, T); v.brandsEver = brandsEverOf(v.id, T); } }
   const contractRow = (ct) => (ct ? { path: ct.path || null, file_name: ct.fileName, size: ct.size, expires: ct.expires || null, uploaded_by: ct.uploadedBy, uploaded_at: ct.uploadedAt } : null);
   // an activity_log row → the drawer's timeline event (text in the actor's voice, like the prototype's events)
-  const VERB = { 'vendor.create': 'أضاف المبتكر', 'vendor.update': 'عدّل بيانات المبتكر', 'vendor.status': 'غيّر حالة المبتكر', 'vendor.rate': 'غيّر نسبة إبتكر', 'vendor.bank': 'عدّل بيانات الحساب البنكي', 'vendor.reveal': 'أظهر', 'vendor.contract': 'رفع عقد التعاون', 'vendor.remove': 'حذف المبتكر', 'vendor.share': 'شارك أوردرات المبتكر', 'vendor.login': 'عدّل بيانات الدخول', 'vendor.login.status': 'غيّر حالة حساب الدخول', 'vendor.login.password': 'عمل باسورد مؤقت للمبتكر', 'vendor.login.reveal': 'أظهر باسورد الدخول (دعم)' };
+  const VERB = { 'vendor.create': 'أضاف المبتكر', 'vendor.update': 'عدّل بيانات المبتكر', 'vendor.status': 'غيّر حالة المبتكر', 'vendor.rate': 'غيّر نسبة إبتكر', 'vendor.bank': 'عدّل بيانات الحساب البنكي', 'vendor.reveal': 'أظهر', 'vendor.contract': 'رفع عقد التعاون', 'vendor.remove': 'حذف المبتكر', 'vendor.share': 'شارك أوردرات المبتكر', 'vendor.login': 'عدّل بيانات الدخول', 'vendor.login.status': 'غيّر حالة حساب الدخول', 'vendor.login.password': 'عمل باسورد مؤقت للمبتكر', 'vendor.login.reveal': 'أظهر باسورد الدخول (دعم)',
+    'vendor.category_rate': 'حدّد عمولة الفئة' }; // phase 3.3
+  // phase 3.3: the server's sync rows (actor null, new_value = the field names joined by ', ') read in the site's voice with the Arabic
+  // labels of block 06 — «اتعدل من الموقع: التليفون، العنوان» / «تعارض — الموقع كسب في: الاسم»
+  const SYNC_VERB = { 'vendor.sync': 'اتعدل من الموقع: ', 'vendor.sync.conflict': 'تعارض — الموقع كسب في: ' };
+  const SITE_ACTOR = 'الموقع';
+  function syncText(action, detail) {
+    const D = VD(); const L = (D && D.SYNC_FIELD_LABELS) || {};
+    const labels = String(detail || '').split(/\s*,\s*/).map((f) => f.trim()).filter(Boolean).map((f) => L[f] || f);
+    return SYNC_VERB[action] + (labels.length ? labels.join('، ') : '—');
+  }
   // phase 3.2: the brand events read as sentences — vendor.brand carries `add: <name>` / `update: <name> (<fields>)`,
   // vendor.brand.rate `<name>: <rate|—> من <since>`, vendor.brand.transfer / .return `<name> → <to> من <since>[ لحد <returnOn>]`
   function brandText(action, detail) {
@@ -185,7 +237,9 @@
     return verb + (detail ? ' (' + detail + ')' : '');
   }
   function toEvent(r) {
-    const actor = (r.actor && r.actor.name) || '—'; const detail = typeof r.new_value === 'string' ? r.new_value : r.new_value == null ? '' : JSON.stringify(r.new_value);
+    const detail = typeof r.new_value === 'string' ? r.new_value : r.new_value == null ? '' : JSON.stringify(r.new_value);
+    if (SYNC_VERB[r.action]) return { id: r.id, at: r.at, action: r.action, actor: { name: SITE_ACTOR }, text: syncText(r.action, detail) };
+    const actor = (r.actor && r.actor.name) || '—';
     const text = /^vendor\.brand(\.|$)/.test(r.action) && !VERB[r.action] ? brandText(r.action, detail) : (VERB[r.action] || r.action) + (detail ? ' (' + detail + ')' : '');
     return { id: r.id, at: r.at, action: r.action, actor: { name: actor }, text: actor + ' ' + text };
   }
@@ -199,6 +253,7 @@
   const canRate = () => perm('sensitive.commission') === 'F';
   const canLogin = () => isAdmin() || perm('vendors.edit') === 'F'; // vendor_logins insert / update and the two RPCs
   const canBrands = () => isAdmin() || perm('vendors.edit') === 'F'; // brands insert / update, brand_owners insert (0013: admin or vendors.edit = F)
+  const canPush = () => isAdmin() || perm('vendors.edit') === 'F'; // phase 3.3: woo-sync push_vendor (the rate fields add sensitive.commission, checked by the callers)
   // the signed-in member as the prototype's actor { name, role }
   function actor() {
     const K = window.IBKit; const m = K && K.member && K.ME ? K.member(K.ME) : null;
@@ -229,7 +284,7 @@
     try {
       const mayRate = canRate(); // the brand_rates policy needs sensitive.commission = F: no request without it (0 rows anyway)
       const none = { data: [], error: null };
-      const [vs, rs, bs, ls, brs, ows, bts] = await Promise.all([
+      const [vs, rs, bs, ls, brs, ows, bts, crs, cts] = await Promise.all([
         pages(() => cl.from('vendors').select(COLS.vendor).order('name', { ascending: true }).order('id', { ascending: true }), g),
         cl.from('vendor_rates').select(COLS.rate).order('since', { ascending: true }).order('id', { ascending: true }),
         cl.from('vendor_bank').select(COLS.bank),
@@ -237,22 +292,30 @@
         pages(() => cl.from('brands').select(COLS.brand).order('name', { ascending: true }).order('id', { ascending: true }), g).then((data) => ({ data, error: null }), (error) => ({ data: null, error })),
         pages(() => cl.from('brand_owners').select(COLS.owner).order('since', { ascending: true }).order('id', { ascending: true }), g).then((data) => ({ data, error: null }), (error) => ({ data: null, error })),
         mayRate ? cl.from('brand_rates').select(COLS.brandRate).order('since', { ascending: true }).order('id', { ascending: true }) : none,
+        // phase 3.3: the per-category commission (sensitive.commission: no request without it) and the site's category names (vendors.view)
+        mayRate ? pages(() => cl.from('vendor_category_rates').select(COLS.catRate).order('since', { ascending: true }).order('id', { ascending: true }), g).then((data) => ({ data, error: null }), (error) => ({ data: null, error })) : none,
+        pages(() => cl.from('woo_categories').select(COLS.category).order('name', { ascending: true }).order('id', { ascending: true }), g).then((data) => ({ data, error: null }), (error) => ({ data: null, error })),
       ]);
       stale(g);
       ratesOk = !rs.error; const visible = ratesOk && canRate();
       brandRatesOk = mayRate && !bts.error; // refused / not asked: no special rates known
+      catRatesOk = mayRate && !crs.error; // refused / not asked: no category rates known
+      categoriesMap = new Map((cts.error ? [] : cts.data || []).map((c) => [String(c.id), { id: Number(c.id), name: text(c.name) || '#' + c.id, slug: text(c.slug), parentId: c.parent_id == null ? null : Number(c.parent_id) }]));
+      catRates = new Map(); (catRatesOk ? crs.data || [] : []).forEach((x) => { const k = String(x.vendor_id); if (!catRates.has(k)) catRates.set(k, []); catRates.get(k).push(x); });
       const brandRows = brs.error ? [] : brs.data || []; const ownerRows = ows.error ? [] : ows.data || []; const brandRates = brandRatesOk ? bts.data || [] : [];
       brands = new Map(brandRows.map((r) => [String(r.id), toBrand(r, ownerRows, brandRates, brandRatesOk)]));
       const byVendor = new Map(); (rs.error ? [] : rs.data || []).forEach((x) => { const k = String(x.vendor_id); if (!byVendor.has(k)) byVendor.set(k, []); byVendor.get(k).push(x); });
       const bankOf = new Map((bs.error ? [] : bs.data || []).map((b) => [String(b.vendor_id), b]));
       const loginOf = new Map((ls.error ? [] : ls.data || []).map((l) => [String(l.vendor_id), l])); // refused or empty: no login known
       const T = today();
-      vendors = new Map(vs.map((r) => [String(r.id), toVendor(r, byVendor.get(String(r.id)) || [], bankOf.get(String(r.id)) || null, { ratesVisible: visible, today: T, login: loginOf.get(String(r.id)) || null })]));
+      vendors = new Map(vs.map((r) => [String(r.id), toVendor(r, byVendor.get(String(r.id)) || [], bankOf.get(String(r.id)) || null, { ratesVisible: visible, today: T, login: loginOf.get(String(r.id)) || null, categoryRates: catRates.get(String(r.id)) || [] })]));
       syncVendorBrands();
       setState('ready');
     } catch (e) { if (g === gen) setState('error'); /* offline or refused: the screen keeps what it had; cleared: 'idle' */ }
   }
-  function clear() { gen += 1; vendors = new Map(); brands = new Map(); timeline.clear(); revealed.clear(); ratesOk = false; brandRatesOk = false; setState('idle'); }
+  function clear() { gen += 1; vendors = new Map(); brands = new Map(); catRates = new Map(); categoriesMap = new Map(); timeline.clear(); revealed.clear(); ratesOk = false; brandRatesOk = false; catRatesOk = false; setState('idle'); }
+  // phase 3.3: the site's product categories for the pickers, by name
+  const categories = () => [...categoriesMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((c) => Object.assign({}, c));
   const data = () => (st === 'ready' ? { vendors: all(), ratesVisible: ratesOk && canRate(), brands: allBrands() } : null);
 
   // ---------- the store ----------
@@ -266,7 +329,8 @@
   // the brands' own codes (0013) are told apart by their message: 23503 of vendors_brands_guard_delete names brand_owners_vendor_id_fkey,
   // 23505 of the name index brands_name_key, 22023 of brand_owners_guard says which rule
   const msgOf = (e) => String((e && e.message) || '');
-  const reasonOf = (e) => (!e ? 'network' : e.code === '42501' || e.status === 403 || e.status === 401 || e.statusCode === '403' || e.statusCode === '401' ? 'forbidden' : e.code === '23503' ? (/brand_owners_vendor_id_fkey/.test(msgOf(e)) ? 'has_brands' : 'in_use') : e.code === '23505' ? (/brands_name_key/.test(msgOf(e)) ? 'brand_exists' : /brand_owners_brand_id_since_key/.test(msgOf(e)) ? 'brand_same_date' : 'duplicate') : e.code === '22023' ? (/since before the last transfer/.test(msgOf(e)) ? 'brand_since_before' : /same vendor/.test(msgOf(e)) ? 'brand_same_vendor' : 'weak_password') : e.code === '23514' && /return_on/.test(msgOf(e)) ? 'brand_return_before' : e.code === '0A000' ? 'no_vault' : e.code === 'P0002' ? 'no_login' : e.statusCode === '413' || e.status === 413 ? 'too_large' : e.statusCode === '415' || e.status === 415 ? 'bad_type' : 'network');
+  // phase 3.3: 23505 of vendor_category_rates (vendor, category, since) → category_duplicate; its checks (23514 rate / flat / category id) → bad_rate / bad_category
+  const reasonOf = (e) => (!e ? 'network' : e.code === '42501' || e.status === 403 || e.status === 401 || e.statusCode === '403' || e.statusCode === '401' ? 'forbidden' : e.code === '23503' ? (/brand_owners_vendor_id_fkey/.test(msgOf(e)) ? 'has_brands' : 'in_use') : e.code === '23505' ? (/brands_name_key/.test(msgOf(e)) ? 'brand_exists' : /brand_owners_brand_id_since_key/.test(msgOf(e)) ? 'brand_same_date' : /vendor_category_rates/.test(msgOf(e)) ? 'category_duplicate' : 'duplicate') : e.code === '22023' ? (/since before the last transfer/.test(msgOf(e)) ? 'brand_since_before' : /same vendor/.test(msgOf(e)) ? 'brand_same_vendor' : 'weak_password') : e.code === '23514' && /return_on/.test(msgOf(e)) ? 'brand_return_before' : e.code === '23514' && /vendor_category_rates_woo_category_id/.test(msgOf(e)) ? 'bad_category' : e.code === '23514' && /vendor_category_rates|vendor_rates_(rate|flat)/.test(msgOf(e)) ? 'bad_rate' : e.code === '0A000' ? 'no_vault' : e.code === 'P0002' ? 'no_login' : e.statusCode === '413' || e.status === 413 ? 'too_large' : e.statusCode === '415' || e.status === 415 ? 'bad_type' : 'network');
   // one call of the client → { ok, data } | { ok:false, reason }, never thrown
   async function call(fn) {
     const cl = c();
@@ -278,17 +342,38 @@
     const A = window.IBActivity; if (!A || !A.log) return Promise.resolve();
     return Promise.resolve(quiet(() => A.log(action, detail, { entity: 'vendor', entity_id: String(id) }))).catch(() => undefined).then(() => (timeline.has(String(id)) ? fetchEvents(id) : undefined)).catch(() => undefined);
   }
+  // phase 3.3 (decision 5): the row written, the site takes it — one call of woo-sync push_vendor with the member's session; the body
+  // names the fields only (the server reads the row). → { result: 'ok' | 'skipped' | 'error', reason?, fields? }; never thrown. No request
+  // for a caller without the push permission ('no_permission') or a maker without a store ('no_store'): the server would answer the same.
+  async function pushVendor(id, fields) {
+    const v = vendors.get(String(id)); const list = (fields || []).filter((f) => SYNC_FIELDS.includes(f));
+    if (!list.length) return { result: 'skipped', reason: 'no_fields', fields: [] };
+    if (!canPush() || (list.some((f) => f === 'rate' || f === 'category_rates') && !canRate())) return { result: 'skipped', reason: 'no_permission', fields: list };
+    if (v && !v.wooVendorId) return { result: 'skipped', reason: 'no_store', fields: list };
+    const cl = c();
+    if (!cl || !uid()) return { result: 'error', reason: 'network', fields: list };
+    try {
+      const { data: d, error } = await cl.functions.invoke('woo-sync', { body: { action: 'push_vendor', vendor_id: String(id), fields: list } });
+      if (error) { const st = error.context && error.context.status; return { result: 'error', reason: st === 401 || st === 403 ? 'forbidden' : st === 502 ? 'woo_error' : 'failed', status: st || null, fields: list }; }
+      const a = d && typeof d === 'object' ? d : {};
+      if (a.result === 'ok') return { result: 'ok', fields: Array.isArray(a.fields) ? a.fields : list, accepted: a.accepted || [], refused: a.refused || [], dropped: a.dropped || [] };
+      if (a.result === 'skipped') return { result: 'skipped', reason: text(a.reason) || 'skipped', fields: list };
+      return { result: 'error', reason: 'failed', fields: list };
+    } catch (e) { return { result: 'error', reason: 'network', fields: list }; }
+  }
   // the server write of a local change already applied to `v` (the row in the map): a refusal puts `old` back (unless a reload
-  // replaced the row meanwhile) and announces the reason; a success logs, reloads (the server's row is the truth) and announces
-  async function write(id, v, old, run, logged) {
+  // replaced the row meanwhile) and announces the reason; a success pushes the synced fields to the site (phase 3.3, when any),
+  // logs, reloads (the server's row is the truth: woo_synced_at / push_pending among it) and announces { written, push }
+  async function write(id, v, old, run, logged, push) {
     const r = await run();
     if (!r.ok) {
       const now = vendors.get(id); // a removed row: v is null and the map has nothing
       if (v ? now === v : now === undefined) { if (old) vendors.set(id, old); else vendors.delete(id); }
       emit({ id, reason: r.reason }); return r;
     }
+    const p = push && push.length ? await pushVendor(id, push) : null;
     await Promise.all([logged ? logged() : undefined, load()]);
-    emit({ id, written: true });
+    emit(p ? { id, written: true, push: p } : { id, written: true });
     return r;
   }
   const validate = (input) => { const D = VD(); return D && D.validateVendor ? D.validateVendor(input) : {}; };
@@ -299,15 +384,22 @@
     if (k === 'leadDays') return Number(latin(nv));
     if (k === 'phone' || k === 'altPhone') return nv ? digits(nv) : null;
     if (k === 'category' || k === 'status') return nv;
+    if (k === 'addressParts') { const D = VD(); return D && D.cleanAddressParts ? D.cleanAddressParts(nv) : nv; } // phase 3.3: always the six keys
+    if (k === 'social') { const D = VD(); return D && D.cleanSocial ? D.cleanSocial(nv) : nv; } // the eight keys, https:// or ''
     if (typeof nv === 'string') return clean(nv, k === 'notes' ? 500 : k === 'address' || k === 'storeUrl' ? 200 : 120) || null;
     return nv;
   }
+  const addressOf = (parts) => { const D = VD(); return D && D.addressText ? D.addressText(parts) : null; };
   // a patch in the prototype's field names → the changed vendors columns of `v` (the server guard checks per column)
   function update(id, patch, actor) {
     const v = must(id); if (!canEdit()) throw noPerm();
     if (patch.status !== undefined && patch.status !== v.status && !canToggle()) throw noPerm(); // the guard's rule 1 (vendors.toggle)
     const errs = validate(Object.assign({}, v, { aliases: v.aliases.join('،') }, patch)); invalid(errs, Object.keys(patch).filter((k) => patch[k] !== undefined));
     if (patch.joinedAt !== undefined && patch.joinedAt && !isIso(patch.joinedAt)) throw new Error('invalid vendor: joinedAt');
+    // phase 3.3: the parts and the links judged by block 06 before any write (the popup shows the same messages)
+    const D = VD();
+    if (patch.addressParts !== undefined && D && D.validateAddressParts && Object.keys(D.validateAddressParts(patch.addressParts)).length) throw new Error('invalid vendor: addressParts');
+    if (patch.social !== undefined && D && D.validateSocial && Object.keys(D.validateSocial(patch.social)).length) throw new Error('invalid vendor: social');
     const old = copy(v); const row = {}; const changed = [];
     for (const k of Object.keys(COL)) {
       if (patch[k] === undefined) continue;
@@ -317,26 +409,56 @@
     }
     if (!changed.length) return get(id);
     if (changed.includes('name')) v.logoLetter = v.name.charAt(0);
+    // phase 3.3 (decision 1): the parts change → `address` (the joined text, the server's rule) with them; the links change → `instagram` = social.instagram
+    if (changed.includes('addressParts')) { v.address = addressOf(v.addressParts); row.address = v.address; }
+    if (changed.includes('social')) { v.instagram = v.social.instagram || null; row.instagram = v.instagram; }
     v.lastUpdate = new Date().toISOString();
     emit({ id, changed });
     const fields = changed.filter((k) => k !== 'status');
+    const push = changed.map((k) => SYNC_OF[k]).filter(Boolean); // the synced fields among the change → push_vendor after the row
     write(id, v, old, () => call((cl) => cl.from('vendors').update(row).eq('id', id)), () => Promise.all([
       changed.includes('status') ? logEvent('vendor.status', v.status, id) : undefined,
       fields.length ? logEvent('vendor.update', fields.join(', '), id) : undefined,
       changed.includes('name') && window.IBOrders && window.IBOrders.load ? quiet(() => window.IBOrders.load()) : undefined, // the orders carry vendors.name (decision 11)
-    ]));
+    ]), push);
     return get(id);
   }
-  function setRate(id, rate, since, actor) {
+  // the flat fee next to a rate ('' / null = none): a number ≥ 0 or null; anything else throws
+  const flatOf = (raw) => { if (raw == null || String(raw).trim() === '') return null; const f = Number(latin(raw)); if (!Number.isFinite(f) || f < 0) throw new Error('flat out of range'); return f; };
+  // phase 3.3: opts.flat = the site's flat fee shown with the rate (vendor_rates.flat, display only); the new row is pushed as the
+  // maker's commission on the site (push_vendor ['rate'] — fixed, or category_based when he has category rates)
+  function setRate(id, rate, since, actor, opts) {
     const v = must(id); if (!canRate()) throw noPerm();
     const r = Number(latin(rate)); if (!Number.isFinite(r) || r < 0 || r > 65) throw new Error('rate out of range'); if (!isIso(since)) throw new Error('since required');
+    const flat = flatOf(opts && opts.flat);
     if (v.rateHistory.some((x) => x.since === since)) throw new Error(MESSAGES.duplicate); // unique (vendor_id, since): rates are never rewritten
     const old = copy(v); const T = today();
-    v.rateHistory = v.rateHistory.filter((x) => x.since !== since).concat([{ rate: r, since, by: actor && actor.name }]).sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
+    v.rateHistory = v.rateHistory.filter((x) => x.since !== since).concat([{ rate: r, flat, since, by: actor && actor.name }]).sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
     let cur = null; for (const x of v.rateHistory) if (x.since <= T) cur = x; if (!cur) cur = v.rateHistory[0];
-    v.rate = cur.rate; v.rateSince = cur.since; v.ratesVisible = true; v.lastUpdate = new Date().toISOString();
+    v.rate = cur.rate; v.rateFlat = cur.flat == null ? null : cur.flat; v.rateSince = cur.since; v.ratesVisible = true; v.lastUpdate = new Date().toISOString();
     emit({ id, changed: ['rate'] });
-    write(id, v, old, () => call((cl) => cl.from('vendor_rates').insert({ vendor_id: id, rate: r, since, set_by: (actor && actor.name) || null })), () => logEvent('vendor.rate', r + '% من ' + since, id));
+    const ins = { vendor_id: id, rate: r, since, set_by: (actor && actor.name) || null }; if (flat != null) ins.flat = flat;
+    write(id, v, old, () => call((cl) => cl.from('vendor_rates').insert(ins)), () => logEvent('vendor.rate', r + '% من ' + since + (flat != null ? ' + ' + flat + ' ج.م' : ''), id), ['rate']);
+  }
+  // phase 3.3 (decision 2): the commission on one of the site's categories from a date — a new vendor_category_rates row (add-only; rate
+  // null = the category rate is removed from that date; unique (vendor, category, since) refused locally, 23505 reads the same), then
+  // push_vendor ['category_rates'] (the site takes category_based with every category rate in force). Logged with the category's name.
+  function setCategoryRate(vendorId, wooCategoryId, input, since, actor) {
+    const v = must(vendorId); if (!canRate()) throw noPerm();
+    const D = VD(); const errs = D && D.validateCategoryRate ? D.validateCategoryRate({ wooCategoryId, rate: input && input.rate, flat: input && input.flat }) : {};
+    const bad = Object.keys(errs); if (bad.length) throw new Error('invalid category rate: ' + bad.join(','));
+    const cid = Number(latin(wooCategoryId)); if (!isIso(since)) throw new Error('since required');
+    if (!categoriesMap.has(String(cid))) throw new Error(MESSAGES.bad_category);
+    const raw = input && input.rate; const r = raw == null || String(raw).trim() === '' ? null : Number(latin(raw)); const flat = flatOf(input && input.flat);
+    const rows = catRates.get(String(vendorId)) || [];
+    if (rows.some((x) => Number(x.woo_category_id) === cid && localDate(x.since) === since)) throw new Error(MESSAGES.category_duplicate);
+    const old = copy(v); const oldRows = rows.slice(); const by = (actor && actor.name) || null;
+    catRates.set(String(vendorId), rows.concat([{ id: Number.MAX_SAFE_INTEGER, vendor_id: String(vendorId), woo_category_id: cid, rate: r, flat, since, set_by: by }]));
+    v.categoryRates = effectiveCategoryRates(catRates.get(String(vendorId)), today()); catRatesOk = true; v.lastUpdate = new Date().toISOString();
+    emit({ id: String(vendorId), changed: ['categoryRates'] });
+    const run = async () => { const res = await call((cl) => cl.from('vendor_category_rates').insert({ vendor_id: String(vendorId), woo_category_id: cid, rate: r, flat, since, set_by: by })); if (!res.ok) catRates.set(String(vendorId), oldRows); return res; };
+    write(String(vendorId), v, old, run, () => logEvent('vendor.category_rate', categoryName(cid) + ': ' + (r == null ? '—' : r + '%') + (flat != null ? ' + ' + flat + ' ج.م' : '') + ' من ' + since, vendorId), ['category_rates']);
+    return get(vendorId);
   }
   // the prototype's cleaning of a bank form (the IBAN upper-cased, decision 7) and its vendor_bank row
   const cleanBank = (bank) => ({ method: PAY_METHODS.includes(bank.method) ? bank.method : 'bank', bankName: clean(bank.bankName, 80) || null, holder: clean(bank.holder, 120) || null, iban: latin(bank.iban || '').replace(/\s/g, '').toUpperCase() || null, wallet: latin(bank.wallet || '').replace(/\s/g, '') || null });
@@ -496,7 +618,9 @@
     }
     const bank = canBank() && input.bank && input.bank.method ? cleanBank(input.bank) : null;
     if (bank) { const be = bankErrs(input.bank); const bad = Object.keys(be); if (bad.length) throw new Error('invalid bank: ' + bad.join(',')); }
-    const row = {}; for (const k of Object.keys(COL)) { if (k === 'joinedAt') continue; const nv = cleanField(k, input[k] === undefined ? '' : input[k]); if (nv !== null && nv !== '' && !(Array.isArray(nv) && !nv.length)) row[COL[k]] = nv; }
+    const row = {}; for (const k of Object.keys(COL)) { if (k === 'joinedAt' || ((k === 'addressParts' || k === 'social') && (!input[k] || typeof input[k] !== 'object'))) continue; const nv = cleanField(k, input[k] === undefined ? '' : input[k]); if (nv !== null && nv !== '' && !(Array.isArray(nv) && !nv.length)) row[COL[k]] = nv; }
+    if (row.address_parts) row.address = addressOf(row.address_parts) || undefined; if (row.social) row.instagram = row.social.instagram || undefined; // phase 3.3: the derived columns with their source
+    for (const k of Object.keys(row)) if (row[k] === undefined) delete row[k];
     row.name = clean(input.name, 80); row.status = input.status; row.lead_days = Number(latin(input.leadDays)); row.aliases = parseAliases(input.aliases || '');
     row.joined_at = input.joinedAt && isIso(input.joinedAt) ? input.joinedAt : today();
     const r = await call((cl) => cl.from('vendors').insert(row).select('id').single());
@@ -674,6 +798,7 @@
   }
 
   const store = { get, all, events, update, setRate, setBank, reveal, setContract, findByName, remove, restoreMoney, create, addLogin, setLogin, setLoginStatus, setLoginPassword, revealPassword, usernameTaken, missing, canEdit, canBank, canToggle, canRate, canLogin, canBrands, actor,
-    brand, allBrands, brandByName, namesOf, ownerAt, storeOwnerAt, rateFor, addBrand, updateBrand, setBrandRate, transferBrand, returnBrand };
-  window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, setContract, contractUrl, stats, toVendor, toBrand, lineShare, rateAt, rateFor, storeOwnerAt, safeName, norm, today, MESSAGES, BUCKET };
+    brand, allBrands, brandByName, namesOf, ownerAt, storeOwnerAt, rateFor, addBrand, updateBrand, setBrandRate, transferBrand, returnBrand,
+    setCategoryRate, categories, canPush, pushVendor }; // phase 3.3
+  window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, setContract, contractUrl, stats, toVendor, toBrand, lineShare, rateAt, rateFor, storeOwnerAt, safeName, norm, today, MESSAGES, BUCKET, SYNC_FIELDS, toEvent, categories };
 })();

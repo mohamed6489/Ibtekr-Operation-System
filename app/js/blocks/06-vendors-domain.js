@@ -65,16 +65,68 @@
     if (!STATUSES.some((s) => s[0] === input.status)) e.status = 'اختار الحالة';
     if (input.email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(clean(input.email, 120))) e.email = 'اكتب إيميل صحيح';
     if (input.altPhone && !phoneOk(input.altPhone)) e.altPhone = 'اكتب رقم موبايل صحيح';
+    if (input.contactName && clean(input.contactName, 1000).length > 120) e.contactName = 'اسم صاحب المتجر لحد 120 حرف'; // phase 3.3 (↔ Dokan first_name + last_name)
+    return e;
+  }
+  // Phase 3.3 (decision 1 / 6, the store data synced with Dokan): the six address parts and the eight social links of a store, the
+  // Arabic labels of the synced fields (the «سجل النشاط» texts of vendor.sync / vendor.sync.conflict), the pure checks of the contact
+  // popup and of the per-category commission. addressText joins the filled street_1 / street_2 / city / state by «، » exactly as the
+  // server does (woo-core addressText): the adapter writes vendors.address from it with every change of the parts.
+  const ADDRESS_KEYS = Object.freeze(['street_1', 'street_2', 'city', 'state', 'zip', 'country']);
+  const ADDRESS_LABELS = Object.freeze([['street_1', 'الشارع'], ['street_2', 'تكملة العنوان'], ['city', 'المدينة'], ['state', 'المحافظة'], ['zip', 'الرمز البريدي'], ['country', 'الدولة (كود)']]);
+  const SOCIAL_KEYS = Object.freeze([['fb', 'فيسبوك'], ['instagram', 'إنستجرام'], ['twitter', 'إكس (تويتر)'], ['youtube', 'يوتيوب'], ['linkedin', 'لينكدإن'], ['pinterest', 'بينترست'], ['threads', 'ثريدز'], ['flickr', 'فليكر']]);
+  const SYNC_FIELD_LABELS = Object.freeze({ name: 'الاسم', phone: 'التليفون', email: 'الإيميل', contact_name: 'اسم صاحب المتجر', address_parts: 'العنوان', social: 'السوشيال', status: 'الحالة', rate: 'النسبة', category_rates: 'عمولة الفئات' });
+  const ADDRESS_MAX = Object.freeze({ street_1: 120, street_2: 120, city: 80, state: 80, zip: 20, country: 2 });
+  const SOCIAL_MAX = 200;
+  // the six keys, every value a cleaned string ('' when absent)
+  function cleanAddressParts(parts) { const p = parts && typeof parts === 'object' ? parts : {}; return Object.fromEntries(ADDRESS_KEYS.map((k) => [k, k === 'country' ? latin(clean(p[k], 10)).toUpperCase() : clean(p[k], ADDRESS_MAX[k])])); }
+  // the eight keys, every value an https:// URL (trimmed) or '' — anything else (http:, javascript:, a handle) is blanked, as the server does
+  const httpsOrEmpty = (v) => { const s = clean(v, SOCIAL_MAX + 1); if (!/^https:\/\//i.test(s) || s.length > SOCIAL_MAX) return ''; try { return new URL(s).protocol === 'https:' ? s : ''; } catch (e) { return ''; } };
+  function cleanSocial(social) { const s = social && typeof social === 'object' ? social : {}; return Object.fromEntries(SOCIAL_KEYS.map(([k]) => [k, httpsOrEmpty(s[k])])); }
+  function addressText(parts) { const p = parts && typeof parts === 'object' ? parts : {}; const t = ['street_1', 'street_2', 'city', 'state'].map((k) => clean(p[k], 400)).filter(Boolean).join('، '); return t || null; }
+  // { street_1, …, country } → { key: message }: each part within its length, the country a two-letter code (EG) or empty
+  function validateAddressParts(parts) {
+    const e = {}; const p = parts && typeof parts === 'object' ? parts : {};
+    for (const k of ADDRESS_KEYS) {
+      const v = String(p[k] == null ? '' : p[k]).trim();
+      if (k === 'country') { if (v && !/^[A-Za-z]{2}$/.test(latin(v))) e[k] = 'كود الدولة حرفين إنجليزي (مثلًا EG)'; }
+      else if (clean(v, 1000).length > ADDRESS_MAX[k]) e[k] = 'لحد ' + ADDRESS_MAX[k] + ' حرف';
+      else if (k === 'zip' && v && !/^[A-Za-z0-9 -]{1,20}$/.test(latin(v))) e[k] = 'الرمز البريدي أرقام وحروف إنجليزي بس';
+    }
+    return e;
+  }
+  // { fb, instagram, … } → { key: message }: every link empty or a full https:// address up to 200 characters
+  function validateSocial(social) {
+    const e = {}; const s = social && typeof social === 'object' ? social : {};
+    for (const [k] of SOCIAL_KEYS) {
+      const v = String(s[k] == null ? '' : s[k]).trim(); if (!v) continue;
+      if (v.length > SOCIAL_MAX) e[k] = 'الرابط أطول من ' + SOCIAL_MAX + ' حرف';
+      else if (!httpsOrEmpty(v)) e[k] = 'الرابط لازم يبدأ بـ https://';
+    }
+    return e;
+  }
+  // the per-category commission popup: { wooCategoryId, rate ('' = no category rate from that date, else 0–65), flat ('' or ≥ 0) } → { field: message }
+  function validateCategoryRate(input) {
+    const e = {}; const c = input || {};
+    const id = Number(latin(c.wooCategoryId == null ? '' : c.wooCategoryId)); if (!(Number.isInteger(id) && id > 0)) e.wooCategoryId = 'اختار الفئة';
+    if (c.rate !== undefined && c.rate !== null && String(c.rate).trim() !== '') { const r = Number(latin(c.rate)); if (!Number.isFinite(r) || r < 0 || r > 65) e.rate = 'النسبة من 0% إلى 65%'; }
+    if (c.flat !== undefined && c.flat !== null && String(c.flat).trim() !== '') { const f = Number(latin(c.flat)); if (!Number.isFinite(f) || f < 0) e.flat = 'الرسوم الثابتة رقم من 0 أو أكتر'; }
     return e;
   }
   // Drawer edit groups — each section of «ملف المبتكر» has its own «تعديل» popup with only its fields (rate has its own dated flow inside «الاتفاق التجاري»).
+  // Phase 3.3: the contact group carries the store owner's name, the address parts and the social links (instagram = social.instagram since then).
   const EDIT_GROUPS = Object.freeze({
     identity: Object.freeze({ title: 'بيانات الهوية', fields: Object.freeze(['name', 'legalName', 'category', 'aliases', 'status']) }),
-    contact: Object.freeze({ title: 'بيانات الاتصال', fields: Object.freeze(['phone', 'altPhone', 'email', 'address', 'instagram', 'storeUrl']) }),
+    contact: Object.freeze({ title: 'بيانات الاتصال', fields: Object.freeze(['phone', 'altPhone', 'email', 'contactName', 'addressParts', 'social', 'storeUrl']) }),
     terms: Object.freeze({ title: 'بيانات الاتفاق التجاري', fields: Object.freeze(['leadDays', 'depositPolicy', 'notes']) }) });
   const group = (g) => { const x = EDIT_GROUPS[g]; if (!x) throw new Error('unknown edit group: ' + g); return x; };
   function groupPatch(g, form) { const out = {}; for (const k of group(g).fields) if (form[k] !== undefined) out[k] = form[k]; return out; }
-  function validateGroup(g, current, form) { const fields = group(g).fields; const e = validateVendor(Object.assign({}, current, groupPatch(g, form))); const out = {}; for (const k of Object.keys(e)) if (fields.includes(k)) out[k] = e[k]; return out; }
+  function validateGroup(g, current, form) {
+    const fields = group(g).fields; const merged = Object.assign({}, current, groupPatch(g, form)); const e = validateVendor(merged); const out = {}; for (const k of Object.keys(e)) if (fields.includes(k)) out[k] = e[k];
+    if (fields.includes('addressParts') && merged.addressParts !== undefined) { const a = validateAddressParts(merged.addressParts); if (Object.keys(a).length) out.addressParts = a; } // nested: { key: message }
+    if (fields.includes('social') && merged.social !== undefined) { const s = validateSocial(merged.social); if (Object.keys(s).length) out.social = s; }
+    return out;
+  }
   // Drawer tabs «الأوردرات» + «الحسابات» (owner, 21 Oct): counts, performance summary, account ledger. Pure.
   const CANCELLED = ['ملغي', 'مرتجع', 'مسترد', 'ملغي / مرتجع'];
   const isDone = (o) => o.status === 'مكتمل', isCancel = (o) => CANCELLED.includes(o.status);
@@ -362,6 +414,6 @@
     return e;
   }
 
-  return Object.freeze({ validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
+  return Object.freeze({ ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
 });
 

@@ -440,7 +440,8 @@ export async function installSupabaseMock(page, opts = {}) {
         for (const o of mock.orders) {
           const d = String(o.placed_at || '').slice(0, 10); const g = grp(o.status); if (!g || d < b.p_from || d > b.p_to) continue;
           for (const i of mock.orderItems.filter((x) => Number(x.order_id) === Number(o.id) && !x.removed)) {
-            const rate = i.commission_rate != null ? Number(i.commission_rate) : Number((mock.vendorRates.filter((r) => r.vendor_id === i.vendor_id && r.since <= d).sort((a, c) => (a.since < c.since ? 1 : -1))[0] || {}).rate || 0);
+            const rates = isAdmin(u) || hasPerm(u, 'sensitive.commission') === 'F'; // the agreement stays with its key (security review)
+            const rate = i.commission_rate != null ? Number(i.commission_rate) : !rates ? 0 : Number((mock.vendorRates.filter((r) => r.vendor_id === i.vendor_id && r.since <= d).sort((a, c) => (a.since < c.since ? 1 : -1))[0] || {}).rate || 0);
             lines.push({ v: i.vendor_id || null, g, o: o.id, total: Number(i.total) || 0, share: (Number(i.total) || 0) * rate / 100 + (Number(i.commission_fee) || 0) });
           }
         }

@@ -49,6 +49,8 @@ test('add: the value → the table columns with .select; a subscription keeps it
   assert.deepEqual(ins, { on_date: '2026-10-22', direction: 'withdraw', category: 'المصروفات', beneficiary: 'مطبعة', beneficiary_other: true, amount: 100, note: null, sub_name: null, sub_is_other: false, sub_ends: null, sub_alerts: [], sub_note: null });
   assert.deepEqual(logs.at(-1).slice(0, 2), ['accounts.expense', 'المصروفات · سحب · 100 · 2026-10-22']);
   assert.ok(!JSON.stringify(logs).includes('مطبعة'));
+  await A.add('expenses', { date: '2026-10-23', direction: 'withdraw', category: 'المرتبات', beneficiaryName: 'x', amount: 9000 });
+  assert.equal(logs.at(-1)[1], 'المرتبات · سحب · 2026-10-23'); // no amount for the payroll (the log is wider than accounts.view F)
   // a maker move by name → vendor_id
   assert.deepEqual(plain(A.toColumns('vendorMoves', { vendor: 'Art Craft', date: '2026-10-22', direction: 'withdraw', type: 'أخرى', typeName: 'شحن', amount: 50 })), { vendor_id: V1, on_date: '2026-10-22', direction: 'withdraw', kind: 'أخرى', kind_name: 'شحن', amount: 50, note: null });
 });

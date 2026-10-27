@@ -21,7 +21,7 @@ where u.id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-
 insert into public.profiles (id, name, email, phone, role_id, status, custom_perms) values
   ('00000000-0000-4000-8000-0000000000d1', 'حسابات كامل', 'acc-f.dev@ibtekr.local',  '010000000d1', 'ops', 'active', '{"accounts.view":"F","accounts.add":"F","accounts.approve":"N"}'),
   ('00000000-0000-4000-8000-0000000000d2', 'حسابات جزئي', 'acc-p.dev@ibtekr.local',  '010000000d2', 'ops', 'active', '{"accounts.view":"P","accounts.add":"F","accounts.approve":"N"}'),
-  ('00000000-0000-4000-8000-0000000000d3', 'حسابات موافقة', 'acc-ap.dev@ibtekr.local', '010000000d3', 'ops', 'active', '{"accounts.view":"F","accounts.add":"F","accounts.approve":"F"}'),
+  ('00000000-0000-4000-8000-0000000000d3', 'حسابات موافقة', 'acc-ap.dev@ibtekr.local', '010000000d3', 'ops', 'active', '{"accounts.view":"F","accounts.add":"F","accounts.approve":"F","sensitive.commission":"F"}'),
   ('00000000-0000-4000-8000-0000000000d4', 'حسابات بدون', 'acc-n.dev@ibtekr.local',   '010000000d4', 'ops', 'active', '{"accounts.view":"N","accounts.add":"N","accounts.approve":"N"}');
 
 -- A maker without a store, a Dokan mirror row for it, and two orders in 2001 for accounts_sales.
@@ -110,8 +110,8 @@ do $$ declare eid bigint; sid bigint; mid bigint; aid bigint; r record; begin
     raise exception 'case accounts_sales completed: 1 order, 1000, share 1000×25%%+10 = 260 (got %, %, %) failed', r.orders, r.sales, r.share;
   end if;
   select * into r from public.accounts_sales('2001-01-01', '2001-01-31') where vendor_id = '00000000-0000-4000-8000-0000000019a1' and grp = 'in_progress' and not is_total;
-  if r.orders <> 1 or r.share <> 100 then
-    raise exception 'case accounts_sales in progress: the vendor_rates fallback 500×20%% = 100 (got %) failed', r.share;
+  if r.orders <> 1 or r.share <> 0 then
+    raise exception 'case accounts_sales in progress: without sensitive.commission a line with no site rate has no share (the agreement stays hidden; got %) failed', r.share;
   end if;
   if (select count(*) from public.accounts_sales('2001-01-01', '2001-01-31') where is_total and grp = 'completed' and orders >= 1) <> 1 then
     raise exception 'case one total row per group failed';
@@ -150,7 +150,9 @@ end $$;
 reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-0000000000d3","role":"authenticated"}';
-do $$ declare n int; begin
+do $$ declare n int; r record; begin
+  select * into r from public.accounts_sales('2001-01-01', '2001-01-31') where vendor_id = '00000000-0000-4000-8000-0000000019a1' and grp = 'in_progress' and not is_total;
+  if r.share <> 100 then raise exception 'case sensitive.commission = F: the vendor_rates fallback 500×20%% = 100 (got %) failed', r.share; end if;
   update public.acc_vendor_moves set voided_at = now() where on_date = '2001-01-06' and vendor_id = '00000000-0000-4000-8000-0000000019a1';
   get diagnostics n = row_count;
   if n <> 1 then raise exception 'case approve F voids another member''s row failed'; end if;

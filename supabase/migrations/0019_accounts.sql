@@ -12,8 +12,9 @@
 --   updated_* / voided_by from the server.
 -- Decision 4: accounts_sales(p_from, p_to) — our own orders (placed_at as a Cairo date), grouped completed / in_progress /
 --   cancelled per maker: distinct parent orders, the lines' sum, Ibtekr's share = line × the line's site commission rate
---   (else the maker's vendor_rates row of that day) / 100 + the line's fee, and one total row per group (is_total: a parent
---   order shared by several makers counted once). Security definer behind accounts.view <> N.
+--   (else — for the admin or sensitive.commission = F only, the agreement being theirs — the maker's vendor_rates row of
+--   that day; else no share for that line, the vendors page's rule) / 100 + the line's fee, and one total row per group
+--   (is_total: a parent order shared by several makers counted once). Security definer behind accounts.view <> N.
 -- Decision 5: dokan_withdrawals / dokan_balances — read-only mirrors of Dokan written by woo-sync (part `accounts`, as
 --   service_role) — never the bank details, the IP or the note of a request. Read with accounts.view <> N. pg_cron
 --   'woo-sync-accounts' runs the part hourly (guarded like 0008).
@@ -238,6 +239,8 @@ revoke all on public.dokan_withdrawals, public.dokan_balances from anon;
 create or replace function public.accounts_sales(p_from date, p_to date)
 returns table (vendor_id uuid, grp text, orders bigint, sales numeric, share numeric, is_total boolean)
 language plpgsql stable security definer set search_path = public as $$
+declare
+  v_rates boolean := public.is_admin() or coalesce(public.has_perm('sensitive.commission'), 'N') = 'F'; -- review: the agreement stays theirs
 begin
   if coalesce(public.has_perm('accounts.view'), 'N') = 'N' then
     raise exception 'accounts.view is needed' using errcode = '42501';
@@ -257,7 +260,7 @@ begin
   ), l as (
     select i.vendor_id as v, o.g, o.id as order_id, i.total,
            coalesce(i.commission_rate,
-                    (select r.rate from public.vendor_rates r where r.vendor_id = i.vendor_id and r.since <= o.d order by r.since desc, r.id desc limit 1),
+                    case when v_rates then (select r.rate from public.vendor_rates r where r.vendor_id = i.vendor_id and r.since <= o.d order by r.since desc, r.id desc limit 1) end,
                     0) as rate,
            coalesce(i.commission_fee, 0) as fee
     from o join public.order_items i on i.order_id = o.id and not i.removed

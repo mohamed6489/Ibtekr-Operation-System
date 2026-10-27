@@ -438,7 +438,7 @@ do $$ declare n int; begin
     raise exception 'case ops waybill/pulled/expected_at write order_events failed';
   end if;
 
-  update public.order_items set status = 'مرتجع للمورد', ret = '{"reason":"عيب صناعة","date":"2026-10-27"}' where id = 9002;
+  update public.order_items set status = 'مرتجع للمبتكر', ret = '{"reason":"عيب صناعة","date":"2026-10-27"}' where id = 9002;
   if not exists (select 1 from public.returns
                  where order_id = 181668 and item_id = 9002 and kind = 'item_to_vendor' and reason = 'عيب صناعة'
                    and on_date = '2026-10-27' and by_user = auth.uid()) then

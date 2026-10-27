@@ -1167,3 +1167,15 @@ b.pos{color:var(--color-success-text)}
 .vlogo.vlogo-img{overflow:hidden;padding:0}.vlogo.vlogo-img img{width:100%;height:100%;object-fit:cover;display:block;border-radius:inherit}
 .social-row{display:inline-flex;flex-wrap:wrap;gap:4px 10px}.social-a{color:var(--color-brand-default);text-decoration:none;overflow-wrap:anywhere}a.social-a:hover{text-decoration:underline}
 .cat-rates-table{width:100%;table-layout:auto}.cat-rates-table td,.cat-rates-table th{vertical-align:middle;white-space:normal;padding:8px}
+/* phase 3.4: the commission by category — the site's category tree in the terms popup (RTL; a level = an inline indent) */
+.cat-head{display:grid;grid-template-columns:1fr 96px 96px;gap:8px;padding:0 8px 4px 8px;color:var(--color-text-secondary)}
+.cat-tree{max-height:360px;overflow-y:auto;border:1px solid var(--color-border, #e5e5e5);border-radius:8px}
+.cat-row{display:grid;grid-template-columns:28px 1fr 96px 96px;gap:8px;align-items:center;padding:4px 8px;padding-inline-start:calc(8px + var(--d, 0) * 20px);border-bottom:1px solid var(--color-border, #eee)}
+.cat-row:last-child{border-bottom:0}
+.cat-row .cat-name{min-width:0;overflow-wrap:anywhere}
+.cat-row.is-own .cat-name{font-weight:600}
+.cat-row .cat-in{min-width:0}
+.cat-row .cat-in input{width:100%;min-width:0}
+.cat-toggle{width:24px;height:24px;border:1px solid var(--color-border, #ccc);border-radius:4px;background:transparent;cursor:pointer;line-height:1;font-size:16px;color:var(--color-brand, #7c3aed)}
+.cat-toggle-sp{width:24px}
+@media (max-width:480px){.cat-head,.cat-row{grid-template-columns:24px 1fr 72px 72px}.cat-head{grid-template-columns:1fr 72px 72px}}

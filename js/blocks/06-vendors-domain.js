@@ -113,6 +113,26 @@
     if (c.flat !== undefined && c.flat !== null && String(c.flat).trim() !== '') { const f = Number(latin(c.flat)); if (!Number.isFinite(f) || f < 0) e.flat = 'الرسوم الثابتة رقم من 0 أو أكتر'; }
     return e;
   }
+  // phase 3.4 (plan decision 6): the commission by category — the site's categories [{ id, name, parentId }] → the tree
+  // [{ id, name, children: [...] }] (by name; a child whose parent is not listed shows at the top)
+  function categoryTree(categories) {
+    const list = (Array.isArray(categories) ? categories : []).filter((c) => c && Number.isInteger(Number(c.id)) && Number(c.id) > 0);
+    const ids = new Set(list.map((c) => Number(c.id)));
+    const node = new Map(list.map((c) => [Number(c.id), { id: Number(c.id), name: String(c.name == null ? '' : c.name), parentId: c.parentId == null || !ids.has(Number(c.parentId)) ? null : Number(c.parentId), children: [] }]));
+    const roots = [];
+    for (const n of node.values()) (n.parentId == null ? roots : node.get(n.parentId).children).push(n);
+    const sort = (arr) => { arr.sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.id - b.id); arr.forEach((n) => sort(n.children)); return arr; };
+    return sort(roots);
+  }
+  // the figure of every category: the hand-set one (explicit: { id: { rate, flat } }, rate a number), else the nearest ancestor's,
+  // else the default ({ rate, flat }) → { id: { rate, flat, inherited } } (a parent's figure flows to its children; a hand-set child
+  // keeps its own — owner, 27 Oct)
+  function categoryFigures(tree, explicit, def) {
+    const out = {}; const ex = explicit || {}; const d = { rate: def && def.rate != null ? Number(def.rate) : null, flat: def && def.flat != null ? Number(def.flat) : null };
+    const walk = (nodes, up) => { for (const n of nodes || []) { const own = ex[n.id] && ex[n.id].rate != null && String(ex[n.id].rate).trim() !== '' ? { rate: Number(latin(ex[n.id].rate)), flat: ex[n.id].flat == null || String(ex[n.id].flat).trim() === '' ? null : Number(latin(ex[n.id].flat)) } : null; const f = own || up; out[n.id] = { rate: f.rate, flat: f.flat, inherited: !own }; walk(n.children, f); } };
+    walk(tree, d);
+    return out;
+  }
   // Drawer edit groups — each section of «ملف المبتكر» has its own «تعديل» popup with only its fields (rate has its own dated flow inside «الاتفاق التجاري»).
   // Phase 3.3: the contact group carries the store owner's name, the address parts and the social links (instagram = social.instagram since then).
   const EDIT_GROUPS = Object.freeze({
@@ -414,6 +434,6 @@
     return e;
   }
 
-  return Object.freeze({ ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
+  return Object.freeze({ ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, categoryTree, categoryFigures, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
 });
 

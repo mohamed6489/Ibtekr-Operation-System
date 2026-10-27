@@ -66,7 +66,7 @@
   const PAGE = 1000; // PostgREST max_rows
   const COLS = {
     vendor: 'id, woo_vendor_id, name, aliases, phone, email, status, raw, created_at, updated_at, legal_name, category, alt_phone, address, instagram, store_url, lead_days, deposit_policy, notes, joined_at, contract, opening_balance, contact_name, address_parts, social, logo_url, banner_url, woo_payment_methods, push_pending, woo_synced_at', // 0014: never woo_snapshot (service_role only)
-    rate: 'id, vendor_id, rate, flat, since, set_by, created_at',
+    rate: 'id, vendor_id, rate, flat, since, set_by, created_at, commission_type', // 0016: commission_type
     catRate: 'id, vendor_id, woo_category_id, rate, flat, since, set_by, created_at', // 0014 (phase 3.3): sensitive.commission
     category: 'id, name, slug, parent_id, updated_at', // 0014: woo_categories (vendors.view)
     bank: 'vendor_id, method, bank_name, holder, iban, wallet, updated_by, updated_at',
@@ -159,7 +159,7 @@
   const toLogin = (l) => (l ? { username: text(l.username), email: l.email || null, pwMode: l.pw_mode === 'temp' ? 'temp' : 'link', status: LOGIN_STATUSES.includes(l.status) ? l.status : 'invited', mustChange: !!l.must_change, passwordSetAt: l.password_set_at || null, inviteSentAt: l.invite_sent_at || null, hasPassword: !!l.password_set_at } : null);
   function toVendor(r, rates, bank, opts = {}) {
     const T = (opts && opts.today) || today(); const visible = !!(opts && opts.ratesVisible);
-    const hist = (rates || []).filter((x) => x.vendor_id == null || String(x.vendor_id) === String(r.id)).map((x) => ({ rate: Number(x.rate), flat: x.flat == null ? null : num(x.flat), since: localDate(x.since), by: text(x.set_by) })).filter((x) => Number.isFinite(x.rate) && x.since).sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
+    const hist = (rates || []).filter((x) => x.vendor_id == null || String(x.vendor_id) === String(r.id)).map((x) => ({ rate: Number(x.rate), flat: x.flat == null ? null : num(x.flat), since: localDate(x.since), by: text(x.set_by), type: x.commission_type === 'category_based' ? 'category_based' : 'fixed' })).filter((x) => Number.isFinite(x.rate) && x.since).sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
     let cur = null; for (const x of hist) if (x.since <= T) cur = x; if (!cur && hist.length) cur = hist[0];
     const raw = r.raw && typeof r.raw === 'object' ? r.raw : {};
     const ct = r.contract && typeof r.contract === 'object' ? r.contract : null;
@@ -176,6 +176,7 @@
       contactName: text(r.contact_name) || null, addressParts: parts, social, logoUrl: httpsOrNull(r.logo_url), bannerUrl: httpsOrNull(r.banner_url), wooPaymentMethods: Array.isArray(r.woo_payment_methods) ? r.woo_payment_methods.map(text).filter(Boolean) : [],
       wooSyncedAt: text(r.woo_synced_at) || null, pushPending: pending, categoryRates: cats, rateFlat: visible && cur ? cur.flat : null,
       rate: visible && cur ? cur.rate : null, rateSince: visible && cur ? cur.since : null, rateHistory: visible ? hist : [], ratesVisible: visible,
+      commissionType: visible && cur ? cur.type : 'fixed', // plan 3.4: fixed | category_based (the rate is then the default of a category with no figure)
       leadDays: Number(r.lead_days) || 7, depositPolicy: r.deposit_policy || null, notes: r.notes || null, logoLetter: name.charAt(0),
       joinedAt: localDate(r.joined_at) || localDate(r.created_at) || T, contract, bank: b, login: toLogin(opts && opts.login), openingBalance: Number(r.opening_balance) || 0,
       wooVendorId: r.woo_vendor_id == null ? null : Number(r.woo_vendor_id), shopUrl: text(raw.shop_url), createdAt: text(r.created_at), lastUpdate: text(r.updated_at) || text(r.created_at),
@@ -296,14 +297,14 @@
         cl.from('vendor_logins').select(COLS.login),
         pages(() => cl.from('brands').select(COLS.brand).order('name', { ascending: true }).order('id', { ascending: true }), g).then((data) => ({ data, error: null }), (error) => ({ data: null, error })),
         pages(() => cl.from('brand_owners').select(COLS.owner).order('since', { ascending: true }).order('id', { ascending: true }), g).then((data) => ({ data, error: null }), (error) => ({ data: null, error })),
-        mayRate ? cl.from('brand_rates').select(COLS.brandRate).order('since', { ascending: true }).order('id', { ascending: true }) : none,
+        none, // plan 3.4 decision 5: the brand's special rate is retired — brand_rates is no longer read
         // phase 3.3: the per-category commission (sensitive.commission: no request without it) and the site's category names (vendors.view)
         mayRate ? pages(() => cl.from('vendor_category_rates').select(COLS.catRate).order('since', { ascending: true }).order('id', { ascending: true }), g).then((data) => ({ data, error: null }), (error) => ({ data: null, error })) : none,
         pages(() => cl.from('woo_categories').select(COLS.category).order('name', { ascending: true }).order('id', { ascending: true }), g).then((data) => ({ data, error: null }), (error) => ({ data: null, error })),
       ]);
       stale(g);
       ratesOk = !rs.error; const visible = ratesOk && canRate();
-      brandRatesOk = mayRate && !bts.error; // refused / not asked: no special rates known
+      brandRatesOk = false; // plan 3.4 decision 5: the special rate is retired (bts is never asked)
       catRatesOk = mayRate && !crs.error; // refused / not asked: no category rates known
       categoriesMap = new Map((cts.error ? [] : cts.data || []).map((c) => [String(c.id), { id: Number(c.id), name: text(c.name) || '#' + c.id, slug: text(c.slug), parentId: c.parent_id == null ? null : Number(c.parent_id) }]));
       catRates = new Map(); (catRatesOk ? crs.data || [] : []).forEach((x) => { const k = String(x.vendor_id); if (!catRates.has(k)) catRates.set(k, []); catRates.get(k).push(x); });
@@ -478,6 +479,36 @@
     const run = async () => { const res = await call((cl) => cl.rpc('vendor_category_rate_set', { p_vendor: String(vendorId), p_category: cid, p_rate: r, p_flat: flat })); if (!res.ok) catRates.set(String(vendorId), oldRows); return res; };
     write(String(vendorId), v, old, run, () => logEvent('vendor.category_rate', categoryName(cid) + ': ' + (r == null ? '—' : r + '%') + (flat != null ? ' + ' + flat + ' ج.م' : ''), vendorId), ['category_rates']);
     return get(vendorId);
+  }
+  // plan 3.4 (decisions 1 / 2): the whole commission at once — { type: 'fixed' | 'category_based', rate (the fixed rate, or the
+  // default of a category with no figure), flat, categories: [{ id, rate, flat }] (the categories changed by hand; rate null = back
+  // to inheriting) } — one vendor_commission_set call (today in Cairo, a same-day change replaces the day's rows), then one push of
+  // ['rate', 'category_rates']. Applied locally at once (the history gains / replaces today's row, the hand-set list follows).
+  function setCommission(id, input, actor) {
+    const v = must(id); if (!canRate()) throw noPerm();
+    const i = input || {}; const type = i.type === 'category_based' ? 'category_based' : 'fixed';
+    const r = Number(latin(i.rate)); if (!Number.isFinite(r) || r < 0 || r > 65) throw new Error('rate out of range');
+    const flat = flatOf(i.flat);
+    const cats = (Array.isArray(i.categories) ? i.categories : []).map((c) => {
+      const cid = Number(latin(c && c.id)); const raw = c && c.rate; const cr = raw == null || String(raw).trim() === '' ? null : Number(latin(raw));
+      if (!Number.isInteger(cid) || cid <= 0) throw new Error(MESSAGES.bad_category);
+      if (cr != null && (!Number.isFinite(cr) || cr < 0 || cr > 65)) throw new Error('rate out of range');
+      return { id: cid, rate: cr, flat: cr == null ? null : flatOf(c.flat) };
+    });
+    const T = today(); const old = copy(v); const by = (actor && actor.name) || null;
+    const rows = catRates.get(String(id)) || []; const oldRows = rows.slice();
+    v.rateHistory = v.rateHistory.filter((x) => x.since !== T).concat([{ rate: r, flat, since: T, by, type }]).sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
+    v.rate = r; v.rateFlat = flat; v.rateSince = T; v.commissionType = type; v.ratesVisible = true; v.lastUpdate = new Date().toISOString();
+    if (cats.length) {
+      const changed = new Set(cats.map((c) => c.id));
+      catRates.set(String(id), rows.filter((x) => !(changed.has(Number(x.woo_category_id)) && localDate(x.since) === T)).concat(cats.map((c) => ({ id: Number.MAX_SAFE_INTEGER, vendor_id: String(id), woo_category_id: c.id, rate: c.rate, flat: c.flat, since: T, set_by: by }))));
+      v.categoryRates = effectiveCategoryRates(catRates.get(String(id)), T); catRatesOk = true;
+    }
+    emit({ id, changed: ['rate', 'categoryRates'] });
+    const run = async () => { const res = await call((cl) => cl.rpc('vendor_commission_set', { p_vendor: id, p_type: type, p_rate: r, p_flat: flat, p_categories: cats })); if (!res.ok) catRates.set(String(id), oldRows); return res; };
+    const detail = (type === 'category_based' ? 'حسب الفئة — الأساسية ' : '') + r + '%' + (flat != null ? ' + ' + flat + ' ج.م' : '') + (cats.length ? ' (' + cats.length + ' فئة)' : '');
+    write(id, v, old, run, () => logEvent('vendor.rate', detail, id), ['rate', 'category_rates']);
+    return get(id);
   }
   // the prototype's cleaning of a bank form (the IBAN upper-cased, decision 7) and its vendor_bank row
   const cleanBank = (bank) => ({ method: PAY_METHODS.includes(bank.method) ? bank.method : 'bank', bankName: clean(bank.bankName, 80) || null, holder: clean(bank.holder, 120) || null, iban: latin(bank.iban || '').replace(/\s/g, '').toUpperCase() || null, wallet: latin(bank.wallet || '').replace(/\s/g, '') || null });
@@ -682,7 +713,6 @@
   // visible); null when none is known (the caller counts the line in full, marked noRate)
   function rateFor(storeId, date) {
     const D = date || today(); const b = brandOfStore(storeId);
-    if (b && brandRatesOk && canRate()) { const r = brandRateAt(b, D); if (r != null) return r; }
     const v = vendors.get(b ? ownerOf(b, D) : String(storeId));
     return v && v.ratesVisible && (v.rateHistory || []).length ? rateAt(v, D) : null;
   }
@@ -711,7 +741,7 @@
   async function addBrand(vendorId, input, actor) {
     const v = must(vendorId); if (!canBrands()) throw noPerm();
     const errs = brandErrs(input || {}); const bad = Object.keys(errs); if (bad.length) throw new Error('invalid brand: ' + bad.join(','));
-    const name = clean(input.name, 80); const code = codeOf(input.code, name); const aliases = parseAliases(input.aliases || ''); const rate = rateOf(input.rate);
+    const name = clean(input.name, 80); const code = codeOf(input.code, name); const aliases = parseAliases(input.aliases || '');
     const since = input.since && isIso(input.since) ? input.since : v.joinedAt || today();
     if (brandByName(name)) throw new Error(MESSAGES.brand_exists);
     const by = (actor && actor.name) || null;
@@ -720,10 +750,6 @@
     const id = String(r.data.id); const logs = [logEvent('vendor.brand', 'add: ' + name, vendorId)]; const missingSteps = []; const reasons = {};
     const o = await call((cl) => cl.from('brand_owners').insert({ brand_id: id, vendor_id: String(vendorId), since, set_by: by }));
     if (!o.ok) { missingSteps.push('owner'); reasons.owner = o.reason; }
-    if (rate != null && canRate()) {
-      const rr = await call((cl) => cl.from('brand_rates').insert({ brand_id: id, rate, since, set_by: by }));
-      if (rr.ok) logs.push(logEvent('vendor.brand.rate', name + ': ' + rate + '% من ' + since, vendorId)); else { missingSteps.push('rate'); reasons.rate = rr.reason; }
-    }
     await Promise.all(logs.concat([load()]));
     emit({ id: String(vendorId), written: true });
     return { brand: brand(id) || { id, name, code, aliases }, missing: missingSteps, reasons };
@@ -744,17 +770,6 @@
     Object.assign(b, { name, code, aliases }); syncVendorBrands();
     emit({ id: ownerId, changed: ['brands'] });
     writeBrand(id, old, () => call((cl) => cl.from('brands').update(row).eq('id', String(id))), () => logEvent('vendor.brand', 'update: ' + name + ' (' + changed.join(', ') + ')', ownerId), [ownerId]);
-    return brand(id);
-  }
-  // «النسبة الخاصة»: a new dated row (rate null = no special rate from that date); unique (brand_id, since) is never rewritten
-  function setBrandRate(id, rate, since, actor) {
-    const b = brandMust(id); if (!canRate()) throw noPerm();
-    const r = rateOf(rate); if (r != null && (!Number.isFinite(r) || r < 0 || r > 65)) throw new Error('rate out of range'); if (!isIso(since)) throw new Error('since required');
-    if (b.rates.some((x) => x.since === since)) throw new Error(MESSAGES.duplicate);
-    const ownerId = ownerOf(b, today()); const old = copy(b);
-    b.rates = b.rates.concat([{ id: 0, rate: r, since, by: (actor && actor.name) || '' }]).sort(bySince); brandRatesOk = true; syncVendorBrands();
-    emit({ id: ownerId, changed: ['brands'] });
-    writeBrand(id, old, () => call((cl) => cl.from('brand_rates').insert({ brand_id: String(id), rate: r, since, set_by: (actor && actor.name) || null })), () => logEvent('vendor.brand.rate', b.name + ': ' + (r == null ? '—' : r + '%') + ' من ' + since, ownerId), [ownerId]);
     return brand(id);
   }
   // a new history row (a transfer or a return): the local rules first (block 06 validateTransfer against the latest row — the server's
@@ -817,7 +832,7 @@
   }
 
   const store = { get, all, events, update, setRate, setBank, reveal, setContract, findByName, remove, restoreMoney, create, addLogin, setLogin, setLoginStatus, setLoginPassword, revealPassword, usernameTaken, missing, canEdit, canBank, canToggle, canRate, canLogin, canBrands, actor,
-    brand, allBrands, brandByName, namesOf, ownerAt, storeOwnerAt, rateFor, addBrand, updateBrand, setBrandRate, transferBrand, returnBrand,
-    setCategoryRate, categories, canPush, pushVendor }; // phase 3.3
+    brand, allBrands, brandByName, namesOf, ownerAt, storeOwnerAt, rateFor, addBrand, updateBrand, transferBrand, returnBrand,
+    setCategoryRate, setCommission, categories, canPush, pushVendor }; // phase 3.3
   window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, setContract, contractUrl, stats, toVendor, toBrand, lineShare, rateAt, rateFor, storeOwnerAt, safeName, norm, today, MESSAGES, BUCKET, SYNC_FIELDS, toEvent, categories };
 })();

@@ -53,7 +53,7 @@
 // Answer: 200 { action, result, counts, … } or 4xx / 5xx { error }. CORS for the browser's functions.invoke.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from '../_shared/woo-core.js';
-import { getState, logSync, selectIn, setState, upsertRows } from '../_shared/db.js';
+import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 

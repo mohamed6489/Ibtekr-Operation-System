@@ -238,7 +238,9 @@
   }
   function toEvent(r) {
     const detail = typeof r.new_value === 'string' ? r.new_value : r.new_value == null ? '' : JSON.stringify(r.new_value);
-    if (SYNC_VERB[r.action]) return { id: r.id, at: r.at, action: r.action, actor: { name: SITE_ACTOR }, text: syncText(r.action, detail) };
+    // the site's voice only for a row without an actor (the server writes vendor.sync* with the service role); a member who logged such
+    // an action himself (log_activity takes any vendor.* name) reads under his own name with the generic wording — never as the site
+    if (SYNC_VERB[r.action] && r.actor == null) return { id: r.id, at: r.at, action: r.action, actor: { name: SITE_ACTOR }, text: syncText(r.action, detail) };
     const actor = (r.actor && r.actor.name) || '—';
     const text = /^vendor\.brand(\.|$)/.test(r.action) && !VERB[r.action] ? brandText(r.action, detail) : (VERB[r.action] || r.action) + (detail ? ' (' + detail + ')' : '');
     return { id: r.id, at: r.at, action: r.action, actor: { name: actor }, text: actor + ' ' + text };

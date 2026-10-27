@@ -16,7 +16,7 @@
 (function () {
   'use strict';
   const LOGGED_PREFIXES = ['auth.', 'dashboard.', 'profile.2fa.', 'vendor.'];
-  const LOGGED_ACTIONS = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled']; // orders.js
+  const LOGGED_ACTIONS = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating']; // orders.js
   let rows = null;
   const forwarded = (action) => { const a = String(action || ''); return LOGGED_ACTIONS.includes(a) || LOGGED_PREFIXES.some((p) => a.startsWith(p)); };
   const client = () => (window.IBSupabase && window.IBSupabase.client) || null;

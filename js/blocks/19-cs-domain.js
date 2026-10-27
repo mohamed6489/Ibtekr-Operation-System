@@ -72,7 +72,11 @@
   }
   const QUIET = { from: 22 * 60, to: 9 * 60 };
   function sendTime(min) { if (min >= QUIET.from) return QUIET.to + 24 * 60; if (min < QUIET.to) return QUIET.to; return min; }
-  const api = { SLA, slaLevel, nextStatus, windowOpen, templateVars, fillTemplate, withOptOut, OPT_OUT, customerStage, customerRating, validateRatingOverride, audience, batches, validateDelay, autoStop, STOP_RATE, canCampaignFrom, assignNext, mergeProfiles, quickReplies, unreadBy, ruleMatches, sendTime, PLATFORMS };
+  // ---- تقييم الفريق للعميل بعد «مكتمل» (owner 27 Oct — phase 3.6, decision 4): رضا · أخلاق — كل واحد نجوم 1–5
+  const RATE_KEYS = [['sat', 'رضا العميل'], ['manners', 'أخلاق العميل']];
+  const okStar = (v) => Number.isInteger(v) && v >= 1 && v <= 5;
+  function validateTeamRating(r) { const e = {}; RATE_KEYS.forEach(([k, l]) => { if (!okStar(r && r[k])) e[k] = 'اختار ' + l + ' من 1 لـ 5'; }); return e; }
+  const api = { RATE_KEYS, validateTeamRating, SLA, slaLevel, nextStatus, windowOpen, templateVars, fillTemplate, withOptOut, OPT_OUT, customerStage, customerRating, validateRatingOverride, audience, batches, validateDelay, autoStop, STOP_RATE, canCampaignFrom, assignNext, mergeProfiles, quickReplies, unreadBy, ruleMatches, sendTime, PLATFORMS };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IbtekrCS = api;
 })(typeof window !== 'undefined' ? window : globalThis);
 

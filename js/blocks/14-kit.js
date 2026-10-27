@@ -287,6 +287,20 @@
     },
   };
 
-  window.IBKit = { TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+  // ---------- StarPicker: نجوم 1–5 (radiogroup — WAI-ARIA APG radio: الأسهم بتغيّر، Home/End، رقم 1–5) ----------
+  function StarPicker({ id, label, value, onChange, error, required, help }) {
+    const v = Number(value) || 0; const words = ['', 'وحش جداً', 'وحش', 'مقبول', 'كويس', 'ممتاز'];
+    const g = h('div', { class: 'star-pick', role: 'radiogroup', id, 'aria-labelledby': id + '-l', 'aria-invalid': error ? 'true' : 'false', 'aria-describedby': error ? id + '-err' : null });
+    const pick = (n) => { onChange(n); };
+    for (let n = 1; n <= 5; n++) {
+      const b = h('button', { type: 'button', role: 'radio', class: 'sp' + (n <= v ? ' on' : ''), 'aria-checked': String(n === v), 'aria-label': n + ' من 5 — ' + words[n], tabindex: (v ? n === v : n === 1) ? '0' : '-1', 'data-star': String(n), onClick: () => pick(n) }, U.Icon('star'));
+      b.addEventListener('keydown', (e) => { const k = e.key; let nx = null; if (k === 'ArrowLeft' || k === 'ArrowUp') nx = Math.min(5, (v || 0) + 1); if (k === 'ArrowRight' || k === 'ArrowDown') nx = Math.max(1, (v || 2) - 1); if (k === 'Home') nx = 1; if (k === 'End') nx = 5; if (/^[1-5]$/.test(k)) nx = Number(k); if (nx) { e.preventDefault(); pick(nx); setTimeout(() => { const t = document.getElementById(id); const x = t && t.querySelector('[data-star="' + nx + '"]'); if (x) x.focus(); }, 0); } });
+      g.append(b);
+    }
+    return h('div', { class: 'field star-field' }, h('span', { class: 'flabel', id: id + '-l' }, label, required ? h('span', { class: 'req', 'aria-hidden': 'true' }, ' *') : null),
+      h('div', { class: 'sp-row' }, g, h('span', { class: 't-small help sp-word', 'aria-live': 'polite' }, v ? v + ' من 5 · ' + words[v] : 'اختار من 1 لـ 5')),
+      error ? h('div', { class: 'err-msg', role: 'alert', id: id + '-err' }, error) : help ? h('p', { class: 't-small help', style: 'margin:0' }, help) : null);
+  }
+  window.IBKit = { StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
 })();
 

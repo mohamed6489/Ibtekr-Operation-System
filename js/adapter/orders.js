@@ -18,6 +18,8 @@
 // { ok:false, reason:'forbidden' }, any other failure → { ok:false, reason:'network' }, never thrown; a success is
 // logged with K.logEvent, ids and statuses only. setOrderStatus then asks woo-sync to push the status to WooCommerce and
 // answers its result in `push` ('ok' | 'skipped' | 'error') without failing the write.
+// «مكتمل» with extra.rating { sat, manners, note } (phase 3.6) goes through RPC order_complete instead (the rating and the
+// status in one transaction; 22023 → reason 'invalid'), logged as order.rating with the two figures only, then pushed the same way.
 // A sub's `n` is its order_items id (block 29 finds a sub by n across every order: allSub/editSub), `itemId` the same
 // as text — the id the item writes take. subscribe() adds Realtime INSERT/UPDATE on orders / order_items / sub_orders
 // (skipped with IB_CONFIG.realtime === false): each event re-reads that order from orders_v (a payload from orders
@@ -179,7 +181,29 @@
       return { ok: true, data: d || {} };
     } catch (e) { return fail('network'); }
   }
+  // «مكتمل» with the team's rating of the customer (phase 3.6): one RPC writes the rating and the status together
+  // (order_complete — the orders guard decides, as for any status change); the log carries the figures, never the note.
+  async function completeOrder(id, rating) {
+    const cl = c();
+    if (!cl || !uid()) return fail('network');
+    const sat = Number(rating && rating.sat), manners = Number(rating && rating.manners);
+    if (![sat, manners].every((n) => Number.isInteger(n) && n >= 1 && n <= 5)) return fail('invalid');
+    const note = rating && typeof rating.note === 'string' && rating.note.trim() ? rating.note.trim() : null;
+    try {
+      const { error } = await cl.rpc('order_complete', { p_order: Number(id), p_sat: sat, p_manners: manners, p_note: note });
+      if (error) return fail(error.code === '42501' ? 'forbidden' : error.code === '22023' ? 'invalid' : 'network');
+    } catch (e) { return fail('network'); }
+    log('order.rating', 'IB-' + id + ' · رضا ' + sat + ' · أخلاق ' + manners);
+    return { ok: true };
+  }
   async function setOrderStatus(id, status, extra) {
+    if (status === 'مكتمل' && extra && extra.rating) {
+      const r = await completeOrder(id, extra.rating);
+      if (!r.ok) return r;
+      log('order.status', 'IB-' + id + ' · ' + status);
+      const p = await invoke({ action: 'push_status', order_id: Number(id), status });
+      return { ok: true, push: (p.ok && p.data.result) || 'error' };
+    }
     const patch = { status };
     if (extra && extra.cancel) patch.cancel = extra.cancel;
     if (extra && extra.ret) patch.ret = extra.ret;

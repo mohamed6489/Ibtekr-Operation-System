@@ -86,7 +86,6 @@ test('the drawer shows the synced store data: the site\'s logo, the owner\'s nam
   await expect(info(agreement(page), page, 'نسبة إبتكر')).toContainText('35%');
   await expect(agreement(page).locator('tr[data-cat-rate="15"]')).toContainText('ديكور');
   await expect(agreement(page).locator('tr[data-cat-rate="15"]')).toContainText('30%');
-  await expect(agreement(page).locator('tr[data-cat-rate="15"]')).toContainText('01/03/2026');
   await expect(agreement(page)).toContainText('النسبة بتتبعت للموقع');
   // the server's rows read in the site's voice with the Arabic labels (the admin sees every row)
   await expect(activity(page)).toContainText('اتعدل من الموقع: التليفون، العنوان');
@@ -105,7 +104,7 @@ test('the drawer shows the synced store data: the site\'s logo, the owner\'s nam
   await expect(info(contact(page), page, 'في انتظار الإرسال')).toHaveText('التليفون');
   await expect(info(contact(page), page, 'اسم صاحب المتجر')).toHaveText('—');
   await expect(info(contact(page), page, 'سوشيال')).toHaveText('—');
-  await expect(agreement(page).locator('[data-no-cat-rates]')).toBeVisible();
+  await expect(agreement(page)).not.toContainText('عمولة حسب الفئة'); // fixed (plan 3.4): no category block
   // Bian eg: inactive here with a store on the site → the tag
   await openByHash(page, V3);
   await expect(drawer(page).locator('[data-site-off]')).toHaveText('موقوف على الموقع');
@@ -183,12 +182,14 @@ test('the push fails (502): saved here, the message, the fields wait in «في �
   await agreement(page).getByRole('button', { name: 'تعديل بيانات الاتفاق التجاري' }).click();
   await expect(modal(page).locator('#g-rate')).toHaveValue('35');
   await expect(modal(page).locator('#g-flat')).toHaveValue('');
-  await expect(modal(page)).toContainText('والنسبة بتتبعت للموقع');
+  await expect(modal(page)).toContainText('والعمولة بتتبعت للموقع');
+  await pickOption(page, 'g-ctype', 'نسبة ثابتة (Fixed)'); // from category_based to fixed (plan 3.4)
+  await expect(modal(page).locator('[data-cat-tree]')).toHaveCount(0);
   await modal(page).locator('#g-rate').fill('40');
   await modal(page).locator('#g-flat').fill('٥');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect.poll(() => writes().filter((w) => w.table === 'vendor_rates')).toEqual([{ table: 'vendor_rates', op: 'insert', vendor_id: V1, rate: 40, since: TODAY, set_by: 'صفوت كمال', flat: 5 }]);
-  await expect.poll(() => pushes().slice(3)).toEqual([{ vendor_id: V1, fields: ['rate'], result: 'ok' }]);
+  await expect.poll(() => writes().filter((w) => w.table === 'vendor_commission')).toEqual([{ table: 'vendor_commission', vendor_id: V1, type: 'fixed', rate: 40, flat: 5, categories: [], since: TODAY, set_by: 'صفوت كمال' }]);
+  await expect.poll(() => pushes().slice(3)).toEqual([{ vendor_id: V1, fields: ['rate', 'category_rates'], result: 'ok' }]);
   await expect.poll(() => acts('vendor.rate')).toEqual([{ action: 'vendor.rate', entity: 'vendor', entity_id: V1, new_value: '40% + 5 ج.م' }]);
   await expect(info(agreement(page), page, 'نسبة إبتكر')).toContainText('40%');
   await expect(info(agreement(page), page, 'نسبة إبتكر')).toContainText('رسوم ثابتة');
@@ -225,42 +226,68 @@ test('review I-1 / I-3: the function unreachable → saved, the fields queued th
   await page.unroute('**/rest/v1/rpc/vendor_push_pending');
   mock.functionsDown = false;
 });
-test('the per-category commission (sensitive.commission): the admin adds one for a site category and edits one — no date (decision 12), logged with the category name, pushed as category_rates; a second change the same day replaces the day\'s row; ops sees nothing and a tampered write is refused', async ({ page }) => {
+test('the commission by category (plan 3.4): the type picker, the tree of the site\'s categories with «+» for the children, a parent\'s figure flowing to its children, a child set by hand keeping its own figure, one vendor_commission_set with the changed categories, pushed as rate + category_rates; ops sees nothing and a tampered write is refused', async ({ page }) => {
   await openVendors(page);
   await openDrawer(page, V1);
-  await agreement(page).getByRole('button', { name: 'إضافة عمولة فئة' }).click();
-  await modal(page).locator('#cr-cat').click();
-  await expect(page.locator('[role=listbox] [role=option]')).toHaveText(['هدايا']); // the category with a rate already (ديكور) is edited from its row
-  await page.locator('[role=listbox] [role=option]', { hasText: 'هدايا' }).click();
-  await expect(modal(page).locator('#cr-since')).toHaveCount(0); // no date field
-  await modal(page).locator('#cr-rate').fill('٢٥');
-  await modal(page).locator('#cr-flat').fill('0');
+  // the drawer shows the hand-set figures only (display): ديكور 30%, no date column, no buttons
+  await expect(agreement(page)).toContainText('عمولة حسب الفئة');
+  await expect(agreement(page).locator('tr[data-cat-rate="15"]')).toContainText('30%');
+  await expect(agreement(page).locator('tr[data-cat-rate]')).toHaveCount(1);
+  await expect(agreement(page).getByRole('button', { name: 'إضافة عمولة فئة' })).toHaveCount(0);
+  await agreement(page).getByRole('button', { name: 'تعديل بيانات الاتفاق التجاري' }).click();
+  await expect(modal(page).locator('#g-ctype')).toContainText('حسب الفئة (Category based)');
+  await expect(modal(page).locator('#g-rate')).toHaveValue('35');
+  // the top level only: ديكور (hand-set 30) and هدايا (empty, inherits the default 35)
+  await expect(modal(page).locator('[data-cat]')).toHaveCount(2);
+  await expect(modal(page).locator('#cr-15')).toHaveValue('30');
+  await expect(modal(page).locator('#cr-22')).toHaveValue('');
+  await expect(modal(page).locator('#cr-22')).toHaveAttribute('placeholder', '35');
+  await expect(modal(page).locator('[data-cat-toggle="22"]')).toHaveCount(0); // no children, no «+»
+  // «+» opens ديكور's children, then إضاءة's: they inherit 30
+  await modal(page).locator('[data-cat-toggle="15"]').click();
+  await expect(modal(page).locator('[data-cat="151"]')).toHaveCount(1);
+  await expect(modal(page).locator('#cr-151')).toHaveAttribute('placeholder', '30');
+  await modal(page).locator('[data-cat-toggle="151"]').click();
+  await expect(modal(page).locator('#cr-152')).toHaveAttribute('placeholder', '30');
+  // a child set by hand keeps its figure; a new figure on the parent flows to the child without one
+  await modal(page).locator('#cr-152').fill('٢٠');
+  await modal(page).locator('#cr-15').fill('28');
+  await expect(modal(page).locator('#cr-151')).toHaveAttribute('placeholder', '28');
+  await expect(modal(page).locator('#cr-152')).toHaveValue('٢٠');
+  await expect(modal(page).locator('[data-cat="152"]')).toHaveClass(/is-own/);
+  await expect(modal(page).locator('[data-cat="151"]')).not.toHaveClass(/is-own/);
+  // the default flows to the categories with nothing on them or above them
+  await modal(page).locator('#g-rate').fill('36');
+  await expect(modal(page).locator('#cr-22')).toHaveAttribute('placeholder', '36');
+  await expect(modal(page).locator('#cr-151')).toHaveAttribute('placeholder', '28');
+  // a figure out of range is refused before any write
+  await modal(page).locator('#cr-22').fill('70');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(modal(page)).toContainText('نسبة فئة «هدايا» لازم من 0% لـ 65%');
+  expect(writes()).toEqual([]);
+  await modal(page).locator('#cr-22').fill('');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
   await expect(modal(page)).toHaveCount(0);
-  await expect(agreement(page).locator('tr[data-cat-rate="22"]')).toContainText('هدايا');
-  await expect(agreement(page).locator('tr[data-cat-rate="22"]')).toContainText('25%');
-  await expect.poll(() => writes()).toEqual([{ table: 'vendor_category_rates', op: 'insert', vendor_id: V1, woo_category_id: 22, rate: 25, flat: 0, since: TODAY, set_by: 'صفوت كمال' }]);
-  await expect.poll(() => pushes()).toEqual([{ vendor_id: V1, fields: ['category_rates'], result: 'ok' }]);
-  await expect.poll(() => acts('vendor.category_rate')).toEqual([{ action: 'vendor.category_rate', entity: 'vendor', entity_id: V1, new_value: 'هدايا: 25% + 0 ج.م' }]);
-  await expect(activity(page)).toContainText('صفوت كمال حدّد عمولة الفئة (هدايا: 25% + 0 ج.م)');
-  expect(mock.requests.filter((r) => r === 'POST /rest/v1/rpc/vendor_category_rate_set')).toHaveLength(1);
-  expect(mock.requests.filter((r) => r === 'POST /rest/v1/vendor_category_rates')).toHaveLength(0);
-  // edit the site's row on ديكور: blank = removed from today (the row leaves the list), a null rate in the insert
-  await agreement(page).getByRole('button', { name: 'تعديل عمولة الفئة ديكور' }).click();
-  await expect(modal(page).locator('#cr-cat')).toBeDisabled();
-  await expect(modal(page).locator('#cr-rate')).toHaveValue('30');
-  await modal(page).locator('#cr-rate').fill('');
+  await expect.poll(() => writes()).toEqual([{ table: 'vendor_commission', vendor_id: V1, type: 'category_based', rate: 36, flat: null,
+    categories: [{ id: 15, rate: 28, flat: 0 }, { id: 152, rate: 20, flat: null }], since: TODAY, set_by: 'صفوت كمال' }]);
+  await expect.poll(() => pushes()).toEqual([{ vendor_id: V1, fields: ['rate', 'category_rates'], result: 'ok' }]);
+  await expect.poll(() => acts('vendor.rate')).toEqual([{ action: 'vendor.rate', entity: 'vendor', entity_id: V1, new_value: 'حسب الفئة — الأساسية 36% (2 فئة)' }]);
+  expect(mock.requests.filter((r) => r === 'POST /rest/v1/rpc/vendor_commission_set')).toHaveLength(1);
+  expect(mock.requests.filter((r) => r === 'POST /rest/v1/vendor_category_rates' || r === 'POST /rest/v1/vendor_rates')).toHaveLength(0);
+  await expect(agreement(page).locator('tr[data-cat-rate="15"]')).toContainText('28%');
+  await expect(agreement(page).locator('tr[data-cat-rate="152"]')).toContainText('20%');
+  // emptying the child the same day: back to inheriting (a null rate), the day's row replaced
+  await agreement(page).getByRole('button', { name: 'تعديل بيانات الاتفاق التجاري' }).click();
+  await modal(page).locator('[data-cat-toggle="15"]').click();
+  await modal(page).locator('[data-cat-toggle="151"]').click();
+  await expect(modal(page).locator('#cr-152')).toHaveValue('20');
+  await modal(page).locator('#cr-152').fill('');
+  await expect(modal(page).locator('#cr-152')).toHaveAttribute('placeholder', '28');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect.poll(() => writes().slice(1)).toEqual([{ table: 'vendor_category_rates', op: 'insert', vendor_id: V1, woo_category_id: 15, rate: null, flat: 0, since: TODAY, set_by: 'صفوت كمال' }]);
-  await expect(agreement(page).locator('tr[data-cat-rate="15"]')).toHaveCount(0);
-  await expect(agreement(page).locator('tr[data-cat-rate="22"]')).toHaveCount(1);
-  // the same category again the same day: the day's row is replaced and pushed
-  await agreement(page).getByRole('button', { name: 'تعديل عمولة الفئة هدايا' }).click();
-  await modal(page).locator('#cr-rate').fill('20');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect.poll(() => writes().slice(2)).toEqual([{ table: 'vendor_category_rates', op: 'update', vendor_id: V1, woo_category_id: 22, rate: 20, flat: 0, since: TODAY, set_by: 'صفوت كمال' }]);
-  await expect(agreement(page).locator('tr[data-cat-rate="22"]')).toContainText('20%');
-  await expect.poll(() => pushes()).toHaveLength(3);
+  await expect.poll(() => writes().slice(1)).toEqual([{ table: 'vendor_commission', vendor_id: V1, type: 'category_based', rate: 36, flat: null,
+    categories: [{ id: 152, rate: null, flat: null }], since: TODAY, set_by: 'صفوت كمال' }]);
+  await expect(agreement(page).locator('tr[data-cat-rate="152"]')).toHaveCount(0);
+  await expect.poll(() => pushes()).toHaveLength(2);
   // ops: no block, no request for the rates; a write forged past the page → 42501; a push → 401
   await page.evaluate(() => window.IBAuth.signOut());
   await expect(page.locator('#login')).toBeVisible();
@@ -278,7 +305,7 @@ test('the per-category commission (sensitive.commission): the admin adds one for
     return [w.error && w.error.code, p.error && p.error.context && p.error.context.status, n.error && n.error.context && n.error.context.status];
   }, V1);
   expect(forged).toEqual(['42501', 401, 401]);
-  expect(writes()).toHaveLength(3);
+  expect(writes()).toHaveLength(2);
 });
 
 test('ops (vendors.edit = P) saves the contact and its push goes through (the contact fields alone — the server\'s rule); accounts reads the synced rows with no «تعديل»', async ({ page }) => {

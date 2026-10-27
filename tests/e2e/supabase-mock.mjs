@@ -69,7 +69,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'updated_at'],
   vendors: ['id', 'woo_vendor_id', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at', 'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance',
     'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at'], // 0014 (phase 3.3): woo_snapshot is service_role only (a select naming it → 42501, like commission_pct)
-  vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at'], // 0014: flat
+  vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at', 'commission_type'], // 0014: flat; 0016: commission_type
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'], // 0014: sensitive.commission, add-only
   woo_categories: ['id', 'name', 'slug', 'parent_id', 'updated_at'], // 0014: the sync's, vendors.view
   vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at'],
@@ -166,7 +166,7 @@ function ordersSeed(opts = {}) {
   const order = (o) => ({ number: String(o.id), customer_state: null, customer_city: null, customer_address: null, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', confirm: 'غير مؤكد', confirm_at: null, confirm_note: null, deposit: 0, currency: 'EGP', note: null, customer_note: null, cancel: null, ret: null, raw: { id: o.id }, woo_updated_at: o.placed_at, synced_at: o.placed_at, created_at: o.placed_at, updated_at: o.placed_at, ...o });
   const sub = (id, order_id, v, woo_order_id, woo_status, total) => ({ id, order_id, vendor_id: VND(v), woo_order_id, woo_status, total, dokan_earning: null, commission: null, raw: { id: woo_order_id }, updated_at: T0 });
   const line = (o) => ({ sub_order_id: null, product_id: null, qty: 1, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, commission_rate: null, commission_fee: null, raw: { id: o.id }, updated_at: T0, ...o, vendor_id: VND(o.vendor_id) });
-  const rate = (id, v, rate, since, flat = null) => ({ id, vendor_id: VND(v), rate, flat, since, set_by: 'صفوت كمال', created_at: T0 });
+  const rate = (id, v, rate, since, flat = null, type = 'fixed') => ({ id, vendor_id: VND(v), rate, flat, since, set_by: 'صفوت كمال', created_at: T0, commission_type: type });
   return {
     // 0011: Art Craft and Antikiano with a rate (Antikiano's raised in October), Antikiano with a stored contract, Bian eg (inactive, no order) with a bank row
     // 0014 (phase 3.3): Art Craft carries the synced store data (the owner's name, the address parts, two social links, the site's logo,
@@ -175,10 +175,12 @@ function ordersSeed(opts = {}) {
       contact_name: 'منى عادل', address: ART_ADDRESS, address_parts: ART_PARTS, social: ART_SOCIAL, instagram: ART_SOCIAL.instagram, logo_url: ART_LOGO, banner_url: SITE + '/wp-content/uploads/artcraft-banner.png', woo_payment_methods: ['bank'], woo_snapshot: { name: 'Art Craft', phone: '01000000003' }, woo_synced_at: T0 }),
       vendor(2, 44, 'Antikiano', 'active', { aliases: ['Antikiano store'], phone: '01000000001', category: 'إكسسوارات ومجوهرات', commission_pct: 45, contract: { path: CONTRACT_PATH, file_name: 'antikiano.pdf', size: CONTRACT_BYTES.length, expires: CONTRACT_EXPIRES, uploaded_by: 'منى حسن', uploaded_at: T0 }, push_pending: ['phone'], woo_synced_at: T0 }),
       vendor(3, 2047, 'Bian eg', 'inactive', { aliases: ['Bian'], phone: '01000000000', category: 'ديكور منزلي' })],
-    vendorRates: [rate(1, 1, 35, '2026-03-01'), rate(2, 2, 40, '2026-03-01'), rate(3, 2, 45, '2026-10-01', 10)], // Antikiano's current rate carries the site's flat fee (0014 vendor_rates.flat)
+    vendorRates: [rate(1, 1, 35, '2026-03-01', null, 'category_based'), rate(2, 2, 40, '2026-03-01'), rate(3, 2, 45, '2026-10-01', 10)], // Antikiano's current rate carries the site's flat fee (0014 vendor_rates.flat)
     // 0014: Art Craft's commission on the site's category 15 (set by the sync), and the two category names the sync pulled
     vendorCategoryRates: [{ id: 1, vendor_id: VND(1), woo_category_id: 15, rate: 30, flat: 0, since: '2026-03-01', set_by: 'الموقع', created_at: T0 }],
-    wooCategories: [{ id: 15, name: 'ديكور', slug: 'decor', parent_id: 0, updated_at: T0 }, { id: 22, name: 'هدايا', slug: 'gifts', parent_id: 0, updated_at: T0 }],
+    // the site's categories (0014), a tree since phase 3.4: ديكور → إضاءة → أباجورات; هدايا alone
+    wooCategories: [{ id: 15, name: 'ديكور', slug: 'decor', parent_id: null, updated_at: T0 }, { id: 22, name: 'هدايا', slug: 'gifts', parent_id: null, updated_at: T0 },
+      { id: 151, name: 'إضاءة', slug: 'lighting', parent_id: 15, updated_at: T0 }, { id: 152, name: 'أباجورات', slug: 'lamps', parent_id: 151, updated_at: T0 }],
     // the server's sync rows on Art Craft (actor null, new_value the field names): a change taken from the site, a conflict the site won
     syncActivity: [{ id: 1, at: T0, actor: null, action: 'vendor.sync', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'phone, address_parts' }, { id: 2, at: T0, actor: null, action: 'vendor.sync.conflict', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'name' }, { id: 3, at: T0, actor: null, action: 'vendor.sync.refused', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'social' }],
     vendorBank: [{ vendor_id: VND(3), method: 'bank', bank_name: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: IBAN, wallet: '01000000000', updated_by: 'منى حسن', updated_at: T0 }],
@@ -405,6 +407,27 @@ export async function installSupabaseMock(page, opts = {}) {
       // change replacing the day's row; admin or sensitive.commission = F (42501); 22023 out of range; P0002 unknown maker; set_by =
       // the caller's name. Recorded in vendorWrites as { table, op: 'insert' | 'update', vendor_id, [woo_category_id,] rate, since,
       // set_by[, flat] } (flat only when given, like the insert path).
+      // 0016 (plan 3.4): vendor_commission_set — the type, the default rate / flat and the hand-set categories at once; today, a same-day
+      // change replacing the day's rows; recorded in vendorWrites as { table: 'vendor_commission', vendor_id, type, rate, flat, categories }
+      if (method === 'POST' && path === '/rest/v1/rpc/vendor_commission_set') {
+        const b = body(); const vid = String(b.p_vendor || '').toLowerCase();
+        const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        if (!(isAdmin(u) || hasPerm(u, 'sensitive.commission') === 'F')) return refuse(403, '42501', 'sensitive.commission = F is required to set a maker commission');
+        const type = b.p_type; const rate = b.p_rate == null ? null : Number(b.p_rate); const flat = b.p_flat == null ? null : Number(b.p_flat); const cats = b.p_categories == null ? [] : b.p_categories;
+        if (!['fixed', 'category_based'].includes(type) || rate == null || !(rate >= 0 && rate <= 65) || (flat != null && !(flat >= 0)) || !Array.isArray(cats)) return refuse(400, '22023', 'bad commission');
+        if (cats.some((c) => !c || !Number.isInteger(c.id) || c.id <= 0 || (c.rate != null && !(c.rate >= 0 && c.rate <= 65)) || (c.flat != null && !(c.flat >= 0)))) return refuse(400, '22023', 'bad category item');
+        if (!mock.vendors.some((x) => x.id === vid)) return refuse(400, 'P0002', 'vendor not found');
+        const d = new Date(); const since = [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-'); const now = d.toISOString();
+        const row = mock.vendorRates.find((x) => x.vendor_id === vid && x.since === since);
+        if (row) Object.assign(row, { rate, flat, set_by: u.name, commission_type: type }); else { rateSeq += 1; mock.vendorRates.push({ id: rateSeq, vendor_id: vid, rate, flat, since, set_by: u.name, created_at: now, commission_type: type }); }
+        for (const c of cats) {
+          const cr = mock.vendorCategoryRates.find((x) => x.vendor_id === vid && x.since === since && Number(x.woo_category_id) === c.id);
+          if (cr) Object.assign(cr, { rate: c.rate ?? null, flat: c.flat ?? null, set_by: u.name }); else { catRateSeq += 1; mock.vendorCategoryRates.push({ id: catRateSeq, vendor_id: vid, woo_category_id: c.id, rate: c.rate ?? null, flat: c.flat ?? null, since, set_by: u.name, created_at: now }); }
+        }
+        effectiveRate(vid);
+        mock.vendorWrites.push({ table: 'vendor_commission', vendor_id: vid, type, rate, flat, categories: cats, since, set_by: u.name });
+        return json(200, since);
+      }
       const rateRpc = /^\/rest\/v1\/rpc\/(vendor_rate_set|vendor_category_rate_set)$/.exec(path);
       if (method === 'POST' && rateRpc) {
         const fn = rateRpc[1]; const b = body(); const vid = String(b.p_vendor || '').toLowerCase(); const cat = fn === 'vendor_category_rate_set';

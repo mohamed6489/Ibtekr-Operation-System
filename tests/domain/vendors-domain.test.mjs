@@ -191,3 +191,16 @@ test('EDIT_GROUPS.contact carries contactName / addressParts / social (instagram
   assert.deepEqual(V.validateGroup('identity', cur, { name: 'Zaan', addressParts: { country: 'Egypt' } }), {}); // another group never judges the contact objects
   assert.deepEqual(V.groupPatch('contact', { social: { fb: 'https://f.com/a' }, name: 'x' }), { social: { fb: 'https://f.com/a' } });
 });
+
+test('categoryTree / categoryFigures (3.4): the site categories as a tree by name; a parent\'s figure flows to its children, a hand-set child keeps its own, the rest the default', () => {
+  const cats = [{ id: 100, name: 'ديكور', parentId: null }, { id: 110, name: 'إضاءة', parentId: 100 }, { id: 111, name: 'أباجورات', parentId: 110 }, { id: 120, name: 'سجاد', parentId: 100 }, { id: 200, name: 'أزياء', parentId: null }, { id: 300, name: 'يتيم', parentId: 999 }, { id: 0, name: 'x' }];
+  const tree = V.categoryTree(cats);
+  assert.deepEqual(tree.map((n) => n.id), [200, 100, 300]); // by name (Arabic order), the orphan at the top
+  assert.deepEqual(tree[1].children.map((n) => n.id), [110, 120]);
+  assert.deepEqual(tree[1].children[0].children.map((n) => n.id), [111]);
+  const f = V.categoryFigures(tree, { 100: { rate: '٣٠', flat: '' }, 111: { rate: 20, flat: 2 }, 120: { rate: '' } }, { rate: 40, flat: null });
+  assert.deepEqual(f[100], { rate: 30, flat: null, inherited: false });
+  assert.deepEqual([f[110], f[111], f[120]], [{ rate: 30, flat: null, inherited: true }, { rate: 20, flat: 2, inherited: false }, { rate: 30, flat: null, inherited: true }]);
+  assert.deepEqual([f[200], f[300]], [{ rate: 40, flat: null, inherited: true }, { rate: 40, flat: null, inherited: true }]);
+  assert.deepEqual(V.categoryTree(null), []);
+});

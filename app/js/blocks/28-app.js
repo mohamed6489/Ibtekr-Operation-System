@@ -1698,12 +1698,51 @@
     // (instagram is social.instagram) — the synced fields go to the site right after the save; the terms popup takes the flat fee next to
     // the rate (shown with it, pushed as the maker's commission on the site).
     function editGroup(v, g) {
-      const G = VD.EDIT_GROUPS[g]; const f = { name: v.name, legalName: v.legalName || '', category: v.category, aliases: v.aliases.join('، '), status: v.status, phone: v.phone, altPhone: v.altPhone || '', email: v.email || '', contactName: v.contactName || '', addressParts: VD.cleanAddressParts(v.addressParts), social: Object.assign({}, VD.cleanSocial(v.social)), storeUrl: v.storeUrl || '', leadDays: String(v.leadDays), depositPolicy: v.depositPolicy || '', notes: v.notes || '', rate: v.rate == null ? '' : String(v.rate), flat: v.rateFlat == null ? '' : String(v.rateFlat), since: VTODAY() };
+      const G = VD.EDIT_GROUPS[g]; const f = { name: v.name, legalName: v.legalName || '', category: v.category, aliases: v.aliases.join('، '), status: v.status, phone: v.phone, altPhone: v.altPhone || '', email: v.email || '', contactName: v.contactName || '', addressParts: VD.cleanAddressParts(v.addressParts), social: Object.assign({}, VD.cleanSocial(v.social)), storeUrl: v.storeUrl || '', leadDays: String(v.leadDays), depositPolicy: v.depositPolicy || '', notes: v.notes || '', rate: v.rate == null ? '' : String(v.rate), flat: v.rateFlat == null ? '' : String(v.rateFlat), since: VTODAY(),
+        // plan 3.4: the commission type and the figures set by hand per category ({ id: { rate, flat } } as typed)
+        ctype: v.commissionType === 'category_based' ? 'category_based' : 'fixed', cat: Object.fromEntries((v.categoryRates || []).map((c) => [c.wooCategoryId, { rate: String(c.rate), flat: c.flat == null ? '' : String(c.flat) }])) };
+      const catOrig = JSON.parse(JSON.stringify(f.cat)); const openCats = new Set();
       let errs = {}; let m = null;
       const txt = (fid, label, key, opts = {}) => U.TextInput(Object.assign({ id: fid, label, value: f[key], error: errs[key], onInput: (x) => { f[key] = x; } }, opts));
       const sub = (fid, label, obj, key, opts = {}) => U.TextInput(Object.assign({ id: fid, label, value: f[obj][key] || '', error: errs[obj] && errs[obj][key], onInput: (x) => { f[obj][key] = x; } }, opts)); // a key of addressParts / social
       const two = (a, b) => h('div', { class: 'row cols2' }, a, b);
       const synced = !!v.wooVendorId;
+      // plan 3.4 (decision 6): the category tree — the site's top-level categories, «+» opens a category's children (every level);
+      // each row a % and a ج.م box: empty = inherited (the placeholder shows the figure it takes), typed = set by hand. A figure typed
+      // on a parent flows at once to its children that have none of their own; a child's own figure stays (owner, 27 Oct).
+      const ctree = VD.categoryTree(vstore.categories ? vstore.categories() : []); let catWrap = null;
+      const arN = (x) => String(x == null ? '' : x).trim().replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660));
+      const handSet = () => Object.fromEntries(Object.entries(f.cat).filter(([, c]) => arN(c.rate) !== '').map(([k, c]) => [k, { rate: arN(c.rate), flat: arN(c.flat) }]));
+      function refreshCats() {
+        if (!catWrap) return;
+        const fig = VD.categoryFigures(ctree, handSet(), { rate: arN(f.rate) === '' ? null : Number(arN(f.rate)), flat: arN(f.flat) === '' ? null : Number(arN(f.flat)) });
+        catWrap.querySelectorAll('[data-cat]').forEach((row) => { const g2 = fig[row.getAttribute('data-cat')]; if (!g2) return; const [ri, fi] = row.querySelectorAll('input');
+          ri.placeholder = g2.rate == null ? '' : String(g2.rate); fi.placeholder = g2.flat == null ? '' : String(g2.flat); row.classList.toggle('is-own', !g2.inherited); });
+      }
+      function setCat(cid, key, val) { const c = Object.assign({ rate: '', flat: '' }, f.cat[cid], { [key]: val }); if (arN(c.rate) === '' && arN(c.flat) === '') delete f.cat[cid]; else f.cat[cid] = c; refreshCats(); }
+      function catRows(nodes, depth) {
+        const out = [];
+        for (const n of nodes) {
+          const own = f.cat[n.id] || {}; const open = openCats.has(n.id);
+          const ri = h('input', { id: 'cr-' + n.id, inputmode: 'decimal', dir: 'ltr', value: own.rate || '', 'aria-label': 'نسبة ' + n.name });
+          const fi = h('input', { id: 'cf-' + n.id, inputmode: 'decimal', dir: 'ltr', value: own.flat || '', 'aria-label': 'رسوم ثابتة ' + n.name });
+          ri.addEventListener('input', () => setCat(n.id, 'rate', ri.value)); fi.addEventListener('input', () => setCat(n.id, 'flat', fi.value));
+          const tog = n.children.length ? h('button', { type: 'button', class: 'cat-toggle', 'aria-expanded': open ? 'true' : 'false', 'aria-label': (open ? 'اقفل' : 'افتح') + ' فئات ' + n.name, 'data-cat-toggle': n.id,
+            onClick: () => { if (open) openCats.delete(n.id); else openCats.add(n.id); drawCats(); const t = catWrap.querySelector('[data-cat-toggle="' + n.id + '"]'); if (t) t.focus(); } }, open ? '−' : '+') : h('span', { class: 'cat-toggle-sp' });
+          out.push(h('div', { class: 'cat-row', 'data-cat': n.id, style: '--d:' + depth }, tog, h('span', { class: 'cat-name' }, n.name),
+            h('div', { class: 'input cat-in' }, h('span', { class: 'help' }, '%'), ri), h('div', { class: 'input cat-in' }, h('span', { class: 'help' }, 'ج.م'), fi)));
+          if (open) out.push(...catRows(n.children, depth + 1));
+        }
+        return out;
+      }
+      function drawCats() { catWrap.replaceChildren(...catRows(ctree, 0)); refreshCats(); }
+      function catEditor() {
+        catWrap = h('div', { class: 'cat-tree', 'data-cat-tree': '' });
+        if (!ctree.length) { catWrap.append(h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'فئات الموقع لسه ماتزامنتش — بتتجاب كل ربع ساعة.')); return catWrap; }
+        drawCats();
+        return h('div', null, h('div', { class: 'cat-head t-small' }, h('span', null, 'الفئة'), h('span', null, 'النسبة'), h('span', null, 'رسوم ثابتة')), catWrap,
+          U.InlineNote({ children: 'الرقم اللي تكتبه في فئة بيتحط لكل الفئات اللي تحتها، إلا اللي ليها رقم خاص. الخانة الفاضية بتاخد رقم اللي فوقها (الرقم الرمادي).' }));
+      }
       const groups = {
         identity: () => [two(txt('g-name', 'اسم المبتكر (المعروض)', 'name', { required: true, maxlength: 80 }), txt('g-legal', 'الاسم التجاري / القانوني', 'legalName')),
           two(U.Select({ id: 'g-cat', label: 'الفئة الأساسية', required: true, options: CATS.map((c) => ({ value: c, label: c })), value: f.category, error: errs.category, onChange: (x) => { f.category = x; m.setBody(...body()); } }), U.Select({ id: 'g-status', label: 'الحالة', required: true, options: VD.STATUSES.map(([value, label]) => ({ value, label })), value: f.status, error: errs.status, onChange: (x) => { f.status = x; m.setBody(...body()); } })),
@@ -1719,23 +1758,40 @@
           ...VD.SOCIAL_KEYS.reduce((rows, [k, label], i, all) => (i % 2 ? rows : rows.concat([two(sub('g-' + k, label, 'social', k, { dir: 'ltr', inputmode: 'url', placeholder: 'https://…' }), all[i + 1] ? sub('g-' + all[i + 1][0], all[i + 1][1], 'social', all[i + 1][0], { dir: 'ltr', inputmode: 'url', placeholder: 'https://…' }) : h('span'))])), []),
           txt('g-url', 'صفحة المتجر', 'storeUrl', { placeholder: 'https://ibtekr.club/…' }),
           synced ? U.InlineNote({ children: 'التليفون والإيميل واسم صاحب المتجر والعنوان والسوشيال بيتبعتوا لمتجره على الموقع مع الحفظ.' }) : null],
-        terms: () => [vstore.canRate() ? two(txt('g-rate', 'نسبة إبتكر', 'rate', { inputmode: 'decimal', suffix: '%', help: v.rate == null ? 'لسه مفيش نسبة متسجلة' : undefined }), txt('g-flat', 'رسوم ثابتة على كل أوردر (ج.م)', 'flat', { inputmode: 'decimal', error: errs.flat, help: 'زي ما هي على الموقع — للعرض بس، مش داخلة في حساب الحصة' })) : null,
-          vstore.canRate() ? U.InlineNote({ kind: 'warning', children: 'لو غيّرت النسبة: بتنطبق على الأوردرات الجديدة بس — الأوردرات القديمة بتفضل بنسبتها ' + (v.rate == null ? '—' : v.rate + '%') + '.' + (synced ? ' والنسبة بتتبعت للموقع مع الحفظ.' : '') }) : null,
+        terms: () => [vstore.canRate() ? U.Select({ id: 'g-ctype', label: 'نوع العمولة', required: true, options: [{ value: 'fixed', label: 'نسبة ثابتة (Fixed)' }, { value: 'category_based', label: 'حسب الفئة (Category based)' }], value: f.ctype, onChange: (x) => { f.ctype = x; m.setBody(...body()); } }) : null,
+          vstore.canRate() ? two(txt('g-rate', f.ctype === 'category_based' ? 'نسبة الفئات اللي مالهاش رقم' : 'نسبة إبتكر', 'rate', { inputmode: 'decimal', suffix: '%', help: v.rate == null ? 'لسه مفيش نسبة متسجلة' : f.ctype === 'category_based' ? 'وبتملا الجدول تحت لأي فئة فاضية' : undefined, onInput: (x) => { f.rate = x; refreshCats(); } }), txt('g-flat', 'رسوم ثابتة على كل أوردر (ج.م)', 'flat', { inputmode: 'decimal', error: errs.flat, help: 'زي ما هي على الموقع — للعرض بس، مش داخلة في حساب الحصة', onInput: (x) => { f.flat = x; refreshCats(); } })) : null,
+          vstore.canRate() && f.ctype === 'category_based' ? catEditor() : null,
+          vstore.canRate() ? U.InlineNote({ kind: 'warning', children: 'لو غيّرت العمولة: بتنطبق على الأوردرات الجديدة بس — الأوردرات القديمة بتفضل بنسبتها.' + (synced ? ' والعمولة بتتبعت للموقع مع الحفظ.' : '') }) : null,
           two(txt('g-lead', 'مدة التجهيز المتفق عليها (أيام)', 'leadDays', { required: true, inputmode: 'numeric', help: 'بتغذي قاعدة التأخير' }), txt('g-dep', 'سياسة العربون', 'depositPolicy')),
           U.Textarea({ id: 'g-notes', label: 'ملاحظات الاتفاق', value: f.notes, onInput: (x) => { f.notes = x; } })] };
       const body = () => groups[g]().filter(Boolean).concat(errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: 'التعديل بيتسجل في سجل النشاط باسمك.' }));
       function save() {
         errs = VD.validateGroup(g, Object.assign({}, v, { aliases: v.aliases.join('، ') }), f);
-        let rateChanged = false; let flat = null;
+        let rateChanged = false; let flat = null; const cats = [];
         if (g === 'terms' && vstore.canRate()) {
           const ar = (s) => String(s).trim().replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660));
           const raw = ar(f.rate); const fl = ar(f.flat);
           if (fl !== '') { const n = Number(fl); if (!(n >= 0)) errs.flat = 'الرسوم الثابتة رقم من 0 أو أكتر'; else flat = n; }
-          if (raw === '') { if (v.rate != null) errs.rate = 'النسبة من 0% إلى 65%'; } else { const r = Number(raw); if (!(r >= 0 && r <= 65)) errs.rate = 'النسبة من 0% إلى 65%'; else rateChanged = r !== v.rate || flat !== (v.rateFlat == null ? null : v.rateFlat); }
+          if (raw === '') { if (v.rate != null || f.ctype === 'category_based') errs.rate = 'النسبة من 0% إلى 65%'; } else { const r = Number(raw); if (!(r >= 0 && r <= 65)) errs.rate = 'النسبة من 0% إلى 65%'; else rateChanged = r !== v.rate || flat !== (v.rateFlat == null ? null : v.rateFlat); }
+          // plan 3.4: the type, and on category_based the categories whose hand-set figure changed (emptied = back to inheriting)
+          if (f.ctype !== (v.commissionType === 'category_based' ? 'category_based' : 'fixed')) rateChanged = rateChanged || raw !== '';
+          if (f.ctype === 'category_based') {
+            const bad = [];
+            for (const k of new Set(Object.keys(f.cat).concat(Object.keys(catOrig)))) {
+              const now2 = f.cat[k] || { rate: '', flat: '' }; const was = catOrig[k] || { rate: '', flat: '' };
+              const nr = ar(now2.rate); const nf = ar(now2.flat);
+              if (nr !== '' && !(Number(nr) >= 0 && Number(nr) <= 65)) { bad.push(k); continue; }
+              if (nf !== '' && !(Number(nf) >= 0)) { bad.push(k); continue; }
+              if (nr === ar(was.rate) && nf === ar(was.flat)) continue;
+              cats.push({ id: Number(k), rate: nr === '' ? null : Number(nr), flat: nr === '' || nf === '' ? null : Number(nf) });
+            }
+            if (bad.length) { const nm = (VD.categoryTree ? (vstore.categories ? vstore.categories() : []) : []).find((c) => String(c.id) === bad[0]); errs._cats = 'نسبة فئة «' + (nm ? nm.name : '#' + bad[0]) + '» لازم من 0% لـ 65%، والرسوم من 0 أو أكتر'; }
+            if (cats.length) rateChanged = true;
+          }
         }
-        if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; m.setBody(...body()); const bad = m.el.querySelector('[aria-invalid=true]'); if (bad) bad.focus(); return; }
+        if (Object.keys(errs).length) { errs._form = errs._cats || 'راجع الحقول المعلّمة بالأحمر'; m.setBody(...body()); const bad = m.el.querySelector('[aria-invalid=true]'); if (bad) bad.focus(); return; }
         m.close();
-        act(() => { vstore.update(id, VD.groupPatch(g, f), vstore.actor()); if (rateChanged) vstore.setRate(id, Number(f.rate.trim().replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660))), null, vstore.actor(), { flat }); }, 'اتحفظت ' + G.title + '.');
+        act(() => { vstore.update(id, VD.groupPatch(g, f), vstore.actor()); if (rateChanged) vstore.setCommission(id, { type: f.ctype, rate: Number(f.rate.trim().replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660))), flat, categories: f.ctype === 'category_based' ? cats : [] }, vstore.actor()); }, 'اتحفظت ' + G.title + '.');
       }
       m = U.Modal({ title: G.title + ' — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
       const first = m.el && m.el.querySelector('input'); if (first) first.focus();
@@ -1848,25 +1904,24 @@
     const dateCell = (iso) => num(D.formatDateNumeric(iso));
     function brandMenu(v, b) {
       const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const trig = IconButton({ icon: 'more', label: 'خيارات البراند ' + b.name, attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'data-brand-menu': b.id } });
-      const opts = [{ value: 'edit', label: 'تعديل' }, vstore.canRate() ? { value: 'rate', label: 'النسبة الخاصة' } : null, { value: 'transfer', label: 'نقل لمبتكر تاني' }, b.owner !== b.origin ? { value: 'return', label: 'رجوع لصاحبه' } : null].filter(Boolean);
-      const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (val) => { close(); if (val === 'edit') brandForm(v, b); if (val === 'rate') brandRateForm(v, b); if (val === 'transfer') brandTransferForm(v, b); if (val === 'return') brandReturnForm(v, b); } }));
+      const opts = [{ value: 'edit', label: 'تعديل' }, { value: 'transfer', label: 'نقل لمبتكر تاني' }, b.owner !== b.origin ? { value: 'return', label: 'رجوع لصاحبه' } : null].filter(Boolean);
+      const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (val) => { close(); if (val === 'edit') brandForm(v, b); if (val === 'transfer') brandTransferForm(v, b); if (val === 'return') brandReturnForm(v, b); } }));
       trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
     }
     function brandsSection(v) {
-      const canRate = vstore.canRate(); const edit = canBrands();
-      const head = ['البراند'].concat(canRate ? ['النسبة'] : [], ['منذ'], edit ? [''] : []);
+      const edit = canBrands(); // plan 3.4 decision 5: no rate column — the brand has no rate of its own
+      const head = ['البراند', 'منذ'].concat(edit ? [''] : []);
       const cell = (b) => h('td', null, h('span', { class: 'brand-cell' }, h('b', null, b.name), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, 'الكود ', h('span', { dir: 'ltr' }, b.code), b.aliases.length ? ' · ' + b.aliases.join('، ') : ''), b.store ? h('span', null, h('span', { class: 'tg tg-neutral' }, 'متجر على الموقع')) : null));
       const rows = (v.brands || []).map((b) => h('tr', { 'data-brand': b.id }, cell(b),
-        canRate ? h('td', { 'data-brand-rate': '' }, b.rate == null ? 'نسبة المبتكر' : num('خاصة ' + b.rate + '%')) : null,
         h('td', null, b.since ? dateCell(b.since) : '—', b.temp && b.returnOn ? h('span', { class: 't-small', style: 'display:block;color:var(--color-text-secondary)' }, num('مؤقت لحد ' + D.formatDateNumeric(b.returnOn))) : null),
         edit ? h('td', null, brandMenu(v, b)) : null));
       const ever = (v.brandsEver || []).map((b) => h('p', { class: 't-small brand-ever', style: 'margin:0;color:var(--color-text-secondary)' }, 'كان عنده: ', h('b', null, b.name), num(' لحد ' + (b.until ? D.formatDateNumeric(b.until) : '—') + ' → دلوقتي مع '), h('b', null, b.now)));
       return section('البراندات', edit ? Button({ type: 'text', size: 'sm', icon: 'plus', label: 'إضافة براند', attrs: { 'data-add-brand': '' }, onClick: () => brandForm(v, null) }) : null,
         rows.length ? h('div', { class: 'scroll-x' }, h('table', { class: 'brands-table mini-table' }, h('thead', null, h('tr', null, head.map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, rows))) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'مفيش براندات على المبتكر ده دلوقتي.'),
-        ever, h('p', { class: 't-small help', style: 'margin:0' }, 'الأوردرات بتتحسب للي البراند كان تحته يوم الأوردر، والـ SKU مش بيتغير. النسبة = نسبة المبتكر إلا لو البراند ليه نسبة خاصة.'));
+        ever, h('p', { class: 't-small help', style: 'margin:0' }, 'الأوردرات بتتحسب للي البراند كان تحته يوم الأوردر، والـ SKU مش بيتغير. النسبة = نسبة المبتكر.'));
     }
-    // «إضافة براند» / «تعديل»: the name, the code (suggested from the name until it is typed), the aliases, and — adding, with
-    // sensitive.commission — a special rate. A taken name (the store's brandByName) is refused here; the server's 23505 says the same.
+    // «إضافة براند» / «تعديل»: the name, the code (suggested from the name until it is typed), the aliases (no rate — plan 3.4
+    // decision 5). A taken name (the store's brandByName) is refused here; the server's 23505 says the same.
     function brandForm(v, b) {
       const f = { name: b ? b.name : '', code: b ? b.code : '', aliases: b ? b.aliases.join('، ') : '', rate: '', codeTouched: !!b }; let errs = {}; let m = null;
       const redraw = () => m.setBody(...body());
@@ -1874,36 +1929,20 @@
           U.TextInput({ id: 'br-name', label: 'اسم البراند', required: true, maxlength: 80, value: f.name, error: errs.name, help: 'الاسم اللي المنتجات بتتباع بيه', onInput: (x) => { f.name = x; if (!f.codeTouched) { f.code = VD.brandCode(x); const el = document.getElementById('br-code'); if (el) el.value = f.code; } } }),
           U.TextInput({ id: 'br-code', label: 'الكود', dir: 'ltr', maxlength: 3, value: f.code, error: errs.code, help: 'من 1 لـ 3 حروف إنجليزي كبيرة أو أرقام — معلوماتي، الـ SKU مش بيتغير', onInput: (x) => { f.code = x.toUpperCase(); f.codeTouched = true; } })),
         U.TextInput({ id: 'br-aliases', label: 'أسماء بديلة', value: f.aliases, placeholder: 'W&R، WOOD & ROPE', help: 'لتوحيد الأسماء من الأوردرات والشيت — افصل بفاصلة', onInput: (x) => { f.aliases = x; } }),
-        !b && vstore.canRate() ? U.TextInput({ id: 'br-rate', label: 'نسبة خاصة', inputmode: 'decimal', suffix: '%', value: f.rate, error: errs.rate, help: 'سيبها فاضية = نسبة المبتكر', onInput: (x) => { f.rate = x; } }) : null,
         errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: b ? 'التعديل بيتسجل في سجل النشاط باسمك.' : 'البراند هيبقى على ' + v.name + ' من تاريخ انضمامه (' + D.formatDateNumeric(v.joinedAt) + ')، وبيتسجل في سجل النشاط باسمك.' })].filter(Boolean);
       function save() {
         errs = VD.validateBrand(f);
         if (!errs.name) { const dup = vstore.brandByName ? vstore.brandByName(f.name) : null; if (dup && (!b || dup.id !== b.id)) errs.name = 'فيه براند بنفس الاسم (' + dup.name + ') — اختار اسم تاني'; }
         if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; redraw(); const bad = m.el.querySelector('[aria-invalid=true]'); if (bad) bad.focus(); return; }
         if (b) { m.close(); act(() => vstore.updateBrand(b.id, { name: f.name, code: f.code, aliases: f.aliases }, vstore.actor()), 'اتحفظ البراند.'); return; }
-        const STEP = { owner: 'صف الملكية', rate: 'النسبة الخاصة' };
-        Promise.resolve().then(() => vstore.addBrand(id, { name: f.name, code: f.code, aliases: f.aliases, rate: f.rate }, vstore.actor())).then((res) => {
+        const STEP = { owner: 'صف الملكية' };
+        Promise.resolve().then(() => vstore.addBrand(id, { name: f.name, code: f.code, aliases: f.aliases }, vstore.actor())).then((res) => {
           m.close(); log.append({ action: 'vendor.update', actor: ME.name, newValue: id });
           const miss = (res.missing || []).map((k) => (STEP[k] || k) + (res.reasons && VMSG[res.reasons[k]] ? ' (' + VMSG[res.reasons[k]] + ')' : ''));
           vnotify(miss.length ? 'warning' : 'success', 'اتضاف البراند ' + res.brand.name + (miss.length ? ' — ناقص: ' + miss.join('، ') + '.' : '.')); draw();
         }, (e) => { errs._form = e.message; redraw(); });
       }
       m = U.Modal({ title: b ? 'تعديل البراند — ' + b.name : 'إضافة براند — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: b ? 'حفظ' : 'إضافة البراند', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
-      const first = m.el && m.el.querySelector('input'); if (first) first.focus();
-    }
-    // «النسبة الخاصة» (sensitive.commission): a dated row; blank = no special rate from that date (the maker's rate again)
-    function brandRateForm(v, b) {
-      const f = { rate: b.rate == null ? '' : String(b.rate), since: VTODAY() }; let errs = {}; let m = null; const redraw = () => m.setBody(...body());
-      const body = () => [h('div', { class: 'row cols2' }, U.TextInput({ id: 'br-rate', label: 'النسبة الخاصة للبراند', inputmode: 'decimal', suffix: '%', value: f.rate, error: errs.rate, help: 'سيبها فاضية = من غير نسبة خاصة (نسبة المبتكر)', onInput: (x) => { f.rate = x; } }),
-          U.DateField({ id: 'br-since', label: 'سارية من', required: true, value: f.since, error: errs.since, today: VTODAY(), onChange: (iso, e) => { if (!e) f.since = iso; errs.since = e || undefined; redraw(); } })),
-        U.InlineNote({ kind: 'warning', children: 'النسبة الخاصة بتغلب نسبة المبتكر على أوردرات البراند من التاريخ ده — السطر اللي ليه نسبة من الموقع بيفضل بنسبته.' }),
-        errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: 'بتتسجل في سجل النشاط باسمك.' })].filter(Boolean);
-      function save() {
-        errs = {}; const e = VD.validateBrand({ name: b.name, rate: f.rate }); if (e.rate) errs.rate = e.rate; if (!f.since) errs.since = 'اختار تاريخ السريان';
-        if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; redraw(); return; }
-        m.close(); act(() => vstore.setBrandRate(b.id, f.rate, f.since, vstore.actor()), 'اتحفظت النسبة الخاصة للبراند ' + b.name + '.');
-      }
-      m = U.Modal({ title: 'النسبة الخاصة — ' + b.name, body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
       const first = m.el && m.el.querySelector('input'); if (first) first.focus();
     }
     // «نقل لمبتكر تاني»: the receiving maker (not the holder), the start date (today by default; not before the last transfer), «نقل
@@ -1962,35 +2001,15 @@
       return [U.InfoRow({ label: 'آخر مزامنة مع الموقع', value: h('span', { 'data-synced-at': v.wooSyncedAt || '' }, v.wooSyncedAt ? fmtTime(v.wooSyncedAt) : 'لسه ماتزامنش') }),
         v.pushPending && v.pushPending.length ? U.InfoRow({ label: 'في انتظار الإرسال', value: h('span', { class: 'tg tg-orange', 'data-push-pending': v.pushPending.join(',') }, v.pushPending.map((f) => L[f] || f).join('، ')) }) : null];
     }
-    // (b) «عمولة حسب الفئة» under the rate: the category rates in force (name, rate, flat fee, since) with «إضافة» / «تعديل» for
-    // sensitive.commission; the note that the rate goes to the site. Nothing for a member without the key.
+    // (b) «عمولة حسب الفئة» (plan 3.4): for a maker on category_based, the figures set by hand (a parent's figure flows to its
+    // children); the editing is in the terms popup. Nothing for a member without sensitive.commission or a maker on fixed.
     function categoryRatesBlock(v) {
-      if (!vstore.canRate()) return [];
-      const rows = (v.categoryRates || []).map((c) => h('tr', { 'data-cat-rate': c.wooCategoryId }, h('td', null, c.name), h('td', null, num(c.rate + '%')), h('td', null, c.flat != null && c.flat > 0 ? num(D.formatMoney(c.flat)) : '—'), h('td', null, dateCell(c.since)),
-        h('td', null, Button({ type: 'text', size: 'sm', label: 'تعديل', attrs: { 'aria-label': 'تعديل عمولة الفئة ' + c.name, 'data-edit-cat': c.wooCategoryId }, onClick: () => categoryRateForm(v, c) }))));
-      return [h('div', { class: 'head', style: 'margin-top:8px' }, h('h3', { class: 't-label' }, 'عمولة حسب الفئة'), Button({ type: 'text', size: 'sm', icon: 'plus', label: 'إضافة', attrs: { 'aria-label': 'إضافة عمولة فئة', 'data-add-cat': '' }, onClick: () => categoryRateForm(v, null) })),
-        rows.length ? h('div', { class: 'scroll-x' }, h('table', { class: 'mini-table cat-rates-table' }, h('thead', null, h('tr', null, ['الفئة', 'النسبة', 'رسوم ثابتة', 'من تاريخ', ''].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, rows))) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)', 'data-no-cat-rates': '' }, 'مفيش عمولة خاصة بفئة — نسبة المبتكر على كل الفئات.'),
-        v.wooVendorId ? U.InlineNote({ children: 'النسبة بتتبعت للموقع: نسبة المبتكر وعمولة الفئات بتتسجل على متجره مع الحفظ.' }) : null];
-    }
-    // the add / edit popup of one category rate: the category (the site's list), the rate (blank = the category goes back to the
-    // maker's rate), the flat fee — no date (decision 12): it applies to the new orders from today
-    function categoryRateForm(v, c) {
-      const cats = (vstore.categories ? vstore.categories() : []); const taken = new Set((v.categoryRates || []).map((x) => String(x.wooCategoryId)));
-      const f = { wooCategoryId: c ? String(c.wooCategoryId) : '', rate: c ? String(c.rate) : '', flat: c && c.flat != null ? String(c.flat) : '', since: VTODAY() }; let errs = {}; let m = null; const redraw = () => m.setBody(...body());
-      const opts = cats.filter((x) => c ? String(x.id) === String(c.wooCategoryId) : !taken.has(String(x.id))).map((x) => ({ value: String(x.id), label: x.name }));
-      const body = () => [U.Select({ id: 'cr-cat', label: 'الفئة (من الموقع)', required: true, options: opts, value: f.wooCategoryId, error: errs.wooCategoryId, placeholder: cats.length ? 'اختار الفئة' : 'فئات الموقع لسه ماتزامنتش', disabled: !!c || !opts.length, onChange: (x) => { f.wooCategoryId = x; redraw(); } }),
-        h('div', { class: 'row cols2' }, U.TextInput({ id: 'cr-rate', label: 'نسبة إبتكر على الفئة', inputmode: 'decimal', suffix: '%', value: f.rate, error: errs.rate, help: 'سيبها فاضية = الفئة ترجع لنسبة المبتكر', onInput: (x) => { f.rate = x; } }),
-          U.TextInput({ id: 'cr-flat', label: 'رسوم ثابتة (ج.م)', inputmode: 'decimal', value: f.flat, error: errs.flat, help: 'للعرض — زي الموقع', onInput: (x) => { f.flat = x; } })),
-        U.InlineNote({ kind: 'warning', children: 'بتنطبق على الأوردرات الجديدة بس' + (v.wooVendorId ? '، وبتتبعت لمتجره على الموقع مع الحفظ.' : '.') }),
-        errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: 'بتتسجل في سجل النشاط باسمك.' })].filter(Boolean);
-      function save() {
-        errs = VD.validateCategoryRate(f);
-        if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; redraw(); return; }
-        m.close(); const name = (cats.find((x) => String(x.id) === f.wooCategoryId) || {}).name || '';
-        act(() => vstore.setCategoryRate(id, f.wooCategoryId, { rate: f.rate, flat: f.flat }, null, vstore.actor()), 'اتحفظت عمولة الفئة ' + name + '.');
-      }
-      m = U.Modal({ title: (c ? 'تعديل عمولة الفئة — ' + c.name : 'إضافة عمولة فئة') + ' · ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
-      const first = m.el && m.el.querySelector('input'); if (first) first.focus();
+      if (!vstore.canRate() || v.commissionType !== 'category_based') return v.wooVendorId && vstore.canRate() ? [U.InlineNote({ children: 'النسبة بتتبعت للموقع مع الحفظ.' })] : [];
+      const rows = (v.categoryRates || []).map((c) => h('tr', { 'data-cat-rate': c.wooCategoryId }, h('td', null, c.name), h('td', null, num(c.rate + '%')), h('td', null, c.flat != null && c.flat > 0 ? num(D.formatMoney(c.flat)) : '—')));
+      return [h('div', { class: 'head', style: 'margin-top:8px' }, h('h3', { class: 't-label' }, 'عمولة حسب الفئة')),
+        rows.length ? h('div', { class: 'scroll-x' }, h('table', { class: 'mini-table cat-rates-table' }, h('thead', null, h('tr', null, ['الفئة', 'النسبة', 'رسوم ثابتة'].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, rows))) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)', 'data-no-cat-rates': '' }, 'مفيش فئة ليها رقم خاص — كل الفئات بنسبة الفئات اللي مالهاش رقم.'),
+        h('p', { class: 't-small help', style: 'margin:0' }, 'الفئات الفرعية بتاخد رقم الفئة اللي فوقها إلا لو ليها رقم خاص. التعديل من «تعديل» في الاتفاق التجاري.'),
+        v.wooVendorId ? U.InlineNote({ children: 'النسبة بتتبعت للموقع: نوع العمولة ونسب الفئات بتتسجل على متجره مع الحفظ.' }) : null];
     }
     function draw() {
       const v = vstore.get(id); if (!v) { vdrawer.close(); return; } const st = vendorStats()[v.id]; const canEdit = vstore.canEdit(), canBank = vstore.canBank(), canRate = vstore.canRate(), canLogin = !!(vstore.canLogin && vstore.canLogin()); const cstat = VD.contractStatus(v, VTODAY());
@@ -2032,7 +2051,7 @@
             // phase 3.3 (decision 6 a): the store owner's name, the address from its parts (the typed text of a maker without parts), the social links, the sync lines
             U.InfoRow({ label: 'اسم صاحب المتجر', value: v.contactName }), U.InfoRow({ label: 'العنوان (الاستلام)', value: VD.addressText(v.addressParts) || v.address }), addressExtra(v), U.InfoRow({ label: 'سوشيال', value: socialLinks(v) }), U.InfoRow({ label: 'صفحة المتجر', value: v.storeUrl, copy: true, onCopy: copy }), ...syncRows(v)),
           loginSection(),
-          section('الاتفاق التجاري', editBtn(v, 'terms'), U.InfoRow({ label: 'نسبة إبتكر', value: !canRate ? '—' : v.rate == null ? 'لسه مفيش نسبة متسجلة' : num(v.rate + '% (على الأوردرات الجديدة فقط)' + (v.rateFlat != null && v.rateFlat > 0 ? ' + ' + D.formatMoney(v.rateFlat) + ' ج.م رسوم ثابتة' : '')) }), U.InfoRow({ label: 'مدة التجهيز المتفق عليها', value: num(v.leadDays + ' أيام') }), U.InfoRow({ label: 'سياسة العربون', value: v.depositPolicy }), U.InfoRow({ label: 'ملاحظات الاتفاق', value: v.notes }), canRate && v.rateHistory.length > 1 ? U.InfoRow({ label: 'سجل النسبة', value: num(v.rateHistory.map((x) => x.rate + '% من ' + D.formatDateNumeric(x.since)).join(' ← ')) }) : null,
+          section('الاتفاق التجاري', editBtn(v, 'terms'), U.InfoRow({ label: 'نسبة إبتكر', value: !canRate ? '—' : v.rate == null ? 'لسه مفيش نسبة متسجلة' : num((v.commissionType === 'category_based' ? 'حسب الفئة — الفئات اللي مالهاش رقم ' : '') + v.rate + '% (على الأوردرات الجديدة فقط)' + (v.rateFlat != null && v.rateFlat > 0 ? ' + ' + D.formatMoney(v.rateFlat) + ' ج.م رسوم ثابتة' : '')) }), U.InfoRow({ label: 'مدة التجهيز المتفق عليها', value: num(v.leadDays + ' أيام') }), U.InfoRow({ label: 'سياسة العربون', value: v.depositPolicy }), U.InfoRow({ label: 'ملاحظات الاتفاق', value: v.notes }), canRate && v.rateHistory.length > 1 ? U.InfoRow({ label: 'سجل النسبة', value: num(v.rateHistory.map((x) => x.rate + '% من ' + D.formatDateNumeric(x.since)).join(' ← ')) }) : null,
             ...categoryRatesBlock(v)),
           brandsSection(v),
           section('العقد', null, U.ContractCard({ status: cstat, title: cstat === 'missing' ? 'العقد غير مرفوع' : cstat === 'expired' ? 'العقد منتهي' : cstat === 'expiring' ? 'العقد بينتهي خلال 30 يوم' : 'عقد التعاون',

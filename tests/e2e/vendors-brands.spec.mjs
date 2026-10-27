@@ -77,23 +77,25 @@ async function statusFilter(page, label) {
 // a hand-added brand of Art Craft in the seed (no store), for the search and the grey line
 const seedWoodRope = (m, name = 'Wood & Rope') => { m.brands.push({ id: 'd0000000-0000-4000-8000-000000000009', name, code: 'W', aliases: ['W&R'], store_vendor_id: null, origin_vendor_id: V1, created_by: 'صفوت كمال', created_at: '2026-10-22T00:00:00Z', updated_at: '2026-10-22T00:00:00Z' }); m.brandOwners.push({ id: 99, brand_id: 'd0000000-0000-4000-8000-000000000009', vendor_id: V1, since: '2026-09-01', return_on: null, reason: null, set_by: 'صفوت كمال', created_at: '2026-10-22T00:00:00Z' }); };
 
-test('the admin: the automatic brand in «البراندات» (code, aliases, «متجر على الموقع», the maker\'s rate, since), «إضافة براند» and the ⋮ menu; the three tables read at sign-in; the search finds a maker by a brand\'s name or alias and the list shows the brand line', async ({ page }) => {
+test('the admin: the automatic brand in «البراندات» (code, aliases, «متجر على الموقع», since — no rate: plan 3.4), «إضافة براند» and the ⋮ menu; brands and brand_owners read at sign-in, brand_rates never (plan 3.4); the search finds a maker by a brand\'s name or alias and the list shows the brand line', async ({ page }) => {
   await setup(page); seedWoodRope(mock);
   await openVendors(page);
-  for (const t of ['brands', 'brand_owners', 'brand_rates']) expect(mock.requests).toContain('GET /rest/v1/' + t);
+  for (const t of ['brands', 'brand_owners']) expect(mock.requests).toContain('GET /rest/v1/' + t);
+  expect(mock.requests.filter((r) => r === 'GET /rest/v1/brand_rates')).toEqual([]); // the special rate is retired (plan 3.4, decision 5)
   await openDrawer(page, V2);
   const r = brandRow(page, B2);
   await expect(r).toContainText('Antikiano');
   await expect(r).toContainText('الكود A');
   await expect(r).toContainText('Antikiano store');
   await expect(r).toContainText('متجر على الموقع');
-  await expect(r.locator('[data-brand-rate]')).toHaveText('نسبة المبتكر');
+  await expect(r.locator('[data-brand-rate]')).toHaveCount(0);
+  await expect(brands(page).locator('thead')).not.toContainText('النسبة');
   await expect(r).toContainText('01/03/2026'); // joined_at
   await expect(r).not.toContainText('مؤقت');
   await expect(brands(page)).not.toContainText('كان عنده');
   await expect(brands(page).getByRole('button', { name: 'إضافة براند' })).toBeVisible();
   await r.locator('[data-brand-menu]').click();
-  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'النسبة الخاصة', 'نقل لمبتكر تاني']); // with its origin: no «رجوع لصاحبه»
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'نقل لمبتكر تاني']); // no «النسبة الخاصة» (plan 3.4); with its origin: no «رجوع لصاحبه»
   await page.keyboard.press('Escape');
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   // the search: the hand-added brand of Art Craft by its name and by its alias; the grey line under his name
@@ -127,9 +129,9 @@ test('ops (vendors.edit = P) and accounts read the section only: no button, no m
     try { await S.addBrand(v1, { name: 'Zaan' }, S.actor()); out.push('added'); } catch (e) { out.push(e.message); }
     try { S.updateBrand(b2, { name: 'Zaan' }, S.actor()); out.push('updated'); } catch (e) { out.push(e.message); }
     try { S.transferBrand(b2, v1, { since: '2026-10-25' }, S.actor()); out.push('moved'); } catch (e) { out.push(e.message); }
-    try { S.setBrandRate(b2, 30, '2026-10-25', S.actor()); out.push('rated'); } catch (e) { out.push(e.message); }
+    out.push(typeof S.setBrandRate); // retired (plan 3.4)
     return out; }, [B2, V1]);
-  expect(refused).toEqual(['مش من صلاحياتك', 'مش من صلاحياتك', 'مش من صلاحياتك', 'مش من صلاحياتك']);
+  expect(refused).toEqual(['مش من صلاحياتك', 'مش من صلاحياتك', 'مش من صلاحياتك', 'undefined']);
   expect([posts('brands'), posts('brand_owners'), posts('brand_rates'), writes()]).toEqual([0, 0, 0, []]);
   expect(mock.requests.filter((r) => r === 'GET /rest/v1/brand_rates')).toEqual([]); // no sensitive.commission: never asked
   await signOut(page);
@@ -148,11 +150,11 @@ test('ops (vendors.edit = P) and accounts read the section only: no button, no m
   await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'نقل لمبتكر تاني']);
   await page.keyboard.press('Escape');
   await brands(page).getByRole('button', { name: 'إضافة براند' }).click();
-  await expect(modal(page).locator('#br-rate')).toHaveCount(0); // no special rate without sensitive.commission
+  await expect(modal(page).locator('#br-rate')).toHaveCount(0); // no special rate (plan 3.4)
   await cancel(page);
 });
 
-test('add a brand: the code suggested from the name until typed, a special rate; brands → brand_owners (since = joining) → brand_rates in order, with .select(id) on the brand only; the events; the table, the log and the list\'s grey line; a taken name refused before any request', async ({ page }) => {
+test('add a brand: the code suggested from the name until typed, no rate field (plan 3.4); brands → brand_owners (since = joining) in order, with .select(id) on the brand only; the events; the table, the log and the list\'s grey line; a taken name refused before any request', async ({ page }) => {
   await setup(page);
   await openVendors(page);
   await openDrawer(page, V1);
@@ -161,7 +163,7 @@ test('add a brand: the code suggested from the name until typed, a special rate;
   await modal(page).locator('#br-name').fill('wood & rope');
   await expect(modal(page).locator('#br-code')).toHaveValue('W'); // suggested
   await modal(page).locator('#br-aliases').fill('W&R، Wood Rope');
-  await modal(page).locator('#br-rate').fill('30');
+  await expect(modal(page).locator('#br-rate')).toHaveCount(0); // the special rate is retired (plan 3.4)
   await modal(page).getByRole('button', { name: 'إضافة البراند' }).click();
   await expect(modal(page)).toHaveCount(0);
   await expect(note(page)).toContainText('اتضاف البراند wood & rope');
@@ -170,15 +172,13 @@ test('add a brand: the code suggested from the name until typed, a special rate;
   await expect(brandRow(page, nb)).toContainText('الكود W');
   await expect(brandRow(page, nb)).toContainText('W&R، Wood Rope');
   await expect(brandRow(page, nb)).not.toContainText('متجر على الموقع'); // a hand-added brand: no store
-  await expect(brandRow(page, nb).locator('[data-brand-rate]')).toHaveText('خاصة 30%');
   await expect(brandRow(page, nb)).toContainText('01/03/2026'); // since = Art Craft's joined_at
   expect(writes()).toEqual([{ table: 'brands', op: 'insert', name: 'wood & rope', code: 'W', aliases: ['W&R', 'Wood Rope'], origin_vendor_id: V1, created_by: 'صفوت كمال' },
-    { table: 'brand_owners', op: 'insert', brand_id: nb, vendor_id: V1, since: '2026-03-01', set_by: 'صفوت كمال' }, { table: 'brand_rates', op: 'insert', brand_id: nb, rate: 30, since: '2026-03-01', set_by: 'صفوت كمال' }]);
+    { table: 'brand_owners', op: 'insert', brand_id: nb, vendor_id: V1, since: '2026-03-01', set_by: 'صفوت كمال' }]);
+  expect(posts('brand_rates')).toBe(0);
   expect(mock.brands.find((b) => b.id === nb)).toMatchObject({ store_vendor_id: null, origin_vendor_id: V1 });
   await expect.poll(() => acts('vendor.brand')).toEqual([{ entity: 'vendor', entity_id: V1, new_value: 'add: wood & rope' }]);
-  await expect.poll(() => acts('vendor.brand.rate')).toEqual([{ entity: 'vendor', entity_id: V1, new_value: 'wood & rope: 30% من 2026-03-01' }]);
   await expect(section(page, 'سجل النشاط')).toContainText('صفوت كمال أضاف البراند wood & rope');
-  await expect(section(page, 'سجل النشاط')).toContainText('صفوت كمال حدّد النسبة الخاصة للبراند (wood & rope: 30% من 2026-03-01)');
   await expect(row(page, V1).locator('[data-brands]')).toHaveText('wood & rope');
   // a taken name (the automatic brand of Antikiano, by its alias too): refused in the popup, nothing sent
   await brands(page).getByRole('button', { name: 'إضافة براند' }).click();
@@ -193,14 +193,14 @@ test('add a brand: the code suggested from the name until typed, a special rate;
   await modal(page).locator('#br-code').fill('Z-1');
   await modal(page).getByRole('button', { name: 'إضافة البراند' }).click();
   await expect(modal(page)).toContainText('الكود من 1 لـ 3');
-  expect(writes()).toHaveLength(3);
+  expect(writes()).toHaveLength(2);
   // the server's 23505 (a name taken meanwhile) reads the same
   mock.brands.push({ id: 'd0000000-0000-4000-8000-000000000008', name: 'zaan', code: 'Z', aliases: [], store_vendor_id: null, origin_vendor_id: V2, created_by: 'x', created_at: '2026-10-22T00:00:00Z', updated_at: '2026-10-22T00:00:00Z' });
   await modal(page).locator('#br-code').fill('Z');
   await modal(page).getByRole('button', { name: 'إضافة البراند' }).click();
   await expect(modal(page).locator('.note.error')).toContainText('فيه براند بنفس الاسم');
   expect(posts('brands')).toBe(2);
-  expect(writes()).toHaveLength(3);
+  expect(writes()).toHaveLength(2);
   await cancel(page);
 });
 
@@ -211,7 +211,7 @@ test('edit a brand: the changed columns only (a PATCH, no returning row), logged
   await openBrandMenu(page, B1, 'تعديل');
   await expect(modal(page).locator('h2')).toHaveText('تعديل البراند — Art Craft');
   await expect(modal(page).locator('#br-code')).toHaveValue('A');
-  await expect(modal(page).locator('#br-rate')).toHaveCount(0); // the rate has its own popup
+  await expect(modal(page).locator('#br-rate')).toHaveCount(0); // no rate (plan 3.4)
   await modal(page).locator('#br-name').fill('Art Craft Studio');
   await expect(modal(page).locator('#br-code')).toHaveValue('A'); // an existing brand keeps its code unless typed
   await modal(page).locator('#br-code').fill('ac');
@@ -241,55 +241,20 @@ test('edit a brand: the changed columns only (a PATCH, no returning row), logged
   expect(mock.brands.find((b) => b.id === B1).name).toBe(EVIL);
 });
 
-test('the special rate (sensitive.commission): a dated row, logged; it beats the maker\'s rate on a line without a website rate (the orders tab), while a line with one keeps it; blank = none again; hidden from ops', async ({ page }) => {
+test('the brand special rate is retired (plan 3.4, decision 5): a brand_rates row on the server changes nothing — the share is the maker\'s rate; no «النسبة الخاصة» in the menu, no rate column, brand_rates never read', async ({ page }) => {
   await setup(page);
+  mock.brandRates.push({ id: 1, brand_id: B2, rate: 30, since: daysAgo(15), set_by: 'x', created_at: '2026-10-22T00:00:00Z' }); // an old row
   await openVendors(page);
   await openDrawer(page, V2);
   await tab(page, 'الحسابات').click();
-  await expect(tile(page, 'هيستحق بعد التنفيذ').locator('.t-h3')).toHaveText('2,007.85'); // both open: 181668 at the line's 40 / 10 (1,513.40) + 180656 at Antikiano's 45% (494.45)
+  await expect(tile(page, 'هيستحق بعد التنفيذ').locator('.t-h3')).toHaveText('2,007.85'); // 181668 at the line's 40 / 10 (1,513.40) + 180656 at Antikiano's 45% (494.45) — the old 30% ignored
   await tab(page, 'معلومات المورد').click();
-  await openBrandMenu(page, B2, 'النسبة الخاصة');
-  await expect(modal(page).locator('h2')).toHaveText('النسبة الخاصة — Antikiano');
-  await modal(page).locator('#br-rate').fill('70');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect(modal(page)).toContainText('النسبة الخاصة من 0% إلى 65%');
-  await modal(page).locator('#br-rate').fill('30');
-  await typeDate(page, 'br-since', daysAgo(15));
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect(note(page)).toContainText('اتحفظت النسبة الخاصة للبراند Antikiano');
-  await expect(brandRow(page, B2).locator('[data-brand-rate]')).toHaveText('خاصة 30%');
-  await expect.poll(() => writes()).toEqual([{ table: 'brand_rates', op: 'insert', brand_id: B2, rate: 30, since: daysAgo(15), set_by: 'صفوت كمال' }]);
-  await expect.poll(() => acts('vendor.brand.rate')).toEqual([{ entity: 'vendor', entity_id: V2, new_value: 'Antikiano: 30% من ' + daysAgo(15) }]);
-  await tab(page, 'الحسابات').click();
-  await expect(tile(page, 'هيستحق بعد التنفيذ').locator('.t-h3')).toHaveText('2,142.70'); // 1,513.40 (the line keeps the website's 40 / 10) + 899 at the brand's 30% (629.30)
-  await expect(tile(page, 'حقه من المكتملة').locator('.t-h3')).toHaveText('0.00'); // nothing completed
-  await tab(page, 'معلومات المورد').click();
-  // the same date again is refused before any write; a blank rate from today = the maker's rate again (the open order is older)
-  await openBrandMenu(page, B2, 'النسبة الخاصة');
-  await expect(modal(page).locator('#br-rate')).toHaveValue('30');
-  await typeDate(page, 'br-since', daysAgo(15));
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect(note(page)).toContainText('فيه نسبة متسجلة بنفس تاريخ السريان');
-  expect(writes()).toHaveLength(1);
-  await openBrandMenu(page, B2, 'النسبة الخاصة');
-  await modal(page).locator('#br-rate').fill('');
-  await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect.poll(() => writes().length).toBe(2);
-  expect(writes()[1]).toEqual({ table: 'brand_rates', op: 'insert', brand_id: B2, rate: null, since: TODAY, set_by: 'صفوت كمال' });
-  await expect(brandRow(page, B2).locator('[data-brand-rate]')).toHaveText('نسبة المبتكر');
-  await expect.poll(() => acts('vendor.brand.rate').length).toBe(2);
-  expect(acts('vendor.brand.rate')[1].new_value).toBe('Antikiano: — من ' + TODAY);
-  await tab(page, 'الحسابات').click();
-  await expect(tile(page, 'هيستحق بعد التنفيذ').locator('.t-h3')).toHaveText('2,142.70'); // 180656 is dated before today's row: still 30%
-  // ops: no rate column, no brand_rates request, the shares without the special rate
-  await signOut(page);
-  const before = mock.requests.filter((r) => r === 'GET /rest/v1/brand_rates').length;
-  await openVendors(page, OPS);
-  await openDrawer(page, V2);
   await expect(brands(page).locator('[data-brand-rate]')).toHaveCount(0);
-  expect(mock.requests.filter((r) => r === 'GET /rest/v1/brand_rates')).toHaveLength(before);
-  await tab(page, 'الحسابات').click();
-  await expect(tile(page, 'هيستحق بعد التنفيذ').locator('.t-h3')).toHaveText('2,412.40'); // the rates hidden: 1,513.40 + the line without a website rate in full (899)
+  await brandRow(page, B2).locator('[data-brand-menu]').click();
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'نقل لمبتكر تاني']);
+  await page.keyboard.press('Escape');
+  expect(mock.requests.filter((r) => r === 'GET /rest/v1/brand_rates')).toEqual([]);
+  expect(writes()).toEqual([]);
 });
 
 test('transfer Antikiano\'s brand to Bian eg from 8 days ago, temporarily: one owner row, two events; Antikiano\'s drawer shows «كان عنده» and his store\'s earlier order only, Bian eg\'s «مؤقت لحد» and the later order; then the return', async ({ page }) => {
@@ -377,7 +342,7 @@ test('transfer Antikiano\'s brand to Bian eg from 8 days ago, temporarily: one o
   await expect(brandRow(page, B2)).toContainText(dmy(TODAY));
   await expect(brandRow(page, B2)).not.toContainText('مؤقت');
   await brandRow(page, B2).locator('[data-brand-menu]').click();
-  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'النسبة الخاصة', 'نقل لمبتكر تاني']);
+  await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'نقل لمبتكر تاني']);
   await page.keyboard.press('Escape');
 });
 

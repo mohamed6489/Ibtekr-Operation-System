@@ -188,14 +188,14 @@
         apply: (rows) => { const ids = []; for (const r of rows) { const res = D.validateAccountMovement(acIn(r.data)); if (Object.keys(res.errors).length) continue; try { D.applyAccountMovement(accountsNow().balances, res.value.account, res.value.direction, res.value.amount); } catch (e) { continue; } ids.push(adapter.add('accountMoves', res.value).id); } return { done: { created: ids, updated: [] }, undo: () => ids.forEach((id) => adapter.remove('accountMoves', id)) }; } },
       { id: 'vendorSecure', label: 'بيانات المبتكرين الحساسة (البنك والعقد والنسبة)', key: 'name', modes: ['update'], sensitive: true, note: 'للأدمن والحسابات بس — كل تعديل بيتسجل في سجل نشاط المبتكر.',
         fields: () => [{ key: 'name', label: 'اسم المبتكر', en: 'Vendor name', required: true }, { key: 'method', label: 'طريقة التحويل', en: 'Payout method', type: 'enum', options: VD.PAY_METHODS.map((x) => x[1]) }, { key: 'bankName', label: 'البنك', en: 'Bank', sensitive: true }, { key: 'holder', label: 'صاحب الحساب', en: 'Account holder', sensitive: true },
-          { key: 'iban', label: 'IBAN / رقم الحساب', en: 'IBAN', sensitive: true }, { key: 'wallet', label: 'رقم المحفظة', en: 'Wallet #', sensitive: true }, { key: 'contractExpires', label: 'العقد ينتهي في', en: 'Contract expires', type: 'date' },
+          { key: 'accountNumber', label: 'رقم الحساب', en: 'Account number', sensitive: true }, { key: 'iban', label: 'IBAN', en: 'IBAN', sensitive: true }, { key: 'wallet', label: 'رقم المحفظة', en: 'Wallet #', sensitive: true }, { key: 'contractExpires', label: 'العقد ينتهي في', en: 'Contract expires', type: 'date' },
           { key: 'rate', label: 'نسبة إبتكر الجديدة %', en: 'New Ibtekr %', type: 'number' }],
-        rows: () => vstore.all().map((v) => ({ name: v.name, method: v.bank ? (VD.PAY_METHODS.find((x) => x[0] === v.bank.method) || [, ''])[1] : '', bankName: v.bank && v.bank.bankName || '', holder: v.bank && v.bank.holder || '', iban: v.bank && v.bank.iban || '', wallet: v.bank && v.bank.wallet || '', contractExpires: v.contract && v.contract.expires || '', rate: v.rate })),
+        rows: () => vstore.all().map((v) => ({ name: v.name, method: v.bank ? (VD.PAY_METHODS.find((x) => x[0] === v.bank.method) || [, ''])[1] : '', bankName: v.bank && v.bank.bankName || '', holder: v.bank && v.bank.holder || '', accountNumber: v.bank && v.bank.accountNumber || '', iban: v.bank && v.bank.iban || '', wallet: v.bank && v.bank.wallet || '', contractExpires: v.contract && v.contract.expires || '', rate: v.rate })),
         existing: () => vstore.all().map((v) => v.name),
         check: (d) => { const e = []; const v = vstore.findByName(d.name); if (d.rate !== undefined && d.rate !== '' && (d.rate < 0 || d.rate > 65)) e.push('النسبة لازم بين 0 و 65'); if (d.contractExpires && v && !(v.contract && v.contract.fileName)) e.push('مفيش عقد مرفوع للمبتكر ده — ارفعه الأول من ملفه'); return { errors: e }; },
         apply: (rows) => { const done = { created: [], updated: [] };
           for (const r of rows) { const d = r.data; const v = vstore.findByName(d.name); if (!v) continue; const u = { id: v.id, snap: vstore.get(v.id) };
-            const bk = ['method', 'bankName', 'holder', 'iban', 'wallet'].filter((k) => d[k] !== undefined && d[k] !== '');
+            const bk = ['method', 'bankName', 'holder', 'accountNumber', 'iban', 'wallet'].filter((k) => d[k] !== undefined && d[k] !== '');
             if (bk.length) { const nb = Object.assign({}, v.bank || {}); bk.forEach((k) => { nb[k] = k === 'method' ? (VD.PAY_METHODS.find((x) => x[1] === d.method) || ['bank'])[0] : d[k]; }); vstore.setBank(v.id, nb, vstore.actor()); }
             if (d.contractExpires) vstore.setContract(v.id, Object.assign({}, v.contract, { expires: d.contractExpires }), vstore.actor());
             if (d.rate !== undefined && d.rate !== '') vstore.setRate(v.id, d.rate, null, vstore.actor());
@@ -1623,7 +1623,11 @@
     const m = f.method; const t = (id, label, key, o = {}) => U.TextInput(Object.assign({ id: px + '-' + id, label, value: f[key], error: errs[key], onInput: (x) => { f[key] = x; } }, o));
     return [U.Select({ id: px + '-method', label: 'طريقة التحويل', required: true, options: VD.PAY_METHODS.map(([k, l]) => ({ value: k, label: l })), value: m, error: errs.method, placeholder: 'اختار الطريقة', onChange: (x) => { f.method = x; redraw(); } }),
       m && m !== 'cash' ? t('holder', 'اسم صاحب الحساب', 'holder', { required: true, help: 'زي ما هو مكتوب في البنك / المحفظة بالظبط' }) : null,
-      m === 'bank' ? h('div', { class: 'row cols2' }, t('bank', 'البنك', 'bankName', { required: true, placeholder: 'البنك الأهلي المصري' }), t('iban', 'IBAN / رقم الحساب', 'iban', { required: true, dir: 'ltr', placeholder: 'EG00 0000 0000 …', help: 'EG + 27 رقم، أو رقم الحساب' })) : null,
+      // phase 3.5 (plan decision 6): every field of Dokan's «Payment Options» — the account number and the IBAN apart
+      m === 'bank' ? h('div', { class: 'row cols2' }, t('bank', 'البنك', 'bankName', { required: true, placeholder: 'البنك الأهلي المصري' }), U.Select({ id: px + '-actype', label: 'نوع الحساب', options: VD.BANK_ACCOUNT_TYPES.concat(f.accountType && !VD.BANK_ACCOUNT_TYPES.some((x) => x[0] === f.accountType) ? [[f.accountType, f.accountType]] : []).map(([k, l]) => ({ value: k, label: l })), value: f.accountType || '', placeholder: 'اختار النوع', onChange: (x) => { f.accountType = x; } })) : null,
+      m === 'bank' ? h('div', { class: 'row cols2' }, t('acno', 'رقم الحساب', 'accountNumber', { required: !f.iban, dir: 'ltr', inputmode: 'numeric', placeholder: '0000 0000 0000 0000', help: 'أو الـ IBAN — واحد منهم على الأقل' }), t('iban', 'IBAN', 'iban', { dir: 'ltr', placeholder: 'EG00 0000 0000 …', help: 'EG + 27 رقم (لو موجود)' })) : null,
+      m === 'bank' ? h('div', { class: 'row cols2' }, t('swift', 'SWIFT', 'swift', { dir: 'ltr', placeholder: 'NBEGEGCX' }), t('routing', 'Routing Number', 'routingNumber', { dir: 'ltr', inputmode: 'numeric' })) : null,
+      m === 'bank' ? t('baddr', 'عنوان البنك', 'bankAddress', { maxlength: 200 }) : null,
       m === 'instapay' ? t('wallet', 'رقم الموبايل أو عنوان إنستاباي', 'wallet', { required: true, dir: 'ltr', placeholder: '01xxxxxxxxx أو name@instapay' }) : null,
       m === 'wallet' ? t('wallet', 'رقم المحفظة', 'wallet', { required: true, dir: 'ltr', inputmode: 'tel', placeholder: '01xxxxxxxxx' }) : null,
       m === 'cash' ? U.InlineNote({ children: 'التحويل نقدي عند التسليم — مفيش بيانات بنكية مطلوبة.' }) : null].filter(Boolean);
@@ -1636,7 +1640,7 @@
   // (decision 2: every Dokan store is already here) and the file is one click away.
   function openAddVendor(existing) {
     const f = existing ? { name: existing.name, legalName: existing.legalName || '', category: existing.category, phone: existing.phone, altPhone: existing.altPhone || '', email: existing.email || '', address: existing.address || '', instagram: existing.instagram || '', storeUrl: existing.storeUrl || '', rate: String(existing.rate), leadDays: String(existing.leadDays), status: existing.status, aliases: existing.aliases.join('، '), depositPolicy: existing.depositPolicy || '', notes: existing.notes || '' }
-      : { name: '', legalName: '', category: '', phone: '', altPhone: '', email: '', address: '', instagram: '', storeUrl: '', rate: '40', leadDays: '7', status: 'active', aliases: '', depositPolicy: '', notes: '', username: '', pwMode: 'temp', password: '', method: '', bankName: '', holder: '', iban: '', wallet: '' };
+      : { name: '', legalName: '', category: '', phone: '', altPhone: '', email: '', address: '', instagram: '', storeUrl: '', rate: '40', leadDays: '7', status: 'active', aliases: '', depositPolicy: '', notes: '', username: '', pwMode: 'temp', password: '', method: '', bankName: '', holder: '', iban: '', wallet: '', accountNumber: '', accountType: '', bankAddress: '', routingNumber: '', swift: '' };
     const canBank = vstore.canBank(); const bankReq = true;
     let errs = {}; let modal = null; let dup = null;
     const txt = (id, label, key, opts = {}) => U.TextInput(Object.assign({ id, label, value: f[key], error: errs[key], onInput: (v) => { f[key] = v; } }, opts));
@@ -1671,7 +1675,7 @@
       // decision 10: the store's create runs the sequence (vendor → rate → login → password → bank); a step refused after the vendor's
       // insert leaves the vendor and is named here — the password travels inside `login` only and is dropped once the call is done
       const input = { name: f.name, legalName: f.legalName, category: f.category, phone: f.phone, altPhone: f.altPhone, email: f.email, address: f.address, instagram: f.instagram, storeUrl: f.storeUrl, rate: f.rate, leadDays: f.leadDays, status: f.status, aliases: f.aliases, depositPolicy: f.depositPolicy, notes: f.notes,
-        login: { username: f.username, password: f.password }, bank: canBank && f.method ? { method: f.method, bankName: f.bankName, holder: f.holder, iban: f.iban, wallet: f.wallet } : null };
+        login: { username: f.username, password: f.password }, bank: canBank && f.method ? { method: f.method, bankName: f.bankName, holder: f.holder, iban: f.iban, wallet: f.wallet, accountNumber: f.accountNumber, accountType: f.accountType, bankAddress: f.bankAddress, routingNumber: f.routingNumber, swift: f.swift } : null };
       const STEP = { rate: 'النسبة', login: 'بيانات الدخول', password: 'الباسورد المؤقت', bank: 'الحساب البنكي' };
       Promise.resolve().then(() => vstore.create(input, vstore.actor())).then((res) => {
         const v = res.vendor; const miss = (res.missing || []).map((k) => STEP[k] + (res.reasons && VMSG[res.reasons[k]] ? ' (' + VMSG[res.reasons[k]] + ')' : ''));
@@ -1809,13 +1813,38 @@
       const first = m.el && m.el.querySelector('input'); if (first) first.focus();
     }
     const editBtn = (v, g) => (vstore.canEdit() ? Button({ type: 'text', size: 'sm', label: 'تعديل', attrs: { 'aria-label': 'تعديل ' + VD.EDIT_GROUPS[g].title, 'data-edit': g }, onClick: () => editGroup(v, g) }) : null);
-    function bankForm(v) {
-      const b = v.bank || {}; const f = { method: b.method || 'bank', bankName: b.bankName || '', holder: b.holder || '', iban: b.iban || '', wallet: b.wallet || '' }; let m = null;
-      const body = () => [U.Select({ id: 'b-method', label: 'طريقة الدفع المفضلة', required: true, options: VD.PAY_METHODS.map(([k, l]) => ({ value: k, label: l })), value: f.method, onChange: (x) => { f.method = x; m.setBody(...body()); } }),
-        h('div', { class: 'row cols2' }, U.TextInput({ id: 'b-bank', label: 'البنك', value: f.bankName, onInput: (x) => { f.bankName = x; } }), U.TextInput({ id: 'b-holder', label: 'اسم صاحب الحساب', value: f.holder, onInput: (x) => { f.holder = x; } })),
-        U.TextInput({ id: 'b-iban', label: 'IBAN / رقم الحساب', value: f.iban, placeholder: 'EG…', onInput: (x) => { f.iban = x; } }), U.TextInput({ id: 'b-wallet', label: 'رقم المحفظة / إنستاباي', value: f.wallet, inputmode: 'tel', onInput: (x) => { f.wallet = x; } }),
-        U.InlineNote({ kind: 'warning', children: 'بيانات حساسة — التعديل بيتسجل في السجل باسمك.' })];
-      m = U.Modal({ title: 'بيانات الحساب البنكي — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: () => { m.close(); act(() => vstore.setBank(id, f, vstore.actor()), 'اتحفظ الحساب البنكي.'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+    // phase 3.5 (plan decision 6): every Dokan field; «حفظ» validates and opens a confirmation of its own — only «أيوه، غيّر الحساب
+    // البنكي» writes the row and sends it to the maker's store on the site (a synced maker). «رجوع» brings the form back as typed.
+    const BANK_FIELDS = [['method', 'طريقة الدفع المفضلة'], ['holder', 'اسم صاحب الحساب'], ['bankName', 'البنك'], ['accountNumber', 'رقم الحساب'], ['iban', 'IBAN'], ['accountType', 'نوع الحساب'],
+      ['swift', 'SWIFT'], ['routingNumber', 'Routing Number'], ['bankAddress', 'عنوان البنك'], ['wallet', 'رقم المحفظة / إنستاباي']];
+    const BANK_SECRET = ['accountNumber', 'iban', 'wallet']; // the old value stays masked in the confirmation (shown only by «إظهار», logged)
+    const bankNorm = (k, x) => { const t = String(x == null ? '' : x).trim().replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660)); return k === 'accountNumber' || k === 'routingNumber' ? t.replace(/[\s-]/g, '') : k === 'iban' || k === 'swift' ? t.replace(/\s/g, '').toUpperCase() : k === 'wallet' ? t.replace(/\s/g, '') : t; };
+    const bankShow = (k, x) => (k === 'method' ? VD.label(VD.PAY_METHODS, x) : k === 'accountType' ? VD.label(VD.BANK_ACCOUNT_TYPES, x) || x : x) || '—';
+    function bankForm(v, typed) {
+      const b = v.bank || {}; const f = typed || { method: b.method || 'bank', bankName: b.bankName || '', holder: b.holder || '', iban: b.iban || '', wallet: b.wallet || '', accountNumber: b.accountNumber || '', accountType: b.accountType || '', bankAddress: b.bankAddress || '', routingNumber: b.routingNumber || '', swift: b.swift || '' };
+      let errs = {}; let m = null; const synced = !!v.wooVendorId;
+      const redraw = () => m.setBody(...body());
+      const body = () => bankFields(f, errs, redraw, 'b').concat(errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ kind: 'warning', children: 'بيانات حساسة — التعديل بيتسجل في السجل باسمك' + (synced ? '، وبعد التأكيد بيتبعت لمتجره على الموقع.' : '.') }));
+      function save() {
+        errs = VD.validateBank(f);
+        if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; redraw(); const bad = m.el.querySelector('[aria-invalid=true]'); if (bad) bad.focus(); return; }
+        const changes = BANK_FIELDS.filter(([k]) => bankNorm(k, f[k]) !== bankNorm(k, b[k]));
+        m.close();
+        if (!changes.length) { vnotify('success', 'مفيش تغيير في الحساب البنكي.'); return; }
+        confirmBank(v, f, changes);
+      }
+      m = U.Modal({ title: 'بيانات الحساب البنكي — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+      const first = m.el && m.el.querySelector('input'); if (first) first.focus();
+    }
+    function confirmBank(v, f, changes) {
+      const b = v.bank || {}; let m = null;
+      const rows = changes.map(([k, label]) => h('tr', { 'data-bank-change': k }, h('td', null, label), h('td', { dir: 'auto' }, BANK_SECRET.includes(k) && b[k] ? VD.mask(b[k]) : bankShow(k, b[k])), h('td', { dir: 'auto' }, h('b', null, bankShow(k, f[k])))));
+      m = U.Modal({ title: 'تأكيد تغيير الحساب البنكي — ' + v.name,
+        body: [h('p', { class: 't-body', style: 'margin:0' }, 'راجع التغيير كويس قبل التأكيد: مستحقات المبتكر بتتحوّل على البيانات دي.'),
+          h('div', { class: 'scroll-x' }, h('table', { class: 'mini-table', 'data-bank-confirm-table': '' }, h('thead', null, h('tr', null, ['الخانة', 'قبل', 'بعد'].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, rows))),
+          v.wooVendorId ? U.InlineNote({ kind: 'warning', children: 'بعد التأكيد البيانات دي بتتبعت لمتجره على الموقع (Dokan) وبتحل محل اللي هناك.' }) : null].filter(Boolean),
+        footer: [Button({ type: 'primary', label: 'أيوه، غيّر الحساب البنكي', attrs: { 'data-bank-confirm': '' }, onClick: () => { m.close(); act(() => vstore.setBank(id, f, vstore.actor()), 'اتحفظ الحساب البنكي.'); } }),
+          Button({ label: 'رجوع للتعديل', onClick: () => { m.close(); bankForm(v, f); } })] });
     }
     // «بيانات الدخول» popup (decision 9 b; owner 26 Oct: no invite link). A maker without a login row gets username + e-mail + the
     // temporary password together — vstore.addLogin (the row, then the RPC: it needs the row). An existing row edits username + e-mail
@@ -2129,7 +2158,12 @@
           section('حسب حالة الأوردر', null, U.Table({ cls: 'mini-table', headers: ['الحالة', 'العدد', 'المبيعات', 'حقه'].concat(canRate ? ['حصة إبتكر'] : []), rows: ['c', 'p', 'x'].map((k) => [tmap[k], num(String(bs[k][0])), money(bs[k][1]), money(bs[k][2])].concat(canRate ? [money(bs[k][1] - bs[k][2])] : [])), totalRow: ['الإجمالي', num(String(tot(0))), money(tot(1)), money(tot(2))].concat(canRate ? [money(tot(1) - tot(2))] : []) })),
           section('الحركات المالية', null, h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'بتتسجل من مرحلة الحسابات.')),
           section('الحساب البنكي', canBank ? Button({ type: 'text', size: 'sm', label: bank ? 'تعديل' : 'إضافة حساب', attrs: { 'aria-label': (bank ? 'تعديل' : 'إضافة') + ' بيانات الحساب البنكي', 'data-edit': 'bank' }, onClick: () => bankForm(v) }) : null,
-            canBank ? [U.InfoRow({ label: 'طريقة الدفع المفضلة', value: bank ? VD.label(VD.PAY_METHODS, bank.method) : null }), U.InfoRow({ label: 'البنك', value: bank && bank.bankName }), U.InfoRow({ label: 'اسم صاحب الحساب', value: bank && bank.holder }), sec('iban', 'IBAN'), sec('wallet', 'رقم المحفظة / إنستاباي')] : [U.SecureField({ label: 'IBAN', state: 'hidden' }), U.SecureField({ label: 'رقم المحفظة', state: 'hidden' })],
+            canBank ? [U.InfoRow({ label: 'طريقة الدفع المفضلة', value: bank ? VD.label(VD.PAY_METHODS, bank.method) : null }), U.InfoRow({ label: 'البنك', value: bank && bank.bankName }), U.InfoRow({ label: 'اسم صاحب الحساب', value: bank && bank.holder }),
+              sec('accountNumber', 'رقم الحساب'), sec('iban', 'IBAN'), // phase 3.5: Dokan's fields
+              U.InfoRow({ label: 'نوع الحساب', value: bank && bank.accountType ? VD.label(VD.BANK_ACCOUNT_TYPES, bank.accountType) || bank.accountType : null }), U.InfoRow({ label: 'SWIFT', value: bank && bank.swift }),
+              bank && bank.routingNumber ? U.InfoRow({ label: 'Routing Number', value: bank.routingNumber }) : null, U.InfoRow({ label: 'عنوان البنك', value: bank && bank.bankAddress }),
+              sec('wallet', 'رقم المحفظة / إنستاباي'), bank && bank.updatedBy === 'الموقع' ? h('p', { class: 't-small', 'data-bank-from-site': '', style: 'margin:0;color:var(--color-text-secondary)' }, 'آخر تعديل جه من الموقع (Dokan).') : null].filter(Boolean)
+              : [U.SecureField({ label: 'رقم الحساب', state: 'hidden' }), U.SecureField({ label: 'IBAN', state: 'hidden' }), U.SecureField({ label: 'رقم المحفظة', state: 'hidden' })],
             U.InlineNote({ children: 'الإظهار والنسخ والتعديل متاحين للأدمن ودور الحسابات فقط، وكل إظهار أو تعديل بيتسجل في السجل.' })));
       }
       vdrawer.set(header, body);

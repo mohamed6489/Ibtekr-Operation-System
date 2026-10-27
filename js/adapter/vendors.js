@@ -69,7 +69,7 @@
     rate: 'id, vendor_id, rate, flat, since, set_by, created_at, commission_type', // 0016: commission_type
     catRate: 'id, vendor_id, woo_category_id, rate, flat, since, set_by, created_at', // 0014 (phase 3.3): sensitive.commission
     category: 'id, name, slug, parent_id, updated_at', // 0014: woo_categories (vendors.view)
-    bank: 'vendor_id, method, bank_name, holder, iban, wallet, updated_by, updated_at',
+    bank: 'vendor_id, method, bank_name, holder, iban, wallet, updated_by, updated_at, account_number, account_type, bank_address, routing_number, swift', // 0017: Dokan's bank fields
     login: 'vendor_id, username, email, pw_mode, status, must_change, invite_sent_at, password_set_at, created_by, created_at, updated_at', // never secret_id (server only)
     event: 'id, at, action, new_value, actor:profiles(name)',
     brand: 'id, name, code, aliases, store_vendor_id, origin_vendor_id, created_by, created_at, updated_at', // 0013 (store_vendor_id: the server's)
@@ -85,7 +85,7 @@
     contactName: 'contact_name', addressParts: 'address_parts', social: 'social' }; // phase 3.3 (0014): the three synced contact columns
   // phase 3.3: the vendors fields the site mirrors (push_vendor's `fields`), by the prototype's field name → the server's name
   const SYNC_OF = { name: 'name', phone: 'phone', email: 'email', contactName: 'contact_name', addressParts: 'address_parts', social: 'social', status: 'status' };
-  const SYNC_FIELDS = ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates'];
+  const SYNC_FIELDS = ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates', 'bank']; // phase 3.5: bank
   const ADDRESS_KEYS = ['street_1', 'street_2', 'city', 'state', 'zip', 'country']; const SOCIAL_KEYS = ['fb', 'instagram', 'twitter', 'youtube', 'linkedin', 'pinterest', 'threads', 'flickr'];
   const MESSAGES = { forbidden: 'مش من صلاحياتك', network: 'الشبكة مش متاحة — التغيير ما اتحفظش، جرّب تاني', in_use: 'ماينفعش يتمسح — عليه أوردرات', too_large: 'الملف أكبر من 10 ميجا', bad_type: 'نوع الملف مش مقبول — PDF أو صورة (PNG / JPG) بس', duplicate: 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني',
     // phase 3.3: the push to the site and the per-category commission
@@ -164,7 +164,8 @@
     const raw = r.raw && typeof r.raw === 'object' ? r.raw : {};
     const ct = r.contract && typeof r.contract === 'object' ? r.contract : null;
     const contract = ct && ct.file_name ? { fileName: text(ct.file_name), size: Number(ct.size) || 0, expires: ct.expires || null, uploadedBy: text(ct.uploaded_by), uploadedAt: text(ct.uploaded_at), path: text(ct.path) } : null;
-    const b = bank ? { method: PAY_METHODS.includes(bank.method) ? bank.method : 'bank', bankName: bank.bank_name || null, holder: bank.holder || null, iban: bank.iban || null, wallet: bank.wallet || null } : null;
+    const b = bank ? { method: PAY_METHODS.includes(bank.method) ? bank.method : 'bank', bankName: bank.bank_name || null, holder: bank.holder || null, iban: bank.iban || null, wallet: bank.wallet || null,
+      accountNumber: bank.account_number || null, accountType: bank.account_type || null, bankAddress: bank.bank_address || null, routingNumber: bank.routing_number || null, swift: bank.swift || null, updatedBy: bank.updated_by || null } : null; // phase 3.5
     const name = text(r.name);
     // phase 3.3: the synced store data — the parts and the links always carry every key; the mirrors are https:// or null
     const D = VD(); const parts = D && D.cleanAddressParts ? D.cleanAddressParts(r.address_parts) : Object.fromEntries(ADDRESS_KEYS.map((k) => [k, text(r.address_parts && r.address_parts[k])]));
@@ -259,7 +260,9 @@
   const canLogin = () => isAdmin() || perm('vendors.edit') === 'F'; // vendor_logins insert / update and the two RPCs
   const canBrands = () => isAdmin() || perm('vendors.edit') === 'F'; // brands insert / update, brand_owners insert (0013: admin or vendors.edit = F)
   const CONTACT_PUSH_FIELDS = ['phone', 'email', 'contact_name', 'address_parts', 'social']; // what vendors.edit = 'P' may push (the server's rule)
-  const canPush = (fields) => isAdmin() || perm('vendors.edit') === 'F' || (perm('vendors.edit') === 'P' && Array.isArray(fields) && fields.length > 0 && fields.every((f) => CONTACT_PUSH_FIELDS.includes(f))); // phase 3.3: woo-sync push_vendor (the rate fields add sensitive.commission, checked by the callers)
+  // phase 3.5: `bank` needs sensitive.vendor_bank = F (alone it needs no vendors.edit); the other fields keep the 3.3 rule
+  const canPush = (fields) => { const list = Array.isArray(fields) ? fields : []; if (isAdmin()) return true; if (list.includes('bank') && !canBank()) return false;
+    const rest = list.filter((f) => f !== 'bank'); return rest.length === 0 ? list.length > 0 : perm('vendors.edit') === 'F' || (perm('vendors.edit') === 'P' && rest.every((f) => CONTACT_PUSH_FIELDS.includes(f))); }; // phase 3.3: woo-sync push_vendor (the rate fields add sensitive.commission, checked by the callers)
   // the signed-in member as the prototype's actor { name, role }
   function actor() {
     const K = window.IBKit; const m = K && K.member && K.ME ? K.member(K.ME) : null;
@@ -511,8 +514,12 @@
     return get(id);
   }
   // the prototype's cleaning of a bank form (the IBAN upper-cased, decision 7) and its vendor_bank row
-  const cleanBank = (bank) => ({ method: PAY_METHODS.includes(bank.method) ? bank.method : 'bank', bankName: clean(bank.bankName, 80) || null, holder: clean(bank.holder, 120) || null, iban: latin(bank.iban || '').replace(/\s/g, '').toUpperCase() || null, wallet: latin(bank.wallet || '').replace(/\s/g, '') || null });
-  const bankRow = (b, actor) => ({ method: b.method, bank_name: b.bankName, holder: b.holder, iban: b.iban, wallet: b.wallet, updated_by: (actor && actor.name) || null, updated_at: new Date().toISOString() });
+  // phase 3.5: + Dokan's fields (account number / type, bank address, routing number, SWIFT)
+  const cleanBank = (bank) => ({ method: PAY_METHODS.includes(bank.method) ? bank.method : 'bank', bankName: clean(bank.bankName, 80) || null, holder: clean(bank.holder, 120) || null, iban: latin(bank.iban || '').replace(/\s/g, '').toUpperCase() || null, wallet: latin(bank.wallet || '').replace(/\s/g, '') || null,
+    accountNumber: latin(bank.accountNumber || '').replace(/[\s-]/g, '') || null, accountType: clean(bank.accountType, 40) || null, bankAddress: clean(bank.bankAddress, 200) || null,
+    routingNumber: latin(bank.routingNumber || '').replace(/[\s-]/g, '') || null, swift: latin(bank.swift || '').replace(/\s/g, '').toUpperCase() || null });
+  const bankRow = (b, actor) => ({ method: b.method, bank_name: b.bankName, holder: b.holder, iban: b.iban, wallet: b.wallet, account_number: b.accountNumber, account_type: b.accountType, bank_address: b.bankAddress,
+    routing_number: b.routingNumber, swift: b.swift, updated_by: (actor && actor.name) || null, updated_at: new Date().toISOString() });
   function setBank(id, bank, actor) {
     const v = must(id); if (!canBank()) throw noPerm();
     const old = copy(v); const had = !!v.bank;
@@ -520,13 +527,14 @@
     v.lastUpdate = new Date().toISOString();
     emit({ id, changed: ['bank'] });
     const row = bankRow(v.bank, actor);
-    write(id, v, old, () => call((cl) => (had ? cl.from('vendor_bank').update(row).eq('vendor_id', id) : cl.from('vendor_bank').insert(Object.assign({ vendor_id: id }, row)))), () => logEvent('vendor.bank', v.bank.method, id));
+    // phase 3.5: a synced maker's bank goes to the site after the row (push_vendor ['bank']; pushVendor skips a maker without a store)
+    write(id, v, old, () => call((cl) => (had ? cl.from('vendor_bank').update(row).eq('vendor_id', id) : cl.from('vendor_bank').insert(Object.assign({ vendor_id: id }, row)))), () => logEvent('vendor.bank', v.bank.method, id), v.wooVendorId ? ['bank'] : null);
   }
   // the value behind a masked field; logged once per field per drawer open (loadEvents resets it)
   function reveal(id, field, actor) {
     const v = must(id); if (!canBank()) throw noPerm(); if (!v.bank || !v.bank[field]) return null;
     const k = String(id); if (!revealed.has(k)) revealed.set(k, new Set());
-    if (!revealed.get(k).has(field)) { revealed.get(k).add(field); logEvent('vendor.reveal', field === 'iban' ? 'IBAN' : 'wallet', id); }
+    if (!revealed.get(k).has(field)) { revealed.get(k).add(field); logEvent('vendor.reveal', field === 'iban' ? 'IBAN' : field === 'accountNumber' ? 'account_number' : 'wallet', id); }
     return v.bank[field];
   }
   // file: { fileName, size, expires, file (a Blob / File; absent = keep the stored file, change its expiry) }

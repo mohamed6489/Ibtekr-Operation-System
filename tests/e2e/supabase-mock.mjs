@@ -268,8 +268,9 @@ export async function installSupabaseMock(page, opts = {}) {
     ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true };
   // phase 3.3: vendorCategoryRates / wooCategories: the 0014 tables (ordersSeed()); vendorPushes: each woo-sync push_vendor as { vendor_id, fields, by, result, reason? }
   // (the body names the fields only — the mock reads the row like the server); pushEnabled: WOO_PUSH_ENABLED on the server (false → skipped/push_disabled,
-  // the fields added to push_pending); wooDown → 502 with the fields in push_pending. The server's sync rows (ordersSeed().syncActivity) seed activity_log.
-  mock.activityRows.push(...mock.syncActivity);
+  // the fields added to push_pending); wooDown → 502 with the fields in push_pending. installSupabaseMock(page, { syncRows: true }) seeds the
+  // server's sync rows (ordersSeed().syncActivity) into activity_log — opt-in, so the dashboard's «newest 5» expectations stay exact.
+  if (opts.syncRows) mock.activityRows.push(...mock.syncActivity);
   // brands / brandOwners / brandRates: the 0013 tables (ordersSeed(opts): opts.transfer seeds the temporary transfer); brandWrites: each
   // insert / update the client sent them as { table, op, ...columns } — the trigger's own rows (the automatic brand) are not writes of the client
   let brandSeq = 0; let ownerSeq = mock.brandOwners.length; let brandRateSeq = 0;

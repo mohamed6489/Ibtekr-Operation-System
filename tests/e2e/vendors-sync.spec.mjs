@@ -18,7 +18,7 @@ let mock = null; let pageErrors = [];
 test.beforeEach(async ({ page }) => {
   test.skip(LIVE, 'asserts on the mocked Supabase (its seed and the writes / pushes it recorded)');
   pageErrors = []; page.on('pageerror', (e) => pageErrors.push(e.message));
-  mock = await installSupabaseMock(page);
+  mock = await installSupabaseMock(page, { syncRows: true }); // with the server's vendor.sync / vendor.sync.conflict rows on Art Craft
   await page.route(ART_LOGO, (route) => route.fulfill({ status: 200, contentType: 'image/png', body: PNG })); // the site's logo, never the real host
 });
 test.afterEach(() => {

@@ -1089,6 +1089,32 @@ test('setCommission (plan 3.4): the type, the default and the hand-set categorie
   assert.deepEqual(rpcCalls(ops.calls, 'vendor_commission_set'), []);
 });
 
+test('syncNow (plan 3.4 decision 10): admin only; one woo-sync `vendors` call, then a reload; the counts come back; a 502 / a thrown call → an error; one at a time', async () => {
+  const { V, S, calls, events, responses } = load({ responses: syncedSeed() });
+  await V.load(); calls.length = 0; events.length = 0;
+  responses['fn:woo-sync'] = () => ({ data: { action: 'vendors', result: 'ok', counts: { vendors: { vendors: 3, from_site: 2, conflicts: 1, pushed: 0 } } }, error: null });
+  assert.equal(S.canSyncNow(), true);
+  const p = S.syncNow();
+  assert.equal(S.syncing(), true);
+  assert.deepEqual(plain(await S.syncNow()), { result: 'busy' }); // a second click while it runs
+  assert.deepEqual(plain(await p), { result: 'ok', fromSite: 2, conflicts: 1, pushed: 0 });
+  assert.equal(S.syncing(), false);
+  assert.deepEqual(invokes(calls), [['woo-sync', { body: { action: 'vendors' } }]]);
+  assert.equal(selectOf(calls, 'vendors').length, 1); // reloaded after the run
+  assert.ok(calls.findIndex((c) => c.op === 'invoke') < calls.findIndex((c) => c.table === 'vendors'), 'the run first, then the reload');
+  assert.deepEqual(events.filter((e) => 'syncing' in e.detail).map((e) => e.detail.syncing), [true, false]);
+  responses['fn:woo-sync'] = () => ({ data: null, error: { name: 'FunctionsHttpError', message: 'non-2xx', context: { status: 502 } } });
+  assert.deepEqual(plain(await S.syncNow()), { result: 'error', reason: 'woo_down' });
+  responses['fn:woo-sync'] = () => { throw new Error('offline'); };
+  assert.deepEqual(plain(await S.syncNow()), { result: 'error', reason: 'network' });
+  assert.equal(S.syncing(), false);
+  const ops = load({ admin: false, responses: syncedSeed() });
+  await ops.V.load(); ops.calls.length = 0;
+  assert.equal(ops.S.canSyncNow(), false);
+  await assert.rejects(() => ops.S.syncNow(), /مش من صلاحياتك/);
+  assert.deepEqual(invokes(ops.calls), []);
+});
+
 test('loadEvents (3.3): the server\'s vendor.sync / vendor.sync.conflict rows (actor null) read in the site\'s voice with the Arabic field labels', async () => {
   const rows = [{ id: 1, at: '2026-10-25T07:00:00+00:00', action: 'vendor.sync', new_value: 'phone, address_parts, category_rates', actor: null }, { id: 2, at: '2026-10-25T07:15:00+00:00', action: 'vendor.sync.conflict', new_value: 'name', actor: null },
     { id: 3, at: '2026-10-25T07:30:00+00:00', action: 'vendor.sync', new_value: 'bogus', actor: null }, { id: 4, at: '2026-10-25T07:45:00+00:00', action: 'vendor.category_rate', new_value: 'هدايا: 35% من 2026-10-25', actor: { name: 'صفوت كمال' } }];

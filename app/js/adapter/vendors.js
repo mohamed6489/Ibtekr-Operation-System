@@ -831,8 +831,34 @@
     return out;
   }
 
+  // owner, 27 Oct (plan 3.4 decision 10): «مزامنة دلوقتي» — woo-sync `vendors` at once (the function admits an admin for a pull),
+  // then a reload so the screen shows what the site has now. → { result: 'ok', fromSite, conflicts, pushed } | { result: 'error', reason }
+  // | { result: 'busy' } (one at a time); `syncing()` while it runs. Nothing is logged here: the server writes its own woo_sync_log row.
+  let syncBusy = false;
+  const canSyncNow = () => isAdmin();
+  const syncing = () => syncBusy;
+  async function syncNow() {
+    if (!canSyncNow()) throw noPerm();
+    if (syncBusy) return { result: 'busy' };
+    const cl = c();
+    if (!cl || !uid()) return { result: 'error', reason: 'network' };
+    syncBusy = true; emit({ syncing: true });
+    try {
+      const { data: d, error } = await cl.functions.invoke('woo-sync', { body: { action: 'vendors' } });
+      if (error) { const st = error.context && error.context.status; return { result: 'error', reason: st === 401 || st === 403 ? 'forbidden' : st === 502 ? 'woo_down' : 'failed' }; }
+      const n = d && d.counts && d.counts.vendors && typeof d.counts.vendors === 'object' ? d.counts.vendors : {};
+      await load();
+      return { result: 'ok', fromSite: Number(n.from_site) || 0, conflicts: Number(n.conflicts) || 0, pushed: Number(n.pushed) || 0 };
+    } catch (e) {
+      return { result: 'error', reason: 'network' };
+    } finally {
+      syncBusy = false; emit({ syncing: false });
+    }
+  }
+
   const store = { get, all, events, update, setRate, setBank, reveal, setContract, findByName, remove, restoreMoney, create, addLogin, setLogin, setLoginStatus, setLoginPassword, revealPassword, usernameTaken, missing, canEdit, canBank, canToggle, canRate, canLogin, canBrands, actor,
     brand, allBrands, brandByName, namesOf, ownerAt, storeOwnerAt, rateFor, addBrand, updateBrand, transferBrand, returnBrand,
-    setCategoryRate, setCommission, categories, canPush, pushVendor }; // phase 3.3
+    setCategoryRate, setCommission, categories, canPush, pushVendor, // phase 3.3
+    canSyncNow, syncing, syncNow }; // plan 3.4 decision 10
   window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, setContract, contractUrl, stats, toVendor, toBrand, lineShare, rateAt, rateFor, storeOwnerAt, safeName, norm, today, MESSAGES, BUCKET, SYNC_FIELDS, toEvent, categories };
 })();

@@ -354,6 +354,29 @@ test('html and javascript: values from the site render as text and never as link
   await inert(page);
 });
 
+test('«مزامنة دلوقتي» (plan 3.4 decision 10): the admin pulls the site\'s store changes now — one woo-sync `vendors` call, the page reloads and says how many changed; the site down says so; ops has no button', async ({ page }) => {
+  await openVendors(page);
+  const btn = page.locator('#vendors [data-sync-now]');
+  await expect(btn).toHaveText('مزامنة دلوقتي');
+  mock.onVendorsSync = (m) => { m.vendors.find((x) => x.id === V1).name = 'Art Craft Studio'; return 1; }; // the site renamed the store
+  await btn.click();
+  await expect(note(page)).toContainText('اتزامن مع الموقع — اتحدّث 1 مبتكر من الموقع.');
+  await expect(row(page, V1)).toContainText('Art Craft Studio'); // reloaded
+  expect(mock.syncs).toEqual([{ action: 'vendors' }]);
+  mock.onVendorsSync = null;
+  await page.locator('#vendors [data-sync-now]').click();
+  await expect(note(page)).toContainText('اتزامن مع الموقع — مفيش تعديلات جديدة.');
+  mock.wooDown = true;
+  await page.locator('#vendors [data-sync-now]').click();
+  await expect(note(page)).toContainText('الموقع مش بيرد دلوقتي');
+  mock.wooDown = false;
+  expect(writes()).toEqual([]);
+  await page.evaluate(() => window.IBAuth.signOut());
+  await expect(page.locator('#login')).toBeVisible();
+  await openVendors(page, OPS);
+  await expect(page.locator('#vendors [data-sync-now]')).toHaveCount(0);
+});
+
 test('«إضافة مبتكر» has no logo upload any more (the picture is the site\'s)', async ({ page }) => {
   await openVendors(page);
   await page.getByRole('button', { name: 'إضافة مبتكر' }).click();

@@ -459,7 +459,7 @@ export function diffStore(snapshot, site, system) {
 
 /**
  * The body of PUT dokan/v1/stores/{id} for the given fields of a vendors row (decision 4 b): name → store_name (a
- * `#…` placeholder is never sent), phone, email, contact_name → first_name / last_name (split on the first space),
+ * `#…` placeholder is never sent), phone, email (an empty one is dropped: it is the maker's WordPress login e-mail), contact_name → first_name / last_name (split on the first space),
  * address_parts → address, social → social, status → enabled (inactive → false, active / leave → true), rate /
  * category_rates → toDokanCommission(rates = { rate, flat, categoryRates }). Fields outside SYNC_FIELDS are ignored.
  * → { body, sent: [the fields the body carries], dropped: [the fields left out] }; body null when nothing is sent.
@@ -472,7 +472,7 @@ export function toDokanStore(row, fields, rates = null) {
   for (const f of [...new Set(want)]) {
     if (f === 'name') add(f, str(r.name) !== '' && !str(r.name).startsWith('#'), { store_name: str(r.name) });
     else if (f === 'phone') add(f, true, { phone: str(r.phone) });
-    else if (f === 'email') add(f, true, { email: str(r.email) });
+    else if (f === 'email') add(f, str(r.email) !== '', { email: str(r.email) }); // an empty e-mail is never sent: Dokan writes it on the WordPress user (the maker's login)
     else if (f === 'contact_name') { const [first, ...rest] = str(r.contact_name).split(/\s+/); add(f, true, { first_name: first ?? '', last_name: rest.join(' ') }); }
     else if (f === 'address_parts') add(f, true, { address: keyed(r.address_parts, ADDRESS_KEYS) });
     else if (f === 'social') add(f, true, { social: socialOf(r.social) });

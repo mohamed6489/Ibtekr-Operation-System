@@ -865,6 +865,9 @@ test('toDokanStore: the PUT body from the row for the asked fields only; a #plac
   assert.deepEqual(toDokanStore({ status: 'inactive', contact_name: null }, ['status', 'contact_name']).body, { enabled: false, first_name: '', last_name: '' });
   assert.deepEqual(toDokanStore(row, ['rate', 'category_rates'], { rate: 30, flat: null, categoryRates: [] }), { body: { admin_commission_type: 'fixed', admin_commission: '30' }, sent: ['rate', 'category_rates'], dropped: [] });
   assert.deepEqual(toDokanStore(row, ['name'], null), { body: null, sent: [], dropped: ['name'] });
+  // an empty e-mail is never sent (Dokan writes it on the WordPress user — the maker's login); alone → nothing
+  assert.deepEqual(toDokanStore({ ...row, email: null }, ['email']), { body: null, sent: [], dropped: ['email'] });
+  assert.deepEqual(toDokanStore({ ...row, email: '  ' }, ['email', 'phone']), { body: { phone: '01111111111' }, sent: ['phone'], dropped: ['email'] });
   assert.deepEqual(toDokanStore(null, 'phone'), { body: null, sent: [], dropped: [] });
   const before = structuredClone(row);
   toDokanStore(row, SYNC_FIELDS, { rate: 1 });

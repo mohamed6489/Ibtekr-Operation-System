@@ -794,14 +794,14 @@ from public.woo_webhook_events order by received_at desc limit 30;
 
   | الحقل | النتيجة على الـ staging | ملاحظة |
   |---|---|---|
-  | `name` | _لسه_ | |
-  | `phone` | _لسه_ | |
-  | `email` | _لسه_ | المزامنة بتقراه من الموقع لما `show_email` مفتوح بس. **تنبيه:** `dokan/v1/stores` بيكتب `email` على مستخدم WordPress نفسه، يعني تغييره من السيستم بيغيّر إيميل دخول المبتكر على الموقع |
-  | `contact_name` | _لسه_ | |
-  | `address_parts` | _لسه_ | |
-  | `social` | _لسه_ | |
-  | `status` | _لسه_ | `enabled` |
-  | `rate` / `category_rates` | _لسه_ | `admin_commission_type` + `admin_commission` / `admin_category_commission` |
+  | `name` | ✅ accepted (27 أكتوبر، Art Craft 2025، woo-sync v16) | |
+  | `phone` | ✅ accepted (27 أكتوبر، Art Craft 2025، woo-sync v16) | |
+  | `email` | — ماتبعتش (فاضي عندنا) (27 أكتوبر، Art Craft 2025، woo-sync v16) | المزامنة بتقراه من الموقع لما `show_email` مفتوح بس. **تنبيه:** `dokan/v1/stores` بيكتب `email` على مستخدم WordPress نفسه، يعني تغييره من السيستم بيغيّر إيميل دخول المبتكر على الموقع؛ وعشان كده الإيميل الفاضي عمره ما يتبعت (`toDokanStore` بيشيله: `dropped`) |
+  | `contact_name` | ✅ accepted (27 أكتوبر، Art Craft 2025، woo-sync v16) | |
+  | `address_parts` | ✅ accepted (27 أكتوبر، Art Craft 2025، woo-sync v16) | |
+  | `social` | ✅ accepted (27 أكتوبر، Art Craft 2025، woo-sync v16) | |
+  | `status` | ✅ accepted (27 أكتوبر، Art Craft 2025، woo-sync v16) | `enabled` |
+  | `rate` / `category_rates` | ✅ `rate` accepted (`fixed`، 40%) (27 أكتوبر، Art Craft 2025، woo-sync v16) | `admin_commission_type` + `admin_commission` / `admin_category_commission` |
 
   وبعدها تعديل حقيقي (اسم أو تليفون) على متجر يحدده صاحب المشروع من الواجهة، ثم تشغيلة `vendors`، ثم رجوع القيمة — والتحقق إن `woo_sync_log` من غير `conflict` و`activity_log` فيه `vendor.sync` بأسماء الحقول بس.
 - **القراءة:** `select at, kind, direction, entity, entity_id, result, detail from public.woo_sync_log where entity = 'vendor' order by at desc limit 50;` و`select at, action, entity_id, new_value from public.activity_log where action like 'vendor.sync%' order by at desc limit 50;` — `new_value` نص بأسماء الحقول (jsonb string). `woo_snapshot` لـ `service_role` بس: فيه التليفون والإيميل — ماتنقلوش برّه.

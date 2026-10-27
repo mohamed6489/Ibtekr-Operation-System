@@ -3,6 +3,7 @@
 import { assert, assertEquals, assertFalse } from 'jsr:@std/assert@1';
 import { handler } from './index.ts';
 import { cairoDate } from '../_shared/woo-write.js';
+import { bankDigest } from '../_shared/woo-core.js';
 import { ENV, NOW, PHONE, STATUS_MAP, WC_AUTH, fakeDb, fakeWoo, vendorId, vendorRow, wooOrder, wooProduct, wooStore, wooStoreFull, wooSub, writtenText } from '../_test/fakes.ts';
 
 const SYNC_SECRET = 'sync-test-secret';
@@ -10,9 +11,10 @@ const OURS = `${ENV.SUPABASE_URL}/functions/v1/woo-webhook`;
 // Member tokens → what has_perm('orders.status') / is_admin() answer for them, plus (phase 3.3) has_perm('vendors.edit') /
 // has_perm('sensitive.commission') for push_vendor: ops = vendors.edit P, vf = vendors follow-up (vendors.edit F, commission N),
 // acct = accounts (nothing). (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
-const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown }> = {
+const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown; bank?: unknown }> = {
   'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false, edit: 'P' }, 'jwt-acct': { perm: 'P', admin: false, edit: 'N' },
   'jwt-vf': { perm: 'N', admin: false, edit: 'F', commission: 'N' },
+  'jwt-bank': { perm: 'N', admin: false, edit: 'N', bank: 'F' }, // phase 3.5: accounts — sensitive.vendor_bank = F, vendors.edit = N
   'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
 };
 
@@ -25,7 +27,7 @@ function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fa
   const members: any[] = [];
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
+    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
     members.push({ jwt, client });
     return client;
   };
@@ -560,7 +562,10 @@ Deno.test('register_webhooks refuses a delivery_url that is not our woo-webhook 
 // ---------------------------------------------------------------- store sync (phase 3.3, decisions 3 / 4 a)
 
 // A full-payload store and a vendors row that match it, with the snapshot of a previous run (every value made up).
-const SNAP44 = { name: 'Store 44', phone: '01000000000', email: null, contact_name: 'Maker Owner 44', status: 'active',
+// the digest of wooStoreFull's payment.bank (phase 3.5): a snapshot that already knows the site's bank
+const SITE_BANK = { ac_name: 'x', ac_number: '1', ac_type: '', bank_name: '', bank_addr: '', iban: 'EG00TEST', swift: '', routing_number: '' };
+const BANK_KEY = await bankDigest(SITE_BANK);
+const SNAP44 = { name: 'Store 44', phone: '01000000000', email: null, contact_name: 'Maker Owner 44', status: 'active', bank: BANK_KEY,
   address_parts: { street_1: 'شارع 44', street_2: '', city: 'القاهرة', state: 'EG-01', zip: '', country: 'EG' },
   social: { fb: 'https://fb.test/44', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' },
   rate: { rate: 30, flat: null }, category_rates: [] };
@@ -677,7 +682,8 @@ Deno.test('store sync — the first run (no snapshot): empty fields are filled f
   assertEquals([v.name, v.phone, v.contact_name, v.address, v.status, v.push_pending], ['ورشة الفريق', '01000000000', 'Maker Owner 44', 'شارع 44، القاهرة، EG-01', 'inactive', ['name']], 'name stays (ours, filled, pending for the next run); the rest filled; enabled false → inactive');
   assertEquals(v.address_parts, SNAP44.address_parts);
   assertEquals(v.woo_snapshot.name, 'Store 44', 'the snapshot is the site: the next run sees our name as a system-side change');
-  assertEquals(activity(db), [['vendor.sync', vendorId(44), 'phone, contact_name, address_parts, social, status, rate'], ['vendor.sync.conflict', vendorId(44), 'name']]);
+  assertEquals(activity(db), [['vendor.sync', vendorId(44), 'phone, contact_name, address_parts, social, status, rate, bank'], ['vendor.sync.conflict', vendorId(44), 'name']]);
+  assertEquals(db.rows('vendor_bank').map((r: any) => [r.holder, r.account_number, r.iban, r.method, r.updated_by]), [['x', '1', 'EG00TEST', 'bank', 'الموقع']], 'phase 3.5: the site\'s bank written on the first run');
   assertEquals(conflictRows(db), [['vendor', '44', ['name'], true]]);
   assertEquals(db.rows('vendor_rates').map((r: any) => [r.rate, r.flat, r.since, r.set_by]), [[30, null, NOW.slice(0, 10), 'الموقع']], 'the rate was empty here: filled from the site');
   // the second run: our pending name is pushed now
@@ -912,3 +918,65 @@ Deno.test('categories: GET wc/v3/products/categories with the WC keys, page by p
   assertEquals(db.rows('woo_sync_log').map((r: any) => [r.entity, r.result]), [['categories', 'ok']]);
   assertEquals((await call(deps, { action: 'categories' }, { jwt: 'jwt-ops' })).res.status, 401);
 });
+
+// ---------------------------------------------------------------- phase 3.5: the bank two-way
+
+const { bank: _b, ...SNAP44_OLD } = SNAP44; // a snapshot from before phase 3.5 (no `bank` key)
+const OUR_BANK = { vendor_id: vendorId(44), method: 'wallet', wallet: '01000000044', holder: 'Our Holder', account_number: '999', account_type: 'personal', bank_name: 'Our Bank', bank_address: '', routing_number: '', iban: '', swift: 'OURBEGCX', updated_by: 'x' };
+
+Deno.test('bank (3.5) — the first run of the field: the site\'s bank wins over ours (method / wallet kept); a site without a bank keeps ours and nothing is pushed; the snapshot holds the digest only', async () => {
+  const { db, woo, deps } = setup({ seed: { vendors: [synced44({ woo_snapshot: SNAP44_OLD })], vendor_bank: [OUR_BANK] }, routes: { 'GET dokan/v1/stores': page([wooStoreFull(44)]) }, env: PUSH_ON });
+  await call(deps, { action: 'vendors' });
+  const b = db.rows('vendor_bank')[0];
+  assertEquals([b.holder, b.account_number, b.account_type, b.bank_name, b.iban, b.swift, b.method, b.wallet, b.updated_by], ['x', '1', null, null, 'EG00TEST', null, 'wallet', '01000000044', 'الموقع']);
+  assertEquals(activity(db), [['vendor.sync', vendorId(44), 'bank']]);
+  const snap = db.row('vendors', 44, 'woo_vendor_id').woo_snapshot;
+  assertEquals(snap.bank, BANK_KEY);
+  assertFalse(JSON.stringify(snap).includes('EG00TEST'), 'no bank value in the snapshot');
+  assertFalse(JSON.stringify(db.rows('woo_sync_log')).includes('EG00TEST') || JSON.stringify(db.rows('activity_log')).includes('EG00TEST'), 'nor in a log');
+  assertEquals(woo.calls.map((c) => c.method), ['GET']);
+  // the site without a bank: ours stays, no PUT, no activity
+  const empty = wooStoreFull(44, { payment: { bank: { ac_name: '', ac_number: '' }, paypal: { email: '' } } });
+  const w2 = setup({ seed: { vendors: [synced44({ woo_snapshot: SNAP44_OLD })], vendor_bank: [OUR_BANK] }, routes: { 'GET dokan/v1/stores': page([empty]) }, env: PUSH_ON });
+  await call(w2.deps, { action: 'vendors' });
+  assertEquals([w2.db.rows('vendor_bank')[0].account_number, activity(w2.db), w2.woo.calls.map((c) => c.method)], ['999', [], ['GET']]);
+});
+
+Deno.test('bank (3.5) — a change on the site is written to vendor_bank; ours pending is PUT as payment.bank alone (never paypal) and the snapshot takes the answer\'s digest; an empty bank of ours is never sent', async () => {
+  // the site changed its bank since the snapshot; ours did not move
+  const site = wooStoreFull(44, { payment: { bank: { ...SITE_BANK, ac_number: '2' }, paypal: { email: 'p@example.test' } } });
+  const theirs = { vendor_id: vendorId(44), holder: 'x', account_number: '1', iban: 'EG00TEST', updated_by: 'x' };
+  const { db, deps } = setup({ seed: { vendors: [synced44()], vendor_bank: [theirs] }, routes: { 'GET dokan/v1/stores': page([site]) }, env: PUSH_ON });
+  await call(deps, { action: 'vendors' });
+  assertEquals([db.rows('vendor_bank')[0].account_number, db.rows('vendor_bank')[0].updated_by], ['2', 'الموقع']);
+  assertEquals(activity(db), [['vendor.sync', vendorId(44), 'bank']]);
+  // ours changed and pending → PUT { payment: { bank } } only
+  const store = wooStoreFull(44);
+  const w2 = setup({ seed: { vendors: [synced44({ push_pending: ['bank'] })], vendor_bank: [OUR_BANK] }, env: PUSH_ON,
+    routes: { 'GET dokan/v1/stores': page([store]), 'PUT dokan/v1/stores/44': (c: any) => ({ body: { ...store, payment: { ...store.payment, bank: c.body.payment.bank } } }) } });
+  await call(w2.deps, { action: 'vendors' });
+  const put = w2.woo.calls.find((c) => c.method === 'PUT')!;
+  assertEquals(put.body, { payment: { bank: { ac_name: 'Our Holder', ac_number: '999', ac_type: 'personal', bank_name: 'Our Bank', bank_addr: '', routing_number: '', iban: '', swift: 'OURBEGCX' } } });
+  const v = w2.db.row('vendors', 44, 'woo_vendor_id');
+  assertEquals([v.push_pending, v.woo_snapshot.bank === await bankDigest(put.body.payment.bank)], [null, true]);
+  const ok = w2.db.rows('woo_sync_log').find((r: any) => r.kind === 'push');
+  assertEquals([ok.result, ok.detail.fields, ok.detail.accepted], ['ok', ['bank'], ['bank']]);
+  assertFalse(JSON.stringify(w2.db.rows('woo_sync_log')).includes('999'), 'no value in the log');
+  // push_vendor ['bank'] with no bank row of ours: dropped, nothing sent
+  const w3 = setup({ seed: { vendors: [synced44()] }, env: PUSH_ON, routes: { 'PUT dokan/v1/stores/44': () => ({ body: store }) } });
+  const { body } = await call(w3.deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['bank'] }, { jwt: 'jwt-admin' });
+  assertEquals([body.result, body.reason], ['skipped', 'placeholder']);
+  assertEquals(w3.woo.calls.filter((c) => c.method === 'PUT').length, 0);
+});
+
+Deno.test('bank (3.5) — push_vendor: `bank` needs sensitive.vendor_bank = F (accounts with vendors.edit = N may push it alone; with a store field it needs vendors.edit too); ops and vendors.edit = F without the key get 401', async () => {
+  const store = wooStoreFull(44);
+  const routes = { 'PUT dokan/v1/stores/44': (c: any) => ({ body: { ...store, payment: { ...store.payment, bank: c.body.payment?.bank ?? store.payment.bank }, store_name: c.body.store_name ?? store.store_name } }) };
+  const { deps, woo } = setup({ seed: { vendors: [synced44()], vendor_bank: [OUR_BANK] }, routes, env: PUSH_ON });
+  const ok = await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['bank'] }, { jwt: 'jwt-bank' });
+  assertEquals([ok.res.status, ok.body.result, ok.body.accepted], [200, 'ok', ['bank']]);
+  assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['bank', 'name'] }, { jwt: 'jwt-bank' })).res.status, 401);
+  for (const jwt of ['jwt-ops', 'jwt-vf']) assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['bank'] }, { jwt })).res.status, 401, jwt);
+  assertEquals(woo.calls.filter((c) => c.method === 'PUT').length, 1);
+});
+

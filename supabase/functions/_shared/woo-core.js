@@ -13,6 +13,8 @@
 // Phase 3.3 (store data two-way with Dokan): mapStore reads the whole dokan/v1/stores payload (decision 1), and the
 // store-sync helpers below it — SYNC_FIELDS, storeSnapshot, diffStore (decision 3 / 4 a), commissionOf /
 // toDokanCommission (decision 2), toDokanStore (the PUT body of push_vendor, decision 4 b) — are pure like the rest.
+// Phase 3.5 (the bank two-way): mapStore reads payment.bank (BANK_KEYS) — never paypal or any other method — as `bank`,
+// kept in memory only; the snapshot and the comparison see its SHA-256 digest (bankDigest), never a value.
 
 export const START_DATE = '2026-10-01';
 export const OPEN_WOO = ['processing', 'pending', 'on-hold'];
@@ -44,12 +46,15 @@ const RAW_STORE = ['id', 'store_name', 'shop_url', 'enabled', 'registered', 'fea
 // The store fields synced in both directions (decision 1 of phase 3.3; the commission of decision 2 as `rate` =
 // { rate, flat } and `category_rates` = [{ woo_category_id, rate, flat }]). Also the names push_vendor accepts in
 // `fields` and the keys of vendors.woo_snapshot / push_pending.
-export const SYNC_FIELDS = ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates'];
+export const SYNC_FIELDS = ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates', 'bank'];
 export const ADDRESS_KEYS = ['street_1', 'street_2', 'city', 'state', 'zip', 'country'];
 export const SOCIAL_KEYS = ['fb', 'instagram', 'twitter', 'youtube', 'linkedin', 'pinterest', 'threads', 'flickr'];
-// On the first run (no snapshot yet) these fields take the site's value even when ours is filled: decision 4 a fixes
-// the statuses stored as «نشط» while the store is disabled on the site.
-const FIRST_RUN_SITE_WINS = ['status'];
+// Dokan's payment.bank keys (phase 3.5, decision 1), in this order for the digest.
+export const BANK_KEYS = ['ac_name', 'ac_number', 'ac_type', 'bank_name', 'bank_addr', 'routing_number', 'iban', 'swift'];
+// On the first run (no snapshot yet, or a snapshot from before the field existed) these fields take the site's value even
+// when ours is filled: decision 4 a fixes the statuses stored as «نشط» while the store is disabled on the site; the bank
+// (phase 3.5, decision 3): the right account is the one on the site — unless the site has none (then ours stays).
+const FIRST_RUN_SITE_WINS = ['status', 'bank'];
 const DRAFT = ['checkout-draft', 'trash'];
 const COMMISSION = { rate: '_dokan_commission_rate', type: '_dokan_commission_type', admin_fee: '_dokan_admin_fee', additional_fee: '_dokan_additional_fee' };
 const DEFAULT_STATUS = 'قيد الانتظار'; // only when the map is empty; otherwise its first row
@@ -327,7 +332,19 @@ export function mapStore(dokanStore) {
     woo_payment_methods: paymentMethods(s.active_payment_methods),
     raw: { ...pick(s, RAW_STORE), ...(isObj(s.rating) ? { rating: pick(s.rating, ['rating', 'count']) } : {}) },
     commission: commissionOf(s),
+    bank: keyed(isObj(s.payment) ? s.payment.bank : null, BANK_KEYS), // phase 3.5: in memory only (not a column, not raw)
   };
+}
+
+/**
+ * The bank's fingerprint for the snapshot and the comparison (phase 3.5, decision 2): '' when every BANK_KEYS value is
+ * empty, else the SHA-256 hex of the trimmed values in BANK_KEYS order. The snapshot never holds a bank value.
+ */
+export async function bankDigest(bank) {
+  const values = BANK_KEYS.map((k) => (isObj(bank) ? str(bank[k]) : ''));
+  if (!values.some(Boolean)) return '';
+  const hash = new Uint8Array(await crypto.subtle.digest('SHA-256', enc.encode(JSON.stringify(values))));
+  return [...hash].map((b) => b.toString(16).padStart(2, '0')).join('');
 }
 
 // ---------------------------------------------------------------- store sync (phase 3.3)
@@ -480,7 +497,7 @@ function normField(field, value) {
   if (field === 'status') return str(value) === 'inactive' ? 'inactive' : 'active';
   if (field === 'rate') { const r = isObj(value) ? value : {}; return `${commissionType(r.type)}|${num(r.rate) ?? ''}|${flatOf(r.flat)}`; }
   if (field === 'category_rates') return JSON.stringify(categoryList(value).map((c) => [c.woo_category_id, c.rate, flatOf(c.flat)]));
-  return str(value);
+  return str(value); // name, phone, email, contact_name — and bank, a digest string ('' = none)
 }
 
 const emptyField = (field, value) => {
@@ -507,6 +524,7 @@ export function storeSnapshot(mapped) {
     address_parts: keyed(m.address_parts, ADDRESS_KEYS), social: socialOf(m.social),
     status: normField('status', m.status), rate: { type: commissionType(c.type), rate: num(c.rate), flat: num(c.flat) },
     category_rates: objs(c.categories).map((x) => categoryItem(x.woo_category_id, x.rate, x.flat)).filter((x) => x.woo_category_id !== null),
+    bank: str(m.bank_digest), // phase 3.5: the caller sets bank_digest = await bankDigest(bank); '' = none
   };
 }
 
@@ -523,7 +541,12 @@ export function diffStore(snapshot, site, system) {
   const a = isObj(site) ? site : {}, b = isObj(system) ? system : {};
   return Object.fromEntries(SYNC_FIELDS.map((f) => {
     const equalNow = sameField(f, a[f], b[f]);
-    if (snap === null) return [f, equalNow ? 'keep' : emptyField(f, b[f]) || FIRST_RUN_SITE_WINS.includes(f) ? 'fill' : 'conflict'];
+    // the first run of the field: no snapshot, or one from before the field existed (phase 3.5: `bank`)
+    if (snap === null || !Object.hasOwn(snap, f)) {
+      if (equalNow) return [f, 'keep'];
+      if (FIRST_RUN_SITE_WINS.includes(f)) return [f, emptyField(f, a[f]) ? 'keep' : 'fill'];
+      return [f, emptyField(f, b[f]) ? 'fill' : 'conflict'];
+    }
     if (equalNow) return [f, 'same'];
     const siteMoved = !sameField(f, a[f], snap[f]);
     const systemMoved = !sameField(f, b[f], snap[f]);
@@ -535,10 +558,11 @@ export function diffStore(snapshot, site, system) {
  * The body of PUT dokan/v1/stores/{id} for the given fields of a vendors row (decision 4 b): name → store_name (a
  * `#…` placeholder is never sent), phone, email (an empty one is dropped: it is the maker's WordPress login e-mail), contact_name → first_name / last_name (split on the first space),
  * address_parts → address, social → social, status → enabled (inactive → false, active / leave → true), rate /
- * category_rates → toDokanCommission(rates = { rate, flat, categoryRates }). Fields outside SYNC_FIELDS are ignored.
+ * category_rates → toDokanCommission(rates = { rate, flat, categoryRates }), bank → payment.bank (the `bank` argument, Dokan's
+ * keys; an empty one is dropped). Fields outside SYNC_FIELDS are ignored.
  * → { body, sent: [the fields the body carries], dropped: [the fields left out] }; body null when nothing is sent.
  */
-export function toDokanStore(row, fields, rates = null) {
+export function toDokanStore(row, fields, rates = null, bank = null) {
   const r = isObj(row) ? row : {};
   const body = {}, sent = [], dropped = [];
   const want = (Array.isArray(fields) ? fields : []).filter((f) => SYNC_FIELDS.includes(f));
@@ -551,6 +575,8 @@ export function toDokanStore(row, fields, rates = null) {
     else if (f === 'address_parts') add(f, true, { address: keyed(r.address_parts, ADDRESS_KEYS) });
     else if (f === 'social') add(f, true, { social: socialOf(r.social) });
     else if (f === 'status') add(f, true, { enabled: str(r.status) !== 'inactive' });
+    // phase 3.5 (decision 4): payment.bank alone (paypal never sent); an empty bank of ours is never sent (it would wipe the site's)
+    else if (f === 'bank') { const b = keyed(bank, BANK_KEYS); add(f, Object.values(b).some(Boolean), { payment: { bank: b } }); }
   }
   // the commission travels as one block whichever of the two names asked for it
   const rateFields = want.filter((f) => f === 'rate' || f === 'category_rates');

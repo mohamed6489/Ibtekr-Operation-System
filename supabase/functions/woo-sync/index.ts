@@ -2,7 +2,8 @@
 // it authenticates here). Auth: an X-Sync-Secret header (pg_cron, Task 7) must satisfy rpc('sync_secret_matches',
 // { candidate }) → system mode; else a member's Authorization: Bearer <jwt> → a client with that token:
 // push_status needs has_perm('orders.status') = 'F'; push_vendor needs is_admin() or has_perm('vendors.edit') = 'F' — or 'P' for the
-// contact fields alone (phone, email, contact_name, address_parts, social: the columns the guard lets 'P' edit), the rate fields add sensitive.commission = 'F'
+// contact fields alone (phone, email, contact_name, address_parts, social: the columns the guard lets 'P' edit), the rate fields add sensitive.commission = 'F',
+// the bank (phase 3.5) needs sensitive.vendor_bank = 'F' (alone it needs no vendors.edit)
 // (and has_perm('sensitive.commission') = 'F' when `fields` name the commission); every other action is_admin();
 // anything else → 401. Writes always go through the service client (deps.db). Body { action, ...args }:
 //   'states'   wc/v3/data/countries/EG (one request) → its states[] { code, name } → woo_states on code: the site's
@@ -28,7 +29,7 @@
 //              wc/v3/orders/{id}; "system wins": when Woo changed the status since our last sync, the push still goes
 //              and a 'conflict' row is logged; orders.woo_status / woo_updated_at follow Woo's answer.
 //   'push_vendor' { vendor_id, fields[] }  (phase 3.3, decision 4 b) fields ⊆ SYNC_FIELDS of woo-core (name, phone,
-//              email, contact_name, address_parts, social, status, rate, category_rates; anything else → 400). The
+//              email, contact_name, address_parts, social, status, rate, category_rates, bank; anything else → 400). The
 //              row is read from the database (never the body); a maker without woo_vendor_id → skipped/no_store; the
 //              WOO_PUSH_ENABLED gate → skipped/push_disabled with the fields added to push_pending, before any Woo
 //              call; a `#…` placeholder name is never sent (only that → skipped/placeholder); then one PUT
@@ -47,7 +48,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from '../_shared/woo-core.js';
 import { getState, logSync, setState } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
-import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
+import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -89,10 +90,15 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'push_vendor') {
     if (await admin()) return 'member';
     const fields = Array.isArray(args.fields) ? args.fields : [];
-    const { data: edit, error: editErr } = await member.rpc('has_perm', { key: 'vendors.edit' });
-    const level = editErr ? null : edit;
-    const contactOnly = fields.length > 0 && fields.every((f) => CONTACT_PUSH_FIELDS.includes(f));
-    if (level !== 'F' && !(level === 'P' && contactOnly)) return null;
+    // phase 3.5 (decision 5): `bank` needs sensitive.vendor_bank = F (the rule that writes vendor_bank), whatever vendors.edit says
+    if (fields.includes('bank') && !(await perm('sensitive.vendor_bank'))) return null;
+    const store = fields.filter((f) => f !== 'bank');
+    if (store.length) {
+      const { data: edit, error: editErr } = await member.rpc('has_perm', { key: 'vendors.edit' });
+      const level = editErr ? null : edit;
+      const contactOnly = store.every((f) => CONTACT_PUSH_FIELDS.includes(f));
+      if (level !== 'F' && !(level === 'P' && contactOnly)) return null;
+    } else if (!fields.length) return null;
     return !fields.some((f) => RATE_FIELDS.includes(f)) || (await perm('sensitive.commission')) ? 'member' : null;
   }
   return (await admin()) ? 'member' : null;
@@ -231,9 +237,10 @@ async function pushVendor(run: Run, args: Json) {
   if (!pushEnabled(run.env)) return await skip('push_disabled', true);
   const ctx = await run.ctx();
   const rates = (await effectiveRates(ctx, [vendorId], run.now())).get(vendorId);
+  const bank = fields.includes('bank') ? (await loadBanks(ctx, [vendorId])).get(vendorId) ?? null : null;
   let r;
   try {
-    r = await pushStoreFields(ctx, row, fields, rates);
+    r = await pushStoreFields(ctx, row, fields, rates, bank);
   } catch (e) {
     if (!(e instanceof WooError)) throw e;
     // a retryable failure (network, 5xx, 401 / 403 / 408 / 429) waits in push_pending for the next run; any other 4xx is the

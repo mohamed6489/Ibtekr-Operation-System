@@ -28,6 +28,9 @@
 //   second change on the same day replaces that day's row) and vendor_category_rates rows the same way (a category the
 //   site dropped → a row with rate null); vendors.commission_pct is set with it (the 0011 trigger refreshes the copy on
 //   insert only). The activity / sync log rows carry field names only.
+// * The bank (phase 3.5): the site's payment.bank is the field `bank` — compared by its digest (bankDigest: the snapshot
+//   keeps the digest only), written to vendor_bank (the eight Dokan fields; method / wallet are ours) when the site changed
+//   it, pushed as payment.bank when ours is pending. A new store with a bank on the site gets its vendor_bank row.
 // * Orders / lines are upserted with the sync-owned columns only (ORDER_COLUMNS / ITEM_COLUMNS — commission_rate /
 //   commission_fee among them, written on every run: the site's commission on the line), so an existing row
 //   keeps the team's operational values (orders.confirm*/deposit/note/cancel/ret, order_items.status/expected_at/
@@ -48,7 +51,7 @@
 //   lines with it. Counted as `failed`.
 // * The site's governorates (woo-sync part `states`): upserted on code into woo_states, never deleted. The site's
 //   product categories (part `categories`, phase 3.3): upserted on id into woo_categories, never deleted.
-import { SYNC_FIELDS, addressText, canonicalCategories, categoryTree, commissionType, diffStore, explicitCategories, isSubOrder, mapOrder, mapStore, mapSubOrder, redactPII, sameField, storeSnapshot, toDokanStore } from './woo-core.js';
+import { BANK_KEYS, SYNC_FIELDS, addressText, bankDigest, canonicalCategories, categoryTree, commissionType, diffStore, explicitCategories, isSubOrder, mapOrder, mapStore, mapSubOrder, redactPII, sameField, storeSnapshot, toDokanStore } from './woo-core.js';
 import { DbError, logSync, selectIn, upsertRows } from './db.js';
 import { WooError, errorText } from './woo-api.js';
 
@@ -72,6 +75,8 @@ export const VENDOR_SYNC_COLUMNS = 'id, woo_vendor_id, name, phone, email, conta
 const MIRROR_COLUMNS = ['raw', 'logo_url', 'banner_url', 'woo_payment_methods'];
 const RATE_FIELDS = ['rate', 'category_rates'];
 export const SET_BY_SITE = 'الموقع';
+// Dokan's payment.bank key → vendor_bank column (phase 3.5, decision 1); method / wallet are ours, never synced
+export const BANK_COLUMNS = { ac_name: 'holder', ac_number: 'account_number', ac_type: 'account_type', bank_name: 'bank_name', bank_addr: 'bank_address', routing_number: 'routing_number', iban: 'iban', swift: 'swift' };
 // products.raw is readable by members: an allow-list of public product fields (no store owner name or address).
 const PRODUCT_RAW = ['id', 'name', 'slug', 'type', 'status', 'sku', 'price', 'regular_price', 'sale_price', 'on_sale', 'stock_status',
   'stock_quantity', 'date_created_gmt', 'date_modified_gmt', 'permalink', 'parent_id'];
@@ -128,19 +133,25 @@ export async function saveVendors(ctx, rows) {
   const stored = new Map((await selectIn(ctx.db, 'vendors', VENDOR_SYNC_COLUMNS, 'woo_vendor_id', ids)).map((v) => [Number(v.woo_vendor_id), v]));
   for (const v of stored.values()) ctx.vendors.set(Number(v.woo_vendor_id), v.id);
   const now = ctx.now();
+  for (const r of valid) r.bank_digest = await bankDigest(r.bank); // phase 3.5: the snapshot keeps the digest only
   const fresh = valid.filter((r) => !stored.has(wooId(r.woo_vendor_id)));
   const added = await save(ctx, 'vendors', fresh.map((r) => pick({ ...r, woo_snapshot: storeSnapshot(r), woo_synced_at: now }, VENDOR_COLUMNS)), 'woo_vendor_id', 'id, woo_vendor_id');
   for (const v of added.rows) ctx.vendors.set(Number(v.woo_vendor_id), v.id);
   for (const r of fresh) {
     const uuid = ctx.vendors.get(wooId(r.woo_vendor_id));
-    if (uuid && !added.bad.has(String(wooId(r.woo_vendor_id)))) await writeSiteRates(ctx, uuid, storeSnapshot(r), null, now);
+    if (uuid && !added.bad.has(String(wooId(r.woo_vendor_id)))) {
+      await writeSiteRates(ctx, uuid, storeSnapshot(r), null, now);
+      if (r.bank_digest) await writeSiteBank(ctx, uuid, r.bank, now);
+    }
   }
   const existing = valid.filter((r) => stored.has(wooId(r.woo_vendor_id)));
-  const rates = await effectiveRates(ctx, existing.map((r) => stored.get(wooId(r.woo_vendor_id)).id), now);
+  const uuids = existing.map((r) => stored.get(wooId(r.woo_vendor_id)).id);
+  const rates = await effectiveRates(ctx, uuids, now);
+  const banks = await loadBanks(ctx, uuids);
   const bad = new Set();
   for (const r of existing) {
     const row = stored.get(wooId(r.woo_vendor_id));
-    if (!(await syncVendor(ctx, r, row, rates.get(row.id), now))) bad.add(String(wooId(r.woo_vendor_id)));
+    if (!(await syncVendor(ctx, r, row, rates.get(row.id), now, banks.get(row.id) ?? null))) bad.add(String(wooId(r.woo_vendor_id)));
   }
   return valid.length - added.bad.size - bad.size;
 }
@@ -208,11 +219,32 @@ export async function effectiveRates(ctx, vendorIds, now) {
 }
 
 /** The synced fields of a vendors row as the system has them (the counterpart of storeSnapshot for diffStore). */
-export const systemSnapshot = (row, rates) => ({
+export const systemSnapshot = (row, rates, bankKey = '') => ({
   name: row.name ?? null, phone: row.phone ?? null, email: row.email ?? null, contact_name: row.contact_name ?? null,
   address_parts: row.address_parts ?? null, social: row.social ?? null, status: row.status ?? 'active',
   rate: rates?.rate ?? { type: 'fixed', rate: null, flat: null }, category_rates: rates?.category_rates ?? [],
+  bank: bankKey ?? '', // phase 3.5: the digest of our vendor_bank row ('' = none)
 });
+
+/** Our vendor_bank rows as Dokan's payment.bank objects (BANK_KEYS; null → ''). → Map uuid → bank. */
+export async function loadBanks(ctx, vendorIds) {
+  const out = new Map();
+  if (!vendorIds.length) return out;
+  const cols = ['vendor_id', ...Object.values(BANK_COLUMNS)].join(', ');
+  for (const r of await selectIn(ctx.db, 'vendor_bank', cols, 'vendor_id', vendorIds)) {
+    out.set(r.vendor_id, Object.fromEntries(BANK_KEYS.map((k) => [k, str(r[BANK_COLUMNS[k]])])));
+  }
+  return out;
+}
+
+// The site's payment.bank → the maker's vendor_bank row (upserted on vendor_id: the eight synced columns only, so method /
+// wallet stay; a new row takes method 'bank'), updated_by «الموقع». A refused row → one woo_sync_log error row (no value).
+async function writeSiteBank(ctx, vendorUuid, bank, now) {
+  const row = { vendor_id: vendorUuid, updated_by: SET_BY_SITE, updated_at: now };
+  for (const k of BANK_KEYS) row[BANK_COLUMNS[k]] = orNull(isObj(bank) ? bank[k] : null);
+  const { bad } = await save(ctx, 'vendor_bank', [row], 'vendor_id');
+  return !bad.size;
+}
 
 /** The site's category tree (woo_categories: id → parent id), read once per run (plan 3.4). Never throws: [] on error. */
 export async function loadTree(ctx) {
@@ -262,19 +294,21 @@ async function writeSiteRates(ctx, vendorUuid, site, ours, now, which = RATE_FIE
  * checked against the reply's own `email` (mapStore hides it unless show_email is on). Nothing is sent when every
  * field was dropped. Throws a WooError on a non-2xx answer (the caller logs it and marks the fields pending).
  */
-export async function pushStoreFields(ctx, row, fields, rates) {
+export async function pushStoreFields(ctx, row, fields, rates, bank = null) {
   // a rate field whose newest row is still future-dated is held (review I-2): it stays pending until that day's run
   const held = (Array.isArray(fields) ? fields : []).filter((f) => RATE_FIELDS.includes(f) && rates?.future?.[f]);
   const tree = await loadTree(ctx);
-  const { body, sent, dropped } = toDokanStore(row, (Array.isArray(fields) ? fields : []).filter((f) => !held.includes(f)), { type: rates?.rate?.type ?? 'fixed', rate: rates?.rate?.rate ?? null, flat: rates?.rate?.flat ?? null, categoryRates: rates?.category_rates ?? [], tree });
-  if (!body) return { sent, dropped, held, accepted: [], refused: [], answer: null };
+  const { body, sent, dropped } = toDokanStore(row, (Array.isArray(fields) ? fields : []).filter((f) => !held.includes(f)), { type: rates?.rate?.type ?? 'fixed', rate: rates?.rate?.rate ?? null, flat: rates?.rate?.flat ?? null, categoryRates: rates?.category_rates ?? [], tree }, bank);
+  const oursBank = await bankDigest(bank);
+  if (!body) return { sent, dropped, held, accepted: [], refused: [], answer: null, oursBank };
   const id = wooId(row.woo_vendor_id);
   const { data } = await ctx.woo.put(`dokan/v1/stores/${id}`, body);
-  const answer = isObj(data) && wooId(data.id) === id ? storeSnapshot(mapStore(data)) : null;
+  let answer = null;
+  if (isObj(data) && wooId(data.id) === id) { const mapped = mapStore(data); mapped.bank_digest = await bankDigest(mapped.bank); answer = storeSnapshot(mapped); }
   const shown = answer === null ? null : canon({ ...answer, email: typeof data.email === 'string' ? orNull(data.email) : answer.email }, tree);
-  const ours = canon(systemSnapshot(row, rates), tree);
+  const ours = canon(systemSnapshot(row, rates, oursBank), tree);
   const accepted = sent.filter((f) => shown === null || sameField(f, shown[f], ours[f]));
-  return { sent, dropped, held, accepted, refused: sent.filter((f) => !accepted.includes(f)), answer };
+  return { sent, dropped, held, accepted, refused: sent.filter((f) => !accepted.includes(f)), answer, oursBank };
 }
 
 /**
@@ -288,7 +322,7 @@ export async function applyPushResult(ctx, row, result, now) {
   const patch = { woo_synced_at: now, push_pending: pendingOrNull(union(asPending(row.push_pending), result.held ?? []).filter((f) => !result.sent.includes(f) && !result.dropped.includes(f))) };
   if (base !== null) {
     const snap = { ...base };
-    for (const f of result.sent) snap[f] = result.answer === null ? (RATE_FIELDS.includes(f) ? base[f] ?? null : ours[f]) : result.answer[f];
+    for (const f of result.sent) snap[f] = result.answer === null ? (f === 'bank' ? result.oursBank ?? base[f] ?? '' : RATE_FIELDS.includes(f) ? base[f] ?? null : ours[f]) : result.answer[f];
     patch.woo_snapshot = snap;
   }
   return updateVendor(ctx, wooId(row.woo_vendor_id), patch);
@@ -301,10 +335,10 @@ export async function markPushPending(ctx, row, fields) {
 
 // A mapStore row of an existing store + its vendors row (VENDOR_SYNC_COLUMNS) + the maker's effective rates → the
 // comparison of the header, one UPDATE, the rate rows, the pending push, the logs. → false when the row was refused.
-async function syncVendor(ctx, site, row, rates, now) {
+async function syncVendor(ctx, site, row, rates, now, bank = null) {
   const id = wooId(site.woo_vendor_id);
   const siteSnap = storeSnapshot(site);
-  const ours = systemSnapshot(row, rates);
+  const ours = systemSnapshot(row, rates, await bankDigest(bank));
   const snap = isObj(row.woo_snapshot) ? row.woo_snapshot : null;
   const tree = await loadTree(ctx);
   const diff = diffStore(canon(snap, tree), canon(siteSnap, tree), canon(ours, tree));
@@ -323,15 +357,16 @@ async function syncVendor(ctx, site, row, rates, now) {
   for (const f of fromSite) {
     if (f === 'address_parts') { patch.address_parts = siteSnap.address_parts; patch.address = addressText(siteSnap.address_parts); }
     else if (f === 'status') patch.status = siteSnap.status === 'inactive' ? 'inactive' : row.status === 'leave' ? 'leave' : 'active';
-    else if (!RATE_FIELDS.includes(f)) patch[f] = siteSnap[f];
+    else if (f !== 'bank' && !RATE_FIELDS.includes(f)) patch[f] = siteSnap[f];
   }
+  if (fromSite.includes('bank')) await writeSiteBank(ctx, row.id, site.bank, now); // phase 3.5: vendor_bank, not a vendors column
   const siteRates = fromSite.filter((f) => RATE_FIELDS.includes(f));
   if (siteRates.length) Object.assign(patch, await writeSiteRates(ctx, row.id, siteSnap, ours, now, siteRates));
 
   let settled = [];
   if (toPush.length && ctx.pushEnabled) {
     try {
-      const r = await pushStoreFields(ctx, row, toPush, rates);
+      const r = await pushStoreFields(ctx, row, toPush, rates, bank);
       settled = [...r.sent, ...r.dropped];
       for (const f of r.sent) newSnap[f] = r.answer === null ? (RATE_FIELDS.includes(f) ? siteSnap[f] : ours[f]) : r.answer[f];
       if (r.sent.length) {

@@ -22,6 +22,8 @@ const COLUMNS: Record<string, string[]> = {
   vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at', 'commission_type'], // 0016: commission_type
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'],
   woo_categories: ['id', 'name', 'slug', 'parent_id', 'updated_at'],
+  // 0011 + 0017 (phase 3.5): the five Dokan bank columns
+  vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at', 'account_number', 'account_type', 'bank_address', 'routing_number', 'swift'],
   activity_log: ['id', 'at', 'actor', 'action', 'entity', 'entity_id', 'old_value', 'new_value'],
   products: ['id', 'sku', 'name', 'image_url', 'vendor_id', 'price', 'status', 'raw', 'updated_at', 'permalink'],
   orders: ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method',
@@ -41,6 +43,7 @@ const DEFAULTS: Record<string, Row> = {
   orders: { confirm: 'غير مؤكد', deposit: 0, total: 0, currency: 'EGP' },
   order_items: { qty: 1, total: 0, status: '', pulled: false, removed: false },
   sync_state: { value: {} },
+  vendor_bank: { method: 'bank' },
 };
 const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
   vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int' };
@@ -49,6 +52,7 @@ const UNIQUE: Record<string, string[][]> = {
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
   woo_webhook_events: [['id'], ['delivery_id']], woo_sync_log: [['id']], sync_state: [['key']], woo_states: [['code']],
   vendor_rates: [['id'], ['vendor_id', 'since']], vendor_category_rates: [['id'], ['vendor_id', 'woo_category_id', 'since']], woo_categories: [['id']], activity_log: [['id']],
+  vendor_bank: [['vendor_id']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],
@@ -70,7 +74,7 @@ const RANGE: Record<string, Record<string, [number, number]>> = {
 const FK: Record<string, [string, string, string][]> = {
   orders: [['status', 'status_map', 'system_status']],
   products: [['vendor_id', 'vendors', 'id']],
-  vendor_rates: [['vendor_id', 'vendors', 'id']], vendor_category_rates: [['vendor_id', 'vendors', 'id']],
+  vendor_rates: [['vendor_id', 'vendors', 'id']], vendor_category_rates: [['vendor_id', 'vendors', 'id']], vendor_bank: [['vendor_id', 'vendors', 'id']],
   sub_orders: [['order_id', 'orders', 'id'], ['vendor_id', 'vendors', 'id']],
   order_items: [['order_id', 'orders', 'id'], ['sub_order_id', 'sub_orders', 'id'], ['vendor_id', 'vendors', 'id']],
 };

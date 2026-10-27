@@ -5,7 +5,7 @@ import {
   START_DATE, OPEN_WOO, WOO_FALLBACK, META_KEEP,
   verifySignature, isSubOrder, normalizePhone, redactPII,
   incomingStatus, outgoingWooStatus, mapOrder, mapSubOrder, mapStore, nextCursor,
-  SYNC_FIELDS, ADDRESS_KEYS, SOCIAL_KEYS, addressText, storeSnapshot, diffStore, sameField, commissionOf, toDokanCommission, toDokanStore,
+  SYNC_FIELDS, ADDRESS_KEYS, SOCIAL_KEYS, BANK_KEYS, bankDigest, addressText, storeSnapshot, diffStore, sameField, commissionOf, toDokanCommission, toDokanStore,
   commissionType, categoryTree, canonicalCategories, explicitCategories,
 } from '../../supabase/functions/_shared/woo-core.js';
 import { mapProduct } from '../../supabase/functions/_shared/woo-write.js';
@@ -641,9 +641,9 @@ test('mapStore: Dokan store → vendors row with a lean raw', () => {
   const input = store();
   const before = structuredClone(input);
   const v = mapStore(input);
-  assert.deepEqual(Object.keys(v).sort(), ['address', 'address_parts', 'banner_url', 'commission', 'contact_name', 'email', 'joined_at', 'logo_url', 'name', 'phone', 'raw', 'social', 'status', 'woo_payment_methods', 'woo_vendor_id']);
-  assert.deepEqual({ ...v, raw: undefined }, {
-    woo_vendor_id: 2376, name: 'ورشة التجربة', phone: '01111111111', email: null, status: 'active', joined_at: '2025-01-02', raw: undefined,
+  assert.deepEqual(Object.keys(v).sort(), ['address', 'address_parts', 'bank', 'banner_url', 'commission', 'contact_name', 'email', 'joined_at', 'logo_url', 'name', 'phone', 'raw', 'social', 'status', 'woo_payment_methods', 'woo_vendor_id']);
+  assert.deepEqual({ ...v, raw: undefined, bank: undefined }, {
+    woo_vendor_id: 2376, name: 'ورشة التجربة', phone: '01111111111', email: null, status: 'active', joined_at: '2025-01-02', raw: undefined, bank: undefined,
     contact_name: 'منى تجربة', address_parts: { street_1: 'شارع الورشة 7', street_2: '', city: 'القاهرة', state: 'EGC', zip: '', country: 'EG' }, address: 'شارع الورشة 7، القاهرة، EGC',
     social: { fb: 'https://facebook.example/maker', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' },
     logo_url: 'https://stage.example.test/g.jpg', banner_url: 'https://stage.example.test/banner.jpg', woo_payment_methods: [],
@@ -653,7 +653,7 @@ test('mapStore: Dokan store → vendors row with a lean raw', () => {
     enabled: true, registered: '2025-01-02 10:00:00', featured: false, trusted: true });
   const s = JSON.stringify(v.raw);
   for (const pii of ['maker.test@example.com', '01111111111', 'شارع الورشة 7', '000111222', 'منى', 'facebook.example', 'banner.jpg', 'g.jpg']) assert.ok(!s.includes(pii), pii);
-  assert.ok(!JSON.stringify(v).includes('000111222') && !JSON.stringify(v).includes('ac_name'), 'payment (bank account) is never read');
+  assert.ok(!JSON.stringify({ ...v, bank: undefined }).includes('000111222'), 'the bank account lives in v.bank alone (phase 3.5), never in a column or raw');
   assert.deepEqual(input, before);
 });
 
@@ -768,7 +768,9 @@ test('mapStore (3.3): contact_name, the six address keys, the eight social keys,
   assert.deepEqual([v.logo_url, v.banner_url], ['https://stage.example.test/g.jpg', null]);
   assert.deepEqual(v.woo_payment_methods, ['bank', 'paypal']);
   assert.deepEqual(v.commission, { type: 'fixed', rate: 30, flat: null, categories: [] });
-  assert.ok(!JSON.stringify(v).includes('ac_name') && !JSON.stringify(v).includes('p@example.com'), 'bank / PayPal data never leaves the payload');
+  assert.ok(!JSON.stringify(v).includes('p@example.com'), 'PayPal data never leaves the payload');
+  assert.deepEqual([v.bank.ac_name, v.bank.ac_number], ['منى تجربة', '000111222'], 'the bank from payment.bank (phase 3.5)');
+  assert.ok(!JSON.stringify(v.raw).includes('ac_'), 'nothing of the bank in raw');
   assert.deepEqual(ADDRESS_KEYS, ['street_1', 'street_2', 'city', 'state', 'zip', 'country']);
   // absent / odd shapes: '' keys, null name, arrays
   const bare = mapStore({ id: 7, store_name: 'x', address: 'not an object', social: null, active_payment_methods: ['bank', '', 3] });
@@ -796,7 +798,7 @@ test('addressText: the filled parts of street 1, street 2, city, state joined by
 });
 
 test('storeSnapshot: the SYNC_FIELDS of a mapped store, rate = { rate, flat }, category_rates = the site\'s items; a deep copy', () => {
-  assert.deepEqual(SYNC_FIELDS, ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates']);
+  assert.deepEqual(SYNC_FIELDS, ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates', 'bank']);
   const m = mapStore(fullStore({ admin_commission_type: 'category_based', admin_category_commission: { all: { percentage: '35', flat: '5' }, items: { 15: { percentage: '20', flat: '' } } } }));
   const snap = storeSnapshot(m);
   assert.deepEqual(Object.keys(snap), SYNC_FIELDS);
@@ -821,7 +823,7 @@ test('diffStore: the four cases of decision 3 per field, and `same` when both si
   const site = { ...snap, name: 'A2', email: 'e@x.test', status: 'inactive', rate: { rate: 31, flat: null } };
   const system = { ...snap, phone: '2', email: 'e@x.test', status: 'leave', rate: { rate: 32, flat: null }, category_rates: [{ woo_category_id: 1, rate: 5 }] };
   // status: leave counts as active, so only the site moved (two states cannot make a `both`)
-  assert.deepEqual(diffStore(snap, site, system), { name: 'site', phone: 'system', email: 'same', contact_name: 'same', address_parts: 'same', social: 'same', status: 'site', rate: 'both', category_rates: 'system' });
+  assert.deepEqual(diffStore(snap, site, system), { name: 'site', phone: 'system', email: 'same', contact_name: 'same', address_parts: 'same', social: 'same', status: 'site', rate: 'both', category_rates: 'system', bank: 'keep' }); // bank: absent on both sides → keep (no digest)
   // a field missing from an older snapshot reads as empty
   assert.equal(diffStore({ ...snap, phone: undefined }, { ...snap, phone: '1' }, { ...snap, phone: '1' }).phone, 'same');
   assert.equal(diffStore({ ...snap, phone: undefined }, { ...snap, phone: '1' }, { ...snap, phone: null }).phone, 'site');
@@ -830,7 +832,7 @@ test('diffStore: the four cases of decision 3 per field, and `same` when both si
 test('diffStore: the first run (no snapshot) → fill when ours is empty, keep when equal, conflict when filled and different; status always takes the site', () => {
   const site = { name: 'A', phone: '1', email: null, contact_name: 'c', address_parts: { city: 'x' }, social: { fb: 'https://fb.example/f' }, status: 'inactive', rate: { rate: 30, flat: null }, category_rates: [{ woo_category_id: 1, rate: 5 }] };
   const system = { name: 'B', phone: '', email: null, contact_name: 'c', address_parts: null, social: { fb: 'https://fb.example/g' }, status: 'active', rate: { rate: null, flat: null }, category_rates: [] };
-  assert.deepEqual(diffStore(null, site, system), { name: 'conflict', phone: 'fill', email: 'keep', contact_name: 'keep', address_parts: 'fill', social: 'conflict', status: 'fill', rate: 'fill', category_rates: 'fill' });
+  assert.deepEqual(diffStore(null, site, system), { name: 'conflict', phone: 'fill', email: 'keep', contact_name: 'keep', address_parts: 'fill', social: 'conflict', status: 'fill', rate: 'fill', category_rates: 'fill', bank: 'keep' });
   assert.equal(diffStore(undefined, { ...site, status: 'active' }, { ...system, status: 'leave' }).status, 'keep');
   assert.equal(diffStore('not an object', site, {}).name, 'fill');
 });
@@ -918,3 +920,48 @@ test('sameField rate (3.4): the type is part of the rate — fixed 40 ≠ catego
   assert.ok(!sameField('rate', { type: 'fixed', rate: 40 }, { type: 'category_based', rate: 40 }));
   assert.ok(sameField('rate', { rate: 40 }, { type: 'fixed', rate: 40, flat: 0 }));
 });
+
+// ---------------------------------------------------------------- phase 3.5: the bank two-way
+
+const BANK = { ac_name: 'صاحب تجريبي', ac_number: '0000111122223333', ac_type: 'personal', bank_name: 'بنك تجريبي', bank_addr: 'عنوان تجريبي', routing_number: '', iban: '', swift: 'TESTEGCX' };
+
+test('bank (3.5): mapStore reads payment.bank (the eight keys, trimmed; paypal never), the snapshot keeps the digest only, bankDigest is \'\' for none and stable', async () => {
+  const v = mapStore({ id: 9, store_name: 'x', payment: { bank: { ...BANK, ac_name: ' صاحب تجريبي ', extra: 'nope' }, paypal: { email: 'p@example.com', 0: 'legacy' } } });
+  assert.deepEqual(BANK_KEYS, ['ac_name', 'ac_number', 'ac_type', 'bank_name', 'bank_addr', 'routing_number', 'iban', 'swift']);
+  assert.deepEqual(v.bank, BANK);
+  assert.ok(!JSON.stringify(v).includes('p@example.com') && !JSON.stringify(v).includes('legacy') && !JSON.stringify(v.raw).includes('0000111122223333'));
+  const d = await bankDigest(v.bank);
+  assert.match(d, /^[0-9a-f]{64}$/);
+  assert.equal(await bankDigest({ ...BANK, ac_name: '  صاحب تجريبي' }), d, 'trimmed values');
+  assert.notEqual(await bankDigest({ ...BANK, ac_number: '0000111122223334' }), d);
+  assert.equal(await bankDigest(null), '');
+  assert.equal(await bankDigest(Object.fromEntries(BANK_KEYS.map((k) => [k, ' ']))), '');
+  const snap = storeSnapshot({ ...v, bank_digest: d });
+  assert.equal(snap.bank, d);
+  assert.ok(!JSON.stringify(snap).includes('0000111122223333') && !JSON.stringify(snap).includes('TESTEGCX'), 'no bank value in the snapshot');
+  assert.equal(storeSnapshot(v).bank, '', 'no digest given → none');
+});
+
+test('bank (3.5): diffStore — a snapshot from before the field: the site\'s bank wins when it has one (ours empty or not), ours stays when the site has none; afterwards the usual rules', () => {
+  const old = { name: 'x', phone: null, email: null, contact_name: null, address_parts: {}, social: {}, status: 'active', rate: { type: 'fixed', rate: 30, flat: null }, category_rates: [] };
+  const base = { ...old };
+  const site = (bank) => ({ ...base, bank }); const ours = (bank) => ({ ...base, bank });
+  assert.equal(diffStore(old, site('aa'), ours('')).bank, 'fill');
+  assert.equal(diffStore(old, site('aa'), ours('bb')).bank, 'fill'); // the site's account is the right one (decision 3)
+  assert.equal(diffStore(old, site(''), ours('bb')).bank, 'keep'); // the site has none: ours stays, nothing pushed
+  assert.equal(diffStore(old, site('aa'), ours('aa')).bank, 'keep');
+  assert.equal(diffStore(old, site('aa'), ours('')).name, 'same', 'the other fields keep their rules');
+  assert.equal(diffStore(null, site('aa'), ours('bb')).bank, 'fill');
+  const snap = { ...old, bank: 'aa' };
+  assert.deepEqual([diffStore(snap, site('cc'), ours('aa')).bank, diffStore(snap, site('aa'), ours('cc')).bank, diffStore(snap, site('cc'), ours('dd')).bank, diffStore(snap, site('aa'), ours('aa')).bank], ['site', 'system', 'both', 'same']);
+});
+
+test('bank (3.5): toDokanStore sends payment.bank alone (the eight keys; no paypal), an empty bank of ours is dropped, never sent', () => {
+  const r = toDokanStore({ name: 'x' }, ['bank', 'name'], null, { ...BANK, extra: 'x' });
+  assert.deepEqual(r.sent, ['bank', 'name']); // in the order asked
+  assert.deepEqual(r.body, { store_name: 'x', payment: { bank: BANK } });
+  const e = toDokanStore({ name: 'x' }, ['bank'], null, { ac_name: ' ' });
+  assert.deepEqual([e.body, e.sent, e.dropped], [null, [], ['bank']]);
+  assert.deepEqual(toDokanStore({}, ['bank'], null, null).dropped, ['bank']);
+});
+

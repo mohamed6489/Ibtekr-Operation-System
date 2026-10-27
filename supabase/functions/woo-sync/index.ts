@@ -336,7 +336,11 @@ async function probeStore(run: Run, args: Json) {
 // What Dokan exposes about the makers' accounts (balances, withdrawals, earnings, reports), read-only and as shapes: the
 // admin names up to 10 GET paths under dokan/ (no query string, no dot segments); each answers { status, shape } — a route
 // index ({ routes }) answers its route names only. No value ever leaves (strings → filled / empty, numbers → 'number').
+// `query` may add a few filters to every path (PROBE_QUERY: a store id, a date range, a status word); a failed path also
+// answers Dokan's error excerpt (scrubbed by the client: which parameter is missing).
 const DOKAN_PATH = /^dokan\/v[0-9]+(\/[A-Za-z0-9_-]+)*$/;
+const PROBE_QUERY: Record<string, RegExp> = { vendor_id: /^[1-9][0-9]{0,9}$/, start_date: /^\d{4}-\d{2}-\d{2}$/, end_date: /^\d{4}-\d{2}-\d{2}$/, status: /^[a-z_]{1,20}$/ };
+const probeQuery = (q: unknown) => Object.fromEntries(Object.entries(isObj(q) ? q : {}).filter(([k, v]) => k in PROBE_QUERY && typeof v === 'string' && PROBE_QUERY[k].test(v)));
 const shapeOf = (v: unknown, depth = 0): unknown => {
   if (Array.isArray(v)) return { array: v.length, item: v.length && depth < 4 ? shapeOf(v[0], depth + 1) : undefined };
   if (isObj(v)) return depth < 4 ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, shapeOf(v[k], depth + 1)])) : 'object';
@@ -350,10 +354,10 @@ async function probeDokan(run: Run, args: Json) {
   const out: Json = {};
   for (const path of paths) {
     try {
-      const { data, total } = await woo.get(path, { per_page: 1, page: 1 });
+      const { data, total } = await woo.get(path, { ...probeQuery(args.query), per_page: 1, page: 1 });
       out[path] = isObj(data) && isObj(data.routes) ? { status: 200, routes: Object.keys(data.routes).sort() } : { status: 200, total, shape: shapeOf(data) };
     } catch (e) {
-      out[path] = { status: e instanceof WooError ? e.status : 0 };
+      out[path] = e instanceof WooError ? { status: e.status, error: e.message.slice(0, 300) } : { status: 0 };
     }
   }
   return json(200, { action: 'probe_dokan', auth: woo.hasDokanAuth, paths: out });

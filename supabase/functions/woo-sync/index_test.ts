@@ -266,6 +266,9 @@ Deno.test('probe_dokan: shapes of the named dokan/ GET paths only — route name
   assertEquals(body.paths['dokan/v1/missing'].status, 404);
   assertFalse(JSON.stringify(body).includes('1500') || JSON.stringify(body).includes('متجر') || JSON.stringify(body).includes('سحب'));
   assert(woo.calls.every((c) => c.method === 'GET'));
+  // `query`: the allowed filters only (a bad value or another key is dropped)
+  await call(deps, { action: 'probe_dokan', paths: ['dokan/v1/withdraw'], query: { vendor_id: '44', start_date: '2026-10-01', end_date: 'x', search: 'a', status: 'pending' } }, { jwt: 'jwt-admin' });
+  assertEquals(woo.calls.at(-1)?.query, { vendor_id: '44', start_date: '2026-10-01', status: 'pending', per_page: '1', page: '1' });
   assertEquals((await call(deps, { action: 'probe_dokan', paths: ['wc/v3/orders'] }, { jwt: 'jwt-admin' })).res.status, 400);
   assertEquals((await call(deps, { action: 'probe_dokan', paths: ['dokan/v1'] }, { jwt: 'jwt-ops' })).res.status, 401);
 });

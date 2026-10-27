@@ -14,6 +14,8 @@ import { stubClient, opsOf } from './stub-supabase.mjs';
 const src = readFileSync(new URL('../../app/js/adapter/vendors.js', import.meta.url), 'utf8');
 const domain = readFileSync(new URL('../../app/js/blocks/06-vendors-domain.js', import.meta.url), 'utf8');
 const plain = (v) => JSON.parse(JSON.stringify(v));
+const TODAY_LOCAL = '2026-10-25'; // the adapter's clock in these tests (NOW below)
+const rpcCalls = (calls, fn) => calls.filter((c) => c.op === 'rpc' && c.args[0] === fn).map((c) => c.args[1]);
 const V1 = 'a0000000-0000-4000-8000-000000000001', V2 = 'a0000000-0000-4000-8000-000000000002', V3 = 'a0000000-0000-4000-8000-000000000003';
 const T0 = '2026-10-20T08:00:00+00:00'; const IBAN = 'EG38000300010000000000000482'; // a fake IBAN
 const row = (o) => ({ woo_vendor_id: null, aliases: [], phone: null, email: null, status: 'active', raw: null, created_at: T0, updated_at: T0, legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: null, contract: null, opening_balance: 0, ...o });
@@ -273,34 +275,28 @@ test('canEdit / canBank / canToggle / canRate follow IBDirectory.perm; a write w
   assert.deepEqual(plain(admin.S.actor()), { name: 'صفوت كمال', role: 'أدمن' });
 });
 
-test('setRate: the history gains a dated row (the effective one today shown), one insert into vendor_rates, the event carries the rate and date', async () => {
+test('setRate (decision 12): no date — the rate applies from today, a second change the same day replaces the day\'s row; one vendor_rate_set call each, the event carries the rate', async () => {
   const { V, S, calls, logs } = load();
   await V.load(); calls.length = 0;
-  S.setRate(V1, '٤٠', '2026-11-01', S.actor()); // a future rate: the history shows it, today's rate stays 35
-  assert.deepEqual(plain([S.get(V1).rate, S.get(V1).rateSince, S.get(V1).rateHistory.map((x) => x.rate + '@' + x.since)]), [35, '2026-03-01', ['35@2026-03-01', '40@2026-11-01']]);
-  S.setRate(V1, 30, '2026-10-01', S.actor());
-  assert.deepEqual([S.get(V1).rate, S.get(V1).rateSince], [30, '2026-10-01']);
+  S.setRate(V1, '٤٠', '2026-11-01', S.actor()); // the old `since` argument is ignored
+  assert.deepEqual(plain([S.get(V1).rate, S.get(V1).rateSince, S.get(V1).rateHistory.map((x) => x.rate + '@' + x.since)]), [40, TODAY_LOCAL, ['35@2026-03-01', '40@' + TODAY_LOCAL]]);
+  S.setRate(V1, 45, null, S.actor());
+  assert.deepEqual(plain([S.get(V1).rate, S.get(V1).rateHistory.map((x) => x.rate + '@' + x.since)]), [45, ['35@2026-03-01', '45@' + TODAY_LOCAL]]); // replaced, not refused
   await settle();
-  assert.deepEqual(opsOf(calls, 'vendor_rates').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: V1, rate: 40, since: '2026-11-01', set_by: 'صفوت كمال' }, { vendor_id: V1, rate: 30, since: '2026-10-01', set_by: 'صفوت كمال' }]);
-  assert.deepEqual(opsOf(calls, 'vendor_rates').filter((c) => c.op === 'select' && c.args[0] === 'id'), []); // no returning row asked
-  assert.deepEqual(logs.filter((l) => l[0] === 'vendor.rate'), [['vendor.rate', '40% من 2026-11-01', { entity: 'vendor', entity_id: V1 }], ['vendor.rate', '30% من 2026-10-01', { entity: 'vendor', entity_id: V1 }]]);
-  assert.throws(() => S.setRate(V1, 70, '2026-11-01', S.actor()), /rate out of range/);
-  assert.throws(() => S.setRate(V1, 30, '2026-11-31', S.actor()), /since required/);
-  calls.length = 0;
-  assert.throws(() => S.setRate(V1, 42, '2026-03-01', S.actor()), /فيه نسبة متسجلة بنفس تاريخ السريان/); // unique (vendor_id, since): the stored row of that day
-  assert.deepEqual(opsOf(calls, 'vendor_rates'), []);
-  assert.deepEqual(plain(S.get(V1).rateHistory.map((x) => x.rate + '@' + x.since)), ['35@2026-03-01']); // the reload after the writes: the stub serves the seed
+  assert.deepEqual(plain(rpcCalls(calls, 'vendor_rate_set')), [{ p_vendor: V1, p_rate: 40, p_flat: null }, { p_vendor: V1, p_rate: 45, p_flat: null }]);
+  assert.deepEqual(opsOf(calls, 'vendor_rates').filter((c) => c.op === 'insert'), []); // never a direct insert
+  assert.deepEqual(logs.filter((l) => l[0] === 'vendor.rate'), [['vendor.rate', '40%', { entity: 'vendor', entity_id: V1 }], ['vendor.rate', '45%', { entity: 'vendor', entity_id: V1 }]]);
+  assert.throws(() => S.setRate(V1, 70, null, S.actor()), /rate out of range/);
 });
 
-test('setRate: a 23505 from the server (a rate written meanwhile) reads as duplicate — the history goes back, nothing else is touched', async () => {
+test('setRate: the server refusing vendor_rate_set (42501) puts the history back and says why — nothing else is touched', async () => {
   const { V, S, responses, events } = load();
   await V.load();
-  responses.vendor_rates = (ops) => (ops.some((c) => c.op === 'insert') ? { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "vendor_rates_vendor_id_since_key"' } } : ok(RATES));
-  S.setRate(V1, 42, '2026-12-01', S.actor());
+  responses['rpc:vendor_rate_set'] = () => ({ data: null, error: { code: '42501', message: 'sensitive.commission = F is required to set a maker rate' } });
+  S.setRate(V1, 42, null, S.actor());
   await settle();
   assert.deepEqual(plain(S.get(V1).rateHistory.map((x) => x.rate + '@' + x.since)), ['35@2026-03-01']);
-  assert.deepEqual(events.filter((e) => e.detail && e.detail.reason).map((e) => e.detail.reason), ['duplicate']);
-  assert.equal(V.MESSAGES.duplicate, 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني');
+  assert.deepEqual(events.filter((e) => e.detail && e.detail.reason).map((e) => e.detail.reason), ['forbidden']);
 });
 
 test('setBank: an insert for the first row, an update (vendor_id) after; the event names the method only — never the IBAN', async () => {
@@ -1030,52 +1026,51 @@ test('pushVendor answers (3.3): skipped reasons pass through, 502 / 500 / networ
   assert.deepEqual(plain([await vf.S.pushVendor(V1, ['phone']), await vf.S.pushVendor(V1, ['rate']), await vf.S.pushVendor(V1, ['bogus'])]), [{ result: 'ok', fields: ['phone'], accepted: ['phone'], refused: [], dropped: [], held: [] }, { result: 'skipped', reason: 'no_permission', fields: ['rate'] }, { result: 'skipped', reason: 'no_fields', fields: [] }]);
 });
 
-test('setRate (3.3): an optional flat fee in the row (absent without one), shown as rateFlat, in the event; the new rate is pushed as [rate]', async () => {
+test('setRate (3.3): an optional flat fee in the call (null without one), shown as rateFlat, in the event; the new rate is pushed as [rate]', async () => {
   const { V, S, calls, logs, events } = load();
   await V.load(); calls.length = 0; events.length = 0;
-  S.setRate(V1, 40, '2026-10-01', S.actor(), { flat: '١٠' });
-  assert.deepEqual(plain([S.get(V1).rate, S.get(V1).rateFlat, S.get(V1).rateHistory.map((x) => x.rate + '@' + x.since + '+' + x.flat)]), [40, 10, ['35@2026-03-01+null', '40@2026-10-01+10']]);
+  S.setRate(V1, 40, null, S.actor(), { flat: '١٠' });
+  assert.deepEqual(plain([S.get(V1).rate, S.get(V1).rateFlat, S.get(V1).rateHistory.map((x) => x.rate + '@' + x.since + '+' + x.flat)]), [40, 10, ['35@2026-03-01+null', '40@' + TODAY_LOCAL + '+10']]);
   await settle();
-  assert.deepEqual(opsOf(calls, 'vendor_rates').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: V1, rate: 40, since: '2026-10-01', set_by: 'صفوت كمال', flat: 10 }]);
+  assert.deepEqual(plain(rpcCalls(calls, 'vendor_rate_set')), [{ p_vendor: V1, p_rate: 40, p_flat: 10 }]);
   assert.deepEqual(invokes(calls), [['woo-sync', { body: { action: 'push_vendor', vendor_id: V1, fields: ['rate'] } }]]);
-  assert.deepEqual(logs, [['vendor.rate', '40% من 2026-10-01 + 10 ج.م', { entity: 'vendor', entity_id: V1 }]]);
+  assert.deepEqual(logs, [['vendor.rate', '40% + 10 ج.م', { entity: 'vendor', entity_id: V1 }]]);
   assert.deepEqual(events.filter((e) => e.detail.written).map((e) => e.detail.push.result), ['ok']);
   calls.length = 0;
-  S.setRate(V1, 42, '2026-11-01', S.actor(), { flat: '' }); await settle();
-  assert.deepEqual(opsOf(calls, 'vendor_rates').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: V1, rate: 42, since: '2026-11-01', set_by: 'صفوت كمال' }]); // no flat column without a fee
-  assert.throws(() => S.setRate(V1, 42, '2026-12-01', S.actor(), { flat: '-1' }), /flat out of range/);
+  S.setRate(V1, 42, null, S.actor(), { flat: '' }); await settle();
+  assert.deepEqual(plain(rpcCalls(calls, 'vendor_rate_set')), [{ p_vendor: V1, p_rate: 42, p_flat: null }]);
+  assert.throws(() => S.setRate(V1, 42, null, S.actor(), { flat: '-1' }), /flat out of range/);
 });
 
-test('setCategoryRate (3.3): one insert into vendor_category_rates (the category of the site, rate null = removed from that date), logged with the category name, pushed as [category_rates]; the same date refused locally, 23505 reads category_duplicate; sensitive.commission required', async () => {
+test('setCategoryRate (3.3 + decision 12): no date — one vendor_category_rate_set call (rate null = back to the maker\'s rate), a same-day change replaces the day\'s row, logged with the category name, pushed as [category_rates]; sensitive.commission required', async () => {
   const { V, S, calls, logs, events, responses } = load({ responses: syncedSeed() });
   await V.load(); calls.length = 0; events.length = 0;
   S.setCategoryRate(V1, '٢٢', { rate: '35', flat: '' }, '2026-10-25', S.actor());
-  assert.deepEqual(plain(S.get(V1).categoryRates), [{ wooCategoryId: 15, name: 'ديكور', rate: 30, flat: 0, since: '2026-03-01' }, { wooCategoryId: 22, name: 'هدايا', rate: 35, flat: null, since: '2026-10-25' }]); // at once
+  assert.deepEqual(plain(S.get(V1).categoryRates), [{ wooCategoryId: 15, name: 'ديكور', rate: 30, flat: 0, since: '2026-03-01' }, { wooCategoryId: 22, name: 'هدايا', rate: 35, flat: null, since: TODAY_LOCAL }]); // at once
   assert.deepEqual(events[0].detail, { id: V1, changed: ['categoryRates'] });
+  S.setCategoryRate(V1, 22, { rate: '20' }, null, S.actor());
+  assert.deepEqual(plain(S.get(V1).categoryRates.filter((x) => x.wooCategoryId === 22).map((x) => x.rate)), [20]); // replaced the same day
   await settle();
-  assert.deepEqual(opsOf(calls, 'vendor_category_rates').filter((c) => ['insert', 'select'].includes(c.op) && c.args[0] !== 'id, vendor_id, woo_category_id, rate, flat, since, set_by, created_at').map((c) => c.args[0]), [{ vendor_id: V1, woo_category_id: 22, rate: 35, flat: null, since: '2026-10-25', set_by: 'صفوت كمال' }]); // no returning row
-  assert.deepEqual(invokes(calls), [['woo-sync', { body: { action: 'push_vendor', vendor_id: V1, fields: ['category_rates'] } }]]);
-  assert.deepEqual(logs, [['vendor.category_rate', 'هدايا: 35% من 2026-10-25', { entity: 'vendor', entity_id: V1 }]]);
-  assert.deepEqual(plain(S.get(V1).categoryRates.map((x) => x.wooCategoryId)), [15]); // the reload: the stub serves the seed again
+  assert.deepEqual(plain(rpcCalls(calls, 'vendor_category_rate_set')), [{ p_vendor: V1, p_category: 22, p_rate: 35, p_flat: null }, { p_vendor: V1, p_category: 22, p_rate: 20, p_flat: null }]);
+  assert.deepEqual(opsOf(calls, 'vendor_category_rates').filter((c) => c.op === 'insert'), []);
+  assert.deepEqual(invokes(calls).map((a) => a[1].body.fields), [['category_rates'], ['category_rates']]);
+  assert.deepEqual(logs, [['vendor.category_rate', 'هدايا: 35%', { entity: 'vendor', entity_id: V1 }], ['vendor.category_rate', 'هدايا: 20%', { entity: 'vendor', entity_id: V1 }]]);
   calls.length = 0; logs.length = 0;
-  S.setCategoryRate(V1, 15, { rate: '', flat: '7' }, '2026-10-25', S.actor()); await settle(); // removed from today, a flat fee kept for display
-  assert.deepEqual(opsOf(calls, 'vendor_category_rates').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: V1, woo_category_id: 15, rate: null, flat: 7, since: '2026-10-25', set_by: 'صفوت كمال' }]);
-  assert.deepEqual(logs, [['vendor.category_rate', 'ديكور: — + 7 ج.م من 2026-10-25', { entity: 'vendor', entity_id: V1 }]]);
+  S.setCategoryRate(V1, 15, { rate: '', flat: '7' }, null, S.actor()); await settle(); // back to the maker's rate from today, a flat fee kept for display
+  assert.deepEqual(plain(rpcCalls(calls, 'vendor_category_rate_set')), [{ p_vendor: V1, p_category: 15, p_rate: null, p_flat: 7 }]);
+  assert.deepEqual(logs, [['vendor.category_rate', 'ديكور: — + 7 ج.م', { entity: 'vendor', entity_id: V1 }]]);
   calls.length = 0;
-  assert.throws(() => S.setCategoryRate(V1, 15, { rate: 30 }, '2026-03-01', S.actor()), /فيه عمولة للفئة دي بنفس تاريخ السريان/); // (vendor, category, since) exists
-  assert.throws(() => S.setCategoryRate(V1, 99, { rate: 30 }, '2026-10-26', S.actor()), /اختار فئة من فئات الموقع/);
-  assert.throws(() => S.setCategoryRate(V1, 15, { rate: 70 }, '2026-10-26', S.actor()), /invalid category rate: rate/);
-  assert.throws(() => S.setCategoryRate(V1, 15, { rate: 30 }, '2026-13-01', S.actor()), /since required/);
-  assert.deepEqual(opsOf(calls, 'vendor_category_rates'), []);
-  responses.vendor_category_rates = (ops) => (ops.some((c) => c.op === 'insert') ? { data: null, error: { code: '23505', message: 'duplicate key value violates unique constraint "vendor_category_rates_vendor_id_woo_category_id_since_key"' } } : ok(CAT_RATES));
-  events.length = 0; S.setCategoryRate(V1, 22, { rate: 20 }, '2026-10-26', S.actor()); await settle();
-  assert.deepEqual(events.filter((e) => e.detail.reason).map((e) => e.detail.reason), ['category_duplicate']);
+  assert.throws(() => S.setCategoryRate(V1, 99, { rate: 30 }, null, S.actor()), /اختار فئة من فئات الموقع/);
+  assert.throws(() => S.setCategoryRate(V1, 15, { rate: 70 }, null, S.actor()), /invalid category rate: rate/);
+  assert.deepEqual(rpcCalls(calls, 'vendor_category_rate_set'), []);
+  responses['rpc:vendor_category_rate_set'] = () => ({ data: null, error: { code: '42501', message: 'sensitive.commission = F is required to set a category rate' } });
+  events.length = 0; S.setCategoryRate(V1, 22, { rate: 20 }, null, S.actor()); await settle();
+  assert.deepEqual(events.filter((e) => e.detail.reason).map((e) => e.detail.reason), ['forbidden']);
   assert.deepEqual(plain(S.get(V1).categoryRates.map((x) => x.wooCategoryId)), [15]); // back
-  assert.equal(V.MESSAGES.category_duplicate, 'فيه عمولة للفئة دي بنفس تاريخ السريان — اختار تاريخ تاني');
   const ops = load({ admin: false, responses: syncedSeed() });
   await ops.V.load(); ops.calls.length = 0;
-  assert.throws(() => ops.S.setCategoryRate(V1, 22, { rate: 20 }, '2026-10-26', ops.S.actor()), /مش من صلاحياتك/);
-  assert.deepEqual(opsOf(ops.calls, 'vendor_category_rates'), []);
+  assert.throws(() => ops.S.setCategoryRate(V1, 22, { rate: 20 }, null, ops.S.actor()), /مش من صلاحياتك/);
+  assert.deepEqual(rpcCalls(ops.calls, 'vendor_category_rate_set'), []);
 });
 
 test('loadEvents (3.3): the server\'s vendor.sync / vendor.sync.conflict rows (actor null) read in the site\'s voice with the Arabic field labels', async () => {

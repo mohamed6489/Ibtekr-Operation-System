@@ -401,6 +401,30 @@ export async function installSupabaseMock(page, opts = {}) {
       // phase 3.3 (review I-1) vendor_push_pending(p_vendor, p_fields): the push rule of push_vendor (the admin, vendors.edit F — a rate
       // field with sensitive.commission F too —, or vendors.edit P for the contact fields alone), the synced names only (22023 when none),
       // P0002 for an unknown maker; push_pending ∪ fields, sorted; the new list comes back. Recorded in mock.rpcs.
+      // 0015 (plan 3.3 decision 12): vendor_rate_set / vendor_category_rate_set — the rate / category rate dated today, a same-day
+      // change replacing the day's row; admin or sensitive.commission = F (42501); 22023 out of range; P0002 unknown maker; set_by =
+      // the caller's name. Recorded in vendorWrites as { table, op: 'insert' | 'update', vendor_id, [woo_category_id,] rate, since,
+      // set_by[, flat] } (flat only when given, like the insert path).
+      const rateRpc = /^\/rest\/v1\/rpc\/(vendor_rate_set|vendor_category_rate_set)$/.exec(path);
+      if (method === 'POST' && rateRpc) {
+        const fn = rateRpc[1]; const b = body(); const vid = String(b.p_vendor || '').toLowerCase(); const cat = fn === 'vendor_category_rate_set';
+        const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        if (!(isAdmin(u) || hasPerm(u, 'sensitive.commission') === 'F')) return refuse(403, '42501', 'sensitive.commission = F is required to set a ' + (cat ? 'category' : 'maker') + ' rate');
+        const rate = b.p_rate == null ? null : Number(b.p_rate); const flat = b.p_flat == null ? null : Number(b.p_flat); const cid = cat ? Number(b.p_category) : null;
+        if ((!cat && rate == null) || (rate != null && !(rate >= 0 && rate <= 65))) return refuse(400, '22023', 'the rate must be between 0 and 65');
+        if (flat != null && !(flat >= 0)) return refuse(400, '22023', 'the flat fee must be 0 or more');
+        if (cat && !(Number.isInteger(cid) && cid > 0)) return refuse(400, '22023', 'the category id must be a positive integer');
+        if (!mock.vendors.some((x) => x.id === vid)) return refuse(400, 'P0002', 'vendor not found');
+        const d = new Date(); const since = [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+        const list = cat ? mock.vendorCategoryRates : mock.vendorRates; const now = d.toISOString();
+        const row = list.find((x) => x.vendor_id === vid && x.since === since && (!cat || Number(x.woo_category_id) === cid));
+        if (row) Object.assign(row, { rate, flat, set_by: u.name });
+        else if (cat) { catRateSeq += 1; list.push({ id: catRateSeq, vendor_id: vid, woo_category_id: cid, rate, flat, since, set_by: u.name, created_at: now }); }
+        else { rateSeq += 1; list.push({ id: rateSeq, vendor_id: vid, rate, flat, since, set_by: u.name, created_at: now }); }
+        if (!cat) effectiveRate(vid);
+        mock.vendorWrites.push({ table: cat ? 'vendor_category_rates' : 'vendor_rates', op: row ? 'update' : 'insert', vendor_id: vid, ...(cat ? { woo_category_id: cid } : {}), rate, since, set_by: u.name, ...(flat != null ? { flat } : {}) });
+        return json(200, since);
+      }
       if (method === 'POST' && path === '/rest/v1/rpc/vendor_push_pending') {
         const b = body(); const vid = String(b.p_vendor || ''); const asked = (Array.isArray(b.p_fields) ? b.p_fields : []).filter((f) => SYNC_FIELDS.includes(f));
         const rec = { fn: 'vendor_push_pending', vendor_id: vid, fields: asked, by: u.email, result: 'ok' }; mock.rpcs.push(rec);

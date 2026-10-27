@@ -189,7 +189,7 @@ test('the push fails (502): saved here, the message, the fields wait in «في �
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
   await expect.poll(() => writes().filter((w) => w.table === 'vendor_rates')).toEqual([{ table: 'vendor_rates', op: 'insert', vendor_id: V1, rate: 40, since: TODAY, set_by: 'صفوت كمال', flat: 5 }]);
   await expect.poll(() => pushes().slice(3)).toEqual([{ vendor_id: V1, fields: ['rate'], result: 'ok' }]);
-  await expect.poll(() => acts('vendor.rate')).toEqual([{ action: 'vendor.rate', entity: 'vendor', entity_id: V1, new_value: '40% من ' + TODAY + ' + 5 ج.م' }]);
+  await expect.poll(() => acts('vendor.rate')).toEqual([{ action: 'vendor.rate', entity: 'vendor', entity_id: V1, new_value: '40% + 5 ج.م' }]);
   await expect(info(agreement(page), page, 'نسبة إبتكر')).toContainText('40%');
   await expect(info(agreement(page), page, 'نسبة إبتكر')).toContainText('رسوم ثابتة');
   await expect(info(contact(page), page, 'في انتظار الإرسال')).toHaveText('اسم صاحب المتجر، العنوان'); // still waiting: a push names its own fields only
@@ -225,13 +225,14 @@ test('review I-1 / I-3: the function unreachable → saved, the fields queued th
   await page.unroute('**/rest/v1/rpc/vendor_push_pending');
   mock.functionsDown = false;
 });
-test('the per-category commission (sensitive.commission): the admin adds a dated row for a site category and edits one — one insert each, logged with the category name, pushed as category_rates; the same date refused before any request; ops sees nothing and a tampered write is refused', async ({ page }) => {
+test('the per-category commission (sensitive.commission): the admin adds one for a site category and edits one — no date (decision 12), logged with the category name, pushed as category_rates; a second change the same day replaces the day\'s row; ops sees nothing and a tampered write is refused', async ({ page }) => {
   await openVendors(page);
   await openDrawer(page, V1);
   await agreement(page).getByRole('button', { name: 'إضافة عمولة فئة' }).click();
   await modal(page).locator('#cr-cat').click();
   await expect(page.locator('[role=listbox] [role=option]')).toHaveText(['هدايا']); // the category with a rate already (ديكور) is edited from its row
   await page.locator('[role=listbox] [role=option]', { hasText: 'هدايا' }).click();
+  await expect(modal(page).locator('#cr-since')).toHaveCount(0); // no date field
   await modal(page).locator('#cr-rate').fill('٢٥');
   await modal(page).locator('#cr-flat').fill('0');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
@@ -240,9 +241,10 @@ test('the per-category commission (sensitive.commission): the admin adds a dated
   await expect(agreement(page).locator('tr[data-cat-rate="22"]')).toContainText('25%');
   await expect.poll(() => writes()).toEqual([{ table: 'vendor_category_rates', op: 'insert', vendor_id: V1, woo_category_id: 22, rate: 25, flat: 0, since: TODAY, set_by: 'صفوت كمال' }]);
   await expect.poll(() => pushes()).toEqual([{ vendor_id: V1, fields: ['category_rates'], result: 'ok' }]);
-  await expect.poll(() => acts('vendor.category_rate')).toEqual([{ action: 'vendor.category_rate', entity: 'vendor', entity_id: V1, new_value: 'هدايا: 25% + 0 ج.م من ' + TODAY }]);
-  await expect(activity(page)).toContainText('صفوت كمال حدّد عمولة الفئة (هدايا: 25% + 0 ج.م من ' + TODAY + ')');
-  expect(mock.requests.filter((r) => r === 'POST /rest/v1/vendor_category_rates')).toHaveLength(1);
+  await expect.poll(() => acts('vendor.category_rate')).toEqual([{ action: 'vendor.category_rate', entity: 'vendor', entity_id: V1, new_value: 'هدايا: 25% + 0 ج.م' }]);
+  await expect(activity(page)).toContainText('صفوت كمال حدّد عمولة الفئة (هدايا: 25% + 0 ج.م)');
+  expect(mock.requests.filter((r) => r === 'POST /rest/v1/rpc/vendor_category_rate_set')).toHaveLength(1);
+  expect(mock.requests.filter((r) => r === 'POST /rest/v1/vendor_category_rates')).toHaveLength(0);
   // edit the site's row on ديكور: blank = removed from today (the row leaves the list), a null rate in the insert
   await agreement(page).getByRole('button', { name: 'تعديل عمولة الفئة ديكور' }).click();
   await expect(modal(page).locator('#cr-cat')).toBeDisabled();
@@ -252,13 +254,13 @@ test('the per-category commission (sensitive.commission): the admin adds a dated
   await expect.poll(() => writes().slice(1)).toEqual([{ table: 'vendor_category_rates', op: 'insert', vendor_id: V1, woo_category_id: 15, rate: null, flat: 0, since: TODAY, set_by: 'صفوت كمال' }]);
   await expect(agreement(page).locator('tr[data-cat-rate="15"]')).toHaveCount(0);
   await expect(agreement(page).locator('tr[data-cat-rate="22"]')).toHaveCount(1);
-  // the same category and date again: refused on the page, nothing sent
+  // the same category again the same day: the day's row is replaced and pushed
   await agreement(page).getByRole('button', { name: 'تعديل عمولة الفئة هدايا' }).click();
   await modal(page).locator('#cr-rate').fill('20');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect(note(page)).toContainText('فيه عمولة للفئة دي بنفس تاريخ السريان');
-  expect(writes()).toHaveLength(2);
-  expect(pushes()).toHaveLength(2);
+  await expect.poll(() => writes().slice(2)).toEqual([{ table: 'vendor_category_rates', op: 'update', vendor_id: V1, woo_category_id: 22, rate: 20, flat: 0, since: TODAY, set_by: 'صفوت كمال' }]);
+  await expect(agreement(page).locator('tr[data-cat-rate="22"]')).toContainText('20%');
+  await expect.poll(() => pushes()).toHaveLength(3);
   // ops: no block, no request for the rates; a write forged past the page → 42501; a push → 401
   await page.evaluate(() => window.IBAuth.signOut());
   await expect(page.locator('#login')).toBeVisible();
@@ -276,7 +278,7 @@ test('the per-category commission (sensitive.commission): the admin adds a dated
     return [w.error && w.error.code, p.error && p.error.context && p.error.context.status, n.error && n.error.context && n.error.context.status];
   }, V1);
   expect(forged).toEqual(['42501', 401, 401]);
-  expect(writes()).toHaveLength(2);
+  expect(writes()).toHaveLength(3);
 });
 
 test('ops (vendors.edit = P) saves the contact and its push goes through (the contact fields alone — the server\'s rule); accounts reads the synced rows with no «تعديل»', async ({ page }) => {

@@ -165,7 +165,7 @@ test('ops (vendors.edit = P) changes a phone: written, logged with the vendor as
   await expect(row(page, V1).locator('td').nth(2)).toHaveText('—');
 });
 
-test('the admin toggles the status and sets a dated rate; the history shows both rates', async ({ page }) => {
+test('the admin toggles the status and sets the rate (no date — decision 12: from today; a second change the same day replaces it); the history shows both rates', async ({ page }) => {
   await openVendors(page);
   await openDrawer(page, V1);
   await drawer(page).getByRole('button', { name: 'المزيد' }).click();
@@ -176,22 +176,25 @@ test('the admin toggles the status and sets a dated rate; the history shows both
   await expect(rows(page)).toHaveCount(1); // the list shows the active ones
   await section(page, 'الاتفاق التجاري').getByRole('button', { name: 'تعديل بيانات الاتفاق التجاري' }).click();
   await expect(modal(page).locator('#g-rate')).toHaveValue('35');
-  await modal(page).locator('#g-rate').fill('40'); // since: the form's date (the real today)
+  await expect(modal(page).locator('#g-since')).toHaveCount(0); // no date field (decision 12)
+  await modal(page).locator('#g-rate').fill('40');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
   await expect.poll(() => writes().filter((w) => w.table === 'vendor_rates')).toEqual([{ table: 'vendor_rates', op: 'insert', vendor_id: V1, rate: 40, since: TODAY, set_by: 'صفوت كمال' }]);
-  await expect.poll(() => acts('vendor.rate')).toEqual([{ action: 'vendor.rate', entity: 'vendor', entity_id: V1, new_value: '40% من ' + TODAY }]);
+  await expect.poll(() => acts('vendor.rate')).toEqual([{ action: 'vendor.rate', entity: 'vendor', entity_id: V1, new_value: '40%' }]);
   await expect(info(section(page, 'الاتفاق التجاري'), page, 'سجل النسبة')).toContainText('35% من 01/03/2026 ← 40% من ' + dmy(TODAY));
   await expect(drawer(page).locator('.drawer-h')).toContainText('نسبة إبتكر 40%');
-  await expect(section(page, 'سجل النشاط')).toContainText('غيّر نسبة إبتكر (40% من ' + TODAY + ')');
+  await expect(section(page, 'سجل النشاط')).toContainText('غيّر نسبة إبتكر (40%)');
   expect(mock.vendors.find((v) => v.id === V1).commission_pct).toBe(40); // the trigger
-  // a second rate dated the same day is refused before any write (unique (vendor_id, since); rates are never rewritten)
+  // a second change the same day replaces the day's row (owner, 27 Oct: the rate changes like on Dokan)
   await section(page, 'الاتفاق التجاري').getByRole('button', { name: 'تعديل بيانات الاتفاق التجاري' }).click();
   await expect(modal(page).locator('#g-rate')).toHaveValue('40');
   await modal(page).locator('#g-rate').fill('42');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect(note(page)).toContainText('فيه نسبة متسجلة بنفس تاريخ السريان');
-  expect(writes().filter((w) => w.table === 'vendor_rates')).toHaveLength(1);
-  await expect(drawer(page).locator('.drawer-h')).toContainText('نسبة إبتكر 40%');
+  await expect.poll(() => writes().filter((w) => w.table === 'vendor_rates').slice(1)).toEqual([{ table: 'vendor_rates', op: 'update', vendor_id: V1, rate: 42, since: TODAY, set_by: 'صفوت كمال' }]);
+  await expect(drawer(page).locator('.drawer-h')).toContainText('نسبة إبتكر 42%');
+  await expect(info(section(page, 'الاتفاق التجاري'), page, 'سجل النسبة')).toContainText('35% من 01/03/2026 ← 42% من ' + dmy(TODAY));
+  expect(mock.vendorRates.filter((r) => r.vendor_id === V1)).toHaveLength(2);
+  expect(mock.vendors.find((v) => v.id === V1).commission_pct).toBe(42);
 });
 
 test('accounts sees the bank row and reveals the IBAN (logged, never with the number); ops sees «مخفي» and no error', async ({ page }) => {

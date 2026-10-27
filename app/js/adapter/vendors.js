@@ -445,37 +445,38 @@
   const flatOf = (raw) => { if (raw == null || String(raw).trim() === '') return null; const f = Number(latin(raw)); if (!Number.isFinite(f) || f < 0) throw new Error('flat out of range'); return f; };
   // phase 3.3: opts.flat = the site's flat fee shown with the rate (vendor_rates.flat, display only); the new row is pushed as the
   // maker's commission on the site (push_vendor ['rate'] — fixed, or category_based when he has category rates)
-  function setRate(id, rate, since, actor, opts) {
+  // owner, 27 Oct (plan 3.3 decision 12): no effective date — the rate applies to the new orders from today, like on Dokan; a second
+  // change the same day replaces the day's row. `since` is accepted for the old callers and ignored. The write is the RPC
+  // vendor_rate_set (0015: today in Cairo, set_by from the caller's profile, commission_pct refreshed).
+  function setRate(id, rate, _since, actor, opts) {
     const v = must(id); if (!canRate()) throw noPerm();
-    const r = Number(latin(rate)); if (!Number.isFinite(r) || r < 0 || r > 65) throw new Error('rate out of range'); if (!isIso(since)) throw new Error('since required');
+    const r = Number(latin(rate)); if (!Number.isFinite(r) || r < 0 || r > 65) throw new Error('rate out of range');
     const flat = flatOf(opts && opts.flat);
-    if (v.rateHistory.some((x) => x.since === since)) throw new Error(MESSAGES.duplicate); // unique (vendor_id, since): rates are never rewritten
-    const old = copy(v); const T = today();
+    const old = copy(v); const T = today(); const since = T;
     v.rateHistory = v.rateHistory.filter((x) => x.since !== since).concat([{ rate: r, flat, since, by: actor && actor.name }]).sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));
     let cur = null; for (const x of v.rateHistory) if (x.since <= T) cur = x; if (!cur) cur = v.rateHistory[0];
     v.rate = cur.rate; v.rateFlat = cur.flat == null ? null : cur.flat; v.rateSince = cur.since; v.ratesVisible = true; v.lastUpdate = new Date().toISOString();
     emit({ id, changed: ['rate'] });
-    const ins = { vendor_id: id, rate: r, since, set_by: (actor && actor.name) || null }; if (flat != null) ins.flat = flat;
-    write(id, v, old, () => call((cl) => cl.from('vendor_rates').insert(ins)), () => logEvent('vendor.rate', r + '% من ' + since + (flat != null ? ' + ' + flat + ' ج.م' : ''), id), ['rate']);
+    write(id, v, old, () => call((cl) => cl.rpc('vendor_rate_set', { p_vendor: id, p_rate: r, p_flat: flat })), () => logEvent('vendor.rate', r + '%' + (flat != null ? ' + ' + flat + ' ج.م' : ''), id), ['rate']);
   }
   // phase 3.3 (decision 2): the commission on one of the site's categories from a date — a new vendor_category_rates row (add-only; rate
   // null = the category rate is removed from that date; unique (vendor, category, since) refused locally, 23505 reads the same), then
   // push_vendor ['category_rates'] (the site takes category_based with every category rate in force). Logged with the category's name.
-  function setCategoryRate(vendorId, wooCategoryId, input, since, actor) {
+  // decision 12 (as setRate): today, a same-day change replaces the day's row; the RPC vendor_category_rate_set writes it
+  function setCategoryRate(vendorId, wooCategoryId, input, _since, actor) {
     const v = must(vendorId); if (!canRate()) throw noPerm();
     const D = VD(); const errs = D && D.validateCategoryRate ? D.validateCategoryRate({ wooCategoryId, rate: input && input.rate, flat: input && input.flat }) : {};
     const bad = Object.keys(errs); if (bad.length) throw new Error('invalid category rate: ' + bad.join(','));
-    const cid = Number(latin(wooCategoryId)); if (!isIso(since)) throw new Error('since required');
+    const cid = Number(latin(wooCategoryId)); const since = today();
     if (!categoriesMap.has(String(cid))) throw new Error(MESSAGES.bad_category);
     const raw = input && input.rate; const r = raw == null || String(raw).trim() === '' ? null : Number(latin(raw)); const flat = flatOf(input && input.flat);
     const rows = catRates.get(String(vendorId)) || [];
-    if (rows.some((x) => Number(x.woo_category_id) === cid && localDate(x.since) === since)) throw new Error(MESSAGES.category_duplicate);
     const old = copy(v); const oldRows = rows.slice(); const by = (actor && actor.name) || null;
-    catRates.set(String(vendorId), rows.concat([{ id: Number.MAX_SAFE_INTEGER, vendor_id: String(vendorId), woo_category_id: cid, rate: r, flat, since, set_by: by }]));
+    catRates.set(String(vendorId), rows.filter((x) => !(Number(x.woo_category_id) === cid && localDate(x.since) === since)).concat([{ id: Number.MAX_SAFE_INTEGER, vendor_id: String(vendorId), woo_category_id: cid, rate: r, flat, since, set_by: by }]));
     v.categoryRates = effectiveCategoryRates(catRates.get(String(vendorId)), today()); catRatesOk = true; v.lastUpdate = new Date().toISOString();
     emit({ id: String(vendorId), changed: ['categoryRates'] });
-    const run = async () => { const res = await call((cl) => cl.from('vendor_category_rates').insert({ vendor_id: String(vendorId), woo_category_id: cid, rate: r, flat, since, set_by: by })); if (!res.ok) catRates.set(String(vendorId), oldRows); return res; };
-    write(String(vendorId), v, old, run, () => logEvent('vendor.category_rate', categoryName(cid) + ': ' + (r == null ? '—' : r + '%') + (flat != null ? ' + ' + flat + ' ج.م' : '') + ' من ' + since, vendorId), ['category_rates']);
+    const run = async () => { const res = await call((cl) => cl.rpc('vendor_category_rate_set', { p_vendor: String(vendorId), p_category: cid, p_rate: r, p_flat: flat })); if (!res.ok) catRates.set(String(vendorId), oldRows); return res; };
+    write(String(vendorId), v, old, run, () => logEvent('vendor.category_rate', categoryName(cid) + ': ' + (r == null ? '—' : r + '%') + (flat != null ? ' + ' + flat + ' ج.م' : ''), vendorId), ['category_rates']);
     return get(vendorId);
   }
   // the prototype's cleaning of a bank form (the IBAN upper-cased, decision 7) and its vendor_bank row

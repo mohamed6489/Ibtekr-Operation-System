@@ -49,10 +49,10 @@ export const USERS = [
 // permissions: the keys the emulated tables read, as in 0003_seed_roles.sql
 const ROLES = [
   { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'settings.view': 'F', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'F', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'F', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'F' }, sort: 1 },
-  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
-  { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
-  { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
-  { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
+  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
+  { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'accounts.view': 'F', 'accounts.add': 'F', 'accounts.approve': 'P', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
+  { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
+  { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
 ];
 const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts, status_map), 0006_dashboard.sql (user_prefs,
   // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw),
@@ -275,6 +275,12 @@ export async function installSupabaseMock(page, opts = {}) {
   // pending (the site's final answer); functionsDown → the request is aborted (the adapter queues the fields through vendor_push_pending). installSupabaseMock(page, { syncRows: true }) seeds the
   // server's sync rows (ordersSeed().syncActivity) into activity_log — opt-in, so the dashboard's «newest 5» expectations stay exact.
   if (opts.syncRows) mock.activityRows.push(...mock.syncActivity);
+  // phase 4 (0019): acc: the three ledgers + the two Dokan mirrors (acc.dokan_balances / acc.dokan_withdrawals: a spec may seed them);
+  // accWrites: each insert / update a ledger took as { table, op, ...columns }; accountsDown: those tables answer 503;
+  // statements: each woo-sync `statement` call ({ vendor_id, from, to, by }); statementRows: what it answers.
+  mock.acc = { acc_expenses: [], acc_vendor_moves: [], acc_account_moves: [], dokan_balances: (opts.dokanBalances || []).map((x) => ({ ...x })), dokan_withdrawals: (opts.dokanWithdrawals || []).map((x) => ({ ...x })) };
+  mock.accWrites = []; mock.accountsDown = false; mock.statements = []; mock.statementRows = opts.statementRows || [];
+  let accSeq = 0;
   // brands / brandOwners / brandRates: the 0013 tables (ordersSeed(opts): opts.transfer seeds the temporary transfer); brandWrites: each
   // insert / update the client sent them as { table, op, ...columns } — the trigger's own rows (the automatic brand) are not writes of the client
   let brandSeq = 0; let ownerSeq = mock.brandOwners.length; let brandRateSeq = 0;
@@ -387,6 +393,64 @@ export async function installSupabaseMock(page, opts = {}) {
         return json(200, x ? [{ email: x.email, status: x.status }] : []);
       }
       if (!u) return json(401, { code: '42501', message: 'permission denied', details: null, hint: null }); // anon: no grants below
+      // 0019 (phase 4): the ledgers — read with accounts.view <> N (view P: no «المرتبات»), insert with accounts.add = F as oneself,
+      // update one's own row with add F or any row with approve F (others: zero rows, like RLS); a voided row is final (42501); the
+      // void is stamped here (voided_at / voided_by). The Dokan mirrors are read-only (42501 on a write). Filters: voided_at=is.null, id=eq.
+      const accT = /^\/rest\/v1\/(acc_expenses|acc_vendor_moves|acc_account_moves|dokan_balances|dokan_withdrawals)$/.exec(path);
+      if (accT) {
+        if (mock.accountsDown) return json(503, { message: 'mock: accounts down' });
+        const t = accT[1]; const rows = mock.acc[t]; const view = hasPerm(u, 'accounts.view');
+        const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        const visible = (r) => view !== 'N' && (t !== 'acc_expenses' || r.category !== 'المرتبات' || view === 'F');
+        const idEq = /^eq\.(\d+)$/.exec(url.searchParams.get('id') || '');
+        if (method === 'GET') {
+          let out = rows.filter(visible);
+          if (url.searchParams.get('voided_at') === 'is.null') out = out.filter((r) => !r.voided_at);
+          if (idEq) out = out.filter((r) => String(r.id) === idEq[1]);
+          return json(200, out.map((r) => ({ ...r })));
+        }
+        if (t.startsWith('dokan_')) return refuse(403, '42501', 'permission denied for table ' + t);
+        const b = body(); const now = new Date().toISOString();
+        if (method === 'POST') {
+          const row = Array.isArray(b) ? b[0] : b;
+          if (hasPerm(u, 'accounts.add') !== 'F' || (t === 'acc_expenses' && row.category === 'المرتبات' && view !== 'F')) return refuse(403, '42501', 'new row violates row-level security policy for table "' + t + '"');
+          if (!(Number(row.amount) > 0)) return refuse(400, '23514', 'new row for relation "' + t + '" violates check constraint');
+          if (t === 'acc_expenses' && row.category === 'الاشتراكات' && !(row.sub_name && row.sub_ends && (row.sub_alerts || []).length)) return refuse(400, '23514', 'acc_expenses_subscription');
+          accSeq += 1; const rec = { ...row, id: accSeq, amount: Number(row.amount), created_by: u.id, created_at: now, updated_by: null, updated_at: null, voided_by: null, voided_at: null };
+          rows.push(rec); mock.accWrites.push({ table: t, op: 'insert', ...row });
+          return json(201, [{ ...rec }]);
+        }
+        if (method === 'PATCH') {
+          const r = idEq ? rows.find((x) => String(x.id) === idEq[1]) : null;
+          const may = r && visible(r) && ((r.created_by === u.id && hasPerm(u, 'accounts.add') === 'F') || hasPerm(u, 'accounts.approve') === 'F');
+          if (!may) return json(200, []);
+          if (r.voided_at) return refuse(403, '42501', 'a voided row is final');
+          const { created_by, created_at, voided_by, ...patch } = b;
+          Object.assign(r, patch, { updated_at: now, updated_by: u.id }); if (patch.voided_at) Object.assign(r, { voided_at: now, voided_by: u.id });
+          mock.accWrites.push({ table: t, op: 'update', id: r.id, ...patch });
+          return json(200, [{ ...r }]);
+        }
+      }
+      // accounts_sales (0019): our orders placed in the range (Cairo date — the mock uses the UTC date), per maker and group + one total row per group
+      if (method === 'POST' && path === '/rest/v1/rpc/accounts_sales') {
+        const b = body(); if (hasPerm(u, 'accounts.view') === 'N') return json(403, { code: '42501', details: null, hint: null, message: 'accounts.view is needed' });
+        if (!b.p_from || !b.p_to || b.p_to < b.p_from) return json(400, { code: '22023', details: null, hint: null, message: 'bad range' });
+        const grp = (st) => (st === 'مكتمل' ? 'completed' : ['جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن'].includes(st) ? 'in_progress' : ['ملغي', 'استرجاع', 'فشل'].includes(st) ? 'cancelled' : null);
+        const lines = [];
+        for (const o of mock.orders) {
+          const d = String(o.placed_at || '').slice(0, 10); const g = grp(o.status); if (!g || d < b.p_from || d > b.p_to) continue;
+          for (const i of mock.orderItems.filter((x) => Number(x.order_id) === Number(o.id) && !x.removed)) {
+            const rate = i.commission_rate != null ? Number(i.commission_rate) : Number((mock.vendorRates.filter((r) => r.vendor_id === i.vendor_id && r.since <= d).sort((a, c) => (a.since < c.since ? 1 : -1))[0] || {}).rate || 0);
+            lines.push({ v: i.vendor_id || null, g, o: o.id, total: Number(i.total) || 0, share: (Number(i.total) || 0) * rate / 100 + (Number(i.commission_fee) || 0) });
+          }
+        }
+        const out = []; const key = (l) => l.v + '|' + l.g; const groups = new Map();
+        for (const l of lines) { if (!groups.has(key(l))) groups.set(key(l), []); groups.get(key(l)).push(l); }
+        const row = (v, g, ls, total) => ({ vendor_id: v, grp: g, orders: new Set(ls.map((x) => x.o)).size, sales: Math.round(ls.reduce((t, x) => t + x.total, 0) * 100) / 100, share: Math.round(ls.reduce((t, x) => t + x.share, 0) * 100) / 100, is_total: total });
+        for (const ls of groups.values()) out.push(row(ls[0].v, ls[0].g, ls, false));
+        for (const g of ['completed', 'in_progress', 'cancelled']) { const ls = lines.filter((x) => x.g === g); if (ls.length) out.push(row(null, g, ls, true)); }
+        return json(200, out);
+      }
       // 0008: profiles.twofa follows these two definer RPCs; both need an aal2 token (enrolled: also a verified TOTP factor of the
       // caller), else 42501 'aal2_required' (PostgREST: 403 for a signed-in caller); void → 204
       const mfa = /^\/rest\/v1\/rpc\/(mark_twofa_enrolled|mark_twofa_disabled)$/.exec(path);
@@ -816,7 +880,16 @@ export async function installSupabaseMock(page, opts = {}) {
       const mayPushVendor = () => isAdmin(u) || ((!bankAsked() || hasPerm(u, 'sensitive.vendor_bank') === 'F')
         && (storeAsked().length === 0 ? bankAsked() : (hasPerm(u, 'vendors.edit') === 'F' || (hasPerm(u, 'vendors.edit') === 'P' && storeAsked().every((f) => CONTACT_PUSH.includes(f)))))
         && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : isAdmin(u))) return json(401, { error: 'unauthorized' });
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : action === 'statement' ? hasPerm(u, 'accounts.view') !== 'N' : isAdmin(u))) return json(401, { error: 'unauthorized' });
+      // phase 4: the maker's Dokan statement (read-only, not stored) — mock.statementRows for any range
+      if (action === 'statement') {
+        mock.statements.push({ vendor_id: b.vendor_id, from: b.from, to: b.to, by: u.email });
+        const v = mock.vendors.find((x) => x.id === String(b.vendor_id || '').toLowerCase());
+        if (!v) return json(404, { error: 'vendor_not_found' });
+        if (v.woo_vendor_id == null) return json(200, { action, result: 'no_store', rows: [] });
+        if (mock.wooDown) return json(502, { error: 'woo_error' });
+        return json(200, { action, result: 'ok', store: v.woo_vendor_id, from: b.from, to: b.to, rows: mock.statementRows, done: true });
+      }
       if (action === 'push_vendor') {
         const fields = Array.isArray(b.fields) ? [...new Set(b.fields.filter((f) => typeof f === 'string'))] : [];
         if (typeof b.vendor_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(b.vendor_id) || !fields.length || fields.some((f) => !SYNC_FIELDS.includes(f))) return json(400, { error: 'bad_request' });

@@ -1198,3 +1198,13 @@ b.pos{color:var(--color-success-text)}
 .soon{margin-inline-start:auto;padding:0 6px;border-radius:999px;background:rgba(255,247,239,.18);color:var(--color-text-gold);font-size:10px;line-height:16px;font-weight:600;letter-spacing:.02em;direction:ltr}
 .bn-item .soon{margin:0;background:var(--color-bg-tint);color:var(--color-text-secondary)}
 @media (max-width:1023px){.nav-item .soon{margin:0}}
+
+/* phase 4 — the accounts page (prototype 27 Oct): the moves log, the subscriptions table, the withdraw-request cell */
+.cards.four{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+@media (max-width:1023px){.cards.four{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:599px){.cards.four{grid-template-columns:1fr}}
+.wd-cell{border:1px solid transparent;cursor:pointer;font:inherit}
+.wd-cell:hover{filter:brightness(.97)}
+.wd-cell:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:2px}
+.subs-wrap .subs-tbl td,.mlog-table td{vertical-align:middle}
+.mlog-table .tg{white-space:nowrap}

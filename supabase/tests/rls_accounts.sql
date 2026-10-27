@@ -105,13 +105,16 @@ do $$ declare eid bigint; sid bigint; mid bigint; aid bigint; r record; begin
      or (select count(*) from public.dokan_withdrawals where id = 99919001) <> 1 then
     raise exception 'case accounts.view reads the Dokan mirrors failed';
   end if;
-  select * into r from public.accounts_sales('2001-01-01', '2001-01-31') where vendor_id = '00000000-0000-4000-8000-0000000019a1' and grp = 'completed';
+  select * into r from public.accounts_sales('2001-01-01', '2001-01-31') where vendor_id = '00000000-0000-4000-8000-0000000019a1' and grp = 'completed' and not is_total;
   if r.orders <> 1 or r.sales <> 1000 or r.share <> 260 then
     raise exception 'case accounts_sales completed: 1 order, 1000, share 1000×25%%+10 = 260 (got %, %, %) failed', r.orders, r.sales, r.share;
   end if;
-  select * into r from public.accounts_sales('2001-01-01', '2001-01-31') where vendor_id = '00000000-0000-4000-8000-0000000019a1' and grp = 'in_progress';
+  select * into r from public.accounts_sales('2001-01-01', '2001-01-31') where vendor_id = '00000000-0000-4000-8000-0000000019a1' and grp = 'in_progress' and not is_total;
   if r.orders <> 1 or r.share <> 100 then
     raise exception 'case accounts_sales in progress: the vendor_rates fallback 500×20%% = 100 (got %) failed', r.share;
+  end if;
+  if (select count(*) from public.accounts_sales('2001-01-01', '2001-01-31') where is_total and grp = 'completed' and orders >= 1) <> 1 then
+    raise exception 'case one total row per group failed';
   end if;
   if exists (select 1 from public.accounts_sales('2001-01-01', '2001-01-31') where vendor_id = '00000000-0000-4000-8000-0000000019a1' and grp not in ('completed', 'in_progress')) then
     raise exception 'case «قيد الانتظار» is not counted failed';

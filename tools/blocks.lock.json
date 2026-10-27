@@ -5,7 +5,7 @@
   },
   "02-accounts-domain.js": {
     "prototype": "06166cf1494125e7ff98effed95b033fc5b4abbea709c482112016db97400093",
-    "current": "06166cf1494125e7ff98effed95b033fc5b4abbea709c482112016db97400093"
+    "current": "588d09dd2199341e4da41dd77d0d39e56f6a9da528e05398df9c1255c51d7516"
   },
   "03-seed-accounts.js": {
     "prototype": "68531caa3c46fbcc96f76a1604927a6934de62fb4bced18b14d8320c96c3d28a",
@@ -21,7 +21,7 @@
   },
   "06-vendors-domain.js": {
     "prototype": "eee7f82bb5af1440fc5a7454dcad65932f5253b0af6e583a6f2eaf969e7c2bfa",
-    "current": "94d88f21b209a919687a9e22eb32adec42684c8e6249d4617885edcd384acfba"
+    "current": "0a48e5bc9cb86851be7035211b2fe7a86c6f67ef41d387e8b2aa51bb778af03d"
   },
   "07-seed-transport.js": {
     "prototype": "84d9d31ca645b87c12872fee47293ed68b8a1ce9e6c1b50df1d1668eab278789",
@@ -109,7 +109,7 @@
   },
   "28-app.js": {
     "prototype": "bd4633b8a0d0d7e11424fe2319656da1b4fcabc82d994de167533cf2ad3665ac",
-    "current": "025b31686854e2d692699150a7c5254df6fb3a06c4c6b8248d462f6acaf9a5e1"
+    "current": "3b9ed1ac6ca1260a2ba10cbed02774a825b2e5c9de4bcc41fc497f99320bfb72"
   },
   "29-orders-app.js": {
     "prototype": "181427392c14d05ce7a2df0b4cadb4792885f1f15672d595638aebfd2363c5d8",

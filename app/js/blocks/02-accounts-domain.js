@@ -103,6 +103,51 @@
     if (!date) errors.date = 'اكتب التاريخ بالشكل يوم/شهر/سنة، مثال 20/10/2026';
     return { amount, date };
   }
+  // ---- الاشتراكات (owner 27 Oct): اسم الاشتراك + تاريخ الانتهاء + تنبيه قبل الانتهاء بشهر/أسبوع/يوم + ملاحظة حرة ----
+  const SUB_NAMES = Object.freeze(['استضافة الموقع (Hostinger)', 'دومين ibtekr.club', 'ووكومرس / بلجنز', 'Airtable', 'Google Workspace', 'Meta Business (أدوات)', 'Canva', 'Adobe', 'شوبيفاي', 'واتساب بزنس API', 'باي موب', 'أخرى']);
+  const SUB_ALERTS = Object.freeze([['month', 'بشهر', 30], ['week', 'بأسبوع', 7], ['day', 'بيوم', 1]]);
+  const subAlertDays = (k) => (SUB_ALERTS.find((x) => x[0] === k) || [, , 0])[2];
+  function validateSubscription(input) {
+    const errors = {}; const name = input.subOther && input.subName === OTHER ? sanitizeText(input.subOther, 80) : sanitizeText(input.subName, 80);
+    if (!input.subName) errors.subName = 'اختار الاشتراك';
+    else if (input.subName === OTHER && !sanitizeText(input.subOther, 80)) errors.subOther = 'اكتب اسم الاشتراك';
+    const ends = input.subEnds ? (/^\d{4}-\d{2}-\d{2}$/.test(input.subEnds) ? input.subEnds : parseDate(input.subEnds)) : null;
+    if (!input.subEnds) errors.subEnds = 'حدّد تاريخ الانتهاء';
+    else if (!ends) errors.subEnds = 'التاريخ لازم يكون يوم/شهر/سنة';
+    const alerts = (input.subAlerts || []).filter((k) => SUB_ALERTS.some((a) => a[0] === k));
+    if (!alerts.length) errors.subAlerts = 'اختار تنبيه واحد على الأقل';
+    return { errors, value: { subName: name, subIsOther: input.subName === OTHER, subEnds: ends, subAlerts: alerts, subNote: sanitizeText(input.subNote, 500) } };
+  }
+  // اللي قرب ينتهي: بترجّع لكل اشتراك الأيام الباقية وأقرب تنبيه مستحق (أو null لو لسه بدري)
+  function subsDue(subs, today) {
+    return (subs || []).filter((x) => x.subEnds).map((x) => {
+      const left = daysBetweenIso(today, x.subEnds);
+      const fired = (x.subAlerts || []).map((k) => ({ k, d: subAlertDays(k) })).filter((a) => left <= a.d).sort((a, b) => a.d - b.d)[0] || null;
+      return { name: x.subName, ends: x.subEnds, amount: x.amount, note: x.subNote || '', alerts: x.subAlerts || [], daysLeft: left, expired: left < 0, due: !!fired, alert: fired ? fired.k : null, label: fired ? (SUB_ALERTS.find((a) => a[0] === fired.k) || [, ''])[1] : '' };
+    }).sort((a, b) => a.daysLeft - b.daysLeft);
+  }
+  const daysBetweenIso = (a, b) => Math.round((isoToUtc(b) - isoToUtc(a)) / 86400000);
+  // ---- سجل الحركات (owner 27 Oct): كل الحركات في مكان واحد، تابس المصروفات · حسابات المبتكرين · الحساب الفعلي ----
+  // بيدمج الحركات المتسجلة في السيستم مع اللي جاي من الشيتات (عرابين · مواصلات) ويرتّبهم من الأحدث.
+  function movementLog(kind, src = {}) {
+    const rows = [];
+    const push = (r) => rows.push(Object.assign({ at: '', note: '', by: '—' }, r));
+    if (kind === 'expenses') {
+      (src.expenses || []).forEach((e) => push({ date: e.date, kind: e.direction === 'deposit' ? 'إيداع' : 'سحب', what: e.category, who: e.beneficiaryName || '—', amount: e.amount, by: e.createdBy || '—', source: 'تسجيل يدوي', ref: e.id ? '#' + e.id : '', note: e.subName ? 'اشتراك: ' + e.subName + (e.subEnds ? ' · بينتهي ' + e.subEnds : '') : '' }));
+      Object.keys(src.expenseSeed || {}).forEach((mk) => { const m = src.expenseSeed[mk]; Object.keys(m).forEach((cat) => { if (!m[cat]) return; push({ date: mk + '-01', kind: 'سحب', what: cat, who: '—', amount: m[cat], by: 'شيت', source: 'شيت Monthly Performance', ref: mk, note: 'إجمالي الشهر من الشيت' }); }); });
+    } else if (kind === 'vendorMoves') {
+      (src.vendorMoves || []).forEach((m) => push({ date: m.date, kind: m.direction === 'deposit' ? 'إيداع' : 'سحب', what: m.typeName || m.type, who: m.vendor, amount: m.amount, by: m.createdBy || '—', source: 'تسجيل يدوي', ref: m.id ? '#' + m.id : '', note: m.note || '' }));
+      (src.vendorSeed || []).forEach((v) => { if (v.deposits) push({ date: src.seedDate || '', kind: 'إيداع', what: 'عربون', who: v.name, amount: v.deposits, by: 'شيت', source: 'شيت Balances_Payouts', ref: '', note: 'عربون مدفوع مقدمًا' }); });
+      (src.transport || []).forEach((t) => push({ date: t.date, kind: 'سحب', what: 'مواصلات', who: t.vendor || '—', amount: t.amount, by: t.payer || 'شيت', source: 'شيت Logistics expenses', ref: '', note: t.note || '' }));
+      (src.withdrawals || []).forEach((w) => push({ date: String(w.at || '').slice(0, 10), kind: 'طلب سحب', what: w.source === 'internal' ? 'طلب داخلي' : 'طلب من المبتكر', who: w.vendor, amount: w.amount, by: w.by || '—', source: 'طلبات السحب', ref: w.id, note: w.note || '' }));
+    } else {
+      (src.accountMoves || []).forEach((m) => push({ date: m.date, kind: m.direction === 'deposit' ? 'إيداع' : 'سحب', what: m.account, who: '—', amount: m.amount, by: m.createdBy || '—', source: 'تسجيل يدوي', ref: m.id ? '#' + m.id : '', note: m.note || '' }));
+      Object.keys(src.accounts || {}).forEach((a) => push({ date: src.seedDate || '', kind: 'رصيد افتتاحي', what: a, who: '—', amount: src.accounts[a], by: 'شيت', source: 'شيت Balances_Payouts', ref: '', note: 'الرصيد قبل حركات السيستم' }));
+    }
+    rows.sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1));
+    const sum = (f) => round2(rows.filter(f).reduce((t, r) => t + (Number(r.amount) || 0), 0));
+    return { rows, count: rows.length, inTotal: sum((r) => r.kind === 'إيداع' || r.kind === 'رصيد افتتاحي'), outTotal: sum((r) => r.kind === 'سحب'), requests: rows.filter((r) => r.kind === 'طلب سحب').length };
+  }
   function validateExpense(input) {
     const errors = {};
     const { amount, date } = checkAmountDate(input, errors);
@@ -122,7 +167,7 @@
     if (input.direction !== 'deposit' && input.direction !== 'withdraw') errors.direction = 'اختار إيداع أو سحب';
     if (!VENDOR_TYPES.includes(input.type)) errors.type = 'اختار النوع من القايمة';
     const vendor = sanitizeText(input.vendor, 80);
-    if (!vendor) errors.vendor = 'اختار المورد';
+    if (!vendor) errors.vendor = 'اختار المبتكر';
     let typeName = input.type;
     if (input.type === 'أخرى') {
       typeName = sanitizeText(input.otherName, 80);
@@ -217,12 +262,45 @@
     };
   }
 
+  // ---- phase 4 (plan decisions 4 / 7): the live numbers in the shape of the September seed (block 03), so the accounts views
+  // read SEED.vendors / sales / salesTotal / vendorTotals / accounts / inProgressShare / expenseSeed as before.
+  // makers: [{ id, name, rate }] (rate null = not visible → «—»); balances: [{ vendorId, balance }] (Dokan, read-only);
+  // sales: accounts_sales rows [{ vendorId, group, orders, sales, share, isTotal }]. The maker's balance starts at Dokan's; the
+  // deposits / transport / other moves are applied by deriveVendors / deductTransport like the prototype. Opening balances: 0.
+  const SALES_GROUPS = Object.freeze([['completed', 'مكتملة'], ['in_progress', 'تحت التنفيذ'], ['cancelled', 'مرتجع / ملغي']]);
+  const pctOf = (share, sales) => (sales > 0 ? (Math.round((share / sales) * 1000) / 10).toFixed(1) + '%' : '0.0%');
+  function liveSeed({ makers = [], balances = [], sales = [] } = {}) {
+    const bal = new Map(balances.map((b) => [b.vendorId, b]));
+    const slot = { completed: 'c', in_progress: 'p', cancelled: 'x' };
+    const vendors = makers.map((m) => {
+      const b = bal.get(m.id); const n = b && b.balance != null && isFinite(Number(b.balance)) ? round2(Number(b.balance)) : null;
+      return { id: m.id, name: m.name, pct: m.rate == null || !isFinite(Number(m.rate)) ? '—' : Number(m.rate).toFixed(1) + '%', c: [0, 0, 0], p: [0, 0, 0], x: [0, 0, 0], deposits: 0, dokanBalance: n, balance: n || 0 };
+    });
+    const byId = new Map(vendors.map((v) => [v.id, v]));
+    const totals = Object.fromEntries(SALES_GROUPS.map(([g]) => [g, [0, 0, 0]]));
+    for (const r of sales || []) {
+      const k = slot[r.group]; if (!k) continue;
+      const add = (t) => [t[0] + (Number(r.orders) || 0), round2(t[1] + (Number(r.sales) || 0)), round2(t[2] + (Number(r.share) || 0))];
+      if (r.isTotal) totals[r.group] = add(totals[r.group]);
+      else { const v = byId.get(r.vendorId); if (v) v[k] = add(v[k]); }
+    }
+    const rows = SALES_GROUPS.map(([g, label]) => ({ group: g, label, orders: totals[g][0], sales: totals[g][1], share: totals[g][2], pct: pctOf(totals[g][2], totals[g][1]) }));
+    const sum = (i) => round2(rows.reduce((t, r) => t + [r.orders, r.sales, r.share][i], 0));
+    return {
+      vendors, expenseSeed: {}, accounts: Object.fromEntries(ACCOUNTS.map((a) => [a, 0])), inProgressShare: totals.in_progress[2],
+      sales: rows, salesTotal: { orders: sum(0), sales: sum(1), share: sum(2), pct: pctOf(sum(2), sum(1)) },
+      vendorTotals: { c: totals.completed, p: totals.in_progress, x: totals.cancelled, dep: 0, bal: round2(vendors.reduce((t, v) => t + v.balance, 0)) },
+    };
+  }
+
   return Object.freeze({
     deductTransport,
     CATEGORIES, VENDOR_TYPES, ACCOUNTS, OTHER, MAX_AMOUNT,
     parseAmount, formatMoney, formatPct, sanitizeText, round2,
     parseDate, formatDateNumeric, formatDateLong, rangeLabel, monthName, presetRange, monthMatrix, addDays,
     validateExpense, validateVendorMovement, validateAccountMovement,
+    movementLog, SUB_NAMES, SUB_ALERTS, subAlertDays, validateSubscription, subsDue, daysBetweenIso,
+    SALES_GROUPS, liveSeed,
     categoryTotals, sortVendors, applyVendorMovement, vendorSummary, applyAccountMovement, deriveAccounts, deriveVendors, potential, createEventLog,
   });
 });

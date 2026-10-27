@@ -11,7 +11,7 @@
 - ردود صاحب المشروع: السحب قراءة بس من Dokan؛ الرصيد Dokan + اللي عندنا؛ تاب التقارير مع صفحة التقارير.
 
 ## المهام
-- [ ] DB `0019_accounts` + `rls_accounts`
-- [ ] sync: `accounts` + `statement`
-- [ ] الواجهة: 02/06/28 + adapter + mock + e2e + lock
+- [x] DB `0019_accounts` + `rls_accounts` (محلي: ok) — commit 2402c4d (+ `is_total` في `accounts_sales`)
+- [x] sync: `accounts` + `statement` — commit e64fbd5؛ Deno 102 ناجح (3 جداد)، deno:check ok
+- [x] الواجهة: 02 (من الـ prototype + `liveSeed`/`SALES_GROUPS`)، 06 (`WD_STATUS`/`wdLabel`/`accountBrief`/`openRequest`)، 28 (منطقة الحسابات من الـ prototype الجديد؛ الكتابة عبر `IBAccounts`؛ الأرقام حية؛ طلبات Dokan قراءة + كشف الحساب؛ عمود «رصيد Dokan» و«الصافي»؛ «الحسابات» برّه `SOON`)، `app/js/adapter/accounts.js`، الـ mock، `accounts.spec` (8)، unit 269 ناجح، e2e 146 ناجح، lock
 - [ ] حي: 0019 → rls حي → woo-sync → تشغيلة accounts → main → تقرير

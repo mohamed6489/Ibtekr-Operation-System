@@ -12,7 +12,8 @@
 --   updated_* / voided_by from the server.
 -- Decision 4: accounts_sales(p_from, p_to) — our own orders (placed_at as a Cairo date), grouped completed / in_progress /
 --   cancelled per maker: distinct parent orders, the lines' sum, Ibtekr's share = line × the line's site commission rate
---   (else the maker's vendor_rates row of that day) / 100 + the line's fee. Security definer behind accounts.view <> N.
+--   (else the maker's vendor_rates row of that day) / 100 + the line's fee, and one total row per group (is_total: a parent
+--   order shared by several makers counted once). Security definer behind accounts.view <> N.
 -- Decision 5: dokan_withdrawals / dokan_balances — read-only mirrors of Dokan written by woo-sync (part `accounts`, as
 --   service_role) — never the bank details, the IP or the note of a request. Read with accounts.view <> N. pg_cron
 --   'woo-sync-accounts' runs the part hourly (guarded like 0008).
@@ -235,7 +236,7 @@ revoke all on public.dokan_withdrawals, public.dokan_balances from anon;
 -- ---------------------------------------------------------------- accounts_sales (decision 4)
 
 create or replace function public.accounts_sales(p_from date, p_to date)
-returns table (vendor_id uuid, grp text, orders bigint, sales numeric, share numeric)
+returns table (vendor_id uuid, grp text, orders bigint, sales numeric, share numeric, is_total boolean)
 language plpgsql stable security definer set search_path = public as $$
 begin
   if coalesce(public.has_perm('accounts.view'), 'N') = 'N' then
@@ -262,8 +263,11 @@ begin
     from o join public.order_items i on i.order_id = o.id and not i.removed
     where o.g is not null
   )
-  select l.v, l.g, count(distinct l.order_id), round(sum(l.total), 2), round(sum(l.total * l.rate / 100 + l.fee), 2)
-  from l group by l.v, l.g;
+  select l.v, l.g, count(distinct l.order_id), round(sum(l.total), 2), round(sum(l.total * l.rate / 100 + l.fee), 2), false
+  from l group by l.v, l.g
+  union all -- one total row per group: a parent order counted once even when several makers share it
+  select null::uuid, l.g, count(distinct l.order_id), round(sum(l.total), 2), round(sum(l.total * l.rate / 100 + l.fee), 2), true
+  from l group by l.g;
 end $$;
 revoke execute on function public.accounts_sales(date, date) from public, anon;
 grant execute on function public.accounts_sales(date, date) to authenticated, service_role;

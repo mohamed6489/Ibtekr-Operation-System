@@ -2,24 +2,54 @@
 /* Accounts page — views, adapter (in-memory), event log. Business rules live in domain.js; widgets in ui.js. */
 (function () {
   'use strict';
-  const D = window.IbtekrDomain, U = window.IBUI, SEED = window.IB_SEED;
+  const D = window.IbtekrDomain, U = window.IBUI;
+  // phase 4 (plan decisions 4 / 7): the accounts read live numbers in the September seed's shape (block 02 liveSeed) — refreshed
+  // before every render of the page from the makers (IBVendors), Dokan's balances and the range's sales (IBAccounts)
+  const SEED = D.liveSeed();
   const { h, num, Button, IconButton, Icon } = U;
-  const TODAY = '2026-10-20'; const TODAY_APP = TODAY; // fixed so the prototype is deterministic; the real app reads the clock
-  const ACTOR = 'صفوت كمال';
+  // phase 4: the accounts read the clock (Cairo's calendar date); the prototype's fixed 2026-10-20 is gone
+  const TODAY = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); const TODAY_APP = TODAY;
+  let ACTOR = 'صفوت كمال'; // the signed-in member's name once the directory loads (actorName)
 
-  // ---------- adapter: the only place data is read/written (swap for Airtable/WooCommerce later) ----------
+  // ---------- adapter: the only place data is read/written — phase 4: write-through to IBAccounts (acc_* tables) ----------
+  // The local copy changes first (the screen answers at once), the server write runs after; when it answers, the store is
+  // the server's again (ib:accounts). A refused write puts a note on the page. «حذف» is the void of decision 2 (final on the
+  // server), so its «تراجع» records the same move again.
   const log = D.createEventLog(() => new Date().toISOString());
   const store = { seq: 0, expenses: [], vendorMoves: [], accountMoves: [] };
-  const adapter = {
+  const ACC = () => window.IBAccounts || null;
+  const WRITE_ERR = { forbidden: 'مالكش صلاحية على الحركة دي.', invalid: 'السيرفر رفض البيانات دي — راجع الحقول.', network: 'مقدرناش نحفظ دلوقتي — اتأكد من النت وجرّب تاني.' };
+  function syncStore() { const A = ACC(); if (!A) return; store.expenses = A.rows('expenses'); store.vendorMoves = A.rows('vendorMoves'); store.accountMoves = A.rows('accountMoves'); }
+  function settle(p) { p.then((r) => { syncStore(); if (r && !r.ok) setNote({ kind: 'error', text: WRITE_ERR[r.reason] || WRITE_ERR.network }); rerender(); }); }
+  // a redraw for the server's answer keeps the note on screen (its «تراجع» included); a user's action clears it as before
+  let shownNote = null;
+  function rerender() { if (state.page !== 'accounts') return; if (!state.note && shownNote) state.note = shownNote; render(); }
+  const canAdd = () => { const A = ACC(); return !A || A.can().add; };
+  const canEditRec = (rec) => { const A = ACC(); return !A || A.canEdit(rec); };
+  function refreshSeed() {
+    const A = ACC(), V = window.IBVendors; if (!A || !V || !V.store) return;
+    const makers = V.store.all().map((v) => ({ id: v.id, name: v.name, rate: v.rate == null ? null : v.rate }));
+    Object.assign(SEED, D.liveSeed({ makers, balances: A.balances(), sales: A.sales(state.range.from, state.range.to) || [] }));
+    const me = window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me(); if (me && me.name) ACTOR = me.name;
+  }
+  const adapterLocal = {
     add(kind, value, actor = ACTOR) { const rec = Object.freeze({ id: ++store.seq, createdBy: actor, ...value }); store[kind] = [...store[kind], rec]; log.append({ action: kind + '.create', actor, newValue: rec }); return rec; },
     update(kind, id, value) { const old = store[kind].find((r) => r.id === id); const rec = Object.freeze({ ...old, ...value, id }); store[kind] = store[kind].map((r) => (r.id === id ? rec : r)); log.append({ action: kind + '.update', actor: ACTOR, oldValue: old, newValue: rec }); return rec; },
     remove(kind, id) { const old = store[kind].find((r) => r.id === id); store[kind] = store[kind].filter((r) => r.id !== id); log.append({ action: kind + '.delete', actor: ACTOR, oldValue: old }); return old; },
     restore(kind, rec) { store[kind] = [...store[kind], rec]; log.append({ action: kind + '.restore', actor: ACTOR, newValue: rec }); },
   };
+  const adapter = {
+    add(kind, value, actor = ACTOR) { const rec = adapterLocal.add(kind, value, actor); if (ACC()) settle(ACC().add(kind, value)); return rec; },
+    update(kind, id, value) { const rec = adapterLocal.update(kind, id, value); if (ACC()) settle(ACC().update(kind, id, value)); return rec; },
+    remove(kind, id) { const old = adapterLocal.remove(kind, id); if (ACC()) settle(ACC().remove(kind, id)); return old; },
+    restore(kind, rec) { adapterLocal.restore(kind, rec); if (ACC()) settle(ACC().add(kind, rec)); },
+  };
+  document.addEventListener('ib:accounts', () => { syncStore(); rerender(); });
+  document.addEventListener('ib:vendors', () => { rerender(); });
 
   // ---------- transport (المواصلات): Logistics expenses sheet + «مواصلات» vendor moves recorded here ----------
   const TR = window.IbtekrTransport;
-  const TR_SHEET = TR.parseSheet(window.IB_TRANSPORT_ROWS || [], (SEED.vendors || []).map((v) => v.name));
+  const TR_SHEET = []; // phase 4: the Logistics sheet is not read any more — transport = the «مواصلات» moves recorded here
   const TR_SRC = 'شيت Logistics expenses (مشاوير المواصلات) + حركات «مواصلات» المتسجلة في السيستم';
   const transportRows = () => TR_SHEET.concat(store.vendorMoves.filter((m) => m.type === 'مواصلات' && m.direction === 'withdraw').map((m) => ({ date: m.date, dateFixed: false, raw: m.date, amount: m.amount, vendor: m.vendor, scope: 'vendor', payer: 'السيستم', note: m.note || '' })));
   const trAll = () => TR.totals(transportRows());
@@ -291,12 +321,13 @@
   window.IBData = IBData;
 
   // ---------- state ----------
-  const TABS = [{ id: 'expenses', label: 'المصروفات' }, { id: 'sales', label: 'المبيعات' }, { id: 'vendors', label: 'حسابات الموردين' }, { id: 'actual', label: 'الحساب الفعلي' }];
+  const TABS = [{ id: 'expenses', label: 'المصروفات' }, { id: 'sales', label: 'المبيعات' }, { id: 'vendors', label: 'حسابات المبتكرين' }, { id: 'actual', label: 'الحساب الفعلي' }, { id: 'moves-log', label: 'سجل الحركات' }];
   const PRESETS = [['today', 'اليوم'], ['yesterday', 'أمس'], ['todayYesterday', 'اليوم وأمس'], ['last7', 'آخر 7 أيام'], ['last14', 'آخر 14 يومًا'], ['last28', 'آخر 28 يومًا'], ['last30', 'آخر 30 يومًا'], ['thisWeek', 'هذا الأسبوع'], ['lastWeek', 'الأسبوع الماضي'], ['thisMonth', 'هذا الشهر'], ['lastMonth', 'الشهر الماضي'], ['max', 'أقصى فترة'], ['custom', 'مخصص']];
   const SORTS = [
     { value: 'balance:desc', label: 'الرصيد: من الأعلى للأقل', key: 'balance', dir: 'desc' }, { value: 'balance:asc', label: 'الرصيد: من الأقل للأعلى', key: 'balance', dir: 'asc' },
     { value: 'deposits:desc', label: 'العربون: من الأعلى للأقل', key: 'deposits', dir: 'desc' }, { value: 'deposits:asc', label: 'العربون: من الأقل للأعلى', key: 'deposits', dir: 'asc' }];
-  const state = { tab: 'expenses', range: { from: '2026-09-01', to: '2026-09-30', preset: 'custom' }, sort: 'balance:desc', note: null };
+  // phase 4: the accounts range starts on the current month (Cairo); the September report is gone
+  const state = { tab: 'expenses', range: { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'custom' }, sort: 'balance:desc', note: null, mlog: 'expenses', mlogQ: '' };
   const hashTab = () => { const t = location.hash.slice(1); return TABS.some((x) => x.id === t) ? t : null; };
   state.tab = hashTab() || 'expenses';
   const REPORT_TABS = [{ id: 'orders', label: 'تقارير الأوردرات' }, { id: 'vendors', label: 'تقارير الموردين' }, { id: 'accounts', label: 'تقارير الحسابات' }];
@@ -310,7 +341,7 @@
   const pageOfHash = (hs) => modPage(hs) || (hs === 'orders' ? 'orders' : reportTabOf(hs) ? 'reports' : ticketOf(hs) !== null ? 'tickets' : vendorOf(hs) !== null ? 'vendors' : 'accounts');
   // Phase 3.6 (plan decision 5): the pages not built on real data yet are closed — «soon» in the menus; any way in (a link, an
   // alert, a typed hash) lands on the dashboard with a note. Open: لوحة التحكم، الأوردرات، المبتكرين، and «ملفي» (account menu).
-  const SOON = ['accounts', 'inventory', 'products', 'cs', 'tickets', 'reports', 'marketing', 'hr', 'settings'];
+  const SOON = ['inventory', 'products', 'cs', 'tickets', 'reports', 'marketing', 'hr', 'settings'];
   const isSoon = (page) => SOON.includes(page);
   const soonNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي لسه — soon'); };
   state.page = pageOfHash(location.hash.slice(1));
@@ -918,7 +949,7 @@
         err ? h('div', { class: 'err-msg', role: 'alert', style: 'padding:0 16px 8px' }, err) : null,
         h('div', { class: 'dp-foot' }, h('span', { class: 'tz' }, 'التواريخ بتوقيت القاهرة (GMT+3)'),
           Button({ label: 'إلغاء', onClick: close }),
-          Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err, onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset }; if (target === 'reports') { state.rrange = nr; close(); renderReports(); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
+          Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err, onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset }; if (target === 'reports') { state.rrange = nr; close(); renderReports(); if (window.IBPages && window.IBPages.current === 'products') window.IBPages.render('products'); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
     }
     draw(); return dp;
   }
@@ -926,13 +957,14 @@
   // ---------- movement forms (expense / vendor / account) ----------
   const CATEGORY_OPTS = D.CATEGORIES.map((c) => ({ value: c, label: c }));
   function openForm(kind, direction, existing, readOnly, preset) {
-    const f = { amount: existing ? String(existing.amount) : '', date: existing ? existing.date : TODAY, direction, category: existing ? existing.category : '', beneficiary: '', otherName: '', type: existing ? existing.type : '', vendor: existing ? existing.vendor : '', account: existing ? existing.account : '' };
+    const f = { amount: existing ? String(existing.amount) : '', date: existing ? existing.date : TODAY, direction, category: existing ? existing.category : '', beneficiary: '', otherName: '', type: existing ? existing.type : '', vendor: existing ? existing.vendor : '', account: existing ? existing.account : '',
+      subName: existing && existing.subName ? (existing.subIsOther ? D.OTHER : existing.subName) : '', subOther: existing && existing.subIsOther ? existing.subName : '', subEnds: existing && existing.subEnds ? existing.subEnds : '', subAlerts: existing && existing.subAlerts ? existing.subAlerts.slice() : ['month', 'week', 'day'], subNote: existing && existing.subNote ? existing.subNote : '' };
     if (existing && kind === 'expenses') { if (existing.beneficiaryIsOther) { f.beneficiary = D.OTHER; f.otherName = existing.beneficiaryName; } else f.beneficiary = existing.beneficiaryName; }
     if (existing && kind === 'vendorMoves' && existing.type === 'أخرى') f.otherName = existing.typeName;
     if (preset) Object.assign(f, preset);
     let errs = {}; let modal = null;
     const dirWord = direction === 'deposit' ? 'إيداع' : 'سحب';
-    const titles = { expenses: dirWord + ' مصروفات', vendorMoves: direction === 'deposit' ? 'إيداع للمورد' : 'سحب من المورد', accountMoves: direction === 'deposit' ? 'إيداع في الحساب' : 'سحب من الحساب' };
+    const titles = { expenses: dirWord + ' مصروفات', vendorMoves: direction === 'deposit' ? 'إيداع للمبتكر' : 'سحب من المبتكر', accountMoves: direction === 'deposit' ? 'إيداع في الحساب' : 'سحب من الحساب' };
     const title = readOnly ? 'تفاصيل الحركة' : (existing ? 'تعديل — ' : '') + titles[kind];
     const vendorOpts = SEED.vendors.map((v) => ({ value: v.name, label: v.name }));
     const benefOpts = [...vendorOpts, { value: D.OTHER, label: D.OTHER }];
@@ -943,12 +975,14 @@
       if (readOnly) {
         const rows = [['التاريخ', num(D.formatDateNumeric(existing.date))], ['العملية', existing.direction === 'deposit' ? 'إيداع' : 'سحب'], ['المبلغ (ج.م)', num(D.formatMoney(existing.amount))]];
         if (kind === 'expenses') rows.push(['النوع', existing.category], ['اسم المستفيد', existing.beneficiaryName || '—']);
+        if (kind === 'expenses' && existing.category === SUBS_CAT) rows.push(['الاشتراك', existing.subName || '—'], ['تاريخ الانتهاء', existing.subEnds ? num(D.formatDateNumeric(existing.subEnds)) : '—'],
+          ['التنبيه قبل الانتهاء', (existing.subAlerts || []).map((k) => (D.SUB_ALERTS.find((a) => a[0] === k) || [, k])[1]).join(' · ') || '—'], ['ملاحظة', existing.subNote || '—']);
         if (kind === 'accountMoves') rows.push(['نوع الحساب', existing.account]);
         rows.push(['سُجّل بواسطة', existing.createdBy]);
         return [h('dl', { class: 'kv' }, rows.map(([k, v]) => [h('dt', null, k), h('dd', null, v)]))];
       }
       const fields = [];
-      if (kind === 'vendorMoves') fields.push(U.Select({ id: 'f-vendor', label: 'المورد', required: true, options: vendorOpts, value: f.vendor, error: errs.vendor, placeholder: 'اختار المورد', onChange: (v) => { f.vendor = v; redraw(); } }));
+      if (kind === 'vendorMoves') fields.push(U.Select({ id: 'f-vendor', label: 'المبتكر', required: true, options: vendorOpts, value: f.vendor, error: errs.vendor, placeholder: 'اختار المبتكر', onChange: (v) => { f.vendor = v; redraw(); } }));
       if (kind === 'accountMoves') fields.push(U.Select({ id: 'f-account', label: 'نوع الحساب', required: true, options: accOpts, value: f.account, error: errs.account, placeholder: 'اختار نوع الحساب', onChange: (v) => { f.account = v; redraw(); } }));
       fields.push(U.TextInput({ id: 'f-amount', label: 'المبلغ', required: true, value: f.amount, error: errs.amount, placeholder: '0.00', inputmode: 'decimal', suffix: 'ج.م', onInput: (v) => { f.amount = v; } }));
       fields.push(U.DateField({ id: 'f-date', label: direction === 'deposit' ? 'تاريخ الإيداع' : 'تاريخ السحب', required: true, value: f.date, error: errs.date, today: TODAY, onChange: (iso, e) => { if (!e) f.date = iso; errs.date = e || undefined; redraw(); } }));
@@ -956,6 +990,7 @@
         fields.push(U.Select({ id: 'f-cat', label: 'النوع', required: true, options: CATEGORY_OPTS, value: f.category, error: errs.category, onChange: (v) => { f.category = v; redraw(); } }));
         fields.push(U.Select({ id: 'f-ben', label: 'المستفيد', options: benefOpts, value: f.beneficiary, error: errs.beneficiary, placeholder: 'اختار المستفيد', onChange: (v) => { f.beneficiary = v; if (v !== D.OTHER) f.otherName = ''; redraw(); } }));
         if (f.beneficiary === D.OTHER) fields.push(U.TextInput({ id: 'f-other', label: 'اسم المستفيد', required: true, value: f.otherName, error: errs.otherName, placeholder: 'اكتب الاسم', maxlength: 80, onInput: (v) => { f.otherName = v; } }));
+        if (f.category === SUBS_CAT) fields.push(...subFields(f, errs, redraw));
       }
       if (kind === 'vendorMoves') {
         fields.push(U.Select({ id: 'f-type', label: 'النوع', required: true, options: typeOpts, value: f.type, error: errs.type, onChange: (v) => { f.type = v; if (v !== 'أخرى') f.otherName = ''; redraw(); } }));
@@ -975,6 +1010,7 @@
       if (kind === 'expenses') res = D.validateExpense(raw);
       else if (kind === 'vendorMoves') res = D.validateVendorMovement(raw);
       else res = D.validateAccountMovement(raw);
+      if (kind === 'expenses' && f.category === SUBS_CAT) { const sres = D.validateSubscription(f); Object.assign(res.errors, sres.errors); if (!Object.keys(sres.errors).length) Object.assign(res.value, sres.value); }
       if (Object.keys(res.errors).length) { errs = res.errors; redraw(); return; }
       if (kind === 'accountMoves') {
         const others = existing ? store.accountMoves.filter((r) => r.id !== existing.id) : store.accountMoves;
@@ -990,6 +1026,45 @@
     const first = modal.el.querySelector('input,.select'); if (first && !readOnly) first.focus();
   }
 
+  // ---------- الاشتراكات (owner 27 Oct): جوه مصروفات نوعها «الاشتراكات» ----------
+  const SUBS_CAT = 'الاشتراكات';
+  const SUB_OPTS = () => D.SUB_NAMES.map((n) => ({ value: n === 'أخرى' ? D.OTHER : n, label: n === 'أخرى' ? D.OTHER : n }));
+  function subFields(f, errs, redraw) {
+    const K = window.IBKit;
+    const chips = h('div', { class: 'chips', role: 'group', 'aria-label': 'التنبيه قبل الانتهاء', id: 'f-subal-chips' },
+      D.SUB_ALERTS.map(([k, lb]) => h('button', { type: 'button', class: 'chip', role: 'checkbox', 'aria-checked': String(f.subAlerts.includes(k)), 'data-subal': k,
+        onClick: () => { f.subAlerts = f.subAlerts.includes(k) ? f.subAlerts.filter((x) => x !== k) : f.subAlerts.concat([k]); redraw(); } }, lb)));
+    return [
+      h('div', { class: 'form-sec' }, h('h3', { class: 't-label' }, 'بيانات الاشتراك'), h('p', { class: 't-small help' }, 'عشان نفكّرك قبل ما ينتهي ومتدفعش غرامة أو يتقفل.')),
+      U.Select({ id: 'f-subname', label: 'اشتراك إيه', required: true, options: SUB_OPTS(), value: f.subName, error: errs.subName, placeholder: 'اختار الاشتراك', onChange: (v) => { f.subName = v; if (v !== D.OTHER) f.subOther = ''; redraw(); } }),
+      f.subName === D.OTHER ? U.TextInput({ id: 'f-subother', label: 'اسم الاشتراك', required: true, value: f.subOther, error: errs.subOther, placeholder: 'اكتب اسم الاشتراك', maxlength: 80, onInput: (v) => { f.subOther = v; } }) : null,
+      U.DateField({ id: 'f-subends', label: 'تاريخ الانتهاء', required: true, value: f.subEnds || null, error: errs.subEnds, today: TODAY, onChange: (iso, e) => { if (!e) f.subEnds = iso || ''; errs.subEnds = e || undefined; redraw(); } }),
+      U.FieldShell({ id: 'f-subal', label: 'تنبيه قبل الانتهاء', required: true, error: errs.subAlerts, help: 'اختار أكتر من واحد — التنبيه بيوصل لمسؤول الحسابات والأدمن' }, chips),
+      U.Textarea({ id: 'f-subnote', label: 'ملاحظة', value: f.subNote, rows: 2, placeholder: 'اكتب أي حاجة — رقم الفاتورة، الكارت اللي بيتخصم منه، شهري ولا سنوي…', onInput: (v) => { f.subNote = v; } })].filter(Boolean);
+  }
+  // الاشتراكات المسجّلة = أي مصروف نوعه «الاشتراكات» اتسجّل في السيستم (phase 4: acc_expenses)
+  const subsAll = () => store.expenses.filter((e) => e.category === SUBS_CAT && e.subEnds);
+  function subsSection() {
+    const rows0 = D.subsDue(subsAll(), TODAY); if (!rows0.length) return null;
+    const AL = (k) => (D.SUB_ALERTS.find((a) => a[0] === k) || [, k])[1];
+    const tone = (x) => (x.expired ? 'error' : x.due ? 'orange' : 'success');
+    const word = (x) => (x.expired ? 'انتهى من ' + Math.abs(x.daysLeft) + ' يوم' : x.daysLeft === 0 ? 'بينتهي النهاردة' : 'باقي ' + x.daysLeft + ' يوم');
+    const headers = ['الاشتراك', 'تاريخ الانتهاء', 'الحالة', 'المبلغ (ج.م)', 'التنبيه قبل الانتهاء', 'ملاحظة'];
+    const rows = rows0.map((x) => [x.name, num(D.formatDateNumeric(x.ends)), h('span', { class: 'tg tg-' + tone(x) }, word(x)), num(D.formatMoney(x.amount || 0)), x.alerts.map(AL).join(' · ') || '—', x.note || '—']);
+    const due = rows0.filter((x) => x.due);
+    return h('div', { class: 'subs-wrap', style: 'display:flex;flex-direction:column;gap:16px' },
+      due.length ? U.InlineNote({ kind: due.some((x) => x.expired) ? 'error' : 'warning', children: 'اشتراكات محتاجة تجديد: ' + due.map((x) => x.name + ' (' + word(x) + ')').join(' · ') }) : null,
+      TableCard({ title: 'الاشتراكات ومواعيد انتهائها', count: rows0.length + ' اشتراك' + (due.length ? ' · ' + due.length + ' محتاج تجديد' : ''), body: U.Table({ cls: 'subs-tbl', headers, rows }) }));
+  }
+  // تنبيه مرة واحدة لكل اشتراك مستحق (الجرس) — owner 27 Oct
+  const subsNotified = {};
+  function subsNotify() {
+    const K = window.IBKit; if (!K || !K.notify) return;
+    D.subsDue(subsAll(), TODAY).filter((x) => x.due).forEach((x) => { const key = x.name + '|' + x.ends; if (subsNotified[key]) return; subsNotified[key] = true;
+      K.notify({ title: (x.expired ? 'اشتراك منتهي: ' : 'اشتراك قرب ينتهي: ') + x.name + ' — ' + (x.expired ? 'انتهى من ' + Math.abs(x.daysLeft) + ' يوم' : 'باقي ' + x.daysLeft + ' يوم'), link: '#expenses' });
+      K.logEvent('subs.alert', x.name + ' · ' + x.ends); });
+  }
+
   // add-button with deposit/withdraw dropdown
   function AddMenu(label, kind) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
@@ -1000,7 +1075,7 @@
   function RowActions(kind, rec, onDelete) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
     const trig = h('button', { type: 'button', class: 'icon-btn', 'aria-label': 'إجراءات الصف', 'aria-haspopup': 'menu', 'aria-expanded': 'false' }, Icon('more'));
-    const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: [{ value: 'view', label: 'عرض' }, { value: 'edit', label: 'تعديل' }, { value: 'del', label: 'حذف', danger: true }],
+    const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: [{ value: 'view', label: 'عرض' }].concat(canEditRec(rec) ? [{ value: 'edit', label: 'تعديل' }, { value: 'del', label: 'حذف', danger: true }] : []),
       onSelect: (v) => { close(); if (v === 'view') openForm(kind, rec.direction, rec, true); if (v === 'edit') openForm(kind, rec.direction, rec); if (v === 'del') onDelete(rec); } }));
     trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
   }
@@ -1015,10 +1090,46 @@
   function TableCard({ title, count, action, body }) {
     return h('section', { class: 'card table-card' }, h('div', { class: 'table-title' }, h('h2', { class: 't-h4' }, title), h('span', { class: 'count t-body' }, count || ''), action || null), body);
   }
-  const notSeptNote = () => (seedKeysIn(state.range).includes('2026-09') ? null : U.InlineNote({ kind: 'warning', children: 'الأرقام دي تقرير سبتمبر 2026 — اختيار فترة تانية مش بيغيّرها.' }));
+  // phase 4: the numbers are live for the range picked (sales: our orders; makers: Dokan + the moves recorded here)
+  const periodText = () => D.rangeLabel(state.range.from, state.range.to);
+  const liveNote = () => { const A = window.IBAccounts; if (!A) return null;
+    if (A.state() === 'error' || A.salesFailed(state.range.from, state.range.to)) return U.InlineNote({ kind: 'error', children: 'مقدرناش نحمّل بيانات الحسابات — جرّب تحدّث الصفحة.' });
+    if (A.state() === 'loading' || A.sales(state.range.from, state.range.to) === null) return U.InlineNote({ children: 'بنحمّل أرقام الفترة…' });
+    return null; };
 
+  // ================= سجل الحركات (owner 27 Oct): تابس المصروفات · حسابات المبتكرين · الحساب الفعلي =================
+  const MLOG_TABS = [{ id: 'expenses', label: 'المصروفات' }, { id: 'vendorMoves', label: 'حسابات المبتكرين' }, { id: 'accountMoves', label: 'الحساب الفعلي' }];
+  function mlogData(kind) {
+    // phase 4: the moves recorded here + Dokan's withdraw requests (read-only); no sheet rows, the opening balances are 0 until the import
+    return D.movementLog(kind, { expenses: store.expenses, expenseSeed: {}, vendorMoves: store.vendorMoves.filter((m) => !(m.type === 'مواصلات' && m.direction === 'withdraw')),
+      vendorSeed: [], seedDate: '', transport: transportRows(), withdrawals: dokanRequests(), accountMoves: store.accountMoves, accounts: {} });
+  }
+  function MovesLogView() {
+    const kind = state.mlog; const r = mlogData(kind); const KK = window.IBKit;
+    const q = (state.mlogQ || '').trim();
+    const rows0 = q ? r.rows.filter((x) => (x.what + ' ' + x.who + ' ' + x.note + ' ' + x.ref).toLowerCase().includes(q.toLowerCase())) : r.rows;
+    const tone = (k) => (k === 'إيداع' ? 'success' : k === 'سحب' ? 'neutral' : k === 'طلب سحب' ? 'orange' : 'goldlight');
+    const headers = ['التاريخ', 'الحركة', 'البند', kind === 'vendorMoves' ? 'المبتكر' : kind === 'expenses' ? 'المستفيد' : 'الحساب', 'المبلغ (ج.م)', 'بواسطة', 'المصدر', 'المرجع', 'ملاحظة'];
+    const rows = rows0.map((x) => [num(x.date ? D.formatDateNumeric(x.date) : '—'), h('span', { class: 'tg tg-' + tone(x.kind) }, x.kind), x.what, kind === 'accountMoves' ? x.what : x.who, num(D.formatMoney(x.amount)), x.by, x.source, x.ref ? h('bdi', { dir: 'ltr' }, x.ref) : '—', x.note || '—']);
+    const search = h('input', { type: 'search', class: 'input', placeholder: 'ابحث بالبند أو الاسم أو المرجع', 'aria-label': 'بحث في سجل الحركات', value: state.mlogQ || '', style: 'width:300px;max-width:100%' });
+    search.addEventListener('input', () => { state.mlogQ = search.value; const p = search.selectionStart; render(); const n = document.querySelector('#panel input[type=search]'); if (n) { n.focus(); n.setSelectionRange(p, p); } });
+    return h('div', { style: 'display:flex;flex-direction:column;gap:24px;min-width:0' },
+      KK.SubTabs ? KK.SubTabs({ items: MLOG_TABS, active: kind, label: 'أقسام سجل الحركات', onChange: (id) => { state.mlog = id; state.mlogQ = ''; render(); } }) : null,
+      h('div', { class: 'cards four' },
+        U.KpiTile({ label: 'عدد الحركات', value: String(r.count), unit: 'حركة', compare: 'off', note: (MLOG_TABS.find((t) => t.id === kind) || {}).label }),
+        U.KpiTile({ label: 'داخل', value: D.formatMoney(r.inTotal), unit: 'ج.م', compare: 'off', note: kind === 'accountMoves' ? 'إيداعات + الرصيد الافتتاحي' : 'إيداعات وعرابين' }),
+        U.KpiTile({ label: 'خارج', value: D.formatMoney(r.outTotal), unit: 'ج.م', compare: 'off', note: 'سحب ومصروفات ومواصلات' }),
+        kind === 'vendorMoves' ? U.KpiTile({ label: 'طلبات سحب', value: String(r.requests), unit: 'طلب', compare: 'off', note: 'من المبتكرين + طلبات داخلية' })
+          : U.KpiTile({ label: 'الصافي', value: D.formatMoney(D.round2(r.inTotal - r.outTotal)), unit: 'ج.م', compare: 'off', note: 'داخل − خارج' })),
+      h('div', { class: 'toolbar' }, search, h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(rows0.length + ' من ' + r.count + ' حركة')),
+        Button({ label: 'نسخ CSV', icon: 'download', attrs: { 'data-mlog-csv': '' }, onClick: () => csvCopy(headers, rows0.map((x) => [x.date, x.kind, x.what, kind === 'accountMoves' ? x.what : x.who, x.amount, x.by, x.source, x.ref, x.note]), 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label) })),
+      TableCard({ title: 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label, count: rows0.length + ' حركة',
+        body: rows0.length ? tableOrList(() => U.Table({ cls: 'mlog-table', headers, rows }), () => CardList({ headers, titleIndex: 2, rows })) : U.EmptyState('مفيش حركات', q ? 'مفيش نتيجة للبحث ده — امسح البحث.' : 'أول ما حركة تتسجل هتظهر هنا.') }),
+      sourceNote('المصدر: الحركات المتسجلة في السيستم + طلبات السحب من Dokan (قراءة بس).'));
+  }
   // ---------- views ----------
   function ExpensesView() {
+    subsNotify();
     const seedKeys = seedKeysIn(state.range);
     const entries = store.expenses.filter((e) => inRange(e.date)).sort((a, b) => (a.date < b.date ? 1 : -1));
     const tot = D.categoryTotals(SEED.expenseSeed, store.expenses, state.range.from, state.range.to);
@@ -1026,7 +1137,7 @@
     const monthTxt = full ? D.monthName(full.m) + ' ' + full.y : D.rangeLabel(state.range.from, state.range.to);
     const tones = { 'المرتبات': 'gold', 'المصروفات': 'neutral', 'الاشتراكات': 'goldlight', 'الإعلانات': 'brand' };
     const cells = ['M14', 'N14', 'O14', 'P14'];
-    const srcFor = (c, i) => (seedKeys.length ? 'Monthly Performance!' + cells[i] + (entries.some((e) => e.category === c) ? ' + تسجيل يدوي' : '') : 'تسجيل يدوي');
+    const srcFor = () => 'تسجيل يدوي';
     return [
       h('div', { class: 'card sum-card' }, h('div', null, h('div', { class: 'lab t-small' }, monthTxt), h('div', { class: 't-h5' }, full ? 'إجمالي مصروفات ' + D.monthName(full.m) : 'إجمالي المصروفات'),
           h('button', { type: 'button', class: 'kpi-more kpi-details', 'data-details': 'إجمالي المصروفات', 'aria-label': 'تفاصيل إجمالي المصروفات', onClick: () => U.DetailsModal(() => ({ title: 'إجمالي المصروفات — ' + D.formatMoney(tot.total) + ' ج.م', sub: monthTxt, summary: D.CATEGORIES.map((c) => ({ label: c, value: D.formatMoney(tot.byCategory[c].amount) })), headers: ['البند', 'القيمة', 'النسبة', 'المصدر'], rows: D.CATEGORIES.map((c, i) => [c, D.formatMoney(tot.byCategory[c].amount), D.formatPct(tot.byCategory[c].share), srcFor(c, i)]).concat(entries.map((e) => [e.category + ' · ' + D.formatDateNumeric(e.date), D.formatMoney(e.amount), '—', 'تسجيل يدوي — ' + (e.beneficiaryName || '—')])) }), { label: 'إجمالي المصروفات' }) }, 'التفاصيل', Icon('chevL', 'sm'))),
@@ -1036,26 +1147,27 @@
       TableCard({ title: 'تفاصيل المصروفات', body: U.Table({ headers: ['البند', 'القيمة (ج.م)', 'النسبة', 'المصدر'],
         rows: D.CATEGORIES.map((c, i) => [c, num(D.formatMoney(tot.byCategory[c].amount)), num(D.formatPct(tot.byCategory[c].share)), srcFor(c, i)]),
         totalRow: ['إجمالي الأربع فئات', num(D.formatMoney(tot.total)), num(tot.total === 0 ? '0.0%' : '100.0%'), 'إجمالي المصروفات'] }) }),
+      subsSection(),
       TableCard({ title: 'سجل المصروفات التفصيلي', count: entries.length + ' مصروف مسجّل', body: entries.length === 0 ? U.EmptyState('لسه مفيش مصروفات مسجّلة', 'اضغط «إضافة مصروفات» وسجّل أول سحب أو إيداع، وهيظهر هنا.') :
         U.Table({ headers: ['التاريخ', 'النوع', 'اسم المستفيد', 'المبلغ (ج.م)', ''], rows: entries.map((e) => [num(D.formatDateNumeric(e.date)), e.category, e.beneficiaryName || '—',
           h('span', { class: e.direction === 'deposit' ? 'pos' : '' }, num((e.direction === 'deposit' ? '+' : '') + D.formatMoney(e.amount))), RowActions('expenses', e, (r) => deleteRec('expenses', r))]) }) }),
-      sourceNote('المصدر: Vendors Orders mangment-Invoices ← Monthly Performance ← ' + (full ? full.y + '-' + String(full.m).padStart(2, '0') : 'الفترة المحددة')),
-    ];
+      sourceNote('المصدر: المصروفات المتسجلة في السيستم للفترة المحددة'),
+    ].filter(Boolean);
   }
 
   function SalesView() {
     const S = SEED.sales, T = SEED.salesTotal; const tones = ['brand', 'gold', 'neutral'];
     const salesDet = (k, r) => { const vs = vendorsNow().map((v) => ({ v, c: k ? v[k] : [v.c[0] + v.p[0] + v.x[0], v.c[1] + v.p[1] + v.x[1], v.c[2] + v.p[2] + v.x[2]] })).filter((x) => x.c[0] > 0 || x.c[1] > 0).sort((a, b) => b.c[1] - a.c[1]);
-      return { title: (k ? 'مبيعات ' + r.label : 'إجمالي المبيعات') + ' — ' + D.formatMoney(r.sales) + ' ج.م', sub: 'سبتمبر 2026 · حسب المورد · العدد = أوردرات رئيسية مميزة لكل مورد وقد يتجاوز الإجمالي', summary: [{ label: 'الأوردرات', value: String(r.orders) }, { label: 'المبيعات', value: D.formatMoney(r.sales) + ' ج.م' }, { label: 'حصة إبتكر', value: D.formatMoney(r.share) + ' ج.م' }, { label: 'النسبة', value: r.pct }], headers: ['المورد', 'العمولة', 'الأوردرات', 'المبيعات', 'حصة إبتكر'], rows: vs.map((x) => [x.v.name, x.v.pct, String(x.c[0]), D.formatMoney(x.c[1]), D.formatMoney(x.c[2])]),
-        total: (() => { const t = vs.reduce((a, x) => [a[0] + x.c[0], a[1] + x.c[1], a[2] + x.c[2]], [0, 0, 0]); return ['مجموع الموردين', '—', String(t[0]), D.formatMoney(t[1]), D.formatMoney(t[2])]; })(),
-        note: (() => { const t = vs.reduce((a, x) => [a[0] + x.c[0], a[1] + x.c[1], a[2] + x.c[2]], [0, 0, 0]); const d = []; if (t[0] !== r.orders) d.push('عدد الأوردرات ' + t[0] + ' عند الموردين مقابل ' + r.orders + ' (الأوردر المشترك بيتحسب لكل مورد فيه)'); if (Math.abs(t[1] - r.sales) > 0.5) d.push('المبيعات ' + D.formatMoney(t[1]) + ' مقابل ' + D.formatMoney(r.sales)); if (Math.abs(t[2] - r.share) > 0.5) d.push('حصة إبتكر ' + D.formatMoney(t[2]) + ' في تاب حسابات الموردين مقابل ' + D.formatMoney(r.share) + ' في تاب المبيعات — فرق ' + D.formatMoney(Math.abs(t[2] - r.share)) + ' محتاج مراجعة في الشيت'); return d.length ? 'فرق بين الشيتين: ' + d.join(' · ') + '.' : 'مجموع الموردين مطابق لملخص المبيعات.'; })(),
-        source: 'Ibtekr_Accounts_September_monthly_report ← تاب المبيعات + تاب حسابات الموردين' }; };
-    return [notSeptNote(),
+      return { title: (k ? 'مبيعات ' + r.label : 'إجمالي المبيعات') + ' — ' + D.formatMoney(r.sales) + ' ج.م', sub: periodText() + ' · حسب المبتكر · العدد = أوردرات رئيسية مميزة لكل مبتكر وقد يتجاوز الإجمالي', summary: [{ label: 'الأوردرات', value: String(r.orders) }, { label: 'المبيعات', value: D.formatMoney(r.sales) + ' ج.م' }, { label: 'حصة إبتكر', value: D.formatMoney(r.share) + ' ج.م' }, { label: 'النسبة', value: r.pct }], headers: ['المبتكر', 'العمولة', 'الأوردرات', 'المبيعات', 'حصة إبتكر'], rows: vs.map((x) => [x.v.name, x.v.pct, String(x.c[0]), D.formatMoney(x.c[1]), D.formatMoney(x.c[2])]),
+        total: (() => { const t = vs.reduce((a, x) => [a[0] + x.c[0], a[1] + x.c[1], a[2] + x.c[2]], [0, 0, 0]); return ['مجموع المبتكرين', '—', String(t[0]), D.formatMoney(t[1]), D.formatMoney(t[2])]; })(),
+        note: (() => { const t = vs.reduce((a, x) => [a[0] + x.c[0], a[1] + x.c[1], a[2] + x.c[2]], [0, 0, 0]); const d = []; if (t[0] !== r.orders) d.push('عدد الأوردرات ' + t[0] + ' عند المبتكرين مقابل ' + r.orders + ' (الأوردر المشترك بيتحسب لكل مبتكر فيه)'); if (Math.abs(t[1] - r.sales) > 0.5) d.push('المبيعات ' + D.formatMoney(t[1]) + ' مقابل ' + D.formatMoney(r.sales)); if (Math.abs(t[2] - r.share) > 0.5) d.push('حصة إبتكر ' + D.formatMoney(t[2]) + ' في تاب حسابات المبتكرين مقابل ' + D.formatMoney(r.share) + ' في تاب المبيعات — فرق ' + D.formatMoney(Math.abs(t[2] - r.share)) + ' (الأوردر المشترك بيتقسم على مبتكرينه)'); return d.length ? 'فرق بين مجموع المبتكرين والإجمالي: ' + d.join(' · ') + '.' : 'مجموع المبتكرين مطابق لملخص المبيعات.'; })(),
+        source: 'الأوردرات (السيستم) ← حسب حالة الأوردر وتاريخه' }; };
+    return [liveNote(),
       h('div', { class: 'cards' }, [...S.map((r, i) => U.CategoryCard({ tone: tones[i], name: r.label, value: r.sales, pct: r.sales / T.sales, caption: 'من إجمالي المبيعات', details: () => salesDet(['c', 'p', 'x'][i], r) })), U.CategoryCard({ tone: 'goldlight', name: 'إجمالي المبيعات', value: T.sales, pct: 1, caption: 'من إجمالي المبيعات', details: () => salesDet(null, T) })]),
       TableCard({ title: 'تفاصيل المبيعات حسب حالة الأوردر', body: U.Table({ headers: ['حالة الأوردر', 'عدد الأوردرات', 'إجمالي المبيعات (ج.م)', 'حصة إبتكر (ج.م)', 'نسبة حصة إبتكر'],
         rows: S.map((r) => [r.label, num(String(r.orders)), num(D.formatMoney(r.sales)), num(D.formatMoney(r.share)), num(r.pct)]),
         totalRow: ['الإجمالي', num(String(T.orders)), num(D.formatMoney(T.sales)), num(D.formatMoney(T.share)), num(T.pct)] }) }),
-      sourceNote('المصدر: Ibtekr_Accounts_September_monthly_report ← تاب المبيعات ← سبتمبر 2026')].filter(Boolean);
+      sourceNote('المصدر: الأوردرات (السيستم) للفترة المحددة · حصة إبتكر = قيمة السطر × نسبة الموقع على السطر (أو نسبتنا يومها) + الرسوم · «تحت التنفيذ» = جاري التنفيذ + جاهز للشحن + قيد الشحن · «مرتجع / ملغي» = ملغي + استرجاع + فشل')].filter(Boolean);
   }
 
   function SortDropdown() {
@@ -1065,27 +1177,116 @@
     const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: SORTS.map((x) => ({ value: x.value, label: x.label })), value: state.sort, onSelect: (v) => { close(); state.sort = v; render(); } }));
     btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
   }
+  // ================= حسابات المبتكرين: تقرير مختصر · طلبات السحب · إظهار/إخفاء الأعمدة (owner 27 Oct) =================
+  // phase 4 (decision 5): the withdraw requests are Dokan's (dokan_withdrawals, read-only) — approving one is done on Dokan
+  const AC = () => window.IBAccounts;
+  const makerId = (name) => { const v = vstore.findByName(name); return v ? v.id : null; };
+  const wdOf = (name) => { const id = makerId(name); const r = id && AC() ? VD.openRequest(AC().withdrawals(), id) : null; return r ? Object.assign({}, r, { id: '#' + r.id }) : null; };
+  // the requests for the moves log: { at, vendor, amount, id, source, by, note }
+  const dokanRequests = () => (AC() ? AC().withdrawals() : []).map((w) => { const v = w.vendorId && vstore.get ? vstore.get(w.vendorId) : null;
+    return { at: w.at, vendor: v ? v.name : '#' + w.store, amount: w.amount, id: '#' + w.id, source: 'vendor', by: 'Dokan', note: VD.wdLabel(w.status) + (w.method ? ' · ' + w.method : '') }; });
+  function vendorBriefData(name) {
+    const OA = window.OrdersApp; const orders = OA ? OA.query({}, 10000).rows.map((r) => OA.get(r.id)).filter(Boolean) : [];
+    const v = vstore.findByName(name); const seed = vendorsNow().find((x) => VD.norm(x.name) === VD.norm(name)) || { balance: 0, deposits: 0 };
+    const rep = VD.vendorReport(orders, v && vstore.namesOf ? vstore.namesOf(v.id) : [name], seed.balance);
+    return Object.assign(VD.accountBrief({ name, report: rep, deposits: seed.deposits || 0, transport: trVendor(name).total, balance: seed.balance || 0, request: wdOf(name) }), { dokanBalance: seed.dokanBalance == null ? null : seed.dokanBalance, vendorId: v ? v.id : null });
+  }
+  const briefRows = (b) => [['تقرير مختصر — ' + b.name], ['رصيد Dokan (ج.م)', b.dokanBalance == null ? '—' : b.dokanBalance], ['العرابين (ج.م)', b.deposits], ['المواصلات (ج.م)', b.transport], ['الصافي (ج.م)', b.balance],
+    ['عدد الأوردرات', b.orders], ['قيمة الأوردرات (ج.م)', b.value], b.request ? ['طلب السحب', b.request.id + ' · ' + VD.wdLabel(b.request.status) + ' · ' + b.request.amount + ' ج.م'] : ['طلب السحب', 'لا يوجد'],
+    [], ['رقم الأوردر', 'رقم الأوردر الفرعي', 'المنتج', 'القيمة (ج.م)', 'الحالة']].concat(b.rows.map((r) => [r.oid, r.sid, r.prod, r.tot, r.status]));
+  // البوب أب الواحد للتقرير المختصر وطلب السحب (owner: «يفتح نفس بوب اب التقارير») — phase 4: read-only on the requests
+  function openAccountBrief(name) {
+    const b = vendorBriefData(name); const req = b.request; const fmt = (n) => D.formatMoney(n);
+    const headers = ['رقم الأوردر', 'المنتج', 'القيمة (ج.م)', 'الحالة'];
+    const rows = b.rows.map((x) => [h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + x.oid), x.sid !== x.oid ? h('small', null, ' · فرعي ', h('bdi', { dir: 'ltr' }, '#' + x.sid)) : null), x.prod, fmt(x.tot), x.status]);
+    const actions = [{ label: 'نسخ CSV', onClick: () => { const aoa = briefRows(b); csvCopy(aoa[9], aoa.slice(10), 'تقرير ' + name); } }];
+    if (b.vendorId) actions.unshift({ label: 'كشف حساب Dokan', onClick: () => openStatement(name, b.vendorId) });
+    const sub = [req ? 'طلب سحب ' + req.id + ' · ' + VD.wdLabel(req.status) + ' · ' + fmt(req.amount) + ' ج.م' : 'مفيش طلب سحب حالي',
+      b.orders + ' أوردر (مكتمل ' + b.completed + ' · ملغي ' + b.cancelled + ')', 'اضغط على أي أوردر يفتحه'].join(' · ');
+    U.DetailsModal({ title: 'تقرير مختصر — ' + name, sub,
+      summary: [{ label: 'رصيد Dokan', value: b.dokanBalance == null ? '—' : fmt(b.dokanBalance) + ' ج.م' }, { label: 'العرابين', value: fmt(b.deposits) + ' ج.م' }, { label: 'المواصلات', value: fmt(b.transport) + ' ج.م' }, { label: 'الصافي', value: fmt(b.balance) + ' ج.م' }],
+      headers, rows, total: rows.length ? ['الإجمالي', b.orders + ' أوردر', fmt(b.value), ''] : null,
+      onRow: (i) => showOrders({ q: b.rows[i].oid }),
+      note: req ? (req.status === 'pending' ? 'الطلب مستني الموافقة على Dokan — راجع الرصيد والأوردرات وبعدين وافق من لوحة Dokan.' : 'الطلب اتوافق عليه على Dokan — فاضل التحويل.') : (b.payable > 0 ? 'المبتكر ليه رصيد ' + fmt(b.payable) + ' ج.م ومفيش طلب سحب على Dokan.' : 'مفيش رصيد مستحق للمبتكر.'),
+      actions, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.',
+      source: 'الأوردرات (السيستم) + رصيد Dokan وطلبات السحب (قراءة بس) + العرابين والمواصلات المتسجلة هنا' }, { label: 'تقرير مختصر ' + name });
+  }
+  // كشف حساب المبتكر من Dokan للفترة المحددة (phase 4, decision 6): بيتجاب وقت الفتح ومابيتخزنش
+  const STATEMENT_TYPES = { opening_balance: 'رصيد افتتاحي', dokan_orders: 'أوردر', dokan_withdraw: 'سحب', dokan_refund: 'مرتجع' };
+  function openStatement(name, vendorId) {
+    const from = state.range.from, to = state.range.to; const fmt = (n) => D.formatMoney(n);
+    setNote({ kind: 'info', text: 'بنجيب كشف حساب ' + name + ' من Dokan…' }); render();
+    AC().statement(vendorId, from, to).then((r) => {
+      setNote(null); render();
+      if (!r.ok) { setNote({ kind: 'error', text: 'مقدرناش نجيب كشف الحساب من Dokan دلوقتي — جرّب تاني.' }); render(); return; }
+      const rows = r.rows.map((x) => [num(x.date ? D.formatDateNumeric(String(x.date).slice(0, 10)) : '—'), STATEMENT_TYPES[x.type] || x.type || '—', x.title || '—', num(fmt(x.debit)), num(fmt(x.credit)), x.balance == null ? '—' : num(fmt(x.balance))]);
+      const debit = r.rows.reduce((t, x) => t + (Number(x.debit) || 0), 0), credit = r.rows.reduce((t, x) => t + (Number(x.credit) || 0), 0);
+      const last = r.rows.length ? r.rows[r.rows.length - 1].balance : null;
+      U.DetailsModal({ title: 'كشف حساب Dokan — ' + name, sub: D.rangeLabel(from, to) + ' · ' + r.rows.length + ' حركة' + (r.done === false ? ' (أول 1000 بس)' : ''),
+        summary: [{ label: 'مدين', value: fmt(debit) + ' ج.م' }, { label: 'دائن', value: fmt(credit) + ' ج.م' }, { label: 'الرصيد آخر الفترة', value: last == null ? '—' : fmt(last) + ' ج.م' }],
+        headers: ['التاريخ', 'النوع', 'البيان', 'مدين', 'دائن', 'الرصيد'], rows, empty: r.noStore ? 'المبتكر ده مالوش متجر على Dokan.' : 'مفيش حركات على Dokan في الفترة دي.',
+        source: 'Dokan ← كشف حساب المبتكر (قراءة بس، مابيتخزنش)' }, { label: 'كشف حساب ' + name });
+    });
+  }
+  // أعمدة جدول حسابات المبتكرين — إظهار/إخفاء لكل مستخدم (owner 27 Oct)
+  const VCOLS = [['name', 'المبتكر', true], ['pct', 'نسبة إبتكر'], ['cN', 'مكتمل — عدد'], ['cV', 'مكتمل — حصة إبتكر'], ['pN', 'قيد التنفيذ — عدد'], ['pV', 'قيد التنفيذ — حصة إبتكر'],
+    ['xN', 'ملغي — عدد'], ['xV', 'ملغي — حصة إبتكر'], ['dokan', 'رصيد Dokan'], ['dep', 'إجمالي العرابين'], ['tr', 'المواصلات'], ['wd', 'طلب سحب'], ['bal', 'الصافي'], ['act', 'إجراءات', true]];
+  // phase 4: the hidden columns live in user_prefs ('accounts.vcols', per member, IBPrefs); the kit's store keeps a copy for this tab
+  const vcolPrefs = () => { const KK = window.IBKit; const all = (KK.store.vcolPrefs = KK.store.vcolPrefs || {});
+    if (!all[KK.ME]) { const saved = window.IBPrefs && window.IBPrefs.get('accounts.vcols'); all[KK.ME] = { hidden: saved && Array.isArray(saved.hidden) ? saved.hidden.filter((k) => VCOLS.some(([c]) => c === k)) : [] }; }
+    return all[KK.ME]; };
+  const vcolSave = () => { if (window.IBPrefs) window.IBPrefs.set('accounts.vcols', { hidden: vcolPrefs().hidden.slice() }); };
+  const vcolOn = (k) => !vcolPrefs().hidden.includes(k);
+  function vcolButton() {
+    const KK = window.IBKit; const n = vcolPrefs().hidden.length;
+    const btn = Button({ label: 'الأعمدة' + (n ? ' (' + n + ' مخفي)' : ''), icon: 'sliders', attrs: { 'data-vcols': '' },
+      onClick: () => { const hid = vcolPrefs().hidden.slice();
+        KK.form({ title: 'أعمدة جدول حسابات المبتكرين', values: { hid }, note: U.InlineNote({ children: 'اختار الأعمدة اللي تظهر في الجدول. التخصيص بيتحفظ ليك انت بس. «المبتكر» و«إجراءات» ثابتين.' }),
+          fields: (f, e, set) => [h('div', { class: 'dash-cust', role: 'list' }, VCOLS.map(([k, lb, fixed]) => h('div', { class: 'dc-row', role: 'listitem', 'data-vcol': k },
+            h('span', { class: 'dc-l' }, h('b', null, lb), fixed ? h('small', { class: 't-small help' }, 'ثابت') : null),
+            KK.Switch({ id: 'vc-' + k, label: lb, checked: fixed || !f.hid.includes(k), disabled: !!fixed, onChange: (v) => { set('hid', v ? f.hid.filter((x) => x !== k) : f.hid.concat([k]), true); } })))),
+            e.hid ? U.InlineNote({ kind: 'error', children: e.hid }) : null],
+          validate: (f) => (VCOLS.filter(([k, , fx]) => !fx && !f.hid.includes(k)).length ? {} : { hid: 'سيب عمود واحد على الأقل ظاهر' }),
+          extraFooter: (f, m) => Button({ type: 'text', label: 'رجوع للافتراضي', attrs: { 'data-vcol-reset': '' }, onClick: () => { vcolPrefs().hidden = []; vcolSave(); KK.toast('رجعت الأعمدة للافتراضي'); m.close(); render(); } }),
+          submitLabel: 'حفظ', submit: (f) => { vcolPrefs().hidden = f.hid.slice(); vcolSave(); KK.logEvent('accounts.vcols', (VCOLS.length - f.hid.length) + ' عمود ظاهر'); KK.toast('اتحفظت الأعمدة', 'success'); render(); } }); } });
+    return btn;
+  }
   function VendorsView() {
     const list = vendorsNow(); const s = D.vendorSummary(list); const sort = SORTS.find((x) => x.value === state.sort);
     const sorted = D.sortVendors(list, sort.key, sort.dir); const T = SEED.vendorTotals;
     const bal = (n) => h('span', { class: n > 0 ? 'pos' : n < 0 ? 'neg' : '' }, num(D.formatMoney(n)));
     const vOpenName = (l) => (i) => { const v = vstore.findByName(l[i].name); if (v) { go('vendors'); openVendor(v.id); } };
     const accVDet = (k) => { const l = k === 'pos' ? sorted.filter((v) => v.balance > 0) : k === 'neg' ? sorted.filter((v) => v.balance < 0) : k === 'dep' ? sorted.filter((v) => v.deposits > 0) : sorted;
-      const t = { all: 'الموردين — ' + s.count, pos: 'رصيد الموردين — ' + D.formatMoney(s.positive) + ' ج.م', neg: 'رصيد عند الموردين — ' + D.formatMoney(s.negative) + ' ج.م', dep: 'العرابين — ' + D.formatMoney(s.deposits) + ' ج.م' }[k];
-      return { title: t, sub: 'سبتمبر 2026 · اضغط على أي مورد يفتح ملفه', summary: [{ label: 'موردين', value: String(l.length) }, { label: 'الرصيد', value: D.formatMoney(l.reduce((x, v) => x + v.balance, 0)) + ' ج.م' }, { label: 'العرابين', value: D.formatMoney(l.reduce((x, v) => x + v.deposits, 0)) + ' ج.م' }], headers: ['المورد', 'النسبة', 'مكتمل', 'قيد التنفيذ', 'ملغي', 'العرابين', 'الرصيد'], rows: l.map((v) => [v.name, v.pct, String(v.c[0]), String(v.p[0]), String(v.x[0]), D.formatMoney(v.deposits), D.formatMoney(v.balance)]), total: ['الإجمالي', '—', String(l.reduce((x, v) => x + v.c[0], 0)), String(l.reduce((x, v) => x + v.p[0], 0)), String(l.reduce((x, v) => x + v.x[0], 0)), D.formatMoney(l.reduce((x, v) => x + v.deposits, 0)), D.formatMoney(l.reduce((x, v) => x + v.balance, 0))], onRow: vOpenName(l), source: 'تاب حسابات الموردين ← سبتمبر 2026' }; };
+      const t = { all: 'المبتكرين — ' + s.count, pos: 'رصيد المبتكرين — ' + D.formatMoney(s.positive) + ' ج.م', neg: 'رصيد عند المبتكرين — ' + D.formatMoney(s.negative) + ' ج.م', dep: 'العرابين — ' + D.formatMoney(s.deposits) + ' ج.م' }[k];
+      return { title: t, sub: periodText() + ' · اضغط على أي مبتكر يفتح ملفه', summary: [{ label: 'مبتكرين', value: String(l.length) }, { label: 'الرصيد', value: D.formatMoney(l.reduce((x, v) => x + v.balance, 0)) + ' ج.م' }, { label: 'العرابين', value: D.formatMoney(l.reduce((x, v) => x + v.deposits, 0)) + ' ج.م' }], headers: ['المبتكر', 'النسبة', 'مكتمل', 'قيد التنفيذ', 'ملغي', 'العرابين', 'الرصيد'], rows: l.map((v) => [v.name, v.pct, String(v.c[0]), String(v.p[0]), String(v.x[0]), D.formatMoney(v.deposits), D.formatMoney(v.balance)]), total: ['الإجمالي', '—', String(l.reduce((x, v) => x + v.c[0], 0)), String(l.reduce((x, v) => x + v.p[0], 0)), String(l.reduce((x, v) => x + v.x[0], 0)), D.formatMoney(l.reduce((x, v) => x + v.deposits, 0)), D.formatMoney(l.reduce((x, v) => x + v.balance, 0))], onRow: vOpenName(l), source: 'حسابات المبتكرين ← ' + periodText() }; };
     const tA = trAll(); const trOf = (n) => trVendor(n).total;
-    return [notSeptNote(),
+    return [liveNote(),
       h('div', { class: 'cards five' },
-        U.CategoryCard({ tone: 'brand', name: 'عدد الموردين', value: s.count, unit: 'مورد', decimals: false, details: () => accVDet('all') }),
-        U.CategoryCard({ tone: 'gold', name: 'رصيد الموردين', value: s.positive, sub: s.positiveCount + ' موردين', details: () => accVDet('pos') }),
-        U.CategoryCard({ tone: 'neutral', name: 'رصيد عند الموردين', value: s.negative, sub: s.negativeCount + ' موردين', details: () => accVDet('neg') }),
+        U.CategoryCard({ tone: 'brand', name: 'عدد المبتكرين', value: s.count, unit: 'مبتكر', decimals: false, details: () => accVDet('all') }),
+        U.CategoryCard({ tone: 'gold', name: 'رصيد المبتكرين', value: s.positive, sub: s.positiveCount + ' مبتكرين', details: () => accVDet('pos') }),
+        U.CategoryCard({ tone: 'neutral', name: 'رصيد عند المبتكرين', value: s.negative, sub: s.negativeCount + ' مبتكرين', details: () => accVDet('neg') }),
         U.CategoryCard({ tone: 'goldlight', name: 'إجمالي العرابين', value: s.deposits, sub: h('span', null, 'صافي ', num(D.formatMoney(s.net))), details: () => accVDet('dep') }),
-        U.CategoryCard({ tone: 'neutral', name: 'مواصلات الموردين', value: tA.vendors, sub: tA.vendorTrips + ' مشوار · ' + tA.vendorCount + ' موردين', details: () => transportDetails('') })),
-      TableCard({ title: 'حسابات الموردين — سبتمبر 2026', body: U.Table({ cls: 'vendors-table',
-        headers: ['المورد', 'نسبة إبتكر', 'مكتمل — عدد', 'مكتمل — حصة إبتكر', 'قيد التنفيذ — عدد', 'قيد التنفيذ — حصة إبتكر', 'ملغي — عدد', 'ملغي — حصة إبتكر', 'إجمالي العرابين', 'المواصلات', 'الرصيد الحالي'],
-        rows: sorted.map((v) => [h('span', { class: 'vname-cell' }, h('span', { dir: 'auto' }, v.name), Button({ type: 'text', size: 'sm', icon: 'chart', label: 'تقرير', attrs: { 'aria-label': 'تقرير ' + v.name, 'data-vreport': v.name }, onClick: (e) => { e.stopPropagation(); openVendorReport(v.name); } })), num(v.pct), num(String(v.c[0])), num(D.formatMoney(v.c[2])), num(String(v.p[0])), num(D.formatMoney(v.p[2])), num(String(v.x[0])), num(D.formatMoney(v.x[2])), num(D.formatMoney(v.deposits)), num(D.formatMoney(trOf(v.name))), bal(v.balance)]),
-        totalRow: ['الإجمالي', '—', num(String(T.c[0])), num(D.formatMoney(T.c[2])), num(String(T.p[0])), num(D.formatMoney(T.p[2])), num(String(T.x[0])), num(D.formatMoney(T.x[2])), num(D.formatMoney(s.deposits)), num(D.formatMoney(tA.vendors)), bal(s.net)] }) }),
-      sourceNote('المصدر: Ibtekr_Accounts_September_monthly_report ← تاب حسابات الموردين ← سبتمبر 2026 · العدد = أوردرات رئيسية مميزة لكل مورد وقد يتجاوز الإجمالي · «قيد التنفيذ» = تحت التجهيز + في الشحن + جاهز للشحن · المواصلات = مشاوير كل مورد من البداية (شيت Logistics expenses، ' + trPeriod(tA) + ') ومش بتتخصم من الرصيد'),
+        U.CategoryCard({ tone: 'neutral', name: 'مواصلات المبتكرين', value: tA.vendors, sub: tA.vendorTrips + ' مشوار · ' + tA.vendorCount + ' مبتكرين', details: () => transportDetails('') })),
+      (() => {
+        const wdTag = (v) => { const r = wdOf(v.name); return h('button', { type: 'button', class: 'tg tg-' + (r ? (r.status === 'approved' ? 'success' : 'orange') : 'neutral') + ' wd-cell', 'data-wd': v.name, 'aria-label': 'طلب سحب ' + v.name + ': ' + (r ? 'يوجد' : 'لا يوجد'), onClick: (e) => { e.stopPropagation(); openAccountBrief(v.name); } }, r ? 'يوجد' : 'لا يوجد'); };
+        const rowMenu = (v) => { const r = wdOf(v.name); const KK = window.IBKit;
+          const openFile = () => { const vv = vstore.findByName(v.name); if (vv) { go('vendors'); openVendor(vv.id); } else { setNote({ kind: 'warning', text: 'المبتكر ده مش مسجّل في صفحة المبتكرين.' }); render(); } };
+          return KK.RowMenu([{ label: 'تقرير مختصر', icon: 'chart', run: () => openAccountBrief(v.name) },
+            { label: 'التقرير الكامل', icon: 'file', run: () => openVendorReport(v.name) },
+            r ? { label: 'طلب السحب (' + VD.wdLabel(r.status) + ')', icon: 'download', run: () => openAccountBrief(v.name) } : null,
+            makerId(v.name) ? { label: 'كشف حساب Dokan', icon: 'file', run: () => openStatement(v.name, makerId(v.name)) } : null,
+            { label: 'افتح ملف المبتكر', icon: 'users', run: openFile }].filter(Boolean), 'إجراءات ' + v.name);
+        };
+        const CELL = { name: (v) => h('span', { class: 'vname-cell' }, h('span', { dir: 'auto' }, v.name), Button({ type: 'text', size: 'sm', icon: 'chart', label: 'تقرير', attrs: { 'aria-label': 'تقرير ' + v.name, 'data-vreport': v.name }, onClick: (e) => { e.stopPropagation(); openVendorReport(v.name); } })),
+          pct: (v) => num(v.pct), cN: (v) => num(String(v.c[0])), cV: (v) => num(D.formatMoney(v.c[2])), pN: (v) => num(String(v.p[0])), pV: (v) => num(D.formatMoney(v.p[2])),
+          xN: (v) => num(String(v.x[0])), xV: (v) => num(D.formatMoney(v.x[2])), dokan: (v) => (v.dokanBalance == null ? '—' : num(D.formatMoney(v.dokanBalance))), dep: (v) => num(D.formatMoney(v.deposits)), tr: (v) => num(D.formatMoney(trOf(v.name))), wd: wdTag, bal: (v) => bal(v.balance), act: rowMenu };
+        const TOT = { name: 'الإجمالي', pct: '—', cN: num(String(T.c[0])), cV: num(D.formatMoney(T.c[2])), pN: num(String(T.p[0])), pV: num(D.formatMoney(T.p[2])), xN: num(String(T.x[0])), xV: num(D.formatMoney(T.x[2])),
+          dokan: num(D.formatMoney(D.round2(sorted.reduce((t, v) => t + (v.dokanBalance || 0), 0)))), dep: num(D.formatMoney(s.deposits)), tr: num(D.formatMoney(tA.vendors)), wd: num(String(sorted.filter((v) => wdOf(v.name)).length)) + ' طلب', bal: bal(s.net), act: '' };
+        const cols = VCOLS.filter(([k]) => vcolOn(k));
+        return TableCard({ title: 'حسابات المبتكرين — ' + periodText(), count: sorted.length + ' مبتكر · ' + sorted.filter((v) => wdOf(v.name)).length + ' طلب سحب', action: vcolButton(),
+          body: U.Table({ cls: 'vendors-table', headers: cols.map(([, lb]) => lb), rows: sorted.map((v) => cols.map(([k]) => CELL[k](v))), totalRow: cols.map(([k]) => TOT[k]) }) });
+      })(),
+      sourceNote('المصدر: الأوردرات (السيستم، حسب تاريخ الأوردر في الفترة) + رصيد Dokan وطلبات السحب (قراءة بس، بيتحدّث كل ساعة) + العرابين والمواصلات المتسجلة هنا · الصافي = رصيد Dokan − العرابين − المواصلات ± الحركات التانية · «قيد التنفيذ» = جاري التنفيذ + جاهز للشحن + قيد الشحن'),
     ].filter(Boolean);
   }
 
@@ -1100,17 +1301,17 @@
       h('div', { class: 'cards five' }, U.CategoryCard({ tone: 'goldlight', name: 'إجمالي الرصيد الفعلي', value: totalActual, pct: totalActual === 0 ? 0 : 1, caption: 'من إجمالي الرصيد الفعلي', details: () => ({ title: 'إجمالي الرصيد الفعلي — ' + D.formatMoney(totalActual) + ' ج.م', sub: 'الأرصدة الحالية لكل حساب · الرصيد المتوقع ' + D.formatMoney(P.total) + ' ج.م', summary: [{ label: 'الفعلي', value: D.formatMoney(P.actual) + ' ج.م' }, { label: 'حصة إبتكر قيد التنفيذ', value: D.formatMoney(P.inProgress) + ' ج.م' }, { label: 'العرابين', value: D.formatMoney(P.deposits) + ' ج.م' }, { label: 'المتوقع', value: D.formatMoney(P.total) + ' ج.م' }], headers: ['الحساب', 'الرصيد', 'النسبة', 'حركات في الفترة'], rows: D.ACCOUNTS.map((a) => [names[a], D.formatMoney(acc[a]), D.formatPct(totalActual ? acc[a] / totalActual : 0), String(moves.filter((m) => m.account === a).length)]), total: ['الإجمالي', D.formatMoney(totalActual), '100.0%', String(moves.length)], source: 'تاب الحساب الفعلي' }) }),
         D.ACCOUNTS.map((a) => U.CategoryCard({ tone: tones[a], name: names[a], value: acc[a], pct: totalActual === 0 ? 0 : acc[a] / totalActual, caption: 'من إجمالي الرصيد الفعلي', details: () => { const l = moves.filter((m) => m.account === a); return { title: names[a] + ' — ' + D.formatMoney(acc[a]) + ' ج.م', sub: D.formatPct(totalActual ? acc[a] / totalActual : 0) + ' من إجمالي الرصيد الفعلي · حركات الفترة', summary: [{ label: 'الرصيد', value: D.formatMoney(acc[a]) + ' ج.م' }, { label: 'إيداع', value: D.formatMoney(l.filter((m) => m.direction === 'deposit').reduce((x, m) => x + m.amount, 0)) + ' ج.م' }, { label: 'سحب', value: D.formatMoney(l.filter((m) => m.direction !== 'deposit').reduce((x, m) => x + m.amount, 0)) + ' ج.م' }], headers: ['التاريخ', 'العملية', 'البيان', 'المبلغ'], rows: l.map((m) => [num(D.formatDateNumeric(m.date)), m.direction === 'deposit' ? 'إيداع' : 'سحب', m.note || m.typeName || '—', D.formatMoney(m.amount)]), empty: 'مفيش حركات مسجّلة على الحساب ده في الفترة — الرصيد من الشيت.', source: 'تاب الحساب الفعلي' }; } }))),
       TableCard({ title: 'الرصيد المتوقع', body: U.Table({ headers: ['البند', 'المبلغ (ج.م)', 'النسبة من المتوقع'],
-        rows: [['الرصيد الفعلي', num(D.formatMoney(P.actual)), num(D.formatPct(P.shares.actual))], ['حصة إبتكر من الأوردرات قيد التنفيذ', num(D.formatMoney(P.inProgress)), num(D.formatPct(P.shares.inProgress))], ['العرابين المدفوعة للموردين', num(D.formatMoney(P.deposits)), num(D.formatPct(P.shares.deposits))]],
+        rows: [['الرصيد الفعلي', num(D.formatMoney(P.actual)), num(D.formatPct(P.shares.actual))], ['حصة إبتكر من الأوردرات قيد التنفيذ', num(D.formatMoney(P.inProgress)), num(D.formatPct(P.shares.inProgress))], ['العرابين المدفوعة للمبتكرين', num(D.formatMoney(P.deposits)), num(D.formatPct(P.shares.deposits))]],
         totalRow: ['الرصيد المتوقع', num(D.formatMoney(P.total)), num('100.0%')] }) }),
       TableCard({ title: 'سجل الحساب التفصيلي', count: moves.length + (moves.length === 1 ? ' حركة' : ' حركات') + (outside ? ' · ' + outside + ' خارج الفترة' : ''), body: moves.length === 0 ? U.EmptyState('لسه مفيش حركات مسجّلة', 'اضغط «إضافة مبلغ» وسجّل أول إيداع أو سحب، وهيظهر هنا.') :
         U.Table({ headers: ['التاريخ', 'نوع الحساب', 'العملية', 'المبلغ (ج.م)', ''], rows: moves.map((m) => [num(D.formatDateNumeric(m.date)), m.account, m.direction === 'deposit' ? 'إيداع' : 'سحب',
           h('span', { class: m.direction === 'deposit' ? 'pos' : 'neg' }, num((m.direction === 'deposit' ? '+' : '-') + D.formatMoney(m.amount))), RowActions('accountMoves', m, (r) => deleteRec('accountMoves', r))]) }) }),
-      sourceNote('المصدر: Ibtekr_Accounts_September_monthly_report ← تاب الحساب الفعلي ← الرصيد الحالي · الرصيد المتوقع = الرصيد الفعلي + حصة إبتكر من الأوردرات قيد التنفيذ + العرابين المدفوعة للموردين'),
+      sourceNote('المصدر: حركات الحساب الفعلي المتسجلة في السيستم (الرصيد الافتتاحي صفر لحد الاستيراد) · الرصيد المتوقع = الرصيد الفعلي + حصة إبتكر من الأوردرات قيد التنفيذ + العرابين المدفوعة للمبتكرين'),
     ];
   }
 
   // ---------- render ----------
-  const VIEWS = { expenses: ExpensesView, sales: SalesView, vendors: VendorsView, actual: ActualView };
+  const VIEWS = { expenses: ExpensesView, sales: SalesView, vendors: VendorsView, actual: ActualView, 'moves-log': MovesLogView };
   let focusTab = false;
   // ---------- Reports page (Figma: التقارير — Desktop 1440 / Mobile 360) ----------
   const R = window.IbtekrReports;
@@ -2185,15 +2386,15 @@
   }
 
   function render() {
-    U.closePopover();
+    U.closePopover(); refreshSeed();
     const main = document.getElementById('main'); const sc = window.scrollY;
-    const note = state.note; state.note = null;
+    const note = state.note; state.note = null; shownNote = note;
     const tabs = U.Tabs({ items: TABS, active: state.tab, onChange: (id, viaKey) => { state.tab = id; try { history.replaceState(null, '', '#' + id); } catch (e) { /* sandboxed */ } focusTab = !!viaKey; render(); } });
     const noteEl = note ? U.InlineNote({ kind: note.kind, children: note.text, action: note.undo ? Button({ type: 'text', size: 'sm', label: 'تراجع', onClick: note.undo }) : IconButton({ icon: 'close', label: 'إخفاء', onClick: () => { noteEl.remove(); } }) }) : null;
     main.replaceChildren(...[
-      h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'المصروفات · المبيعات · حسابات الموردين · الحساب الفعلي')), h('div', { class: 'actions' }, window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
+      h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'المصروفات · المبيعات · حسابات المبتكرين · الحساب الفعلي · سجل الحركات')), h('div', { class: 'actions' }, window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
       tabs,
-      h('div', { class: 'toolbar' }, DateRangeField(), state.tab === 'vendors' ? SortDropdown() : null, h('span', { class: 'grow' }), state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'vendors' ? AddMenu('إضافة مبلغ', 'vendorMoves') : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
+      state.tab === 'moves-log' ? null : h('div', { class: 'toolbar' }, DateRangeField(), state.tab === 'vendors' ? SortDropdown() : null, h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'vendors' ? AddMenu('إضافة مبلغ', 'vendorMoves') : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
       noteEl,
       h('div', { id: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.tab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, VIEWS[state.tab]())].filter(Boolean));
     window.scrollTo(0, sc);

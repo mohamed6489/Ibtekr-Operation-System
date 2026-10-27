@@ -37,7 +37,7 @@ test('dashboard.customize is sent', async () => {
   const { log, calls, A } = load();
   await log('dashboard.customize', '7 كارت');
   assert.deepEqual(calls, [{ fn: 'log_activity', args: { action: 'dashboard.customize', entity: null, entity_id: null, old_value: null, new_value: '7 كارت' } }]);
-  assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_PREFIXES)), ['auth.', 'dashboard.', 'profile.2fa.', 'vendor.']);
+  assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_PREFIXES)), ['auth.', 'dashboard.', 'profile.2fa.', 'vendor.', 'accounts.']);
 });
 
 test('the orders writes IBOrders logs are sent by name; block 22\'s demo order.* / suborder.* events are not', async () => {

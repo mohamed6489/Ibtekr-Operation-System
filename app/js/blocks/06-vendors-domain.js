@@ -331,6 +331,22 @@
     return { balance: Number(balance) || 0, orders: st.size, completed: cnt((x) => x === 'مكتمل'), cancelled: cnt((x) => x === 'ملغي'), value: Math.round(rows.reduce((t, r) => t + r.tot, 0) * 100) / 100, rows };
   }
   const money2 = (n) => (n < 0 ? '-' : '') + Math.abs(n).toFixed(2).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+  // ---- طلبات السحب (owner 27 Oct; phase 4: read from Dokan — dokan_withdrawals — the statuses are Dokan's) ----
+  const WD_STATUS = Object.freeze([['pending', 'مستني الموافقة'], ['approved', 'اتوافق عليه'], ['paid', 'اتحوّل'], ['rejected', 'مرفوض'], ['cancelled', 'اتلغى']]);
+  const wdLabel = (k) => (WD_STATUS.find((x) => x[0] === k) || [, k])[1];
+  // ملخص الحساب للتقرير المختصر: أرقام الأوردرات + العرابين + المواصلات + الرصيد الحالي
+  function accountBrief({ name, report, deposits, transport, balance, request }) {
+    const oids = [...new Set((report.rows || []).map((r) => r.oid))];
+    const value = Math.round((report.value || 0) * 100) / 100;
+    const net = Math.round(((Number(balance) || 0)) * 100) / 100;
+    return { name, orders: oids.length, oids, rows: report.rows || [], value, completed: report.completed || 0, cancelled: report.cancelled || 0,
+      deposits: Math.round((Number(deposits) || 0) * 100) / 100, transport: Math.round((Number(transport) || 0) * 100) / 100, balance: net,
+      payable: Math.max(0, net), request: request || null, hasRequest: !!request };
+  }
+  // the latest open request of a maker (pending / approved) among Dokan's, or null
+  const openRequest = (list, vendorId) => (list || []).filter((w) => w.vendorId === vendorId && (w.status === 'pending' || w.status === 'approved'))
+    .sort((a, b) => (String(a.at) < String(b.at) ? 1 : String(a.at) > String(b.at) ? -1 : Number(b.id) - Number(a.id)))[0] || null;
+
   function vendorReportText(name, r) {
     return ['تقرير ' + name, 'الرصيد: ' + money2(r.balance) + ' ج.م', 'مكتمل: ' + r.completed + ' · ملغي: ' + r.cancelled + ' · إجمالي الأوردرات: ' + r.orders]
       .concat(r.rows.map((x) => '• #' + x.oid + ' · ' + x.prod + ' · ' + money2(x.tot) + ' · ' + x.status), ['الإجمالي: ' + money2(r.value) + ' ج.م']).join('\n');
@@ -454,6 +470,6 @@
     return e;
   }
 
-  return Object.freeze({ BANK_ACCOUNT_TYPES, ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, categoryTree, categoryFigures, categoryPath, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
+  return Object.freeze({ WD_STATUS, wdLabel, accountBrief, openRequest, BANK_ACCOUNT_TYPES, ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, categoryTree, categoryFigures, categoryPath, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
 });
 

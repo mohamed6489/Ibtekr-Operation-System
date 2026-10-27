@@ -7,7 +7,7 @@
 (function () {
   'use strict';
   let meRow = null; let rolesById = {};
-  const toMember = (p, roleName, codeOf) => ({ id: p.member_code, name: p.name, role: roleName[p.role_id] || '', title: p.title || '', dept: p.dept || '', manager: codeOf[p.manager_id] || '', phone: p.phone || '', email: p.email, status: p.status, twofa: !!p.twofa,
+  const toMember = (p, roleName, codeOf) => ({ id: p.member_code, uid: p.id, name: p.name, role: roleName[p.role_id] || '', title: p.title || '', dept: p.dept || '', manager: codeOf[p.manager_id] || '', phone: p.phone || '', email: p.email, status: p.status, twofa: !!p.twofa,
     salary: 0, holdback: 0, allow: 0, leave: 0, used: 0, shift: ['09:00', '17:00'] }); // HR numbers arrive with the HR phase
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
   async function load() {
@@ -24,8 +24,9 @@
     document.dispatchEvent(new Event('ib:directory'));
     // only for an active member (K.ME is theirs now); a suspended or missing profile is signed out by the caller
     if (!meRow || meRow.status !== 'active') return;
-    const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity, Or = window.IBOrders, V = window.IBVendors;
+    const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity, Or = window.IBOrders, V = window.IBVendors, Ac = window.IBAccounts;
     await Promise.allSettled([P && P.load(), A && A.load(), L && L.refresh && L.refresh(), Or && Or.load(), V && V.load()]);
+    if (Ac) await Promise.allSettled([Ac.load()]); // phase 4: after the makers (the moves carry their names)
     if (A) quiet(() => A.subscribe());
     if (Or) quiet(() => Or.subscribe());
   }
@@ -33,8 +34,9 @@
   function clear() {
     const K = window.IBKit; if (K && K.store && K.store.members) K.store.members.length = 0;
     meRow = null; rolesById = {};
-    const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity, Or = window.IBOrders, V = window.IBVendors;
+    const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity, Or = window.IBOrders, V = window.IBVendors, Ac = window.IBAccounts;
     if (P) quiet(() => P.clear());
+    if (Ac) quiet(() => Ac.clear());
     if (A) { quiet(() => A.unsubscribe()); quiet(() => A.clear()); }
     if (L && L.clear) quiet(() => L.clear());
     if (Or) quiet(() => Or.clear()); // unsubscribes too

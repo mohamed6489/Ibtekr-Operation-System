@@ -15,7 +15,7 @@
 // sign-out window). Read errors give [] and are never thrown.
 (function () {
   'use strict';
-  const LOGGED_PREFIXES = ['auth.', 'dashboard.', 'profile.2fa.', 'vendor.'];
+  const LOGGED_PREFIXES = ['auth.', 'dashboard.', 'profile.2fa.', 'vendor.', 'accounts.']; // accounts.: phase 4 (accounts.js)
   const LOGGED_ACTIONS = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating']; // orders.js
   let rows = null;
   const forwarded = (action) => { const a = String(action || ''); return LOGGED_ACTIONS.includes(a) || LOGGED_PREFIXES.some((p) => a.startsWith(p)); };

@@ -215,7 +215,7 @@ test('a role alert from the server reaches the bell and the need card', async ({
   await bellSection(page, 'النظام').click();
   await bellItem(page, 'فشل مزامنة WooCommerce').click();
   await expect.poll(() => mock.alertReads).toEqual([{ alert_id: 1, user_id: ADMIN_ID }]);
-  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#settings-integrations');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard'); // «الإعدادات» is closed (soon, phase 3.6): the dashboard
   await expect.poll(() => bellCount(page)).toBe(total - 1); // the badge no longer counts it
   await page.goto('/#dashboard');
   await expect(card(page, 'need')).toBeVisible();

@@ -33,10 +33,38 @@ const loginError = (page) => page.locator('#login .login-card');
 test('signs in and lands on dashboard', async ({ page }) => {
   await signIn(page, ADMIN.id, ADMIN.pw);
   await expect(page.locator('#root')).toBeVisible();
-  await expect(page.locator('nav.sidebar .nav-item')).toHaveCount(10);
+  await expect(page.locator('nav.sidebar .nav-item')).toHaveCount(12);
   await expect(page).not.toHaveTitle('تسجيل الدخول — نظام إبتكر');
   if (!LIVE) await expect.poll(() => mock.activity.map((a) => a.action)).toContain('auth.signin');
   if (!LIVE) expect(mock.lookups).toEqual([]); // an email goes straight to GoTrue: no lookup RPC
+});
+
+test('the menu: the two new pages in place, every page not started yet closed with «soon» (phase 3.6, plan decision 5)', async ({ page }) => {
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(page.locator('#root')).toBeVisible();
+  const items = page.locator('nav.sidebar .nav-item');
+  expect(await items.locator('> span:not(.soon)').allTextContents()).toEqual(['لوحة التحكم', 'الأوردرات', 'المبتكرين', 'الحسابات', 'المخزون', 'المنتجات', 'خدمة العملاء', 'تذاكر الفريق', 'التقارير', 'التسويق', 'الموارد البشرية', 'الإعدادات']);
+  const soon = page.locator('nav.sidebar .nav-item[data-soon]');
+  expect(await soon.evaluateAll((l) => l.map((e) => e.dataset.page))).toEqual(['accounts', 'inventory', 'products', 'cs', 'tickets', 'reports', 'marketing', 'hr', 'settings']);
+  await expect(soon.locator('.soon')).toHaveText(Array(9).fill('soon'));
+  await expect(soon.first()).toHaveAttribute('aria-disabled', 'true');
+  await expect(page.locator('nav.sidebar .nav-item:not([data-soon])')).toHaveCount(3);
+  // a closed page is not reached by its menu item, nor by a typed hash: the dashboard, with a note
+  await page.locator('nav.sidebar .nav-item[data-page="accounts"]').click({ force: true }); // aria-disabled: a forced press
+  await expect(page.locator('#pg-dashboard')).toBeVisible();
+  for (const hs of ['accounts', 'expenses', 'reports-orders', 'tickets', 'inventory', 'settings-integrations', 'hr']) {
+    await page.evaluate((x) => { location.hash = x; }, hs);
+    await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
+    await expect(page.locator('#pg-dashboard')).toBeVisible();
+    await expect(page.locator('#main')).toBeHidden();
+  }
+  await page.goto('/#tickets'); // a fresh load on a closed page
+  await expect(page.locator('#root')).toBeVisible();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
+  await page.locator('nav.sidebar .nav-item[data-page="orders"]').click(); // the open pages still open
+  await expect(page.locator('#orders')).toBeVisible();
+  await page.evaluate(() => { location.hash = 'profile'; });
+  await expect(page.locator('#pg-profile')).toBeVisible();
 });
 
 test('arabic-digit phone identifier works', async ({ page }) => {
@@ -52,7 +80,7 @@ test('session survives a reload', async ({ page }) => {
   await expect(page.locator('#root')).toBeVisible();
   await page.reload();
   await expect(page.locator('#root')).toBeVisible();
-  await expect(page.locator('nav.sidebar .nav-item')).toHaveCount(10);
+  await expect(page.locator('nav.sidebar .nav-item')).toHaveCount(12);
   await expect(page.locator('#login')).toHaveCount(0);
 });
 

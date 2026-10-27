@@ -96,7 +96,7 @@ test('enrol with the authenticator app, then the next sign-in asks for the code'
   await expect(title(page)).toHaveText('التحقق بخطوتين');
   expect(mock.requests.filter((r) => r.includes('/rest/v1/profiles'))).toHaveLength(before); // nothing loaded before aal2
   await code(page);
-  await expect(page.locator('nav.sidebar .nav-item')).toHaveCount(10);
+  await expect(page.locator('nav.sidebar .nav-item')).toHaveCount(12);
   await expect(page.locator('.topbar .user-btn')).toContainText('سارة أحمد');
 });
 

@@ -255,6 +255,21 @@ Deno.test('probe_store: the field names of one store and nothing else — no val
   assertEquals(r3.res.status, 401);
 });
 
+Deno.test('probe_dokan: shapes of the named dokan/ GET paths only — route names for an index, no value, bad paths dropped; admin only', async () => {
+  const wd = { id: 7, amount: '1500.00', method: 'bank', note: 'سحب', user: { id: 44, store_name: 'متجر' } };
+  const { woo, deps } = setup({ routes: { 'GET dokan/v1': { body: { namespace: 'dokan/v1', routes: { '/dokan/v1/withdraw': {}, '/dokan/v1/stores': {} } } }, 'GET dokan/v1/withdraw': page([wd]) } });
+  const { res, body } = await call(deps, { action: 'probe_dokan', paths: ['dokan/v1', 'dokan/v1/withdraw', 'wc/v3/orders', 'dokan/v1/../x', 'dokan/v1/missing'] }, { jwt: 'jwt-admin' });
+  assertEquals(res.status, 200);
+  assertEquals(Object.keys(body.paths), ['dokan/v1', 'dokan/v1/withdraw', 'dokan/v1/missing']); // wc/ and dot segments dropped
+  assertEquals(body.paths['dokan/v1'], { status: 200, routes: ['/dokan/v1/stores', '/dokan/v1/withdraw'] });
+  assertEquals(body.paths['dokan/v1/withdraw'].shape, { array: 1, item: { amount: 'string:filled', id: 'number', method: 'string:filled', note: 'string:filled', user: { id: 'number', store_name: 'string:filled' } } });
+  assertEquals(body.paths['dokan/v1/missing'].status, 404);
+  assertFalse(JSON.stringify(body).includes('1500') || JSON.stringify(body).includes('متجر') || JSON.stringify(body).includes('سحب'));
+  assert(woo.calls.every((c) => c.method === 'GET'));
+  assertEquals((await call(deps, { action: 'probe_dokan', paths: ['wc/v3/orders'] }, { jwt: 'jwt-admin' })).res.status, 400);
+  assertEquals((await call(deps, { action: 'probe_dokan', paths: ['dokan/v1'] }, { jwt: 'jwt-ops' })).res.status, 401);
+});
+
 // ---------------------------------------------------------------- vendors / products / all
 
 Deno.test('vendors: a new store is inserted whole (the phase-3.3 columns, its first snapshot, the site\'s rate as a vendor_rates row); an existing one goes through the store sync — the team\'s aliases / category / rate stay; no Authorization on dokan/', async () => {

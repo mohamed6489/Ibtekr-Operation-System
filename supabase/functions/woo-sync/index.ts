@@ -58,7 +58,7 @@ export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetc
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
-const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store'];
+const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan'];
 const STATES_PATH = 'wc/v3/data/countries/EG'; // a wc/ path: the WC keys authenticate it
 const CATEGORIES_PATH = 'wc/v3/products/categories';
 const RATE_FIELDS = ['rate', 'category_rates'];
@@ -331,6 +331,34 @@ async function probeStore(run: Run, args: Json) {
   });
 }
 
+// ---------------------------------------------------------------- probe_dokan (phase 4 preparation)
+
+// What Dokan exposes about the makers' accounts (balances, withdrawals, earnings, reports), read-only and as shapes: the
+// admin names up to 10 GET paths under dokan/ (no query string, no dot segments); each answers { status, shape } — a route
+// index ({ routes }) answers its route names only. No value ever leaves (strings → filled / empty, numbers → 'number').
+const DOKAN_PATH = /^dokan\/v[0-9]+(\/[A-Za-z0-9_-]+)*$/;
+const shapeOf = (v: unknown, depth = 0): unknown => {
+  if (Array.isArray(v)) return { array: v.length, item: v.length && depth < 4 ? shapeOf(v[0], depth + 1) : undefined };
+  if (isObj(v)) return depth < 4 ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, shapeOf(v[k], depth + 1)])) : 'object';
+  if (typeof v === 'string') return v.trim() ? 'string:filled' : 'string:empty';
+  return v === null ? 'null' : typeof v;
+};
+async function probeDokan(run: Run, args: Json) {
+  const paths = Array.isArray(args.paths) ? args.paths.filter((p: unknown): p is string => typeof p === 'string' && DOKAN_PATH.test(p)).slice(0, 10) : [];
+  if (!paths.length) return json(400, { error: 'bad_request' });
+  const woo = run.woo();
+  const out: Json = {};
+  for (const path of paths) {
+    try {
+      const { data, total } = await woo.get(path, { per_page: 1, page: 1 });
+      out[path] = isObj(data) && isObj(data.routes) ? { status: 200, routes: Object.keys(data.routes).sort() } : { status: 200, total, shape: shapeOf(data) };
+    } catch (e) {
+      out[path] = { status: e instanceof WooError ? e.status : 0 };
+    }
+  }
+  return json(200, { action: 'probe_dokan', auth: woo.hasDokanAuth, paths: out });
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -356,6 +384,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'push_vendor') return await pushVendor(run, args);
     if (action === 'register_webhooks') return await registerWebhooks(run, args);
     if (action === 'probe_store') return await probeStore(run, args);
+    if (action === 'probe_dokan') return await probeDokan(run, args);
     return await pull(run, action);
   } catch (e) {
     const isPush = action === 'push_status' || action === 'push_vendor';

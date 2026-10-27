@@ -38,7 +38,10 @@
     return s.join('');
   }
   function suggestUsername(name, taken) { const base = latin(name).toLowerCase().replace(/[^a-z0-9]+/g, '.').replace(/^\.+|\.+$/g, '').slice(0, 24) || 'maker'; let u = base.length < 3 ? base + '.ib' : base; let i = 2; while (taken && taken(u)) u = base + i++; return u; }
-  const ibanOk = (x) => /^EG\d{27}$/.test(x) || /^\d{8,20}$/.test(x);
+  const ibanOk = (x) => /^EG\d{27}$/.test(x); // phase 3.5: the IBAN alone (an account number has its own field)
+  // phase 3.5 (plan decision 6): Dokan's bank fields — the account type as Dokan's form offers it, SWIFT 8 / 11
+  const BANK_ACCOUNT_TYPES = Object.freeze([['personal', 'شخصي (Personal)'], ['business', 'شركة (Business)']]);
+  const swiftOk = (x) => /^[A-Z]{6}[A-Z0-9]{2}([A-Z0-9]{3})?$/.test(x);
   function validateLogin(l) {
     const e = {}; const u = String(l.username || '').trim().toLowerCase();
     if (!u) e.username = 'اكتب اسم المستخدم'; else if (!userOk(u)) e.username = 'من 3 لـ 30: حروف إنجليزي صغيرة وأرقام و . _ بس';
@@ -50,7 +53,16 @@
     const e = {}; const m = b.method; if (!PAY_METHODS.some((x) => x[0] === m)) { e.method = 'اختار طريقة التحويل'; return e; }
     if (m === 'cash') return e;
     if (!clean(b.holder, 120)) e.holder = 'اكتب اسم صاحب الحساب زي ما هو في البنك';
-    if (m === 'bank') { if (!clean(b.bankName, 80)) e.bankName = 'اكتب اسم البنك'; const ib = latin(b.iban || '').replace(/\s/g, '').toUpperCase(); if (!ib) e.iban = 'اكتب IBAN أو رقم الحساب'; else if (!ibanOk(ib)) e.iban = 'IBAN مصري = EG + 27 رقم، أو رقم حساب من 8 لـ 20 رقم'; }
+    if (m === 'bank') {
+      if (!clean(b.bankName, 80)) e.bankName = 'اكتب اسم البنك';
+      const an = latin(b.accountNumber || '').replace(/[\s-]/g, ''); const ib = latin(b.iban || '').replace(/\s/g, '').toUpperCase();
+      if (!an && !ib) e.accountNumber = 'اكتب رقم الحساب أو الـ IBAN';
+      else if (an && !/^\d{6,34}$/.test(an)) e.accountNumber = 'رقم الحساب أرقام بس (من 6 لـ 34 رقم)';
+      if (ib && !ibanOk(ib)) e.iban = 'IBAN مصري = EG + 27 رقم';
+      const sw = latin(b.swift || '').replace(/\s/g, '').toUpperCase(); if (sw && !swiftOk(sw)) e.swift = 'SWIFT = 8 أو 11 حرف ورقم (زي NBEGEGCX)';
+      const rt = latin(b.routingNumber || '').replace(/[\s-]/g, ''); if (rt && !/^\d{1,20}$/.test(rt)) e.routingNumber = 'رقم التوجيه أرقام بس';
+      if (clean(b.bankAddress, 400).length > 200) e.bankAddress = 'عنوان البنك أطول من 200 حرف';
+    }
     else { const w = latin(b.wallet || '').replace(/[\s-]/g, ''); if (!w) e.wallet = m === 'instapay' ? 'اكتب رقم الموبايل أو عنوان إنستاباي' : 'اكتب رقم المحفظة'; else if (!(phoneOk(w) || (m === 'instapay' && /^[a-z0-9._-]+@instapay$/i.test(w)))) e.wallet = m === 'instapay' ? 'رقم موبايل (01…) أو عنوان زي name@instapay' : 'رقم موبايل مصري 11 رقم'; }
     return e;
   }
@@ -75,7 +87,7 @@
   const ADDRESS_KEYS = Object.freeze(['street_1', 'street_2', 'city', 'state', 'zip', 'country']);
   const ADDRESS_LABELS = Object.freeze([['street_1', 'الشارع'], ['street_2', 'تكملة العنوان'], ['city', 'المدينة'], ['state', 'المحافظة'], ['zip', 'الرمز البريدي'], ['country', 'الدولة (كود)']]);
   const SOCIAL_KEYS = Object.freeze([['fb', 'فيسبوك'], ['instagram', 'إنستجرام'], ['twitter', 'إكس (تويتر)'], ['youtube', 'يوتيوب'], ['linkedin', 'لينكدإن'], ['pinterest', 'بينترست'], ['threads', 'ثريدز'], ['flickr', 'فليكر']]);
-  const SYNC_FIELD_LABELS = Object.freeze({ name: 'الاسم', phone: 'التليفون', email: 'الإيميل', contact_name: 'اسم صاحب المتجر', address_parts: 'العنوان', social: 'السوشيال', status: 'الحالة', rate: 'النسبة', category_rates: 'عمولة الفئات' });
+  const SYNC_FIELD_LABELS = Object.freeze({ name: 'الاسم', phone: 'التليفون', email: 'الإيميل', contact_name: 'اسم صاحب المتجر', address_parts: 'العنوان', social: 'السوشيال', status: 'الحالة', rate: 'النسبة', category_rates: 'عمولة الفئات', bank: 'الحساب البنكي' });
   const ADDRESS_MAX = Object.freeze({ street_1: 120, street_2: 120, city: 80, state: 80, zip: 20, country: 2 });
   const SOCIAL_MAX = 200;
   // the six keys, every value a cleaned string ('' when absent)
@@ -442,6 +454,6 @@
     return e;
   }
 
-  return Object.freeze({ ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, categoryTree, categoryFigures, categoryPath, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
+  return Object.freeze({ BANK_ACCOUNT_TYPES, ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, categoryTree, categoryFigures, categoryPath, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
 });
 

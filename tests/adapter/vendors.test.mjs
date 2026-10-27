@@ -113,7 +113,7 @@ test('load names every column (no *, no commission_pct), reads the rates and the
   assert.deepEqual(plain(a.contract), { fileName: 'antikiano.pdf', size: 980000, expires: '2026-11-15', uploadedBy: 'منى حسن', uploadedAt: T0, path: CONTRACT.path });
   assert.equal(a.joinedAt, '2026-10-20'); // no joined_at: the created_at date
   const b = S.get(V3);
-  assert.deepEqual(plain([b.status, b.openingBalance, b.rate, b.rateHistory, b.bank]), ['inactive', 150, null, [], { method: 'bank', bankName: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: IBAN, wallet: null }]);
+  assert.deepEqual(plain([b.status, b.openingBalance, b.rate, b.rateHistory, b.bank]), ['inactive', 150, null, [], { method: 'bank', bankName: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: IBAN, wallet: null, accountNumber: null, accountType: null, bankAddress: null, routingNumber: null, swift: null, updatedBy: 'منى حسن' }]);
   assert.deepEqual(plain(S.all().map((v) => v.name)), ['Antikiano', 'Art Craft', 'Bian eg']);
   assert.deepEqual(V.data().ratesVisible, true);
 });
@@ -303,11 +303,11 @@ test('setBank: an insert for the first row, an update (vendor_id) after; the eve
   const { V, S, calls, logs } = load({ admin: false, perms: ACCOUNTS });
   await V.load(); calls.length = 0;
   S.setBank(V1, { method: 'instapay', bankName: ' بنك مصر ', holder: 'Art Craft', iban: 'EG38 0003 0001 0000 0000 0000 0482', wallet: '٠١٠٠٠٠٠٠٠٠٣' }, S.actor());
-  assert.deepEqual(plain(S.get(V1).bank), { method: 'instapay', bankName: 'بنك مصر', holder: 'Art Craft', iban: IBAN, wallet: '01000000003' });
+  assert.deepEqual(plain(S.get(V1).bank), { method: 'instapay', bankName: 'بنك مصر', holder: 'Art Craft', iban: IBAN, wallet: '01000000003', accountNumber: null, accountType: null, bankAddress: null, routingNumber: null, swift: null });
   S.setBank(V3, { method: 'cash' }, S.actor());
   await settle();
   const w = opsOf(calls, 'vendor_bank').filter((c) => ['insert', 'update', 'eq'].includes(c.op));
-  assert.equal(w[0].op, 'insert'); assert.deepEqual({ ...w[0].args[0], updated_at: 'x' }, { vendor_id: V1, method: 'instapay', bank_name: 'بنك مصر', holder: 'Art Craft', iban: IBAN, wallet: '01000000003', updated_by: 'سارة أحمد', updated_at: 'x' });
+  assert.equal(w[0].op, 'insert'); assert.deepEqual({ ...w[0].args[0], updated_at: 'x' }, { vendor_id: V1, method: 'instapay', bank_name: 'بنك مصر', holder: 'Art Craft', iban: IBAN, wallet: '01000000003', account_number: null, account_type: null, bank_address: null, routing_number: null, swift: null, updated_by: 'سارة أحمد', updated_at: 'x' });
   assert.equal(w[1].op, 'update'); assert.deepEqual([w[1].args[0].method, w[1].args[0].vendor_id, w[2]], ['cash', undefined, { op: 'eq', args: ['vendor_id', V3] }]);
   assert.deepEqual(logs, [['vendor.bank', 'instapay', { entity: 'vendor', entity_id: V1 }], ['vendor.bank', 'cash', { entity: 'vendor', entity_id: V3 }]]);
   assert.doesNotMatch(JSON.stringify(logs), /0482/);
@@ -473,7 +473,7 @@ test('create with a login and a bank: vendors → vendor_rates → vendor_logins
   assert.deepEqual(calls.filter((c) => ['insert', 'rpc'].includes(c.op)).map((c) => c.table || c.op), ['vendors', 'vendor_rates', 'vendor_logins', 'rpc', 'vendor_bank']);
   assert.deepEqual(opsOf(calls, 'vendor_logins').find((c) => c.op === 'insert').args[0], { vendor_id: NEW, username: 'zaan', email: 'zaan.dev@ibtekr.local', pw_mode: 'temp', created_by: 'صفوت كمال' }); // created_by: the member's name (review A); pw_mode temp always (26 Oct)
   const b = opsOf(calls, 'vendor_bank').find((c) => c.op === 'insert').args[0];
-  assert.deepEqual({ ...b, updated_at: 'x' }, { vendor_id: NEW, method: 'bank', bank_name: 'بنك مصر', holder: 'Zaan', iban: 'EG380003000100000000000004821', wallet: null, updated_by: 'صفوت كمال', updated_at: 'x' }); // the IBAN upper-cased
+  assert.deepEqual({ ...b, updated_at: 'x' }, { vendor_id: NEW, method: 'bank', bank_name: 'بنك مصر', holder: 'Zaan', iban: 'EG380003000100000000000004821', wallet: null, account_number: null, account_type: null, bank_address: null, routing_number: null, swift: null, updated_by: 'صفوت كمال', updated_at: 'x' }); // the IBAN upper-cased
   assert.deepEqual(logs.map((l) => l[0]), ['vendor.create', 'vendor.rate', 'vendor.login', 'vendor.bank']);
   assert.deepEqual(plain(out.vendor.login), { username: 'zaan', email: 'zaan.dev@ibtekr.local', pwMode: 'temp', status: 'invited', mustChange: true, passwordSetAt: T0, inviteSentAt: null, hasPassword: true });
   // a login without a password is refused before any write (no invite link since 26 Oct)
@@ -496,7 +496,7 @@ test('create with a temporary password: the rpc right after the login insert; th
   await assert.rejects(() => S.create({ ...BASE, login: { username: 'zaan', pwMode: 'temp', password: 'Test1234' + 'x'.repeat(121) } }, S.actor()), /أطول من 128 حرف/);
   await assert.rejects(() => S.create({ ...BASE, login: { username: 'Za', password: TEST_PW } }, S.actor()), /invalid login: username/);
   await assert.rejects(() => S.create({ ...BASE, email: '', login: { username: 'zaan', password: TEST_PW } }, S.actor()), /invalid login: email/);
-  await assert.rejects(() => S.create({ ...BASE, bank: { method: 'bank', holder: '', bankName: '', iban: '' } }, S.actor()), /invalid bank: holder,bankName,iban/);
+  await assert.rejects(() => S.create({ ...BASE, bank: { method: 'bank', holder: '', bankName: '', iban: '' } }, S.actor()), /invalid bank: holder,bankName,accountNumber/);
   assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
   const out = await S.create({ ...BASE, login: { username: 'zaan', pwMode: 'temp', password: TEST_PW } }, S.actor());
   assert.deepEqual(plain([out.vendor.id, out.missing]), [NEW, []]);
@@ -1113,6 +1113,33 @@ test('syncNow (plan 3.4 decision 10): admin only; one woo-sync `vendors` call, t
   assert.equal(ops.S.canSyncNow(), false);
   await assert.rejects(() => ops.S.syncNow(), /مش من صلاحياتك/);
   assert.deepEqual(invokes(ops.calls), []);
+});
+
+test('setBank (3.5): Dokan\'s fields cleaned; a synced maker\'s bank goes to the site as push_vendor [bank] after the row; canPush(bank) = admin or sensitive.vendor_bank = F; the account number revealed is logged by name', async () => {
+  const { V, S, calls, logs, responses } = load({ responses: syncedSeed() });
+  await V.load(); calls.length = 0; responses['fn:woo-sync'] = PUSH_OK;
+  S.setBank(V1, { method: 'bank', holder: ' Art Craft ', bankName: 'بنك مصر', accountNumber: '٠٠٠٠-١١١١ 2222', accountType: 'personal', iban: '', swift: 'nbeg egcx', routingNumber: '', bankAddress: ' عنوان ' }, S.actor());
+  assert.deepEqual(plain(S.get(V1).bank), { method: 'bank', bankName: 'بنك مصر', holder: 'Art Craft', iban: null, wallet: null, accountNumber: '000011112222', accountType: 'personal', bankAddress: 'عنوان', routingNumber: null, swift: 'NBEGEGCX' });
+  await settle();
+  const w = opsOf(calls, 'vendor_bank').filter((c) => c.op === 'insert' || c.op === 'update');
+  assert.equal(w.length, 1);
+  assert.deepEqual([w[0].args[0].account_number, w[0].args[0].swift, w[0].args[0].account_type], ['000011112222', 'NBEGEGCX', 'personal']);
+  assert.deepEqual(invokes(calls), [['woo-sync', { body: { action: 'push_vendor', vendor_id: V1, fields: ['bank'] } }]]);
+  assert.ok(calls.findIndex((c) => c.op === 'invoke') > calls.findIndex((c) => c.table === 'vendor_bank' && (c.op === 'insert' || c.op === 'update')), 'the row first');
+  assert.deepEqual(logs.filter((l) => l[0] === 'vendor.bank').map((l) => l[1]), ['bank'], 'the method only, never a number');
+  assert.equal(S.canPush(['bank']), true);
+  // accounts: sensitive.vendor_bank = F, vendors.edit = N → may push the bank alone, not with a store field
+  const acc = load({ admin: false, perms: { 'vendors.view': 'F', 'vendors.edit': 'N', 'sensitive.vendor_bank': 'F' } });
+  assert.deepEqual([acc.S.canPush(['bank']), acc.S.canPush(['bank', 'name']), acc.S.canPush(['name'])], [true, false, false]);
+  const vf = load({ admin: false, perms: { 'vendors.view': 'F', 'vendors.edit': 'F', 'sensitive.vendor_bank': 'N' } });
+  assert.deepEqual([vf.S.canPush(['bank']), vf.S.canPush(['name'])], [false, true]);
+  // the reveal of the account number is logged once, by the field's name (before the reload replaces the row with the stub's)
+  S.setBank(V2, { method: 'bank', holder: 'x', bankName: 'y', accountNumber: '123456' }, S.actor());
+  logs.length = 0;
+  assert.equal(S.reveal(V2, 'accountNumber', S.actor()), '123456');
+  S.reveal(V2, 'accountNumber', S.actor());
+  assert.deepEqual(logs.filter((l) => l[0] === 'vendor.reveal').map((l) => l[1]), ['account_number']);
+  await settle();
 });
 
 test('loadEvents (3.3): the server\'s vendor.sync / vendor.sync.conflict rows (actor null) read in the site\'s voice with the Arabic field labels', async () => {

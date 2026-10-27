@@ -320,7 +320,7 @@ export function mapStore(dokanStore) {
     woo_vendor_id: id,
     name: str(s.store_name) || `#${id ?? ''}`,
     phone: orNull(s.phone),
-    email: isOn(s.show_email) ? orNull(s.email) : null,
+    email: orNull(s.email), // phase 3.5 (decision 9): the maker's WordPress e-mail whatever show_email says (the request is authenticated)
     status: s.enabled == null || isOn(s.enabled) ? 'active' : 'inactive',
     joined_at: dateOnly(s.registered),
     contact_name: personName(s) || null,

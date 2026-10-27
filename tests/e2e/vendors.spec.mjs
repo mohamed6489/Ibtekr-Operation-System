@@ -51,6 +51,7 @@ const section = (page, title) => drawer(page).locator('section.vsection').filter
 const info = (scope, page, label) => scope.locator('.info-row').filter({ has: page.locator('.lab', { hasText: label }) }).locator('.val');
 const modal = (page) => page.locator('.modal[role=dialog]');
 const note = (page) => page.locator('#vendors .note');
+const pushes = () => mock.vendorPushes.map(({ by, ...p }) => p); // phase 3.5: push_vendor calls
 const tile = (page, label) => drawer(page).locator(`.kpi[aria-label="${label}"]`);
 const kindTile = (page, kind) => drawer(page).locator(`.kpi[data-kind="${kind}"]`); // the orders tab's tiles (their aria-label says «عرض …»)
 const tab = (page, label) => drawer(page).getByRole('tab', { name: label });
@@ -203,14 +204,15 @@ test('accounts sees the bank row and reveals the IBAN (logged, never with the nu
   await openByHash(page, V3);
   await tab(page, 'الحسابات').click();
   const bank = section(page, 'الحساب البنكي');
-  await expect(bank.locator('.secure').first()).toContainText('•••• •••• •••• 0482');
+  const ibanField = bank.locator('.secure').filter({ hasText: 'IBAN' }); // phase 3.5: the account number has its own field
+  await expect(ibanField).toContainText('•••• •••• •••• 0482');
   await expect(bank).not.toContainText(IBAN);
-  await bank.locator('.secure').first().getByRole('button', { name: 'إظهار' }).click();
-  await expect(bank.locator('.secure').first()).toContainText(IBAN);
+  await ibanField.getByRole('button', { name: 'إظهار' }).click();
+  await expect(ibanField).toContainText(IBAN);
   await expect.poll(() => acts('vendor.reveal')).toEqual([{ action: 'vendor.reveal', entity: 'vendor', entity_id: V3, new_value: 'IBAN' }]);
-  await bank.locator('.secure').first().getByRole('button', { name: 'إخفاء' }).click();
-  await bank.locator('.secure').first().getByRole('button', { name: 'إظهار' }).click();
-  await expect(bank.locator('.secure').first()).toContainText(IBAN);
+  await ibanField.getByRole('button', { name: 'إخفاء' }).click();
+  await ibanField.getByRole('button', { name: 'إظهار' }).click();
+  await expect(ibanField).toContainText(IBAN);
   expect(acts('vendor.reveal')).toHaveLength(1); // once per drawer open
   expect(JSON.stringify(mock.activity)).not.toContain('0482');
   await expect(info(bank, page, 'طريقة الدفع المفضلة')).toHaveText('تحويل بنكي');
@@ -233,22 +235,56 @@ test('ops opens a maker with a bank row: the section says hidden, the server ret
   await expect(tile(page, 'العربون')).toContainText('من مرحلة الحسابات');
 });
 
-test('accounts writes a bank row (an insert, then an update); the event names the method only', async ({ page }) => {
+test('accounts writes a bank row (phase 3.5): every Dokan field, refused before any request when incomplete, a confirmation of its own («رجوع للتعديل» keeps what was typed), then the row and the push of `bank`; an update the same way; the event names the method only', async ({ page }) => {
   await openVendors(page, ACCOUNTS);
   await openDrawer(page, V1);
   await tab(page, 'الحسابات').click();
   await section(page, 'الحساب البنكي').getByRole('button', { name: 'إضافة بيانات الحساب البنكي' }).click();
   await modal(page).locator('#b-holder').fill('Art Craft');
-  await modal(page).locator('#b-iban').fill('EG38 0003 0001 0000 0000 0000 0482');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect.poll(() => writes().filter((w) => w.table === 'vendor_bank')).toEqual([{ table: 'vendor_bank', op: 'insert', vendor_id: V1, method: 'bank', bank_name: null, holder: 'Art Craft', iban: IBAN, wallet: null, updated_by: 'منى حسن' }]);
-  await expect(info(section(page, 'الحساب البنكي'), page, 'اسم صاحب الحساب')).toHaveText('Art Craft');
-  await section(page, 'الحساب البنكي').getByRole('button', { name: 'تعديل بيانات الحساب البنكي' }).click();
+  await expect(modal(page)).toContainText('اكتب اسم البنك');
+  await expect(modal(page)).toContainText('اكتب رقم الحساب أو الـ IBAN');
   await modal(page).locator('#b-bank').fill('بنك مصر');
+  await modal(page).locator('#b-acno').fill('0000 1111 2222 3333');
+  await modal(page).locator('#b-swift').fill('nbegegcx');
+  await modal(page).locator('#b-baddr').fill('عنوان تجريبي');
+  await modal(page).locator('#b-actype').click();
+  await page.locator('[role=listbox] [role=option]', { hasText: 'شخصي (Personal)' }).click();
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect.poll(() => writes().filter((w) => w.table === 'vendor_bank' && w.op === 'update')).toEqual([{ table: 'vendor_bank', op: 'update', vendor_id: V1, method: 'bank', bank_name: 'بنك مصر', holder: 'Art Craft', iban: IBAN, wallet: null, updated_by: 'منى حسن' }]);
+  // the confirmation: nothing written yet
+  await expect(modal(page).locator('h2')).toHaveText('تأكيد تغيير الحساب البنكي — Art Craft');
+  await expect(modal(page).locator('tr[data-bank-change]')).toHaveCount(7); // method, holder, bank, account number, type, SWIFT, address
+  await expect(modal(page).locator('tr[data-bank-change="accountNumber"]')).toContainText('0000 1111 2222 3333');
+  await expect(modal(page)).toContainText('بتتبعت لمتجره على الموقع');
+  expect(writes().filter((w) => w.table === 'vendor_bank')).toEqual([]);
+  await modal(page).getByRole('button', { name: 'رجوع للتعديل' }).click();
+  await expect(modal(page).locator('#b-acno')).toHaveValue('0000 1111 2222 3333'); // as typed
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await modal(page).locator('[data-bank-confirm]').click();
+  await expect.poll(() => writes().filter((w) => w.table === 'vendor_bank')).toEqual([{ table: 'vendor_bank', op: 'insert', vendor_id: V1, method: 'bank', bank_name: 'بنك مصر', holder: 'Art Craft', iban: null, wallet: null,
+    account_number: '0000111122223333', account_type: 'personal', bank_address: 'عنوان تجريبي', routing_number: null, swift: 'NBEGEGCX', updated_by: 'منى حسن' }]);
+  await expect.poll(() => pushes()).toEqual([{ vendor_id: V1, fields: ['bank'], result: 'ok' }]);
+  const bank = section(page, 'الحساب البنكي');
+  await expect(info(bank, page, 'اسم صاحب الحساب')).toHaveText('Art Craft');
+  await expect(info(bank, page, 'نوع الحساب')).toHaveText('شخصي (Personal)');
+  await expect(info(bank, page, 'SWIFT')).toHaveText('NBEGEGCX');
+  await expect(bank.locator('.secure').filter({ hasText: 'رقم الحساب' })).toContainText('3333');
+  await expect(bank).not.toContainText('0000111122223333'); // masked until «إظهار»
+  // an update: only the changed field in the confirmation
+  await bank.getByRole('button', { name: 'تعديل بيانات الحساب البنكي' }).click();
+  await modal(page).locator('#b-bank').fill('البنك الأهلي المصري');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(modal(page).locator('tr[data-bank-change]')).toHaveCount(1);
+  await modal(page).locator('[data-bank-confirm]').click();
+  await expect.poll(() => writes().filter((w) => w.table === 'vendor_bank' && w.op === 'update').map((w) => [w.bank_name, w.account_number])).toEqual([['البنك الأهلي المصري', '0000111122223333']]);
+  await expect.poll(() => pushes().length).toBe(2);
+  // nothing changed: no confirmation, nothing written
+  await bank.getByRole('button', { name: 'تعديل بيانات الحساب البنكي' }).click();
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(note(page)).toContainText('مفيش تغيير في الحساب البنكي');
   await expect.poll(() => acts('vendor.bank')).toEqual([{ action: 'vendor.bank', entity: 'vendor', entity_id: V1, new_value: 'bank' }, { action: 'vendor.bank', entity: 'vendor', entity_id: V1, new_value: 'bank' }]);
-  expect(JSON.stringify(mock.activity)).not.toContain('0482');
+  expect(JSON.stringify(mock.activity)).not.toContain('3333');
+  expect(writes().filter((w) => w.table === 'vendor_bank')).toHaveLength(2);
 });
 
 test('a 2 MB PDF contract uploads to <uuid>/<ms>-<safe name> and lands in vendors.contract; the card shows it', async ({ page }) => {

@@ -52,14 +52,22 @@ test('validateLogin: username rules, email rules, the temporary password when th
   assert.deepEqual(V.validateLogin({ username: 'wood.rope', email: 'a@b.co', pwMode: 'temp', password: 'short' }), { password: 'الباسورد لازم: 8 حروف على الأقل، رقم' });
   assert.deepEqual(V.validateLogin({ username: 'wood.rope', email: 'a@b.co', pwMode: 'temp', password: 'Test1234' }), {});
 });
-test('validateBank: the method first; cash needs nothing; bank needs holder + bank + IBAN (EG + 27 digits) or an account number (8–20); instapay / wallet a phone (or name@instapay)', () => {
+test('validateBank (3.5): the method first; cash needs nothing; bank needs holder + bank + an account number (6–34 digits) or an IBAN (EG + 27); SWIFT 8 / 11, routing digits; instapay / wallet a phone (or name@instapay)', () => {
   assert.deepEqual(V.validateBank({}), { method: 'اختار طريقة التحويل' });
   assert.deepEqual(V.validateBank({ method: 'cash' }), {});
-  assert.deepEqual(V.validateBank({ method: 'bank' }), { holder: 'اكتب اسم صاحب الحساب زي ما هو في البنك', bankName: 'اكتب اسم البنك', iban: 'اكتب IBAN أو رقم الحساب' });
-  assert.deepEqual(V.validateBank({ method: 'bank', holder: 'Zaan', bankName: 'بنك مصر', iban: 'EG38000300010000000000000482' }), { iban: 'IBAN مصري = EG + 27 رقم، أو رقم حساب من 8 لـ 20 رقم' }); // 26 digits
-  assert.deepEqual(V.validateBank({ method: 'bank', holder: 'Zaan', bankName: 'بنك مصر', iban: 'eg38 0003 0001 0000 0000 0000 0482 1' }), {}); // spaces and case do not matter
-  assert.deepEqual(V.validateBank({ method: 'bank', holder: 'Zaan', bankName: 'بنك مصر', iban: '١٢٣٤٥٦٧٨' }), {}); // an 8-digit account number, Arabic digits
-  assert.deepEqual(V.validateBank({ method: 'bank', holder: 'Zaan', bankName: 'بنك مصر', iban: '1234567' }), { iban: 'IBAN مصري = EG + 27 رقم، أو رقم حساب من 8 لـ 20 رقم' });
+  assert.deepEqual(V.validateBank({ method: 'bank' }), { holder: 'اكتب اسم صاحب الحساب زي ما هو في البنك', bankName: 'اكتب اسم البنك', accountNumber: 'اكتب رقم الحساب أو الـ IBAN' });
+  const ok = { method: 'bank', holder: 'Zaan', bankName: 'بنك مصر' };
+  assert.deepEqual(V.validateBank({ ...ok, iban: 'EG38000300010000000000000482' }), { iban: 'IBAN مصري = EG + 27 رقم' }); // 26 digits
+  assert.deepEqual(V.validateBank({ ...ok, iban: 'eg38 0003 0001 0000 0000 0000 0482 1' }), {}); // spaces and case do not matter
+  assert.deepEqual(V.validateBank({ ...ok, iban: '12345678' }), { iban: 'IBAN مصري = EG + 27 رقم' }); // an account number goes in its own field now
+  assert.deepEqual(V.validateBank({ ...ok, accountNumber: '١٢٣٤٥٦٧٨' }), {}); // Arabic digits
+  assert.deepEqual(V.validateBank({ ...ok, accountNumber: '0000-1111 2222' }), {});
+  assert.deepEqual(V.validateBank({ ...ok, accountNumber: '12345' }), { accountNumber: 'رقم الحساب أرقام بس (من 6 لـ 34 رقم)' });
+  assert.deepEqual(V.validateBank({ ...ok, accountNumber: '123456', swift: 'nbeg egcx' }), {});
+  assert.deepEqual(V.validateBank({ ...ok, accountNumber: '123456', swift: 'NBEGEG', routingNumber: '12a' }), { swift: 'SWIFT = 8 أو 11 حرف ورقم (زي NBEGEGCX)', routingNumber: 'رقم التوجيه أرقام بس' });
+  assert.deepEqual(V.validateBank({ ...ok, accountNumber: '123456', swift: 'NBEGEGCX001' }), {});
+  assert.deepEqual(V.BANK_ACCOUNT_TYPES.map((x) => x[0]), ['personal', 'business']);
+  assert.equal(V.SYNC_FIELD_LABELS.bank, 'الحساب البنكي');
   assert.deepEqual(V.validateBank({ method: 'instapay', holder: 'Zaan' }), { wallet: 'اكتب رقم الموبايل أو عنوان إنستاباي' });
   assert.deepEqual(V.validateBank({ method: 'instapay', holder: 'Zaan', wallet: 'zaan@instapay' }), {});
   assert.deepEqual(V.validateBank({ method: 'instapay', holder: 'Zaan', wallet: '0100 000 0009' }), {});
@@ -136,7 +144,7 @@ test('ADDRESS_KEYS / SOCIAL_KEYS / SYNC_FIELD_LABELS: Dokan\'s six address keys,
   assert.deepEqual(V.ADDRESS_LABELS.map((x) => x[0]), V.ADDRESS_KEYS);
   assert.deepEqual(V.SOCIAL_KEYS.map((x) => x[0]), ['fb', 'instagram', 'twitter', 'youtube', 'linkedin', 'pinterest', 'threads', 'flickr']);
   assert.equal(V.label(V.SOCIAL_KEYS, 'fb'), 'فيسبوك');
-  assert.deepEqual(Object.keys(V.SYNC_FIELD_LABELS), ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates']);
+  assert.deepEqual(Object.keys(V.SYNC_FIELD_LABELS), ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates', 'bank']);
   assert.deepEqual([V.SYNC_FIELD_LABELS.phone, V.SYNC_FIELD_LABELS.address_parts, V.SYNC_FIELD_LABELS.category_rates], ['التليفون', 'العنوان', 'عمولة الفئات']);
 });
 test('addressText: the filled street_1 / street_2 / city / state joined by «، » (zip and country never), null when none — the server\'s rule', () => {

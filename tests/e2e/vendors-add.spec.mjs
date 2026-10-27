@@ -93,7 +93,7 @@ test('the admin adds a complete maker (basics + login with its temporary passwor
   expect(ins.map((w) => w.table)).toEqual(['vendors', 'vendor_rates', 'vendor_logins', 'vendor_bank']);
   expect(ins[0]).toEqual({ table: 'vendors', op: 'insert', name: 'Wood & Rope', category: 'ديكور منزلي', phone: '01000000009', email: 'wood.dev@ibtekr.local', status: 'active', lead_days: 7, aliases: [], joined_at: ins[0].joined_at });
   expect(ins[2]).toEqual({ table: 'vendor_logins', op: 'insert', vendor_id: NEW1, username: 'wood.rope', email: 'wood.dev@ibtekr.local', pw_mode: 'temp', created_by: 'صفوت كمال' }); // created_by: the member's name, like set_by / updated_by
-  expect(ins[3]).toEqual({ table: 'vendor_bank', op: 'insert', vendor_id: NEW1, method: 'bank', bank_name: 'بنك مصر', holder: 'Wood & Rope', iban: 'EG380003000100000000000004821', wallet: null, updated_by: 'صفوت كمال' }); // the IBAN upper-cased, no spaces
+  expect(ins[3]).toEqual({ table: 'vendor_bank', op: 'insert', vendor_id: NEW1, method: 'bank', bank_name: 'بنك مصر', holder: 'Wood & Rope', iban: 'EG380003000100000000000004821', wallet: null, account_number: null, account_type: null, bank_address: null, routing_number: null, swift: null, updated_by: 'صفوت كمال' }); // the IBAN upper-cased, no spaces
   expect(mock.rpcs).toEqual([{ fn: 'vendor_login_set_password', vendor_id: NEW1, by: ADMIN, result: 'ok' }]); // right after the login insert
   expect(JSON.stringify([mock.vendorWrites, mock.activity, mock.activityRows])).not.toContain(pw);
   await expect.poll(() => acts('vendor.login')).toEqual([{ action: 'vendor.login', entity: 'vendor', entity_id: NEW1, new_value: 'username, email' }]);
@@ -141,7 +141,7 @@ test('a temporary password from the generator passes the rules and reaches the R
   const ins = writes().filter((w) => w.op === 'insert');
   expect(ins.map((w) => w.table)).toEqual(['vendors', 'vendor_rates', 'vendor_logins', 'vendor_bank']);
   expect(ins[2].pw_mode).toBe('temp');
-  expect(ins[3]).toEqual({ table: 'vendor_bank', op: 'insert', vendor_id: NEW1, method: 'cash', bank_name: null, holder: null, iban: null, wallet: null, updated_by: 'صفوت كمال' });
+  expect(ins[3]).toEqual({ table: 'vendor_bank', op: 'insert', vendor_id: NEW1, method: 'cash', bank_name: null, holder: null, iban: null, wallet: null, account_number: null, account_type: null, bank_address: null, routing_number: null, swift: null, updated_by: 'صفوت كمال' });
   await expect(note(page)).toContainText('الباسورد المؤقت جاهز تبعته له');
   await expect(note(page)).not.toContainText('اتبعت');
   await expect(info(loginSec(page), page, 'الباسورد')).toContainText('••••••••');

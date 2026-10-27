@@ -291,7 +291,7 @@ async function writeSiteRates(ctx, vendorUuid, site, ours, now, which = RATE_FIE
  * storeSnapshot(mapStore(Dokan's reply)) when the reply is the store (else null and every sent field counts as
  * accepted); accepted = the sent fields the site now shows as ours, refused = the sent fields the site kept as they
  * were (Dokan answers 200 and ignores a field it does not take — the acceptance check of decision 4 e). The e-mail is
- * checked against the reply's own `email` (mapStore hides it unless show_email is on). Nothing is sent when every
+ * checked against the reply's own `email`. Nothing is sent when every
  * field was dropped. Throws a WooError on a non-2xx answer (the caller logs it and marks the fields pending).
  */
 export async function pushStoreFields(ctx, row, fields, rates, bank = null) {

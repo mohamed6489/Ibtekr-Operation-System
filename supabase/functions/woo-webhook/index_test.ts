@@ -299,7 +299,7 @@ Deno.test('an unknown maker → dokan/v1/stores/{id} fetched WITHOUT an Authoriz
   assertEquals(woo.calls.find((c) => c.path === 'wc/v3/orders')!.headers.authorization, WC_AUTH);
 
   const v = db.row('vendors', 777, 'woo_vendor_id');
-  assertEquals([v.name, v.status, v.email, v.aliases, v.joined_at], ['Store 777', 'active', null, [], '2025-01-02'], 'a new store: whole row, joined_at from registered');
+  assertEquals([v.name, v.status, v.email, v.aliases, v.joined_at], ['Store 777', 'active', 'store@example.test', [], '2025-01-02'], 'a new store: whole row, joined_at from registered');
   assertEquals(db.row('order_items', 1).vendor_id, v.id);
   const order_ = ops(db);
   assert(order_.indexOf('upsert vendors') < order_.indexOf('upsert order_items'), order_.join(' → '));

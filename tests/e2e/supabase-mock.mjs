@@ -72,7 +72,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at', 'commission_type'], // 0014: flat; 0016: commission_type
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'], // 0014: sensitive.commission, add-only
   woo_categories: ['id', 'name', 'slug', 'parent_id', 'updated_at'], // 0014: the sync's, vendors.view
-  vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at'],
+  vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at', 'account_number', 'account_type', 'bank_address', 'routing_number', 'swift'], // 0017: + Dokan's bank fields
   vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'status', 'must_change', 'invite_sent_at', 'password_set_at', 'secret_id', 'created_by', 'created_at', 'updated_at'], // 0012 (plan 3.1): secret_id is never granted to the client; created_by is the member's name
   products: ['id', 'sku', 'name', 'image_url', 'permalink', 'vendor_id', 'price', 'status', 'raw', 'updated_at'],
   status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
@@ -232,9 +232,9 @@ const ITEM_COLS = ['status', 'expected_at', 'comment', 'ready_at', 'waybill', 'p
 // 0011: the vendors columns granted for insert / update to authenticated (never woo_vendor_id, commission_pct, raw, opening_balance), by the rule they need
 const VENDOR_IDENTITY_COLS = ['name', 'legal_name', 'category', 'aliases', 'lead_days', 'deposit_policy', 'joined_at']; const VENDOR_CONTACT_COLS = ['phone', 'alt_phone', 'email', 'address', 'address_parts', 'contact_name', 'social', 'instagram', 'store_url', 'notes']; // 0014: the three synced contact columns under the contact rule
 // 0014: contact_name / address_parts / social granted with the contact columns; logo_url / banner_url / woo_payment_methods / woo_snapshot / push_pending / woo_synced_at are the server's (no grant); vendor_rates.flat
-const VT_INSERT = { vendors: ['name', 'aliases', 'phone', 'email', 'status', 'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contact_name', 'address_parts', 'social'], vendor_rates: ['vendor_id', 'rate', 'flat', 'since', 'set_by'], vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at'], vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'created_by'],
+const VT_INSERT = { vendors: ['name', 'aliases', 'phone', 'email', 'status', 'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contact_name', 'address_parts', 'social'], vendor_rates: ['vendor_id', 'rate', 'flat', 'since', 'set_by'], vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at', 'account_number', 'account_type', 'bank_address', 'routing_number', 'swift'], vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'created_by'],
   vendor_category_rates: ['vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by'] };
-const SYNC_FIELDS = ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates']; // woo-core SYNC_FIELDS: push_vendor's fields
+const SYNC_FIELDS = ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates', 'bank']; // + bank (phase 3.5) // woo-core SYNC_FIELDS: push_vendor's fields
 const VT_UPDATE = { vendors: VT_INSERT.vendors.concat(['contract']), vendor_bank: VT_INSERT.vendor_bank.filter((c) => c !== 'vendor_id'), vendor_logins: ['username', 'email', 'pw_mode', 'status'] }; // 0012: must_change / invite_sent_at / password_set_at / secret_id are the server's
 const USERNAME_RE = /^[a-z0-9][a-z0-9._]{2,29}$/; const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const canLogin = (u) => isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F'; // 0012: vendor_logins insert / update and the two RPCs
@@ -453,8 +453,9 @@ export async function installSupabaseMock(page, opts = {}) {
         const rec = { fn: 'vendor_push_pending', vendor_id: vid, fields: asked, by: u.email, result: 'ok' }; mock.rpcs.push(rec);
         const refuse = (status, code, message) => { rec.result = code; return json(status, { code, details: null, hint: null, message }); };
         if (!asked.length) return refuse(400, '22023', 'a vendor and at least one synced field are required');
-        const edit = hasPerm(u, 'vendors.edit'); const contact = ['phone', 'email', 'contact_name', 'address_parts', 'social'];
-        if (!(isAdmin(u) || edit === 'F' || (edit === 'P' && asked.every((f) => contact.includes(f))))) return refuse(403, '42501', 'vendors.edit = F (or P for the contact fields) is required to queue a push to the site');
+        const edit = hasPerm(u, 'vendors.edit'); const contact = ['phone', 'email', 'contact_name', 'address_parts', 'social']; const store = asked.filter((f) => f !== 'bank');
+        if (store.length && !(isAdmin(u) || edit === 'F' || (edit === 'P' && store.every((f) => contact.includes(f))))) return refuse(403, '42501', 'vendors.edit = F (or P for the contact fields) is required to queue a push to the site');
+        if (asked.includes('bank') && !(isAdmin(u) || hasPerm(u, 'sensitive.vendor_bank') === 'F')) return refuse(403, '42501', 'sensitive.vendor_bank = F is required to queue a bank push to the site'); // 0017
         if (asked.some((f) => f === 'rate' || f === 'category_rates') && !(isAdmin(u) || hasPerm(u, 'sensitive.commission') === 'F')) return refuse(403, '42501', 'sensitive.commission = F is required to queue a commission push to the site');
         const v = mock.vendors.find((x) => x.id === vid.toLowerCase());
         if (!v) return refuse(400, 'P0002', 'vendor not found');
@@ -794,8 +795,11 @@ export async function installSupabaseMock(page, opts = {}) {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
       const CONTACT_PUSH = ['phone', 'email', 'contact_name', 'address_parts', 'social']; // vendors.edit = P may push these alone (the guard's contact rule)
       const rateAsked = () => Array.isArray(b.fields) && b.fields.some((f) => f === 'rate' || f === 'category_rates');
-      const contactOnly = () => Array.isArray(b.fields) && b.fields.length > 0 && b.fields.every((f) => CONTACT_PUSH.includes(f));
-      const mayPushVendor = () => isAdmin(u) || ((hasPerm(u, 'vendors.edit') === 'F' || (hasPerm(u, 'vendors.edit') === 'P' && contactOnly())) && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
+      // phase 3.5: `bank` needs sensitive.vendor_bank = F; alone it needs no vendors.edit
+      const bankAsked = () => Array.isArray(b.fields) && b.fields.includes('bank'); const storeAsked = () => (Array.isArray(b.fields) ? b.fields : []).filter((f) => f !== 'bank');
+      const mayPushVendor = () => isAdmin(u) || ((!bankAsked() || hasPerm(u, 'sensitive.vendor_bank') === 'F')
+        && (storeAsked().length === 0 ? bankAsked() : (hasPerm(u, 'vendors.edit') === 'F' || (hasPerm(u, 'vendors.edit') === 'P' && storeAsked().every((f) => CONTACT_PUSH.includes(f)))))
+        && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : isAdmin(u))) return json(401, { error: 'unauthorized' });
       if (action === 'push_vendor') {
         const fields = Array.isArray(b.fields) ? [...new Set(b.fields.filter((f) => typeof f === 'string'))] : [];
@@ -813,7 +817,7 @@ export async function installSupabaseMock(page, opts = {}) {
         if (!sent.length) return skip('placeholder');
         const now = new Date().toISOString(); v.woo_synced_at = now; v.updated_at = now;
         const left = (Array.isArray(v.push_pending) ? v.push_pending : []).filter((f) => !fields.includes(f)); v.push_pending = left.length ? left : null;
-        v.woo_snapshot = { ...(v.woo_snapshot || {}), ...Object.fromEntries(sent.filter((f) => !['rate', 'category_rates'].includes(f)).map((f) => [f, v[f] ?? null])) };
+        v.woo_snapshot = { ...(v.woo_snapshot || {}), ...Object.fromEntries(sent.filter((f) => !['rate', 'category_rates', 'bank'].includes(f)).map((f) => [f, v[f] ?? null])) };
         return json(200, { action, result: 'ok', fields: sent, accepted: sent, refused: [], dropped: fields.filter((f) => !sent.includes(f)), counts: { pushed: 1 } });
       }
       if (mock.wooDown) return json(502, { error: 'woo_error' });

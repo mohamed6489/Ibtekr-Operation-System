@@ -275,15 +275,15 @@ Deno.test('vendors: a new store is inserted whole (the phase-3.3 columns, its fi
   assertEquals(db.rows('vendor_rates').filter((r: any) => r.vendor_id === vendorId(44)).length, 1, 'the site has no rate (public shape): no rate row for 44');
   const v900 = db.row('vendors', 900, 'woo_vendor_id');
   assertEquals([v900.name, v900.status, v900.phone, v900.email, v900.joined_at, v900.aliases, v900.commission_pct, v900.lead_days, v900.contact_name, v900.address, v900.logo_url, v900.banner_url, v900.woo_payment_methods, v900.woo_synced_at],
-    ['Store 900', 'active', '01000000000', null, '2025-01-02', [], null, 7, 'Maker Owner 900', 'شارع 900، القاهرة، EG-01', 'https://woo.test/g/900.jpg', 'https://woo.test/b/900.jpg', ['bank'], NOW], 'a new store: the full mapStore row, the team columns at their defaults');
+    ['Store 900', 'active', '01000000000', 'store@example.test', '2025-01-02', [], null, 7, 'Maker Owner 900', 'شارع 900، القاهرة، EG-01', 'https://woo.test/g/900.jpg', 'https://woo.test/b/900.jpg', ['bank'], NOW], 'a new store: the full mapStore row, the team columns at their defaults');
   assertEquals(v900.address_parts, { street_1: 'شارع 900', street_2: '', city: 'القاهرة', state: 'EG-01', zip: '', country: 'EG' });
   assertEquals(v900.social.fb, 'https://fb.test/900');
   assertEquals(v900.woo_snapshot.rate, { type: 'fixed', rate: 30, flat: null });
   assertEquals(db.rows('vendor_rates').filter((r: any) => r.vendor_id === v900.id).map((r: any) => [r.rate, r.flat, r.since, r.set_by]), [[30, null, NOW.slice(0, 10), 'الموقع']], 'the site\'s commission of a new store → its first rate row');
   const writes = db.writes('vendors').map((w: any) => [w.op, w.onConflict ?? null, w.rows ? w.rows.map((r: any) => Object.keys(r).sort()) : Object.keys(w.patch).sort(), w.filters]);
   assertEquals(writes, [['upsert', 'woo_vendor_id', [['address', 'address_parts', 'banner_url', 'contact_name', 'email', 'joined_at', 'logo_url', 'name', 'phone', 'raw', 'social', 'status', 'woo_payment_methods', 'woo_snapshot', 'woo_synced_at', 'woo_vendor_id']], []],
-    ['update', null, ['banner_url', 'logo_url', 'name', 'phone', 'push_pending', 'raw', 'woo_payment_methods', 'woo_snapshot', 'woo_synced_at'], [['eq', 'woo_vendor_id', 44]]]], 'new: the full row upserted (never aliases / commission_pct); existing: one update by woo_vendor_id with the mirrors + the fields the site changed');
-  assertEquals(db.rows('activity_log').map((r: any) => [r.action, r.entity, r.entity_id, r.new_value]), [['vendor.sync', 'vendor', vendorId(44), 'name, phone']], 'one activity row per changed store: the field names only');
+    ['update', null, ['banner_url', 'email', 'logo_url', 'name', 'phone', 'push_pending', 'raw', 'woo_payment_methods', 'woo_snapshot', 'woo_synced_at'], [['eq', 'woo_vendor_id', 44]]]], 'new: the full row upserted (never aliases / commission_pct); existing: one update by woo_vendor_id with the mirrors + the fields the site changed');
+  assertEquals(db.rows('activity_log').map((r: any) => [r.action, r.entity, r.entity_id, r.new_value]), [['vendor.sync', 'vendor', vendorId(44), 'name, phone, email']], 'one activity row per changed store: the field names only');
   assertFalse(JSON.stringify(db.rows('activity_log')).includes('01000000999'), 'no phone in activity_log');
   assertEquals(db.rows('woo_sync_log').at(-1).kind, 'manual');
 });
@@ -565,7 +565,7 @@ Deno.test('register_webhooks refuses a delivery_url that is not our woo-webhook 
 // the digest of wooStoreFull's payment.bank (phase 3.5): a snapshot that already knows the site's bank
 const SITE_BANK = { ac_name: 'x', ac_number: '1', ac_type: '', bank_name: '', bank_addr: '', iban: 'EG00TEST', swift: '', routing_number: '' };
 const BANK_KEY = await bankDigest(SITE_BANK);
-const SNAP44 = { name: 'Store 44', phone: '01000000000', email: null, contact_name: 'Maker Owner 44', status: 'active', bank: BANK_KEY,
+const SNAP44 = { name: 'Store 44', phone: '01000000000', email: 'store@example.test', contact_name: 'Maker Owner 44', status: 'active', bank: BANK_KEY,
   address_parts: { street_1: 'شارع 44', street_2: '', city: 'القاهرة', state: 'EG-01', zip: '', country: 'EG' },
   social: { fb: 'https://fb.test/44', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' },
   rate: { rate: 30, flat: null }, category_rates: [] };
@@ -682,7 +682,7 @@ Deno.test('store sync — the first run (no snapshot): empty fields are filled f
   assertEquals([v.name, v.phone, v.contact_name, v.address, v.status, v.push_pending], ['ورشة الفريق', '01000000000', 'Maker Owner 44', 'شارع 44، القاهرة، EG-01', 'inactive', ['name']], 'name stays (ours, filled, pending for the next run); the rest filled; enabled false → inactive');
   assertEquals(v.address_parts, SNAP44.address_parts);
   assertEquals(v.woo_snapshot.name, 'Store 44', 'the snapshot is the site: the next run sees our name as a system-side change');
-  assertEquals(activity(db), [['vendor.sync', vendorId(44), 'phone, contact_name, address_parts, social, status, rate, bank'], ['vendor.sync.conflict', vendorId(44), 'name']]);
+  assertEquals(activity(db), [['vendor.sync', vendorId(44), 'phone, email, contact_name, address_parts, social, status, rate, bank'], ['vendor.sync.conflict', vendorId(44), 'name']]);
   assertEquals(db.rows('vendor_bank').map((r: any) => [r.holder, r.account_number, r.iban, r.method, r.updated_by]), [['x', '1', 'EG00TEST', 'bank', 'الموقع']], 'phase 3.5: the site\'s bank written on the first run');
   assertEquals(conflictRows(db), [['vendor', '44', ['name'], true]]);
   assertEquals(db.rows('vendor_rates').map((r: any) => [r.rate, r.flat, r.since, r.set_by]), [[30, null, NOW.slice(0, 10), 'الموقع']], 'the rate was empty here: filled from the site');
@@ -767,7 +767,7 @@ Deno.test('store sync — the site\'s commission figure missing (the public shap
   const seed = { vendors: [vendorRow(44, { name: 'Store 44' })], vendor_rates: [rate44(30)] };
   const { db, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStore(44)]) } });
   await call(deps, { action: 'vendors' });
-  assertEquals([db.rows('vendor_rates').length, conflictRows(db).length, activity(db).map((a: any) => a[2])], [1, 0, ['phone']], 'the phone is filled (first run); the rate is not touched or reported');
+  assertEquals([db.rows('vendor_rates').length, conflictRows(db).length, activity(db).map((a: any) => a[2])], [1, 0, ['phone, email']], 'the phone is filled (first run); the rate is not touched or reported');
 });
 
 // ---------------------------------------------------------------- push_vendor (phase 3.3, decision 4 b)

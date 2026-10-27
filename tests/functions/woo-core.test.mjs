@@ -643,7 +643,7 @@ test('mapStore: Dokan store → vendors row with a lean raw', () => {
   const v = mapStore(input);
   assert.deepEqual(Object.keys(v).sort(), ['address', 'address_parts', 'bank', 'banner_url', 'commission', 'contact_name', 'email', 'joined_at', 'logo_url', 'name', 'phone', 'raw', 'social', 'status', 'woo_payment_methods', 'woo_vendor_id']);
   assert.deepEqual({ ...v, raw: undefined, bank: undefined }, {
-    woo_vendor_id: 2376, name: 'ورشة التجربة', phone: '01111111111', email: null, status: 'active', joined_at: '2025-01-02', raw: undefined, bank: undefined,
+    woo_vendor_id: 2376, name: 'ورشة التجربة', phone: '01111111111', email: 'maker.test@example.com', status: 'active', joined_at: '2025-01-02', raw: undefined, bank: undefined,
     contact_name: 'منى تجربة', address_parts: { street_1: 'شارع الورشة 7', street_2: '', city: 'القاهرة', state: 'EGC', zip: '', country: 'EG' }, address: 'شارع الورشة 7، القاهرة، EGC',
     social: { fb: 'https://facebook.example/maker', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' },
     logo_url: 'https://stage.example.test/g.jpg', banner_url: 'https://stage.example.test/banner.jpg', woo_payment_methods: [],
@@ -657,15 +657,15 @@ test('mapStore: Dokan store → vendors row with a lean raw', () => {
   assert.deepEqual(input, before);
 });
 
-test('mapStore: enabled:false → inactive, enabled absent / null → active (Dokan\'s public REST omits it); email only when shown', () => {
+test('mapStore: enabled:false → inactive, enabled absent / null → active (Dokan\'s public REST omits it); the e-mail whatever show_email says (phase 3.5, decision 9)', () => {
   assert.equal(mapStore(store({ enabled: false })).status, 'inactive');
   for (const off of ['0', 'no', 0, false, '', 'false']) {
     assert.equal(mapStore(store({ enabled: off })).status, 'inactive', String(off));
-    assert.equal(mapStore(store({ show_email: off })).email, null, String(off));
+    assert.equal(mapStore(store({ show_email: off })).email, 'maker.test@example.com', String(off));
   }
   for (const unknown of [undefined, null]) {
     assert.equal(mapStore(store({ enabled: unknown })).status, 'active', String(unknown));
-    assert.equal(mapStore(store({ show_email: unknown })).email, null, String(unknown));
+    assert.equal(mapStore(store({ show_email: unknown })).email, 'maker.test@example.com', String(unknown));
   }
   const { enabled: _omitted, ...noFlag } = store();
   assert.equal(mapStore(noFlag).status, 'active', 'no enabled key at all');

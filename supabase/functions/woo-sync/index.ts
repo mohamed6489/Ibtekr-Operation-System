@@ -36,7 +36,7 @@ export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetc
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
-const ACTIONS = ['states', 'orders', 'vendors', 'products', 'all', 'push_status', 'register_webhooks'];
+const ACTIONS = ['states', 'orders', 'vendors', 'products', 'all', 'push_status', 'register_webhooks', 'probe_store'];
 const STATES_PATH = 'wc/v3/data/countries/EG'; // a wc/ path: the WC keys authenticate it
 const TOPICS = ['order.created', 'order.updated', 'product.created', 'product.updated'];
 const PREFIX = 'ibtekr-ops:';
@@ -196,6 +196,34 @@ async function registerWebhooks(run: Run, args: Json) {
   return json(200, { action: 'register_webhooks', result: 'ok', counts, webhooks: webhooks.sort((a, b) => Number(a.id) - Number(b.id)) });
 }
 
+// ---------------------------------------------------------------- probe_store (phase 3.3 preparation)
+
+// What Dokan answers for one store with the credentials in place: the field names only (never a value) — top-level
+// keys, the address keys, whether phone / email / address carry something, show_email, and whether the request was
+// authenticated (WOO_WP_USER / WOO_WP_APP_PASSWORD). { store_id } picks the store; without it, the first of the list.
+async function probeStore(run: Run, args: Json) {
+  const woo = run.woo();
+  let storeId = wooId(args.store_id);
+  let store: Json | null = null;
+  if (storeId == null) {
+    const { data } = await woo.get('dokan/v1/stores', { per_page: 1, page: 1 });
+    store = Array.isArray(data) && isObj(data[0]) ? data[0] : null;
+    storeId = store ? wooId(store.id) : null;
+  } else {
+    const { data } = await woo.get(`dokan/v1/stores/${storeId}`);
+    store = isObj(data) ? data : null;
+  }
+  if (!store) return json(502, { error: 'woo_error', action: 'probe_store' });
+  const filled = (v: unknown) => v != null && String(v).trim() !== '';
+  const address = isObj(store.address) ? store.address : null;
+  return json(200, {
+    action: 'probe_store', store_id: storeId, auth: woo.hasDokanAuth, keys: Object.keys(store).sort(),
+    address_keys: address ? Object.keys(address).sort() : null,
+    has: { phone: filled(store.phone), email: filled(store.email), address: !!address && Object.values(address).some(filled), banner: filled(store.banner), social: isObj(store.social), payment: isObj(store.payment) },
+    show_email: store.show_email ?? null, enabled: store.enabled ?? null,
+  });
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -219,6 +247,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   try {
     if (action === 'push_status') return await pushStatus(run, args);
     if (action === 'register_webhooks') return await registerWebhooks(run, args);
+    if (action === 'probe_store') return await probeStore(run, args);
     return await pull(run, action);
   } catch (e) {
     const entity = action === 'push_status' ? 'order' : 'webhooks';

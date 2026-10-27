@@ -228,6 +228,25 @@ Deno.test('a multi-vendor parent whose lines carry no _dokan_vendor_id → each 
   assertEquals(db.rows('woo_sync_log').filter((r: any) => r.result !== 'ok').length, 0);
 });
 
+// ---------------------------------------------------------------- probe_store
+
+Deno.test('probe_store: the field names of one store and nothing else — no value leaves; auth says whether the WordPress password is set; the admin may call it, ops may not', async () => {
+  const store = wooStore(44, { phone: '01000000999', email: 'x.dev@ibtekr.local', show_email: false, address: { street_1: 'شارع', city: 'القاهرة', country: 'EG' }, social: { fb: 'https://fb.test/x' } });
+  const { woo, deps } = setup({ routes: { 'GET dokan/v1/stores': page([store]), 'GET dokan/v1/stores/44': { body: store } } });
+  const { res, body } = await call(deps, { action: 'probe_store' }, { jwt: 'jwt-admin' });
+  assertEquals(res.status, 200);
+  assertEquals([body.store_id, body.auth, body.address_keys, body.has, body.show_email], [44, false, ['city', 'country', 'street_1'], { phone: true, email: true, address: true, banner: false, social: true, payment: false }, false]);
+  assert(body.keys.includes('store_name') && body.keys.includes('phone'));
+  assertFalse(JSON.stringify(body).includes('01000000999') || JSON.stringify(body).includes('ibtekr.local') || JSON.stringify(body).includes('القاهرة'));
+  assertEquals([woo.calls[0].path, woo.calls[0].query], ['dokan/v1/stores', { per_page: '1', page: '1' }]);
+  // with the WordPress password: Basic on dokan/ and auth true; store_id picks the single-store route
+  const w2 = setup({ env: { WOO_WP_USER: 'admin', WOO_WP_APP_PASSWORD: 'abcd efgh' }, routes: { 'GET dokan/v1/stores/44': { body: store } } });
+  const r2 = await call(w2.deps, { action: 'probe_store', store_id: 44 }, { jwt: 'jwt-admin' });
+  assertEquals([r2.body.auth, w2.woo.calls[0].path, w2.woo.calls[0].headers.authorization], [true, 'dokan/v1/stores/44', 'Basic ' + btoa('admin:abcd efgh')]);
+  const r3 = await call(deps, { action: 'probe_store' }, { jwt: 'jwt-ops' });
+  assertEquals(r3.res.status, 401);
+});
+
 // ---------------------------------------------------------------- vendors / products / all
 
 Deno.test('vendors: a new store is inserted whole (joined_at from registered); an existing one gets raw only — the team’s name / status / phone / aliases / rate stay (decision 2); no Authorization on dokan/', async () => {

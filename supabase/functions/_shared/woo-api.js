@@ -131,5 +131,6 @@ export function wooApi(env, fetchFn) {
     post: (path, body) => request('POST', path, { body }),
     eachPage,
     scrub,
+    hasDokanAuth: dokanAuth !== null, // a WordPress Application Password is set (dokan/ paths are authenticated)
   };
 }

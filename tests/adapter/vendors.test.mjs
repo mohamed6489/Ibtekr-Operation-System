@@ -1000,13 +1000,14 @@ test('pushVendor answers (3.3): skipped reasons pass through, 502 / 500 / networ
   responses['fn:woo-sync'] = PUSH_OK; responses.vendors = (ops) => (ops.some((c) => c.op === 'update') ? denied() : ok(VENDORS)); calls.length = 0;
   S.update(V1, { phone: '01000000008' }, S.actor()); await settle();
   assert.deepEqual(invokes(calls), []);
-  // ops (vendors.edit = P) saves the contact here and may not push: no request, the answer says so (the sync does not carry it)
+  // ops (vendors.edit = P): the contact fields it may edit are pushed (the server's rule, canPush(fields)); name / status / a rate are not
   const ops = load({ admin: false });
-  await ops.V.load(); ops.calls.length = 0; ops.events.length = 0;
+  await ops.V.load(); ops.responses['fn:woo-sync'] = PUSH_OK; ops.calls.length = 0; ops.events.length = 0;
   ops.S.update(V1, { phone: '01000000009' }, ops.S.actor()); await settle();
-  assert.deepEqual(invokes(ops.calls), []);
-  assert.deepEqual(ops.events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'skipped', reason: 'no_permission', fields: ['phone'] }]);
-  assert.deepEqual([ops.S.canPush(), S.canPush()], [false, true]);
+  assert.deepEqual(invokes(ops.calls).map((a) => a[1].body.fields), [['phone']]);
+  assert.deepEqual(ops.events.filter((e) => e.detail.written).map((e) => e.detail.push), [{ result: 'ok', fields: ['phone'], accepted: ['phone'], refused: [], dropped: [] }]);
+  assert.deepEqual([ops.S.canPush(['phone', 'social']), ops.S.canPush(['name']), ops.S.canPush(['phone', 'status']), ops.S.canPush(), S.canPush()], [true, false, false, false, true]);
+  assert.deepEqual(plain(await ops.S.pushVendor(V1, ['status'])), { result: 'skipped', reason: 'no_permission', fields: ['status'] });
   const vf = load({ admin: false, perms: { 'vendors.view': 'F', 'vendors.edit': 'F', 'sensitive.commission': 'N' } }); // vendors follow-up: may push the contact, not the rate
   await vf.V.load();
   assert.deepEqual(plain([await vf.S.pushVendor(V1, ['phone']), await vf.S.pushVendor(V1, ['rate']), await vf.S.pushVendor(V1, ['bogus'])]), [{ result: 'ok', fields: ['phone'], accepted: ['phone'], refused: [], dropped: [] }, { result: 'skipped', reason: 'no_permission', fields: ['rate'] }, { result: 'skipped', reason: 'no_fields', fields: [] }]);

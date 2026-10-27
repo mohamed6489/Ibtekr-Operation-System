@@ -240,23 +240,23 @@ test('the per-category commission (sensitive.commission): the admin adds a dated
   const forged = await page.evaluate(async (id) => {
     const cl = window.IBSupabase.client;
     const w = await cl.from('vendor_category_rates').insert({ vendor_id: id, woo_category_id: 22, rate: 10, since: '2026-12-01' });
-    const p = await cl.functions.invoke('woo-sync', { body: { action: 'push_vendor', vendor_id: id, fields: ['phone'] } });
-    return [w.error && w.error.code, p.error && p.error.context && p.error.context.status];
+    const p = await cl.functions.invoke('woo-sync', { body: { action: 'push_vendor', vendor_id: id, fields: ['category_rates'] } }); // a rate field: F + commission
+    const n = await cl.functions.invoke('woo-sync', { body: { action: 'push_vendor', vendor_id: id, fields: ['name'] } }); // name: F
+    return [w.error && w.error.code, p.error && p.error.context && p.error.context.status, n.error && n.error.context && n.error.context.status];
   }, V1);
-  expect(forged).toEqual(['42501', 401]);
+  expect(forged).toEqual(['42501', 401, 401]);
   expect(writes()).toHaveLength(2);
 });
 
-test('ops (vendors.edit = P) saves the contact here and may not push: no request to the site, the note says so; accounts reads the synced rows with no «تعديل»', async ({ page }) => {
+test('ops (vendors.edit = P) saves the contact and its push goes through (the contact fields alone — the server\'s rule); accounts reads the synced rows with no «تعديل»', async ({ page }) => {
   await openVendors(page, OPS);
   await openDrawer(page, V1);
   await openContact(page);
   await modal(page).locator('#g-contact').fill('منى عادل حسن');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
   await expect.poll(() => writes()).toEqual([{ table: 'vendors', op: 'update', id: V1, contact_name: 'منى عادل حسن' }]);
-  await expect(note(page)).toContainText('اتحفظ في السيستم بس');
-  expect(pushes()).toEqual([]);
-  expect(mock.requests.filter((r) => r === 'POST /functions/v1/woo-sync')).toEqual([]);
+  await expect.poll(() => pushes()).toEqual([{ vendor_id: V1, fields: ['contact_name'], result: 'ok' }]);
+  await expect(page.locator('#vendors .note.warning')).toHaveCount(0); // no «اتحفظ في السيستم بس»: the push went through
   await expect(info(contact(page), page, 'اسم صاحب المتجر')).toHaveText('منى عادل حسن');
   await page.evaluate(() => window.IBAuth.signOut());
   await expect(page.locator('#login')).toBeVisible();

@@ -436,7 +436,9 @@ begin
   for stmt, needle in select * from (values
     ('update public.vendors set contact_name = ''x'', name = ''اسم من العمليات'' where woo_vendor_id = 9941', 'vendors.edit = F'),
     ('update public.vendors set woo_synced_at = now() where woo_vendor_id = 9941', 'permission denied'),
-    ('insert into public.vendor_category_rates (vendor_id, woo_category_id, rate, since) values (''00000000-0000-4000-8000-0000000000f1'', 9900002, 30, current_date + 2)', 'policy')
+    ('insert into public.vendor_category_rates (vendor_id, woo_category_id, rate, since) values (''00000000-0000-4000-8000-0000000000f1'', 9900002, 30, current_date + 2)', 'policy'),
+    ('select public.log_activity(''vendor.sync'', ''vendor'', ''00000000-0000-4000-8000-0000000000f1'', null, ''"phone"''::jsonb)', 'policy'),
+    ('select public.log_activity(''vendor.sync.conflict'', ''vendor'', ''00000000-0000-4000-8000-0000000000f1'', null, ''"phone"''::jsonb)', 'policy')
   ) as v (stmt, needle) loop
     begin
       execute stmt;

@@ -1,7 +1,8 @@
 // woo-sync: the backup sync, the status / store pushes and the webhook registration (deployed with verify_jwt false;
 // it authenticates here). Auth: an X-Sync-Secret header (pg_cron, Task 7) must satisfy rpc('sync_secret_matches',
 // { candidate }) → system mode; else a member's Authorization: Bearer <jwt> → a client with that token:
-// push_status needs has_perm('orders.status') = 'F'; push_vendor needs is_admin() or has_perm('vendors.edit') = 'F'
+// push_status needs has_perm('orders.status') = 'F'; push_vendor needs is_admin() or has_perm('vendors.edit') = 'F' — or 'P' for the
+// contact fields alone (phone, email, contact_name, address_parts, social: the columns the guard lets 'P' edit), the rate fields add sensitive.commission = 'F'
 // (and has_perm('sensitive.commission') = 'F' when `fields` name the commission); every other action is_admin();
 // anything else → 401. Writes always go through the service client (deps.db). Body { action, ...args }:
 //   'states'   wc/v3/data/countries/EG (one request) → its states[] { code, name } → woo_states on code: the site's
@@ -56,6 +57,7 @@ const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all',
 const STATES_PATH = 'wc/v3/data/countries/EG'; // a wc/ path: the WC keys authenticate it
 const CATEGORIES_PATH = 'wc/v3/products/categories';
 const RATE_FIELDS = ['rate', 'category_rates'];
+const CONTACT_PUSH_FIELDS = ['phone', 'email', 'contact_name', 'address_parts', 'social']; // what vendors.edit = 'P' may push (the guard's contact rule)
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const pushEnabled = (env: Deps['env']) => env.WOO_PUSH_ENABLED?.trim() === '1';
 const TOPICS = ['order.created', 'order.updated', 'product.created', 'product.updated'];
@@ -82,8 +84,11 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'push_status') return (await perm('orders.status')) ? 'member' : null;
   if (action === 'push_vendor') {
     if (await admin()) return 'member';
-    if (!(await perm('vendors.edit'))) return null;
     const fields = Array.isArray(args.fields) ? args.fields : [];
+    const { data: edit, error: editErr } = await member.rpc('has_perm', { key: 'vendors.edit' });
+    const level = editErr ? null : edit;
+    const contactOnly = fields.length > 0 && fields.every((f) => CONTACT_PUSH_FIELDS.includes(f));
+    if (level !== 'F' && !(level === 'P' && contactOnly)) return null;
     return !fields.some((f) => RATE_FIELDS.includes(f)) || (await perm('sensitive.commission')) ? 'member' : null;
   }
   return (await admin()) ? 'member' : null;

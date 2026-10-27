@@ -727,7 +727,10 @@ export async function installSupabaseMock(page, opts = {}) {
     // minus the fields, accepted = the fields.
     if (method === 'POST' && path === '/functions/v1/woo-sync') {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
-      const mayPushVendor = () => isAdmin(u) || (hasPerm(u, 'vendors.edit') === 'F' && (!Array.isArray(b.fields) || !b.fields.some((f) => f === 'rate' || f === 'category_rates') || hasPerm(u, 'sensitive.commission') === 'F'));
+      const CONTACT_PUSH = ['phone', 'email', 'contact_name', 'address_parts', 'social']; // vendors.edit = P may push these alone (the guard's contact rule)
+      const rateAsked = () => Array.isArray(b.fields) && b.fields.some((f) => f === 'rate' || f === 'category_rates');
+      const contactOnly = () => Array.isArray(b.fields) && b.fields.length > 0 && b.fields.every((f) => CONTACT_PUSH.includes(f));
+      const mayPushVendor = () => isAdmin(u) || ((hasPerm(u, 'vendors.edit') === 'F' || (hasPerm(u, 'vendors.edit') === 'P' && contactOnly())) && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : isAdmin(u))) return json(401, { error: 'unauthorized' });
       if (action === 'push_vendor') {
         const fields = Array.isArray(b.fields) ? [...new Set(b.fields.filter((f) => typeof f === 'string'))] : [];

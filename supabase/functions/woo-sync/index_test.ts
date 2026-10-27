@@ -728,6 +728,14 @@ Deno.test('push_vendor: the commission fields need sensitive.commission = F (the
   const { woo, deps, db } = setup({ seed, routes, env: PUSH_ON });
   assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['rate'] }, { jwt: 'jwt-vf' })).res.status, 401, 'vendors.edit F without sensitive.commission');
   assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['phone', 'category_rates'] }, { jwt: 'jwt-vf' })).res.status, 401);
+  // ops (vendors.edit P): the contact fields it may edit pass; name, status or a rate field do not; an empty list is 400 after a pass
+  assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['name'] }, { jwt: 'jwt-ops' })).res.status, 401, 'ops: name is not a contact field');
+  assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['phone', 'status'] }, { jwt: 'jwt-ops' })).res.status, 401, 'ops: status needs F');
+  assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['phone', 'rate'] }, { jwt: 'jwt-ops' })).res.status, 401, 'ops: a rate field needs F + commission');
+  assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: [] }, { jwt: 'jwt-ops' })).res.status, 401, 'ops: nothing to push is not a contact push');
+  const opsPush = await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['phone', 'social'] }, { jwt: 'jwt-ops' });
+  assertEquals([opsPush.res.status, opsPush.body.result], [200, 'ok'], 'ops: the contact fields push');
+  woo.calls.length = 0;
   const { res, body } = await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['rate', 'category_rates'] }, { jwt: 'jwt-admin' });
   assertEquals([res.status, body.result, body.accepted], [200, 'ok', ['rate', 'category_rates']]);
   assertEquals(woo.calls[0].body, { admin_commission_type: 'category_based', admin_category_commission: { all: { percentage: '40', flat: '2' }, items: { '15': { percentage: '22', flat: '1' } } } }, 'the effective rows today: 40 / 2 (not the future 50), category 15 at 22 (16 removed)');
@@ -789,12 +797,14 @@ Deno.test('push_vendor: a maker without a store → skipped/no_store (nothing pe
   assertEquals(woo.calls.length, 0);
 });
 
-Deno.test('push_vendor: ops (vendors.edit P) and accounts are refused with 401 and nothing is read; the cron secret may push', async () => {
+Deno.test('push_vendor: accounts, a truthy-but-wrong admin and nobody are refused with 401 and nothing is read; ops (vendors.edit P) only for a name / status field; the cron secret may push', async () => {
   const store = wooStoreFull(44);
   const { db, woo, deps } = setup({ seed: { vendors: [PUSH_ROW] }, routes: { 'PUT dokan/v1/stores/44': (c: any) => ({ body: { ...store, ...c.body } }) }, env: PUSH_ON });
-  for (const jwt of ['jwt-ops', 'jwt-acct', 'jwt-admin-text', 'jwt-nobody']) {
+  for (const jwt of ['jwt-acct', 'jwt-admin-text', 'jwt-nobody']) {
     assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['phone'] }, { jwt })).res.status, 401, jwt);
   }
+  assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['name'] }, { jwt: 'jwt-ops' })).res.status, 401, 'ops: name');
+  assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['status'] }, { jwt: 'jwt-ops' })).res.status, 401, 'ops: status');
   assertEquals([db.writes().length, woo.calls.length], [0, 0]);
   assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['phone'] })).body.result, 'ok');
 });

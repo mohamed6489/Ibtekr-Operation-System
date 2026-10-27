@@ -193,3 +193,13 @@ create or replace trigger vendors_guard_update before update on public.vendors
   for each row execute function public.vendors_guard_update();
 
 revoke execute on function public.vendors_guard_update() from public, anon, authenticated;
+
+-- ---------------------------------------------------------------- activity_log: the site's rows are the server's alone
+
+-- Decision (this file, security review of phase 3.3): vendor.sync / vendor.sync.conflict rows are written by the sync with the
+-- service role (actor null) and read as «الموقع» on the page; a member may not log an action in that namespace, so no row
+-- can pose as the site's. The 0006 condition (an active profile) stays; service_role bypasses RLS. Re-runnable (alter policy).
+alter policy activity_log_insert on public.activity_log
+  with check (exists (select 1 from public.profiles p
+                      where p.id = (select auth.uid()) and p.status = 'active')
+              and action not like 'vendor.sync%');

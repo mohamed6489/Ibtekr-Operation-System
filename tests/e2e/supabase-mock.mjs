@@ -67,8 +67,11 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   orders_v: ['id', 'number', 'customer_name', 'customer_phone', 'customer_state', 'customer_city', 'customer_address', 'payment_method', 'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note', 'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'synced_at', 'created_at', 'updated_at'],
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'updated_at', 'commission_rate', 'commission_fee'],
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'updated_at'],
-  vendors: ['id', 'woo_vendor_id', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at', 'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance'],
-  vendor_rates: ['id', 'vendor_id', 'rate', 'since', 'set_by', 'created_at'],
+  vendors: ['id', 'woo_vendor_id', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at', 'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance',
+    'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at'], // 0014 (phase 3.3): woo_snapshot is service_role only (a select naming it → 42501, like commission_pct)
+  vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at'], // 0014: flat
+  vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'], // 0014: sensitive.commission, add-only
+  woo_categories: ['id', 'name', 'slug', 'parent_id', 'updated_at'], // 0014: the sync's, vendors.view
   vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at'],
   vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'status', 'must_change', 'invite_sent_at', 'password_set_at', 'secret_id', 'created_by', 'created_at', 'updated_at'], // 0012 (plan 3.1): secret_id is never granted to the client; created_by is the member's name
   products: ['id', 'sku', 'name', 'image_url', 'permalink', 'vendor_id', 'price', 'status', 'raw', 'updated_at'],
@@ -139,6 +142,11 @@ export const CONTRACT_BYTES = Buffer.from('%PDF-1.4\n% mock contract of Antikian
 export const SITE = 'https://ibtekr.stage.test';
 export const IMG = { cushion: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', curtain: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' };
 const VND = (n) => 'a0000000-0000-4000-8000-00000000000' + n;
+// phase 3.3 (0014): Art Craft's synced store data (no real person: a made-up owner name, a made-up address, links on the fake staging host)
+export const ART_PARTS = { street_1: '12 شارع المعز', street_2: '', city: 'القاهرة', state: 'الجمالية', zip: '11511', country: 'EG' };
+export const ART_ADDRESS = '12 شارع المعز، القاهرة، الجمالية';
+export const ART_SOCIAL = { fb: 'https://www.facebook.com/artcraft.dev', instagram: 'https://www.instagram.com/artcraft.dev', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' };
+export const ART_LOGO = SITE + '/wp-content/uploads/artcraft-logo.png'; // never reached: a spec that needs the image answers it itself
 export const BRAND = (n) => 'd0000000-0000-4000-8000-00000000000' + n; // the automatic brand of maker n (0013 backfill)
 export const NEW_BRAND = (n) => 'e0000000-0000-4000-8000-' + String(n).padStart(12, '0'); // the n-th brand inserted on this install (by the popup or the trigger)
 // phase 3.2 (decision 7): with installSupabaseMock(page, { transfer: true }) Antikiano's brand is with Bian eg from 8 days ago,
@@ -152,18 +160,27 @@ const ITEM_STATUSES = ['', 'غير مؤكد', 'مؤكد', 'قيد التنفيذ
 function ordersSeed(opts = {}) {
   const ago = (d) => { const t = new Date(Date.now() - d * 864e5); t.setUTCHours(10, 0, 0, 0); return t.toISOString(); };
   const vendor = (n, woo, name, status = 'active', more = {}) => ({ id: VND(n), woo_vendor_id: woo, name, aliases: [], phone: null, email: null, status, commission_pct: null, raw: { id: woo, shop_url: SITE + '/store/' + name.toLowerCase().replace(/\s+/g, '-') + '/' }, created_at: T0, updated_at: T0,
-    legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: '2026-03-01', contract: null, opening_balance: 0, ...more });
+    legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: '2026-03-01', contract: null, opening_balance: 0,
+    contact_name: null, address_parts: null, social: null, logo_url: null, banner_url: null, woo_payment_methods: null, woo_snapshot: null, push_pending: null, woo_synced_at: null, ...more }); // 0014 (phase 3.3)
   const product = (id, sku, name, image_url, v, slug) => ({ id, sku, name, image_url, permalink: SITE + '/product/' + slug + '/', vendor_id: VND(v), price: null, status: 'publish', raw: { id }, updated_at: T0 });
   const order = (o) => ({ number: String(o.id), customer_state: null, customer_city: null, customer_address: null, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', confirm: 'غير مؤكد', confirm_at: null, confirm_note: null, deposit: 0, currency: 'EGP', note: null, customer_note: null, cancel: null, ret: null, raw: { id: o.id }, woo_updated_at: o.placed_at, synced_at: o.placed_at, created_at: o.placed_at, updated_at: o.placed_at, ...o });
   const sub = (id, order_id, v, woo_order_id, woo_status, total) => ({ id, order_id, vendor_id: VND(v), woo_order_id, woo_status, total, dokan_earning: null, commission: null, raw: { id: woo_order_id }, updated_at: T0 });
   const line = (o) => ({ sub_order_id: null, product_id: null, qty: 1, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, commission_rate: null, commission_fee: null, raw: { id: o.id }, updated_at: T0, ...o, vendor_id: VND(o.vendor_id) });
-  const rate = (id, v, rate, since) => ({ id, vendor_id: VND(v), rate, since, set_by: 'صفوت كمال', created_at: T0 });
+  const rate = (id, v, rate, since, flat = null) => ({ id, vendor_id: VND(v), rate, flat, since, set_by: 'صفوت كمال', created_at: T0 });
   return {
     // 0011: Art Craft and Antikiano with a rate (Antikiano's raised in October), Antikiano with a stored contract, Bian eg (inactive, no order) with a bank row
-    vendors: [vendor(1, 2376, 'Art Craft', 'active', { aliases: ['ArtCraft'], phone: '01000000003', category: 'فنون ولوحات', store_url: SITE + '/store/art-craft/', notes: 'الشحن على المبتكر داخل القاهرة', commission_pct: 35 }),
-      vendor(2, 44, 'Antikiano', 'active', { aliases: ['Antikiano store'], phone: '01000000001', category: 'إكسسوارات ومجوهرات', commission_pct: 45, contract: { path: CONTRACT_PATH, file_name: 'antikiano.pdf', size: CONTRACT_BYTES.length, expires: CONTRACT_EXPIRES, uploaded_by: 'منى حسن', uploaded_at: T0 } }),
+    // 0014 (phase 3.3): Art Craft carries the synced store data (the owner's name, the address parts, two social links, the site's logo,
+    // the payout methods, a last sync); Antikiano has a phone waiting for the site (push_pending); Bian eg is inactive with a store there
+    vendors: [vendor(1, 2376, 'Art Craft', 'active', { aliases: ['ArtCraft'], phone: '01000000003', category: 'فنون ولوحات', store_url: SITE + '/store/art-craft/', notes: 'الشحن على المبتكر داخل القاهرة', commission_pct: 35,
+      contact_name: 'منى عادل', address: ART_ADDRESS, address_parts: ART_PARTS, social: ART_SOCIAL, instagram: ART_SOCIAL.instagram, logo_url: ART_LOGO, banner_url: SITE + '/wp-content/uploads/artcraft-banner.png', woo_payment_methods: ['bank'], woo_snapshot: { name: 'Art Craft', phone: '01000000003' }, woo_synced_at: T0 }),
+      vendor(2, 44, 'Antikiano', 'active', { aliases: ['Antikiano store'], phone: '01000000001', category: 'إكسسوارات ومجوهرات', commission_pct: 45, contract: { path: CONTRACT_PATH, file_name: 'antikiano.pdf', size: CONTRACT_BYTES.length, expires: CONTRACT_EXPIRES, uploaded_by: 'منى حسن', uploaded_at: T0 }, push_pending: ['phone'], woo_synced_at: T0 }),
       vendor(3, 2047, 'Bian eg', 'inactive', { aliases: ['Bian'], phone: '01000000000', category: 'ديكور منزلي' })],
-    vendorRates: [rate(1, 1, 35, '2026-03-01'), rate(2, 2, 40, '2026-03-01'), rate(3, 2, 45, '2026-10-01')],
+    vendorRates: [rate(1, 1, 35, '2026-03-01'), rate(2, 2, 40, '2026-03-01'), rate(3, 2, 45, '2026-10-01', 10)], // Antikiano's current rate carries the site's flat fee (0014 vendor_rates.flat)
+    // 0014: Art Craft's commission on the site's category 15 (set by the sync), and the two category names the sync pulled
+    vendorCategoryRates: [{ id: 1, vendor_id: VND(1), woo_category_id: 15, rate: 30, flat: 0, since: '2026-03-01', set_by: 'الموقع', created_at: T0 }],
+    wooCategories: [{ id: 15, name: 'ديكور', slug: 'decor', parent_id: 0, updated_at: T0 }, { id: 22, name: 'هدايا', slug: 'gifts', parent_id: 0, updated_at: T0 }],
+    // the server's sync rows on Art Craft (actor null, new_value the field names): a change taken from the site, a conflict the site won
+    syncActivity: [{ id: 1, at: T0, actor: null, action: 'vendor.sync', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'phone, address_parts' }, { id: 2, at: T0, actor: null, action: 'vendor.sync.conflict', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'name' }],
     vendorBank: [{ vendor_id: VND(3), method: 'bank', bank_name: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: IBAN, wallet: '01000000000', updated_by: 'منى حسن', updated_at: T0 }],
     // 0012 (plan 3.1): Antikiano with a temporary password in the vault (secret_id → the vault entry), Bian eg with a row but no password yet
     vendorLogins: [{ vendor_id: VND(2), username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: T0, secret_id: SECRET_ID, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 },
@@ -211,13 +228,17 @@ const viewRow = (u, o) => ({ ...Object.fromEntries(COLUMNS.orders_v.map((c) => [
 const ORDER_STATUS_COLS = ['status', 'confirm', 'confirm_at', 'confirm_note', 'cancel', 'ret']; const ORDER_EDIT_COLS = ['note', 'customer_city', 'customer_address', 'deposit'];
 const ITEM_COLS = ['status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store'];
 // 0011: the vendors columns granted for insert / update to authenticated (never woo_vendor_id, commission_pct, raw, opening_balance), by the rule they need
-const VENDOR_IDENTITY_COLS = ['name', 'legal_name', 'category', 'aliases', 'lead_days', 'deposit_policy', 'joined_at']; const VENDOR_CONTACT_COLS = ['phone', 'alt_phone', 'email', 'address', 'instagram', 'store_url', 'notes'];
-const VT_INSERT = { vendors: ['name', 'aliases', 'phone', 'email', 'status', 'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at'], vendor_rates: ['vendor_id', 'rate', 'since', 'set_by'], vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at'], vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'created_by'] };
+const VENDOR_IDENTITY_COLS = ['name', 'legal_name', 'category', 'aliases', 'lead_days', 'deposit_policy', 'joined_at']; const VENDOR_CONTACT_COLS = ['phone', 'alt_phone', 'email', 'address', 'address_parts', 'contact_name', 'social', 'instagram', 'store_url', 'notes']; // 0014: the three synced contact columns under the contact rule
+// 0014: contact_name / address_parts / social granted with the contact columns; logo_url / banner_url / woo_payment_methods / woo_snapshot / push_pending / woo_synced_at are the server's (no grant); vendor_rates.flat
+const VT_INSERT = { vendors: ['name', 'aliases', 'phone', 'email', 'status', 'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contact_name', 'address_parts', 'social'], vendor_rates: ['vendor_id', 'rate', 'flat', 'since', 'set_by'], vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at'], vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'created_by'],
+  vendor_category_rates: ['vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by'] };
+const SYNC_FIELDS = ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates']; // woo-core SYNC_FIELDS: push_vendor's fields
 const VT_UPDATE = { vendors: VT_INSERT.vendors.concat(['contract']), vendor_bank: VT_INSERT.vendor_bank.filter((c) => c !== 'vendor_id'), vendor_logins: ['username', 'email', 'pw_mode', 'status'] }; // 0012: must_change / invite_sent_at / password_set_at / secret_id are the server's
 const USERNAME_RE = /^[a-z0-9][a-z0-9._]{2,29}$/; const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const canLogin = (u) => isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F'; // 0012: vendor_logins insert / update and the two RPCs
 const VENDOR_CATEGORIES = ['ديكور منزلي', 'إكسسوارات ومجوهرات', 'ملابس ومنسوجات', 'فنون ولوحات', 'هدايا', 'مستلزمات حرف', 'أطعمة وحلويات'];
-const VENDOR_DEFAULTS = () => ({ woo_vendor_id: null, aliases: [], phone: null, email: null, status: 'active', commission_pct: null, raw: null, legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: null, contract: null, opening_balance: 0 });
+const VENDOR_DEFAULTS = () => ({ woo_vendor_id: null, aliases: [], phone: null, email: null, status: 'active', commission_pct: null, raw: null, legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: null, contract: null, opening_balance: 0,
+  contact_name: null, address_parts: null, social: null, logo_url: null, banner_url: null, woo_payment_methods: null, woo_snapshot: null, push_pending: null, woo_synced_at: null });
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const authUser = (u, factors) => ({ id: u.id, aud: 'authenticated', role: 'authenticated', email: u.email, phone: '', app_metadata: { provider: 'email', providers: ['email'] }, user_metadata: {}, identities: [], factors, created_at: T0 });
 const claims = (token) => { try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()); } catch { return null; } };
@@ -244,7 +265,11 @@ export async function installSupabaseMock(page, opts = {}) {
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
   const mock = { profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
-    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [] };
+    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true };
+  // phase 3.3: vendorCategoryRates / wooCategories: the 0014 tables (ordersSeed()); vendorPushes: each woo-sync push_vendor as { vendor_id, fields, by, result, reason? }
+  // (the body names the fields only — the mock reads the row like the server); pushEnabled: WOO_PUSH_ENABLED on the server (false → skipped/push_disabled,
+  // the fields added to push_pending); wooDown → 502 with the fields in push_pending. The server's sync rows (ordersSeed().syncActivity) seed activity_log.
+  mock.activityRows.push(...mock.syncActivity);
   // brands / brandOwners / brandRates: the 0013 tables (ordersSeed(opts): opts.transfer seeds the temporary transfer); brandWrites: each
   // insert / update the client sent them as { table, op, ...columns } — the trigger's own rows (the automatic brand) are not writes of the client
   let brandSeq = 0; let ownerSeq = mock.brandOwners.length; let brandRateSeq = 0;
@@ -263,7 +288,7 @@ export async function installSupabaseMock(page, opts = {}) {
   let vendorSeq = 0; let rateSeq = 3;
   // the after-insert trigger of vendor_rates: vendors.commission_pct = the rate effective today
   const effectiveRate = (vid) => { const today = new Date().toISOString().slice(0, 10); const v = mock.vendors.find((x) => x.id === vid); if (!v) return; const cur = mock.vendorRates.filter((r) => r.vendor_id === vid && r.since <= today).sort((a, b) => (a.since < b.since ? -1 : 1)).pop(); v.commission_pct = cur ? cur.rate : null; };
-  let activityId = 0;
+  let activityId = mock.activityRows.length; let catRateSeq = mock.vendorCategoryRates.length;
   const profileOf = (id) => mock.profiles.find((x) => x.id === id) || null;
   const userJson = (u) => authUser(u, mock.factors.filter((x) => x.user_id === u.id).map(({ user_id, ...x }) => ({ ...x })));
   const session = (u, aal = 'aal1') => {
@@ -448,8 +473,10 @@ export async function installSupabaseMock(page, opts = {}) {
       // guard of decision 8 (42501 with the rule's message), vendor_rates / vendor_bank behind sensitive.commission /
       // sensitive.vendor_bank (RLS using → [] for the others; a write → 42501), the rate trigger, delete by the admin only and
       // refused while order lines point at the maker (23503). One statement: every row or none.
-      const vt = /^\/rest\/v1\/(vendors|vendor_rates|vendor_bank|vendor_logins)$/.exec(path);
-      const VT_METHODS = { vendors: ['GET', 'POST', 'PATCH', 'DELETE'], vendor_rates: ['GET', 'POST'], vendor_bank: ['GET', 'POST', 'PATCH'], vendor_logins: ['GET', 'POST', 'PATCH'] };
+      // 0014 (phase 3.3): vendor_category_rates (select / insert with sensitive.commission; the checks 23514; unique (vendor, category, since) 23505;
+      // no update / delete), woo_categories (select with vendors.view; never written by a member)
+      const vt = /^\/rest\/v1\/(vendors|vendor_rates|vendor_bank|vendor_logins|vendor_category_rates|woo_categories)$/.exec(path);
+      const VT_METHODS = { vendors: ['GET', 'POST', 'PATCH', 'DELETE'], vendor_rates: ['GET', 'POST'], vendor_bank: ['GET', 'POST', 'PATCH'], vendor_logins: ['GET', 'POST', 'PATCH'], vendor_category_rates: ['GET', 'POST'], woo_categories: ['GET'] };
       if (vt && VT_METHODS[vt[1]].includes(method)) {
         const t = vt[1]; const f = readFilters(url.searchParams, t); const now = new Date().toISOString();
         const denied = (message) => json(403, { code: '42501', details: null, hint: null, message });
@@ -459,22 +486,23 @@ export async function installSupabaseMock(page, opts = {}) {
         const representation = /return=representation/.test(hd.prefer || '') || url.searchParams.has('select');
         const single = /vnd\.pgrst\.object\+json/.test(hd.accept || '');
         // the key of the writes: sensitive.commission / sensitive.vendor_bank for the money tables, vendors.edit = F (or admin) for the logins
-        const F = t === 'vendor_logins' ? canLogin(u) : hasPerm(u, t === 'vendor_rates' ? 'sensitive.commission' : 'sensitive.vendor_bank') === 'F';
-        const rows = () => (t === 'vendors' ? mock.vendors : t === 'vendor_rates' ? mock.vendorRates : t === 'vendor_bank' ? mock.vendorBank : mock.vendorLogins);
+        const F = t === 'vendor_logins' ? canLogin(u) : t === 'woo_categories' ? false : hasPerm(u, t === 'vendor_rates' || t === 'vendor_category_rates' ? 'sensitive.commission' : 'sensitive.vendor_bank') === 'F';
+        const rows = () => (t === 'vendors' ? mock.vendors : t === 'vendor_rates' ? mock.vendorRates : t === 'vendor_bank' ? mock.vendorBank : t === 'vendor_category_rates' ? mock.vendorCategoryRates : t === 'woo_categories' ? mock.wooCategories : mock.vendorLogins);
         // the check constraints of 0011 (category, lead_days, status — leave since 0012; rate; method) and 0012 (username, email, pw_mode, status)
         const bad = (r) => (t === 'vendors' ? (r.category != null && !VENDOR_CATEGORIES.includes(r.category) ? 'vendors_category_check' : r.lead_days != null && !(Number.isInteger(Number(r.lead_days)) && r.lead_days >= 1 && r.lead_days <= 60) ? 'vendors_lead_days_check' : r.status != null && !['active', 'leave', 'inactive'].includes(r.status) ? 'vendors_status_check' : null)
-          : t === 'vendor_rates' ? (!(Number(r.rate) >= 0 && Number(r.rate) <= 65) ? 'vendor_rates_rate_check' : null)
+          : t === 'vendor_rates' ? (!(Number(r.rate) >= 0 && Number(r.rate) <= 65) ? 'vendor_rates_rate_check' : r.flat != null && !(Number(r.flat) >= 0) ? 'vendor_rates_flat_check' : null)
+          : t === 'vendor_category_rates' ? (!(Number.isInteger(Number(r.woo_category_id)) && Number(r.woo_category_id) > 0) ? 'vendor_category_rates_woo_category_id_check' : r.rate != null && !(Number(r.rate) >= 0 && Number(r.rate) <= 65) ? 'vendor_category_rates_rate_check' : r.flat != null && !(Number(r.flat) >= 0) ? 'vendor_category_rates_flat_check' : null)
           : t === 'vendor_logins' ? (!USERNAME_RE.test(String(r.username ?? '')) ? 'vendor_logins_username_check' : r.email != null && !EMAIL_RE.test(String(r.email)) ? 'vendor_logins_email_check' : r.pw_mode != null && !['link', 'temp'].includes(r.pw_mode) ? 'vendor_logins_pw_mode_check' : r.status != null && !['invited', 'active', 'disabled'].includes(r.status) ? 'vendor_logins_status_check' : null)
           : (r.method != null && !['bank', 'instapay', 'wallet', 'cash'].includes(r.method) ? 'vendor_bank_method_check' : null));
         const usernameTaken = (name, except) => mock.vendorLogins.some((x) => x !== except && x.username.toLowerCase() === String(name).toLowerCase()); // the unique index on lower(username)
         const dupUser = () => json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "vendor_logins_username_key"' });
         if (method === 'GET') {
           const asked = url.searchParams.get('select') || '*';
-          if (t === 'vendors' && asked.split(',').some((c) => c.trim() === '*' || c.trim() === 'commission_pct')) return denied('permission denied for table vendors'); // the select grant is a column list without commission_pct
+          if (t === 'vendors' && asked.split(',').some((c) => c.trim() === '*' || c.trim() === 'commission_pct' || c.trim() === 'woo_snapshot')) return denied('permission denied for table vendors'); // the select grant is a column list without commission_pct / woo_snapshot (0014)
           if (t === 'vendor_logins' && asked.split(',').some((c) => c.trim() === '*' || c.trim() === 'secret_id')) return denied('permission denied for table vendor_logins'); // 0012: the select grant is a column list without secret_id
           const sel = readSelect(t, asked);
           if (sel.bad) return json(400, { code: '42703', details: null, hint: null, message: `column ${sel.bad} does not exist` });
-          const visible = t === 'vendors' || t === 'vendor_logins' ? hasPerm(u, 'vendors.view') !== 'N' : F;
+          const visible = t === 'vendors' || t === 'vendor_logins' || t === 'woo_categories' ? hasPerm(u, 'vendors.view') !== 'N' : F;
           return json(200, pageOf(visible ? rows().filter(f.match) : [], url.searchParams).map(sel.pick));
         }
         if (t !== 'vendors' && !F) return denied(`new row violates row-level security policy for table "${t}"`);
@@ -487,13 +515,16 @@ export async function installSupabaseMock(page, opts = {}) {
           if (t === 'vendors' && !(isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F')) return denied('new row violates row-level security policy for table "vendors"');
           for (const r of list) { const c = bad(r); if (c) return check(c); if (t !== 'vendors' && !mock.vendors.some((v) => v.id === r.vendor_id)) return json(409, { code: '23503', details: null, hint: null, message: `insert or update on table "${t}" violates foreign key constraint "${t}_vendor_id_fkey"` }); }
           if (t === 'vendor_rates' && list.some((r) => mock.vendorRates.some((x) => x.vendor_id === r.vendor_id && x.since === r.since))) return json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "vendor_rates_vendor_id_since_key"' });
+          if (t === 'vendor_category_rates' && (url.searchParams.has('on_conflict') || /resolution=/.test(hd.prefer || ''))) return denied('permission denied for table vendor_category_rates'); // add-only: no update grant, so no upsert
+          if (t === 'vendor_category_rates' && list.some((r) => mock.vendorCategoryRates.some((x) => x.vendor_id === r.vendor_id && Number(x.woo_category_id) === Number(r.woo_category_id) && x.since === r.since))) return json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "vendor_category_rates_vendor_id_woo_category_id_since_key"' });
           if (t === 'vendor_bank' && list.some((r) => mock.vendorBank.some((x) => x.vendor_id === r.vendor_id))) return json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "vendor_bank_pkey"' });
           if (t === 'vendor_logins' && list.some((r) => mock.vendorLogins.some((x) => x.vendor_id === r.vendor_id))) return json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "vendor_logins_pkey"' });
           if (t === 'vendor_logins' && list.some((r) => usernameTaken(r.username, null))) return dupUser();
           const out = [];
           for (const r of list) {
             if (t === 'vendors') { vendorSeq += 1; const row = { ...VENDOR_DEFAULTS(), ...r, id: 'b0000000-0000-4000-8000-' + String(vendorSeq).padStart(12, '0'), created_at: now, updated_at: now }; mock.vendors.push(row); autoBrand(row, now); out.push({ id: row.id }); }
-            else if (t === 'vendor_rates') { rateSeq += 1; const row = { id: rateSeq, vendor_id: r.vendor_id, rate: Number(r.rate), since: r.since, set_by: r.set_by ?? null, created_at: now }; mock.vendorRates.push(row); effectiveRate(r.vendor_id); out.push({ id: row.id }); }
+            else if (t === 'vendor_rates') { rateSeq += 1; const row = { id: rateSeq, vendor_id: r.vendor_id, rate: Number(r.rate), flat: r.flat == null ? null : Number(r.flat), since: r.since, set_by: r.set_by ?? null, created_at: now }; mock.vendorRates.push(row); effectiveRate(r.vendor_id); out.push({ id: row.id }); }
+            else if (t === 'vendor_category_rates') { catRateSeq += 1; const row = { id: catRateSeq, vendor_id: r.vendor_id, woo_category_id: Number(r.woo_category_id), rate: r.rate == null ? null : Number(r.rate), flat: r.flat == null ? null : Number(r.flat), since: r.since, set_by: r.set_by ?? null, created_at: now }; mock.vendorCategoryRates.push(row); out.push({ id: row.id }); }
             else if (t === 'vendor_logins') { mock.vendorLogins.push({ vendor_id: r.vendor_id, username: r.username, email: r.email ?? null, pw_mode: r.pw_mode ?? 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: r.created_by ?? u.name, created_at: now, updated_at: now }); out.push({ vendor_id: r.vendor_id }); } // created_by: the member's name (0012, like set_by / updated_by)
             else { mock.vendorBank.push({ method: 'bank', bank_name: null, holder: null, iban: null, wallet: null, updated_by: null, updated_at: now, ...r }); out.push({ vendor_id: r.vendor_id }); }
             mock.vendorWrites.push({ table: t, op: 'insert', ...r });
@@ -688,9 +719,33 @@ export async function installSupabaseMock(page, opts = {}) {
     // woo-sync (supabase/functions/woo-sync, verify_jwt false: it checks the member's JWT itself): push_status needs
     // orders.status = F, every other action admin; push_status is skipped when the status is not the stored one ('stale')
     // or has no outgoing WooCommerce slug ('no_woo_status': a from_woo row like «فشل», or a row without a slug — none today; a from_system row WITH a slug is pushed), else the order's woo_status follows the slug.
+    // phase 3.3 push_vendor (the contract of Task A): the admin or vendors.edit = F (+ sensitive.commission = F when the fields name the
+    // commission) → else 401; a non-uuid / empty or unknown fields → 400; the row read here (never the body) → 404; no store →
+    // skipped/no_store; the gate (mock.pushEnabled) → skipped/push_disabled with the fields in push_pending; a `#` placeholder name alone →
+    // skipped/placeholder; WooCommerce down → 502 woo_error with the fields in push_pending; else ok: woo_synced_at = now, push_pending
+    // minus the fields, accepted = the fields.
     if (method === 'POST' && path === '/functions/v1/woo-sync') {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : isAdmin(u))) return json(401, { error: 'unauthorized' });
+      const mayPushVendor = () => isAdmin(u) || (hasPerm(u, 'vendors.edit') === 'F' && (!Array.isArray(b.fields) || !b.fields.some((f) => f === 'rate' || f === 'category_rates') || hasPerm(u, 'sensitive.commission') === 'F'));
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : isAdmin(u))) return json(401, { error: 'unauthorized' });
+      if (action === 'push_vendor') {
+        const fields = Array.isArray(b.fields) ? [...new Set(b.fields.filter((f) => typeof f === 'string'))] : [];
+        if (typeof b.vendor_id !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(b.vendor_id) || !fields.length || fields.some((f) => !SYNC_FIELDS.includes(f))) return json(400, { error: 'bad_request' });
+        const v = mock.vendors.find((x) => x.id === b.vendor_id.toLowerCase());
+        if (!v) return json(404, { error: 'vendor_not_found' });
+        const rec = { vendor_id: v.id, fields, by: u.email, result: 'ok' }; mock.vendorPushes.push(rec);
+        const pend = () => { v.push_pending = [...new Set((Array.isArray(v.push_pending) ? v.push_pending : []).concat(fields))]; };
+        const skip = (reason) => { rec.result = 'skipped'; rec.reason = reason; return json(200, { action, result: 'skipped', reason, fields, counts: { pushed: 0 } }); };
+        if (v.woo_vendor_id == null) return skip('no_store');
+        if (!mock.pushEnabled) { pend(); return skip('push_disabled'); }
+        if (mock.wooDown) { pend(); rec.result = 'error'; return json(502, { error: 'woo_error', action, fields }); }
+        const sent = fields.filter((f) => !(f === 'name' && /^#/.test(String(v.name || '').trim())));
+        if (!sent.length) return skip('placeholder');
+        const now = new Date().toISOString(); v.woo_synced_at = now; v.updated_at = now;
+        const left = (Array.isArray(v.push_pending) ? v.push_pending : []).filter((f) => !fields.includes(f)); v.push_pending = left.length ? left : null;
+        v.woo_snapshot = { ...(v.woo_snapshot || {}), ...Object.fromEntries(sent.filter((f) => !['rate', 'category_rates'].includes(f)).map((f) => [f, v[f] ?? null])) };
+        return json(200, { action, result: 'ok', fields: sent, accepted: sent, refused: [], dropped: fields.filter((f) => !sent.includes(f)), counts: { pushed: 1 } });
+      }
       if (mock.wooDown) return json(502, { error: 'woo_error' });
       if (action === 'push_status') {
         const o = mock.orders.find((x) => x.id === Number(b.order_id));

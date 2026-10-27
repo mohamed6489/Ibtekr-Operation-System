@@ -1478,6 +1478,10 @@
     const d = (e && e.detail) || {};
     if (d.state === 'loading') return;
     if (d.reason) vnote = { kind: 'error', text: VMSG[d.reason] || 'التغيير ما اتحفظش.' };
+    // phase 3.3 (decision 5): the row was taken and pushed to the site — a failed push (the fields wait in push_pending) or a member who
+    // may not push says so; ok / skipped (no store, the push gate, a placeholder name) add nothing to the save's own note
+    if (d.push && d.push.result === 'error') vnote = { kind: 'warning', text: VMSG.push_failed };
+    else if (d.push && d.push.result === 'skipped' && d.push.reason === 'no_permission') vnote = { kind: 'warning', text: VMSG.push_forbidden };
     if (state.page === 'vendors') renderVendors(true);
     if (vredraw) vredraw();
   });
@@ -1629,7 +1633,7 @@
     function draw() {
       const fields = [
         h('div', { class: 'row cols2' }, h('div', { style: 'flex:1;display:flex;flex-direction:column;gap:16px;min-width:0' }, txt('v-name', 'اسم المبتكر (المعروض)', 'name', { required: true, maxlength: 80, onInput: (v) => { f.name = v; if (!existing && !f.userTouched) { f.username = VD.suggestUsername(v, (u) => vstore.usernameTaken(u)); const el = document.getElementById('v-login-user'); if (el) el.value = f.username; } } }), U.Select({ id: 'v-cat', label: 'الفئة الأساسية', required: true, options: CATS.map((c) => ({ value: c, label: c })), value: f.category, error: errs.category, placeholder: 'اختار الفئة', onChange: (v) => { f.category = v; draw(); } })),
-          h('div', { style: 'flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px' }, U.VendorLogo({ letter: f.name || '؟', size: 'lg' }), Button({ type: 'text', size: 'sm', label: 'رفع لوجو', disabled: true, attrs: { title: 'غير متاح في النموذج' } }))),
+          h('div', { style: 'flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px' }, U.VendorLogo({ letter: f.name || '؟', size: 'lg' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary);text-align:center' }, 'الصورة بتيجي من متجره على الموقع'))), // phase 3.3 (decision 1): the logo is the site's gravatar, read-only — no upload here
         two(txt('v-phone', 'الهاتف (واتساب)', 'phone', { required: true, inputmode: 'tel', placeholder: '01xxxxxxxxx' }), existing ? txt('v-alt', 'هاتف بديل', 'altPhone', { inputmode: 'tel' }) : txt('v-rate', 'نسبة إبتكر', 'rate', { required: true, inputmode: 'decimal', suffix: '%', help: 'تنطبق على الأوردرات الجديدة من تاريخ الإضافة' })),
         two(txt('v-lead', 'مدة التجهيز (أيام)', 'leadDays', { required: true, inputmode: 'numeric', help: 'بتغذي قاعدة التأخير بدل الرقم الثابت' }), U.Select({ id: 'v-status', label: 'الحالة', required: true, options: statusOpts, value: f.status, error: errs.status, onChange: (v) => { f.status = v; draw(); } })),
         txt('v-aliases', 'أسماء بديلة', 'aliases', { placeholder: 'W&R، WOOD & ROPE', help: 'لتوحيد الأسماء من الأوردرات والشيت — افصل بفاصلة' }),
@@ -1690,30 +1694,49 @@
       trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
     }
     // Per-section edit (owner, 21 Oct): every data group has its own «تعديل» that opens a popup with that group's fields only (Figma: Modal / Vendor edit — Identity | Contact | Terms).
+    // Phase 3.3 (decision 6 a / b): the contact popup carries the store owner's name, the six address parts and the eight social links
+    // (instagram is social.instagram) — the synced fields go to the site right after the save; the terms popup takes the flat fee next to
+    // the rate (shown with it, pushed as the maker's commission on the site).
     function editGroup(v, g) {
-      const G = VD.EDIT_GROUPS[g]; const f = { name: v.name, legalName: v.legalName || '', category: v.category, aliases: v.aliases.join('، '), status: v.status, phone: v.phone, altPhone: v.altPhone || '', email: v.email || '', address: v.address || '', instagram: v.instagram || '', storeUrl: v.storeUrl || '', leadDays: String(v.leadDays), depositPolicy: v.depositPolicy || '', notes: v.notes || '', rate: v.rate == null ? '' : String(v.rate), since: VTODAY() };
+      const G = VD.EDIT_GROUPS[g]; const f = { name: v.name, legalName: v.legalName || '', category: v.category, aliases: v.aliases.join('، '), status: v.status, phone: v.phone, altPhone: v.altPhone || '', email: v.email || '', contactName: v.contactName || '', addressParts: VD.cleanAddressParts(v.addressParts), social: Object.assign({}, VD.cleanSocial(v.social)), storeUrl: v.storeUrl || '', leadDays: String(v.leadDays), depositPolicy: v.depositPolicy || '', notes: v.notes || '', rate: v.rate == null ? '' : String(v.rate), flat: v.rateFlat == null ? '' : String(v.rateFlat), since: VTODAY() };
       let errs = {}; let m = null;
       const txt = (fid, label, key, opts = {}) => U.TextInput(Object.assign({ id: fid, label, value: f[key], error: errs[key], onInput: (x) => { f[key] = x; } }, opts));
+      const sub = (fid, label, obj, key, opts = {}) => U.TextInput(Object.assign({ id: fid, label, value: f[obj][key] || '', error: errs[obj] && errs[obj][key], onInput: (x) => { f[obj][key] = x; } }, opts)); // a key of addressParts / social
       const two = (a, b) => h('div', { class: 'row cols2' }, a, b);
+      const synced = !!v.wooVendorId;
       const groups = {
         identity: () => [two(txt('g-name', 'اسم المبتكر (المعروض)', 'name', { required: true, maxlength: 80 }), txt('g-legal', 'الاسم التجاري / القانوني', 'legalName')),
           two(U.Select({ id: 'g-cat', label: 'الفئة الأساسية', required: true, options: CATS.map((c) => ({ value: c, label: c })), value: f.category, error: errs.category, onChange: (x) => { f.category = x; m.setBody(...body()); } }), U.Select({ id: 'g-status', label: 'الحالة', required: true, options: VD.STATUSES.map(([value, label]) => ({ value, label })), value: f.status, error: errs.status, onChange: (x) => { f.status = x; m.setBody(...body()); } })),
-          txt('g-aliases', 'أسماء بديلة', 'aliases', { placeholder: 'W&R، WOOD & ROPE', help: 'لتوحيد الأسماء من الأوردرات والشيت — افصل بفاصلة' })],
+          txt('g-aliases', 'أسماء بديلة', 'aliases', { placeholder: 'W&R، WOOD & ROPE', help: 'لتوحيد الأسماء من الأوردرات والشيت — افصل بفاصلة' }),
+          synced ? U.InlineNote({ children: 'الاسم والحالة بيتبعتوا لمتجره على الموقع مع الحفظ.' }) : null],
         contact: () => [two(txt('g-phone', 'الهاتف (واتساب)', 'phone', { required: true, inputmode: 'tel', placeholder: '01xxxxxxxxx' }), txt('g-alt', 'هاتف بديل', 'altPhone', { inputmode: 'tel', placeholder: '01xxxxxxxxx' })),
-          two(txt('g-email', 'الإيميل', 'email', { inputmode: 'email' }), txt('g-ig', 'إنستجرام', 'instagram', { placeholder: '@name' })),
-          txt('g-addr', 'العنوان (الاستلام)', 'address'), txt('g-url', 'صفحة المتجر', 'storeUrl', { placeholder: 'https://ibtekr.club/…' })],
+          two(txt('g-email', 'الإيميل', 'email', { inputmode: 'email' }), txt('g-contact', 'اسم صاحب المتجر', 'contactName', { maxlength: 120, help: 'زي ما هو على الموقع (الاسم الأول والأخير)' })),
+          h('div', { class: 't-label', style: 'color:var(--color-text-secondary)' }, 'العنوان (الاستلام)'),
+          two(sub('g-street1', VD.label(VD.ADDRESS_LABELS, 'street_1'), 'addressParts', 'street_1', { maxlength: 120 }), sub('g-street2', VD.label(VD.ADDRESS_LABELS, 'street_2'), 'addressParts', 'street_2', { maxlength: 120 })),
+          two(sub('g-city', VD.label(VD.ADDRESS_LABELS, 'city'), 'addressParts', 'city', { maxlength: 80 }), sub('g-state', VD.label(VD.ADDRESS_LABELS, 'state'), 'addressParts', 'state', { maxlength: 80 })),
+          two(sub('g-zip', VD.label(VD.ADDRESS_LABELS, 'zip'), 'addressParts', 'zip', { maxlength: 20, dir: 'ltr' }), sub('g-country', VD.label(VD.ADDRESS_LABELS, 'country'), 'addressParts', 'country', { maxlength: 2, dir: 'ltr', placeholder: 'EG' })),
+          h('div', { class: 't-label', style: 'color:var(--color-text-secondary)' }, 'سوشيال (روابط تبدأ بـ https://)'),
+          ...VD.SOCIAL_KEYS.reduce((rows, [k, label], i, all) => (i % 2 ? rows : rows.concat([two(sub('g-' + k, label, 'social', k, { dir: 'ltr', inputmode: 'url', placeholder: 'https://…' }), all[i + 1] ? sub('g-' + all[i + 1][0], all[i + 1][1], 'social', all[i + 1][0], { dir: 'ltr', inputmode: 'url', placeholder: 'https://…' }) : h('span'))])), []),
+          txt('g-url', 'صفحة المتجر', 'storeUrl', { placeholder: 'https://ibtekr.club/…' }),
+          synced ? U.InlineNote({ children: 'التليفون والإيميل واسم صاحب المتجر والعنوان والسوشيال بيتبعتوا لمتجره على الموقع مع الحفظ.' }) : null],
         terms: () => [vstore.canRate() ? two(txt('g-rate', 'نسبة إبتكر', 'rate', { inputmode: 'decimal', suffix: '%', help: v.rate == null ? 'لسه مفيش نسبة متسجلة' : undefined }), U.DateField({ id: 'g-since', label: 'النسبة الجديدة سارية من', required: true, value: f.since, error: errs.since, today: VTODAY(), onChange: (iso, e) => { if (!e) f.since = iso; errs.since = e || undefined; m.setBody(...body()); } })) : null,
-          vstore.canRate() ? U.InlineNote({ kind: 'warning', children: 'لو غيّرت النسبة: بتنطبق على الأوردرات الجديدة من التاريخ ده فقط — الأوردرات القديمة بتفضل بنسبتها ' + (v.rate == null ? '—' : v.rate + '%') + '.' }) : null,
+          vstore.canRate() ? txt('g-flat', 'رسوم ثابتة على كل أوردر (ج.م)', 'flat', { inputmode: 'decimal', error: errs.flat, help: 'زي ما هي على الموقع — للعرض بس، مش داخلة في حساب الحصة' }) : null,
+          vstore.canRate() ? U.InlineNote({ kind: 'warning', children: 'لو غيّرت النسبة: بتنطبق على الأوردرات الجديدة من التاريخ ده فقط — الأوردرات القديمة بتفضل بنسبتها ' + (v.rate == null ? '—' : v.rate + '%') + '.' + (synced ? ' والنسبة بتتبعت للموقع.' : '') }) : null,
           two(txt('g-lead', 'مدة التجهيز المتفق عليها (أيام)', 'leadDays', { required: true, inputmode: 'numeric', help: 'بتغذي قاعدة التأخير' }), txt('g-dep', 'سياسة العربون', 'depositPolicy')),
           U.Textarea({ id: 'g-notes', label: 'ملاحظات الاتفاق', value: f.notes, onInput: (x) => { f.notes = x; } })] };
       const body = () => groups[g]().filter(Boolean).concat(errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: 'التعديل بيتسجل في سجل النشاط باسمك.' }));
       function save() {
         errs = VD.validateGroup(g, Object.assign({}, v, { aliases: v.aliases.join('، ') }), f);
-        let rateChanged = false;
-        if (g === 'terms' && vstore.canRate()) { const raw = String(f.rate).trim(); if (raw === '') { if (v.rate != null) errs.rate = 'النسبة من 0% إلى 65%'; } else { const r = Number(raw.replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660))); if (!(r >= 0 && r <= 65)) errs.rate = 'النسبة من 0% إلى 65%'; else rateChanged = r !== v.rate; if (rateChanged && !f.since) errs.since = 'اختار تاريخ سريان النسبة'; } }
-        if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; m.setBody(...body()); return; }
+        let rateChanged = false; let flat = null;
+        if (g === 'terms' && vstore.canRate()) {
+          const ar = (s) => String(s).trim().replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660));
+          const raw = ar(f.rate); const fl = ar(f.flat);
+          if (fl !== '') { const n = Number(fl); if (!(n >= 0)) errs.flat = 'الرسوم الثابتة رقم من 0 أو أكتر'; else flat = n; }
+          if (raw === '') { if (v.rate != null) errs.rate = 'النسبة من 0% إلى 65%'; } else { const r = Number(raw); if (!(r >= 0 && r <= 65)) errs.rate = 'النسبة من 0% إلى 65%'; else rateChanged = r !== v.rate || flat !== (v.rateFlat == null ? null : v.rateFlat); if (rateChanged && !f.since) errs.since = 'اختار تاريخ سريان النسبة'; }
+        }
+        if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; m.setBody(...body()); const bad = m.el.querySelector('[aria-invalid=true]'); if (bad) bad.focus(); return; }
         m.close();
-        act(() => { vstore.update(id, VD.groupPatch(g, f), vstore.actor()); if (rateChanged) vstore.setRate(id, Number(f.rate), f.since, vstore.actor()); }, 'اتحفظت ' + G.title + '.');
+        act(() => { vstore.update(id, VD.groupPatch(g, f), vstore.actor()); if (rateChanged) vstore.setRate(id, Number(f.rate.trim().replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660))), f.since, vstore.actor(), { flat }); }, 'اتحفظت ' + G.title + '.');
       }
       m = U.Modal({ title: G.title + ' — ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
       const first = m.el && m.el.querySelector('input'); if (first) first.focus();
@@ -1919,12 +1942,64 @@
       }
       m = U.Modal({ title: 'رجوع البراند لصاحبه — ' + b.name, body: body(), footer: [Button({ type: 'primary', label: 'رجوع', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
     }
+    // ----- phase 3.3 (decision 6): the synced store data in the drawer. Every value from the site is a text node; an href or an <img src>
+    // is made only from a value starting with https:// (the adapter keeps the links and the logo https:// or empty — checked here again).
+    const HTTPS = /^https:\/\//;
+    // the drawer header's picture: the site's logo when the maker has one, else the letter
+    const vendorLogo = (v) => (v.logoUrl && HTTPS.test(v.logoUrl) ? h('span', { class: 'vlogo vlogo-lg vlogo-img' }, h('img', { src: v.logoUrl, alt: 'لوجو ' + v.name, loading: 'lazy', referrerpolicy: 'no-referrer' })) : U.VendorLogo({ letter: v.logoLetter, size: 'lg' }));
+    // (d) «موقوف على الموقع»: the maker is inactive here and has a store there (the sync mirrors enabled: false ↔ inactive)
+    const siteOffTag = (v) => (v.status === 'inactive' && v.wooVendorId ? h('span', { class: 'tg tg-error', 'data-site-off': '' }, 'موقوف على الموقع') : null);
+    // the zip and the country (not part of the joined address text), when the parts carry them
+    const addressExtra = (v) => { const p = v.addressParts || {}; return p.zip || p.country ? U.InfoRow({ label: 'الرمز البريدي / الدولة', value: h('span', { dir: 'ltr' }, [p.zip, p.country].filter(Boolean).join(' · ')) }) : null; };
+    // the social row: one link per filled key, opening in a new tab; a value that is not https:// (never, after the adapter) shows as text
+    function socialLinks(v) {
+      const s = v.social || {}; const items = VD.SOCIAL_KEYS.filter(([k]) => s[k]).map(([k, label]) => (HTTPS.test(s[k]) ? h('a', { class: 'social-a', href: s[k], target: '_blank', rel: 'noopener noreferrer', title: s[k], 'data-social': k }, label) : h('span', { class: 'social-a', 'data-social': k }, label + ': ' + s[k])));
+      return items.length ? h('span', { class: 'social-row' }, ...items) : null;
+    }
+    // «آخر مزامنة مع الموقع» and, when fields wait for the site, «في انتظار الإرسال: …» — for a maker with a store only
+    function syncRows(v) {
+      if (!v.wooVendorId) return [];
+      const L = VD.SYNC_FIELD_LABELS;
+      return [U.InfoRow({ label: 'آخر مزامنة مع الموقع', value: h('span', { 'data-synced-at': v.wooSyncedAt || '' }, v.wooSyncedAt ? fmtTime(v.wooSyncedAt) : 'لسه ماتزامنش') }),
+        v.pushPending && v.pushPending.length ? U.InfoRow({ label: 'في انتظار الإرسال', value: h('span', { class: 'tg tg-orange', 'data-push-pending': v.pushPending.join(',') }, v.pushPending.map((f) => L[f] || f).join('، ')) }) : null];
+    }
+    // (b) «عمولة حسب الفئة» under the rate: the category rates in force (name, rate, flat fee, since) with «إضافة» / «تعديل» for
+    // sensitive.commission; the note that the rate goes to the site. Nothing for a member without the key.
+    function categoryRatesBlock(v) {
+      if (!vstore.canRate()) return [];
+      const rows = (v.categoryRates || []).map((c) => h('tr', { 'data-cat-rate': c.wooCategoryId }, h('td', null, c.name), h('td', null, num(c.rate + '%')), h('td', null, c.flat != null && c.flat > 0 ? num(D.formatMoney(c.flat)) : '—'), h('td', null, dateCell(c.since)),
+        h('td', null, Button({ type: 'text', size: 'sm', label: 'تعديل', attrs: { 'aria-label': 'تعديل عمولة الفئة ' + c.name, 'data-edit-cat': c.wooCategoryId }, onClick: () => categoryRateForm(v, c) }))));
+      return [h('div', { class: 'head', style: 'margin-top:8px' }, h('h3', { class: 't-label' }, 'عمولة حسب الفئة'), Button({ type: 'text', size: 'sm', icon: 'plus', label: 'إضافة', attrs: { 'aria-label': 'إضافة عمولة فئة', 'data-add-cat': '' }, onClick: () => categoryRateForm(v, null) })),
+        rows.length ? h('div', { class: 'scroll-x' }, h('table', { class: 'mini-table cat-rates-table' }, h('thead', null, h('tr', null, ['الفئة', 'النسبة', 'رسوم ثابتة', 'من تاريخ', ''].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, rows))) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)', 'data-no-cat-rates': '' }, 'مفيش عمولة خاصة بفئة — نسبة المبتكر على كل الفئات.'),
+        v.wooVendorId ? U.InlineNote({ children: 'النسبة بتتبعت للموقع: نسبة المبتكر وعمولة الفئات بتتسجل على متجره مع الحفظ.' }) : null];
+    }
+    // the add / edit popup of one category rate: the category (the site's list), the rate (blank = no category rate from that date),
+    // the flat fee, the date — a dated row, never a rewrite
+    function categoryRateForm(v, c) {
+      const cats = (vstore.categories ? vstore.categories() : []); const taken = new Set((v.categoryRates || []).map((x) => String(x.wooCategoryId)));
+      const f = { wooCategoryId: c ? String(c.wooCategoryId) : '', rate: c ? String(c.rate) : '', flat: c && c.flat != null ? String(c.flat) : '', since: VTODAY() }; let errs = {}; let m = null; const redraw = () => m.setBody(...body());
+      const opts = cats.filter((x) => c ? String(x.id) === String(c.wooCategoryId) : !taken.has(String(x.id))).map((x) => ({ value: String(x.id), label: x.name }));
+      const body = () => [U.Select({ id: 'cr-cat', label: 'الفئة (من الموقع)', required: true, options: opts, value: f.wooCategoryId, error: errs.wooCategoryId, placeholder: cats.length ? 'اختار الفئة' : 'فئات الموقع لسه ماتزامنتش', disabled: !!c || !opts.length, onChange: (x) => { f.wooCategoryId = x; redraw(); } }),
+        h('div', { class: 'row cols2' }, U.TextInput({ id: 'cr-rate', label: 'نسبة إبتكر على الفئة', inputmode: 'decimal', suffix: '%', value: f.rate, error: errs.rate, help: 'سيبها فاضية = الفئة ترجع لنسبة المبتكر من التاريخ ده', onInput: (x) => { f.rate = x; } }),
+          U.TextInput({ id: 'cr-flat', label: 'رسوم ثابتة (ج.م)', inputmode: 'decimal', value: f.flat, error: errs.flat, help: 'للعرض — زي الموقع', onInput: (x) => { f.flat = x; } })),
+        U.DateField({ id: 'cr-since', label: 'سارية من', required: true, value: f.since, error: errs.since, today: VTODAY(), onChange: (iso, e) => { if (!e) f.since = iso; errs.since = e || undefined; redraw(); } }),
+        U.InlineNote({ kind: 'warning', children: 'بتنطبق على الأوردرات الجديدة من التاريخ ده' + (v.wooVendorId ? '، وبتتبعت لمتجره على الموقع مع الحفظ.' : '.') }),
+        errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: 'بتتسجل في سجل النشاط باسمك.' })].filter(Boolean);
+      function save() {
+        errs = VD.validateCategoryRate(f); if (!f.since) errs.since = 'اختار تاريخ السريان';
+        if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; redraw(); return; }
+        m.close(); const name = (cats.find((x) => String(x.id) === f.wooCategoryId) || {}).name || '';
+        act(() => vstore.setCategoryRate(id, f.wooCategoryId, { rate: f.rate, flat: f.flat }, f.since, vstore.actor()), 'اتحفظت عمولة الفئة ' + name + '.');
+      }
+      m = U.Modal({ title: (c ? 'تعديل عمولة الفئة — ' + c.name : 'إضافة عمولة فئة') + ' · ' + v.name, body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+      const first = m.el && m.el.querySelector('input'); if (first) first.focus();
+    }
     function draw() {
       const v = vstore.get(id); if (!v) { vdrawer.close(); return; } const st = vendorStats()[v.id]; const canEdit = vstore.canEdit(), canBank = vstore.canBank(), canRate = vstore.canRate(), canLogin = !!(vstore.canLogin && vstore.canLogin()); const cstat = VD.contractStatus(v, VTODAY());
       // decision 9 c: what the maker still lacks (login / e-mail / bank), from the store
       const missingTag = () => { const miss = vstore.missing ? vstore.missing(id) : []; return miss.length ? h('span', { class: 'tg tg-orange', 'data-missing': '' }, 'ناقص: ' + miss.join(' / ')) : null; };
       const header = h('div', { class: 'drawer-h' },
-        h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, U.VendorLogo({ letter: v.logoLetter, size: 'lg' }), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status)), h('span', { class: 't-small' }, num((v.category || 'بدون فئة') + ' · نسبة إبتكر ' + (canRate && v.rate != null ? v.rate + '%' : '—') + ' · مبتكر من ' + D.formatDateLong(v.joinedAt) + (v.wooVendorId ? ' · متجر #' + v.wooVendorId : ' · بدون متجر على الموقع'))), missingTag())),
+        h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, vendorLogo(v), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status), siteOffTag(v)), h('span', { class: 't-small' }, num((v.category || 'بدون فئة') + ' · نسبة إبتكر ' + (canRate && v.rate != null ? v.rate + '%' : '—') + ' · مبتكر من ' + D.formatDateLong(v.joinedAt) + (v.wooVendorId ? ' · متجر #' + v.wooVendorId : ' · بدون متجر على الموقع'))), missingTag())),
           h('div', { class: 'actions' }, moreMenu(v), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => vdrawer.close() }))),
         U.Tabs({ items: [{ id: 'info', label: 'معلومات المورد' }, { id: 'orders', label: 'الأوردرات' }, { id: 'accounts', label: 'الحسابات' }], active: vtab, onChange: (t) => { vtab = t; draw(); } }));
       let body;
@@ -1955,9 +2030,12 @@
       if (vtab === 'info') {
         body = h('div', { class: 'drawer-b' },
           section('الهوية', editBtn(v, 'identity'), U.InfoRow({ label: 'الاسم المعروض', value: v.name }), U.InfoRow({ label: 'الاسم التجاري', value: v.legalName }), U.InfoRow({ label: 'الفئة الأساسية', value: v.category }), U.InfoRow({ label: 'الأسماء البديلة', value: v.aliases.join('، ') }), U.InfoRow({ label: 'تاريخ الانضمام', value: num(D.formatDateLong(v.joinedAt)) }), U.InfoRow({ label: 'الحالة', value: U.VendorStatus(v.status) })),
-          section('التواصل', editBtn(v, 'contact'), U.InfoRow({ label: 'الهاتف (واتساب)', value: v.phone ? h('span', { class: 'wa-ph' }, num(v.phone), h('a', { class: 'wa-a', href: waHref(v.phone), target: '_blank', rel: 'noopener', 'aria-label': 'واتساب ' + v.name, title: 'فتح واتساب' }, Icon('whatsapp', 'sm'))) : null, copy: true, onCopy: () => copy(v.phone, 'الهاتف') }), U.InfoRow({ label: 'هاتف بديل', value: v.altPhone ? h('span', { class: 'wa-ph' }, num(v.altPhone), h('a', { class: 'wa-a', href: waHref(v.altPhone), target: '_blank', rel: 'noopener', 'aria-label': 'واتساب — هاتف بديل', title: 'فتح واتساب' }, Icon('whatsapp', 'sm'))) : null, copy: !!v.altPhone, onCopy: () => copy(v.altPhone, 'هاتف بديل') }), U.InfoRow({ label: 'الإيميل', value: v.email, copy: true, onCopy: copy }), U.InfoRow({ label: 'العنوان (الاستلام)', value: v.address }), U.InfoRow({ label: 'إنستجرام', value: v.instagram, copy: true, onCopy: copy }), U.InfoRow({ label: 'صفحة المتجر', value: v.storeUrl, copy: true, onCopy: copy })),
+          section('التواصل', editBtn(v, 'contact'), U.InfoRow({ label: 'الهاتف (واتساب)', value: v.phone ? h('span', { class: 'wa-ph' }, num(v.phone), h('a', { class: 'wa-a', href: waHref(v.phone), target: '_blank', rel: 'noopener', 'aria-label': 'واتساب ' + v.name, title: 'فتح واتساب' }, Icon('whatsapp', 'sm'))) : null, copy: true, onCopy: () => copy(v.phone, 'الهاتف') }), U.InfoRow({ label: 'هاتف بديل', value: v.altPhone ? h('span', { class: 'wa-ph' }, num(v.altPhone), h('a', { class: 'wa-a', href: waHref(v.altPhone), target: '_blank', rel: 'noopener', 'aria-label': 'واتساب — هاتف بديل', title: 'فتح واتساب' }, Icon('whatsapp', 'sm'))) : null, copy: !!v.altPhone, onCopy: () => copy(v.altPhone, 'هاتف بديل') }), U.InfoRow({ label: 'الإيميل', value: v.email, copy: true, onCopy: copy }),
+            // phase 3.3 (decision 6 a): the store owner's name, the address from its parts (the typed text of a maker without parts), the social links, the sync lines
+            U.InfoRow({ label: 'اسم صاحب المتجر', value: v.contactName }), U.InfoRow({ label: 'العنوان (الاستلام)', value: VD.addressText(v.addressParts) || v.address }), addressExtra(v), U.InfoRow({ label: 'سوشيال', value: socialLinks(v) }), U.InfoRow({ label: 'صفحة المتجر', value: v.storeUrl, copy: true, onCopy: copy }), ...syncRows(v)),
           loginSection(),
-          section('الاتفاق التجاري', editBtn(v, 'terms'), U.InfoRow({ label: 'نسبة إبتكر', value: !canRate ? '—' : v.rate == null ? 'لسه مفيش نسبة متسجلة' : num(v.rate + '% — سارية من ' + D.formatDateLong(v.rateSince) + ' (على الأوردرات الجديدة فقط)') }), U.InfoRow({ label: 'مدة التجهيز المتفق عليها', value: num(v.leadDays + ' أيام') }), U.InfoRow({ label: 'سياسة العربون', value: v.depositPolicy }), U.InfoRow({ label: 'ملاحظات الاتفاق', value: v.notes }), canRate && v.rateHistory.length > 1 ? U.InfoRow({ label: 'سجل النسبة', value: num(v.rateHistory.map((x) => x.rate + '% من ' + D.formatDateNumeric(x.since)).join(' ← ')) }) : null),
+          section('الاتفاق التجاري', editBtn(v, 'terms'), U.InfoRow({ label: 'نسبة إبتكر', value: !canRate ? '—' : v.rate == null ? 'لسه مفيش نسبة متسجلة' : num(v.rate + '% — سارية من ' + D.formatDateLong(v.rateSince) + ' (على الأوردرات الجديدة فقط)' + (v.rateFlat != null && v.rateFlat > 0 ? ' + ' + D.formatMoney(v.rateFlat) + ' ج.م رسوم ثابتة' : '')) }), U.InfoRow({ label: 'مدة التجهيز المتفق عليها', value: num(v.leadDays + ' أيام') }), U.InfoRow({ label: 'سياسة العربون', value: v.depositPolicy }), U.InfoRow({ label: 'ملاحظات الاتفاق', value: v.notes }), canRate && v.rateHistory.length > 1 ? U.InfoRow({ label: 'سجل النسبة', value: num(v.rateHistory.map((x) => x.rate + '% من ' + D.formatDateNumeric(x.since)).join(' ← ')) }) : null,
+            ...categoryRatesBlock(v)),
           brandsSection(v),
           section('العقد', null, U.ContractCard({ status: cstat, title: cstat === 'missing' ? 'العقد غير مرفوع' : cstat === 'expired' ? 'العقد منتهي' : cstat === 'expiring' ? 'العقد بينتهي خلال 30 يوم' : 'عقد التعاون',
             sub: cstat === 'missing' ? 'ارفع نسخة موقّعة (PDF أو صورة، حتى 10 ميجا) أو حمّل قالب العقد وابعته للمبتكر' : (v.contract.expires ? (cstat === 'expired' ? 'انتهى ' : 'ساري حتى ') + D.formatDateLong(v.contract.expires) + ' · ' : '') + 'رفعه ' + (v.contract.uploadedBy || '—') + ' في ' + D.formatDateLong(v.contract.uploadedAt.slice(0, 10)) + ' · ' + v.contract.fileName.split('.').pop().toUpperCase() + ' ' + (v.contract.size / 1048576).toFixed(1) + ' ميجا',

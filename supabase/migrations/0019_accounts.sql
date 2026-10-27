@@ -200,7 +200,7 @@ create table if not exists public.dokan_withdrawals (
   receivable numeric(12,2),
   status text not null,
   method text,
-  requested_at timestamptz,
+  requested_at timestamp, -- Dokan's `created`: the site's local time, as Dokan shows it
   synced_at timestamptz not null default now()
 );
 create index if not exists dokan_withdrawals_vendor_idx on public.dokan_withdrawals (vendor_id);

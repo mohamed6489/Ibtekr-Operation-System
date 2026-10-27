@@ -36,6 +36,9 @@ const COLUMNS: Record<string, string[]> = {
   woo_sync_log: ['id', 'at', 'kind', 'direction', 'entity', 'entity_id', 'action', 'result', 'detail'],
   sync_state: ['key', 'value', 'updated_at'],
   woo_states: ['code', 'name', 'updated_at'],
+  // 0019 (phase 4): the read-only Dokan mirrors of the accounts page
+  dokan_withdrawals: ['id', 'woo_vendor_id', 'vendor_id', 'amount', 'charge', 'receivable', 'status', 'method', 'requested_at', 'synced_at'],
+  dokan_balances: ['vendor_id', 'woo_vendor_id', 'balance', 'earning', 'sales', 'orders', 'synced_at'],
 };
 const DEFAULTS: Record<string, Row> = {
   status_map: { direction: 'both' },
@@ -154,6 +157,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
 
     if (q.op === 'select') {
       let rows = tables[table].filter((r) => matches(r, q.filters));
+      if (q.order) rows = [...rows].sort((x, y) => String(x[q.order]).localeCompare(String(y[q.order])));
       if (q.range) rows = rows.slice(q.range[0], q.range[1] + 1);
       return finish(done, project(rows, q.columns), q.single);
     }
@@ -203,6 +207,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       is(col: string, v: unknown) { q.filters.push(['is', col, v]); return b; },
       not(col: string, op: string, v: unknown) { if (op !== 'in') throw new Error(`fakeDb: unsupported not.${op}`); q.filters.push(['not.in', col, v]); return b; },
       range(a: number, z: number) { q.range = [a, z]; return b; },
+      order(col: string) { q.order = col; return b; },
       single() { q.single = 'one'; return b; },
       maybeSingle() { q.single = 'maybe'; return b; },
       then(ok: (v: any) => unknown, ko?: (e: unknown) => unknown) { return Promise.resolve().then(() => run(q)).then(ok, ko); },

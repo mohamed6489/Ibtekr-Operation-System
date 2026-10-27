@@ -11,8 +11,8 @@ const OURS = `${ENV.SUPABASE_URL}/functions/v1/woo-webhook`;
 // Member tokens → what has_perm('orders.status') / is_admin() answer for them, plus (phase 3.3) has_perm('vendors.edit') /
 // has_perm('sensitive.commission') for push_vendor: ops = vendors.edit P, vf = vendors follow-up (vendors.edit F, commission N),
 // acct = accounts (nothing). (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
-const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown; bank?: unknown }> = {
-  'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false, edit: 'P' }, 'jwt-acct': { perm: 'P', admin: false, edit: 'N' },
+const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown }> = {
+  'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false, edit: 'P' }, 'jwt-acct': { perm: 'P', admin: false, edit: 'N', accounts: 'P' },
   'jwt-vf': { perm: 'N', admin: false, edit: 'F', commission: 'N' },
   'jwt-bank': { perm: 'N', admin: false, edit: 'N', bank: 'F' }, // phase 3.5: accounts — sensitive.vendor_bank = F, vendors.edit = N
   'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
@@ -27,7 +27,7 @@ function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fa
   const members: any[] = [];
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
+    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
     members.push({ jwt, client });
     return client;
   };
@@ -271,6 +271,60 @@ Deno.test('probe_dokan: shapes of the named dokan/ GET paths only — route name
   assertEquals(woo.calls.at(-1)?.query, { vendor_id: '44', start_date: '2026-10-01', status: 'pending', per_page: '1', page: '1' });
   assertEquals((await call(deps, { action: 'probe_dokan', paths: ['wc/v3/orders'] }, { jwt: 'jwt-admin' })).res.status, 400);
   assertEquals((await call(deps, { action: 'probe_dokan', paths: ['dokan/v1'] }, { jwt: 'jwt-ops' })).res.status, 401);
+});
+
+// ---------------------------------------------------------------- accounts / statement (phase 4)
+
+Deno.test('accounts: every withdraw request (status=all) → dokan_withdrawals without the bank details, IP or note; the next batch of makers → dokan_balances; GET only; admin / system only', async () => {
+  const wd = (id: number, store: number, status: string) => ({ id, user: { id: store, store_name: 'متجر', phone: '01000000777' }, amount: 1500, charge: 15, receivable: 1485, status, method: 'bank',
+    created: '2026-10-20 14:05:00', ip: '10.0.0.9', note: 'رقم 01000000777', details: { bank: { ac_name: 'اسم', ac_number: '123456789012', iban: 'EG000000000000000000000000001' } } });
+  const routes = {
+    'GET dokan/v1/withdraw': (c: any) => (c.query.status === 'all' ? page([wd(7, 44, 'pending'), wd(8, 2376, 'approved'), wd(9, 999, 'cancelled'), { id: 'x' }]) : page([])),
+    'GET dokan/v1/stores/44/stats': { body: { others: { balance: 2500.5, commission_rate: '20', commission_type: 'fixed', additional_fee: '', reviews: 0 }, revenue: { earning: 9000, orders: 12, sales: 11000 }, products: { sold: 3, total: 9, visitor: 4 } } },
+    'GET dokan/v1/stores/2376/stats': { status: 404, body: { code: 'rest_no_store' } },
+  };
+  const { db, woo, deps } = setup({ routes });
+  const { res, body } = await call(deps, { action: 'accounts' });
+  assertEquals(res.status, 200);
+  assertEquals(body.counts, { withdrawals: 3, skipped: 1, pages: 1, done: true, balances: 1, missing: 1, failed: 0, failed_rows: 0, offset: 0, next: 0 });
+  assertEquals(db.rows('dokan_withdrawals').map((r: any) => [r.id, r.woo_vendor_id, r.vendor_id, r.amount, r.charge, r.receivable, r.status, r.method, r.requested_at]),
+    [[7, 44, vendorId(44), 1500, 15, 1485, 'pending', 'bank', '2026-10-20 14:05:00'], [8, 2376, vendorId(2376), 1500, 15, 1485, 'approved', 'bank', '2026-10-20 14:05:00'], [9, 999, null, 1500, 15, 1485, 'cancelled', 'bank', '2026-10-20 14:05:00']]);
+  assertEquals(db.rows('dokan_balances').map((r: any) => [r.vendor_id, r.woo_vendor_id, r.balance, r.earning, r.sales, r.orders]), [[vendorId(44), 44, 2500.5, 9000, 11000, 12]]);
+  assertEquals(db.row('sync_state', 'accounts', 'key').value.offset, 0);
+  const written = JSON.stringify([db.rows('dokan_withdrawals'), db.rows('dokan_balances'), db.rows('woo_sync_log')]);
+  for (const secret of ['123456789012', 'EG000000000000000000000000001', '10.0.0.9', '01000000777', 'رقم']) assertFalse(written.includes(secret), `never stored: ${secret}`);
+  assert(woo.calls.every((c) => c.method === 'GET'), 'nothing is written to Dokan');
+  assertEquals(db.rows('woo_sync_log').at(-1).entity, 'accounts');
+  assertEquals((await call(deps, { action: 'accounts' }, { jwt: 'jwt-acct' })).res.status, 401, 'a member who is not admin cannot run the part');
+});
+
+Deno.test('accounts: the balances go round the makers ACCOUNTS_BATCH at a time (sync_state offset)', async () => {
+  const vendors = Array.from({ length: 52 }, (_, i) => vendorRow(1000 + i));
+  const routes: Record<string, any> = { 'GET dokan/v1/withdraw': page([]) };
+  for (let i = 0; i < 52; i++) routes[`GET dokan/v1/stores/${1000 + i}/stats`] = { body: { others: { balance: i }, revenue: {} } };
+  const { db, deps } = setup({ seed: { vendors }, routes });
+  const first = (await call(deps, { action: 'accounts' })).body.counts;
+  assertEquals([first.balances, first.offset, first.next], [50, 0, 50]);
+  const second = (await call(deps, { action: 'accounts' })).body.counts;
+  assertEquals([second.balances, second.offset, second.next], [2, 50, 0]);
+  assertEquals(db.rows('dokan_balances').length, 52);
+});
+
+Deno.test('statement: the maker\'s Dokan statement for a range, read-only and not stored; accounts.view <> N; a bad range → 400', async () => {
+  const routes = { 'GET dokan/v1/vendor/reports/statement': (c: any) => (c.query.vendor_id === '44' && c.query.start_date === '2026-10-01' && c.query.end_date === '2026-10-27'
+    ? page([{ id: 1, vendor_id: 44, trn_id: null, trn_type: 'opening_balance', perticulars: 'Opening Balance', debit: 0, credit: 0, balance: 300, trn_date: '', balance_date: '2026-10-01', status: '', trn_title: 'Opening', url: '' },
+      { id: 2, vendor_id: 44, trn_id: 55, trn_type: 'dokan_orders', perticulars: 'Order #55 للعميل 01000000777', debit: 500, credit: 0, balance: 800, trn_date: '2026-10-05 10:00:00', balance_date: '2026-10-05', status: 'wc-completed', trn_title: 'Order', url: '' }])
+    : page([])) };
+  const { db, woo, deps } = setup({ routes });
+  const { res, body } = await call(deps, { action: 'statement', vendor_id: vendorId(44), from: '2026-10-01', to: '2026-10-27' }, { jwt: 'jwt-acct' });
+  assertEquals(res.status, 200);
+  assertEquals(body.rows.map((r: any) => [r.date, r.type, r.debit, r.credit, r.balance]), [['2026-10-01', 'opening_balance', 0, 0, 300], ['2026-10-05 10:00:00', 'dokan_orders', 500, 0, 800]]);
+  assertFalse(JSON.stringify(body).includes('01000000777'), 'the title is scrubbed');
+  assertEquals(db.writes().length, 0, 'nothing is stored');
+  assert(woo.calls.every((c) => c.method === 'GET'));
+  assertEquals((await call(deps, { action: 'statement', vendor_id: vendorId(44), from: '2026-10-01', to: '2026-10-27' }, { jwt: 'jwt-ops' })).res.status, 401, 'accounts.view N');
+  assertEquals((await call(deps, { action: 'statement', vendor_id: vendorId(44), from: '2026-10-27', to: '2026-10-01' }, { jwt: 'jwt-acct' })).res.status, 400);
+  assertEquals((await call(deps, { action: 'statement', vendor_id: vendorId(44), from: '2024-01-01', to: '2026-10-01' }, { jwt: 'jwt-acct' })).res.status, 400, 'over 400 days');
 });
 
 // ---------------------------------------------------------------- vendors / products / all

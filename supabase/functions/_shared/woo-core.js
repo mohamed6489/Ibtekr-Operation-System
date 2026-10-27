@@ -288,7 +288,11 @@ export function mapSubOrder(wooSubOrder, ctx) {
 
 // A six-key / eight-key object of trimmed strings from the site's `address` / `social` (absent → '').
 const keyed = (o, keys) => Object.fromEntries(keys.map((k) => [k, isObj(o) ? str(o[k]) : '']));
-const httpsUrl = (v) => { const u = str(v); return u.startsWith('https://') ? u : null; };
+// An https:// URL (parsed), else null: logo / banner / every social link — a javascript: or http:// value never
+// reaches a row, a snapshot or a PUT body.
+const httpsUrl = (v) => { const u = str(v); try { return u && new URL(u).protocol === 'https:' ? u : null; } catch { return null; } };
+// The eight social links, https:// or '' (the same rule wherever a social object is read: the site's, ours, the body).
+const socialOf = (o) => Object.fromEntries(SOCIAL_KEYS.map((k) => [k, isObj(o) ? httpsUrl(o[k]) ?? '' : '']));
 // active_payment_methods: an object keyed by method (the usual shape) or a list of names; anything else → [].
 const paymentMethods = (v) => (isObj(v) ? Object.keys(v) : Array.isArray(v) ? v.filter((m) => typeof m === 'string' && m.trim()).map((m) => m.trim()) : []);
 
@@ -298,7 +302,7 @@ const paymentMethods = (v) => (isObj(v) ? Object.keys(v) : Array.isArray(v) ? v.
  * Dokan says so (`enabled` off); the public REST omits `enabled` (seen live, 2026-10-26), so an absent / null flag reads
  * 'active'. joined_at: the date part of `registered`. Phase 3.3 (decision 1): contact_name = first + last name
  * trimmed; address_parts = the six address keys as trimmed strings (absent → ''); social = the eight keys the same
- * way; logo_url = `gravatar`, banner_url = `banner` — https:// only, else null; woo_payment_methods = the keys of
+ * way (every social value https:// or ''); logo_url = `gravatar`, banner_url = `banner` — https:// only, else null; woo_payment_methods = the keys of
  * active_payment_methods; address = the address text of decision 1 (addressText). `payment` (bank / PayPal),
  * `location`, `store_toc` and `_links` are never read. The whole row is written for a new store; an existing one gets
  * the snapshot comparison (woo-write saveVendors, decision 4 a).
@@ -317,7 +321,7 @@ export function mapStore(dokanStore) {
     contact_name: personName(s) || null,
     address_parts,
     address: addressText(address_parts),
-    social: keyed(s.social, SOCIAL_KEYS),
+    social: socialOf(s.social),
     logo_url: httpsUrl(s.gravatar),
     banner_url: httpsUrl(s.banner),
     woo_payment_methods: paymentMethods(s.active_payment_methods),
@@ -398,7 +402,7 @@ export function toDokanCommission({ rate, flat = null, categoryRates = [] } = {}
 // rate as "pct|flat" with no flat = 0; category_rates as the effective list.
 function normField(field, value) {
   if (field === 'address_parts') return JSON.stringify(keyed(value, ADDRESS_KEYS));
-  if (field === 'social') return JSON.stringify(keyed(value, SOCIAL_KEYS));
+  if (field === 'social') return JSON.stringify(socialOf(value));
   if (field === 'status') return str(value) === 'inactive' ? 'inactive' : 'active';
   if (field === 'rate') { const r = isObj(value) ? value : {}; return `${num(r.rate) ?? ''}|${flatOf(r.flat)}`; }
   if (field === 'category_rates') return JSON.stringify(categoryList(value).map((c) => [c.woo_category_id, c.rate, flatOf(c.flat)]));
@@ -407,7 +411,7 @@ function normField(field, value) {
 
 const emptyField = (field, value) => {
   if (field === 'address_parts') return !Object.values(keyed(value, ADDRESS_KEYS)).some(Boolean);
-  if (field === 'social') return !Object.values(keyed(value, SOCIAL_KEYS)).some(Boolean);
+  if (field === 'social') return !Object.values(socialOf(value)).some(Boolean);
   if (field === 'status') return false;
   if (field === 'rate') return num(isObj(value) ? value.rate : null) === null;
   if (field === 'category_rates') return categoryList(value).length === 0;
@@ -426,7 +430,7 @@ export function storeSnapshot(mapped) {
   const c = isObj(m.commission) ? m.commission : {};
   return {
     name: orNull(m.name), phone: orNull(m.phone), email: orNull(m.email), contact_name: orNull(m.contact_name),
-    address_parts: keyed(m.address_parts, ADDRESS_KEYS), social: keyed(m.social, SOCIAL_KEYS),
+    address_parts: keyed(m.address_parts, ADDRESS_KEYS), social: socialOf(m.social),
     status: normField('status', m.status), rate: { rate: num(c.rate), flat: num(c.flat) },
     category_rates: objs(c.categories).map((x) => categoryItem(x.woo_category_id, x.rate, x.flat)).filter((x) => x.woo_category_id !== null),
   };
@@ -471,7 +475,7 @@ export function toDokanStore(row, fields, rates = null) {
     else if (f === 'email') add(f, true, { email: str(r.email) });
     else if (f === 'contact_name') { const [first, ...rest] = str(r.contact_name).split(/\s+/); add(f, true, { first_name: first ?? '', last_name: rest.join(' ') }); }
     else if (f === 'address_parts') add(f, true, { address: keyed(r.address_parts, ADDRESS_KEYS) });
-    else if (f === 'social') add(f, true, { social: keyed(r.social, SOCIAL_KEYS) });
+    else if (f === 'social') add(f, true, { social: socialOf(r.social) });
     else if (f === 'status') add(f, true, { enabled: str(r.status) !== 'inactive' });
   }
   // the commission travels as one block whichever of the two names asked for it

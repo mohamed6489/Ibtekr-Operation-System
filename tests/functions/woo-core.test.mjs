@@ -750,7 +750,7 @@ test('nextCursor: no usable dates → the previous cursor, in the same UTC form'
 
 const fullStore = (over = {}) => store({
   first_name: ' منى ', last_name: 'تجربة ', show_email: true, address: { street_1: ' شارع الورشة 7 ', street_2: '', city: 'القاهرة', state: 'EG-01', zip: '', country: 'EG', extra: 'x' },
-  social: { fb: 'https://facebook.example/maker', instagram: 'maker.ig', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '', tiktok: 'nope' },
+  social: { fb: 'https://facebook.example/maker', instagram: 'https://instagram.example/maker', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '', tiktok: 'https://tiktok.example/nope' },
   gravatar: 'https://stage.example.test/g.jpg', banner: 'http://stage.example.test/banner.jpg', active_payment_methods: { bank: { ac_name: 'منى' }, paypal: { email: 'p@example.com' } },
   admin_commission_type: 'fixed', admin_commission: '30', admin_additional_fee: '', admin_category_commission: [],
   ...over,
@@ -763,7 +763,7 @@ test('mapStore (3.3): contact_name, the six address keys, the eight social keys,
   assert.deepEqual(v.address_parts, { street_1: 'شارع الورشة 7', street_2: '', city: 'القاهرة', state: 'EG-01', zip: '', country: 'EG' });
   assert.equal(v.address, 'شارع الورشة 7، القاهرة، EG-01');
   assert.deepEqual(Object.keys(v.social), SOCIAL_KEYS);
-  assert.deepEqual([v.social.fb, v.social.instagram, 'tiktok' in v.social], ['https://facebook.example/maker', 'maker.ig', false]);
+  assert.deepEqual([v.social.fb, v.social.instagram, 'tiktok' in v.social], ['https://facebook.example/maker', 'https://instagram.example/maker', false]);
   assert.deepEqual([v.logo_url, v.banner_url], ['https://stage.example.test/g.jpg', null]);
   assert.deepEqual(v.woo_payment_methods, ['bank', 'paypal']);
   assert.deepEqual(v.commission, { type: 'fixed', rate: 30, flat: null, categories: [] });
@@ -774,6 +774,17 @@ test('mapStore (3.3): contact_name, the six address keys, the eight social keys,
   assert.deepEqual([bare.contact_name, bare.address, bare.woo_payment_methods, bare.logo_url], [null, null, ['bank'], null]);
   assert.deepEqual(Object.values(bare.address_parts), ['', '', '', '', '', '']);
   assert.deepEqual(mapStore({ id: 7, active_payment_methods: [] }).woo_payment_methods, []);
+});
+
+test('mapStore / storeSnapshot / toDokanStore (3.3): a social value is kept only as an https:// URL — javascript:, http://, a bare handle → \'\' (the row, the snapshot, the comparison and the PUT body alike); logo / banner the same', () => {
+  const social = { fb: 'https://facebook.example/maker', instagram: 'javascript:alert(1)', twitter: 'http://twitter.example/x', youtube: ' maker.yt ', linkedin: 'HTTPS://linkedin.example/in/x', pinterest: 'https://', threads: 'data:text/html,x', flickr: '' };
+  const v = mapStore(fullStore({ social, gravatar: 'javascript:alert(1)', banner: 'https://stage.example.test/b.jpg' }));
+  assert.deepEqual(v.social, { fb: 'https://facebook.example/maker', instagram: '', twitter: '', youtube: '', linkedin: 'HTTPS://linkedin.example/in/x', pinterest: '', threads: '', flickr: '' });
+  assert.deepEqual([v.logo_url, v.banner_url], [null, 'https://stage.example.test/b.jpg']);
+  assert.deepEqual(storeSnapshot(v).social, v.social);
+  assert.ok(!JSON.stringify(v).includes('javascript:') && !JSON.stringify(v).includes('http://twitter'));
+  assert.deepEqual(toDokanStore({ social }, ['social']).body.social, v.social, 'a row holding a bad link never pushes it');
+  assert.ok(sameField('social', { fb: 'javascript:x' }, null), 'a non-https value compares as empty');
 });
 
 test('addressText: the filled parts of street 1, street 2, city, state joined by «، » (zip / country left out); null when none', () => {
@@ -797,7 +808,7 @@ test('storeSnapshot: the SYNC_FIELDS of a mapped store, rate = { rate, flat }, c
 test('sameField: trimmed strings with \'\' = null, keyed objects, leave = active, rate with no flat = 0, category lists in any order without the removed ones', () => {
   assert.ok(sameField('name', ' x ', 'x') && sameField('phone', '', null) && !sameField('name', 'x', 'y'));
   assert.ok(sameField('address_parts', { city: 'a' }, { city: 'a', zip: '', junk: 1 }) && !sameField('address_parts', { city: 'a' }, { city: 'b' }));
-  assert.ok(sameField('social', null, { fb: '' }) && !sameField('social', { fb: 'x' }, null));
+  assert.ok(sameField('social', null, { fb: '' }) && !sameField('social', { fb: 'https://fb.example/x' }, null));
   assert.ok(sameField('status', 'leave', 'active') && !sameField('status', 'inactive', 'leave') && sameField('status', null, 'active'));
   assert.ok(sameField('rate', { rate: 30, flat: null }, { rate: 30, flat: 0 }) && !sameField('rate', { rate: 30 }, { rate: 31 }) && !sameField('rate', { rate: 30 }, { rate: 30, flat: 2 }));
   assert.ok(sameField('category_rates', [{ woo_category_id: 2, rate: 1 }, { woo_category_id: 1, rate: 5, flat: 0 }], [{ woo_category_id: 1, rate: 5 }, { woo_category_id: 2, rate: 1 }, { woo_category_id: 3, rate: null }]));
@@ -816,8 +827,8 @@ test('diffStore: the four cases of decision 3 per field, and `same` when both si
 });
 
 test('diffStore: the first run (no snapshot) → fill when ours is empty, keep when equal, conflict when filled and different; status always takes the site', () => {
-  const site = { name: 'A', phone: '1', email: null, contact_name: 'c', address_parts: { city: 'x' }, social: { fb: 'f' }, status: 'inactive', rate: { rate: 30, flat: null }, category_rates: [{ woo_category_id: 1, rate: 5 }] };
-  const system = { name: 'B', phone: '', email: null, contact_name: 'c', address_parts: null, social: { fb: 'g' }, status: 'active', rate: { rate: null, flat: null }, category_rates: [] };
+  const site = { name: 'A', phone: '1', email: null, contact_name: 'c', address_parts: { city: 'x' }, social: { fb: 'https://fb.example/f' }, status: 'inactive', rate: { rate: 30, flat: null }, category_rates: [{ woo_category_id: 1, rate: 5 }] };
+  const system = { name: 'B', phone: '', email: null, contact_name: 'c', address_parts: null, social: { fb: 'https://fb.example/g' }, status: 'active', rate: { rate: null, flat: null }, category_rates: [] };
   assert.deepEqual(diffStore(null, site, system), { name: 'conflict', phone: 'fill', email: 'keep', contact_name: 'keep', address_parts: 'fill', social: 'conflict', status: 'fill', rate: 'fill', category_rates: 'fill' });
   assert.equal(diffStore(undefined, { ...site, status: 'active' }, { ...system, status: 'leave' }).status, 'keep');
   assert.equal(diffStore('not an object', site, {}).name, 'fill');
@@ -846,11 +857,11 @@ test('toDokanCommission: category rates → category_based (all + items as numer
 });
 
 test('toDokanStore: the PUT body from the row for the asked fields only; a #placeholder name is dropped; contact_name splits on the first space; status → enabled; unknown fields ignored', () => {
-  const row = { name: '#2376', phone: ' 01111111111 ', email: 'm.test@example.com', contact_name: 'منى محمد تجربة', address_parts: { street_1: 'ش', city: 'القاهرة' }, social: { fb: 'f', tiktok: 'x' }, status: 'leave', raw: { secret: 1 } };
+  const row = { name: '#2376', phone: ' 01111111111 ', email: 'm.test@example.com', contact_name: 'منى محمد تجربة', address_parts: { street_1: 'ش', city: 'القاهرة' }, social: { fb: 'https://fb.example/f', tiktok: 'https://x.example' }, status: 'leave', raw: { secret: 1 } };
   assert.deepEqual(toDokanStore(row, ['name', 'phone', 'raw', 'contact_name', 'status', 'phone']), {
     body: { phone: '01111111111', first_name: 'منى', last_name: 'محمد تجربة', enabled: true }, sent: ['phone', 'contact_name', 'status'], dropped: ['name'] });
   assert.deepEqual(toDokanStore({ ...row, name: ' ورشة ' }, ['name', 'email', 'address_parts', 'social']).body,
-    { store_name: 'ورشة', email: 'm.test@example.com', address: { street_1: 'ش', street_2: '', city: 'القاهرة', state: '', zip: '', country: '' }, social: { fb: 'f', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' } });
+    { store_name: 'ورشة', email: 'm.test@example.com', address: { street_1: 'ش', street_2: '', city: 'القاهرة', state: '', zip: '', country: '' }, social: { fb: 'https://fb.example/f', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' } });
   assert.deepEqual(toDokanStore({ status: 'inactive', contact_name: null }, ['status', 'contact_name']).body, { enabled: false, first_name: '', last_name: '' });
   assert.deepEqual(toDokanStore(row, ['rate', 'category_rates'], { rate: 30, flat: null, categoryRates: [] }), { body: { admin_commission_type: 'fixed', admin_commission: '30' }, sent: ['rate', 'category_rates'], dropped: [] });
   assert.deepEqual(toDokanStore(row, ['name'], null), { body: null, sent: [], dropped: ['name'] });

@@ -54,8 +54,10 @@
 // with the member's session — the values pushed are the row's, the body names the fields only. Only the admin and vendors.edit = F may
 // push (the server's rule, canPush): anyone else saves here and the result says 'no_permission' without a request; a maker without a
 // store is 'no_store' without a request. The answers: ok (wooSyncedAt / pushPending refreshed by the reload), skipped (no_store /
-// push_disabled / placeholder: saved, nothing more to say), an error (502 and the rest: MESSAGES.push_failed — the fields wait in
-// push_pending for the next sync run). setRate carries an optional flat fee and pushes ['rate']; setCategoryRate inserts a dated
+// push_disabled / placeholder / future: saved, nothing more to say), an error: a 502 of the function (woo_error — the fields wait in
+// push_pending for the next sync run: MESSAGES.push_failed; or pending:false = the site's final refusal of these values: woo_refused,
+// MESSAGES.push_refused, nothing waits), or a failure that never reached the site (network / 5xx / 401 — review I-1: the fields are
+// queued through the RPC vendor_push_pending under the same push rule; `pending` false when even that failed: MESSAGES.push_lost). setRate carries an optional flat fee and pushes ['rate']; setCategoryRate inserts a dated
 // vendor_category_rates row (rate null = removed from that date; unique (vendor, category, since) → 23505 category_duplicate) and
 // pushes ['category_rates']. The server's vendor.sync / vendor.sync.conflict rows (actor null) read «اتعدل من الموقع: …» / «تعارض —
 // الموقع كسب في: …» with the field labels of block 06. The screen never calls WooCommerce: every push is this one Edge Function.
@@ -87,7 +89,7 @@
   const ADDRESS_KEYS = ['street_1', 'street_2', 'city', 'state', 'zip', 'country']; const SOCIAL_KEYS = ['fb', 'instagram', 'twitter', 'youtube', 'linkedin', 'pinterest', 'threads', 'flickr'];
   const MESSAGES = { forbidden: 'مش من صلاحياتك', network: 'الشبكة مش متاحة — التغيير ما اتحفظش، جرّب تاني', in_use: 'ماينفعش يتمسح — عليه أوردرات', too_large: 'الملف أكبر من 10 ميجا', bad_type: 'نوع الملف مش مقبول — PDF أو صورة (PNG / JPG) بس', duplicate: 'فيه نسبة متسجلة بنفس تاريخ السريان — اختار تاريخ تاني',
     // phase 3.3: the push to the site and the per-category commission
-    push_failed: 'اتحفظ في السيستم، ومابعتش للموقع — هيتبعت مع المزامنة الجاية', push_forbidden: 'اتحفظ في السيستم بس — إرسال التعديل للموقع محتاج صلاحية تعديل المبتكرين الكاملة', category_duplicate: 'فيه عمولة للفئة دي بنفس تاريخ السريان — اختار تاريخ تاني', bad_rate: 'النسبة من 0% إلى 65% والرسوم الثابتة من 0 أو أكتر', bad_category: 'اختار فئة من فئات الموقع',
+    push_failed: 'اتحفظ في السيستم، ومابعتش للموقع — هيتبعت مع المزامنة الجاية', push_lost: 'اتحفظ في السيستم، ومابعتش للموقع — ومش هيتبعت لوحده: افتح التعديل واحفظ تاني', push_refused: 'اتحفظ في السيستم بس — الموقع رفض التعديل ده، راجع القيم', push_forbidden: 'اتحفظ في السيستم بس — إرسال التعديل للموقع محتاج صلاحية تعديل المبتكرين الكاملة', category_duplicate: 'فيه عمولة للفئة دي بنفس تاريخ السريان — اختار تاريخ تاني', bad_rate: 'النسبة من 0% إلى 65% والرسوم الثابتة من 0 أو أكتر', bad_category: 'اختار فئة من فئات الموقع',
     duplicate_username: 'اسم المستخدم ده مستخدم قبل كده', login_exists: 'المبتكر ده عنده بيانات دخول — عدّلها من ملفه', weak_password: 'الباسورد لازم: 8 حروف على الأقل، حرف إنجليزي، رقم، من غير مسافات', no_vault: 'الباسورد المؤقت مش متاح على السيرفر ده دلوقتي (Vault مش شغّال)', no_login: 'اعمل اسم مستخدم الأول', long_password: 'الباسورد أطول من 128 حرف',
     // phase 3.2: the brands (the local refusals and the server's 23505 / 22023 / 23503 say the same)
     brand_exists: 'فيه براند بنفس الاسم — اختار اسم تاني', brand_same_vendor: 'البراند أصلًا عند المبتكر ده', brand_same_date: 'فيه نقل للبراند بنفس التاريخ — اختار تاريخ بعده', brand_since_before: 'التاريخ ده قبل آخر نقل للبراند — اختار تاريخ بعده',
@@ -222,7 +224,7 @@
     'vendor.category_rate': 'حدّد عمولة الفئة' }; // phase 3.3
   // phase 3.3: the server's sync rows (actor null, new_value = the field names joined by ', ') read in the site's voice with the Arabic
   // labels of block 06 — «اتعدل من الموقع: التليفون، العنوان» / «تعارض — الموقع كسب في: الاسم»
-  const SYNC_VERB = { 'vendor.sync': 'اتعدل من الموقع: ', 'vendor.sync.conflict': 'تعارض — الموقع كسب في: ' };
+  const SYNC_VERB = { 'vendor.sync': 'اتعدل من الموقع: ', 'vendor.sync.conflict': 'تعارض — الموقع كسب في: ', 'vendor.sync.refused': 'الموقع رفض التعديل في: ' };
   const SITE_ACTOR = 'الموقع';
   function syncText(action, detail) {
     const D = VD(); const L = (D && D.SYNC_FIELD_LABELS) || {};
@@ -354,15 +356,28 @@
     if (!canPush(list) || (list.some((f) => f === 'rate' || f === 'category_rates') && !canRate())) return { result: 'skipped', reason: 'no_permission', fields: list };
     if (v && !v.wooVendorId) return { result: 'skipped', reason: 'no_store', fields: list };
     const cl = c();
-    if (!cl || !uid()) return { result: 'error', reason: 'network', fields: list };
+    if (!cl || !uid()) return { result: 'error', reason: 'network', fields: list, pending: false };
+    // review I-1: a failure that never reached the site (the network, a cold start, an expired session, a 5xx of the function)
+    // queues the fields in push_pending through vendor_push_pending (the same push rule, server-side); `pending` tells the
+    // screen whether the next sync run will send them. A 502 answered by the function says so itself (pending: false = the
+    // site's final refusal of these values — nothing waits).
+    const queue = async () => { try { const { error } = await cl.rpc('vendor_push_pending', { p_vendor: String(id), p_fields: list }); return !error; } catch (e) { return false; } };
     try {
       const { data: d, error } = await cl.functions.invoke('woo-sync', { body: { action: 'push_vendor', vendor_id: String(id), fields: list } });
-      if (error) { const st = error.context && error.context.status; return { result: 'error', reason: st === 401 || st === 403 ? 'forbidden' : st === 502 ? 'woo_error' : 'failed', status: st || null, fields: list }; }
+      if (error) {
+        const st = error.context && error.context.status;
+        if (st === 502) {
+          let body = null; try { body = error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { body = null; }
+          const pending = !(body && body.pending === false);
+          return { result: 'error', reason: pending ? 'woo_error' : 'woo_refused', status: st, fields: list, pending };
+        }
+        return { result: 'error', reason: st === 401 || st === 403 ? 'forbidden' : 'failed', status: st || null, fields: list, pending: await queue() };
+      }
       const a = d && typeof d === 'object' ? d : {};
-      if (a.result === 'ok') return { result: 'ok', fields: Array.isArray(a.fields) ? a.fields : list, accepted: a.accepted || [], refused: a.refused || [], dropped: a.dropped || [] };
+      if (a.result === 'ok') return { result: 'ok', fields: Array.isArray(a.fields) ? a.fields : list, accepted: a.accepted || [], refused: a.refused || [], dropped: a.dropped || [], held: a.held || [] };
       if (a.result === 'skipped') return { result: 'skipped', reason: text(a.reason) || 'skipped', fields: list };
-      return { result: 'error', reason: 'failed', fields: list };
-    } catch (e) { return { result: 'error', reason: 'network', fields: list }; }
+      return { result: 'error', reason: 'failed', fields: list, pending: await queue() };
+    } catch (e) { return { result: 'error', reason: 'network', fields: list, pending: await queue() }; }
   }
   // the server write of a local change already applied to `v` (the row in the map): a refusal puts `old` back (unless a reload
   // replaced the row meanwhile) and announces the reason; a success pushes the synced fields to the site (phase 3.3, when any),

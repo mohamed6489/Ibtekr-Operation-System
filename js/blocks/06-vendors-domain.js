@@ -124,6 +124,14 @@
     const sort = (arr) => { arr.sort((a, b) => a.name.localeCompare(b.name, 'ar') || a.id - b.id); arr.forEach((n) => sort(n.children)); return arr; };
     return sort(roots);
   }
+  // plan 3.4 decision 9: a category's path from the top («Furniture › Lighting › Lamps»), the name alone for a top-level one;
+  // '' for an unknown id (the caller shows its own name); a loop in the parents stops
+  function categoryPath(categories, id) {
+    const byId = new Map((Array.isArray(categories) ? categories : []).filter((c) => c && c.id != null).map((c) => [Number(c.id), c]));
+    const names = []; const seen = new Set();
+    for (let c = byId.get(Number(id)); c && !seen.has(Number(c.id)); c = c.parentId == null ? null : byId.get(Number(c.parentId))) { seen.add(Number(c.id)); names.unshift(String(c.name == null ? '' : c.name)); }
+    return names.join(' › ');
+  }
   // the figure of every category: the hand-set one (explicit: { id: { rate, flat } }, rate a number), else the nearest ancestor's,
   // else the default ({ rate, flat }) → { id: { rate, flat, inherited } } (a parent's figure flows to its children; a hand-set child
   // keeps its own — owner, 27 Oct)
@@ -434,6 +442,6 @@
     return e;
   }
 
-  return Object.freeze({ ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, categoryTree, categoryFigures, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
+  return Object.freeze({ ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, categoryTree, categoryFigures, categoryPath, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
 });
 

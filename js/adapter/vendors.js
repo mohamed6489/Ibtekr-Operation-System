@@ -255,7 +255,8 @@
   const canRate = () => perm('sensitive.commission') === 'F';
   const canLogin = () => isAdmin() || perm('vendors.edit') === 'F'; // vendor_logins insert / update and the two RPCs
   const canBrands = () => isAdmin() || perm('vendors.edit') === 'F'; // brands insert / update, brand_owners insert (0013: admin or vendors.edit = F)
-  const canPush = () => isAdmin() || perm('vendors.edit') === 'F'; // phase 3.3: woo-sync push_vendor (the rate fields add sensitive.commission, checked by the callers)
+  const CONTACT_PUSH_FIELDS = ['phone', 'email', 'contact_name', 'address_parts', 'social']; // what vendors.edit = 'P' may push (the server's rule)
+  const canPush = (fields) => isAdmin() || perm('vendors.edit') === 'F' || (perm('vendors.edit') === 'P' && Array.isArray(fields) && fields.length > 0 && fields.every((f) => CONTACT_PUSH_FIELDS.includes(f))); // phase 3.3: woo-sync push_vendor (the rate fields add sensitive.commission, checked by the callers)
   // the signed-in member as the prototype's actor { name, role }
   function actor() {
     const K = window.IBKit; const m = K && K.member && K.ME ? K.member(K.ME) : null;
@@ -350,7 +351,7 @@
   async function pushVendor(id, fields) {
     const v = vendors.get(String(id)); const list = (fields || []).filter((f) => SYNC_FIELDS.includes(f));
     if (!list.length) return { result: 'skipped', reason: 'no_fields', fields: [] };
-    if (!canPush() || (list.some((f) => f === 'rate' || f === 'category_rates') && !canRate())) return { result: 'skipped', reason: 'no_permission', fields: list };
+    if (!canPush(list) || (list.some((f) => f === 'rate' || f === 'category_rates') && !canRate())) return { result: 'skipped', reason: 'no_permission', fields: list };
     if (v && !v.wooVendorId) return { result: 'skipped', reason: 'no_store', fields: list };
     const cl = c();
     if (!cl || !uid()) return { result: 'error', reason: 'network', fields: list };

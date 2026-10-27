@@ -5,6 +5,7 @@ import {
   START_DATE, OPEN_WOO, WOO_FALLBACK, META_KEEP,
   verifySignature, isSubOrder, normalizePhone, redactPII,
   incomingStatus, outgoingWooStatus, mapOrder, mapSubOrder, mapStore, nextCursor,
+  SYNC_FIELDS, ADDRESS_KEYS, SOCIAL_KEYS, addressText, storeSnapshot, diffStore, sameField, commissionOf, toDokanCommission, toDokanStore,
 } from '../../supabase/functions/_shared/woo-core.js';
 import { mapProduct } from '../../supabase/functions/_shared/woo-write.js';
 // supabase/functions/_shared/woo-core.js: the pure sync core shared by the woo-webhook / woo-sync Edge Functions
@@ -639,12 +640,19 @@ test('mapStore: Dokan store → vendors row with a lean raw', () => {
   const input = store();
   const before = structuredClone(input);
   const v = mapStore(input);
-  assert.deepEqual(Object.keys(v).sort(), ['email', 'joined_at', 'name', 'phone', 'raw', 'status', 'woo_vendor_id']);
-  assert.deepEqual({ ...v, raw: undefined }, { woo_vendor_id: 2376, name: 'ورشة التجربة', phone: '01111111111', email: null, status: 'active', joined_at: '2025-01-02', raw: undefined });
+  assert.deepEqual(Object.keys(v).sort(), ['address', 'address_parts', 'banner_url', 'commission', 'contact_name', 'email', 'joined_at', 'logo_url', 'name', 'phone', 'raw', 'social', 'status', 'woo_payment_methods', 'woo_vendor_id']);
+  assert.deepEqual({ ...v, raw: undefined }, {
+    woo_vendor_id: 2376, name: 'ورشة التجربة', phone: '01111111111', email: null, status: 'active', joined_at: '2025-01-02', raw: undefined,
+    contact_name: 'منى تجربة', address_parts: { street_1: 'شارع الورشة 7', street_2: '', city: 'القاهرة', state: 'EGC', zip: '', country: 'EG' }, address: 'شارع الورشة 7، القاهرة، EGC',
+    social: { fb: 'https://facebook.example/maker', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' },
+    logo_url: 'https://stage.example.test/g.jpg', banner_url: 'https://stage.example.test/banner.jpg', woo_payment_methods: [],
+    commission: { type: null, rate: null, flat: null, categories: [] },
+  });
   assert.deepEqual(v.raw, { id: 2376, store_name: 'ورشة التجربة', shop_url: 'https://stage.example.test/store/test/', rating: { rating: '4.5', count: 2 },
     enabled: true, registered: '2025-01-02 10:00:00', featured: false, trusted: true });
   const s = JSON.stringify(v.raw);
   for (const pii of ['maker.test@example.com', '01111111111', 'شارع الورشة 7', '000111222', 'منى', 'facebook.example', 'banner.jpg', 'g.jpg']) assert.ok(!s.includes(pii), pii);
+  assert.ok(!JSON.stringify(v).includes('000111222') && !JSON.stringify(v).includes('ac_name'), 'payment (bank account) is never read');
   assert.deepEqual(input, before);
 });
 
@@ -736,4 +744,118 @@ test('nextCursor: no usable dates → the previous cursor, in the same UTC form'
   assert.equal(nextCursor('2026-10-21T03:00:00+03:00', [{ date_modified_gmt: '2026-10-20T08:30:15' }]), '2026-10-21T00:00:00Z');
   assert.equal(nextCursor('garbage', []), null);
   assert.equal(nextCursor(null, []), null);
+});
+
+// ---------------------------------------------------------------- phase 3.3: the full store, the snapshot, the diff, the commission
+
+const fullStore = (over = {}) => store({
+  first_name: ' منى ', last_name: 'تجربة ', show_email: true, address: { street_1: ' شارع الورشة 7 ', street_2: '', city: 'القاهرة', state: 'EG-01', zip: '', country: 'EG', extra: 'x' },
+  social: { fb: 'https://facebook.example/maker', instagram: 'maker.ig', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '', tiktok: 'nope' },
+  gravatar: 'https://stage.example.test/g.jpg', banner: 'http://stage.example.test/banner.jpg', active_payment_methods: { bank: { ac_name: 'منى' }, paypal: { email: 'p@example.com' } },
+  admin_commission_type: 'fixed', admin_commission: '30', admin_additional_fee: '', admin_category_commission: [],
+  ...over,
+});
+
+test('mapStore (3.3): contact_name, the six address keys, the eight social keys, https-only logo / banner, the payment method names, the commission; nothing of `payment` / `location`', () => {
+  const v = mapStore(fullStore());
+  assert.equal(v.contact_name, 'منى تجربة');
+  assert.equal(v.email, 'maker.test@example.com');
+  assert.deepEqual(v.address_parts, { street_1: 'شارع الورشة 7', street_2: '', city: 'القاهرة', state: 'EG-01', zip: '', country: 'EG' });
+  assert.equal(v.address, 'شارع الورشة 7، القاهرة، EG-01');
+  assert.deepEqual(Object.keys(v.social), SOCIAL_KEYS);
+  assert.deepEqual([v.social.fb, v.social.instagram, 'tiktok' in v.social], ['https://facebook.example/maker', 'maker.ig', false]);
+  assert.deepEqual([v.logo_url, v.banner_url], ['https://stage.example.test/g.jpg', null]);
+  assert.deepEqual(v.woo_payment_methods, ['bank', 'paypal']);
+  assert.deepEqual(v.commission, { type: 'fixed', rate: 30, flat: null, categories: [] });
+  assert.ok(!JSON.stringify(v).includes('ac_name') && !JSON.stringify(v).includes('p@example.com'), 'bank / PayPal data never leaves the payload');
+  assert.deepEqual(ADDRESS_KEYS, ['street_1', 'street_2', 'city', 'state', 'zip', 'country']);
+  // absent / odd shapes: '' keys, null name, arrays
+  const bare = mapStore({ id: 7, store_name: 'x', address: 'not an object', social: null, active_payment_methods: ['bank', '', 3] });
+  assert.deepEqual([bare.contact_name, bare.address, bare.woo_payment_methods, bare.logo_url], [null, null, ['bank'], null]);
+  assert.deepEqual(Object.values(bare.address_parts), ['', '', '', '', '', '']);
+  assert.deepEqual(mapStore({ id: 7, active_payment_methods: [] }).woo_payment_methods, []);
+});
+
+test('addressText: the filled parts of street 1, street 2, city, state joined by «، » (zip / country left out); null when none', () => {
+  assert.equal(addressText({ street_1: 'شارع 1', street_2: 'شقة 3', city: 'القاهرة', state: 'EG-01', zip: '11511', country: 'EG' }), 'شارع 1، شقة 3، القاهرة، EG-01');
+  assert.equal(addressText({ street_1: '', city: ' الجيزة ' }), 'الجيزة');
+  assert.equal(addressText({ zip: '1', country: 'EG' }), null);
+  assert.equal(addressText(null), null);
+});
+
+test('storeSnapshot: the SYNC_FIELDS of a mapped store, rate = { rate, flat }, category_rates = the site\'s items; a deep copy', () => {
+  assert.deepEqual(SYNC_FIELDS, ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates']);
+  const m = mapStore(fullStore({ admin_commission_type: 'category_based', admin_category_commission: { all: { percentage: '35', flat: '5' }, items: { 15: { percentage: '20', flat: '' } } } }));
+  const snap = storeSnapshot(m);
+  assert.deepEqual(Object.keys(snap), SYNC_FIELDS);
+  assert.deepEqual([snap.name, snap.phone, snap.status, snap.rate, snap.category_rates], ['ورشة التجربة', '01111111111', 'active', { rate: 35, flat: 5 }, [{ woo_category_id: 15, rate: 20, flat: null }]]);
+  snap.address_parts.city = 'changed';
+  assert.equal(m.address_parts.city, 'القاهرة', 'no aliasing');
+  assert.deepEqual(storeSnapshot(null).rate, { rate: null, flat: null });
+});
+
+test('sameField: trimmed strings with \'\' = null, keyed objects, leave = active, rate with no flat = 0, category lists in any order without the removed ones', () => {
+  assert.ok(sameField('name', ' x ', 'x') && sameField('phone', '', null) && !sameField('name', 'x', 'y'));
+  assert.ok(sameField('address_parts', { city: 'a' }, { city: 'a', zip: '', junk: 1 }) && !sameField('address_parts', { city: 'a' }, { city: 'b' }));
+  assert.ok(sameField('social', null, { fb: '' }) && !sameField('social', { fb: 'x' }, null));
+  assert.ok(sameField('status', 'leave', 'active') && !sameField('status', 'inactive', 'leave') && sameField('status', null, 'active'));
+  assert.ok(sameField('rate', { rate: 30, flat: null }, { rate: 30, flat: 0 }) && !sameField('rate', { rate: 30 }, { rate: 31 }) && !sameField('rate', { rate: 30 }, { rate: 30, flat: 2 }));
+  assert.ok(sameField('category_rates', [{ woo_category_id: 2, rate: 1 }, { woo_category_id: 1, rate: 5, flat: 0 }], [{ woo_category_id: 1, rate: 5 }, { woo_category_id: 2, rate: 1 }, { woo_category_id: 3, rate: null }]));
+  assert.ok(!sameField('category_rates', [{ woo_category_id: 1, rate: 5 }], []));
+});
+
+test('diffStore: the four cases of decision 3 per field, and `same` when both sides now agree whoever moved', () => {
+  const snap = { name: 'A', phone: '1', email: null, contact_name: 'c', address_parts: { city: 'x' }, social: { fb: 'f' }, status: 'active', rate: { rate: 30, flat: null }, category_rates: [] };
+  const site = { ...snap, name: 'A2', email: 'e@x.test', status: 'inactive', rate: { rate: 31, flat: null } };
+  const system = { ...snap, phone: '2', email: 'e@x.test', status: 'leave', rate: { rate: 32, flat: null }, category_rates: [{ woo_category_id: 1, rate: 5 }] };
+  // status: leave counts as active, so only the site moved (two states cannot make a `both`)
+  assert.deepEqual(diffStore(snap, site, system), { name: 'site', phone: 'system', email: 'same', contact_name: 'same', address_parts: 'same', social: 'same', status: 'site', rate: 'both', category_rates: 'system' });
+  // a field missing from an older snapshot reads as empty
+  assert.equal(diffStore({ ...snap, phone: undefined }, { ...snap, phone: '1' }, { ...snap, phone: '1' }).phone, 'same');
+  assert.equal(diffStore({ ...snap, phone: undefined }, { ...snap, phone: '1' }, { ...snap, phone: null }).phone, 'site');
+});
+
+test('diffStore: the first run (no snapshot) → fill when ours is empty, keep when equal, conflict when filled and different; status always takes the site', () => {
+  const site = { name: 'A', phone: '1', email: null, contact_name: 'c', address_parts: { city: 'x' }, social: { fb: 'f' }, status: 'inactive', rate: { rate: 30, flat: null }, category_rates: [{ woo_category_id: 1, rate: 5 }] };
+  const system = { name: 'B', phone: '', email: null, contact_name: 'c', address_parts: null, social: { fb: 'g' }, status: 'active', rate: { rate: null, flat: null }, category_rates: [] };
+  assert.deepEqual(diffStore(null, site, system), { name: 'conflict', phone: 'fill', email: 'keep', contact_name: 'keep', address_parts: 'fill', social: 'conflict', status: 'fill', rate: 'fill', category_rates: 'fill' });
+  assert.equal(diffStore(undefined, { ...site, status: 'active' }, { ...system, status: 'leave' }).status, 'keep');
+  assert.equal(diffStore('not an object', site, {}).name, 'fill');
+});
+
+test('commissionOf: fixed / category_based (all + items, ids as integers, strings → numbers, \'\' → null) / legacy flat, percentage, combine / unknown', () => {
+  assert.deepEqual(commissionOf({ admin_commission_type: 'fixed', admin_commission: '30', admin_additional_fee: '2.5' }), { type: 'fixed', rate: 30, flat: 2.5, categories: [] });
+  assert.deepEqual(commissionOf({ admin_commission_type: 'fixed', admin_commission: '', admin_additional_fee: '' }), { type: 'fixed', rate: null, flat: null, categories: [] });
+  assert.deepEqual(commissionOf({ admin_commission_type: 'category_based', admin_commission: '30', admin_category_commission: { all: { flat: '0', percentage: '35' }, items: { '16': { flat: '', percentage: '25' }, '15': { flat: '1', percentage: '20' }, 'x': { percentage: '9' }, '0': { percentage: '9' }, '17': 'junk' } } }),
+    { type: 'category_based', rate: 35, flat: 0, categories: [{ woo_category_id: 15, rate: 20, flat: 1 }, { woo_category_id: 16, rate: 25, flat: null }, { woo_category_id: 17, rate: null, flat: null }] });
+  assert.deepEqual(commissionOf({ admin_commission_type: 'category_based', admin_category_commission: [] }), { type: 'category_based', rate: null, flat: null, categories: [] });
+  assert.deepEqual(commissionOf({ admin_commission_type: 'flat', admin_commission: '15' }), { type: 'flat', rate: null, flat: 15, categories: [] });
+  assert.deepEqual(commissionOf({ admin_commission_type: 'percentage', admin_commission: '15' }), { type: 'percentage', rate: 15, flat: null, categories: [] });
+  assert.deepEqual(commissionOf({ admin_commission_type: 'combine', admin_commission: '15', admin_additional_fee: '3' }), { type: 'combine', rate: 15, flat: 3, categories: [] });
+  assert.deepEqual(commissionOf({}), { type: null, rate: null, flat: null, categories: [] });
+  assert.deepEqual(commissionOf(null), { type: null, rate: null, flat: null, categories: [] });
+});
+
+test('toDokanCommission: category rates → category_based (all + items as numeric strings, removed ones left out); none → fixed with admin_commission (+ admin_additional_fee when known); no rate → null', () => {
+  assert.deepEqual(toDokanCommission({ rate: 35, flat: 5, categoryRates: [{ woo_category_id: 16, rate: 25, flat: null }, { woo_category_id: 15, rate: 20, flat: 1 }, { woo_category_id: 17, rate: null }] }),
+    { admin_commission_type: 'category_based', admin_category_commission: { all: { percentage: '35', flat: '5' }, items: { 15: { percentage: '20', flat: '1' }, 16: { percentage: '25', flat: '' } } } });
+  assert.deepEqual(toDokanCommission({ rate: 30 }), { admin_commission_type: 'fixed', admin_commission: '30' });
+  assert.deepEqual(toDokanCommission({ rate: '30.5', flat: 0 }), { admin_commission_type: 'fixed', admin_commission: '30.5', admin_additional_fee: '0' });
+  assert.equal(toDokanCommission({ rate: null, categoryRates: [{ woo_category_id: 1, rate: null }] }), null);
+  assert.equal(toDokanCommission(), null);
+});
+
+test('toDokanStore: the PUT body from the row for the asked fields only; a #placeholder name is dropped; contact_name splits on the first space; status → enabled; unknown fields ignored', () => {
+  const row = { name: '#2376', phone: ' 01111111111 ', email: 'm.test@example.com', contact_name: 'منى محمد تجربة', address_parts: { street_1: 'ش', city: 'القاهرة' }, social: { fb: 'f', tiktok: 'x' }, status: 'leave', raw: { secret: 1 } };
+  assert.deepEqual(toDokanStore(row, ['name', 'phone', 'raw', 'contact_name', 'status', 'phone']), {
+    body: { phone: '01111111111', first_name: 'منى', last_name: 'محمد تجربة', enabled: true }, sent: ['phone', 'contact_name', 'status'], dropped: ['name'] });
+  assert.deepEqual(toDokanStore({ ...row, name: ' ورشة ' }, ['name', 'email', 'address_parts', 'social']).body,
+    { store_name: 'ورشة', email: 'm.test@example.com', address: { street_1: 'ش', street_2: '', city: 'القاهرة', state: '', zip: '', country: '' }, social: { fb: 'f', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' } });
+  assert.deepEqual(toDokanStore({ status: 'inactive', contact_name: null }, ['status', 'contact_name']).body, { enabled: false, first_name: '', last_name: '' });
+  assert.deepEqual(toDokanStore(row, ['rate', 'category_rates'], { rate: 30, flat: null, categoryRates: [] }), { body: { admin_commission_type: 'fixed', admin_commission: '30' }, sent: ['rate', 'category_rates'], dropped: [] });
+  assert.deepEqual(toDokanStore(row, ['name'], null), { body: null, sent: [], dropped: ['name'] });
+  assert.deepEqual(toDokanStore(null, 'phone'), { body: null, sent: [], dropped: [] });
+  const before = structuredClone(row);
+  toDokanStore(row, SYNC_FIELDS, { rate: 1 });
+  assert.deepEqual(row, before, 'input untouched');
 });

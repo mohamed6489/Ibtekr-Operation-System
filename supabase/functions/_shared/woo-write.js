@@ -1,14 +1,33 @@
 // woo-write: the WooCommerce → Postgres write path shared by woo-webhook and woo-sync (service_role client: the
 // functions read and write the tables directly, never orders_v).
 // * Makers first: an unknown _dokan_vendor_id is looked up in vendors, then fetched from dokan/v1/stores/{id} and
-//   upserted on woo_vendor_id. saveVendors writes a store that is already in the table with raw only, by an UPDATE on
-//   woo_vendor_id — the team owns name / status / phone / email and the phase-3 columns after the first insert (decision 2 of
-//   phase 3: Dokan's public REST returns neither `enabled` nor a phone, and a full rewrite every 15 minutes would undo
-//   the team's edits) — and a new store with the full mapStore row (joined_at from `registered`; never aliases /
-//   commission_pct / the other team columns). A store Dokan does not know (404) → woo_sync_log 'skipped'; any other
-//   failure (401/403/5xx/timeout/network) → woo_sync_log 'error'. Either way the id is asked once per run / delivery
-//   (missingVendors / failedVendors) and again on the next one; the rows are still written, with vendor_id null, and
-//   the rest of the delivery / page goes on. Only then are rows mapped for good.
+//   upserted on woo_vendor_id. A new store is inserted with the full mapStore row (joined_at from `registered`, the
+//   phase-3.3 columns, its first snapshot; never aliases / commission_pct / the other team columns) and the site's
+//   commission becomes its first vendor_rates / vendor_category_rates rows (set_by «الموقع»). A store already in the
+//   table gets the snapshot comparison of phase 3.3 (decision 3 / 4 a — see "store sync" below) by one UPDATE on
+//   woo_vendor_id — never an upsert: Postgres checks the not-null columns of the proposed row before `on conflict`, so
+//   a partial upsert fails with 23502 on `name` (seen live, 26 Oct). A store Dokan does not know (404) → woo_sync_log
+//   'skipped'; any other failure (401/403/5xx/timeout/network) → woo_sync_log 'error'. Either way the id is asked once
+//   per run / delivery (missingVendors / failedVendors) and again on the next one; the rows are still written, with
+//   vendor_id null, and the rest of the delivery / page goes on. Only then are rows mapped for good.
+// * Store sync (phase 3.3): for an existing store the synced fields (SYNC_FIELDS of woo-core) are compared field by
+//   field with vendors.woo_snapshot — the site's values at the last run or push (diffStore). 'site' / 'both' → the
+//   site's value is written here ('both' = the site wins, with a woo_sync_log 'conflict' row and an activity_log
+//   vendor.sync.conflict row); 'system' → pushed to the site in the same run when the field is in push_pending (the
+//   adapter's own push failed or was disabled) and WOO_PUSH_ENABLED is 1 — one PUT per store with those fields only,
+//   cleared from push_pending on success; a 'system' field that is not pending (the team's value from before the
+//   snapshot existed, or a first-run conflict) is left alone on both sides. No snapshot yet (the first run after the
+//   deploy): every empty field of ours takes the site's value, a filled and equal one stays, a filled and different one
+//   stays and is logged as a conflict, and nothing is pushed. A site name that is a `#id` placeholder (no name on the
+//   site) never overwrites ours. Every site-side change writes one activity_log row vendor.sync (entity vendor,
+//   entity_id the maker's uuid, new_value = the field names joined by ', ' — never a value; actor null: the server).
+//   raw / logo_url / banner_url / woo_payment_methods / woo_snapshot / woo_synced_at are refreshed on every run; status
+//   follows `enabled` (false → inactive; true → active unless the row is `leave`). The commission (decision 2): the
+//   site's effective percentage + flat fee (commissionOf) as the field `rate`, its category items as `category_rates`;
+//   a site-side change → a new vendor_rates row (since = today, set_by «الموقع», upserted on (vendor_id, since): a
+//   second change on the same day replaces that day's row) and vendor_category_rates rows the same way (a category the
+//   site dropped → a row with rate null); vendors.commission_pct is set with it (the 0011 trigger refreshes the copy on
+//   insert only). The activity / sync log rows carry field names only.
 // * Orders / lines are upserted with the sync-owned columns only (ORDER_COLUMNS / ITEM_COLUMNS — commission_rate /
 //   commission_fee among them, written on every run: the site's commission on the line), so an existing row
 //   keeps the team's operational values (orders.confirm*/deposit/note/cancel/ret, order_items.status/expected_at/
@@ -27,10 +46,11 @@
 // * A row refused with a data error (upsertRows: SQLSTATE 22xxx / 23xxx) is skipped with one woo_sync_log error row
 //   (entity = the table, entity_id = its key) and the rest of the delivery / page goes on; a refused order takes its
 //   lines with it. Counted as `failed`.
-// * The site's governorates (woo-sync part `states`): upserted on code into woo_states, never deleted.
-import { isSubOrder, mapOrder, mapStore, mapSubOrder, redactPII } from './woo-core.js';
+// * The site's governorates (woo-sync part `states`): upserted on code into woo_states, never deleted. The site's
+//   product categories (part `categories`, phase 3.3): upserted on id into woo_categories, never deleted.
+import { SYNC_FIELDS, addressText, diffStore, isSubOrder, mapOrder, mapStore, mapSubOrder, redactPII, sameField, storeSnapshot, toDokanStore } from './woo-core.js';
 import { DbError, logSync, selectIn, upsertRows } from './db.js';
-import { errorText } from './woo-api.js';
+import { WooError, errorText } from './woo-api.js';
 
 export const ORDER_COLUMNS = ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'customer_state',
   'payment_method', 'payment_title', 'status', 'woo_status', 'total', 'currency', 'customer_note', 'note', 'placed_at', 'woo_updated_at',
@@ -42,10 +62,16 @@ const TEAM_EDITED = ['customer_city', 'customer_address', 'customer_state', 'not
 const ORDER_UPDATE_COLUMNS = ORDER_COLUMNS.filter((c) => !TEAM_EDITED.includes(c));
 const ITEM_COLUMNS_NO_VENDOR = ITEM_COLUMNS.filter((c) => c !== 'vendor_id');
 const SUB_COLUMNS = ['order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw'];
-// A new store: the full mapStore row, upserted. An existing store: raw only (decision 2 of phase 3), as an UPDATE by
-// woo_vendor_id — never an upsert: Postgres checks the not-null columns of the proposed row before `on conflict`, so a
-// raw-only upsert fails with 23502 on `name` for every store (seen live, 26 Oct, every cron run after the v8 deploy).
-const VENDOR_COLUMNS = ['woo_vendor_id', 'name', 'phone', 'email', 'status', 'joined_at', 'raw'];
+// A new store: the full mapStore row (+ its first snapshot), upserted. An existing store: the store sync (see the
+// header), as an UPDATE by woo_vendor_id — never an upsert (23502 on `name`, seen live, 26 Oct).
+const VENDOR_COLUMNS = ['woo_vendor_id', 'name', 'phone', 'email', 'status', 'joined_at', 'contact_name', 'address_parts', 'address', 'social',
+  'logo_url', 'banner_url', 'woo_payment_methods', 'raw', 'woo_snapshot', 'woo_synced_at'];
+// The columns the store sync reads of an existing store (also push_vendor's read: the PUT body comes from these).
+export const VENDOR_SYNC_COLUMNS = 'id, woo_vendor_id, name, phone, email, contact_name, address_parts, social, status, woo_snapshot, push_pending';
+// Read-only mirrors of the site on an existing store: refreshed on every run (decision 1).
+const MIRROR_COLUMNS = ['raw', 'logo_url', 'banner_url', 'woo_payment_methods'];
+const RATE_FIELDS = ['rate', 'category_rates'];
+export const SET_BY_SITE = 'الموقع';
 // products.raw is readable by members: an allow-list of public product fields (no store owner name or address).
 const PRODUCT_RAW = ['id', 'name', 'slug', 'type', 'status', 'sku', 'price', 'regular_price', 'sale_price', 'on_sale', 'stock_status',
   'stock_quantity', 'date_created_gmt', 'date_modified_gmt', 'permalink', 'parent_id'];
@@ -65,11 +91,17 @@ const ms = (v) => { const t = Date.parse(gmtIso(v) ?? ''); return Number.isFinit
 // Last payload wins per id (a page or a batch may carry the same object twice).
 const lastById = (list) => [...new Map(list.map((o, i) => [wooId(o.id) ?? `#${i}`, o])).values()];
 
-/** Per-invocation state: status_map (read once), makers resolved so far, the Woo client, the log kind, the clock. */
-export async function writeContext({ db, woo, kind, now }) {
+/**
+ * Per-invocation state: status_map (read once), makers resolved so far, the Woo client, the log kind, the clock, and
+ * pushEnabled — the WOO_PUSH_ENABLED gate as the caller read it (woo-sync: the secret is exactly 1; woo-webhook never
+ * pushes): without it the store sync writes nothing to the site and pending fields stay pending.
+ */
+export async function writeContext({ db, woo, kind, now, pushEnabled = false }) {
   const { data, error } = await db.from('status_map').select('system_status, woo_status, direction, sort');
   if (error) throw new DbError('status_map', error);
-  return { db, woo, kind, now, statusMap: data ?? [], vendors: new Map(), missingVendors: new Set(), failedVendors: new Set() };
+  return { db, woo, kind, now, pushEnabled: pushEnabled === true, statusMap: data ?? [], vendors: new Map(), missingVendors: new Set(), failedVendors: new Set(),
+    // the store sync's counters of this run (pullVendors reports them): makers changed from the site, conflicts, pushes
+    vendorSync: { from_site: 0, conflicts: 0, pushed: 0, push_failed: 0 } };
 }
 
 const log = (ctx, row) => logSync(ctx.db, { kind: ctx.kind, direction: 'in', ...row });
@@ -86,38 +118,212 @@ async function save(ctx, table, rows, onConflict, returning = null) {
 // ---------------------------------------------------------------- makers
 
 /**
- * mapStore rows → vendors, upserted on woo_vendor_id, their ids remembered in ctx.vendors. A store already in the table
- * (ctx.vendors, else looked up) gets raw only, by one UPDATE per store; a new one is inserted with the full row (see the
- * header). → number
- * written.
+ * mapStore rows → vendors, their ids remembered in ctx.vendors. A new store is upserted on woo_vendor_id with the full
+ * row and its first snapshot, and the site's commission becomes its first rate rows; a store already in the table goes
+ * through the store sync (syncVendor). → number written.
  */
 export async function saveVendors(ctx, rows) {
   const valid = rows.filter((r) => wooId(r.woo_vendor_id) !== null);
   const ids = [...new Set(valid.map((r) => wooId(r.woo_vendor_id)))];
-  const known = new Set(ids.filter((id) => ctx.vendors.has(id)));
-  for (const v of await selectIn(ctx.db, 'vendors', 'id, woo_vendor_id', 'woo_vendor_id', ids.filter((id) => !known.has(id)))) {
-    known.add(Number(v.woo_vendor_id));
-    ctx.vendors.set(Number(v.woo_vendor_id), v.id);
-  }
-  const added = await save(ctx, 'vendors', valid.filter((r) => !known.has(wooId(r.woo_vendor_id))).map((r) => pick(r, VENDOR_COLUMNS)), 'woo_vendor_id', 'id, woo_vendor_id');
-  const kept = await updateVendorRaw(ctx, valid.filter((r) => known.has(wooId(r.woo_vendor_id))));
+  const stored = new Map((await selectIn(ctx.db, 'vendors', VENDOR_SYNC_COLUMNS, 'woo_vendor_id', ids)).map((v) => [Number(v.woo_vendor_id), v]));
+  for (const v of stored.values()) ctx.vendors.set(Number(v.woo_vendor_id), v.id);
+  const now = ctx.now();
+  const fresh = valid.filter((r) => !stored.has(wooId(r.woo_vendor_id)));
+  const added = await save(ctx, 'vendors', fresh.map((r) => pick({ ...r, woo_snapshot: storeSnapshot(r), woo_synced_at: now }, VENDOR_COLUMNS)), 'woo_vendor_id', 'id, woo_vendor_id');
   for (const v of added.rows) ctx.vendors.set(Number(v.woo_vendor_id), v.id);
-  return valid.length - added.bad.size - kept.bad.size;
+  for (const r of fresh) {
+    const uuid = ctx.vendors.get(wooId(r.woo_vendor_id));
+    if (uuid && !added.bad.has(String(wooId(r.woo_vendor_id)))) await writeSiteRates(ctx, uuid, storeSnapshot(r), null, now);
+  }
+  const existing = valid.filter((r) => stored.has(wooId(r.woo_vendor_id)));
+  const rates = await effectiveRates(ctx, existing.map((r) => stored.get(wooId(r.woo_vendor_id)).id), now);
+  const bad = new Set();
+  for (const r of existing) {
+    const row = stored.get(wooId(r.woo_vendor_id));
+    if (!(await syncVendor(ctx, r, row, rates.get(row.id), now))) bad.add(String(wooId(r.woo_vendor_id)));
+  }
+  return valid.length - added.bad.size - bad.size;
 }
 
-// raw of each existing store, one UPDATE by woo_vendor_id (the team owns every other column). A row refused with a data
-// error (SQLSTATE 22xxx / 23xxx) gets one woo_sync_log error row and the others go on; any other error throws.
-async function updateVendorRaw(ctx, rows) {
-  const bad = new Set();
-  for (const r of rows) {
-    const id = wooId(r.woo_vendor_id);
-    const { error } = await ctx.db.from('vendors').update({ raw: r.raw }).eq('woo_vendor_id', id);
-    if (!error) continue;
-    if (!/^2[23]/.test(String(error.code ?? ''))) throw new DbError('vendors', error);
-    bad.add(String(id));
-    await log(ctx, { entity: 'vendors', entity_id: String(id), action: 'update', result: 'error', detail: { error: errorText(new DbError('vendors', error), ctx.woo.scrub) } });
+// ---------------------------------------------------------------- store sync (phase 3.3)
+
+const dateOf = (iso) => String(iso).slice(0, 10);
+const union = (a, b) => [...new Set([...a, ...b])];
+const asPending = (v) => (Array.isArray(v) ? v.filter((f) => SYNC_FIELDS.includes(f)) : []);
+const pendingOrNull = (list) => (list.length ? list : null);
+
+/** One activity_log row written by the server (actor null): the field names only, never a value. Never throws. */
+async function logActivity(ctx, action, vendorUuid, fields) {
+  try {
+    const { error } = await ctx.db.from('activity_log').insert({ action, entity: 'vendor', entity_id: vendorUuid, old_value: null, new_value: fields.join(', ') });
+    if (error) console.error(`activity_log insert failed (${error.code ?? 'error'})`);
+  } catch {
+    console.error('activity_log insert failed');
   }
-  return { bad };
+}
+
+// One UPDATE of a vendors row by woo_vendor_id. A row refused with a data error (SQLSTATE 22xxx / 23xxx) gets one
+// woo_sync_log error row and false; any other error throws.
+async function updateVendor(ctx, wooVendorId, patch) {
+  const { error } = await ctx.db.from('vendors').update(patch).eq('woo_vendor_id', wooVendorId);
+  if (!error) return true;
+  if (!/^2[23]/.test(String(error.code ?? ''))) throw new DbError('vendors', error);
+  await log(ctx, { entity: 'vendors', entity_id: String(wooVendorId), action: 'update', result: 'error', detail: { error: errorText(new DbError('vendors', error), ctx.woo.scrub) } });
+  return false;
+}
+
+/**
+ * The rate effective today of each maker (vendor_rates: the latest `since` not after today) and their effective
+ * category rates (vendor_category_rates, one per category, the removed ones — rate null — left out).
+ * → Map uuid → { rate: { rate, flat }, category_rates: [{ woo_category_id, rate, flat }] }.
+ */
+export async function effectiveRates(ctx, vendorIds, now) {
+  const today = dateOf(now);
+  const out = new Map(vendorIds.map((id) => [id, { rate: { rate: null, flat: null }, category_rates: [] }]));
+  if (!vendorIds.length) return out;
+  const latest = (rows, keyOf) => {
+    const m = new Map();
+    for (const r of rows.filter((x) => String(x.since) <= today).sort((x, y) => String(x.since).localeCompare(String(y.since)) || Number(x.id) - Number(y.id))) m.set(keyOf(r), r);
+    return [...m.values()];
+  };
+  for (const r of latest(await selectIn(ctx.db, 'vendor_rates', 'id, vendor_id, rate, flat, since', 'vendor_id', vendorIds), (r) => r.vendor_id)) {
+    out.get(r.vendor_id).rate = { rate: num(r.rate), flat: num(r.flat) };
+  }
+  for (const r of latest(await selectIn(ctx.db, 'vendor_category_rates', 'id, vendor_id, woo_category_id, rate, flat, since', 'vendor_id', vendorIds), (r) => `${r.vendor_id}|${r.woo_category_id}`)) {
+    if (num(r.rate) !== null) out.get(r.vendor_id).category_rates.push({ woo_category_id: Number(r.woo_category_id), rate: num(r.rate), flat: num(r.flat) });
+  }
+  return out;
+}
+
+/** The synced fields of a vendors row as the system has them (the counterpart of storeSnapshot for diffStore). */
+export const systemSnapshot = (row, rates) => ({
+  name: row.name ?? null, phone: row.phone ?? null, email: row.email ?? null, contact_name: row.contact_name ?? null,
+  address_parts: row.address_parts ?? null, social: row.social ?? null, status: row.status ?? 'active',
+  rate: rates?.rate ?? { rate: null, flat: null }, category_rates: rates?.category_rates ?? [],
+});
+
+// The site's commission (a snapshot's `rate` / `category_rates`) → vendor_rates / vendor_category_rates rows dated
+// today, set_by «الموقع», for what differs from ours (`ours` = effectiveRates entry, null for a new store). Upserted on
+// the unique keys. → { commission_pct } when a rate row was written (the caller patches the copy), else {}.
+async function writeSiteRates(ctx, vendorUuid, site, ours, now, which = RATE_FIELDS) {
+  const since = dateOf(now);
+  const patch = {};
+  if (which.includes('rate') && site.rate?.rate !== null && site.rate?.rate !== undefined && !(ours && sameField('rate', site.rate, ours.rate))) {
+    const { bad } = await save(ctx, 'vendor_rates', [{ vendor_id: vendorUuid, rate: site.rate.rate, flat: site.rate.flat ?? null, since, set_by: SET_BY_SITE }], 'vendor_id,since');
+    if (!bad.size) patch.commission_pct = site.rate.rate;
+  }
+  if (which.includes('category_rates')) {
+    const mine = new Map((ours?.category_rates ?? []).map((c) => [c.woo_category_id, c]));
+    const theirs = (site.category_rates ?? []).filter((c) => c.rate !== null && c.rate !== undefined);
+    const rows = theirs.filter((c) => !mine.has(c.woo_category_id) || !sameField('category_rates', [c], [mine.get(c.woo_category_id)]))
+      .map((c) => ({ vendor_id: vendorUuid, woo_category_id: c.woo_category_id, rate: c.rate, flat: c.flat ?? null, since, set_by: SET_BY_SITE }));
+    for (const c of mine.values()) {
+      if (!theirs.some((t) => t.woo_category_id === c.woo_category_id)) rows.push({ vendor_id: vendorUuid, woo_category_id: c.woo_category_id, rate: null, flat: null, since, set_by: SET_BY_SITE });
+    }
+    if (rows.length) await save(ctx, 'vendor_category_rates', rows, 'vendor_id,woo_category_id,since');
+  }
+  return patch;
+}
+
+/**
+ * PUT dokan/v1/stores/{woo_vendor_id} with the given fields of a vendors row (toDokanStore: a placeholder name is
+ * dropped; rates = the effectiveRates entry). → { sent, dropped, accepted, refused, answer }: answer =
+ * storeSnapshot(mapStore(Dokan's reply)) when the reply is the store (else null and every sent field counts as
+ * accepted); accepted = the sent fields the site now shows as ours, refused = the sent fields the site kept as they
+ * were (Dokan answers 200 and ignores a field it does not take — the acceptance check of decision 4 e). The e-mail is
+ * checked against the reply's own `email` (mapStore hides it unless show_email is on). Nothing is sent when every
+ * field was dropped. Throws a WooError on a non-2xx answer (the caller logs it and marks the fields pending).
+ */
+export async function pushStoreFields(ctx, row, fields, rates) {
+  const { body, sent, dropped } = toDokanStore(row, fields, { rate: rates?.rate?.rate ?? null, flat: rates?.rate?.flat ?? null, categoryRates: rates?.category_rates ?? [] });
+  if (!body) return { sent, dropped, accepted: [], refused: [], answer: null };
+  const id = wooId(row.woo_vendor_id);
+  const { data } = await ctx.woo.put(`dokan/v1/stores/${id}`, body);
+  const answer = isObj(data) && wooId(data.id) === id ? storeSnapshot(mapStore(data)) : null;
+  const shown = answer === null ? null : { ...answer, email: typeof data.email === 'string' ? orNull(data.email) : answer.email };
+  const ours = systemSnapshot(row, rates);
+  const accepted = sent.filter((f) => shown === null || sameField(f, shown[f], ours[f]));
+  return { sent, dropped, accepted, refused: sent.filter((f) => !accepted.includes(f)), answer };
+}
+
+/**
+ * After pushStoreFields: the snapshot takes the site's answer for the sent fields (ours when the reply was not the
+ * store), woo_synced_at = now, push_pending loses the sent and the dropped fields. A row without a snapshot keeps
+ * none: the first pull after the deploy builds it (the first-run rule). → true when the row was written.
+ */
+export async function applyPushResult(ctx, row, result, now) {
+  const base = isObj(row.woo_snapshot) ? row.woo_snapshot : null;
+  const ours = systemSnapshot(row, null);
+  const patch = { woo_synced_at: now, push_pending: pendingOrNull(asPending(row.push_pending).filter((f) => !result.sent.includes(f) && !result.dropped.includes(f))) };
+  if (base !== null) {
+    const snap = { ...base };
+    for (const f of result.sent) snap[f] = result.answer === null ? (RATE_FIELDS.includes(f) ? base[f] ?? null : ours[f]) : result.answer[f];
+    patch.woo_snapshot = snap;
+  }
+  return updateVendor(ctx, wooId(row.woo_vendor_id), patch);
+}
+
+/** push_pending ∪ fields on the row (a failed or disabled push: the next sync run sends them). → true when written. */
+export async function markPushPending(ctx, row, fields) {
+  return updateVendor(ctx, wooId(row.woo_vendor_id), { push_pending: pendingOrNull(union(asPending(row.push_pending), fields.filter((f) => SYNC_FIELDS.includes(f)))) });
+}
+
+// A mapStore row of an existing store + its vendors row (VENDOR_SYNC_COLUMNS) + the maker's effective rates → the
+// comparison of the header, one UPDATE, the rate rows, the pending push, the logs. → false when the row was refused.
+async function syncVendor(ctx, site, row, rates, now) {
+  const id = wooId(site.woo_vendor_id);
+  const siteSnap = storeSnapshot(site);
+  const ours = systemSnapshot(row, rates);
+  const snap = isObj(row.woo_snapshot) ? row.woo_snapshot : null;
+  const diff = diffStore(snap, siteSnap, ours);
+  // A site without a commission figure (the public shape, or no rate set there) says nothing about the rate: ours
+  // stays and no change / conflict is recorded for the two rate fields. A `#id` placeholder name never overwrites ours.
+  const ignored = (f) => (RATE_FIELDS.includes(f) && siteSnap.rate.rate === null) || (f === 'name' && String(siteSnap.name ?? '').startsWith('#'));
+  const pending = asPending(row.push_pending);
+  const fromSite = SYNC_FIELDS.filter((f) => ['site', 'both', 'fill'].includes(diff[f]) && !ignored(f));
+  const conflicts = SYNC_FIELDS.filter((f) => ['both', 'conflict'].includes(diff[f]) && !ignored(f));
+  const toPush = snap === null ? [] : pending.filter((f) => diff[f] === 'system');
+  const patch = { ...pick(site, MIRROR_COLUMNS), woo_synced_at: now };
+  const newSnap = { ...siteSnap };
+
+  for (const f of fromSite) {
+    if (f === 'address_parts') { patch.address_parts = siteSnap.address_parts; patch.address = addressText(siteSnap.address_parts); }
+    else if (f === 'status') patch.status = siteSnap.status === 'inactive' ? 'inactive' : row.status === 'leave' ? 'leave' : 'active';
+    else if (!RATE_FIELDS.includes(f)) patch[f] = siteSnap[f];
+  }
+  const siteRates = fromSite.filter((f) => RATE_FIELDS.includes(f));
+  if (siteRates.length) Object.assign(patch, await writeSiteRates(ctx, row.id, siteSnap, ours, now, siteRates));
+
+  let settled = [];
+  if (toPush.length && ctx.pushEnabled) {
+    try {
+      const r = await pushStoreFields(ctx, row, toPush, rates);
+      settled = [...r.sent, ...r.dropped];
+      for (const f of r.sent) newSnap[f] = r.answer === null ? (RATE_FIELDS.includes(f) ? siteSnap[f] : ours[f]) : r.answer[f];
+      if (r.sent.length) {
+        ctx.vendorSync.pushed += 1;
+        await logSync(ctx.db, { kind: 'push', direction: 'out', entity: 'vendor', entity_id: String(id), action: 'vendor', result: 'ok', detail: { vendor_id: row.id, fields: r.sent, accepted: r.accepted, refused: r.refused, dropped: r.dropped } });
+      }
+    } catch (e) {
+      if (!(e instanceof WooError)) throw e;
+      ctx.vendorSync.push_failed += 1;
+      await logSync(ctx.db, { kind: 'push', direction: 'out', entity: 'vendor', entity_id: String(id), action: 'vendor', result: 'error', detail: { vendor_id: row.id, fields: toPush, error: errorText(e, ctx.woo.scrub) } });
+    }
+  }
+  patch.woo_snapshot = newSnap;
+  patch.push_pending = pendingOrNull(pending.filter((f) => !settled.includes(f) && !['same', 'site', 'both', 'keep', 'fill'].includes(diff[f])));
+
+  if (!(await updateVendor(ctx, id, patch))) return false;
+  if (fromSite.length) {
+    ctx.vendorSync.from_site += 1;
+    await logActivity(ctx, 'vendor.sync', row.id, fromSite);
+  }
+  if (conflicts.length) {
+    ctx.vendorSync.conflicts += 1;
+    await log(ctx, { entity: 'vendor', entity_id: String(id), action: 'sync', result: 'conflict', detail: { vendor_id: row.id, fields: conflicts, first_run: snap === null } });
+    await logActivity(ctx, 'vendor.sync.conflict', row.id, conflicts);
+  }
+  return true;
 }
 
 // The store as a vendors row, or null: 404 / another store → skipped (missingVendors); any other failure → an error
@@ -331,4 +537,22 @@ export async function writeStates(ctx, states) {
   const rows = [...new Map(valid.map((s) => [s.code.trim(), { code: s.code.trim(), name: s.name.trim(), updated_at: now }])).values()];
   const { bad } = await save(ctx, 'woo_states', rows, 'code');
   return { written: rows.map((r) => r.code).filter((code) => !bad.has(code)), skipped: list.length - valid.length, failed: bad.size };
+}
+
+// ---------------------------------------------------------------- product categories (phase 3.3)
+
+/**
+ * The site's product categories (wc/v3/products/categories items { id, name, slug, parent }) → woo_categories,
+ * upserted on id with updated_at = ctx.now(): the names behind vendor_category_rates.woo_category_id. An item without
+ * a positive integer id or a non-empty string name is skipped; parent 0 / absent → parent_id null. Nothing is deleted
+ * (a rate may still point at a category the site dropped).
+ * → { written: [ids], skipped: n (malformed items), failed: n (refused rows) }.
+ */
+export async function writeCategories(ctx, categories) {
+  const list = Array.isArray(categories) ? categories : [];
+  const valid = list.filter((c) => isObj(c) && wooId(c.id) !== null && typeof c.name === 'string' && c.name.trim() !== '');
+  const now = ctx.now();
+  const rows = lastById(valid).map((c) => ({ id: wooId(c.id), name: c.name.trim(), slug: orNull(c.slug), parent_id: wooId(c.parent), updated_at: now }));
+  const { bad } = await save(ctx, 'woo_categories', rows, 'id');
+  return { written: rows.map((r) => r.id).filter((id) => !bad.has(String(id))), skipped: list.length - valid.length, failed: bad.size };
 }

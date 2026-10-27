@@ -2,14 +2,16 @@
 // woo-sync handler tests: fake Woo fetch + in-memory Supabase clients (service and per-member) from ../_test/fakes.ts.
 import { assert, assertEquals, assertFalse } from 'jsr:@std/assert@1';
 import { handler } from './index.ts';
-import { ENV, NOW, PHONE, STATUS_MAP, WC_AUTH, fakeDb, fakeWoo, vendorId, vendorRow, wooOrder, wooProduct, wooStore, wooSub, writtenText } from '../_test/fakes.ts';
+import { ENV, NOW, PHONE, STATUS_MAP, WC_AUTH, fakeDb, fakeWoo, vendorId, vendorRow, wooOrder, wooProduct, wooStore, wooStoreFull, wooSub, writtenText } from '../_test/fakes.ts';
 
 const SYNC_SECRET = 'sync-test-secret';
 const OURS = `${ENV.SUPABASE_URL}/functions/v1/woo-webhook`;
-// Member tokens → what has_perm('orders.status') / is_admin() answer for them.
-// (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
-const MEMBERS: Record<string, { perm: unknown; admin: unknown }> = {
-  'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false }, 'jwt-acct': { perm: 'P', admin: false },
+// Member tokens → what has_perm('orders.status') / is_admin() answer for them, plus (phase 3.3) has_perm('vendors.edit') /
+// has_perm('sensitive.commission') for push_vendor: ops = vendors.edit P, vf = vendors follow-up (vendors.edit F, commission N),
+// acct = accounts (nothing). (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
+const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown }> = {
+  'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false, edit: 'P' }, 'jwt-acct': { perm: 'P', admin: false, edit: 'N' },
+  'jwt-vf': { perm: 'N', admin: false, edit: 'F', commission: 'N' },
   'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
 };
 
@@ -22,7 +24,7 @@ function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fa
   const members: any[] = [];
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : 'N'), is_admin: () => m.admin } : {} });
+    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
     members.push({ jwt, client });
     return client;
   };
@@ -42,6 +44,8 @@ const pushSeed = { orders: [{ id: 1001, number: '1001', customer_name: 'x', stat
 const page = (items: any[], totalPages = 1) => ({ body: items, headers: { 'X-WP-Total': String(items.length), 'X-WP-TotalPages': String(totalPages) } });
 // wc/v3/data/countries/EG as WooCommerce answers it (the site's own codes; names made up for the tests).
 const STATES = 'GET wc/v3/data/countries/EG';
+const CATS = 'GET wc/v3/products/categories';
+const ALL_PATHS = ['wc/v3/data/countries/EG', 'wc/v3/products/categories', 'dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products'];
 const country = (states: unknown) => ({ body: { code: 'EG', name: 'Egypt', states, _links: { self: [{ href: 'https://woo.test/wp-json/wc/v3/data/countries/eg' }] } } });
 const single = (id: number, vendor: number, modified: string) =>
   wooOrder({ id, number: String(id), date_modified_gmt: modified, meta_data: [{ key: '_dokan_vendor_id', value: String(vendor) }],
@@ -250,39 +254,57 @@ Deno.test('probe_store: the field names of one store and nothing else — no val
 
 // ---------------------------------------------------------------- vendors / products / all
 
-Deno.test('vendors: a new store is inserted whole (joined_at from registered); an existing one gets raw only — the team’s name / status / phone / aliases / rate stay (decision 2); no Authorization on dokan/', async () => {
+Deno.test('vendors: a new store is inserted whole (the phase-3.3 columns, its first snapshot, the site\'s rate as a vendor_rates row); an existing one goes through the store sync — the team\'s aliases / category / rate stay; no Authorization on dokan/', async () => {
   const seed = { vendors: [vendorRow(44, { name: 'اسم الفريق', status: 'inactive', phone: '01000000044', aliases: ['قديم'], commission_pct: 12.5, category: 'هدايا',
-    joined_at: '2024-12-31', raw: { id: 44, store_name: 'Old 44' } })] };
-  const { db, woo, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStore(44, { enabled: true, store_name: 'Store 44 renamed', phone: '01000000999' }), wooStore(900)]) } });
+    joined_at: '2024-12-31', raw: { id: 44, store_name: 'Old 44' }, woo_snapshot: { name: 'اسم الفريق', phone: '01000000044', email: null, contact_name: null, address_parts: null, social: null, status: 'inactive', rate: { rate: 12.5, flat: null }, category_rates: [] } })],
+    vendor_rates: [{ vendor_id: vendorId(44), rate: 12.5, since: '2026-10-01', set_by: 'x' }] };
+  const { db, woo, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStore(44, { enabled: false, store_name: 'Store 44 renamed', phone: '01000000999' }), wooStoreFull(900)]) } });
   const { body } = await call(deps, { action: 'vendors' }, { jwt: 'jwt-admin' });
-  assertEquals([body.result, body.counts.vendors.vendors], ['ok', 2]);
+  assertEquals([body.result, body.counts.vendors], ['ok', { vendors: 2, from_site: 1, conflicts: 0, pushed: 0, push_failed: 0, pages: 1, done: true }]);
   assertEquals([woo.calls[0].path, woo.calls[0].query], ['dokan/v1/stores', { per_page: '100', page: '1' }]);
   assertFalse('authorization' in woo.calls[0].headers);
+  assertEquals(woo.calls.length, 1, 'nothing is written to the site');
   const v44 = db.row('vendors', 44, 'woo_vendor_id');
   assertEquals([v44.id, v44.name, v44.status, v44.phone, v44.aliases, v44.commission_pct, v44.category, v44.joined_at],
-    [vendorId(44), 'اسم الفريق', 'inactive', '01000000044', ['قديم'], 12.5, 'هدايا', '2024-12-31'], 'the team’s values stay on an existing store');
-  assertEquals(v44.raw, { id: 44, store_name: 'Store 44 renamed', shop_url: 'https://woo.test/store/44/', enabled: true, registered: '2025-01-02 10:00:00' }, 'raw follows the site');
+    [vendorId(44), 'Store 44 renamed', 'inactive', '01000000999', ['قديم'], 12.5, 'هدايا', '2024-12-31'], 'the site changed name / phone since the snapshot → written here; the team columns stay');
+  assertEquals(v44.raw, { id: 44, store_name: 'Store 44 renamed', shop_url: 'https://woo.test/store/44/', enabled: false, registered: '2025-01-02 10:00:00' }, 'raw follows the site');
+  assertEquals([v44.woo_snapshot.name, v44.woo_snapshot.phone, v44.woo_synced_at, v44.push_pending], ['Store 44 renamed', '01000000999', NOW, null]);
+  assertEquals(db.rows('vendor_rates').filter((r: any) => r.vendor_id === vendorId(44)).length, 1, 'the site has no rate (public shape): no rate row for 44');
   const v900 = db.row('vendors', 900, 'woo_vendor_id');
-  assertEquals([v900.name, v900.status, v900.phone, v900.email, v900.joined_at, v900.aliases, v900.commission_pct, v900.lead_days],
-    ['Store 900', 'active', '01000000000', null, '2025-01-02', [], null, 7], 'a new store: the full mapStore row, the team columns at their defaults');
+  assertEquals([v900.name, v900.status, v900.phone, v900.email, v900.joined_at, v900.aliases, v900.commission_pct, v900.lead_days, v900.contact_name, v900.address, v900.logo_url, v900.banner_url, v900.woo_payment_methods, v900.woo_synced_at],
+    ['Store 900', 'active', '01000000000', null, '2025-01-02', [], null, 7, 'Maker Owner 900', 'شارع 900، القاهرة، EG-01', 'https://woo.test/g/900.jpg', 'https://woo.test/b/900.jpg', ['bank'], NOW], 'a new store: the full mapStore row, the team columns at their defaults');
+  assertEquals(v900.address_parts, { street_1: 'شارع 900', street_2: '', city: 'القاهرة', state: 'EG-01', zip: '', country: 'EG' });
+  assertEquals(v900.social.fb, 'https://fb.test/900');
+  assertEquals(v900.woo_snapshot.rate, { rate: 30, flat: null });
+  assertEquals(db.rows('vendor_rates').filter((r: any) => r.vendor_id === v900.id).map((r: any) => [r.rate, r.flat, r.since, r.set_by]), [[30, null, NOW.slice(0, 10), 'الموقع']], 'the site\'s commission of a new store → its first rate row');
   const writes = db.writes('vendors').map((w: any) => [w.op, w.onConflict ?? null, w.rows ? w.rows.map((r: any) => Object.keys(r).sort()) : Object.keys(w.patch).sort(), w.filters]);
-  assertEquals(writes, [['upsert', 'woo_vendor_id', [['email', 'joined_at', 'name', 'phone', 'raw', 'status', 'woo_vendor_id']], []],
-    ['update', null, ['raw'], [['eq', 'woo_vendor_id', 44]]]], 'new: the full row upserted; existing: raw only, by an update on woo_vendor_id (an upsert cannot carry a partial row)');
+  assertEquals(writes, [['upsert', 'woo_vendor_id', [['address', 'address_parts', 'banner_url', 'contact_name', 'email', 'joined_at', 'logo_url', 'name', 'phone', 'raw', 'social', 'status', 'woo_payment_methods', 'woo_snapshot', 'woo_synced_at', 'woo_vendor_id']], []],
+    ['update', null, ['banner_url', 'logo_url', 'name', 'phone', 'push_pending', 'raw', 'woo_payment_methods', 'woo_snapshot', 'woo_synced_at'], [['eq', 'woo_vendor_id', 44]]]], 'new: the full row upserted (never aliases / commission_pct); existing: one update by woo_vendor_id with the mirrors + the fields the site changed');
+  assertEquals(db.rows('activity_log').map((r: any) => [r.action, r.entity, r.entity_id, r.new_value]), [['vendor.sync', 'vendor', vendorId(44), 'name, phone']], 'one activity row per changed store: the field names only');
+  assertFalse(JSON.stringify(db.rows('activity_log')).includes('01000000999'), 'no phone in activity_log');
   assertEquals(db.rows('woo_sync_log').at(-1).kind, 'manual');
 });
 
-Deno.test('vendors: a second run over the same stores writes raw only for every one of them (ctx knows them after the first page)', async () => {
+Deno.test('vendors: a second run over the same stores with no change on either side writes the mirrors only (no activity row); the team\'s rename stays and is not pushed when nothing is pending', async () => {
   const { db, deps } = setup({ seed: { vendors: [] }, routes: { 'GET dokan/v1/stores': page([wooStore(44), wooStore(900)]) } });
   await call(deps, { action: 'vendors' }, { jwt: 'jwt-admin' });
   assertEquals(db.rows('vendors').map((v: any) => [v.woo_vendor_id, v.name, v.joined_at]), [[44, 'Store 44', '2025-01-02'], [900, 'Store 900', '2025-01-02']]);
-  // the team renames one in between (as the screen would), the site renames both
-  const { db: db2, deps: deps2 } = setup({ seed: { vendors: [vendorRow(44, { name: 'اسم الفريق' }), vendorRow(900)] },
-    routes: { 'GET dokan/v1/stores': page([wooStore(44, { store_name: 'Site 44' }), wooStore(900, { store_name: 'Site 900' })]) } });
-  const { body } = await call(deps2, { action: 'vendors' }, { jwt: 'jwt-admin' });
+  // the same page again: nothing changed on the site, nothing changed here
+  const { body } = await call(deps, { action: 'vendors' }, { jwt: 'jwt-admin' });
   assertEquals(body.counts.vendors.vendors, 2);
-  assertEquals(db2.rows('vendors').map((v: any) => [v.woo_vendor_id, v.name, v.raw.store_name]), [[44, 'اسم الفريق', 'Site 44'], [900, 'متجر 900', 'Site 900']]);
-  assertEquals(db2.writes('vendors').map((w: any) => [w.op, Object.keys(w.patch).sort(), w.filters]), [['update', ['raw'], [['eq', 'woo_vendor_id', 44]]], ['update', ['raw'], [['eq', 'woo_vendor_id', 900]]]]);
-  assertEquals(db2.rows('woo_sync_log').filter((r: any) => r.result !== 'ok').length, 0, 'no error row: the raw-only write is an update, never a partial upsert');
+  assertEquals(db.writes('vendors').slice(1).map((w: any) => [w.op, Object.keys(w.patch).sort(), w.filters]),
+    [['update', ['banner_url', 'logo_url', 'push_pending', 'raw', 'woo_payment_methods', 'woo_snapshot', 'woo_synced_at'], [['eq', 'woo_vendor_id', 44]]], ['update', ['banner_url', 'logo_url', 'push_pending', 'raw', 'woo_payment_methods', 'woo_snapshot', 'woo_synced_at'], [['eq', 'woo_vendor_id', 900]]]]);
+  assertEquals(db.rows('activity_log'), []);
+  // the team renamed one in between (the adapter's push is a separate call; here it is not pending), the site renamed the other
+  const snap = (id: number) => db.row('vendors', id, 'woo_vendor_id').woo_snapshot;
+  const { db: db2, woo: woo2, deps: deps2 } = setup({ seed: { vendors: [vendorRow(44, { name: 'اسم الفريق', woo_snapshot: snap(44) }), vendorRow(900, { name: 'Store 900', woo_snapshot: snap(900) })] },
+    routes: { 'GET dokan/v1/stores': page([wooStore(44), wooStore(900, { store_name: 'Site 900' })]) }, env: PUSH_ON });
+  const r2 = await call(deps2, { action: 'vendors' }, { jwt: 'jwt-admin' });
+  assertEquals([r2.body.counts.vendors.vendors, r2.body.counts.vendors.from_site, r2.body.counts.vendors.pushed], [2, 1, 0]);
+  assertEquals(db2.rows('vendors').map((v: any) => [v.woo_vendor_id, v.name, v.raw.store_name]), [[44, 'اسم الفريق', 'Store 44'], [900, 'Site 900', 'Site 900']]);
+  assertEquals(woo2.calls.filter((c) => c.method === 'PUT').length, 0, 'a system-side change that is not pending is left alone');
+  assertEquals(db2.rows('activity_log').map((r: any) => [r.entity_id, r.new_value]), [[vendorId(900), 'name']]);
+  assertEquals(db2.rows('woo_sync_log').filter((r: any) => r.result !== 'ok').length, 0, 'no error row: the write is an update, never a partial upsert');
 });
 
 Deno.test('products: pulled with the cursor params and upserted (image_url = images[0].src, maker linked or null, permalink https only)', async () => {
@@ -296,26 +318,27 @@ Deno.test('products: pulled with the cursor params and upserted (image_url = ima
 });
 
 Deno.test('all → states, then vendors, then orders, then products (one request for the names first; the orders before the ~40 product pages)', async () => {
-  const routes = { [STATES]: country([{ code: 'EG-01', name: 'محافظة 1' }]), 'GET dokan/v1/stores': page([wooStore(44)]), 'GET wc/v3/products': page([wooProduct(501, 44)]),
+  const routes = { [STATES]: country([{ code: 'EG-01', name: 'محافظة 1' }]), [CATS]: page([{ id: 15, name: 'هدايا', slug: 'gifts', parent: 0 }]), 'GET dokan/v1/stores': page([wooStore(44, { store_name: 'متجر 44' })]), 'GET wc/v3/products': page([wooProduct(501, 44)]),
     'GET wc/v3/orders': page([single(1002, 44, '2026-10-21T09:30:00')]) };
   const { db, woo, deps } = setup({ routes });
   const { res, body } = await call(deps, { action: 'all' });
   assertEquals(res.status, 200);
-  assertEquals(woo.calls.map((c) => c.path), ['wc/v3/data/countries/EG', 'dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products']);
-  assertEquals(Object.keys(body.counts), ['states', 'vendors', 'orders', 'products']);
+  assertEquals(woo.calls.map((c) => c.path), ALL_PATHS);
+  assertEquals(Object.keys(body.counts), ['states', 'categories', 'vendors', 'orders', 'products']);
   assertEquals(body.counts.states, { states: 1, skipped: 0, failed: 0 });
+  assertEquals(body.counts.categories, { categories: 1, skipped: 0, failed: 0, pages: 1, done: true });
   assertEquals(body.counts.products, { products: 1, failed: 0, pages: 1, done: true });
-  assertEquals(db.rows('woo_sync_log').map((r: any) => [r.entity, r.result]), [['states', 'ok'], ['vendors', 'ok'], ['orders', 'ok'], ['products', 'ok']]);
+  assertEquals(db.rows('woo_sync_log').map((r: any) => [r.entity, r.result]), [['states', 'ok'], ['categories', 'ok'], ['vendors', 'ok'], ['orders', 'ok'], ['products', 'ok']]);
 });
 
 Deno.test('all keeps going when one part fails, answers 502 naming it, and the log holds neither the keys nor a phone', async () => {
   const echo = `{"code":"invalid_username","message":"bad ${ENV.WOO_CK}:${ENV.WOO_CS} for ${PHONE}","data":{"billing_phone":"${PHONE}"}}`;
-  const routes = { [STATES]: country([]), 'GET dokan/v1/stores': { status: 401, text: echo }, 'GET wc/v3/products': page([]), 'GET wc/v3/orders': page([]) };
+  const routes = { [STATES]: country([]), [CATS]: page([]), 'GET dokan/v1/stores': { status: 401, text: echo }, 'GET wc/v3/products': page([]), 'GET wc/v3/orders': page([]) };
   const { db, woo, deps } = setup({ routes });
   const { res, body } = await call(deps, { action: 'all' });
   assertEquals(res.status, 502);
   assertEquals([body.error, body.failed], ['sync_failed', ['vendors']]);
-  assertEquals(woo.calls.map((c) => c.path), ['wc/v3/data/countries/EG', 'dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products']);
+  assertEquals(woo.calls.map((c) => c.path), ALL_PATHS);
   const err = db.rows('woo_sync_log').find((r: any) => r.result === 'error')!;
   assertEquals([err.entity, err.kind], ['vendors', 'cron']);
   for (const s of [PHONE, ENV.WOO_CK, ENV.WOO_CS]) assertFalse(writtenText(db).includes(s), `leaked ${s}`);
@@ -364,15 +387,15 @@ Deno.test('states: no endpoint on the site (404) or an answer without a states a
 Deno.test('all: the states part failing (403) logs its error; vendors, orders and products still run and write', async () => {
   const routes = {
     [STATES]: { status: 403, text: '{"code":"woocommerce_rest_cannot_view","message":"Sorry, you cannot list resources.","data":{"status":403}}' },
-    'GET dokan/v1/stores': page([wooStore(44)]), 'GET wc/v3/products': page([wooProduct(501, 44)]), 'GET wc/v3/orders': page([single(1002, 44, '2026-10-21T09:30:00')]),
+    [CATS]: page([]), 'GET dokan/v1/stores': page([wooStore(44, { store_name: 'متجر 44' })]), 'GET wc/v3/products': page([wooProduct(501, 44)]), 'GET wc/v3/orders': page([single(1002, 44, '2026-10-21T09:30:00')]),
   };
   const { db, woo, deps } = setup({ routes });
   const { res, body } = await call(deps, { action: 'all' });
   assertEquals([res.status, body.error, body.failed], [502, 'sync_failed', ['states']]);
-  assertEquals(woo.calls.map((c) => c.path), ['wc/v3/data/countries/EG', 'dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products']);
-  assertEquals(Object.keys(body.counts), ['vendors', 'orders', 'products']);
+  assertEquals(woo.calls.map((c) => c.path), ALL_PATHS);
+  assertEquals(Object.keys(body.counts), ['categories', 'vendors', 'orders', 'products']);
   assertEquals([db.rows('orders').map((o: any) => o.id), db.rows('products').map((p: any) => p.id), db.rows('woo_states').length], [[1002], [501], 0]);
-  assertEquals(db.rows('woo_sync_log').map((r: any) => [r.entity, r.result]), [['states', 'error'], ['vendors', 'ok'], ['orders', 'ok'], ['products', 'ok']]);
+  assertEquals(db.rows('woo_sync_log').map((r: any) => [r.entity, r.result]), [['states', 'error'], ['categories', 'ok'], ['vendors', 'ok'], ['orders', 'ok'], ['products', 'ok']]);
   assert(db.rows('woo_sync_log')[0].detail.error.includes('HTTP 403'));
 });
 
@@ -531,4 +554,263 @@ Deno.test('register_webhooks refuses a delivery_url that is not our woo-webhook 
   const { res, body } = await call(deps, { action: 'register_webhooks', delivery_url: 'https://evil.test/hook' }, { jwt: 'jwt-admin' });
   assertEquals([res.status, body], [400, { error: 'delivery_url_mismatch' }]);
   assertEquals(woo.calls.length, 0);
+});
+
+// ---------------------------------------------------------------- store sync (phase 3.3, decisions 3 / 4 a)
+
+// A full-payload store and a vendors row that match it, with the snapshot of a previous run (every value made up).
+const SNAP44 = { name: 'Store 44', phone: '01000000000', email: null, contact_name: 'Maker Owner 44', status: 'active',
+  address_parts: { street_1: 'شارع 44', street_2: '', city: 'القاهرة', state: 'EG-01', zip: '', country: 'EG' },
+  social: { fb: 'https://fb.test/44', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' },
+  rate: { rate: 30, flat: null }, category_rates: [] };
+const synced44 = (extra: any = {}) => vendorRow(44, { ...SNAP44, rate: undefined, category_rates: undefined, woo_snapshot: SNAP44, address: 'شارع 44، القاهرة، EG-01', ...extra });
+const rate44 = (rate: number, since = '2026-10-01', extra: any = {}) => ({ vendor_id: vendorId(44), rate, since, set_by: 'x', ...extra });
+const activity = (db: any) => db.rows('activity_log').map((r: any) => [r.action, r.entity_id, r.new_value]);
+const conflictRows = (db: any) => db.rows('woo_sync_log').filter((r: any) => r.result === 'conflict').map((r: any) => [r.entity, r.entity_id, r.detail.fields, r.detail.first_run]);
+
+Deno.test('store sync — the four cases of decision 3: site only → written here + vendor.sync; system only (not pending) → left alone; both → the site wins + conflict rows; same → nothing', async () => {
+  // site only: phone; system only (not pending): contact_name; both: name; same: the rest
+  const seed = { vendors: [synced44({ name: 'اسم الفريق', contact_name: 'صاحب من الفريق' })], vendor_rates: [rate44(30)] };
+  const store = wooStoreFull(44, { store_name: 'Site 44', phone: '01000000011' });
+  const { db, woo, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([store]) }, env: PUSH_ON });
+  const { body } = await call(deps, { action: 'vendors' });
+  assertEquals(body.counts.vendors, { vendors: 1, from_site: 1, conflicts: 1, pushed: 0, push_failed: 0, pages: 1, done: true });
+  const v = db.row('vendors', 44, 'woo_vendor_id');
+  assertEquals([v.name, v.phone, v.contact_name, v.status, v.push_pending], ['Site 44', '01000000011', 'صاحب من الفريق', 'active', null]);
+  assertEquals([v.woo_snapshot.name, v.woo_snapshot.phone, v.woo_snapshot.contact_name], ['Site 44', '01000000011', 'Maker Owner 44'], 'the snapshot is the site as of this run');
+  assertEquals(woo.calls.filter((c) => c.method === 'PUT').length, 0, 'a system-only change that is not pending is never pushed by the sync');
+  assertEquals(activity(db), [['vendor.sync', vendorId(44), 'name, phone'], ['vendor.sync.conflict', vendorId(44), 'name']]);
+  assertEquals(conflictRows(db), [['vendor', '44', ['name'], false]]);
+  assertEquals(db.rows('vendor_rates').length, 1, 'the rate is the same on both sides: no new row');
+  const text = writtenText(db) + JSON.stringify(db.rows('activity_log'));
+  assertFalse(text.includes('01000000011') || text.includes('اسم الفريق') || text.includes('Site 44'), 'the logs carry field names, never a value');
+});
+
+Deno.test('store sync — pending push: a system-only field in push_pending is PUT to the site in the same run (those fields only, from the row), the snapshot takes the answer and push_pending is cleared; a 4xx keeps it pending with an error row', async () => {
+  const seed = { vendors: [synced44({ phone: '01000000022', contact_name: 'Maker Owner 44 Jr', push_pending: ['phone', 'contact_name', 'name'] })], vendor_rates: [rate44(30)] };
+  const store = wooStoreFull(44);
+  const routes = { 'GET dokan/v1/stores': page([store]), 'PUT dokan/v1/stores/44': (c: any) => ({ body: { ...store, phone: c.body.phone, first_name: c.body.first_name, last_name: c.body.last_name } }) };
+  const { db, woo, deps } = setup({ seed, routes, env: PUSH_ON });
+  const { body } = await call(deps, { action: 'vendors' });
+  assertEquals([body.counts.vendors.pushed, body.counts.vendors.from_site], [1, 0]);
+  const put = woo.calls.find((c) => c.method === 'PUT')!;
+  assertEquals([put.path, put.body, 'authorization' in put.headers], ['dokan/v1/stores/44', { phone: '01000000022', first_name: 'Maker', last_name: 'Owner 44 Jr' }, false], 'the pending fields only; name is not pending-and-changed, so it is not sent');
+  const v = db.row('vendors', 44, 'woo_vendor_id');
+  assertEquals([v.phone, v.contact_name, v.push_pending, v.woo_snapshot.phone, v.woo_snapshot.contact_name], ['01000000022', 'Maker Owner 44 Jr', null, '01000000022', 'Maker Owner 44 Jr']);
+  const out = db.rows('woo_sync_log').find((r: any) => r.direction === 'out')!;
+  assertEquals([out.kind, out.entity, out.entity_id, out.result, out.detail.fields, out.detail.accepted, out.detail.refused], ['push', 'vendor', '44', 'ok', ['phone', 'contact_name'], ['phone', 'contact_name'], []]);
+  assertEquals(activity(db), [], 'a push is not a site-side change');
+  // the same with the site refusing: 400 → pending stays, an error row without the phone, the run goes on
+  const w2 = setup({ seed, routes: { 'GET dokan/v1/stores': page([store]), 'PUT dokan/v1/stores/44': { status: 400, text: `{"code":"rest_invalid_param","message":"bad ${PHONE}"}` } }, env: PUSH_ON });
+  const r2 = await call(w2.deps, { action: 'vendors' });
+  assertEquals([r2.res.status, r2.body.counts.vendors.push_failed, r2.body.counts.vendors.pushed], [200, 1, 0]);
+  const v2 = w2.db.row('vendors', 44, 'woo_vendor_id');
+  assertEquals([v2.push_pending, v2.woo_snapshot.phone], [['phone', 'contact_name'], '01000000000'], 'still pending (name dropped: not a change); the snapshot keeps the site\'s value');
+  const err = w2.db.rows('woo_sync_log').find((r: any) => r.result === 'error')!;
+  assertEquals([err.direction, err.entity, err.detail.fields], ['out', 'vendor', ['phone', 'contact_name']]);
+  assertFalse(writtenText(w2.db).includes(PHONE));
+});
+
+Deno.test('store sync — the gate: with WOO_PUSH_ENABLED unset the pending fields are not pushed (no PUT), stay pending, and the site\'s own changes are still written', async () => {
+  const seed = { vendors: [synced44({ phone: '01000000022', push_pending: ['phone'] })], vendor_rates: [rate44(30)] };
+  const { db, woo, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStoreFull(44, { store_name: 'Site 44' })]) } });
+  await call(deps, { action: 'vendors' });
+  assertEquals(woo.calls.map((c) => c.method), ['GET']);
+  const v = db.row('vendors', 44, 'woo_vendor_id');
+  assertEquals([v.name, v.phone, v.push_pending], ['Site 44', '01000000022', ['phone']]);
+});
+
+Deno.test('store sync — both sides changed the same pending field → the site wins, it leaves push_pending, conflict rows', async () => {
+  const seed = { vendors: [synced44({ phone: '01000000022', push_pending: ['phone'] })], vendor_rates: [rate44(30)] };
+  const { db, woo, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStoreFull(44, { phone: '01000000033' })]) }, env: PUSH_ON });
+  await call(deps, { action: 'vendors' });
+  assertEquals(woo.calls.filter((c) => c.method === 'PUT').length, 0);
+  const v = db.row('vendors', 44, 'woo_vendor_id');
+  assertEquals([v.phone, v.push_pending], ['01000000033', null]);
+  assertEquals(activity(db), [['vendor.sync', vendorId(44), 'phone'], ['vendor.sync.conflict', vendorId(44), 'phone']]);
+  assertEquals(conflictRows(db), [['vendor', '44', ['phone'], false]]);
+});
+
+Deno.test('store sync — the first run (no snapshot): empty fields are filled from the site, filled and equal stay, filled and different stay with a conflict row (first_run true), nothing is pushed even when pending; status follows enabled', async () => {
+  const seed = { vendors: [vendorRow(44, { name: 'ورشة الفريق', phone: null, email: null, contact_name: null, address_parts: null, social: null, address: null, status: 'active', push_pending: ['name'] })] };
+  const { db, woo, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStoreFull(44, { enabled: false })]) }, env: PUSH_ON });
+  const { body } = await call(deps, { action: 'vendors' });
+  assertEquals([body.counts.vendors.from_site, body.counts.vendors.conflicts, body.counts.vendors.pushed], [1, 1, 0]);
+  assertEquals(woo.calls.map((c) => c.method), ['GET'], 'no PUT on a first run');
+  const v = db.row('vendors', 44, 'woo_vendor_id');
+  assertEquals([v.name, v.phone, v.contact_name, v.address, v.status, v.push_pending], ['ورشة الفريق', '01000000000', 'Maker Owner 44', 'شارع 44، القاهرة، EG-01', 'inactive', ['name']], 'name stays (ours, filled, pending for the next run); the rest filled; enabled false → inactive');
+  assertEquals(v.address_parts, SNAP44.address_parts);
+  assertEquals(v.woo_snapshot.name, 'Store 44', 'the snapshot is the site: the next run sees our name as a system-side change');
+  assertEquals(activity(db), [['vendor.sync', vendorId(44), 'phone, contact_name, address_parts, social, status, rate'], ['vendor.sync.conflict', vendorId(44), 'name']]);
+  assertEquals(conflictRows(db), [['vendor', '44', ['name'], true]]);
+  assertEquals(db.rows('vendor_rates').map((r: any) => [r.rate, r.flat, r.since, r.set_by]), [[30, null, NOW.slice(0, 10), 'الموقع']], 'the rate was empty here: filled from the site');
+  // the second run: our pending name is pushed now
+  const store = wooStoreFull(44, { enabled: false });
+  const w2 = setup({ seed: { vendors: [db.row('vendors', 44, 'woo_vendor_id')], vendor_rates: db.rows('vendor_rates') }, routes: { 'GET dokan/v1/stores': page([store]), 'PUT dokan/v1/stores/44': (c: any) => ({ body: { ...store, store_name: c.body.store_name } }) }, env: PUSH_ON });
+  await call(w2.deps, { action: 'vendors' });
+  assertEquals(w2.woo.calls.find((c) => c.method === 'PUT')!.body, { store_name: 'ورشة الفريق' });
+  assertEquals([w2.db.row('vendors', 44, 'woo_vendor_id').push_pending, w2.db.row('vendors', 44, 'woo_vendor_id').woo_snapshot.name], [null, 'ورشة الفريق']);
+});
+
+Deno.test('store sync — status: enabled false → inactive; enabled true keeps «في إجازة» (leave) and reactivates an inactive row; a site name that is a #placeholder never overwrites ours', async () => {
+  const snap900 = { ...SNAP44, name: 'Store 900', status: 'inactive', contact_name: 'Maker Owner 900', address_parts: { ...SNAP44.address_parts, street_1: 'شارع 900' }, social: { ...SNAP44.social, fb: 'https://fb.test/900' } };
+  const row900 = vendorRow(900, { ...snap900, rate: undefined, category_rates: undefined, name: 'اسم عندنا', woo_snapshot: snap900 });
+  const seed = { vendors: [synced44({ status: 'leave' }), row900], vendor_rates: [rate44(30), { vendor_id: vendorId(900), rate: 30, since: '2026-10-01' }] };
+  const { db, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStoreFull(44, { enabled: true }), wooStoreFull(900, { enabled: true, store_name: '' })]) } });
+  await call(deps, { action: 'vendors' });
+  assertEquals([db.row('vendors', 44, 'woo_vendor_id').status, db.row('vendors', 900, 'woo_vendor_id').status, db.row('vendors', 900, 'woo_vendor_id').name], ['leave', 'active', 'اسم عندنا']);
+  assertEquals(activity(db), [['vendor.sync', vendorId(900), 'status']], 'leave is no change; 900 reactivated; the #900 name is ignored');
+  // enabled false on the leave row → inactive
+  const w2 = setup({ seed: { vendors: [synced44({ status: 'leave' })] }, routes: { 'GET dokan/v1/stores': page([wooStoreFull(44, { enabled: false })]) } });
+  await call(w2.deps, { action: 'vendors' });
+  assertEquals(w2.db.row('vendors', 44, 'woo_vendor_id').status, 'inactive');
+});
+
+Deno.test('store sync — the commission (decision 2): a site-side change of the effective percentage → one vendor_rates row (today, «الموقع», flat kept) and commission_pct; the next run writes nothing more; category items → vendor_category_rates rows, a dropped category → rate null', async () => {
+  const seed = { vendors: [synced44()], vendor_rates: [rate44(30)] };
+  const store = wooStoreFull(44, { admin_commission_type: 'category_based', admin_commission: '30', admin_additional_fee: '5',
+    admin_category_commission: { all: { flat: '5', percentage: '35' }, items: { '15': { flat: '0', percentage: '20' }, '16': { flat: '', percentage: '25' }, 'x': { percentage: '1' } } } });
+  const { db, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([store]) } });
+  await call(deps, { action: 'vendors' });
+  const today = NOW.slice(0, 10);
+  assertEquals(db.rows('vendor_rates').map((r: any) => [r.rate, r.flat, r.since, r.set_by]), [[30, null, '2026-10-01', 'x'], [35, 5, today, 'الموقع']]);
+  assertEquals(db.rows('vendor_category_rates').map((r: any) => [r.woo_category_id, r.rate, r.flat, r.since, r.set_by]), [[15, 20, 0, today, 'الموقع'], [16, 25, null, today, 'الموقع']]);
+  const v = db.row('vendors', 44, 'woo_vendor_id');
+  assertEquals([v.commission_pct, v.woo_snapshot.rate, v.woo_snapshot.category_rates], [35, { rate: 35, flat: 5 }, [{ woo_category_id: 15, rate: 20, flat: 0 }, { woo_category_id: 16, rate: 25, flat: null }]]);
+  assertEquals(activity(db), [['vendor.sync', vendorId(44), 'rate, category_rates']]);
+  // the same payload again: nothing changed since the snapshot → no new rows, no activity
+  const w2 = setup({ seed: { vendors: [v], vendor_rates: db.rows('vendor_rates'), vendor_category_rates: db.rows('vendor_category_rates') }, routes: { 'GET dokan/v1/stores': page([store]) } });
+  await call(w2.deps, { action: 'vendors' });
+  assertEquals([w2.db.rows('vendor_rates').length, w2.db.rows('vendor_category_rates').length, activity(w2.db)], [2, 2, []]);
+  // the site drops category 16 and goes back to fixed 30: a 30 row for today (replacing today's 35: last change wins), 15 and 16 removed
+  const w3 = setup({ seed: { vendors: [v], vendor_rates: db.rows('vendor_rates'), vendor_category_rates: db.rows('vendor_category_rates') }, routes: { 'GET dokan/v1/stores': page([wooStoreFull(44)]) } });
+  await call(w3.deps, { action: 'vendors' });
+  assertEquals(w3.db.rows('vendor_rates').map((r: any) => [r.rate, r.flat, r.since]), [[30, null, '2026-10-01'], [30, null, today]]);
+  assertEquals(w3.db.rows('vendor_category_rates').map((r: any) => [r.woo_category_id, r.rate]), [[15, null], [16, null]]);
+  assertEquals(w3.db.row('vendors', 44, 'woo_vendor_id').commission_pct, 30);
+  assertFalse(JSON.stringify(w3.db.rows('activity_log')).includes('30'), 'no figure in activity_log');
+});
+
+Deno.test('store sync — the site\'s commission figure missing (the public shape) says nothing: our rate stays, no row, no conflict', async () => {
+  const seed = { vendors: [vendorRow(44, { name: 'Store 44' })], vendor_rates: [rate44(30)] };
+  const { db, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStore(44)]) } });
+  await call(deps, { action: 'vendors' });
+  assertEquals([db.rows('vendor_rates').length, conflictRows(db).length, activity(db).map((a: any) => a[2])], [1, 0, ['phone']], 'the phone is filled (first run); the rate is not touched or reported');
+});
+
+// ---------------------------------------------------------------- push_vendor (phase 3.3, decision 4 b)
+
+const PUSH_ROW = synced44({ name: 'ورشة الفريق', phone: '01000000022', social: { ...SNAP44.social, instagram: 'https://instagram.test/x' } });
+
+Deno.test('push_vendor by a vendors follow-up member (vendors.edit F): the row\'s values (never the body\'s) → one PUT dokan/v1/stores/{id} with the asked fields only; snapshot + woo_synced_at updated, push_pending minus them; accepted / refused from the answer', async () => {
+  const store = wooStoreFull(44);
+  const routes = { 'PUT dokan/v1/stores/44': (c: any) => ({ body: { ...store, store_name: c.body.store_name, phone: c.body.phone, social: { ...store.social, ...c.body.social, instagram: '' } } }) };
+  const { db, woo, deps } = setup({ seed: { vendors: [{ ...PUSH_ROW, push_pending: ['phone', 'email'] }] }, routes, env: { ...PUSH_ON, WOO_WP_USER: 'admin', WOO_WP_APP_PASSWORD: 'abcd efgh' } });
+  const { res, body } = await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['name', 'phone', 'social'], name: 'من الجسم', phone: '01099999999' }, { jwt: 'jwt-vf' });
+  assertEquals(res.status, 200);
+  assertEquals(body, { action: 'push_vendor', result: 'ok', fields: ['name', 'phone', 'social'], accepted: ['name', 'phone'], refused: ['social'], dropped: [], counts: { pushed: 1 } });
+  assertEquals(woo.calls.map((c) => c.method), ['PUT']);
+  const put = woo.calls[0];
+  assertEquals([put.path, put.body, put.headers.authorization], ['dokan/v1/stores/44', { store_name: 'ورشة الفريق', phone: '01000000022', social: PUSH_ROW.social }, 'Basic ' + btoa('admin:abcd efgh')]);
+  const v = db.row('vendors', 44, 'woo_vendor_id');
+  assertEquals([v.woo_snapshot.name, v.woo_snapshot.phone, v.woo_snapshot.social.instagram, v.woo_synced_at, v.push_pending], ['ورشة الفريق', '01000000022', '', NOW, ['email']], 'the snapshot takes the site\'s answer (instagram refused there), email stays pending');
+  assertEquals([v.name, v.phone], ['ورشة الفريق', '01000000022'], 'the row itself is untouched');
+  const log = db.rows('woo_sync_log')[0];
+  assertEquals([log.kind, log.direction, log.entity, log.entity_id, log.result, log.detail], ['push', 'out', 'vendor', '44', 'ok', { vendor_id: vendorId(44), fields: ['name', 'phone', 'social'], accepted: ['name', 'phone'], refused: ['social'], dropped: [] }]);
+  assertFalse(writtenText(db).includes('01000000022'));
+});
+
+Deno.test('push_vendor: the commission fields need sensitive.commission = F (the admin passes); the PUT carries toDokanCommission of the effective rows', async () => {
+  const store = wooStoreFull(44);
+  const routes = { 'PUT dokan/v1/stores/44': (c: any) => ({ body: { ...store, ...c.body } }) };
+  const seed = { vendors: [PUSH_ROW], vendor_rates: [rate44(30), rate44(40, '2026-10-20', { flat: 2 }), rate44(50, '2099-01-01')],
+    vendor_category_rates: [{ vendor_id: vendorId(44), woo_category_id: 15, rate: 20, flat: null, since: '2026-10-02' }, { vendor_id: vendorId(44), woo_category_id: 15, rate: 22, flat: 1, since: '2026-10-21' }, { vendor_id: vendorId(44), woo_category_id: 16, rate: null, since: '2026-10-21' }] };
+  const { woo, deps, db } = setup({ seed, routes, env: PUSH_ON });
+  assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['rate'] }, { jwt: 'jwt-vf' })).res.status, 401, 'vendors.edit F without sensitive.commission');
+  assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['phone', 'category_rates'] }, { jwt: 'jwt-vf' })).res.status, 401);
+  const { res, body } = await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['rate', 'category_rates'] }, { jwt: 'jwt-admin' });
+  assertEquals([res.status, body.result, body.accepted], [200, 'ok', ['rate', 'category_rates']]);
+  assertEquals(woo.calls[0].body, { admin_commission_type: 'category_based', admin_category_commission: { all: { percentage: '40', flat: '2' }, items: { '15': { percentage: '22', flat: '1' } } } }, 'the effective rows today: 40 / 2 (not the future 50), category 15 at 22 (16 removed)');
+  assertEquals(db.row('vendors', 44, 'woo_vendor_id').woo_snapshot.rate, { rate: 40, flat: 2 });
+  // without category rates: fixed
+  const w2 = setup({ seed: { vendors: [PUSH_ROW], vendor_rates: [rate44(30)] }, routes, env: PUSH_ON });
+  await call(w2.deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['rate'] }, { jwt: 'jwt-admin' });
+  assertEquals(w2.woo.calls[0].body, { admin_commission_type: 'fixed', admin_commission: '30' });
+  // no rate at all → placeholder-like skip (nothing to send)
+  const w3 = setup({ seed: { vendors: [PUSH_ROW] }, routes, env: PUSH_ON });
+  const r3 = await call(w3.deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['rate'] }, { jwt: 'jwt-admin' });
+  assertEquals([r3.body.result, r3.body.reason, w3.woo.calls.length], ['skipped', 'placeholder', 0]);
+});
+
+Deno.test('push_vendor: a #placeholder name is never sent (dropped; alone → skipped/placeholder, no Woo call)', async () => {
+  const store = wooStoreFull(44);
+  const routes = { 'PUT dokan/v1/stores/44': (c: any) => ({ body: { ...store, ...c.body } }) };
+  const { db, woo, deps } = setup({ seed: { vendors: [{ ...PUSH_ROW, name: '#44', push_pending: ['name'] }] }, routes, env: PUSH_ON });
+  const { body } = await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['name'] }, { jwt: 'jwt-admin' });
+  assertEquals([body.result, body.reason, woo.calls.length], ['skipped', 'placeholder', 0]);
+  assertEquals(db.rows('woo_sync_log')[0].detail, { vendor_id: vendorId(44), fields: ['name'], reason: 'placeholder' });
+  const r2 = await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['name', 'phone'] }, { jwt: 'jwt-admin' });
+  assertEquals([r2.body.result, r2.body.fields, r2.body.dropped, woo.calls[0].body], ['ok', ['phone'], ['name'], { phone: '01000000022' }]);
+  assertEquals(db.row('vendors', 44, 'woo_vendor_id').push_pending, null, 'a dropped placeholder leaves push_pending too');
+});
+
+Deno.test('push_vendor: WOO_PUSH_ENABLED unset → skipped/push_disabled before any Woo call, the fields join push_pending', async () => {
+  const { db, woo, deps } = setup({ seed: { vendors: [{ ...PUSH_ROW, push_pending: ['email'] }] } });
+  const { res, body } = await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['phone', 'phone'] }, { jwt: 'jwt-admin' });
+  assertEquals([res.status, body], [200, { action: 'push_vendor', result: 'skipped', reason: 'push_disabled', fields: ['phone'], counts: { pushed: 0 } }]);
+  assertEquals(woo.calls.length, 0);
+  assertEquals(db.row('vendors', 44, 'woo_vendor_id').push_pending, ['email', 'phone']);
+  assertEquals([db.rows('woo_sync_log')[0].result, db.rows('woo_sync_log')[0].detail.reason], ['skipped', 'push_disabled']);
+});
+
+Deno.test('push_vendor: a 4xx / 5xx from Dokan → 502 woo_error, the fields join push_pending, one out/vendor error row without the phone', async () => {
+  const routes = { 'PUT dokan/v1/stores/44': { status: 403, text: `{"code":"dokan_rest_cannot_edit","message":"no ${PHONE}"}` } };
+  const { db, deps } = setup({ seed: { vendors: [PUSH_ROW] }, routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['phone'] }, { jwt: 'jwt-admin' });
+  assertEquals([res.status, body], [502, { error: 'woo_error', action: 'push_vendor', fields: ['phone'] }]);
+  const v = db.row('vendors', 44, 'woo_vendor_id');
+  assertEquals([v.push_pending, v.woo_snapshot.phone], [['phone'], '01000000000']);
+  const log = db.rows('woo_sync_log')[0];
+  assertEquals([log.kind, log.direction, log.entity, log.entity_id, log.result, log.detail.fields], ['push', 'out', 'vendor', '44', 'error', ['phone']]);
+  assert(log.detail.error.includes('HTTP 403'));
+  assertFalse(writtenText(db).includes(PHONE));
+});
+
+Deno.test('push_vendor: a maker without a store → skipped/no_store (nothing pending); unknown maker → 404; bad body (no fields, a field outside the list, a bad uuid) → 400; no Woo call', async () => {
+  const { db, woo, deps } = setup({ seed: { vendors: [vendorRow(44), { id: '00000000-0000-4000-8000-00000000aaaa', name: 'يدوي', woo_vendor_id: null }] }, env: PUSH_ON });
+  const r = await call(deps, { action: 'push_vendor', vendor_id: '00000000-0000-4000-8000-00000000aaaa', fields: ['phone'] }, { jwt: 'jwt-admin' });
+  assertEquals([r.res.status, r.body.result, r.body.reason], [200, 'skipped', 'no_store']);
+  assertEquals(db.row('vendors', '00000000-0000-4000-8000-00000000aaaa').push_pending, null);
+  assertEquals(db.rows('woo_sync_log')[0].entity_id, '00000000-0000-4000-8000-00000000aaaa');
+  assertEquals((await call(deps, { action: 'push_vendor', vendor_id: '00000000-0000-4000-8000-00000000bbbb', fields: ['phone'] }, { jwt: 'jwt-admin' })).res.status, 404);
+  for (const bad of [{ vendor_id: vendorId(44) }, { vendor_id: vendorId(44), fields: [] }, { vendor_id: vendorId(44), fields: ['raw'] }, { vendor_id: 44, fields: ['phone'] }, { vendor_id: "x' or 1=1", fields: ['phone'] }]) {
+    assertEquals((await call(deps, { action: 'push_vendor', ...bad }, { jwt: 'jwt-admin' })).res.status, 400, JSON.stringify(bad));
+  }
+  assertEquals(woo.calls.length, 0);
+});
+
+Deno.test('push_vendor: ops (vendors.edit P) and accounts are refused with 401 and nothing is read; the cron secret may push', async () => {
+  const store = wooStoreFull(44);
+  const { db, woo, deps } = setup({ seed: { vendors: [PUSH_ROW] }, routes: { 'PUT dokan/v1/stores/44': (c: any) => ({ body: { ...store, ...c.body } }) }, env: PUSH_ON });
+  for (const jwt of ['jwt-ops', 'jwt-acct', 'jwt-admin-text', 'jwt-nobody']) {
+    assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['phone'] }, { jwt })).res.status, 401, jwt);
+  }
+  assertEquals([db.writes().length, woo.calls.length], [0, 0]);
+  assertEquals((await call(deps, { action: 'push_vendor', vendor_id: vendorId(44), fields: ['phone'] })).body.result, 'ok');
+});
+
+// ---------------------------------------------------------------- categories (phase 3.3)
+
+Deno.test('categories: GET wc/v3/products/categories with the WC keys, page by page → woo_categories upserted on id (parent 0 → null, malformed items skipped, nothing deleted), logged ok', async () => {
+  const seed = { woo_categories: [{ id: 15, name: 'اسم قديم', slug: 'old', parent_id: null, updated_at: '2026-10-01T00:00:00Z' }, { id: 99, name: 'فئة اتشالت', updated_at: '2026-10-01T00:00:00Z' }] };
+  const items = [{ id: 15, name: ' هدايا ', slug: 'gifts', parent: 0, count: 12, description: 'x', image: null, _links: {} }, { id: 16, name: 'شموع', slug: 'candles', parent: 15 },
+    { id: 'x', name: 'بدون رقم' }, { id: 17, name: '  ' }, { id: 18 }, { id: 16, name: 'شموع معطرة', parent: 15 }];
+  const { db, woo, deps } = setup({ seed, routes: { [CATS]: page(items) } });
+  const { res, body } = await call(deps, { action: 'categories' }, { jwt: 'jwt-admin' });
+  assertEquals([res.status, body.result, body.counts.categories], [200, 'ok', { categories: 2, skipped: 3, failed: 0, pages: 1, done: true }]);
+  assertEquals([woo.calls[0].path, woo.calls[0].query, woo.calls[0].headers.authorization], ['wc/v3/products/categories', { per_page: '100', page: '1' }, WC_AUTH]);
+  assertEquals(db.rows('woo_categories').map((c: any) => [c.id, c.name, c.slug, c.parent_id, c.updated_at]),
+    [[15, 'هدايا', 'gifts', null, NOW], [99, 'فئة اتشالت', null, null, '2026-10-01T00:00:00Z'], [16, 'شموع معطرة', null, 15, NOW]]);
+  assertEquals(db.rows('woo_sync_log').map((r: any) => [r.entity, r.result]), [['categories', 'ok']]);
+  assertEquals((await call(deps, { action: 'categories' }, { jwt: 'jwt-ops' })).res.status, 401);
 });

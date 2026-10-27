@@ -304,8 +304,10 @@ Deno.test('an unknown maker → dokan/v1/stores/{id} fetched WITHOUT an Authoriz
   const order_ = ops(db);
   assert(order_.indexOf('upsert vendors') < order_.indexOf('upsert order_items'), order_.join(' → '));
   const vendorCols = Object.keys(db.writes('vendors')[0].rows[0]).sort();
-  assertEquals(vendorCols, ['email', 'joined_at', 'name', 'phone', 'raw', 'status', 'woo_vendor_id']);
-  assertFalse(vendorCols.includes('aliases') || vendorCols.includes('commission_pct'), vendorCols.join(','));
+  assertEquals(vendorCols, ['address', 'address_parts', 'banner_url', 'contact_name', 'email', 'joined_at', 'logo_url', 'name', 'phone', 'raw', 'social', 'status', 'woo_payment_methods', 'woo_snapshot', 'woo_vendor_id', 'woo_synced_at'].sort());
+  assertFalse(vendorCols.includes('aliases') || vendorCols.includes('commission_pct') || vendorCols.includes('push_pending'), vendorCols.join(','));
+  assertEquals(v.woo_snapshot.name, 'Store 777', 'the first snapshot is the site as fetched');
+  assertEquals(db.rows('vendor_rates'), [], 'a public-shape store carries no commission: no rate row');
 });
 
 Deno.test('a maker already in the table is neither fetched from Dokan nor rewritten: the team’s name / status / phone stay (decision 2 of phase 3)', async () => {
@@ -314,7 +316,7 @@ Deno.test('a maker already in the table is neither fetched from Dokan nor rewrit
   const { body } = await deliver(deps, wooOrder());
   assertEquals(body.status, 'ok');
   assertFalse(woo.calls.some((c) => c.path.startsWith('dokan/')), 'no store fetch for a known maker');
-  assertEquals(db.writes('vendors'), [], 'no vendors write');
+  assertEquals(db.writes('vendors'), [], 'no vendors write (the webhook never runs the store sync)');
   const v = db.row('vendors', 44, 'woo_vendor_id');
   assertEquals([v.name, v.status, v.phone], ['اسم الفريق', 'inactive', '01000000044']);
   assertEquals(db.row('order_items', 1).vendor_id, v.id);

@@ -1,17 +1,24 @@
-// woo-sync: the backup sync, the status push and the webhook registration (deployed with verify_jwt false; it
-// authenticates here). Auth: an X-Sync-Secret header (pg_cron, Task 7) must satisfy rpc('sync_secret_matches',
+// woo-sync: the backup sync, the status / store pushes and the webhook registration (deployed with verify_jwt false;
+// it authenticates here). Auth: an X-Sync-Secret header (pg_cron, Task 7) must satisfy rpc('sync_secret_matches',
 // { candidate }) → system mode; else a member's Authorization: Bearer <jwt> → a client with that token:
-// push_status needs has_perm('orders.status') = 'F', every other action is_admin(); anything else → 401. Writes
-// always go through the service client (deps.db). Body { action, ...args }:
+// push_status needs has_perm('orders.status') = 'F'; push_vendor needs is_admin() or has_perm('vendors.edit') = 'F'
+// (and has_perm('sensitive.commission') = 'F' when `fields` name the commission); every other action is_admin();
+// anything else → 401. Writes always go through the service client (deps.db). Body { action, ...args }:
 //   'states'   wc/v3/data/countries/EG (one request) → its states[] { code, name } → woo_states on code: the site's
 //              own governorate list (EG-01 …, not WooCommerce's EGALX …), shown by name for orders.customer_state.
+//   'categories'  wc/v3/products/categories, page by page → woo_categories on id (the names behind the per-category
+//              commission of phase 3.3).
 //   'orders'   wc/v3/orders?after=2026-10-01T00:00:00&dates_are_gmt=true&modified_after={cursor}&orderby=modified&
 //              order=asc&status=any, page by page (100; at most 50 pages per run): parents + Dokan sub-orders;
 //              sync_state['orders'] = { cursor, last_run, count, pages, done } after every page.
-//   'vendors'  dokan/v1/stores → vendors on woo_vendor_id.  'products'  wc/v3/products?modified_after={cursor} → products.
-//   'all'      states, then vendors, then orders, then products (a failed part does not stop the next ones; states
-//              cost one request; orders come before the ~40 product pages so a first run that hits the gateway's time
-//              limit has the orders already).
+//   'vendors'  dokan/v1/stores → vendors on woo_vendor_id: a new store whole, an existing one through the snapshot
+//              comparison of phase 3.3 (woo-write's store sync: the site's changes are written here, the pending
+//              changes of the team are pushed in the same run when WOO_PUSH_ENABLED is 1, a change on both sides is
+//              the site's with a conflict row). Counts: { vendors, from_site, conflicts, pushed, push_failed, pages, done }.
+//   'products' wc/v3/products?modified_after={cursor} → products.
+//   'all'      states, categories, vendors, orders, products (a failed part does not stop the next ones; states and
+//              categories are cheap; orders come before the ~40 product pages so a first run that hits the gateway's
+//              time limit has the orders already).
 //   'push_status' { order_id, status }  refused as skipped/stale unless `status` is the order's stored status (the
 //              adapter writes the row first, so a mismatch is a stale page); then skipped/push_disabled unless the
 //              secret WOO_PUSH_ENABLED is exactly 1 (staging is a full copy of the shop: real customers' e-mails and
@@ -19,14 +26,23 @@
 //              slug (outgoingWooStatus; none → skipped) → PUT
 //              wc/v3/orders/{id}; "system wins": when Woo changed the status since our last sync, the push still goes
 //              and a 'conflict' row is logged; orders.woo_status / woo_updated_at follow Woo's answer.
+//   'push_vendor' { vendor_id, fields[] }  (phase 3.3, decision 4 b) fields ⊆ SYNC_FIELDS of woo-core (name, phone,
+//              email, contact_name, address_parts, social, status, rate, category_rates; anything else → 400). The
+//              row is read from the database (never the body); a maker without woo_vendor_id → skipped/no_store; the
+//              WOO_PUSH_ENABLED gate → skipped/push_disabled with the fields added to push_pending, before any Woo
+//              call; a `#…` placeholder name is never sent (only that → skipped/placeholder); then one PUT
+//              dokan/v1/stores/{id} with those fields only (toDokanStore). Success → woo_snapshot takes the site's
+//              answer for the sent fields, woo_synced_at, push_pending minus them; the answer lists `accepted` and
+//              `refused` (a field Dokan took vs one it silently kept — the acceptance check of decision 4 e). A
+//              non-2xx answer → the fields join push_pending, a woo_sync_log out/vendor error row, 502.
 //   'register_webhooks' { delivery_url? }  ensures one active `ibtekr-ops:<topic>` webhook per topic pointing at
 //              {SUPABASE_URL}/functions/v1/woo-webhook; any other webhook on the site (n8n's) is never touched.
 // Answer: 200 { action, result, counts, … } or 4xx / 5xx { error }. CORS for the browser's functions.invoke.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
-import { START_DATE, mapStore, nextCursor, outgoingWooStatus } from '../_shared/woo-core.js';
+import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from '../_shared/woo-core.js';
 import { getState, logSync, setState } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
-import { gmtIso, saveVendors, wooId, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
+import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, markPushPending, pushStoreFields, saveVendors, wooId, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -36,8 +52,12 @@ export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetc
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
-const ACTIONS = ['states', 'orders', 'vendors', 'products', 'all', 'push_status', 'register_webhooks', 'probe_store'];
+const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store'];
 const STATES_PATH = 'wc/v3/data/countries/EG'; // a wc/ path: the WC keys authenticate it
+const CATEGORIES_PATH = 'wc/v3/products/categories';
+const RATE_FIELDS = ['rate', 'category_rates'];
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const pushEnabled = (env: Deps['env']) => env.WOO_PUSH_ENABLED?.trim() === '1';
 const TOPICS = ['order.created', 'order.updated', 'product.created', 'product.updated'];
 const PREFIX = 'ibtekr-ops:';
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
@@ -48,7 +68,7 @@ const ourUrl = (env: Deps['env']) => `${(env.SUPABASE_URL ?? '').trim().replace(
 
 // ---------------------------------------------------------------- auth
 
-async function authorize(req: Request, deps: Deps, action: string): Promise<'system' | 'member' | null> {
+async function authorize(req: Request, deps: Deps, action: string, args: Json): Promise<'system' | 'member' | null> {
   const secret = req.headers.get('x-sync-secret');
   if (secret) {
     const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
@@ -57,12 +77,16 @@ async function authorize(req: Request, deps: Deps, action: string): Promise<'sys
   const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
   if (!jwt || !deps.userDb) return null;
   const member = deps.userDb(jwt);
-  if (action === 'push_status') {
-    const { data, error } = await member.rpc('has_perm', { key: 'orders.status' });
-    return !error && data === 'F' ? 'member' : null;
+  const perm = async (key: string) => { const { data, error } = await member.rpc('has_perm', { key }); return !error && data === 'F'; };
+  const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
+  if (action === 'push_status') return (await perm('orders.status')) ? 'member' : null;
+  if (action === 'push_vendor') {
+    if (await admin()) return 'member';
+    if (!(await perm('vendors.edit'))) return null;
+    const fields = Array.isArray(args.fields) ? args.fields : [];
+    return !fields.some((f) => RATE_FIELDS.includes(f)) || (await perm('sensitive.commission')) ? 'member' : null;
   }
-  const { data, error } = await member.rpc('is_admin');
-  return !error && data === true ? 'member' : null;
+  return (await admin()) ? 'member' : null;
 }
 
 // ---------------------------------------------------------------- pulls
@@ -96,7 +120,18 @@ async function pullVendors(run: Run) {
   const ctx = await run.ctx();
   let vendors = 0;
   const res = await ctx.woo.eachPage('dokan/v1/stores', {}, async (stores: Json[]) => { vendors += await saveVendors(ctx, stores.filter(isObj).map(mapStore)); });
-  return { vendors, pages: res.pages, done: res.done };
+  return { vendors, ...ctx.vendorSync, pages: res.pages, done: res.done };
+}
+
+// The site's product categories, page by page (wc/: the WC keys), upserted on id; nothing is deleted.
+async function pullCategories(run: Run) {
+  const ctx = await run.ctx();
+  const totals = { categories: 0, skipped: 0, failed: 0 };
+  const res = await ctx.woo.eachPage(CATEGORIES_PATH, {}, async (page: Json[]) => {
+    const r = await writeCategories(ctx, page);
+    totals.categories += r.written.length; totals.skipped += r.skipped; totals.failed += r.failed;
+  });
+  return { ...totals, pages: res.pages, done: res.done };
 }
 
 // The site's governorates: one GET; an answer without a states array is an upstream error (nothing written).
@@ -108,9 +143,9 @@ async function pullStates(run: Run) {
   return { states: r.written.length, skipped: r.skipped, failed: r.failed };
 }
 
-// 'all' runs them in this order: the governorate names (one request), the makers (lines and products link to them),
-// then orders, then products.
-const PULLS: Record<string, (run: Run) => Promise<Json>> = { states: pullStates, vendors: pullVendors, orders: pullOrders, products: pullProducts };
+// 'all' runs them in this order: the governorate names (one request), the category names (a few pages), the makers
+// (lines and products link to them), then orders, then products.
+const PULLS: Record<string, (run: Run) => Promise<Json>> = { states: pullStates, categories: pullCategories, vendors: pullVendors, orders: pullOrders, products: pullProducts };
 
 // One pull or 'all'; every part logs its own woo_sync_log row (ok with the counts, or error with scrubbed text).
 async function pull(run: Run, action: string) {
@@ -148,7 +183,7 @@ async function pushStatus(run: Run, args: Json) {
   };
   if (status !== order.status) return await skip('stale', { current: order.status });
   // The guard sits after the stale check and before the status_map read and any Woo client or call.
-  if (run.env.WOO_PUSH_ENABLED?.trim() !== '1') return await skip('push_disabled');
+  if (!pushEnabled(run.env)) return await skip('push_disabled');
   const ctx = await run.ctx();
   const slug = outgoingWooStatus(status, ctx.statusMap);
   if (!slug) return await skip('no_woo_status');
@@ -162,6 +197,44 @@ async function pushStatus(run: Run, args: Json) {
   if (upd.error) throw new Error(`orders: ${upd.error.message}`);
   await logSync(run.db, { ...entry, result: conflict ? 'conflict' : 'ok', detail: { status, woo_status: patch.woo_status, ...(conflict ? { woo_before: before.status ?? null } : {}) } });
   return json(200, { action: 'push_status', result: 'ok', conflict, counts: { pushed: 1 } });
+}
+
+// ---------------------------------------------------------------- push_vendor (phase 3.3)
+
+async function pushVendor(run: Run, args: Json) {
+  const vendorId = typeof args.vendor_id === 'string' && UUID.test(args.vendor_id) ? args.vendor_id.toLowerCase() : null;
+  const fields: string[] = Array.isArray(args.fields) ? [...new Set(args.fields.filter((f: unknown): f is string => typeof f === 'string'))] : [];
+  if (vendorId === null || !fields.length || fields.some((f) => !SYNC_FIELDS.includes(f))) return json(400, { error: 'bad_request' });
+  // The values come from the row, never from the body (decision 8): the body names the fields only.
+  const { data: row, error } = await run.db.from('vendors').select(VENDOR_SYNC_COLUMNS).eq('id', vendorId).maybeSingle();
+  if (error) throw new Error(`vendors: ${error.message}`);
+  if (!row) return json(404, { error: 'vendor_not_found' });
+  const storeId = wooId(row.woo_vendor_id);
+  const entry = { kind: 'push', direction: 'out', entity: 'vendor', entity_id: storeId === null ? vendorId : String(storeId), action: 'vendor' };
+  const skip = async (reason: string, pend: boolean) => {
+    const ctx = pend ? await run.ctx() : null;
+    if (ctx) await markPushPending(ctx, row, fields);
+    await logSync(run.db, { ...entry, result: 'skipped', detail: { vendor_id: vendorId, fields, reason } });
+    return json(200, { action: 'push_vendor', result: 'skipped', reason, fields, counts: { pushed: 0 } });
+  };
+  if (storeId === null) return await skip('no_store', false);
+  // The gate sits before the Woo client is built and before any Woo call; the fields wait in push_pending.
+  if (!pushEnabled(run.env)) return await skip('push_disabled', true);
+  const ctx = await run.ctx();
+  const rates = (await effectiveRates(ctx, [vendorId], run.now())).get(vendorId);
+  let r;
+  try {
+    r = await pushStoreFields(ctx, row, fields, rates);
+  } catch (e) {
+    if (!(e instanceof WooError)) throw e;
+    await markPushPending(ctx, row, fields);
+    await logSync(run.db, { ...entry, result: 'error', detail: { vendor_id: vendorId, fields, error: errorText(e, ctx.woo.scrub) } });
+    return json(502, { error: 'woo_error', action: 'push_vendor', fields });
+  }
+  if (!r.sent.length) return await skip('placeholder', false);
+  await applyPushResult(ctx, row, r, run.now());
+  await logSync(run.db, { ...entry, result: 'ok', detail: { vendor_id: vendorId, fields: r.sent, accepted: r.accepted, refused: r.refused, dropped: r.dropped } });
+  return json(200, { action: 'push_vendor', result: 'ok', fields: r.sent, accepted: r.accepted, refused: r.refused, dropped: r.dropped, counts: { pushed: 1 } });
 }
 
 // ---------------------------------------------------------------- register_webhooks
@@ -245,7 +318,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   try { body = await req.json(); } catch { return json(400, { error: 'bad_json' }); }
   const args: Json = isObj(body) ? body : {};
   const action = typeof args.action === 'string' ? args.action : '';
-  const mode = await authorize(req, deps, action);
+  const mode = await authorize(req, deps, action, args);
   if (!mode) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
 
@@ -254,16 +327,19 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   const run: Run = {
     db: deps.db, env: deps.env, now: deps.now, kind: mode === 'system' ? 'cron' : 'manual',
     woo: () => (woo ??= wooApi(deps.env, deps.fetch)),
-    ctx: () => (ctx ??= writeContext({ db: deps.db, woo: run.woo(), kind: 'sync', now: deps.now })),
+    ctx: () => (ctx ??= writeContext({ db: deps.db, woo: run.woo(), kind: 'sync', now: deps.now, pushEnabled: pushEnabled(deps.env) })),
   };
   try {
     if (action === 'push_status') return await pushStatus(run, args);
+    if (action === 'push_vendor') return await pushVendor(run, args);
     if (action === 'register_webhooks') return await registerWebhooks(run, args);
     if (action === 'probe_store') return await probeStore(run, args);
     return await pull(run, action);
   } catch (e) {
-    const entity = action === 'push_status' ? 'order' : 'webhooks';
-    await logSync(deps.db, { kind: action === 'push_status' ? 'push' : run.kind, direction: 'out', entity, entity_id: wooId(args.order_id)?.toString() ?? null, action, result: 'error', detail: { error: errorText(e, makeScrubber(deps.env)) } });
+    const isPush = action === 'push_status' || action === 'push_vendor';
+    const entity = action === 'push_status' ? 'order' : action === 'push_vendor' ? 'vendor' : 'webhooks';
+    const entityId = action === 'push_status' ? wooId(args.order_id)?.toString() ?? null : action === 'push_vendor' && typeof args.vendor_id === 'string' ? args.vendor_id.slice(0, 36) : null;
+    await logSync(deps.db, { kind: isPush ? 'push' : run.kind, direction: 'out', entity, entity_id: entityId, action, result: 'error', detail: { error: errorText(e, makeScrubber(deps.env)) } });
     if (e instanceof ConfigError) return json(500, { error: 'not_configured' });
     return json(e instanceof WooError ? 502 : 500, { error: e instanceof WooError ? 'woo_error' : 'failed' });
   }

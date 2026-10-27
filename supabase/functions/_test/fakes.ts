@@ -3,8 +3,9 @@
 // fakeDb: an in-memory stand-in for the supabase-js client with the surface the functions use — from(t).select /
 //   insert / upsert({onConflict}) / update, the filters eq / in / not('in') / is, select-after-write, single /
 //   maybeSingle, and rpc(). It knows the 0007 columns (+ products.permalink of 0009, orders.customer_state and woo_states
-//   of 0010, the team columns of vendors and order_items.commission_rate / commission_fee of 0011), not-null columns,
-//   checks, unique keys and the foreign keys the sync relies on, so a wrong column, a bad
+//   of 0010, the team columns of vendors, vendor_rates and order_items.commission_rate / commission_fee of 0011, `leave`
+//   of 0012, the phase-3.3 columns of vendors, vendor_rates.flat, vendor_category_rates and woo_categories of 0014, and
+//   activity_log of 0002), not-null columns, checks, unique keys and the foreign keys the sync relies on, so a wrong column, a bad
 //   value or a missing parent fails like PostgREST would ({ data, error }, 23505 for a duplicate key). A statement is
 //   atomic. Every call is recorded in `calls` in order.
 // fakeWoo: a fetch that routes "METHOD path" (path after /wp-json/) to a reply (or a network error) and records every
@@ -16,7 +17,12 @@ type DbErr = { code: string; message: string; details?: string };
 const COLUMNS: Record<string, string[]> = {
   status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
   vendors: ['id', 'woo_vendor_id', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at',
-    'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance'],
+    'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance',
+    'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at'],
+  vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at'],
+  vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'],
+  woo_categories: ['id', 'name', 'slug', 'parent_id', 'updated_at'],
+  activity_log: ['id', 'at', 'actor', 'action', 'entity', 'entity_id', 'old_value', 'new_value'],
   products: ['id', 'sku', 'name', 'image_url', 'vendor_id', 'price', 'status', 'raw', 'updated_at', 'permalink'],
   orders: ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method',
     'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note',
@@ -36,27 +42,35 @@ const DEFAULTS: Record<string, Row> = {
   order_items: { qty: 1, total: 0, status: '', pulled: false, removed: false },
   sync_state: { value: {} },
 };
-const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int' };
+const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
+  vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int' };
 const UNIQUE: Record<string, string[][]> = {
   status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
   woo_webhook_events: [['id'], ['delivery_id']], woo_sync_log: [['id']], sync_state: [['key']], woo_states: [['code']],
+  vendor_rates: [['id'], ['vendor_id', 'since']], vendor_category_rates: [['id'], ['vendor_id', 'woo_category_id', 'since']], woo_categories: [['id']], activity_log: [['id']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],
   orders: ['number', 'customer_name', 'status', 'confirm', 'deposit', 'total', 'placed_at'],
   order_items: ['order_id', 'name', 'qty', 'total', 'status', 'pulled', 'removed'], sub_orders: ['order_id'],
   woo_webhook_events: ['topic', 'status'], woo_sync_log: ['kind', 'result'], sync_state: ['value'], woo_states: ['code', 'name'],
+  vendor_rates: ['vendor_id', 'rate', 'since'], vendor_category_rates: ['vendor_id', 'woo_category_id', 'since'], woo_categories: ['name'], activity_log: ['action'],
 };
 const CHECK: Record<string, Record<string, unknown[]>> = {
-  vendors: { status: ['active', 'inactive'] },
+  vendors: { status: ['active', 'leave', 'inactive'] },
   woo_webhook_events: { status: ['ok', 'ignored', 'duplicate', 'error'] },
   woo_sync_log: { kind: ['webhook', 'sync', 'push', 'manual', 'cron'], direction: [null, 'in', 'out'], result: ['ok', 'error', 'conflict', 'skipped'] },
+};
+// numeric checks of 0011 / 0014: rate 0–65, flat ≥ 0 (null passes)
+const RANGE: Record<string, Record<string, [number, number]>> = {
+  vendor_rates: { rate: [0, 65], flat: [0, Infinity] }, vendor_category_rates: { rate: [0, 65], flat: [0, Infinity], woo_category_id: [1, Infinity] },
 };
 // [column, referenced table, referenced column]
 const FK: Record<string, [string, string, string][]> = {
   orders: [['status', 'status_map', 'system_status']],
   products: [['vendor_id', 'vendors', 'id']],
+  vendor_rates: [['vendor_id', 'vendors', 'id']], vendor_category_rates: [['vendor_id', 'vendors', 'id']],
   sub_orders: [['order_id', 'orders', 'id'], ['vendor_id', 'vendors', 'id']],
   order_items: [['order_id', 'orders', 'id'], ['sub_order_id', 'sub_orders', 'id'], ['vendor_id', 'vendors', 'id']],
 };
@@ -87,6 +101,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
     for (const row of rows) {
       for (const c of NOT_NULL[table] ?? []) if (row[c] === null || row[c] === undefined) return err('23502', `null value in column "${c}" of relation "${table}" violates not-null constraint`, `Failing row contains (${Object.values(row).join(', ')})`);
       for (const [c, allowed] of Object.entries(CHECK[table] ?? {})) if (!allowed.includes(row[c] ?? null)) return err('23514', `new row for relation "${table}" violates check constraint "${table}_${c}_check"`);
+      for (const [c, [lo, hi]] of Object.entries(RANGE[table] ?? {})) if (row[c] != null && (Number(row[c]) < lo || Number(row[c]) > hi)) return err('23514', `new row for relation "${table}" violates check constraint "${table}_${c}_check"`);
       for (const [c, ref, refCol] of FK[table] ?? []) {
         if (row[c] !== null && row[c] !== undefined && !all[ref].some((r) => same(r[refCol], row[c]))) return err('23503', `insert or update on table "${table}" violates foreign key constraint "${table}_${c}_fkey"`);
       }
@@ -282,6 +297,17 @@ export function wooSub(id: number, parentId: number, vendor: number, extra: Row 
 export const wooStore = (id: number, extra: Row = {}): Row => ({
   id, store_name: `Store ${id}`, enabled: true, phone: '01000000000', email: 'store@example.test', show_email: false,
   shop_url: `https://woo.test/store/${id}/`, registered: '2025-01-02 10:00:00', ...extra,
+});
+
+/** A dokan/v1/stores item with the whole phase-3.3 payload (the 37 fields' shapes; every value made up). */
+export const wooStoreFull = (id: number, extra: Row = {}): Row => ({
+  ...wooStore(id), first_name: 'Maker', last_name: `Owner ${id}`, featured: false, trusted: false, banner: `https://woo.test/b/${id}.jpg`, banner_id: 1,
+  gravatar: `https://woo.test/g/${id}.jpg`, gravatar_id: 2, location: '', store_toc: '', toc_enabled: false, rating: { rating: '0', count: 0 },
+  address: { street_1: `شارع ${id}`, street_2: '', city: 'القاهرة', state: 'EG-01', zip: '', country: 'EG' },
+  social: { fb: `https://fb.test/${id}`, instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' },
+  payment: { bank: { ac_name: 'x', ac_number: '1', ac_type: '', bank_name: '', bank_addr: '', iban: 'EG00TEST', swift: '', routing_number: '' }, paypal: { email: 'p@example.test' } },
+  withdraw_options: [], active_payment_methods: { bank: {} }, admin_commission_type: 'fixed', admin_commission: '30', admin_additional_fee: '',
+  admin_category_commission: [], ...extra,
 });
 
 export function wooProduct(id: number, vendor: number | null, extra: Row = {}): Row {

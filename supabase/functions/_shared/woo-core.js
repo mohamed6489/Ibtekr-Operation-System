@@ -10,6 +10,9 @@
 // refunds (no fee names, no refund reasons, no meta on those lines); order_items raw = RAW_ITEM + `_dokan_*` meta;
 // vendors raw = RAW_STORE + rating. A kept meta value is stored as-is only when it is a scalar; an object / array
 // value goes through redactPII first (a deep, redacted copy). redactPII is also exported for callers (logging).
+// Phase 3.3 (store data two-way with Dokan): mapStore reads the whole dokan/v1/stores payload (decision 1), and the
+// store-sync helpers below it — SYNC_FIELDS, storeSnapshot, diffStore (decision 3 / 4 a), commissionOf /
+// toDokanCommission (decision 2), toDokanStore (the PUT body of push_vendor, decision 4 b) — are pure like the rest.
 
 export const START_DATE = '2026-10-01';
 export const OPEN_WOO = ['processing', 'pending', 'on-hold'];
@@ -38,6 +41,15 @@ const RAW_LISTS = {
 const RAW_ITEM = ['id', 'product_id', 'variation_id', 'name', 'sku', 'quantity', 'price', 'subtotal', 'subtotal_tax', 'total',
   'total_tax', 'tax_class', 'parent_name'];
 const RAW_STORE = ['id', 'store_name', 'shop_url', 'enabled', 'registered', 'featured', 'trusted'];
+// The store fields synced in both directions (decision 1 of phase 3.3; the commission of decision 2 as `rate` =
+// { rate, flat } and `category_rates` = [{ woo_category_id, rate, flat }]). Also the names push_vendor accepts in
+// `fields` and the keys of vendors.woo_snapshot / push_pending.
+export const SYNC_FIELDS = ['name', 'phone', 'email', 'contact_name', 'address_parts', 'social', 'status', 'rate', 'category_rates'];
+export const ADDRESS_KEYS = ['street_1', 'street_2', 'city', 'state', 'zip', 'country'];
+export const SOCIAL_KEYS = ['fb', 'instagram', 'twitter', 'youtube', 'linkedin', 'pinterest', 'threads', 'flickr'];
+// On the first run (no snapshot yet) these fields take the site's value even when ours is filled: decision 4 a fixes
+// the statuses stored as «نشط» while the store is disabled on the site.
+const FIRST_RUN_SITE_WINS = ['status'];
 const DRAFT = ['checkout-draft', 'trash'];
 const COMMISSION = { rate: '_dokan_commission_rate', type: '_dokan_commission_type', admin_fee: '_dokan_admin_fee', additional_fee: '_dokan_additional_fee' };
 const DEFAULT_STATUS = 'قيد الانتظار'; // only when the map is empty; otherwise its first row
@@ -274,16 +286,27 @@ export function mapSubOrder(wooSubOrder, ctx) {
   return { sub, unknownVendorIds: vendor !== null && uuid === null ? [vendor] : [] };
 }
 
+// A six-key / eight-key object of trimmed strings from the site's `address` / `social` (absent → '').
+const keyed = (o, keys) => Object.fromEntries(keys.map((k) => [k, isObj(o) ? str(o[k]) : '']));
+const httpsUrl = (v) => { const u = str(v); return u.startsWith('https://') ? u : null; };
+// active_payment_methods: an object keyed by method (the usual shape) or a list of names; anything else → [].
+const paymentMethods = (v) => (isObj(v) ? Object.keys(v) : Array.isArray(v) ? v.filter((m) => typeof m === 'string' && m.trim()).map((m) => m.trim()) : []);
+
 /**
- * A dokan/v1/stores item → vendors row (raw keeps the public store fields only). status: 'inactive' only when Dokan says
- * so (`enabled` off); the public REST omits `enabled` (seen live, 2026-10-26: list and single store), so an absent / null
- * flag reads 'active' — a store Dokan lists, or one that has orders, is selling until the flag says otherwise.
- * joined_at: the date part of `registered` ('YYYY-MM-DD HH:MM:SS' local), null when absent or not a date. The whole row
- * is written for a new store only; an existing one gets raw (woo-write saveVendors, decision 2 of phase 3).
+ * A dokan/v1/stores item → vendors row (raw keeps the public store fields only) + `commission` (commissionOf, not a
+ * column: woo-write reads it for vendor_rates / vendor_category_rates and the snapshot). status: 'inactive' only when
+ * Dokan says so (`enabled` off); the public REST omits `enabled` (seen live, 2026-10-26), so an absent / null flag reads
+ * 'active'. joined_at: the date part of `registered`. Phase 3.3 (decision 1): contact_name = first + last name
+ * trimmed; address_parts = the six address keys as trimmed strings (absent → ''); social = the eight keys the same
+ * way; logo_url = `gravatar`, banner_url = `banner` — https:// only, else null; woo_payment_methods = the keys of
+ * active_payment_methods; address = the address text of decision 1 (addressText). `payment` (bank / PayPal),
+ * `location`, `store_toc` and `_links` are never read. The whole row is written for a new store; an existing one gets
+ * the snapshot comparison (woo-write saveVendors, decision 4 a).
  */
 export function mapStore(dokanStore) {
   const s = isObj(dokanStore) ? dokanStore : {};
   const id = wooId(s.id);
+  const address_parts = keyed(s.address, ADDRESS_KEYS);
   return {
     woo_vendor_id: id,
     name: str(s.store_name) || `#${id ?? ''}`,
@@ -291,8 +314,173 @@ export function mapStore(dokanStore) {
     email: isOn(s.show_email) ? orNull(s.email) : null,
     status: s.enabled == null || isOn(s.enabled) ? 'active' : 'inactive',
     joined_at: dateOnly(s.registered),
+    contact_name: personName(s) || null,
+    address_parts,
+    address: addressText(address_parts),
+    social: keyed(s.social, SOCIAL_KEYS),
+    logo_url: httpsUrl(s.gravatar),
+    banner_url: httpsUrl(s.banner),
+    woo_payment_methods: paymentMethods(s.active_payment_methods),
     raw: { ...pick(s, RAW_STORE), ...(isObj(s.rating) ? { rating: pick(s.rating, ['rating', 'count']) } : {}) },
+    commission: commissionOf(s),
   };
+}
+
+// ---------------------------------------------------------------- store sync (phase 3.3)
+
+/** vendors.address from the parts: the filled ones of street 1, street 2, city, state joined by «، »; null when none. */
+export function addressText(parts) {
+  const p = isObj(parts) ? parts : {};
+  return orNull(['street_1', 'street_2', 'city', 'state'].map((k) => str(p[k])).filter(Boolean).join('، '));
+}
+
+const flatOf = (v) => num(v) ?? 0; // an absent / '' flat fee is no fee
+// A category item { woo_category_id, rate, flat } with a positive integer id; a non-number rate → null.
+const categoryItem = (id, rate, flat) => ({ woo_category_id: wooId(id), rate: num(rate), flat: num(flat) });
+// The effective category rates as a sorted list without the removed ones (rate null), ids as integers.
+const categoryList = (list) => objs(list).map((c) => categoryItem(c.woo_category_id, c.rate, c.flat))
+  .filter((c) => c.woo_category_id !== null && c.rate !== null).sort((a, b) => a.woo_category_id - b.woo_category_id);
+
+/**
+ * The store's commission as Dokan reports it (decision 2): `fixed` → admin_commission / admin_additional_fee;
+ * `category_based` → admin_category_commission.all (percentage / flat) and its items (one per WooCommerce category
+ * id, `[]` or absent → none); the legacy `percentage` / `combine` read like fixed, the legacy `flat` has no
+ * percentage. Strings → numbers ('' → null). → { type, rate, flat, categories: [{ woo_category_id, rate, flat }] }.
+ */
+export function commissionOf(store) {
+  const s = isObj(store) ? store : {};
+  const type = orNull(s.admin_commission_type);
+  const out = { type, rate: null, flat: null, categories: [] };
+  if (type === 'category_based') {
+    const c = isObj(s.admin_category_commission) ? s.admin_category_commission : {};
+    const all = isObj(c.all) ? c.all : {};
+    out.rate = num(all.percentage);
+    out.flat = num(all.flat);
+    out.categories = Object.entries(isObj(c.items) ? c.items : {})
+      .map(([id, v]) => categoryItem(id, isObj(v) ? v.percentage : null, isObj(v) ? v.flat : null))
+      .filter((item) => item.woo_category_id !== null)
+      .sort((a, b) => a.woo_category_id - b.woo_category_id);
+  } else if (type === 'flat') {
+    out.flat = num(s.admin_commission);
+  } else if (type !== null) {
+    out.rate = num(s.admin_commission);
+    out.flat = num(s.admin_additional_fee);
+  }
+  return out;
+}
+
+const money = (n) => (n === null || n === undefined ? '' : String(n));
+
+/**
+ * The commission fields of a dokan/v1/stores PUT (decision 2): with category rates → `category_based` with
+ * all = { percentage: rate, flat } and items = the category rates (the removed ones, rate null, are left out); else
+ * `fixed` with admin_commission = rate (+ admin_additional_fee when a flat fee is known). Numbers are sent as the
+ * numeric strings Dokan itself returns. null when there is no rate to send.
+ */
+export function toDokanCommission({ rate, flat = null, categoryRates = [] } = {}) {
+  const pct = num(rate);
+  const items = categoryList(categoryRates);
+  if (items.length) {
+    return {
+      admin_commission_type: 'category_based',
+      admin_category_commission: {
+        all: { percentage: money(pct), flat: money(num(flat)) },
+        items: Object.fromEntries(items.map((c) => [String(c.woo_category_id), { percentage: money(c.rate), flat: money(c.flat) }])),
+      },
+    };
+  }
+  if (pct === null) return null;
+  return { admin_commission_type: 'fixed', admin_commission: money(pct), ...(num(flat) === null ? {} : { admin_additional_fee: money(num(flat)) }) };
+}
+
+// The comparable form of a synced field (what "equal" means in diffStore): trimmed strings with '' = null; the six /
+// eight keys of address_parts / social; status with «في إجازة» (leave) counted as active (the site has no such state);
+// rate as "pct|flat" with no flat = 0; category_rates as the effective list.
+function normField(field, value) {
+  if (field === 'address_parts') return JSON.stringify(keyed(value, ADDRESS_KEYS));
+  if (field === 'social') return JSON.stringify(keyed(value, SOCIAL_KEYS));
+  if (field === 'status') return str(value) === 'inactive' ? 'inactive' : 'active';
+  if (field === 'rate') { const r = isObj(value) ? value : {}; return `${num(r.rate) ?? ''}|${flatOf(r.flat)}`; }
+  if (field === 'category_rates') return JSON.stringify(categoryList(value).map((c) => [c.woo_category_id, c.rate, flatOf(c.flat)]));
+  return str(value);
+}
+
+const emptyField = (field, value) => {
+  if (field === 'address_parts') return !Object.values(keyed(value, ADDRESS_KEYS)).some(Boolean);
+  if (field === 'social') return !Object.values(keyed(value, SOCIAL_KEYS)).some(Boolean);
+  if (field === 'status') return false;
+  if (field === 'rate') return num(isObj(value) ? value.rate : null) === null;
+  if (field === 'category_rates') return categoryList(value).length === 0;
+  return str(value) === '';
+};
+
+/** Two values of a synced field are the same for the sync (see normField). */
+export const sameField = (field, a, b) => normField(field, a) === normField(field, b);
+
+/**
+ * The synced fields of a mapped store (mapStore) as the site has them — what vendors.woo_snapshot stores after a run
+ * or a push: rate = { rate, flat }, category_rates = the site's category items. A deep copy; nothing else.
+ */
+export function storeSnapshot(mapped) {
+  const m = isObj(mapped) ? mapped : {};
+  const c = isObj(m.commission) ? m.commission : {};
+  return {
+    name: orNull(m.name), phone: orNull(m.phone), email: orNull(m.email), contact_name: orNull(m.contact_name),
+    address_parts: keyed(m.address_parts, ADDRESS_KEYS), social: keyed(m.social, SOCIAL_KEYS),
+    status: normField('status', m.status), rate: { rate: num(c.rate), flat: num(c.flat) },
+    category_rates: objs(c.categories).map((x) => categoryItem(x.woo_category_id, x.rate, x.flat)).filter((x) => x.woo_category_id !== null),
+  };
+}
+
+/**
+ * Field by field, who changed since the snapshot (decision 3): 'site' (the site only — written here), 'system' (ours
+ * only — pushed when it is pending), 'both' (both differ from the snapshot and from each other — the site wins, a
+ * conflict is logged) or 'same' (equal now, whoever moved). With no snapshot yet (the first run after the deploy,
+ * decision 4 a): 'keep' when equal, 'fill' when ours is empty (or the field is one the site decides: status),
+ * 'conflict' when ours is filled and different (ours stays, logged; nothing is pushed on a first run).
+ * → { [field]: verdict } for every SYNC_FIELDS entry.
+ */
+export function diffStore(snapshot, site, system) {
+  const snap = isObj(snapshot) ? snapshot : null;
+  const a = isObj(site) ? site : {}, b = isObj(system) ? system : {};
+  return Object.fromEntries(SYNC_FIELDS.map((f) => {
+    const equalNow = sameField(f, a[f], b[f]);
+    if (snap === null) return [f, equalNow ? 'keep' : emptyField(f, b[f]) || FIRST_RUN_SITE_WINS.includes(f) ? 'fill' : 'conflict'];
+    if (equalNow) return [f, 'same'];
+    const siteMoved = !sameField(f, a[f], snap[f]);
+    const systemMoved = !sameField(f, b[f], snap[f]);
+    return [f, siteMoved && systemMoved ? 'both' : siteMoved ? 'site' : systemMoved ? 'system' : 'same'];
+  }));
+}
+
+/**
+ * The body of PUT dokan/v1/stores/{id} for the given fields of a vendors row (decision 4 b): name → store_name (a
+ * `#…` placeholder is never sent), phone, email, contact_name → first_name / last_name (split on the first space),
+ * address_parts → address, social → social, status → enabled (inactive → false, active / leave → true), rate /
+ * category_rates → toDokanCommission(rates = { rate, flat, categoryRates }). Fields outside SYNC_FIELDS are ignored.
+ * → { body, sent: [the fields the body carries], dropped: [the fields left out] }; body null when nothing is sent.
+ */
+export function toDokanStore(row, fields, rates = null) {
+  const r = isObj(row) ? row : {};
+  const body = {}, sent = [], dropped = [];
+  const want = (Array.isArray(fields) ? fields : []).filter((f) => SYNC_FIELDS.includes(f));
+  const add = (f, ok, patch) => { if (ok) { Object.assign(body, patch); sent.push(f); } else dropped.push(f); };
+  for (const f of [...new Set(want)]) {
+    if (f === 'name') add(f, str(r.name) !== '' && !str(r.name).startsWith('#'), { store_name: str(r.name) });
+    else if (f === 'phone') add(f, true, { phone: str(r.phone) });
+    else if (f === 'email') add(f, true, { email: str(r.email) });
+    else if (f === 'contact_name') { const [first, ...rest] = str(r.contact_name).split(/\s+/); add(f, true, { first_name: first ?? '', last_name: rest.join(' ') }); }
+    else if (f === 'address_parts') add(f, true, { address: keyed(r.address_parts, ADDRESS_KEYS) });
+    else if (f === 'social') add(f, true, { social: keyed(r.social, SOCIAL_KEYS) });
+    else if (f === 'status') add(f, true, { enabled: str(r.status) !== 'inactive' });
+  }
+  // the commission travels as one block whichever of the two names asked for it
+  const rateFields = want.filter((f) => f === 'rate' || f === 'category_rates');
+  if (rateFields.length) {
+    const c = toDokanCommission(isObj(rates) ? rates : {});
+    for (const f of new Set(rateFields)) add(f, c !== null, c ?? {});
+  }
+  return { body: sent.length ? body : null, sent, dropped };
 }
 
 // ---------------------------------------------------------------- cursor

@@ -21,3 +21,4 @@ Cost reading at the start: see the phase-3.2 ledger close ($762.64) — this pha
 Rulings: the plan's decisions 1–10.
 
 ## Progress (controller)
+- **Owner's answers (27 Oct):** the acceptance test store on staging is «Art Craft»; a name the team types for one of the six unnamed stores is pushed to the site (only the `#<id>` placeholder is never pushed). Task A (Fable, high) started on worktree p33-a from 350012a.

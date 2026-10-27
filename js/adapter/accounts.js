@@ -11,7 +11,8 @@
 // Writes: add(kind, value) inserts (created_by is the server's: auth.uid()), update(kind, id, value) sends the changed columns,
 // remove(kind, id) is the void of decision 2 (voided_at; the guard stamps it) — each returns a Promise of { ok, rec?, reason }
 // and never throws; reason 'forbidden' (42501), 'invalid' (22xxx / 23xxx), 'network'. Every write the server took is logged
-// through IBActivity.log as accounts.<kind>[.edit|.void] with the kind, the amount and the date only (no beneficiary, no note).
+// through IBActivity.log as accounts.<kind>[.edit|.void] with the kind, the amount and the date only (no beneficiary, no note;
+// no amount for «المرتبات» — activity_log is readable with settings.view, wider than the payroll's accounts.view = F).
 // can(): { view, add, approve } from IBDirectory.perm; canEdit(rec) = own row with add F, or approve F.
 // sales(from, to): the cached rows of accounts_sales for that range, or null while they load (one request per range; the answer
 // dispatches ib:accounts). statement(vendorId, from, to): a Promise of { ok, rows, reason }.
@@ -90,7 +91,8 @@
   const reasonOf = (err) => { const code = String((err && err.code) || ''); return code === '42501' ? 'forbidden' : /^2[23]/.test(code) ? 'invalid' : 'network'; };
   function logged(kind, suffix, v) {
     const L = window.IBActivity; if (!L || !L.log) return;
-    const detail = [v.category || v.type || v.account || '', v.direction === 'deposit' ? 'إيداع' : 'سحب', v.amount, v.date].filter((x) => x !== '' && x != null).join(' · ');
+    // «المرتبات» without its amount: activity_log is read with settings.view, wider than accounts.view = F (security review)
+    const detail = [v.category || v.type || v.account || '', v.direction === 'deposit' ? 'إيداع' : 'سحب', v.category === 'المرتبات' ? null : v.amount, v.date].filter((x) => x !== '' && x != null).join(' · ');
     quiet(() => L.log(KINDS[kind].log + suffix, detail, { entity: KINDS[kind].table, entity_id: v.id }));
   }
 

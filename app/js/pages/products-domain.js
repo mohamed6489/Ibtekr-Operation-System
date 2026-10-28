@@ -157,6 +157,114 @@
     const tot = all.reduce((s, x) => s + x.sold, 0);
     return (n ? all.slice(0, n) : all).map((x, i) => Object.assign({ rank: i + 1, share: tot ? Math.round(x.sold / tot * 1000) / 1000 : 0 }, x, { revenue: Math.round(x.revenue * 100) / 100 }));
   }
+  // ---------- استوديو المنتجات (المرحلة 5.2 — خطة 2026-10-28-phase-5-2-studio.md) ----------
+  // الـ SKU (صاحب المشروع 28 أكتوبر، قرار 2): IBT + أول حرفين من اسم البراند بالإنجليزي + كود اللون (حرفين) + المسلسل (4 خانات على
+  // الأقل، مسلسل واحد للموقع أوله 0999)؛ المنتج الـ Variable من غير لون، والتركيبة بلونها و«-المقاس» (أرقامه بس) لو فيه مقاسات.
+  const toAsciiDigits = (s) => String(s == null ? '' : s).replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660)).replace(/[۰-۹]/g, (c) => String(c.charCodeAt(0) - 0x6f0));
+  const brandCode = (name) => { const l = String(name || '').toUpperCase().replace(/[^A-Z]/g, ''); return l.length >= 2 ? l.slice(0, 2) : null; };
+  const serialText = (n) => (Number.isInteger(n) && n >= 0 ? String(n).padStart(4, '0') : null);
+  const sizeDigits = (s) => sizeCode(toAsciiDigits(s));
+  // { brand, color (كود حرفين أو null), serial, size } → { sku, missing: [] } — missing = اللي ناقص عشان الـ SKU يكمل
+  function studioSku(o) {
+    const b = brandCode(o && o.brand); const c = o && o.color ? String(o.color) : ''; const n = serialText(o && o.serial); const sz = o && o.size ? sizeDigits(o.size) : '';
+    const missing = [!b && 'البراند', c && !/^[A-Z]{2}$/.test(c) && 'كود اللون', n == null && 'المسلسل'].filter(Boolean);
+    return { sku: 'IBT' + (b || '??') + (/^[A-Z]{2}$/.test(c) ? c : '') + (n == null ? '####' : n) + (sz ? '-' + sz : ''), missing };
+  }
+  // كود لون جديد مقترح: أول حرفين، وإلا الحرف الأول + حرف تاني من الاسم، وإلا أول حرفين فاضيين
+  function suggestColorCode(name, taken) {
+    const t = new Set((taken || []).map(String)); const w = String(name || '').toUpperCase().replace(/[^A-Z]/g, '');
+    const cands = []; if (w.length >= 2) cands.push(w.slice(0, 2)); for (let i = 1; i < w.length; i++) cands.push(w[0] + w[i]);
+    for (const x of cands) if (!t.has(x)) return x;
+    const A = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'; for (const x of A) for (const y of A) if (!t.has(x + y)) return x + y;
+    return '';
+  }
+  // الشيت: CSV (فاصلة / ; / tab، علامات تنصيص) → صفوف
+  function parseCsv(text) {
+    const src = String(text || '').replace(/^﻿/, ''); const first = src.split(/\r?\n/, 1)[0] || '';
+    const d = [',', ';', '\t'].map((x) => [x, first.split(x).length]).sort((a, b) => b[1] - a[1])[0][0];
+    const rows = []; let row = []; let cell = ''; let q = false;
+    for (let i = 0; i < src.length; i++) {
+      const ch = src[i];
+      if (q) { if (ch === '"') { if (src[i + 1] === '"') { cell += '"'; i++; } else q = false; } else cell += ch; continue; }
+      if (ch === '"') q = true; else if (ch === d) { row.push(cell); cell = ''; } else if (ch === '\n' || ch === '\r') { if (ch === '\r' && src[i + 1] === '\n') i++; row.push(cell); rows.push(row); row = []; cell = ''; } else cell += ch;
+    }
+    if (cell !== '' || row.length) { row.push(cell); rows.push(row); }
+    return rows.filter((r) => r.some((c) => String(c).trim() !== ''));
+  }
+  // XLSX → صفوف أول شيت (من غير مكتبات: zip + DecompressionStream('deflate-raw') + XML بسيط). async.
+  const xmlText = (s) => s.replace(/<[^>]+>/g, '').replace(/&lt;/g, '<').replace(/&gt;/g, '>').replace(/&quot;/g, '"').replace(/&apos;/g, "'").replace(/&#(\d+);/g, (_, n) => String.fromCodePoint(Number(n))).replace(/&amp;/g, '&');
+  async function unzipText(bytes, want) {
+    const b = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes); const dv = new DataView(b.buffer, b.byteOffset, b.byteLength);
+    let e = -1; for (let i = b.length - 22; i >= Math.max(0, b.length - 65557); i--) if (dv.getUint32(i, true) === 0x06054b50) { e = i; break; }
+    if (e < 0) throw new Error('not a zip');
+    const n = dv.getUint16(e + 10, true); let p = dv.getUint32(e + 16, true); const out = {};
+    for (let k = 0; k < n; k++) {
+      if (dv.getUint32(p, true) !== 0x02014b50) throw new Error('bad zip');
+      const method = dv.getUint16(p + 10, true), size = dv.getUint32(p + 20, true), nl = dv.getUint16(p + 28, true), xl = dv.getUint16(p + 30, true), cl = dv.getUint16(p + 32, true), off = dv.getUint32(p + 42, true);
+      const name = new TextDecoder().decode(b.subarray(p + 46, p + 46 + nl)); p += 46 + nl + xl + cl;
+      if (!want(name)) continue;
+      const start = off + 30 + dv.getUint16(off + 26, true) + dv.getUint16(off + 28, true); const raw = b.subarray(start, start + size);
+      let data = raw;
+      if (method === 8) data = new Uint8Array(await new Response(new Blob([raw]).stream().pipeThrough(new DecompressionStream('deflate-raw'))).arrayBuffer());
+      else if (method !== 0) throw new Error('zip method ' + method);
+      out[name] = new TextDecoder().decode(data);
+    }
+    return out;
+  }
+  const colIndex = (ref) => { const m = /^([A-Z]+)/.exec(ref || ''); if (!m) return -1; let n = 0; for (const ch of m[1]) n = n * 26 + (ch.charCodeAt(0) - 64); return n - 1; };
+  async function parseXlsx(bytes) {
+    const files = await unzipText(bytes, (n) => n === 'xl/sharedStrings.xml' || /^xl\/worksheets\/sheet\d+\.xml$/.test(n));
+    const sheet = Object.keys(files).filter((n) => n.startsWith('xl/worksheets/')).sort((a, b) => Number(a.match(/\d+/)[0]) - Number(b.match(/\d+/)[0]))[0];
+    if (!sheet) throw new Error('no sheet');
+    const shared = [...(files['xl/sharedStrings.xml'] || '').matchAll(/<si>([\s\S]*?)<\/si>/g)].map((m) => [...m[1].matchAll(/<t[^>]*>([\s\S]*?)<\/t>/g)].map((t) => xmlText(t[1])).join(''));
+    const rows = [];
+    for (const r of files[sheet].matchAll(/<row[^>]*>([\s\S]*?)<\/row>/g)) {
+      const row = [];
+      for (const c of r[1].matchAll(/<c\b([^>]*?)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
+        const attrs = c[1]; const body = c[2] || ''; const i = colIndex((/\br="([A-Z]+\d+)"/.exec(attrs) || [])[1]); const t = (/\bt="(\w+)"/.exec(attrs) || [])[1];
+        const v = (/<v>([\s\S]*?)<\/v>/.exec(body) || [])[1];
+        const val = t === 's' ? shared[Number(v)] || '' : t === 'inlineStr' ? xmlText((/<is>([\s\S]*?)<\/is>/.exec(body) || [])[1] || '') : v == null ? '' : xmlText(v);
+        row[i < 0 ? row.length : i] = val;
+      }
+      rows.push(Array.from(row, (x) => (x == null ? '' : x)));
+    }
+    return rows.filter((r) => r.some((c) => String(c).trim() !== ''));
+  }
+  // ربط الأعمدة بالاسم (عربي أو إنجليزي) → { field: index }
+  const STUDIO_FIELDS = {
+    nameEn: ['name en', 'product name en', 'english name', 'name', 'product name', 'الاسم en', 'الاسم بالانجليزي', 'الاسم انجليزي'],
+    nameAr: ['name ar', 'product name ar', 'arabic name', 'الاسم ar', 'الاسم بالعربي', 'الاسم عربي', 'اسم المنتج'],
+    vendorPrice: ['vendor price', 'maker price', 'price', 'سعر المبتكر', 'سعر المورد', 'السعر'],
+    colors: ['color', 'colors', 'colour', 'product colors', 'اللون', 'الالوان', 'الوان'],
+    sizes: ['size', 'sizes', 'dimensions', 'المقاس', 'المقاسات'],
+    material: ['material', 'الخامة', 'الخامه'],
+    style: ['style', 'الستايل', 'الاستايل'],
+    weight: ['weight', 'الوزن'],
+    stock: ['stock', 'quantity', 'qty', 'المخزون', 'الكمية', 'الكميه'],
+    shortDesc: ['short description', 'description', 'الوصف القصير', 'الوصف'],
+  };
+  const normHead = (h) => toAsciiDigits(h).toLowerCase().replace(/[()\[\]_\-:]/g, ' ').replace(/[أإآ]/g, 'ا').replace(/ـ/g, '').replace(/\s+/g, ' ').trim();
+  function mapColumns(headers) {
+    const H = (headers || []).map(normHead); const out = {}; const used = new Set();
+    for (const [field, names] of Object.entries(STUDIO_FIELDS)) {
+      const i = names.map((n) => H.findIndex((x, k) => !used.has(k) && x === normHead(n))).find((k) => k >= 0);
+      if (i != null && i >= 0) { out[field] = i; used.add(i); }
+    }
+    return out;
+  }
+  const splitList = (v) => String(v || '').split(/[,،/|\n]+/).map((x) => x.trim()).filter(Boolean);
+  const toPrice = (v) => { const n = Number(toAsciiDigits(v).replace(/[^\d.]/g, '')); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null; };
+  // صفوف الشيت (أول صف = العناوين) + الربط → منتجات الدفعة
+  function rowsToItems(rows, map) {
+    const get = (r, f) => (map[f] == null ? '' : String(r[map[f]] == null ? '' : r[map[f]]).trim());
+    return (rows || []).slice(1).map((r, i) => ({ row: i + 2, nameEn: get(r, 'nameEn'), nameAr: get(r, 'nameAr'), vendorPrice: toPrice(get(r, 'vendorPrice')), colors: splitList(get(r, 'colors')), sizes: splitList(get(r, 'sizes')),
+      material: get(r, 'material'), style: get(r, 'style'), weight: toAsciiDigits(get(r, 'weight')).replace(/[^\d.]/g, ''), stock: (() => { const n = parseInt(toAsciiDigits(get(r, 'stock')), 10); return Number.isFinite(n) && n >= 0 ? n : null; })(), shortDesc: get(r, 'shortDesc') }))
+      .filter((it) => it.nameEn || it.nameAr || it.vendorPrice);
+  }
+  // اللي ناقص في منتج الدفعة (الرسائل بالعربي زي الـ prototype)
+  function itemIssues(it, type) {
+    return [!it.nameEn && 'الاسم (EN)', !it.vendorPrice && 'سعر المبتكر', type === 'Variable' && !((it.colors || []).length || (it.sizes || []).length) && 'المتغيرات'].filter(Boolean);
+  }
   // ---------- marketing «إنشاء» ----------
   const VIDEO_MODELS = [
     { id: 'seedance-2.5', name: 'Seedance 2.5', note: 'الأفضل · لحد 30 ث · صوت', max: 30, durations: [10, 15, 30], res: ['1080p', '720p'], def: true },
@@ -215,6 +323,6 @@
   const safeName = (s) => String(s || 'Product').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Product';
   // backup plan: which file goes where — pure, so the browser only fills in the bytes
   function backupPlan(root, items, ext) { const out = []; items.forEach((it) => (it.slots || []).forEach((sl, k) => { if (sl && sl.src) out.push({ dir: SLOT_DIRS[Math.min(k, 4)], src: sl.src, name: root + '/' + SLOT_DIRS[Math.min(k, 4)] + '/' + safeName(it.name) + '-0' + (k + 1) + '-' + safeName(it.sku || 'SKU') + '.' + (ext || 'webp') }); })); return out; }
-  return { outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  return { brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, itemIssues, STUDIO_FIELDS, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

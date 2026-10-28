@@ -88,3 +88,69 @@ test('categoriesRank (decision 20): same-name categories merged, ranked by piece
   assert.equal(PD.categoriesRank([{ name: 'A', sold: 1 }, { name: 'B', sold: 2 }], 1).length, 1);
   assert.deepEqual(plain(PD.categoriesRank([])), []);
 });
+
+// ---------------- the product studio (phase 5.2, docs/superpowers/plans/2026-10-28-phase-5-2-studio.md) ----------------
+import { deflateRawSync } from 'node:zlib';
+
+test('studioSku (decision 2): IBT + brand 2 letters + color code + serial (4 digits, from 0999); Variable parent without color; size digits after a dash', () => {
+  assert.deepEqual(plain(PD.studioSku({ brand: 'Art Craft', color: 'BE', serial: 999 })), { sku: 'IBTARBE0999', missing: [] });
+  assert.equal(PD.studioSku({ brand: 'Art Craft', serial: 999 }).sku, 'IBTAR0999');
+  assert.equal(PD.studioSku({ brand: 'Art Craft', color: 'BK', serial: 1000, size: '50×50' }).sku, 'IBTARBK1000-5050');
+  assert.equal(PD.studioSku({ brand: 'Bian eg', color: 'OW', serial: 12345 }).sku, 'IBTBIOW12345');
+  assert.equal(PD.studioSku({ brand: 'Art Craft', color: 'BE', serial: 1001, size: '٤٠×٤٠ سم' }).sku, 'IBTARBE1001-4040');
+  assert.deepEqual(plain(PD.studioSku({ brand: 'إبتكر', color: 'b1', serial: null })), { sku: 'IBT??####', missing: ['البراند', 'كود اللون', 'المسلسل'] });
+  assert.equal(PD.brandCode('w&r Wood'), 'WR');
+  assert.equal(PD.serialText(999), '0999');
+});
+
+test('suggestColorCode (decision 3): the first two letters, else the first + another letter, else a free pair', () => {
+  assert.equal(PD.suggestColorCode('Sage Green', []), 'SA');
+  assert.equal(PD.suggestColorCode('Black', ['BL']), 'BA');
+  assert.equal(PD.suggestColorCode('Blue', ['BL', 'BU', 'BE']), 'AA');
+  assert.equal(PD.suggestColorCode('Blue', ['BL', 'BU']), 'BE');
+});
+
+test('parseCsv: commas / semicolons, quotes with commas and new lines, BOM, empty rows dropped', () => {
+  assert.deepEqual(PD.parseCsv('﻿Name,Price\r\n"Lamp, big",1000\r\n\r\n"say ""hi""\nthere",5\n'), [['Name', 'Price'], ['Lamp, big', '1000'], ['say "hi"\nthere', '5']]);
+  assert.deepEqual(PD.parseCsv('الاسم;السعر\nلمبة;٥٠٠'), [['الاسم', 'السعر'], ['لمبة', '٥٠٠']]);
+});
+
+function zipOf(files, deflate) { // a tiny zip writer for the test (method 8 when deflate)
+  const enc = (s) => new TextEncoder().encode(s); const parts = []; const central = []; let off = 0;
+  const u16 = (v) => [v & 255, (v >>> 8) & 255], u32 = (v) => [v & 255, (v >>> 8) & 255, (v >>> 16) & 255, (v >>> 24) & 255];
+  for (const [name, text] of Object.entries(files)) {
+    const n = enc(name); const raw = enc(text); const data = deflate ? new Uint8Array(deflateRawSync(raw)) : raw; const crc = PD.crc32(raw);
+    const head = [0x50, 0x4b, 3, 4, ...u16(20), ...u16(0x0800), ...u16(deflate ? 8 : 0), ...u16(0), ...u16(0), ...u32(crc), ...u32(data.length), ...u32(raw.length), ...u16(n.length), ...u16(0)];
+    parts.push(Uint8Array.from(head), n, data);
+    central.push(Uint8Array.from([0x50, 0x4b, 1, 2, ...u16(20), ...u16(20), ...u16(0x0800), ...u16(deflate ? 8 : 0), ...u16(0), ...u16(0), ...u32(crc), ...u32(data.length), ...u32(raw.length), ...u16(n.length), ...u16(0), ...u16(0), ...u16(0), ...u16(0), ...u32(0), ...u32(off)]), n);
+    off += head.length + n.length + data.length;
+  }
+  const cd = central.reduce((a, b) => a + b.length, 0); const cnt = Object.keys(files).length;
+  const all = [...parts, ...central, Uint8Array.from([0x50, 0x4b, 5, 6, 0, 0, 0, 0, ...u16(cnt), ...u16(cnt), ...u32(cd), ...u32(off), 0, 0])];
+  const out = new Uint8Array(all.reduce((a, b) => a + b.length, 0)); let p = 0; for (const b of all) { out.set(b, p); p += b.length; } return out;
+}
+
+test('parseXlsx: the first sheet of a deflated workbook — shared strings, inline strings, numbers, gaps keep their column; and the studio\'s own export reads back', async () => {
+  const wb = zipOf({
+    'xl/sharedStrings.xml': '<sst><si><t>Name EN</t></si><si><t>سعر المبتكر</t></si><si><r><t>Lamp</t></r><r><t xml:space="preserve"> &amp; Co</t></r></si></sst>',
+    'xl/worksheets/sheet1.xml': '<worksheet><sheetData><row r="1"><c r="A1" t="s"><v>0</v></c><c r="C1" t="s"><v>1</v></c></row><row r="2"><c r="A2" t="s"><v>2</v></c><c r="C2"><v>1200</v></c></row><row r="3"><c r="A3" t="inlineStr"><is><t>Cup</t></is></c></row></sheetData></worksheet>',
+    'xl/worksheets/sheet2.xml': '<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>other</t></is></c></row></sheetData></worksheet>',
+  }, true);
+  assert.deepEqual(await PD.parseXlsx(wb), [['Name EN', '', 'سعر المبتكر'], ['Lamp & Co', '', '1200'], ['Cup']]);
+  const back = await PD.parseXlsx(PD.xlsx([['الاسم (EN)', 'سعر المبتكر'], ['Lamp', 1500]], 'المنتجات'));
+  assert.deepEqual(back.map((r) => r.map(String)), [['الاسم (EN)', 'سعر المبتكر'], ['Lamp', '1500']]);
+  await assert.rejects(() => PD.parseXlsx(new Uint8Array([1, 2, 3])));
+});
+
+test('mapColumns + rowsToItems + itemIssues: headers matched in English or Arabic, lists split, Arabic digits, empty rows dropped; what is missing', () => {
+  const rows = [['Product Name EN', 'الاسم بالعربي', 'Vendor Price', 'Product Colors', 'المقاس', 'الخامة', 'Weight', 'الكمية', 'notes'],
+    ['Boho Cushion', 'مخدة بوهيمي', '١٬٠٠٠', 'Beige، Black', '50×50 / 40×40', 'قطن', '0.4 kg', '5', 'x'], ['', '', '', '', '', '', '', '', 'only notes'], ['', 'لمبة', '', '', '', '', '', '', '']];
+  const map = PD.mapColumns(rows[0]);
+  assert.deepEqual(plain(map), { nameEn: 0, nameAr: 1, vendorPrice: 2, colors: 3, sizes: 4, material: 5, weight: 6, stock: 7 });
+  const items = PD.rowsToItems(rows, map);
+  assert.equal(items.length, 2);
+  assert.deepEqual(plain(items[0]), { row: 2, nameEn: 'Boho Cushion', nameAr: 'مخدة بوهيمي', vendorPrice: 1000, colors: ['Beige', 'Black'], sizes: ['50×50', '40×40'], material: 'قطن', style: '', weight: '0.4', stock: 5, shortDesc: '' });
+  assert.deepEqual(PD.itemIssues(items[0], 'Variable'), []);
+  assert.deepEqual(PD.itemIssues(items[1], 'Variable'), ['الاسم (EN)', 'سعر المبتكر', 'المتغيرات']);
+  assert.deepEqual(PD.itemIssues(items[1], 'Simple'), ['الاسم (EN)', 'سعر المبتكر']);
+});

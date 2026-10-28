@@ -57,7 +57,7 @@ test('load names every column (no *, removed included) and asks for the last 12 
   assert.match(COLS.item, /\bproduct_id\b/); // the ?p= fallback of a line without a known permalink
   assert.deepEqual(selectOf(calls, 'sub_orders'), [COLS.sub]);
   assert.deepEqual(selectOf(calls, 'vendors'), ['id, name']);
-  assert.deepEqual(selectOf(calls, 'products'), ['sku, image_url, permalink']);
+  assert.deepEqual(selectOf(calls, 'products'), ['sku, image_url, permalink, lang']);
   assert.deepEqual(selectOf(calls, 'status_map'), ['system_status, woo_status, direction, sort']);
   assert.match(COLS.order, /\bcustomer_state\b/); // the governorate's code (0010)
   assert.deepEqual(selectOf(calls, 'woo_states'), ['code, name']); // once per load, no filter
@@ -488,7 +488,7 @@ test('Realtime: a new order with an unknown maker and product asks for just thos
   await emitChange({ table: 'orders', eventType: 'INSERT', new: { id: 182000 } });
   assert.deepEqual(opsOf(calls, 'vendors').filter((c) => c.op === 'in'), [{ op: 'in', args: ['id', [V3]] }]);
   assert.deepEqual(opsOf(calls, 'products').filter((c) => c.op === 'in'), [{ op: 'in', args: ['sku', ['NEW-SKU']] }]);
-  assert.deepEqual(selectOf(calls, 'products'), ['sku, image_url, permalink']);
+  assert.deepEqual(selectOf(calls, 'products'), ['sku, image_url, permalink, lang']);
   assert.equal(applied[0].subs[0].vendor, 'sala');
   assert.equal(applied[0].subs[0].link, SITE + '/product/pouf/');
   assert.equal(O.data().orders[0].id, '182000');

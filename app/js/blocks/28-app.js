@@ -341,7 +341,8 @@
   const pageOfHash = (hs) => modPage(hs) || (hs === 'orders' ? 'orders' : reportTabOf(hs) ? 'reports' : ticketOf(hs) !== null ? 'tickets' : vendorOf(hs) !== null ? 'vendors' : 'accounts');
   // Phase 3.6 (plan decision 5): the pages not built on real data yet are closed — «soon» in the menus; any way in (a link, an
   // alert, a typed hash) lands on the dashboard with a note. Open: لوحة التحكم، الأوردرات، المبتكرين، and «ملفي» (account menu).
-  const SOON = ['inventory', 'products', 'cs', 'tickets', 'reports', 'marketing', 'hr', 'settings'];
+  // phase 5 (plan decision 2): «المنتجات» is open (app/js/pages/products.js) — the owner chose it before «المخزون»
+  const SOON = ['inventory', 'cs', 'tickets', 'reports', 'marketing', 'hr', 'settings'];
   const isSoon = (page) => SOON.includes(page);
   const soonNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي لسه — soon'); };
   state.page = pageOfHash(location.hash.slice(1));

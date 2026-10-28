@@ -1,0 +1,66 @@
+/* «المنتجات» (phase 5) — from the prototype's style.css (artifact 1793131460, lines 1347–1505 / 1555–1741), the parts the records,
+   the trash and the edit page use. Rules that also name a class other pages have (.prod, .stk, .pager, .meta) are scoped to #pg-products. */
+:is(#pg-products,#pg-marketing) .crumb{margin:0 0 2px;color:var(--color-text-secondary)}
+:is(#pg-products,#pg-marketing) .page-head .fresh{margin-top:4px}
+:is(#pg-products,#pg-marketing) .panel{display:flex;flex-direction:column;gap:16px}
+:is(#pg-products,#pg-marketing) .help{color:var(--color-text-secondary)}
+:is(#pg-products,#pg-marketing) .brand-t{color:var(--color-brand-default)}
+:is(#pg-products,#pg-marketing) .err-t{color:var(--color-error-text);font-size:12px}
+:is(#pg-products,#pg-marketing) .stack{display:flex;flex-direction:column;gap:12px;min-width:0}
+:is(#pg-products,#pg-marketing) .row-flex{display:flex;align-items:center;gap:12px;flex-wrap:wrap;min-width:0}
+:is(#pg-products,#pg-marketing) .sub-h{margin:4px 0 0}
+:is(#pg-products,#pg-marketing) .sec-b{display:flex;flex-direction:column;gap:12px}
+/* tool cards (Figma Add hub) */
+.tools-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.tools-grid.c3{grid-template-columns:repeat(3,minmax(0,1fr))}
+.tool-card{display:flex;flex-direction:column;align-items:flex-start;gap:8px;padding:16px;text-align:start;cursor:pointer;font:inherit;color:inherit;border:1px solid var(--color-border-subtle)}
+.tool-card:hover{border-color:var(--color-action-default)}
+.tool-card:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:2px}
+.tool-ic{width:40px;height:40px;border-radius:var(--radius-md);background:var(--color-brand-subtle-bg);color:var(--color-brand-default);display:grid;place-items:center}
+.tool-card .tc-b{color:var(--color-text-secondary);flex:1}
+.tool-card .tc-cta{display:inline-flex;align-items:center;gap:4px;color:var(--color-brand-default);font-weight:600;margin-top:4px}
+/* layouts */
+.side-layout{display:flex;gap:16px;align-items:flex-start}
+.side-layout>.grow{flex:1;min-width:0}
+.side-layout>.side-card{flex:0 0 340px;min-width:0}
+/* records */
+.pr-filters .field{min-width:150px}
+.bulk-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-radius:var(--radius-md);background:var(--color-brand-subtle-bg);border:1px solid var(--color-border-subtle)}
+#pg-products .prod.link{background:transparent;border:0;padding:0;font:inherit;color:inherit;cursor:pointer;text-align:start}
+#pg-products .prod.link:hover b{color:var(--color-brand-default);text-decoration:underline}
+#pg-products .prod{display:inline-flex;align-items:center;gap:8px;min-width:0}#pg-products .prod>span:last-child{display:flex;flex-direction:column;gap:2px;min-width:0}
+#pg-products .prod small{color:var(--color-text-secondary);font-size:12px}
+#pg-products .stk{display:inline-flex;align-items:center;gap:6px;flex-wrap:wrap}
+#pg-products .pct{display:inline-flex;align-items:center;gap:6px;min-width:96px}#pg-products .pct .bar{flex:1;min-width:48px}
+#pg-products .pager{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;color:var(--color-text-secondary)}
+.thumb.lg2{width:56px;height:56px}
+.thumb.md{width:72px;height:80px}
+.thumb.xl{width:96px;height:110px}
+.thumb.big{width:100%;height:auto;aspect-ratio:7/8}
+.thumb.fill{width:100%;height:100%;border-radius:0}
+.img-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(110px,1fr));gap:12px}
+.img-it{position:relative;display:flex;flex-direction:column;gap:4px;margin:0;padding:0;border:0;background:transparent;font:inherit;cursor:pointer;text-align:start}
+.img-it .thumb.xl{width:100%}
+.img-it .tg{position:absolute;top:6px;inset-inline-start:6px}
+.img-it figcaption{font-size:11px;color:var(--color-text-secondary);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.img-it.on .thumb{outline:2px solid var(--color-action-default);outline-offset:2px}
+.sel-acts{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-radius:var(--radius-md);background:var(--color-bg-tint)}
+/* edit product */
+.edit-head{align-items:center}.eh-l{display:flex;gap:12px;align-items:center;min-width:0}.eh-l h1{margin:0}
+#pg-products .meta{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:4px}
+.unsaved{position:sticky;bottom:0;z-index:3;display:flex;align-items:center;gap:8px;padding:12px 16px;border-radius:var(--radius-md);background:var(--color-bg-elevated);border:1px solid var(--color-border-subtle);box-shadow:var(--shadow-popover)}
+.unsaved b{flex:1}
+#pg-products .thumb.st-big{width:88px;height:100px}
+:is(#pg-products,.st-drawer) .thumb.mini{width:44px;height:52px}
+:is(#pg-products,.st-drawer) .thumb.empty-img{background:var(--color-bg-base);border:1px dashed var(--color-border-default);color:var(--color-text-secondary)}
+#pg-products .cat-list{display:flex;flex-direction:column;gap:2px}#pg-products .cat-hit{color:var(--color-brand-default);font-weight:700}
+:is(#pg-products,#pg-marketing,.modal) td:has(> .prod), :is(#pg-products,#pg-marketing,.modal) td:has(> .st-prod){text-align:start}
+:is(#pg-products,#pg-marketing,.modal) td > .prod{display:flex;justify-content:flex-start;text-align:start}
+:is(#pg-products,#pg-marketing) .pr-table th:nth-child(2){text-align:start}
+.th-sort{all:unset;cursor:pointer;font:inherit;color:inherit;display:inline-flex;align-items:center;gap:2px;border-radius:4px;padding:2px 4px}
+.th-sort:hover{background:var(--color-bg-tint)}
+.th-sort:focus-visible{outline:2px solid var(--color-border-focus,var(--color-action-primary));outline-offset:2px}
+.sort-ic{color:var(--color-text-secondary);font-size:12px}
+.sales-cell{font-variant-numeric:tabular-nums}
+@media (max-width:1279px){.tools-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.side-layout{flex-direction:column}.side-layout>.side-card{flex:1 1 auto;width:100%}}
+@media (max-width:599px){.tools-grid,.tools-grid.c3{grid-template-columns:1fr}}

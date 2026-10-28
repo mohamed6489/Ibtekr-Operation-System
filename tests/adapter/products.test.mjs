@@ -44,8 +44,8 @@ test('load: the non-Arabic rows (named columns, no raw), the Arabic names, the A
   assert.ok(events.includes('ib:products'));
 });
 
-test('no products.view and no orders.view: nothing read', async () => {
-  const { P, stub } = load({ perms: {} });
+test('no products.view: nothing read (orders.view alone is the orders screen\'s)', async () => {
+  const { P, stub } = load({ perms: { 'orders.view': 'F' } });
   await P.load();
   assert.equal(stub.calls.filter((c) => c.op === 'from').length, 0);
   assert.deepEqual(plain(P.list()), []);

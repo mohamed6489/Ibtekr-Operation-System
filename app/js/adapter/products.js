@@ -73,7 +73,7 @@
   }
   async function load() {
     const cl = c(); if (!cl) return;
-    if (perm('products.view') === 'N' && perm('orders.view') === 'N') { st = 'ready'; emit(); return; }
+    if (perm('products.view') === 'N') { st = 'ready'; emit(); return; } // the page's own permission (decision 3)
     const g = ++gen; st = 'loading'; emit();
     try {
       const [main, ar, cs, bs] = await Promise.all([

@@ -414,7 +414,7 @@ test('a sub-order comment, delivery date and waybill are written to the line', a
 test('«مزامنة» runs woo-sync and says what came in', async ({ page }) => {
   await openOrders(page);
   await page.locator('#orders #sync').click();
-  await expect(toast(page)).toHaveText('تمت المزامنة · 4 أوردر · 4 منتج · 3 مبتكر');
+  await expect(toast(page)).toHaveText('تمت المزامنة · 4 أوردر · 6 منتج · 3 مبتكر');
   expect(mock.syncs).toEqual([{ action: 'all' }]);
 });
 

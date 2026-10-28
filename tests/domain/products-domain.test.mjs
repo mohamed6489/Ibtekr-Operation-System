@@ -64,3 +64,27 @@ test('randomMarkup: a whole number from 15 to 30, both ends reachable; priceFrom
   assert.equal(r.regular, PD.ceil10(1670 * 1.23));
   assert.ok(r.regular % 10 === 0 && r.regular > r.sale);
 });
+
+test('outOfStock (decision 20): out on the site or tracked stock at 0, never «حسب الطلب»; most sold first', () => {
+  const recs = [
+    { id: 1, stockStatus: 'outofstock', onDemand: false, sales: 2 },
+    { id: 2, stockStatus: 'instock', manageStock: true, stock: 0, onDemand: false, sales: 9 },
+    { id: 3, stockStatus: 'onbackorder', manageStock: true, stock: 0, onDemand: true, sales: 50 },
+    { id: 4, stockStatus: 'instock', manageStock: true, stock: 3, onDemand: false, sales: 70 },
+    { id: 5, stockStatus: 'instock', manageStock: false, stock: null, onDemand: false, sales: 1 },
+  ];
+  assert.deepEqual(PD.outOfStock(recs).map((p) => p.id), [2, 1]);
+  assert.deepEqual(plain(PD.outOfStock(null)), []);
+});
+
+test('categoriesRank (decision 20): same-name categories merged, ranked by pieces then revenue, share of all pieces, top n', () => {
+  const r = PD.categoriesRank([
+    { name: 'Lamps', sold: 3, revenue: 600, products: 1, orders: 2 },
+    { name: ' lamps ', sold: 1, revenue: 100, products: 1, orders: 1 },
+    { name: 'Cups', sold: 4, revenue: 50.5, products: 2, orders: 1 },
+    { name: 'Rugs', sold: 2, revenue: 900, products: 1, orders: 2 },
+  ]);
+  assert.deepEqual(plain(r.map((x) => [x.rank, x.name, x.sold, x.revenue, x.products, x.share])), [[1, 'Lamps', 4, 700, 2, 0.4], [2, 'Cups', 4, 50.5, 2, 0.4], [3, 'Rugs', 2, 900, 1, 0.2]]);
+  assert.equal(PD.categoriesRank([{ name: 'A', sold: 1 }, { name: 'B', sold: 2 }], 1).length, 1);
+  assert.deepEqual(plain(PD.categoriesRank([])), []);
+});

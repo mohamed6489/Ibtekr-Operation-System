@@ -2624,6 +2624,8 @@
     contracts: () => vstore.all().map((v) => ({ name: v.name, status: VD.contractStatus(v, DTODAY), expires: v.contract && v.contract.expires })),
   };
   // an order popup lives inside the orders page, so it is opened there (owner 22 Oct: before this, «فتح الأوردر» from other pages stayed hidden until you visited الأوردرات)
+  // phase 5.1 (decision 20 in the phase 5 plan): the products page's «التقارير» tab shares the reports page's range (state.rrange)
+  window.IBReportBlocks = { range: () => DateRangeField('reports'), get: () => state.rrange };
   window.IBShowOrders = () => { if (state.page !== 'orders') go('orders'); };
   window.IbtekrApp = Object.freeze({ eventLog: () => log.all(), aiRun, aiFilter, newTicket: (pre) => { showTickets(); openNewTicket(pre); }, logEvent: (ev) => log.append(Object.assign({ actor: ACTOR }, ev)) });
   boot(); // synchronous: the orders block (next script) mounts into #orders, which boot() creates

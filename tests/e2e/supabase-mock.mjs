@@ -487,6 +487,27 @@ export async function installSupabaseMock(page, opts = {}) {
         for (const g of ['completed', 'in_progress', 'cancelled']) { const ls = lines.filter((x) => x.g === g); if (ls.length) out.push(row(null, g, ls, true)); }
         return json(200, out);
       }
+      // products_report (0022, decision 20): the products page's reports tab — totals only, products.view <> N; an Arabic line counts under its English product
+      if (method === 'POST' && path === '/rest/v1/rpc/products_report') {
+        const b = body(); (mock.reportCalls = mock.reportCalls || []).push({ from: b.p_from, to: b.p_to });
+        if (hasPerm(u, 'products.view') === 'N') return json(403, { code: '42501', details: null, hint: null, message: 'products.view is needed' });
+        if (!b.p_from || !b.p_to || b.p_to < b.p_from) return json(400, { code: '22023', details: null, hint: null, message: 'bad range' });
+        if (mock.reportFail) return json(500, { code: 'XX000', details: null, hint: null, message: 'boom' });
+        const sold = mock.orders.filter((o) => { const d = String(o.placed_at || '').slice(0, 10); return d >= b.p_from && d <= b.p_to && !['ملغي', 'استرجاع', 'فشل'].includes(o.status); });
+        const prod = (id) => mock.products.find((p) => Number(p.id) === Number(id));
+        const lines = sold.flatMap((o) => mock.orderItems.filter((i) => Number(i.order_id) === Number(o.id) && !i.removed)).map((i) => {
+          const p = i.product_id != null ? prod(i.product_id) : null; const en = p && p.lang === 'ar' && p.translation_ids ? Number(p.translation_ids.en) : null;
+          return { ...i, key: en || (i.product_id != null ? Number(i.product_id) : null) }; });
+        const groups = new Map();
+        for (const l of lines) { const k = l.key != null ? String(l.key) : 'n:' + String(l.name).trim().toLowerCase(); if (!groups.has(k)) groups.set(k, []); groups.get(k).push(l); }
+        const sum = (ls, f) => Math.round(ls.reduce((t, x) => t + (Number(x[f]) || 0), 0) * 100) / 100;
+        const g = [...groups.values()].map((ls) => ({ key: ls[0].key, name: ls[0].name, skus: [...new Set(ls.map((x) => x.sku).filter(Boolean))], vendor_id: ls[0].vendor_id || null, qty: sum(ls, 'qty'), orders: new Set(ls.map((x) => x.order_id)).size, revenue: sum(ls, 'total') }))
+          .sort((x, y) => y.qty - x.qty || y.revenue - x.revenue || String(x.name).localeCompare(String(y.name)));
+        const cm = new Map();
+        for (const l of lines) { const p = l.key != null ? prod(l.key) : null; for (const c of (p && p.category_ids) || []) { if (!cm.has(c)) cm.set(c, []); cm.get(c).push(l); } }
+        const cats = [...cm].map(([id, ls]) => ({ id, sold: sum(ls, 'qty'), revenue: sum(ls, 'total'), orders: new Set(ls.map((x) => x.order_id)).size, products: new Set(ls.map((x) => x.key)).size })).sort((x, y) => y.sold - x.sold || y.revenue - x.revenue);
+        return json(200, { orders: sold.length, qty: sum(lines, 'qty'), revenue: sum(lines, 'total'), distinct: g.length, top: g.slice(0, 20), cats });
+      }
       // 0008: profiles.twofa follows these two definer RPCs; both need an aal2 token (enrolled: also a verified TOTP factor of the
       // caller), else 42501 'aal2_required' (PostgREST: 403 for a signed-in caller); void → 204
       const mfa = /^\/rest\/v1\/rpc\/(mark_twofa_enrolled|mark_twofa_disabled)$/.exec(path);

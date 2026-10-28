@@ -240,6 +240,36 @@ test('decision 16 on a variable product: a maker price per variation → its two
   expect(w.variations).toEqual([{ id: 9901, sale_price: String(sale), regular_price: String(reg) }]);
 });
 
+test('reports tab (decision 20): best sellers and categories from our orders in the range (products_report), out of stock from the mirror; names open the edit page', async ({ page }) => {
+  await openProducts(page, OPS);
+  await page.getByRole('tab', { name: 'التقارير' }).click();
+  await expect(page).toHaveURL(/#products-reports$/);
+  const pr = page.locator('#pg-products');
+  await expect(pr.locator('.rp-top tbody tr')).toHaveCount(3); // Cushion (2 orders), Macrame Curtain, Macrame Feathers — the removed line and the 400-day-old order left out
+  await expect(pr.locator('.rp-top tbody tr').first()).toContainText('Cushion');
+  await expect(pr.locator('.rp-top tbody tr').first()).toContainText('2,004');
+  await expect(pr.locator('.kpi').filter({ hasText: 'قطع اتباعت' })).toContainText('6');
+  await expect(pr.locator('.kpi').filter({ hasText: 'منتجات اتباعت' })).toContainText('3');
+  await expect(pr.locator('.kpi').filter({ hasText: 'أكتر قسم مبيعًا' })).toContainText('إضاءة');
+  await expect(pr.locator('.rp-cats tbody tr').first()).toContainText('83.3%'); // إضاءة 5 of 6 pieces
+  await expect(pr.locator('.rp-out tbody tr')).toHaveCount(1); // Macrame Feathers (stock 0); the curtain is «حسب الطلب»
+  await expect(pr.locator('.rp-out tbody tr')).toContainText('Macrame Feathers');
+  expect(mock.reportCalls.length).toBeGreaterThan(0);
+  const { from, to } = mock.reportCalls.at(-1); expect(from < to).toBe(true); // the reports page's range (last 30 days)
+  await pr.locator('.rp-out .link-btn', { hasText: 'Macrame Feathers' }).click();
+  await expect(page).toHaveURL(/#products-edit-9003-data$/);
+});
+
+test('reports tab: a failed products_report shows «جرّب تاني» and retries', async ({ page }) => {
+  mock.reportFail = true;
+  await openProducts(page);
+  await page.getByRole('tab', { name: 'التقارير' }).click();
+  await expect(page.locator('#pg-products')).toContainText('مقدرناش نحسب التقارير');
+  mock.reportFail = false;
+  await page.locator('#pg-products').getByRole('button', { name: 'جرّب تاني' }).click();
+  await expect(page.locator('#pg-products .rp-top tbody tr')).toHaveCount(3);
+});
+
 test('SEO tab (phase 5.1): Rank Math title / description per language with a counter and a preview; tags and Rank Math variables outside SEO_VARS refused before any request; saved as seo_* fields', async ({ page }) => {
   await openProducts(page);
   await page.locator('[data-pedit="9001"]').click();

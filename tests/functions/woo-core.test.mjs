@@ -706,9 +706,9 @@ const product = (over = {}) => ({
 
 test('mapProduct: the products row carries permalink (the product page on the site); raw keeps it too', () => {
   const r = mapProduct(product(), new Map([[77, U77]]));
-  assert.deepEqual(Object.keys(r.product).sort(), ['id', 'image_url', 'name', 'permalink', 'price', 'raw', 'sku', 'status', 'vendor_id']);
-  assert.deepEqual({ ...r.product, raw: undefined }, { id: 501, sku: 'SC-12', name: 'شمعة معطرة', image_url: 'https://stage.example.test/sc-12.jpg',
-    permalink: 'https://stage.example.test/product/sc-12/', vendor_id: U77, price: 501, status: 'publish', raw: undefined });
+  const base = ['id', 'image_url', 'name', 'permalink', 'price', 'raw', 'sku', 'status', 'vendor_id'];
+  assert.deepEqual(base.map((k) => [k, k === 'raw' ? undefined : r.product[k]]), Object.entries({ id: 501, image_url: 'https://stage.example.test/sc-12.jpg', name: 'شمعة معطرة',
+    permalink: 'https://stage.example.test/product/sc-12/', price: 501, raw: undefined, sku: 'SC-12', status: 'publish', vendor_id: U77 }));
   assert.equal(r.product.raw.permalink, 'https://stage.example.test/product/sc-12/');
 });
 
@@ -722,6 +722,21 @@ test('mapProduct: permalink only when it is an https:// URL (trimmed), else null
   }
   const { permalink: _none, ...noLink } = product();
   assert.equal(mapProduct(noLink, new Map()).product.permalink, null, 'no permalink key at all');
+});
+
+test('mapProduct: the phase 5 columns — WPML lang + translation ids, prices, stock, sales, categories, brands, images, flags, trash', () => {
+  const r = mapProduct(product({ lang: 'en', translations: { ar: 502, en: '501', 'x-y': 9, fr: 0 }, type: 'variable', regular_price: '1000', sale_price: '',
+    stock_quantity: '7', stock_status: 'instock', manage_stock: true, backorders: 'no', low_stock_amount: null, total_sales: 12,
+    categories: [{ id: 15, name: 'x' }, { id: 15 }, { id: 'bad' }], brands: [{ id: 3, name: 'b' }],
+    images: [{ id: 1, src: 'https://stage.example.test/a.jpg' }, { id: 2, src: 'http://stage.example.test/b.jpg' }, { src: 'https://x/c.jpg' }],
+    weight: '1.2', featured: false, description: '  ', short_description: '<p>x</p>', date_modified_gmt: '2026-10-20T08:30:15' }), new Map()).product;
+  assert.deepEqual([r.lang, r.translation_ids, r.type, r.regular_price, r.sale_price, r.stock_quantity, r.stock_status, r.manage_stock, r.backorders, r.low_stock_amount, r.total_sales],
+    ['en', { ar: 502, en: 501 }, 'variable', 1000, null, 7, 'instock', true, 'no', null, 12]);
+  assert.deepEqual([r.category_ids, r.brand_ids, r.images, r.weight, r.featured, r.desc_filled, r.short_desc_filled], [[15], [3], [{ id: 1, src: 'https://stage.example.test/a.jpg' }], '1.2', false, false, true]);
+  assert.equal(r.woo_modified_at, '2026-10-20T08:30:15Z');
+  assert.equal(r.trashed_at, null);
+  const t = mapProduct(product({ status: 'trash', date_modified_gmt: '2026-10-21T09:00:00', lang: 'arabic', translations: 'x' }), new Map()).product;
+  assert.deepEqual([t.status, t.trashed_at, t.lang, t.translation_ids, t.category_ids, t.manage_stock], ['trash', '2026-10-21T09:00:00Z', null, null, null, null]);
 });
 
 // ---------------------------------------------------------------- nextCursor

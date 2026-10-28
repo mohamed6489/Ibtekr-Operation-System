@@ -25,7 +25,11 @@ const COLUMNS: Record<string, string[]> = {
   // 0011 + 0017 (phase 3.5): the five Dokan bank columns
   vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at', 'account_number', 'account_type', 'bank_address', 'routing_number', 'swift'],
   activity_log: ['id', 'at', 'actor', 'action', 'entity', 'entity_id', 'old_value', 'new_value'],
-  products: ['id', 'sku', 'name', 'image_url', 'vendor_id', 'price', 'status', 'raw', 'updated_at', 'permalink'],
+  products: ['id', 'sku', 'name', 'image_url', 'vendor_id', 'price', 'status', 'raw', 'updated_at', 'permalink',
+    // 0021 (phase 5): the mirror columns
+    'lang', 'translation_ids', 'type', 'regular_price', 'sale_price', 'stock_quantity', 'stock_status', 'manage_stock', 'backorders',
+    'low_stock_amount', 'total_sales', 'category_ids', 'brand_ids', 'images', 'weight', 'featured', 'desc_filled', 'short_desc_filled',
+    'woo_modified_at', 'trashed_at'],
   orders: ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method',
     'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note',
     'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'raw', 'synced_at', 'created_at', 'updated_at', 'customer_state'],

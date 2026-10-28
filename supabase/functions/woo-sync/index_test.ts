@@ -11,11 +11,14 @@ const OURS = `${ENV.SUPABASE_URL}/functions/v1/woo-webhook`;
 // Member tokens → what has_perm('orders.status') / is_admin() answer for them, plus (phase 3.3) has_perm('vendors.edit') /
 // has_perm('sensitive.commission') for push_vendor: ops = vendors.edit P, vf = vendors follow-up (vendors.edit F, commission N),
 // acct = accounts (nothing). (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
-const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown }> = {
+const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; ptrash?: unknown }> = {
   'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false, edit: 'P' }, 'jwt-acct': { perm: 'P', admin: false, edit: 'N', accounts: 'P' },
   'jwt-vf': { perm: 'N', admin: false, edit: 'F', commission: 'N' },
   'jwt-bank': { perm: 'N', admin: false, edit: 'N', bank: 'F' }, // phase 3.5: accounts — sensitive.vendor_bank = F, vendors.edit = N
   'jwt-approver': { perm: 'N', admin: false, accounts: 'F', approve: 'F' }, // phase 4.1: accounts.approve = F
+  // phase 5: products.view P (reads a product live), products.edit F, products.trash F
+  'jwt-pview': { perm: 'N', admin: false, pview: 'P' }, 'jwt-pedit': { perm: 'N', admin: false, pview: 'F', pedit: 'F' },
+  'jwt-ptrash': { perm: 'N', admin: false, pview: 'F', ptrash: 'F' },
   'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
 };
 
@@ -28,7 +31,7 @@ function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fa
   const members: any[] = [];
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
+    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
     members.push({ jwt, client });
     return client;
   };
@@ -49,7 +52,8 @@ const page = (items: any[], totalPages = 1) => ({ body: items, headers: { 'X-WP-
 // wc/v3/data/countries/EG as WooCommerce answers it (the site's own codes; names made up for the tests).
 const STATES = 'GET wc/v3/data/countries/EG';
 const CATS = 'GET wc/v3/products/categories';
-const ALL_PATHS = ['wc/v3/data/countries/EG', 'wc/v3/products/categories', 'dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products'];
+// products: the default language, then lang=ar, then the trash (phase 5)
+const ALL_PATHS = ['wc/v3/data/countries/EG', 'wc/v3/products/categories', 'dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products', 'wc/v3/products', 'wc/v3/products'];
 const country = (states: unknown) => ({ body: { code: 'EG', name: 'Egypt', states, _links: { self: [{ href: 'https://woo.test/wp-json/wc/v3/data/countries/eg' }] } } });
 const single = (id: number, vendor: number, modified: string) =>
   wooOrder({ id, number: String(id), date_modified_gmt: modified, meta_data: [{ key: '_dokan_vendor_id', value: String(vendor) }],
@@ -484,7 +488,7 @@ Deno.test('all → states, then vendors, then orders, then products (one request
   assertEquals(Object.keys(body.counts), ['states', 'categories', 'vendors', 'orders', 'products']);
   assertEquals(body.counts.states, { states: 1, skipped: 0, failed: 0 });
   assertEquals(body.counts.categories, { categories: 1, skipped: 0, failed: 0, pages: 1, done: true });
-  assertEquals(body.counts.products, { products: 1, failed: 0, pages: 1, done: true });
+  assertEquals(body.counts.products, { products: 1, failed: 0, pages: 1, done: true, ar: 1, ar_done: true, trash: 1 });
   assertEquals(db.rows('woo_sync_log').map((r: any) => [r.entity, r.result]), [['states', 'ok'], ['categories', 'ok'], ['vendors', 'ok'], ['orders', 'ok'], ['products', 'ok']]);
 });
 
@@ -499,6 +503,129 @@ Deno.test('all keeps going when one part fails, answers 502 naming it, and the l
   const err = db.rows('woo_sync_log').find((r: any) => r.result === 'error')!;
   assertEquals([err.entity, err.kind], ['vendors', 'cron']);
   for (const s of [PHONE, ENV.WOO_CK, ENV.WOO_CS]) assertFalse(writtenText(db).includes(s), `leaked ${s}`);
+});
+
+// ---------------------------------------------------------------- products (phase 5)
+
+const prodSeed = { products: [
+  { id: 501, name: 'Lamp', status: 'publish', lang: 'en', translation_ids: { ar: 601, en: 501 } },
+  { id: 502, name: 'Vase', status: 'draft', lang: 'en', translation_ids: { en: 502 } },
+] };
+
+Deno.test('products: the default language, then lang=ar, then the trash (status=trash, every language), each with its own cursor', async () => {
+  const { db, woo, deps } = setup({ routes: { 'GET wc/v3/products': (c: any) => page([wooProduct(c.query.lang === 'ar' ? 601 : c.query.status === 'trash' ? 700 : 501, 44, { lang: c.query.lang === 'ar' ? 'ar' : 'en', status: c.query.status === 'trash' ? 'trash' : 'publish' })]) } });
+  const { body } = await call(deps, { action: 'products' });
+  assertEquals(woo.calls.map((c) => [c.query.lang ?? '', c.query.status ?? '']), [['', ''], ['ar', ''], ['all', 'trash']]);
+  assertEquals([body.counts.products.products, body.counts.products.ar, body.counts.products.trash], [1, 1, 1]);
+  assertEquals(db.rows('products').map((p: any) => [p.id, p.lang, p.status, p.trashed_at]), [[501, 'en', 'publish', null], [601, 'ar', 'publish', null], [700, 'en', 'trash', '2026-10-21T09:00:00Z']]);
+  assertEquals(['products', 'products_ar', 'products_trash'].map((k) => typeof db.row('sync_state', k, 'key')?.value.cursor), ['string', 'string', 'string']);
+});
+
+Deno.test('products { full: true }: every product of both languages by id, page by page from sync_state products_full (resumes, then back to page 1); delta cursors untouched', async () => {
+  const routes = { 'GET wc/v3/products': (c: any) => (c.query.lang === 'ar' ? page([wooProduct(601, 44, { lang: 'ar' })]) : c.query.page === '3' ? page([wooProduct(503, 44)]) : page([])) };
+  const { db, woo, deps } = setup({ routes, seed: { sync_state: [{ key: 'products_full', value: { lang: 'en', page: 3 } }, { key: 'products', value: { cursor: '2026-10-01T00:00:00Z' } }] } });
+  const { res, body } = await call(deps, { action: 'products', full: true });
+  assertEquals(res.status, 200);
+  assertEquals(woo.calls.map((c) => [c.query.lang, c.query.page, c.query.orderby, c.query.status]), [['en', '3', 'id', 'any'], ['ar', '1', 'id', 'any']]);
+  assertEquals(body.counts, { products: 2, failed: 0, lang: 'ar', done: true });
+  assertEquals([db.row('sync_state', 'products_full', 'key').value.lang, db.row('sync_state', 'products_full', 'key').value.page], ['en', 1]);
+  assertEquals(db.row('sync_state', 'products', 'key').value.cursor, '2026-10-01T00:00:00Z');
+});
+
+Deno.test('product_get: the product live (allow-listed: no meta, no store address), its Arabic name / descriptions, its variations; products.view <> N; never the secret', async () => {
+  const en = wooProduct(501, 44, { type: 'variable', lang: 'en', translations: { ar: 601, en: 501 }, meta_data: [{ key: '_wc_cog_cost', value: '999' }], purchase_note: 'سر', short_description: 'short', categories: [{ id: 15, name: 'Decor' }], brands: [{ id: 3, name: 'B' }] });
+  const routes = { 'GET wc/v3/products/501': { body: en }, 'GET wc/v3/products/601': { body: wooProduct(601, 44, { name: 'لمبة', lang: 'ar', short_description: 'وصف' }) },
+    'GET wc/v3/products/501/variations': page([{ id: 9001, sku: 'V1', attributes: [{ name: 'Color', option: 'Red' }], regular_price: '200', sale_price: '', stock_quantity: 3, manage_stock: true, meta_data: [{ key: 'x', value: 'y' }] }]) };
+  const { db, woo, deps } = setup({ routes });
+  assertEquals((await call(deps, { action: 'product_get', id: 501 })).res.status, 401, 'the sync secret');
+  assertEquals((await call(deps, { action: 'product_get', id: 501 }, { jwt: 'jwt-acct' })).res.status, 401, 'products.view N');
+  const { res, body } = await call(deps, { action: 'product_get', id: 501 }, { jwt: 'jwt-pview' });
+  assertEquals(res.status, 200);
+  assertEquals([body.product.id, body.product.type, body.product.categories, body.product.brands, body.product.store], [501, 'variable', [{ id: 15, name: 'Decor' }], [{ id: 3, name: 'B' }], { id: 44, shop_name: 'Store 44' }]);
+  assertEquals(body.ar, { id: 601, name: 'لمبة', short_description: 'وصف', description: '' });
+  assertEquals(body.variations.map((v: any) => [v.id, v.attributes, v.regular_price, v.stock_quantity]), [[9001, [{ name: 'Color', option: 'Red' }], '200', 3]]);
+  for (const secret of ['999', 'سر', 'street_1', 'Owner Name', '_wc_cog_cost']) assertFalse(JSON.stringify(body).includes(secret), secret);
+  assert(woo.calls.every((c) => c.method === 'GET'));
+  assertEquals(db.rows('products').map((p: any) => p.id), [501, 601], 'the mirror refreshed on the way');
+});
+
+Deno.test('product_save: push disabled → skipped with no call; a field outside the list / a bad value / sale above regular → 400 with no call; products.edit = F only', async () => {
+  const { db, woo, deps } = setup({ seed: prodSeed });
+  const r0 = await call(deps, { action: 'product_save', id: 501, fields: { regular_price: '100' } }, { jwt: 'jwt-pedit' });
+  assertEquals([r0.res.status, r0.body.result, r0.body.reason], [200, 'skipped', 'push_disabled']);
+  assertEquals(db.rows('woo_sync_log').at(-1).detail, { reason: 'push_disabled', fields: ['regular_price'], ar: [], variations: 0 });
+  const { deps: d2, woo: w2 } = setup({ seed: prodSeed, env: PUSH_ON });
+  for (const [fields, field] of [[{ meta_data: [] }, 'meta_data'], [{ regular_price: '-1' }, 'regular_price'], [{ status: 'trash' }, 'status'], [{ stock_quantity: 1.5 }, 'stock_quantity'],
+    [{ description: '<p onclick="x()">a</p>' }, 'description'], [{ short_description: '<script>x</script>' }, 'short_description'], [{ regular_price: '100', sale_price: '120' }, 'sale_price'], [{ store: { id: 1 } }, 'store']] as const) {
+    const r = await call(d2, { action: 'product_save', id: 501, fields }, { jwt: 'jwt-pedit' });
+    assertEquals([r.res.status, r.body.field], [400, field], JSON.stringify(fields));
+  }
+  assertEquals((await call(d2, { action: 'product_save', id: 501, fields: { name: 'x' } }, { jwt: 'jwt-pview' })).res.status, 401, 'products.edit N');
+  assertEquals((await call(d2, { action: 'product_save', id: 501, fields: { name: 'x' } })).res.status, 401, 'the sync secret');
+  assertEquals(woo.calls.length + w2.calls.length, 0);
+});
+
+Deno.test('product_save: PUT the product, the Arabic translation (its name + the shared status / price / stock), the variations by batch update; mirror from the answers; the log names fields only', async () => {
+  const routes = {
+    'PUT wc/v3/products/501': (c: any) => ({ body: wooProduct(501, 44, { ...c.body, lang: 'en', translations: { ar: 601, en: 501 } }) }),
+    'PUT wc/v3/products/601': (c: any) => ({ body: wooProduct(601, 44, { ...c.body, lang: 'ar' }) }),
+    'POST wc/v3/products/501/variations/batch': { body: { update: [{ id: 9001 }, { id: 9002, error: { code: 'x' } }] } },
+  };
+  const { db, woo, deps } = setup({ seed: prodSeed, routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'product_save', id: 501, fields: { name: ' Lamp 2 ', regular_price: '1500', sale_price: '1200', categories: [15, 15, 16], status: 'publish' },
+    ar: { name: 'لمبة 2' }, variations: [{ id: 9001, regular_price: '300' }, { id: 9002, stock_quantity: 4, manage_stock: true }] }, { jwt: 'jwt-pedit' });
+  assertEquals(res.status, 200);
+  assertEquals(body.counts, { saved: 2, variations: 1, variations_failed: 1 });
+  const put = woo.calls.filter((c) => c.method === 'PUT');
+  assertEquals(put.map((c) => [c.path, c.body]), [
+    ['wc/v3/products/501', { name: 'Lamp 2', regular_price: '1500', sale_price: '1200', categories: [{ id: 15 }, { id: 16 }], status: 'publish' }],
+    ['wc/v3/products/601', { regular_price: '1500', sale_price: '1200', status: 'publish', name: 'لمبة 2' }],
+  ]);
+  assertEquals(woo.calls.find((c) => c.method === 'POST')?.body, { update: [{ id: 9001, regular_price: '300' }, { id: 9002, stock_quantity: 4, manage_stock: true }] });
+  assertEquals(db.rows('products').find((p: any) => p.id === 501).sale_price, 1200);
+  const log = db.rows('woo_sync_log').at(-1);
+  assertEquals([log.entity, log.entity_id, log.action, log.result], ['products', '501', 'product_save', 'error']);
+  assertFalse(JSON.stringify(log.detail).includes('1500'), 'no price in the log');
+  // no translation for an Arabic field → 409, nothing written to the translation
+  const r2 = await call(deps, { action: 'product_save', id: 502, ar: { name: 'x' } }, { jwt: 'jwt-pedit' });
+  assertEquals([r2.res.status, r2.body.error], [409, 'no_translation']);
+});
+
+Deno.test('products_batch: wc/v3/products/batch with `update` only (never `delete`), the translations get the shared fields only; failed ids answered', async () => {
+  const routes = { 'POST wc/v3/products/batch': (c: any) => ({ body: { update: c.body.update.map((u: any) => (u.id === 502 ? { id: 502, error: { code: 'woocommerce_rest_product_invalid_id' } } : wooProduct(u.id, 44, { ...u, categories: undefined, translations: u.id === 501 ? { ar: 601, en: 501 } : undefined }))) } }) };
+  const { woo, deps } = setup({ seed: prodSeed, routes, env: PUSH_ON });
+  assertEquals((await call(deps, { action: 'products_batch', update: [{ id: 501, status: 'draft' }], delete: [501] }, { jwt: 'jwt-pedit' })).res.status, 200);
+  assertFalse(woo.calls.some((c) => 'delete' in (c.body ?? {})), 'a batch never carries delete');
+  const { res, body } = await call(deps, { action: 'products_batch', update: [{ id: 501, regular_price: '900', categories: [20] }, { id: 502, status: 'publish' }] }, { jwt: 'jwt-pedit' });
+  assertEquals(res.status, 200);
+  assertEquals([body.counts, body.failed_ids], [{ updated: 1, failed: 1, translations: 1 }, [502]]);
+  const batches = woo.calls.filter((c) => c.path === 'wc/v3/products/batch').slice(-2).map((c) => c.body);
+  assertEquals(batches, [{ update: [{ id: 501, regular_price: '900', categories: [{ id: 20 }] }, { id: 502, status: 'publish' }] }, { update: [{ id: 601, regular_price: '900' }] }]);
+  for (const bad of [{ update: [] }, { update: [{ id: 501 }] }, { update: [{ id: 501, name: 'x' }] }, { update: Array.from({ length: 101 }, (_, i) => ({ id: i + 1, status: 'draft' })) }]) {
+    assertEquals((await call(deps, { action: 'products_batch', ...bad }, { jwt: 'jwt-pedit' })).res.status, 400, JSON.stringify(bad).slice(0, 60));
+  }
+  assertEquals((await call(deps, { action: 'products_batch', update: [{ id: 501, status: 'draft' }] }, { jwt: 'jwt-ptrash' })).res.status, 401, 'products.edit N');
+});
+
+Deno.test('products_trash / products_restore: DELETE with no query at all (never force) on the product and its translation; restore = draft; products.trash = F only', async () => {
+  const tr = { translations: { ar: 601, en: 501 } };
+  const routes = { 'DELETE wc/v3/products/501': { body: wooProduct(501, 44, { status: 'trash', ...tr }) }, 'DELETE wc/v3/products/601': { body: wooProduct(601, 44, { status: 'trash', lang: 'ar' }) },
+    'DELETE wc/v3/products/502': { status: 500, body: { code: 'x' } },
+    'PUT wc/v3/products/501': (c: any) => ({ body: wooProduct(501, 44, { ...c.body, ...tr }) }), 'PUT wc/v3/products/601': (c: any) => ({ body: wooProduct(601, 44, c.body) }) };
+  const { db, woo, deps } = setup({ seed: prodSeed, routes, env: PUSH_ON });
+  assertEquals((await call(deps, { action: 'products_trash', ids: [501] }, { jwt: 'jwt-pedit' })).res.status, 401, 'products.trash N');
+  const { res, body } = await call(deps, { action: 'products_trash', ids: [501, 502] }, { jwt: 'jwt-ptrash' });
+  assertEquals([res.status, body.counts, body.failed_ids], [200, { done: 1, failed: 1 }, [502]]);
+  const dels = woo.calls.filter((c) => c.method === 'DELETE');
+  assertEquals(dels.map((c) => [c.path, c.query]), [['wc/v3/products/501', {}], ['wc/v3/products/601', {}], ['wc/v3/products/502', {}]]);
+  assertEquals(db.rows('products').find((p: any) => p.id === 501).status, 'trash');
+  const back = await call(deps, { action: 'products_restore', ids: [501] }, { jwt: 'jwt-ptrash' });
+  assertEquals(back.body.counts, { done: 1, failed: 0 });
+  assertEquals(woo.calls.filter((c) => c.method === 'PUT').map((c) => [c.path, c.body]), [['wc/v3/products/501', { status: 'draft' }], ['wc/v3/products/601', { status: 'draft' }]]);
+  assertEquals(db.rows('products').find((p: any) => p.id === 501).status, 'draft');
+  const { woo: w2, deps: d2 } = setup({ seed: prodSeed, routes });
+  assertEquals((await call(d2, { action: 'products_trash', ids: [501] }, { jwt: 'jwt-ptrash' })).body.reason, 'push_disabled');
+  assertEquals(w2.calls.length, 0);
 });
 
 // ---------------------------------------------------------------- states (the site's governorate names)

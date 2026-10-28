@@ -56,6 +56,17 @@
 //   'withdrawals' (phase 4.1, decision 12: «تحديث من Dokan»)  the withdraw-request half of 'accounts' on demand: dokan/v1/withdraw
 //              ?status=all → dokan_withdrawals (the same allow-list), read-only on Dokan; no balances. A member needs
 //              accounts.view <> N (like 'statement').
+//   'products' { full: true }  (phase 5, decision 4) every product of both languages by id, page by page from
+//              sync_state['products_full'] (the products the delta cursor missed); the delta 'products' pull itself reads
+//              the default language, then lang=ar, then status=trash, each with its own cursor.
+//   'product_get' { id }  (phase 5, decision 5) the product live + its Arabic translation's name / descriptions + its
+//              variations, allow-listed (woo-products.js editView); products.view <> N.
+//   'product_save' { id, fields, ar?, variations? } / 'products_batch' { update: [{ id, …fields }] } (≤ 100)
+//              products.edit = F: the allowed fields only (woo-products.js), PUT / batch `update` (never `delete`);
+//              the Arabic translation gets its own fields + status / price / stock. WOO_PUSH_ENABLED gates them.
+//   'products_trash' / 'products_restore' { ids } (≤ 100)  products.trash = F: DELETE with no query (the trash —
+//              never `force`) / PUT status draft, on the product and its translation. WOO_PUSH_ENABLED gates them.
+//              The product actions are a person's, never the sync secret's; the mirror follows WooCommerce's answers.
 //   'register_webhooks' { delivery_url? }  ensures one active `ibtekr-ops:<topic>` webhook per topic pointing at
 //              {SUPABASE_URL}/functions/v1/woo-webhook; any other webhook on the site (n8n's) is never touched.
 // Answer: 200 { action, result, counts, … } or 4xx / 5xx { error }. CORS for the browser's functions.invoke.
@@ -63,6 +74,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from '../_shared/woo-core.js';
 import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
+import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, variationView } from '../_shared/woo-products.js';
 import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
@@ -73,7 +85,11 @@ export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetc
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
-const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals'];
+const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals',
+  'product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore'];
+// phase 5: the product actions a person runs (never the sync secret)
+const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore'];
+const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
 const STATEMENT_MAX_PAGES = 10;
@@ -97,6 +113,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   const secret = req.headers.get('x-sync-secret');
   if (secret) {
     if (action === 'withdraw_approve') return null; // a person approves, never the cron / sync secret (phase 4.1)
+    if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
     const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
     return !error && data === true ? 'system' : null;
   }
@@ -109,6 +126,10 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'statement' || action === 'withdrawals') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // phase 4.1 (decision 1): approving a Dokan withdraw request — the admin or accounts.approve = F (has_perm carries aal2)
   if (action === 'withdraw_approve') return (await admin()) || (await perm('accounts.approve')) ? 'member' : null;
+  // phase 5 (decision 5): reading a product live needs products.view <> N; editing products.edit = F; the trash products.trash = F
+  if (action === 'product_get') { const { data, error } = await member.rpc('has_perm', { key: 'products.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  if (action === 'product_save' || action === 'products_batch') return (await admin()) || (await perm('products.edit')) ? 'member' : null;
+  if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
   if (action === 'push_vendor') {
     if (await admin()) return 'member';
     const fields = Array.isArray(args.fields) ? args.fields : [];
@@ -149,9 +170,43 @@ const pullOrders = (run: Run) => run.ctx().then((ctx) => cursorPull(run, 'orders
   { after: `${START_DATE}T00:00:00`, dates_are_gmt: 'true', orderby: 'modified', order: 'asc', status: 'any' },
   (page) => writeOrderPage(ctx, page)));
 
-const pullProducts = (run: Run) => run.ctx().then((ctx) => cursorPull(run, 'products', 'wc/v3/products',
-  { dates_are_gmt: 'true', orderby: 'modified', order: 'asc' },
-  async (page) => { const r = await writeProducts(ctx, page); return { products: r.written.length, failed: r.failed }; }));
+// Products (phase 5, decision 4): the default language (en), then the Arabic translations (lang=ar) and the trash
+// (status=trash, every language), each with its own cursor. The counts of the two extra pulls come back under ar / trash.
+const PRODUCT_QUERY = { dates_are_gmt: 'true', orderby: 'modified', order: 'asc' };
+async function pullProducts(run: Run) {
+  const ctx = await run.ctx();
+  const write = async (page: Json[]) => { const r = await writeProducts(ctx, page); return { products: r.written.length, failed: r.failed }; };
+  const en: Json = await cursorPull(run, 'products', 'wc/v3/products', PRODUCT_QUERY, write);
+  const ar: Json = await cursorPull(run, 'products_ar', 'wc/v3/products', { ...PRODUCT_QUERY, lang: 'ar' }, write);
+  const trash: Json = await cursorPull(run, 'products_trash', 'wc/v3/products', { ...PRODUCT_QUERY, status: 'trash', lang: 'all' }, write);
+  return { ...en, ar: ar.products ?? 0, ar_done: ar.done, trash: trash.products ?? 0, failed: (en.failed ?? 0) + (ar.failed ?? 0) + (trash.failed ?? 0) };
+}
+
+// A full products pull (decision 4: the products the cursor missed): every product of both languages by id, from the page
+// sync_state['products_full'] holds (saved after every page, so the next run goes on); done → back to page 1. The cursors
+// of the delta pulls are not touched.
+async function fullProducts(run: Run) {
+  const ctx = await run.ctx();
+  const state = await getState(run.db, 'products_full');
+  let lang: string = state.lang === 'ar' ? 'ar' : 'en';
+  let start = Number.isInteger(state.page) && state.page > 0 ? state.page : 1;
+  let products = 0, failed = 0, done = false;
+  for (;;) {
+    const res = await ctx.woo.eachPage('wc/v3/products', { orderby: 'id', order: 'asc', status: 'any', lang }, async (page: Json[], n: number) => {
+      const r = await writeProducts(ctx, page);
+      products += r.written.length; failed += r.failed;
+      await setState(run.db, 'products_full', { lang, page: n + 1, last_run: run.now() }, run.now());
+    }, { startPage: start });
+    if (!res.done) break;
+    if (lang === 'ar') { done = true; break; }
+    lang = 'ar'; start = 1;
+    await setState(run.db, 'products_full', { lang, page: 1, last_run: run.now() }, run.now());
+  }
+  if (done) await setState(run.db, 'products_full', { lang: 'en', page: 1, last_run: run.now(), done_at: run.now() }, run.now());
+  const counts = { products, failed, lang, done };
+  await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'products', action: 'full', result: 'ok', detail: counts });
+  return json(200, { action: 'products', result: 'ok', full: true, counts });
+}
 
 async function pullVendors(run: Run) {
   const ctx = await run.ctx();
@@ -532,6 +587,146 @@ async function withdrawApprove(run: Run, args: Json) {
   return json(200, { action: 'withdraw_approve', result: 'ok', status });
 }
 
+// ---------------------------------------------------------------- products (phase 5, decision 5)
+
+// Every product write: WOO_PUSH_ENABLED first (skipped/push_disabled, no call to the site), a woo_sync_log row per
+// attempt (entity products, the field names only — never a price or a description), and the mirror refreshed from
+// WooCommerce's own answer. The Arabic translation (WPML) gets the status / price / stock too and its own name and
+// descriptions; categories, brands and images stay on the product itself.
+const productEntry = (id: number | null, action: string) => ({ kind: 'push', direction: 'out', entity: 'products', entity_id: id === null ? null : String(id), action });
+const idList = (v: unknown, max: number) => (Array.isArray(v) && v.length >= 1 && v.length <= max && v.every((x) => wooId(x) !== null) ? [...new Set(v.map((x) => wooId(x) as number))] : null);
+const pushSkip = async (run: Run, action: string, id: number | null, extra: Json = {}) => {
+  await logSync(run.db, { ...productEntry(id, action), result: 'skipped', detail: { reason: 'push_disabled', ...extra } });
+  return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+};
+// the Arabic translation ids of these products, from the mirror (translation_ids.ar, when it is another product)
+async function arIds(run: Run, ids: number[]) {
+  const { data, error } = await run.db.from('products').select('id, translation_ids').in('id', ids);
+  if (error) throw new Error(`products: ${error.message}`);
+  const out = new Map<number, number>();
+  for (const r of data ?? []) { const ar = wooId(isObj(r.translation_ids) ? r.translation_ids.ar : null); if (ar !== null && ar !== Number(r.id)) out.set(Number(r.id), ar); }
+  return out;
+}
+
+// product_get { id }: the product as it is on the site now (+ its Arabic translation's name / descriptions + its
+// variations, up to 100), allow-listed (editView / variationView); the mirror is refreshed on the way.
+async function productGet(run: Run, args: Json) {
+  const id = wooId(args.id);
+  if (id === null) return json(400, { error: 'bad_request' });
+  const ctx = await run.ctx();
+  const p = (await ctx.woo.get(`wc/v3/products/${id}`)).data;
+  if (!isObj(p)) return json(502, { error: 'woo_error' });
+  const arId = wooId(isObj(p.translations) ? p.translations.ar : null);
+  let ar: Json | null = null;
+  if (arId !== null && arId !== id) { try { ar = (await ctx.woo.get(`wc/v3/products/${arId}`)).data; } catch (e) { if (!(e instanceof WooError)) throw e; } }
+  let variations: Json[] = [];
+  if (p.type === 'variable') variations = ((await ctx.woo.get(`wc/v3/products/${id}/variations`, { per_page: 100, page: 1 })).data ?? []).map(variationView).filter(Boolean);
+  await writeProducts(ctx, [p, ...(isObj(ar) ? [ar] : [])]);
+  const arView = isObj(ar) ? editView(ar) : null;
+  return json(200, { action: 'product_get', product: editView(p), ar: arView && { id: arView.id, name: arView.name, short_description: arView.short_description, description: arView.description }, variations });
+}
+
+// product_save { id, fields, ar?, variations? }: PUT the product with the allowed fields, the translation with its
+// own fields + the shared ones, the variations through variations/batch (update only).
+async function productSave(run: Run, args: Json) {
+  const id = wooId(args.id);
+  if (id === null) return json(400, { error: 'bad_request' });
+  const main = cleanFields(args.fields ?? {}, EDIT_FIELDS);
+  if (main.error) return json(400, { error: main.error, field: main.field });
+  const arF = cleanFields(args.ar ?? {}, AR_FIELDS);
+  if (arF.error) return json(400, { error: arF.error, field: `ar.${arF.field}` });
+  const vars = Array.isArray(args.variations) ? args.variations : [];
+  if (vars.length > PRODUCT_BATCH_MAX) return json(400, { error: 'too_many' });
+  const varPayload: Json[] = [];
+  for (const v of vars) {
+    const vid = wooId(isObj(v) ? v.id : null);
+    const { id: _id, ...rest } = isObj(v) ? v : {};
+    const c = cleanFields(rest, VARIATION_FIELDS);
+    if (vid === null || c.error) return json(400, { error: c.error ?? 'bad_field', field: `variations.${c.field ?? 'id'}` });
+    varPayload.push({ id: vid, ...c.payload });
+  }
+  const fields = Object.keys(main.payload), arFields = Object.keys(arF.payload);
+  if (!fields.length && !arFields.length && !varPayload.length) return json(400, { error: 'nothing_to_save' });
+  const detail = { fields, ar: arFields, variations: varPayload.length };
+  if (!pushEnabled(run.env)) return await pushSkip(run, 'product_save', id, detail);
+  const ctx = await run.ctx();
+  const saved: Json[] = [];
+  if (fields.length) saved.push((await ctx.woo.put(`wc/v3/products/${id}`, main.payload)).data);
+  const shared = sharedOf(main.payload);
+  const arId = (await arIds(run, [id])).get(id) ?? null;
+  if (arFields.length && arId === null) return json(409, { error: 'no_translation' });
+  if (arId !== null && (arFields.length || Object.keys(shared).length)) saved.push((await ctx.woo.put(`wc/v3/products/${arId}`, { ...shared, ...arF.payload })).data);
+  let varFailed = 0;
+  if (varPayload.length) {
+    const r = (await ctx.woo.post(`wc/v3/products/${id}/variations/batch`, { update: varPayload })).data;
+    varFailed = (isObj(r) && Array.isArray(r.update) ? r.update : []).filter((x: Json) => isObj(x) && isObj(x.error)).length;
+  }
+  await writeProducts(ctx, saved.filter(isObj));
+  await logSync(run.db, { ...productEntry(id, 'product_save'), result: varFailed ? 'error' : 'ok', detail: { ...detail, translation: arId !== null, variations_failed: varFailed } });
+  return json(200, { action: 'product_save', result: 'ok', counts: { saved: saved.length, variations: varPayload.length - varFailed, variations_failed: varFailed } });
+}
+
+// products_batch { update: [{ id, ...fields }] } (≤ 100): wc/v3/products/batch with `update` only — the batch's
+// `delete` removes for good, so it is never sent — then the same shared fields on the Arabic translations.
+async function productsBatch(run: Run, args: Json) {
+  const items = Array.isArray(args.update) ? args.update : null;
+  if (!items || !items.length || items.length > PRODUCT_BATCH_MAX) return json(400, { error: 'bad_request' });
+  const update: Json[] = [];
+  for (const it of items) {
+    const id = wooId(isObj(it) ? it.id : null);
+    const { id: _id, ...rest } = isObj(it) ? it : {};
+    const c = cleanFields(rest, BATCH_FIELDS);
+    if (id === null || c.error || !Object.keys(c.payload).length) return json(400, { error: c.error ?? 'bad_field', field: c.field ?? 'id' });
+    update.push({ id, ...c.payload });
+  }
+  const ids = update.map((u) => u.id as number);
+  const fields = [...new Set(update.flatMap((u) => Object.keys(u).filter((k) => k !== 'id')))];
+  if (!pushEnabled(run.env)) return await pushSkip(run, 'products_batch', null, { count: ids.length, fields });
+  const ctx = await run.ctx();
+  const ar = await arIds(run, ids);
+  const arUpdate = update.map((u) => ({ id: ar.get(u.id as number), ...sharedOf(u) })).filter((u) => u.id && Object.keys(u).length > 1);
+  const res = (await ctx.woo.post('wc/v3/products/batch', { update })).data;
+  const done = (isObj(res) && Array.isArray(res.update) ? res.update : []).filter(isObj);
+  const okRows = done.filter((x: Json) => !isObj(x.error) && wooId(x.id) !== null);
+  let arRows: Json[] = [];
+  if (arUpdate.length) {
+    try { const r2 = (await ctx.woo.post('wc/v3/products/batch', { update: arUpdate })).data; arRows = (isObj(r2) && Array.isArray(r2.update) ? r2.update : []).filter((x: Json) => isObj(x) && !isObj(x.error)); }
+    catch (e) { if (!(e instanceof WooError)) throw e; }
+  }
+  await writeProducts(ctx, [...okRows, ...arRows]);
+  const counts = { updated: okRows.length, failed: ids.length - okRows.length, translations: arRows.length };
+  await logSync(run.db, { ...productEntry(null, 'products_batch'), result: counts.failed ? 'error' : 'ok', detail: { ...counts, fields, ids: ids.slice(0, PRODUCT_BATCH_MAX) } });
+  return json(200, { action: 'products_batch', result: 'ok', counts, failed_ids: ids.filter((i) => !okRows.some((r: Json) => wooId(r.id) === i)) });
+}
+
+// products_trash { ids } / products_restore { ids } (≤ 100): to the trash = DELETE wc/v3/products/{id} with no query
+// (never `force`: WordPress empties its trash after 30 days by itself); back = status draft. The product and its translation.
+async function productsTrash(run: Run, args: Json, restore: boolean) {
+  const action = restore ? 'products_restore' : 'products_trash';
+  const ids = idList(args.ids, PRODUCT_BATCH_MAX);
+  if (!ids) return json(400, { error: 'bad_request' });
+  if (!pushEnabled(run.env)) return await pushSkip(run, action, null, { count: ids.length });
+  const ctx = await run.ctx();
+  const ar = await arIds(run, ids);
+  const rows: Json[] = [];
+  const failed: number[] = [];
+  for (const id of ids) {
+    try {
+      for (const pid of [id, ...(ar.has(id) ? [ar.get(id) as number] : [])]) {
+        const r = restore ? await ctx.woo.put(`wc/v3/products/${pid}`, { status: 'draft' }) : await ctx.woo.del(`wc/v3/products/${pid}`);
+        if (isObj(r.data)) rows.push(r.data);
+      }
+    } catch (e) {
+      if (!(e instanceof WooError)) throw e;
+      failed.push(id);
+    }
+  }
+  await writeProducts(ctx, rows);
+  const counts = { done: ids.length - failed.length, failed: failed.length };
+  await logSync(run.db, { ...productEntry(null, action), result: failed.length ? 'error' : 'ok', detail: { ...counts, ids } });
+  return json(200, { action, result: 'ok', counts, failed_ids: failed });
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -560,6 +755,11 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'probe_dokan') return await probeDokan(run, args);
     if (action === 'statement') return await statement(run, args);
     if (action === 'withdraw_approve') return await withdrawApprove(run, args);
+    if (action === 'product_get') return await productGet(run, args);
+    if (action === 'product_save') return await productSave(run, args);
+    if (action === 'products_batch') return await productsBatch(run, args);
+    if (action === 'products_trash' || action === 'products_restore') return await productsTrash(run, args, action === 'products_restore');
+    if (action === 'products' && args.full === true) return await fullProducts(run);
     if (action === 'withdrawals') {
       try {
         const w = await pullWithdrawals(run, await makersWithStore(run), run.now());
@@ -585,10 +785,11 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     }
     return await pull(run, action);
   } catch (e) {
-    const isPush = action === 'push_status' || action === 'push_vendor' || action === 'withdraw_approve';
-    const entity = action === 'push_status' ? 'order' : action === 'push_vendor' ? 'vendor' : action === 'withdraw_approve' ? 'dokan_withdrawals' : 'webhooks';
+    const isPush = action === 'push_status' || action === 'push_vendor' || action === 'withdraw_approve' || PRODUCT_ACTIONS.includes(action);
+    const entity = action === 'push_status' ? 'order' : action === 'push_vendor' ? 'vendor' : action === 'withdraw_approve' ? 'dokan_withdrawals'
+      : PRODUCT_ACTIONS.includes(action) || action === 'products' ? 'products' : 'webhooks';
     const entityId = action === 'push_status' ? wooId(args.order_id)?.toString() ?? null : action === 'push_vendor' && typeof args.vendor_id === 'string' ? args.vendor_id.slice(0, 36)
-      : action === 'withdraw_approve' ? wooId(args.id)?.toString() ?? null : null;
+      : action === 'withdraw_approve' || action === 'product_get' || action === 'product_save' ? wooId(args.id)?.toString() ?? null : null;
     await logSync(deps.db, { kind: isPush ? 'push' : run.kind, direction: 'out', entity, entity_id: entityId, action, result: 'error', detail: { error: errorText(e, makeScrubber(deps.env)) } });
     if (e instanceof ConfigError) return json(500, { error: 'not_configured' });
     return json(e instanceof WooError ? 502 : 500, { error: e instanceof WooError ? 'woo_error' : 'failed' });

@@ -77,7 +77,7 @@ function baseUrl(raw) {
 }
 
 /**
- * { get(path, query), put(path, body), post(path, body), eachPage(path, query, onPage, { maxPages }), scrub }.
+ * { get(path, query), put(path, body), post(path, body), del(path), eachPage(path, query, onPage, { maxPages, startPage }), scrub }.
  * get/put/post → { data, total, pages } (X-WP-Total / X-WP-TotalPages as numbers or null).
  */
 export function wooApi(env, fetchFn) {
@@ -115,13 +115,13 @@ export function wooApi(env, fetchFn) {
   }
 
   /** GET page 1, 2, … (per_page PER_PAGE) until a short page, X-WP-TotalPages or maxPages; → { pages, done }. */
-  async function eachPage(path, query, onPage, { maxPages = MAX_PAGES } = {}) {
-    for (let page = 1; ; page++) {
+  async function eachPage(path, query, onPage, { maxPages = MAX_PAGES, startPage = 1 } = {}) {
+    for (let page = startPage; ; page++) {
       const r = await request('GET', path, { query: { ...query, per_page: PER_PAGE, page } });
       if (!Array.isArray(r.data)) throw new WooError(200, `GET ${path}`, 'expected a JSON array');
       await onPage(r.data, page);
       if (r.data.length < PER_PAGE || (r.pages !== null && page >= r.pages)) return { pages: page, done: true };
-      if (page >= maxPages) return { pages: page, done: false };
+      if (page - startPage + 1 >= maxPages) return { pages: page, done: false };
     }
   }
 
@@ -129,6 +129,8 @@ export function wooApi(env, fetchFn) {
     get: (path, query) => request('GET', path, { query }),
     put: (path, body) => request('PUT', path, { body }),
     post: (path, body) => request('POST', path, { body }),
+    // DELETE with no query at all: a product goes to the trash (never `force`, which deletes it for good; phase 5)
+    del: (path) => request('DELETE', path),
     eachPage,
     scrub,
     hasDokanAuth: dokanAuth !== null, // a WordPress Application Password is set (dokan/ paths are authenticated)

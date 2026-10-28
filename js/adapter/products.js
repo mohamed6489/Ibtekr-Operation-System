@@ -194,14 +194,16 @@
   // percentage of the sale price + the flat fee. → { amount, rate, fee, source } or null (no price / no visible rate).
   function vendorOf(id) { const V = window.IBVendors; return id && V && V.store && V.store.get ? quiet(() => V.store.get(id)) : null; }
   function commissionOf(rec) {
+    const sale = rec ? (rec.sale != null ? rec.sale : rec.price) : null; if (sale == null) return null;
+    const c = commissionParams(rec); if (!c) return null;
+    return { amount: Math.round((sale * (c.rate || 0) / 100 + c.fee) * 100) / 100, rate: c.rate, fee: c.fee, source: c.source };
+  }
+  // the commission's figures without a price (decision 16: the prices are computed from the maker's price) →
+  // { rate (% or null for a flat-only product commission), fee, source } or null (no visible rate / not sensitive.commission = F)
+  function commissionParams(rec) {
     if (!rec || perm('sensitive.commission') !== 'F') return null;
-    const sale = rec.sale != null ? rec.sale : rec.price; if (sale == null) return null;
     const own = comm.get(Number(rec.id));
-    const r2 = (x) => Math.round(x * 100) / 100;
-    if (own && own.rate != null) {
-      const amount = own.type === 'flat' ? own.rate : sale * own.rate / 100 + (own.fee || 0);
-      return { amount: r2(amount), rate: own.type === 'flat' ? null : own.rate, fee: own.type === 'flat' ? own.rate : own.fee || 0, source: 'product' };
-    }
+    if (own && own.rate != null) return own.type === 'flat' ? { rate: null, fee: own.rate, source: 'product' } : { rate: own.rate, fee: own.fee || 0, source: 'product' };
     const v = vendorOf(rec.vendorId); if (!v || !v.ratesVisible) return null;
     let rate = rateOf(rec.vendorId); let fee = v.rateFlat || 0; let source = 'store';
     if (v.commissionType === 'category_based') {
@@ -214,7 +216,7 @@
       }
     }
     if (rate == null) return null;
-    return { amount: r2(sale * rate / 100 + fee), rate, fee, source };
+    return { rate, fee, source };
   }
   const vendorPriceOf = (rec) => { const c = commissionOf(rec); const sale = rec && (rec.sale != null ? rec.sale : rec.price); return c && sale != null ? Math.round((sale - c.amount) * 100) / 100 : null; };
   // the maker's rate today (vendor_rates, sensitive.commission) — null when it is not visible
@@ -228,7 +230,7 @@
   function clear() { gen++; st = 'idle'; rows = new Map(); cats = new Map(); brands = new Map(); comm = new Map(); }
 
   window.IBProducts = {
-    load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, vendorPriceOf, STATUS,
+    load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS,
     categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id) })).sort((a, b) => a.path.localeCompare(b.path)),
     brands: () => [...brands.values()].map((x) => ({ id: Number(x.id), name: x.name })),
     fetchLive, save, batch, trashIds: (ids, onProgress) => moveTrash(ids, false, onProgress), restore: (ids, onProgress) => moveTrash(ids, true, onProgress),

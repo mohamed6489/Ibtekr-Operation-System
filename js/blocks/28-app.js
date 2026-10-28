@@ -1303,6 +1303,16 @@
       sourceNote('المصدر: الأوردرات (السيستم) للفترة المحددة · حصة إبتكر = قيمة السطر × نسبة الموقع على السطر (أو نسبتنا يومها) + الرسوم · «تحت التنفيذ» = جاري التنفيذ + جاهز للشحن + قيد الشحن · «مرتجع / ملغي» = ملغي + استرجاع + فشل · حصة المبتكرين = إجمالي المبيعات − حصة إبتكر')].filter(Boolean);
   }
 
+  // plan 4.1 decision 13 (owner, 28 Oct): filter the makers' table to those with a Dokan withdraw request
+  const WD_FILTERS = [{ value: 'all', label: 'طلبات السحب: الكل' }, { value: 'any', label: 'عندهم طلب سحب' }, { value: 'pending', label: 'مستني الموافقة بس' }];
+  const wdFilterOk = (v) => { const f = state.wdFilter || 'all'; if (f === 'all') return true; const r = wdOf(v.name); return f === 'pending' ? !!r && r.status === 'pending' : !!r; };
+  function WdFilterDropdown() {
+    const cur = WD_FILTERS.find((x) => x.value === (state.wdFilter || 'all'));
+    const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
+    const btn = h('button', { type: 'button', class: 'sort-btn', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'data-wd-filter': state.wdFilter || 'all' }, Icon('chevD', 'sm'), h('span', null, cur.label), Icon('download', 'sm'));
+    const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: WD_FILTERS, value: cur.value, onSelect: (v) => { close(); state.wdFilter = v; render(); } }));
+    btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
+  }
   function SortDropdown() {
     const sort = SORTS.find((x) => x.value === state.sort);
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
@@ -1367,6 +1377,20 @@
         });
       } });
   }
+  // plan 4.1 decision 12 (owner, 28 Oct): «تحديث من Dokan» — the withdraw requests now instead of at the hourly run (read-only)
+  function refreshDokanBtn() {
+    if (!AC() || !AC().refreshWithdrawals) return null;
+    const busy = AC().refreshing();
+    return Button({ label: busy ? 'بنحدّث من Dokan…' : 'تحديث من Dokan', icon: 'refresh', disabled: busy, attrs: { 'data-dokan-refresh': '', 'aria-busy': busy ? 'true' : 'false', title: 'هات طلبات السحب الجديدة من Dokan دلوقتي' },
+      onClick: () => {
+        AC().refreshWithdrawals().then((r) => {
+          if (r.reason === 'busy') return;
+          if (r.ok) setNote({ kind: 'success', text: 'اتحدّثت طلبات السحب من Dokan — ' + (r.pending ? r.pending + ' طلب مستني الموافقة.' : 'مفيش طلبات مستنية الموافقة.') });
+          else setNote({ kind: 'error', text: r.reason === 'woo_down' ? 'Dokan مش بيرد دلوقتي — جرّب كمان شوية.' : r.reason === 'forbidden' ? 'مش من صلاحياتك.' : 'مقدرناش نحدّث من Dokan — جرّب تاني.' });
+          render();
+        });
+      } });
+  }
   // كشف حساب المبتكر من Dokan للفترة المحددة (phase 4, decision 6): بيتجاب وقت الفتح ومابيتخزنش
   const STATEMENT_TYPES = { opening_balance: 'رصيد افتتاحي', dokan_orders: 'أوردر', dokan_withdraw: 'سحب', dokan_refund: 'مرتجع' };
   function openStatement(name, vendorId) {
@@ -1389,7 +1413,8 @@
     ['xN', 'ملغي — عدد'], ['xV', 'ملغي — حصة إبتكر'], ['dokan', 'رصيد Dokan'], ['dep', 'إجمالي العرابين'], ['tr', 'المواصلات'], ['wd', 'طلب سحب'], ['bal', 'الصافي'], ['act', 'إجراءات']];
   function VendorsView() {
     const list = vendorsNow(); const s = D.vendorSummary(list); const sort = SORTS.find((x) => x.value === state.sort);
-    const sorted = D.sortVendors(list, sort.key, sort.dir); const T = SEED.vendorTotals;
+    const sorted = D.sortVendors(list, sort.key, sort.dir).filter(wdFilterOk); const T = SEED.vendorTotals;
+    const wdFiltered = (state.wdFilter || 'all') !== 'all';
     const bal = (n) => h('span', { class: n > 0 ? 'pos' : n < 0 ? 'neg' : '' }, num(D.formatMoney(n)));
     const vOpenName = (l) => (i) => { const v = vstore.findByName(l[i].name); if (v) openVendor(v.id, { inPlace: true }); };
     const accVDet = (k) => { const l = k === 'pos' ? sorted.filter((v) => v.balance > 0) : k === 'neg' ? sorted.filter((v) => v.balance < 0) : k === 'dep' ? sorted.filter((v) => v.deposits > 0) : sorted;
@@ -1418,11 +1443,15 @@
           onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAccountBrief(v.name); } } }, v.name)),
           pct: (v) => num(v.pct), cN: (v) => num(String(v.c[0])), cV: (v) => num(D.formatMoney(v.c[2])), pN: (v) => num(String(v.p[0])), pV: (v) => num(D.formatMoney(v.p[2])),
           xN: (v) => num(String(v.x[0])), xV: (v) => num(D.formatMoney(v.x[2])), dokan: (v) => (v.dokanBalance == null ? '—' : num(D.formatMoney(v.dokanBalance))), dep: (v) => num(D.formatMoney(v.deposits)), tr: (v) => num(D.formatMoney(trOf(v.name))), wd: wdTag, bal: (v) => bal(v.balance), act: rowMenu };
-        const TOT = { name: 'الإجمالي', pct: '—', cN: num(String(T.c[0])), cV: num(D.formatMoney(T.c[2])), pN: num(String(T.p[0])), pV: num(D.formatMoney(T.p[2])), xN: num(String(T.x[0])), xV: num(D.formatMoney(T.x[2])),
-          dokan: num(D.formatMoney(D.round2(sorted.reduce((t, v) => t + (v.dokanBalance || 0), 0)))), dep: num(D.formatMoney(s.deposits)), tr: num(D.formatMoney(tA.vendors)), wd: h('span', null, num(String(sorted.filter((v) => wdOf(v.name)).length)), ' طلب'), bal: bal(s.net), act: '' };
+        // filtered (decision 13): the total row is the shown makers' own sum
+        const sumOf = (k) => sorted.reduce((t, v) => [t[0] + v[k][0], D.round2(t[1] + v[k][1]), D.round2(t[2] + v[k][2])], [0, 0, 0]);
+        const Tt = wdFiltered ? { c: sumOf('c'), p: sumOf('p'), x: sumOf('x') } : T; const sT = wdFiltered ? D.vendorSummary(sorted) : s;
+        const trT = wdFiltered ? D.round2(sorted.reduce((t, v) => t + trOf(v.name), 0)) : tA.vendors;
+        const TOT = { name: 'الإجمالي', pct: '—', cN: num(String(Tt.c[0])), cV: num(D.formatMoney(Tt.c[2])), pN: num(String(Tt.p[0])), pV: num(D.formatMoney(Tt.p[2])), xN: num(String(Tt.x[0])), xV: num(D.formatMoney(Tt.x[2])),
+          dokan: num(D.formatMoney(D.round2(sorted.reduce((t, v) => t + (v.dokanBalance || 0), 0)))), dep: num(D.formatMoney(sT.deposits)), tr: num(D.formatMoney(trT)), wd: h('span', null, num(String(sorted.filter((v) => wdOf(v.name)).length)), ' طلب'), bal: bal(sT.net), act: '' };
         const cols = VCOLS;
-        return TableCard({ title: 'حسابات المبتكرين — ' + periodText(), count: sorted.length + ' مبتكر · ' + sorted.filter((v) => wdOf(v.name)).length + ' طلب سحب',
-          body: U.Table({ cls: 'vendors-table', headers: cols.map(([, lb]) => lb), rows: sorted.map((v) => cols.map(([k]) => CELL[k](v))), totalRow: cols.map(([k]) => TOT[k]) }) });
+        return TableCard({ title: 'حسابات المبتكرين — ' + periodText(), count: sorted.length + ' مبتكر · ' + sorted.filter((v) => wdOf(v.name)).length + ' طلب سحب' + (wdFiltered ? ' · ' + (WD_FILTERS.find((x) => x.value === state.wdFilter) || {}).label : ''), action: refreshDokanBtn(),
+          body: !sorted.length ? U.EmptyState(wdFiltered ? 'مفيش مبتكرين عندهم طلبات سحب' : 'مفيش مبتكرين', wdFiltered ? 'اضغط «تحديث من Dokan» تجيب الطلبات الجديدة، أو رجّع الفلتر لـ «الكل».' : '') : U.Table({ cls: 'vendors-table', headers: cols.map(([, lb]) => lb), rows: sorted.map((v) => cols.map(([k]) => CELL[k](v))), totalRow: cols.map(([k]) => TOT[k]) }) });
       })(),
       sourceNote('المصدر: الأوردرات (السيستم، حسب تاريخ الأوردر في الفترة) + رصيد Dokan وطلبات السحب (قراءة بس، بيتحدّث كل ساعة) + العرابين والمواصلات المتسجلة هنا · الصافي = رصيد Dokan − العرابين − المواصلات ± الحركات التانية · «قيد التنفيذ» = جاري التنفيذ + جاهز للشحن + قيد الشحن'),
     ].filter(Boolean);
@@ -2537,7 +2566,7 @@
     main.replaceChildren(...[
       h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'المصروفات · المبيعات · حسابات المبتكرين · الحساب الفعلي · سجل الحركات')), h('div', { class: 'actions' }, window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
       tabs,
-      state.tab === 'moves-log' ? null : h('div', { class: 'toolbar' }, DateRangeField(), state.tab === 'vendors' ? SortDropdown() : null, h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'vendors' ? AddMenu('إضافة مبلغ', 'vendorMoves') : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
+      state.tab === 'moves-log' ? null : h('div', { class: 'toolbar' }, DateRangeField(), state.tab === 'vendors' ? SortDropdown() : null, state.tab === 'vendors' ? WdFilterDropdown() : null, h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'vendors' ? AddMenu('إضافة مبلغ', 'vendorMoves') : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
       noteEl,
       h('div', { id: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.tab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, VIEWS[state.tab]())].filter(Boolean));
     window.IBKit.sweepColumns(document.getElementById('panel'));

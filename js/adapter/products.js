@@ -257,6 +257,8 @@
     load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry,
     categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id) })).sort((a, b) => a.path.localeCompare(b.path)),
     brands: () => [...brands.values()].map((x) => ({ id: Number(x.id), name: x.name })),
+    // phase 5.2: a category the studio just made on the site (category_create) shows at once
+    addCategory: (row) => { cats.set(Number(row.id), { id: Number(row.id), name: row.name, parent_id: row.parent_id || null }); emit({ categories: true }); },
     fetchLive, save, batch, trashIds: (ids, onProgress) => moveTrash(ids, false, onProgress), restore: (ids, onProgress) => moveTrash(ids, true, onProgress),
   };
 })();

@@ -2,8 +2,8 @@
    1793131460: Figma 626:10792 «السجل» 660:611, trash 661:850, edit 669:3477…) on the site's real products. The list is the sync's
    mirror (IBProducts); the edit page reads the product live from WooCommerce (product_get) and every change goes back through
    woo-sync (IBProducts.save / batch / trashIds / restore — the server checks products.edit / products.trash and WOO_PUSH_ENABLED).
-   Out of this stage (decisions 2 / 7 / 10): the studio, the AI tools, duplicating, new products, uploading images and deleting
-   for good. The reports tab (decision 20) reads products_report and the reports page's range (IBReportBlocks, block 28). The
+   Out of this stage (decisions 2 / 7 / 10): the AI tools, duplicating and deleting for good; the studio (new products as drafts,
+   phase 5.2) is products-studio.js. The reports tab (decision 20) reads products_report and the reports page's range (IBReportBlocks, block 28). The
    prototype's IBCrumbs / IBQuick / PanelButton do not exist here: «رجوع للسجل». */
 (function () {
   'use strict';
@@ -39,11 +39,14 @@
   function route(hs) {
     let m;
     if (hs === 'products-reports') { st.view = 'reports'; st.tab = 'reports'; return true; }
+    // phase 5.2: the studio (products-studio.js) — #products-studio-<new|batch id>[-<step 1–8 | report>]
+    if ((m = /^products-studio-(new|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-([1-8]|report))?$/.exec(hs)) && window.IBStudioView) { st.view = 'studio'; st.tab = 'add'; window.IBStudioView.route(m[1], m[2] || '1'); return true; }
     if ((m = /^products(?:-(add|records|trash))?$/.exec(hs))) { st.view = m[1] === 'trash' ? 'trash' : m[1] === 'add' ? 'add' : 'records'; st.tab = st.view === 'add' ? 'add' : 'records'; if (st.view === 'trash') st.status = 'trash'; else if (st.status === 'trash') st.status = 'all'; return true; }
     if ((m = /^products-edit-(\d+)(?:-(data|price|images|variants|cats|desc|seo))?$/.exec(hs))) { st.view = 'edit'; st.tab = 'records'; const id = Number(m[1]); if (id !== st.editId) { st.editId = id; st.live = null; st.draft = null; st.liveFor = null; st.imgSel = null; } st.etab = m[2] || 'data'; return true; }
     return false;
   }
-  const defaultHash = () => ({ add: 'products-add', records: 'products-records', reports: 'products-reports', trash: 'products-trash', edit: 'products-edit-' + st.editId + '-' + st.etab }[st.view] || 'products-records');
+  const studioHash = () => { const S = window.IBStudioView ? window.IBStudioView.state : null; return 'products-studio-' + ((S && S.id) || 'new') + '-' + (S && S.report ? 'report' : (S && S.step) || 1); };
+  const defaultHash = () => ({ add: 'products-add', records: 'products-records', reports: 'products-reports', trash: 'products-trash', edit: 'products-edit-' + st.editId + '-' + st.etab }[st.view] || (st.view === 'studio' ? studioHash() : 'products-records'));
 
   // ---------------- shared pieces ----------------
   function Card(title, sub, body, acts, cls) { return K.Section(title, [].concat(body).filter(Boolean), acts, { sub, cls }); }
@@ -58,13 +61,17 @@
   const trashRows = () => (PR() ? PR().trash() : []);
   const byId = (id) => (PR() ? PR().get(id) : null);
 
-  // ---------------- «إضافة» (decision 2: the studio and the AI tools come later) ----------------
+  // ---------------- «إضافة» (phase 5.2: the studio, products.add; the AI tools come later) ----------------
+  const canAdd = () => !!(window.IBStudio && window.IBStudio.can());
+  const startStudio = () => { if (!canAdd()) { K.toast('مش مسموحلك تضيف منتجات — اطلب صلاحية «إضافة منتجات»', 'error'); return; } window.IBStudioView.start(); };
   function addView() {
-    const tools = [['package', 'استوديو المنتجات', 'من الشيت والصور لحد ما المنتج يترفع على الموقع: SKU، متغيرات، سعر، صور، أقسام، أوصاف.', Tag('brand', 'المرحلة الجاية')],
-      ['image', 'الصور', 'صورة احترافية، إزالة خلفية ونصوص، تحسين، وصورة المقاس بالأبعاد.', Tag('gold', 'ذكاء اصطناعي — قريبًا')],
+    const studioCard = h('button', { type: 'button', class: 'card tool-card', 'aria-label': 'استوديو المنتجات — ابدأ دفعة', onClick: startStudio }, h('span', { class: 'tool-ic' }, Icon('package')), h('span', { class: 't-h5 tc-t' }, 'استوديو المنتجات'),
+      h('span', { class: 't-small tc-b' }, 'من الشيت والصور لحد ما المنتج يترفع على الموقع مسودة: SKU، متغيرات، سعر، صور، أقسام، أوصاف.'), canAdd() ? Tag('success', 'متاح') : Tag('neutral', 'محتاج صلاحية'), h('span', { class: 'tc-cta' }, 'ابدأ دفعة', Icon('chevL', 'sm')));
+    const aiTools = [['image', 'الصور', 'صورة احترافية، إزالة خلفية ونصوص، تحسين، وصورة المقاس بالأبعاد.', Tag('gold', 'ذكاء اصطناعي — قريبًا')],
       ['file', 'المحتوى', 'اسم ووصف وكلمات مفتاحية ونقاط بالعربي والإنجليزي بأسلوب إبتكر.', Tag('gold', 'ذكاء اصطناعي — قريبًا')]];
-    return [h('div', { class: 'tools-grid c3' }, tools.map(([ic, t, b, tg]) => h('button', { type: 'button', class: 'card tool-card', 'aria-label': t + ' — قريبًا', onClick: () => K.toast('«' + t + '» لسه — soon') }, h('span', { class: 'tool-ic' }, Icon(ic)), h('span', { class: 't-h5 tc-t' }, t), h('span', { class: 't-small tc-b' }, b), tg, h('span', { class: 'tc-cta' }, 'قريبًا')))),
-      U.InlineNote({ children: 'دلوقتي تقدر تعدّل المنتجات اللي على الموقع من «السجل». إضافة منتجات جديدة من الاستوديو في المرحلة الجاية.' })];
+    return [h('div', { class: 'tools-grid c3' }, studioCard, aiTools.map(([ic, t, b, tg]) => h('button', { type: 'button', class: 'card tool-card', 'aria-label': t + ' — قريبًا', onClick: () => K.toast('«' + t + '» لسه — soon') }, h('span', { class: 'tool-ic' }, Icon(ic)), h('span', { class: 't-h5 tc-t' }, t), h('span', { class: 't-small tc-b' }, b), tg, h('span', { class: 'tc-cta' }, 'قريبًا')))),
+      window.IBStudioView ? window.IBStudioView.savedWork() : null,
+      U.InlineNote({ children: 'المنتجات الجديدة بتترفع مسودة من الاستوديو، والمنتجات اللي على الموقع بتتعدل من «السجل». أدوات الـ AI (الصور والمحتوى) قريبًا.' })];
   }
 
   // ---------------- «السجل» ----------------
@@ -513,7 +520,8 @@
     if (!P || !C.view) return [K.PageHead('المنتجات', null, null), K.Empty('مش مسموحلك تشوف المنتجات', 'اطلب صلاحية «المنتجات» من الأدمن.')];
     P.ensure();
     if (st.view === 'edit') return editView();
-    const head = K.PageHead('المنتجات', 'عدّل المنتجات اللي على الموقع. البيانات والصور متخزنة على ووكومرس.', [Button({ type: 'brand', label: '+ دفعة منتجات جديدة', onClick: () => K.toast('الاستوديو في المرحلة الجاية — soon') })]);
+    if (st.view === 'studio' && window.IBStudioView) return window.IBStudioView.view(K.PageHead('المنتجات', null, null));
+    const head = K.PageHead('المنتجات', 'عدّل المنتجات اللي على الموقع. البيانات والصور متخزنة على ووكومرس.', [Button({ type: 'brand', label: '+ دفعة منتجات جديدة', onClick: startStudio })]);
     head.firstChild.append(fresh());
     let body;
     if (P.state() === 'error') body = [K.Empty('مقدرناش نحمّل المنتجات', 'في مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', onClick: () => P.load() }))];

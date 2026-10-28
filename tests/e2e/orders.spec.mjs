@@ -454,7 +454,7 @@ test('an empty 12-month window says so', async ({ page }) => {
 test('IBOrders.clear() (sign-out) leaves no order, search or filter on the page', async ({ page }) => {
   await openOrders(page);
   await page.locator('#orders #fc').selectOption('غير مؤكد');
-  await page.locator('#orders #oq').fill('0122');
+  await page.locator('#orders #oq').fill('01200007052');
   await expect(cards(page)).toHaveCount(1);
   await page.evaluate(() => window.IBOrders.clear());
   await expect(page.locator('#orders #oq')).toHaveValue('');

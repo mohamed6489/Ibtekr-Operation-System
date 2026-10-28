@@ -21,7 +21,9 @@
 // platforms ('ads') list (acc_list_items) and addListItem(key, name) adds one (optimistic; a duplicate is fine);
 // approveWithdraw(id) asks woo-sync (withdraw_approve) to approve a pending Dokan request → { ok, result, reason, status }
 // (result 'ok' | 'skipped' with reason push_disabled / stale / not_pending; ok:false with 'forbidden' | 'network'), logged as
-// accounts.withdraw.approve (the request and its amount), then load() reads the mirrors again.
+// accounts.withdraw.approve (the request and its amount), then load() reads the mirrors again. refreshWithdrawals() (plan
+// decision 12, «تحديث من Dokan») asks woo-sync (withdrawals) for the requests now → { ok, pending, reason } after load();
+// refreshing() is true meanwhile (one request at a time).
 (function () {
   'use strict';
   const KINDS = {
@@ -194,8 +196,24 @@
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
 
+  let refreshingNow = false;
+  async function refreshWithdrawals() {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (refreshingNow) return { ok: false, reason: 'busy' };
+    refreshingNow = true; emit({ refreshing: true });
+    try {
+      const { data: body, error } = await cl.functions.invoke('woo-sync', { body: { action: 'withdrawals' } });
+      if (error || !body || body.result !== 'ok') {
+        const status = error && error.context && error.context.status;
+        return { ok: false, reason: status === 401 ? 'forbidden' : status === 502 ? 'woo_down' : 'network' };
+      }
+      await load();
+      return { ok: true, pending: data.withdrawals.filter((w) => w.status === 'pending').length };
+    } catch (e) { return { ok: false, reason: 'network' }; } finally { refreshingNow = false; emit({ refreshing: false }); }
+  }
+
   function clear() { st = 'idle'; Object.keys(data).forEach((k) => { data[k] = []; }); salesCache.clear(); }
 
   window.IBAccounts = { load, clear, state: () => st, rows: (kind) => data[kind].slice(), balances: () => data.balances.slice(), withdrawals: () => data.withdrawals.slice(),
-    add, update, remove, sales, salesFailed, statement, lists, addListItem, approveWithdraw, can, canEdit, toExpense, toVendorMove, toAccountMove, toColumns, KINDS };
+    add, update, remove, sales, salesFailed, statement, lists, addListItem, approveWithdraw, refreshWithdrawals, refreshing: () => refreshingNow, can, canEdit, toExpense, toVendorMove, toAccountMove, toColumns, KINDS };
 })();

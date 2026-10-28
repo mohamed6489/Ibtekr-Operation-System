@@ -277,3 +277,32 @@ test('subscriptions: «جدّد» opens a new expense a year on; the sales show 
   await expect(main(page).locator('table thead')).toContainText('حصة المبتكرين (ج.م)');
   await expect(main(page).locator('table thead')).not.toContainText('نسبة حصة إبتكر');
 });
+
+test('«تحديث من Dokan» brings a new request now; the withdraw filter shows only the makers with one', async ({ page }) => {
+  await openAccounts(page, ACCOUNTS);
+  await tab(page, 'حسابات المبتكرين').click();
+  const table = main(page).locator('table.vendors-table');
+  await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('لا يوجد');
+  mock.dokanNewRequests = [{ id: 601, woo_vendor_id: 44, vendor_id: V2, amount: 450, charge: 0, receivable: 450, status: 'pending', method: 'bank', requested_at: '2026-10-28 09:00:00', synced_at: '2026-10-28T09:00:00Z' }];
+  await main(page).locator('[data-dokan-refresh]').click();
+  await expect(main(page)).toContainText('اتحدّثت طلبات السحب من Dokan — 2 طلب مستني الموافقة.');
+  expect(mock.refreshes).toBe(1);
+  await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('يوجد');
+  // the filter: makers with a request only
+  await main(page).locator('[data-wd-filter]').click();
+  await page.locator('[role=listbox] [role=option]', { hasText: 'مستني الموافقة بس' }).first().click();
+  await expect(table.locator('tbody tr')).toHaveCount(2); // Art Craft (#501) + Antikiano (#601)
+  await expect(table.locator('tbody tr', { hasText: 'Art Craft' })).toHaveCount(1);
+  await expect(main(page).locator('.table-title .count')).toContainText('مستني الموافقة بس');
+  await main(page).locator('[data-wd-filter]').click();
+  await page.locator('[role=listbox] [role=option]', { hasText: 'طلبات السحب: الكل' }).first().click();
+  await expect(table.locator('tbody tr').filter({ hasNot: page.locator('.total') })).not.toHaveCount(2);
+});
+
+test('the refresh needs accounts.view; ops (view P) may refresh, Dokan down → an error note', async ({ page }) => {
+  await openAccounts(page, OPS);
+  await tab(page, 'حسابات المبتكرين').click();
+  mock.wooDown = true;
+  await main(page).locator('[data-dokan-refresh]').click();
+  await expect(main(page)).toContainText('Dokan مش بيرد دلوقتي');
+});

@@ -133,3 +133,18 @@ test('phase 4.1: approveWithdraw → woo-sync withdraw_approve { id }; logged on
   assert.deepEqual(plain(await A.approveWithdraw(501)), { ok: false, reason: 'forbidden' });
   assert.equal((await A.approveWithdraw('x')).reason, 'invalid');
 });
+
+test('plan 4.1 decision 12: refreshWithdrawals → woo-sync withdrawals, then load(); one at a time; 502 woo_down', async () => {
+  const { A, stub } = load();
+  await A.load();
+  const calls = []; let answer = { data: { action: 'withdrawals', result: 'ok', counts: {} }, error: null };
+  stub.client.functions = { invoke: async (name, opts) => { calls.push([name, opts.body]); return answer; } };
+  const first = A.refreshWithdrawals();
+  assert.equal(A.refreshing(), true);
+  assert.equal((await A.refreshWithdrawals()).reason, 'busy');
+  assert.deepEqual(plain(await first), { ok: true, pending: 1 });
+  assert.equal(A.refreshing(), false);
+  assert.deepEqual(plain(calls), [['woo-sync', { action: 'withdrawals' }]]);
+  answer = { data: null, error: { context: { status: 502 } } };
+  assert.deepEqual(plain(await A.refreshWithdrawals()), { ok: false, reason: 'woo_down' });
+});

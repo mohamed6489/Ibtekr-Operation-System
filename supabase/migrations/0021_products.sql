@@ -5,13 +5,16 @@
 --   products.trash (to the trash and back). Built-in roles get their defaults only when the key is missing (the admin is
 --   F through has_perm). Reading products: orders.view <> N (the orders screen, as before) or products.view <> N.
 -- Decision 4: the mirror columns woo-write's mapProduct fills (WPML lang + translation ids, prices, stock, sales,
---   categories, brands, images, weight, flags, the site's modified time, when it went to the trash). Members never
---   write products: every change goes through woo-sync (service_role) and comes back from WooCommerce.
+--   categories, brands, the number of images, weight, flags, the site's modified time, when it went to the trash). Members
+--   never write products: every change goes through woo-sync (service_role) and comes back from WooCommerce. The images
+--   themselves are read live by the edit page (product_get); the list keeps the first one (image_url) and the count.
+-- Decision 6: woo_brands — the site's WooCommerce Brands (id, name, slug, parent_id), pulled with the categories, for the
+--   brand filter and «نقل لبراند تاني». Read like woo_categories, which products.view can now read too.
 --
 -- Notes for readers:
 -- * Re-runnable: add column if not exists, the role defaults merged only when absent, the select policy dropped and
 --   created again (same name). No delete / truncate.
--- * rule 4: products keeps its grants (0007 / 0009: select for authenticated, DML for service_role); the new columns
+-- * rule 4: woo_brands — select for authenticated, DML for service_role, nothing for anon. products keeps its grants (0007 / 0009: select for authenticated, DML for service_role); the new columns
 --   carry nothing personal (public product data; images are the site's public URLs).
 
 -- ---------------------------------------------------------------- permission keys (decision 3)
@@ -42,7 +45,7 @@ alter table public.products add column if not exists low_stock_amount integer;
 alter table public.products add column if not exists total_sales integer;
 alter table public.products add column if not exists category_ids bigint[];
 alter table public.products add column if not exists brand_ids bigint[];
-alter table public.products add column if not exists images jsonb;
+alter table public.products add column if not exists image_count integer;
 alter table public.products add column if not exists weight text;
 alter table public.products add column if not exists featured boolean;
 alter table public.products add column if not exists desc_filled boolean;
@@ -58,3 +61,25 @@ create index if not exists products_status_idx on public.products (status);
 drop policy if exists products_select on public.products;
 create policy products_select on public.products for select to authenticated
   using ((select public.has_perm('orders.view')) <> 'N' or (select public.has_perm('products.view')) <> 'N');
+
+-- ---------------------------------------------------------------- the site's brands and categories (decision 6)
+
+create table if not exists public.woo_brands (
+  id bigint primary key,
+  name text not null,
+  slug text,
+  parent_id bigint,
+  updated_at timestamptz not null default now()
+);
+alter table public.woo_brands enable row level security;
+drop policy if exists woo_brands_select on public.woo_brands;
+create policy woo_brands_select on public.woo_brands for select to authenticated
+  using ((select public.has_perm('products.view')) <> 'N' or (select public.has_perm('vendors.view')) <> 'N');
+grant select on public.woo_brands to authenticated;
+grant select, insert, update, delete on public.woo_brands to service_role;
+revoke all on public.woo_brands from anon;
+revoke truncate, references, trigger on public.woo_brands from authenticated, service_role;
+
+drop policy if exists woo_categories_select on public.woo_categories;
+create policy woo_categories_select on public.woo_categories for select to authenticated
+  using ((select public.has_perm('vendors.view')) <> 'N' or (select public.has_perm('products.view')) <> 'N');

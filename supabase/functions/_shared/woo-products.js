@@ -1,7 +1,7 @@
 // What a member may change on a WooCommerce product (phase 5, plan decision 5), as pure functions shared by woo-sync's
 // product actions and the node tests. Every field outside these lists is refused (400 before any call to the site);
-// prices and quantities are numbers ≥ 0, a sale price above the regular one is refused, and a description carrying a
-// script, a frame, an event handler or a javascript: link is refused.
+// prices and quantities are numbers ≥ 0, a sale price above the regular one is refused, a name carries no `<` / `>`, and a
+// description holds the allowed tags only (SAFE_TAG).
 
 // the product itself (product_save)
 export const EDIT_FIELDS = ['name', 'sku', 'status', 'regular_price', 'sale_price', 'manage_stock', 'stock_quantity', 'stock_status',
@@ -18,7 +18,11 @@ export const VARIATION_FIELDS = ['regular_price', 'sale_price', 'manage_stock', 
 export const STATUSES = ['publish', 'draft', 'pending'];
 const STOCK_STATUSES = ['instock', 'outofstock', 'onbackorder'];
 const BACKORDERS = ['no', 'notify', 'yes'];
-const UNSAFE_HTML = /<\s*\/?\s*(script|iframe|object|embed|style|form)\b|\son[a-z]+\s*=|javascript\s*:/i;
+// A description may carry plain formatting tags with no attribute at all, and links whose only attribute is an https href;
+// any other `<` (another tag, an attribute, a comment, an unclosed tag) refuses the text — an allow-list, not a blocklist:
+// the API user can post unfiltered HTML, so nothing else reaches the shop's pages (security review, 28 Oct).
+const SAFE_TAG = /<\/?(p|br|strong|b|em|i|u|ul|ol|li|h2|h3|h4|h5|span|div|blockquote|table|thead|tbody|tr|td|th)\s*\/?>|<a href="https:\/\/[^"<>\s]+">|<\/a>/gi;
+const safeHtml = (v) => !v.replace(SAFE_TAG, '').includes('<');
 const MAX_PRICE = 10_000_000;
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -30,10 +34,10 @@ const price = (v) => {
 };
 const int = (v, max) => (Number.isInteger(v) && v >= 0 && v <= max ? v : typeof v === 'string' && /^\s*\d+\s*$/.test(v) && Number(v) <= max ? Number(v) : undefined);
 const ids = (v, max) => (Array.isArray(v) && v.length <= max && v.every((x) => posId(x) !== null) ? [...new Set(v.map(posId))].map((id) => ({ id })) : undefined);
-const text = (v, max) => (typeof v === 'string' && v.length <= max && !UNSAFE_HTML.test(v) ? v : undefined);
+const text = (v, max) => (typeof v === 'string' && v.length <= max && safeHtml(v) ? v : undefined);
 
 const CHECK = {
-  name: (v) => (typeof v === 'string' && v.trim().length >= 1 && v.trim().length <= 200 ? v.trim() : undefined),
+  name: (v) => (typeof v === 'string' && v.trim().length >= 1 && v.trim().length <= 200 && !/[<>]/.test(v) ? v.trim() : undefined),
   sku: (v) => (typeof v === 'string' && v.trim().length <= 100 && !/[<>]/.test(v) ? v.trim() : undefined),
   status: (v) => (STATUSES.includes(v) ? v : undefined),
   regular_price: price,

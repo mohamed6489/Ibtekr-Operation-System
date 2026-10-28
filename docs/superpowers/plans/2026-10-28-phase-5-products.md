@@ -43,7 +43,7 @@ artifact «نظام إبتكر» نسخة `1793131460`: الكتلة 17 (`Ibtekr
    `vendor_rates`، و«تعديل السعر» على «سعر المبتكر» / «نسبة إبتكر» بيحتاجها؛ غير كده «سعر البيع» و«قبل الخصم» بس.
 4. **المرآة:** أعمدة جديدة على `products` بيكتبها `mapProduct`: `lang`، `translation_ids` (jsonb `{ar, en}`)، `type`،
    `regular_price`، `sale_price`، `stock_quantity`، `stock_status`، `manage_stock`، `backorders`، `low_stock_amount`،
-   `total_sales`، `category_ids`، `brand_ids`، `images` (jsonb `[{id, src}]`، روابط عامة)، `weight`، `featured`،
+   `total_sales`، `category_ids`، `brand_ids`، `image_count` (الصور نفسها صفحة التعديل بتقراها حية)، `weight`، `featured`،
    `desc_filled`، `short_desc_filled`، `woo_modified_at`، `trashed_at`. الـ sync بيسحب الإنجليزي (الافتراضي) **والعربي**
    (`lang=ar`، cursor لوحده) في نفس الجدول، والمنتجات المسحوبة من المهملات (`status=trash`، cursor لوحده). السجل = الصفوف
    اللي `lang` بتاعها مش `ar`، أو `ar` من غير ترجمة `en`؛ والاسم العربي = اسم صف الترجمة `ar`. أول نشر: سحب كامل
@@ -55,7 +55,8 @@ artifact «نظام إبتكر» نسخة `1793131460`: الكتلة 17 (`Ibtekr
    - `product_save { id, fields, ar?, variations? }` (`products.edit = F`): PUT بالحقول المسموحة بس (قايمة ثابتة؛ أي
      حقل تاني → 400)، `ar` = الاسم والوصف العربي على منتج الترجمة، `variations` = سعر/مخزون التركيبات الموجودة
      (`variations/batch update` بس — مافيش إضافة ولا مسح تركيبة). الأسعار والكميات أرقام ≥ 0، والسعر بعد الخصم ≤ قبل
-     الخصم، والوصف يترفض لو فيه `<script` / `<iframe` / `on…=` / `javascript:`.
+     الخصم، والاسم من غير `<` / `>`، والوصف **قايمة مسموحة** (بعد مراجعة أمنية): تاجات تنسيق من غير أي attribute
+     (`p`، `br`، `strong`، `ul`/`li`، `h2`–`h5`، `table`…) و`<a href="https://…">` بس — أي `<` تاني يرفض النص كله.
    - `products_batch { update: [{ id, …حقول }] }` (`products.edit = F`؛ لحد 100 في المرة): السعر / المخزون / الحالة
      (`publish` | `draft`) / القسم / البراند — `wc/v3/products/batch` بـ `update` **بس** (الـ `delete` في الـ batch بيمسح
      نهائي فممنوع).
@@ -67,7 +68,8 @@ artifact «نظام إبتكر» نسخة `1793131460`: الكتلة 17 (`Ibtekr
    - بعد كل كتابة المرآة بتتحدث من رد WooCommerce، و`woo_sync_log` (`entity = products`) بكل محاولة، و`activity_log`
      `product.save` / `product.bulk` / `product.trash` / `product.restore` (الـ ids والحقول، من غير قيم أسعار في اللوج غير
      العدد). `IBActivity.LOGGED_PREFIXES` بتاخد `product.`.
-6. **نقل لبراند تاني = براند WooCommerce Brands على المنتج** (الحقل `brands`). المتجر على Dokan (المبتكر اللي بيتحاسب)
+6. **نقل لبراند تاني = براند WooCommerce Brands على المنتج** (الحقل `brands`؛ قايمة براندات الموقع في جدول `woo_brands`
+   بيتسحب مع الأقسام، والقراءة `products.view` أو `vendors.view`، و`woo_categories` بقت تتقري بـ `products.view` كمان). المتجر على Dokan (المبتكر اللي بيتحاسب)
    **مابيتغيرش من السيستم** في المرحلة دي — WooCommerce مابيسمحش يغيّر صاحب المنتج، وDokan عايز صلاحيات تانية؛ نوتة في
    الـ popup بتقول كده. «اعمل SKU جديد بكود البراند» و«أعد حساب السعر» من الـ prototype فاضلين.
 7. **التكرار والمنتج الجديد → مرحلة الاستوديو:** أي منتج جديد بيتعمل بالـ API بيتسجل باسم مستخدم الـ API مش في متجر المبتكر،

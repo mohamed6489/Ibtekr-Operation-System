@@ -17,14 +17,16 @@ from auth.users u
 where u.id in ('00000000-0000-4000-8000-0000000000f1', '00000000-0000-4000-8000-0000000000f2', '00000000-0000-4000-8000-0000000000f3');
 
 insert into public.profiles (id, name, email, phone, role_id, status, custom_perms) values
-  ('00000000-0000-4000-8000-0000000000f1', 'منتجات بس', 'prod-v.dev@ibtekr.local', '010000000f1', 'viewer', 'active', '{"orders.view":"N","products.view":"F","products.edit":"F"}'),
+  ('00000000-0000-4000-8000-0000000000f1', 'منتجات بس', 'prod-v.dev@ibtekr.local', '010000000f1', 'viewer', 'active', '{"orders.view":"N","products.view":"F","products.edit":"F","vendors.view":"N"}'),
   ('00000000-0000-4000-8000-0000000000f2', 'أوردرات بس', 'prod-o.dev@ibtekr.local', '010000000f2', 'viewer', 'active', '{"orders.view":"F","products.view":"N"}'),
-  ('00000000-0000-4000-8000-0000000000f3', 'من غير', 'prod-n.dev@ibtekr.local', '010000000f3', 'viewer', 'active', '{"orders.view":"N","products.view":"N"}');
+  ('00000000-0000-4000-8000-0000000000f3', 'من غير', 'prod-n.dev@ibtekr.local', '010000000f3', 'viewer', 'active', '{"orders.view":"N","products.view":"N","vendors.view":"N"}');
 
 insert into public.products (id, sku, name, status, lang, translation_ids, type, regular_price, sale_price, stock_status,
-  manage_stock, total_sales, category_ids, brand_ids, images, featured, desc_filled, short_desc_filled)
+  manage_stock, total_sales, category_ids, brand_ids, image_count, featured, desc_filled, short_desc_filled)
 values (9990021001, 'IBTK-0021', 'منتج 0021 تجريبي', 'publish', 'en', '{"ar": 9990021002, "en": 9990021001}', 'simple',
-  1000, 800, 'instock', false, 3, '{15}', '{7}', '[{"id": 1, "src": "https://example.com/a.webp"}]', false, true, true);
+  1000, 800, 'instock', false, 3, '{15}', '{7}', 4, false, true, true);
+insert into public.woo_brands (id, name, slug) values (9990021, 'براند 0021 تجريبي', 'brand-0021');
+insert into public.woo_categories (id, name, slug) values (9990021, 'قسم 0021 تجريبي', 'cat-0021');
 
 -- ================================================================ runner: role defaults and grants
 
@@ -36,7 +38,9 @@ do $$ begin
      or (select permissions ->> 'products.view' from public.roles where id = 'viewer') <> 'F' then
     raise exception 'case role defaults for products.* failed';
   end if;
-  if has_table_privilege('authenticated', 'public.products', 'INSERT') or has_table_privilege('anon', 'public.products', 'SELECT') then
+  if has_table_privilege('authenticated', 'public.products', 'INSERT') or has_table_privilege('anon', 'public.products', 'SELECT')
+     or has_table_privilege('authenticated', 'public.woo_brands', 'INSERT') or has_table_privilege('anon', 'public.woo_brands', 'SELECT')
+     or not has_table_privilege('authenticated', 'public.woo_brands', 'SELECT') then
     raise exception 'case products grants (authenticated select only; anon nothing) failed';
   end if;
 end $$;
@@ -57,6 +61,14 @@ do $$ declare r record; begin
   exception when insufficient_privilege then null;
   end;
   if (select sale_price from public.products where id = 9990021001) <> 800 then raise exception 'case the price is unchanged failed'; end if;
+  if not exists (select 1 from public.woo_brands where id = 9990021) or not exists (select 1 from public.woo_categories where id = 9990021) then
+    raise exception 'case products.view reads woo_brands and woo_categories failed';
+  end if;
+  begin
+    insert into public.woo_brands (id, name) values (9990022, 'x');
+    raise exception 'case a member may not write woo_brands failed';
+  exception when insufficient_privilege then null;
+  end;
 end $$;
 
 -- ================================================================ orders.view F, products.view N: still reads (the orders screen)
@@ -75,6 +87,7 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-0000000000f3","role":"authenticated"}';
 do $$ begin
   if exists (select 1 from public.products where id = 9990021001) then raise exception 'case no orders.view / products.view reads no product failed'; end if;
+  if exists (select 1 from public.woo_brands where id = 9990021) then raise exception 'case no products.view / vendors.view reads no brand failed'; end if;
 end $$;
 
 reset role;

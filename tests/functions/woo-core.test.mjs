@@ -724,7 +724,7 @@ test('mapProduct: permalink only when it is an https:// URL (trimmed), else null
   assert.equal(mapProduct(noLink, new Map()).product.permalink, null, 'no permalink key at all');
 });
 
-test('mapProduct: the phase 5 columns — WPML lang + translation ids, prices, stock, sales, categories, brands, images, flags, trash', () => {
+test('mapProduct: the phase 5 columns — WPML lang + translation ids, prices, stock, sales, categories, brands, image count, flags, trash', () => {
   const r = mapProduct(product({ lang: 'en', translations: { ar: 502, en: '501', 'x-y': 9, fr: 0 }, type: 'variable', regular_price: '1000', sale_price: '',
     stock_quantity: '7', stock_status: 'instock', manage_stock: true, backorders: 'no', low_stock_amount: null, total_sales: 12,
     categories: [{ id: 15, name: 'x' }, { id: 15 }, { id: 'bad' }], brands: [{ id: 3, name: 'b' }],
@@ -732,7 +732,7 @@ test('mapProduct: the phase 5 columns — WPML lang + translation ids, prices, s
     weight: '1.2', featured: false, description: '  ', short_description: '<p>x</p>', date_modified_gmt: '2026-10-20T08:30:15' }), new Map()).product;
   assert.deepEqual([r.lang, r.translation_ids, r.type, r.regular_price, r.sale_price, r.stock_quantity, r.stock_status, r.manage_stock, r.backorders, r.low_stock_amount, r.total_sales],
     ['en', { ar: 502, en: 501 }, 'variable', 1000, null, 7, 'instock', true, 'no', null, 12]);
-  assert.deepEqual([r.category_ids, r.brand_ids, r.images, r.weight, r.featured, r.desc_filled, r.short_desc_filled], [[15], [3], [{ id: 1, src: 'https://stage.example.test/a.jpg' }], '1.2', false, false, true]);
+  assert.deepEqual([r.category_ids, r.brand_ids, r.image_count, r.weight, r.featured, r.desc_filled, r.short_desc_filled], [[15], [3], 3, '1.2', false, false, true]);
   assert.equal(r.woo_modified_at, '2026-10-20T08:30:15Z');
   assert.equal(r.trashed_at, null);
   const t = mapProduct(product({ status: 'trash', date_modified_gmt: '2026-10-21T09:00:00', lang: 'arabic', translations: 'x' }), new Map()).product;

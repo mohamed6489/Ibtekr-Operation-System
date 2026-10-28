@@ -75,7 +75,7 @@ import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from
 import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, variationView } from '../_shared/woo-products.js';
-import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
+import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -223,7 +223,12 @@ async function pullCategories(run: Run) {
     const r = await writeCategories(ctx, page);
     totals.categories += r.written.length; totals.skipped += r.skipped; totals.failed += r.failed;
   });
-  return { ...totals, pages: res.pages, done: res.done };
+  // phase 5 (decision 6): the site's WooCommerce Brands the same way (a site without the Brands plugin answers 404: none)
+  let brands = 0;
+  try {
+    await ctx.woo.eachPage('wc/v3/products/brands', {}, async (page: Json[]) => { const r = await writeBrands(ctx, page); brands += r.written.length; totals.failed += r.failed; });
+  } catch (e) { if (!(e instanceof WooError && e.status === 404)) throw e; }
+  return { ...totals, brands, pages: res.pages, done: res.done };
 }
 
 // The site's governorates: one GET; an answer without a states array is an upstream error (nothing written).

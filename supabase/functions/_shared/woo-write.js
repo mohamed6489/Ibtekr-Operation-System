@@ -596,7 +596,7 @@ export function mapProduct(p, vendorsByWooId) {
 }
 
 // The phase 5 mirror columns (0021, plan decision 4): WPML language + translation ids, prices, stock, sales, categories,
-// brands, images ({ id, src } with an https:// src), weight and flags. Absent / malformed values are null.
+// brands, the number of images, weight and flags. Absent / malformed values are null (the edit page reads the images live).
 const intOrNull = (v) => { const n = num(v); return n === null ? null : Math.trunc(n); };
 const boolOrNull = (v) => (typeof v === 'boolean' ? v : null);
 const idsOf = (list) => (Array.isArray(list) ? [...new Set(list.filter(isObj).map((x) => wooId(x.id)).filter((x) => x !== null))] : null);
@@ -604,15 +604,12 @@ function productColumns(p) {
   const tr = isObj(p.translations)
     ? Object.fromEntries(Object.entries(p.translations).filter(([k]) => /^[a-z]{2}$/.test(k)).map(([k, v]) => [k, wooId(v)]).filter(([, v]) => v !== null))
     : null;
-  const images = Array.isArray(p.images)
-    ? p.images.filter(isObj).map((x) => ({ id: wooId(x.id), src: str(x.src) })).filter((x) => x.id !== null && x.src.startsWith('https://'))
-    : null;
   return {
     lang: /^[a-z]{2}$/.test(str(p.lang)) ? str(p.lang) : null, translation_ids: tr && Object.keys(tr).length ? tr : null,
     type: orNull(p.type), regular_price: num(p.regular_price), sale_price: num(p.sale_price), stock_quantity: intOrNull(p.stock_quantity),
     stock_status: orNull(p.stock_status), manage_stock: boolOrNull(p.manage_stock), backorders: orNull(p.backorders),
     low_stock_amount: intOrNull(p.low_stock_amount), total_sales: intOrNull(p.total_sales), category_ids: idsOf(p.categories),
-    brand_ids: idsOf(p.brands), images, weight: orNull(p.weight), featured: boolOrNull(p.featured),
+    brand_ids: idsOf(p.brands), image_count: Array.isArray(p.images) ? p.images.filter(isObj).length : null, weight: orNull(p.weight), featured: boolOrNull(p.featured),
     desc_filled: typeof p.description === 'string' ? p.description.trim() !== '' : null,
     short_desc_filled: typeof p.short_description === 'string' ? p.short_description.trim() !== '' : null,
   };
@@ -653,11 +650,14 @@ export async function writeStates(ctx, states) {
  * (a rate may still point at a category the site dropped).
  * → { written: [ids], skipped: n (malformed items), failed: n (refused rows) }.
  */
-export async function writeCategories(ctx, categories) {
+export const writeCategories = (ctx, categories) => writeTerms(ctx, 'woo_categories', categories);
+/** The site's WooCommerce Brands (wc/v3/products/brands, phase 5 decision 6) → woo_brands, the same rules as the categories. */
+export const writeBrands = (ctx, brands) => writeTerms(ctx, 'woo_brands', brands);
+async function writeTerms(ctx, table, categories) {
   const list = Array.isArray(categories) ? categories : [];
   const valid = list.filter((c) => isObj(c) && wooId(c.id) !== null && typeof c.name === 'string' && c.name.trim() !== '');
   const now = ctx.now();
   const rows = lastById(valid).map((c) => ({ id: wooId(c.id), name: c.name.trim(), slug: orNull(c.slug), parent_id: wooId(c.parent), updated_at: now }));
-  const { bad } = await save(ctx, 'woo_categories', rows, 'id');
+  const { bad } = await save(ctx, table, rows, 'id');
   return { written: rows.map((r) => r.id).filter((id) => !bad.has(String(id))), skipped: list.length - valid.length, failed: bad.size };
 }

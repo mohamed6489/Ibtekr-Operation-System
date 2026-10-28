@@ -53,7 +53,7 @@ const page = (items: any[], totalPages = 1) => ({ body: items, headers: { 'X-WP-
 const STATES = 'GET wc/v3/data/countries/EG';
 const CATS = 'GET wc/v3/products/categories';
 // products: the default language, then lang=ar, then the trash (phase 5)
-const ALL_PATHS = ['wc/v3/data/countries/EG', 'wc/v3/products/categories', 'dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products', 'wc/v3/products', 'wc/v3/products'];
+const ALL_PATHS = ['wc/v3/data/countries/EG', 'wc/v3/products/categories', 'wc/v3/products/brands', 'dokan/v1/stores', 'wc/v3/orders', 'wc/v3/products', 'wc/v3/products', 'wc/v3/products'];
 const country = (states: unknown) => ({ body: { code: 'EG', name: 'Egypt', states, _links: { self: [{ href: 'https://woo.test/wp-json/wc/v3/data/countries/eg' }] } } });
 const single = (id: number, vendor: number, modified: string) =>
   wooOrder({ id, number: String(id), date_modified_gmt: modified, meta_data: [{ key: '_dokan_vendor_id', value: String(vendor) }],
@@ -487,7 +487,7 @@ Deno.test('all → states, then vendors, then orders, then products (one request
   assertEquals(woo.calls.map((c) => c.path), ALL_PATHS);
   assertEquals(Object.keys(body.counts), ['states', 'categories', 'vendors', 'orders', 'products']);
   assertEquals(body.counts.states, { states: 1, skipped: 0, failed: 0 });
-  assertEquals(body.counts.categories, { categories: 1, skipped: 0, failed: 0, pages: 1, done: true });
+  assertEquals(body.counts.categories, { categories: 1, skipped: 0, failed: 0, brands: 0, pages: 1, done: true }); // brands: 404 (no route) = none
   assertEquals(body.counts.products, { products: 1, failed: 0, pages: 1, done: true, ar: 1, ar_done: true, trash: 1 });
   assertEquals(db.rows('woo_sync_log').map((r: any) => [r.entity, r.result]), [['states', 'ok'], ['categories', 'ok'], ['vendors', 'ok'], ['orders', 'ok'], ['products', 'ok']]);
 });
@@ -556,7 +556,9 @@ Deno.test('product_save: push disabled → skipped with no call; a field outside
   assertEquals(db.rows('woo_sync_log').at(-1).detail, { reason: 'push_disabled', fields: ['regular_price'], ar: [], variations: 0 });
   const { deps: d2, woo: w2 } = setup({ seed: prodSeed, env: PUSH_ON });
   for (const [fields, field] of [[{ meta_data: [] }, 'meta_data'], [{ regular_price: '-1' }, 'regular_price'], [{ status: 'trash' }, 'status'], [{ stock_quantity: 1.5 }, 'stock_quantity'],
-    [{ description: '<p onclick="x()">a</p>' }, 'description'], [{ short_description: '<script>x</script>' }, 'short_description'], [{ regular_price: '100', sale_price: '120' }, 'sale_price'], [{ store: { id: 1 } }, 'store']] as const) {
+    [{ description: '<p onclick="x()">a</p>' }, 'description'], [{ short_description: '<script>x</script>' }, 'short_description'],
+    [{ description: '<svg/onload=alert(1)>' }, 'description'], [{ description: '<a href="java&#115;cript:x">a</a>' }, 'description'], [{ description: '<a href="https://x" onclick="y">a</a>' }, 'description'],
+    [{ description: '<p>ok<img src=x onerror=y' }, 'description'], [{ description: '<!-- x -->' }, 'description'], [{ name: '<b>x</b>' }, 'name'], [{ regular_price: '100', sale_price: '120' }, 'sale_price'], [{ store: { id: 1 } }, 'store']] as const) {
     const r = await call(d2, { action: 'product_save', id: 501, fields }, { jwt: 'jwt-pedit' });
     assertEquals([r.res.status, r.body.field], [400, field], JSON.stringify(fields));
   }
@@ -569,14 +571,17 @@ Deno.test('product_save: PUT the product, the Arabic translation (its name + the
   const routes = {
     'PUT wc/v3/products/501': (c: any) => ({ body: wooProduct(501, 44, { ...c.body, lang: 'en', translations: { ar: 601, en: 501 } }) }),
     'PUT wc/v3/products/601': (c: any) => ({ body: wooProduct(601, 44, { ...c.body, lang: 'ar' }) }),
+    'PUT wc/v3/products/502': (c: any) => ({ body: wooProduct(502, 44, { ...c.body, lang: 'en' }) }),
     'POST wc/v3/products/501/variations/batch': { body: { update: [{ id: 9001 }, { id: 9002, error: { code: 'x' } }] } },
   };
   const { db, woo, deps } = setup({ seed: prodSeed, routes, env: PUSH_ON });
+  const safe = '<p>Hand <strong>made</strong><br/>by <a href="https://ibtekr.club/x">us</a></p><ul><li>a</li></ul> 5 > 3';
+  assertEquals((await call(deps, { action: 'product_save', id: 502, fields: { description: safe } }, { jwt: 'jwt-pedit' })).res.status, 200, 'the allowed tags pass');
   const { res, body } = await call(deps, { action: 'product_save', id: 501, fields: { name: ' Lamp 2 ', regular_price: '1500', sale_price: '1200', categories: [15, 15, 16], status: 'publish' },
     ar: { name: 'لمبة 2' }, variations: [{ id: 9001, regular_price: '300' }, { id: 9002, stock_quantity: 4, manage_stock: true }] }, { jwt: 'jwt-pedit' });
   assertEquals(res.status, 200);
   assertEquals(body.counts, { saved: 2, variations: 1, variations_failed: 1 });
-  const put = woo.calls.filter((c) => c.method === 'PUT');
+  const put = woo.calls.filter((c) => c.method === 'PUT' && c.path !== 'wc/v3/products/502');
   assertEquals(put.map((c) => [c.path, c.body]), [
     ['wc/v3/products/501', { name: 'Lamp 2', regular_price: '1500', sale_price: '1200', categories: [{ id: 15 }, { id: 16 }], status: 'publish' }],
     ['wc/v3/products/601', { regular_price: '1500', sale_price: '1200', status: 'publish', name: 'لمبة 2' }],
@@ -1190,9 +1195,10 @@ Deno.test('categories: GET wc/v3/products/categories with the WC keys, page by p
   const seed = { woo_categories: [{ id: 15, name: 'اسم قديم', slug: 'old', parent_id: null, updated_at: '2026-10-01T00:00:00Z' }, { id: 99, name: 'فئة اتشالت', updated_at: '2026-10-01T00:00:00Z' }] };
   const items = [{ id: 15, name: ' هدايا ', slug: 'gifts', parent: 0, count: 12, description: 'x', image: null, _links: {} }, { id: 16, name: 'شموع', slug: 'candles', parent: 15 },
     { id: 'x', name: 'بدون رقم' }, { id: 17, name: '  ' }, { id: 18 }, { id: 16, name: 'شموع معطرة', parent: 15 }];
-  const { db, woo, deps } = setup({ seed, routes: { [CATS]: page(items) } });
+  const { db, woo, deps } = setup({ seed, routes: { [CATS]: page(items), 'GET wc/v3/products/brands': page([{ id: 3, name: ' Lusso ', slug: 'lusso', parent: 0, count: 4 }, { id: 'x' }]) } });
   const { res, body } = await call(deps, { action: 'categories' }, { jwt: 'jwt-admin' });
-  assertEquals([res.status, body.result, body.counts.categories], [200, 'ok', { categories: 2, skipped: 3, failed: 0, pages: 1, done: true }]);
+  assertEquals([res.status, body.result, body.counts.categories], [200, 'ok', { categories: 2, skipped: 3, failed: 0, brands: 1, pages: 1, done: true }]);
+  assertEquals(db.rows('woo_brands').map((b: any) => [b.id, b.name, b.slug, b.parent_id]), [[3, 'Lusso', 'lusso', null]], 'phase 5: the site\'s brands too');
   assertEquals([woo.calls[0].path, woo.calls[0].query, woo.calls[0].headers.authorization], ['wc/v3/products/categories', { per_page: '100', page: '1' }, WC_AUTH]);
   assertEquals(db.rows('woo_categories').map((c: any) => [c.id, c.name, c.slug, c.parent_id, c.updated_at]),
     [[15, 'هدايا', 'gifts', null, NOW], [99, 'فئة اتشالت', null, null, '2026-10-01T00:00:00Z'], [16, 'شموع معطرة', null, 15, NOW]]);

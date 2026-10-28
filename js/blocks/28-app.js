@@ -958,7 +958,9 @@
   const CATEGORY_OPTS = D.CATEGORIES.map((c) => ({ value: c, label: c }));
   function openForm(kind, direction, existing, readOnly, preset) {
     const f = { amount: existing ? String(existing.amount) : '', date: existing ? existing.date : TODAY, direction, category: existing ? existing.category : '', beneficiary: '', otherName: '', type: existing ? existing.type : '', vendor: existing ? existing.vendor : '', account: existing ? existing.account : '',
-      subName: existing && existing.subName ? (existing.subIsOther ? D.OTHER : existing.subName) : '', subOther: existing && existing.subIsOther ? existing.subName : '', subEnds: existing && existing.subEnds ? existing.subEnds : '', subAlerts: existing && existing.subAlerts ? existing.subAlerts.slice() : ['month', 'week', 'day'], subNote: existing && existing.subNote ? existing.subNote : '' };
+      subName: existing && existing.subName ? existing.subName : '', subEnds: existing && existing.subEnds ? existing.subEnds : '', subAlerts: existing && existing.subAlerts ? existing.subAlerts.slice() : ['month', 'week', 'day'], subNote: existing && existing.subNote ? existing.subNote : '',
+      platform: existing && existing.platform ? existing.platform : '', details: existing && existing.details ? existing.details : '', note: existing && existing.note ? existing.note : '',
+      staffKind: existing && existing.staffKind ? existing.staffKind : 'staff', source: existing && existing.source ? existing.source : '', reason: existing && existing.reason ? existing.reason : '' };
     if (existing && kind === 'expenses') { if (existing.beneficiaryIsOther) { f.beneficiary = D.OTHER; f.otherName = existing.beneficiaryName; } else f.beneficiary = existing.beneficiaryName; }
     if (existing && kind === 'vendorMoves' && existing.type === 'أخرى') f.otherName = existing.typeName;
     if (preset) Object.assign(f, preset);
@@ -974,9 +976,13 @@
     function body() {
       if (readOnly) {
         const rows = [['التاريخ', num(D.formatDateNumeric(existing.date))], ['العملية', existing.direction === 'deposit' ? 'إيداع' : 'سحب'], ['المبلغ (ج.م)', num(D.formatMoney(existing.amount))]];
-        if (kind === 'expenses') rows.push(['النوع', existing.category], ['اسم المستفيد', existing.beneficiaryName || '—']);
-        if (kind === 'expenses' && existing.category === SUBS_CAT) rows.push(['الاشتراك', existing.subName || '—'], ['تاريخ الانتهاء', existing.subEnds ? num(D.formatDateNumeric(existing.subEnds)) : '—'],
-          ['التنبيه قبل الانتهاء', (existing.subAlerts || []).map((k) => (D.SUB_ALERTS.find((a) => a[0] === k) || [, k])[1]).join(' · ') || '—'], ['ملاحظة', existing.subNote || '—']);
+        if (kind === 'expenses') { rows.push(['النوع', existing.category]);
+          if (existing.category === SUBS_CAT && existing.direction !== 'deposit') rows.push(['الاشتراك', existing.subName || '—'], ['تاريخ الانتهاء', existing.subEnds ? num(D.formatDateNumeric(existing.subEnds)) : '—'],
+            ['التنبيه قبل الانتهاء', (existing.subAlerts || []).map((k) => (D.SUB_ALERTS.find((a) => a[0] === k) || [, k])[1]).join(' · ') || '—'], ['ملاحظة', existing.subNote || '—']);
+          else if (existing.direction === 'deposit') rows.push(['مصدر المبلغ', existing.beneficiaryName || '—'], ['سبب الإيداع', existing.reason || '—'], ['ملاحظات', existing.note || '—']);
+          else if (existing.category === ADS_CAT) rows.push(['المنصة', existing.platform || '—'], ['تفاصيل', existing.details || '—'], ['ملاحظات', existing.note || '—']);
+          else if (existing.category === PAY_CAT) rows.push(['المستفيد', existing.beneficiaryName || '—'], ['نوع التعاقد', existing.staffKind === 'freelance' ? 'فريلانس' : 'موظف'], ['ملاحظات', existing.note || '—']);
+          else rows.push(['المستفيد', existing.beneficiaryName || '—'], ['تفاصيل المصروف', existing.details || '—'], ['ملاحظات', existing.note || '—']); }
         if (kind === 'accountMoves') rows.push(['نوع الحساب', existing.account]);
         rows.push(['سُجّل بواسطة', existing.createdBy]);
         return [h('dl', { class: 'kv' }, rows.map(([k, v]) => [h('dt', null, k), h('dd', null, v)]))];
@@ -985,12 +991,12 @@
       if (kind === 'vendorMoves') fields.push(U.Select({ id: 'f-vendor', label: 'المبتكر', required: true, options: vendorOpts, value: f.vendor, error: errs.vendor, placeholder: 'اختار المبتكر', onChange: (v) => { f.vendor = v; redraw(); } }));
       if (kind === 'accountMoves') fields.push(U.Select({ id: 'f-account', label: 'نوع الحساب', required: true, options: accOpts, value: f.account, error: errs.account, placeholder: 'اختار نوع الحساب', onChange: (v) => { f.account = v; redraw(); } }));
       fields.push(U.TextInput({ id: 'f-amount', label: 'المبلغ', required: true, value: f.amount, error: errs.amount, placeholder: '0.00', inputmode: 'decimal', suffix: 'ج.م', onInput: (v) => { f.amount = v; } }));
-      fields.push(U.DateField({ id: 'f-date', label: direction === 'deposit' ? 'تاريخ الإيداع' : 'تاريخ السحب', required: true, value: f.date, error: errs.date, today: TODAY, onChange: (iso, e) => { if (!e) f.date = iso; errs.date = e || undefined; redraw(); } }));
+      // التاريخ بيتأكّد على blur: منعملش redraw كامل غير لو حالة الغلط اتغيرت، عشان الضغطة اللي بعده متضيعش
+      fields.push(U.DateField({ id: 'f-date', label: direction === 'deposit' ? 'تاريخ الإيداع' : 'تاريخ السحب', required: true, value: f.date, error: errs.date, today: TODAY,
+        onChange: (iso, e) => { const had = !!errs.date; if (!e) f.date = iso; errs.date = e || undefined; if (had !== !!e) redraw(); } }));
       if (kind === 'expenses') {
         fields.push(U.Select({ id: 'f-cat', label: 'النوع', required: true, options: CATEGORY_OPTS, value: f.category, error: errs.category, onChange: (v) => { f.category = v; redraw(); } }));
-        fields.push(U.Select({ id: 'f-ben', label: 'المستفيد', options: benefOpts, value: f.beneficiary, error: errs.beneficiary, placeholder: 'اختار المستفيد', onChange: (v) => { f.beneficiary = v; if (v !== D.OTHER) f.otherName = ''; redraw(); } }));
-        if (f.beneficiary === D.OTHER) fields.push(U.TextInput({ id: 'f-other', label: 'اسم المستفيد', required: true, value: f.otherName, error: errs.otherName, placeholder: 'اكتب الاسم', maxlength: 80, onInput: (v) => { f.otherName = v; } }));
-        if (f.category === SUBS_CAT) fields.push(...subFields(f, errs, redraw));
+        fields.push(...expenseFields(f, errs, redraw, direction));
       }
       if (kind === 'vendorMoves') {
         fields.push(U.Select({ id: 'f-type', label: 'النوع', required: true, options: typeOpts, value: f.type, error: errs.type, onChange: (v) => { f.type = v; if (v !== 'أخرى') f.otherName = ''; redraw(); } }));
@@ -1010,7 +1016,11 @@
       if (kind === 'expenses') res = D.validateExpense(raw);
       else if (kind === 'vendorMoves') res = D.validateVendorMovement(raw);
       else res = D.validateAccountMovement(raw);
-      if (kind === 'expenses' && f.category === SUBS_CAT) { const sres = D.validateSubscription(f); Object.assign(res.errors, sres.errors); if (!Object.keys(sres.errors).length) Object.assign(res.value, sres.value); }
+      if (kind === 'expenses') {
+        const cres = D.validateExpenseCategory(Object.assign({}, f, { direction }));
+        Object.assign(res.errors, cres.errors); if (!Object.keys(cres.errors).length) Object.assign(res.value, cres.value);
+        if (direction !== 'deposit' && f.category === SUBS_CAT) { const sres = D.validateSubscription(f); Object.assign(res.errors, sres.errors); if (!Object.keys(sres.errors).length) Object.assign(res.value, sres.value); }
+      }
       if (Object.keys(res.errors).length) { errs = res.errors; redraw(); return; }
       if (kind === 'accountMoves') {
         const others = existing ? store.accountMoves.filter((r) => r.id !== existing.id) : store.accountMoves;
@@ -1018,7 +1028,14 @@
         if (!chk.ok) { errs = { _form: 'الرصيد مش كفاية في ' + chk.account + ' — العملية دي هتخليه بالسالب.' }; redraw(); return; }
       }
       if (existing) adapter.update(kind, existing.id, res.value); else adapter.add(kind, res.value);
-      setNote({ kind: 'success', text: existing ? 'اتحفظ التعديل.' : 'اتسجّلت الحركة.' + (kind === 'expenses' && !inRange(res.value.date) ? ' التاريخ خارج الفترة المعروضة، غيّر الفترة عشان تشوفها.' : '') });
+      if (kind === 'expenses' && direction !== 'deposit' && f.category === PAY_CAT && res.value.beneficiaryIsOther && res.value.staffKind === 'staff') {
+        window.IBKit.notify({ title: 'ضيف «' + res.value.beneficiaryName + '» في الموارد البشرية — اتصرفله مرتب وهو لسه مش في الفريق', link: '#hr-team' });
+        window.IBKit.logEvent('expenses.newStaff', res.value.beneficiaryName);
+      }
+      const outOfRange = kind === 'expenses' && !inRange(res.value.date);
+      setNote({ kind: 'success', text: existing ? 'اتحفظ التعديل.' : 'اتسجّلت الحركة.' + (outOfRange ? ' التاريخ (' + D.formatDateNumeric(res.value.date) + ') خارج الفترة المعروضة.' : ''),
+        action: outOfRange ? { label: 'اعرضهالي', run: () => { const d = res.value.date; const [y, m] = d.split('-').map(Number);
+          state.range = { from: d.slice(0, 8) + '01', to: d.slice(0, 8) + String(lastDay(y, m)).padStart(2, '0'), preset: 'custom' }; render(); } } : null });
       modal.close(); render();
     }
     modal = U.Modal({ title, body: [], footer: [] });
@@ -1026,35 +1043,147 @@
     const first = modal.el.querySelector('input,.select'); if (first && !readOnly) first.focus();
   }
 
-  // ---------- الاشتراكات (owner 27 Oct): جوه مصروفات نوعها «الاشتراكات» ----------
-  const SUBS_CAT = 'الاشتراكات';
-  const SUB_OPTS = () => D.SUB_NAMES.map((n) => ({ value: n === 'أخرى' ? D.OTHER : n, label: n === 'أخرى' ? D.OTHER : n }));
-  function subFields(f, errs, redraw) {
+  // ---------- حقول المصروفات حسب النوع (owner 27 Oct) ----------
+  // كل نوع مصروف ليه حقوله المنطقية: الاشتراكات (مفيش مستفيد) · المرتبات (الفريق) · المصروفات (تفاصيل) · الإعلانات (المنصة).
+  const SUBS_CAT = 'الاشتراكات', PAY_CAT = 'المرتبات', ADS_CAT = 'الإعلانات', GEN_CAT = 'المصروفات';
+  // قوايم قابلة للإضافة من البوب أب نفسه — phase 4.1 (decision 3): the defaults of block 02 + acc_list_items (IBAccounts.lists)
+  const listWith = (key, base) => { const out = base.slice(); (AC() && AC().lists ? AC().lists(key) : []).forEach((n) => { if (!out.some((x) => x.toLowerCase() === n.toLowerCase())) out.push(n); }); return out; };
+  const subsList = () => listWith('subs', D.SUB_NAMES.filter((n) => n !== D.OTHER && n !== 'أخرى'));
+  const adPlatforms = () => listWith('ads', D.AD_PLATFORMS);
+  const NEW_VAL = '__new__';
+  const withNew = (list, label) => list.map((n) => ({ value: n, label: n })).concat([{ value: NEW_VAL, label: label, icon: 'plus' }]);
+  // بوب أب صغير يضيف قيمة جديدة للقايمة ويختارها على طول
+  function addToList(title, label, list, exists, done, key) {
     const K = window.IBKit;
-    const chips = h('div', { class: 'chips', role: 'group', 'aria-label': 'التنبيه قبل الانتهاء', id: 'f-subal-chips' },
-      D.SUB_ALERTS.map(([k, lb]) => h('button', { type: 'button', class: 'chip', role: 'checkbox', 'aria-checked': String(f.subAlerts.includes(k)), 'data-subal': k,
-        onClick: () => { f.subAlerts = f.subAlerts.includes(k) ? f.subAlerts.filter((x) => x !== k) : f.subAlerts.concat([k]); redraw(); } }, lb)));
-    return [
-      h('div', { class: 'form-sec' }, h('h3', { class: 't-label' }, 'بيانات الاشتراك'), h('p', { class: 't-small help' }, 'عشان نفكّرك قبل ما ينتهي ومتدفعش غرامة أو يتقفل.')),
-      U.Select({ id: 'f-subname', label: 'اشتراك إيه', required: true, options: SUB_OPTS(), value: f.subName, error: errs.subName, placeholder: 'اختار الاشتراك', onChange: (v) => { f.subName = v; if (v !== D.OTHER) f.subOther = ''; redraw(); } }),
-      f.subName === D.OTHER ? U.TextInput({ id: 'f-subother', label: 'اسم الاشتراك', required: true, value: f.subOther, error: errs.subOther, placeholder: 'اكتب اسم الاشتراك', maxlength: 80, onInput: (v) => { f.subOther = v; } }) : null,
-      U.DateField({ id: 'f-subends', label: 'تاريخ الانتهاء', required: true, value: f.subEnds || null, error: errs.subEnds, today: TODAY, onChange: (iso, e) => { if (!e) f.subEnds = iso || ''; errs.subEnds = e || undefined; redraw(); } }),
-      U.FieldShell({ id: 'f-subal', label: 'تنبيه قبل الانتهاء', required: true, error: errs.subAlerts, help: 'اختار أكتر من واحد — التنبيه بيوصل لمسؤول الحسابات والأدمن' }, chips),
-      U.Textarea({ id: 'f-subnote', label: 'ملاحظة', value: f.subNote, rows: 2, placeholder: 'اكتب أي حاجة — رقم الفاتورة، الكارت اللي بيتخصم منه، شهري ولا سنوي…', onInput: (v) => { f.subNote = v; } })].filter(Boolean);
+    K.form({ title, values: { name: '' },
+      fields: (ff, e, set) => [K.field.text('name', label, ff, e, set, { required: true, maxlength: 60, help: 'هيتضاف للقايمة وتقدر تختاره بعد كده' })],
+      validate: (ff) => { const v = (ff.name || '').trim(); if (!v) return { name: 'اكتب الاسم' }; if (exists(v)) return { name: 'موجود في القايمة بالفعل' }; return {}; },
+      submitLabel: 'إضافة', submit: (ff) => { const v = ff.name.trim(); list.push(v); if (AC() && AC().addListItem) settle(AC().addListItem(key, v)); K.logEvent('expenses.list.add', title + ' · ' + v); K.toast('اتضاف «' + v + '» للقايمة', 'success'); done(v); } });
   }
-  // الاشتراكات المسجّلة = أي مصروف نوعه «الاشتراكات» اتسجّل في السيستم (phase 4: acc_expenses)
-  const subsAll = () => store.expenses.filter((e) => e.category === SUBS_CAT && e.subEnds);
+  // تاريخ التنبيه = تاريخ الانتهاء − أيام التنبيه
+  const alertDate = (ends, key) => { if (!ends) return null; const t = Date.parse(ends + 'T00:00:00Z') - D.subAlertDays(key) * 86400000; return new Date(t).toISOString().slice(0, 10); };
+  // الشيبس بتتبنى مرة واحدة وبتتحدّث في مكانها (مفيش إعادة إنشاء) عشان الضغطة متضيعش
+  // لما الفيلد اللي قبلها يعمل blur ويحدّث التواريخ.
+  function alertChips(f, errs) {
+    const help = h('p', { class: 't-small help', id: 'f-subal-help', 'aria-live': 'polite' });
+    const made = D.SUB_ALERTS.map(([k, lb]) => {
+      const tick = h('span', { class: 'chip-tick', 'aria-hidden': 'true' }, Icon('check', 'sm'));
+      const date = h('small', { class: 'chip-date' });
+      const b = h('button', { type: 'button', class: 'chip alert-chip', role: 'checkbox', 'data-subal': k }, tick, h('span', null, lb), date);
+      const toggle = () => { f.subAlerts = f.subAlerts.includes(k) ? f.subAlerts.filter((x) => x !== k) : f.subAlerts.concat([k]); sync(); };
+      // بالماوس بنقلب على mousedown (من غير preventDefault عشان الفيلد اللي فوق يعمل blur ويحفظ قيمته):
+      // لو استنينا الـ click، تحديث تواريخ التنبيه بيزحزح الصف والضغطة بتضيع.
+      b.addEventListener('mousedown', () => toggle());
+      b.addEventListener('click', (e) => e.preventDefault());
+      b.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggle(); } });
+      return { k, lb, b, tick, date };
+    });
+    const row = h('div', { class: 'chips alert-chips', role: 'group', 'aria-label': 'التنبيه قبل الانتهاء', id: 'f-subal-chips' }, made.map((x) => x.b));
+    function sync() {
+      made.forEach((x) => { const on = f.subAlerts.includes(x.k); const d = alertDate(f.subEnds, x.k);
+        x.b.setAttribute('aria-pressed', String(on)); x.b.setAttribute('aria-checked', String(on));
+        x.tick.hidden = !on; x.date.textContent = d ? D.formatDateNumeric(d) : ''; x.date.hidden = !d; });
+      const on = D.SUB_ALERTS.filter(([k]) => f.subAlerts.includes(k));
+      help.textContent = !f.subEnds ? 'حدّد تاريخ الانتهاء الأول عشان نحسب تواريخ التنبيه.'
+        : on.length ? 'هيوصلك تنبيه في: ' + on.map(([k, lb]) => lb + ' (' + D.formatDateNumeric(alertDate(f.subEnds, k)) + ')').join(' · ')
+          : 'مفيش تنبيه متحدد — اختار واحد على الأقل.';
+    }
+    sync();
+    const shell = U.FieldShell({ id: 'f-subal', label: 'تنبيه قبل الانتهاء', required: true, error: errs.subAlerts }, h('div', null, row, help));
+    shell.__sync = sync;
+    return shell;
+  }
+  function expenseFields(f, errs, redraw, direction) {
+    const K = window.IBKit; const out = [];
+    const txt = (id, key, label, opts) => U.TextInput(Object.assign({ id, label, value: f[key], error: errs[key], onInput: (v) => { f[key] = v; } }, opts || {}));
+    const area = (id, key, label, opts) => U.Textarea(Object.assign({ id, label, value: f[key], error: errs[key], rows: 2, onInput: (v) => { f[key] = v; } }, opts || {}));
+    // الإيداع في المصروفات = فلوس راجعة (استرجاع / إلغاء اشتراك / خصم) — مش نفس حقول السحب
+    if (direction === 'deposit') {
+      out.push(txt('f-src', 'source', 'مصدر المبلغ', { required: true, maxlength: 80, placeholder: 'مين رجّع الفلوس — مورد، منصة إعلانات، موظف…' }));
+      out.push(U.Select({ id: 'f-reason', label: 'سبب الإيداع', required: true, options: D.REFUND_REASONS.map((r) => ({ value: r, label: r })), value: f.reason, error: errs.reason, placeholder: 'اختار السبب', onChange: (v) => { f.reason = v; redraw(); } }));
+      out.push(area('f-note', 'note', 'ملاحظات', { placeholder: 'اختياري — رقم الفاتورة، المرجع، أي تفاصيل' }));
+      return out;
+    }
+    if (f.category === SUBS_CAT) {
+      const list = subsList();
+      out.push(h('div', { class: 'form-sec' }, h('h3', { class: 't-label' }, 'بيانات الاشتراك'), h('p', { class: 't-small help' }, 'الاشتراك مش بيتربط بمبتكر — بيتربط بالخدمة نفسها وميعاد انتهائها.')));
+      out.push(U.Select({ id: 'f-subname', label: 'اشتراك إيه', required: true, options: withNew(list, '+ إضافة اشتراك جديد'), value: f.subName, error: errs.subName, placeholder: 'اختار الاشتراك',
+        onChange: (v) => { if (v === NEW_VAL) { addToList('إضافة اشتراك جديد', 'اسم الاشتراك', list, (x) => list.some((n) => n.toLowerCase() === x.toLowerCase()), (nv) => { f.subName = nv; redraw(); }, 'subs'); return; } f.subName = v; redraw(); } }));
+      const chips = alertChips(f, errs);
+      out.push(U.DateField({ id: 'f-subends', label: 'تاريخ الانتهاء', required: true, value: f.subEnds || null, error: errs.subEnds, today: TODAY,
+        onChange: (iso, e) => { const had = !!errs.subEnds; if (!e) f.subEnds = iso || ''; errs.subEnds = e || undefined; if (had !== !!e) redraw(); else chips.__sync(); } }));
+      out.push(chips);
+      out.push(area('f-subnote', 'subNote', 'ملاحظة', { placeholder: 'اكتب أي حاجة — رقم الفاتورة، الكارت اللي بيتخصم منه، شهري ولا سنوي…' }));
+      return out;
+    }
+    if (f.category === PAY_CAT) {
+      const mem = K.team().concat([K.member(K.ME)]).filter(Boolean);
+      const opts = mem.map((m) => ({ value: m.name, label: m.name + ' — ' + (m.title || m.role || '') })).concat([{ value: D.OTHER, label: D.OTHER + ' (حد من بره الفريق)' }]);
+      out.push(U.Select({ id: 'f-ben', label: 'المستفيد', required: true, options: opts, value: f.beneficiary, error: errs.beneficiary, placeholder: 'اختار من الفريق',
+        onChange: (v) => { f.beneficiary = v; if (v !== D.OTHER) f.otherName = ''; redraw(); } }));
+      if (f.beneficiary === D.OTHER) {
+        out.push(txt('f-other', 'otherName', 'اسم المستفيد', { required: true, maxlength: 80, placeholder: 'اكتب الاسم' }));
+        out.push(K.Radios({ label: 'ده مين بالظبط؟', name: 'f-staffkind', value: f.staffKind,
+          options: [{ value: 'staff', label: 'موظف جديد — ضيفه في الموارد البشرية' }, { value: 'freelance', label: 'فريلانس — شغل مرة واحدة وخلص' }],
+          onChange: (v) => { f.staffKind = v; redraw(); } }));
+        if (f.staffKind === 'staff') out.push(U.InlineNote({ children: 'هيتسجل كمصروف دلوقتي، وهنفكّرك تضيفه في «الموارد البشرية › الفريق» عشان مرتبه الجاي يتحسب تلقائي.' }));
+      }
+      out.push(area('f-note', 'note', 'ملاحظات', { placeholder: 'اختياري — شهر المرتب، مكافأة، سلفة…' }));
+      return out;
+    }
+    if (f.category === ADS_CAT) {
+      const list = adPlatforms();
+      out.push(U.Select({ id: 'f-plat', label: 'المنصة', required: true, options: withNew(list, '+ إضافة منصة جديدة'), value: f.platform, error: errs.platform, placeholder: 'اختار المنصة',
+        onChange: (v) => { if (v === NEW_VAL) { addToList('إضافة منصة إعلانات', 'اسم المنصة', list, (x) => list.some((n) => n.toLowerCase() === x.toLowerCase()), (nv) => { f.platform = nv; redraw(); }, 'ads'); return; } f.platform = v; redraw(); } }));
+      out.push(area('f-details', 'details', 'تفاصيل المصروف', { placeholder: 'اسم الحملة أو الفترة — مثلاً: حملة «خريف 2026» من 1 لـ 15 أكتوبر' }));
+      out.push(area('f-note', 'note', 'ملاحظات', { placeholder: 'اختياري' }));
+      return out;
+    }
+    // المصروفات العامة
+    out.push(U.Select({ id: 'f-ben', label: 'المستفيد', options: benefOptsFor(), value: f.beneficiary, error: errs.beneficiary, placeholder: 'اختار المستفيد (اختياري)',
+      onChange: (v) => { f.beneficiary = v; if (v !== D.OTHER) f.otherName = ''; redraw(); } }));
+    if (f.beneficiary === D.OTHER) out.push(txt('f-other', 'otherName', 'اسم المستفيد', { required: true, maxlength: 80, placeholder: 'اكتب الاسم' }));
+    out.push(area('f-details', 'details', 'تفاصيل المصروف', { required: true, placeholder: 'اكتب المصروف ده إيه بالظبط — مثلاً: ورق طباعة وكراتين تغليف من مكتبة سمير' }));
+    out.push(area('f-note', 'note', 'ملاحظات', { placeholder: 'اختياري — رقم الفاتورة، مين صرف، أي تفاصيل تانية' }));
+    return out;
+  }
+  // «البيان» في السجل: السطر اللي يفهّمك الحركة دي كانت إيه حسب نوعها
+  function expenseLine(e) {
+    const bits = [];
+    if (e.direction === 'deposit') { if (e.reason) bits.push(e.reason); }
+    else if (e.category === SUBS_CAT) { if (e.subName) bits.push('اشتراك ' + e.subName); if (e.subEnds) bits.push('بينتهي ' + D.formatDateNumeric(e.subEnds)); }
+    else if (e.category === ADS_CAT) { if (e.platform) bits.push(e.platform); if (e.details) bits.push(e.details); }
+    else if (e.category === PAY_CAT) { if (e.beneficiaryIsOther) bits.push(e.staffKind === 'freelance' ? 'فريلانس' : 'موظف جديد'); }
+    else if (e.details) bits.push(e.details);
+    if (e.note || e.subNote) bits.push(e.note || e.subNote);
+    return bits.length ? num(bits.join(' · ')) : '—';
+  }
+  const benefOptsFor = () => SEED.vendors.map((v) => ({ value: v.name, label: v.name })).concat([{ value: D.OTHER, label: D.OTHER }]);
+  // phase 4.1: the latest withdraw of each subscription (a renewal is a new expense with a later end) — acc_expenses only
+  const subsAll = () => { const last = new Map(); store.expenses.filter((e) => e.category === SUBS_CAT && e.direction !== 'deposit' && e.subEnds && e.subName).forEach((e) => {
+    const k = e.subName.toLowerCase(); const o = last.get(k); if (!o || e.subEnds > o.subEnds) last.set(k, e); }); return [...last.values()]; };
+  // تجديد اشتراك: بيفتح مصروف جديد متملّي ببيانات الاشتراك وتاريخ انتهاء بعد سنة
+  const plusYear = (iso) => { const [y, m, d] = iso.split('-').map(Number); const t = new Date(Date.UTC(y + 1, m - 1, d)); return t.toISOString().slice(0, 10); };
+  function renewSub(x) {
+    const base = x.ends >= TODAY ? x.ends : TODAY;
+    openForm('expenses', 'withdraw', null, false, { category: SUBS_CAT, subName: x.name, amount: x.amount ? String(x.amount) : '', subEnds: plusYear(base), subAlerts: (x.alerts || []).slice(), subNote: x.note || '' });
+  }
   function subsSection() {
     const rows0 = D.subsDue(subsAll(), TODAY); if (!rows0.length) return null;
     const AL = (k) => (D.SUB_ALERTS.find((a) => a[0] === k) || [, k])[1];
     const tone = (x) => (x.expired ? 'error' : x.due ? 'orange' : 'success');
     const word = (x) => (x.expired ? 'انتهى من ' + Math.abs(x.daysLeft) + ' يوم' : x.daysLeft === 0 ? 'بينتهي النهاردة' : 'باقي ' + x.daysLeft + ' يوم');
-    const headers = ['الاشتراك', 'تاريخ الانتهاء', 'الحالة', 'المبلغ (ج.م)', 'التنبيه قبل الانتهاء', 'ملاحظة'];
-    const rows = rows0.map((x) => [x.name, num(D.formatDateNumeric(x.ends)), h('span', { class: 'tg tg-' + tone(x) }, word(x)), num(D.formatMoney(x.amount || 0)), x.alerts.map(AL).join(' · ') || '—', x.note || '—']);
+    const headers = ['الاشتراك', 'تاريخ التجديد', 'الحالة', 'آخر دفعة (ج.م)', 'التنبيه قبل الانتهاء', 'ملاحظة', ''];
+    const rows = rows0.map((x) => [x.name, num(D.formatDateNumeric(x.ends)), h('span', { class: 'tg tg-' + tone(x) }, word(x)), num(D.formatMoney(x.amount || 0)), x.alerts.map(AL).join(' · ') || '—', x.note || '—',
+      Button({ type: x.due ? 'primary' : 'text', size: 'sm', label: 'جدّد', attrs: { 'data-renew': x.name, 'aria-label': 'جدّد اشتراك ' + x.name }, onClick: () => renewSub(x) })]);
     const due = rows0.filter((x) => x.due);
     return h('div', { class: 'subs-wrap', style: 'display:flex;flex-direction:column;gap:16px' },
-      due.length ? U.InlineNote({ kind: due.some((x) => x.expired) ? 'error' : 'warning', children: 'اشتراكات محتاجة تجديد: ' + due.map((x) => x.name + ' (' + word(x) + ')').join(' · ') }) : null,
-      TableCard({ title: 'الاشتراكات ومواعيد انتهائها', count: rows0.length + ' اشتراك' + (due.length ? ' · ' + due.length + ' محتاج تجديد' : ''), body: U.Table({ cls: 'subs-tbl', headers, rows }) }));
+      due.length ? U.InlineNote({ kind: due.some((x) => x.expired) ? 'error' : 'warning',
+        children: ['اشتراكات محتاجة تجديد: ' + due.map((x) => x.name + ' (' + word(x) + ')').join(' · ')],
+        action: Button({ type: 'text', size: 'sm', label: 'جدّد ' + due[0].name, attrs: { 'data-renew-first': '' }, onClick: () => renewSub(due[0]) }) }) : null,
+      TableCard({ title: 'الاشتراكات النشطة ومواعيد تجديدها', count: rows0.length + ' اشتراك' + (due.length ? ' · ' + due.length + ' محتاج تجديد' : '') + ' · كل الاشتراكات، مش متأثرة بفترة الصفحة',
+        body: [U.Table({ cls: 'subs-tbl', headers, rows }),
+          h('p', { class: 'source', style: 'margin:0;padding:12px 16px' }, 'ده سجل الاشتراكات نفسها ومواعيد تجديدها — «آخر دفعة» هي قيمة آخر مرة اتدفعت. إجمالي مصروفات الاشتراكات في الفترة موجود فوق في كارت «الاشتراكات»، و«جدّد» بيفتحلك مصروف جديد متملّي ببيانات الاشتراك.')] }));
   }
   // تنبيه مرة واحدة لكل اشتراك مستحق (الجرس) — owner 27 Oct
   const subsNotified = {};
@@ -1087,8 +1216,11 @@
   // ---------- shared view pieces ----------
   const sourceNote = (t) => h('p', { class: 'source', style: 'margin:0' }, t);
   const pctTxt = (p) => num(p);
-  function TableCard({ title, count, action, body }) {
-    return h('section', { class: 'card table-card' }, h('div', { class: 'table-title' }, h('h2', { class: 't-h4' }, title), h('span', { class: 'count t-body' }, count || ''), action || null), body);
+  // كل كارت جدول بياخد زرار «الأعمدة» تلقائي (4 أعمدة فأكتر) — إظهار/إخفاء وترتيب، محفوظ لكل مستخدم
+  function TableCard({ title, count, action, body, cols }) {
+    const card = h('section', { class: 'card table-card' }, h('div', { class: 'table-title' }, h('h2', { class: 't-h4' }, title), h('span', { class: 'count t-body' }, count || ''), action || null), body);
+    // the key leaves out « — <الفترة>» so a choice outlives the range picked (phase 4.1: the titles carry the period)
+    return cols === false ? card : window.IBKit.withColumns(card, 'tbl:' + String(title).split(' — ')[0], title);
   }
   // phase 4: the numbers are live for the range picked (sales: our orders; makers: Dokan + the moves recorded here)
   const periodText = () => D.rangeLabel(state.range.from, state.range.to);
@@ -1139,17 +1271,17 @@
     const cells = ['M14', 'N14', 'O14', 'P14'];
     const srcFor = () => 'تسجيل يدوي';
     return [
+      h('div', { class: 'cards' }, D.CATEGORIES.map((c, i) => U.CategoryCard({ tone: tones[c], name: c, value: tot.byCategory[c].amount, pct: tot.byCategory[c].share, caption: 'من الإجمالي', details: () => { const l = entries.filter((e) => e.category === c); const manual = l.reduce((x, e) => x + (e.direction === 'deposit' ? -e.amount : e.amount), 0); const sheet = Math.round((tot.byCategory[c].amount - manual) * 100) / 100;
+        return { title: c + ' — ' + D.formatMoney(tot.byCategory[c].amount) + ' ج.م', sub: monthTxt + ' · ' + D.formatPct(tot.byCategory[c].share) + ' من إجمالي المصروفات', summary: [{ label: 'الإجمالي', value: D.formatMoney(tot.byCategory[c].amount) + ' ج.م' }, { label: 'من الشيت', value: D.formatMoney(seedKeys.length ? sheet : 0) + ' ج.م' }, { label: 'تسجيل يدوي', value: l.length + ' حركة' }], headers: ['التاريخ', 'البيان', 'المستفيد', 'العملية', 'المبلغ'], rows: (seedKeys.length ? [['—', 'من شيت Monthly Performance!' + cells[i], '—', 'سحب', D.formatMoney(sheet)]] : []).concat(l.map((e) => [num(D.formatDateNumeric(e.date)), 'تسجيل يدوي', e.beneficiaryName || '—', e.direction === 'deposit' ? 'إيداع' : 'سحب', D.formatMoney(e.amount)])), total: ['الإجمالي', '', '', '', D.formatMoney(tot.byCategory[c].amount)], source: srcFor(c, i) }; } }))),
+      subsSection(),
       h('div', { class: 'card sum-card' }, h('div', null, h('div', { class: 'lab t-small' }, monthTxt), h('div', { class: 't-h5' }, full ? 'إجمالي مصروفات ' + D.monthName(full.m) : 'إجمالي المصروفات'),
           h('button', { type: 'button', class: 'kpi-more kpi-details', 'data-details': 'إجمالي المصروفات', 'aria-label': 'تفاصيل إجمالي المصروفات', onClick: () => U.DetailsModal(() => ({ title: 'إجمالي المصروفات — ' + D.formatMoney(tot.total) + ' ج.م', sub: monthTxt, summary: D.CATEGORIES.map((c) => ({ label: c, value: D.formatMoney(tot.byCategory[c].amount) })), headers: ['البند', 'القيمة', 'النسبة', 'المصدر'], rows: D.CATEGORIES.map((c, i) => [c, D.formatMoney(tot.byCategory[c].amount), D.formatPct(tot.byCategory[c].share), srcFor(c, i)]).concat(entries.map((e) => [e.category + ' · ' + D.formatDateNumeric(e.date), D.formatMoney(e.amount), '—', 'تسجيل يدوي — ' + (e.beneficiaryName || '—')])) }), { label: 'إجمالي المصروفات' }) }, 'التفاصيل', Icon('chevL', 'sm'))),
         h('div', { class: 'cat-val' }, h('span', { class: 'unit' }, 'ج.م'), h('span', { class: 't-h3' }, num(D.formatMoney(tot.total))))),
-      h('div', { class: 'cards' }, D.CATEGORIES.map((c, i) => U.CategoryCard({ tone: tones[c], name: c, value: tot.byCategory[c].amount, pct: tot.byCategory[c].share, caption: 'من الإجمالي', details: () => { const l = entries.filter((e) => e.category === c); const manual = l.reduce((x, e) => x + (e.direction === 'deposit' ? -e.amount : e.amount), 0); const sheet = Math.round((tot.byCategory[c].amount - manual) * 100) / 100;
-        return { title: c + ' — ' + D.formatMoney(tot.byCategory[c].amount) + ' ج.م', sub: monthTxt + ' · ' + D.formatPct(tot.byCategory[c].share) + ' من إجمالي المصروفات', summary: [{ label: 'الإجمالي', value: D.formatMoney(tot.byCategory[c].amount) + ' ج.م' }, { label: 'من الشيت', value: D.formatMoney(seedKeys.length ? sheet : 0) + ' ج.م' }, { label: 'تسجيل يدوي', value: l.length + ' حركة' }], headers: ['التاريخ', 'البيان', 'المستفيد', 'العملية', 'المبلغ'], rows: (seedKeys.length ? [['—', 'من شيت Monthly Performance!' + cells[i], '—', 'سحب', D.formatMoney(sheet)]] : []).concat(l.map((e) => [num(D.formatDateNumeric(e.date)), 'تسجيل يدوي', e.beneficiaryName || '—', e.direction === 'deposit' ? 'إيداع' : 'سحب', D.formatMoney(e.amount)])), total: ['الإجمالي', '', '', '', D.formatMoney(tot.byCategory[c].amount)], source: srcFor(c, i) }; } }))),
       TableCard({ title: 'تفاصيل المصروفات', body: U.Table({ headers: ['البند', 'القيمة (ج.م)', 'النسبة', 'المصدر'],
         rows: D.CATEGORIES.map((c, i) => [c, num(D.formatMoney(tot.byCategory[c].amount)), num(D.formatPct(tot.byCategory[c].share)), srcFor(c, i)]),
         totalRow: ['إجمالي الأربع فئات', num(D.formatMoney(tot.total)), num(tot.total === 0 ? '0.0%' : '100.0%'), 'إجمالي المصروفات'] }) }),
-      subsSection(),
       TableCard({ title: 'سجل المصروفات التفصيلي', count: entries.length + ' مصروف مسجّل', body: entries.length === 0 ? U.EmptyState('لسه مفيش مصروفات مسجّلة', 'اضغط «إضافة مصروفات» وسجّل أول سحب أو إيداع، وهيظهر هنا.') :
-        U.Table({ headers: ['التاريخ', 'النوع', 'اسم المستفيد', 'المبلغ (ج.م)', ''], rows: entries.map((e) => [num(D.formatDateNumeric(e.date)), e.category, e.beneficiaryName || '—',
+        U.Table({ headers: ['التاريخ', 'النوع', 'اسم المستفيد', 'البيان', 'المبلغ (ج.م)', ''], rows: entries.map((e) => [num(D.formatDateNumeric(e.date)), e.category, e.beneficiaryName || '—', expenseLine(e),
           h('span', { class: e.direction === 'deposit' ? 'pos' : '' }, num((e.direction === 'deposit' ? '+' : '') + D.formatMoney(e.amount))), RowActions('expenses', e, (r) => deleteRec('expenses', r))]) }) }),
       sourceNote('المصدر: المصروفات المتسجلة في السيستم للفترة المحددة'),
     ].filter(Boolean);
@@ -1164,10 +1296,11 @@
         source: 'الأوردرات (السيستم) ← حسب حالة الأوردر وتاريخه' }; };
     return [liveNote(),
       h('div', { class: 'cards' }, [...S.map((r, i) => U.CategoryCard({ tone: tones[i], name: r.label, value: r.sales, pct: r.sales / T.sales, caption: 'من إجمالي المبيعات', details: () => salesDet(['c', 'p', 'x'][i], r) })), U.CategoryCard({ tone: 'goldlight', name: 'إجمالي المبيعات', value: T.sales, pct: 1, caption: 'من إجمالي المبيعات', details: () => salesDet(null, T) })]),
-      TableCard({ title: 'تفاصيل المبيعات حسب حالة الأوردر', body: U.Table({ headers: ['حالة الأوردر', 'عدد الأوردرات', 'إجمالي المبيعات (ج.م)', 'حصة إبتكر (ج.م)', 'نسبة حصة إبتكر'],
-        rows: S.map((r) => [r.label, num(String(r.orders)), num(D.formatMoney(r.sales)), num(D.formatMoney(r.share)), num(r.pct)]),
-        totalRow: ['الإجمالي', num(String(T.orders)), num(D.formatMoney(T.sales)), num(D.formatMoney(T.share)), num(T.pct)] }) }),
-      sourceNote('المصدر: الأوردرات (السيستم) للفترة المحددة · حصة إبتكر = قيمة السطر × نسبة الموقع على السطر (أو نسبتنا يومها) + الرسوم · «تحت التنفيذ» = جاري التنفيذ + جاهز للشحن + قيد الشحن · «مرتجع / ملغي» = ملغي + استرجاع + فشل')].filter(Boolean);
+      // حصة المبتكرين = المبيعات − حصة إبتكر (owner 27 Oct: بدل «نسبة حصة إبتكر»)
+      TableCard({ title: 'تفاصيل المبيعات حسب حالة الأوردر', body: U.Table({ headers: ['حالة الأوردر', 'عدد الأوردرات', 'إجمالي المبيعات (ج.م)', 'حصة إبتكر (ج.م)', 'حصة المبتكرين (ج.م)'],
+        rows: S.map((r) => [r.label, num(String(r.orders)), num(D.formatMoney(r.sales)), num(D.formatMoney(r.share)), num(D.formatMoney(D.round2(r.sales - r.share)))]),
+        totalRow: ['الإجمالي', num(String(T.orders)), num(D.formatMoney(T.sales)), num(D.formatMoney(T.share)), num(D.formatMoney(D.round2(T.sales - T.share)))] }) }),
+      sourceNote('المصدر: الأوردرات (السيستم) للفترة المحددة · حصة إبتكر = قيمة السطر × نسبة الموقع على السطر (أو نسبتنا يومها) + الرسوم · «تحت التنفيذ» = جاري التنفيذ + جاهز للشحن + قيد الشحن · «مرتجع / ملغي» = ملغي + استرجاع + فشل · حصة المبتكرين = إجمالي المبيعات − حصة إبتكر')].filter(Boolean);
   }
 
   function SortDropdown() {
@@ -1181,7 +1314,7 @@
   // phase 4 (decision 5): the withdraw requests are Dokan's (dokan_withdrawals, read-only) — approving one is done on Dokan
   const AC = () => window.IBAccounts;
   const makerId = (name) => { const v = vstore.findByName(name); return v ? v.id : null; };
-  const wdOf = (name) => { const id = makerId(name); const r = id && AC() ? VD.openRequest(AC().withdrawals(), id) : null; return r ? Object.assign({}, r, { id: '#' + r.id }) : null; };
+  const wdOf = (name) => { const id = makerId(name); const r = id && AC() ? VD.openRequest(AC().withdrawals(), id) : null; return r ? Object.assign({}, r, { id: '#' + r.id, wid: r.id }) : null; };
   // the requests for the moves log: { at, vendor, amount, id, source, by, note }
   const dokanRequests = () => (AC() ? AC().withdrawals() : []).map((w) => { const v = w.vendorId && vstore.get ? vstore.get(w.vendorId) : null;
     return { at: w.at, vendor: v ? v.name : '#' + w.store, amount: w.amount, id: '#' + w.id, source: 'vendor', by: 'Dokan', note: VD.wdLabel(w.status) + (w.method ? ' · ' + w.method : '') }; });
@@ -1199,17 +1332,40 @@
     const b = vendorBriefData(name); const req = b.request; const fmt = (n) => D.formatMoney(n);
     const headers = ['رقم الأوردر', 'المنتج', 'القيمة (ج.م)', 'الحالة'];
     const rows = b.rows.map((x) => [h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + x.oid), x.sid !== x.oid ? h('small', null, ' · فرعي ', h('bdi', { dir: 'ltr' }, '#' + x.sid)) : null), x.prod, fmt(x.tot), x.status]);
-    const actions = [{ label: 'نسخ CSV', onClick: () => { const aoa = briefRows(b); csvCopy(aoa[9], aoa.slice(10), 'تقرير ' + name); } }];
-    if (b.vendorId) actions.unshift({ label: 'كشف حساب Dokan', onClick: () => openStatement(name, b.vendorId) });
+    const actions = [{ label: 'التقرير الكامل', onClick: () => openVendorReport(name) }, { label: 'نسخ CSV', onClick: () => { const aoa = briefRows(b); csvCopy(aoa[9], aoa.slice(10), 'تقرير ' + name); } }];
+    if (b.vendorId) actions.splice(1, 0, { label: 'كشف حساب Dokan', onClick: () => openStatement(name, b.vendorId) });
+    // phase 4.1 (decision 1, owner 28 Oct): the one write from here — approve the pending request on Dokan itself
+    if (req && req.status === 'pending' && AC() && AC().can().approve) actions.unshift({ label: 'موافقة على طلب السحب (' + fmt(req.amount) + ' ج.م)', onClick: () => approveWithdraw(req, name) });
     const sub = [req ? 'طلب سحب ' + req.id + ' · ' + VD.wdLabel(req.status) + ' · ' + fmt(req.amount) + ' ج.م' : 'مفيش طلب سحب حالي',
       b.orders + ' أوردر (مكتمل ' + b.completed + ' · ملغي ' + b.cancelled + ')', 'اضغط على أي أوردر يفتحه'].join(' · ');
     U.DetailsModal({ title: 'تقرير مختصر — ' + name, sub,
-      summary: [{ label: 'رصيد Dokan', value: b.dokanBalance == null ? '—' : fmt(b.dokanBalance) + ' ج.م' }, { label: 'العرابين', value: fmt(b.deposits) + ' ج.م' }, { label: 'المواصلات', value: fmt(b.transport) + ' ج.م' }, { label: 'الصافي', value: fmt(b.balance) + ' ج.م' }],
+      summary: [{ label: 'رصيد Dokan', value: b.dokanBalance == null ? '—' : fmt(b.dokanBalance) + ' ج.م' }, { label: 'العرابين (اتخصمت)', value: fmt(b.deposits) + ' ج.م' }, { label: 'المواصلات (اتخصمت)', value: fmt(b.transport) + ' ج.م' }, { label: 'الصافي (بعد الخصومات)', value: fmt(b.balance) + ' ج.م' }],
       headers, rows, total: rows.length ? ['الإجمالي', b.orders + ' أوردر', fmt(b.value), ''] : null,
       onRow: (i) => showOrders({ q: b.rows[i].oid }),
-      note: req ? (req.status === 'pending' ? 'الطلب مستني الموافقة على Dokan — راجع الرصيد والأوردرات وبعدين وافق من لوحة Dokan.' : 'الطلب اتوافق عليه على Dokan — فاضل التحويل.') : (b.payable > 0 ? 'المبتكر ليه رصيد ' + fmt(b.payable) + ' ج.م ومفيش طلب سحب على Dokan.' : 'مفيش رصيد مستحق للمبتكر.'),
+      note: [req ? (req.status === 'pending' ? 'الطلب مستني الموافقة — راجع الرصيد والأوردرات وبعدين وافق (الموافقة بتتكتب على Dokan نفسه).'
+          : 'الطلب اتوافق عليه على Dokan واتخصم من رصيده هناك — فاضل التحويل للمبتكر.')
+        : (b.payable > 0 ? 'المبتكر ليه رصيد ' + fmt(b.payable) + ' ج.م ومفيش طلب سحب على Dokan.' : 'مفيش رصيد مستحق للمبتكر.'),
+        'العرابين والمواصلات متخصومين من الرصيد: إبتكر بتدفع مشوار الشحنة (أوبر/بوسطة) بدل المبتكر وهي أصلاً عليه، فبتتخصم من مستحقاته — ولو مفيش رصيد كفاية الرصيد بيبقى بالسالب.'].join(' '),
       actions, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.',
       source: 'الأوردرات (السيستم) + رصيد Dokan وطلبات السحب (قراءة بس) + العرابين والمواصلات المتسجلة هنا' }, { label: 'تقرير مختصر ' + name });
+  }
+  // phase 4.1 (decision 1): approve a pending request on Dokan (woo-sync withdraw_approve) — no payout move here: Dokan lowers
+  // the balance itself. The answer: ok | skipped (push_disabled / stale / not_pending) | an error.
+  const WD_SKIP = { push_disabled: 'الكتابة على Dokan مقفولة دلوقتي — الطلب ما اتوافقش عليه.', stale: 'الطلب اتغيّر على Dokan قبل الموافقة — حدّثنا حالته عندنا.', not_pending: 'الطلب مش مستني الموافقة — حدّثنا حالته عندنا.' };
+  function approveWithdraw(req, name) {
+    const K = window.IBKit; const amount = D.formatMoney(req.amount);
+    K.confirm({ title: 'موافقة على طلب السحب ' + req.id + ' — ' + name,
+      text: 'هتتوافق على الطلب على Dokan نفسه بمبلغ ' + amount + ' ج.م. Dokan بيخصمه من رصيد المبتكر على طول، والتحويل للمبتكر بيفضل عليك زي ما هو.',
+      okLabel: 'وافق على Dokan',
+      onOk: () => {
+        setNote({ kind: 'info', text: 'بنوافق على طلب السحب ' + req.id + ' على Dokan…' }); render();
+        AC().approveWithdraw(req.wid).then((r) => {
+          if (r.ok && r.result === 'ok') setNote({ kind: 'success', text: 'اتوافق على طلب السحب ' + req.id + ' لـ ' + name + ' بمبلغ ' + amount + ' ج.م على Dokan، واتخصم من رصيده هناك.' });
+          else if (r.ok) setNote({ kind: 'warning', text: WD_SKIP[r.reason] || 'الطلب ما اتوافقش عليه.' });
+          else setNote({ kind: 'error', text: r.reason === 'forbidden' ? 'مش مسموحلك توافق على طلبات السحب.' : 'مقدرناش نوافق على الطلب على Dokan دلوقتي — جرّب تاني.' });
+          render();
+        });
+      } });
   }
   // كشف حساب المبتكر من Dokan للفترة المحددة (phase 4, decision 6): بيتجاب وقت الفتح ومابيتخزنش
   const STATEMENT_TYPES = { opening_balance: 'رصيد افتتاحي', dokan_orders: 'أوردر', dokan_withdraw: 'سحب', dokan_refund: 'مرتجع' };
@@ -1228,34 +1384,14 @@
         source: 'Dokan ← كشف حساب المبتكر (قراءة بس، مابيتخزنش)' }, { label: 'كشف حساب ' + name });
     });
   }
-  // أعمدة جدول حسابات المبتكرين — إظهار/إخفاء لكل مستخدم (owner 27 Oct)
-  const VCOLS = [['name', 'المبتكر', true], ['pct', 'نسبة إبتكر'], ['cN', 'مكتمل — عدد'], ['cV', 'مكتمل — حصة إبتكر'], ['pN', 'قيد التنفيذ — عدد'], ['pV', 'قيد التنفيذ — حصة إبتكر'],
-    ['xN', 'ملغي — عدد'], ['xV', 'ملغي — حصة إبتكر'], ['dokan', 'رصيد Dokan'], ['dep', 'إجمالي العرابين'], ['tr', 'المواصلات'], ['wd', 'طلب سحب'], ['bal', 'الصافي'], ['act', 'إجراءات', true]];
-  // phase 4: the hidden columns live in user_prefs ('accounts.vcols', per member, IBPrefs); the kit's store keeps a copy for this tab
-  const vcolPrefs = () => { const KK = window.IBKit; const all = (KK.store.vcolPrefs = KK.store.vcolPrefs || {});
-    if (!all[KK.ME]) { const saved = window.IBPrefs && window.IBPrefs.get('accounts.vcols'); all[KK.ME] = { hidden: saved && Array.isArray(saved.hidden) ? saved.hidden.filter((k) => VCOLS.some(([c]) => c === k)) : [] }; }
-    return all[KK.ME]; };
-  const vcolSave = () => { if (window.IBPrefs) window.IBPrefs.set('accounts.vcols', { hidden: vcolPrefs().hidden.slice() }); };
-  const vcolOn = (k) => !vcolPrefs().hidden.includes(k);
-  function vcolButton() {
-    const KK = window.IBKit; const n = vcolPrefs().hidden.length;
-    const btn = Button({ label: 'الأعمدة' + (n ? ' (' + n + ' مخفي)' : ''), icon: 'sliders', attrs: { 'data-vcols': '' },
-      onClick: () => { const hid = vcolPrefs().hidden.slice();
-        KK.form({ title: 'أعمدة جدول حسابات المبتكرين', values: { hid }, note: U.InlineNote({ children: 'اختار الأعمدة اللي تظهر في الجدول. التخصيص بيتحفظ ليك انت بس. «المبتكر» و«إجراءات» ثابتين.' }),
-          fields: (f, e, set) => [h('div', { class: 'dash-cust', role: 'list' }, VCOLS.map(([k, lb, fixed]) => h('div', { class: 'dc-row', role: 'listitem', 'data-vcol': k },
-            h('span', { class: 'dc-l' }, h('b', null, lb), fixed ? h('small', { class: 't-small help' }, 'ثابت') : null),
-            KK.Switch({ id: 'vc-' + k, label: lb, checked: fixed || !f.hid.includes(k), disabled: !!fixed, onChange: (v) => { set('hid', v ? f.hid.filter((x) => x !== k) : f.hid.concat([k]), true); } })))),
-            e.hid ? U.InlineNote({ kind: 'error', children: e.hid }) : null],
-          validate: (f) => (VCOLS.filter(([k, , fx]) => !fx && !f.hid.includes(k)).length ? {} : { hid: 'سيب عمود واحد على الأقل ظاهر' }),
-          extraFooter: (f, m) => Button({ type: 'text', label: 'رجوع للافتراضي', attrs: { 'data-vcol-reset': '' }, onClick: () => { vcolPrefs().hidden = []; vcolSave(); KK.toast('رجعت الأعمدة للافتراضي'); m.close(); render(); } }),
-          submitLabel: 'حفظ', submit: (f) => { vcolPrefs().hidden = f.hid.slice(); vcolSave(); KK.logEvent('accounts.vcols', (VCOLS.length - f.hid.length) + ' عمود ظاهر'); KK.toast('اتحفظت الأعمدة', 'success'); render(); } }); } });
-    return btn;
-  }
+  // أعمدة جدول حسابات المبتكرين — الإظهار/الإخفاء والترتيب بقوا من زرار «أعمدة الجدول» العام (kit: withColumns، phase 4.1)
+  const VCOLS = [['name', 'المبتكر'], ['pct', 'نسبة إبتكر'], ['cN', 'مكتمل — عدد'], ['cV', 'مكتمل — حصة إبتكر'], ['pN', 'قيد التنفيذ — عدد'], ['pV', 'قيد التنفيذ — حصة إبتكر'],
+    ['xN', 'ملغي — عدد'], ['xV', 'ملغي — حصة إبتكر'], ['dokan', 'رصيد Dokan'], ['dep', 'إجمالي العرابين'], ['tr', 'المواصلات'], ['wd', 'طلب سحب'], ['bal', 'الصافي'], ['act', 'إجراءات']];
   function VendorsView() {
     const list = vendorsNow(); const s = D.vendorSummary(list); const sort = SORTS.find((x) => x.value === state.sort);
     const sorted = D.sortVendors(list, sort.key, sort.dir); const T = SEED.vendorTotals;
     const bal = (n) => h('span', { class: n > 0 ? 'pos' : n < 0 ? 'neg' : '' }, num(D.formatMoney(n)));
-    const vOpenName = (l) => (i) => { const v = vstore.findByName(l[i].name); if (v) { go('vendors'); openVendor(v.id); } };
+    const vOpenName = (l) => (i) => { const v = vstore.findByName(l[i].name); if (v) openVendor(v.id, { inPlace: true }); };
     const accVDet = (k) => { const l = k === 'pos' ? sorted.filter((v) => v.balance > 0) : k === 'neg' ? sorted.filter((v) => v.balance < 0) : k === 'dep' ? sorted.filter((v) => v.deposits > 0) : sorted;
       const t = { all: 'المبتكرين — ' + s.count, pos: 'رصيد المبتكرين — ' + D.formatMoney(s.positive) + ' ج.م', neg: 'رصيد عند المبتكرين — ' + D.formatMoney(s.negative) + ' ج.م', dep: 'العرابين — ' + D.formatMoney(s.deposits) + ' ج.م' }[k];
       return { title: t, sub: periodText() + ' · اضغط على أي مبتكر يفتح ملفه', summary: [{ label: 'مبتكرين', value: String(l.length) }, { label: 'الرصيد', value: D.formatMoney(l.reduce((x, v) => x + v.balance, 0)) + ' ج.م' }, { label: 'العرابين', value: D.formatMoney(l.reduce((x, v) => x + v.deposits, 0)) + ' ج.م' }], headers: ['المبتكر', 'النسبة', 'مكتمل', 'قيد التنفيذ', 'ملغي', 'العرابين', 'الرصيد'], rows: l.map((v) => [v.name, v.pct, String(v.c[0]), String(v.p[0]), String(v.x[0]), D.formatMoney(v.deposits), D.formatMoney(v.balance)]), total: ['الإجمالي', '—', String(l.reduce((x, v) => x + v.c[0], 0)), String(l.reduce((x, v) => x + v.p[0], 0)), String(l.reduce((x, v) => x + v.x[0], 0)), D.formatMoney(l.reduce((x, v) => x + v.deposits, 0)), D.formatMoney(l.reduce((x, v) => x + v.balance, 0))], onRow: vOpenName(l), source: 'حسابات المبتكرين ← ' + periodText() }; };
@@ -1270,20 +1406,22 @@
       (() => {
         const wdTag = (v) => { const r = wdOf(v.name); return h('button', { type: 'button', class: 'tg tg-' + (r ? (r.status === 'approved' ? 'success' : 'orange') : 'neutral') + ' wd-cell', 'data-wd': v.name, 'aria-label': 'طلب سحب ' + v.name + ': ' + (r ? 'يوجد' : 'لا يوجد'), onClick: (e) => { e.stopPropagation(); openAccountBrief(v.name); } }, r ? 'يوجد' : 'لا يوجد'); };
         const rowMenu = (v) => { const r = wdOf(v.name); const KK = window.IBKit;
-          const openFile = () => { const vv = vstore.findByName(v.name); if (vv) { go('vendors'); openVendor(vv.id); } else { setNote({ kind: 'warning', text: 'المبتكر ده مش مسجّل في صفحة المبتكرين.' }); render(); } };
-          return KK.RowMenu([{ label: 'تقرير مختصر', icon: 'chart', run: () => openAccountBrief(v.name) },
-            { label: 'التقرير الكامل', icon: 'file', run: () => openVendorReport(v.name) },
+          const openFile = () => { const vv = vstore.findByName(v.name); if (vv) openVendor(vv.id, { inPlace: true }); else { setNote({ kind: 'warning', text: 'المبتكر ده مش مسجّل في صفحة المبتكرين.' }); render(); } };
+          return KK.RowMenu([{ label: 'تقرير المبتكر', icon: 'chart', run: () => openAccountBrief(v.name) },
             r ? { label: 'طلب السحب (' + VD.wdLabel(r.status) + ')', icon: 'download', run: () => openAccountBrief(v.name) } : null,
             makerId(v.name) ? { label: 'كشف حساب Dokan', icon: 'file', run: () => openStatement(v.name, makerId(v.name)) } : null,
             { label: 'افتح ملف المبتكر', icon: 'users', run: openFile }].filter(Boolean), 'إجراءات ' + v.name);
         };
-        const CELL = { name: (v) => h('span', { class: 'vname-cell' }, h('span', { dir: 'auto' }, v.name), Button({ type: 'text', size: 'sm', icon: 'chart', label: 'تقرير', attrs: { 'aria-label': 'تقرير ' + v.name, 'data-vreport': v.name }, onClick: (e) => { e.stopPropagation(); openVendorReport(v.name); } })),
+        // زرار «تقرير» اتشال من الخانة (owner 27 Oct) — الاسم نفسه بيفتح التقرير، وكمان من ⋯ › «تقرير المبتكر»
+        const CELL = { name: (v) => h('span', { class: 'vname-cell' }, h('span', { class: 'vname-link', role: 'button', tabindex: '0', dir: 'auto', 'aria-label': 'تقرير ' + v.name, 'data-vreport': v.name,
+          onClick: (e) => { e.stopPropagation(); openAccountBrief(v.name); },
+          onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAccountBrief(v.name); } } }, v.name)),
           pct: (v) => num(v.pct), cN: (v) => num(String(v.c[0])), cV: (v) => num(D.formatMoney(v.c[2])), pN: (v) => num(String(v.p[0])), pV: (v) => num(D.formatMoney(v.p[2])),
           xN: (v) => num(String(v.x[0])), xV: (v) => num(D.formatMoney(v.x[2])), dokan: (v) => (v.dokanBalance == null ? '—' : num(D.formatMoney(v.dokanBalance))), dep: (v) => num(D.formatMoney(v.deposits)), tr: (v) => num(D.formatMoney(trOf(v.name))), wd: wdTag, bal: (v) => bal(v.balance), act: rowMenu };
         const TOT = { name: 'الإجمالي', pct: '—', cN: num(String(T.c[0])), cV: num(D.formatMoney(T.c[2])), pN: num(String(T.p[0])), pV: num(D.formatMoney(T.p[2])), xN: num(String(T.x[0])), xV: num(D.formatMoney(T.x[2])),
-          dokan: num(D.formatMoney(D.round2(sorted.reduce((t, v) => t + (v.dokanBalance || 0), 0)))), dep: num(D.formatMoney(s.deposits)), tr: num(D.formatMoney(tA.vendors)), wd: num(String(sorted.filter((v) => wdOf(v.name)).length)) + ' طلب', bal: bal(s.net), act: '' };
-        const cols = VCOLS.filter(([k]) => vcolOn(k));
-        return TableCard({ title: 'حسابات المبتكرين — ' + periodText(), count: sorted.length + ' مبتكر · ' + sorted.filter((v) => wdOf(v.name)).length + ' طلب سحب', action: vcolButton(),
+          dokan: num(D.formatMoney(D.round2(sorted.reduce((t, v) => t + (v.dokanBalance || 0), 0)))), dep: num(D.formatMoney(s.deposits)), tr: num(D.formatMoney(tA.vendors)), wd: h('span', null, num(String(sorted.filter((v) => wdOf(v.name)).length)), ' طلب'), bal: bal(s.net), act: '' };
+        const cols = VCOLS;
+        return TableCard({ title: 'حسابات المبتكرين — ' + periodText(), count: sorted.length + ' مبتكر · ' + sorted.filter((v) => wdOf(v.name)).length + ' طلب سحب',
           body: U.Table({ cls: 'vendors-table', headers: cols.map(([, lb]) => lb), rows: sorted.map((v) => cols.map(([k]) => CELL[k](v))), totalRow: cols.map(([k]) => TOT[k]) }) });
       })(),
       sourceNote('المصدر: الأوردرات (السيستم، حسب تاريخ الأوردر في الفترة) + رصيد Dokan وطلبات السحب (قراءة بس، بيتحدّث كل ساعة) + العرابين والمواصلات المتسجلة هنا · الصافي = رصيد Dokan − العرابين − المواصلات ± الحركات التانية · «قيد التنفيذ» = جاري التنفيذ + جاهز للشحن + قيد الشحن'),
@@ -1400,7 +1538,7 @@
     const tA = trAll(); rep.rows.forEach((r) => { r.transport = trVendor(r.name).total; }); const trTot = Math.round(rep.rows.reduce((x, r) => x + r.transport, 0) * 100) / 100;
     const headers = ['المورد', 'الأوردرات', 'قابلة للتأخير', 'العمولة', 'حصة إبتكر (مكتمل)', 'العرابين', 'المواصلات', 'الرصيد الحالي'];
     rExport = { label: 'جدول الموردين', headers, rows: rep.rows.map((r) => [r.name, r.orders, r.late, r.pct, r.share, r.deposits, r.transport, r.balance]) };
-    const vs = vendorsNow(); const vOpen = (list) => (i) => { const v = vstore.findByName(list[i].name); if (v) { go('vendors'); openVendor(v.id); } };
+    const vs = vendorsNow(); const vOpen = (list) => (i) => { const v = vstore.findByName(list[i].name); if (v) openVendor(v.id, { inPlace: true }); };
     const vrow = (r) => [r.name, String(r.orders), String(r.late), r.pct, money(r.share), money(r.deposits), money(r.transport), money(r.balance)];
     const vdet2 = (k) => {
       if (k === 'active') { const l = rep.rows.filter((r) => r.orders > 0); return { title: 'الموردين النشطين في الفترة — ' + l.length, sub: 'مورد له أوردر واحد على الأقل · الأوردر المشترك بيتحسب لكل مورد فيه', summary: [{ label: 'موردين', value: String(l.length) }, { label: 'أوردرات', value: String(l.reduce((x, r) => x + r.orders, 0)) }], headers, rows: l.map(vrow), onRow: vOpen(l) }; }
@@ -1565,7 +1703,7 @@
   function renderTickets(keepFocus) {
     U.closePopover();
     const main = document.getElementById('tickets'); if (!main) return; const sc = window.scrollY; const hadFocus = keepFocus && document.activeElement && document.activeElement.type === 'search';
-    main.replaceChildren(...TicketsView().filter(Boolean));
+    main.replaceChildren(...TicketsView().filter(Boolean)); window.IBKit.sweepColumns(main);
     window.scrollTo(0, sc); if (hadFocus) { const s = main.querySelector('input[type=search]'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
   }
 
@@ -1814,7 +1952,7 @@
   }
   function renderVendors(keepFocus) {
     U.closePopover(); const main = document.getElementById('vendors'); if (!main) return; const sc = window.scrollY; const had = keepFocus && document.activeElement && document.activeElement.type === 'search';
-    main.replaceChildren(...VendorsPageView().filter(Boolean)); window.scrollTo(0, sc); if (had) { const s = main.querySelector('input[type=search]'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
+    main.replaceChildren(...VendorsPageView().filter(Boolean)); window.IBKit.sweepColumns(main); window.scrollTo(0, sc); if (had) { const s = main.querySelector('input[type=search]'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
   }
 
   // ----- login + payout fields (owner 26 Oct, phase 3.1 decision 9): shared by «إضافة مبتكر» and the drawer's «بيانات الدخول» popup -----
@@ -1904,11 +2042,15 @@
   // ----- vendor drawer (Figma: Drawer / Vendor, Tab=Info | Orders) -----
   let vdrawer = null; let vtab = 'info'; const shown = new Set(); let lastShare = null; window.__vLastShare = () => lastShare;
   let pwShown = null; // the temporary password revealed in the open drawer (decision 9 b) — forgotten when it closes
-  function openVendor(id) {
+  // inPlace (owner 27 Oct): يفتح درج ملف المبتكر وانت مكانك — من غير ما ينقلك لصفحة المبتكرين
+  function openVendor(id, opts) {
+    const inPlace = !!(opts && opts.inPlace);
     const v0 = vstore.get(id); if (!v0) { vnotify('error', 'المبتكر ' + id + ' مش موجود.'); return; }
     if (vdrawer) vdrawer.close(); shown.clear(); pwShown = null;
-    try { history.replaceState(null, '', '#makers/' + id); } catch (e) { /* sandboxed */ }
-    vdrawer = U.Drawer({ label: 'ملف المبتكر ' + v0.name, onClose: () => { vdrawer = null; vredraw = null; pwShown = null; try { history.replaceState(null, '', '#makers'); } catch (e) { /* sandboxed */ } renderVendors(); } });
+    if (!inPlace) { try { history.replaceState(null, '', '#makers/' + id); } catch (e) { /* sandboxed */ } }
+    vdrawer = U.Drawer({ label: 'ملف المبتكر ' + v0.name, onClose: () => { vdrawer = null; vredraw = null; pwShown = null;
+      if (inPlace) { render(); return; }
+      try { history.replaceState(null, '', '#makers'); } catch (e) { /* sandboxed */ } renderVendors(); } });
     const act = (fn, ok) => { try { fn(); log.append({ action: 'vendor.update', actor: ME.name, newValue: id }); if (ok) vnotify('success', ok); draw(); } catch (e) { vnotify('error', e.message); draw(); } };
     const section = (title, action, ...kids) => h('section', { class: 'vsection' }, h('div', { class: 'head' }, h('h3', { class: 't-label' }, title), action || null), kids);
     function moreMenu(v) {
@@ -2390,13 +2532,15 @@
     const main = document.getElementById('main'); const sc = window.scrollY;
     const note = state.note; state.note = null; shownNote = note;
     const tabs = U.Tabs({ items: TABS, active: state.tab, onChange: (id, viaKey) => { state.tab = id; try { history.replaceState(null, '', '#' + id); } catch (e) { /* sandboxed */ } focusTab = !!viaKey; render(); } });
-    const noteEl = note ? U.InlineNote({ kind: note.kind, children: note.text, action: note.undo ? Button({ type: 'text', size: 'sm', label: 'تراجع', onClick: note.undo }) : IconButton({ icon: 'close', label: 'إخفاء', onClick: () => { noteEl.remove(); } }) }) : null;
+    const noteEl = note ? U.InlineNote({ kind: note.kind, children: note.text, action: note.undo ? Button({ type: 'text', size: 'sm', label: 'تراجع', onClick: note.undo })
+      : note.action ? Button({ type: 'text', size: 'sm', label: note.action.label, attrs: { 'data-note-act': '' }, onClick: note.action.run }) : IconButton({ icon: 'close', label: 'إخفاء', onClick: () => { noteEl.remove(); } }) }) : null;
     main.replaceChildren(...[
       h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'المصروفات · المبيعات · حسابات المبتكرين · الحساب الفعلي · سجل الحركات')), h('div', { class: 'actions' }, window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
       tabs,
       state.tab === 'moves-log' ? null : h('div', { class: 'toolbar' }, DateRangeField(), state.tab === 'vendors' ? SortDropdown() : null, h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'vendors' ? AddMenu('إضافة مبلغ', 'vendorMoves') : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
       noteEl,
       h('div', { id: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.tab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, VIEWS[state.tab]())].filter(Boolean));
+    window.IBKit.sweepColumns(document.getElementById('panel'));
     window.scrollTo(0, sc);
     if (focusTab) { const t = main.querySelector('[role=tab][aria-selected=true]'); if (t) t.focus(); focusTab = false; }
   }

@@ -39,7 +39,8 @@
     return t;
   }
   function Section(title, body, actions, opts = {}) {
-    return h('section', { class: 'card sec' + (opts.cls ? ' ' + opts.cls : '') }, title || actions ? h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, title), opts.sub ? h('div', { class: 't-small sub' }, opts.sub) : null), actions ? h('div', { class: 'acts' }, actions) : null) : null, h('div', { class: 'sec-b' }, body));
+    const card = h('section', { class: 'card sec' + (opts.cls ? ' ' + opts.cls : '') }, title || actions ? h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, title), opts.sub ? h('div', { class: 't-small sub' }, opts.sub) : null), h('div', { class: 'acts' }, actions || null)) : null, h('div', { class: 'sec-b' }, body));
+    return opts.cols === false ? card : withColumns(card, title ? 'sec:' + title : '', title, opts.rerender);
   }
   function Switch({ id, label, checked, onChange, help, disabled }) {
     const b = h('button', { type: 'button', role: 'switch', id, class: 'sw', 'aria-checked': String(!!checked), 'aria-label': label, disabled, onClick: () => onChange(!checked) }, h('i'));
@@ -284,8 +285,87 @@
     render(id, keepScroll = true) {
       const def = pages[id]; const main = document.getElementById('pg-' + id); if (!def || !main) return;
       U.closePopover(); const sc = window.scrollY; main.replaceChildren(...def.view().filter(Boolean)); if (keepScroll) window.scrollTo(0, sc);
+      setTimeout(() => sweepColumns(main), 0);
     },
   };
+
+  // ---------- أعمدة أي جدول: إظهار/إخفاء + ترتيب (owner 27 Oct — «في كل الجداول اللي في السيستم»; phase 4.1) ----------
+  // بتشتغل على أي <table> فيه thead من غير ما نلمس الكود اللي بيبنيه: بنقرا عناوين الأعمدة ونرتّب الخلايا بيها.
+  // phase 4.1 (plan decision 7): the choice is per member in user_prefs ('table.cols' = { [tableKey]: { order, hidden } },
+  // IBPrefs); before IBPrefs has loaded (or signed out) the kit's store keeps it for this device.
+  const COLS_PREF = 'table.cols';
+  const strList = (v) => (Array.isArray(v) ? v.filter((x) => typeof x === 'string').slice(0, 64) : []);
+  function colAll() {
+    const saved = window.IBPrefs && window.IBPrefs.get(COLS_PREF);
+    const all = (store.colPrefs = store.colPrefs || {});
+    if (saved && typeof saved === 'object' && !Array.isArray(saved)) all[ME] = saved;
+    return (all[ME] = all[ME] || {});
+  }
+  const colPrefs = (key) => { const p = colAll()[key]; return p && typeof p === 'object' ? { order: strList(p.order), hidden: strList(p.hidden) } : { order: [], hidden: [] }; };
+  const colWrite = (key, v) => { const next = Object.assign({}, colAll()); if (v) next[key] = v; else delete next[key]; (store.colPrefs = store.colPrefs || {})[ME] = next; if (window.IBPrefs) window.IBPrefs.set(COLS_PREF, next); };
+  const colHeads = (t) => [...t.querySelectorAll(':scope > thead > tr > th')].map((th) => (th.textContent || '').trim());
+  function applyColumnPrefs(key, table) {
+    if (!table) return; const p = colPrefs(key); const heads = colHeads(table); if (!heads.length) return;
+    const rank = (lb, i) => { const k = p.order.indexOf(lb); return k < 0 ? 1000 + i : k; };
+    const order = heads.map((lb, i) => ({ lb, i, r: i === 0 ? -1 : rank(lb, i) })).sort((a, b) => a.r - b.r || a.i - b.i);
+    const rows = [...table.querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr')];
+    for (const tr of rows) {
+      const cells = [...tr.children];
+      if (cells.length !== heads.length) continue; // صف مدموج (زي صف إجمالي بخلية واحدة) — سيبه زي ما هو
+      order.forEach((o) => tr.append(cells[o.i]));
+      order.forEach((o) => { cells[o.i].hidden = o.i !== 0 && p.hidden.includes(o.lb); });
+    }
+  }
+  function customizeColumns(key, label, table, done) {
+    if (!table) { toast('مفيش جدول هنا'); return; }
+    const p = colPrefs(key); const heads = colHeads(table);
+    const rank = (lb, i) => { const k = p.order.indexOf(lb); return k < 0 ? 1000 + i : k; };
+    const list = heads.map((lb, i) => ({ id: lb, label: lb || '—', hidden: i !== 0 && p.hidden.includes(lb), fixed: i === 0 && !!lb, r: i === 0 ? -1 : rank(lb, i), i }))
+      .sort((a, b) => a.r - b.r || a.i - b.i);
+    form({ title: 'أعمدة الجدول — ' + label, wide: true, values: { list },
+      note: U.InlineNote({ children: 'اختار الأعمدة اللي تظهر ورتّبها بالأسهم. التخصيص بيتحفظ ليك انت بس ولكل جدول لوحده. العمود الأول ثابت: مينفعش يتخفي ولا يتحرك من أوله.' }),
+      fields: (f, e, set) => [h('div', { class: 'dash-cust cols-cust', role: 'list' }, f.list.map((c, i) => h('div', { class: 'dc-row', role: 'listitem', 'data-col-item': c.id },
+        h('span', { class: 'dc-ord' }, Button({ type: 'text', size: 'sm', label: '↑', disabled: i === 0 || !!(f.list[i - 1] && f.list[i - 1].fixed), attrs: { 'aria-label': 'لفوق — ' + c.label }, onClick: () => { const l = f.list.slice(); [l[i - 1], l[i]] = [l[i], l[i - 1]]; set('list', l, true); } }),
+          Button({ type: 'text', size: 'sm', label: '↓', disabled: i === f.list.length - 1 || !!c.fixed, attrs: { 'aria-label': 'لتحت — ' + c.label }, onClick: () => { const l = f.list.slice(); [l[i + 1], l[i]] = [l[i], l[i + 1]]; set('list', l, true); } })),
+        h('span', { class: 'dc-l' }, h('b', null, c.label), c.fixed ? h('small', { class: 't-small help' }, 'ثابت') : null),
+        Switch({ id: 'colc-' + i, label: c.label, checked: !c.hidden, disabled: c.fixed, onChange: (v) => { c.hidden = !v; set('list', f.list.slice(), true); } })))),
+        e.list ? U.InlineNote({ kind: 'error', children: e.list }) : null],
+      validate: (f) => (f.list.some((c) => !c.hidden) ? {} : { list: 'سيب عمود واحد على الأقل ظاهر' }),
+      extraFooter: (f, m) => h('span', { class: 'rp-del' }, Button({ type: 'text', label: 'رجوع للافتراضي', attrs: { 'data-col-reset': '' }, onClick: () => { colWrite(key, null); toast('رجعت الأعمدة للافتراضي'); m.close(); if (done) done(); } })),
+      submitLabel: 'حفظ', submit: (f) => { colWrite(key, { order: f.list.map((c) => c.id), hidden: f.list.filter((c) => c.hidden).map((c) => c.id) });
+        logEvent('table.columns', label + ' · ' + f.list.filter((c) => !c.hidden).length + ' عمود'); toast('اتحفظت الأعمدة', 'success'); if (done) done(); } });
+  }
+  // بتمشي على كل كروت الصفحة وتضيف زرار «الأعمدة» لأي جدول من 4 أعمدة فأكتر (owner 27 Oct)
+  function sweepColumns(root) {
+    if (!root || !root.querySelectorAll) return;
+    root.querySelectorAll('table').forEach((t) => {
+      if (t.closest('.modal, .drawer, [role=dialog]')) return;
+      if (colHeads(t).length < 4) return;
+      t.classList.add('sticky-col1'); // أول عمود بيفضل ثابت وانت بتسكرول عرضي (owner 27 Oct)
+      const card = t.closest('.card, .table-card, .sec, .tbl-card') || t.parentElement;
+      if (!card || card.querySelector('[data-cols]')) return;
+      withColumns(card, '', '');
+    });
+  }
+  // بيضيف زرار «الأعمدة» لكارت الجدول (4 أعمدة فأكتر) وبيطبّق التفضيلات بعد الرسم
+  function withColumns(card, key0, label0, done) {
+    if (!card || !card.querySelector) return card;
+    setTimeout(() => {
+      const t = card.querySelector('table'); if (!t) return;
+      const heads = colHeads(t); if (heads.length < 4) return;
+      // من غير عنوان بنولّد مفتاح ثابت من أسماء الأعمدة
+      const key = key0 && !/:$/.test(key0) ? key0 : 'cols:' + heads.filter(Boolean).slice(0, 4).join('|');
+      const label = label0 || heads.filter(Boolean).slice(0, 2).join(' · ');
+      applyColumnPrefs(key, t);
+      if (card.querySelector('[data-cols]')) return;
+      const btn = IconButton({ icon: 'sliders', label: 'أعمدة الجدول — ' + label, attrs: { 'data-cols': key },
+        onClick: () => customizeColumns(key, label, card.querySelector('table'), done || (() => { applyColumnPrefs(key, card.querySelector('table')); })) });
+      let head = card.querySelector('.table-title, .sec-h');
+      if (!head) { head = h('div', { class: 'sec-h cols-only' }, h('div', { class: 'acts' })); card.prepend(head); }
+      const acts = head.querySelector('.acts'); (acts || head).append(btn);
+    }, 0);
+    return card;
+  }
 
   // ---------- StarPicker: نجوم 1–5 (radiogroup — WAI-ARIA APG radio: الأسهم بتغيّر، Home/End، رقم 1–5) ----------
   function StarPicker({ id, label, value, onChange, error, required, help }) {
@@ -301,6 +381,6 @@
       h('div', { class: 'sp-row' }, g, h('span', { class: 't-small help sp-word', 'aria-live': 'polite' }, v ? v + ' من 5 · ' + words[v] : 'اختار من 1 لـ 5')),
       error ? h('div', { class: 'err-msg', role: 'alert', id: id + '-err' }, error) : help ? h('p', { class: 't-small help', style: 'margin:0' }, help) : null);
   }
-  window.IBKit = { StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+  window.IBKit = { sweepColumns, applyColumnPrefs, customizeColumns, withColumns, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
 })();
 

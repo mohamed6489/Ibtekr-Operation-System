@@ -16,14 +16,20 @@
 // can(): { view, add, approve } from IBDirectory.perm; canEdit(rec) = own row with add F, or approve F.
 // sales(from, to): the cached rows of accounts_sales for that range, or null while they load (one request per range; the answer
 // dispatches ib:accounts). statement(vendorId, from, to): a Promise of { ok, rows, reason }.
+// Phase 4.1 (0020): the expense carries details / staffKind / reason (and platform = the beneficiary of an ad, source = the
+// beneficiary of a deposit, in the prototype's shape); lists(key) = the names added to the subscriptions ('subs') or ad
+// platforms ('ads') list (acc_list_items) and addListItem(key, name) adds one (optimistic; a duplicate is fine);
+// approveWithdraw(id) asks woo-sync (withdraw_approve) to approve a pending Dokan request → { ok, result, reason, status }
+// (result 'ok' | 'skipped' with reason push_disabled / stale / not_pending; ok:false with 'forbidden' | 'network'), logged as
+// accounts.withdraw.approve (the request and its amount), then load() reads the mirrors again.
 (function () {
   'use strict';
   const KINDS = {
-    expenses: { table: 'acc_expenses', cols: 'id, on_date, direction, category, beneficiary, beneficiary_other, amount, note, sub_name, sub_is_other, sub_ends, sub_alerts, sub_note, created_by, created_at', log: 'accounts.expense' },
+    expenses: { table: 'acc_expenses', cols: 'id, on_date, direction, category, beneficiary, beneficiary_other, amount, note, sub_name, sub_is_other, sub_ends, sub_alerts, sub_note, details, staff_kind, reason, created_by, created_at', log: 'accounts.expense' },
     vendorMoves: { table: 'acc_vendor_moves', cols: 'id, vendor_id, on_date, direction, kind, kind_name, amount, note, created_by, created_at', log: 'accounts.vendor_move' },
     accountMoves: { table: 'acc_account_moves', cols: 'id, account, on_date, direction, amount, note, created_by, created_at', log: 'accounts.account_move' },
   };
-  const SUBS = 'الاشتراكات';
+  const SUBS = 'الاشتراكات', ADS = 'الإعلانات', PAY = 'المرتبات';
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
   const num = (v) => (v == null || v === '' || !Number.isFinite(Number(v)) ? 0 : Number(v));
@@ -31,7 +37,7 @@
   const day = (v) => (typeof v === 'string' ? v.slice(0, 10) : '');
 
   let st = 'idle';
-  const data = { expenses: [], vendorMoves: [], accountMoves: [], balances: [], withdrawals: [] };
+  const data = { expenses: [], vendorMoves: [], accountMoves: [], balances: [], withdrawals: [], lists: [] };
   const salesCache = new Map(); // 'from|to' → rows | 'loading' | 'error'
   const emit = (detail) => quiet(() => document.dispatchEvent(new CustomEvent('ib:accounts', { detail: detail || {} })));
 
@@ -46,7 +52,9 @@
   // ---------- rows → the prototype's shapes (pure but for the two name lookups) ----------
   const toExpense = (r) => ({ id: r.id, date: day(r.on_date), direction: r.direction, category: r.category, beneficiaryName: r.beneficiary || '', beneficiaryIsOther: !!r.beneficiary_other,
     amount: num(r.amount), note: r.note || '', subName: r.sub_name || '', subIsOther: !!r.sub_is_other, subEnds: r.sub_ends ? day(r.sub_ends) : '', subAlerts: Array.isArray(r.sub_alerts) ? r.sub_alerts.slice() : [],
-    subNote: r.sub_note || '', createdById: r.created_by || null, createdBy: nameOf(r.created_by), createdAt: r.created_at || '' });
+    subNote: r.sub_note || '', details: r.details || '', staffKind: r.staff_kind || '', reason: r.reason || '',
+    platform: r.category === ADS && r.direction !== 'deposit' ? r.beneficiary || '' : '', source: r.direction === 'deposit' ? r.beneficiary || '' : '',
+    createdById: r.created_by || null, createdBy: nameOf(r.created_by), createdAt: r.created_at || '' });
   const toVendorMove = (r) => ({ id: r.id, date: day(r.on_date), direction: r.direction, type: r.kind, typeName: r.kind === 'أخرى' ? (r.kind_name || '') : r.kind, vendorId: r.vendor_id, vendor: vendorName(r.vendor_id),
     amount: num(r.amount), note: r.note || '', createdById: r.created_by || null, createdBy: nameOf(r.created_by), createdAt: r.created_at || '' });
   const toAccountMove = (r) => ({ id: r.id, date: day(r.on_date), direction: r.direction, account: r.account, amount: num(r.amount), note: r.note || '',
@@ -56,10 +64,11 @@
   // the prototype's value (D.validate* .value) → the table's columns
   function toColumns(kind, v) {
     if (kind === 'expenses') {
-      const sub = v.category === SUBS;
+      const dep = v.direction === 'deposit'; const sub = v.category === SUBS && !dep;
       return { on_date: v.date, direction: v.direction || 'withdraw', category: v.category, beneficiary: v.beneficiaryName || null, beneficiary_other: !!v.beneficiaryIsOther, amount: v.amount,
-        note: v.note || null, sub_name: sub ? v.subName || null : null, sub_is_other: sub ? !!v.subIsOther : false, sub_ends: sub ? v.subEnds || null : null,
-        sub_alerts: sub ? (v.subAlerts || []).slice() : [], sub_note: sub ? v.subNote || null : null };
+        note: v.note || null, sub_name: sub ? v.subName || null : null, sub_is_other: false, sub_ends: sub ? v.subEnds || null : null,
+        sub_alerts: sub ? (v.subAlerts || []).slice() : [], sub_note: sub ? v.subNote || null : null,
+        details: !dep && v.details ? v.details : null, staff_kind: !dep && v.category === PAY && v.beneficiaryIsOther && v.staffKind ? v.staffKind : null, reason: dep ? v.reason || null : null };
     }
     if (kind === 'vendorMoves') return { vendor_id: v.vendorId || vendorIdOf(v.vendor), on_date: v.date, direction: v.direction, kind: v.type, kind_name: v.type === 'أخرى' ? v.typeName || null : null, amount: v.amount, note: v.note || null };
     return { account: v.account, on_date: v.date, direction: v.direction, amount: v.amount, note: v.note || null };
@@ -73,10 +82,12 @@
       const reads = Object.entries(KINDS).map(([, k]) => cl.from(k.table).select(k.cols).is('voided_at', null).order('on_date', { ascending: false }).range(0, 9999));
       reads.push(cl.from('dokan_balances').select('vendor_id, woo_vendor_id, balance, earning, sales, orders, synced_at'));
       reads.push(cl.from('dokan_withdrawals').select('id, woo_vendor_id, vendor_id, amount, charge, receivable, status, method, requested_at, synced_at').order('id', { ascending: false }).range(0, 9999));
+      reads.push(cl.from('acc_list_items').select('list, name').order('id').range(0, 999));
       const res = await Promise.all(reads);
       const bad = res.find((r) => r.error); if (bad) throw bad.error;
       Object.keys(KINDS).forEach((kind, i) => { data[kind] = (res[i].data || []).map(TO[kind]); });
       data.balances = (res[3].data || []).map((r) => ({ vendorId: r.vendor_id, store: r.woo_vendor_id, balance: numOrNull(r.balance), earning: numOrNull(r.earning), sales: numOrNull(r.sales), orders: r.orders, syncedAt: r.synced_at }));
+      data.lists = (res[5].data || []).map((r) => ({ list: r.list, name: r.name }));
       data.withdrawals = (res[4].data || []).map((r) => ({ id: r.id, store: r.woo_vendor_id, vendorId: r.vendor_id, amount: num(r.amount), charge: num(r.charge), receivable: num(r.receivable), status: r.status, method: r.method || '', at: r.requested_at || '', syncedAt: r.synced_at }));
       salesCache.clear();
       st = 'ready';
@@ -152,8 +163,39 @@
     } catch (e) { return { ok: false, reason: 'network', rows: [] }; }
   }
 
+  // ---------- phase 4.1: the lists and the approval of a Dokan request ----------
+  const lists = (key) => data.lists.filter((r) => r.list === key).map((r) => r.name);
+  async function addListItem(key, name) {
+    const cl = c(); const v = typeof name === 'string' ? name.trim().slice(0, 60) : '';
+    if (!cl || !v || (key !== 'subs' && key !== 'ads')) return { ok: false, reason: 'invalid' };
+    if (!data.lists.some((r) => r.list === key && r.name.toLowerCase() === v.toLowerCase())) { data.lists = [...data.lists, { list: key, name: v }]; emit({ list: key }); }
+    try {
+      const { error } = await cl.from('acc_list_items').insert({ list: key, name: v });
+      if (error && String(error.code) !== '23505') return { ok: false, reason: reasonOf(error) }; // 23505: someone added it first
+      return { ok: true };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  async function approveWithdraw(id) {
+    const cl = c(); const wid = Number(id);
+    if (!cl || !Number.isInteger(wid) || wid <= 0) return { ok: false, reason: 'invalid' };
+    const old = data.withdrawals.find((w) => w.id === wid);
+    try {
+      const { data: body, error } = await cl.functions.invoke('woo-sync', { body: { action: 'withdraw_approve', id: wid } });
+      if (error || !body) {
+        const status = error && error.context && error.context.status;
+        return { ok: false, reason: status === 401 ? 'forbidden' : 'network' };
+      }
+      if (body.result === 'ok') {
+        const L = window.IBActivity;
+        if (L && L.log) quiet(() => L.log('accounts.withdraw.approve', '#' + wid + (old ? ' · ' + old.amount : ''), { entity: 'dokan_withdrawals', entity_id: String(wid) }));
+      }
+      load();
+      return { ok: true, result: body.result, reason: body.reason || null, status: body.status || null };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+
   function clear() { st = 'idle'; Object.keys(data).forEach((k) => { data[k] = []; }); salesCache.clear(); }
 
   window.IBAccounts = { load, clear, state: () => st, rows: (kind) => data[kind].slice(), balances: () => data.balances.slice(), withdrawals: () => data.withdrawals.slice(),
-    add, update, remove, sales, salesFailed, statement, can, canEdit, toExpense, toVendorMove, toAccountMove, toColumns, KINDS };
+    add, update, remove, sales, salesFailed, statement, lists, addListItem, approveWithdraw, can, canEdit, toExpense, toVendorMove, toAccountMove, toColumns, KINDS };
 })();

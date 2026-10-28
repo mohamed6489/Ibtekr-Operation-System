@@ -1208,3 +1208,74 @@ b.pos{color:var(--color-success-text)}
 .wd-cell:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:2px}
 .subs-wrap .subs-tbl td,.mlog-table td{vertical-align:middle}
 .mlog-table .tg{white-space:nowrap}
+
+/* ===== phase 4.1: prototype 1793131460 (28 Oct) — alert chips, column popup, sticky first column, accounts on tablet / mobile ===== */
+/* شيبس التنبيه في مصروف الاشتراك (owner 27 Oct) */
+.alert-chips{gap:8px}
+.alert-chip{height:auto;min-height:32px;padding:4px 12px;gap:6px}
+.alert-chip .chip-date{opacity:.85;font-weight:400}
+.alert-chip[aria-pressed=true] .chip-date{color:var(--color-text-on-brand)}
+.alert-chip .chip-tick{display:inline-flex}
+.alert-chip .chip-tick[hidden],.alert-chip .chip-date[hidden]{display:none}
+/* صفوف التخصيص: السويتش على الشمال في سطر واحد (owner 27 Oct) */
+.dash-cust .dc-row{display:flex;align-items:center;gap:12px}
+.dash-cust .dc-row .dc-l{flex:1 1 auto;min-width:0;display:flex;flex-direction:column;gap:2px}
+.dash-cust .dc-row .dc-ord{flex:none;order:5;display:flex;gap:2px}
+.dash-cust .dc-row .sw-row{flex:none;order:9;padding:0;border:0;margin-inline-start:8px}
+.table-title [data-cols],.sec-h [data-cols]{margin-inline-start:4px}
+.sec-h.cols-only{justify-content:flex-end;padding-bottom:0;border:0;min-height:0}
+.sec-h.cols-only .acts{margin-inline-start:auto}
+
+/* العمود الأول ثابت مع السكرول العرضي + ترويسة الكارت: التايتل يمين والعداد والأزرار شمال (owner 27 Oct) */
+.table-title h2{margin-inline-end:auto}
+.table-title .count{margin-inline-start:0}
+@media (min-width:1024px){
+  .sticky-col1 th:first-child,.sticky-col1 td:first-child{position:sticky;inset-inline-start:0;z-index:2;border-inline-end:1px solid var(--color-border-subtle)}
+  .sticky-col1 thead th:first-child{z-index:3}
+  .sticky-col1 tbody td:first-child{background:var(--color-bg-base)}
+  .sticky-col1 tbody tr:nth-child(even) td:first-child{background:var(--color-bg-tint)}
+  .sticky-col1 tr.total td:first-child,.sticky-col1 tfoot td:first-child{background:var(--color-bg-tint)}
+}
+.vname-link{cursor:pointer;color:var(--color-text-primary);text-decoration:underline;text-decoration-color:var(--color-border-default);text-underline-offset:3px}
+.vname-link:hover{color:var(--color-brand-default);text-decoration-color:currentColor}
+.vname-link:focus-visible{outline:2px solid var(--color-action-focus,var(--color-brand-default));outline-offset:2px;border-radius:2px}
+
+/* ===== صفحة الحسابات على الموبايل والتابلت (owner 27 Oct) ===== */
+@media (max-width:1023px){
+  /* كروت الـ KPI: اتنين في السطر زي باقي الكروت (كانت واحد في السطر في سجل الحركات) */
+  .cards.four{grid-template-columns:repeat(2,minmax(0,1fr))}
+  .cards.four>:last-child:nth-child(odd){grid-column:1/-1}
+  /* ترويسة كارت الجدول: العنوان سطر لوحده، وتحته العداد يمين وزرار الأعمدة شمال */
+  .table-title{row-gap:4px}
+  .table-title h2{flex:1 1 100%;margin-inline-end:0}
+  .table-title .count{flex:1 1 auto;margin-inline-end:auto}
+  .table-title [data-cols],.sec-h [data-cols]{margin-inline-start:auto}
+  /* كارت المبتكر في وضع الكروت: الاسم أول سطر كامل، وبعده الرصيد وطلب السحب */
+  .vendors-table td[data-l="المبتكر"]{order:-5;flex:1 1 100%;padding-bottom:8px;border-bottom:1px solid var(--color-border-subtle)}
+  .vendors-table td[data-l="الرصيد الحالي"]{order:-4}
+  .vendors-table td[data-l="طلب سحب"]{order:-3}
+  .vendors-table td[data-l="الصافي"]{order:-4} /* phase 4.1: our balance column is «الصافي» (Dokan − deductions) */
+  .vendors-table .vname-cell{width:100%}
+  .vendors-table .vname-link{display:flex;align-items:center;min-height:44px;width:100%;font-size:15px}
+}
+@media (max-width:767px){
+  /* أزرار ترويسة الصفحة جنب بعض بدل سطر لكل واحد */
+  #main .page-head .actions{flex-wrap:nowrap;gap:8px}
+  #main .page-head .actions .pop-anchor{width:auto;flex:1 1 0;min-width:0}
+  #main .page-head .actions .pop-anchor>.btn{width:100%}
+}
+@media (max-width:1023px){
+  /* النوتة اللي فيها زرار: الزرار ينزل سطر لوحده بدل ما يزاحم النص */
+  .note{flex-wrap:wrap;row-gap:8px}
+  .note>span{flex:1 1 100%;min-width:0}
+  .note>.btn,.note>.pop-anchor{flex:0 0 auto;margin-inline-start:auto}
+  /* مساحات لمس مريحة على الموبايل والتابلت (الحد الأدنى 40، و44 لأزرار البوب أب والتابات) */
+  #main .btn{min-height:40px}
+  #main .icon-btn{width:40px;height:40px}
+  #main .tab{min-height:44px}
+  /* البوب أب: الجسم بياخد الفاضي فالفوتر يفضل تحت، والأزرار بتلف بدل ما النص يتقص */
+  .modal .modal-b{flex:1 1 auto}
+  .modal-f{flex-wrap:wrap;height:auto;min-height:64px;padding-block:12px}
+  .modal-f>.btn,.modal-f>.pop-anchor{flex:1 1 140px;min-height:44px}
+  .modal-f>.pop-anchor>.btn{width:100%;min-height:44px}
+}

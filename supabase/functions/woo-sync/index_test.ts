@@ -11,10 +11,11 @@ const OURS = `${ENV.SUPABASE_URL}/functions/v1/woo-webhook`;
 // Member tokens → what has_perm('orders.status') / is_admin() answer for them, plus (phase 3.3) has_perm('vendors.edit') /
 // has_perm('sensitive.commission') for push_vendor: ops = vendors.edit P, vf = vendors follow-up (vendors.edit F, commission N),
 // acct = accounts (nothing). (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
-const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown }> = {
+const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown }> = {
   'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false, edit: 'P' }, 'jwt-acct': { perm: 'P', admin: false, edit: 'N', accounts: 'P' },
   'jwt-vf': { perm: 'N', admin: false, edit: 'F', commission: 'N' },
   'jwt-bank': { perm: 'N', admin: false, edit: 'N', bank: 'F' }, // phase 3.5: accounts — sensitive.vendor_bank = F, vendors.edit = N
+  'jwt-approver': { perm: 'N', admin: false, accounts: 'F', approve: 'F' }, // phase 4.1: accounts.approve = F
   'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
 };
 
@@ -27,7 +28,7 @@ function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fa
   const members: any[] = [];
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
+    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
     members.push({ jwt, client });
     return client;
   };
@@ -325,6 +326,71 @@ Deno.test('statement: the maker\'s Dokan statement for a range, read-only and no
   assertEquals((await call(deps, { action: 'statement', vendor_id: vendorId(44), from: '2026-10-01', to: '2026-10-27' }, { jwt: 'jwt-ops' })).res.status, 401, 'accounts.view N');
   assertEquals((await call(deps, { action: 'statement', vendor_id: vendorId(44), from: '2026-10-27', to: '2026-10-01' }, { jwt: 'jwt-acct' })).res.status, 400);
   assertEquals((await call(deps, { action: 'statement', vendor_id: vendorId(44), from: '2024-01-01', to: '2026-10-01' }, { jwt: 'jwt-acct' })).res.status, 400, 'over 400 days');
+});
+
+// ---------------------------------------------------------------- withdraw_approve (phase 4.1)
+
+const wdSeed = (status: string) => ({ dokan_withdrawals: [{ id: 7, woo_vendor_id: 44, vendor_id: vendorId(44), amount: 1500, charge: 15, receivable: 1485, status, method: 'bank', requested_at: '2026-10-20 14:05:00' }] });
+const wdDokan = (status: string) => ({ id: 7, user: { id: 44 }, amount: '1500.00', status, method: 'bank', ip: '10.0.0.9', note: 'x', details: { bank: { ac_number: '123456789012', iban: 'EG000000000000000000000000001' } } });
+
+Deno.test('withdraw_approve: a pending request → GET then PUT dokan/v1/withdraw/{id} { status: approved }; the mirror and the balance follow; nothing of the bank details logged', async () => {
+  const routes = {
+    'GET dokan/v1/withdraw/7': { body: wdDokan('pending') },
+    'PUT dokan/v1/withdraw/7': (c: any) => ({ body: wdDokan(c.body.status) }),
+    'GET dokan/v1/stores/44/stats': { body: { others: { balance: 1000 }, revenue: { earning: 9000, orders: 12, sales: 11000 } } },
+  };
+  const { db, woo, deps } = setup({ seed: wdSeed('pending'), routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'withdraw_approve', id: 7, amount: 1, status: 'cancelled' }, { jwt: 'jwt-approver' });
+  assertEquals(res.status, 200);
+  assertEquals(body, { action: 'withdraw_approve', result: 'ok', status: 'approved' });
+  assertEquals(woo.calls.map((c: any) => [c.method, c.path, c.body ?? null]), [['GET', 'dokan/v1/withdraw/7', null], ['PUT', 'dokan/v1/withdraw/7', { status: 'approved' }], ['GET', 'dokan/v1/stores/44/stats', null]]);
+  assertEquals(db.row('dokan_withdrawals', 7).status, 'approved');
+  assertEquals(db.row('dokan_balances', vendorId(44), 'vendor_id').balance, 1000);
+  const log = db.rows('woo_sync_log').at(-1);
+  assertEquals([log.kind, log.direction, log.entity, log.entity_id, log.action, log.result, log.detail], ['push', 'out', 'dokan_withdrawals', '7', 'withdraw_approve', 'ok', { status: 'approved', amount: 1500 }]);
+  const written = JSON.stringify([db.rows('dokan_withdrawals'), db.rows('woo_sync_log')]);
+  for (const secret of ['123456789012', 'EG000000000000000000000000001', '10.0.0.9']) assertFalse(written.includes(secret), `never stored: ${secret}`);
+});
+
+Deno.test('withdraw_approve: the admin or accounts.approve = F only; never the sync secret; a bad id → 400; unknown → 404', async () => {
+  const { woo, deps } = setup({ seed: wdSeed('pending'), env: PUSH_ON });
+  assertEquals((await call(deps, { action: 'withdraw_approve', id: 7 }, { jwt: 'jwt-acct' })).res.status, 401, 'accounts.view P, approve N');
+  assertEquals((await call(deps, { action: 'withdraw_approve', id: 7 }, { jwt: 'jwt-ops' })).res.status, 401);
+  assertEquals((await call(deps, { action: 'withdraw_approve', id: 7 })).res.status, 401, 'the sync secret never approves');
+  assertEquals(woo.calls.length, 0);
+  assertEquals((await call(deps, { action: 'withdraw_approve', id: 'x' }, { jwt: 'jwt-admin' })).res.status, 400);
+  assertEquals((await call(deps, { action: 'withdraw_approve', id: 99 }, { jwt: 'jwt-admin' })).res.status, 404);
+  assertEquals(woo.calls.length, 0);
+});
+
+Deno.test('withdraw_approve: WOO_PUSH_ENABLED off → skipped/push_disabled before any Dokan call; not pending here → skipped/not_pending', async () => {
+  const off = setup({ seed: wdSeed('pending') });
+  const a = await call(off.deps, { action: 'withdraw_approve', id: 7 }, { jwt: 'jwt-approver' });
+  assertEquals([a.body.result, a.body.reason], ['skipped', 'push_disabled']);
+  assertEquals(off.woo.calls.length, 0);
+  assertEquals(off.db.row('dokan_withdrawals', 7).status, 'pending');
+  const done = setup({ seed: wdSeed('approved'), env: PUSH_ON });
+  const b = await call(done.deps, { action: 'withdraw_approve', id: 7 }, { jwt: 'jwt-approver' });
+  assertEquals([b.body.result, b.body.reason], ['skipped', 'not_pending']);
+  assertEquals(done.woo.calls.length, 0);
+});
+
+Deno.test('withdraw_approve: no longer pending on Dokan → skipped/stale, no PUT, the mirror corrected', async () => {
+  const { db, woo, deps } = setup({ seed: wdSeed('pending'), routes: { 'GET dokan/v1/withdraw/7': { body: wdDokan('cancelled') } }, env: PUSH_ON });
+  const { body } = await call(deps, { action: 'withdraw_approve', id: 7 }, { jwt: 'jwt-admin' });
+  assertEquals([body.result, body.reason, body.status], ['skipped', 'stale', 'cancelled']);
+  assert(woo.calls.every((c: any) => c.method === 'GET'));
+  assertEquals(db.row('dokan_withdrawals', 7).status, 'cancelled');
+});
+
+Deno.test('withdraw_approve: Dokan refuses the PUT → 502 woo_error, logged as a push error, the mirror unchanged', async () => {
+  const routes = { 'GET dokan/v1/withdraw/7': { body: wdDokan('pending') }, 'PUT dokan/v1/withdraw/7': { status: 400, body: { code: 'dokan_rest_invalid_status', message: 'no' } } };
+  const { db, deps } = setup({ seed: wdSeed('pending'), routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'withdraw_approve', id: 7 }, { jwt: 'jwt-approver' });
+  assertEquals([res.status, body.error], [502, 'woo_error']);
+  assertEquals(db.row('dokan_withdrawals', 7).status, 'pending');
+  const log = db.rows('woo_sync_log').at(-1);
+  assertEquals([log.kind, log.entity, log.entity_id, log.result], ['push', 'dokan_withdrawals', '7', 'error']);
 });
 
 // ---------------------------------------------------------------- vendors / products / all

@@ -48,6 +48,11 @@
 //   'statement' { vendor_id, from, to }  (decision 6) the maker's Dokan statement for the range (at most 400 days),
 //              dokan/v1/vendor/reports/statement, read-only and not stored: rows { date, type, title, debit, credit,
 //              balance } (title scrubbed). A member needs accounts.view <> N.
+//   'withdraw_approve' { id }  (phase 4.1, the owner's one write from the accounts page) approves a Dokan withdraw request
+//              that is pending in dokan_withdrawals and still pending on Dokan (GET, then PUT dokan/v1/withdraw/{id}
+//              { status: 'approved' }; else skipped/stale and the mirror corrected); the maker's balance is read again.
+//              WOO_PUSH_ENABLED gates it (skipped/push_disabled). The admin or has_perm('accounts.approve') = 'F' only —
+//              never the sync secret. No cancel, no amount, nothing of the bank details logged or stored.
 //   'register_webhooks' { delivery_url? }  ensures one active `ibtekr-ops:<topic>` webhook per topic pointing at
 //              {SUPABASE_URL}/functions/v1/woo-webhook; any other webhook on the site (n8n's) is never touched.
 // Answer: 200 { action, result, counts, … } or 4xx / 5xx { error }. CORS for the browser's functions.invoke.
@@ -65,7 +70,7 @@ export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetc
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
-const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement'];
+const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve'];
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
 const STATEMENT_MAX_PAGES = 10;
@@ -88,6 +93,7 @@ const ourUrl = (env: Deps['env']) => `${(env.SUPABASE_URL ?? '').trim().replace(
 async function authorize(req: Request, deps: Deps, action: string, args: Json): Promise<'system' | 'member' | null> {
   const secret = req.headers.get('x-sync-secret');
   if (secret) {
+    if (action === 'withdraw_approve') return null; // a person approves, never the cron / sync secret (phase 4.1)
     const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
     return !error && data === true ? 'system' : null;
   }
@@ -98,6 +104,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
   if (action === 'push_status') return (await perm('orders.status')) ? 'member' : null;
   if (action === 'statement') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  // phase 4.1 (decision 1): approving a Dokan withdraw request — the admin or accounts.approve = F (has_perm carries aal2)
+  if (action === 'withdraw_approve') return (await admin()) || (await perm('accounts.approve')) ? 'member' : null;
   if (action === 'push_vendor') {
     if (await admin()) return 'member';
     const fields = Array.isArray(args.fields) ? args.fields : [];
@@ -462,6 +470,51 @@ async function statement(run: Run, args: Json) {
   return json(200, { action: 'statement', result: 'ok', store, from, to, rows: out, done: res.done });
 }
 
+// ---------------------------------------------------------------- withdraw_approve (phase 4.1)
+
+// The owner's one write from the accounts page (28 Oct): approve a pending Dokan withdraw request. The body names the request
+// only; it must be pending in our mirror and still pending on Dokan (GET first), else skipped/stale and the mirror is
+// corrected. WOO_PUSH_ENABLED gates every call to Dokan. Never a cancel, never an amount: Dokan lowers the balance itself.
+// Nothing of the request's bank details is read into the log or the mirror (mapWithdrawal's allow-list rule).
+async function withdrawApprove(run: Run, args: Json) {
+  const id = wooId(args.id);
+  if (id === null) return json(400, { error: 'bad_request' });
+  const { data: row, error } = await run.db.from('dokan_withdrawals').select('id, woo_vendor_id, vendor_id, amount, status').eq('id', id).maybeSingle();
+  if (error) throw new Error(`dokan_withdrawals: ${error.message}`);
+  if (!row) return json(404, { error: 'withdraw_not_found' });
+  const entry = { kind: 'push', direction: 'out', entity: 'dokan_withdrawals', entity_id: String(id), action: 'withdraw_approve' };
+  const skip = async (reason: string, status: string) => {
+    await logSync(run.db, { ...entry, result: 'skipped', detail: { reason, status } });
+    return json(200, { action: 'withdraw_approve', result: 'skipped', reason, status });
+  };
+  if (row.status !== 'pending') return await skip('not_pending', row.status);
+  if (!pushEnabled(run.env)) return await skip('push_disabled', row.status);
+  const woo = run.woo();
+  const mirror = async (status: string) => {
+    const upd = await run.db.from('dokan_withdrawals').update({ status, synced_at: run.now() }).eq('id', id);
+    if (upd.error) throw new Error(`dokan_withdrawals: ${upd.error.message}`);
+  };
+  const before = (await woo.get(`dokan/v1/withdraw/${id}`)).data;
+  const current = strOrNull(isObj(before) ? before.status : null, 20) ?? 'unknown';
+  if (current !== 'pending') { await mirror(current); return await skip('stale', current); }
+  const after = (await woo.put(`dokan/v1/withdraw/${id}`, { status: 'approved' })).data;
+  const status = strOrNull(isObj(after) ? after.status : null, 20) ?? 'approved';
+  await mirror(status);
+  // the maker's balance right away (Dokan lowered it); a failure here waits for the hourly run
+  const store = wooId(row.woo_vendor_id);
+  if (store !== null && row.vendor_id) {
+    try {
+      const { data } = await woo.get(`dokan/v1/stores/${store}/stats`);
+      const others = isObj(data) && isObj(data.others) ? data.others : {};
+      const revenue = isObj(data) && isObj(data.revenue) ? data.revenue : {};
+      await upsertRows(run.db, 'dokan_balances', [{ vendor_id: row.vendor_id, woo_vendor_id: store, balance: numOrNull(others.balance), earning: numOrNull(revenue.earning),
+        sales: numOrNull(revenue.sales), orders: Number.isInteger(numOrNull(revenue.orders)) ? numOrNull(revenue.orders) : null, synced_at: run.now() }], 'vendor_id');
+    } catch (e) { if (!(e instanceof WooError)) throw e; }
+  }
+  await logSync(run.db, { ...entry, result: 'ok', detail: { status, amount: row.amount } });
+  return json(200, { action: 'withdraw_approve', result: 'ok', status });
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -489,6 +542,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'probe_store') return await probeStore(run, args);
     if (action === 'probe_dokan') return await probeDokan(run, args);
     if (action === 'statement') return await statement(run, args);
+    if (action === 'withdraw_approve') return await withdrawApprove(run, args);
     if (action === 'accounts') {
       try {
         const counts = await pullAccounts(run);
@@ -502,9 +556,10 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     }
     return await pull(run, action);
   } catch (e) {
-    const isPush = action === 'push_status' || action === 'push_vendor';
-    const entity = action === 'push_status' ? 'order' : action === 'push_vendor' ? 'vendor' : 'webhooks';
-    const entityId = action === 'push_status' ? wooId(args.order_id)?.toString() ?? null : action === 'push_vendor' && typeof args.vendor_id === 'string' ? args.vendor_id.slice(0, 36) : null;
+    const isPush = action === 'push_status' || action === 'push_vendor' || action === 'withdraw_approve';
+    const entity = action === 'push_status' ? 'order' : action === 'push_vendor' ? 'vendor' : action === 'withdraw_approve' ? 'dokan_withdrawals' : 'webhooks';
+    const entityId = action === 'push_status' ? wooId(args.order_id)?.toString() ?? null : action === 'push_vendor' && typeof args.vendor_id === 'string' ? args.vendor_id.slice(0, 36)
+      : action === 'withdraw_approve' ? wooId(args.id)?.toString() ?? null : null;
     await logSync(deps.db, { kind: isPush ? 'push' : run.kind, direction: 'out', entity, entity_id: entityId, action, result: 'error', detail: { error: errorText(e, makeScrubber(deps.env)) } });
     if (e instanceof ConfigError) return json(500, { error: 'not_configured' });
     return json(e instanceof WooError ? 502 : 500, { error: e instanceof WooError ? 'woo_error' : 'failed' });

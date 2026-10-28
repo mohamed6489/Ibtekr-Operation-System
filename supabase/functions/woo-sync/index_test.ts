@@ -624,7 +624,7 @@ Deno.test('product_save: PUT the product, the Arabic translation (its name + the
   assertEquals([r2.res.status, r2.body.error], [409, 'no_translation']);
 });
 
-Deno.test('SEO (phase 5.1): product_get reads the two Rank Math keys only; product_save writes them as meta_data on the product and on its Arabic translation; tags refused', async () => {
+Deno.test('SEO (phase 5.1): product_get reads the two Rank Math keys only; product_save writes them as meta_data on the product and on its Arabic translation; tags and Rank Math variables outside SEO_VARS refused', async () => {
   const en = wooProduct(501, 44, { lang: 'en', translations: { ar: 601, en: 501 }, meta_data: [{ key: 'rank_math_title', value: 'Lamp | Ibtekr' }, { key: 'rank_math_description', value: 'A lamp' }, { key: 'rank_math_focus_keyword', value: 'secret-kw' }, { key: '_wc_cog_cost', value: '999' }] });
   const routes = { 'GET wc/v3/products/501': { body: en }, 'GET wc/v3/products/601': { body: wooProduct(601, 44, { lang: 'ar', meta_data: [{ key: 'rank_math_title', value: 'لمبة' }] }) },
     'PUT wc/v3/products/501': (c: any) => ({ body: wooProduct(501, 44, { lang: 'en', translations: { ar: 601, en: 501 } }) }), 'PUT wc/v3/products/601': (c: any) => ({ body: wooProduct(601, 44, { lang: 'ar' }) }) };
@@ -632,13 +632,14 @@ Deno.test('SEO (phase 5.1): product_get reads the two Rank Math keys only; produ
   const g = await call(deps, { action: 'product_get', id: 501 }, { jwt: 'jwt-pview' });
   assertEquals([g.body.product.seo_title, g.body.product.seo_description, g.body.ar.seo_title, g.body.ar.seo_description], ['Lamp | Ibtekr', 'A lamp', 'لمبة', '']);
   for (const secret of ['secret-kw', '999']) assertFalse(JSON.stringify(g.body).includes(secret), secret);
-  for (const [fields, field] of [[{ seo_title: '<b>x</b>' }, 'seo_title'], [{ seo_description: 'x'.repeat(501) }, 'seo_description']] as const) {
+  for (const [fields, field] of [[{ seo_title: '<b>x</b>' }, 'seo_title'], [{ seo_description: 'x'.repeat(501) }, 'seo_description'],
+    [{ seo_title: '%customfield(_wc_cog_cost)%' }, 'seo_title'], [{ seo_description: 'Lamp %post_author%' }, 'seo_description'], [{ seo_title: '%title%%cf_x%' }, 'seo_title']] as const) {
     assertEquals((await call(deps, { action: 'product_save', id: 501, fields }, { jwt: 'jwt-pedit' })).body.field, field);
   }
-  const r = await call(deps, { action: 'product_save', id: 501, fields: { seo_title: ' Lamp — Ibtekr ', seo_description: '' }, ar: { seo_title: 'لمبة — إبتكر' } }, { jwt: 'jwt-pedit' });
+  const r = await call(deps, { action: 'product_save', id: 501, fields: { seo_title: ' %title% %sep% %sitename% — 20% off ', seo_description: '' }, ar: { seo_title: 'لمبة — إبتكر' } }, { jwt: 'jwt-pedit' });
   assertEquals(r.res.status, 200);
   assertEquals(woo.calls.filter((c) => c.method === 'PUT').map((c) => [c.path, c.body]), [
-    ['wc/v3/products/501', { meta_data: [{ key: 'rank_math_title', value: 'Lamp — Ibtekr' }, { key: 'rank_math_description', value: '' }] }],
+    ['wc/v3/products/501', { meta_data: [{ key: 'rank_math_title', value: '%title% %sep% %sitename% — 20% off' }, { key: 'rank_math_description', value: '' }] }],
     ['wc/v3/products/601', { meta_data: [{ key: 'rank_math_title', value: 'لمبة — إبتكر' }] }],
   ]);
 });

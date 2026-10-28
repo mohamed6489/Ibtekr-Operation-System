@@ -240,7 +240,7 @@ test('decision 16 on a variable product: a maker price per variation → its two
   expect(w.variations).toEqual([{ id: 9901, sale_price: String(sale), regular_price: String(reg) }]);
 });
 
-test('SEO tab (phase 5.1): Rank Math title / description per language with a counter and a preview; tags refused before any request; saved as seo_* fields', async ({ page }) => {
+test('SEO tab (phase 5.1): Rank Math title / description per language with a counter and a preview; tags and Rank Math variables outside SEO_VARS refused before any request; saved as seo_* fields', async ({ page }) => {
   await openProducts(page);
   await page.locator('[data-pedit="9001"]').click();
   await page.getByRole('tab', { name: 'SEO' }).click();
@@ -249,6 +249,10 @@ test('SEO tab (phase 5.1): Rank Math title / description per language with a cou
   await page.fill('#e-seo-t', 'Boho Cushion Cover | Ibtekr');
   await expect(page.locator('.seo-prev').first()).toContainText('Boho Cushion Cover | Ibtekr');
   await expect(page.locator('#e-seo-t').locator('xpath=ancestor::div[contains(@class,"field")]')).toContainText('27 / 60 حرف');
+  await page.fill('#e-seo-d', '%customfield(_wc_cog_cost)%'); // Rank Math would print the cost meta on the page
+  await page.locator('[data-psave]').click();
+  await expect(page.locator('#pg-products')).toContainText('المتغير %customfield(_wc_cog_cost)% مش مسموح');
+  await page.fill('#e-seo-d', '');
   await page.fill('#e-seo-ad', 'كيس <b>مخدة</b>');
   await page.locator('[data-psave]').click();
   await expect(page.locator('#pg-products')).toContainText('من غير < أو >');

@@ -156,11 +156,12 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
   const own = (s) => mine.reduce((t, v) => t.split(v).join(REDACTED), String(s ?? ''));
   let warnings = [];
 
-  async function get(path, method = 'GET') {
+  async function get(path, method = 'GET', anonymous = false) {
     let res, text;
     try {
-      // dokan/ paths go without the WC header (Dokan answers 401 invalid_username to it), like _shared/woo-api.js
-      res = await fetch(base + path, { method, headers: path.startsWith('dokan/') ? { Accept: 'application/json' } : headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      // dokan/ paths go without the WC header (Dokan answers 401 invalid_username to it), like _shared/woo-api.js; so do the
+      // WordPress paths of PROBE=studio (`anonymous`: WordPress takes a Basic header for a login)
+      res = await fetch(base + path, { method, headers: anonymous || path.startsWith('dokan/') ? { Accept: 'application/json' } : headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
       text = await res.text();
     } catch (e) {
       throw new ProbeError(res?.status ?? 0, thrownText(e, own));
@@ -285,8 +286,36 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
       return [out];
     }],
   ];
+  // PROBE=studio (phase 5.1, the owner: the maker of a new product = the vendor's account on the site): can a product's
+  // author (the Dokan store) be set through WordPress' own REST (wp/v2: the product post type in REST, its `author` field),
+  // is the media library there (image upload), and which Rank Math keys a product carries (SEO tab) — route and field
+  // names, `filled` / `empty` only, never a value. wp/ paths go without the WC header (WordPress reads it as a login).
+  const wpGet = (path) => get(path, 'GET', true);
+  const studioSteps = [
+    [['wp_routes'], async () => {
+      const { data } = await wpGet('');
+      const routes = Object.keys(data?.routes ?? {});
+      return [{ namespaces: Array.isArray(data?.namespaces) ? data.namespaces.filter((n) => typeof n === 'string').sort() : [],
+        product: routes.filter((r) => /^\/wp\/v2\/product/.test(r)).sort(), media: routes.filter((r) => /^\/wp\/v2\/media/.test(r)).sort(),
+        rankmath: routes.filter((r) => /rankmath/i.test(r)).slice(0, 30).sort() }];
+    }],
+    [['wp_product_type'], async () => {
+      try {
+        const { data } = await wpGet('wp/v2/types/product');
+        return [{ rest_base: data?.rest_base ?? null, rest_namespace: data?.rest_namespace ?? null, supports_keys: keysOf(data?.supports) }];
+      } catch (e) { return [failOf(e)]; }
+    }],
+    [['wp_product_schema'], async () => {
+      try { return [schemaOf((await get('wp/v2/product', 'OPTIONS', true)).data)]; } catch (e) { return [failOf(e)]; }
+    }],
+    [['seo_meta'], async () => {
+      const p = pid ? (await get('wc/v3/products/' + pid)).data : (await getList('wc/v3/products?per_page=1')).data[0];
+      const seo = (Array.isArray(p?.meta_data) ? p.meta_data : []).filter((m) => m && /rank_math/i.test(String(m.key)));
+      return [{ id: p?.id ?? null, keys: Object.fromEntries(seo.map((m) => [m.key, typeof m.value === 'string' ? (m.value.trim() ? 'filled' : 'empty') : typeOnly(m.value)])) }];
+    }],
+  ];
   const mode = String(env.PROBE ?? '').trim();
-  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : mode === 'earning' ? earningSteps : steps;
+  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : mode === 'earning' ? earningSteps : mode === 'studio' ? studioSteps : steps;
 
   const print = (section, obj) => out(section + ' ' + JSON.stringify(redact(obj)));
   let failed = false;

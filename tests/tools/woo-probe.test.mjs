@@ -321,3 +321,28 @@ test('PROBE=earning: commission / earning route names, dokan/v1/commission for o
   for (const secret of ['Secret Lamp', 'متجر سري']) assert.ok(!text.includes(secret), secret);
   assert.ok(calls.every((m) => m === 'GET'));
 });
+
+test('PROBE=studio: WordPress routes / product type / product schema without the WC header, Rank Math keys as filled / empty — never a value; read-only', async () => {
+  const calls = [];
+  const fetch = async (url, init) => {
+    const u = new URL(url); const path = u.pathname.slice(u.pathname.indexOf('/wp-json/') + 9);
+    calls.push({ path, method: init.method, auth: 'Authorization' in (init.headers || {}) });
+    if (path === '') return json({ namespaces: ['wp/v2', 'wc/v3', 'rankmath/v1'], routes: { '/wp/v2/product': {}, '/wp/v2/product/(?P<id>[\\d]+)': {}, '/wp/v2/media': {}, '/rankmath/v1/updateMeta': {}, '/wp/v2/posts': {} } });
+    if (path === 'wp/v2/types/product') return json({ rest_base: 'product', rest_namespace: 'wp/v2', supports: { title: true, author: true } });
+    if (path === 'wp/v2/product') return json({ schema: { properties: { author: { type: 'integer' }, title: { type: 'object' } } } });
+    if (path === 'wc/v3/products') return json([{ id: 9, name: 'Secret Lamp', meta_data: [{ key: 'rank_math_title', value: 'Secret SEO title' }, { key: 'rank_math_description', value: '' }, { key: '_price', value: '1' }] }], { total: 1 });
+    return json({ code: 'rest_no_route' }, { status: 404 });
+  };
+  const out = [];
+  const code = await run({ env: { ...ENV, PROBE: 'studio' }, fetch, out: (s) => out.push(s), err: () => {} });
+  const by = Object.fromEntries(out.map((l) => [l.slice(0, l.indexOf(' ')), JSON.parse(l.slice(l.indexOf(' ') + 1))]));
+  assert.equal(code, 0);
+  assert.deepEqual(by.wp_routes.product, ['/wp/v2/product', '/wp/v2/product/(?P<id>[\\d]+)']);
+  assert.deepEqual(by.wp_routes.media, ['/wp/v2/media']);
+  assert.deepEqual(by.wp_product_type.supports_keys, ['title', 'author']);
+  assert.deepEqual(by.seo_meta.keys, { rank_math_title: 'filled', rank_math_description: 'empty' });
+  const text = out.join('\n');
+  for (const secret of ['Secret Lamp', 'Secret SEO title']) assert.ok(!text.includes(secret), secret);
+  assert.ok(calls.every((c) => c.method === 'GET' || c.method === 'OPTIONS'));
+  assert.ok(calls.filter((c) => !c.path.startsWith('wc/')).every((c) => !c.auth), 'no WC header on WordPress paths');
+});

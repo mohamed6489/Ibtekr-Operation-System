@@ -159,7 +159,8 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
   async function get(path, method = 'GET') {
     let res, text;
     try {
-      res = await fetch(base + path, { method, headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      // dokan/ paths go without the WC header (Dokan answers 401 invalid_username to it), like _shared/woo-api.js
+      res = await fetch(base + path, { method, headers: path.startsWith('dokan/') ? { Accept: 'application/json' } : headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
       text = await res.text();
     } catch (e) {
       throw new ProbeError(res?.status ?? 0, thrownText(e, own));

@@ -130,7 +130,7 @@ test('run prints the seven sections, one JSON line each, with no personal data, 
   assert.deepEqual(by.products_total, { total: 140 });
   assert.equal(by.webhooks.items[0].delivery_url, 'https://<redacted>.example.com/<redacted>?<redacted>');
   const auth = 'Basic ' + Buffer.from('ck_test:cs_test').toString('base64');
-  for (const c of calls) { assert.equal(c.init.headers.Authorization, auth); assert.match(c.url, /^https:\/\/stage\.example\.com\/wp-json\/(wc\/v3|dokan\/v1)\//); assert.ok(!c.url.includes('ck_test') && !c.url.includes('cs_test')); assert.ok(!c.init.method || c.init.method === 'GET'); }
+  for (const c of calls) { assert.equal(c.init.headers.Authorization, c.url.includes("/wp-json/dokan/") ? undefined : auth); assert.match(c.url, /^https:\/\/stage\.example\.com\/wp-json\/(wc\/v3|dokan\/v1)\//); assert.ok(!c.url.includes('ck_test') && !c.url.includes('cs_test')); assert.ok(!c.init.method || c.init.method === 'GET'); }
   const urls = calls.map((c) => new URL(c.url));
   const since = urls.find((u) => u.searchParams.get('per_page') === '1' && u.pathname.endsWith('/orders'));
   assert.equal(since.searchParams.get('after'), '2026-10-01T00:00:00');

@@ -1,4 +1,4 @@
-// Read-only probe of the staging WooCommerce/Dokan data shape (phase 2 Task 1): statuses, recent orders and Dokan
+// Read-only probe of the staging WooCommerce/Dokan data shape (phase 2 Task 1; PROBE=products: phase 5 Task 1): statuses, recent orders and Dokan
 // sub-orders, stores, product count, webhooks. Prints one `SECTION {json}` line per section on stdout; every printed
 // object goes through redact() first, and orders/stores/webhooks are cut down to an allow-list before that.
 // A 2xx body is never echoed: junk around its JSON gives a WARN {section, issue, prefix_len, suffix_len}, an unparseable one an ERROR with
@@ -111,6 +111,22 @@ function errorText(text, own) {
 }
 const thrownText = (e, own) => cut(scrubText(own([e?.name, e?.message, e?.cause?.code].filter(Boolean).join(': '))), BODY_MAX);
 
+/** A value cut to its shape (phase 5): objects → their keys with each value's shape (4 levels), arrays → their length and
+ *  the first item's shape, strings → 'string:filled' / 'string:empty', anything else its type. No value is kept. */
+export function shapeOf(v, depth = 0) {
+  if (Array.isArray(v)) return { array: v.length, item: v.length && depth < 4 ? shapeOf(v[0], depth + 1) : undefined };
+  if (v !== null && typeof v === 'object') return depth < 4 ? Object.fromEntries(Object.keys(v).sort().map((k) => [k, shapeOf(v[k], depth + 1)])) : 'object';
+  if (typeof v === 'string') return v.trim() ? 'string:filled' : 'string:empty';
+  return v === null ? 'null' : typeof v;
+}
+/** The meta_data key names of a product or variation, sorted, without their values. */
+export const metaKeys = (v) => (v && Array.isArray(v.meta_data) ? [...new Set(v.meta_data.filter((m) => m && typeof m === 'object').map((m) => String(m.key)))].sort() : []);
+/** An OPTIONS answer → { property: 'type[:readonly]' } for the route's schema (names and types only). */
+export function schemaOf(data) {
+  const props = data && data.schema && data.schema.properties && typeof data.schema.properties === 'object' ? data.schema.properties : {};
+  return Object.fromEntries(Object.keys(props).sort().map((k) => [k, (Array.isArray(props[k]?.type) ? props[k].type.join('|') : props[k]?.type ?? '?') + (props[k]?.readonly ? ':readonly' : '')]));
+}
+
 /** A 2xx body: JSON, or JSON with junk around it (PHP notices, BOM) → {data, junk}, or {fail} describing it without its content. */
 function parseBody(text, own) {
   try { return { data: JSON.parse(text) }; } catch { /* look for the JSON inside */ }
@@ -140,10 +156,10 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
   const own = (s) => mine.reduce((t, v) => t.split(v).join(REDACTED), String(s ?? ''));
   let warnings = [];
 
-  async function get(path) {
+  async function get(path, method = 'GET') {
     let res, text;
     try {
-      res = await fetch(base + path, { method: 'GET', headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
+      res = await fetch(base + path, { method, headers, signal: AbortSignal.timeout(TIMEOUT_MS) });
       text = await res.text();
     } catch (e) {
       throw new ProbeError(res?.status ?? 0, thrownText(e, own));
@@ -190,9 +206,41 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
     }],
   ];
 
+  // PROBE=products (phase 5 Task 1): the product sections instead — shapes, meta key names, schema names, totals.
+  const productSteps = [
+    [['product_shape'], async () => {
+      const { data } = await getList('wc/v3/products?per_page=1');
+      return [{ shape: shapeOf(data[0]), meta_keys: metaKeys(data[0]) }];
+    }],
+    [['variation_shape'], async () => {
+      const { data } = await getList('wc/v3/products?type=variable&per_page=1&_fields=id');
+      if (!data.length) return [{ none: true }];
+      const r = await getList(`wc/v3/products/${Number(data[0].id)}/variations?per_page=1`);
+      return [{ total: r.total, shape: shapeOf(r.data[0]), meta_keys: metaKeys(r.data[0]) }];
+    }],
+    [['schema_wc'], async () => [schemaOf((await get('wc/v3/products', 'OPTIONS')).data)]],
+    [['schema_dokan'], async () => [schemaOf((await get('dokan/v1/products', 'OPTIONS')).data)]],
+    [['totals'], async () => {
+      const t = {};
+      for (const q of ['status=any', 'status=publish', 'status=draft', 'status=pending', 'status=private', 'status=trash', 'type=simple', 'type=variable', 'lang=ar', 'lang=en', 'lang=all']) {
+        try { t[q] = totalOf(await getList(`wc/v3/products?${q}&per_page=1&_fields=id`)); } catch (e) { t[q] = e instanceof ProbeError ? 'HTTP ' + e.status : 'error'; }
+      }
+      return [t];
+    }],
+    [['taxonomies'], async () => {
+      const out = {};
+      try { const r = await getList('wc/v3/products/brands?per_page=1'); out.brands = { total: r.total, shape: shapeOf(r.data[0]) }; } catch (e) { out.brands = e instanceof ProbeError ? 'HTTP ' + e.status : 'error'; }
+      try { const r = await getList('wc/v3/products/tags?per_page=1'); out.tags_total = r.total; } catch (e) { out.tags_total = e instanceof ProbeError ? 'HTTP ' + e.status : 'error'; }
+      const a = await getList('wc/v3/products/attributes');
+      out.attributes = a.data.map((x) => String(x?.slug ?? '') + ':' + String(x?.name ?? ''));
+      return [out];
+    }],
+  ];
+  const chosen = String(env.PROBE ?? '').trim() === 'products' ? productSteps : steps;
+
   const print = (section, obj) => out(section + ' ' + JSON.stringify(redact(obj)));
   let failed = false;
-  for (const [sections, step] of steps) {
+  for (const [sections, step] of chosen) {
     warnings = [];
     let lines;
     try {

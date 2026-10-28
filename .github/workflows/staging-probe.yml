@@ -4,6 +4,12 @@ name: Staging probe
 # tools/woo-probe.mjs prints one redacted JSON line per section; the keys reach that step alone.
 on:
   workflow_dispatch:
+    inputs:
+      probe:
+        description: 'orders (the phase 2 sections) or products (phase 5: shapes, meta key names, schema, totals)'
+        type: choice
+        options: [orders, products]
+        default: orders
 
 permissions:
   contents: read
@@ -25,3 +31,4 @@ jobs:
           WOO_URL: ${{ secrets.STAGING_WOO_URL }}
           WOO_CK: ${{ secrets.STAGING_WOO_CK }}
           WOO_CS: ${{ secrets.STAGING_WOO_CS }}
+          PROBE: ${{ inputs.probe }}

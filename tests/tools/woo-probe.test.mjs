@@ -265,3 +265,32 @@ test('importing the module makes no request and sets no exit code', async () => 
   assert.equal(hit, 0);
   assert.ok(process.exitCode === undefined || process.exitCode === 0, 'main guard fired on import: exitCode ' + process.exitCode);
 });
+
+test('PROBE=products: shapes, meta key names, schema names and totals only — never a product value; GET / OPTIONS only', async () => {
+  const prod = { id: 501, name: 'Secret Lamp', sku: 'IBTK-SECRET', regular_price: '777', meta_data: [{ id: 1, key: '_size_image', value: 'https://x/secret.jpg' }], store: { id: 44, shop_name: 'متجر سري' } };
+  const calls = [];
+  const fetch = async (url, init) => {
+    calls.push(init.method);
+    const u = new URL(url); const path = u.pathname.slice(u.pathname.indexOf('/wp-json/') + 9);
+    if (init.method === 'OPTIONS') return path === 'wc/v3/products' ? json({ schema: { properties: { name: { type: 'string' }, total_sales: { type: ['integer', 'string'], readonly: true } } } }) : json({ code: 'no' }, { status: 404 });
+    if (path === 'wc/v3/products' && u.searchParams.get('type') === 'variable') return json([{ id: 77 }], { total: 1 });
+    if (path === 'wc/v3/products') return json([prod], { total: 9 });
+    if (path === 'wc/v3/products/77/variations') return json([{ id: 78, sku: 'VAR-SECRET', meta_data: [{ key: '_v', value: 'x' }] }], { total: 2 });
+    if (path === 'wc/v3/products/attributes') return json([{ id: 1, slug: 'pa_color', name: 'Color' }]);
+    return json({ code: 'rest_no_route' }, { status: 404 });
+  };
+  const out = [];
+  const code = await run({ env: { ...ENV, PROBE: 'products' }, fetch, out: (s) => out.push(s), err: () => {} });
+  const by = Object.fromEntries(out.map((l) => [l.slice(0, l.indexOf(' ')), JSON.parse(l.slice(l.indexOf(' ') + 1))]));
+  assert.deepEqual(Object.keys(by), ['product_shape', 'variation_shape', 'schema_wc', 'ERROR', 'totals', 'taxonomies']);
+  assert.deepEqual(by.product_shape.meta_keys, ['_size_image']);
+  assert.deepEqual(by.product_shape.shape.store, { id: 'number', shop_name: 'string:filled' });
+  assert.deepEqual(by.variation_shape.meta_keys, ['_v']);
+  assert.deepEqual(by.schema_wc, { name: 'string', total_sales: 'integer|string:readonly' });
+  assert.equal(by.totals['status=trash'], 9);
+  assert.deepEqual(by.taxonomies.attributes, ['pa_color:Color']);
+  assert.equal(code, 1); // schema_dokan 404 is an ERROR line
+  const text = out.join('\n');
+  for (const secret of ['Secret Lamp', 'IBTK-SECRET', '777', 'secret.jpg', 'متجر سري', 'VAR-SECRET']) assert.ok(!text.includes(secret), secret);
+  assert.ok(calls.every((m) => m === 'GET' || m === 'OPTIONS'));
+});

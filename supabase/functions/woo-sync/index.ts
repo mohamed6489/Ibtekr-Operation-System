@@ -63,7 +63,8 @@
 //              variations, allow-listed (woo-products.js editView); products.view <> N.
 //   'product_save' { id, fields, ar?, variations? } (products.edit = F) / 'products_batch' { update: [{ id, …fields }] } (≤ 100,
 //              products.bulk = F): the allowed fields only (woo-products.js), PUT / batch `update` (never `delete`);
-//              the Arabic translation gets its own fields + status / price / stock. WOO_PUSH_ENABLED gates them.
+//              the Arabic translation gets its own fields + status / price / stock. WOO_PUSH_ENABLED gates them. Phase 5.1:
+//              seo_title / seo_description (both languages) go as Rank Math's meta (toWoo) — the only meta written.
 //   'products_trash' / 'products_restore' { ids } (≤ 100)  products.trash = F: DELETE with no query (the trash —
 //              never `force`) / PUT status draft, on the product and its translation. WOO_PUSH_ENABLED gates them.
 //              The product actions are a person's, never the sync secret's; the mirror follows WooCommerce's answers.
@@ -74,7 +75,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from '../_shared/woo-core.js';
 import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
-import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, variationView } from '../_shared/woo-products.js';
+import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, toWoo, variationView } from '../_shared/woo-products.js';
 import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
@@ -657,7 +658,7 @@ async function productGet(run: Run, args: Json) {
   if (p.type === 'variable') variations = ((await ctx.woo.get(`wc/v3/products/${id}/variations`, { per_page: 100, page: 1 })).data ?? []).map(variationView).filter(Boolean);
   await writeProducts(ctx, [p, ...(isObj(ar) ? [ar] : [])]);
   const arView = isObj(ar) ? editView(ar) : null;
-  return json(200, { action: 'product_get', product: editView(p), ar: arView && { id: arView.id, name: arView.name, short_description: arView.short_description, description: arView.description }, variations });
+  return json(200, { action: 'product_get', product: editView(p), ar: arView && { id: arView.id, name: arView.name, short_description: arView.short_description, description: arView.description, seo_title: arView.seo_title, seo_description: arView.seo_description }, variations });
 }
 
 // product_save { id, fields, ar?, variations? }: PUT the product with the allowed fields, the translation with its
@@ -685,11 +686,11 @@ async function productSave(run: Run, args: Json) {
   if (!pushEnabled(run.env)) return await pushSkip(run, 'product_save', id, detail);
   const ctx = await run.ctx();
   const saved: Json[] = [];
-  if (fields.length) saved.push((await ctx.woo.put(`wc/v3/products/${id}`, main.payload)).data);
+  if (fields.length) saved.push((await ctx.woo.put(`wc/v3/products/${id}`, toWoo(main.payload))).data);
   const shared = sharedOf(main.payload);
   const arId = (await arIds(run, [id])).get(id) ?? null;
   if (arFields.length && arId === null) return json(409, { error: 'no_translation' });
-  if (arId !== null && (arFields.length || Object.keys(shared).length)) saved.push((await ctx.woo.put(`wc/v3/products/${arId}`, { ...shared, ...arF.payload })).data);
+  if (arId !== null && (arFields.length || Object.keys(shared).length)) saved.push((await ctx.woo.put(`wc/v3/products/${arId}`, toWoo({ ...shared, ...arF.payload }))).data);
   let varFailed = 0;
   if (varPayload.length) {
     const r = (await ctx.woo.post(`wc/v3/products/${id}/variations/batch`, { update: varPayload })).data;

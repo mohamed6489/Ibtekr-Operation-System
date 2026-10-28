@@ -933,8 +933,9 @@ export async function installSupabaseMock(page, opts = {}) {
         return json(200, { action, product: { id: p.id, name: p.name, sku: p.sku || '', status: p.status, type: p.type, lang: p.lang, translations: p.translation_ids || {}, permalink: p.permalink || '',
           regular_price: str(p.regular_price), sale_price: str(p.sale_price), price: str(p.sale_price ?? p.price), manage_stock: !!p.manage_stock, stock_quantity: p.stock_quantity, stock_status: p.stock_status, backorders: p.backorders,
           low_stock_amount: p.low_stock_amount, total_sales: p.total_sales, weight: p.weight || '', featured: !!p.featured, categories: term(mock.wooCategories, p.category_ids), brands: term(mock.wooBrands, p.brand_ids),
-          images: Array.from({ length: p.image_count || 0 }, (_, i) => ({ id: 100 + i, src: p.image_url || '', name: 'img-' + i })), short_description: p.short_desc_filled ? 'وصف قصير' : '', description: p.desc_filled ? '<p>وصف</p>' : '', modified: p.woo_modified_at, store: { id: 44, shop_name: 'Store' } },
-          ar: ar ? { id: ar.id, name: ar.name, short_description: '', description: '' } : null,
+          images: Array.from({ length: p.image_count || 0 }, (_, i) => ({ id: 100 + i, src: p.image_url || '', name: 'img-' + i })), short_description: p.short_desc_filled ? 'وصف قصير' : '', description: p.desc_filled ? '<p>وصف</p>' : '', modified: p.woo_modified_at, store: { id: 44, shop_name: 'Store' },
+          seo_title: str(p.seo_title), seo_description: str(p.seo_description) },
+          ar: ar ? { id: ar.id, name: ar.name, short_description: '', description: '', seo_title: str(ar.seo_title), seo_description: str(ar.seo_description) } : null,
           variations: p.type === 'variable' ? [{ id: 9901, sku: p.sku + '-R', attributes: [{ name: 'Color', option: 'Red' }], regular_price: '900', sale_price: '', price: '900', manage_stock: true, stock_quantity: 2, stock_status: 'instock', backorders: 'no', image: '' }] : [] });
       }
       if (action === 'product_save' || action === 'products_batch' || action === 'products_trash' || action === 'products_restore') {

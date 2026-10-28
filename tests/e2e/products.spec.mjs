@@ -240,6 +240,27 @@ test('decision 16 on a variable product: a maker price per variation → its two
   expect(w.variations).toEqual([{ id: 9901, sale_price: String(sale), regular_price: String(reg) }]);
 });
 
+test('SEO tab (phase 5.1): Rank Math title / description per language with a counter and a preview; tags refused before any request; saved as seo_* fields', async ({ page }) => {
+  await openProducts(page);
+  await page.locator('[data-pedit="9001"]').click();
+  await page.getByRole('tab', { name: 'SEO' }).click();
+  await expect(page.locator('#e-seo-t')).toHaveValue('');
+  await expect(page.locator('.seo-prev').first()).toContainText('Cushion'); // empty = the product name in the preview
+  await page.fill('#e-seo-t', 'Boho Cushion Cover | Ibtekr');
+  await expect(page.locator('.seo-prev').first()).toContainText('Boho Cushion Cover | Ibtekr');
+  await expect(page.locator('#e-seo-t').locator('xpath=ancestor::div[contains(@class,"field")]')).toContainText('27 / 60 حرف');
+  await page.fill('#e-seo-ad', 'كيس <b>مخدة</b>');
+  await page.locator('[data-psave]').click();
+  await expect(page.locator('#pg-products')).toContainText('من غير < أو >');
+  const before = mock.productWrites ? mock.productWrites.length : 0;
+  await page.fill('#e-seo-ad', 'كيس مخدة بوهيمي مشغول يدوي');
+  await page.locator('[data-psave]').click();
+  await expect(page.locator('.unsaved')).toHaveCount(0);
+  expect(mock.productWrites.length).toBe(before + 1);
+  expect(mock.productWrites.at(-1)).toEqual({ action: 'product_save', by: ADMIN, id: 9001, fields: { seo_title: 'Boho Cushion Cover | Ibtekr' }, ar: { seo_description: 'كيس مخدة بوهيمي مشغول يدوي' } });
+  await expect(page.locator('#e-seo-t')).toHaveValue('Boho Cushion Cover | Ibtekr'); // read back from the site
+});
+
 test('products.bulk: a member with products.edit but not products.bulk sees no bulk bar, yet publishes one product from its menu', async ({ page }) => {
   mock.profiles.find((x) => x.email === OPS).custom_perms = { 'products.bulk': 'N' }; // ops with products.edit F, without the bulk bar
   await openProducts(page, OPS);

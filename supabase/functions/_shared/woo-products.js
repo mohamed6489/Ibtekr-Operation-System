@@ -5,9 +5,12 @@
 
 // the product itself (product_save)
 export const EDIT_FIELDS = ['name', 'sku', 'status', 'regular_price', 'sale_price', 'manage_stock', 'stock_quantity', 'stock_status',
-  'backorders', 'low_stock_amount', 'categories', 'brands', 'images', 'weight', 'short_description', 'description', 'featured'];
-// the Arabic translation (WPML): its own name and descriptions
-export const AR_FIELDS = ['name', 'short_description', 'description'];
+  'backorders', 'low_stock_amount', 'categories', 'brands', 'images', 'weight', 'short_description', 'description', 'featured', 'seo_title', 'seo_description'];
+// the Arabic translation (WPML): its own name, descriptions and SEO
+export const AR_FIELDS = ['name', 'short_description', 'description', 'seo_title', 'seo_description'];
+// phase 5.1 (the SEO tab): the page title / description are Rank Math's own meta on the product (each language its own post);
+// '' = Rank Math's default template. Plain text only. The only meta a member can write.
+export const SEO_META = { seo_title: 'rank_math_title', seo_description: 'rank_math_description' };
 // written on the translation too (WPML syncs them; writing the same value twice is harmless): status, prices, stock
 export const SHARED_FIELDS = ['status', 'regular_price', 'sale_price', 'manage_stock', 'stock_quantity', 'stock_status', 'backorders', 'low_stock_amount'];
 // the bulk bar (products_batch)
@@ -35,6 +38,7 @@ const price = (v) => {
 const int = (v, max) => (Number.isInteger(v) && v >= 0 && v <= max ? v : typeof v === 'string' && /^\s*\d+\s*$/.test(v) && Number(v) <= max ? Number(v) : undefined);
 const ids = (v, max) => (Array.isArray(v) && v.length <= max && v.every((x) => posId(x) !== null) ? [...new Set(v.map(posId))].map((id) => ({ id })) : undefined);
 const text = (v, max) => (typeof v === 'string' && v.length <= max && safeHtml(v) ? v : undefined);
+const plain = (v, max) => (typeof v === 'string' && v.trim().length <= max && !/[<>]/.test(v) ? v.trim() : undefined);
 
 const CHECK = {
   name: (v) => (typeof v === 'string' && v.trim().length >= 1 && v.trim().length <= 200 && !/[<>]/.test(v) ? v.trim() : undefined),
@@ -54,6 +58,8 @@ const CHECK = {
   short_description: (v) => text(v, 5000),
   description: (v) => text(v, 50000),
   featured: (v) => (typeof v === 'boolean' ? v : undefined),
+  seo_title: (v) => plain(v, 200),
+  seo_description: (v) => plain(v, 500),
 };
 
 /**
@@ -77,16 +83,27 @@ export function cleanFields(fields, allowed) {
   return { payload, error: null, field: null };
 }
 
+/** A cleaned payload as WooCommerce takes it: the SEO fields become their Rank Math meta_data entries. */
+export function toWoo(payload) {
+  const out = {}; const meta = [];
+  for (const [k, v] of Object.entries(payload)) { if (SEO_META[k]) meta.push({ key: SEO_META[k], value: v }); else out[k] = v; }
+  if (meta.length) out.meta_data = meta;
+  return out;
+}
+
 /** The shared fields of a payload (what the Arabic translation gets too). */
 export const sharedOf = (payload) => Object.fromEntries(Object.entries(payload).filter(([k]) => SHARED_FIELDS.includes(k)));
 
 const pickStr = (v) => (typeof v === 'string' ? v : '');
 const terms = (list) => (Array.isArray(list) ? list.filter(isObj).map((t) => ({ id: posId(t.id), name: pickStr(t.name) })).filter((t) => t.id !== null) : []);
 
-/** A wc/v3/products answer → what the edit page reads (an allow-list: no meta_data, no store address, no purchase note). */
+const metaStr = (p, key) => { const m = (Array.isArray(p.meta_data) ? p.meta_data : []).find((x) => isObj(x) && x.key === key); return m && typeof m.value === 'string' ? m.value : ''; };
+
+/** A wc/v3/products answer → what the edit page reads (an allow-list: of meta_data only the two SEO keys, no store address, no purchase note). */
 export function editView(p) {
   if (!isObj(p)) return null;
   return {
+    seo_title: metaStr(p, SEO_META.seo_title), seo_description: metaStr(p, SEO_META.seo_description),
     id: posId(p.id), name: pickStr(p.name), sku: pickStr(p.sku), status: pickStr(p.status), type: pickStr(p.type), lang: pickStr(p.lang),
     translations: isObj(p.translations) ? Object.fromEntries(Object.entries(p.translations).filter(([k, v]) => /^[a-z]{2}$/.test(k) && posId(v) !== null).map(([k, v]) => [k, posId(v)])) : {},
     permalink: pickStr(p.permalink).startsWith('https://') ? p.permalink : '',

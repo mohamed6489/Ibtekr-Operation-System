@@ -69,13 +69,13 @@ test('filters and sort: status chips, brand, «ناقصها بيانات», sear
   await expect(rows.first()).toContainText('Cushion');
 });
 
-test('bulk: publish the pending product and move two to another brand — one products_batch each, the rows follow', async ({ page }) => {
+test('bulk: publish the pending product (one product → product_save) and move two to another brand (products_batch), the rows follow', async ({ page }) => {
   await openProducts(page);
   await rowOf(page, 'Boho mirror').locator('[role=checkbox]').click();
   await page.locator('.bulk-bar').getByRole('button', { name: 'نشر' }).click();
   await page.locator('.modal').getByRole('button', { name: 'انشر' }).click();
   await expect(rowOf(page, 'Boho mirror')).toContainText('منشور');
-  expect(mock.productWrites.at(-1)).toMatchObject({ action: 'products_batch', update: [{ id: 9004, status: 'publish' }] });
+  expect(mock.productWrites.at(-1)).toMatchObject({ action: 'product_save', id: 9004, fields: { status: 'publish' } }); // one product: product_save
   await rowOf(page, 'Cushion').locator('[role=checkbox]').click();
   await rowOf(page, 'Boho mirror').locator('[role=checkbox]').click();
   await page.locator('.bulk-bar').getByRole('button', { name: 'نقل لبراند تاني' }).click();
@@ -96,15 +96,16 @@ test('bulk stock and price: a quantity for the simple products only; the fake di
   await page.fill('.modal #qty', '25');
   await page.locator('.modal').getByRole('button', { name: 'احفظ المخزون' }).click();
   await expect(page.locator('.modal')).toHaveCount(0);
-  expect(mock.productWrites.at(-1).update).toEqual([{ id: 9001, manage_stock: true, stock_quantity: 25, backorders: 'no', low_stock_amount: 3 }]);
+  // one simple product left (the Variable one is out) → product_save
+  expect(mock.productWrites.at(-1)).toMatchObject({ action: 'product_save', id: 9001, fields: { manage_stock: true, stock_quantity: 25, backorders: 'no', low_stock_amount: 3 } });
   await rowOf(page, 'Cushion').locator('[role=checkbox]').click();
   await page.locator('.bulk-bar').getByRole('button', { name: 'تعديل السعر' }).click();
   await page.locator('.modal').getByRole('radio', { name: 'الخصم الوهمي' }).click();
   await page.fill('.modal #amount', '5');
   await page.locator('.modal').getByRole('button', { name: 'طبّق السعر' }).click();
   await expect(page.locator('.modal')).toHaveCount(0);
-  const u = mock.productWrites.at(-1).update[0];
-  expect([u.id, u.sale_price]).toEqual([9001, '1200']);
+  const w = mock.productWrites.at(-1); const u = w.fields;
+  expect([w.id, u.sale_price]).toEqual([9001, '1200']);
   expect(Number(u.regular_price)).toBeGreaterThan(1500);
 });
 
@@ -177,4 +178,25 @@ test('the push gate: WOO_PUSH_ENABLED off → «الكتابة على الموق
   await expect(page.locator('.toast.show')).toContainText('الكتابة على الموقع مقفولة');
   await expect(rowOf(page, 'Boho mirror')).toContainText('قيد المراجعة');
   await expect(page.locator('.bulk-bar').getByRole('button', { name: 'مسح' })).toHaveCount(0); // ops: products.trash N
+});
+
+test('vendor price = sale price − Dokan\'s commission: the product\'s own commission when set (20% + 10 on 1,200 → 950)', async ({ page }) => {
+  await openProducts(page);
+  await page.locator('[data-pedit="9003"]').click();
+  await page.getByRole('tab', { name: 'السعر والمخزون' }).click();
+  await expect(page.locator('[data-commission]')).toContainText('عمولة المنتج 20% + 10');
+  await expect(page.locator('[data-commission]')).toContainText('250');
+  await expect(page.locator('[data-vprice]')).toContainText('950');
+});
+
+test('products.bulk: a member with products.edit but not products.bulk sees no bulk bar, yet publishes one product from its menu', async ({ page }) => {
+  mock.profiles.find((x) => x.email === OPS).custom_perms = { 'products.bulk': 'N' }; // ops with products.edit F, without the bulk bar
+  await openProducts(page, OPS);
+  await rowOf(page, 'Boho mirror').locator('[role=checkbox]').click();
+  await expect(page.locator('.bulk-bar')).toHaveCount(0);
+  await rowOf(page, 'Boho mirror').getByRole('button', { name: 'إجراءات Boho mirror' }).click();
+  await page.getByRole('menuitem', { name: 'نشر' }).click();
+  await page.locator('.modal').getByRole('button', { name: 'انشر' }).click();
+  await expect(rowOf(page, 'Boho mirror')).toContainText('منشور');
+  expect(mock.productWrites.at(-1)).toMatchObject({ action: 'product_save', by: OPS, id: 9004 });
 });

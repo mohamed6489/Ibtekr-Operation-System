@@ -78,12 +78,14 @@ test('the reasons: 401 forbidden, 400 invalid with the field, 409 no_translation
   assert.equal(logs.length, 0);
 });
 
-test('batch / trash / restore: chunks of 100, failed ids collected, one activity row with the ids', async () => {
+test('batch / trash / restore: 25 a request one after the other with progress, failed ids collected, one activity row with the ids', async () => {
   const { P, stub, logs } = load({ responses: { 'fn:woo-sync': (o) => ({ data: { result: 'ok', counts: { updated: o.body.update ? o.body.update.length - 1 : 0, done: o.body.ids ? o.body.ids.length : 0 }, failed_ids: o.body.update ? [o.body.update[0].id] : [] }, error: null }) } });
   const updates = Array.from({ length: 150 }, (_, i) => ({ id: i + 1, status: 'publish' }));
-  const r = await P.batch(updates);
-  assert.deepEqual(plain([r.updated, r.failedIds]), [148, [1, 101]]);
-  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').map((c) => c.args[1].body.update.length), [100, 50]);
+  const progress = [];
+  const r = await P.batch(updates, (done, total) => progress.push(done + '/' + total));
+  assert.deepEqual(plain([r.updated, r.failedIds]), [144, [1, 26, 51, 76, 101, 126]]);
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').map((c) => c.args[1].body.update.length), [25, 25, 25, 25, 25, 25]);
+  assert.deepEqual(progress, ['25/150', '50/150', '75/150', '100/150', '125/150', '150/150']);
   assert.equal(logs.at(-1)[0], 'product.bulk');
   const t = await P.trashIds([501, 502]);
   assert.deepEqual([t.ok, t.done], [true, 2]);
@@ -93,9 +95,26 @@ test('batch / trash / restore: chunks of 100, failed ids collected, one activity
   assert.deepEqual(logs.slice(-2).map((l) => [l[0], l[1]]), [['product.trash', '#501 #502'], ['product.restore', '#503']]);
 });
 
-test('can + rateOf: products.edit / trash = F only; the maker rate when the rates are visible', async () => {
-  const { P } = load({ perms: { 'products.view': 'P', 'products.edit': 'P', 'products.trash': 'F', 'sensitive.commission': 'F' } });
-  assert.deepEqual(plain(P.can()), { view: true, edit: false, trash: true, commission: true });
+test('can + rateOf: products.edit / bulk / trash = F only; the maker rate when the rates are visible', async () => {
+  const { P } = load({ perms: { 'products.view': 'P', 'products.edit': 'P', 'products.bulk': 'F', 'products.trash': 'F', 'sensitive.commission': 'F' } });
+  assert.deepEqual(plain(P.can()), { view: true, edit: false, bulk: true, trash: true, commission: true });
   assert.equal(P.rateOf(V1), 25);
   assert.equal(P.rateOf('other'), null);
+});
+
+test('commission (the owner\'s «Commission» column): the product\'s own Dokan commission, else the store\'s rate; vendor price = sale − commission; nothing without sensitive.commission', async () => {
+  const perms = { 'products.view': 'F', 'sensitive.commission': 'F' };
+  const { P, stub } = load({ perms, responses: { product_commissions: { data: [{ product_id: 502, rate: 20, type: 'percentage', fee: 10 }], error: null } } });
+  await P.load();
+  assert.deepEqual(opsOf(stub.calls, 'product_commissions')[0], { op: 'select', args: ['product_id, rate, type, fee'] });
+  const lamp = P.get(501); // store rate 25% (rateAt in the stub), no own commission
+  assert.deepEqual(plain(P.commissionOf(lamp)), { amount: 300, rate: 25, fee: 0, source: 'store' });
+  assert.equal(P.vendorPriceOf(lamp), 900);
+  const vase = P.get(502); // its own 20% + 10 on 300
+  assert.deepEqual(plain(P.commissionOf(vase)), { amount: 70, rate: 20, fee: 10, source: 'product' });
+  assert.equal(P.vendorPriceOf(vase), 230);
+  const { P: P2, stub: s2 } = load({ perms: { 'products.view': 'F' } });
+  await P2.load();
+  assert.equal(s2.calls.filter((c) => c.table === 'product_commissions').length, 0);
+  assert.equal(P2.commissionOf(P2.get(501)), null);
 });

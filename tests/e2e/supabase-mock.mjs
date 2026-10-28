@@ -49,7 +49,7 @@ export const USERS = [
 // permissions: the keys the emulated tables read, as in 0003_seed_roles.sql (+ 0021: products.view / edit / trash)
 const ROLES = [
   { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'settings.view': 'F', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'F', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'F', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'F' }, sort: 1 },
-  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'F', 'products.trash': 'N', 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
+  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'F', 'products.bulk': 'F', 'products.trash': 'N', 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
   { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'F', 'accounts.add': 'F', 'accounts.approve': 'P', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
   { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
   { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
@@ -78,6 +78,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
     'lang', 'translation_ids', 'type', 'regular_price', 'sale_price', 'stock_quantity', 'stock_status', 'manage_stock', 'backorders', 'low_stock_amount',
     'total_sales', 'category_ids', 'brand_ids', 'image_count', 'weight', 'featured', 'desc_filled', 'short_desc_filled', 'woo_modified_at', 'trashed_at'], // 0021 (phase 5)
   woo_brands: ['id', 'name', 'slug', 'parent_id', 'updated_at'], // 0021: the site's brands (products.view or vendors.view)
+  product_commissions: ['product_id', 'rate', 'type', 'fee', 'updated_at'], // 0021 decision 12: sensitive.commission = F
   status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
   woo_states: ['code', 'name', 'updated_at'],
   brands: ['id', 'name', 'code', 'aliases', 'store_vendor_id', 'origin_vendor_id', 'created_by', 'created_at', 'updated_at'], // 0013 (phase 3.2): the select grants are table-level
@@ -113,13 +114,16 @@ const NOT_FILTERS = new Set(['select', 'order', 'limit', 'offset', 'on_conflict'
 const IN_FILTERS = { alert_reads: ['alert_id'], order_items: ['order_id'], sub_orders: ['order_id'], products: ['sku', 'id'], vendors: ['id'] };
 // products.js (phase 5): the records are the rows that are not Arabic — or=(lang.is.null,lang.neq.ar) is the one `or` it sends
 const OR_FILTERS = { products: { '(lang.is.null,lang.neq.ar)': (r) => r.lang == null || r.lang !== 'ar' } };
+// products.js: product_commissions with a rate only (rate=not.is.null)
+const NOT_NULL = { product_commissions: ['rate'] };
 const GTE_FILTERS = { orders_v: ['placed_at'] }; // orders.js: the last 12 months
 // the horizontal filters of a PostgREST request (eq. everywhere; in.(a,b) on IN_FILTERS, gte. on GTE_FILTERS only) → { match(row) } | { bad: 'param=value' }
 function readFilters(params, table) {
   const f = [...params].filter(([k]) => !NOT_FILTERS.has(k));
-  const bad = f.find(([k, v]) => !(k === 'or' && (OR_FILTERS[table] || {})[v]) && !v.startsWith('eq.') && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)) && !((GTE_FILTERS[table] || []).includes(k) && v.startsWith('gte.')));
+  const bad = f.find(([k, v]) => !(k === 'or' && (OR_FILTERS[table] || {})[v]) && !((NOT_NULL[table] || []).includes(k) && v === 'not.is.null') && !v.startsWith('eq.') && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)) && !((GTE_FILTERS[table] || []).includes(k) && v.startsWith('gte.')));
   const one = ([k, v]) => {
     if (k === 'or') return OR_FILTERS[table][v];
+    if (v === 'not.is.null') return (r) => r[k] != null;
     if (v.startsWith('eq.')) return (r) => String(r[k]) === v.slice(3);
     if (v.startsWith('gte.')) { const t = Date.parse(v.slice(4)); return (r) => Date.parse(r[k]) >= t; }
     const set = v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1')); return (r) => set.includes(String(r[k]));
@@ -204,6 +208,8 @@ function ordersSeed(opts = {}) {
       product(9004, 'IBTK20035BBLM000003214', 'Boho mirror', IMG.cushion, 3, 'boho-mirror', { status: 'pending', stock_quantity: 1, total_sales: 2 }),
       product(9101, 'IBTA4040PAHC000013', 'كيس مخدة', IMG.cushion, 1, 'cushion-ar', { lang: 'ar', translation_ids: { en: 9001, ar: 9101 } }),
       product(9005, 'IBTOLDTRAY01', 'Old Tray', null, 1, 'old-tray', { status: 'trash', trashed_at: ago(4) })],
+    // Dokan's own commission on a product (0021 decision 12): Macrame Feathers 20% + 10
+    productCommissions: [{ product_id: 9003, rate: 20, type: 'percentage', fee: 10, updated_at: T0 }],
     // the site's WooCommerce Brands (0021)
     wooBrands: [{ id: 3, name: 'Art Craft', slug: 'art-craft', parent_id: null, updated_at: T0 }, { id: 4, name: 'Antikiano', slug: 'antikiano', parent_id: null, updated_at: T0 }],
     orders: [
@@ -822,8 +828,8 @@ export async function installSupabaseMock(page, opts = {}) {
         for (const r of target) { Object.assign(r, b, { updated_at: now }); mock.brandWrites.push({ table: 'brands', op: 'update', id: r.id, ...b }); }
         return empty(204);
       }
-      const ot = /^\/rest\/v1\/(orders|orders_v|order_items|sub_orders|products|status_map|woo_states|woo_brands)$/.exec(path);
-      const OT_METHODS = { orders: ['PATCH'], orders_v: ['GET'], order_items: ['GET', 'PATCH'], sub_orders: ['GET'], products: ['GET'], status_map: ['GET'], woo_states: ['GET'], woo_brands: ['GET'] };
+      const ot = /^\/rest\/v1\/(orders|orders_v|order_items|sub_orders|products|status_map|woo_states|woo_brands|product_commissions)$/.exec(path);
+      const OT_METHODS = { orders: ['PATCH'], orders_v: ['GET'], order_items: ['GET', 'PATCH'], sub_orders: ['GET'], products: ['GET'], status_map: ['GET'], woo_states: ['GET'], woo_brands: ['GET'], product_commissions: ['GET'] };
       if (ot && OT_METHODS[ot[1]].includes(method)) {
         const t = ot[1]; const f = readFilters(url.searchParams, t);
         const denied = (message) => json(403, { code: '42501', details: null, hint: null, message });
@@ -837,8 +843,8 @@ export async function installSupabaseMock(page, opts = {}) {
           // RLS (0007, 0002 status_map, 0010 woo_states): woo_states for any signed-in member, every other table with orders.view
           // 0021: products with orders.view or products.view; woo_brands with products.view or vendors.view
           const visible = t === 'woo_states' || (t === 'products' ? hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N'
-            : t === 'woo_brands' ? hasPerm(u, 'products.view') !== 'N' || hasPerm(u, 'vendors.view') !== 'N' : hasPerm(u, 'orders.view') !== 'N');
-          const rows = t === 'orders_v' ? mock.orders.map((o) => viewRow(u, o)) : t === 'order_items' ? mock.orderItems : t === 'sub_orders' ? mock.subOrders : t === 'products' ? mock.products : t === 'woo_states' ? mock.wooStates : t === 'woo_brands' ? mock.wooBrands : mock.statusMap;
+            : t === 'woo_brands' ? hasPerm(u, 'products.view') !== 'N' || hasPerm(u, 'vendors.view') !== 'N' : t === 'product_commissions' ? hasPerm(u, 'sensitive.commission') === 'F' : hasPerm(u, 'orders.view') !== 'N');
+          const rows = t === 'orders_v' ? mock.orders.map((o) => viewRow(u, o)) : t === 'order_items' ? mock.orderItems : t === 'sub_orders' ? mock.subOrders : t === 'products' ? mock.products : t === 'woo_states' ? mock.wooStates : t === 'woo_brands' ? mock.wooBrands : t === 'product_commissions' ? mock.productCommissions : mock.statusMap;
           return json(200, pageOf(visible ? rows.filter(f.match) : [], url.searchParams).map(sel.pick));
         }
         // PATCH: one row named by id=eq.… (else 400, like Supabase's safeupdate guard for an UPDATE without WHERE); update grants
@@ -913,7 +919,7 @@ export async function installSupabaseMock(page, opts = {}) {
         && (storeAsked().length === 0 ? bankAsked() : (hasPerm(u, 'vendors.edit') === 'F' || (hasPerm(u, 'vendors.edit') === 'P' && storeAsked().every((f) => CONTACT_PUSH.includes(f)))))
         && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
-        : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'products_batch' ? hasPerm(u, 'products.edit') === 'F'
+        : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' ? hasPerm(u, 'products.edit') === 'F' : action === 'products_batch' ? hasPerm(u, 'products.bulk') === 'F'
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5: the product actions — productWrites records each write call ({ action, by, ...body }); mock.pushEnabled gates them;
       // the mirror rows follow what was written (prices as numbers, the trash / draft status)

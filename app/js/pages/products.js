@@ -109,10 +109,10 @@
     const filters = h('div', { class: 'toolbar pr-filters' }, searchBox(), fsel('brand', 'البراند', brandNames), fsel('vendor', 'المبتكر', vendors), fsel('category', 'القسم', catPaths), fsel('stock', 'المخزون', ['متاح', 'قليل', 'نفد', 'حسب الطلب']), fsel('type', 'النوع', ['Simple', 'Variable']),
       chipBtn('ناقصها بيانات (' + K.n0(L.filter((p) => complete(p).missing.length).length) + ')', st.missingOnly, () => { st.missingOnly = !st.missingOnly; st.pageN = 0; R(); }, { 'data-missing': '' }), any ? Button({ type: 'text', size: 'sm', label: 'مسح الفلاتر', onClick: () => { clearFilters(); R(); } }) : null);
     const sel = [...st.sel].map(byId).filter(Boolean);
-    const bulk = sel.length && (C.edit || C.trash) ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد' }, h('b', null, 'محدد ' + K.n0(sel.length)), h('span', { class: 'grow' }),
-      C.edit ? Button({ size: 'sm', label: 'تعديل السعر', onClick: () => bulkPrice(sel) }) : null, C.edit ? Button({ size: 'sm', label: 'تعديل المخزون', onClick: () => bulkStock(sel) }) : null,
-      C.edit ? Button({ size: 'sm', label: 'نقل لبراند تاني', onClick: () => moveBrand(sel) }) : null, C.edit ? Button({ size: 'sm', label: 'تغيير القسم', onClick: () => changeCat(sel) }) : null,
-      C.edit ? Button({ size: 'sm', label: 'تحويل لمسودة', onClick: () => toDraft(sel) }) : null, C.edit ? Button({ size: 'sm', label: 'نشر', onClick: () => publish(sel) }) : null,
+    const bulk = sel.length && (C.bulk || C.trash) ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد' }, h('b', null, 'محدد ' + K.n0(sel.length)), h('span', { class: 'grow' }),
+      C.bulk ? Button({ size: 'sm', label: 'تعديل السعر', onClick: () => bulkPrice(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تعديل المخزون', onClick: () => bulkStock(sel) }) : null,
+      C.bulk ? Button({ size: 'sm', label: 'نقل لبراند تاني', onClick: () => moveBrand(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تغيير القسم', onClick: () => changeCat(sel) }) : null,
+      C.bulk ? Button({ size: 'sm', label: 'تحويل لمسودة', onClick: () => toDraft(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'نشر', onClick: () => publish(sel) }) : null,
       C.trash ? Button({ type: 'danger', size: 'sm', label: 'مسح', onClick: () => toTrash(sel) }) : null, Button({ size: 'sm', label: 'إلغاء التحديد', onClick: () => { st.sel.clear(); R(); } })) : null;
     const pages = Math.max(1, Math.ceil(list.length / PAGE)); if (st.pageN >= pages) st.pageN = pages - 1;
     const shown = list.slice(st.pageN * PAGE, st.pageN * PAGE + PAGE);
@@ -156,26 +156,34 @@
   // ---------------- actions / popups ----------------
   const names = (l) => l.slice(0, 5).map((p) => '«' + nameOf(p) + '»').join(' و') + (l.length > 5 ? ' و' + (l.length - 5) + ' كمان' : '');
   // one write at a time; the popup stays open until the site answers (a refusal keeps it open with the reason)
-  async function write(run, okMsg, m) {
+  // more than 25 products: a progress popup «اتعدل X من Y…» while the requests go one after the other (the owner, 28 Oct)
+  async function write(run, okMsg, m, total) {
     if (st.busy) { K.toast(MSG.busy, 'error'); return false; }
-    st.busy = true;
+    st.busy = true; let pm = null;
+    const prog = (done, all) => { if (!pm) return; pm.setBody(U.ProgressBar('brand', all ? done / all : 0), h('p', { class: 't-small', style: 'margin:8px 0 0', 'data-progress': '' }, 'اتعدل ' + K.n0(done) + ' من ' + K.n0(all) + '…')); };
+    if (total > 25) { if (m) m.close(); m = null; pm = U.Modal({ title: 'بنعدّل على الموقع…', body: [], footer: [] }); prog(0, total); }
     try {
-      const r = await run();
+      const r = await run(prog);
       if (!r.ok) { K.toast(fail(r), 'error'); return false; }
       if (r.result === 'skipped') { K.toast(MSG[r.reason] || MSG.push_disabled, 'error'); if (m) m.close(); return false; }
       const failed = r.failedIds || [];
       K.toast(failed.length ? okMsg + ' — ماتحفظش في ' + failed.length + ' منتج' : okMsg, failed.length ? 'error' : 'success');
       st.sel.clear(); if (m) m.close(); R(); return true;
-    } finally { st.busy = false; }
+    } finally { st.busy = false; if (pm) pm.close(); }
   }
-  const batch = (l, fields) => PR().batch(l.map((p) => Object.assign({ id: p.id }, typeof fields === 'function' ? fields(p) : fields)).filter((u) => Object.keys(u).length > 1));
-  function toDraft(l) { K.confirm({ title: 'تحويل ' + (l.length === 1 ? 'المنتج' : l.length + ' منتجات') + ' لمسودة؟', text: names(l) + ' هيختفوا من الموقع لحد ما تنشرهم تاني. الأوردرات القديمة مش هتتأثر.', okLabel: 'حوّل لمسودة', onOk: () => write(() => batch(l, { status: 'draft' }), 'اتحولوا لمسودة على الموقع') }); }
-  function publish(l) { K.confirm({ title: 'نشر ' + (l.length === 1 ? 'المنتج' : l.length + ' منتجات') + ' على الموقع؟', text: names(l) + ' هيظهروا للعملاء على الموقع.' + (l.some((p) => p.wooStatus === 'pending') ? ' المنتجات «قيد المراجعة» بتتوافق عليها بالنشر.' : ''), okLabel: 'انشر', onOk: () => write(() => batch(l, { status: 'publish' }), 'اتنشر على الموقع') }); }
+  // several products → products_batch (products.bulk); one product (its row menu / its page) → product_save (products.edit)
+  const batch = (l, fields, onProgress) => {
+    const ups = l.map((p) => Object.assign({ id: p.id }, typeof fields === 'function' ? fields(p) : fields)).filter((u) => Object.keys(u).length > 1);
+    if (ups.length === 1 && l.length === 1) { const { id, ...f } = ups[0]; return PR().save(id, { fields: f }).then((r) => Object.assign({ failedIds: [] }, r)); }
+    return PR().batch(ups, onProgress);
+  };
+  function toDraft(l) { K.confirm({ title: 'تحويل ' + (l.length === 1 ? 'المنتج' : l.length + ' منتجات') + ' لمسودة؟', text: names(l) + ' هيختفوا من الموقع لحد ما تنشرهم تاني. الأوردرات القديمة مش هتتأثر.', okLabel: 'حوّل لمسودة', onOk: () => write((pg) => batch(l, { status: 'draft' }, pg), 'اتحولوا لمسودة على الموقع', null, l.length) }); }
+  function publish(l) { K.confirm({ title: 'نشر ' + (l.length === 1 ? 'المنتج' : l.length + ' منتجات') + ' على الموقع؟', text: names(l) + ' هيظهروا للعملاء على الموقع.' + (l.some((p) => p.wooStatus === 'pending') ? ' المنتجات «قيد المراجعة» بتتوافق عليها بالنشر.' : ''), okLabel: 'انشر', onOk: () => write((pg) => batch(l, { status: 'publish' }, pg), 'اتنشر على الموقع', null, l.length) }); }
   function toTrash(l) {
     K.confirm({ title: 'مسح ' + (l.length === 1 ? 'المنتج' : l.length + ' منتجات') + '؟', text: 'هيتنقلوا لسلة المهملات في ووكومرس ويختفوا من الموقع. تقدر ترجعهم خلال ' + PD.TRASH_DAYS + ' يوم.', body: h('p', { class: 't-small help', style: 'margin:0' }, names(l)), okLabel: 'انقل للمهملات', okType: 'danger',
-      onOk: () => write(() => PR().trashIds(l.map((p) => p.id)), 'اتنقلوا للمهملات') });
+      onOk: () => write((pg) => PR().trashIds(l.map((p) => p.id), pg), 'اتنقلوا للمهملات', null, l.length) });
   }
-  function restore(l) { write(() => PR().restore(l.map((p) => p.id)), 'رجعوا كمسودة'); }
+  function restore(l) { write((pg) => PR().restore(l.map((p) => p.id), pg), 'رجعوا كمسودة', null, l.length); }
   function moveBrand(l) {
     const brands = PR().brands().slice().sort((a, b) => a.name.localeCompare(b.name));
     K.form({ title: 'نقل ' + (l.length === 1 ? 'منتج' : l.length + ' منتجات') + ' لبراند تاني', values: { brand: '' }, submitLabel: 'انقل المنتجات',
@@ -183,14 +191,15 @@
       fields: (f, e, set) => [K.field.select('brand', 'البراند الجديد', brands.map((b) => ({ value: String(b.id), label: b.name })), f, e, set, { required: true, help: 'البراند اللي ظاهر على المنتج في الموقع (WooCommerce Brands).' }),
         U.InlineNote({ children: 'المتجر على Dokan (المبتكر اللي بيتحاسب على المنتج) مش بيتغير من هنا — بيفضل زي ما هو. والـ SKU والسعر كمان.' })],
       validate: (f) => K.req(f, ['brand'], { brand: 'اختار البراند' }),
-      submit: (f, m) => { write(() => batch(l, { brands: [Number(f.brand)] }), 'اتنقلوا لـ ' + ((brands.find((b) => String(b.id) === f.brand) || {}).name || 'البراند'), m); return false; } });
+      submit: (f, m) => { write((pg) => batch(l, { brands: [Number(f.brand)] }, pg), 'اتنقلوا لـ ' + ((brands.find((b) => String(b.id) === f.brand) || {}).name || 'البراند'), m, l.length); return false; } });
   }
   // bulk price (Figma 703:4632): زيادة/نقص · نسبة/قيمة · على سعر المبتكر أو نسبة إبتكر (sensitive.commission) أو الخصم الوهمي.
   // Variable products are priced per variation (their page); a product without a sale price or a visible rate is left out.
   function bulkPrice(l) {
     const C = can(); const simple = l.filter((p) => p.type !== 'Variable' && p.sale);
     if (!simple.length) { K.toast('المنتجات دي Variable أو من غير سعر — السعر بيتعدل من صفحة كل منتج', 'error'); return; }
-    const withRate = (p) => { const rate = PR().rateOf(p.vendorId); return Object.assign({}, p, { rate, vendorPrice: rate == null ? null : Math.round(p.sale * (1 - rate / 100)), disc: p.regular && p.regular > p.sale ? Math.round((1 - p.sale / p.regular) * 100) : 0 }); };
+    // decision 12: the vendor price = the sale price − Dokan's commission on it (the product's own, else the store's / category's)
+    const withRate = (p) => { const c = PR().commissionOf(p); const rate = c ? Math.round((c.amount / p.sale) * 1000) / 10 : null; return Object.assign({}, p, { rate, vendorPrice: c ? PR().vendorPriceOf(p) : null, disc: p.regular && p.regular > p.sale ? Math.round((1 - p.sale / p.regular) * 100) : 0 }); };
     const items = simple.map(withRate);
     const TG = (C.commission ? [['vendor', 'سعر المبتكر'], ['rate', 'نسبة إبتكر']] : []).concat([['discount', 'الخصم الوهمي']]);
     const next = (p, o) => {
@@ -209,7 +218,7 @@
           U.InlineNote({ children: 'هيتطبق على ' + simple.length + ' منتجات وبيتحدث على ووكومرس بعد التأكيد.' + (simple.length < l.length ? ' (' + (l.length - simple.length) + ' Variable أو من غير سعر برّه التعديل ده.)' : '') })]; },
       validate: (f) => (Number(f.amount) > 0 ? {} : { amount: 'اكتب رقم أكبر من صفر' }),
       submit: (f, m) => { const o = { target: f.target, mode: f.mode, dir: Number(f.dir), amount: Number(f.amount) };
-        write(() => batch(items, (p) => { const r = next(p, o); return r ? { sale_price: String(r.sale), regular_price: String(r.regular) } : {}; }), 'اتعدل السعر على الموقع', m); return false; } });
+        write((pg) => batch(items, (p) => { const r = next(p, o); return r ? { sale_price: String(r.sale), regular_price: String(r.regular) } : {}; }, pg), 'اتعدل السعر على الموقع', m, items.length); return false; } });
   }
   // bulk stock (Figma 703:4703): الكمية / زوّد-قلّل / حسب الطلب، والتنبيه 0–5 (decision 8)
   function bulkStock(l) {
@@ -222,8 +231,8 @@
         simple.length < l.length ? U.InlineNote({ children: (l.length - simple.length) + ' منتج Variable برّه التعديل ده — مخزونهم لكل تركيبة.' }) : null],
       validate: (f) => (f.mode === 'demand' ? {} : !/^-?\d+$/.test(String(f.qty).trim()) || (f.mode === 'set' && Number(f.qty) < 0) ? { qty: 'اكتب رقم صحيح' } : {}),
       submit: (f, m) => { const alert = Number(f.alert);
-        write(() => batch(simple, (p) => (f.mode === 'demand' ? { manage_stock: false, stock_status: 'onbackorder', low_stock_amount: alert }
-          : { manage_stock: true, stock_quantity: Math.max(0, f.mode === 'add' ? (p.stock || 0) + Number(f.qty) : Number(f.qty)), backorders: 'no', low_stock_amount: alert })), 'اتحفظ المخزون على ووكومرس', m); return false; } });
+        write((pg) => batch(simple, (p) => (f.mode === 'demand' ? { manage_stock: false, stock_status: 'onbackorder', low_stock_amount: alert }
+          : { manage_stock: true, stock_quantity: Math.max(0, f.mode === 'add' ? (p.stock || 0) + Number(f.qty) : Number(f.qty)), backorders: 'no', low_stock_amount: alert }), pg), 'اتحفظ المخزون على ووكومرس', m, simple.length); return false; } });
   }
   function changeCat(l) {
     const cats = PR().categories();
@@ -231,7 +240,7 @@
       fields: (f, e, set, draw) => [K.field.select('cat', 'القسم', cats.map((c) => ({ value: String(c.id), label: c.path })), f, e, set, { required: true }), K.Radios({ value: f.mode, onChange: (v) => { f.mode = v; draw(); }, options: [{ value: 'add', label: 'ضيفه جنب الأقسام الحالية', hint: 'المنتج هيظهر في الاتنين' }, { value: 'replace', label: 'بدّل الأقسام الحالية' }, { value: 'remove', label: 'شيله من القسم ده' }] })],
       validate: (f) => K.req(f, ['cat'], { cat: 'اختار القسم' }),
       submit: (f, m) => { const id = Number(f.cat);
-        write(() => batch(l, (p) => { const cur = p.categoryIds; const nx = f.mode === 'replace' ? [id] : f.mode === 'remove' ? cur.filter((x) => x !== id) : cur.filter((x) => x !== id).concat(id); return nx.length ? { categories: nx } : {}; }), 'اتغير القسم', m); return false; } });
+        write((pg) => batch(l, (p) => { const cur = p.categoryIds; const nx = f.mode === 'replace' ? [id] : f.mode === 'remove' ? cur.filter((x) => x !== id) : cur.filter((x) => x !== id).concat(id); return nx.length ? { categories: nx } : {}; }, pg), 'اتغير القسم', m, l.length); return false; } });
   }
 
   // ---------------- edit (the product live from the site) ----------------
@@ -352,10 +361,12 @@
   function priceCard(p, inp, dis, rec) {
     const d = st.draft; const C = can();
     if (p.type === 'variable') return Card('السعر والمخزون', null, [U.InlineNote({ children: 'السعر والمخزون بيتعدلوا لكل تركيبة من تاب «المتغيرات».' })]);
-    const sale = Number(d.sale || d.regular) || 0; const rate = rec ? PR().rateOf(rec.vendorId) : null; const vp = rate == null ? null : Math.round(sale * (1 - rate / 100));
+    // decision 12: Dokan's commission on this sale price (the product's own, else the store's / category's) — the vendor price is what is left
+    const sale = Number(d.sale || d.regular) || 0; const cm = rec && sale ? PR().commissionOf(Object.assign({}, rec, { sale })) : null; const vp = cm ? Math.round((sale - cm.amount) * 100) / 100 : null;
+    const src = cm ? (cm.source === 'product' ? 'عمولة المنتج' : cm.source === 'category' ? 'نسبة القسم' : 'نسبة المتجر') + (cm.rate != null ? ' ' + cm.rate + '%' : '') + (cm.fee ? ' + ' + K.n0(cm.fee) : '') : '';
     const stockState = d.onDemand ? 'حسب الطلب' : d.manage ? PD.stockState(Number(d.qty) || 0, false, d.alert === '' ? 3 : Number(d.alert)) : 'متاح';
     return Card('السعر والمخزون', null, [K.two(inp('sale', 'سعر البيع', 'sale', { inputmode: 'numeric' }), inp('reg', 'قبل الخصم', 'regular', { inputmode: 'numeric' })),
-      C.commission && vp != null ? K.two(h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'سعر المبتكر (محسوب · ' + rate + '%)'), h('b', null, K.Num(K.n0(vp) + ' ج.م'))), h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'نصيب إبتكر'), h('b', { class: 'brand-t' }, K.Num(K.n0(sale - vp) + ' ج.م')))) : null,
+      C.commission && vp != null ? K.two(h('div', { class: 'field', 'data-vprice': '' }, h('span', { class: 'flabel' }, 'سعر المبتكر'), h('b', null, K.Num(K.n0(vp) + ' ج.م'))), h('div', { class: 'field', 'data-commission': '' }, h('span', { class: 'flabel' }, 'عمولة إبتكر (' + src + ')'), h('b', { class: 'brand-t' }, K.Num(K.n0(cm.amount) + ' ج.م')))) : null,
       K.Switch({ id: 'e-dem', label: 'حسب الطلب (بيتصنع بعد الأوردر)', checked: d.onDemand, disabled: dis, onChange: (v) => { d.onDemand = v; R(); } }),
       d.onDemand ? null : K.Switch({ id: 'e-man', label: 'تتبع الكمية', checked: d.manage, disabled: dis, onChange: (v) => { d.manage = v; R(); } }),
       !d.onDemand && d.manage ? K.two(inp('stk', 'المخزون', 'qty', { inputmode: 'numeric' }), U.Select({ id: 'e-al', label: 'نبّهني تحت', options: [{ value: '', label: 'افتراضي الموقع' }].concat(['0', '1', '2', '3', '4', '5'].map((x) => ({ value: x, label: x }))), value: d.alert, disabled: dis, onChange: (v) => { d.alert = v; R(); } })) : null,

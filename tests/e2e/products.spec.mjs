@@ -44,7 +44,7 @@ test('records: the English rows with their Arabic name, brand, maker, category p
   await expect(rowOf(page, 'Macrame Curtain')).toContainText('حسب الطلب');
   await expect(rowOf(page, 'Macrame Curtain')).toContainText('Variable');
   await expect(rowOf(page, 'Boho mirror')).toContainText('قيد المراجعة');
-  await expect(rowOf(page, 'Macrame Feathers')).toContainText('ناقص');
+  await expect(rowOf(page, 'Macrame Feathers')).not.toContainText('ناقص'); // no «ناقص: …» under the name (the owner, 28 Oct)
   await expect(page.locator('[data-pstatus="trash"]')).toHaveText('المهملات 1');
   await expect(page.locator('[data-pstatus="pending"]')).toHaveText('قيد المراجعة 1');
 });

@@ -413,7 +413,7 @@
       if (!isVar()) { const p = priceOf(it.vendorPrice, ensureMarkup(it)); it.sale = p ? p.sale : null; it.regular = p ? p.regular : null; }
       else it.variations.forEach((v) => { const p = priceOf(v.vendorPrice, ensureMarkup(v)); v.sale = p ? p.sale : null; v.regular = p ? p.regular : null; v.image = v.color ? (it.colorImages || {})[v.color] || null : null; }); });
     await touch(true);
-    S.uploading = true; const list = L.map((it, i) => ({ name: it.nameEn, st: resultOf(i) && resultOf(i).productId && !resultOf(i).error ? 'ok' : 'wait', why: '' }));
+    S.uploading = true; const list = L.map((it, i) => { const r = resultOf(i); return { name: it.nameEn, st: r && r.productId && !r.error && r.author !== 'failed' ? 'ok' : 'wait', why: '' }; }); // a maker that did not stick is asked again
     const m = U.Modal({ title: 'بيرفع ' + L.length + ' منتج على الموقع', body: [], footer: [] });
     const draw = () => { const d = list.filter((x) => x.st === 'ok' || x.st === 'fail').length;
       m.setBody(h('b', { class: 'brand-t' }, d + ' من ' + L.length), U.ProgressBar('brand', d / L.length), ...list.map((x) => h('div', { class: 'up-row' }, h('span', null, x.name), x.st === 'ok' ? Tag('success', 'اترفع ✓') : x.st === 'fail' ? Tag('error', x.why || 'فشل') : x.st === 'run' ? Tag('orange', 'بيرفع…') : Tag('neutral', 'في الانتظار'))),
@@ -438,9 +438,9 @@
   function reportView() {
     const L = items();
     const rows = L.map((it, i) => { const res = resultOf(i); const ok = res && res.productId && !res.error; const rec = ok && PR() ? PR().get(res.productId) : null;
-      const notes = ok ? [res.author === 'failed' ? 'المبتكر ماتحطش — حطه من لوحة WordPress (محتاج الكود الصغير)' : res.author === 'no_store' ? 'المبتكر ملوش متجر على الموقع' : null, res.arId == null && it.nameAr ? 'الترجمة العربية ماتعملتش — اعملها من WPML' : null, res.variations && res.variations.failed ? res.variations.failed + ' تركيبة ماتعملتش' : null].filter(Boolean) : [];
+      const notes = ok ? [res.author === 'failed' ? 'المبتكر ماتحطش — «جرّب تاني» أو حطه من لوحة WordPress' : res.author === 'no_store' ? 'المبتكر ملوش متجر على الموقع' : null, res.arId == null && it.nameAr ? 'الترجمة العربية ماتعملتش — اعملها من WPML' : null, res.variations && res.variations.failed ? res.variations.failed + ' تركيبة ماتعملتش' : null].filter(Boolean) : [];
       return { cells: [PCell(it), ok ? Tag('orange', 'مسودة') : res ? Tag('error', 'فشل') : Tag('neutral', 'ماترفعش'), ok ? (notes.length ? h('span', { class: 't-small' }, notes.join(' · ')) : h('span', { class: 'help' }, '—')) : h('span', { class: 'err-t' }, res ? reasonOf(res.error) : '—'),
-        ok ? h('span', { class: 'acts-inline' }, rec && rec.permalink ? h('a', { class: 'btn btn-default sm', href: rec.permalink, target: '_blank', rel: 'noopener noreferrer' }, 'افتح على الموقع') : null, Button({ type: 'text', size: 'sm', label: 'عدّل', onClick: () => go('products-edit-' + res.productId + '-data') })) : Button({ size: 'sm', label: 'جرّب تاني', onClick: uploadAll })] }; });
+        ok ? h('span', { class: 'acts-inline' }, rec && rec.permalink ? h('a', { class: 'btn btn-default sm', href: rec.permalink, target: '_blank', rel: 'noopener noreferrer' }, 'افتح على الموقع') : null, Button({ type: 'text', size: 'sm', label: 'عدّل', onClick: () => go('products-edit-' + res.productId + '-data') }), res.author === 'failed' ? Button({ type: 'text', size: 'sm', label: 'جرّب تاني', onClick: uploadAll }) : null) : Button({ size: 'sm', label: 'جرّب تاني', onClick: uploadAll })] }; });
     const okN = L.filter((_, i) => { const r = resultOf(i); return r && r.productId && !r.error; }).length;
     return [U.InlineNote({ kind: okN === L.length ? 'success' : 'warning', children: 'اترفع ' + okN + ' من ' + L.length + ' منتج مسودة على الموقع.' + (okN < L.length ? ' صلّح اللي فشل وجرّب تاني — اللي اترفع مش هيتكرر.' : ' راجعها على الموقع وانشرها من السجل.') }),
       h('section', { class: 'card sec' }, h('div', { class: 'sec-b' }, STable([{ l: 'المنتج' }, { l: 'الحالة', w: 110 }, { l: 'ملاحظات', w: 320 }, { l: '', w: 220 }], rows, 'تقرير الرفع'))),

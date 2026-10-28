@@ -15,7 +15,7 @@
 (function () {
   'use strict';
   const PAGE = 1000; // PostgREST max_rows
-  const BATCH = 100; // woo-sync's products_batch / products_trash limit
+  const BATCH = 25; // the owner (28 Oct): bulk writes go 25 products a request, one request after the other, with progress
   const COLS = 'id, sku, name, image_url, vendor_id, price, status, permalink, lang, translation_ids, type, regular_price, sale_price, stock_quantity, stock_status, manage_stock, backorders, low_stock_amount, total_sales, category_ids, brand_ids, image_count, weight, featured, desc_filled, short_desc_filled, woo_modified_at, trashed_at';
   const AR_COLS = 'id, name, translation_ids';
   const STATUS = { publish: 'منشور', draft: 'مسودة', pending: 'قيد المراجعة', private: 'خاص', trash: 'المهملات' };
@@ -27,7 +27,7 @@
 
   let st = 'idle'; let gen = 0;
   let rows = new Map(); // id → mirror row (every language)
-  let cats = new Map(); let brands = new Map();
+  let cats = new Map(); let brands = new Map(); let comm = new Map(); // comm: product id → its own Dokan commission (decision 12)
 
   // ---------- rows → the page's shape ----------
   const vendorName = (id) => { const V = window.IBVendors; const v = id && V && V.store && V.store.get ? quiet(() => V.store.get(id)) : null; return v ? v.name : ''; };
@@ -76,11 +76,13 @@
     if (perm('products.view') === 'N') { st = 'ready'; emit(); return; } // the page's own permission (decision 3)
     const g = ++gen; st = 'loading'; emit();
     try {
-      const [main, ar, cs, bs] = await Promise.all([
+      const canComm = perm('sensitive.commission') === 'F';
+      const [main, ar, cs, bs, pc] = await Promise.all([
         pages(() => cl.from('products').select(COLS).or('lang.is.null,lang.neq.ar').order('id', { ascending: true }), g),
         pages(() => cl.from('products').select(AR_COLS).eq('lang', 'ar').order('id', { ascending: true }), g),
         pages(() => cl.from('woo_categories').select('id, name, parent_id').order('id', { ascending: true }), g),
         pages(() => cl.from('woo_brands').select('id, name, parent_id').order('name', { ascending: true }), g),
+        canComm ? pages(() => cl.from('product_commissions').select('product_id, rate, type, fee').not('rate', 'is', null).order('product_id', { ascending: true }), g) : Promise.resolve([]),
       ]);
       if (g !== gen) return;
       const next = new Map();
@@ -96,6 +98,7 @@
       rows = next;
       cats = new Map(cs.map((x) => [Number(x.id), x]));
       brands = new Map(bs.map((x) => [Number(x.id), x]));
+      comm = new Map(pc.map((x) => [Number(x.product_id), { rate: num(x.rate), type: x.type || 'percentage', fee: num(x.fee) }]));
       st = 'ready';
     } catch (e) { if (g === gen) st = 'error'; }
     if (g === gen) emit();
@@ -151,24 +154,28 @@
     if (r.body.result === 'ok') { logged('product.save', [Number(id)], Object.keys(body.fields).concat(body.ar ? Object.keys(body.ar).map((k) => 'ar.' + k) : [], body.variations ? ['variations'] : [])); await refresh([Number(id)]); }
     return { ok: true, result: r.body.result, reason: r.body.reason || null, counts: r.body.counts || {} };
   }
-  async function batch(updates) {
+  // onProgress(done, total) after every request; a request the site did not answer (woo_down / network) marks its 25 as failed
+  // and the next ones still go; a refusal (forbidden / invalid) or the push gate stops there
+  async function batch(updates, onProgress) {
     const out = { ok: true, result: 'ok', updated: 0, failedIds: [], reason: null };
     for (let i = 0; i < updates.length; i += BATCH) {
       const part = updates.slice(i, i + BATCH);
       const r = await invoke({ action: 'products_batch', update: part });
-      if (!r.ok) return Object.assign(out, { ok: false, reason: r.reason, field: r.field || null });
-      if (r.body.result === 'skipped') return Object.assign(out, { result: 'skipped', reason: r.body.reason });
-      out.updated += (r.body.counts && r.body.counts.updated) || 0;
-      out.failedIds.push(...(r.body.failed_ids || []));
+      if (!r.ok && (r.reason === 'woo_down' || r.reason === 'network')) { out.failedIds.push(...part.map((u) => Number(u.id))); out.reason = r.reason; }
+      else if (!r.ok) return Object.assign(out, { ok: i > 0 && out.updated > 0, partial: i > 0, reason: r.reason, field: r.field || null });
+      else if (r.body.result === 'skipped') return Object.assign(out, { result: 'skipped', reason: r.body.reason });
+      else { out.updated += (r.body.counts && r.body.counts.updated) || 0; out.failedIds.push(...(r.body.failed_ids || [])); }
+      if (onProgress) quiet(() => onProgress(Math.min(i + BATCH, updates.length), updates.length));
     }
     const ids = updates.map((u) => Number(u.id));
     logged('product.bulk', ids, [...new Set(updates.flatMap((u) => Object.keys(u).filter((k) => k !== 'id')))]);
     await refresh(ids);
     return out;
   }
-  async function moveTrash(ids, back) {
+  async function moveTrash(ids, back, onProgress) {
     const out = { ok: true, result: 'ok', done: 0, failedIds: [], reason: null };
     for (let i = 0; i < ids.length; i += BATCH) {
+      if (i && onProgress) quiet(() => onProgress(i, ids.length));
       const r = await invoke({ action: back ? 'products_restore' : 'products_trash', ids: ids.slice(i, i + BATCH).map(Number) });
       if (!r.ok) return Object.assign(out, { ok: false, reason: r.reason });
       if (r.body.result === 'skipped') return Object.assign(out, { result: 'skipped', reason: r.body.reason });
@@ -181,7 +188,35 @@
   }
 
   // ---------- who may ----------
-  const can = () => ({ view: perm('products.view') !== 'N', edit: perm('products.edit') === 'F', trash: perm('products.trash') === 'F', commission: perm('sensitive.commission') === 'F' });
+  const can = () => ({ view: perm('products.view') !== 'N', edit: perm('products.edit') === 'F', bulk: perm('products.bulk') === 'F', trash: perm('products.trash') === 'F', commission: perm('sensitive.commission') === 'F' });
+  // Dokan's admin commission on a product (decision 12, the owner's «Commission» column): the product's own commission when set,
+  // else its store's — for a category_based store the nearest category (or ancestor) with a figure, else the store's default —
+  // percentage of the sale price + the flat fee. → { amount, rate, fee, source } or null (no price / no visible rate).
+  function vendorOf(id) { const V = window.IBVendors; return id && V && V.store && V.store.get ? quiet(() => V.store.get(id)) : null; }
+  function commissionOf(rec) {
+    if (!rec || perm('sensitive.commission') !== 'F') return null;
+    const sale = rec.sale != null ? rec.sale : rec.price; if (sale == null) return null;
+    const own = comm.get(Number(rec.id));
+    const r2 = (x) => Math.round(x * 100) / 100;
+    if (own && own.rate != null) {
+      const amount = own.type === 'flat' ? own.rate : sale * own.rate / 100 + (own.fee || 0);
+      return { amount: r2(amount), rate: own.type === 'flat' ? null : own.rate, fee: own.type === 'flat' ? own.rate : own.fee || 0, source: 'product' };
+    }
+    const v = vendorOf(rec.vendorId); if (!v || !v.ratesVisible) return null;
+    let rate = rateOf(rec.vendorId); let fee = v.rateFlat || 0; let source = 'store';
+    if (v.commissionType === 'category_based') {
+      const byCat = new Map((v.categoryRates || []).map((c) => [Number(c.wooCategoryId), c]));
+      for (const id of rec.categoryIds) {
+        let cur = cats.get(Number(id)); const seen = new Set(); let hit = null;
+        while (cur && !seen.has(cur.id) && !hit) { seen.add(cur.id); hit = byCat.get(Number(cur.id)) || null; cur = cur.parent_id ? cats.get(Number(cur.parent_id)) : null; }
+        if (!hit && byCat.has(Number(id))) hit = byCat.get(Number(id));
+        if (hit) { rate = hit.rate; fee = hit.flat || 0; source = 'category'; break; }
+      }
+    }
+    if (rate == null) return null;
+    return { amount: r2(sale * rate / 100 + fee), rate, fee, source };
+  }
+  const vendorPriceOf = (rec) => { const c = commissionOf(rec); const sale = rec && (rec.sale != null ? rec.sale : rec.price); return c && sale != null ? Math.round((sale - c.amount) * 100) / 100 : null; };
   // the maker's rate today (vendor_rates, sensitive.commission) — null when it is not visible
   function rateOf(vendorId) {
     const V = window.IBVendors; const v = vendorId && V && V.store && V.store.get ? quiet(() => V.store.get(vendorId)) : null;
@@ -190,12 +225,12 @@
     return r == null || !Number.isFinite(Number(r)) ? null : Number(r);
   }
 
-  function clear() { gen++; st = 'idle'; rows = new Map(); cats = new Map(); brands = new Map(); }
+  function clear() { gen++; st = 'idle'; rows = new Map(); cats = new Map(); brands = new Map(); comm = new Map(); }
 
   window.IBProducts = {
-    load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, STATUS,
+    load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, vendorPriceOf, STATUS,
     categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id) })).sort((a, b) => a.path.localeCompare(b.path)),
     brands: () => [...brands.values()].map((x) => ({ id: Number(x.id), name: x.name })),
-    fetchLive, save, batch, trashIds: (ids) => moveTrash(ids, false), restore: (ids) => moveTrash(ids, true),
+    fetchLive, save, batch, trashIds: (ids, onProgress) => moveTrash(ids, false, onProgress), restore: (ids, onProgress) => moveTrash(ids, true, onProgress),
   };
 })();

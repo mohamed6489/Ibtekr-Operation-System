@@ -236,7 +236,29 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
       return [out];
     }],
   ];
-  const chosen = String(env.PROBE ?? '').trim() === 'products' ? productSteps : steps;
+  // PROBE=commission (phase 5, the owner's «Commission» column): where a product's admin commission comes from — the
+  // commission meta of one product (PROBE_ID, else the newest) and its variations (key + scalar value, commission keys only),
+  // its store's Dokan commission fields, and how many of the newest 100 products carry a product-level commission.
+  const isComm = (k) => /commission/i.test(String(k));
+  const commMeta = (p) => Object.fromEntries((Array.isArray(p?.meta_data) ? p.meta_data : []).filter((m) => m && isComm(m.key) && (m.value === null || ['string', 'number', 'boolean'].includes(typeof m.value))).map((m) => [m.key, m.value]));
+  const pid = /^\d{1,10}$/.test(String(env.PROBE_ID ?? '').trim()) ? String(env.PROBE_ID).trim() : '';
+  const commissionSteps = [
+    [['product_commission'], async () => {
+      const p = pid ? (await get('wc/v3/products/' + pid)).data : (await getList('wc/v3/products?per_page=1')).data[0];
+      const out = { id: p?.id, type: p?.type, price: p?.price, regular_price: p?.regular_price, sale_price: p?.sale_price, store: p?.store?.id ?? null, meta: commMeta(p) };
+      if (p?.type === 'variable') { const v = await getList('wc/v3/products/' + Number(p.id) + '/variations?per_page=20'); out.variations = v.data.map((x) => ({ id: x.id, price: x.price, meta: commMeta(x) })); }
+      if (out.store) { try { const st = (await get('dokan/v1/stores/' + Number(out.store))).data; out.store_commission = { type: st?.admin_commission_type ?? null, rate: st?.admin_commission ?? null, fee: st?.admin_additional_fee ?? null }; } catch (e) { out.store_commission = e instanceof ProbeError ? 'HTTP ' + e.status : 'error'; } }
+      return [out];
+    }],
+    [['commission_spread'], async () => {
+      const { data } = await getList('wc/v3/products?per_page=100');
+      const withMeta = data.filter((p) => Object.keys(commMeta(p)).length);
+      const keys = {}; withMeta.forEach((p) => Object.keys(commMeta(p)).forEach((k) => { keys[k] = (keys[k] || 0) + 1; }));
+      return [{ scanned: data.length, with_commission_meta: withMeta.length, keys }];
+    }],
+  ];
+  const mode = String(env.PROBE ?? '').trim();
+  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : steps;
 
   const print = (section, obj) => out(section + ' ' + JSON.stringify(redact(obj)));
   let failed = false;

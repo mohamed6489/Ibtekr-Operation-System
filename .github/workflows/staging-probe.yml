@@ -6,10 +6,14 @@ on:
   workflow_dispatch:
     inputs:
       probe:
-        description: 'orders (the phase 2 sections) or products (phase 5: shapes, meta key names, schema, totals)'
+        description: 'orders (the phase 2 sections), products (phase 5: shapes, meta key names, schema, totals) or commission (a product's commission meta and its store's rate)'
         type: choice
-        options: [orders, products]
+        options: [orders, products, commission]
         default: orders
+      product_id:
+        description: 'probe=commission: the product id (empty = the newest)'
+        required: false
+        default: ''
 
 permissions:
   contents: read
@@ -32,3 +36,4 @@ jobs:
           WOO_CK: ${{ secrets.STAGING_WOO_CK }}
           WOO_CS: ${{ secrets.STAGING_WOO_CS }}
           PROBE: ${{ inputs.probe }}
+          PROBE_ID: ${{ inputs.product_id }}

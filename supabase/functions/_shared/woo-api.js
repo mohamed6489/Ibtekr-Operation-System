@@ -131,6 +131,7 @@ export function wooApi(env, fetchFn) {
     post: (path, body) => request('POST', path, { body }),
     // DELETE with no query at all: a product goes to the trash (never `force`, which deletes it for good; phase 5)
     del: (path) => request('DELETE', path),
+    options: (path) => request('OPTIONS', path), // a route's schema, read-only (probe_dokan options, phase 5)
     eachPage,
     scrub,
     hasDokanAuth: dokanAuth !== null, // a WordPress Application Password is set (dokan/ paths are authenticated)

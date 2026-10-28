@@ -437,6 +437,14 @@ async function probeDokan(run: Run, args: Json) {
   const out: Json = {};
   for (const path of paths) {
     try {
+      // phase 5 (decision 6): `options: true` asks each route's schema instead — property names, types, readonly; no values
+      if (args.options === true) {
+        const { data } = await woo.options(path);
+        const props = isObj(data) && isObj(data.schema) && isObj(data.schema.properties) ? data.schema.properties : {};
+        const methods = isObj(data) && Array.isArray(data.endpoints) ? [...new Set(data.endpoints.filter(isObj).flatMap((e: Json) => (Array.isArray(e.methods) ? e.methods : [])))].sort() : [];
+        out[path] = { status: 200, methods, schema: Object.fromEntries(Object.keys(props).sort().map((k) => [k, `${Array.isArray(props[k]?.type) ? props[k].type.join('|') : props[k]?.type ?? '?'}${props[k]?.readonly ? ':readonly' : ''}`])) };
+        continue;
+      }
       const { data, total } = await woo.get(path, { ...probeQuery(args.query), per_page: 1, page: 1 });
       out[path] = isObj(data) && isObj(data.routes) ? { status: 200, routes: Object.keys(data.routes).sort() } : { status: 200, total, shape: shapeOf(data) };
     } catch (e) {

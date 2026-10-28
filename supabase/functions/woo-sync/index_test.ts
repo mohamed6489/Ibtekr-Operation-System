@@ -278,6 +278,15 @@ Deno.test('probe_dokan: shapes of the named dokan/ GET paths only — route name
   assertEquals((await call(deps, { action: 'probe_dokan', paths: ['dokan/v1'] }, { jwt: 'jwt-ops' })).res.status, 401);
 });
 
+Deno.test('probe_dokan { options: true }: each route\'s schema names / types / readonly and methods — OPTIONS only, no value; admin only', async () => {
+  const routes = { 'OPTIONS dokan/v1/products/501': { body: { endpoints: [{ methods: ['GET'] }, { methods: ['POST', 'PUT', 'PATCH'] }], schema: { properties: { name: { type: 'string', default: 'Secret' }, store_id: { type: 'integer' }, id: { type: 'integer', readonly: true } } } } } };
+  const { woo, deps } = setup({ routes });
+  const { body } = await call(deps, { action: 'probe_dokan', paths: ['dokan/v1/products/501'], options: true }, { jwt: 'jwt-admin' });
+  assertEquals(body.paths['dokan/v1/products/501'], { status: 200, methods: ['GET', 'PATCH', 'POST', 'PUT'], schema: { id: 'integer:readonly', name: 'string', store_id: 'integer' } });
+  assertFalse(JSON.stringify(body).includes('Secret'));
+  assert(woo.calls.every((c) => c.method === 'OPTIONS'));
+});
+
 // ---------------------------------------------------------------- accounts / statement (phase 4)
 
 Deno.test('accounts: every withdraw request (status=all) → dokan_withdrawals without the bank details, IP or note; the next batch of makers → dokan_balances; GET only; admin / system only', async () => {

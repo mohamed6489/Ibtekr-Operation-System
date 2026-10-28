@@ -1,11 +1,11 @@
 <!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <title>نظام إبتكر</title>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;900&display=swap">
-<link rel="stylesheet" href="css/base.css"><link rel="stylesheet" href="css/app.css">
+<link rel="stylesheet" href="css/base.css"><link rel="stylesheet" href="css/app.css"><link rel="stylesheet" href="css/products.css">
 </head><body>
 <div id="root" dir="rtl" lang="ar"></div>
 <script src="config.js"></script><script src="js/vendor/supabase.js"></script>
-<script src="js/adapter/supabase-client.js"></script><script src="js/adapter/auth.js"></script><script src="js/adapter/directory.js"></script><script src="js/adapter/activity.js"></script><script src="js/adapter/prefs.js"></script><script src="js/adapter/alerts.js"></script><script src="js/adapter/orders.js"></script><script src="js/adapter/vendors.js"></script><script src="js/adapter/accounts.js"></script>
+<script src="js/adapter/supabase-client.js"></script><script src="js/adapter/auth.js"></script><script src="js/adapter/directory.js"></script><script src="js/adapter/activity.js"></script><script src="js/adapter/prefs.js"></script><script src="js/adapter/alerts.js"></script><script src="js/adapter/orders.js"></script><script src="js/adapter/vendors.js"></script><script src="js/adapter/accounts.js"></script><script src="js/adapter/products.js"></script>
 <!-- blocks, in prototype order -->
 <script src="js/blocks/01-dataio.js"></script>
 <script src="js/blocks/02-accounts-domain.js"></script>
@@ -34,6 +34,9 @@
 <script src="js/blocks/25-page-dashboard.js"></script>
 <script src="js/blocks/26-data-actions.js"></script>
 <script src="js/blocks/27-commands-domain.js"></script>
+<!-- phase 5: the products page (not a block of the split prototype) registers before block 28 boots and makes its <main> -->
+<script src="js/pages/products-domain.js"></script>
+<script src="js/pages/products.js"></script>
 <script src="js/blocks/28-app.js"></script>
 <script src="js/blocks/29-orders-app.js"></script>
 </body></html>

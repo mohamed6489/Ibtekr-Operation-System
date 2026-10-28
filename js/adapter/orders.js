@@ -113,6 +113,8 @@
   // ---------- load ----------
   const data = () => (orders ? { orders, vendors: names, images, links, statuses } : null);
   const keep = (p) => { if (p.image_url) images[p.sku] = p.image_url; if (typeof p.permalink === 'string' && HTTPS.test(p.permalink)) links[p.sku] = p.permalink; }; // a products row → images / links
+  // phase 5: the mirror holds the WPML Arabic translations too (same sku) — they go first, so the default language's row wins
+  const keepAll = (rows) => rows.slice().sort((a, b) => (b.lang === 'ar') - (a.lang === 'ar')).forEach(keep);
   const stale = (g) => { if (g !== gen) throw new Error('stale'); };
   const uniq = (rows) => { const seen = new Set(); return rows.filter((r) => { const k = String(r.id); if (seen.has(k)) return false; seen.add(k); return true; }); };
   // every page of one query (PostgREST answers at most max_rows); throws the first error, or once clear() ran
@@ -151,11 +153,11 @@
       const [items, subs] = await Promise.all([within(cl, 'order_items', COLS.item, 'order_id', ids, IDS, g), within(cl, 'sub_orders', COLS.sub, 'order_id', ids, IDS, g)]);
       stale(g);
       const skus = [...new Set(items.filter((it) => !it.removed && it.sku).map((it) => it.sku))];
-      const ps = await within(cl, 'products', 'sku, image_url, permalink', 'sku', skus, SKUS, g);
+      const ps = await within(cl, 'products', 'sku, image_url, permalink, lang', 'sku', skus, SKUS, g);
       stale(g);
       vendorRows = vs; statuses = sm.data || []; images = {}; links = {}; asked.clear();
       if (ws && !ws.error) states = stateMap(ws.data); // refused (no grant yet) or down: the last list stays, the codes show without one
-      skus.forEach((s) => asked.add(s)); ps.forEach(keep);
+      skus.forEach((s) => asked.add(s)); keepAll(ps);
       orders = toScreen(rows, items, subs, vendorRows, { links, states }); names = vendorNames(orders);
       setState('ready');
       const app = window.OrdersApp; if (app && app.hydrate) report(() => app.hydrate(data()));
@@ -271,10 +273,10 @@
     const vids = [...new Set(items.concat(subs).map((x) => x.vendor_id).filter((v) => v && !known.has(String(v))))];
     const skus = [...new Set(items.filter((x) => !x.removed && x.sku && !asked.has(x.sku)).map((x) => x.sku))];
     const none = { data: [], error: null };
-    const [v, p] = await Promise.all([vids.length ? cl.from('vendors').select('id, name').in('id', vids) : none, skus.length ? cl.from('products').select('sku, image_url, permalink').in('sku', skus) : none]);
+    const [v, p] = await Promise.all([vids.length ? cl.from('vendors').select('id, name').in('id', vids) : none, skus.length ? cl.from('products').select('sku, image_url, permalink, lang').in('sku', skus) : none]);
     stale(g);
     if (!v.error) vendorRows = vendorRows.concat(v.data || []);
-    if (!p.error) { skus.forEach((s) => asked.add(s)); (p.data || []).forEach(keep); }
+    if (!p.error) { skus.forEach((s) => asked.add(s)); keepAll(p.data || []); }
   }
   async function refresh(id) {
     const cl = c(); const g = gen;

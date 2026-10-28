@@ -3,7 +3,7 @@
 // products.view / edit / trash and WOO_PUSH_ENABLED). The mirror holds both WPML languages: a record is a row whose lang is not
 // 'ar', or an Arabic row with no English translation; its Arabic name is the name of its translation row.
 // load() runs when the page first opens (not with the sign-in: thousands of rows) and refresh(ids) after a write reads those rows
-// again (the server wrote them from WooCommerce's answers); state() is 'idle' | 'loading' | 'ready' | 'error'; every change
+// again (the server wrote them from WooCommerce's answers); report(from, to) reads the reports tab's totals (products_report, 0022); state() is 'idle' | 'loading' | 'ready' | 'error'; every change
 // dispatches ib:products. Records are handed out in the page's shape (toRecord, pure but for the names of the makers):
 //   { id, nameEn, nameAr, arId, sku, img, imageCount, vendorId, vendor, brandIds, brands, categoryIds, cats, type, status,
 //     wooStatus, sale, regular, price, stock, manageStock, onDemand, alert, stockStatus, sales, weight, descFilled, shortDescFilled,
@@ -227,10 +227,34 @@
     return r == null || !Number.isFinite(Number(r)) ? null : Number(r);
   }
 
-  function clear() { gen++; st = 'idle'; rows = new Map(); cats = new Map(); brands = new Map(); comm = new Map(); }
+  // ---------- the reports tab (decision 20): products_report (0022) → totals only, cached per range ----------
+  // report(from, to) → null while it loads (ib:products { report } when it lands) or failed (reportFailed), else
+  // { orders, qty, revenue, distinct, top: [{ id, name, sku, skuCount, vendor, qty, orders, revenue }], cats: [{ id, name, sold, revenue, orders, products }] }.
+  // A top row whose product is a record carries the record's name (English first) and maker; else the line's own name.
+  let repCache = new Map();
+  function report(from, to) {
+    const key = from + '|' + to; const hit = repCache.get(key);
+    if (hit && typeof hit === 'object') {
+      return { orders: num(hit.orders) || 0, qty: num(hit.qty) || 0, revenue: num(hit.revenue) || 0, distinct: num(hit.distinct) || 0,
+        top: (Array.isArray(hit.top) ? hit.top : []).map((t) => { const r = t.key != null && rows.has(Number(t.key)) ? get(t.key) : null; const skus = Array.isArray(t.skus) ? t.skus : [];
+          return { id: r ? r.id : null, name: r ? r.nameEn || r.nameAr : t.name || '—', sku: skus[0] || (r && r.sku) || '—', skuCount: skus.length, vendor: (r ? r.vendor : vendorName(t.vendor_id)) || '—', qty: num(t.qty) || 0, orders: num(t.orders) || 0, revenue: num(t.revenue) || 0 }; }),
+        cats: (Array.isArray(hit.cats) ? hit.cats : []).map((x) => ({ id: Number(x.id), name: (cats.get(Number(x.id)) || {}).name || '#' + x.id, sold: num(x.sold) || 0, revenue: num(x.revenue) || 0, orders: num(x.orders) || 0, products: num(x.products) || 0 })) };
+    }
+    if (hit === 'loading' || hit === 'error') return null;
+    const cl = c(); if (!cl || perm('products.view') === 'N') return null;
+    repCache.set(key, 'loading');
+    Promise.resolve(cl.rpc('products_report', { p_from: from, p_to: to })).then(({ data, error }) => {
+      repCache.set(key, error || !data || typeof data !== 'object' ? 'error' : data); emit({ report: key });
+    }, () => { repCache.set(key, 'error'); emit({ report: key }); });
+    return null;
+  }
+  const reportFailed = (from, to) => repCache.get(from + '|' + to) === 'error';
+  const reportRetry = (from, to) => { repCache.delete(from + '|' + to); return report(from, to); };
+
+  function clear() { gen++; st = 'idle'; rows = new Map(); cats = new Map(); brands = new Map(); comm = new Map(); repCache = new Map(); }
 
   window.IBProducts = {
-    load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS,
+    load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry,
     categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id) })).sort((a, b) => a.path.localeCompare(b.path)),
     brands: () => [...brands.values()].map((x) => ({ id: Number(x.id), name: x.name })),
     fetchLive, save, batch, trashIds: (ids, onProgress) => moveTrash(ids, false, onProgress), restore: (ids, onProgress) => moveTrash(ids, true, onProgress),

@@ -68,3 +68,10 @@
 .seo-prev{display:flex;flex-direction:column;gap:2px;padding:12px 16px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-container);min-width:0}
 .seo-prev b{color:var(--color-brand-default);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .seo-prev small,.seo-prev span{overflow-wrap:anywhere}
+/* phase 5.1 (decision 20): the reports tab */
+#pg-products .pr-rep-bar{align-items:center}
+#pg-products .bars{display:flex;flex-direction:column;gap:12px;min-width:0}
+#pg-products .link-btn{border:0;background:none;padding:0;font:inherit;font-weight:600;color:var(--color-brand-default);cursor:pointer;text-align:start;text-decoration:underline;text-underline-offset:3px}
+#pg-products .link-btn:hover{color:var(--color-brand-hover)}
+#pg-products .pr-rep-bar .grow{flex:1 1 280px}
+@media (max-width:767px){#pg-products .charts{grid-template-columns:1fr}}

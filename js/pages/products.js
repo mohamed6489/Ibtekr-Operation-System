@@ -2,8 +2,9 @@
    1793131460: Figma 626:10792 «السجل» 660:611, trash 661:850, edit 669:3477…) on the site's real products. The list is the sync's
    mirror (IBProducts); the edit page reads the product live from WooCommerce (product_get) and every change goes back through
    woo-sync (IBProducts.save / batch / trashIds / restore — the server checks products.edit / products.trash and WOO_PUSH_ENABLED).
-   Out of this stage (decisions 2 / 7 / 10): the studio, the AI tools, the reports tab, duplicating, new products, uploading images
-   and deleting for good. The prototype's IBCrumbs / IBQuick / PanelButton / IBReportBlocks do not exist here: «رجوع للسجل». */
+   Out of this stage (decisions 2 / 7 / 10): the studio, the AI tools, duplicating, new products, uploading images and deleting
+   for good. The reports tab (decision 20) reads products_report and the reports page's range (IBReportBlocks, block 28). The
+   prototype's IBCrumbs / IBQuick / PanelButton do not exist here: «رجوع للسجل». */
 (function () {
   'use strict';
   const U = window.IBUI, K = window.IBKit, PD = window.IbtekrProducts;
@@ -467,6 +468,44 @@
 
   // ---------------- view ----------------
   const fresh = () => { const P = PR(); return U.FreshnessNote(P && P.state() === 'loading' ? 'بنحمّل المنتجات…' : 'متزامن مع ووكومرس — التعديل بيتكتب على الموقع مباشرة'); };
+  // ---------------- «التقارير» (decision 20: the prototype's products reports on real data) ----------------
+  // The best sellers and the categories come from our orders in the range (products_report, 0022 — not «ملغي» / «استرجاع» / «فشل»);
+  // out of stock from the mirror (product level: the variations are not mirrored). The range is the reports page's (block 28).
+  function reportsView() {
+    const P = PR(); const RB = window.IBReportBlocks;
+    const rg = RB ? RB.get() : null; const from = rg ? rg.from : null; const to = rg ? rg.to : null;
+    const bar = h('div', { class: 'toolbar pr-rep-bar' }, h('span', { class: 't-small help grow' }, 'الأكثر مبيعًا والأقسام من أوردراتنا في الفترة (من غير الملغي والمسترجع والفاشل) · المخزون من كتالوج ووكومرس دلوقتي.'), RB ? RB.range() : null);
+    const rep = from ? P.report(from, to) : null;
+    if (!rep) {
+      const failed = from && P.reportFailed(from, to);
+      return [bar, failed ? K.Empty('مقدرناش نحسب التقارير', 'في مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', onClick: () => { P.reportRetry(from, to); R(); } })) : U.InlineNote({ children: 'بنحسب التقارير…' })];
+    }
+    const out = PD.outOfStock(all()); const cats = PD.categoriesRank(rep.cats); const catTop = cats.slice(0, 15);
+    const openRec = (id, label) => (id ? h('button', { type: 'button', class: 'link-btn', onClick: () => go('products-edit-' + id + '-data') }, label) : label);
+    const sku = (x, n) => h('span', { dir: 'ltr', class: 't-small' }, x + (n > 1 ? ' +' + (n - 1) : ''));
+    const topH = ['#', 'المنتج', 'SKU', 'المبتكر', 'القطع', 'الأوردرات', 'الإيراد'];
+    const topRows = rep.top.map((x, i) => [K.n0(i + 1), openRec(x.id, x.name), sku(x.sku, x.skuCount), x.vendor, K.n0(x.qty), K.n0(x.orders), money(x.revenue)]);
+    const outH = ['المنتج', 'SKU', 'المبتكر', 'الحالة', 'مرات الشراء'];
+    const outRows = out.map((p) => [openRec(p.id, nameOf(p)), sku(p.sku || '—', 1), p.vendor || '—', Tag(STATUS_TONE[p.status] || 'neutral', p.status), K.n0(p.sales)]);
+    const catH = ['#', 'القسم', 'القطع المباعة', 'النسبة', 'الإيراد', 'الأوردرات', 'المنتجات'];
+    const pct = (v) => Math.round(v * 1000) / 10 + '%';
+    const catRows = catTop.map((c) => [K.n0(c.rank), c.name, K.n0(c.sold), pct(c.share), money(c.revenue), K.n0(c.orders), K.n0(c.products)]);
+    const byStatus = [...out.reduce((m, p) => m.set(p.status, (m.get(p.status) || 0) + 1), new Map())].sort((a, b) => b[1] - a[1]);
+    const maxC = catTop.length ? catTop[0].sold || 1 : 1;
+    return [bar,
+      h('div', { class: 'cards', 'data-rgroup': 'kpis' },
+        U.KpiTile({ label: 'قطع اتباعت', value: K.n0(rep.qty), unit: 'قطعة', compare: 'off', note: 'من ' + K.n0(rep.orders) + ' أوردر في الفترة · من غير الملغي والمسترجع', details: rep.top.length ? () => ({ title: 'قطع اتباعت — ' + K.n0(rep.qty), sub: 'أعلى 20 منتج في الفترة', headers: topH, rows: rep.top.map((x, i) => [K.n0(i + 1), x.name, x.sku, x.vendor, K.n0(x.qty), K.n0(x.orders), money(x.revenue)]) }) : undefined }),
+        U.KpiTile({ label: 'منتجات اتباعت', value: K.n0(rep.distinct), unit: 'منتج', compare: 'off', note: 'إيراد ' + money(rep.revenue) }),
+        U.KpiTile({ label: 'منتجات نفد مخزونها', value: K.n0(out.length), unit: 'منتج', compare: 'off', note: '«حسب الطلب» مش محسوب', details: out.length ? () => ({ title: 'منتجات نفد مخزونها', sub: 'من كتالوج ووكومرس', headers: outH, rows: out.map((p) => [nameOf(p), p.sku || '—', p.vendor || '—', p.status, K.n0(p.sales)]) }) : undefined }),
+        U.KpiTile({ label: 'أكتر قسم مبيعًا', value: cats[0] ? cats[0].name : '—', compare: 'off', note: cats[0] ? [K.n0(cats[0].sold) + ' قطعة · ', h('span', { class: 'num' }, pct(cats[0].share)), ' من القطع'] : 'مفيش مبيعات في الفترة' })),
+      Card('المنتجات الأكثر مبيعًا — أعلى 20', rep.top.length + ' منتج', rep.top.length ? U.Table({ cls: 'dt rp-top', headers: topH, rows: topRows }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.')),
+      h('div', { class: 'charts', 'data-rgroup': 'charts' },
+        U.ChartCard({ title: 'الأقسام الأكثر مبيعًا', subtitle: 'القطع المباعة · أعلى 10', footnote: 'المنتج اللي في أكتر من قسم بيتحسب في كل قسم · الأقسام اللي ليها نفس الاسم اتجمعت', body: catTop.length ? h('div', { class: 'bars' }, catTop.slice(0, 10).map((c, i) => U.BarRow({ tone: i === 0 ? 'brand' : i < 3 ? 'gold' : 'neutral', label: c.name, value: K.n0(c.sold), pct: c.sold / maxC }))) : K.Empty('مفيش مبيعات', 'غيّر الفترة من فوق.') }),
+        U.ChartCard({ title: 'المخزون اللي خلص', subtitle: K.n0(out.length) + ' منتج حسب الحالة', footnote: '«حسب الطلب» مش بيتحسب نفد · التركيبات لوحدها مش ظاهرة هنا (المنتج بيظهر لما كل تركيباته تخلص)', body: out.length ? h('div', { class: 'bars' }, byStatus.map(([k, n], i) => U.BarRow({ tone: i === 0 ? 'brand' : 'gold', label: k, value: K.n0(n), pct: n / out.length }))) : K.Empty('كله متاح', 'مفيش منتج نفد مخزونه.') })),
+      Card('منتجات نفد مخزونها', out.length + ' منتج', out.length ? U.Table({ cls: 'dt rp-out', headers: outH, rows: outRows }) : K.Empty('كله متاح', 'مفيش منتج نفد مخزونه دلوقتي.')),
+      Card('الأقسام الأكثر مبيعًا', 'أعلى ' + catTop.length + ' من ' + cats.length + ' قسم', catTop.length ? U.Table({ cls: 'dt rp-cats', headers: catH, rows: catRows }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.')),
+      h('p', { class: 'source t-small help' }, 'المصدر: أوردراتنا (الأوردر بتاريخه بتوقيت القاهرة، والسطر على الترجمة العربية بيتحسب على المنتج الإنجليزي) · كتالوج ووكومرس للمخزون.')];
+  }
   const mainTabs = () => K.MainTabs({ items: [{ id: 'add', label: 'إضافة' }, { id: 'records', label: 'السجل · ' + K.n0(all().length) }, { id: 'reports', label: 'التقارير' }], active: st.tab, onChange: (id) => go(id === 'add' ? 'products-add' : id === 'reports' ? 'products-reports' : 'products-records'), label: 'أقسام المنتجات' });
   function view() {
     const P = PR(); const C = can();
@@ -478,8 +517,8 @@
     head.firstChild.append(fresh());
     let body;
     if (P.state() === 'error') body = [K.Empty('مقدرناش نحمّل المنتجات', 'في مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', onClick: () => P.load() }))];
-    else if (P.state() !== 'ready' && st.view !== 'add' && st.view !== 'reports') body = [U.InlineNote({ children: 'بنحمّل المنتجات…' })];
-    else body = st.view === 'add' ? addView() : st.view === 'trash' ? trashView() : st.view === 'reports' ? [K.Empty('قريبًا', 'تقارير المنتجات مع صفحة التقارير.')] : recordsView();
+    else if (P.state() !== 'ready' && st.view !== 'add') body = [U.InlineNote({ children: 'بنحمّل المنتجات…' })];
+    else body = st.view === 'add' ? addView() : st.view === 'trash' ? trashView() : st.view === 'reports' ? reportsView() : recordsView();
     return [head, mainTabs(), h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...body.filter(Boolean))];
   }
   document.addEventListener('ib:products', () => { if (window.IBPages.current === 'products' && st.view !== 'edit') R(); });

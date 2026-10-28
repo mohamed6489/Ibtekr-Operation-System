@@ -140,6 +140,23 @@
     const regular = ceil10(sale * (1 + m / 100));
     return { sale, regular, markup: m, vendorNet: Math.round((sale * (1 - r / 100) - f) * 100) / 100 };
   }
+  // ---------- تقارير المنتجات (قرار 20 في خطة المرحلة 5) ----------
+  // records (IBProducts.list) → اللي نفد مخزونه: مش «حسب الطلب»، وحالته على ووكومرس outofstock أو مخزونه المتتبع 0 أو أقل؛ الأكتر مبيعًا الأول.
+  // التركيبات مش في المرآة: منتج Variable بيبان هنا لما ووكومرس يعلّمه نفد (كل تركيباته خلصت).
+  function outOfStock(records) {
+    return (records || []).filter((p) => !p.onDemand && (p.stockStatus === 'outofstock' || (p.manageStock && p.stock != null && p.stock <= 0)))
+      .sort((a, b) => (b.sales || 0) - (a.sales || 0));
+  }
+  // cats: [{ name, sold, revenue, orders, products }] → الترتيب بالقطع ثم الإيراد، والأقسام اللي ليها نفس الاسم (تحت أكتر من رئيسي) بتتجمع؛
+  // share = نصيب القسم من مجموع القطع (رقم بين 0 و1، 3 خانات).
+  function categoriesRank(cats, n) {
+    const m = new Map(); const clean = (s) => String(s || '').replace(/\s+/g, ' ').trim();
+    (cats || []).forEach((c) => { const name = clean(c.name) || '—'; const k = name.toLowerCase(); const x = m.get(k) || { name, sold: 0, revenue: 0, products: 0, orders: 0 };
+      x.sold += Number(c.sold) || 0; x.revenue += Number(c.revenue) || 0; x.products += Number(c.products) || 0; x.orders += Number(c.orders) || 0; m.set(k, x); });
+    const all = [...m.values()].sort((a, b) => b.sold - a.sold || b.revenue - a.revenue || a.name.localeCompare(b.name));
+    const tot = all.reduce((s, x) => s + x.sold, 0);
+    return (n ? all.slice(0, n) : all).map((x, i) => Object.assign({ rank: i + 1, share: tot ? Math.round(x.sold / tot * 1000) / 1000 : 0 }, x, { revenue: Math.round(x.revenue * 100) / 100 }));
+  }
   // ---------- marketing «إنشاء» ----------
   const VIDEO_MODELS = [
     { id: 'seedance-2.5', name: 'Seedance 2.5', note: 'الأفضل · لحد 30 ث · صوت', max: 30, durations: [10, 15, 30], res: ['1080p', '720p'], def: true },
@@ -198,6 +215,6 @@
   const safeName = (s) => String(s || 'Product').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Product';
   // backup plan: which file goes where — pure, so the browser only fills in the bytes
   function backupPlan(root, items, ext) { const out = []; items.forEach((it) => (it.slots || []).forEach((sl, k) => { if (sl && sl.src) out.push({ dir: SLOT_DIRS[Math.min(k, 4)], src: sl.src, name: root + '/' + SLOT_DIRS[Math.min(k, 4)] + '/' + safeName(it.name) + '-0' + (k + 1) + '-' + safeName(it.sku || 'SKU') + '.' + (ext || 'webp') }); })); return out; }
-  return { priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  return { outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

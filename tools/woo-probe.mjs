@@ -314,8 +314,42 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
       return [{ id: p?.id ?? null, keys: Object.fromEntries(seo.map((m) => [m.key, typeof m.value === 'string' ? (m.value.trim() ? 'filled' : 'empty') : typeOnly(m.value)])) }];
     }],
   ];
+  // PROBE=studio2 (phase 5.2, the product studio): what creating a product needs — the global attributes and their terms
+  // (catalog names), the POST arguments of products / categories / variations (WPML lang / translation_of?), a variable
+  // product's attributes and variation SKUs, and the media route's methods. GET / OPTIONS only.
+  const argsOf = (data) => (Array.isArray(data?.endpoints) ? data.endpoints.map((e) => ({ methods: Array.isArray(e?.methods) ? e.methods : [], args: keysOf(e?.args).sort() })) : []);
+  const studio2Steps = [
+    [['attributes'], async () => {
+      const { data } = await getList('wc/v3/products/attributes');
+      const out = [];
+      for (const a of data.slice(0, 12)) {
+        let terms = null;
+        try { const t = (await getList('wc/v3/products/attributes/' + Number(a?.id) + '/terms?per_page=100&_fields=id,name,slug')); terms = { total: t.total ?? t.data.length, names: t.data.slice(0, 60).map((x) => String(x?.name ?? '')) }; } catch (e) { terms = failOf(e); }
+        out.push({ ...pick(a, ['id', 'name', 'slug', 'type']), terms });
+      }
+      return [{ count: data.length, items: out }];
+    }],
+    [['product_post_args'], async () => { try { return [argsOf((await get('wc/v3/products', 'OPTIONS')).data)]; } catch (e) { return [failOf(e)]; } }],
+    [['category_post_args'], async () => { try { return [argsOf((await get('wc/v3/products/categories', 'OPTIONS')).data)]; } catch (e) { return [failOf(e)]; } }],
+    [['variable_sample'], async () => {
+      const { data } = await getList('wc/v3/products?type=variable&per_page=2&_fields=id,sku,lang,attributes,translations');
+      const out = [];
+      for (const p of data) {
+        let vars = [];
+        try { vars = (await getList('wc/v3/products/' + Number(p?.id) + '/variations?per_page=4&_fields=id,sku,attributes')).data.map((v) => ({ sku: v?.sku ?? null, attributes: (v?.attributes ?? []).map((x) => pick(x, ['id', 'name', 'option'])) })); } catch (e) { vars = failOf(e); }
+        out.push({ id: p?.id ?? null, sku: p?.sku ?? null, lang: p?.lang ?? null, translations: keysOf(p?.translations), attributes: (p?.attributes ?? []).map((x) => ({ ...pick(x, ['id', 'name', 'variation', 'visible']), options: Array.isArray(x?.options) ? x.options.length : null })), variations: vars });
+      }
+      return [{ items: out }];
+    }],
+    [['variation_post_args'], async () => {
+      const { data } = await getList('wc/v3/products?type=variable&per_page=1&_fields=id');
+      if (!data[0]) return [{ none: true }];
+      try { return [argsOf((await get('wc/v3/products/' + Number(data[0].id) + '/variations', 'OPTIONS')).data)]; } catch (e) { return [failOf(e)]; }
+    }],
+    [['media_route'], async () => { try { return [argsOf((await get('wp/v2/media', 'OPTIONS', true)).data)]; } catch (e) { return [failOf(e)]; } }],
+  ];
   const mode = String(env.PROBE ?? '').trim();
-  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : mode === 'earning' ? earningSteps : mode === 'studio' ? studioSteps : steps;
+  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : mode === 'earning' ? earningSteps : mode === 'studio' ? studioSteps : mode === 'studio2' ? studio2Steps : steps;
 
   const print = (section, obj) => out(section + ' ' + JSON.stringify(redact(obj)));
   let failed = false;

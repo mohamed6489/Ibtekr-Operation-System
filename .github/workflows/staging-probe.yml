@@ -6,9 +6,9 @@ on:
   workflow_dispatch:
     inputs:
       probe:
-        description: 'orders (the phase 2 sections), products (phase 5: shapes, meta key names, schema, totals), commission (the commission meta of a product and the rate of its store) earning (does Dokan answer a product commission / the maker earning itself) or studio (can WordPress REST set a product author, the media route, the Rank Math keys of a product)'
+        description: 'orders (the phase 2 sections), products (phase 5: shapes, meta key names, schema, totals), commission (the commission meta of a product and the rate of its store) earning (does Dokan answer a product commission / the maker earning itself) or studio (can WordPress REST set a product author, the media route, the Rank Math keys of a product) or studio2 (the product studio: attributes and terms, POST arguments of products / categories / variations, a variable product, the media route)'
         type: choice
-        options: [orders, products, commission, earning, studio]
+        options: [orders, products, commission, earning, studio, studio2]
         default: orders
       product_id:
         description: 'probe=commission / earning / studio: the product id (empty = the newest)'

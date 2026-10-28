@@ -346,3 +346,33 @@ test('PROBE=studio: WordPress routes / product type / product schema without the
   assert.ok(calls.every((c) => c.method === 'GET' || c.method === 'OPTIONS'));
   assert.ok(calls.filter((c) => !c.path.startsWith('wc/')).every((c) => !c.auth), 'no WC header on WordPress paths');
 });
+
+test('PROBE=studio2: attributes with their term names, POST arguments of products / categories / variations, a variable product, the media route — GET / OPTIONS only', async () => {
+  const calls = [];
+  const fetch = async (url, init) => {
+    const u = new URL(url); const path = u.pathname.slice(u.pathname.indexOf('/wp-json/') + 9);
+    calls.push({ path, method: init.method, auth: 'Authorization' in (init.headers || {}) });
+    if (path === 'wc/v3/products/attributes') return json([{ id: 1, name: 'Color', slug: 'pa_color', type: 'select' }], { total: 1 });
+    if (path === 'wc/v3/products/attributes/1/terms') return json([{ id: 5, name: 'Beige', slug: 'beige' }], { total: 1 });
+    if (path === 'wc/v3/products' && init.method === 'OPTIONS') return json({ endpoints: [{ methods: ['GET'], args: { page: {} } }, { methods: ['POST'], args: { name: {}, lang: {}, translation_of: {} } }] });
+    if (path === 'wc/v3/products/categories') return json({ endpoints: [{ methods: ['POST'], args: { name: {}, parent: {} } }] });
+    if (path === 'wc/v3/products' && u.searchParams.get('type') === 'variable') return json([{ id: 7, sku: 'IBTAR0999', lang: 'en', translations: { ar: 8 }, attributes: [{ id: 1, name: 'Color', variation: true, visible: true, options: ['Beige', 'Black'] }] }], { total: 1 });
+    if (path === 'wc/v3/products/7/variations' && init.method === 'GET') return json([{ id: 71, sku: 'IBTARBE0999', attributes: [{ id: 1, name: 'Color', option: 'Beige' }] }], { total: 1 });
+    if (path === 'wc/v3/products/7/variations') return json({ endpoints: [{ methods: ['POST'], args: { attributes: {}, sku: {} } }] });
+    if (path === 'wp/v2/media') return json({ endpoints: [{ methods: ['GET'], args: {} }, { methods: ['POST'], args: { title: {}, alt_text: {} } }] });
+    return json({ code: 'rest_no_route' }, { status: 404 });
+  };
+  const out = [];
+  const code = await run({ env: { ...ENV, PROBE: 'studio2' }, fetch, out: (s) => out.push(s), err: () => {} });
+  const by = Object.fromEntries(out.map((l) => [l.slice(0, l.indexOf(' ')), JSON.parse(l.slice(l.indexOf(' ') + 1))]));
+  assert.equal(code, 0);
+  assert.deepEqual(by.attributes.items[0], { id: 1, name: 'Color', slug: 'pa_color', type: 'select', terms: { total: 1, names: ['Beige'] } });
+  assert.deepEqual(by.product_post_args[1], { methods: ['POST'], args: ['lang', 'name', 'translation_of'] });
+  assert.deepEqual(by.category_post_args[0].args, ['name', 'parent']);
+  assert.deepEqual(by.variable_sample.items[0].variations, [{ sku: 'IBTARBE0999', attributes: [{ id: 1, name: 'Color', option: 'Beige' }] }]);
+  assert.equal(by.variable_sample.items[0].attributes[0].options, 2);
+  assert.deepEqual(by.variation_post_args[0].args, ['attributes', 'sku']);
+  assert.deepEqual(by.media_route[1].args, ['alt_text', 'title']);
+  assert.ok(calls.every((c) => c.method === 'GET' || c.method === 'OPTIONS'));
+  assert.ok(calls.filter((c) => c.path.startsWith('wp/')).every((c) => !c.auth), 'no WC header on WordPress paths');
+});

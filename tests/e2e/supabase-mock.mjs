@@ -46,13 +46,13 @@ export const USERS = [
   { id: '00000000-0000-4000-8000-000000000005', member_code: 'M05', name: 'هدى سمير', email: 'vf.dev@ibtekr.local', phone: '01000000005', role_id: 'vendors_followup', title: 'متابعة الموردين', dept: 'العمليات', manager_id: ADMIN, status: 'active', twofa: false, custom_perms: {}, created_at: T0 },
   { id: '00000000-0000-4000-8000-000000000099', member_code: 'M99', name: 'مشاهد تجريبي', email: 'viewer.dev@ibtekr.local', phone: '01000000099', role_id: 'viewer', title: 'مشاهد', dept: 'الإدارة', manager_id: ADMIN, status: 'suspended', twofa: false, custom_perms: {}, created_at: T0 },
 ];
-// permissions: the keys the emulated tables read, as in 0003_seed_roles.sql
+// permissions: the keys the emulated tables read, as in 0003_seed_roles.sql (+ 0021: products.view / edit / trash)
 const ROLES = [
   { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'settings.view': 'F', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'F', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'F', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'F' }, sort: 1 },
-  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
-  { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'accounts.view': 'F', 'accounts.add': 'F', 'accounts.approve': 'P', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
-  { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
-  { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
+  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'F', 'products.trash': 'N', 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
+  { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'F', 'accounts.add': 'F', 'accounts.approve': 'P', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
+  { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
+  { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
 ];
 const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts, status_map), 0006_dashboard.sql (user_prefs,
   // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw),
@@ -74,7 +74,10 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   woo_categories: ['id', 'name', 'slug', 'parent_id', 'updated_at'], // 0014: the sync's, vendors.view
   vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at', 'account_number', 'account_type', 'bank_address', 'routing_number', 'swift'], // 0017: + Dokan's bank fields
   vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'status', 'must_change', 'invite_sent_at', 'password_set_at', 'secret_id', 'created_by', 'created_at', 'updated_at'], // 0012 (plan 3.1): secret_id is never granted to the client; created_by is the member's name
-  products: ['id', 'sku', 'name', 'image_url', 'permalink', 'vendor_id', 'price', 'status', 'raw', 'updated_at'],
+  products: ['id', 'sku', 'name', 'image_url', 'permalink', 'vendor_id', 'price', 'status', 'raw', 'updated_at',
+    'lang', 'translation_ids', 'type', 'regular_price', 'sale_price', 'stock_quantity', 'stock_status', 'manage_stock', 'backorders', 'low_stock_amount',
+    'total_sales', 'category_ids', 'brand_ids', 'image_count', 'weight', 'featured', 'desc_filled', 'short_desc_filled', 'woo_modified_at', 'trashed_at'], // 0021 (phase 5)
+  woo_brands: ['id', 'name', 'slug', 'parent_id', 'updated_at'], // 0021: the site's brands (products.view or vendors.view)
   status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
   woo_states: ['code', 'name', 'updated_at'],
   brands: ['id', 'name', 'code', 'aliases', 'store_vendor_id', 'origin_vendor_id', 'created_by', 'created_at', 'updated_at'], // 0013 (phase 3.2): the select grants are table-level
@@ -107,13 +110,16 @@ function readSelect(table, select) {
 const NOT_FILTERS = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'columns']);
 // the in.(…) filters the app sends: alerts.js asks the marks of the loaded alert ids; orders.js the lines / sub-orders of the
 // loaded orders, the images / permalinks of their skus and (Realtime) the names of makers it does not know yet
-const IN_FILTERS = { alert_reads: ['alert_id'], order_items: ['order_id'], sub_orders: ['order_id'], products: ['sku'], vendors: ['id'] };
+const IN_FILTERS = { alert_reads: ['alert_id'], order_items: ['order_id'], sub_orders: ['order_id'], products: ['sku', 'id'], vendors: ['id'] };
+// products.js (phase 5): the records are the rows that are not Arabic — or=(lang.is.null,lang.neq.ar) is the one `or` it sends
+const OR_FILTERS = { products: { '(lang.is.null,lang.neq.ar)': (r) => r.lang == null || r.lang !== 'ar' } };
 const GTE_FILTERS = { orders_v: ['placed_at'] }; // orders.js: the last 12 months
 // the horizontal filters of a PostgREST request (eq. everywhere; in.(a,b) on IN_FILTERS, gte. on GTE_FILTERS only) → { match(row) } | { bad: 'param=value' }
 function readFilters(params, table) {
   const f = [...params].filter(([k]) => !NOT_FILTERS.has(k));
-  const bad = f.find(([k, v]) => !v.startsWith('eq.') && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)) && !((GTE_FILTERS[table] || []).includes(k) && v.startsWith('gte.')));
+  const bad = f.find(([k, v]) => !(k === 'or' && (OR_FILTERS[table] || {})[v]) && !v.startsWith('eq.') && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)) && !((GTE_FILTERS[table] || []).includes(k) && v.startsWith('gte.')));
   const one = ([k, v]) => {
+    if (k === 'or') return OR_FILTERS[table][v];
     if (v.startsWith('eq.')) return (r) => String(r[k]) === v.slice(3);
     if (v.startsWith('gte.')) { const t = Date.parse(v.slice(4)); return (r) => Date.parse(r[k]) >= t; }
     const set = v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1')); return (r) => set.includes(String(r[k]));
@@ -162,7 +168,10 @@ function ordersSeed(opts = {}) {
   const vendor = (n, woo, name, status = 'active', more = {}) => ({ id: VND(n), woo_vendor_id: woo, name, aliases: [], phone: null, email: null, status, commission_pct: null, raw: { id: woo, shop_url: SITE + '/store/' + name.toLowerCase().replace(/\s+/g, '-') + '/' }, created_at: T0, updated_at: T0,
     legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: '2026-03-01', contract: null, opening_balance: 0,
     contact_name: null, address_parts: null, social: null, logo_url: null, banner_url: null, woo_payment_methods: null, woo_snapshot: null, push_pending: null, woo_synced_at: null, ...more }); // 0014 (phase 3.3)
-  const product = (id, sku, name, image_url, v, slug) => ({ id, sku, name, image_url, permalink: SITE + '/product/' + slug + '/', vendor_id: VND(v), price: null, status: 'publish', raw: { id }, updated_at: T0 });
+  // 0021 (phase 5): the mirror columns — English rows (lang en) by default; extra: a translation, a trash row, another status
+  const product = (id, sku, name, image_url, v, slug, extra = {}) => ({ id, sku, name, image_url, permalink: SITE + '/product/' + slug + '/', vendor_id: VND(v), price: null, status: 'publish', raw: { id }, updated_at: T0,
+    lang: 'en', translation_ids: { en: id }, type: 'simple', regular_price: 1500, sale_price: 1200, stock_quantity: 8, stock_status: 'instock', manage_stock: true, backorders: 'no', low_stock_amount: 2,
+    total_sales: 5, category_ids: [151], brand_ids: [3], image_count: 3, weight: '1', featured: false, desc_filled: true, short_desc_filled: true, woo_modified_at: T0, trashed_at: null, ...extra });
   const order = (o) => ({ number: String(o.id), customer_state: null, customer_city: null, customer_address: null, payment_method: 'cod', payment_title: 'الدفع عند الاستلام', confirm: 'غير مؤكد', confirm_at: null, confirm_note: null, deposit: 0, currency: 'EGP', note: null, customer_note: null, cancel: null, ret: null, raw: { id: o.id }, woo_updated_at: o.placed_at, synced_at: o.placed_at, created_at: o.placed_at, updated_at: o.placed_at, ...o });
   const sub = (id, order_id, v, woo_order_id, woo_status, total) => ({ id, order_id, vendor_id: VND(v), woo_order_id, woo_status, total, dokan_earning: null, commission: null, raw: { id: woo_order_id }, updated_at: T0 });
   const line = (o) => ({ sub_order_id: null, product_id: null, qty: 1, status: '', expected_at: null, comment: null, ready_at: null, waybill: null, pulled: false, ret: null, store: null, removed: false, commission_rate: null, commission_fee: null, raw: { id: o.id }, updated_at: T0, ...o, vendor_id: VND(o.vendor_id) });
@@ -189,8 +198,14 @@ function ordersSeed(opts = {}) {
       { vendor_id: VND(3), username: 'bian.eg', email: 'bian.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 }], // bian.eg: a row whose password step was refused (no password yet)
     vault: new Map([[SECRET_ID, TEST_PW]]), // vault.secrets: id → the decrypted secret (never read by the client)
     objects: new Map([[CONTRACT_PATH, { type: 'application/pdf', bytes: CONTRACT_BYTES }]]), // the bucket vendor-contracts
-    products: [product(9001, 'IBTA4040PAHC000013', 'Cushion', IMG.cushion, 1, 'cushion'), product(9002, 'IBTAMCTOWM200X10014', 'Macrame Curtain', IMG.curtain, 2, 'macrame-curtain'),
-      product(9003, 'IBTB0CSW6RFTM', 'Macrame Feathers', null, 2, 'macrame-feathers'), product(9004, 'IBTK20035BBLM000003214', 'Boho mirror', IMG.cushion, 3, 'boho-mirror')],
+    products: [product(9001, 'IBTA4040PAHC000013', 'Cushion', IMG.cushion, 1, 'cushion', { translation_ids: { en: 9001, ar: 9101 }, total_sales: 40 }),
+      product(9002, 'IBTAMCTOWM200X10014', 'Macrame Curtain', IMG.curtain, 2, 'macrame-curtain', { type: 'variable', manage_stock: false, stock_quantity: null, stock_status: 'onbackorder', total_sales: 12, brand_ids: [4], category_ids: [22] }),
+      product(9003, 'IBTB0CSW6RFTM', 'Macrame Feathers', null, 2, 'macrame-feathers', { status: 'draft', stock_quantity: 0, weight: null, image_count: 0, total_sales: 0, brand_ids: [4] }),
+      product(9004, 'IBTK20035BBLM000003214', 'Boho mirror', IMG.cushion, 3, 'boho-mirror', { status: 'pending', stock_quantity: 1, total_sales: 2 }),
+      product(9101, 'IBTA4040PAHC000013', 'كيس مخدة', IMG.cushion, 1, 'cushion-ar', { lang: 'ar', translation_ids: { en: 9001, ar: 9101 } }),
+      product(9005, 'IBTOLDTRAY01', 'Old Tray', null, 1, 'old-tray', { status: 'trash', trashed_at: ago(4) })],
+    // the site's WooCommerce Brands (0021)
+    wooBrands: [{ id: 3, name: 'Art Craft', slug: 'art-craft', parent_id: null, updated_at: T0 }, { id: 4, name: 'Antikiano', slug: 'antikiano', parent_id: null, updated_at: T0 }],
     orders: [
       order({ id: 181668, customer_name: 'سلوى زيتوني', customer_phone: '01200007052', customer_state: 'EG-01', customer_city: 'مدينة نصر', customer_address: 'شارع عباس العقاد', status: 'جاري التنفيذ', woo_status: 'processing', total: 3541, customer_note: 'اتصلوا قبل التوصيل\nالدور التالت\nالشقة 12', placed_at: ago(6) }),
       order({ id: 180686, customer_name: 'هدير عميل', customer_phone: '01000007030', status: 'جاري التنفيذ', woo_status: 'processing', confirm: 'مؤكد بدون عربون', confirm_at: ago(5).slice(0, 10), total: 1002, placed_at: ago(8) }),
@@ -663,7 +678,7 @@ export async function installSupabaseMock(page, opts = {}) {
           if (t === 'vendor_logins' && asked.split(',').some((c) => c.trim() === '*' || c.trim() === 'secret_id')) return denied('permission denied for table vendor_logins'); // 0012: the select grant is a column list without secret_id
           const sel = readSelect(t, asked);
           if (sel.bad) return json(400, { code: '42703', details: null, hint: null, message: `column ${sel.bad} does not exist` });
-          const visible = t === 'vendors' || t === 'vendor_logins' || t === 'woo_categories' ? hasPerm(u, 'vendors.view') !== 'N' : F;
+          const visible = t === 'woo_categories' ? hasPerm(u, 'vendors.view') !== 'N' || hasPerm(u, 'products.view') !== 'N' : t === 'vendors' || t === 'vendor_logins' ? hasPerm(u, 'vendors.view') !== 'N' : F;
           return json(200, pageOf(visible ? rows().filter(f.match) : [], url.searchParams).map(sel.pick));
         }
         if (t !== 'vendors' && !F) return denied(`new row violates row-level security policy for table "${t}"`);
@@ -807,8 +822,8 @@ export async function installSupabaseMock(page, opts = {}) {
         for (const r of target) { Object.assign(r, b, { updated_at: now }); mock.brandWrites.push({ table: 'brands', op: 'update', id: r.id, ...b }); }
         return empty(204);
       }
-      const ot = /^\/rest\/v1\/(orders|orders_v|order_items|sub_orders|products|status_map|woo_states)$/.exec(path);
-      const OT_METHODS = { orders: ['PATCH'], orders_v: ['GET'], order_items: ['GET', 'PATCH'], sub_orders: ['GET'], products: ['GET'], status_map: ['GET'], woo_states: ['GET'] };
+      const ot = /^\/rest\/v1\/(orders|orders_v|order_items|sub_orders|products|status_map|woo_states|woo_brands)$/.exec(path);
+      const OT_METHODS = { orders: ['PATCH'], orders_v: ['GET'], order_items: ['GET', 'PATCH'], sub_orders: ['GET'], products: ['GET'], status_map: ['GET'], woo_states: ['GET'], woo_brands: ['GET'] };
       if (ot && OT_METHODS[ot[1]].includes(method)) {
         const t = ot[1]; const f = readFilters(url.searchParams, t);
         const denied = (message) => json(403, { code: '42501', details: null, hint: null, message });
@@ -820,8 +835,10 @@ export async function installSupabaseMock(page, opts = {}) {
           const sel = readSelect(t, asked);
           if (sel.bad) return graded && sel.bad === t + '.raw' ? denied('permission denied for table ' + t) : json(400, { code: '42703', details: null, hint: null, message: `column ${sel.bad} does not exist` });
           // RLS (0007, 0002 status_map, 0010 woo_states): woo_states for any signed-in member, every other table with orders.view
-          const visible = t === 'woo_states' || hasPerm(u, 'orders.view') !== 'N';
-          const rows = t === 'orders_v' ? mock.orders.map((o) => viewRow(u, o)) : t === 'order_items' ? mock.orderItems : t === 'sub_orders' ? mock.subOrders : t === 'products' ? mock.products : t === 'woo_states' ? mock.wooStates : mock.statusMap;
+          // 0021: products with orders.view or products.view; woo_brands with products.view or vendors.view
+          const visible = t === 'woo_states' || (t === 'products' ? hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N'
+            : t === 'woo_brands' ? hasPerm(u, 'products.view') !== 'N' || hasPerm(u, 'vendors.view') !== 'N' : hasPerm(u, 'orders.view') !== 'N');
+          const rows = t === 'orders_v' ? mock.orders.map((o) => viewRow(u, o)) : t === 'order_items' ? mock.orderItems : t === 'sub_orders' ? mock.subOrders : t === 'products' ? mock.products : t === 'woo_states' ? mock.wooStates : t === 'woo_brands' ? mock.wooBrands : mock.statusMap;
           return json(200, pageOf(visible ? rows.filter(f.match) : [], url.searchParams).map(sel.pick));
         }
         // PATCH: one row named by id=eq.… (else 400, like Supabase's safeupdate guard for an UPDATE without WHERE); update grants
@@ -895,7 +912,46 @@ export async function installSupabaseMock(page, opts = {}) {
       const mayPushVendor = () => isAdmin(u) || ((!bankAsked() || hasPerm(u, 'sensitive.vendor_bank') === 'F')
         && (storeAsked().length === 0 ? bankAsked() : (hasPerm(u, 'vendors.edit') === 'F' || (hasPerm(u, 'vendors.edit') === 'P' && storeAsked().every((f) => CONTACT_PUSH.includes(f)))))
         && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
+        : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'products_batch' ? hasPerm(u, 'products.edit') === 'F'
+          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : isAdmin(u))) return json(401, { error: 'unauthorized' });
+      // phase 5: the product actions — productWrites records each write call ({ action, by, ...body }); mock.pushEnabled gates them;
+      // the mirror rows follow what was written (prices as numbers, the trash / draft status)
+      if (action === 'product_get') {
+        const p = mock.products.find((x) => x.id === Number(b.id));
+        if (!p) return json(502, { error: 'woo_error' });
+        if (mock.wooDown) return json(502, { error: 'woo_error' });
+        const ar = p.translation_ids && p.translation_ids.ar ? mock.products.find((x) => x.id === p.translation_ids.ar) : null;
+        const term = (list, ids) => (ids || []).map((id) => ({ id, name: (list.find((x) => x.id === id) || {}).name || '' }));
+        const str = (v) => (v == null ? '' : String(v));
+        return json(200, { action, product: { id: p.id, name: p.name, sku: p.sku || '', status: p.status, type: p.type, lang: p.lang, translations: p.translation_ids || {}, permalink: p.permalink || '',
+          regular_price: str(p.regular_price), sale_price: str(p.sale_price), price: str(p.sale_price ?? p.price), manage_stock: !!p.manage_stock, stock_quantity: p.stock_quantity, stock_status: p.stock_status, backorders: p.backorders,
+          low_stock_amount: p.low_stock_amount, total_sales: p.total_sales, weight: p.weight || '', featured: !!p.featured, categories: term(mock.wooCategories, p.category_ids), brands: term(mock.wooBrands, p.brand_ids),
+          images: Array.from({ length: p.image_count || 0 }, (_, i) => ({ id: 100 + i, src: p.image_url || '', name: 'img-' + i })), short_description: p.short_desc_filled ? 'وصف قصير' : '', description: p.desc_filled ? '<p>وصف</p>' : '', modified: p.woo_modified_at, store: { id: 44, shop_name: 'Store' } },
+          ar: ar ? { id: ar.id, name: ar.name, short_description: '', description: '' } : null,
+          variations: p.type === 'variable' ? [{ id: 9901, sku: p.sku + '-R', attributes: [{ name: 'Color', option: 'Red' }], regular_price: '900', sale_price: '', price: '900', manage_stock: true, stock_quantity: 2, stock_status: 'instock', backorders: 'no', image: '' }] : [] });
+      }
+      if (action === 'product_save' || action === 'products_batch' || action === 'products_trash' || action === 'products_restore') {
+        mock.productWrites = mock.productWrites || [];
+        mock.productWrites.push({ action, by: u.email, ...b });
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        if (mock.wooDown) return json(502, { error: 'woo_error' });
+        const NUMS = ['regular_price', 'sale_price']; const apply = (p, f) => { for (const [k, v] of Object.entries(f || {})) { if (k === 'categories') p.category_ids = v.map(Number); else if (k === 'brands') p.brand_ids = v.map(Number); else if (k === 'images') p.image_count = v.length; else if (NUMS.includes(k)) p[k] = v === '' ? null : Number(v); else p[k] = v; } };
+        const withAr = (id) => { const p = mock.products.find((x) => x.id === Number(id)); const ar = p && p.translation_ids && p.translation_ids.ar ? mock.products.find((x) => x.id === p.translation_ids.ar) : null; return [p, ar]; };
+        if (action === 'product_save') {
+          const [p, ar] = withAr(b.id); if (!p) return json(502, { error: 'woo_error' });
+          if (b.ar && Object.keys(b.ar).length && !ar) return json(409, { error: 'no_translation' });
+          apply(p, b.fields); if (ar) apply(ar, Object.assign({}, b.ar || {}));
+          return json(200, { action, result: 'ok', counts: { saved: ar ? 2 : 1, variations: (b.variations || []).length, variations_failed: 0 } });
+        }
+        if (action === 'products_batch') {
+          const ids = (b.update || []).map((x) => Number(x.id));
+          for (const it of b.update || []) { const [p] = withAr(it.id); if (p) { const { id: _i, ...rest } = it; apply(p, rest); } }
+          return json(200, { action, result: 'ok', counts: { updated: ids.length, failed: 0, translations: 0 }, failed_ids: [] });
+        }
+        for (const id of b.ids || []) { const [p, ar] = withAr(id); for (const x of [p, ar].filter(Boolean)) { x.status = action === 'products_trash' ? 'trash' : 'draft'; x.trashed_at = action === 'products_trash' ? new Date().toISOString() : null; } }
+        return json(200, { action, result: 'ok', counts: { done: (b.ids || []).length, failed: 0 }, failed_ids: [] });
+      }
       // phase 4.1 decision 12: «تحديث من Dokan» — mock.dokanNewRequests (a spec may seed them) join the mirror now
       if (action === 'withdrawals') {
         mock.refreshes = (mock.refreshes || 0) + 1;

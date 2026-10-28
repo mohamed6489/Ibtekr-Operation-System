@@ -37,6 +37,7 @@
     const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity, Or = window.IBOrders, V = window.IBVendors, Ac = window.IBAccounts;
     if (P) quiet(() => P.clear());
     if (Ac) quiet(() => Ac.clear());
+    if (window.IBProducts) quiet(() => window.IBProducts.clear()); // phase 5: loaded by the products page, forgotten here
     if (A) { quiet(() => A.unsubscribe()); quiet(() => A.clear()); }
     if (L && L.clear) quiet(() => L.clear());
     if (Or) quiet(() => Or.clear()); // unsubscribes too

@@ -23,3 +23,11 @@
   Magic gift shop (35%) → 17,500 × 35% = 6,125 زي العمود بالظبط؛ 5 من أحدث 100 منتج عليهم `_per_product_admin_commission`.
 - commits 4b5b999 (DB/sync)، ccd14b8 (الواجهة)؛ unit 287، e2e 163، Deno 117، rls_products محلي ok.
 - الحي: `apply_migration` اتقطع (سؤال تأكيد من الأداة ماتردش عليه) — مستني صاحب المشروع.
+
+## عمولة المنتج من Dokan نفسه (صاحب المشروع، 28 أكتوبر: «فيه مكان ثابت على الموقع بيديك عمولتي وعمولة المبتكر»)
+- `PROBE=earning` (staging-probe): `dokan/v1/commission` موجود (route index)، ومن غير دخول `rest_forbidden` 401. واتصلّح الفحص:
+  مسارات `dokan/` من غير مفتاح WC (كان كل `dokan/` بيرجع 401 invalid_username). commits a8413ed و7ab610a، والإضافة 0642a30.
+- woo-sync `probe_dokan { earning: { product_id, amount } }` (أدمن / سر المزامنة، GET، أرقام بس) — في الريبو بتست Deno، واتنشر
+  **v25 = v24 المنشورة + الإضافة دي بس** (من غير شغل المرحلة 5 اللي محتاج `0021`)؛ الملفات المنشورة اتقارنت بالمحلية: متطابقة.
+- النتيجة: «Woven Floor Lamp – 5 Units» (181905، والـ variation 181912) بسعر 17,500 → seller **11,375** / admin **6,125** —
+  نفس حسبتنا بالظبط (35%). الـ cron بعد النشر ok.

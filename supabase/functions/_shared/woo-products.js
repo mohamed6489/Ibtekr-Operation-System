@@ -38,10 +38,12 @@ const price = (v) => {
 const int = (v, max) => (Number.isInteger(v) && v >= 0 && v <= max ? v : typeof v === 'string' && /^\s*\d+\s*$/.test(v) && Number(v) <= max ? Number(v) : undefined);
 const ids = (v, max) => (Array.isArray(v) && v.length <= max && v.every((x) => posId(x) !== null) ? [...new Set(v.map(posId))].map((id) => ({ id })) : undefined);
 const text = (v, max) => (typeof v === 'string' && v.length <= max && safeHtml(v) ? v : undefined);
-// Rank Math expands %var% / %var(arg)% in the title and description on the public page, and some read any post meta
-// (%customfield(_wc_cog_cost)%): only these plain variables pass; any other %…% with no space inside refuses the text.
+// Rank Math expands %var% / %var(arg)% in the title and description on the public page (the argument may hold spaces),
+// and some read any post meta (%customfield(_wc_cog_cost)%): with these exact variables taken out, every `%` left must be
+// followed by a space or end the text («20% off» passes; %anything_else…, %customfield( x)% and 20%off are refused).
 export const SEO_VARS = ['title', 'sep', 'sitename', 'sitedesc', 'excerpt', 'primary_category', 'category', 'wc_price', 'wc_sku', 'wc_brand', 'currentyear', 'currentmonth'];
-export const seoVarsOk = (v) => [...v.matchAll(/%([^\s%]+)%/g)].every((m) => SEO_VARS.includes(m[1]));
+const SEO_VAR_RE = new RegExp(`%(?:${SEO_VARS.join('|')})%`, 'g');
+export const seoVarsOk = (v) => !/%\S/.test(v.replace(SEO_VAR_RE, ' '));
 const plain = (v, max) => (typeof v === 'string' && v.trim().length <= max && !/[<>]/.test(v) ? v.trim() : undefined);
 const seo = (v, max) => { const out = plain(v, max); return out !== undefined && seoVarsOk(out) ? out : undefined; };
 

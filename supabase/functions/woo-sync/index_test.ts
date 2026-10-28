@@ -633,7 +633,8 @@ Deno.test('SEO (phase 5.1): product_get reads the two Rank Math keys only; produ
   assertEquals([g.body.product.seo_title, g.body.product.seo_description, g.body.ar.seo_title, g.body.ar.seo_description], ['Lamp | Ibtekr', 'A lamp', 'لمبة', '']);
   for (const secret of ['secret-kw', '999']) assertFalse(JSON.stringify(g.body).includes(secret), secret);
   for (const [fields, field] of [[{ seo_title: '<b>x</b>' }, 'seo_title'], [{ seo_description: 'x'.repeat(501) }, 'seo_description'],
-    [{ seo_title: '%customfield(_wc_cog_cost)%' }, 'seo_title'], [{ seo_description: 'Lamp %post_author%' }, 'seo_description'], [{ seo_title: '%title%%cf_x%' }, 'seo_title']] as const) {
+    [{ seo_title: '%customfield(_wc_cog_cost)%' }, 'seo_title'], [{ seo_description: 'Lamp %post_author%' }, 'seo_description'], [{ seo_title: '%title%%cf_x%' }, 'seo_title'],
+    [{ seo_title: '%customfield( _wc_cog_cost)%' }, 'seo_title'], [{ seo_title: 'x %customfield(_wc_cog_cost )%' }, 'seo_title'], [{ seo_description: '20%off' }, 'seo_description']] as const) {
     assertEquals((await call(deps, { action: 'product_save', id: 501, fields }, { jwt: 'jwt-pedit' })).body.field, field);
   }
   const r = await call(deps, { action: 'product_save', id: 501, fields: { seo_title: ' %title% %sep% %sitename% — 20% off ', seo_description: '' }, ar: { seo_title: 'لمبة — إبتكر' } }, { jwt: 'jwt-pedit' });

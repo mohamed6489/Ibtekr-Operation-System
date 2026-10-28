@@ -21,3 +21,5 @@
 - [x] حي: `0020` اتطبق (migration `accounts_fields`)؛ `rls_accounts rls_accounts_lists` حي run 13 success؛
   woo-sync v23 (طلب من غير صلاحية → 401).
 - [ ] قبول الموافقة على طلب حقيقي على الـ staging — مستني صاحب المشروع (الطلب بيتوافق عليه فعلًا).
+- [x] قرار 12 «تحديث من Dokan» (woo-sync action `withdrawals`) + قرار 13 فلتر طلبات السحب — commits 834e4db، fb4c9a3؛
+  Deno 108، unit 273، e2e 152 (accounts 14)، lock؛ woo-sync v24.

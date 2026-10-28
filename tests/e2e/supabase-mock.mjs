@@ -19,6 +19,7 @@
 // vendors_brands_guard_delete (23503 naming brand_owners_vendor_id_fkey) and the cascade of the origin's brands). Not a product feature.
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
+import { buildStudio } from '../../supabase/functions/_shared/woo-studio.js';
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
 export const LIVE = process.env.E2E_SUPABASE_LIVE === '1';
 const LIVE_URL = process.env.E2E_SUPABASE_URL || ''; const LIVE_KEY = process.env.E2E_SUPABASE_ANON_KEY || '';
@@ -49,7 +50,7 @@ export const USERS = [
 // permissions: the keys the emulated tables read, as in 0003_seed_roles.sql (+ 0021: products.view / edit / trash)
 const ROLES = [
   { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'settings.view': 'F', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'F', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'F', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'F' }, sort: 1 },
-  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'F', 'products.bulk': 'F', 'products.trash': 'N', 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
+  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'F', 'products.bulk': 'F', 'products.trash': 'N', 'products.add': 'F', 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
   { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'F', 'accounts.add': 'F', 'accounts.approve': 'P', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
   { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
   { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
@@ -150,6 +151,8 @@ export const CONTRACT_PATH = 'a0000000-0000-4000-8000-000000000002/1700000000000
 const SECRET_ID = 'c0000000-0000-4000-8000-000000000001'; // the vault id of Antikiano's temporary password
 export const CONTRACT_BYTES = Buffer.from('%PDF-1.4\n% mock contract of Antikiano\n%%EOF\n');
 export const SITE = 'https://ibtekr.stage.test';
+// a 1×1 PNG for the studio's thumbnails (signed URLs of the bucket studio)
+const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 export const IMG = { cushion: 'data:image/gif;base64,R0lGODlhAQABAIAAAP///wAAACH5BAEAAAAALAAAAAABAAEAAAICRAEAOw==', curtain: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNkYAAAAAYAAjCB0C8AAAAASUVORK5CYII=' };
 const VND = (n) => 'a0000000-0000-4000-8000-00000000000' + n;
 // phase 3.3 (0014): Art Craft's synced store data (no real person: a made-up owner name, a made-up address, links on the fake staging host)
@@ -288,7 +291,9 @@ export async function installSupabaseMock(page, opts = {}) {
   // aal2_required whatever the token (a server that does not take the flag).
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
-  const mock = { profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
+  const mock = { studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [],
+    skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
+    profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [] };
   // phase 3.3: vendorCategoryRates / wooCategories: the 0014 tables (ordersSeed()); vendorPushes: each woo-sync push_vendor as { vendor_id, fields, by, result, reason? }
   // (the body names the fields only — the mock reads the row like the server); pushEnabled: WOO_PUSH_ENABLED on the server (false → skipped/push_disabled,
@@ -346,6 +351,9 @@ export async function installSupabaseMock(page, opts = {}) {
     if (method === 'OPTIONS') return empty(204);
     if (mock.logouts > 0) mock.afterLogout += 1;
     mock.requests.push(method + ' ' + path);
+    // phase 5.2: a signed URL of the bucket studio (a thumbnail) — any token the mock signed opens the object
+    const sgs = /^\/storage\/v1\/object\/sign\/studio\/(.+)$/.exec(path);
+    if (method === 'GET' && sgs) { const obj = mock.studioObjects.get(decodeURIComponent(sgs[1])); return obj ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
     // a signed URL of vendor-contracts is opened with no api key (a new tab, an <a>): its token alone opens the object
     const sg = /^\/storage\/v1\/object\/sign\/vendor-contracts\/(.+)$/.exec(path);
     if (method === 'GET' && sg) {
@@ -486,6 +494,33 @@ export async function installSupabaseMock(page, opts = {}) {
         for (const ls of groups.values()) out.push(row(ls[0].v, ls[0].g, ls, false));
         for (const g of ['completed', 'in_progress', 'cancelled']) { const ls = lines.filter((x) => x.g === g); if (ls.length) out.push(row(null, g, ls, true)); }
         return json(200, out);
+      }
+      // phase 5.2 (0023): studio_batches (products.add = F: select / insert / update of the granted columns, no delete), sku_colors
+      // (read products.view <> N, insert products.add = F; 23505 on a taken code / name), sku_serial + sku_serial_take
+      const sb = /^\/rest\/v1\/(studio_batches|sku_colors|sku_serial)$/.exec(path);
+      if (sb) {
+        const t = sb[1]; const add = isAdmin(u) || hasPerm(u, 'products.add') === 'F'; const single = /vnd\.pgrst\.object\+json/.test(hd.accept || '');
+        const idEq = (url.searchParams.get('id') || '').replace(/^eq\./, '');
+        if (t === 'sku_serial') return json(200, hasPerm(u, 'products.view') === 'N' ? [] : [{ next: mock.skuSerial }]);
+        if (t === 'sku_colors') {
+          if (method === 'GET') return json(200, hasPerm(u, 'products.view') === 'N' ? [] : mock.skuColors.slice().sort((a, c) => a.name_en.localeCompare(c.name_en)));
+          if (!add) return json(403, { code: '42501', details: null, hint: null, message: 'new row violates row-level security policy for table "sku_colors"' });
+          const r = body(); if (mock.skuColors.some((c) => c.code === r.code || c.name_en.toLowerCase() === String(r.name_en).toLowerCase())) return json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "sku_colors_code_key"' });
+          const row = { id: mock.skuColors.length + 100, name_en: r.name_en, name_ar: r.name_ar, code: r.code, hex: r.hex || null }; mock.skuColors.push(row);
+          return json(201, single ? row : [row]);
+        }
+        if (!add) return method === 'GET' ? json(200, []) : json(403, { code: '42501', details: null, hint: null, message: 'new row violates row-level security policy for table "studio_batches"' });
+        if (method === 'GET') { const rows = mock.studioBatches.filter((x) => (idEq ? x.id === idEq : !x.archived_at)); return json(200, single ? rows[0] || null : rows.map((x) => ({ ...x }))); }
+        const b = body(); const GRANT = ['title', 'brand_id', 'vendor_id', 'type', 'state', 'step', 'archived_at'];
+        if (Object.keys(b).some((k) => !GRANT.includes(k))) return json(403, { code: '42501', details: null, hint: null, message: 'permission denied for table studio_batches' });
+        if (method === 'POST') { mock.studioSeq += 1; const row = { id: '0b6f2f5e-1d2c-4a8b-9e3f-' + String(mock.studioSeq).padStart(12, '0'), title: b.title, brand_id: b.brand_id || null, vendor_id: b.vendor_id || null, type: b.type || 'Simple', state: b.state || {}, step: b.step || 1, status: 'draft', result: null, updated_at: new Date().toISOString(), archived_at: null };
+          mock.studioBatches.unshift(row); mock.studioWrites.push({ op: 'insert', id: row.id, step: row.step }); return json(201, single ? row : [row]); }
+        if (method === 'PATCH') { const row = mock.studioBatches.find((x) => x.id === idEq); if (!row) return json(200, single ? null : []); Object.assign(row, b, { updated_at: new Date().toISOString() }); mock.studioWrites.push({ op: 'update', id: row.id, step: row.step, keys: Object.keys(b) }); return json(200, single ? { ...row } : [{ ...row }]); }
+      }
+      if (method === 'POST' && path === '/rest/v1/rpc/sku_serial_take') {
+        const n = Number(body().n); if (!(isAdmin(u) || hasPerm(u, 'products.add') === 'F')) return json(403, { code: '42501', details: null, hint: null, message: 'products.add is needed' });
+        if (!(n >= 1 && n <= 200)) return json(400, { code: '22023', details: null, hint: null, message: 'n is 1..200' });
+        const first = mock.skuSerial; mock.skuSerial += n; mock.serialTakes.push(n); return json(200, first);
       }
       // products_report (0022, decision 20): the products page's reports tab — totals only, products.view <> N; an Arabic line counts under its English product
       if (method === 'POST' && path === '/rest/v1/rpc/products_report') {
@@ -895,6 +930,17 @@ export async function installSupabaseMock(page, opts = {}) {
         return empty(204).catch(() => {}); // the page may be gone after a long delay
       }
     }
+    // Storage, bucket studio (0023, phase 5.2): private, products.add = F; upload (WebP), a signed URL, remove
+    const sst = /^\/storage\/v1\/object\/(sign\/)?studio(?:\/(.+))?$/.exec(path);
+    if (sst && (method === 'POST' || method === 'DELETE')) {
+      const u = tokenUser(); if (!u) return json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' });
+      const may = isAdmin(u) || hasPerm(u, 'products.add') === 'F';
+      if (sst[1]) { if (!may || !mock.studioObjects.has(sst[2])) return json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); n += 1; return json(200, { signedURL: '/object/sign/studio/' + sst[2] + '?token=st-' + n }); }
+      if (method === 'DELETE') { const b = body(); (b.prefixes || []).forEach((k) => mock.studioObjects.delete(k)); return json(200, []); }
+      if (!may) return json(403, { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' });
+      const bytes = req.postDataBuffer() || Buffer.alloc(0); mock.studioObjects.set(sst[2], { type: hd['content-type'] || '', size: bytes.length });
+      return json(200, { Key: 'studio/' + sst[2], Id: 'obj-st-' + mock.studioObjects.size });
+    }
     // Storage, bucket vendor-contracts (0011): private, 10 MB, PDF / PNG / JPEG; select / insert for sensitive.vendor_bank = F,
     // no delete. The mock also holds the bucket's layout (<vendor uuid>/<unix ms>-<safe name>, a known maker) and answers like
     // the Storage API: 403 without the permission, 400 on a bad key, 415 / 413 on the mime / size, 409 on an existing object.
@@ -941,7 +987,34 @@ export async function installSupabaseMock(page, opts = {}) {
         && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' ? hasPerm(u, 'products.edit') === 'F' : action === 'products_batch' ? hasPerm(u, 'products.bulk') === 'F'
-          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : isAdmin(u))) return json(401, { error: 'unauthorized' });
+          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
+      // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
+      // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one.
+      // category_create — a new woo_categories row (id 9500+).
+      if (action === 'studio_upload') {
+        const row = mock.studioBatches.find((x) => x.id === b.batch_id); const it = row && row.state && Array.isArray(row.state.items) ? row.state.items[b.index] : null;
+        if (!row || !it) return json(404, { error: 'no_item' });
+        const brand = mock.brands.find((x) => x.id === row.brand_id);
+        const built = buildStudio(it, { batchId: row.id, type: row.type, brand: brand ? brand.name : '', colors: Object.fromEntries(mock.skuColors.map((c) => [c.code, c.name_en])), attrs: { color: 12, size: 3, material: 15, style: 14, brand: 13 } });
+        if (built.error) return json(400, built);
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        const items = row.result && Array.isArray(row.result.items) ? row.result.items.slice() : [];
+        const fail = (mock.studioFail || {})[b.index];
+        let res;
+        if (fail) res = { sku: built.sku, error: fail, media: {} };
+        else { const prev = items[b.index]; const id = prev && prev.productId ? prev.productId : 7700 + mock.studioUploads.length;
+          if (!prev || !prev.productId) mock.products.push({ id, sku: built.sku, name: it.nameEn, image_url: null, permalink: SITE + '/product/studio-' + id + '/', vendor_id: row.vendor_id, price: null, status: 'draft', raw: { id }, updated_at: T0, lang: 'en', translation_ids: { en: id }, type: row.type === 'Variable' ? 'variable' : 'simple', regular_price: built.product.regular_price ? Number(built.product.regular_price) : null, sale_price: built.product.sale_price ? Number(built.product.sale_price) : null, stock_quantity: null, stock_status: 'instock', manage_stock: false, backorders: 'no', low_stock_amount: null, total_sales: 0, category_ids: it.categories, brand_ids: [], image_count: built.images.length, weight: it.weight || null, featured: false, desc_filled: false, short_desc_filled: !!it.shortDesc, woo_modified_at: T0, trashed_at: null });
+          res = { sku: built.sku, productId: id, arId: it.nameAr ? id + 1 : null, author: 'ok', variations: built.variations.length ? { done: built.variations.length, failed: 0 } : undefined, media: Object.fromEntries(built.images.map((p, k) => [p, 8800 + k])), error: null }; }
+        mock.studioUploads.push({ index: b.index, by: u.email, sku: built.sku, product: built.product, variations: built.variations.map((v) => v.payload), images: built.images, ar: built.ar, result: res.error || 'ok' });
+        while (items.length < b.index) items.push(null); items[b.index] = res;
+        row.result = { items }; row.status = row.state.items.every((_, i) => items[i] && items[i].productId && !items[i].error) ? 'done' : 'uploading';
+        return json(200, { action, result: res.error ? 'error' : 'ok', item: res });
+      }
+      if (action === 'category_create') {
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        const id = 9500 + mock.wooCategories.length; mock.wooCategories.push({ id, name: b.name_en, slug: 'c-' + id, parent_id: b.parent || null, updated_at: T0 }); mock.categoriesCreated.push({ ...b, by: u.email });
+        return json(200, { action, result: 'ok', id, ar_id: b.name_ar ? id + 1 : null });
+      }
       // phase 5: the product actions — productWrites records each write call ({ action, by, ...body }); mock.pushEnabled gates them;
       // the mirror rows follow what was written (prices as numbers, the trash / draft status)
       if (action === 'product_get') {

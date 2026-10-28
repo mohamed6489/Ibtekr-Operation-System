@@ -257,8 +257,35 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
       return [{ scanned: data.length, with_commission_meta: withMeta.length, keys }];
     }],
   ];
+  // PROBE=earning (phase 5, the owner: "the site has a fixed place that gives my commission and the maker's"): does Dokan
+  // answer a product's commission itself? Route names with commission / earning in dokan/v1..v3, then dokan/v1/commission
+  // for one product (PROBE_ID, else the newest) at its price, context seller (the maker's earning) and admin (ours) —
+  // numbers and shapes only — beside the product's commission meta and its store's rate (to compare with our formula).
+  const numOrShape = (v) => (typeof v === 'number' || (typeof v === 'string' && v.trim() !== '' && Number.isFinite(Number(v))) ? Number(v) : shapeOf(v));
+  const failOf = (e) => (e instanceof ProbeError ? { status: e.status, body: e.body } : 'error');
+  const earningSteps = [
+    [['earning_routes'], async () => {
+      const out = {};
+      for (const ns of ['dokan/v1', 'dokan/v2', 'dokan/v3']) {
+        try { const { data } = await get(ns); out[ns] = Object.keys(data?.routes ?? {}).filter((r) => /commission|earning/i.test(r)).sort(); } catch (e) { out[ns] = failOf(e); }
+      }
+      return [out];
+    }],
+    [['earning_product'], async () => {
+      const p = pid ? (await get('wc/v3/products/' + pid)).data : (await getList('wc/v3/products?per_page=1')).data[0];
+      const id = Number(p?.id);
+      const out = { id, type: p?.type, price: num(p?.price), store: p?.store?.id ?? null, meta: commMeta(p) };
+      if (out.store) { try { const st = (await get('dokan/v1/stores/' + Number(out.store))).data; out.store_commission = { type: st?.admin_commission_type ?? null, rate: st?.admin_commission ?? null, fee: st?.admin_additional_fee ?? null }; } catch (e) { out.store_commission = failOf(e); } }
+      let target = { id, price: out.price };
+      if (p?.type === 'variable') { const v = (await getList('wc/v3/products/' + id + '/variations?per_page=1')).data[0]; target = { id: Number(v?.id), price: num(v?.price) }; out.variation = target; }
+      for (const context of ['seller', 'admin']) {
+        try { out[context] = numOrShape((await get(`dokan/v1/commission?product_id=${target.id}&amount=${target.price ?? 0}&context=${context}`)).data); } catch (e) { out[context] = failOf(e); }
+      }
+      return [out];
+    }],
+  ];
   const mode = String(env.PROBE ?? '').trim();
-  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : steps;
+  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : mode === 'earning' ? earningSteps : steps;
 
   const print = (section, obj) => out(section + ' ' + JSON.stringify(redact(obj)));
   let failed = false;

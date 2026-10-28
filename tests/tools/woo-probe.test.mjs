@@ -294,3 +294,30 @@ test('PROBE=products: shapes, meta key names, schema names and totals only — n
   for (const secret of ['Secret Lamp', 'IBTK-SECRET', '777', 'secret.jpg', 'متجر سري', 'VAR-SECRET']) assert.ok(!text.includes(secret), secret);
   assert.ok(calls.every((m) => m === 'GET' || m === 'OPTIONS'));
 });
+
+test('PROBE=earning: commission / earning route names, dokan/v1/commission for one product (seller and admin) as numbers, the store rate — no name; GET only', async () => {
+  const calls = [];
+  const fetch = async (url, init) => {
+    calls.push(init.method);
+    const u = new URL(url); const path = u.pathname.slice(u.pathname.indexOf('/wp-json/') + 9);
+    if (path === 'dokan/v1') return json({ routes: { '/dokan/v1/commission': {}, '/dokan/v1/stores': {}, '/dokan/v1/reports/earning': {} } });
+    if (path === 'dokan/v2' || path === 'dokan/v3') return json({ code: 'rest_no_route' }, { status: 404 });
+    if (path === 'wc/v3/products') return json([{ id: 501, name: 'Secret Lamp', type: 'simple', price: '17500', store: { id: 44, shop_name: 'متجر سري' }, meta_data: [] }], { total: 1 });
+    if (path === 'dokan/v1/stores/44') return json({ store_name: 'متجر سري', admin_commission_type: 'fixed', admin_commission: '35', admin_additional_fee: '' });
+    if (path === 'dokan/v1/commission') {
+      assert.equal(u.searchParams.get('product_id'), '501'); assert.equal(u.searchParams.get('amount'), '17500');
+      return json(u.searchParams.get('context') === 'seller' ? '11375' : 6125);
+    }
+    return json({ code: 'rest_no_route' }, { status: 404 });
+  };
+  const out = [];
+  const code = await run({ env: { ...ENV, PROBE: 'earning' }, fetch, out: (s) => out.push(s), err: () => {} });
+  const by = Object.fromEntries(out.map((l) => [l.slice(0, l.indexOf(' ')), JSON.parse(l.slice(l.indexOf(' ') + 1))]));
+  assert.equal(code, 0);
+  assert.deepEqual(by.earning_routes['dokan/v1'], ['/dokan/v1/commission', '/dokan/v1/reports/earning']);
+  assert.equal(by.earning_routes['dokan/v2'].status, 404);
+  assert.deepEqual({ seller: by.earning_product.seller, admin: by.earning_product.admin, rate: by.earning_product.store_commission.rate }, { seller: 11375, admin: 6125, rate: '35' });
+  const text = out.join('\n');
+  for (const secret of ['Secret Lamp', 'متجر سري']) assert.ok(!text.includes(secret), secret);
+  assert.ok(calls.every((m) => m === 'GET'));
+});

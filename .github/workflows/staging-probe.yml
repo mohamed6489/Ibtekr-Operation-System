@@ -6,12 +6,12 @@ on:
   workflow_dispatch:
     inputs:
       probe:
-        description: 'orders (the phase 2 sections), products (phase 5: shapes, meta key names, schema, totals) or commission (the commission meta of a product and the rate of its store)'
+        description: 'orders (the phase 2 sections), products (phase 5: shapes, meta key names, schema, totals), commission (the commission meta of a product and the rate of its store) or earning (does Dokan answer a product commission / the maker earning itself)'
         type: choice
-        options: [orders, products, commission]
+        options: [orders, products, commission, earning]
         default: orders
       product_id:
-        description: 'probe=commission: the product id (empty = the newest)'
+        description: 'probe=commission / earning: the product id (empty = the newest)'
         required: false
         default: ''
 

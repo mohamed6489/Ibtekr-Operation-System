@@ -595,6 +595,14 @@ export function mapProduct(p, vendorsByWooId) {
   };
 }
 
+/** Dokan's per-product admin commission meta → { rate, type, fee } (null when not set on the product). */
+export function productCommission(p) {
+  const meta = new Map((isObj(p) && Array.isArray(p.meta_data) ? p.meta_data : []).filter(isObj).map((m) => [m.key, m.value]));
+  const rate = num(meta.get('_per_product_admin_commission'));
+  const type = str(meta.get('_per_product_admin_commission_type'));
+  return { rate, type: rate === null ? null : (/^[a-z_]{1,20}$/.test(type) ? type : 'percentage'), fee: rate === null ? null : num(meta.get('_per_product_admin_additional_fee')) };
+}
+
 // The phase 5 mirror columns (0021, plan decision 4): WPML language + translation ids, prices, stock, sales, categories,
 // brands, the number of images, weight and flags. Absent / malformed values are null (the edit page reads the images live).
 const intOrNull = (v) => { const n = num(v); return n === null ? null : Math.trunc(n); };
@@ -621,7 +629,11 @@ export async function writeProducts(ctx, wooProducts) {
   const mapped = await mapWithVendors(ctx, list, (p) => mapProduct(p, ctx.vendors));
   const rows = mapped.filter((m) => !m.skipped).map((m) => m.product);
   const { bad } = await save(ctx, 'products', rows, 'id');
-  return { written: rows.map((r) => r.id).filter((id) => !bad.has(String(id))), skipped: list.length - rows.length, failed: bad.size };
+  const written = rows.map((r) => r.id).filter((id) => !bad.has(String(id)));
+  // phase 5 (decision 12): the product's own Dokan commission, one row per written product (rate null = none)
+  const byId = new Map(list.map((p) => [wooId(p.id), p]));
+  if (written.length) await save(ctx, 'product_commissions', written.map((id) => ({ product_id: id, ...productCommission(byId.get(id)), updated_at: ctx.now() })), 'product_id');
+  return { written, skipped: list.length - rows.length, failed: bad.size };
 }
 
 // ---------------------------------------------------------------- governorates

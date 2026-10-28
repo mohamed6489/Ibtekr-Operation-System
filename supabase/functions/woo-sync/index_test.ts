@@ -11,13 +11,13 @@ const OURS = `${ENV.SUPABASE_URL}/functions/v1/woo-webhook`;
 // Member tokens → what has_perm('orders.status') / is_admin() answer for them, plus (phase 3.3) has_perm('vendors.edit') /
 // has_perm('sensitive.commission') for push_vendor: ops = vendors.edit P, vf = vendors follow-up (vendors.edit F, commission N),
 // acct = accounts (nothing). (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
-const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; ptrash?: unknown }> = {
+const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; pbulk?: unknown; ptrash?: unknown }> = {
   'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false, edit: 'P' }, 'jwt-acct': { perm: 'P', admin: false, edit: 'N', accounts: 'P' },
   'jwt-vf': { perm: 'N', admin: false, edit: 'F', commission: 'N' },
   'jwt-bank': { perm: 'N', admin: false, edit: 'N', bank: 'F' }, // phase 3.5: accounts — sensitive.vendor_bank = F, vendors.edit = N
   'jwt-approver': { perm: 'N', admin: false, accounts: 'F', approve: 'F' }, // phase 4.1: accounts.approve = F
   // phase 5: products.view P (reads a product live), products.edit F, products.trash F
-  'jwt-pview': { perm: 'N', admin: false, pview: 'P' }, 'jwt-pedit': { perm: 'N', admin: false, pview: 'F', pedit: 'F' },
+  'jwt-pview': { perm: 'N', admin: false, pview: 'P' }, 'jwt-pedit': { perm: 'N', admin: false, pview: 'F', pedit: 'F', pbulk: 'F' }, 'jwt-pone': { perm: 'N', admin: false, pview: 'F', pedit: 'F' },
   'jwt-ptrash': { perm: 'N', admin: false, pview: 'F', ptrash: 'F' },
   'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
 };
@@ -31,7 +31,7 @@ function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fa
   const members: any[] = [];
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
+    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
     members.push({ jwt, client });
     return client;
   };
@@ -521,6 +521,14 @@ Deno.test('products: the default language, then lang=ar, then the trash (status=
   assertEquals(['products', 'products_ar', 'products_trash'].map((k) => typeof db.row('sync_state', k, 'key')?.value.cursor), ['string', 'string', 'string']);
 });
 
+Deno.test('products: the product\'s own Dokan commission → product_commissions (rate null when not set)', async () => {
+  const withComm = wooProduct(501, 44, { meta_data: [{ key: '_per_product_admin_commission', value: '20' }, { key: '_per_product_admin_commission_type', value: 'percentage' }, { key: '_wc_cog_cost', value: '999' }] });
+  const { db, deps } = setup({ routes: { 'GET wc/v3/products': (c: any) => (c.query.lang || c.query.status ? page([]) : page([withComm, wooProduct(502, 44)])) } });
+  await call(deps, { action: 'products' });
+  assertEquals(db.rows('product_commissions').map((r: any) => [r.product_id, r.rate, r.type, r.fee]), [[501, 20, 'percentage', null], [502, null, null, null]]);
+  assertFalse(JSON.stringify(db.rows('product_commissions')).includes('999'));
+});
+
 Deno.test('products { full: true }: every product of both languages by id, page by page from sync_state products_full (resumes, then back to page 1); delta cursors untouched', async () => {
   const routes = { 'GET wc/v3/products': (c: any) => (c.query.lang === 'ar' ? page([wooProduct(601, 44, { lang: 'ar' })]) : c.query.page === '3' ? page([wooProduct(503, 44)]) : page([])) };
   const { db, woo, deps } = setup({ routes, seed: { sync_state: [{ key: 'products_full', value: { lang: 'en', page: 3 } }, { key: 'products', value: { cursor: '2026-10-01T00:00:00Z' } }] } });
@@ -609,7 +617,8 @@ Deno.test('products_batch: wc/v3/products/batch with `update` only (never `delet
   for (const bad of [{ update: [] }, { update: [{ id: 501 }] }, { update: [{ id: 501, name: 'x' }] }, { update: Array.from({ length: 101 }, (_, i) => ({ id: i + 1, status: 'draft' })) }]) {
     assertEquals((await call(deps, { action: 'products_batch', ...bad }, { jwt: 'jwt-pedit' })).res.status, 400, JSON.stringify(bad).slice(0, 60));
   }
-  assertEquals((await call(deps, { action: 'products_batch', update: [{ id: 501, status: 'draft' }] }, { jwt: 'jwt-ptrash' })).res.status, 401, 'products.edit N');
+  assertEquals((await call(deps, { action: 'products_batch', update: [{ id: 501, status: 'draft' }] }, { jwt: 'jwt-ptrash' })).res.status, 401, 'products.bulk N');
+  assertEquals((await call(deps, { action: 'products_batch', update: [{ id: 501, status: 'draft' }] }, { jwt: 'jwt-pone' })).res.status, 401, 'products.edit F without products.bulk');
 });
 
 Deno.test('products_trash / products_restore: DELETE with no query at all (never force) on the product and its translation; restore = draft; products.trash = F only', async () => {

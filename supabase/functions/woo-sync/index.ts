@@ -61,8 +61,8 @@
 //              the default language, then lang=ar, then status=trash, each with its own cursor.
 //   'product_get' { id }  (phase 5, decision 5) the product live + its Arabic translation's name / descriptions + its
 //              variations, allow-listed (woo-products.js editView); products.view <> N.
-//   'product_save' { id, fields, ar?, variations? } / 'products_batch' { update: [{ id, …fields }] } (≤ 100)
-//              products.edit = F: the allowed fields only (woo-products.js), PUT / batch `update` (never `delete`);
+//   'product_save' { id, fields, ar?, variations? } (products.edit = F) / 'products_batch' { update: [{ id, …fields }] } (≤ 100,
+//              products.bulk = F): the allowed fields only (woo-products.js), PUT / batch `update` (never `delete`);
 //              the Arabic translation gets its own fields + status / price / stock. WOO_PUSH_ENABLED gates them.
 //   'products_trash' / 'products_restore' { ids } (≤ 100)  products.trash = F: DELETE with no query (the trash —
 //              never `force`) / PUT status draft, on the product and its translation. WOO_PUSH_ENABLED gates them.
@@ -128,7 +128,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'withdraw_approve') return (await admin()) || (await perm('accounts.approve')) ? 'member' : null;
   // phase 5 (decision 5): reading a product live needs products.view <> N; editing products.edit = F; the trash products.trash = F
   if (action === 'product_get') { const { data, error } = await member.rpc('has_perm', { key: 'products.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
-  if (action === 'product_save' || action === 'products_batch') return (await admin()) || (await perm('products.edit')) ? 'member' : null;
+  if (action === 'product_save') return (await admin()) || (await perm('products.edit')) ? 'member' : null;
+  if (action === 'products_batch') return (await admin()) || (await perm('products.bulk')) ? 'member' : null; // the owner, 28 Oct: bulk edit is its own permission
   if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
   if (action === 'push_vendor') {
     if (await admin()) return 'member';

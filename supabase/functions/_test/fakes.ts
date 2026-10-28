@@ -23,6 +23,7 @@ const COLUMNS: Record<string, string[]> = {
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'],
   woo_categories: ['id', 'name', 'slug', 'parent_id', 'updated_at'],
   woo_brands: ['id', 'name', 'slug', 'parent_id', 'updated_at'], // 0021 (phase 5)
+  product_commissions: ['product_id', 'rate', 'type', 'fee', 'updated_at'], // 0021 (phase 5, decision 12)
   // 0011 + 0017 (phase 3.5): the five Dokan bank columns
   vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at', 'account_number', 'account_type', 'bank_address', 'routing_number', 'swift'],
   activity_log: ['id', 'at', 'actor', 'action', 'entity', 'entity_id', 'old_value', 'new_value'],

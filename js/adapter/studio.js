@@ -1,8 +1,8 @@
 // Studio (phase 5.2, docs/superpowers/plans/2026-10-28-phase-5-2-studio.md): the product studio's data — studio_batches (a batch's
 // state: its products, settings and image paths; read and written with products.add = F), sku_colors (the colors list, decision 3),
 // sku_serial (the site-wide serial, decision 2: sku_serial_take reserves numbers right before an upload), the private bucket `studio`
-// (images until the upload, decision 6) and woo-sync studio_upload / category_create (decisions 7 / 8 — the server checks
-// products.add and WOO_PUSH_ENABLED). Every write returns a Promise of { ok, … } and never throws; reason 'forbidden' / 'invalid' /
+// (images until the upload, decision 6), woo-sync studio_upload / category_create (decisions 7 / 8 — the server checks
+// products.add and WOO_PUSH_ENABLED) and studio_sheet (decision 13: a Google Sheets link, read by the server). Every write returns a Promise of { ok, … } and never throws; reason 'forbidden' / 'invalid' /
 // 'network' / 'push_disabled'. Every upload the site took is logged through IBActivity.log as product.create (ids and SKUs only).
 (function () {
   'use strict';
@@ -170,11 +170,20 @@
     return { ok: true, id: r.body.id };
   }
 
+  // a Google Sheets link (decision 13: published to the web, or shared with anyone) → { ok, csv }: read by woo-sync, never by
+  // the browser (Google answers its CSV with no CORS); reason 'bad_link' / 'not_published' / 'too_big' / 'unreachable' / …
+  async function readSheetLink(url) {
+    const r = await invoke({ action: 'studio_sheet', url: String(url == null ? '' : url).trim().slice(0, 2000) });
+    if (!r.ok) return { ok: false, reason: r.reason === 'invalid' ? 'bad_link' : r.reason };
+    if (r.body.result !== 'ok' || typeof r.body.csv !== 'string') return { ok: false, reason: r.body.reason || 'unreachable' };
+    return { ok: true, csv: r.body.csv };
+  }
+
   function clear() { gen++; st = 'idle'; batches = []; colors = []; nextSerial = null; urls.clear(); }
 
   window.IBStudio = {
     load, ensure, clear, state: () => st, can, BUCKET,
     batches: () => batches.slice(), colors: () => colors.slice(), nextSerial: () => nextSerial,
-    open, create, save, archive, addColor, takeSerials, toWebp, uploadImage, removeImage, imageUrl, upload, createCategory,
+    open, create, save, archive, addColor, takeSerials, toWebp, uploadImage, removeImage, imageUrl, upload, createCategory, readSheetLink,
   };
 })();

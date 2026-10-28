@@ -312,9 +312,13 @@
     if (!e.regular && !e.sale && d.sale.trim() && d.regular.trim() && Number(d.sale) > Number(d.regular)) e.sale = 'سعر البيع أكبر من السعر قبل الخصم';
     if (!d.onDemand && d.manage && !/^\s*\d+\s*$/.test(d.qty)) e.qty = 'اكتب رقم صحيح';
     if (d.weight.trim() && !/^\s*\d{1,5}(\.\d{1,3})?\s*$/.test(d.weight)) e.weight = 'اكتب الوزن بالكيلو (رقم)';
-    // phase 5.1: SEO is plain text (the server refuses < >), at most 200 / 500 characters
+    // phase 5.1: SEO is plain text (the server refuses < >), at most 200 / 500 characters, and only the Rank Math
+    // variables of SEO_VARS in _shared/woo-products.js (the server refuses any other %…%)
+    const SEO_VARS = ['title', 'sep', 'sitename', 'sitedesc', 'excerpt', 'primary_category', 'category', 'wc_price', 'wc_sku', 'wc_brand', 'currentyear', 'currentmonth'];
     for (const [k, max] of [['seoTitle', 200], ['seoDesc', 500], ['arSeoTitle', 200], ['arSeoDesc', 500]]) {
+      const bad = [...d[k].matchAll(/%([^\s%]+)%/g)].map((m) => m[1]).find((v) => !SEO_VARS.includes(v));
       if (/[<>]/.test(d[k])) e[k] = 'من غير < أو >'; else if (d[k].trim().length > max) e[k] = 'أطول من ' + max + ' حرف';
+      else if (bad) e[k] = 'المتغير %' + bad + '% مش مسموح — المسموح: ' + SEO_VARS.map((v) => '%' + v + '%').join(' ');
     }
     return e;
   }

@@ -263,6 +263,7 @@
     return { name: p.name, sku: p.sku, status: p.status, featured: p.featured, weight: p.weight, regular: p.regular_price, sale: p.sale_price, manage: p.manage_stock, qty: s(p.stock_quantity),
       onDemand: p.stock_status === 'onbackorder' || (p.manage_stock && p.backorders && p.backorders !== 'no'), alert: s(p.low_stock_amount), cats: p.categories.map((c) => c.id), brands: p.brands.map((b) => b.id),
       images: p.images.map((i) => i.id), short: p.short_description, desc: p.description, arName: s(ar.name), arShort: s(ar.short_description), arDesc: s(ar.description),
+      seoTitle: s(p.seo_title), seoDesc: s(p.seo_description), arSeoTitle: s(ar.seo_title), arSeoDesc: s(ar.seo_description),
       vars: r.variations.map((v) => ({ id: v.id, regular: v.regular_price, sale: v.sale_price, qty: s(v.stock_quantity), onDemand: v.stock_status === 'onbackorder' || (v.manage_stock && v.backorders && v.backorders !== 'no') })) };
   }
   const same = (a, b) => JSON.stringify(a) === JSON.stringify(b);
@@ -290,6 +291,10 @@
     if (d.arName !== o.arName) ar.name = d.arName.trim();
     if (d.arShort !== o.arShort) ar.short_description = d.arShort;
     if (d.arDesc !== o.arDesc) ar.description = d.arDesc;
+    if (d.seoTitle !== o.seoTitle) fields.seo_title = d.seoTitle.trim();
+    if (d.seoDesc !== o.seoDesc) fields.seo_description = d.seoDesc.trim();
+    if (d.arSeoTitle !== o.arSeoTitle) ar.seo_title = d.arSeoTitle.trim();
+    if (d.arSeoDesc !== o.arSeoDesc) ar.seo_description = d.arSeoDesc.trim();
     d.vars.forEach((v, i) => { const w = o.vars[i]; if (!w || same(v, w)) return; const x = { id: v.id };
       if (v.regular !== w.regular) x.regular_price = v.regular.trim(); if (v.sale !== w.sale) x.sale_price = v.sale.trim();
       if (v.onDemand !== w.onDemand || v.qty !== w.qty) Object.assign(x, v.onDemand ? { manage_stock: false, stock_status: 'onbackorder' } : { manage_stock: true, stock_quantity: Number(v.qty) || 0, backorders: 'no' });
@@ -307,6 +312,10 @@
     if (!e.regular && !e.sale && d.sale.trim() && d.regular.trim() && Number(d.sale) > Number(d.regular)) e.sale = 'سعر البيع أكبر من السعر قبل الخصم';
     if (!d.onDemand && d.manage && !/^\s*\d+\s*$/.test(d.qty)) e.qty = 'اكتب رقم صحيح';
     if (d.weight.trim() && !/^\s*\d{1,5}(\.\d{1,3})?\s*$/.test(d.weight)) e.weight = 'اكتب الوزن بالكيلو (رقم)';
+    // phase 5.1: SEO is plain text (the server refuses < >), at most 200 / 500 characters
+    for (const [k, max] of [['seoTitle', 200], ['seoDesc', 500], ['arSeoTitle', 200], ['arSeoDesc', 500]]) {
+      if (/[<>]/.test(d[k])) e[k] = 'من غير < أو >'; else if (d[k].trim().length > max) e[k] = 'أطول من ' + max + ' حرف';
+    }
     return e;
   }
   async function save() {
@@ -369,9 +378,26 @@
     else if (st.etab === 'cats') body = catsCard(dis);
     else if (st.etab === 'desc') body = h('div', { class: 'stack' }, Card('الأوصاف (EN)', null, [area('short', 'وصف قصير', 'short', 4), area('desc', 'الوصف', 'desc', 8)]), st.live.ar ? Card('الأوصاف (AR)', null, [area('ars', 'وصف قصير (AR)', 'arShort', 4), area('ard', 'الوصف (AR)', 'arDesc', 8)]) : null,
       h('p', { class: 't-small help' }, 'الكتابة بالذكاء الاصطناعي في مرحلة الأدوات — soon.'));
-    else body = Card('SEO', null, [K.Empty('قريبًا', 'عنوان ووصف الصفحة (Rank Math) في مرحلة جاية.')]);
+    else body = seoCard(p, dis);
     const n = dirtyCount();
     return [head, tabs, body, n && C.edit ? h('div', { class: 'unsaved', role: 'status' }, h('b', null, 'عندك ' + n + ' تعديلات مش محفوظة'), Button({ type: 'text', size: 'sm', label: 'تجاهل', onClick: discard }), Button({ type: 'primary', size: 'sm', label: 'احفظ على الموقع', disabled: st.saving, onClick: save })) : null];
+  }
+  // phase 5.1 (prototype 1793199492, the «SEO» tab): Rank Math's page title / description for each language — empty = Rank
+  // Math's default template; a counter against the lengths Google shows (about 60 / 160) and a search-result preview
+  function seoCard(p, dis) {
+    const d = st.draft; const errs = st.errs || {};
+    const count = (v, ideal) => { const n = v.trim().length; return n + ' / ' + ideal + ' حرف' + (n > ideal ? ' — جوجل هيقص الباقي' : '') + ' · فاضي = قالب Rank Math الافتراضي'; };
+    const field = (idk, label, key, ideal, area) => {
+      const o = { id: 'e-' + idk, label, value: d[key], error: errs[key], disabled: dis, help: count(d[key], ideal),
+        onInput: (v) => { if (dis) return; const was = dirtyCount(); d[key] = v; const el = document.getElementById('e-' + idk); const hp = el && el.closest('.field').querySelector('.help'); if (hp) hp.textContent = count(v, ideal); const pv = document.querySelector('[data-seo-prev="' + key + '"]'); if (pv) pv.textContent = v.trim() || pv.dataset.fallback; if (!was !== !dirtyCount()) R(); else { const b = document.querySelector('#pg-products .unsaved b'); if (b) b.textContent = 'عندك ' + dirtyCount() + ' تعديلات مش محفوظة'; } } };
+      return area ? U.Textarea(Object.assign(o, { rows: 3 })) : U.TextInput(o);
+    };
+    const preview = (titleKey, descKey, name, url) => h('div', { class: 'seo-prev', 'aria-label': 'شكلها في جوجل' },
+      h('small', { dir: 'ltr', class: 't-small help' }, url || ''), h('b', { 'data-seo-prev': titleKey, 'data-fallback': name }, d[titleKey].trim() || name),
+      h('span', { class: 't-small', 'data-seo-prev': descKey, 'data-fallback': '—' }, d[descKey].trim() || '—'));
+    return h('div', { class: 'stack' },
+      Card('SEO (EN)', 'عنوان ووصف صفحة المنتج في نتايج البحث (Rank Math).', [field('seo-t', 'عنوان الصفحة', 'seoTitle', 60), field('seo-d', 'وصف الصفحة', 'seoDesc', 160, true), preview('seoTitle', 'seoDesc', p.name, p.permalink)]),
+      st.live.ar ? Card('SEO (AR)', null, [field('seo-at', 'عنوان الصفحة (AR)', 'arSeoTitle', 60), field('seo-ad', 'وصف الصفحة (AR)', 'arSeoDesc', 160, true), preview('arSeoTitle', 'arSeoDesc', d.arName || p.name, '')]) : U.InlineNote({ children: 'المنتج ده ملوش ترجمة عربي على الموقع.' }));
   }
   function priceCard(p, inp, dis, rec) {
     const d = st.draft; const C = can();

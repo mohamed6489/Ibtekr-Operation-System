@@ -126,6 +126,20 @@
     const pr = price(vendorPrice, r / 100, d / 100);
     return { vendorPrice, rate: r, disc: d, sale: pr.sale, regular: pr.regular };
   }
+  // ---------- التسعير من سعر المبتكر (صاحب المشروع 28 أكتوبر، قرار 16 في خطة المرحلة 5) ----------
+  // سعر التخفيض = (سعر المبتكر + الرسوم) ÷ (1 − النسبة) لفوق لأقرب 10؛ السعر العادي (وهمي) = سعر التخفيض + 15–30% عشوائي لفوق لأقرب 10.
+  const ceil10 = (x) => Math.ceil(Math.round(x * 1000) / 10000) * 10; // the rounding first: 1660.0000001 stays 1660
+  const MARKUP_MIN = 15, MARKUP_MAX = 30;
+  const randomMarkup = (rng) => MARKUP_MIN + Math.floor(Math.min(0.999999, Math.max(0, (rng || Math.random)())) * (MARKUP_MAX - MARKUP_MIN + 1));
+  // vendor: سعر المبتكر · rate: نسبة إبتكر % (0 لعمولة ثابتة بس) · fee: الرسوم الثابتة · markup: الزيادة % (من غيرها عشوائي) → null لو الأرقام مش صالحة
+  function priceFromVendor(vendor, opts) {
+    const o = opts || {}; const v = Number(vendor), r = o.rate == null ? 0 : Number(o.rate), f = o.fee == null ? 0 : Number(o.fee);
+    if (!Number.isFinite(v) || v <= 0 || !Number.isFinite(r) || r < 0 || r >= 100 || !Number.isFinite(f) || f < 0) return null;
+    const m = o.markup == null ? randomMarkup(o.rng) : Number(o.markup);
+    const sale = ceil10((v + f) / (1 - r / 100));
+    const regular = ceil10(sale * (1 + m / 100));
+    return { sale, regular, markup: m, vendorNet: Math.round((sale * (1 - r / 100) - f) * 100) / 100 };
+  }
   // ---------- marketing «إنشاء» ----------
   const VIDEO_MODELS = [
     { id: 'seedance-2.5', name: 'Seedance 2.5', note: 'الأفضل · لحد 30 ث · صوت', max: 30, durations: [10, 15, 30], res: ['1080p', '720p'], def: true },
@@ -184,6 +198,6 @@
   const safeName = (s) => String(s || 'Product').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Product';
   // backup plan: which file goes where — pure, so the browser only fills in the bytes
   function backupPlan(root, items, ext) { const out = []; items.forEach((it) => (it.slots || []).forEach((sl, k) => { if (sl && sl.src) out.push({ dir: SLOT_DIRS[Math.min(k, 4)], src: sl.src, name: root + '/' + SLOT_DIRS[Math.min(k, 4)] + '/' + safeName(it.name) + '-0' + (k + 1) + '-' + safeName(it.sku || 'SKU') + '.' + (ext || 'webp') }); })); return out; }
-  return { crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  return { priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

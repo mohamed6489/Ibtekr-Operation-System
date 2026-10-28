@@ -199,19 +199,22 @@
     const C = can(); const simple = l.filter((p) => p.type !== 'Variable' && p.sale);
     if (!simple.length) { K.toast('المنتجات دي Variable أو من غير سعر — السعر بيتعدل من صفحة كل منتج', 'error'); return; }
     // decision 12: the vendor price = the sale price − Dokan's commission on it (the product's own, else the store's / category's)
-    const withRate = (p) => { const c = PR().commissionOf(p); const rate = c ? Math.round((c.amount / p.sale) * 1000) / 10 : null; return Object.assign({}, p, { rate, vendorPrice: c ? PR().vendorPriceOf(p) : null, disc: p.regular && p.regular > p.sale ? Math.round((1 - p.sale / p.regular) * 100) : 0 }); };
+    // decision 16: «سعر المبتكر» / «نسبة إبتكر» give the new maker price / rate → the sale price by priceFromVendor (the fee before the
+    // division, up to the next 10) and the regular = sale + a random 15–30% (one per product, the same in the preview and the save)
+    const withRate = (p) => { const c = PR().commissionParams(p); return Object.assign({}, p, { rate: c ? c.rate || 0 : null, fee: c ? c.fee : 0, vendorPrice: c ? PR().vendorPriceOf(p) : null, markup: PD.randomMarkup(), disc: p.regular && p.regular > p.sale ? Math.round((1 - p.sale / p.regular) * 100) : 0 }); };
     const items = simple.map(withRate);
     const TG = (C.commission ? [['vendor', 'سعر المبتكر'], ['rate', 'نسبة إبتكر']] : []).concat([['discount', 'الخصم الوهمي']]);
     const next = (p, o) => {
       if (o.target === 'discount') { const d = Math.min(90, Math.max(0, o.mode === 'pct' ? +(p.disc * (1 + (o.dir * o.amount) / 100)).toFixed(1) : p.disc + o.dir * o.amount)); return { sale: p.sale, regular: Math.round(p.sale / (1 - d / 100)), disc: d }; }
-      if (p.rate == null) return null;
-      const r = PD.bulkPrice(p, o); return { sale: r.sale, regular: r.regular, rate: r.rate, vendorPrice: r.vendorPrice };
+      if (p.rate == null || p.vendorPrice == null) return null;
+      const r = PD.bulkPrice(p, o); const pr = PD.priceFromVendor(r.vendorPrice, { rate: r.rate, fee: p.fee, markup: p.markup });
+      return pr ? { sale: pr.sale, regular: pr.regular, rate: r.rate, vendorPrice: r.vendorPrice } : null;
     };
     K.form({ title: 'تعديل سعر ' + (simple.length === 1 ? 'منتج' : simple.length + ' منتجات'), values: { target: TG[0][0], dir: '1', mode: 'pct', amount: '10' }, submitLabel: 'طبّق السعر',
       fields: (f, e, set, draw) => { const opt = { target: f.target, mode: f.mode, dir: Number(f.dir), amount: Number(f.amount) }; const ok = Number(f.amount) > 0;
         const rows = ok ? items.slice(0, 5).map((p) => { const r = next(p, opt); return [nameOf(p), !r ? 'مالوش نسبة ظاهرة' : f.target === 'vendor' ? K.n0(p.vendorPrice) + ' ← ' + K.n0(r.vendorPrice) : f.target === 'rate' ? p.rate + '% ← ' + r.rate + '%' : p.disc + '% ← ' + r.disc + '%', r ? K.n0(p.sale) + ' ← ' + K.n0(r.sale) : '—']; }) : [];
         const seg = (key, opts) => h('div', { class: 'chips', role: 'radiogroup' }, opts.map(([v, lab]) => chipBtn(lab, f[key] === v, () => { f[key] = v; draw(); }, { role: 'radio', 'aria-checked': String(f[key] === v) })));
-        return [U.FieldShell({ id: 'bp-t', label: 'تعدّل إيه؟', required: true, help: (C.commission ? 'سعر المبتكر بيحسب سعر البيع تاني بالمعادلة · النسبة والخصم بالنقط (%)' : 'الخصم الوهمي بيغيّر السعر قبل الخصم بس — سعر البيع زي ما هو') }, seg('target', TG)),
+        return [U.FieldShell({ id: 'bp-t', label: 'تعدّل إيه؟', required: true, help: (C.commission ? 'سعر المبتكر أو النسبة بيحسبوا سعر البيع (لفوق لأقرب 10) وقبل الخصم (+15–30% عشوائي) · النسبة والخصم بالنقط (%)' : 'الخصم الوهمي بيغيّر السعر قبل الخصم بس — سعر البيع زي ما هو') }, seg('target', TG)),
           K.two(U.FieldShell({ id: 'bp-d', label: 'زيادة ولا نقص' }, seg('dir', [['1', 'زيادة'], ['-1', 'نقص']])), U.FieldShell({ id: 'bp-m', label: 'بنسبة ولا بقيمة' }, seg('mode', [['pct', 'نسبة %'], ['value', f.target === 'vendor' ? 'قيمة (ج.م)' : 'قيمة (نقط)']]))),
           K.field.text('amount', 'المقدار', f, e, (k, v) => { set(k, v); draw(); }, { required: true, inputmode: 'numeric', help: 'مثال: 10' + (f.mode === 'pct' ? '%' : '') + ' ' + (f.dir === '1' ? 'زيادة' : 'نقص') + ' على ' + TG.find((x) => x[0] === f.target)[1] }),
           rows.length ? U.FieldShell({ id: 'bp-p', label: 'قبل ← بعد' }, U.Table({ cls: 'dt', headers: ['المنتج', TG.find((x) => x[0] === f.target)[1], 'سعر البيع'], rows })) : null,
@@ -250,7 +253,7 @@
     PR().fetchLive(id).then((r) => {
       st.loadingLive = false;
       if (st.editId !== id) return;
-      if (!r.ok) { st.liveErr = fail(r); } else { st.live = r; st.liveFor = id; st.draft = toDraft_(r); }
+      if (!r.ok) { st.liveErr = fail(r); } else { st.live = r; st.liveFor = id; st.draft = toDraft_(r); resetCalc(); }
       if (window.IBPages.current === 'products' && st.view === 'edit') R();
     });
   }
@@ -318,7 +321,19 @@
     K.toast(r.counts && r.counts.variations_failed ? 'اتحفظ — بس ' + r.counts.variations_failed + ' تركيبة ماتحفظتش' : 'اتحفظ على الموقع', r.counts && r.counts.variations_failed ? 'error' : 'success');
     st.live = null; st.draft = null; st.liveFor = null; st.errs = {}; fetchLive(st.editId); R();
   }
-  const discard = () => { st.draft = toDraft_(st.live); st.errs = {}; R(); };
+  const discard = () => { st.draft = toDraft_(st.live); st.errs = {}; resetCalc(); R(); };
+  // decision 16 (the owner, 28 Oct): the maker's price is typed for the calculation only (never stored) → the sale price =
+  // (maker + fee) ÷ (1 − rate) up to the next 10, the regular («قبل الخصم», shown crossed) = sale + 15–30% at random up to the
+  // next 10. One random markup per product / variation while the page is open, so pressing «احسب» again gives the same prices.
+  function resetCalc() { st.vin = ''; st.vinErr = ''; st.vvin = {}; st.marks = {}; }
+  const digits = (v) => String(v == null ? '' : v).replace(/[٠-٩]/g, (c) => '٠١٢٣٤٥٦٧٨٩'.indexOf(c)).replace(/[٬,]/g, '').trim();
+  function fromVendor(params, val, key) {
+    const t = digits(val); if (!/^\d+(\.\d{1,2})?$/.test(t)) return null;
+    st.marks = st.marks || {}; if (st.marks[key] == null) st.marks[key] = PD.randomMarkup();
+    return PD.priceFromVendor(Number(t), { rate: params.rate || 0, fee: params.fee || 0, markup: st.marks[key] });
+  }
+  const paramsLabel = (c) => (c.source === 'product' ? 'عمولة المنتج' : c.source === 'category' ? 'نسبة القسم' : 'نسبة المتجر') + (c.rate != null ? ' ' + c.rate + '%' : '') + (c.fee ? ' + ' + K.n0(c.fee) + ' ج.م' : '');
+  const calcHelp = (c) => 'سعر البيع = (سعر المبتكر' + (c.fee ? ' + ' + K.n0(c.fee) : '') + ') ÷ ' + (c.rate ? (1 - c.rate / 100).toFixed(2).replace(/0+$/, '').replace(/\.$/, '') : '1') + ' لفوق لأقرب 10 · قبل الخصم = سعر البيع + 15–30% · ' + paramsLabel(c);
   function editView() {
     const id = st.editId; const C = can(); const rec = byId(id);
     const back = Button({ type: 'text', size: 'sm', label: '→ رجوع للسجل', onClick: () => leaveGuard(() => go('products-records')) });
@@ -350,7 +365,7 @@
         K.Switch({ id: 'e-feat', label: 'منتج مميز', checked: d.featured, disabled: dis, onChange: (v) => { d.featured = v; R(); } })]), priceCard(p, inp, dis, rec)));
     else if (st.etab === 'price') body = priceCard(p, inp, dis, rec);
     else if (st.etab === 'images') body = imagesCard(p, dis);
-    else if (st.etab === 'variants') body = variantsCard(dis);
+    else if (st.etab === 'variants') body = variantsCard(dis, rec);
     else if (st.etab === 'cats') body = catsCard(dis);
     else if (st.etab === 'desc') body = h('div', { class: 'stack' }, Card('الأوصاف (EN)', null, [area('short', 'وصف قصير', 'short', 4), area('desc', 'الوصف', 'desc', 8)]), st.live.ar ? Card('الأوصاف (AR)', null, [area('ars', 'وصف قصير (AR)', 'arShort', 4), area('ard', 'الوصف (AR)', 'arDesc', 8)]) : null,
       h('p', { class: 't-small help' }, 'الكتابة بالذكاء الاصطناعي في مرحلة الأدوات — soon.'));
@@ -365,7 +380,12 @@
     const sale = Number(d.sale || d.regular) || 0; const cm = rec && sale ? PR().commissionOf(Object.assign({}, rec, { sale })) : null; const vp = cm ? Math.round((sale - cm.amount) * 100) / 100 : null;
     const src = cm ? (cm.source === 'product' ? 'عمولة المنتج' : cm.source === 'category' ? 'نسبة القسم' : 'نسبة المتجر') + (cm.rate != null ? ' ' + cm.rate + '%' : '') + (cm.fee ? ' + ' + K.n0(cm.fee) : '') : '';
     const stockState = d.onDemand ? 'حسب الطلب' : d.manage ? PD.stockState(Number(d.qty) || 0, false, d.alert === '' ? 3 : Number(d.alert)) : 'متاح';
-    return Card('السعر والمخزون', null, [K.two(inp('sale', 'سعر البيع', 'sale', { inputmode: 'numeric' }), inp('reg', 'قبل الخصم', 'regular', { inputmode: 'numeric' })),
+    const params = C.commission && rec && !dis ? PR().commissionParams(rec) : null;
+    const calc = params ? h('div', { class: 'vcalc', 'data-vcalc': '' }, K.two(U.TextInput({ id: 'e-vin', label: 'سعر المبتكر (للحساب)', value: st.vin || '', inputmode: 'decimal', error: st.vinErr, help: calcHelp(params), onInput: (v) => { st.vin = v; } }),
+      h('div', { class: 'field' }, h('span', { class: 'flabel' }, ' '), Button({ label: 'احسب السعرين', attrs: { 'data-vapply': '' }, onClick: () => {
+        const r = fromVendor(params, st.vin, 'p'); if (!r) { st.vinErr = 'اكتب سعر المبتكر رقم أكبر من صفر'; R(); return; }
+        st.vinErr = ''; d.sale = String(r.sale); d.regular = String(r.regular); R(); } })))) : null;
+    return Card('السعر والمخزون', null, [K.two(inp('sale', 'سعر البيع', 'sale', { inputmode: 'numeric' }), inp('reg', 'قبل الخصم', 'regular', { inputmode: 'numeric' })), calc,
       C.commission && vp != null ? K.two(h('div', { class: 'field', 'data-vprice': '' }, h('span', { class: 'flabel' }, 'سعر المبتكر'), h('b', null, K.Num(K.n0(vp) + ' ج.م'))), h('div', { class: 'field', 'data-commission': '' }, h('span', { class: 'flabel' }, 'عمولة إبتكر (' + src + ')'), h('b', { class: 'brand-t' }, K.Num(K.n0(cm.amount) + ' ج.م')))) : null,
       K.Switch({ id: 'e-dem', label: 'حسب الطلب (بيتصنع بعد الأوردر)', checked: d.onDemand, disabled: dis, onChange: (v) => { d.onDemand = v; R(); } }),
       d.onDemand ? null : K.Switch({ id: 'e-man', label: 'تتبع الكمية', checked: d.manage, disabled: dis, onChange: (v) => { d.manage = v; R(); } }),
@@ -382,14 +402,24 @@
         sel < imgs.length - 1 ? Button({ size: 'sm', label: 'أخّر ←', onClick: () => { const x = d.images.splice(sel, 1)[0]; d.images.splice(sel + 1, 0, x); st.imgSel = sel + 1; R(); } }) : null,
         Button({ type: 'danger', size: 'sm', label: 'شيلها', onClick: () => { d.images.splice(sel, 1); st.imgSel = null; R(); } })) : null]);
   }
-  function variantsCard(dis) {
+  function variantsCard(dis, rec) {
     const d = st.draft; const vs = st.live.variations;
     if (!vs.length) return Card('التركيبات', null, [K.Empty('مفيش تركيبات', 'إضافة تركيبات مع الاستوديو.')]);
+    // decision 16: a maker price per variation (for the calculation only) → its sale and regular prices; the placeholder is the
+    // maker price the variation's sale price gives now (read-only, decision 12)
+    const params = can().commission && rec && !dis ? PR().commissionParams(rec) : null; st.vvin = st.vvin || {};
+    const nowVp = (v) => { const sale = Number(v.sale || v.regular); return params && sale ? K.n0(Math.round((sale - (sale * (params.rate || 0) / 100 + params.fee)) * 100) / 100) : ''; };
+    const applyAll = () => { let n = 0, bad = 0; d.vars.forEach((v) => { const raw = st.vvin[v.id]; if (!raw || !String(raw).trim()) return; const r = fromVendor(params, raw, 'v' + v.id); if (!r) { bad++; return; } v.sale = String(r.sale); v.regular = String(r.regular); n++; });
+      if (bad) K.toast(bad + ' تركيبة سعر المبتكر بتاعها مش رقم صحيح', 'error'); else if (!n) K.toast('اكتب سعر المبتكر قدام التركيبات الأول', 'error'); R(); };
     const rows = d.vars.map((v, i) => { const lv = vs[i]; const ss = v.onDemand ? 'حسب الطلب' : PD.stockState(Number(v.qty) || 0, false, 3);
       const upd = (k) => (x) => { const was = dirtyCount(); v[k] = x; if (!was !== !dirtyCount()) R(); else { const b = document.querySelector('#pg-products .unsaved b'); if (b) b.textContent = 'عندك ' + dirtyCount() + ' تعديلات مش محفوظة'; } };
-      return [lv.attributes.map((a) => a.option).join(' · ') || '—', h('span', { dir: 'ltr', class: 't-small' }, lv.sku || '—'), U.TextInput({ id: 'vv-r' + i, label: '', value: v.regular, inputmode: 'numeric', disabled: dis, onInput: upd('regular') }), U.TextInput({ id: 'vv-s' + i, label: '', value: v.sale, inputmode: 'numeric', disabled: dis, onInput: upd('sale') }),
-        v.onDemand ? '—' : U.TextInput({ id: 'vv-q' + i, label: '', value: v.qty, inputmode: 'numeric', disabled: dis, onInput: upd('qty') }), K.Switch({ id: 'vv-d' + i, label: 'حسب الطلب', checked: v.onDemand, disabled: dis, onChange: (x) => { v.onDemand = x; R(); } }), Tag(STOCK_TONE[ss], ss)]; });
-    return h('div', { class: 'stack' }, Card('التركيبات (' + vs.length + ')', 'السعر والمخزون بيتحدثوا على ووكومرس أول ما تحفظ. إضافة أو شيل تركيبة مع الاستوديو.', U.Table({ cls: 'dt', headers: ['التركيبة', 'SKU', 'قبل الخصم', 'سعر البيع', 'المخزون', 'حسب الطلب', 'الحالة'], rows })));
+      const vin = params ? [U.TextInput({ id: 'vv-v' + i, label: '', value: st.vvin[v.id] || '', placeholder: nowVp(v), inputmode: 'decimal', onInput: (x) => { st.vvin[v.id] = x; } })] : [];
+      return [lv.attributes.map((a) => a.option).join(' · ') || '—', h('span', { dir: 'ltr', class: 't-small' }, lv.sku || '—')].concat(vin, [U.TextInput({ id: 'vv-r' + i, label: '', value: v.regular, inputmode: 'numeric', disabled: dis, onInput: upd('regular') }), U.TextInput({ id: 'vv-s' + i, label: '', value: v.sale, inputmode: 'numeric', disabled: dis, onInput: upd('sale') }),
+        v.onDemand ? '—' : U.TextInput({ id: 'vv-q' + i, label: '', value: v.qty, inputmode: 'numeric', disabled: dis, onInput: upd('qty') }), K.Switch({ id: 'vv-d' + i, label: 'حسب الطلب', checked: v.onDemand, disabled: dis, onChange: (x) => { v.onDemand = x; R(); } }), Tag(STOCK_TONE[ss], ss)]); });
+    const headers = ['التركيبة', 'SKU'].concat(params ? ['سعر المبتكر'] : [], ['قبل الخصم', 'سعر البيع', 'المخزون', 'حسب الطلب', 'الحالة']);
+    return h('div', { class: 'stack' }, Card('التركيبات (' + vs.length + ')', 'السعر والمخزون بيتحدثوا على ووكومرس أول ما تحفظ. إضافة أو شيل تركيبة مع الاستوديو.', [
+      params ? h('div', { class: 'vcalc', 'data-vcalc': '' }, h('p', { class: 't-small help', style: 'margin:0' }, 'اكتب سعر المبتكر قدام التركيبة (الرقم الرمادي = سعره دلوقتي) ودوس «احسب». ' + calcHelp(params)), Button({ size: 'sm', label: 'احسب الأسعار من سعر المبتكر', attrs: { 'data-vapply': '' }, onClick: applyAll })) : null,
+      U.Table({ cls: 'dt', headers, rows })]));
   }
   function catsCard(dis) {
     const d = st.draft; const cats = PR().categories(); const on = new Set(d.cats);

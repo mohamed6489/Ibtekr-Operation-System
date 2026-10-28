@@ -113,8 +113,13 @@ test('commission (the owner\'s «Commission» column): the product\'s own Dokan 
   const vase = P.get(502); // its own 20% + 10 on 300
   assert.deepEqual(plain(P.commissionOf(vase)), { amount: 70, rate: 20, fee: 10, source: 'product' });
   assert.equal(P.vendorPriceOf(vase), 230);
+  // decision 16: the figures without a price (the prices are computed from the maker's price)
+  assert.deepEqual(plain(P.commissionParams(lamp)), { rate: 25, fee: 0, source: 'store' });
+  assert.deepEqual(plain(P.commissionParams(vase)), { rate: 20, fee: 10, source: 'product' });
+  assert.deepEqual(plain(P.commissionParams(Object.assign({}, lamp, { sale: null, price: null }))), { rate: 25, fee: 0, source: 'store' });
   const { P: P2, stub: s2 } = load({ perms: { 'products.view': 'F' } });
   await P2.load();
   assert.equal(s2.calls.filter((c) => c.table === 'product_commissions').length, 0);
   assert.equal(P2.commissionOf(P2.get(501)), null);
+  assert.equal(P2.commissionParams(P2.get(501)), null);
 });

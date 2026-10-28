@@ -36,3 +36,31 @@ test('trash: 30 days kept, the days left never below 0, «قرب يتمسح» at
   assert.equal(PD.trashDaysLeft('2026-09-01', '2026-10-28'), 0);
   assert.equal(PD.trashSoon(5), true); assert.equal(PD.trashSoon(6), false);
 });
+
+// decision 16 (the owner, 28 Oct): the prices come from the maker's price
+test('priceFromVendor: sale = (vendor + fee) ÷ (1 − rate) up to the next 10; regular = sale + 15–30% up to the next 10', () => {
+  assert.deepEqual(plain(PD.priceFromVendor(1000, { rate: 40, markup: 22 })), { sale: 1670, regular: 2040, markup: 22, vendorNet: 1002 });
+  // the fee before the division: the maker keeps his full price
+  assert.deepEqual(plain(PD.priceFromVendor(1000, { rate: 40, fee: 10, markup: 15 })), { sale: 1690, regular: 1950, markup: 15, vendorNet: 1004 });
+  // already a multiple of 10 stays (no float drift): 600 ÷ 0.6 = 1000
+  assert.equal(PD.priceFromVendor(600, { rate: 40, markup: 30 }).sale, 1000);
+  assert.equal(PD.priceFromVendor(600, { rate: 40, markup: 30 }).regular, 1300);
+  // a flat-only commission (rate 0): vendor + amount
+  assert.equal(PD.priceFromVendor(995, { rate: 0, fee: 50, markup: 20 }).sale, 1050);
+  // Woven Floor Lamp: 11,375 at 35% → 17,500 exactly
+  assert.equal(PD.priceFromVendor(11375, { rate: 35, markup: 20 }).sale, 17500);
+  for (const bad of [0, -5, 'x', null]) assert.equal(PD.priceFromVendor(bad, { rate: 40 }), null);
+  assert.equal(PD.priceFromVendor(1000, { rate: 100 }), null);
+  assert.equal(PD.priceFromVendor(1000, { rate: -1 }), null);
+});
+
+test('randomMarkup: a whole number from 15 to 30, both ends reachable; priceFromVendor without a markup picks one', () => {
+  assert.equal(PD.randomMarkup(() => 0), 15);
+  assert.equal(PD.randomMarkup(() => 0.999999), 30);
+  assert.equal(PD.randomMarkup(() => 1), 30);
+  for (let i = 0; i < 200; i++) { const m = PD.randomMarkup(); assert.ok(Number.isInteger(m) && m >= 15 && m <= 30, String(m)); }
+  const r = PD.priceFromVendor(1000, { rate: 40, rng: () => 0.5 });
+  assert.equal(r.markup, 23);
+  assert.equal(r.regular, PD.ceil10(1670 * 1.23));
+  assert.ok(r.regular % 10 === 0 && r.regular > r.sale);
+});

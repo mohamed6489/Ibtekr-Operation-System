@@ -109,6 +109,20 @@ test('bulk stock and price: a quantity for the simple products only; the fake di
   expect(Number(u.regular_price)).toBeGreaterThan(1500);
 });
 
+test('decision 16 in bulk: «سعر المبتكر» +10% → the sale price from the new maker price up to the next 10, the regular = sale + 15–30%', async ({ page }) => {
+  await openProducts(page);
+  await rowOf(page, 'Cushion').locator('[role=checkbox]').click();
+  await page.locator('.bulk-bar').getByRole('button', { name: 'تعديل السعر' }).click();
+  await page.locator('.modal').getByRole('radio', { name: 'سعر المبتكر' }).click();
+  await page.fill('.modal #amount', '10');
+  await page.locator('.modal').getByRole('button', { name: 'طبّق السعر' }).click();
+  await expect(page.locator('.modal')).toHaveCount(0);
+  const w = mock.productWrites.at(-1); const sale = Number(w.fields.sale_price); const reg = Number(w.fields.regular_price);
+  expect(w.id).toBe(9001);
+  expect(sale % 10).toBe(0); expect(sale).toBeGreaterThan(1200);
+  expect(reg % 10).toBe(0); expect(reg).toBeGreaterThanOrEqual(Math.ceil(sale * 1.15 / 10) * 10); expect(reg).toBeLessThanOrEqual(Math.ceil(sale * 1.3 / 10) * 10);
+});
+
 test('trash and back: products_trash moves the product (and its translation) to the trash, «رجّعه» brings it back as a draft', async ({ page }) => {
   await openProducts(page);
   await rowOf(page, 'Cushion').getByRole('button', { name: 'إجراءات Cushion' }).click();
@@ -187,6 +201,43 @@ test('vendor price = sale price − Dokan\'s commission: the product\'s own comm
   await expect(page.locator('[data-commission]')).toContainText('عمولة المنتج 20% + 10');
   await expect(page.locator('[data-commission]')).toContainText('250');
   await expect(page.locator('[data-vprice]')).toContainText('950');
+});
+
+test('decision 16: the maker price (for the calculation only) → sale = (maker + fee) ÷ (1 − rate) up to the next 10, regular = sale + 15–30% up to the next 10; saved as the two prices', async ({ page }) => {
+  await openProducts(page);
+  await page.locator('[data-pedit="9003"]').click(); // its own commission 20% + 10
+  await page.getByRole('tab', { name: 'السعر والمخزون' }).click();
+  await expect(page.locator('[data-vcalc]')).toContainText('عمولة المنتج 20% + 10');
+  await page.fill('#e-vin', 'abc');
+  await page.locator('[data-vapply]').click();
+  await expect(page.locator('#pg-products')).toContainText('اكتب سعر المبتكر رقم أكبر من صفر');
+  await page.fill('#e-vin', '1000');
+  await page.locator('[data-vapply]').click();
+  await expect(page.locator('#e-sale')).toHaveValue('1270'); // 1010 ÷ 0.8 = 1262.5 → 1270
+  const regular = Number(await page.locator('#e-reg').inputValue());
+  expect(regular % 10).toBe(0);
+  expect(regular).toBeGreaterThanOrEqual(1470); // 1270 × 1.15 = 1460.5 → 1470
+  expect(regular).toBeLessThanOrEqual(1660); // 1270 × 1.30 = 1651 → 1660
+  await expect(page.locator('[data-vprice]')).toContainText('1,006'); // read only: 1270 − (254 + 10)
+  await page.locator('[data-vapply]').click(); // the same markup while the page is open
+  await expect(page.locator('#e-reg')).toHaveValue(String(regular));
+  await page.locator('[data-psave]').click();
+  await expect(page.locator('.unsaved')).toHaveCount(0);
+  expect(mock.productWrites.at(-1)).toEqual({ action: 'product_save', by: ADMIN, id: 9003, fields: { sale_price: '1270', regular_price: String(regular) } });
+});
+
+test('decision 16 on a variable product: a maker price per variation → its two prices; the empty rows stay', async ({ page }) => {
+  await openProducts(page);
+  await page.locator('[data-pedit="9002"]').click();
+  await page.getByRole('tab', { name: 'المتغيرات' }).click();
+  await page.fill('#vv-v0', '600');
+  await page.locator('[data-vapply]').click();
+  const sale = Number(await page.locator('#vv-s0').inputValue()); const reg = Number(await page.locator('#vv-r0').inputValue());
+  expect(sale % 10).toBe(0); expect(reg % 10).toBe(0); expect(reg).toBeGreaterThan(sale);
+  await page.locator('[data-psave]').click();
+  await expect(page.locator('.unsaved')).toHaveCount(0);
+  const w = mock.productWrites.at(-1);
+  expect(w.variations).toEqual([{ id: 9901, sale_price: String(sale), regular_price: String(reg) }]);
 });
 
 test('products.bulk: a member with products.edit but not products.bulk sees no bulk bar, yet publishes one product from its menu', async ({ page }) => {

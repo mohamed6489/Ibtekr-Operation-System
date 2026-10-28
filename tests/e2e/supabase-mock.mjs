@@ -278,7 +278,10 @@ export async function installSupabaseMock(page, opts = {}) {
   // phase 4 (0019): acc: the three ledgers + the two Dokan mirrors (acc.dokan_balances / acc.dokan_withdrawals: a spec may seed them);
   // accWrites: each insert / update a ledger took as { table, op, ...columns }; accountsDown: those tables answer 503;
   // statements: each woo-sync `statement` call ({ vendor_id, from, to, by }); statementRows: what it answers.
-  mock.acc = { acc_expenses: [], acc_vendor_moves: [], acc_account_moves: [], dokan_balances: (opts.dokanBalances || []).map((x) => ({ ...x })), dokan_withdrawals: (opts.dokanWithdrawals || []).map((x) => ({ ...x })) };
+  // phase 4.1 (0020): acc.acc_list_items (subs / ads, add F, unique per list without case); approvals: each woo-sync
+  // withdraw_approve call ({ id, by, result, reason? }) — mock.pushEnabled is the same WOO_PUSH_ENABLED gate.
+  mock.acc = { acc_expenses: [], acc_vendor_moves: [], acc_account_moves: [], acc_list_items: [], dokan_balances: (opts.dokanBalances || []).map((x) => ({ ...x })), dokan_withdrawals: (opts.dokanWithdrawals || []).map((x) => ({ ...x })) };
+  mock.approvals = [];
   mock.accWrites = []; mock.accountsDown = false; mock.statements = []; mock.statementRows = opts.statementRows || [];
   let accSeq = 0;
   // brands / brandOwners / brandRates: the 0013 tables (ordersSeed(opts): opts.transfer seeds the temporary transfer); brandWrites: each
@@ -396,7 +399,7 @@ export async function installSupabaseMock(page, opts = {}) {
       // 0019 (phase 4): the ledgers — read with accounts.view <> N (view P: no «المرتبات»), insert with accounts.add = F as oneself,
       // update one's own row with add F or any row with approve F (others: zero rows, like RLS); a voided row is final (42501); the
       // void is stamped here (voided_at / voided_by). The Dokan mirrors are read-only (42501 on a write). Filters: voided_at=is.null, id=eq.
-      const accT = /^\/rest\/v1\/(acc_expenses|acc_vendor_moves|acc_account_moves|dokan_balances|dokan_withdrawals)$/.exec(path);
+      const accT = /^\/rest\/v1\/(acc_expenses|acc_vendor_moves|acc_account_moves|acc_list_items|dokan_balances|dokan_withdrawals)$/.exec(path);
       if (accT) {
         if (mock.accountsDown) return json(503, { message: 'mock: accounts down' });
         const t = accT[1]; const rows = mock.acc[t]; const view = hasPerm(u, 'accounts.view');
@@ -411,11 +414,22 @@ export async function installSupabaseMock(page, opts = {}) {
         }
         if (t.startsWith('dokan_')) return refuse(403, '42501', 'permission denied for table ' + t);
         const b = body(); const now = new Date().toISOString();
+        if (t === 'acc_list_items') {
+          if (method !== 'POST') return refuse(403, '42501', 'permission denied for table ' + t);
+          const row = Array.isArray(b) ? b[0] : b;
+          if (hasPerm(u, 'accounts.add') !== 'F') return refuse(403, '42501', 'new row violates row-level security policy for table "' + t + '"');
+          if (!['subs', 'ads'].includes(row.list) || !String(row.name || '').trim()) return refuse(400, '23514', 'acc_list_items check');
+          if (rows.some((x) => x.list === row.list && x.name.trim().toLowerCase() === String(row.name).trim().toLowerCase())) return refuse(409, '23505', 'duplicate key value violates unique constraint "acc_list_items_name_key"');
+          accSeq += 1; const rec = { id: accSeq, list: row.list, name: String(row.name), created_by: u.id, created_at: now };
+          rows.push(rec); mock.accWrites.push({ table: t, op: 'insert', ...row });
+          return json(201, [{ ...rec }]);
+        }
         if (method === 'POST') {
           const row = Array.isArray(b) ? b[0] : b;
           if (hasPerm(u, 'accounts.add') !== 'F' || (t === 'acc_expenses' && row.category === 'المرتبات' && view !== 'F')) return refuse(403, '42501', 'new row violates row-level security policy for table "' + t + '"');
           if (!(Number(row.amount) > 0)) return refuse(400, '23514', 'new row for relation "' + t + '" violates check constraint');
-          if (t === 'acc_expenses' && row.category === 'الاشتراكات' && !(row.sub_name && row.sub_ends && (row.sub_alerts || []).length)) return refuse(400, '23514', 'acc_expenses_subscription');
+          if (t === 'acc_expenses' && row.category === 'الاشتراكات' && row.direction !== 'deposit' && !(row.sub_name && row.sub_ends && (row.sub_alerts || []).length)) return refuse(400, '23514', 'acc_expenses_subscription');
+          if (t === 'acc_expenses' && row.reason != null && !['استرجاع مبلغ مدفوع', 'إلغاء اشتراك', 'خصم من مورد', 'تصحيح تسجيل غلط', 'أخرى'].includes(row.reason)) return refuse(400, '23514', 'acc_expenses_reason_check');
           accSeq += 1; const rec = { ...row, id: accSeq, amount: Number(row.amount), created_by: u.id, created_at: now, updated_by: null, updated_at: null, voided_by: null, voided_at: null };
           rows.push(rec); mock.accWrites.push({ table: t, op: 'insert', ...row });
           return json(201, [{ ...rec }]);
@@ -881,7 +895,19 @@ export async function installSupabaseMock(page, opts = {}) {
       const mayPushVendor = () => isAdmin(u) || ((!bankAsked() || hasPerm(u, 'sensitive.vendor_bank') === 'F')
         && (storeAsked().length === 0 ? bankAsked() : (hasPerm(u, 'vendors.edit') === 'F' || (hasPerm(u, 'vendors.edit') === 'P' && storeAsked().every((f) => CONTACT_PUSH.includes(f)))))
         && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : action === 'statement' ? hasPerm(u, 'accounts.view') !== 'N' : isAdmin(u))) return json(401, { error: 'unauthorized' });
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : action === 'statement' ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
+      // phase 4.1: approve a pending Dokan request — the mirror row follows; WOO_PUSH_ENABLED (mock.pushEnabled) gates it
+      if (action === 'withdraw_approve') {
+        const id = Number(b.id); const w = mock.acc.dokan_withdrawals.find((x) => Number(x.id) === id);
+        const done = (result, reason) => { mock.approvals.push({ id, by: u.email, result, ...(reason ? { reason } : {}) }); return json(200, { action, result, ...(reason ? { reason } : {}), status: w ? w.status : null }); };
+        if (!Number.isInteger(id) || id <= 0) return json(400, { error: 'bad_request' });
+        if (!w) return json(404, { error: 'withdraw_not_found' });
+        if (w.status !== 'pending') return done('skipped', 'not_pending');
+        if (!mock.pushEnabled) return done('skipped', 'push_disabled');
+        if (mock.wooDown) return json(502, { error: 'woo_error' });
+        w.status = 'approved'; w.synced_at = new Date().toISOString();
+        return done('ok');
+      }
       // phase 4: the maker's Dokan statement (read-only, not stored) — mock.statementRows for any range
       if (action === 'statement') {
         mock.statements.push({ vendor_id: b.vendor_id, from: b.from, to: b.to, by: u.email });

@@ -26,9 +26,26 @@ test('the maker\'s net: Dokan\'s balance − deposits − transport (deriveVendo
 test('subscriptions: validateSubscription wants the name, the end and an alert; subsDue sorts by days left and fires the nearest alert', () => {
   assert.deepEqual(Object.keys(D.validateSubscription({ subName: '', subEnds: '', subAlerts: [] }).errors).sort(), ['subAlerts', 'subEnds', 'subName']);
   const ok = D.validateSubscription({ subName: 'Canva', subEnds: '2026-11-01', subAlerts: ['week', 'bogus'] });
-  assert.deepEqual(plain(ok), { errors: {}, value: { subName: 'Canva', subIsOther: false, subEnds: '2026-11-01', subAlerts: ['week'], subNote: '' } });
+  assert.deepEqual(plain(ok), { errors: {}, value: { subName: 'Canva', subEnds: '2026-11-01', subAlerts: ['week'], subNote: '', beneficiaryName: 'Canva', beneficiaryIsOther: false } });
   const due = D.subsDue([{ subName: 'A', subEnds: '2026-11-25', subAlerts: ['month'] }, { subName: 'B', subEnds: '2026-10-30', subAlerts: ['week', 'day'] }], '2026-10-27');
   assert.deepEqual(plain(due.map((x) => [x.name, x.daysLeft, x.due, x.alert])), [['B', 3, true, 'week'], ['A', 29, true, 'month']]);
+});
+
+test('validateExpenseCategory (phase 4.1): the fields follow the type — deposit, payroll, ads, general', () => {
+  const dep = D.validateExpenseCategory({ direction: 'deposit', category: 'الإعلانات', source: '', reason: 'x' });
+  assert.deepEqual(Object.keys(dep.errors).sort(), ['reason', 'source']);
+  assert.deepEqual(plain(D.validateExpenseCategory({ direction: 'deposit', category: 'الاشتراكات', source: ' Canva ', reason: 'إلغاء اشتراك', note: '' }).value),
+    { source: 'Canva', reason: 'إلغاء اشتراك', note: '', beneficiaryName: 'Canva', beneficiaryIsOther: true });
+  assert.deepEqual(plain(D.validateExpenseCategory({ direction: 'withdraw', category: 'الاشتراكات' })), { errors: {}, value: {} });
+  assert.deepEqual(Object.keys(D.validateExpenseCategory({ direction: 'withdraw', category: 'المرتبات', beneficiary: '' }).errors), ['beneficiary']);
+  assert.deepEqual(Object.keys(D.validateExpenseCategory({ direction: 'withdraw', category: 'المرتبات', beneficiary: D.OTHER, otherName: '' }).errors), ['otherName']);
+  assert.deepEqual(plain(D.validateExpenseCategory({ direction: 'withdraw', category: 'المرتبات', beneficiary: D.OTHER, otherName: 'سامح', staffKind: 'freelance' }).value),
+    { beneficiaryName: 'سامح', beneficiaryIsOther: true, staffKind: 'freelance', note: '' });
+  assert.equal(D.validateExpenseCategory({ direction: 'withdraw', category: 'المرتبات', beneficiary: 'منى', staffKind: 'freelance' }).value.staffKind, 'staff', 'a team member is staff');
+  assert.deepEqual(Object.keys(D.validateExpenseCategory({ direction: 'withdraw', category: 'الإعلانات', platform: '' }).errors), ['platform']);
+  assert.deepEqual(Object.keys(D.validateExpenseCategory({ direction: 'withdraw', category: 'المصروفات', details: '  ' }).errors), ['details']);
+  assert.deepEqual([...D.REFUND_REASONS], ['استرجاع مبلغ مدفوع', 'إلغاء اشتراك', 'خصم من مورد', 'تصحيح تسجيل غلط', 'أخرى'], 'the same list as 0020');
+  assert.ok(!D.VENDOR_TYPES.includes(D.PAYOUT_TYPE), 'no «تحويل مستحقات» move (decision 1)');
 });
 
 test('movementLog: Dokan requests in the makers\' log as «طلب سحب», counted apart from the money in and out', () => {

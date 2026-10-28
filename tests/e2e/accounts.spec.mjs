@@ -62,9 +62,14 @@ test('an expense is written to acc_expenses and logged (kind, amount, date only)
   await pick(page, 'f-ben', 'آخر');
   await modal(page).locator('#f-other').fill('مطبعة النيل');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(modal(page)).toContainText('اكتب تفاصيل المصروف'); // phase 4.1: a general expense needs its details
+  expect(mock.accWrites).toEqual([]);
+  await modal(page).locator('#f-details').fill('ورق طباعة وكراتين');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
   await expect(modal(page)).toBeHidden();
   await expect.poll(() => mock.accWrites.length).toBe(1);
-  expect(mock.accWrites[0]).toMatchObject({ table: 'acc_expenses', op: 'insert', on_date: cairo(), direction: 'withdraw', category: 'المصروفات', beneficiary: 'مطبعة النيل', beneficiary_other: true, amount: 1250, sub_alerts: [] });
+  expect(mock.accWrites[0]).toMatchObject({ table: 'acc_expenses', op: 'insert', on_date: cairo(), direction: 'withdraw', category: 'المصروفات', beneficiary: 'مطبعة النيل', beneficiary_other: true, amount: 1250, sub_alerts: [], details: 'ورق طباعة وكراتين', reason: null });
+  await expect(main(page).locator('table').filter({ hasText: 'ورق طباعة وكراتين' })).toBeVisible(); // «البيان»
   await expect(main(page).locator('table').filter({ hasText: 'مطبعة النيل' })).toBeVisible();
   await expect.poll(() => mock.activity.map((a) => a.action)).toContain('accounts.expense');
   const logged = mock.activity.find((a) => a.action === 'accounts.expense');
@@ -118,25 +123,30 @@ test('makers: Dokan balance, the open Dokan request, a deposit recorded here low
   await expect.poll(() => mock.accWrites.length).toBe(1);
   expect(mock.accWrites[0]).toMatchObject({ table: 'acc_vendor_moves', vendor_id: V1, direction: 'deposit', kind: 'عربون', kind_name: null, amount: 700 });
   await expect(art).toContainText('1,800.00'); // 2,500 − 700
-  // the brief: read-only on the request (no approve, no internal request), the statement fetched on demand
+  // the brief: no internal request, no payout here; the statement fetched on demand (the approval: its own case)
   await art.locator('[data-wd]').click();
   await expect(modal(page)).toContainText('تقرير مختصر — Art Craft');
-  await expect(modal(page)).toContainText('الطلب مستني الموافقة على Dokan');
-  await expect(modal(page).getByRole('button', { name: /موافقة|طلب سحب داخلي/ })).toHaveCount(0);
+  await expect(modal(page)).toContainText('الموافقة بتتكتب على Dokan نفسه');
+  await expect(modal(page).getByRole('button', { name: /طلب سحب داخلي|تسجيل التحويل/ })).toHaveCount(0);
   await modal(page).getByRole('button', { name: 'كشف حساب Dokan' }).click();
   await expect(page.locator('.modal[role=dialog]', { hasText: 'كشف حساب Dokan — Art Craft' })).toBeVisible();
   await expect(page.locator('.modal[role=dialog]', { hasText: 'كشف حساب Dokan' })).toContainText('Order #55');
   expect(mock.statements).toEqual([expect.objectContaining({ vendor_id: V1 })]);
 });
 
-test('the columns: hiding one is saved for the member in user_prefs (accounts.vcols)', async ({ page }) => {
+test('the columns (phase 4.1, every table): hiding one is saved for the member in user_prefs (table.cols); the first column stays', async ({ page }) => {
   await openAccounts(page);
   await tab(page, 'حسابات المبتكرين').click();
-  await main(page).locator('[data-vcols]').click();
-  await modal(page).locator('[data-vcol="dokan"] [role=switch], [data-vcol="dokan"] input').first().click();
+  await expect(main(page).locator('table.vendors-table')).toHaveClass(/sticky-col1/);
+  await main(page).locator('[data-cols^="tbl:حسابات المبتكرين"]').click();
+  await expect(modal(page).locator('[data-col-item="المبتكر"] [role=switch], [data-col-item="المبتكر"] input').first()).toBeDisabled();
+  await modal(page).locator('[data-col-item="رصيد Dokan"] [role=switch], [data-col-item="رصيد Dokan"] input').first().click();
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
-  await expect(main(page).locator('table.vendors-table thead th', { hasText: 'رصيد Dokan' })).toHaveCount(0);
-  await expect.poll(() => (mock.prefs.find((p) => p.key === 'accounts.vcols') || {}).data).toEqual({ hidden: ['dokan'] });
+  await expect(main(page).locator('table.vendors-table thead th', { hasText: 'رصيد Dokan' })).toBeHidden();
+  await expect.poll(() => { const p = mock.prefs.find((x) => x.key === 'table.cols'); return p ? Object.entries(p.data).map(([k, v]) => [k, v.hidden]) : null; }).toEqual([['tbl:حسابات المبتكرين', ['رصيد Dokan']]]);
+  // another tab's table has its own button
+  await tab(page, 'المصروفات').click();
+  await expect(main(page).locator('[data-cols="tbl:تفاصيل المصروفات"]')).toBeVisible();
 });
 
 test('sales come from our orders by status group; the moves log lists Dokan requests', async ({ page }) => {
@@ -171,4 +181,99 @@ test('accounts (approve P) edits its own move but only views the admin\'s', asyn
   await row.getByRole('button', { name: 'إجراءات الصف' }).click();
   await expect(page.locator('[role=menu]')).toContainText('عرض');
   await expect(page.locator('[role=menu]')).not.toContainText('حذف');
+});
+
+// ---------------------------------------------------------------- phase 4.1 (docs/superpowers/plans/2026-10-28-phase-4-1-accounts-prototype.md)
+
+test('approve a pending Dokan request from the brief (admin): confirm → woo-sync withdraw_approve, logged; with the push gate off nothing is approved', async ({ page }) => {
+  await openAccounts(page);
+  await tab(page, 'حسابات المبتكرين').click();
+  const art = main(page).locator('table.vendors-table tbody tr', { hasText: 'Art Craft' });
+  mock.pushEnabled = false;
+  await art.locator('[data-vreport]').click(); // the name opens the brief (no «تقرير» button)
+  await modal(page).getByRole('button', { name: /موافقة على طلب السحب/ }).click();
+  await page.locator('.modal[role=dialog]', { hasText: 'موافقة على طلب السحب #501' }).getByRole('button', { name: 'وافق على Dokan' }).click();
+  await expect(main(page)).toContainText('الكتابة على Dokan مقفولة دلوقتي');
+  expect(mock.approvals).toEqual([{ id: 501, by: ADMIN, result: 'skipped', reason: 'push_disabled' }]);
+  mock.pushEnabled = true;
+  await art.locator('[data-vreport]').click();
+  await modal(page).getByRole('button', { name: /موافقة على طلب السحب/ }).click();
+  await page.locator('.modal[role=dialog]', { hasText: 'موافقة على طلب السحب #501' }).getByRole('button', { name: 'وافق على Dokan' }).click();
+  await expect(main(page)).toContainText('اتوافق على طلب السحب #501');
+  expect(mock.approvals.at(-1)).toEqual({ id: 501, by: ADMIN, result: 'ok' });
+  expect(mock.acc.dokan_withdrawals.find((w) => w.id === 501).status).toBe('approved');
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'accounts.withdraw.approve').map((a) => a.new_value)).toEqual(['#501 · 1200']);
+  expect(mock.accWrites.filter((w) => w.table === 'acc_vendor_moves')).toEqual([]); // no payout move: Dokan lowers the balance itself
+  await art.locator('[data-vreport]').click();
+  await expect(modal(page).getByRole('button', { name: /موافقة على طلب السحب/ })).toHaveCount(0);
+  await expect(modal(page)).toContainText('اتوافق عليه على Dokan');
+});
+
+test('the approve button needs accounts.approve = F; the maker\'s file opens in place', async ({ page }) => {
+  await openAccounts(page, ACCOUNTS);
+  await tab(page, 'حسابات المبتكرين').click();
+  const art = main(page).locator('table.vendors-table tbody tr', { hasText: 'Art Craft' });
+  await art.locator('[data-vreport]').click();
+  await expect(modal(page)).toContainText('تقرير مختصر — Art Craft');
+  await expect(modal(page).getByRole('button', { name: /موافقة على طلب السحب/ })).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await expect(modal(page)).toHaveCount(0);
+  await art.getByRole('button', { name: /إجراءات/ }).click();
+  await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'افتح ملف المبتكر' }).first().click();
+  await expect(page.locator('.drawer')).toBeVisible();
+  expect(new URL(page.url()).hash).not.toContain('makers');
+  await expect(main(page).getByRole('tab', { name: 'حسابات المبتكرين' })).toBeVisible(); // still on the accounts page
+});
+
+test('fields per type: a deposit takes its source and reason; a payroll to someone outside the team is staff / freelance; ads take the platform', async ({ page }) => {
+  await openAccounts(page);
+  await add(page, 'إضافة مصروفات', 'إيداع');
+  await modal(page).locator('#f-amount').fill('300');
+  await pick(page, 'f-cat', 'الاشتراكات');
+  await expect(modal(page).locator('#f-subname')).toHaveCount(0); // a deposit is money coming back: no subscription fields
+  await modal(page).locator('#f-src').fill('Canva');
+  await pick(page, 'f-reason', 'إلغاء اشتراك');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(modal(page)).toBeHidden();
+  await expect.poll(() => mock.accWrites.length).toBe(1);
+  expect(mock.accWrites[0]).toMatchObject({ category: 'الاشتراكات', direction: 'deposit', beneficiary: 'Canva', reason: 'إلغاء اشتراك', sub_name: null, sub_alerts: [] });
+  await add(page, 'إضافة مصروفات', 'سحب');
+  await modal(page).locator('#f-amount').fill('900');
+  await pick(page, 'f-cat', 'المرتبات');
+  await pick(page, 'f-ben', 'حد من بره الفريق');
+  await modal(page).locator('#f-other').fill('سامح فريلانسر');
+  await modal(page).getByText('فريلانس — شغل مرة واحدة وخلص').click();
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect.poll(() => mock.accWrites.length).toBe(2);
+  expect(mock.accWrites[1]).toMatchObject({ category: 'المرتبات', beneficiary: 'سامح فريلانسر', beneficiary_other: true, staff_kind: 'freelance' });
+  await add(page, 'إضافة مصروفات', 'سحب');
+  await modal(page).locator('#f-amount').fill('500');
+  await pick(page, 'f-cat', 'الإعلانات');
+  await pick(page, 'f-plat', '+ إضافة منصة جديدة');
+  await page.locator('.modal[role=dialog]', { hasText: 'إضافة منصة إعلانات' }).locator('input').first().fill('سناب شات');
+  await page.locator('.modal[role=dialog]', { hasText: 'إضافة منصة إعلانات' }).getByRole('button', { name: 'إضافة' }).click();
+  await expect.poll(() => mock.accWrites.filter((w) => w.table === 'acc_list_items')).toEqual([expect.objectContaining({ list: 'ads', name: 'سناب شات' })]);
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect.poll(() => mock.accWrites.filter((w) => w.table === 'acc_expenses').length).toBe(3);
+  expect(mock.accWrites.filter((w) => w.table === 'acc_expenses')[2]).toMatchObject({ category: 'الإعلانات', beneficiary: 'سناب شات' });
+});
+
+test('subscriptions: «جدّد» opens a new expense a year on; the sales show the makers\' share', async ({ page }) => {
+  await openAccounts(page);
+  await add(page, 'إضافة مصروفات', 'سحب');
+  await modal(page).locator('#f-amount').fill('450');
+  await pick(page, 'f-cat', 'الاشتراكات');
+  await pick(page, 'f-subname', 'Canva');
+  const ends = new Date(Date.now() + 5 * 864e5); const d = [String(ends.getDate()).padStart(2, '0'), String(ends.getMonth() + 1).padStart(2, '0'), ends.getFullYear()].join('/');
+  await modal(page).locator('#f-subends').fill(d); await modal(page).locator('#f-subends').press('Tab');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(modal(page)).toBeHidden();
+  await expect(main(page).locator('.subs-tbl')).toContainText('Canva');
+  await main(page).locator('[data-renew="Canva"]').click();
+  await expect(modal(page)).toBeVisible();
+  await expect(modal(page).locator('#f-subends')).toHaveValue([String(ends.getDate()).padStart(2, '0'), String(ends.getMonth() + 1).padStart(2, '0'), ends.getFullYear() + 1].join('/'));
+  await modal(page).getByRole('button', { name: 'إلغاء' }).click();
+  await tab(page, 'المبيعات').click();
+  await expect(main(page).locator('table thead')).toContainText('حصة المبتكرين (ج.م)');
+  await expect(main(page).locator('table thead')).not.toContainText('نسبة حصة إبتكر');
 });

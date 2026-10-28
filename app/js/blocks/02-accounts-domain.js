@@ -8,6 +8,8 @@
   'use strict';
 
   const CATEGORIES = Object.freeze(['المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات']);
+  const PAYOUT_TYPE = 'تحويل مستحقات';
+  // phase 4.1 (plan decision 1): no «تحويل مستحقات» move is recorded here — Dokan lowers the balance itself when a request is approved
   const VENDOR_TYPES = Object.freeze(['مواصلات', 'عربون', 'أخرى']);
   const ACCOUNTS = Object.freeze(['حساب البنك', 'حساب بوسطة', 'حساب باي موب', 'محفظة إلكترونية']);
   const OTHER = 'آخر';
@@ -106,17 +108,43 @@
   // ---- الاشتراكات (owner 27 Oct): اسم الاشتراك + تاريخ الانتهاء + تنبيه قبل الانتهاء بشهر/أسبوع/يوم + ملاحظة حرة ----
   const SUB_NAMES = Object.freeze(['استضافة الموقع (Hostinger)', 'دومين ibtekr.club', 'ووكومرس / بلجنز', 'Airtable', 'Google Workspace', 'Meta Business (أدوات)', 'Canva', 'Adobe', 'شوبيفاي', 'واتساب بزنس API', 'باي موب', 'أخرى']);
   const SUB_ALERTS = Object.freeze([['month', 'بشهر', 30], ['week', 'بأسبوع', 7], ['day', 'بيوم', 1]]);
+  const AD_PLATFORMS = Object.freeze(['ميتا (فيسبوك وإنستجرام)', 'تيك توك', 'جوجل']);
+  const REFUND_REASONS = Object.freeze(['استرجاع مبلغ مدفوع', 'إلغاء اشتراك', 'خصم من مورد', 'تصحيح تسجيل غلط', 'أخرى']);
   const subAlertDays = (k) => (SUB_ALERTS.find((x) => x[0] === k) || [, , 0])[2];
+  // الحقول المطلوبة حسب نوع المصروف (owner 27 Oct) — السحب بس؛ الإيداع ليه شروطه تحت
+  function validateExpenseCategory(input) {
+    const errors = {}; const cat = input.category;
+    if (input.direction === 'deposit') {
+      if (!sanitizeText(input.source, 80)) errors.source = 'اكتب مصدر المبلغ';
+      if (!REFUND_REASONS.includes(input.reason)) errors.reason = 'اختار سبب الإيداع';
+      const src = sanitizeText(input.source, 80);
+      return { errors, value: { source: src, reason: input.reason, note: sanitizeText(input.note, 500), beneficiaryName: src, beneficiaryIsOther: true } };
+    }
+    if (cat === 'الاشتراكات') return { errors, value: {} }; // بيتتحقق منه validateSubscription
+    if (cat === 'المرتبات') {
+      const other = input.beneficiary === OTHER;
+      const name = other ? sanitizeText(input.otherName, 80) : sanitizeText(input.beneficiary, 80);
+      if (!name) errors[other ? 'otherName' : 'beneficiary'] = other ? 'اكتب اسم المستفيد' : 'اختار المستفيد من الفريق';
+      return { errors, value: { beneficiaryName: name, beneficiaryIsOther: other, staffKind: other ? (input.staffKind === 'freelance' ? 'freelance' : 'staff') : 'staff', note: sanitizeText(input.note, 500) } };
+    }
+    if (cat === 'الإعلانات') {
+      const p = sanitizeText(input.platform, 60);
+      if (!p) errors.platform = 'اختار المنصة';
+      return { errors, value: { platform: p, beneficiaryName: p, beneficiaryIsOther: false, details: sanitizeText(input.details, 500), note: sanitizeText(input.note, 500) } };
+    }
+    const details = sanitizeText(input.details, 500);
+    if (!details) errors.details = 'اكتب تفاصيل المصروف';
+    return { errors, value: { details, note: sanitizeText(input.note, 500) } };
+  }
   function validateSubscription(input) {
-    const errors = {}; const name = input.subOther && input.subName === OTHER ? sanitizeText(input.subOther, 80) : sanitizeText(input.subName, 80);
-    if (!input.subName) errors.subName = 'اختار الاشتراك';
-    else if (input.subName === OTHER && !sanitizeText(input.subOther, 80)) errors.subOther = 'اكتب اسم الاشتراك';
+    const errors = {}; const name = sanitizeText(input.subName, 80);
+    if (!name) errors.subName = 'اختار الاشتراك';
     const ends = input.subEnds ? (/^\d{4}-\d{2}-\d{2}$/.test(input.subEnds) ? input.subEnds : parseDate(input.subEnds)) : null;
     if (!input.subEnds) errors.subEnds = 'حدّد تاريخ الانتهاء';
     else if (!ends) errors.subEnds = 'التاريخ لازم يكون يوم/شهر/سنة';
     const alerts = (input.subAlerts || []).filter((k) => SUB_ALERTS.some((a) => a[0] === k));
     if (!alerts.length) errors.subAlerts = 'اختار تنبيه واحد على الأقل';
-    return { errors, value: { subName: name, subIsOther: input.subName === OTHER, subEnds: ends, subAlerts: alerts, subNote: sanitizeText(input.subNote, 500) } };
+    return { errors, value: { subName: name, subEnds: ends, subAlerts: alerts, subNote: sanitizeText(input.subNote, 500), beneficiaryName: name, beneficiaryIsOther: false } };
   }
   // اللي قرب ينتهي: بترجّع لكل اشتراك الأيام الباقية وأقرب تنبيه مستحق (أو null لو لسه بدري)
   function subsDue(subs, today) {
@@ -137,12 +165,12 @@
       Object.keys(src.expenseSeed || {}).forEach((mk) => { const m = src.expenseSeed[mk]; Object.keys(m).forEach((cat) => { if (!m[cat]) return; push({ date: mk + '-01', kind: 'سحب', what: cat, who: '—', amount: m[cat], by: 'شيت', source: 'شيت Monthly Performance', ref: mk, note: 'إجمالي الشهر من الشيت' }); }); });
     } else if (kind === 'vendorMoves') {
       (src.vendorMoves || []).forEach((m) => push({ date: m.date, kind: m.direction === 'deposit' ? 'إيداع' : 'سحب', what: m.typeName || m.type, who: m.vendor, amount: m.amount, by: m.createdBy || '—', source: 'تسجيل يدوي', ref: m.id ? '#' + m.id : '', note: m.note || '' }));
-      (src.vendorSeed || []).forEach((v) => { if (v.deposits) push({ date: src.seedDate || '', kind: 'إيداع', what: 'عربون', who: v.name, amount: v.deposits, by: 'شيت', source: 'شيت Balances_Payouts', ref: '', note: 'عربون مدفوع مقدمًا' }); });
+      (src.vendorSeed || []).forEach((v) => { if (v.deposits) push({ date: src.seedDate || '', kind: 'إيداع', what: 'عربون', who: v.name, amount: v.deposits, by: 'شيت', source: 'شيت Balances_Payouts', ref: '', note: 'عربون مدفوع مقدمًا — الشيت مفيهوش تاريخ الحركة' }); });
       (src.transport || []).forEach((t) => push({ date: t.date, kind: 'سحب', what: 'مواصلات', who: t.vendor || '—', amount: t.amount, by: t.payer || 'شيت', source: 'شيت Logistics expenses', ref: '', note: t.note || '' }));
       (src.withdrawals || []).forEach((w) => push({ date: String(w.at || '').slice(0, 10), kind: 'طلب سحب', what: w.source === 'internal' ? 'طلب داخلي' : 'طلب من المبتكر', who: w.vendor, amount: w.amount, by: w.by || '—', source: 'طلبات السحب', ref: w.id, note: w.note || '' }));
     } else {
       (src.accountMoves || []).forEach((m) => push({ date: m.date, kind: m.direction === 'deposit' ? 'إيداع' : 'سحب', what: m.account, who: '—', amount: m.amount, by: m.createdBy || '—', source: 'تسجيل يدوي', ref: m.id ? '#' + m.id : '', note: m.note || '' }));
-      Object.keys(src.accounts || {}).forEach((a) => push({ date: src.seedDate || '', kind: 'رصيد افتتاحي', what: a, who: '—', amount: src.accounts[a], by: 'شيت', source: 'شيت Balances_Payouts', ref: '', note: 'الرصيد قبل حركات السيستم' }));
+      Object.keys(src.accounts || {}).forEach((a) => push({ date: src.seedDate || '', kind: 'رصيد افتتاحي', what: a, who: '—', amount: src.accounts[a], by: 'شيت', source: 'شيت Balances_Payouts', ref: '', note: 'الرصيد قبل حركات السيستم — الشيت مفيهوش تاريخ' }));
     }
     rows.sort((a, b) => (a.date === b.date ? 0 : a.date < b.date ? 1 : -1));
     const sum = (f) => round2(rows.filter(f).reduce((t, r) => t + (Number(r.amount) || 0), 0));
@@ -203,7 +231,9 @@
     const sign = dir === 'asc' ? 1 : -1;
     return list.map((v, i) => [v, i]).sort((a, b) => sign * (a[0][key] - b[0][key]) || a[1] - b[1]).map((p) => p[0]);
   }
-  function applyVendorMovement(v, direction, amount) {
+  function applyVendorMovement(v, direction, amount, type) {
+    // تحويل مستحقات = صرف رصيد المبتكر له — بيقلّل الرصيد من غير ما يزوّد العرابين
+    if (type === PAYOUT_TYPE) { const s = direction === 'deposit' ? 1 : -1; return { ...v, balance: round2(v.balance - s * amount) }; }
     const s = direction === 'deposit' ? 1 : -1; // deposit = money paid to the vendor in advance
     return { ...v, deposits: round2(v.deposits + s * amount), balance: round2(v.balance - s * amount) };
   }
@@ -241,7 +271,7 @@
     return { ok: true, balances };
   }
   function deriveVendors(base, movements) {
-    return movements.reduce((list, m) => list.map((v) => (v.name === m.vendor ? applyVendorMovement(v, m.direction, m.amount) : v)), base.map((v) => ({ ...v })));
+    return movements.reduce((list, m) => list.map((v) => (v.name === m.vendor ? applyVendorMovement(v, m.direction, m.amount, m.type) : v)), base.map((v) => ({ ...v })));
   }
 
   // Owner (22 Oct): transport paid for a vendor is deducted from his balance (deposits untouched).
@@ -294,13 +324,13 @@
   }
 
   return Object.freeze({
-    deductTransport,
+    deductTransport, PAYOUT_TYPE,
+    SALES_GROUPS, liveSeed,
     CATEGORIES, VENDOR_TYPES, ACCOUNTS, OTHER, MAX_AMOUNT,
     parseAmount, formatMoney, formatPct, sanitizeText, round2,
     parseDate, formatDateNumeric, formatDateLong, rangeLabel, monthName, presetRange, monthMatrix, addDays,
     validateExpense, validateVendorMovement, validateAccountMovement,
-    movementLog, SUB_NAMES, SUB_ALERTS, subAlertDays, validateSubscription, subsDue, daysBetweenIso,
-    SALES_GROUPS, liveSeed,
+    movementLog, SUB_NAMES, SUB_ALERTS, AD_PLATFORMS, REFUND_REASONS, validateExpenseCategory, subAlertDays, validateSubscription, subsDue, daysBetweenIso,
     categoryTotals, sortVendors, applyVendorMovement, vendorSummary, applyAccountMovement, deriveAccounts, deriveVendors, potential, createEventLog,
   });
 });

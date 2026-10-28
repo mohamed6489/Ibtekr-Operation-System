@@ -287,6 +287,17 @@ Deno.test('probe_dokan { options: true }: each route\'s schema names / types / r
   assert(woo.calls.every((c) => c.method === 'OPTIONS'));
 });
 
+Deno.test('probe_dokan { earning }: Dokan\'s own commission for one product at a price — seller and admin as numbers, GET only; bad input 400; admin only', async () => {
+  const routes = { 'GET dokan/v1/commission': (c: any) => ({ body: c.query.context === 'seller' ? '11375' : 6125 }) };
+  const { woo, deps } = setup({ routes });
+  const { body } = await call(deps, { action: 'probe_dokan', earning: { product_id: 181912, amount: '17500' } }, { jwt: 'jwt-admin' });
+  assertEquals(body.earning, { product_id: 181912, amount: 17500, seller: 11375, admin: 6125 });
+  assertEquals(woo.calls.map((c) => [c.method, c.query.product_id, c.query.amount, c.query.context]), [['GET', '181912', '17500', 'seller'], ['GET', '181912', '17500', 'admin']]);
+  assertEquals((await call(deps, { action: 'probe_dokan', earning: { product_id: 'x', amount: 1 } }, { jwt: 'jwt-admin' })).res.status, 400);
+  assertEquals((await call(deps, { action: 'probe_dokan', earning: { product_id: 1, amount: -5 } }, { jwt: 'jwt-admin' })).res.status, 400);
+  assertEquals((await call(deps, { action: 'probe_dokan', earning: { product_id: 1, amount: 1 } }, { jwt: 'jwt-ops' })).res.status, 401);
+});
+
 // ---------------------------------------------------------------- accounts / statement (phase 4)
 
 Deno.test('accounts: every withdraw request (status=all) → dokan_withdrawals without the bank details, IP or note; the next batch of makers → dokan_balances; GET only; admin / system only', async () => {

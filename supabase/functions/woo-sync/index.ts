@@ -431,6 +431,26 @@ const shapeOf = (v: unknown, depth = 0): unknown => {
   return v === null ? 'null' : typeof v;
 };
 async function probeDokan(run: Run, args: Json) {
+  // phase 5 (the owner, 28 Oct: "the site has a fixed place that gives my commission and the maker's"): `earning:
+  // { product_id, amount }` asks Dokan's own commission endpoint (the product page's "You earn") for that product at that
+  // price — seller = the maker's earning, admin = ours; numbers only (anything else → its shape).
+  if (isObj(args.earning)) {
+    const id = wooId(args.earning.product_id);
+    const raw = args.earning.amount;
+    const amount = typeof raw === 'number' || (typeof raw === 'string' && raw.trim() !== '') ? Number(raw) : NaN;
+    if (id === null || !Number.isFinite(amount) || amount < 0 || amount > 1e9) return json(400, { error: 'bad_request' });
+    const woo = run.woo();
+    const out: Json = {};
+    for (const context of ['seller', 'admin']) {
+      try {
+        const { data } = await woo.get('dokan/v1/commission', { product_id: id, amount, context });
+        out[context] = typeof data === 'number' || (typeof data === 'string' && data.trim() !== '' && Number.isFinite(Number(data))) ? Number(data) : { shape: shapeOf(data) };
+      } catch (e) {
+        out[context] = e instanceof WooError ? { status: e.status, error: e.message.slice(0, 300) } : { status: 0 };
+      }
+    }
+    return json(200, { action: 'probe_dokan', auth: woo.hasDokanAuth, earning: { product_id: id, amount, ...out } });
+  }
   const paths = Array.isArray(args.paths) ? args.paths.filter((p: unknown): p is string => typeof p === 'string' && DOKAN_PATH.test(p)).slice(0, 10) : [];
   if (!paths.length) return json(400, { error: 'bad_request' });
   const woo = run.woo();

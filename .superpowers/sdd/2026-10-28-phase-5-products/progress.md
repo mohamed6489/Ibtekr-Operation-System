@@ -49,3 +49,9 @@
   كلها من المتجر/القسم على الـ staging.
 - «نقل لمبتكر تاني» — `probe_dokan { options: true }` على `dokan/v1/products` و`dokan/v2/products`: GET/POST بس، ومافيش أي حقل
   للمتجر/المبتكر/الكاتب في الـ schema → **مايتعملش من REST**؛ محتاج قرار صاحب المشروع (لوحة WordPress لحد ما يتقرر).
+
+## المرحلة 5.1 — تاب SEO وتاب التقارير (28 أكتوبر)
+- SEO (قرار 19): `product_save` بيقبل `seo_title`/`seo_description` (الأساسي و`ar`) → `meta_data` `rank_math_title`/`rank_math_description` بس. مراجعة أمنية مرتين: متغيرات Rank Math (`%customfield(_wc_cog_cost)%` بتطبع التكلفة) → `SEO_VARS` بس، وأي `%` فاضل لازم بعده مسافة. commits: SEO tab، allow only safe variables، refuse any % not followed by a space.
+- woo-sync v29 (v28 كانت مكسورة 24 دقيقة — `normalizePhone`؛ اتشيّك: 0 أوردرات اتزامنت في الفترة و0 تليفونات غلط).
+- التقارير (قرار 20): `0022_products_report` (RPC، `products.view`، أرقام مجمّعة) اتطبّقت بـ MCP؛ rls live ok (run 40721683531). نفد المخزون من المرآة على مستوى المنتج. الكتلة 28: `IBReportBlocks`.
+- الاختبارات: npm test 293، e2e 169، deno 119، db:test كله ok، CI أخضر.

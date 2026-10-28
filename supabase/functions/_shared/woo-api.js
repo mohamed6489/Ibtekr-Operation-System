@@ -2,8 +2,7 @@
 // Auth rule (staging probe, Task 1): the WC REST keys authenticate wc/v3 only, so `wc/` paths get
 // Basic base64(WOO_CK:WOO_CS); `dokan/` paths get no Authorization header at all (the store list and a single store are
 // public; Dokan answers 401 invalid_username to the WC header), unless WOO_WP_USER and WOO_WP_APP_PASSWORD are both set
-// (a WordPress Application Password, sent as Basic on dokan/ paths, and on wp/v2/media and wp/v2/product/{id} for the studio,
-// phase 5.2). Any other namespace is refused.
+// (a WordPress Application Password, sent as Basic on dokan/ paths, and on wp/v2/media for the studio, phase 5.2). Any other namespace is refused.
 // Every request has a 30 s timeout and refuses redirects (the Basic header never follows one); a non-2xx answer (or
 // a body that is not JSON) throws a WooError with the status and a scrubbed excerpt of at most 200 characters.
 // Scrubbing: our own keys / secrets by exact value (and the Basic header values), then patterns for auth headers,
@@ -89,9 +88,9 @@ export function wooApi(env, fetchFn) {
   const dokanAuth = user && pass ? `Basic ${base64(`${user}:${pass}`)}` : null;
   const scrub = makeScrubber(env);
 
-  // phase 5.2 (the studio): two WordPress routes only — the media library and a product's author — with the Application
-  // Password; any other wp/ path is refused, and without the password these two are a ConfigError.
-  const WP_PATH = /^wp\/v2\/(media|product\/\d+)$/;
+  // phase 5.2 (the studio): one WordPress route only — the media library — with the Application Password (a product's
+  // author goes through dokan/v1/products); any other wp/ path is refused, and without the password it is a ConfigError.
+  const WP_PATH = /^wp\/v2\/media$/;
   function authFor(path) {
     if (path.startsWith('wc/')) return wcAuth;
     if (path.startsWith('dokan/')) return dokanAuth;

@@ -13,7 +13,7 @@
   - الأقسام بتاخد `name` / `parent` / `wpml_language`.
   - التركيبات بتاخد `attributes` / `sku` / `image` / الأسعار / المخزون.
   - `wp/v2/media` POST موجود.
-- **فحص `studio` قبل كده:** `wp/v2/product` موجود من غير دعم `author` → المبتكر محتاج الـ snippet (قرار 9).
+- **فحص `studio` قبل كده:** `wp/v2/product` موجود من غير دعم `author`. بعدها (بطلب صاحب المشروع «دور تاني») كود Dokan نفسه: `dokan/v1/products/{id}` بيكتب `post_author` للأدمن من غير أي snippet (قرار 9).
 
 ## القرارات المكتوبة
 
@@ -83,11 +83,10 @@
 8. **قسم جديد (صاحب المشروع: مسموح):** `category_create { name_en, name_ar, parent }` (`products.add = F`، `WOO_PUSH_ENABLED`) → القسم بالإنجليزي + ترجمته العربي، وبعدها بيتسحب لـ `woo_categories`.
 
 9. **المبتكر = حساب الـ vendor على الموقع:**
-   - بعد إنشاء المنتج `wp/v2/product/{id} { author: <Dokan store id> }` — محتاج الـ snippet:
-     ```php
-     add_action('init', function () { add_post_type_support('product', 'author'); }, 20);
-     ```
-   - لو مااتحطش، المنتج بيفضل والتقرير بيقول «المبتكر ماتحطش — حطه من لوحة WordPress».
+   - بعد إنشاء المنتج (والترجمة العربي) `PUT dokan/v1/products/{id} { post_author: <Dokan store id> }` بباسورد التطبيق — **من غير snippet**. من كود Dokan Lite (`DokanRESTController::update_post_author_if_needed`): الأدمن (`manage_options`) بيقدر يحط `post_author` لأي مستخدم عنده `dokan_add_product` (أي vendor)، وإلا Dokan بيكتب اللي بينادي — عشان كده الرد بيتشيّك (`post_author` = المبتكر) ومش بيتصدّق.
+   - تنبيه: أي PUT على `dokan/v1/products/{id}` من غير `post_author` بيرجّع المنتج للأدمن — الاستوديو بس اللي بيستخدمه ودايمًا بيبعته.
+   - لو الرد مش المبتكر، المنتج بيفضل والتقرير بيقول «المبتكر ماتحطش — حطه من لوحة WordPress»، وإعادة المحاولة بتجرّب تاني.
+   - `woo-api` بقى بيسمح من WordPress بـ `wp/v2/media` بس.
 
 10. **الدفعات (`studio_batches`):**
     - **الأعمدة:**
@@ -144,7 +143,6 @@
   - `0023`.
   - rls live.
   - deploy.
-  - snippet المبتكر (صاحب المشروع).
   - قبول: منتج Simple + منتج Variable مسودة (بموافقة صاحب المشروع).
   - main.
   - تقرير.

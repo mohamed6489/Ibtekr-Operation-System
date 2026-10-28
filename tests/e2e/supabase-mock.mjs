@@ -989,7 +989,8 @@ export async function installSupabaseMock(page, opts = {}) {
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' ? hasPerm(u, 'products.edit') === 'F' : action === 'products_batch' ? hasPerm(u, 'products.bulk') === 'F'
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
-      // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one.
+      // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
+      // mock.studioAuthorFail = { [index]: true } answers author 'failed' (Dokan kept the caller as the product's author).
       // category_create — a new woo_categories row (id 9500+).
       if (action === 'studio_upload') {
         const row = mock.studioBatches.find((x) => x.id === b.batch_id); const it = row && row.state && Array.isArray(row.state.items) ? row.state.items[b.index] : null;
@@ -1004,7 +1005,7 @@ export async function installSupabaseMock(page, opts = {}) {
         if (fail) res = { sku: built.sku, error: fail, media: {} };
         else { const prev = items[b.index]; const id = prev && prev.productId ? prev.productId : 7700 + mock.studioUploads.length;
           if (!prev || !prev.productId) mock.products.push({ id, sku: built.sku, name: it.nameEn, image_url: null, permalink: SITE + '/product/studio-' + id + '/', vendor_id: row.vendor_id, price: null, status: 'draft', raw: { id }, updated_at: T0, lang: 'en', translation_ids: { en: id }, type: row.type === 'Variable' ? 'variable' : 'simple', regular_price: built.product.regular_price ? Number(built.product.regular_price) : null, sale_price: built.product.sale_price ? Number(built.product.sale_price) : null, stock_quantity: null, stock_status: 'instock', manage_stock: false, backorders: 'no', low_stock_amount: null, total_sales: 0, category_ids: it.categories, brand_ids: [], image_count: built.images.length, weight: it.weight || null, featured: false, desc_filled: false, short_desc_filled: !!it.shortDesc, woo_modified_at: T0, trashed_at: null });
-          res = { sku: built.sku, productId: id, arId: it.nameAr ? id + 1 : null, author: 'ok', variations: built.variations.length ? { done: built.variations.length, failed: 0 } : undefined, media: Object.fromEntries(built.images.map((p, k) => [p, 8800 + k])), error: null }; }
+          res = { sku: built.sku, productId: id, arId: it.nameAr ? id + 1 : null, author: (mock.studioAuthorFail || {})[b.index] ? 'failed' : 'ok', variations: built.variations.length ? { done: built.variations.length, failed: 0 } : undefined, media: Object.fromEntries(built.images.map((p, k) => [p, 8800 + k])), error: null }; }
         mock.studioUploads.push({ index: b.index, by: u.email, sku: built.sku, product: built.product, variations: built.variations.map((v) => v.payload), images: built.images, ar: built.ar, result: res.error || 'ok' });
         while (items.length < b.index) items.push(null); items[b.index] = res;
         row.result = { items }; row.status = row.state.items.every((_, i) => items[i] && items[i].productId && !items[i].error) ? 'done' : 'uploading';

@@ -76,7 +76,7 @@ test('studio Simple: brand + batch rate → CSV (columns by name) + images by ro
   await expect(page.locator('#pg-products')).toContainText('اترفعت');
 });
 
-test('studio Variable: colors and sizes become variations with their own SKU and price; a refused product is reported with its reason and «جرّب تاني» uploads only it', async ({ page }) => {
+test('studio Variable: colors and sizes become variations with their own SKU and price; a refused product is reported with its reason, a maker that did not stick is noted, and «جرّب تاني» uploads only those', async ({ page }) => {
   await signIn(page, OPS);
   await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
   await page.getByRole('radio', { name: /^Variable/ }).click();
@@ -98,7 +98,7 @@ test('studio Variable: colors and sizes become variations with their own SKU and
   await page.getByRole('button', { name: 'طبّق قسم على المحدد' }).click();
   await page.locator('.modal').getByText('هدايا', { exact: true }).click(); await page.locator('.modal').getByRole('button', { name: 'تمام' }).click();
   await next(page, 'التالي: المراجعة والرفع');
-  mock.studioFail = { 1: 'product_invalid_sku' };
+  mock.studioFail = { 1: 'product_invalid_sku' }; mock.studioAuthorFail = { 0: true };
   await next(page, 'ارفع على الموقع (مسودة)');
   await expect(page.locator('.modal')).toContainText('الـ SKU ده موجود على الموقع');
   await page.locator('.modal').getByRole('button', { name: 'شوف التقرير' }).click();
@@ -106,11 +106,14 @@ test('studio Variable: colors and sizes become variations with their own SKU and
   const v = mock.studioUploads[0];
   expect([v.sku, v.product.type, v.variations.map((x) => x.sku)]).toEqual(['IBTAR0999', 'variable', ['IBTARBE0999-5050', 'IBTARBE0999-4040', 'IBTARBK0999-5050', 'IBTARBK0999-4040']]);
   expect(v.variations[0].sale_price).toBe('2860'); // 2000 ÷ 0.7 = 2857.1 → 2860
-  mock.studioFail = {};
-  await page.getByRole('button', { name: 'جرّب تاني' }).click();
+  await expect(page.locator('#pg-products')).toContainText('المبتكر ماتحطش');
+  mock.studioFail = {}; mock.studioAuthorFail = {};
+  await page.getByRole('button', { name: 'جرّب تاني' }).first().click();
   await page.locator('.modal').getByRole('button', { name: 'شوف التقرير' }).click();
   await expect(page.locator('#pg-products')).toContainText('اترفع 2 من 2');
-  expect(mock.studioUploads.map((x) => x.index)).toEqual([0, 1, 1]); // the first product was not uploaded again
+  await expect(page.locator('#pg-products')).not.toContainText('المبتكر ماتحطش');
+  expect(mock.studioUploads.map((x) => x.index)).toEqual([0, 1, 0, 1]); // the first asked again for its maker only (the server repeats nothing)
+  expect(mock.products.filter((p) => p.sku === 'IBTAR0999')).toHaveLength(1);
   expect(mock.serialTakes).toEqual([2]); // the serials stay with their products
 });
 

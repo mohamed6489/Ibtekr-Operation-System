@@ -1339,7 +1339,8 @@ function studioRoutes(over: Record<string, any> = {}) {
     'POST wp/v2/media': () => ({ body: { id: ++media } }),
     'POST wc/v3/products': (c: any) => (c.body.wpml_language === 'ar' ? { body: { id: 901, lang: 'ar', translations: { en: 900, ar: 901 } } } : { body: wooProduct(900, 44, { type: 'variable', sku: c.body.sku }) }),
     'POST wc/v3/products/900/variations/batch': (c: any) => ({ body: { create: c.body.create.map((_: any, i: number) => ({ id: 9100 + i })) } }),
-    'POST wp/v2/product/900': { body: { id: 900, author: 44 } },
+    'PUT dokan/v1/products/900': (c: any) => ({ body: { id: 900, post_author: String(c.body.post_author), store: { id: c.body.post_author } } }),
+    'PUT dokan/v1/products/901': (c: any) => ({ body: { id: 901, post_author: String(c.body.post_author), store: { id: c.body.post_author } } }),
     'GET wc/v3/products/900': { body: wooProduct(900, 44, { type: 'variable', sku: 'IBTAR0999', status: 'draft', lang: 'en', translations: { en: 900, ar: 901 } }) },
     'GET wc/v3/products/901': { body: wooProduct(901, 44, { type: 'variable', status: 'draft', lang: 'ar', translations: { en: 900, ar: 901 } }) },
     ...over,
@@ -1362,14 +1363,15 @@ Deno.test('studio_upload (phase 5.2): products.add only; images to the media lib
   assertEquals([ar.body.wpml_language, ar.body.translation_of, ar.body.name, ar.body.status, ar.body.sku], ['ar', 900, 'مخدة بوهيمي', 'draft', undefined]);
   const vars = woo.calls.find((c) => c.path === 'wc/v3/products/900/variations/batch')!.body.create;
   assertEquals(vars.map((v: any) => [v.sku, v.image?.id ?? null, v.manage_stock, v.stock_status ?? null]), [['IBTARBE0999', 7002, true, null], ['IBTARBK0999', null, false, 'onbackorder']]);
-  assertEquals(woo.calls.find((c) => c.path === 'wp/v2/product/900')!.body, { author: 44 });
+  const authors = woo.calls.filter((c) => c.method === 'PUT' && c.path.startsWith('dokan/v1/products/'));
+  assertEquals(authors.map((c) => [c.path, c.body, c.headers.authorization]), [['dokan/v1/products/900', { post_author: 44 }, 'Basic ' + btoa('wp-user:wp app pass')], ['dokan/v1/products/901', { post_author: 44 }, 'Basic ' + btoa('wp-user:wp app pass')]], 'the product and its translation, by Dokan with the Application Password');
   const batch = db.row('studio_batches', SB);
   assertEquals(batch.status, 'done');
   assertEquals([batch.result.items[0].productId, batch.result.items[0].arId, batch.result.items[0].author, batch.result.items[0].variations, batch.result.items[0].sku], [900, 901, 'ok', { done: 2, failed: 0 }, 'IBTAR0999']);
   assert(db.rows('products').some((p) => p.id === 900), 'the mirror');
   const n = woo.calls.length;
   await call(deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
-  assertFalse(woo.calls.slice(n).some((c) => c.method === 'POST' && c.path !== 'wp/v2/product/900'), 'a retry posts nothing again');
+  assertFalse(woo.calls.slice(n).some((c) => c.method === 'POST' || c.method === 'PUT'), 'a retry writes nothing again');
 });
 
 Deno.test('studio_upload: the push gate before any call; an item refused before the site; a duplicate SKU recorded as the reason; an Arabic answer not linked to the product is trashed (never force); no Application Password = the images refused', async () => {
@@ -1393,6 +1395,16 @@ Deno.test('studio_upload: the push gate before any call; an item refused before 
   const nowp = setup({ seed: studioSeed(), routes: studioRoutes(), env: PUSH_ON, storage: STUDIO_FILES });
   const w = await call(nowp.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
   assertEquals([w.body.result, w.body.item.error, nowp.woo.calls.some((c) => c.method === 'POST')], ['error', 'config', false]);
+  // Dokan writes the caller when the maker cannot dokan_add_product: the answer is checked → «failed», and a retry asks again
+  const admin = setup({ seed: studioSeed(), env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({ 'PUT dokan/v1/products/900': { body: { id: 900, post_author: '1' } } }) });
+  const x = await call(admin.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertEquals([x.body.result, x.body.item.author, admin.woo.calls.some((c) => c.path === 'dokan/v1/products/901')], ['ok', 'failed', false]);
+  const m = admin.woo.calls.length;
+  await call(admin.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertEquals(admin.woo.calls.slice(m).filter((c) => c.method !== 'GET').map((c) => c.path), ['dokan/v1/products/900']);
+  const nostore = setup({ seed: { ...studioSeed(), studio_batches: [{ ...studioSeed().studio_batches[0], vendor_id: null }] }, env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes() });
+  const ns = await call(nostore.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertEquals([ns.body.item.author, nostore.woo.calls.some((c) => c.path.startsWith('dokan/'))], ['no_store', false]);
 });
 
 Deno.test('category_create (phase 5.2): products.add; the English category then its Arabic translation; woo_categories written; names with tags refused', async () => {
@@ -1406,10 +1418,10 @@ Deno.test('category_create (phase 5.2): products.add; the English category then 
   assertEquals(db.rows('woo_categories').map((c) => c.id).sort(), [80, 81]);
 });
 
-Deno.test('woo-api (phase 5.2): of WordPress only wp/v2/media and wp/v2/product/{id}, with the Application Password; any other wp/ path refused; without the password a ConfigError, no call', async () => {
+Deno.test('woo-api (phase 5.2): of WordPress only wp/v2/media, with the Application Password; any other wp/ path refused; without the password a ConfigError, no call', async () => {
   const woo = fakeWoo({ 'POST wp/v2/media': { body: { id: 1 } } });
   const api = wooApi({ ...ENV, WOO_WP_USER: 'u', WOO_WP_APP_PASSWORD: 'p w' }, woo.fetch);
-  for (const path of ['wp/v2/users', 'wp/v2/product', 'wp/v2/posts/1', 'wp/v2/media/5', 'wp/v2/product/1/revisions']) {
+  for (const path of ['wp/v2/users', 'wp/v2/product', 'wp/v2/product/1', 'wp/v2/posts/1', 'wp/v2/media/5', 'wp/v2/product/1/revisions']) {
     let err: unknown = null; try { await api.post(path, {}); } catch (e) { err = e; }
     assert(err instanceof ConfigError, path);
   }

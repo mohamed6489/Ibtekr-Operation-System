@@ -70,7 +70,7 @@
 //              The product actions are a person's, never the sync secret's; the mirror follows WooCommerce's answers.
 //   'studio_upload' { batch_id, index }  products.add = F (phase 5.2): one studio batch item, read from studio_batches
 //              and allow-listed (woo-studio.js) → images to wp/v2/media, a draft product + variations, the Arabic translation
-//              (WPML), the maker as author (wp/v2/product); the result on the batch. 'category_create' { name_en, name_ar?,
+//              (WPML), the maker as author (PUT dokan/v1/products/{id} post_author); the result on the batch. 'category_create' { name_en, name_ar?,
 //              parent? } products.add = F: a new category + its translation. WOO_PUSH_ENABLED gates both.
 //   'register_webhooks' { delivery_url? }  ensures one active `ibtekr-ops:<topic>` webhook per topic pointing at
 //              {SUPABASE_URL}/functions/v1/woo-webhook; any other webhook on the site (n8n's) is never touched.
@@ -775,7 +775,8 @@ async function productsTrash(run: Run, args: Json, restore: boolean) {
 // allow-listed by buildStudio; then, each step once (a retry goes on from the step that stopped): the images from the
 // bucket to the media library, the product as a draft, its variations, the Arabic translation (WPML: wpml_language ar +
 // translation_of; an answer that is not linked to the product is trashed, never left as a second product), the maker as
-// the product's author (wp/v2, needs the snippet — «failed» otherwise, the product stays), the mirror. The item's result
+// the product's author (and its translation's: Dokan's PUT dokan/v1/products/{id} { post_author } with the Application
+// Password — «failed» when the answer is not the maker, the product stays), the mirror. The item's result
 // goes to studio_batches.result.items[index] (ids, the SKU, a short reason — never a price or a text).
 const STUDIO_BUCKET = 'studio';
 const MIME: Record<string, string> = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
@@ -856,8 +857,13 @@ async function studioUpload(run: Run, args: Json) {
       const owner = wooId(vendor?.woo_vendor_id);
       if (owner === null) res.author = 'no_store';
       else {
-        try { await ctx.woo.post(`wp/v2/product/${res.productId}`, { author: owner }); res.author = 'ok'; }
-        catch (e) { if (!(e instanceof WooError || e instanceof ConfigError)) throw e; res.author = 'failed'; }
+        // Dokan's own route: an admin's post_author is written by update_post_author_if_needed when that user can
+        // dokan_add_product (otherwise Dokan writes the caller) — so the answer's post_author is checked, not trusted.
+        const setAuthor = async (id: number) => wooId(((await ctx.woo.put(`dokan/v1/products/${id}`, { post_author: owner })).data as Json)?.post_author) === owner;
+        try {
+          const ok = await setAuthor(res.productId) && (wooId(res.arId) === null || await setAuthor(res.arId));
+          res.author = ok ? 'ok' : 'failed';
+        } catch (e) { if (!(e instanceof WooError || e instanceof ConfigError)) throw e; res.author = 'failed'; }
       }
     }
     if (wooId(res.productId) !== null) {

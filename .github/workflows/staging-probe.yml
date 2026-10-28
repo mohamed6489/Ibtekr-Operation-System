@@ -6,7 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       probe:
-        description: 'orders (the phase 2 sections), products (phase 5: shapes, meta key names, schema, totals) or commission (a product's commission meta and its store's rate)'
+        description: 'orders (the phase 2 sections), products (phase 5: shapes, meta key names, schema, totals) or commission (the commission meta of a product and the rate of its store)'
         type: choice
         options: [orders, products, commission]
         default: orders

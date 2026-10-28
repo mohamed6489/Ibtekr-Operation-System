@@ -4,6 +4,7 @@ import { assert, assertEquals, assertFalse } from 'jsr:@std/assert@1';
 import { handler } from './index.ts';
 import { cairoDate } from '../_shared/woo-write.js';
 import { bankDigest } from '../_shared/woo-core.js';
+import { ConfigError, wooApi } from '../_shared/woo-api.js';
 import { ENV, NOW, PHONE, STATUS_MAP, WC_AUTH, fakeDb, fakeWoo, vendorId, vendorRow, wooOrder, wooProduct, wooStore, wooStoreFull, wooSub, writtenText } from '../_test/fakes.ts';
 
 const SYNC_SECRET = 'sync-test-secret';
@@ -11,7 +12,7 @@ const OURS = `${ENV.SUPABASE_URL}/functions/v1/woo-webhook`;
 // Member tokens → what has_perm('orders.status') / is_admin() answer for them, plus (phase 3.3) has_perm('vendors.edit') /
 // has_perm('sensitive.commission') for push_vendor: ops = vendors.edit P, vf = vendors follow-up (vendors.edit F, commission N),
 // acct = accounts (nothing). (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
-const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; pbulk?: unknown; ptrash?: unknown }> = {
+const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; pbulk?: unknown; ptrash?: unknown; padd?: unknown }> = {
   'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false, edit: 'P' }, 'jwt-acct': { perm: 'P', admin: false, edit: 'N', accounts: 'P' },
   'jwt-vf': { perm: 'N', admin: false, edit: 'F', commission: 'N' },
   'jwt-bank': { perm: 'N', admin: false, edit: 'N', bank: 'F' }, // phase 3.5: accounts — sensitive.vendor_bank = F, vendors.edit = N
@@ -19,19 +20,20 @@ const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; c
   // phase 5: products.view P (reads a product live), products.edit F, products.trash F
   'jwt-pview': { perm: 'N', admin: false, pview: 'P' }, 'jwt-pedit': { perm: 'N', admin: false, pview: 'F', pedit: 'F', pbulk: 'F' }, 'jwt-pone': { perm: 'N', admin: false, pview: 'F', pedit: 'F' },
   'jwt-ptrash': { perm: 'N', admin: false, pview: 'F', ptrash: 'F' },
+  'jwt-padd': { perm: 'N', admin: false, pview: 'F', padd: 'F' }, // phase 5.2: products.add = F (the studio)
   'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
 };
 
-type Opts = { seed?: Record<string, any[]>; routes?: Record<string, any>; env?: Record<string, string>; secretAnswer?: (ok: boolean) => unknown; fail?: (c: any) => any };
-function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fail }: Opts = {}) {
+type Opts = { seed?: Record<string, any[]>; routes?: Record<string, any>; env?: Record<string, string>; secretAnswer?: (ok: boolean) => unknown; fail?: (c: any) => any; storage?: Record<string, Uint8Array> };
+function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fail, storage }: Opts = {}) {
   const db = fakeDb({ status_map: STATUS_MAP, vendors: [vendorRow(44), vendorRow(2376)], ...seed }, {
-    rpc: { sync_secret_matches: ({ candidate }: any) => secretAnswer(candidate === SYNC_SECRET) }, fail,
+    rpc: { sync_secret_matches: ({ candidate }: any) => secretAnswer(candidate === SYNC_SECRET) }, fail, storage,
   });
   const woo = fakeWoo(routes);
   const members: any[] = [];
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
+    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : key === 'products.add' ? m.padd ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
     members.push({ jwt, client });
     return client;
   };
@@ -1317,3 +1319,104 @@ Deno.test('bank (3.5) — push_vendor: `bank` needs sensitive.vendor_bank = F (a
   assertEquals(woo.calls.filter((c) => c.method === 'PUT').length, 1);
 });
 
+
+// ---------------------------------------------------------------- the product studio (phase 5.2)
+
+const SB = '0b6f2f5e-1d2c-4a8b-9e3f-1234567890ab';
+const BRAND = '00000000-0000-4000-8000-00000000b001';
+const studioItem = { nameEn: 'Boho Cushion', nameAr: 'مخدة بوهيمي', serial: 999, colors: ['BE', 'BK'], sizes: [], material: 'Cotton', categories: [20],
+  images: [`${SB}/1-1.webp`], variations: [{ color: 'BE', sale: 1200, regular: 1500, stock: 3, image: `${SB}/1-be.webp` }, { color: 'BK', sale: 1200, regular: 1500, onDemand: true }] };
+const studioSeed = (item: any = studioItem) => ({
+  brands: [{ id: BRAND, name: 'Art Craft', code: 'A' }], sku_colors: [{ id: 1, name_en: 'Beige', name_ar: 'بيج', code: 'BE' }, { id: 2, name_en: 'Black', name_ar: 'أسود', code: 'BK' }],
+  studio_batches: [{ id: SB, title: 'دفعة', brand_id: BRAND, vendor_id: vendorId(44), type: 'Variable', state: { items: [item] }, step: 8, status: 'draft' }],
+});
+const STUDIO_FILES = { [`studio/${SB}/1-1.webp`]: new Uint8Array([1, 2, 3]), [`studio/${SB}/1-be.webp`]: new Uint8Array([4, 5]) };
+const WP_ENV = { ...PUSH_ON, WOO_WP_USER: 'wp-user', WOO_WP_APP_PASSWORD: 'wp app pass' };
+function studioRoutes(over: Record<string, any> = {}) {
+  let media = 7000;
+  return {
+    'GET wc/v3/products/attributes': { body: [{ id: 12, slug: 'pa_color' }, { id: 3, slug: 'pa_size' }, { id: 15, slug: 'pa_material' }, { id: 13, slug: 'pa_brand' }] },
+    'POST wp/v2/media': () => ({ body: { id: ++media } }),
+    'POST wc/v3/products': (c: any) => (c.body.wpml_language === 'ar' ? { body: { id: 901, lang: 'ar', translations: { en: 900, ar: 901 } } } : { body: wooProduct(900, 44, { type: 'variable', sku: c.body.sku }) }),
+    'POST wc/v3/products/900/variations/batch': (c: any) => ({ body: { create: c.body.create.map((_: any, i: number) => ({ id: 9100 + i })) } }),
+    'POST wp/v2/product/900': { body: { id: 900, author: 44 } },
+    'GET wc/v3/products/900': { body: wooProduct(900, 44, { type: 'variable', sku: 'IBTAR0999', status: 'draft', lang: 'en', translations: { en: 900, ar: 901 } }) },
+    'GET wc/v3/products/901': { body: wooProduct(901, 44, { type: 'variable', status: 'draft', lang: 'ar', translations: { en: 900, ar: 901 } }) },
+    ...over,
+  };
+}
+
+Deno.test('studio_upload (phase 5.2): products.add only; images to the media library, the draft product with its SKU, the variations, the Arabic translation, the maker as author, the mirror; the result on the batch; a retry repeats nothing', async () => {
+  const { woo, db, deps } = setup({ seed: studioSeed(), routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  assertEquals((await call(deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-pedit' })).res.status, 401, 'products.edit is not products.add');
+  assertEquals((await call(deps, { action: 'studio_upload', batch_id: SB, index: 0 })).res.status, 401, 'never the sync secret');
+  const { res, body } = await call(deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertEquals([res.status, body.result], [200, 'ok']);
+  const media = woo.calls.filter((c) => c.path === 'wp/v2/media');
+  assertEquals(media.map((c) => c.headers['content-disposition']), ['attachment; filename="Boho-Cushion-01-IBTAR0999.webp"', 'attachment; filename="Boho-Cushion-01-IBTARBE0999.webp"']);
+  assertEquals(media.map((c) => [c.headers['content-type'], c.headers.authorization, c.body]), [['image/webp', 'Basic ' + btoa('wp-user:wp app pass'), { bytes: 3 }], ['image/webp', 'Basic ' + btoa('wp-user:wp app pass'), { bytes: 2 }]]);
+  const [en, ar] = woo.calls.filter((c) => c.method === 'POST' && c.path === 'wc/v3/products');
+  assertEquals([en.body.status, en.body.type, en.body.sku, en.body.wpml_language, en.body.images, en.body.categories], ['draft', 'variable', 'IBTAR0999', 'en', [{ id: 7001 }], [{ id: 20 }]]);
+  assertEquals(en.body.attributes.slice(0, 2), [{ id: 12, visible: true, variation: true, options: ['Beige', 'Black'] }, { id: 15, visible: true, variation: false, options: ['Cotton'] }]);
+  assertEquals(en.headers.authorization, WC_AUTH);
+  assertEquals([ar.body.wpml_language, ar.body.translation_of, ar.body.name, ar.body.status, ar.body.sku], ['ar', 900, 'مخدة بوهيمي', 'draft', undefined]);
+  const vars = woo.calls.find((c) => c.path === 'wc/v3/products/900/variations/batch')!.body.create;
+  assertEquals(vars.map((v: any) => [v.sku, v.image?.id ?? null, v.manage_stock, v.stock_status ?? null]), [['IBTARBE0999', 7002, true, null], ['IBTARBK0999', null, false, 'onbackorder']]);
+  assertEquals(woo.calls.find((c) => c.path === 'wp/v2/product/900')!.body, { author: 44 });
+  const batch = db.row('studio_batches', SB);
+  assertEquals(batch.status, 'done');
+  assertEquals([batch.result.items[0].productId, batch.result.items[0].arId, batch.result.items[0].author, batch.result.items[0].variations, batch.result.items[0].sku], [900, 901, 'ok', { done: 2, failed: 0 }, 'IBTAR0999']);
+  assert(db.rows('products').some((p) => p.id === 900), 'the mirror');
+  const n = woo.calls.length;
+  await call(deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertFalse(woo.calls.slice(n).some((c) => c.method === 'POST' && c.path !== 'wp/v2/product/900'), 'a retry posts nothing again');
+});
+
+Deno.test('studio_upload: the push gate before any call; an item refused before the site; a duplicate SKU recorded as the reason; an Arabic answer not linked to the product is trashed (never force); no Application Password = the images refused', async () => {
+  const off = setup({ seed: studioSeed(), routes: studioRoutes(), env: {}, storage: STUDIO_FILES });
+  assertEquals((await call(off.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' })).body.reason, 'push_disabled');
+  assertEquals(off.woo.calls.length, 0);
+  const bad = setup({ seed: studioSeed({ ...studioItem, colors: ['ZZ'] }), routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  const r = await call(bad.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertEquals([r.res.status, r.body.field, bad.woo.calls.length], [400, 'colors', 0]);
+  assertEquals((await call(bad.deps, { action: 'studio_upload', batch_id: SB, index: 3 }, { jwt: 'jwt-padd' })).res.status, 404);
+  const dup = setup({ seed: studioSeed(), env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({ 'POST wc/v3/products': { status: 400, body: { code: 'product_invalid_sku', message: 'Invalid or duplicated SKU.' } } }) });
+  const d = await call(dup.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertEquals([d.body.result, d.body.item.error], ['error', 'product_invalid_sku']);
+  assertEquals(dup.db.row('studio_batches', SB).status, 'uploading');
+  const loose = setup({ seed: studioSeed(), env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({
+    'POST wc/v3/products': (c: any) => ({ body: c.body.wpml_language === 'ar' ? { id: 951, lang: 'ar' } : wooProduct(900, 44, { type: 'variable' }) }), 'DELETE wc/v3/products/951': { body: { id: 951, status: 'trash' } } }) });
+  const l = await call(loose.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertEquals([l.body.item.arId, l.body.item.arNote], [null, 'not_linked']);
+  const del = loose.woo.calls.find((c) => c.method === 'DELETE')!;
+  assertEquals([del.path, del.query], ['wc/v3/products/951', {}]);
+  const nowp = setup({ seed: studioSeed(), routes: studioRoutes(), env: PUSH_ON, storage: STUDIO_FILES });
+  const w = await call(nowp.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertEquals([w.body.result, w.body.item.error, nowp.woo.calls.some((c) => c.method === 'POST')], ['error', 'config', false]);
+});
+
+Deno.test('category_create (phase 5.2): products.add; the English category then its Arabic translation; woo_categories written; names with tags refused', async () => {
+  const routes = { 'POST wc/v3/products/categories': (c: any) => ({ body: c.body.wpml_language === 'ar' ? { id: 81, name: c.body.name, slug: 'ar-81', parent: 0 } : { id: 80, name: c.body.name, slug: 'lamps', parent: c.body.parent } }) };
+  const { woo, db, deps } = setup({ routes, env: PUSH_ON });
+  assertEquals((await call(deps, { action: 'category_create', name_en: 'Lamps' }, { jwt: 'jwt-pedit' })).res.status, 401);
+  assertEquals((await call(deps, { action: 'category_create', name_en: '<b>x</b>' }, { jwt: 'jwt-padd' })).res.status, 400);
+  const { body } = await call(deps, { action: 'category_create', name_en: 'Lamps', name_ar: 'أباجورات', parent: 15 }, { jwt: 'jwt-padd' });
+  assertEquals([body.result, body.id, body.ar_id], ['ok', 80, 81]);
+  assertEquals(woo.calls.map((c) => c.body), [{ name: 'Lamps', parent: 15, wpml_language: 'en' }, { name: 'أباجورات', wpml_language: 'ar', translation_of: 80 }]);
+  assertEquals(db.rows('woo_categories').map((c) => c.id).sort(), [80, 81]);
+});
+
+Deno.test('woo-api (phase 5.2): of WordPress only wp/v2/media and wp/v2/product/{id}, with the Application Password; any other wp/ path refused; without the password a ConfigError, no call', async () => {
+  const woo = fakeWoo({ 'POST wp/v2/media': { body: { id: 1 } } });
+  const api = wooApi({ ...ENV, WOO_WP_USER: 'u', WOO_WP_APP_PASSWORD: 'p w' }, woo.fetch);
+  for (const path of ['wp/v2/users', 'wp/v2/product', 'wp/v2/posts/1', 'wp/v2/media/5', 'wp/v2/product/1/revisions']) {
+    let err: unknown = null; try { await api.post(path, {}); } catch (e) { err = e; }
+    assert(err instanceof ConfigError, path);
+  }
+  assertEquals((await api.upload('wp/v2/media', new Uint8Array([1]), 'a b/../c.webp', 'image/webp')).data, { id: 1 });
+  assertEquals(woo.calls[0].headers['content-disposition'], 'attachment; filename="a-b-..-c.webp"');
+  const bare = wooApi(ENV, woo.fetch);
+  let err: unknown = null; try { await bare.upload('wp/v2/media', new Uint8Array([1]), 'x.webp', 'image/webp'); } catch (e) { err = e; }
+  assert(err instanceof ConfigError);
+  assertEquals(woo.calls.length, 1);
+});

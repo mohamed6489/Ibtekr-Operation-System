@@ -2,7 +2,8 @@
 // Auth rule (staging probe, Task 1): the WC REST keys authenticate wc/v3 only, so `wc/` paths get
 // Basic base64(WOO_CK:WOO_CS); `dokan/` paths get no Authorization header at all (the store list and a single store are
 // public; Dokan answers 401 invalid_username to the WC header), unless WOO_WP_USER and WOO_WP_APP_PASSWORD are both set
-// (a WordPress Application Password, sent as Basic on dokan/ paths only). Any other namespace is refused.
+// (a WordPress Application Password, sent as Basic on dokan/ paths, and on wp/v2/media and wp/v2/product/{id} for the studio,
+// phase 5.2). Any other namespace is refused.
 // Every request has a 30 s timeout and refuses redirects (the Basic header never follows one); a non-2xx answer (or
 // a body that is not JSON) throws a WooError with the status and a scrubbed excerpt of at most 200 characters.
 // Scrubbing: our own keys / secrets by exact value (and the Basic header values), then patterns for auth headers,
@@ -77,7 +78,7 @@ function baseUrl(raw) {
 }
 
 /**
- * { get(path, query), put(path, body), post(path, body), del(path), eachPage(path, query, onPage, { maxPages, startPage }), scrub }.
+ * { get(path, query), put(path, body), post(path, body), del(path), upload(path, bytes, filename, mime), eachPage(path, query, onPage, { maxPages, startPage }), scrub }.
  * get/put/post → { data, total, pages } (X-WP-Total / X-WP-TotalPages as numbers or null).
  */
 export function wooApi(env, fetchFn) {
@@ -88,22 +89,27 @@ export function wooApi(env, fetchFn) {
   const dokanAuth = user && pass ? `Basic ${base64(`${user}:${pass}`)}` : null;
   const scrub = makeScrubber(env);
 
+  // phase 5.2 (the studio): two WordPress routes only — the media library and a product's author — with the Application
+  // Password; any other wp/ path is refused, and without the password these two are a ConfigError.
+  const WP_PATH = /^wp\/v2\/(media|product\/\d+)$/;
   function authFor(path) {
     if (path.startsWith('wc/')) return wcAuth;
     if (path.startsWith('dokan/')) return dokanAuth;
+    if (WP_PATH.test(path)) { if (!dokanAuth) throw new ConfigError('WOO_WP_USER / WOO_WP_APP_PASSWORD are not set'); return dokanAuth; }
     throw new ConfigError(`refused REST path ${path.split('/')[0]}/`);
   }
 
-  async function request(method, path, { query = null, body } = {}) {
+  async function request(method, path, { query = null, body, raw } = {}) {
     const auth = authFor(path);
     const qs = query ? new URLSearchParams(Object.entries(query).filter(([, v]) => v !== undefined && v !== null).map(([k, v]) => [k, String(v)])).toString() : '';
     const headers = { Accept: 'application/json' };
     if (auth) headers.Authorization = auth;
     if (body !== undefined) headers['Content-Type'] = 'application/json';
+    if (raw) Object.assign(headers, raw.headers);
     const what = `${method} ${path}`;
     let res, text;
     try {
-      res = await fetchFn(base + path + (qs ? `?${qs}` : ''), { method, headers, body: body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(TIMEOUT_MS) });
+      res = await fetchFn(base + path + (qs ? `?${qs}` : ''), { method, headers, body: raw ? raw.bytes : body === undefined ? undefined : JSON.stringify(body), redirect: 'error', signal: AbortSignal.timeout(raw ? TIMEOUT_MS * 2 : TIMEOUT_MS) });
       text = await res.text();
     } catch (e) {
       throw new WooError(res?.status ?? 0, what, scrub(`${e?.name ?? 'Error'}: ${e?.message ?? ''}`, EXCERPT_MAX));
@@ -132,6 +138,9 @@ export function wooApi(env, fetchFn) {
     // DELETE with no query at all: a product goes to the trash (never `force`, which deletes it for good; phase 5)
     del: (path) => request('DELETE', path),
     options: (path) => request('OPTIONS', path), // a route's schema, read-only (probe_dokan options, phase 5)
+    // a file to the media library (phase 5.2): the bytes as they are, the file name ASCII-safe in Content-Disposition
+    upload: (path, bytes, filename, mime) => request('POST', path, { raw: { bytes, headers: { 'Content-Type': mime,
+      'Content-Disposition': `attachment; filename="${String(filename).replace(/[^A-Za-z0-9._-]+/g, '-').slice(0, 150)}"` } } }),
     eachPage,
     scrub,
     hasDokanAuth: dokanAuth !== null, // a WordPress Application Password is set (dokan/ paths are authenticated)

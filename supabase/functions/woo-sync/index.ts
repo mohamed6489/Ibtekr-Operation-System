@@ -68,6 +68,10 @@
 //   'products_trash' / 'products_restore' { ids } (≤ 100)  products.trash = F: DELETE with no query (the trash —
 //              never `force`) / PUT status draft, on the product and its translation. WOO_PUSH_ENABLED gates them.
 //              The product actions are a person's, never the sync secret's; the mirror follows WooCommerce's answers.
+//   'studio_upload' { batch_id, index }  products.add = F (phase 5.2): one studio batch item, read from studio_batches
+//              and allow-listed (woo-studio.js) → images to wp/v2/media, a draft product + variations, the Arabic translation
+//              (WPML), the maker as author (wp/v2/product); the result on the batch. 'category_create' { name_en, name_ar?,
+//              parent? } products.add = F: a new category + its translation. WOO_PUSH_ENABLED gates both.
 //   'register_webhooks' { delivery_url? }  ensures one active `ibtekr-ops:<topic>` webhook per topic pointing at
 //              {SUPABASE_URL}/functions/v1/woo-webhook; any other webhook on the site (n8n's) is never touched.
 // Answer: 200 { action, result, counts, … } or 4xx / 5xx { error }. CORS for the browser's functions.invoke.
@@ -76,6 +80,7 @@ import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from
 import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, toWoo, variationView } from '../_shared/woo-products.js';
+import { STUDIO_ATTRS, buildStudio } from '../_shared/woo-studio.js';
 import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
@@ -87,9 +92,9 @@ type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals',
-  'product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore'];
-// phase 5: the product actions a person runs (never the sync secret)
-const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore'];
+  'product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore', 'studio_upload', 'category_create'];
+// phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload and a new category
+const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore', 'studio_upload', 'category_create'];
 const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
@@ -132,6 +137,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'product_save') return (await admin()) || (await perm('products.edit')) ? 'member' : null;
   if (action === 'products_batch') return (await admin()) || (await perm('products.bulk')) ? 'member' : null; // the owner, 28 Oct: bulk edit is its own permission
   if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
+  // phase 5.2 (decisions 7 / 8): the studio's upload and a new category need products.add = F
+  if (action === 'studio_upload' || action === 'category_create') return (await admin()) || (await perm('products.add')) ? 'member' : null;
   if (action === 'push_vendor') {
     if (await admin()) return 'member';
     const fields = Array.isArray(args.fields) ? args.fields : [];
@@ -762,6 +769,138 @@ async function productsTrash(run: Run, args: Json, restore: boolean) {
   return json(200, { action, result: 'ok', counts, failed_ids: failed });
 }
 
+// ---------------------------------------------------------------- the product studio (phase 5.2, decisions 5–9)
+
+// studio_upload { batch_id, index }: one batch item to WooCommerce, read from studio_batches (never from the request) and
+// allow-listed by buildStudio; then, each step once (a retry goes on from the step that stopped): the images from the
+// bucket to the media library, the product as a draft, its variations, the Arabic translation (WPML: wpml_language ar +
+// translation_of; an answer that is not linked to the product is trashed, never left as a second product), the maker as
+// the product's author (wp/v2, needs the snippet — «failed» otherwise, the product stays), the mirror. The item's result
+// goes to studio_batches.result.items[index] (ids, the SKU, a short reason — never a price or a text).
+const STUDIO_BUCKET = 'studio';
+const MIME: Record<string, string> = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
+const wooCode = (e: unknown) => (e instanceof WooError ? (/"code":"([a-z0-9_]{1,60})"/.exec(e.message)?.[1] ?? `http_${e.status}`) : e instanceof ConfigError ? 'config' : 'error');
+const fileBase = (name: string) => String(name || 'Product').replace(/[^A-Za-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 80) || 'Product';
+async function attributeIds(run: Run, ctx: Ctx) {
+  const list = (await ctx.woo.get('wc/v3/products/attributes')).data;
+  const bySlug = new Map((Array.isArray(list) ? list : []).filter(isObj).map((a: Json) => [String(a.slug), wooId(a.id)]));
+  return Object.fromEntries(Object.entries(STUDIO_ATTRS).map(([k, slug]) => [k, bySlug.get(slug) ?? null]));
+}
+async function studioUpload(run: Run, args: Json) {
+  const batchId = typeof args.batch_id === 'string' && UUID.test(args.batch_id) ? args.batch_id : null;
+  const index = Number.isInteger(args.index) && (args.index as number) >= 0 && (args.index as number) < 500 ? (args.index as number) : null;
+  if (!batchId || index === null) return json(400, { error: 'bad_request' });
+  const { data: batch, error } = await run.db.from('studio_batches').select('id, type, state, result, brand_id, vendor_id, archived_at').eq('id', batchId).maybeSingle();
+  if (error) throw new Error(`studio_batches: ${error.message}`);
+  if (!batch || batch.archived_at) return json(404, { error: 'no_batch' });
+  const item = Array.isArray(batch.state?.items) ? batch.state.items[index] : null;
+  if (!isObj(item)) return json(404, { error: 'no_item' });
+  const [{ data: brand }, { data: vendor }, { data: colorRows }] = await Promise.all([
+    batch.brand_id ? run.db.from('brands').select('name').eq('id', batch.brand_id).maybeSingle() : Promise.resolve({ data: null }),
+    batch.vendor_id ? run.db.from('vendors').select('woo_vendor_id').eq('id', batch.vendor_id).maybeSingle() : Promise.resolve({ data: null }),
+    run.db.from('sku_colors').select('code, name_en')]);
+  const colors = Object.fromEntries((colorRows ?? []).map((c: Json) => [c.code, c.name_en]));
+  const check = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', colors, attrs: {} }) as Json;
+  if (check.error) return json(400, check);
+  const entry = { ...productEntry(null, 'studio_upload'), entity_id: `${batchId}#${index}` };
+  if (!pushEnabled(run.env)) return await pushSkip(run, 'studio_upload', null, { batch: batchId, index });
+  const ctx = await run.ctx();
+  const built = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', colors, attrs: await attributeIds(run, ctx) }) as Json;
+  if (built.error) return json(400, built);
+  const prev = isObj(batch.result) && Array.isArray(batch.result.items) && isObj(batch.result.items[index]) ? batch.result.items[index] : {};
+  const res: Json = { ...prev, sku: built.sku, media: isObj(prev.media) ? { ...prev.media } : {}, error: null };
+  const saveResult = async () => {
+    const { data: cur } = await run.db.from('studio_batches').select('state, result').eq('id', batchId).maybeSingle();
+    const items = isObj(cur?.result) && Array.isArray(cur.result.items) ? [...cur.result.items] : [];
+    while (items.length < index) items.push(null);
+    items[index] = res;
+    const n = Array.isArray(cur?.state?.items) ? cur.state.items.length : 0;
+    const done = n > 0 && Array.from({ length: n }, (_, i) => items[i]).every((x) => isObj(x) && wooId(x.productId) !== null && !x.error);
+    const { error: upErr } = await run.db.from('studio_batches').update({ result: { items }, status: done ? 'done' : 'uploading' }).eq('id', batchId);
+    if (upErr) throw new Error(`studio_batches: ${upErr.message}`);
+  };
+  try {
+    const paths = [...new Set([...built.images, ...built.variations.map((v: Json) => v.image).filter(Boolean)])] as string[];
+    for (const path of paths) {
+      if (wooId(res.media[path]) !== null) continue;
+      const { data: blob, error: dlErr } = await run.db.storage.from(STUDIO_BUCKET).download(path);
+      if (dlErr || !blob) { res.error = 'image_missing'; break; }
+      const k = built.images.indexOf(path); const v = built.variations.find((x: Json) => x.image === path);
+      const ext = path.split('.').pop()!.toLowerCase();
+      const fname = `${fileBase(item.nameEn)}-${String(k >= 0 ? k + 1 : 1).padStart(2, '0')}-${k >= 0 ? built.sku : v?.sku ?? built.sku}.${ext}`;
+      const m = (await ctx.woo.upload('wp/v2/media', new Uint8Array(await blob.arrayBuffer()), fname, MIME[ext] ?? 'image/webp')).data;
+      const mid = wooId(isObj(m) ? m.id : null);
+      if (mid === null) { res.error = 'media_refused'; break; }
+      res.media[path] = mid;
+    }
+    if (!res.error && wooId(res.productId) === null) {
+      const p = (await ctx.woo.post('wc/v3/products', { ...built.product, images: built.images.map((path: string) => ({ id: res.media[path] })) })).data;
+      res.productId = wooId(isObj(p) ? p.id : null);
+      if (res.productId === null) res.error = 'product_refused';
+    }
+    if (!res.error && built.variations.length && !isObj(res.variations)) {
+      const r = (await ctx.woo.post(`wc/v3/products/${res.productId}/variations/batch`, { create: built.variations.map((v: Json) => ({ ...v.payload, ...(v.image ? { image: { id: res.media[v.image] } } : {}) })) })).data;
+      const created = isObj(r) && Array.isArray(r.create) ? r.create : [];
+      const failed = created.filter((x: Json) => !isObj(x) || isObj(x.error) || wooId(x.id) === null).length + Math.max(0, built.variations.length - created.length);
+      res.variations = { done: built.variations.length - failed, failed };
+    }
+    if (!res.error && built.ar && res.arId === undefined) {
+      try {
+        const a = (await ctx.woo.post('wc/v3/products', { ...built.ar, type: built.product.type, status: 'draft', wpml_language: 'ar', translation_of: res.productId })).data;
+        const arId = wooId(isObj(a) ? a.id : null);
+        const linked = isObj(a) && isObj(a.translations) && wooId(a.translations.en) === res.productId;
+        if (arId !== null && !linked) { await ctx.woo.del(`wc/v3/products/${arId}`); res.arId = null; res.arNote = 'not_linked'; } else res.arId = arId;
+      } catch (e) { if (!(e instanceof WooError)) throw e; res.arId = null; res.arNote = wooCode(e); }
+    }
+    if (!res.error && res.author !== 'ok') {
+      const owner = wooId(vendor?.woo_vendor_id);
+      if (owner === null) res.author = 'no_store';
+      else {
+        try { await ctx.woo.post(`wp/v2/product/${res.productId}`, { author: owner }); res.author = 'ok'; }
+        catch (e) { if (!(e instanceof WooError || e instanceof ConfigError)) throw e; res.author = 'failed'; }
+      }
+    }
+    if (wooId(res.productId) !== null) {
+      const fresh = [(await ctx.woo.get(`wc/v3/products/${res.productId}`)).data];
+      if (wooId(res.arId) !== null) { try { fresh.push((await ctx.woo.get(`wc/v3/products/${res.arId}`)).data); } catch (e) { if (!(e instanceof WooError)) throw e; } }
+      await writeProducts(ctx, fresh.filter(isObj));
+    }
+  } catch (e) {
+    if (!(e instanceof WooError || e instanceof ConfigError)) throw e;
+    res.error = wooCode(e);
+  }
+  await saveResult();
+  await logSync(run.db, { ...entry, entity_id: res.productId == null ? entry.entity_id : String(res.productId), result: res.error ? 'error' : 'ok',
+    detail: { batch: batchId, index, sku: built.sku, media: Object.keys(res.media).length, variations: res.variations ?? null, ar: res.arId ?? null, ar_note: res.arNote ?? null, author: res.author ?? null, error: res.error } });
+  return json(200, { action: 'studio_upload', result: res.error ? 'error' : 'ok', item: res });
+}
+
+// category_create { name_en, name_ar?, parent? }: a new WooCommerce category in English and its Arabic translation
+// (best effort, like studio_upload's), then into woo_categories.
+const plainName = (v: unknown) => (typeof v === 'string' && v.trim().length >= 1 && v.trim().length <= 80 && !/[<>%]/.test(v) ? v.trim() : null);
+async function categoryCreate(run: Run, args: Json) {
+  const name = plainName(args.name_en); const nameAr = args.name_ar == null || args.name_ar === '' ? null : plainName(args.name_ar);
+  const parent = args.parent == null || args.parent === 0 ? 0 : wooId(args.parent);
+  if (!name || (args.name_ar && !nameAr) || parent === null) return json(400, { error: 'bad_request' });
+  const entry = { kind: 'push', direction: 'out', entity: 'woo_categories', entity_id: null, action: 'category_create' };
+  if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled' } }); return json(200, { action: 'category_create', result: 'skipped', reason: 'push_disabled' }); }
+  const ctx = await run.ctx();
+  let c: Json;
+  try { c = (await ctx.woo.post(CATEGORIES_PATH, { name, parent, wpml_language: 'en' })).data; }
+  catch (e) { if (!(e instanceof WooError)) throw e; await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e) } }); return json(200, { action: 'category_create', result: 'error', reason: wooCode(e) }); }
+  const id = wooId(isObj(c) ? c.id : null);
+  if (id === null) return json(502, { error: 'woo_error' });
+  const rows: Json[] = [c];
+  let arId: number | null = null;
+  if (nameAr) {
+    try { const a = (await ctx.woo.post(CATEGORIES_PATH, { name: nameAr, wpml_language: 'ar', translation_of: id })).data; arId = wooId(isObj(a) ? a.id : null); if (isObj(a)) rows.push(a); }
+    catch (e) { if (!(e instanceof WooError)) throw e; }
+  }
+  await writeCategories(ctx, rows);
+  await logSync(run.db, { ...entry, entity_id: String(id), result: 'ok', detail: { ar: arId } });
+  return json(200, { action: 'category_create', result: 'ok', id, ar_id: arId });
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -795,6 +934,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'products_batch') return await productsBatch(run, args);
     if (action === 'products_trash' || action === 'products_restore') return await productsTrash(run, args, action === 'products_restore');
     if (action === 'products' && args.full === true) return await fullProducts(run);
+    if (action === 'studio_upload') return await studioUpload(run, args);
+    if (action === 'category_create') return await categoryCreate(run, args);
     if (action === 'withdrawals') {
       try {
         const w = await pullWithdrawals(run, await makersWithStore(run), run.now());

@@ -45,6 +45,10 @@ const COLUMNS: Record<string, string[]> = {
   // 0019 (phase 4): the read-only Dokan mirrors of the accounts page
   dokan_withdrawals: ['id', 'woo_vendor_id', 'vendor_id', 'amount', 'charge', 'receivable', 'status', 'method', 'requested_at', 'synced_at'],
   dokan_balances: ['vendor_id', 'woo_vendor_id', 'balance', 'earning', 'sales', 'orders', 'synced_at'],
+  // 0013 brands (the name only here) and 0023 (phase 5.2, the studio)
+  brands: ['id', 'name', 'code'],
+  sku_colors: ['id', 'name_en', 'name_ar', 'code', 'hex'],
+  studio_batches: ['id', 'title', 'brand_id', 'vendor_id', 'type', 'state', 'step', 'status', 'result', 'created_by', 'updated_at', 'archived_at'],
 };
 const DEFAULTS: Record<string, Row> = {
   status_map: { direction: 'both' },
@@ -95,7 +99,7 @@ const colsOf = (spec: string) => spec.split(',').map((c) => c.trim()).filter(Boo
 
 export type Call = { table?: string; op: string; rows?: Row[]; patch?: Row; filters?: unknown[]; onConflict?: string; returning?: string | null; name?: string; args?: unknown; error?: DbErr | null };
 
-export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<string, (args: any) => unknown>; fail?: (call: Call) => DbErr | null } = {}) {
+export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<string, (args: any) => unknown>; fail?: (call: Call) => DbErr | null; storage?: Record<string, Uint8Array> } = {}) {
   const tables: Record<string, Row[]> = Object.fromEntries(Object.keys(COLUMNS).map((t) => [t, []]));
   const calls: Call[] = [];
   let serial = 1000;
@@ -233,6 +237,8 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
   const seeded = calls.length;
   return {
     from, rpc, calls,
+    // phase 5.2: storage.from(bucket).download(path) over opts.storage ('bucket/path' → bytes)
+    storage: { from: (bucket: string) => ({ download: async (path: string) => { calls.push({ op: 'download', table: bucket, args: { path } } as any); const b = opts.storage?.[`${bucket}/${path}`]; return b ? { data: new Blob([b as BlobPart]), error: null } : { data: null, error: { message: 'Object not found' } }; } }) },
     rows: (t: string): any[] => clone(tables[t]),
     row: (t: string, id: unknown, key = 'id'): any => clone(tables[t].find((r) => same(r[key], id)) ?? null),
     writes: (t?: string): any[] => calls.slice(seeded).filter((c) => ['insert', 'upsert', 'update'].includes(c.op) && (!t || c.table === t)),
@@ -248,7 +254,7 @@ export function fakeWoo(routes: Record<string, Reply | ((call: WooCall) => Reply
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
     const call: WooCall = {
       method: init.method ?? 'GET', path: url.pathname.replace(/^\/wp-json\//, ''), query: Object.fromEntries(url.searchParams),
-      headers: Object.fromEntries(new Headers(init.headers).entries()), body: init.body ? JSON.parse(String(init.body)) : undefined,
+      headers: Object.fromEntries(new Headers(init.headers).entries()), body: init.body instanceof Uint8Array ? { bytes: init.body.length } : init.body ? JSON.parse(String(init.body)) : undefined,
       timed: init.signal instanceof AbortSignal, redirect: init.redirect,
     };
     calls.push(call);

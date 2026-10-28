@@ -393,6 +393,22 @@ Deno.test('withdraw_approve: Dokan refuses the PUT → 502 woo_error, logged as 
   assertEquals([log.kind, log.entity, log.entity_id, log.result], ['push', 'dokan_withdrawals', '7', 'error']);
 });
 
+Deno.test('withdrawals (phase 4.1, «تحديث من Dokan»): the requests only, GET only, no balances; accounts.view <> N; the sync log row', async () => {
+  const wd = (id: number, store: number, status: string) => ({ id, user: { id: store }, amount: 900, charge: 0, receivable: 900, status, method: 'bank', created: '2026-10-28 09:00:00', ip: '10.0.0.9', details: { bank: { ac_number: '123456789012' } } });
+  const routes = { 'GET dokan/v1/withdraw': (c: any) => (c.query.status === 'all' ? page([wd(201, 44, 'pending'), wd(7, 2376, 'approved')]) : page([])) };
+  const { db, woo, deps } = setup({ routes });
+  const { res, body } = await call(deps, { action: 'withdrawals' }, { jwt: 'jwt-acct' });
+  assertEquals(res.status, 200);
+  assertEquals(body.counts, { withdrawals: 2, skipped: 0, failed_rows: 0, pages: 1, done: true });
+  assertEquals(db.rows('dokan_withdrawals').map((r: any) => [r.id, r.vendor_id, r.status]), [[201, vendorId(44), 'pending'], [7, vendorId(2376), 'approved']]);
+  assertEquals(woo.calls.map((c: any) => [c.method, c.path]), [['GET', 'dokan/v1/withdraw']], 'no stats requests');
+  assertEquals(db.rows('dokan_balances').length, 0);
+  assertFalse(JSON.stringify(db.rows('dokan_withdrawals')).includes('123456789012'));
+  const log = db.rows('woo_sync_log').at(-1);
+  assertEquals([log.entity, log.action, log.result], ['dokan_withdrawals', 'refresh', 'ok']);
+  assertEquals((await call(deps, { action: 'withdrawals' }, { jwt: 'jwt-ops' })).res.status, 401, 'accounts.view N');
+});
+
 // ---------------------------------------------------------------- vendors / products / all
 
 Deno.test('vendors: a new store is inserted whole (the phase-3.3 columns, its first snapshot, the site\'s rate as a vendor_rates row); an existing one goes through the store sync — the team\'s aliases / category / rate stay; no Authorization on dokan/', async () => {

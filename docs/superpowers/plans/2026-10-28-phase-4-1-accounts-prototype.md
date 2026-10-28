@@ -44,3 +44,8 @@ artifact «نظام إبتكر» نسخة `1793131460` مقارنة بـ `179311
     الصلاحية، `push_disabled`، `stale`، النجاح، مافيش بنك في اللوج)، domain (`validateExpenseCategory`)، adapter، e2e.
 11. **الترتيب الحي:** `0020` ← rls حي ← نشر woo-sync ← main ← تقرير. قبول الموافقة على طلب حقيقي على الـ staging
     **بعد ما صاحب المشروع يقول** (أي طلب بيتوافق عليه بيتوافق فعلًا على الموقع).
+12. **«تحديث من Dokan» (صاحب المشروع، 28 أكتوبر — بعد التسليم):** طلب سحب جديد كان بيستنى cron الساعة. زرار
+    «تحديث من Dokan» في ترويسة جدول «حسابات المبتكرين» → woo-sync action `withdrawals` (نص `accounts` الخاص بالطلبات بس:
+    `dokan/v1/withdraw?status=all` → `dokan_withdrawals`، GET بس، من غير أرصدة، نفس الـ allow-list) — الصلاحية
+    `accounts.view <> N` زي `statement`؛ `woo_sync_log` `dokan_withdrawals`/`refresh`. بعدها الـ adapter بيقرا المرايا تاني
+    ونوتة بعدد الطلبات المستنية. الكتلة 28 (تعديل مكتوب هنا).

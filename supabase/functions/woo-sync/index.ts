@@ -53,6 +53,9 @@
 //              { status: 'approved' }; else skipped/stale and the mirror corrected); the maker's balance is read again.
 //              WOO_PUSH_ENABLED gates it (skipped/push_disabled). The admin or has_perm('accounts.approve') = 'F' only —
 //              never the sync secret. No cancel, no amount, nothing of the bank details logged or stored.
+//   'withdrawals' (phase 4.1, decision 12: «تحديث من Dokan»)  the withdraw-request half of 'accounts' on demand: dokan/v1/withdraw
+//              ?status=all → dokan_withdrawals (the same allow-list), read-only on Dokan; no balances. A member needs
+//              accounts.view <> N (like 'statement').
 //   'register_webhooks' { delivery_url? }  ensures one active `ibtekr-ops:<topic>` webhook per topic pointing at
 //              {SUPABASE_URL}/functions/v1/woo-webhook; any other webhook on the site (n8n's) is never touched.
 // Answer: 200 { action, result, counts, … } or 4xx / 5xx { error }. CORS for the browser's functions.invoke.
@@ -70,7 +73,7 @@ export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetc
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
-const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve'];
+const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals'];
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
 const STATEMENT_MAX_PAGES = 10;
@@ -103,7 +106,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   const perm = async (key: string) => { const { data, error } = await member.rpc('has_perm', { key }); return !error && data === 'F'; };
   const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
   if (action === 'push_status') return (await perm('orders.status')) ? 'member' : null;
-  if (action === 'statement') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  if (action === 'statement' || action === 'withdrawals') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // phase 4.1 (decision 1): approving a Dokan withdraw request — the admin or accounts.approve = F (has_perm carries aal2)
   if (action === 'withdraw_approve') return (await admin()) || (await perm('accounts.approve')) ? 'member' : null;
   if (action === 'push_vendor') {
@@ -398,9 +401,7 @@ export function mapWithdrawal(w: Json, vendorOf: (store: number) => string | nul
     status: strOrNull(w.status, 20) ?? 'unknown', method: strOrNull(w.method, 40), requested_at: localTs(w.created ?? w.date) };
 }
 
-async function pullAccounts(run: Run) {
-  const woo = run.woo();
-  const scrub = makeScrubber(run.env);
+async function makersWithStore(run: Run) {
   const makers: Json[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await run.db.from('vendors').select('id, woo_vendor_id').order('id').range(from, from + 999);
@@ -409,9 +410,14 @@ async function pullAccounts(run: Run) {
     if ((data ?? []).length < 1000) break;
   }
   makers.sort((a, b) => Number(a.woo_vendor_id) - Number(b.woo_vendor_id));
+  return makers;
+}
+
+// Every withdraw request (every status), page by page → dokan_withdrawals (mapWithdrawal's allow-list). GET only.
+async function pullWithdrawals(run: Run, makers: Json[], now: string) {
+  const woo = run.woo();
+  const scrub = makeScrubber(run.env);
   const byStore = new Map(makers.map((v) => [Number(v.woo_vendor_id), v.id]));
-  const now = run.now();
-  // the requests, every status, page by page
   let withdrawals = 0, skipped = 0, failedRows = 0;
   const res = await woo.eachPage('dokan/v1/withdraw', { status: 'all' }, async (page: Json[]) => {
     const rows = page.filter(isObj).map((w) => mapWithdrawal(w, (store) => byStore.get(store) ?? null)).filter((r): r is NonNullable<typeof r> => r !== null).map((r) => ({ ...r, synced_at: now }));
@@ -420,6 +426,17 @@ async function pullAccounts(run: Run) {
     for (const b of bad) await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'dokan_withdrawals', entity_id: b.key, action: 'upsert', result: 'error', detail: { error: errorText(b.error, scrub) } });
     withdrawals += rows.length - bad.length; failedRows += bad.length;
   });
+  return { withdrawals, skipped, failedRows, pages: res.pages, done: res.done };
+}
+
+async function pullAccounts(run: Run) {
+  const woo = run.woo();
+  const scrub = makeScrubber(run.env);
+  const makers = await makersWithStore(run);
+  const now = run.now();
+  // the requests, every status, page by page
+  const w = await pullWithdrawals(run, makers, now);
+  let failedRows = w.failedRows;
   // the balances: the next batch of makers, going round the list
   const state = await getState(run.db, 'accounts');
   const offset = Number.isInteger(state.offset) && state.offset >= 0 && state.offset < makers.length ? state.offset : 0;
@@ -444,7 +461,7 @@ async function pullAccounts(run: Run) {
   balances = rows.length - bad.length; failedRows += bad.length;
   const next = offset + batch.length >= makers.length ? 0 : offset + batch.length;
   await setState(run.db, 'accounts', { offset: next, last_run: now, makers: makers.length }, now);
-  return { withdrawals, skipped, pages: res.pages, done: res.done, balances, missing, failed, failed_rows: failedRows, offset, next };
+  return { withdrawals: w.withdrawals, skipped: w.skipped, pages: w.pages, done: w.done, balances, missing, failed, failed_rows: failedRows, offset, next };
 }
 
 async function statement(run: Run, args: Json) {
@@ -543,6 +560,18 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'probe_dokan') return await probeDokan(run, args);
     if (action === 'statement') return await statement(run, args);
     if (action === 'withdraw_approve') return await withdrawApprove(run, args);
+    if (action === 'withdrawals') {
+      try {
+        const w = await pullWithdrawals(run, await makersWithStore(run), run.now());
+        const counts = { withdrawals: w.withdrawals, skipped: w.skipped, failed_rows: w.failedRows, pages: w.pages, done: w.done };
+        await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'dokan_withdrawals', action: 'refresh', result: 'ok', detail: counts });
+        return json(200, { action, result: 'ok', counts });
+      } catch (e) {
+        await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'dokan_withdrawals', action: 'refresh', result: 'error', detail: { error: errorText(e, makeScrubber(run.env)) } });
+        if (e instanceof ConfigError) return json(500, { error: 'not_configured' });
+        return json(e instanceof WooError ? 502 : 500, { error: 'sync_failed', action });
+      }
+    }
     if (action === 'accounts') {
       try {
         const counts = await pullAccounts(run);

@@ -117,9 +117,9 @@
     const pages = Math.max(1, Math.ceil(list.length / PAGE)); if (st.pageN >= pages) st.pageN = pages - 1;
     const shown = list.slice(st.pageN * PAGE, st.pageN * PAGE + PAGE);
     const allSel = shown.length && shown.every((p) => st.sel.has(p.id));
-    const rows = shown.map((p) => { const ss = stockStateOf(p); const miss = complete(p).missing;
+    const rows = shown.map((p) => { const ss = stockStateOf(p);
       return [K.Checkbox({ label: '', checked: st.sel.has(p.id), onChange: (v) => { v ? st.sel.add(p.id) : st.sel.delete(p.id); R(); } }),
-        h('button', { type: 'button', class: 'prod link', 'data-pedit': String(p.id), onClick: () => go('products-edit-' + p.id) }, Thumb(p.img), h('span', null, h('b', null, nameOf(p)), miss.length ? Tag('orange', 'ناقص: ' + miss[0]) : h('small', null, p.nameAr))),
+        h('button', { type: 'button', class: 'prod link', 'data-pedit': String(p.id), onClick: () => go('products-edit-' + p.id) }, Thumb(p.img), h('span', null, h('b', null, nameOf(p)), h('small', null, p.nameAr))), // the owner, 28 Oct: no «ناقص: …» tag under the name (the «ناقصها بيانات» filter stays)
         h('span', { dir: 'ltr', class: 't-small' }, p.sku || '—'), h('span', { class: 'brand-cell' }, h('span', null, brandOf(p)), h('small', { class: 't-small help' }, p.vendor || '—')),
         h('span', { class: 'cat-list t-small' }, p.cats.length ? p.cats.map((c) => h('span', { class: st.f.category && c.startsWith(st.f.category) ? 'cat-hit' : null }, c)) : '—'), h('span', { class: 't-small' }, p.type),
         p.type === 'Variable' && p.price != null ? h('span', null, 'من ', money(p.price)) : money(p.type === 'Variable' ? null : p.sale),

@@ -37,7 +37,7 @@ test('records: the English rows with their Arabic name, brand, maker, category p
   const rows = page.locator('#pg-products .pr-table tbody tr');
   await expect(rows).toHaveCount(4);
   const cushion = rowOf(page, 'Cushion');
-  await expect(cushion).toContainText('كيس مخدة');
+  await expect(cushion).not.toContainText('كيس مخدة'); // the English name alone in the row (the owner, 28 Oct); search still finds the Arabic
   await expect(cushion).toContainText('Art Craft');
   await expect(cushion).toContainText('ديكور › إضاءة');
   await expect(cushion).toContainText('منشور');

@@ -119,7 +119,7 @@
     const allSel = shown.length && shown.every((p) => st.sel.has(p.id));
     const rows = shown.map((p) => { const ss = stockStateOf(p);
       return [K.Checkbox({ label: '', checked: st.sel.has(p.id), onChange: (v) => { v ? st.sel.add(p.id) : st.sel.delete(p.id); R(); } }),
-        h('button', { type: 'button', class: 'prod link', 'data-pedit': String(p.id), onClick: () => go('products-edit-' + p.id) }, Thumb(p.img), h('span', null, h('b', null, nameOf(p)), h('small', null, p.nameAr))), // the owner, 28 Oct: no «ناقص: …» tag under the name (the «ناقصها بيانات» filter stays)
+        h('button', { type: 'button', class: 'prod link', 'data-pedit': String(p.id), onClick: () => go('products-edit-' + p.id) }, Thumb(p.img), h('span', null, h('b', null, nameOf(p)))), // the owner, 28 Oct: the English name alone (no Arabic name, no «ناقص: …» under it; the «ناقصها بيانات» filter stays)
         h('span', { dir: 'ltr', class: 't-small' }, p.sku || '—'), h('span', { class: 'brand-cell' }, h('span', null, brandOf(p)), h('small', { class: 't-small help' }, p.vendor || '—')),
         h('span', { class: 'cat-list t-small' }, p.cats.length ? p.cats.map((c) => h('span', { class: st.f.category && c.startsWith(st.f.category) ? 'cat-hit' : null }, c)) : '—'), h('span', { class: 't-small' }, p.type),
         p.type === 'Variable' && p.price != null ? h('span', null, 'من ', money(p.price)) : money(p.type === 'Variable' ? null : p.sale),
@@ -144,7 +144,7 @@
     const C = can(); const T = trashRows();
     const sel = [...st.sel].map((id) => T.find((t) => t.id === id)).filter(Boolean);
     const rows = T.map((t) => { const left = PD.trashDaysLeft(String(t.trashedAt || K.TODAY).slice(0, 10), K.TODAY);
-      return [C.trash ? K.Checkbox({ label: '', checked: st.sel.has(t.id), onChange: (v) => { v ? st.sel.add(t.id) : st.sel.delete(t.id); R(); } }) : '', h('span', { class: 'prod' }, Thumb(t.img), h('span', null, h('b', null, nameOf(t)), h('small', null, t.nameAr))), h('span', { dir: 'ltr', class: 't-small' }, t.sku || '—'), t.vendor || '—', t.trashedAt ? K.dshort(String(t.trashedAt).slice(0, 10)) : '—',
+      return [C.trash ? K.Checkbox({ label: '', checked: st.sel.has(t.id), onChange: (v) => { v ? st.sel.add(t.id) : st.sel.delete(t.id); R(); } }) : '', h('span', { class: 'prod' }, Thumb(t.img), h('span', null, h('b', null, nameOf(t)))), h('span', { dir: 'ltr', class: 't-small' }, t.sku || '—'), t.vendor || '—', t.trashedAt ? K.dshort(String(t.trashedAt).slice(0, 10)) : '—',
         h('span', { class: 'stk' }, K.Num(left + ' يوم'), PD.trashSoon(left) ? Tag('error', 'قرب يتمسح') : null), C.trash ? h('span', { class: 'acts-inline' }, Button({ size: 'sm', label: 'رجّعه', attrs: { 'data-restore': String(t.id) }, onClick: () => restore([t]) })) : '']; });
     return [statusChips(), U.InlineNote({ kind: 'warning', children: 'المنتجات هنا مش ظاهرة على الموقع، وووردبريس بيمسحها نهائي لوحده بعد ' + PD.TRASH_DAYS + ' يوم من نقلها للمهملات. المسح النهائي مش من السيستم.' }),
       sel.length ? h('div', { class: 'bulk-bar' }, h('b', null, 'محدد ' + K.n0(sel.length)), h('span', { class: 'grow' }), Button({ size: 'sm', label: 'رجّع كمسودة', onClick: () => restore(sel) }), Button({ size: 'sm', label: 'إلغاء التحديد', onClick: () => { st.sel.clear(); R(); } })) : null,

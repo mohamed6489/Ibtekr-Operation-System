@@ -19,7 +19,7 @@
 // vendors_brands_guard_delete (23503 naming brand_owners_vendor_id_fkey) and the cascade of the origin's brands). Not a product feature.
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
-import { buildStudio } from '../../supabase/functions/_shared/woo-studio.js';
+import { buildStudio, sheetCsvUrl } from '../../supabase/functions/_shared/woo-studio.js';
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
 export const LIVE = process.env.E2E_SUPABASE_LIVE === '1';
 const LIVE_URL = process.env.E2E_SUPABASE_URL || ''; const LIVE_KEY = process.env.E2E_SUPABASE_ANON_KEY || '';
@@ -291,7 +291,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // aal2_required whatever the token (a server that does not take the flag).
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
-  const mock = { studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [],
+  const mock = { studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
     profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [] };
@@ -987,11 +987,18 @@ export async function installSupabaseMock(page, opts = {}) {
         && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' ? hasPerm(u, 'products.edit') === 'F' : action === 'products_batch' ? hasPerm(u, 'products.bulk') === 'F'
-          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
+          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
       // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
-      // mock.studioAuthorFail = { [index]: true } answers author 'failed' (Dokan kept the caller as the product's author).
-      // category_create — a new woo_categories row (id 9500+).
+      // mock.studioAuthorFail = { [index]: true } answers author 'failed' (the translation's maker did not stick).
+      // category_create — a new woo_categories row (id 9500+). studio_sheet (decision 13) — the server's own sheetCsvUrl check
+      // (400 bad_link), then mock.sheetLinks[url] = { csv } | { reason } (else not_published); mock.sheetReads lists the links.
+      if (action === 'studio_sheet') {
+        if (!sheetCsvUrl(b.url)) return json(400, { error: 'bad_link', field: 'url' });
+        mock.sheetReads.push(b.url);
+        const hit = (mock.sheetLinks || {})[b.url];
+        return json(200, hit && typeof hit.csv === 'string' ? { action, result: 'ok', csv: hit.csv } : { action, result: 'error', reason: (hit && hit.reason) || 'not_published' });
+      }
       if (action === 'studio_upload') {
         const row = mock.studioBatches.find((x) => x.id === b.batch_id); const it = row && row.state && Array.isArray(row.state.items) ? row.state.items[b.index] : null;
         if (!row || !it) return json(404, { error: 'no_item' });

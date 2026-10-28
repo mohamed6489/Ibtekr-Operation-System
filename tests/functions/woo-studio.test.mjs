@@ -1,5 +1,5 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
-import { buildStudio, studioSku, brandCode } from '../../supabase/functions/_shared/woo-studio.js';
+import { buildStudio, studioSku, brandCode, sheetCsvUrl, fetchSheetCsv } from '../../supabase/functions/_shared/woo-studio.js';
 import { loadUmd } from '../helpers/load-umd.mjs';
 // The product studio's upload payloads (phase 5.2, docs/superpowers/plans/2026-10-28-phase-5-2-studio.md decisions 2 / 5 / 7):
 // the SKU rule (the same as the page's), the product / variations / translation built from a batch item, and the refusals.
@@ -57,4 +57,59 @@ test('buildStudio refuses before any call: tags or % in a name, an unknown color
     [{ ...simple, colors: [], sizes: [] }, V, 'variations'], [simple, { ...O, brand: 'ب' }, 'brand'],
   ];
   for (const [it, o, field] of cases) assert.equal(buildStudio(it, o).field, field, JSON.stringify(it).slice(0, 80));
+});
+
+// decision 13: a Google Sheets link → the CSV URL built from its id and tab only
+const PUB = '2PACX-1vTq3x9Abc_def-GHIjkLMNopQRstuVWxyz0123456789';
+const DOC = '1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2upms';
+test('sheetCsvUrl: «Publish to the web» and a link shared with anyone → the CSV export of that tab; anything else → null', () => {
+  const pubCsv = 'https://docs.google.com/spreadsheets/d/e/' + PUB + '/pub?output=csv';
+  assert.equal(sheetCsvUrl('https://docs.google.com/spreadsheets/d/e/' + PUB + '/pubhtml'), pubCsv);
+  assert.equal(sheetCsvUrl('  https://docs.google.com/spreadsheets/d/e/' + PUB + '/pubhtml?gid=1234&single=true  '), pubCsv + '&gid=1234&single=true');
+  assert.equal(sheetCsvUrl('https://docs.google.com/spreadsheets/d/e/' + PUB + '/pub?gid=0&single=true&output=xlsx'), pubCsv + '&gid=0&single=true');
+  assert.equal(sheetCsvUrl('https://docs.google.com/spreadsheets/d/e/' + PUB + '/pubhtml/sheet?headers=false&gid=77'), pubCsv + '&gid=77&single=true');
+  assert.equal(sheetCsvUrl('https://docs.google.com/spreadsheets/d/' + DOC + '/edit?usp=sharing'), 'https://docs.google.com/spreadsheets/d/' + DOC + '/export?format=csv');
+  assert.equal(sheetCsvUrl('https://docs.google.com/spreadsheets/d/' + DOC + '/edit#gid=1386834576'), 'https://docs.google.com/spreadsheets/d/' + DOC + '/export?format=csv&gid=1386834576');
+  assert.equal(sheetCsvUrl('https://docs.google.com/spreadsheets/d/' + DOC), 'https://docs.google.com/spreadsheets/d/' + DOC + '/export?format=csv');
+  for (const bad of ['', null, 'not a url', 'http://docs.google.com/spreadsheets/d/e/' + PUB + '/pubhtml', 'https://evil.example/spreadsheets/d/e/' + PUB + '/pubhtml',
+    'https://docs.google.com.evil.example/spreadsheets/d/' + DOC + '/edit', 'https://user:pw@docs.google.com/spreadsheets/d/' + DOC + '/edit', 'https://docs.google.com:8443/spreadsheets/d/' + DOC + '/edit',
+    'https://docs.google.com/document/d/' + DOC + '/edit', 'https://docs.google.com/spreadsheets/d/short/edit', 'https://docs.google.com/spreadsheets/d/e/' + PUB + '/other',
+    'https://docs.google.com/spreadsheets/d/' + DOC + '%2F..%2F/edit']) assert.equal(sheetCsvUrl(bad), null, String(bad));
+  assert.equal(sheetCsvUrl('https://docs.google.com/spreadsheets/d/' + DOC + '/edit?gid=1;drop'), 'https://docs.google.com/spreadsheets/d/' + DOC + '/export?format=csv', 'a gid that is not digits is dropped');
+});
+
+const CSV = 'Name EN,Vendor Price\nStudio Test,500\n';
+function fakeFetch(routes) {
+  const calls = [];
+  const fetch = async (url, init) => { calls.push({ url: String(url), redirect: init && init.redirect, signal: !!(init && init.signal) }); const r = routes[String(url)]; if (!r) return new Response('nope', { status: 404 }); if (r.throw) throw r.throw; return new Response(r.text ?? '', { status: r.status ?? 200, headers: r.headers ?? { 'content-type': 'text/csv' } }); };
+  return { fetch, calls };
+}
+test('fetchSheetCsv: the built URL only, redirects by hand to Google hosts only, the CSV text; a sign-in, an HTML page, 404 = not published; size and network refusals', async () => {
+  const pub = 'https://docs.google.com/spreadsheets/d/e/' + PUB + '/pubhtml';
+  const csvUrl = 'https://docs.google.com/spreadsheets/d/e/' + PUB + '/pub?output=csv';
+  const usercontent = 'https://doc-0k-3g-sheets.googleusercontent.com/pub/abc/def/123/' + PUB + '?output=csv';
+  const ok = fakeFetch({ [csvUrl]: { status: 307, headers: { location: usercontent } }, [usercontent]: { text: '﻿' + CSV } });
+  assert.deepEqual(await fetchSheetCsv(pub, ok.fetch), { csv: CSV });
+  assert.deepEqual(ok.calls.map((c) => [c.url, c.redirect, c.signal]), [[csvUrl, 'manual', true], [usercontent, 'manual', true]]);
+  const signIn = fakeFetch({ [csvUrl]: { status: 302, headers: { location: 'https://accounts.google.com/ServiceLogin?continue=x' } } });
+  assert.deepEqual(await fetchSheetCsv(pub, signIn.fetch), { error: 'not_published' });
+  assert.equal(signIn.calls.length, 1, 'never follows a redirect outside Google sheets hosts');
+  const away = fakeFetch({ [csvUrl]: { status: 307, headers: { location: 'https://evil.example/x.csv' } } });
+  assert.deepEqual(await fetchSheetCsv(pub, away.fetch), { error: 'not_published' });
+  assert.equal(away.calls.length, 1);
+  const plain = fakeFetch({ [csvUrl]: { status: 307, headers: { location: 'http://doc-0k-3g-sheets.googleusercontent.com/x' } } });
+  assert.deepEqual(await fetchSheetCsv(pub, plain.fetch), { error: 'not_published' });
+  assert.deepEqual(await fetchSheetCsv(pub, fakeFetch({ [csvUrl]: { text: '<!DOCTYPE html><html>sign in</html>', headers: { 'content-type': 'text/html; charset=utf-8' } } }).fetch), { error: 'not_published' });
+  assert.deepEqual(await fetchSheetCsv(pub, fakeFetch({ [csvUrl]: { text: '  <html>', headers: { 'content-type': 'text/plain' } } }).fetch), { error: 'not_published' });
+  assert.deepEqual(await fetchSheetCsv(pub, fakeFetch({}).fetch), { error: 'not_published' }, '404');
+  assert.deepEqual(await fetchSheetCsv(pub, fakeFetch({ [csvUrl]: { status: 500 } }).fetch), { error: 'unreachable' });
+  assert.deepEqual(await fetchSheetCsv(pub, fakeFetch({ [csvUrl]: { throw: new TypeError('network') } }).fetch), { error: 'unreachable' });
+  assert.deepEqual(await fetchSheetCsv(pub, fakeFetch({ [csvUrl]: { text: 'x'.repeat(50) } }).fetch, { maxBytes: 20 }), { error: 'too_big' });
+  assert.deepEqual(await fetchSheetCsv(pub, fakeFetch({ [csvUrl]: { text: 'x', headers: { 'content-type': 'text/csv', 'content-length': '999999999' } } }).fetch), { error: 'too_big' });
+  const loop = fakeFetch({ [csvUrl]: { status: 307, headers: { location: csvUrl } } });
+  assert.deepEqual(await fetchSheetCsv(pub, loop.fetch), { error: 'unreachable' });
+  assert.equal(loop.calls.length, 4, 'three redirects at most');
+  const none = fakeFetch({});
+  assert.deepEqual(await fetchSheetCsv('https://evil.example/a.csv', none.fetch), { error: 'bad_link' });
+  assert.equal(none.calls.length, 0, 'a link outside docs.google.com is never fetched');
 });

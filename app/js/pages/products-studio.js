@@ -23,7 +23,7 @@
   const SLOT_L = PD.SLOTS.concat(['إضافية 1', 'إضافية 2']);
   const FIELD_L = { nameEn: 'الاسم (EN)', nameAr: 'الاسم (AR)', vendorPrice: 'سعر المبتكر', colors: 'اللون', sizes: 'المقاس', material: 'الخامة', style: 'الستايل', weight: 'الوزن', stock: 'المخزون', shortDesc: 'الوصف القصير' };
   const REASON = { product_invalid_sku: 'الـ SKU ده موجود على الموقع', image_missing: 'صورة مش لاقيينها — ارفعها تاني', media_refused: 'الموقع رفض صورة', config: 'باسورد تطبيق WordPress مش متظبط على السيرفر',
-    product_refused: 'الموقع رفض المنتج', push_disabled: 'الكتابة على الموقع مقفولة دلوقتي', forbidden: 'مش مسموحلك ترفع منتجات', invalid: 'في بيانات مش مقبولة', network: 'في مشكلة في الاتصال — جرّب تاني', missing: 'الدفعة أو المنتج مش موجود' };
+    product_refused: 'الموقع رفض المنتج', author_failed: 'المبتكر ماتحطش على المنتج — «جرّب تاني» (التركيبات بتستناه)', push_disabled: 'الكتابة على الموقع مقفولة دلوقتي', forbidden: 'مش مسموحلك ترفع منتجات', invalid: 'في بيانات مش مقبولة', network: 'في مشكلة في الاتصال — جرّب تاني', missing: 'الدفعة أو المنتج مش موجود' };
   const reasonOf = (code) => REASON[code] || (/^http_5/.test(String(code)) ? 'الموقع مش بيرد — جرّب كمان شوية' : 'الموقع رفض الطلب (' + code + ')');
 
   // ---------------- state ----------------
@@ -137,19 +137,27 @@
       h('div', { class: 'opt-grid', role: 'radiogroup', 'aria-label': 'طريقة الإدخال' }, opt('شيت + صور', 'الشيت الأول، وبعده صورة لكل منتج.', true, () => {}), opt('صور بس — soon', 'ترفع الصور والـ AI يكتب الداتا — مع أدوات الـ AI.', false, () => {}, true))]);
     const b = brands.find((x) => x.id === s.brandId);
     const ownerName = (vid) => { const v = V && V.store && V.store.get ? V.store.get(vid) : null; return v ? v.name : '—'; };
+    // the maker (the owner, 28 Oct): the brand's owner by default, any maker on request — the products go to that maker's store
+    const makers = V && V.store && V.store.all ? V.store.all().sort((x, y) => x.name.localeCompare(y.name, 'ar')) : [];
+    const mk = makers.find((x) => x.id === s.vendorId) || null;
+    const noStore = !!mk && mk.wooVendorId == null;
     const r = rateNow(); const ex = priceOf(1000, 20);
-    const R2 = Card('بيانات الدفعة', 'البراند بيحدد المبتكر وحرفين الـ SKU. السعر بيتحسب من سعر المبتكر (قرار 16).', [
+    const R2 = Card('بيانات الدفعة', 'البراند بيحدد حرفين الـ SKU، والمبتكر صاحب البراند إلا لو اخترت غيره. السعر بيتحسب من سعر المبتكر (قرار 16).', [
       U.Select({ id: 'w-brand', label: 'البراند', required: true, options: brands.map((x) => ({ value: x.id, label: x.name })), value: s.brandId || '', placeholder: vd ? 'اختار البراند' : 'بنحمّل البراندات…',
         onChange: (v) => { const nb = brands.find((x) => x.id === v); s.brandId = v; s.brandName = nb ? nb.name : ''; s.vendorId = nb ? nb.owner : null; s.vendorName = nb ? ownerName(nb.owner) : ''; s.rate = null; s.fee = null; touch(); R(); },
         help: b ? (PD.brandCode(b.name) ? 'حرفين الـ SKU: ' + PD.brandCode(b.name) : 'اسم البراند لازم يبدأ بحرفين إنجليزي') : 'البراند بالإنجليزي — منه أول حرفين في الـ SKU',
         error: b && !PD.brandCode(b.name) ? 'اسم البراند مافيهوش حرفين إنجليزي' : null }),
-      U.TextInput({ id: 'w-vendor', label: 'المبتكر', value: s.vendorName || '', disabled: true, onInput: () => {}, help: 'صاحب البراند — المنتجات بتترفع على حسابه في الموقع' }),
+      U.Select({ id: 'w-vendor', label: 'المبتكر', required: true, value: s.vendorId || '', placeholder: vd ? 'اختار المبتكر' : 'بنحمّل المبتكرين…',
+        options: makers.map((x) => ({ value: x.id, label: x.name + (x.wooVendorId == null ? ' (مالوش متجر على الموقع)' : x.status === 'inactive' ? ' (غير نشط)' : x.status === 'leave' ? ' (في إجازة)' : '') })),
+        onChange: (v) => { const m = makers.find((x) => x.id === v); s.vendorId = m ? m.id : null; s.vendorName = m ? m.name : ''; s.rate = null; s.fee = null; touch(); R(); },
+        help: b && s.vendorId && s.vendorId === b.owner ? 'صاحب البراند — تقدر تختار مبتكر تاني، والمنتجات بتترفع على حسابه في الموقع' : 'المنتجات بتترفع على حساب المبتكر ده في الموقع',
+        error: noStore ? 'المبتكر ده مالوش متجر على الموقع — اختار مبتكر ليه متجر' : null }),
       h('div', { class: 'rate-field', id: 'rate-box' }, h('span', { class: 't-small help' }, 'نسبة إبتكر'), h('b', null, r == null ? '—' : U.num(r + '%')), h('small', { class: 'help' }, ' + ' + K.n0(feeNow()) + ' ج.م رسوم'), h('span', { class: 'grow' }), Button({ size: 'sm', label: 'تغيير', onClick: changeRate })),
       r == null && s.vendorId ? U.InlineNote({ kind: 'warning', children: 'نسبة المبتكر مش ظاهرة لك — اكتبها بـ «تغيير» عشان الأسعار تتحسب.' }) : null,
       h('div', { class: 'formula' }, h('small', null, 'معاينة المعادلة'), ex ? h('span', null, 'سعر المبتكر 1,000 ← سعر البيع ', h('b', null, K.n0(ex.sale)), ' ← قبل الخصم ', h('b', null, K.n0(ex.regular)), ' (+15–30% عشوائي)') : h('span', null, 'اختار البراند الأول')),
       h('small', { class: 't-small help' }, 'المسلسل الجاي في الموقع: ', U.num(PD.serialText(ST().nextSerial()) || '0999'), ' — بيتحجز وقت الرفع بس')]);
-    const ok = !!s.brandId && !!PD.brandCode(s.brandName) && (s.type === 'Simple' || s.vary.length > 0);
-    return [h('div', { class: 'cols2-wide' }, L, R2), WizFoot(ok, !s.brandId ? 'اختار البراند' : 'اختار هيتغير في إيه')];
+    const ok = !!s.brandId && !!PD.brandCode(s.brandName) && !!mk && !noStore && (s.type === 'Simple' || s.vary.length > 0);
+    return [h('div', { class: 'cols2-wide' }, L, R2), WizFoot(ok, !s.brandId ? 'اختار البراند' : !mk ? 'اختار المبتكر' : noStore ? 'اختار مبتكر ليه متجر على الموقع' : 'اختار هيتغير في إيه')];
   }
   function changeRate() {
     K.form({ title: 'نسبة إبتكر للدفعة دي', values: { r: rateNow() == null ? '' : String(rateNow()), f: String(feeNow()) }, submitLabel: 'طبّق على الدفعة',
@@ -161,12 +169,39 @@
 
   // ---------------- 2 الاستلام ----------------
   const newKey = () => 'k' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6);
+  // the sheet's rows (a file, or a Google Sheets link — decision 13) → the batch; reading the same link again keeps the column
+  // mapping while the headers are the same
+  function takeRows(rows, name, link) {
+    if (!rows || rows.length < 2) { K.toast('الشيت فاضي أو مافيهوش غير العناوين', 'error'); return; }
+    const prev = S.state.sheet; const headers = rows[0].map(String);
+    const same = !!(prev && link && prev.link === link && JSON.stringify(prev.headers) === JSON.stringify(headers));
+    S.state.sheet = { file: name, link: link || null, headers, map: same ? prev.map : PD.mapColumns(rows[0]), rows: rows.slice(0, 501) };
+    applySheet(); touch(); R();
+  }
   async function readSheet(file) {
     let rows;
     try { rows = /\.xlsx$/i.test(file.name) ? await PD.parseXlsx(new Uint8Array(await file.arrayBuffer())) : PD.parseCsv(await file.text()); } catch (e) { K.toast('مقدرناش نقرا الشيت — ارفعه Excel (xlsx) أو CSV', 'error'); return; }
-    if (!rows || rows.length < 2) { K.toast('الشيت فاضي أو مافيهوش غير العناوين', 'error'); return; }
-    S.state.sheet = { file: file.name, headers: rows[0].map(String), map: PD.mapColumns(rows[0]), rows: rows.slice(0, 501) };
-    applySheet(); touch(); R();
+    takeRows(rows, file.name, null);
+  }
+  const LINK_REASON = { bad_link: 'ده مش لينك Google Sheet — انسخه من «النشر على الويب» أو «مشاركة»', not_published: 'الشيت مش منشور — من الشيت: ملف ← مشاركة ← النشر على الويب، وبعدين انسخ اللينك',
+    too_big: 'الشيت أكبر من 2 ميجا — قسّمه على كذا دفعة', unreachable: 'مقدرناش نوصل للشيت دلوقتي — جرّب تاني' };
+  async function readLink(url) {
+    const link = String(url || '').trim();
+    if (!/^https:\/\/docs\.google\.com\/spreadsheets\//.test(link)) { K.toast(LINK_REASON.bad_link, 'error'); return; }
+    if (S.linkBusy) return; S.linkBusy = true; R();
+    const r = await ST().readSheetLink(link);
+    S.linkBusy = false;
+    if (!r.ok) { K.toast(LINK_REASON[r.reason] || reasonOf(r.reason), 'error'); R(); return; }
+    let rows = null; try { rows = PD.parseCsv(r.csv); } catch (e) { rows = null; }
+    takeRows(rows, 'Google Sheet', link);
+  }
+  // the link field: under the file picker, and «حدّث من اللينك» once a sheet came from a link
+  function linkRow() {
+    const inp = h('input', { id: 'sheet-link', type: 'url', class: 'input', dir: 'ltr', inputmode: 'url', placeholder: 'https://docs.google.com/spreadsheets/d/e/…/pubhtml', value: S.linkDraft || '', 'aria-label': 'لينك Google Sheet' });
+    inp.addEventListener('input', () => { S.linkDraft = inp.value; });
+    inp.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') { ev.preventDefault(); readLink(inp.value); } });
+    return h('div', { class: 'link-row' }, U.FieldShell({ id: 'sheet-link', label: 'أو لينك Google Sheet', help: 'من الشيت: ملف ← مشاركة ← النشر على الويب، وانسخ اللينك هنا' }, inp),
+      Button({ label: S.linkBusy ? 'بنقرا الشيت…' : 'اقرا من اللينك', disabled: !!S.linkBusy, onClick: () => readLink(inp.value) }));
   }
   function applySheet() {
     const sh = S.state.sheet; if (!sh) return;
@@ -203,12 +238,15 @@
   function step2() {
     const L = items(); const sh = S.state.sheet;
     const fields = Object.keys(FIELD_L);
-    const s1 = Card('1 · ارفع الشيت', 'Excel (xlsx) أو CSV — الداتا والأسعار. الأعمدة بتتربط لوحدها بالاسم.', sh ? [
-      h('div', { class: 'file-row' }, Icon('sheet', 'sm'), h('b', null, sh.file), h('span', { class: 'help t-small' }, ' · ' + L.length + ' منتج'), h('span', { class: 'grow' }), Button({ type: 'text', size: 'sm', label: 'بدّل الشيت', onClick: () => filePick('.xlsx,.csv', false, (f) => readSheet(f[0])) })),
+    const s1 = Card('1 · ارفع الشيت', 'Excel (xlsx) أو CSV أو لينك Google Sheet — الداتا والأسعار. الأعمدة بتتربط لوحدها بالاسم.', sh ? [
+      h('div', { class: 'file-row' }, Icon('sheet', 'sm'), h('b', null, sh.file), h('span', { class: 'help t-small' }, ' · ' + L.length + ' منتج'), h('span', { class: 'grow' }),
+        sh.link ? Button({ type: 'text', size: 'sm', label: S.linkBusy ? 'بنقرا الشيت…' : 'حدّث من اللينك', disabled: !!S.linkBusy, onClick: () => readLink(sh.link) }) : null,
+        Button({ type: 'text', size: 'sm', label: 'بدّل الشيت', onClick: () => filePick('.xlsx,.csv', false, (f) => readSheet(f[0])) })),
+      sh.link ? null : linkRow(),
       h('b', { class: 't-label' }, 'ربط الأعمدة'),
       h('div', { class: 'grid2' }, fields.map((k) => U.Select({ id: 'map-' + k, label: FIELD_L[k], options: [{ value: '', label: '— مش في الشيت —' }].concat(sh.headers.map((x, i) => ({ value: String(i), label: x || ('عمود ' + (i + 1)) }))), value: sh.map[k] == null ? '' : String(sh.map[k]),
         onChange: (v) => { if (v === '') delete sh.map[k]; else sh.map[k] = Number(v); applySheet(); touch(); R(); } })))]
-      : [h('button', { type: 'button', class: 'drop', onClick: () => filePick('.xlsx,.csv', false, (f) => readSheet(f[0])) }, Icon('upload'), h('b', null, 'اختار الشيت'), h('small', null, 'Excel (xlsx) أو CSV · Google Sheets: نزّله xlsx الأول'))]);
+      : [h('button', { type: 'button', class: 'drop', onClick: () => filePick('.xlsx,.csv', false, (f) => readSheet(f[0])) }, Icon('upload'), h('b', null, 'اختار الشيت'), h('small', null, 'Excel (xlsx) أو CSV')), linkRow()]);
     const mainN = L.filter((it) => it.main).length;
     const s2 = Card('2 · صورة لكل منتج', sh ? 'سمّي الصور برقم الصف: 1-1 الأساسية، 1-2 و1-3 مرجعية لنفس المنتج — من غير رقم بتتربط بالترتيب.' : 'بتتفتح بعد الشيت.', sh ? [
       h('button', { type: 'button', class: 'drop', onClick: () => filePick('image/*', true, dropImages) }, Icon('upload'), h('b', null, 'اختار صور المنتجات'), h('small', null, 'JPG / PNG / WebP — بتتحول WebP · ' + mainN + ' من ' + L.length)),

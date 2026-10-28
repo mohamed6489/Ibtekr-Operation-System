@@ -33,12 +33,16 @@ test('studio Simple: brand + batch rate → CSV (columns by name) + images by ro
   await expect(page).toHaveURL(/#products-studio-new-1$/);
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await expect(page.locator('#pg-products')).toContainText('حرفين الـ SKU: AR');
+  await expect(page.locator('#w-vendor')).toContainText('Art Craft'); // the brand's owner by default
+  await expect(page.locator('#pg-products')).toContainText('صاحب البراند — تقدر تختار مبتكر تاني');
+  await page.locator('#w-vendor').click(); await page.getByRole('option', { name: 'Antikiano' }).click(); // the owner, 28 Oct: another maker
+  await expect(page.locator('#w-vendor')).toContainText('Antikiano');
   await expect(page.locator('#pg-products')).toContainText('نسبة المبتكر مش ظاهرة لك'); // ops: sensitive.commission N
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click();
   await page.fill('#r', '30'); await page.fill('#f', '0'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await next(page, 'التالي: الاستلام');
   await expect(page).toHaveURL(/#products-studio-0b6f2f5e-1d2c-4a8b-9e3f-000000000001-2$/);
-  expect(mock.studioBatches[0].state.brandName).toBe('Art Craft');
+  expect([mock.studioBatches[0].state.brandName, mock.studioBatches[0].vendor_id, mock.studioBatches[0].state.vendorName]).toEqual(['Art Craft', 'a0000000-0000-4000-8000-000000000002', 'Antikiano']);
   await pick(page, /اختار الشيت/, { name: 'art craft.csv', mimeType: 'text/csv', buffer: Buffer.from('Product Name EN,الاسم بالعربي,Vendor Price,Color\nBoho Cushion,مخدة بوهيمي,1000,Beige\nStripe Pillow,مخدة مخططة,800,Purple\n') });
   await expect(page.locator('#pg-products .st-table tbody tr')).toHaveCount(2);
   await expect(page.locator('#pg-products .st-table tbody tr').nth(1)).toContainText('لون مش في الجدول: Purple');
@@ -70,6 +74,7 @@ test('studio Simple: brand + batch rate → CSV (columns by name) + images by ro
   expect(mock.studioUploads.map((x) => [x.index, x.sku, x.product.status, x.product.sale_price, x.product.categories, x.images.length, x.ar && x.ar.name])).toEqual([
     [0, 'IBTARBE0999', 'draft', '1430', [{ id: 15 }], 1, 'مخدة بوهيمي'], [1, 'IBTARPU1000', 'draft', '1150', [{ id: 15 }], 1, 'مخدة مخططة']]);
   expect(mock.studioUploads[0].product.attributes[0]).toEqual({ id: 12, visible: true, variation: false, options: ['Beige'] });
+  expect(mock.products.filter((p) => /^IBTAR(BE0999|PU1000)$/.test(p.sku)).map((p) => p.vendor_id)).toEqual(['a0000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000002']); // the chosen maker, not the brand's owner
   expect(mock.activity.some((a) => a.action === 'product.create')).toBe(true);
   await page.getByRole('button', { name: 'روح للسجل' }).click();
   await page.getByRole('tab', { name: 'إضافة' }).click();
@@ -115,6 +120,38 @@ test('studio Variable: colors and sizes become variations with their own SKU and
   expect(mock.studioUploads.map((x) => x.index)).toEqual([0, 1, 0, 1]); // the first asked again for its maker only (the server repeats nothing)
   expect(mock.products.filter((p) => p.sku === 'IBTAR0999')).toHaveLength(1);
   expect(mock.serialTakes).toEqual([2]); // the serials stay with their products
+});
+
+test('studio: a maker without a store on the site is refused; a Google Sheet link is read by the server (a wrong link before any request, an unpublished sheet explained), and «حدّث من اللينك» keeps the column mapping', async ({ page }) => {
+  mock.vendors.push({ ...mock.vendors[0], id: 'a0000000-0000-4000-8000-000000000009', woo_vendor_id: null, name: 'Zeta Maker', aliases: [], raw: {} });
+  await signIn(page, OPS);
+  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#w-vendor').click(); await page.getByRole('option', { name: 'Zeta Maker (مالوش متجر على الموقع)' }).click();
+  await expect(page.locator('#pg-products')).toContainText('المبتكر ده مالوش متجر على الموقع — اختار مبتكر ليه متجر');
+  await expect(page.locator('.wiz-foot').getByRole('button', { name: 'التالي: الاستلام' })).toBeDisabled();
+  await page.locator('#w-vendor').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
+  await next(page, 'التالي: الاستلام');
+  await page.fill('#sheet-link', 'https://example.com/sheet.csv');
+  await page.getByRole('button', { name: 'اقرا من اللينك' }).click();
+  await expect(page.locator('.toast[role=status]')).toContainText('ده مش لينك Google Sheet');
+  expect(mock.sheetReads).toEqual([]); // refused before any request
+  const LINK = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vTq3x9Abc_def-GHIjkLMNopQRstuVWxyz0123456789/pubhtml';
+  await page.fill('#sheet-link', LINK);
+  await page.getByRole('button', { name: 'اقرا من اللينك' }).click();
+  await expect(page.locator('.toast[role=status]')).toContainText('الشيت مش منشور');
+  mock.sheetLinks[LINK] = { csv: 'Name EN,Name AR,Vendor Price,Color,Notes\nStudio Test Cushion,مخدة تجربة,500,Beige,x\n' };
+  await page.getByRole('button', { name: 'اقرا من اللينك' }).click();
+  await expect(page.locator('#pg-products .st-table tbody tr')).toHaveCount(1);
+  await expect(page.locator('#pg-products .file-row')).toContainText('Google Sheet');
+  expect(mock.sheetReads).toEqual([LINK, LINK]);
+  await page.locator('#map-colors').click(); await page.getByRole('option', { name: '— مش في الشيت —' }).click(); // a hand-made mapping
+  mock.sheetLinks[LINK] = { csv: 'Name EN,Name AR,Vendor Price,Color,Notes\nStudio Test Cushion,مخدة تجربة,500,Beige,x\nStudio Test Lamp,أباجورة تجربة,700,Black,y\n' };
+  await page.getByRole('button', { name: 'حدّث من اللينك' }).click();
+  await expect(page.locator('#pg-products .st-table tbody tr')).toHaveCount(2);
+  await expect(page.locator('#map-colors')).toContainText('— مش في الشيت —'); // the same headers: the mapping stays
+  await expect.poll(() => (mock.studioBatches[0].state.sheet || {}).link).toBe(LINK);
 });
 
 test('studio permission: without products.add the studio does not open and the saved work is not shown', async ({ page }) => {

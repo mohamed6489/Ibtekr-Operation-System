@@ -103,3 +103,66 @@ export function buildStudio(item, o) {
   product.sku = sku;
   return { sku, product, variations, images, ar: nameAr ? { name: nameAr, ...arShort.payload } : null };
 }
+
+// A Google Sheets link for the studio's «الاستلام» (decision 13; the owner, 28 Oct): «Publish to the web»
+// (…/spreadsheets/d/e/<id>/pubhtml | pub…) or a sheet shared with anyone (…/spreadsheets/d/<id>/edit…), its tab from gid.
+// → the CSV URL built from the id and the tab only (the link itself is never fetched); null for anything else.
+export const SHEET_MAX_BYTES = 2_000_000;
+export function sheetCsvUrl(link) {
+  let u; try { u = new URL(String(link == null ? '' : link).trim()); } catch { return null; }
+  if (u.protocol !== 'https:' || u.hostname !== 'docs.google.com' || u.port || u.username || u.password) return null;
+  const raw = u.searchParams.get('gid') ?? (/(?:^#|&)gid=(\d+)/.exec(u.hash) || [])[1] ?? null;
+  const gid = raw != null && /^\d{1,12}$/.test(raw) ? raw : null;
+  let m = /^\/spreadsheets\/d\/e\/([A-Za-z0-9_-]{20,200})\/(?:pubhtml|pub)(?:\/[^?#]*)?$/.exec(u.pathname);
+  if (m) return 'https://docs.google.com/spreadsheets/d/e/' + m[1] + '/pub?output=csv' + (gid ? '&gid=' + gid + '&single=true' : '');
+  m = /^\/spreadsheets\/d\/([A-Za-z0-9_-]{20,200})(?:\/[^?#]*)?$/.exec(u.pathname);
+  if (m) return 'https://docs.google.com/spreadsheets/d/' + m[1] + '/export?format=csv' + (gid ? '&gid=' + gid : '');
+  return null;
+}
+// Google answers the CSV through a redirect to *.googleusercontent.com; a sheet that is neither published nor shared
+// redirects to accounts.google.com (sign-in) or answers an HTML page.
+const SHEET_HOST = /^(docs\.google\.com|[a-z0-9-]{1,63}\.googleusercontent\.com)$/;
+/**
+ * The CSV text of a Google Sheets link, with an injected fetch: redirects followed by hand (3 at most; https and Google's
+ * hosts only), 20 s, SHEET_MAX_BYTES at most, an HTML answer refused.
+ * → { csv } | { error: 'bad_link' | 'not_published' | 'too_big' | 'unreachable' }
+ */
+export async function fetchSheetCsv(link, fetchFn, { timeoutMs = 20_000, maxBytes = SHEET_MAX_BYTES } = {}) {
+  let url = sheetCsvUrl(link);
+  if (!url) return { error: 'bad_link' };
+  const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), timeoutMs);
+  try {
+    for (let hop = 0; hop <= 3; hop++) {
+      const res = await fetchFn(url, { method: 'GET', redirect: 'manual', signal: ctl.signal, headers: { accept: 'text/csv, text/plain;q=0.9' } });
+      if (res.status >= 300 && res.status < 400) {
+        let next = null; try { next = new URL(res.headers.get('location') || '', url); } catch { next = null; }
+        if (!next || next.protocol !== 'https:' || next.port || next.username || next.password || !SHEET_HOST.test(next.hostname)) return { error: 'not_published' };
+        url = next.href; continue;
+      }
+      if (res.status === 401 || res.status === 403 || res.status === 404) return { error: 'not_published' };
+      if (!res.ok) return { error: 'unreachable' };
+      if (/text\/html/i.test(res.headers.get('content-type') || '')) return { error: 'not_published' };
+      if (Number(res.headers.get('content-length') || 0) > maxBytes) return { error: 'too_big' };
+      const chunks = []; let size = 0;
+      if (res.body) {
+        const reader = res.body.getReader();
+        for (;;) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          size += value.length;
+          if (size > maxBytes) { try { await reader.cancel(); } catch { /* the size answers already */ } return { error: 'too_big' }; }
+          chunks.push(value);
+        }
+      }
+      const bytes = new Uint8Array(size); let at = 0; for (const c of chunks) { bytes.set(c, at); at += c.length; }
+      const csv = new TextDecoder('utf-8').decode(bytes);
+      if (/^\s*<(!doctype|html)/i.test(csv)) return { error: 'not_published' };
+      return { csv };
+    }
+    return { error: 'unreachable' };
+  } catch {
+    return { error: 'unreachable' };
+  } finally {
+    clearTimeout(timer);
+  }
+}

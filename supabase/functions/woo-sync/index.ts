@@ -71,7 +71,10 @@
 //   'studio_upload' { batch_id, index }  products.add = F (phase 5.2): one studio batch item, read from studio_batches
 //              and allow-listed (woo-studio.js) → images to wp/v2/media, a draft product + variations, the Arabic translation
 //              (WPML), the maker as author (PUT dokan/v1/products/{id} post_author); the result on the batch. 'category_create' { name_en, name_ar?,
-//              parent? } products.add = F: a new category + its translation. WOO_PUSH_ENABLED gates both.
+//              parent? } products.add = F: a new category + its translation. WOO_PUSH_ENABLED gates both. 'studio_sheet' { url }
+//              products.add = F (decision 13): the CSV of a Google Sheets link (published, or shared with anyone), read here —
+//              Google answers it with no CORS after its redirect — from the URL built from the link's id (woo-studio.js
+//              fetchSheetCsv); nothing is written or logged.
 //   'register_webhooks' { delivery_url? }  ensures one active `ibtekr-ops:<topic>` webhook per topic pointing at
 //              {SUPABASE_URL}/functions/v1/woo-webhook; any other webhook on the site (n8n's) is never touched.
 // Answer: 200 { action, result, counts, … } or 4xx / 5xx { error }. CORS for the browser's functions.invoke.
@@ -80,7 +83,7 @@ import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from
 import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, toWoo, variationView } from '../_shared/woo-products.js';
-import { STUDIO_ATTRS, buildStudio } from '../_shared/woo-studio.js';
+import { STUDIO_ATTRS, buildStudio, fetchSheetCsv } from '../_shared/woo-studio.js';
 import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
@@ -92,9 +95,9 @@ type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals',
-  'product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore', 'studio_upload', 'category_create'];
-// phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload and a new category
-const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore', 'studio_upload', 'category_create'];
+  'product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet'];
+// phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link
+const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet'];
 const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
@@ -137,8 +140,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'product_save') return (await admin()) || (await perm('products.edit')) ? 'member' : null;
   if (action === 'products_batch') return (await admin()) || (await perm('products.bulk')) ? 'member' : null; // the owner, 28 Oct: bulk edit is its own permission
   if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
-  // phase 5.2 (decisions 7 / 8): the studio's upload and a new category need products.add = F
-  if (action === 'studio_upload' || action === 'category_create') return (await admin()) || (await perm('products.add')) ? 'member' : null;
+  // phase 5.2 (decisions 7 / 8 / 13): the studio's upload, a new category and reading a sheet link need products.add = F
+  if (action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet') return (await admin()) || (await perm('products.add')) ? 'member' : null;
   if (action === 'push_vendor') {
     if (await admin()) return 'member';
     const fields = Array.isArray(args.fields) ? args.fields : [];
@@ -773,11 +776,12 @@ async function productsTrash(run: Run, args: Json, restore: boolean) {
 
 // studio_upload { batch_id, index }: one batch item to WooCommerce, read from studio_batches (never from the request) and
 // allow-listed by buildStudio; then, each step once (a retry goes on from the step that stopped): the images from the
-// bucket to the media library, the product as a draft, its variations, the Arabic translation (WPML: wpml_language ar +
-// translation_of; an answer that is not linked to the product is trashed, never left as a second product), the maker as
-// the product's author (and its translation's: Dokan's PUT dokan/v1/products/{id} { post_author } with the Application
-// Password — «failed» when the answer is not the maker, the product stays), the mirror. The item's result
-// goes to studio_batches.result.items[index] (ids, the SKU, a short reason — never a price or a text).
+// bucket to the media library, the product as a draft, the maker as its author (Dokan's PUT dokan/v1/products/{id}
+// { post_author } with the Application Password — before the variations, which take their product's vendor when Dokan
+// creates them; a maker that did not stick = author_failed, no variations yet, the product stays), its variations, the
+// Arabic translation (WPML: wpml_language ar + translation_of; an answer that is not linked to the product is trashed,
+// never left as a second product) and its author («failed» when it did not stick), the mirror. The item's result goes to
+// studio_batches.result.items[index] (ids, the SKU, a short reason — never a price or a text).
 const STUDIO_BUCKET = 'studio';
 const MIME: Record<string, string> = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
 const wooCode = (e: unknown) => (e instanceof WooError ? (/"code":"([a-z0-9_]{1,60})"/.exec(e.message)?.[1] ?? `http_${e.status}`) : e instanceof ConfigError ? 'config' : 'error');
@@ -810,6 +814,15 @@ async function studioUpload(run: Run, args: Json) {
   if (built.error) return json(400, built);
   const prev = isObj(batch.result) && Array.isArray(batch.result.items) && isObj(batch.result.items[index]) ? batch.result.items[index] : {};
   const res: Json = { ...prev, sku: built.sku, media: isObj(prev.media) ? { ...prev.media } : {}, error: null };
+  // the maker (decision 9): Dokan's own route writes an admin's post_author when that user can dokan_add_product (otherwise
+  // the caller) — the answer's post_author is checked, never trusted; the ids it took stay on the result (a retry skips them)
+  const owner = wooId(vendor?.woo_vendor_id);
+  const authored = new Set<number>((Array.isArray(prev.authorIds) ? prev.authorIds : []).map((x: unknown) => wooId(x)).filter((x: number | null): x is number => x !== null));
+  const authorOf = async (id: number) => {
+    if (authored.has(id)) return;
+    try { if (wooId(((await ctx.woo.put(`dokan/v1/products/${id}`, { post_author: owner })).data as Json)?.post_author) === owner) authored.add(id); }
+    catch (e) { if (!(e instanceof WooError || e instanceof ConfigError)) throw e; }
+  };
   const saveResult = async () => {
     const { data: cur } = await run.db.from('studio_batches').select('state, result').eq('id', batchId).maybeSingle();
     const items = isObj(cur?.result) && Array.isArray(cur.result.items) ? [...cur.result.items] : [];
@@ -839,6 +852,13 @@ async function studioUpload(run: Run, args: Json) {
       res.productId = wooId(isObj(p) ? p.id : null);
       if (res.productId === null) res.error = 'product_refused';
     }
+    // the maker before the variations: Dokan orders a variation by the variation's own author, gives a new variation its
+    // product's vendor, and has no REST route to change a variation's author afterwards — so a product whose maker did not
+    // stick gets no variations yet (author_failed; «جرّب تاني» asks again and goes on)
+    if (!res.error && owner !== null) {
+      await authorOf(res.productId);
+      if (!authored.has(res.productId)) res.error = 'author_failed';
+    }
     if (!res.error && built.variations.length && !isObj(res.variations)) {
       const r = (await ctx.woo.post(`wc/v3/products/${res.productId}/variations/batch`, { create: built.variations.map((v: Json) => ({ ...v.payload, ...(v.image ? { image: { id: res.media[v.image] } } : {}) })) })).data;
       const created = isObj(r) && Array.isArray(r.create) ? r.create : [];
@@ -853,18 +873,10 @@ async function studioUpload(run: Run, args: Json) {
         if (arId !== null && !linked) { await ctx.woo.del(`wc/v3/products/${arId}`); res.arId = null; res.arNote = 'not_linked'; } else res.arId = arId;
       } catch (e) { if (!(e instanceof WooError)) throw e; res.arId = null; res.arNote = wooCode(e); }
     }
-    if (!res.error && res.author !== 'ok') {
-      const owner = wooId(vendor?.woo_vendor_id);
-      if (owner === null) res.author = 'no_store';
-      else {
-        // Dokan's own route: an admin's post_author is written by update_post_author_if_needed when that user can
-        // dokan_add_product (otherwise Dokan writes the caller) — so the answer's post_author is checked, not trusted.
-        const setAuthor = async (id: number) => wooId(((await ctx.woo.put(`dokan/v1/products/${id}`, { post_author: owner })).data as Json)?.post_author) === owner;
-        try {
-          const ok = await setAuthor(res.productId) && (wooId(res.arId) === null || await setAuthor(res.arId));
-          res.author = ok ? 'ok' : 'failed';
-        } catch (e) { if (!(e instanceof WooError || e instanceof ConfigError)) throw e; res.author = 'failed'; }
-      }
+    if (!res.error && owner !== null && wooId(res.arId) !== null) await authorOf(res.arId);
+    if (wooId(res.productId) !== null) {
+      res.authorIds = [...authored];
+      res.author = owner === null ? 'no_store' : [res.productId, res.arId].filter((x) => wooId(x) !== null).every((x) => authored.has(x)) ? 'ok' : 'failed';
     }
     if (wooId(res.productId) !== null) {
       const fresh = [(await ctx.woo.get(`wc/v3/products/${res.productId}`)).data];
@@ -879,6 +891,15 @@ async function studioUpload(run: Run, args: Json) {
   await logSync(run.db, { ...entry, entity_id: res.productId == null ? entry.entity_id : String(res.productId), result: res.error ? 'error' : 'ok',
     detail: { batch: batchId, index, sku: built.sku, media: Object.keys(res.media).length, variations: res.variations ?? null, ar: res.arId ?? null, ar_note: res.arNote ?? null, author: res.author ?? null, error: res.error } });
   return json(200, { action: 'studio_upload', result: res.error ? 'error' : 'ok', item: res });
+}
+
+// studio_sheet { url } (decision 13): a Google Sheets link → { result: 'ok', csv } | { result: 'error', reason: not_published |
+// too_big | unreachable }; a link that is not a Google sheet → 400 bad_link. Read only: no Woo call, nothing stored.
+async function studioSheet(args: Json, fetchFn: typeof fetch) {
+  const r = await fetchSheetCsv(typeof args.url === 'string' ? args.url.slice(0, 2000) : '', fetchFn) as Json;
+  if (r.error === 'bad_link') return json(400, { error: 'bad_link', field: 'url' });
+  if (r.error) return json(200, { action: 'studio_sheet', result: 'error', reason: r.error });
+  return json(200, { action: 'studio_sheet', result: 'ok', csv: r.csv });
 }
 
 // category_create { name_en, name_ar?, parent? }: a new WooCommerce category in English and its Arabic translation
@@ -942,6 +963,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'products' && args.full === true) return await fullProducts(run);
     if (action === 'studio_upload') return await studioUpload(run, args);
     if (action === 'category_create') return await categoryCreate(run, args);
+    if (action === 'studio_sheet') return await studioSheet(args, deps.fetch);
     if (action === 'withdrawals') {
       try {
         const w = await pullWithdrawals(run, await makersWithStore(run), run.now());

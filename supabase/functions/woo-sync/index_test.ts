@@ -1363,6 +1363,8 @@ Deno.test('studio_upload (phase 5.2): products.add only; images to the media lib
   assertEquals([ar.body.wpml_language, ar.body.translation_of, ar.body.name, ar.body.status, ar.body.sku], ['ar', 900, 'مخدة بوهيمي', 'draft', undefined]);
   const vars = woo.calls.find((c) => c.path === 'wc/v3/products/900/variations/batch')!.body.create;
   assertEquals(vars.map((v: any) => [v.sku, v.image?.id ?? null, v.manage_stock, v.stock_status ?? null]), [['IBTARBE0999', 7002, true, null], ['IBTARBK0999', null, false, 'onbackorder']]);
+  const order = woo.calls.filter((c) => c.method !== 'GET' && c.path !== 'wp/v2/media').map((c) => `${c.method} ${c.path}`);
+  assertEquals(order, ['POST wc/v3/products', 'PUT dokan/v1/products/900', 'POST wc/v3/products/900/variations/batch', 'POST wc/v3/products', 'PUT dokan/v1/products/901'], 'the maker before the variations (a new variation takes its product\'s vendor)');
   const authors = woo.calls.filter((c) => c.method === 'PUT' && c.path.startsWith('dokan/v1/products/'));
   assertEquals(authors.map((c) => [c.path, c.body, c.headers.authorization]), [['dokan/v1/products/900', { post_author: 44 }, 'Basic ' + btoa('wp-user:wp app pass')], ['dokan/v1/products/901', { post_author: 44 }, 'Basic ' + btoa('wp-user:wp app pass')]], 'the product and its translation, by Dokan with the Application Password');
   const batch = db.row('studio_batches', SB);
@@ -1395,13 +1397,23 @@ Deno.test('studio_upload: the push gate before any call; an item refused before 
   const nowp = setup({ seed: studioSeed(), routes: studioRoutes(), env: PUSH_ON, storage: STUDIO_FILES });
   const w = await call(nowp.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
   assertEquals([w.body.result, w.body.item.error, nowp.woo.calls.some((c) => c.method === 'POST')], ['error', 'config', false]);
-  // Dokan writes the caller when the maker cannot dokan_add_product: the answer is checked → «failed», and a retry asks again
-  const admin = setup({ seed: studioSeed(), env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({ 'PUT dokan/v1/products/900': { body: { id: 900, post_author: '1' } } }) });
+  // Dokan writes the caller when the maker cannot dokan_add_product: the answer is checked → author_failed, and the
+  // variations and the translation wait (a variation keeps the author it is created with); a retry asks again and goes on
+  let dokanAnswer = '1';
+  const admin = setup({ seed: studioSeed(), env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({ 'PUT dokan/v1/products/900': () => ({ body: { id: 900, post_author: dokanAnswer } }) }) });
   const x = await call(admin.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
-  assertEquals([x.body.result, x.body.item.author, admin.woo.calls.some((c) => c.path === 'dokan/v1/products/901')], ['ok', 'failed', false]);
-  const m = admin.woo.calls.length;
+  assertEquals([x.body.result, x.body.item.error, x.body.item.productId, x.body.item.author], ['error', 'author_failed', 900, 'failed']);
+  assertFalse(admin.woo.calls.some((c) => c.path === 'wc/v3/products/900/variations/batch' || c.body?.wpml_language === 'ar'), 'no variation and no translation before the maker');
+  assertEquals(admin.db.row('studio_batches', SB).status, 'uploading');
+  let m = admin.woo.calls.length;
   await call(admin.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
-  assertEquals(admin.woo.calls.slice(m).filter((c) => c.method !== 'GET').map((c) => c.path), ['dokan/v1/products/900']);
+  assertEquals(admin.woo.calls.slice(m).filter((c) => c.method !== 'GET').map((c) => c.path), ['dokan/v1/products/900'], 'the product is not created again');
+  dokanAnswer = '44';
+  m = admin.woo.calls.length;
+  const y = await call(admin.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertEquals([y.body.result, y.body.item.author, y.body.item.authorIds], ['ok', 'ok', [900, 901]]);
+  assertEquals(admin.woo.calls.slice(m).filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path}`),
+    ['PUT dokan/v1/products/900', 'POST wc/v3/products/900/variations/batch', 'POST wc/v3/products', 'PUT dokan/v1/products/901'], 'the maker, then the variations, the translation and its maker');
   const nostore = setup({ seed: { ...studioSeed(), studio_batches: [{ ...studioSeed().studio_batches[0], vendor_id: null }] }, env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes() });
   const ns = await call(nostore.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
   assertEquals([ns.body.item.author, nostore.woo.calls.some((c) => c.path.startsWith('dokan/'))], ['no_store', false]);
@@ -1416,6 +1428,28 @@ Deno.test('category_create (phase 5.2): products.add; the English category then 
   assertEquals([body.result, body.id, body.ar_id], ['ok', 80, 81]);
   assertEquals(woo.calls.map((c) => c.body), [{ name: 'Lamps', parent: 15, wpml_language: 'en' }, { name: 'أباجورات', wpml_language: 'ar', translation_of: 80 }]);
   assertEquals(db.rows('woo_categories').map((c) => c.id).sort(), [80, 81]);
+});
+
+Deno.test('studio_sheet (decision 13): products.add only, never the sync secret; the CSV of a published Google Sheet through its redirect, built from the link\'s id; a link that is not a sheet → 400 before any call; a sheet that is not published → not_published; nothing written', async () => {
+  const PUB = '2PACX-1vTq3x9Abc_def-GHIjkLMNopQRstuVWxyz0123456789';
+  const link = `https://docs.google.com/spreadsheets/d/e/${PUB}/pubhtml?gid=7&single=true`;
+  const { woo, db, deps } = setup({ routes: {
+    [`GET /spreadsheets/d/e/${PUB}/pub`]: { status: 307, headers: { location: `https://doc-0k-3g-sheets.googleusercontent.com/pub/x/y/1/${PUB}?gid=7&single=true&output=csv` } },
+    [`GET /pub/x/y/1/${PUB}`]: { text: 'Name EN,Vendor Price\nStudio Test,500\n', headers: { 'content-type': 'text/csv' } },
+  } });
+  assertEquals((await call(deps, { action: 'studio_sheet', url: link })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { action: 'studio_sheet', url: link }, { jwt: 'jwt-pedit' })).res.status, 401, 'products.edit is not products.add');
+  assertEquals(woo.calls.length, 0);
+  const { res, body } = await call(deps, { action: 'studio_sheet', url: link }, { jwt: 'jwt-padd' });
+  assertEquals([res.status, body], [200, { action: 'studio_sheet', result: 'ok', csv: 'Name EN,Vendor Price\nStudio Test,500\n' }]);
+  assertEquals(woo.calls.map((c) => [c.path, c.query, c.redirect, 'authorization' in c.headers]), [
+    [`/spreadsheets/d/e/${PUB}/pub`, { output: 'csv', gid: '7', single: 'true' }, 'manual', false],
+    [`/pub/x/y/1/${PUB}`, { gid: '7', single: 'true', output: 'csv' }, 'manual', false]], 'the built URL, then Google\'s redirect — no key ever sent');
+  const bad = await call(deps, { action: 'studio_sheet', url: 'https://evil.example/a.csv' }, { jwt: 'jwt-padd' });
+  assertEquals([bad.res.status, bad.body.error, woo.calls.length], [400, 'bad_link', 2]);
+  const closed = setup({ routes: { [`GET /spreadsheets/d/e/${PUB}/pub`]: { status: 302, headers: { location: 'https://accounts.google.com/ServiceLogin' } } } });
+  assertEquals((await call(closed.deps, { action: 'studio_sheet', url: link }, { jwt: 'jwt-padd' })).body, { action: 'studio_sheet', result: 'error', reason: 'not_published' });
+  assertEquals(db.rows('woo_sync_log').length, 0, 'a read: nothing logged or written');
 });
 
 Deno.test('woo-api (phase 5.2): of WordPress only wp/v2/media, with the Application Password; any other wp/ path refused; without the password a ConfigError, no call', async () => {

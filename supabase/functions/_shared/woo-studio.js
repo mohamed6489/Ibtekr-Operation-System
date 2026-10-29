@@ -32,8 +32,21 @@ const stockOf = (it) => {
   return null;
 };
 
+// The site's WooCommerce brand for the batch's brand (decision 5): the woo_brands row whose name or slug is the brand's name
+// or one of its aliases once case, spaces and signs are set aside («@Sugar-crafts» = «Sugar crafts» = sugar-crafts). None,
+// or more than one → null: the product goes up with the pa_brand attribute only and the report says so.
+const brandKey = (s) => String(s == null ? '' : s).normalize('NFKC').toLowerCase().replace(/[^\p{L}\p{N}]+/gu, '');
+const slugKey = (s) => { try { return brandKey(decodeURIComponent(String(s == null ? '' : s))); } catch { return brandKey(s); } };
+export function matchWooBrand(brand, wooBrands) {
+  const keys = new Set([brand?.name, ...(Array.isArray(brand?.aliases) ? brand.aliases : [])].map(brandKey).filter(Boolean));
+  const ids = new Set((Array.isArray(wooBrands) ? wooBrands : []).filter((w) => isObj(w) && Number.isInteger(Number(w.id)) && Number(w.id) > 0
+    && (keys.has(brandKey(w.name)) || keys.has(slugKey(w.slug)))).map((w) => Number(w.id)));
+  return ids.size === 1 ? [...ids][0] : null;
+}
+
 /**
- * item + { batchId, type, brand, colors: { CODE: 'Name EN' }, attrs: { color, size, material, style, brand } (ids or null) }
+ * item + { batchId, type, brand, wooBrand (the site's WooCommerce brand id or null), colors: { CODE: 'Name EN' },
+ *   attrs: { color, size, material, style, brand } (ids or null) }
  * → { error, field } | { sku, product, variations: [{ sku, payload, image }], images: [path…], ar: { name, short_description? } } (the Arabic name is required, decision 15)
  */
 export function buildStudio(item, o) {
@@ -55,7 +68,7 @@ export function buildStudio(item, o) {
   const images = Array.isArray(item.images) ? item.images : [];
   if (images.length > MAX_IMAGES || !images.every((p) => typeof p === 'string' && pathRe.test(p))) return bad('images');
   const base = cleanFields({ name, ...(item.shortDesc ? { short_description: item.shortDesc } : {}), ...(item.weight ? { weight: String(item.weight) } : {}),
-    categories: Array.isArray(item.categories) ? item.categories : [] }, ['name', 'short_description', 'weight', 'categories']);
+    categories: Array.isArray(item.categories) ? item.categories : [], ...(o.wooBrand != null ? { brands: [o.wooBrand] } : {}) }, ['name', 'short_description', 'weight', 'categories', 'brands']);
   if (base.error) return bad(base.field);
   const arShort = item.shortDescAr ? cleanFields({ short_description: item.shortDescAr }, ['short_description']) : { payload: {} };
   if (arShort.error) return bad('shortDescAr');

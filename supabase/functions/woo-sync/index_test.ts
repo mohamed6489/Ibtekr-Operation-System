@@ -1419,6 +1419,152 @@ Deno.test('studio_upload: the push gate before any call; an item refused before 
   assertEquals([ns.body.item.author, nostore.woo.calls.some((c) => c.path.startsWith('dokan/'))], ['no_store', false]);
 });
 
+const studioSimple = { nameEn: 'Linen Lamp', nameAr: 'أباجورة كتان', serial: 1000, colors: ['BE'], sizes: [], material: 'Linen', categories: [20], images: [`${SB}/1-1.webp`], sale: 900, regular: 1100, stock: 2 };
+const simpleSeed = (result: any = null) => { const s = studioSeed(studioSimple); return { ...s, studio_batches: [{ ...s.studio_batches[0], type: 'Simple', result }] }; };
+// the batch's maker as the page changes it (studio_batches.vendor_id; null = no maker)
+const setMaker = (db: any, woo: number | null) => db.from('studio_batches').update({ vendor_id: woo === null ? null : vendorId(woo) }).eq('id', SB);
+// what a run wrote on the site, in order (a maker PUT with the post_author it asked for)
+const siteWrites = (woo: any, from: number) => woo.calls.slice(from).filter((c: any) => c.method !== 'GET').map((c: any) => `${c.method} ${c.path}${c.path.startsWith('dokan/') ? ` → ${c.body.post_author}` : ''}`);
+const upload = (deps: any) => call(deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+
+Deno.test('studio_upload: the maker stays on the result with the ids it took (authorOwner); the batch\'s maker changed with no variation made → a retry asks Dokan again for the new maker, on the product and its translation; a result from before authorOwner counts as the batch\'s maker', async () => {
+  const { woo, db, deps } = setup({ seed: simpleSeed(), routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  const first = await upload(deps);
+  assertEquals([first.body.item.author, first.body.item.authorOwner, first.body.item.authorIds], ['ok', 44, [900, 901]]);
+  await setMaker(db, 2376);
+  let n = woo.calls.length;
+  const moved = await upload(deps);
+  assertEquals(siteWrites(woo, n), ['PUT dokan/v1/products/900 → 2376', 'PUT dokan/v1/products/901 → 2376'], 'nothing made again; the new maker on both');
+  assertEquals([moved.body.result, moved.body.item.author, moved.body.item.authorOwner, moved.body.item.authorIds], ['ok', 'ok', 2376, [900, 901]]);
+  assertEquals([db.row('studio_batches', SB).status, db.row('studio_batches', SB).result.items[0].authorOwner], ['done', 2376]);
+  n = woo.calls.length;
+  await upload(deps);
+  assertEquals(siteWrites(woo, n), [], 'the same maker: a retry writes nothing');
+  // woo-sync v32 kept the ids without their maker: they count as the batch's maker (nothing asked again), and it is written
+  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], author: 'ok', error: null }] });
+  const v32 = setup({ seed: old, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  const l = await upload(v32.deps);
+  assertEquals([siteWrites(v32.woo, 0), l.body.item.author, l.body.item.authorOwner], [[], 'ok', 44]);
+});
+
+Deno.test('studio_upload: the batch\'s maker changed after the variations were made → maker_changed and nothing written (Dokan cannot move a variation: the product stays whole on its maker), the record kept until the maker is back; a maker with no store keeps it too', async () => {
+  const { woo, db, deps } = setup({ seed: studioSeed(), routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  assertEquals((await upload(deps)).body.item.variations, { done: 2, failed: 0 });
+  await setMaker(db, 2376);
+  let n = woo.calls.length;
+  const x = await upload(deps);
+  assertEquals(siteWrites(woo, n), [], 'no maker PUT, nothing made again');
+  assertEquals([x.body.result, x.body.item.error, x.body.item.author, x.body.item.authorOwner, x.body.item.authorIds, x.body.item.productId], ['error', 'maker_changed', 'failed', 44, [900, 901], 900], 'never author ok; the record is the site\'s');
+  assertEquals(db.row('studio_batches', SB).status, 'uploading');
+  n = woo.calls.length;
+  assertEquals([(await upload(deps)).body.item.error, siteWrites(woo, n)], ['maker_changed', []], 'asked again: the same answer, the record not overwritten');
+  await setMaker(db, null);
+  const ns = await upload(deps);
+  assertEquals([ns.body.item.author, ns.body.item.error, ns.body.item.authorOwner], ['no_store', null, 44]);
+  await setMaker(db, 44);
+  n = woo.calls.length;
+  const back = await upload(deps);
+  assertEquals([siteWrites(woo, n), back.body.result, back.body.item.author, back.body.item.error], [[], 'ok', 'ok', null], 'the maker back: whole again, nothing written');
+  assertEquals(db.row('studio_batches', SB).status, 'done');
+  // variations made while the product had no maker (it did not stick, then a maker with no store): theirs is none, so a
+  // maker set afterwards is maker_changed too — never a product moved away from its variations
+  let answer = '1';
+  const z = setup({ seed: studioSeed(), env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({ 'PUT dokan/v1/products/900': () => ({ body: { id: 900, post_author: answer } }) }) });
+  assertEquals([(await upload(z.deps)).body.item.error, z.db.row('studio_batches', SB).result.items[0].authorOwner], ['author_failed', 44]);
+  await setMaker(z.db, null);
+  const ns2 = await upload(z.deps);
+  assertEquals([ns2.body.item.author, ns2.body.item.variations, ns2.body.item.authorOwner, ns2.body.item.authorIds], ['no_store', { done: 2, failed: 0 }, null, []]);
+  await setMaker(z.db, 44); answer = '44';
+  n = z.woo.calls.length;
+  const late = await upload(z.deps);
+  assertEquals([late.body.item.error, late.body.item.author, siteWrites(z.woo, n)], ['maker_changed', 'failed', []]);
+});
+
+// the SKU (decision 2): fixed with the product. The batch's brand as the page (or a member's direct write) changes it, a brand
+// renamed on the vendors page, and the item as the page saves it.
+const BRAND_B = '00000000-0000-4000-8000-00000000b002';
+const twoBrands = (s: any) => ({ ...s, brands: [...s.brands, { id: BRAND_B, name: 'Bian eg', code: 'B' }] });
+const setBrand = (db: any, id: string) => db.from('studio_batches').update({ brand_id: id }).eq('id', SB);
+const renameBrand = (db: any, name: string) => db.from('brands').update({ name }).eq('id', BRAND);
+const setItem = (db: any, item: any) => db.from('studio_batches').update({ state: { items: [item] } }).eq('id', SB);
+
+Deno.test('studio_upload: the SKU stays the one the product was made with — the batch\'s brand changed (another brand, or its name to other letters) → brand_changed and nothing written while the variations wait, the record\'s SKU kept; the same letters → the retry goes on, the variations with the product\'s SKU', async () => {
+  let answer = '1';
+  const { woo, db, deps } = setup({ seed: twoBrands(studioSeed()), env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({ 'PUT dokan/v1/products/900': () => ({ body: { id: 900, post_author: answer } }) }) });
+  const first = await upload(deps);
+  assertEquals([first.body.item.error, first.body.item.sku, first.body.item.variations], ['author_failed', 'IBTAR0999', undefined], 'the product made, its variations wait for the maker');
+  await setBrand(db, BRAND_B); answer = '44';
+  let n = woo.calls.length;
+  const x = await upload(deps);
+  assertEquals(siteWrites(woo, n), [], 'no image, no maker, no variation, no translation');
+  assertEquals([x.body.result, x.body.item.error, x.body.item.sku, x.body.item.productId, x.body.item.variations], ['error', 'brand_changed', 'IBTAR0999', 900, undefined]);
+  assertEquals([db.row('studio_batches', SB).status, db.row('studio_batches', SB).result.items[0].sku], ['uploading', 'IBTAR0999'], 'the site\'s SKU stays on the record (never IBTBI0999)');
+  await setBrand(db, BRAND); await renameBrand(db, 'Crafty Art'); // the same brand, renamed: CR
+  n = woo.calls.length;
+  assertEquals([(await upload(deps)).body.item.error, siteWrites(woo, n)], ['brand_changed', []]);
+  await renameBrand(db, 'ART & Craft Studio'); // renamed again, the same letters
+  n = woo.calls.length;
+  const back = await upload(deps);
+  assertEquals([back.body.result, back.body.item.error, back.body.item.author, back.body.item.sku], ['ok', null, 'ok', 'IBTAR0999']);
+  assertEquals(siteWrites(woo, n), ['PUT dokan/v1/products/900 → 44', 'POST wc/v3/products/900/variations/batch', 'POST wc/v3/products', 'PUT dokan/v1/products/901 → 44']);
+  assertEquals(woo.calls.find((c) => c.path === 'wc/v3/products/900/variations/batch')!.body.create.map((v: any) => v.sku), ['IBTARBE0999', 'IBTARBK0999'], 'the variations under their product\'s SKU');
+  assertEquals(db.row('studio_batches', SB).status, 'done');
+  // a product made on v33 (no wooBrand on its result yet) whose batch went to another brand: refused before the WooCommerce
+  // brand a retry would add (decision 5) — never the new brand's on a product made with the old one's SKU
+  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', error: null }] });
+  const v33 = setup({ seed: { ...twoBrands(old), woo_brands: [{ id: 77, name: 'Bian eg', slug: 'bian-eg' }] }, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  await setBrand(v33.db, BRAND_B);
+  const r = await upload(v33.deps);
+  assertEquals([r.body.item.error, r.body.item.sku, r.body.item.wooBrand, siteWrites(v33.woo, 0)], ['brand_changed', 'IBTARBE1000', undefined, []], 'no brands PUT either');
+});
+
+Deno.test('studio_upload: once the product is made, an item that builds another SKU for the rest (a Simple\'s color, the serial) → sku_changed and nothing written, until it builds the product\'s again; before the product is made a retry builds it from the batch as it is (another brand\'s letters)', async () => {
+  let answer = '1';
+  const { woo, db, deps } = setup({ seed: simpleSeed(), env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({ 'PUT dokan/v1/products/900': () => ({ body: { id: 900, post_author: answer } }) }) });
+  assertEquals([(await upload(deps)).body.item.error, db.row('studio_batches', SB).result.items[0].sku], ['author_failed', 'IBTARBE1000']);
+  answer = '44';
+  for (const [patch, sku] of [[{ colors: ['BK'] }, 'IBTARBK1000'], [{ serial: 1005 }, 'IBTARBE1005']] as const) {
+    await setItem(db, { ...studioSimple, ...patch });
+    const n = woo.calls.length;
+    const r = await upload(deps);
+    assertEquals([r.body.item.error, r.body.item.sku, siteWrites(woo, n)], ['sku_changed', 'IBTARBE1000', []], `the item builds ${sku}`);
+  }
+  await setItem(db, studioSimple);
+  const n = woo.calls.length;
+  const ok = await upload(deps);
+  assertEquals([ok.body.result, ok.body.item.author, siteWrites(woo, n)], ['ok', 'ok', ['PUT dokan/v1/products/900 → 44', 'POST wc/v3/products', 'PUT dokan/v1/products/901 → 44']]);
+  // the site refused the product (no productId): the SKU is not the site's yet
+  let refuse = true;
+  const en = (c: any) => (c.body.wpml_language === 'ar' ? { body: { id: 901, lang: 'ar', translations: { en: 900, ar: 901 } } } : { body: wooProduct(900, 44, { sku: c.body.sku }) });
+  const nm = setup({ seed: twoBrands(simpleSeed()), env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({
+    'POST wc/v3/products': (c: any) => (refuse ? { status: 400, body: { code: 'product_invalid_sku', message: 'Invalid or duplicated SKU.' } } : en(c)) }) });
+  assertEquals((await upload(nm.deps)).body.item.error, 'product_invalid_sku');
+  await setBrand(nm.db, BRAND_B); refuse = false;
+  const made = await upload(nm.deps);
+  assertEquals([made.body.result, made.body.item.sku, nm.db.row('studio_batches', SB).result.items[0].sku], ['ok', 'IBTBIBE1000', 'IBTBIBE1000']);
+  assertEquals(nm.woo.calls.filter((c) => c.method === 'POST' && c.path === 'wc/v3/products' && c.body.wpml_language === 'en').map((c) => c.body.sku), ['IBTARBE1000', 'IBTBIBE1000']);
+});
+
+Deno.test('studio_upload (decision 5): the site\'s WooCommerce brand named like the batch\'s («@Art-craft» = «Art Craft») goes with the product, not its translation; none → no brands field and wooBrand null; a product made before (woo-sync v33) gets it on a retry, once', async () => {
+  const seed = { ...studioSeed(), brands: [{ id: BRAND, name: '@Art-craft', code: 'A' }], woo_brands: [{ id: 4363, name: 'Art Craft', slug: 'art-craft' }, { id: 5, name: 'Lusso', slug: 'lusso' }] };
+  const { woo, deps } = setup({ seed, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  const r = await upload(deps);
+  const [en, ar] = woo.calls.filter((c) => c.method === 'POST' && c.path === 'wc/v3/products');
+  assertEquals([en.body.brands, ar.body.brands, r.body.item.wooBrand, r.body.result], [[{ id: 4363 }], undefined, 4363, 'ok']);
+  const none = setup({ seed: { ...studioSeed(), woo_brands: [{ id: 5, name: 'Lusso', slug: 'lusso' }] }, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  const n = await upload(none.deps);
+  const enN = none.woo.calls.find((c) => c.method === 'POST' && c.path === 'wc/v3/products')!;
+  assertEquals(['brands' in enN.body, n.body.item.wooBrand, n.body.result], [false, null, 'ok'], 'the pa_brand attribute only; the report says so');
+  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', error: null }] });
+  const v33 = setup({ seed: { ...old, woo_brands: [{ id: 4363, name: 'Art Craft', slug: 'art-craft' }] }, env: WP_ENV, storage: STUDIO_FILES,
+    routes: studioRoutes({ 'PUT wc/v3/products/900': (c: any) => ({ body: { id: 900, brands: c.body.brands } }) }) });
+  const l = await upload(v33.deps);
+  assertEquals([siteWrites(v33.woo, 0), v33.woo.calls.find((c) => c.method === 'PUT')!.body, l.body.item.wooBrand], [['PUT wc/v3/products/900'], { brands: [{ id: 4363 }] }, 4363]);
+  const m = v33.woo.calls.length;
+  await upload(v33.deps);
+  assertEquals(siteWrites(v33.woo, m), [], 'once');
+});
+
 Deno.test('category_create (phase 5.2): products.add; the English category then its Arabic translation; woo_categories written; names with tags refused', async () => {
   const routes = { 'POST wc/v3/products/categories': (c: any) => ({ body: c.body.wpml_language === 'ar' ? { id: 81, name: c.body.name, slug: 'ar-81', parent: 0 } : { id: 80, name: c.body.name, slug: 'lamps', parent: c.body.parent } }) };
   const { woo, db, deps } = setup({ routes, env: PUSH_ON });

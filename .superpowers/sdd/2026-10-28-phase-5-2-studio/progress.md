@@ -17,6 +17,8 @@
   والتعليم التلقائي بس): `catTree` / `catAncestors` / `catToggle` / `catSearch` في `products-domain.js` + unit، والـ popup في
   `products-studio.js` + e2e. unit 308، e2e على الـ mock 173 + 1 متقلّب (`vendors-brands` نقل الملكية — عدّى 4/4 لوحده)؛
   commit 037c9a8، CI أخضر، `main` → Deploy run 40817073000 أخضر (فرع `deploy` = `main:app`).
+- [x] الاسم بالعربي إجباري (قرار 15، صاحب المشروع 29 أكتوبر): `itemIssues` (+ `{ ar: false }` للاستلام) و«عدّل» في الصفحة،
+  و`buildStudio` بيرفض `bad_field nameAr` على السيرفر؛ unit 309، Deno 124، e2e الاستوديو 6/6.
 - [ ] T7 حي:
   - [x] `0023` من SQL Editor (صاحب المشروع، 28 أكتوبر).
   - [x] `rls_studio rls_products rls_products_report` حي ok — RLS live run 40772555442.

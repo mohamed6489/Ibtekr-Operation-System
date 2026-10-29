@@ -55,6 +55,8 @@ test('buildStudio refuses before any call: tags or % in a name, an unknown color
     [{ ...simple, colors: ['BE'], sizes: [], variations: [{ color: 'BK', sale: 1, regular: 2 }] }, V, 'variations'],
     [{ ...simple, colors: ['BE'], sizes: [], variations: [{ color: 'BE', sale: 1, regular: 2 }, { color: 'BE', sale: 1, regular: 2 }] }, V, 'variations'],
     [{ ...simple, colors: [], sizes: [] }, V, 'variations'], [simple, { ...O, brand: 'ب' }, 'brand'],
+    // decision 15: the Arabic name is required (every product gets its translation)
+    [{ ...simple, nameAr: '' }, O, 'nameAr'], [{ ...simple, nameAr: '   ' }, O, 'nameAr'], [{ ...simple, nameAr: undefined }, O, 'nameAr'], [{ ...simple, nameAr: '<b>x</b>' }, O, 'nameAr'],
   ];
   for (const [it, o, field] of cases) assert.equal(buildStudio(it, o).field, field, JSON.stringify(it).slice(0, 80));
 });

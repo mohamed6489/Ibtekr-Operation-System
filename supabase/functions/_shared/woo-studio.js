@@ -34,7 +34,7 @@ const stockOf = (it) => {
 
 /**
  * item + { batchId, type, brand, colors: { CODE: 'Name EN' }, attrs: { color, size, material, style, brand } (ids or null) }
- * → { error, field } | { sku, product, variations: [{ sku, payload, image }], images: [path…], ar: { name, short_description } | null }
+ * → { error, field } | { sku, product, variations: [{ sku, payload, image }], images: [path…], ar: { name, short_description? } } (the Arabic name is required, decision 15)
  */
 export function buildStudio(item, o) {
   const bad = (field) => ({ error: 'bad_field', field });
@@ -43,7 +43,7 @@ export function buildStudio(item, o) {
   if (!type) return bad('type');
   if (!brandCode(o.brand)) return bad('brand');
   const name = plain(item.nameEn, 200); if (!name) return bad('nameEn');
-  const nameAr = item.nameAr == null || item.nameAr === '' ? null : plain(item.nameAr, 200); if (item.nameAr && !nameAr) return bad('nameAr');
+  const nameAr = plain(item.nameAr, 200); if (!nameAr) return bad('nameAr'); // decision 15: every product gets its Arabic translation
   if (!Number.isInteger(item.serial) || item.serial < 0 || item.serial > 99999999) return bad('serial');
   const colors = Array.isArray(item.colors) ? item.colors : [];
   if (colors.length > 30 || !colors.every((c) => typeof c === 'string' && o.colors && typeof o.colors[c] === 'string')) return bad('colors');
@@ -101,7 +101,7 @@ export function buildStudio(item, o) {
   }
   if (!sku) return bad('sku');
   product.sku = sku;
-  return { sku, product, variations, images, ar: nameAr ? { name: nameAr, ...arShort.payload } : null };
+  return { sku, product, variations, images, ar: { name: nameAr, ...arShort.payload } };
 }
 
 // A Google Sheets link for the studio's «الاستلام» (decision 13; the owner, 28 Oct): «Publish to the web»

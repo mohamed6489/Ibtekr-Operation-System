@@ -89,7 +89,7 @@ test('studio Variable: colors and sizes become variations with their own SKU and
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await next(page, 'التالي: الاستلام');
-  await pick(page, /اختار الشيت/, { name: 'v.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Vendor Price,Colors,Sizes\nKilim Pouf,2000,"Beige, Black",50×50 / 40×40\nTote,500,White,\n') });
+  await pick(page, /اختار الشيت/, { name: 'v.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Name AR,Vendor Price,Colors,Sizes\nKilim Pouf,بوف كليم,2000,"Beige, Black",50×50 / 40×40\nTote,شنطة قماش,500,White,\n') });
   await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }, { name: '2-1.png', mimeType: 'image/png', buffer: PNG }]);
   await next(page, 'التالي: البيانات و SKU');
   await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('IBTAR0999'); // the parent has no color
@@ -173,7 +173,7 @@ test('studio categories (decision 14): the site\'s tree with + / −, a sub-cate
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click();
   await page.fill('#r', '30'); await page.fill('#f', '0'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await next(page, 'التالي: الاستلام');
-  await pick(page, /اختار الشيت/, { name: 'one.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Vendor Price,Color\nDesk Lamp,900,Beige\n') });
+  await pick(page, /اختار الشيت/, { name: 'one.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Name AR,Vendor Price,Color\nDesk Lamp,أباجورة مكتب,900,Beige\n') });
   await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }]);
   await next(page, 'التالي: البيانات و SKU');
   await next(page, 'التالي: السعر');
@@ -201,4 +201,36 @@ test('studio categories (decision 14): the site\'s tree with + / −, a sub-cate
   await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('ديكور › إضاءة › أباجورات');
   await next(page, 'التالي: المراجعة والرفع');
   await expect.poll(() => [...mock.studioBatches[0].state.items[0].categories].sort((a, b) => a - b)).toEqual([151, 152]);
+});
+
+test('studio Arabic name (decision 15): a sheet without it passes «الاستلام» with a warning, «البيانات و SKU» stops until it is typed, and the upload carries the translation', async ({ page }) => {
+  await signIn(page, OPS);
+  await page.getByRole('tab', { name: 'إضافة' }).click();
+  await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click();
+  await page.fill('#r', '30'); await page.fill('#f', '0'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
+  await next(page, 'التالي: الاستلام');
+  await pick(page, /اختار الشيت/, { name: 'en-only.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Vendor Price,Color\nDesk Lamp,900,Beige\n') });
+  await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }]);
+  await expect(page.locator('#pg-products')).toContainText('1 منتج من غير اسم عربي — الاسم العربي إجباري');
+  await next(page, 'التالي: البيانات و SKU');
+  await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('الاسم (AR)');
+  await expect(page.locator('.wiz-foot').getByRole('button', { name: 'التالي: السعر' })).toBeDisabled();
+  await page.locator('#pg-products .st-table tbody').getByRole('button', { name: 'عدّل' }).click();
+  await page.locator('.modal').getByRole('button', { name: 'احفظ' }).click(); // still empty: refused
+  await expect(page.locator('.modal')).toContainText('اكتب الاسم بالعربي');
+  await page.fill('#nameAr', 'أباجورة مكتب');
+  await page.locator('.modal').getByRole('button', { name: 'احفظ' }).click();
+  await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('كامل');
+  await next(page, 'التالي: السعر');
+  await next(page, 'التالي: الصور');
+  await next(page, 'التالي: الأقسام والأوصاف');
+  await page.locator('#pg-products .st-table thead [role=checkbox]').click();
+  await page.getByRole('button', { name: 'طبّق قسم على المحدد' }).click();
+  await page.locator('.modal').getByText('هدايا', { exact: true }).click(); await page.locator('.modal').getByRole('button', { name: 'تمام' }).click();
+  await next(page, 'التالي: المراجعة والرفع');
+  await next(page, 'ارفع على الموقع (مسودة)');
+  await expect(page.locator('.modal')).toContainText('1 من 1');
+  expect(mock.studioUploads.map((x) => x.ar && x.ar.name)).toEqual(['أباجورة مكتب']);
 });

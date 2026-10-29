@@ -198,3 +198,12 @@ test('catSearch (decision 14): the categories whose name has the text (any case)
   assert.deepEqual([ids(f.hits), ids(f.show), ids(f.open)], [[3], [1, 2, 3], [1, 2]]);
   assert.deepEqual(ids(PD.catSearch(t, 'zzz').show), []);
 });
+
+test('itemIssues (decision 15): the Arabic name is required — «الاستلام» lets it through ({ ar: false }) so it can be typed in «البيانات و SKU»', () => {
+  const it = { nameEn: 'Desk Lamp', nameAr: '  ', vendorPrice: 900, colors: ['BE'], sizes: [] };
+  assert.deepEqual(PD.itemIssues(it, 'Simple'), ['الاسم (AR)']);
+  assert.deepEqual(PD.itemIssues({ ...it, nameAr: undefined }, 'Simple'), ['الاسم (AR)']);
+  assert.deepEqual(PD.itemIssues(it, 'Simple', { ar: false }), []);
+  assert.deepEqual(PD.itemIssues({ ...it, nameEn: '', nameAr: '' }, 'Simple'), ['الاسم (EN)', 'الاسم (AR)']);
+  assert.deepEqual(PD.itemIssues({ ...it, nameAr: 'أباجورة' }, 'Simple'), []);
+});

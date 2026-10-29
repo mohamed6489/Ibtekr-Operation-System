@@ -122,6 +122,47 @@ test('studio Variable: colors and sizes become variations with their own SKU and
   expect(mock.serialTakes).toEqual([2]); // the serials stay with their products
 });
 
+test('studio: the maker changed after an upload — a note in «البداية», «ارفع على الموقع» sends again the products on another maker, a Variable whose variations were made is refused with its reason and stays on its maker, and the maker back makes it whole', async ({ page }) => {
+  const rate = async () => { await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click(); };
+  const maker = async (name) => { await page.getByRole('button', { name: 'الخطوة 1: البداية' }).click(); await page.locator('#w-vendor').click(); await page.getByRole('option', { name }).click(); };
+  await signIn(page, OPS);
+  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await page.getByRole('radio', { name: /^Variable/ }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await rate();
+  await next(page, 'التالي: الاستلام');
+  await pick(page, /اختار الشيت/, { name: 'v.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Vendor Price,Colors\nKilim Pouf,2000,"Beige, Black"\n') });
+  await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }]);
+  for (const s of ['البيانات و SKU', 'المتغيرات', 'السعر', 'الصور', 'الأقسام والأوصاف']) await next(page, 'التالي: ' + s);
+  await page.locator('#pg-products .st-table thead [role=checkbox]').click();
+  await page.getByRole('button', { name: 'طبّق قسم على المحدد' }).click();
+  await page.locator('.modal').getByText('هدايا', { exact: true }).click(); await page.locator('.modal').getByRole('button', { name: 'تمام' }).click();
+  await next(page, 'التالي: المراجعة والرفع');
+  await next(page, 'ارفع على الموقع (مسودة)');
+  await page.locator('.modal').getByRole('button', { name: 'شوف التقرير' }).click();
+  await expect(page.locator('#pg-products')).toContainText('اترفع 1 من 1');
+  await page.getByRole('button', { name: 'رجوع للمراجعة' }).click();
+  await maker('Antikiano');
+  await expect(page.locator('#pg-products')).toContainText('في منتجات اترفعت على مبتكر تاني');
+  await rate(); // ops: the maker's rate is not shown, the batch rate again
+  await page.getByRole('button', { name: 'الخطوة 8: المراجعة والرفع' }).click();
+  await next(page, 'ارفع على الموقع (مسودة)');
+  await expect(page.locator('.modal')).toContainText('المبتكر اتغيّر بعد ما التركيبات اتعملت');
+  await page.locator('.modal').getByRole('button', { name: 'شوف التقرير' }).click();
+  await expect(page.locator('#pg-products')).toContainText('اترفع 0 من 1');
+  await expect(page.locator('#pg-products')).toContainText('المنتج فاضل على المبتكر القديم');
+  expect(mock.products.filter((p) => p.sku === 'IBTAR0999').map((p) => p.vendor_id)).toEqual(['a0000000-0000-4000-8000-000000000001']); // still Art Craft's
+  await page.getByRole('button', { name: 'رجوع للمراجعة' }).click();
+  await maker('Art Craft');
+  await expect(page.locator('#pg-products')).not.toContainText('في منتجات اترفعت على مبتكر تاني');
+  await rate();
+  await page.getByRole('button', { name: 'الخطوة 8: المراجعة والرفع' }).click();
+  await next(page, 'ارفع على الموقع (مسودة)');
+  await page.locator('.modal').getByRole('button', { name: 'شوف التقرير' }).click();
+  await expect(page.locator('#pg-products')).toContainText('اترفع 1 من 1');
+  expect(mock.studioUploads.map((x) => [x.index, x.maker])).toEqual([[0, 'a0000000-0000-4000-8000-000000000001'], [0, 'a0000000-0000-4000-8000-000000000002'], [0, 'a0000000-0000-4000-8000-000000000001']]);
+});
+
 test('studio: a maker without a store on the site is refused; a Google Sheet link is read by the server (a wrong link before any request, an unpublished sheet explained), and «حدّث من اللينك» keeps the column mapping', async ({ page }) => {
   mock.vendors.push({ ...mock.vendors[0], id: 'a0000000-0000-4000-8000-000000000009', woo_vendor_id: null, name: 'Zeta Maker', aliases: [], raw: {} });
   await signIn(page, OPS);

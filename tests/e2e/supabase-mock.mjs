@@ -990,7 +990,9 @@ export async function installSupabaseMock(page, opts = {}) {
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
       // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
-      // mock.studioAuthorFail = { [index]: true } answers author 'failed' (the translation's maker did not stick).
+      // mock.studioAuthorFail = { [index]: true } answers author 'failed' (the translation's maker did not stick). The maker as the
+      // server keeps it (authorOwner = the batch maker's woo_vendor_id): a retry on another maker moves a product with no variation
+      // made (its mirror row's vendor_id), and refuses one with them (maker_changed, the record kept).
       // category_create — a new woo_categories row (id 9500+). studio_sheet (decision 13) — the server's own sheetCsvUrl check
       // (400 bad_link), then mock.sheetLinks[url] = { csv } | { reason } (else not_published); mock.sheetReads lists the links.
       if (action === 'studio_sheet') {
@@ -1011,9 +1013,13 @@ export async function installSupabaseMock(page, opts = {}) {
         let res;
         if (fail) res = { sku: built.sku, error: fail, media: {} };
         else { const prev = items[b.index]; const id = prev && prev.productId ? prev.productId : 7700 + mock.studioUploads.length;
+          const mv = mock.vendors.find((x) => x.id === row.vendor_id); const owner = mv && mv.woo_vendor_id != null ? mv.woo_vendor_id : null;
+          const was = prev && prev.productId && prev.authorOwner !== undefined ? prev.authorOwner : owner; const kept = was !== owner && !!(prev && prev.variations);
+          if (prev && prev.productId && was !== owner && !kept) { const p = mock.products.find((x) => x.id === id); if (p) p.vendor_id = row.vendor_id; }
           if (!prev || !prev.productId) mock.products.push({ id, sku: built.sku, name: it.nameEn, image_url: null, permalink: SITE + '/product/studio-' + id + '/', vendor_id: row.vendor_id, price: null, status: 'draft', raw: { id }, updated_at: T0, lang: 'en', translation_ids: { en: id }, type: row.type === 'Variable' ? 'variable' : 'simple', regular_price: built.product.regular_price ? Number(built.product.regular_price) : null, sale_price: built.product.sale_price ? Number(built.product.sale_price) : null, stock_quantity: null, stock_status: 'instock', manage_stock: false, backorders: 'no', low_stock_amount: null, total_sales: 0, category_ids: it.categories, brand_ids: [], image_count: built.images.length, weight: it.weight || null, featured: false, desc_filled: false, short_desc_filled: !!it.shortDesc, woo_modified_at: T0, trashed_at: null });
-          res = { sku: built.sku, productId: id, arId: it.nameAr ? id + 1 : null, author: (mock.studioAuthorFail || {})[b.index] ? 'failed' : 'ok', variations: built.variations.length ? { done: built.variations.length, failed: 0 } : undefined, media: Object.fromEntries(built.images.map((p, k) => [p, 8800 + k])), error: null }; }
-        mock.studioUploads.push({ index: b.index, by: u.email, sku: built.sku, product: built.product, variations: built.variations.map((v) => v.payload), images: built.images, ar: built.ar, result: res.error || 'ok' });
+          res = { sku: built.sku, productId: id, arId: it.nameAr ? id + 1 : null, author: kept || (mock.studioAuthorFail || {})[b.index] ? 'failed' : 'ok', authorOwner: kept ? was : owner,
+            variations: kept ? prev.variations : built.variations.length ? { done: built.variations.length, failed: 0 } : undefined, media: Object.fromEntries(built.images.map((p, k) => [p, 8800 + k])), error: kept ? 'maker_changed' : null }; }
+        mock.studioUploads.push({ index: b.index, by: u.email, maker: row.vendor_id, sku: built.sku, product: built.product, variations: built.variations.map((v) => v.payload), images: built.images, ar: built.ar, result: res.error || 'ok' });
         while (items.length < b.index) items.push(null); items[b.index] = res;
         row.result = { items }; row.status = row.state.items.every((_, i) => items[i] && items[i].productId && !items[i].error) ? 'done' : 'uploading';
         return json(200, { action, result: res.error ? 'error' : 'ok', item: res });

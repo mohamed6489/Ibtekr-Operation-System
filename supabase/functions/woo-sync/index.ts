@@ -778,9 +778,10 @@ async function productsTrash(run: Run, args: Json, restore: boolean) {
 // allow-listed by buildStudio; then, each step once (a retry goes on from the step that stopped): the images from the
 // bucket to the media library, the product as a draft, the maker as its author (Dokan's PUT dokan/v1/products/{id}
 // { post_author } with the Application Password — before the variations, which take their product's vendor when Dokan
-// creates them; a maker that did not stick = author_failed, no variations yet, the product stays), its variations, the
-// Arabic translation (WPML: wpml_language ar + translation_of; an answer that is not linked to the product is trashed,
-// never left as a second product) and its author («failed» when it did not stick), the mirror. The item's result goes to
+// creates them; a maker that did not stick = author_failed, no variations yet, the product stays; the batch's maker changed
+// after the variations were sent = maker_changed, nothing written), its variations, the Arabic translation (WPML:
+// wpml_language ar + translation_of; an answer that is not linked to the product is trashed, never left as a second
+// product) and its author («failed» when it did not stick), the mirror. The item's result goes to
 // studio_batches.result.items[index] (ids, the SKU, a short reason — never a price or a text).
 const STUDIO_BUCKET = 'studio';
 const MIME: Record<string, string> = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
@@ -815,10 +816,14 @@ async function studioUpload(run: Run, args: Json) {
   const prev = isObj(batch.result) && Array.isArray(batch.result.items) && isObj(batch.result.items[index]) ? batch.result.items[index] : {};
   const res: Json = { ...prev, sku: built.sku, media: isObj(prev.media) ? { ...prev.media } : {}, error: null };
   // the maker (decision 9): Dokan's own route writes an admin's post_author when that user can dokan_add_product (otherwise
-  // the caller) — the answer's post_author is checked, never trusted; the ids it took stay on the result (a retry skips them)
+  // the caller) — the answer's post_author is checked, never trusted. The ids it took stay on the result with the maker they
+  // took (authorOwner; a result written before it was kept counts as the batch's maker): a retry skips them while the batch's
+  // maker is still that one, and for another maker the record starts again at its first PUT (both are asked again)
   const owner = wooId(vendor?.woo_vendor_id);
+  let on = prev.authorOwner === undefined ? owner : wooId(prev.authorOwner);
   const authored = new Set<number>((Array.isArray(prev.authorIds) ? prev.authorIds : []).map((x: unknown) => wooId(x)).filter((x: number | null): x is number => x !== null));
   const authorOf = async (id: number) => {
+    if (on !== owner) { authored.clear(); on = owner; }
     if (authored.has(id)) return;
     try { if (wooId(((await ctx.woo.put(`dokan/v1/products/${id}`, { post_author: owner })).data as Json)?.post_author) === owner) authored.add(id); }
     catch (e) { if (!(e instanceof WooError || e instanceof ConfigError)) throw e; }
@@ -854,12 +859,17 @@ async function studioUpload(run: Run, args: Json) {
     }
     // the maker before the variations: Dokan orders a variation by the variation's own author, gives a new variation its
     // product's vendor, and has no REST route to change a variation's author afterwards — so a product whose maker did not
-    // stick gets no variations yet (author_failed; «جرّب تاني» asks again and goes on)
+    // stick gets no variations yet (author_failed; «جرّب تاني» asks again and goes on), and once its variations were sent on
+    // a maker, another batch maker writes nothing (maker_changed: the product stays whole on the maker its variations have)
     if (!res.error && owner !== null) {
-      await authorOf(res.productId);
-      if (!authored.has(res.productId)) res.error = 'author_failed';
+      if (on !== owner && isObj(res.variations)) res.error = 'maker_changed';
+      else {
+        await authorOf(res.productId);
+        if (!authored.has(res.productId)) res.error = 'author_failed';
+      }
     }
     if (!res.error && built.variations.length && !isObj(res.variations)) {
+      if (!authored.has(res.productId)) { authored.clear(); on = null; } // made with no maker on their product (no store): theirs is none
       const r = (await ctx.woo.post(`wc/v3/products/${res.productId}/variations/batch`, { create: built.variations.map((v: Json) => ({ ...v.payload, ...(v.image ? { image: { id: res.media[v.image] } } : {}) })) })).data;
       const created = isObj(r) && Array.isArray(r.create) ? r.create : [];
       const failed = created.filter((x: Json) => !isObj(x) || isObj(x.error) || wooId(x.id) === null).length + Math.max(0, built.variations.length - created.length);
@@ -876,7 +886,8 @@ async function studioUpload(run: Run, args: Json) {
     if (!res.error && owner !== null && wooId(res.arId) !== null) await authorOf(res.arId);
     if (wooId(res.productId) !== null) {
       res.authorIds = [...authored];
-      res.author = owner === null ? 'no_store' : [res.productId, res.arId].filter((x) => wooId(x) !== null).every((x) => authored.has(x)) ? 'ok' : 'failed';
+      res.authorOwner = on;
+      res.author = owner === null ? 'no_store' : on === owner && [res.productId, res.arId].filter((x) => wooId(x) !== null).every((x) => authored.has(x)) ? 'ok' : 'failed';
     }
     if (wooId(res.productId) !== null) {
       const fresh = [(await ctx.woo.get(`wc/v3/products/${res.productId}`)).data];

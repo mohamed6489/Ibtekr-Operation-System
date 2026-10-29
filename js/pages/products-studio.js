@@ -1,7 +1,9 @@
 /* «استوديو المنتجات» (phase 5.2, plan docs/superpowers/plans/2026-10-28-phase-5-2-studio.md) — the prototype's studio (artifact
    1793199492, block 18: startBatch / step1…step8 / upload / reportView) on real data, without AI (decision 1: «صور بس» and every AI
    button wait for the AI phase, marked soon). A batch lives in studio_batches (IBStudio); its images in the private bucket until the
-   upload; the upload goes through woo-sync studio_upload one product at a time (drafts). The SKU is the owner's rule (decision 2,
+   upload; the upload goes through woo-sync studio_upload one product at a time (drafts). Phase 5.3 (decision 6): the AI buttons
+   fill names, colors, descriptions and categories through IBAI.studio, each filled field tagged «AI — راجع» until edited by
+   hand; «صور بس» and the image AI stay soon. The SKU is the owner's rule (decision 2,
    PD.studioSku), the prices decision 16 (PD.priceFromVendor). The products page routes #products-studio-<new|id>[-<step|report>]
    here: IBStudioView.route / view. */
 (function () {
@@ -18,6 +20,49 @@
   const chipBtn = (label, on, onClick, attrs) => h('button', Object.assign({ type: 'button', class: 'chip', 'aria-pressed': String(!!on), onClick }, attrs || {}), label);
   const Card = (title, sub, body, acts) => K.Section(title, [].concat(body).filter(Boolean), acts, { sub });
   const soon = (label) => Button({ size: 'sm', icon: 'sparkle', label: label + ' — soon', disabled: true });
+  // ---------------- AI (phase 5.3, decision 6) ----------------
+  // One item at a time through IBAI.studio (the server reads the saved batch, so it is saved first); the answer fills the item
+  // (PD.aiApply) with «AI — راجع» on each field it filled, and a hand edit takes the mark off. A run on more than one item asks
+  // first with the count and the cost (about IBAI.EST_COST each); the key missing, the monthly cap, busy or no permission stop it.
+  const AI = () => window.IBAI;
+  const AITag = () => Tag('gold', 'AI — راجع');
+  const aiCount = (L) => L.reduce((s, it) => s + Object.keys(it.ai || {}).length, 0);
+  const aiTot = (L) => (aiCount(L) ? ['اتملت بالـ AI', aiCount(L) + ' خانة · راجعها', 'orange'] : null);
+  const unAI = (it, k) => { if (it.ai && it.ai[k]) { it.ai = Object.assign({}, it.ai); delete it.ai[k]; } };
+  const AI_STOP = { not_configured: 'الـ AI لسه مش متوصّل — مفتاح Claude بيتحط في إعدادات السيرفر', ai_cap: 'وصلنا لحد الـ AI الشهري — كلّم الأدمن', busy: 'الـ AI مشغول دلوقتي — جرّب كمان دقيقة', forbidden: 'محتاج صلاحية «إضافة منتجات»' };
+  function aiFill(list, wantOf, title, force) {
+    const A = AI(); if (!A || !A.can().studio) { K.toast(AI_STOP.forbidden, 'error'); return null; }
+    if (S.aiBusy || !S.id) return null;
+    const jobs = list.map((it) => ({ it, want: wantOf(it) })).filter((j) => j.want.length);
+    if (!jobs.length) { K.toast('مفيش حاجة ناقصة هنا'); return null; }
+    const run = async () => {
+      const id = S.id; S.aiBusy = { done: 0, total: jobs.length }; R();
+      await touch(true);
+      const tree = PD.catTree(catsAll());
+      let filled = 0, done = 0, failed = 0, stop = null;
+      for (const j of jobs) {
+        if (S.id !== id) break;
+        const index = S.state.items.indexOf(j.it);
+        if (index >= 0) {
+          const r = await A.studio(id, index, j.want);
+          if (!r.ok && AI_STOP[r.reason]) { stop = r.reason; break; }
+          const n = r.ok && r.result === 'ok' ? PD.aiApply(j.it, r.fields, j.want, { tree, type: S.state.type, force }).length : 0;
+          if (n) { filled += n; done++; syncVariations(j.it); } else failed++;
+        }
+        S.aiBusy.done++; R();
+      }
+      S.aiBusy = null;
+      if (S.id === id) await touch(true);
+      R();
+      if (stop) K.toast(AI_STOP[stop] + (done ? ' — اتملا ' + done + ' منتج قبلها' : ''), 'error');
+      else K.toast(done ? 'خلص — اتملت ' + filled + ' خانة في ' + done + ' منتج · راجع اللي عليها «AI — راجع»' + (failed ? ' · ' + failed + ' ماتملاش' : '') : 'الـ AI مارجّعش حاجة نستخدمها — جرّب تاني', done ? 'success' : 'error');
+    };
+    if (jobs.length === 1) return run();
+    K.confirm({ title: title + '؟', text: jobs.length + ' منتج · التكلفة حوالي ' + (jobs.length * A.EST_COST).toFixed(2) + ' دولار. كل خانة الـ AI يملاها عليها «AI — راجع» — راجعها قبل الرفع. السعر والـ SKU مابيتكتبوش بالـ AI.', okLabel: 'ابدأ', onOk: run });
+    return null;
+  }
+  const aiButton = (label, onClick) => { const A = AI(); if (!A || !A.can().studio) return null; const b = S.aiBusy;
+    return Button({ type: 'primary', size: 'sm', icon: 'sparkle', label: b ? 'الـ AI بيملا… ' + b.done + ' من ' + b.total : label, disabled: !!b, attrs: { 'data-ai': label }, onClick }); };
 
   const STEPS = ['البداية', 'الاستلام', 'البيانات و SKU', 'المتغيرات', 'السعر', 'الصور', 'الأقسام والأوصاف', 'المراجعة والرفع'];
   const SLOT_L = PD.SLOTS.concat(['إضافية 1', 'إضافية 2']);
@@ -29,7 +74,7 @@
   const reasonOf = (code) => REASON[code] || (/^http_5/.test(String(code)) ? 'الموقع مش بيرد — جرّب كمان شوية' : 'الموقع رفض الطلب (' + code + ')');
 
   // ---------------- state ----------------
-  const S = { id: null, row: null, state: null, step: 1, report: false, loading: false, err: '', timer: null, saving: false, sel: new Set(), q: '', uploading: false };
+  const S = { id: null, row: null, state: null, step: 1, report: false, loading: false, err: '', timer: null, saving: false, sel: new Set(), q: '', uploading: false, aiBusy: null };
   const blank = () => ({ v: 1, type: 'Simple', vary: ['color'], brandId: null, brandName: '', vendorId: null, vendorName: '', rate: null, fee: null, sheet: null, imgCount: 4, items: [] });
   const isVar = () => S.state && S.state.type === 'Variable';
   const flow = () => (isVar() ? [1, 2, 3, 4, 5, 6, 7, 8] : [1, 2, 3, 5, 6, 7, 8]);
@@ -122,7 +167,8 @@
   }
   const selBox = (it) => K.Checkbox({ label: '', checked: S.sel.has(it.key), onChange: (v) => { v ? S.sel.add(it.key) : S.sel.delete(it.key); R(); } });
   const allBox = (L) => K.Checkbox({ label: '', checked: L.length > 0 && L.every((it) => S.sel.has(it.key)), onChange: (v) => { L.forEach((it) => (v ? S.sel.add(it.key) : S.sel.delete(it.key))); R(); } });
-  const PCell = (it, lines) => h('span', { class: 'st-prod' }, Thumb((it.slots || [])[0] || it.main, 'lg2'), h('span', null, h('b', null, it.nameEn || h('span', { class: 'help' }, 'من غير اسم')), it.nameAr ? h('small', null, it.nameAr) : null, h('small', { dir: 'ltr' }, skuOf(it).sku), ...(lines || []).filter(Boolean).map((l) => h('small', null, l))));
+  const PCell = (it, lines) => h('span', { class: 'st-prod' }, Thumb((it.slots || [])[0] || it.main, 'lg2'), h('span', null, h('b', null, it.nameEn || h('span', { class: 'help' }, 'من غير اسم')), it.nameAr ? h('small', null, it.nameAr) : null,
+    it.ai && (it.ai.nameEn || it.ai.nameAr) ? AITag() : null, h('small', { dir: 'ltr' }, skuOf(it).sku), ...(lines || []).filter(Boolean).map((l) => h('small', null, l))));
   const filePick = (accept, multiple, onFiles) => { const inp = h('input', { type: 'file', accept, multiple: !!multiple, style: 'display:none' }); inp.addEventListener('change', () => { const f = [...inp.files]; inp.value = ''; if (f.length) onFiles(f); }); document.body.append(inp); inp.click(); setTimeout(() => inp.remove(), 60000); };
   const items = () => (S.state ? S.state.items : []);
   const sel = () => items().filter((it) => S.sel.has(it.key));
@@ -310,27 +356,31 @@
         multi ? null : K.Switch({ id: 'f-dem', label: 'حسب الطلب (بيتصنع بعد الأوردر)', checked: f.onDemand, onChange: (v) => { f.onDemand = v; } })],
       validate: (f) => { const e = {}; if (!String(f.nameEn).trim() || /[<>%]/.test(f.nameEn)) e.nameEn = 'اكتب الاسم بالإنجليزي من غير < > %'; if (!String(f.nameAr).trim() || /[<>%]/.test(f.nameAr)) e.nameAr = 'اكتب الاسم بالعربي من غير < > %'; if (!(Number(f.vendorPrice) > 0)) e.vendorPrice = 'اكتب سعر المبتكر';
         if (f.weight && !/^\d{1,5}(\.\d{1,3})?$/.test(String(f.weight).trim())) e.weight = 'رقم بالكيلو'; if (f.stock !== '' && !/^\d+$/.test(String(f.stock).trim())) e.stock = 'رقم صحيح'; if (multi && !f.colors.length && !String(f.sizes).trim()) e.colors = 'المنتج الـ Variable محتاج ألوان أو مقاسات'; return e; },
-      submit: (f) => { Object.assign(it, { nameEn: f.nameEn.trim(), nameAr: f.nameAr.trim(), colors: f.colors, sizes: String(f.sizes).split(/[,،]+/).map((x) => x.trim()).filter(Boolean), material: f.material.trim(), style: f.style.trim(), weight: String(f.weight).trim(),
+      submit: (f) => { if (f.nameEn.trim() !== it.nameEn) unAI(it, 'nameEn'); if (f.nameAr.trim() !== (it.nameAr || '')) unAI(it, 'nameAr');
+        if (f.colors.join() !== it.colors.join() || String(f.sizes).split(/[,،]+/).map((x) => x.trim()).filter(Boolean).join() !== it.sizes.join()) unAI(it, 'variations');
+        Object.assign(it, { nameEn: f.nameEn.trim(), nameAr: f.nameAr.trim(), colors: f.colors, sizes: String(f.sizes).split(/[,،]+/).map((x) => x.trim()).filter(Boolean), material: f.material.trim(), style: f.style.trim(), weight: String(f.weight).trim(),
         stock: f.stock === '' ? null : Number(f.stock), onDemand: !!f.onDemand, vendorPrice: Number(f.vendorPrice), unknownColors: [] }); if (!multi) it.sizes = it.sizes.slice(0, 1); syncVariations(it); touch(); R(); } });
   }
   function step3() {
     const L = items(); const miss = (it) => issuesOf(it).length > 0;
     const rows = L.map((it) => ({ cls: miss(it) ? 'row-err' : null, cells: [PCell(it, [S.state.brandName + ' · ' + (it.material || '—') + ' · ' + (it.style || '—')]),
-      h('span', { class: 'chips' }, it.colors.map((c) => Tag('neutral', colorLabel(c))), (it.unknownColors || []).map((n) => Tag('error', n + ' ؟'))), it.sizes.join('، ') || '—', it.weight ? it.weight + ' كجم' : h('span', { class: 'help' }, '—'),
+      h('span', { class: 'chips' }, it.colors.map((c) => Tag('neutral', colorLabel(c))), (it.unknownColors || []).map((n) => Tag('error', n + ' ؟')), it.ai && it.ai.variations ? AITag() : null), it.sizes.join('، ') || '—', it.weight ? it.weight + ' كجم' : h('span', { class: 'help' }, '—'),
       isVar() ? K.Num(String(it.variations.length)) : it.onDemand ? 'حسب الطلب' : it.stock == null ? '—' : K.Num(String(it.stock)),
       miss(it) ? Tag('error', issuesOf(it)[0]) : Tag('success', 'كامل'), Button({ size: 'sm', label: 'عدّل', onClick: () => editItem(it) })] }));
     const rule = h('div', { class: 'card rule' }, h('span', { class: 't-label help' }, 'قاعدة الـ SKU:'), Tag('brand', 'IBT'), Tag('gold', 'البراند (' + (PD.brandCode(S.state.brandName) || '??') + ')'), Tag('gold', 'اللون'), Tag('gold', 'المسلسل'), isVar() ? Tag('neutral', '-المقاس للتركيبة') : null, h('span', { class: 'grow' }), Button({ size: 'sm', label: 'جدول الألوان', onClick: colorsTable }), Button({ size: 'sm', label: '+ لون جديد', onClick: () => newColor('') }));
     const bad = L.filter(miss).length;
-    return [TotalsBar([['المنتجات', L.length], ['ناقص', bad, bad ? 'err' : null], ['المسلسل', (PD.serialText(ST().nextSerial()) || '0999') + ' (مبدئي)']]), rule,
+    const missing = (it) => [!String(it.nameEn || '').trim() && 'nameEn', !String(it.nameAr || '').trim() && 'nameAr', (it.unknownColors || []).length && 'variations'].filter(Boolean);
+    return [TotalsBar([['المنتجات', L.length], ['ناقص', bad, bad ? 'err' : null], ['المسلسل', (PD.serialText(ST().nextSerial()) || '0999') + ' (مبدئي)'], aiTot(L)].filter(Boolean),
+      aiButton('املا الناقص بالـ AI', () => aiFill(L, missing, 'املا الأسامي والألوان الناقصة بالـ AI'))), rule,
       h('section', { class: 'card sec' }, h('div', { class: 'sec-b' }, STable([{ l: 'المنتج' }, { l: isVar() ? 'الألوان' : 'اللون', w: 200 }, { l: 'المقاس', w: 120 }, { l: 'الوزن', w: 80 }, { l: isVar() ? 'التركيبات' : 'المخزون', w: 90 }, { l: 'الحالة', w: 160 }, { l: '', w: 80 }], rows, 'البيانات و SKU'))),
-      U.InlineNote({ children: 'الـ SKU النهائي بيتحجز وقت الرفع (مسلسل واحد للموقع) — اللي ظاهر هنا مبدئي.' }), WizFoot(L.length > 0 && !bad, 'كمّل الداتا الناقصة')];
+      U.InlineNote({ children: 'الـ SKU النهائي بيتحجز وقت الرفع (مسلسل واحد للموقع) — اللي ظاهر هنا مبدئي. «املا الناقص بالـ AI» بيكتب الاسم الناقص (عربي أو إنجليزي) ويختار اللون من جدول الألوان للون اللي مش فيه — من الشيت والصورة، وعليه «AI — راجع».' }), WizFoot(L.length > 0 && !bad, 'كمّل الداتا الناقصة')];
   }
 
   // ---------------- 4 المتغيرات ----------------
   function step4() {
     const L = items(); const rows = [];
     L.forEach((it) => {
-      rows.push({ cls: 'row-open', cells: [PCell(it, ['Variable · ' + it.variations.length + ' تركيبات']), null, null, null, Button({ size: 'sm', label: 'عدّل الألوان والمقاسات', onClick: () => editItem(it) })] });
+      rows.push({ cls: 'row-open', cells: [PCell(it, ['Variable · ' + it.variations.length + ' تركيبات', it.ai && it.ai.variations ? AITag() : null]), null, null, null, Button({ size: 'sm', label: 'عدّل الألوان والمقاسات', onClick: () => editItem(it) })] });
       it.variations.forEach((v) => { const p = priceOf(v.vendorPrice, ensureMarkup(v)); const vin = h('input', { class: 'input vp-in', inputmode: 'numeric', value: v.vendorPrice == null ? '' : String(v.vendorPrice), 'aria-label': 'سعر المبتكر — ' + (v.color || '') + ' ' + (v.size || '') });
         vin.addEventListener('change', () => { const n = Number(vin.value); if (!(n > 0)) { vin.value = String(v.vendorPrice || ''); K.toast('اكتب سعر صحيح', 'error'); return; } v.vendorPrice = n; touch(); R(); });
         const sin = h('input', { class: 'input vp-in', inputmode: 'numeric', value: v.stock == null ? '' : String(v.stock), placeholder: '—', 'aria-label': 'المخزون' }); sin.addEventListener('change', () => { v.stock = sin.value.trim() === '' ? null : Math.max(0, parseInt(sin.value, 10) || 0); touch(); });
@@ -338,7 +388,7 @@
           h('span', { class: 'sub-edit' }, vin), p ? h('span', null, h('b', { class: 'brand-t' }, U.num(K.n0(p.sale))), h('small', { class: 'help' }, ' · قبل ', U.num(K.n0(p.regular)))) : '—', h('span', { class: 'sub-edit' }, sin, K.Checkbox({ label: 'حسب الطلب', checked: !!v.onDemand, onChange: (x) => { v.onDemand = x; touch(); R(); } })), null] }); });
     });
     const n = L.reduce((s, it) => s + it.variations.length, 0); const badP = L.some((it) => it.variations.some((v) => !(v.vendorPrice > 0)));
-    return [TotalsBar([['المنتجات', L.length], ['التركيبات', n]], soon('اقترح المتغيرات بالـ AI')),
+    return [TotalsBar([['المنتجات', L.length], ['التركيبات', n], aiTot(L)].filter(Boolean), aiButton('اقترح المتغيرات بالـ AI', () => aiFill(L, (it) => (!it.colors.length || (it.unknownColors || []).length ? ['variations'] : []), 'اقترح ألوان المتغيرات بالـ AI'))),
       h('section', { class: 'card sec' }, h('div', { class: 'sec-b' }, STable([{ l: 'المنتج / التركيبة' }, { l: 'سعر المبتكر', w: 130 }, { l: 'سعر البيع', w: 170 }, { l: 'المخزون', w: 220 }, { l: '', w: 120 }], rows, 'المتغيرات'))),
       U.InlineNote({ children: 'SKU التركيبة = IBT + البراند + كود اللون + المسلسل، و«-المقاس» لو فيه مقاسات. المنتج الأساسي من غير لون.' }), WizFoot(n > 0 && !badP, 'كل تركيبة محتاجة سعر مبتكر')];
   }
@@ -443,18 +493,24 @@
   }
   function editDesc(it) {
     K.form({ title: 'الوصف القصير — ' + (it.nameEn || ''), wide: true, values: { en: it.shortDesc || '', ar: it.shortDescAr || '' },
-      fields: (f, e, set) => [K.field.area('en', 'الوصف القصير (EN)', f, e, set, { rows: 4 }), K.field.area('ar', 'الوصف القصير (AR)', f, e, set, { rows: 4 }), soon('اكتب بالـ AI')],
+      fields: (f, e, set) => [K.field.area('en', 'الوصف القصير (EN)', f, e, set, { rows: 4 }), K.field.area('ar', 'الوصف القصير (AR)', f, e, set, { rows: 4 }),
+        aiButton('اكتب بالـ AI', async () => { await aiFill([it], () => ['desc'], '', true); ['en', 'ar'].forEach((k) => { const v = k === 'en' ? it.shortDesc || '' : it.shortDescAr || ''; const el = document.getElementById(k); if (el) el.value = v; f[k] = v; }); })],
       validate: (f) => { const e = {}; ['en', 'ar'].forEach((k) => { if (/<(?!\/?(p|br|strong|b|em|i|u|ul|ol|li)\s*\/?>)/i.test(f[k])) e[k] = 'من غير HTML غير التنسيق البسيط'; }); return e; },
-      submit: (f) => { it.shortDesc = f.en.trim(); it.shortDescAr = f.ar.trim(); touch(); R(); } });
+      submit: (f) => { if (f.en.trim() !== (it.shortDesc || '') || f.ar.trim() !== (it.shortDescAr || '')) unAI(it, 'desc'); it.shortDesc = f.en.trim(); it.shortDescAr = f.ar.trim(); touch(); R(); } });
   }
   function step7() {
     const L = items();
-    const rows = L.map((it) => ({ cls: it.categories.length ? null : 'row-warn', cells: [selBox(it), PCell(it), h('div', { class: 'chips' }, it.categories.map((c) => Tag('neutral', catPath(c))), Button({ size: 'sm', type: 'text', label: it.categories.length ? 'عدّل' : '+ قسم', onClick: () => catsPicker('أقسام ' + (it.nameEn || ''), it.categories, (cs) => { it.categories = cs; touch(); R(); }) })),
-      h('div', { class: 'desc-cell' }, it.shortDesc ? h('p', { dir: 'ltr' }, it.shortDesc) : h('span', { class: 'help' }, 'EN —'), it.shortDescAr ? h('p', null, it.shortDescAr) : h('span', { class: 'help' }, 'AR —')), Button({ size: 'sm', label: 'الوصف', onClick: () => editDesc(it) })] }));
+    const noDesc = (it) => !String(it.shortDesc || '').trim() || !String(it.shortDescAr || '').trim();
+    const rows = L.map((it) => ({ cls: it.categories.length ? null : 'row-warn', cells: [selBox(it), PCell(it), h('div', { class: 'chips' }, it.categories.map((c) => Tag('neutral', catPath(c))), it.ai && it.ai.category ? AITag() : null,
+      Button({ size: 'sm', type: 'text', label: it.categories.length ? 'عدّل' : '+ قسم', onClick: () => catsPicker('أقسام ' + (it.nameEn || ''), it.categories, (cs) => { if (cs.slice().sort().join() !== it.categories.slice().sort().join()) unAI(it, 'category'); it.categories = cs; touch(); R(); }) })),
+      h('div', { class: 'desc-cell' }, it.shortDesc ? h('p', { dir: 'ltr' }, it.shortDesc) : h('span', { class: 'help' }, 'EN —'), it.shortDescAr ? h('p', null, it.shortDescAr) : h('span', { class: 'help' }, 'AR —'), it.ai && it.ai.desc ? AITag() : null,
+        noDesc(it) ? aiButton('اكتب بالـ AI', () => aiFill([it], () => ['desc'].concat(it.categories.length ? [] : ['category']), '')) : null), Button({ size: 'sm', label: 'الوصف', onClick: () => editDesc(it) })] }));
     const missC = L.filter((it) => !it.categories.length).length;
-    return [TotalsBar([['المنتجات', L.length], ['من غير قسم', missC, missC ? 'err' : null], ['من غير وصف', L.filter((it) => !it.shortDesc).length]], soon('اكتب الأوصاف بالـ AI')),
+    return [TotalsBar([['المنتجات', L.length], ['من غير قسم', missC, missC ? 'err' : null], ['من غير وصف', L.filter(noDesc).length], aiTot(L)].filter(Boolean),
+      aiButton('املا الناقص بالـ AI', () => aiFill(L, (it) => [noDesc(it) && 'desc', !it.categories.length && 'category'].filter(Boolean), 'املا الأوصاف والأقسام الناقصة بالـ AI'))),
       h('div', { class: 'toolbar' }, h('span', { class: 'grow' }), Button({ size: 'sm', label: '+ قسم جديد', onClick: newCategory })),
-      BulkBar([Button({ size: 'sm', label: 'طبّق قسم على المحدد', onClick: () => catsPicker('أقسام للمحدد (' + S.sel.size + ')', [], (cs) => { sel().forEach((it) => { it.categories = [...new Set(it.categories.concat(cs))]; }); touch(); R(); }) })]),
+      BulkBar([Button({ size: 'sm', label: 'طبّق قسم على المحدد', onClick: () => catsPicker('أقسام للمحدد (' + S.sel.size + ')', [], (cs) => { sel().forEach((it) => { unAI(it, 'category'); it.categories = [...new Set(it.categories.concat(cs))]; }); touch(); R(); }) }),
+        aiButton('اكتب الأوصاف للمحدد بالـ AI', () => aiFill(sel(), () => ['desc'], 'اكتب الأوصاف للمحدد بالـ AI (بيكتب فوق الموجود)', true))]),
       h('section', { class: 'card sec' }, h('div', { class: 'sec-b' }, STable([{ l: allBox(L), w: 48 }, { l: 'المنتج', w: 260 }, { l: 'القسم', w: 260 }, { l: 'الوصف القصير' }, { l: '', w: 90 }], rows, 'الأقسام والأوصاف'))),
       WizFoot(!missC, 'كل منتج محتاج قسم واحد على الأقل')];
   }

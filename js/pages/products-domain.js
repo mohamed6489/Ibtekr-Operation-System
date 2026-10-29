@@ -261,9 +261,12 @@
       material: get(r, 'material'), style: get(r, 'style'), weight: toAsciiDigits(get(r, 'weight')).replace(/[^\d.]/g, ''), stock: (() => { const n = parseInt(toAsciiDigits(get(r, 'stock')), 10); return Number.isFinite(n) && n >= 0 ? n : null; })(), shortDesc: get(r, 'shortDesc') }))
       .filter((it) => it.nameEn || it.nameAr || it.vendorPrice);
   }
-  // اللي ناقص في منتج الدفعة (الرسائل بالعربي زي الـ prototype)
-  function itemIssues(it, type) {
-    return [!it.nameEn && 'الاسم (EN)', !it.vendorPrice && 'سعر المبتكر', type === 'Variable' && !((it.colors || []).length || (it.sizes || []).length) && 'المتغيرات'].filter(Boolean);
+  // اللي ناقص في منتج الدفعة (الرسائل بالعربي زي الـ prototype). الاسم بالعربي إجباري (قرار 15، صاحب المشروع 29 أكتوبر) —
+  // «الاستلام» بيعدّيه ({ ar: false }) عشان يتكتب في «البيانات و SKU» لو الشيت مافيهوش
+  function itemIssues(it, type, opts) {
+    const ar = !(opts && opts.ar === false);
+    return [!it.nameEn && 'الاسم (EN)', ar && !String(it.nameAr == null ? '' : it.nameAr).trim() && 'الاسم (AR)', !it.vendorPrice && 'سعر المبتكر',
+      type === 'Variable' && !((it.colors || []).length || (it.sizes || []).length) && 'المتغيرات'].filter(Boolean);
   }
   // أقسام الاستوديو (قرار 14، صاحب المشروع 29 أكتوبر): شجرة بـ +/− زي شجرة العمولة. [{ id, name, parentId }] → { byId, kids, roots }
   // (kids: id الأب أو 0 → الفروع بالاسم؛ أب مش موجود = رئيسي؛ لفّة في الداتا ماتظهرش ومابتوقفش حاجة)

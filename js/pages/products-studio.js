@@ -233,8 +233,10 @@
     }
     touch(); K.toast('اترفع ' + done + ' صورة — راجع التطابق تحت', 'success'); R();
   }
-  const issuesOf = (it) => PD.itemIssues(it, S.state.type).concat((it.unknownColors || []).length ? ['لون مش في الجدول: ' + it.unknownColors.join('، ')] : []);
-  const recvState = (it) => (issuesOf(it).length ? 'data' : !it.main ? 'img' : 'ok');
+  // decision 15: the Arabic name is required — «الاستلام» lets it through ({ ar: false }) so it can be typed in «البيانات و SKU»
+  const issuesOf = (it, opts) => PD.itemIssues(it, S.state.type, opts).concat((it.unknownColors || []).length ? ['لون مش في الجدول: ' + it.unknownColors.join('، ')] : []);
+  const recvState = (it) => (issuesOf(it, { ar: false }).length ? 'data' : !it.main ? 'img' : 'ok');
+  const noArabic = (L) => L.filter((it) => !String(it.nameAr || '').trim()).length;
   function step2() {
     const L = items(); const sh = S.state.sheet;
     const fields = Object.keys(FIELD_L);
@@ -262,8 +264,9 @@
     return [TotalsBar([['المنتجات', L.length], ['متطابقة', L.length - bad, bad ? null : 'ok'], ['ناقص صورة', L.filter((it) => recvState(it) === 'img').length, null], ['ناقص داتا', L.filter((it) => recvState(it) === 'data').length, bad ? 'err' : null]]),
       h('div', { class: 'cols2-wide' }, s1, s2),
       L.length ? Card('3 · مراجعة التطابق', 'كل صف في الشيت قصاده صورته. الألوان بتتربط بجدول الألوان بالاسم (إنجليزي أو عربي).', [STable([{ l: 'صف', w: 56 }, { l: 'داتا الشيت' }, { l: 'الصورة الأساسية', w: 120 }, { l: 'مرجعية', w: 160 }, { l: 'الحالة', w: 200 }, { l: '', w: 56 }], rows, 'مراجعة التطابق'),
-        L.some((it) => (it.unknownColors || []).length) ? U.InlineNote({ kind: 'warning', children: 'في ألوان مش في جدول الألوان — ضيفها من «+ لون جديد» في الخطوة الجاية أو عدّل اسمها في الشيت.', action: Button({ size: 'sm', label: '+ لون جديد', onClick: () => newColor('') }) }) : null]) : null,
-      WizFoot(L.length > 0 && !L.some((it) => recvState(it) === 'img' || PD.itemIssues(it, S.state.type).length), !L.length ? 'ارفع الشيت الأول' : 'كمّل الصور والداتا الناقصة')];
+        L.some((it) => (it.unknownColors || []).length) ? U.InlineNote({ kind: 'warning', children: 'في ألوان مش في جدول الألوان — ضيفها من «+ لون جديد» في الخطوة الجاية أو عدّل اسمها في الشيت.', action: Button({ size: 'sm', label: '+ لون جديد', onClick: () => newColor('') }) }) : null,
+        noArabic(L) ? U.InlineNote({ kind: 'warning', children: noArabic(L) + ' منتج من غير اسم عربي — الاسم العربي إجباري: ضيف عمود «الاسم بالعربي» للشيت، أو اكتبه من «عدّل» في الخطوة الجاية.' }) : null]) : null,
+      WizFoot(L.length > 0 && !L.some((it) => recvState(it) === 'img' || PD.itemIssues(it, S.state.type, { ar: false }).length), !L.length ? 'ارفع الشيت الأول' : 'كمّل الصور والداتا الناقصة')];
   }
 
   // ---------------- 3 البيانات و SKU ----------------
@@ -288,13 +291,13 @@
     const multi = isVar();
     K.form({ title: 'بيانات المنتج — ' + (it.nameEn || 'من غير اسم'), wide: true, submitLabel: 'احفظ',
       values: { nameEn: it.nameEn || '', nameAr: it.nameAr || '', colors: it.colors.slice(), sizes: it.sizes.join('، '), material: it.material || '', style: it.style || '', weight: it.weight || '', stock: it.stock == null ? '' : String(it.stock), onDemand: !!it.onDemand, vendorPrice: it.vendorPrice == null ? '' : String(it.vendorPrice) },
-      fields: (f, e, set, draw) => [K.two(K.field.text('nameEn', 'الاسم (EN)', f, e, set, { required: true }), K.field.text('nameAr', 'الاسم (AR)', f, e, set)),
+      fields: (f, e, set, draw) => [K.two(K.field.text('nameEn', 'الاسم (EN)', f, e, set, { required: true }), K.field.text('nameAr', 'الاسم (AR)', f, e, set, { required: true, help: 'إجباري — بيه بتتعمل الترجمة العربي على الموقع' })),
         U.FieldShell({ id: 'f-colors', label: multi ? 'الألوان (التركيبات)' : 'اللون', error: e.colors }, h('div', { class: 'chips' }, colors().map((c) => chipBtn(c.name_en + ' · ' + c.code, f.colors.includes(c.code), () => { f.colors = f.colors.includes(c.code) ? f.colors.filter((x) => x !== c.code) : multi ? f.colors.concat(c.code) : [c.code]; draw(); })), Button({ size: 'sm', type: 'text', label: '+ لون جديد', onClick: () => newColor('', (code) => { f.colors = multi ? f.colors.concat(code) : [code]; draw(); }) }))),
         K.two(K.field.text('sizes', multi ? 'المقاسات (افصل بـ ،)' : 'المقاس', f, e, set, { placeholder: '50×50، 40×40' }), K.field.text('vendorPrice', 'سعر المبتكر', f, e, set, { inputmode: 'numeric', required: true })),
         K.two(K.field.text('material', 'الخامة', f, e, set), K.field.text('style', 'الستايل', f, e, set)),
         K.two(K.field.text('weight', 'الوزن (كيلو)', f, e, set, { inputmode: 'decimal' }), multi ? h('div') : K.field.text('stock', 'المخزون', f, e, set, { inputmode: 'numeric', help: 'فاضي = من غير تتبع' })),
         multi ? null : K.Switch({ id: 'f-dem', label: 'حسب الطلب (بيتصنع بعد الأوردر)', checked: f.onDemand, onChange: (v) => { f.onDemand = v; } })],
-      validate: (f) => { const e = {}; if (!String(f.nameEn).trim() || /[<>%]/.test(f.nameEn)) e.nameEn = 'اكتب الاسم بالإنجليزي من غير < > %'; if (/[<>%]/.test(f.nameAr)) e.nameAr = 'من غير < > %'; if (!(Number(f.vendorPrice) > 0)) e.vendorPrice = 'اكتب سعر المبتكر';
+      validate: (f) => { const e = {}; if (!String(f.nameEn).trim() || /[<>%]/.test(f.nameEn)) e.nameEn = 'اكتب الاسم بالإنجليزي من غير < > %'; if (!String(f.nameAr).trim() || /[<>%]/.test(f.nameAr)) e.nameAr = 'اكتب الاسم بالعربي من غير < > %'; if (!(Number(f.vendorPrice) > 0)) e.vendorPrice = 'اكتب سعر المبتكر';
         if (f.weight && !/^\d{1,5}(\.\d{1,3})?$/.test(String(f.weight).trim())) e.weight = 'رقم بالكيلو'; if (f.stock !== '' && !/^\d+$/.test(String(f.stock).trim())) e.stock = 'رقم صحيح'; if (multi && !f.colors.length && !String(f.sizes).trim()) e.colors = 'المنتج الـ Variable محتاج ألوان أو مقاسات'; return e; },
       submit: (f) => { Object.assign(it, { nameEn: f.nameEn.trim(), nameAr: f.nameAr.trim(), colors: f.colors, sizes: String(f.sizes).split(/[,،]+/).map((x) => x.trim()).filter(Boolean), material: f.material.trim(), style: f.style.trim(), weight: String(f.weight).trim(),
         stock: f.stock === '' ? null : Number(f.stock), onDemand: !!f.onDemand, vendorPrice: Number(f.vendorPrice), unknownColors: [] }); if (!multi) it.sizes = it.sizes.slice(0, 1); syncVariations(it); touch(); R(); } });

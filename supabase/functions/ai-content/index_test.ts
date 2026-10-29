@@ -32,17 +32,32 @@ const msg = (answer: unknown, extra: any = {}) => ({
 });
 const apiError = (status: number | null) => Object.assign(new Error('api'), status === null ? {} : { status });
 
-type Opts = { seed?: Record<string, any[]>; env?: Record<string, string>; replies?: unknown[]; monthCost?: number | null; storage?: Record<string, Uint8Array> };
-function setup({ seed = {}, env = {}, replies = [], monthCost = 0, storage = {} }: Opts = {}) {
-  const db = fakeDb(seed, { rpc: monthCost === null ? {} : { ai_month_cost: () => monthCost }, storage });
+type Opts = { seed?: Record<string, any[]>; env?: Record<string, string>; replies?: unknown[]; monthCost?: number; startDown?: boolean; storage?: Record<string, Uint8Array>; fail?: (c: any) => any };
+function setup({ seed = {}, env = {}, replies = [], monthCost = 0, startDown = false, storage = {}, fail }: Opts = {}) {
+  // ai_run_start as 0024 defines it (rls_ai tests the SQL): the member's runs in the window, this month's cost (monthCost before
+  // the test's rows, every row at its cost — pending ones at their reserve) + the reserve against the cap, else a pending row
+  let db: any = null;
+  const start = async ({ p_row, p_cap, p_reserve, p_throttle, p_window_minutes }: any) => {
+    const rows = db.rows('ai_runs'); const since = new Date(Date.parse(NOW) - p_window_minutes * 60_000).toISOString();
+    if (rows.filter((r: any) => r.created_by === p_row.created_by && r.created_at >= since).length >= p_throttle) return { result: 'busy' };
+    const insert = async (extra: any) => (await db.from('ai_runs').insert({ created_at: NOW, ...p_row, ...extra }).select('id').single()).data.id;
+    const spent = monthCost + rows.reduce((t: number, r: any) => t + Number(r.cost_usd || 0), 0);
+    if (p_cap != null && spent + p_reserve > p_cap) return { result: 'cap', id: await insert({ status: 'cap', error: 'ai_cap' }) };
+    return { result: 'ok', id: await insert({ status: 'pending', cost_usd: p_reserve }) };
+  };
+  db = fakeDb(seed, { rpc: startDown ? {} : { ai_run_start: start }, storage, fail });
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
     return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'products.add' ? m.add ?? 'N' : key === 'products.edit' ? m.edit ?? 'N' : 'N'), is_admin: () => m.admin ?? false } : {} });
   };
-  const asked: any[] = []; const slept: number[] = []; const queue = [...replies];
-  const claude = async (p: any) => { asked.push(structuredClone(p)); const r = queue.shift(); if (r instanceof Error) throw r; if (r === undefined) throw new Error('no reply queued'); return r as any; };
+  // during: the ai_runs rows (status, cost) as each Claude call starts — the reservation is made before the call
+  const asked: any[] = []; const slept: number[] = []; const during: any[] = []; const queue = [...replies];
+  const claude = async (p: any) => {
+    asked.push(structuredClone(p)); during.push(db.rows('ai_runs').map((r: any) => [r.status, Number(r.cost_usd)]));
+    const r = queue.shift(); if (r instanceof Error) throw r; if (r === undefined) throw new Error('no reply queued'); return r as any;
+  };
   const deps = { env: { ...ENV, ANTHROPIC_API_KEY: KEY, ...env }, db, now: () => NOW, userDb, userId: async (jwt: string) => MEMBERS[jwt]?.uid ?? null, claude, sleep: async (ms: number) => { slept.push(ms); } };
-  return { db, asked, slept, deps };
+  return { db, asked, slept, during, deps };
 }
 async function call(deps: any, body: unknown, jwt: string | null = 'jwt-add', method = 'POST') {
   const headers: Record<string, string> = { 'content-type': 'application/json' };
@@ -142,12 +157,13 @@ Deno.test('Anthropic busy (429 / 529 / 5xx) is retried once after 2 s; twice →
   const twice = setup({ replies: [apiError(429), apiError(500)] });
   const t = await call(twice.deps, WRITE);
   assertEquals([t.res.status, t.body], [429, { error: 'busy' }]);
-  assertEquals(twice.db.rows('ai_runs').map((r: any) => [r.status, r.error]), [['error', 'busy']]);
+  assertEquals(twice.db.rows('ai_runs').map((r: any) => [r.status, r.error, Number(r.cost_usd)]), [['error', 'busy', 0]], 'an API error is not billed: the reserve goes');
   const key = setup({ replies: [apiError(401)] });
   assertEquals((await call(key.deps, WRITE)).res.status, 503);
   const net = setup({ replies: [apiError(null)] });
   assertEquals((await call(net.deps, WRITE)).body, { error: 'busy' });
   assertEquals(net.asked.length, 1, 'a timeout or a network error is not retried');
+  assertEquals(net.db.rows('ai_runs').map((r: any) => [r.status, Number(r.cost_usd)]), [['error', 0.5]], 'an unknown outcome keeps its reserve');
 });
 
 Deno.test('a refusal (after the fallback) is 200 refused with its cost logged; a cut-off or non-JSON answer is 502 ai_error', async () => {
@@ -160,17 +176,28 @@ Deno.test('a refusal (after the fallback) is 200 refused with its cost logged; a
   assertEquals(cut.db.rows('ai_runs').map((x: any) => [x.status, x.error]), [['error', 'ai_error']]);
 });
 
-Deno.test('the monthly cap (AI_MONTHLY_LIMIT_USD): reached → 402 ai_cap and a cap row, no call; under it → the call; unreadable → no call', async () => {
-  const at = setup({ env: { AI_MONTHLY_LIMIT_USD: '5' }, monthCost: 5 });
+Deno.test('the monthly cap (AI_MONTHLY_LIMIT_USD): a call that could pass it → 402 ai_cap and a cap row, no call; within it → the call; no reservation → no call', async () => {
+  const at = setup({ env: { AI_MONTHLY_LIMIT_USD: '5' }, monthCost: 4.6 }); // 4.6 + the 0.5 reserve > 5
   const { res, body } = await call(at.deps, WRITE);
   assertEquals([res.status, body, at.asked.length], [402, { error: 'ai_cap' }, 0]);
-  assertEquals(at.db.rows('ai_runs').map((x: any) => [x.status, x.error]), [['cap', 'ai_cap']]);
-  const under = setup({ env: { AI_MONTHLY_LIMIT_USD: '5' }, monthCost: 4.99, replies: [msg(ANSWER)] });
+  assertEquals(at.db.rows('ai_runs').map((x: any) => [x.status, x.error, x.created_by]), [['cap', 'ai_cap', U.add]]);
+  const under = setup({ env: { AI_MONTHLY_LIMIT_USD: '5' }, monthCost: 4.4, replies: [msg(ANSWER)] });
   assertEquals((await call(under.deps, WRITE)).res.status, 200);
-  const unknown = setup({ env: { AI_MONTHLY_LIMIT_USD: '5' }, monthCost: null });
-  assertEquals([(await call(unknown.deps, WRITE)).res.status, unknown.asked.length], [502, 0]);
-  const none = setup({ monthCost: null, replies: [msg(ANSWER)] }); // no cap set: the month is not even read
+  const down = setup({ env: { AI_MONTHLY_LIMIT_USD: '5' }, startDown: true });
+  const d = await call(down.deps, WRITE);
+  assertEquals([d.res.status, d.body, down.asked.length, down.db.rows('ai_runs').length], [502, { error: 'ai_error' }, 0, 0]);
+  const none = setup({ monthCost: 1000, replies: [msg(ANSWER)] }); // no cap set: any month passes
   assertEquals((await call(none.deps, WRITE)).res.status, 200);
+});
+
+Deno.test('the run is reserved before the call (pending at the 0.5 reserve) and then holds the outcome; a lost update keeps the reserve', async () => {
+  const { deps, during, db } = setup({ replies: [msg(ANSWER)] });
+  assertEquals((await call(deps, WRITE)).res.status, 200);
+  assertEquals(during, [[['pending', 0.5]]]);
+  assertEquals(db.rows('ai_runs').map((r: any) => [r.status, Number(r.cost_usd)]), [['ok', 0.052]]);
+  const lost = setup({ replies: [msg(ANSWER)], fail: (c: any) => (c.op === 'update' && c.table === 'ai_runs' ? { code: 'XX000', message: 'down' } : null) });
+  assertEquals((await call(lost.deps, WRITE)).res.status, 200, 'the answer still comes back');
+  assertEquals(lost.db.rows('ai_runs').map((r: any) => [r.status, Number(r.cost_usd)]), [['pending', 0.5]]);
 });
 
 Deno.test('a member with THROTTLE calls in the last 10 minutes gets 429 busy with no call; older calls do not count', async () => {

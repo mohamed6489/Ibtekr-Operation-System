@@ -9,10 +9,11 @@
 //            cost_usd, run_id }: the item, its brand and photo (bucket studio), the site's categories and sku_colors read here.
 // Both only suggest: nothing is written to the site or the batch (the page saves through product_save / IBStudio.save).
 // A request declined by the model's safety classifiers runs again on Anthropic's recommended model in the same call
-// (fallbacks: "default"); still declined → 200 { result: 'refused' }. Every call that reaches Claude, or the monthly cap,
-// leaves one ai_runs row (service role: the cleaned output and an error code only — never a prompt, an image or the key).
-// Errors: 400 bad_request { field }, 401 unauthorized, 404 not_found, 402 ai_cap (AI_MONTHLY_LIMIT_USD reached this Cairo
-// month), 429 busy (Anthropic's rate limit or overload, a timeout, or THROTTLE calls of the member in 10 minutes),
+// (fallbacks: "default"); still declined → 200 { result: 'refused' }. Every call is reserved first (ai_run_start: the member's
+// throttle and the monthly cap in one locked step, a pending ai_runs row) and that row then holds its outcome (service role:
+// the cleaned output and an error code only — never a prompt, an image or the key). Errors: 400 bad_request { field },
+// 401 unauthorized, 404 not_found, 402 ai_cap (AI_MONTHLY_LIMIT_USD would be passed this Cairo month), 429 busy (Anthropic's
+// rate limit or overload, a timeout, or THROTTLE calls of the member in 10 minutes),
 // 503 not_configured (no ANTHROPIC_API_KEY — the owner sets it in the Edge Functions' secrets — or the key refused),
 // 502 ai_error (no usable answer). One quick retry for a 429 / 5xx; a product photo Claude could not fetch is dropped once.
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
@@ -33,6 +34,8 @@ const ACTIONS = ['write', 'studio'];
 const STUDIO_BUCKET = 'studio';
 const THROTTLE = 60; // calls of one member in THROTTLE_MINUTES (the studio fills a batch one item at a time)
 const THROTTLE_MINUTES = 10;
+// the most one call can cost (16k output tokens and the prompt on the dearest fallback model): held while the call runs
+const RESERVE_USD = 0.5;
 const RETRY_WITHIN_MS = 20_000;
 const MAX_PHOTO_BYTES = 3_750_000; // a base64 image stays under Claude's 5 MB
 const PRODUCT_COLS = 'id, sku, name, lang, translation_ids, image_url, category_ids, brand_ids';
@@ -59,7 +62,7 @@ async function authorize(req: Request, deps: Deps, action: string): Promise<stri
 
 // ---------------------------------------------------------------- Claude
 
-type Asked = { msg: Json } | { error: 'busy' | 'not_configured' | 'ai_error' };
+type Asked = { msg: Json } | { error: 'busy' | 'not_configured' | 'ai_error'; status: number | null };
 const urlImage = (p: Json) => (p.messages?.[0]?.content ?? []).some((b: Json) => b?.type === 'image' && b.source?.type === 'url');
 const withoutUrlImage = (p: Json) => ({ ...p, messages: [{ ...p.messages[0], content: p.messages[0].content.filter((b: Json) => !(b?.type === 'image' && b.source?.type === 'url')) }] });
 
@@ -71,42 +74,45 @@ async function ask(deps: Deps, params: Json): Promise<Asked> {
       return { msg: await deps.claude(p) };
     } catch (e) {
       const status = typeof (e as Json)?.status === 'number' ? (e as Json).status as number : null;
-      if (status === 401 || status === 403) return { error: 'not_configured' };
+      if (status === 401 || status === 403) return { error: 'not_configured', status };
       // the product photo is fetched by Anthropic from the site; one it cannot read is a 400 — the text alone goes once more
       if (status === 400 && !dropped && urlImage(p)) { p = withoutUrlImage(p); dropped = true; continue; }
       const transient = status === 429 || (status !== null && status >= 500);
       if (transient && !retried && Date.now() - started < RETRY_WITHIN_MS) { retried = true; await (deps.sleep ?? wait)(2000); continue; }
-      return { error: transient || status === null ? 'busy' : 'ai_error' };
+      return { error: transient || status === null ? 'busy' : 'ai_error', status };
     }
   }
 }
 
-// ---------------------------------------------------------------- usage
+// ---------------------------------------------------------------- the run (ai_runs)
 
-async function logRun(deps: Deps, row: Json): Promise<number | null> {
-  const { data, error } = await deps.db.from('ai_runs').insert({ created_at: deps.now(), ...row }).select('id').single();
-  if (error) { console.error('ai_runs insert failed', error.code ?? ''); return null; }
-  return data?.id ?? null;
+// The reservation (decision 3, security review 29 Oct): ai_run_start throttles the member and checks the monthly cap in one
+// locked step on the server, and leaves a pending row at RESERVE_USD that the call's outcome then replaces. Parallel calls
+// cannot pass the cap or the throttle together; a reservation that cannot be made means no call (fail closed); a call whose
+// outcome is unknown (a timeout, the network) keeps its reserve, so the cap still counts it.
+async function startRun(deps: Deps, row: Json, cap: number | null) {
+  const { data, error } = await deps.db.rpc('ai_run_start', { p_row: row, p_cap: cap, p_reserve: RESERVE_USD, p_throttle: THROTTLE, p_window_minutes: THROTTLE_MINUTES });
+  if (error || !isObj(data)) return { result: 'error' as const };
+  const id = Number(data.id);
+  if (data.result === 'ok' && Number.isInteger(id)) return { result: 'ok' as const, id };
+  return { result: data.result === 'busy' ? 'busy' as const : data.result === 'cap' ? 'cap' as const : 'error' as const };
 }
-async function throttled(deps: Deps, uid: string) {
-  const since = new Date(Date.parse(deps.now()) - THROTTLE_MINUTES * 60_000).toISOString();
-  const { data, error } = await deps.db.from('ai_runs').select('id').eq('created_by', uid).gte('created_at', since).range(0, THROTTLE);
-  return !error && Array.isArray(data) && data.length >= THROTTLE;
+async function finishRun(deps: Deps, id: number, row: Json) {
+  const { error } = await deps.db.from('ai_runs').update(row).eq('id', id);
+  if (error) console.error('ai_runs update failed', error.code ?? ''); // the row keeps its reserve: the cap still counts it
 }
 
-// The common path of both actions: the key, the cap, the throttle, the call, the answer, the row.
-async function runAi(deps: Deps, uid: string, base: Json, params: Json, clean: (answer: Json) => Json): Promise<Response> {
+// The common path of both actions: the reservation, the key, the call, the answer, the row.
+async function runAi(deps: Deps, base: Json, params: Json, clean: (answer: Json) => Json): Promise<Response> {
   const cfg = config(deps.env);
-  if (!deps.env.ANTHROPIC_API_KEY?.trim()) { await logRun(deps, { ...base, model: cfg.model, status: 'error', error: 'not_configured' }); return json(503, { error: 'not_configured' }); }
-  if (cfg.cap) {
-    const { data, error } = await deps.db.rpc('ai_month_cost');
-    if (error || !Number.isFinite(Number(data))) return json(502, { error: 'ai_error' }); // the cap cannot be checked: no call
-    if (Number(data) >= cfg.cap) { await logRun(deps, { ...base, model: cfg.model, status: 'cap', error: 'ai_cap' }); return json(402, { error: 'ai_cap' }); }
-  }
-  if (await throttled(deps, uid)) return json(429, { error: 'busy' });
+  const run = await startRun(deps, { ...base, model: cfg.model }, cfg.cap);
+  if (run.result === 'busy') return json(429, { error: 'busy' });
+  if (run.result === 'cap') return json(402, { error: 'ai_cap' });
+  if (run.result !== 'ok') return json(502, { error: 'ai_error' });
+  if (!deps.env.ANTHROPIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return json(503, { error: 'not_configured' }); }
   const asked = await ask(deps, params);
   if ('error' in asked) {
-    await logRun(deps, { ...base, model: cfg.model, status: 'error', error: asked.error });
+    await finishRun(deps, run.id, { status: 'error', error: asked.error, cost_usd: asked.status === null ? RESERVE_USD : 0 });
     return json(asked.error === 'not_configured' ? 503 : asked.error === 'busy' ? 429 : 502, { error: asked.error });
   }
   const msg = asked.msg;
@@ -114,11 +120,11 @@ async function runAi(deps: Deps, uid: string, base: Json, params: Json, clean: (
   const u = usageOf(msg.usage); const cost = costOf(model, msg.usage);
   const spent = { model, input_tokens: u.input, output_tokens: u.output, cache_read_tokens: u.cacheRead, cache_write_tokens: u.cacheWrite, cost_usd: cost };
   const answer = readAnswer(msg);
-  if (answer.status === 'refused') { await logRun(deps, { ...base, ...spent, status: 'refused', error: 'refused' }); return json(200, { result: 'refused', model, cost_usd: cost }); }
-  if (answer.status !== 'ok') { await logRun(deps, { ...base, ...spent, status: 'error', error: 'ai_error' }); return json(502, { error: 'ai_error' }); }
+  if (answer.status === 'refused') { await finishRun(deps, run.id, { ...spent, status: 'refused', error: 'refused' }); return json(200, { result: 'refused', model, cost_usd: cost }); }
+  if (answer.status !== 'ok') { await finishRun(deps, run.id, { ...spent, status: 'error', error: 'ai_error' }); return json(502, { error: 'ai_error' }); }
   const out = clean(answer.json);
-  const runId = await logRun(deps, { ...base, ...spent, status: 'ok', output: out });
-  return json(200, { result: 'ok', ...out, model, cost_usd: cost, run_id: runId });
+  await finishRun(deps, run.id, { ...spent, status: 'ok', output: out });
+  return json(200, { result: 'ok', ...out, model, cost_usd: cost, run_id: run.id });
 }
 
 // ---------------------------------------------------------------- write (the content tool)
@@ -155,7 +161,7 @@ async function write(deps: Deps, uid: string, args: Json) {
   const label = line(product?.name || req.data.name || req.current.nameEn || req.current.nameAr || (req.source === 'image' ? 'صورة' : ''), 200) || null;
   const cfg = config(deps.env);
   const base = { created_by: uid, action: 'write', source: req.source, label, product_id: req.productId };
-  return await runAi(deps, uid, base, writeRequest(req, { model: cfg.model, effort: cfg.effort, product }),
+  return await runAi(deps, base, writeRequest(req, { model: cfg.model, effort: cfg.effort, product }),
     (answer) => cleanWrite(answer, req.outputs, req.langs));
 }
 
@@ -197,7 +203,7 @@ async function studio(deps: Deps, uid: string, args: Json) {
   const label = line(item.nameEn || item.nameAr || '', 200) || '#' + (index + 1);
   const base = { created_by: uid, action: 'studio', source: 'studio', label, batch_id: batchId, item_index: index };
   const sets = { categoryIds: new Set(cats.map((c: Json) => Number(c.id))), colorCodes: new Set(colors.map((c: Json) => c.code)) };
-  return await runAi(deps, uid, base, studioRequest(item, { model: cfg.model, effort: cfg.effort, want, brand, cats, colors, image }),
+  return await runAi(deps, base, studioRequest(item, { model: cfg.model, effort: cfg.effort, want, brand, cats, colors, image }),
     (answer) => cleanStudio(answer, want, sets));
 }
 

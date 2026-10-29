@@ -109,6 +109,37 @@ do $$ begin
   if public.ai_month_cost() < 0.102 then raise exception 'case the admin''s month cost covers every member failed'; end if;
 end $$;
 
+-- ================================================================ ai_run_start: the server reserves a run before the call
+
+reset role;
+do $$ declare r jsonb; n int; spent numeric; begin
+  if has_function_privilege('authenticated', 'public.ai_run_start(jsonb, numeric, numeric, int, int)', 'EXECUTE')
+     or has_function_privilege('anon', 'public.ai_run_start(jsonb, numeric, numeric, int, int)', 'EXECUTE')
+     or not has_function_privilege('service_role', 'public.ai_run_start(jsonb, numeric, numeric, int, int)', 'EXECUTE') then
+    raise exception 'case ai_run_start is the server''s only failed';
+  end if;
+  -- member B has one run now: a throttle of 2 lets one more through, as a pending row at the reserve, then answers busy (no row)
+  r := public.ai_run_start('{"created_by":"00000000-0000-4000-8000-000000000082","action":"write","source":"data","label":"Lamp","model":"claude-opus-5-5"}', null, 0.5, 2, 10);
+  if r ->> 'result' <> 'ok' or not exists (select 1 from public.ai_runs where id = (r ->> 'id')::bigint and status = 'pending' and cost_usd = 0.5
+       and label = 'Lamp' and created_by = '00000000-0000-4000-8000-000000000082') then
+    raise exception 'case ai_run_start reserves a pending run at the reserve failed (%)', r;
+  end if;
+  select count(*) into n from public.ai_runs;
+  r := public.ai_run_start('{"created_by":"00000000-0000-4000-8000-000000000082","action":"write"}', null, 0.5, 2, 10);
+  if r ->> 'result' <> 'busy' or (select count(*) from public.ai_runs) <> n then raise exception 'case the throttle answers busy with no row failed (%)', r; end if;
+  r := public.ai_run_start('{"created_by":"00000000-0000-4000-8000-000000000083","action":"studio","source":"studio","item_index":0}', null, 0.5, 2, 10);
+  if r ->> 'result' <> 'ok' then raise exception 'case the throttle is per member failed (%)', r; end if;
+  -- the cap: this month's cost (pending runs at their reserve) + the reserve over the cap → a cap row and no call
+  spent := public.ai_month_cost();
+  r := public.ai_run_start('{"created_by":"00000000-0000-4000-8000-000000000083","action":"write"}', spent + 0.4, 0.5, 100, 10);
+  if r ->> 'result' <> 'cap' or not exists (select 1 from public.ai_runs where id = (r ->> 'id')::bigint and status = 'cap' and error = 'ai_cap' and cost_usd = 0) then
+    raise exception 'case the cap refuses a run that could pass it failed (%)', r;
+  end if;
+  r := public.ai_run_start('{"created_by":"00000000-0000-4000-8000-000000000083","action":"write"}', spent + 0.6, 0.5, 100, 10);
+  if r ->> 'result' <> 'ok' then raise exception 'case a run within the cap is reserved failed (%)', r; end if;
+  if public.ai_month_cost() <> spent + 0.5 then raise exception 'case a pending run counts at its reserve failed'; end if;
+end $$;
+
 reset role;
 do $$ begin raise notice 'rls_ai: ok'; end $$;
 rollback;

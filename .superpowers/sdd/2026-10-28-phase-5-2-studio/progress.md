@@ -11,11 +11,15 @@
   (`DokanRESTController::update_post_author_if_needed`، من 3.10.3) — `PUT dokan/v1/products/{id} { post_author }` بباسورد التطبيق
   بيكتب الكاتب للأدمن لو المستخدم عنده `dokan_add_product`، وإلا بيكتب اللي بينادي → الرد بيتشيّك. للمنتج وترجمته؛
   «فشل» = «جرّب تاني» بيسأل تاني بس. `woo-api` من WordPress: `wp/v2/media` بس.
+- [x] المبتكر بالاختيار (صاحب البراند افتراضي، وأي مبتكر بالطلب؛ من غير متجر على الموقع مايتختارش) + المبتكر قبل التركيبات
+  (`author_failed` = مافيش تركيبات لحد «جرّب تاني») + لينك Google Sheet (`studio_sheet`، قرار 13) — commit de42e1f.
 - [ ] T7 حي:
   - [x] `0023` من SQL Editor (صاحب المشروع، 28 أكتوبر).
   - [x] `rls_studio rls_products rls_products_report` حي ok — RLS live run 40772555442.
   - [x] `woo-sync` **v31** و`woo-webhook` **v18** (متطابقين مع الريبو ما عدا سطرين `normalizePhone` المعروفين؛ v30 اتنشرت
     دقايق بالملفات القديمة — `wp/v2/product` — وv31 بدلها).
+  - [x] `woo-sync` **v32** (29 أكتوبر 03:07Z، كود de42e1f: `studio_sheet` + المبتكر قبل التركيبات): الملفات التمانية متطابقة
+    مع الريبو ما عدا سطرين `normalizePhone` المعروفين (`woo-core.js` نفس v31)، `verify_jwt` false. `woo-webhook` ماتغيّرش (v18).
   - [ ] main + نشر الموقع.
   - [ ] قبول: منتج Simple + منتج Variable مسودة من الاستوديو (بموافقة صاحب المشروع) — الصور، الترجمة العربي، المبتكر على Dokan، المرآة.
   - [ ] تقرير.

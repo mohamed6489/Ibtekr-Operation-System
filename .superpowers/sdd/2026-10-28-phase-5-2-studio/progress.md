@@ -15,7 +15,8 @@
   (`author_failed` = مافيش تركيبات لحد «جرّب تاني») + لينك Google Sheet (`studio_sheet`، قرار 13) — commit de42e1f.
 - [x] اختيار القسم = شجرة الموقع بـ +/− والقسم الفرعي بيعلّم اللي فوقه لوحده (قرار 14، صاحب المشروع 29 أكتوبر — اختار الشجرة
   والتعليم التلقائي بس): `catTree` / `catAncestors` / `catToggle` / `catSearch` في `products-domain.js` + unit، والـ popup في
-  `products-studio.js` + e2e. unit 308، e2e كله على الـ mock.
+  `products-studio.js` + e2e. unit 308، e2e على الـ mock 173 + 1 متقلّب (`vendors-brands` نقل الملكية — عدّى 4/4 لوحده)؛
+  commit 037c9a8، CI أخضر، `main` → Deploy run 40817073000 أخضر (فرع `deploy` = `main:app`).
 - [ ] T7 حي:
   - [x] `0023` من SQL Editor (صاحب المشروع، 28 أكتوبر).
   - [x] `rls_studio rls_products rls_products_report` حي ok — RLS live run 40772555442.

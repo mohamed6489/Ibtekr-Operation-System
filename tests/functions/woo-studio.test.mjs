@@ -1,5 +1,5 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
-import { buildStudio, studioSku, brandCode, sheetCsvUrl, fetchSheetCsv } from '../../supabase/functions/_shared/woo-studio.js';
+import { buildStudio, matchWooBrand, studioSku, brandCode, sheetCsvUrl, fetchSheetCsv } from '../../supabase/functions/_shared/woo-studio.js';
 import { loadUmd } from '../helpers/load-umd.mjs';
 // The product studio's upload payloads (phase 5.2, docs/superpowers/plans/2026-10-28-phase-5-2-studio.md decisions 2 / 5 / 7):
 // the SKU rule (the same as the page's), the product / variations / translation built from a batch item, and the refusals.
@@ -57,6 +57,28 @@ test('buildStudio refuses before any call: tags or % in a name, an unknown color
     [{ ...simple, colors: [], sizes: [] }, V, 'variations'], [simple, { ...O, brand: 'ب' }, 'brand'],
   ];
   for (const [it, o, field] of cases) assert.equal(buildStudio(it, o).field, field, JSON.stringify(it).slice(0, 80));
+});
+
+// decision 5: the site's WooCommerce brand (woo_brands) for the batch's brand — by name or slug, case, spaces and signs set aside
+test('matchWooBrand: the woo_brands row named like the brand or one of its aliases («@Sugar-crafts» = «Sugar crafts» = sugar-crafts); none or two → null', () => {
+  const W = [{ id: 4363, name: 'Sugar crafts', slug: 'sugar-crafts' }, { id: 3, name: 'Art Craft', slug: 'art-craft' }, { id: 7, name: 'زين', slug: '%d8%b2%d9%8a%d9%86' },
+    { id: 8, name: 'Lusso', slug: 'lusso' }, { id: 9, name: 'LUSSO', slug: 'lusso-2' }];
+  assert.equal(matchWooBrand({ name: '@Sugar-crafts' }, W), 4363);
+  assert.equal(matchWooBrand({ name: 'sugar_crafts ' }, W), 4363);
+  assert.equal(matchWooBrand({ name: 'ArtCraft store', aliases: ['ArtCraft'] }, W), 3, 'an alias');
+  assert.equal(matchWooBrand({ name: 'زين' }, W), 7, 'Arabic, and its encoded slug');
+  assert.equal(matchWooBrand({ name: 'Lusso' }, W), null, 'two site brands answer: none chosen');
+  assert.equal(matchWooBrand({ name: 'Bian eg' }, W), null);
+  assert.equal(matchWooBrand(null, W), null);
+  assert.equal(matchWooBrand({ name: 'Art Craft' }, [{ id: 0, name: 'Art Craft' }, { id: 'x', name: 'Art Craft' }]), null, 'only positive ids');
+});
+
+test('buildStudio sends the WooCommerce brand on the product (brands [{ id }]) when one matched, never on the Arabic fields; none → no brands field', () => {
+  const r = buildStudio(simple, { ...O, wooBrand: 4363 });
+  assert.deepEqual(r.product.brands, [{ id: 4363 }]);
+  assert.equal(r.ar.brands, undefined);
+  assert.equal('brands' in buildStudio(simple, { ...O, wooBrand: null }).product, false);
+  assert.deepEqual(buildStudio({ ...simple, colors: ['BE', 'BK'], sizes: [], variations: [{ color: 'BE', sale: 1, regular: 2 }, { color: 'BK', sale: 1, regular: 2 }] }, { ...O, type: 'Variable', wooBrand: 3 }).product.brands, [{ id: 3 }]);
 });
 
 // decision 13: a Google Sheets link → the CSV URL built from its id and tab only

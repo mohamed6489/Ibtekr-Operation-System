@@ -83,7 +83,7 @@ import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from
 import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, toWoo, variationView } from '../_shared/woo-products.js';
-import { STUDIO_ATTRS, buildStudio, fetchSheetCsv } from '../_shared/woo-studio.js';
+import { STUDIO_ATTRS, buildStudio, fetchSheetCsv, matchWooBrand } from '../_shared/woo-studio.js';
 import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
@@ -776,7 +776,8 @@ async function productsTrash(run: Run, args: Json, restore: boolean) {
 
 // studio_upload { batch_id, index }: one batch item to WooCommerce, read from studio_batches (never from the request) and
 // allow-listed by buildStudio; then, each step once (a retry goes on from the step that stopped): the images from the
-// bucket to the media library, the product as a draft, the maker as its author (Dokan's PUT dokan/v1/products/{id}
+// bucket to the media library, the product as a draft (with the site's WooCommerce brand when one is named like the batch's
+// brand — matchWooBrand; a product made before it gets it on a retry), the maker as its author (Dokan's PUT dokan/v1/products/{id}
 // { post_author } with the Application Password — before the variations, which take their product's vendor when Dokan
 // creates them; a maker that did not stick = author_failed, no variations yet, the product stays; the batch's maker changed
 // after the variations were sent = maker_changed, nothing written), its variations, the Arabic translation (WPML:
@@ -802,17 +803,18 @@ async function studioUpload(run: Run, args: Json) {
   if (!batch || batch.archived_at) return json(404, { error: 'no_batch' });
   const item = Array.isArray(batch.state?.items) ? batch.state.items[index] : null;
   if (!isObj(item)) return json(404, { error: 'no_item' });
-  const [{ data: brand }, { data: vendor }, { data: colorRows }] = await Promise.all([
-    batch.brand_id ? run.db.from('brands').select('name').eq('id', batch.brand_id).maybeSingle() : Promise.resolve({ data: null }),
+  const [{ data: brand }, { data: vendor }, { data: colorRows }, { data: wooBrands }] = await Promise.all([
+    batch.brand_id ? run.db.from('brands').select('name, aliases').eq('id', batch.brand_id).maybeSingle() : Promise.resolve({ data: null }),
     batch.vendor_id ? run.db.from('vendors').select('woo_vendor_id').eq('id', batch.vendor_id).maybeSingle() : Promise.resolve({ data: null }),
-    run.db.from('sku_colors').select('code, name_en')]);
+    run.db.from('sku_colors').select('code, name_en'), run.db.from('woo_brands').select('id, name, slug')]);
   const colors = Object.fromEntries((colorRows ?? []).map((c: Json) => [c.code, c.name_en]));
-  const check = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', colors, attrs: {} }) as Json;
+  const wooBrand = matchWooBrand(brand, wooBrands ?? []) as number | null; // decision 5: the site's WooCommerce brand, by name
+  const check = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', wooBrand, colors, attrs: {} }) as Json;
   if (check.error) return json(400, check);
   const entry = { ...productEntry(null, 'studio_upload'), entity_id: `${batchId}#${index}` };
   if (!pushEnabled(run.env)) return await pushSkip(run, 'studio_upload', null, { batch: batchId, index });
   const ctx = await run.ctx();
-  const built = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', colors, attrs: await attributeIds(run, ctx) }) as Json;
+  const built = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', wooBrand, colors, attrs: await attributeIds(run, ctx) }) as Json;
   if (built.error) return json(400, built);
   const prev = isObj(batch.result) && Array.isArray(batch.result.items) && isObj(batch.result.items[index]) ? batch.result.items[index] : {};
   // the SKU (decision 2) is fixed when the product is made: the result keeps it, and a retry whose item builds another (its
@@ -862,6 +864,7 @@ async function studioUpload(run: Run, args: Json) {
       const p = (await ctx.woo.post('wc/v3/products', { ...built.product, images: built.images.map((path: string) => ({ id: res.media[path] })) })).data;
       res.productId = wooId(isObj(p) ? p.id : null);
       if (res.productId === null) res.error = 'product_refused';
+      else res.wooBrand = wooBrand; // the site's WooCommerce brand went with the product (null: none matched)
     }
     // the maker before the variations: Dokan orders a variation by the variation's own author, gives a new variation its
     // product's vendor, and has no REST route to change a variation's author afterwards — so a product whose maker did not
@@ -873,6 +876,11 @@ async function studioUpload(run: Run, args: Json) {
         await authorOf(res.productId);
         if (!authored.has(res.productId)) res.error = 'author_failed';
       }
+    }
+    // a product made before its WooCommerce brand was sent (woo-sync v33) gets it on a retry
+    if (!res.error && res.wooBrand === undefined) {
+      if (wooBrand !== null) await ctx.woo.put(`wc/v3/products/${res.productId}`, { brands: [{ id: wooBrand }] });
+      res.wooBrand = wooBrand;
     }
     if (!res.error && built.variations.length && !isObj(res.variations)) {
       if (!authored.has(res.productId)) { authored.clear(); on = null; } // made with no maker on their product (no store): theirs is none
@@ -906,7 +914,7 @@ async function studioUpload(run: Run, args: Json) {
   }
   await saveResult();
   await logSync(run.db, { ...entry, entity_id: res.productId == null ? entry.entity_id : String(res.productId), result: res.error ? 'error' : 'ok',
-    detail: { batch: batchId, index, sku: res.sku, media: Object.keys(res.media).length, variations: res.variations ?? null, ar: res.arId ?? null, ar_note: res.arNote ?? null, author: res.author ?? null, error: res.error } });
+    detail: { batch: batchId, index, sku: res.sku, media: Object.keys(res.media).length, variations: res.variations ?? null, ar: res.arId ?? null, ar_note: res.arNote ?? null, author: res.author ?? null, woo_brand: res.wooBrand ?? null, error: res.error } });
   return json(200, { action: 'studio_upload', result: res.error ? 'error' : 'ok', item: res });
 }
 

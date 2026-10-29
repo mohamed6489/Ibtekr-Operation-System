@@ -1509,6 +1509,13 @@ Deno.test('studio_upload: the SKU stays the one the product was made with — th
   assertEquals(siteWrites(woo, n), ['PUT dokan/v1/products/900 → 44', 'POST wc/v3/products/900/variations/batch', 'POST wc/v3/products', 'PUT dokan/v1/products/901 → 44']);
   assertEquals(woo.calls.find((c) => c.path === 'wc/v3/products/900/variations/batch')!.body.create.map((v: any) => v.sku), ['IBTARBE0999', 'IBTARBK0999'], 'the variations under their product\'s SKU');
   assertEquals(db.row('studio_batches', SB).status, 'done');
+  // a product made on v33 (no wooBrand on its result yet) whose batch went to another brand: refused before the WooCommerce
+  // brand a retry would add (decision 5) — never the new brand's on a product made with the old one's SKU
+  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', error: null }] });
+  const v33 = setup({ seed: { ...twoBrands(old), woo_brands: [{ id: 77, name: 'Bian eg', slug: 'bian-eg' }] }, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  await setBrand(v33.db, BRAND_B);
+  const r = await upload(v33.deps);
+  assertEquals([r.body.item.error, r.body.item.sku, r.body.item.wooBrand, siteWrites(v33.woo, 0)], ['brand_changed', 'IBTARBE1000', undefined, []], 'no brands PUT either');
 });
 
 Deno.test('studio_upload: once the product is made, an item that builds another SKU for the rest (a Simple\'s color, the serial) → sku_changed and nothing written, until it builds the product\'s again; before the product is made a retry builds it from the batch as it is (another brand\'s letters)', async () => {
@@ -1536,6 +1543,26 @@ Deno.test('studio_upload: once the product is made, an item that builds another 
   const made = await upload(nm.deps);
   assertEquals([made.body.result, made.body.item.sku, nm.db.row('studio_batches', SB).result.items[0].sku], ['ok', 'IBTBIBE1000', 'IBTBIBE1000']);
   assertEquals(nm.woo.calls.filter((c) => c.method === 'POST' && c.path === 'wc/v3/products' && c.body.wpml_language === 'en').map((c) => c.body.sku), ['IBTARBE1000', 'IBTBIBE1000']);
+});
+
+Deno.test('studio_upload (decision 5): the site\'s WooCommerce brand named like the batch\'s («@Art-craft» = «Art Craft») goes with the product, not its translation; none → no brands field and wooBrand null; a product made before (woo-sync v33) gets it on a retry, once', async () => {
+  const seed = { ...studioSeed(), brands: [{ id: BRAND, name: '@Art-craft', code: 'A' }], woo_brands: [{ id: 4363, name: 'Art Craft', slug: 'art-craft' }, { id: 5, name: 'Lusso', slug: 'lusso' }] };
+  const { woo, deps } = setup({ seed, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  const r = await upload(deps);
+  const [en, ar] = woo.calls.filter((c) => c.method === 'POST' && c.path === 'wc/v3/products');
+  assertEquals([en.body.brands, ar.body.brands, r.body.item.wooBrand, r.body.result], [[{ id: 4363 }], undefined, 4363, 'ok']);
+  const none = setup({ seed: { ...studioSeed(), woo_brands: [{ id: 5, name: 'Lusso', slug: 'lusso' }] }, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  const n = await upload(none.deps);
+  const enN = none.woo.calls.find((c) => c.method === 'POST' && c.path === 'wc/v3/products')!;
+  assertEquals(['brands' in enN.body, n.body.item.wooBrand, n.body.result], [false, null, 'ok'], 'the pa_brand attribute only; the report says so');
+  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', error: null }] });
+  const v33 = setup({ seed: { ...old, woo_brands: [{ id: 4363, name: 'Art Craft', slug: 'art-craft' }] }, env: WP_ENV, storage: STUDIO_FILES,
+    routes: studioRoutes({ 'PUT wc/v3/products/900': (c: any) => ({ body: { id: 900, brands: c.body.brands } }) }) });
+  const l = await upload(v33.deps);
+  assertEquals([siteWrites(v33.woo, 0), v33.woo.calls.find((c) => c.method === 'PUT')!.body, l.body.item.wooBrand], [['PUT wc/v3/products/900'], { brands: [{ id: 4363 }] }, 4363]);
+  const m = v33.woo.calls.length;
+  await upload(v33.deps);
+  assertEquals(siteWrites(v33.woo, m), [], 'once');
 });
 
 Deno.test('category_create (phase 5.2): products.add; the English category then its Arabic translation; woo_categories written; names with tags refused', async () => {

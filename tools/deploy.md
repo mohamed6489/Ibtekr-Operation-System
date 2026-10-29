@@ -578,6 +578,7 @@ window.IB_CONFIG = window.IB_CONFIG || {
 - المرحلة 5 (2026-10-28): `products` (`0021`) اتطبّقت من SQL Editor (صاحب المشروع)، `rls_products` حي ok (RLS live run 40675329321)، `woo-webhook` **v17** و`woo-sync` **v26** (متطابقين مع الريبو)، والسحب الكامل `{"action":"products","full":true}` خلص على 4 تشغيلات (مهلة 150 ثانية؛ كل تشغيلة بتكمّل من `sync_state.products_full`): en 3991 / ar 4030، 0 فشل. التفاصيل في `.superpowers/sdd/2026-10-28-phase-5-products/progress.md`.
 - المرحلة 5.1 (2026-10-28): `woo-sync` **v29** (تاب SEO — `seo_title`/`seo_description` → Rank Math `meta_data`، و`SEO_VARS`). الملفات السبعة متطابقة مع الريبو ما عدا سطرين في `_shared/woo-core.js` (`normalizePhone`): أداة النشر بتحوّل `\u0660-\u0669` / `\u06F0-\u06F9` للحروف نفسها — نفس المعنى (اتجرّب `normalizePhone` على 8 أشكال تليفون والنتيجة واحدة). **ماتهربش الـ backslash مرتين**: v28 (16:00–16:24 UTC) اتنشرت بـ `\\u0660` والـ regex بقى بيمسك الأرقام الإنجليزي؛ اتشيّك بعدها: مافيش أوردر اتزامن في الفترة دي ولا تليفون غلط في `orders`. `0022_products_report` اتطبّقت بـ MCP، و`rls_products_report` + `rls_products` حي ok (RLS live run 40721683531).
 - المرحلة 5.2 (2026-10-28): `0023_studio` (`products.add`، `sku_colors`، `sku_serial` من 999 + `sku_serial_take`، `studio_batches`، bucket `studio` المقفول) اتطبّقت من SQL Editor (صاحب المشروع)؛ `rls_studio rls_products rls_products_report` حي ok (RLS live run 40772555442). `woo-sync` **v31** (`studio_upload` / `category_create`؛ المبتكر عبر `PUT dokan/v1/products/{id} { post_author }` — **من غير snippet**) و`woo-webhook` **v18**، متطابقين مع الريبو ما عدا سطرين `normalizePhone`. محتاج `WOO_WP_USER` / `WOO_WP_APP_PASSWORD` (أدمن) و`WOO_PUSH_ENABLED = 1`. بعدها `woo-sync` **v32** (29 أكتوبر: اختيار المبتكر، المبتكر قبل التركيبات — `author_failed` — و`studio_sheet` لقراية لينك Google Sheet من السيرفر، قرار 13؛ مافيش أسرار جديدة)، متطابق مع الريبو ما عدا نفس السطرين. بعدها `woo-sync` **v33** (29 أكتوبر: المبتكر بيتحفظ مع الـ ids — `authorOwner` — ومبتكر الدفعة اتغيّر = بيتحط تاني على المنتج وترجمته قبل التركيبات، أو `maker_changed` من غير كتابة لو التركيبات اتبعتت؛ مافيش أسرار ولا migration جديدة)، متطابق مع الريبو ما عدا نفس السطرين. بعدها `woo-sync` **v34** (29 أكتوبر 04:56Z: الـ SKU بيتثبت مع المنتج — إعادة محاولة بتطلّع SKU تاني = `brand_changed` / `sku_changed` من غير أي كتابة؛ مافيش أسرار ولا migration جديدة)، متطابق مع الريبو ما عدا نفس السطرين — ومافيهاش براند WooCommerce (36fa8d5) ولا الاسم العربي الإجباري (6cbeb10): النشرة الجاية من فرع فيه التلاتة. بعدها `woo-sync` **v35** (29 أكتوبر 05:10Z — غلطة: كود 6cbeb10 لوحده غطّى على v34 لحد 06:11Z؛ مافيش `studio_upload` اتنادى عليها) و**v36** (06:11Z، من الدمج bfa99d6 / 0d9a53d: v34 + براند WooCommerce + الاسم العربي الإجباري؛ مافيش أسرار ولا migration جديدة)، متطابق مع الريبو ما عدا نفس السطرين. **قبل أي نشر للدالة:** رقم النسخة الحية (`list_edge_functions`) لازم يساوي آخر رقم هنا، وإلا وقّف — جلسة تانية نشرت. التفاصيل في `.superpowers/sdd/2026-10-28-phase-5-2-studio/progress.md`.
+- المرحلة 5.3 (2026-10-29): `0024_ai` (`ai_runs`، `ai_month_cost`، RPC `ai_run_start`) ودالة جديدة `ai-content` — **لسه ماتنشروش**؛ الترتيب والفحوص في 2.7.12 (`0024` ← `rls_ai` ← نشر `ai-content` ← `main` ← `ANTHROPIC_API_KEY` من صاحب المشروع ← القبول). مافيش تغيير في `woo-sync` ولا `woo-webhook`. التفاصيل في `.superpowers/sdd/2026-10-29-phase-5-3-ai-content/progress.md`.
 - المرحلة 3.5: `0017` (`bank_sync`: خمس خانات Dokan على `vendor_bank`، ونقل رقم حساب مكتوب في `iban` لـ `account_number`، و`vendor_push_pending` بقاعدة `bank`). فحص بعد التطبيق: `select string_agg(column_name, ',' order by column_name) from information_schema.columns where table_name = 'vendor_bank' and column_name in ('account_number','account_type','bank_address','routing_number','swift')` = الخمسة، و`select count(*) from public.vendor_bank where iban ~ '^[0-9]+$'` = 0؛ ثم `rls_bank_sync rls_vendors` عبر الـ workflow (الأسماء بمسافات)؛ ثم نشر الدالتين وتشغيلة `vendors` (التعبئة الأولى للبنك والإيميل) وفحص القبول (PUT بنفس قيم البنك على متجر واحد، وشكل `paypal` قبل وبعد بـ `probe_store`). **اتعمل على الـ staging 27 أكتوبر:** `0017` اتطبّقت (الخمسة موجودين، `iban` بأرقام بس = 0، صفين فيهم `account_number`)؛ `rls_bank_sync rls_vendors` حي أخضر — run 10؛ `woo-sync` v19 و`woo-webhook` v16؛ تشغيلة الـ cron 10:30Z: 55 متجر، `from_site` 55، 0 تعارض — 30 بنك من الموقع (`vendor_bank` 31 صف: 30 `updated_by = 'الموقع'` + صف يدوي لمبتكر من غير متجر)، والإيميل على الـ 56؛ اللقطة فيها بصمة بس (30)، ومافيش أي خانة بنك في `raw` ولا اللقطة ولا `woo_sync_log`/`activity_log`. ملحوظة: متجرين (1 و2358) خانة IBAN على الموقع نفسه فيها أرقام بس — بيانات الموقع، بتتنقل زي ما هي. فحص القبول على متجر 44: `push_vendor ['bank']` بنفس القيم → `accepted ['bank']`، و`push_pending` فاضي، وشكل `payment` (`bank` و`paypal` `{"0": filled, "email": empty}`) قبل وبعد زي ما هو.
 - المرحلة 3.4: `0016` اتطبّقت على الـ staging 27 أكتوبر (`commission_type`؛ `rls_commission_type rls_vendors` حي أخضر — run 9؛ `woo-sync` v18 و`woo-webhook` v15؛ تشغيلة 09:00Z سجّلت النوع من الموقع على متجرين: 2374 و44 بقوا `category_based`؛ تشغيلة يدوي بعدها من غير تغيير) (`commission_type`: عمود `vendor_rates.commission_type` (`fixed` | `category_based`) وRPC `vendor_commission_set` — النوع والافتراضي وأرقام الفئات اللي بالإيد مرة واحدة؛ و`vendor_rate_set` بيحتفظ بالنوع). فحص بعد التطبيق: `select data_type, is_nullable, column_default from information_schema.columns where table_name = 'vendor_rates' and column_name = 'commission_type'` = `text` / `NO` / `'fixed'::text`، و`select count(*) from pg_proc where proname = 'vendor_commission_set'` = 1؛ ثم `rls_commission_type,rls_vendors` عبر الـ workflow؛ ثم إعادة نشر الدالتين (`_shared/woo-core.js` و`_shared/woo-write.js` اتغيّروا) وتشغيلة `categories` و`vendors` (المتاجر اللي على `category_based` في الموقع بيتسجّل نوعها).
 - المرحلة 3.2: `0013` اتطبّقت على الحي 27 أكتوبر (`brands`؛ الفحوص «قبل/بعد» مطابقة: 56 براند / 56 صف ملكية / 0 نسب خاصة، 55 مربوطين بمتاجرهم + 1 يدوي، التريجرات التلاتة على `vendors`، ومافيش فرعي اتغيّر صاحبه). كانت: (البراندات: `brands`/`brand_owners`/`brand_rates`، التريجر `vendors_brand_after_insert` وإعادة التعبئة — 56 براند متوقعة — والحارس `vendors_brands_guard_delete`، والدالتين `brand_owner_at`/`store_owner_at`). بعد التطبيق: فحوص §2.1 ثم `rls_brands` عبر workflow «RLS live».
@@ -816,6 +817,60 @@ from public.woo_webhook_events order by received_at desc limit 30;
 - **نوع العمولة وشجرة الفئات (المرحلة 3.4، `0016`):** `rate` في اللقطة والمقارنة = `type|rate|flat` (لقطة قديمة من غير نوع = `fixed`). الإرسال في `category_based`: `admin_commission_type: category_based` + `admin_category_commission = { all: الافتراضي, items: كل فئات `woo_categories` بقيمتها الفعلية }` (من غير فئات متزامنة → الأرقام اللي بالإيد بس)؛ في `fixed`: `admin_commission` + `admin_additional_fee`. السحب: `items` بتتقارن بالمعنى على الشجرة، والأرقام اللي بالإيد بتتستنتج (رقم الفئة = رقم أبوها الفعلي → موروث) وبتتكتب صفوف `vendor_category_rates` بالفرق؛ موقع على `fixed` مابيلمسش صفوف الفئات. فحص: `select v.woo_vendor_id, r.commission_type, r.rate from public.vendors v join lateral (select * from public.vendor_rates r where r.vendor_id = v.id order by since desc, id desc limit 1) r on true where r.commission_type = 'category_based';`
 
 - **الحساب البنكي (المرحلة 3.5، `0017`):** حقل `bank` = `payment.bank` (ac_name, ac_number, ac_type, bank_name, bank_addr, routing_number, iban, swift) ↔ `vendor_bank`. اللقطة فيها بصمة بس؛ `woo_sync_log`/`activity_log` فيهم اسم الحقل بس. الـ PUT `{ payment: { bank } }` بس. فحص: `select count(*) filter (where updated_by = 'الموقع') from public.vendor_bank;` (من غير قيم).
+
+#### 2.7.12 دالة `ai-content` — المحتوى بالـ AI (المرحلة 5.3)
+دالة لوحدها (مش `woo-sync`): `write` (أداة المحتوى وزرار صفحة المنتج) و`studio` (اقتراحات الاستوديو)، بتنادي Claude بالـ SDK الرسمي (`npm:@anthropic-ai/sdk@1.3.0`). **اقتراحات بس:** مابتكتبش على الموقع ولا على الدفعة — الحفظ من الصفحة عبر `product_save` / `IBStudio.save` زي أي تعديل. JWT العضو بس (مافيش سر مزامنة ولا cron): `write` = أدمن أو `products.add` أو `products.edit` = F، و`studio` = أدمن أو `products.add` = F. الخطة: `docs/superpowers/plans/2026-10-29-phase-5-3-ai-content.md`.
+
+**بالترتيب:**
+1. `0024_ai` على الحي (`apply_migration` باسم `0024_ai`، أو SQL Editor). فحص بعد التطبيق:
+
+   ```sql
+   select relrowsecurity from pg_class where oid = 'public.ai_runs'::regclass;                              -- true
+   select proname, prosecdef from pg_proc where proname in ('ai_month_cost', 'ai_run_start') order by 1;   -- صفين، false الاتنين
+   select has_function_privilege('authenticated', 'public.ai_run_start(jsonb, numeric, numeric, int, int)', 'execute');  -- false
+   ```
+
+2. `rls_ai` عبر workflow «RLS live» (`files: rls_ai`).
+3. نشر `ai-content` بـ `deploy_edge_function` **بـ `verify_jwt: false` صريح** (نفس القيمة في `supabase/config.toml`؛ الدالة بتعمل المصادقة بنفسها):
+
+   | `name` في `files` | المحتوى من |
+   |---|---|
+   | `ai-content/index.ts` | `supabase/functions/ai-content/index.ts` |
+   | `ai-content/deno.json` | `supabase/functions/ai-content/deno.json` |
+   | `_shared/ai-content.js`، `_shared/woo-products.js` | `supabase/functions/_shared/*.js` |
+
+   ومعاهم `entrypoint_path: ai-content/index.ts` و`import_map_path: ai-content/deno.json`. **مايترفعش** `index_test.ts`. أي تعديل في `_shared/woo-products.js` = إعادة نشر `woo-sync` **و**`ai-content` (`seoVarsOk` جاية منه). بعد النشر `get_edge_function` وقارن الملفات بالريبو.
+4. فحص بعد النشر — الكود نفسه هو اللي بيرد:
+
+   ```bash
+   curl -s -X POST https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/ai-content -H 'Content-Type: application/json' -d '{"action":"write"}'
+   # المتوقع: {"error":"unauthorized"} (401). رد من الـ gateway بدله (Missing authorization header) = verify_jwt لسه true
+   ```
+
+5. `main` (الواجهة) — بعد 1–4 بس: الواجهة الجديدة بتنادي الدالة وبتقرا `ai_runs`.
+6. **المفتاح (صاحب المشروع، آخر خطوة):** Supabase › Edge Functions › Secrets → `ANTHROPIC_API_KEY`. من غيره (أو لو Anthropic رفضه بـ 401/403) الدالة بترد 503 `not_configured` من غير أي نداء، والواجهة بتقول «الـ AI لسه مش متوصّل». مافيش إعادة نشر بعد السر.
+7. **القبول:** أداة المحتوى (من بيانات، ومن منتج على الموقع + «احفظ على المنتج») ومنتج واحد في الاستوديو («املا الناقص بالـ AI»)، وبعدها `ai_runs` (تحت).
+
+**الأسرار** (زي 2.7.2: القيمة عمرها ما تعدّي على الشات ولا تدخل git):
+
+| السر | القيمة |
+|---|---|
+| `ANTHROPIC_API_KEY` | مفتاح Claude API (console.anthropic.com › API Keys) — صاحب المشروع بيحطه بنفسه من اللوحة |
+| `AI_MONTHLY_LIMIT_USD` | **اختياري:** سقف الشهر بالدولار (شهر القاهرة). مجموع الشهر + حجز النداء ($0.50) هيعدّيه → 402 `ai_cap` من غير نداء. من غيره (أو قيمة مش رقم موجب) مافيش سقف |
+| `AI_CONTENT_MODEL` | **اختياري:** `claude-opus-5-5` (الافتراضي) أو `claude-sonnet-5-5`؛ أي قيمة تانية = الافتراضي |
+| `AI_CONTENT_EFFORT` | **اختياري:** `low` / `medium` (الافتراضي) / `high` |
+
+**السلوك:**
+- **الـ fallback شغّال:** beta `server-side-fallback-2026-07-01` + `fallbacks: "default"` — طلب الموديل رفضه لأسباب الأمان بيتعاد في نفس النداء على الموديل اللي Anthropic بترشحه، والتكلفة بتتحسب بالموديل اللي رد فعلًا؛ رفض بعده = 200 `{ result: 'refused' }`.
+- **التكلفة:** منتج واحد ≈ $0.05 على Opus 5.5 (التعليمات كاش). كل نداء بيتحجز الأول بـ RPC `ai_run_start` (للسيرفر بس، خطوة واحدة مقفولة): 60 نداء للعضو في 10 دقايق = 429 `busy` من غير صف؛ السقف = صف `cap`؛ غير كده صف `pending` بـ $0.50 والنتيجة بتتكتب عليه بعد النداء. نداء نتيجته مش معروفة (timeout) بيفضل بحجزه في مجموع الشهر.
+- **الأخطاء:** 400 `bad_request` (`field`)، 401 `unauthorized`، 404 `not_found` (منتج أو صنف)، 402 `ai_cap`، 429 `busy` (الحد، أو 429/5xx من Anthropic بعد محاولة تانية واحدة، أو timeout)، 503 `not_configured`، 502 `ai_error` (مافيش رد ينفع)، و200 `refused`.
+- **الصور:** صورة «من صورة» بتتصغّر في المتصفح (JPEG ≤ 1568px) وتتبعت للدالة؛ صورة المنتج على الموقع بتتبعت لـ Anthropic كلينك https من المرآة (Anthropic بيجيبها)، ولو ماقدرش يجيبها النداء بيتعاد مرة من غيرها؛ صورة الاستوديو من bucket `studio` (الدفعة دي بس). المتصفح عمره ما بيكلّم Anthropic، فالـ CSP زي ما هو.
+- **القراءة** (`ai_runs`: صف لكل نداء — الناتج المتنضّف وكود الغلط بس، من غير الطلب ولا الصور ولا المفتاح):
+
+  ```sql
+  select created_at, action, source, label, model, status, error, cost_usd from public.ai_runs order by created_at desc limit 50;
+  select public.ai_month_cost();   -- مجموع شهر القاهرة (من SQL editor = كل الأعضاء)
+  ```
 
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
 - الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.

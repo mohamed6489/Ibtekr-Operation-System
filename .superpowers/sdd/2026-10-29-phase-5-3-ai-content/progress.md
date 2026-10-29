@@ -37,4 +37,12 @@
   مشغول / الصلاحية) + «AI — راجع» و«اتملت بالـ AI» + التعديل بالإيد بيشيل العلامة؛ «البيانات و SKU»: الأسامي الناقصة + اللون اللي
   مش في الجدول؛ «المتغيرات»: «اقترح المتغيرات»؛ «الأقسام والأوصاف»: الناقص (وصف + قسم)، «اكتب بالـ AI» في الصف والـ popup، وللمحدد؛
   `aiApply` في `products-domain.js` (+1 unit)؛ `studio-ai.spec` (2). `npm test` 336، الـ e2e كله 184 أخضر.
-- [ ] T7 حي (المفتاح في الآخر).
+- [ ] T7 حي (المفتاح في الآخر) — الخطوات والفحوص في `tools/deploy.md` §2.7.12، و`[functions.ai-content] verify_jwt = false` في
+  `supabase/config.toml`. 29 أكتوبر: `list_migrations` على الحي آخرها `0022_products_report` (`0023` اتطبّقت من SQL Editor)؛
+  `list_edge_functions` و`apply_migration` و`deploy_edge_function` محتاجين موافقة صاحب المشروع — مستنيين.
+  - [ ] رقم `woo-sync` الحي = v36 (آخر رقم في §2.6) ومافيش `ai-content` قبل كده.
+  - [ ] `0024_ai` + فحوص ما بعد التطبيق.
+  - [ ] `rls_ai` عبر «RLS live».
+  - [ ] نشر `ai-content` (v1) + `get_edge_function` مطابق للريبو + `curl` → 401 `unauthorized`.
+  - [ ] `main` (الواجهة) + `origin/deploy^{tree}` = `origin/main:app`.
+  - [ ] صاحب المشروع يحط `ANTHROPIC_API_KEY` ← القبول (أداة المحتوى + منتج في الاستوديو) ← `ai_runs` ← التقرير.

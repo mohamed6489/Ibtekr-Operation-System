@@ -5,3 +5,6 @@ verify_jwt = false
 
 [functions.woo-sync]
 verify_jwt = false
+
+[functions.ai-content]
+verify_jwt = false

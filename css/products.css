@@ -75,3 +75,12 @@
 #pg-products .link-btn:hover{color:var(--color-brand-hover)}
 #pg-products .pr-rep-bar .grow{flex:1 1 280px}
 @media (max-width:767px){#pg-products .charts{grid-template-columns:1fr}}
+/* phase 5.3: the content tool (prototype 1793230184, contentTool) */
+.out-b{display:flex;flex-direction:column;gap:4px}
+.out-b small{color:var(--color-text-secondary)}
+.out-b [contenteditable]{padding:8px 12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);background:var(--color-bg-base);line-height:22px;white-space:pre-wrap;overflow-wrap:anywhere}
+.out-b [contenteditable]:focus{outline:2px solid var(--color-border-focus)}
+.out-miss{padding:8px 12px;border:1px dashed var(--color-border-subtle);border-radius:var(--radius-md)}
+.ct-photo{display:flex;gap:12px;align-items:center}
+.ct-photo img{width:96px;height:96px;object-fit:cover;border-radius:var(--radius-md);border:1px solid var(--color-border-subtle)}
+.ct-photo>div{display:flex;flex-direction:column;gap:2px;align-items:flex-start}

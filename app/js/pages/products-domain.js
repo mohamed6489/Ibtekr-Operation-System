@@ -385,6 +385,35 @@
       r[AI_SAVE[k]] = k === 'short' || k === 'long' ? paraHtml(v) : v.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim(); }); return r; };
     return { fields: pick(shown && shown.en), ar: hasAr ? pick(shown && shown.ar) : {} };
   }
-  return { aiDisplay, paraHtml, aiSaveChange, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  // the studio (phase 5.3, decision 6): an AI answer for one batch item → the item filled, each field it filled marked in it.ai
+  // («AI — راجع»). The names only when empty; a description language only when empty unless o.force (an explicit «اكتب بالـ AI»);
+  // the categories added with the sections above them (catToggle); the colors from the table (Simple: the first one), replacing
+  // the sheet's names that were not in it; the sizes only when the item had none. o: { tree, type, force } → the keys marked.
+  function aiApply(it, fields, want, o) {
+    const f = fields || {}; const opts = o || {}; const marked = []; const empty = (v) => !String(v == null ? '' : v).trim();
+    const mark = (k) => { it.ai = Object.assign({}, it.ai || {}); it.ai[k] = true; marked.push(k); };
+    if (want.includes('nameEn') && f.nameEn && empty(it.nameEn)) { it.nameEn = f.nameEn; mark('nameEn'); }
+    if (want.includes('nameAr') && f.nameAr && empty(it.nameAr)) { it.nameAr = f.nameAr; mark('nameAr'); }
+    if (want.includes('desc')) {
+      let n = 0;
+      if (f.shortDesc && (opts.force || empty(it.shortDesc))) { it.shortDesc = f.shortDesc; n++; }
+      if (f.shortDescAr && (opts.force || empty(it.shortDescAr))) { it.shortDescAr = f.shortDescAr; n++; }
+      if (n) mark('desc');
+    }
+    if (want.includes('category') && Array.isArray(f.categories) && f.categories.length && opts.tree) {
+      let sel = { chosen: new Set(it.categories || []), auto: new Set() };
+      f.categories.forEach((id) => { if (opts.tree.byId.has(Number(id))) sel = catToggle(opts.tree, sel, Number(id), true); });
+      const next = [...sel.chosen];
+      if (next.length !== (it.categories || []).length) { it.categories = next; mark('category'); }
+    }
+    if (want.includes('variations') && Array.isArray(f.colors) && f.colors.length) {
+      const multi = opts.type === 'Variable';
+      it.colors = multi ? f.colors.slice() : [f.colors[0]]; it.unknownColors = [];
+      if (Array.isArray(f.sizes) && f.sizes.length && !(it.sizes || []).length) it.sizes = multi ? f.sizes.slice() : [f.sizes[0]];
+      mark('variations');
+    }
+    return marked;
+  }
+  return { aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

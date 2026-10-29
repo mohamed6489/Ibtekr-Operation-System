@@ -230,3 +230,19 @@ test('aiSaveChange: name, descriptions (as HTML) and SEO per language; keywords 
   assert.deepEqual(plain(PD.aiSaveChange(shown, false)).ar, {});
   assert.deepEqual(plain(PD.aiSaveChange({}, true)), { fields: {}, ar: {} });
 });
+
+test('aiApply (the studio): names only when empty, descriptions per empty language (all with force), categories with their parents, colors from the table, sizes only when none; each filled field marked', () => {
+  const tree = PD.catTree([{ id: 10, name: 'Home', parentId: null }, { id: 11, name: 'Lamps', parentId: 10 }]);
+  const it = { nameEn: 'Desk Lamp', nameAr: '', shortDesc: 'Warm.', shortDescAr: '', categories: [], colors: [], unknownColors: ['Sage'], sizes: [] };
+  const marked = PD.aiApply(it, { nameEn: 'Other', nameAr: 'أباجورة', shortDesc: 'New.', shortDescAr: 'جديد.', categories: [11, 99], colors: ['BE', 'BK'], sizes: ['30×40'] },
+    ['nameEn', 'nameAr', 'desc', 'category', 'variations'], { tree, type: 'Simple' });
+  assert.deepEqual(plain(marked), ['nameAr', 'desc', 'category', 'variations']);
+  assert.deepEqual(plain(it), { nameEn: 'Desk Lamp', nameAr: 'أباجورة', shortDesc: 'Warm.', shortDescAr: 'جديد.', categories: [11, 10], colors: ['BE'], unknownColors: [], sizes: ['30×40'],
+    ai: { nameAr: true, desc: true, category: true, variations: true } });
+  PD.aiApply(it, { shortDesc: 'Rewritten.', shortDescAr: 'تاني.' }, ['desc'], { tree, force: true });
+  assert.deepEqual([it.shortDesc, it.shortDescAr], ['Rewritten.', 'تاني.']);
+  const v = { colors: [], sizes: ['M'] };
+  PD.aiApply(v, { colors: ['BE', 'BK'], sizes: ['L'] }, ['variations'], { type: 'Variable' });
+  assert.deepEqual(plain([v.colors, v.sizes]), [['BE', 'BK'], ['M']]);
+  assert.deepEqual(plain(PD.aiApply({ nameAr: 'موجود' }, { nameAr: 'تاني' }, ['nameAr'], {})), [], 'nothing replaced, nothing marked');
+});

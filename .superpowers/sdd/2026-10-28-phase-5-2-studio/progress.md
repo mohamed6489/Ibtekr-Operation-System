@@ -18,7 +18,8 @@
   `products-studio.js` + e2e. unit 308، e2e على الـ mock 173 + 1 متقلّب (`vendors-brands` نقل الملكية — عدّى 4/4 لوحده)؛
   commit 037c9a8، CI أخضر، `main` → Deploy run 40817073000 أخضر (فرع `deploy` = `main:app`).
 - [x] الاسم بالعربي إجباري (قرار 15، صاحب المشروع 29 أكتوبر): `itemIssues` (+ `{ ar: false }` للاستلام) و«عدّل» في الصفحة،
-  و`buildStudio` بيرفض `bad_field nameAr` على السيرفر؛ unit 309، Deno 124، e2e الاستوديو 6/6.
+  و`buildStudio` بيرفض `bad_field nameAr` على السيرفر؛ unit 309، Deno 124، e2e الاستوديو 6/6، والـ e2e كله على الـ mock 174
+  + 1 متقلّب (`products` قرار 16 على منتج Variable — عدّى 5/5 لوحده)؛ commit 6cbeb10، CI أخضر (run 40818894970).
 - [ ] T7 حي:
   - [x] `0023` من SQL Editor (صاحب المشروع، 28 أكتوبر).
   - [x] `rls_studio rls_products rls_products_report` حي ok — RLS live run 40772555442.
@@ -30,6 +31,9 @@
   - [x] main + نشر الموقع (29 أكتوبر): `main` fast-forward لـ 1c024dd (CI أخضر على de42e1f و7dcba57 و1c024dd) → Deploy run
     40812211792 أخضر 03:27Z → فرع `deploy` = 39f9d76 وشجرته = `main:app` (فيه `readSheetLink` واختيار المبتكر)؛ Hostinger بيسحبه
     لوحده. فحص المتصفح على الموقع بتاع صاحب المشروع (الـ sandbox مابيوصلش للموقع).
+  - [ ] قرار 15 حي: `woo-sync` **v33** (من v32 اتغيّر `woo-studio.js` بس) + `main` → نشر الموقع. نداء النشر اترفض من صاحب
+    المشروع (29 أكتوبر) — مستني كلمته. لحد ما يتنشر: `main` = c163458 (قرار 14) والدالة v32، يعني منتج من غير اسم عربي
+    بيترفع من غير ترجمة.
   - [ ] قبول: منتج Simple + منتج Variable مسودة من الاستوديو (بموافقة صاحب المشروع) — الصور، الترجمة العربي، المبتكر على Dokan، المرآة.
   - [ ] تقرير.
 

@@ -223,7 +223,8 @@ test('decision 16: the maker price (for the calculation only) → sale = (maker 
   await expect(page.locator('#e-reg')).toHaveValue(String(regular));
   await page.locator('[data-psave]').click();
   await expect(page.locator('.unsaved')).toHaveCount(0);
-  expect(mock.productWrites.at(-1)).toEqual({ action: 'product_save', by: ADMIN, id: 9003, fields: { sale_price: '1270', regular_price: String(regular) } });
+  // the random markup can land on the seeded regular price (1500, one draw in 20): an unchanged price is not sent
+  expect(mock.productWrites.at(-1)).toEqual({ action: 'product_save', by: ADMIN, id: 9003, fields: regular === 1500 ? { sale_price: '1270' } : { sale_price: '1270', regular_price: String(regular) } });
 });
 
 test('decision 16 on a variable product: a maker price per variation → its two prices; the empty rows stay', async ({ page }) => {

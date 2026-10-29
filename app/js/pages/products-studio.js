@@ -376,13 +376,48 @@
   // ---------------- 7 الأقسام والأوصاف ----------------
   const catsAll = () => (PR() ? PR().categories() : []);
   const catPath = (id) => { const c = catsAll().find((x) => x.id === Number(id)); return c ? c.path : '#' + id; };
+  // the picker (decision 14, the owner 29 Oct): the site's tree with + / − like the commission tree (main categories first), the search
+  // opening the branches it finds, the chosen ones as chips on top; ticking a sub-category ticks the ones above it (PD.catToggle)
   function catsPicker(title, cur, onDone) {
-    const chosen = new Set(cur || []); let q = '';
+    const tree = PD.catTree(catsAll().filter((c) => !/^uncategori[sz]ed$/i.test(c.name)));
+    let sel = { chosen: new Set(cur || []), auto: new Set() }; let found = null;
+    const open = new Set([...sel.chosen].flatMap((id) => PD.catAncestors(tree, Number(id)))); const shut = new Set();
     const m = U.Modal({ title, body: [], footer: [] }); m.el.classList.add('wide');
-    const draw = () => { const qq = q.trim().toLowerCase(); const list = catsAll().filter((c) => !/^uncategori[sz]ed$/i.test(c.name) && (!qq || c.path.toLowerCase().includes(qq))).slice(0, 200);
-      const inp = h('input', { type: 'search', class: 'input', placeholder: 'دوّر على قسم…', 'aria-label': 'دوّر على قسم', value: q }); inp.addEventListener('input', () => { q = inp.value; draw(); setTimeout(() => { const x = m.el.querySelector('input[type=search]'); if (x) { x.focus(); x.setSelectionRange(q.length, q.length); } }); });
-      m.setBody(inp, h('div', { class: 'cat-list' }, list.map((c) => K.Checkbox({ label: c.path, checked: chosen.has(c.id), onChange: (v) => { v ? chosen.add(c.id) : chosen.delete(c.id); } }))), Button({ size: 'sm', type: 'text', label: '+ قسم جديد', onClick: () => { m.close(); newCategory(); } })); };
-    draw(); m.setFooter(Button({ label: 'إلغاء', onClick: () => m.close() }), Button({ type: 'primary', label: 'تمام', onClick: () => { m.close(); onDone([...chosen]); } }));
+    const nameOf = (id) => { const c = tree.byId.get(Number(id)); return c ? c.name : catPath(id); };
+    const inp = h('input', { type: 'search', class: 'input', placeholder: 'دوّر على قسم…', 'aria-label': 'دوّر على قسم' });
+    const chips = h('div', { class: 'chips cat-chosen' });
+    const list = h('div', { class: 'cat-tree cat-pick', role: 'group', 'aria-label': 'أقسام الموقع' });
+    const refocus = (q) => { const x = list.querySelector(q); if (x) x.focus(); };
+    function drawChips() {
+      const L = [...sel.chosen].sort((a, b) => catPath(a).localeCompare(catPath(b)));
+      chips.replaceChildren(...(L.length ? [h('span', { class: 't-small help' }, 'اخترت:')].concat(L.map((id) => h('button', { type: 'button', class: 'chip fchip', title: catPath(id), 'aria-label': 'شيل ' + nameOf(id), onClick: () => set(id, false) }, nameOf(id), Icon('close', 'sm'))))
+        : [h('span', { class: 't-small help' }, 'لسه مااخترتش قسم — القسم الفرعي بيعلّم اللي فوقه لوحده')]));
+    }
+    // a branch shows when the search found it or something under it; under a category the search found, everything shows
+    function rows(nodes, depth, all) {
+      const out = [];
+      for (const c of nodes) {
+        if (found && !all && !found.show.has(c.id)) continue;
+        const kids = tree.kids.get(c.id) || [];
+        const isOpen = !shut.has(c.id) && (open.has(c.id) || (!!found && found.open.has(c.id)));
+        const tog = kids.length ? h('button', { type: 'button', class: 'cat-toggle', 'aria-expanded': String(isOpen), 'aria-label': (isOpen ? 'اقفل' : 'افتح') + ' أقسام ' + c.name, 'data-cat-toggle': c.id,
+          onClick: () => { if (isOpen) { open.delete(c.id); shut.add(c.id); } else { open.add(c.id); shut.delete(c.id); } drawList(); refocus('[data-cat-toggle="' + c.id + '"]'); } }, isOpen ? '−' : '+') : h('span', { class: 'cat-toggle-sp' });
+        const cb = K.Checkbox({ label: c.name, checked: sel.chosen.has(c.id), onChange: (v) => set(c.id, v) });
+        cb.setAttribute('data-cat-pick', String(c.id)); if (found && found.hits.has(c.id)) cb.classList.add('cat-hit');
+        out.push(h('div', { class: 'cat-row', style: '--d:' + depth }, tog, cb));
+        if (isOpen) out.push(...rows(kids, depth + 1, all || (!!found && found.hits.has(c.id))));
+      }
+      return out;
+    }
+    function drawList() {
+      const r = rows(tree.roots, 0, false);
+      list.replaceChildren(...(r.length ? r : [h('p', { class: 't-small help cat-none' }, found ? 'مافيش قسم بالاسم ده' : 'أقسام الموقع لسه ماتزامنتش — بتتجاب كل ربع ساعة.')]));
+    }
+    function set(id, on) { sel = PD.catToggle(tree, sel, Number(id), on); drawChips(); drawList(); refocus('[data-cat-pick="' + Number(id) + '"]'); }
+    inp.addEventListener('input', () => { found = PD.catSearch(tree, inp.value); shut.clear(); drawList(); });
+    drawChips(); drawList();
+    m.setBody(inp, chips, list, Button({ size: 'sm', type: 'text', label: '+ قسم جديد', onClick: () => { m.close(); newCategory(); } }));
+    m.setFooter(Button({ label: 'إلغاء', onClick: () => m.close() }), Button({ type: 'primary', label: 'تمام', onClick: () => { m.close(); onDone([...sel.chosen]); } }));
   }
   function newCategory() {
     K.form({ title: 'قسم جديد على الموقع', submitLabel: 'اعمل القسم', values: { en: '', ar: '', p: '' },

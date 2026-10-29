@@ -154,3 +154,47 @@ test('mapColumns + rowsToItems + itemIssues: headers matched in English or Arabi
   assert.deepEqual(PD.itemIssues(items[1], 'Variable'), ['الاسم (EN)', 'سعر المبتكر', 'المتغيرات']);
   assert.deepEqual(PD.itemIssues(items[1], 'Simple'), ['الاسم (EN)', 'سعر المبتكر']);
 });
+
+// decision 14 (the owner, 29 Oct): the studio's category picker is the site's tree; a sub-category ticks the ones above it
+const CATS = [{ id: 1, name: 'Decor', parentId: null }, { id: 2, name: 'accessories', parentId: 1 }, { id: 3, name: 'Animals', parentId: 2 }, { id: 4, name: 'Trays', parentId: 1 },
+  { id: 5, name: 'FURNITURE', parentId: null }, { id: 6, name: 'Chairs', parentId: 5 }, { id: 7, name: 'Orphan', parentId: 99 }, { id: 8, name: 'Loop A', parentId: 9 }, { id: 9, name: 'Loop B', parentId: 8 }];
+const ids = (s) => [...s].sort((a, b) => a - b);
+
+test('catTree + catAncestors (decision 14): roots and branches by name (case-insensitive), a missing parent = a root, a loop in the data never hangs', () => {
+  const t = PD.catTree(CATS);
+  assert.deepEqual(t.roots.map((c) => c.id), [1, 5, 7]);
+  assert.deepEqual(t.kids.get(1).map((c) => c.name), ['accessories', 'Trays']);
+  assert.deepEqual(PD.catAncestors(t, 3), [2, 1]);
+  assert.deepEqual(PD.catAncestors(t, 1), []);
+  assert.deepEqual(PD.catAncestors(t, 7), []);
+  assert.deepEqual(PD.catAncestors(t, 8), [9]);
+});
+
+test('catToggle (decision 14): ticking a sub-category ticks the ones above it; unticking drops the ones it ticked when nothing under them is left; a parent ticked by hand stays; a parent can be unticked alone', () => {
+  const t = PD.catTree(CATS);
+  let s = PD.catToggle(t, { chosen: new Set(), auto: new Set() }, 3, true);
+  assert.deepEqual([ids(s.chosen), ids(s.auto)], [[1, 2, 3], [1, 2]]);
+  s = PD.catToggle(t, s, 4, true);
+  assert.deepEqual([ids(s.chosen), ids(s.auto)], [[1, 2, 3, 4], [1, 2]]);
+  const before = s;
+  s = PD.catToggle(t, s, 3, false); // Decor stays: Trays is still under it
+  assert.deepEqual([ids(s.chosen), ids(s.auto)], [[1, 4], [1]]);
+  assert.deepEqual(ids(before.chosen), [1, 2, 3, 4]); // the input is untouched
+  s = PD.catToggle(t, s, 4, false);
+  assert.deepEqual([ids(s.chosen), ids(s.auto)], [[], []]);
+  s = PD.catToggle(t, { chosen: new Set([1]), auto: new Set() }, 4, true); // Decor ticked by hand (or saved on the item)
+  s = PD.catToggle(t, s, 4, false);
+  assert.deepEqual(ids(s.chosen), [1]);
+  s = PD.catToggle(t, PD.catToggle(t, { chosen: new Set(), auto: new Set() }, 6, true), 5, false); // the parent unticked alone
+  assert.deepEqual([ids(s.chosen), ids(s.auto)], [[6], []]);
+  s = PD.catToggle(t, s, 6, false);
+  assert.deepEqual(ids(s.chosen), []);
+});
+
+test('catSearch (decision 14): the categories whose name has the text (any case) and the ones above them, opened; empty text = the whole tree', () => {
+  const t = PD.catTree(CATS);
+  assert.equal(PD.catSearch(t, '  '), null);
+  const f = PD.catSearch(t, 'ANIM');
+  assert.deepEqual([ids(f.hits), ids(f.show), ids(f.open)], [[3], [1, 2, 3], [1, 2]]);
+  assert.deepEqual(ids(PD.catSearch(t, 'zzz').show), []);
+});

@@ -265,6 +265,41 @@
   function itemIssues(it, type) {
     return [!it.nameEn && 'الاسم (EN)', !it.vendorPrice && 'سعر المبتكر', type === 'Variable' && !((it.colors || []).length || (it.sizes || []).length) && 'المتغيرات'].filter(Boolean);
   }
+  // أقسام الاستوديو (قرار 14، صاحب المشروع 29 أكتوبر): شجرة بـ +/− زي شجرة العمولة. [{ id, name, parentId }] → { byId, kids, roots }
+  // (kids: id الأب أو 0 → الفروع بالاسم؛ أب مش موجود = رئيسي؛ لفّة في الداتا ماتظهرش ومابتوقفش حاجة)
+  function catTree(cats) {
+    const list = (cats || []).filter((c) => c && Number.isInteger(c.id)); const byId = new Map(list.map((c) => [c.id, c])); const kids = new Map();
+    for (const c of list) { const p = c.parentId != null && c.parentId !== c.id && byId.has(c.parentId) ? c.parentId : 0; if (!kids.has(p)) kids.set(p, []); kids.get(p).push(c); }
+    for (const l of kids.values()) l.sort((a, b) => String(a.name).localeCompare(String(b.name), 'en', { sensitivity: 'base' }) || a.id - b.id);
+    return { byId, kids, roots: kids.get(0) || [] };
+  }
+  // الأقسام اللي فوق القسم، الأقرب الأول
+  function catAncestors(tree, id) {
+    const out = []; const seen = new Set([id]);
+    for (let c = tree.byId.get(id); c && c.parentId != null && tree.byId.has(c.parentId) && !seen.has(c.parentId); c = tree.byId.get(c.parentId)) { seen.add(c.parentId); out.push(c.parentId); }
+    return out;
+  }
+  function catChosenBelow(tree, id, chosen) {
+    const stack = [...(tree.kids.get(id) || [])]; const seen = new Set();
+    while (stack.length) { const c = stack.pop(); if (seen.has(c.id)) continue; seen.add(c.id); if (chosen.has(c.id)) return true; stack.push(...(tree.kids.get(c.id) || [])); }
+    return false;
+  }
+  // اختيار قسم بيعلّم اللي فوقه لوحده (9,723 من 9,855 قسم فرعي على منتجات الموقع معاه أبوه) — `auto` = اللي اتعلّم لوحده؛ شيل قسم
+  // بيشيله هو، وبيشيل اللي اتعلّم لوحده فوقه لو مابقاش تحته حاجة متعلّمة. القسم الرئيسي يتشال لوحده عادي (الفرعي بيفضل).
+  // { chosen, auto } (Sets) → { chosen, auto } جديدة (المدخلات زي ما هي)
+  function catToggle(tree, sel, id, on) {
+    const chosen = new Set(sel && sel.chosen); const auto = new Set(sel && sel.auto);
+    if (on) { chosen.add(id); auto.delete(id); for (const a of catAncestors(tree, id)) if (!chosen.has(a)) { chosen.add(a); auto.add(a); } }
+    else { chosen.delete(id); auto.delete(id); for (const a of catAncestors(tree, id)) if (auto.has(a) && !catChosenBelow(tree, a, chosen)) { chosen.delete(a); auto.delete(a); } }
+    return { chosen, auto };
+  }
+  // البحث: الأقسام اللي اسمها فيه الكلام + اللي فوقها مفتوحة → { hits, show, open } (Sets)؛ كلام فاضي → null (الشجرة كلها)
+  function catSearch(tree, q) {
+    const qq = String(q == null ? '' : q).trim().toLowerCase(); if (!qq) return null;
+    const hits = new Set(), show = new Set(), open = new Set();
+    for (const c of tree.byId.values()) if (String(c.name).toLowerCase().includes(qq)) { hits.add(c.id); show.add(c.id); for (const a of catAncestors(tree, c.id)) { show.add(a); open.add(a); } }
+    return { hits, show, open };
+  }
   // ---------- marketing «إنشاء» ----------
   const VIDEO_MODELS = [
     { id: 'seedance-2.5', name: 'Seedance 2.5', note: 'الأفضل · لحد 30 ث · صوت', max: 30, durations: [10, 15, 30], res: ['1080p', '720p'], def: true },
@@ -323,6 +358,6 @@
   const safeName = (s) => String(s || 'Product').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Product';
   // backup plan: which file goes where — pure, so the browser only fills in the bytes
   function backupPlan(root, items, ext) { const out = []; items.forEach((it) => (it.slots || []).forEach((sl, k) => { if (sl && sl.src) out.push({ dir: SLOT_DIRS[Math.min(k, 4)], src: sl.src, name: root + '/' + SLOT_DIRS[Math.min(k, 4)] + '/' + safeName(it.name) + '-0' + (k + 1) + '-' + safeName(it.sku || 'SKU') + '.' + (ext || 'webp') }); })); return out; }
-  return { brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, itemIssues, STUDIO_FIELDS, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  return { brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

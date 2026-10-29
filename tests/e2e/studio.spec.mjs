@@ -164,3 +164,41 @@ test('studio permission: without products.add the studio does not open and the s
   await page.goto('/#products-studio-new-1');
   await expect(page.locator('#pg-products')).toContainText('مش مسموحلك تضيف منتجات');
 });
+
+test('studio categories (decision 14): the site\'s tree with + / −, a sub-category ticks the ones above it and takes them back off, the search opens the branch, the main one can go alone', async ({ page }) => {
+  await signIn(page, OPS);
+  await page.getByRole('tab', { name: 'إضافة' }).click();
+  await page.getByRole('button', { name: 'استوديو المنتجات — ابدأ دفعة' }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click();
+  await page.fill('#r', '30'); await page.fill('#f', '0'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
+  await next(page, 'التالي: الاستلام');
+  await pick(page, /اختار الشيت/, { name: 'one.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Vendor Price,Color\nDesk Lamp,900,Beige\n') });
+  await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }]);
+  await next(page, 'التالي: البيانات و SKU');
+  await next(page, 'التالي: السعر');
+  await next(page, 'التالي: الصور');
+  await next(page, 'التالي: الأقسام والأوصاف');
+  await page.locator('#pg-products .st-table tbody').getByRole('button', { name: '+ قسم', exact: true }).click();
+  const md = page.locator('.modal');
+  await expect(md.locator('[data-cat-pick]')).toHaveCount(2); // the main categories only (ديكور، هدايا)
+  await md.getByRole('button', { name: 'افتح أقسام ديكور' }).click();
+  await md.getByRole('button', { name: 'افتح أقسام إضاءة' }).click();
+  await md.getByRole('checkbox', { name: 'أباجورات', exact: true }).click();
+  await expect(md.getByRole('checkbox', { name: 'ديكور', exact: true })).toHaveAttribute('aria-checked', 'true'); // ticked by itself
+  await expect(md.getByRole('checkbox', { name: 'إضاءة', exact: true })).toHaveAttribute('aria-checked', 'true');
+  await expect(md.locator('.cat-chosen .chip')).toHaveCount(3);
+  await md.getByRole('checkbox', { name: 'أباجورات', exact: true }).click(); // the ones it ticked go with it
+  await expect(md.locator('.cat-chosen .chip')).toHaveCount(0);
+  await md.getByRole('button', { name: 'اقفل أقسام ديكور' }).click();
+  await expect(md.locator('[data-cat-pick]')).toHaveCount(2);
+  await md.getByRole('searchbox', { name: 'دوّر على قسم' }).fill('أباج');
+  await expect(md.locator('[data-cat-pick]')).toHaveCount(3); // the branch down to the match, opened; هدايا hidden
+  await md.getByRole('checkbox', { name: 'أباجورات', exact: true }).click();
+  await md.getByRole('button', { name: 'شيل ديكور' }).click(); // the main category taken off alone; the sub-categories stay
+  await expect(md.locator('.cat-chosen .chip')).toHaveCount(2);
+  await md.getByRole('button', { name: 'تمام' }).click();
+  await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('ديكور › إضاءة › أباجورات');
+  await next(page, 'التالي: المراجعة والرفع');
+  await expect.poll(() => [...mock.studioBatches[0].state.items[0].categories].sort((a, b) => a - b)).toEqual([151, 152]);
+});

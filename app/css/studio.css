@@ -105,6 +105,14 @@ i.sw-0{background:var(--color-chart-2)}i.sw-1{background:var(--color-chart-3)}i.
 @media (max-width:1023px){#pg-products .rate-row{grid-template-columns:1fr}#pg-products .tot-bar{gap:12px}}
 @media (max-width:599px){#pg-products .tot-bar{position:static}:is(#pg-products,.st-drawer,.modal) .islot{width:88px}:is(#pg-products,.st-drawer,.modal) .slot-img{width:84px;height:96px}}
 #pg-products .cat-list{display:flex;flex-direction:column;gap:2px}#pg-products .cat-hit{color:var(--color-brand-default);font-weight:700}
+/* decision 14 (29 Oct): the category picker is the site's tree — the commission tree's rows (app.css .cat-tree / .cat-row / .cat-toggle) with a checkbox in place of the two figures */
+.cat-pick{max-height:min(52vh,460px);margin-top:8px}
+.cat-pick .cat-row{grid-template-columns:28px minmax(0,1fr)}
+.cat-pick .cb{justify-content:flex-start;text-align:start;min-width:0}
+.cat-pick .cb span{overflow-wrap:anywhere}
+.cat-pick .cat-hit span{color:var(--color-brand-default);font-weight:700}
+.cat-pick .cat-none{margin:0;padding:12px}
+.cat-chosen{margin-top:8px;min-height:32px}
 /* studio step 2 — مراجعة التطابق + الصور المرجعية (26 Oct) */
 #pg-products .tot b.tone-ok{color:var(--color-success-text)}
 .rv-data{display:flex;flex-direction:column;gap:2px;min-width:0}

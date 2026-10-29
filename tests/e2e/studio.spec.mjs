@@ -135,7 +135,7 @@ test('studio: the maker changed after an upload — a note in «البداية»
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await rate();
   await next(page, 'التالي: الاستلام');
-  await pick(page, /اختار الشيت/, { name: 'v.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Vendor Price,Colors\nKilim Pouf,2000,"Beige, Black"\n') });
+  await pick(page, /اختار الشيت/, { name: 'v.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Name AR,Vendor Price,Colors\nKilim Pouf,بوف كليم,2000,"Beige, Black"\n') });
   await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }]);
   for (const s of ['البيانات و SKU', 'المتغيرات', 'السعر', 'الصور', 'الأقسام والأوصاف']) await next(page, 'التالي: ' + s);
   await page.locator('#pg-products .st-table thead [role=checkbox]').click();
@@ -173,7 +173,7 @@ test('studio: a product on the site keeps the SKU it was made with (decision 2) 
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await next(page, 'التالي: الاستلام');
-  await pick(page, /اختار الشيت/, { name: 'one.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Vendor Price,Color\nDesk Lamp,900,Beige\n') });
+  await pick(page, /اختار الشيت/, { name: 'one.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Name AR,Vendor Price,Color\nDesk Lamp,أباجورة مكتب,900,Beige\n') });
   await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }]);
   for (const s of ['البيانات و SKU', 'السعر', 'الصور', 'الأقسام والأوصاف']) await next(page, 'التالي: ' + s);
   await page.locator('#pg-products .st-table thead [role=checkbox]').click();

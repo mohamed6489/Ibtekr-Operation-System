@@ -40,9 +40,14 @@
 - [ ] T7 حي (المفتاح في الآخر) — الخطوات والفحوص في `tools/deploy.md` §2.7.12، و`[functions.ai-content] verify_jwt = false` في
   `supabase/config.toml`. 29 أكتوبر: `list_migrations` على الحي آخرها `0022_products_report` (`0023` اتطبّقت من SQL Editor)؛
   `list_edge_functions` و`apply_migration` و`deploy_edge_function` محتاجين موافقة صاحب المشروع — مستنيين.
-  - [ ] رقم `woo-sync` الحي = v36 (آخر رقم في §2.6) ومافيش `ai-content` قبل كده.
-  - [ ] `0024_ai` + فحوص ما بعد التطبيق.
+  - [x] رقم `woo-sync` الحي = v36 و`woo-webhook` v18 (آخر رقم في §2.6) ومافيش `ai-content` قبل كده (29 أكتوبر).
+  - [ ] `0024_ai` + فحوص ما بعد التطبيق — `apply_migration` اتبعت مرتين وسؤال تأكيد Supabase (الملف فيه `drop policy` /
+    `revoke`) فضل من غير رد 60 ثانية، فماتطبقش حاجة (اتأكد: `ai_runs` مش موجود). مستني صاحب المشروع (يرد على السؤال، أو
+    SQL Editor زي `0021`/`0023`).
   - [ ] `rls_ai` عبر «RLS live».
-  - [ ] نشر `ai-content` (v1) + `get_edge_function` مطابق للريبو + `curl` → 401 `unauthorized`.
+  - [x] نشر `ai-content` **v1** (29 أكتوبر، `verify_jwt: false`، id `a8f8ae82-6949-44b9-a6dc-95664e18a730`) قبل `0024` بالقصد —
+    من غير `ai_run_start` الحجز بيفشل فمافيش أي نداء لـ Claude (502 `ai_error`)، والواجهة لسه مش على `main`. `get_edge_function`:
+    الملفات الأربعة **مطابقة للريبو حرف بحرف** (مقارنة بـ node). الـ sandbox مابيوصلش `supabase.co`، فالفحص من الداتا بيز
+    (`net.http_post` من غير توكن) → 401 `{"error":"unauthorized"}` من الدالة نفسها.
   - [ ] `main` (الواجهة) + `origin/deploy^{tree}` = `origin/main:app`.
   - [ ] صاحب المشروع يحط `ANTHROPIC_API_KEY` ← القبول (أداة المحتوى + منتج في الاستوديو) ← `ai_runs` ← التقرير.

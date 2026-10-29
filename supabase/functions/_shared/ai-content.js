@@ -71,6 +71,7 @@ function parseImage(v) {
   if (v.data.length < 100 || v.data.length > MAX_IMAGE_B64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(v.data)) return null;
   return { media_type: v.media_type, data: v.data };
 }
+/** The allowed keys of `v`, each read within its limit → an object, { bad: key }, or null (`v` not an object). @returns {any} */
 function fields(v, lims, read) {
   if (v == null) return {};
   if (!isObj(v)) return null;

@@ -4,8 +4,8 @@
 //   insert / upsert({onConflict}) / update, the filters eq / in / not('in') / is, select-after-write, single /
 //   maybeSingle, and rpc(). It knows the 0007 columns (+ products.permalink of 0009, orders.customer_state and woo_states
 //   of 0010, the team columns of vendors, vendor_rates and order_items.commission_rate / commission_fee of 0011, `leave`
-//   of 0012, the phase-3.3 columns of vendors, vendor_rates.flat, vendor_category_rates and woo_categories of 0014, and
-//   activity_log of 0002), not-null columns, checks, unique keys and the foreign keys the sync relies on, so a wrong column, a bad
+//   of 0012, the phase-3.3 columns of vendors, vendor_rates.flat, vendor_category_rates and woo_categories of 0014,
+//   activity_log of 0002 and ai_runs of 0024), not-null columns, checks, unique keys and the foreign keys the sync relies on, so a wrong column, a bad
 //   value or a missing parent fails like PostgREST would ({ data, error }, 23505 for a duplicate key). A statement is
 //   atomic. Every call is recorded in `calls` in order.
 // fakeWoo: a fetch that routes "METHOD path" (path after /wp-json/) to a reply (or a network error) and records every
@@ -49,6 +49,9 @@ const COLUMNS: Record<string, string[]> = {
   brands: ['id', 'name', 'code', 'aliases'],
   sku_colors: ['id', 'name_en', 'name_ar', 'code', 'hex'],
   studio_batches: ['id', 'title', 'brand_id', 'vendor_id', 'type', 'state', 'step', 'status', 'result', 'created_by', 'updated_at', 'archived_at'],
+  // 0024 (phase 5.3): one row per AI call
+  ai_runs: ['id', 'created_at', 'created_by', 'action', 'source', 'label', 'product_id', 'batch_id', 'item_index', 'model', 'input_tokens', 'output_tokens',
+    'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'status', 'error', 'output'],
 };
 const DEFAULTS: Record<string, Row> = {
   status_map: { direction: 'both' },
@@ -59,13 +62,13 @@ const DEFAULTS: Record<string, Row> = {
   vendor_bank: { method: 'bank' },
 };
 const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
-  vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int' };
+  vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int' };
 const UNIQUE: Record<string, string[][]> = {
   status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
   woo_webhook_events: [['id'], ['delivery_id']], woo_sync_log: [['id']], sync_state: [['key']], woo_states: [['code']],
   vendor_rates: [['id'], ['vendor_id', 'since']], vendor_category_rates: [['id'], ['vendor_id', 'woo_category_id', 'since']], woo_categories: [['id']], activity_log: [['id']],
-  vendor_bank: [['vendor_id']],
+  vendor_bank: [['vendor_id']], ai_runs: [['id']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],
@@ -78,6 +81,7 @@ const CHECK: Record<string, Record<string, unknown[]>> = {
   vendors: { status: ['active', 'leave', 'inactive'] },
   woo_webhook_events: { status: ['ok', 'ignored', 'duplicate', 'error'] },
   woo_sync_log: { kind: ['webhook', 'sync', 'push', 'manual', 'cron'], direction: [null, 'in', 'out'], result: ['ok', 'error', 'conflict', 'skipped'] },
+  ai_runs: { action: ['write', 'studio'], status: ['ok', 'refused', 'error', 'cap'] },
 };
 // numeric checks of 0011 / 0014: rate 0–65, flat ≥ 0 (null passes)
 const RANGE: Record<string, Record<string, [number, number]>> = {
@@ -147,6 +151,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       if (kind === 'in') return (value as unknown[]).some((v) => same(row[col], v));
       if (kind === 'is') return value === null ? row[col] === null || row[col] === undefined : row[col] === value;
       if (kind === 'not.in') return !String(value).replace(/^\(|\)$/g, '').split(',').some((v) => same(row[col], v.trim()));
+      if (kind === 'gte') return row[col] != null && String(row[col]) >= String(value); // ISO timestamps of one format
       throw new Error(`fakeDb: unsupported filter ${kind}`);
     });
   }
@@ -215,6 +220,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       eq(col: string, v: unknown) { q.filters.push(['eq', col, v]); return b; },
       in(col: string, v: unknown[]) { q.filters.push(['in', col, v]); return b; },
       is(col: string, v: unknown) { q.filters.push(['is', col, v]); return b; },
+      gte(col: string, v: unknown) { q.filters.push(['gte', col, v]); return b; },
       not(col: string, op: string, v: unknown) { if (op !== 'in') throw new Error(`fakeDb: unsupported not.${op}`); q.filters.push(['not.in', col, v]); return b; },
       range(a: number, z: number) { q.range = [a, z]; return b; },
       order(col: string) { q.order = col; return b; },

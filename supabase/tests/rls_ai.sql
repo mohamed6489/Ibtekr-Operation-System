@@ -46,7 +46,7 @@ do $$ declare m timestamptz := date_trunc('month', now() at time zone 'Africa/Ca
   exception when check_violation then null;
   end;
   begin
-    insert into public.ai_runs (action, status, error) values ('write', 'error', 'Key sk-ant-123 is wrong');
+    insert into public.ai_runs (action, status, error) values ('write', 'error', 'The key was refused');
     raise exception 'case the error is a code only failed';
   exception when check_violation then null;
   end;

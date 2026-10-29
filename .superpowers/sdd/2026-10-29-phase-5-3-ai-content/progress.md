@@ -15,7 +15,14 @@
   المرآة)، `readAnswer` (رفض / مقطوع / JSON آخر نص)، التنضيف (`cleanWrite` / `cleanStudio`: الحدود واللغة و`SEO_VARS`، الأقسام
   والألوان من الموقع بس)، والتكلفة (`costOf` بالموديل اللي رد) و`aiConfig`. الـ SDK 1.3.0 اتشيّك (`fallbacks` /
   `output_config.format` / `betas` في الأنواع). `npm test` 326.
-- [ ] T4 Edge Function `ai-content` + Deno tests.
+- [x] T4 Edge Function `ai-content` (`index.ts` + `deno.json`) + `index_test.ts` (12): JWT العضو بس (`write` = أدمن أو
+  `products.add`/`products.edit` F، `studio` = أدمن أو `products.add` F)؛ مافيش مفتاح = 503 `not_configured` من غير نداء؛
+  السقف (`ai_month_cost` ≥ `AI_MONTHLY_LIMIT_USD` = 402 `ai_cap`؛ مش مقروء = مافيش نداء)؛ 60 نداء للعضو في 10 دقايق = 429
+  `busy`؛ 429/5xx = محاولة واحدة بعد 2 ثانية؛ 401/403 من Anthropic = `not_configured`؛ صورة منتج مش متاحة (400) بتتشال مرة؛
+  رفض بعد الـ fallback = 200 `refused`؛ المنتج من المرآة (الصف الإنجليزي، اسمه العربي، مسار الأقسام، البراند، الصورة https)؛
+  الاستوديو بيقرا الدفعة والبراند والصورة (من الدفعة دي بس) والأقسام والألوان. كل نداء صف `ai_runs` (من غير المفتاح ولا
+  الطلب). اتجرّب بـ 4 تعديلات غلط (السقف، الـ throttle، الصلاحية، مسار الصورة) والاختبارات مسكتهم. `deno:check` الـ 3 دوال، و
+  `deno:test` 141. semgrep: semgrep.dev مقفول من الـ proxy هنا — بيتشيّك في CI.
 - [ ] T5 `IBAI` + mock + أداة المحتوى + زرار صفحة المنتج + e2e.
 - [ ] T6 الاستوديو + e2e.
 - [ ] T7 حي (المفتاح في الآخر).

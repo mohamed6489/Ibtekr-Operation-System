@@ -361,6 +361,30 @@
   const safeName = (s) => String(s || 'Product').replace(/[\\/:*?"<>|]+/g, '-').replace(/\s+/g, ' ').trim().slice(0, 80) || 'Product';
   // backup plan: which file goes where — pure, so the browser only fills in the bytes
   function backupPlan(root, items, ext) { const out = []; items.forEach((it) => (it.slots || []).forEach((sl, k) => { if (sl && sl.src) out.push({ dir: SLOT_DIRS[Math.min(k, 4)], src: sl.src, name: root + '/' + SLOT_DIRS[Math.min(k, 4)] + '/' + safeName(it.name) + '-0' + (k + 1) + '-' + safeName(it.sku || 'SKU') + '.' + (ext || 'webp') }); })); return out; }
-  return { brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  // ---------------- phase 5.3: the AI content (docs/superpowers/plans/2026-10-29-phase-5-3-ai-content.md) ----------------
+  // The AI answers plain text (decision 3); the page shows and edits it as text. keywords / bullets come as lists.
+  const AI_KEYS = ['name', 'short', 'long', 'keywords', 'bullets', 'seo_title', 'seo_description'];
+  // the server's answer → one editable text per field: keywords on one line (« · »), bullets one per line («• »)
+  function aiDisplay(out) {
+    const one = (o) => { const r = {}; if (!o) return r; AI_KEYS.forEach((k) => { const v = o[k]; if (Array.isArray(v)) r[k] = k === 'bullets' ? v.map((x) => '• ' + x).join('\n') : v.join(' · '); else if (typeof v === 'string' && v) r[k] = v; }); return r; };
+    return { ar: one(out && out.ar), en: one(out && out.en) };
+  }
+  // plain text → WooCommerce's description HTML: a blank line between paragraphs, <br> inside one, & < > escaped — so it passes
+  // product_save's allow-list (p / br only)
+  const hesc = (v) => String(v).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+  function paraHtml(text) {
+    return String(text == null ? '' : text).replace(/\r\n?/g, '\n').split(/\n\s*\n/).map((x) => x.split('\n').map((l) => l.trim()).filter(Boolean))
+      .filter((ls) => ls.length).map((ls) => '<p>' + ls.map(hesc).join('<br>') + '</p>').join('');
+  }
+  // «احفظ على المنتج»: the shown texts (edited) → IBProducts.save's { fields, ar }: name, short / long descriptions (as HTML) and
+  // SEO of each language; keywords and bullets are for copying only; the Arabic only when the product has its translation;
+  // empty texts left out; a name or SEO line is one line with no < >
+  const AI_SAVE = { name: 'name', short: 'short_description', long: 'description', seo_title: 'seo_title', seo_description: 'seo_description' };
+  function aiSaveChange(shown, hasAr) {
+    const pick = (o) => { const r = {}; if (!o) return r; Object.keys(AI_SAVE).forEach((k) => { const v = typeof o[k] === 'string' ? o[k].trim() : ''; if (!v) return;
+      r[AI_SAVE[k]] = k === 'short' || k === 'long' ? paraHtml(v) : v.replace(/[<>]/g, '').replace(/\s+/g, ' ').trim(); }); return r; };
+    return { fields: pick(shown && shown.en), ar: hasAr ? pick(shown && shown.ar) : {} };
+  }
+  return { aiDisplay, paraHtml, aiSaveChange, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

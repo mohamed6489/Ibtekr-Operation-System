@@ -207,3 +207,26 @@ test('itemIssues (decision 15): the Arabic name is required — «الاستلا
   assert.deepEqual(PD.itemIssues({ ...it, nameEn: '', nameAr: '' }, 'Simple'), ['الاسم (EN)', 'الاسم (AR)']);
   assert.deepEqual(PD.itemIssues({ ...it, nameAr: 'أباجورة' }, 'Simple'), []);
 });
+
+// phase 5.3 (docs/superpowers/plans/2026-10-29-phase-5-3-ai-content.md): the content tool's text and its «احفظ على المنتج»
+test('aiDisplay: one editable text per field — keywords on one line, bullets one per line; nothing invented for a missing language', () => {
+  assert.deepEqual(plain(PD.aiDisplay({ ar: { name: 'مراية', keywords: ['مرايا بامبو', 'ديكور'], bullets: ['بامبو', '30×50 سم'] }, en: { short: 'A mirror.' } })),
+    { ar: { name: 'مراية', keywords: 'مرايا بامبو · ديكور', bullets: '• بامبو\n• 30×50 سم' }, en: { short: 'A mirror.' } });
+  assert.deepEqual(plain(PD.aiDisplay(null)), { ar: {}, en: {} });
+});
+
+test('paraHtml: paragraphs by blank lines, <br> inside one, & < > escaped (passes product_save\'s p / br allow-list)', () => {
+  assert.equal(PD.paraHtml('Soft & warm <b>\n\n\nline 1\n line 2 '), '<p>Soft &amp; warm &lt;b&gt;</p><p>line 1<br>line 2</p>');
+  assert.equal(PD.paraHtml('  \n\n '), '');
+  assert.equal(PD.paraHtml(null), '');
+});
+
+test('aiSaveChange: name, descriptions (as HTML) and SEO per language; keywords / bullets never; the Arabic only with a translation', () => {
+  const shown = { en: { name: ' Boho <Bamboo> Mirror ', short: 'A mirror.\n\nHandmade.', long: '', keywords: 'a · b', bullets: '• x', seo_title: 'Boho Mirror | Alaa Anas', seo_description: 'Natural\nbamboo.' },
+    ar: { name: 'مراية بامبو', short: 'مراية.', seo_title: 'مرايا | Alaa Anas — إبتكر كلوب' } };
+  assert.deepEqual(plain(PD.aiSaveChange(shown, true)), {
+    fields: { name: 'Boho Bamboo Mirror', short_description: '<p>A mirror.</p><p>Handmade.</p>', seo_title: 'Boho Mirror | Alaa Anas', seo_description: 'Natural bamboo.' },
+    ar: { name: 'مراية بامبو', short_description: '<p>مراية.</p>', seo_title: 'مرايا | Alaa Anas — إبتكر كلوب' } });
+  assert.deepEqual(plain(PD.aiSaveChange(shown, false)).ar, {});
+  assert.deepEqual(plain(PD.aiSaveChange({}, true)), { fields: {}, ar: {} });
+});

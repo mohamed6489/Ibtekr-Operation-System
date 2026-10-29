@@ -20,6 +20,7 @@
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
 import { buildStudio, matchWooBrand, sheetCsvUrl } from '../../supabase/functions/_shared/woo-studio.js';
+import { parseWrite, parseStudio, cleanWrite, cleanStudio } from '../../supabase/functions/_shared/ai-content.js';
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
 export const LIVE = process.env.E2E_SUPABASE_LIVE === '1';
 const LIVE_URL = process.env.E2E_SUPABASE_URL || ''; const LIVE_KEY = process.env.E2E_SUPABASE_ANON_KEY || '';
@@ -291,7 +292,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // aal2_required whatever the token (a server that does not take the flag).
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
-  const mock = { studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
+  const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
     profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [] };
@@ -494,6 +495,17 @@ export async function installSupabaseMock(page, opts = {}) {
         for (const ls of groups.values()) out.push(row(ls[0].v, ls[0].g, ls, false));
         for (const g of ['completed', 'in_progress', 'cancelled']) { const ls = lines.filter((x) => x.g === g); if (ls.length) out.push(row(null, g, ls, true)); }
         return json(200, out);
+      }
+      // phase 5.3 (0024): ai_runs — select only (the server writes it): the member's own rows, the admin's all; named columns
+      if (path === '/rest/v1/ai_runs') {
+        if (method !== 'GET') return json(403, { code: '42501', details: null, hint: null, message: 'permission denied for table ai_runs' });
+        const COLS = ['id', 'created_at', 'created_by', 'action', 'source', 'label', 'product_id', 'batch_id', 'item_index', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'status', 'error', 'output'];
+        const cols = String(url.searchParams.get('select') || '*').split(',').map((x) => x.trim());
+        const badCol = cols.find((x) => x !== '*' && !COLS.includes(x)); if (badCol) return json(400, { code: '42703', details: null, hint: null, message: `column ai_runs.${badCol} does not exist` });
+        const eqs = [...url.searchParams.entries()].filter(([k, v]) => COLS.includes(k) && v.startsWith('eq.')).map(([k, v]) => [k, v.slice(3)]);
+        const lim = Number(url.searchParams.get('limit')) || 1000;
+        const rows = mock.aiRuns.filter((x) => (isAdmin(u) || x.created_by === u.id) && eqs.every(([k, v]) => String(x[k]) === v)).sort((x, y) => (x.created_at < y.created_at ? 1 : -1)).slice(0, lim);
+        return json(200, rows.map((x) => (cols.includes('*') ? { ...x } : Object.fromEntries(cols.map((c) => [c, x[c] === undefined ? null : x[c]])))));
       }
       // phase 5.2 (0023): studio_batches (products.add = F: select / insert / update of the granted columns, no delete), sku_colors
       // (read products.view <> N, insert products.add = F; 23505 on a taken code / name), sku_serial + sku_serial_take
@@ -975,6 +987,39 @@ export async function installSupabaseMock(page, opts = {}) {
     // skipped/no_store; the gate (mock.pushEnabled) → skipped/push_disabled with the fields in push_pending; a `#` placeholder name alone →
     // skipped/placeholder; WooCommerce down → 502 woo_error with the fields in push_pending; else ok: woo_synced_at = now, push_pending
     // minus the fields, accepted = the fields.
+    // phase 5.3: ai-content (supabase/functions/ai-content, verify_jwt false): write needs the admin or products.add / products.edit = F,
+    // studio the admin or products.add = F; the body checked by the server's own parseWrite / parseStudio (400 + field); a product from
+    // the mirror (404 when unknown), a studio item from its batch (404); mock.aiFail = 'not_configured' (503) / 'busy' (429) / 'ai_cap'
+    // (402) / 'ai_error' (502) / 'refused' (200 refused); else Claude's answer is mock.aiAnswer(action, req) or the default below,
+    // cleaned by the server's own cleanWrite / cleanStudio; each call → mock.aiCalls ({ action, by, ...body }), each answer an ai_runs row.
+    if (method === 'POST' && path === '/functions/v1/ai-content') {
+      const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
+      const may = u && (action === 'write' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' || hasPerm(u, 'products.edit') === 'F' : action === 'studio' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' : isAdmin(u));
+      if (!may) return json(401, { error: 'unauthorized' });
+      if (!['write', 'studio'].includes(action)) return json(400, { error: 'unknown_action' });
+      const parsed = action === 'write' ? parseWrite(b) : parseStudio(b);
+      if (parsed.error) return json(400, parsed);
+      const req = parsed.req;
+      mock.aiCalls.push({ action, by: u.email, ...b });
+      let item = null; let row = null;
+      if (action === 'write' && req.source === 'product' && !mock.products.some((p) => Number(p.id) === req.productId)) return json(404, { error: 'not_found' });
+      if (action === 'studio') { row = mock.studioBatches.find((x) => x.id === req.batchId); item = row && !row.archived_at && row.state && Array.isArray(row.state.items) ? row.state.items[req.index] : null; if (!item) return json(404, { error: 'not_found' }); }
+      const base = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action, source: action === 'studio' ? 'studio' : req.source, label: action === 'studio' ? (item.nameEn || item.nameAr || '#' + (req.index + 1)) : ((req.source === 'product' ? (mock.products.find((p) => Number(p.id) === req.productId) || {}).name : req.data.name) || null),
+        product_id: req.productId || null, batch_id: action === 'studio' ? req.batchId : null, item_index: action === 'studio' ? req.index : null, model: 'claude-opus-5-5', cost_usd: 0, output: null };
+      const fail = mock.aiFail;
+      if (fail === 'not_configured' || fail === 'busy' || fail === 'ai_error') { mock.aiRuns.push({ ...base, status: 'error', error: fail }); return json(fail === 'not_configured' ? 503 : fail === 'busy' ? 429 : 502, { error: fail }); }
+      if (fail === 'ai_cap') { mock.aiRuns.push({ ...base, status: 'cap', error: 'ai_cap' }); return json(402, { error: 'ai_cap' }); }
+      if (fail === 'refused') { mock.aiRuns.push({ ...base, status: 'refused', error: 'refused', cost_usd: 0.004 }); return json(200, { result: 'refused', model: 'claude-opus-5-5', cost_usd: 0.004 }); }
+      const SAMPLE = { ar: { name: 'مراية بامبو بوهيمي', short: 'مراية من البامبو الطبيعي تضيف للحيطة روح بوهيمية دافية.', long: 'مصنوعة يدويًا من البامبو الطبيعي.\n\nتنفع للمدخل أو ركن التجهيز.', keywords: ['مرايا بامبو', 'ديكور بوهيمي', 'مرايا حائط'], bullets: ['بامبو طبيعي', 'شغل إيد', 'ستايل بوهيمي', 'سهلة التعليق', 'لون بيج'], seo_title: 'مرايا بامبو بوهيمي | Alaa Anas — إبتكر كلوب', seo_description: 'مراية بامبو طبيعي بستايل بوهيمي، شغل إيد من Alaa Anas — تضيف دفا لأي حيطة.' },
+        en: { name: 'Boho Bamboo Mirror', short: 'A natural bamboo mirror that brings a warm bohemian note to the wall.', long: 'Handmade from natural bamboo.\n\nMade for an entrance or a dressing corner.', keywords: ['bamboo mirror', 'boho wall decor', 'handmade mirror'], bullets: ['Natural bamboo', 'Handmade', 'Bohemian style', 'Easy to hang', 'Beige'], seo_title: 'Boho Bamboo Mirror | Alaa Anas — Ibtekr Club', seo_description: 'A handmade natural bamboo mirror in a bohemian style by Alaa Anas — warmth for any wall.' } };
+      const cats = mock.wooCategories.map((c) => Number(c.id));
+      const answer = typeof mock.aiAnswer === 'function' ? mock.aiAnswer(action, req, item) : action === 'write' ? SAMPLE
+        : { nameEn: item.nameEn || 'Bamboo Desk Lamp', nameAr: 'أباجورة مكتب بامبو', shortDesc: 'A warm bamboo desk lamp.', shortDescAr: 'أباجورة مكتب من البامبو بإضاءة دافية.', categories: cats.slice(0, 1), colors: ['BE'], sizes: [] };
+      const cleaned = action === 'write' ? cleanWrite(answer, req.outputs, req.langs) : cleanStudio(answer, req.want, { categoryIds: new Set(cats), colorCodes: new Set(mock.skuColors.map((c) => c.code)) });
+      const run = { ...base, status: 'ok', error: null, input_tokens: 3000, output_tokens: 2000, cost_usd: 0.052, output: cleaned };
+      mock.aiRuns.push(run);
+      return json(200, { result: 'ok', ...cleaned, model: 'claude-opus-5-5', cost_usd: 0.052, run_id: run.id });
+    }
     if (method === 'POST' && path === '/functions/v1/woo-sync') {
       if (mock.functionsDown) return route.abort('failed'); // the function never answers (review I-1): the adapter queues through the RPC
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';

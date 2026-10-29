@@ -782,7 +782,8 @@ async function productsTrash(run: Run, args: Json, restore: boolean) {
 // after the variations were sent = maker_changed, nothing written), its variations, the Arabic translation (WPML:
 // wpml_language ar + translation_of; an answer that is not linked to the product is trashed, never left as a second
 // product) and its author («failed» when it did not stick), the mirror. The item's result goes to
-// studio_batches.result.items[index] (ids, the SKU, a short reason — never a price or a text).
+// studio_batches.result.items[index] (ids, the SKU, a short reason — never a price or a text); once the product is made its
+// SKU there is the site's, and a retry whose item builds another writes nothing (brand_changed / sku_changed).
 const STUDIO_BUCKET = 'studio';
 const MIME: Record<string, string> = { webp: 'image/webp', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
 const wooCode = (e: unknown) => (e instanceof WooError ? (/"code":"([a-z0-9_]{1,60})"/.exec(e.message)?.[1] ?? `http_${e.status}`) : e instanceof ConfigError ? 'config' : 'error');
@@ -814,7 +815,12 @@ async function studioUpload(run: Run, args: Json) {
   const built = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', colors, attrs: await attributeIds(run, ctx) }) as Json;
   if (built.error) return json(400, built);
   const prev = isObj(batch.result) && Array.isArray(batch.result.items) && isObj(batch.result.items[index]) ? batch.result.items[index] : {};
-  const res: Json = { ...prev, sku: built.sku, media: isObj(prev.media) ? { ...prev.media } : {}, error: null };
+  // the SKU (decision 2) is fixed when the product is made: the result keeps it, and a retry whose item builds another (its
+  // variations would take that one under a parent with the old) writes nothing — brand_changed when the brand's two letters
+  // differ (another brand, or its name changed), sku_changed for the rest (a Simple's color, the serial, another row here)
+  const made = wooId(prev.productId) !== null && typeof prev.sku === 'string';
+  const res: Json = { ...prev, sku: made ? prev.sku : built.sku, media: isObj(prev.media) ? { ...prev.media } : {}, error: null };
+  if (made && res.sku !== built.sku) res.error = res.sku.slice(3, 5) === built.sku.slice(3, 5) ? 'sku_changed' : 'brand_changed';
   // the maker (decision 9): Dokan's own route writes an admin's post_author when that user can dokan_add_product (otherwise
   // the caller) — the answer's post_author is checked, never trusted. The ids it took stay on the result with the maker they
   // took (authorOwner; a result written before it was kept counts as the batch's maker): a retry skips them while the batch's
@@ -840,7 +846,7 @@ async function studioUpload(run: Run, args: Json) {
   };
   try {
     const paths = [...new Set([...built.images, ...built.variations.map((v: Json) => v.image).filter(Boolean)])] as string[];
-    for (const path of paths) {
+    for (const path of res.error ? [] : paths) {
       if (wooId(res.media[path]) !== null) continue;
       const { data: blob, error: dlErr } = await run.db.storage.from(STUDIO_BUCKET).download(path);
       if (dlErr || !blob) { res.error = 'image_missing'; break; }
@@ -900,7 +906,7 @@ async function studioUpload(run: Run, args: Json) {
   }
   await saveResult();
   await logSync(run.db, { ...entry, entity_id: res.productId == null ? entry.entity_id : String(res.productId), result: res.error ? 'error' : 'ok',
-    detail: { batch: batchId, index, sku: built.sku, media: Object.keys(res.media).length, variations: res.variations ?? null, ar: res.arId ?? null, ar_note: res.arNote ?? null, author: res.author ?? null, error: res.error } });
+    detail: { batch: batchId, index, sku: res.sku, media: Object.keys(res.media).length, variations: res.variations ?? null, ar: res.arId ?? null, ar_note: res.arNote ?? null, author: res.author ?? null, error: res.error } });
   return json(200, { action: 'studio_upload', result: res.error ? 'error' : 'ok', item: res });
 }
 

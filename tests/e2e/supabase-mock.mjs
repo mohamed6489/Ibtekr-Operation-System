@@ -992,7 +992,8 @@ export async function installSupabaseMock(page, opts = {}) {
       // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
       // mock.studioAuthorFail = { [index]: true } answers author 'failed' (the translation's maker did not stick). The maker as the
       // server keeps it (authorOwner = the batch maker's woo_vendor_id): a retry on another maker moves a product with no variation
-      // made (its mirror row's vendor_id), and refuses one with them (maker_changed, the record kept).
+      // made (its mirror row's vendor_id), and refuses one with them (maker_changed, the record kept). The SKU as the server keeps it:
+      // a retry whose item builds another SKU than the product's is refused (brand_changed / sku_changed, the record kept).
       // category_create — a new woo_categories row (id 9500+). studio_sheet (decision 13) — the server's own sheetCsvUrl check
       // (400 bad_link), then mock.sheetLinks[url] = { csv } | { reason } (else not_published); mock.sheetReads lists the links.
       if (action === 'studio_sheet') {
@@ -1010,9 +1011,13 @@ export async function installSupabaseMock(page, opts = {}) {
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
         const items = row.result && Array.isArray(row.result.items) ? row.result.items.slice() : [];
         const fail = (mock.studioFail || {})[b.index];
+        const prev = items[b.index];
+        // the SKU is fixed with the product (decision 2): a retry whose item builds another is refused, the record kept
+        const changed = prev && prev.productId && typeof prev.sku === 'string' && prev.sku !== built.sku ? (prev.sku.slice(3, 5) === built.sku.slice(3, 5) ? 'sku_changed' : 'brand_changed') : null;
         let res;
         if (fail) res = { sku: built.sku, error: fail, media: {} };
-        else { const prev = items[b.index]; const id = prev && prev.productId ? prev.productId : 7700 + mock.studioUploads.length;
+        else if (changed) res = { ...prev, error: changed };
+        else { const id = prev && prev.productId ? prev.productId : 7700 + mock.studioUploads.length;
           const mv = mock.vendors.find((x) => x.id === row.vendor_id); const owner = mv && mv.woo_vendor_id != null ? mv.woo_vendor_id : null;
           const was = prev && prev.productId && prev.authorOwner !== undefined ? prev.authorOwner : owner; const kept = was !== owner && !!(prev && prev.variations);
           if (prev && prev.productId && was !== owner && !kept) { const p = mock.products.find((x) => x.id === id); if (p) p.vendor_id = row.vendor_id; }

@@ -163,6 +163,51 @@ test('studio: the maker changed after an upload — a note in «البداية»
   expect(mock.studioUploads.map((x) => [x.index, x.maker])).toEqual([[0, 'a0000000-0000-4000-8000-000000000001'], [0, 'a0000000-0000-4000-8000-000000000002'], [0, 'a0000000-0000-4000-8000-000000000001']]);
 });
 
+test('studio: a product on the site keeps the SKU it was made with (decision 2) — «البداية» locks the brand with the reason; the brand renamed elsewhere to other letters, or a Simple\'s color edited, makes «ارفع على الموقع» refused with its reason and nothing written, the page showing the site\'s SKU; back as it was → it goes on', async ({ page }) => {
+  await signIn(page, OPS);
+  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
+  await next(page, 'التالي: الاستلام');
+  await pick(page, /اختار الشيت/, { name: 'one.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Vendor Price,Color\nDesk Lamp,900,Beige\n') });
+  await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }]);
+  for (const s of ['البيانات و SKU', 'السعر', 'الصور', 'الأقسام والأوصاف']) await next(page, 'التالي: ' + s);
+  await page.locator('#pg-products .st-table thead [role=checkbox]').click();
+  await page.getByRole('button', { name: 'طبّق قسم على المحدد' }).click();
+  await page.locator('.modal').getByText('هدايا', { exact: true }).click(); await page.locator('.modal').getByRole('button', { name: 'تمام' }).click();
+  await next(page, 'التالي: المراجعة والرفع');
+  mock.studioAuthorFail = { 0: true }; // the maker does not stick: «ارفع على الموقع» sends it again
+  const upload = async (why) => { await next(page, 'ارفع على الموقع (مسودة)'); if (why) await expect(page.locator('.modal')).toContainText(why); await page.locator('.modal').getByRole('button', { name: 'شوف التقرير' }).click(); await page.getByRole('button', { name: 'رجوع للمراجعة' }).click(); };
+  const color = async (name) => { await page.getByRole('button', { name: 'الخطوة 3: البيانات و SKU' }).click(); await page.locator('#pg-products .st-table tbody').getByRole('button', { name: 'عدّل' }).click();
+    await page.locator('.modal').getByRole('button', { name }).click(); await page.locator('.modal').getByRole('button', { name: 'احفظ' }).click(); };
+  await upload(null);
+  mock.studioAuthorFail = {};
+  await page.getByRole('button', { name: 'الخطوة 1: البداية' }).click();
+  await expect(page.locator('#w-brand')).toBeDisabled();
+  await expect(page.locator('#pg-products')).toContainText('اتقفل: في منتجات من الدفعة اترفعت على الموقع');
+  await expect(page.locator('#w-vendor')).toBeEnabled(); // the maker can still change (decision 9)
+  const brand = mock.brands.find((x) => x.name === 'Art Craft');
+  brand.name = 'Crafty Art'; // renamed on the vendors page: CR
+  await page.getByRole('button', { name: 'الخطوة 7: المراجعة والرفع' }).click();
+  await upload('البراند اتغيّر بعد ما المنتج اترفع');
+  await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('IBTARBE0999');
+  brand.name = 'Art Craft';
+  await color('Black · BK');
+  const row = page.locator('#pg-products .st-table tbody tr').first();
+  await expect(row).toContainText('IBTARBE0999'); // the SKU on the site, not the batch's IBTARBK0999
+  await expect(row).not.toContainText('IBTARBK0999');
+  await page.getByRole('button', { name: 'الخطوة 7: المراجعة والرفع' }).click();
+  await upload('بيانات المنتج اتغيّرت بعد ما اترفع');
+  await color('Beige · BE');
+  await page.getByRole('button', { name: 'الخطوة 7: المراجعة والرفع' }).click();
+  await next(page, 'ارفع على الموقع (مسودة)');
+  await page.locator('.modal').getByRole('button', { name: 'شوف التقرير' }).click();
+  await expect(page.locator('#pg-products')).toContainText('اترفع 1 من 1');
+  await expect(page.locator('#pg-products')).not.toContainText('المبتكر ماتحطش');
+  expect(mock.studioUploads.map((x) => [x.sku, x.result])).toEqual([['IBTARBE0999', 'ok'], ['IBTCRBE0999', 'brand_changed'], ['IBTARBK0999', 'sku_changed'], ['IBTARBE0999', 'ok']]);
+  expect([mock.studioBatches[0].result.items[0].sku, mock.products.filter((p) => /^IBT[A-Z]{4}0999$/.test(p.sku)).map((p) => p.sku)]).toEqual(['IBTARBE0999', ['IBTARBE0999']]);
+});
+
 test('studio: a maker without a store on the site is refused; a Google Sheet link is read by the server (a wrong link before any request, an unpublished sheet explained), and «حدّث من اللينك» keeps the column mapping', async ({ page }) => {
   mock.vendors.push({ ...mock.vendors[0], id: 'a0000000-0000-4000-8000-000000000009', woo_vendor_id: null, name: 'Zeta Maker', aliases: [], raw: {} });
   await signIn(page, OPS);

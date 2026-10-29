@@ -21,7 +21,9 @@
   - [x] `woo-sync` **v32** (29 أكتوبر 03:07Z، كود de42e1f: `studio_sheet` + المبتكر قبل التركيبات): الملفات التمانية متطابقة
     مع الريبو ما عدا سطرين `normalizePhone` المعروفين (`woo-core.js` نفس v31)، `verify_jwt` false. `woo-webhook` ماتغيّرش (v18).
     أول تشغيلة cron عليها (`woo-sync-backup` 03:15Z، من سجلات `function_edge_logs`): version 32 → 200 في 20 ثانية.
-  - [ ] main + نشر الموقع.
+  - [x] main + نشر الموقع (29 أكتوبر): `main` fast-forward لـ 1c024dd (CI أخضر على de42e1f و7dcba57 و1c024dd) → Deploy run
+    40812211792 أخضر 03:27Z → فرع `deploy` = 39f9d76 وشجرته = `main:app` (فيه `readSheetLink` واختيار المبتكر)؛ Hostinger بيسحبه
+    لوحده. فحص المتصفح على الموقع بتاع صاحب المشروع (الـ sandbox مابيوصلش للموقع).
   - [ ] قبول: منتج Simple + منتج Variable مسودة من الاستوديو (بموافقة صاحب المشروع) — الصور، الترجمة العربي، المبتكر على Dokan، المرآة.
   - [ ] تقرير.
 

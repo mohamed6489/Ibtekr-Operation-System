@@ -23,7 +23,7 @@
   const SLOT_L = PD.SLOTS.concat(['إضافية 1', 'إضافية 2']);
   const FIELD_L = { nameEn: 'الاسم (EN)', nameAr: 'الاسم (AR)', vendorPrice: 'سعر المبتكر', colors: 'اللون', sizes: 'المقاس', material: 'الخامة', style: 'الستايل', weight: 'الوزن', stock: 'المخزون', shortDesc: 'الوصف القصير' };
   const REASON = { product_invalid_sku: 'الـ SKU ده موجود على الموقع', image_missing: 'صورة مش لاقيينها — ارفعها تاني', media_refused: 'الموقع رفض صورة', config: 'باسورد تطبيق WordPress مش متظبط على السيرفر',
-    product_refused: 'الموقع رفض المنتج', author_failed: 'المبتكر ماتحطش على المنتج — «جرّب تاني» (التركيبات بتستناه)', push_disabled: 'الكتابة على الموقع مقفولة دلوقتي', forbidden: 'مش مسموحلك ترفع منتجات', invalid: 'في بيانات مش مقبولة', network: 'في مشكلة في الاتصال — جرّب تاني', missing: 'الدفعة أو المنتج مش موجود' };
+    product_refused: 'الموقع رفض المنتج', author_failed: 'المبتكر ماتحطش على المنتج — «جرّب تاني» (التركيبات بتستناه)', maker_changed: 'المبتكر اتغيّر بعد ما التركيبات اتعملت — المنتج فاضل على المبتكر القديم (رجّعه، أو انقل المنتج من لوحة WordPress)', push_disabled: 'الكتابة على الموقع مقفولة دلوقتي', forbidden: 'مش مسموحلك ترفع منتجات', invalid: 'في بيانات مش مقبولة', network: 'في مشكلة في الاتصال — جرّب تاني', missing: 'الدفعة أو المنتج مش موجود' };
   const reasonOf = (code) => REASON[code] || (/^http_5/.test(String(code)) ? 'الموقع مش بيرد — جرّب كمان شوية' : 'الموقع رفض الطلب (' + code + ')');
 
   // ---------------- state ----------------
@@ -77,6 +77,9 @@
   const rateNow = () => (S.state.rate != null ? Number(S.state.rate) : PR() ? PR().rateOf(S.state.vendorId) : null);
   const feeNow = () => { if (S.state.fee != null) return Number(S.state.fee); const v = vendorRec(); return v && v.rateFlat ? Number(v.rateFlat) : 0; };
   function priceOf(vp, markup) { const r = rateNow(); if (r == null || !(Number(vp) > 0)) return null; return PD.priceFromVendor(Number(vp), { rate: r, fee: feeNow(), markup }); }
+  // an uploaded item is on the batch's maker: the Dokan store its ids were set to (result authorOwner) is the chosen maker's; a
+  // result without it (before woo-sync v33) or a maker not known here counts as yes
+  const onMaker = (r) => { const v = vendorRec(); return r.authorOwner === undefined || !v || v.wooVendorId == null || r.authorOwner === v.wooVendorId; };
   const ensureMarkup = (x) => { if (x.markup == null) x.markup = PD.randomMarkup(); return x.markup; };
 
   // ---------------- colors / variations ----------------
@@ -141,6 +144,7 @@
     const makers = V && V.store && V.store.all ? V.store.all().sort((x, y) => x.name.localeCompare(y.name, 'ar')) : [];
     const mk = makers.find((x) => x.id === s.vendorId) || null;
     const noStore = !!mk && mk.wooVendorId == null;
+    const moved = items().some((_, i) => { const x = resultOf(i); return !!(x && x.productId) && !onMaker(x); }); // products already up on another maker
     const r = rateNow(); const ex = priceOf(1000, 20);
     const R2 = Card('بيانات الدفعة', 'البراند بيحدد حرفين الـ SKU، والمبتكر صاحب البراند إلا لو اخترت غيره. السعر بيتحسب من سعر المبتكر (قرار 16).', [
       U.Select({ id: 'w-brand', label: 'البراند', required: true, options: brands.map((x) => ({ value: x.id, label: x.name })), value: s.brandId || '', placeholder: vd ? 'اختار البراند' : 'بنحمّل البراندات…',
@@ -152,6 +156,7 @@
         onChange: (v) => { const m = makers.find((x) => x.id === v); s.vendorId = m ? m.id : null; s.vendorName = m ? m.name : ''; s.rate = null; s.fee = null; touch(); R(); },
         help: b && s.vendorId && s.vendorId === b.owner ? 'صاحب البراند — تقدر تختار مبتكر تاني، والمنتجات بتترفع على حسابه في الموقع' : 'المنتجات بتترفع على حساب المبتكر ده في الموقع',
         error: noStore ? 'المبتكر ده مالوش متجر على الموقع — اختار مبتكر ليه متجر' : null }),
+      moved ? U.InlineNote({ kind: 'warning', children: 'في منتجات اترفعت على مبتكر تاني — «ارفع على الموقع» في «المراجعة والرفع» بيحط المبتكر ده عليها، إلا الـ Variable اللي اتعملت تركيباته: بيفضل على المبتكر القديم.' }) : null,
       h('div', { class: 'rate-field', id: 'rate-box' }, h('span', { class: 't-small help' }, 'نسبة إبتكر'), h('b', null, r == null ? '—' : U.num(r + '%')), h('small', { class: 'help' }, ' + ' + K.n0(feeNow()) + ' ج.م رسوم'), h('span', { class: 'grow' }), Button({ size: 'sm', label: 'تغيير', onClick: changeRate })),
       r == null && s.vendorId ? U.InlineNote({ kind: 'warning', children: 'نسبة المبتكر مش ظاهرة لك — اكتبها بـ «تغيير» عشان الأسعار تتحسب.' }) : null,
       h('div', { class: 'formula' }, h('small', null, 'معاينة المعادلة'), ex ? h('span', null, 'سعر المبتكر 1,000 ← سعر البيع ', h('b', null, K.n0(ex.sale)), ' ← قبل الخصم ', h('b', null, K.n0(ex.regular)), ' (+15–30% عشوائي)') : h('span', null, 'اختار البراند الأول')),
@@ -486,7 +491,7 @@
       if (!isVar()) { const p = priceOf(it.vendorPrice, ensureMarkup(it)); it.sale = p ? p.sale : null; it.regular = p ? p.regular : null; }
       else it.variations.forEach((v) => { const p = priceOf(v.vendorPrice, ensureMarkup(v)); v.sale = p ? p.sale : null; v.regular = p ? p.regular : null; v.image = v.color ? (it.colorImages || {})[v.color] || null : null; }); });
     await touch(true);
-    S.uploading = true; const list = L.map((it, i) => { const r = resultOf(i); return { name: it.nameEn, st: r && r.productId && !r.error && r.author !== 'failed' ? 'ok' : 'wait', why: '' }; }); // a maker that did not stick is asked again
+    S.uploading = true; const list = L.map((it, i) => { const r = resultOf(i); return { name: it.nameEn, st: r && r.productId && !r.error && r.author !== 'failed' && onMaker(r) ? 'ok' : 'wait', why: '' }; }); // a maker that did not stick is asked again, and so is a product on another maker than the batch's
     const m = U.Modal({ title: 'بيرفع ' + L.length + ' منتج على الموقع', body: [], footer: [] });
     const draw = () => { const d = list.filter((x) => x.st === 'ok' || x.st === 'fail').length;
       m.setBody(h('b', { class: 'brand-t' }, d + ' من ' + L.length), U.ProgressBar('brand', d / L.length), ...list.map((x) => h('div', { class: 'up-row' }, h('span', null, x.name), x.st === 'ok' ? Tag('success', 'اترفع ✓') : x.st === 'fail' ? Tag('error', x.why || 'فشل') : x.st === 'run' ? Tag('orange', 'بيرفع…') : Tag('neutral', 'في الانتظار'))),

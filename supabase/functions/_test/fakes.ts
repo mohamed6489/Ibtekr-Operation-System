@@ -46,7 +46,7 @@ const COLUMNS: Record<string, string[]> = {
   dokan_withdrawals: ['id', 'woo_vendor_id', 'vendor_id', 'amount', 'charge', 'receivable', 'status', 'method', 'requested_at', 'synced_at'],
   dokan_balances: ['vendor_id', 'woo_vendor_id', 'balance', 'earning', 'sales', 'orders', 'synced_at'],
   // 0013 brands (the name only here) and 0023 (phase 5.2, the studio)
-  brands: ['id', 'name', 'code'],
+  brands: ['id', 'name', 'code', 'aliases'],
   sku_colors: ['id', 'name_en', 'name_ar', 'code', 'hex'],
   studio_batches: ['id', 'title', 'brand_id', 'vendor_id', 'type', 'state', 'step', 'status', 'result', 'created_by', 'updated_at', 'archived_at'],
 };

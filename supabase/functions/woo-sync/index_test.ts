@@ -1480,6 +1480,26 @@ Deno.test('studio_upload: the batch\'s maker changed after the variations were m
   assertEquals([late.body.item.error, late.body.item.author, siteWrites(z.woo, n)], ['maker_changed', 'failed', []]);
 });
 
+Deno.test('studio_upload (decision 5): the site\'s WooCommerce brand named like the batch\'s («@Art-craft» = «Art Craft») goes with the product, not its translation; none → no brands field and wooBrand null; a product made before (woo-sync v33) gets it on a retry, once', async () => {
+  const seed = { ...studioSeed(), brands: [{ id: BRAND, name: '@Art-craft', code: 'A' }], woo_brands: [{ id: 4363, name: 'Art Craft', slug: 'art-craft' }, { id: 5, name: 'Lusso', slug: 'lusso' }] };
+  const { woo, deps } = setup({ seed, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  const r = await upload(deps);
+  const [en, ar] = woo.calls.filter((c) => c.method === 'POST' && c.path === 'wc/v3/products');
+  assertEquals([en.body.brands, ar.body.brands, r.body.item.wooBrand, r.body.result], [[{ id: 4363 }], undefined, 4363, 'ok']);
+  const none = setup({ seed: { ...studioSeed(), woo_brands: [{ id: 5, name: 'Lusso', slug: 'lusso' }] }, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
+  const n = await upload(none.deps);
+  const enN = none.woo.calls.find((c) => c.method === 'POST' && c.path === 'wc/v3/products')!;
+  assertEquals(['brands' in enN.body, n.body.item.wooBrand, n.body.result], [false, null, 'ok'], 'the pa_brand attribute only; the report says so');
+  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', error: null }] });
+  const v33 = setup({ seed: { ...old, woo_brands: [{ id: 4363, name: 'Art Craft', slug: 'art-craft' }] }, env: WP_ENV, storage: STUDIO_FILES,
+    routes: studioRoutes({ 'PUT wc/v3/products/900': (c: any) => ({ body: { id: 900, brands: c.body.brands } }) }) });
+  const l = await upload(v33.deps);
+  assertEquals([siteWrites(v33.woo, 0), v33.woo.calls.find((c) => c.method === 'PUT')!.body, l.body.item.wooBrand], [['PUT wc/v3/products/900'], { brands: [{ id: 4363 }] }, 4363]);
+  const m = v33.woo.calls.length;
+  await upload(v33.deps);
+  assertEquals(siteWrites(v33.woo, m), [], 'once');
+});
+
 Deno.test('category_create (phase 5.2): products.add; the English category then its Arabic translation; woo_categories written; names with tags refused', async () => {
   const routes = { 'POST wc/v3/products/categories': (c: any) => ({ body: c.body.wpml_language === 'ar' ? { id: 81, name: c.body.name, slug: 'ar-81', parent: 0 } : { id: 80, name: c.body.name, slug: 'lamps', parent: c.body.parent } }) };
   const { woo, db, deps } = setup({ routes, env: PUSH_ON });

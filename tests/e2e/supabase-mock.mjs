@@ -19,7 +19,7 @@
 // vendors_brands_guard_delete (23503 naming brand_owners_vendor_id_fkey) and the cascade of the origin's brands). Not a product feature.
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
-import { buildStudio, sheetCsvUrl } from '../../supabase/functions/_shared/woo-studio.js';
+import { buildStudio, matchWooBrand, sheetCsvUrl } from '../../supabase/functions/_shared/woo-studio.js';
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
 export const LIVE = process.env.E2E_SUPABASE_LIVE === '1';
 const LIVE_URL = process.env.E2E_SUPABASE_URL || ''; const LIVE_KEY = process.env.E2E_SUPABASE_ANON_KEY || '';
@@ -992,7 +992,8 @@ export async function installSupabaseMock(page, opts = {}) {
       // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
       // mock.studioAuthorFail = { [index]: true } answers author 'failed' (the translation's maker did not stick). The maker as the
       // server keeps it (authorOwner = the batch maker's woo_vendor_id): a retry on another maker moves a product with no variation
-      // made (its mirror row's vendor_id), and refuses one with them (maker_changed, the record kept).
+      // made (its mirror row's vendor_id), and refuses one with them (maker_changed, the record kept). The product carries the
+      // site's WooCommerce brand named like the batch's (matchWooBrand over mock.wooBrands; none = wooBrand null on the result).
       // category_create — a new woo_categories row (id 9500+). studio_sheet (decision 13) — the server's own sheetCsvUrl check
       // (400 bad_link), then mock.sheetLinks[url] = { csv } | { reason } (else not_published); mock.sheetReads lists the links.
       if (action === 'studio_sheet') {
@@ -1005,7 +1006,8 @@ export async function installSupabaseMock(page, opts = {}) {
         const row = mock.studioBatches.find((x) => x.id === b.batch_id); const it = row && row.state && Array.isArray(row.state.items) ? row.state.items[b.index] : null;
         if (!row || !it) return json(404, { error: 'no_item' });
         const brand = mock.brands.find((x) => x.id === row.brand_id);
-        const built = buildStudio(it, { batchId: row.id, type: row.type, brand: brand ? brand.name : '', colors: Object.fromEntries(mock.skuColors.map((c) => [c.code, c.name_en])), attrs: { color: 12, size: 3, material: 15, style: 14, brand: 13 } });
+        const wooBrand = matchWooBrand(brand, mock.wooBrands); // the server's rule: the site's WooCommerce brand named like ours
+        const built = buildStudio(it, { batchId: row.id, type: row.type, brand: brand ? brand.name : '', wooBrand, colors: Object.fromEntries(mock.skuColors.map((c) => [c.code, c.name_en])), attrs: { color: 12, size: 3, material: 15, style: 14, brand: 13 } });
         if (built.error) return json(400, built);
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
         const items = row.result && Array.isArray(row.result.items) ? row.result.items.slice() : [];
@@ -1016,8 +1018,8 @@ export async function installSupabaseMock(page, opts = {}) {
           const mv = mock.vendors.find((x) => x.id === row.vendor_id); const owner = mv && mv.woo_vendor_id != null ? mv.woo_vendor_id : null;
           const was = prev && prev.productId && prev.authorOwner !== undefined ? prev.authorOwner : owner; const kept = was !== owner && !!(prev && prev.variations);
           if (prev && prev.productId && was !== owner && !kept) { const p = mock.products.find((x) => x.id === id); if (p) p.vendor_id = row.vendor_id; }
-          if (!prev || !prev.productId) mock.products.push({ id, sku: built.sku, name: it.nameEn, image_url: null, permalink: SITE + '/product/studio-' + id + '/', vendor_id: row.vendor_id, price: null, status: 'draft', raw: { id }, updated_at: T0, lang: 'en', translation_ids: { en: id }, type: row.type === 'Variable' ? 'variable' : 'simple', regular_price: built.product.regular_price ? Number(built.product.regular_price) : null, sale_price: built.product.sale_price ? Number(built.product.sale_price) : null, stock_quantity: null, stock_status: 'instock', manage_stock: false, backorders: 'no', low_stock_amount: null, total_sales: 0, category_ids: it.categories, brand_ids: [], image_count: built.images.length, weight: it.weight || null, featured: false, desc_filled: false, short_desc_filled: !!it.shortDesc, woo_modified_at: T0, trashed_at: null });
-          res = { sku: built.sku, productId: id, arId: it.nameAr ? id + 1 : null, author: kept || (mock.studioAuthorFail || {})[b.index] ? 'failed' : 'ok', authorOwner: kept ? was : owner,
+          if (!prev || !prev.productId) mock.products.push({ id, sku: built.sku, name: it.nameEn, image_url: null, permalink: SITE + '/product/studio-' + id + '/', vendor_id: row.vendor_id, price: null, status: 'draft', raw: { id }, updated_at: T0, lang: 'en', translation_ids: { en: id }, type: row.type === 'Variable' ? 'variable' : 'simple', regular_price: built.product.regular_price ? Number(built.product.regular_price) : null, sale_price: built.product.sale_price ? Number(built.product.sale_price) : null, stock_quantity: null, stock_status: 'instock', manage_stock: false, backorders: 'no', low_stock_amount: null, total_sales: 0, category_ids: it.categories, brand_ids: wooBrand ? [wooBrand] : [], image_count: built.images.length, weight: it.weight || null, featured: false, desc_filled: false, short_desc_filled: !!it.shortDesc, woo_modified_at: T0, trashed_at: null });
+          res = { sku: built.sku, productId: id, arId: it.nameAr ? id + 1 : null, author: kept || (mock.studioAuthorFail || {})[b.index] ? 'failed' : 'ok', authorOwner: kept ? was : owner, wooBrand: prev && prev.productId && prev.wooBrand !== undefined ? prev.wooBrand : wooBrand,
             variations: kept ? prev.variations : built.variations.length ? { done: built.variations.length, failed: 0 } : undefined, media: Object.fromEntries(built.images.map((p, k) => [p, 8800 + k])), error: kept ? 'maker_changed' : null }; }
         mock.studioUploads.push({ index: b.index, by: u.email, maker: row.vendor_id, sku: built.sku, product: built.product, variations: built.variations.map((v) => v.payload), images: built.images, ar: built.ar, result: res.error || 'ok' });
         while (items.length < b.index) items.push(null); items[b.index] = res;

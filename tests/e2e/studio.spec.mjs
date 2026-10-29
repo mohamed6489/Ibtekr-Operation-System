@@ -74,6 +74,7 @@ test('studio Simple: brand + batch rate → CSV (columns by name) + images by ro
   expect(mock.studioUploads.map((x) => [x.index, x.sku, x.product.status, x.product.sale_price, x.product.categories, x.images.length, x.ar && x.ar.name])).toEqual([
     [0, 'IBTARBE0999', 'draft', '1430', [{ id: 15 }], 1, 'مخدة بوهيمي'], [1, 'IBTARPU1000', 'draft', '1150', [{ id: 15 }], 1, 'مخدة مخططة']]);
   expect(mock.studioUploads[0].product.attributes[0]).toEqual({ id: 12, visible: true, variation: false, options: ['Beige'] });
+  expect(mock.studioUploads.map((x) => x.product.brands)).toEqual([[{ id: 3 }], [{ id: 3 }]]); // decision 5: the site's WooCommerce brand named like the batch's
   expect(mock.products.filter((p) => /^IBTAR(BE0999|PU1000)$/.test(p.sku)).map((p) => p.vendor_id)).toEqual(['a0000000-0000-4000-8000-000000000002', 'a0000000-0000-4000-8000-000000000002']); // the chosen maker, not the brand's owner
   expect(mock.activity.some((a) => a.action === 'product.create')).toBe(true);
   await page.getByRole('button', { name: 'روح للسجل' }).click();
@@ -81,7 +82,7 @@ test('studio Simple: brand + batch rate → CSV (columns by name) + images by ro
   await expect(page.locator('#pg-products')).toContainText('اترفعت');
 });
 
-test('studio Variable: colors and sizes become variations with their own SKU and price; a refused product is reported with its reason, a maker that did not stick is noted, and «جرّب تاني» uploads only those', async ({ page }) => {
+test('studio Variable: colors and sizes become variations with their own SKU and price; a refused product is reported with its reason, a maker that did not stick and a brand missing from the site\'s brands are noted, and «جرّب تاني» uploads only those', async ({ page }) => {
   await signIn(page, OPS);
   await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
   await page.getByRole('radio', { name: /^Variable/ }).click();
@@ -104,6 +105,7 @@ test('studio Variable: colors and sizes become variations with their own SKU and
   await page.locator('.modal').getByText('هدايا', { exact: true }).click(); await page.locator('.modal').getByRole('button', { name: 'تمام' }).click();
   await next(page, 'التالي: المراجعة والرفع');
   mock.studioFail = { 1: 'product_invalid_sku' }; mock.studioAuthorFail = { 0: true };
+  mock.wooBrands = mock.wooBrands.filter((b) => b.name !== 'Art Craft'); // decision 5: no site brand named like the batch's
   await next(page, 'ارفع على الموقع (مسودة)');
   await expect(page.locator('.modal')).toContainText('الـ SKU ده موجود على الموقع');
   await page.locator('.modal').getByRole('button', { name: 'شوف التقرير' }).click();
@@ -112,6 +114,8 @@ test('studio Variable: colors and sizes become variations with their own SKU and
   expect([v.sku, v.product.type, v.variations.map((x) => x.sku)]).toEqual(['IBTAR0999', 'variable', ['IBTARBE0999-5050', 'IBTARBE0999-4040', 'IBTARBK0999-5050', 'IBTARBK0999-4040']]);
   expect(v.variations[0].sale_price).toBe('2860'); // 2000 ÷ 0.7 = 2857.1 → 2860
   await expect(page.locator('#pg-products')).toContainText('المبتكر ماتحطش');
+  await expect(page.locator('#pg-products')).toContainText('البراند مش موجود في براندات الموقع');
+  expect('brands' in v.product).toBe(false); // the pa_brand attribute only
   mock.studioFail = {}; mock.studioAuthorFail = {};
   await page.getByRole('button', { name: 'جرّب تاني' }).first().click();
   await page.locator('.modal').getByRole('button', { name: 'شوف التقرير' }).click();

@@ -52,5 +52,6 @@
     من غير `ai_run_start` الحجز بيفشل فمافيش أي نداء لـ Claude (502 `ai_error`)، والواجهة لسه مش على `main`. `get_edge_function`:
     الملفات الأربعة **مطابقة للريبو حرف بحرف** (مقارنة بـ node). الـ sandbox مابيوصلش `supabase.co`، فالفحص من الداتا بيز
     (`net.http_post` من غير توكن) → 401 `{"error":"unauthorized"}` من الدالة نفسها.
-  - [ ] `main` (الواجهة) + `origin/deploy^{tree}` = `origin/main:app`.
+  - [x] `main` (الواجهة) — 30 أكتوبر: fast-forward `858ccfe..e4998e5` (الـ CI أخضر على كل الـ commits لحد 1a9c9c0؛ e4998e5
+    دفتر بس)، Deploy run 41090173333 ok، و`origin/deploy^{tree}` = `origin/main:app` (25ee719). `ai_runs` 0 صف بعد `rls_ai`.
   - [ ] صاحب المشروع يحط `ANTHROPIC_API_KEY` ← القبول (أداة المحتوى + منتج في الاستوديو) ← `ai_runs` ← التقرير.

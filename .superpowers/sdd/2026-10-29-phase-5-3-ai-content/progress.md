@@ -41,10 +41,13 @@
   `supabase/config.toml`. 29 أكتوبر: `list_migrations` على الحي آخرها `0022_products_report` (`0023` اتطبّقت من SQL Editor)؛
   `list_edge_functions` و`apply_migration` و`deploy_edge_function` محتاجين موافقة صاحب المشروع — مستنيين.
   - [x] رقم `woo-sync` الحي = v36 و`woo-webhook` v18 (آخر رقم في §2.6) ومافيش `ai-content` قبل كده (29 أكتوبر).
-  - [ ] `0024_ai` + فحوص ما بعد التطبيق — `apply_migration` اتبعت مرتين وسؤال تأكيد Supabase (الملف فيه `drop policy` /
-    `revoke`) فضل من غير رد 60 ثانية، فماتطبقش حاجة (اتأكد: `ai_runs` مش موجود). مستني صاحب المشروع (يرد على السؤال، أو
-    SQL Editor زي `0021`/`0023`).
-  - [ ] `rls_ai` عبر «RLS live».
+  - [x] `0024_ai` — `apply_migration` (3 مرات) و`execute_sql` (مرة) وقفوا على سؤال تأكيد Supabase (الملف فيه `drop policy` /
+    `revoke`) من غير رد في 60 ثانية، فصاحب المشروع طبّقه من SQL Editor (30 أكتوبر، زي `0021`/`0023` — مش في
+    `list_migrations`). فحوص ما بعد التطبيق مطابقة: RLS شغّال؛ `ai_month_cost` و`ai_run_start` `security invoker`؛
+    `ai_run_start` لـ `service_role` بس (لا `authenticated` ولا `anon`)؛ `anon` مايقدرش ينفّذ `ai_month_cost`؛ `authenticated`
+    `select` بس (لا insert ولا update)، و`anon` ولا حاجة؛ `service_role` insert/update؛ سياسة واحدة `ai_runs_select`؛ 18 عمود؛
+    0 صف.
+  - [x] `rls_ai` عبر «RLS live» — run 41089994191 (30 أكتوبر): `rls-live: rls_ai ok` (rollback).
   - [x] نشر `ai-content` **v1** (29 أكتوبر، `verify_jwt: false`، id `a8f8ae82-6949-44b9-a6dc-95664e18a730`) قبل `0024` بالقصد —
     من غير `ai_run_start` الحجز بيفشل فمافيش أي نداء لـ Claude (502 `ai_error`)، والواجهة لسه مش على `main`. `get_edge_function`:
     الملفات الأربعة **مطابقة للريبو حرف بحرف** (مقارنة بـ node). الـ sandbox مابيوصلش `supabase.co`، فالفحص من الداتا بيز

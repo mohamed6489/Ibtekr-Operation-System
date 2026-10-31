@@ -56,7 +56,8 @@
   اللوج أعداد بس؛ `Deps.userId` اتضاف لـ woo-sync) عبر `IBProducts.addImages` (لوج `product.images.add`)؛ «سجل الصور»؛ «إعدادات
   الصور» للأدمن (كريدت الشهر، الموديل الافتراضي، السقف بالكريدت). Deno test للـ action، الـ mock بيحاكيه، e2e `tests/e2e/images.spec.mjs` (3).
 - [~] T9 حي (31 أكتوبر): `woo-sync` **v44** (`product_images_add`؛ workflow run 41207180954 من `main` 22cb331) و`ai-images` **v1**
-  (`verify_jwt false`، من الـ workflow كمان) اتنشروا. **`0025_ai_images` لسه** — `apply_migration` وقف على سؤال تأكيد Supabase من غير
-  رد (زي `0024`): صاحب المشروع يطبّقه من SQL Editor (`tools/deploy.md` §2.7.13 فيه الفحوص)، وبعدها `rls_ai_images rls_ai` من
-  workflow «RLS live». لحد ما يتطبّق: أي توليد بيرجّع 502 `ai_error` من غير نداء للمزوّد (الحجز مش موجود). بعده: المفتاح
-  `MAGNIFIC_API_KEY` (صاحب المشروع)، ثم `probe` لتثبيت شكل الـ API (T2)، ثم القبول. الواجهة على `main`.
+  (`verify_jwt false`، من الـ workflow كمان) اتنشروا؛ من غير توكن → 401. `0025_ai_images` **اتطبّقت من SQL Editor (صاحب المشروع)** —
+  `apply_migration` وقف على سؤال تأكيد Supabase من غير رد زي `0024`؛ فحوص ما بعد التطبيق (§2.7.13) مطابقة (الدالتين، `credits`،
+  الـ check بـ `image`، الـ bucket وسياستيه، والعضو مايقدرش ينفّذ الحجز). `rls_ai_images rls_ai` حي **ok** (RLS live run 41225159897).
+  `MAGNIFIC_API_KEY` اتحط (صاحب المشروع). **فاضل:** T2 — «اختبار الاتصال بـ Magnific» من «إعدادات الصور» (الأدمن) بيرجّع شكل رد
+  الحساب أو الغلط برقم HTTP؛ على النتيجة بتتظبط `providers/magnific.ts` (الدومينات لسه محجوبة في الـ sandbox) — ثم القبول.

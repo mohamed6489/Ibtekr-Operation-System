@@ -894,7 +894,7 @@ from public.woo_webhook_events order by received_at desc limit 30;
 3. نشر `ai-images` من workflow «Deploy functions» (الخيار `ai-images`؛ `verify_jwt = false` من `config.toml`). و`woo-sync` كمان (v44: `product_images_add`). بعد النشر `list_edge_functions`.
 4. فحص من غير توكن: `POST /functions/v1/ai-images` بـ `{"action":"probe"}` → 401 `unauthorized` (من الدالة). من غير `0025`: أي توليد بيرجّع 502 `ai_error` (الحجز مش موجود) من غير أي نداء للمزوّد.
 5. **المفتاح (صاحب المشروع):** Supabase › Edge Functions › Secrets → `MAGNIFIC_API_KEY`. من غيره 503 `not_configured` من غير أي نداء، والواجهة بتقول «الـ AI للصور لسه مش متوصّل».
-6. **T2 — تثبيت شكل الـ API:** بعد المفتاح، الأدمن يدوس «إعدادات الصور» ← (أو من الكونسول) `IBImages.probe()` → شكل رد `/account`؛ لو 502/404 = المسارات المفترضة في `providers/magnific.ts` مش مطابقة: السماح بـ `magnific.com`/`docs.freepik.com` في شبكة الجلسة أو صفحة الـ reference، وتعديل الطبقة ونشر تاني. `MAGNIFIC_API_URL` بيحرّك الأساس من غير نشر.
+6. **T2 — شكل الـ API اتثبّت (31 أكتوبر، `docs/superpowers/reference/magnific-api.md`):** الهيدر `x-magnific-api-key` (Bearer كان بيرجّع 403)، الأساس `https://api.magnific.com/v1/ai`، route لكل موديل (`/text-to-image/seedream-v5-pro` و`-edit` بالمرجعية…)، المهمة `data.task_id/status/generated` وpolling على نفس الـ route. الأدمن من «إعدادات الصور» ← «اختبار الاتصال بـ Magnific» (بيعمل GET لقايمة المهام من غير كريدت) → «متصل ✓» أو الغلط برقم HTTP؛ النتيجة بتتسجّل صف `ai_runs` بـ `label = 'probe'`. `MAGNIFIC_API_URL` بيحرّك الأساس من غير نشر.
 7. **القبول:** خانة واحدة في الاستوديو («ولّد»)، وأداة الصور (نص لصورة + «احفظ على المنتج» على منتج staging)، وبعدها `ai_runs` (`action = 'image'`, `credits`).
 
 **الأسرار** (زي 2.7.2):
@@ -902,9 +902,11 @@ from public.woo_webhook_events order by received_at desc limit 30;
 | السر | القيمة |
 |---|---|
 | `MAGNIFIC_API_KEY` | مفتاح Magnific API (حساب صاحب المشروع). صاحب المشروع بيحطه بنفسه من اللوحة |
-| `MAGNIFIC_API_URL` | **اختياري:** أساس الـ API لو مختلف عن `https://api.magnific.com/v1` (لحد T2) |
+| `MAGNIFIC_API_URL` | **اختياري:** أساس الـ API لو مختلف عن `https://api.magnific.com/v1/ai` |
 | `IMAGE_HOSTS` | **اختياري:** hosts إضافية (CDN) مفصولة بفواصل بيتسمح لصورة المنتج المرجعية تتجاب منها — غير host الموقع (`WOO_URL`) اللي مسموح دايمًا |
 | `MAGNIFIC_MODEL` / `IMAGE_MONTHLY_CREDITS` | **اختياري (احتياطي لو صف `ai` من غير `image_model` / `image_monthly_credits`):** الموديل الافتراضي / سقف الكريدت الشهري |
+
+**نسخ الدالة:** v1 (المسار المفترض)، v2 (أسرار)، v3 (صف `probe`)، v4 (`not_configured` مفرّق: السر مش موجود / المفتاح مرفوض برقم HTTP)، **v5** (T2: طبقة Magnific المثبّتة — الهيدر والـ routes والموديلات `seedream-5-pro` / `seedream-5-lite` / `gemini-2-5-flash` / `gpt-image-2`).
 
 **السلوك:** كل نداء بيتحجز الأول بـ RPC `ai_image_run_start` (للسيرفر بس، خطوة مقفولة واحدة بنفس قفل `ai_run_start`): 60 نداء للعضو في 10 دقايق = 429 `busy`؛ كريدت الشهر + المخطط فوق `image_monthly_credits` = صف `cap` و402 `ai_cap`؛ غير كده صف `pending` بالكريدت المخططة (75 لـ Seedream، 50 لـ Nano Banana 2.1…) والنتيجة بتتكتب عليه. 503 `not_configured` بعد الحجز (الصف بيقول). رفض المزوّد (safety) = 200 `refused` بـ 0 كريدت؛ 429/5xx/timeout = 429 `busy` والكريدت المخططة بتفضل محجوزة. الإعدادات: صف `settings` قسم `ai` (`image_model`, `image_monthly_credits` — مدموجة مع مفاتيح المحتوى) من «إعدادات الصور» في أداة الصور (الأدمن). القراءة:
 

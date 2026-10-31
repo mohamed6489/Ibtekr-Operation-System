@@ -38,11 +38,11 @@ test('words → images: the card opens the tool; the shape, the count and the mo
   await page.fill('#ig-prompt', 'a macrame bag on a rattan chair');
   await page.locator('[data-igshape="home"]').click(); await page.locator('[data-igcount="2"]').click();
   await expect(page.locator('[data-igcost]')).toContainText('150 كريدت');
-  await page.locator('#ig-model').click(); await page.getByRole('option', { name: /Nano Banana 2.1/ }).click();
+  await page.locator('#ig-model').click(); await page.getByRole('option', { name: /Seedream 5 Lite/ }).click();
   await expect(page.locator('[data-igcost]')).toContainText('100 كريدت');
   await page.locator('[data-igrun]').click();
   await expect(page.locator('.ig-it')).toHaveCount(2);
-  expect(mock.imgCalls).toEqual([{ action: 'create', by: OPS, source: 'text', shape: 'home', prompt: 'a macrame bag on a rattan chair', count: 2, model: 'imagen-nano-banana-2-1', size: '700x800' }]);
+  expect(mock.imgCalls).toEqual([{ action: 'create', by: OPS, source: 'text', shape: 'home', prompt: 'a macrame bag on a rattan chair', count: 2, model: 'seedream-5-lite', size: '700x800' }]);
   expect([...mock.imgObjects.keys()].every((k) => k.startsWith(OPS_ID + '/'))).toBe(true);
   await expect(page.locator('#pg-products')).toContainText('100 كريدت');
   await expect(page.locator('.ig-it img').first()).toHaveAttribute('src', /\/storage\/v1\/object\/sign\/ai-images\//); // the signed URL landed
@@ -114,13 +114,13 @@ test('permissions and settings: accounts sees «محتاج صلاحية» and an
   await page.locator('[data-img-probe]').click();
   await expect(page.locator('[data-img-probe-out]')).toContainText('متصل ✓'); // the provider's account shape, keys only
   await expect(page.locator('[data-img-probe-out]')).toContainText('"credits":"number"');
-  await page.locator('.modal #img-def-model').click(); await page.getByRole('option', { name: /Nano Banana 2 Lite/ }).click();
+  await page.locator('.modal #img-def-model').click(); await page.getByRole('option', { name: /Gemini 2.5 Flash/ }).click();
   await page.fill('.modal #img-cap', '5000');
   await page.locator('[data-img-save]').click();
   await expect(page.locator('.modal')).toBeHidden();
-  expect(mock.settings.find((s) => s.section === 'ai').data).toEqual({ image_model: 'imagen-nano-banana-2-lite', image_monthly_credits: 5000 });
-  await expect(page.locator('#ig-model')).toContainText('Nano Banana 2 Lite'); // the tool's model follows
-  await expect.poll(() => mock.activityRows.filter((x) => x.action === 'product.ai.image.settings').map((x) => x.new_value)).toEqual(['imagen-nano-banana-2-lite · 5000 credits']);
+  expect(mock.settings.find((s) => s.section === 'ai').data).toEqual({ image_model: 'gemini-2-5-flash', image_monthly_credits: 5000 });
+  await expect(page.locator('#ig-model')).toContainText('Gemini 2.5 Flash'); // the tool's model follows
+  await expect.poll(() => mock.activityRows.filter((x) => x.action === 'product.ai.image.settings').map((x) => x.new_value)).toEqual(['gemini-2-5-flash · 5000 credits']);
 });
 
 test('not_configured told apart: the secret missing on the server names the secret; the provider refusing the key names the HTTP status (the studio slot and the tool)', async ({ page }) => {

@@ -26,8 +26,8 @@ test('generate: a slot (a number or a color) of a batch item, the model and size
   const r = await I.generate(SB, 0, 0);
   assert.deepEqual(plain(r), { ok: true, result: 'ok', bucket: 'studio', path: SB + '/gen-0-0-abc.webp', paths: [SB + '/gen-0-0-abc.webp'], credits: 75, model: 'seedream-5-pro', runId: 7 });
   assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args, ['ai-images', { body: { action: 'generate', batch_id: SB, index: 0, slot: 0 } }]);
-  await I.generate(SB, 2, { color: 'bk' }, { model: 'imagen-nano-banana-2-1', size: 'custom', width: '900', height: 1200 });
-  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'generate', batch_id: SB, index: 2, slot: 'color:BK', model: 'imagen-nano-banana-2-1', size: 'custom', width: 900, height: 1200 });
+  await I.generate(SB, 2, { color: 'bk' }, { model: 'seedream-5-lite', size: 'custom', width: '900', height: 1200 });
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'generate', batch_id: SB, index: 2, slot: 'color:BK', model: 'seedream-5-lite', size: 'custom', width: 900, height: 1200 });
   assert.deepEqual(plain(logs), [['product.ai.image', 'studio · #1 · slot 1 · seedream-5-pro · 75 credits', { entity: 'studio_batches', entity_id: SB }],
     ['product.ai.image', 'studio · #3 · color BK · seedream-5-pro · 75 credits', { entity: 'studio_batches', entity_id: SB }]]);
   assert.ok(!JSON.stringify(logs).includes('gen-0-0'), 'no path in the activity');
@@ -39,9 +39,9 @@ test('edit: a studio image (its batch, index and path) or a site product (produc
   assert.deepEqual([r.ok, r.bucket, r.path, r.credits], [true, 'studio', SB + '/edit-0-x.webp', 40]);
   assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'edit', op: 'instruction', prompt: 'lighter background', batch_id: SB, index: 0, path: SB + '/gen-0-0-abc.webp' });
   stub.responses['fn:ai-images'] = { data: { result: 'refused', model: 'seedream-5-pro', credits: 0, run_id: 8 }, error: null };
-  const r2 = await I.edit({ productId: '4001' }, 'remove_bg', { options: { bg: 'white' }, model: 'gpt-2' });
+  const r2 = await I.edit({ productId: '4001' }, 'remove_bg', { options: { bg: 'white' }, model: 'gpt-image-2' });
   assert.deepEqual(plain(r2), { ok: true, result: 'refused', bucket: null, path: null, paths: [], credits: 0, model: 'seedream-5-pro', runId: 8 });
-  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'edit', op: 'remove_bg', model: 'gpt-2', options: { bg: 'white' }, product_id: 4001 });
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'edit', op: 'remove_bg', model: 'gpt-image-2', options: { bg: 'white' }, product_id: 4001 });
   assert.deepEqual(plain(logs), [['product.ai.image', 'edit · #1 · instruction · seedream-5-pro · 40 credits', { entity: 'studio_batches', entity_id: SB }],
     ['product.ai.image', 'edit · #4001 · remove_bg · seedream-5-pro · refused', { entity: 'products', entity_id: '4001' }]]);
   assert.ok(!JSON.stringify(logs).includes('lighter'), 'no prompt in the activity');
@@ -49,16 +49,16 @@ test('edit: a studio image (its batch, index and path) or a site product (produc
 
 test('create (the tool): text or a photo (its preview stays in the page) or a product; count, size and model; the paths; logged with the count', async () => {
   const paths = [ME + '/abc-1.webp', ME + '/abc-2.webp'];
-  const { I, stub, logs } = load({ perms: { 'products.edit': 'F' }, responses: { 'fn:ai-images': OK({ bucket: 'ai-images', path: paths[0], paths, credits: 100, model: 'imagen-nano-banana-2-1' }) } });
-  const r = await I.create({ source: 'text', prompt: 'a macrame bag', shape: 'home', size: '1080x1350', count: 2, model: 'imagen-nano-banana-2-1' });
+  const { I, stub, logs } = load({ perms: { 'products.edit': 'F' }, responses: { 'fn:ai-images': OK({ bucket: 'ai-images', path: paths[0], paths, credits: 100, model: 'seedream-5-lite' }) } });
+  const r = await I.create({ source: 'text', prompt: 'a macrame bag', shape: 'home', size: '1080x1350', count: 2, model: 'seedream-5-lite' });
   assert.deepEqual([r.ok, r.bucket, r.paths, r.credits], [true, 'ai-images', paths, 100]);
-  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'create', source: 'text', shape: 'home', prompt: 'a macrame bag', count: 2, model: 'imagen-nano-banana-2-1', size: '1080x1350' });
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'create', source: 'text', shape: 'home', prompt: 'a macrame bag', count: 2, model: 'seedream-5-lite', size: '1080x1350' });
   await I.create({ source: 'image', shape: 'studio', image: { media_type: 'image/jpeg', data: 'QUJD', preview: 'data:image/jpeg;base64,QUJD' } });
   assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'create', source: 'image', shape: 'studio', count: 1, image: { media_type: 'image/jpeg', data: 'QUJD' } });
   await I.create({ source: 'image', shape: 'detail', productId: 4001 });
   assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'create', source: 'image', shape: 'detail', count: 1, product_id: 4001 });
-  assert.deepEqual(plain(logs[0]), ['product.ai.image', 'tool · text · home · 2 images · imagen-nano-banana-2-1 · 100 credits', { entity: 'products', entity_id: null }]);
-  assert.deepEqual(plain(logs[2]), ['product.ai.image', 'tool · image · detail · 2 images · imagen-nano-banana-2-1 · #4001 · 100 credits', { entity: 'products', entity_id: '4001' }]);
+  assert.deepEqual(plain(logs[0]), ['product.ai.image', 'tool · text · home · 2 images · seedream-5-lite · 100 credits', { entity: 'products', entity_id: null }]);
+  assert.deepEqual(plain(logs[2]), ['product.ai.image', 'tool · image · detail · 2 images · seedream-5-lite · #4001 · 100 credits', { entity: 'products', entity_id: '4001' }]);
   assert.ok(!JSON.stringify(logs).includes('macrame') && !JSON.stringify(logs).includes('QUJD'), 'no prompt or image in the activity');
 });
 
@@ -113,24 +113,24 @@ test('can: the studio with products.add, a site edit with products.edit, the too
   assert.deepEqual(plain(load({ perms: { 'products.add': 'P' } }).I.can()), { studio: false, edit: false, tool: false, settings: false });
   assert.deepEqual(plain(load({ admin: true }).I.can()), { studio: true, edit: true, tool: true, settings: true });
   const { I } = load();
-  assert.deepEqual([I.credits('seedream-5-pro', 1), I.credits('imagen-nano-banana-2-1', 3), I.credits('unknown', 2), I.usd(75), I.DEFAULT_MODEL, I.MAX_COUNT], [75, 150, 150, 0.15, 'seedream-5-pro', 4]);
+  assert.deepEqual([I.credits('seedream-5-pro', 1), I.credits('seedream-5-lite', 3), I.credits('unknown', 2), I.usd(75), I.DEFAULT_MODEL, I.MAX_COUNT], [75, 150, 150, 0.15, 'seedream-5-pro', 4]);
 });
 
 test('settings (decision 3): image_model / image_monthly_credits of the row «ai» with their defaults; saveSettings by the admin, merged into the row (the content keys stay), logged without secrets; estModel follows the read', async () => {
-  const row = { data: { model: 'claude-sonnet-5-5', monthly_limit_usd: 20, image_model: 'gpt-2', image_monthly_credits: '5000' } };
+  const row = { data: { model: 'claude-sonnet-5-5', monthly_limit_usd: 20, image_model: 'gpt-image-2', image_monthly_credits: '5000' } };
   const { I, stub, logs } = load({ admin: true, responses: { settings: { data: row, error: null } } });
-  assert.deepEqual(plain(await I.settings()), { ok: true, model: 'gpt-2', monthlyCredits: 5000, fromRow: ['image_model', 'image_monthly_credits'] });
-  assert.equal(I.estModel(), 'gpt-2');
+  assert.deepEqual(plain(await I.settings()), { ok: true, model: 'gpt-image-2', monthlyCredits: 5000, fromRow: ['image_model', 'image_monthly_credits'] });
+  assert.equal(I.estModel(), 'gpt-image-2');
   assert.deepEqual(plain(await I.saveSettings({ model: 'dall-e', monthlyCredits: null })), { ok: false, reason: 'invalid', field: 'model' });
   assert.deepEqual(plain(await I.saveSettings({ model: 'seedream-5-pro', monthlyCredits: '12.5' })), { ok: false, reason: 'invalid', field: 'monthlyCredits' });
   assert.deepEqual(plain(await I.saveSettings({ model: 'seedream-5-pro', monthlyCredits: '8000' })), { ok: true });
   assert.deepEqual(opsOf(stub.calls, 'settings').filter((x) => x.op === 'upsert'), [{ op: 'upsert', args: [{ section: 'ai', data: { model: 'claude-sonnet-5-5', monthly_limit_usd: 20, image_model: 'seedream-5-pro', image_monthly_credits: 8000 } }, { onConflict: 'section' }] }]);
   assert.deepEqual(plain(logs), [['product.ai.image.settings', 'seedream-5-pro · 8000 credits', { entity: 'settings', entity_id: 'ai' }]]);
   assert.equal(I.estModel(), 'seedream-5-pro');
-  assert.deepEqual(plain(await I.saveSettings({ model: 'gpt-2', monthlyCredits: '' })), { ok: true });
+  assert.deepEqual(plain(await I.saveSettings({ model: 'gpt-image-2', monthlyCredits: '' })), { ok: true });
   assert.equal(opsOf(stub.calls, 'settings').filter((x) => x.op === 'upsert').at(-1).args[0].data.image_monthly_credits, null);
   const ops = load({ perms: { 'products.add': 'F' } });
-  assert.deepEqual(plain(await ops.I.saveSettings({ model: 'gpt-2', monthlyCredits: null })), { ok: false, reason: 'forbidden' });
+  assert.deepEqual(plain(await ops.I.saveSettings({ model: 'gpt-image-2', monthlyCredits: null })), { ok: false, reason: 'forbidden' });
   assert.deepEqual(opsOf(ops.stub.calls, 'settings'), []);
   assert.deepEqual(plain(await load({ responses: { settings: { data: null, error: null } } }).I.settings()), { ok: true, model: 'seedream-5-pro', monthlyCredits: null, fromRow: [] });
 });

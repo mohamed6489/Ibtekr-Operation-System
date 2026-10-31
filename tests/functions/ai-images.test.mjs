@@ -12,9 +12,9 @@ const IMG = { media_type: 'image/webp', data: 'A'.repeat(400) };
 test('models: a listed default, credits per image × count, a USD estimate for the shared view', () => {
   assert.equal(DEFAULT_MODEL, 'seedream-5-pro');
   assert.ok(IMG_MODELS.every((m) => MODEL_IDS.includes(m.id) && m.credits > 0 && m.name && m.note));
-  assert.equal(modelCredits('seedream-5-pro'), 75); assert.equal(modelCredits('imagen-nano-banana-2-1'), 50);
+  assert.equal(modelCredits('seedream-5-pro'), 75); assert.equal(modelCredits('seedream-5-lite'), 50);
   assert.equal(modelCredits('unknown'), 75); // an unknown id is priced as the default
-  assert.equal(creditsFor('imagen-nano-banana-2-1', 3), 150); assert.equal(creditsFor('seedream-5-pro', 0), 75);
+  assert.equal(creditsFor('seedream-5-lite', 3), 150); assert.equal(creditsFor('seedream-5-pro', 0), 75);
   assert.equal(usdOf(75), 0.15); assert.equal(usdOf('x'), 0);
 });
 
@@ -28,7 +28,7 @@ test('sizeOf: a listed id, or custom 256–4096 a side at most 4:1; else null', 
 
 test('parseGenerate: a batch, an item, a slot (a number or a color), the default model and product size; refusals by field', () => {
   assert.deepEqual(parseGenerate({ batch_id: SB.toUpperCase(), index: 2, slot: 1 }).req, { batchId: SB, index: 2, slot: 1, model: 'seedream-5-pro', size: { w: 700, h: 800, id: '700x800' } });
-  assert.deepEqual(parseGenerate({ batch_id: SB, index: 0, slot: 'color:BK', model: 'imagen-nano-banana-2-1', size: '1080x1080' }).req.slot, { color: 'BK' });
+  assert.deepEqual(parseGenerate({ batch_id: SB, index: 0, slot: 'color:BK', model: 'seedream-5-lite', size: '1080x1080' }).req.slot, { color: 'BK' });
   assert.equal(parseGenerate({ batch_id: 'x', index: 0, slot: 0 }).field, 'batch_id');
   assert.equal(parseGenerate({ batch_id: SB, index: -1, slot: 0 }).field, 'index');
   assert.equal(parseGenerate({ batch_id: SB, index: 0, slot: 6 }).field, 'slot');
@@ -105,7 +105,7 @@ test('paths: a studio image belongs to its batch; generated / edited / tool path
 
 test('imageSettings: the settings row «ai» over the secrets over the defaults; a model off the list is ignored', () => {
   assert.deepEqual(imageSettings(null, {}), { model: 'seedream-5-pro', monthlyCredits: null });
-  assert.deepEqual(imageSettings({ image_model: 'imagen-nano-banana-2-1', image_monthly_credits: '5000' }, { MAGNIFIC_MODEL: 'gpt-2' }), { model: 'imagen-nano-banana-2-1', monthlyCredits: 5000 });
-  assert.deepEqual(imageSettings({ image_model: 'dall-e' }, { MAGNIFIC_MODEL: 'gpt-2', IMAGE_MONTHLY_CREDITS: '800.7' }), { model: 'gpt-2', monthlyCredits: 800 });
+  assert.deepEqual(imageSettings({ image_model: 'seedream-5-lite', image_monthly_credits: '5000' }, { MAGNIFIC_MODEL: 'gpt-image-2' }), { model: 'seedream-5-lite', monthlyCredits: 5000 });
+  assert.deepEqual(imageSettings({ image_model: 'dall-e' }, { MAGNIFIC_MODEL: 'gpt-image-2', IMAGE_MONTHLY_CREDITS: '800.7' }), { model: 'gpt-image-2', monthlyCredits: 800 });
   assert.deepEqual(imageSettings({ image_monthly_credits: -5 }, {}), { model: 'seedream-5-pro', monthlyCredits: null });
 });

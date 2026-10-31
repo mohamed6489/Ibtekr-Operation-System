@@ -249,6 +249,8 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
     // upsert }) writes there too (an existing path without upsert → the Storage API's 409 Duplicate), and a failing one via opts.fail
     storage: { from: (bucket: string) => ({
       download: async (path: string) => { calls.push({ op: 'download', table: bucket, args: { path } } as any); const b = opts.storage?.[`${bucket}/${path}`]; return b ? { data: new Blob([b as BlobPart]), error: null } : { data: null, error: { message: 'Object not found' } }; },
+      // phase 5.4: a signed URL of an existing object (the fake host signed.test), none for a missing one
+      createSignedUrl: async (path: string, seconds: number) => { calls.push({ op: 'sign', table: bucket, args: { path, seconds } } as any); return opts.storage?.[`${bucket}/${path}`] ? { data: { signedUrl: `https://signed.test/${bucket}/${path}?token=t` }, error: null } : { data: null, error: { message: 'Object not found' } }; },
       upload: async (path: string, body: Uint8Array | Blob, o: { contentType?: string; upsert?: boolean } = {}) => {
         const call: Call = { op: 'upload', table: bucket, args: { path, contentType: o.contentType ?? null, upsert: !!o.upsert } };
         calls.push(call);

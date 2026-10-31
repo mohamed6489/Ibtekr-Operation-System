@@ -20,7 +20,7 @@ insert into public.profiles (id, name, email, phone, role_id, status, custom_per
 do $$ begin
   insert into public.ai_runs (created_by, action, source, label, model, credits, cost_usd, status) values
     ('00000000-0000-4000-8000-000000000091', 'image', 'studio', 'Kilim Pouf · 1', 'seedream-5-pro', 75, 0.15, 'ok'),
-    ('00000000-0000-4000-8000-000000000091', 'image', 'tool', 'Mug', 'imagen-nano-banana-2-1', 50, 0.10, 'ok'),
+    ('00000000-0000-4000-8000-000000000091', 'image', 'tool', 'Mug', 'seedream-5-lite', 50, 0.10, 'ok'),
     ('00000000-0000-4000-8000-000000000092', 'image', 'edit', 'Tote', 'seedream-5-pro', 75, 0.15, 'error');
   begin
     insert into public.ai_runs (action, status) values ('chat', 'ok');

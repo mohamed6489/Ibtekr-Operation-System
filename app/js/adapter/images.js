@@ -25,10 +25,10 @@
   // the models (the server's IMG_MODELS in _shared/ai-images.js — the id is the provider's slug, credits = one image), the sizes and
   // the shapes, for the pages' selects and confirmations
   const MODELS = [
-    { id: 'seedream-5-pro', name: 'Seedream 5 Pro', credits: 75, def: true, note: 'الافتراضي — منتجات وتعديل بالمرجعية' },
-    { id: 'imagen-nano-banana-2-1', name: 'Google Nano Banana 2.1', credits: 50, note: 'أدق في تفاصيل المنتج والبراند' },
-    { id: 'imagen-nano-banana-2-lite', name: 'Google Nano Banana 2 Lite', credits: 20, note: 'سريع ورخيص — للتجارب' },
-    { id: 'gpt-2', name: 'GPT 2', credits: 60, note: 'بوستات فيها كلام وتصميمات' },
+    { id: 'seedream-5-pro', name: 'Seedream 5 Pro', credits: 75, def: true, note: 'الافتراضي — منتجات وتعديل بالمرجعية (2K)' },
+    { id: 'seedream-5-lite', name: 'Seedream 5 Lite', credits: 50, note: 'أرخص وأسرع — نفس الطريقة' },
+    { id: 'gemini-2-5-flash', name: 'Google Gemini 2.5 Flash (Nano Banana)', credits: 20, note: 'سريع ورخيص — للتجارب والتعديلات البسيطة' },
+    { id: 'gpt-image-2', name: 'GPT Image 2', credits: 60, note: 'بوستات فيها كلام وتصميمات' },
   ];
   const DEFAULT_MODEL = MODELS.find((m) => m.def).id;
   const SIZES = [

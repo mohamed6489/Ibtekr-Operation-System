@@ -5,14 +5,15 @@
 // Nothing here talks to a provider or a database.
 
 export const PROVIDER = 'magnific';
-// The models offered (plan decision 4): the id is the provider's slug; credits = the provider's price of one image at the product
-// size (the two marked `exact` were read from the provider's own estimate on 31 Oct; the others are estimates until T2 confirms them —
-// the server records what the provider charged when it says so).
+// The models offered (plan decision 4, pinned in T2 on 31 Oct against docs.magnific.com): the id is ours, the provider's route is in
+// providers/magnific.ts (ROUTES); credits = about one image at the product size from the provider's price list — the API's answers
+// carry no credit figure, so these estimates are what the rows record. Nano Banana Pro waits: its reference-image shape is not
+// confirmed yet.
 export const IMG_MODELS = Object.freeze([
-  { id: 'seedream-5-pro', name: 'Seedream 5 Pro', credits: 75, exact: true, def: true, note: 'الافتراضي — منتجات وتعديل بالمرجعية' },
-  { id: 'imagen-nano-banana-2-1', name: 'Google Nano Banana 2.1', credits: 50, exact: true, note: 'أدق في تفاصيل المنتج والبراند' },
-  { id: 'imagen-nano-banana-2-lite', name: 'Google Nano Banana 2 Lite', credits: 20, note: 'سريع ورخيص — للتجارب' },
-  { id: 'gpt-2', name: 'GPT 2', credits: 60, note: 'بوستات فيها كلام وتصميمات' },
+  { id: 'seedream-5-pro', name: 'Seedream 5 Pro', credits: 75, def: true, note: 'الافتراضي — منتجات وتعديل بالمرجعية (2K)' },
+  { id: 'seedream-5-lite', name: 'Seedream 5 Lite', credits: 50, note: 'أرخص وأسرع — نفس الطريقة' },
+  { id: 'gemini-2-5-flash', name: 'Google Gemini 2.5 Flash (Nano Banana)', credits: 20, note: 'سريع ورخيص — للتجارب والتعديلات البسيطة' },
+  { id: 'gpt-image-2', name: 'GPT Image 2', credits: 60, note: 'بوستات فيها كلام وتصميمات' },
 ]);
 export const MODEL_IDS = IMG_MODELS.map((m) => m.id);
 export const DEFAULT_MODEL = IMG_MODELS.find((m) => m.def).id;

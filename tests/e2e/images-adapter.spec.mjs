@@ -69,7 +69,7 @@ test('permissions: a member without products.add / products.edit is refused by t
   expect(await page.evaluate(() => window.IBImages.probe().then((x) => x.reason))).toBe('forbidden');
   await page.evaluate(() => window.IBAuth && window.IBAuth.signOut ? window.IBAuth.signOut() : null).catch(() => {});
   await signIn(page, ADMIN);
-  expect(await page.evaluate(() => window.IBImages.probe())).toEqual({ ok: true, provider: 'magnific', shape: { credits: 'number', plan: { name: 'string' } }, models: ['seedream-5-pro', 'imagen-nano-banana-2-1', 'imagen-nano-banana-2-lite', 'gpt-2'] });
+  expect(await page.evaluate(() => window.IBImages.probe())).toEqual({ ok: true, provider: 'magnific', shape: { credits: 'number', plan: { name: 'string' } }, models: ['seedream-5-pro', 'seedream-5-lite', 'gemini-2-5-flash', 'gpt-image-2'] });
   mock.imgFail = 'not_configured';
   expect(await page.evaluate(() => window.IBImages.probe().then((x) => x.reason))).toBe('not_configured');
   expect(await page.evaluate(() => window.IBImages.create({ source: 'text', prompt: 'a mug', shape: 'studio' }).then((x) => x.reason))).toBe('not_configured');

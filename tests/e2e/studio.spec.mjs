@@ -422,13 +422,13 @@ test('studio images (phase 5.4): «ولّد» makes a slot\'s image with the AI 
   await expect(page.locator('#pg-products .islot.fail').getByRole('button', { name: 'ولّد تاني' })).toBeVisible();
   mock.imgFail = null;
   // the batch's model, then all the missing slots at once: 2 × 4 − 3 done = 5 images, asked with the credits
-  await page.locator('#img-model').click(); await page.getByRole('option', { name: /Nano Banana 2.1/ }).click();
+  await page.locator('#img-model').click(); await page.getByRole('option', { name: /Seedream 5 Lite/ }).click();
   await page.locator('#pg-products').getByRole('button', { name: 'ولّد كل الصور الناقصة' }).click();
   await expect(page.locator('.modal')).toContainText('5 صورة · حوالي 250 كريدت');
   await page.locator('.modal').getByRole('button', { name: 'ولّد' }).click();
   await expect(page.locator('#pg-products .islot.done')).toHaveCount(8);
   await expect(page.locator('#pg-products .islot.fail')).toHaveCount(0);
-  expect(mock.imgCalls.slice(2).map((c) => [c.index, c.slot, c.model])).toEqual([[0, 2, 'imagen-nano-banana-2-1'], [0, 3, 'imagen-nano-banana-2-1'], [1, 1, 'imagen-nano-banana-2-1'], [1, 2, 'imagen-nano-banana-2-1'], [1, 3, 'imagen-nano-banana-2-1']]);
+  expect(mock.imgCalls.slice(2).map((c) => [c.index, c.slot, c.model])).toEqual([[0, 2, 'seedream-5-lite'], [0, 3, 'seedream-5-lite'], [1, 1, 'seedream-5-lite'], [1, 2, 'seedream-5-lite'], [1, 3, 'seedream-5-lite']]);
   expect(mock.aiRuns.filter((x) => x.action === 'image' && x.status === 'ok').length).toBe(6);
   await expect(page.locator('#pg-products .tot-bar')).toContainText('8 من 8');
   // the image popup: an AI edit makes a new version (an edit call on the slot's path), the old one is in «النسخ» and comes back
@@ -438,7 +438,7 @@ test('studio images (phase 5.4): «ولّد» makes a slot\'s image with the AI 
   await expect(page.locator('.modal')).toContainText('المرجعيات');
   await page.locator('.modal').getByRole('button', { name: 'خلفية أفتح' }).click();
   await expect(page.locator('.modal')).toContainText('النسخ');
-  expect(mock.imgCalls.at(-1)).toEqual({ action: 'edit', by: OPS, batch_id: SB, index: 0, path: before, op: 'instruction', prompt: 'Make the background lighter and cleaner; keep the product exactly as it is', model: 'imagen-nano-banana-2-1' });
+  expect(mock.imgCalls.at(-1)).toEqual({ action: 'edit', by: OPS, batch_id: SB, index: 0, path: before, op: 'instruction', prompt: 'Make the background lighter and cleaner; keep the product exactly as it is', model: 'seedream-5-lite' });
   await expect.poll(() => (mock.studioBatches[0].state.items[0].slots[1] || '')).toMatch(new RegExp('^' + SB + '/edit-0-'));
   await page.locator('.modal').getByRole('button', { name: 'نسخة 1' }).click();
   await expect.poll(() => mock.studioBatches[0].state.items[0].slots[1]).toBe(before);

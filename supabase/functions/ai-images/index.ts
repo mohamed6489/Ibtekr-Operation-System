@@ -200,7 +200,7 @@ async function edit(deps: Deps, who: Who, args: Json) {
   const parsed = parseEdit(args);
   if ('error' in parsed) return json(400, parsed);
   const { batchId, path, productId, op, prompt, model, options } = parsed.req;
-  let image: Ref | null = null; let base: Json; let where: (img: { bytes: Uint8Array; mime: string }, n: number) => Promise<{ bucket: string; path: string } | null>;
+  let image: Ref | null = null; let imageUrl: string | null = null; let base: Json; let where: (img: { bytes: Uint8Array; mime: string }, n: number) => Promise<{ bucket: string; path: string } | null>;
   if (path) {
     if (!who.add) return json(401, { error: 'unauthorized' });
     if (!batchId || !studioPathOk(batchId, path)) return json(400, { error: 'bad_request', field: 'path' });
@@ -208,6 +208,8 @@ async function edit(deps: Deps, who: Who, args: Json) {
     const read = await readBatchItem(deps, batchId, index);
     if (!read) return json(404, { error: 'not_found' });
     image = await download(deps.db, STUDIO_BUCKET, path);
+    // the background cutout takes a URL: a signed one of the bucket, good for ten minutes
+    if (op === 'remove_bg') { const { data: sg } = await deps.db.storage.from(STUDIO_BUCKET).createSignedUrl(path, 600); imageUrl = typeof sg?.signedUrl === 'string' ? sg.signedUrl : null; }
     const label = line(read.item.nameEn || read.item.nameAr || '', 200) || '#' + (index + 1);
     base = { created_by: who.uid, action: 'image', source: 'edit', label, batch_id: batchId, item_index: index };
     const st = stamp(deps);
@@ -215,8 +217,9 @@ async function edit(deps: Deps, who: Who, args: Json) {
   } else {
     if (!who.edit) return json(401, { error: 'unauthorized' });
     image = await productPhoto(deps, productId as number);
-    const { data: p } = await deps.db.from('products').select('id, name').eq('id', productId).maybeSingle();
+    const { data: p } = await deps.db.from('products').select('id, name, image_url').eq('id', productId).maybeSingle();
     if (!p) return json(404, { error: 'not_found' });
+    imageUrl = image && typeof p.image_url === 'string' ? p.image_url : null; // the mirror's https photo (productPhoto checked its host)
     base = { created_by: who.uid, action: 'image', source: 'edit', label: line(p.name ?? '', 200) || '#' + productId, product_id: productId };
     const st = stamp(deps);
     where = (img, n) => upload(deps.db, TOOL_BUCKET, toolPath(who.uid, st, n, extOf(img.mime)), img);
@@ -224,7 +227,7 @@ async function edit(deps: Deps, who: Who, args: Json) {
   if (!image) return json(404, { error: 'not_found' });
   const ref = image;
   return await runImages(deps, base, model, 1,
-    () => deps.provider.edit({ model, op, prompt: editPrompt(op, prompt, options), image: ref, options }),
+    () => deps.provider.edit({ model, op, prompt: editPrompt(op, prompt, options), image: ref, imageUrl, options }),
     (img, n) => where(img, n));
 }
 

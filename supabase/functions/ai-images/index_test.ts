@@ -4,7 +4,7 @@
 import { assert, assertEquals, assertFalse } from 'jsr:@std/assert@1';
 import { handler } from './index.ts';
 import { ENV, NOW, fakeDb } from '../_test/fakes.ts';
-import { ProviderError, magnific, shape } from './providers/magnific.ts';
+import { ProviderError, aspectOf, magnific, shape } from './providers/magnific.ts';
 
 const KEY = 'magnific-test-key-0000';
 const U = { admin: '00000000-0000-4000-8000-0000000000b1', add: '00000000-0000-4000-8000-0000000000b2', edit: '00000000-0000-4000-8000-0000000000b3', view: '00000000-0000-4000-8000-0000000000b4' };
@@ -94,8 +94,8 @@ Deno.test('generate: the item\'s reference photos of its batch only, the slot pr
 
 Deno.test('generate: a color slot adds the color\'s photo and name; the listed model and a social size; the provider\'s silence on credits = the estimate', async () => {
   const { deps, asked, db } = setup({ replies: [{ images: [img(WEBP, 'image/webp')], credits: null }] });
-  const { body } = await call(deps, { ...GEN, slot: 'color:BK', model: 'imagen-nano-banana-2-1', size: '1080x1080' });
-  assertEquals([body.credits, body.model], [50, 'imagen-nano-banana-2-1']);
+  const { body } = await call(deps, { ...GEN, slot: 'color:BK', model: 'seedream-5-lite', size: '1080x1080' });
+  assertEquals([body.credits, body.model], [50, 'seedream-5-lite']);
   assert(body.path.includes('/gen-0-cBK-') && body.path.endsWith('.webp'));
   assertEquals(asked[0].refs.length, 3); assert(asked[0].prompt.includes('in Black'));
   assertEquals([asked[0].width, asked[0].height], [1080, 1080]);
@@ -186,7 +186,7 @@ Deno.test('edit a product\'s image: products.edit; the mirror\'s https photo fet
 
 Deno.test('create (the tool): text → the shape prompt, N images at the asked size in bucket ai-images under the member, credits × N held; from a photo (base64) or a product\'s photo as the reference', async () => {
   const { deps, asked, storage, during, db } = setup({ replies: [{ images: [img(), img(WEBP, 'image/webp'), img()], credits: 160 }, { images: [img()], credits: 50 }, { images: [img()], credits: null }] });
-  const r = await call(deps, { action: 'create', source: 'text', shape: 'home', prompt: 'a macrame bag', count: 3, size: '1080x1350', model: 'imagen-nano-banana-2-1' }, 'jwt-edit');
+  const r = await call(deps, { action: 'create', source: 'text', shape: 'home', prompt: 'a macrame bag', count: 3, size: '1080x1350', model: 'seedream-5-lite' }, 'jwt-edit');
   assertEquals([r.res.status, r.body.result, r.body.bucket, r.body.paths.length, r.body.credits], [200, 'ok', 'ai-images', 3, 160]);
   assert(r.body.paths.every((p: string) => p.startsWith(U.edit + '/')) && r.body.paths[1].endsWith('-2.webp'));
   assertEquals(Object.keys(storage).filter((k) => k.startsWith('ai-images/')).length, 3);
@@ -222,30 +222,59 @@ Deno.test('probe: the admin only; the shape of the provider\'s account answer (k
   assertEquals((await call(nk.deps, { action: 'probe' }, 'jwt-admin')).res.status, 503);
 });
 
-Deno.test('the Magnific layer: the key in the headers, a task created then polled until completed, its images downloaded; 401 → not_configured, 429 → busy, a failed task → ai_error, a safety failure → refused, no key → not_configured without a request', async () => {
-  const calls: { url: string; method: string; body: any; auth: string }[] = [];
-  let polls = 0;
+Deno.test('the Magnific layer (pinned T2): x-magnific-api-key, Seedream text route or -edit route with base64 references + aspect_ratio / resolution, one task an image polled at route/{task_id} until COMPLETED, data.generated downloaded; FAILED → ai_error or refused; 401/403 → not_configured, 429/5xx → busy; the cutout is synchronous on image_url; the upscaler route; no key → no request', async () => {
+  const calls: { url: string; method: string; body: any; key: string }[] = [];
+  const polls: Record<string, number> = {};
   const fetchFn = (async (url: string, init: any = {}) => {
-    calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null, auth: init.headers?.Authorization ?? '' });
-    if (url.endsWith('/images/generations')) return Response.json({ id: 't1', status: 'processing' });
-    if (url.endsWith('/tasks/t1')) { polls++; return Response.json(polls < 2 ? { status: 'processing' } : { status: 'completed', images: [{ url: 'https://cdn.test/a.png' }], credits_used: 75 }); }
-    if (url === 'https://cdn.test/a.png') return new Response(PNG as BlobPart, { status: 200, headers: { 'content-type': 'image/png' } });
+    calls.push({ url, method: init.method ?? 'GET', body: init.body ? JSON.parse(init.body) : null, key: init.headers?.['x-magnific-api-key'] ?? '' });
+    const m = /^https:\/\/api\.test\/v1\/ai(\/.+?)(?:\/(t\d))?$/.exec(url);
+    if (m && init.method === 'POST' && m[1] === '/beta/remove-background') return Response.json({ original: 'https://cdn.test/o.png', high_resolution: 'https://cdn.test/hr.png', url: 'https://cdn.test/u.png' });
+    if (m && init.method === 'POST') return Response.json({ data: { task_id: 't' + calls.filter((c) => c.method === 'POST').length, status: 'CREATED', generated: [] } });
+    if (m && m[2]) { polls[m[2]] = (polls[m[2]] ?? 0) + 1; return Response.json({ data: { task_id: m[2], status: polls[m[2]] < 2 ? 'IN_PROGRESS' : 'COMPLETED', generated: polls[m[2]] < 2 ? [] : ['https://cdn.test/' + m[2] + '.png'] } }); }
+    if (url.startsWith('https://cdn.test/')) return new Response(PNG as BlobPart, { status: 200, headers: { 'content-type': 'image/png' } });
     return new Response('?', { status: 404 });
   }) as any;
   const slept: number[] = [];
-  const p = magnific({ MAGNIFIC_API_KEY: KEY, MAGNIFIC_API_URL: 'https://api.test/v1/' }, fetchFn, async (ms) => { slept.push(ms); });
-  const out = await p.generate({ model: 'seedream-5-pro', prompt: 'x', width: 700, height: 800, count: 1, references: [{ bytes: WEBP, mime: 'image/webp' }] });
-  assertEquals([out.credits, out.images.length, out.images[0].mime, out.images[0].bytes], [75, 1, 'image/png', PNG]);
-  assertEquals(calls.map((c) => [c.method, c.url]), [['POST', 'https://api.test/v1/images/generations'], ['GET', 'https://api.test/v1/tasks/t1'], ['GET', 'https://api.test/v1/tasks/t1'], ['GET', 'https://cdn.test/a.png']]);
-  assertEquals(calls[0].auth, 'Bearer ' + KEY); assertEquals(calls[0].body.width, 700); assert(calls[0].body.reference_images[0].startsWith('data:image/webp;base64,'));
-  assertEquals(slept, [2500, 2500]);
-  const status = async (code: number, body: any = {}) => { try { await magnific({ MAGNIFIC_API_KEY: KEY }, (async () => Response.json(body, { status: code })) as any).generate({ model: 'm', prompt: 'x', width: 1, height: 1, count: 1, references: [] }); return 'ok'; } catch (e) { return (e as ProviderError).kind; } };
-  assertEquals(await status(401), 'not_configured'); assertEquals(await status(429), 'busy'); assertEquals(await status(500), 'busy');
-  assertEquals(await status(200, { status: 'failed', error: 'content policy violation' }), 'refused');
-  assertEquals(await status(200, { status: 'failed', error: 'oops' }), 'ai_error');
-  assertEquals(await status(200, { status: 'completed', images: [] }), 'ai_error');
+  const p = magnific({ MAGNIFIC_API_KEY: KEY, MAGNIFIC_API_URL: 'https://api.test/v1/ai/' }, fetchFn, async (ms) => { slept.push(ms); });
+  // words → the text route, two images = two tasks
+  const t2 = await p.generate({ model: 'seedream-5-pro', prompt: 'x', width: 1080, height: 1920, count: 2, references: [] });
+  assertEquals([t2.credits, t2.images.length, t2.images[0].mime], [null, 2, 'image/png']);
+  const posts = calls.filter((c) => c.method === 'POST');
+  assertEquals(posts.map((c) => c.url), ['https://api.test/v1/ai/text-to-image/seedream-v5-pro', 'https://api.test/v1/ai/text-to-image/seedream-v5-pro']);
+  assertEquals(posts[0].body, { prompt: 'x', aspect_ratio: 'social_story_9_16', resolution: '2k' }); assertEquals(posts[0].key, KEY);
+  assert(calls.some((c) => c.url === 'https://api.test/v1/ai/text-to-image/seedream-v5-pro/t1' && c.method === 'GET'), 'polled at the route');
+  assertEquals(slept, [2500, 2500, 2500, 2500]);
+  // a reference → the -edit route with raw base64, the product ratio
+  calls.length = 0;
+  const i2i = await p.generate({ model: 'seedream-5-pro', prompt: 'y', width: 700, height: 800, count: 1, references: [{ bytes: WEBP, mime: 'image/webp' }] });
+  assertEquals(i2i.images.length, 1);
+  assertEquals(calls[0].url, 'https://api.test/v1/ai/text-to-image/seedream-v5-pro-edit');
+  assertEquals(calls[0].body, { prompt: 'y', reference_images: [btoa(String.fromCharCode(...WEBP))], aspect_ratio: 'portrait_2_3', resolution: '1.5k' });
+  // Gemini: one route for both, no ratio fields
+  calls.length = 0;
+  await p.generate({ model: 'gemini-2-5-flash', prompt: 'z', width: 1080, height: 1080, count: 1, references: [{ bytes: PNG, mime: 'image/png' }] });
+  assertEquals([calls[0].url, Object.keys(calls[0].body)], ['https://api.test/v1/ai/gemini-2-5-flash-image-preview', ['prompt', 'reference_images']]);
+  // the edits: a cutout on the signed URL (synchronous, high_resolution first), the upscaler route, an instruction on the edit route
+  calls.length = 0;
+  const cut = await p.edit({ model: 'seedream-5-pro', op: 'remove_bg', prompt: '', image: { bytes: PNG, mime: 'image/png' }, imageUrl: 'https://signed.test/studio/a.webp?token=t', options: { bg: 'transparent' } });
+  assertEquals([calls[0].url, calls[0].body, calls[1].url, cut.images.length], ['https://api.test/v1/ai/beta/remove-background', { image_url: 'https://signed.test/studio/a.webp?token=t' }, 'https://cdn.test/hr.png', 1]);
+  calls.length = 0;
+  await p.edit({ model: 'seedream-5-pro', op: 'upscale', prompt: '', image: { bytes: PNG, mime: 'image/png' }, options: { scale: 4 } });
+  assertEquals([calls[0].url, calls[0].body.scale_factor, typeof calls[0].body.image], ['https://api.test/v1/ai/image-upscaler', '4x', 'string']);
+  calls.length = 0;
+  await p.edit({ model: 'seedream-5-lite', op: 'instruction', prompt: 'lighter', image: { bytes: PNG, mime: 'image/png' }, options: {} });
+  assertEquals(calls[0].url, 'https://api.test/v1/ai/text-to-image/seedream-v5-lite-edit');
+  try { await p.edit({ model: 'seedream-5-pro', op: 'remove_bg', prompt: '', image: { bytes: PNG, mime: 'image/png' }, imageUrl: null, options: {} }); assert(false); } catch (e) { assertEquals((e as ProviderError).kind, 'ai_error'); }
+  // the statuses
+  const status = async (code: number, body: any = {}) => { try { await magnific({ MAGNIFIC_API_KEY: KEY }, (async () => Response.json(body, { status: code })) as any).generate({ model: 'seedream-5-pro', prompt: 'x', width: 1, height: 1, count: 1, references: [] }); return 'ok'; } catch (e) { return (e as ProviderError).kind; } };
+  assertEquals(await status(401), 'not_configured'); assertEquals(await status(403), 'not_configured'); assertEquals(await status(429), 'busy'); assertEquals(await status(500), 'busy');
+  assertEquals(await status(422, { message: 'invalid' }), 'refused'); assertEquals(await status(400, { message: 'bad' }), 'ai_error');
+  assertEquals(await status(200, { data: { status: 'FAILED', error: 'content policy violation' } }), 'refused');
+  assertEquals(await status(200, { data: { status: 'FAILED', error: 'oops' } }), 'ai_error');
+  assertEquals(await status(200, { data: { status: 'COMPLETED', generated: [] } }), 'ai_error');
   let hit = false;
   try { await magnific({}, (async () => { hit = true; return Response.json({}); }) as any).probe(); } catch (e) { assertEquals((e as ProviderError).kind, 'not_configured'); }
   assertFalse(hit);
+  assertEquals(aspectOf(1080, 1080), 'square_1_1'); assertEquals(aspectOf(1200, 630), 'widescreen_16_9'); assertEquals(aspectOf(1080, 1350), 'portrait_2_3');
   assertEquals(shape({ a: 1, b: 'x', c: { d: [1], e: { f: 1 } }, g: [] }), { a: 'number', b: 'string', c: { d: 'array', e: 'object' }, g: { array: 'empty' } });
 });

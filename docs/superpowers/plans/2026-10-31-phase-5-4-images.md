@@ -83,9 +83,10 @@
 ## المهام (بالتوالي)
 
 - **T1 — الخطة والدفتر** (الملف ده + `.superpowers/sdd/2026-10-31-phase-5-4-images/progress.md`).
-- **T2 — مرجع الـ API (بعد السماح بالدومين أو صفحة من صاحب المشروع):** `docs/superpowers/reference/magnific-api.md` (الـ endpoints،
-  الحقول، الـ polling، الكريدت) وتثبيت `providers/magnific.ts` و`IMG_MODELS`؛ ثم `probe` على الحي بالمفتاح. **بيتعمل لما يتوفر** — الباقي
-  مش مستنيه.
+- **T2 — مرجع الـ API:** `docs/superpowers/reference/magnific-api.md` (الـ endpoints، الحقول، الـ polling، الكريدت) وتثبيت
+  `providers/magnific.ts` و`IMG_MODELS`؛ ثم `probe` على الحي بالمفتاح. **اتعمل 31 أكتوبر** من صفحات `docs.magnific.com` عبر البحث على
+  الويب (الدومين محجوب في الجلسة): الهيدر `x-magnific-api-key`، route لكل موديل مع `-edit` للمرجعية، المهمة `data.task_id/status/generated`.
+  الموديلات: `seedream-5-pro` (افتراضي) / `seedream-5-lite` / `gemini-2-5-flash` / `gpt-image-2`؛ Nano Banana Pro مستني تأكيد شكل المرجعية.
 - **T3 — `0025_ai_images`:** `ai_runs.action` يقبل `image` + `source` `tool`/`edit` + عمود `credits`، bucket `ai-images` بسياساته، `rls_ai_images`.
 - **T4 — `_shared/ai-images.js`:** `parseGenerate` / `parseEdit` / `parseCreate`، `slotPrompt` / `shapePrompt` / `editPrompt`، `sizeOf`،
   `IMG_MODELS` بالكريدت، المسارات، `imageSettings` — دوال نقية + اختبارات node.

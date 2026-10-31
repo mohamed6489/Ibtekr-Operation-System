@@ -6,7 +6,12 @@
   بكريدت Magnific 50–75 للصورة مش 2–3)، حساب صاحب المشروع Premium+ شخصي (مش API)، و`docs.freepik.com` محجوب في الـ sandbox.
   صاحب المشروع (31 أكتوبر): «ابني كل حاجة وخليها واقفة على الـ API — معايا Magnific API» → المزوّد Magnific API، المفتاح
   `MAGNIFIC_API_KEY` في الآخر، الكريدت هي العملة؛ شكل الـ API يتأكد في T2 لما الدومين يتسمح (`magnific.com` محجوب هنا كمان).
-- [ ] T2 مرجع الـ API (مستني السماح بالدومين أو صفحة reference من صاحب المشروع؛ الباقي مش مستنيه).
+- [x] T2 مرجع الـ API (31 أكتوبر، بعد ما الاختبار الحي رجّع 403): الدومينات لسه محجوبة في الجلسة، بس البحث على الويب جاب صفحات
+  `docs.magnific.com` → `docs/superpowers/reference/magnific-api.md`. اللي اتغيّر في `providers/magnific.ts`: الهيدر `x-magnific-api-key`
+  بدل Bearer، الأساس `/v1/ai`، route لكل موديل (`/text-to-image/seedream-v5-pro`، و`-edit` بالمرجعية base64 خام، `aspect_ratio` +
+  `resolution`)، المهمة `data.task_id/status/generated` وpolling على نفس الـ route، الـ cutout متزامن على `image_url` (رابط موقّع من
+  الـ bucket)، الـ upscaler `/image-upscaler`، relight `/image-relight`، الـ probe = GET قايمة المهام. الموديلات اتسمّت على الحقيقي:
+  `seedream-5-pro` / `seedream-5-lite` / `gemini-2-5-flash` / `gpt-image-2` (Nano Banana Pro مستني تأكيد شكل حقل المرجعية). `ai-images` v5.
 - [x] T3 `0025_ai_images` (31 أكتوبر): `ai_runs.action` + `image`، `source` + `tool`/`edit`، عمود `credits`؛ bucket `ai-images` خاص
   (القراءة والحذف لفولدر العضو بـ `products.add`/`products.edit` F، الكتابة للسيرفر بس)؛ `rls_ai_images.sql`. مافيش Postgres محلي
   في الـ sandbox — بيتأكد في CI (`db:test`) وعلى الحي بـ RLS live بعد التطبيق.

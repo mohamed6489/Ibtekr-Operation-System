@@ -4,7 +4,9 @@ name: Deploy functions
 # token from supabase.com/dashboard/account/tokens, added once by the owner to the repository's Actions secrets. verify_jwt
 # comes from supabase/config.toml ([functions.<name>] verify_jwt = false for all three: each function authenticates itself).
 # On demand only (tools/deploy.md §2.7.1): pick the function, or `all`. The token is never printed; the CLI's own output
-# names the bundled files and the new version.
+# names the bundled files and the new version. The action is Supabase's own, on its major tag like the other official
+# actions here (actions/checkout@v4, denoland/setup-deno@v2); the CLI version stays `latest` so the bundle matches the
+# current Edge Runtime — pin it (version: x.y.z) if a release ever breaks a deploy.
 on:
   workflow_dispatch:
     inputs:

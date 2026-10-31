@@ -149,7 +149,7 @@ test('mapColumns + rowsToItems + itemIssues: headers matched in English or Arabi
   assert.deepEqual(plain(map), { nameEn: 0, nameAr: 1, vendorPrice: 2, colors: 3, sizes: 4, material: 5, weight: 6, stock: 7 });
   const items = PD.rowsToItems(rows, map);
   assert.equal(items.length, 2);
-  assert.deepEqual(plain(items[0]), { row: 2, nameEn: 'Boho Cushion', nameAr: 'مخدة بوهيمي', vendorPrice: 1000, colors: ['Beige', 'Black'], sizes: ['50×50', '40×40'], material: 'قطن', style: '', weight: '0.4', stock: 5, shortDesc: '' });
+  assert.deepEqual(plain(items[0]), { row: 2, nameEn: 'Boho Cushion', nameAr: 'مخدة بوهيمي', vendorPrice: 1000, colors: ['Beige', 'Black'], sizes: ['50×50', '40×40'], material: 'قطن', style: '', weight: '0.4', stock: 5, shortDesc: '', shortDescAr: '', category: '' });
   assert.deepEqual(PD.itemIssues(items[0], 'Variable'), []);
   assert.deepEqual(PD.itemIssues(items[1], 'Variable'), ['الاسم (EN)', 'سعر المبتكر', 'المتغيرات']);
   assert.deepEqual(PD.itemIssues(items[1], 'Simple'), ['الاسم (EN)', 'سعر المبتكر']);
@@ -170,6 +170,29 @@ test('rowsToItems grouped (decision 16): rows with the same parentsku = one prod
   const S = PD.rowsToItems(rows, map, { type: 'Simple' });
   assert.deepEqual(S.map((it) => it.row), [2, 4, 6, 7]); // Simple: every row with a name or a price is a product, the id column is ignored
   assert.equal(PD.rowsToItems(rows, map).length, 4); // no type given = as before
+});
+
+// the owner's real sheet (31 Oct, «Antikiano New Macrame Products»): every row repeats the product data and changes the color —
+// the first row is a variation too; his column names; the category as a path; the Arabic short description
+test('rowsToItems grouped — the owner\'s sheet: the first row of a group is a variation when it has a color; his headers (Parent SKU, Product Colors, size, Product Weight per KG, Short Description AR, Product Category) are matched; a one-row group stays a usual product', () => {
+  const rows = [['#', 'Parent SKU', 'SKU', 'Product Name EN', 'Product Name AR', 'Product Colors', 'Product Colors AR', 'size', 'Product Style', 'Product Material', 'Product Weight per KG', 'Vendor Price', 'Regular price', 'sale price', 'Brand Name', 'Product Category', 'Short Description EN', 'Short Description AR'],
+    ['24', 'IBTANTCH008', 'IBTANTCH008-BUR', 'Hourglass Macrame Chandelier', 'نجفة مكرمية', 'Burgundy', 'نبيتي', 'H 150 × Ø 80 cm', 'Modern', 'Fiber', '1.5', '15000', '24375', '19500', 'Antikiano', 'Lighting > CHANDELIERS > Macrame Chandellers', 'A tall macrame chandelier.', 'نجفة مكرمية طويلة.'],
+    ['25', 'IBTANTCH008', 'IBTANTCH008-PNK', 'Hourglass Macrame Chandelier', 'نجفة مكرمية', 'Pink', 'وردي', 'H 150 × Ø 80 cm', 'Modern', 'Fiber', '1.5', '15000', '24375', '19500', 'Antikiano', 'Lighting > CHANDELIERS > Macrame Chandellers', 'A tall macrame chandelier.', 'نجفة مكرمية طويلة.'],
+    ['22', 'IBTANTMW006', 'IBTANTMW006', 'Gradient Macrame Wall Hanging', 'معلقة حائط', 'Multicolor', 'متعدد', 'W 300 × L 100 cm', 'Modern', 'Fiber', '', '7000', '11875', '9500', 'Antikiano', 'Decor >WALL MACRAME> Macrame Balls', 'Colorful.', 'ملونة.']];
+  const map = PD.mapColumns(rows[0]);
+  assert.deepEqual(plain(map), { nameEn: 3, nameAr: 4, vendorPrice: 11, colors: 5, sizes: 7, material: 9, style: 8, weight: 10, shortDesc: 16, shortDescAr: 17, category: 15, group: 1 }); // Colors AR / size ar / SKU / prices / brand are not fields
+  const V = PD.rowsToItems(rows, map, { type: 'Variable' });
+  assert.equal(V.length, 2);
+  assert.deepEqual([V[0].nameEn, V[0].colors, V[0].sizes, V[0].weight, V[0].shortDescAr, V[0].category], ['Hourglass Macrame Chandelier', ['Burgundy', 'Pink'], ['H 150 × Ø 80 cm'], '1.5', 'نجفة مكرمية طويلة.', 'Lighting > CHANDELIERS > Macrame Chandellers']);
+  assert.deepEqual(plain(V[0].variationRows), [{ row: 2, color: 'Burgundy', size: 'H 150 × Ø 80 cm', vendorPrice: 15000, stock: null }, { row: 3, color: 'Pink', size: 'H 150 × Ø 80 cm', vendorPrice: 15000, stock: null }]);
+  assert.equal(V[1].variationRows, undefined); assert.deepEqual(V[1].colors, ['Multicolor']);
+  const tree = PD.catTree([{ id: 1, name: 'Lighting', parentId: null }, { id: 2, name: 'Chandeliers', parentId: 1 }, { id: 3, name: 'Macrame Chandellers', parentId: 2 }, { id: 4, name: 'Decor', parentId: null }, { id: 5, name: 'Macrame Balls', parentId: 4 }, { id: 6, name: 'Chandeliers', parentId: 4 }]);
+  assert.equal(PD.catFromPath(tree, V[0].category), 3);
+  assert.equal(PD.catFromPath(tree, V[1].category), 5); // the last name, case-insensitive, odd spacing around >
+  assert.equal(PD.catFromPath(tree, 'Decor > Chandeliers'), 6); // two «Chandeliers»: the parent's name decides
+  assert.equal(PD.catFromPath(tree, 'Lighting > Chandeliers'), 2);
+  assert.equal(PD.catFromPath(tree, 'Nowhere > Unknown'), null);
+  assert.equal(PD.catFromPath(tree, ''), null);
 });
 
 // decision 14 (the owner, 29 Oct): the studio's category picker is the site's tree; a sub-category ticks the ones above it

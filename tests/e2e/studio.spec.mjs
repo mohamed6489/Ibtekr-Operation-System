@@ -118,9 +118,10 @@ test('studio Variable from the owner\'s sheet shape (decision 16): rows sharing 
   await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
   await next(page, 'التالي: الاستلام');
-  await pick(page, /اختار الشيت/, { name: 'grouped.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Name AR,Vendor Price,Colors,Sizes,Stock,parentsku\nKilim Pouf,بوف كليم,2000,,,,P1\n,,,Beige,50×50,3,P1\n,,2200,Black,40×40,,P1\nTote,شنطة قماش,500,White,,2,P2\n') });
-  await expect(page.locator('#pg-products .st-table tbody tr')).toHaveCount(2); // two products, not four rows
-  await expect(page.locator('#map-group')).toContainText('parentsku'); // the id column matched by name
+  // the owner's shape: every row of a group is a variation (the first too) and repeats the product data; the category as a path
+  await pick(page, /اختار الشيت/, { name: 'grouped.csv', mimeType: 'text/csv', buffer: Buffer.from('Product Name EN,Product Name AR,Vendor Price,Product Colors,size,Stock,Parent SKU,Product Category,Short Description AR\nKilim Pouf,بوف كليم,2000,Beige,50×50,3,P1,Home > هدايا,بوف يدوي\nKilim Pouf,بوف كليم,2200,Black,40×40,,P1,Home > هدايا,بوف يدوي\nTote,شنطة قماش,500,White,,2,P2,,\n') });
+  await expect(page.locator('#pg-products .st-table tbody tr')).toHaveCount(2); // two products, not three rows
+  await expect(page.locator('#map-group')).toContainText('Parent SKU'); // the id column matched by name
   await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }, { name: '2-1.png', mimeType: 'image/png', buffer: PNG }]);
   await next(page, 'التالي: البيانات و SKU');
   await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('2 تركيبة من الشيت');
@@ -131,8 +132,9 @@ test('studio Variable from the owner\'s sheet shape (decision 16): rows sharing 
   await next(page, 'التالي: السعر');
   await next(page, 'التالي: الصور');
   await next(page, 'التالي: الأقسام والأوصاف');
-  await page.locator('#pg-products .st-table thead [role=checkbox]').click();
-  await page.getByRole('button', { name: 'طبّق قسم على المحدد' }).click();
+  await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('هدايا'); // the category came from the sheet's path
+  await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('بوف يدوي'); // and the Arabic short description
+  await page.locator('#pg-products .st-table tbody tr').nth(1).getByRole('button', { name: '+ قسم' }).click(); // Tote had no category in the sheet
   await page.locator('.modal').getByText('هدايا', { exact: true }).click(); await page.locator('.modal').getByRole('button', { name: 'تمام' }).click();
   await next(page, 'التالي: المراجعة والرفع');
   await next(page, 'ارفع على الموقع (مسودة)');
@@ -140,6 +142,7 @@ test('studio Variable from the owner\'s sheet shape (decision 16): rows sharing 
   await expect(page.locator('#pg-products')).toContainText('اترفع 2 من 2');
   const v = mock.studioUploads[0];
   expect(v.variations.map((x) => [x.sku, x.sale_price, x.stock_quantity ?? null])).toEqual([['IBTARBE0999-5050', '2860', 3], ['IBTARBK0999-4040', '3150', null]]);
+  expect(v.product.categories.map((c) => c.id)).toContain(mock.wooCategories.find((c) => c.name === 'هدايا').id);
   expect(mock.studioUploads[1].variations.map((x) => x.sku)).toEqual(['IBTARWH1000']);
 });
 

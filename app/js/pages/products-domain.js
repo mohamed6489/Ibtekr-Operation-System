@@ -237,11 +237,14 @@
     vendorPrice: ['vendor price', 'maker price', 'price', 'سعر المبتكر', 'سعر المورد', 'السعر'],
     colors: ['color', 'colors', 'colour', 'product colors', 'اللون', 'الالوان', 'الوان'],
     sizes: ['size', 'sizes', 'dimensions', 'المقاس', 'المقاسات'],
-    material: ['material', 'الخامة', 'الخامه'],
-    style: ['style', 'الستايل', 'الاستايل'],
-    weight: ['weight', 'الوزن'],
+    material: ['material', 'product material', 'الخامة', 'الخامه'],
+    style: ['style', 'product style', 'الستايل', 'الاستايل'],
+    weight: ['weight', 'product weight', 'product weight per kg', 'weight kg', 'الوزن', 'الوزن بالكيلو'],
     stock: ['stock', 'quantity', 'qty', 'المخزون', 'الكمية', 'الكميه'],
-    shortDesc: ['short description', 'description', 'الوصف القصير', 'الوصف'],
+    shortDesc: ['short description', 'short description en', 'description', 'description en', 'الوصف القصير', 'الوصف القصير en', 'الوصف'],
+    shortDescAr: ['short description ar', 'description ar', 'arabic description', 'الوصف القصير ar', 'الوصف القصير بالعربي', 'الوصف بالعربي'],
+    // the site category as a path («Decor > WALL MACRAME > Macrame Balls») — the last name is matched to the site's tree (catFromPath)
+    category: ['product category', 'category', 'categories', 'القسم', 'التصنيف', 'الفئة'],
     // decision 16 (the owner, 31 Oct — his WP All Import template): a shared id groups the rows of one Variable product
     group: ['parentsku', 'parent sku', 'parent', 'unique id', 'uniqueid', 'group', 'group id', 'product id', 'كود المنتج', 'معرف المنتج', 'معرّف المنتج', 'المجموعة'],
   };
@@ -257,34 +260,50 @@
   const splitList = (v) => String(v || '').split(/[,،/|\n]+/).map((x) => x.trim()).filter(Boolean);
   const toPrice = (v) => { const n = Number(toAsciiDigits(v).replace(/[^\d.]/g, '')); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null; };
   // صفوف الشيت (أول صف = العناوين) + الربط → منتجات الدفعة.
-  // قرار 16 (صاحب المشروع 31 أكتوبر — شكل قالبه في WP All Import): لو الدفعة Variable وفي عمود «unique id» (parentsku)، الصفوف اللي
-  // ليها نفس القيمة = منتج واحد: أول صف هو الأب (الاسم والخامة والستايل…)، وكل صف بعده تركيبة بلونها ومقاسها وسعر مبتكرها
-  // ومخزونها زي ما هي (`variationRows`، من غير توليد ألوان × مقاسات). صف لوحده أو من غير المعرّف = منتج زي العادي.
+  // قرار 16 (صاحب المشروع 31 أكتوبر — شكل شيته في WP All Import): لو الدفعة Variable وفي عمود «unique id» (Parent SKU)، الصفوف اللي
+  // ليها نفس القيمة = منتج واحد: بيانات المنتج (الاسم والخامة والستايل والوصف والقسم) من أول صف، وكل صف فيه لون أو مقاس —
+  // الأول كمان — تركيبة بلونها ومقاسها وسعر مبتكرها ومخزونها زي ما هي (`variationRows`، من غير توليد ألوان × مقاسات؛ في شيت
+  // صاحب المشروع كل صف بيكرر بيانات المنتج ويغيّر اللون). مجموعة بصف واحد، أو صف من غير معرّف = منتج زي العادي.
   function rowsToItems(rows, map, opts) {
     const get = (r, f) => (map[f] == null ? '' : String(r[map[f]] == null ? '' : r[map[f]]).trim());
     const stockOf = (r) => { const n = parseInt(toAsciiDigits(get(r, 'stock')), 10); return Number.isFinite(n) && n >= 0 ? n : null; };
     const flat = (rows || []).slice(1).map((r, i) => ({ row: i + 2, group: get(r, 'group'), nameEn: get(r, 'nameEn'), nameAr: get(r, 'nameAr'), vendorPrice: toPrice(get(r, 'vendorPrice')), colors: splitList(get(r, 'colors')), sizes: splitList(get(r, 'sizes')),
-      material: get(r, 'material'), style: get(r, 'style'), weight: toAsciiDigits(get(r, 'weight')).replace(/[^\d.]/g, ''), stock: stockOf(r), shortDesc: get(r, 'shortDesc') }));
+      material: get(r, 'material'), style: get(r, 'style'), weight: toAsciiDigits(get(r, 'weight')).replace(/[^\d.]/g, ''), stock: stockOf(r), shortDesc: get(r, 'shortDesc'), shortDescAr: get(r, 'shortDescAr'), category: get(r, 'category') }));
     const grouped = opts && opts.type === 'Variable' && map.group != null;
     if (!grouped) return flat.map(({ group, ...it }) => it).filter((it) => it.nameEn || it.nameAr || it.vendorPrice);
     const out = []; const byGroup = new Map();
+    const asVariation = (it) => ({ row: it.row, color: it.colors[0] || '', size: it.sizes[0] || '', vendorPrice: it.vendorPrice, stock: it.stock });
     for (const x of flat) {
       const { group, ...it } = x;
       if (!group) { if (it.nameEn || it.nameAr || it.vendorPrice) out.push(it); continue; }
       const head = byGroup.get(group);
-      if (!head) { if (it.nameEn || it.nameAr || it.vendorPrice || it.colors.length || it.sizes.length) { it.variationRows = []; byGroup.set(group, it); out.push(it); } continue; }
+      if (!head) { if (it.nameEn || it.nameAr || it.vendorPrice || it.colors.length || it.sizes.length) { it.variationRows = it.colors.length || it.sizes.length ? [asVariation(it)] : []; it.rows = 1; byGroup.set(group, it); out.push(it); } continue; }
+      head.rows++;
+      for (const k of ['nameEn', 'nameAr', 'material', 'style', 'weight', 'shortDesc', 'shortDescAr', 'category']) if (!head[k] && it[k]) head[k] = it[k]; // the parent row left it empty
       if (!it.colors.length && !it.sizes.length) continue; // a row of the group with no color and no size adds nothing
-      head.variationRows.push({ row: it.row, color: it.colors[0] || '', size: it.sizes[0] || '', vendorPrice: it.vendorPrice, stock: it.stock });
+      head.variationRows.push(asVariation(it));
       if (head.vendorPrice == null && it.vendorPrice != null) head.vendorPrice = it.vendorPrice;
     }
     for (const it of out) {
       if (!it.variationRows) continue;
-      if (!it.variationRows.length) { delete it.variationRows; continue; } // one row: colors × sizes as usual
+      const one = it.rows === 1; delete it.rows;
+      if (one || !it.variationRows.length) { delete it.variationRows; continue; } // one row: colors × sizes as usual
       for (const v of it.variationRows) if (v.vendorPrice == null) v.vendorPrice = it.vendorPrice;
       it.colors = [...new Set(it.variationRows.map((v) => v.color).filter(Boolean))];
       it.sizes = [...new Set(it.variationRows.map((v) => v.size).filter(Boolean))];
     }
     return out;
+  }
+  // the category of a sheet row: a path («Decor > WALL MACRAME > Macrame Balls», or with / or ›) → the id of the site category whose
+  // name equals the last part (case-insensitive; the parent's name breaks a tie), else null
+  function catFromPath(tree, path) {
+    const parts = String(path == null ? '' : path).split(/[>›\/»]+/).map((s) => s.trim().toLowerCase()).filter(Boolean);
+    if (!parts.length || !tree || !tree.byId) return null;
+    const leaf = parts[parts.length - 1]; const parent = parts.length > 1 ? parts[parts.length - 2] : null;
+    const hits = [...tree.byId.values()].filter((c) => String(c.name).trim().toLowerCase() === leaf);
+    if (!hits.length) return null;
+    if (hits.length > 1 && parent) { const h = hits.find((c) => { const p = c.parentId != null ? tree.byId.get(c.parentId) : null; return p && String(p.name).trim().toLowerCase() === parent; }); if (h) return h.id; }
+    return hits[0].id;
   }
   // اللي ناقص في منتج الدفعة (الرسائل بالعربي زي الـ prototype). الاسم بالعربي إجباري (قرار 15، صاحب المشروع 29 أكتوبر) —
   // «الاستلام» بيعدّيه ({ ar: false }) عشان يتكتب في «البيانات و SKU» لو الشيت مافيهوش
@@ -439,6 +458,6 @@
     }
     return marked;
   }
-  return { aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  return { aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

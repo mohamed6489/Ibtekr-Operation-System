@@ -101,7 +101,11 @@
     const n = cap == null || cap === '' ? null : Number(cap);
     if (n !== null && !(Number.isFinite(n) && n > 0 && n <= 100000)) return { ok: false, reason: 'invalid', field: 'cap' };
     try {
-      const { error } = await cl.from('settings').upsert({ section: 'ai', data: { model, effort, monthly_limit_usd: n } }, { onConflict: 'section' });
+      // the row's other keys (the image settings of 5.4: image_model / image_monthly_credits) stay
+      const cur = await cl.from('settings').select('data').eq('section', 'ai').maybeSingle();
+      if (cur.error) return { ok: false, reason: cur.error.code === '42501' ? 'forbidden' : 'network' };
+      const keep = cur.data && cur.data.data && typeof cur.data.data === 'object' ? cur.data.data : {};
+      const { error } = await cl.from('settings').upsert({ section: 'ai', data: Object.assign({}, keep, { model, effort, monthly_limit_usd: n }) }, { onConflict: 'section' });
       if (error) return { ok: false, reason: error.code === '42501' ? 'forbidden' : 'network' };
       last = { model, effort, cap: n, fromRow: ['model', 'effort'].concat(n !== null ? ['monthly_limit_usd'] : []) };
       log('product.ai.settings', [model, effort, n !== null ? '$' + n : 'no cap'].join(' · '), 'settings', 'ai');

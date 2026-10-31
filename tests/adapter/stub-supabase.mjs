@@ -8,6 +8,9 @@
 // subscribe(cb) keeps cb and emitStatus(status) plays a channel status ('SUBSCRIBED', 'CHANNEL_ERROR', …) to the last one.
 // functions.invoke(name, opts) records { op: 'invoke', args } and answers responses['fn:' + name] (a value or a function of opts).
 // rpc(fn, args) records { op: 'rpc', args: [fn, args] } and answers responses['rpc:' + fn] (a value or a function of args).
+// storage.from(bucket).<method>(...args) records { table: 'storage:' + bucket, op: method, args } and answers
+// responses['storage:' + bucket + ':' + method] (a value or a function of the args; default { data: null, error: null }), for
+// createSignedUrl / download / remove / upload.
 // auth: storageKey, getSession (nothing stored) and onAuthStateChange; emitAuth(event, session) plays an auth event to its listener.
 // auth.mfa.<method>(args) records { op: 'mfa.<method>', args: [args] } and answers responses['mfa:' + method] (a value or a
 // function of args; default { data: null, error: null }), for listFactors / enroll / challengeAndVerify / unenroll /
@@ -38,6 +41,13 @@ export function stubClient({ responses = {}, channelThrows = false } = {}) {
     rpc: (fn, args) => { rec({ op: 'rpc', args: [fn, args] }); return Promise.resolve().then(() => answer(responses['rpc:' + fn], plain(args)) || { data: null, error: null }); },
     functions: {
       invoke: (name, opts) => { rec({ op: 'invoke', args: [name, opts] }); return Promise.resolve().then(() => answer(responses['fn:' + name], plain(opts)) || { data: null, error: null }); },
+    },
+    storage: {
+      from: (bucket) => Object.fromEntries(['createSignedUrl', 'download', 'remove', 'upload'].map((m) => [m, (...args) => {
+        const recorded = args.map((a) => (a && typeof a === 'object' && typeof a.size === 'number' && typeof a.type === 'string' ? { blob: a.size } : a));
+        rec({ table: 'storage:' + bucket, op: m, args: recorded });
+        return Promise.resolve().then(() => answer(responses['storage:' + bucket + ':' + m], plain(recorded)) || { data: null, error: null });
+      }])),
     },
     auth: {
       storageKey: 'sb-stub-auth-token',

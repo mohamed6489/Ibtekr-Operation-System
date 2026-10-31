@@ -21,6 +21,7 @@
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
 import { buildStudio, matchWooBrand, sheetCsvUrl } from '../../supabase/functions/_shared/woo-studio.js';
 import { parseWrite, parseStudio, cleanWrite, cleanStudio, aiSettings } from '../../supabase/functions/_shared/ai-content.js';
+import { parseGenerate, parseEdit, parseCreate, imageSettings, creditsFor, usdOf, studioPathOk, studioGenPath, studioEditPath, toolPath, MODEL_IDS } from '../../supabase/functions/_shared/ai-images.js';
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
 export const LIVE = process.env.E2E_SUPABASE_LIVE === '1';
 const LIVE_URL = process.env.E2E_SUPABASE_URL || ''; const LIVE_KEY = process.env.E2E_SUPABASE_ANON_KEY || '';
@@ -292,7 +293,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // aal2_required whatever the token (a server that does not take the flag).
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
-  const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
+  const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, imgCalls: [], imgFail: null, imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
     profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [] };
@@ -355,6 +356,9 @@ export async function installSupabaseMock(page, opts = {}) {
     // phase 5.2: a signed URL of the bucket studio (a thumbnail) — any token the mock signed opens the object
     const sgs = /^\/storage\/v1\/object\/sign\/studio\/(.+)$/.exec(path);
     if (method === 'GET' && sgs) { const obj = mock.studioObjects.get(decodeURIComponent(sgs[1])); return obj ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
+    // phase 5.4: a signed URL of the bucket ai-images (the images tool's results) — same rule
+    const sgi = /^\/storage\/v1\/object\/sign\/ai-images\/(.+)$/.exec(path);
+    if (method === 'GET' && sgi) { const obj = mock.imgObjects.get(decodeURIComponent(sgi[1])); return obj ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'image/webp' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
     // a signed URL of vendor-contracts is opened with no api key (a new tab, an <a>): its token alone opens the object
     const sg = /^\/storage\/v1\/object\/sign\/vendor-contracts\/(.+)$/.exec(path);
     if (method === 'GET' && sg) {
@@ -500,7 +504,7 @@ export async function installSupabaseMock(page, opts = {}) {
       // eq. filters and gte. on created_at (IBAI.monthSpend)
       if (path === '/rest/v1/ai_runs') {
         if (method !== 'GET') return json(403, { code: '42501', details: null, hint: null, message: 'permission denied for table ai_runs' });
-        const COLS = ['id', 'created_at', 'created_by', 'action', 'source', 'label', 'product_id', 'batch_id', 'item_index', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'status', 'error', 'output'];
+        const COLS = ['id', 'created_at', 'created_by', 'action', 'source', 'label', 'product_id', 'batch_id', 'item_index', 'model', 'input_tokens', 'output_tokens', 'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'credits', 'status', 'error', 'output']; // credits: 0025
         const cols = String(url.searchParams.get('select') || '*').split(',').map((x) => x.trim());
         const badCol = cols.find((x) => x !== '*' && !COLS.includes(x)); if (badCol) return json(400, { code: '42703', details: null, hint: null, message: `column ai_runs.${badCol} does not exist` });
         const eqs = [...url.searchParams.entries()].filter(([k, v]) => COLS.includes(k) && v.startsWith('eq.')).map(([k, v]) => [k, v.slice(3)]);
@@ -508,6 +512,12 @@ export async function installSupabaseMock(page, opts = {}) {
         const lim = Number(url.searchParams.get('limit')) || 1000;
         const rows = mock.aiRuns.filter((x) => (isAdmin(u) || x.created_by === u.id) && eqs.every(([k, v]) => String(x[k]) === v) && (since === null || Date.parse(x.created_at) >= since)).sort((x, y) => (x.created_at < y.created_at ? 1 : -1)).slice(0, lim);
         return json(200, rows.map((x) => (cols.includes('*') ? { ...x } : Object.fromEntries(cols.map((c) => [c, x[c] === undefined ? null : x[c]])))));
+      }
+      // ai_month_credits (0025): this Cairo month's image credits of the rows the member reads (RLS: own rows, the admin's all)
+      if (method === 'POST' && path === '/rest/v1/rpc/ai_month_credits') {
+        const month = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).format(new Date());
+        const inMonth = (x) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).format(new Date(x.created_at)) === month;
+        return json(200, mock.aiRuns.filter((x) => x.action === 'image' && (isAdmin(u) || x.created_by === u.id) && inMonth(x)).reduce((t, x) => t + (Number(x.credits) || 0), 0));
       }
       // ai_month_cost (0024): this Cairo month's cost of the rows the member reads (RLS: own rows, the admin's all)
       if (method === 'POST' && path === '/rest/v1/rpc/ai_month_cost') {
@@ -966,6 +976,18 @@ export async function installSupabaseMock(page, opts = {}) {
         return empty(204).catch(() => {}); // the page may be gone after a long delay
       }
     }
+    // Storage, bucket ai-images (0025, phase 5.4): private; a member with products.add or products.edit = F reads (a signed URL, a
+    // download) and deletes their own folder (<uid>/…) only; members never write (the server does — the ai-images handler below)
+    const sti = /^\/storage\/v1\/object\/(sign\/)?ai-images(?:\/(.+))?$/.exec(path);
+    if (sti && (method === 'POST' || method === 'DELETE' || method === 'GET')) {
+      const u = tokenUser(); if (!u) return json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' });
+      const may = isAdmin(u) || hasPerm(u, 'products.add') === 'F' || hasPerm(u, 'products.edit') === 'F';
+      const own = (k) => may && typeof k === 'string' && k.startsWith(u.id + '/');
+      if (sti[1]) { if (!own(sti[2]) || !mock.imgObjects.has(sti[2])) return json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); n += 1; return json(200, { signedURL: '/object/sign/ai-images/' + sti[2] + '?token=ai-' + n }); }
+      if (method === 'GET') { return own(sti[2]) && mock.imgObjects.has(sti[2]) ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'image/webp' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
+      if (method === 'DELETE') { const b = body(); (b.prefixes || []).filter(own).forEach((k) => mock.imgObjects.delete(k)); return json(200, []); }
+      return json(403, { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' });
+    }
     // Storage, bucket studio (0023, phase 5.2): private, products.add = F; upload (WebP), a signed URL, remove
     const sst = /^\/storage\/v1\/object\/(sign\/)?studio(?:\/(.+))?$/.exec(path);
     if (sst && (method === 'POST' || method === 'DELETE')) {
@@ -1016,6 +1038,72 @@ export async function installSupabaseMock(page, opts = {}) {
     // the mirror (404 when unknown), a studio item from its batch (404); mock.aiFail = 'not_configured' (503) / 'busy' (429) / 'ai_cap'
     // (402) / 'ai_error' (502) / 'refused' (200 refused); else Claude's answer is mock.aiAnswer(action, req) or the default below,
     // cleaned by the server's own cleanWrite / cleanStudio; each call → mock.aiCalls ({ action, by, ...body }), each answer an ai_runs row.
+    // phase 5.4: ai-images (supabase/functions/ai-images, verify_jwt false): generate needs the admin or products.add = F, edit of a
+    // studio path products.add, of a site product products.edit, create either, probe the admin; the body checked by the server's own
+    // parseGenerate / parseEdit / parseCreate (400 + field); a batch item from its batch (404) and its reference photos from the bucket
+    // (400 reference), a product from the mirror (404; no https photo → 404 for edit, 400 image for create); the credit cap of the
+    // settings row «ai» (image_monthly_credits — this Cairo month's image rows) → 402 + a cap row; mock.imgFail = 'not_configured'
+    // (503) / 'busy' (429) / 'ai_cap' (402) / 'ai_error' (502) / 'refused' (200 refused); else one WebP per image (a 1×1 PNG body)
+    // lands in bucket studio under the batch (generate, a studio edit) or in bucket ai-images under the member (create, a product's
+    // edit); each call → mock.imgCalls ({ action, by, ...body without the image data }), each answer an ai_runs row with credits.
+    if (method === 'POST' && path === '/functions/v1/ai-images') {
+      const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
+      if (!u) return json(401, { error: 'unauthorized' });
+      const add = isAdmin(u) || hasPerm(u, 'products.add') === 'F'; const edit = isAdmin(u) || hasPerm(u, 'products.edit') === 'F';
+      if (!['generate', 'edit', 'create', 'probe'].includes(action)) return json(400, { error: 'unknown_action' });
+      if (action === 'probe') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); if (mock.imgFail === 'not_configured') return json(503, { error: 'not_configured' }); return json(200, { result: 'ok', provider: 'magnific', shape: { credits: 'number', plan: { name: 'string' } }, models: MODEL_IDS }); }
+      const may = action === 'generate' ? add : action === 'edit' ? (b.path ? add : edit) : add || edit;
+      if (!may) return json(401, { error: 'unauthorized' });
+      const parsed = action === 'generate' ? parseGenerate(b) : action === 'edit' ? parseEdit(b) : parseCreate(b);
+      if (parsed.error) return json(400, parsed);
+      const req = parsed.req;
+      mock.imgCalls.push({ action, by: u.email, ...b, image: b.image ? { media_type: b.image.media_type, bytes: String(b.image.data || '').length } : undefined });
+      let label = null; let batchId = null; let itemIndex = null; let productId = null; let source; let count = 1; let where; let bucket;
+      const stamp = Date.now().toString(36) + (++mock.imgSeq);
+      const product = (id) => mock.products.find((p) => Number(p.id) === id);
+      if (action === 'generate') {
+        const row = mock.studioBatches.find((x) => x.id === req.batchId); const it = row && !row.archived_at && row.state && Array.isArray(row.state.items) ? row.state.items[req.index] : null;
+        if (!it) return json(404, { error: 'not_found' });
+        const refs = [it.main, ...(Array.isArray(it.refs) ? it.refs : []), req.slot && typeof req.slot === 'object' && it.colorImages ? it.colorImages[req.slot.color] : null].filter((k) => typeof k === 'string' && studioPathOk(req.batchId, k) && mock.studioObjects.has(k));
+        if (!refs.length) return json(400, { error: 'bad_request', field: 'reference' });
+        source = 'studio'; label = it.nameEn || it.nameAr || '#' + (req.index + 1); batchId = req.batchId; itemIndex = req.index; bucket = 'studio';
+        where = () => studioGenPath(req.batchId, req.index, req.slot, stamp, 'webp');
+      } else if (action === 'edit') {
+        source = 'edit';
+        if (req.path) {
+          const index = Number.isInteger(b.index) && b.index >= 0 ? b.index : 0;
+          const row = mock.studioBatches.find((x) => x.id === req.batchId); const it = row && !row.archived_at && row.state && Array.isArray(row.state.items) ? row.state.items[index] : null;
+          if (!it || !studioPathOk(req.batchId, req.path)) return json(it ? 400 : 404, it ? { error: 'bad_request', field: 'path' } : { error: 'not_found' });
+          if (!mock.studioObjects.has(req.path)) return json(404, { error: 'not_found' });
+          label = it.nameEn || it.nameAr || '#' + (index + 1); batchId = req.batchId; itemIndex = index; bucket = 'studio';
+          where = () => studioEditPath(req.batchId, index, stamp, 'webp');
+        } else {
+          const p = product(req.productId); if (!p || !/^https:\/\//.test(p.image_url || '')) return json(404, { error: 'not_found' });
+          label = p.name || '#' + req.productId; productId = req.productId; bucket = 'ai-images';
+          where = (k) => toolPath(u.id, stamp, k, 'webp');
+        }
+      } else {
+        source = 'tool'; count = req.count; bucket = 'ai-images'; label = req.prompt || 'صورة';
+        if (req.source === 'image' && !req.image) { const p = product(req.productId); if (!p) return json(404, { error: 'not_found' }); if (!/^https:\/\//.test(p.image_url || '')) return json(400, { error: 'bad_request', field: 'image' }); label = p.name || label; productId = req.productId; }
+        else if (req.productId) { const p = product(req.productId); if (!p) return json(404, { error: 'not_found' }); label = p.name || label; productId = req.productId; }
+        where = (k) => toolPath(u.id, stamp, k, 'webp');
+      }
+      const model = req.model; const planned = creditsFor(model, count);
+      const base = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action: 'image', source, label, product_id: productId, batch_id: batchId, item_index: itemIndex, model, credits: 0, cost_usd: 0, output: null };
+      // the cap (0025 ai_image_run_start): this Cairo month's image credits + the planned ones over settings «ai».image_monthly_credits
+      const cfg = imageSettings((mock.settings.find((x) => x.section === 'ai') || {}).data, {});
+      const month = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).format(new Date());
+      const spent = mock.aiRuns.filter((x) => x.action === 'image' && new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).format(new Date(x.created_at)) === month).reduce((t, x) => t + (Number(x.credits) || 0), 0);
+      if ((cfg.monthlyCredits != null && spent + planned > cfg.monthlyCredits) || mock.imgFail === 'ai_cap') { mock.aiRuns.push({ ...base, status: 'cap', error: 'ai_cap' }); return json(402, { error: 'ai_cap' }); }
+      const fail = mock.imgFail;
+      if (fail === 'not_configured' || fail === 'busy' || fail === 'ai_error') { mock.aiRuns.push({ ...base, status: 'error', error: fail, credits: fail === 'busy' ? planned : 0, cost_usd: fail === 'busy' ? usdOf(planned) : 0 }); return json(fail === 'not_configured' ? 503 : fail === 'busy' ? 429 : 502, { error: fail }); }
+      if (fail === 'refused') { mock.aiRuns.push({ ...base, status: 'refused', error: 'refused' }); return json(200, { result: 'refused', model, credits: 0, run_id: base.id }); }
+      const paths = Array.from({ length: count }, (_, k) => where(k + 1));
+      paths.forEach((k) => (bucket === 'studio' ? mock.studioObjects : mock.imgObjects).set(k, { type: 'image/webp', size: PNG_1PX.length, by: 'ai' }));
+      const run = { ...base, status: 'ok', error: null, credits: planned, cost_usd: usdOf(planned), output: { paths, bucket } };
+      mock.aiRuns.push(run);
+      return json(200, { result: 'ok', bucket, path: paths[0], paths, credits: planned, model, run_id: run.id });
+    }
     if (method === 'POST' && path === '/functions/v1/ai-content') {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
       const may = u && (action === 'write' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' || hasPerm(u, 'products.edit') === 'F' : action === 'studio' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' : isAdmin(u));

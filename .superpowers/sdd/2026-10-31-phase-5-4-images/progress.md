@@ -26,7 +26,18 @@
   **بعد المراجعة الأمنية التلقائية (31 أكتوبر):** الحجز والسقف بقوا في RPC واحد مقفول `ai_image_run_start` (اتضاف لـ `0025` مع
   `ai_month_credits()` واختباراتهم في `rls_ai_images`) بدل فحص في الدالة وحجز بعده؛ وصورة المنتج المرجعية من host الموقع بس (`WOO_URL`
   + `IMAGE_HOSTS`)، https، `redirect: 'error'`، حد حجم ومهلة 20 ثانية.
-- [ ] T6 `IBImages` + mock.
+- [x] T6 `IBImages` (31 أكتوبر): `app/js/adapter/images.js` (بيتحمّل مع الـ adapters في `index.html`): `can` (`studio`/`edit`/`tool`/
+  `settings`)، `generate(batchId, index, slot, {model,size})` / `edit({batchId,index,path} | {productId}, op, {prompt,model,options})` /
+  `create({source,prompt,shape,size,count,model,image|productId})` / `probe()` على `ai-images` بنفس خريطة الأسباب بتاعة `IBAI`؛
+  `imageUrl(bucket, path)` (signed URL ساعة، كاش 50 دقيقة، حدث `ib:images`)، `download`، `remove` (فولدر العضو في `ai-images` بس)؛
+  `history` (صفوف `image` الناجحة بأعمدة بالاسم)؛ `settings`/`saveSettings` (`image_model`/`image_monthly_credits` **مدموجة** في صف
+  `ai` — و`IBAI.saveSettings` بقى بيدمج هو كمان عشان مايمسحش مفاتيح الصور)؛ `monthCredits` (RPC `ai_month_credits` + الصفوف
+  بالمصدر)؛ `photoOf` (JPEG ≤ 1600px وفي حدود 2 ميجا base64)؛ قوايم `MODELS`/`SIZES`/`SHAPES`/`EDIT_OPS`. اللوج `product.ai.image`
+  (المصدر والخانة/العملية والموديل والكريدت والـ ids — من غير برومبت ولا مسار). الـ stub بتاع اختبارات الـ adapters اتزوّد بـ
+  `storage.from(bucket)`؛ اختبارات وحدة 10 (`tests/adapter/images.test.mjs`). الـ mock: handler `/functions/v1/ai-images` بنفس قواعد
+  السيرفر (الصلاحيات، parse*، 404/400، سقف الكريدت من صف `ai`، `mock.imgFail`، الصور في `studioObjects`/`imgObjects`، صف `ai_runs`
+  بالكريدت)، bucket `ai-images` (sign/download/delete لفولدر العضو، مافيش كتابة)، RPC `ai_month_credits`، وعمود `credits`؛ e2e
+  `tests/e2e/images-adapter.spec.mjs` (2) بتشغّل الـ adapter من جوه الصفحة.
 - [ ] T7 خطوة الصور في الاستوديو + e2e.
 - [ ] T8 أداة الصور + `product_images_add` + e2e.
 - [ ] T9 حي.

@@ -68,7 +68,7 @@
 
   const STEPS = ['البداية', 'الاستلام', 'البيانات و SKU', 'المتغيرات', 'السعر', 'الصور', 'الأقسام والأوصاف', 'المراجعة والرفع'];
   const SLOT_L = PD.SLOTS.concat(['إضافية 1', 'إضافية 2']);
-  const FIELD_L = { nameEn: 'الاسم (EN)', nameAr: 'الاسم (AR)', vendorPrice: 'سعر المبتكر', colors: 'اللون', sizes: 'المقاس', material: 'الخامة', style: 'الستايل', weight: 'الوزن', stock: 'المخزون', shortDesc: 'الوصف القصير', group: 'معرّف المنتج (unique id)' };
+  const FIELD_L = { nameEn: 'الاسم (EN)', nameAr: 'الاسم (AR)', vendorPrice: 'سعر المبتكر', colors: 'اللون', sizes: 'المقاس', material: 'الخامة', style: 'الستايل', weight: 'الوزن', stock: 'المخزون', shortDesc: 'الوصف القصير (EN)', shortDescAr: 'الوصف القصير (AR)', category: 'القسم (مسار)', group: 'معرّف المنتج (unique id)' };
   const REASON = { product_invalid_sku: 'الـ SKU ده موجود على الموقع', image_missing: 'صورة مش لاقيينها — ارفعها تاني', media_refused: 'الموقع رفض صورة', config: 'باسورد تطبيق WordPress مش متظبط على السيرفر',
     product_refused: 'الموقع رفض المنتج', author_failed: 'المبتكر ماتحطش على المنتج — «جرّب تاني» (التركيبات بتستناه)', maker_changed: 'المبتكر اتغيّر بعد ما التركيبات اتعملت — المنتج فاضل على المبتكر القديم (رجّعه، أو انقل المنتج من لوحة WordPress)',
     brand_changed: 'البراند اتغيّر بعد ما المنتج اترفع — مفيش حاجة اتكتبت، والـ SKU على الموقع بحرفين البراند القديم (رجّع البراند أو اسمه، أو كمّل المنتج من لوحة WordPress)',
@@ -296,11 +296,14 @@
   function applySheet() {
     const sh = S.state.sheet; if (!sh) return;
     const old = items();
+    // the sheet's category (a path, decision 16): the site category named like its last part, with the ones above it (decision 14)
+    const tree = sh.map.category != null ? PD.catTree(catsAll().filter((c) => !/^uncategori[sz]ed$/i.test(c.name))) : null;
+    const catsOfPath = (path) => { const id = tree ? PD.catFromPath(tree, path) : null; return id == null ? [] : [...PD.catToggle(tree, { chosen: new Set(), auto: new Set() }, id, true).chosen]; };
     const fresh = PD.rowsToItems(sh.rows, sh.map, { type: S.state.type }).map((x, i) => {
       const prev = old[i] || {};
       const cs = x.colors.map((n) => colorByName(n));
       const it = { key: prev.key || newKey(), row: x.row, nameEn: x.nameEn, nameAr: x.nameAr, vendorPrice: x.vendorPrice, colors: cs.filter(Boolean).map((c) => c.code), unknownColors: x.colors.filter((n, k) => !cs[k]),
-        sizes: x.sizes, material: x.material, style: x.style, weight: x.weight, stock: x.stock, onDemand: false, shortDesc: x.shortDesc, shortDescAr: '', categories: prev.categories || [],
+        sizes: x.sizes, material: x.material, style: x.style, weight: x.weight, stock: x.stock, onDemand: false, shortDesc: x.shortDesc, shortDescAr: x.shortDescAr || '', categories: (prev.categories || []).length ? prev.categories : catsOfPath(x.category),
         main: prev.main || null, refs: prev.refs || [], slots: prev.slots || [], colorImages: prev.colorImages || {}, markup: prev.markup, variations: [], sheetVariations: x.variationRows || null };
       if (!isVar()) { it.colors = it.colors.slice(0, 1); it.sizes = it.sizes.slice(0, 1); }
       syncVariations(it); return it;

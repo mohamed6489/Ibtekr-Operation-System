@@ -68,6 +68,9 @@
   `aiSettings` في `_shared/ai-content.js` (الصف فوق الأسرار فوق الافتراضي) والدالة بتقراه قبل كل نداء (`configOf`)؛
   `IBAI.settings` / `saveSettings` (upsert + `product.ai.settings`) / `monthSpend` (`ai_month_cost` + صفوف الشهر بالقاهرة) /
   `estCost`؛ popup «إعدادات الـ AI» في أداة المحتوى للأدمن (الصرف، الموديل، الجهد، السقف) وتأكيد الاستوديو بتكلفة الموديل
-  المختار؛ الـ mock (`settings`، `ai_month_cost`، `gte` على `ai_runs`، والدالة بتقرا الصف والسقف). الاختبارات: node 340
+  المختار؛ الـ mock (`settings`، `ai_month_cost`، `gte` على `ai_runs`، والدالة بتقرا الصف والسقف). الاختبارات: node 339
   (`aiSettings` + 3 في `ai.test`)، Deno 143، e2e 186 (+2 في `content.spec`)، `rls_ai` بحالة القسم `ai`. **حي:** `ai-content` v5
-  (31 أكتوبر — الحي كان v4 بنفس الـ sha: تغييرات الأسرار بترفع الرقم؛ الملفات الأربعة مطابقة). لسه: `rls_ai` حي، `main`.
+  (31 أكتوبر — الحي كان v4 بنفس الـ sha: تغييرات الأسرار بترفع الرقم؛ الملفات الأربعة مطابقة)؛ `rls_ai` حي ok (RLS live run
+  41174395454). ملحوظة: CI run 41172609344 على الفرع (commit دفتر بس، 55ef219) وقع في اختبارين e2e بـ timeout (`studio.spec`
+  الأقسام و`vendors-brands.spec` النقل) ونفس الـ commit على `main` (run 41172612151) أخضر — اختبارات متقلّبة على CI، مش من
+  التعديل؛ للمراجعة لو اتكررت.

@@ -74,9 +74,13 @@
     `product.created` draft؛ بعدها صاحب المشروع نشره من صفحة المنتج (`product.save status` 06:37:32). **لقية:** الترجمة
     العربي **ماتعملتش** — `arNote: http_422` (ونفس الشيء في 182045 يوم 29 أكتوبر: كل رفعة حية لحد دلوقتي من غير ترجمة)، والسبب مش
     ظاهر: `wooCode` مامسكش `code` من الرد، و`ar_note` في `woo_sync_log` بيطلع `<redacted>` (`redactPII` بيطمس أي مفتاح فيه
-    `note`). التصليح (fc77b61، مش منشور لسه): الترجمة والقسم بيتبعتوا بـ `lang` (مفتاح WCML في REST) جنب `wpml_language`،
+    `note`). التصليح (fc77b61): الترجمة والقسم بيتبعتوا بـ `lang` (مفتاح WCML في REST) جنب `wpml_language`،
     والرفض بيتحفظ `arError` (رد الموقع منضّف) في النتيجة و`ar_code` / `ar_error` في السجل. النشر من workflow «Deploy functions»
-    (28d2f7e — محتاج سر `SUPABASE_ACCESS_TOKEN` من صاحب المشروع)، وبعدها «جرّب تاني» على الدفعة بيكمّل الترجمة بس.
+    (28d2f7e — السر `SUPABASE_ACCESS_TOKEN` اتحط من صاحب المشروع 31 أكتوبر): **`woo-sync` v40** (run 41184995728 من `main` 1cf3259،
+    08:32Z) — الـ run أحمر (500 `Failed to write functions metadata fields` من Supabase بعد رفع الـ bundle) لكن النشر تم:
+    `list_edge_functions` v40 بـ sha جديد و`verify_jwt false`، و`get_edge_function` فيه `lang: 'ar'` / `arError` / `ar_code`.
+    الخطوة الجاية: صاحب المشروع يدوس «جرّب تاني» على الدفعة f7c3056a (الحالة `done`، `arId` فاضي، `arNote: http_422`) → بيكمّل
+    الترجمة بس؛ لو اترفضت تاني، `arError` في النتيجة و`ar_error` في `woo_sync_log` بيقولوا ليه.
   - [ ] تقرير.
 
 الاختبارات (a57f12d): unit 303، e2e 172 (اختبار سعر قرار 16 فشل مرة تحت الضغط وعدّى 5/5 لوحده)، Deno 123.

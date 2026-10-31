@@ -28,7 +28,7 @@
     not_configured: 'الـ AI للصور لسه مش متوصّل — مفتاح Magnific بيتحط في إعدادات السيرفر', ai_cap: 'وصلنا لحد كريدت الصور الشهري — كلّم الأدمن', busy: 'الـ AI للصور مشغول دلوقتي — جرّب كمان دقيقة',
     ai_error: 'الـ AI مارجّعش صورة سليمة — جرّب تاني', network: 'في مشكلة في الاتصال — جرّب تاني', refused: 'الـ AI رفض الطلب ده — غيّر الوصف أو الصورة وجرّب تاني' };
   const FIELD_MSG = { prompt: 'الوصف', image: 'الصورة', product_id: 'المنتج', size: 'المقاس', count: 'العدد', model: 'الموديل', shape: 'الشكل', paths: 'الصور' };
-  const errText = (r) => (r.reason === 'invalid' && r.field ? MSG.invalid + ': ' + (FIELD_MSG[r.field] || r.field) : MSG[r.reason] || MSG.network);
+  const errText = (r) => (IM() && IM().why(r)) || (r.reason === 'invalid' && r.field ? MSG.invalid + ': ' + (FIELD_MSG[r.field] || r.field) : MSG[r.reason] || MSG.network);
 
   // ---------------- state ----------------
   const S = { tab: 'i2i', fromProduct: null, photo: null, photoName: '', sku: '', prompt: '', shape: 'studio', size: '700x800', width: '', height: '', count: 1, model: '', op: 'remove_bg', bg: 'transparent', scale: 2,
@@ -133,7 +133,7 @@
       U.TextInput({ id: 'img-cap', label: 'سقف الشهر بالكريدت', value: f.cap, dir: 'ltr', inputmode: 'numeric', placeholder: 'من غير سقف', help: 'لما الكريدت توصله الصور بتقف لحد أول الشهر الجاي. فاضي = من غير سقف. (1 كريدت ≈ $' + I.CREDIT_USD + ')', onInput: (v) => { f.cap = v; } }),
       U.InlineNote({ children: 'التغيير بيمشي على الصور الجاية على طول، لكل الفريق؛ موديل دفعة في الاستوديو بيتغيّر من جواها.' }),
       // T2: the connection test — the provider's account answer as keys and types only (no values), or the error with its HTTP status
-      h('div', { class: 'acts-inline' }, Button({ size: 'sm', label: probe.busy ? 'بيتصل…' : 'اختبار الاتصال بـ Magnific', disabled: probe.busy, attrs: { 'data-img-probe': '' }, onClick: async () => { probe.busy = true; m.setBody(...body()); const r = await I.probe(); probe.busy = false; probe.out = r.ok ? 'متصل ✓ — شكل رد الحساب: ' + JSON.stringify(r.shape) : (MSG[r.reason] || MSG.network) + (r.status ? ' (HTTP ' + r.status + ')' : ''); m.setBody(...body()); } })),
+      h('div', { class: 'acts-inline' }, Button({ size: 'sm', label: probe.busy ? 'بيتصل…' : 'اختبار الاتصال بـ Magnific', disabled: probe.busy, attrs: { 'data-img-probe': '' }, onClick: async () => { probe.busy = true; m.setBody(...body()); const r = await I.probe(); probe.busy = false; probe.out = r.ok ? 'متصل ✓ — شكل رد الحساب: ' + JSON.stringify(r.shape) : I.why(r) || (MSG[r.reason] || MSG.network) + (r.status ? ' (HTTP ' + r.status + ')' : ''); m.setBody(...body()); } })),
       probe.out ? h('pre', { class: 't-small', dir: 'ltr', style: 'margin:0;white-space:pre-wrap;overflow-wrap:anywhere', 'data-img-probe-out': '' }, probe.out) : null];
     const save = async () => {
       const r = await I.saveSettings({ model: f.model, monthlyCredits: f.cap.trim() === '' ? null : f.cap.trim() });

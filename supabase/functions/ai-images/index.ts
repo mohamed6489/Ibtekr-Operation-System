@@ -95,15 +95,17 @@ async function runImages(deps: Deps, base: Json, model: string, count: number, w
   if (run.result === 'cap') return json(402, { error: 'ai_cap' });
   if (run.result === 'busy') return json(429, { error: 'busy' });
   if (run.result !== 'ok') return json(502, { error: 'ai_error' });
-  if (!deps.env.MAGNIFIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', credits: 0, cost_usd: 0 }); return json(503, { error: 'not_configured' }); }
+  // the two faces of not_configured, told apart for the admin: the secret is not set (configured false) / the provider refused the key (status)
+  if (!deps.env.MAGNIFIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', credits: 0, cost_usd: 0, output: { configured: false } }); return json(503, { error: 'not_configured', configured: false }); }
   let out: { images: { bytes: Uint8Array; mime: string }[]; credits: number | null };
   try { out = await work(); } catch (e) {
     const kind = e instanceof ProviderError ? e.kind : 'ai_error';
     // a lost answer (busy after a timeout) keeps its planned credits; a refusal or a clear error costs nothing here
     const credits = kind === 'busy' ? planned : 0;
-    await finishRun(deps, run.id, { status: kind === 'refused' ? 'refused' : 'error', error: kind, credits, cost_usd: usdOf(credits) });
+    const status = e instanceof ProviderError ? e.status : null;
+    await finishRun(deps, run.id, { status: kind === 'refused' ? 'refused' : 'error', error: kind, credits, cost_usd: usdOf(credits), output: { configured: true, status } });
     if (kind === 'refused') return json(200, { result: 'refused', model, credits: 0, run_id: run.id });
-    return json(kind === 'not_configured' ? 503 : kind === 'busy' ? 429 : 502, { error: kind });
+    return json(kind === 'not_configured' ? 503 : kind === 'busy' ? 429 : 502, { error: kind, configured: true, status });
   }
   const stored: Stored = [];
   for (let n = 0; n < out.images.length && n < count; n++) { const s = await store(out.images[n], n + 1); if (s) stored.push(s); }
@@ -276,10 +278,10 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     const configured = !!deps.env.MAGNIFIC_API_KEY?.trim();
     const record = (status: 'ok' | 'error', error: string | null, output: Json) =>
       deps.db.from('ai_runs').insert({ created_by: who.uid, action: 'image', source: 'tool', label: 'probe', status, error, credits: 0, cost_usd: 0, output: { probe: true, configured, ...output } });
-    if (!configured) { await record('error', 'not_configured', { status: null }); return json(503, { error: 'not_configured' }); }
+    if (!configured) { await record('error', 'not_configured', { status: null }); return json(503, { error: 'not_configured', configured: false }); }
     // the shape only (keys and types, no values) of the provider's account answer — enough to pin the layer in T2, nothing to leak
     try { const sh = shape(await deps.provider.probe()); await record('ok', null, { status: 200, shape: sh }); return json(200, { result: 'ok', provider: PROVIDER, shape: sh, models: MODEL_IDS }); }
-    catch (e) { const kind = e instanceof ProviderError ? e.kind : 'ai_error'; const status = e instanceof ProviderError ? e.status : null; await record('error', kind, { status }); return json(kind === 'not_configured' ? 503 : kind === 'busy' ? 429 : 502, { error: kind, status }); }
+    catch (e) { const kind = e instanceof ProviderError ? e.kind : 'ai_error'; const status = e instanceof ProviderError ? e.status : null; await record('error', kind, { status }); return json(kind === 'not_configured' ? 503 : kind === 'busy' ? 429 : 502, { error: kind, configured: true, status }); }
   } catch (e) {
     console.error('ai-images failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });

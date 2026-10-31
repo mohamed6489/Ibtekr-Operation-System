@@ -122,3 +122,20 @@ test('permissions and settings: accounts sees «محتاج صلاحية» and an
   await expect(page.locator('#ig-model')).toContainText('Nano Banana 2 Lite'); // the tool's model follows
   await expect.poll(() => mock.activityRows.filter((x) => x.action === 'product.ai.image.settings').map((x) => x.new_value)).toEqual(['imagen-nano-banana-2-lite · 5000 credits']);
 });
+
+test('not_configured told apart: the secret missing on the server names the secret; the provider refusing the key names the HTTP status (the studio slot and the tool)', async ({ page }) => {
+  await openProducts(page, ADMIN);
+  await openTool(page);
+  await page.getByRole('tab', { name: 'نص لصورة' }).click();
+  await page.fill('#ig-prompt', 'a mug');
+  mock.imgFail = 'not_configured';
+  await page.locator('[data-igrun]').click();
+  await expect(page.locator('#pg-products')).toContainText('السر MAGNIFIC_API_KEY مش موجود في أسرار السيرفر');
+  mock.imgFail = 'key_refused';
+  await page.locator('[data-igrun]').click();
+  await expect(page.locator('#pg-products')).toContainText('Magnific رفض المفتاح (HTTP 401)');
+  await page.locator('[data-img-settings]').click();
+  await page.locator('[data-img-probe]').click();
+  await expect(page.locator('[data-img-probe-out]')).toContainText('Magnific رفض المفتاح (HTTP 401)');
+  mock.imgFail = null;
+});

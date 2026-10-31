@@ -1051,7 +1051,7 @@ export async function installSupabaseMock(page, opts = {}) {
       if (!u) return json(401, { error: 'unauthorized' });
       const add = isAdmin(u) || hasPerm(u, 'products.add') === 'F'; const edit = isAdmin(u) || hasPerm(u, 'products.edit') === 'F';
       if (!['generate', 'edit', 'create', 'probe'].includes(action)) return json(400, { error: 'unknown_action' });
-      if (action === 'probe') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); if (mock.imgFail === 'not_configured') return json(503, { error: 'not_configured' }); return json(200, { result: 'ok', provider: 'magnific', shape: { credits: 'number', plan: { name: 'string' } }, models: MODEL_IDS }); }
+      if (action === 'probe') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); if (mock.imgFail === 'not_configured') return json(503, { error: 'not_configured', configured: false }); if (mock.imgFail === 'key_refused') return json(503, { error: 'not_configured', configured: true, status: 401 }); return json(200, { result: 'ok', provider: 'magnific', shape: { credits: 'number', plan: { name: 'string' } }, models: MODEL_IDS }); }
       const may = action === 'generate' ? add : action === 'edit' ? (b.path ? add : edit) : add || edit;
       if (!may) return json(401, { error: 'unauthorized' });
       const parsed = action === 'generate' ? parseGenerate(b) : action === 'edit' ? parseEdit(b) : parseCreate(b);
@@ -1096,7 +1096,8 @@ export async function installSupabaseMock(page, opts = {}) {
       const spent = mock.aiRuns.filter((x) => x.action === 'image' && new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).format(new Date(x.created_at)) === month).reduce((t, x) => t + (Number(x.credits) || 0), 0);
       if ((cfg.monthlyCredits != null && spent + planned > cfg.monthlyCredits) || mock.imgFail === 'ai_cap') { mock.aiRuns.push({ ...base, status: 'cap', error: 'ai_cap' }); return json(402, { error: 'ai_cap' }); }
       const fail = mock.imgFail;
-      if (fail === 'not_configured' || fail === 'busy' || fail === 'ai_error') { mock.aiRuns.push({ ...base, status: 'error', error: fail, credits: fail === 'busy' ? planned : 0, cost_usd: fail === 'busy' ? usdOf(planned) : 0 }); return json(fail === 'not_configured' ? 503 : fail === 'busy' ? 429 : 502, { error: fail }); }
+      if (fail === 'not_configured' || fail === 'busy' || fail === 'ai_error') { mock.aiRuns.push({ ...base, status: 'error', error: fail, credits: fail === 'busy' ? planned : 0, cost_usd: fail === 'busy' ? usdOf(planned) : 0 }); return json(fail === 'not_configured' ? 503 : fail === 'busy' ? 429 : 502, fail === 'not_configured' ? { error: fail, configured: false } : { error: fail }); }
+      if (fail === 'key_refused') { mock.aiRuns.push({ ...base, status: 'error', error: 'not_configured', credits: 0, cost_usd: 0, output: { configured: true, status: 401 } }); return json(503, { error: 'not_configured', configured: true, status: 401 }); }
       if (fail === 'refused') { mock.aiRuns.push({ ...base, status: 'refused', error: 'refused' }); return json(200, { result: 'refused', model, credits: 0, run_id: base.id }); }
       const paths = Array.from({ length: count }, (_, k) => where(k + 1));
       paths.forEach((k) => (bucket === 'studio' ? mock.studioObjects : mock.imgObjects).set(k, { type: 'image/webp', size: PNG_1PX.length, by: 'ai' }));

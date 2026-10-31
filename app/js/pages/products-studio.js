@@ -112,23 +112,23 @@
     const run = async () => {
       const id = S.id; S.imgRun = { done: 0, total: jobs.length }; jobs.forEach((j) => S.imgBusy.set(bkey(j), 'gen')); R();
       await touch(true);
-      let done = 0, failed = 0, stop = null;
+      let done = 0, failed = 0, stop = null, stopWhy = '';
       for (const j of jobs) {
         if (S.id !== id) break;
         const index = S.state.items.indexOf(j.it);
         if (index >= 0) {
           const r = await I.generate(id, index, j.slot, { model: imgModel() });
           if (r.ok && r.result === 'ok' && r.path) { pushHist(j.it, j.slot, slotGet(j.it, j.slot)); slotPut(j.it, j.slot, r.path, true); S.imgBusy.delete(bkey(j)); done++; }
-          else { failed++; S.imgBusy.set(bkey(j), 'fail:' + (r.ok ? IMG_WHY.refused : IMG_STOP[r.reason] || IMG_WHY[r.field] || IMG_WHY[r.reason] || IMG_WHY.ai_error)); if (!r.ok && IMG_STOP[r.reason]) stop = r.reason; }
+          else { failed++; S.imgBusy.set(bkey(j), 'fail:' + (r.ok ? IMG_WHY.refused : I.why(r) || IMG_STOP[r.reason] || IMG_WHY[r.field] || IMG_WHY[r.reason] || IMG_WHY.ai_error)); if (!r.ok && IMG_STOP[r.reason]) { stop = r.reason; stopWhy = I.why(r) || IMG_STOP[stop]; } }
         } else S.imgBusy.delete(bkey(j));
         S.imgRun.done++; R();
         if (stop) break;
       }
-      jobs.forEach((j) => { if (S.imgBusy.get(bkey(j)) === 'gen') S.imgBusy.set(bkey(j), 'fail:' + IMG_STOP[stop]); }); // the ones after a stop
+      jobs.forEach((j) => { if (S.imgBusy.get(bkey(j)) === 'gen') S.imgBusy.set(bkey(j), 'fail:' + stopWhy); }); // the ones after a stop
       S.imgRun = null;
       if (S.id === id) await touch(true);
       R();
-      if (stop) K.toast(IMG_STOP[stop] + (done ? ' — اتعملت ' + done + ' صورة قبلها' : ''), 'error');
+      if (stop) K.toast(stopWhy + (done ? ' — اتعملت ' + done + ' صورة قبلها' : ''), 'error');
       else if (done) K.toast('خلص — اتعملت ' + done + ' صورة' + (failed ? ' · ' + failed + ' ماتعملتش' : '') + ' · راجع اللي عليها «AI»', 'success');
       else K.toast(jobs.length === 1 ? S.imgBusy.get(bkey(jobs[0])).slice(5) : 'ولا صورة اتعملت — جرّب تاني', 'error');
       return done;
@@ -152,7 +152,7 @@
       const r = await I.edit({ batchId: S.id, index, path: p }, 'instruction', { prompt: txt, model: imgModel() });
       busy = '';
       if (r.ok && r.result === 'ok' && r.path) { pushHist(it, slot, p); slotPut(it, slot, r.path, true); words = ''; touch(true); K.toast('اتعدلت — النسخة القديمة في «النسخ»', 'success'); }
-      else K.toast(r.ok ? IMG_WHY.refused : IMG_STOP[r.reason] || IMG_WHY[r.reason] || IMG_WHY.ai_error, 'error');
+      else K.toast(r.ok ? IMG_WHY.refused : I.why(r) || IMG_STOP[r.reason] || IMG_WHY[r.reason] || IMG_WHY.ai_error, 'error');
       draw(); R();
     };
     const again = async () => { if (busy) return; busy = 'gen'; draw(); await genSlots([{ it, slot }], ''); busy = ''; draw(); };

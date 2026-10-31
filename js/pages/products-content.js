@@ -4,7 +4,9 @@
    product_get). The answer shows per language and is edited in place; «احفظ على المنتج» writes the name, the descriptions and
    SEO through IBProducts.save (product_save: products.edit, WOO_PUSH_ENABLED) after a confirmation — keywords and bullets are for
    copying. «سجل المحتوى» = the last texts (ai_runs). Left out of the prototype's tool head: «احفظ وكمّل بعدين» (the history keeps
-   every text). The products page routes #products-tool-content[-<product id>] here: IBContentView.route / view. */
+   every text). «إعدادات الـ AI» (decision 8, the admin): this month's spend and the model / effort / monthly cap the server reads
+   before every call (IBAI.settings / saveSettings / monthSpend). The products page routes #products-tool-content[-<product id>]
+   here: IBContentView.route / view. */
 (function () {
   'use strict';
   const U = window.IBUI, K = window.IBKit, PD = window.IbtekrProducts;
@@ -122,6 +124,31 @@
       footer: [Button({ label: 'قفل', onClick: () => m.close() })] });
   }
 
+  // ---------------- «إعدادات الـ AI» (decision 8: the admin) — the month's spend and the model / effort / monthly cap ----------------
+  async function openSettings() {
+    const A = AI(); if (!A || !A.can().settings) return;
+    const [cfg, spend] = await Promise.all([A.settings(), A.monthSpend()]);
+    if (!cfg.ok) { K.toast(MSG.network, 'error'); return; }
+    const f = { model: cfg.model, effort: cfg.effort, cap: cfg.cap == null ? '' : String(cfg.cap) };
+    const usd = (n) => h('span', { dir: 'ltr' }, '$' + Number(n || 0).toFixed(2));
+    const spendBox = spend.ok
+      ? h('div', { class: 'out-b', 'data-ai-spend': '' }, h('small', null, 'صرف الشهر ده (بتوقيت القاهرة)'),
+        h('p', { style: 'margin:0' }, h('b', null, usd(spend.total)), cfg.cap != null ? [' من أصل ', usd(cfg.cap)] : null, ' · ', spend.runs, ' نداء'),
+        h('p', { class: 't-small help', style: 'margin:0' }, 'أداة المحتوى ', spend.write.runs, ' (', usd(spend.write.cost), ') · الاستوديو ', spend.studio.runs, ' (', usd(spend.studio.cost), ')'))
+      : U.InlineNote({ kind: 'warn', children: 'مقدرناش نقرا الصرف دلوقتي.' });
+    const body = () => [spendBox,
+      U.Select({ id: 'ai-model', label: 'الموديل', options: A.MODELS.map((m) => ({ value: m.id, label: m.label })), value: f.model, help: 'تقريبًا $' + A.estCost(f.model).toFixed(3) + ' للمنتج', onChange: (v) => { f.model = v; m.setBody(...body()); } }),
+      U.Select({ id: 'ai-effort', label: 'الجهد', options: A.EFFORTS.map((e) => ({ value: e.id, label: e.label })), value: f.effort, help: 'تفكير أقل = أرخص وأسرع', onChange: (v) => { f.effort = v; } }),
+      U.TextInput({ id: 'ai-cap', label: 'سقف الشهر بالدولار', value: f.cap, dir: 'ltr', inputmode: 'decimal', placeholder: 'من غير سقف', help: 'لما الصرف يوصله الـ AI بيقف لحد أول الشهر الجاي. فاضي = من غير سقف.', onInput: (v) => { f.cap = v; } }),
+      U.InlineNote({ children: 'التغيير بيمشي على النداءات الجاية على طول، لكل الفريق.' })];
+    const save = async () => {
+      const r = await A.saveSettings({ model: f.model, effort: f.effort, cap: f.cap.trim() === '' ? null : f.cap.trim() });
+      if (!r.ok) { K.toast(r.reason === 'invalid' && r.field === 'cap' ? 'السقف لازم يكون رقم أكبر من صفر' : r.reason === 'forbidden' ? 'الأدمن بس يقدر يغيّر إعدادات الـ AI' : MSG.network, 'error'); return; }
+      m.close(); K.toast('اتحفظت إعدادات الـ AI — النداءات الجاية هتمشي عليها', 'success');
+    };
+    const m = U.Modal({ title: 'إعدادات الـ AI', body: body(), footer: [Button({ type: 'text', label: 'قفل', onClick: () => m.close() }), Button({ type: 'primary', label: 'احفظ', attrs: { 'data-ai-save': '' }, onClick: save })] });
+  }
+
   // ---------------- view ----------------
   function Drop(title, sub, onFile) {
     const inp = h('input', { type: 'file', class: 'sr-file', id: 'ct-photo', accept: 'image/jpeg,image/png,image/webp', onChange: () => { const f = inp.files && inp.files[0]; if (f) onFile(f); } });
@@ -185,7 +212,8 @@
     const A = AI();
     const top = h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('small', { class: 't-small help' }, 'المنتجات › إضافة › أداة المحتوى'), h('h1', { class: 't-h3' }, 'المحتوى'),
       h('p', { class: 't-small help', style: 'margin:0' }, 'اسم ووصف وكلمات مفتاحية بالعربي والإنجليزي، بأسلوب إبتكر.')),
-      h('div', { class: 'actions' }, Button({ type: 'text', label: 'اخرج', onClick: exit }), A && A.can().write ? Button({ label: 'سجل المحتوى', attrs: { 'data-chistory': '' }, onClick: openHistory }) : null));
+      h('div', { class: 'actions' }, Button({ type: 'text', label: 'اخرج', onClick: exit }), A && A.can().write ? Button({ label: 'سجل المحتوى', attrs: { 'data-chistory': '' }, onClick: openHistory }) : null,
+        A && A.can().settings ? Button({ label: 'إعدادات الـ AI', icon: 'gear', attrs: { 'data-cai-settings': '' }, onClick: openSettings }) : null));
     if (!A || !A.can().write) return [top, K.Empty('مش مسموحلك تستخدم أداة المحتوى', 'محتاج صلاحية «إضافة منتجات» أو «تعديل المنتجات».')];
     const tabs = K.MainTabs({ items: [{ id: 'data', label: 'من بيانات' }, { id: 'image', label: 'من صورة' }, { id: 'site', label: 'من منتج على الموقع' }], active: S.tab, onChange: (id) => { S.tab = id; R(); }, label: 'مصدر المحتوى' });
     return [top, tabs, h('div', { class: 'cols2-wide' }, inputCard(), outCard())];

@@ -23,7 +23,8 @@
   // ---------------- AI (phase 5.3, decision 6) ----------------
   // One item at a time through IBAI.studio (the server reads the saved batch, so it is saved first); the answer fills the item
   // (PD.aiApply) with «AI — راجع» on each field it filled, and a hand edit takes the mark off. A run on more than one item asks
-  // first with the count and the cost (about IBAI.EST_COST each); the key missing, the monthly cap, busy or no permission stop it.
+  // first with the count and the cost (IBAI.estCost of the model in the AI settings — decision 8); the key missing, the monthly cap,
+  // busy or no permission stop it.
   const AI = () => window.IBAI;
   const AITag = () => Tag('gold', 'AI — راجع');
   const aiCount = (L) => L.reduce((s, it) => s + Object.keys(it.ai || {}).length, 0);
@@ -58,7 +59,8 @@
       else K.toast(done ? 'خلص — اتملت ' + filled + ' خانة في ' + done + ' منتج · راجع اللي عليها «AI — راجع»' + (failed ? ' · ' + failed + ' ماتملاش' : '') : 'الـ AI مارجّعش حاجة نستخدمها — جرّب تاني', done ? 'success' : 'error');
     };
     if (jobs.length === 1) return run();
-    K.confirm({ title: title + '؟', text: jobs.length + ' منتج · التكلفة حوالي ' + (jobs.length * A.EST_COST).toFixed(2) + ' دولار. كل خانة الـ AI يملاها عليها «AI — راجع» — راجعها قبل الرفع. السعر والـ SKU مابيتكتبوش بالـ AI.', okLabel: 'ابدأ', onOk: run });
+    // the cost per product follows the model the admin chose (decision 8); the settings row is read first
+    A.settings().then((cfg) => K.confirm({ title: title + '؟', text: jobs.length + ' منتج · التكلفة حوالي ' + (jobs.length * A.estCost(cfg.ok ? cfg.model : null)).toFixed(2) + ' دولار. كل خانة الـ AI يملاها عليها «AI — راجع» — راجعها قبل الرفع. السعر والـ SKU مابيتكتبوش بالـ AI.', okLabel: 'ابدأ', onOk: run }));
     return null;
   }
   const aiButton = (label, onClick) => { const A = AI(); if (!A || !A.can().studio) return null; const b = S.aiBusy;

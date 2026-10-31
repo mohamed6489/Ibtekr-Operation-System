@@ -68,7 +68,7 @@
 
   const STEPS = ['البداية', 'الاستلام', 'البيانات و SKU', 'المتغيرات', 'السعر', 'الصور', 'الأقسام والأوصاف', 'المراجعة والرفع'];
   const SLOT_L = PD.SLOTS.concat(['إضافية 1', 'إضافية 2']);
-  const FIELD_L = { nameEn: 'الاسم (EN)', nameAr: 'الاسم (AR)', vendorPrice: 'سعر المبتكر', colors: 'اللون', sizes: 'المقاس', material: 'الخامة', style: 'الستايل', weight: 'الوزن', stock: 'المخزون', shortDesc: 'الوصف القصير' };
+  const FIELD_L = { nameEn: 'الاسم (EN)', nameAr: 'الاسم (AR)', vendorPrice: 'سعر المبتكر', colors: 'اللون', sizes: 'المقاس', material: 'الخامة', style: 'الستايل', weight: 'الوزن', stock: 'المخزون', shortDesc: 'الوصف القصير', group: 'معرّف المنتج (unique id)' };
   const REASON = { product_invalid_sku: 'الـ SKU ده موجود على الموقع', image_missing: 'صورة مش لاقيينها — ارفعها تاني', media_refused: 'الموقع رفض صورة', config: 'باسورد تطبيق WordPress مش متظبط على السيرفر',
     product_refused: 'الموقع رفض المنتج', author_failed: 'المبتكر ماتحطش على المنتج — «جرّب تاني» (التركيبات بتستناه)', maker_changed: 'المبتكر اتغيّر بعد ما التركيبات اتعملت — المنتج فاضل على المبتكر القديم (رجّعه، أو انقل المنتج من لوحة WordPress)',
     brand_changed: 'البراند اتغيّر بعد ما المنتج اترفع — مفيش حاجة اتكتبت، والـ SKU على الموقع بحرفين البراند القديم (رجّع البراند أو اسمه، أو كمّل المنتج من لوحة WordPress)',
@@ -140,16 +140,35 @@
   // first size of each row, then the batch became Variable → one variation a product): the colors / sizes of every item that
   // came from the sheet are taken from its row again — all of them for Variable, the first of each for Simple; nothing else moves
   function retype() {
-    const sh = S.state.sheet; const rows = sh ? PD.rowsToItems(sh.rows, sh.map) : [];
+    const sh = S.state.sheet; const rows = sh ? PD.rowsToItems(sh.rows, sh.map, { type: S.state.type }) : [];
     items().forEach((it) => {
       const x = it.row != null ? rows.find((r) => r.row === it.row) : null;
-      if (x) { const cs = x.colors.map((n) => colorByName(n)); it.colors = cs.filter(Boolean).map((c) => c.code); it.unknownColors = x.colors.filter((n, k) => !cs[k]); it.sizes = x.sizes.slice(); }
+      if (x) { const cs = x.colors.map((n) => colorByName(n)); it.colors = cs.filter(Boolean).map((c) => c.code); it.unknownColors = x.colors.filter((n, k) => !cs[k]); it.sizes = x.sizes.slice(); it.sheetVariations = x.variationRows || null; }
       if (!isVar()) { it.colors = it.colors.slice(0, 1); it.sizes = (it.sizes || []).slice(0, 1); }
       syncVariations(it);
     });
   }
+  // decision 16: the variations a sheet lists row by row (a shared unique id) stay as listed — a color or size taken off the
+  // product in «عدّل» drops its rows; with none left, the usual colors × sizes
+  function explicitVariations(it, rows) {
+    const seen = new Set(); const out = [];
+    for (const v of rows || []) {
+      const color = v.color ? (colorByName(v.color) || {}).code || null : null; const size = v.size || null;
+      if (v.color && !color) continue; // an unknown color is reported in unknownColors and waits for «+ لون جديد»
+      if (!color && !size) continue;
+      const k = (color || '') + '|' + (size || ''); if (seen.has(k)) continue; seen.add(k);
+      out.push({ color, size, vendorPrice: v.vendorPrice == null ? it.vendorPrice : v.vendorPrice, stock: v.stock == null ? null : v.stock, onDemand: false });
+    }
+    return out;
+  }
   function syncVariations(it) {
     if (!isVar()) { it.variations = []; return; }
+    if (Array.isArray(it.sheetVariations) && it.sheetVariations.length) {
+      const old = new Map((it.variations || []).map((v) => [(v.color || '') + '|' + (v.size || ''), v]));
+      const kept = explicitVariations(it, it.sheetVariations).filter((v) => (!v.color || it.colors.includes(v.color)) && (!v.size || it.sizes.includes(v.size)))
+        .map((v) => old.get((v.color || '') + '|' + (v.size || '')) || v);
+      if (kept.length) { it.variations = kept; return; }
+    }
     const cs = it.colors.length ? it.colors : [null]; const ss = it.sizes.length ? it.sizes : [null];
     const old = new Map((it.variations || []).map((v) => [(v.color || '') + '|' + (v.size || ''), v]));
     it.variations = [];
@@ -277,12 +296,12 @@
   function applySheet() {
     const sh = S.state.sheet; if (!sh) return;
     const old = items();
-    const fresh = PD.rowsToItems(sh.rows, sh.map).map((x, i) => {
+    const fresh = PD.rowsToItems(sh.rows, sh.map, { type: S.state.type }).map((x, i) => {
       const prev = old[i] || {};
       const cs = x.colors.map((n) => colorByName(n));
       const it = { key: prev.key || newKey(), row: x.row, nameEn: x.nameEn, nameAr: x.nameAr, vendorPrice: x.vendorPrice, colors: cs.filter(Boolean).map((c) => c.code), unknownColors: x.colors.filter((n, k) => !cs[k]),
         sizes: x.sizes, material: x.material, style: x.style, weight: x.weight, stock: x.stock, onDemand: false, shortDesc: x.shortDesc, shortDescAr: '', categories: prev.categories || [],
-        main: prev.main || null, refs: prev.refs || [], slots: prev.slots || [], colorImages: prev.colorImages || {}, markup: prev.markup, variations: [] };
+        main: prev.main || null, refs: prev.refs || [], slots: prev.slots || [], colorImages: prev.colorImages || {}, markup: prev.markup, variations: [], sheetVariations: x.variationRows || null };
       if (!isVar()) { it.colors = it.colors.slice(0, 1); it.sizes = it.sizes.slice(0, 1); }
       syncVariations(it); return it;
     });
@@ -378,7 +397,7 @@
   function step3() {
     const L = items(); const miss = (it) => issuesOf(it).length > 0;
     const rows = L.map((it) => ({ cls: miss(it) ? 'row-err' : null, cells: [PCell(it, [S.state.brandName + ' · ' + (it.material || '—') + ' · ' + (it.style || '—')]),
-      h('span', { class: 'chips' }, it.colors.map((c) => Tag('neutral', colorLabel(c))), (it.unknownColors || []).map((n) => Tag('error', n + ' ؟')), it.ai && it.ai.variations ? AITag() : null), it.sizes.join('، ') || '—', it.weight ? it.weight + ' كجم' : h('span', { class: 'help' }, '—'),
+      h('span', { class: 'chips' }, it.colors.map((c) => Tag('neutral', colorLabel(c))), (it.unknownColors || []).map((n) => Tag('error', n + ' ؟')), isVar() && Array.isArray(it.sheetVariations) && it.sheetVariations.length ? Tag('info', it.variations.length + ' تركيبة من الشيت') : null, it.ai && it.ai.variations ? AITag() : null), it.sizes.join('، ') || '—', it.weight ? it.weight + ' كجم' : h('span', { class: 'help' }, '—'),
       isVar() ? K.Num(String(it.variations.length)) : it.onDemand ? 'حسب الطلب' : it.stock == null ? '—' : K.Num(String(it.stock)),
       miss(it) ? Tag('error', issuesOf(it)[0]) : Tag('success', 'كامل'), Button({ size: 'sm', label: 'عدّل', onClick: () => editItem(it) })] }));
     const rule = h('div', { class: 'card rule' }, h('span', { class: 't-label help' }, 'قاعدة الـ SKU:'), Tag('brand', 'IBT'), Tag('gold', 'البراند (' + (PD.brandCode(S.state.brandName) || '??') + ')'), Tag('gold', 'اللون'), Tag('gold', 'المسلسل'), isVar() ? Tag('neutral', '-المقاس للتركيبة') : null, h('span', { class: 'grow' }), Button({ size: 'sm', label: 'جدول الألوان', onClick: colorsTable }), Button({ size: 'sm', label: '+ لون جديد', onClick: () => newColor('') }));

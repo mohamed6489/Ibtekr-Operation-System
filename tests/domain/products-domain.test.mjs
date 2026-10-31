@@ -155,6 +155,23 @@ test('mapColumns + rowsToItems + itemIssues: headers matched in English or Arabi
   assert.deepEqual(PD.itemIssues(items[1], 'Simple'), ['الاسم (EN)', 'سعر المبتكر']);
 });
 
+// decision 16 (the owner, 31 Oct — his WP All Import template): a shared «unique id» groups the rows of one Variable product
+test('rowsToItems grouped (decision 16): rows with the same parentsku = one product, the first row the parent, the next ones its variations with their own price and stock; a lone row or no id = a product as usual; Simple ignores the id', () => {
+  const rows = [['Name EN', 'Name AR', 'Vendor Price', 'Colors', 'Sizes', 'Stock', 'parentsku'],
+    ['Kilim Pouf', 'بوف كليم', '2000', '', '', '', 'P1'], ['', '', '', 'Beige', '50×50', '3', 'P1'], ['', '', '2200', 'Black', '40×40', '', 'P1'], ['', '', '', '', '', '', 'P1'],
+    ['Tote', 'شنطة', '500', 'White', '', '2', 'P2'], ['Mug', 'مج', '120', 'Red, Blue', '', '', '']];
+  const map = PD.mapColumns(rows[0]);
+  assert.equal(map.group, 6);
+  const V = PD.rowsToItems(rows, map, { type: 'Variable' });
+  assert.deepEqual(V.map((it) => [it.row, it.nameEn, it.colors, it.sizes, it.vendorPrice]), [[2, 'Kilim Pouf', ['Beige', 'Black'], ['50×50', '40×40'], 2000], [6, 'Tote', ['White'], [], 500], [7, 'Mug', ['Red', 'Blue'], [], 120]]);
+  assert.deepEqual(plain(V[0].variationRows), [{ row: 3, color: 'Beige', size: '50×50', vendorPrice: 2000, stock: 3 }, { row: 4, color: 'Black', size: '40×40', vendorPrice: 2200, stock: null }]); // the empty row of the group adds nothing; the parent's price fills a variation without one
+  assert.equal(V[1].variationRows, undefined); // a lone row keeps the usual colors × sizes
+  assert.equal(V[2].variationRows, undefined);
+  const S = PD.rowsToItems(rows, map, { type: 'Simple' });
+  assert.deepEqual(S.map((it) => it.row), [2, 4, 6, 7]); // Simple: every row with a name or a price is a product, the id column is ignored
+  assert.equal(PD.rowsToItems(rows, map).length, 4); // no type given = as before
+});
+
 // decision 14 (the owner, 29 Oct): the studio's category picker is the site's tree; a sub-category ticks the ones above it
 const CATS = [{ id: 1, name: 'Decor', parentId: null }, { id: 2, name: 'accessories', parentId: 1 }, { id: 3, name: 'Animals', parentId: 2 }, { id: 4, name: 'Trays', parentId: 1 },
   { id: 5, name: 'FURNITURE', parentId: null }, { id: 6, name: 'Chairs', parentId: 5 }, { id: 7, name: 'Orphan', parentId: 99 }, { id: 8, name: 'Loop A', parentId: 9 }, { id: 9, name: 'Loop B', parentId: 8 }];

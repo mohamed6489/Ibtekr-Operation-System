@@ -5,9 +5,9 @@
 
 ## الخلاصة اللي تهمنا
 
-- **الاتنين «النواة» بس.** WP All Import Pro لوحده بيستورد Posts/Pages/أي Custom Post Type (+ taxonomies + custom fields + صور). **منتجات
+- **الاتنين «النواة».** WP All Import Pro لوحده بيستورد Posts/Pages/أي Custom Post Type (+ taxonomies + custom fields + صور). **منتجات
   WooCommerce بسعرها وتركيباتها ومخزونها محتاجة الـ add-on المنفصل** `wpai-woocommerce-add-on` (أو النسخة المجانية
-  `woocommerce-xml-csv-product-import`) — النواة نفسها بتوصي بيه لما WooCommerce شغّال، ومش موجود في الملفات اللي اتبعتت. وكذلك WPML
+  `woocommerce-xml-csv-product-import`) — النواة نفسها بتوصي بيه لما WooCommerce شغّال؛ اتبعت بعدها وموصوف تحت. وكذلك WPML
   (الترجمات) ليه add-on منفصل. WP All Export Pro بالعكس بيصدّر منتجات WooCommerce (مع التركيبات) والأوردرات والكوبونات والعملاء
   والمراجعات من النواة مباشرة.
 - **الصيغ:** استيراد XML / CSV / Excel (xls/xlsx عبر PhpSpreadsheet) + JSON/GZ/ZIP؛ تصدير CSV / XLS / XLSX / XML (قالب XML مخصص، وفيد
@@ -32,6 +32,32 @@
    أو خدمة **Automatic Scheduling** بتاعة Soflyy (`?action=wpai_public_api&q=...`، جدولة أسبوعية/شهرية بتوقيت).
 5. **Add-on API** (`addon-api/`): الإضافات بتسجّل حقول (text, select, media, gallery, repeater…) وبتتعلّق على `wp_all_import_addon_parse` /
    `wp_all_import_addon_import` / `pmxi_saved_post` — ده الطريق اللي الـ WooCommerce add-on بيكتب بيه السعر/المخزون/التركيبات.
+
+## الـ WooCommerce Add-On (WP All Import – WooCommerce Import Add-On Pro 4.0.6)
+
+صاحب المشروع بعته بعدها (31 أكتوبر) — ده اللي بيرفع المنتجات فعليًا. بيضيف قسم «WooCommerce» في قالب الاستيراد شكله زي شاشة المنتج:
+
+- **الأنواع:** Simple / Variable / Grouped / External (+ Subscriptions). ولوحة أوردرات (`OrdersImporter`) كمان.
+- **التابات والحقول:** General (SKU `single_product_sku`، سعر عادي وسعر تخفيض `single_product_regular_price` / `single_product_sale_price` مع
+  تعديل بنسبة أو رقم `*_adjust` / `*_adjust_type` وجدولة التخفيض)، Inventory (`single_product_manage_stock`، `single_product_stock_qty`،
+  `single_product_stock_status`، backorders، low stock، sold individually)، Shipping (وزن/أبعاد/shipping class)، Linked products،
+  Attributes، Advanced (purchase note، menu order، reviews)، Variations.
+- **الخصائص (Attributes):** اسم + قيم مفصولة بـ `|` (أو XPath)، مع مفاتيح **In Variations** / **Is Visible** / **Is Taxonomy** (ينشئ `pa_<name>`
+  لو مش موجود، ويعمل الـ terms بـ Auto-Create Terms). ده المقابل لـ `pa_color` / `pa_size` / `pa_brand` اللي الاستوديو بيبعتهم.
+- **التركيبات (Variable) — طريقة الربط `matching_parent`:**
+  - `auto`: كل منتج Variable ليه SKU/معرّف فريد، وكل تركيبة بتتربط بالأب بـ **parent SKU** في عمود (`single_product_first_is_parent_id_parent_sku`)
+    — **ده الشكل الأنسب لشيت من عندنا:** صف للأب + صف لكل تركيبة فيه `parent_sku`.
+  - `first_is_parent_id`: قيمة مشتركة لكل تركيبات المنتج وفريدة لكل منتج.
+  - `first_is_parent_title`: التركيبات بنفس عنوان الأب. · `first_is_variation`: كل الصفوف تركيبات بنفس العنوان ومافيش صف أب.
+  - `xml`: التركيبات عناصر متداخلة جوه عنصر المنتج (ملف XML). · `existing`: ربط بمنتجات موجودة.
+  - حقول التركيبة: `variable_sku` (+ `variable_sku_add_parent`)، `variable_regular_price` / `variable_sale_price`، `variable_stock`، `variable_image`،
+    `variable_description`، وزن/أبعاد، وكل واحد ليه `*_use_parent` يورث من الأب.
+- **المفتاح الفريد للتحديث:** SKU (أو ID) في خيارات WP All Import — بيحدّث المنتج والتركيبات بدل ما يكرر.
+- **المبتكر (Dokan):** مافيش حقل Dokan في الـ add-on؛ المنتج بياخد **author** من قالب WP All Import العادي (`author` = user id/login
+  بتاع المبتكر على WordPress)، والتركيبات بتورث `post_author` من الأب. (الاستوديو عندنا بيحط المبتكر عبر `PUT dokan/v1/products/{id}`.)
+- **WPML:** مافيش ترجمات هنا — بس فلتر `wp_all_import_term_exists` عشان الـ terms تتلاقى باللغة الصح؛ الترجمة العربي للمنتج محتاجة
+  **WPML Add-On** المنفصل (أو استيراد تاني بلغة ar مع ربط بالأصل). الاستوديو عندنا بيعمل الترجمة بـ WCML REST (`lang: 'ar'` + `translation_of`).
+- **الصور:** من قالب WP All Import الأساسي (روابط أو مكتبة الوسائط)، وصورة التركيبة `variable_image`.
 
 ## فلو التصدير (WP All Export)
 

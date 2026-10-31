@@ -1360,7 +1360,8 @@ Deno.test('studio_upload (phase 5.2): products.add only; images to the media lib
   assertEquals([en.body.status, en.body.type, en.body.sku, en.body.wpml_language, en.body.images, en.body.categories], ['draft', 'variable', 'IBTAR0999', 'en', [{ id: 7001 }], [{ id: 20 }]]);
   assertEquals(en.body.attributes.slice(0, 2), [{ id: 12, visible: true, variation: true, options: ['Beige', 'Black'] }, { id: 15, visible: true, variation: false, options: ['Cotton'] }]);
   assertEquals(en.headers.authorization, WC_AUTH);
-  assertEquals([ar.body.wpml_language, ar.body.translation_of, ar.body.name, ar.body.status, ar.body.sku], ['ar', 900, 'مخدة بوهيمي', 'draft', undefined]);
+  assertEquals([ar.body.lang, ar.body.wpml_language, ar.body.translation_of, ar.body.name, ar.body.status, ar.body.sku], ['ar', 'ar', 900, 'مخدة بوهيمي', 'draft', undefined]);
+  assertEquals(en.body.lang, 'en');
   const vars = woo.calls.find((c) => c.path === 'wc/v3/products/900/variations/batch')!.body.create;
   assertEquals(vars.map((v: any) => [v.sku, v.image?.id ?? null, v.manage_stock, v.stock_status ?? null]), [['IBTARBE0999', 7002, true, null], ['IBTARBK0999', null, false, 'onbackorder']]);
   const order = woo.calls.filter((c) => c.method !== 'GET' && c.path !== 'wp/v2/media').map((c) => `${c.method} ${c.path}`);
@@ -1394,6 +1395,15 @@ Deno.test('studio_upload: the push gate before any call; an item refused before 
   assertEquals([l.body.item.arId, l.body.item.arNote], [null, 'not_linked']);
   const del = loose.woo.calls.find((c) => c.method === 'DELETE')!;
   assertEquals([del.path, del.query], ['wc/v3/products/951', {}]);
+  // the site refusing the translation (the live 422 of 29 / 31 Oct): the product stays, the code and the scrubbed answer are in
+  // the item and in the log row (ar_code / ar_error — never a key named note, which redactPII masks)
+  const refused = setup({ seed: studioSeed(), env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({
+    'POST wc/v3/products': (c: any) => (c.body.lang === 'ar' ? { status: 422, body: { code: 'wcml_invalid_language', message: 'Language ar is not active.', data: { status: 422 } } } : { body: wooProduct(900, 44, { type: 'variable' }) }) }) });
+  const rf = await call(refused.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
+  assertEquals([rf.body.result, rf.body.item.productId, rf.body.item.arId, rf.body.item.arNote], ['ok', 900, null, 'wcml_invalid_language']);
+  assert(String(rf.body.item.arError).includes('Language ar is not active'), rf.body.item.arError);
+  const rlog = refused.db.rows('woo_sync_log').find((r: any) => r.action === 'studio_upload')!;
+  assertEquals([rlog.detail.ar, rlog.detail.ar_code, 'ar_note' in rlog.detail, String(rlog.detail.ar_error).includes('wcml_invalid_language')], [null, 'wcml_invalid_language', false, true]);
   const nowp = setup({ seed: studioSeed(), routes: studioRoutes(), env: PUSH_ON, storage: STUDIO_FILES });
   const w = await call(nowp.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
   assertEquals([w.body.result, w.body.item.error, nowp.woo.calls.some((c) => c.method === 'POST')], ['error', 'config', false]);
@@ -1572,7 +1582,7 @@ Deno.test('category_create (phase 5.2): products.add; the English category then 
   assertEquals((await call(deps, { action: 'category_create', name_en: '<b>x</b>' }, { jwt: 'jwt-padd' })).res.status, 400);
   const { body } = await call(deps, { action: 'category_create', name_en: 'Lamps', name_ar: 'أباجورات', parent: 15 }, { jwt: 'jwt-padd' });
   assertEquals([body.result, body.id, body.ar_id], ['ok', 80, 81]);
-  assertEquals(woo.calls.map((c) => c.body), [{ name: 'Lamps', parent: 15, wpml_language: 'en' }, { name: 'أباجورات', wpml_language: 'ar', translation_of: 80 }]);
+  assertEquals(woo.calls.map((c) => c.body), [{ name: 'Lamps', parent: 15, lang: 'en', wpml_language: 'en' }, { name: 'أباجورات', lang: 'ar', wpml_language: 'ar', translation_of: 80 }]);
   assertEquals(db.rows('woo_categories').map((c) => c.id).sort(), [80, 81]);
 });
 

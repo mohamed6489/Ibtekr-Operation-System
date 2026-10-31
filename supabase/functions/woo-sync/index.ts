@@ -891,11 +891,13 @@ async function studioUpload(run: Run, args: Json) {
     }
     if (!res.error && built.ar && res.arId === undefined) {
       try {
-        const a = (await ctx.woo.post('wc/v3/products', { ...built.ar, type: built.product.type, status: 'draft', wpml_language: 'ar', translation_of: res.productId })).data;
+        // WCML's REST reads the language as `lang` (WPML's own key is wpml_language — both go); a refusal keeps the site's
+        // scrubbed answer in arError so the batch report says why (the live uploads of 29 / 31 Oct answered 422 with no detail)
+        const a = (await ctx.woo.post('wc/v3/products', { ...built.ar, type: built.product.type, status: 'draft', lang: 'ar', wpml_language: 'ar', translation_of: res.productId })).data;
         const arId = wooId(isObj(a) ? a.id : null);
         const linked = isObj(a) && isObj(a.translations) && wooId(a.translations.en) === res.productId;
         if (arId !== null && !linked) { await ctx.woo.del(`wc/v3/products/${arId}`); res.arId = null; res.arNote = 'not_linked'; } else res.arId = arId;
-      } catch (e) { if (!(e instanceof WooError)) throw e; res.arId = null; res.arNote = wooCode(e); }
+      } catch (e) { if (!(e instanceof WooError)) throw e; res.arId = null; res.arNote = wooCode(e); res.arError = String(e.message).slice(0, 240); }
     }
     if (!res.error && owner !== null && wooId(res.arId) !== null) await authorOf(res.arId);
     if (wooId(res.productId) !== null) {
@@ -914,7 +916,8 @@ async function studioUpload(run: Run, args: Json) {
   }
   await saveResult();
   await logSync(run.db, { ...entry, entity_id: res.productId == null ? entry.entity_id : String(res.productId), result: res.error ? 'error' : 'ok',
-    detail: { batch: batchId, index, sku: res.sku, media: Object.keys(res.media).length, variations: res.variations ?? null, ar: res.arId ?? null, ar_note: res.arNote ?? null, author: res.author ?? null, woo_brand: res.wooBrand ?? null, error: res.error } });
+    // ar_code / ar_error, not ar_note: redactPII masks every key with «note» (the 29 / 31 Oct rows show <redacted>)
+    detail: { batch: batchId, index, sku: res.sku, media: Object.keys(res.media).length, variations: res.variations ?? null, ar: res.arId ?? null, ar_code: res.arNote ?? null, ar_error: res.arError ?? null, author: res.author ?? null, woo_brand: res.wooBrand ?? null, error: res.error } });
   return json(200, { action: 'studio_upload', result: res.error ? 'error' : 'ok', item: res });
 }
 
@@ -938,14 +941,14 @@ async function categoryCreate(run: Run, args: Json) {
   if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled' } }); return json(200, { action: 'category_create', result: 'skipped', reason: 'push_disabled' }); }
   const ctx = await run.ctx();
   let c: Json;
-  try { c = (await ctx.woo.post(CATEGORIES_PATH, { name, parent, wpml_language: 'en' })).data; }
+  try { c = (await ctx.woo.post(CATEGORIES_PATH, { name, parent, lang: 'en', wpml_language: 'en' })).data; }
   catch (e) { if (!(e instanceof WooError)) throw e; await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e) } }); return json(200, { action: 'category_create', result: 'error', reason: wooCode(e) }); }
   const id = wooId(isObj(c) ? c.id : null);
   if (id === null) return json(502, { error: 'woo_error' });
   const rows: Json[] = [c];
   let arId: number | null = null;
   if (nameAr) {
-    try { const a = (await ctx.woo.post(CATEGORIES_PATH, { name: nameAr, wpml_language: 'ar', translation_of: id })).data; arId = wooId(isObj(a) ? a.id : null); if (isObj(a)) rows.push(a); }
+    try { const a = (await ctx.woo.post(CATEGORIES_PATH, { name: nameAr, lang: 'ar', wpml_language: 'ar', translation_of: id })).data; arId = wooId(isObj(a) ? a.id : null); if (isObj(a)) rows.push(a); }
     catch (e) { if (!(e instanceof WooError)) throw e; }
   }
   await writeCategories(ctx, rows);

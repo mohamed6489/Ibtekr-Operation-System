@@ -86,7 +86,7 @@ export function buildStudio(item, o) {
   }
   add(at.material, material ? [material] : [], false); add(at.style, style ? [style] : [], false); add(at.brand, [String(o.brand).trim()], false);
 
-  const product = { ...base.payload, type: type === 'Variable' ? 'variable' : 'simple', status: 'draft', attributes: attrs, wpml_language: 'en' };
+  const product = { ...base.payload, type: type === 'Variable' ? 'variable' : 'simple', status: 'draft', attributes: attrs, lang: 'en', wpml_language: 'en' };
   const variations = [];
   let sku;
   if (type === 'Simple') {

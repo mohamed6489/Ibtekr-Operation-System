@@ -1,7 +1,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   parseWrite, parseStudio, writeSchema, studioSchema, writeRequest, studioRequest, readAnswer, cleanWrite, cleanStudio,
-  costOf, usageOf, aiConfig, categoryLines, colorLines, line, paras, htmlText, MAX_IMAGE_B64,
+  costOf, usageOf, aiConfig, aiSettings, categoryLines, colorLines, line, paras, htmlText, MAX_IMAGE_B64,
 } from '../../supabase/functions/_shared/ai-content.js';
 // The AI content (phase 5.3, docs/superpowers/plans/2026-10-29-phase-5-3-ai-content.md decisions 2 / 3 / 5): the request
 // checks, the Claude request, the answer's cleaning (the WooCommerce limits; never a price or a SKU) and the cost.
@@ -176,6 +176,15 @@ test('aiConfig: Opus 5.5 at medium by default; the secrets pick only the listed 
   assert.deepEqual(aiConfig({ model: 'claude-sonnet-5-5', effort: 'low', cap: '25' }), { model: 'claude-sonnet-5-5', effort: 'low', cap: 25 });
   assert.deepEqual(aiConfig({ model: 'gpt-x', effort: 'max', cap: '0' }), { model: 'claude-opus-5-5', effort: 'medium', cap: null });
   assert.equal(aiConfig({ cap: 'ten' }).cap, null);
+});
+
+test('aiSettings (decision 8): the settings row «ai» wins over the secrets value by value; a value off the list or no row falls back to the secret, then the default', () => {
+  const env = { AI_CONTENT_MODEL: 'claude-opus-5-5', AI_CONTENT_EFFORT: 'low', AI_MONTHLY_LIMIT_USD: '25' };
+  assert.deepEqual(aiSettings({ model: 'claude-sonnet-5-5', effort: 'high', monthly_limit_usd: 10 }, env), { model: 'claude-sonnet-5-5', effort: 'high', cap: 10 });
+  assert.deepEqual(aiSettings({ model: 'gpt-x', effort: '', monthly_limit_usd: null }, env), { model: 'claude-opus-5-5', effort: 'low', cap: 25 });
+  assert.deepEqual(aiSettings(null, env), { model: 'claude-opus-5-5', effort: 'low', cap: 25 });
+  assert.deepEqual(aiSettings({ model: ' claude-sonnet-5-5 ', monthly_limit_usd: '0' }, {}), { model: 'claude-sonnet-5-5', effort: 'medium', cap: null });
+  assert.deepEqual(aiSettings('nope', { AI_MONTHLY_LIMIT_USD: ' 3 ' }), { model: 'claude-opus-5-5', effort: 'medium', cap: 3 });
 });
 
 test('line / paras / htmlText: plain text, no tags or < >, control characters out, cut at a word', () => {

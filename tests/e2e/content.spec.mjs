@@ -123,6 +123,58 @@ test('the failures: the key not set, the monthly cap, busy and a refusal — a m
   expect(mock.aiRuns.map((r) => r.status)).toEqual(['error', 'cap', 'error', 'refused', 'ok']);
 });
 
+test('decision 8 — «إعدادات الـ AI» (the admin): the month\'s spend, the model / effort / cap saved to the settings row «ai»; the next call runs on them; the cap stops the tool; ops has no button', async ({ page }) => {
+  await openProducts(page, 'admin.dev@ibtekr.local');
+  await openTool(page);
+  await page.locator('[data-cai-settings]').click();
+  await expect(page.locator('.modal [data-ai-spend]')).toContainText('$0.00');
+  await expect(page.locator('.modal [data-ai-spend]')).toContainText('0 نداء');
+  await page.locator('#ai-model').click(); await page.getByRole('option', { name: 'Claude Sonnet 5.5 — أرخص بالنص' }).click();
+  await expect(page.locator('.modal')).toContainText('تقريبًا $0.025 للمنتج');
+  await page.locator('#ai-effort').click(); await page.getByRole('option', { name: 'سريع — تفكير أقل' }).click();
+  await page.fill('#ai-cap', '20');
+  await page.locator('[data-ai-save]').click();
+  await expect(page.locator('.toast.show')).toContainText('اتحفظت إعدادات الـ AI');
+  expect(mock.settings).toEqual([expect.objectContaining({ section: 'ai', data: { model: 'claude-sonnet-5-5', effort: 'low', monthly_limit_usd: 20 } })]);
+  // the next call runs on the row (the mock reads it like the server)
+  await page.fill('#c-n', 'Desk Lamp'); await pickBrand(page, 'Antikiano');
+  await page.locator('[data-cwrite]').click();
+  await expect(box(page, 'ar.name')).toHaveText('مراية بامبو بوهيمي');
+  await expect(page.locator('#pg-products')).toContainText('claude-sonnet-5-5');
+  expect(mock.aiRuns.map((r) => [r.model, r.cost_usd])).toEqual([['claude-sonnet-5-5', 0.026]]);
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'product.ai.settings').map((a) => a.new_value)).toEqual(['claude-sonnet-5-5 · low · $20']);
+  // the spend shows the run; a cap the month's cost + the reserve would pass stops the next call
+  await page.locator('[data-cai-settings]').click();
+  await expect(page.locator('.modal [data-ai-spend]')).toContainText('$0.03 من أصل $20.00 · 1 نداء');
+  await expect(page.locator('.modal [data-ai-spend]')).toContainText('أداة المحتوى 1 ($0.03) · الاستوديو 0 ($0.00)');
+  await page.fill('#ai-cap', '0.5');
+  await page.locator('[data-ai-save]').click();
+  await expect(page.locator('.toast.show')).toContainText('اتحفظت إعدادات الـ AI');
+  await page.locator('[data-cwrite]').click();
+  await expect(page.locator('.toast.show').filter({ hasText: 'وصلنا لحد الـ AI الشهري' })).toBeVisible();
+  expect(mock.aiRuns.at(-1).status).toBe('cap');
+  await expect(box(page, 'ar.name')).toHaveText('مراية بامبو بوهيمي'); // the earlier text stays on the page
+  // a bad cap is refused before any write
+  await page.locator('[data-cai-settings]').click();
+  await page.fill('#ai-cap', '-3');
+  await page.locator('[data-ai-save]').click();
+  await expect(page.locator('.toast.show')).toContainText('السقف لازم يكون رقم أكبر من صفر');
+  expect(mock.settings[0].data.monthly_limit_usd).toBe(0.5);
+});
+
+test('decision 8 — ops (not the admin): no «إعدادات الـ AI» button, and saving the settings is refused by the adapter and the policies', async ({ page }) => {
+  await openProducts(page);
+  await openTool(page);
+  await expect(page.locator('[data-chistory]')).toBeVisible();
+  await expect(page.locator('[data-cai-settings]')).toHaveCount(0);
+  const r = await page.evaluate(() => window.IBAI.saveSettings({ model: 'claude-sonnet-5-5', effort: 'low', cap: null }));
+  expect(r).toEqual({ ok: false, reason: 'forbidden' });
+  // straight at the table (what the adapter refuses): the 0002 policy answers 42501
+  const raw = await page.evaluate(async () => { const { error } = await window.IBSupabase.client.from('settings').upsert({ section: 'ai', data: { model: 'claude-sonnet-5-5' } }, { onConflict: 'section' }); return error ? error.code : null; });
+  expect(raw).toBe('42501');
+  expect(mock.settings).toEqual([]);
+});
+
 test('permissions: accounts (no products.add / edit) — the card needs a permission, the tool refuses, no AI button on the edit page', async ({ page }) => {
   await openProducts(page, ACCOUNTS);
   await page.getByRole('tab', { name: 'إضافة' }).click();

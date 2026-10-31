@@ -52,6 +52,8 @@ const COLUMNS: Record<string, string[]> = {
   // 0024 (phase 5.3): one row per AI call
   ai_runs: ['id', 'created_at', 'created_by', 'action', 'source', 'label', 'product_id', 'batch_id', 'item_index', 'model', 'input_tokens', 'output_tokens',
     'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'status', 'error', 'output'],
+  // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
+  settings: ['section', 'data', 'updated_at', 'updated_by'],
 };
 const DEFAULTS: Record<string, Row> = {
   status_map: { direction: 'both' },
@@ -68,7 +70,7 @@ const UNIQUE: Record<string, string[][]> = {
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
   woo_webhook_events: [['id'], ['delivery_id']], woo_sync_log: [['id']], sync_state: [['key']], woo_states: [['code']],
   vendor_rates: [['id'], ['vendor_id', 'since']], vendor_category_rates: [['id'], ['vendor_id', 'woo_category_id', 'since']], woo_categories: [['id']], activity_log: [['id']],
-  vendor_bank: [['vendor_id']], ai_runs: [['id']],
+  vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],

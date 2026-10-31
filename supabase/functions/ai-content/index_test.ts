@@ -118,6 +118,23 @@ Deno.test('write: the secrets pick the model and effort (listed values only); a 
   assertEquals([odd.asked[0].model, odd.asked[0].output_config.effort], ['claude-opus-5-5', 'medium']);
 });
 
+Deno.test('decision 8: the settings row «ai» (model, effort, monthly cap) wins over the secrets, read before every call; a value off the list falls back to the secret', async () => {
+  const seed = { settings: [{ section: 'ai', data: { model: 'claude-sonnet-5-5', effort: 'high', monthly_limit_usd: 0.6 } }] };
+  const { deps, asked, db } = setup({ seed, env: { AI_CONTENT_MODEL: 'claude-opus-5-5', AI_CONTENT_EFFORT: 'low', AI_MONTHLY_LIMIT_USD: '100' }, replies: [msg(ANSWER, { model: 'claude-sonnet-5-5' })] });
+  assertEquals((await call(deps, WRITE)).body.cost_usd, 0.026);
+  assertEquals([asked[0].model, asked[0].output_config.effort], ['claude-sonnet-5-5', 'high']);
+  assertEquals(db.rows('ai_runs').map((r: any) => r.model), ['claude-sonnet-5-5']);
+  // the row's cap (0.6): the month's 0.026 + the 0.5 reserve passes; a second call would pass it → 402 with no call
+  await db.from('settings').update({ data: { model: 'claude-sonnet-5-5', monthly_limit_usd: 0.5 } }).eq('section', 'ai');
+  const capped = await call(deps, WRITE);
+  assertEquals([capped.res.status, capped.body, asked.length], [402, { error: 'ai_cap' }, 1]);
+  // a model off the list and no effort in the row → the secrets
+  await db.from('settings').update({ data: { model: 'gpt-x', monthly_limit_usd: null } }).eq('section', 'ai');
+  const back = setup({ seed: { settings: db.rows('settings') }, env: { AI_CONTENT_MODEL: 'claude-opus-5-5', AI_CONTENT_EFFORT: 'low' }, replies: [msg(ANSWER)] });
+  await call(back.deps, WRITE);
+  assertEquals([back.asked[0].model, back.asked[0].output_config.effort], ['claude-opus-5-5', 'low']);
+});
+
 Deno.test('write: no ANTHROPIC_API_KEY → 503 not_configured, no call, a row says so', async () => {
   const { deps, asked, db } = setup({ env: { ANTHROPIC_API_KEY: ' ' } });
   const { res, body } = await call(deps, WRITE);

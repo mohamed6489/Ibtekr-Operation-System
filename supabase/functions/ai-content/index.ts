@@ -16,9 +16,11 @@
 // rate limit or overload, a timeout, or THROTTLE calls of the member in 10 minutes),
 // 503 not_configured (no ANTHROPIC_API_KEY — the owner sets it in the Edge Functions' secrets — or the key refused),
 // 502 ai_error (no usable answer). One quick retry for a 429 / 5xx; a product photo Claude could not fetch is dropped once.
+// The model, the effort and the monthly cap (decision 8): the settings row «ai» (the admin changes it from the content tool) wins,
+// the secrets AI_CONTENT_MODEL / AI_CONTENT_EFFORT / AI_MONTHLY_LIMIT_USD are the fallback, then the defaults — read before every call.
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
-import { aiConfig, categoryLines, cleanStudio, cleanWrite, costOf, line, parseStudio, parseWrite, readAnswer, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
+import { aiSettings, categoryLines, cleanStudio, cleanWrite, costOf, line, parseStudio, parseWrite, readAnswer, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -43,7 +45,12 @@ const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 const isObj = (v: unknown): v is Json => v !== null && typeof v === 'object' && !Array.isArray(v);
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-const config = (env: Deps['env']) => aiConfig({ model: env.AI_CONTENT_MODEL?.trim(), effort: env.AI_CONTENT_EFFORT?.trim(), cap: env.AI_MONTHLY_LIMIT_USD?.trim() });
+type Cfg = { model: string; effort: string; cap: number | null };
+// the settings row «ai» over the secrets (decision 8); a row that cannot be read = the secrets alone
+async function configOf(deps: Deps): Promise<Cfg> {
+  const { data, error } = await deps.db.from('settings').select('data').eq('section', 'ai').maybeSingle();
+  return aiSettings(!error && isObj(data) && isObj(data.data) ? data.data : null, deps.env);
+}
 const modelId = (v: unknown) => (typeof v === 'string' ? v.toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 60) : '') || null;
 
 // ---------------------------------------------------------------- auth
@@ -103,8 +110,7 @@ async function finishRun(deps: Deps, id: number, row: Json) {
 }
 
 // The common path of both actions: the reservation, the key, the call, the answer, the row.
-async function runAi(deps: Deps, base: Json, params: Json, clean: (answer: Json) => Json): Promise<Response> {
-  const cfg = config(deps.env);
+async function runAi(deps: Deps, base: Json, cfg: Cfg, params: Json, clean: (answer: Json) => Json): Promise<Response> {
   const run = await startRun(deps, { ...base, model: cfg.model }, cfg.cap);
   if (run.result === 'busy') return json(429, { error: 'busy' });
   if (run.result === 'cap') return json(402, { error: 'ai_cap' });
@@ -159,9 +165,9 @@ async function write(deps: Deps, uid: string, args: Json) {
   const product = req.source === 'product' ? await readProduct(deps.db, req.productId) : null;
   if (req.source === 'product' && !product) return json(404, { error: 'not_found' });
   const label = line(product?.name || req.data.name || req.current.nameEn || req.current.nameAr || (req.source === 'image' ? 'صورة' : ''), 200) || null;
-  const cfg = config(deps.env);
+  const cfg = await configOf(deps);
   const base = { created_by: uid, action: 'write', source: req.source, label, product_id: req.productId };
-  return await runAi(deps, base, writeRequest(req, { model: cfg.model, effort: cfg.effort, product }),
+  return await runAi(deps, base, cfg, writeRequest(req, { model: cfg.model, effort: cfg.effort, product }),
     (answer) => cleanWrite(answer, req.outputs, req.langs));
 }
 
@@ -199,11 +205,11 @@ async function studio(deps: Deps, uid: string, args: Json) {
   const cats = (await deps.db.from('woo_categories').select('id, name, parent_id').range(0, 4999)).data ?? [];
   const colors = (await deps.db.from('sku_colors').select('code, name_en, name_ar').range(0, 999)).data ?? [];
   const image = await itemPhoto(deps.db, batchId, item);
-  const cfg = config(deps.env);
+  const cfg = await configOf(deps);
   const label = line(item.nameEn || item.nameAr || '', 200) || '#' + (index + 1);
   const base = { created_by: uid, action: 'studio', source: 'studio', label, batch_id: batchId, item_index: index };
   const sets = { categoryIds: new Set(cats.map((c: Json) => Number(c.id))), colorCodes: new Set(colors.map((c: Json) => c.code)) };
-  return await runAi(deps, base, studioRequest(item, { model: cfg.model, effort: cfg.effort, want, brand, cats, colors, image }),
+  return await runAi(deps, base, cfg, studioRequest(item, { model: cfg.model, effort: cfg.effort, want, brand, cats, colors, image }),
     (answer) => cleanStudio(answer, want, sets));
 }
 

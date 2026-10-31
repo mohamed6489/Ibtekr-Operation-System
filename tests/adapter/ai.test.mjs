@@ -7,12 +7,12 @@ const src = readFileSync(new URL('../../app/js/adapter/ai.js', import.meta.url),
 const plain = (v) => JSON.parse(JSON.stringify(v));
 const SB = '0b6f2f5e-1d2c-4a8b-9e3f-1234567890ab';
 const fail = (status, body) => ({ data: null, error: { context: { status, json: async () => body } } });
-function load({ responses = {}, perms = { 'products.add': 'F' } } = {}) {
+function load({ responses = {}, perms = { 'products.add': 'F' }, admin = false } = {}) {
   const stub = stubClient({ responses });
   const logs = [];
-  const window = { IBSupabase: { client: stub.client }, IBDirectory: { perm: (k) => perms[k] || 'N' },
+  const window = { IBSupabase: { client: stub.client }, IBDirectory: { perm: (k) => (admin ? 'F' : perms[k] || 'N'), me: () => ({ role_id: admin ? 'admin' : 'ops', status: 'active' }) },
     IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } } };
-  runInNewContext(src, { window, document: {}, Promise, Date, Number, String, Array, Object, JSON, Error });
+  runInNewContext(src, { window, document: {}, Promise, Date, Number, String, Array, Object, JSON, Error, Intl, Math });
   return { A: window.IBAI, stub, logs };
 }
 const REQ = { source: 'data', outputs: ['name', 'short'], langs: ['ar', 'en'], tone: 'luxury', data: { name: 'Bamboo Mirror', brand: 'Alaa Anas' } };
@@ -69,8 +69,41 @@ test('history: the content tool\'s good runs from ai_runs, newest first (named c
   assert.deepEqual(plain(await down.A.history()), { ok: false, reason: 'network' });
 });
 
-test('can: the tool with products.add or products.edit = F, the studio with products.add, saving with products.edit', () => {
-  assert.deepEqual(plain(load({ perms: { 'products.add': 'F' } }).A.can()), { write: true, studio: true, save: false });
-  assert.deepEqual(plain(load({ perms: { 'products.edit': 'F' } }).A.can()), { write: true, studio: false, save: true });
-  assert.deepEqual(plain(load({ perms: { 'products.add': 'P', 'products.edit': 'P', 'products.view': 'F' } }).A.can()), { write: false, studio: false, save: false });
+test('can: the tool with products.add or products.edit = F, the studio with products.add, saving with products.edit, the settings the admin', () => {
+  assert.deepEqual(plain(load({ perms: { 'products.add': 'F' } }).A.can()), { write: true, studio: true, save: false, settings: false });
+  assert.deepEqual(plain(load({ perms: { 'products.edit': 'F' } }).A.can()), { write: true, studio: false, save: true, settings: false });
+  assert.deepEqual(plain(load({ perms: { 'products.add': 'P', 'products.edit': 'P', 'products.view': 'F' } }).A.can()), { write: false, studio: false, save: false, settings: false });
+  assert.deepEqual(plain(load({ admin: true }).A.can()), { write: true, studio: true, save: true, settings: true });
+});
+
+test('settings (decision 8): the row «ai» read with its defaults; saveSettings by the admin only, listed values and a positive cap, an upsert on section, logged with the three values; estCost follows the model', async () => {
+  const { A, stub, logs } = load({ admin: true, responses: { settings: { data: { data: { model: 'claude-sonnet-5-5', monthly_limit_usd: 20 } }, error: null } } });
+  assert.deepEqual(plain(await A.settings()), { ok: true, model: 'claude-sonnet-5-5', effort: 'medium', cap: 20, fromRow: ['model', 'monthly_limit_usd'] });
+  assert.deepEqual(opsOf(stub.calls, 'settings'), [{ op: 'select', args: ['data'] }, { op: 'eq', args: ['section', 'ai'] }, { op: 'maybeSingle', args: [] }]);
+  assert.equal(A.estCost(), 0.025); // the last read's model
+  assert.equal(A.estCost('claude-opus-5-5'), 0.05);
+  assert.deepEqual(plain(await A.saveSettings({ model: 'gpt-x', effort: 'low', cap: null })), { ok: false, reason: 'invalid', field: 'model' });
+  assert.deepEqual(plain(await A.saveSettings({ model: 'claude-opus-5-5', effort: 'low', cap: '-3' })), { ok: false, reason: 'invalid', field: 'cap' });
+  assert.deepEqual(plain(await A.saveSettings({ model: 'claude-opus-5-5', effort: 'high', cap: '12.5' })), { ok: true });
+  assert.deepEqual(opsOf(stub.calls, 'settings').filter((x) => x.op === 'upsert'), [{ op: 'upsert', args: [{ section: 'ai', data: { model: 'claude-opus-5-5', effort: 'high', monthly_limit_usd: 12.5 } }, { onConflict: 'section' }] }]);
+  assert.deepEqual(plain(logs).filter((l) => l[0] === 'product.ai.settings'), [['product.ai.settings', 'claude-opus-5-5 · high · $12.5', { entity: 'settings', entity_id: 'ai' }]]);
+  assert.equal(A.estCost(), 0.05);
+  assert.deepEqual(plain(await A.saveSettings({ model: 'claude-sonnet-5-5', effort: 'medium', cap: '' })), { ok: true });
+  assert.equal(opsOf(stub.calls, 'settings').filter((x) => x.op === 'upsert').at(-1).args[0].data.monthly_limit_usd, null);
+  // not the admin: refused before any write
+  const ops = load({ perms: { 'products.add': 'F' } });
+  assert.deepEqual(plain(await ops.A.saveSettings({ model: 'claude-sonnet-5-5', effort: 'low', cap: null })), { ok: false, reason: 'forbidden' });
+  assert.deepEqual(opsOf(ops.stub.calls, 'settings'), []);
+  // no row: the defaults
+  assert.deepEqual(plain(await load({ responses: { settings: { data: null, error: null } } }).A.settings()), { ok: true, model: 'claude-opus-5-5', effort: 'medium', cap: null, fromRow: [] });
+});
+
+test('monthSpend (decision 8): ai_month_cost + this Cairo month\'s runs by action (cap rows not counted)', async () => {
+  const now = new Date().toISOString();
+  const { A, stub } = load({ admin: true, responses: { 'rpc:ai_month_cost': { data: 0.0788, error: null },
+    ai_runs: { data: [{ action: 'write', status: 'ok', cost_usd: '0.052', created_at: now }, { action: 'studio', status: 'ok', cost_usd: 0.0268, created_at: now }, { action: 'write', status: 'cap', cost_usd: 0, created_at: now },
+      { action: 'write', status: 'ok', cost_usd: 1, created_at: '2020-01-01T00:00:00Z' }], error: null } } });
+  assert.deepEqual(plain(await A.monthSpend()), { ok: true, total: 0.079, runs: 2, write: { runs: 1, cost: 0.052 }, studio: { runs: 1, cost: 0.027 } });
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'rpc').map((c) => c.args), [['ai_month_cost', null]]); // no arguments (recorded plain)
+  assert.deepEqual(opsOf(stub.calls, 'ai_runs').map((x) => x.op), ['select', 'gte', 'limit']);
 });

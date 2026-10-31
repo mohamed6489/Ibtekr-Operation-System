@@ -360,3 +360,18 @@ export function aiConfig({ model, effort, cap } = {}) {
   const n = Number(cap);
   return { model: MODELS.includes(model) ? model : MODELS[0], effort: EFFORTS.includes(effort) ? effort : 'medium', cap: cap != null && cap !== '' && Number.isFinite(n) && n > 0 ? n : null };
 }
+/**
+ * The settings row «ai» (public.settings, data { model, effort, monthly_limit_usd } — the admin changes it from the content tool,
+ * decision 8) over the secrets: each value is taken from the row when it is one of the listed values (the cap: a positive number),
+ * else from the secret, else the default. An empty row or none = the secrets alone.
+ */
+export function aiSettings(row, env = {}) {
+  const d = isObj(row) ? row : {}; const e = isObj(env) ? env : {};
+  const str = (v) => (typeof v === 'string' ? v.trim() : '');
+  const num = (v) => (v != null && v !== '' && Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : null);
+  return aiConfig({
+    model: MODELS.includes(str(d.model)) ? str(d.model) : str(e.AI_CONTENT_MODEL),
+    effort: EFFORTS.includes(str(d.effort)) ? str(d.effort) : str(e.AI_CONTENT_EFFORT),
+    cap: num(d.monthly_limit_usd) ?? str(e.AI_MONTHLY_LIMIT_USD),
+  });
+}

@@ -4,16 +4,27 @@
 // through IBProducts.save, the studio its batch through IBStudio.save). Every call returns a Promise of { ok, … } and never
 // throws; reason 'forbidden' / 'invalid' (+ field) / 'missing' / 'not_configured' / 'ai_cap' / 'busy' / 'ai_error' / 'network'.
 // Each answer is logged through IBActivity.log as product.ai.write / product.ai.studio (the source, the fields asked and the ids —
-// never a text).
+// never a text). Decision 8: the AI settings (the model, the effort, the monthly cap) live in public.settings section «ai» — read
+// with settings.view (every member of the tool), written by the admin only (the 0002 policies) — and the server reads that row
+// before every call, over the secrets; monthSpend() is this Cairo month's cost (ai_month_cost: the member's own runs, the admin's all).
 (function () {
   'use strict';
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
   const perm = (key) => (window.IBDirectory && window.IBDirectory.perm ? window.IBDirectory.perm(key) : 'N');
-  // the server's rule (decision 7): the tool needs products.add or products.edit = F, the studio products.add = F, saving products.edit = F
-  const can = () => ({ write: perm('products.add') === 'F' || perm('products.edit') === 'F', studio: perm('products.add') === 'F', save: perm('products.edit') === 'F' });
+  const isAdmin = () => { const D = window.IBDirectory; const me = D && D.me && D.me(); return !!me && me.role_id === 'admin' && me.status === 'active'; };
+  // the server's rule (decision 7): the tool needs products.add or products.edit = F, the studio products.add = F, saving products.edit = F;
+  // the settings (decision 8): the admin
+  const can = () => ({ write: perm('products.add') === 'F' || perm('products.edit') === 'F', studio: perm('products.add') === 'F', save: perm('products.edit') === 'F', settings: isAdmin() });
   const MAX_PHOTO = 1568; // Claude reads a photo at this size; the server takes 2 MB of base64 at most
-  const EST_COST = 0.05; // about one product on Claude Opus 5.5 (decision 2), for the confirmations
+  // the listed models / efforts (the server's MODELS / EFFORTS in _shared/ai-content.js) with their labels, and about one product's
+  // cost on each (decision 2) for the confirmations
+  const MODELS = [{ id: 'claude-opus-5-5', label: 'Claude Opus 5.5 — أدق', cost: 0.05 }, { id: 'claude-sonnet-5-5', label: 'Claude Sonnet 5.5 — أرخص بالنص', cost: 0.025 }];
+  const EFFORTS = [{ id: 'low', label: 'سريع — تفكير أقل' }, { id: 'medium', label: 'متوازن' }, { id: 'high', label: 'متأني — تفكير أكتر' }];
+  const DEFAULTS = { model: 'claude-opus-5-5', effort: 'medium', cap: null };
+  const EST_COST = MODELS[0].cost;
+  let last = null; // the last settings read (estCost before any read = the default model)
+  const estCost = (model) => (MODELS.find((m) => m.id === (model || (last && last.model))) || MODELS[0]).cost;
 
   async function invoke(body) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
@@ -66,6 +77,55 @@
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
 
+  // the settings row «ai» → { ok, model, effort, cap, fromRow } (the defaults for a missing row — the server then falls back to its
+  // secrets, which the page cannot see; fromRow says which values the row holds)
+  async function settings() {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const { data, error } = await cl.from('settings').select('data').eq('section', 'ai').maybeSingle();
+      if (error) return { ok: false, reason: error.code === '42501' ? 'forbidden' : 'network' };
+      const d = data && data.data && typeof data.data === 'object' ? data.data : {};
+      const cap = Number(d.monthly_limit_usd);
+      last = { model: MODELS.some((m) => m.id === d.model) ? d.model : DEFAULTS.model, effort: EFFORTS.some((e) => e.id === d.effort) ? d.effort : DEFAULTS.effort,
+        cap: Number.isFinite(cap) && cap > 0 ? cap : null, fromRow: Object.keys(d).filter((k) => d[k] != null && d[k] !== '') };
+      return Object.assign({ ok: true }, last);
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // the admin saves { model, effort, cap } (cap: a positive number of dollars, or null = the secret's cap if any, else none) → upsert
+  // of the row; logged as product.ai.settings (the three values — no secret is involved)
+  async function saveSettings({ model, effort, cap }) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().settings) return { ok: false, reason: 'forbidden' };
+    if (!MODELS.some((m) => m.id === model)) return { ok: false, reason: 'invalid', field: 'model' };
+    if (!EFFORTS.some((e) => e.id === effort)) return { ok: false, reason: 'invalid', field: 'effort' };
+    const n = cap == null || cap === '' ? null : Number(cap);
+    if (n !== null && !(Number.isFinite(n) && n > 0 && n <= 100000)) return { ok: false, reason: 'invalid', field: 'cap' };
+    try {
+      const { error } = await cl.from('settings').upsert({ section: 'ai', data: { model, effort, monthly_limit_usd: n } }, { onConflict: 'section' });
+      if (error) return { ok: false, reason: error.code === '42501' ? 'forbidden' : 'network' };
+      last = { model, effort, cap: n, fromRow: ['model', 'effort'].concat(n !== null ? ['monthly_limit_usd'] : []) };
+      log('product.ai.settings', [model, effort, n !== null ? '$' + n : 'no cap'].join(' · '), 'settings', 'ai');
+      return { ok: true };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // this Cairo month: the cost (ai_month_cost — the member's own runs, the admin's every member's) and the runs by action
+  const cairoMonth = (iso) => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).format(new Date(iso)); } catch (e) { return String(iso).slice(0, 7); } };
+  async function monthSpend() {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const { data: total, error } = await cl.rpc('ai_month_cost');
+      if (error) return { ok: false, reason: 'network' };
+      const now = new Date(); const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) - 3 * 3600 * 1000).toISOString(); // a little before the month in Cairo
+      const { data: rows, error: e2 } = await cl.from('ai_runs').select('action, status, cost_usd, created_at').gte('created_at', since).limit(2000);
+      if (e2) return { ok: false, reason: 'network' };
+      const month = cairoMonth(now.toISOString());
+      const mine = (rows || []).filter((r) => cairoMonth(r.created_at) === month && r.status !== 'cap');
+      const by = (a) => mine.filter((r) => r.action === a);
+      const sum = (L) => Math.round(L.reduce((t, r) => t + (Number(r.cost_usd) || 0), 0) * 1000) / 1000;
+      return { ok: true, total: Math.round((Number(total) || 0) * 1000) / 1000, runs: mine.length, write: { runs: by('write').length, cost: sum(by('write')) }, studio: { runs: by('studio').length, cost: sum(by('studio')) } };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+
   // a photo File → { media_type: 'image/jpeg', data (base64), preview (data URL) } at most MAX_PHOTO px on the longest side, or
   // null when the browser cannot read it
   function photoOf(file) {
@@ -87,5 +147,5 @@
     });
   }
 
-  window.IBAI = { can, write, studio, history, photoOf, EST_COST };
+  window.IBAI = { can, write, studio, history, photoOf, settings, saveSettings, monthSpend, estCost, MODELS, EFFORTS, EST_COST };
 })();

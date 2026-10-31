@@ -1,6 +1,7 @@
--- RLS / permission tests for 0024_ai (ai_runs, ai_month_cost). Depends on 0001_identity … 0024_ai. Runs in one transaction
--- and rolls back; prints NOTICE 'rls_ai: ok' only if every case passed. Live-safe: its rows (five runs of three made-up
--- members) are rolled back; the admin case only checks it sees the test rows, never a live total.
+-- RLS / permission tests for 0024_ai (ai_runs, ai_month_cost, ai_run_start) and the AI settings row «ai» of public.settings
+-- (phase 5.3 decision 8, the 0002 policies). Depends on 0001_identity … 0024_ai. Runs in one transaction and rolls back; prints
+-- NOTICE 'rls_ai: ok' only if every case passed. Live-safe: its rows (five runs of three made-up members, the settings row) are
+-- rolled back; the admin case only checks it sees the test rows, never a live total.
 
 begin;
 
@@ -138,6 +139,39 @@ do $$ declare r jsonb; n int; spent numeric; begin
   r := public.ai_run_start('{"created_by":"00000000-0000-4000-8000-000000000083","action":"write"}', spent + 0.6, 0.5, 100, 10);
   if r ->> 'result' <> 'ok' then raise exception 'case a run within the cap is reserved failed (%)', r; end if;
   if public.ai_month_cost() <> spent + 0.5 then raise exception 'case a pending run counts at its reserve failed'; end if;
+end $$;
+
+-- ================================================================ the AI settings row «ai» (decision 8): the admin writes it (0002: every
+-- section outside team / integrations / security needs the admin); a member of the tool without settings.view reads nothing and
+-- may not write
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000083","role":"authenticated"}';
+do $$ begin
+  insert into public.settings (section, data) values ('ai', '{"model":"claude-sonnet-5-5","effort":"low","monthly_limit_usd":20}')
+    on conflict (section) do update set data = excluded.data;
+  if (select data ->> 'model' from public.settings where section = 'ai') <> 'claude-sonnet-5-5' then raise exception 'case the admin writes the ai settings failed'; end if;
+  update public.settings set data = data || '{"effort":"high"}'::jsonb where section = 'ai';
+  if (select data ->> 'effort' from public.settings where section = 'ai') <> 'high' then raise exception 'case the admin updates the ai settings failed'; end if;
+  if (select updated_by from public.settings where section = 'ai') <> '00000000-0000-4000-8000-000000000083' then raise exception 'case settings_stamp records the admin failed'; end if;
+end $$;
+
+reset role;
+set local role authenticated;
+set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000081","role":"authenticated"}';
+do $$ begin
+  if exists (select 1 from public.settings where section = 'ai') then raise exception 'case a member without settings.view reads no ai settings failed'; end if;
+  begin
+    insert into public.settings (section, data) values ('ai_probe', '{"model":"claude-sonnet-5-5"}');
+    raise exception 'case a member may not add an ai settings row failed';
+  exception when insufficient_privilege then null;
+  end;
+  update public.settings set data = '{}'::jsonb where section = 'ai'; -- RLS: no visible row, nothing changes
+end $$;
+reset role;
+do $$ begin
+  if (select data ->> 'effort' from public.settings where section = 'ai') <> 'high' then raise exception 'case a member''s update touches no ai settings row failed'; end if;
 end $$;
 
 reset role;

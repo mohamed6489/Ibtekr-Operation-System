@@ -14,7 +14,15 @@
   الاتنين من تقدير Magnific نفسه — وLite 20 وGPT 2 60 تقديريين)، `sizeOf`، `parseGenerate`/`parseEdit`/`parseCreate`، `slotPrompt`/
   `shapePrompt`/`editPrompt`، المسارات، `imageSettings` (`image_model`/`image_monthly_credits` فوق `MAGNIFIC_MODEL`/`IMAGE_MONTHLY_CREDITS`).
   اختبارات node 9.
-- [ ] T5 Edge Function `ai-images` + Deno tests.
+- [x] T5 Edge Function `ai-images` (31 أكتوبر): `index.ts` (actions `generate`/`edit`/`create`/`probe`؛ JWT العضو بس —
+  `generate`/`edit` على دفعة = `products.add` F، على منتج = `products.edit` F، `create` = أي واحدة، `probe` أدمن؛ الحجز عبر
+  `ai_run_start` بسقف الكريدت الشهري من `image_monthly_credits` قبل النداء، الصف في `ai_runs` بـ `credits`؛ الناتج في bucket
+  `studio` (الدفعة) أو `ai-images` (`uid/run-n.ext`)؛ السجل = صف `ai_runs`، و`activity_log` `product.ai.image` من الـ adapter في T6
+  زي `ai-content`) + `providers/magnific.ts`
+  (الطبقة الوحيدة اللي عارفة شكل HTTP بتاع المزوّد: POST task → poll `/tasks/{id}` → تنزيل الصور؛ `MAGNIFIC_API_URL` بيحرّك
+  الأساس؛ 401/403 → `not_configured`، 429/5xx → `busy`، task فشلت بسبب safety → `refused`، غيرها `ai_error`؛ `probe` بيرجّع
+  شكل رد الحساب — مفاتيح وأنواع بس — عشان T2) + `index_test.ts` 13 اختبار. `config.toml` `[functions.ai-images] verify_jwt=false`،
+  `deno:check` و`deploy-functions.yml` فيهم `ai-images`، `_test/fakes.ts` فيه `storage.upload` و`credits`.
 - [ ] T6 `IBImages` + mock.
 - [ ] T7 خطوة الصور في الاستوديو + e2e.
 - [ ] T8 أداة الصور + `product_images_add` + e2e.

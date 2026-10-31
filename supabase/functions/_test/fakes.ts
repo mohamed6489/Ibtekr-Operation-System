@@ -51,7 +51,7 @@ const COLUMNS: Record<string, string[]> = {
   studio_batches: ['id', 'title', 'brand_id', 'vendor_id', 'type', 'state', 'step', 'status', 'result', 'created_by', 'updated_at', 'archived_at'],
   // 0024 (phase 5.3): one row per AI call
   ai_runs: ['id', 'created_at', 'created_by', 'action', 'source', 'label', 'product_id', 'batch_id', 'item_index', 'model', 'input_tokens', 'output_tokens',
-    'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'status', 'error', 'output'],
+    'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'status', 'error', 'output', 'credits'], // credits: 0025 (phase 5.4)
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
 };
@@ -83,7 +83,7 @@ const CHECK: Record<string, Record<string, unknown[]>> = {
   vendors: { status: ['active', 'leave', 'inactive'] },
   woo_webhook_events: { status: ['ok', 'ignored', 'duplicate', 'error'] },
   woo_sync_log: { kind: ['webhook', 'sync', 'push', 'manual', 'cron'], direction: [null, 'in', 'out'], result: ['ok', 'error', 'conflict', 'skipped'] },
-  ai_runs: { action: ['write', 'studio'], status: ['pending', 'ok', 'refused', 'error', 'cap'] },
+  ai_runs: { action: ['write', 'studio', 'image'], status: ['pending', 'ok', 'refused', 'error', 'cap'] }, // image: 0025 (phase 5.4)
 };
 // numeric checks of 0011 / 0014: rate 0–65, flat ≥ 0 (null passes)
 const RANGE: Record<string, Record<string, [number, number]>> = {
@@ -245,8 +245,20 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
   const seeded = calls.length;
   return {
     from, rpc, calls,
-    // phase 5.2: storage.from(bucket).download(path) over opts.storage ('bucket/path' → bytes)
-    storage: { from: (bucket: string) => ({ download: async (path: string) => { calls.push({ op: 'download', table: bucket, args: { path } } as any); const b = opts.storage?.[`${bucket}/${path}`]; return b ? { data: new Blob([b as BlobPart]), error: null } : { data: null, error: { message: 'Object not found' } }; } }) },
+    // phase 5.2: storage.from(bucket).download(path) over opts.storage ('bucket/path' → bytes); phase 5.4: upload(path, bytes, { contentType,
+    // upsert }) writes there too (an existing path without upsert → the Storage API's 409 Duplicate), and a failing one via opts.fail
+    storage: { from: (bucket: string) => ({
+      download: async (path: string) => { calls.push({ op: 'download', table: bucket, args: { path } } as any); const b = opts.storage?.[`${bucket}/${path}`]; return b ? { data: new Blob([b as BlobPart]), error: null } : { data: null, error: { message: 'Object not found' } }; },
+      upload: async (path: string, body: Uint8Array | Blob, o: { contentType?: string; upsert?: boolean } = {}) => {
+        const call: Call = { op: 'upload', table: bucket, args: { path, contentType: o.contentType ?? null, upsert: !!o.upsert } };
+        calls.push(call);
+        const injected = opts.fail?.(call); if (injected) { call.error = injected; return { data: null, error: { message: injected.message } }; }
+        if (!opts.storage) opts.storage = {};
+        if (opts.storage[`${bucket}/${path}`] && !o.upsert) { call.error = err('409', 'The resource already exists'); return { data: null, error: { statusCode: '409', message: 'The resource already exists' } }; }
+        opts.storage[`${bucket}/${path}`] = body instanceof Uint8Array ? body : new Uint8Array(await (body as Blob).arrayBuffer());
+        return { data: { path }, error: null };
+      },
+    }) },
     rows: (t: string): any[] => clone(tables[t]),
     row: (t: string, id: unknown, key = 'id'): any => clone(tables[t].find((r) => same(r[key], id)) ?? null),
     writes: (t?: string): any[] => calls.slice(seeded).filter((c) => ['insert', 'upsert', 'update'].includes(c.op) && (!t || c.table === t)),

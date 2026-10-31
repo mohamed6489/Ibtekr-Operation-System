@@ -8,3 +8,6 @@ verify_jwt = false
 
 [functions.ai-content]
 verify_jwt = false
+
+[functions.ai-images]
+verify_jwt = false

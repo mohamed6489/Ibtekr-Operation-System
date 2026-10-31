@@ -163,6 +163,19 @@ test('edit: read live, change the price and the Arabic name, «احفظ على �
   await expect(page.locator('#e-reg')).toHaveValue('1600');
 });
 
+test('edit: the Arabic translation on another status than the product → a note and one button that writes the product\'s status to both', async ({ page }) => {
+  await openProducts(page);
+  mock.products.find((x) => x.id === 9101).status = 'draft'; // the translation stayed a draft (added after the product was published)
+  await page.locator('[data-pedit="9001"]').click();
+  await expect(page.locator('#pg-products')).toContainText('النسخة العربي «مسودة» والإنجليزي «منشور»');
+  await page.locator('[data-par-status]').click();
+  await expect(page.locator('.toast.show')).toContainText('النسخة العربي بقت «منشور»');
+  expect(mock.productWrites.at(-1)).toEqual({ action: 'product_save', by: ADMIN, id: 9001, fields: { status: 'publish' } });
+  expect(mock.products.find((x) => x.id === 9101).status).toBe('publish');
+  await expect(page.locator('[data-par-status]')).toHaveCount(0); // read again: the two agree
+  await expect(page.locator('#e-ar')).toHaveValue('كيس مخدة');
+});
+
 test('edit a variable product: the variations table, the sale price of one variation sent alone', async ({ page }) => {
   await openProducts(page);
   await page.locator('[data-pedit="9002"]').click();

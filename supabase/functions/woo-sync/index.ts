@@ -668,7 +668,8 @@ async function productGet(run: Run, args: Json) {
   if (p.type === 'variable') variations = ((await ctx.woo.get(`wc/v3/products/${id}/variations`, { per_page: 100, page: 1 })).data ?? []).map(variationView).filter(Boolean);
   await writeProducts(ctx, [p, ...(isObj(ar) ? [ar] : [])]);
   const arView = isObj(ar) ? editView(ar) : null;
-  return json(200, { action: 'product_get', product: editView(p), ar: arView && { id: arView.id, name: arView.name, short_description: arView.short_description, description: arView.description, seo_title: arView.seo_title, seo_description: arView.seo_description }, variations });
+  // the translation's status too: the page shows when it differs from the product's (a translation added after the product was published)
+  return json(200, { action: 'product_get', product: editView(p), ar: arView && { id: arView.id, name: arView.name, short_description: arView.short_description, description: arView.description, seo_title: arView.seo_title, seo_description: arView.seo_description, status: arView.status }, variations });
 }
 
 // product_save { id, fields, ar?, variations? }: PUT the product with the allowed fields, the translation with its

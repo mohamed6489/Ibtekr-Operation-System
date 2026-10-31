@@ -572,7 +572,7 @@ Deno.test('product_get: the product live (allow-listed: no meta, no store addres
   const { res, body } = await call(deps, { action: 'product_get', id: 501 }, { jwt: 'jwt-pview' });
   assertEquals(res.status, 200);
   assertEquals([body.product.id, body.product.type, body.product.categories, body.product.brands, body.product.store], [501, 'variable', [{ id: 15, name: 'Decor' }], [{ id: 3, name: 'B' }], { id: 44, shop_name: 'Store 44' }]);
-  assertEquals(body.ar, { id: 601, name: 'لمبة', short_description: 'وصف', description: '', seo_title: '', seo_description: '' });
+  assertEquals(body.ar, { id: 601, name: 'لمبة', short_description: 'وصف', description: '', seo_title: '', seo_description: '', status: 'publish' });
   assertEquals(body.variations.map((v: any) => [v.id, v.attributes, v.regular_price, v.stock_quantity]), [[9001, [{ name: 'Color', option: 'Red' }], '200', 3]]);
   for (const secret of ['999', 'سر', 'street_1', 'Owner Name', '_wc_cog_cost']) assertFalse(JSON.stringify(body).includes(secret), secret);
   assert(woo.calls.every((c) => c.method === 'GET'));

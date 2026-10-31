@@ -1126,7 +1126,7 @@ export async function installSupabaseMock(page, opts = {}) {
           low_stock_amount: p.low_stock_amount, total_sales: p.total_sales, weight: p.weight || '', featured: !!p.featured, categories: term(mock.wooCategories, p.category_ids), brands: term(mock.wooBrands, p.brand_ids),
           images: Array.from({ length: p.image_count || 0 }, (_, i) => ({ id: 100 + i, src: p.image_url || '', name: 'img-' + i })), short_description: p.short_desc_filled ? 'وصف قصير' : '', description: p.desc_filled ? '<p>وصف</p>' : '', modified: p.woo_modified_at, store: { id: 44, shop_name: 'Store' },
           seo_title: str(p.seo_title), seo_description: str(p.seo_description) },
-          ar: ar ? { id: ar.id, name: ar.name, short_description: '', description: '', seo_title: str(ar.seo_title), seo_description: str(ar.seo_description) } : null,
+          ar: ar ? { id: ar.id, name: ar.name, short_description: '', description: '', seo_title: str(ar.seo_title), seo_description: str(ar.seo_description), status: ar.status } : null,
           variations: p.type === 'variable' ? [{ id: 9901, sku: p.sku + '-R', attributes: [{ name: 'Color', option: 'Red' }], regular_price: '900', sale_price: '', price: '900', manage_stock: true, stock_quantity: 2, stock_status: 'instock', backorders: 'no', image: '' }] : [] });
       }
       if (action === 'product_save' || action === 'products_batch' || action === 'products_trash' || action === 'products_restore') {
@@ -1139,7 +1139,9 @@ export async function installSupabaseMock(page, opts = {}) {
         if (action === 'product_save') {
           const [p, ar] = withAr(b.id); if (!p) return json(502, { error: 'woo_error' });
           if (b.ar && Object.keys(b.ar).length && !ar) return json(409, { error: 'no_translation' });
-          apply(p, b.fields); if (ar) apply(ar, Object.assign({}, b.ar || {}));
+          // the shared fields (status, prices, stock — SHARED_FIELDS in woo-products.js) go to the translation too, with its own fields
+          const SHARED = ['status', 'regular_price', 'sale_price', 'manage_stock', 'stock_quantity', 'stock_status', 'backorders', 'low_stock_amount'];
+          apply(p, b.fields); if (ar) apply(ar, Object.assign(Object.fromEntries(Object.entries(b.fields || {}).filter(([k]) => SHARED.includes(k))), b.ar || {}));
           return json(200, { action, result: 'ok', counts: { saved: ar ? 2 : 1, variations: (b.variations || []).length, variations_failed: 0 } });
         }
         if (action === 'products_batch') {

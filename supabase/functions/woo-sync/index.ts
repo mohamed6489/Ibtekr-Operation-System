@@ -889,13 +889,16 @@ async function studioUpload(run: Run, args: Json) {
       const failed = created.filter((x: Json) => !isObj(x) || isObj(x.error) || wooId(x.id) === null).length + Math.max(0, built.variations.length - created.length);
       res.variations = { done: built.variations.length - failed, failed };
     }
-    if (!res.error && built.ar && res.arId === undefined) {
+    // a product without its Arabic translation (never made, refused — arId null — or trashed as not linked) asks for it again
+    // on every retry: the product itself is never made twice, so the translation is the one thing a retry here adds
+    if (!res.error && built.ar && wooId(res.arId) === null) {
       try {
         // WCML's REST reads the language as `lang` (WPML's own key is wpml_language — both go); a refusal keeps the site's
         // scrubbed answer in arError so the batch report says why (the live uploads of 29 / 31 Oct answered 422 with no detail)
         const a = (await ctx.woo.post('wc/v3/products', { ...built.ar, type: built.product.type, status: 'draft', lang: 'ar', wpml_language: 'ar', translation_of: res.productId })).data;
         const arId = wooId(isObj(a) ? a.id : null);
         const linked = isObj(a) && isObj(a.translations) && wooId(a.translations.en) === res.productId;
+        delete res.arNote; delete res.arError;
         if (arId !== null && !linked) { await ctx.woo.del(`wc/v3/products/${arId}`); res.arId = null; res.arNote = 'not_linked'; } else res.arId = arId;
       } catch (e) { if (!(e instanceof WooError)) throw e; res.arId = null; res.arNote = wooCode(e); res.arError = String(e.message).slice(0, 240); }
     }

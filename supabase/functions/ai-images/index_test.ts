@@ -208,6 +208,15 @@ Deno.test('probe: the admin only; the shape of the provider\'s account answer (k
   const { deps } = setup({ replies: [{ credits: 756, plan: { name: 'Premium+' }, list: [1, 2] }] });
   const { res, body } = await call(deps, { action: 'probe' }, 'jwt-admin');
   assertEquals([res.status, body.provider, body.shape, body.models[0]], [200, 'magnific', { credits: 'number', plan: { name: 'string' }, list: { array: 'number' } }, 'seedream-5-pro']);
+  // the outcome is a row for the diagnosis (T2): configured, the provider's status, the shape — 0 credits
+  const row = deps.db.rows('ai_runs').at(-1);
+  assertEquals([row.label, row.status, row.credits, row.output], ['probe', 'ok', 0, { probe: true, configured: true, status: 200, shape: body.shape }]);
+  const nokey = setup({ env: { MAGNIFIC_API_KEY: '' } });
+  assertEquals((await call(nokey.deps, { action: 'probe' }, 'jwt-admin')).res.status, 503);
+  assertEquals([nokey.db.rows('ai_runs').at(-1).error, nokey.db.rows('ai_runs').at(-1).output.configured], ['not_configured', false]);
+  const refused = setup({ replies: [new ProviderError('not_configured', 401)] });
+  const r4 = await call(refused.deps, { action: 'probe' }, 'jwt-admin');
+  assertEquals([r4.res.status, r4.body.status, refused.db.rows('ai_runs').at(-1).output], [503, 401, { probe: true, configured: true, status: 401 }]);
   assertFalse(JSON.stringify(body).includes('756'));
   const nk = setup({ env: { MAGNIFIC_API_KEY: '' } });
   assertEquals((await call(nk.deps, { action: 'probe' }, 'jwt-admin')).res.status, 503);

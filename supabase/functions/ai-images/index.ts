@@ -271,10 +271,15 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'edit') return await edit(deps, who, args);
     if (action === 'create') return await create(deps, who, args);
     if (!who.admin) return json(401, { error: 'unauthorized' });
-    if (!deps.env.MAGNIFIC_API_KEY?.trim()) return json(503, { error: 'not_configured' });
+    // the probe's outcome is kept as an ai_runs row (label 'probe', 0 credits: configured = the key is set, status = the
+    // provider's HTTP status, shape = keys and types only) so the T2 diagnosis can be read from the database — never the key
+    const configured = !!deps.env.MAGNIFIC_API_KEY?.trim();
+    const record = (status: 'ok' | 'error', error: string | null, output: Json) =>
+      deps.db.from('ai_runs').insert({ created_by: who.uid, action: 'image', source: 'tool', label: 'probe', status, error, credits: 0, cost_usd: 0, output: { probe: true, configured, ...output } });
+    if (!configured) { await record('error', 'not_configured', { status: null }); return json(503, { error: 'not_configured' }); }
     // the shape only (keys and types, no values) of the provider's account answer — enough to pin the layer in T2, nothing to leak
-    try { return json(200, { result: 'ok', provider: PROVIDER, shape: shape(await deps.provider.probe()), models: MODEL_IDS }); }
-    catch (e) { const kind = e instanceof ProviderError ? e.kind : 'ai_error'; return json(kind === 'not_configured' ? 503 : kind === 'busy' ? 429 : 502, { error: kind, status: e instanceof ProviderError ? e.status : null }); }
+    try { const sh = shape(await deps.provider.probe()); await record('ok', null, { status: 200, shape: sh }); return json(200, { result: 'ok', provider: PROVIDER, shape: sh, models: MODEL_IDS }); }
+    catch (e) { const kind = e instanceof ProviderError ? e.kind : 'ai_error'; const status = e instanceof ProviderError ? e.status : null; await record('error', kind, { status }); return json(kind === 'not_configured' ? 503 : kind === 'busy' ? 429 : 502, { error: kind, status }); }
   } catch (e) {
     console.error('ai-images failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });

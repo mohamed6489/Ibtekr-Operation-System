@@ -111,6 +111,9 @@ test('permissions and settings: accounts sees «محتاج صلاحية» and an
   await openTool(page);
   await page.locator('[data-img-settings]').click();
   await expect(page.locator('.modal [data-img-spend]')).toContainText('كريدت الشهر ده');
+  await page.locator('[data-img-probe]').click();
+  await expect(page.locator('[data-img-probe-out]')).toContainText('متصل ✓'); // the provider's account shape, keys only
+  await expect(page.locator('[data-img-probe-out]')).toContainText('"credits":"number"');
   await page.locator('.modal #img-def-model').click(); await page.getByRole('option', { name: /Nano Banana 2 Lite/ }).click();
   await page.fill('.modal #img-cap', '5000');
   await page.locator('[data-img-save]').click();

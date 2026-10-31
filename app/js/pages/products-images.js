@@ -122,7 +122,7 @@
     const I = IM(); if (!I || !I.can().settings) return;
     const [cfg, month] = await Promise.all([I.settings(), I.monthCredits()]);
     if (!cfg.ok) { K.toast(MSG.network, 'error'); return; }
-    const f = { model: cfg.model, cap: cfg.monthlyCredits == null ? '' : String(cfg.monthlyCredits) };
+    const f = { model: cfg.model, cap: cfg.monthlyCredits == null ? '' : String(cfg.monthlyCredits) }; const probe = { busy: false, out: '' };
     const spendBox = month.ok
       ? h('div', { class: 'out-b', 'data-img-spend': '' }, h('small', null, 'كريدت الشهر ده (بتوقيت القاهرة)'),
         h('p', { style: 'margin:0' }, h('b', null, String(month.total)), cfg.monthlyCredits != null ? [' من أصل ', String(cfg.monthlyCredits)] : null, ' · ', month.runs, ' صورة · ≈ $', month.usd.toFixed(2)),
@@ -131,7 +131,10 @@
     const body = () => [spendBox,
       U.Select({ id: 'img-def-model', label: 'الموديل الافتراضي', options: I.MODELS.map((x) => ({ value: x.id, label: x.name + ' — ' + x.credits + ' كريدت' })), value: f.model, help: (I.modelOf(f.model) || {}).note || '', onChange: (v) => { f.model = v; m.setBody(...body()); } }),
       U.TextInput({ id: 'img-cap', label: 'سقف الشهر بالكريدت', value: f.cap, dir: 'ltr', inputmode: 'numeric', placeholder: 'من غير سقف', help: 'لما الكريدت توصله الصور بتقف لحد أول الشهر الجاي. فاضي = من غير سقف. (1 كريدت ≈ $' + I.CREDIT_USD + ')', onInput: (v) => { f.cap = v; } }),
-      U.InlineNote({ children: 'التغيير بيمشي على الصور الجاية على طول، لكل الفريق؛ موديل دفعة في الاستوديو بيتغيّر من جواها.' })];
+      U.InlineNote({ children: 'التغيير بيمشي على الصور الجاية على طول، لكل الفريق؛ موديل دفعة في الاستوديو بيتغيّر من جواها.' }),
+      // T2: the connection test — the provider's account answer as keys and types only (no values), or the error with its HTTP status
+      h('div', { class: 'acts-inline' }, Button({ size: 'sm', label: probe.busy ? 'بيتصل…' : 'اختبار الاتصال بـ Magnific', disabled: probe.busy, attrs: { 'data-img-probe': '' }, onClick: async () => { probe.busy = true; m.setBody(...body()); const r = await I.probe(); probe.busy = false; probe.out = r.ok ? 'متصل ✓ — شكل رد الحساب: ' + JSON.stringify(r.shape) : (MSG[r.reason] || MSG.network) + (r.status ? ' (HTTP ' + r.status + ')' : ''); m.setBody(...body()); } })),
+      probe.out ? h('pre', { class: 't-small', dir: 'ltr', style: 'margin:0;white-space:pre-wrap;overflow-wrap:anywhere', 'data-img-probe-out': '' }, probe.out) : null];
     const save = async () => {
       const r = await I.saveSettings({ model: f.model, monthlyCredits: f.cap.trim() === '' ? null : f.cap.trim() });
       if (!r.ok) { K.toast(r.reason === 'invalid' && r.field === 'monthlyCredits' ? 'السقف لازم يكون عدد كريدت صحيح أكبر من صفر' : r.reason === 'forbidden' ? 'الأدمن بس يقدر يغيّر إعدادات الصور' : MSG.network, 'error'); return; }

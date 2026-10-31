@@ -56,11 +56,17 @@
         const s = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
         const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'missing' : s === 402 ? 'ai_cap' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : 'network';
-        return { ok: false, reason, field: b && b.field ? String(b.field) : null, status: b && Number.isInteger(b.status) ? b.status : null };
+        return { ok: false, reason, field: b && b.field ? String(b.field) : null, status: b && Number.isInteger(b.status) ? b.status : null, configured: b && typeof b.configured === 'boolean' ? b.configured : null };
       }
       return { ok: true, body: data };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
+  // the words of a refusal for the pages (not_configured told apart: the secret missing on the server / the provider refusing the key)
+  const why = (r) => {
+    if (!r || r.ok) return '';
+    if (r.reason === 'not_configured') return r.configured === false ? 'الـ AI للصور لسه مش متوصّل — السر MAGNIFIC_API_KEY مش موجود في أسرار السيرفر (Supabase › Edge Functions › Secrets)' : 'Magnific رفض المفتاح' + (r.status ? ' (HTTP ' + r.status + ')' : '') + ' — المفتاح نفسه أو شكل الـ API محتاج يتظبط';
+    return '';
+  };
   const log = (detail, entity, id) => quiet(() => window.IBActivity && window.IBActivity.log && window.IBActivity.log('product.ai.image', detail, { entity, entity_id: id == null ? null : String(id) }));
   const answer = (b) => ({ ok: true, result: b.result === 'refused' ? 'refused' : 'ok', bucket: typeof b.bucket === 'string' ? b.bucket : null, path: typeof b.path === 'string' ? b.path : null,
     paths: Array.isArray(b.paths) ? b.paths.filter((p) => typeof p === 'string') : (typeof b.path === 'string' ? [b.path] : []), credits: Number(b.credits) || 0, model: typeof b.model === 'string' ? b.model : '', runId: b.run_id || null });
@@ -233,7 +239,7 @@
   }
 
   window.IBImages = {
-    can, generate, edit, create, probe, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf,
+    can, generate, edit, create, probe, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
     credits, usd, modelOf, estModel: () => (last && last.model) || DEFAULT_MODEL,
     MODELS, DEFAULT_MODEL, SIZES, SHAPES, EDIT_OPS, MAX_COUNT, CREDIT_USD, STUDIO_BUCKET, TOOL_BUCKET,
   };

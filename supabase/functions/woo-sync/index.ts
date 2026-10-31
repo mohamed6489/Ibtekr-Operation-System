@@ -895,7 +895,11 @@ async function studioUpload(run: Run, args: Json) {
       try {
         // WCML's REST reads the language as `lang` (WPML's own key is wpml_language — both go); a refusal keeps the site's
         // scrubbed answer in arError so the batch report says why (the live uploads of 29 / 31 Oct answered 422 with no detail)
-        const a = (await ctx.woo.post('wc/v3/products', { ...built.ar, type: built.product.type, status: 'draft', lang: 'ar', wpml_language: 'ar', translation_of: res.productId })).data;
+        // a translation added on a retry takes the product's status as it is now (the live product 182053 was published from the
+        // product page before its translation existed — a draft translation would leave the Arabic site without it)
+        let status = 'draft';
+        if (made) { try { const p = (await ctx.woo.get(`wc/v3/products/${res.productId}`)).data; if (isObj(p) && p.status === 'publish') status = 'publish'; } catch (e) { if (!(e instanceof WooError)) throw e; } }
+        const a = (await ctx.woo.post('wc/v3/products', { ...built.ar, type: built.product.type, status, lang: 'ar', wpml_language: 'ar', translation_of: res.productId })).data;
         const arId = wooId(isObj(a) ? a.id : null);
         const linked = isObj(a) && isObj(a.translations) && wooId(a.translations.en) === res.productId;
         delete res.arNote; delete res.arError;

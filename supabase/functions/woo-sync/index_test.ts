@@ -1399,7 +1399,9 @@ Deno.test('studio_upload: the push gate before any call; an item refused before 
   // the item and in the log row (ar_code / ar_error — never a key named note, which redactPII masks)
   let arActive = false;
   const refused = setup({ seed: studioSeed(), env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({
-    'POST wc/v3/products': (c: any) => (c.body.lang !== 'ar' ? { body: wooProduct(900, 44, { type: 'variable' }) } : arActive ? { body: { ...wooProduct(901, 44, { type: 'variable' }), translations: { en: 900 } } } : { status: 422, body: { code: 'wcml_invalid_language', message: 'Language ar is not active.', data: { status: 422 } } }) }) });
+    'POST wc/v3/products': (c: any) => (c.body.lang !== 'ar' ? { body: wooProduct(900, 44, { type: 'variable' }) } : arActive ? { body: { ...wooProduct(901, 44, { type: 'variable' }), translations: { en: 900 } } } : { status: 422, body: { code: 'wcml_invalid_language', message: 'Language ar is not active.', data: { status: 422 } } }),
+    // the product was published from the product page before the retry: the translation takes that status
+    'GET wc/v3/products/900': () => ({ body: wooProduct(900, 44, { type: 'variable', sku: 'IBTAR0999', status: arActive ? 'publish' : 'draft', lang: 'en', translations: arActive ? { en: 900, ar: 901 } : { en: 900 } }) }) }) });
   const rf = await call(refused.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
   assertEquals([rf.body.result, rf.body.item.productId, rf.body.item.arId, rf.body.item.arNote], ['ok', 900, null, 'wcml_invalid_language']);
   assert(String(rf.body.item.arError).includes('Language ar is not active'), rf.body.item.arError);
@@ -1411,6 +1413,8 @@ Deno.test('studio_upload: the push gate before any call; an item refused before 
   const rr = await call(refused.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });
   assertEquals([rr.body.result, rr.body.item.productId, rr.body.item.arId, 'arNote' in rr.body.item, 'arError' in rr.body.item, rr.body.item.author], ['ok', 900, 901, false, false, 'ok']);
   assertEquals(refused.woo.calls.slice(rn).filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path} ${c.body?.lang ?? ''}`.trim()), ['POST wc/v3/products ar', 'PUT dokan/v1/products/901'], 'the translation and its maker only');
+  const arPosts = refused.woo.calls.filter((c) => c.method === 'POST' && c.path === 'wc/v3/products' && c.body?.lang === 'ar').map((c) => c.body.status);
+  assertEquals(arPosts, ['draft', 'publish'], 'a translation made with the product is a draft; one added after the product was published is published');
   assertEquals(refused.db.row('studio_batches', SB).result.items[0].arId, 901);
   const nowp = setup({ seed: studioSeed(), routes: studioRoutes(), env: PUSH_ON, storage: STUDIO_FILES });
   const w = await call(nowp.deps, { action: 'studio_upload', batch_id: SB, index: 0 }, { jwt: 'jwt-padd' });

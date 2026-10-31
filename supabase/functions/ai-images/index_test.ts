@@ -25,14 +25,21 @@ const img = (bytes = PNG, mime = 'image/png') => ({ bytes, mime });
 type Opts = { seed?: Record<string, any[]>; env?: Record<string, string>; replies?: unknown[]; startDown?: boolean; storage?: Record<string, Uint8Array>; fail?: (c: any) => any; photo?: Uint8Array | null };
 function setup({ seed = SEED, env = {}, replies = [], startDown = false, storage = { ...FILES }, fail, photo = PNG }: Opts = {}) {
   let db: any = null;
-  // ai_run_start as 0024 defines it (the throttle; the cap here is null — the images' cap is counted in credits by the handler)
-  const start = async ({ p_row, p_reserve, p_throttle, p_window_minutes }: any) => {
+  // ai_image_run_start as 0025 defines it: the throttle, then this Cairo month's image credits (pending rows included) + the planned
+  // credits against the cap → a cap row, else a pending row holding the credits and the estimate
+  const cairoMonth = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).format(new Date(iso));
+  const start = async ({ p_row, p_cap_credits, p_credits, p_cost, p_throttle, p_window_minutes }: any) => {
     const rows = db.rows('ai_runs'); const since = new Date(Date.parse(NOW) - p_window_minutes * 60_000).toISOString();
     if (rows.filter((r: any) => r.created_by === p_row.created_by && r.created_at >= since).length >= p_throttle) return { result: 'busy' };
-    const { data } = await db.from('ai_runs').insert({ created_at: NOW, ...p_row, status: 'pending', cost_usd: p_reserve }).select('id').single();
+    const spent = rows.filter((r: any) => r.action === 'image' && cairoMonth(r.created_at) === cairoMonth(NOW)).reduce((t: number, r: any) => t + Number(r.credits || 0), 0);
+    if (p_cap_credits != null && spent + p_credits > p_cap_credits) {
+      const { data } = await db.from('ai_runs').insert({ created_at: NOW, ...p_row, action: 'image', status: 'cap', error: 'ai_cap', credits: 0, cost_usd: 0 }).select('id').single();
+      return { result: 'cap', id: data.id };
+    }
+    const { data } = await db.from('ai_runs').insert({ created_at: NOW, ...p_row, action: 'image', status: 'pending', credits: p_credits, cost_usd: p_cost }).select('id').single();
     return { result: 'ok', id: data.id };
   };
-  db = fakeDb(seed, { rpc: startDown ? {} : { ai_run_start: start }, storage, fail });
+  db = fakeDb(seed, { rpc: startDown ? {} : { ai_image_run_start: start }, storage, fail });
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
     return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'products.add' ? m.add ?? 'N' : key === 'products.edit' ? m.edit ?? 'N' : 'N'), is_admin: () => m.admin ?? false } : {} });
@@ -44,10 +51,10 @@ function setup({ seed = SEED, env = {}, replies = [], startDown = false, storage
     const r = queue.shift(); if (r instanceof Error) throw r; if (r === undefined) throw new Error('no reply queued'); return r as any;
   };
   const provider = { generate: (p: any) => answer('generate', p), edit: (p: any) => answer('edit', p), probe: async () => { const r = queue.shift(); if (r instanceof Error) throw r; return r as any; } };
-  const fetched: string[] = [];
-  const fetchFn = (async (url: string) => { fetched.push(url); return photo ? new Response(photo as BlobPart, { status: 200, headers: { "content-type": "image/jpeg" } }) : new Response("nope", { status: 404 }); }) as any;
+  const fetched: string[] = []; const fetchInits: any[] = [];
+  const fetchFn = (async (url: string, init: any = {}) => { fetched.push(url); fetchInits.push(init); return photo ? new Response(photo as BlobPart, { status: 200, headers: { "content-type": "image/jpeg" } }) : new Response("nope", { status: 404 }); }) as any;
   const deps = { env: { ...ENV, MAGNIFIC_API_KEY: KEY, ...env }, db, now: () => NOW, userDb, userId: async (jwt: string) => MEMBERS[jwt]?.uid ?? null, provider, fetch: fetchFn };
-  return { db, asked, during, deps, storage, fetched };
+  return { db, asked, during, deps, storage, fetched, fetchInits };
 }
 async function call(deps: any, body: unknown, jwt: string | null = 'jwt-add') {
   const res = await handler(new Request('http://x/ai-images', { method: 'POST', headers: { 'content-type': 'application/json', ...(jwt ? { authorization: 'Bearer ' + jwt } : {}) }, body: JSON.stringify(body) }), deps);
@@ -156,14 +163,22 @@ Deno.test('edit a studio image: products.add; the path of its batch only; the op
   assertEquals((await call(deps, { action: 'edit', batch_id: SB, path: SB + '/gen-0-0-old.png', op: 'upscale' }, 'jwt-edit')).res.status, 401);
 });
 
-Deno.test('edit a product\'s image: products.edit; the mirror\'s https photo fetched by the server; the result in bucket ai-images under the member; no photo → 404', async () => {
-  const { deps, asked, storage, fetched, db } = setup({ replies: [{ images: [img(WEBP, 'image/webp')], credits: 20 }] });
+Deno.test('edit a product\'s image: products.edit; the mirror\'s https photo fetched by the server from the site\'s host only (no redirects); the result in bucket ai-images under the member; no photo → 404', async () => {
+  const foreign = [{ id: 4003, sku: 'Y', name: 'Elsewhere', lang: 'en', image_url: 'https://evil.test/wp-content/uploads/c.jpg' }, { id: 4004, sku: 'Z', name: 'Plain', lang: 'en', image_url: 'http://woo.test/c.jpg' },
+    { id: 4005, sku: 'W', name: 'CDN', lang: 'en', image_url: 'https://cdn.woo.test/c.jpg' }];
+  const { deps, asked, storage, fetched, fetchInits, db } = setup({ seed: { ...SEED, products: [...SEED.products, ...foreign] }, env: { IMAGE_HOSTS: 'cdn.woo.test, Other.Test' }, replies: [{ images: [img(WEBP, 'image/webp')], credits: 20 }, { images: [img()], credits: 20 }] });
   const { res, body } = await call(deps, { action: 'edit', product_id: 4001, op: 'remove_bg', options: { bg: 'white' } }, 'jwt-edit');
   assertEquals([res.status, body.bucket], [200, 'ai-images']);
   assert(body.path.startsWith(U.edit + '/') && body.path.endsWith('-1.webp'), body.path);
   assertEquals(storage[`ai-images/${body.path}`], WEBP);
   assertEquals(fetched, ['https://woo.test/wp-content/uploads/c.jpg']);
+  assertEquals([fetchInits[0].redirect, fetchInits[0].signal instanceof AbortSignal], ['error', true], 'no redirects, a time limit');
   assertEquals([asked[0].op, asked[0].options], ['remove_bg', { bg: 'white' }]); assert(asked[0].prompt.includes('white'));
+  assertEquals((await call(deps, { action: 'edit', product_id: 4003, op: 'upscale' }, 'jwt-edit')).res.status, 404, 'another host is never fetched');
+  assertEquals((await call(deps, { action: 'edit', product_id: 4004, op: 'upscale' }, 'jwt-edit')).res.status, 404, 'plain http is never fetched');
+  assertEquals(fetched.length, 1);
+  assertEquals((await call(deps, { action: 'edit', product_id: 4005, op: 'upscale' }, 'jwt-edit')).res.status, 200, 'a host listed in IMAGE_HOSTS is allowed');
+  assertEquals(fetched.at(-1), 'https://cdn.woo.test/c.jpg');
   assertEquals([db.rows('ai_runs')[0].product_id, db.rows('ai_runs')[0].label, db.rows('ai_runs')[0].source], [4001, 'Boho Cushion', 'edit']);
   assertEquals((await call(deps, { action: 'edit', product_id: 4002, op: 'upscale' }, 'jwt-edit')).res.status, 404);
   assertEquals((await call(deps, { action: 'edit', product_id: 4001, op: 'upscale' }, 'jwt-add')).res.status, 401, 'products.add alone does not edit site products');

@@ -23,6 +23,9 @@
   الأساس؛ 401/403 → `not_configured`، 429/5xx → `busy`، task فشلت بسبب safety → `refused`، غيرها `ai_error`؛ `probe` بيرجّع
   شكل رد الحساب — مفاتيح وأنواع بس — عشان T2) + `index_test.ts` 13 اختبار. `config.toml` `[functions.ai-images] verify_jwt=false`،
   `deno:check` و`deploy-functions.yml` فيهم `ai-images`، `_test/fakes.ts` فيه `storage.upload` و`credits`.
+  **بعد المراجعة الأمنية التلقائية (31 أكتوبر):** الحجز والسقف بقوا في RPC واحد مقفول `ai_image_run_start` (اتضاف لـ `0025` مع
+  `ai_month_credits()` واختباراتهم في `rls_ai_images`) بدل فحص في الدالة وحجز بعده؛ وصورة المنتج المرجعية من host الموقع بس (`WOO_URL`
+  + `IMAGE_HOSTS`)، https، `redirect: 'error'`، حد حجم ومهلة 20 ثانية.
 - [ ] T6 `IBImages` + mock.
 - [ ] T7 خطوة الصور في الاستوديو + e2e.
 - [ ] T8 أداة الصور + `product_images_add` + e2e.

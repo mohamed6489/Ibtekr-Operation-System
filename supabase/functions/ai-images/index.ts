@@ -12,10 +12,12 @@
 //   'create'   (the images tool; the admin or products.add / products.edit = F) { source: text | image, prompt?, shape, size, count,
 //              model?, image? | product_id? } → 1–4 images in bucket ai-images under the member → { result: 'ok', bucket, paths, … }.
 //   'probe'    (the admin) → the shape (keys only) of the provider's account answer, for T2.
-// Every call is reserved first (ai_run_start: the member's throttle, a pending ai_runs row at the planned credits' USD estimate),
-// the images' monthly cap counts credits (settings «ai».image_monthly_credits — the sum of this Cairo month's image rows; over it →
-// 402 ai_cap and a cap row), and the row then holds the outcome: action 'image', the model, the credits the provider said (else
-// the listed estimate), cost_usd = the estimate, an error code only — never a prompt, an image or the key. Errors: 400 bad_request
+// Every call is reserved first, in one locked step in the database (ai_image_run_start, 0025: the member's throttle; the images'
+// monthly cap in credits — settings «ai».image_monthly_credits against this Cairo month's image rows, pending ones at their planned
+// credits — over it → 402 ai_cap and a cap row; else a pending row holding the planned credits), and the row then holds the
+// outcome: action 'image', the model, the credits the provider said (else the listed estimate), cost_usd = the estimate, an error
+// code only — never a prompt, an image or the key. A product's photo is fetched from the site's host only (WOO_URL, plus the
+// hosts in IMAGE_HOSTS), without following redirects, within a size and a time limit. Errors: 400 bad_request
 // { field }, 401 unauthorized, 404 not_found, 402 ai_cap, 429 busy (the provider's limit or a timeout, or THROTTLE calls of the member
 // in 10 minutes), 503 not_configured, 502 ai_error (no usable image), 200 { result: 'refused' } when the provider refused the content.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
@@ -42,6 +44,7 @@ const THROTTLE = 60;
 const THROTTLE_MINUTES = 10;
 const MAX_REFS = 4;
 const MAX_REF_BYTES = 12_000_000;
+const FETCH_MS = 20_000;
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 const isObj = (v: unknown): v is Json => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -68,22 +71,14 @@ async function settingsOf(deps: Deps) {
   const { data, error } = await deps.db.from('settings').select('data').eq('section', 'ai').maybeSingle();
   return imageSettings(!error && isObj(data) && isObj(data.data) ? data.data : null, deps.env);
 }
-// this Cairo month's image credits (every image row, pending ones at their planned credits) — the cap counts credits, not USD
-async function monthCredits(deps: Deps) {
-  const now = new Date(deps.now());
-  const cairo = new Date(now.toLocaleString('en-US', { timeZone: 'Africa/Cairo' }));
-  const offsetMs = cairo.getTime() - now.getTime();
-  const startCairo = new Date(Date.UTC(cairo.getFullYear(), cairo.getMonth(), 1) - offsetMs).toISOString();
-  const { data, error } = await deps.db.from('ai_runs').select('credits').eq('action', 'image').gte('created_at', startCairo);
-  if (error) return null;
-  return (data ?? []).reduce((t: number, r: Json) => t + (Number(r.credits) || 0), 0);
-}
-async function startRun(deps: Deps, row: Json, credits: number) {
-  const { data, error } = await deps.db.rpc('ai_run_start', { p_row: row, p_cap: null, p_reserve: usdOf(credits), p_throttle: THROTTLE, p_window_minutes: THROTTLE_MINUTES });
+// the reservation (0025 ai_image_run_start): the throttle, the credit cap and the pending row in one locked step — the cap is never
+// checked here and reserved there, so two parallel calls cannot both pass it
+async function startRun(deps: Deps, row: Json, credits: number, capCredits: number | null) {
+  const { data, error } = await deps.db.rpc('ai_image_run_start', { p_row: row, p_cap_credits: capCredits, p_credits: credits, p_cost: usdOf(credits), p_throttle: THROTTLE, p_window_minutes: THROTTLE_MINUTES });
   if (error || !isObj(data)) return { result: 'error' as const };
   const id = Number(data.id);
   if (data.result === 'ok' && Number.isInteger(id)) return { result: 'ok' as const, id };
-  return { result: data.result === 'busy' ? 'busy' as const : 'error' as const };
+  return { result: data.result === 'busy' ? 'busy' as const : data.result === 'cap' ? 'cap' as const : 'error' as const };
 }
 async function finishRun(deps: Deps, id: number, row: Json) {
   const { error } = await deps.db.from('ai_runs').update(row).eq('id', id);
@@ -95,19 +90,11 @@ type Stored = { bucket: string; path: string }[];
 async function runImages(deps: Deps, base: Json, model: string, count: number, work: () => Promise<{ images: { bytes: Uint8Array; mime: string }[]; credits: number | null }>, store: (img: { bytes: Uint8Array; mime: string }, n: number) => Promise<{ bucket: string; path: string } | null>): Promise<Response> {
   const planned = creditsFor(model, count);
   const cfg = await settingsOf(deps);
-  if (cfg.monthlyCredits != null) {
-    const spent = await monthCredits(deps);
-    if (spent === null) return json(502, { error: 'ai_error' });
-    if (spent + planned > cfg.monthlyCredits) {
-      await deps.db.from('ai_runs').insert({ ...base, model, status: 'cap', error: 'ai_cap', credits: 0, cost_usd: 0 });
-      return json(402, { error: 'ai_cap' });
-    }
-  }
-  const run = await startRun(deps, { ...base, model }, planned);
+  // the planned credits are held on the pending row (the cap counts them while the call runs)
+  const run = await startRun(deps, { ...base, model }, planned, cfg.monthlyCredits);
+  if (run.result === 'cap') return json(402, { error: 'ai_cap' });
   if (run.result === 'busy') return json(429, { error: 'busy' });
   if (run.result !== 'ok') return json(502, { error: 'ai_error' });
-  // the planned credits are held on the pending row (the cap counts them while the call runs)
-  await finishRun(deps, run.id, { credits: planned });
   if (!deps.env.MAGNIFIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', credits: 0, cost_usd: 0 }); return json(503, { error: 'not_configured' }); }
   let out: { images: { bytes: Uint8Array; mime: string }[]; credits: number | null };
   try { out = await work(); } catch (e) {
@@ -140,14 +127,24 @@ async function upload(db: Db, bucket: string, path: string, img: { bytes: Uint8A
   const { error } = await db.storage.from(bucket).upload(path, img.bytes, { contentType: img.mime, upsert: false });
   return error ? null : { bucket, path };
 }
-// a product's main image from the mirror (https only), fetched by the server
+// the hosts a product photo may be fetched from: the site's (WOO_URL) and the ones listed in IMAGE_HOSTS (a CDN), exact names
+function photoHosts(env: Deps['env']) {
+  const hosts = new Set<string>();
+  try { if (env.WOO_URL) hosts.add(new URL(env.WOO_URL).hostname.toLowerCase()); } catch { /* no site host */ }
+  for (const h of (env.IMAGE_HOSTS ?? '').split(',')) { const x = h.trim().toLowerCase(); if (/^[a-z0-9.-]+$/.test(x)) hosts.add(x); }
+  return hosts;
+}
+// a product's main image from the mirror, fetched by the server: https on an allowed host only, no redirects, a size and a time limit
 async function productPhoto(deps: Deps, productId: number): Promise<Ref | null> {
   const { data } = await deps.db.from('products').select('id, image_url').eq('id', productId).maybeSingle();
-  const url = isObj(data) && typeof data.image_url === 'string' && /^https:\/\//.test(data.image_url) ? data.image_url : null;
-  if (!url) return null;
+  let url: URL | null = null;
+  try { url = isObj(data) && typeof data.image_url === 'string' ? new URL(data.image_url) : null; } catch { url = null; }
+  if (!url || url.protocol !== 'https:' || url.username || url.password || !photoHosts(deps.env).has(url.hostname.toLowerCase())) return null;
   try {
-    const r = await (deps.fetch ?? fetch)(url);
+    const r = await (deps.fetch ?? fetch)(url.href, { redirect: 'error', signal: AbortSignal.timeout(FETCH_MS) });
     if (!r.ok) return null;
+    const declared = Number(r.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_REF_BYTES) return null;
     const bytes = new Uint8Array(await r.arrayBuffer());
     if (!bytes.length || bytes.length > MAX_REF_BYTES) return null;
     const ct = (r.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();

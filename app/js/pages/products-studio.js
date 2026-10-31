@@ -136,6 +136,18 @@
   const colorByCode = (code) => colors().find((c) => c.code === code) || null;
   const colorByName = (n) => { const k = String(n || '').trim().toLowerCase(); return colors().find((c) => c.name_en.toLowerCase() === k || String(c.name_ar).trim() === String(n || '').trim()) || null; };
   const colorLabel = (code) => { const c = colorByCode(code); return c ? c.name_en + ' · ' + c.name_ar : code; };
+  // the type changed after the sheet was read (the live batch of 31 Oct: the sheet read as Simple kept the first color and the
+  // first size of each row, then the batch became Variable → one variation a product): the colors / sizes of every item that
+  // came from the sheet are taken from its row again — all of them for Variable, the first of each for Simple; nothing else moves
+  function retype() {
+    const sh = S.state.sheet; const rows = sh ? PD.rowsToItems(sh.rows, sh.map) : [];
+    items().forEach((it) => {
+      const x = it.row != null ? rows.find((r) => r.row === it.row) : null;
+      if (x) { const cs = x.colors.map((n) => colorByName(n)); it.colors = cs.filter(Boolean).map((c) => c.code); it.unknownColors = x.colors.filter((n, k) => !cs[k]); it.sizes = x.sizes.slice(); }
+      if (!isVar()) { it.colors = it.colors.slice(0, 1); it.sizes = (it.sizes || []).slice(0, 1); }
+      syncVariations(it);
+    });
+  }
   function syncVariations(it) {
     if (!isVar()) { it.variations = []; return; }
     const cs = it.colors.length ? it.colors : [null]; const ss = it.sizes.length ? it.sizes : [null];
@@ -185,8 +197,8 @@
     const vary = (k, label) => chipBtn(label, s.vary.includes(k), () => { s.vary = s.vary.includes(k) ? s.vary.filter((x) => x !== k) : s.vary.concat(k); touch(); R(); });
     const L = Card('نوع المنتجات', 'كل نوع ليه فلو مختلف في المتغيرات والسعر والصور.', [
       h('div', { class: 'opt-grid', role: 'radiogroup', 'aria-label': 'نوع المنتجات' },
-        opt('Simple', 'كل منتج ليه SKU وسعر وصور — من غير متغيرات (7 خطوات).', s.type === 'Simple', () => { s.type = 'Simple'; touch(); R(); }),
-        opt('Variable', 'منتج بتركيبات: لون و/أو مقاس. كل تركيبة ليها SKU وسعر.', s.type === 'Variable', () => { s.type = 'Variable'; if (!s.vary.length) s.vary = ['color']; touch(); R(); })),
+        opt('Simple', 'كل منتج ليه SKU وسعر وصور — من غير متغيرات (7 خطوات).', s.type === 'Simple', () => { if (s.type !== 'Simple') { s.type = 'Simple'; retype(); } touch(); R(); }),
+        opt('Variable', 'منتج بتركيبات: لون و/أو مقاس. كل تركيبة ليها SKU وسعر.', s.type === 'Variable', () => { if (s.type !== 'Variable') { s.type = 'Variable'; if (!s.vary.length) s.vary = ['color']; retype(); } touch(); R(); })),
       s.type === 'Variable' ? U.FieldShell({ id: 'vary', label: 'هيتغير في إيه؟', required: true, error: s.vary.length ? null : 'اختار حاجة واحدة على الأقل' }, h('div', { class: 'chips' }, vary('color', 'اللون'), vary('size', 'المقاس'))) : null,
       h('h3', { class: 't-h5 sub-h' }, 'طريقة الإدخال'),
       h('div', { class: 'opt-grid', role: 'radiogroup', 'aria-label': 'طريقة الإدخال' }, opt('شيت + صور', 'الشيت الأول، وبعده صورة لكل منتج.', true, () => {}), opt('صور بس — soon', 'ترفع الصور والـ AI يكتب الداتا — مع أدوات الـ AI.', false, () => {}, true))]);

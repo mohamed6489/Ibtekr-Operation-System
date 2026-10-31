@@ -82,6 +82,34 @@ test('studio Simple: brand + batch rate → CSV (columns by name) + images by ro
   await expect(page.locator('#pg-products')).toContainText('اترفعت');
 });
 
+test('studio: the type changes after the sheet was read → the colors and sizes come from the sheet again (all of them for Variable, the first for Simple)', async ({ page }) => {
+  await signIn(page, OPS);
+  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
+  await next(page, 'التالي: الاستلام'); // Simple: the sheet keeps the first color and the first size of each row
+  await pick(page, /اختار الشيت/, { name: 'v.csv', mimeType: 'text/csv', buffer: Buffer.from('Name EN,Name AR,Vendor Price,Colors,Sizes\nKilim Pouf,بوف كليم,2000,"Beige, Black",50×50 / 40×40\n') });
+  await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('BE'); // the colors by code in «الاستلام»
+  await expect(page.locator('#pg-products .st-table tbody tr').first()).not.toContainText('BK');
+  await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }]);
+  await expect(page.locator('#pg-products')).toContainText('1 من 1');
+  await page.locator('.wiz-foot').getByRole('button', { name: 'رجوع' }).click();
+  await page.getByRole('radio', { name: /^Variable/ }).click();
+  await page.getByRole('button', { name: 'المقاس' }).click();
+  await next(page, 'التالي: الاستلام');
+  await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('BK');
+  await next(page, 'التالي: البيانات و SKU');
+  await next(page, 'التالي: المتغيرات');
+  await expect(page.locator('#pg-products .row-sub')).toHaveCount(4); // 2 colors × 2 sizes
+  await page.locator('.wiz-foot').getByRole('button', { name: 'رجوع' }).click();
+  await page.locator('.wiz-foot').getByRole('button', { name: 'رجوع' }).click();
+  await page.locator('.wiz-foot').getByRole('button', { name: 'رجوع' }).click();
+  await page.getByRole('radio', { name: /^Simple/ }).click(); // back to Simple: the first of each again
+  await next(page, 'التالي: الاستلام');
+  await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('BE');
+  await expect(page.locator('#pg-products .st-table tbody tr').first()).not.toContainText('BK');
+});
+
 test('studio Variable: colors and sizes become variations with their own SKU and price; a refused product is reported with its reason, a maker that did not stick and a brand missing from the site\'s brands are noted, and «جرّب تاني» uploads only those', async ({ page }) => {
   await signIn(page, OPS);
   await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();

@@ -3,7 +3,10 @@
    button wait for the AI phase, marked soon). A batch lives in studio_batches (IBStudio); its images in the private bucket until the
    upload; the upload goes through woo-sync studio_upload one product at a time (drafts). Phase 5.3 (decision 6): the AI buttons
    fill names, colors, descriptions and categories through IBAI.studio, each filled field tagged «AI — راجع» until edited by
-   hand; «صور بس» and the image AI stay soon. The SKU is the owner's rule (decision 2,
+   hand. Phase 5.4 (decision 5): the images step generates a slot's image through IBImages.generate (Magnific, from the item's
+   reference photos), one, the missing ones of the selection or all of them, with the batch's model; a generated image carries «AI»
+   until a hand upload replaces it; slots swap by drag; the image popup edits with the AI (free text and quick edits), remakes,
+   keeps the versions and places a version in another slot. «صور بس» stays soon. The SKU is the owner's rule (decision 2,
    PD.studioSku), the prices decision 16 (PD.priceFromVendor). The products page routes #products-studio-<new|id>[-<step|report>]
    here: IBStudioView.route / view. */
 (function () {
@@ -65,6 +68,108 @@
   }
   const aiButton = (label, onClick) => { const A = AI(); if (!A || !A.can().studio) return null; const b = S.aiBusy;
     return Button({ type: 'primary', size: 'sm', icon: 'sparkle', label: b ? 'الـ AI بيملا… ' + b.done + ' من ' + b.total : label, disabled: !!b, attrs: { 'data-ai': label }, onClick }); };
+  // ---------------- image AI (phase 5.4, decision 5) ----------------
+  // A slot is a number (0..n-1) or { color } (a Variable's color image). IBImages.generate makes one image of one slot from the
+  // item's reference photos (the server reads the saved batch, so it is saved first) with the batch's model (S.state.imgModel, else
+  // the admin's default); the path lands in the slot with «AI» (it.imgAI) and the old image in its versions (it.imgHist). A run on
+  // more than one slot asks first with the count and the credits. S.imgBusy marks a slot «بيتولد…» or «فشل» while the step shows.
+  const IM = () => window.IBImages;
+  const IMG_STOP = { not_configured: 'الـ AI للصور لسه مش متوصّل — مفتاح Magnific بيتحط في إعدادات السيرفر', ai_cap: 'وصلنا لحد كريدت الصور الشهري — كلّم الأدمن', busy: 'الـ AI للصور مشغول دلوقتي — جرّب كمان دقيقة', forbidden: 'محتاج صلاحية «إضافة منتجات»' };
+  const IMG_WHY = { reference: 'المنتج من غير صورة مرجعية — ارفعها في «الاستلام»', refused: 'الـ AI رفض الطلب ده', ai_error: 'الـ AI مارجّعش صورة — جرّب تاني', missing: 'الدفعة اتغيّرت — افتحها تاني', network: 'مشكلة في الاتصال — جرّب تاني' };
+  const canImgAI = () => { const I = IM(); return !!(I && I.can().studio); };
+  const imgModel = () => { const I = IM(); const id = S.state && S.state.imgModel; return I && I.modelOf(id) ? id : I ? I.estModel() : 'seedream-5-pro'; };
+  const imgModelName = () => { const I = IM(); const m = I ? I.modelOf(imgModel()) : null; return m ? m.name : imgModel(); };
+  const isColorSlot = (slot) => !!(slot && typeof slot === 'object');
+  const slotKey = (slot) => (isColorSlot(slot) ? 'c' + slot.color : String(slot));
+  const slotName = (slot) => (isColorSlot(slot) ? 'صورة اللون ' + colorLabel(slot.color) : (slot + 1) + ' · ' + SLOT_L[slot]);
+  const slotGet = (it, slot) => (isColorSlot(slot) ? (it.colorImages || {})[slot.color] || null : (it.slots || [])[slot] || null);
+  const slotAI = (it, slot) => !!(it.imgAI && it.imgAI[slotKey(slot)]);
+  function slotPut(it, slot, p, ai) {
+    if (isColorSlot(slot)) { it.colorImages = Object.assign({}, it.colorImages); it.colorImages[slot.color] = p; } else { it.slots = Array.isArray(it.slots) ? it.slots : []; it.slots[slot] = p; }
+    it.imgAI = Object.assign({}, it.imgAI); if (p && ai) it.imgAI[slotKey(slot)] = true; else delete it.imgAI[slotKey(slot)];
+  }
+  const slotHist = (it, slot) => ((it.imgHist || {})[slotKey(slot)] || []).filter((p) => p && p !== slotGet(it, slot));
+  function pushHist(it, slot, p) { if (!p) return; it.imgHist = Object.assign({}, it.imgHist); const k = slotKey(slot); it.imgHist[k] = ((it.imgHist[k] || []).filter((x) => x !== p)).concat(p).slice(-6); }
+  // two numbered slots of one item trade images (and their marks)
+  function swapSlots(it, a, b) {
+    if (a === b) return; const pa = slotGet(it, a), pb = slotGet(it, b); const aa = slotAI(it, a), ab = slotAI(it, b);
+    slotPut(it, a, pb, ab); slotPut(it, b, pa, aa);
+    const H = Object.assign({}, it.imgHist); const ha = H[slotKey(a)], hb = H[slotKey(b)]; if (hb) H[slotKey(a)] = hb; else delete H[slotKey(a)]; if (ha) H[slotKey(b)] = ha; else delete H[slotKey(b)]; it.imgHist = H;
+  }
+  const bkey = (j) => j.it.key + ':' + slotKey(j.slot);
+  const imgState = (it, slot) => S.imgBusy.get(bkey({ it, slot })) || '';
+  // the empty slots of these items that have a reference photo (the color images of a Variable too)
+  function missingJobs(L) {
+    const n = S.state.imgCount || 4; const out = [];
+    L.forEach((it) => { if (!it.main) return; for (let k = 0; k < n; k++) if (!slotGet(it, k)) out.push({ it, slot: k }); if (isVar()) it.colors.forEach((c) => { if (!slotGet(it, { color: c })) out.push({ it, slot: { color: c } }); }); });
+    return out;
+  }
+  function genSlots(jobs, title) {
+    const I = IM(); if (!I || !I.can().studio) { K.toast(IMG_STOP.forbidden, 'error'); return null; }
+    if (S.imgRun || !S.id) return null;
+    const noRef = jobs.filter((j) => !j.it.main).length; jobs = jobs.filter((j) => j.it.main);
+    if (!jobs.length) { K.toast(noRef ? IMG_WHY.reference : 'مفيش خانة ناقصة هنا'); return null; }
+    const run = async () => {
+      const id = S.id; S.imgRun = { done: 0, total: jobs.length }; jobs.forEach((j) => S.imgBusy.set(bkey(j), 'gen')); R();
+      await touch(true);
+      let done = 0, failed = 0, stop = null;
+      for (const j of jobs) {
+        if (S.id !== id) break;
+        const index = S.state.items.indexOf(j.it);
+        if (index >= 0) {
+          const r = await I.generate(id, index, j.slot, { model: imgModel() });
+          if (r.ok && r.result === 'ok' && r.path) { pushHist(j.it, j.slot, slotGet(j.it, j.slot)); slotPut(j.it, j.slot, r.path, true); S.imgBusy.delete(bkey(j)); done++; }
+          else { failed++; S.imgBusy.set(bkey(j), 'fail:' + (r.ok ? IMG_WHY.refused : IMG_STOP[r.reason] || IMG_WHY[r.field] || IMG_WHY[r.reason] || IMG_WHY.ai_error)); if (!r.ok && IMG_STOP[r.reason]) stop = r.reason; }
+        } else S.imgBusy.delete(bkey(j));
+        S.imgRun.done++; R();
+        if (stop) break;
+      }
+      jobs.forEach((j) => { if (S.imgBusy.get(bkey(j)) === 'gen') S.imgBusy.set(bkey(j), 'fail:' + IMG_STOP[stop]); }); // the ones after a stop
+      S.imgRun = null;
+      if (S.id === id) await touch(true);
+      R();
+      if (stop) K.toast(IMG_STOP[stop] + (done ? ' — اتعملت ' + done + ' صورة قبلها' : ''), 'error');
+      else if (done) K.toast('خلص — اتعملت ' + done + ' صورة' + (failed ? ' · ' + failed + ' ماتعملتش' : '') + ' · راجع اللي عليها «AI»', 'success');
+      else K.toast(jobs.length === 1 ? S.imgBusy.get(bkey(jobs[0])).slice(5) : 'ولا صورة اتعملت — جرّب تاني', 'error');
+      return done;
+    };
+    if (jobs.length === 1) return run();
+    const credits = I.credits(imgModel(), jobs.length);
+    K.confirm({ title: title + '؟', text: jobs.length + ' صورة · حوالي ' + credits + ' كريدت Magnific (≈ $' + I.usd(credits).toFixed(2) + ') بموديل ' + imgModelName() + (noRef ? ' · ' + noRef + ' منتج من غير صورة مرجعية بيتعدّى' : '') + '. كل صورة الـ AI يعملها عليها «AI» — راجعها قبل الرفع.', okLabel: 'ولّد', onOk: run });
+    return null;
+  }
+  const QUICK_EDITS = [['خلفية أفتح', 'Make the background lighter and cleaner; keep the product exactly as it is'], ['قرّب على الخامة', 'Move closer to the product so its material and texture fill the frame'], ['شيل الظل', 'Remove the hard shadow and keep only a soft natural one'], ['إضاءة عصاري', 'Relight the scene with warm late-afternoon window light']];
+  // the image popup: the references, an AI edit (free words or a quick edit), remake, the versions, and a place in another slot
+  function imageModal(it, slot) {
+    let m = null; let busy = ''; let words = '';
+    const refs = [it.main].concat(it.refs || []).filter(Boolean);
+    const n = S.state.imgCount || 4;
+    const draw = () => { if (m) { m.setBody(...body()); } };
+    const edit = async (txt) => {
+      const I = IM(); const p = slotGet(it, slot); const index = items().indexOf(it);
+      if (!I || !p || !String(txt || '').trim() || busy || index < 0) return;
+      busy = 'edit'; draw(); await touch(true);
+      const r = await I.edit({ batchId: S.id, index, path: p }, 'instruction', { prompt: txt, model: imgModel() });
+      busy = '';
+      if (r.ok && r.result === 'ok' && r.path) { pushHist(it, slot, p); slotPut(it, slot, r.path, true); words = ''; touch(true); K.toast('اتعدلت — النسخة القديمة في «النسخ»', 'success'); }
+      else K.toast(r.ok ? IMG_WHY.refused : IMG_STOP[r.reason] || IMG_WHY[r.reason] || IMG_WHY.ai_error, 'error');
+      draw(); R();
+    };
+    const again = async () => { if (busy) return; busy = 'gen'; draw(); await genSlots([{ it, slot }], ''); busy = ''; draw(); };
+    const restore = (v) => { const p = slotGet(it, slot); pushHist(it, slot, p); slotPut(it, slot, v, slotAI(it, slot)); touch(); draw(); R(); };
+    const body = () => { const p = slotGet(it, slot); const hist = slotHist(it, slot); const can = canImgAI();
+      return [h('div', { class: 'img-modal' }, h('div', { class: 'img-view' }, Thumb(p, 'big'), slotAI(it, slot) ? Tag('gold', 'AI — راجع') : null),
+        h('div', { class: 'img-side' },
+          h('div', null, h('div', { class: 't-label help' }, 'المرجعيات'), h('div', { class: 'thumbs-sm' }, refs.length ? refs.map((r) => Thumb(r, 'mini')) : h('span', { class: 'help t-small' }, 'مفيش'))),
+          can ? h('div', { class: 'img-edit' }, U.Textarea({ id: 'img-edit', label: 'عدّل بالـ AI', value: words, rows: 2, placeholder: 'مثال: خلفية أفتح وظل أخف، من غير ما المنتج يتغيّر', onInput: (v) => { words = v; } }),
+            h('div', { class: 'chips' }, QUICK_EDITS.map(([l, txt]) => chipBtn(l, false, () => edit(txt), { disabled: !!busy }))),
+            h('div', { class: 'acts-inline' }, Button({ type: 'primary', size: 'sm', icon: 'sparkle', label: busy === 'edit' ? 'بيتعدل…' : 'عدّل بالـ AI', disabled: !!busy, onClick: () => { if (!words.trim()) { K.toast('اكتب التعديل اللي عايزه', 'error'); return; } edit(words); } }),
+              Button({ size: 'sm', label: busy === 'gen' ? 'بيتولد…' : 'اعمل تاني', disabled: !!busy || !it.main, onClick: again }), h('small', { class: 'help' }, 'كل تعديل ≈ ' + IM().credits(imgModel(), 1) + ' كريدت'))) : null,
+          hist.length ? h('div', null, h('div', { class: 't-label help' }, 'النسخ — اضغط ترجع ليها'), h('div', { class: 'ver-row' }, hist.map((v, i) => h('button', { type: 'button', class: 'ver', 'aria-label': 'نسخة ' + (i + 1), onClick: () => restore(v) }, Thumb(v, 'mini'))))) : null,
+          !isColorSlot(slot) && n > 1 ? h('div', null, h('div', { class: 't-label help' }, 'حطها في خانة'), h('div', { class: 'swap-to' }, Array.from({ length: n }, (_, k) => (k === slot ? null : Button({ size: 'sm', label: (k + 1) + ' · ' + SLOT_L[k], onClick: () => { swapSlots(it, slot, k); touch(); m.close(); R(); } }))))) : null))];
+    };
+    m = U.Modal({ title: slotName(slot) + ' — ' + (it.nameEn || it.nameAr || ''), body: body(), footer: [Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })] });
+  }
 
   const STEPS = ['البداية', 'الاستلام', 'البيانات و SKU', 'المتغيرات', 'السعر', 'الصور', 'الأقسام والأوصاف', 'المراجعة والرفع'];
   const SLOT_L = PD.SLOTS.concat(['إضافية 1', 'إضافية 2']);
@@ -76,7 +181,7 @@
   const reasonOf = (code) => REASON[code] || (/^http_5/.test(String(code)) ? 'الموقع مش بيرد — جرّب كمان شوية' : 'الموقع رفض الطلب (' + code + ')');
 
   // ---------------- state ----------------
-  const S = { id: null, row: null, state: null, step: 1, report: false, loading: false, err: '', timer: null, saving: false, sel: new Set(), q: '', uploading: false, aiBusy: null };
+  const S = { id: null, row: null, state: null, step: 1, report: false, loading: false, err: '', timer: null, saving: false, sel: new Set(), q: '', uploading: false, aiBusy: null, imgBusy: new Map(), imgRun: null };
   const blank = () => ({ v: 1, type: 'Simple', vary: ['color'], brandId: null, brandName: '', vendorId: null, vendorName: '', rate: null, fee: null, sheet: null, imgCount: 4, items: [] });
   const isVar = () => S.state && S.state.type === 'Variable';
   const flow = () => (isVar() ? [1, 2, 3, 4, 5, 6, 7, 8] : [1, 2, 3, 5, 6, 7, 8]);
@@ -87,7 +192,7 @@
     const n = S.report ? 8 : Math.min(8, Math.max(1, Number(step) || 1));
     if (id === 'new') { if (S.id !== null || !S.state) { S.id = null; S.row = null; S.state = blank(); S.sel.clear(); } S.step = 1; return; }
     S.step = n;
-    if (id !== S.id) { S.id = id; S.state = null; S.row = null; S.err = ''; S.sel.clear(); openBatch(id); }
+    if (id !== S.id) { S.id = id; S.state = null; S.row = null; S.err = ''; S.sel.clear(); S.imgBusy.clear(); openBatch(id); }
   }
   async function openBatch(id) {
     S.loading = true; R();
@@ -449,28 +554,50 @@
   }
 
   // ---------------- 6 الصور ----------------
-  function slotView(it, k, label, get, put) {
-    const p = get();
-    const up = () => filePick('image/*', false, async (f) => { const r = await ST().uploadImage(S.id, f[0], 'img'); if (!r.ok) { K.toast('الصورة ماترفعتش', 'error'); return; } put(r.path); touch(); R(); });
-    return h('div', { class: 'islot ' + (p ? 'done' : 'empty') }, p ? h('span', { class: 'slot-img' }, Thumb(p, 'fill')) : h('span', { class: 'slot-img', role: 'img', 'aria-label': label + ' ناقصة' }, Icon('image'), h('small', null, 'ناقصة')), h('small', { class: 'slot-l' }, label),
-      h('div', { class: 'slot-a' }, Button({ size: 'sm', label: p ? 'بدّل' : 'ارفع', onClick: up }), p ? U.IconButton({ icon: 'trash', label: 'شيل ' + label, onClick: () => { put(null); touch(); R(); } }) : null));
+  function slotView(it, slot, label) {
+    const p = slotGet(it, slot); const st = imgState(it, slot); const gen = st === 'gen'; const why = st.startsWith('fail:') ? st.slice(5) : '';
+    const can = canImgAI() && !!it.main;
+    const up = () => filePick('image/*', false, async (f) => { const r = await ST().uploadImage(S.id, f[0], 'img'); if (!r.ok) { K.toast('الصورة ماترفعتش', 'error'); return; } pushHist(it, slot, p); slotPut(it, slot, r.path, false); S.imgBusy.delete(bkey({ it, slot })); touch(); R(); });
+    const one = () => genSlots([{ it, slot }], '');
+    const img = gen ? h('span', { class: 'slot-img', role: 'img', 'aria-label': label + ' بتتولد' }, Icon('sparkle'), h('small', null, 'بيتولد…'))
+      : p ? h('button', { type: 'button', class: 'slot-img', 'aria-label': 'افتح ' + label, onClick: () => imageModal(it, slot) }, Thumb(p, 'fill'), slotAI(it, slot) ? Tag('gold', 'AI') : null)
+      : why ? h('span', { class: 'slot-img', role: 'img', 'aria-label': label + ' — ' + why, title: why }, Icon('alert'), h('small', null, 'فشل'))
+      : h('span', { class: 'slot-img', role: 'img', 'aria-label': label + ' ناقصة' }, Icon('image'), h('small', null, 'ناقصة'));
+    const el = h('div', { class: 'islot ' + (gen ? 'gen' : p ? 'done s-done' : why ? 'fail' : 'empty'), 'data-slot': slotKey(slot) }, img, h('small', { class: 'slot-l' }, label),
+      h('div', { class: 'slot-a' }, can && !p ? Button({ type: 'primary', size: 'sm', icon: 'sparkle', label: why ? 'ولّد تاني' : 'ولّد', disabled: gen || !!S.imgRun, attrs: { 'data-gen': slotKey(slot) }, onClick: one }) : null,
+        Button({ size: 'sm', label: p ? 'بدّل' : 'ارفع', disabled: gen, onClick: up }), p && !gen ? U.IconButton({ icon: 'trash', label: 'شيل ' + label, onClick: () => { pushHist(it, slot, p); slotPut(it, slot, null, false); touch(); R(); } }) : null));
+    // drag a numbered slot's image onto another numbered slot of the same item: the two trade places
+    if (!isColorSlot(slot)) {
+      if (p && !gen) { el.draggable = true; el.addEventListener('dragstart', (e) => { e.dataTransfer.setData('text/plain', it.key + ':' + slot); e.dataTransfer.effectAllowed = 'move'; }); }
+      el.addEventListener('dragover', (e) => { e.preventDefault(); el.classList.add('drop-on'); });
+      el.addEventListener('dragleave', () => el.classList.remove('drop-on'));
+      el.addEventListener('drop', (e) => { e.preventDefault(); el.classList.remove('drop-on'); const [key, from] = String(e.dataTransfer.getData('text/plain')).split(':'); if (key !== it.key || !/^\d+$/.test(from || '')) return; swapSlots(it, Number(from), slot); touch(); R(); });
+    }
+    return el;
   }
   function step6() {
-    const L = items(); const n = S.state.imgCount || 4; const rows = [];
+    const L = items(); const n = S.state.imgCount || 4; const rows = []; const I = IM(); const can = canImgAI();
     L.forEach((it) => {
       it.slots = Array.isArray(it.slots) ? it.slots : [];
       if (!it.slots[0] && it.main && !it.mainUsed) { it.slots[0] = it.main; it.mainUsed = true; }
-      const cnt = it.slots.slice(0, n).filter(Boolean).length;
-      rows.push({ cls: cnt ? null : 'row-err', cells: [PCell(it, [cnt + ' من ' + n + ' صور']), h('div', { class: 'ref-cell' }, Thumb(it.main, 'st-big'), h('small', { class: 't-small help' }, 'المرجعية')),
-        h('div', { class: 'slots gen-slots' }, Array.from({ length: n }, (_, k) => slotView(it, k, (k + 1) + ' · ' + SLOT_L[k], () => it.slots[k] || null, (p) => { it.slots[k] = p; })))] });
-      if (isVar()) it.colors.forEach((c) => rows.push({ cls: 'row-sub', cells: [h('span', { class: 'sub-name' }, '↳ ' + colorLabel(c)), null, h('div', { class: 'slots' }, slotView(it, 'c', 'صورة اللون', () => (it.colorImages || {})[c] || null, (p) => { it.colorImages = it.colorImages || {}; it.colorImages[c] = p; }))] }));
+      const cnt = it.slots.slice(0, n).filter(Boolean).length; const ai = Object.keys(it.imgAI || {}).filter((k) => slotGet(it, /^c/.test(k) ? { color: k.slice(1) } : Number(k))).length;
+      rows.push({ cls: cnt ? null : 'row-err', cells: [selBox(it), PCell(it, [cnt + ' من ' + n + ' صور', ai ? ai + ' بالـ AI — راجعها' : null, !it.main ? 'من غير صورة مرجعية' : null]), h('div', { class: 'ref-cell' }, Thumb(it.main, 'st-big'), h('small', { class: 't-small help' }, 'المرجعية')),
+        h('div', { class: 'slots gen-slots' }, Array.from({ length: n }, (_, k) => slotView(it, k, (k + 1) + ' · ' + SLOT_L[k])))] });
+      if (isVar()) it.colors.forEach((c) => rows.push({ cls: 'row-sub', cells: [null, h('span', { class: 'sub-name' }, '↳ ' + colorLabel(c)), null, h('div', { class: 'slots' }, slotView(it, { color: c }, 'صورة اللون'))] }));
     });
     const imgs = L.reduce((s, it) => s + it.slots.slice(0, n).filter(Boolean).length, 0);
-    return [TotalsBar([['المنتجات', L.length], ['الصور', imgs + ' من ' + L.length * n]], soon('ولّد الصور بالـ AI')),
-      h('div', { class: 'card img-set' }, U.Select({ id: 'img-count', label: 'عدد الصور لكل منتج', options: [4, 5, 6].map((x) => ({ value: String(x), label: x + ' صور' + (x === 4 ? ' (الأساسي)' : '') })), value: String(n), onChange: (v) => { S.state.imgCount = Number(v); touch(); R(); }, help: '4 خانات أساسية + لحد 2 إضافي' }),
+    const missing = missingJobs(L); const missingSel = missingJobs(sel()); const noRef = L.filter((it) => !it.main).length;
+    const run = S.imgRun;
+    const aiBar = can ? h('div', { class: 'acts-inline' }, run ? Tag('orange', 'بيولّد… ' + run.done + ' من ' + run.total) : null,
+      Button({ type: 'primary', size: 'sm', icon: 'sparkle', label: 'ولّد كل الصور الناقصة', disabled: !!run || !missing.length, attrs: { 'data-img': 'all' }, onClick: () => genSlots(missing, 'ولّد كل الصور الناقصة') })) : null;
+    const model = can ? U.Select({ id: 'img-model', label: 'موديل الصور', options: I.MODELS.map((m) => ({ value: m.id, label: m.name + ' — ' + m.credits + ' كريدت' })), value: imgModel(), help: (I.modelOf(imgModel()) || {}).note || '', onChange: (v) => { S.state.imgModel = v; touch(); R(); } }) : null;
+    return [TotalsBar([['المنتجات', L.length], ['الصور', imgs + ' من ' + L.length * n], ['ناقصة', missing.length, missing.length ? 'orange' : null]], aiBar),
+      h('div', { class: 'card img-set' }, U.Select({ id: 'img-count', label: 'عدد الصور لكل منتج', options: [4, 5, 6].map((x) => ({ value: String(x), label: x + ' صور' + (x === 4 ? ' (الأساسي)' : '') })), value: String(n), onChange: (v) => { S.state.imgCount = Number(v); touch(); R(); }, help: '4 خانات أساسية + لحد 2 إضافي' }), model,
         h('div', { class: 'chips slot-rules' }, h('span', { class: 't-small help' }, 'الخانات:'), PD.SLOTS.map((s, k) => Tag('neutral', (k + 1) + ' · ' + s + ': ' + PD.SLOT_HINT[k])))),
-      h('section', { class: 'card sec' }, h('div', { class: 'sec-b' }, STable([{ l: 'المنتج', w: 220 }, { l: 'المرجعية', w: 120 }, { l: 'صور المنتج (بتترفع على الموقع بالترتيب ده)' }], rows, 'الصور'))),
-      U.InlineNote({ children: 'الصورة الأساسية من الاستلام اتحطت في الخانة 1 — بدّلها لو عايز. الصور بتتحول WebP وتترفع على مكتبة وسائط ووردبريس وقت الرفع.' }), WizFoot(L.every((it) => it.slots.slice(0, n).some(Boolean)), 'كل منتج محتاج صورة واحدة على الأقل')];
+      can ? BulkBar([Button({ type: 'primary', size: 'sm', icon: 'sparkle', label: 'ولّد الناقص للمحدد', disabled: !!run || !missingSel.length, onClick: () => genSlots(missingSel, 'ولّد الناقص للمحدد') })]) : null,
+      h('section', { class: 'card sec' }, h('div', { class: 'sec-b' }, STable([{ l: allBox(L), w: 48 }, { l: 'المنتج', w: 220 }, { l: 'المرجعية', w: 120 }, { l: 'صور المنتج (بتترفع على الموقع بالترتيب ده)' }], rows, 'الصور'))),
+      U.InlineNote({ children: 'الصورة الأساسية من الاستلام اتحطت في الخانة 1 — بدّلها لو عايز. الصور بتتحول WebP وتترفع على مكتبة وسائط ووردبريس وقت الرفع.' + (can ? ' «ولّد» بيعمل صورة الخانة بالـ AI من الصورة المرجعية وبيانات المنتج وعليها «AI» — راجعها؛ اسحب صورة على خانة تانية تبدّلهم؛ اضغط على الصورة تعدّلها بالـ AI أو ترجع لنسخة قديمة.' : '') + (noRef ? ' ' + noRef + ' منتج من غير صورة مرجعية — ارفعها في «الاستلام» عشان الـ AI يشتغل عليه.' : '') }),
+      WizFoot(L.every((it) => it.slots.slice(0, n).some(Boolean)) && !run, run ? 'استنى الصور تخلص' : 'كل منتج محتاج صورة واحدة على الأقل')];
   }
 
   // ---------------- 7 الأقسام والأوصاف ----------------

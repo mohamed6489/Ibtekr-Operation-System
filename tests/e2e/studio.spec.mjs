@@ -391,3 +391,65 @@ test('studio Arabic name (decision 15): a sheet without it passes «الاستل
   await expect(page.locator('.modal')).toContainText('1 من 1');
   expect(mock.studioUploads.map((x) => x.ar && x.ar.name)).toEqual(['أباجورة مكتب']);
 });
+
+test('studio images (phase 5.4): «ولّد» makes a slot\'s image with the AI from the reference (tagged AI), a failure shows on the slot, «ولّد كل الصور الناقصة» asks with the credits, the image popup edits with the AI and keeps the versions, a version goes to another slot, the batch\'s model', async ({ page }) => {
+  const SB = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
+  await signIn(page, OPS);
+  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
+  await next(page, 'التالي: الاستلام');
+  await pick(page, /اختار الشيت/, { name: 'i.csv', mimeType: 'text/csv', buffer: Buffer.from('Product Name EN,الاسم بالعربي,Vendor Price,Color\nBoho Cushion,مخدة بوهيمي,1000,Beige\nStripe Pillow,مخدة مخططة,800,Beige\n') });
+  await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }, { name: '2-1.png', mimeType: 'image/png', buffer: PNG }]);
+  await expect(page.locator('#pg-products')).toContainText('2 من 2');
+  await next(page, 'التالي: البيانات و SKU'); await next(page, 'التالي: السعر'); await next(page, 'التالي: الصور');
+  await expect(page.locator('#pg-products .islot.done')).toHaveCount(2);
+  await expect(page.locator('#img-model')).toContainText('Seedream 5 Pro');
+  await expect(page.locator('#pg-products .tot-bar')).toContainText('ناقصة');
+  // one slot: the generate call carries the batch, the item, the slot and the batch's model; the image lands tagged AI
+  await page.locator('#pg-products .islot.empty').first().getByRole('button', { name: 'ولّد', exact: true }).click();
+  await expect(page.locator('#pg-products .islot.done')).toHaveCount(3);
+  expect(mock.imgCalls).toEqual([{ action: 'generate', by: OPS, batch_id: SB, index: 0, slot: 1, model: 'seedream-5-pro' }]);
+  await expect(page.locator('#pg-products .islot.done .tg', { hasText: 'AI' })).toHaveCount(1);
+  await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('1 بالـ AI — راجعها');
+  await expect.poll(() => (mock.studioBatches[0].state.items[0].slots[1] || '')).toMatch(new RegExp('^' + SB + '/gen-0-1-'));
+  expect(mock.studioObjects.has(mock.studioBatches[0].state.items[0].slots[1])).toBe(true);
+  // the AI busy → the slot says فشل and offers «ولّد تاني»; the activity never carries a path
+  mock.imgFail = 'busy';
+  await page.locator('#pg-products .islot.empty').first().getByRole('button', { name: 'ولّد', exact: true }).click();
+  await expect(page.locator('#pg-products .islot.fail')).toHaveCount(1);
+  await expect(page.locator('#pg-products .islot.fail')).toContainText('فشل');
+  await expect(page.locator('#pg-products .islot.fail').getByRole('button', { name: 'ولّد تاني' })).toBeVisible();
+  mock.imgFail = null;
+  // the batch's model, then all the missing slots at once: 2 × 4 − 3 done = 5 images, asked with the credits
+  await page.locator('#img-model').click(); await page.getByRole('option', { name: /Nano Banana 2.1/ }).click();
+  await page.locator('#pg-products').getByRole('button', { name: 'ولّد كل الصور الناقصة' }).click();
+  await expect(page.locator('.modal')).toContainText('5 صورة · حوالي 250 كريدت');
+  await page.locator('.modal').getByRole('button', { name: 'ولّد' }).click();
+  await expect(page.locator('#pg-products .islot.done')).toHaveCount(8);
+  await expect(page.locator('#pg-products .islot.fail')).toHaveCount(0);
+  expect(mock.imgCalls.slice(2).map((c) => [c.index, c.slot, c.model])).toEqual([[0, 2, 'imagen-nano-banana-2-1'], [0, 3, 'imagen-nano-banana-2-1'], [1, 1, 'imagen-nano-banana-2-1'], [1, 2, 'imagen-nano-banana-2-1'], [1, 3, 'imagen-nano-banana-2-1']]);
+  expect(mock.aiRuns.filter((x) => x.action === 'image' && x.status === 'ok').length).toBe(6);
+  await expect(page.locator('#pg-products .tot-bar')).toContainText('8 من 8');
+  // the image popup: an AI edit makes a new version (an edit call on the slot's path), the old one is in «النسخ» and comes back
+  const before = mock.studioBatches[0].state.items[0].slots[1];
+  await page.locator('#pg-products .islot.done').nth(1).locator('.slot-img').click();
+  await expect(page.locator('.modal')).toContainText('2 · البيئة المحيطة');
+  await expect(page.locator('.modal')).toContainText('المرجعيات');
+  await page.locator('.modal').getByRole('button', { name: 'خلفية أفتح' }).click();
+  await expect(page.locator('.modal')).toContainText('النسخ');
+  expect(mock.imgCalls.at(-1)).toEqual({ action: 'edit', by: OPS, batch_id: SB, index: 0, path: before, op: 'instruction', prompt: 'Make the background lighter and cleaner; keep the product exactly as it is', model: 'imagen-nano-banana-2-1' });
+  await expect.poll(() => (mock.studioBatches[0].state.items[0].slots[1] || '')).toMatch(new RegExp('^' + SB + '/edit-0-'));
+  await page.locator('.modal').getByRole('button', { name: 'نسخة 1' }).click();
+  await expect.poll(() => mock.studioBatches[0].state.items[0].slots[1]).toBe(before);
+  // «حطها في خانة»: the image trades places with slot 3
+  const third = mock.studioBatches[0].state.items[0].slots[2];
+  await page.locator('.modal').getByRole('button', { name: '3 · Feature' }).click();
+  await expect(page.locator('.modal')).toBeHidden();
+  await expect.poll(() => mock.studioBatches[0].state.items[0].slots.slice(1, 3)).toEqual([third, before]);
+  // the activity rows name the slot, the model and the credits only
+  await expect.poll(() => mock.activityRows.filter((x) => x.action === 'product.ai.image').length).toBeGreaterThan(0);
+  expect(mock.activityRows.filter((x) => x.action === 'product.ai.image')[0].new_value).toBe('studio · #1 · slot 2 · seedream-5-pro · 75 credits');
+  expect(JSON.stringify(mock.activityRows)).not.toContain('/gen-');
+  await next(page, 'التالي: الأقسام والأوصاف');
+});

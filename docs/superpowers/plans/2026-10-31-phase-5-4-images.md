@@ -24,13 +24,14 @@
 
 ## القرارات المكتوبة
 
-1. **المزوّد والمفتاح (مستني قرار صاحب المشروع — سؤال 1):** السيستم محتاج **API** مش اشتراك شخصي. الطريق الرسمي = **Freepik API**
-   (Freepik هي صاحبة Magnific؛ `api.freepik.com`، هيدر `x-freepik-api-key`، حساب developer بالدفع حسب الاستخدام — منفصل عن اشتراك
-   Magnific): فيه Mystic وFlux وSeedream وGemini/Nano Banana وGPT Image وIdeogram، وأدوات Relight / Remove Background / Upscaler
-   (Magnific) / Expand. كل النداءات **غير متزامنة**: POST → `task_id` → GET لحد `COMPLETED` → روابط الصور. السر `FREEPIK_API_KEY` في
-   أسرار Supabase، صاحب المشروع بيحطه بنفسه في الآخر («ابني الأول والمفاتيح في الآخر» زي 5.3)؛ من غيره `not_configured`.
-   **لو صاحب المشروع يفضّل مزوّد تاني** (OpenAI gpt-image / Gemini image) نفس الطبقة تشتغل، والتبديل بين المزوّدين من صفحة الإعدادات
-   (قرار 9 في 5.3).
+1. **المزوّد = Magnific API (قرار صاحب المشروع، 31 أكتوبر: «ابني كل حاجة وخليها واقفة على الـ API — معايا Magnific API»):** السيستم
+   بيكلّم Magnific بمفتاح API في أسرار Supabase **`MAGNIFIC_API_KEY`** (صاحب المشروع بيحطه بنفسه في الآخر؛ من غيره `not_configured`)،
+   والعملة **كريدت Magnific** (زي الـ prototype — بس بالأرقام الحقيقية: 50–75 للصورة). الطبقة اللي بتكلّم الـ API في ملف واحد
+   `supabase/functions/ai-images/providers/magnific.ts` بواجهة صغيرة (`generate` / `edit`) عشان التبديل لمزوّد تاني (قرار 9 في 5.3) أو
+   تصحيح شكل الطلب يبقى في مكان واحد. **شكل الـ API الحقيقي لسه محتاج يتأكد في T2** (الدومينات `magnific.com` / `docs.freepik.com`
+   محجوبة في شبكة الـ sandbox — صاحب المشروع يسمح بيهم أو يبعت صفحة الـ reference): الطبقة مكتوبة على شكل افتراضي (POST مهمة →
+   `task_id` → polling → روابط الصور) والـ base URL والمسارات قابلة للتعديل من الأسرار (`MAGNIFIC_API_URL`) لحد ما تتأكد، وفيه
+   action `probe` (أدمن) بيرجّع شكل أول رد من الـ API من غير صور عشان نثبت الطبقة على الحي.
 2. **Edge Function جديدة `ai-images`** (مش `ai-content`: مفتاح تاني ومزوّد تاني، ومهلة أطول بسبب الـ polling؛ `verify_jwt false` والتحقق
    جوه بـ JWT العضو بس — أدمن أو `products.add = F` للاستوديو، أو `products.edit = F` لأداة الصور على منتج موجود):
    - **`generate`** `{ batch_id, index, slot, model?, size? }` (الاستوديو): السيرفر بيقرا الصنف من `studio_batches` وصورته المرجعية
@@ -69,24 +70,23 @@
    للـ bucket فورًا ومابيتخزنش رابط المزوّد. البرومبت من بيانات المنتج اللي عندنا + نص العضو (حد 500 حرف، من غير `<>`)؛ مافيش
    بيانات شخصية. المفتاح في أسرار Supabase بس.
 
-## الأسئلة لصاحب المشروع (قبل T2)
+## الأسئلة لصاحب المشروع
 
-1. **المزوّد:** عندك حساب Freepik API (developer، بالدفع حسب الاستخدام) ولا نعمل واحد؟ ولا تفضّل OpenAI / Gemini للصور؟ (اشتراك Magnific
-   الشخصي مش بيتوصل من السيستم.)
-2. **الشبكة:** تضيف `docs.freepik.com` في Allowed domains لبيئة الجلسة (إعدادات البيئة ← Network access) عشان أقرا الـ API بالظبط قبل ما
-   أكتب الطبقة — أو تبعتلي صفحة الـ reference بتاعة الموديل اللي هنبدأ بيه.
-3. **النطاق الأول:** نبدأ بخطوة الصور في الاستوديو (ولّد الخانات + عدّل بالشات) وبعدها أداة الصور؟ (الاقتراح: أيوه.)
+- **اتجاوب (31 أكتوبر):** المزوّد Magnific API (معاه المفتاح)؛ يتبني كله على الـ API.
+- **مفتوح:** السماح بـ `magnific.com` (و`docs.freepik.com`) في Network access لبيئة الجلسة — أو صفحة الـ API reference — عشان T2 يثبت شكل
+  الطلب؛ والمفتاح `MAGNIFIC_API_KEY` في أسرار Supabase وقت T9.
 
 ## المهام (بالتوالي)
 
 - **T1 — الخطة والدفتر** (الملف ده + `.superpowers/sdd/2026-10-31-phase-5-4-images/progress.md`).
-- **T2 — مرجع الـ API:** قراية Freepik API (بعد السماح بالدومين) → `docs/superpowers/reference/freepik-api.md` (الـ endpoints، الحقول،
-  الـ polling، الأسعار) وتثبيت `IMG_MODELS` والأسعار.
-- **T3 — `0025_ai_images`:** `ai_runs.action` يقبل `image` + `provider`، bucket `ai-images` بسياساته، `rls_ai_images`.
-- **T4 — `_shared/ai-images.js`:** `slotPrompt`، `shapePrompt`، `sizeOf`، `modelCost`، تنضيف البرومبت، قراءة إعدادات الصور من صف `ai` —
-  دوال نقية + اختبارات node.
-- **T5 — Edge Function `ai-images`:** الطبقة `providers/freepik.ts` (POST + polling + تنزيل)، `generate` / `edit` / `create`، الحفظ WebP في
-  الـ bucket، `ai_run_start` + صف `ai_runs`، Deno tests بمزوّد وهمي.
+- **T2 — مرجع الـ API (بعد السماح بالدومين أو صفحة من صاحب المشروع):** `docs/superpowers/reference/magnific-api.md` (الـ endpoints،
+  الحقول، الـ polling، الكريدت) وتثبيت `providers/magnific.ts` و`IMG_MODELS`؛ ثم `probe` على الحي بالمفتاح. **بيتعمل لما يتوفر** — الباقي
+  مش مستنيه.
+- **T3 — `0025_ai_images`:** `ai_runs.action` يقبل `image` + `source` `tool`/`edit` + عمود `credits`، bucket `ai-images` بسياساته، `rls_ai_images`.
+- **T4 — `_shared/ai-images.js`:** `parseGenerate` / `parseEdit` / `parseCreate`، `slotPrompt` / `shapePrompt` / `editPrompt`، `sizeOf`،
+  `IMG_MODELS` بالكريدت، المسارات، `imageSettings` — دوال نقية + اختبارات node.
+- **T5 — Edge Function `ai-images`:** الطبقة `providers/magnific.ts` (POST + polling + تنزيل)، `generate` / `edit` / `create` / `probe`، الحفظ في
+  الـ bucket، `ai_run_start` (throttle) + سقف الكريدت الشهري + صف `ai_runs` بالكريدت، Deno tests بمزوّد وهمي.
 - **T6 — `IBImages` (`app/js/adapter/images.js`) + الـ mock.**
 - **T7 — خطوة الصور في الاستوديو** (قرار 5) + e2e.
 - **T8 — أداة الصور** (قرار 5) + woo-sync `product_images_add` + e2e.

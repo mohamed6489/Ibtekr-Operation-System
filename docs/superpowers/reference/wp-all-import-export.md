@@ -45,14 +45,39 @@
 - **الخصائص (Attributes):** اسم + قيم مفصولة بـ `|` (أو XPath)، مع مفاتيح **In Variations** / **Is Visible** / **Is Taxonomy** (ينشئ `pa_<name>`
   لو مش موجود، ويعمل الـ terms بـ Auto-Create Terms). ده المقابل لـ `pa_color` / `pa_size` / `pa_brand` اللي الاستوديو بيبعتهم.
 - **التركيبات (Variable) — طريقة الربط `matching_parent`:**
-  - `auto`: كل منتج Variable ليه SKU/معرّف فريد، وكل تركيبة بتتربط بالأب بـ **parent SKU** في عمود (`single_product_first_is_parent_id_parent_sku`)
-    — **ده الشكل الأنسب لشيت من عندنا:** صف للأب + صف لكل تركيبة فيه `parent_sku`.
-  - `first_is_parent_id`: قيمة مشتركة لكل تركيبات المنتج وفريدة لكل منتج.
+  - `auto`: كل منتج Variable ليه SKU/معرّف فريد، وكل تركيبة بتتربط بالأب بـ **parent SKU** في عمود (`single_product_first_is_parent_id_parent_sku`).
+  - `first_is_parent_id`: قيمة مشتركة لكل تركيبات المنتج وفريدة لكل منتج — **ده اللي صاحب المشروع كان بيستخدمه** (القالب تحت).
   - `first_is_parent_title`: التركيبات بنفس عنوان الأب. · `first_is_variation`: كل الصفوف تركيبات بنفس العنوان ومافيش صف أب.
   - `xml`: التركيبات عناصر متداخلة جوه عنصر المنتج (ملف XML). · `existing`: ربط بمنتجات موجودة.
   - حقول التركيبة: `variable_sku` (+ `variable_sku_add_parent`)، `variable_regular_price` / `variable_sale_price`، `variable_stock`، `variable_image`،
     `variable_description`، وزن/أبعاد، وكل واحد ليه `*_use_parent` يورث من الأب.
 - **المفتاح الفريد للتحديث:** SKU (أو ID) في خيارات WP All Import — بيحدّث المنتج والتركيبات بدل ما يكرر.
+
+### قالب صاحب المشروع الفعلي: «variable products en» (WP All Import template، 31 أكتوبر)
+
+صاحب المشروع بعت الـ template المصدَّر (`templates_*.txt` — خيارات مسلسلة). ده شكل الشيت اللي كان بيرفع بيه الـ Variable فعلًا:
+
+- **المنتج:** `custom_type = product`، النوع `variable` للكل، الحالة **publish** على طول، الكاتب يوزر ثابت (إيميل أدمن — مش المبتكر)، العنوان
+  `{productnameen}`، الوصف القصير `{shortdescriptionen}`، المحتوى فاضي.
+- **التركيبات بـ unique id:** `matching_parent = first_is_parent_id` على عمود **`parentsku`** — كل صفوف المنتج ليها نفس القيمة، **وأول صف هو الأب**
+  (`first_is_parent = yes`)، وكل صف بعده تركيبة بـ `sku` بتاعتها وسعرها (`regularprice` / `saleprice`) ولونها/مقاسها. `make_simple_product = 1`
+  (منتج بصف واحد بيبقى Simple)، `create_new_product_if_no_parent = 0`، `disable_sku_matching = 1`، السمة الافتراضية = أول تركيبة.
+- **الخصائص (كلها taxonomy + visible + auto-create):** Color `{productcolors}` وSize `{size}` **في التركيبات**؛ Brand `{brandname}`،
+  style `{productstyle}`، material `{productmaterial}`، weight `{weight}` على المنتج بس. (= `pa_color` / `pa_size` / `pa_brand` / `pa_style` /
+  `pa_material` / `pa_weight`.)
+- **التصنيفات:** `product_brand` من `{brandname}`؛ `product_cat` **هرمي بمسار كامل** `{productcategory}` بفاصل `>`؛ `product_tag` من
+  `{tagsrelatedproduct}` بفواصل.
+- **الصور من مكتبة الوسائط** (`download_images = gallery`، البحث `by_url`، الاسم = اسم الملف): الرئيسية `{image}` + `{woovariationgalleryimages}` +
+  `{sizeguideimage}` + `{image4}`؛ المعرض `{image1}`…`{image5}`؛ صورة التركيبة بتتحط في المعرض كمان.
+- **المخزون:** من غير إدارة مخزون (`manage_stock = no`، الحالة auto). الضريبة none.
+- **حقول مخصصة:** `wpml_import_language_code` و`wpml_import_translation_group` (أعمدة **WPML Export & Import** — بتربط الترجمة بعدين)، و
+  **`_wc_cog_cost` / `_alg_wc_cog_cost`** (تكلفة البضاعة = **سعر المبتكر بيتخزّن كـ meta** على المنتج — عكس قرار 16 عندنا اللي
+  بيستخدمه للحساب بس؛ نسأل صاحب المشروع لو عايزه يتخزّن).
+- **WPML add-on:** لغة `en`، ربط `auto` بالـ SKU، ومربوط باستيراد تاني رقم 707 (النسخة العربي).
+- **إعادة الاستيراد:** المفتاح `{sku}` (ومطابقة بـ `_sku`)، مابيحدّثش غير الصور (full_update) والتاجات والمخزون؛ `records_per_request = 5`.
+- **أعمدة الشيت المستنتجة:** `sku`, `parentsku`, `productnameen`, `productname`, `shortdescriptionen`, `regularprice`, `saleprice`, `productcolors`,
+  `size`, `brandname`, `productstyle`, `productmaterial`, `weight`, `productcategory`, `tagsrelatedproduct`, `image`, `image1`…`image5`,
+  `woovariationgalleryimages`, `sizeguideimage`, `_wpml_import_language_code`, `_wpml_import_translation_group`, `_wc_cog_cost`, `_alg_wc_cog_cost`.
 - **المبتكر (Dokan):** مافيش حقل Dokan في الـ add-on؛ المنتج بياخد **author** من قالب WP All Import العادي (`author` = user id/login
   بتاع المبتكر على WordPress)، والتركيبات بتورث `post_author` من الأب. (الاستوديو عندنا بيحط المبتكر عبر `PUT dokan/v1/products/{id}`.)
 - **WPML:** مافيش ترجمات هنا — بس فلتر `wp_all_import_term_exists` عشان الـ terms تتلاقى باللغة الصح؛ الترجمة العربي للمنتج محتاجة

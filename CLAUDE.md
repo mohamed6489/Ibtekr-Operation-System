@@ -10,6 +10,7 @@
 - المرحلة 1 (اللوحة): الخطة `docs/superpowers/plans/2026-10-25-phase-1-dashboard.md`، ودفترها `.superpowers/sdd/2026-10-25-phase-1-dashboard/progress.md`.
 - المرحلة 2 (الأوردرات + مزامنة WooCommerce/Dokan + التحقق بخطوتين): الخطة `docs/superpowers/plans/2026-10-25-phase-2-orders.md`، ودفترها `.superpowers/sdd/2026-10-25-phase-2-orders/progress.md`. النشر الحي (الـ migrations، Edge Functions، الأسرار، الـ webhooks، الـ cron): `tools/deploy.md` §2.1 و§2.7.
 - سجل التنفيذ: `.superpowers/sdd/<plan>/progress.md` — لو هتكمّل خطة، اقراه الأول قبل أي حاجة.
+- مرجع WP All Import / Export Pro (طريق صاحب المشروع القديم للرفع والتنزيل الجماعي على الموقع؛ السيستم بيكتب بـ REST مش بيهم): `docs/superpowers/reference/wp-all-import-export.md`.
 - مشروع Supabase: `fsynculhaupcktzkfkdd` (eu-central-1). `app/config.js` فيه مفتاح الـ anon العام بس.
 
 ## القواعد العشر

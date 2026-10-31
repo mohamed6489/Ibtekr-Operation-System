@@ -55,4 +55,8 @@
   الأول (ناقص → 404 من غير أي كتابة)، كل صورة على `wp/v2/media`، وبعدين PUT واحد بالصور الحالية + الجديدة؛ `WOO_PUSH_ENABLED`؛
   اللوج أعداد بس؛ `Deps.userId` اتضاف لـ woo-sync) عبر `IBProducts.addImages` (لوج `product.images.add`)؛ «سجل الصور»؛ «إعدادات
   الصور» للأدمن (كريدت الشهر، الموديل الافتراضي، السقف بالكريدت). Deno test للـ action، الـ mock بيحاكيه، e2e `tests/e2e/images.spec.mjs` (3).
-- [ ] T9 حي.
+- [~] T9 حي (31 أكتوبر): `woo-sync` **v44** (`product_images_add`؛ workflow run 41207180954 من `main` 22cb331) و`ai-images` **v1**
+  (`verify_jwt false`، من الـ workflow كمان) اتنشروا. **`0025_ai_images` لسه** — `apply_migration` وقف على سؤال تأكيد Supabase من غير
+  رد (زي `0024`): صاحب المشروع يطبّقه من SQL Editor (`tools/deploy.md` §2.7.13 فيه الفحوص)، وبعدها `rls_ai_images rls_ai` من
+  workflow «RLS live». لحد ما يتطبّق: أي توليد بيرجّع 502 `ai_error` من غير نداء للمزوّد (الحجز مش موجود). بعده: المفتاح
+  `MAGNIFIC_API_KEY` (صاحب المشروع)، ثم `probe` لتثبيت شكل الـ API (T2)، ثم القبول. الواجهة على `main`.

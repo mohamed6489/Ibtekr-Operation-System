@@ -20,7 +20,7 @@ test('studioSku on the server is the page\'s rule (decision 2)', () => {
 test('buildStudio Simple: a draft English product with the SKU, prices, stock, attributes (color / size / material / style / brand as information), categories; the Arabic fields apart', () => {
   const r = buildStudio(simple, O);
   assert.equal(r.sku, 'IBTARBE0999');
-  assert.deepEqual(r.product, { name: 'Boho Cushion', short_description: '<p>Soft</p>', weight: '0.4', categories: [{ id: 20 }], type: 'simple', status: 'draft', wpml_language: 'en', sku: 'IBTARBE0999',
+  assert.deepEqual(r.product, { name: 'Boho Cushion', short_description: '<p>Soft</p>', weight: '0.4', categories: [{ id: 20 }], type: 'simple', status: 'draft', lang: 'en', wpml_language: 'en', sku: 'IBTARBE0999',
     regular_price: '1500', sale_price: '1200', manage_stock: true, stock_quantity: 5,
     attributes: [{ id: 12, visible: true, variation: false, options: ['Beige'] }, { id: 3, visible: true, variation: false, options: ['50×50'] }, { id: 15, visible: true, variation: false, options: ['Cotton'] },
       { id: 14, visible: true, variation: false, options: ['Bohemian'] }, { id: 13, visible: true, variation: false, options: ['Art Craft'] }] });

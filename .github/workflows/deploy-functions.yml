@@ -1,0 +1,40 @@
+name: Deploy functions
+# Deploys an Edge Function from this checkout with the Supabase CLI (the bundle is built by the CLI: the function's folder,
+# its deno.json import map and the ../_shared files it imports), using the secret SUPABASE_ACCESS_TOKEN — a personal access
+# token from supabase.com/dashboard/account/tokens, added once by the owner to the repository's Actions secrets. verify_jwt
+# comes from supabase/config.toml ([functions.<name>] verify_jwt = false for all three: each function authenticates itself).
+# On demand only (tools/deploy.md §2.7.1): pick the function, or `all`. The token is never printed; the CLI's own output
+# names the bundled files and the new version.
+on:
+  workflow_dispatch:
+    inputs:
+      function:
+        description: 'which function'
+        type: choice
+        options: [woo-sync, woo-webhook, ai-content, all]
+        default: woo-sync
+        required: true
+permissions:
+  contents: read
+concurrency: deploy-functions
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: supabase/setup-cli@v1
+        with:
+          version: latest
+      - name: deploy
+        run: |
+          set -euo pipefail
+          : "${SUPABASE_ACCESS_TOKEN:?the repository secret SUPABASE_ACCESS_TOKEN is not set (tools/deploy.md §2.7.1)}"
+          if [ "$FN" = all ]; then list="woo-sync woo-webhook ai-content"; else list="$FN"; fi
+          for f in $list; do
+            echo "::group::deploy $f"
+            supabase functions deploy "$f" --project-ref fsynculhaupcktzkfkdd
+            echo "::endgroup::"
+          done
+        env:
+          FN: ${{ inputs.function }}
+          SUPABASE_ACCESS_TOKEN: ${{ secrets.SUPABASE_ACCESS_TOKEN }}

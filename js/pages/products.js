@@ -350,6 +350,24 @@
     st.live = null; st.draft = null; st.liveFor = null; st.errs = {}; fetchLive(st.editId); R();
   }
   const discard = () => { st.draft = toDraft_(st.live); st.errs = {}; resetCalc(); R(); };
+  // the Arabic translation on another status than the product (a translation added after the product was published, as the
+  // live 182053 / 182057 on 31 Oct): a note and one button that writes the product's status to both (the save writes the
+  // shared fields on the translation too; the product itself does not change)
+  function arStatusNote(p, dis) {
+    const ar = st.live.ar; if (!ar || !ar.status || ar.status === p.status) return null;
+    const label = (s) => window.IBProducts.STATUS[s] || s;
+    const align = async () => {
+      if (st.saving) return; st.saving = true; R();
+      const r = await PR().save(st.editId, { fields: { status: p.status } });
+      st.saving = false;
+      if (!r.ok) { K.toast(fail(r), 'error'); R(); return; }
+      if (r.result === 'skipped') { K.toast(MSG[r.reason] || MSG.push_disabled, 'error'); R(); return; }
+      K.toast('النسخة العربي بقت «' + label(p.status) + '»', 'success');
+      st.live = null; st.draft = null; st.liveFor = null; fetchLive(st.editId); R();
+    };
+    return U.InlineNote({ kind: 'warning', children: [h('span', null, 'النسخة العربي «' + label(ar.status) + '» والإنجليزي «' + label(p.status) + '». '),
+      dis ? null : Button({ type: 'text', size: 'sm', label: st.saving ? 'بنحفظ…' : 'خلّي العربي «' + label(p.status) + '» كمان', disabled: st.saving, attrs: { 'data-par-status': '' }, onClick: align })] });
+  }
   // decision 16 (the owner, 28 Oct): the maker's price is typed for the calculation only (never stored) → the sale price =
   // (maker + fee) ÷ (1 − rate) up to the next 10, the regular («قبل الخصم», shown crossed) = sale + 15–30% at random up to the
   // next 10. One random markup per product / variation while the page is open, so pressing «احسب» again gives the same prices.
@@ -390,7 +408,8 @@
       K.two(U.Select({ id: 'e-brand', label: 'البراند', options: [{ value: '', label: '—' }].concat(PR().brands().map((b) => ({ value: String(b.id), label: b.name }))), value: d.brands[0] != null ? String(d.brands[0]) : '', disabled: dis, help: 'المبتكر (متجر Dokan): ' + ((rec && rec.vendor) || (p.store && p.store.shop_name) || '—'), onChange: (v) => { d.brands = v ? [Number(v)] : []; R(); } }),
         U.TextInput({ id: 'e-type', label: 'النوع', value: p.type === 'variable' ? 'Variable' : p.type === 'simple' ? 'Simple' : p.type, disabled: true, onInput: () => {}, help: 'النوع بيتغير من الاستوديو بس' }))], null, 'grow'),
       h('div', { class: 'stack side-card' }, Card('الحالة والظهور', null, [U.Select({ id: 'e-status', label: 'الحالة', options: [{ value: 'publish', label: 'منشور' }, { value: 'draft', label: 'مسودة' }, { value: 'pending', label: 'قيد المراجعة' }].concat(['publish', 'draft', 'pending'].includes(p.status) ? [] : [{ value: p.status, label: status }]), value: d.status, disabled: dis, onChange: (v) => { d.status = v; R(); } }),
-        K.Switch({ id: 'e-feat', label: 'منتج مميز', checked: d.featured, disabled: dis, onChange: (v) => { d.featured = v; R(); } })]), priceCard(p, inp, dis, rec)));
+        K.Switch({ id: 'e-feat', label: 'منتج مميز', checked: d.featured, disabled: dis, onChange: (v) => { d.featured = v; R(); } }),
+        arStatusNote(p, dis)]), priceCard(p, inp, dis, rec)));
     else if (st.etab === 'price') body = priceCard(p, inp, dis, rec);
     else if (st.etab === 'images') body = imagesCard(p, dis);
     else if (st.etab === 'variants') body = variantsCard(dis, rec);

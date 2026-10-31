@@ -1,0 +1,240 @@
+// Product images with the AI (phase 5.4, docs/superpowers/plans/2026-10-31-phase-5-4-images.md): the ai-images Edge Function
+// (Magnific — the server checks products.add / products.edit, the key, the member's throttle and the images' monthly credit cap,
+// and stores every result in a bucket: the studio's under its batch in `studio`, the tool's under the member in `ai-images`),
+// the buckets' signed URLs / downloads / deletes, the member's image runs in ai_runs («سجل الصور»), and the image settings of the
+// settings row «ai» (decision 3: image_model / image_monthly_credits — read by every member of the tool, written by the admin,
+// merged into the row so the content settings of 5.3 stay). Nothing here writes the site: the studio saves its batch through
+// IBStudio.save, the tool uploads to a product through IBProducts (woo-sync product_images_add, T8). Every call returns a Promise
+// of { ok, … } and never throws; reason 'forbidden' / 'invalid' (+ field) / 'missing' / 'not_configured' / 'ai_cap' / 'busy' /
+// 'ai_error' / 'network'. Each answer is logged through IBActivity.log as product.ai.image (the source, the slot or op, the model,
+// the credits and the ids — never a prompt, a path or an image).
+(function () {
+  'use strict';
+  const FN = 'ai-images';
+  const STUDIO_BUCKET = 'studio', TOOL_BUCKET = 'ai-images';
+  const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
+  const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
+  const emit = (detail) => quiet(() => document.dispatchEvent(new CustomEvent('ib:images', { detail: detail || {} })));
+  const perm = (key) => (window.IBDirectory && window.IBDirectory.perm ? window.IBDirectory.perm(key) : 'N');
+  const isAdmin = () => { const D = window.IBDirectory; const me = D && D.me && D.me(); return !!me && me.role_id === 'admin' && me.status === 'active'; };
+  const myId = () => { const D = window.IBDirectory; const me = D && D.me && D.me(); return me && me.id ? String(me.id) : null; };
+  // the server's rule: a studio slot or a studio edit needs products.add = F, a site product's edit products.edit = F, the tool either;
+  // the settings the admin
+  const can = () => ({ studio: perm('products.add') === 'F', edit: perm('products.edit') === 'F', tool: perm('products.add') === 'F' || perm('products.edit') === 'F', settings: isAdmin() });
+
+  // the models (the server's IMG_MODELS in _shared/ai-images.js — the id is the provider's slug, credits = one image), the sizes and
+  // the shapes, for the pages' selects and confirmations
+  const MODELS = [
+    { id: 'seedream-5-pro', name: 'Seedream 5 Pro', credits: 75, def: true, note: 'الافتراضي — منتجات وتعديل بالمرجعية' },
+    { id: 'imagen-nano-banana-2-1', name: 'Google Nano Banana 2.1', credits: 50, note: 'أدق في تفاصيل المنتج والبراند' },
+    { id: 'imagen-nano-banana-2-lite', name: 'Google Nano Banana 2 Lite', credits: 20, note: 'سريع ورخيص — للتجارب' },
+    { id: 'gpt-2', name: 'GPT 2', credits: 60, note: 'بوستات فيها كلام وتصميمات' },
+  ];
+  const DEFAULT_MODEL = MODELS.find((m) => m.def).id;
+  const SIZES = [
+    { id: '700x800', label: 'صورة منتج 700×800' }, { id: '1080x1350', label: 'بوست 4:5 — 1080×1350' }, { id: '1080x1080', label: 'مربع 1080×1080' },
+    { id: '1080x1920', label: 'ستوري 9:16 — 1080×1920' }, { id: '1200x630', label: 'لينك مشاركة 1200×630' }, { id: '1640x624', label: 'غلاف فيسبوك 1640×624' },
+    { id: '1080x1920t', label: 'تيك توك 1080×1920' }, { id: '1000x1500', label: 'بنترست 1000×1500' }, { id: '1600x900', label: 'بانر 16:9 — 1600×900' },
+    { id: '1200x627', label: 'لينكدإن 1200×627' }, { id: '1280x720', label: 'يوتيوب 1280×720' }, { id: 'custom', label: 'مقاس مخصص' },
+  ];
+  const SHAPES = [{ id: 'studio', label: 'استوديو' }, { id: 'home', label: 'في البيت' }, { id: 'detail', label: 'تفاصيل' }, { id: 'hand', label: 'إيد الصانع' }, { id: 'custom', label: 'مخصص' }];
+  const EDIT_OPS = [{ id: 'instruction', label: 'عدّل بالوصف' }, { id: 'remove_bg', label: 'شيل الخلفية' }, { id: 'upscale', label: 'حسّن وكبّر' }, { id: 'relight', label: 'إضاءة تانية' }];
+  const CREDIT_USD = 0.002;
+  const MAX_COUNT = 4;
+  const MAX_IMAGE_B64 = 2000000; // the server's MAX_IMAGE_B64
+  const MAX_PHOTO = 1600; // the reference photo of the tool at most this on the longest side
+  const modelOf = (id) => MODELS.find((m) => m.id === id) || null;
+  const credits = (model, count) => (modelOf(model) || modelOf(DEFAULT_MODEL)).credits * (Number.isInteger(count) && count > 0 ? count : 1);
+  const usd = (n) => Math.round((Number(n) || 0) * CREDIT_USD * 1000) / 1000;
+  let last = null; // the last settings read
+
+  async function invoke(body) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const { data, error } = await cl.functions.invoke(FN, { body });
+      if (error || !data) {
+        const s = error && error.context && error.context.status;
+        let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
+        const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'missing' : s === 402 ? 'ai_cap' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : 'network';
+        return { ok: false, reason, field: b && b.field ? String(b.field) : null };
+      }
+      return { ok: true, body: data };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  const log = (detail, entity, id) => quiet(() => window.IBActivity && window.IBActivity.log && window.IBActivity.log('product.ai.image', detail, { entity, entity_id: id == null ? null : String(id) }));
+  const answer = (b) => ({ ok: true, result: b.result === 'refused' ? 'refused' : 'ok', bucket: typeof b.bucket === 'string' ? b.bucket : null, path: typeof b.path === 'string' ? b.path : null,
+    paths: Array.isArray(b.paths) ? b.paths.filter((p) => typeof p === 'string') : (typeof b.path === 'string' ? [b.path] : []), credits: Number(b.credits) || 0, model: typeof b.model === 'string' ? b.model : '', runId: b.run_id || null });
+  const slotArg = (slot) => (slot && typeof slot === 'object' && slot.color ? 'color:' + String(slot.color).toUpperCase() : Number(slot));
+  const slotWord = (slot) => (slot && typeof slot === 'object' && slot.color ? 'color ' + String(slot.color).toUpperCase() : 'slot ' + (Number(slot) + 1));
+  const sizeArgs = (opts) => { const o = opts || {}; const out = {}; if (o.size) out.size = o.size; if (o.size === 'custom') { out.width = Number(o.width); out.height = Number(o.height); } return out; };
+  const tail = (r) => (r.result === 'refused' ? ['refused'] : [r.credits + ' credits']);
+
+  // the studio: one slot (0..5 or { color: 'BK' }) of a batch item (the server reads the saved batch, so it is saved first) → the
+  // new image's path in bucket studio (the page puts it in the slot and saves)
+  async function generate(batchId, index, slot, opts) {
+    const o = opts || {};
+    const r = await invoke(Object.assign({ action: 'generate', batch_id: batchId, index, slot: slotArg(slot), model: o.model || undefined }, sizeArgs(o)));
+    if (!r.ok) return r;
+    const out = answer(r.body);
+    log(['studio', '#' + (index + 1), slotWord(slot), out.model].concat(tail(out)).join(' · '), 'studio_batches', batchId);
+    return out;
+  }
+  // an edit: { batchId, index, path } (a studio image → next to its batch) or { productId } (the site product's photo → bucket
+  // ai-images); op instruction (needs words) / remove_bg ({ bg }) / upscale ({ scale }) / relight
+  async function edit(target, op, opts) {
+    const t = target || {}; const o = opts || {};
+    const body = { action: 'edit', op, prompt: o.prompt || undefined, model: o.model || undefined, options: o.options || undefined };
+    if (t.path) { body.batch_id = t.batchId; body.index = t.index; body.path = t.path; } else body.product_id = Number(t.productId);
+    const r = await invoke(body);
+    if (!r.ok) return r;
+    const out = answer(r.body);
+    if (t.path) log(['edit', '#' + (Number(t.index) + 1), op, out.model].concat(tail(out)).join(' · '), 'studio_batches', t.batchId);
+    else log(['edit', '#' + t.productId, op, out.model].concat(tail(out)).join(' · '), 'products', t.productId);
+    return out;
+  }
+  // the images tool: { source: 'text' | 'image', prompt, shape, size, width, height, count, model, image?, productId? } → 1–4 paths
+  // in bucket ai-images under the member
+  async function create(req) {
+    const q = req || {};
+    const body = Object.assign({ action: 'create', source: q.source, shape: q.shape, prompt: q.prompt || undefined, count: q.count || 1, model: q.model || undefined }, sizeArgs(q));
+    if (q.image) body.image = { media_type: q.image.media_type, data: q.image.data };
+    if (q.productId) body.product_id = Number(q.productId);
+    const r = await invoke(body);
+    if (!r.ok) return r;
+    const out = answer(r.body);
+    log(['tool', q.source, q.shape, out.paths.length + ' images', out.model].concat(q.productId ? ['#' + q.productId] : [], tail(out)).join(' · '), 'products', q.productId || null);
+    return out;
+  }
+  // the admin: the shape (keys only) of the provider's account answer, to pin the API layer (T2)
+  async function probe() {
+    const r = await invoke({ action: 'probe' });
+    if (!r.ok) return r;
+    return { ok: true, provider: r.body.provider || '', shape: r.body.shape && typeof r.body.shape === 'object' ? r.body.shape : {}, models: Array.isArray(r.body.models) ? r.body.models : [] };
+  }
+
+  // ---------- the buckets ----------
+  const urls = new Map(); // bucket/path → { url, at } | { loading, at }
+  // a signed URL (an hour; cached 50 minutes); null while it loads (ib:images { url: path } when it lands)
+  function imageUrl(bucket, path) {
+    if (!path) return null;
+    const key = bucket + '/' + path;
+    const hit = urls.get(key);
+    if (hit && hit.url && Date.now() - hit.at < 50 * 60 * 1000) return hit.url;
+    if (hit && hit.loading) return null;
+    const cl = c(); if (!cl) return null;
+    urls.set(key, { loading: true, at: Date.now() });
+    Promise.resolve(cl.storage.from(bucket).createSignedUrl(path, 3600)).then(({ data }) => {
+      const u = data && typeof data.signedUrl === 'string' && data.signedUrl.startsWith('https://') ? data.signedUrl : null;
+      urls.set(key, { url: u, at: Date.now() }); emit({ url: path, bucket });
+    }, () => urls.delete(key));
+    return null;
+  }
+  // the bytes of an image (for a download or an upload to the site) → { ok, blob }
+  async function download(bucket, path) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const { data, error } = await cl.storage.from(bucket).download(path);
+      if (error || !data) return { ok: false, reason: error && /not.?found/i.test(error.message || '') ? 'missing' : 'network' };
+      return { ok: true, blob: data };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // the member deletes their own results in bucket ai-images (their folder only — the policy says so, and so does this)
+  async function remove(paths) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    const me = myId(); const list = [].concat(paths || []).filter((p) => typeof p === 'string' && me && p.startsWith(me + '/'));
+    if (!list.length) return { ok: false, reason: 'forbidden' };
+    try {
+      const { error } = await cl.storage.from(TOOL_BUCKET).remove(list);
+      if (error) return { ok: false, reason: 'network' };
+      list.forEach((p) => urls.delete(TOOL_BUCKET + '/' + p));
+      return { ok: true };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+
+  // «سجل الصور»: the member's good image runs, newest first (the admin's every member's)
+  async function history(limit) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const { data, error } = await cl.from('ai_runs').select('id, created_at, created_by, source, label, product_id, batch_id, item_index, model, credits, cost_usd, output')
+        .eq('action', 'image').eq('status', 'ok').order('created_at', { ascending: false }).limit(limit || 30);
+      if (error) return { ok: false, reason: 'network' };
+      return { ok: true, rows: (data || []).map((x) => ({ id: x.id, at: x.created_at, by: x.created_by || null, source: x.source || '', label: x.label || '', productId: x.product_id || null, batchId: x.batch_id || null,
+        index: Number.isInteger(x.item_index) ? x.item_index : null, model: x.model || '', credits: Number(x.credits) || 0, cost: Number(x.cost_usd) || 0,
+        bucket: x.output && typeof x.output.bucket === 'string' ? x.output.bucket : TOOL_BUCKET, paths: x.output && Array.isArray(x.output.paths) ? x.output.paths.filter((p) => typeof p === 'string') : [] })) };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+
+  // ---------- the settings row «ai» (decision 3): image_model / image_monthly_credits ----------
+  const readRow = async (cl) => { const { data, error } = await cl.from('settings').select('data').eq('section', 'ai').maybeSingle(); return { error, d: data && data.data && typeof data.data === 'object' ? data.data : {} }; };
+  async function settings() {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const { error, d } = await readRow(cl);
+      if (error) return { ok: false, reason: error.code === '42501' ? 'forbidden' : 'network' };
+      const cap = Number(d.image_monthly_credits);
+      last = { model: modelOf(d.image_model) ? d.image_model : DEFAULT_MODEL, monthlyCredits: Number.isFinite(cap) && cap > 0 ? Math.floor(cap) : null, fromRow: ['image_model', 'image_monthly_credits'].filter((k) => d[k] != null && d[k] !== '') };
+      return Object.assign({ ok: true }, last);
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // the admin saves { model, monthlyCredits } (a positive whole number of credits, or null = the secret's cap if any, else none); the
+  // row's other keys (the content settings) stay; logged as product.ai.image.settings
+  async function saveSettings({ model, monthlyCredits }) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().settings) return { ok: false, reason: 'forbidden' };
+    if (!modelOf(model)) return { ok: false, reason: 'invalid', field: 'model' };
+    const n = monthlyCredits == null || monthlyCredits === '' ? null : Number(monthlyCredits);
+    if (n !== null && !(Number.isInteger(n) && n > 0 && n <= 10000000)) return { ok: false, reason: 'invalid', field: 'monthlyCredits' };
+    try {
+      const { error: e1, d } = await readRow(cl);
+      if (e1) return { ok: false, reason: e1.code === '42501' ? 'forbidden' : 'network' };
+      const { error } = await cl.from('settings').upsert({ section: 'ai', data: Object.assign({}, d, { image_model: model, image_monthly_credits: n }) }, { onConflict: 'section' });
+      if (error) return { ok: false, reason: error.code === '42501' ? 'forbidden' : 'network' };
+      last = { model, monthlyCredits: n, fromRow: ['image_model'].concat(n !== null ? ['image_monthly_credits'] : []) };
+      quiet(() => window.IBActivity && window.IBActivity.log && window.IBActivity.log('product.ai.image.settings', [model, n !== null ? n + ' credits' : 'no cap'].join(' · '), { entity: 'settings', entity_id: 'ai' }));
+      return { ok: true };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // this Cairo month: the credits (ai_month_credits — the member's own image runs, the admin's every member's) and the runs by source
+  const cairoMonth = (iso) => { try { return new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).format(new Date(iso)); } catch (e) { return String(iso).slice(0, 7); } };
+  async function monthCredits() {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const { data: total, error } = await cl.rpc('ai_month_credits');
+      if (error) return { ok: false, reason: 'network' };
+      const now = new Date(); const since = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1) - 3 * 3600 * 1000).toISOString();
+      const { data: rows, error: e2 } = await cl.from('ai_runs').select('source, status, credits, created_at').eq('action', 'image').gte('created_at', since).limit(2000);
+      if (e2) return { ok: false, reason: 'network' };
+      const month = cairoMonth(now.toISOString());
+      const mine = (rows || []).filter((r) => cairoMonth(r.created_at) === month && r.status !== 'cap');
+      const by = (s) => { const L = mine.filter((r) => r.source === s); return { runs: L.length, credits: L.reduce((t, r) => t + (Number(r.credits) || 0), 0) }; };
+      return { ok: true, total: Number(total) || 0, usd: usd(total), runs: mine.length, studio: by('studio'), tool: by('tool'), edit: by('edit') };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+
+  // a photo File → { media_type: 'image/jpeg', data (base64), preview (data URL) } at most MAX_PHOTO px on the longest side and
+  // within the server's size, or null when the browser cannot read it
+  function photoOf(file) {
+    return new Promise((resolve) => {
+      const url = quiet(() => URL.createObjectURL(file)); if (!url) return resolve(null);
+      const im = new Image();
+      im.onload = () => {
+        try {
+          const k = Math.min(1, MAX_PHOTO / Math.max(im.naturalWidth, im.naturalHeight));
+          const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(im.naturalWidth * k)); cv.height = Math.max(1, Math.round(im.naturalHeight * k));
+          const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); ctx.drawImage(im, 0, 0, cv.width, cv.height);
+          const d = cv.toDataURL('image/jpeg', 0.9); URL.revokeObjectURL(url);
+          const b64 = d.slice(d.indexOf(',') + 1);
+          resolve(b64 && b64.length <= MAX_IMAGE_B64 ? { media_type: 'image/jpeg', data: b64, preview: d } : null);
+        } catch (e) { URL.revokeObjectURL(url); resolve(null); }
+      };
+      im.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      im.src = url;
+    });
+  }
+
+  window.IBImages = {
+    can, generate, edit, create, probe, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf,
+    credits, usd, modelOf, estModel: () => (last && last.model) || DEFAULT_MODEL,
+    MODELS, DEFAULT_MODEL, SIZES, SHAPES, EDIT_OPS, MAX_COUNT, CREDIT_USD, STUDIO_BUCKET, TOOL_BUCKET,
+  };
+})();

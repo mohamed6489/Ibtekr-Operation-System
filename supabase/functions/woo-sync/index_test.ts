@@ -1634,3 +1634,49 @@ Deno.test('woo-api (phase 5.2): of WordPress only wp/v2/media, with the Applicat
   assert(err instanceof ConfigError);
   assertEquals(woo.calls.length, 1);
 });
+
+// ---------------------------------------------------------------- product_images_add (phase 5.4 T8)
+
+Deno.test('product_images_add: the member\'s own ai-images paths onto a product — each to wp/v2/media, one PUT with the current images + the new ones (first → ahead); products.edit = F, never the secret; another member\'s folder → 401; a missing object → 404 before any upload; push disabled → skipped; the log counts only', async () => {
+  const UID = '00000000-0000-4000-8000-0000000000e1', OTHER = '00000000-0000-4000-8000-0000000000e2';
+  const PNG = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);
+  const storage = { [`ai-images/${UID}/abc-1.webp`]: PNG, [`ai-images/${UID}/abc-2.png`]: PNG, [`ai-images/${OTHER}/x.webp`]: PNG };
+  let media = 900;
+  const routes = {
+    'GET wc/v3/products/501': () => ({ body: wooProduct(501, 44, { name: 'Boho Lamp', images: [{ id: 7, src: 'https://woo.test/img/7.jpg' }] }) }),
+    'POST wp/v2/media': () => ({ body: { id: ++media } }),
+    'PUT wc/v3/products/501': (c: any) => ({ body: wooProduct(501, 44, { name: 'Boho Lamp', images: c.body.images.map((i: any) => ({ id: i.id, src: `https://woo.test/img/${i.id}.jpg` })) }) }),
+  };
+  const userId = async (jwt: string) => (jwt === 'jwt-pedit' ? UID : jwt === 'jwt-admin' ? '00000000-0000-4000-8000-0000000000a1' : null);
+  const { db, woo, deps } = setup({ seed: prodSeed, routes, env: WP_ENV, storage });
+  const d = { ...deps, userId };
+  const paths = [`${UID}/abc-1.webp`, `${UID}/abc-2.png`];
+  assertEquals((await call(d, { action: 'product_images_add', id: 501, paths }, { jwt: 'jwt-pview' })).res.status, 401, 'products.view alone');
+  assertEquals((await call(d, { action: 'product_images_add', id: 501, paths })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(d, { action: 'product_images_add', id: 501, paths: [`${OTHER}/x.webp`] }, { jwt: 'jwt-pedit' })).res.status, 401, 'another member\'s folder');
+  assertEquals((await call(d, { action: 'product_images_add', id: 501, paths: ['loose.webp'] }, { jwt: 'jwt-pedit' })).body.field, 'paths');
+  assertEquals((await call(d, { action: 'product_images_add', id: 501, paths: [] }, { jwt: 'jwt-pedit' })).body.field, 'paths');
+  assertEquals((await call(d, { action: 'product_images_add', id: 'x', paths }, { jwt: 'jwt-pedit' })).body.field, 'id');
+  const miss = await call(d, { action: 'product_images_add', id: 501, paths: [paths[0], `${UID}/gone.webp`] }, { jwt: 'jwt-pedit' });
+  assertEquals([miss.res.status, miss.body.error], [404, 'not_found']);
+  assertEquals(woo.calls.length, 0, 'nothing sent so far');
+  const { res, body } = await call(d, { action: 'product_images_add', id: 501, paths }, { jwt: 'jwt-pedit' });
+  assertEquals([res.status, body.result, body.media, body.count, body.images], [200, 'ok', [901, 902], 2, 3]);
+  const up = woo.calls.filter((c) => c.path === 'wp/v2/media');
+  assertEquals(up.length, 2);
+  assert(/^attachment; filename="Boho-Lamp-ai-\d{10}-01\.webp"$/.test(up[0].headers['content-disposition']), up[0].headers['content-disposition']);
+  assertEquals([up[1].headers['content-type'], up[1].headers.authorization, up[1].body], ['image/png', 'Basic ' + btoa('wp-user:wp app pass'), { bytes: 7 }]);
+  assertEquals(woo.calls.filter((c) => c.method === 'PUT').map((c) => [c.path, c.body]), [['wc/v3/products/501', { images: [{ id: 7 }, { id: 901 }, { id: 902 }] }]]);
+  assertEquals(db.rows('products').find((p: any) => p.id === 501).image_url, 'https://woo.test/img/7.jpg', 'the mirror follows the answer');
+  const log = db.rows('woo_sync_log').at(-1);
+  assertEquals([log.entity, log.entity_id, log.action, log.result, log.detail], ['products', '501', 'product_images_add', 'ok', { count: 2, first: false, media: 2, images: 3 }]);
+  assertFalse(JSON.stringify(log).includes('abc-1'), 'no path in the log');
+  // first → the new ones ahead; the admin may send any folder
+  const r2 = await call(d, { action: 'product_images_add', id: 501, paths: [`${OTHER}/x.webp`], first: true }, { jwt: 'jwt-admin' });
+  assertEquals([r2.res.status, r2.body.media], [200, [903]]);
+  assertEquals(woo.calls.filter((c) => c.method === 'PUT').at(-1)?.body, { images: [{ id: 903 }, { id: 7 }] });
+  // the gate
+  const off = setup({ seed: prodSeed, routes, storage });
+  const r3 = await call({ ...off.deps, userId }, { action: 'product_images_add', id: 501, paths }, { jwt: 'jwt-pedit' });
+  assertEquals([r3.body.result, r3.body.reason, off.woo.calls.length], ['skipped', 'push_disabled', 0]);
+});

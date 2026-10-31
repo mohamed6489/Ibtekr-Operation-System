@@ -43,12 +43,14 @@
     if ((m = /^products-studio-(new|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-([1-8]|report))?$/.exec(hs)) && window.IBStudioView) { st.view = 'studio'; st.tab = 'add'; window.IBStudioView.route(m[1], m[2] || '1'); return true; }
     // phase 5.3: the content tool (products-content.js) — #products-tool-content[-<product id>]
     if ((m = /^products-tool-content(?:-(\d+))?$/.exec(hs)) && window.IBContentView) { st.view = 'tool-content'; st.tab = 'add'; window.IBContentView.route(m[1] ? Number(m[1]) : null); return true; }
+    // phase 5.4: the images tool (products-images.js) — #products-tool-images[-<product id>]
+    if ((m = /^products-tool-images(?:-(\d+))?$/.exec(hs)) && window.IBImagesView) { st.view = 'tool-images'; st.tab = 'add'; window.IBImagesView.route(m[1] ? Number(m[1]) : null); return true; }
     if ((m = /^products(?:-(add|records|trash))?$/.exec(hs))) { st.view = m[1] === 'trash' ? 'trash' : m[1] === 'add' ? 'add' : 'records'; st.tab = st.view === 'add' ? 'add' : 'records'; if (st.view === 'trash') st.status = 'trash'; else if (st.status === 'trash') st.status = 'all'; return true; }
     if ((m = /^products-edit-(\d+)(?:-(data|price|images|variants|cats|desc|seo))?$/.exec(hs))) { st.view = 'edit'; st.tab = 'records'; const id = Number(m[1]); if (id !== st.editId) { st.editId = id; st.live = null; st.draft = null; st.liveFor = null; st.imgSel = null; } st.etab = m[2] || 'data'; return true; }
     return false;
   }
   const studioHash = () => { const S = window.IBStudioView ? window.IBStudioView.state : null; return 'products-studio-' + ((S && S.id) || 'new') + '-' + (S && S.report ? 'report' : (S && S.step) || 1); };
-  const defaultHash = () => ({ add: 'products-add', records: 'products-records', reports: 'products-reports', trash: 'products-trash', edit: 'products-edit-' + st.editId + '-' + st.etab }[st.view] || (st.view === 'studio' ? studioHash() : st.view === 'tool-content' && window.IBContentView ? window.IBContentView.hash() : 'products-records'));
+  const defaultHash = () => ({ add: 'products-add', records: 'products-records', reports: 'products-reports', trash: 'products-trash', edit: 'products-edit-' + st.editId + '-' + st.etab }[st.view] || (st.view === 'studio' ? studioHash() : st.view === 'tool-content' && window.IBContentView ? window.IBContentView.hash() : st.view === 'tool-images' && window.IBImagesView ? window.IBImagesView.hash() : 'products-records'));
 
   // ---------------- shared pieces ----------------
   function Card(title, sub, body, acts, cls) { return K.Section(title, [].concat(body).filter(Boolean), acts, { sub, cls }); }
@@ -73,11 +75,13 @@
     const contentCard = h('button', { type: 'button', class: 'card tool-card', 'aria-label': 'المحتوى — افتح الأداة', 'data-tool': 'content', onClick: () => (canWrite ? go('products-tool-content') : K.toast('محتاج صلاحية «إضافة منتجات» أو «تعديل المنتجات»', 'error')) },
       h('span', { class: 'tool-ic' }, Icon('file')), h('span', { class: 't-h5 tc-t' }, 'المحتوى'), h('span', { class: 't-small tc-b' }, 'اسم ووصف وكلمات مفتاحية ونقاط بالعربي والإنجليزي بأسلوب إبتكر.'),
       canWrite ? Tag('gold', 'ذكاء اصطناعي') : Tag('neutral', 'محتاج صلاحية'), h('span', { class: 'tc-cta' }, 'افتح', Icon('chevL', 'sm')));
-    const imagesCard = h('button', { type: 'button', class: 'card tool-card', 'aria-label': 'الصور — قريبًا', onClick: () => K.toast('«الصور» لسه — soon') }, h('span', { class: 'tool-ic' }, Icon('image')), h('span', { class: 't-h5 tc-t' }, 'الصور'),
-      h('span', { class: 't-small tc-b' }, 'صورة احترافية، إزالة خلفية ونصوص، تحسين، وصورة المقاس بالأبعاد.'), Tag('gold', 'ذكاء اصطناعي — قريبًا'), h('span', { class: 'tc-cta' }, 'قريبًا'));
+    // phase 5.4: the images tool (Magnific) — products.add or products.edit = F
+    const canImg = !!(window.IBImages && window.IBImages.can().tool);
+    const imagesCard = h('button', { type: 'button', class: 'card tool-card', 'aria-label': 'الصور — افتح الأداة', 'data-tool': 'images', onClick: () => (canImg ? go('products-tool-images') : K.toast('محتاج صلاحية «إضافة منتجات» أو «تعديل المنتجات»', 'error')) }, h('span', { class: 'tool-ic' }, Icon('image')), h('span', { class: 't-h5 tc-t' }, 'الصور'),
+      h('span', { class: 't-small tc-b' }, 'صورة احترافية من صورة أو من وصف، إزالة خلفية، تحسين وتكبير — وتتحفظ على المنتج.'), canImg ? Tag('gold', 'ذكاء اصطناعي') : Tag('neutral', 'محتاج صلاحية'), h('span', { class: 'tc-cta' }, 'افتح', Icon('chevL', 'sm')));
     return [h('div', { class: 'tools-grid c3' }, studioCard, imagesCard, contentCard),
       window.IBStudioView ? window.IBStudioView.savedWork() : null,
-      U.InlineNote({ children: 'المنتجات الجديدة بتترفع مسودة من الاستوديو، والمنتجات اللي على الموقع بتتعدل من «السجل». أداة المحتوى بتكتب بالـ AI (Claude) — راجع اللي بتكتبه قبل ما تستخدمه؛ أداة الصور قريبًا.' })];
+      U.InlineNote({ children: 'المنتجات الجديدة بتترفع مسودة من الاستوديو، والمنتجات اللي على الموقع بتتعدل من «السجل». أداة المحتوى بتكتب بالـ AI (Claude) وأداة الصور بتعمل الصور بالـ AI (Magnific) — راجع اللي بيطلع قبل ما تستخدمه.' })];
   }
 
   // ---------------- «السجل» ----------------
@@ -459,8 +463,9 @@
   function imagesCard(p, dis) {
     const d = st.draft; const imgs = d.images.map((iid) => p.images.find((i) => i.id === iid)).filter(Boolean);
     const sel = st.imgSel != null && st.imgSel < imgs.length ? st.imgSel : null;
-    return Card('صور المنتج', 'أول صورة هي الرئيسية. الترتيب والشيل بيتحفظوا على الموقع؛ رفع صور جديدة مع الاستوديو.', [h('div', { class: 'img-grid' }, imgs.map((im, i) => h('button', { type: 'button', class: 'img-it' + (sel === i ? ' on' : ''), 'aria-pressed': String(sel === i), onClick: () => { st.imgSel = sel === i ? null : i; R(); } }, Thumb(im.src, 'xl'), i === 0 ? Tag('brand', 'رئيسية') : null, h('figcaption', { dir: 'ltr' }, im.name || ('#' + im.id))))),
-      !imgs.length ? K.Empty('مفيش صور', 'الصور بتترفع مع استوديو المنتجات.') : null,
+    const ai = !dis && window.IBImages && window.IBImages.can().tool ? Button({ size: 'sm', icon: 'sparkle', label: 'ولّد صور بالذكاء الاصطناعي', attrs: { 'data-pimg': '' }, onClick: () => leaveGuard(() => go('products-tool-images-' + p.id)) }) : null;
+    return Card('صور المنتج', 'أول صورة هي الرئيسية. الترتيب والشيل بيتحفظوا على الموقع؛ صور جديدة من أداة الصور (بالـ AI) أو مع الاستوديو.', [ai ? h('div', null, ai) : null, h('div', { class: 'img-grid' }, imgs.map((im, i) => h('button', { type: 'button', class: 'img-it' + (sel === i ? ' on' : ''), 'aria-pressed': String(sel === i), onClick: () => { st.imgSel = sel === i ? null : i; R(); } }, Thumb(im.src, 'xl'), i === 0 ? Tag('brand', 'رئيسية') : null, h('figcaption', { dir: 'ltr' }, im.name || ('#' + im.id))))),
+      !imgs.length ? K.Empty('مفيش صور', 'اعمل صور بأداة الصور (بالـ AI) أو ارفعها مع استوديو المنتجات.') : null,
       sel != null && !dis ? h('div', { class: 'sel-acts' }, h('b', null, 'الصورة ' + (sel + 1) + ' محددة:'), sel ? Button({ size: 'sm', label: 'خليها الرئيسية', onClick: () => { const x = d.images.splice(sel, 1)[0]; d.images.unshift(x); st.imgSel = 0; R(); } }) : null,
         sel ? Button({ size: 'sm', label: '→ قدّم', onClick: () => { const x = d.images.splice(sel, 1)[0]; d.images.splice(sel - 1, 0, x); st.imgSel = sel - 1; R(); } }) : null,
         sel < imgs.length - 1 ? Button({ size: 'sm', label: 'أخّر ←', onClick: () => { const x = d.images.splice(sel, 1)[0]; d.images.splice(sel + 1, 0, x); st.imgSel = sel + 1; R(); } }) : null,
@@ -547,6 +552,7 @@
     if (st.view === 'edit') return editView();
     if (st.view === 'studio' && window.IBStudioView) return window.IBStudioView.view(K.PageHead('المنتجات', null, null));
     if (st.view === 'tool-content' && window.IBContentView) return window.IBContentView.view();
+    if (st.view === 'tool-images' && window.IBImagesView) return window.IBImagesView.view();
     const head = K.PageHead('المنتجات', 'عدّل المنتجات اللي على الموقع. البيانات والصور متخزنة على ووكومرس.', [Button({ type: 'brand', label: '+ دفعة منتجات جديدة', onClick: startStudio })]);
     head.firstChild.append(fresh());
     let body;

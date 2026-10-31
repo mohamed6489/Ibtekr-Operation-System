@@ -75,6 +75,9 @@
 //              products.add = F (decision 13): the CSV of a Google Sheets link (published, or shared with anyone), read here —
 //              Google answers it with no CORS after its redirect — from the URL built from the link's id (woo-studio.js
 //              fetchSheetCsv); nothing is written or logged.
+//   'product_images_add' { id, paths, first? }  products.edit = F (phase 5.4 T8): the images tool's results (bucket ai-images,
+//              the member's own folder — the admin any) onto a site product: each downloaded and sent to wp/v2/media, then one
+//              PUT with the product's current images + the new ones (first: ahead of them). WOO_PUSH_ENABLED gates it.
 //   'register_webhooks' { delivery_url? }  ensures one active `ibtekr-ops:<topic>` webhook per topic pointing at
 //              {SUPABASE_URL}/functions/v1/woo-webhook; any other webhook on the site (n8n's) is never touched.
 // Answer: 200 { action, result, counts, … } or 4xx / 5xx { error }. CORS for the browser's functions.invoke.
@@ -90,14 +93,15 @@ import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks
 type Db = any;
 // deno-lint-ignore no-explicit-any
 type Json = Record<string, any>;
-export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetch; db: Db; now: () => string; userDb?: (jwt: string) => Db };
+export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetch; db: Db; now: () => string; userDb?: (jwt: string) => Db; userId?: (jwt: string) => Promise<string | null> };
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals',
-  'product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet'];
-// phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link
-const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet'];
+  'product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add'];
+// phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
+// phase 5.4: the images tool's results onto a product
+const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add'];
 const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
@@ -137,7 +141,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'withdraw_approve') return (await admin()) || (await perm('accounts.approve')) ? 'member' : null;
   // phase 5 (decision 5): reading a product live needs products.view <> N; editing products.edit = F; the trash products.trash = F
   if (action === 'product_get') { const { data, error } = await member.rpc('has_perm', { key: 'products.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
-  if (action === 'product_save') return (await admin()) || (await perm('products.edit')) ? 'member' : null;
+  if (action === 'product_save' || action === 'product_images_add') return (await admin()) || (await perm('products.edit')) ? 'member' : null;
   if (action === 'products_batch') return (await admin()) || (await perm('products.bulk')) ? 'member' : null; // the owner, 28 Oct: bulk edit is its own permission
   if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
   // phase 5.2 (decisions 7 / 8 / 13): the studio's upload, a new category and reading a sheet link need products.add = F
@@ -964,6 +968,49 @@ async function categoryCreate(run: Run, args: Json) {
   return json(200, { action: 'category_create', result: 'ok', id, ar_id: arId });
 }
 
+// ---------------------------------------------------------------- product_images_add (phase 5.4 T8)
+
+// product_images_add { id, paths, first? }: the images tool's results (bucket ai-images — a member sends paths of their own
+// folder only, the admin any) onto a site product: every path downloaded first (one missing → 404, nothing sent), each sent to
+// wp/v2/media, then one PUT with the current images + the new media (first → ahead of them); the translation shares the gallery
+// through WPML; the mirror follows the answer; the log holds counts only.
+const TOOL_BUCKET = 'ai-images';
+const TOOL_PATH = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/[A-Za-z0-9._-]{1,120}\.(webp|png|jpe?g)$/i;
+const IMAGES_ADD_MAX = 10;
+async function productImagesAdd(run: Run, args: Json, who: { uid: string | null; admin: boolean }) {
+  const id = wooId(args.id);
+  if (id === null) return json(400, { error: 'bad_request', field: 'id' });
+  const paths = Array.isArray(args.paths) ? [...new Set(args.paths)] : [];
+  if (!paths.length || paths.length > IMAGES_ADD_MAX || !paths.every((p) => typeof p === 'string' && TOOL_PATH.test(p))) return json(400, { error: 'bad_request', field: 'paths' });
+  if (!who.admin && !(who.uid && paths.every((p) => (p as string).startsWith(who.uid + '/')))) return json(401, { error: 'unauthorized' });
+  const first = args.first === true;
+  const detail = { count: paths.length, first };
+  if (!pushEnabled(run.env)) return await pushSkip(run, 'product_images_add', id, detail);
+  const blobs: { path: string; bytes: Uint8Array; ext: string }[] = [];
+  for (const path of paths as string[]) {
+    const { data: blob, error } = await run.db.storage.from(TOOL_BUCKET).download(path);
+    if (error || !blob) return json(404, { error: 'not_found', field: 'paths' });
+    blobs.push({ path, bytes: new Uint8Array(await blob.arrayBuffer()), ext: path.split('.').pop()!.toLowerCase() });
+  }
+  const ctx = await run.ctx();
+  const p = (await ctx.woo.get(`wc/v3/products/${id}`)).data;
+  if (!isObj(p)) return json(502, { error: 'woo_error' });
+  const current = (Array.isArray(p.images) ? p.images : []).map((i: Json) => wooId(isObj(i) ? i.id : null)).filter((x): x is number => x !== null);
+  const media: number[] = [];
+  const stamp = run.now().replace(/[^0-9]/g, '').slice(2, 12);
+  for (const [k, b] of blobs.entries()) {
+    const m = (await ctx.woo.upload('wp/v2/media', b.bytes, `${fileBase(p.name)}-ai-${stamp}-${String(k + 1).padStart(2, '0')}.${b.ext}`, MIME[b.ext] ?? 'image/webp')).data;
+    const mid = wooId(isObj(m) ? m.id : null);
+    if (mid === null) { await logSync(run.db, { ...productEntry(id, 'product_images_add'), result: 'error', detail: { ...detail, media: media.length, error: 'media_refused' } }); return json(502, { error: 'media_refused', media }); }
+    media.push(mid);
+  }
+  const images = (first ? [...media, ...current] : [...current, ...media]).map((i) => ({ id: i }));
+  const saved = (await ctx.woo.put(`wc/v3/products/${id}`, { images })).data;
+  await writeProducts(ctx, [saved].filter(isObj));
+  await logSync(run.db, { ...productEntry(id, 'product_images_add'), result: 'ok', detail: { ...detail, media: media.length, images: images.length } });
+  return json(200, { action: 'product_images_add', result: 'ok', media, count: media.length, images: images.length });
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -1000,6 +1047,13 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'studio_upload') return await studioUpload(run, args);
     if (action === 'category_create') return await categoryCreate(run, args);
     if (action === 'studio_sheet') return await studioSheet(args, deps.fetch);
+    if (action === 'product_images_add') {
+      // who sends: the member's id (the paths must be of their folder) and whether they are the admin
+      const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? '';
+      const uid = deps.userId ? await deps.userId(jwt) : null;
+      const { data: adm, error: admErr } = deps.userDb ? await deps.userDb(jwt).rpc('is_admin') : { data: false, error: null };
+      return await productImagesAdd(run, args, { uid, admin: !admErr && adm === true });
+    }
     if (action === 'withdrawals') {
       try {
         const w = await pullWithdrawals(run, await makersWithStore(run), run.now());
@@ -1029,7 +1083,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     const entity = action === 'push_status' ? 'order' : action === 'push_vendor' ? 'vendor' : action === 'withdraw_approve' ? 'dokan_withdrawals'
       : PRODUCT_ACTIONS.includes(action) || action === 'products' ? 'products' : 'webhooks';
     const entityId = action === 'push_status' ? wooId(args.order_id)?.toString() ?? null : action === 'push_vendor' && typeof args.vendor_id === 'string' ? args.vendor_id.slice(0, 36)
-      : action === 'withdraw_approve' || action === 'product_get' || action === 'product_save' ? wooId(args.id)?.toString() ?? null : null;
+      : action === 'withdraw_approve' || action === 'product_get' || action === 'product_save' || action === 'product_images_add' ? wooId(args.id)?.toString() ?? null : null;
     await logSync(deps.db, { kind: isPush ? 'push' : run.kind, direction: 'out', entity, entity_id: entityId, action, result: 'error', detail: { error: errorText(e, makeScrubber(deps.env)) } });
     if (e instanceof ConfigError) return json(500, { error: 'not_configured' });
     return json(e instanceof WooError ? 502 : 500, { error: e instanceof WooError ? 'woo_error' : 'failed' });
@@ -1046,6 +1100,7 @@ function realDeps(): Deps {
   return {
     env, fetch: globalThis.fetch, db: service, now: () => new Date().toISOString(),
     userDb: (jwt) => createClient(env.SUPABASE_URL ?? '', env.SUPABASE_ANON_KEY ?? '', { ...NO_SESSION, global: { headers: { Authorization: `Bearer ${jwt}` } } }),
+    userId: async (jwt) => { const { data, error } = await service.auth.getUser(jwt); return error ? null : data?.user?.id ?? null; },
   };
 }
 

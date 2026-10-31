@@ -154,6 +154,16 @@
     if (r.body.result === 'ok') { logged('product.save', [Number(id)], Object.keys(body.fields).concat(body.ar ? Object.keys(body.ar).map((k) => 'ar.' + k) : [], body.variations ? ['variations'] : [])); await refresh([Number(id)]); }
     return { ok: true, result: r.body.result, reason: r.body.reason || null, counts: r.body.counts || {} };
   }
+  // phase 5.4 (T8): the images tool's results (bucket ai-images, the member's own paths) onto a product — woo-sync
+  // product_images_add (products.edit = F, WOO_PUSH_ENABLED); first = ahead of the current images; logged as product.images.add
+  async function addImages(id, paths, first) {
+    const list = [].concat(paths || []).filter((x) => typeof x === 'string');
+    if (!list.length) return { ok: false, reason: 'invalid', field: 'paths' };
+    const r = await invoke({ action: 'product_images_add', id: Number(id), paths: list, first: !!first });
+    if (!r.ok) return r;
+    if (r.body.result === 'ok') { logged('product.images.add', [Number(id)], [list.length + ' images' + (first ? ' first' : '')]); await refresh([Number(id)]); }
+    return { ok: true, result: r.body.result, reason: r.body.reason || null, media: Array.isArray(r.body.media) ? r.body.media : [], count: Number(r.body.count) || 0 };
+  }
   // onProgress(done, total) after every request; a request the site did not answer (woo_down / network) marks its 25 as failed
   // and the next ones still go; a refusal (forbidden / invalid) or the push gate stops there
   async function batch(updates, onProgress) {
@@ -254,7 +264,7 @@
   function clear() { gen++; st = 'idle'; rows = new Map(); cats = new Map(); brands = new Map(); comm = new Map(); repCache = new Map(); }
 
   window.IBProducts = {
-    load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry,
+    load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry, addImages,
     categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id) })).sort((a, b) => a.path.localeCompare(b.path)),
     brands: () => [...brands.values()].map((x) => ({ id: Number(x.id), name: x.name })),
     // phase 5.2: a category the studio just made on the site (category_create) shows at once

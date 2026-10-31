@@ -1148,7 +1148,7 @@ export async function installSupabaseMock(page, opts = {}) {
         && (storeAsked().length === 0 ? bankAsked() : (hasPerm(u, 'vendors.edit') === 'F' || (hasPerm(u, 'vendors.edit') === 'P' && storeAsked().every((f) => CONTACT_PUSH.includes(f)))))
         && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
-        : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' ? hasPerm(u, 'products.edit') === 'F' : action === 'products_batch' ? hasPerm(u, 'products.bulk') === 'F'
+        : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' ? hasPerm(u, 'products.bulk') === 'F'
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
       // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
@@ -1216,6 +1216,21 @@ export async function installSupabaseMock(page, opts = {}) {
           seo_title: str(p.seo_title), seo_description: str(p.seo_description) },
           ar: ar ? { id: ar.id, name: ar.name, short_description: '', description: '', seo_title: str(ar.seo_title), seo_description: str(ar.seo_description), status: ar.status } : null,
           variations: p.type === 'variable' ? [{ id: 9901, sku: p.sku + '-R', attributes: [{ name: 'Color', option: 'Red' }], regular_price: '900', sale_price: '', price: '900', manage_stock: true, stock_quantity: 2, stock_status: 'instock', backorders: 'no', image: '' }] : [] });
+      }
+      // phase 5.4 (T8): product_images_add — the member's own ai-images objects (the admin any) onto the product: the gate, each
+      // object must exist (404), the mirror's image_count grows (first = ahead); mock.productWrites records it; media ids 9000+
+      if (action === 'product_images_add') {
+        mock.productWrites = mock.productWrites || []; mock.productWrites.push({ action, by: u.email, ...b });
+        const p = mock.products.find((x) => x.id === Number(b.id)); const paths = Array.isArray(b.paths) ? b.paths : [];
+        if (!p || !Number.isInteger(Number(b.id))) return json(400, { error: 'bad_request', field: 'id' });
+        if (!paths.length || paths.length > 10 || !paths.every((k) => typeof k === 'string' && /^[0-9a-f-]{36}\/[A-Za-z0-9._-]+\.(webp|png|jpe?g)$/i.test(k))) return json(400, { error: 'bad_request', field: 'paths' });
+        if (!isAdmin(u) && !paths.every((k) => k.startsWith(u.id + '/'))) return json(401, { error: 'unauthorized' });
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        if (!paths.every((k) => mock.imgObjects.has(k))) return json(404, { error: 'not_found', field: 'paths' });
+        if (mock.wooDown) return json(502, { error: 'woo_error' });
+        const media = paths.map((_, i) => 9000 + (mock.productWrites.length * 10) + i);
+        p.image_count = (p.image_count || 0) + paths.length; if (b.first === true && !p.image_url) p.image_url = 'https://ibtekr.stage.test/wp-content/uploads/ai.webp';
+        return json(200, { action, result: 'ok', media, count: media.length, images: p.image_count });
       }
       if (action === 'product_save' || action === 'products_batch' || action === 'products_trash' || action === 'products_restore') {
         mock.productWrites = mock.productWrites || [];

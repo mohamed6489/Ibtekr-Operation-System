@@ -92,8 +92,9 @@
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
 
-  // ---------- images (decision 6): WebP in the browser, the private bucket until the upload ----------
-  // a File → a WebP Blob (longest side ≤ 2000 px, quality 0.9); null when the browser cannot read it
+  // ---------- images (decision 6): JPEG in the browser, the private bucket until the upload ----------
+  // a File → a JPEG Blob (longest side ≤ 2000 px, quality 0.9; phase 5.4: JPEG, not WebP — Magnific takes JPG / PNG references
+  // only, and WordPress takes both); null when the browser cannot read it. The name toWebp stays for its callers.
   function toWebp(file, max) {
     return new Promise((resolve) => {
       const url = quiet(() => URL.createObjectURL(file)); if (!url) return resolve(null);
@@ -102,8 +103,8 @@
         try {
           const m = max || 2000; const k = Math.min(1, m / Math.max(im.naturalWidth, im.naturalHeight));
           const cv = document.createElement('canvas'); cv.width = Math.max(1, Math.round(im.naturalWidth * k)); cv.height = Math.max(1, Math.round(im.naturalHeight * k));
-          cv.getContext('2d').drawImage(im, 0, 0, cv.width, cv.height);
-          cv.toBlob((b) => { URL.revokeObjectURL(url); resolve(b); }, 'image/webp', 0.9);
+          const ctx = cv.getContext('2d'); ctx.fillStyle = '#fff'; ctx.fillRect(0, 0, cv.width, cv.height); ctx.drawImage(im, 0, 0, cv.width, cv.height);
+          cv.toBlob((b) => { URL.revokeObjectURL(url); resolve(b); }, 'image/jpeg', 0.9);
         } catch (e) { URL.revokeObjectURL(url); resolve(null); }
       };
       im.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
@@ -111,13 +112,13 @@
     });
   }
   const safe = (s) => String(s || 'img').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 60) || 'img';
-  // file → { ok, path } at studio/<batch>/<name>.webp
+  // file → { ok, path } at studio/<batch>/<name>.jpg
   async function uploadImage(batchId, file, name) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     const blob = await toWebp(file); if (!blob) return { ok: false, reason: 'not_image' };
-    const path = batchId + '/' + safe(name) + '-' + Date.now().toString(36) + '.webp';
+    const path = batchId + '/' + safe(name) + '-' + Date.now().toString(36) + '.jpg';
     try {
-      const { error } = await cl.storage.from(BUCKET).upload(path, blob, { contentType: 'image/webp', upsert: false });
+      const { error } = await cl.storage.from(BUCKET).upload(path, blob, { contentType: 'image/jpeg', upsert: false });
       if (error) return { ok: false, reason: 'network' };
       return { ok: true, path };
     } catch (e) { return { ok: false, reason: 'network' }; }

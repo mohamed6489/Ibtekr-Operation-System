@@ -449,7 +449,7 @@
       : [h('button', { type: 'button', class: 'drop', onClick: () => filePick('.xlsx,.csv', false, (f) => readSheet(f[0])) }, Icon('upload'), h('b', null, 'اختار الشيت'), h('small', null, 'Excel (xlsx) أو CSV')), linkRow()]);
     const mainN = L.filter((it) => it.main).length;
     const s2 = Card('2 · صورة لكل منتج', sh ? 'سمّي الصور برقم الصف: 1-1 الأساسية، 1-2 و1-3 مرجعية لنفس المنتج — من غير رقم بتتربط بالترتيب.' : 'بتتفتح بعد الشيت.', sh ? [
-      h('button', { type: 'button', class: 'drop', onClick: () => filePick('image/*', true, dropImages) }, Icon('upload'), h('b', null, 'اختار صور المنتجات'), h('small', null, 'JPG / PNG / WebP — بتتحول WebP · ' + mainN + ' من ' + L.length)),
+      h('button', { type: 'button', class: 'drop', onClick: () => filePick('image/*', true, dropImages) }, Icon('upload'), h('b', null, 'اختار صور المنتجات'), h('small', null, 'JPG / PNG / WebP — بتتحول JPG · ' + mainN + ' من ' + L.length)),
       U.InlineNote({ children: 'الصورة الأساسية بتتحط في خانة «الصورة الأساسية» في خطوة الصور (تقدر تبدلها). الصور المرجعية مابتترفعش على الموقع.' })] : []);
     const rows = L.map((it, i) => { const s = recvState(it);
       return { cls: s === 'ok' ? null : 'row-err', cells: [K.Num(String(i + 1)), h('span', { class: 'rv-data' }, h('b', null, it.nameEn || h('span', { class: 'help' }, 'من غير اسم')), h('small', { class: 't-small help' }, (it.vendorPrice ? money(it.vendorPrice) : 'السعر ناقص') + (it.colors.length ? ' · ' + it.colors.join(' ') : ''))),
@@ -596,7 +596,7 @@
         h('div', { class: 'chips slot-rules' }, h('span', { class: 't-small help' }, 'الخانات:'), PD.SLOTS.map((s, k) => Tag('neutral', (k + 1) + ' · ' + s + ': ' + PD.SLOT_HINT[k])))),
       can ? BulkBar([Button({ type: 'primary', size: 'sm', icon: 'sparkle', label: 'ولّد الناقص للمحدد', disabled: !!run || !missingSel.length, onClick: () => genSlots(missingSel, 'ولّد الناقص للمحدد') })]) : null,
       h('section', { class: 'card sec' }, h('div', { class: 'sec-b' }, STable([{ l: allBox(L), w: 48 }, { l: 'المنتج', w: 220 }, { l: 'المرجعية', w: 120 }, { l: 'صور المنتج (بتترفع على الموقع بالترتيب ده)' }], rows, 'الصور'))),
-      U.InlineNote({ children: 'الصورة الأساسية من الاستلام اتحطت في الخانة 1 — بدّلها لو عايز. الصور بتتحول WebP وتترفع على مكتبة وسائط ووردبريس وقت الرفع.' + (can ? ' «ولّد» بيعمل صورة الخانة بالـ AI من الصورة المرجعية وبيانات المنتج وعليها «AI» — راجعها؛ اسحب صورة على خانة تانية تبدّلهم؛ اضغط على الصورة تعدّلها بالـ AI أو ترجع لنسخة قديمة.' : '') + (noRef ? ' ' + noRef + ' منتج من غير صورة مرجعية — ارفعها في «الاستلام» عشان الـ AI يشتغل عليه.' : '') }),
+      U.InlineNote({ children: 'الصورة الأساسية من الاستلام اتحطت في الخانة 1 — بدّلها لو عايز. الصور بتتحول JPG وتترفع على مكتبة وسائط ووردبريس وقت الرفع.' + (can ? ' «ولّد» بيعمل صورة الخانة بالـ AI من الصورة المرجعية وبيانات المنتج وعليها «AI» — راجعها؛ اسحب صورة على خانة تانية تبدّلهم؛ اضغط على الصورة تعدّلها بالـ AI أو ترجع لنسخة قديمة.' : '') + (noRef ? ' ' + noRef + ' منتج من غير صورة مرجعية — ارفعها في «الاستلام» عشان الـ AI يشتغل عليه.' : '') }),
       WizFoot(L.every((it) => it.slots.slice(0, n).some(Boolean)) && !run, run ? 'استنى الصور تخلص' : 'كل منتج محتاج صورة واحدة على الأقل')];
   }
 

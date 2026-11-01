@@ -485,6 +485,17 @@
     K.toast('اتعمل فلو «' + r.category + '» بـ ' + r.photos + ' صورة' + (r.prompts ? ' وبرومبتات الفئة' : ' بالبرومبتات العامة (الفئة مالهاش برومبتات)') + ' — افتح الـ Space ودوس Run', 'success');
     R();
   }
+  // the prompts library is empty (the owner, 1 Nov: «مفيش تحديد الفئات من السيستم») — the categories come from it, so the admin
+  // reads the template Space from here instead of hunting for the button in «إعدادات الصور»; a member is told who can
+  async function syncPromptsHere() {
+    const I = IM(); if (!I || S.syncing) return;
+    S.syncing = true; R();
+    const r = await I.promptsSync();
+    S.syncing = false;
+    if (!r.ok) { K.toast(r.reason === 'not_linked' ? I.why(r) : r.reason === 'forbidden' ? 'الأدمن بس بيحدّث البرومبتات' : 'في مشكلة في الاتصال — جرّب تاني', 'error'); R(); return; }
+    S.cats = undefined; readCategories();
+    K.toast(r.rows ? 'اتقرت ' + r.categories + ' فئة · ' + r.rows + ' برومبت' : 'الـ template مافيهوش مولّدات باسم «<فئة> N — <لقطة>» — راجع أسامي المولّدات في الـ Space', r.rows ? 'success' : 'warn'); R();
+  }
   function flowBar() {
     const I = IM(); if (!I || !S.id) return null;
     readCategories();
@@ -492,6 +503,11 @@
     const cats = S.cats || [];
     const opts = cats.map((x) => ({ value: x.category, label: x.category + (x.shots < 3 ? ' (' + x.shots + ' لقطات)' : '') }));
     if (S.state.category && !cats.some((x) => x.category === S.state.category)) opts.unshift({ value: S.state.category, label: S.state.category + ' (من غير برومبتات)' });
+    if (Array.isArray(S.cats) && !S.cats.length && !S.state.category) {
+      return h('div', { class: 'acts-inline', 'data-flow-bar': '', 'data-flow-empty': '' },
+        h('span', { class: 't-small help' }, 'مفيش فئات لسه — الفئات بتيجي من برومبتات الـ template بتاعك على Magnific' + (I.can().settings ? ':' : ' (الأدمن بيحدّثها من «إعدادات الصور»).')),
+        I.can().settings ? Button({ size: 'sm', icon: 'refresh', label: S.syncing ? 'بنقرا…' : 'حدّث البرومبتات من الـ template', disabled: !!S.syncing, attrs: { 'data-flow-sync': '' }, onClick: syncPromptsHere }) : null);
+    }
     return h('div', { class: 'acts-inline', 'data-flow-bar': '' },
       U.Select({ id: 'flow-cat', label: null, placeholder: 'فئة المنتجات', options: opts, value: S.state.category || '', onChange: (v) => { S.state.category = v; touch(); R(); } }),
       Button({ size: 'sm', icon: 'sparkle', label: S.flowing ? 'بنجهّز…' : flow ? 'جهّز فلو جديد' : 'جهّز فلو على Magnific', disabled: !!S.flowing, attrs: { 'data-flow': '' }, onClick: makeFlow }),

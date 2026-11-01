@@ -11,7 +11,7 @@
 
 // deno-lint-ignore no-explicit-any
 type Json = Record<string, any>;
-export type Ref = { bytes: Uint8Array; mime: string };
+export type Ref = { bytes: Uint8Array; mime: string; url?: string | null }; // url: a signed / public https link of the same image, sent instead of the bytes when present
 export type Out = { images: { bytes: Uint8Array; mime: string }[]; credits: number | null };
 export type GenerateReq = { model: string; prompt: string; width: number; height: number; count: number; references: Ref[] };
 export type EditReq = { model: string; op: 'instruction' | 'remove_bg' | 'upscale' | 'relight'; prompt: string; image: Ref; imageUrl?: string | null; options: Json };
@@ -23,7 +23,15 @@ export type Provider = {
 export class ProviderError extends Error {
   kind: 'not_configured' | 'busy' | 'ai_error' | 'refused';
   status: number | null;
-  constructor(kind: ProviderError['kind'], status: number | null = null) { super(kind); this.kind = kind; this.status = status; }
+  detail: string | null; // a safe word on what came back (the answer's keys and any error text, cut short) — for the diagnosis row, never an image or the key
+  constructor(kind: ProviderError['kind'], status: number | null = null, detail: string | null = null) { super(kind); this.kind = kind; this.status = status; this.detail = detail; }
+}
+/** A short, safe description of a provider answer: its top keys (two levels) and any error / message text, at most 300 characters. */
+export function describe(j: unknown): string {
+  if (j === null || typeof j !== 'object') return typeof j;
+  const o = j as Json; const d = o.data && typeof o.data === 'object' ? o.data : o;
+  const text = [o.error, o.message, o.detail, d.error, d.message, d.reason, d.status].filter((x) => x !== undefined).map((x) => (typeof x === 'string' ? x : JSON.stringify(x))).join(' | ');
+  return (Object.keys(o).join(',') + (d !== o ? ' / data:' + Object.keys(d).join(',') : '') + (text ? ' :: ' + text : '')).replace(/[A-Za-z0-9+/]{80,}={0,2}/g, '<b64>').slice(0, 300);
 }
 
 const DEFAULT_URL = 'https://api.magnific.com/v1/ai';
@@ -69,7 +77,7 @@ export function magnific(env: Record<string, string | undefined>, fetchFn: typeo
     if (res.status === 402) throw new ProviderError('ai_error', res.status); // the provider's own credits ran out
     let json: Json = {};
     try { json = await res.json(); } catch { json = {}; }
-    if (!res.ok) throw new ProviderError(res.status === 422 ? 'refused' : 'ai_error', res.status);
+    if (!res.ok) throw new ProviderError(res.status === 422 ? 'refused' : 'ai_error', res.status, describe(json));
     return json;
   }
   const data = (j: Json): Json => (j && typeof j.data === 'object' && j.data !== null && !Array.isArray(j.data) ? j.data : j);
@@ -80,7 +88,7 @@ export function magnific(env: Record<string, string | undefined>, fetchFn: typeo
     return list.map((x: Json) => (typeof x === 'string' ? x : x?.url ?? x?.image_url ?? null)).filter((u: unknown): u is string => typeof u === 'string' && /^https:\/\//.test(u));
   };
   // a task the provider's safety rules stopped is a refusal (the row says so at no cost); any other failure is ai_error
-  const fail = (j: Json): never => { throw new ProviderError(/safety|policy|nsfw|moderation|flagged/i.test(JSON.stringify(data(j).error ?? data(j).message ?? data(j).reason ?? '')) ? 'refused' : 'ai_error'); };
+  const fail = (j: Json): never => { throw new ProviderError(/safety|policy|nsfw|moderation|flagged/i.test(JSON.stringify(data(j).error ?? data(j).message ?? data(j).reason ?? '')) ? 'refused' : 'ai_error', null, describe(j)); };
 
   async function download(urls: string[]): Promise<Out['images']> {
     const images: Out['images'] = [];
@@ -102,7 +110,7 @@ export function magnific(env: Record<string, string | undefined>, fetchFn: typeo
     let last = first;
     if (statusOf(first) !== 'COMPLETED') {
       const id = idOf(first);
-      if (!id) throw new ProviderError('ai_error');
+      if (!id) throw new ProviderError('ai_error', null, 'no task id: ' + describe(first));
       const started = Date.now();
       for (;;) {
         await sleep(POLL_EVERY_MS);
@@ -114,7 +122,7 @@ export function magnific(env: Record<string, string | undefined>, fetchFn: typeo
       }
     }
     const urls = urlsOf(last);
-    if (!urls.length) throw new ProviderError('ai_error');
+    if (!urls.length) throw new ProviderError('ai_error', null, 'no image: ' + describe(last));
     return urls;
   }
   const route = (model: string) => ROUTES[model] ?? ROUTES['seedream-5-pro'];
@@ -123,7 +131,8 @@ export function magnific(env: Record<string, string | undefined>, fetchFn: typeo
     const r = route(model);
     const path = refs.length && r.edit ? r.edit : r.text;
     const body: Json = { prompt };
-    if (refs.length) body.reference_images = refs.map((x) => b64(x.bytes));
+    // a signed https link when the handler made one (the provider fetches the original, no re-encoding), else the bytes as base64
+    if (refs.length) body.reference_images = refs.map((x) => x.url || b64(x.bytes));
     if (r.ratio) { body.aspect_ratio = aspectOf(w, h); body.resolution = tierOf(w, h); }
     return task(path, body);
   }
@@ -142,8 +151,8 @@ export function magnific(env: Record<string, string | undefined>, fetchFn: typeo
         if (!u) throw new ProviderError('ai_error');
         return { images: await download([u]), credits: null };
       }
-      if (req.op === 'upscale') return { images: await download(await task('/image-upscaler', { image: b64(req.image.bytes), scale_factor: (req.options.scale === 4 ? 4 : 2) + 'x' })), credits: null };
-      if (req.op === 'relight') return { images: await download(await task('/image-relight', { image: b64(req.image.bytes), prompt: req.prompt })), credits: null };
+      if (req.op === 'upscale') return { images: await download(await task('/image-upscaler', { image: req.image.url || b64(req.image.bytes), scale_factor: (req.options.scale === 4 ? 4 : 2) + 'x' })), credits: null };
+      if (req.op === 'relight') return { images: await download(await task('/image-relight', { image: req.image.url || b64(req.image.bytes), prompt: req.prompt })), credits: null };
       // an instruction: the model's edit route with the image as the reference
       return { images: await download(await one(req.model, req.prompt, 1, 1, [req.image])), credits: null };
     },

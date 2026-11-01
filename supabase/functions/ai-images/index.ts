@@ -103,7 +103,8 @@ async function runImages(deps: Deps, base: Json, model: string, count: number, w
     // a lost answer (busy after a timeout) keeps its planned credits; a refusal or a clear error costs nothing here
     const credits = kind === 'busy' ? planned : 0;
     const status = e instanceof ProviderError ? e.status : null;
-    await finishRun(deps, run.id, { status: kind === 'refused' ? 'refused' : 'error', error: kind, credits, cost_usd: usdOf(credits), output: { configured: true, status } });
+    const detail = e instanceof ProviderError ? e.detail : e instanceof Error ? line(e.name + ': ' + e.message, 200) : null;
+    await finishRun(deps, run.id, { status: kind === 'refused' ? 'refused' : 'error', error: kind, credits, cost_usd: usdOf(credits), output: { configured: true, status, detail } });
     if (kind === 'refused') return json(200, { result: 'refused', model, credits: 0, run_id: run.id });
     return json(kind === 'not_configured' ? 503 : kind === 'busy' ? 429 : 502, { error: kind, configured: true, status });
   }
@@ -117,13 +118,18 @@ async function runImages(deps: Deps, base: Json, model: string, count: number, w
 
 // ---------------------------------------------------------------- files
 
+const SIGN_SECONDS = 600;
+// an image of a bucket as the provider's reference: its bytes and a signed https link good for ten minutes (the provider fetches
+// the original by the link; the bytes stay the fallback)
 async function download(db: Db, bucket: string, path: string): Promise<Ref | null> {
   const { data, error } = await db.storage.from(bucket).download(path);
   if (error || !data) return null;
   const bytes = new Uint8Array(await data.arrayBuffer());
   if (!bytes.length || bytes.length > MAX_REF_BYTES) return null;
   const ext = path.split('.').pop()!.toLowerCase();
-  return { bytes, mime: ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg' };
+  const { data: sg } = await db.storage.from(bucket).createSignedUrl(path, SIGN_SECONDS);
+  const url = typeof sg?.signedUrl === 'string' && /^https:\/\//.test(sg.signedUrl) ? sg.signedUrl : null;
+  return { bytes, mime: ext === 'png' ? 'image/png' : ext === 'webp' ? 'image/webp' : 'image/jpeg', url };
 }
 async function upload(db: Db, bucket: string, path: string, img: { bytes: Uint8Array; mime: string }) {
   const { error } = await db.storage.from(bucket).upload(path, img.bytes, { contentType: img.mime, upsert: false });
@@ -150,10 +156,17 @@ async function productPhoto(deps: Deps, productId: number): Promise<Ref | null> 
     const bytes = new Uint8Array(await r.arrayBuffer());
     if (!bytes.length || bytes.length > MAX_REF_BYTES) return null;
     const ct = (r.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
-    return { bytes, mime: ct === 'image/png' || ct === 'image/webp' ? ct : 'image/jpeg' };
+    return { bytes, mime: ct === 'image/png' || ct === 'image/webp' ? ct : 'image/jpeg', url: url.href };
   } catch { return null; }
 }
-const fromB64 = (image: { media_type: string; data: string }): Ref => ({ bytes: Uint8Array.from(atob(image.data), (c) => c.charCodeAt(0)), mime: image.media_type });
+// the tool's photo (base64 from the browser): kept in the member's folder as the source and signed, so the provider gets a link
+async function storedPhoto(deps: Deps, uid: string, image: { media_type: string; data: string }, st: string): Promise<Ref> {
+  const bytes = Uint8Array.from(atob(image.data), (c) => c.charCodeAt(0));
+  const path = `${uid}/src-${st}.${extOf(image.media_type)}`;
+  const up = await upload(deps.db, TOOL_BUCKET, path, { bytes, mime: image.media_type });
+  const { data: sg } = up ? await deps.db.storage.from(TOOL_BUCKET).createSignedUrl(path, SIGN_SECONDS) : { data: null };
+  return { bytes, mime: image.media_type, url: typeof sg?.signedUrl === 'string' && /^https:\/\//.test(sg.signedUrl) ? sg.signedUrl : null };
+}
 
 // ---------------------------------------------------------------- generate (a studio slot)
 
@@ -240,8 +253,9 @@ async function create(deps: Deps, who: Who, args: Json) {
   const { source, prompt, shape, size, count, model, image, productId } = parsed.req;
   const refs: Ref[] = [];
   let subject = '';
+  const st = stamp(deps);
   if (source === 'image') {
-    if (image) refs.push(fromB64(image));
+    if (image) refs.push(await storedPhoto(deps, who.uid, image, st));
     else if (productId) {
       const { data: p } = await deps.db.from('products').select('id, name').eq('id', productId).maybeSingle();
       if (!p) return json(404, { error: 'not_found' });
@@ -253,7 +267,6 @@ async function create(deps: Deps, who: Who, args: Json) {
   const full = shapePrompt(shape, subject, prompt);
   const label = line(subject || prompt, 200) || 'صورة';
   const base = { created_by: who.uid, action: 'image', source: 'tool', label, product_id: productId };
-  const st = stamp(deps);
   return await runImages(deps, base, model, count,
     () => deps.provider.generate({ model, prompt: full, width: size.w, height: size.h, count, references: refs }),
     (img, n) => upload(deps.db, TOOL_BUCKET, toolPath(who.uid, st, n, extOf(img.mime)), img));
@@ -284,7 +297,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (!configured) { await record('error', 'not_configured', { status: null }); return json(503, { error: 'not_configured', configured: false }); }
     // the shape only (keys and types, no values) of the provider's account answer — enough to pin the layer in T2, nothing to leak
     try { const sh = shape(await deps.provider.probe()); await record('ok', null, { status: 200, shape: sh }); return json(200, { result: 'ok', provider: PROVIDER, shape: sh, models: MODEL_IDS }); }
-    catch (e) { const kind = e instanceof ProviderError ? e.kind : 'ai_error'; const status = e instanceof ProviderError ? e.status : null; await record('error', kind, { status }); return json(kind === 'not_configured' ? 503 : kind === 'busy' ? 429 : 502, { error: kind, configured: true, status }); }
+    catch (e) { const kind = e instanceof ProviderError ? e.kind : 'ai_error'; const status = e instanceof ProviderError ? e.status : null; await record('error', kind, { status, detail: e instanceof ProviderError ? e.detail : null }); return json(kind === 'not_configured' ? 503 : kind === 'busy' ? 429 : 502, { error: kind, configured: true, status }); }
   } catch (e) {
     console.error('ai-images failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });

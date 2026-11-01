@@ -12,6 +12,10 @@
   `resolution`)، المهمة `data.task_id/status/generated` وpolling على نفس الـ route، الـ cutout متزامن على `image_url` (رابط موقّع من
   الـ bucket)، الـ upscaler `/image-upscaler`، relight `/image-relight`، الـ probe = GET قايمة المهام. الموديلات اتسمّت على الحقيقي:
   `seedream-5-pro` / `seedream-5-lite` / `gemini-2-5-flash` / `gpt-image-2` (Nano Banana Pro مستني تأكيد شكل حقل المرجعية). `ai-images` v5.
+  **1 نوفمبر:** أول «ولّد» حي على v5 رجّع `ai_error` من المزوّد (الصف 73، `configured: true`، من غير رقم HTTP = المهمة فشلت بعد ما
+  اتقبلت). المراجعة التانية للمستندات: المرجعية JPG/PNG بس (صورنا كانت WebP) والرابط أحسن من base64 → v6: المرجعية رابط موقّع من الـ
+  bucket (10 دقايق) وbase64 احتياطي، صورة الأداة بتتخزن في `<uid>/src-…` وتتبعت كرابط، صور الاستوديو الجديدة JPG (`toWebp` بقت بتطلّع
+  JPEG — الاسم فضل لمستخدميه)، وأي فشل بيتسجّل `output.detail` (شكل الرد ونص الخطأ، base64 مطموس) عشان التشخيص من الداتا بيز.
 - [x] T3 `0025_ai_images` (31 أكتوبر): `ai_runs.action` + `image`، `source` + `tool`/`edit`، عمود `credits`؛ bucket `ai-images` خاص
   (القراءة والحذف لفولدر العضو بـ `products.add`/`products.edit` F، الكتابة للسيرفر بس)؛ `rls_ai_images.sql`. مافيش Postgres محلي
   في الـ sandbox — بيتأكد في CI (`db:test`) وعلى الحي بـ RLS live بعد التطبيق.

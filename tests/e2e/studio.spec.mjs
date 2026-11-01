@@ -48,7 +48,7 @@ test('studio Simple: brand + batch rate → CSV (columns by name) + images by ro
   await expect(page.locator('#pg-products .st-table tbody tr').nth(1)).toContainText('لون مش في الجدول: Purple');
   await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }, { name: '2-1.png', mimeType: 'image/png', buffer: PNG }]);
   await expect(page.locator('#pg-products')).toContainText('2 من 2');
-  expect([...mock.studioObjects.keys()].every((k) => k.startsWith('0b6f2f5e-1d2c-4a8b-9e3f-000000000001/') && k.endsWith('.webp'))).toBe(true);
+  expect([...mock.studioObjects.keys()].every((k) => k.startsWith('0b6f2f5e-1d2c-4a8b-9e3f-000000000001/') && k.endsWith('.jpg'))).toBe(true); // JPEG since phase 5.4 (the provider's references)
   await next(page, 'التالي: البيانات و SKU');
   await page.getByRole('button', { name: '+ لون جديد' }).first().click();
   await page.fill('#en', 'Purple'); await page.fill('#ar', 'بنفسجي');

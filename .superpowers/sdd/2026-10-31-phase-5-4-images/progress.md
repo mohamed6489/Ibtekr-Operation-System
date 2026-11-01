@@ -63,7 +63,12 @@
   إعدادات الصور + صفحة الرجوع)، الـ mock، Deno 22 / node 375 / e2e 202 خضرا. semgrep محجوب في الجلسة (CI بيشغّله). **حي (1 نوفمبر):**
   `0029` اتطبّقت بالـ MCP (عدّت من غير تأكيد رغم الـ revoke؛ اتأكدت: الجدول والدالتين وgrants `service_role`)، `ai-images` v13 بالـ
   workflow، الواجهة على `main` (Deploy #66)، `rls_magnific_bridge` على «RLS live». مستني صاحب المشروع يربط الحساب من «إعدادات
-  الصور»؛ وجلسة الجسر القديمة تفضل احتياطي لحد ما أول دورة حقيقية تنجح.
+  الصور»؛ وجلسة الجسر القديمة تفضل احتياطي لحد ما أول دورة حقيقية تنجح. **الربط اتعمل** (الحساب في Vault `magnific_mcp_tokens`).
+  **التوليد (1 نوفمبر):** صاحب المشروع اختار **التوليد على الموقع بالـ Unlimited** (أي توليد من الـ API أو الـ MCP بكريدت — 75 لـ
+  Nano Banana Pro؛ Gemini مباشرة مؤجل)، و**السيستم يكتب البرومبت**: `PD.slotPrompt` في `products-domain.js` بنفس كلام
+  `_shared/ai-images.js` (اختبار تطابق في domain)، وpopup «البرومبتات (لـ Magnific)» من قايمة صف المنتج في الاستلام وزرار
+  «البرومبتات» تحت المرجعية في خطوة الصور — برومبت لكل خانة (+ خانات الألوان في Variable) بزرار «انسخ» و«انسخ الكل» (clipboard API
+  وإلا textarea + execCommand). e2e في حالة قرار 11.
 - [x] T3 `0025_ai_images` (31 أكتوبر): `ai_runs.action` + `image`، `source` + `tool`/`edit`، عمود `credits`؛ bucket `ai-images` خاص
   (القراءة والحذف لفولدر العضو بـ `products.add`/`products.edit` F، الكتابة للسيرفر بس)؛ `rls_ai_images.sql`. مافيش Postgres محلي
   في الـ sandbox — بيتأكد في CI (`db:test`) وعلى الحي بـ RLS live بعد التطبيق.

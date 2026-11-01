@@ -307,3 +307,12 @@ test('photoName (decision 10, «صور بس»): the product\'s data from the fil
   const e = PD.photoName('Cotton tote bag 45x35cm 350 EGP.jpg', { colors });
   assert.deepEqual([e.nameEn, e.vendorPrice, e.sizes, e.material], ['Cotton tote bag', 350, ['45×35cm'], 'Cotton']);
 });
+
+test('slotPrompt (phase 5.4 decision 11): the page\'s prompt a slot is the server\'s word for word — the subject from the item, the brand, the color, the sizes on the proportions slot, the extras, a color slot; tags stripped', async () => {
+  const { slotPrompt } = await import('../../supabase/functions/_shared/ai-images.js');
+  const it = { nameEn: 'Kilim Pouf <b>x</b>', nameAr: 'بوف', material: 'Cotton', style: 'Boho', sizes: ['50×50', '60×60'], colors: ['BE'] };
+  for (const slot of [0, 1, 2, 3, 4, 5, { color: 'BE' }]) for (const ctx of [{}, { brand: 'Art Craft' }, { brand: 'Art Craft', colorName: 'Beige' }]) assert.equal(PD.slotPrompt(it, slot, ctx), slotPrompt(it, slot, ctx), JSON.stringify([slot, ctx]));
+  assert.equal(PD.slotPrompt({}, 0), slotPrompt({}, 0));
+  assert.ok(PD.slotPrompt(it, 3, { brand: 'Art Craft' }).includes('(50×50, 60×60)') && !PD.slotPrompt(it, 3).includes('<b>'));
+  assert.ok(PD.slotPrompt(it, { color: 'BE' }, { colorName: 'Beige' }).includes('Kilim Pouf x, in Beige, made of Cotton, Boho style'));
+});

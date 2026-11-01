@@ -512,6 +512,20 @@ test('decision 11 — the system\'s own Magnific link: «ابعت الصور ل�
   expect(mock.bridgeCalls.map((c) => [c.by, c.action, c.body.batch_id])).toEqual([[OPS, 'bridge_upload', SB]]);
   expect(mock.imageShares.map((x) => [x.item_index, x.name, x.status, x.creation_ref])).toEqual([[0, 'Boho Cushion.jpg', 'sent', 'UP1'], [1, 'Stripe Pillow.jpg', 'sent', 'UP2']]);
   await expect(page.locator('[data-share-state]')).toHaveText('2 مبعوتة · 0 مستنية الرفع');
+  // the prompts for the site (the server's words a slot): from the row menu; copy one and all
+  await page.context().grantPermissions(['clipboard-read', 'clipboard-write']);
+  await page.getByRole('button', { name: 'إجراءات صف 1' }).click();
+  await page.getByRole('menuitem', { name: 'البرومبتات (لـ Magnific)' }).click();
+  await expect(page.locator('.modal [data-prompts] [data-prompt]')).toHaveCount(4);
+  await expect(page.locator('.modal [data-prompt="0"]')).toContainText('Boho Cushion by the handmade brand Art Craft. Keep the exact same product from the reference photo');
+  await expect(page.locator('.modal [data-prompt="3"]')).toContainText('framed to show its proportions, space around it');
+  await page.locator('.modal [data-prompt-copy="1"]').click();
+  await expect(page.locator('.toast.show')).toContainText('اتنسخ 2 · البيئة المحيطة'); // not the shell's hidden #toast
+  expect(await page.evaluate(() => navigator.clipboard.readText())).toContain('warm, modern Egyptian home interior');
+  await page.locator('.modal [data-prompt-copy="all"]').click();
+  await expect(page.locator('.toast.show')).toContainText('اتنسخ كل البرومبتات');
+  expect((await page.evaluate(() => navigator.clipboard.readText())).split('\n\n').length).toBe(4);
+  await page.locator('.modal').getByRole('button', { name: 'قفل' }).click();
   // the owner generates on the site: three results — one by lineage from the cushion, one by family of the pillow, one by the pillow's name; one unknown
   mock.magnific.results.push(
     { id: 'R1', name: 'untitled', family: 'other', tool: 'imagen-nano-banana-2', url: 'https://pikaso.cdnpk.net/p/r1.png', lineage: ['R1', 'UP1'] },

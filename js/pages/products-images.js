@@ -151,9 +151,18 @@
   // «إعدادات الصور» (decision 3, the admin): this month's credits, the default model, the monthly credit cap
   async function openSettings() {
     const I = IM(); if (!I || !I.can().settings) return;
-    const [cfg, month] = await Promise.all([I.settings(), I.monthCredits()]);
+    const [cfg, month, bridge] = await Promise.all([I.settings(), I.monthCredits(), I.bridgeStatus()]);
     if (!cfg.ok) { K.toast(MSG.network, 'error'); return; }
     const f = { model: cfg.model, cap: cfg.monthlyCredits == null ? '' : String(cfg.monthlyCredits) }; const probe = { busy: false, out: '' };
+    // decision 11: the Magnific account the system uploads with (its own OAuth link — no Claude session)
+    const link = { st: bridge.ok ? bridge : null, busy: false };
+    const linkBox = () => h('div', { class: 'out-b', 'data-img-bridge': '' }, h('small', null, 'حساب Magnific (الرفع والنتائج من السيستم مباشرة)'),
+      !link.st ? h('p', { class: 't-small help', style: 'margin:0' }, 'مقدرناش نقرا حالة الربط دلوقتي.')
+        : !link.st.configured ? h('p', { class: 't-small help', style: 'margin:0' }, 'تطبيق السيستم لسه مش متسجّل عند Magnific (السر magnific_mcp_client في Vault).')
+        : h('p', { style: 'margin:0' }, link.st.linked ? ['مربوط', link.st.account ? [' بحساب ', h('b', { dir: 'ltr' }, link.st.account)] : null] : 'مش مربوط — الصور بتتحضّر في طابور لحد ما Claude يرفعها.'),
+      link.st && link.st.configured ? h('div', { class: 'acts-inline', style: 'margin-top:6px' },
+        Button({ size: 'sm', type: link.st.linked ? 'default' : 'primary', label: link.busy ? 'لحظة…' : link.st.linked ? 'اربط حساب تاني' : 'اربط حساب Magnific', disabled: link.busy, attrs: { 'data-img-link': '' }, onClick: async () => { link.busy = true; m.setBody(...body()); const r = await I.bridgeLink(); link.busy = false; if (!r.ok) { m.setBody(...body()); K.toast(r.reason === 'not_configured' ? 'تطبيق السيستم مش متسجّل عند Magnific' : MSG.network, 'error'); return; } window.location.assign(r.url); } }),
+        link.st.linked ? Button({ size: 'sm', type: 'text', label: 'فكّ الربط', attrs: { 'data-img-unlink': '' }, onClick: () => K.confirm({ title: 'فكّ ربط حساب Magnific؟', text: 'الرفع هيرجع للطابور (Claude) لحد ما تربط حساب تاني.', okLabel: 'فكّ الربط', okType: 'danger', onOk: async () => { const r = await I.bridgeUnlink(); if (!r.ok) { K.toast(MSG.network, 'error'); return; } link.st = Object.assign({}, link.st, { linked: false, account: null }); m.setBody(...body()); K.toast('اتفكّ ربط حساب Magnific', 'success'); } }) }) : null) : null);
     const spendBox = month.ok
       ? h('div', { class: 'out-b', 'data-img-spend': '' }, h('small', null, 'كريدت الشهر ده (بتوقيت القاهرة)'),
         h('p', { style: 'margin:0' }, h('b', null, String(month.total)), cfg.monthlyCredits != null ? [' من أصل ', String(cfg.monthlyCredits)] : null, ' · ', month.runs, ' صورة · ≈ $', month.usd.toFixed(2)),
@@ -163,6 +172,7 @@
       U.Select({ id: 'img-def-model', label: 'الموديل الافتراضي', options: I.MODELS.map((x) => ({ value: x.id, label: x.name + ' — ' + x.credits + ' كريدت' })), value: f.model, help: (I.modelOf(f.model) || {}).note || '', onChange: (v) => { f.model = v; m.setBody(...body()); } }),
       U.TextInput({ id: 'img-cap', label: 'سقف الشهر بالكريدت', value: f.cap, dir: 'ltr', inputmode: 'numeric', placeholder: 'من غير سقف', help: 'لما الكريدت توصله الصور بتقف لحد أول الشهر الجاي. فاضي = من غير سقف. (1 كريدت ≈ $' + I.CREDIT_USD + ')', onInput: (v) => { f.cap = v; } }),
       U.InlineNote({ children: 'التغيير بيمشي على الصور الجاية على طول، لكل الفريق؛ موديل دفعة في الاستوديو بيتغيّر من جواها.' }),
+      linkBox(),
       // T2: the connection test — the provider's account answer as keys and types only (no values), or the error with its HTTP status
       h('div', { class: 'acts-inline' }, Button({ size: 'sm', label: probe.busy ? 'بيتصل…' : 'اختبار الاتصال بـ Magnific', disabled: probe.busy, attrs: { 'data-img-probe': '' }, onClick: async () => { probe.busy = true; m.setBody(...body()); const r = await I.probe(); probe.busy = false; probe.out = r.ok ? 'متصل ✓ — شكل رد الحساب: ' + JSON.stringify(r.shape) : I.why(r) || (MSG[r.reason] || MSG.network) + (r.status ? ' (HTTP ' + r.status + ')' : ''); m.setBody(...body()); } })),
       probe.out ? h('pre', { class: 't-small', dir: 'ltr', style: 'margin:0;white-space:pre-wrap;overflow-wrap:anywhere', 'data-img-probe-out': '' }, probe.out) : null];

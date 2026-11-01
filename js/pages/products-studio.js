@@ -421,15 +421,32 @@
   // decision 10 (b): the batch's product photos to the Magnific site — IBImages.share signs them into image_shares for the bridge;
   // the state of the shares (pending / sent) is read once a batch and after each send
   const readShares = () => { const I = IM(); if (!I || !S.id || S.shares !== undefined && S.sharesOf === S.id) return; S.shares = null; S.sharesOf = S.id; I.shares(S.id).then((r) => { if (S.id !== S.sharesOf) return; S.shares = r.ok ? r : null; R(); }); };
+  // decision 11: the system uploads now through its own Magnific link (IBImages.bridgeUpload); without a linked account it falls
+  // back to the queue (share) that a Claude session empties
   async function shareToMagnific() {
     const I = IM(); if (!I || !S.id || S.sharing) return;
     await touch(true);
     S.sharing = true; R();
-    const r = await I.share(S.id);
+    const up = await I.bridgeUpload(S.id);
+    let r = up; let queued = false;
+    if (!up.ok && (up.reason === 'not_linked' || up.reason === 'not_configured')) { r = await I.share(S.id); queued = true; }
     S.sharing = false;
-    if (!r.ok) { K.toast(r.reason === 'forbidden' ? 'مش مسموحلك' : r.reason === 'missing' ? 'الدفعة مش موجودة' : 'في مشكلة في الاتصال — جرّب تاني', 'error'); R(); return; }
-    K.toast(r.shared ? 'اتحضّرت ' + r.shared + ' صورة — Claude هيرفعها لمشروع «ابتكر» على Magnific' + (r.skipped ? ' (' + r.skipped + ' مبعوتة قبل كده أو من غير صورة)' : '') : 'مفيش صور جديدة تتبعت — كل الصور اتبعتت قبل كده أو من غير صورة أساسية', r.shared ? 'success' : 'warn');
+    if (!r.ok) { K.toast(r.reason === 'forbidden' ? 'مش مسموحلك' : r.reason === 'missing' ? 'الدفعة مش موجودة' : r.reason === 'busy' ? 'Magnific مشغول دلوقتي — جرّب كمان دقيقة' : 'في مشكلة في الاتصال — جرّب تاني', 'error'); R(); return; }
+    if (queued) K.toast(r.shared ? 'اتحضّرت ' + r.shared + ' صورة — حساب Magnific مش مربوط، فـ Claude هيرفعها لمشروع «ابتكر»' + (r.skipped ? ' (' + r.skipped + ' مبعوتة قبل كده أو من غير صورة)' : '') : 'مفيش صور جديدة تتبعت — كل الصور اتبعتت قبل كده أو من غير صورة أساسية', r.shared ? 'success' : 'warn');
+    else K.toast(r.uploaded ? 'اترفعت ' + r.uploaded + ' صورة على مشروع «ابتكر» في Magnific' + (r.failed ? ' · ' + r.failed + ' فشلت' : '') + (r.skipped ? ' (' + r.skipped + ' مبعوتة قبل كده أو من غير صورة)' : '') + (r.stopped ? ' — وقفنا: Magnific ' + (r.stopped === 'busy' ? 'مشغول' : 'رفض الحساب') : '') : r.failed ? 'مفيش صورة اترفعت — ' + r.failed + ' فشلت، جرّب تاني' : 'مفيش صور جديدة تتبعت — كل الصور اتبعتت قبل كده أو من غير صورة أساسية', r.uploaded ? 'success' : r.failed ? 'error' : 'warn');
     S.sharesOf = null; readShares(); R();
+  }
+  // decision 11: the project's new results into the products' slots now (the server matches each to its photo and imports)
+  async function fetchFromMagnific() {
+    const I = IM(); if (!I || !S.id || S.fetching) return;
+    await touch(true);
+    S.fetching = true; R();
+    const r = await I.bridgeFetch(S.id);
+    S.fetching = false;
+    if (!r.ok) { K.toast(r.reason === 'not_linked' ? I.why(r) : r.reason === 'forbidden' ? 'مش مسموحلك' : r.reason === 'busy' ? 'Magnific مشغول دلوقتي — جرّب كمان دقيقة' : r.reason === 'ai_error' ? 'النتائج موجودة بس ماقدرناش ننزّلها — جرّب تاني' : 'في مشكلة في الاتصال — جرّب تاني', 'error'); R(); return; }
+    if (r.placed) { const row = await ST().open(S.id); if (row && S.id) { S.row = row; S.state = Object.assign(blank(), row.state || {}); S.state.items = Array.isArray(S.state.items) ? S.state.items : []; } }
+    K.toast(r.placed ? 'نزلت ' + r.placed + ' صورة من Magnific في خانات المنتجات' + (r.unmatched ? ' · ' + r.unmatched + ' مش معروف منتجها' : '') + (r.failed ? ' · ' + r.failed + ' فشلت' : '') : r.found ? 'لقينا ' + r.found + ' صورة بس ماعرفناش منتجها — ولّد من جوه الصورة الأصلية على Magnific عشان تتربط' : 'مفيش نتائج جديدة على Magnific لسه', r.placed ? 'success' : 'warn');
+    R();
   }
   function shareBar() {
     const I = IM(); if (!I || !S.id || !canImgAI()) return null;
@@ -437,7 +454,8 @@
     const sh = S.shares; const L = items();
     const txt = !sh ? null : sh.rows.length ? (sh.sent + ' مبعوتة · ' + sh.pending + ' مستنية الرفع' + (sh.failed ? ' · ' + sh.failed + ' فشلت' : '')) : null;
     return h('div', { class: 'acts-inline' }, txt ? h('span', { class: 't-small help', 'data-share-state': '' }, txt) : null,
-      Button({ size: 'sm', icon: 'upload', label: S.sharing ? 'بنحضّر…' : 'ابعت الصور لـ Magnific', disabled: !!S.sharing || !L.some((it) => it.main), attrs: { 'data-share': '' }, onClick: shareToMagnific }));
+      Button({ size: 'sm', icon: 'upload', label: S.sharing ? 'بنبعت…' : 'ابعت الصور لـ Magnific', disabled: !!S.sharing || !L.some((it) => it.main), attrs: { 'data-share': '' }, onClick: shareToMagnific }),
+      sh && sh.sent ? Button({ size: 'sm', icon: 'download', label: S.fetching ? 'بنجيب…' : 'هات النتائج من Magnific', disabled: !!S.fetching, attrs: { 'data-fetch': '' }, onClick: fetchFromMagnific }) : null);
   }
   // decision 10 («صور بس»): the photos alone — each file's name carries the product's data (PD.photoName); the files of one
   // product (the same names) make one item, the first its main photo and the rest references; the colors by the table's names

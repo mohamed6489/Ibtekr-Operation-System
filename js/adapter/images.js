@@ -171,7 +171,7 @@
       if (error) return { ok: false, reason: error.code === '42501' ? 'forbidden' : 'network' };
       return { ok: true, rows: (data || []).map((x) => ({ id: x.id, at: x.created_at, by: x.created_by || null, source: x.source || 'magnific', folder: x.folder || '', label: x.label || '', productId: x.product_id || null,
         count: Array.isArray(x.urls) ? x.urls.length : 0, done: Array.isArray(x.paths) ? x.paths.filter((p) => typeof p === 'string').length : 0, status: x.status || 'pending', error: x.error || null,
-        target: x.target === 'studio' ? 'studio' : 'tool', items: Array.isArray(x.items) ? x.items.length : 0, batchType: x.batch_type === 'Variable' ? 'Variable' : 'Simple', batchId: x.batch_id || null })) };
+        target: x.target === 'studio' || x.target === 'batch' ? x.target : 'tool', items: Array.isArray(x.items) ? x.items.length : 0, batchType: x.batch_type === 'Variable' ? 'Variable' : 'Simple', batchId: x.batch_id || null })) };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
   // one queued set → the server fetches its links (0 credits): target tool → the member's folder, WebP where the browser can,
@@ -180,12 +180,31 @@
   async function importRun(id) {
     const r = await invoke({ action: 'import', id: Number(id) });
     if (!r.ok) return r;
-    const studio = r.body.target === 'studio';
+    const studio = r.body.target === 'studio' || r.body.target === 'batch'; // both keep the photos as they came (the studio's references)
     const out = studio ? answer(r.body) : await webpAll(answer(r.body));
-    out.target = studio ? 'studio' : 'tool'; out.batchId = studio && typeof r.body.batch_id === 'string' ? r.body.batch_id : null; out.items = Number(r.body.items) || 0;
+    out.target = r.body.target === 'batch' ? 'batch' : studio ? 'studio' : 'tool'; out.batchId = studio && typeof r.body.batch_id === 'string' ? r.body.batch_id : null; out.items = Number(r.body.items) || 0; out.placed = Number(r.body.placed) || 0;
     out.imported = Number(r.body.imported) || 0; out.failed = Number(r.body.failed) || 0; out.status = typeof r.body.status === 'string' ? r.body.status : 'ok';
-    log(['import', '#' + Number(id), out.target, out.imported + ' images'].concat(out.failed ? [out.failed + ' failed'] : [], studio ? [out.items + ' items'] : []).join(' · '), studio ? 'studio_batches' : 'image_imports', studio ? out.batchId : id);
+    log(['import', '#' + Number(id), out.target, out.imported + ' images'].concat(out.failed ? [out.failed + ' failed'] : [], out.target === 'studio' ? [out.items + ' items'] : out.target === 'batch' ? [out.placed + ' placed'] : []).join(' · '), studio ? 'studio_batches' : 'image_imports', studio ? out.batchId : id);
     return out;
+  }
+  // ---------- decision 10 (b): the batch's product photos to the Magnific site ----------
+  // the server signs each product photo not shared yet (a week) into image_shares, for the bridge to upload to the site's project
+  async function share(batchId, indexes) {
+    const r = await invoke({ action: 'share', batch_id: batchId, indexes: Array.isArray(indexes) ? indexes : undefined });
+    if (!r.ok) return r;
+    const out = { ok: true, shared: Number(r.body.shared) || 0, skipped: Number(r.body.skipped) || 0 };
+    log(['share', out.shared + ' photos', out.skipped + ' skipped'].join(' · '), 'studio_batches', batchId);
+    return out;
+  }
+  // the batch's shares: each photo's state (pending = waiting for the bridge, sent = on the site)
+  async function shares(batchId) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const { data, error } = await cl.from('image_shares').select('id, item_index, name, path, status, creation_ref, created_at, sent_at').eq('batch_id', batchId).order('created_at', { ascending: false }).limit(500);
+      if (error) return { ok: false, reason: error.code === '42501' ? 'forbidden' : 'network' };
+      const rows = (data || []).map((x) => ({ id: x.id, index: x.item_index, name: x.name || '', path: x.path || '', status: x.status || 'pending', ref: x.creation_ref || null, at: x.created_at, sentAt: x.sent_at || null }));
+      return { ok: true, rows, pending: rows.filter((x) => x.status === 'pending').length, sent: rows.filter((x) => x.status === 'sent').length, failed: rows.filter((x) => x.status === 'error').length };
+    } catch (e) { return { ok: false, reason: 'network' }; }
   }
   // the admin: the shape (keys only) of the provider's account answer, to pin the API layer (T2)
   async function probe() {
@@ -315,7 +334,7 @@
   }
 
   window.IBImages = {
-    can, generate, edit, create, probe, webp, imports, importRun, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
+    can, generate, edit, create, probe, webp, imports, importRun, share, shares, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
     credits, usd, modelOf, estModel: () => (last && last.model) || DEFAULT_MODEL,
     MODELS, DEFAULT_MODEL, SIZES, SHAPES, EDIT_OPS, MAX_COUNT, CREDIT_USD, STUDIO_BUCKET, TOOL_BUCKET,
   };

@@ -418,6 +418,27 @@
     });
     S.state.items = fresh; S.sel.clear();
   }
+  // decision 10 (b): the batch's product photos to the Magnific site — IBImages.share signs them into image_shares for the bridge;
+  // the state of the shares (pending / sent) is read once a batch and after each send
+  const readShares = () => { const I = IM(); if (!I || !S.id || S.shares !== undefined && S.sharesOf === S.id) return; S.shares = null; S.sharesOf = S.id; I.shares(S.id).then((r) => { if (S.id !== S.sharesOf) return; S.shares = r.ok ? r : null; R(); }); };
+  async function shareToMagnific() {
+    const I = IM(); if (!I || !S.id || S.sharing) return;
+    await touch(true);
+    S.sharing = true; R();
+    const r = await I.share(S.id);
+    S.sharing = false;
+    if (!r.ok) { K.toast(r.reason === 'forbidden' ? 'مش مسموحلك' : r.reason === 'missing' ? 'الدفعة مش موجودة' : 'في مشكلة في الاتصال — جرّب تاني', 'error'); R(); return; }
+    K.toast(r.shared ? 'اتحضّرت ' + r.shared + ' صورة — Claude هيرفعها لمشروع «ابتكر» على Magnific' + (r.skipped ? ' (' + r.skipped + ' مبعوتة قبل كده أو من غير صورة)' : '') : 'مفيش صور جديدة تتبعت — كل الصور اتبعتت قبل كده أو من غير صورة أساسية', r.shared ? 'success' : 'warn');
+    S.sharesOf = null; readShares(); R();
+  }
+  function shareBar() {
+    const I = IM(); if (!I || !S.id || !canImgAI()) return null;
+    readShares();
+    const sh = S.shares; const L = items();
+    const txt = !sh ? null : sh.rows.length ? (sh.sent + ' مبعوتة · ' + sh.pending + ' مستنية الرفع' + (sh.failed ? ' · ' + sh.failed + ' فشلت' : '')) : null;
+    return h('div', { class: 'acts-inline' }, txt ? h('span', { class: 't-small help', 'data-share-state': '' }, txt) : null,
+      Button({ size: 'sm', icon: 'upload', label: S.sharing ? 'بنحضّر…' : 'ابعت الصور لـ Magnific', disabled: !!S.sharing || !L.some((it) => it.main), attrs: { 'data-share': '' }, onClick: shareToMagnific }));
+  }
   // decision 10 («صور بس»): the photos alone — each file's name carries the product's data (PD.photoName); the files of one
   // product (the same names) make one item, the first its main photo and the rest references; the colors by the table's names
   async function dropNamedPhotos(files) {
@@ -473,7 +494,7 @@
         K.RowMenu([{ label: 'عدّل البيانات', icon: 'edit', run: () => editItem(it) },
           { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => K.confirm({ title: 'شيل «' + (it.nameEn || it.nameAr || 'صف ' + (i + 1)) + '» من الدفعة؟', text: 'بيتشال من الدفعة دي بس.', okLabel: 'شيل', okType: 'danger', onOk: () => { S.state.items.splice(S.state.items.indexOf(it), 1); touch(); R(); } }) }], 'إجراءات صف ' + (i + 1))] }; });
     const bad = L.filter((it) => recvState(it) !== 'ok').length;
-    return [TotalsBar([['المنتجات', L.length], ['متطابقة', L.length - bad, bad ? null : 'ok'], ['ناقص صورة', L.filter((it) => recvState(it) === 'img').length, null], ['ناقص داتا', L.filter((it) => recvState(it) === 'data').length, bad ? 'err' : null]]),
+    return [TotalsBar([['المنتجات', L.length], ['متطابقة', L.length - bad, bad ? null : 'ok'], ['ناقص صورة', L.filter((it) => recvState(it) === 'img').length, null], ['ناقص داتا', L.filter((it) => recvState(it) === 'data').length, bad ? 'err' : null]], L.length ? shareBar() : null),
       Card('1 · ارفع صور المنتجات', 'اسم كل ملف فيه الداتا: الاسم (EN و/أو AR) - اللون - المقاس - الخامة - السعر — بأي ترتيب، وبفاصل « - ». نفس الاسم على أكتر من صورة = منتج واحد (الأولى الأساسية والباقي مرجعية).', [
         h('button', { type: 'button', class: 'drop', onClick: () => filePick('image/*', true, dropNamedPhotos) }, Icon('upload'), h('b', null, 'اختار صور المنتجات'), h('small', null, 'JPG / PNG / WebP — بتتحول JPG · ' + L.length + ' منتج لحد دلوقتي')),
         U.InlineNote({ children: 'مثال: «Boho Cushion - مخدة بوهيمي - بيج - 45×45 - قطن - 350.jpg». اللي مش في الاسم بيتكتب من «عدّل» في الخطوة الجاية — والاسم العربي وسعر المبتكر إجباريين قبل الرفع.' })]),
@@ -636,7 +657,7 @@
     const imgs = L.reduce((s, it) => s + it.slots.slice(0, n).filter(Boolean).length, 0);
     const missing = missingJobs(L); const missingSel = missingJobs(sel()); const noRef = L.filter((it) => !it.main).length;
     const run = S.imgRun;
-    const aiBar = can ? h('div', { class: 'acts-inline' }, run ? Tag('orange', 'بيولّد… ' + run.done + ' من ' + run.total) : null,
+    const aiBar = can ? h('div', { class: 'acts-inline' }, shareBar(), run ? Tag('orange', 'بيولّد… ' + run.done + ' من ' + run.total) : null,
       Button({ type: 'primary', size: 'sm', icon: 'sparkle', label: 'ولّد كل الصور الناقصة', disabled: !!run || !missing.length, attrs: { 'data-img': 'all' }, onClick: () => genSlots(missing, 'ولّد كل الصور الناقصة') })) : null;
     const model = can ? U.Select({ id: 'img-model', label: 'موديل الصور', options: I.MODELS.map((m) => ({ value: m.id, label: m.name + ' — ' + m.credits + ' كريدت' })), value: imgModel(), help: (I.modelOf(imgModel()) || {}).note || '', onChange: (v) => { S.state.imgModel = v; touch(); R(); } }) : null;
     return [TotalsBar([['المنتجات', L.length], ['الصور', imgs + ' من ' + L.length * n], ['ناقصة', missing.length, missing.length ? 'orange' : null]], aiBar),

@@ -88,10 +88,10 @@
     const r = await I.importRun(row.id);
     S.importing = null; S.imports = null;
     if (!r.ok) { K.toast(r.reason === 'done' ? 'المجموعة دي اتستوردت قبل كده — شوفها في «سجل الصور»' : r.reason === 'ai_error' ? 'مقدرناش ننزّل ولا صورة من Magnific — الروابط ممكن تكون انتهت، اطلب تجديدها' : errText(r), 'error'); R(); return; }
-    if (r.target === 'studio') {
-      // decision 9: the set is a studio batch now — the owner reviews it there (step 2) and uploads as usual
-      S.lastBatch = { id: r.batchId, label: row.label || row.folder || 'Magnific', items: r.items, imported: r.imported, failed: r.failed, status: r.status };
-      K.toast('اتعملت دفعة في الاستوديو بـ ' + r.items + ' منتج و' + r.imported + ' صورة' + (r.failed ? ' — ' + r.failed + ' صورة ماتنزّلتش' : ''), r.failed ? 'warn' : 'success'); R(); return;
+    if (r.target === 'studio' || r.target === 'batch') {
+      // decision 9: the set is a studio batch now (step 2); decision 10 (c): the site's results went into the batch's image slots (step 6)
+      S.lastBatch = { id: r.batchId, label: row.label || row.folder || 'Magnific', target: r.target, items: r.items, imported: r.imported, failed: r.failed, placed: r.placed, status: r.status };
+      K.toast(r.target === 'batch' ? 'اتحطت ' + r.placed + ' صورة في خانات منتجات الدفعة' + (r.failed ? ' — ' + r.failed + ' صورة ماتنزّلتش' : '') : 'اتعملت دفعة في الاستوديو بـ ' + r.items + ' منتج و' + r.imported + ' صورة' + (r.failed ? ' — ' + r.failed + ' صورة ماتنزّلتش' : ''), r.failed ? 'warn' : 'success'); R(); return;
     }
     const target = row.productId && PR() ? PR().get(row.productId) : null;
     S.result = { bucket: r.bucket || 'ai-images', paths: r.paths, credits: 0, model: '', source: 'import', productId: row.productId, productName: target ? target.nameEn || target.nameAr : row.label, tab: S.tab, at: new Date().toISOString() };
@@ -103,11 +103,11 @@
     const ST = { pending: ['info', 'جاهزة'], partial: ['warn', 'ناقصة'], error: ['error', 'فشلت'] };
     const list = rows.map((x) => { const p = x.productId && PR() ? PR().get(x.productId) : null; const st = ST[x.status] || ST.pending; const busy = S.importing === x.id; const studio = x.target === 'studio';
       return [h('span', { class: 't-small', dir: 'ltr' }, String(x.at || '').slice(0, 16).replace('T', ' ')), x.label || x.folder || '—',
-        studio ? h('span', null, 'الاستوديو — ', x.items, ' منتج · ', x.batchType) : p ? (p.nameEn || p.nameAr) : h('span', { class: 'help' }, 'أداة الصور'), x.done ? x.done + ' / ' + x.count : String(x.count), Tag(st[0], st[1]),
-        Button({ type: 'primary', size: 'sm', label: busy ? 'بنستورد…' : x.status === 'partial' ? 'كمّل الاستيراد' : x.status === 'error' ? 'جرّب تاني' : studio ? 'استورد للاستوديو' : 'استورد', disabled: !!S.importing, attrs: { 'data-igimport': String(x.id) }, onClick: () => runImport(x) })]; });
+        x.target === 'batch' ? h('span', null, 'دفعة موجودة — ', x.items, ' منتج') : studio ? h('span', null, 'الاستوديو — ', x.items, ' منتج · ', x.batchType) : p ? (p.nameEn || p.nameAr) : h('span', { class: 'help' }, 'أداة الصور'), x.done ? x.done + ' / ' + x.count : String(x.count), Tag(st[0], st[1]),
+        Button({ type: 'primary', size: 'sm', label: busy ? 'بنستورد…' : x.status === 'partial' ? 'كمّل الاستيراد' : x.status === 'error' ? 'جرّب تاني' : x.target === 'batch' ? 'استورد للدفعة' : studio ? 'استورد للاستوديو' : 'استورد', disabled: !!S.importing, attrs: { 'data-igimport': String(x.id) }, onClick: () => runImport(x) })]; });
     return Card('وارد من Magnific', 'صور اتعملت على موقع Magnific (الباقة Unlimited) وجاهزة تدخل النظام — لأداة الصور (بتتحوّل WebP وتتحفظ على المنتج) أو كدفعة في الاستوديو بمنتجاتها (الاسم من اسم الصورة على Magnific).',
-      [last ? U.InlineNote({ kind: last.failed ? 'warning' : 'success', children: 'دفعة «' + last.label + '» في الاستوديو: ' + last.items + ' منتج · ' + last.imported + ' صورة' + (last.failed ? ' · ' + last.failed + ' ماتنزّلتش' : '') + ' — راجع البيانات والصور وكمّل الخطوات.',
-        action: Button({ size: 'sm', label: 'افتح الدفعة', attrs: { 'data-igbatch': last.id }, onClick: () => go('products-studio-' + last.id + '-2') }) }) : null,
+      [last ? U.InlineNote({ kind: last.failed ? 'warning' : 'success', children: last.target === 'batch' ? 'نتائج «' + last.label + '» اتحطت في خانات صور الدفعة: ' + last.placed + ' صورة' + (last.failed ? ' · ' + last.failed + ' ماتنزّلتش' : '') + ' — راجعها في خطوة الصور.' : 'دفعة «' + last.label + '» في الاستوديو: ' + last.items + ' منتج · ' + last.imported + ' صورة' + (last.failed ? ' · ' + last.failed + ' ماتنزّلتش' : '') + ' — راجع البيانات والصور وكمّل الخطوات.',
+        action: Button({ size: 'sm', label: 'افتح الدفعة', attrs: { 'data-igbatch': last.id }, onClick: () => go('products-studio-' + last.id + '-' + (last.target === 'batch' ? 6 : 2)) }) }) : null,
         rows.length ? U.Table({ cls: 'dt', headers: ['الوقت', 'المجموعة', 'الوجهة', 'الصور', 'الحالة', ''], rows: list }) : null]);
   }
 

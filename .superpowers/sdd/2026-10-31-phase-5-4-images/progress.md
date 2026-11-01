@@ -32,7 +32,7 @@
   `pikaso.cdnpk.net` موقّع ~5 أيام). القرار: مسار تاني جنب الـ API من غير مسح أي حاجة — جسر جلسة Claude → `image_imports` (`0026`،
   `rls_image_imports`) → action `import` في `ai-images` (v9، 0 كريدت، `source = 'import'`، partial بيتكمّل) → كارت «وارد من Magnific»
   في الأداة → WebP → «احفظ على المنتج». الاختبارات: Deno (15)، node (13)، e2e (`images.spec` حالة كاملة بالـ mock). الطريقة في
-  `tools/deploy.md` §2.7.13. **حي (1 نوفمبر):** `0026` اتطبّق من SQL Editor بإيد صاحب المشروع (اتأكدت: الجدول وسياسة الـ select والـ grant و`source` بيقبل `import`)، `ai-images` v9، الواجهة على `main`؛ `rls_image_imports` على «RLS live». الجسر: صاحب المشروع هو الأدمن الوحيد النشط (`profiles` — الـ id بيتقري وقت الإدراج، مش محفوظ هنا).
+  `tools/deploy.md` §2.7.13. **حي (1 نوفمبر):** `0026` اتطبّق من SQL Editor بإيد صاحب المشروع (اتأكدت: الجدول وسياسة الـ select والـ grant و`source` بيقبل `import`)، `ai-images` v9، الواجهة على `main`؛ `rls_image_imports` على «RLS live». الجسر: صاحب المشروع هو الأدمن الوحيد النشط (`profiles` — الـ id بيتقري وقت الإدراج، مش محفوظ هنا). مشروع Magnific «ابتكر» اتعمل من الجلسة (`folders_create`؛ الـ reference في `deploy.md`).
 - [x] T3 `0025_ai_images` (31 أكتوبر): `ai_runs.action` + `image`، `source` + `tool`/`edit`، عمود `credits`؛ bucket `ai-images` خاص
   (القراءة والحذف لفولدر العضو بـ `products.add`/`products.edit` F، الكتابة للسيرفر بس)؛ `rls_ai_images.sql`. مافيش Postgres محلي
   في الـ sandbox — بيتأكد في CI (`db:test`) وعلى الحي بـ RLS live بعد التطبيق.

@@ -271,6 +271,7 @@ Deno.test('the Magnific layer (pinned T2): x-magnific-api-key, Seedream text rou
   const status = async (code: number, body: any = {}) => { try { await magnific({ MAGNIFIC_API_KEY: KEY }, (async () => Response.json(body, { status: code })) as any).generate({ model: 'seedream-5-pro', prompt: 'x', width: 1, height: 1, count: 1, references: [] }); return 'ok'; } catch (e) { lastErr = e as ProviderError; return (e as ProviderError).kind; } };
   assertEquals(await status(401), 'not_configured'); assertEquals(await status(403), 'not_configured'); assertEquals(await status(429), 'busy'); assertEquals(await status(500), 'busy');
   assertEquals(await status(422, { message: 'invalid' }), 'refused'); assertEquals(await status(400, { message: 'bad' }), 'ai_error');
+  assertEquals(await status(402, { message: 'Insufficient credits' }), 'ai_error'); assertEquals([lastErr!.status, lastErr!.detail], [402, 'message :: Insufficient credits | Insufficient credits'], 'the provider\'s words on a 402 reach the row');
   assertEquals(await status(200, { data: { status: 'FAILED', error: 'content policy violation' } }), 'refused');
   assertEquals(await status(200, { data: { status: 'FAILED', error: 'oops' } }), 'ai_error');
   assertEquals(lastErr!.detail, 'data / data:status,error :: oops | FAILED', 'the failure keeps a safe word for the diagnosis row');

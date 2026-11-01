@@ -72,11 +72,11 @@ export function magnific(env: Record<string, string | undefined>, fetchFn: typeo
     let res: Response;
     try { res = await fetchFn(base + path, { method, headers: headers(), body: body ? JSON.stringify(body) : undefined, signal: AbortSignal.timeout(60_000) }); }
     catch { throw new ProviderError('busy'); }
-    if (res.status === 401 || res.status === 403) throw new ProviderError('not_configured', res.status);
-    if (res.status === 429 || res.status >= 500) throw new ProviderError('busy', res.status);
-    if (res.status === 402) throw new ProviderError('ai_error', res.status); // the provider's own credits ran out
     let json: Json = {};
     try { json = await res.json(); } catch { json = {}; }
+    if (res.status === 401 || res.status === 403) throw new ProviderError('not_configured', res.status, describe(json));
+    if (res.status === 429 || res.status >= 500) throw new ProviderError('busy', res.status, describe(json));
+    if (res.status === 402) throw new ProviderError('ai_error', res.status, describe(json)); // the provider's own credits ran out
     if (!res.ok) throw new ProviderError(res.status === 422 ? 'refused' : 'ai_error', res.status, describe(json));
     return json;
   }

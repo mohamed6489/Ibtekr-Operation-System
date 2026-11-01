@@ -86,7 +86,14 @@
   // the browser can re-encode: a canvas and an Image (not in node), and the canvas writes WebP (Safari writes PNG instead → the
   // result stays as the provider made it)
   const canWebp = () => typeof document !== 'undefined' && typeof document.createElement === 'function' && typeof Image === 'function' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function';
-  // a result's bytes → a WebP Blob (quality WEBP_QUALITY), or null when the browser cannot
+  // decision 14 (the owner, 1 Nov): every result ends 700×800 — the provider's 3:4 (or any shape) center-cropped to 7:8, then
+  // scaled; frameOf(w, h) → the source rectangle and the output size
+  const FRAME = { w: 700, h: 800 };
+  function frameOf(w, h) {
+    const sw = Math.min(w, Math.round(h * FRAME.w / FRAME.h)); const sh = Math.min(h, Math.round(w * FRAME.h / FRAME.w));
+    return { sx: Math.round((w - sw) / 2), sy: Math.round((h - sh) / 2), sw, sh, w: FRAME.w, h: FRAME.h };
+  }
+  // a result's bytes → a WebP Blob (quality WEBP_QUALITY) framed 700×800, or null when the browser cannot
   function toWebp(blob) {
     return new Promise((resolve) => {
       const url = quiet(() => URL.createObjectURL(blob)); if (!url) return resolve(null);
@@ -94,9 +101,12 @@
       const im = new Image();
       im.onload = () => {
         try {
-          const cv = document.createElement('canvas'); cv.width = im.naturalWidth || im.width; cv.height = im.naturalHeight || im.height;
-          if (!cv.width || !cv.height) return done(null);
-          cv.getContext('2d').drawImage(im, 0, 0);
+          const iw = im.naturalWidth || im.width, ih = im.naturalHeight || im.height;
+          if (!iw || !ih) return done(null);
+          const f = frameOf(iw, ih);
+          const cv = document.createElement('canvas'); cv.width = f.w; cv.height = f.h;
+          const cx = cv.getContext('2d'); cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high';
+          cx.drawImage(im, f.sx, f.sy, f.sw, f.sh, 0, 0, f.w, f.h);
           cv.toBlob((out) => done(out && out.type === 'image/webp' ? out : null), 'image/webp', WEBP_QUALITY);
         } catch (e) { done(null); }
       };
@@ -182,8 +192,10 @@
   async function importRun(id) {
     const r = await invoke({ action: 'import', id: Number(id) });
     if (!r.ok) return r;
-    const studio = r.body.target === 'studio' || r.body.target === 'batch'; // both keep the photos as they came (the studio's references)
-    const out = studio ? answer(r.body) : await webpAll(answer(r.body));
+    // target studio keeps the photos as they came (the studio's references for the provider); target batch (results into the
+    // slots) and the tool end 700×800 WebP (decision 14) — the server renames the slots with the objects
+    const studio = r.body.target === 'studio' || r.body.target === 'batch';
+    const out = r.body.target === 'studio' ? answer(r.body) : await webpAll(answer(r.body));
     out.target = r.body.target === 'batch' ? 'batch' : studio ? 'studio' : 'tool'; out.batchId = studio && typeof r.body.batch_id === 'string' ? r.body.batch_id : null; out.items = Number(r.body.items) || 0; out.placed = Number(r.body.placed) || 0;
     out.imported = Number(r.body.imported) || 0; out.failed = Number(r.body.failed) || 0; out.status = typeof r.body.status === 'string' ? r.body.status : 'ok';
     log(['import', '#' + Number(id), out.target, out.imported + ' images'].concat(out.failed ? [out.failed + ' failed'] : [], out.target === 'studio' ? [out.items + ' items'] : out.target === 'batch' ? [out.placed + ' placed'] : []).join(' · '), studio ? 'studio_batches' : 'image_imports', studio ? out.batchId : id);
@@ -253,6 +265,8 @@
   async function bridgeFetch(batchId) {
     const r = await invoke({ action: 'bridge_fetch', batch_id: batchId });
     if (!r.ok) return r;
+    // decision 14: the placed results → 700×800 WebP (the server renames the slots with the objects)
+    if (Array.isArray(r.body.paths) && r.body.paths.length) await webpAll(answer(r.body));
     const out = { ok: true, found: Number(r.body.found) || 0, placed: Number(r.body.placed) || 0, unmatched: Number(r.body.unmatched) || 0, imported: Number(r.body.imported) || 0, failed: Number(r.body.failed) || 0, status: typeof r.body.status === 'string' ? r.body.status : 'ok', importId: Number.isInteger(r.body.import_id) ? r.body.import_id : null };
     log(['bridge fetch', out.found + ' found', out.placed + ' placed'].concat(out.unmatched ? [out.unmatched + ' unmatched'] : [], out.failed ? [out.failed + ' failed'] : []).join(' · '), 'studio_batches', batchId);
     return out;
@@ -423,7 +437,7 @@
   }
 
   window.IBImages = {
-    can, generate, edit, create, probe, webp, imports, importRun, share, shares, bridgeStatus, bridgeLink, bridgeCallback, bridgeUnlink, bridgeUpload, bridgeFetch, shotCategories, shotPrompts, promptsSync, bridgeFlow, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
+    can, generate, edit, create, probe, webp, frameOf, FRAME, reframe: toWebp, imports, importRun, share, shares, bridgeStatus, bridgeLink, bridgeCallback, bridgeUnlink, bridgeUpload, bridgeFetch, shotCategories, shotPrompts, promptsSync, bridgeFlow, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
     credits, usd, modelOf, estModel: () => (last && last.model) || DEFAULT_MODEL,
     MODELS, DEFAULT_MODEL, SIZES, SHAPES, EDIT_OPS, MAX_COUNT, CREDIT_USD, STUDIO_BUCKET, TOOL_BUCKET,
   };

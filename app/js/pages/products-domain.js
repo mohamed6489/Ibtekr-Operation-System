@@ -258,6 +258,55 @@
     return out;
   }
   const splitList = (v) => String(v || '').split(/[,،/|\n]+/).map((x) => x.trim()).filter(Boolean);
+  // «صور بس» (phase 5.4 decision 10 — plan 5.2 decision 17, the owner 1 Nov): the product's data in the photo's file name, e.g.
+  // "Boho Cushion - مخدة بوهيمي - بيج - 45×45 - قطن - 350 (2).jpg" — the parts in any order, split on « - » / | / , / ، / ; / _;
+  // a part is a price (a bare number, optionally ج.م / EGP), a size (n×n, a unit, S/M/L…), a weight (kg / جم), a color (one of
+  // opts.colors — the table's names, EN or AR), a material (the crafts lexicon), a labeled value (price: / سعر: …), else the first
+  // Latin part is the English name, the first Arabic one the Arabic name, and the rest waits in `unknown`. A copy counter
+  // (" (2)", "_2", "-2", " copy") is dropped; `key` groups the photos of one product (the same names).
+  const PHOTO_LABELS = { name: 'nameEn', en: 'nameEn', english: 'nameEn', 'اسم': 'nameEn', ar: 'nameAr', arabic: 'nameAr', 'عربي': 'nameAr', 'الاسم بالعربي': 'nameAr', price: 'vendorPrice', 'سعر': 'vendorPrice', 'السعر': 'vendorPrice',
+    color: 'colors', colour: 'colors', 'لون': 'colors', 'اللون': 'colors', size: 'sizes', 'مقاس': 'sizes', 'المقاس': 'sizes', material: 'material', 'خامة': 'material', 'الخامة': 'material', style: 'style', 'ستايل': 'style', 'الستايل': 'style',
+    weight: 'weight', 'وزن': 'weight', 'الوزن': 'weight', stock: 'stock', qty: 'stock', 'مخزون': 'stock', 'عدد': 'stock' };
+  const MATERIALS = ['cotton', 'wool', 'linen', 'wood', 'bamboo', 'ceramic', 'clay', 'pottery', 'glass', 'leather', 'metal', 'brass', 'copper', 'silver', 'gold', 'resin', 'macrame', 'crochet', 'rattan', 'jute', 'silk', 'velvet', 'paper', 'concrete', 'marble', 'stone', 'acrylic', 'polyester', 'beads', 'epoxy', 'felt', 'canvas', 'plastic', 'steel', 'iron', 'wicker', 'porcelain', 'yarn',
+    'قطن', 'صوف', 'كتان', 'خشب', 'بامبو', 'خيزران', 'سيراميك', 'طين', 'فخار', 'زجاج', 'إزاز', 'ازاز', 'جلد', 'معدن', 'نحاس', 'فضة', 'دهب', 'ذهب', 'ريزن', 'مكرمية', 'مكرميه', 'كروشيه', 'راتان', 'جوت', 'حرير', 'قطيفة', 'ورق', 'خرسانة', 'رخام', 'حجر', 'أكريليك', 'اكريليك', 'بوليستر', 'خرز', 'إيبوكسي', 'ايبوكسي', 'لباد', 'كانفس', 'بلاستيك', 'استانلس', 'حديد', 'بورسلين', 'خيط', 'خيوط'];
+  const SIZE_WORDS = ['xs', 's', 'm', 'l', 'xl', 'xxl', 'xxxl', 'small', 'medium', 'large', 'صغير', 'وسط', 'متوسط', 'كبير'];
+  function photoName(file, opts) {
+    const colorNames = ((opts && opts.colors) || []).map((n) => String(n || '').trim().toLowerCase()).filter(Boolean);
+    let base = String(file || '').replace(/\.[a-z0-9]{2,5}$/i, '').trim();
+    base = base.replace(/\s*\(\d+\)$/, '').replace(/[\s_-]+copy(\s*\d+)?$/i, '').replace(/(?<=[^\d\s_-])\s*[-_ ]\s*\d{1,2}$/, '').trim(); // a trailing 1–2 digit number is a copy counter
+    const out = { nameEn: '', nameAr: '', vendorPrice: null, colors: [], sizes: [], material: '', style: '', weight: '', stock: null, unknown: [] };
+    const parts = base.split(/\s+[-–—|]\s+|[|,،;_]+/).map((x) => x.trim()).filter(Boolean);
+    const num = (v) => { const n = Number(toAsciiDigits(v).replace(/[^\d.]/g, '')); return Number.isFinite(n) && n > 0 ? n : null; };
+    const isSize = (t) => /^\d+(\.\d+)?\s*[x×*]\s*\d+(\.\d+)?(\s*[x×*]\s*\d+(\.\d+)?)?\s*(cm|سم|mm|مم|m|م|inch|in|بوصة)?$/i.test(t) || /^\d+(\.\d+)?\s*(cm|سم|mm|مم|inch|in|بوصة|ml|مل|l|لتر)$/i.test(t) || SIZE_WORDS.includes(t.toLowerCase());
+    const isWeight = (t) => /^\d+(\.\d+)?\s*(kg|كجم|كيلو|g|gm|جم|جرام)$/i.test(t);
+    const weightKg = (t) => { const n = num(t); return n == null ? '' : String(/(kg|كجم|كيلو)$/i.test(t) ? n : Math.round(n) / 1000); };
+    // a material part is a lexicon word alone, or with modifiers only (natural cotton, 100% wool, خشب طبيعي) — «مج سيراميك» is a name
+    const MODS = ['natural', 'pure', 'solid', 'real', 'genuine', '100%', '100', 'طبيعي', 'طبيعى', 'صافي', 'صافى', 'خام', 'أصلي', 'اصلي'];
+    const isMaterial = (t) => { const ws = t.toLowerCase().split(/\s+/); return ws.length <= 3 && ws.some((w) => MATERIALS.includes(w)) && ws.every((w) => MATERIALS.includes(w) || MODS.includes(w)); };
+    const put = (field, v) => {
+      if (field === 'colors' || field === 'sizes') { out[field] = out[field].concat(String(v).split(/\s*[/+&]\s*|\s+و\s+/).map((x) => x.trim()).filter(Boolean)); return; }
+      if (field === 'vendorPrice') { out.vendorPrice = num(v); return; }
+      if (field === 'stock') { const n = parseInt(toAsciiDigits(v), 10); out.stock = Number.isFinite(n) && n >= 0 ? n : null; return; }
+      if (field === 'weight') { out.weight = isWeight(v) ? weightKg(v) : String(num(v) == null ? '' : num(v)); return; }
+      if (!out[field]) out[field] = String(v).trim(); else out.unknown.push(String(v).trim());
+    };
+    for (const t of parts) {
+      const lab = /^([^:=]{1,20})\s*[:=]\s*(.+)$/.exec(t);
+      if (lab && PHOTO_LABELS[lab[1].trim().toLowerCase()]) { put(PHOTO_LABELS[lab[1].trim().toLowerCase()], lab[2]); continue; }
+      const digits = toAsciiDigits(t);
+      if (/^\d+([.,]\d+)?\s*(ج\.?\s?م|جنيه|egp|le)?$/i.test(digits) && out.vendorPrice == null) { out.vendorPrice = num(digits); continue; }
+      if (isSize(digits)) { out.sizes.push(/\d\s*[x*]\s*\d/i.test(digits) ? digits.replace(/\s*[x*]\s*/gi, '×') : digits); continue; }
+      if (isWeight(digits)) { out.weight = weightKg(digits); continue; }
+      const cs = t.split(/\s*[/+&]\s*|\s+و\s+/).map((x) => x.trim()).filter(Boolean);
+      if (cs.length && cs.every((x) => colorNames.includes(x.toLowerCase()))) { out.colors = out.colors.concat(cs); continue; }
+      if (isMaterial(t)) { if (!out.material) out.material = t; else out.unknown.push(t); continue; }
+      if (/[A-Za-z]/.test(t) && !/[\u0600-\u06FF]/.test(t)) { if (!out.nameEn) out.nameEn = t; else out.unknown.push(t); continue; }
+      if (/[\u0600-\u06FF]/.test(t)) { if (!out.nameAr) out.nameAr = t; else out.unknown.push(t); continue; }
+      out.unknown.push(t);
+    }
+    out.key = (out.nameEn || out.nameAr) ? (out.nameEn.toLowerCase() + '|' + out.nameAr) : base.toLowerCase();
+    return out;
+  }
   const toPrice = (v) => { const n = Number(toAsciiDigits(v).replace(/[^\d.]/g, '')); return Number.isFinite(n) && n > 0 ? Math.round(n * 100) / 100 : null; };
   // صفوف الشيت (أول صف = العناوين) + الربط → منتجات الدفعة.
   // قرار 16 (صاحب المشروع 31 أكتوبر — شكل شيته في WP All Import): لو الدفعة Variable وفي عمود «unique id» (Parent SKU)، الصفوف اللي
@@ -458,6 +507,6 @@
     }
     return marked;
   }
-  return { aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  return { aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

@@ -454,3 +454,30 @@ test('studio images (phase 5.4): «ولّد» makes a slot\'s image with the AI 
   expect(JSON.stringify(mock.activityRows)).not.toContain('/gen-');
   await next(page, 'التالي: الأقسام والأوصاف');
 });
+
+test('decision 10 — «صور بس»: the photos alone, each file\'s name carrying the product\'s data; the same names make one product (main + reference); colors by the table; the review table; the next step', async ({ page }) => {
+  const SB = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
+  await signIn(page, OPS);
+  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
+  await page.getByRole('radio', { name: /^صور بس/ }).click();
+  await next(page, 'التالي: الاستلام');
+  await expect(page.locator('#pg-products')).toContainText('ارفع صور المنتجات');
+  await expect(page.locator('#pg-products')).not.toContainText('اختار الشيت');
+  await pick(page, /اختار صور المنتجات/, [
+    { name: 'Boho Cushion - مخدة بوهيمي - Beige - 45×45 - Cotton - 350.png', mimeType: 'image/png', buffer: PNG },
+    { name: 'Boho Cushion - مخدة بوهيمي - Beige - 45×45 - Cotton - 350 (2).png', mimeType: 'image/png', buffer: PNG },
+    { name: 'Stripe Pillow - مخدة مخططة - Black - 280.png', mimeType: 'image/png', buffer: PNG }]);
+  await expect(page.locator('.toast, [role=status]').last()).toContainText('اترفع 3 صورة — 2 منتج جديد');
+  await expect(page.locator('#pg-products .st-table tbody tr')).toHaveCount(2);
+  await expect(page.locator('#pg-products')).toContainText('Boho Cushion');
+  await expect(page.locator('#pg-products .st-table')).toContainText('350 ج.م · BE · 45×45 · Cotton');
+  await expect(page.locator('#pg-products .st-table tbody tr').nth(1)).toContainText('متطابق ✓');
+  await expect.poll(() => mock.studioBatches[0].state.items.map((it) => [it.nameEn, it.nameAr, it.vendorPrice, it.colors, it.sizes, it.material, !!it.main, it.refs.length])).toEqual([['Boho Cushion', 'مخدة بوهيمي', 350, ['BE'], ['45×45'], 'Cotton', true, 1], ['Stripe Pillow', 'مخدة مخططة', 280, ['BK'], [], '', true, 0]]);
+  expect(mock.studioBatches[0].state.mode).toBe('photos');
+  expect([...mock.studioObjects.keys()].map((k) => k.replace(/-[a-z0-9]+\.jpg$/, ''))).toEqual([SB + '/row1-main', SB + '/row1-ref', SB + '/row2-main']);
+  await next(page, 'التالي: البيانات و SKU');
+  await expect(page).toHaveURL(new RegExp('#products-studio-' + SB + '-3$'));
+  await expect(page.locator('#pg-products')).toContainText('مخدة بوهيمي');
+});

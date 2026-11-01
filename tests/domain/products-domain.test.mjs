@@ -286,3 +286,19 @@ test('aiApply (the studio): names only when empty, descriptions per empty langua
   assert.deepEqual(plain([v.colors, v.sizes]), [['BE', 'BK'], ['M']]);
   assert.deepEqual(plain(PD.aiApply({ nameAr: 'موجود' }, { nameAr: 'تاني' }, ['nameAr'], {})), [], 'nothing replaced, nothing marked');
 });
+
+test('photoName (decision 10, «صور بس»): the product\'s data from the file name — names by script, a bare number is the price, n×n / units / S-M-L are sizes, kg or grams the weight, the table\'s names are colors, the crafts lexicon the material, labels win, copy counters drop, the same names share a key', () => {
+  const colors = ['Beige', 'بيج', 'Black', 'أسود', 'Sage Green', 'أخضر زرعي'];
+  const a = PD.photoName('Boho Cushion - مخدة بوهيمي - بيج - 45×45 - قطن - 350 (2).jpg', { colors });
+  assert.deepEqual(plain(a), { nameEn: 'Boho Cushion', nameAr: 'مخدة بوهيمي', vendorPrice: 350, colors: ['بيج'], sizes: ['45×45'], material: 'قطن', style: '', weight: '', stock: null, unknown: [], key: 'boho cushion|مخدة بوهيمي' });
+  assert.equal(PD.photoName('Boho Cushion - مخدة بوهيمي - بيج - 45×45 - قطن - 350.jpg', { colors }).key, a.key, 'the copy and the original are one product');
+  // any order, other separators, Arabic digits, a labeled part, two colors, a weight in grams, a size word
+  const b = PD.photoName('٣٥٠ ج.م | Black / Beige | Stripe Pillow_wool_XL_weight: 400g_style: Boho_مخدة مخططة_copy 3.png', { colors });
+  assert.deepEqual(plain(b), { nameEn: 'Stripe Pillow', nameAr: 'مخدة مخططة', vendorPrice: 350, colors: ['Black', 'Beige'], sizes: ['XL'], material: 'wool', style: 'Boho', weight: '0.4', stock: null, unknown: [], key: 'stripe pillow|مخدة مخططة' });
+  // only a name: the rest empty; an unknown word waits; a color not in the table is a word, not a color; a size with x; a hyphenated name stays whole
+  const c = PD.photoName('Sage Green Vase - Teal - 20x30cm - handmade - أصيص سيج - 2.webp', { colors });
+  assert.deepEqual(plain(c), { nameEn: 'Sage Green Vase', nameAr: 'أصيص سيج', vendorPrice: null, colors: [], sizes: ['20×30cm'], material: '', style: '', weight: '', stock: null, unknown: ['Teal', 'handmade'], key: 'sage green vase|أصيص سيج' });
+  assert.deepEqual(plain(PD.photoName('T-shirt.jpg', { colors })), { nameEn: 'T-shirt', nameAr: '', vendorPrice: null, colors: [], sizes: [], material: '', style: '', weight: '', stock: null, unknown: [], key: 't-shirt|' });
+  assert.deepEqual([PD.photoName('مج سيراميك - 120 - أسود - qty: 5 - price: 150.jpeg', { colors }).vendorPrice, PD.photoName('مج سيراميك - 120 - أسود - qty: 5 - price: 150.jpeg', { colors }).stock, PD.photoName('مج سيراميك - 120 - أسود.jpeg', { colors }).material, PD.photoName('مج - 120 - natural cotton.jpeg', { colors }).material], [150, 5, '', 'natural cotton'], 'a label wins over the bare number; a material word alone (or with a modifier) is the material, inside a name it is the name');
+  assert.equal(PD.photoName('IMG_2041.jpg', { colors }).key, 'img|', 'a camera name is a name of its own (one product a file)');
+});

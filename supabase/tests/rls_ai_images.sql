@@ -76,8 +76,8 @@ do $$ declare r jsonb; n int; spent bigint; begin
   if not has_function_privilege('authenticated', 'public.ai_month_credits()', 'EXECUTE') or has_function_privilege('anon', 'public.ai_month_credits()', 'EXECUTE') then
     raise exception 'case ai_month_credits is for members and the server failed';
   end if;
-  spent := public.ai_month_credits(); -- the owner reads every row: 200 so far
-  if spent <> 200 then raise exception 'case the month credits count every image row failed (%)', spent; end if;
+  spent := public.ai_month_credits(); -- the owner reads every row: the 200 of this test, plus whatever the live project made this month
+  if spent < 200 then raise exception 'case the month credits count every image row failed (%)', spent; end if;
   -- the cap: this month's credits + the planned credits over the cap → a cap row at 0 credits, no reservation
   r := public.ai_image_run_start('{"created_by":"00000000-0000-4000-8000-000000000092","source":"studio","label":"Pouf","batch_id":null,"item_index":2,"model":"seedream-5-pro"}', (spent + 74)::int, 75, 0.15, 60, 10);
   if r ->> 'result' <> 'cap' or not exists (select 1 from public.ai_runs where id = (r ->> 'id')::bigint and status = 'cap' and error = 'ai_cap' and credits = 0 and cost_usd = 0

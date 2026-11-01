@@ -14,7 +14,7 @@ create table if not exists public.image_shares (
   batch_id uuid not null references public.studio_batches on delete cascade,
   item_index int not null check (item_index between 0 and 999),
   item_key text check (item_key is null or length(item_key) <= 60),
-  name text not null check (length(btrim(name)) between 1 and 220),
+  name text not null check (length(btrim(name)) between 1 and 120 and name !~ '[/\\]' and name !~ '\.\.'), -- a strict file name: no path parts
   path text not null check (length(path) <= 300),
   url text not null check (url ~ '^https://' and length(url) <= 2000),
   expires_at timestamptz not null,

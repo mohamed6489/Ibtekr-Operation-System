@@ -28,6 +28,11 @@ do $$ begin
   exception when check_violation then null;
   end;
   begin
+    insert into public.image_shares (created_by, batch_id, item_index, name, path, url, expires_at) values ('00000000-0000-4000-8000-000000000095', '0b6f2f5e-1d2c-4a8b-9e3f-00000000aa95', 0, '../x.jpg', 'p', 'https://ok', now());
+    raise exception 'case a name with path parts is refused failed';
+  exception when check_violation then null;
+  end;
+  begin
     insert into public.image_shares (created_by, batch_id, item_index, name, path, url, expires_at, status) values ('00000000-0000-4000-8000-000000000095', '0b6f2f5e-1d2c-4a8b-9e3f-00000000aa95', 0, 'x.jpg', 'p', 'https://ok', now(), 'done');
     raise exception 'case a status outside the list is refused failed';
   exception when check_violation then null;

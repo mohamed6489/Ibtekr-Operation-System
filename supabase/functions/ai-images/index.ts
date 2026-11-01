@@ -531,7 +531,9 @@ async function share(deps: Deps, who: Who, args: Json) {
     const { data: sg } = await deps.db.storage.from(STUDIO_BUCKET).createSignedUrl(path, SHARE_SECONDS);
     const url = typeof sg?.signedUrl === 'string' && /^https:\/\//.test(sg.signedUrl) ? sg.signedUrl : null;
     if (!url) { skipped++; continue; }
-    const name = (line(String(it.nameEn || it.nameAr || ''), 200) || 'product-' + (i + 1)) + '.' + (path.split('.').pop() ?? 'jpg');
+    // the file name the bridge gives the site: the product's name as a strict file name (letters, digits, space . _ -; no path parts)
+    const stem = String(it.nameEn || it.nameAr || '').replace(/[^\p{L}\p{N} ._-]/gu, ' ').replace(/\.{2,}/g, '.').replace(/\s+/g, ' ').trim().slice(0, 100).replace(/[. ]+$/, '');
+    const name = (stem || 'product-' + (i + 1)) + '.' + (/^(jpe?g|png|webp)$/i.test(path.split('.').pop() ?? '') ? path.split('.').pop() : 'jpg');
     const { error } = await deps.db.from('image_shares').insert({ created_by: who.uid, batch_id: batchId, item_index: i, item_key: typeof it.key === 'string' ? it.key.slice(0, 60) : null, name, path, url, expires_at: new Date(Date.parse(deps.now()) + SHARE_SECONDS * 1000).toISOString(), status: 'pending' });
     if (error) { skipped++; continue; }
     made++;

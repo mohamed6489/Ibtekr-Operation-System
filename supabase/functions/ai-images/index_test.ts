@@ -316,7 +316,7 @@ Deno.test('import target studio (decision 9): the queued items become a studio b
 });
 
 Deno.test('share (decision 10 b): a batch\'s product photos become image_shares rows — a week\'s signed link, the product\'s name as the file name, pending; a photo already shared is skipped; products.add and the member\'s own batch; the chosen indexes only', async () => {
-  const st = { items: [item({ nameEn: 'Kilim Pouf', main: SB + '/row1-main.webp' }), item({ nameEn: '', nameAr: 'مج', main: SB + '/black.webp' }), item({ nameEn: 'No photo', main: null })] };
+  const st = { items: [item({ nameEn: 'Kilim Pouf', main: SB + '/row1-main.webp' }), item({ nameEn: '', nameAr: '../مج: "x"/y\\z', main: SB + '/black.webp' }), item({ nameEn: 'No photo', main: null })] };
   const { deps, db } = setup({ seed: { ...SEED, studio_batches: [batch({ state: st, created_by: U.add })] } });
   assertEquals((await call(deps, { action: 'share', batch_id: SB }, 'jwt-edit')).res.status, 401);
   assertEquals((await call(deps, { action: 'share', batch_id: 'nope' })).body.field, 'batch_id');
@@ -324,7 +324,7 @@ Deno.test('share (decision 10 b): a batch\'s product photos become image_shares 
   const r = await call(deps, { action: 'share', batch_id: SB });
   assertEquals([r.res.status, r.body.shared, r.body.skipped], [200, 2, 1], 'the item without a photo is skipped');
   const rows = db.rows('image_shares');
-  assertEquals(rows.map((x: any) => [x.created_by, x.batch_id, x.item_index, x.name, x.path, x.status, x.creation_ref]), [[U.add, SB, 0, 'Kilim Pouf.webp', SB + '/row1-main.webp', 'pending', null], [U.add, SB, 1, 'مج.webp', SB + '/black.webp', 'pending', null]]);
+  assertEquals(rows.map((x: any) => [x.created_by, x.batch_id, x.item_index, x.name, x.path, x.status, x.creation_ref]), [[U.add, SB, 0, 'Kilim Pouf.webp', SB + '/row1-main.webp', 'pending', null], [U.add, SB, 1, '. مج x y z.webp', SB + '/black.webp', 'pending', null]], 'the file name is a strict one: no path parts, quotes or colons');
   assert(rows[0].url.startsWith('https://signed.test/studio/') && Date.parse(rows[0].expires_at) - Date.parse(NOW) === 7 * 24 * 3600 * 1000, 'a week');
   assertEquals(db.calls.filter((c: any) => c.op === 'sign').map((c: any) => c.args.seconds), [604800, 604800]);
   // again: nothing new (already shared); the chosen indexes only on a fresh batch

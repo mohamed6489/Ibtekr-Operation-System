@@ -20,7 +20,7 @@
   const PAGE = 50;
 
   // ---------------- messages ----------------
-  const MSG = { forbidden: 'مش مسموحلك تعمل ده', invalid: 'في قيمة مش مقبولة', no_translation: 'المنتج ده ملوش ترجمة عربي على الموقع', woo_down: 'الموقع مش بيرد دلوقتي — جرّب كمان شوية',
+  const MSG = { forbidden: 'مش مسموحلك تعمل ده', invalid: 'في قيمة مش مقبولة', no_translation: 'المنتج ده ملوش ترجمة عربي على الموقع', no_store: 'المبتكر ده ملوش متجر على الموقع', woo_down: 'الموقع مش بيرد دلوقتي — جرّب كمان شوية',
     network: 'في مشكلة في الاتصال — جرّب تاني', push_disabled: 'الكتابة على الموقع مقفولة دلوقتي — مافيش حاجة اتغيرت', busy: 'استنى العملية اللي قبلها تخلص' };
   const FIELD = { name: 'الاسم', sku: 'SKU', status: 'الحالة', regular_price: 'السعر قبل الخصم', sale_price: 'سعر البيع', stock_quantity: 'المخزون', low_stock_amount: 'التنبيه', weight: 'الوزن',
     short_description: 'الوصف القصير', description: 'الوصف', categories: 'الأقسام', brands: 'البراند', images: 'الصور' };
@@ -138,7 +138,7 @@
     const sel = [...st.sel].map(byId).filter(Boolean);
     const bulk = sel.length && (C.bulk || C.trash) ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد' }, h('b', null, 'محدد ' + K.n0(sel.length)), h('span', { class: 'grow' }),
       C.bulk ? Button({ size: 'sm', label: 'تعديل السعر', onClick: () => bulkPrice(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تعديل المخزون', onClick: () => bulkStock(sel) }) : null,
-      C.bulk ? Button({ size: 'sm', label: 'نقل لبراند تاني', onClick: () => moveBrand(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تغيير القسم', onClick: () => changeCat(sel) }) : null,
+      C.bulk ? Button({ size: 'sm', label: 'نقل لبراند تاني', onClick: () => moveBrand(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'نقل لمبتكر تاني', onClick: () => moveVendor(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تغيير القسم', onClick: () => changeCat(sel) }) : null,
       C.bulk ? Button({ size: 'sm', label: 'تحويل لمسودة', onClick: () => toDraft(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'نشر', onClick: () => publish(sel) }) : null,
       C.trash ? Button({ type: 'danger', size: 'sm', label: 'مسح', onClick: () => toTrash(sel) }) : null, Button({ size: 'sm', label: 'إلغاء التحديد', onClick: () => { st.sel.clear(); R(); } })) : null;
     const pages = Math.max(1, Math.ceil(list.length / PAGE)); if (st.pageN >= pages) st.pageN = pages - 1;
@@ -156,6 +156,7 @@
         K.RowMenu([{ label: 'تعديل', icon: 'sliders', run: () => go('products-edit-' + p.id) }, p.permalink ? { label: 'افتح على الموقع', icon: 'link', run: () => openSite(p.permalink) } : null,
           { label: 'تكرار كمنتج جديد', icon: 'copy', run: () => K.toast('التكرار مع استوديو المنتجات — soon') },
           C.edit ? { label: 'نقل لبراند تاني', icon: 'tag', run: () => moveBrand([p]) } : null,
+          C.bulk ? { label: 'نقل لمبتكر تاني', icon: 'users', run: () => moveVendor([p]) } : null,
           C.edit ? (p.wooStatus === 'publish' ? { label: 'تحويل لمسودة', icon: 'eyeoff', run: () => toDraft([p]) } : { label: 'نشر', icon: 'eye', run: () => publish([p]) }) : null,
           C.trash ? { label: 'مسح', icon: 'trash', danger: true, run: () => toTrash([p]) } : null], 'إجراءات ' + nameOf(p))]; });
     const salesHead = () => h('button', { type: 'button', class: 'th-sort', 'data-sort-sales': '', 'aria-sort': st.sort === 'sales-desc' ? 'descending' : st.sort === 'sales-asc' ? 'ascending' : 'none', title: 'رتّب بمرات الشراء', onClick: () => { st.sort = st.sort === 'sales-desc' ? 'sales-asc' : st.sort === 'sales-asc' ? '' : 'sales-desc'; R(); } }, 'مرات الشراء', h('span', { 'aria-hidden': 'true', class: 'sort-ic' }, st.sort === 'sales-desc' ? ' ↓' : st.sort === 'sales-asc' ? ' ↑' : ' ↕'));
@@ -264,13 +265,31 @@
         write((pg) => batch(simple, (p) => (f.mode === 'demand' ? { manage_stock: false, stock_status: 'onbackorder', low_stock_amount: alert }
           : { manage_stock: true, stock_quantity: Math.max(0, f.mode === 'add' ? (p.stock || 0) + Number(f.qty) : Number(f.qty)), backorders: 'no', low_stock_amount: alert }), pg), 'اتحفظ المخزون على ووكومرس', m, simple.length); return false; } });
   }
+  // the owner (1 Nov): the products' maker on the site — Dokan's post_author, the studio's own way (products.bulk, like the
+  // other bulk writes); the brand shown on the product, the price and the SKU stay
+  function moveVendor(l) {
+    const V = window.IBVendors; const vendors = (V && V.store && V.store.all ? V.store.all() : []).filter((v) => v.wooVendorId).sort((a, b) => a.name.localeCompare(b.name));
+    if (!vendors.length) { K.toast('مفيش مبتكرين بمتجر على الموقع لسه', 'error'); return; }
+    K.form({ title: 'نقل ' + (l.length === 1 ? 'منتج' : l.length + ' منتجات') + ' لمبتكر تاني', values: { vendor: '' }, submitLabel: 'انقل المنتجات',
+      note: h('p', { class: 't-small help', style: 'margin:0' }, names(l)),
+      fields: (f, e, set) => [K.field.select('vendor', 'المبتكر الجديد', vendors.map((v) => ({ value: String(v.id), label: v.name })), f, e, set, { required: true, help: 'المبتكر اللي بيتحاسب على المنتج (متجره على Dokan) — المنتج وترجمته العربي بيتنقلوا.' }),
+        U.InlineNote({ kind: 'warning', children: 'البراند الظاهر على المنتج والسعر والـ SKU مش بيتغيروا — المتجر بس.' })],
+      validate: (f) => K.req(f, ['vendor'], { vendor: 'اختار المبتكر' }),
+      submit: (f, m) => { write(() => PR().moveVendor(l.map((p) => p.id), f.vendor), 'اتنقلوا لـ ' + ((vendors.find((v) => String(v.id) === f.vendor) || {}).name || 'المبتكر'), m, l.length); return false; } });
+  }
+  // the owner (1 Nov): the categories picked on the site's tree (the studio's picker — a search box, the branches with +/−, a
+  // child ticks its parents), several at once; add / replace / remove
   function changeCat(l) {
-    const cats = PR().categories();
-    K.form({ title: 'تغيير قسم ' + (l.length === 1 ? 'منتج' : l.length + ' منتجات'), values: { cat: '', mode: 'add' }, submitLabel: 'غيّر القسم',
-      fields: (f, e, set, draw) => [K.field.select('cat', 'القسم', cats.map((c) => ({ value: String(c.id), label: c.path })), f, e, set, { required: true }), K.Radios({ value: f.mode, onChange: (v) => { f.mode = v; draw(); }, options: [{ value: 'add', label: 'ضيفه جنب الأقسام الحالية', hint: 'المنتج هيظهر في الاتنين' }, { value: 'replace', label: 'بدّل الأقسام الحالية' }, { value: 'remove', label: 'شيله من القسم ده' }] })],
-      validate: (f) => K.req(f, ['cat'], { cat: 'اختار القسم' }),
-      submit: (f, m) => { const id = Number(f.cat);
-        write((pg) => batch(l, (p) => { const cur = p.categoryIds; const nx = f.mode === 'replace' ? [id] : f.mode === 'remove' ? cur.filter((x) => x !== id) : cur.filter((x) => x !== id).concat(id); return nx.length ? { categories: nx } : {}; }, pg), 'اتغير القسم', m, l.length); return false; } });
+    const cats = PR().categories(); const pathOf = (id) => ((cats.find((c) => c.id === Number(id)) || {}).path || String(id));
+    let chosen = [];
+    K.form({ title: 'تغيير قسم ' + (l.length === 1 ? 'منتج' : l.length + ' منتجات'), values: { mode: 'add' }, submitLabel: 'غيّر القسم', wide: true,
+      fields: (f, e, set, draw) => [U.FieldShell({ id: 'cc-cats', label: 'الأقسام', required: true, error: e.cats, help: 'اكتب اسم القسم في البحث وهيظهر مع شجرته — علّم اللي عايزه، والفرعي بيعلّم اللي فوقه لوحده.' },
+          h('div', { class: 'chips', 'data-cc-chosen': '' }, chosen.map((id) => h('span', { class: 'chip', title: pathOf(id) }, pathOf(id))),
+            Button({ size: 'sm', label: chosen.length ? 'عدّل الأقسام' : 'اختار الأقسام من الشجرة', attrs: { 'data-cc-pick': '' }, onClick: () => { const PK = window.IBCatsPicker; if (!PK) { K.toast(MSG.network, 'error'); return; } PK('أقسام ' + (l.length === 1 ? nameOf(l[0]) : l.length + ' منتجات'), chosen, (ids) => { chosen = ids.map(Number); delete e.cats; draw(); }); } }))),
+        K.Radios({ value: f.mode, onChange: (v) => { f.mode = v; draw(); }, options: [{ value: 'add', label: 'ضيفها جنب الأقسام الحالية', hint: 'المنتج هيظهر في كلهم' }, { value: 'replace', label: 'بدّل الأقسام الحالية بيها' }, { value: 'remove', label: 'شيلها من المنتجات' }] })],
+      validate: () => (chosen.length ? {} : { cats: 'اختار قسم على الأقل' }),
+      submit: (f, m) => { const ids = chosen.slice();
+        write((pg) => batch(l, (p) => { const cur = p.categoryIds; const nx = f.mode === 'replace' ? ids : f.mode === 'remove' ? cur.filter((x) => !ids.includes(x)) : [...new Set(cur.concat(ids))]; return nx.length && nx.join() !== cur.join() ? { categories: nx } : {}; }, pg), 'اتغير القسم', m, l.length); return false; } });
   }
 
   // ---------------- edit (the product live from the site) ----------------

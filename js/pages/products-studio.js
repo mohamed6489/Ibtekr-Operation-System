@@ -550,28 +550,34 @@
   const issuesOf = (it, opts) => PD.itemIssues(it, S.state.type, opts).concat((it.unknownColors || []).length ? ['لون مش في الجدول: ' + it.unknownColors.join('، ')] : []);
   const recvState = (it) => (issuesOf(it, { ar: false }).length ? 'data' : !it.main ? 'img' : 'ok');
   const noArabic = (L) => L.filter((it) => !String(it.nameAr || '').trim()).length;
+  // «صور بس» (the owner, 1 Nov): one name in the file name is enough — a product named in Arabic only passes the intake, and
+  // the English name is filled by the AI («املا الناقص بالـ AI») or by hand in «البيانات و SKU»
+  const PHOTO_OPTS = { ar: false, en: false };
+  const photoState = (it) => (issuesOf(it, PHOTO_OPTS).length ? 'data' : !it.main ? 'img' : 'ok');
+  const noEnglish = (L) => L.filter((it) => !String(it.nameEn || '').trim()).length;
   // decision 10: «صور بس» — one card for the photos (the data from their names) and the same review table
   function step2Photos() {
     const L = items();
-    const rows = L.map((it, i) => { const s = recvState(it);
+    const rows = L.map((it, i) => { const s = photoState(it);
       return { cls: s === 'ok' ? null : 'row-err', cells: [K.Num(String(i + 1)), h('span', { class: 'rv-data' }, h('b', null, it.nameEn || it.nameAr || h('span', { class: 'help' }, 'من غير اسم')), it.nameEn && it.nameAr ? h('small', null, it.nameAr) : null,
         h('small', { class: 't-small help' }, (it.vendorPrice ? money(it.vendorPrice) : 'السعر ناقص') + (it.colors.length ? ' · ' + it.colors.join(' ') : '') + (it.sizes.length ? ' · ' + it.sizes.join('، ') : '') + (it.material ? ' · ' + it.material : '')),
         (it.unknownText || []).length ? h('small', { class: 't-small help' }, 'مش مفهوم من الاسم: ' + it.unknownText.join('، ')) : null),
         it.main ? h('span', { class: 'rv-main' }, Thumb(it.main, 'st-big')) : h('span', { class: 'help' }, '—'),
         h('span', { class: 'rv-refs' }, (it.refs || []).slice(0, 3).map((p) => Thumb(p, 'mini')), (it.refs || []).length > 3 ? h('small', null, '+' + (it.refs.length - 3)) : null),
-        s === 'ok' ? Tag('success', 'متطابق ✓') : s === 'img' ? Tag('error', 'ناقص صورة') : Tag('error', 'ناقص: ' + issuesOf(it).join('، ')),
+        s === 'ok' ? Tag('success', 'متطابق ✓') : s === 'img' ? Tag('error', 'ناقص صورة') : Tag('error', 'ناقص: ' + issuesOf(it, PHOTO_OPTS).join('، ')),
         K.RowMenu([{ label: 'عدّل البيانات', icon: 'edit', run: () => editItem(it) },
           { label: 'البرومبتات (لـ Magnific)', icon: 'sparkle', run: () => promptsModal(it) },
           { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => K.confirm({ title: 'شيل «' + (it.nameEn || it.nameAr || 'صف ' + (i + 1)) + '» من الدفعة؟', text: 'بيتشال من الدفعة دي بس.', okLabel: 'شيل', okType: 'danger', onOk: () => { S.state.items.splice(S.state.items.indexOf(it), 1); touch(); R(); } }) }], 'إجراءات صف ' + (i + 1))] }; });
-    const bad = L.filter((it) => recvState(it) !== 'ok').length;
-    return [TotalsBar([['المنتجات', L.length], ['متطابقة', L.length - bad, bad ? null : 'ok'], ['ناقص صورة', L.filter((it) => recvState(it) === 'img').length, null], ['ناقص داتا', L.filter((it) => recvState(it) === 'data').length, bad ? 'err' : null]], L.length ? shareBar() : null),
+    const bad = L.filter((it) => photoState(it) !== 'ok').length;
+    return [TotalsBar([['المنتجات', L.length], ['متطابقة', L.length - bad, bad ? null : 'ok'], ['ناقص صورة', L.filter((it) => photoState(it) === 'img').length, null], ['ناقص داتا', L.filter((it) => photoState(it) === 'data').length, bad ? 'err' : null]], L.length ? shareBar() : null),
       Card('1 · ارفع صور المنتجات', 'اسم كل ملف فيه الداتا: الاسم (EN و/أو AR) - اللون - المقاس - الخامة - السعر — بأي ترتيب، وبفاصل « - ». نفس الاسم على أكتر من صورة = منتج واحد (الأولى الأساسية والباقي مرجعية).', [
         h('button', { type: 'button', class: 'drop', onClick: () => filePick('image/*', true, dropNamedPhotos) }, Icon('upload'), h('b', null, 'اختار صور المنتجات'), h('small', null, 'JPG / PNG / WebP — بتتحول JPG · ' + L.length + ' منتج لحد دلوقتي')),
-        U.InlineNote({ children: 'مثال: «Boho Cushion - مخدة بوهيمي - بيج - 45×45 - قطن - 350.jpg». اللي مش في الاسم بيتكتب من «عدّل» في الخطوة الجاية — والاسم العربي وسعر المبتكر إجباريين قبل الرفع.' })]),
+        U.InlineNote({ children: 'مثال: «Boho Cushion - مخدة بوهيمي - بيج - 45×45 - قطن - 350.jpg». اسم واحد كفاية (عربي أو إنجليزي) — التاني بيتكتب بالـ AI أو من «عدّل» في الخطوة الجاية، والاسمين وسعر المبتكر إجباريين قبل الرفع.' })]),
       L.length ? Card('2 · مراجعة الداتا والصور', 'الألوان بتتربط بجدول الألوان بالاسم (إنجليزي أو عربي).', [STable([{ l: 'صف', w: 56 }, { l: 'الداتا من اسم الملف' }, { l: 'الصورة الأساسية', w: 120 }, { l: 'مرجعية', w: 160 }, { l: 'الحالة', w: 200 }, { l: '', w: 56 }], rows, 'مراجعة الداتا والصور'),
         L.some((it) => (it.unknownColors || []).length) ? U.InlineNote({ kind: 'warning', children: 'في ألوان مش في جدول الألوان — ضيفها من «+ لون جديد» في الخطوة الجاية أو عدّل اسم الملف.', action: Button({ size: 'sm', label: '+ لون جديد', onClick: () => newColor('') }) }) : null,
-        noArabic(L) ? U.InlineNote({ kind: 'warning', children: noArabic(L) + ' منتج من غير اسم عربي — الاسم العربي إجباري: حطه في اسم الملف، أو اكتبه من «عدّل» في الخطوة الجاية.' }) : null]) : null,
-      WizFoot(L.length > 0 && !L.some((it) => recvState(it) === 'img' || PD.itemIssues(it, S.state.type, { ar: false }).length), !L.length ? 'ارفع الصور الأول' : 'كمّل الصور والداتا الناقصة')];
+        noArabic(L) ? U.InlineNote({ kind: 'warning', children: noArabic(L) + ' منتج من غير اسم عربي — الاسم العربي إجباري: حطه في اسم الملف، أو اكتبه من «عدّل» في الخطوة الجاية.' }) : null,
+        noEnglish(L) ? U.InlineNote({ children: noEnglish(L) + ' منتج من غير اسم إنجليزي — في الخطوة الجاية «املا الناقص بالـ AI» بيكتبه من الاسم العربي والصورة، أو اكتبه من «عدّل».' }) : null]) : null,
+      WizFoot(L.length > 0 && !L.some((it) => photoState(it) !== 'ok'), !L.length ? 'ارفع الصور الأول' : 'كمّل الصور والداتا الناقصة')];
   }
   function step2() {
     if (S.state.mode === 'photos') return step2Photos();

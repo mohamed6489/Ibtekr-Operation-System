@@ -389,10 +389,13 @@
     return hits[0].id;
   }
   // اللي ناقص في منتج الدفعة (الرسائل بالعربي زي الـ prototype). الاسم بالعربي إجباري (قرار 15، صاحب المشروع 29 أكتوبر) —
-  // «الاستلام» بيعدّيه ({ ar: false }) عشان يتكتب في «البيانات و SKU» لو الشيت مافيهوش
+  // «الاستلام» بيعدّيه ({ ar: false }) عشان يتكتب في «البيانات و SKU» لو الشيت مافيهوش. و«صور بس» ({ en: false }، صاحب المشروع
+  // 1 نوفمبر): اسم واحد كفاية في اسم الملف (عربي أو إنجليزي) — الإنجليزي الناقص بيتملا بالـ AI أو بالإيد في «البيانات و SKU»
   function itemIssues(it, type, opts) {
     const ar = !(opts && opts.ar === false);
-    return [!it.nameEn && 'الاسم (EN)', ar && !String(it.nameAr == null ? '' : it.nameAr).trim() && 'الاسم (AR)', !it.vendorPrice && 'سعر المبتكر',
+    const hasAr = !!String(it.nameAr == null ? '' : it.nameAr).trim();
+    const enOk = it.nameEn || (opts && opts.en === false && hasAr);
+    return [!enOk && 'الاسم (EN)', ar && !hasAr && 'الاسم (AR)', !it.vendorPrice && 'سعر المبتكر',
       type === 'Variable' && !((it.colors || []).length || (it.sizes || []).length) && 'المتغيرات'].filter(Boolean);
   }
   // أقسام الاستوديو (قرار 14، صاحب المشروع 29 أكتوبر): شجرة بـ +/− زي شجرة العمولة. [{ id, name, parentId }] → { byId, kids, roots }

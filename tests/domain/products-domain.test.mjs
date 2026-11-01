@@ -299,6 +299,11 @@ test('photoName (decision 10, «صور بس»): the product\'s data from the fil
   const c = PD.photoName('Sage Green Vase - Teal - 20x30cm - handmade - أصيص سيج - 2.webp', { colors });
   assert.deepEqual(plain(c), { nameEn: 'Sage Green Vase', nameAr: 'أصيص سيج', vendorPrice: null, colors: [], sizes: ['20×30cm'], material: '', style: '', weight: '', stock: null, unknown: ['Teal', 'handmade'], key: 'sage green vase|أصيص سيج' });
   assert.deepEqual(plain(PD.photoName('T-shirt.jpg', { colors })), { nameEn: 'T-shirt', nameAr: '', vendorPrice: null, colors: [], sizes: [], material: '', style: '', weight: '', stock: null, unknown: [], key: 't-shirt|' });
-  assert.deepEqual([PD.photoName('مج سيراميك - 120 - أسود - qty: 5 - price: 150.jpeg', { colors }).vendorPrice, PD.photoName('مج سيراميك - 120 - أسود - qty: 5 - price: 150.jpeg', { colors }).stock, PD.photoName('مج سيراميك - 120 - أسود.jpeg', { colors }).material, PD.photoName('مج - 120 - natural cotton.jpeg', { colors }).material], [150, 5, '', 'natural cotton'], 'a label wins over the bare number; a material word alone (or with a modifier) is the material, inside a name it is the name');
+  assert.deepEqual([PD.photoName('مج سيراميك - 120 - أسود - qty: 5 - price: 150.jpeg', { colors }).vendorPrice, PD.photoName('مج سيراميك - 120 - أسود - qty: 5 - price: 150.jpeg', { colors }).stock, PD.photoName('مج سيراميك - 120 - أسود.jpeg', { colors }).material, PD.photoName('مج - 120 - natural cotton.jpeg', { colors }).material, PD.photoName('مج سيراميك - 120 - أسود.jpeg', { colors }).nameAr], [150, 5, 'سيراميك', 'natural cotton', 'مج سيراميك'], 'a label wins over the bare number; a material word alone (or with a modifier) is the material; inside a name it sets the material and stays in the name');
   assert.equal(PD.photoName('IMG_2041.jpg', { colors }).key, 'img|', 'a camera name is a name of its own (one product a file)');
+  // one phrase, the owner's way (1 Nov): the price («ب 1500ج» / «1500 جنيه»), the size («مقاسها 40x50») and a material word read out of it
+  const d = PD.photoName('شنطة جلد عليا رسمة زهور ب 1500ج مقاسها 40x50.jpg', { colors });
+  assert.deepEqual(plain(d), { nameEn: '', nameAr: 'شنطة جلد عليا رسمة زهور', vendorPrice: 1500, colors: [], sizes: ['40×50'], material: 'جلد', style: '', weight: '', stock: null, unknown: [], key: '|شنطة جلد عليا رسمة زهور' });
+  const e = PD.photoName('Cotton tote bag 45x35cm 350 EGP.jpg', { colors });
+  assert.deepEqual([e.nameEn, e.vendorPrice, e.sizes, e.material], ['Cotton tote bag', 350, ['45×35cm'], 'Cotton']);
 });

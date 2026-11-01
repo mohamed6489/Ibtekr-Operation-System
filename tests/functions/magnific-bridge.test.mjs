@@ -91,15 +91,18 @@ test('decision 12 — templatePrompts: the owner\'s generators «<فئة> N — 
 });
 
 test('decision 12 — flowNodes / listIdsOf / urlsById: the flow of a batch (panel, the photos list in replace mode, three generators with the category prompts or the generic words, three output lists, six connections); the output ids in order; the urls by id', async () => {
-  const { flowNodes, listIdsOf, urlsById } = await import('../../supabase/functions/_shared/magnific-bridge.js');
+  const { flowNodes, listIdsOf, urlsById, FRAME_NOTE } = await import('../../supabase/functions/_shared/magnific-bridge.js');
+  const { FRAME_NOTE: NOTE2 } = await import('../../supabase/functions/_shared/ai-images.js');
+  assert.equal(FRAME_NOTE, NOTE2, 'one framing sentence everywhere'); assert.match(FRAME_NOTE, /center crop to 7:8/);
   const prompts = [{ category: 'كرسي', shot: 1, name: 'كرسي 1 — تركيز على المنتج', prompt: 'P1', negative: 'people', model: 'imagen-nano-banana-2', aspect: '3:4', resolution: '2k' }, { category: 'كرسي', shot: 3, name: 'كرسي 3 — Closeup للتفاصيل', prompt: 'P3', negative: null, model: null, aspect: null, resolution: null }];
   const f = flowNodes({ title: 'دفعة كراسي — 2026-11-01', category: 'كرسي', photos: ['UP1', 'UP2'], prompts });
   assert.deepEqual(f.nodes.map((n) => [n.nodeType, n.ref]), [['panel', 'panel'], ['list', 'list'], ['image-generator', 'gen1'], ['list', 'out1'], ['image-generator', 'gen2'], ['list', 'out2'], ['image-generator', 'gen3'], ['list', 'out3']]);
   assert.deepEqual(f.nodes[1].data, { itemType: 'image', mode: 'replace', items: [{ type: 'image', creationIdentifier: 'UP1' }, { type: 'image', creationIdentifier: 'UP2' }] });
-  assert.deepEqual(f.nodes[2].data, { prompt: 'P1', mode: 'imagen-nano-banana-2', aspectRatio: '3:4', resolution: '2k', numberOfGenerations: 1, negativePrompt: 'people' });
+  assert.deepEqual(f.nodes[2].data, { prompt: 'P1 ' + FRAME_NOTE, mode: 'imagen-nano-banana-2', aspectRatio: '3:4', resolution: '2k', numberOfGenerations: 1, negativePrompt: 'people' }, 'decision 14: every generator (the template\'s rows too) is told to keep the product in the middle for the crop');
   assert.equal(f.nodes[2].name, 'كرسي 1 — تركيز على المنتج');
   assert.ok(f.nodes[4].data.prompt.startsWith('A lifestyle photograph') && f.nodes[4].name === 'كرسي 2 — المنتج في بيئة محيطة', 'shot 2 has no row: the generic words');
-  assert.deepEqual([f.nodes[6].data.prompt, f.nodes[6].data.mode, f.nodes[6].data.aspectRatio, f.nodes[6].data.resolution], ['P3', 'imagen-nano-banana-2', '3:4', '1k']);
+  assert.deepEqual([f.nodes[6].data.prompt, f.nodes[6].data.mode, f.nodes[6].data.aspectRatio, f.nodes[6].data.resolution], ['P3 ' + FRAME_NOTE, 'imagen-nano-banana-2', '3:4', '1k']);
+  assert.ok(f.nodes[4].data.prompt.endsWith(FRAME_NOTE), 'the generic words too');
   // decision 13 (the owner, 1 Nov): every generator runs Nano Banana Pro — a template row on another model is not carried over
   const other = flowNodes({ title: 't', category: 'كرسي', photos: ['UP1'], prompts: [{ shot: 1, prompt: 'P1', model: 'flux-2-pro', aspect: '4:5', resolution: '2k' }] });
   assert.deepEqual([other.nodes[2].data.mode, other.nodes[2].data.aspectRatio, other.nodes[2].data.resolution, other.nodes[4].data.mode], ['imagen-nano-banana-2', '4:5', '2k', 'imagen-nano-banana-2']);

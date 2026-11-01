@@ -1,7 +1,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   IMG_MODELS, DEFAULT_MODEL, MODEL_IDS, creditsFor, modelCredits, usdOf, sizeOf, parseGenerate, parseEdit, parseCreate, slotPrompt, shapePrompt,
-  editPrompt, studioPathOk, studioGenPath, studioEditPath, toolPath, extOf, imageSettings, line, MAX_IMAGE_B64, SLOTS, renameInState,
+  editPrompt, studioPathOk, studioGenPath, studioEditPath, toolPath, extOf, imageSettings, line, MAX_IMAGE_B64, SLOTS, renameInState, FRAME_NOTE,
 } from '../../supabase/functions/_shared/ai-images.js';
 
 test('decision 14 — renameInState: a renamed result (png → webp) is followed everywhere the batch state points at it (slots, main, refs, color images); nothing pointing = the same state, not changed', () => {
@@ -97,6 +97,7 @@ test('slotPrompt: the product in words + the slot scene, every slot different, i
 
 test('shapePrompt / editPrompt: the tool shapes around the subject, custom = the user words alone; the edit ops', () => {
   assert.ok(shapePrompt('home', 'Macrame Bag', 'on a beige sofa').endsWith('on a beige sofa'));
+  assert.ok(shapePrompt('home', 'Macrame Bag', 'on a beige sofa').includes(FRAME_NOTE) && shapePrompt('custom', 'x', 'my words').includes(FRAME_NOTE) && slotPrompt({}, 0).endsWith(FRAME_NOTE), 'decision 14: the framing for the 7:8 crop in every prompt');
   assert.ok(shapePrompt('custom', 'Macrame Bag', 'a <script>bag</script> on the beach').includes('a bag on the beach'));
   assert.ok(shapePrompt('hand', '').includes('the handmade product'));
   assert.ok(editPrompt('instruction', 'lighter background').startsWith('Edit the reference photo'));

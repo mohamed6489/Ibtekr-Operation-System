@@ -2,6 +2,7 @@
 // ai-images handler tests (phase 5.4): a fake provider (records every request, answers from a queue) + the in-memory Supabase
 // clients of ../_test/fakes.ts (service and per-member, with the storage fakes). No network.
 import { assert, assertEquals, assertFalse } from 'jsr:@std/assert@1';
+import { FRAME_NOTE } from '../_shared/magnific-bridge.js';
 import { handler } from './index.ts';
 import { ENV, NOW, fakeDb } from '../_test/fakes.ts';
 import { ProviderError, aspectOf, magnific, shape } from './providers/magnific.ts';
@@ -725,7 +726,7 @@ Deno.test('bridge_flow (products.add): the one Space made once and kept in setti
   assertEquals(F.pages.map((p) => [p.spaceId, p.name]), [[F.spaces[0].id, 'كرسي']]);
   assertEquals(F.created.map((n) => [n.pageId, n.nodeType, n.ref]), [['page-1', 'panel', 'panel'], ['page-1', 'list', 'list'], ['page-1', 'image-generator', 'gen1'], ['page-1', 'list', 'out1'], ['page-1', 'image-generator', 'gen2'], ['page-1', 'list', 'out2'], ['page-1', 'image-generator', 'gen3'], ['page-1', 'list', 'out3']]);
   assertEquals(F.created[1].data, { itemType: 'image', mode: 'replace', items: [{ type: 'image', creationIdentifier: 'UP1' }, { type: 'image', creationIdentifier: 'UP2' }] }, 'the photos in product order, the product without a photo left out');
-  assertEquals([F.created[2].data.prompt, F.created[2].data.negativePrompt, F.created[2].data.resolution, F.created[4].data.prompt, F.created[6].data.prompt.startsWith('A close-up detail photograph')], ['CHAIR FOCUS', 'people', '2k', 'CHAIR ENV', true]);
+  assertEquals([F.created[2].data.prompt, F.created[2].data.negativePrompt, F.created[2].data.resolution, F.created[4].data.prompt, F.created[6].data.prompt.startsWith('A close-up detail photograph')], ['CHAIR FOCUS ' + FRAME_NOTE, 'people', '2k', 'CHAIR ENV ' + FRAME_NOTE, true]);
   assertEquals(F.connections.length, 6);
   assertEquals(F.connections[0], { spaceId: F.spaces[0].id, sourceElementId: F.created[1].nodeId, sourcePort: 'output-images', targetElementId: F.created[2].nodeId, targetPort: 'reference', dataType: 'image', pageId: 'page-1' });
   const flow = db.rows('studio_batches')[0].state.flow;

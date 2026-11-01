@@ -139,6 +139,9 @@ const subjectOf = (it, ctx) => {
  * slot — 0 close-up on a clean studio background (the site image), 1 the product in its place, 2 a detail of the craft,
  * 3 the product with its dimensions in view, extras = more angles. A color slot = the close-up in that color.
  */
+// decision 14 (the owner, 1 Nov): every result is center-cropped to 7:8 (700×800) afterwards — the prompt asks for the product in the
+// middle with room above and below (the same words in magnific-bridge.js FRAME_NOTE and the page's products-domain.js slotPrompt)
+export const FRAME_NOTE = 'Framing for a later center crop to 7:8: the whole product sits in the middle of the frame with clear empty margins above and below it (at least 12% of the height each), nothing important near the top or bottom edges.';
 export function slotPrompt(item, slot, ctx = {}) {
   const it = isObj(item) ? item : {};
   const subject = subjectOf(it, ctx);
@@ -149,18 +152,18 @@ export function slotPrompt(item, slot, ctx = {}) {
     : k === 'feature' ? 'A close detail shot of the exact same product from the reference photo: the material, the handmade craft and texture, shallow depth of field.'
     : k === 'sizes' ? 'The exact same product from the reference photo, full view on a plain light background, framed to show its proportions' + (sizes ? ' (' + sizes + ')' : '') + ', space around it for dimension lines.'
     : 'Another angle of the exact same product from the reference photo on a clean warm cream studio background, soft light.';
-  return [BASE, subject + '.', scene].join(' ');
+  return [BASE, subject + '.', scene, FRAME_NOTE].join(' ');
 }
 /** The images tool's prompt from its shape: a scene around the product (from its photo or its name) or the user's own words. */
 export function shapePrompt(shape, subject, extra) {
   const s = line(subject, 160) || 'the handmade product';
   const more = line(extra, MAX_PROMPT);
-  if (shape === 'custom') return [BASE, more].join(' ');
+  if (shape === 'custom') return [BASE, FRAME_NOTE, more].filter(Boolean).join(' ');
   const scene = shape === 'studio' ? `${s} centered on a clean warm cream studio background, soft natural window light, gentle shadow.`
     : shape === 'home' ? `${s} in its place in a warm modern Egyptian home, lifestyle scene, afternoon daylight, plants in the background.`
     : shape === 'detail' ? `A close detail shot of ${s}: the material, the handmade craft and texture, shallow depth of field.`
     : `${s} held or touched by an artisan's hands, a handmade workshop feel, warm light.`;
-  return [BASE, scene, more].filter(Boolean).join(' ');
+  return [BASE, scene, FRAME_NOTE, more].filter(Boolean).join(' ');
 }
 /** An edit's instruction for the provider (remove_bg / upscale / relight have their own routes; `instruction` is free text). */
 export function editPrompt(op, prompt, options = {}) {

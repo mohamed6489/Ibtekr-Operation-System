@@ -237,7 +237,7 @@ test('decision 10 (c) — the site\'s results back into the batch they were made
   // «افتح الدفعة» → the images step, the slots filled
   await page.locator('[data-igbatch]').click();
   await expect(page).toHaveURL(new RegExp('#products-studio-' + SB + '-6$'));
-  await expect(page.locator('#pg-products .tot-bar')).toContainText('4 من 8');
+  await expect(page.locator('#pg-products .tot-bar')).toContainText('3 من 8'); // the intake photo left slot 1 (the owner, 1 Nov): the three results only
 });
 
 test('decision 11 — the admin links the system\'s Magnific account from «إعدادات الصور»: the sign-in link leaves the app, Magnific comes back to magnific-callback.html, the code becomes the link; then the settings show the account and unlink', async ({ page }) => {

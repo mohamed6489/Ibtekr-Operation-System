@@ -59,7 +59,8 @@ test('studio Simple: brand + batch rate → CSV (columns by name) + images by ro
   await next(page, 'التالي: السعر'); // Simple: no variations step
   await expect(page.locator('#pg-products .st-table tbody tr').nth(0)).toContainText('1,430'); // 1000 ÷ 0.7 → up to the next 10
   await next(page, 'التالي: الصور');
-  await expect(page.locator('#pg-products .islot.done')).toHaveCount(2); // the main image went to slot 1
+  await expect(page.locator('#pg-products .islot.done')).toHaveCount(0); // the intake photo is the reference only (the owner, 1 Nov); with nothing generated the product still goes on with it
+  await expect(page.locator('.wiz-foot').getByRole('button', { name: 'التالي: الأقسام والأوصاف' })).toBeEnabled();
   await next(page, 'التالي: الأقسام والأوصاف');
   await page.locator('#pg-products .st-table thead [role=checkbox]').click();
   await page.getByRole('button', { name: 'طبّق قسم على المحدد' }).click();
@@ -403,18 +404,18 @@ test('studio images (phase 5.4): «ولّد» makes a slot\'s image with the AI 
   await pick(page, /اختار صور المنتجات/, [{ name: '1-1.png', mimeType: 'image/png', buffer: PNG }, { name: '2-1.png', mimeType: 'image/png', buffer: PNG }]);
   await expect(page.locator('#pg-products')).toContainText('2 من 2');
   await next(page, 'التالي: البيانات و SKU'); await next(page, 'التالي: السعر'); await next(page, 'التالي: الصور');
-  await expect(page.locator('#pg-products .islot.done')).toHaveCount(2);
+  await expect(page.locator('#pg-products .islot.done')).toHaveCount(0); // the intake photo is the reference only — slot 1 waits for the first generated image (the owner, 1 Nov)
   await expect(page.locator('#img-model')).toContainText('Seedream 5 Pro');
   await expect(page.locator('#pg-products .tot-bar')).toContainText('ناقصة');
   // one slot: the generate call carries the batch, the item, the slot and the batch's model; the image lands tagged AI
   await page.locator('#pg-products .islot.empty').first().getByRole('button', { name: 'ولّد', exact: true }).click();
-  await expect(page.locator('#pg-products .islot.done')).toHaveCount(3);
-  expect(mock.imgCalls).toEqual([{ action: 'generate', by: OPS, batch_id: SB, index: 0, slot: 1, model: 'seedream-5-pro' }]);
+  await expect(page.locator('#pg-products .islot.done')).toHaveCount(1);
+  expect(mock.imgCalls).toEqual([{ action: 'generate', by: OPS, batch_id: SB, index: 0, slot: 0, model: 'seedream-5-pro' }]); // slot 1 of the site = the first generated image
   await expect(page.locator('#pg-products .islot.done .tg', { hasText: 'AI' })).toHaveCount(1);
   await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('1 بالـ AI — راجعها');
-  await expect.poll(() => (mock.studioBatches[0].state.items[0].slots[1] || '')).toMatch(new RegExp('^' + SB + '/gen-0-1-.*\\.webp$')); // decision 7: the browser's WebP, under the same name
-  expect(mock.studioObjects.has(mock.studioBatches[0].state.items[0].slots[1])).toBe(true);
-  expect(mock.webpCalls.map((c) => [c.by, c.bucket, c.path.replace(/\.png$/, '.webp') === mock.studioBatches[0].state.items[0].slots[1]])).toEqual([[OPS, 'studio', true]]);
+  await expect.poll(() => (mock.studioBatches[0].state.items[0].slots[0] || '')).toMatch(new RegExp('^' + SB + '/gen-0-0-.*\\.webp$')); // decision 7: the browser's WebP, under the same name
+  expect(mock.studioObjects.has(mock.studioBatches[0].state.items[0].slots[0])).toBe(true);
+  expect(mock.webpCalls.map((c) => [c.by, c.bucket, c.path.replace(/\.png$/, '.webp') === mock.studioBatches[0].state.items[0].slots[0]])).toEqual([[OPS, 'studio', true]]);
   // the AI busy → the slot says فشل and offers «ولّد تاني»; the activity never carries a path
   mock.imgFail = 'busy';
   await page.locator('#pg-products .islot.empty').first().getByRole('button', { name: 'ولّد', exact: true }).click();
@@ -422,15 +423,15 @@ test('studio images (phase 5.4): «ولّد» makes a slot\'s image with the AI 
   await expect(page.locator('#pg-products .islot.fail')).toContainText('فشل');
   await expect(page.locator('#pg-products .islot.fail').getByRole('button', { name: 'ولّد تاني' })).toBeVisible();
   mock.imgFail = null;
-  // the batch's model, then all the missing slots at once: 2 × 4 − 3 done = 5 images, asked with the credits
+  // the batch's model, then all the missing slots at once: 2 × 4 − 1 done = 7 images, asked with the credits
   await page.locator('#img-model').click(); await page.getByRole('option', { name: /Seedream 5 Lite/ }).click();
   await page.locator('#pg-products').getByRole('button', { name: 'ولّد كل الصور الناقصة' }).click();
-  await expect(page.locator('.modal')).toContainText('5 صورة · حوالي 250 كريدت');
+  await expect(page.locator('.modal')).toContainText('7 صورة · حوالي 350 كريدت');
   await page.locator('.modal').getByRole('button', { name: 'ولّد' }).click();
   await expect(page.locator('#pg-products .islot.done')).toHaveCount(8);
   await expect(page.locator('#pg-products .islot.fail')).toHaveCount(0);
-  expect(mock.imgCalls.slice(2).map((c) => [c.index, c.slot, c.model])).toEqual([[0, 2, 'seedream-5-lite'], [0, 3, 'seedream-5-lite'], [1, 1, 'seedream-5-lite'], [1, 2, 'seedream-5-lite'], [1, 3, 'seedream-5-lite']]);
-  expect(mock.aiRuns.filter((x) => x.action === 'image' && x.status === 'ok').length).toBe(6);
+  expect(mock.imgCalls.slice(2).map((c) => [c.index, c.slot, c.model])).toEqual([[0, 1, 'seedream-5-lite'], [0, 2, 'seedream-5-lite'], [0, 3, 'seedream-5-lite'], [1, 0, 'seedream-5-lite'], [1, 1, 'seedream-5-lite'], [1, 2, 'seedream-5-lite'], [1, 3, 'seedream-5-lite']]);
+  expect(mock.aiRuns.filter((x) => x.action === 'image' && x.status === 'ok').length).toBe(8);
   await expect(page.locator('#pg-products .tot-bar')).toContainText('8 من 8');
   // the image popup: an AI edit makes a new version (an edit call on the slot's path), the old one is in «النسخ» and comes back
   const before = mock.studioBatches[0].state.items[0].slots[1];
@@ -450,7 +451,7 @@ test('studio images (phase 5.4): «ولّد» makes a slot\'s image with the AI 
   await expect.poll(() => mock.studioBatches[0].state.items[0].slots.slice(1, 3)).toEqual([third, before]);
   // the activity rows name the slot, the model and the credits only
   await expect.poll(() => mock.activityRows.filter((x) => x.action === 'product.ai.image').length).toBeGreaterThan(0);
-  expect(mock.activityRows.filter((x) => x.action === 'product.ai.image')[0].new_value).toBe('studio · #1 · slot 2 · seedream-5-pro · 75 credits');
+  expect(mock.activityRows.filter((x) => x.action === 'product.ai.image')[0].new_value).toBe('studio · #1 · slot 1 · seedream-5-pro · 75 credits');
   expect(JSON.stringify(mock.activityRows)).not.toContain('/gen-');
   await next(page, 'التالي: الأقسام والأوصاف');
 });

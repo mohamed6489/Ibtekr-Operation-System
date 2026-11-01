@@ -44,6 +44,10 @@ test('words → images: the card opens the tool; the shape, the count and the mo
   await expect(page.locator('.ig-it')).toHaveCount(2);
   expect(mock.imgCalls).toEqual([{ action: 'create', by: OPS, source: 'text', shape: 'home', prompt: 'a macrame bag on a rattan chair', count: 2, model: 'seedream-5-lite', size: '700x800' }]);
   expect([...mock.imgObjects.keys()].every((k) => k.startsWith(OPS_ID + '/'))).toBe(true);
+  // decision 7: the browser re-encoded both PNG results as WebP and handed them back (action webp, with the run) — the originals are gone
+  expect(mock.webpCalls.map((c) => [c.by, c.bucket, /\.png$/.test(c.path), c.bytes > 12, c.run_id])).toEqual([[OPS, 'ai-images', true, true, 1], [OPS, 'ai-images', true, true, 1]]);
+  expect([...mock.imgObjects.keys()].map((k) => k.slice(-5))).toEqual(['.webp', '.webp']);
+  expect(mock.aiRuns[0].output.paths).toEqual([...mock.imgObjects.keys()]);
   await expect(page.locator('#pg-products')).toContainText('100 كريدت');
   await expect(page.locator('.ig-it img').first()).toHaveAttribute('src', /\/storage\/v1\/object\/sign\/ai-images\//); // the signed URL landed
   // save on a product: the SKU names it, the confirmation, then one product_images_add with the two paths

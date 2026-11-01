@@ -412,8 +412,9 @@ test('studio images (phase 5.4): «ولّد» makes a slot\'s image with the AI 
   expect(mock.imgCalls).toEqual([{ action: 'generate', by: OPS, batch_id: SB, index: 0, slot: 1, model: 'seedream-5-pro' }]);
   await expect(page.locator('#pg-products .islot.done .tg', { hasText: 'AI' })).toHaveCount(1);
   await expect(page.locator('#pg-products .st-table tbody tr').first()).toContainText('1 بالـ AI — راجعها');
-  await expect.poll(() => (mock.studioBatches[0].state.items[0].slots[1] || '')).toMatch(new RegExp('^' + SB + '/gen-0-1-'));
+  await expect.poll(() => (mock.studioBatches[0].state.items[0].slots[1] || '')).toMatch(new RegExp('^' + SB + '/gen-0-1-.*\\.webp$')); // decision 7: the browser's WebP, under the same name
   expect(mock.studioObjects.has(mock.studioBatches[0].state.items[0].slots[1])).toBe(true);
+  expect(mock.webpCalls.map((c) => [c.by, c.bucket, c.path.replace(/\.png$/, '.webp') === mock.studioBatches[0].state.items[0].slots[1]])).toEqual([[OPS, 'studio', true]]);
   // the AI busy → the slot says فشل and offers «ولّد تاني»; the activity never carries a path
   mock.imgFail = 'busy';
   await page.locator('#pg-products .islot.empty').first().getByRole('button', { name: 'ولّد', exact: true }).click();

@@ -21,6 +21,12 @@
   **HTTP 402** من Magnific؛ رصيد الحساب (MCP `account_balance`): 37 كريدت من 630,000 — الرصيد خلص (الـ «غير محدود» بتاع الويب
   مابيشتغلش على الـ API). `call()` كان بيرمي على 402 قبل ما يقرا الرد (`detail: null`) → v7: أي رد غير 2xx بيتقري الأول وكلام
   المزوّد بيوصل `output.detail` (401/403/429 كمان). T9 مستني شحن الرصيد وبعدها القبول (نص لصورة، صورة لصورة، التعديلات، «احفظ على المنتج»).
+  **1 نوفمبر — قرار 7 (WebP):** صاحب المشروع سأل «الصور اللي بتطلع jpg ولا webp» (Seedream JPG، Gemini/GPT PNG) وطلب التحويل لـ WebP
+  بعد الـ generate. اتقاس ImageMagick wasm في Deno: 2048² → WebP ≈ 3 ثواني CPU (الدالة ليها 2 ثانية) → التحويل في المتصفح
+  (`IBImages.toWebp` canvas 0.85 بعد كل generate/edit/create، `webpAll`) + action `webp` في الدالة (نفس الاسم `.webp`، upsert، مسح
+  الأصل، تعديل `output.paths` في الصف؛ RIFF/WEBP بس؛ صلاحية صاحب الصورة). `ai-images` v8. الاختبارات: Deno (14)، node (12 — متصفح
+  وهمي بكانفس بيكتب webp أو png زي Safari)، e2e (الأداة والاستوديو بيتأكدوا إن الأصل PNG اتبدل بـ `.webp` وصف السجل اتعدّل؛ الـ mock
+  بقى بيرجّع PNG زي المزوّد وبيقبل download من bucket studio لأصحاب products.add).
 - [x] T3 `0025_ai_images` (31 أكتوبر): `ai_runs.action` + `image`، `source` + `tool`/`edit`، عمود `credits`؛ bucket `ai-images` خاص
   (القراءة والحذف لفولدر العضو بـ `products.add`/`products.edit` F، الكتابة للسيرفر بس)؛ `rls_ai_images.sql`. مافيش Postgres محلي
   في الـ sandbox — بيتأكد في CI (`db:test`) وعلى الحي بـ RLS live بعد التطبيق.

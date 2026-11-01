@@ -40,6 +40,9 @@
 | `relight` | `POST /image-relight` | `{ image: base64, prompt }` (+ `change_background`، صورة إضاءة مرجعية اختياريين) | مهمة |
 | `remove_bg` | `POST /beta/remove-background` | `{ image_url }` — **رابط** (JPG/PNG ≤ 20 ميجا)؛ السيستم بيوقّع رابط من الـ bucket لـ 10 دقايق | **متزامن**: `{ original, preview, url, high_resolution }` روابط صالحة 5 دقايق — بننزّل `high_resolution` فورًا |
 
+ملحوظة (قرار 7 في الخطة): الناتج من المزوّد JPG (Seedream) أو PNG (Gemini / GPT Image)؛ السيستم بيحوّله WebP في المتصفح بعد التخزين
+(action `webp`) — فأي مرجعية من نتيجة سابقة هتروح للمزوّد WebP؛ لو رفضها (JPG/PNG بس) نضيف إعادة ترميز في السيرفر لصورة واحدة.
+
 ملحوظة: الـ cutout بيرجّع PNG شفاف بس؛ خيار «خلفية بيضا/كريمي» في الأداة لسه بيرجّع الشفاف (تلوين الخلفية = خطوة لاحقة).
 
 ## التشخيص

@@ -10,15 +10,25 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 const SB = '0b6f2f5e-1d2c-4a8b-9e3f-1234567890ab';
 const ME = '00000000-0000-4000-8000-0000000000b2';
 const fail = (status, body) => ({ data: null, error: { context: { status, json: async () => body } } });
-function load({ responses = {}, perms = { 'products.add': 'F' }, admin = false } = {}) {
+function load({ responses = {}, perms = { 'products.add': 'F' }, admin = false, globals = {} } = {}) {
   const stub = stubClient({ responses });
   const logs = []; const events = [];
   const window = { IBSupabase: { client: stub.client }, IBDirectory: { perm: (k) => (admin ? 'F' : perms[k] || 'N'), me: () => ({ id: ME, role_id: admin ? 'admin' : 'ops', status: 'active' }) },
     IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } } };
   const document = { dispatchEvent: (e) => events.push(e.detail) };
-  runInNewContext(src, { window, document, CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } }, Promise, Date, Number, String, Array, Object, JSON, Error, Intl, Math, Map });
+  // no Image / canvas / URL here unless a case brings a fake browser (globals) — so the WebP step stays out of the other cases
+  runInNewContext(src, { window, document, CustomEvent: class { constructor(type, init) { this.type = type; this.detail = init && init.detail; } }, Promise, Date, Number, String, Array, Object, JSON, Error, Intl, Math, Map, Uint8Array, ...globals });
   return { I: window.IBImages, stub, logs, events };
 }
+// a fake browser for the WebP step: a canvas whose toBlob writes `type` (image/webp — or image/png, Safari's way), an Image that loads
+const browser = (type) => {
+  const made = [];
+  return { made, globals: {
+    document: { dispatchEvent() {}, createElement: (tag) => { assert.equal(tag, 'canvas'); return { width: 0, height: 0, getContext: () => ({ drawImage() {} }), toBlob: (cb, t, q) => { made.push([t, q]); cb({ type, arrayBuffer: async () => new Uint8Array([1, 2, 3]).buffer }); } }; } },
+    Image: class { set src(v) { this.naturalWidth = 4; this.naturalHeight = 4; Promise.resolve().then(() => this.onload && this.onload()); } },
+    URL: { createObjectURL: () => 'blob:x', revokeObjectURL() {} }, btoa: (s) => Buffer.from(s, 'binary').toString('base64'),
+  } };
+};
 const OK = (extra) => ({ data: { result: 'ok', bucket: 'studio', path: SB + '/gen-0-0-abc.webp', paths: [SB + '/gen-0-0-abc.webp'], credits: 75, model: 'seedream-5-pro', run_id: 7, ...extra }, error: null });
 
 test('generate: a slot (a number or a color) of a batch item, the model and size when given; the answer; logged with the slot, the model and the credits only', async () => {
@@ -60,6 +70,29 @@ test('create (the tool): text or a photo (its preview stays in the page) or a pr
   assert.deepEqual(plain(logs[0]), ['product.ai.image', 'tool · text · home · 2 images · seedream-5-lite · 100 credits', { entity: 'products', entity_id: null }]);
   assert.deepEqual(plain(logs[2]), ['product.ai.image', 'tool · image · detail · 2 images · seedream-5-lite · #4001 · 100 credits', { entity: 'products', entity_id: '4001' }]);
   assert.ok(!JSON.stringify(logs).includes('macrame') && !JSON.stringify(logs).includes('QUJD'), 'no prompt or image in the activity');
+});
+
+test('WebP (decision 7): a result that is not .webp is downloaded, re-encoded by the canvas (image/webp, 0.85) and handed back as action webp with the run id; the answer carries the new name; a .webp result is left alone; a browser that writes PNG keeps the original', async () => {
+  const fn = ({ body }) => (body.action === 'webp' ? { data: { result: 'ok', bucket: body.bucket, path: body.path.replace(/\.png$/, '.webp') }, error: null }
+    : { data: { result: 'ok', bucket: 'ai-images', path: ME + '/x-1.png', paths: [ME + '/x-1.png', ME + '/x-2.webp'], credits: 100, model: 'seedream-5-lite', run_id: 9 }, error: null });
+  const chrome = browser('image/webp');
+  const { I, stub, logs } = load({ globals: chrome.globals, responses: { 'fn:ai-images': fn, 'storage:ai-images:download': { data: { size: 3, type: 'image/png', arrayBuffer: async () => new Uint8Array([9]).buffer }, error: null } } });
+  const r = await I.create({ source: 'text', prompt: 'a bag', shape: 'home', count: 2 });
+  assert.deepEqual([r.ok, r.path, r.paths], [true, ME + '/x-1.webp', [ME + '/x-1.webp', ME + '/x-2.webp']]);
+  const bodies = stub.calls.filter((c) => c.op === 'invoke').map((c) => c.args[1].body);
+  assert.deepEqual(bodies.map((b) => b.action), ['create', 'webp'], 'one webp call: the .webp result needs none');
+  assert.deepEqual(bodies[1], { action: 'webp', bucket: 'ai-images', path: ME + '/x-1.png', run_id: 9, image: { data: 'AQID' } });
+  assert.deepEqual(opsOf(stub.calls, 'storage:ai-images'), [{ op: 'download', args: [ME + '/x-1.png'] }]);
+  assert.deepEqual(chrome.made, [['image/webp', 0.85]]);
+  assert.equal(logs.length, 1, 'the conversion is not an activity row');
+  // Safari: the canvas answers PNG → nothing sent, the provider's file stays
+  const safari = browser('image/png');
+  const s = load({ globals: safari.globals, responses: { 'fn:ai-images': fn, 'storage:ai-images:download': { data: { size: 3, type: 'image/png', arrayBuffer: async () => new Uint8Array([9]).buffer }, error: null } } });
+  const r2 = await s.I.create({ source: 'text', prompt: 'a bag', shape: 'home', count: 2 });
+  assert.deepEqual([r2.paths, s.stub.calls.filter((c) => c.op === 'invoke').length], [[ME + '/x-1.png', ME + '/x-2.webp'], 1]);
+  // the server refusing the WebP (or a download failing) keeps the original too
+  const refused = load({ globals: browser('image/webp').globals, responses: { 'fn:ai-images': (opts) => (opts.body.action === 'webp' ? fail(401, {}) : fn(opts)), 'storage:ai-images:download': { data: { size: 3, type: 'image/png', arrayBuffer: async () => new Uint8Array([9]).buffer }, error: null } } });
+  assert.deepEqual((await refused.I.create({ source: 'text', prompt: 'a bag', shape: 'home' })).paths, [ME + '/x-1.png', ME + '/x-2.webp']);
 });
 
 test('the refusals by status: forbidden, invalid (+ field), missing, ai_cap, busy, not_configured, ai_error, network — nothing logged', async () => {

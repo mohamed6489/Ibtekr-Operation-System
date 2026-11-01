@@ -205,6 +205,37 @@ Deno.test('create (the tool): text → the shape prompt, N images at the asked s
   assertEquals((await call(deps, { action: 'create', source: 'text', shape: 'studio', prompt: 'x', count: 5 }, 'jwt-add')).body.field, 'count');
 });
 
+Deno.test('webp (decision 7): the browser\'s WebP of a result replaces the original under the same name — a tool path in the member\'s own folder (the admin any), a studio path with products.add and its batch; the run row\'s path renamed; RIFF/WEBP bytes only; no credits', async () => {
+  const WEBP_FULL = new Uint8Array([0x52, 0x49, 0x46, 0x46, 20, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20, 1, 2, 3, 4]);
+  const b64 = btoa(String.fromCharCode(...WEBP_FULL));
+  const { deps, db, storage } = setup({ replies: [{ images: [img()], credits: 75 }, { images: [img()], credits: 50 }] });
+  // a tool result (png) of jwt-add, then its WebP
+  const made = await call(deps, { action: 'create', source: 'text', shape: 'home', prompt: 'a bag', model: 'seedream-5-lite' });
+  const original = made.body.path as string; assert(original.endsWith('-1.png'), original);
+  const runs = db.rows('ai_runs').length;
+  const r = await call(deps, { action: 'webp', bucket: 'ai-images', path: original, run_id: made.body.run_id, image: { data: b64 } });
+  const target = original.replace(/\.png$/, '.webp');
+  assertEquals([r.res.status, r.body], [200, { result: 'ok', bucket: 'ai-images', path: target }]);
+  assertEquals([storage['ai-images/' + original], Array.from(storage['ai-images/' + target])], [undefined, Array.from(WEBP_FULL)], 'the WebP under the same name, the original gone');
+  assertEquals(db.calls.filter((c: any) => c.op === 'upload').at(-1).args, { path: target, contentType: 'image/webp', upsert: true });
+  assertEquals([db.row('ai_runs', made.body.run_id).output.paths, db.rows('ai_runs').length], [[target], runs], 'the row renamed, no new row');
+  // not the member's folder (jwt-edit on jwt-add's path), nor products.view; a missing original 404; bytes that are not WebP 400
+  assertEquals((await call(deps, { action: 'webp', bucket: 'ai-images', path: target, image: { data: b64 } }, 'jwt-edit')).res.status, 401);
+  assertEquals((await call(deps, { action: 'webp', bucket: 'ai-images', path: target, image: { data: b64 } }, 'jwt-view')).res.status, 401);
+  assertEquals((await call(deps, { action: 'webp', bucket: 'ai-images', path: U.add + '/nothing.png', image: { data: b64 } })).res.status, 404);
+  assertEquals((await call(deps, { action: 'webp', bucket: 'ai-images', path: target, image: { data: btoa('not an image at all!') } })).body.field, 'image');
+  assertEquals((await call(deps, { action: 'webp', bucket: 'other', path: target, image: { data: b64 } })).body.field, 'bucket');
+  assertEquals((await call(deps, { action: 'webp', bucket: 'ai-images', path: '../x.png', image: { data: b64 } })).body.field, 'path');
+  // the admin may convert another member's result; a studio path needs products.add and an existing batch; jwt-edit cannot
+  const again = await call(deps, { action: 'webp', bucket: 'ai-images', path: target, image: { data: b64 } }, 'jwt-admin');
+  assertEquals([again.res.status, again.body.path], [200, target], 'already WebP: rewritten in place (upsert), nothing removed');
+  const st = await call(deps, { action: 'webp', bucket: 'studio', path: SB + '/gen-0-0-old.png', image: { data: b64 } });
+  assertEquals([st.res.status, st.body.path, storage[`studio/${SB}/gen-0-0-old.png`]], [200, SB + '/gen-0-0-old.webp', undefined]);
+  assertEquals((await call(deps, { action: 'webp', bucket: 'studio', path: SB + '/gen-0-0-old.webp', image: { data: b64 } }, 'jwt-edit')).res.status, 401);
+  assertEquals((await call(deps, { action: 'webp', bucket: 'studio', path: 'ffffffff-1d2c-4a8b-9e3f-1234567890ab/gen-0-0-old.png', image: { data: b64 } })).res.status, 404);
+  assertFalse(db.rows('ai_runs').some((x: any) => x.action === 'image' && x.credits === 0 && x.status === 'ok'), 'nothing charged for a conversion');
+});
+
 Deno.test('probe: the admin only; the shape of the provider\'s account answer (keys and types, no values); no key → 503', async () => {
   const { deps } = setup({ replies: [{ credits: 756, plan: { name: 'Premium+' }, list: [1, 2] }] });
   const { res, body } = await call(deps, { action: 'probe' }, 'jwt-admin');

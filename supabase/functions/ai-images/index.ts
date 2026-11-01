@@ -12,6 +12,10 @@
 //   'create'   (the images tool; the admin or products.add / products.edit = F) { source: text | image, prompt?, shape, size, count,
 //              model?, image? | product_id? } → 1–4 images in bucket ai-images under the member → { result: 'ok', bucket, paths, … }.
 //   'probe'    (the admin) → the shape (keys only) of the provider's account answer, for T2.
+//   'webp'     (decision 7: every result ends as WebP — the browser re-encodes it, this function's CPU budget being too small for
+//              a 2K image) { bucket: studio | ai-images, path, run_id?, image: { data: base64 WebP } } → the WebP stored under the
+//              same name with .webp (upsert), the original removed, the run row's path renamed → { result: 'ok', bucket, path }.
+//              A studio path needs products.add and its batch; a tool path the member's own folder (the admin any). No credits.
 // Every call is reserved first, in one locked step in the database (ai_image_run_start, 0025: the member's throttle; the images'
 // monthly cap in credits — settings «ai».image_monthly_credits against this Cairo month's image rows, pending ones at their planned
 // credits — over it → 402 ai_cap and a cap row; else a pending row holding the planned credits), and the row then holds the
@@ -37,7 +41,8 @@ export type Deps = {
   provider: Provider; fetch?: typeof fetch;
 };
 
-const ACTIONS = ['generate', 'edit', 'create', 'probe'];
+const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp'];
+const MAX_WEBP_B64 = 14_000_000; // ≈ 10 MB of WebP
 const STUDIO_BUCKET = 'studio';
 const TOOL_BUCKET = 'ai-images';
 const THROTTLE = 60;
@@ -272,6 +277,47 @@ async function create(deps: Deps, who: Who, args: Json) {
     (img, n) => upload(deps.db, TOOL_BUCKET, toolPath(who.uid, st, n, extOf(img.mime)), img));
 }
 
+// ---------------------------------------------------------------- webp (the browser's re-encoding of a result)
+
+const isWebp = (b: Uint8Array) => b.length > 12 && b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50;
+async function webp(deps: Deps, who: Who, args: Json) {
+  const bucket = args.bucket === STUDIO_BUCKET ? STUDIO_BUCKET : args.bucket === TOOL_BUCKET ? TOOL_BUCKET : null;
+  if (!bucket) return json(400, { error: 'bad_request', field: 'bucket' });
+  const path = typeof args.path === 'string' && /^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9._-]{1,120}\.(webp|png|jpe?g)$/i.test(args.path) ? args.path : null;
+  if (!path) return json(400, { error: 'bad_request', field: 'path' });
+  const data = isObj(args.image) && typeof args.image.data === 'string' && args.image.data.length && args.image.data.length <= MAX_WEBP_B64 && /^[A-Za-z0-9+/]+=*$/.test(args.image.data) ? args.image.data : null;
+  if (!data) return json(400, { error: 'bad_request', field: 'image' });
+  let bytes: Uint8Array;
+  try { bytes = Uint8Array.from(atob(data), (c) => c.charCodeAt(0)); } catch { return json(400, { error: 'bad_request', field: 'image' }); }
+  if (!isWebp(bytes)) return json(400, { error: 'bad_request', field: 'image' });
+  // whose: a studio path → products.add and an open batch of that id; a tool path → the member's own folder (the admin any)
+  if (bucket === STUDIO_BUCKET) {
+    if (!who.add) return json(401, { error: 'unauthorized' });
+    const batchId = path.split('/')[0];
+    if (!studioPathOk(batchId, path)) return json(400, { error: 'bad_request', field: 'path' });
+    const { data: batch } = await deps.db.from('studio_batches').select('id, archived_at').eq('id', batchId).maybeSingle();
+    if (!batch || batch.archived_at) return json(404, { error: 'not_found' });
+  } else {
+    if (!who.add && !who.edit) return json(401, { error: 'unauthorized' });
+    if (!who.admin && !path.startsWith(who.uid + '/')) return json(401, { error: 'unauthorized' });
+  }
+  const { data: original, error: dlErr } = await deps.db.storage.from(bucket).download(path);
+  if (dlErr || !original) return json(404, { error: 'not_found' });
+  const target = path.replace(/\.[a-z]+$/i, '.webp');
+  const { error: upErr } = await deps.db.storage.from(bucket).upload(target, bytes, { contentType: 'image/webp', upsert: true });
+  if (upErr) return json(502, { error: 'failed' });
+  if (target !== path) await deps.db.storage.from(bucket).remove([path]);
+  // the run row (the member's own, or any for the admin) keeps the new name in its paths
+  const runId = Number(args.run_id);
+  if (Number.isInteger(runId) && runId > 0) {
+    const { data: row } = await deps.db.from('ai_runs').select('id, created_by, output').eq('id', runId).maybeSingle();
+    if (isObj(row) && (who.admin || row.created_by === who.uid) && isObj(row.output) && Array.isArray(row.output.paths) && row.output.paths.includes(path)) {
+      await deps.db.from('ai_runs').update({ output: { ...row.output, paths: row.output.paths.map((p: unknown) => (p === path ? target : p)) } }).eq('id', runId);
+    }
+  }
+  return json(200, { result: 'ok', bucket, path: target });
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -288,6 +334,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'generate') return await generate(deps, who, args);
     if (action === 'edit') return await edit(deps, who, args);
     if (action === 'create') return await create(deps, who, args);
+    if (action === 'webp') return await webp(deps, who, args);
     if (!who.admin) return json(401, { error: 'unauthorized' });
     // the probe's outcome is kept as an ai_runs row (label 'probe', 0 credits: configured = the key is set, status = the
     // provider's HTTP status, shape = keys and types only) so the T2 diagnosis can be read from the database — never the key

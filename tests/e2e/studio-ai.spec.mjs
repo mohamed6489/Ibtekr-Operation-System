@@ -66,7 +66,7 @@ test('studio AI: the missing Arabic names and a color not in the table, then des
   await page.locator('.tot-bar [data-ai="املا الناقص بالـ AI"]').click();
   await page.locator('.modal').getByRole('button', { name: 'ابدأ' }).click();
   await expect(rowsOf(page).nth(0)).toContainText('أباجورة مكتب من البامبو.');
-  expect(mock.aiCalls.slice(2).map((c) => c.want)).toEqual([['desc', 'category'], ['desc', 'category']]);
+  await expect.poll(() => mock.aiCalls.slice(2).map((c) => c.want)).toEqual([['desc', 'category'], ['desc', 'category']]); // the second item's call may still be in flight when row 1 lands
   await expect(page.locator('.wiz-foot').getByRole('button', { name: 'التالي: المراجعة والرفع' })).toBeEnabled();
   await next(page, 'التالي: المراجعة والرفع');
   await next(page, 'ارفع على الموقع (مسودة)');

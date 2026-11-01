@@ -293,7 +293,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // aal2_required whatever the token (a server that does not take the flag).
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
-  const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, imgCalls: [], imgFail: null, imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
+  const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, imgCalls: [], webpCalls: [], imgFail: null, imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
     profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [] };
@@ -353,12 +353,14 @@ export async function installSupabaseMock(page, opts = {}) {
     if (method === 'OPTIONS') return empty(204);
     if (mock.logouts > 0) mock.afterLogout += 1;
     mock.requests.push(method + ' ' + path);
+    // a stored object's content type by its name (every body is the 1×1 PNG — browsers decode by the bytes, not the header)
+    const ctOf = (key) => (/\.webp$/i.test(key) ? 'image/webp' : /\.jpe?g$/i.test(key) ? 'image/jpeg' : 'image/png');
     // phase 5.2: a signed URL of the bucket studio (a thumbnail) — any token the mock signed opens the object
     const sgs = /^\/storage\/v1\/object\/sign\/studio\/(.+)$/.exec(path);
-    if (method === 'GET' && sgs) { const obj = mock.studioObjects.get(decodeURIComponent(sgs[1])); return obj ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
+    if (method === 'GET' && sgs) { const obj = mock.studioObjects.get(decodeURIComponent(sgs[1])); return obj ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': ctOf(sgs[1]) }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
     // phase 5.4: a signed URL of the bucket ai-images (the images tool's results) — same rule
     const sgi = /^\/storage\/v1\/object\/sign\/ai-images\/(.+)$/.exec(path);
-    if (method === 'GET' && sgi) { const obj = mock.imgObjects.get(decodeURIComponent(sgi[1])); return obj ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'image/webp' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
+    if (method === 'GET' && sgi) { const obj = mock.imgObjects.get(decodeURIComponent(sgi[1])); return obj ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': ctOf(sgi[1]) }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
     // a signed URL of vendor-contracts is opened with no api key (a new tab, an <a>): its token alone opens the object
     const sg = /^\/storage\/v1\/object\/sign\/vendor-contracts\/(.+)$/.exec(path);
     if (method === 'GET' && sg) {
@@ -984,16 +986,18 @@ export async function installSupabaseMock(page, opts = {}) {
       const may = isAdmin(u) || hasPerm(u, 'products.add') === 'F' || hasPerm(u, 'products.edit') === 'F';
       const own = (k) => may && typeof k === 'string' && k.startsWith(u.id + '/');
       if (sti[1]) { if (!own(sti[2]) || !mock.imgObjects.has(sti[2])) return json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); n += 1; return json(200, { signedURL: '/object/sign/ai-images/' + sti[2] + '?token=ai-' + n }); }
-      if (method === 'GET') { return own(sti[2]) && mock.imgObjects.has(sti[2]) ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'image/webp' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
+      if (method === 'GET') { return own(sti[2]) && mock.imgObjects.has(sti[2]) ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': ctOf(sti[2]) }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
       if (method === 'DELETE') { const b = body(); (b.prefixes || []).filter(own).forEach((k) => mock.imgObjects.delete(k)); return json(200, []); }
       return json(403, { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' });
     }
     // Storage, bucket studio (0023, phase 5.2): private, products.add = F; upload (WebP), a signed URL, remove
     const sst = /^\/storage\/v1\/object\/(sign\/)?studio(?:\/(.+))?$/.exec(path);
-    if (sst && (method === 'POST' || method === 'DELETE')) {
+    if (sst && (method === 'POST' || method === 'DELETE' || method === 'GET')) {
       const u = tokenUser(); if (!u) return json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' });
       const may = isAdmin(u) || hasPerm(u, 'products.add') === 'F';
       if (sst[1]) { if (!may || !mock.studioObjects.has(sst[2])) return json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); n += 1; return json(200, { signedURL: '/object/sign/studio/' + sst[2] + '?token=st-' + n }); }
+      // a download (the WebP step of decision 7 reads the result back): products.add reads the bucket
+      if (method === 'GET') { return may && mock.studioObjects.has(sst[2]) ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': ctOf(sst[2]) }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
       if (method === 'DELETE') { const b = body(); (b.prefixes || []).forEach((k) => mock.studioObjects.delete(k)); return json(200, []); }
       if (!may) return json(403, { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' });
       const bytes = req.postDataBuffer() || Buffer.alloc(0); mock.studioObjects.set(sst[2], { type: hd['content-type'] || '', size: bytes.length });
@@ -1050,7 +1054,31 @@ export async function installSupabaseMock(page, opts = {}) {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
       if (!u) return json(401, { error: 'unauthorized' });
       const add = isAdmin(u) || hasPerm(u, 'products.add') === 'F'; const edit = isAdmin(u) || hasPerm(u, 'products.edit') === 'F';
-      if (!['generate', 'edit', 'create', 'probe'].includes(action)) return json(400, { error: 'unknown_action' });
+      if (!['generate', 'edit', 'create', 'probe', 'webp'].includes(action)) return json(400, { error: 'unknown_action' });
+      if (action === 'webp') {
+        // decision 7: the browser's WebP of a result replaces the original under the same name (.webp) — a studio path with
+        // products.add and its batch, a tool path in the member's own folder (the admin any); RIFF/WEBP bytes; the run row renamed;
+        // each call → mock.webpCalls ({ by, bucket, path, bytes, run_id }); no credits, no ai_runs row
+        const bucket = b.bucket === 'studio' ? 'studio' : b.bucket === 'ai-images' ? 'ai-images' : null;
+        if (!bucket) return json(400, { error: 'bad_request', field: 'bucket' });
+        const p = typeof b.path === 'string' && /^[A-Za-z0-9_-]{1,64}\/[A-Za-z0-9._-]{1,120}\.(webp|png|jpe?g)$/i.test(b.path) ? b.path : null;
+        if (!p) return json(400, { error: 'bad_request', field: 'path' });
+        const data = b.image && typeof b.image.data === 'string' ? b.image.data : ''; const bytes = Buffer.from(data, 'base64');
+        if (!data || bytes.length < 12 || bytes.toString('latin1', 0, 4) !== 'RIFF' || bytes.toString('latin1', 8, 12) !== 'WEBP') return json(400, { error: 'bad_request', field: 'image' });
+        if (bucket === 'studio') {
+          if (!add) return json(401, { error: 'unauthorized' });
+          const batchId = p.split('/')[0]; if (!studioPathOk(batchId, p)) return json(400, { error: 'bad_request', field: 'path' });
+          const row = mock.studioBatches.find((x) => x.id === batchId); if (!row || row.archived_at) return json(404, { error: 'not_found' });
+        } else if (!(add || edit) || (!isAdmin(u) && !p.startsWith(u.id + '/'))) return json(401, { error: 'unauthorized' });
+        const objs = bucket === 'studio' ? mock.studioObjects : mock.imgObjects;
+        if (!objs.has(p)) return json(404, { error: 'not_found' });
+        const target = p.replace(/\.[a-z]+$/i, '.webp');
+        objs.set(target, { type: 'image/webp', size: bytes.length, by: 'browser' }); if (target !== p) objs.delete(p);
+        const run = mock.aiRuns.find((x) => x.id === Number(b.run_id));
+        if (run && (isAdmin(u) || run.created_by === u.id) && run.output && Array.isArray(run.output.paths)) run.output.paths = run.output.paths.map((x) => (x === p ? target : x));
+        mock.webpCalls.push({ by: u.email, bucket, path: p, bytes: bytes.length, run_id: b.run_id ?? null });
+        return json(200, { result: 'ok', bucket, path: target });
+      }
       if (action === 'probe') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); if (mock.imgFail === 'not_configured') return json(503, { error: 'not_configured', configured: false }); if (mock.imgFail === 'key_refused') return json(503, { error: 'not_configured', configured: true, status: 401 }); return json(200, { result: 'ok', provider: 'magnific', shape: { credits: 'number', plan: { name: 'string' } }, models: MODEL_IDS }); }
       const may = action === 'generate' ? add : action === 'edit' ? (b.path ? add : edit) : add || edit;
       if (!may) return json(401, { error: 'unauthorized' });
@@ -1067,7 +1095,7 @@ export async function installSupabaseMock(page, opts = {}) {
         const refs = [it.main, ...(Array.isArray(it.refs) ? it.refs : []), req.slot && typeof req.slot === 'object' && it.colorImages ? it.colorImages[req.slot.color] : null].filter((k) => typeof k === 'string' && studioPathOk(req.batchId, k) && mock.studioObjects.has(k));
         if (!refs.length) return json(400, { error: 'bad_request', field: 'reference' });
         source = 'studio'; label = it.nameEn || it.nameAr || '#' + (req.index + 1); batchId = req.batchId; itemIndex = req.index; bucket = 'studio';
-        where = () => studioGenPath(req.batchId, req.index, req.slot, stamp, 'webp');
+        where = () => studioGenPath(req.batchId, req.index, req.slot, stamp, 'png');
       } else if (action === 'edit') {
         source = 'edit';
         if (req.path) {
@@ -1076,17 +1104,17 @@ export async function installSupabaseMock(page, opts = {}) {
           if (!it || !studioPathOk(req.batchId, req.path)) return json(it ? 400 : 404, it ? { error: 'bad_request', field: 'path' } : { error: 'not_found' });
           if (!mock.studioObjects.has(req.path)) return json(404, { error: 'not_found' });
           label = it.nameEn || it.nameAr || '#' + (index + 1); batchId = req.batchId; itemIndex = index; bucket = 'studio';
-          where = () => studioEditPath(req.batchId, index, stamp, 'webp');
+          where = () => studioEditPath(req.batchId, index, stamp, 'png');
         } else {
           const p = product(req.productId); if (!p || !/^https:\/\//.test(p.image_url || '')) return json(404, { error: 'not_found' });
           label = p.name || '#' + req.productId; productId = req.productId; bucket = 'ai-images';
-          where = (k) => toolPath(u.id, stamp, k, 'webp');
+          where = (k) => toolPath(u.id, stamp, k, 'png');
         }
       } else {
         source = 'tool'; count = req.count; bucket = 'ai-images'; label = req.prompt || 'صورة';
         if (req.source === 'image' && !req.image) { const p = product(req.productId); if (!p) return json(404, { error: 'not_found' }); if (!/^https:\/\//.test(p.image_url || '')) return json(400, { error: 'bad_request', field: 'image' }); label = p.name || label; productId = req.productId; }
         else if (req.productId) { const p = product(req.productId); if (!p) return json(404, { error: 'not_found' }); label = p.name || label; productId = req.productId; }
-        where = (k) => toolPath(u.id, stamp, k, 'webp');
+        where = (k) => toolPath(u.id, stamp, k, 'png');
       }
       const model = req.model; const planned = creditsFor(model, count);
       const base = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action: 'image', source, label, product_id: productId, batch_id: batchId, item_index: itemIndex, model, credits: 0, cost_usd: 0, output: null };
@@ -1100,7 +1128,7 @@ export async function installSupabaseMock(page, opts = {}) {
       if (fail === 'key_refused') { mock.aiRuns.push({ ...base, status: 'error', error: 'not_configured', credits: 0, cost_usd: 0, output: { configured: true, status: 401 } }); return json(503, { error: 'not_configured', configured: true, status: 401 }); }
       if (fail === 'refused') { mock.aiRuns.push({ ...base, status: 'refused', error: 'refused' }); return json(200, { result: 'refused', model, credits: 0, run_id: base.id }); }
       const paths = Array.from({ length: count }, (_, k) => where(k + 1));
-      paths.forEach((k) => (bucket === 'studio' ? mock.studioObjects : mock.imgObjects).set(k, { type: 'image/webp', size: PNG_1PX.length, by: 'ai' }));
+      paths.forEach((k) => (bucket === 'studio' ? mock.studioObjects : mock.imgObjects).set(k, { type: 'image/png', size: PNG_1PX.length, by: 'ai' }));
       const run = { ...base, status: 'ok', error: null, credits: planned, cost_usd: usdOf(planned), output: { paths, bucket } };
       mock.aiRuns.push(run);
       return json(200, { result: 'ok', bucket, path: paths[0], paths, credits: planned, model, run_id: run.id });

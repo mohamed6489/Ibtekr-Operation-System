@@ -4,7 +4,9 @@
 // the buckets' signed URLs / downloads / deletes, the member's image runs in ai_runs («سجل الصور»), and the image settings of the
 // settings row «ai» (decision 3: image_model / image_monthly_credits — read by every member of the tool, written by the admin,
 // merged into the row so the content settings of 5.3 stay). Nothing here writes the site: the studio saves its batch through
-// IBStudio.save, the tool uploads to a product through IBProducts (woo-sync product_images_add, T8). Every call returns a Promise
+// IBStudio.save, the tool uploads to a product through IBProducts (woo-sync product_images_add, T8). Every result is re-encoded here
+// as WebP (decision 7: a canvas, quality 0.85) and handed back to the server (action webp — the same name with .webp, the original
+// removed); a browser that cannot write WebP keeps the result as the provider made it. Every call returns a Promise
 // of { ok, … } and never throws; reason 'forbidden' / 'invalid' (+ field) / 'missing' / 'not_configured' / 'ai_cap' / 'busy' /
 // 'ai_error' / 'network'. Each answer is logged through IBActivity.log as product.ai.image (the source, the slot or op, the model,
 // the credits and the ids — never a prompt, a path or an image).
@@ -41,6 +43,8 @@
   const EDIT_OPS = [{ id: 'instruction', label: 'عدّل بالوصف' }, { id: 'remove_bg', label: 'شيل الخلفية' }, { id: 'upscale', label: 'حسّن وكبّر' }, { id: 'relight', label: 'إضاءة تانية' }];
   const CREDIT_USD = 0.002;
   const MAX_COUNT = 4;
+  const WEBP_QUALITY = 0.85; // decision 7: every result ends as WebP, re-encoded here (the browser) — the server's CPU budget is too small
+  const MAX_WEBP_B64 = 14000000; // the server's MAX_WEBP_B64
   const MAX_IMAGE_B64 = 2000000; // the server's MAX_IMAGE_B64
   const MAX_PHOTO = 1600; // the reference photo of the tool at most this on the longest side
   const modelOf = (id) => MODELS.find((m) => m.id === id) || null;
@@ -76,13 +80,58 @@
   const sizeArgs = (opts) => { const o = opts || {}; const out = {}; if (o.size) out.size = o.size; if (o.size === 'custom') { out.width = Number(o.width); out.height = Number(o.height); } return out; };
   const tail = (r) => (r.result === 'refused' ? ['refused'] : [r.credits + ' credits']);
 
+  // ---------- WebP (decision 7) ----------
+  // the browser can re-encode: a canvas and an Image (not in node), and the canvas writes WebP (Safari writes PNG instead → the
+  // result stays as the provider made it)
+  const canWebp = () => typeof document !== 'undefined' && typeof document.createElement === 'function' && typeof Image === 'function' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function';
+  // a result's bytes → a WebP Blob (quality WEBP_QUALITY), or null when the browser cannot
+  function toWebp(blob) {
+    return new Promise((resolve) => {
+      const url = quiet(() => URL.createObjectURL(blob)); if (!url) return resolve(null);
+      const done = (v) => { quiet(() => URL.revokeObjectURL(url)); resolve(v); };
+      const im = new Image();
+      im.onload = () => {
+        try {
+          const cv = document.createElement('canvas'); cv.width = im.naturalWidth || im.width; cv.height = im.naturalHeight || im.height;
+          if (!cv.width || !cv.height) return done(null);
+          cv.getContext('2d').drawImage(im, 0, 0);
+          cv.toBlob((out) => done(out && out.type === 'image/webp' ? out : null), 'image/webp', WEBP_QUALITY);
+        } catch (e) { done(null); }
+      };
+      im.onerror = () => done(null);
+      im.src = url;
+    });
+  }
+  const base64Of = async (blob) => { const b = new Uint8Array(await blob.arrayBuffer()); let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
+  // one result → its WebP under the same name on the server (the original removed, the run row renamed) → { ok, path }; a path
+  // already .webp stays; any failure leaves the original in place (the caller keeps the path it had)
+  async function webp(bucket, path, runId) {
+    if (!path || /\.webp$/i.test(path)) return { ok: true, path };
+    if (!canWebp()) return { ok: false, reason: 'unsupported' };
+    const d = await download(bucket, path); if (!d.ok) return d;
+    const out = await toWebp(d.blob); if (!out) return { ok: false, reason: 'unsupported' };
+    const data = await base64Of(out); if (data.length > MAX_WEBP_B64) return { ok: false, reason: 'invalid', field: 'image' };
+    const r = await invoke({ action: 'webp', bucket, path, run_id: runId || undefined, image: { data } });
+    if (!r.ok) return r;
+    urls.delete(bucket + '/' + path);
+    return { ok: true, path: typeof r.body.path === 'string' ? r.body.path : path };
+  }
+  // every path of an answer → WebP where it can be; the ones that cannot stay as they came
+  async function webpAll(out) {
+    if (!out.ok || out.result !== 'ok' || !out.paths.length) return out;
+    const paths = out.paths.slice();
+    for (let i = 0; i < paths.length; i++) { const r = await webp(out.bucket || TOOL_BUCKET, paths[i], out.runId); if (r.ok && r.path) paths[i] = r.path; }
+    out.paths = paths; out.path = paths[0] || out.path;
+    return out;
+  }
+
   // the studio: one slot (0..5 or { color: 'BK' }) of a batch item (the server reads the saved batch, so it is saved first) → the
   // new image's path in bucket studio (the page puts it in the slot and saves)
   async function generate(batchId, index, slot, opts) {
     const o = opts || {};
     const r = await invoke(Object.assign({ action: 'generate', batch_id: batchId, index, slot: slotArg(slot), model: o.model || undefined }, sizeArgs(o)));
     if (!r.ok) return r;
-    const out = answer(r.body);
+    const out = await webpAll(answer(r.body));
     log(['studio', '#' + (index + 1), slotWord(slot), out.model].concat(tail(out)).join(' · '), 'studio_batches', batchId);
     return out;
   }
@@ -94,7 +143,7 @@
     if (t.path) { body.batch_id = t.batchId; body.index = t.index; body.path = t.path; } else body.product_id = Number(t.productId);
     const r = await invoke(body);
     if (!r.ok) return r;
-    const out = answer(r.body);
+    const out = await webpAll(answer(r.body));
     if (t.path) log(['edit', '#' + (Number(t.index) + 1), op, out.model].concat(tail(out)).join(' · '), 'studio_batches', t.batchId);
     else log(['edit', '#' + t.productId, op, out.model].concat(tail(out)).join(' · '), 'products', t.productId);
     return out;
@@ -108,7 +157,7 @@
     if (q.productId) body.product_id = Number(q.productId);
     const r = await invoke(body);
     if (!r.ok) return r;
-    const out = answer(r.body);
+    const out = await webpAll(answer(r.body));
     log(['tool', q.source, q.shape, out.paths.length + ' images', out.model].concat(q.productId ? ['#' + q.productId] : [], tail(out)).join(' · '), 'products', q.productId || null);
     return out;
   }
@@ -240,7 +289,7 @@
   }
 
   window.IBImages = {
-    can, generate, edit, create, probe, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
+    can, generate, edit, create, probe, webp, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
     credits, usd, modelOf, estModel: () => (last && last.model) || DEFAULT_MODEL,
     MODELS, DEFAULT_MODEL, SIZES, SHAPES, EDIT_OPS, MAX_COUNT, CREDIT_USD, STUDIO_BUCKET, TOOL_BUCKET,
   };

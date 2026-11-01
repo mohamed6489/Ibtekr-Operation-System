@@ -260,6 +260,13 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
         opts.storage[`${bucket}/${path}`] = body instanceof Uint8Array ? body : new Uint8Array(await (body as Blob).arrayBuffer());
         return { data: { path }, error: null };
       },
+      // phase 5.4 (WebP): remove(paths) drops what exists and answers the names it dropped (a missing one is no error, as in Storage)
+      remove: async (paths: string[]) => {
+        calls.push({ op: 'remove', table: bucket, args: { paths } } as any);
+        const gone = paths.filter((p) => opts.storage?.[`${bucket}/${p}`]);
+        for (const p of gone) delete opts.storage![`${bucket}/${p}`];
+        return { data: gone.map((name) => ({ name })), error: null };
+      },
     }) },
     rows: (t: string): any[] => clone(tables[t]),
     row: (t: string, id: unknown, key = 'id'): any => clone(tables[t].find((r) => same(r[key], id)) ?? null),

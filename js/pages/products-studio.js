@@ -475,10 +475,10 @@
   // decision 13 (the owner, 1 Nov): a category not in the library is typed here; its three prompts are written by the AI when
   // the flow is made (ai-content «prompts» → shot_prompts), and every generator runs Nano Banana Pro
   function newCategory() {
-    K.form({ title: 'فئة منتجات جديدة', submitLabel: 'اختار الفئة', values: { name: '' },
-      fields: (f, e, set) => [K.field.text('name', 'اسم الفئة', f, e, set, { required: true, placeholder: 'مثال: مزهرية', help: 'مفيش برومبتات ليها في الـ template؟ الـ AI بيكتب تلات برومبتات للقطاتها وقت «جهّز فلو» وبيحفظهم في المكتبة للدفعات الجاية.' })],
-      validate: (f) => { const e = {}; const v = String(f.name || '').trim(); if (v.length < 2 || v.length > 80 || /[<>%]/.test(v)) e.name = 'اكتب اسم الفئة (من حرفين لـ 80، من غير < > %)'; return e; },
-      submit: (f) => { S.state.category = String(f.name).trim(); touch(); R(); } });
+    K.form({ title: 'فئة منتجات جديدة', submitLabel: 'اختار الفئة', values: { catName: '' },
+      fields: (f, e, set) => [K.field.text('catName', 'اسم الفئة', f, e, set, { required: true, placeholder: 'مثال: مزهرية', help: 'مفيش برومبتات ليها في الـ template؟ الـ AI بيكتب تلات برومبتات للقطاتها وقت «جهّز فلو» وبيحفظهم في المكتبة للدفعات الجاية.' })],
+      validate: (f) => { const e = {}; const v = String(f.catName || '').trim(); if (v.length < 2 || v.length > 80 || /[<>%]/.test(v)) e.catName = 'اكتب اسم الفئة (من حرفين لـ 80، من غير < > %)'; return e; },
+      submit: (f) => { S.state.category = String(f.catName).trim(); touch(); R(); } });
   }
   const inLibrary = (category) => (S.cats || []).some((x) => x.category === category);
   async function makeFlow() {
@@ -529,7 +529,7 @@
         Button({ size: 'sm', icon: 'plus', label: '+ فئة جديدة', attrs: { 'data-flow-new': '' }, onClick: newCategory }));
     }
     return h('div', { class: 'acts-inline', 'data-flow-bar': '' },
-      U.Select({ id: 'flow-cat', label: null, placeholder: 'فئة المنتجات', options: opts, value: S.state.category || '', onChange: (v) => { if (v === '__new__') { newCategory(); R(); return; } S.state.category = v; touch(); R(); } }),
+      U.Select({ id: 'flow-cat', label: null, placeholder: 'فئة المنتجات', options: opts, value: S.state.category || '', onChange: (v) => { if (v === '__new__') { newCategory(); return; } S.state.category = v; touch(); R(); } }),
       Button({ size: 'sm', icon: 'sparkle', label: S.flowing === 'prompts' ? 'بنكتب البرومبتات بالـ AI…' : S.flowing ? 'بنجهّز…' : flow ? 'جهّز فلو جديد' : 'جهّز فلو على Magnific', disabled: !!S.flowing, attrs: { 'data-flow': '' }, onClick: makeFlow }),
       flow && flow.url ? h('a', { class: 'btn btn-sm', href: flow.url, target: '_blank', rel: 'noopener', 'data-flow-open': '' }, 'افتح الـ Space ↗') : null,
       flow ? h('span', { class: 't-small help', 'data-flow-state': '' }, 'فلو «' + (flow.category || '') + '» · ' + (Array.isArray(flow.order) ? flow.order.length : 0) + ' صورة') : null);

@@ -85,6 +85,34 @@ test('selection: Shift + click ticks the range from the last ticked row to the c
   await expect(page.locator('.bulk-bar')).toContainText('محدد 3');
 });
 
+test('bulk (the owner, 1 Nov): «نقل لمبتكر تاني» moves the products\' maker on the site (products_vendor — Dokan\'s post_author) and the rows follow; «تغيير القسم» picks from the site\'s tree with a search, several categories at once, added to the current ones', async ({ page }) => {
+  await openProducts(page);
+  const box = (name) => rowOf(page, name).locator('[role=checkbox]');
+  await box('Boho mirror').click(); await box('Macrame Feathers').click();
+  await page.locator('.bulk-bar').getByRole('button', { name: 'نقل لمبتكر تاني' }).click();
+  await expect(page.locator('.modal')).toContainText('نقل 2 منتجات لمبتكر تاني');
+  await page.locator('#vendor').click(); await page.getByRole('option', { name: 'Antikiano' }).click(); // Bian eg has no store → not offered? (inactive but has a store: offered); the makers with a store only
+  await page.locator('.modal').getByRole('button', { name: 'انقل المنتجات' }).click();
+  await expect(page.locator('.toast.show')).toContainText('اتنقلوا لـ Antikiano');
+  const antikiano = mock.vendors.find((v) => v.name === 'Antikiano');
+  expect(mock.productWrites.at(-1)).toMatchObject({ action: 'products_vendor', ids: [9004, 9003], vendor_id: antikiano.id });
+  await expect(rowOf(page, 'Boho mirror')).toContainText('Antikiano');
+  await expect(rowOf(page, 'Macrame Feathers')).toContainText('Antikiano');
+  // the category tree: the search narrows to «إضاءة» and its branch; ticking «أباجورات» ticks «إضاءة» and «ديكور» above it
+  await box('Boho mirror').click();
+  await page.locator('.bulk-bar').getByRole('button', { name: 'تغيير القسم' }).click();
+  await page.locator('[data-cc-pick]').click();
+  await page.locator('.modal input[type=search]').last().fill('أباجور');
+  await expect(page.locator('[data-cat-pick]')).toHaveCount(3); // ديكور › إضاءة › أباجورات shown, هدايا hidden
+  await page.locator('[data-cat-pick="152"]').click();
+  await page.locator('.modal').getByRole('button', { name: 'تمام' }).click();
+  await expect(page.locator('[data-cc-chosen]')).toContainText('ديكور › إضاءة › أباجورات');
+  await page.locator('.modal').getByRole('button', { name: 'غيّر القسم' }).click();
+  await expect(page.locator('.toast.show')).toContainText('اتغير القسم');
+  const w = mock.productWrites.at(-1);
+  expect([w.action, w.id, [...w.fields.categories].sort((a, b) => a - b)]).toEqual(['product_save', 9004, [15, 151, 152]]); // the mirror's إضاءة kept, the branch (ديكور above, أباجورات below) added
+});
+
 test('bulk: publish the pending product (one product → product_save) and move two to another brand (products_batch), the rows follow', async ({ page }) => {
   await openProducts(page);
   await rowOf(page, 'Boho mirror').locator('[role=checkbox]').click();

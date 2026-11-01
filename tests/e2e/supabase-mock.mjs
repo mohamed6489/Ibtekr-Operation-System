@@ -1388,7 +1388,7 @@ export async function installSupabaseMock(page, opts = {}) {
         && (storeAsked().length === 0 ? bankAsked() : (hasPerm(u, 'vendors.edit') === 'F' || (hasPerm(u, 'vendors.edit') === 'P' && storeAsked().every((f) => CONTACT_PUSH.includes(f)))))
         && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
-        : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' ? hasPerm(u, 'products.bulk') === 'F'
+        : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
       // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
@@ -1472,11 +1472,17 @@ export async function installSupabaseMock(page, opts = {}) {
         p.image_count = (p.image_count || 0) + paths.length; if (b.first === true && !p.image_url) p.image_url = 'https://ibtekr.stage.test/wp-content/uploads/ai.webp';
         return json(200, { action, result: 'ok', media, count: media.length, images: p.image_count });
       }
-      if (action === 'product_save' || action === 'products_batch' || action === 'products_trash' || action === 'products_restore') {
+      if (action === 'product_save' || action === 'products_batch' || action === 'products_vendor' || action === 'products_trash' || action === 'products_restore') {
         mock.productWrites = mock.productWrites || [];
         mock.productWrites.push({ action, by: u.email, ...b });
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
         if (mock.wooDown) return json(502, { error: 'woo_error' });
+        if (action === 'products_vendor') {
+          // the owner (1 Nov): the maker on the site (Dokan's post_author) — the product and its translation follow in the mirror
+          const v = mock.vendors.find((x) => x.id === b.vendor_id); if (!v) return json(404, { error: 'not_found' }); if (!v.woo_vendor_id) return json(409, { error: 'no_store' });
+          for (const id of b.ids || []) { const p = mock.products.find((x) => x.id === Number(id)); const ar = p && p.translation_ids && p.translation_ids.ar ? mock.products.find((x) => x.id === p.translation_ids.ar) : null; for (const x of [p, ar].filter(Boolean)) x.vendor_id = v.id; }
+          return json(200, { action, result: 'ok', counts: { moved: (b.ids || []).length, failed: 0 }, failed_ids: [] });
+        }
         const NUMS = ['regular_price', 'sale_price']; const apply = (p, f) => { for (const [k, v] of Object.entries(f || {})) { if (k === 'categories') p.category_ids = v.map(Number); else if (k === 'brands') p.brand_ids = v.map(Number); else if (k === 'images') p.image_count = v.length; else if (NUMS.includes(k)) p[k] = v === '' ? null : Number(v); else p[k] = v; } };
         const withAr = (id) => { const p = mock.products.find((x) => x.id === Number(id)); const ar = p && p.translation_ids && p.translation_ids.ar ? mock.products.find((x) => x.id === p.translation_ids.ar) : null; return [p, ar]; };
         if (action === 'product_save') {

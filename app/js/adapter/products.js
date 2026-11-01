@@ -164,6 +164,17 @@
     if (r.body.result === 'ok') { logged('product.images.add', [Number(id)], [list.length + ' images' + (first ? ' first' : '')]); await refresh([Number(id)]); }
     return { ok: true, result: r.body.result, reason: r.body.reason || null, media: Array.isArray(r.body.media) ? r.body.media : [], count: Number(r.body.count) || 0 };
   }
+  // the owner (1 Nov): the products' maker on the site (Dokan's post_author — the studio's own way; the admin or products.bulk)
+  // → { ok, result, moved, failedIds } · a maker without a store on the site: reason no_store
+  async function moveVendor(ids, vendorId) {
+    const list = ids.map(Number);
+    const r = await invoke({ action: 'products_vendor', ids: list, vendor_id: String(vendorId) });
+    if (!r.ok) return r.error === 'no_store' ? Object.assign(r, { reason: 'no_store' }) : r;
+    if (r.body.result === 'skipped') return { ok: true, result: 'skipped', reason: r.body.reason };
+    logged('product.bulk', list, ['vendor']);
+    await refresh(list);
+    return { ok: true, result: 'ok', moved: (r.body.counts && r.body.counts.moved) || 0, failedIds: r.body.failed_ids || [] };
+  }
   // onProgress(done, total) after every request; a request the site did not answer (woo_down / network) marks its 25 as failed
   // and the next ones still go; a refusal (forbidden / invalid) or the push gate stops there
   async function batch(updates, onProgress) {
@@ -264,7 +275,7 @@
   function clear() { gen++; st = 'idle'; rows = new Map(); cats = new Map(); brands = new Map(); comm = new Map(); repCache = new Map(); }
 
   window.IBProducts = {
-    load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry, addImages,
+    load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry, addImages, moveVendor,
     categories: () => [...cats.values()].map((x) => ({ id: Number(x.id), name: x.name, parentId: x.parent_id ? Number(x.parent_id) : null, path: catPath(x.id) })).sort((a, b) => a.path.localeCompare(b.path)),
     brands: () => [...brands.values()].map((x) => ({ id: Number(x.id), name: x.name })),
     // phase 5.2: a category the studio just made on the site (category_create) shows at once

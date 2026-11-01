@@ -973,4 +973,5 @@
   document.addEventListener('ib:studio', () => { if (window.IBPages && window.IBPages.current === 'products') R(); });
 
   window.IBStudioView = { route, view, savedWork, start: () => { S.id = null; S.state = null; go('products-studio-new-1'); }, state: S };
+  window.IBCatsPicker = catsPicker; // the products page's «تغيير القسم» uses the same tree (the owner, 1 Nov)
 })();

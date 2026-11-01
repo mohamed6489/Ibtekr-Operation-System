@@ -98,10 +98,10 @@ type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals',
-  'product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add'];
+  'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product
-const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add'];
+const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add'];
 const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
@@ -142,7 +142,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   // phase 5 (decision 5): reading a product live needs products.view <> N; editing products.edit = F; the trash products.trash = F
   if (action === 'product_get') { const { data, error } = await member.rpc('has_perm', { key: 'products.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   if (action === 'product_save' || action === 'product_images_add') return (await admin()) || (await perm('products.edit')) ? 'member' : null;
-  if (action === 'products_batch') return (await admin()) || (await perm('products.bulk')) ? 'member' : null; // the owner, 28 Oct: bulk edit is its own permission
+  if (action === 'products_batch' || action === 'products_vendor') return (await admin()) || (await perm('products.bulk')) ? 'member' : null; // the owner, 28 Oct: bulk edit is its own permission
   if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
   // phase 5.2 (decisions 7 / 8 / 13): the studio's upload, a new category and reading a sheet link need products.add = F
   if (action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet') return (await admin()) || (await perm('products.add')) ? 'member' : null;
@@ -751,6 +751,38 @@ async function productsBatch(run: Run, args: Json) {
 
 // products_trash { ids } / products_restore { ids } (≤ 100): to the trash = DELETE wc/v3/products/{id} with no query
 // (never `force`: WordPress empties its trash after 30 days by itself); back = status draft. The product and its translation.
+// products_vendor { ids, vendor_id } (≤ 100; the admin or products.bulk — the owner, 1 Nov): the products' maker on the site, the
+// studio's own way (decision 9 of 5.2): Dokan's PUT dokan/v1/products/{id} { post_author } on each product and on its Arabic
+// translation, the answer's post_author checked (never trusted); the mirror's vendor_id follows the ones that took it. (Phase 5
+// decision 18 kept this to the WordPress dashboard — Dokan's route does take the author.) A maker without a store on the site: 409.
+async function productsVendor(run: Run, args: Json) {
+  const ids = Array.isArray(args.ids) ? [...new Set(args.ids.map((x: unknown) => wooId(x)).filter((x: number | null): x is number => x !== null))] : [];
+  const vendorId = typeof args.vendor_id === 'string' && /^[0-9a-f-]{36}$/i.test(args.vendor_id) ? args.vendor_id : null;
+  if (!vendorId) return json(400, { error: 'bad_request', field: 'vendor_id' });
+  if (!ids.length || ids.length > PRODUCT_BATCH_MAX) return json(400, { error: 'bad_request', field: 'ids' });
+  const { data: vendor } = await run.db.from('vendors').select('id, woo_vendor_id').eq('id', vendorId).maybeSingle();
+  if (!isObj(vendor)) return json(404, { error: 'not_found' });
+  const owner = wooId(vendor.woo_vendor_id);
+  if (owner === null) return json(409, { error: 'no_store' });
+  if (!pushEnabled(run.env)) return await pushSkip(run, 'products_vendor', null, { count: ids.length, vendor_id: vendorId });
+  const ctx = await run.ctx();
+  const ar = await arIds(run, ids);
+  const put = async (id: number) => {
+    try { return wooId(((await ctx.woo.put(`dokan/v1/products/${id}`, { post_author: owner })).data as Json)?.post_author) === owner; }
+    catch (e) { if (!(e instanceof WooError)) throw e; return false; }
+  };
+  const moved: number[] = []; const failed: number[] = []; const rows: number[] = [];
+  for (const id of ids) {
+    if (!(await put(id))) { failed.push(id); continue; }
+    moved.push(id); rows.push(id);
+    const arId = ar.get(id);
+    if (arId && await put(arId)) rows.push(arId);
+  }
+  if (rows.length) await run.db.from('products').update({ vendor_id: vendorId }).in('id', rows);
+  await logSync(run.db, { ...productEntry(null, 'products_vendor'), result: failed.length ? 'error' : 'ok', detail: { moved: moved.length, failed: failed.length, vendor_id: vendorId, ids: ids.slice(0, PRODUCT_BATCH_MAX) } });
+  return json(200, { action: 'products_vendor', result: 'ok', counts: { moved: moved.length, failed: failed.length }, failed_ids: failed });
+}
+
 async function productsTrash(run: Run, args: Json, restore: boolean) {
   const action = restore ? 'products_restore' : 'products_trash';
   const ids = idList(args.ids, PRODUCT_BATCH_MAX);
@@ -1042,6 +1074,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'product_get') return await productGet(run, args);
     if (action === 'product_save') return await productSave(run, args);
     if (action === 'products_batch') return await productsBatch(run, args);
+    if (action === 'products_vendor') return await productsVendor(run, args);
     if (action === 'products_trash' || action === 'products_restore') return await productsTrash(run, args, action === 'products_restore');
     if (action === 'products' && args.full === true) return await fullProducts(run);
     if (action === 'studio_upload') return await studioUpload(run, args);

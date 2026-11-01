@@ -647,6 +647,32 @@ Deno.test('SEO (phase 5.1): product_get reads the two Rank Math keys only; produ
   ]);
 });
 
+Deno.test('products_vendor (the owner, 1 Nov): the products\' maker on the site — Dokan\'s PUT post_author on each product and its translation, the answer checked; the mirror follows the ones that took it; a maker without a store 409; products.bulk; the gate', async () => {
+  const puts: [number, unknown][] = [];
+  const routes = {
+    'PUT dokan/v1/products/501': (c: any) => { puts.push([501, c.body]); return { body: { id: 501, post_author: String(c.body.post_author) } }; },
+    'PUT dokan/v1/products/601': (c: any) => { puts.push([601, c.body]); return { body: { id: 601, post_author: c.body.post_author } }; },
+    'PUT dokan/v1/products/502': (c: any) => { puts.push([502, c.body]); return { body: { id: 502, post_author: 1 } }; }, // Dokan kept the caller: not moved
+  };
+  const { db, woo, deps } = setup({ seed: { ...prodSeed, vendors: [vendorRow(44), vendorRow(2376), vendorRow(900, { woo_vendor_id: null })] }, routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'products_vendor', ids: [501, 502, 502], vendor_id: vendorId(2376) }, { jwt: 'jwt-pedit' });
+  assertEquals(res.status, 200);
+  assertEquals([body.counts, body.failed_ids], [{ moved: 1, failed: 1 }, [502]]);
+  assertEquals(puts, [[501, { post_author: 2376 }], [601, { post_author: 2376 }], [502, { post_author: 2376 }]], 'the product, then its translation; each id once');
+  assertEquals(db.rows('products').map((p: any) => [p.id, p.vendor_id ?? null]), [[501, vendorId(2376)], [502, null]], 'the mirror follows the one that took it');
+  const log = db.rows('woo_sync_log').at(-1);
+  assertEquals([log.action, log.result, log.detail.moved, log.detail.failed, log.detail.vendor_id], ['products_vendor', 'error', 1, 1, vendorId(2376)]);
+  assertEquals((await call(deps, { action: 'products_vendor', ids: [501], vendor_id: vendorId(900) }, { jwt: 'jwt-pedit' })).res.status, 409, 'no store on the site');
+  assertEquals((await call(deps, { action: 'products_vendor', ids: [501], vendor_id: vendorId(7) }, { jwt: 'jwt-pedit' })).res.status, 404, 'no such maker');
+  assertEquals((await call(deps, { action: 'products_vendor', ids: [], vendor_id: vendorId(44) }, { jwt: 'jwt-pedit' })).body.field, 'ids');
+  assertEquals((await call(deps, { action: 'products_vendor', ids: [501], vendor_id: '44' }, { jwt: 'jwt-pedit' })).body.field, 'vendor_id');
+  assertEquals((await call(deps, { action: 'products_vendor', ids: [501], vendor_id: vendorId(44) }, { jwt: 'jwt-pone' })).res.status, 401, 'products.edit F without products.bulk');
+  const off = setup({ seed: { ...prodSeed }, routes });
+  const sk = await call(off.deps, { action: 'products_vendor', ids: [501], vendor_id: vendorId(44) }, { jwt: 'jwt-pedit' });
+  assertEquals([sk.body.result, sk.body.reason, off.woo.calls.length], ['skipped', 'push_disabled', 0], 'the push gate');
+  assertFalse(woo.calls.some((c) => c.method === 'DELETE'));
+});
+
 Deno.test('products_batch: wc/v3/products/batch with `update` only (never `delete`), the translations get the shared fields only; failed ids answered', async () => {
   const routes = { 'POST wc/v3/products/batch': (c: any) => ({ body: { update: c.body.update.map((u: any) => (u.id === 502 ? { id: 502, error: { code: 'woocommerce_rest_product_invalid_id' } } : wooProduct(u.id, 44, { ...u, categories: undefined, translations: u.id === 501 ? { ar: 601, en: 501 } : undefined }))) } }) };
   const { woo, deps } = setup({ seed: prodSeed, routes, env: PUSH_ON });

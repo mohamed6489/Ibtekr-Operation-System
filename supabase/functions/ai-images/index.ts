@@ -50,7 +50,7 @@ import {
 } from '../_shared/ai-images.js';
 import { magnific, ProviderError, shape, type Provider, type Ref } from './providers/magnific.ts';
 import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
-import { REF, creationsOf, familyOf, importShape, lastPageOf, lineageIds, matchResults, uploadedId } from '../_shared/magnific-bridge.js';
+import { REF, creationsOf, familyOf, flowNodes, importShape, lastPageOf, lineageIds, listIdsOf, matchResults, nodeDataOf, nodesOf, templatePrompts, uploadedId, urlsById } from '../_shared/magnific-bridge.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -63,7 +63,7 @@ export type Deps = {
   bridge?: Bridge; // decision 11: the Magnific site's MCP (OAuth + tools) — the system's own client
 };
 
-const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch'];
+const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow'];
 const SHARE_SECONDS = 7 * 24 * 3600; // a shared photo's link lives a week (the bridge uploads it to the site within that)
 const MAX_WEBP_B64 = 14_000_000; // ≈ 10 MB of WebP
 const STUDIO_BUCKET = 'studio';
@@ -497,8 +497,11 @@ async function importBatch(deps: Deps, who: Who, row: Json) {
     const index = Number(q.index); const it = Number.isInteger(index) ? items[index] : null;
     if (!isObj(it)) continue;
     const idx = Array.isArray(q.images) ? q.images.filter((n): n is number => Number.isInteger(n) && n >= 0 && n < urls.length) : [];
+    // decision 12: a flow's results name their slot (shot 1 → slot 0 …); an image without one takes the first empty slot
+    const wanted: (number | null)[] = Array.isArray(q.slots) ? q.slots.map((s: unknown) => (Number.isInteger(s) && (s as number) >= 0 && (s as number) < 6 ? s as number : null)) : [];
     if (!Array.isArray(it.slots)) it.slots = [];
-    for (const n of idx) {
+    for (let j = 0; j < idx.length; j++) {
+      const n = idx[j];
       if (!paths[n]) {
         const img = await importOne(deps, urls[n]);
         const up = img ? await upload(deps.db, STUDIO_BUCKET, `${batchId}/gen-${index}-imp-${st}-${n + 1}.${extOf(img.mime)}`, img) : null;
@@ -507,7 +510,9 @@ async function importBatch(deps: Deps, who: Who, row: Json) {
         stored++;
       } else stored++;
       if (it.slots.includes(paths[n])) continue; // placed on an earlier (partial) run
-      let k = 0; while (k < it.slots.length && it.slots[k]) k++;
+      const want = wanted[j];
+      let k = want !== null && want !== undefined && !it.slots[want] ? want : 0;
+      if (k === 0 && !(want !== null && want !== undefined && !it.slots[want])) { while (k < it.slots.length && it.slots[k]) k++; }
       it.slots[k] = paths[n]; placed++;
     }
   }
@@ -683,8 +688,138 @@ async function bridgeUpload(deps: Deps, who: Who, args: Json) {
   if (stop && !uploaded && !failed) return stop;
   return json(200, { result: 'ok', batch_id: batchId, uploaded, failed, skipped, stopped: stop ? (await stop.json()).error : null });
 }
-// the project's results back into the batch: every creation of the project that is not an upload, not a source and not imported
-// yet, matched to the photo it came from (lineage → family → name) → one image_imports row (target batch) → importBatch now
+// ---- decision 12: one Space «استوديو ابتكر», a flow a batch; the prompts a category from the owner's template Space
+
+const TEMPLATE_SPACE_DEFAULT = 'a24c0027-cdcc-461c-bc94-74a2a275c599'; // the owner's «product excution template» (MAGNIFIC_TEMPLATE_SPACE moves it)
+const STUDIO_SPACE_NAME = 'استوديو ابتكر';
+const templateSpace = (env: Deps['env'], row: Json) => { const v = String(row.template_space ?? env.MAGNIFIC_TEMPLATE_SPACE ?? '').trim(); return /^[0-9a-f-]{36}$/i.test(v) ? v : TEMPLATE_SPACE_DEFAULT; };
+async function magnificSettings(deps: Deps): Promise<Json> {
+  const { data } = await deps.db.from('settings').select('data').eq('section', 'magnific').maybeSingle();
+  return isObj(data) && isObj(data.data) ? data.data : {};
+}
+async function saveMagnificSettings(deps: Deps, patch: Json) {
+  const cur = await magnificSettings(deps);
+  const { error } = await deps.db.from('settings').upsert({ section: 'magnific', data: { ...cur, ...patch } }, { onConflict: 'section' });
+  if (error) throw new BridgeError('mcp_error', null, 'settings');
+}
+// the admin: the owner's template Space read page by page (spaces_state is one answer a page), its generators' prompts fetched in
+// batches of 50 (spaces_get_nodes) → shot_prompts upserted (category + shot) → { categories, rows }
+async function bridgePromptsSync(deps: Deps, who: Who, args: Json) {
+  if (!who.admin) return json(401, { error: 'unauthorized' });
+  const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  let token: string;
+  try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+  const cfg = await magnificSettings(deps);
+  const spaceId = typeof args.template_space === 'string' && /^[0-9a-f-]{36}$/i.test(args.template_space) ? args.template_space : templateSpace(deps.env, cfg);
+  try {
+    const board = await bridge.callTool(token, 'spaces_state', { spaceId });
+    const pages = (Array.isArray((board as Json)?.pages) ? (board as Json).pages : []).map((p: Json) => String(p?.id ?? '')).filter(Boolean);
+    let nodes = nodesOf(board);
+    if (!nodes.length && pages.length) for (const pageId of pages) nodes.push(...nodesOf(await bridge.callTool(token, 'spaces_state', { spaceId, pageId })));
+    nodes = nodes.filter((n, i, a) => a.findIndex((x) => x.id === n.id) === i);
+    const gens = nodes.filter((n) => n.type === 'image-generator').map((n) => n.id);
+    const nodeData: Json = {};
+    for (let i = 0; i < gens.length; i += 50) Object.assign(nodeData, nodeDataOf(await bridge.callTool(token, 'spaces_get_nodes', { spaceId, nodeIds: gens.slice(i, i + 50) })));
+    const rows = templatePrompts(nodes, nodeData);
+    if (!rows.length) return json(200, { result: 'ok', template_space: spaceId, categories: 0, rows: 0 });
+    const { error } = await deps.db.from('shot_prompts').upsert(rows.map((r) => ({ category: r.category, shot: r.shot, name: r.name, prompt: r.prompt, negative: r.negative, model: r.model, aspect: r.aspect, resolution: r.resolution, source_node: r.node, updated_by: who.uid, updated_at: deps.now() })), { onConflict: 'category,shot' });
+    if (error) return json(500, { error: 'failed' });
+    await saveMagnificSettings(deps, { template_space: spaceId, prompts_synced_at: deps.now() });
+    return json(200, { result: 'ok', template_space: spaceId, categories: new Set(rows.map((r) => r.category)).size, rows: rows.length });
+  } catch (e) { return bridgeFail(e); }
+}
+// the batch's flow inside the one Space (made on the first call, kept in settings «magnific»; a page a category): the sent photos as
+// the input list, three generators with the category's prompts, three output lists; the node ids kept on the batch for the fetch
+async function bridgeFlow(deps: Deps, who: Who, args: Json) {
+  if (!who.add) return json(401, { error: 'unauthorized' });
+  const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const batchId = typeof args.batch_id === 'string' && /^[0-9a-f-]{36}$/i.test(args.batch_id) ? args.batch_id : null;
+  if (!batchId) return json(400, { error: 'bad_request', field: 'batch_id' });
+  const category = line(typeof args.category === 'string' ? args.category : '', 80);
+  if (!category) return json(400, { error: 'bad_request', field: 'category' });
+  const { data: batch } = await deps.db.from('studio_batches').select('id, title, state, archived_at, created_by').eq('id', batchId).maybeSingle();
+  if (!isObj(batch) || batch.archived_at) return json(404, { error: 'not_found' });
+  if (!who.admin && batch.created_by && batch.created_by !== who.uid) return json(401, { error: 'unauthorized' });
+  const state: Json = isObj(batch.state) ? batch.state : {};
+  const items: Json[] = Array.isArray(state.items) ? state.items : [];
+  const { data: shares } = await deps.db.from('image_shares').select('item_index, creation_ref, status, path').eq('batch_id', batchId);
+  // one photo a product: the latest sent share of each item (the product's main photo)
+  const byIndex = new Map<number, string>();
+  for (const s of Array.isArray(shares) ? shares : []) if (s.status === 'sent' && typeof s.creation_ref === 'string' && REF.test(s.creation_ref)) byIndex.set(Number(s.item_index), s.creation_ref);
+  const order = items.map((_, i) => i).filter((i) => byIndex.has(i));
+  if (!order.length) return json(409, { error: 'nothing_sent' });
+  const { data: promptRows } = await deps.db.from('shot_prompts').select('category, shot, name, prompt, negative, model, aspect, resolution').eq('category', category);
+  let token: string;
+  try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+  try {
+    const cfg = await magnificSettings(deps);
+    let spaceId = typeof cfg.space_id === 'string' && /^[0-9a-f-]{36}$/i.test(cfg.space_id) ? cfg.space_id : null;
+    let spaceUrl = typeof cfg.space_url === 'string' && /^https:\/\//.test(cfg.space_url) ? cfg.space_url : null;
+    if (!spaceId) {
+      const made = await bridge.callTool(token, 'spaces_create', { name: STUDIO_SPACE_NAME, description: 'فلو لكل دفعة من استوديو المنتجات — بيتعمل من نظام ابتكر', projectReference: projectRef(deps.env) }) as Json;
+      const sp = isObj(made?.space) ? made.space : made;
+      spaceId = typeof sp?.id === 'string' && /^[0-9a-f-]{36}$/i.test(sp.id) ? sp.id : null;
+      spaceUrl = typeof sp?.webUrl === 'string' && /^https:\/\//.test(sp.webUrl) ? sp.webUrl.split('?')[0] : null;
+      if (!spaceId) throw new BridgeError('mcp_error', null, 'no space id');
+      await saveMagnificSettings(deps, { space_id: spaceId, space_url: spaceUrl, pages: {} });
+    }
+    const pages: Json = isObj(cfg.pages) ? { ...cfg.pages } : {};
+    let pageId = typeof pages[category] === 'string' ? pages[category] : null;
+    if (!pageId) {
+      const made = await bridge.callTool(token, 'spaces_create_page', { spaceId, name: category }) as Json;
+      const pid = made?.pageId ?? made?.page?.id ?? made?.id;
+      pageId = typeof pid === 'string' && pid ? pid : typeof pid === 'number' ? String(pid) : null;
+      if (!pageId) throw new BridgeError('mcp_error', null, 'no page id');
+      pages[category] = pageId;
+      await saveMagnificSettings(deps, { pages });
+    }
+    const title = line(String(batch.title ?? ''), 80) + ' · ' + deps.now().slice(0, 10);
+    const plan = flowNodes({ title, category, photos: order.map((i) => byIndex.get(i) as string), prompts: Array.isArray(promptRows) ? promptRows : [] });
+    const created = await bridge.callTool(token, 'spaces_create_node', { spaceId, pageId, nodes: plan.nodes }) as Json;
+    const results: Json[] = Array.isArray(created?.results) ? created.results : [];
+    const idOf: Record<string, string> = {};
+    for (const r of results) if (isObj(r) && r.ok !== false && typeof r.ref === 'string' && typeof r.nodeId === 'string') idOf[r.ref] = r.nodeId;
+    const missing = plan.nodes.map((n) => n.ref).filter((ref) => !idOf[ref]);
+    if (missing.length) throw new BridgeError('mcp_error', null, 'nodes not created: ' + missing.join(','));
+    await bridge.callTool(token, 'spaces_add_connection', { spaceId, connections: plan.connections.map((c) => ({ sourceElementId: idOf[c.from], sourcePort: c.fromPort, targetElementId: idOf[c.to], targetPort: c.toPort, dataType: 'image', pageId })) });
+    const flow = { space_id: spaceId, url: spaceUrl, page_id: pageId, category, panel: idOf.panel, list: idOf.list, gens: [1, 2, 3].map((s) => ({ shot: s, id: idOf['gen' + s], out: idOf['out' + s] })), order, made_at: deps.now() };
+    await deps.db.from('studio_batches').update({ state: { ...state, flow } }).eq('id', batchId);
+    return json(200, { result: 'ok', batch_id: batchId, url: spaceUrl, space_id: spaceId, page_id: pageId, photos: order.length, category, prompts: Array.isArray(promptRows) ? promptRows.length : 0 });
+  } catch (e) { return bridgeFail(e); }
+}
+// the flow's output lists read in order (shot s, item k → product order[k], slot s−1) → one image_imports row → importBatch
+async function fetchFromFlow(deps: Deps, who: Who, batch: Json, flow: Json, known: Set<string>, token: string) {
+  const bridge = deps.bridge!;
+  const gens: Json[] = Array.isArray(flow.gens) ? flow.gens.filter(isObj) : [];
+  const order: number[] = Array.isArray(flow.order) ? flow.order.filter((n: unknown): n is number => Number.isInteger(n)) : [];
+  const outIds = gens.map((g) => g.out).filter((x): x is string => typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x));
+  if (!outIds.length || !order.length) return json(200, { result: 'ok', batch_id: batch.id, found: 0, placed: 0, unmatched: 0, imported: 0, failed: 0, status: 'ok', flow: true });
+  const nodeData = nodeDataOf(await bridge.callTool(token, 'spaces_get_nodes', { spaceId: flow.space_id, nodeIds: outIds }));
+  const picks: { id: string; index: number; slot: number }[] = [];
+  for (const g of gens) {
+    const ids = listIdsOf(nodeData, String(g.out)); const shot = Number(g.shot);
+    ids.forEach((id, k) => { if (k < order.length && !known.has(id)) picks.push({ id, index: order[k], slot: shot - 1 }); });
+  }
+  const fresh = picks.filter((p, i, a) => a.findIndex((x) => x.id === p.id) === i).slice(0, 50);
+  if (!fresh.length) return json(200, { result: 'ok', batch_id: batch.id, found: 0, placed: 0, unmatched: 0, imported: 0, failed: 0, status: 'ok', flow: true });
+  const urls: Record<string, string> = urlsById(await bridge.callTool(token, 'creations_get', { identifiers: fresh.map((p) => p.id) })) as Record<string, string>;
+  const hosts = importHosts(deps.env);
+  const onHost = (u: string | undefined) => { try { return !!u && hosts.has(new URL(u).hostname.toLowerCase()); } catch { return false; } };
+  const ready = fresh.filter((p) => onHost(urls[p.id]));
+  if (!ready.length) return json(200, { result: 'ok', batch_id: batch.id, found: 0, placed: 0, unmatched: 0, imported: 0, failed: 0, offhost: fresh.length, status: 'ok', flow: true });
+  const byIndex = new Map<number, { images: number[]; slots: number[] }>();
+  ready.forEach((p, n) => { if (!byIndex.has(p.index)) byIndex.set(p.index, { images: [], slots: [] }); byIndex.get(p.index)!.images.push(n); byIndex.get(p.index)!.slots.push(p.slot); });
+  const label = line('نتائج Magnific — ' + String(batch.title ?? ''), 200);
+  const { data: row, error } = await deps.db.from('image_imports').insert({ created_at: deps.now(), created_by: who.uid, source: 'magnific', folder: 'ابتكر', label, urls: ready.map((p) => urls[p.id]), refs: ready.map((p) => p.id), status: 'pending', target: 'batch', batch_id: batch.id, items: [...byIndex.entries()].map(([index, v]) => ({ index, images: v.images, slots: v.slots })) }).select('id, created_by, source, folder, label, product_id, urls, status, paths, target, items, brand_id, vendor_id, batch_type, batch_id').single();
+  if (error || !isObj(row)) return json(500, { error: 'failed' });
+  const res = await importBatch(deps, who, row);
+  const body = await res.json();
+  return json(res.status, { ...body, found: ready.length, unmatched: 0, offhost: fresh.length - ready.length, import_id: row.id, flow: true });
+}
+
+// the project's results back into the batch: a batch with a flow (decision 12) reads its output lists in order; else every creation
+// of the project that is not an upload, not a source and not imported yet, matched to the photo it came from (lineage → family →
+// name) → one image_imports row (target batch) → importBatch now
 async function bridgeFetch(deps: Deps, who: Who, args: Json) {
   if (!who.add) return json(401, { error: 'unauthorized' });
   const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
@@ -693,6 +828,15 @@ async function bridgeFetch(deps: Deps, who: Who, args: Json) {
   const { data: batch } = await deps.db.from('studio_batches').select('id, title, state, archived_at, created_by').eq('id', batchId).maybeSingle();
   if (!isObj(batch) || batch.archived_at) return json(404, { error: 'not_found' });
   if (!who.admin && batch.created_by && batch.created_by !== who.uid) return json(401, { error: 'unauthorized' });
+  const flow = isObj(batch.state) && isObj(batch.state.flow) && typeof batch.state.flow.space_id === 'string' ? batch.state.flow : null;
+  if (flow) {
+    const { data: past } = await deps.db.from('image_imports').select('refs').eq('batch_id', batchId);
+    const known = new Set<string>();
+    for (const r of Array.isArray(past) ? past : []) if (Array.isArray(r.refs)) for (const x of r.refs) if (typeof x === 'string') known.add(x);
+    let token: string;
+    try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+    try { return await fetchFromFlow(deps, who, batch, flow, known, token); } catch (e) { return bridgeFail(e); }
+  }
   const { data: shares } = await deps.db.from('image_shares').select('item_index, creation_ref, name, status').eq('batch_id', batchId);
   const sources = (Array.isArray(shares) ? shares : []).filter((s: Json) => s.status === 'sent' && typeof s.creation_ref === 'string' && REF.test(s.creation_ref)).map((s: Json) => ({ ref: s.creation_ref as string, index: Number(s.item_index), name: String(s.name ?? ''), family: '' }));
   if (!sources.length) return json(200, { result: 'ok', batch_id: batchId, found: 0, placed: 0, unmatched: 0, imported: 0, failed: 0, status: 'ok' });
@@ -756,6 +900,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'bridge_unlink') return await bridgeUnlink(deps, who);
     if (action === 'bridge_upload') return await bridgeUpload(deps, who, args);
     if (action === 'bridge_fetch') return await bridgeFetch(deps, who, args);
+    if (action === 'bridge_prompts_sync') return await bridgePromptsSync(deps, who, args);
+    if (action === 'bridge_flow') return await bridgeFlow(deps, who, args);
     if (!who.admin) return json(401, { error: 'unauthorized' });
     // the probe's outcome is kept as an ai_runs row (label 'probe', 0 credits: configured = the key is set, status = the
     // provider's HTTP status, shape = keys and types only) so the T2 diagnosis can be read from the database — never the key

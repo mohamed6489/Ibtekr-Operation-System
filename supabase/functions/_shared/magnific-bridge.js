@@ -65,6 +65,107 @@ export function matchResults(sources, results, lineages = {}) {
   }
   return { matched, unmatched };
 }
+// ---------------------------------------------------------------- decision 12: the category flows of one Space
+
+export const SHOT_LABELS = ['تركيز على المنتج', 'المنتج في بيئة محيطة', 'Closeup للتفاصيل']; // the owner's three shots, in order
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** A Spaces answer (spaces_state / spaces_get_nodes) → its node rows [{ id, type, name, x, y, pageId }]. */
+export function nodesOf(data) {
+  const rows = pick(data, 'nodes');
+  if (!Array.isArray(rows)) return [];
+  return rows.filter(isObj).map((n) => ({ id: text(n.id, 40), type: text(n.type, 40), name: text(n.name, 200), x: Number(n.x) || 0, y: Number(n.y) || 0, pageId: n.pageId == null ? '' : String(n.pageId) })).filter((n) => UUID.test(n.id));
+}
+/** A Spaces answer → { nodeId: { key: value } } from its nodeData rows (a JSON-looking value is read as JSON). */
+export function nodeDataOf(data) {
+  const rows = pick(data, 'nodeData');
+  const out = {};
+  if (!Array.isArray(rows)) return out;
+  for (const r of rows) {
+    if (!isObj(r) || !UUID.test(text(r.elementId, 40)) || typeof r.key !== 'string') continue;
+    let v = r.value;
+    if (typeof v === 'string' && /^\s*[[{]/.test(v)) { try { v = JSON.parse(v); } catch { /* text */ } }
+    (out[r.elementId] = out[r.elementId] || {})[r.key] = v;
+  }
+  return out;
+}
+/**
+ * The owner's template: an image-generator named «<category> <n> — <shot label>» (a trailing « #k» copy mark dropped; the number
+ * may touch the category or be missing — then the shots follow the nodes' vertical order) → one entry a category and shot:
+ * { category, shot, name, prompt, negative, model, aspect, resolution, node }. Nodes without a prompt are left out.
+ */
+export function templatePrompts(nodes, nodeData) {
+  const gens = nodes.filter((n) => n.type === 'image-generator');
+  const parsed = gens.map((n) => {
+    const name = n.name.replace(/\s*#\d+$/, '').trim();
+    const m = /^(.*?)\s*(\d)?\s*[—–-]+\s*(.+)$/u.exec(name);
+    if (!m) return null;
+    const category = m[1].replace(/\s*\d$/, '').replace(/\s+/g, ' ').trim();
+    if (!category) return null;
+    return { node: n, name, category, shot: m[2] ? Number(m[2]) : null, label: m[3].trim() };
+  }).filter(Boolean);
+  // the unnumbered ones take their shot from the vertical order inside their category
+  const byCat = new Map();
+  for (const p of parsed) { if (!byCat.has(p.category)) byCat.set(p.category, []); byCat.get(p.category).push(p); }
+  const out = new Map();
+  for (const list of byCat.values()) {
+    const unnumbered = list.filter((p) => !p.shot).sort((a, b) => a.node.y - b.node.y || a.node.x - b.node.x);
+    unnumbered.forEach((p, i) => { p.shot = i + 1; });
+    for (const p of list) {
+      if (!(p.shot >= 1 && p.shot <= 3)) continue;
+      const d = nodeData[p.node.id] || {};
+      const prompt = text(d.prompt, 6000);
+      if (!prompt) continue;
+      const key = p.category + '\u0001' + p.shot;
+      if (out.has(key)) continue; // the first node of a category and shot wins (copies « #k» come after)
+      out.set(key, { category: p.category, shot: p.shot, name: p.name.slice(0, 160), prompt, negative: text(d.negativePrompt, 1000) || null, model: /^[a-z0-9-]{1,60}$/.test(text(d.mode, 60)) ? text(d.mode, 60) : null, aspect: /^(auto|\d{1,2}:\d{1,2})$/.test(text(d.aspectRatio, 10)) ? text(d.aspectRatio, 10) : null, resolution: ['1k', '2k', '4k'].includes(text(d.resolution, 2)) ? text(d.resolution, 2) : null, node: p.node.id });
+    }
+  }
+  return [...out.values()].sort((a, b) => a.category.localeCompare(b.category, 'ar') || a.shot - b.shot);
+}
+/**
+ * The nodes of one batch's flow for spaces_create_node: a panel, the input list (the batch's photos as creation items, in product
+ * order), one image generator a shot with the category's prompt (the generic words when the category has none) and one output
+ * list a shot; `refs` name them for the connections (list → generator.reference, generator → out.images).
+ */
+export function flowNodes({ title, category, photos, prompts, model = 'imagen-nano-banana-2' }) {
+  const byShot = new Map((prompts || []).map((p) => [Number(p.shot), p]));
+  const items = photos.map((id) => ({ type: 'image', creationIdentifier: id }));
+  const nodes = [
+    { nodeType: 'panel', ref: 'panel', name: title, data: { name: title } },
+    { nodeType: 'list', ref: 'list', name: 'قائمة ' + category + ' — ' + title, data: { itemType: 'image', mode: 'replace', items }, layout: { groupId: 'panel' } },
+  ];
+  const generic = [
+    'A professional product photograph of the provided product, the product kept completely identical to the original (design, shape, proportions, colours, materials, textures, every detail), centered, on a clean warm cream studio background, soft natural window light, gentle shadow. No text, no logos, no people. 3:4 aspect ratio, photorealistic.',
+    'A lifestyle photograph of the exact same product from the reference, kept completely identical, in its natural place in a warm modern Egyptian home interior, styled scene, afternoon daylight, nothing covering the product. No text, no logos, no people. 3:4 aspect ratio, photorealistic.',
+    'A close-up detail photograph of the exact same product from the reference, kept completely identical: the material, the handmade craft and texture, shallow depth of field, softly blurred real environment behind it. No text, no logos. 3:4 aspect ratio, photorealistic.',
+  ];
+  const connections = [];
+  for (let shot = 1; shot <= 3; shot++) {
+    const p = byShot.get(shot);
+    const data = { prompt: p ? p.prompt : generic[shot - 1], mode: (p && p.model) || model, aspectRatio: (p && p.aspect) || '3:4', resolution: (p && p.resolution) || '1k', numberOfGenerations: 1 };
+    if (p && p.negative) data.negativePrompt = p.negative;
+    const name = (p && p.name) || (category + ' ' + shot + ' — ' + SHOT_LABELS[shot - 1]);
+    nodes.push({ nodeType: 'image-generator', ref: 'gen' + shot, name, data, layout: { groupId: 'panel', relativeToNodeId: shot === 1 ? 'list' : 'gen' + (shot - 1), direction: shot === 1 ? 'right' : 'below' } });
+    nodes.push({ nodeType: 'list', ref: 'out' + shot, name: 'مخرجات ' + shot + ' — ' + (p ? p.name : SHOT_LABELS[shot - 1]), data: { itemType: 'image', mode: 'accumulate' }, layout: { groupId: 'panel', relativeToNodeId: 'gen' + shot, direction: 'right' } });
+    connections.push({ from: 'list', fromPort: 'output-images', to: 'gen' + shot, toPort: 'reference' }, { from: 'gen' + shot, fromPort: 'output', to: 'out' + shot, toPort: 'images' });
+  }
+  return { nodes, connections };
+}
+/** An output list's items (spaces_get_nodes nodeData) → the creation identifiers in order. */
+export function listIdsOf(nodeData, nodeId) {
+  const items = nodeData && nodeData[nodeId] ? nodeData[nodeId].items : null;
+  if (!Array.isArray(items)) return [];
+  return items.filter(isObj).map((x) => text(x.creationIdentifier, 80)).filter((id) => REF.test(id));
+}
+/** creations_get's answer (several) → { identifier: url }. */
+export function urlsById(data) {
+  const list = pick(data, 'creations', 'items', 'results') ?? (Array.isArray(data) ? data : null);
+  const out = {};
+  if (Array.isArray(list)) for (const c of list) { if (isObj(c) && REF.test(text(c.identifier, 80))) { const u = https(c.url) || https(c.large_preview); if (u) out[c.identifier] = u; } }
+  else if (isObj(data) && REF.test(text(data.identifier, 80))) { const u = https(data.url); if (u) out[data.identifier] = u; }
+  return out;
+}
+
 /** The matched results as an image_imports row's urls / refs / items (one item per product index, the images by their place). */
 export function importShape(matched) {
   const urls = []; const refs = []; const byIndex = new Map();

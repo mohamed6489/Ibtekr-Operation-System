@@ -69,6 +69,12 @@
   `_shared/ai-images.js` (اختبار تطابق في domain)، وpopup «البرومبتات (لـ Magnific)» من قايمة صف المنتج في الاستلام وزرار
   «البرومبتات» تحت المرجعية في خطوة الصور — برومبت لكل خانة (+ خانات الألوان في Variable) بزرار «انسخ» و«انسخ الكل» (clipboard API
   وإلا textarea + execCommand). e2e في حالة قرار 11.
+  **قرار 12 (1 نوفمبر — Space واحد وفلو لكل دفعة):** صاحب المشروع ورّى الـ template بتاعه (قايمة إدخال → 3 مولّدات ببرومبت موحّد
+  للفئة → 3 قوايم مخرجات؛ 38 فئة على 4 صفحات) وأكّد إن تشغيل Spaces من الموقع Unlimited، وطلب Space واحدة فيها فلو لكل دفعة
+  (مش Space لكل دفعة) والبرومبتات من الـ template. اتنفذ T14 (أعلاه): `0030_shot_prompts`، `parseTables` لجداول ردود Spaces،
+  `templatePrompts`/`flowNodes`/قراية المخرجات، actions `bridge_prompts_sync`/`bridge_flow`، `slots` في `importBatch`، الواجهة
+  (فئة + «جهّز فلو» + لينك الـ Space + مزامنة البرومبتات)، الـ mock، Deno 25 / node / e2e. Space التجربة «ابتكر — تجربة Space
+  (شنط Sugar-crafts)» اتعمل من الجلسة قبل القرار (خانتين على شنطة الزهور) — يتمسح أو يتساب حسب رغبته.
 - [x] T3 `0025_ai_images` (31 أكتوبر): `ai_runs.action` + `image`، `source` + `tool`/`edit`، عمود `credits`؛ bucket `ai-images` خاص
   (القراءة والحذف لفولدر العضو بـ `products.add`/`products.edit` F، الكتابة للسيرفر بس)؛ `rls_ai_images.sql`. مافيش Postgres محلي
   في الـ sandbox — بيتأكد في CI (`db:test`) وعلى الحي بـ RLS live بعد التطبيق.

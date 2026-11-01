@@ -60,7 +60,7 @@
         const s = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
         // decision 11: the bridge's 503 not_linked (no Magnific account linked) and its 400 refused (the sign-in code refused) are told apart from the others
-        const reason = b && b.error === 'not_linked' ? 'not_linked' : b && b.error === 'refused' ? 'refused' : s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'missing' : s === 402 ? 'ai_cap' : s === 409 ? 'done' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : 'network';
+        const reason = b && b.error === 'not_linked' ? 'not_linked' : b && b.error === 'refused' ? 'refused' : b && b.error === 'nothing_sent' ? 'nothing_sent' : s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'missing' : s === 402 ? 'ai_cap' : s === 409 ? 'done' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : 'network';
         return { ok: false, reason, field: b && b.field ? String(b.field) : null, status: b && Number.isInteger(b.status) ? b.status : null, configured: b && typeof b.configured === 'boolean' ? b.configured : null };
       }
       return { ok: true, body: data };
@@ -257,6 +257,44 @@
     log(['bridge fetch', out.found + ' found', out.placed + ' placed'].concat(out.unmatched ? [out.unmatched + ' unmatched'] : [], out.failed ? [out.failed + ' failed'] : []).join(' · '), 'studio_batches', batchId);
     return out;
   }
+  // ---------- decision 12: one Space, a flow a batch, the category prompts ----------
+  // the categories of the prompts library (shot_prompts): [{ category, shots: n }] sorted by name
+  async function shotCategories() {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const { data, error } = await cl.from('shot_prompts').select('category, shot').order('category').limit(1000);
+      if (error) return { ok: false, reason: error.code === '42501' ? 'forbidden' : 'network' };
+      const by = new Map(); (data || []).forEach((r) => { if (!r || typeof r.category !== 'string') return; by.set(r.category, (by.get(r.category) || 0) + 1); });
+      return { ok: true, rows: [...by.entries()].map(([category, shots]) => ({ category, shots })).sort((a, b) => a.category.localeCompare(b.category, 'ar')) };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // one category's rows (for the admin's editor / the studio's preview)
+  async function shotPrompts(category) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const { data, error } = await cl.from('shot_prompts').select('id, category, shot, name, prompt, negative, model, aspect, resolution, updated_at').eq('category', String(category || '')).order('shot');
+      if (error) return { ok: false, reason: error.code === '42501' ? 'forbidden' : 'network' };
+      return { ok: true, rows: (data || []).map((r) => ({ id: r.id, category: r.category, shot: r.shot, name: r.name || '', prompt: r.prompt || '', negative: r.negative || '', model: r.model || '', aspect: r.aspect || '', resolution: r.resolution || '', at: r.updated_at })) };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // the admin: the owner's template Space read into shot_prompts (the server) → { categories, rows }
+  async function promptsSync(templateSpace) {
+    if (!can().settings) return { ok: false, reason: 'forbidden' };
+    const r = await invoke({ action: 'bridge_prompts_sync', template_space: typeof templateSpace === 'string' && templateSpace.trim() ? templateSpace.trim() : undefined });
+    if (!r.ok) return r;
+    const out = { ok: true, categories: Number(r.body.categories) || 0, rows: Number(r.body.rows) || 0, templateSpace: typeof r.body.template_space === 'string' ? r.body.template_space : null };
+    quiet(() => window.IBActivity && window.IBActivity.log && window.IBActivity.log('product.ai.bridge.prompts', out.categories + ' categories · ' + out.rows + ' prompts', { entity: 'settings', entity_id: 'magnific' }));
+    return out;
+  }
+  // the batch's flow on the one Space (the server: the sent photos as a list → the category's three generators → three output
+  // lists) → { url, photos, prompts }; reason 'nothing_sent' when no photo went up yet
+  async function bridgeFlow(batchId, category) {
+    const r = await invoke({ action: 'bridge_flow', batch_id: batchId, category: String(category || '') });
+    if (!r.ok) return r;
+    const out = { ok: true, url: typeof r.body.url === 'string' && /^https:\/\//.test(r.body.url) ? r.body.url : null, photos: Number(r.body.photos) || 0, prompts: Number(r.body.prompts) || 0, category: typeof r.body.category === 'string' ? r.body.category : '', pageId: typeof r.body.page_id === 'string' ? r.body.page_id : null };
+    log(['bridge flow', out.category, out.photos + ' photos', out.prompts + ' prompts'].join(' · '), 'studio_batches', batchId);
+    return out;
+  }
   // the admin: the shape (keys only) of the provider's account answer, to pin the API layer (T2)
   async function probe() {
     const r = await invoke({ action: 'probe' });
@@ -385,7 +423,7 @@
   }
 
   window.IBImages = {
-    can, generate, edit, create, probe, webp, imports, importRun, share, shares, bridgeStatus, bridgeLink, bridgeCallback, bridgeUnlink, bridgeUpload, bridgeFetch, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
+    can, generate, edit, create, probe, webp, imports, importRun, share, shares, bridgeStatus, bridgeLink, bridgeCallback, bridgeUnlink, bridgeUpload, bridgeFetch, shotCategories, shotPrompts, promptsSync, bridgeFlow, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
     credits, usd, modelOf, estModel: () => (last && last.model) || DEFAULT_MODEL,
     MODELS, DEFAULT_MODEL, SIZES, SHAPES, EDIT_OPS, MAX_COUNT, CREDIT_USD, STUDIO_BUCKET, TOOL_BUCKET,
   };

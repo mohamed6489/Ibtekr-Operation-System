@@ -183,7 +183,7 @@
 
   // ---------------- state ----------------
   const S = { id: null, row: null, state: null, step: 1, report: false, loading: false, err: '', timer: null, saving: false, sel: new Set(), q: '', uploading: false, aiBusy: null, imgBusy: new Map(), imgRun: null };
-  const blank = () => ({ v: 1, type: 'Simple', vary: ['color'], mode: 'sheet', brandId: null, brandName: '', vendorId: null, vendorName: '', rate: null, fee: null, sheet: null, imgCount: 4, items: [] });
+  const blank = () => ({ v: 1, type: 'Simple', vary: ['color'], mode: 'sheet', brandId: null, brandName: '', vendorId: null, vendorName: '', rate: null, fee: null, sheet: null, imgCount: 4, items: [], category: '' });
   const isVar = () => S.state && S.state.type === 'Variable';
   const flow = () => (isVar() ? [1, 2, 3, 4, 5, 6, 7, 8] : [1, 2, 3, 5, 6, 7, 8]);
   const posOf = (n) => flow().indexOf(n) + 1;
@@ -469,6 +469,35 @@
       footer: [Button({ type: 'text', label: 'قفل', onClick: () => m.close() }), Button({ type: 'primary', label: 'انسخ الكل', attrs: { 'data-prompt-copy': 'all' }, onClick: () => copy(list.map((p) => p.label + '\n' + p.text).join('\n\n'), 'كل البرومبتات') })] });
     m.el.classList.add('wide');
   }
+  // decision 12: the batch's flow on the one Space «استوديو ابتكر» — the sent photos as a list, the category's three generators
+  // (the prompts library) and three output lists; the owner runs it on the site, «هات النتائج» reads the lists in order
+  const readCategories = () => { const I = IM(); if (!I || S.cats !== undefined) return; S.cats = null; I.shotCategories().then((r) => { S.cats = r.ok ? r.rows : []; R(); }); };
+  async function makeFlow() {
+    const I = IM(); if (!I || !S.id || S.flowing) return;
+    const category = String(S.state.category || '').trim();
+    if (!category) { K.toast('اختار فئة المنتجات الأول — برومبتات الفلو بتيجي منها', 'warn'); return; }
+    await touch(true);
+    S.flowing = true; R();
+    const r = await I.bridgeFlow(S.id, category);
+    S.flowing = false;
+    if (!r.ok) { K.toast(r.reason === 'nothing_sent' ? 'ابعت الصور لـ Magnific الأول — الفلو بياخد الصور اللي اتبعتت' : r.reason === 'not_linked' ? I.why(r) : r.reason === 'forbidden' ? 'مش مسموحلك' : r.reason === 'busy' ? 'Magnific مشغول دلوقتي — جرّب كمان دقيقة' : 'في مشكلة في الاتصال — جرّب تاني', 'error'); R(); return; }
+    const row = await ST().open(S.id); if (row && S.id) { S.row = row; S.state = Object.assign(blank(), row.state || {}); S.state.items = Array.isArray(S.state.items) ? S.state.items : []; }
+    K.toast('اتعمل فلو «' + r.category + '» بـ ' + r.photos + ' صورة' + (r.prompts ? ' وبرومبتات الفئة' : ' بالبرومبتات العامة (الفئة مالهاش برومبتات)') + ' — افتح الـ Space ودوس Run', 'success');
+    R();
+  }
+  function flowBar() {
+    const I = IM(); if (!I || !S.id) return null;
+    readCategories();
+    const flow = S.state && S.state.flow && typeof S.state.flow === 'object' ? S.state.flow : null;
+    const cats = S.cats || [];
+    const opts = cats.map((x) => ({ value: x.category, label: x.category + (x.shots < 3 ? ' (' + x.shots + ' لقطات)' : '') }));
+    if (S.state.category && !cats.some((x) => x.category === S.state.category)) opts.unshift({ value: S.state.category, label: S.state.category + ' (من غير برومبتات)' });
+    return h('div', { class: 'acts-inline', 'data-flow-bar': '' },
+      U.Select({ id: 'flow-cat', label: null, placeholder: 'فئة المنتجات', options: opts, value: S.state.category || '', onChange: (v) => { S.state.category = v; touch(); R(); } }),
+      Button({ size: 'sm', icon: 'sparkle', label: S.flowing ? 'بنجهّز…' : flow ? 'جهّز فلو جديد' : 'جهّز فلو على Magnific', disabled: !!S.flowing, attrs: { 'data-flow': '' }, onClick: makeFlow }),
+      flow && flow.url ? h('a', { class: 'btn btn-sm', href: flow.url, target: '_blank', rel: 'noopener', 'data-flow-open': '' }, 'افتح الـ Space ↗') : null,
+      flow ? h('span', { class: 't-small help', 'data-flow-state': '' }, 'فلو «' + (flow.category || '') + '» · ' + (Array.isArray(flow.order) ? flow.order.length : 0) + ' صورة') : null);
+  }
   function shareBar() {
     const I = IM(); if (!I || !S.id || !canImgAI()) return null;
     readShares();
@@ -476,6 +505,7 @@
     const txt = !sh ? null : sh.rows.length ? (sh.sent + ' مبعوتة · ' + sh.pending + ' مستنية الرفع' + (sh.failed ? ' · ' + sh.failed + ' فشلت' : '')) : null;
     return h('div', { class: 'acts-inline' }, txt ? h('span', { class: 't-small help', 'data-share-state': '' }, txt) : null,
       Button({ size: 'sm', icon: 'upload', label: S.sharing ? 'بنبعت…' : 'ابعت الصور لـ Magnific', disabled: !!S.sharing || !L.some((it) => it.main), attrs: { 'data-share': '' }, onClick: shareToMagnific }),
+      sh && sh.sent ? flowBar() : null,
       sh && sh.sent ? Button({ size: 'sm', icon: 'download', label: S.fetching ? 'بنجيب…' : 'هات النتائج من Magnific', disabled: !!S.fetching, attrs: { 'data-fetch': '' }, onClick: fetchFromMagnific }) : null);
   }
   // decision 10 («صور بس»): the photos alone — each file's name carries the product's data (PD.photoName); the files of one

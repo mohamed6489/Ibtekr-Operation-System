@@ -297,7 +297,9 @@ export async function installSupabaseMock(page, opts = {}) {
   // tokens; results = the project's creations the site would list: { id, name, family, tool, url, lineage? }); bridgeCalls: every bridge_* call;
   // oauthStates: the PKCE states handed out
   const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, imgCalls: [], webpCalls: [], importCalls: [], imageImports: [], shareCalls: [], imageShares: [], imgFail: null,
-    magnific: { configured: true, linked: false, account: null, results: [] }, bridgeCalls: [], oauthStates: [], imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
+    magnific: { configured: true, linked: false, account: null, results: [], space: null, pages: {}, flows: [], flowResults: {} }, bridgeCalls: [], oauthStates: [],
+    // decision 12: shot_prompts (0030) — the owner's template categories; flows: the flows made on the one Space; flowResults[batchId] = { 1: [ids], 2: [...], 3: [...] } the site's output lists
+    shotPrompts: [['كرسي', 1, 'كرسي 1 — تركيز على المنتج', 'CHAIR FOCUS PROMPT'], ['كرسي', 2, 'كرسي 2 — المنتج في بيئة محيطة', 'CHAIR ENV PROMPT'], ['كرسي', 3, 'كرسي 3 — Closeup للتفاصيل', 'CHAIR DETAIL PROMPT'], ['مرآة', 1, 'مرآة 1 — تركيز على المنتج', 'MIRROR FOCUS PROMPT']].map(([category, shot, name, prompt], i) => ({ id: i + 1, category, shot, name, prompt, negative: null, model: 'imagen-nano-banana-2', aspect: '3:4', resolution: '1k', updated_at: new Date().toISOString() })), imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
     profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [] };
@@ -521,6 +523,17 @@ export async function installSupabaseMock(page, opts = {}) {
       }
       // phase 5.4 decision 8 (0026): image_imports — select only (a Claude session queues the rows as postgres, the server marks
       // them): the member's own rows, the admin's all; named columns; the in.(…) filter on status; newest first
+      // decision 12 (0030): shot_prompts — every member who sees products reads; the admin writes (the mock: read only here, the sync action writes)
+      if (path === '/rest/v1/shot_prompts') {
+        if (method !== 'GET') return json(403, { code: '42501', details: null, hint: null, message: 'permission denied for table shot_prompts' });
+        if (hasPerm(u, 'products.view') === 'N') return json(200, []);
+        const COLS = ['id', 'category', 'shot', 'name', 'prompt', 'negative', 'model', 'aspect', 'resolution', 'source_node', 'updated_at', 'updated_by'];
+        const cols = String(url.searchParams.get('select') || '*').split(',').map((x) => x.trim());
+        const badCol = cols.find((x) => x !== '*' && !COLS.includes(x)); if (badCol) return json(400, { code: '42703', details: null, hint: null, message: `column shot_prompts.${badCol} does not exist` });
+        const f = readFilters(url.searchParams, 'shot_prompts'); if (f.bad) return json(400, { code: 'PGRST100', details: null, hint: null, message: 'unexpected filter ' + f.bad });
+        const rows = mock.shotPrompts.filter((x) => f.match(x)).sort((x, y) => x.category.localeCompare(y.category, 'ar') || x.shot - y.shot);
+        return json(200, rows.map((x) => (cols.includes('*') ? { ...x } : Object.fromEntries(cols.map((c) => [c, x[c] === undefined ? null : x[c]])))));
+      }
       if (path === '/rest/v1/image_imports') {
         if (method !== 'GET') return json(403, { code: '42501', details: null, hint: null, message: 'permission denied for table image_imports' });
         const COLS = ['id', 'created_at', 'created_by', 'source', 'folder', 'label', 'product_id', 'urls', 'refs', 'status', 'paths', 'error', 'run_id', 'done_at', 'target', 'items', 'brand_id', 'vendor_id', 'batch_type', 'batch_id']; // 0027: the studio target
@@ -1080,7 +1093,7 @@ export async function installSupabaseMock(page, opts = {}) {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
       if (!u) return json(401, { error: 'unauthorized' });
       const add = isAdmin(u) || hasPerm(u, 'products.add') === 'F'; const edit = isAdmin(u) || hasPerm(u, 'products.edit') === 'F';
-      if (!['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch'].includes(action)) return json(400, { error: 'unknown_action' });
+      if (!['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow'].includes(action)) return json(400, { error: 'unknown_action' });
       if (action.startsWith('bridge_')) {
         // decision 11: the system as the Magnific site's MCP client — the mock keeps the account's state in mock.magnific and answers
         // like the server: status (the tool's members; the admin sees the account), link (the admin → an https sign-in url with a state),
@@ -1093,6 +1106,15 @@ export async function installSupabaseMock(page, opts = {}) {
         if (action === 'bridge_link') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); if (!M.configured) return json(503, { error: 'not_configured', configured: false }); const state = 'st' + Math.random().toString(36).slice(2).padEnd(41, 'x'); mock.oauthStates.push({ state, used: false, at: Date.now() }); return json(200, { result: 'ok', url: 'https://auth.mock/realms/mcp/auth?client_id=client-1&state=' + state + '&code_challenge=c&redirect_uri=' + encodeURIComponent('https://operation-system.ibtekr.club/magnific-callback.html') }); }
         if (action === 'bridge_callback') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); const st = mock.oauthStates.find((x) => x.state === b.state); if (!/^[A-Za-z0-9._~-]{8,2048}$/.test(String(b.code || ''))) return json(400, { error: 'bad_request', field: 'code' }); if (!st || st.used) return json(400, { error: 'bad_request', field: 'state' }); st.used = true; if (String(b.code).startsWith('bad')) return json(400, { error: 'refused', status: 400, detail: 'invalid_grant' }); M.linked = true; M.account = M.account || 'owner@ibtekr.club'; return json(200, { result: 'ok', linked: true, account: M.account }); }
         if (action === 'bridge_unlink') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); M.linked = false; M.account = null; return json(200, { result: 'ok', linked: false }); }
+        if (action === 'bridge_prompts_sync') {
+          // decision 12: the owner's template read → shot_prompts (the mock adds one category and refreshes the chair's first prompt)
+          if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); if (!M.linked) return json(503, { error: 'not_linked', status: null, detail: null });
+          const tpl = typeof b.template_space === 'string' && b.template_space ? b.template_space : 'a24c0027-cdcc-461c-bc94-74a2a275c599';
+          const put = (category, shot, name, prompt) => { const row = mock.shotPrompts.find((x) => x.category === category && x.shot === shot); if (row) Object.assign(row, { name, prompt, updated_at: new Date().toISOString() }); else mock.shotPrompts.push({ id: mock.shotPrompts.length + 1, category, shot, name, prompt, negative: null, model: 'imagen-nano-banana-2', aspect: '3:4', resolution: '1k', updated_at: new Date().toISOString() }); };
+          put('كرسي', 1, 'كرسي 1 — تركيز على المنتج', 'CHAIR FOCUS PROMPT v2'); put('طاولة قهوة', 1, 'طاولة قهوة 1 — تركيز على المنتج', 'TABLE FOCUS'); put('طاولة قهوة', 2, 'طاولة قهوة 2 — المنتج في بيئة محيطة', 'TABLE ENV'); put('طاولة قهوة', 3, 'طاولة قهوة 3 — Closeup للتفاصيل', 'TABLE DETAIL');
+          const cats = new Set(mock.shotPrompts.map((x) => x.category));
+          return json(200, { result: 'ok', template_space: tpl, categories: cats.size, rows: mock.shotPrompts.length });
+        }
         if (!add) return json(401, { error: 'unauthorized' });
         const bid = typeof b.batch_id === 'string' && /^[0-9a-f-]{36}$/i.test(b.batch_id) ? b.batch_id : null; if (!bid) return json(400, { error: 'bad_request', field: 'batch_id' });
         const batch = mock.studioBatches.find((x) => x.id === bid && !x.archived_at); if (!batch) return json(404, { error: 'not_found' });
@@ -1107,8 +1129,43 @@ export async function installSupabaseMock(page, opts = {}) {
             M.results.push({ id, name: name.replace(/\.[a-z0-9]+$/i, ''), family: 'fam-' + id, tool: 'upload', url: 'https://pikaso.cdnpk.net/p/' + id + '.jpg' }); uploaded++; });
           return json(200, { result: 'ok', batch_id: bid, uploaded, failed: 0, skipped, stopped: null });
         }
+        if (action === 'bridge_flow') {
+          // decision 12: the batch's flow on the one Space (made once), a page a category (made once): the sent photos as the list, three generators, three outputs
+          if (!M.linked) return json(503, { error: 'not_linked', status: null, detail: null });
+          const category = typeof b.category === 'string' ? b.category.trim() : ''; if (!category) return json(400, { error: 'bad_request', field: 'category' });
+          const sent = mock.imageShares.filter((x) => x.batch_id === bid && x.status === 'sent' && x.creation_ref); if (!sent.length) return json(409, { error: 'nothing_sent' });
+          if (!M.space) M.space = { id: 'a3000000-0000-4000-8000-000000000001', url: 'https://www.magnific.com/app/spaces/a3000000-0000-4000-8000-000000000001', name: 'استوديو ابتكر' };
+          if (!M.pages[category]) M.pages[category] = 'page-' + (Object.keys(M.pages).length + 1);
+          const order = [...new Set(sent.map((x) => x.item_index))].sort((a, c) => a - c);
+          const prompts = mock.shotPrompts.filter((x) => x.category === category);
+          const n = M.flows.length + 1;
+          const flow = { space_id: M.space.id, url: M.space.url, page_id: M.pages[category], category, panel: 'panel-' + n, list: 'list-' + n, gens: [1, 2, 3].map((s) => ({ shot: s, id: 'gen-' + n + '-' + s, out: 'out-' + n + '-' + s })), order, made_at: new Date().toISOString(), prompts: prompts.map((p) => p.prompt) };
+          M.flows.push({ batch_id: bid, ...flow });
+          batch.state = { ...batch.state, flow }; batch.updated_at = new Date().toISOString();
+          return json(200, { result: 'ok', batch_id: bid, url: M.space.url, space_id: M.space.id, page_id: M.pages[category], photos: order.length, category, prompts: prompts.length });
+        }
         // bridge_fetch
         if (!M.linked) return json(503, { error: 'not_linked', status: null, detail: null });
+        const place = (row, batch) => {
+          // the import of a batch row: the images into the products' slots — a named slot (decision 12) when empty, else the next empty one
+          const items = batch.state.items || []; const paths = row.urls.map(() => null); let placed = 0; const stamp = Date.now().toString(36) + (++mock.imgSeq);
+          row.items.forEach((q) => { const it = items[q.index]; if (!it) return; it.slots = Array.isArray(it.slots) ? it.slots : []; q.images.forEach((nn, j) => { const k = batch.id + '/gen-' + q.index + '-imp-' + stamp + '-' + (nn + 1) + '.png'; mock.studioObjects.set(k, { type: 'image/png', size: PNG_1PX.length, by: 'import' }); paths[nn] = k; const want = Array.isArray(q.slots) ? q.slots[j] : null; let k2 = Number.isInteger(want) && !it.slots[want] ? want : 0; if (!(Number.isInteger(want) && !it.slots[want])) while (k2 < it.slots.length && it.slots[k2]) k2++; it.slots[k2] = k; placed++; }); });
+          batch.updated_at = new Date().toISOString();
+          const run = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action: 'image', source: 'import', label: row.label, product_id: null, batch_id: batch.id, item_index: null, model: null, credits: 0, cost_usd: 0, status: 'ok', error: null, output: { paths, bucket: 'studio', import_id: row.id, failed: 0, placed } };
+          mock.aiRuns.push(run); Object.assign(row, { status: 'ok', paths, run_id: run.id, done_at: new Date().toISOString() });
+          return { paths, placed, run };
+        };
+        if (batch.state.flow && batch.state.flow.space_id) {
+          // decision 12: the flow's output lists in order — shot s of photo k → product order[k], slot s−1
+          const flow = batch.state.flow; const outs = M.flowResults[bid] || {}; const known = new Set(); mock.imageImports.filter((x) => x.batch_id === bid).forEach((x) => (x.refs || []).forEach((r) => known.add(r)));
+          const picks = []; [1, 2, 3].forEach((s) => (outs[s] || []).forEach((id, k) => { if (k < flow.order.length && !known.has(id)) picks.push({ id, index: flow.order[k], slot: s - 1 }); }));
+          if (!picks.length) return json(200, { result: 'ok', batch_id: bid, found: 0, placed: 0, unmatched: 0, imported: 0, failed: 0, status: 'ok', flow: true });
+          const byIndex = new Map(); picks.forEach((p, nn) => { if (!byIndex.has(p.index)) byIndex.set(p.index, { images: [], slots: [] }); byIndex.get(p.index).images.push(nn); byIndex.get(p.index).slots.push(p.slot); });
+          const row = { id: mock.imageImports.length + 1, created_at: new Date().toISOString(), created_by: u.id, source: 'magnific', folder: 'ابتكر', label: 'نتائج Magnific — ' + batch.title, product_id: null, urls: picks.map((p) => 'https://pikaso.cdnpk.net/p/' + p.id + '.png'), refs: picks.map((p) => p.id), status: 'pending', paths: null, error: null, run_id: null, done_at: null, target: 'batch', items: [...byIndex.entries()].map(([index, v]) => ({ index, images: v.images, slots: v.slots })), brand_id: null, vendor_id: null, batch_type: null, batch_id: bid };
+          mock.imageImports.push(row);
+          const { paths, placed, run } = place(row, batch);
+          return json(200, { result: 'ok', target: 'batch', bucket: 'studio', batch_id: batch.id, path: paths[0], paths, credits: 0, model: '', run_id: run.id, imported: paths.length, failed: 0, status: 'ok', placed, found: picks.length, unmatched: 0, offhost: 0, import_id: row.id, flow: true });
+        }
         const sources = mock.imageShares.filter((x) => x.batch_id === bid && x.status === 'sent' && x.creation_ref).map((x) => ({ ref: x.creation_ref, index: x.item_index, name: x.name.replace(/\.[a-z0-9]+$/i, '').toLowerCase(), family: (M.results.find((r) => r.id === x.creation_ref) || {}).family || '' }));
         if (!sources.length) return json(200, { result: 'ok', batch_id: bid, found: 0, placed: 0, unmatched: 0, imported: 0, failed: 0, status: 'ok' });
         const known = new Set(sources.map((s) => s.ref)); mock.imageImports.filter((x) => x.batch_id === bid).forEach((x) => (x.refs || []).forEach((r) => known.add(r)));
@@ -1119,11 +1176,7 @@ export async function installSupabaseMock(page, opts = {}) {
         const urls = matched.map((m) => m.r.url), refs = matched.map((m) => m.r.id); const byIndex = new Map(); matched.forEach((m, k) => { if (!byIndex.has(m.index)) byIndex.set(m.index, []); byIndex.get(m.index).push(k); });
         const row = { id: mock.imageImports.length + 1, created_at: new Date().toISOString(), created_by: u.id, source: 'magnific', folder: 'ابتكر', label: 'نتائج Magnific — ' + batch.title, product_id: null, urls, refs, status: 'pending', paths: null, error: null, run_id: null, done_at: null, target: 'batch', items: [...byIndex.entries()].map(([index, images]) => ({ index, images })), brand_id: null, vendor_id: null, batch_type: null, batch_id: bid };
         mock.imageImports.push(row);
-        const items = batch.state.items || []; const paths = urls.map(() => null); let placed = 0; const stamp = Date.now().toString(36) + (++mock.imgSeq);
-        row.items.forEach((q) => { const it = items[q.index]; if (!it) return; it.slots = Array.isArray(it.slots) ? it.slots : []; q.images.forEach((n) => { const k = batch.id + '/gen-' + q.index + '-imp-' + stamp + '-' + (n + 1) + '.png'; mock.studioObjects.set(k, { type: 'image/png', size: PNG_1PX.length, by: 'import' }); paths[n] = k; let k2 = 0; while (k2 < it.slots.length && it.slots[k2]) k2++; it.slots[k2] = k; placed++; }); });
-        batch.updated_at = new Date().toISOString();
-        const run = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action: 'image', source: 'import', label: row.label, product_id: null, batch_id: batch.id, item_index: null, model: null, credits: 0, cost_usd: 0, status: 'ok', error: null, output: { paths, bucket: 'studio', import_id: row.id, failed: 0, placed } };
-        mock.aiRuns.push(run); Object.assign(row, { status: 'ok', paths, run_id: run.id, done_at: new Date().toISOString() });
+        const { paths, placed, run } = place(row, batch);
         return json(200, { result: 'ok', target: 'batch', bucket: 'studio', batch_id: batch.id, path: paths[0], paths, credits: 0, model: '', run_id: run.id, imported: paths.length, failed: 0, status: 'ok', placed, found: fresh.length, unmatched: unmatched.length, import_id: row.id });
       }
       if (action === 'share') {

@@ -58,6 +58,8 @@ const COLUMNS: Record<string, string[]> = {
   image_shares: ['id', 'created_at', 'created_by', 'batch_id', 'item_index', 'item_key', 'name', 'path', 'url', 'expires_at', 'status', 'creation_ref', 'error', 'sent_at'],
   // 0029 (phase 5.4 decision 11): the PKCE states of the Magnific bridge's sign-in
   magnific_oauth_states: ['state', 'verifier', 'created_by', 'created_at', 'used_at'],
+  // 0030 (phase 5.4 decision 12): the category prompts of the Magnific flows
+  shot_prompts: ['id', 'category', 'shot', 'name', 'prompt', 'negative', 'model', 'aspect', 'resolution', 'source_node', 'updated_at', 'updated_by'],
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
 };
@@ -70,13 +72,13 @@ const DEFAULTS: Record<string, Row> = {
   vendor_bank: { method: 'bank' },
 };
 const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
-  vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', image_imports: 'int', image_shares: 'int' };
+  vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', image_imports: 'int', image_shares: 'int', shot_prompts: 'int' };
 const UNIQUE: Record<string, string[][]> = {
   status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
   woo_webhook_events: [['id'], ['delivery_id']], woo_sync_log: [['id']], sync_state: [['key']], woo_states: [['code']],
   vendor_rates: [['id'], ['vendor_id', 'since']], vendor_category_rates: [['id'], ['vendor_id', 'woo_category_id', 'since']], woo_categories: [['id']], activity_log: [['id']],
-  vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']], image_imports: [['id']], image_shares: [['id']], magnific_oauth_states: [['state']],
+  vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']], image_imports: [['id']], image_shares: [['id']], magnific_oauth_states: [['state']], shot_prompts: [['id'], ['category', 'shot']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],

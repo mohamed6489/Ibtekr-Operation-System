@@ -648,3 +648,117 @@ Deno.test('magnificMcp (the real layer against a fake fetch): discovery, PKCE, t
   try { await magnificMcp({ MAGNIFIC_AUTH_URL: 'https://auth.test/realms/mcp' }, (async () => { touched = true; throw new Error('down'); }) as any).authUrl('c', 'r', 's', 'ch'); assert(false); } catch (e) { assertEquals((e as BridgeError).kind, 'busy'); }
   assert(touched);
 });
+
+// ---------------------------------------------------------------- decision 12: one Space, a flow a batch, the category prompts
+
+const NID = (n: number) => '00000000-0000-4000-8000-' + String(n).padStart(12, '0');
+const TEMPLATE = 'a24c0027-cdcc-461c-bc94-74a2a275c599';
+function flowBridge(extra: Record<string, (args: any) => unknown> = {}) {
+  let nodeSeq = 100; const spaces: any[] = []; const pages: any[] = []; const created: any[] = []; const connections: any[] = [];
+  const outputs: Record<string, string[]> = {}; // out node id → the creation ids the site produced
+  const tools: Record<string, (args: any) => unknown> = {
+    spaces_state: ({ spaceId, pageId }: any) => spaceId === TEMPLATE ? (pageId ? { board: { uuid: TEMPLATE }, nodes: [] } : {
+      board: { uuid: TEMPLATE, elementsCount: 5 }, pages: [{ id: '1', name: 'Home' }, { id: 'p2', name: 'Decor' }],
+      nodes: [
+        { id: NID(1), type: 'image-generator', name: 'كرسي 1 — تركيز على المنتج', x: 0, y: 0, pageId: '1' },
+        { id: NID(2), type: 'image-generator', name: 'كرسي 2 — المنتج في بيئة محيطة', x: 0, y: 600, pageId: '1' },
+        { id: NID(3), type: 'image-generator', name: 'كرسي 3 — Closeup للتفاصيل #2', x: 0, y: 1200, pageId: '1' },
+        { id: NID(4), type: 'image-generator', name: 'مرآة 1 — تركيز على المنتج', x: 0, y: 0, pageId: 'p2' },
+        { id: NID(5), type: 'list', name: 'قائمة', x: 0, y: 0, pageId: '1' }],
+    }) : { board: { uuid: spaceId }, nodes: [] },
+    spaces_get_nodes: ({ nodeIds }: any) => ({ nodes: [], nodeData: nodeIds.flatMap((id: string) => id === NID(1) ? [{ elementId: id, key: 'prompt', value: 'CHAIR FOCUS' }, { elementId: id, key: 'mode', value: 'imagen-nano-banana-2' }, { elementId: id, key: 'aspectRatio', value: '3:4' }, { elementId: id, key: 'resolution', value: '1k' }, { elementId: id, key: 'negativePrompt', value: 'people, text' }]
+      : id === NID(2) ? [{ elementId: id, key: 'prompt', value: 'CHAIR ENV' }] : id === NID(3) ? [{ elementId: id, key: 'prompt', value: 'CHAIR DETAIL' }] : id === NID(4) ? [{ elementId: id, key: 'prompt', value: 'MIRROR FOCUS' }]
+      : outputs[id] ? [{ elementId: id, key: 'itemType', value: 'image' }, { elementId: id, key: 'items', value: JSON.stringify(outputs[id].map((c) => ({ type: 'image', creationIdentifier: c }))) }] : []) }),
+    spaces_create: ({ name, projectReference }: any) => { const id = 'a3000000-0000-4000-8000-' + String(spaces.length + 1).padStart(12, '0'); spaces.push({ id, name, projectReference }); return { space: { id, name, webUrl: 'https://www.magnific.com/app/spaces/' + id + '?utm_source=mcp' } }; },
+    spaces_create_page: ({ spaceId, name }: any) => { const id = 'page-' + (pages.length + 1); pages.push({ spaceId, name, id }); return { pageId: id }; },
+    spaces_create_node: ({ spaceId, pageId, nodes }: any) => { const results = nodes.map((n: any) => { const nodeId = NID(++nodeSeq); created.push({ spaceId, pageId, ...n, nodeId }); return { ok: true, nodeId, nodeType: n.nodeType, ref: n.ref }; }); return { ok: true, results }; },
+    spaces_add_connection: ({ spaceId, connections: cs }: any) => { connections.push(...cs.map((c: any) => ({ spaceId, ...c }))); return { ok: true, results: cs.map((_: any, i: number) => ({ index: i, ok: true, connectionId: 'conn-' + i })) }; },
+    creations_get: ({ identifiers }: any) => ({ creations: identifiers.map((id: string) => ({ identifier: id, url: id === 'OFF' ? 'https://elsewhere.test/x.png' : 'https://pikaso.cdnpk.net/p/' + id + '.png' })) }),
+    ...extra,
+  };
+  const bridge = fakeBridge(tools);
+  return { bridge, spaces, pages, created, connections, outputs };
+}
+
+Deno.test('bridge_prompts_sync (the admin): the owner\'s template read, its generators\' prompts fetched in batches, one shot_prompts row a category and shot; again → the same rows updated; settings «magnific» remembers the template', async () => {
+  const { bridge } = flowBridge();
+  const { deps, db } = setup({ vault: { ...LINKED }, bridge });
+  assertEquals((await call(deps, { action: 'bridge_prompts_sync' }, 'jwt-add')).res.status, 401);
+  const r = await call(deps, { action: 'bridge_prompts_sync' }, 'jwt-admin');
+  assertEquals(r.body, { result: 'ok', template_space: TEMPLATE, categories: 2, rows: 4 });
+  const tools = bridge.calls.filter((c) => c.op === 'tool').map((c) => c.name);
+  assertEquals(tools, ['spaces_state', 'spaces_get_nodes'], 'the board in one read (its nodes came whole), one batch of generators');
+  assertEquals(bridge.calls.find((c) => c.name === 'spaces_get_nodes')!.args.nodeIds, [NID(1), NID(2), NID(3), NID(4)]);
+  const rows = db.rows('shot_prompts').map((x: any) => [x.category, x.shot, x.name, x.prompt, x.negative, x.model, x.aspect, x.resolution, x.source_node, x.updated_by]);
+  assertEquals(rows, [['كرسي', 1, 'كرسي 1 — تركيز على المنتج', 'CHAIR FOCUS', 'people, text', 'imagen-nano-banana-2', '3:4', '1k', NID(1), U.admin], ['كرسي', 2, 'كرسي 2 — المنتج في بيئة محيطة', 'CHAIR ENV', null, null, null, null, NID(2), U.admin], ['كرسي', 3, 'كرسي 3 — Closeup للتفاصيل', 'CHAIR DETAIL', null, null, null, null, NID(3), U.admin], ['مرآة', 1, 'مرآة 1 — تركيز على المنتج', 'MIRROR FOCUS', null, null, null, null, NID(4), U.admin]]);
+  assertEquals(db.rows('settings').find((s: any) => s.section === 'magnific').data.template_space, TEMPLATE);
+  await call(deps, { action: 'bridge_prompts_sync' }, 'jwt-admin');
+  assertEquals(db.rows('shot_prompts').length, 4, 'a second sync updates, never doubles');
+  // another template id → read instead; a board with no generators → nothing written
+  const r2 = await call(deps, { action: 'bridge_prompts_sync', template_space: 'b24c0027-cdcc-461c-bc94-74a2a275c599' }, 'jwt-admin');
+  assertEquals(r2.body, { result: 'ok', template_space: 'b24c0027-cdcc-461c-bc94-74a2a275c599', categories: 0, rows: 0 });
+});
+
+Deno.test('bridge_flow (products.add): the one Space made once and kept in settings, a page a category made once, the batch\'s flow (the sent photos as the list in product order, three generators with the category rows — or the generic words —, three output lists, six connections), the node ids kept on the batch; nothing sent → 409', async () => {
+  const F = flowBridge();
+  const items = [item(), item({ nameEn: 'Clay Mug', main: SB + '/row2-main.webp', refs: [] }), item({ nameEn: 'No photo', main: null })];
+  const seed = { ...SEED, studio_batches: [batch({ created_by: U.add, state: { items } })],
+    shot_prompts: [{ id: 1, category: 'كرسي', shot: 1, name: 'كرسي 1 — تركيز على المنتج', prompt: 'CHAIR FOCUS', negative: 'people', model: 'imagen-nano-banana-2', aspect: '3:4', resolution: '2k' }, { id: 2, category: 'كرسي', shot: 2, name: 'كرسي 2 — المنتج في بيئة محيطة', prompt: 'CHAIR ENV', negative: null, model: null, aspect: null, resolution: null }],
+    image_shares: [{ id: 1, created_by: U.add, batch_id: SB, item_index: 0, name: 'Kilim Pouf.webp', path: SB + '/row1-main.webp', url: 'https://s/1', expires_at: NOW, status: 'sent', creation_ref: 'UP1', sent_at: NOW },
+      { id: 2, created_by: U.add, batch_id: SB, item_index: 1, name: 'Clay Mug.webp', path: SB + '/row2-main.webp', url: 'https://s/2', expires_at: NOW, status: 'sent', creation_ref: 'UP2', sent_at: NOW }] };
+  const none = setup({ vault: { ...LINKED }, bridge: F.bridge, seed: { ...seed, image_shares: [] } });
+  assertEquals((await call(none.deps, { action: 'bridge_flow', batch_id: SB, category: 'كرسي' })).body, { error: 'nothing_sent' });
+  const { deps, db } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed });
+  assertEquals((await call(deps, { action: 'bridge_flow', batch_id: SB, category: 'كرسي' }, 'jwt-edit')).res.status, 401);
+  assertEquals((await call(deps, { action: 'bridge_flow', batch_id: SB }, 'jwt-add')).body.field, 'category');
+  const r = await call(deps, { action: 'bridge_flow', batch_id: SB, category: 'كرسي' });
+  assertEquals(r.res.status, 200);
+  assertEquals([r.body.result, r.body.photos, r.body.category, r.body.prompts, r.body.page_id, r.body.url], ['ok', 2, 'كرسي', 2, 'page-1', 'https://www.magnific.com/app/spaces/' + F.spaces[0].id]);
+  assertEquals(F.spaces.map((s) => [s.name, s.projectReference]), [['استوديو ابتكر', PROJECT]]);
+  assertEquals(F.pages.map((p) => [p.spaceId, p.name]), [[F.spaces[0].id, 'كرسي']]);
+  assertEquals(F.created.map((n) => [n.pageId, n.nodeType, n.ref]), [['page-1', 'panel', 'panel'], ['page-1', 'list', 'list'], ['page-1', 'image-generator', 'gen1'], ['page-1', 'list', 'out1'], ['page-1', 'image-generator', 'gen2'], ['page-1', 'list', 'out2'], ['page-1', 'image-generator', 'gen3'], ['page-1', 'list', 'out3']]);
+  assertEquals(F.created[1].data, { itemType: 'image', mode: 'replace', items: [{ type: 'image', creationIdentifier: 'UP1' }, { type: 'image', creationIdentifier: 'UP2' }] }, 'the photos in product order, the product without a photo left out');
+  assertEquals([F.created[2].data.prompt, F.created[2].data.negativePrompt, F.created[2].data.resolution, F.created[4].data.prompt, F.created[6].data.prompt.startsWith('A close-up detail photograph')], ['CHAIR FOCUS', 'people', '2k', 'CHAIR ENV', true]);
+  assertEquals(F.connections.length, 6);
+  assertEquals(F.connections[0], { spaceId: F.spaces[0].id, sourceElementId: F.created[1].nodeId, sourcePort: 'output-images', targetElementId: F.created[2].nodeId, targetPort: 'reference', dataType: 'image', pageId: 'page-1' });
+  const flow = db.rows('studio_batches')[0].state.flow;
+  assertEquals([flow.space_id, flow.page_id, flow.category, flow.order, flow.gens.map((g: any) => [g.shot, g.id, g.out])], [F.spaces[0].id, 'page-1', 'كرسي', [0, 1], [[1, F.created[2].nodeId, F.created[3].nodeId], [2, F.created[4].nodeId, F.created[5].nodeId], [3, F.created[6].nodeId, F.created[7].nodeId]]]);
+  const cfg = db.rows('settings').find((s: any) => s.section === 'magnific').data;
+  assertEquals([cfg.space_id, cfg.pages], [F.spaces[0].id, { 'كرسي': 'page-1' }]);
+  // a second batch of another category: the same Space, a new page; the same category again: the same page
+  const second = '0b6f2f5e-1d2c-4a8b-9e3f-1234567890ac';
+  await db.from('studio_batches').insert({ id: second, title: 'مرايات', type: 'Simple', state: { items: [item()] }, step: 6, status: 'draft', created_by: U.add });
+  await db.from('image_shares').insert({ created_by: U.add, batch_id: second, item_index: 0, name: 'M.webp', path: second + '/row1-main.webp', url: 'https://s/3', expires_at: NOW, status: 'sent', creation_ref: 'UP3', sent_at: NOW });
+  const r2 = await call(deps, { action: 'bridge_flow', batch_id: second, category: 'مرآة' });
+  assertEquals([r2.body.page_id, r2.body.prompts, F.spaces.length, F.pages.length], ['page-2', 0, 1, 2]);
+  assert(F.created.at(-6)!.data.prompt.startsWith('A professional product photograph'), 'no rows for the category: the generic words');
+  const r3 = await call(deps, { action: 'bridge_flow', batch_id: SB, category: 'كرسي' });
+  assertEquals([r3.body.page_id, F.pages.length], ['page-1', 2]);
+});
+
+Deno.test('bridge_fetch on a batch with a flow: the output lists read in order → shot s of photo k lands in slot s−1 of product order[k]; a second call finds nothing new; a link off the allowed hosts fails without stopping the rest', async () => {
+  const F = flowBridge();
+  const gens = [{ shot: 1, id: NID(201), out: NID(301) }, { shot: 2, id: NID(202), out: NID(302) }, { shot: 3, id: NID(203), out: NID(303) }];
+  F.outputs[NID(301)] = ['R11', 'R12']; F.outputs[NID(302)] = ['R21', 'OFF']; F.outputs[NID(303)] = ['R31']; // shot 3 of the second photo not made yet
+  const items = [item({ slots: [] }), item({ nameEn: 'Clay Mug', main: SB + '/row2-main.webp', refs: [], slots: [SB + '/own.png'] })];
+  const flow = { space_id: 'a3000000-0000-4000-8000-000000000001', url: 'https://www.magnific.com/app/spaces/x', page_id: 'page-1', category: 'كرسي', panel: NID(100), list: NID(101), gens, order: [0, 1], made_at: NOW };
+  const seed = { ...SEED, studio_batches: [batch({ created_by: U.add, state: { items, imgCount: 4, flow } })] };
+  const { deps, db } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed });
+  const r = await call(deps, { action: 'bridge_fetch', batch_id: SB });
+  assertEquals([r.res.status, r.body.result, r.body.flow, r.body.found, r.body.offhost, r.body.placed, r.body.imported, r.body.failed, r.body.status], [200, 'ok', true, 4, 1, 4, 4, 0, 'ok'], 'OFF is dropped before the row (never fetched), counted as offhost');
+  assertEquals(F.bridge.calls.filter((c) => c.op === 'tool').map((c) => c.name), ['spaces_get_nodes', 'creations_get']);
+  assertEquals(F.bridge.calls[0].args, { spaceId: flow.space_id, nodeIds: [NID(301), NID(302), NID(303)] });
+  const imp = db.rows('image_imports')[0];
+  assertEquals([imp.refs, imp.items], [['R11', 'R12', 'R21', 'R31'], [{ index: 0, images: [0, 2, 3], slots: [0, 1, 2] }, { index: 1, images: [1], slots: [0] }]]);
+  const st = db.rows('studio_batches')[0].state.items;
+  assert(/imp-.*-1\.png$/.test(st[0].slots[0]) && /imp-.*-3\.png$/.test(st[0].slots[1]) && /imp-.*-4\.png$/.test(st[0].slots[2]), 'the pouf: shot 1 → slot 0, shot 2 → slot 1, shot 3 → slot 2');
+  assertEquals(st[1].slots[0], SB + '/own.png', 'a filled slot is never overwritten');
+  assert(/imp-.*-2\.png$/.test(st[1].slots[1]), 'the mug\'s shot 1 takes the next empty slot');
+  // again: nothing new; then the site finishes the missing shot → one more
+  const r2 = await call(deps, { action: 'bridge_fetch', batch_id: SB });
+  assertEquals([r2.body.found, r2.body.placed, db.rows('image_imports').length], [0, 0, 1]);
+  F.outputs[NID(303)].push('R32');
+  const r3 = await call(deps, { action: 'bridge_fetch', batch_id: SB });
+  assertEquals([r3.body.found, r3.body.placed, db.rows('image_imports').length], [1, 1, 2]);
+  assert(/imp-.*-1\.png$/.test(db.rows('studio_batches')[0].state.items[1].slots[2]), 'the mug\'s shot 3 → slot 2');
+});

@@ -543,3 +543,44 @@ test('decision 11 — the system\'s own Magnific link: «ابعت الصور ل�
   expect(mock.imageImports.length).toBe(1);
   expect(mock.activityRows.filter((x) => x.action === 'product.ai.image').map((x) => x.new_value)).toEqual(['bridge upload · 2 photos', 'bridge fetch · 4 found · 3 placed · 1 unmatched', 'bridge fetch · 1 found · 0 placed · 1 unmatched']);
 });
+
+test('decision 12 — the flow on the one Space: the category chosen, «جهّز فلو على Magnific» makes the batch\'s flow (the sent photos, the category\'s three prompts) and shows the Space link; the site\'s output lists come back in order into the exact slots (shot 1 → Close-up, 2 → البيئة, 3 → Feature)', async ({ page }) => {
+  const SB = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
+  await signIn(page, OPS);
+  mock.magnific.linked = true; mock.magnific.account = 'owner@ibtekr.club';
+  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
+  await page.getByRole('radio', { name: /^صور بس/ }).click();
+  await next(page, 'التالي: الاستلام');
+  await pick(page, /اختار صور المنتجات/, [
+    { name: 'Oak Chair - كرسي بلوط - Beige - 1200.png', mimeType: 'image/png', buffer: PNG },
+    { name: 'Rattan Chair - كرسي راتان - Black - 900.png', mimeType: 'image/png', buffer: PNG }]);
+  await expect(page.locator('#pg-products .st-table tbody tr')).toHaveCount(2);
+  await expect(page.locator('[data-flow-bar]')).toHaveCount(0); // nothing sent yet: no flow
+  await page.locator('[data-share]').click();
+  await expect(page.locator('.toast.show')).toContainText('اترفعت 2 صورة');
+  await expect(page.locator('[data-flow-bar]')).toBeVisible();
+  await page.locator('[data-flow]').click();
+  await expect(page.locator('.toast.show')).toContainText('اختار فئة المنتجات الأول');
+  await page.locator('#flow-cat').click(); await page.getByRole('option', { name: 'كرسي' }).click();
+  await page.locator('[data-flow]').click();
+  await expect(page.locator('.toast.show')).toContainText('اتعمل فلو «كرسي» بـ 2 صورة وبرومبتات الفئة');
+  await expect(page.locator('[data-flow-open]')).toHaveAttribute('href', 'https://www.magnific.com/app/spaces/a3000000-0000-4000-8000-000000000001');
+  await expect(page.locator('[data-flow-state]')).toHaveText('فلو «كرسي» · 2 صورة');
+  expect(mock.magnific.flows.map((f) => [f.batch_id, f.category, f.page_id, f.order, f.prompts])).toEqual([[SB, 'كرسي', 'page-1', [0, 1], ['CHAIR FOCUS PROMPT', 'CHAIR ENV PROMPT', 'CHAIR DETAIL PROMPT']]]);
+  expect(mock.studioBatches[0].state.category).toBe('كرسي');
+  // the owner runs the flow on the site: three output lists, one image a photo each (the second photo's detail still running)
+  mock.magnific.flowResults[SB] = { 1: ['F11', 'F12'], 2: ['F21', 'F22'], 3: ['F31'] };
+  await page.locator('[data-fetch]').click();
+  await expect(page.locator('.toast.show')).toContainText('نزلت 5 صورة من Magnific في خانات المنتجات');
+  const slots = mock.studioBatches[0].state.items.map((it) => it.slots.map((p) => (p ? p.replace(/^.*-imp-[a-z0-9]+-/, '') : null)));
+  expect(slots).toEqual([['1.png', '3.png', '5.png'], ['2.png', '4.png']]); // chair 1: F11 → slot 0, F21 → slot 1, F31 → slot 2; chair 2: F12, F22
+  expect(mock.imageImports[0].items).toEqual([{ index: 0, images: [0, 2, 4], slots: [0, 1, 2] }, { index: 1, images: [1, 3], slots: [0, 1] }]);
+  // the late image lands in its slot
+  mock.magnific.flowResults[SB][3].push('F32');
+  await page.locator('[data-fetch]').click();
+  await expect(page.locator('.toast.show')).toContainText('نزلت 1 صورة');
+  expect(mock.studioBatches[0].state.items[1].slots.length).toBe(3);
+  expect(mock.activityRows.filter((x) => x.action === 'product.ai.image').map((x) => x.new_value)).toEqual(['bridge upload · 2 photos', 'bridge flow · كرسي · 2 photos · 3 prompts', 'bridge fetch · 5 found · 5 placed', 'bridge fetch · 1 found · 1 placed']);
+});

@@ -260,6 +260,12 @@ test('decision 11 — the admin links the system\'s Magnific account from «إع
   await page.locator('[data-img-settings]').click();
   await expect(page.locator('.modal [data-img-bridge]')).toContainText('مربوط بحساب');
   await expect(page.locator('.modal [data-img-bridge]')).toContainText('owner@ibtekr.club');
+  // decision 12: the category prompts read from the owner's template (the mock adds a category and refreshes a prompt)
+  await page.locator('[data-img-prompts-sync]').click();
+  await expect(page.locator('[data-img-prompts-out]')).toHaveText('اتقرت 3 فئة · 7 برومبت');
+  expect(mock.shotPrompts.find((x) => x.category === 'كرسي' && x.shot === 1).prompt).toBe('CHAIR FOCUS PROMPT v2');
+  expect(mock.bridgeCalls.at(-1).action).toBe('bridge_prompts_sync');
+  await expect.poll(() => mock.activityRows.filter((x) => x.action === 'product.ai.bridge.prompts').map((x) => x.new_value)).toEqual(['3 categories · 7 prompts']);
   await page.locator('[data-img-unlink]').click();
   await page.getByRole('button', { name: 'فكّ الربط', exact: true }).last().click();
   await expect(page.locator('.modal [data-img-bridge]')).toContainText('مش مربوط');

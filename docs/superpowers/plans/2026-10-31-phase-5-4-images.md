@@ -139,6 +139,22 @@
     وإلا نص JSON وإلا الشكل النصي بتاع السيرفر (`_shared/mcp-text.js`) وكل قيمة منه داتا بتتشيّك (المعرّف `^[A-Za-z0-9_-]{1,80}$`،
     الروابط https على `IMPORT_HOSTS`). الكريدت: الرفع والقراية ببلاش (`simulate_cost`: التوليد من الـ API/الـ MCP بكريدت — Unlimited
     على الموقع بس)؛ Claude مابيتنداش خالص = صفر دولار للتشغيلة.
+12. **«استوديو Magnific بالفئة» — Space واحد وفلو لكل دفعة (قرار صاحب المشروع، 1 نوفمبر: «أنا لما أرفع صور هرفع بالكاتيجوري،
+    أنت تحط برومبت موحّد لكل نوع صورة ويتم استخراجهم في list… Space واحدة فيها فلوهات لكل دفعة»؛ وأكّد إن تشغيل Spaces من الموقع
+    **Unlimited**):** زي الـ template بتاعه («product excution template» `a24c0027-…`: لكل فئة قايمة إدخال → 3 مولّدات ببرومبت موحّد
+    — 1 تركيز على المنتج، 2 المنتج في بيئة محيطة، 3 Closeup للتفاصيل — → 3 قوايم مخرجات). **مكتبة البرومبتات** في `shot_prompts`
+    (0030؛ صف لكل فئة × لقطة: البرومبت، الـ negative، الموديل، المقاس، الدقة؛ القراية `products.view`، الكتابة الأدمن، من غير delete)
+    بتتقري من الـ template بتاعه بـ `bridge_prompts_sync` (الأدمن؛ `spaces_state` ← `spaces_get_nodes` على المولّدات بدفعات 50؛ الاسم
+    «<فئة> N — <لقطة>» بيحدد الفئة واللقطة، « #k» بيتشال، الرقم اللاصق أو الغايب بيتفهم من الترتيب الرأسي — `templatePrompts` في
+    `_shared/magnific-bridge.js`)؛ زرار «حدّث البرومبتات من الـ template» في «إعدادات الصور». **الفلو:** `bridge_flow { batch_id,
+    category }` (`products.add`): Space واحد «استوديو ابتكر» في مشروع «ابتكر» بيتعمل أول مرة ومحفوظ في `settings` قسم `magnific`
+    (`space_id`/`space_url`/`pages`)، صفحة لكل فئة، وفي الصفحة panel باسم الدفعة: قايمة الصور اللي اتبعتت (`creation_ref` من
+    `image_shares`، بترتيب المنتجات، `mode: replace`) → 3 مولّدات ببرومبتات الفئة (وإلا كلام عام) → 3 قوايم مخرجات، والـ ids على
+    الدفعة `state.flow` (`gens[{shot,id,out}]`, `order`). الواجهة: اختيار «فئة المنتجات» (`state.category`) وزرار «جهّز فلو على
+    Magnific» و«افتح الـ Space ↗» بعد الإرسال. **الرجوع:** `bridge_fetch` على دفعة ليها فلو بيقرا قوايم المخرجات (`spaces_get_nodes`)
+    بالترتيب: اللقطة s للصورة k → المنتج `order[k]` والخانة s−1 (`items[].slots` في `image_imports` و`importBatch` بيحترمها لو
+    فاضية)، الروابط بـ `creations_get` (50)، المعروف قبل كده بيتعدّى؛ من غير فلو → طريقة قرار 11 (النسب → العيلة → الاسم).
+    البرومبتات العامة لفئة من غير صفوف في `flowNodes`. الـ Space بتاع الـ template مابيتلمسش.
 
 ## الأسئلة لصاحب المشروع
 
@@ -176,3 +192,7 @@
   (قراية رد الأداة) و`_shared/magnific-bridge.js` (الربط بالمصدر)؛ actions `bridge_*` في `ai-images` (v13)؛ `IBImages.bridge*`؛ `magnific-callback.html`
   + `js/pages/magnific-callback.js`؛ «ابعت» فوري و«هات النتائج» في الاستوديو؛ ربط/فكّ الحساب في «إعدادات الصور»؛ الـ mock والاختبارات (Deno 22،
   node 375، e2e 202). الحي: `0029` من SQL Editor (صاحب المشروع)، نشر v13، ربط الحساب.
+- **T14 — قرار 12 (1 نوفمبر):** `0030_shot_prompts` + `rls_shot_prompts`؛ `parseTables`/`csvRow` في `mcp-text.js` (جداول ردود Spaces)؛
+  `nodesOf`/`nodeDataOf`/`templatePrompts`/`flowNodes`/`listIdsOf`/`urlsById` في `magnific-bridge.js`؛ actions `bridge_prompts_sync` و
+  `bridge_flow` + قراية المخرجات في `bridge_fetch` + `slots` في `importBatch` (`ai-images` v14)؛ `IBImages.shotCategories`/`shotPrompts`/
+  `promptsSync`/`bridgeFlow`؛ شريط الفلو في الاستوديو وزرار المزامنة في إعدادات الصور؛ الـ mock والاختبارات (Deno 25، node، e2e).

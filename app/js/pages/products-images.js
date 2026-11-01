@@ -156,6 +156,14 @@
     const f = { model: cfg.model, cap: cfg.monthlyCredits == null ? '' : String(cfg.monthlyCredits) }; const probe = { busy: false, out: '' };
     // decision 11: the Magnific account the system uploads with (its own OAuth link — no Claude session)
     const link = { st: bridge.ok ? bridge : null, busy: false };
+    // decision 12: the category prompts of the Magnific flows, read from the owner's template Space
+    const sync = { busy: false, out: '', template: '' };
+    const promptsBox = () => !link.st || !link.st.linked ? null : h('div', { class: 'out-b', 'data-img-prompts': '' }, h('small', null, 'برومبتات الفئات (فلوهات Magnific)'),
+      h('p', { class: 't-small help', style: 'margin:0 0 6px' }, 'بتتقري من الـ Space بتاع الـ template بتاعك: كل مولّد اسمه «<فئة> N — <لقطة>» بيبقى برومبت الفئة للقطة N. التعديل هناك ثم «حدّث».'),
+      h('div', { class: 'acts-inline' },
+        U.TextInput({ id: 'img-template', label: null, value: sync.template, dir: 'ltr', placeholder: 'template Space id (اختياري — الافتراضي بتاعك)', onInput: (v) => { sync.template = v; } }),
+        Button({ size: 'sm', label: sync.busy ? 'بنقرا…' : 'حدّث البرومبتات من الـ template', disabled: sync.busy, attrs: { 'data-img-prompts-sync': '' }, onClick: async () => { sync.busy = true; m.setBody(...body()); const r = await I.promptsSync(sync.template); sync.busy = false; sync.out = r.ok ? 'اتقرت ' + r.categories + ' فئة · ' + r.rows + ' برومبت' : r.reason === 'not_linked' ? I.why(r) : r.reason === 'invalid' ? 'الـ id مش صح' : MSG.network; m.setBody(...body()); } })),
+      sync.out ? h('p', { class: 't-small', style: 'margin:6px 0 0', 'data-img-prompts-out': '' }, sync.out) : null);
     const linkBox = () => h('div', { class: 'out-b', 'data-img-bridge': '' }, h('small', null, 'حساب Magnific (الرفع والنتائج من السيستم مباشرة)'),
       !link.st ? h('p', { class: 't-small help', style: 'margin:0' }, 'مقدرناش نقرا حالة الربط دلوقتي.')
         : !link.st.configured ? h('p', { class: 't-small help', style: 'margin:0' }, 'تطبيق السيستم لسه مش متسجّل عند Magnific (السر magnific_mcp_client في Vault).')
@@ -172,7 +180,7 @@
       U.Select({ id: 'img-def-model', label: 'الموديل الافتراضي', options: I.MODELS.map((x) => ({ value: x.id, label: x.name + ' — ' + x.credits + ' كريدت' })), value: f.model, help: (I.modelOf(f.model) || {}).note || '', onChange: (v) => { f.model = v; m.setBody(...body()); } }),
       U.TextInput({ id: 'img-cap', label: 'سقف الشهر بالكريدت', value: f.cap, dir: 'ltr', inputmode: 'numeric', placeholder: 'من غير سقف', help: 'لما الكريدت توصله الصور بتقف لحد أول الشهر الجاي. فاضي = من غير سقف. (1 كريدت ≈ $' + I.CREDIT_USD + ')', onInput: (v) => { f.cap = v; } }),
       U.InlineNote({ children: 'التغيير بيمشي على الصور الجاية على طول، لكل الفريق؛ موديل دفعة في الاستوديو بيتغيّر من جواها.' }),
-      linkBox(),
+      linkBox(), promptsBox(),
       // T2: the connection test — the provider's account answer as keys and types only (no values), or the error with its HTTP status
       h('div', { class: 'acts-inline' }, Button({ size: 'sm', label: probe.busy ? 'بيتصل…' : 'اختبار الاتصال بـ Magnific', disabled: probe.busy, attrs: { 'data-img-probe': '' }, onClick: async () => { probe.busy = true; m.setBody(...body()); const r = await I.probe(); probe.busy = false; probe.out = r.ok ? 'متصل ✓ — شكل رد الحساب: ' + JSON.stringify(r.shape) : I.why(r) || (MSG[r.reason] || MSG.network) + (r.status ? ' (HTTP ' + r.status + ')' : ''); m.setBody(...body()); } })),
       probe.out ? h('pre', { class: 't-small', dir: 'ltr', style: 'margin:0;white-space:pre-wrap;overflow-wrap:anywhere', 'data-img-probe-out': '' }, probe.out) : null];

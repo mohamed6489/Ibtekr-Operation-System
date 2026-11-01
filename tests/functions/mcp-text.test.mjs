@@ -87,3 +87,31 @@ test('toolData: structuredContent first, else JSON text, else the listing; pick 
   assert.equal(pick('x', 'items'), undefined);
   assert.deepEqual(pick({ items: [2] }, 'items'), [2]);
 });
+
+test('parseTables / csvRow: the Spaces tables (header name[n]{cols}: + indented CSV rows), quoted JSON strings with escapes and commas kept whole, typed nulls and numbers; toolData keeps the tables beside the plain pairs', async () => {
+  const { parseTables, csvRow } = await import('../../supabase/functions/_shared/mcp-text.js');
+  const text = `board:
+  uuid: a24c0027-cdcc-461c-bc94-74a2a275c599
+  elementsCount: 2
+nodes[2]{id,type,name,selected,x,y,width,height,pageId,sourceNodeId,groupId,panelIndex,workflowStatus}:
+  02c8479e,list,مخرجات — لقطات التفاصيل المقربة,false,19882.51,4391.75,420,392,"1",null,null,null,null
+  23d8acbf,image-generator,كرسي 1 — تركيز على المنتج #2,false,18400,3440,420,392,"1",null,null,null,completed
+nodeData[3]{elementId,key,value}:
+  02c8479e,mode,replace
+  23d8acbf,prompt,"A professional photo, with a comma and a \\"quote\\".\\nSecond line."
+  23d8acbf,items,"[{\\"id\\":\\"item-1\\",\\"type\\":\\"image\\",\\"value\\":\\"https://x/a.png?token=exp=1~hmac=2\\",\\"creationIdentifier\\":\\"gOTTFpwSXO\\"}]"
+connections[1]{id,sourceElementId,sourcePort,targetElementId,targetPort,dataType,pageId,sourcePageId,targetPageId,selected}:
+  conn-1,23d8acbf,output-images,7291d292,reference,image,"1","1","1",false
+`;
+  const t = parseTables(text);
+  assert.deepEqual(Object.keys(t), ['nodes', 'nodeData', 'connections']);
+  assert.deepEqual(t.nodes.map((n) => [n.id, n.type, n.name, n.selected, n.x, n.pageId, n.sourceNodeId, n.workflowStatus]), [['02c8479e', 'list', 'مخرجات — لقطات التفاصيل المقربة', false, 19882.51, '1', null, null], ['23d8acbf', 'image-generator', 'كرسي 1 — تركيز على المنتج #2', false, 18400, '1', null, 'completed']]);
+  assert.equal(t.nodeData[1].value, 'A professional photo, with a comma and a "quote".\nSecond line.');
+  assert.deepEqual(JSON.parse(t.nodeData[2].value)[0].creationIdentifier, 'gOTTFpwSXO');
+  assert.deepEqual(t.connections[0], { id: 'conn-1', sourceElementId: '23d8acbf', sourcePort: 'output-images', targetElementId: '7291d292', targetPort: 'reference', dataType: 'image', pageId: '1', sourcePageId: '1', targetPageId: '1', selected: false });
+  assert.deepEqual(csvRow('a,,"x,y",3,'), ['a', '', 'x,y', 3, '']);
+  const d = toolData({ content: [{ type: 'text', text }] });
+  assert.equal(d.board.uuid, 'a24c0027-cdcc-461c-bc94-74a2a275c599');
+  assert.equal(d.nodes.length, 2);
+  assert.deepEqual(parseTables('nothing here'), {});
+});

@@ -262,3 +262,24 @@ test('decision 11 — the bridge: status (a member sees linked only), link (the 
   assert.deepEqual(plain(A.logs), [['product.ai.bridge.link', 'start', { entity: 'settings', entity_id: 'magnific' }], ['product.ai.bridge.link', 'linked · owner@ibtekr.club', { entity: 'settings', entity_id: 'magnific' }], ['product.ai.bridge.link', 'unlinked', { entity: 'settings', entity_id: 'magnific' }]]);
   assert.ok(!JSON.stringify(A.logs).includes('code-1') && !JSON.stringify(A.logs).includes('state-1'), 'no code or state in the activity');
 });
+
+test('decision 12 — shotCategories / shotPrompts (reads), promptsSync (the admin; logged with counts), bridgeFlow (the url and counts; nothing_sent told apart; logged without links)', async () => {
+  const rows = [{ id: 1, category: 'كرسي', shot: 1, name: 'كرسي 1 — تركيز على المنتج', prompt: 'P1', negative: null, model: 'imagen-nano-banana-2', aspect: '3:4', resolution: '1k', updated_at: 't' }, { id: 2, category: 'كرسي', shot: 2, name: 'n2', prompt: 'P2', negative: 'people', model: null, aspect: null, resolution: null, updated_at: 't' }, { id: 3, category: 'مرآة', shot: 1, name: 'm1', prompt: 'M1', negative: null, model: null, aspect: null, resolution: null, updated_at: 't' }];
+  const { I, stub, logs } = load({ responses: { shot_prompts: { data: rows, error: null }, 'fn:ai-images': { data: { result: 'ok', batch_id: SB, url: 'https://www.magnific.com/app/spaces/a3', space_id: 'a3', page_id: 'page-1', photos: 2, category: 'كرسي', prompts: 3 }, error: null } } });
+  assert.deepEqual(plain(await I.shotCategories()), { ok: true, rows: [{ category: 'كرسي', shots: 2 }, { category: 'مرآة', shots: 1 }] });
+  const one = await I.shotPrompts('كرسي');
+  assert.deepEqual(plain(one.rows.map((r) => [r.shot, r.prompt, r.negative, r.model])), [[1, 'P1', '', 'imagen-nano-banana-2'], [2, 'P2', 'people', ''], [1, 'M1', '', '']], 'the stub answers every row; the server filters by category');
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'eq').at(-1).args, ['category', 'كرسي']);
+  assert.deepEqual(plain(await I.promptsSync()), { ok: false, reason: 'forbidden' }, 'a member never syncs');
+  assert.deepEqual(plain(await I.bridgeFlow(SB, 'كرسي')), { ok: true, url: 'https://www.magnific.com/app/spaces/a3', photos: 2, prompts: 3, category: 'كرسي', pageId: 'page-1' });
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'bridge_flow', batch_id: SB, category: 'كرسي' });
+  stub.responses['fn:ai-images'] = fail(409, { error: 'nothing_sent' });
+  assert.equal((await I.bridgeFlow(SB, 'كرسي')).reason, 'nothing_sent');
+  assert.deepEqual(plain(logs), [['product.ai.image', 'bridge flow · كرسي · 2 photos · 3 prompts', { entity: 'studio_batches', entity_id: SB }]]);
+  const A = load({ admin: true, responses: { 'fn:ai-images': { data: { result: 'ok', template_space: 'a24c0027-cdcc-461c-bc94-74a2a275c599', categories: 38, rows: 112 }, error: null } } });
+  assert.deepEqual(plain(await A.I.promptsSync('')), { ok: true, categories: 38, rows: 112, templateSpace: 'a24c0027-cdcc-461c-bc94-74a2a275c599' });
+  assert.deepEqual(plain(A.stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body), { action: 'bridge_prompts_sync' }, 'no template id → the server\'s default');
+  await A.I.promptsSync('b24c0027-cdcc-461c-bc94-74a2a275c599');
+  assert.equal(A.stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body.template_space, 'b24c0027-cdcc-461c-bc94-74a2a275c599');
+  assert.deepEqual(plain(A.logs)[0], ['product.ai.bridge.prompts', '38 categories · 112 prompts', { entity: 'settings', entity_id: 'magnific' }]);
+});

@@ -82,6 +82,52 @@ export function parseLoose(text) {
   return isObj(v) && !Object.keys(v).length && lines.length ? lines.join('\n').trim() : v;
 }
 
+/**
+ * The tables of a Spaces answer (spaces_state / spaces_get_nodes): a header `name[count]{col1,col2,…}:` followed by indented
+ * CSV rows, a quoted field being a JSON string (escapes inside) → { name: [{ col: value }] }. Unquoted `null`, numbers and
+ * booleans are typed; a row with too few fields keeps what it has. Never throws.
+ */
+export function parseTables(text) {
+  const out = {};
+  const lines = String(text == null ? '' : text).replace(/\r\n?/g, '\n').split('\n');
+  let cols = null; let name = null;
+  for (const l of lines) {
+    const head = /^\s*([A-Za-z][\w-]*)\[\d*\]\{([^}]*)\}:\s*$/.exec(l);
+    if (head) { name = head[1]; cols = head[2].split(',').map((c) => c.trim()).filter(Boolean); out[name] = out[name] || []; continue; }
+    if (!cols) continue;
+    if (!/^\s+\S/.test(l)) { cols = null; name = null; continue; } // the table ended
+    const fields = csvRow(l.trim());
+    if (!fields.length) continue;
+    const row = {};
+    cols.forEach((c, i) => { row[c] = i < fields.length ? fields[i] : undefined; });
+    out[name].push(row);
+  }
+  return out;
+}
+/** One CSV row of the tables above → typed fields (a quoted field is read as a JSON string). */
+export function csvRow(line) {
+  const out = []; let i = 0; const s = String(line);
+  while (i <= s.length) {
+    if (s[i] === '"') {
+      let j = i + 1; let buf = '"';
+      while (j < s.length) { const ch = s[j]; buf += ch; if (ch === '\\' && j + 1 < s.length) { buf += s[j + 1]; j += 2; continue; } if (ch === '"') break; j++; }
+      let v; try { v = JSON.parse(buf); } catch { v = buf.slice(1, -1); }
+      out.push(v);
+      i = j + 1;
+      if (s[i] === ',') i++; else if (i >= s.length) break; else { const k = s.indexOf(',', i); if (k < 0) break; i = k + 1; }
+      if (i === s.length && s[s.length - 1] === ',') { out.push(''); break; }
+      continue;
+    }
+    const k = s.indexOf(',', i);
+    const raw = (k < 0 ? s.slice(i) : s.slice(i, k)).trim();
+    out.push(raw === 'null' ? null : raw === 'true' ? true : raw === 'false' ? false : /^-?\d+(\.\d+)?$/.test(raw) && raw.length < 16 ? Number(raw) : raw);
+    if (k < 0) break;
+    i = k + 1;
+    if (i === s.length) { out.push(''); break; }
+  }
+  return out;
+}
+
 /** A tool result's content → data: structuredContent first, else the text as JSON, else the listing. */
 export function toolData(result) {
   if (!isObj(result)) return null;
@@ -90,6 +136,14 @@ export function toolData(result) {
   const text = parts.filter((p) => isObj(p) && p.type === 'text' && typeof p.text === 'string').map((p) => p.text).join('\n').trim();
   if (!text) return null;
   if (text.startsWith('{') || text.startsWith('[')) { try { return JSON.parse(text); } catch { /* the listing below */ } }
+  // a Spaces answer carries tables (nodes[n]{…}: rows) beside plain pairs: both are kept
+  if (/^\s*[A-Za-z][\w-]*\[\d*\]\{[^}]*\}:\s*$/m.test(text)) {
+    const tables = parseTables(text);
+    const rest = []; let inTable = false;
+    for (const l of text.split('\n')) { if (/^\s*[A-Za-z][\w-]*\[\d*\]\{[^}]*\}:\s*$/.test(l)) { inTable = true; continue; } if (inTable && /^\s+\S/.test(l)) continue; inTable = false; rest.push(l); }
+    const plain = parseLoose(rest.join('\n'));
+    return Object.assign(isObj(plain) ? plain : {}, tables);
+  }
   const v = parseLoose(text);
   return isObj(v) || Array.isArray(v) ? v : { text: v };
 }

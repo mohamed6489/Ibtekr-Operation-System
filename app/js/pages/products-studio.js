@@ -684,14 +684,15 @@
         stock: f.stock === '' ? null : Number(f.stock), onDemand: !!f.onDemand, vendorPrice: Number(f.vendorPrice), unknownColors: [] }); if (!multi) it.sizes = it.sizes.slice(0, 1); syncVariations(it); touch(); R(); } });
   }
   function step3() {
-    const L = items(); const miss = (it) => issuesOf(it).length > 0;
+    const L = items(); const miss = (it) => issuesOf(it, { color: true }).length > 0; // the color too (the SKU's code) — the AI reads it from the photo
     const rows = L.map((it) => ({ cls: miss(it) ? 'row-err' : null, cells: [PCell(it, [S.state.brandName + ' · ' + (it.material || '—') + ' · ' + (it.style || '—')]),
       h('span', { class: 'chips' }, it.colors.map((c) => Tag('neutral', colorLabel(c))), (it.unknownColors || []).map((n) => Tag('error', n + ' ؟')), isVar() && Array.isArray(it.sheetVariations) && it.sheetVariations.length ? Tag('info', it.variations.length + ' تركيبة من الشيت') : null, it.ai && it.ai.variations ? AITag() : null), it.sizes.join('، ') || '—', it.weight ? it.weight + ' كجم' : h('span', { class: 'help' }, '—'),
       isVar() ? K.Num(String(it.variations.length)) : it.onDemand ? 'حسب الطلب' : it.stock == null ? '—' : K.Num(String(it.stock)),
-      miss(it) ? Tag('error', issuesOf(it)[0]) : Tag('success', 'كامل'), Button({ size: 'sm', label: 'عدّل', onClick: () => editItem(it) })] }));
+      miss(it) ? Tag('error', issuesOf(it, { color: true })[0]) : Tag('success', 'كامل'), Button({ size: 'sm', label: 'عدّل', onClick: () => editItem(it) })] }));
     const rule = h('div', { class: 'card rule' }, h('span', { class: 't-label help' }, 'قاعدة الـ SKU:'), Tag('brand', 'IBT'), Tag('gold', 'البراند (' + (PD.brandCode(S.state.brandName) || '??') + ')'), Tag('gold', 'اللون'), Tag('gold', 'المسلسل'), isVar() ? Tag('neutral', '-المقاس للتركيبة') : null, h('span', { class: 'grow' }), Button({ size: 'sm', label: 'جدول الألوان', onClick: colorsTable }), Button({ size: 'sm', label: '+ لون جديد', onClick: () => newColor('') }));
     const bad = L.filter(miss).length;
-    const missing = (it) => [!String(it.nameEn || '').trim() && 'nameEn', !String(it.nameAr || '').trim() && 'nameAr', (it.unknownColors || []).length && 'variations'].filter(Boolean);
+    // the owner (1 Nov): no color at all (the photos' names carried none) → the AI reads it from the photo, like a sheet color not in the table
+    const missing = (it) => [!String(it.nameEn || '').trim() && 'nameEn', !String(it.nameAr || '').trim() && 'nameAr', ((it.unknownColors || []).length || !(it.colors || []).length) && 'variations'].filter(Boolean);
     return [TotalsBar([['المنتجات', L.length], ['ناقص', bad, bad ? 'err' : null], ['المسلسل', (PD.serialText(ST().nextSerial()) || '0999') + ' (مبدئي)'], aiTot(L)].filter(Boolean),
       aiButton('املا الناقص بالـ AI', () => aiFill(L, missing, 'املا الأسامي والألوان الناقصة بالـ AI'))), rule,
       h('section', { class: 'card sec' }, h('div', { class: 'sec-b' }, STable([{ l: 'المنتج' }, { l: isVar() ? 'الألوان' : 'اللون', w: 200 }, { l: 'المقاس', w: 120 }, { l: 'الوزن', w: 80 }, { l: isVar() ? 'التركيبات' : 'المخزون', w: 90 }, { l: 'الحالة', w: 160 }, { l: '', w: 80 }], rows, 'البيانات و SKU'))),

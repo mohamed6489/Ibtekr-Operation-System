@@ -248,6 +248,15 @@ test('itemIssues (decision 15): the Arabic name is required — «الاستلا
   assert.deepEqual(PD.itemIssues({ ...it, nameAr: 'أباجورة' }, 'Simple'), []);
 });
 
+test('itemIssues ({ color: true } — «البيانات و SKU», the owner 1 Nov: «اللون مبيتحطش في الداتا»): a Simple product without a color is missing «اللون»; a Variable one is covered by «المتغيرات»; the intake never asks', () => {
+  const it = { nameEn: 'Clay Vase', nameAr: 'مزهرية فخار', vendorPrice: 400, colors: [], sizes: [] };
+  assert.deepEqual(PD.itemIssues(it, 'Simple', { color: true }), ['اللون']);
+  assert.deepEqual(PD.itemIssues(it, 'Simple'), [], 'the intake lets it through');
+  assert.deepEqual(PD.itemIssues({ ...it, colors: ['BE'] }, 'Simple', { color: true }), []);
+  assert.deepEqual(PD.itemIssues(it, 'Variable', { color: true }), ['المتغيرات'], 'no «اللون» twice');
+  assert.deepEqual(PD.itemIssues({ ...it, sizes: ['S'] }, 'Variable', { color: true }), [], 'sizes alone make a Variable product');
+});
+
 test('itemIssues ({ en: false } — «صور بس», the owner 1 Nov): one name in the file name is enough; the English name is still required everywhere else', () => {
   const arOnly = { nameEn: '', nameAr: 'شنطة جلد', vendorPrice: 1500, colors: ['BE'], sizes: [] };
   assert.deepEqual(PD.itemIssues(arOnly, 'Simple', { ar: false, en: false }), [], 'Arabic only passes the photos intake');

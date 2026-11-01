@@ -168,7 +168,7 @@ Fields
 - nameEn / nameAr: the product title in English / Arabic: 3 to 8 words (at most 70 characters), the product type with its key material, style or color. nameAr is in Arabic letters except the brand. When one of the two names is given in the data, the other one names the same product.
 - shortDesc / shortDescAr: the short description in English / Arabic: one or two sentences (at most 300 characters) on what it is and why it appeals.
 - categories: the ids of the 1 to 3 most specific shop categories that fit the product, only from the list of shop categories below.
-- colors: the codes of the colors the product clearly comes in, only from the list of colors below.
+- colors: the codes of the colors the product clearly comes in, only from the list of colors below. When the data names no color, read the product's color from the photo and give the closest code (the main color of the product itself, not of the background); a product of one color gets one code.
 - sizes: the sizes the product comes in only when the data gives them (for example "50×50" in cm, or S, M, L); otherwise an empty list.`;
 
 // decision 13 (the owner, 1 Nov): a category with no prompts in the template → Claude writes the three shot prompts for the

@@ -126,6 +126,7 @@ test('studioRequest: the catalog (category paths + color codes) is the cached bl
   const item = { nameEn: 'Desk Lamp', nameAr: '', material: 'Bamboo', colors: ['BE', 'ZZ'], sizes: ['30×40'], weight: 1.2, categories: [11], shortDesc: '<p>Warm light</p>' };
   const p = studioRequest(item, { ...CTX, want: ['nameAr', 'category'], brand: 'Art Craft', cats: CATS, colors: COLORS, image: { media_type: 'image/webp', data: 'B'.repeat(300) } });
   assert.equal(p.system.length, 2); assert.equal(p.system[0].cache_control, undefined);
+  assert.match(p.system[0].text, /read the product's color from the photo/, 'the owner (1 Nov): no color in the data → the photo');
   assert.deepEqual(p.system[1].cache_control, { type: 'ephemeral' });
   assert.match(p.system[1].text, /^Shop categories \(id: path\)\n10: Home Decor\n12: Home Decor › Cushions\n11: Home Decor › Mirrors\n20: Kitchen\n\nColors \(code: name\)\nBE: Beige \(بيج\)\nBK: Black \(أسود\)$/);
   assert.equal(p.messages[0].content[0].source.media_type, 'image/webp');

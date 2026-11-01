@@ -152,9 +152,13 @@ test('the columns (phase 4.1, every table): hiding one is saved for the member i
 test('sales come from our orders by status group; the moves log lists Dokan requests', async ({ page }) => {
   await openAccounts(page);
   await tab(page, 'المبيعات').click();
+  // the mock's open orders are 6 and 8 days old: in the month's first days they fall in the month before, so the range is the last 30 days
+  await main(page).getByRole('button', { name: 'اختيار الفترة' }).click();
+  await page.getByRole('radio', { name: 'آخر 30 يومًا' }).click();
+  await page.getByRole('button', { name: 'تحديث', exact: true }).click();
   const sales = main(page).locator('table').first();
   for (const g of ['مكتملة', 'تحت التنفيذ', 'مرتجع / ملغي']) await expect(sales).toContainText(g);
-  await expect(sales.locator('tr', { hasText: 'تحت التنفيذ' })).toContainText('4,543.00'); // the mock's open orders of this month
+  await expect(sales.locator('tr', { hasText: 'تحت التنفيذ' })).toContainText('4,543.00'); // the mock's open orders of the last 30 days
   await tab(page, 'سجل الحركات').click();
   await main(page).getByRole('tab', { name: 'حسابات المبتكرين' }).last().click();
   await expect(main(page).locator('.mlog-table')).toContainText('#501');

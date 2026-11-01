@@ -725,6 +725,7 @@ Deno.test('bridge_flow (products.add): the one Space made once and kept in setti
   assertEquals([flow.space_id, flow.page_id, flow.category, flow.order, flow.gens.map((g: any) => [g.shot, g.id, g.out])], [F.spaces[0].id, 'page-1', 'كرسي', [0, 1], [[1, F.created[2].nodeId, F.created[3].nodeId], [2, F.created[4].nodeId, F.created[5].nodeId], [3, F.created[6].nodeId, F.created[7].nodeId]]]);
   const cfg = db.rows('settings').find((s: any) => s.section === 'magnific').data;
   assertEquals([cfg.space_id, cfg.pages], [F.spaces[0].id, { 'كرسي': 'page-1' }]);
+  assertEquals(cfg.flows[SB].gens, flow.gens, 'the server keeps its own record of the flow (the fetch trusts this one, not the batch state)');
   // a second batch of another category: the same Space, a new page; the same category again: the same page
   const second = '0b6f2f5e-1d2c-4a8b-9e3f-1234567890ac';
   await db.from('studio_batches').insert({ id: second, title: 'مرايات', type: 'Simple', state: { items: [item()] }, step: 6, status: 'draft', created_by: U.add });
@@ -742,7 +743,11 @@ Deno.test('bridge_fetch on a batch with a flow: the output lists read in order �
   F.outputs[NID(301)] = ['R11', 'R12']; F.outputs[NID(302)] = ['R21', 'OFF']; F.outputs[NID(303)] = ['R31']; // shot 3 of the second photo not made yet
   const items = [item({ slots: [] }), item({ nameEn: 'Clay Mug', main: SB + '/row2-main.webp', refs: [], slots: [SB + '/own.png'] })];
   const flow = { space_id: 'a3000000-0000-4000-8000-000000000001', url: 'https://www.magnific.com/app/spaces/x', page_id: 'page-1', category: 'كرسي', panel: NID(100), list: NID(101), gens, order: [0, 1], made_at: NOW };
-  const seed = { ...SEED, studio_batches: [batch({ created_by: U.add, state: { items, imgCount: 4, flow } })] };
+  const seed = { ...SEED, studio_batches: [batch({ created_by: U.add, state: { items, imgCount: 4, flow } })], settings: [{ section: 'magnific', data: { space_id: flow.space_id, pages: { 'كرسي': 'page-1' }, flows: { [SB]: flow } } }] };
+  // a flow only in the member-writable batch state (another Space's ids) is never read: the lineage path runs instead
+  const forged = setup({ vault: { ...LINKED }, bridge: flowBridge().bridge, seed: { ...seed, settings: [{ section: 'magnific', data: { space_id: 'a3000000-0000-4000-8000-000000000009', flows: {} } }] } });
+  const rf = await call(forged.deps, { action: 'bridge_fetch', batch_id: SB });
+  assertEquals([rf.body.flow, rf.body.found], [undefined, 0], 'the forged flow is ignored');
   const { deps, db } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed });
   const r = await call(deps, { action: 'bridge_fetch', batch_id: SB });
   assertEquals([r.res.status, r.body.result, r.body.flow, r.body.found, r.body.offhost, r.body.placed, r.body.imported, r.body.failed, r.body.status], [200, 'ok', true, 4, 1, 4, 4, 0, 'ok'], 'OFF is dropped before the row (never fetched), counted as offhost');

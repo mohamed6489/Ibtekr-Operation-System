@@ -783,6 +783,9 @@ async function bridgeFlow(deps: Deps, who: Who, args: Json) {
     if (missing.length) throw new BridgeError('mcp_error', null, 'nodes not created: ' + missing.join(','));
     await bridge.callTool(token, 'spaces_add_connection', { spaceId, connections: plan.connections.map((c) => ({ sourceElementId: idOf[c.from], sourcePort: c.fromPort, targetElementId: idOf[c.to], targetPort: c.toPort, dataType: 'image', pageId })) });
     const flow = { space_id: spaceId, url: spaceUrl, page_id: pageId, category, panel: idOf.panel, list: idOf.list, gens: [1, 2, 3].map((s) => ({ shot: s, id: idOf['gen' + s], out: idOf['out' + s] })), order, made_at: deps.now() };
+    // the record the fetch trusts lives with the server (settings «magnific».flows — members cannot write it); the batch keeps a copy for the page
+    const latest = await magnificSettings(deps);
+    await saveMagnificSettings(deps, { flows: { ...(isObj(latest.flows) ? latest.flows : {}), [batchId]: flow } });
     await deps.db.from('studio_batches').update({ state: { ...state, flow } }).eq('id', batchId);
     return json(200, { result: 'ok', batch_id: batchId, url: spaceUrl, space_id: spaceId, page_id: pageId, photos: order.length, category, prompts: Array.isArray(promptRows) ? promptRows.length : 0 });
   } catch (e) { return bridgeFail(e); }
@@ -828,7 +831,10 @@ async function bridgeFetch(deps: Deps, who: Who, args: Json) {
   const { data: batch } = await deps.db.from('studio_batches').select('id, title, state, archived_at, created_by').eq('id', batchId).maybeSingle();
   if (!isObj(batch) || batch.archived_at) return json(404, { error: 'not_found' });
   if (!who.admin && batch.created_by && batch.created_by !== who.uid) return json(401, { error: 'unauthorized' });
-  const flow = isObj(batch.state) && isObj(batch.state.flow) && typeof batch.state.flow.space_id === 'string' ? batch.state.flow : null;
+  // the flow of this batch as the server recorded it (never the member-writable batch.state): its Space must be ours
+  const cfg = await magnificSettings(deps);
+  const recorded = isObj(cfg.flows) && isObj(cfg.flows[batchId]) ? cfg.flows[batchId] : null;
+  const flow = recorded && typeof recorded.space_id === 'string' && recorded.space_id === cfg.space_id ? recorded : null;
   if (flow) {
     const { data: past } = await deps.db.from('image_imports').select('refs').eq('batch_id', batchId);
     const known = new Set<string>();

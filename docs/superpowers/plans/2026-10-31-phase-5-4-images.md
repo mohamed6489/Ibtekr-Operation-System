@@ -149,8 +149,9 @@
     `_shared/magnific-bridge.js`)؛ زرار «حدّث البرومبتات من الـ template» في «إعدادات الصور». **الفلو:** `bridge_flow { batch_id,
     category }` (`products.add`): Space واحد «استوديو ابتكر» في مشروع «ابتكر» بيتعمل أول مرة ومحفوظ في `settings` قسم `magnific`
     (`space_id`/`space_url`/`pages`)، صفحة لكل فئة، وفي الصفحة panel باسم الدفعة: قايمة الصور اللي اتبعتت (`creation_ref` من
-    `image_shares`، بترتيب المنتجات، `mode: replace`) → 3 مولّدات ببرومبتات الفئة (وإلا كلام عام) → 3 قوايم مخرجات، والـ ids على
-    الدفعة `state.flow` (`gens[{shot,id,out}]`, `order`). الواجهة: اختيار «فئة المنتجات» (`state.category`) وزرار «جهّز فلو على
+    `image_shares`، بترتيب المنتجات، `mode: replace`) → 3 مولّدات ببرومبتات الفئة (وإلا كلام عام) → 3 قوايم مخرجات، والـ ids في `settings`
+    قسم `magnific` تحت `flows[batch_id]` (`gens[{shot,id,out}]`, `order` — السجل اللي السيرفر بيثق فيه؛ `state.flow` على الدفعة نسخة للعرض
+    بس، لأن العضو بيكتب `state` — مراجعة أمنية 1 نوفمبر). الواجهة: اختيار «فئة المنتجات» (`state.category`) وزرار «جهّز فلو على
     Magnific» و«افتح الـ Space ↗» بعد الإرسال. **الرجوع:** `bridge_fetch` على دفعة ليها فلو بيقرا قوايم المخرجات (`spaces_get_nodes`)
     بالترتيب: اللقطة s للصورة k → المنتج `order[k]` والخانة s−1 (`items[].slots` في `image_imports` و`importBatch` بيحترمها لو
     فاضية)، الروابط بـ `creations_get` (50)، المعروف قبل كده بيتعدّى؛ من غير فلو → طريقة قرار 11 (النسب → العيلة → الاسم).

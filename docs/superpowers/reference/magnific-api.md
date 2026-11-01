@@ -52,6 +52,13 @@
 ## الفحص (probe)
 `GET /text-to-image/seedream-v5-pro` (قايمة مهامنا — من غير كريدت): 200 = المفتاح شغّال، والدالة بترجّع شكل الرد (مفاتيح وأنواع بس).
 
+## مكتبة الموقع عبر الـ MCP (قرار 8 — مش الـ API)
+الـ API العام مابيشوفش إبداعات الموقع؛ الـ Magnific MCP (موصّل بجلسة Claude بحساب صاحب المشروع) بيشوفها: `folders_list` → `reference`،
+`creations_search { from: 'project-root' | 'folder', reference, full: true, fileType: 'image' }` → `identifier` + `url` كامل الدقة على
+**`pikaso.cdnpk.net`** (رابط موقّع `token=exp=<unix>~hmac=…` — صالح أيام)، و`creations_get` لعنصر واحد. الـ unlimited بتاع الباقة
+على الموقع بس (`account_balance` بيرجّع `unlimitedAppliesHere: false` — أي توليد من الـ MCP/الـ API بيخصم كريدت). الاستيراد للسيستم
+في `tools/deploy.md` §2.7.13.
+
 ## المصادر (31 أكتوبر 2026)
 - https://docs.magnific.com/api-reference/text-to-image/post-seedream-v5-pro و`post-seedream-v5-pro-edit` و`get-seedream-v5-pro-task`
 - https://docs.magnific.com/api-reference/text-to-image/post-gemini-2-5-flash-image-preview

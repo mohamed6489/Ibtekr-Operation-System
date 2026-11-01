@@ -143,3 +143,43 @@ test('not_configured told apart: the secret missing on the server names the secr
   await expect(page.locator('[data-img-probe-out]')).toContainText('Magnific رفض المفتاح (HTTP 401)');
   mock.imgFail = null;
 });
+
+test('decision 8 — «وارد من Magnific»: a set queued from the site (image_imports) shows on the tool; «استورد» fetches its links into the member\'s folder (0 credits, a run row of source import), the bad link stays out (partial), the results become WebP, «احفظ على المنتج» takes them; an imported set answers done', async ({ page }) => {
+  mock.imageImports.push({ id: 1, created_at: '2026-11-01T06:00:00.000Z', created_by: OPS_ID, source: 'magnific', folder: 'ابتكر', label: 'Cushion set', product_id: 9001,
+    urls: ['https://pikaso.cdnpk.net/private/production/1/a.jpg?token=exp=1~hmac=x', 'https://pikaso.cdnpk.net/private/production/1/b.png?token=t', 'https://evil.test/c.jpg'], refs: ['A', 'B', 'C'], status: 'pending', paths: null, error: null, run_id: null, done_at: null });
+  mock.imageImports.push({ id: 3, created_at: '2026-10-31T06:20:00.000Z', created_by: OPS_ID, source: 'magnific', folder: 'ابتكر', label: 'Failed set', product_id: null, urls: ['https://pikaso.cdnpk.net/private/production/1/q.jpg'], refs: ['Q'], status: 'error', paths: [null], error: 'import_failed', run_id: null, done_at: null });
+  mock.imageImports.push({ id: 2, created_at: '2026-11-01T06:10:00.000Z', created_by: '00000000-0000-4000-8000-000000000003', source: 'magnific', folder: 'ابتكر', label: 'Someone else\'s', product_id: null, urls: ['https://pikaso.cdnpk.net/private/production/1/z.jpg'], refs: ['Z'], status: 'pending', paths: null, error: null, run_id: null, done_at: null });
+  await openProducts(page);
+  await openTool(page);
+  await expect(page.locator('#pg-products')).toContainText('وارد من Magnific');
+  await expect(page.locator('#pg-products')).toContainText('Cushion set');
+  await expect(page.locator('#pg-products')).not.toContainText('Someone else'); // another member's row is not read
+  await page.locator('[data-igimport="1"]').click();
+  await expect(page.locator('.ig-it')).toHaveCount(2);
+  expect(mock.importCalls).toEqual([{ by: OPS, id: 1 }]);
+  expect(mock.imgCalls).toEqual([]); // no provider call, no credits
+  await expect(page.locator('#pg-products')).toContainText('وارد من موقع Magnific');
+  await expect(page.locator('#pg-products')).toContainText('لـ «Cushion»');
+  expect([mock.imageImports[0].status, mock.imageImports[0].paths.length, mock.imageImports[0].paths[2]]).toEqual(['partial', 3, null]);
+  expect(mock.aiRuns.map((r) => [r.source, r.credits, r.status, r.output.import_id, r.output.failed])).toEqual([['import', 0, 'ok', 1, 1]]);
+  // decision 7 on imports too: the two PNGs became WebP under the member, the run row and the queue row follow
+  await expect.poll(() => mock.webpCalls.length).toBe(2);
+  expect([...mock.imgObjects.keys()].every((k) => k.startsWith(OPS_ID + '/imp-') && k.endsWith('.webp'))).toBe(true);
+  expect(mock.aiRuns[0].output.paths).toEqual([...mock.imgObjects.keys()]);
+  // the set stays listed as ناقصة (the bad link); «احفظ على المنتج» works like any result
+  await expect(page.locator('#pg-products')).toContainText('ناقصة');
+  await page.locator('[data-igsave]').click();
+  await expect(page.locator('.modal')).toContainText('تحفظ 2 صورة على «Cushion»');
+  await page.locator('[data-igsave-ok]').click();
+  await expect.poll(() => (mock.productWrites || []).map((w) => [w.action, w.id, w.paths.length])).toEqual([['product_images_add', 9001, 2]]);
+  expect(mock.productWrites[0].paths).toEqual([...mock.imgObjects.keys()]);
+  // «سجل الصور» names the source
+  await page.locator('[data-ihistory]').click();
+  await expect(page.locator('.modal')).toContainText('وارد من Magnific');
+  await page.locator('.modal').getByRole('button', { name: 'قفل' }).click();
+  // a failed set offers «جرّب تاني» (listed again after the import); one imported in full meanwhile answers done
+  await expect(page.locator('[data-igimport="3"]')).toHaveText('جرّب تاني');
+  mock.imageImports[1].status = 'ok';
+  await page.locator('[data-igimport="3"]').click();
+  await expect(page.locator('.toast, [role=status]').last()).toContainText('اتستوردت قبل كده');
+});

@@ -82,6 +82,17 @@
    PNG) = الصورة تفضل زي ما المزوّد عملها. الصور دي بتتبعت لـ Dokan/WordPress كـ WebP (`product_images_add` و`studio_upload`)؛
    وقبل أي تعديل عليها (مرجعية / cutout) السيرفر بيبعتها للمزوّد زي ما هي — Magnific بيقبل JPG/PNG بس كمرجعية، فلو رفضها
    (422 `refused`) هنضيف إعادة ترميز للـ JPEG في السيرفر وقتها (صورة واحدة، تحت الحد).
+8. **مسار تاني جنب الـ API — صور موقع Magnific (الباقة Unlimited) (قرار صاحب المشروع، 1 نوفمبر: «هنزوّد الخطوة دي إلى جانب الخطوة
+   الأولانية بحيث ما تمسحش أي حاجة»):** الـ unlimited بتاع Premium+ على الموقع بس (`unlimitedAppliesHere: false` من الـ MCP نفسه)، والـ
+   API العام مابيشوفش مكتبة الموقع. فالجسر = **جلسة Claude**: صاحب المشروع يولّد على الموقع في مشروع/فولدر (مثلًا «ابتكر»)، وجلسة
+   Claude تقرا الفولدر بالـ Magnific MCP (`creations_search` بـ `full=true` → `url` كامل الدقة على `pikaso.cdnpk.net` برابط موقّع
+   صالح أيام) وتحط صف في **`image_imports`** (`0026`: `created_by` = العضو، `urls`، `refs` = معرّفات الإبداعات عشان مايتكررش،
+   `product_id` لو بالـ SKU، `label`/`folder`) عبر Supabase MCP كـ postgres — **الأعضاء مابيكتبوش الجدول** (select لصفوفهم،
+   الأدمن الكل). في أداة «الصور» كارت **«وارد من Magnific»** بيعرض المجموعات اللي لسه (pending / partial / error) وزرار «استورد» →
+   action `import { id }` في `ai-images` (صاحب الصف أو الأدمن، بصلاحية الأداة): السيرفر بينزّل الروابط (https على `IMPORT_HOSTS` —
+   `pikaso.cdnpk.net` افتراضيًا — من غير redirects، بحد حجم ووقت) لفولدر العضو في `ai-images` (`imp-…`)، صف `ai_runs` بـ `source =
+   'import'` و**0 كريدت** (السقف الشهري مابيعدّهاش)، والصف ok / partial / error بالمسارات (رابط فشل = `null` في مكانه، والمحاولة
+   التانية بتكمّل الناقص بس؛ ok = 409 `done`). بعدها قرار 7 (WebP في المتصفح) و«احفظ على المنتج» زي أي نتيجة. مسار الـ API زي ما هو.
 
 ## الأسئلة لصاحب المشروع
 
@@ -106,3 +117,6 @@
 - **T8 — أداة الصور** (قرار 5) + woo-sync `product_images_add` + e2e.
 - **T9 — حي:** `0025`، `rls_ai_images` live، نشر `ai-images` من workflow «Deploy functions» (إضافة اسمها للخيارات)، `main`، المفتاح من
   صاحب المشروع، القبول على منتج حقيقي في الـ staging.
+
+- **T10 — قرار 8 (1 نوفمبر):** `0026_image_imports` + `rls_image_imports`، action `import` في `ai-images` (v9)، `IBImages.imports` /
+  `importRun`، كارت «وارد من Magnific» في الأداة، الـ mock والاختبارات، وطريقة الجسر في `tools/deploy.md` §2.7.13.

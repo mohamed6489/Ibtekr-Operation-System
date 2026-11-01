@@ -186,3 +186,17 @@ test('why: the two faces of not_configured and the provider\'s 402 get their own
   assert.equal(I.why({ ok: false, reason: 'ai_error', status: null }), '');
   assert.equal(I.why({ ok: true }), '');
 });
+
+test('decision 8 — the Magnific import queue: imports() reads the sets still to import (own rows, named columns); importRun(id) → action import, the answer with imported / failed / status, logged with the counts only; 409 → done', async () => {
+  const rows = [{ id: 7, created_at: '2026-11-01T06:00:00Z', created_by: ME, source: 'magnific', folder: 'ابتكر', label: 'Cushion set', product_id: 4001, urls: ['https://pikaso.cdnpk.net/a.jpg', 'https://pikaso.cdnpk.net/b.jpg'], status: 'partial', paths: [ME + '/imp-1-1.webp', null], error: null }];
+  const { I, stub, logs } = load({ responses: { image_imports: { data: rows, error: null }, 'fn:ai-images': { data: { result: 'ok', bucket: 'ai-images', path: ME + '/imp-1-1.webp', paths: [ME + '/imp-1-1.webp', ME + '/imp-1-2.webp'], credits: 0, model: '', run_id: 12, imported: 2, failed: 0, status: 'ok' }, error: null } } });
+  const r = await I.imports();
+  assert.deepEqual(plain(r), { ok: true, rows: [{ id: 7, at: '2026-11-01T06:00:00Z', by: ME, source: 'magnific', folder: 'ابتكر', label: 'Cushion set', productId: 4001, count: 2, done: 1, status: 'partial', error: null }] });
+  assert.deepEqual(opsOf(stub.calls, 'image_imports').map((c) => [c.op, ...(c.args || [])]), [['select', 'id, created_at, created_by, source, folder, label, product_id, urls, status, paths, error'], ['in', 'status', ['pending', 'partial', 'error']], ['order', 'created_at', { ascending: false }], ['limit', 50]]);
+  const out = await I.importRun(7);
+  assert.deepEqual(plain(out), { ok: true, result: 'ok', bucket: 'ai-images', path: ME + '/imp-1-1.webp', paths: [ME + '/imp-1-1.webp', ME + '/imp-1-2.webp'], credits: 0, model: '', runId: 12, imported: 2, failed: 0, status: 'ok' });
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'import', id: 7 });
+  assert.deepEqual(plain(logs.at(-1)), ['product.ai.image', 'import · #7 · 2 images', { entity: 'image_imports', entity_id: '7' }]);
+  const done = load({ responses: { 'fn:ai-images': fail(409, { error: 'done' }) } });
+  assert.deepEqual([(await done.I.importRun(7)).reason, done.logs.length], ['done', 0]);
+});

@@ -27,6 +27,12 @@
   الأصل، تعديل `output.paths` في الصف؛ RIFF/WEBP بس؛ صلاحية صاحب الصورة). `ai-images` v8. الاختبارات: Deno (14)، node (12 — متصفح
   وهمي بكانفس بيكتب webp أو png زي Safari)، e2e (الأداة والاستوديو بيتأكدوا إن الأصل PNG اتبدل بـ `.webp` وصف السجل اتعدّل؛ الـ mock
   بقى بيرجّع PNG زي المزوّد وبيقبل download من bucket studio لأصحاب products.add).
+  **1 نوفمبر — قرار 8 (صور موقع Magnific بالـ Unlimited):** صاحب المشروع سأل عن الـ unlimited؛ الـ MCP بيقول `unlimitedAppliesHere: false`
+  (الـ API والـ MCP بيخصموا كريدت) والـ API مابيشوفش مكتبة الموقع، لكن الـ MCP بيقراها (`creations_search full=true` → `url` على
+  `pikaso.cdnpk.net` موقّع ~5 أيام). القرار: مسار تاني جنب الـ API من غير مسح أي حاجة — جسر جلسة Claude → `image_imports` (`0026`،
+  `rls_image_imports`) → action `import` في `ai-images` (v9، 0 كريدت، `source = 'import'`، partial بيتكمّل) → كارت «وارد من Magnific»
+  في الأداة → WebP → «احفظ على المنتج». الاختبارات: Deno (15)، node (13)، e2e (`images.spec` حالة كاملة بالـ mock). الطريقة في
+  `tools/deploy.md` §2.7.13. **لسه:** `0026` على الحي (SQL Editor — `revoke` بيوقف `apply_migration`)، `rls_image_imports` live، نشر v9.
 - [x] T3 `0025_ai_images` (31 أكتوبر): `ai_runs.action` + `image`، `source` + `tool`/`edit`، عمود `credits`؛ bucket `ai-images` خاص
   (القراءة والحذف لفولدر العضو بـ `products.add`/`products.edit` F، الكتابة للسيرفر بس)؛ `rls_ai_images.sql`. مافيش Postgres محلي
   في الـ sandbox — بيتأكد في CI (`db:test`) وعلى الحي بـ RLS live بعد التطبيق.

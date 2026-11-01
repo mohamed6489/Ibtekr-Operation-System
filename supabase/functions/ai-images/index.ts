@@ -16,6 +16,11 @@
 //              a 2K image) { bucket: studio | ai-images, path, run_id?, image: { data: base64 WebP } } → the WebP stored under the
 //              same name with .webp (upsert), the original removed, the run row's path renamed → { result: 'ok', bucket, path }.
 //              A studio path needs products.add and its batch; a tool path the member's own folder (the admin any). No credits.
+//   'import'   (decision 8: a set made on the Magnific site, queued in image_imports by a Claude session through the Magnific MCP)
+//              { id } → the row's links (https on IMPORT_HOSTS — pikaso.cdnpk.net by default — no redirects, a size and time
+//              limit) fetched and stored under the importing member in bucket ai-images, one ai_runs row (source 'import', 0
+//              credits), the queue row ok / partial / error with the paths → { result: 'ok', bucket, paths, imported, failed }.
+//              The row's owner or the admin; a partial set is finished on the next call, an ok one answers 409 done.
 // Every call is reserved first, in one locked step in the database (ai_image_run_start, 0025: the member's throttle; the images'
 // monthly cap in credits — settings «ai».image_monthly_credits against this Cairo month's image rows, pending ones at their planned
 // credits — over it → 402 ai_cap and a cap row; else a pending row holding the planned credits), and the row then holds the
@@ -41,7 +46,7 @@ export type Deps = {
   provider: Provider; fetch?: typeof fetch;
 };
 
-const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp'];
+const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import'];
 const MAX_WEBP_B64 = 14_000_000; // ≈ 10 MB of WebP
 const STUDIO_BUCKET = 'studio';
 const TOOL_BUCKET = 'ai-images';
@@ -318,6 +323,62 @@ async function webp(deps: Deps, who: Who, args: Json) {
   return json(200, { result: 'ok', bucket, path: target });
 }
 
+// ---------------------------------------------------------------- import (decision 8: a queued set from the Magnific site)
+
+const IMPORT_HOSTS_DEFAULT = ['pikaso.cdnpk.net']; // where the Magnific site's library links live (the MCP's creations_get urls)
+const MAX_IMPORT = 50;
+function importHosts(env: Deps['env']) {
+  const hosts = new Set<string>(IMPORT_HOSTS_DEFAULT);
+  for (const h of (env.IMPORT_HOSTS ?? '').split(',')) { const x = h.trim().toLowerCase(); if (/^[a-z0-9.-]+$/.test(x)) hosts.add(x); }
+  return hosts;
+}
+// one link of the set: https on an allowed host, no credentials, no redirects, a size and a time limit, an image type → bytes + mime
+async function importOne(deps: Deps, raw: unknown): Promise<{ bytes: Uint8Array; mime: string } | null> {
+  let url: URL | null = null;
+  try { url = typeof raw === 'string' ? new URL(raw) : null; } catch { url = null; }
+  if (!url || url.protocol !== 'https:' || url.username || url.password || !importHosts(deps.env).has(url.hostname.toLowerCase())) return null;
+  try {
+    const r = await (deps.fetch ?? fetch)(url.href, { redirect: 'error', signal: AbortSignal.timeout(FETCH_MS) });
+    if (!r.ok) return null;
+    const declared = Number(r.headers.get('content-length'));
+    if (Number.isFinite(declared) && declared > MAX_REF_BYTES) return null;
+    const bytes = new Uint8Array(await r.arrayBuffer());
+    if (!bytes.length || bytes.length > MAX_REF_BYTES) return null;
+    const ct = (r.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+    const mime = ct === 'image/png' || ct === 'image/webp' || ct === 'image/jpeg' ? ct : /\.png(\?|$)/i.test(url.pathname) ? 'image/png' : /\.webp(\?|$)/i.test(url.pathname) ? 'image/webp' : 'image/jpeg';
+    return { bytes, mime };
+  } catch { return null; }
+}
+async function importSet(deps: Deps, who: Who, args: Json) {
+  if (!who.add && !who.edit) return json(401, { error: 'unauthorized' });
+  const id = Number(args.id);
+  if (!Number.isInteger(id) || id <= 0) return json(400, { error: 'bad_request', field: 'id' });
+  const { data: row } = await deps.db.from('image_imports').select('id, created_by, source, folder, label, product_id, urls, status, paths').eq('id', id).maybeSingle();
+  if (!isObj(row)) return json(404, { error: 'not_found' });
+  if (!who.admin && row.created_by !== who.uid) return json(401, { error: 'unauthorized' });
+  if (row.status === 'ok') return json(409, { error: 'done' });
+  const urls: unknown[] = Array.isArray(row.urls) ? row.urls.slice(0, MAX_IMPORT) : [];
+  const paths: (string | null)[] = Array.isArray(row.paths) ? row.paths.map((p: unknown) => (typeof p === 'string' ? p : null)) : [];
+  const st = stamp(deps);
+  let stored = 0;
+  // the links without a stored path yet (a partial set is finished, not redone), each under the importing member
+  for (let i = 0; i < urls.length; i++) {
+    if (paths[i]) { stored++; continue; }
+    const img = await importOne(deps, urls[i]);
+    const up = img ? await upload(deps.db, TOOL_BUCKET, toolPath(who.uid, 'imp-' + st, i + 1, extOf(img.mime)), img) : null;
+    paths[i] = up ? up.path : null;
+    if (up) stored++;
+  }
+  const status = stored === urls.length ? 'ok' : stored ? 'partial' : 'error';
+  const label = line(typeof row.label === 'string' ? row.label : '', 200) || (typeof row.folder === 'string' ? line(row.folder, 200) : '') || 'وارد';
+  const done = paths.filter((p): p is string => !!p);
+  const { data: run } = await deps.db.from('ai_runs').insert({ created_by: who.uid, action: 'image', source: 'import', label, product_id: row.product_id ?? null, model: null, status: stored ? 'ok' : 'error', error: stored ? null : 'import_failed', credits: 0, cost_usd: 0, output: { paths: done, bucket: TOOL_BUCKET, import_id: id, failed: urls.length - stored } }).select('id').single();
+  const runId = isObj(run) && Number.isInteger(Number(run.id)) ? Number(run.id) : null;
+  await deps.db.from('image_imports').update({ status, paths, error: stored ? null : 'import_failed', run_id: runId, done_at: status === 'ok' ? deps.now() : null }).eq('id', id);
+  if (!stored) return json(502, { error: 'ai_error' });
+  return json(200, { result: 'ok', bucket: TOOL_BUCKET, path: done[0], paths: done, credits: 0, model: '', run_id: runId, imported: stored, failed: urls.length - stored, status });
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -335,6 +396,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'edit') return await edit(deps, who, args);
     if (action === 'create') return await create(deps, who, args);
     if (action === 'webp') return await webp(deps, who, args);
+    if (action === 'import') return await importSet(deps, who, args);
     if (!who.admin) return json(401, { error: 'unauthorized' });
     // the probe's outcome is kept as an ai_runs row (label 'probe', 0 credits: configured = the key is set, status = the
     // provider's HTTP status, shape = keys and types only) so the T2 diagnosis can be read from the database — never the key

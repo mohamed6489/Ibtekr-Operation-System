@@ -52,7 +52,7 @@ function setup({ seed = SEED, env = {}, replies = [], startDown = false, storage
   };
   const provider = { generate: (p: any) => answer('generate', p), edit: (p: any) => answer('edit', p), probe: async () => { const r = queue.shift(); if (r instanceof Error) throw r; return r as any; } };
   const fetched: string[] = []; const fetchInits: any[] = [];
-  const fetchFn = (async (url: string, init: any = {}) => { fetched.push(url); fetchInits.push(init); return photo ? new Response(photo as BlobPart, { status: 200, headers: { "content-type": "image/jpeg" } }) : new Response("nope", { status: 404 }); }) as any;
+  const fetchFn = (async (url: string, init: any = {}) => { fetched.push(url); fetchInits.push(init); return photo && !/\/gone\b/.test(url) ? new Response(photo as BlobPart, { status: 200, headers: { "content-type": /\.png(\?|$)/.test(url.split('?')[0]) ? "image/png" : "image/jpeg" } }) : new Response("nope", { status: 404 }); }) as any;
   const deps = { env: { ...ENV, MAGNIFIC_API_KEY: KEY, ...env }, db, now: () => NOW, userDb, userId: async (jwt: string) => MEMBERS[jwt]?.uid ?? null, provider, fetch: fetchFn };
   return { db, asked, during, deps, storage, fetched, fetchInits };
 }
@@ -234,6 +234,44 @@ Deno.test('webp (decision 7): the browser\'s WebP of a result replaces the origi
   assertEquals((await call(deps, { action: 'webp', bucket: 'studio', path: SB + '/gen-0-0-old.webp', image: { data: b64 } }, 'jwt-edit')).res.status, 401);
   assertEquals((await call(deps, { action: 'webp', bucket: 'studio', path: 'ffffffff-1d2c-4a8b-9e3f-1234567890ab/gen-0-0-old.png', image: { data: b64 } })).res.status, 404);
   assertFalse(db.rows('ai_runs').some((x: any) => x.action === 'image' && x.credits === 0 && x.status === 'ok'), 'nothing charged for a conversion');
+});
+
+Deno.test('import (decision 8): a queued Magnific set — the row\'s owner (or the admin) with the tool permission; links fetched from allowed hosts only, no redirects; stored under the importing member; one ai_runs row (source import, 0 credits); the row ok / partial / error with aligned paths; a partial set is finished next time; ok → 409', async () => {
+  const CDN = 'https://pikaso.cdnpk.net/private/production/1/';
+  const rows = [
+    { id: 1, created_by: U.add, source: 'magnific', folder: 'ابتكر', label: 'Boho Cushion', product_id: 4001, urls: [CDN + 'a.jpg?token=exp=1~hmac=x', CDN + 'b.png?token=t', 'https://evil.test/c.jpg', CDN + 'gone.jpg'], refs: ['A', 'B', 'C', 'D'], status: 'pending', paths: null },
+    { id: 2, created_by: U.edit, source: 'magnific', folder: 'ابتكر', label: 'Mug', product_id: null, urls: [CDN + 'm.jpg'], refs: ['M'], status: 'pending', paths: null },
+    { id: 3, created_by: U.add, source: 'magnific', folder: null, label: null, product_id: null, urls: [CDN + 'z.jpg'], refs: ['Z'], status: 'ok', paths: [U.add + '/imp-old-1.jpg'] },
+  ];
+  const { deps, db, storage, fetched, fetchInits } = setup({ seed: { ...SEED, image_imports: rows } });
+  assertEquals((await call(deps, { action: 'import', id: 1 }, 'jwt-view')).res.status, 401, 'the tool permission');
+  assertEquals((await call(deps, { action: 'import', id: 1 }, 'jwt-edit')).res.status, 401, 'another member\'s row');
+  assertEquals((await call(deps, { action: 'import', id: 9 })).res.status, 404);
+  assertEquals((await call(deps, { action: 'import', id: 'x' })).body.field, 'id');
+  assertEquals((await call(deps, { action: 'import', id: 3 })).res.status, 409, 'already imported');
+  const r = await call(deps, { action: 'import', id: 1 });
+  assertEquals([r.res.status, r.body.result, r.body.bucket, r.body.imported, r.body.failed, r.body.status, r.body.credits], [200, 'ok', 'ai-images', 2, 2, 'partial', 0]);
+  assertEquals(r.body.paths.map((p: string) => p.replace(/imp-[a-z0-9]+-/, 'imp-S-')), [U.add + '/imp-S-1.jpg', U.add + '/imp-S-2.png'], 'the type from the answer, numbered by the link\'s place');
+  assertEquals(fetched, [CDN + 'a.jpg?token=exp=1~hmac=x', CDN + 'b.png?token=t', CDN + 'gone.jpg'], 'evil.test never asked; the 404 counted as failed');
+  assert(fetchInits.every((i: any) => i.redirect === 'error'));
+  assertEquals(Object.keys(storage).filter((k) => k.startsWith('ai-images/')).length, 2);
+  const run = db.rows('ai_runs').at(-1);
+  assertEquals([run.action, run.source, run.label, run.product_id, run.credits, run.status, run.output.import_id, run.output.failed, run.output.paths.length], ['image', 'import', 'Boho Cushion', 4001, 0, 'ok', 1, 2, 2]);
+  const row = db.row('image_imports', 1);
+  assertEquals([row.status, row.paths.length, row.paths[2], row.paths[3], row.run_id, row.done_at], ['partial', 4, null, null, run.id, null]);
+  // the next call finishes the partial set: the stored links are not fetched again, the bad host stays null, the 404 is retried
+  const before = fetched.length;
+  const r2 = await call(deps, { action: 'import', id: 1 });
+  assertEquals([r2.res.status, r2.body.imported, r2.body.failed, r2.body.status, fetched.slice(before)], [200, 2, 2, 'partial', [CDN + 'gone.jpg']]);
+  // the admin may import another member's row — stored under the admin
+  const r3 = await call(deps, { action: 'import', id: 2 }, 'jwt-admin');
+  assertEquals([r3.res.status, r3.body.status, r3.body.paths[0].startsWith(U.admin + '/imp-')], [200, 'ok', true]);
+  assertEquals([db.row('image_imports', 2).status, typeof db.row('image_imports', 2).done_at], ['ok', 'string']);
+  // every link failing → 502, the row error, the run row error
+  const bad = setup({ seed: { ...SEED, image_imports: [{ id: 5, created_by: U.add, source: 'magnific', urls: ['https://evil.test/a.jpg'], status: 'pending' }] } });
+  const r4 = await call(bad.deps, { action: 'import', id: 5 });
+  assertEquals([r4.res.status, r4.body.error, bad.db.row('image_imports', 5).status, bad.db.row('image_imports', 5).error, bad.db.rows('ai_runs').at(-1).error], [502, 'ai_error', 'error', 'import_failed', 'import_failed']);
+  assertFalse(JSON.stringify(bad.db.rows('ai_runs')).includes('evil.test'), 'no link in a run row');
 });
 
 Deno.test('probe: the admin only; the shape of the provider\'s account answer (keys and types, no values); no key → 503', async () => {

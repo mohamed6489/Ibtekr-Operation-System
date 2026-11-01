@@ -59,7 +59,7 @@
       if (error || !data) {
         const s = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
-        const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'missing' : s === 402 ? 'ai_cap' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : 'network';
+        const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'missing' : s === 402 ? 'ai_cap' : s === 409 ? 'done' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : 'network';
         return { ok: false, reason, field: b && b.field ? String(b.field) : null, status: b && Number.isInteger(b.status) ? b.status : null, configured: b && typeof b.configured === 'boolean' ? b.configured : null };
       }
       return { ok: true, body: data };
@@ -159,6 +159,28 @@
     if (!r.ok) return r;
     const out = await webpAll(answer(r.body));
     log(['tool', q.source, q.shape, out.paths.length + ' images', out.model].concat(q.productId ? ['#' + q.productId] : [], tail(out)).join(' · '), 'products', q.productId || null);
+    return out;
+  }
+  // ---------- decision 8: the Magnific import queue (image_imports — a Claude session queues sets made on the site) ----------
+  // the member's queued sets (the admin's every member's) still to import: pending / partial / error, newest first
+  async function imports() {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const { data, error } = await cl.from('image_imports').select('id, created_at, created_by, source, folder, label, product_id, urls, status, paths, error')
+        .in('status', ['pending', 'partial', 'error']).order('created_at', { ascending: false }).limit(50);
+      if (error) return { ok: false, reason: error.code === '42501' ? 'forbidden' : 'network' };
+      return { ok: true, rows: (data || []).map((x) => ({ id: x.id, at: x.created_at, by: x.created_by || null, source: x.source || 'magnific', folder: x.folder || '', label: x.label || '', productId: x.product_id || null,
+        count: Array.isArray(x.urls) ? x.urls.length : 0, done: Array.isArray(x.paths) ? x.paths.filter((p) => typeof p === 'string').length : 0, status: x.status || 'pending', error: x.error || null })) };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // one queued set → the server fetches its links into the member's folder (0 credits) → WebP where the browser can → like create's
+  // answer + imported / failed / status; reason 'done' when the set was imported before
+  async function importRun(id) {
+    const r = await invoke({ action: 'import', id: Number(id) });
+    if (!r.ok) return r;
+    const out = await webpAll(answer(r.body));
+    out.imported = Number(r.body.imported) || 0; out.failed = Number(r.body.failed) || 0; out.status = typeof r.body.status === 'string' ? r.body.status : 'ok';
+    log(['import', '#' + Number(id), out.imported + ' images'].concat(out.failed ? [out.failed + ' failed'] : []).join(' · '), 'image_imports', id);
     return out;
   }
   // the admin: the shape (keys only) of the provider's account answer, to pin the API layer (T2)
@@ -289,7 +311,7 @@
   }
 
   window.IBImages = {
-    can, generate, edit, create, probe, webp, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
+    can, generate, edit, create, probe, webp, imports, importRun, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
     credits, usd, modelOf, estModel: () => (last && last.model) || DEFAULT_MODEL,
     MODELS, DEFAULT_MODEL, SIZES, SHAPES, EDIT_OPS, MAX_COUNT, CREDIT_USD, STUDIO_BUCKET, TOOL_BUCKET,
   };

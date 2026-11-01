@@ -114,7 +114,7 @@ function readSelect(table, select) {
 const NOT_FILTERS = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'columns']);
 // the in.(…) filters the app sends: alerts.js asks the marks of the loaded alert ids; orders.js the lines / sub-orders of the
 // loaded orders, the images / permalinks of their skus and (Realtime) the names of makers it does not know yet
-const IN_FILTERS = { alert_reads: ['alert_id'], order_items: ['order_id'], sub_orders: ['order_id'], products: ['sku', 'id'], vendors: ['id'] };
+const IN_FILTERS = { alert_reads: ['alert_id'], order_items: ['order_id'], sub_orders: ['order_id'], products: ['sku', 'id'], vendors: ['id'], image_imports: ['status'] }; // image_imports: the sets still to import (0026)
 // products.js (phase 5): the records are the rows that are not Arabic — or=(lang.is.null,lang.neq.ar) is the one `or` it sends
 const OR_FILTERS = { products: { '(lang.is.null,lang.neq.ar)': (r) => r.lang == null || r.lang !== 'ar' } };
 // products.js: product_commissions with a rate only (rate=not.is.null)
@@ -293,7 +293,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // aal2_required whatever the token (a server that does not take the flag).
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
-  const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, imgCalls: [], webpCalls: [], imgFail: null, imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
+  const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, imgCalls: [], webpCalls: [], importCalls: [], imageImports: [], imgFail: null, imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
     profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [] };
@@ -513,6 +513,18 @@ export async function installSupabaseMock(page, opts = {}) {
         const gte = url.searchParams.get('created_at'); const since = gte && gte.startsWith('gte.') ? Date.parse(gte.slice(4)) : null;
         const lim = Number(url.searchParams.get('limit')) || 1000;
         const rows = mock.aiRuns.filter((x) => (isAdmin(u) || x.created_by === u.id) && eqs.every(([k, v]) => String(x[k]) === v) && (since === null || Date.parse(x.created_at) >= since)).sort((x, y) => (x.created_at < y.created_at ? 1 : -1)).slice(0, lim);
+        return json(200, rows.map((x) => (cols.includes('*') ? { ...x } : Object.fromEntries(cols.map((c) => [c, x[c] === undefined ? null : x[c]])))));
+      }
+      // phase 5.4 decision 8 (0026): image_imports — select only (a Claude session queues the rows as postgres, the server marks
+      // them): the member's own rows, the admin's all; named columns; the in.(…) filter on status; newest first
+      if (path === '/rest/v1/image_imports') {
+        if (method !== 'GET') return json(403, { code: '42501', details: null, hint: null, message: 'permission denied for table image_imports' });
+        const COLS = ['id', 'created_at', 'created_by', 'source', 'folder', 'label', 'product_id', 'urls', 'refs', 'status', 'paths', 'error', 'run_id', 'done_at'];
+        const cols = String(url.searchParams.get('select') || '*').split(',').map((x) => x.trim());
+        const badCol = cols.find((x) => x !== '*' && !COLS.includes(x)); if (badCol) return json(400, { code: '42703', details: null, hint: null, message: `column image_imports.${badCol} does not exist` });
+        const f = readFilters(url.searchParams, 'image_imports'); if (f.bad) return json(400, { code: 'PGRST100', details: null, hint: null, message: 'unexpected filter ' + f.bad });
+        const lim = Number(url.searchParams.get('limit')) || 1000;
+        const rows = mock.imageImports.filter((x) => (isAdmin(u) || x.created_by === u.id) && f.match(x)).sort((x, y) => (x.created_at < y.created_at ? 1 : -1)).slice(0, lim);
         return json(200, rows.map((x) => (cols.includes('*') ? { ...x } : Object.fromEntries(cols.map((c) => [c, x[c] === undefined ? null : x[c]])))));
       }
       // ai_month_credits (0025): this Cairo month's image credits of the rows the member reads (RLS: own rows, the admin's all)
@@ -1054,7 +1066,26 @@ export async function installSupabaseMock(page, opts = {}) {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
       if (!u) return json(401, { error: 'unauthorized' });
       const add = isAdmin(u) || hasPerm(u, 'products.add') === 'F'; const edit = isAdmin(u) || hasPerm(u, 'products.edit') === 'F';
-      if (!['generate', 'edit', 'create', 'probe', 'webp'].includes(action)) return json(400, { error: 'unknown_action' });
+      if (!['generate', 'edit', 'create', 'probe', 'webp', 'import'].includes(action)) return json(400, { error: 'unknown_action' });
+      if (action === 'import') {
+        // decision 8: a queued Magnific set — the row's owner (or the admin) with the tool permission; https links on
+        // pikaso.cdnpk.net land as PNG under the importing member (the browser turns them WebP), any other link fails (null path);
+        // one ai_runs row (source import, 0 credits); the row ok / partial / error; ok → 409; each call → mock.importCalls
+        if (!(add || edit)) return json(401, { error: 'unauthorized' });
+        const id = Number(b.id); if (!Number.isInteger(id) || id <= 0) return json(400, { error: 'bad_request', field: 'id' });
+        const row = mock.imageImports.find((x) => x.id === id); if (!row) return json(404, { error: 'not_found' });
+        if (!isAdmin(u) && row.created_by !== u.id) return json(401, { error: 'unauthorized' });
+        if (row.status === 'ok') return json(409, { error: 'done' });
+        mock.importCalls.push({ by: u.email, id });
+        const stamp = Date.now().toString(36) + (++mock.imgSeq);
+        const paths = (row.urls || []).map((link, i) => { if (Array.isArray(row.paths) && typeof row.paths[i] === 'string') return row.paths[i]; let ok = false; try { const x = new URL(link); ok = x.protocol === 'https:' && x.hostname === 'pikaso.cdnpk.net'; } catch (e) { ok = false; } if (!ok) return null; const k = u.id + '/imp-' + stamp + '-' + (i + 1) + '.png'; mock.imgObjects.set(k, { type: 'image/png', size: PNG_1PX.length, by: 'import' }); return k; });
+        const done = paths.filter(Boolean); const status = done.length === paths.length ? 'ok' : done.length ? 'partial' : 'error';
+        const run = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action: 'image', source: 'import', label: row.label || row.folder || 'وارد', product_id: row.product_id || null, batch_id: null, item_index: null, model: null, credits: 0, cost_usd: 0, status: done.length ? 'ok' : 'error', error: done.length ? null : 'import_failed', output: { paths: done, bucket: 'ai-images', import_id: id, failed: paths.length - done.length } };
+        mock.aiRuns.push(run);
+        Object.assign(row, { status, paths, error: done.length ? null : 'import_failed', run_id: run.id, done_at: status === 'ok' ? new Date().toISOString() : null });
+        if (!done.length) return json(502, { error: 'ai_error' });
+        return json(200, { result: 'ok', bucket: 'ai-images', path: done[0], paths: done, credits: 0, model: '', run_id: run.id, imported: done.length, failed: paths.length - done.length, status });
+      }
       if (action === 'webp') {
         // decision 7: the browser's WebP of a result replaces the original under the same name (.webp) — a studio path with
         // products.add and its batch, a tool path in the member's own folder (the admin any); RIFF/WEBP bytes; the run row renamed;

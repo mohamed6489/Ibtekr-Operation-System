@@ -27,6 +27,12 @@ test('the images tool through IBImages: N images in bucket ai-images under the m
   const r = await page.evaluate(() => window.IBImages.create({ source: 'text', prompt: 'a macrame bag', shape: 'home', size: '1080x1350', count: 2 }));
   expect([r.ok, r.result, r.bucket, r.paths.length, r.credits, r.model]).toEqual([true, 'ok', 'ai-images', 2, 150, 'seedream-5-pro']);
   expect(r.paths.every((p) => p.startsWith(OPS_ID + '/') && p.endsWith('.webp'))).toBe(true);
+  // decision 14: every result is framed 700×800 — a 3:4 source keeps its width and loses the top and bottom evenly; a wide one its sides
+  expect(await page.evaluate(() => [window.IBImages.FRAME, window.IBImages.frameOf(1200, 1600), window.IBImages.frameOf(1600, 1200), window.IBImages.frameOf(700, 800)]))
+    .toEqual([{ w: 700, h: 800 }, { sx: 0, sy: 115, sw: 1200, sh: 1371, w: 700, h: 800 }, { sx: 275, sy: 0, sw: 1050, sh: 1200, w: 700, h: 800 }, { sx: 0, sy: 0, sw: 700, sh: 800, w: 700, h: 800 }]);
+  // the real re-encoding: a 1200×1600 source → a 700×800 WebP
+  const dims = await page.evaluate(async () => { const cv = document.createElement('canvas'); cv.width = 1200; cv.height = 1600; cv.getContext('2d').fillRect(0, 0, 1200, 1600); const src = await new Promise((res) => cv.toBlob(res, 'image/png')); const out = await window.IBImages.reframe(src); const im = await createImageBitmap(out); return [out.type, im.width, im.height]; });
+  expect(dims).toEqual(['image/webp', 700, 800]);
   expect(mock.imgCalls).toEqual([{ action: 'create', by: OPS, source: 'text', prompt: 'a macrame bag', shape: 'home', size: '1080x1350', count: 2 }]);
   expect(mock.aiRuns.map((x) => [x.action, x.source, x.status, x.credits, x.cost_usd, x.output.bucket, x.output.paths.length])).toEqual([['image', 'tool', 'ok', 150, 0.3, 'ai-images', 2]]);
   // the signed URL lands after the first read (ib:images), the bytes come down, the history and the month see the run

@@ -21,7 +21,7 @@
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
 import { buildStudio, matchWooBrand, sheetCsvUrl } from '../../supabase/functions/_shared/woo-studio.js';
 import { parseWrite, parseStudio, parsePrompts, cleanWrite, cleanStudio, cleanPrompts, shotPromptRows, aiSettings } from '../../supabase/functions/_shared/ai-content.js';
-import { parseGenerate, parseEdit, parseCreate, imageSettings, creditsFor, usdOf, studioPathOk, studioGenPath, studioEditPath, toolPath, MODEL_IDS } from '../../supabase/functions/_shared/ai-images.js';
+import { parseGenerate, parseEdit, parseCreate, imageSettings, creditsFor, usdOf, studioPathOk, studioGenPath, studioEditPath, toolPath, renameInState, MODEL_IDS } from '../../supabase/functions/_shared/ai-images.js';
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
 export const LIVE = process.env.E2E_SUPABASE_LIVE === '1';
 const LIVE_URL = process.env.E2E_SUPABASE_URL || ''; const LIVE_KEY = process.env.E2E_SUPABASE_ANON_KEY || '';
@@ -1275,6 +1275,8 @@ export async function installSupabaseMock(page, opts = {}) {
         if (!objs.has(p)) return json(404, { error: 'not_found' });
         const target = p.replace(/\.[a-z]+$/i, '.webp');
         objs.set(target, { type: 'image/webp', size: bytes.length, by: 'browser' }); if (target !== p) objs.delete(p);
+        // decision 14: a studio result renamed → the batch's state points at the new name (the server's renameInState)
+        if (bucket === 'studio' && target !== p) { const row = mock.studioBatches.find((x) => x.id === p.split('/')[0]); if (row && row.state) { const r = renameInState(row.state, p, target); if (r.changed) { row.state = r.state; row.updated_at = new Date().toISOString(); } } }
         const run = mock.aiRuns.find((x) => x.id === Number(b.run_id));
         if (run && (isAdmin(u) || run.created_by === u.id) && run.output && Array.isArray(run.output.paths)) run.output.paths = run.output.paths.map((x) => (x === p ? target : x));
         mock.webpCalls.push({ by: u.email, bucket, path: p, bytes: bytes.length, run_id: b.run_id ?? null });

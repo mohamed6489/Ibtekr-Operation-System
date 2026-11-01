@@ -174,6 +174,26 @@ export function editPrompt(op, prompt, options = {}) {
 
 const SAFE = /^[A-Za-z0-9._-]{1,120}$/;
 /** A studio image path belongs to its batch and is a plain file name with an image extension. */
+/**
+ * Decision 14 (the owner, 1 Nov: the results cropped to 700×800): the browser re-encodes a result (crop + WebP) and the server
+ * renames the object — this renames the same path everywhere a batch's state points at it (items[].slots / main / refs /
+ * colorImages[color]) → { state, changed } (the state untouched when nothing pointed at `from`).
+ */
+export function renameInState(state, from, to) {
+  if (!isObj(state) || !Array.isArray(state.items) || typeof from !== 'string' || typeof to !== 'string' || from === to) return { state, changed: false };
+  let changed = false;
+  const swap = (v) => { if (v === from) { changed = true; return to; } return v; };
+  const items = state.items.map((it) => {
+    if (!isObj(it)) return it;
+    const out = { ...it };
+    if (Array.isArray(it.slots)) out.slots = it.slots.map(swap);
+    if (Array.isArray(it.refs)) out.refs = it.refs.map(swap);
+    if (typeof it.main === 'string') out.main = swap(it.main);
+    if (isObj(it.colorImages)) out.colorImages = Object.fromEntries(Object.entries(it.colorImages).map(([k, v]) => [k, swap(v)]));
+    return out;
+  });
+  return changed ? { state: { ...state, items }, changed } : { state, changed };
+}
 export const studioPathOk = (batchId, path) => typeof path === 'string' && new RegExp('^' + batchId + '/[A-Za-z0-9._-]{1,120}\\.(webp|png|jpe?g)$', 'i').test(path);
 /** Where a generated slot image goes in bucket studio: <batch>/gen-<item>-<slot>-<stamp>.<ext>. */
 export const studioGenPath = (batchId, index, slot, stamp, ext) => `${batchId}/gen-${index}-${isObj(slot) ? 'c' + slot.color : slot}-${stamp}.${ext}`;

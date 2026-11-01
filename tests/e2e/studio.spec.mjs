@@ -648,7 +648,8 @@ test('decision 12 — the flow on the one Space: the category chosen, «جهّز
   await page.locator('[data-fetch]').click();
   await expect(page.locator('.toast.show')).toContainText('نزلت 5 صورة من Magnific في خانات المنتجات');
   const slots = mock.studioBatches[0].state.items.map((it) => it.slots.map((p) => (p ? p.replace(/^.*-imp-[a-z0-9]+-/, '') : null)));
-  expect(slots).toEqual([['1.png', '3.png', '5.png'], ['2.png', '4.png']]); // chair 1: F11 → slot 0, F21 → slot 1, F31 → slot 2; chair 2: F12, F22
+  expect(slots).toEqual([['1.webp', '3.webp', '5.webp'], ['2.webp', '4.webp']]); // chair 1: F11 → slot 0, F21 → slot 1, F31 → slot 2; chair 2: F12, F22 — each 700×800 WebP (decision 14)
+  expect(mock.webpCalls.filter((c) => c.bucket === 'studio').length).toBe(5);
   expect(mock.imageImports[0].items).toEqual([{ index: 0, images: [0, 2, 4], slots: [0, 1, 2] }, { index: 1, images: [1, 3], slots: [0, 1] }]);
   // the late image lands in its slot
   mock.magnific.flowResults[SB][3].push('F32');

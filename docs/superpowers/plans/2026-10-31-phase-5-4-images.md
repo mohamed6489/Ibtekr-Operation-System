@@ -203,3 +203,7 @@
   (`source_node`) محمية = 409 `exists`؛ `ai_runs` بـ `action = 'studio'` و`label` = الفئة) — `IBAI.shotPrompts`؛ «+ فئة جديدة…» في شريط الفلو و«جهّز فلو»
   بيكتب البرومبتات الأول لفئة مش في المكتبة؛ `flowNodes` بتثبّت `FLOW_MODEL` على كل المولّدات. ومعاه: شريط الفلو والمكتبة فاضية (زرار المزامنة للأدمن
   هناك)، و«صور بس» باسم واحد في اسم الملف (`itemIssues { en: false }`)، وستب الـ db-test بـ `bypassrls` لـ `service_role`. الاختبارات: node، Deno (41)، e2e.
+- **T16 — قرار 14 (1 نوفمبر، صاحب المشروع: «الصور بتيجي 3:4 قصها وخد السنتر منها بحيث تبقى 700:800»):** `toWebp` في `IBImages` بيقص من السنتر لـ 7:8
+  ويصغّر لـ 700×800 (`frameOf`، `FRAME`، `reframe` للاختبار)؛ `bridgeFetch` و`importRun` بوجهة `batch` بيعدّوا على `webpAll` (وجهة `studio` لأ)؛
+  `renameInState` في `_shared/ai-images.js` والسيرفر (action `webp`، `ai-images` v17) بيغيّر اسم الصورة في `state` الدفعة مع الـ bucket؛ الـ mock نفس
+  الشيء. الاختبارات: node (`renameInState`)، Deno (الخانة بتتسمّى)، e2e (الخانات `.webp`، `frameOf`، و1200×1600 → 700×800 WebP فعلًا).

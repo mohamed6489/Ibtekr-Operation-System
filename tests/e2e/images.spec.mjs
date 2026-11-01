@@ -228,11 +228,11 @@ test('decision 10 (c) — the site\'s results back into the batch they were made
   await page.locator('[data-igimport="5"]').click();
   await expect(page.locator('.toast, [role=status]').last()).toContainText('اتحطت 3 صورة في خانات منتجات الدفعة');
   expect(mock.importCalls).toEqual([{ by: OPS, id: 5, target: 'batch' }]);
-  expect(mock.webpCalls).toEqual([]);
+  expect(mock.webpCalls.map((c) => [c.bucket, /\.png$/.test(c.path)])).toEqual([['studio', true], ['studio', true], ['studio', true]]); // decision 14: the results end 700×800 WebP
   const batch = mock.studioBatches.find((b) => b.id === SB);
   expect(batch.state.items[0].slots.length).toBe(3); expect(batch.state.items[0].slots[0]).toBe(SB + '/row1-main-x.jpg');
-  expect(batch.state.items[0].slots.slice(1).map((k) => k.replace(/-[a-z0-9]+-(\d)\.png$/, '-$1'))).toEqual([SB + '/gen-0-imp-1', SB + '/gen-0-imp-2']);
-  expect(batch.state.items[1].slots.map((k) => k.replace(/-[a-z0-9]+-(\d)\.png$/, '-$1'))).toEqual([SB + '/gen-1-imp-3']);
+  expect(batch.state.items[0].slots.slice(1).map((k) => k.replace(/-[a-z0-9]+-(\d)\.webp$/, '-$1'))).toEqual([SB + '/gen-0-imp-1', SB + '/gen-0-imp-2']);
+  expect(batch.state.items[1].slots.map((k) => k.replace(/-[a-z0-9]+-(\d)\.webp$/, '-$1'))).toEqual([SB + '/gen-1-imp-3']);
   expect([mock.imageImports.at(-1).status, mock.aiRuns.at(-1).source, mock.aiRuns.at(-1).output.placed]).toEqual(['ok', 'import', 3]);
   // «افتح الدفعة» → the images step, the slots filled
   await page.locator('[data-igbatch]').click();

@@ -46,7 +46,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import {
   MODEL_IDS, PROVIDER, creditsFor, editPrompt, extOf, imageSettings, line, parseCreate, parseEdit, parseGenerate, shapePrompt, slotPrompt, studioEditPath,
-  studioGenPath, studioPathOk, toolPath, usdOf,
+  renameInState, studioGenPath, studioPathOk, toolPath, usdOf,
 } from '../_shared/ai-images.js';
 import { magnific, ProviderError, shape, type Provider, type Ref } from './providers/magnific.ts';
 import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
@@ -330,6 +330,13 @@ async function webp(deps: Deps, who: Who, args: Json) {
   const { error: upErr } = await deps.db.storage.from(bucket).upload(target, bytes, { contentType: 'image/webp', upsert: true });
   if (upErr) return json(502, { error: 'failed' });
   if (target !== path) await deps.db.storage.from(bucket).remove([path]);
+  // decision 14: a studio result renamed → the batch's state points at the new name (slots / main / refs / color images)
+  if (bucket === STUDIO_BUCKET && target !== path) {
+    const batchId = path.split('/')[0];
+    const { data: b } = await deps.db.from('studio_batches').select('id, state').eq('id', batchId).maybeSingle();
+    const r = renameInState(isObj(b) ? b.state : null, path, target);
+    if (r.changed) await deps.db.from('studio_batches').update({ state: r.state }).eq('id', batchId);
+  }
   // the run row (the member's own, or any for the admin) keeps the new name in its paths
   const runId = Number(args.run_id);
   if (Number.isInteger(runId) && runId > 0) {

@@ -253,6 +253,13 @@ Deno.test('webp (decision 7): the browser\'s WebP of a result replaces the origi
   assertEquals([again.res.status, again.body.path], [200, target], 'already WebP: rewritten in place (upsert), nothing removed');
   const st = await call(deps, { action: 'webp', bucket: 'studio', path: SB + '/gen-0-0-old.png', image: { data: b64 } });
   assertEquals([st.res.status, st.body.path, storage[`studio/${SB}/gen-0-0-old.png`]], [200, SB + '/gen-0-0-old.webp', undefined]);
+  // decision 14: a result the batch points at (a slot) follows the rename in the batch's state
+  const slotted = setup({ seed: { studio_batches: [batch({ state: { items: [item({ slots: [SB + '/row1-main.webp', SB + '/gen-0-imp-s-1.png'] })], imgCount: 4 } })] }, storage: { [`studio/${SB}/gen-0-imp-s-1.png`]: new Uint8Array([1, 2, 3]) } });
+  const sl = await call(slotted.deps, { action: 'webp', bucket: 'studio', path: SB + '/gen-0-imp-s-1.png', image: { data: b64 } });
+  assertEquals(sl.res.status, 200);
+  assertEquals(slotted.db.row('studio_batches', SB).state.items[0].slots, [SB + '/row1-main.webp', SB + '/gen-0-imp-s-1.webp'], 'the slot renamed with the object');
+  assertEquals(slotted.db.row('studio_batches', SB).state.imgCount, 4, 'the rest of the state as it was');
+  assertEquals(slotted.db.writes('studio_batches').length, 1, 'one write for the rename; a path nobody points at writes nothing');
   assertEquals((await call(deps, { action: 'webp', bucket: 'studio', path: SB + '/gen-0-0-old.webp', image: { data: b64 } }, 'jwt-edit')).res.status, 401);
   assertEquals((await call(deps, { action: 'webp', bucket: 'studio', path: 'ffffffff-1d2c-4a8b-9e3f-1234567890ab/gen-0-0-old.png', image: { data: b64 } })).res.status, 404);
   assertFalse(db.rows('ai_runs').some((x: any) => x.action === 'image' && x.credits === 0 && x.status === 'ok'), 'nothing charged for a conversion');

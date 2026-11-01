@@ -1,8 +1,23 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   IMG_MODELS, DEFAULT_MODEL, MODEL_IDS, creditsFor, modelCredits, usdOf, sizeOf, parseGenerate, parseEdit, parseCreate, slotPrompt, shapePrompt,
-  editPrompt, studioPathOk, studioGenPath, studioEditPath, toolPath, extOf, imageSettings, line, MAX_IMAGE_B64, SLOTS,
+  editPrompt, studioPathOk, studioGenPath, studioEditPath, toolPath, extOf, imageSettings, line, MAX_IMAGE_B64, SLOTS, renameInState,
 } from '../../supabase/functions/_shared/ai-images.js';
+
+test('decision 14 — renameInState: a renamed result (png → webp) is followed everywhere the batch state points at it (slots, main, refs, color images); nothing pointing = the same state, not changed', () => {
+  const SB0 = '0b6f2f5e-1d2c-4a8b-9e3f-1234567890ab';
+  const from = SB0 + '/gen-0-imp-x-1.png', to = SB0 + '/gen-0-imp-x-1.webp';
+  const state = { items: [{ key: 'a', slots: [SB0 + '/row1-main.jpg', from, null], main: from, refs: [from, SB0 + '/r.jpg'], colorImages: { BE: from, BK: SB0 + '/c.jpg' } }, { key: 'b', slots: [] }, 'junk'], imgCount: 4 };
+  const r = renameInState(state, from, to);
+  assert.equal(r.changed, true);
+  assert.deepEqual(r.state.items[0], { key: 'a', slots: [SB0 + '/row1-main.jpg', to, null], main: to, refs: [to, SB0 + '/r.jpg'], colorImages: { BE: to, BK: SB0 + '/c.jpg' } });
+  assert.deepEqual(r.state.items[1], { key: 'b', slots: [] }); assert.equal(r.state.items[2], 'junk'); assert.equal(r.state.imgCount, 4);
+  assert.equal(state.items[0].main, from, 'the given state is not mutated');
+  const same = renameInState(state, SB0 + '/none.png', to);
+  assert.equal(same.changed, false); assert.equal(same.state, state);
+  assert.equal(renameInState(null, from, to).changed, false);
+  assert.equal(renameInState(state, from, from).changed, false);
+});
 // Product images with the AI (phase 5.4, docs/superpowers/plans/2026-10-31-phase-5-4-images.md): the request checks, the prompts,
 // the sizes, the credits and the settings — the pure part the ai-images function and the browser mock share.
 

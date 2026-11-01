@@ -68,6 +68,7 @@ export function matchResults(sources, results, lineages = {}) {
 // ---------------------------------------------------------------- decision 12: the category flows of one Space
 
 export const SHOT_LABELS = ['تركيز على المنتج', 'المنتج في بيئة محيطة', 'Closeup للتفاصيل']; // the owner's three shots, in order
+export const FLOW_MODEL = 'imagen-nano-banana-2'; // Google Nano Banana Pro — the one model of every flow generator (the owner, 1 Nov)
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 /** A Spaces answer (spaces_state / spaces_get_nodes) → its node rows [{ id, type, name, x, y, pageId }]. */
 export function nodesOf(data) {
@@ -127,7 +128,8 @@ export function templatePrompts(nodes, nodeData) {
  * order), one image generator a shot with the category's prompt (the generic words when the category has none) and one output
  * list a shot; `refs` name them for the connections (list → generator.reference, generator → out.images).
  */
-export function flowNodes({ title, category, photos, prompts, model = 'imagen-nano-banana-2' }) {
+export function flowNodes({ title, category, photos, prompts, model = FLOW_MODEL }) {
+  // the owner (1 Nov, decision 13): every generator runs Nano Banana Pro — a template row's own model is not carried over
   const byShot = new Map((prompts || []).map((p) => [Number(p.shot), p]));
   const items = photos.map((id) => ({ type: 'image', creationIdentifier: id }));
   const nodes = [
@@ -142,7 +144,7 @@ export function flowNodes({ title, category, photos, prompts, model = 'imagen-na
   const connections = [];
   for (let shot = 1; shot <= 3; shot++) {
     const p = byShot.get(shot);
-    const data = { prompt: p ? p.prompt : generic[shot - 1], mode: (p && p.model) || model, aspectRatio: (p && p.aspect) || '3:4', resolution: (p && p.resolution) || '1k', numberOfGenerations: 1 };
+    const data = { prompt: p ? p.prompt : generic[shot - 1], mode: model, aspectRatio: (p && p.aspect) || '3:4', resolution: (p && p.resolution) || '1k', numberOfGenerations: 1 };
     if (p && p.negative) data.negativePrompt = p.negative;
     const name = (p && p.name) || (category + ' ' + shot + ' — ' + SHOT_LABELS[shot - 1]);
     nodes.push({ nodeType: 'image-generator', ref: 'gen' + shot, name, data, layout: { groupId: 'panel', relativeToNodeId: shot === 1 ? 'list' : 'gen' + (shot - 1), direction: shot === 1 ? 'right' : 'below' } });

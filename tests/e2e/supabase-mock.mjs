@@ -20,7 +20,7 @@
 // Spec files call installSupabaseMock(page) unless E2E_SUPABASE_LIVE=1: then installLiveConfig(page) points the app at the
 // staging project in E2E_SUPABASE_URL / E2E_SUPABASE_ANON_KEY (never at whatever app/config.js holds), or skips without them.
 import { buildStudio, matchWooBrand, sheetCsvUrl } from '../../supabase/functions/_shared/woo-studio.js';
-import { parseWrite, parseStudio, cleanWrite, cleanStudio, aiSettings } from '../../supabase/functions/_shared/ai-content.js';
+import { parseWrite, parseStudio, parsePrompts, cleanWrite, cleanStudio, cleanPrompts, shotPromptRows, aiSettings } from '../../supabase/functions/_shared/ai-content.js';
 import { parseGenerate, parseEdit, parseCreate, imageSettings, creditsFor, usdOf, studioPathOk, studioGenPath, studioEditPath, toolPath, MODEL_IDS } from '../../supabase/functions/_shared/ai-images.js';
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
 export const LIVE = process.env.E2E_SUPABASE_LIVE === '1';
@@ -1336,20 +1336,22 @@ export async function installSupabaseMock(page, opts = {}) {
     }
     if (method === 'POST' && path === '/functions/v1/ai-content') {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
-      const may = u && (action === 'write' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' || hasPerm(u, 'products.edit') === 'F' : action === 'studio' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' : isAdmin(u));
+      const may = u && (action === 'write' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' || hasPerm(u, 'products.edit') === 'F' : action === 'studio' || action === 'prompts' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' : isAdmin(u));
       if (!may) return json(401, { error: 'unauthorized' });
-      if (!['write', 'studio'].includes(action)) return json(400, { error: 'unknown_action' });
-      const parsed = action === 'write' ? parseWrite(b) : parseStudio(b);
+      if (!['write', 'studio', 'prompts'].includes(action)) return json(400, { error: 'unknown_action' });
+      const parsed = action === 'write' ? parseWrite(b) : action === 'prompts' ? parsePrompts(b) : parseStudio(b);
       if (parsed.error) return json(400, parsed);
       const req = parsed.req;
       mock.aiCalls.push({ action, by: u.email, ...b });
       let item = null; let row = null;
       if (action === 'write' && req.source === 'product' && !mock.products.some((p) => Number(p.id) === req.productId)) return json(404, { error: 'not_found' });
       if (action === 'studio') { row = mock.studioBatches.find((x) => x.id === req.batchId); item = row && !row.archived_at && row.state && Array.isArray(row.state.items) ? row.state.items[req.index] : null; if (!item) return json(404, { error: 'not_found' }); }
+      // decision 13: the template's rows (source_node set) are never written over by the AI
+      if (action === 'prompts' && mock.shotPrompts.some((x) => x.category === req.category && x.source_node)) return json(409, { error: 'exists', category: req.category });
       // decision 8: the settings row «ai» picks the model and the cap (the server reads it before every call; no secrets here)
       const cfg = aiSettings((mock.settings.find((s) => s.section === 'ai') || {}).data, {});
       const model = cfg.model; const cost = model === 'claude-sonnet-5-5' ? 0.026 : 0.052;
-      const base = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action, source: action === 'studio' ? 'studio' : req.source, label: action === 'studio' ? (item.nameEn || item.nameAr || '#' + (req.index + 1)) : ((req.source === 'product' ? (mock.products.find((p) => Number(p.id) === req.productId) || {}).name : req.data.name) || null),
+      const base = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action: action === 'prompts' ? 'studio' : action, source: action === 'studio' || action === 'prompts' ? 'studio' : req.source, label: action === 'prompts' ? req.category : action === 'studio' ? (item.nameEn || item.nameAr || '#' + (req.index + 1)) : ((req.source === 'product' ? (mock.products.find((p) => Number(p.id) === req.productId) || {}).name : req.data.name) || null),
         product_id: req.productId || null, batch_id: action === 'studio' ? req.batchId : null, item_index: action === 'studio' ? req.index : null, model, cost_usd: 0, output: null };
       const spent = mock.aiRuns.reduce((t, x) => t + (Number(x.cost_usd) || 0), 0);
       if (cfg.cap != null && spent + 0.5 > cfg.cap) { mock.aiRuns.push({ ...base, status: 'cap', error: 'ai_cap' }); return json(402, { error: 'ai_cap' }); }
@@ -1360,11 +1362,17 @@ export async function installSupabaseMock(page, opts = {}) {
       const SAMPLE = { ar: { name: 'مراية بامبو بوهيمي', short: 'مراية من البامبو الطبيعي تضيف للحيطة روح بوهيمية دافية.', long: 'مصنوعة يدويًا من البامبو الطبيعي.\n\nتنفع للمدخل أو ركن التجهيز.', keywords: ['مرايا بامبو', 'ديكور بوهيمي', 'مرايا حائط'], bullets: ['بامبو طبيعي', 'شغل إيد', 'ستايل بوهيمي', 'سهلة التعليق', 'لون بيج'], seo_title: 'مرايا بامبو بوهيمي | Alaa Anas — إبتكر كلوب', seo_description: 'مراية بامبو طبيعي بستايل بوهيمي، شغل إيد من Alaa Anas — تضيف دفا لأي حيطة.' },
         en: { name: 'Boho Bamboo Mirror', short: 'A natural bamboo mirror that brings a warm bohemian note to the wall.', long: 'Handmade from natural bamboo.\n\nMade for an entrance or a dressing corner.', keywords: ['bamboo mirror', 'boho wall decor', 'handmade mirror'], bullets: ['Natural bamboo', 'Handmade', 'Bohemian style', 'Easy to hang', 'Beige'], seo_title: 'Boho Bamboo Mirror | Alaa Anas — Ibtekr Club', seo_description: 'A handmade natural bamboo mirror in a bohemian style by Alaa Anas — warmth for any wall.' } };
       const cats = mock.wooCategories.map((c) => Number(c.id));
-      const answer = typeof mock.aiAnswer === 'function' ? mock.aiAnswer(action, req, item) : action === 'write' ? SAMPLE
+      const PROMPTS = { shot1: 'A professional product photograph of the exact ' + req.category + ' from the reference, kept completely identical, centered on a warm cream studio background, soft window light.', shot2: 'A lifestyle photograph of the exact same ' + req.category + ' from the reference, kept completely identical, in its place in a warm modern Egyptian home, afternoon daylight.', shot3: 'A close-up detail photograph of the exact same ' + req.category + ' from the reference, kept completely identical: material, craft and texture, shallow depth of field.', negative: 'text, logos, watermarks, people, hands' };
+      const answer = typeof mock.aiAnswer === 'function' ? mock.aiAnswer(action, req, item) : action === 'write' ? SAMPLE : action === 'prompts' ? PROMPTS
         : { nameEn: item.nameEn || 'Bamboo Desk Lamp', nameAr: 'أباجورة مكتب بامبو', shortDesc: 'A warm bamboo desk lamp.', shortDescAr: 'أباجورة مكتب من البامبو بإضاءة دافية.', categories: cats.slice(0, 1), colors: ['BE'], sizes: [] };
-      const cleaned = action === 'write' ? cleanWrite(answer, req.outputs, req.langs) : cleanStudio(answer, req.want, { categoryIds: new Set(cats), colorCodes: new Set(mock.skuColors.map((c) => c.code)) });
+      const cleaned = action === 'write' ? cleanWrite(answer, req.outputs, req.langs) : action === 'prompts' ? cleanPrompts(answer) : cleanStudio(answer, req.want, { categoryIds: new Set(cats), colorCodes: new Set(mock.skuColors.map((c) => c.code)) });
       const run = { ...base, status: 'ok', error: null, input_tokens: 3000, output_tokens: 2000, cost_usd: cost, output: cleaned };
       mock.aiRuns.push(run);
+      if (action === 'prompts' && cleaned.prompts.length === 3) {
+        // the server: upsert on (category, shot) — the AI's rows carry no source_node
+        for (const r of shotPromptRows(req.category, cleaned.prompts, u.id, new Date().toISOString())) { const old = mock.shotPrompts.find((x) => x.category === r.category && x.shot === r.shot); if (old) Object.assign(old, r); else mock.shotPrompts.push({ id: mock.shotPrompts.length + 1, ...r }); }
+        cleaned.category = req.category; cleaned.rows = 3;
+      }
       return json(200, { result: 'ok', ...cleaned, model, cost_usd: cost, run_id: run.id });
     }
     if (method === 'POST' && path === '/functions/v1/woo-sync') {

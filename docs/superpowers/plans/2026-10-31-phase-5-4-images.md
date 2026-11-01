@@ -197,3 +197,9 @@
   `nodesOf`/`nodeDataOf`/`templatePrompts`/`flowNodes`/`listIdsOf`/`urlsById` في `magnific-bridge.js`؛ actions `bridge_prompts_sync` و
   `bridge_flow` + قراية المخرجات في `bridge_fetch` + `slots` في `importBatch` (`ai-images` v14)؛ `IBImages.shotCategories`/`shotPrompts`/
   `promptsSync`/`bridgeFlow`؛ شريط الفلو في الاستوديو وزرار المزامنة في إعدادات الصور؛ الـ mock والاختبارات (Deno 25، node، e2e).
+- **T15 — قرار 13 (1 نوفمبر، صاحب المشروع: «لو ملقيتش الفئة اللي أنا عايزها أكتبها ويتكتب برومبت ويتعمل فلو بيها، وكله Nano Banana Pro»):**
+  `ai-content` action `prompts { category }` (`products.add`؛ `parsePrompts`/`promptsRequest`/`cleanPrompts`/`shotPromptRows` في `_shared/ai-content.js`؛
+  Claude بيكتب التلات برومبتات + negative بالإنجليزي على شكل الـ template → `shot_prompts` upsert «(AI)» بموديل `imagen-nano-banana-2`؛ صفوف الـ template
+  (`source_node`) محمية = 409 `exists`؛ `ai_runs` بـ `action = 'studio'` و`label` = الفئة) — `IBAI.shotPrompts`؛ «+ فئة جديدة…» في شريط الفلو و«جهّز فلو»
+  بيكتب البرومبتات الأول لفئة مش في المكتبة؛ `flowNodes` بتثبّت `FLOW_MODEL` على كل المولّدات. ومعاه: شريط الفلو والمكتبة فاضية (زرار المزامنة للأدمن
+  هناك)، و«صور بس» باسم واحد في اسم الملف (`itemIssues { en: false }`)، وستب الـ db-test بـ `bypassrls` لـ `service_role`. الاختبارات: node، Deno (41)، e2e.

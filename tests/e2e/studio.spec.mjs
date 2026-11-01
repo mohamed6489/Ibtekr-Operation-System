@@ -566,6 +566,42 @@ test('decision 12 — the prompts library still empty (the owner, 1 Nov: «مف�
   await page.keyboard.press('Escape');
 });
 
+test('decision 13 — a category not in the library: «+ فئة جديدة…» takes its name, «جهّز فلو» first has the AI write its three prompts (ai-content prompts → shot_prompts, Nano Banana Pro) and then makes the flow with them; the category is in the list for the next batch', async ({ page }) => {
+  const SB = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
+  await signIn(page, OPS);
+  mock.magnific.linked = true; mock.magnific.account = 'owner@ibtekr.club';
+  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
+  await page.getByRole('radio', { name: /^صور بس/ }).click();
+  await next(page, 'التالي: الاستلام');
+  await pick(page, /اختار صور المنتجات/, [{ name: 'Clay Vase - مزهرية فخار - Beige - 400.png', mimeType: 'image/png', buffer: PNG }]);
+  await page.locator('[data-share]').click();
+  await expect(page.locator('.toast.show')).toContainText('اترفعت 1 صورة');
+  await page.locator('#flow-cat').click(); await page.getByRole('option', { name: '+ فئة جديدة…' }).click();
+  await page.fill('#name', 'x'); await page.getByRole('button', { name: 'اختار الفئة' }).click();
+  await expect(page.locator('.modal .err, .modal [aria-invalid=true]').first()).toBeVisible(); // too short
+  await page.fill('#name', 'مزهرية'); await page.getByRole('button', { name: 'اختار الفئة' }).click();
+  await expect(page.locator('#flow-cat')).toContainText('مزهرية (جديدة — البرومبتات بالـ AI)');
+  await page.locator('[data-flow]').click();
+  await expect(page.locator('.toast.show')).toContainText('اتعمل فلو «مزهرية» بـ 1 صورة وبرومبتات الفئة');
+  expect(mock.aiCalls.map((c) => [c.action, c.category])).toEqual([['prompts', 'مزهرية']]);
+  expect(mock.shotPrompts.filter((x) => x.category === 'مزهرية').map((x) => [x.shot, x.model, x.aspect, x.name])).toEqual([[1, 'imagen-nano-banana-2', '3:4', 'مزهرية 1 — تركيز على المنتج (AI)'], [2, 'imagen-nano-banana-2', '3:4', 'مزهرية 2 — المنتج في بيئة محيطة (AI)'], [3, 'imagen-nano-banana-2', '3:4', 'مزهرية 3 — Closeup للتفاصيل (AI)']]);
+  expect(mock.magnific.flows.map((f) => [f.batch_id, f.category, f.prompts.length])).toEqual([[SB, 'مزهرية', 3]]);
+  expect(mock.aiRuns.map((r) => [r.action, r.source, r.label])).toEqual([['studio', 'studio', 'مزهرية']]);
+  await expect(page.locator('[data-flow-state]')).toHaveText('فلو «مزهرية» · 1 صورة');
+  await page.locator('#flow-cat').click();
+  await expect(page.getByRole('option', { name: 'مزهرية', exact: true })).toBeVisible(); // in the library now
+  await page.keyboard.press('Escape');
+  // the AI not configured: no flow is made, the message says so
+  await page.locator('#flow-cat').click(); await page.getByRole('option', { name: '+ فئة جديدة…' }).click();
+  await page.fill('#name', 'طاولة'); await page.getByRole('button', { name: 'اختار الفئة' }).click();
+  mock.aiFail = 'not_configured';
+  await page.locator('[data-flow]').click();
+  await expect(page.locator('.toast.show')).toContainText('الـ AI لسه مش متوصّل');
+  expect(mock.magnific.flows.length).toBe(1);
+});
+
 test('decision 12 — the prompts library empty, a member (products.add, not the admin): the hint names who refreshes it, no button', async ({ page }) => {
   await signIn(page, OPS);
   mock.magnific.linked = true; mock.magnific.account = 'owner@ibtekr.club'; mock.shotPrompts.length = 0;

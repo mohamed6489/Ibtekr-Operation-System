@@ -244,6 +244,37 @@ Deno.test('studio: the item, its brand and photo (base64 from the bucket), the s
   assertEquals(db.writes('studio_batches'), [], 'the batch itself is the page\'s to save');
 });
 
+Deno.test('decision 13 — prompts: a category typed in the studio → Claude writes its three shot prompts, kept in shot_prompts (Nano Banana Pro, 3:4, 1k, «(AI)»), the run logged as a studio run named by the category; a template category (source_node) is 409 exists with no call; a missing shot writes nothing', async () => {
+  const PROMPTS = { shot1: 'A product photograph of the exact vase from the reference, kept identical, on a warm cream background.', shot2: 'A lifestyle photograph of the same vase in a warm Egyptian living room.', shot3: 'A close-up of the vase\'s glaze and texture, shallow depth of field.', negative: 'text, logos, people' };
+  const { deps, asked, db } = setup({ replies: [msg(PROMPTS)] });
+  const { res, body } = await call(deps, { action: 'prompts', category: ' مزهرية ' });
+  assertEquals(res.status, 200);
+  assertEquals([body.result, body.category, body.rows, body.missing, body.prompts.length], ['ok', 'مزهرية', 3, [], 3]);
+  assert(asked[0].system[0].text.includes('Nano Banana Pro'));
+  assertEquals(asked[0].messages[0].content[0].text, '<product_data>\ncategory: مزهرية\n</product_data>\n\nWrite shot1, shot2, shot3 and negative for this product category.');
+  assertEquals(db.rows('shot_prompts').map((r: any) => [r.category, r.shot, r.name, r.prompt, r.negative, r.model, r.aspect, r.resolution, r.source_node, r.updated_by]), [
+    ['مزهرية', 1, 'مزهرية 1 — تركيز على المنتج (AI)', PROMPTS.shot1, 'text, logos, people', 'imagen-nano-banana-2', '3:4', '1k', null, U.add],
+    ['مزهرية', 2, 'مزهرية 2 — المنتج في بيئة محيطة (AI)', PROMPTS.shot2, 'text, logos, people', 'imagen-nano-banana-2', '3:4', '1k', null, U.add],
+    ['مزهرية', 3, 'مزهرية 3 — Closeup للتفاصيل (AI)', PROMPTS.shot3, 'text, logos, people', 'imagen-nano-banana-2', '3:4', '1k', null, U.add]]);
+  const run = db.rows('ai_runs')[0];
+  assertEquals([run.action, run.source, run.label, run.status, run.created_by], ['studio', 'studio', 'مزهرية', 'ok', U.add]);
+  // again (the AI's own rows): written over, never doubled
+  const again = await call(setup({ seed: { shot_prompts: db.rows('shot_prompts') }, replies: [msg({ ...PROMPTS, shot1: 'A new first prompt.' })] }).deps, { action: 'prompts', category: 'مزهرية' });
+  assertEquals(again.res.status, 200);
+  // the owner's template rows are not the AI's to write
+  const tpl = setup({ seed: { shot_prompts: [{ id: 1, category: 'كرسي', shot: 1, name: 'كرسي 1 — تركيز على المنتج', prompt: 'CHAIR', source_node: 'a1b2c3d4-0000-4000-8000-000000000001' }] }, replies: [msg(PROMPTS)] });
+  const t = await call(tpl.deps, { action: 'prompts', category: 'كرسي' });
+  assertEquals([t.res.status, t.body, tpl.asked.length], [409, { error: 'exists', category: 'كرسي' }, 0]);
+  // a shot in Arabic is left out: nothing is written, the page is told what is missing
+  const half = setup({ replies: [msg({ ...PROMPTS, shot2: 'صورة بالعربي' })] });
+  const h = await call(half.deps, { action: 'prompts', category: 'مزهرية' });
+  assertEquals([h.res.status, h.body.missing, h.body.rows, half.db.rows('shot_prompts').length], [200, ['shot2'], undefined, 0]);
+  // the body and the right: a short name is 400; products.add P is 401
+  assertEquals((await call(deps, { action: 'prompts', category: 'x' })).body, { error: 'bad_request', field: 'category' });
+  assertEquals((await call(deps, { action: 'prompts', category: 'مزهرية' }, 'jwt-view')).res.status, 401);
+  assertEquals((await call(setup({ replies: [msg(PROMPTS)] }).deps, { action: 'prompts', category: 'مزهرية' }, 'jwt-admin')).res.status, 200, 'the admin too');
+});
+
 Deno.test('studio: a photo outside the batch is not read; no item, an archived batch or a bad body → 404 / 400 with no call', async () => {
   const foreign = { ...STUDIO_SEED, studio_batches: [batch({ state: { items: [item({ main: OTHER + '/row1-main.webp', slots: ['../x.webp'] })] } })] };
   const f = setup({ seed: foreign, storage: { [`studio/${OTHER}/row1-main.webp`]: new Uint8Array([1, 2, 3]) }, replies: [msg({ shortDesc: 'Warm light.', shortDescAr: 'إضاءة دافية.' })] });

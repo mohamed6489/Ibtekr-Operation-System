@@ -20,7 +20,7 @@
 // the secrets AI_CONTENT_MODEL / AI_CONTENT_EFFORT / AI_MONTHLY_LIMIT_USD are the fallback, then the defaults — read before every call.
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
-import { aiSettings, categoryLines, cleanStudio, cleanWrite, costOf, line, parseStudio, parseWrite, readAnswer, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
+import { aiSettings, categoryLines, cleanPrompts, cleanStudio, cleanWrite, costOf, line, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -32,7 +32,7 @@ export type Deps = {
   claude: (params: Json) => Promise<Json>; sleep?: (ms: number) => Promise<void>;
 };
 
-const ACTIONS = ['write', 'studio'];
+const ACTIONS = ['write', 'studio', 'prompts'];
 const STUDIO_BUCKET = 'studio';
 const THROTTLE = 60; // calls of one member in THROTTLE_MINUTES (the studio fills a batch one item at a time)
 const THROTTLE_MINUTES = 10;
@@ -62,7 +62,7 @@ async function authorize(req: Request, deps: Deps, action: string): Promise<stri
   const perm = async (key: string) => { const { data, error } = await member.rpc('has_perm', { key }); return !error && data === 'F'; };
   const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
   const ok = action === 'write' ? (await admin()) || (await perm('products.add')) || (await perm('products.edit'))
-    : action === 'studio' ? (await admin()) || (await perm('products.add'))
+    : action === 'studio' || action === 'prompts' ? (await admin()) || (await perm('products.add'))
     : await admin();
   return ok ? await deps.userId(jwt) : null;
 }
@@ -109,8 +109,9 @@ async function finishRun(deps: Deps, id: number, row: Json) {
   if (error) console.error('ai_runs update failed', error.code ?? ''); // the row keeps its reserve: the cap still counts it
 }
 
-// The common path of both actions: the reservation, the key, the call, the answer, the row.
-async function runAi(deps: Deps, base: Json, cfg: Cfg, params: Json, clean: (answer: Json) => Json): Promise<Response> {
+// The common path of the actions: the reservation, the key, the call, the answer, the row; `save` (the prompts) writes the
+// cleaned answer where it lives and may refuse (false → 500 failed; the run row keeps the answer and its cost).
+async function runAi(deps: Deps, base: Json, cfg: Cfg, params: Json, clean: (answer: Json) => Json, save?: (out: Json) => Promise<boolean>): Promise<Response> {
   const run = await startRun(deps, { ...base, model: cfg.model }, cfg.cap);
   if (run.result === 'busy') return json(429, { error: 'busy' });
   if (run.result === 'cap') return json(402, { error: 'ai_cap' });
@@ -130,6 +131,7 @@ async function runAi(deps: Deps, base: Json, cfg: Cfg, params: Json, clean: (ans
   if (answer.status !== 'ok') { await finishRun(deps, run.id, { ...spent, status: 'error', error: 'ai_error' }); return json(502, { error: 'ai_error' }); }
   const out = clean(answer.json);
   await finishRun(deps, run.id, { ...spent, status: 'ok', output: out });
+  if (save && !(await save(out))) return json(500, { error: 'failed' });
   return json(200, { result: 'ok', ...out, model, cost_usd: cost, run_id: run.id });
 }
 
@@ -213,6 +215,29 @@ async function studio(deps: Deps, uid: string, args: Json) {
     (answer) => cleanStudio(answer, want, sets));
 }
 
+// ---------------------------------------------------------------- prompts (decision 13: a category typed in the studio)
+
+// The three shot prompts of a category that has none in the owner's template, written by Claude and kept in shot_prompts
+// (upsert on category + shot) so the flow and every later batch of the category use them. The template's own rows
+// (source_node set — bridge_prompts_sync) are never overwritten: 409 exists. An AI-written category can be written again.
+async function prompts(deps: Deps, uid: string, args: Json) {
+  const parsed = parsePrompts(args);
+  if ('error' in parsed) return json(400, parsed);
+  const { category } = parsed.req;
+  const { data: rows } = await deps.db.from('shot_prompts').select('shot, source_node').eq('category', category);
+  if ((Array.isArray(rows) ? rows : []).some((r: Json) => typeof r.source_node === 'string' && r.source_node)) return json(409, { error: 'exists', category });
+  const cfg = await configOf(deps);
+  const base = { created_by: uid, action: 'studio', source: 'studio', label: category };
+  return await runAi(deps, base, cfg, promptsRequest(category, { model: cfg.model, effort: cfg.effort }), (answer) => cleanPrompts(answer), async (out) => {
+    const list = Array.isArray(out.prompts) ? out.prompts : [];
+    if (list.length < 3) return true; // a missing shot: nothing written — the page says what is missing
+    const { error } = await deps.db.from('shot_prompts').upsert(shotPromptRows(category, list, uid, deps.now()), { onConflict: 'category,shot' });
+    if (error) { console.error('shot_prompts upsert failed', error.code ?? ''); return false; }
+    out.category = category; out.rows = list.length;
+    return true;
+  });
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -226,7 +251,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!uid) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
-    return action === 'write' ? await write(deps, uid, args) : await studio(deps, uid, args);
+    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : await studio(deps, uid, args);
   } catch (e) {
     console.error('ai-content failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });

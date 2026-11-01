@@ -33,7 +33,7 @@
       if (error || !data) {
         const s = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
-        const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'missing' : s === 402 ? 'ai_cap' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : 'network';
+        const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'missing' : s === 409 ? 'exists' : s === 402 ? 'ai_cap' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : 'network';
         return { ok: false, reason, field: b && b.field ? String(b.field) : null };
       }
       return { ok: true, body: data };
@@ -62,6 +62,16 @@
     if (!r.ok) return r;
     const out = Object.assign(answer(r.body), { fields: r.body.fields && typeof r.body.fields === 'object' ? r.body.fields : {} });
     log('product.ai.studio', ['#' + (index + 1), want.join(', ')].concat(out.result === 'refused' ? ['refused'] : []).join(' · '), 'studio_batches', batchId);
+    return out;
+  }
+
+  // decision 13 (the owner, 1 Nov): a product category typed in the studio with no prompts in the template → the server has Claude
+  // write its three shot prompts (Nano Banana Pro) into shot_prompts → { ok, result, category, rows, prompts, missing, model, cost }
+  async function shotPrompts(category) {
+    const r = await invoke({ action: 'prompts', category: String(category || '').trim() });
+    if (!r.ok) return r;
+    const out = Object.assign(answer(r.body), { category: typeof r.body.category === 'string' ? r.body.category : String(category || '').trim(), rows: Number(r.body.rows) || 0, prompts: Array.isArray(r.body.prompts) ? r.body.prompts : [] });
+    log('product.ai.prompts', [out.category, out.rows + ' prompts'].concat(out.result === 'refused' ? ['refused'] : []).join(' · '), 'shot_prompts', null);
     return out;
   }
 
@@ -151,5 +161,5 @@
     });
   }
 
-  window.IBAI = { can, write, studio, history, photoOf, settings, saveSettings, monthSpend, estCost, MODELS, EFFORTS, EST_COST };
+  window.IBAI = { can, write, studio, shotPrompts, history, photoOf, settings, saveSettings, monthSpend, estCost, MODELS, EFFORTS, EST_COST };
 })();

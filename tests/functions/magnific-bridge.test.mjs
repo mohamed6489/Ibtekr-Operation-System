@@ -100,6 +100,9 @@ test('decision 12 — flowNodes / listIdsOf / urlsById: the flow of a batch (pan
   assert.equal(f.nodes[2].name, 'كرسي 1 — تركيز على المنتج');
   assert.ok(f.nodes[4].data.prompt.startsWith('A lifestyle photograph') && f.nodes[4].name === 'كرسي 2 — المنتج في بيئة محيطة', 'shot 2 has no row: the generic words');
   assert.deepEqual([f.nodes[6].data.prompt, f.nodes[6].data.mode, f.nodes[6].data.aspectRatio, f.nodes[6].data.resolution], ['P3', 'imagen-nano-banana-2', '3:4', '1k']);
+  // decision 13 (the owner, 1 Nov): every generator runs Nano Banana Pro — a template row on another model is not carried over
+  const other = flowNodes({ title: 't', category: 'كرسي', photos: ['UP1'], prompts: [{ shot: 1, prompt: 'P1', model: 'flux-2-pro', aspect: '4:5', resolution: '2k' }] });
+  assert.deepEqual([other.nodes[2].data.mode, other.nodes[2].data.aspectRatio, other.nodes[2].data.resolution, other.nodes[4].data.mode], ['imagen-nano-banana-2', '4:5', '2k', 'imagen-nano-banana-2']);
   assert.deepEqual(f.nodes[2].layout, { groupId: 'panel', relativeToNodeId: 'list', direction: 'right' });
   assert.deepEqual(f.connections, [
     { from: 'list', fromPort: 'output-images', to: 'gen1', toPort: 'reference' }, { from: 'gen1', fromPort: 'output', to: 'out1', toPort: 'images' },

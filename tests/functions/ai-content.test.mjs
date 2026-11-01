@@ -2,6 +2,7 @@ import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   parseWrite, parseStudio, writeSchema, studioSchema, writeRequest, studioRequest, readAnswer, cleanWrite, cleanStudio,
   costOf, usageOf, aiConfig, aiSettings, categoryLines, colorLines, line, paras, htmlText, MAX_IMAGE_B64,
+  parsePrompts, promptsSchema, promptsRequest, cleanPrompts, shotPromptRows, FLOW_MODEL, SHOT_NAMES,
 } from '../../supabase/functions/_shared/ai-content.js';
 // The AI content (phase 5.3, docs/superpowers/plans/2026-10-29-phase-5-3-ai-content.md decisions 2 / 3 / 5): the request
 // checks, the Claude request, the answer's cleaning (the WooCommerce limits; never a price or a SKU) and the cost.
@@ -46,6 +47,30 @@ test('parseWrite: an image needs a jpeg / png / webp in base64 within the limit;
   assert.equal(parseWrite({ ...base, source: 'product', product_id: -3 }).field, 'product_id');
   const cur = parseWrite({ ...base, source: 'product', product_id: 5, current: { nameEn: 'Bamboo Mirror', longEn: '<p>Handmade &amp; natural.</p><ul><li>30×50 cm</li></ul>' } }).req.current;
   assert.deepEqual(cur, { nameEn: 'Bamboo Mirror', longEn: 'Handmade & natural.\n\n- 30×50 cm' });
+});
+
+test('decision 13 — parsePrompts / promptsRequest / cleanPrompts / shotPromptRows: a typed category → three English shot prompts on Nano Banana Pro, 3:4, 1k, named like the template\'s rows with «(AI)», never over a template row (the caller checks source_node)', () => {
+  assert.deepEqual(parsePrompts({ category: ' مزهرية <b>فخار</b> ' }).req, { category: 'مزهرية فخار' });
+  assert.equal(parsePrompts({ category: 'x' }).field, 'category');
+  assert.equal(parsePrompts({ category: 'a'.repeat(81) }).field, 'category');
+  assert.equal(parsePrompts({}).field, 'category');
+  assert.equal(parsePrompts(null).field, 'body');
+  assert.deepEqual(Object.keys(promptsSchema().properties), ['shot1', 'shot2', 'shot3', 'negative']);
+  const p = promptsRequest('مزهرية', CTX);
+  assert.equal(p.model, 'claude-opus-5-5'); assert.equal(p.output_config.effort, 'medium'); assert.equal(p.fallbacks, 'default');
+  assert.ok(p.system[0].text.includes('Nano Banana Pro') && p.system[0].text.includes('shot 3 — close-up'), 'the three shots and the model in the instructions');
+  assert.deepEqual(p.system[0].cache_control, { type: 'ephemeral' });
+  assert.equal(p.messages[0].content[0].text, '<product_data>\ncategory: مزهرية\n</product_data>\n\nWrite shot1, shot2, shot3 and negative for this product category.');
+  const c = cleanPrompts({ shot1: ' A product photo\n\nof the vase. ', shot2: 'صورة بالعربي', shot3: 'A close-up of the vase.', negative: 'text, logos,\npeople' });
+  assert.deepEqual(c, { prompts: [{ shot: 1, prompt: 'A product photo of the vase.', negative: 'text, logos, people' }, { shot: 3, prompt: 'A close-up of the vase.', negative: 'text, logos, people' }], missing: ['shot2'] });
+  assert.deepEqual(cleanPrompts({ shot1: 'A', shot2: 'B', shot3: 'C' }).prompts.map((x) => x.negative), [null, null, null], 'no negative = null');
+  assert.deepEqual(cleanPrompts(null), { prompts: [], missing: ['shot1', 'shot2', 'shot3'] });
+  const rows = shotPromptRows('مزهرية', cleanPrompts({ shot1: 'A', shot2: 'B', shot3: 'C', negative: 'x' }).prompts, 'uid-1', '2026-11-01T10:00:00.000Z');
+  assert.deepEqual(rows.map((r) => [r.category, r.shot, r.name, r.prompt, r.negative, r.model, r.aspect, r.resolution, r.source_node, r.updated_by, r.updated_at]), [
+    ['مزهرية', 1, 'مزهرية 1 — ' + SHOT_NAMES[0] + ' (AI)', 'A', 'x', FLOW_MODEL, '3:4', '1k', null, 'uid-1', '2026-11-01T10:00:00.000Z'],
+    ['مزهرية', 2, 'مزهرية 2 — ' + SHOT_NAMES[1] + ' (AI)', 'B', 'x', FLOW_MODEL, '3:4', '1k', null, 'uid-1', '2026-11-01T10:00:00.000Z'],
+    ['مزهرية', 3, 'مزهرية 3 — ' + SHOT_NAMES[2] + ' (AI)', 'C', 'x', FLOW_MODEL, '3:4', '1k', null, 'uid-1', '2026-11-01T10:00:00.000Z']]);
+  assert.equal(FLOW_MODEL, 'imagen-nano-banana-2');
 });
 
 test('parseStudio: the batch id, the item index and what to fill', () => {

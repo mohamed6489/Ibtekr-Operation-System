@@ -544,6 +544,43 @@ test('decision 11 — the system\'s own Magnific link: «ابعت الصور ل�
   expect(mock.activityRows.filter((x) => x.action === 'product.ai.image').map((x) => x.new_value)).toEqual(['bridge upload · 2 photos', 'bridge fetch · 4 found · 3 placed · 1 unmatched', 'bridge fetch · 1 found · 0 placed · 1 unmatched']);
 });
 
+test('decision 12 — the prompts library still empty (the owner, 1 Nov: «مفيش تحديد الفئات»): the flow bar says the categories come from the template and the admin reads it from right there; a member sees the hint only', async ({ page }) => {
+  await signIn(page, 'admin.dev@ibtekr.local');
+  mock.magnific.linked = true; mock.magnific.account = 'owner@ibtekr.club'; mock.shotPrompts.length = 0;
+  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
+  await page.getByRole('radio', { name: /^صور بس/ }).click();
+  await next(page, 'التالي: الاستلام');
+  await pick(page, /اختار صور المنتجات/, [{ name: 'Oak Chair - كرسي بلوط - Beige - 1200.png', mimeType: 'image/png', buffer: PNG }]);
+  await page.locator('[data-share]').click();
+  await expect(page.locator('.toast.show')).toContainText('اترفعت 1 صورة');
+  await expect(page.locator('[data-flow-empty]')).toContainText('مفيش فئات لسه — الفئات بتيجي من برومبتات الـ template');
+  await expect(page.locator('#flow-cat')).toHaveCount(0);
+  await page.locator('[data-flow-sync]').click();
+  await expect(page.locator('.toast.show')).toContainText('اتقرت 2 فئة · 4 برومبت');
+  expect(mock.bridgeCalls.at(-1).action).toBe('bridge_prompts_sync');
+  await expect(page.locator('[data-flow-empty]')).toHaveCount(0);
+  await page.locator('#flow-cat').click();
+  await expect(page.getByRole('option', { name: 'كرسي (1 لقطات)' })).toBeVisible(); await expect(page.getByRole('option', { name: 'طاولة قهوة' })).toBeVisible();
+  await page.keyboard.press('Escape');
+});
+
+test('decision 12 — the prompts library empty, a member (products.add, not the admin): the hint names who refreshes it, no button', async ({ page }) => {
+  await signIn(page, OPS);
+  mock.magnific.linked = true; mock.magnific.account = 'owner@ibtekr.club'; mock.shotPrompts.length = 0;
+  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
+  await page.getByRole('radio', { name: /^صور بس/ }).click();
+  await next(page, 'التالي: الاستلام');
+  await pick(page, /اختار صور المنتجات/, [{ name: 'Oak Chair - كرسي بلوط - Beige - 1200.png', mimeType: 'image/png', buffer: PNG }]);
+  await page.locator('[data-share]').click();
+  await expect(page.locator('.toast.show')).toContainText('اترفعت 1 صورة');
+  await expect(page.locator('[data-flow-empty]')).toContainText('الأدمن بيحدّثها من «إعدادات الصور»');
+  await expect(page.locator('[data-flow-sync]')).toHaveCount(0);
+});
+
 test('decision 12 — the flow on the one Space: the category chosen, «جهّز فلو على Magnific» makes the batch\'s flow (the sent photos, the category\'s three prompts) and shows the Space link; the site\'s output lists come back in order into the exact slots (shot 1 → Close-up, 2 → البيئة, 3 → Feature)', async ({ page }) => {
   const SB = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
   await signIn(page, OPS);

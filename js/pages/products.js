@@ -33,6 +33,14 @@
   const st = { tab: 'records', view: 'records', status: 'all', q: '', f: { vendor: '', brand: '', category: '', stock: '', type: '' }, missingOnly: false, sort: '', sel: new Set(), pageN: 0,
     editId: null, etab: 'data', live: null, draft: null, liveFor: null, loadingLive: false, liveErr: '', saving: false, imgSel: null, busy: false };
   const can = () => (PR() ? PR().can() : { view: false, edit: false, trash: false, commission: false });
+  // the owner (1 Nov): Shift + click selects a range — the first ticked row to the one clicked (in the order shown), ticking or
+  // unticking them all like the clicked one. Shift is read on the mousedown that starts the click (K.Checkbox passes no event).
+  document.addEventListener('mousedown', (e) => { st.shift = !!e.shiftKey; }, true);
+  function pickRange(order, id, v) {
+    const i = order.indexOf(id), j = st.lastPick != null ? order.indexOf(st.lastPick) : -1;
+    const ids = st.shift && i >= 0 && j >= 0 ? order.slice(Math.min(i, j), Math.max(i, j) + 1) : [id];
+    ids.forEach((x) => (v ? st.sel.add(x) : st.sel.delete(x))); st.lastPick = id; R();
+  }
 
   // ---------------- routing ----------------
   const ETABS = [['data', 'البيانات'], ['price', 'السعر والمخزون'], ['images', 'الصور'], ['variants', 'المتغيرات'], ['cats', 'الأقسام'], ['desc', 'الأوصاف'], ['seo', 'SEO']];
@@ -137,7 +145,7 @@
     const shown = list.slice(st.pageN * PAGE, st.pageN * PAGE + PAGE);
     const allSel = shown.length && shown.every((p) => st.sel.has(p.id));
     const rows = shown.map((p) => { const ss = stockStateOf(p);
-      return [K.Checkbox({ label: '', checked: st.sel.has(p.id), onChange: (v) => { v ? st.sel.add(p.id) : st.sel.delete(p.id); R(); } }),
+      return [K.Checkbox({ label: '', checked: st.sel.has(p.id), onChange: (v) => pickRange(shown.map((x) => x.id), p.id, v) }),
         h('button', { type: 'button', class: 'prod link', 'data-pedit': String(p.id), onClick: () => go('products-edit-' + p.id) }, Thumb(p.img), h('span', null, h('b', null, nameOf(p)))), // the owner, 28 Oct: the English name alone (no Arabic name, no «ناقص: …» under it; the «ناقصها بيانات» filter stays)
         h('span', { dir: 'ltr', class: 't-small' }, p.sku || '—'), h('span', { class: 'brand-cell' }, h('span', null, brandOf(p)), h('small', { class: 't-small help' }, p.vendor || '—')),
         h('span', { class: 'cat-list t-small' }, p.cats.length ? p.cats.map((c) => h('span', { class: st.f.category && c.startsWith(st.f.category) ? 'cat-hit' : null }, c)) : '—'), h('span', { class: 't-small' }, p.type),
@@ -163,7 +171,7 @@
     const C = can(); const T = trashRows();
     const sel = [...st.sel].map((id) => T.find((t) => t.id === id)).filter(Boolean);
     const rows = T.map((t) => { const left = PD.trashDaysLeft(String(t.trashedAt || K.TODAY).slice(0, 10), K.TODAY);
-      return [C.trash ? K.Checkbox({ label: '', checked: st.sel.has(t.id), onChange: (v) => { v ? st.sel.add(t.id) : st.sel.delete(t.id); R(); } }) : '', h('span', { class: 'prod' }, Thumb(t.img), h('span', null, h('b', null, nameOf(t)))), h('span', { dir: 'ltr', class: 't-small' }, t.sku || '—'), t.vendor || '—', t.trashedAt ? K.dshort(String(t.trashedAt).slice(0, 10)) : '—',
+      return [C.trash ? K.Checkbox({ label: '', checked: st.sel.has(t.id), onChange: (v) => pickRange(T.map((x) => x.id), t.id, v) }) : '', h('span', { class: 'prod' }, Thumb(t.img), h('span', null, h('b', null, nameOf(t)))), h('span', { dir: 'ltr', class: 't-small' }, t.sku || '—'), t.vendor || '—', t.trashedAt ? K.dshort(String(t.trashedAt).slice(0, 10)) : '—',
         h('span', { class: 'stk' }, K.Num(left + ' يوم'), PD.trashSoon(left) ? Tag('error', 'قرب يتمسح') : null), C.trash ? h('span', { class: 'acts-inline' }, Button({ size: 'sm', label: 'رجّعه', attrs: { 'data-restore': String(t.id) }, onClick: () => restore([t]) })) : '']; });
     return [statusChips(), U.InlineNote({ kind: 'warning', children: 'المنتجات هنا مش ظاهرة على الموقع، وووردبريس بيمسحها نهائي لوحده بعد ' + PD.TRASH_DAYS + ' يوم من نقلها للمهملات. المسح النهائي مش من السيستم.' }),
       sel.length ? h('div', { class: 'bulk-bar' }, h('b', null, 'محدد ' + K.n0(sel.length)), h('span', { class: 'grow' }), Button({ size: 'sm', label: 'رجّع كمسودة', onClick: () => restore(sel) }), Button({ size: 'sm', label: 'إلغاء التحديد', onClick: () => { st.sel.clear(); R(); } })) : null,

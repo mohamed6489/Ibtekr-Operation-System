@@ -304,7 +304,12 @@
     return h('div', { class: 'scroll-x' }, h('table', { class: 'dt st-table', 'aria-label': label }, h('thead', null, h('tr', null, cols.map((c) => h('th', { scope: 'col', style: c.w ? 'width:' + c.w + 'px' : null }, c.l)))),
       h('tbody', null, rows.filter(Boolean).map((r) => h('tr', { class: r.cls || null }, r.cells.map((c, k) => h('td', { 'data-l': typeof cols[k].l === 'string' ? cols[k].l : '' }, c)))))));
   }
-  const selBox = (it) => K.Checkbox({ label: '', checked: S.sel.has(it.key), onChange: (v) => { v ? S.sel.add(it.key) : S.sel.delete(it.key); R(); } });
+  // the owner (1 Nov): Shift + click selects the range from the last ticked product to this one (in the batch's order)
+  document.addEventListener('mousedown', (e) => { S.shift = !!e.shiftKey; }, true);
+  const selBox = (it) => K.Checkbox({ label: '', checked: S.sel.has(it.key), onChange: (v) => {
+    const order = items().map((x) => x.key); const i = order.indexOf(it.key), j = S.lastPick != null ? order.indexOf(S.lastPick) : -1;
+    const keys = S.shift && i >= 0 && j >= 0 ? order.slice(Math.min(i, j), Math.max(i, j) + 1) : [it.key];
+    keys.forEach((k) => (v ? S.sel.add(k) : S.sel.delete(k))); S.lastPick = it.key; R(); } });
   const allBox = (L) => K.Checkbox({ label: '', checked: L.length > 0 && L.every((it) => S.sel.has(it.key)), onChange: (v) => { L.forEach((it) => (v ? S.sel.add(it.key) : S.sel.delete(it.key))); R(); } });
   const PCell = (it, lines) => h('span', { class: 'st-prod' }, Thumb((it.slots || [])[0] || it.main, 'lg2'), h('span', null, h('b', null, it.nameEn || h('span', { class: 'help' }, 'من غير اسم')), it.nameAr ? h('small', null, it.nameAr) : null,
     it.ai && (it.ai.nameEn || it.ai.nameAr) ? AITag() : null, h('small', { dir: 'ltr' }, skuOf(it).sku), ...(lines || []).filter(Boolean).map((l) => h('small', null, l))));

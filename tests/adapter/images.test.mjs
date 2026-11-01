@@ -144,3 +144,12 @@ test('monthCredits: ai_month_credits + this Cairo month\'s image runs by source 
   assert.deepEqual(stub.calls.filter((c) => c.op === 'rpc').map((c) => c.args), [['ai_month_credits', null]]);
   assert.deepEqual(opsOf(stub.calls, 'ai_runs').map((x) => x.op), ['select', 'eq', 'gte', 'limit']);
 });
+
+test('why: the two faces of not_configured and the provider\'s 402 get their own words; anything else none', () => {
+  const { I } = load();
+  assert.ok(I.why({ ok: false, reason: 'not_configured', configured: false }).includes('MAGNIFIC_API_KEY'));
+  assert.ok(I.why({ ok: false, reason: 'not_configured', configured: true, status: 403 }).includes('(HTTP 403)'));
+  assert.ok(I.why({ ok: false, reason: 'ai_error', status: 402 }).includes('402'));
+  assert.equal(I.why({ ok: false, reason: 'ai_error', status: null }), '');
+  assert.equal(I.why({ ok: true }), '');
+});

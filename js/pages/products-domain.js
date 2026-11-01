@@ -118,6 +118,8 @@
   // detail, 3 the proportions with the sizes, extras = another angle; a color slot = the close-up in that color). Kept in step
   // with the server's by tests/domain/products-domain.test.mjs. Plain text only: tags, < > and control characters are stripped.
   const PROMPT_BASE = 'Professional e-commerce product photography, photorealistic, sharp focus, true colors, no text, no watermark, no logo.';
+  // decision 14 (the owner, 1 Nov): the result is center-cropped to 7:8 (700×800) — the same words as the server's FRAME_NOTE
+  const FRAME_NOTE = 'Framing for a later center crop to 7:8: the whole product sits in the middle of the frame with clear empty margins above and below it (at least 12% of the height each), nothing important near the top or bottom edges.';
   const promptLine = (v, max) => { if (typeof v !== 'string') return ''; const s = v.replace(/<[^>]*>/g, ' ').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim(); return s.length <= max ? s : s.slice(0, max).replace(/\s+\S*$/, ''); };
   function slotPrompt(item, slot, ctx) {
     const it = item && typeof item === 'object' ? item : {}; ctx = ctx || {};
@@ -131,7 +133,7 @@
       : k === 'feature' ? 'A close detail shot of the exact same product from the reference photo: the material, the handmade craft and texture, shallow depth of field.'
       : k === 'sizes' ? 'The exact same product from the reference photo, full view on a plain light background, framed to show its proportions' + (sizes ? ' (' + sizes + ')' : '') + ', space around it for dimension lines.'
       : 'Another angle of the exact same product from the reference photo on a clean warm cream studio background, soft light.';
-    return [PROMPT_BASE, subject + '.', scene].join(' ');
+    return [PROMPT_BASE, subject + '.', scene, FRAME_NOTE].join(' ');
   }
   function credits({ images, texts, data }) { return (images || 0) * 1 + (texts || 0) * 1 + Math.ceil((data || 0) / 4); }
   const catsOf = (p) => (Array.isArray(p.cats) && p.cats.length ? p.cats : String(p.category || '').split(' + ').filter(Boolean));

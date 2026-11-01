@@ -36,6 +36,8 @@ test('records: the English rows with their Arabic name, brand, maker, category p
   await expect(page).toHaveURL(/#products-records$/);
   const rows = page.locator('#pg-products .pr-table tbody tr');
   await expect(rows).toHaveCount(4);
+  await expect(rows.first()).toContainText('Boho mirror'); // newest first by default (the owner, 1 Nov): the highest site id (9004) on top
+  await expect(rows.last()).toContainText('Cushion');
   const cushion = rowOf(page, 'Cushion');
   await expect(cushion).not.toContainText('كيس مخدة'); // the English name alone in the row (the owner, 28 Oct); search still finds the Arabic
   await expect(cushion).toContainText('Art Craft');

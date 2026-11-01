@@ -119,7 +119,8 @@
   }
   const clearFilters = () => { st.f = { vendor: '', brand: '', category: '', stock: '', type: '' }; st.q = ''; st.missingOnly = false; st.pageN = 0; };
   function recordsView() {
-    const list = filtered().slice(); if (st.sort) list.sort((a, b) => (st.sort === 'sales-desc' ? b.sales - a.sales : a.sales - b.sales));
+    // the owner (1 Nov): the records newest first by default (the site's ids grow with creation — the mirror has no creation date)
+    const list = filtered().slice(); list.sort((a, b) => (st.sort === 'sales-desc' ? b.sales - a.sales : st.sort === 'sales-asc' ? a.sales - b.sales : Number(b.id) - Number(a.id)));
     const any = Object.values(st.f).some(Boolean) || st.q || st.missingOnly; const C = can();
     const L = all(); const vendors = [...new Set(L.map((p) => p.vendor).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     const brandNames = (PR() ? PR().brands() : []).map((b) => b.name).sort((a, b) => a.localeCompare(b));

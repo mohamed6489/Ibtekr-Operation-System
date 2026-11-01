@@ -283,6 +283,16 @@
     // a material part is a lexicon word alone, or with modifiers only (natural cotton, 100% wool, خشب طبيعي) — «مج سيراميك» is a name
     const MODS = ['natural', 'pure', 'solid', 'real', 'genuine', '100%', '100', 'طبيعي', 'طبيعى', 'صافي', 'صافى', 'خام', 'أصلي', 'اصلي'];
     const isMaterial = (t) => { const ws = t.toLowerCase().split(/\s+/); return ws.length <= 3 && ws.some((w) => MATERIALS.includes(w)) && ws.every((w) => MATERIALS.includes(w) || MODS.includes(w)); };
+    const inline = (t) => {
+      let text = toAsciiDigits(t);
+      const price = /(?:^|\s)(?:ب|بـ|سعر|السعر|price|بسعر)?\s*(\d+(?:[.,]\d+)?)\s*(ج(?:\.?\s?م\.?)?|جنيه|egp|le)(?=\s|$)/i.exec(text);
+      if (price && out.vendorPrice == null) { out.vendorPrice = num(price[1]); text = text.replace(price[0], ' '); }
+      const size = /(?:^|\s)(?:مقاس|مقاسها|المقاس|size)?\s*(\d+(?:\.\d+)?\s*[x×*]\s*\d+(?:\.\d+)?(?:\s*[x×*]\s*\d+(?:\.\d+)?)?\s*(?:cm|سم)?)(?=\s|$)/i.exec(text);
+      if (size) { out.sizes.push(size[1].replace(/\s*[x*]\s*/gi, '×').trim()); text = text.replace(size[0], ' '); }
+      const words = text.split(/\s+/); const mat = words.find((w) => MATERIALS.includes(w.toLowerCase().replace(/^(ال|و)/, '')) || MATERIALS.includes(w.toLowerCase()));
+      if (mat && !out.material) out.material = mat.replace(/^(ال)/, '');
+      return { text: text.replace(/\s+/g, ' ').replace(/[\s,،;:-]+$/, '').trim() };
+    };
     const put = (field, v) => {
       if (field === 'colors' || field === 'sizes') { out[field] = out[field].concat(String(v).split(/\s*[/+&]\s*|\s+و\s+/).map((x) => x.trim()).filter(Boolean)); return; }
       if (field === 'vendorPrice') { out.vendorPrice = num(v); return; }
@@ -300,9 +310,12 @@
       const cs = t.split(/\s*[/+&]\s*|\s+و\s+/).map((x) => x.trim()).filter(Boolean);
       if (cs.length && cs.every((x) => colorNames.includes(x.toLowerCase()))) { out.colors = out.colors.concat(cs); continue; }
       if (isMaterial(t)) { if (!out.material) out.material = t; else out.unknown.push(t); continue; }
-      if (/[A-Za-z]/.test(t) && !/[\u0600-\u06FF]/.test(t)) { if (!out.nameEn) out.nameEn = t; else out.unknown.push(t); continue; }
-      if (/[\u0600-\u06FF]/.test(t)) { if (!out.nameAr) out.nameAr = t; else out.unknown.push(t); continue; }
-      out.unknown.push(t);
+      // a name written as one phrase (the owner, 1 Nov: «شنطة جلد عليا رسمة زهور ب 1500ج مقاسها 40x50»): the price, the size and a
+      // material word are read out of it — the price and the size leave the name, the material word stays in it
+      const name = inline(t);
+      if (/[A-Za-z]/.test(name.text) && !/[\u0600-\u06FF]/.test(name.text)) { if (!out.nameEn) out.nameEn = name.text; else out.unknown.push(name.text); continue; }
+      if (/[\u0600-\u06FF]/.test(name.text)) { if (!out.nameAr) out.nameAr = name.text; else out.unknown.push(name.text); continue; }
+      if (name.text) out.unknown.push(name.text);
     }
     out.key = (out.nameEn || out.nameAr) ? (out.nameEn.toLowerCase() + '|' + out.nameAr) : base.toLowerCase();
     return out;

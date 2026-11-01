@@ -759,14 +759,18 @@
   }
   function step6() {
     const L = items(); const n = S.state.imgCount || 4; const rows = []; const I = IM(); const can = canImgAI();
+    let cleaned = false;
     L.forEach((it) => {
       it.slots = Array.isArray(it.slots) ? it.slots : [];
-      if (!it.slots[0] && it.main && !it.mainUsed) { it.slots[0] = it.main; it.mainUsed = true; }
+      // the owner (1 Nov): the photo that came in is the reference only — never a product image by itself; slot 1 (the site's main
+      // image) is the first generated / fetched one. A batch from before, where the intake photo sat in slot 1, is cleaned here.
+      if (it.main && it.slots.some((p) => p === it.main)) { it.slots = it.slots.map((p) => (p === it.main ? null : p)); delete it.mainUsed; cleaned = true; }
       const cnt = it.slots.slice(0, n).filter(Boolean).length; const ai = Object.keys(it.imgAI || {}).filter((k) => slotGet(it, /^c/.test(k) ? { color: k.slice(1) } : Number(k))).length;
       rows.push({ cls: cnt ? null : 'row-err', cells: [selBox(it), PCell(it, [cnt + ' من ' + n + ' صور', ai ? ai + ' بالـ AI — راجعها' : null, !it.main ? 'من غير صورة مرجعية' : null]), h('div', { class: 'ref-cell' }, Thumb(it.main, 'st-big'), h('small', { class: 't-small help' }, 'المرجعية'), Button({ size: 'sm', type: 'text', label: 'البرومبتات', attrs: { 'data-prompts-open': String(L.indexOf(it)) }, onClick: () => promptsModal(it) })),
         h('div', { class: 'slots gen-slots' }, Array.from({ length: n }, (_, k) => slotView(it, k, (k + 1) + ' · ' + SLOT_L[k])))] });
       if (isVar()) it.colors.forEach((c) => rows.push({ cls: 'row-sub', cells: [null, h('span', { class: 'sub-name' }, '↳ ' + colorLabel(c)), null, h('div', { class: 'slots' }, slotView(it, { color: c }, 'صورة اللون'))] }));
     });
+    if (cleaned) touch();
     const imgs = L.reduce((s, it) => s + it.slots.slice(0, n).filter(Boolean).length, 0);
     const missing = missingJobs(L); const missingSel = missingJobs(sel()); const noRef = L.filter((it) => !it.main).length;
     const run = S.imgRun;
@@ -778,8 +782,8 @@
         h('div', { class: 'chips slot-rules' }, h('span', { class: 't-small help' }, 'الخانات:'), PD.SLOTS.map((s, k) => Tag('neutral', (k + 1) + ' · ' + s + ': ' + PD.SLOT_HINT[k])))),
       can ? BulkBar([Button({ type: 'primary', size: 'sm', icon: 'sparkle', label: 'ولّد الناقص للمحدد', disabled: !!run || !missingSel.length, onClick: () => genSlots(missingSel, 'ولّد الناقص للمحدد') })]) : null,
       h('section', { class: 'card sec' }, h('div', { class: 'sec-b' }, STable([{ l: allBox(L), w: 48 }, { l: 'المنتج', w: 220 }, { l: 'المرجعية', w: 120 }, { l: 'صور المنتج (بتترفع على الموقع بالترتيب ده)' }], rows, 'الصور'))),
-      U.InlineNote({ children: 'الصورة الأساسية من الاستلام اتحطت في الخانة 1 — بدّلها لو عايز. الصور بتتحول JPG وتترفع على مكتبة وسائط ووردبريس وقت الرفع.' + (can ? ' «ولّد» بيعمل صورة الخانة بالـ AI من الصورة المرجعية وبيانات المنتج وعليها «AI» — راجعها؛ اسحب صورة على خانة تانية تبدّلهم؛ اضغط على الصورة تعدّلها بالـ AI أو ترجع لنسخة قديمة.' : '') + (noRef ? ' ' + noRef + ' منتج من غير صورة مرجعية — ارفعها في «الاستلام» عشان الـ AI يشتغل عليه.' : '') }),
-      WizFoot(L.every((it) => it.slots.slice(0, n).some(Boolean)) && !run, run ? 'استنى الصور تخلص' : 'كل منتج محتاج صورة واحدة على الأقل')];
+      U.InlineNote({ children: 'صورة الاستلام مرجعية بس (للـ AI وMagnific) — الصورة الأساسية على الموقع هي الخانة 1: أول صورة اتولّدت أو جت من Magnific. منتج من غير أي صورة مولّدة بيترفع بصورة الاستلام نفسها. الصور بتترفع على مكتبة وسائط ووردبريس وقت الرفع.' + (can ? ' «ولّد» بيعمل صورة الخانة بالـ AI من الصورة المرجعية وبيانات المنتج وعليها «AI» — راجعها؛ اسحب صورة على خانة تانية تبدّلهم؛ اضغط على الصورة تعدّلها بالـ AI أو ترجع لنسخة قديمة.' : '') + (noRef ? ' ' + noRef + ' منتج من غير صورة مرجعية — ارفعها في «الاستلام» عشان الـ AI يشتغل عليه.' : '') }),
+      WizFoot(L.every((it) => it.slots.slice(0, n).some(Boolean) || it.main) && !run, run ? 'استنى الصور تخلص' : 'كل منتج محتاج صورة واحدة على الأقل (مولّدة أو مرجعية)')];
   }
 
   // ---------------- 7 الأقسام والأوصاف ----------------
@@ -898,7 +902,7 @@
       const r = await ST().takeSerials(need.length); if (!r.ok) { K.toast('مقدرناش نحجز المسلسل — ' + reasonOf(r.reason), 'error'); return; }
       need.forEach((it, k) => { it.serial = r.first + k; });
     }
-    L.forEach((it) => { it.images = it.slots.slice(0, n).filter(Boolean);
+    L.forEach((it) => { it.images = it.slots.slice(0, n).filter(Boolean); if (!it.images.length && it.main) it.images = [it.main]; // no generated image at all: the intake photo alone
       if (!isVar()) { const p = priceOf(it.vendorPrice, ensureMarkup(it)); it.sale = p ? p.sale : null; it.regular = p ? p.regular : null; }
       else it.variations.forEach((v) => { const p = priceOf(v.vendorPrice, ensureMarkup(v)); v.sale = p ? p.sale : null; v.regular = p ? p.regular : null; v.image = v.color ? (it.colorImages || {})[v.color] || null : null; }); });
     await touch(true);

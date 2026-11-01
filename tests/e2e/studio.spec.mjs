@@ -579,9 +579,9 @@ test('decision 13 — a category not in the library: «+ فئة جديدة…» 
   await page.locator('[data-share]').click();
   await expect(page.locator('.toast.show')).toContainText('اترفعت 1 صورة');
   await page.locator('#flow-cat').click(); await page.getByRole('option', { name: '+ فئة جديدة…' }).click();
-  await page.fill('#name', 'x'); await page.getByRole('button', { name: 'اختار الفئة' }).click();
+  await page.fill('#catName', 'x'); await page.getByRole('button', { name: 'اختار الفئة' }).click();
   await expect(page.locator('.modal .err, .modal [aria-invalid=true]').first()).toBeVisible(); // too short
-  await page.fill('#name', 'مزهرية'); await page.getByRole('button', { name: 'اختار الفئة' }).click();
+  await page.fill('#catName', 'مزهرية'); await page.getByRole('button', { name: 'اختار الفئة' }).click();
   await expect(page.locator('#flow-cat')).toContainText('مزهرية (جديدة — البرومبتات بالـ AI)');
   await page.locator('[data-flow]').click();
   await expect(page.locator('.toast.show')).toContainText('اتعمل فلو «مزهرية» بـ 1 صورة وبرومبتات الفئة');
@@ -595,7 +595,7 @@ test('decision 13 — a category not in the library: «+ فئة جديدة…» 
   await page.keyboard.press('Escape');
   // the AI not configured: no flow is made, the message says so
   await page.locator('#flow-cat').click(); await page.getByRole('option', { name: '+ فئة جديدة…' }).click();
-  await page.fill('#name', 'طاولة'); await page.getByRole('button', { name: 'اختار الفئة' }).click();
+  await page.fill('#catName', 'طاولة'); await page.getByRole('button', { name: 'اختار الفئة' }).click();
   mock.aiFail = 'not_configured';
   await page.locator('[data-flow]').click();
   await expect(page.locator('.toast.show')).toContainText('الـ AI لسه مش متوصّل');

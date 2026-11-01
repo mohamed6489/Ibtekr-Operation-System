@@ -12,6 +12,9 @@ begin
       execute format('create role %I nologin', r);
     end if;
   end loop;
+  -- like Supabase's own service_role: it bypasses RLS (a table with RLS on and no policy is still the server's to read —
+  -- rls_magnific_bridge reads magnific_oauth_states as service_role)
+  alter role service_role bypassrls;
 end $$;
 
 create schema if not exists auth;

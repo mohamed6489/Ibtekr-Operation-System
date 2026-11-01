@@ -166,21 +166,25 @@
   async function imports() {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     try {
-      const { data, error } = await cl.from('image_imports').select('id, created_at, created_by, source, folder, label, product_id, urls, status, paths, error')
+      const { data, error } = await cl.from('image_imports').select('id, created_at, created_by, source, folder, label, product_id, urls, status, paths, error, target, items, batch_type, batch_id')
         .in('status', ['pending', 'partial', 'error']).order('created_at', { ascending: false }).limit(50);
       if (error) return { ok: false, reason: error.code === '42501' ? 'forbidden' : 'network' };
       return { ok: true, rows: (data || []).map((x) => ({ id: x.id, at: x.created_at, by: x.created_by || null, source: x.source || 'magnific', folder: x.folder || '', label: x.label || '', productId: x.product_id || null,
-        count: Array.isArray(x.urls) ? x.urls.length : 0, done: Array.isArray(x.paths) ? x.paths.filter((p) => typeof p === 'string').length : 0, status: x.status || 'pending', error: x.error || null })) };
+        count: Array.isArray(x.urls) ? x.urls.length : 0, done: Array.isArray(x.paths) ? x.paths.filter((p) => typeof p === 'string').length : 0, status: x.status || 'pending', error: x.error || null,
+        target: x.target === 'studio' ? 'studio' : 'tool', items: Array.isArray(x.items) ? x.items.length : 0, batchType: x.batch_type === 'Variable' ? 'Variable' : 'Simple', batchId: x.batch_id || null })) };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
-  // one queued set → the server fetches its links into the member's folder (0 credits) → WebP where the browser can → like create's
-  // answer + imported / failed / status; reason 'done' when the set was imported before
+  // one queued set → the server fetches its links (0 credits): target tool → the member's folder, WebP where the browser can,
+  // like create's answer; target studio (decision 9) → a studio batch with the photos as they came (the studio's references stay
+  // JPG / PNG for the provider) + batchId; both + imported / failed / status; reason 'done' when the set was imported before
   async function importRun(id) {
     const r = await invoke({ action: 'import', id: Number(id) });
     if (!r.ok) return r;
-    const out = await webpAll(answer(r.body));
+    const studio = r.body.target === 'studio';
+    const out = studio ? answer(r.body) : await webpAll(answer(r.body));
+    out.target = studio ? 'studio' : 'tool'; out.batchId = studio && typeof r.body.batch_id === 'string' ? r.body.batch_id : null; out.items = Number(r.body.items) || 0;
     out.imported = Number(r.body.imported) || 0; out.failed = Number(r.body.failed) || 0; out.status = typeof r.body.status === 'string' ? r.body.status : 'ok';
-    log(['import', '#' + Number(id), out.imported + ' images'].concat(out.failed ? [out.failed + ' failed'] : []).join(' · '), 'image_imports', id);
+    log(['import', '#' + Number(id), out.target, out.imported + ' images'].concat(out.failed ? [out.failed + ' failed'] : [], studio ? [out.items + ' items'] : []).join(' · '), studio ? 'studio_batches' : 'image_imports', studio ? out.batchId : id);
     return out;
   }
   // the admin: the shape (keys only) of the provider's account answer, to pin the API layer (T2)

@@ -477,6 +477,14 @@ test('decision 10 — «صور بس»: the photos alone, each file\'s name carry
   await expect.poll(() => mock.studioBatches[0].state.items.map((it) => [it.nameEn, it.nameAr, it.vendorPrice, it.colors, it.sizes, it.material, !!it.main, it.refs.length])).toEqual([['Boho Cushion', 'مخدة بوهيمي', 350, ['BE'], ['45×45'], 'Cotton', true, 1], ['Stripe Pillow', 'مخدة مخططة', 280, ['BK'], [], '', true, 0]]);
   expect(mock.studioBatches[0].state.mode).toBe('photos');
   expect([...mock.studioObjects.keys()].map((k) => k.replace(/-[a-z0-9]+\.jpg$/, ''))).toEqual([SB + '/row1-main', SB + '/row1-ref', SB + '/row2-main']);
+  // decision 10 (b): «ابعت الصور لـ Magnific» signs the two main photos into image_shares (pending) under the products' names; again → nothing new
+  await page.locator('[data-share]').click();
+  await expect(page.locator('.toast, [role=status]').last()).toContainText('اتحضّرت 2 صورة');
+  expect(mock.shareCalls).toEqual([{ by: OPS, batch_id: SB, shared: 2, skipped: 0 }]);
+  expect(mock.imageShares.map((x) => [x.batch_id, x.item_index, x.name, x.status, x.url.startsWith('https://')])).toEqual([[SB, 0, 'Boho Cushion.jpg', 'pending', true], [SB, 1, 'Stripe Pillow.jpg', 'pending', true]]);
+  await expect(page.locator('[data-share-state]')).toHaveText('0 مبعوتة · 2 مستنية الرفع');
+  await page.locator('[data-share]').click();
+  await expect(page.locator('.toast, [role=status]').last()).toContainText('مفيش صور جديدة تتبعت');
   await next(page, 'التالي: البيانات و SKU');
   await expect(page).toHaveURL(new RegExp('#products-studio-' + SB + '-3$'));
   await expect(page.locator('#pg-products')).toContainText('مخدة بوهيمي');

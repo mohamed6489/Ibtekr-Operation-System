@@ -293,7 +293,7 @@ export async function installSupabaseMock(page, opts = {}) {
   // aal2_required whatever the token (a server that does not take the flag).
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
-  const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, imgCalls: [], webpCalls: [], importCalls: [], imageImports: [], imgFail: null, imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
+  const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, imgCalls: [], webpCalls: [], importCalls: [], imageImports: [], shareCalls: [], imageShares: [], imgFail: null, imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
     profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [] };
@@ -525,6 +525,16 @@ export async function installSupabaseMock(page, opts = {}) {
         const f = readFilters(url.searchParams, 'image_imports'); if (f.bad) return json(400, { code: 'PGRST100', details: null, hint: null, message: 'unexpected filter ' + f.bad });
         const lim = Number(url.searchParams.get('limit')) || 1000;
         const rows = mock.imageImports.filter((x) => (isAdmin(u) || x.created_by === u.id) && f.match(x)).sort((x, y) => (x.created_at < y.created_at ? 1 : -1)).slice(0, lim);
+        return json(200, rows.map((x) => (cols.includes('*') ? { ...x } : Object.fromEntries(cols.map((c) => [c, x[c] === undefined ? null : x[c]])))));
+      }
+      // phase 5.4 decision 10 (b) (0028): image_shares — select only: the member's own rows, the admin's all; eq. batch_id
+      if (path === '/rest/v1/image_shares') {
+        if (method !== 'GET') return json(403, { code: '42501', details: null, hint: null, message: 'permission denied for table image_shares' });
+        const COLS = ['id', 'created_at', 'created_by', 'batch_id', 'item_index', 'item_key', 'name', 'path', 'url', 'expires_at', 'status', 'creation_ref', 'error', 'sent_at'];
+        const cols = String(url.searchParams.get('select') || '*').split(',').map((x) => x.trim());
+        const badCol = cols.find((x) => x !== '*' && !COLS.includes(x)); if (badCol) return json(400, { code: '42703', details: null, hint: null, message: `column image_shares.${badCol} does not exist` });
+        const f = readFilters(url.searchParams, 'image_shares'); if (f.bad) return json(400, { code: 'PGRST100', details: null, hint: null, message: 'unexpected filter ' + f.bad });
+        const rows = mock.imageShares.filter((x) => (isAdmin(u) || x.created_by === u.id) && f.match(x)).sort((x, y) => (x.created_at < y.created_at ? 1 : -1));
         return json(200, rows.map((x) => (cols.includes('*') ? { ...x } : Object.fromEntries(cols.map((c) => [c, x[c] === undefined ? null : x[c]])))));
       }
       // ai_month_credits (0025): this Cairo month's image credits of the rows the member reads (RLS: own rows, the admin's all)
@@ -1066,7 +1076,21 @@ export async function installSupabaseMock(page, opts = {}) {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
       if (!u) return json(401, { error: 'unauthorized' });
       const add = isAdmin(u) || hasPerm(u, 'products.add') === 'F'; const edit = isAdmin(u) || hasPerm(u, 'products.edit') === 'F';
-      if (!['generate', 'edit', 'create', 'probe', 'webp', 'import'].includes(action)) return json(400, { error: 'unknown_action' });
+      if (!['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share'].includes(action)) return json(400, { error: 'unknown_action' });
+      if (action === 'share') {
+        // decision 10 (b): the batch's product photos (main, not shared yet) → image_shares rows (pending, a week's link, the
+        // product's name as the file name) for the bridge; products.add and the member's own batch (the admin any)
+        if (!add) return json(401, { error: 'unauthorized' });
+        const bid = typeof b.batch_id === 'string' && /^[0-9a-f-]{36}$/i.test(b.batch_id) ? b.batch_id : null; if (!bid) return json(400, { error: 'bad_request', field: 'batch_id' });
+        const batch = mock.studioBatches.find((x) => x.id === bid && !x.archived_at); if (!batch) return json(404, { error: 'not_found' });
+        if (!isAdmin(u) && batch.created_by && batch.created_by !== u.id) return json(401, { error: 'unauthorized' });
+        const only = Array.isArray(b.indexes) ? new Set(b.indexes) : null; const had = new Set(mock.imageShares.filter((x) => x.batch_id === bid && x.status !== 'error').map((x) => x.path));
+        let shared = 0, skipped = 0;
+        (batch.state.items || []).forEach((it, i) => { if (only && !only.has(i)) return; const path = typeof it.main === 'string' && studioPathOk(bid, it.main) ? it.main : null; if (!path || had.has(path) || !mock.studioObjects.has(path)) { skipped++; return; }
+          mock.imageShares.push({ id: mock.imageShares.length + 1, created_at: new Date().toISOString(), created_by: u.id, batch_id: bid, item_index: i, item_key: it.key || null, name: (it.nameEn || it.nameAr || 'product-' + (i + 1)) + '.' + path.split('.').pop(), path, url: 'https://signed.mock/studio/' + path + '?token=share', expires_at: new Date(Date.now() + 7 * 86400000).toISOString(), status: 'pending', creation_ref: null, error: null, sent_at: null }); shared++; });
+        mock.shareCalls.push({ by: u.email, batch_id: bid, shared, skipped });
+        return json(200, { result: 'ok', batch_id: bid, shared, skipped });
+      }
       if (action === 'import') {
         // decision 8: a queued Magnific set — the row's owner (or the admin) with the tool permission; https links on
         // pikaso.cdnpk.net land as PNG under the importing member (the browser turns them WebP), any other link fails (null path);
@@ -1076,8 +1100,27 @@ export async function installSupabaseMock(page, opts = {}) {
         const row = mock.imageImports.find((x) => x.id === id); if (!row) return json(404, { error: 'not_found' });
         if (!isAdmin(u) && row.created_by !== u.id) return json(401, { error: 'unauthorized' });
         if (row.status === 'ok') return json(409, { error: 'done' });
-        mock.importCalls.push({ by: u.email, id, target: row.target === 'studio' ? 'studio' : 'tool' });
+        mock.importCalls.push({ by: u.email, id, target: row.target === 'studio' || row.target === 'batch' ? row.target : 'tool' });
         const stamp = Date.now().toString(36) + (++mock.imgSeq);
+        if (row.target === 'batch') {
+          // decision 10 (c): the site's results into the product slots of the batch they were made for (empty slots in order)
+          if (!add) return json(401, { error: 'unauthorized' });
+          const batch = mock.studioBatches.find((x) => x.id === row.batch_id && !x.archived_at); if (!batch) return json(404, { error: 'not_found' });
+          if (!isAdmin(u) && batch.created_by && batch.created_by !== u.id) return json(401, { error: 'unauthorized' });
+          const items = batch.state.items || []; const urls = row.urls || []; const paths = Array.isArray(row.paths) ? row.paths.slice() : urls.map(() => null); let placed = 0;
+          const okUrl = (link) => { try { const x = new URL(link); return x.protocol === 'https:' && x.hostname === 'pikaso.cdnpk.net'; } catch (e) { return false; } };
+          (Array.isArray(row.items) ? row.items : []).forEach((q) => { const it = items[q.index]; if (!it) return; it.slots = Array.isArray(it.slots) ? it.slots : [];
+            (Array.isArray(q.images) ? q.images : []).filter((n) => Number.isInteger(n) && n >= 0 && n < urls.length).forEach((n) => {
+              if (!paths[n]) { if (!okUrl(urls[n])) return; const k = batch.id + '/gen-' + q.index + '-imp-' + stamp + '-' + (n + 1) + '.png'; mock.studioObjects.set(k, { type: 'image/png', size: PNG_1PX.length, by: 'import' }); paths[n] = k; }
+              if (it.slots.includes(paths[n])) return; let k2 = 0; while (k2 < it.slots.length && it.slots[k2]) k2++; it.slots[k2] = paths[n]; placed++; }); });
+          batch.updated_at = new Date().toISOString();
+          const done = paths.filter(Boolean); const status = done.length === paths.length ? 'ok' : done.length ? 'partial' : 'error';
+          const run = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action: 'image', source: 'import', label: row.label || 'وارد', product_id: null, batch_id: batch.id, item_index: null, model: null, credits: 0, cost_usd: 0, status: done.length ? 'ok' : 'error', error: done.length ? null : 'import_failed', output: { paths: done, bucket: 'studio', import_id: id, failed: paths.length - done.length, placed } };
+          mock.aiRuns.push(run);
+          Object.assign(row, { status, paths, error: done.length ? null : 'import_failed', run_id: run.id, done_at: status === 'ok' ? new Date().toISOString() : null });
+          if (!done.length) return json(502, { error: 'ai_error' });
+          return json(200, { result: 'ok', target: 'batch', bucket: 'studio', batch_id: batch.id, path: done[0], paths: done, credits: 0, model: '', run_id: run.id, imported: done.length, failed: paths.length - done.length, status, placed });
+        }
         if (row.target === 'studio') {
           // decision 9: the set becomes a studio batch (products.add): the brand / maker / type as queued, the items from the
           // queued details (colors by code from sku_colors, Variable → colors × sizes), the photos under the batch in bucket studio

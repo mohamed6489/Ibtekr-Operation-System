@@ -211,3 +211,31 @@ test('decision 9 — a Magnific set queued for the studio (its items read from t
   await expect(page.locator('#pg-products')).toContainText('متطابق ✓'); // Boho Cushion with its photo
   await expect(page.locator('#pg-products')).toContainText('ناقص صورة'); // Stripe Pillow: its link failed
 });
+
+test('decision 10 (c) — the site\'s results back into the batch they were made for: «استورد للدفعة» puts them in the products\' empty image slots (no credits, no WebP), «افتح الدفعة» lands on the images step with them', async ({ page }) => {
+  const SB = '0b6f2f5e-1d2c-4a8b-9e3f-000000000077';
+  mock.studioObjects.set(SB + '/row1-main-x.jpg', { type: 'image/jpeg', size: 10 }); mock.studioObjects.set(SB + '/row2-main-x.jpg', { type: 'image/jpeg', size: 10 });
+  mock.studioBatches.unshift({ id: SB, title: 'Art Craft — Simple · 2026-11-01', brand_id: mock.brands[0].id, vendor_id: null, type: 'Simple', step: 6, status: 'draft', result: null, created_by: OPS_ID, updated_at: '2026-11-01T07:00:00.000Z', archived_at: null,
+    state: { v: 1, type: 'Simple', vary: ['color'], mode: 'photos', brandId: mock.brands[0].id, brandName: 'Art Craft', vendorId: null, vendorName: '', rate: 30, fee: null, sheet: null, imgCount: 4,
+      items: [{ key: 'k1', nameEn: 'Boho Cushion', nameAr: 'مخدة بوهيمي', vendorPrice: 350, colors: ['BE'], unknownColors: [], sizes: [], material: 'Cotton', style: '', weight: '', stock: null, onDemand: false, shortDesc: '', shortDescAr: '', categories: [], main: SB + '/row1-main-x.jpg', refs: [], slots: [SB + '/row1-main-x.jpg'], colorImages: {}, variations: [], sheetVariations: null },
+        { key: 'k2', nameEn: 'Stripe Pillow', nameAr: 'مخدة مخططة', vendorPrice: 280, colors: ['BK'], unknownColors: [], sizes: [], material: '', style: '', weight: '', stock: null, onDemand: false, shortDesc: '', shortDescAr: '', categories: [], main: SB + '/row2-main-x.jpg', refs: [], slots: [], colorImages: {}, variations: [], sheetVariations: null }] } });
+  mock.imageImports.push({ id: 5, created_at: '2026-11-01T08:00:00.000Z', created_by: OPS_ID, source: 'magnific', folder: 'ابتكر', label: 'نتائج Magnific — Art Craft', product_id: null,
+    urls: ['https://pikaso.cdnpk.net/private/production/1/r1.jpg?token=t', 'https://pikaso.cdnpk.net/private/production/1/r2.jpg?token=t', 'https://pikaso.cdnpk.net/private/production/1/r3.jpg?token=t'], refs: ['R1', 'R2', 'R3'], status: 'pending', paths: null, error: null, run_id: null, done_at: null,
+    target: 'batch', items: [{ index: 0, images: [0, 1] }, { index: 1, images: [2] }], brand_id: null, vendor_id: null, batch_type: 'Simple', batch_id: SB });
+  await openProducts(page);
+  await openTool(page);
+  await expect(page.locator('#pg-products')).toContainText('دفعة موجودة — 2 منتج');
+  await page.locator('[data-igimport="5"]').click();
+  await expect(page.locator('.toast, [role=status]').last()).toContainText('اتحطت 3 صورة في خانات منتجات الدفعة');
+  expect(mock.importCalls).toEqual([{ by: OPS, id: 5, target: 'batch' }]);
+  expect(mock.webpCalls).toEqual([]);
+  const batch = mock.studioBatches.find((b) => b.id === SB);
+  expect(batch.state.items[0].slots.length).toBe(3); expect(batch.state.items[0].slots[0]).toBe(SB + '/row1-main-x.jpg');
+  expect(batch.state.items[0].slots.slice(1).map((k) => k.replace(/-[a-z0-9]+-(\d)\.png$/, '-$1'))).toEqual([SB + '/gen-0-imp-1', SB + '/gen-0-imp-2']);
+  expect(batch.state.items[1].slots.map((k) => k.replace(/-[a-z0-9]+-(\d)\.png$/, '-$1'))).toEqual([SB + '/gen-1-imp-3']);
+  expect([mock.imageImports.at(-1).status, mock.aiRuns.at(-1).source, mock.aiRuns.at(-1).output.placed]).toEqual(['ok', 'import', 3]);
+  // «افتح الدفعة» → the images step, the slots filled
+  await page.locator('[data-igbatch]').click();
+  await expect(page).toHaveURL(new RegExp('#products-studio-' + SB + '-6$'));
+  await expect(page.locator('#pg-products .tot-bar')).toContainText('4 من 8');
+});

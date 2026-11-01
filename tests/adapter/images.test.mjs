@@ -194,7 +194,7 @@ test('decision 8 — the Magnific import queue: imports() reads the sets still t
   assert.deepEqual(plain(r), { ok: true, rows: [{ id: 7, at: '2026-11-01T06:00:00Z', by: ME, source: 'magnific', folder: 'ابتكر', label: 'Cushion set', productId: 4001, count: 2, done: 1, status: 'partial', error: null, target: 'tool', items: 0, batchType: 'Simple', batchId: null }] });
   assert.deepEqual(opsOf(stub.calls, 'image_imports').map((c) => [c.op, ...(c.args || [])]), [['select', 'id, created_at, created_by, source, folder, label, product_id, urls, status, paths, error, target, items, batch_type, batch_id'], ['in', 'status', ['pending', 'partial', 'error']], ['order', 'created_at', { ascending: false }], ['limit', 50]]);
   const out = await I.importRun(7);
-  assert.deepEqual(plain(out), { ok: true, result: 'ok', bucket: 'ai-images', path: ME + '/imp-1-1.webp', paths: [ME + '/imp-1-1.webp', ME + '/imp-1-2.webp'], credits: 0, model: '', runId: 12, target: 'tool', batchId: null, items: 0, imported: 2, failed: 0, status: 'ok' });
+  assert.deepEqual(plain(out), { ok: true, result: 'ok', bucket: 'ai-images', path: ME + '/imp-1-1.webp', paths: [ME + '/imp-1-1.webp', ME + '/imp-1-2.webp'], credits: 0, model: '', runId: 12, target: 'tool', batchId: null, items: 0, placed: 0, imported: 2, failed: 0, status: 'ok' });
   assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'import', id: 7 });
   assert.deepEqual(plain(logs.at(-1)), ['product.ai.image', 'import · #7 · tool · 2 images', { entity: 'image_imports', entity_id: '7' }]);
   const done = load({ responses: { 'fn:ai-images': fail(409, { error: 'done' }) } });
@@ -212,4 +212,21 @@ test('decision 9 — a studio-target set: imports() carries the target, the item
   assert.deepEqual([out.ok, out.target, out.batchId, out.items, out.imported, out.paths, chrome.made.length], [true, 'studio', BATCH, 2, 1, [BATCH + '/row1-main-x.jpg'], 0]);
   assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').map((c) => c.args[1].body.action), ['import'], 'no webp call for a studio set');
   assert.deepEqual(plain(logs.at(-1)), ['product.ai.image', 'import · #8 · studio · 1 images · 2 items', { entity: 'studio_batches', entity_id: BATCH }]);
+});
+
+test('decision 10 — share(batchId) sends the batch to the server (logged with the counts only); shares(batchId) reads the rows by batch with the pending / sent counts; a batch-target import answers the batch and the placed count and skips the WebP step', async () => {
+  const BATCH = '0b6f2f5e-1d2c-4a8b-9e3f-000000000009';
+  const rows = [{ id: 1, item_index: 0, name: 'Mug.jpg', path: BATCH + '/row1-main-a.jpg', status: 'sent', creation_ref: 'AbC', created_at: '2026-11-01T07:00:00Z', sent_at: '2026-11-01T07:30:00Z' }, { id: 2, item_index: 1, name: 'Tray.jpg', path: BATCH + '/row2-main-a.jpg', status: 'pending', creation_ref: null, created_at: '2026-11-01T07:00:00Z', sent_at: null }];
+  const chrome = browser('image/webp');
+  const { I, stub, logs } = load({ globals: chrome.globals, responses: { image_shares: { data: rows, error: null }, 'fn:ai-images': ({ body }) => (body.action === 'share' ? { data: { result: 'ok', batch_id: BATCH, shared: 2, skipped: 1 }, error: null }
+    : { data: { result: 'ok', target: 'batch', bucket: 'studio', batch_id: BATCH, path: BATCH + '/gen-0-imp-x-1.jpg', paths: [BATCH + '/gen-0-imp-x-1.jpg'], credits: 0, model: '', run_id: 14, imported: 1, failed: 0, status: 'ok', placed: 1 }, error: null }) } });
+  assert.deepEqual(plain(await I.share(BATCH)), { ok: true, shared: 2, skipped: 1 });
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'share', batch_id: BATCH });
+  assert.deepEqual(plain(logs.at(-1)), ['product.ai.image', 'share · 2 photos · 1 skipped', { entity: 'studio_batches', entity_id: BATCH }]);
+  const sh = await I.shares(BATCH);
+  assert.deepEqual([sh.ok, sh.pending, sh.sent, sh.failed, sh.rows.map((x) => [x.index, x.name, x.status, x.ref])], [true, 1, 1, 0, [[0, 'Mug.jpg', 'sent', 'AbC'], [1, 'Tray.jpg', 'pending', null]]]);
+  assert.deepEqual(opsOf(stub.calls, 'image_shares').map((c) => [c.op, ...(c.args || [])]), [['select', 'id, item_index, name, path, status, creation_ref, created_at, sent_at'], ['eq', 'batch_id', BATCH], ['order', 'created_at', { ascending: false }], ['limit', 500]]);
+  const out = await I.importRun(9);
+  assert.deepEqual([out.target, out.batchId, out.placed, out.paths, chrome.made.length], ['batch', BATCH, 1, [BATCH + '/gen-0-imp-x-1.jpg'], 0]);
+  assert.deepEqual(plain(logs.at(-1)), ['product.ai.image', 'import · #9 · batch · 1 images · 1 placed', { entity: 'studio_batches', entity_id: BATCH }]);
 });

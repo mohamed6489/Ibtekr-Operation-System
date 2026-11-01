@@ -116,7 +116,8 @@
     (`creations_upload_image` بالاسم) ويسجّل معرّف الإبداع على الصف. (ج) **رجوع النتائج لنفس الدفعة:** الجسر بيربط كل نتيجة على
     الموقع بالصورة الأصلية اللي اتولّدت منها (`creations_lineage` / `family`) → صف `image_imports` بـ `target = 'batch'` +
     `batch_id` + `items: [{ index, images }]` → `import` بتحط الصور في خانات المنتج (`slots`) في الدفعة نفسها (الخطوة 6)، من غير
-    تسمية على Magnific. (أ) اتنفذ 1 نوفمبر؛ (ب) و(ج) بعده.
+    تسمية على Magnific. اتنفذوا التلاتة 1 نوفمبر (`0028`: `image_shares` + `target = 'batch'`؛ `ai-images` v11: action `share`
+    و`importBatch`).
 
 ## الأسئلة لصاحب المشروع
 
@@ -148,4 +149,5 @@
   الاستوديو في `ai-images` (v10)، `IBImages.imports`/`importRun` بالوجهة، كارت الأداة بـ «استورد للاستوديو» و«افتح الدفعة»، الـ mock
   والاختبارات (Deno / node / e2e / RLS)، وطريقة تسمية الصور في `tools/deploy.md` §2.7.13.
 - **T12 — قرار 10 (1 نوفمبر):** (أ) «صور بس» (`PD.photoName` + `step2Photos` + `dropNamedPhotos` + اختبارات domain وe2e) ✓؛ (ب) `image_shares`
-  + action `share` + زرار «ابعت الصور لـ Magnific» + الجسر؛ (ج) `import` بوجهة `batch` لخانات المنتج.
+  + action `share` + زرار «ابعت الصور لـ Magnific» (الاستلام وخطوة الصور) + `IBImages.share`/`shares` + الجسر ✓؛ (ج) `import` بوجهة `batch`
+  لخانات المنتج + «استورد للدفعة» ✓ — `rls_image_shares`، Deno (18)، node، e2e.

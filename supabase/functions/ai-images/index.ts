@@ -21,6 +21,11 @@
 //              limit) fetched and stored under the importing member in bucket ai-images, one ai_runs row (source 'import', 0
 //              credits), the queue row ok / partial / error with the paths → { result: 'ok', bucket, paths, imported, failed }.
 //              The row's owner or the admin; a partial set is finished on the next call, an ok one answers 409 done.
+//              target 'studio' (decision 9) makes a studio batch of the queued items; target 'batch' (decision 10 c) puts the
+//              images into the product slots of an existing batch (items: [{ index, images }]).
+//   'share'    (decision 10 b: «ابعت الصور لـ Magnific», products.add) { batch_id, indexes? } → one image_shares row per product
+//              photo not shared yet (a signed link of a week, the product's name as the file name) for the bridge to upload to the
+//              site's project → { result: 'ok', shared, skipped }.
 // Every call is reserved first, in one locked step in the database (ai_image_run_start, 0025: the member's throttle; the images'
 // monthly cap in credits — settings «ai».image_monthly_credits against this Cairo month's image rows, pending ones at their planned
 // credits — over it → 402 ai_cap and a cap row; else a pending row holding the planned credits), and the row then holds the
@@ -46,7 +51,8 @@ export type Deps = {
   provider: Provider; fetch?: typeof fetch;
 };
 
-const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import'];
+const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share'];
+const SHARE_SECONDS = 7 * 24 * 3600; // a shared photo's link lives a week (the bridge uploads it to the site within that)
 const MAX_WEBP_B64 = 14_000_000; // ≈ 10 MB of WebP
 const STUDIO_BUCKET = 'studio';
 const TOOL_BUCKET = 'ai-images';
@@ -387,6 +393,7 @@ async function importSet(deps: Deps, who: Who, args: Json) {
   if (!who.admin && row.created_by !== who.uid) return json(401, { error: 'unauthorized' });
   if (row.status === 'ok') return json(409, { error: 'done' });
   if (row.target === 'studio') return await importStudio(deps, who, row);
+  if (row.target === 'batch') return await importBatch(deps, who, row);
   const urls: unknown[] = Array.isArray(row.urls) ? row.urls.slice(0, MAX_IMPORT) : [];
   const paths: (string | null)[] = Array.isArray(row.paths) ? row.paths.map((p: unknown) => (typeof p === 'string' ? p : null)) : [];
   const st = stamp(deps);
@@ -457,6 +464,81 @@ async function importStudio(deps: Deps, who: Who, row: Json) {
   return json(200, { result: 'ok', target: 'studio', bucket: STUDIO_BUCKET, batch_id: batchId, path: done[0], paths: done, credits: 0, model: '', run_id: runId, imported: stored, failed: urls.length - stored, status, items: items.length });
 }
 
+// decision 10 (c): the site's results back into the batch they were made for — each queued item names the product (index) and
+// its images (places in urls); the images land in the product's empty slots in order (past imgCount they stay saved for a bigger
+// count), never over a slot already filled; the batch must be open and the member's own (the admin any)
+async function importBatch(deps: Deps, who: Who, row: Json) {
+  if (!who.add) return json(401, { error: 'unauthorized' });
+  const batchId = typeof row.batch_id === 'string' ? row.batch_id : null;
+  if (!batchId) return json(400, { error: 'bad_request', field: 'batch_id' });
+  const { data: batch } = await deps.db.from('studio_batches').select('id, state, archived_at, created_by').eq('id', batchId).maybeSingle();
+  if (!isObj(batch) || batch.archived_at) return json(404, { error: 'not_found' });
+  if (!who.admin && batch.created_by && batch.created_by !== who.uid) return json(401, { error: 'unauthorized' });
+  const state: Json = isObj(batch.state) ? batch.state : {};
+  const items: Json[] = Array.isArray(state.items) ? state.items : [];
+  const urls: unknown[] = Array.isArray(row.urls) ? row.urls.slice(0, MAX_IMPORT) : [];
+  const paths: (string | null)[] = Array.isArray(row.paths) ? row.paths.map((p: unknown) => (typeof p === 'string' ? p : null)) : [];
+  const queued: Json[] = Array.isArray(row.items) ? row.items.filter(isObj) : [];
+  const st = stamp(deps);
+  let stored = 0; let placed = 0;
+  for (const q of queued) {
+    const index = Number(q.index); const it = Number.isInteger(index) ? items[index] : null;
+    if (!isObj(it)) continue;
+    const idx = Array.isArray(q.images) ? q.images.filter((n): n is number => Number.isInteger(n) && n >= 0 && n < urls.length) : [];
+    if (!Array.isArray(it.slots)) it.slots = [];
+    for (const n of idx) {
+      if (!paths[n]) {
+        const img = await importOne(deps, urls[n]);
+        const up = img ? await upload(deps.db, STUDIO_BUCKET, `${batchId}/gen-${index}-imp-${st}-${n + 1}.${extOf(img.mime)}`, img) : null;
+        paths[n] = up ? up.path : null;
+        if (!up) continue;
+        stored++;
+      } else stored++;
+      if (it.slots.includes(paths[n])) continue; // placed on an earlier (partial) run
+      let k = 0; while (k < it.slots.length && it.slots[k]) k++;
+      it.slots[k] = paths[n]; placed++;
+    }
+  }
+  await deps.db.from('studio_batches').update({ state: { ...state, items } }).eq('id', batchId);
+  const status = stored === urls.length ? 'ok' : stored ? 'partial' : 'error';
+  const label = line(typeof row.label === 'string' ? row.label : '', 200) || 'وارد';
+  const done = paths.filter((p): p is string => !!p);
+  const { data: run } = await deps.db.from('ai_runs').insert({ created_by: who.uid, action: 'image', source: 'import', label, batch_id: batchId, model: null, status: stored ? 'ok' : 'error', error: stored ? null : 'import_failed', credits: 0, cost_usd: 0, output: { paths: done, bucket: STUDIO_BUCKET, import_id: row.id, failed: urls.length - stored, placed } }).select('id').single();
+  const runId = isObj(run) && Number.isInteger(Number(run.id)) ? Number(run.id) : null;
+  await deps.db.from('image_imports').update({ status, paths, error: stored ? null : 'import_failed', run_id: runId, done_at: status === 'ok' ? deps.now() : null }).eq('id', row.id);
+  if (!stored) return json(502, { error: 'ai_error' });
+  return json(200, { result: 'ok', target: 'batch', bucket: STUDIO_BUCKET, batch_id: batchId, path: done[0], paths: done, credits: 0, model: '', run_id: runId, imported: stored, failed: urls.length - stored, status, placed });
+}
+
+// ---------------------------------------------------------------- share (decision 10 b: the batch's product photos to the Magnific site)
+
+async function share(deps: Deps, who: Who, args: Json) {
+  if (!who.add) return json(401, { error: 'unauthorized' });
+  const batchId = typeof args.batch_id === 'string' && /^[0-9a-f-]{36}$/i.test(args.batch_id) ? args.batch_id : null;
+  if (!batchId) return json(400, { error: 'bad_request', field: 'batch_id' });
+  const { data: batch } = await deps.db.from('studio_batches').select('id, state, archived_at, created_by').eq('id', batchId).maybeSingle();
+  if (!isObj(batch) || batch.archived_at) return json(404, { error: 'not_found' });
+  if (!who.admin && batch.created_by && batch.created_by !== who.uid) return json(401, { error: 'unauthorized' });
+  const items: Json[] = isObj(batch.state) && Array.isArray(batch.state.items) ? batch.state.items : [];
+  const only = Array.isArray(args.indexes) ? new Set(args.indexes.filter((n: unknown) => Number.isInteger(n))) : null;
+  const { data: had } = await deps.db.from('image_shares').select('path, status').eq('batch_id', batchId);
+  const shared = new Set((Array.isArray(had) ? had : []).filter((r: Json) => r.status !== 'error').map((r: Json) => r.path));
+  let made = 0, skipped = 0;
+  for (let i = 0; i < items.length; i++) {
+    const it = items[i]; if (!isObj(it) || (only && !only.has(i))) continue;
+    const path = typeof it.main === 'string' && studioPathOk(batchId, it.main) ? it.main : null;
+    if (!path || shared.has(path)) { skipped++; continue; }
+    const { data: sg } = await deps.db.storage.from(STUDIO_BUCKET).createSignedUrl(path, SHARE_SECONDS);
+    const url = typeof sg?.signedUrl === 'string' && /^https:\/\//.test(sg.signedUrl) ? sg.signedUrl : null;
+    if (!url) { skipped++; continue; }
+    const name = (line(String(it.nameEn || it.nameAr || ''), 200) || 'product-' + (i + 1)) + '.' + (path.split('.').pop() ?? 'jpg');
+    const { error } = await deps.db.from('image_shares').insert({ created_by: who.uid, batch_id: batchId, item_index: i, item_key: typeof it.key === 'string' ? it.key.slice(0, 60) : null, name, path, url, expires_at: new Date(Date.parse(deps.now()) + SHARE_SECONDS * 1000).toISOString(), status: 'pending' });
+    if (error) { skipped++; continue; }
+    made++;
+  }
+  return json(200, { result: 'ok', batch_id: batchId, shared: made, skipped });
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -475,6 +557,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'create') return await create(deps, who, args);
     if (action === 'webp') return await webp(deps, who, args);
     if (action === 'import') return await importSet(deps, who, args);
+    if (action === 'share') return await share(deps, who, args);
     if (!who.admin) return json(401, { error: 'unauthorized' });
     // the probe's outcome is kept as an ai_runs row (label 'probe', 0 credits: configured = the key is set, status = the
     // provider's HTTP status, shape = keys and types only) so the T2 diagnosis can be read from the database — never the key

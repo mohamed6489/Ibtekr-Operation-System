@@ -54,6 +54,8 @@ const COLUMNS: Record<string, string[]> = {
     'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'status', 'error', 'output', 'credits'], // credits: 0025 (phase 5.4)
   // 0026 (phase 5.4 decision 8): the Magnific import queue
   image_imports: ['id', 'created_at', 'created_by', 'source', 'folder', 'label', 'product_id', 'urls', 'refs', 'status', 'paths', 'error', 'run_id', 'done_at', 'target', 'items', 'brand_id', 'vendor_id', 'batch_type', 'batch_id'], // 0027
+  // 0028 (phase 5.4 decision 10 b): the photos sent to the Magnific site
+  image_shares: ['id', 'created_at', 'created_by', 'batch_id', 'item_index', 'item_key', 'name', 'path', 'url', 'expires_at', 'status', 'creation_ref', 'error', 'sent_at'],
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
 };
@@ -66,13 +68,13 @@ const DEFAULTS: Record<string, Row> = {
   vendor_bank: { method: 'bank' },
 };
 const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
-  vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', image_imports: 'int' };
+  vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', image_imports: 'int', image_shares: 'int' };
 const UNIQUE: Record<string, string[][]> = {
   status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
   woo_webhook_events: [['id'], ['delivery_id']], woo_sync_log: [['id']], sync_state: [['key']], woo_states: [['code']],
   vendor_rates: [['id'], ['vendor_id', 'since']], vendor_category_rates: [['id'], ['vendor_id', 'woo_category_id', 'since']], woo_categories: [['id']], activity_log: [['id']],
-  vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']], image_imports: [['id']],
+  vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']], image_imports: [['id']], image_shares: [['id']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],
@@ -86,7 +88,8 @@ const CHECK: Record<string, Record<string, unknown[]>> = {
   woo_webhook_events: { status: ['ok', 'ignored', 'duplicate', 'error'] },
   woo_sync_log: { kind: ['webhook', 'sync', 'push', 'manual', 'cron'], direction: [null, 'in', 'out'], result: ['ok', 'error', 'conflict', 'skipped'] },
   ai_runs: { action: ['write', 'studio', 'image'], source: [null, 'data', 'image', 'product', 'studio', 'tool', 'edit', 'import'], status: ['pending', 'ok', 'refused', 'error', 'cap'] }, // image: 0025, import: 0026 (phase 5.4)
-  image_imports: { source: ['magnific'], status: ['pending', 'ok', 'partial', 'error'], target: [null, 'tool', 'studio'], batch_type: [null, 'Simple', 'Variable'] },
+  image_imports: { source: ['magnific'], status: ['pending', 'ok', 'partial', 'error'], target: [null, 'tool', 'studio', 'batch'], batch_type: [null, 'Simple', 'Variable'] },
+  image_shares: { status: ['pending', 'sent', 'error'] },
 };
 // numeric checks of 0011 / 0014: rate 0–65, flat ≥ 0 (null passes)
 const RANGE: Record<string, Record<string, [number, number]>> = {

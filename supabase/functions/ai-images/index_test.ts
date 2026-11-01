@@ -315,6 +315,46 @@ Deno.test('import target studio (decision 9): the queued items become a studio b
   assertEquals(simple.db.row('image_imports', 12).status, 'ok');
 });
 
+Deno.test('share (decision 10 b): a batch\'s product photos become image_shares rows — a week\'s signed link, the product\'s name as the file name, pending; a photo already shared is skipped; products.add and the member\'s own batch; the chosen indexes only', async () => {
+  const st = { items: [item({ nameEn: 'Kilim Pouf', main: SB + '/row1-main.webp' }), item({ nameEn: '', nameAr: 'مج', main: SB + '/black.webp' }), item({ nameEn: 'No photo', main: null })] };
+  const { deps, db } = setup({ seed: { ...SEED, studio_batches: [batch({ state: st, created_by: U.add })] } });
+  assertEquals((await call(deps, { action: 'share', batch_id: SB }, 'jwt-edit')).res.status, 401);
+  assertEquals((await call(deps, { action: 'share', batch_id: 'nope' })).body.field, 'batch_id');
+  assertEquals((await call(deps, { action: 'share', batch_id: 'ffffffff-1d2c-4a8b-9e3f-1234567890ab' })).res.status, 404);
+  const r = await call(deps, { action: 'share', batch_id: SB });
+  assertEquals([r.res.status, r.body.shared, r.body.skipped], [200, 2, 1], 'the item without a photo is skipped');
+  const rows = db.rows('image_shares');
+  assertEquals(rows.map((x: any) => [x.created_by, x.batch_id, x.item_index, x.name, x.path, x.status, x.creation_ref]), [[U.add, SB, 0, 'Kilim Pouf.webp', SB + '/row1-main.webp', 'pending', null], [U.add, SB, 1, 'مج.webp', SB + '/black.webp', 'pending', null]]);
+  assert(rows[0].url.startsWith('https://signed.test/studio/') && Date.parse(rows[0].expires_at) - Date.parse(NOW) === 7 * 24 * 3600 * 1000, 'a week');
+  assertEquals(db.calls.filter((c: any) => c.op === 'sign').map((c: any) => c.args.seconds), [604800, 604800]);
+  // again: nothing new (already shared); the chosen indexes only on a fresh batch
+  const r2 = await call(deps, { action: 'share', batch_id: SB });
+  assertEquals([r2.body.shared, r2.body.skipped, db.rows('image_shares').length], [0, 3, 2]);
+  const fresh = setup({ seed: { ...SEED, studio_batches: [batch({ state: st })] } });
+  assertEquals((await call(fresh.deps, { action: 'share', batch_id: SB, indexes: [1] })).body, { result: 'ok', batch_id: SB, shared: 1, skipped: 0 });
+});
+
+Deno.test('import target batch (decision 10 c): the site\'s results land in the product\'s empty slots of the batch they were made for (in order, past imgCount kept); a partial set is finished next time without doubling; products.add and the member\'s own batch', async () => {
+  const CDN = 'https://pikaso.cdnpk.net/private/production/1/';
+  const st = { imgCount: 4, items: [item({ nameEn: 'Kilim Pouf', main: SB + '/row1-main.webp', slots: [SB + '/row1-main.webp'] }), item({ nameEn: 'Mug', main: SB + '/black.webp', slots: [] })] };
+  const rows = [{ id: 21, created_by: U.add, source: 'magnific', folder: 'ابتكر', label: 'نتائج Magnific', urls: [CDN + 'a.jpg', CDN + 'b.png', CDN + 'gone.jpg', CDN + 'd.jpg'], refs: ['A', 'B', 'C', 'D'], status: 'pending', paths: null, target: 'batch', items: [{ index: 0, images: [0, 1, 2] }, { index: 1, images: [3] }, { index: 7, images: [0] }], batch_id: SB }];
+  const { deps, db, fetched } = setup({ seed: { ...SEED, studio_batches: [batch({ state: st, created_by: U.add })], image_imports: rows } });
+  assertEquals((await call(deps, { action: 'import', id: 21 }, 'jwt-edit')).res.status, 401);
+  const r = await call(deps, { action: 'import', id: 21 });
+  assertEquals([r.res.status, r.body.target, r.body.batch_id, r.body.imported, r.body.failed, r.body.status, r.body.placed], [200, 'batch', SB, 3, 1, 'partial', 3]);
+  const items = db.row('studio_batches', SB).state.items;
+  assertEquals(items[0].slots.length, 3); assertEquals(items[0].slots[0], SB + '/row1-main.webp', 'the filled slot stays');
+  assert(items[0].slots[1].startsWith(SB + '/gen-0-imp-') && items[0].slots[1].endsWith('-1.jpg') && items[0].slots[2].endsWith('-2.png'));
+  assert(items[1].slots[0].startsWith(SB + '/gen-1-imp-') && items[1].slots[0].endsWith('-4.jpg'));
+  assertEquals(db.row('image_imports', 21).status, 'partial');
+  assertEquals([db.rows('ai_runs').at(-1).source, db.rows('ai_runs').at(-1).batch_id, db.rows('ai_runs').at(-1).output.placed], ['import', SB, 3]);
+  // the retry: the missing link only, placed once
+  const before = fetched.length;
+  const r2 = await call(deps, { action: 'import', id: 21 });
+  assertEquals([r2.body.status, r2.body.placed, fetched.slice(before)], ['partial', 0, [CDN + 'gone.jpg']]);
+  assertEquals(db.row('studio_batches', SB).state.items[0].slots.length, 3, 'nothing doubled');
+});
+
 Deno.test('probe: the admin only; the shape of the provider\'s account answer (keys and types, no values); no key → 503', async () => {
   const { deps } = setup({ replies: [{ credits: 756, plan: { name: 'Premium+' }, list: [1, 2] }] });
   const { res, body } = await call(deps, { action: 'probe' }, 'jwt-admin');

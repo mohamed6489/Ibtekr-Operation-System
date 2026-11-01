@@ -248,6 +248,15 @@ test('itemIssues (decision 15): the Arabic name is required — «الاستلا
   assert.deepEqual(PD.itemIssues({ ...it, nameAr: 'أباجورة' }, 'Simple'), []);
 });
 
+test('itemIssues ({ en: false } — «صور بس», the owner 1 Nov): one name in the file name is enough; the English name is still required everywhere else', () => {
+  const arOnly = { nameEn: '', nameAr: 'شنطة جلد', vendorPrice: 1500, colors: ['BE'], sizes: [] };
+  assert.deepEqual(PD.itemIssues(arOnly, 'Simple', { ar: false, en: false }), [], 'Arabic only passes the photos intake');
+  assert.deepEqual(PD.itemIssues(arOnly, 'Simple', { en: false }), []);
+  assert.deepEqual(PD.itemIssues(arOnly, 'Simple'), ['الاسم (EN)'], '«البيانات و SKU» still asks for it (AI or by hand)');
+  assert.deepEqual(PD.itemIssues({ ...arOnly, nameAr: '' }, 'Simple', { ar: false, en: false }), ['الاسم (EN)'], 'no name at all = still missing');
+  assert.deepEqual(PD.itemIssues({ ...arOnly, nameAr: '', nameEn: 'Leather Bag' }, 'Simple', { ar: false, en: false }), [], 'English only passes too');
+});
+
 // phase 5.3 (docs/superpowers/plans/2026-10-29-phase-5-3-ai-content.md): the content tool's text and its «احفظ على المنتج»
 test('aiDisplay: one editable text per field — keywords on one line, bullets one per line; nothing invented for a missing language', () => {
   assert.deepEqual(plain(PD.aiDisplay({ ar: { name: 'مراية', keywords: ['مرايا بامبو', 'ديكور'], bullets: ['بامبو', '30×50 سم'] }, en: { short: 'A mirror.' } })),

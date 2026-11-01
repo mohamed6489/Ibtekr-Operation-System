@@ -32,8 +32,8 @@
 
   // ---------------- state ----------------
   const S = { tab: 'i2i', fromProduct: null, photo: null, photoName: '', sku: '', prompt: '', shape: 'studio', size: '700x800', width: '', height: '', count: 1, model: '', op: 'remove_bg', bg: 'transparent', scale: 2,
-    running: false, err: '', result: null, sel: new Set(), saving: false, settingsRead: false };
-  const reset = () => Object.assign(S, { tab: 'i2i', fromProduct: null, photo: null, photoName: '', sku: '', prompt: '', shape: 'studio', running: false, err: '', result: null, sel: new Set() });
+    running: false, err: '', result: null, sel: new Set(), saving: false, settingsRead: false, imports: null, importing: null };
+  const reset = () => Object.assign(S, { tab: 'i2i', fromProduct: null, photo: null, photoName: '', sku: '', prompt: '', shape: 'studio', running: false, err: '', result: null, sel: new Set(), imports: null, importing: null });
 
   function route(id) {
     if (id) { if (S.fromProduct !== id) { reset(); S.fromProduct = id; } }
@@ -80,6 +80,29 @@
     K.toast('اتعملت ' + r.paths.length + ' صورة — راجعها قبل ما تحفظها', 'success'); R();
   }
 
+  // ---------------- decision 8: «وارد من Magnific» — sets made on the site (Unlimited), queued by a Claude session ----------------
+  const readImports = () => { const I = IM(); if (!I || S.imports !== null) return; S.imports = []; I.imports().then((r) => { S.imports = r.ok ? r.rows : []; R(); }); };
+  async function runImport(row) {
+    const I = IM(); if (!I || S.importing) return;
+    S.importing = row.id; S.err = ''; R();
+    const r = await I.importRun(row.id);
+    S.importing = null; S.imports = null;
+    if (!r.ok) { K.toast(r.reason === 'done' ? 'المجموعة دي اتستوردت قبل كده — شوفها في «سجل الصور»' : r.reason === 'ai_error' ? 'مقدرناش ننزّل ولا صورة من Magnific — الروابط ممكن تكون انتهت، اطلب تجديدها' : errText(r), 'error'); R(); return; }
+    const target = row.productId && PR() ? PR().get(row.productId) : null;
+    S.result = { bucket: r.bucket || 'ai-images', paths: r.paths, credits: 0, model: '', source: 'import', productId: row.productId, productName: target ? target.nameEn || target.nameAr : row.label, tab: S.tab, at: new Date().toISOString() };
+    S.sel = new Set(r.paths);
+    K.toast('اتستوردت ' + r.imported + ' صورة من Magnific' + (r.failed ? ' — ' + r.failed + ' ماتنزّلتش' : '') + ' — راجعها قبل ما تحفظها', r.failed ? 'warn' : 'success'); R();
+  }
+  function importsCard() {
+    const rows = S.imports || []; if (!rows.length) return null;
+    const ST = { pending: ['info', 'جاهزة'], partial: ['warn', 'ناقصة'], error: ['error', 'فشلت'] };
+    const list = rows.map((x) => { const p = x.productId && PR() ? PR().get(x.productId) : null; const st = ST[x.status] || ST.pending; const busy = S.importing === x.id;
+      return [h('span', { class: 't-small', dir: 'ltr' }, String(x.at || '').slice(0, 16).replace('T', ' ')), x.label || x.folder || '—', p ? (p.nameEn || p.nameAr) : h('span', { class: 'help' }, '—'), x.done ? x.done + ' / ' + x.count : String(x.count), Tag(st[0], st[1]),
+        Button({ type: 'primary', size: 'sm', label: busy ? 'بنستورد…' : x.status === 'partial' ? 'كمّل الاستيراد' : x.status === 'error' ? 'جرّب تاني' : 'استورد', disabled: !!S.importing, attrs: { 'data-igimport': String(x.id) }, onClick: () => runImport(x) })]; });
+    return Card('وارد من Magnific', 'صور اتعملت على موقع Magnific (الباقة Unlimited) وجاهزة تدخل النظام — بتتحوّل WebP وتتحفظ على المنتج زي أي صورة.',
+      [U.Table({ cls: 'dt', headers: ['الوقت', 'المجموعة', 'المنتج', 'الصور', 'الحالة', ''], rows: list })]);
+  }
+
   // ---------------- a download, «احفظ على المنتج», «سجل الصور» ----------------
   async function download(path) {
     const I = IM(); const d = await I.download(S.result.bucket, path);
@@ -110,7 +133,7 @@
   async function openHistory() {
     const I = IM(); const r = await I.history(30);
     if (!r.ok) { K.toast(MSG.network, 'error'); return; }
-    const SRC = { tool: 'أداة الصور', studio: 'الاستوديو', edit: 'تعديل' };
+    const SRC = { tool: 'أداة الصور', studio: 'الاستوديو', edit: 'تعديل', import: 'وارد من Magnific' };
     const open = (x) => { m.close(); S.result = { bucket: x.bucket, paths: x.paths, credits: x.credits, model: x.model, productId: x.productId, productName: x.label, tab: S.tab, at: x.at }; S.sel = new Set(x.paths); R(); };
     const rows = r.rows.map((x) => [h('span', { class: 't-small', dir: 'ltr' }, String(x.at || '').slice(0, 16).replace('T', ' ')), x.label || '—', SRC[x.source] || x.source, h('span', { class: 'thumbs-sm' }, x.paths.slice(0, 3).map((p) => Thumb(x.bucket, p))), String(x.credits),
       x.paths.length && x.bucket === 'ai-images' ? Button({ size: 'sm', label: 'افتح', attrs: { 'data-ihopen': String(x.id) }, onClick: () => open(x) }) : h('span', { class: 'help t-small' }, x.bucket === 'studio' ? 'في الدفعة' : '—')]);
@@ -202,7 +225,7 @@
       h('figcaption', { class: 'ig-acts' }, Button({ size: 'sm', icon: 'download', label: 'تحميل', onClick: () => download(p) }), h('small', { class: 'help', dir: 'ltr' }, p.split('/').pop()))));
     const target = res.productId && PR() ? PR().get(res.productId) : null;
     return Card('الناتج', res.productName ? 'لـ «' + res.productName + '»' : null, [h('div', { class: 'ig-grid' }, ...items),
-      h('p', { class: 't-small help', style: 'margin:0' }, 'اتعملت بـ ', h('span', { dir: 'ltr' }, res.model), ' · ', res.credits, ' كريدت (≈ $', I.usd(res.credits).toFixed(2), ')'),
+      h('p', { class: 't-small help', style: 'margin:0' }, res.source === 'import' ? 'وارد من موقع Magnific (الباقة Unlimited) · من غير كريدت' : ['اتعملت بـ ', h('span', { dir: 'ltr' }, res.model), ' · ', res.credits, ' كريدت (≈ $', I.usd(res.credits).toFixed(2), ')']),
       canSave ? U.InlineNote({ children: target ? 'الصور المحددة هتتحفظ على «' + (target.nameEn || target.nameAr) + '».' : 'عشان تحفظ على منتج: اكتب الـ SKU بتاعه في الخانة على الشمال.' }) : U.InlineNote({ children: 'حفظ الصور على منتج محتاج صلاحية «تعديل المنتجات» — حمّلها واستخدمها.' })],
       [Button({ size: 'sm', label: S.tab === 'edit' ? 'عدّل تاني' : 'اعمل تاني', disabled: S.running, onClick: run }),
         canSave ? Button({ type: 'primary', size: 'sm', label: S.saving ? 'بنحفظ…' : 'احفظ على المنتج (' + S.sel.size + ')', disabled: S.saving || !S.sel.size, attrs: { 'data-igsave': '' }, onClick: saveToProduct }) : null]);
@@ -214,9 +237,9 @@
       h('div', { class: 'actions' }, Button({ type: 'text', label: 'اخرج', onClick: exit }), I && I.can().tool ? Button({ label: 'سجل الصور', attrs: { 'data-ihistory': '' }, onClick: openHistory }) : null,
         I && I.can().settings ? Button({ label: 'إعدادات الصور', icon: 'gear', attrs: { 'data-img-settings': '' }, onClick: openSettings }) : null));
     if (!I || !I.can().tool) return [top, K.Empty('مش مسموحلك تستخدم أداة الصور', 'محتاج صلاحية «إضافة منتجات» أو «تعديل المنتجات».')];
-    readSettings();
+    readSettings(); readImports();
     const tabs = K.MainTabs({ items: TABS.map(([id, label]) => ({ id, label: id === 'size' ? label + ' — soon' : label })), active: S.tab, onChange: (id) => { S.tab = id; S.result = null; S.err = ''; R(); }, label: 'نوع الصورة' });
-    return [top, tabs, h('div', { class: 'cols2-wide' }, inputCard(), outCard())];
+    return [top, importsCard(), tabs, h('div', { class: 'cols2-wide' }, inputCard(), outCard())];
   }
   document.addEventListener('ib:images', () => { if (window.IBPages && window.IBPages.current === 'products') R(); });
 

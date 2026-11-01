@@ -6,7 +6,8 @@
    hand. Phase 5.4 (decision 5): the images step generates a slot's image through IBImages.generate (Magnific, from the item's
    reference photos), one, the missing ones of the selection or all of them, with the batch's model; a generated image carries «AI»
    until a hand upload replaces it; slots swap by drag; the image popup edits with the AI (free text and quick edits), remakes,
-   keeps the versions and places a version in another slot. «صور بس» stays soon. The SKU is the owner's rule (decision 2,
+   keeps the versions and places a version in another slot. Phase 5.4 decision 10: «صور بس» — the photos alone, each file's name
+   carrying the product's data (PD.photoName), as the intake. The SKU is the owner's rule (decision 2,
    PD.studioSku), the prices decision 16 (PD.priceFromVendor). The products page routes #products-studio-<new|id>[-<step|report>]
    here: IBStudioView.route / view. */
 (function () {
@@ -182,7 +183,7 @@
 
   // ---------------- state ----------------
   const S = { id: null, row: null, state: null, step: 1, report: false, loading: false, err: '', timer: null, saving: false, sel: new Set(), q: '', uploading: false, aiBusy: null, imgBusy: new Map(), imgRun: null };
-  const blank = () => ({ v: 1, type: 'Simple', vary: ['color'], brandId: null, brandName: '', vendorId: null, vendorName: '', rate: null, fee: null, sheet: null, imgCount: 4, items: [] });
+  const blank = () => ({ v: 1, type: 'Simple', vary: ['color'], mode: 'sheet', brandId: null, brandName: '', vendorId: null, vendorName: '', rate: null, fee: null, sheet: null, imgCount: 4, items: [] });
   const isVar = () => S.state && S.state.type === 'Variable';
   const flow = () => (isVar() ? [1, 2, 3, 4, 5, 6, 7, 8] : [1, 2, 3, 5, 6, 7, 8]);
   const posOf = (n) => flow().indexOf(n) + 1;
@@ -325,7 +326,9 @@
         opt('Variable', 'منتج بتركيبات: لون و/أو مقاس. كل تركيبة ليها SKU وسعر.', s.type === 'Variable', () => { if (s.type !== 'Variable') { s.type = 'Variable'; if (!s.vary.length) s.vary = ['color']; retype(); } touch(); R(); })),
       s.type === 'Variable' ? U.FieldShell({ id: 'vary', label: 'هيتغير في إيه؟', required: true, error: s.vary.length ? null : 'اختار حاجة واحدة على الأقل' }, h('div', { class: 'chips' }, vary('color', 'اللون'), vary('size', 'المقاس'))) : null,
       h('h3', { class: 't-h5 sub-h' }, 'طريقة الإدخال'),
-      h('div', { class: 'opt-grid', role: 'radiogroup', 'aria-label': 'طريقة الإدخال' }, opt('شيت + صور', 'الشيت الأول، وبعده صورة لكل منتج.', true, () => {}), opt('صور بس — soon', 'ترفع الصور والـ AI يكتب الداتا — مع أدوات الـ AI.', false, () => {}, true))]);
+      // decision 10 (phase 5.4 — plan 5.2 decision 17): «صور بس» — the photos alone, the data in each file's name
+      h('div', { class: 'opt-grid', role: 'radiogroup', 'aria-label': 'طريقة الإدخال' }, opt('شيت + صور', 'الشيت الأول، وبعده صورة لكل منتج.', s.mode !== 'photos', () => { s.mode = 'sheet'; touch(); R(); }),
+        opt('صور بس', 'ترفع الصور بس — الداتا من اسم الملف: الاسم (EN / AR)، اللون، المقاس، الخامة، السعر.', s.mode === 'photos', () => { s.mode = 'photos'; touch(); R(); }))]);
     const b = brands.find((x) => x.id === s.brandId);
     const ownerName = (vid) => { const v = V && V.store && V.store.get ? V.store.get(vid) : null; return v ? v.name : '—'; };
     // the maker (the owner, 28 Oct): the brand's owner by default, any maker on request — the products go to that maker's store
@@ -415,6 +418,28 @@
     });
     S.state.items = fresh; S.sel.clear();
   }
+  // decision 10 («صور بس»): the photos alone — each file's name carries the product's data (PD.photoName); the files of one
+  // product (the same names) make one item, the first its main photo and the rest references; the colors by the table's names
+  async function dropNamedPhotos(files) {
+    const names = colors().flatMap((c) => [c.name_en, c.name_ar]);
+    const L = items(); let added = 0, photos = 0;
+    for (const f of files.slice().sort((a, b) => a.name.localeCompare(b.name, 'en', { numeric: true }))) {
+      const p = PD.photoName(f.name, { colors: names });
+      let it = L.find((x) => x.photoKey === p.key);
+      if (!it) {
+        const cs = p.colors.map((n) => colorByName(n));
+        it = { key: newKey(), photoKey: p.key, row: null, nameEn: p.nameEn, nameAr: p.nameAr, vendorPrice: p.vendorPrice, colors: cs.filter(Boolean).map((c) => c.code), unknownColors: p.colors.filter((n, k) => !cs[k]), sizes: p.sizes, material: p.material, style: p.style, weight: p.weight, stock: p.stock, onDemand: false,
+          shortDesc: '', shortDescAr: '', categories: [], main: null, refs: [], slots: [], colorImages: {}, variations: [], sheetVariations: null, unknownText: p.unknown };
+        if (!isVar()) { it.colors = it.colors.slice(0, 1); it.sizes = it.sizes.slice(0, 1); }
+        syncVariations(it); L.push(it); added++;
+      }
+      const r = await ST().uploadImage(S.id, f, 'row' + (L.indexOf(it) + 1) + (it.main ? '-ref' : '-main'));
+      if (!r.ok) { K.toast('صورة «' + f.name + '» ماترفعتش', 'error'); continue; }
+      if (!it.main) it.main = r.path; else it.refs = (it.refs || []).concat(r.path);
+      photos++; R();
+    }
+    touch(); K.toast('اترفع ' + photos + ' صورة — ' + added + ' منتج جديد', 'success'); R();
+  }
   // images named «<row>-1» (main) / «<row>-2…» (references), else in order to the items without a main image
   async function dropImages(files) {
     const L = items(); if (!L.length) { K.toast('ارفع الشيت الأول', 'error'); return; }
@@ -435,7 +460,30 @@
   const issuesOf = (it, opts) => PD.itemIssues(it, S.state.type, opts).concat((it.unknownColors || []).length ? ['لون مش في الجدول: ' + it.unknownColors.join('، ')] : []);
   const recvState = (it) => (issuesOf(it, { ar: false }).length ? 'data' : !it.main ? 'img' : 'ok');
   const noArabic = (L) => L.filter((it) => !String(it.nameAr || '').trim()).length;
+  // decision 10: «صور بس» — one card for the photos (the data from their names) and the same review table
+  function step2Photos() {
+    const L = items();
+    const rows = L.map((it, i) => { const s = recvState(it);
+      return { cls: s === 'ok' ? null : 'row-err', cells: [K.Num(String(i + 1)), h('span', { class: 'rv-data' }, h('b', null, it.nameEn || it.nameAr || h('span', { class: 'help' }, 'من غير اسم')), it.nameEn && it.nameAr ? h('small', null, it.nameAr) : null,
+        h('small', { class: 't-small help' }, (it.vendorPrice ? money(it.vendorPrice) : 'السعر ناقص') + (it.colors.length ? ' · ' + it.colors.join(' ') : '') + (it.sizes.length ? ' · ' + it.sizes.join('، ') : '') + (it.material ? ' · ' + it.material : '')),
+        (it.unknownText || []).length ? h('small', { class: 't-small help' }, 'مش مفهوم من الاسم: ' + it.unknownText.join('، ')) : null),
+        it.main ? h('span', { class: 'rv-main' }, Thumb(it.main, 'st-big')) : h('span', { class: 'help' }, '—'),
+        h('span', { class: 'rv-refs' }, (it.refs || []).slice(0, 3).map((p) => Thumb(p, 'mini')), (it.refs || []).length > 3 ? h('small', null, '+' + (it.refs.length - 3)) : null),
+        s === 'ok' ? Tag('success', 'متطابق ✓') : s === 'img' ? Tag('error', 'ناقص صورة') : Tag('error', 'ناقص: ' + issuesOf(it).join('، ')),
+        K.RowMenu([{ label: 'عدّل البيانات', icon: 'edit', run: () => editItem(it) },
+          { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => K.confirm({ title: 'شيل «' + (it.nameEn || it.nameAr || 'صف ' + (i + 1)) + '» من الدفعة؟', text: 'بيتشال من الدفعة دي بس.', okLabel: 'شيل', okType: 'danger', onOk: () => { S.state.items.splice(S.state.items.indexOf(it), 1); touch(); R(); } }) }], 'إجراءات صف ' + (i + 1))] }; });
+    const bad = L.filter((it) => recvState(it) !== 'ok').length;
+    return [TotalsBar([['المنتجات', L.length], ['متطابقة', L.length - bad, bad ? null : 'ok'], ['ناقص صورة', L.filter((it) => recvState(it) === 'img').length, null], ['ناقص داتا', L.filter((it) => recvState(it) === 'data').length, bad ? 'err' : null]]),
+      Card('1 · ارفع صور المنتجات', 'اسم كل ملف فيه الداتا: الاسم (EN و/أو AR) - اللون - المقاس - الخامة - السعر — بأي ترتيب، وبفاصل « - ». نفس الاسم على أكتر من صورة = منتج واحد (الأولى الأساسية والباقي مرجعية).', [
+        h('button', { type: 'button', class: 'drop', onClick: () => filePick('image/*', true, dropNamedPhotos) }, Icon('upload'), h('b', null, 'اختار صور المنتجات'), h('small', null, 'JPG / PNG / WebP — بتتحول JPG · ' + L.length + ' منتج لحد دلوقتي')),
+        U.InlineNote({ children: 'مثال: «Boho Cushion - مخدة بوهيمي - بيج - 45×45 - قطن - 350.jpg». اللي مش في الاسم بيتكتب من «عدّل» في الخطوة الجاية — والاسم العربي وسعر المبتكر إجباريين قبل الرفع.' })]),
+      L.length ? Card('2 · مراجعة الداتا والصور', 'الألوان بتتربط بجدول الألوان بالاسم (إنجليزي أو عربي).', [STable([{ l: 'صف', w: 56 }, { l: 'الداتا من اسم الملف' }, { l: 'الصورة الأساسية', w: 120 }, { l: 'مرجعية', w: 160 }, { l: 'الحالة', w: 200 }, { l: '', w: 56 }], rows, 'مراجعة الداتا والصور'),
+        L.some((it) => (it.unknownColors || []).length) ? U.InlineNote({ kind: 'warning', children: 'في ألوان مش في جدول الألوان — ضيفها من «+ لون جديد» في الخطوة الجاية أو عدّل اسم الملف.', action: Button({ size: 'sm', label: '+ لون جديد', onClick: () => newColor('') }) }) : null,
+        noArabic(L) ? U.InlineNote({ kind: 'warning', children: noArabic(L) + ' منتج من غير اسم عربي — الاسم العربي إجباري: حطه في اسم الملف، أو اكتبه من «عدّل» في الخطوة الجاية.' }) : null]) : null,
+      WizFoot(L.length > 0 && !L.some((it) => recvState(it) === 'img' || PD.itemIssues(it, S.state.type, { ar: false }).length), !L.length ? 'ارفع الصور الأول' : 'كمّل الصور والداتا الناقصة')];
+  }
   function step2() {
+    if (S.state.mode === 'photos') return step2Photos();
     const L = items(); const sh = S.state.sheet;
     const fields = Object.keys(FIELD_L);
     const s1 = Card('1 · ارفع الشيت', 'Excel (xlsx) أو CSV أو لينك Google Sheet — الداتا والأسعار. الأعمدة بتتربط لوحدها بالاسم.', sh ? [

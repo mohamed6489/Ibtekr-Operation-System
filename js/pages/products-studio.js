@@ -472,11 +472,29 @@
   // decision 12: the batch's flow on the one Space «استوديو ابتكر» — the sent photos as a list, the category's three generators
   // (the prompts library) and three output lists; the owner runs it on the site, «هات النتائج» reads the lists in order
   const readCategories = () => { const I = IM(); if (!I || S.cats !== undefined) return; S.cats = null; I.shotCategories().then((r) => { S.cats = r.ok ? r.rows : []; R(); }); };
+  // decision 13 (the owner, 1 Nov): a category not in the library is typed here; its three prompts are written by the AI when
+  // the flow is made (ai-content «prompts» → shot_prompts), and every generator runs Nano Banana Pro
+  function newCategory() {
+    K.form({ title: 'فئة منتجات جديدة', submitLabel: 'اختار الفئة', values: { name: '' },
+      fields: (f, e, set) => [K.field.text('name', 'اسم الفئة', f, e, set, { required: true, placeholder: 'مثال: مزهرية', help: 'مفيش برومبتات ليها في الـ template؟ الـ AI بيكتب تلات برومبتات للقطاتها وقت «جهّز فلو» وبيحفظهم في المكتبة للدفعات الجاية.' })],
+      validate: (f) => { const e = {}; const v = String(f.name || '').trim(); if (v.length < 2 || v.length > 80 || /[<>%]/.test(v)) e.name = 'اكتب اسم الفئة (من حرفين لـ 80، من غير < > %)'; return e; },
+      submit: (f) => { S.state.category = String(f.name).trim(); touch(); R(); } });
+  }
+  const inLibrary = (category) => (S.cats || []).some((x) => x.category === category);
   async function makeFlow() {
     const I = IM(); if (!I || !S.id || S.flowing) return;
     const category = String(S.state.category || '').trim();
     if (!category) { K.toast('اختار فئة المنتجات الأول — برومبتات الفلو بتيجي منها', 'warn'); return; }
     await touch(true);
+    if (!inLibrary(category)) {
+      const A = AI(); if (!A || !A.can().studio) { K.toast(AI_STOP.forbidden, 'error'); return; }
+      S.flowing = 'prompts'; R();
+      const p = await A.shotPrompts(category);
+      if (!p.ok && p.reason !== 'exists') { S.flowing = false; K.toast(AI_STOP[p.reason] || (p.reason === 'invalid' ? 'اسم الفئة مش صالح' : 'الـ AI ماكتبش البرومبتات — جرّب تاني'), 'error'); R(); return; }
+      if (p.ok && p.result !== 'ok') { S.flowing = false; K.toast('الـ AI رفض يكتب برومبتات للفئة دي — غيّر الاسم أو اكتبها في الـ template', 'error'); R(); return; }
+      if (p.ok && p.rows < 3) { S.flowing = false; K.toast('الـ AI ماكتبش التلات برومبتات (ناقص ' + (p.missing || []).join('، ') + ') — جرّب تاني', 'error'); R(); return; }
+      S.cats = undefined; readCategories();
+    }
     S.flowing = true; R();
     const r = await I.bridgeFlow(S.id, category);
     S.flowing = false;
@@ -502,15 +520,17 @@
     const flow = S.state && S.state.flow && typeof S.state.flow === 'object' ? S.state.flow : null;
     const cats = S.cats || [];
     const opts = cats.map((x) => ({ value: x.category, label: x.category + (x.shots < 3 ? ' (' + x.shots + ' لقطات)' : '') }));
-    if (S.state.category && !cats.some((x) => x.category === S.state.category)) opts.unshift({ value: S.state.category, label: S.state.category + ' (من غير برومبتات)' });
+    if (S.state.category && !cats.some((x) => x.category === S.state.category)) opts.unshift({ value: S.state.category, label: S.state.category + ' (جديدة — البرومبتات بالـ AI)' });
+    opts.push({ value: '__new__', label: '+ فئة جديدة…' });
     if (Array.isArray(S.cats) && !S.cats.length && !S.state.category) {
       return h('div', { class: 'acts-inline', 'data-flow-bar': '', 'data-flow-empty': '' },
         h('span', { class: 't-small help' }, 'مفيش فئات لسه — الفئات بتيجي من برومبتات الـ template بتاعك على Magnific' + (I.can().settings ? ':' : ' (الأدمن بيحدّثها من «إعدادات الصور»).')),
-        I.can().settings ? Button({ size: 'sm', icon: 'refresh', label: S.syncing ? 'بنقرا…' : 'حدّث البرومبتات من الـ template', disabled: !!S.syncing, attrs: { 'data-flow-sync': '' }, onClick: syncPromptsHere }) : null);
+        I.can().settings ? Button({ size: 'sm', icon: 'refresh', label: S.syncing ? 'بنقرا…' : 'حدّث البرومبتات من الـ template', disabled: !!S.syncing, attrs: { 'data-flow-sync': '' }, onClick: syncPromptsHere }) : null,
+        Button({ size: 'sm', icon: 'plus', label: '+ فئة جديدة', attrs: { 'data-flow-new': '' }, onClick: newCategory }));
     }
     return h('div', { class: 'acts-inline', 'data-flow-bar': '' },
-      U.Select({ id: 'flow-cat', label: null, placeholder: 'فئة المنتجات', options: opts, value: S.state.category || '', onChange: (v) => { S.state.category = v; touch(); R(); } }),
-      Button({ size: 'sm', icon: 'sparkle', label: S.flowing ? 'بنجهّز…' : flow ? 'جهّز فلو جديد' : 'جهّز فلو على Magnific', disabled: !!S.flowing, attrs: { 'data-flow': '' }, onClick: makeFlow }),
+      U.Select({ id: 'flow-cat', label: null, placeholder: 'فئة المنتجات', options: opts, value: S.state.category || '', onChange: (v) => { if (v === '__new__') { newCategory(); R(); return; } S.state.category = v; touch(); R(); } }),
+      Button({ size: 'sm', icon: 'sparkle', label: S.flowing === 'prompts' ? 'بنكتب البرومبتات بالـ AI…' : S.flowing ? 'بنجهّز…' : flow ? 'جهّز فلو جديد' : 'جهّز فلو على Magnific', disabled: !!S.flowing, attrs: { 'data-flow': '' }, onClick: makeFlow }),
       flow && flow.url ? h('a', { class: 'btn btn-sm', href: flow.url, target: '_blank', rel: 'noopener', 'data-flow-open': '' }, 'افتح الـ Space ↗') : null,
       flow ? h('span', { class: 't-small help', 'data-flow-state': '' }, 'فلو «' + (flow.category || '') + '» · ' + (Array.isArray(flow.order) ? flow.order.length : 0) + ' صورة') : null);
   }

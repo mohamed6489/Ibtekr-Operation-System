@@ -71,6 +71,20 @@ test('filters and sort: status chips, brand, «ناقصها بيانات», sear
   await expect(rows.first()).toContainText('Cushion');
 });
 
+test('selection: Shift + click ticks the range from the last ticked row to the clicked one (the owner, 1 Nov); Shift + click on a ticked row unticks the range; a plain click is one row', async ({ page }) => {
+  await openProducts(page);
+  const box = (name) => rowOf(page, name).locator('[role=checkbox]');
+  await box('Boho mirror').click(); // the newest, on top
+  await box('Cushion').click({ modifiers: ['Shift'] }); // the oldest, at the bottom → all four
+  await expect(page.locator('.bulk-bar')).toContainText('محدد 4');
+  await box('Macrame Curtain').click({ modifiers: ['Shift'] }); // Cushion … Macrame Curtain unticked (the clicked one was ticked → the range unticks)
+  await expect(page.locator('.bulk-bar')).toContainText('محدد 2');
+  await expect(box('Boho mirror')).toHaveAttribute('aria-checked', 'true'); await expect(box('Macrame Feathers')).toHaveAttribute('aria-checked', 'true');
+  await expect(box('Cushion')).toHaveAttribute('aria-checked', 'false'); await expect(box('Macrame Curtain')).toHaveAttribute('aria-checked', 'false');
+  await box('Cushion').click(); // plain: one row
+  await expect(page.locator('.bulk-bar')).toContainText('محدد 3');
+});
+
 test('bulk: publish the pending product (one product → product_save) and move two to another brand (products_batch), the rows follow', async ({ page }) => {
   await openProducts(page);
   await rowOf(page, 'Boho mirror').locator('[role=checkbox]').click();

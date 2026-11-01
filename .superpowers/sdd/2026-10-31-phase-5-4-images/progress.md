@@ -44,7 +44,8 @@
   الألوان BE/BK، الخطوة 3). (ب) `0028` (`image_shares`)، action `share` + `IBImages.share`/`shares` + زرار «ابعت الصور لـ Magnific» في
   الاستلام وخطوة الصور (حالة «n مبعوتة · m مستنية»)؛ (ج) `target = 'batch'` + `importBatch` (الخانات الفاضية بالترتيب، من غير تكرار
   عند الإعادة) + «استورد للدفعة» → «افتح الدفعة» خطوة 6. اختبارات: Deno 18، node، e2e (studio + images)، `rls_image_shares`.
-  **لسه:** `0028` على الحي (SQL Editor — فيه `revoke`)، نشر v11، `rls_image_shares` live، وأول تجربة حقيقية للدورة.
+  **حي (1 نوفمبر):** `0028` اتطبّق من SQL Editor بإيد صاحب المشروع (اتأكدت: الجدول وسياسته والـ grant و`target` بيقبل `batch`)، `ai-images`
+  v12 (v11 + اسم الملف الصارم بعد المراجعة الأمنية التلقائية)، الواجهة على `main`؛ `rls_image_shares` على «RLS live». **لسه:** أول تجربة حقيقية للدورة.
 - [x] T3 `0025_ai_images` (31 أكتوبر): `ai_runs.action` + `image`، `source` + `tool`/`edit`، عمود `credits`؛ bucket `ai-images` خاص
   (القراءة والحذف لفولدر العضو بـ `products.add`/`products.edit` F، الكتابة للسيرفر بس)؛ `rls_ai_images.sql`. مافيش Postgres محلي
   في الـ sandbox — بيتأكد في CI (`db:test`) وعلى الحي بـ RLS live بعد التطبيق.

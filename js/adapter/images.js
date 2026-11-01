@@ -65,6 +65,7 @@
   const why = (r) => {
     if (!r || r.ok) return '';
     if (r.reason === 'not_configured') return r.configured === false ? 'الـ AI للصور لسه مش متوصّل — السر MAGNIFIC_API_KEY مش موجود في أسرار السيرفر (Supabase › Edge Functions › Secrets)' : 'Magnific رفض المفتاح' + (r.status ? ' (HTTP ' + r.status + ')' : '') + ' — المفتاح نفسه أو شكل الـ API محتاج يتظبط';
+    if (r.reason === 'ai_error' && r.status === 402) return 'رصيد كريدت Magnific API خلص أو الموديل ده مش متاح في الباقة (HTTP 402) — اشحن الرصيد من لوحة Magnific API أو جرّب موديل تاني';
     return '';
   };
   const log = (detail, entity, id) => quiet(() => window.IBActivity && window.IBActivity.log && window.IBActivity.log('product.ai.image', detail, { entity, entity_id: id == null ? null : String(id) }));

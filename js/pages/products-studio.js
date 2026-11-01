@@ -448,6 +448,27 @@
     K.toast(r.placed ? 'نزلت ' + r.placed + ' صورة من Magnific في خانات المنتجات' + (r.unmatched ? ' · ' + r.unmatched + ' مش معروف منتجها' : '') + (r.failed ? ' · ' + r.failed + ' فشلت' : '') : r.found ? 'لقينا ' + r.found + ' صورة بس ماعرفناش منتجها — ولّد من جوه الصورة الأصلية على Magnific عشان تتربط' : 'مفيش نتائج جديدة على Magnific لسه', r.placed ? 'success' : 'warn');
     R();
   }
+  // decision 11 (the owner generates on the Magnific site, the system writes the prompt): the item's prompt a slot (the server's
+  // words — PD.slotPrompt), with a copy button each and one for all; the color slots of a Variable item too
+  function promptsModal(it) {
+    const n = S.state.imgCount || 4; const brand = S.state.brandName || '';
+    const list = Array.from({ length: n }, (_, k) => ({ key: String(k), label: (k + 1) + ' · ' + SLOT_L[k], text: PD.slotPrompt(it, k, { brand }) }))
+      .concat(isVar() ? it.colors.map((c) => { const col = colorByCode(c); return { key: 'c' + c, label: 'صورة اللون ' + colorLabel(c), text: PD.slotPrompt(it, { color: c }, { brand, colorName: col ? col.name_en : c }) }; }) : []);
+    // the clipboard API first (it may hang or refuse without focus), else a hidden textarea + execCommand
+    const copy = async (text, what) => {
+      let ok = false;
+      try { await Promise.race([navigator.clipboard.writeText(text).then(() => { ok = true; }), new Promise((r) => setTimeout(r, 1500))]); } catch (e) { ok = false; }
+      if (!ok) { try { const ta = document.createElement('textarea'); ta.value = text; ta.setAttribute('readonly', ''); ta.style.position = 'fixed'; ta.style.opacity = '0'; document.body.appendChild(ta); ta.select(); ok = document.execCommand('copy'); ta.remove(); } catch (e) { ok = false; } }
+      K.toast(ok ? 'اتنسخ ' + what : 'مقدرناش ننسخ — حدّد النص وانسخه', ok ? 'success' : 'error');
+    };
+    const m = U.Modal({ title: 'برومبتات «' + (it.nameEn || it.nameAr || 'المنتج') + '»', body: [
+      U.InlineNote({ children: 'على Magnific: افتح الصورة الأصلية في مشروع «ابتكر» → Edit (بالمرجعية) → الصق برومبت الخانة → ولّد. بعدها «هات النتائج من Magnific» هنا.' }),
+      h('div', { class: 'prompt-list', 'data-prompts': '' }, list.map((p) => h('div', { class: 'card', style: 'padding:10px;margin:8px 0' },
+        h('div', { class: 'acts-inline', style: 'justify-content:space-between' }, h('b', null, p.label), Button({ size: 'sm', label: 'انسخ', attrs: { 'data-prompt-copy': p.key }, onClick: () => copy(p.text, p.label) })),
+        h('pre', { class: 't-small', dir: 'ltr', style: 'margin:6px 0 0;white-space:pre-wrap;overflow-wrap:anywhere;text-align:left', 'data-prompt': p.key }, p.text))))],
+      footer: [Button({ type: 'text', label: 'قفل', onClick: () => m.close() }), Button({ type: 'primary', label: 'انسخ الكل', attrs: { 'data-prompt-copy': 'all' }, onClick: () => copy(list.map((p) => p.label + '\n' + p.text).join('\n\n'), 'كل البرومبتات') })] });
+    m.el.classList.add('wide');
+  }
   function shareBar() {
     const I = IM(); if (!I || !S.id || !canImgAI()) return null;
     readShares();
@@ -510,6 +531,7 @@
         h('span', { class: 'rv-refs' }, (it.refs || []).slice(0, 3).map((p) => Thumb(p, 'mini')), (it.refs || []).length > 3 ? h('small', null, '+' + (it.refs.length - 3)) : null),
         s === 'ok' ? Tag('success', 'متطابق ✓') : s === 'img' ? Tag('error', 'ناقص صورة') : Tag('error', 'ناقص: ' + issuesOf(it).join('، ')),
         K.RowMenu([{ label: 'عدّل البيانات', icon: 'edit', run: () => editItem(it) },
+          { label: 'البرومبتات (لـ Magnific)', icon: 'sparkle', run: () => promptsModal(it) },
           { label: 'شيل من الدفعة', icon: 'trash', danger: true, run: () => K.confirm({ title: 'شيل «' + (it.nameEn || it.nameAr || 'صف ' + (i + 1)) + '» من الدفعة؟', text: 'بيتشال من الدفعة دي بس.', okLabel: 'شيل', okType: 'danger', onOk: () => { S.state.items.splice(S.state.items.indexOf(it), 1); touch(); R(); } }) }], 'إجراءات صف ' + (i + 1))] }; });
     const bad = L.filter((it) => recvState(it) !== 'ok').length;
     return [TotalsBar([['المنتجات', L.length], ['متطابقة', L.length - bad, bad ? null : 'ok'], ['ناقص صورة', L.filter((it) => recvState(it) === 'img').length, null], ['ناقص داتا', L.filter((it) => recvState(it) === 'data').length, bad ? 'err' : null]], L.length ? shareBar() : null),
@@ -668,7 +690,7 @@
       it.slots = Array.isArray(it.slots) ? it.slots : [];
       if (!it.slots[0] && it.main && !it.mainUsed) { it.slots[0] = it.main; it.mainUsed = true; }
       const cnt = it.slots.slice(0, n).filter(Boolean).length; const ai = Object.keys(it.imgAI || {}).filter((k) => slotGet(it, /^c/.test(k) ? { color: k.slice(1) } : Number(k))).length;
-      rows.push({ cls: cnt ? null : 'row-err', cells: [selBox(it), PCell(it, [cnt + ' من ' + n + ' صور', ai ? ai + ' بالـ AI — راجعها' : null, !it.main ? 'من غير صورة مرجعية' : null]), h('div', { class: 'ref-cell' }, Thumb(it.main, 'st-big'), h('small', { class: 't-small help' }, 'المرجعية')),
+      rows.push({ cls: cnt ? null : 'row-err', cells: [selBox(it), PCell(it, [cnt + ' من ' + n + ' صور', ai ? ai + ' بالـ AI — راجعها' : null, !it.main ? 'من غير صورة مرجعية' : null]), h('div', { class: 'ref-cell' }, Thumb(it.main, 'st-big'), h('small', { class: 't-small help' }, 'المرجعية'), Button({ size: 'sm', type: 'text', label: 'البرومبتات', attrs: { 'data-prompts-open': String(L.indexOf(it)) }, onClick: () => promptsModal(it) })),
         h('div', { class: 'slots gen-slots' }, Array.from({ length: n }, (_, k) => slotView(it, k, (k + 1) + ' · ' + SLOT_L[k])))] });
       if (isVar()) it.colors.forEach((c) => rows.push({ cls: 'row-sub', cells: [null, h('span', { class: 'sub-name' }, '↳ ' + colorLabel(c)), null, h('div', { class: 'slots' }, slotView(it, { color: c }, 'صورة اللون'))] }));
     });

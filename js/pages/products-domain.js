@@ -112,6 +112,27 @@
   const variantSku = (parent, codes) => String(parent || '') + (codes || []).filter(Boolean).map((c) => '-' + c).join('');
   const SLOTS = ['Close-up', 'البيئة المحيطة', 'Feature', 'المقاسات'];
   const SLOT_HINT = ['تركيز على المنتج', 'المنتج في مكانه', 'ميزة أو تفصيلة', 'الأبعاد على المنتج'];
+  // Phase 5.4 decision 11 (the owner generates on the Magnific site, the system writes the prompt): the same words the server's
+  // slotPrompt in supabase/functions/_shared/ai-images.js sends the provider — the base, the subject from the item's data (the
+  // name, the color, the material, the style, the brand) and the slot's scene (0 close-up, 1 the product in its place, 2 a craft
+  // detail, 3 the proportions with the sizes, extras = another angle; a color slot = the close-up in that color). Kept in step
+  // with the server's by tests/domain/products-domain.test.mjs. Plain text only: tags, < > and control characters are stripped.
+  const PROMPT_BASE = 'Professional e-commerce product photography, photorealistic, sharp focus, true colors, no text, no watermark, no logo.';
+  const promptLine = (v, max) => { if (typeof v !== 'string') return ''; const s = v.replace(/<[^>]*>/g, ' ').replace(/[\u0000-\u001f\u007f-\u009f]/g, ' ').replace(/[<>]/g, '').replace(/\s+/g, ' ').trim(); return s.length <= max ? s : s.slice(0, max).replace(/\s+\S*$/, ''); };
+  function slotPrompt(item, slot, ctx) {
+    const it = item && typeof item === 'object' ? item : {}; ctx = ctx || {};
+    const parts = [promptLine(it.nameEn, 120), ctx.colorName ? 'in ' + promptLine(ctx.colorName, 40) : '', it.material ? 'made of ' + promptLine(it.material, 60) : '', it.style ? promptLine(it.style, 40) + ' style' : ''].filter(Boolean);
+    const brand = ctx.brand ? ' by the handmade brand ' + promptLine(ctx.brand, 60) : '';
+    const subject = (parts.join(', ') || 'the handmade product') + brand;
+    const sizes = Array.isArray(it.sizes) ? it.sizes.map((s) => promptLine(String(s), 30)).filter(Boolean).join(', ') : '';
+    const k = slot && typeof slot === 'object' ? 'color' : ['closeup', 'environment', 'feature', 'sizes'][slot] || 'extra';
+    const scene = k === 'closeup' || k === 'color' ? 'Keep the exact same product from the reference photo, centered, on a clean warm cream studio background, soft natural window light, gentle shadow, portrait framing.'
+      : k === 'environment' ? 'Show the exact same product from the reference photo in its natural place in a warm, modern Egyptian home interior, styled lifestyle scene, afternoon daylight, nothing covering the product.'
+      : k === 'feature' ? 'A close detail shot of the exact same product from the reference photo: the material, the handmade craft and texture, shallow depth of field.'
+      : k === 'sizes' ? 'The exact same product from the reference photo, full view on a plain light background, framed to show its proportions' + (sizes ? ' (' + sizes + ')' : '') + ', space around it for dimension lines.'
+      : 'Another angle of the exact same product from the reference photo on a clean warm cream studio background, soft light.';
+    return [PROMPT_BASE, subject + '.', scene].join(' ');
+  }
   function credits({ images, texts, data }) { return (images || 0) * 1 + (texts || 0) * 1 + Math.ceil((data || 0) / 4); }
   const catsOf = (p) => (Array.isArray(p.cats) && p.cats.length ? p.cats : String(p.category || '').split(' + ').filter(Boolean));
   const inCategory = (p, cat) => !cat || catsOf(p).includes(cat);
@@ -520,6 +541,6 @@
     }
     return marked;
   }
-  return { aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  return { aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, slotPrompt, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

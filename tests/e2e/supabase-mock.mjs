@@ -519,7 +519,7 @@ export async function installSupabaseMock(page, opts = {}) {
       // them): the member's own rows, the admin's all; named columns; the in.(…) filter on status; newest first
       if (path === '/rest/v1/image_imports') {
         if (method !== 'GET') return json(403, { code: '42501', details: null, hint: null, message: 'permission denied for table image_imports' });
-        const COLS = ['id', 'created_at', 'created_by', 'source', 'folder', 'label', 'product_id', 'urls', 'refs', 'status', 'paths', 'error', 'run_id', 'done_at'];
+        const COLS = ['id', 'created_at', 'created_by', 'source', 'folder', 'label', 'product_id', 'urls', 'refs', 'status', 'paths', 'error', 'run_id', 'done_at', 'target', 'items', 'brand_id', 'vendor_id', 'batch_type', 'batch_id']; // 0027: the studio target
         const cols = String(url.searchParams.get('select') || '*').split(',').map((x) => x.trim());
         const badCol = cols.find((x) => x !== '*' && !COLS.includes(x)); if (badCol) return json(400, { code: '42703', details: null, hint: null, message: `column image_imports.${badCol} does not exist` });
         const f = readFilters(url.searchParams, 'image_imports'); if (f.bad) return json(400, { code: 'PGRST100', details: null, hint: null, message: 'unexpected filter ' + f.bad });
@@ -1076,15 +1076,40 @@ export async function installSupabaseMock(page, opts = {}) {
         const row = mock.imageImports.find((x) => x.id === id); if (!row) return json(404, { error: 'not_found' });
         if (!isAdmin(u) && row.created_by !== u.id) return json(401, { error: 'unauthorized' });
         if (row.status === 'ok') return json(409, { error: 'done' });
-        mock.importCalls.push({ by: u.email, id });
+        mock.importCalls.push({ by: u.email, id, target: row.target === 'studio' ? 'studio' : 'tool' });
         const stamp = Date.now().toString(36) + (++mock.imgSeq);
+        if (row.target === 'studio') {
+          // decision 9: the set becomes a studio batch (products.add): the brand / maker / type as queued, the items from the
+          // queued details (colors by code from sku_colors, Variable → colors × sizes), the photos under the batch in bucket studio
+          if (!add) return json(401, { error: 'unauthorized' });
+          const type = row.batch_type === 'Variable' ? 'Variable' : 'Simple';
+          let batch = row.batch_id ? mock.studioBatches.find((x) => x.id === row.batch_id && !x.archived_at) : null;
+          const brand = mock.brands.find((x) => x.id === row.brand_id) || null; const vendor = mock.vendors.find((x) => x.id === row.vendor_id) || null;
+          if (!batch) { mock.studioSeq += 1; batch = { id: '0b6f2f5e-1d2c-4a8b-9e3f-' + String(mock.studioSeq).padStart(12, '0'), title: (row.label || row.folder || (brand && brand.name) || 'Magnific') + ' — ' + type + ' · ' + new Date().toISOString().slice(0, 10), brand_id: brand ? brand.id : null, vendor_id: vendor ? vendor.id : null, type, state: {}, step: 2, status: 'draft', result: null, created_by: u.id, updated_at: new Date().toISOString(), archived_at: null }; mock.studioBatches.unshift(batch); mock.studioWrites.push({ op: 'import', id: batch.id }); }
+          const items = Array.isArray(row.items) ? row.items : []; const firstOf = new Set(items.map((it) => (Array.isArray(it.images) ? it.images[0] : null)));
+          const paths = (row.urls || []).map((link, i) => { if (Array.isArray(row.paths) && typeof row.paths[i] === 'string') return row.paths[i]; let ok = false; try { const x = new URL(link); ok = x.protocol === 'https:' && x.hostname === 'pikaso.cdnpk.net'; } catch (e) { ok = false; } if (!ok) return null; const k = batch.id + '/row' + (i + 1) + '-' + (firstOf.has(i) ? 'main' : 'ref') + '-' + stamp + '.png'; mock.studioObjects.set(k, { type: 'image/png', size: PNG_1PX.length, by: 'import' }); return k; });
+          const old = Array.isArray(batch.state.items) ? batch.state.items : [];
+          const byName = (n) => mock.skuColors.find((c) => c.name_en.toLowerCase() === String(n).trim().toLowerCase() || String(c.name_ar).trim() === String(n).trim()) || null;
+          const made = items.map((it, i) => { const prev = old[i] || {}; const names = Array.isArray(it.colors) ? it.colors : []; const found = names.map(byName); let colors = found.filter(Boolean).map((c) => c.code); const unknownColors = names.filter((n, k) => !found[k]); let sizes = Array.isArray(it.sizes) ? it.sizes : []; if (type !== 'Variable') { colors = colors.slice(0, 1); sizes = sizes.slice(0, 1); }
+            const idx = (Array.isArray(it.images) ? it.images : []).filter((n) => Number.isInteger(n) && n >= 0 && n < paths.length); const vendorPrice = Number(it.vendorPrice) > 0 ? Number(it.vendorPrice) : null; const variations = [];
+            if (type === 'Variable') for (const c of colors.length ? colors : [null]) for (const sz of sizes.length ? sizes : [null]) { if (c === null && sz === null) continue; variations.push({ color: c, size: sz, vendorPrice, stock: null, onDemand: false }); }
+            return { key: prev.key || 'imp' + i, row: null, nameEn: it.nameEn || '', nameAr: it.nameAr || '', vendorPrice, colors, unknownColors, sizes, material: it.material || '', style: it.style || '', weight: it.weight || '', stock: null, onDemand: false, shortDesc: '', shortDescAr: '', categories: prev.categories || [], main: typeof prev.main === 'string' ? prev.main : (idx.length ? paths[idx[0]] : null), refs: (prev.refs || []).length ? prev.refs : idx.slice(1).map((n) => paths[n]).filter(Boolean), slots: prev.slots || [], colorImages: prev.colorImages || {}, variations: (prev.variations || []).length ? prev.variations : variations, sheetVariations: null }; });
+          batch.state = { v: 1, type, vary: ['color'], brandId: brand ? brand.id : null, brandName: brand ? brand.name : '', vendorId: vendor ? vendor.id : null, vendorName: vendor ? vendor.name : '', rate: null, fee: null, sheet: null, imgCount: 4, items: made, imported: { import_id: id, source: 'magnific' } };
+          batch.updated_at = new Date().toISOString();
+          const done = paths.filter(Boolean); const status = done.length === paths.length ? 'ok' : done.length ? 'partial' : 'error';
+          const run = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action: 'image', source: 'import', label: row.label || row.folder || 'وارد', product_id: null, batch_id: batch.id, item_index: null, model: null, credits: 0, cost_usd: 0, status: done.length ? 'ok' : 'error', error: done.length ? null : 'import_failed', output: { paths: done, bucket: 'studio', import_id: id, failed: paths.length - done.length, items: items.length } };
+          mock.aiRuns.push(run);
+          Object.assign(row, { status, paths, batch_id: batch.id, error: done.length ? null : 'import_failed', run_id: run.id, done_at: status === 'ok' ? new Date().toISOString() : null });
+          if (!done.length) return json(502, { error: 'ai_error' });
+          return json(200, { result: 'ok', target: 'studio', bucket: 'studio', batch_id: batch.id, path: done[0], paths: done, credits: 0, model: '', run_id: run.id, imported: done.length, failed: paths.length - done.length, status, items: items.length });
+        }
         const paths = (row.urls || []).map((link, i) => { if (Array.isArray(row.paths) && typeof row.paths[i] === 'string') return row.paths[i]; let ok = false; try { const x = new URL(link); ok = x.protocol === 'https:' && x.hostname === 'pikaso.cdnpk.net'; } catch (e) { ok = false; } if (!ok) return null; const k = u.id + '/imp-' + stamp + '-' + (i + 1) + '.png'; mock.imgObjects.set(k, { type: 'image/png', size: PNG_1PX.length, by: 'import' }); return k; });
         const done = paths.filter(Boolean); const status = done.length === paths.length ? 'ok' : done.length ? 'partial' : 'error';
         const run = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action: 'image', source: 'import', label: row.label || row.folder || 'وارد', product_id: row.product_id || null, batch_id: null, item_index: null, model: null, credits: 0, cost_usd: 0, status: done.length ? 'ok' : 'error', error: done.length ? null : 'import_failed', output: { paths: done, bucket: 'ai-images', import_id: id, failed: paths.length - done.length } };
         mock.aiRuns.push(run);
         Object.assign(row, { status, paths, error: done.length ? null : 'import_failed', run_id: run.id, done_at: status === 'ok' ? new Date().toISOString() : null });
         if (!done.length) return json(502, { error: 'ai_error' });
-        return json(200, { result: 'ok', bucket: 'ai-images', path: done[0], paths: done, credits: 0, model: '', run_id: run.id, imported: done.length, failed: paths.length - done.length, status });
+        return json(200, { result: 'ok', target: 'tool', bucket: 'ai-images', path: done[0], paths: done, credits: 0, model: '', run_id: run.id, imported: done.length, failed: paths.length - done.length, status });
       }
       if (action === 'webp') {
         // decision 7: the browser's WebP of a result replaces the original under the same name (.webp) — a studio path with

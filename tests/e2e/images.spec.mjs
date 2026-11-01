@@ -156,7 +156,7 @@ test('decision 8 — «وارد من Magnific»: a set queued from the site (ima
   await expect(page.locator('#pg-products')).not.toContainText('Someone else'); // another member's row is not read
   await page.locator('[data-igimport="1"]').click();
   await expect(page.locator('.ig-it')).toHaveCount(2);
-  expect(mock.importCalls).toEqual([{ by: OPS, id: 1 }]);
+  expect(mock.importCalls).toEqual([{ by: OPS, id: 1, target: 'tool' }]);
   expect(mock.imgCalls).toEqual([]); // no provider call, no credits
   await expect(page.locator('#pg-products')).toContainText('وارد من موقع Magnific');
   await expect(page.locator('#pg-products')).toContainText('لـ «Cushion»');
@@ -182,4 +182,32 @@ test('decision 8 — «وارد من Magnific»: a set queued from the site (ima
   mock.imageImports[1].status = 'ok';
   await page.locator('[data-igimport="3"]').click();
   await expect(page.locator('.toast, [role=status]').last()).toContainText('اتستوردت قبل كده');
+});
+
+test('decision 9 — a Magnific set queued for the studio (its items read from the images\' names): «استورد للاستوديو» makes a studio batch with the brand, the items and their photos (no credits, no WebP for the studio\'s references); «افتح الدفعة» lands on step 2 with the products; a partial set is listed as ناقصة', async ({ page }) => {
+  const brand = mock.brands[0];
+  mock.imageImports.push({ id: 4, created_at: '2026-11-01T07:00:00.000Z', created_by: OPS_ID, source: 'magnific', folder: 'ابتكر', label: 'دفعة أرت كرافت', product_id: null,
+    urls: ['https://pikaso.cdnpk.net/private/production/1/a.jpg?token=t', 'https://pikaso.cdnpk.net/private/production/1/b.png?token=t', 'https://evil.test/c.jpg'], refs: ['A', 'B', 'C'], status: 'pending', paths: null, error: null, run_id: null, done_at: null,
+    target: 'studio', items: [{ nameEn: 'Boho Cushion', nameAr: 'مخدة بوهيمي', vendorPrice: 350, colors: ['Beige'], sizes: ['45×45'], material: 'Cotton', images: [0, 1] }, { nameEn: 'Stripe Pillow', nameAr: 'مخدة مخططة', vendorPrice: 280, colors: ['Black'], sizes: [], images: [2] }], brand_id: brand.id, vendor_id: null, batch_type: 'Simple', batch_id: null });
+  await openProducts(page);
+  await openTool(page);
+  await expect(page.locator('#pg-products')).toContainText('الاستوديو — 2 منتج · Simple');
+  await page.locator('[data-igimport="4"]').click();
+  await expect(page.locator('.toast, [role=status]').last()).toContainText('اتعملت دفعة في الاستوديو بـ 2 منتج و2 صورة — 1 صورة ماتنزّلتش');
+  expect(mock.importCalls).toEqual([{ by: OPS, id: 4, target: 'studio' }]);
+  expect(mock.webpCalls).toEqual([]); // the studio's photos stay as they came (the provider's references are JPG / PNG)
+  const batch = mock.studioBatches[0];
+  expect([batch.type, batch.brand_id, batch.step, batch.status, batch.created_by, batch.state.brandName, batch.state.items.length]).toEqual(['Simple', brand.id, 2, 'draft', OPS_ID, brand.name, 2]);
+  expect(batch.state.items.map((it) => [it.nameEn, it.nameAr, it.vendorPrice, it.colors, it.sizes, !!it.main, it.refs.length])).toEqual([['Boho Cushion', 'مخدة بوهيمي', 350, ['BE'], ['45×45'], true, 1], ['Stripe Pillow', 'مخدة مخططة', 280, ['BK'], [], false, 0]]);
+  expect([...mock.studioObjects.keys()].filter((k) => k.startsWith(batch.id + '/')).map((k) => k.replace(/-[a-z0-9]+\.png$/, ''))).toEqual([batch.id + '/row1-main', batch.id + '/row2-ref']);
+  expect(mock.aiRuns.map((r) => [r.source, r.credits, r.batch_id, r.output.items, r.output.failed])).toEqual([['import', 0, batch.id, 2, 1]]);
+  expect([mock.imageImports[0].status, mock.imageImports[0].batch_id]).toEqual(['partial', batch.id]);
+  // the note with the batch, the row still listed as ناقصة; «افتح الدفعة» → the studio's intake step with the products and their photos
+  await expect(page.locator('#pg-products')).toContainText('ناقصة');
+  await page.locator('[data-igbatch]').click();
+  await expect(page).toHaveURL(new RegExp('#products-studio-' + batch.id + '-2$'));
+  await expect(page.locator('#pg-products')).toContainText('Boho Cushion');
+  await expect(page.locator('#pg-products')).toContainText('Stripe Pillow');
+  await expect(page.locator('#pg-products')).toContainText('متطابق ✓'); // Boho Cushion with its photo
+  await expect(page.locator('#pg-products')).toContainText('ناقص صورة'); // Stripe Pillow: its link failed
 });

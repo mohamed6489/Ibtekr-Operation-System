@@ -33,6 +33,11 @@
   `rls_image_imports`) → action `import` في `ai-images` (v9، 0 كريدت، `source = 'import'`، partial بيتكمّل) → كارت «وارد من Magnific»
   في الأداة → WebP → «احفظ على المنتج». الاختبارات: Deno (15)، node (13)، e2e (`images.spec` حالة كاملة بالـ mock). الطريقة في
   `tools/deploy.md` §2.7.13. **حي (1 نوفمبر):** `0026` اتطبّق من SQL Editor بإيد صاحب المشروع (اتأكدت: الجدول وسياسة الـ select والـ grant و`source` بيقبل `import`)، `ai-images` v9، الواجهة على `main`؛ `rls_image_imports` على «RLS live». الجسر: صاحب المشروع هو الأدمن الوحيد النشط (`profiles` — الـ id بيتقري وقت الإدراج، مش محفوظ هنا). مشروع Magnific «ابتكر» اتعمل من الجلسة (`folders_create`؛ الـ reference في `deploy.md`).
+  **1 نوفمبر — قرار 9 (أسماء الصور → دفعة استوديو):** صاحب المشروع: «عايز أسمّي الصورة بكل تفاصيل المنتج وإنت تاخد الصورة وتعمل الـ
+  SKU وكل الباقي». `0027` (`target`/`items`/`brand_id`/`vendor_id`/`batch_type`/`batch_id` على `image_imports`)، `importStudio` +
+  `studioItems` في `ai-images` (v10) بيعملوا الدفعة بشكل `state` بتاع الصفحة (`applySheet`/`syncVariations`)، الصفحة بـ «استورد
+  للاستوديو» و«افتح الدفعة»، الـ mock بنفس المنطق، اختبارات Deno (16) / node (14) / e2e (images.spec حالة الاستوديو) / `rls_image_imports`.
+  الجسر بيفكّ الأسماء في الجلسة نفسها (من غير نداء AI) والطريقة في `deploy.md` §2.7.13. **حي:** `0027` اتطبّق بالـ MCP (إضافي — من غير تأكيد)، `ai-images` v10، الواجهة على `main`، e2e 198/198.
 - [x] T3 `0025_ai_images` (31 أكتوبر): `ai_runs.action` + `image`، `source` + `tool`/`edit`، عمود `credits`؛ bucket `ai-images` خاص
   (القراءة والحذف لفولدر العضو بـ `products.add`/`products.edit` F، الكتابة للسيرفر بس)؛ `rls_ai_images.sql`. مافيش Postgres محلي
   في الـ sandbox — بيتأكد في CI (`db:test`) وعلى الحي بـ RLS live بعد التطبيق.

@@ -53,7 +53,7 @@ const COLUMNS: Record<string, string[]> = {
   ai_runs: ['id', 'created_at', 'created_by', 'action', 'source', 'label', 'product_id', 'batch_id', 'item_index', 'model', 'input_tokens', 'output_tokens',
     'cache_read_tokens', 'cache_write_tokens', 'cost_usd', 'status', 'error', 'output', 'credits'], // credits: 0025 (phase 5.4)
   // 0026 (phase 5.4 decision 8): the Magnific import queue
-  image_imports: ['id', 'created_at', 'created_by', 'source', 'folder', 'label', 'product_id', 'urls', 'refs', 'status', 'paths', 'error', 'run_id', 'done_at'],
+  image_imports: ['id', 'created_at', 'created_by', 'source', 'folder', 'label', 'product_id', 'urls', 'refs', 'status', 'paths', 'error', 'run_id', 'done_at', 'target', 'items', 'brand_id', 'vendor_id', 'batch_type', 'batch_id'], // 0027
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
 };
@@ -86,7 +86,7 @@ const CHECK: Record<string, Record<string, unknown[]>> = {
   woo_webhook_events: { status: ['ok', 'ignored', 'duplicate', 'error'] },
   woo_sync_log: { kind: ['webhook', 'sync', 'push', 'manual', 'cron'], direction: [null, 'in', 'out'], result: ['ok', 'error', 'conflict', 'skipped'] },
   ai_runs: { action: ['write', 'studio', 'image'], source: [null, 'data', 'image', 'product', 'studio', 'tool', 'edit', 'import'], status: ['pending', 'ok', 'refused', 'error', 'cap'] }, // image: 0025, import: 0026 (phase 5.4)
-  image_imports: { source: ['magnific'], status: ['pending', 'ok', 'partial', 'error'] },
+  image_imports: { source: ['magnific'], status: ['pending', 'ok', 'partial', 'error'], target: [null, 'tool', 'studio'], batch_type: [null, 'Simple', 'Variable'] },
 };
 // numeric checks of 0011 / 0014: rate 0–65, flat ≥ 0 (null passes)
 const RANGE: Record<string, Record<string, [number, number]>> = {

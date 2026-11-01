@@ -349,14 +349,44 @@ async function importOne(deps: Deps, raw: unknown): Promise<{ bytes: Uint8Array;
     return { bytes, mime };
   } catch { return null; }
 }
+// decision 9: the queued items (what the bridge read from the creations' names) as studio items — the shape the studio page
+// keeps in studio_batches.state.items (applySheet / syncVariations in products-studio.js): colors by code from sku_colors
+// (unknown names wait in unknownColors for «+ لون جديد»), Variable → colors × sizes, the images by their place in urls
+type ColorRow = { code: string; name_en: string; name_ar: string | null };
+function studioItems(items: unknown[], paths: (string | null)[], type: string, colorRows: ColorRow[], old: Json[]) {
+  const byName = (n: string) => { const k = n.trim().toLowerCase(); return colorRows.find((c) => c.name_en.toLowerCase() === k || String(c.name_ar ?? '').trim() === n.trim()) ?? null; };
+  const text = (v: unknown, max: number) => (typeof v === 'string' ? line(v, max) : '');
+  const list = (v: unknown, max: number) => (Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && !!x.trim()).map((x) => line(x, max)).slice(0, 30) : []);
+  return items.slice(0, 100).map((raw, i) => {
+    const it: Json = isObj(raw) ? raw : {};
+    const prev: Json = isObj(old[i]) ? old[i] : {};
+    const names = list(it.colors, 60); const found = names.map((n) => byName(n));
+    let colors = found.filter((c): c is ColorRow => !!c).map((c) => c.code); const unknownColors = names.filter((_, k) => !found[k]);
+    let sizes = list(it.sizes, 30);
+    if (type !== 'Variable') { colors = colors.slice(0, 1); sizes = sizes.slice(0, 1); }
+    const price = Number(it.vendorPrice); const vendorPrice = Number.isFinite(price) && price > 0 ? price : null;
+    const stockN = Number(it.stock); const stock = Number.isInteger(stockN) && stockN >= 0 ? stockN : null;
+    const idx = Array.isArray(it.images) ? it.images.filter((n): n is number => Number.isInteger(n) && n >= 0 && n < paths.length) : [];
+    const mainPath = idx.length ? paths[idx[0]] : null; const refPaths = idx.slice(1).map((n) => paths[n]).filter((p): p is string => !!p); // by their place: a failed main stays empty for the retry
+    const variations: Json[] = [];
+    if (type === 'Variable') { for (const c of colors.length ? colors : [null]) for (const s of sizes.length ? sizes : [null]) { if (c === null && s === null) continue; variations.push({ color: c, size: s, vendorPrice, stock: null, onDemand: false }); } }
+    return {
+      key: typeof prev.key === 'string' ? prev.key : 'imp' + i + '-' + Math.random().toString(36).slice(2, 8), row: null, nameEn: text(it.nameEn, 200), nameAr: text(it.nameAr, 200), vendorPrice, colors, unknownColors, sizes,
+      material: text(it.material, 80), style: text(it.style, 80), weight: text(it.weight, 20), stock, onDemand: false, shortDesc: text(it.shortDesc, 500), shortDescAr: text(it.shortDescAr, 500),
+      categories: Array.isArray(prev.categories) ? prev.categories : [], main: typeof prev.main === 'string' ? prev.main : mainPath, refs: Array.isArray(prev.refs) && prev.refs.length ? prev.refs : refPaths,
+      slots: Array.isArray(prev.slots) ? prev.slots : [], colorImages: isObj(prev.colorImages) ? prev.colorImages : {}, variations: Array.isArray(prev.variations) && prev.variations.length ? prev.variations : variations, sheetVariations: null,
+    };
+  });
+}
 async function importSet(deps: Deps, who: Who, args: Json) {
   if (!who.add && !who.edit) return json(401, { error: 'unauthorized' });
   const id = Number(args.id);
   if (!Number.isInteger(id) || id <= 0) return json(400, { error: 'bad_request', field: 'id' });
-  const { data: row } = await deps.db.from('image_imports').select('id, created_by, source, folder, label, product_id, urls, status, paths').eq('id', id).maybeSingle();
+  const { data: row } = await deps.db.from('image_imports').select('id, created_by, source, folder, label, product_id, urls, status, paths, target, items, brand_id, vendor_id, batch_type, batch_id').eq('id', id).maybeSingle();
   if (!isObj(row)) return json(404, { error: 'not_found' });
   if (!who.admin && row.created_by !== who.uid) return json(401, { error: 'unauthorized' });
   if (row.status === 'ok') return json(409, { error: 'done' });
+  if (row.target === 'studio') return await importStudio(deps, who, row);
   const urls: unknown[] = Array.isArray(row.urls) ? row.urls.slice(0, MAX_IMPORT) : [];
   const paths: (string | null)[] = Array.isArray(row.paths) ? row.paths.map((p: unknown) => (typeof p === 'string' ? p : null)) : [];
   const st = stamp(deps);
@@ -376,7 +406,55 @@ async function importSet(deps: Deps, who: Who, args: Json) {
   const runId = isObj(run) && Number.isInteger(Number(run.id)) ? Number(run.id) : null;
   await deps.db.from('image_imports').update({ status, paths, error: stored ? null : 'import_failed', run_id: runId, done_at: status === 'ok' ? deps.now() : null }).eq('id', id);
   if (!stored) return json(502, { error: 'ai_error' });
-  return json(200, { result: 'ok', bucket: TOOL_BUCKET, path: done[0], paths: done, credits: 0, model: '', run_id: runId, imported: stored, failed: urls.length - stored, status });
+  return json(200, { result: 'ok', target: 'tool', bucket: TOOL_BUCKET, path: done[0], paths: done, credits: 0, model: '', run_id: runId, imported: stored, failed: urls.length - stored, status });
+}
+// decision 9: the set becomes a studio batch (products.add): the brand / maker / type as queued, the images as the items' photos
+// in bucket studio under the batch, step 2 («الاستلام») for the owner to review; a retry finishes the missing photos on the same batch
+async function importStudio(deps: Deps, who: Who, row: Json) {
+  if (!who.add) return json(401, { error: 'unauthorized' });
+  const urls: unknown[] = Array.isArray(row.urls) ? row.urls.slice(0, MAX_IMPORT) : [];
+  const paths: (string | null)[] = Array.isArray(row.paths) ? row.paths.map((p: unknown) => (typeof p === 'string' ? p : null)) : [];
+  const type = row.batch_type === 'Variable' ? 'Variable' : 'Simple';
+  const brand = typeof row.brand_id === 'string' ? (await deps.db.from('brands').select('id, name').eq('id', row.brand_id).maybeSingle()).data : null;
+  const vendor = typeof row.vendor_id === 'string' ? (await deps.db.from('vendors').select('id, name').eq('id', row.vendor_id).maybeSingle()).data : null;
+  const brandName = isObj(brand) && typeof brand.name === 'string' ? brand.name : '';
+  const vendorName = isObj(vendor) && typeof vendor.name === 'string' ? vendor.name : '';
+  // the batch: the one of an earlier (partial) run, else a new one of the importing member
+  let batchId = typeof row.batch_id === 'string' ? row.batch_id : null; let oldItems: Json[] = [];
+  if (batchId) {
+    const { data: b } = await deps.db.from('studio_batches').select('id, state, archived_at').eq('id', batchId).maybeSingle();
+    if (isObj(b) && !b.archived_at) oldItems = isObj(b.state) && Array.isArray(b.state.items) ? b.state.items : []; else batchId = null;
+  }
+  if (!batchId) {
+    const title = line((typeof row.label === 'string' && row.label.trim()) || (typeof row.folder === 'string' && row.folder.trim()) || brandName || 'Magnific', 80) + ' — ' + type + ' · ' + deps.now().slice(0, 10);
+    const fresh = crypto.randomUUID();
+    const { error: mkErr } = await deps.db.from('studio_batches').insert({ id: fresh, title, brand_id: isObj(brand) ? brand.id : null, vendor_id: isObj(vendor) ? vendor.id : null, type, state: {}, step: 2, status: 'draft', created_by: who.uid });
+    if (mkErr) return json(502, { error: 'failed' });
+    batchId = fresh;
+  }
+  const st = stamp(deps);
+  let stored = 0;
+  const items: unknown[] = Array.isArray(row.items) ? row.items : [];
+  const firstOf = new Set(items.map((it) => (isObj(it) && Array.isArray(it.images) ? it.images[0] : null)));
+  for (let i = 0; i < urls.length; i++) {
+    if (paths[i]) { stored++; continue; }
+    const img = await importOne(deps, urls[i]);
+    const up = img ? await upload(deps.db, STUDIO_BUCKET, `${batchId}/row${i + 1}-${firstOf.has(i) ? 'main' : 'ref'}-${st}.${extOf(img.mime)}`, img) : null;
+    paths[i] = up ? up.path : null;
+    if (up) stored++;
+  }
+  const { data: colorRows } = await deps.db.from('sku_colors').select('code, name_en, name_ar');
+  const state = { v: 1, type, vary: ['color'], brandId: isObj(brand) ? brand.id : null, brandName, vendorId: isObj(vendor) ? vendor.id : null, vendorName, rate: null, fee: null, sheet: null, imgCount: 4,
+    items: studioItems(items, paths, type, Array.isArray(colorRows) ? colorRows : [], oldItems), imported: { import_id: row.id, source: row.source ?? 'magnific' } };
+  await deps.db.from('studio_batches').update({ state, type, brand_id: state.brandId, vendor_id: state.vendorId }).eq('id', batchId);
+  const status = stored === urls.length ? 'ok' : stored ? 'partial' : 'error';
+  const label = line(typeof row.label === 'string' ? row.label : '', 200) || (typeof row.folder === 'string' ? line(row.folder, 200) : '') || 'وارد';
+  const done = paths.filter((p): p is string => !!p);
+  const { data: run } = await deps.db.from('ai_runs').insert({ created_by: who.uid, action: 'image', source: 'import', label, batch_id: batchId, model: null, status: stored ? 'ok' : 'error', error: stored ? null : 'import_failed', credits: 0, cost_usd: 0, output: { paths: done, bucket: STUDIO_BUCKET, import_id: row.id, failed: urls.length - stored, items: items.length } }).select('id').single();
+  const runId = isObj(run) && Number.isInteger(Number(run.id)) ? Number(run.id) : null;
+  await deps.db.from('image_imports').update({ status, paths, batch_id: batchId, error: stored ? null : 'import_failed', run_id: runId, done_at: status === 'ok' ? deps.now() : null }).eq('id', row.id);
+  if (!stored) return json(502, { error: 'ai_error' });
+  return json(200, { result: 'ok', target: 'studio', bucket: STUDIO_BUCKET, batch_id: batchId, path: done[0], paths: done, credits: 0, model: '', run_id: runId, imported: stored, failed: urls.length - stored, status, items: items.length });
 }
 
 // ---------------------------------------------------------------- handler

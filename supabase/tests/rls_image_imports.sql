@@ -1,5 +1,5 @@
--- RLS / permission tests for 0026_image_imports (the Magnific import queue + ai_runs source 'import'). Depends on 0001_identity …
--- 0026_image_imports. Runs in one transaction and rolls back; prints NOTICE 'rls_image_imports: ok' only if every case passed.
+-- RLS / permission tests for 0026_image_imports + 0027_image_imports_studio (the Magnific import queue, its studio target, ai_runs
+-- source 'import'). Depends on 0001_identity … 0027_image_imports_studio. Runs in one transaction and rolls back; prints NOTICE 'rls_image_imports: ok' only if every case passed.
 -- Live-safe: its rows (two made-up members, their queue rows) are rolled back.
 
 begin;
@@ -35,6 +35,20 @@ do $$ begin
     raise exception 'case a source outside the list is refused failed';
   exception when check_violation then null;
   end;
+  -- 0027: the studio target and its columns; a target or a type outside the list is refused
+  insert into public.image_imports (created_by, folder, label, urls, refs, target, items, brand_id, batch_type) values
+    ('00000000-0000-4000-8000-000000000093', 'ابتكر', 'دفعة', '["https://pikaso.cdnpk.net/private/d.jpg"]', '["DDD"]', 'studio', '[{"nameEn":"Mug","nameAr":"مج","vendorPrice":120,"colors":["Black"],"images":[0]}]', null, 'Variable');
+  if (select target from public.image_imports where label = 'Boho Cushion') <> 'tool' then raise exception 'case the target defaults to tool failed'; end if;
+  begin
+    insert into public.image_imports (created_by, urls, target) values ('00000000-0000-4000-8000-000000000093', '["https://x"]', 'site');
+    raise exception 'case a target outside the list is refused failed';
+  exception when check_violation then null;
+  end;
+  begin
+    insert into public.image_imports (created_by, urls, batch_type) values ('00000000-0000-4000-8000-000000000093', '["https://x"]', 'Grouped');
+    raise exception 'case a batch type outside the list is refused failed';
+  exception when check_violation then null;
+  end;
   -- ai_runs takes source 'import' since 0026
   insert into public.ai_runs (created_by, action, source, label, credits, cost_usd, status) values
     ('00000000-0000-4000-8000-000000000093', 'image', 'import', 'Boho Cushion', 0, 0, 'ok');
@@ -47,8 +61,8 @@ set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000093","role":"authenticated"}', true);
 
 do $$ begin
-  if (select count(*) from public.image_imports) <> 1 then raise exception 'case a member reads own rows only failed'; end if;
-  if (select label from public.image_imports) <> 'Boho Cushion' then raise exception 'case the own row is the one read failed'; end if;
+  if (select count(*) from public.image_imports) <> 2 then raise exception 'case a member reads own rows only failed'; end if;
+  if not exists (select 1 from public.image_imports where label = 'Boho Cushion') or exists (select 1 from public.image_imports where label = 'Mug') then raise exception 'case the own rows are the ones read failed'; end if;
   begin
     insert into public.image_imports (created_by, urls) values ('00000000-0000-4000-8000-000000000093', '["https://pikaso.cdnpk.net/private/z.jpg"]');
     raise exception 'case a member cannot insert failed';
@@ -71,7 +85,7 @@ end $$;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-000000000094","role":"authenticated"}', true);
 
 do $$ begin
-  if (select count(*) from public.image_imports) <> 2 then raise exception 'case the admin reads every row failed'; end if;
+  if (select count(*) from public.image_imports) <> 3 then raise exception 'case the admin reads every row failed'; end if;
   begin
     update public.image_imports set status = 'ok';
     raise exception 'case the admin cannot update either failed';

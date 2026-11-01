@@ -274,6 +274,47 @@ Deno.test('import (decision 8): a queued Magnific set — the row\'s owner (or t
   assertFalse(JSON.stringify(bad.db.rows('ai_runs')).includes('evil.test'), 'no link in a run row');
 });
 
+Deno.test('import target studio (decision 9): the queued items become a studio batch of the importing member — the brand and maker named, the type, colors by code (unknown ones kept in unknownColors), Variable → colors × sizes, the photos under the batch in bucket studio (main / ref by their place), step 2; a retry finishes the photos on the same batch; products.add only', async () => {
+  const CDN = 'https://pikaso.cdnpk.net/private/production/1/';
+  const VENDOR = '33333333-4444-4555-8666-777777777777';
+  const items = [
+    { nameEn: 'Boho Cushion', nameAr: 'مخدة بوهيمي', vendorPrice: 350, colors: ['Beige', 'Black', 'Teal'], sizes: ['45×45', '50×50'], material: 'Cotton', style: 'Boho', weight: '0.4', stock: 3, images: [0, 1] },
+    { nameEn: 'Stripe Pillow', nameAr: 'مخدة مخططة', vendorPrice: '280', colors: ['Beige'], sizes: [], images: [2, 3] },
+  ];
+  const rows = [{ id: 11, created_by: U.add, source: 'magnific', folder: 'ابتكر', label: 'دفعة Art Craft', urls: [CDN + 'a.jpg', CDN + 'b.png', CDN + 'gone.jpg', CDN + 'd.jpg'], refs: ['A', 'B', 'C', 'D'], status: 'pending', paths: null,
+    target: 'studio', items, brand_id: BRAND, vendor_id: VENDOR, batch_type: 'Variable', batch_id: null }];
+  const seed = { ...SEED, image_imports: rows, vendors: [{ id: VENDOR, woo_vendor_id: 7, name: 'Art Craft Store', status: 'active' }] };
+  const { deps, db, storage, fetched } = setup({ seed });
+  assertEquals((await call(deps, { action: 'import', id: 11 }, 'jwt-edit')).res.status, 401, 'products.edit alone makes no studio batch');
+  const r = await call(deps, { action: 'import', id: 11 });
+  assertEquals([r.res.status, r.body.target, r.body.bucket, r.body.imported, r.body.failed, r.body.status, r.body.items, r.body.credits], [200, 'studio', 'studio', 3, 1, 'partial', 2, 0]);
+  const batch = db.rows('studio_batches').find((b: any) => b.id === r.body.batch_id);
+  assert(batch, 'a batch was made');
+  assertEquals([batch.title, batch.brand_id, batch.vendor_id, batch.type, batch.step, batch.status, batch.created_by], ['دفعة Art Craft — Variable · ' + NOW.slice(0, 10), BRAND, VENDOR, 'Variable', 2, 'draft', U.add]);
+  const st = batch.state;
+  assertEquals([st.type, st.brandId, st.brandName, st.vendorId, st.vendorName, st.imgCount, st.imported], ['Variable', BRAND, 'Art Craft', VENDOR, 'Art Craft Store', 4, { import_id: 11, source: 'magnific' }]);
+  const [a, b] = st.items;
+  assertEquals([a.nameEn, a.nameAr, a.vendorPrice, a.colors, a.unknownColors, a.sizes, a.material, a.style, a.weight, a.stock, a.onDemand, a.categories, a.slots, a.colorImages, a.sheetVariations], ['Boho Cushion', 'مخدة بوهيمي', 350, ['BE', 'BK'], ['Teal'], ['45×45', '50×50'], 'Cotton', 'Boho', '0.4', 3, false, [], [], {}, null]);
+  assertEquals(a.variations.map((v: any) => [v.color, v.size, v.vendorPrice]), [['BE', '45×45', 350], ['BE', '50×50', 350], ['BK', '45×45', 350], ['BK', '50×50', 350]]);
+  assert(a.main.startsWith(batch.id + '/row1-main-') && a.main.endsWith('.jpg') && a.refs.length === 1 && a.refs[0].startsWith(batch.id + '/row2-ref-') && a.refs[0].endsWith('.png'), JSON.stringify([a.main, a.refs]));
+  assertEquals([b.nameEn, b.vendorPrice, b.colors, b.sizes, b.main, b.refs.length, b.variations.map((v: any) => [v.color, v.size])], ['Stripe Pillow', 280, ['BE'], [], null, 1, [['BE', null]]], 'the third link (404) was its main: none yet, the fourth is its reference');
+  assertEquals(Object.keys(storage).filter((k) => k.startsWith('studio/' + batch.id + '/')).length, 3);
+  const row = db.row('image_imports', 11);
+  assertEquals([row.status, row.batch_id, row.paths[2], typeof row.run_id], ['partial', batch.id, null, 'number']);
+  assertEquals([db.rows('ai_runs').at(-1).source, db.rows('ai_runs').at(-1).batch_id, db.rows('ai_runs').at(-1).credits, db.rows('ai_runs').at(-1).output.items], ['import', batch.id, 0, 2]);
+  // the owner edits nothing; the retry fetches the missing link only, keeps the batch and fills the item's main photo
+  const before = fetched.length;
+  const r2 = await call(deps, { action: 'import', id: 11 });
+  assertEquals([r2.res.status, r2.body.batch_id, r2.body.status, fetched.slice(before)], [200, batch.id, 'partial', [CDN + 'gone.jpg']]);
+  assertEquals(db.rows('studio_batches').length, SEED.studio_batches.length + 1, 'no second batch');
+  // a Simple set keeps the first color and size and makes no variations; no brand / maker → blank names, the title from the folder
+  const simple = setup({ seed: { ...SEED, image_imports: [{ id: 12, created_by: U.admin, source: 'magnific', folder: 'ابتكر', label: null, urls: [CDN + 'x.jpg'], status: 'pending', target: 'studio', items: [{ nameEn: 'Mug', nameAr: 'مج', vendorPrice: 120, colors: ['Black', 'Beige'], sizes: ['S', 'M'], images: [0] }], batch_type: 'Simple' }] } });
+  const r3 = await call(simple.deps, { action: 'import', id: 12 }, 'jwt-admin');
+  const b3 = simple.db.rows('studio_batches').find((x: any) => x.id === r3.body.batch_id);
+  assertEquals([r3.body.status, b3.title, b3.type, b3.brand_id, b3.state.brandName, b3.state.items[0].colors, b3.state.items[0].sizes, b3.state.items[0].variations, b3.state.items[0].main !== null], ['ok', 'ابتكر — Simple · ' + NOW.slice(0, 10), 'Simple', null, '', ['BK'], ['S'], [], true]);
+  assertEquals(simple.db.row('image_imports', 12).status, 'ok');
+});
+
 Deno.test('probe: the admin only; the shape of the provider\'s account answer (keys and types, no values); no key → 503', async () => {
   const { deps } = setup({ replies: [{ credits: 756, plan: { name: 'Premium+' }, list: [1, 2] }] });
   const { res, body } = await call(deps, { action: 'probe' }, 'jwt-admin');

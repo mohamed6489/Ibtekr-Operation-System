@@ -32,7 +32,7 @@
 
   // ---------------- state ----------------
   const S = { tab: 'i2i', fromProduct: null, photo: null, photoName: '', sku: '', prompt: '', shape: 'studio', size: '700x800', width: '', height: '', count: 1, model: '', op: 'remove_bg', bg: 'transparent', scale: 2,
-    running: false, err: '', result: null, sel: new Set(), saving: false, settingsRead: false, imports: null, importing: null };
+    running: false, err: '', result: null, sel: new Set(), saving: false, settingsRead: false, imports: null, importing: null, lastBatch: null };
   const reset = () => Object.assign(S, { tab: 'i2i', fromProduct: null, photo: null, photoName: '', sku: '', prompt: '', shape: 'studio', running: false, err: '', result: null, sel: new Set(), imports: null, importing: null });
 
   function route(id) {
@@ -88,19 +88,27 @@
     const r = await I.importRun(row.id);
     S.importing = null; S.imports = null;
     if (!r.ok) { K.toast(r.reason === 'done' ? 'المجموعة دي اتستوردت قبل كده — شوفها في «سجل الصور»' : r.reason === 'ai_error' ? 'مقدرناش ننزّل ولا صورة من Magnific — الروابط ممكن تكون انتهت، اطلب تجديدها' : errText(r), 'error'); R(); return; }
+    if (r.target === 'studio') {
+      // decision 9: the set is a studio batch now — the owner reviews it there (step 2) and uploads as usual
+      S.lastBatch = { id: r.batchId, label: row.label || row.folder || 'Magnific', items: r.items, imported: r.imported, failed: r.failed, status: r.status };
+      K.toast('اتعملت دفعة في الاستوديو بـ ' + r.items + ' منتج و' + r.imported + ' صورة' + (r.failed ? ' — ' + r.failed + ' صورة ماتنزّلتش' : ''), r.failed ? 'warn' : 'success'); R(); return;
+    }
     const target = row.productId && PR() ? PR().get(row.productId) : null;
     S.result = { bucket: r.bucket || 'ai-images', paths: r.paths, credits: 0, model: '', source: 'import', productId: row.productId, productName: target ? target.nameEn || target.nameAr : row.label, tab: S.tab, at: new Date().toISOString() };
     S.sel = new Set(r.paths);
     K.toast('اتستوردت ' + r.imported + ' صورة من Magnific' + (r.failed ? ' — ' + r.failed + ' ماتنزّلتش' : '') + ' — راجعها قبل ما تحفظها', r.failed ? 'warn' : 'success'); R();
   }
   function importsCard() {
-    const rows = S.imports || []; if (!rows.length) return null;
+    const rows = S.imports || []; const last = S.lastBatch; if (!rows.length && !last) return null;
     const ST = { pending: ['info', 'جاهزة'], partial: ['warn', 'ناقصة'], error: ['error', 'فشلت'] };
-    const list = rows.map((x) => { const p = x.productId && PR() ? PR().get(x.productId) : null; const st = ST[x.status] || ST.pending; const busy = S.importing === x.id;
-      return [h('span', { class: 't-small', dir: 'ltr' }, String(x.at || '').slice(0, 16).replace('T', ' ')), x.label || x.folder || '—', p ? (p.nameEn || p.nameAr) : h('span', { class: 'help' }, '—'), x.done ? x.done + ' / ' + x.count : String(x.count), Tag(st[0], st[1]),
-        Button({ type: 'primary', size: 'sm', label: busy ? 'بنستورد…' : x.status === 'partial' ? 'كمّل الاستيراد' : x.status === 'error' ? 'جرّب تاني' : 'استورد', disabled: !!S.importing, attrs: { 'data-igimport': String(x.id) }, onClick: () => runImport(x) })]; });
-    return Card('وارد من Magnific', 'صور اتعملت على موقع Magnific (الباقة Unlimited) وجاهزة تدخل النظام — بتتحوّل WebP وتتحفظ على المنتج زي أي صورة.',
-      [U.Table({ cls: 'dt', headers: ['الوقت', 'المجموعة', 'المنتج', 'الصور', 'الحالة', ''], rows: list })]);
+    const list = rows.map((x) => { const p = x.productId && PR() ? PR().get(x.productId) : null; const st = ST[x.status] || ST.pending; const busy = S.importing === x.id; const studio = x.target === 'studio';
+      return [h('span', { class: 't-small', dir: 'ltr' }, String(x.at || '').slice(0, 16).replace('T', ' ')), x.label || x.folder || '—',
+        studio ? h('span', null, 'الاستوديو — ', x.items, ' منتج · ', x.batchType) : p ? (p.nameEn || p.nameAr) : h('span', { class: 'help' }, 'أداة الصور'), x.done ? x.done + ' / ' + x.count : String(x.count), Tag(st[0], st[1]),
+        Button({ type: 'primary', size: 'sm', label: busy ? 'بنستورد…' : x.status === 'partial' ? 'كمّل الاستيراد' : x.status === 'error' ? 'جرّب تاني' : studio ? 'استورد للاستوديو' : 'استورد', disabled: !!S.importing, attrs: { 'data-igimport': String(x.id) }, onClick: () => runImport(x) })]; });
+    return Card('وارد من Magnific', 'صور اتعملت على موقع Magnific (الباقة Unlimited) وجاهزة تدخل النظام — لأداة الصور (بتتحوّل WebP وتتحفظ على المنتج) أو كدفعة في الاستوديو بمنتجاتها (الاسم من اسم الصورة على Magnific).',
+      [last ? U.InlineNote({ kind: last.failed ? 'warning' : 'success', children: 'دفعة «' + last.label + '» في الاستوديو: ' + last.items + ' منتج · ' + last.imported + ' صورة' + (last.failed ? ' · ' + last.failed + ' ماتنزّلتش' : '') + ' — راجع البيانات والصور وكمّل الخطوات.',
+        action: Button({ size: 'sm', label: 'افتح الدفعة', attrs: { 'data-igbatch': last.id }, onClick: () => go('products-studio-' + last.id + '-2') }) }) : null,
+        rows.length ? U.Table({ cls: 'dt', headers: ['الوقت', 'المجموعة', 'الوجهة', 'الصور', 'الحالة', ''], rows: list }) : null]);
   }
 
   // ---------------- a download, «احفظ على المنتج», «سجل الصور» ----------------

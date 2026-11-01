@@ -1,0 +1,19 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ربط Magnific — نظام إبتكر</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;900&display=swap">
+<link rel="stylesheet" href="css/base.css"><link rel="stylesheet" href="css/app.css">
+<style>
+  body { display: grid; place-items: center; min-height: 100vh; margin: 0; }
+  .cb-card { max-width: 460px; width: calc(100% - 32px); padding: 28px 24px; border-radius: 16px; background: var(--card, #fff); box-shadow: 0 10px 40px rgba(0,0,0,.08); text-align: center; }
+  .cb-card h1 { font-size: 20px; margin: 0 0 10px; }
+  .cb-card p { margin: 0 0 16px; color: var(--muted, #666); }
+  .cb-card a { display: inline-block; padding: 10px 18px; border-radius: 10px; background: var(--primary, #0b3b5c); color: #fff; text-decoration: none; }
+  .cb-card .err { color: #b3261e; }
+</style>
+</head><body>
+<!-- phase 5.4 decision 11: the page Magnific's sign-in comes back to; js/pages/magnific-callback.js hands the code to the server -->
+<div class="cb-card" dir="rtl" lang="ar"><h1 id="cb-title">بنربط حساب Magnific…</h1><p id="cb-text">لحظة واحدة.</p><a id="cb-back" href="index.html#products-tool-images" hidden>ارجع للمنتجات</a></div>
+<script src="config.js"></script><script src="js/vendor/supabase.js"></script><script src="js/adapter/supabase-client.js"></script>
+<script src="js/pages/magnific-callback.js"></script>
+</body></html>

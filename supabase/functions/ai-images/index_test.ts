@@ -5,6 +5,7 @@ import { assert, assertEquals, assertFalse } from 'jsr:@std/assert@1';
 import { handler } from './index.ts';
 import { ENV, NOW, fakeDb } from '../_test/fakes.ts';
 import { ProviderError, aspectOf, magnific, shape } from './providers/magnific.ts';
+import { BridgeError, magnificMcp, sseMessages } from './providers/magnific-mcp.ts';
 
 const KEY = 'magnific-test-key-0000';
 const U = { admin: '00000000-0000-4000-8000-0000000000b1', add: '00000000-0000-4000-8000-0000000000b2', edit: '00000000-0000-4000-8000-0000000000b3', view: '00000000-0000-4000-8000-0000000000b4' };
@@ -22,9 +23,14 @@ const SEED = { brands: [{ id: BRAND, name: 'Art Craft', code: 'AR', aliases: [] 
 const FILES = { [`studio/${SB}/row1-main.webp`]: WEBP, [`studio/${SB}/row1-ref.webp`]: WEBP, [`studio/${SB}/black.webp`]: WEBP, [`studio/${SB}/gen-0-0-old.png`]: PNG };
 const img = (bytes = PNG, mime = 'image/png') => ({ bytes, mime });
 
-type Opts = { seed?: Record<string, any[]>; env?: Record<string, string>; replies?: unknown[]; startDown?: boolean; storage?: Record<string, Uint8Array>; fail?: (c: any) => any; photo?: Uint8Array | null };
-function setup({ seed = SEED, env = {}, replies = [], startDown = false, storage = { ...FILES }, fail, photo = PNG }: Opts = {}) {
+type Opts = { seed?: Record<string, any[]>; env?: Record<string, string>; replies?: unknown[]; startDown?: boolean; storage?: Record<string, Uint8Array>; fail?: (c: any) => any; photo?: Uint8Array | null; vault?: Record<string, string | null>; bridge?: any };
+function setup({ seed = SEED, env = {}, replies = [], startDown = false, storage = { ...FILES }, fail, photo = PNG, vault, bridge }: Opts = {}) {
   let db: any = null;
+  // 0029: the Vault doors of the bridge (service_role) over an in-memory map — the two names only, null removes
+  const vaultRpc: Record<string, (args: any) => unknown> = vault ? {
+    magnific_secret_get: ({ p_name }: any) => { if (!['magnific_mcp_client', 'magnific_mcp_tokens'].includes(p_name)) throw new Error('unknown secret'); return vault[p_name] ?? null; },
+    magnific_secret_set: ({ p_name, p_value }: any) => { if (!['magnific_mcp_client', 'magnific_mcp_tokens'].includes(p_name)) throw new Error('unknown secret'); if (p_value === null) delete vault[p_name]; else vault[p_name] = p_value; return null; },
+  } : {};
   // ai_image_run_start as 0025 defines it: the throttle, then this Cairo month's image credits (pending rows included) + the planned
   // credits against the cap → a cap row, else a pending row holding the credits and the estimate
   const cairoMonth = (iso: string) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit' }).format(new Date(iso));
@@ -39,7 +45,7 @@ function setup({ seed = SEED, env = {}, replies = [], startDown = false, storage
     const { data } = await db.from('ai_runs').insert({ created_at: NOW, ...p_row, action: 'image', status: 'pending', credits: p_credits, cost_usd: p_cost }).select('id').single();
     return { result: 'ok', id: data.id };
   };
-  db = fakeDb(seed, { rpc: startDown ? {} : { ai_image_run_start: start }, storage, fail });
+  db = fakeDb(seed, { rpc: startDown ? {} : { ai_image_run_start: start, ...vaultRpc }, storage, fail });
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
     return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'products.add' ? m.add ?? 'N' : key === 'products.edit' ? m.edit ?? 'N' : 'N'), is_admin: () => m.admin ?? false } : {} });
@@ -53,9 +59,25 @@ function setup({ seed = SEED, env = {}, replies = [], startDown = false, storage
   const provider = { generate: (p: any) => answer('generate', p), edit: (p: any) => answer('edit', p), probe: async () => { const r = queue.shift(); if (r instanceof Error) throw r; return r as any; } };
   const fetched: string[] = []; const fetchInits: any[] = [];
   const fetchFn = (async (url: string, init: any = {}) => { fetched.push(url); fetchInits.push(init); return photo && !/\/gone\b/.test(url) ? new Response(photo as BlobPart, { status: 200, headers: { "content-type": /\.png(\?|$)/.test(url.split('?')[0]) ? "image/png" : "image/jpeg" } }) : new Response("nope", { status: 404 }); }) as any;
-  const deps = { env: { ...ENV, MAGNIFIC_API_KEY: KEY, ...env }, db, now: () => NOW, userDb, userId: async (jwt: string) => MEMBERS[jwt]?.uid ?? null, provider, fetch: fetchFn };
+  const deps = { env: { ...ENV, MAGNIFIC_API_KEY: KEY, ...env }, db, now: () => NOW, userDb, userId: async (jwt: string) => MEMBERS[jwt]?.uid ?? null, provider, fetch: fetchFn, bridge };
   return { db, asked, during, deps, storage, fetched, fetchInits };
 }
+// decision 11: a fake of the Magnific MCP layer — records every call; the tools answer from `tools` (a function a name)
+function fakeBridge(tools: Record<string, (args: any) => unknown> = {}, extra: Partial<Record<'refresh' | 'exchangeCode', (...a: any[]) => any>> = {}) {
+  const calls: any[] = [];
+  const TOKENS = { access_token: 'at-1', refresh_token: 'rt-1', expires_at: '2026-11-02T00:00:00.000Z', account: 'owner@ibtekr.club' };
+  const bridge = {
+    calls,
+    pkce: async () => ({ verifier: 'v'.repeat(64), challenge: 'challenge-1' }),
+    authUrl: async (clientId: string, redirectUri: string, state: string, challenge: string) => { calls.push({ op: 'authUrl', clientId, redirectUri, state, challenge }); return `https://auth.test/auth?client_id=${clientId}&state=${state}&code_challenge=${challenge}&redirect_uri=${encodeURIComponent(redirectUri)}`; },
+    exchangeCode: async (clientId: string, redirectUri: string, code: string, verifier: string) => { calls.push({ op: 'exchangeCode', clientId, redirectUri, code, verifier }); return extra.exchangeCode ? extra.exchangeCode() : { ...TOKENS }; },
+    refresh: async (clientId: string, tokens: any) => { calls.push({ op: 'refresh', clientId, had: tokens.refresh_token }); return extra.refresh ? extra.refresh() : { ...TOKENS, access_token: 'at-2', refresh_token: 'rt-2' }; },
+    callTool: async (accessToken: string, name: string, args: any) => { calls.push({ op: 'tool', accessToken, name, args: structuredClone(args) }); const fn = tools[name]; if (!fn) throw new BridgeError('mcp_error', null, 'unknown tool ' + name); return fn(args); },
+  };
+  return bridge;
+}
+const LINKED = { magnific_mcp_client: JSON.stringify({ client_id: 'client-1' }), magnific_mcp_tokens: JSON.stringify({ access_token: 'at-1', refresh_token: 'rt-1', expires_at: '2026-11-02T00:00:00.000Z', account: 'owner@ibtekr.club' }) };
+const PROJECT = 'f3b8e918-1fac-49a7-9196-8d22ca637a8e';
 async function call(deps: any, body: unknown, jwt: string | null = 'jwt-add') {
   const res = await handler(new Request('http://x/ai-images', { method: 'POST', headers: { 'content-type': 'application/json', ...(jwt ? { authorization: 'Bearer ' + jwt } : {}) }, body: JSON.stringify(body) }), deps);
   return { res, body: await res.json() };
@@ -434,4 +456,195 @@ Deno.test('the Magnific layer (pinned T2): x-magnific-api-key, Seedream text rou
   assertFalse(hit);
   assertEquals(aspectOf(1080, 1080), 'square_1_1'); assertEquals(aspectOf(1200, 630), 'widescreen_16_9'); assertEquals(aspectOf(1080, 1350), 'portrait_2_3');
   assertEquals(shape({ a: 1, b: 'x', c: { d: [1], e: { f: 1 } }, g: [] }), { a: 'number', b: 'string', c: { d: 'array', e: 'object' }, g: { array: 'empty' } });
+});
+
+// ---------------------------------------------------------------- decision 11: the bridge (the system as the site's MCP client)
+
+Deno.test('bridge_status / bridge_link / bridge_callback / bridge_unlink: the tool\'s members see linked only, the admin the account; the sign-in url carries the client, the redirect, a state kept with its verifier (ten minutes, spent once); the code becomes the tokens in Vault; unlink removes them', async () => {
+  const vault: Record<string, string | null> = { magnific_mcp_client: LINKED.magnific_mcp_client };
+  const bridge = fakeBridge();
+  const { deps, db } = setup({ vault, bridge });
+  assertEquals((await call(deps, { action: 'bridge_status' }, 'jwt-view')).res.status, 401);
+  assertEquals((await call(deps, { action: 'bridge_status' }, 'jwt-add')).body, { result: 'ok', linked: false, project: PROJECT });
+  assertEquals((await call(deps, { action: 'bridge_status' }, 'jwt-admin')).body, { result: 'ok', linked: false, project: PROJECT, account: null, configured: true, redirect: 'https://operation-system.ibtekr.club/magnific-callback.html' });
+  assertEquals((await call(deps, { action: 'bridge_link' }, 'jwt-add')).res.status, 401);
+  const link = await call(deps, { action: 'bridge_link' }, 'jwt-admin');
+  assertEquals(link.res.status, 200);
+  const state = db.rows('magnific_oauth_states')[0];
+  assertEquals([state.verifier, state.created_by, state.used_at], ['v'.repeat(64), U.admin, null]);
+  assert(/^[A-Za-z0-9_-]{43}$/.test(state.state), 'a random url-safe state');
+  assertEquals(link.body.url, `https://auth.test/auth?client_id=client-1&state=${state.state}&code_challenge=challenge-1&redirect_uri=${encodeURIComponent('https://operation-system.ibtekr.club/magnific-callback.html')}`);
+  // the callback: a wrong state, then the right one (spent), then the same again
+  assertEquals((await call(deps, { action: 'bridge_callback', code: 'code-12345678', state: 'x'.repeat(40) }, 'jwt-admin')).body, { error: 'bad_request', field: 'state' });
+  assertEquals((await call(deps, { action: 'bridge_callback', code: 'bad code', state: state.state }, 'jwt-admin')).body, { error: 'bad_request', field: 'code' });
+  const cb = await call(deps, { action: 'bridge_callback', code: 'code-12345678', state: state.state }, 'jwt-admin');
+  assertEquals(cb.body, { result: 'ok', linked: true, account: 'owner@ibtekr.club' });
+  assertEquals(bridge.calls.at(-1), { op: 'exchangeCode', clientId: 'client-1', redirectUri: 'https://operation-system.ibtekr.club/magnific-callback.html', code: 'code-12345678', verifier: 'v'.repeat(64) });
+  assertEquals(JSON.parse(vault.magnific_mcp_tokens!).access_token, 'at-1');
+  assertEquals(db.rows('magnific_oauth_states')[0].used_at, NOW);
+  assertEquals((await call(deps, { action: 'bridge_callback', code: 'code-12345678', state: state.state }, 'jwt-admin')).body, { error: 'bad_request', field: 'state' }, 'a state is spent once');
+  assertEquals((await call(deps, { action: 'bridge_status' }, 'jwt-admin')).body.account, 'owner@ibtekr.club');
+  assertEquals((await call(deps, { action: 'bridge_status' }, 'jwt-add')).body, { result: 'ok', linked: true, project: PROJECT }, 'a member never sees the account');
+  // an old state is refused
+  await db.from('magnific_oauth_states').insert({ state: 'o'.repeat(43), verifier: 'v'.repeat(64), created_by: U.admin, created_at: '2026-10-25T11:00:00.000Z' });
+  assertEquals((await call(deps, { action: 'bridge_callback', code: 'code-12345678', state: 'o'.repeat(43) }, 'jwt-admin')).body, { error: 'bad_request', field: 'state' });
+  // a refused code
+  const refusing = fakeBridge({}, { exchangeCode: () => { throw new BridgeError('refused', 400, 'invalid_grant'); } });
+  const d2 = setup({ vault: { magnific_mcp_client: LINKED.magnific_mcp_client }, bridge: refusing });
+  const l2 = await call(d2.deps, { action: 'bridge_link' }, 'jwt-admin');
+  assertEquals((await call(d2.deps, { action: 'bridge_callback', code: 'code-12345678', state: new URL(l2.body.url).searchParams.get('state') }, 'jwt-admin')).body, { error: 'refused', status: 400, detail: 'invalid_grant' });
+  // unlink; no client registered → not_configured
+  assertEquals((await call(deps, { action: 'bridge_unlink' }, 'jwt-add')).res.status, 401);
+  assertEquals((await call(deps, { action: 'bridge_unlink' }, 'jwt-admin')).body, { result: 'ok', linked: false });
+  assertEquals(vault.magnific_mcp_tokens, undefined);
+  const d3 = setup({ vault: {}, bridge: fakeBridge() });
+  assertEquals((await call(d3.deps, { action: 'bridge_link' }, 'jwt-admin')).body, { error: 'not_configured', configured: false });
+  assertEquals((await call(d3.deps, { action: 'bridge_status' }, 'jwt-admin')).body.configured, false);
+});
+
+Deno.test('bridge_upload: not linked → 503 not_linked; linked → each product photo not sent yet goes up now (a ten-minute link, the product\'s name, the project) and gets a sent row with the creation\'s identifier; a failed one an error row; again → skipped; an ending token is refreshed first; the account refusing the refresh unlinks', async () => {
+  const vault: Record<string, string | null> = { ...LINKED };
+  let n = 0;
+  const bridge = fakeBridge({ creations_upload_image: ({ fileName }: any) => { n++; if (/Pouf/.test(fileName) && n === 2) throw new BridgeError('mcp_error', null, 'upload failed'); return { identifier: 'NEW' + n, url: 'https://pikaso.cdnpk.net/p/' + n + '.jpg' }; } });
+  const seed = { ...SEED, studio_batches: [batch({ created_by: U.add, state: { items: [item(), item({ nameEn: 'Clay Mug', main: SB + '/row2-main.webp', refs: [] }), item({ nameEn: 'No photo', main: null })] } })] };
+  const storage = { ...FILES, [`studio/${SB}/row2-main.webp`]: WEBP };
+  const nl = setup({ vault: { magnific_mcp_client: LINKED.magnific_mcp_client }, bridge, seed, storage });
+  assertEquals((await call(nl.deps, { action: 'bridge_upload', batch_id: SB })).body, { error: 'not_linked', status: null, detail: null });
+  assertEquals(nl.db.rows('image_shares').length, 0);
+  const { deps, db } = setup({ vault, bridge, seed, storage });
+  assertEquals((await call(deps, { action: 'bridge_upload', batch_id: SB }, 'jwt-edit')).res.status, 401);
+  assertEquals((await call(deps, { action: 'bridge_upload', batch_id: SB }, 'jwt-view')).res.status, 401);
+  assertEquals((await call(deps, { action: 'bridge_upload', batch_id: 'nope' })).body.field, 'batch_id');
+  const r = await call(deps, { action: 'bridge_upload', batch_id: SB });
+  assertEquals(r.body, { result: 'ok', batch_id: SB, uploaded: 2, failed: 0, skipped: 1, stopped: null });
+  const tools = bridge.calls.filter((c) => c.op === 'tool');
+  assertEquals(tools.map((c) => [c.accessToken, c.name, c.args.fileName, c.args.folderReference]), [['at-1', 'creations_upload_image', 'Kilim Pouf.webp', PROJECT], ['at-1', 'creations_upload_image', 'Clay Mug.webp', PROJECT]]);
+  assertEquals(tools[0].args.url, `https://signed.test/studio/${SB}/row1-main.webp?token=t`);
+  const rows = db.rows('image_shares');
+  assertEquals(rows.map((x: any) => [x.item_index, x.name, x.status, x.creation_ref, x.sent_at, x.created_by]), [[0, 'Kilim Pouf.webp', 'sent', 'NEW1', NOW, U.add], [1, 'Clay Mug.webp', 'sent', 'NEW2', NOW, U.add]]);
+  assertEquals(Date.parse(rows[0].expires_at) - Date.parse(NOW), 600_000, 'a ten-minute link');
+  assertEquals(db.calls.filter((c: any) => c.op === 'sign').map((c: any) => c.args.seconds), [600, 600]);
+  // again: nothing new; the chosen index of a fresh batch, whose upload fails → an error row
+  assertEquals((await call(deps, { action: 'bridge_upload', batch_id: SB })).body, { result: 'ok', batch_id: SB, uploaded: 0, failed: 0, skipped: 3, stopped: null });
+  n = 1;
+  const fresh = setup({ vault: { ...LINKED }, bridge, seed, storage });
+  assertEquals((await call(fresh.deps, { action: 'bridge_upload', batch_id: SB, indexes: [0] })).body, { result: 'ok', batch_id: SB, uploaded: 0, failed: 1, skipped: 0, stopped: null });
+  assertEquals(fresh.db.rows('image_shares').map((x: any) => [x.status, x.error, x.creation_ref]), [['error', 'mcp_error: upload failed', null]]);
+  assertEquals((await call(fresh.deps, { action: 'bridge_upload', batch_id: SB, indexes: [0] })).body.uploaded, 1, 'a failed photo is tried again');
+  // the token ends within a minute → refreshed first, the new set replaces the secret; a refused refresh → unlinked
+  const ending = { ...LINKED, magnific_mcp_tokens: JSON.stringify({ access_token: 'at-old', refresh_token: 'rt-1', expires_at: '2026-10-25T12:00:30.000Z', account: 'owner@ibtekr.club' }) };
+  const v2: Record<string, string | null> = { ...ending }; const b2 = fakeBridge({ creations_upload_image: () => ({ identifier: 'X1' }) });
+  const e2 = setup({ vault: v2, bridge: b2, seed, storage });
+  assertEquals((await call(e2.deps, { action: 'bridge_upload', batch_id: SB, indexes: [1] })).body.uploaded, 1);
+  assertEquals(b2.calls.map((c) => c.op), ['refresh', 'tool']);
+  assertEquals([b2.calls[0].had, b2.calls[1].accessToken, JSON.parse(v2.magnific_mcp_tokens!).refresh_token, JSON.parse(v2.magnific_mcp_tokens!).account], ['rt-1', 'at-2', 'rt-2', 'owner@ibtekr.club']);
+  const v3: Record<string, string | null> = { ...ending }; const b3 = fakeBridge({}, { refresh: () => { throw new BridgeError('refused', 400, 'invalid_grant'); } });
+  const e3 = setup({ vault: v3, bridge: b3, seed, storage });
+  assertEquals((await call(e3.deps, { action: 'bridge_upload', batch_id: SB })).body.error, 'not_linked');
+  assertEquals(v3.magnific_mcp_tokens, undefined, 'a dead refresh token unlinks the account');
+  // the server busy mid-way: the rows so far stay, the answer says so
+  let k = 0; const b4 = fakeBridge({ creations_upload_image: () => { k++; if (k === 2) throw new BridgeError('busy', 503); return { identifier: 'B' + k }; } });
+  const e4 = setup({ vault: { ...LINKED }, bridge: b4, seed, storage });
+  assertEquals((await call(e4.deps, { action: 'bridge_upload', batch_id: SB })).body, { result: 'ok', batch_id: SB, uploaded: 1, failed: 0, skipped: 0, stopped: 'busy' });
+});
+
+Deno.test('bridge_fetch: no sent photo → nothing; the project\'s new creations (not uploads, not sources, not imported) matched by lineage, then family, then name → one image_imports row of target batch imported into the product slots now; a second call finds nothing new; an unmatched result is counted', async () => {
+  const FAM1 = 'fam-0001', FAM2 = 'fam-0002';
+  const search = (page: number) => ({ from: 'project-root', items: page === 1 ? [
+    { identifier: 'SRC1', name: 'Kilim Pouf', family: FAM1, tool: 'upload', url: 'https://pikaso.cdnpk.net/p/src1.jpg' },
+    { identifier: 'SRC2', name: 'Clay Mug', family: FAM2, tool: 'upload', url: 'https://pikaso.cdnpk.net/p/src2.jpg' },
+    { identifier: 'R1', name: 'Kilim Pouf', family: 'other', tool: 'imagen-nano-banana-2', url: 'https://pikaso.cdnpk.net/p/r1.png' },
+    { identifier: 'R2', name: 'untitled', family: FAM2, tool: 'imagen-nano-banana-2', url: 'https://pikaso.cdnpk.net/p/r2.png' },
+  ] : [
+    { identifier: 'R3', name: 'Clay Mug on a shelf', family: '', tool: 'seedream-5-pro', url: 'https://pikaso.cdnpk.net/p/r3.png' },
+    { identifier: 'R4', name: 'a lamp', family: '', tool: 'seedream-5-pro', url: 'https://pikaso.cdnpk.net/p/r4.png', metadata: { prompt: 'a lamp' } },
+    { identifier: 'R5', name: 'elsewhere', family: FAM1, tool: 'seedream-5-pro', url: 'https://elsewhere.test/r5.png' },
+  ], pagination: { currentPage: page, lastPage: 2 } });
+  const bridge = fakeBridge({
+    creations_search: ({ page }: any) => search(page),
+    creations_lineage: ({ creationIdentifier }: any) => ({ data: { root: creationIdentifier, nodes: creationIdentifier === 'R1' ? [{ identifier: 'R1' }, { identifier: 'SRC1' }] : [{ identifier: creationIdentifier }], edges: [] } }),
+  });
+  const items = [item({ slots: [SB + '/gen-0-0-old.png'] }), item({ nameEn: 'Clay Mug', main: SB + '/row2-main.webp', refs: [], slots: [] })];
+  const seed = { ...SEED, studio_batches: [batch({ created_by: U.add, state: { items, imgCount: 4 } })],
+    image_shares: [{ id: 1, created_by: U.add, batch_id: SB, item_index: 0, name: 'Kilim Pouf.webp', path: SB + '/row1-main.webp', url: 'https://s/1', expires_at: NOW, status: 'sent', creation_ref: 'SRC1', sent_at: NOW },
+      { id: 2, created_by: U.add, batch_id: SB, item_index: 1, name: 'Clay Mug.webp', path: SB + '/row2-main.webp', url: 'https://s/2', expires_at: NOW, status: 'sent', creation_ref: 'SRC2', sent_at: NOW },
+      { id: 3, created_by: U.add, batch_id: SB, item_index: 1, name: 'x.webp', path: SB + '/x.webp', url: 'https://s/3', expires_at: NOW, status: 'error', creation_ref: null }] };
+  const none = setup({ vault: { ...LINKED }, bridge, seed: { ...seed, image_shares: [] } });
+  assertEquals((await call(none.deps, { action: 'bridge_fetch', batch_id: SB })).body, { result: 'ok', batch_id: SB, found: 0, placed: 0, unmatched: 0, imported: 0, failed: 0, status: 'ok' });
+  assertEquals(bridge.calls.length, 0, 'no call to the site without a sent photo');
+  const { deps, db, fetched } = setup({ vault: { ...LINKED }, bridge, seed });
+  assertEquals((await call(deps, { action: 'bridge_fetch', batch_id: SB }, 'jwt-edit')).res.status, 401);
+  const r = await call(deps, { action: 'bridge_fetch', batch_id: SB });
+  assertEquals(r.res.status, 200);
+  assertEquals([r.body.result, r.body.target, r.body.found, r.body.unmatched, r.body.placed, r.body.imported, r.body.failed, r.body.status], ['ok', 'batch', 4, 1, 3, 3, 0, 'ok'], 'R5 (a link off the allowed hosts) is neither found nor fetched');
+  const names = bridge.calls.filter((c) => c.op === 'tool').map((c) => c.name + (c.args.page ? ' p' + c.args.page : c.args.creationIdentifier ? ' ' + c.args.creationIdentifier : ''));
+  assertEquals(names, ['creations_search p1', 'creations_search p2', 'creations_lineage R1', 'creations_lineage R2', 'creations_lineage R3', 'creations_lineage R4'], 'the families came with the search: no creations_get');
+  assertEquals(bridge.calls[0].args, { from: 'project-root', reference: PROJECT, fileType: 'image', full: true, perPage: 50, page: 1 });
+  const imp = db.rows('image_imports')[0];
+  assertEquals([imp.created_by, imp.source, imp.folder, imp.label, imp.target, imp.batch_id, imp.status], [U.add, 'magnific', 'ابتكر', 'نتائج Magnific — دفعة', 'batch', SB, 'ok']);
+  assertEquals([imp.urls, imp.refs, imp.items], [['https://pikaso.cdnpk.net/p/r1.png', 'https://pikaso.cdnpk.net/p/r2.png', 'https://pikaso.cdnpk.net/p/r3.png'], ['R1', 'R2', 'R3'], [{ index: 0, images: [0] }, { index: 1, images: [1, 2] }]]);
+  const state = db.rows('studio_batches')[0].state;
+  assertEquals(state.items[0].slots.length, 2); assertEquals(state.items[1].slots.length, 2);
+  assert(state.items[0].slots[0] === SB + '/gen-0-0-old.png' && /gen-0-imp-.*-1\.png$/.test(state.items[0].slots[1]), 'the pouf keeps its old slot, gets R1 next');
+  assert(/gen-1-imp-.*-2\.png$/.test(state.items[1].slots[0]) && /gen-1-imp-.*-3\.png$/.test(state.items[1].slots[1]), 'the mug gets R2 and R3');
+  assertEquals(fetched.filter((u) => /pikaso/.test(u)).length, 3);
+  assertEquals(db.rows('ai_runs').map((x: any) => [x.source, x.credits, x.output.placed]), [['import', 0, 3]]);
+  // again: the imported refs are known → nothing new (R4 still unmatched, R5 still off-host)
+  bridge.calls.length = 0;
+  const r2 = await call(deps, { action: 'bridge_fetch', batch_id: SB });
+  assertEquals([r2.body.found, r2.body.placed, r2.body.unmatched, db.rows('image_imports').length], [1, 0, 1, 1]);
+  assertEquals(bridge.calls.filter((c) => c.op === 'tool' && c.name === 'creations_lineage').length, 1, 'R4 only');
+});
+
+Deno.test('magnificMcp (the real layer against a fake fetch): discovery, PKCE, the sign-in url, the code exchange + userinfo, the refresh, and a tools/call over a JSON or an SSE answer with the session header; the statuses', async () => {
+  const calls: any[] = [];
+  const answers: Record<string, (init: any) => Response> = {
+    'https://auth.test/realms/mcp/.well-known/openid-configuration': () => Response.json({ authorization_endpoint: 'https://auth.test/realms/mcp/auth', token_endpoint: 'https://auth.test/realms/mcp/token', userinfo_endpoint: 'https://auth.test/realms/mcp/userinfo' }),
+    'https://auth.test/realms/mcp/token': (init) => { const f = new URLSearchParams(init.body); return f.get('grant_type') === 'refresh_token' ? Response.json({ access_token: 'at-2', expires_in: 300 }) : f.get('code') === 'bad' ? Response.json({ error: 'invalid_grant', error_description: 'Code not valid' }, { status: 400 }) : Response.json({ access_token: 'at-1', refresh_token: 'rt-1', expires_in: 1800 }); },
+    'https://auth.test/realms/mcp/userinfo': () => Response.json({ sub: 'u1', email: 'owner@ibtekr.club' }),
+  };
+  let sse = false; let fail: number | null = null;
+  const fetchFn = (async (url: string, init: any = {}) => {
+    calls.push({ url, method: init.method ?? 'GET', headers: init.headers ?? {}, body: init.body ? (typeof init.body === 'string' && init.body.startsWith('{') ? JSON.parse(init.body) : init.body) : null });
+    if (answers[url]) return answers[url](init);
+    if (url === 'https://mcp.test/') {
+      if (fail) return new Response('{}', { status: fail });
+      const msg = JSON.parse(init.body);
+      if (msg.method === 'initialize') return Response.json({ jsonrpc: '2.0', id: msg.id, result: { protocolVersion: '2025-06-18', serverInfo: { name: 'magnific' } } }, { headers: { 'mcp-session-id': 'sess-1' } });
+      if (msg.method === 'notifications/initialized') return new Response(null, { status: 202 });
+      const result = msg.params.name === 'creations_upload_image' ? { content: [{ type: 'text', text: 'identifier: NEW9\nurl: "https://pikaso.cdnpk.net/x.jpg?token=a~b"' }] } : msg.params.name === 'bad' ? { isError: true, content: [{ type: 'text', text: 'Folder not found' }] } : { structuredContent: { items: [{ identifier: 'A' }] }, content: [] };
+      const body = { jsonrpc: '2.0', id: msg.id, result };
+      return sse ? new Response(`event: message\ndata: ${JSON.stringify(body)}\n\n`, { headers: { 'content-type': 'text/event-stream' } }) : Response.json(body);
+    }
+    return new Response('nope', { status: 404 });
+  }) as any;
+  const m = magnificMcp({ MAGNIFIC_MCP_URL: 'https://mcp.test', MAGNIFIC_AUTH_URL: 'https://auth.test/realms/mcp' }, fetchFn);
+  const { verifier, challenge } = await m.pkce();
+  assert(verifier.length === 64 && /^[A-Za-z0-9_-]+$/.test(verifier) && /^[A-Za-z0-9_-]{43}$/.test(challenge));
+  const url = new URL(await m.authUrl('client-1', 'https://ops.test/cb.html', 'state-1', challenge));
+  assertEquals([url.origin + url.pathname, url.searchParams.get('response_type'), url.searchParams.get('client_id'), url.searchParams.get('redirect_uri'), url.searchParams.get('code_challenge_method'), url.searchParams.get('code_challenge'), url.searchParams.get('resource')],
+    ['https://auth.test/realms/mcp/auth', 'code', 'client-1', 'https://ops.test/cb.html', 'S256', challenge, 'https://mcp.test']);
+  assert(url.searchParams.get('scope')!.includes('offline_access') && url.searchParams.get('scope')!.includes('mcp:custom-audience'));
+  const t = await m.exchangeCode('client-1', 'https://ops.test/cb.html', 'code-1', verifier);
+  assertEquals([t.access_token, t.refresh_token, t.account, Date.parse(t.expires_at) > Date.now() + 1000 * 1700], ['at-1', 'rt-1', 'owner@ibtekr.club', true]);
+  const form = new URLSearchParams(calls.find((c) => c.url.endsWith('/token')).body);
+  assertEquals([form.get('grant_type'), form.get('code_verifier'), form.get('client_id'), form.get('redirect_uri')], ['authorization_code', verifier, 'client-1', 'https://ops.test/cb.html']);
+  const t2 = await m.refresh('client-1', t);
+  assertEquals([t2.access_token, t2.refresh_token, t2.account], ['at-2', 'rt-1', 'owner@ibtekr.club'], 'a refresh without a new refresh token keeps the old one and the account');
+  try { await m.exchangeCode('client-1', 'https://ops.test/cb.html', 'bad', verifier); assert(false); } catch (e) { assertEquals([(e as BridgeError).kind, (e as BridgeError).status, (e as BridgeError).detail], ['refused', 400, 'error,error_description :: invalid_grant | Code not valid']); }
+  // a tool call: initialize (no session) → initialized (the session header) → tools/call; JSON and SSE answers alike; the text read as data
+  calls.length = 0;
+  const up = await m.callTool('at-1', 'creations_upload_image', { url: 'https://s/1', fileName: 'a.jpg', folderReference: 'f' });
+  assertEquals(up, { identifier: 'NEW9', url: 'https://pikaso.cdnpk.net/x.jpg?token=a~b' });
+  assertEquals(calls.map((c) => [c.body?.method, c.headers['Mcp-Session-Id'] ?? null, c.headers.Authorization, c.headers['MCP-Protocol-Version']]), [['initialize', null, 'Bearer at-1', '2025-06-18'], ['notifications/initialized', 'sess-1', 'Bearer at-1', '2025-06-18'], ['tools/call', 'sess-1', 'Bearer at-1', '2025-06-18']]);
+  assertEquals(calls[2].body.params, { name: 'creations_upload_image', arguments: { url: 'https://s/1', fileName: 'a.jpg', folderReference: 'f' } });
+  sse = true;
+  assertEquals(await m.callTool('at-1', 'creations_search', {}), { items: [{ identifier: 'A' }] }, 'structuredContent first, over SSE');
+  try { await m.callTool('at-1', 'bad', {}); assert(false); } catch (e) { assertEquals([(e as BridgeError).kind, (e as BridgeError).detail], ['mcp_error', 'Folder not found']); }
+  fail = 401; try { await m.callTool('at-1', 'x', {}); assert(false); } catch (e) { assertEquals((e as BridgeError).kind, 'not_linked'); }
+  fail = 503; try { await m.callTool('at-1', 'x', {}); assert(false); } catch (e) { assertEquals((e as BridgeError).kind, 'busy'); }
+  assertEquals(sseMessages('event: message\ndata: {"id":1}\n\ndata: not json\n\ndata: {"id":2,\ndata: "x":1}\n\n'), [{ id: 1 }, { id: 2, x: 1 }]);
+  let touched = false;
+  try { await magnificMcp({ MAGNIFIC_AUTH_URL: 'https://auth.test/realms/mcp' }, (async () => { touched = true; throw new Error('down'); }) as any).authUrl('c', 'r', 's', 'ch'); assert(false); } catch (e) { assertEquals((e as BridgeError).kind, 'busy'); }
+  assert(touched);
 });

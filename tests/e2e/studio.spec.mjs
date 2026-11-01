@@ -477,15 +477,55 @@ test('decision 10 — «صور بس»: the photos alone, each file\'s name carry
   await expect.poll(() => mock.studioBatches[0].state.items.map((it) => [it.nameEn, it.nameAr, it.vendorPrice, it.colors, it.sizes, it.material, !!it.main, it.refs.length])).toEqual([['Boho Cushion', 'مخدة بوهيمي', 350, ['BE'], ['45×45'], 'Cotton', true, 1], ['Stripe Pillow', 'مخدة مخططة', 280, ['BK'], [], '', true, 0]]);
   expect(mock.studioBatches[0].state.mode).toBe('photos');
   expect([...mock.studioObjects.keys()].map((k) => k.replace(/-[a-z0-9]+\.jpg$/, ''))).toEqual([SB + '/row1-main', SB + '/row1-ref', SB + '/row2-main']);
-  // decision 10 (b): «ابعت الصور لـ Magnific» signs the two main photos into image_shares (pending) under the products' names; again → nothing new
+  // decision 10 (b) / 11: without a linked Magnific account, «ابعت الصور لـ Magnific» falls back to the queue — the two main photos into
+  // image_shares (pending) under the products' names; again → nothing new
   await page.locator('[data-share]').click();
   await expect(page.locator('.toast, [role=status]').last()).toContainText('اتحضّرت 2 صورة');
+  expect(mock.bridgeCalls.map((c) => c.action)).toEqual(['bridge_upload']);
   expect(mock.shareCalls).toEqual([{ by: OPS, batch_id: SB, shared: 2, skipped: 0 }]);
   expect(mock.imageShares.map((x) => [x.batch_id, x.item_index, x.name, x.status, x.url.startsWith('https://')])).toEqual([[SB, 0, 'Boho Cushion.jpg', 'pending', true], [SB, 1, 'Stripe Pillow.jpg', 'pending', true]]);
   await expect(page.locator('[data-share-state]')).toHaveText('0 مبعوتة · 2 مستنية الرفع');
+  await expect(page.locator('[data-fetch]')).toHaveCount(0); // nothing sent yet: no results to fetch
   await page.locator('[data-share]').click();
   await expect(page.locator('.toast, [role=status]').last()).toContainText('مفيش صور جديدة تتبعت');
   await next(page, 'التالي: البيانات و SKU');
   await expect(page).toHaveURL(new RegExp('#products-studio-' + SB + '-3$'));
   await expect(page.locator('#pg-products')).toContainText('مخدة بوهيمي');
+});
+
+test('decision 11 — the system\'s own Magnific link: «ابعت الصور لـ Magnific» uploads now (sent rows with the site\'s ids), «هات النتائج من Magnific» brings the project\'s results into the products\' slots (lineage, family, name; an unknown one counted); the images step shows them', async ({ page }) => {
+  const SB = '0b6f2f5e-1d2c-4a8b-9e3f-000000000001';
+  await signIn(page, OPS);
+  mock.magnific.linked = true; mock.magnific.account = 'owner@ibtekr.club';
+  await page.locator('#pg-products').getByRole('button', { name: '+ دفعة منتجات جديدة' }).click();
+  await page.locator('#w-brand').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await page.locator('#rate-box').getByRole('button', { name: 'تغيير' }).click(); await page.fill('#r', '30'); await page.getByRole('button', { name: 'طبّق على الدفعة' }).click();
+  await page.getByRole('radio', { name: /^صور بس/ }).click();
+  await next(page, 'التالي: الاستلام');
+  await pick(page, /اختار صور المنتجات/, [
+    { name: 'Boho Cushion - مخدة بوهيمي - Beige - 350.png', mimeType: 'image/png', buffer: PNG },
+    { name: 'Stripe Pillow - مخدة مخططة - Black - 280.png', mimeType: 'image/png', buffer: PNG }]);
+  await expect(page.locator('#pg-products .st-table tbody tr')).toHaveCount(2);
+  await page.locator('[data-share]').click();
+  await expect(page.locator('.toast, [role=status]').last()).toContainText('اترفعت 2 صورة على مشروع «ابتكر»');
+  expect(mock.shareCalls).toEqual([]); // no queue: the system uploaded
+  expect(mock.bridgeCalls.map((c) => [c.by, c.action, c.body.batch_id])).toEqual([[OPS, 'bridge_upload', SB]]);
+  expect(mock.imageShares.map((x) => [x.item_index, x.name, x.status, x.creation_ref])).toEqual([[0, 'Boho Cushion.jpg', 'sent', 'UP1'], [1, 'Stripe Pillow.jpg', 'sent', 'UP2']]);
+  await expect(page.locator('[data-share-state]')).toHaveText('2 مبعوتة · 0 مستنية الرفع');
+  // the owner generates on the site: three results — one by lineage from the cushion, one by family of the pillow, one by the pillow's name; one unknown
+  mock.magnific.results.push(
+    { id: 'R1', name: 'untitled', family: 'other', tool: 'imagen-nano-banana-2', url: 'https://pikaso.cdnpk.net/p/r1.png', lineage: ['R1', 'UP1'] },
+    { id: 'R2', name: 'untitled', family: 'fam-UP2', tool: 'imagen-nano-banana-2', url: 'https://pikaso.cdnpk.net/p/r2.png' },
+    { id: 'R3', name: 'Stripe Pillow on a bed', family: '', tool: 'seedream-5-pro', url: 'https://pikaso.cdnpk.net/p/r3.png' },
+    { id: 'R4', name: 'a lamp', family: '', tool: 'seedream-5-pro', url: 'https://pikaso.cdnpk.net/p/r4.png' });
+  await page.locator('[data-fetch]').click();
+  await expect(page.locator('.toast, [role=status]').last()).toContainText('نزلت 3 صورة من Magnific في خانات المنتجات · 1 مش معروف منتجها');
+  expect(mock.imageImports.map((x) => [x.target, x.batch_id, x.refs, x.items, x.status])).toEqual([['batch', SB, ['R1', 'R2', 'R3'], [{ index: 0, images: [0] }, { index: 1, images: [1, 2] }], 'ok']]);
+  expect(mock.studioBatches[0].state.items.map((it) => it.slots.filter(Boolean).length)).toEqual([1, 2]);
+  await expect(page).toHaveURL(new RegExp('#products-studio-' + SB + '-2$')); // the owner stays where they were; the images step shows the slots
+  // again: nothing new (R4 still unknown)
+  await page.locator('[data-fetch]').click();
+  await expect(page.locator('.toast, [role=status]').last()).toContainText('لقينا 1 صورة بس ماعرفناش منتجها');
+  expect(mock.imageImports.length).toBe(1);
+  expect(mock.activityRows.filter((x) => x.action === 'product.ai.image').map((x) => x.new_value)).toEqual(['bridge upload · 2 photos', 'bridge fetch · 4 found · 3 placed · 1 unmatched', 'bridge fetch · 1 found · 0 placed · 1 unmatched']);
 });

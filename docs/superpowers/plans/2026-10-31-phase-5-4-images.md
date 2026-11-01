@@ -118,6 +118,27 @@
     `batch_id` + `items: [{ index, images }]` → `import` بتحط الصور في خانات المنتج (`slots`) في الدفعة نفسها (الخطوة 6)، من غير
     تسمية على Magnific. اتنفذوا التلاتة 1 نوفمبر (`0028`: `image_shares` + `target = 'batch'`؛ `ai-images` v11: action `share`
     و`importBatch`).
+11. **الجسر جوه السيستم — السيستم عميل MCP لـ Magnific (قرار صاحب المشروع، 1 نوفمبر: «مينفعش تعملي أنت MCP للسيستم أربطه بـ
+    Magnific بدل الـ MCP بتاعك»):** بدل جلسة Claude، دالة `ai-images` نفسها بتكلّم سيرفر Magnific MCP (`https://mcp.magnific.com`,
+    Streamable HTTP + OAuth 2.1 قياسي على Keycloak `https://auth.magnific.com/realms/mcp` — اتثبّت 1 نوفمبر من سيرفر Supabase عبر
+    `pg_net`: `oauth-protected-resource` و`oauth-authorization-server` موجودين، PKCE S256، `offline_access`، و**التسجيل الديناميكي
+    للعملاء شغّال** — تطبيق السيستم اتسجّل ورجع `client_id` من غير سر (`token_endpoint_auth_method = none`)، والـ `client_id` مع
+    `registration_access_token` في Vault باسم `magnific_mcp_client`). **الربط مرة واحدة** من «إعدادات الصور» (الأدمن): action
+    `bridge_link` بتعمل state + PKCE verifier في `magnific_oauth_states` (0029، `service_role` بس، 10 دقايق) وترجّع رابط الدخول →
+    صفحة `app/magnific-callback.html` (redirect URI المسجّل: `https://operation-system.ibtekr.club/magnific-callback.html`) بتنادي
+    `bridge_callback { code, state }` → التوكنات (access + refresh + الانتهاء + إيميل الحساب) في Vault باسم `magnific_mcp_tokens`
+    (دالتين SQL `magnific_secret_get/set` لـ `service_role` بس)؛ التجديد تلقائي بالـ refresh token قبل كل نداء؛ `bridge_unlink`
+    بيمسحها. **الرفع فورًا:** «ابعت الصور لـ Magnific» = `bridge_upload { batch_id, indexes? }` (`products.add`، الدفعة بتاعة العضو) —
+    لكل صورة أساسية لسه ماتبعتتش: رابط موقّع 10 دقايق → `tools/call creations_upload_image { url, fileName, folderReference }` على
+    مشروع «ابتكر» (`MAGNIFIC_PROJECT_REF` سر اختياري فوق المرجع الثابت) → صف `image_shares` بـ `sent` + `creation_ref` (أو `error`)؛
+    الحساب مش مربوط → 503 `not_linked` والواجهة بترجع لطابور `share` القديم (الجلسة احتياطي). **رجوع النتائج:** «هات النتائج من
+    Magnific» = `bridge_fetch { batch_id }`: `creations_search` على المشروع (صفحات) → كل نتيجة مش `upload` ومش في `image_imports.refs`
+    تتربط بمصدرها (`creations_lineage` → نفس `family` → الاسم) → صف `image_imports` بـ `target = 'batch'` + `items` → `importBatch`
+    في نفس النداء (الصور في خانات المنتج) → `{ found, placed, unmatched }`. **الأمان:** الطبقة الوحيدة اللي تعرف شكل MCP/OAuth
+    `providers/magnific-mcp.ts`؛ التوكنات في Vault بس (مافيش في الكود ولا `ai_runs` ولا log)؛ رد الأداة بيتقري من `structuredContent`
+    وإلا نص JSON وإلا الشكل النصي بتاع السيرفر (`_shared/mcp-text.js`) وكل قيمة منه داتا بتتشيّك (المعرّف `^[A-Za-z0-9_-]{1,80}$`،
+    الروابط https على `IMPORT_HOSTS`). الكريدت: الرفع والقراية ببلاش (`simulate_cost`: التوليد من الـ API/الـ MCP بكريدت — Unlimited
+    على الموقع بس)؛ Claude مابيتنداش خالص = صفر دولار للتشغيلة.
 
 ## الأسئلة لصاحب المشروع
 
@@ -151,3 +172,7 @@
 - **T12 — قرار 10 (1 نوفمبر):** (أ) «صور بس» (`PD.photoName` + `step2Photos` + `dropNamedPhotos` + اختبارات domain وe2e) ✓؛ (ب) `image_shares`
   + action `share` + زرار «ابعت الصور لـ Magnific» (الاستلام وخطوة الصور) + `IBImages.share`/`shares` + الجسر ✓؛ (ج) `import` بوجهة `batch`
   لخانات المنتج + «استورد للدفعة» ✓ — `rls_image_shares`، Deno (18)، node، e2e.
+- **T13 — قرار 11 (1 نوفمبر):** `0029_magnific_bridge` + `rls_magnific_bridge`؛ `providers/magnific-mcp.ts` (OAuth + Streamable HTTP) و`_shared/mcp-text.js`
+  (قراية رد الأداة) و`_shared/magnific-bridge.js` (الربط بالمصدر)؛ actions `bridge_*` في `ai-images` (v13)؛ `IBImages.bridge*`؛ `magnific-callback.html`
+  + `js/pages/magnific-callback.js`؛ «ابعت» فوري و«هات النتائج» في الاستوديو؛ ربط/فكّ الحساب في «إعدادات الصور»؛ الـ mock والاختبارات (Deno 22،
+  node 375، e2e 202). الحي: `0029` من SQL Editor (صاحب المشروع)، نشر v13، ربط الحساب.

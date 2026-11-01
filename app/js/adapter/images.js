@@ -59,7 +59,8 @@
       if (error || !data) {
         const s = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
-        const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'missing' : s === 402 ? 'ai_cap' : s === 409 ? 'done' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : 'network';
+        // decision 11: the bridge's 503 not_linked (no Magnific account linked) and its 400 refused (the sign-in code refused) are told apart from the others
+        const reason = b && b.error === 'not_linked' ? 'not_linked' : b && b.error === 'refused' ? 'refused' : s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'missing' : s === 402 ? 'ai_cap' : s === 409 ? 'done' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : 'network';
         return { ok: false, reason, field: b && b.field ? String(b.field) : null, status: b && Number.isInteger(b.status) ? b.status : null, configured: b && typeof b.configured === 'boolean' ? b.configured : null };
       }
       return { ok: true, body: data };
@@ -70,6 +71,7 @@
     if (!r || r.ok) return '';
     if (r.reason === 'not_configured') return r.configured === false ? 'الـ AI للصور لسه مش متوصّل — السر MAGNIFIC_API_KEY مش موجود في أسرار السيرفر (Supabase › Edge Functions › Secrets)' : 'Magnific رفض المفتاح' + (r.status ? ' (HTTP ' + r.status + ')' : '') + ' — المفتاح نفسه أو شكل الـ API محتاج يتظبط';
     if (r.reason === 'ai_error' && r.status === 402) return 'رصيد كريدت Magnific API خلص أو الموديل ده مش متاح في الباقة (HTTP 402) — اشحن الرصيد من لوحة Magnific API أو جرّب موديل تاني';
+    if (r.reason === 'not_linked') return 'حساب Magnific مش مربوط بالسيستم — الأدمن بيربطه من «إعدادات الصور»';
     return '';
   };
   const log = (detail, entity, id) => quiet(() => window.IBActivity && window.IBActivity.log && window.IBActivity.log('product.ai.image', detail, { entity, entity_id: id == null ? null : String(id) }));
@@ -206,6 +208,55 @@
       return { ok: true, rows, pending: rows.filter((x) => x.status === 'pending').length, sent: rows.filter((x) => x.status === 'sent').length, failed: rows.filter((x) => x.status === 'error').length };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
+  // ---------- decision 11: the bridge — the system as the Magnific site's MCP client (no Claude session) ----------
+  // linked? (the admin also the account, configured = the OAuth client registered, redirect = the callback page's address)
+  async function bridgeStatus() {
+    const r = await invoke({ action: 'bridge_status' });
+    if (!r.ok) return r;
+    return { ok: true, linked: !!r.body.linked, account: typeof r.body.account === 'string' ? r.body.account : null, configured: r.body.configured !== false, redirect: typeof r.body.redirect === 'string' ? r.body.redirect : null, project: typeof r.body.project === 'string' ? r.body.project : null };
+  }
+  // the admin: the sign-in link (the page sends the browser there; Magnific comes back to app/magnific-callback.html)
+  async function bridgeLink() {
+    if (!can().settings) return { ok: false, reason: 'forbidden' };
+    const r = await invoke({ action: 'bridge_link' });
+    if (!r.ok) return r;
+    const url = typeof r.body.url === 'string' && /^https:\/\//.test(r.body.url) ? r.body.url : null;
+    if (!url) return { ok: false, reason: 'network' };
+    quiet(() => window.IBActivity && window.IBActivity.log && window.IBActivity.log('product.ai.bridge.link', 'start', { entity: 'settings', entity_id: 'magnific' }));
+    return { ok: true, url };
+  }
+  // the callback page: the code + state → the account's tokens into Vault (the server); logged with the account's name only
+  async function bridgeCallback(code, state) {
+    const r = await invoke({ action: 'bridge_callback', code: String(code || ''), state: String(state || '') });
+    if (!r.ok) return r;
+    const out = { ok: true, linked: !!r.body.linked, account: typeof r.body.account === 'string' ? r.body.account : null };
+    quiet(() => window.IBActivity && window.IBActivity.log && window.IBActivity.log('product.ai.bridge.link', 'linked' + (out.account ? ' · ' + out.account : ''), { entity: 'settings', entity_id: 'magnific' }));
+    return out;
+  }
+  async function bridgeUnlink() {
+    if (!can().settings) return { ok: false, reason: 'forbidden' };
+    const r = await invoke({ action: 'bridge_unlink' });
+    if (!r.ok) return r;
+    quiet(() => window.IBActivity && window.IBActivity.log && window.IBActivity.log('product.ai.bridge.link', 'unlinked', { entity: 'settings', entity_id: 'magnific' }));
+    return { ok: true, linked: false };
+  }
+  // the batch's product photos up to the project now (the server: a short link each, creations_upload_image, image_shares sent /
+  // error); reason 'not_linked' when no account is linked — the page then falls back to the queue (share)
+  async function bridgeUpload(batchId, indexes) {
+    const r = await invoke({ action: 'bridge_upload', batch_id: batchId, indexes: Array.isArray(indexes) ? indexes : undefined });
+    if (!r.ok) return r;
+    const out = { ok: true, uploaded: Number(r.body.uploaded) || 0, failed: Number(r.body.failed) || 0, skipped: Number(r.body.skipped) || 0, stopped: typeof r.body.stopped === 'string' ? r.body.stopped : null };
+    log(['bridge upload', out.uploaded + ' photos'].concat(out.failed ? [out.failed + ' failed'] : [], out.skipped ? [out.skipped + ' skipped'] : [], out.stopped ? [out.stopped] : []).join(' · '), 'studio_batches', batchId);
+    return out;
+  }
+  // the project's new results into the batch's product slots now (the server matches each to its photo and imports in one call)
+  async function bridgeFetch(batchId) {
+    const r = await invoke({ action: 'bridge_fetch', batch_id: batchId });
+    if (!r.ok) return r;
+    const out = { ok: true, found: Number(r.body.found) || 0, placed: Number(r.body.placed) || 0, unmatched: Number(r.body.unmatched) || 0, imported: Number(r.body.imported) || 0, failed: Number(r.body.failed) || 0, status: typeof r.body.status === 'string' ? r.body.status : 'ok', importId: Number.isInteger(r.body.import_id) ? r.body.import_id : null };
+    log(['bridge fetch', out.found + ' found', out.placed + ' placed'].concat(out.unmatched ? [out.unmatched + ' unmatched'] : [], out.failed ? [out.failed + ' failed'] : []).join(' · '), 'studio_batches', batchId);
+    return out;
+  }
   // the admin: the shape (keys only) of the provider's account answer, to pin the API layer (T2)
   async function probe() {
     const r = await invoke({ action: 'probe' });
@@ -334,7 +385,7 @@
   }
 
   window.IBImages = {
-    can, generate, edit, create, probe, webp, imports, importRun, share, shares, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
+    can, generate, edit, create, probe, webp, imports, importRun, share, shares, bridgeStatus, bridgeLink, bridgeCallback, bridgeUnlink, bridgeUpload, bridgeFetch, imageUrl, download, remove, history, settings, saveSettings, monthCredits, photoOf, why,
     credits, usd, modelOf, estModel: () => (last && last.model) || DEFAULT_MODEL,
     MODELS, DEFAULT_MODEL, SIZES, SHAPES, EDIT_OPS, MAX_COUNT, CREDIT_USD, STUDIO_BUCKET, TOOL_BUCKET,
   };

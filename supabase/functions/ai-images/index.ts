@@ -26,6 +26,15 @@
 //   'share'    (decision 10 b: «ابعت الصور لـ Magnific», products.add) { batch_id, indexes? } → one image_shares row per product
 //              photo not shared yet (a signed link of a week, the product's name as the file name) for the bridge to upload to the
 //              site's project → { result: 'ok', shared, skipped }.
+//   'bridge_*' (decision 11: the system itself as the Magnific site's MCP client — providers/magnific-mcp.ts; the OAuth client and
+//              the linked account's tokens in Vault through 0029's magnific_secret_get / set): bridge_status (the tool's members:
+//              linked?; the admin also the account, configured, redirect), bridge_link (the admin → the sign-in url; the PKCE state
+//              kept ten minutes in magnific_oauth_states), bridge_callback { code, state } (the admin, from app/magnific-callback.html
+//              → the tokens into Vault), bridge_unlink (the admin), bridge_upload { batch_id, indexes? } (products.add: the batch's
+//              product photos up to the project now — creations_upload_image with the product's name — image_shares rows sent /
+//              error → { uploaded, failed, skipped }; 503 not_linked when no account is linked), bridge_fetch { batch_id }
+//              (products.add: the project's new results matched to the sent photos by lineage / family / name → one image_imports
+//              row of target batch → importBatch in the same call → its answer + found, unmatched, import_id).
 // Every call is reserved first, in one locked step in the database (ai_image_run_start, 0025: the member's throttle; the images'
 // monthly cap in credits — settings «ai».image_monthly_credits against this Cairo month's image rows, pending ones at their planned
 // credits — over it → 402 ai_cap and a cap row; else a pending row holding the planned credits), and the row then holds the
@@ -40,6 +49,8 @@ import {
   studioGenPath, studioPathOk, toolPath, usdOf,
 } from '../_shared/ai-images.js';
 import { magnific, ProviderError, shape, type Provider, type Ref } from './providers/magnific.ts';
+import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
+import { REF, creationsOf, familyOf, importShape, lastPageOf, lineageIds, matchResults, uploadedId } from '../_shared/magnific-bridge.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -49,9 +60,10 @@ export type Deps = {
   env: Record<string, string | undefined>; db: Db; now: () => string;
   userDb?: (jwt: string) => Db; userId?: (jwt: string) => Promise<string | null>;
   provider: Provider; fetch?: typeof fetch;
+  bridge?: Bridge; // decision 11: the Magnific site's MCP (OAuth + tools) — the system's own client
 };
 
-const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share'];
+const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch'];
 const SHARE_SECONDS = 7 * 24 * 3600; // a shared photo's link lives a week (the bridge uploads it to the site within that)
 const MAX_WEBP_B64 = 14_000_000; // ≈ 10 MB of WebP
 const STUDIO_BUCKET = 'studio';
@@ -541,6 +553,184 @@ async function share(deps: Deps, who: Who, args: Json) {
   return json(200, { result: 'ok', batch_id: batchId, shared: made, skipped });
 }
 
+// ---------------------------------------------------------------- the bridge (decision 11: the system as the Magnific site's MCP client)
+// The two secrets live in Vault behind magnific_secret_get / magnific_secret_set (0029, service_role only): magnific_mcp_client
+// ({ client_id, … } — the OAuth client the system registered at auth.magnific.com) and magnific_mcp_tokens (the linked account's
+// access + refresh tokens, their expiry and the account's email). They are read into memory here and go nowhere else.
+
+const PROJECT_REF_DEFAULT = 'f3b8e918-1fac-49a7-9196-8d22ca637a8e'; // the Magnific project «ابتكر» (MAGNIFIC_PROJECT_REF moves it)
+const REDIRECT_DEFAULT = 'https://operation-system.ibtekr.club/magnific-callback.html'; // the redirect URI the client registered
+const STATE_MINUTES = 10;
+const UPLOAD_LINK_SECONDS = 600;
+const SEARCH_PAGE = 50;
+const MAX_LINEAGE = 40; // lineage calls a fetch at most (the rest match by family / name)
+const projectRef = (env: Deps['env']) => { const v = (env.MAGNIFIC_PROJECT_REF ?? '').trim(); return /^[0-9a-f-]{36}$/i.test(v) ? v : PROJECT_REF_DEFAULT; };
+const redirectUri = (env: Deps['env']) => { const v = (env.MAGNIFIC_REDIRECT_URI ?? '').trim(); return /^https:\/\/[^\s]+$/.test(v) ? v : REDIRECT_DEFAULT; };
+
+async function secretGet(deps: Deps, name: string): Promise<Json | null> {
+  const { data, error } = await deps.db.rpc('magnific_secret_get', { p_name: name });
+  if (error || typeof data !== 'string' || !data) return null;
+  try { const j = JSON.parse(data); return isObj(j) ? j : null; } catch { return null; }
+}
+async function secretSet(deps: Deps, name: string, value: Json | null) {
+  const { error } = await deps.db.rpc('magnific_secret_set', { p_name: name, p_value: value === null ? null : JSON.stringify(value) });
+  if (error) throw new BridgeError('mcp_error', null, 'vault');
+}
+const clientOf = async (deps: Deps) => { const c = await secretGet(deps, 'magnific_mcp_client'); return c && typeof c.client_id === 'string' && c.client_id ? { clientId: c.client_id } : null; };
+const tokensOf = async (deps: Deps): Promise<Tokens | null> => {
+  const t = await secretGet(deps, 'magnific_mcp_tokens');
+  return t && typeof t.access_token === 'string' && typeof t.expires_at === 'string' ? { access_token: t.access_token, refresh_token: typeof t.refresh_token === 'string' ? t.refresh_token : null, expires_at: t.expires_at, account: typeof t.account === 'string' ? t.account : null } : null;
+};
+// the access token of the linked account, refreshed first when it ends within a minute (the refreshed set replaces the secret)
+async function accessToken(deps: Deps): Promise<string> {
+  const bridge = deps.bridge; if (!bridge) throw new BridgeError('mcp_error', null, 'no bridge');
+  const tokens = await tokensOf(deps);
+  if (!tokens) throw new BridgeError('not_linked');
+  if (Date.parse(tokens.expires_at) - Date.parse(deps.now()) > 60_000) return tokens.access_token;
+  const client = await clientOf(deps); if (!client) throw new BridgeError('not_linked');
+  let fresh: Tokens;
+  try { fresh = await bridge.refresh(client.clientId, tokens); }
+  catch (e) { if (e instanceof BridgeError && e.kind === 'refused') { await secretSet(deps, 'magnific_mcp_tokens', null); throw new BridgeError('not_linked', e.status, e.detail); } throw e; }
+  await secretSet(deps, 'magnific_mcp_tokens', fresh);
+  return fresh.access_token;
+}
+const bridgeFail = (e: unknown) => {
+  if (e instanceof BridgeError) return json(e.kind === 'not_linked' ? 503 : e.kind === 'busy' ? 429 : e.kind === 'refused' ? 400 : 502, { error: e.kind, status: e.status, detail: e.detail });
+  throw e;
+};
+
+async function bridgeStatus(deps: Deps, who: Who) {
+  if (!who.add && !who.edit) return json(401, { error: 'unauthorized' });
+  const tokens = await tokensOf(deps);
+  const out: Json = { result: 'ok', linked: !!tokens, project: projectRef(deps.env) };
+  if (who.admin) { out.account = tokens?.account ?? null; out.configured = !!(await clientOf(deps)); out.redirect = redirectUri(deps.env); }
+  return json(200, out);
+}
+// the sign-in link for the admin: a state + PKCE verifier kept ten minutes (service_role's table), the provider's authorization URL
+async function bridgeLink(deps: Deps, who: Who) {
+  if (!who.admin) return json(401, { error: 'unauthorized' });
+  const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const client = await clientOf(deps); if (!client) return json(503, { error: 'not_configured', configured: false });
+  const { verifier, challenge } = await bridge.pkce();
+  const state = randomText();
+  const { error } = await deps.db.from('magnific_oauth_states').insert({ state, verifier, created_by: who.uid, created_at: deps.now() });
+  if (error) return json(500, { error: 'failed' });
+  try { return json(200, { result: 'ok', url: await bridge.authUrl(client.clientId, redirectUri(deps.env), state, challenge) }); } catch (e) { return bridgeFail(e); }
+}
+// the callback page's code + state → the tokens into Vault (the state row is spent either way)
+async function bridgeCallback(deps: Deps, who: Who, args: Json) {
+  if (!who.admin) return json(401, { error: 'unauthorized' });
+  const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const code = typeof args.code === 'string' && /^[A-Za-z0-9._~-]{8,2048}$/.test(args.code) ? args.code : null;
+  const state = typeof args.state === 'string' && /^[A-Za-z0-9_-]{32,128}$/.test(args.state) ? args.state : null;
+  if (!code) return json(400, { error: 'bad_request', field: 'code' });
+  if (!state) return json(400, { error: 'bad_request', field: 'state' });
+  const { data: found } = await deps.db.from('magnific_oauth_states').select('state, verifier, created_by, created_at, used_at').eq('state', state).maybeSingle();
+  const row = isObj(found) ? { verifier: String(found.verifier ?? ''), createdAt: String(found.created_at ?? ''), used: !!found.used_at } : null;
+  if (row && !row.used) await deps.db.from('magnific_oauth_states').update({ used_at: deps.now() }).eq('state', state); // spent, whatever follows
+  if (!row || row.used || Date.parse(deps.now()) - Date.parse(row.createdAt) > STATE_MINUTES * 60_000) return json(400, { error: 'bad_request', field: 'state' });
+  const client = await clientOf(deps); if (!client) return json(503, { error: 'not_configured', configured: false });
+  try {
+    const tokens = await bridge.exchangeCode(client.clientId, redirectUri(deps.env), code, row.verifier);
+    await secretSet(deps, 'magnific_mcp_tokens', tokens);
+    return json(200, { result: 'ok', linked: true, account: tokens.account });
+  } catch (e) { return bridgeFail(e); }
+}
+async function bridgeUnlink(deps: Deps, who: Who) {
+  if (!who.admin) return json(401, { error: 'unauthorized' });
+  try { await secretSet(deps, 'magnific_mcp_tokens', null); } catch (e) { return bridgeFail(e); }
+  return json(200, { result: 'ok', linked: false });
+}
+// the batch's product photos (main, not sent yet) up to the project now: a short signed link each → creations_upload_image with
+// the product's name as the file name → an image_shares row sent (with the creation's identifier) or error
+async function bridgeUpload(deps: Deps, who: Who, args: Json) {
+  if (!who.add) return json(401, { error: 'unauthorized' });
+  const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const batchId = typeof args.batch_id === 'string' && /^[0-9a-f-]{36}$/i.test(args.batch_id) ? args.batch_id : null;
+  if (!batchId) return json(400, { error: 'bad_request', field: 'batch_id' });
+  const { data: batch } = await deps.db.from('studio_batches').select('id, state, archived_at, created_by').eq('id', batchId).maybeSingle();
+  if (!isObj(batch) || batch.archived_at) return json(404, { error: 'not_found' });
+  if (!who.admin && batch.created_by && batch.created_by !== who.uid) return json(401, { error: 'unauthorized' });
+  let token: string;
+  try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+  const items: Json[] = isObj(batch.state) && Array.isArray(batch.state.items) ? batch.state.items : [];
+  const only = Array.isArray(args.indexes) ? new Set(args.indexes.filter((n: unknown) => Number.isInteger(n))) : null;
+  const { data: had } = await deps.db.from('image_shares').select('path, status').eq('batch_id', batchId);
+  const sent = new Set((Array.isArray(had) ? had : []).filter((r: Json) => r.status === 'sent').map((r: Json) => r.path));
+  let uploaded = 0, failed = 0, skipped = 0; let stop: Response | null = null;
+  for (let i = 0; i < items.length && !stop; i++) {
+    const it = items[i]; if (!isObj(it) || (only && !only.has(i))) continue;
+    const path = typeof it.main === 'string' && studioPathOk(batchId, it.main) ? it.main : null;
+    if (!path || sent.has(path)) { skipped++; continue; }
+    const { data: sg } = await deps.db.storage.from(STUDIO_BUCKET).createSignedUrl(path, UPLOAD_LINK_SECONDS);
+    const url = typeof sg?.signedUrl === 'string' && /^https:\/\//.test(sg.signedUrl) ? sg.signedUrl : null;
+    if (!url) { skipped++; continue; }
+    const stem = String(it.nameEn || it.nameAr || '').replace(/[^\p{L}\p{N} ._-]/gu, ' ').replace(/\.{2,}/g, '.').replace(/\s+/g, ' ').trim().slice(0, 100).replace(/[. ]+$/, '');
+    const name = (stem || 'product-' + (i + 1)) + '.' + (/^(jpe?g|png|webp)$/i.test(path.split('.').pop() ?? '') ? path.split('.').pop() : 'jpg');
+    const row: Json = { created_by: who.uid, batch_id: batchId, item_index: i, item_key: typeof it.key === 'string' ? it.key.slice(0, 60) : null, name, path, url, expires_at: new Date(Date.parse(deps.now()) + UPLOAD_LINK_SECONDS * 1000).toISOString() };
+    try {
+      const id = uploadedId(await bridge.callTool(token, 'creations_upload_image', { url, fileName: name, folderReference: projectRef(deps.env) }));
+      if (!id) throw new BridgeError('mcp_error', null, 'no identifier');
+      await deps.db.from('image_shares').insert({ ...row, status: 'sent', creation_ref: id, sent_at: deps.now() });
+      uploaded++;
+    } catch (e) {
+      if (!(e instanceof BridgeError)) throw e;
+      if (e.kind === 'not_linked' || e.kind === 'busy') { stop = bridgeFail(e); break; } // the account or the server: nothing more this call
+      await deps.db.from('image_shares').insert({ ...row, status: 'error', error: (e.kind + (e.detail ? ': ' + e.detail : '')).slice(0, 200) });
+      failed++;
+    }
+  }
+  if (stop && !uploaded && !failed) return stop;
+  return json(200, { result: 'ok', batch_id: batchId, uploaded, failed, skipped, stopped: stop ? (await stop.json()).error : null });
+}
+// the project's results back into the batch: every creation of the project that is not an upload, not a source and not imported
+// yet, matched to the photo it came from (lineage → family → name) → one image_imports row (target batch) → importBatch now
+async function bridgeFetch(deps: Deps, who: Who, args: Json) {
+  if (!who.add) return json(401, { error: 'unauthorized' });
+  const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const batchId = typeof args.batch_id === 'string' && /^[0-9a-f-]{36}$/i.test(args.batch_id) ? args.batch_id : null;
+  if (!batchId) return json(400, { error: 'bad_request', field: 'batch_id' });
+  const { data: batch } = await deps.db.from('studio_batches').select('id, title, state, archived_at, created_by').eq('id', batchId).maybeSingle();
+  if (!isObj(batch) || batch.archived_at) return json(404, { error: 'not_found' });
+  if (!who.admin && batch.created_by && batch.created_by !== who.uid) return json(401, { error: 'unauthorized' });
+  const { data: shares } = await deps.db.from('image_shares').select('item_index, creation_ref, name, status').eq('batch_id', batchId);
+  const sources = (Array.isArray(shares) ? shares : []).filter((s: Json) => s.status === 'sent' && typeof s.creation_ref === 'string' && REF.test(s.creation_ref)).map((s: Json) => ({ ref: s.creation_ref as string, index: Number(s.item_index), name: String(s.name ?? ''), family: '' }));
+  if (!sources.length) return json(200, { result: 'ok', batch_id: batchId, found: 0, placed: 0, unmatched: 0, imported: 0, failed: 0, status: 'ok' });
+  const { data: past } = await deps.db.from('image_imports').select('refs').eq('batch_id', batchId);
+  const known = new Set<string>(sources.map((s) => s.ref));
+  for (const r of Array.isArray(past) ? past : []) if (Array.isArray(r.refs)) for (const x of r.refs) if (typeof x === 'string') known.add(x);
+  let token: string;
+  try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+  try {
+    const project = projectRef(deps.env);
+    type Creation = { id: string; name: string; family: string; tool: string; url: string | null; prompt: string };
+    const results: Creation[] = [];
+    for (let page = 1, last = 1; page <= last && page <= 20; page++) {
+      const data = await bridge.callTool(token, 'creations_search', { from: 'project-root', reference: project, fileType: 'image', full: true, perPage: SEARCH_PAGE, page });
+      results.push(...(creationsOf(data) as Creation[]));
+      last = lastPageOf(data);
+      if (results.length >= 400) break;
+    }
+    const hosts = importHosts(deps.env);
+    const onHost = (u: string | null) => { try { return !!u && hosts.has(new URL(u).hostname.toLowerCase()); } catch { return false; } };
+    const fresh = results.filter((r) => !known.has(r.id) && r.tool !== 'upload' && onHost(r.url)); // a link off the allowed hosts is never fetched
+    // the sources' families (for results whose lineage the server does not tell), then each result's lineage
+    for (const s of sources) { const hit = results.find((r) => r.id === s.ref); if (hit) s.family = hit.family; }
+    for (const s of sources) if (!s.family) { try { s.family = familyOf(await bridge.callTool(token, 'creations_get', { creationIdentifier: s.ref })); } catch (e) { if (!(e instanceof BridgeError) || e.kind !== 'mcp_error') throw e; } }
+    const lineages: Record<string, string[]> = {};
+    for (const r of fresh.slice(0, MAX_LINEAGE)) { try { lineages[r.id] = lineageIds(await bridge.callTool(token, 'creations_lineage', { creationIdentifier: r.id })); } catch (e) { if (!(e instanceof BridgeError) || e.kind !== 'mcp_error') throw e; } }
+    const { matched, unmatched } = matchResults(sources, fresh, lineages);
+    if (!matched.length) return json(200, { result: 'ok', batch_id: batchId, found: fresh.length, placed: 0, unmatched: unmatched.length, imported: 0, failed: 0, status: 'ok' });
+    const shapeOf = importShape(matched);
+    const label = line('نتائج Magnific — ' + String(batch.title ?? ''), 200);
+    const { data: row, error } = await deps.db.from('image_imports').insert({ created_at: deps.now(), created_by: who.uid, source: 'magnific', folder: 'ابتكر', label, urls: shapeOf.urls, refs: shapeOf.refs, status: 'pending', target: 'batch', batch_id: batchId, items: shapeOf.items }).select('id, created_by, source, folder, label, product_id, urls, status, paths, target, items, brand_id, vendor_id, batch_type, batch_id').single();
+    if (error || !isObj(row)) return json(500, { error: 'failed' });
+    const res = await importBatch(deps, who, row);
+    const body = await res.json();
+    return json(res.status, { ...body, found: fresh.length, unmatched: unmatched.length, import_id: row.id });
+  } catch (e) { return bridgeFail(e); }
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -560,6 +750,12 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'webp') return await webp(deps, who, args);
     if (action === 'import') return await importSet(deps, who, args);
     if (action === 'share') return await share(deps, who, args);
+    if (action === 'bridge_status') return await bridgeStatus(deps, who);
+    if (action === 'bridge_link') return await bridgeLink(deps, who);
+    if (action === 'bridge_callback') return await bridgeCallback(deps, who, args);
+    if (action === 'bridge_unlink') return await bridgeUnlink(deps, who);
+    if (action === 'bridge_upload') return await bridgeUpload(deps, who, args);
+    if (action === 'bridge_fetch') return await bridgeFetch(deps, who, args);
     if (!who.admin) return json(401, { error: 'unauthorized' });
     // the probe's outcome is kept as an ai_runs row (label 'probe', 0 credits: configured = the key is set, status = the
     // provider's HTTP status, shape = keys and types only) so the T2 diagnosis can be read from the database — never the key
@@ -588,6 +784,7 @@ function realDeps(): Deps {
     userDb: (jwt) => createClient(env.SUPABASE_URL ?? '', env.SUPABASE_ANON_KEY ?? '', { ...NO_SESSION, global: { headers: { Authorization: `Bearer ${jwt}` } } }),
     userId: async (jwt) => { const { data, error } = await service.auth.getUser(jwt); return error ? null : data?.user?.id ?? null; },
     provider: magnific(env),
+    bridge: magnificMcp(env),
   };
 }
 

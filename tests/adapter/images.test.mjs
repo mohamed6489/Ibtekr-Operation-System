@@ -230,3 +230,35 @@ test('decision 10 — share(batchId) sends the batch to the server (logged with 
   assert.deepEqual([out.target, out.batchId, out.placed, out.paths, chrome.made.length], ['batch', BATCH, 1, [BATCH + '/gen-0-imp-x-1.jpg'], 0]);
   assert.deepEqual(plain(logs.at(-1)), ['product.ai.image', 'import · #9 · batch · 1 images · 1 placed', { entity: 'studio_batches', entity_id: BATCH }]);
 });
+
+test('decision 11 — the bridge: status (a member sees linked only), link (the admin; the url; logged), callback (the code + state; the account logged), unlink, upload (counts; not_linked told apart) and fetch (counts; logged without links)', async () => {
+  const { I, stub, logs } = load({ responses: { 'fn:ai-images': { data: { result: 'ok', linked: false, project: 'f3b8e918-1fac-49a7-9196-8d22ca637a8e' }, error: null } } });
+  assert.deepEqual(plain(await I.bridgeStatus()), { ok: true, linked: false, account: null, configured: true, redirect: null, project: 'f3b8e918-1fac-49a7-9196-8d22ca637a8e' });
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'bridge_status' });
+  assert.deepEqual(plain(await I.bridgeLink()), { ok: false, reason: 'forbidden' }, 'a member never asks for the sign-in link');
+  assert.deepEqual(plain(await I.bridgeUnlink()), { ok: false, reason: 'forbidden' });
+  stub.responses['fn:ai-images'] = fail(503, { error: 'not_linked', status: null, detail: null });
+  const up = await I.bridgeUpload(SB);
+  assert.deepEqual([up.ok, up.reason, I.why(up).includes('مش مربوط')], [false, 'not_linked', true]);
+  stub.responses['fn:ai-images'] = { data: { result: 'ok', batch_id: SB, uploaded: 2, failed: 1, skipped: 0, stopped: null }, error: null };
+  assert.deepEqual(plain(await I.bridgeUpload(SB, [0, 1, 2])), { ok: true, uploaded: 2, failed: 1, skipped: 0, stopped: null });
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'bridge_upload', batch_id: SB, indexes: [0, 1, 2] });
+  stub.responses['fn:ai-images'] = { data: { result: 'ok', target: 'batch', batch_id: SB, paths: [SB + '/gen-0-imp-x-1.png'], found: 4, placed: 3, unmatched: 1, imported: 3, failed: 0, status: 'ok', import_id: 9 }, error: null };
+  assert.deepEqual(plain(await I.bridgeFetch(SB)), { ok: true, found: 4, placed: 3, unmatched: 1, imported: 3, failed: 0, status: 'ok', importId: 9 });
+  assert.deepEqual(plain(logs), [['product.ai.image', 'bridge upload · 2 photos · 1 failed', { entity: 'studio_batches', entity_id: SB }], ['product.ai.image', 'bridge fetch · 4 found · 3 placed · 1 unmatched', { entity: 'studio_batches', entity_id: SB }]]);
+  assert.ok(!JSON.stringify(logs).includes('gen-0-imp'), 'no path in the activity');
+  // the admin: the link, the callback and the unlink
+  const A = load({ admin: true, responses: { 'fn:ai-images': { data: { result: 'ok', url: 'https://auth.magnific.com/realms/mcp/auth?state=s1' }, error: null } } });
+  assert.deepEqual(plain(await A.I.bridgeLink()), { ok: true, url: 'https://auth.magnific.com/realms/mcp/auth?state=s1' });
+  A.stub.responses['fn:ai-images'] = { data: { result: 'ok', url: 'javascript:alert(1)' }, error: null };
+  assert.deepEqual(plain(await A.I.bridgeLink()), { ok: false, reason: 'network' }, 'only an https link is followed');
+  A.stub.responses['fn:ai-images'] = { data: { result: 'ok', linked: true, account: 'owner@ibtekr.club' }, error: null };
+  assert.deepEqual(plain(await A.I.bridgeCallback('code-1', 'state-1')), { ok: true, linked: true, account: 'owner@ibtekr.club' });
+  assert.deepEqual(A.stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body, { action: 'bridge_callback', code: 'code-1', state: 'state-1' });
+  A.stub.responses['fn:ai-images'] = fail(400, { error: 'refused', status: 400, detail: 'invalid_grant' });
+  assert.equal((await A.I.bridgeCallback('code-1', 'state-1')).reason, 'refused');
+  A.stub.responses['fn:ai-images'] = { data: { result: 'ok', linked: false }, error: null };
+  assert.deepEqual(plain(await A.I.bridgeUnlink()), { ok: true, linked: false });
+  assert.deepEqual(plain(A.logs), [['product.ai.bridge.link', 'start', { entity: 'settings', entity_id: 'magnific' }], ['product.ai.bridge.link', 'linked · owner@ibtekr.club', { entity: 'settings', entity_id: 'magnific' }], ['product.ai.bridge.link', 'unlinked', { entity: 'settings', entity_id: 'magnific' }]]);
+  assert.ok(!JSON.stringify(A.logs).includes('code-1') && !JSON.stringify(A.logs).includes('state-1'), 'no code or state in the activity');
+});

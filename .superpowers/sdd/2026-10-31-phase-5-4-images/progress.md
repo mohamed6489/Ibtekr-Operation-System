@@ -55,6 +55,13 @@
   الساعي، وصاحب المشروع قالها «لا أنا هشغّلك وقت ما يبقى في منتجات جديدة» → الموعدين اتشالوا، والجسر بالطلب في الجلسة دي
   (`deploy.md` §2.7.13 قرار 10 بند 5). Nano Banana Pro: Unlimited على الموقع بس (`simulate_cost` من الـ MCP = 75 كريدت/صورة)؛
   Google Gemini API مباشرة (≈ $0.13/صورة) خيار مؤجل لو عايز توليد من جوه السيستم من غير كريدت Magnific.
+  **قرار 11 (1 نوفمبر — «اعمل MCP للسيستم أربطه بـ Magnific»):** الفحص من `pg_net`: `mcp.magnific.com` بيعلن OAuth قياسي (Keycloak
+  `auth.magnific.com/realms/mcp`، PKCE S256، `offline_access`، تسجيل ديناميكي شغّال) — تطبيق السيستم اتسجّل (201، من غير client secret)
+  والـ client_id + registration token في Vault `magnific_mcp_client`؛ صفوف `pg_net` اتمسحت. اتنفذ T13 (أعلاه في الخطة): الدالة
+  v13 بالـ actions الست، الطبقة `magnific-mcp.ts` (initialize → initialized → tools/call، JSON أو SSE، `Mcp-Session-Id`)، قراية رد
+  الأداة بأي شكل (`mcp-text.js`)، الربط بالمصدر (النسب → العيلة → الاسم)، الواجهة (رفع فوري + «هات النتائج» + ربط الحساب من
+  إعدادات الصور + صفحة الرجوع)، الـ mock، Deno 22 / node 375 / e2e 202 خضرا. semgrep محجوب في الجلسة (CI بيشغّله). مستني صاحب
+  المشروع: `0029` من SQL Editor، وبعدها ربط الحساب من «إعدادات الصور»؛ وجلسة الجسر القديمة تفضل احتياطي لحد ما ده يشتغل.
 - [x] T3 `0025_ai_images` (31 أكتوبر): `ai_runs.action` + `image`، `source` + `tool`/`edit`، عمود `credits`؛ bucket `ai-images` خاص
   (القراءة والحذف لفولدر العضو بـ `products.add`/`products.edit` F، الكتابة للسيرفر بس)؛ `rls_ai_images.sql`. مافيش Postgres محلي
   في الـ sandbox — بيتأكد في CI (`db:test`) وعلى الحي بـ RLS live بعد التطبيق.

@@ -293,7 +293,11 @@ export async function installSupabaseMock(page, opts = {}) {
   // aal2_required whatever the token (a server that does not take the flag).
   const profiles = USERS.map((x) => ({ ...x, custom_perms: { ...x.custom_perms } }));
   const factors = profiles.filter((x) => x.twofa).map((x) => ({ id: 'f-' + x.member_code, user_id: x.id, friendly_name: 'Authenticator', factor_type: 'totp', status: 'verified', created_at: T0, updated_at: T0 }));
-  const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, imgCalls: [], webpCalls: [], importCalls: [], imageImports: [], shareCalls: [], imageShares: [], imgFail: null, imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
+  // phase 5.4 decision 11: magnific — the bridge's state on the server (configured = the OAuth client in Vault; linked / account = the
+  // tokens; results = the project's creations the site would list: { id, name, family, tool, url, lineage? }); bridgeCalls: every bridge_* call;
+  // oauthStates: the PKCE states handed out
+  const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, imgCalls: [], webpCalls: [], importCalls: [], imageImports: [], shareCalls: [], imageShares: [], imgFail: null,
+    magnific: { configured: true, linked: false, account: null, results: [] }, bridgeCalls: [], oauthStates: [], imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
     profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [] };
@@ -1076,7 +1080,52 @@ export async function installSupabaseMock(page, opts = {}) {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
       if (!u) return json(401, { error: 'unauthorized' });
       const add = isAdmin(u) || hasPerm(u, 'products.add') === 'F'; const edit = isAdmin(u) || hasPerm(u, 'products.edit') === 'F';
-      if (!['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share'].includes(action)) return json(400, { error: 'unknown_action' });
+      if (!['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch'].includes(action)) return json(400, { error: 'unknown_action' });
+      if (action.startsWith('bridge_')) {
+        // decision 11: the system as the Magnific site's MCP client — the mock keeps the account's state in mock.magnific and answers
+        // like the server: status (the tool's members; the admin sees the account), link (the admin → an https sign-in url with a state),
+        // callback { code, state } (the admin; the state once), unlink, upload (products.add: each product photo not sent → a sent
+        // image_shares row with a creation id; 503 not_linked without an account), fetch (products.add: mock.magnific.results not
+        // uploads / sources / imported, matched by lineage → family → name, into the products' empty slots through an image_imports row)
+        const M = mock.magnific; mock.bridgeCalls.push({ by: u.email, action, body: { ...b, action: undefined } });
+        const PROJECT = 'f3b8e918-1fac-49a7-9196-8d22ca637a8e';
+        if (action === 'bridge_status') { if (!(add || edit)) return json(401, { error: 'unauthorized' }); return json(200, { result: 'ok', linked: !!M.linked, project: PROJECT, ...(isAdmin(u) ? { account: M.linked ? M.account : null, configured: !!M.configured, redirect: 'https://operation-system.ibtekr.club/magnific-callback.html' } : {}) }); }
+        if (action === 'bridge_link') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); if (!M.configured) return json(503, { error: 'not_configured', configured: false }); const state = 'st' + Math.random().toString(36).slice(2).padEnd(41, 'x'); mock.oauthStates.push({ state, used: false, at: Date.now() }); return json(200, { result: 'ok', url: 'https://auth.mock/realms/mcp/auth?client_id=client-1&state=' + state + '&code_challenge=c&redirect_uri=' + encodeURIComponent('https://operation-system.ibtekr.club/magnific-callback.html') }); }
+        if (action === 'bridge_callback') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); const st = mock.oauthStates.find((x) => x.state === b.state); if (!/^[A-Za-z0-9._~-]{8,2048}$/.test(String(b.code || ''))) return json(400, { error: 'bad_request', field: 'code' }); if (!st || st.used) return json(400, { error: 'bad_request', field: 'state' }); st.used = true; if (String(b.code).startsWith('bad')) return json(400, { error: 'refused', status: 400, detail: 'invalid_grant' }); M.linked = true; M.account = M.account || 'owner@ibtekr.club'; return json(200, { result: 'ok', linked: true, account: M.account }); }
+        if (action === 'bridge_unlink') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); M.linked = false; M.account = null; return json(200, { result: 'ok', linked: false }); }
+        if (!add) return json(401, { error: 'unauthorized' });
+        const bid = typeof b.batch_id === 'string' && /^[0-9a-f-]{36}$/i.test(b.batch_id) ? b.batch_id : null; if (!bid) return json(400, { error: 'bad_request', field: 'batch_id' });
+        const batch = mock.studioBatches.find((x) => x.id === bid && !x.archived_at); if (!batch) return json(404, { error: 'not_found' });
+        if (!isAdmin(u) && batch.created_by && batch.created_by !== u.id) return json(401, { error: 'unauthorized' });
+        if (action === 'bridge_upload') {
+          if (!M.linked) return json(503, { error: 'not_linked', status: null, detail: null });
+          const only = Array.isArray(b.indexes) ? new Set(b.indexes) : null; const sent = new Set(mock.imageShares.filter((x) => x.batch_id === bid && x.status === 'sent').map((x) => x.path));
+          let uploaded = 0, skipped = 0;
+          (batch.state.items || []).forEach((it, i) => { if (only && !only.has(i)) return; const path = typeof it.main === 'string' && studioPathOk(bid, it.main) ? it.main : null; if (!path || sent.has(path) || !mock.studioObjects.has(path)) { skipped++; return; }
+            const id = 'UP' + (mock.imageShares.length + 1); const name = (it.nameEn || it.nameAr || 'product-' + (i + 1)) + '.' + path.split('.').pop();
+            mock.imageShares.push({ id: mock.imageShares.length + 1, created_at: new Date().toISOString(), created_by: u.id, batch_id: bid, item_index: i, item_key: it.key || null, name, path, url: 'https://signed.mock/studio/' + path + '?token=up', expires_at: new Date(Date.now() + 600000).toISOString(), status: 'sent', creation_ref: id, error: null, sent_at: new Date().toISOString() });
+            M.results.push({ id, name: name.replace(/\.[a-z0-9]+$/i, ''), family: 'fam-' + id, tool: 'upload', url: 'https://pikaso.cdnpk.net/p/' + id + '.jpg' }); uploaded++; });
+          return json(200, { result: 'ok', batch_id: bid, uploaded, failed: 0, skipped, stopped: null });
+        }
+        // bridge_fetch
+        if (!M.linked) return json(503, { error: 'not_linked', status: null, detail: null });
+        const sources = mock.imageShares.filter((x) => x.batch_id === bid && x.status === 'sent' && x.creation_ref).map((x) => ({ ref: x.creation_ref, index: x.item_index, name: x.name.replace(/\.[a-z0-9]+$/i, '').toLowerCase(), family: (M.results.find((r) => r.id === x.creation_ref) || {}).family || '' }));
+        if (!sources.length) return json(200, { result: 'ok', batch_id: bid, found: 0, placed: 0, unmatched: 0, imported: 0, failed: 0, status: 'ok' });
+        const known = new Set(sources.map((s) => s.ref)); mock.imageImports.filter((x) => x.batch_id === bid).forEach((x) => (x.refs || []).forEach((r) => known.add(r)));
+        const fresh = M.results.filter((r) => !known.has(r.id) && r.tool !== 'upload' && /^https:\/\/pikaso\.cdnpk\.net\//.test(r.url || ''));
+        const matched = [], unmatched = [];
+        fresh.forEach((r) => { let src = (r.lineage || []).map((id) => sources.find((s) => s.ref === id)).find(Boolean) || (r.family ? sources.find((s) => s.family === r.family) : null) || sources.find((s) => s.name.length >= 3 && (r.name || '').toLowerCase().includes(s.name)) || null; if (src) matched.push({ r, index: src.index }); else unmatched.push(r); });
+        if (!matched.length) return json(200, { result: 'ok', batch_id: bid, found: fresh.length, placed: 0, unmatched: unmatched.length, imported: 0, failed: 0, status: 'ok' });
+        const urls = matched.map((m) => m.r.url), refs = matched.map((m) => m.r.id); const byIndex = new Map(); matched.forEach((m, k) => { if (!byIndex.has(m.index)) byIndex.set(m.index, []); byIndex.get(m.index).push(k); });
+        const row = { id: mock.imageImports.length + 1, created_at: new Date().toISOString(), created_by: u.id, source: 'magnific', folder: 'ابتكر', label: 'نتائج Magnific — ' + batch.title, product_id: null, urls, refs, status: 'pending', paths: null, error: null, run_id: null, done_at: null, target: 'batch', items: [...byIndex.entries()].map(([index, images]) => ({ index, images })), brand_id: null, vendor_id: null, batch_type: null, batch_id: bid };
+        mock.imageImports.push(row);
+        const items = batch.state.items || []; const paths = urls.map(() => null); let placed = 0; const stamp = Date.now().toString(36) + (++mock.imgSeq);
+        row.items.forEach((q) => { const it = items[q.index]; if (!it) return; it.slots = Array.isArray(it.slots) ? it.slots : []; q.images.forEach((n) => { const k = batch.id + '/gen-' + q.index + '-imp-' + stamp + '-' + (n + 1) + '.png'; mock.studioObjects.set(k, { type: 'image/png', size: PNG_1PX.length, by: 'import' }); paths[n] = k; let k2 = 0; while (k2 < it.slots.length && it.slots[k2]) k2++; it.slots[k2] = k; placed++; }); });
+        batch.updated_at = new Date().toISOString();
+        const run = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action: 'image', source: 'import', label: row.label, product_id: null, batch_id: batch.id, item_index: null, model: null, credits: 0, cost_usd: 0, status: 'ok', error: null, output: { paths, bucket: 'studio', import_id: row.id, failed: 0, placed } };
+        mock.aiRuns.push(run); Object.assign(row, { status: 'ok', paths, run_id: run.id, done_at: new Date().toISOString() });
+        return json(200, { result: 'ok', target: 'batch', bucket: 'studio', batch_id: batch.id, path: paths[0], paths, credits: 0, model: '', run_id: run.id, imported: paths.length, failed: 0, status: 'ok', placed, found: fresh.length, unmatched: unmatched.length, import_id: row.id });
+      }
       if (action === 'share') {
         // decision 10 (b): the batch's product photos (main, not shared yet) → image_shares rows (pending, a week's link, the
         // product's name as the file name) for the bridge; products.add and the member's own batch (the admin any)

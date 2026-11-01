@@ -239,3 +239,32 @@ test('decision 10 (c) — the site\'s results back into the batch they were made
   await expect(page).toHaveURL(new RegExp('#products-studio-' + SB + '-6$'));
   await expect(page.locator('#pg-products .tot-bar')).toContainText('4 من 8');
 });
+
+test('decision 11 — the admin links the system\'s Magnific account from «إعدادات الصور»: the sign-in link leaves the app, Magnific comes back to magnific-callback.html, the code becomes the link; then the settings show the account and unlink', async ({ page }) => {
+  await openProducts(page, ADMIN);
+  await openTool(page);
+  await page.locator('[data-img-settings]').click();
+  await expect(page.locator('.modal [data-img-bridge]')).toContainText('مش مربوط');
+  // Magnific's sign-in (mocked) sends the browser straight back with a code
+  await page.route('https://auth.mock/**', (route) => { const u = new URL(route.request().url()); route.fulfill({ status: 302, headers: { location: 'http://localhost:4173/magnific-callback.html?code=code-mock-1234&state=' + u.searchParams.get('state') } }); });
+  await page.locator('[data-img-link]').click();
+  await expect(page).toHaveURL(/magnific-callback\.html$/);
+  await expect(page.locator('#cb-title')).toHaveText('اتربط حساب Magnific ✓');
+  await expect(page.locator('#cb-text')).toContainText('owner@ibtekr.club');
+  expect(mock.oauthStates.map((s) => s.used)).toEqual([true]);
+  expect(mock.magnific.linked).toBe(true);
+  expect(mock.bridgeCalls.map((c) => c.action)).toEqual(['bridge_status', 'bridge_link', 'bridge_callback']);
+  await page.locator('#cb-back').click();
+  await expect(page).toHaveURL(/#products-tool-images$/); // the link opens the images tool itself
+  await expect(page.locator('[data-img-settings]')).toBeVisible();
+  await page.locator('[data-img-settings]').click();
+  await expect(page.locator('.modal [data-img-bridge]')).toContainText('مربوط بحساب');
+  await expect(page.locator('.modal [data-img-bridge]')).toContainText('owner@ibtekr.club');
+  await page.locator('[data-img-unlink]').click();
+  await page.getByRole('button', { name: 'فكّ الربط', exact: true }).last().click();
+  await expect(page.locator('.modal [data-img-bridge]')).toContainText('مش مربوط');
+  expect(mock.magnific.linked).toBe(false);
+  // a spent or wrong state on the callback page says so
+  await page.goto('/magnific-callback.html?code=code-mock-1234&state=' + mock.oauthStates[0].state);
+  await expect(page.locator('#cb-text')).toContainText('انتهت صلاحية الربط');
+});

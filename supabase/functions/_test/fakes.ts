@@ -56,6 +56,8 @@ const COLUMNS: Record<string, string[]> = {
   image_imports: ['id', 'created_at', 'created_by', 'source', 'folder', 'label', 'product_id', 'urls', 'refs', 'status', 'paths', 'error', 'run_id', 'done_at', 'target', 'items', 'brand_id', 'vendor_id', 'batch_type', 'batch_id'], // 0027
   // 0028 (phase 5.4 decision 10 b): the photos sent to the Magnific site
   image_shares: ['id', 'created_at', 'created_by', 'batch_id', 'item_index', 'item_key', 'name', 'path', 'url', 'expires_at', 'status', 'creation_ref', 'error', 'sent_at'],
+  // 0029 (phase 5.4 decision 11): the PKCE states of the Magnific bridge's sign-in
+  magnific_oauth_states: ['state', 'verifier', 'created_by', 'created_at', 'used_at'],
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
 };
@@ -74,7 +76,7 @@ const UNIQUE: Record<string, string[][]> = {
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
   woo_webhook_events: [['id'], ['delivery_id']], woo_sync_log: [['id']], sync_state: [['key']], woo_states: [['code']],
   vendor_rates: [['id'], ['vendor_id', 'since']], vendor_category_rates: [['id'], ['vendor_id', 'woo_category_id', 'since']], woo_categories: [['id']], activity_log: [['id']],
-  vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']], image_imports: [['id']], image_shares: [['id']],
+  vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']], image_imports: [['id']], image_shares: [['id']], magnific_oauth_states: [['state']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],

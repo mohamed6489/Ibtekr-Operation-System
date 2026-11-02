@@ -19,4 +19,4 @@
   `#fv`/`#fc` (مخفيين — `force` / `setQuery` / `#gq`)، وتاب «معلومات المبتكر». الحي: `0033` اتطبّق بالـ MCP و`rls_order_delete` عدّى على الحي؛ `rls_orders` بقى 28 عمود؛ CI ✓ (831ed31)، main اتدفع. مافيش Edge Functions اتغيرت.
 - [x] T8 ب (2 نوفمبر — صاحب المشروع بعد التسليم: «الأوردر لازم ألغيه الأول قبل ما أحذفه» + «لما أحذفه يتحذف من الموقع»): «مسح» على أي أوردر غير
   مكتمل/استرجاع، خطوة واحدة (إلغاء بنفس السبب لو لازم → woo-sync `order_trash` = سلة مهملات الموقع للأوردر وفرعياته من غير `force` → `order_delete`)؛
-  Deno +4، adapter 3 اختبارات، e2e 5 لقرار 10 + تعديل اختبار «WooCommerce owns…»، mock `order_trash` + `trashes`؛ الخطة وCLAUDE.md وdeploy.md §2.7.14.
+  Deno +4، adapter 3 اختبارات، e2e 5 لقرار 10 + تعديل اختبار «WooCommerce owns…»، mock `order_trash` + `trashes`؛ الخطة وCLAUDE.md وdeploy.md §2.7.14. الحي: woo-sync **v50** من workflow «Deploy functions» (اتصلّح بـ `--yes` — الـ CLI الجديد بيطلب تأكيد)، main اتدفع (438564e). ملاحظة المراجعة الأمنية: `order_trash` بياخد نفس شرطي `order_delete` (`orders.status = F` + `orders.view`) وبيتجاهل الأوردر المعلَّم محذوف.

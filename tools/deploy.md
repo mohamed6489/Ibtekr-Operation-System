@@ -1095,7 +1095,7 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
 
 - `0033_order_delete.sql` (اتطبّق على الحي بالـ MCP؛ `rls_order_delete.sql` عدّى على الحي): أعمدة `deleted_at`/`deleted_by`/`delete_reason` على
   `orders`، `orders_v` من غير المحذوف، RPC `order_delete`.
-- woo-sync action `order_trash { order_id }`: يحتاج نشر woo-sync (workflow «Deploy functions» → `woo-sync`). الأوردر لازم يكون «ملغي» عندنا،
+- woo-sync action `order_trash { order_id }`: اتنشرت **v50** (2 نوفمبر) من workflow «Deploy functions» → `woo-sync` (الـ workflow بقى بيبعت `--yes` — الـ CLI الجديد بيطلب تأكيد في التشغيل غير التفاعلي). الأوردر لازم يكون «ملغي» عندنا،
   و`WOO_PUSH_ENABLED = 1` وإلا `skipped/push_disabled` (المسح عندنا بيكمل والموقع مايتلمسش). `DELETE wc/v3/orders/{id}` من غير `force`
   (سلة المهملات على الموقع — الاسترجاع من لوحة WooCommerce → Orders → Trash)، الفرعية الأول ثم الأصلي. `woo_sync_log`: `push/out/order/{id}`
   action `trash`.

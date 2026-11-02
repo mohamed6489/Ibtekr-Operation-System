@@ -11,3 +11,6 @@ verify_jwt = false
 
 [functions.ai-images]
 verify_jwt = false
+
+[functions.cs-channel]
+verify_jwt = false

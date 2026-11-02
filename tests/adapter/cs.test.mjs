@@ -258,3 +258,47 @@ test('subscribe: one channel on cs_conversations / cs_messages (INSERT + UPDATE)
   S.clear(); assert.equal(stub.calls.filter((c) => c.op === 'removeChannel').length, 1); eq(S.data.customers, []); assert.equal(S.state(), 'idle');
   const t = load({ channelThrows: true }); t.S.subscribe(); assert.equal(t.stub.calls.filter((c) => c.op === 'subscribe').length, 0);
 });
+
+test('6.2 — send on a connected Meta channel: the queued row then cs-channel send → sent; a refusal → failed + a message; commentPrivate / commentHide; connectStart (the admin) → the Facebook url; channelStatus merges the channels; a WhatsApp conversation never calls the function', async () => {
+  const K3 = 'd0000000-0000-4000-8000-000000000003'; const K4 = 'd0000000-0000-4000-8000-000000000004';
+  const CHANS_ON = CHANS.map((c) => (c.id === 'messenger' ? { ...c, status: 'connected', number: 'Ibtekr Club', since: iso(DAY) } : c));
+  const CONVS2 = CONVS.concat([
+    { id: K3, seg: 'customers', platform: 'messenger', channel: 'messenger', customer_id: C1, vendor_id: null, handle: null, external_id: '900', status: 'مستنية ردنا', assignee: null, outcome: null, tags: [], last_in_at: iso(3600e3), last_out_at: null, waiting_since: iso(3600e3), unread: 1, created_at: iso(3600e3), updated_at: iso(3600e3) },
+    { id: K4, seg: 'comments', platform: 'facebook', channel: 'messenger', customer_id: null, vendor_id: null, handle: 'Noha H', external_id: '111_p1:42', status: 'جديدة', assignee: null, outcome: null, tags: [], last_in_at: iso(1800e3), last_out_at: null, waiting_since: iso(1800e3), unread: 1, created_at: iso(1800e3), updated_at: iso(1800e3) }]);
+  const calls = []; let refuse = false; let seq = 20;
+  const fnFail = (status, body) => ({ data: null, error: { context: { status, json: async () => body } } });
+  const { S, stub, logs } = load({ admin: true, responses: { cs_channels: ok(CHANS_ON), cs_conversations: ok(CONVS2),
+    cs_messages: (q) => { const ins = q.find((c) => c.op === 'insert'); return ins ? ok([{ id: 'm' + (seq += 1), conversation_id: ins.args[0].conversation_id, kind: ins.args[0].kind, text: ins.args[0].text, author: ME, delivery: ins.args[0].kind === 'out' ? 'queued' : null, meta: ins.args[0].meta, created_at: iso(0) }]) : ok(MSGS); },
+    'fn:cs-channel': (opts) => { const b = opts.body; calls.push(b);
+      if (b.action === 'status') return { data: { result: 'ok', linked: true, channels: [{ id: 'messenger', status: 'connected', number: 'Ibtekr Club', since: iso(DAY), last_message_at: iso(60e3) }, { id: 'instagram', status: 'disconnected', number: null, since: null, last_message_at: null }], configured: true, verify_configured: false, redirect: 'https://operation-system.ibtekr.club/meta-callback.html', webhook_url: 'https://x.supabase.co/functions/v1/cs-channel', page: { id: '111', name: 'Ibtekr Club', ig: null } }, error: null };
+      if (b.action === 'connect_start') return { data: { result: 'ok', url: 'https://www.facebook.com/v21.0/dialog/oauth?client_id=1&state=s', channel: b.channel }, error: null };
+      if (b.action === 'comment_hide') return { data: { result: 'ok', hidden: '111_c1' }, error: null };
+      if (refuse) return fnFail(502, { error: 'graph_10:2018278', status: 400, delivery: 'failed' });
+      return { data: { result: 'ok', delivery: 'sent', external_id: 'm_x', private: b.action === 'comment_private' }, error: null }; } } });
+  await S.load();
+  assert.equal(S.metaChannel(S.conv(K3)), true); assert.equal(S.metaConnected(S.conv(K3)), true); assert.equal(S.metaChannel(S.conv(K1)), false);
+  const r = await S.send(K3, 'في الطريق');
+  assert.equal(r.ok, true); assert.equal(r.delivery, 'sent'); assert.equal(S.conv(K3).msgs.at(-1).delivery, 'sent');
+  eq(calls.at(-1), { action: 'send', message_id: 'm21' });
+  refuse = true;
+  const bad = await S.send(K3, 'متأخر');
+  assert.equal(bad.ok, false); assert.equal(bad.reason, 'invalid'); assert.equal(bad.code, 'graph_10:2018278'); assert.match(bad.message, /Meta رفضتها/);
+  assert.equal(S.conv(K3).msgs.at(-1).delivery, 'failed');
+  refuse = false;
+  const n = calls.length; await S.send(K1, 'واتساب'); assert.equal(calls.length, n, 'a WhatsApp conversation (not connected) never calls the function');
+  const pr = await S.commentPrivate(K4, 'على الخاص');
+  assert.equal(pr.ok, true); eq(calls.at(-1), { action: 'comment_private', message_id: 'm24' }); eq(inserted(stub, 'cs_messages').at(-1).meta, { private: true });
+  eq(await S.commentPrivate(K3, 'x'), { ok: false, reason: 'invalid' });
+  const hd = await S.commentHide(K4);
+  assert.equal(hd.ok, true); assert.equal(hd.hidden, '111_c1'); eq(calls.at(-1), { action: 'comment_hide', conversation_id: K4 }); eq(logs.at(-1).slice(0, 2), ['cs.channel.hide', 'facebook']);
+  const cs = await S.connectStart('instagram');
+  assert.equal(cs.ok, true); assert.match(cs.url, /^https:\/\/www\.facebook\.com\//); eq(calls.at(-1), { action: 'connect_start', channel: 'instagram' });
+  const st = await S.channelStatus();
+  eq([st.linked, st.configured, st.verifyConfigured, st.page.name], [true, true, false, 'Ibtekr Club']);
+  assert.equal(S.data.channels.messenger.last, 'آخر رسالة: ' + S.clock(Date.now() - 60e3));
+  assert.ok(!JSON.stringify(logs).includes('في الطريق'), 'no text in the log');
+  const member = load({ admin: false, responses: { 'fn:cs-channel': () => ({ data: { result: 'ok', url: 'https://www.facebook.com/x' }, error: null }) } });
+  await member.S.load();
+  eq(await member.S.connectStart('messenger'), { ok: false, reason: 'forbidden' });
+  eq(await member.S.disconnect(), { ok: false, reason: 'forbidden' });
+});

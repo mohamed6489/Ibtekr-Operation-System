@@ -63,6 +63,14 @@ const COLUMNS: Record<string, string[]> = {
   shot_prompts: ['id', 'category', 'shot', 'name', 'prompt', 'negative', 'model', 'aspect', 'resolution', 'source_node', 'updated_at', 'updated_by'],
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
+  // 0034 / 0035 (phase 6.2): the customer-service tables the Meta channel writes
+  cs_customers: ['id', 'phone', 'name', 'ig', 'city', 'province', 'address', 'address2', 'mood', 'tags', 'consent', 'auto_consent', 'source', 'created_from', 'blocked_at', 'blocked_by', 'merged_into', 'created_by', 'created_at', 'updated_at'],
+  cs_contacts: ['id', 'customer_id', 'platform', 'external_id', 'handle', 'created_at'],
+  cs_conversations: ['id', 'seg', 'platform', 'channel', 'customer_id', 'vendor_id', 'handle', 'external_id', 'status', 'assignee', 'outcome', 'tags', 'last_in_at', 'last_out_at', 'waiting_since', 'unread', 'snoozed_until', 'closed_at', 'closed_by', 'created_by', 'created_at', 'updated_at'],
+  cs_messages: ['id', 'conversation_id', 'kind', 'text', 'author', 'external_id', 'delivery', 'meta', 'created_at'],
+  cs_channels: ['id', 'name', 'audience', 'kind', 'status', 'number', 'cap_per_day', 'since', 'last_message_at', 'meta', 'updated_at'],
+  cs_oauth_states: ['state', 'verifier', 'channel', 'created_by', 'created_at', 'used_at'],
+  cs_channel_events: ['id', 'received_at', 'object', 'entry_id', 'status', 'error', 'summary'],
 };
 const DEFAULTS: Record<string, Row> = {
   status_map: { direction: 'both' },
@@ -71,15 +79,20 @@ const DEFAULTS: Record<string, Row> = {
   order_items: { qty: 1, total: 0, status: '', pulled: false, removed: false },
   sync_state: { value: {} },
   vendor_bank: { method: 'bank' },
+  cs_customers: { tags: [], consent: true, auto_consent: true, created_from: 'manual' }, cs_conversations: { status: 'جديدة', tags: [], unread: 0 }, cs_messages: { meta: {} },
+  cs_channels: { status: 'disconnected', cap_per_day: 300, meta: {} }, cs_channel_events: { summary: {} },
 };
 const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
-  vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', image_imports: 'int', image_shares: 'int', shot_prompts: 'int' };
+  vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', image_imports: 'int', image_shares: 'int', shot_prompts: 'int',
+  cs_customers: 'uuid', cs_contacts: 'int', cs_conversations: 'uuid', cs_messages: 'uuid', cs_channel_events: 'int' };
 const UNIQUE: Record<string, string[][]> = {
   status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
   woo_webhook_events: [['id'], ['delivery_id']], woo_sync_log: [['id']], sync_state: [['key']], woo_states: [['code']],
   vendor_rates: [['id'], ['vendor_id', 'since']], vendor_category_rates: [['id'], ['vendor_id', 'woo_category_id', 'since']], woo_categories: [['id']], activity_log: [['id']],
   vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']], image_imports: [['id']], image_shares: [['id']], magnific_oauth_states: [['state']], shot_prompts: [['id'], ['category', 'shot']],
+  cs_customers: [['id'], ['phone']], cs_contacts: [['id'], ['platform', 'external_id']], cs_conversations: [['id'], ['channel', 'external_id']], cs_messages: [['id'], ['external_id']], cs_channels: [['id']],
+  cs_oauth_states: [['state']], cs_channel_events: [['id']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],
@@ -87,8 +100,14 @@ const NOT_NULL: Record<string, string[]> = {
   order_items: ['order_id', 'name', 'qty', 'total', 'status', 'pulled', 'removed'], sub_orders: ['order_id'],
   woo_webhook_events: ['topic', 'status'], woo_sync_log: ['kind', 'result'], sync_state: ['value'], woo_states: ['code', 'name'],
   vendor_rates: ['vendor_id', 'rate', 'since'], vendor_category_rates: ['vendor_id', 'woo_category_id', 'since'], woo_categories: ['name'], activity_log: ['action'],
+  cs_customers: ['name', 'created_from'], cs_contacts: ['customer_id', 'platform', 'external_id'], cs_conversations: ['seg', 'platform', 'channel', 'status'], cs_messages: ['conversation_id', 'kind', 'text'],
+  cs_channels: ['name', 'audience', 'kind', 'status'], cs_oauth_states: ['verifier', 'channel', 'created_by'], cs_channel_events: ['object', 'status'],
 };
 const CHECK: Record<string, Record<string, unknown[]>> = {
+  cs_customers: { created_from: ['orders', 'manual', 'import', 'channel'] }, cs_contacts: { platform: ['whatsapp', 'messenger', 'instagram', 'tiktok', 'facebook'] },
+  cs_conversations: { seg: ['customers', 'vendors', 'comments'], platform: ['whatsapp', 'messenger', 'instagram', 'tiktok', 'facebook'], channel: ['wa1', 'wa2', 'messenger', 'instagram', 'tiktok', 'facebook'], status: ['جديدة', 'مستنية ردنا', 'مستنية العميل', 'مؤجلة', 'اتحلت'] },
+  cs_messages: { kind: ['in', 'out', 'note', 'auto', 'event'], delivery: [null, 'queued', 'sent', 'delivered', 'read', 'failed'] },
+  cs_channels: { status: ['disconnected', 'connected', 'error'] }, cs_oauth_states: { channel: ['messenger', 'instagram'] }, cs_channel_events: { status: ['ok', 'ignored', 'error'] },
   vendors: { status: ['active', 'leave', 'inactive'] },
   woo_webhook_events: { status: ['ok', 'ignored', 'duplicate', 'error'] },
   woo_sync_log: { kind: ['webhook', 'sync', 'push', 'manual', 'cron'], direction: [null, 'in', 'out'], result: ['ok', 'error', 'conflict', 'skipped'] },
@@ -165,6 +184,8 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       if (kind === 'is') return value === null ? row[col] === null || row[col] === undefined : row[col] === value;
       if (kind === 'not.in') return !String(value).replace(/^\(|\)$/g, '').split(',').some((v) => same(row[col], v.trim()));
       if (kind === 'gte') return row[col] != null && String(row[col]) >= String(value); // ISO timestamps of one format
+      if (kind === 'lte') return row[col] != null && String(row[col]) <= String(value);
+      if (kind === 'neq') return !same(row[col], value);
       throw new Error(`fakeDb: unsupported filter ${kind}`);
     });
   }
@@ -185,7 +206,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
 
     if (q.op === 'select') {
       let rows = tables[table].filter((r) => matches(r, q.filters));
-      if (q.order) rows = [...rows].sort((x, y) => String(x[q.order]).localeCompare(String(y[q.order])));
+      if (q.order) { rows = [...rows].sort((x, y) => String(x[q.order]).localeCompare(String(y[q.order]))); if (q.desc) rows.reverse(); }
       if (q.range) rows = rows.slice(q.range[0], q.range[1] + 1);
       return finish(done, project(rows, q.columns), q.single);
     }
@@ -234,9 +255,12 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       in(col: string, v: unknown[]) { q.filters.push(['in', col, v]); return b; },
       is(col: string, v: unknown) { q.filters.push(['is', col, v]); return b; },
       gte(col: string, v: unknown) { q.filters.push(['gte', col, v]); return b; },
+      lte(col: string, v: unknown) { q.filters.push(['lte', col, v]); return b; },
+      neq(col: string, v: unknown) { q.filters.push(['neq', col, v]); return b; },
+      limit(n: number) { q.range = [0, n - 1]; return b; },
       not(col: string, op: string, v: unknown) { if (op !== 'in') throw new Error(`fakeDb: unsupported not.${op}`); q.filters.push(['not.in', col, v]); return b; },
       range(a: number, z: number) { q.range = [a, z]; return b; },
-      order(col: string) { q.order = col; return b; },
+      order(col: string, o: { ascending?: boolean } = {}) { q.order = col; q.desc = o.ascending === false; return b; },
       single() { q.single = 'one'; return b; },
       maybeSingle() { q.single = 'maybe'; return b; },
       then(ok: (v: any) => unknown, ko?: (e: unknown) => unknown) { return Promise.resolve().then(() => run(q)).then(ok, ko); },

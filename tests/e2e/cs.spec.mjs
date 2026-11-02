@@ -29,9 +29,9 @@ const go = async (page, tab) => { await page.evaluate((t) => { location.hash = '
 test('inbox: the seeded conversation (customer, assignee, status tag, messages), a note, a status change, close with an outcome + mood + rating', async ({ page }) => {
   await signIn(page, ADMIN);
   const P = pg(page);
-  await expect(P.locator('.cs-list .cv')).toHaveCount(1);
-  await expect(P.locator('.cs-list .cv .nm')).toHaveText('سلوى زيتوني');
-  await expect(P.locator('.cs-list .cv')).toContainText('سارة أحمد');
+  await expect(P.locator('.cs-list .cv')).toHaveCount(2); // the WhatsApp one (waiting, first) and the Messenger one (6.2, waiting for the customer)
+  await expect(P.locator('.cs-list .cv .nm').first()).toHaveText('سلوى زيتوني');
+  await expect(P.locator('.cs-list .cv').first()).toContainText('سارة أحمد');
   await expect(P.locator('.cs-ch .who b')).toHaveText('سلوى زيتوني');
   await expect(P.locator('.cs-msgs .bub')).toHaveCount(2);
   await expect(P.locator('.cs-msgs .bub.b-in')).toContainText('181668');
@@ -47,7 +47,7 @@ test('inbox: the seeded conversation (customer, assignee, status tag, messages),
   await expect(P.locator('.cs-msgs .bub.b-note')).toHaveCount(2);
   expect(mock.csWrites.filter((w) => w.table === 'cs_messages').map((w) => w.kind)).toEqual(['note']);
   // the conversation's status tag (a tag on the customer) from the card
-  await P.locator('.cs-list .cv [data-status-pick]').click();
+  await P.locator('.cs-list .cv [data-status-pick]').first().click();
   await page.getByRole('option', { name: 'مستعجل' }).click();
   await expect(P.locator('.cs-ch [data-head-status]')).toContainText('مستعجل');
   expect(mock.cs.customers.find((c) => c.name === 'سلوى زيتوني').tags).toEqual(['مستعجل']);
@@ -154,13 +154,16 @@ test('campaigns: the wizard saves a draft, then a scheduled campaign with a segm
   expect(mock.cs.campaigns.find((x) => x.name === 'مسودة تجريبية').status).toBe('مسودة');
 });
 
-test('channels (all disconnected, connect waits for the next stages), performance from the loaded conversations, reports tab, the bell group «رسايل»', async ({ page }) => {
+test('channels (all disconnected; WhatsApp waits for the last stage; the admin sees the Meta setup rows), performance from the loaded conversations, reports tab, the bell group «رسايل»', async ({ page }) => {
   await signIn(page, ADMIN, '#cs-channels');
   const P = pg(page);
   await expect(P.locator('[data-channel]')).toHaveCount(5);
   await expect(P.locator('[data-channel="wa1"]')).toContainText('غير متصلة');
-  await P.locator('[data-chan-connect="messenger"]').click();
-  await expect(page.locator('.toast.show')).toContainText('المرحلة الجاية');
+  await P.locator('[data-chan-connect="wa1"]').click();
+  await expect(page.locator('.toast.show')).toContainText('آخر مرحلة');
+  await expect(P.locator('[data-meta-setup]')).toContainText('الأسرار موجودة ✓');
+  await expect(P.locator('[data-meta-setup]')).toContainText('https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-channel');
+  expect(mock.metaCalls.map((c) => c.action)).toEqual(['status']);
   await P.locator('[data-cs-settings]').click();
   await page.locator('.modal #slaWarn').fill('8'); await page.locator('.modal #slaLate').fill('12');
   await page.locator('.modal').getByRole('button', { name: 'حفظ', exact: true }).click();
@@ -196,4 +199,87 @@ test('ops (reply without manage) sees the page without add / segment / campaign 
 test('accounts: cs.view = N — the page says the permission is missing', async ({ page }) => {
   await signIn(page, ACCOUNTS, '#cs-inbox');
   await expect(pg(page)).toContainText('صفحة خدمة العملاء محتاجة صلاحية');
+});
+
+test('6.2 — the admin links the Facebook page from «القنوات» (the dialog leaves the app, Meta comes back to meta-callback.html): Messenger + Instagram connected; a Messenger reply goes through the channel, a refused one is marked failed; comments: public reply, private reply, hide; disconnect; a spent state', async ({ page }) => {
+  await signIn(page, ADMIN, '#cs-channels');
+  const P = pg(page);
+  // Facebook's dialog (mocked) sends the browser straight back with a code
+  await page.route('https://www.facebook.com/**', (route) => { const u = new URL(route.request().url()); route.fulfill({ status: 302, headers: { location: 'http://localhost:4173/meta-callback.html?code=AQD-code-mock-1234&state=' + u.searchParams.get('state') } }); });
+  await P.locator('[data-chan-connect="messenger"]').click();
+  await expect(page).toHaveURL(/meta-callback\.html$/);
+  await expect(page.locator('#cb-title')).toHaveText('اتربطت صفحة Ibtekr Club ✓');
+  await expect(page.locator('#cb-text')).toContainText('@ibtekr.club');
+  expect(mock.oauthStates.map((s) => [s.kind, s.used])).toEqual([['meta', true]]);
+  expect(mock.meta.linked).toBe(true);
+  expect(mock.cs.channels.find((c) => c.id === 'messenger')).toMatchObject({ status: 'connected', number: 'Ibtekr Club', meta: { page_id: '111', ig_username: 'ibtekr.club' } });
+  expect(mock.cs.channels.find((c) => c.id === 'instagram')).toMatchObject({ status: 'connected', number: '@ibtekr.club' });
+  expect(mock.metaCalls.map((c) => c.action)).toEqual(['status', 'connect_start', 'connect_callback']);
+  await page.locator('#cb-back').click();
+  await expect(page).toHaveURL(/#cs-channels$/);
+  await expect(P.locator('[data-channel="messenger"]')).toContainText('متصلة');
+  await expect(P.locator('[data-channel="messenger"]')).toContainText('Ibtekr Club');
+  await expect(P.locator('[data-channel="instagram"]')).toContainText('@ibtekr.club');
+  await expect(P.locator('[data-meta-setup]')).toContainText('Ibtekr Club · @ibtekr.club');
+  await expect(P.locator('[data-chan-disconnect="messenger"]')).toBeVisible();
+  // the Messenger thread (second in the list: waiting for the customer): the composer is live, the reply goes through the channel
+  await go(page, 'inbox');
+  await P.locator('.cs-list .cv').nth(1).click();
+  await expect(P.locator('.cs-ch .sub-t')).toContainText('ماسنجر');
+  await expect(P.locator('[data-chan-off]')).toHaveCount(0);
+  await expect(P.locator('[data-cmp-send]')).toBeEnabled();
+  await P.locator('#cs-ta').fill('المقاس 60×90 متاح وبيتشحن خلال 5 أيام');
+  await P.locator('[data-cmp-send]').click();
+  await expect(P.locator('.cs-msgs .bub.b-out').last()).toContainText('✓ اتبعتت');
+  expect(mock.cs.messages.at(-1)).toMatchObject({ kind: 'out', delivery: 'sent', external_id: /^m_mock_/ });
+  expect(mock.metaCalls.at(-1)).toMatchObject({ action: 'send', body: { message_id: mock.cs.messages.at(-1).id } });
+  // a refusal (outside the 24-hour window on Meta's side): the row stays, marked failed, and the member is told
+  await P.locator('#cs-ta').fill('ارفض الرسالة دي');
+  await P.locator('[data-cmp-send]').click();
+  await expect(page.locator('.toast.show')).toContainText('Meta رفضتها');
+  await expect(P.locator('.cs-msgs .bub.b-out').last()).toContainText('فشل الإرسال');
+  expect(mock.cs.messages.at(-1)).toMatchObject({ kind: 'out', delivery: 'failed', meta: { error: 'graph_10:2018278' } });
+  // the comments segment: a public reply through the composer, a private reply, hiding the comment
+  await P.getByRole('tab', { name: /^التعليقات/ }).click(); // «التعليقات 1» (the count rides along)
+  await expect(P.locator('.cs-ch .who b')).toHaveText('Noha H');
+  await expect(P.locator('.cs-msgs .bub.b-in')).toContainText('السعر كام؟');
+  await P.locator('#cs-ta').fill('950 جنيه والشحن مجاني');
+  await P.locator('[data-cmp-send]').click();
+  await expect(P.locator('.cs-msgs .bub.b-out').last()).toContainText('✓ اتبعتت');
+  expect(mock.metaCalls.at(-1).action).toBe('send');
+  await P.locator('[data-comment-private]').click();
+  await page.locator('.modal #cs-private-ta').fill('بعتنالك الكتالوج كامل هنا');
+  await page.locator('.modal [data-private-send]').click();
+  await expect(page.locator('.toast.show')).toContainText('اتبعت الرد الخاص');
+  expect(mock.cs.messages.at(-1)).toMatchObject({ kind: 'out', delivery: 'sent', meta: { private: true } });
+  expect(mock.metaCalls.at(-1).action).toBe('comment_private');
+  await P.locator('[data-comment-hide]').click();
+  await page.getByRole('button', { name: 'إخفاء', exact: true }).last().click();
+  await expect(P.locator('.cs-msgs .evt').last()).toContainText('اتخفى');
+  expect(mock.cs.messages.at(-1)).toMatchObject({ kind: 'event', meta: { hidden: '111_c1' } });
+  await expect.poll(() => mock.activityRows.filter((x) => x.action.startsWith('cs.channel.')).map((x) => x.action)).toEqual(['cs.channel.link', 'cs.channel.connect', 'cs.channel.send', 'cs.channel.failed', 'cs.channel.send', 'cs.channel.private', 'cs.channel.hide', 'cs.channel.hide']); // the member's link start, the server's connect, then the sends / hide (server + adapter)
+  expect(JSON.stringify(mock.activityRows)).not.toContain('950 جنيه');
+  // disconnect: both channels back, the secret gone on the server
+  await go(page, 'channels');
+  await P.locator('[data-chan-disconnect="messenger"]').click();
+  await page.getByRole('button', { name: 'فصل', exact: true }).last().click();
+  await expect(P.locator('[data-channel="messenger"]')).toContainText('غير متصلة');
+  await expect(P.locator('[data-channel="instagram"]')).toContainText('غير متصلة');
+  expect(mock.meta.linked).toBe(false);
+  // a spent state on the callback page says so
+  await page.goto('/meta-callback.html?code=AQD-code-mock-1234&state=' + mock.oauthStates[0].state);
+  await expect(page.locator('#cb-text')).toContainText('انتهت صلاحية الربط');
+});
+
+test('6.2 — several pages on the account: the callback page lists them and the pick links the chosen one', async ({ page }) => {
+  await signIn(page, ADMIN, '#cs-channels');
+  mock.meta.pages.push({ id: '222', name: 'Side page', ig: null });
+  await page.route('https://www.facebook.com/**', (route) => { const u = new URL(route.request().url()); route.fulfill({ status: 302, headers: { location: 'http://localhost:4173/meta-callback.html?code=AQD-code-mock-1234&state=' + u.searchParams.get('state') } }); });
+  await pg(page).locator('[data-chan-connect="instagram"]').click();
+  await expect(page.locator('#cb-title')).toHaveText('اختار الصفحة');
+  await expect(page.locator('[data-pick-page]')).toHaveCount(2);
+  await page.locator('[data-pick-page="111"]').click();
+  await expect(page.locator('#cb-title')).toHaveText('اتربطت صفحة Ibtekr Club ✓');
+  expect(mock.meta.page.id).toBe('111');
+  expect(mock.metaCalls.map((c) => c.action)).toEqual(['status', 'connect_start', 'connect_callback', 'connect_pick']);
 });

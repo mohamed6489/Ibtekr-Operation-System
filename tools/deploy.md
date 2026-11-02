@@ -1107,5 +1107,32 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
   المهاجرة بتضيف `cs.view/reply/manage` للأدوار اللي مافيهاش (`where not (permissions ? 'cs.view')`)، وبتعمل عميل لكل رقم مطبّع في `orders` (تعبئة re-runnable).
 - مافيش Edge Functions ولا أسرار في 6.1 (القنوات كلها `disconnected`). الـ Realtime على `cs_conversations` و`cs_messages` بيتضاف في المهاجرة.
 - بعدها `main` (الواجهة: الكتل 14/19/20/28، `app/js/adapter/cs.js`، `app/css/cs.css`). التحقق: دخول أدمن → «خدمة العملاء» → تاب «العملاء» فيه عملاء الأوردرات بأرقامهم.
-- 6.2 (Meta): Edge Function `cs-channel` + أسرار `META_APP_ID`/`META_APP_SECRET`/`META_VERIFY_TOKEN` — مش دلوقتي.
+- 6.2 (Meta): §2.7.16 تحت.
+
+#### 2.7.16 قناة Meta — ماسنجر + إنستجرام (المرحلة 6.2، 2 نوفمبر)
+
+**القرار (صاحب المشروع — «تمام يلا بينا على الحقيقية»):** الربط على صفحة فيسبوك **Ibtekr Club الحقيقية** وحساب إنستجرام المربوط بيها، بتطبيق Meta **في وضع التطوير (Development mode)**: رسايل وتعليقات أعضاء التطبيق بس (Admins / Developers / Testers) هي اللي بتوصل للسيستم، وعملاء الصفحة الحقيقيين مش بيتأثروا — محادثاتهم في Meta Inbox زي ما هي. التحويل لـ Live (App Review) خطوة واحدة في الآخر مع التحويل للموقع الحي (§2.7.8).
+
+**أ) الكود (جاهز على `main`):** `0035_cs_meta.sql` (`cs_oauth_states`، `cs_channel_events`، `cs_secret_get/set` على Vault لسر `cs_meta_pages`) + `rls_cs_meta.sql` · Edge Function `cs-channel` (webhook الاستقبال + الربط بـ OAuth + الإرسال) · الواجهة: تاب «القنوات» (ربط / فصل + صف إعداد التطبيق للأدمن)، الكومبوزر على القناة المتصلة، «رد خاص» و«إخفاء التعليق» في محادثات التعليقات، صفحة الرجوع `app/meta-callback.html`.
+
+**ب) على Supabase (المطوّر):**
+1. `0035_cs_meta.sql` بـ `execute_sql` (زي 0034 — من غير `drop`) ثم `rls_cs_meta.sql` من SQL Editor (المتوقع «Success. No rows returned» + NOTICE `rls_cs_meta: ok`).
+2. نشر `cs-channel` من workflow «Deploy functions» (الخيار `cs-channel`؛ `verify_jwt = false` من `config.toml`). الفحص: `curl -s "$F/cs-channel?hub.mode=subscribe&hub.verify_token=x&hub.challenge=1"` → `{"error":"verify_failed"}` (403)، و`curl -s -X POST "$F/cs-channel" -H 'X-Hub-Signature-256: sha256=00' -d '{}'` → `{"error":"not_configured"}` (500) قبل الأسرار / `{"error":"bad_signature"}` (401) بعدها.
+
+**ج) على Meta (صاحب المشروع بنفسه — الأسرار مابتتبعتش في الشات):**
+1. [developers.facebook.com](https://developers.facebook.com) › My Apps › **Create App** › نوع **Business** › اسم مثلًا «Ibtekr Ops» › الـ Business Portfolio بتاع الصفحة (لو موجود).
+2. **Add products:** Messenger · Instagram · Webhooks · (Facebook Login for Business بيتضاف تلقائي مع Messenger؛ لو مش ظاهر ضيفه).
+3. **App settings › Basic:** خد **App ID** و**App Secret** (Show) وحطهم في أسرار Supabase (Edge Functions › Secrets): `META_APP_ID`، `META_APP_SECRET`. وضيف domain السيستم `operation-system.ibtekr.club` في **App Domains**، وفي **Facebook Login for Business › Settings › Valid OAuth Redirect URIs** حط `https://operation-system.ibtekr.club/meta-callback.html`.
+4. **Verify token:** اختار نص عشوائي (حروف وأرقام، 20+ حرف) وحطه في أسرار Supabase `META_VERIFY_TOKEN`.
+5. **Webhooks (المنتج Webhooks):** على object **Page**: Callback URL `https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-channel` + الـ verify token → Verify and save (الدالة لازم تكون منشورة والسر محطوط الأول). اشترك في الحقول: `messages`, `messaging_postbacks`, `message_deliveries`, `message_reads`, `message_echoes`, `feed`. وعلى object **Instagram** نفس الـ URL والـ token، الحقول: `messages`, `comments`.
+   (الاشتراك على مستوى الصفحة نفسها — `subscribed_apps` — السيستم بيعمله لوحده وقت الربط.)
+6. **App Roles › Testers:** ضيف نفسك (وأي عضو هيجرّب من حسابه) — في وضع التطوير رسايل الأعضاء دول بس هي اللي بتوصل.
+7. **Instagram:** حساب `@ibtekr.club` لازم يكون Business/Creator ومربوط بصفحة Ibtekr Club (إعدادات الصفحة › Linked accounts)، وفي إعدادات إنستجرام › الرسائل › **Allow access to messages** مفعّلة.
+8. في السيستم: خدمة العملاء › **القنوات** › «ربط» على ماسنجر (الأدمن) → تسجيل دخول فيسبوك بحساب أدمن الصفحة → الموافقة على الصلاحيات → الصفحة بتتربط (لو الحساب بيدير أكتر من صفحة بيسألك تختار). بعدها ابعت رسالة للصفحة من حساب Tester: لازم تظهر في الصندوق خلال ثواني.
+
+**د) الصلاحيات اللي الـ dialog بيطلبها:** `pages_show_list, pages_messaging, pages_manage_metadata, pages_read_engagement, pages_manage_engagement, instagram_basic, instagram_manage_messages, instagram_manage_comments`. في وضع التطوير كلها متاحة للأعضاء من غير مراجعة؛ **App Review** (مع التحويل للحي) على نفس القايمة + Business verification.
+
+**هـ) إيه اللي بيتخزن:** توكن الصفحة الطويل في Vault بس (`cs_meta_pages` عبر `cs_secret_set` — `service_role`)، `cs_channels.meta` فيه ids الصفحة/إنستجرام من غير توكن، `cs_channel_events` أعداد وأكواد أخطاء بس، `activity_log` `cs.channel.*` أسماء القنوات والـ ids بس. فصل القناة بيمسح السر وبيلغي `subscribed_apps`.
+
+**و) نافذة الـ 24 ساعة:** Meta بتسمح بالرد الحر خلال 24 ساعة من آخر رسالة للعميل؛ بعدها الإرسال بيرجع `graph_10:2018278` والرسالة بتتعلم `failed` (الواجهة بتقول). الرد الخاص على تعليق مرة واحدة لكل تعليق.
 

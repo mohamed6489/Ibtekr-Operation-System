@@ -74,3 +74,61 @@
 8. **الاختبارات:** RLS (`rls_cs.sql`)، domain، adapter، e2e لكل تاب (الصندوق: فلترة/تعيين/ملاحظة/إنهاء بنتيجة؛ العملاء: القايمة من
    الأوردرات + يدوي + الملف؛ الشرايح؛ الحملات مسودة؛ الأداء؛ الجرس). `npm run lock` بعد 14/19/20/28.
 9. **الترتيب الحي:** `0034` بالـ MCP ← `rls_cs` حي ← main. مافيش Edge Functions في 6.1.
+
+## المرحلة 6.2 — قناة Meta (ماسنجر + إنستجرام) — قرارات مكتوبة (2 نوفمبر)
+10. **الصفحة الحقيقية في وضع التطوير (قرار صاحب المشروع — «تمام يلا بينا على الحقيقية»):** الربط على صفحة فيسبوك «Ibtekr Club» الحقيقية
+    وحساب إنستجرام المربوط بيها، بتطبيق Meta واحد (نوع Business) **في Dev mode**: رسايل وتعليقات أعضاء التطبيق بس (Admins / Developers /
+    Testers) هي اللي بتوصل للـ webhook، وعملاء الصفحة الحقيقيين مش بيتأثروا ومحادثاتهم في Meta Inbox زي ما هي. التحويل لـ Live (App Review على
+    الصلاحيات) **خطوة واحدة في الآخر** مع التحويل للموقع الحي (`tools/deploy.md` §2.7.8). صاحب المشروع بيعمل التطبيق وبيحط
+    `META_APP_ID` / `META_APP_SECRET` / `META_VERIFY_TOKEN` في أسرار Supabase بنفسه (مايتبعتوش في الشات ولا يتكتبوا في الكود)، ويضيف نفسه
+    Tester. من غير الأسرار الدالة بترد `not_configured`.
+11. **التخزين (`0035_cs_meta.sql`):** `cs_oauth_states` (زي `magnific_oauth_states`: state + verifier، 10 دقايق، بتتصرف مرة؛ `service_role` بس) ·
+    `cs_secret_get(p_name)` / `cs_secret_set(p_name, p_value)` على Vault لاسم واحد `meta_pages` (JSON: الصفحة المختارة بتوكنها الطويل + حساب
+    إنستجرام + مرشّحين لحد الاختيار؛ `service_role` بس زي 0029 — التوكن عمره ما يطلع من Vault غير لذاكرة الدالة) · `cs_channel_events`
+    (استلامات الـ webhook: `received_at`, `object`, `entry_id`, `status` ok|ignored|error, `error`, `summary` أعداد بس — من غير نص رسالة ولا
+    أسماء؛ `service_role` بس) · `cs_channels.meta` للسيرفر: `{ page_id, page_name, ig_id, ig_username, fields }` **من غير توكن**، و`number` =
+    اسم الصفحة / `@username`، و`since` وقت الربط. **تعبئة:** `cs_customers.created_from = 'channel'` للعميل اللي جه من القناة من غير رقم
+    (الاسم من بروفايل Meta لو اتقري، وإلا «عميل ماسنجر» / «عميل إنستجرام»)، والربط في `cs_contacts` (platform + PSID / IGSID + handle).
+12. **Edge Function `cs-channel`** (`verify_jwt = false`؛ الباقي زي `ai-images`: JWT العضو أو webhook موقّع — مافيش سر مزامنة):
+    - **`GET`** = تحقق Meta (`hub.mode=subscribe` + `hub.verify_token` = `META_VERIFY_TOKEN` → `hub.challenge` نص 200، غير كده 403).
+    - **`POST` من Meta** (من غير Authorization، بهيدر `X-Hub-Signature-256`): HMAC-SHA256 على البايتات نفسها بـ `META_APP_SECRET` ومقارنة ثابتة
+      الزمن؛ توقيع غلط = 401 وصف `cs_channel_events` error. بعد التحقق الرد 200 دايمًا (Meta بتعيد الإرسال على غير 200) إلا لو الداتا بيز وقعت = 500.
+      التكرار محمي بالـ unique على `cs_messages.external_id` (mid / comment id).
+    - **الاستقبال → بياناتنا:** `object: page` → `entry[].messaging[]`: `message` (مش echo) → contact ماسنجر بالـ PSID → العميل (موجود في
+      `cs_contacts` وإلا عميل جديد `channel` باسم البروفايل `GET /{psid}?fields=first_name,last_name` بتوكن الصفحة — best effort) → المحادثة
+      (`seg customers`, `platform messenger`, `channel messenger`, `external_id` = PSID؛ المقفولة/المستنية العميل/المؤجلة بترجع «مستنية ردنا»
+      بقاعدة `nextStatus(…, 'in')`) → رسالة `in` (`external_id` = mid؛ النص أو «[صورة]» / «[ملف]» / «[ستيكر]» + `meta.attachments` نوع ورابط)؛
+      `message.is_echo` = رد من Meta Inbox (مش بتاعنا — mid مش عندنا) → `out` بـ `author null`, `delivery sent`, `meta.echo = true`؛
+      `delivery.watermark` → `out` قبلها `sent` → `delivered`؛ `read.watermark` → `read`. `object: instagram` نفس الشكل بالـ IGSID (`channel
+      instagram`؛ الاسم `GET /{igsid}?fields=name,username`). **التعليقات:** `changes[] field feed` (`item comment`, `verb add`) على فيسبوك و`field
+      comments` على إنستجرام → محادثة `seg comments` لكل (بوست/ميديا × معلّق): `external_id` = `<post>:<from.id>`, `handle` اسم المعلّق أو
+      `@username`, `platform facebook` بقناة `messenger` / `platform instagram` بقناة `instagram`؛ الرسالة `in` بـ `external_id` = comment id
+      و`meta { post_id, comment_id, parent_id }`؛ تعليق من الصفحة نفسها = `out` echo. أي حاجة تانية (postbacks, reactions, …) = ignored.
+    - **أفعال العضو (JWT):** `status` (`cs.view ≠ N`: القنوات + للأدمن `configured`/`redirect`/`webhook_url`) · `connect_start { channel }`
+      (الأدمن: state + رابط `facebook.com/v21.0/dialog/oauth` بالصلاحيات `pages_show_list, pages_messaging, pages_manage_metadata,
+      pages_read_engagement, pages_manage_engagement, instagram_basic, instagram_manage_messages, instagram_manage_comments`، الرجوع على
+      `app/meta-callback.html`) · `connect_callback { code, state }` (الأدمن: الكود → توكن مستخدم قصير → طويل (`fb_exchange_token`) →
+      `/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}`؛ صفحة واحدة = بتتربط فورًا، أكتر = المرشّحين في Vault
+      والرد `choose` بقايمة من غير توكنات ← `connect_pick { page_id }`؛ الربط = `POST /{page}/subscribed_apps` بـ `subscribed_fields =
+      messages, messaging_postbacks, message_deliveries, message_reads, message_echoes, feed` + الصفحة في Vault + `cs_channels` ماسنجر
+      `connected` (وإنستجرام `connected` لو فيه حساب مربوط بالصفحة، وإلا بتفضل `disconnected` والرد بيقول) + `activity_log` `cs.channel.connect`) ·
+      `disconnect` (الأدمن: `DELETE /{page}/subscribed_apps` best effort، مسح السر، القناتين `disconnected`) · `send { message_id }` (`cs.reply`:
+      صف `out` `queued` بتاع المحادثة — DM: `POST /me/messages { recipient: { id }, messaging_type: RESPONSE, message: { text } }` بتوكن الصفحة؛
+      محادثة تعليقات: رد عام على آخر تعليق وارد `POST /{comment}/comments` (فيسبوك) / `POST /{comment}/replies` (إنستجرام)؛ النجاح →
+      `delivery sent` + `external_id` من Meta؛ الفشل → `delivery failed` + `meta.error` كود بس) · `comment_private { message_id }` (`cs.reply`:
+      رد خاص على آخر تعليق وارد `POST /{page}/messages { recipient: { comment_id } }` — بيفتح DM والرد بيوصلنا echo) · `comment_hide
+      { conversation_id }` (`cs.reply`: إخفاء آخر تعليق وارد `is_hidden` / `hide` + رسالة `event`). كل الكتابة على Meta مشروطة بالربط
+      (503 `not_linked`) — ومن غير `WOO_PUSH_ENABLED` (مش موقع WooCommerce). الـ logs: `cs_channel_events` أعداد، `activity_log` `cs.channel.*`
+      ids وأسماء قنوات بس — مافيش نص ولا توكن.
+13. **الـ adapter والصفحة:** `IBCS.send` بيحط الصف `queued` زي ما هو ثم لو القناة `meta` ومتصلة بينادي `cs-channel send` وبيحدّث `delivery`
+    محليًا (فشل = `failed` والرسالة بتقول)؛ `IBCS.channelStatus()` / `connectStart(id)` / `connectPick(pageId)` / `disconnect()` /
+    `commentPrivate(convId, text)` / `commentHide(convId)`. الكتلة 20: زرار «ربط» لماسنجر/إنستجرام بيفتح رابط Meta في نفس التبويب (الأدمن)،
+    «فصل» للمتصلة، الكومبوزر شغال على المحادثة اللي قناتها متصلة (`connected(c)` زي ما هو)، وفي محادثة التعليقات زرارين «رد خاص» و«إخفاء
+    التعليق». صفحة الرجوع `app/meta-callback.html` + `app/js/pages/meta-callback.js` (نفس نمط Magnific: الأدمن المسجّل بينادي
+    `connect_callback`، ولو `choose` بيعرض الصفحات للاختيار). الـ CSP زي ما هو (الدالة على supabase).
+14. **الاختبارات:** `rls_cs_meta.sql` (الأعضاء مايقدروش يقروا `cs_oauth_states` / `cs_channel_events` ولا ينادوا `cs_secret_*`)، node لـ
+    `_shared/cs-channel.js` (تطبيع الـ payloads، ملخص المرفقات، روابط Graph)، Deno لـ `cs-channel` (التحقق، التوقيع، الاستقبال بأنواعه، التكرار،
+    الربط بصفحة/صفحتين، الإرسال ونتايجه)، adapter (send بينادي الدالة)، e2e (ربط من المحاكي، الإرسال على قناة متصلة، التعليقات).
+15. **النشر:** `cs-channel` في `deploy-functions.yml` و`config.toml` و`deno:check`؛ `tools/deploy.md` §2.7.16 خطوات التطبيق على Meta (المنتجات
+    Messenger + Instagram + Webhooks، رابط الـ callback `https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-channel`، الـ verify token،
+    حقول الاشتراك، الـ redirect URI، الأسرار، Tester، وApp Review في الآخر).

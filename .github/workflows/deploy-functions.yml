@@ -2,7 +2,7 @@ name: Deploy functions
 # Deploys an Edge Function from this checkout with the Supabase CLI (the bundle is built by the CLI: the function's folder,
 # its deno.json import map and the ../_shared files it imports), using the secret SUPABASE_ACCESS_TOKEN — a personal access
 # token from supabase.com/dashboard/account/tokens, added once by the owner to the repository's Actions secrets. verify_jwt
-# comes from supabase/config.toml ([functions.<name>] verify_jwt = false for all three: each function authenticates itself).
+# comes from supabase/config.toml ([functions.<name>] verify_jwt = false for all five: each function authenticates itself).
 # On demand only (tools/deploy.md §2.7.1): pick the function, or `all`. The token is never printed; the CLI's own output
 # names the bundled files and the new version. The action is Supabase's own, on its major tag like the other official
 # actions here (actions/checkout@v4, denoland/setup-deno@v2); the CLI version stays `latest` so the bundle matches the
@@ -13,7 +13,7 @@ on:
       function:
         description: 'which function'
         type: choice
-        options: [woo-sync, woo-webhook, ai-content, ai-images, all]
+        options: [woo-sync, woo-webhook, ai-content, ai-images, cs-channel, all]
         default: woo-sync
         required: true
 permissions:
@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           : "${SUPABASE_ACCESS_TOKEN:?the repository secret SUPABASE_ACCESS_TOKEN is not set (tools/deploy.md §2.7.1)}"
-          if [ "$FN" = all ]; then list="woo-sync woo-webhook ai-content ai-images"; else list="$FN"; fi
+          if [ "$FN" = all ]; then list="woo-sync woo-webhook ai-content ai-images cs-channel"; else list="$FN"; fi
           for f in $list; do
             echo "::group::deploy $f"
             supabase functions deploy "$f" --project-ref fsynculhaupcktzkfkdd --yes

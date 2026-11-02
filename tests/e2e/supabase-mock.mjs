@@ -300,6 +300,8 @@ export async function installSupabaseMock(page, opts = {}) {
   // oauthStates: the PKCE states handed out
   const mock = { aiRuns: [], aiCalls: [], aiFail: null, aiAnswer: null, imgCalls: [], webpCalls: [], importCalls: [], imageImports: [], shareCalls: [], imageShares: [], imgFail: null,
     magnific: { configured: true, linked: false, account: null, results: [], space: null, pages: {}, flows: [], flowResults: {} }, bridgeCalls: [], oauthStates: [],
+    // phase 6.2: the Meta channel (cs-channel) — configured: the app secrets on the server; pages: what /me/accounts answers (one page = linked at once); metaCalls: each member action
+    meta: { configured: true, verify: true, linked: false, page: null, candidates: [], pages: [{ id: '111', name: 'Ibtekr Club', ig: { id: '777', username: 'ibtekr.club' } }] }, metaCalls: [],
     // decision 12: shot_prompts (0030) — the owner's template categories; flows: the flows made on the one Space; flowResults[batchId] = { 1: [ids], 2: [...], 3: [...] } the site's output lists
     shotPrompts: [['كرسي', 1, 'كرسي 1 — تركيز على المنتج', 'CHAIR FOCUS PROMPT'], ['كرسي', 2, 'كرسي 2 — المنتج في بيئة محيطة', 'CHAIR ENV PROMPT'], ['كرسي', 3, 'كرسي 3 — Closeup للتفاصيل', 'CHAIR DETAIL PROMPT'], ['مرآة', 1, 'مرآة 1 — تركيز على المنتج', 'MIRROR FOCUS PROMPT']].map(([category, shot, name, prompt], i) => ({ id: i + 1, category, shot, name, prompt, negative: null, model: 'imagen-nano-banana-2', aspect: '3:4', resolution: '1k', updated_at: new Date().toISOString() })), imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
@@ -332,10 +334,16 @@ export async function installSupabaseMock(page, opts = {}) {
     overrides: [], teamRatings: [],
     conversations: [
       { id: CS_K(1), seg: 'customers', platform: 'whatsapp', channel: 'wa1', customer_id: CS_C(1), vendor_id: null, handle: null, external_id: null, status: 'مستنية ردنا', assignee: '00000000-0000-4000-8000-000000000002', outcome: null, tags: ['شكوى'], last_in_at: csAgo(18), last_out_at: null, waiting_since: csAgo(18), unread: 1, snoozed_until: null, closed_at: null, closed_by: null, created_by: null, created_at: csAgo(200), updated_at: csAgo(18) },
-      { id: CS_K(2), seg: 'vendors', platform: 'whatsapp', channel: 'wa2', customer_id: null, vendor_id: VND(1), handle: null, external_id: null, status: 'اتحلت', assignee: ADMIN, outcome: 'اتحل', tags: [], last_in_at: csAgo(1500), last_out_at: csAgo(1440), waiting_since: null, unread: 0, snoozed_until: null, closed_at: csAgo(1400), closed_by: ADMIN, created_by: ADMIN, created_at: csAgo(1600), updated_at: csAgo(1400) }],
+      { id: CS_K(2), seg: 'vendors', platform: 'whatsapp', channel: 'wa2', customer_id: null, vendor_id: VND(1), handle: null, external_id: null, status: 'اتحلت', assignee: ADMIN, outcome: 'اتحل', tags: [], last_in_at: csAgo(1500), last_out_at: csAgo(1440), waiting_since: null, unread: 0, snoozed_until: null, closed_at: csAgo(1400), closed_by: ADMIN, created_by: ADMIN, created_at: csAgo(1600), updated_at: csAgo(1400) },
+      // phase 6.2: a Messenger thread (the server's: external_id = the PSID) waiting for the customer, and a Facebook comments thread (post × commenter)
+      { id: CS_K(3), seg: 'customers', platform: 'messenger', channel: 'messenger', customer_id: CS_C(2), vendor_id: null, handle: null, external_id: '900', status: 'مستنية العميل', assignee: null, outcome: null, tags: [], last_in_at: csAgo(60), last_out_at: csAgo(50), waiting_since: null, unread: 0, snoozed_until: null, closed_at: null, closed_by: null, created_by: null, created_at: csAgo(60), updated_at: csAgo(50) },
+      { id: CS_K(4), seg: 'comments', platform: 'facebook', channel: 'messenger', customer_id: null, vendor_id: null, handle: 'Noha H', external_id: '111_p1:42', status: 'جديدة', assignee: null, outcome: null, tags: [], last_in_at: csAgo(30), last_out_at: null, waiting_since: csAgo(30), unread: 1, snoozed_until: null, closed_at: null, closed_by: null, created_by: null, created_at: csAgo(30), updated_at: csAgo(30) }],
     messages: [
       { id: CS_K(11), conversation_id: CS_K(1), kind: 'in', text: 'لو سمحت الأوردر 181668 اتأخر ليه؟', author: null, external_id: null, delivery: null, meta: {}, created_at: csAgo(18) },
       { id: CS_K(12), conversation_id: CS_K(1), kind: 'note', text: 'كلموا المبتكر على واتساب 2', author: '00000000-0000-4000-8000-000000000002', external_id: null, delivery: null, meta: {}, created_at: csAgo(15) },
+      { id: CS_K(13), conversation_id: CS_K(3), kind: 'in', text: 'عندكم المراية دي بمقاس أكبر؟', author: null, external_id: 'm.1', delivery: null, meta: {}, created_at: csAgo(60) },
+      { id: CS_K(14), conversation_id: CS_K(3), kind: 'out', text: 'أيوه، 60×90 متاحة', author: ADMIN, external_id: 'm.2', delivery: 'read', meta: {}, created_at: csAgo(50) },
+      { id: CS_K(15), conversation_id: CS_K(4), kind: 'in', text: 'السعر كام؟', author: null, external_id: '111_c1', delivery: null, meta: { post_id: '111_p1', comment_id: '111_c1' }, created_at: csAgo(30) },
       { id: CS_K(21), conversation_id: CS_K(2), kind: 'out', text: 'إمتى تقدروا تسلّموا الأوردر الفرعي؟', author: ADMIN, external_id: null, delivery: 'read', meta: {}, created_at: csAgo(1440) }],
     segments: [{ id: CS_K(31), name: 'VIP راضيين', min_total: 1000, min_orders: null, moods: [], last_kind: null, last_from: null, last_to: null, ranges: { sat: [4, 5] }, include_unrated: false, add_ids: [], remove_ids: [], created_by: ADMIN, created_at: T0, updated_at: null }],
     campaigns: [{ id: CS_K(41), name: 'عرض العملاء المتكررين — أكتوبر', segment_id: CS_K(31), channel: 'wa1', body: 'خصم 10% بالكود {كود_الخصم}', image_path: null, discount_code: 'OCT10', scheduled_at: null, cap_per_day: 300, min_delay_s: 20, test_phone: null, status: 'مسودة', size: 2, stats: {}, created_by: ADMIN, created_at: T0, updated_at: null }],
@@ -1524,6 +1532,71 @@ export async function installSupabaseMock(page, opts = {}) {
       const run = { ...base, status: 'ok', error: null, credits: planned, cost_usd: usdOf(planned), output: { paths, bucket } };
       mock.aiRuns.push(run);
       return json(200, { result: 'ok', bucket, path: paths[0], paths, credits: planned, model, run_id: run.id });
+    }
+    if (method === 'POST' && path === '/functions/v1/cs-channel') {
+      // phase 6.2: the Meta channel's member actions like the server answers them (the webhook side is the server's alone — no browser call).
+      // status (cs.view; the admin sees the configuration), connect_start (the admin → a facebook.com dialog url with a state), connect_callback
+      // { code, state } (the state once; one page → linked, several → choose; a code starting with «bad» → Meta refuses), connect_pick, disconnect,
+      // send / comment_private { message_id } (cs.reply: the queued out row → sent + an id; a text with «ارفض» → 502 graph_10:2018278 + failed),
+      // comment_hide { conversation_id } (an event row).
+      const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
+      if (!u) return json(401, { error: 'unauthorized' });
+      const ACTS = ['status', 'connect_start', 'connect_callback', 'connect_pick', 'disconnect', 'send', 'comment_private', 'comment_hide'];
+      if (!ACTS.includes(action)) return json(400, { error: 'unknown_action' });
+      const M = mock.meta; const canView = isAdmin(u) || hasPerm(u, 'cs.view') !== 'N'; const canReply = isAdmin(u) || hasPerm(u, 'cs.reply') === 'F';
+      mock.metaCalls.push({ by: u.email, action, body: { ...b, action: undefined } });
+      const now = new Date().toISOString();
+      const chans = () => mock.cs.channels.filter((c) => c.id === 'messenger' || c.id === 'instagram').map((c) => ({ id: c.id, name: c.name, status: c.status, number: c.number, since: c.since, last_message_at: c.last_message_at }));
+      const logRow = (act, entityId, value) => { activityId += 1; mock.activityRows.push({ id: activityId, at: now, actor: u.id, action: act, entity: 'cs_channel', entity_id: entityId, new_value: value }); };
+      const link = (p) => {
+        M.linked = true; M.page = p; M.candidates = [];
+        const meta = { page_id: p.id, page_name: p.name, ig_id: p.ig ? p.ig.id : null, ig_username: p.ig ? p.ig.username : null, fields: ['messages', 'messaging_postbacks', 'message_deliveries', 'message_reads', 'message_echoes', 'feed'] };
+        Object.assign(mock.cs.channels.find((c) => c.id === 'messenger'), { status: 'connected', number: p.name, since: now, meta, updated_at: now });
+        Object.assign(mock.cs.channels.find((c) => c.id === 'instagram'), p.ig ? { status: 'connected', number: '@' + p.ig.username, since: now, meta, updated_at: now } : { status: 'disconnected', number: null, since: null, meta: { ...meta, note: 'no_instagram_account' }, updated_at: now });
+        logRow('cs.channel.connect', 'messenger', p.name + (p.ig ? ' + instagram' : ''));
+        return json(200, { result: 'ok', linked: true, page: p, instagram: !!p.ig, channels: chans() });
+      };
+      if (action === 'status') { if (!canView) return json(401, { error: 'unauthorized' }); return json(200, { result: 'ok', linked: M.linked, channels: chans(), ...(isAdmin(u) ? { configured: M.configured, verify_configured: M.verify, redirect: 'https://operation-system.ibtekr.club/meta-callback.html', webhook_url: 'https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-channel', page: M.page } : {}) }); }
+      if (['connect_start', 'connect_callback', 'connect_pick', 'disconnect'].includes(action) && !isAdmin(u)) return json(401, { error: 'unauthorized' });
+      if (action === 'connect_start') {
+        if (!M.configured) return json(503, { error: 'not_configured', configured: false });
+        const state = 'ms' + Math.random().toString(36).slice(2).padEnd(41, 'x'); mock.oauthStates.push({ state, used: false, at: Date.now(), kind: 'meta' });
+        return json(200, { result: 'ok', url: 'https://www.facebook.com/v21.0/dialog/oauth?client_id=1234567890&redirect_uri=' + encodeURIComponent('https://operation-system.ibtekr.club/meta-callback.html') + '&state=' + state + '&response_type=code&scope=pages_show_list%2Cpages_messaging', channel: b.channel === 'instagram' ? 'instagram' : 'messenger' });
+      }
+      if (action === 'connect_callback') {
+        if (!M.configured) return json(503, { error: 'not_configured', configured: false });
+        if (!/^[A-Za-z0-9._~#-]{8,2048}$/.test(String(b.code || ''))) return json(400, { error: 'bad_request', field: 'code' });
+        const st = mock.oauthStates.find((x) => x.state === b.state && x.kind === 'meta'); if (!st || st.used) return json(400, { error: 'bad_request', field: 'state' }); st.used = true;
+        if (String(b.code).startsWith('bad')) return json(502, { error: 'graph_100', status: 400 });
+        if (!M.pages.length) return json(400, { error: 'no_pages' });
+        if (M.pages.length === 1) return link(M.pages[0]);
+        M.candidates = M.pages.slice(); return json(200, { result: 'choose', pages: M.pages.map((p) => ({ id: p.id, name: p.name, ig: p.ig })) });
+      }
+      if (action === 'connect_pick') { const p = M.candidates.find((x) => x.id === String(b.page_id)); if (!p) return json(404, { error: 'not_found' }); return link(p); }
+      if (action === 'disconnect') {
+        M.linked = false; M.page = null; mock.cs.channels.filter((c) => c.id === 'messenger' || c.id === 'instagram').forEach((c) => Object.assign(c, { status: 'disconnected', number: null, since: null, meta: {}, updated_at: now }));
+        logRow('cs.channel.disconnect', 'messenger', null); return json(200, { result: 'ok', linked: false, channels: chans() });
+      }
+      if (!canReply) return json(401, { error: 'unauthorized' });
+      if (action === 'send' || action === 'comment_private') {
+        const m = mock.cs.messages.find((x) => x.id === b.message_id); if (!m) return json(404, { error: 'not_found' });
+        if (m.kind !== 'out' || m.delivery !== 'queued') return json(409, { error: 'not_queued', delivery: m.delivery });
+        if (!isAdmin(u) && m.author !== u.id) return json(401, { error: 'unauthorized' });
+        const v = mock.cs.conversations.find((x) => x.id === m.conversation_id); if (!v || !['messenger', 'instagram'].includes(v.channel)) return json(400, { error: 'bad_request', field: 'channel' });
+        if (!M.linked) return json(503, { error: 'not_linked' });
+        if (action === 'comment_private' && v.seg !== 'comments') return json(400, { error: 'bad_request', field: 'conversation' });
+        if (/ارفض/.test(m.text)) { m.delivery = 'failed'; m.meta = { ...m.meta, error: 'graph_10:2018278' }; logRow('cs.channel.failed', v.id, 'graph_10:2018278'); return json(502, { error: 'graph_10:2018278', status: 400, delivery: 'failed' }); }
+        m.delivery = 'sent'; m.external_id = 'm_mock_' + m.id.slice(-4); if (action === 'comment_private') m.meta = { ...m.meta, private: true };
+        logRow(action === 'comment_private' ? 'cs.channel.private' : 'cs.channel.send', v.id, v.platform);
+        return json(200, { result: 'ok', delivery: 'sent', external_id: m.external_id, private: action === 'comment_private' });
+      }
+      const v = mock.cs.conversations.find((x) => x.id === b.conversation_id); if (!v) return json(404, { error: 'not_found' });
+      if (v.seg !== 'comments') return json(400, { error: 'bad_request', field: 'conversation' });
+      if (!M.linked) return json(503, { error: 'not_linked' });
+      const last = mock.cs.messages.filter((x) => x.conversation_id === v.id && x.kind === 'in').pop();
+      csSeq += 1; mock.cs.messages.push({ id: 'd1000000-0000-4000-8000-' + String(csSeq).padStart(12, '0'), conversation_id: v.id, kind: 'event', text: 'التعليق اتخفى من على البوست', author: u.id, external_id: null, delivery: null, meta: { hidden: last ? last.external_id : null }, created_at: now });
+      v.updated_at = now; logRow('cs.channel.hide', v.id, v.platform);
+      return json(200, { result: 'ok', hidden: last ? last.external_id : null });
     }
     if (method === 'POST' && path === '/functions/v1/ai-content') {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';

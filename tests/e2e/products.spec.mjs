@@ -207,6 +207,30 @@ test('edit: read live, change the price and the Arabic name, «احفظ على �
   await expect(page.locator('#e-reg')).toHaveValue('1600');
 });
 
+test('edit (the owner, 2 Nov): «المبتكر (متجر Dokan)» on the page — a select of the makers with a store; a change asks, then moves the product on the site (products_vendor) and the page shows the new maker; unsaved edits block it', async ({ page }) => {
+  await openProducts(page);
+  await page.locator('[data-pedit="9001"]').click();
+  await expect(page.locator('#e-maker')).toContainText('Art Craft');
+  await expect(page.locator('#e-brand')).toBeVisible();
+  // with an unsaved edit the move waits
+  await page.fill('#e-ar', 'كيس مخدة جديد');
+  await page.locator('#e-maker').click(); await page.getByRole('option', { name: 'Antikiano' }).click();
+  await expect(page.locator('.toast.show')).toContainText('احفظ تعديلاتك الأول');
+  await expect(page.locator('#e-maker')).toContainText('Art Craft');
+  expect((mock.productWrites || []).filter((w) => w.action === 'products_vendor')).toEqual([]);
+  await page.getByRole('button', { name: 'تجاهل' }).click();
+  // the move: a confirmation, the request, the page re-read
+  await page.locator('#e-maker').click(); await page.getByRole('option', { name: 'Antikiano' }).click();
+  await expect(page.locator('.modal')).toContainText('نقل المنتج لـ «Antikiano»؟');
+  await expect(page.locator('#e-maker')).toContainText('Art Craft'); // still the current one until it is done
+  await page.locator('.modal').getByRole('button', { name: 'انقل المنتج' }).click();
+  await expect(page.locator('.toast.show')).toContainText('اتنقل لـ Antikiano');
+  const antikiano = mock.vendors.find((v) => v.name === 'Antikiano');
+  expect(mock.productWrites.at(-1)).toMatchObject({ action: 'products_vendor', ids: [9001], vendor_id: antikiano.id });
+  await expect(page.locator('#e-maker')).toContainText('Antikiano');
+  await expect(page.locator('.edit-head .meta')).toContainText('Antikiano');
+});
+
 test('edit: the Arabic translation on another status than the product → a note and one button that writes the product\'s status to both', async ({ page }) => {
   await openProducts(page);
   mock.products.find((x) => x.id === 9101).status = 'draft'; // the translation stayed a draft (added after the product was published)

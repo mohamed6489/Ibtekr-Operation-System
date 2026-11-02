@@ -1090,3 +1090,13 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
 - **لحد صفحة الإعدادات (المرحلة 10): إيقاف عضو / تغيير دور / دعوة بتتعمل من SQL أو لوحة Supabase، الشاشة بتعرض بس.** (في الإعدادات › الفريق الأزرار بتظهر رسالة نجاح بس مابتكتبش في `profiles`.)
 - `main` يفضل فرع الدمج: اللي اتنشر لازم يكون هو اللي في `main`. إعادة النشر = نفس خطوة 4. كل ملفات html/js/css عليها `no-cache` في `.htaccess` (المتصفح بيسأل السيرفر كل مرة وياخد 304 لو مفيش تغيير)، فالتحديث بيظهر على طول من غير hard refresh؛ الاستثناء الوحيد `js/vendor/supabase.js` (نسخة مثبّتة) بكاش 7 أيام — لو حدّثته، غيّر اسمه أو استنى أسبوع.
 - الـ CSP في `app/.htaccess` مربوط بـ project ref `fsynculhaupcktzkfkdd`، وكمان الـ URL بتاع الـ cron في `0008` (§2.7.6). لو المشروع اتغيّر، أو اتضاف مصدر خارجي جديد للمتصفح، لازم `connect-src`/`script-src` يتحدّثوا. WooCommerce مش مصدر للمتصفح: كله بيعدّي على `…/functions/v1/woo-sync` على نفس الـ origin اللي في `connect-src`.
+
+#### 2.7.14 مسح الأوردر من السيستم ومن الموقع (المرحلة 5.5 قرار 10، 2 نوفمبر)
+
+- `0033_order_delete.sql` (اتطبّق على الحي بالـ MCP؛ `rls_order_delete.sql` عدّى على الحي): أعمدة `deleted_at`/`deleted_by`/`delete_reason` على
+  `orders`، `orders_v` من غير المحذوف، RPC `order_delete`.
+- woo-sync action `order_trash { order_id }`: يحتاج نشر woo-sync (workflow «Deploy functions» → `woo-sync`). الأوردر لازم يكون «ملغي» عندنا،
+  و`WOO_PUSH_ENABLED = 1` وإلا `skipped/push_disabled` (المسح عندنا بيكمل والموقع مايتلمسش). `DELETE wc/v3/orders/{id}` من غير `force`
+  (سلة المهملات على الموقع — الاسترجاع من لوحة WooCommerce → Orders → Trash)، الفرعية الأول ثم الأصلي. `woo_sync_log`: `push/out/order/{id}`
+  action `trash`.
+- الترتيب في الواجهة: إلغاء (لو لازم) → `order_trash` → `order_delete`. فشل الموقع = الأوردر يفضل زي ما هو عندنا والرسالة «الموقع ماردش».

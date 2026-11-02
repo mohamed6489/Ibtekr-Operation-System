@@ -17,3 +17,6 @@
   `IBOrders.deleteOrder`، `OrdersApp.removeOrder`، `order.delete` في `LOGGED_ACTIONS`، الـ mock)؛ اللوحة (25 + 24) «المبتكرين»؛ المبتكرين
   والحسابات (28) التسميات + «— الآن» + شيل `VendorsReportView`. e2e: 3 اختبارات جديدة للأوردرات، وتعديل اللي كان بيكتب في `#oq` أو يختار من
   `#fv`/`#fc` (مخفيين — `force` / `setQuery` / `#gq`)، وتاب «معلومات المبتكر». الحي: `0033` اتطبّق بالـ MCP و`rls_order_delete` عدّى على الحي؛ `rls_orders` بقى 28 عمود؛ CI ✓ (831ed31)، main اتدفع. مافيش Edge Functions اتغيرت.
+- [x] T8 ب (2 نوفمبر — صاحب المشروع بعد التسليم: «الأوردر لازم ألغيه الأول قبل ما أحذفه» + «لما أحذفه يتحذف من الموقع»): «مسح» على أي أوردر غير
+  مكتمل/استرجاع، خطوة واحدة (إلغاء بنفس السبب لو لازم → woo-sync `order_trash` = سلة مهملات الموقع للأوردر وفرعياته من غير `force` → `order_delete`)؛
+  Deno +4، adapter 3 اختبارات، e2e 5 لقرار 10 + تعديل اختبار «WooCommerce owns…»، mock `order_trash` + `trashes`؛ الخطة وCLAUDE.md وdeploy.md §2.7.14.

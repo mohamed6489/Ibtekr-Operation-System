@@ -1779,3 +1779,58 @@ Deno.test('product_images_add: the member\'s own ai-images paths onto a product 
   const r3 = await call({ ...off.deps, userId }, { action: 'product_images_add', id: 501, paths }, { jwt: 'jwt-pedit' });
   assertEquals([r3.body.result, r3.body.reason, off.woo.calls.length], ['skipped', 'push_disabled', 0]);
 });
+
+// ---------------------------------------------------------------- order_trash (phase 5.5 decision 10)
+
+const trashSeed = {
+  orders: [{ id: 1001, number: '1001', customer_name: 'x', status: 'ملغي', woo_status: 'cancelled', placed_at: '2026-10-20T10:00:00Z', woo_updated_at: '2026-10-20T11:00:00Z' },
+    { id: 1003, number: '1003', customer_name: 'y', status: 'جاري التنفيذ', woo_status: 'processing', placed_at: '2026-10-20T10:00:00Z', woo_updated_at: '2026-10-20T11:00:00Z' }],
+  sub_orders: [{ id: 1, order_id: 1001, vendor_id: vendorId(44), woo_order_id: 1002, woo_status: 'cancelled' }, { id: 2, order_id: 1001, vendor_id: vendorId(2376), woo_order_id: 1004, woo_status: 'cancelled' }],
+};
+
+Deno.test('order_trash: orders.status = F only, never the sync secret; a bad id → 400; unknown → 404; nothing on Woo', async () => {
+  const { woo, deps } = setup({ seed: trashSeed, env: PUSH_ON });
+  assertEquals((await call(deps, { action: 'order_trash', order_id: 1001 }, { jwt: 'jwt-acct' })).res.status, 401, 'orders.status P');
+  assertEquals((await call(deps, { action: 'order_trash', order_id: 1001 })).res.status, 401, 'the sync secret never deletes an order');
+  assertEquals((await call(deps, { action: 'order_trash', order_id: 'x' }, { jwt: 'jwt-ops' })).res.status, 400);
+  assertEquals((await call(deps, { action: 'order_trash', order_id: 99 }, { jwt: 'jwt-ops' })).res.status, 404);
+  assertEquals(woo.calls.length, 0);
+});
+
+Deno.test('order_trash: an order that is not «ملغي» → skipped/not_cancelled; WOO_PUSH_ENABLED off → skipped/push_disabled; no Woo call either way', async () => {
+  const { db, woo, deps } = setup({ seed: trashSeed, env: PUSH_ON });
+  const { body } = await call(deps, { action: 'order_trash', order_id: 1003 }, { jwt: 'jwt-ops' });
+  assertEquals(body, { action: 'order_trash', result: 'skipped', reason: 'not_cancelled', counts: { trashed: 0, already: 0 } });
+  const off = setup({ seed: trashSeed });
+  const r = await call(off.deps, { action: 'order_trash', order_id: 1001 }, { jwt: 'jwt-ops' });
+  assertEquals([r.body.result, r.body.reason], ['skipped', 'push_disabled']);
+  assertEquals(woo.calls.length + off.woo.calls.length, 0);
+  assertEquals(db.rows('woo_sync_log').map((x: any) => [x.kind, x.direction, x.entity, x.entity_id, x.action, x.result, x.detail]), [['push', 'out', 'order', '1003', 'trash', 'skipped', { reason: 'not_cancelled', current: 'جاري التنفيذ' }]]);
+});
+
+Deno.test('order_trash: DELETE wc/v3/orders/{sub} for each Dokan sub-order, then the parent, never `force`; 410 (already trashed) counts as done; logged ok', async () => {
+  const routes = {
+    'DELETE wc/v3/orders/1002': { body: { id: 1002, status: 'trash' } },
+    'DELETE wc/v3/orders/1004': { status: 410, body: { code: 'woocommerce_rest_already_trashed', message: 'The order has already been deleted.' } },
+    'DELETE wc/v3/orders/1001': { body: { id: 1001, status: 'trash' } },
+  };
+  const { db, woo, deps } = setup({ seed: trashSeed, routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'order_trash', order_id: 1001 }, { jwt: 'jwt-ops' });
+  assertEquals(res.status, 200);
+  assertEquals(body, { action: 'order_trash', result: 'ok', counts: { trashed: 2, already: 1 } });
+  assertEquals(woo.calls.map((c) => [c.method, c.path, c.headers.authorization]), [['DELETE', 'wc/v3/orders/1002', WC_AUTH], ['DELETE', 'wc/v3/orders/1004', WC_AUTH], ['DELETE', 'wc/v3/orders/1001', WC_AUTH]]);
+  assert(woo.calls.every((c) => !JSON.stringify(c.query ?? null).includes('force')), 'never force');
+  assertEquals(db.writes('orders').length, 0); // the mark is the adapter's RPC, not this action
+  const log = db.rows('woo_sync_log')[0];
+  assertEquals([log.kind, log.direction, log.entity, log.entity_id, log.action, log.result, log.detail], ['push', 'out', 'order', '1001', 'trash', 'ok', { trashed: 2, already: 1, sub_orders: 2 }]);
+});
+
+Deno.test('order_trash: a Woo failure (500) → 502 woo_error, an error row, the parent not touched after a failed sub-order', async () => {
+  const routes = { 'DELETE wc/v3/orders/1002': { status: 500, body: { code: 'x' } } };
+  const { db, woo, deps } = setup({ seed: trashSeed, routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'order_trash', order_id: 1001 }, { jwt: 'jwt-ops' });
+  assertEquals([res.status, body], [502, { error: 'woo_error' }]);
+  assertEquals(woo.calls.map((c) => c.path), ['wc/v3/orders/1002']);
+  const log = db.rows('woo_sync_log')[0];
+  assertEquals([log.kind, log.entity, log.entity_id, log.action, log.result], ['push', 'order', '1001', 'order_trash', 'error']);
+});

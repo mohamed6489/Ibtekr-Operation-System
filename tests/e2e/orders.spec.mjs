@@ -678,13 +678,12 @@ test('Escape on a sub-order comment drops what was typed (a redraw keeps only un
   expect(mock.patches).toEqual([]);
 });
 
-test('WooCommerce owns name, phone, payment, maker, quantity and total: read-only; no «مسح» on an open order or a sub-order', async ({ page }) => {
+test('WooCommerce owns name, phone, payment, maker, quantity and total: read-only; «مسح» on the order (decision 10) but never on a sub-order', async ({ page }) => {
   await openOrders(page);
   const menu = page.locator('#orders #mpop'); const dlg = page.locator('#orders #cdlg');
   await card(page, '181668').locator('[data-more="o:181668"]').click();
   await expect(menu.locator('[data-ma="edit"]')).toHaveCount(1);
-  await expect(menu.locator('[data-ma="del"]')).toHaveCount(0);
-  await expect(menu).not.toContainText('مسح');
+  await expect(menu.locator('[data-ma="del"]')).toHaveCount(1); // the order: cancel-first delete (decision 10)
   await menu.locator('[data-ma="edit"]').click();
   for (const f of ['name', 'phone', 'pay']) await expect(dlg.locator(`[data-f="${f}"]`)).toBeDisabled();
   await expect(dlg.locator('[data-f="pay"]')).toHaveValue('الدفع عند الاستلام');
@@ -843,21 +842,21 @@ test('decision 10: the in-page search and the four dropdowns are hidden; the top
   await expect(sr('#oq')).toHaveValue('');
 });
 
-test('decision 10: «مسح» shows for a cancelled order only, asks a reason, marks the order deleted (order_delete) and drops it from the list; the reason is logged', async ({ page }) => {
+test('decision 10: «مسح» on a cancelled order asks a reason, trashes it on the site (order_trash: the order + its sub-orders), marks it deleted (order_delete) and drops it; the reason is logged', async ({ page }) => {
   mock.orders.find((o) => o.id === 180656).status = 'ملغي'; // the seed's «معلّق» order, cancelled before the page loads
   await openOrders(page);
   const sr = (sel) => page.locator('#orders ' + sel); const menu = sr('#mpop'); const dlg = sr('#cdlg');
-  await card(page, '181668').locator('[data-more="o:181668"]').click();
-  await expect(menu.locator('[data-ma="del"]')).toHaveCount(0); // «جاري التنفيذ»: no «مسح»
-  await page.keyboard.press('Escape');
+  await card(page, '150001').locator('[data-more="o:150001"]').count(); // the old completed order is outside the 12-month window: not on the page
   await card(page, '180656').locator('[data-more="o:180656"]').click();
   await expect(menu.locator('[data-ma="del"]')).toHaveText('مسح');
   await menu.locator('[data-ma="del"]').click();
   await expect(dlg).toContainText('مسح الأوردر IB-180656؟');
-  await expect(dlg).toContainText('المسح للأوردرات الملغية بس');
+  await expect(dlg).toContainText('سلة مهملات الموقع');
+  await expect(dlg).not.toContainText('هيتلغي الأول'); // already cancelled
+  await expect(dlg.locator('[data-cok]')).toHaveText('مسح الأوردر');
   await dlg.locator('[data-cok]').click(); // no reason yet
   await expect(dlg.locator('#cerr')).toBeVisible();
-  expect(mock.deletes).toEqual([]);
+  expect(mock.deletes).toEqual([]); expect(mock.trashes).toEqual([]);
   await dlg.locator('#creason').selectOption('أخرى');
   await expect(dlg.locator('#cother')).toBeVisible();
   await dlg.locator('[data-cok]').click(); // «أخرى» without a text
@@ -866,14 +865,15 @@ test('decision 10: «مسح» shows for a cancelled order only, asks a reason, m
   await dlg.locator('#cotxt').fill('العميل غيّر المقاس');
   await dlg.locator('[data-cok]').click();
   await expect(dlg).toHaveCount(0);
-  await expect(toast(page)).toHaveText('اتمسح الأوردر IB-180656');
+  await expect(toast(page)).toHaveText('اتمسح الأوردر IB-180656 واتحط في مهملات الموقع');
   await expect(card(page, '180656')).toHaveCount(0);
   await expect(cards(page)).toHaveCount(2);
   await expect(sr('#cn')).toHaveText('2');
+  expect(mock.trashes).toEqual([{ order_id: 180656, sub_orders: [], by: ADMIN }]);
   expect(mock.deletes).toEqual([{ order_id: 180656, reason: 'العميل غيّر المقاس', by: ADMIN }]);
-  expect(mock.patches).toEqual([]); // never a status PATCH, never a WooCommerce push
+  expect(mock.patches).toEqual([]); // already cancelled: no status PATCH, no push
   expect(mock.pushes).toEqual([]);
-  await expect.poll(() => mock.activity.filter((a) => a.action === 'order.delete').map((a) => a.new_value)).toEqual(['IB-180656 · العميل غيّر المقاس']);
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'order.delete').map((a) => a.new_value)).toEqual(['IB-180656 · العميل غيّر المقاس · الموقع: ok']);
   expect(await page.evaluate(() => window.OrdersApp.get('180656'))).toBeNull();
   expect(await page.evaluate(() => window.IBOrders.data().orders.map((o) => o.id))).toEqual(['181668', '180686']);
   // a reload never brings it back: orders_v leaves deleted orders out
@@ -883,7 +883,54 @@ test('decision 10: «مسح» shows for a cancelled order only, asks a reason, m
   await expect(card(page, '180656')).toHaveCount(0);
 });
 
-test('decision 10: without orders.status = F the server refuses «مسح» (42501) and the order stays; the dialog says so', async ({ page }) => {
+test('decision 10: «مسح» on an open order cancels it first with the same reason (row + push), trashes it with its two sub-orders, then marks it deleted; «مكتمل» has no «مسح»', async ({ page }) => {
+  mock.orders.find((o) => o.id === 180686).status = 'مكتمل';
+  await openOrders(page);
+  const sr = (sel) => page.locator('#orders ' + sel); const menu = sr('#mpop'); const dlg = sr('#cdlg');
+  await card(page, '180686').locator('[data-more="o:180686"]').click();
+  await expect(menu.locator('[data-ma="edit"]')).toHaveCount(1);
+  await expect(menu.locator('[data-ma="del"]')).toHaveCount(0); // completed: never deleted
+  await page.keyboard.press('Escape');
+  await card(page, '181668').locator('[data-more="o:181668"]').click(); // «جاري التنفيذ», two Dokan sub-orders
+  await menu.locator('[data-ma="del"]').click();
+  await expect(dlg).toContainText('هيتلغي الأول بالسبب ده');
+  await expect(dlg.locator('[data-cok]')).toHaveText('إلغاء ومسح الأوردر');
+  await dlg.locator('#creason').selectOption('إلغاء من العميل');
+  await dlg.locator('[data-cok]').click();
+  await expect(dlg).toHaveCount(0);
+  await expect(toast(page)).toHaveText('اتمسح الأوردر IB-181668 واتحط في مهملات الموقع');
+  await expect(card(page, '181668')).toHaveCount(0);
+  await expect(cards(page)).toHaveCount(2);
+  expect(mock.patches).toEqual([{ table: 'orders', id: 181668, status: 'ملغي', cancel: { reason: 'إلغاء من العميل' } }]); // cancelled first, with the reason
+  expect(mock.pushes.map((p) => [p.order_id, p.status, p.result])).toEqual([[181668, 'ملغي', 'ok']]);
+  expect(mock.trashes).toEqual([{ order_id: 181668, sub_orders: [181669, 181670], by: ADMIN }]);
+  expect(mock.deletes).toEqual([{ order_id: 181668, reason: 'إلغاء من العميل', by: ADMIN }]);
+  expect(mock.orders.find((o) => o.id === 181668).status).toBe('ملغي');
+});
+
+test('decision 10: the site unreachable → nothing deleted (the order stays, the dialog says so); WOO_PUSH_ENABLED off → deleted here, the site untouched', async ({ page }) => {
+  mock.orders.find((o) => o.id === 180656).status = 'ملغي';
+  await openOrders(page);
+  const sr = (sel) => page.locator('#orders ' + sel); const menu = sr('#mpop'); const dlg = sr('#cdlg');
+  mock.wooDown = true;
+  await card(page, '180656').locator('[data-more="o:180656"]').click();
+  await menu.locator('[data-ma="del"]').click();
+  await dlg.locator('#creason').selectOption('أوردر مكرر');
+  await dlg.locator('[data-cok]').click();
+  await expect(toast(page)).toHaveText('الموقع ماردش — الأوردر ماتمسحش');
+  await expect(dlg).toHaveCount(1); await expect(dlg.locator('[data-cok]')).toBeEnabled();
+  expect(mock.deletes).toEqual([]); expect(mock.trashes).toEqual([]);
+  await expect(card(page, '180656')).toHaveCount(1);
+  mock.wooDown = false; mock.pushEnabled = false;
+  await dlg.locator('[data-cok]').click();
+  await expect(dlg).toHaveCount(0);
+  await expect(toast(page)).toHaveText('اتمسح الأوردر IB-180656 — الموقع ماتلمسش (الدفع متقفل)');
+  await expect(card(page, '180656')).toHaveCount(0);
+  expect(mock.trashes).toEqual([]);
+  expect(mock.deletes).toEqual([{ order_id: 180656, reason: 'أوردر مكرر', by: ADMIN }]);
+});
+
+test('decision 10: without orders.status = F the server refuses «مسح» (401 on the trash, nothing deleted) and the order stays; the dialog says so', async ({ page }) => {
   mock.orders.find((o) => o.id === 180656).status = 'ملغي';
   await openOrders(page, ACCOUNTS); // orders.status N
   const sr = (sel) => page.locator('#orders ' + sel); const menu = sr('#mpop'); const dlg = sr('#cdlg');
@@ -894,7 +941,7 @@ test('decision 10: without orders.status = F the server refuses «مسح» (4250
   await expect(toast(page)).toHaveText('مش مسموح لك تمسح أوردرات');
   await expect(dlg).toHaveCount(1); // still open, the button usable again
   await expect(dlg.locator('[data-cok]')).toBeEnabled();
-  expect(mock.deletes).toEqual([]);
+  expect(mock.deletes).toEqual([]); expect(mock.trashes).toEqual([]);
   await expect(card(page, '180656')).toHaveCount(1);
   await expect(cards(page)).toHaveCount(3);
 });

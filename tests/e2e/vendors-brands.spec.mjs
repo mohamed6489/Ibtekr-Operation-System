@@ -250,7 +250,7 @@ test('the brand special rate is retired (plan 3.4, decision 5): a brand_rates ro
   await openDrawer(page, V2);
   await tab(page, 'الحسابات').click();
   await expect(tile(page, 'هيستحق بعد التنفيذ').locator('.t-h3')).toHaveText('2,007.85'); // 181668 at the line's 40 / 10 (1,513.40) + 180656 at Antikiano's 45% (494.45) — the old 30% ignored
-  await tab(page, 'معلومات المورد').click();
+  await tab(page, 'معلومات المبتكر').click();
   await expect(brands(page).locator('[data-brand-rate]')).toHaveCount(0);
   await brandRow(page, B2).locator('[data-brand-menu]').click();
   await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تعديل', 'نقل لمبتكر تاني']);
@@ -265,7 +265,7 @@ test('transfer Antikiano\'s brand to Bian eg from 8 days ago, temporarily: one o
   await openDrawer(page, V2);
   await tab(page, 'الأوردرات').click();
   await expect(kindTile(page, 'all').locator('.t-h3')).toHaveText('2');
-  await tab(page, 'معلومات المورد').click();
+  await tab(page, 'معلومات المبتكر').click();
   await openBrandMenu(page, B2, 'نقل لمبتكر تاني');
   await expect(modal(page).locator('h2')).toHaveText('نقل البراند — Antikiano');
   await modal(page).locator('#br-to').click();
@@ -294,7 +294,7 @@ test('transfer Antikiano\'s brand to Bian eg from 8 days ago, temporarily: one o
   await expect(section(page, 'أوردرات المبتكر')).not.toContainText('181668');
   // Bian eg (inactive: by hash): the brand with «مؤقت لحد», the later order, «رجوع لصاحبه» in the menu, the list's grey line
   await openByHash(page, V3);
-  await tab(page, 'معلومات المورد').click(); // the drawer opens on the last tab used
+  await tab(page, 'معلومات المبتكر').click(); // the drawer opens on the last tab used
   await expect(brandRow(page, B2)).toContainText('Antikiano');
   await expect(brandRow(page, B2)).toContainText(dmy(TRANSFER_SINCE));
   await expect(brandRow(page, B2)).toContainText('مؤقت لحد ' + dmy(TRANSFER_RETURN));
@@ -304,7 +304,7 @@ test('transfer Antikiano\'s brand to Bian eg from 8 days ago, temporarily: one o
   await expect(section(page, 'أوردرات المبتكر')).toContainText('181668');
   await tab(page, 'الحسابات').click();
   await expect(tile(page, 'هيستحق بعد التنفيذ').locator('.t-h3')).toHaveText('1,513.40'); // 2539 − (1015.60 + 10): the website's rate on the line
-  await tab(page, 'معلومات المورد').click();
+  await tab(page, 'معلومات المبتكر').click();
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   await statusFilter(page, 'الكل');
   await expect(row(page, V3).locator('[data-brands]')).toHaveText('Antikiano');
@@ -340,7 +340,7 @@ test('transfer Antikiano\'s brand to Bian eg from 8 days ago, temporarily: one o
   await expect(brands(page).locator('.brand-ever')).toHaveText('كان عنده: Antikiano لحد ' + dmy(TODAY) + ' → دلوقتي مع Antikiano');
   await expect(section(page, 'سجل النشاط')).toContainText('صفوت كمال رجّع البراند لصاحبه (' + back + ')');
   await openByHash(page, V2);
-  await tab(page, 'معلومات المورد').click();
+  await tab(page, 'معلومات المبتكر').click();
   await expect(brandRow(page, B2)).toContainText(dmy(TODAY));
   await expect(brandRow(page, B2)).not.toContainText('مؤقت');
   await brandRow(page, B2).locator('[data-brand-menu]').click();
@@ -359,7 +359,7 @@ test('the seeded transfer ({ transfer: true }): at sign-in Bian eg holds Antikia
   await tab(page, 'الحسابات').click();
   await expect(tile(page, 'هيستحق بعد التنفيذ').locator('.t-h3')).toHaveText('494.45'); // 899 at Antikiano's own 45%: before the transfer
   await openByHash(page, V3);
-  await tab(page, 'معلومات المورد').click();
+  await tab(page, 'معلومات المبتكر').click();
   await expect(brandRow(page, B2)).toContainText('مؤقت لحد ' + dmy(TRANSFER_RETURN));
   await tab(page, 'الأوردرات').click();
   await expect(kindTile(page, 'all').locator('.t-h3')).toHaveText('1');

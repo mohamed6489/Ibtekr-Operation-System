@@ -20,6 +20,8 @@
 // answers its result in `push` ('ok' | 'skipped' | 'error') without failing the write.
 // «مكتمل» with extra.rating { sat, manners, note } (phase 3.6) goes through RPC order_complete instead (the rating and the
 // status in one transaction; 22023 → reason 'invalid'), logged as order.rating with the two figures only, then pushed the same way.
+// deleteOrder(id, reason) (phase 5.5 decision 10) → RPC order_delete: a cancelled order marked deleted (never a row deleted, never a
+// WooCommerce call), logged as order.delete; 22023 → 'invalid', P0002 → 'missing'. A Realtime refetch that finds no row drops the order.
 // A sub's `n` is its order_items id (block 29 finds a sub by n across every order: allSub/editSub), `itemId` the same
 // as text — the id the item writes take. subscribe() adds Realtime INSERT/UPDATE on orders / order_items / sub_orders
 // (skipped with IB_CONFIG.realtime === false): each event re-reads that order from orders_v (a payload from orders
@@ -198,6 +200,22 @@
     log('order.rating', 'IB-' + id + ' · رضا ' + sat + ' · أخلاق ' + manners);
     return { ok: true };
   }
+  // «مسح» (phase 5.5 decision 10): RPC order_delete marks a cancelled order deleted (deleted_at + the reason) — the view
+  // orders_v no longer returns it. 22023 (not «ملغي», empty reason) → 'invalid'; P0002 (not visible / already deleted) → 'missing'.
+  // Logged as order.delete with the id and the reason; the screen drops the order itself (OrdersApp.removeOrder).
+  async function deleteOrder(id, reason) {
+    const cl = c();
+    if (!cl || !uid()) return fail('network');
+    const why = typeof reason === 'string' ? reason.trim() : '';
+    if (!why || why.length > 120) return fail('invalid');
+    try {
+      const { error } = await cl.rpc('order_delete', { p_order: Number(id), p_reason: why });
+      if (error) return fail(error.code === '42501' ? 'forbidden' : error.code === '22023' ? 'invalid' : error.code === 'P0002' ? 'missing' : 'network');
+    } catch (e) { return fail('network'); }
+    if (orders) { const i = orders.findIndex((x) => x.id === String(id)); if (i >= 0) { orders.splice(i, 1); names = vendorNames(orders); notifySoon(); } }
+    log('order.delete', 'IB-' + id + ' · ' + why);
+    return { ok: true };
+  }
   async function setOrderStatus(id, status, extra) {
     if (status === 'مكتمل' && extra && extra.rating) {
       const r = await completeOrder(id, extra.rating);
@@ -283,7 +301,12 @@
     if (!cl || !orders) return;
     try {
       const [o, it, so] = await Promise.all([cl.from('orders_v').select(COLS.order).eq('id', id), cl.from('order_items').select(COLS.item).eq('order_id', id), cl.from('sub_orders').select(COLS.sub).eq('order_id', id)]);
-      if (o.error || it.error || so.error || !(o.data || []).length) return;
+      if (o.error || it.error || so.error) return;
+      if (!(o.data || []).length) { // gone from the view (deleted on another screen, 5.5 decision 10): drop it here too
+        const gone = orders.findIndex((x) => x.id === String(id));
+        if (gone >= 0) { orders.splice(gone, 1); names = vendorNames(orders); const app = window.OrdersApp; if (app && app.removeOrder) report(() => app.removeOrder(String(id))); notifySoon(); }
+        return;
+      }
       const known = orders.some((x) => x.id === String(o.data[0].id));
       if (!known && !(Date.parse(o.data[0].placed_at) >= windowStart().getTime())) return; // older than the screen's 12 months
       await fill(cl, it.data || [], so.data || [], g);
@@ -331,6 +354,6 @@
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
   function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; vendorRows = []; images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
-  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
+  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

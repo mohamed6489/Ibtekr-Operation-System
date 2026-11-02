@@ -302,7 +302,7 @@ export async function installSupabaseMock(page, opts = {}) {
     shotPrompts: [['كرسي', 1, 'كرسي 1 — تركيز على المنتج', 'CHAIR FOCUS PROMPT'], ['كرسي', 2, 'كرسي 2 — المنتج في بيئة محيطة', 'CHAIR ENV PROMPT'], ['كرسي', 3, 'كرسي 3 — Closeup للتفاصيل', 'CHAIR DETAIL PROMPT'], ['مرآة', 1, 'مرآة 1 — تركيز على المنتج', 'MIRROR FOCUS PROMPT']].map(([category, shot, name, prompt], i) => ({ id: i + 1, category, shot, name, prompt, negative: null, model: 'imagen-nano-banana-2', aspect: '3:4', resolution: '1k', updated_at: new Date().toISOString() })), imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
     profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
-    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [] };
+    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [], deletes: [] };
   // phase 3.3: vendorCategoryRates / wooCategories: the 0014 tables (ordersSeed()); vendorPushes: each woo-sync push_vendor as { vendor_id, fields, by, result, reason? }
   // (the body names the fields only — the mock reads the row like the server); pushEnabled: WOO_PUSH_ENABLED on the server (false → skipped/push_disabled,
   // the fields added to push_pending); wooDown → 502 pending:true with the fields in push_pending; wooRefuses → 502 pending:false, nothing
@@ -668,6 +668,23 @@ export async function installSupabaseMock(page, opts = {}) {
         mock.ratings.push({ order_id: o.id, sat: b.p_sat, manners: b.p_manners, note, by_user: u.id });
         return json(200, mock.ratings.length);
       }
+      // 0033 (phase 5.5 decision 10): order_delete — a cancelled order marked deleted with a reason; orders.view N / unknown /
+      // already deleted → P0002; orders.status <> F → 42501; not «ملغي» or an empty / long reason → 22023. Recorded in deletes;
+      // orders_v leaves the order out afterwards (the row stays in mock.orders with deleted_at).
+      if (method === 'POST' && path === '/rest/v1/rpc/order_delete') {
+        if (mock.ordersDown) return json(503, { message: 'mock: orders down' });
+        const b = body(); const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        if (hasPerm(u, 'orders.view') === 'N') return refuse(400, 'P0002', 'order not found');
+        if (hasPerm(u, 'orders.status') !== 'F') return refuse(403, '42501', 'orders.status = F is required to delete a cancelled order');
+        const reason = typeof b.p_reason === 'string' ? b.p_reason.trim() : '';
+        if (!reason || reason.length > 120) return refuse(400, '22023', 'a delete reason of 1 to 120 characters is required');
+        const o = mock.orders.find((x) => Number(x.id) === Number(b.p_order) && !x.deleted_at);
+        if (!o) return refuse(400, 'P0002', 'order not found');
+        if (o.status !== 'ملغي') return refuse(400, '22023', 'only a cancelled order can be deleted');
+        Object.assign(o, { deleted_at: new Date().toISOString(), deleted_by: u.id, delete_reason: reason });
+        mock.deletes.push({ order_id: o.id, reason, by: u.email });
+        return json(200, o.id);
+      }
       if (method === 'POST' && path === '/rest/v1/rpc/vendor_commission_set') {
         const b = body(); const vid = String(b.p_vendor || '').toLowerCase();
         const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
@@ -987,7 +1004,7 @@ export async function installSupabaseMock(page, opts = {}) {
           // 0021: products with orders.view or products.view; woo_brands with products.view or vendors.view
           const visible = t === 'woo_states' || (t === 'products' ? hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N'
             : t === 'woo_brands' ? hasPerm(u, 'products.view') !== 'N' || hasPerm(u, 'vendors.view') !== 'N' : t === 'product_commissions' ? hasPerm(u, 'sensitive.commission') === 'F' : hasPerm(u, 'orders.view') !== 'N');
-          const rows = t === 'orders_v' ? mock.orders.map((o) => viewRow(u, o)) : t === 'order_items' ? mock.orderItems : t === 'sub_orders' ? mock.subOrders : t === 'products' ? mock.products : t === 'woo_states' ? mock.wooStates : t === 'woo_brands' ? mock.wooBrands : t === 'product_commissions' ? mock.productCommissions : mock.statusMap;
+          const rows = t === 'orders_v' ? mock.orders.filter((o) => !o.deleted_at).map((o) => viewRow(u, o)) : t === 'order_items' ? mock.orderItems : t === 'sub_orders' ? mock.subOrders : t === 'products' ? mock.products : t === 'woo_states' ? mock.wooStates : t === 'woo_brands' ? mock.wooBrands : t === 'product_commissions' ? mock.productCommissions : mock.statusMap;
           return json(200, pageOf(visible ? rows.filter(f.match) : [], url.searchParams).map(sel.pick));
         }
         // PATCH: one row named by id=eq.… (else 400, like Supabase's safeupdate guard for an UPDATE without WHERE); update grants

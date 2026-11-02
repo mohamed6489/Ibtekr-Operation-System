@@ -42,7 +42,7 @@ test('dashboard.customize is sent', async () => {
 
 test('the orders writes IBOrders logs are sent by name; block 22\'s demo order.* / suborder.* events are not', async () => {
   const { log, calls, A } = load();
-  const OWN = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating'];
+  const OWN = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating', 'order.delete'];
   assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_ACTIONS)), OWN);
   for (const a of OWN) await log(a, 'IB-181668 · #5001');
   // logged by block 22 / 29 before any server write (a free-text reason, sample stock): never reach activity_log

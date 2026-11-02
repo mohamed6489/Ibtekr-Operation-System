@@ -548,3 +548,39 @@ test('clear unsubscribes and drops the data; a load still in flight is abandoned
   assert.deepEqual(hydrated, []);
   assert.deepEqual(calls.filter((c) => c.table && !['orders_v', 'vendors', 'status_map', 'woo_states'].includes(c.table)), []); // nothing asked after the clear
 });
+
+// المرحلة 5.5 قرار 10 (2 نوفمبر): «مسح» أوردر ملغي عبر RPC order_delete
+test('deleteOrder goes through order_delete with the trimmed reason, drops the order from data(), logs id + reason; 22023 → invalid, P0002 → missing, 42501 → forbidden; an empty reason never calls', async () => {
+  const { O, calls, logs, responses, events } = load();
+  await O.load(); calls.length = 0; events.length = 0;
+  responses['rpc:order_delete'] = { data: 180686, error: null };
+  assert.deepEqual(plain(await O.deleteOrder('180686', '  أوردر مكرر ')), { ok: true });
+  assert.deepEqual(calls.filter((c) => c.op === 'rpc').map((c) => c.args), [['order_delete', { p_order: 180686, p_reason: 'أوردر مكرر' }]]);
+  assert.deepEqual(opsOf(calls, 'orders'), []); assert.deepEqual(invokes(calls), []); // never a PATCH, never a WooCommerce push
+  assert.deepEqual(logs, [['order.delete', 'IB-180686 · أوردر مكرر']]);
+  assert.deepEqual(plain(O.data().orders.map((o) => o.id)), ['181668']);
+  assert.ok(O.data().vendors.length >= 1);
+  calls.length = 0; logs.length = 0;
+  for (const [code, reason] of [['42501', 'forbidden'], ['22023', 'invalid'], ['P0002', 'missing'], ['PGRST000', 'network']]) {
+    responses['rpc:order_delete'] = { data: null, error: { code, message: 'x' } };
+    assert.deepEqual(plain(await O.deleteOrder('181668', 'سبب')), { ok: false, reason });
+  }
+  assert.deepEqual(logs, []); assert.equal(O.data().orders.length, 1);
+  calls.length = 0;
+  assert.deepEqual(plain(await O.deleteOrder('181668', '   ')), { ok: false, reason: 'invalid' });
+  assert.deepEqual(plain(await O.deleteOrder('181668', 'ن'.repeat(121))), { ok: false, reason: 'invalid' });
+  assert.deepEqual(calls.filter((c) => c.op === 'rpc'), []);
+});
+
+test('Realtime: an order the view no longer returns (deleted on another screen) is dropped from data() and handed to OrdersApp.removeOrder', async () => {
+  const removed = []; const applied = [];
+  const { O, responses, emitChange, events } = load({ app: { hydrate() {}, applyOrder: (o) => applied.push(o.id), removeOrder: (id) => removed.push(id) } });
+  await O.load(); O.subscribe(); events.length = 0;
+  responses.orders_v = ok([]); // orders_v: where deleted_at is null
+  await emitChange({ table: 'orders', eventType: 'UPDATE', new: { id: 180686 } });
+  assert.deepEqual(removed, ['180686']); assert.deepEqual(applied, []);
+  assert.deepEqual(plain(O.data().orders.map((o) => o.id)), ['181668']);
+  assert.ok(events.includes('ib:notify'));
+  await emitChange({ table: 'orders', eventType: 'UPDATE', new: { id: 999 } }); // unknown and gone: nothing to drop
+  assert.deepEqual(removed, ['180686']);
+});

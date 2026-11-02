@@ -75,7 +75,7 @@ test('an html customer name renders inert', async ({ page }) => {
   await openOrders(page);
   await card(page, '180656').locator('[data-tg="180656"]').click();
   await expect(card(page, '180656').locator('.band')).toContainText(XSS_NAME);
-  await page.locator('#orders #oq').fill('<img');
+  await page.evaluate(() => window.OrdersApp.setQuery('<img')); // 5.5 decision 10: the in-page field is hidden; the top bar's Enter sets the query
   await expect(cards(page)).toHaveCount(1);
   await expect(page.locator('#orders #oq')).toHaveValue('<img');
   await page.evaluate(() => window.OrdersApp.details('180656'));
@@ -453,8 +453,8 @@ test('an empty 12-month window says so', async ({ page }) => {
 
 test('IBOrders.clear() (sign-out) leaves no order, search or filter on the page', async ({ page }) => {
   await openOrders(page);
-  await page.locator('#orders #fc').selectOption('غير مؤكد');
-  await page.locator('#orders #oq').fill('01200007052');
+  await page.locator('#orders #fc').selectOption('غير مؤكد', { force: true }); // hidden since 5.5 decision 10 (its state still drives the filter)
+  await page.evaluate(() => window.OrdersApp.setQuery('01200007052'));
   await expect(cards(page)).toHaveCount(1);
   await page.evaluate(() => window.IBOrders.clear());
   await expect(page.locator('#orders #oq')).toHaveValue('');
@@ -513,12 +513,12 @@ test('a Realtime order redraws its own card only, never over a field in use; cou
   await mine.focus();
   await realtime('181668', 'جاهز للشحن');
   await expect(page.locator('#orders select[data-st="181668"]')).toHaveValue('قيد الشحن');
-  await page.locator('#orders #oq').focus();
+  await page.locator('#gq').focus(); // out of the list (the in-page search is hidden since 5.5 decision 10)
   await expect(page.locator('#orders select[data-st="181668"]')).toHaveValue('جاهز للشحن');
   // a comment typed and left unsaved: still not drawn over after the blur; the save draws it
   await page.locator('#orders textarea[data-ne="181668"]').fill('لسه بكتب');
   await realtime('181668', 'مكتمل');
-  await page.locator('#orders #oq').focus();
+  await page.locator('#gq').focus(); // out of the list (the in-page search is hidden since 5.5 decision 10)
   await expect(page.locator('#orders select[data-st="181668"]')).toHaveValue('جاهز للشحن');
   await expect(page.locator('#orders textarea[data-ne="181668"]')).toHaveValue('لسه بكتب');
   await expect(other).toHaveValue('بكتب دلوقتي'); // three Realtime updates later, the other card's typing is still there
@@ -552,14 +552,14 @@ test('a new Realtime order (or one that leaves the filters) redraws the list, ne
   await expect(card(page, '182002')).toHaveCount(0);
   await expect(cards(page)).toHaveCount(4);
   await expect(other).toBeFocused();
-  await page.locator('#orders #oq').focus();
+  await page.locator('#gq').focus(); // out of the list (the in-page search is hidden since 5.5 decision 10)
   await expect(card(page, '182002')).toHaveCount(1);
   await expect(cards(page)).toHaveCount(5);
   await expect(cards(page).first()).toHaveAttribute('data-o', '182002');
   // a comment typed and not saved survives every full redraw: a new order, a sort change, a card folded, a status chip
   const mine = page.locator('#orders textarea[data-ne="181668"]');
   await mine.fill('لسه ماتحفظش');
-  await page.locator('#orders #oq').focus();
+  await page.locator('#gq').focus(); // out of the list (the in-page search is hidden since 5.5 decision 10)
   await arrive('182003');
   await expect(cards(page)).toHaveCount(6);
   await expect(mine).toHaveValue('لسه ماتحفظش');
@@ -678,7 +678,7 @@ test('Escape on a sub-order comment drops what was typed (a redraw keeps only un
   expect(mock.patches).toEqual([]);
 });
 
-test('WooCommerce owns name, phone, payment, maker, quantity and total: read-only; nothing is deleted', async ({ page }) => {
+test('WooCommerce owns name, phone, payment, maker, quantity and total: read-only; no «مسح» on an open order or a sub-order', async ({ page }) => {
   await openOrders(page);
   const menu = page.locator('#orders #mpop'); const dlg = page.locator('#orders #cdlg');
   await card(page, '181668').locator('[data-more="o:181668"]').click();
@@ -809,7 +809,7 @@ test('the status chips sit in a carousel; the chosen filters show as chips with 
   await expect(sr('.sc-car #chips .sc')).toHaveCount(10);
   await expect(sr('.car-prev')).toBeHidden(); await expect(sr('.car-next')).toBeHidden(); // nothing hidden on the desktop
   await expect(sr('#afcr')).toBeHidden();
-  await sr('#fv').selectOption('Antikiano');
+  await sr('#fv').selectOption('Antikiano', { force: true }); // the dropdown is hidden since 5.5 decision 10; «فلتر» and the chips show the choice
   await expect(sr('#afc .afc-chip')).toHaveCount(1);
   await expect(sr('#afc .afc-chip .afc-t')).toHaveText('المبتكر: Antikiano');
   await expect(sr('#afc .afc-chip .afc-c')).toHaveText(String(await page.evaluate(() => window.OrdersApp.query({ vendor: 'Antikiano' }, 10).total)));
@@ -822,4 +822,79 @@ test('the status chips sit in a carousel; the chosen filters show as chips with 
   await expect(sr('#cn')).toHaveText(String(await page.evaluate(() => window.OrdersApp.query({ st: 'معلّق' }, 10).total)));
   await sr('#clr').click();
   await expect(sr('#afcr')).toBeHidden();
+});
+
+// المرحلة 5.5 قرار 10 (صاحب المشروع، 2 نوفمبر): the in-page search and the four dropdowns are hidden (the top bar searches, «فلتر» + the chips
+// filter); «مسح» for a cancelled order only, with a reason, through RPC order_delete
+test('decision 10: the in-page search and the four dropdowns are hidden; the top bar and «فلتر» still filter the list', async ({ page }) => {
+  await openOrders(page);
+  const sr = (sel) => page.locator('#orders ' + sel);
+  await expect(sr('.sq')).toBeHidden(); await expect(sr('.legacy-sel')).toBeHidden();
+  for (const id of ['fv', 'fc', 'fd', 'fn']) await expect(sr('#' + id)).toBeHidden();
+  await expect(sr('#fbtn')).toBeVisible(); await expect(sr('#clr')).toBeVisible();
+  expect((await sr('#fv option').allTextContents()).some((t) => t.includes('Antikiano'))).toBe(true); // the hidden dropdowns keep their options: the filter state lives there
+  const q = page.locator('#gq');
+  await q.fill('181668'); await q.press('Enter');
+  await expect(sr('#cn')).toHaveText('1');
+  await expect(cards(page)).toHaveCount(1);
+  await expect(sr('#oq')).toHaveValue('181668'); // the hidden field carries the query (clear / setQuery)
+  await sr('#clr').click();
+  await expect(sr('#cn')).toHaveText('3');
+  await expect(sr('#oq')).toHaveValue('');
+});
+
+test('decision 10: «مسح» shows for a cancelled order only, asks a reason, marks the order deleted (order_delete) and drops it from the list; the reason is logged', async ({ page }) => {
+  mock.orders.find((o) => o.id === 180656).status = 'ملغي'; // the seed's «معلّق» order, cancelled before the page loads
+  await openOrders(page);
+  const sr = (sel) => page.locator('#orders ' + sel); const menu = sr('#mpop'); const dlg = sr('#cdlg');
+  await card(page, '181668').locator('[data-more="o:181668"]').click();
+  await expect(menu.locator('[data-ma="del"]')).toHaveCount(0); // «جاري التنفيذ»: no «مسح»
+  await page.keyboard.press('Escape');
+  await card(page, '180656').locator('[data-more="o:180656"]').click();
+  await expect(menu.locator('[data-ma="del"]')).toHaveText('مسح');
+  await menu.locator('[data-ma="del"]').click();
+  await expect(dlg).toContainText('مسح الأوردر IB-180656؟');
+  await expect(dlg).toContainText('المسح للأوردرات الملغية بس');
+  await dlg.locator('[data-cok]').click(); // no reason yet
+  await expect(dlg.locator('#cerr')).toBeVisible();
+  expect(mock.deletes).toEqual([]);
+  await dlg.locator('#creason').selectOption('أخرى');
+  await expect(dlg.locator('#cother')).toBeVisible();
+  await dlg.locator('[data-cok]').click(); // «أخرى» without a text
+  await expect(dlg.locator('#cerr2')).toBeVisible();
+  expect(mock.deletes).toEqual([]);
+  await dlg.locator('#cotxt').fill('العميل غيّر المقاس');
+  await dlg.locator('[data-cok]').click();
+  await expect(dlg).toHaveCount(0);
+  await expect(toast(page)).toHaveText('اتمسح الأوردر IB-180656');
+  await expect(card(page, '180656')).toHaveCount(0);
+  await expect(cards(page)).toHaveCount(2);
+  await expect(sr('#cn')).toHaveText('2');
+  expect(mock.deletes).toEqual([{ order_id: 180656, reason: 'العميل غيّر المقاس', by: ADMIN }]);
+  expect(mock.patches).toEqual([]); // never a status PATCH, never a WooCommerce push
+  expect(mock.pushes).toEqual([]);
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'order.delete').map((a) => a.new_value)).toEqual(['IB-180656 · العميل غيّر المقاس']);
+  expect(await page.evaluate(() => window.OrdersApp.get('180656'))).toBeNull();
+  expect(await page.evaluate(() => window.IBOrders.data().orders.map((o) => o.id))).toEqual(['181668', '180686']);
+  // a reload never brings it back: orders_v leaves deleted orders out
+  await page.reload();
+  await expect(page.locator('#orders')).toBeVisible();
+  await expect(cards(page)).toHaveCount(2);
+  await expect(card(page, '180656')).toHaveCount(0);
+});
+
+test('decision 10: without orders.status = F the server refuses «مسح» (42501) and the order stays; the dialog says so', async ({ page }) => {
+  mock.orders.find((o) => o.id === 180656).status = 'ملغي';
+  await openOrders(page, ACCOUNTS); // orders.status N
+  const sr = (sel) => page.locator('#orders ' + sel); const menu = sr('#mpop'); const dlg = sr('#cdlg');
+  await card(page, '180656').locator('[data-more="o:180656"]').click();
+  await menu.locator('[data-ma="del"]').click();
+  await dlg.locator('#creason').selectOption('أوردر مكرر');
+  await dlg.locator('[data-cok]').click();
+  await expect(toast(page)).toHaveText('مش مسموح لك تمسح أوردرات');
+  await expect(dlg).toHaveCount(1); // still open, the button usable again
+  await expect(dlg.locator('[data-cok]')).toBeEnabled();
+  expect(mock.deletes).toEqual([]);
+  await expect(card(page, '180656')).toHaveCount(1);
+  await expect(cards(page)).toHaveCount(3);
 });

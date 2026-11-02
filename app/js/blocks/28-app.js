@@ -63,22 +63,22 @@
     const openByName = (n) => { const v = vstore.findByName(n); if (v) { go('vendors'); openVendor(v.id); } };
     if (name) {
       const v = trVendor(name); const rows = v.rows.slice().sort((a, b) => (a.date < b.date ? 1 : -1));
-      return { title: 'مواصلات ' + name + ' — ' + fmt(v.total) + ' ج.م', sub: v.trips ? v.trips + ' مشوار · من ' + D.formatDateNumeric(v.first) + ' لـ ' + D.formatDateNumeric(v.last) : 'مفيش مشاوير متسجلة للمورد ده',
+      return { title: 'مواصلات ' + name + ' — ' + fmt(v.total) + ' ج.م', sub: v.trips ? v.trips + ' مشوار · من ' + D.formatDateNumeric(v.first) + ' لـ ' + D.formatDateNumeric(v.last) : 'مفيش مشاوير متسجلة للمبتكر ده',
         summary: [{ label: 'الإجمالي', value: fmt(v.total) + ' ج.م' }, { label: 'المشاوير', value: String(v.trips) }, { label: 'متوسط المشوار', value: v.trips ? fmt(v.total / v.trips) + ' ج.م' : '—' }],
         headers: ['التاريخ', 'المبلغ (ج.م)', 'الاسم', 'ملاحظات'], rows: rows.map((r) => [trDate(r), fmt(r.amount), r.payer || '—', r.note || '—']), total: v.trips ? ['الإجمالي', fmt(v.total), '', ''] : null,
         note: trNote(rows), source: TR_SRC, empty: 'مفيش مشاوير متسجلة.' };
     }
     const list = all.byVendor;
-    if (name === '') return { title: 'مواصلات الموردين — ' + fmt(all.vendors) + ' ج.م', sub: all.vendorTrips + ' مشوار لـ ' + all.vendorCount + ' موردين · ' + trPeriod(all) + ' · اضغط على أي مورد يفتح ملفه',
-      summary: [{ label: 'الإجمالي', value: fmt(all.vendors) + ' ج.م' }, { label: 'المشاوير', value: String(all.vendorTrips) }, { label: 'أعلى مورد', value: list.length ? list[0].name + ' — ' + fmt(list[0].total) : '—' }],
-      headers: ['المورد', 'المواصلات (ج.م)', 'المشاوير', 'آخر مشوار', 'من الإجمالي'], rows: list.map((r) => [r.name, fmt(r.total), String(r.trips), D.formatDateNumeric(r.last), D.formatPct(all.vendors ? r.total / all.vendors : 0)]),
+    if (name === '') return { title: 'مواصلات المبتكرين — ' + fmt(all.vendors) + ' ج.م', sub: all.vendorTrips + ' مشوار لـ ' + all.vendorCount + ' مبتكرين · ' + trPeriod(all) + ' · اضغط على أي مبتكر يفتح ملفه',
+      summary: [{ label: 'الإجمالي', value: fmt(all.vendors) + ' ج.م' }, { label: 'المشاوير', value: String(all.vendorTrips) }, { label: 'أعلى مبتكر', value: list.length ? list[0].name + ' — ' + fmt(list[0].total) : '—' }],
+      headers: ['المبتكر', 'المواصلات (ج.م)', 'المشاوير', 'آخر مشوار', 'من الإجمالي'], rows: list.map((r) => [r.name, fmt(r.total), String(r.trips), D.formatDateNumeric(r.last), D.formatPct(all.vendors ? r.total / all.vendors : 0)]),
       total: ['الإجمالي', fmt(all.vendors), String(all.vendorTrips), '', '100%'], onRow: (i) => openByName(list[i].name), source: TR_SRC };
     return { title: 'المواصلات — ' + fmt(all.total) + ' ج.م', sub: all.trips + ' مشوار · ' + trPeriod(all),
-      summary: [{ label: 'للموردين', value: fmt(all.vendors) + ' ج.م' }, { label: 'تشغيل', value: fmt(all.ops) + ' ج.م' }, { label: 'المشاوير', value: String(all.trips) }],
+      summary: [{ label: 'للمبتكرين', value: fmt(all.vendors) + ' ج.م' }, { label: 'تشغيل', value: fmt(all.ops) + ' ج.م' }, { label: 'المشاوير', value: String(all.trips) }],
       headers: ['البند', 'المبلغ (ج.م)', 'المشاوير', 'من الإجمالي'],
-      rows: list.map((r) => ['مورد · ' + r.name, fmt(r.total), String(r.trips), D.formatPct(all.total ? r.total / all.total : 0)]).concat([['تشغيل (مشاوير مش لمورد معيّن)', fmt(all.ops), String(all.opsTrips), D.formatPct(all.total ? all.ops / all.total : 0)]]),
+      rows: list.map((r) => ['مبتكر · ' + r.name, fmt(r.total), String(r.trips), D.formatPct(all.total ? r.total / all.total : 0)]).concat([['تشغيل (مشاوير مش لمبتكر معيّن)', fmt(all.ops), String(all.opsTrips), D.formatPct(all.total ? all.ops / all.total : 0)]]),
       total: ['الإجمالي', fmt(all.total), String(all.trips), '100%'],
-      note: 'التشغيل = مشاوير الفريق (تجميع، استلام، استبدال) اللي مش متسجلة باسم مورد في الشيت. مشاوير المرتجعات مش محسوبة في المواصلات.', source: TR_SRC };
+      note: 'التشغيل = مشاوير الفريق (تجميع، استلام، استبدال) اللي مش متسجلة باسم مبتكر في الشيت. مشاوير المرتجعات مش محسوبة في المواصلات.', source: TR_SRC };
   }
 
   // owner 22 Oct: the confirmation state «غير مؤكد» is always written in red
@@ -102,7 +102,7 @@
       headers: ['المنتج', 'رقم الأوردر', 'القيمة (ج.م)', 'حالة الأوردر'],
       rows: r.rows.map((x) => [prodThumb(x.sku, x.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + x.oid), x.sid !== x.oid ? h('small', null, ' · فرعي ', h('bdi', { dir: 'ltr' }, '#' + x.sid)) : null), fmt(x.tot), x.status]),
       total: r.rows.length ? ['الإجمالي', String(r.orders) + ' أوردر', fmt(r.value), ''] : null,
-      onRow: (i) => showOrders({ q: r.rows[i].oid }), phone: v && v.phone, email: v && v.email, empty: 'مفيش أوردرات مكتملة أو ملغية للمورد ده.', note: brandNote(v) || null, source: 'الأوردرات (الموقع) + مستحقات المرحلة 3' }, { label: 'تقرير ' + name });
+      onRow: (i) => showOrders({ q: r.rows[i].oid }), phone: v && v.phone, email: v && v.email, empty: 'مفيش أوردرات مكتملة أو ملغية للمبتكر ده.', note: brandNote(v) || null, source: 'الأوردرات (الموقع) + مستحقات المرحلة 3' }, { label: 'تقرير ' + name });
   }
 
 
@@ -114,7 +114,7 @@
     // helpers for the import groups (owner 22 Oct: everything can be imported and exported)
     const OPS = () => window.IbtekrOps; const DX = () => window.IbtekrDataX; const csData = () => window.IBPages.all().cs.api.data;
     const vnames = () => vendorsNow().map((v) => v.name);
-    const POPUP_SS = ['وصل المخزن', 'مرتجع للمخزن', 'مرتجع للمورد'];
+    const POPUP_SS = ['وصل المخزن', 'مرتجع للمخزن', 'مرتجع للمبتكر'];
     const emailOf = (id) => { const m = K().store.members.find((x) => x.id === id); return m ? m.email : id; };
     const memberBy = (email) => K().store.members.find((x) => String(x.email).toLowerCase() === String(email || '').toLowerCase());
     const splitTags = (t) => String(t || '').split(/[،,]/).map((x) => x.trim()).filter(Boolean);
@@ -132,7 +132,7 @@
     const GROUPS = [
       { id: 'orders', label: 'الأوردرات والأوردرات الفرعية', dateKey: 'date', filter: { key: 'status', label: 'حالة الأوردر', options: () => ST() }, note: 'الأوردرات بتيجي من الموقع / Airtable — الاستيراد هنا مقفول عشان مايحصلش تعارض.',
         fields: () => [{ key: 'oid', label: 'رقم الأوردر', en: 'Order #' }, { key: 'sid', label: 'الأوردر الفرعي', en: 'Sub-order #' }, { key: 'date', label: 'التاريخ', en: 'Date', type: 'date' }, { key: 'customer', label: 'العميل', en: 'Customer' }, { key: 'phone', label: 'موبايل العميل', en: 'Customer phone', sensitive: true },
-          { key: 'status', label: 'حالة الأوردر', en: 'Order status' }, { key: 'confirm', label: 'حالة التأكيد', en: 'Confirmation' }, { key: 'vendor', label: 'المورد', en: 'Vendor' }, { key: 'product', label: 'المنتج', en: 'Product' }, { key: 'sku', label: 'SKU', en: 'SKU' }, { key: 'qty', label: 'الكمية', en: 'Qty', type: 'number' }, { key: 'total', label: 'القيمة (ج.م)', en: 'Amount (EGP)', type: 'number' }, { key: 'subStatus', label: 'حالة الفرعي', en: 'Sub-order status' }],
+          { key: 'status', label: 'حالة الأوردر', en: 'Order status' }, { key: 'confirm', label: 'حالة التأكيد', en: 'Confirmation' }, { key: 'vendor', label: 'المبتكر', en: 'Vendor' }, { key: 'product', label: 'المنتج', en: 'Product' }, { key: 'sku', label: 'SKU', en: 'SKU' }, { key: 'qty', label: 'الكمية', en: 'Qty', type: 'number' }, { key: 'total', label: 'القيمة (ج.م)', en: 'Amount (EGP)', type: 'number' }, { key: 'subStatus', label: 'حالة الفرعي', en: 'Sub-order status' }],
         presets: { accountant: ['oid', 'date', 'status', 'vendor', 'total'], vendor: ['oid', 'sid', 'date', 'product', 'sku', 'qty', 'total', 'subStatus'] },
         rows: () => { const A = OA(); if (!A || !A.query) return []; return A.query({}, 10000).rows.map((r) => A.get(r.id)).filter(Boolean).flatMap((o) => o.subs.map((x) => ({ oid: o.id, sid: x.sid, date: o.date, customer: o.name, phone: o.phone, status: o.st, confirm: o.cf, vendor: x.vendor, product: x.prod, sku: x.sku, qty: x.qty, total: x.tot, subStatus: x.ss || '' }))); } },
       { id: 'vendors', label: 'المبتكرين والنسب', key: 'name', modes: ['add', 'update'], filter: { key: 'status', label: 'الحالة', options: () => VST.map((x) => x[1]) },
@@ -173,7 +173,7 @@
           return { done, undo: () => { done.created.forEach((id) => { const i = M.findIndex((m) => m.id === id); if (i >= 0) M.splice(i, 1); }); done.updated.forEach((u) => { const m = M.find((x) => x.id === u.id); if (m) Object.assign(m, u.old); }); } }; } },
       // ---- owner 22 Oct: every data set can be imported and exported ----
       { id: 'stock', label: 'المخزن', key: 'sku', modes: ['add', 'update'], dateKey: 'since', filter: { key: 'status', label: 'الحالة', options: () => [...new Set(K().stockNow().map((s) => s.status))] },
-        fields: () => [{ key: 'sku', label: 'SKU', en: 'SKU', required: true }, { key: 'name', label: 'المنتج', en: 'Product', required: true }, { key: 'vendor', label: 'المورد', en: 'Vendor', type: 'enum', options: vnames(), required: true },
+        fields: () => [{ key: 'sku', label: 'SKU', en: 'SKU', required: true }, { key: 'name', label: 'المنتج', en: 'Product', required: true }, { key: 'vendor', label: 'المبتكر', en: 'Vendor', type: 'enum', options: vnames(), required: true },
           { key: 'reason', label: 'سبب التخزين', en: 'Reason', type: 'enum', options: OPS().REASONS.slice(), required: true }, { key: 'status', label: 'الحالة', en: 'Status', type: 'enum', options: [...new Set(Object.values(OPS().STATUS_BY_REASON).flat())] },
           { key: 'qty', label: 'الكمية', en: 'Qty', type: 'number', required: true, noUpdate: true }, { key: 'loc', label: 'المكان', en: 'Location' }, { key: 'cost', label: 'التكلفة (ج.م)', en: 'Cost (EGP)', type: 'number' }, { key: 'since', label: 'من تاريخ', en: 'Since', type: 'date' }],
         rows: () => K().stockNow().map((s) => ({ sku: s.sku, name: s.name, vendor: s.vendor, reason: s.reason, status: s.status, qty: s.onHand, loc: s.loc, cost: s.cost, since: s.since })),
@@ -190,13 +190,13 @@
       { id: 'tickets', label: 'التذاكر', modes: ['add'], dateKey: 'created', filter: { key: 'status', label: 'الحالة', options: () => [...new Set(tstore.all().map((t) => t.status))] },
         fields: () => [{ key: 'id', label: 'رقم التذكرة', en: 'Ticket #', readOnly: true }, { key: 'type', label: 'النوع', en: 'Type', type: 'enum', options: TK.TYPES.map((x) => x[1]), required: true }, { key: 'title', label: 'العنوان', en: 'Title', required: true }, { key: 'description', label: 'التفاصيل', en: 'Description', required: true },
           { key: 'priority', label: 'الأولوية', en: 'Priority', type: 'enum', options: TK.PRIORITIES.map((x) => x[1]), required: true }, { key: 'role', label: 'الدور المسؤول', en: 'Owner role', type: 'enum', options: TK.ROLES.slice(), required: true },
-          { key: 'orderId', label: 'رقم الأوردر', en: 'Order #' }, { key: 'customer', label: 'العميل', en: 'Customer' }, { key: 'vendor', label: 'المورد', en: 'Vendor' }, { key: 'reason', label: 'السبب', en: 'Reason', type: 'enum', options: TK.CUSTOMER_REASONS.concat(TK.VENDOR_REASONS.filter((x) => !TK.CUSTOMER_REASONS.includes(x))) },
+          { key: 'orderId', label: 'رقم الأوردر', en: 'Order #' }, { key: 'customer', label: 'العميل', en: 'Customer' }, { key: 'vendor', label: 'المبتكر', en: 'Vendor' }, { key: 'reason', label: 'السبب', en: 'Reason', type: 'enum', options: TK.CUSTOMER_REASONS.concat(TK.VENDOR_REASONS.filter((x) => !TK.CUSTOMER_REASONS.includes(x))) },
           { key: 'status', label: 'الحالة', en: 'Status', readOnly: true }, { key: 'created', label: 'تاريخ الإنشاء', en: 'Created', type: 'date', readOnly: true }],
         rows: () => tstore.all().map((t) => ({ id: t.id, type: TK.label(TK.TYPES, t.type), title: t.title, description: t.description, priority: TK.label(TK.PRIORITIES, t.priority), role: t.assigneeRole, orderId: t.orderId || '', customer: t.customer || '', vendor: t.vendor || '', reason: t.reason || '', status: t.status, created: String(t.createdAt || '').slice(0, 10) })),
         check: (d) => ({ errors: Object.values(TK.validateTicket(tkIn(d))) }),
         apply: (rows) => { const ids = []; for (const r of rows) { try { ids.push(tstore.create(tkIn(r.data), ME).id); } catch (e) { /* invalid row */ } } return { done: { created: ids, updated: [] }, undo: () => ids.forEach((id) => { try { tstore.remove(id, ME); } catch (e) { /* gone */ } }) }; } },
-      { id: 'transport', label: 'المواصلات (المشاوير)', key: ['date', 'amount', 'vendor'], modes: ['add'], dateKey: 'date', filter: { key: 'vendor', label: 'المورد', options: () => [...new Set(transportRows().map((r) => r.vendor || 'تشغيل'))] },
-        fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }, { key: 'vendor', label: 'المورد (أو تشغيل)', en: 'Vendor (or ops)', type: 'enum', options: ['تشغيل'].concat(vnames()), required: true },
+      { id: 'transport', label: 'المواصلات (المشاوير)', key: ['date', 'amount', 'vendor'], modes: ['add'], dateKey: 'date', filter: { key: 'vendor', label: 'المبتكر', options: () => [...new Set(transportRows().map((r) => r.vendor || 'تشغيل'))] },
+        fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }, { key: 'vendor', label: 'المبتكر (أو تشغيل)', en: 'Vendor (or ops)', type: 'enum', options: ['تشغيل'].concat(vnames()), required: true },
           { key: 'payer', label: 'دفع', en: 'Paid by' }, { key: 'note', label: 'ملاحظة / المكان', en: 'Note' }],
         rows: () => transportRows().map((r) => ({ date: r.date, amount: r.amount, vendor: r.vendor || 'تشغيل', payer: r.payer, note: r.note })),
         existing: () => transportRows().map((r) => DX().keyOf({ date: r.date, amount: r.amount, vendor: r.vendor || 'تشغيل' }, ['date', 'amount', 'vendor'])),
@@ -205,8 +205,8 @@
             if (d.vendor === 'تشغيل') { const t = { date: d.date, dateFixed: false, raw: d.date, amount: d.amount, vendor: null, scope: 'ops', payer: d.payer || '', note: d.note || '', place: d.note || '' }; TR_SHEET.push(t); made.push(['ops', t]); }
             else { const res = D.validateVendorMovement({ amount: String(d.amount), date: D.formatDateNumeric(d.date), direction: 'withdraw', type: 'مواصلات', vendor: d.vendor }); if (Object.keys(res.errors).length) continue; made.push(['v', adapter.add('vendorMoves', res.value).id]); } }
           return { done: { created: made, updated: [] }, undo: () => made.forEach(([k, x]) => { if (k === 'ops') { const i = TR_SHEET.indexOf(x); if (i >= 0) TR_SHEET.splice(i, 1); } else adapter.remove('vendorMoves', x); }) }; } },
-      { id: 'vendorMoves', label: 'حركات الموردين (عربون / مواصلات / أخرى)', modes: ['add'], dateKey: 'date', filter: { key: 'type', label: 'النوع', options: () => D.VENDOR_TYPES.slice() },
-        fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'vendor', label: 'المورد', en: 'Vendor', type: 'enum', options: vnames(), required: true }, { key: 'type', label: 'النوع', en: 'Type', type: 'enum', options: D.VENDOR_TYPES.slice(), required: true },
+      { id: 'vendorMoves', label: 'حركات المبتكرين (عربون / مواصلات / أخرى)', modes: ['add'], dateKey: 'date', filter: { key: 'type', label: 'النوع', options: () => D.VENDOR_TYPES.slice() },
+        fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'vendor', label: 'المبتكر', en: 'Vendor', type: 'enum', options: vnames(), required: true }, { key: 'type', label: 'النوع', en: 'Type', type: 'enum', options: D.VENDOR_TYPES.slice(), required: true },
           { key: 'typeName', label: 'اسم النوع (لو «أخرى»)', en: 'Other type' }, { key: 'direction', label: 'إيداع / سحب', en: 'Direction', type: 'enum', options: ['سحب', 'إيداع'], required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }],
         rows: () => store.vendorMoves.map((m) => ({ date: m.date, vendor: m.vendor, type: m.type, typeName: m.type === 'أخرى' ? m.typeName : '', direction: m.direction === 'deposit' ? 'إيداع' : 'سحب', amount: m.amount })),
         check: (d) => ({ errors: Object.values(D.validateVendorMovement(mvIn(d)).errors) }),
@@ -239,9 +239,9 @@
         apply: (rows) => { const done = { created: [], updated: [] }; const M = { confirm: 'cf', cdate: 'cdate', deposit: 'dep', note: 'note' };
           for (const r of rows) { const f = {}; Object.keys(M).forEach((k) => { if (r.data[k] !== undefined && r.data[k] !== '') f[M[k]] = r.data[k]; }); const old = OA().patch(r.data.oid, f); if (old) done.updated.push({ id: r.data.oid, old }); }
           return { done, undo: () => done.updated.forEach((u) => OA().patch(u.id, u.old)) }; } },
-      { id: 'subEdit', label: 'الأوردرات الفرعية — الحالة والميعاد وتعليق المورد', key: 'sid', modes: ['update'], note: 'تعديل بس. «وصل المخزن» و«مرتجع» بيتغيّروا من الأوردر نفسه عشان محتاجين بيانات إضافية.',
-        fields: () => [{ key: 'sid', label: 'الأوردر الفرعي', en: 'Sub-order #', required: true }, { key: 'oid', label: 'رقم الأوردر', en: 'Order #', readOnly: true }, { key: 'product', label: 'المنتج', en: 'Product', readOnly: true }, { key: 'vendor', label: 'المورد', en: 'Vendor', readOnly: true },
-          { key: 'subStatus', label: 'حالة الأوردر الفرعي', en: 'Sub-order status', type: 'enum', options: (OA() && OA().subStatuses ? OA().subStatuses() : []).filter((x) => !POPUP_SS.includes(x)) }, { key: 'expected', label: 'ميعاد التسليم المتوقع', en: 'Expected delivery', type: 'date' }, { key: 'vendorComment', label: 'تعليق المورد', en: 'Vendor comment' }],
+      { id: 'subEdit', label: 'الأوردرات الفرعية — الحالة والميعاد وتعليق المبتكر', key: 'sid', modes: ['update'], note: 'تعديل بس. «وصل المخزن» و«مرتجع» بيتغيّروا من الأوردر نفسه عشان محتاجين بيانات إضافية.',
+        fields: () => [{ key: 'sid', label: 'الأوردر الفرعي', en: 'Sub-order #', required: true }, { key: 'oid', label: 'رقم الأوردر', en: 'Order #', readOnly: true }, { key: 'product', label: 'المنتج', en: 'Product', readOnly: true }, { key: 'vendor', label: 'المبتكر', en: 'Vendor', readOnly: true },
+          { key: 'subStatus', label: 'حالة الأوردر الفرعي', en: 'Sub-order status', type: 'enum', options: (OA() && OA().subStatuses ? OA().subStatuses() : []).filter((x) => !POPUP_SS.includes(x)) }, { key: 'expected', label: 'ميعاد التسليم المتوقع', en: 'Expected delivery', type: 'date' }, { key: 'vendorComment', label: 'تعليق المبتكر', en: 'Vendor comment' }],
         rows: () => allOrders().flatMap((o) => o.subs.map((x) => ({ sid: x.sid, oid: o.id, product: x.prod, vendor: x.vendor, subStatus: x.ss || '', expected: x.exp || '', vendorComment: x.cm || '' }))),
         existing: () => allOrders().flatMap((o) => o.subs.map((x) => x.sid)),
         apply: (rows) => { const done = { created: [], updated: [] }; const M = { subStatus: 'ss', expected: 'exp', vendorComment: 'cm' };
@@ -299,8 +299,8 @@
         existing: () => csData().quick.map((q) => q.key),
         check: (d) => ({ errors: d.key && !/^\//.test(d.key) ? ['الاختصار لازم يبدأ بـ / (مثلًا /شحن)'] : [] }),
         apply: (rows, onMatch) => upsert(csData().quick, rows, onMatch, (x, d) => x.key === d.key, (d) => ({ key: d.key, label: d.label, text: d.text })) },
-      { id: 'delayRules', label: 'قواعد التأخير لكل مورد', key: 'maker', modes: ['add', 'update'],
-        fields: () => [{ key: 'maker', label: 'المورد', en: 'Vendor', type: 'enum', options: vnames(), required: true }, { key: 'lead', label: 'مدة التصنيع (يوم)', en: 'Lead time (days)', required: true }, { key: 'risk', label: 'قابل للتأخير من يوم', en: 'At risk from day', type: 'number', required: true }, { key: 'late', label: 'متأخر بعد يوم', en: 'Late after day', type: 'number', required: true }],
+      { id: 'delayRules', label: 'قواعد التأخير لكل مبتكر', key: 'maker', modes: ['add', 'update'],
+        fields: () => [{ key: 'maker', label: 'المبتكر', en: 'Vendor', type: 'enum', options: vnames(), required: true }, { key: 'lead', label: 'مدة التصنيع (يوم)', en: 'Lead time (days)', required: true }, { key: 'risk', label: 'قابل للتأخير من يوم', en: 'At risk from day', type: 'number', required: true }, { key: 'late', label: 'متأخر بعد يوم', en: 'Late after day', type: 'number', required: true }],
         rows: () => (sapi().makerRules ? sapi().makerRules() : []).map((r) => ({ maker: r[0], lead: String(r[1]).replace(' يوم', ''), risk: Number(String(r[2]).replace(/\D/g, '')), late: Number(String(r[3]).replace(/\D/g, '')) })),
         existing: () => (sapi().makerRules ? sapi().makerRules() : []).map((r) => r[0]),
         check: (d) => ({ errors: d.risk !== undefined && d.late !== undefined && d.risk !== '' && d.late !== '' && !(d.risk < d.late) ? ['«قابل للتأخير» لازم قبل «متأخر»'] : [] }),
@@ -330,7 +330,7 @@
   const state = { tab: 'expenses', range: { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'custom' }, sort: 'balance:desc', note: null, mlog: 'expenses', mlogQ: '' };
   const hashTab = () => { const t = location.hash.slice(1); return TABS.some((x) => x.id === t) ? t : null; };
   state.tab = hashTab() || 'expenses';
-  const REPORT_TABS = [{ id: 'orders', label: 'تقارير الأوردرات' }, { id: 'vendors', label: 'تقارير الموردين' }, { id: 'accounts', label: 'تقارير الحسابات' }];
+  const REPORT_TABS = [{ id: 'orders', label: 'تقارير الأوردرات' }, { id: 'vendors', label: 'تقارير المبتكرين' }, { id: 'accounts', label: 'تقارير الحسابات' }];
   const reportTabOf = (hash) => { const m = /^reports(?:-(orders|vendors|accounts))?$/.exec(hash); return m ? (m[1] || 'orders') : null; };
   state.rtab = reportTabOf(location.hash.slice(1)) || 'orders';
   state.rrange = Object.assign(D.presetRange('last30', TODAY), { preset: 'last30' });
@@ -490,7 +490,7 @@
       headers: ['المنتج', 'رقم الأوردر', 'التاريخ', 'القيمة (ج.م)', 'الحالة'],
       rows: r.rows.map((o) => [prodThumb(o.sku, o.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + o.oid)), arDate(o.date), fmt(o.tot), o.status]),
       total: r.rows.length ? ['الإجمالي', String(r.orders) + ' أوردر', '', fmt(r.value), ''] : null,
-      onRow: (i) => showOrders({ q: r.rows[i].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, empty: 'مفيش أوردرات ناجحة أو فاشلة في الفترة دي.', note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'العربون في الفترة = حركات «عربون» المسجّلة من السيستم بتاريخها (عرابين شيت Balances_Payouts مالهاش تاريخ فمش داخلة). المواصلات = مشاوير المورد في الفترة (من غير المرتجعات).', source: 'الأوردرات + الحركات المالية + شيت المواصلات' }, { label: 'كشف حساب ' + name });
+      onRow: (i) => showOrders({ q: r.rows[i].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, empty: 'مفيش أوردرات ناجحة أو فاشلة في الفترة دي.', note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'العربون في الفترة = حركات «عربون» المسجّلة من السيستم بتاريخها (عرابين شيت Balances_Payouts مالهاش تاريخ فمش داخلة). المواصلات = مشاوير المبتكر في الفترة (من غير المرتجعات).', source: 'الأوردرات + الحركات المالية + شيت المواصلات' }, { label: 'كشف حساب ' + name });
   }
   // ---------- weekly vendor report (owner 22 Oct): every Sunday on WhatsApp — late + in progress + completed in the week + actual account ----------
   const weeklyCfg = () => ((window.IBKit && window.IBKit.store.vendorWeekly) || { weekday: 'الأحد', at: '10:00 ص' });
@@ -509,14 +509,14 @@
     const per = weeklyPer(); const x = weeklyOf(name, per); const r = x.r; const fmt = (n) => D.formatMoney(n); const c = weeklyCfg();
     const kindOf = (o, k) => (k === 'late' ? 'متأخر' : k === 'done' ? 'مكتمل' : o.delivery === 'risk' ? 'قابل للتأخير' : 'قيد التنفيذ');
     const list = r.late.map((o) => [o, 'late']).concat(r.progress.map((o) => [o, 'prog']), r.completed.map((o) => [o, 'done']));
-    U.DetailsModal({ title: 'التقرير الأسبوعي — ' + name, sub: 'بيتبعت للمورد على واتساب كل ' + c.weekday + ' الساعة ' + c.at + ' · المكتملة من ' + arDate(per.from) + ' لـ ' + arDate(per.to) + ' · المتأخرة وقيد التنفيذ = المفتوح دلوقتي',
+    U.DetailsModal({ title: 'التقرير الأسبوعي — ' + name, sub: 'بيتبعت للمبتكر على واتساب كل ' + c.weekday + ' الساعة ' + c.at + ' · المكتملة من ' + arDate(per.from) + ' لـ ' + arDate(per.to) + ' · المتأخرة وقيد التنفيذ = المفتوح دلوقتي',
       summary: [{ label: 'متأخرة', value: String(r.late.length) + ' أوردر' }, { label: 'قيد التنفيذ', value: String(r.progress.length) + ' أوردر' }, { label: 'مكتملة في الأسبوع', value: String(r.completed.length) + ' أوردر' },
         { label: 'مستحقه من المكتملة', value: fmt(r.share) + ' ج.م' }, { label: 'خصم المواصلات', value: fmt(r.transport) + ' ج.م' }, { label: 'خصم العربون', value: fmt(r.deposits) + ' ج.م' }, { label: 'الحساب الفعلي', value: fmt(r.net) + ' ج.م' }],
       headers: ['المنتج', 'رقم الأوردر', 'الحالة', 'عمر الأوردر', 'القيمة (ج.م)'],
       rows: list.map(([o, k]) => [prodThumb(o.sku, o.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + o.oid)), kindOf(o, k), o.age + ' يوم', fmt(o.tot)]),
       total: r.completed.length ? ['قيمة المكتملة', String(r.completed.length) + ' أوردر', '', '', fmt(r.completedValue)] : null,
-      onRow: (i) => showOrders({ q: list[i][0].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, shareText: VD.weeklyVendorText(name, r, per), empty: 'مفيش أوردرات للمورد ده الأسبوع ده.',
-      note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'الحساب الفعلي = مستحق المورد من الأوردرات المكتملة في الأسبوع (بعد نسبة إبتكر على تاريخ كل أوردر) − المواصلات − العربون في نفس الأسبوع. رسالة المورد مفيهاش نسبة إبتكر.', source: 'الأوردرات + الحركات المالية + شيت المواصلات' }, { label: 'التقرير الأسبوعي ' + name });
+      onRow: (i) => showOrders({ q: list[i][0].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, shareText: VD.weeklyVendorText(name, r, per), empty: 'مفيش أوردرات للمبتكر ده الأسبوع ده.',
+      note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'الحساب الفعلي = مستحق المبتكر من الأوردرات المكتملة في الأسبوع (بعد نسبة إبتكر على تاريخ كل أوردر) − المواصلات − العربون في نفس الأسبوع. رسالة المبتكر مفيهاش نسبة إبتكر.', source: 'الأوردرات + الحركات المالية + شيت المواصلات' }, { label: 'التقرير الأسبوعي ' + name });
   }
   // ---------- daily vendor follow-up (owner 22 Oct): replaces the daily late alert — late + at risk + confirmed since yesterday ----------
   function dailyRange() { const t = window.IBKit ? window.IBKit.TODAY : '2026-10-21'; const y = new Date(Date.parse(t + 'T00:00:00Z') - 86400000).toISOString().slice(0, 10); return { from: y, to: t }; }
@@ -526,12 +526,12 @@
   function openVendorDaily(name) {
     const x = dailyOf(name); const r = x.r; const fmt = (n) => D.formatMoney(n); const rg = dailyRange();
     const list = r.late.map((o) => [o, 'متأخر']).concat(r.risk.map((o) => [o, 'قابل للتأخير']), r.confirmed.map((o) => [o, 'اتأكد — ابدأ']));
-    U.DetailsModal({ title: 'المتابعة اليومية — ' + name, sub: 'بتتبعت للمورد على واتساب كل يوم الساعة 10:00 ص · المتأخرة والقابلة للتأخير = المفتوح دلوقتي · المؤكدة = اتأكدت من ' + arDate(rg.from) + ' لـ ' + arDate(rg.to),
+    U.DetailsModal({ title: 'المتابعة اليومية — ' + name, sub: 'بتتبعت للمبتكر على واتساب كل يوم الساعة 10:00 ص · المتأخرة والقابلة للتأخير = المفتوح دلوقتي · المؤكدة = اتأكدت من ' + arDate(rg.from) + ' لـ ' + arDate(rg.to),
       summary: [{ label: 'متأخرة', value: String(r.late.length) + ' أوردر' }, { label: 'قابلة للتأخير', value: String(r.risk.length) + ' أوردر' }, { label: 'اتأكدت — يبدأ فيها', value: String(r.confirmed.length) + ' أوردر' }],
       headers: ['المنتج', 'رقم الأوردر', 'الحالة', 'عمر الأوردر', 'القيمة (ج.م)'],
       rows: list.map(([o, k]) => [prodThumb(o.sku, o.prod), h('span', { class: 'vr-oid' }, h('bdi', { dir: 'ltr' }, '#' + o.oid)), k, o.age + ' يوم', fmt(o.tot)]),
-      onRow: (i) => showOrders({ q: list[i][0].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, shareText: VD.dailyVendorText(name, r, rg.to), empty: 'مفيش حاجة للمورد ده النهارده.',
-      note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'بدل تنبيه «مورد متأخر» اليومي. الأوردرات الفرعية بتبقى «مؤكد» تلقائي أول ما الأوردر الرئيسي يتأكد.', source: 'الأوردرات' }, { label: 'المتابعة اليومية ' + name });
+      onRow: (i) => showOrders({ q: list[i][0].oid }), phone: x.v && x.v.phone, email: x.v && x.v.email, shareText: VD.dailyVendorText(name, r, rg.to), empty: 'مفيش حاجة للمبتكر ده النهارده.',
+      note: bn(x.v).replace(/^ · /, '') + (bn(x.v) ? ' · ' : '') + 'بدل تنبيه «مبتكر متأخر» اليومي. الأوردرات الفرعية بتبقى «مؤكد» تلقائي أول ما الأوردر الرئيسي يتأكد.', source: 'الأوردرات' }, { label: 'المتابعة اليومية ' + name });
   }
   // ---------- delivery (owner 22 Oct): a sub-order «جاهز للشحن من …» → Bosta waybill for the delivery owner (sender, receiver, total / deposit / remaining) ----------
   const dcfg = () => (window.IBKit && window.IBKit.store.delivery) || { company: 'بوسطة', owner: 'M07', whName: 'مخزن إبتكر', whAddress: '', whPhone: '' };
@@ -550,15 +550,15 @@
     const w0 = waybills().find((x) => x.key === key); if (!w0) { window.IBKit.toast('البوليصة دي اتعملت خلاص', 'success'); return; } const fmt = (n) => D.formatMoney(n); const own = dOwner();
     const party = (title, p, editable, f, set, e) => h('div', { class: 'wb-party' }, h('b', { class: 't-label' }, title),
       U.InfoRow({ label: 'الاسم', value: p.name }), U.InfoRow({ label: 'التليفون', value: waLink(p.phone) }),
-      editable ? K.two(K.field.text('city', 'المحافظة', f, e, set, { placeholder: 'مثلًا: الجيزة' }), K.field.text('addr', 'العنوان بالتفصيل', f, e, set, { required: true, placeholder: 'الشارع، الحي، علامة مميزة' })) : U.InfoRow({ label: 'العنوان', value: p.address || h('span', { class: 'wb-miss' }, 'ناقص — كمّله من ملف ' + (p.kind === 'vendor' ? 'المورد' : 'المخزن في الإعدادات')) }));
+      editable ? K.two(K.field.text('city', 'المحافظة', f, e, set, { placeholder: 'مثلًا: الجيزة' }), K.field.text('addr', 'العنوان بالتفصيل', f, e, set, { required: true, placeholder: 'الشارع، الحي، علامة مميزة' })) : U.InfoRow({ label: 'العنوان', value: p.address || h('span', { class: 'wb-miss' }, 'ناقص — كمّله من ملف ' + (p.kind === 'vendor' ? 'المبتكر' : 'المخزن في الإعدادات')) }));
     const o0 = OA().get(w0.oid);
     K.form({ title: 'بوليصة ' + dcfg().company + ' — أوردر IB-' + w0.oid + ' · فرعي ' + w0.sid, wide: true, values: { city: o0.city || '', addr: o0.addr || '', no: '' },
       note: (f) => h('div', { class: 'wb-head' }, K.Tag('info', w0.route), h('span', { class: 't-small' }, w0.prod + ' × ' + w0.qty + (w0.readyAt ? ' · جاهز من ' + w0.readyAt : '') + ' · المسؤول: ' + (own ? own.name : '—'))),
       fields: (f, e, set) => { const toCust = w0.receiver.kind === 'customer' || w0.sender.kind === 'customer';
         const w = window.IbtekrOps.waybillFor(Object.assign({}, o0, { city: f.city, addr: f.addr }), OA().get(w0.oid).subs.find((x) => String(x.sid) === w0.sid), { name: w0.sender.kind === 'vendor' ? w0.sender.name : w0.receiver.name, phone: (w0.sender.kind === 'vendor' ? w0.sender : w0.receiver).phone, address: (w0.sender.kind === 'vendor' ? w0.sender : w0.receiver).address }, { name: dcfg().whName, phone: dcfg().whPhone, address: dcfg().whAddress });
-        return [h('div', { class: 'wb-grid' }, party('المرسل — ' + ({ vendor: 'المورد', warehouse: 'المخزن', customer: 'العميل' })[w0.sender.kind], w0.sender, w0.sender.kind === 'customer', f, set, e), party('المستلم — ' + ({ vendor: 'المورد', warehouse: 'المخزن', customer: 'العميل' })[w0.receiver.kind], w0.receiver, w0.receiver.kind === 'customer', f, set, e)),
+        return [h('div', { class: 'wb-grid' }, party('المرسل — ' + ({ vendor: 'المبتكر', warehouse: 'المخزن', customer: 'العميل' })[w0.sender.kind], w0.sender, w0.sender.kind === 'customer', f, set, e), party('المستلم — ' + ({ vendor: 'المبتكر', warehouse: 'المخزن', customer: 'العميل' })[w0.receiver.kind], w0.receiver, w0.receiver.kind === 'customer', f, set, e)),
           h('div', { class: 'dt-sum' }, [['الإجمالي', w.total], ['العربون', w.deposit], ['المبلغ المتبقي', w.remaining], ['يتحصّل من العميل', w.collect]].map(([l, v]) => h('div', { class: 'dt-chip' }, h('span', { class: 't-small' }, l), h('b', null, fmt(v) + ' ج.م')))),
-          toCust ? null : h('p', { class: 't-small help', style: 'margin:0' }, 'شحنة من المورد للمخزن — مفيش تحصيل.'),
+          toCust ? null : h('p', { class: 't-small help', style: 'margin:0' }, 'شحنة من المبتكر للمخزن — مفيش تحصيل.'),
           w.missing.length ? U.InlineNote({ kind: 'warning', children: 'ناقص: ' + w.missing.join('، ') }) : null,
           K.field.text('no', 'رقم بوليصة ' + dcfg().company, f, e, set, { required: true, placeholder: 'من لوحة ' + dcfg().company + ' بعد ما تعملها', help: 'لما تكتبه البوليصة بتتقفل وتختفي من التنبيهات' })]; },
       validate: (f) => { const e = {}; if (!String(f.no || '').trim()) e.no = 'اكتب رقم البوليصة'; if ((w0.receiver.kind === 'customer' || w0.sender.kind === 'customer') && !String(f.addr || '').trim()) e.addr = 'اكتب عنوان العميل'; return e; },
@@ -590,7 +590,7 @@
     const pay = p && p.due.show ? [{ own: { role: 'الحسابات' }, key: 'pay:' + p.due.date, title: 'مرتبات الموظفين — يوم الصرف ' + arDate(p.due.date), sub: 'فاضل ' + p.due.daysLeft + ' يوم · ' + p.slips.length + ' موظف · صافي ' + D.formatMoney(p.net) + ' ج.م · الكشف «' + p.status + '»', meta: '', tone: p.due.daysLeft <= 3 ? 'error' : 'warning', icon: 'wallet', run: openPayrollAlert }] : [];
     const st = vendorStatements().map((x) => ({ own: { role: 'الحسابات' }, key: 'vs:' + x.name, title: 'كشف حساب ' + x.name, sub: 'الرصيد ' + D.formatMoney(x.r.balance) + ' ج.م · ناجحة ' + x.r.success + ' · فاشلة ' + x.r.failed + ' · عربون ' + D.formatMoney(x.mo.deposits) + ' · مواصلات ' + D.formatMoney(x.mo.transport), meta: 'من ' + per.from.slice(8) + '/' + per.from.slice(5, 7) + ' لـ ' + per.to.slice(8) + '/' + per.to.slice(5, 7), tone: x.r.balance < 0 ? 'orange' : 'neutral', icon: 'truck', run: () => openVendorStatement(x.name) }));
     return { id: 'accounts', label: 'الحسابات', icon: 'wallet', unit: 'تنبيه', all: () => go('accounts'), allLabel: 'عرض الكل في الحسابات', empty: 'مفيش تنبيهات حسابات.',
-      tabs: [['all', 'الكل', pay.concat(st)], ['payroll', 'المرتبات', pay], ['vendors', 'كشوف الموردين', st]] };
+      tabs: [['all', 'الكل', pay.concat(st)], ['payroll', 'المرتبات', pay], ['vendors', 'كشوف المبتكرين', st]] };
   }
   // ---------- custom task reports (owner 22 Oct): several alert sources grouped into one report for an employee / team ----------
   function digestSources() {
@@ -628,7 +628,7 @@
     return [
       { id: 'customers', label: 'عملاء', icon: 'users', unit: 'تنبيه', all: () => showOrders({ st: 'معلّق' }), allLabel: 'عرض الكل في الأوردرات', empty: 'كله تمام مع العملاء.',
         tabs: [['all', 'الكل', lateC.concat(follow, unconf, waiting)], ['late', 'متأخرة — محتاج متابعة', lateC], ['follow', 'متابعة', follow], ['unconf', 'غير مؤكد', unconf], ['waiting', 'في انتظار الرد', waiting]] },
-      { id: 'vendors', label: 'الموردين', icon: 'truck', unit: 'تنبيه', all: () => showOrders({ deliv: 'late' }), allLabel: 'عرض الكل في الأوردرات', empty: 'مفيش موردين متأخرين.',
+      { id: 'vendors', label: 'المبتكرين', icon: 'truck', unit: 'تنبيه', all: () => showOrders({ deliv: 'late' }), allLabel: 'عرض الكل في الأوردرات', empty: 'مفيش مبتكرين متأخرين.',
         tabs: [['all', 'الكل', late.concat(risk, dy, wk)], ['late', 'متأخر', late], ['risk', 'قابل للتأخير', risk], ['daily', 'المتابعة اليومية', dy], ['weekly', 'التقرير الأسبوعي', wk]] },
       accountsSection(), deliverySection(),
       { id: 'tasks', label: 'مهام', icon: 'checkCircle', unit: 'مهمة', all: () => showTickets(), allLabel: 'عرض الكل في تذاكر الفريق', empty: 'مفيش مهام مستنياك.',
@@ -724,14 +724,14 @@
     const title = (kind === 'all' ? 'أوردرات متأخرة وقابلة للتأخير — ' : kind === 'risk' ? 'أوردرات قابلة للتأخير — ' : 'أوردرات متأخرة — ') + vendor;
     let m = null;
     const table = h('table', { class: 'vlo-table' },
-      h('thead', null, h('tr', null, ['رقم الأوردر'].concat(kind === 'all' ? ['التأخير'] : [], ['العميل', 'المنتج · SKU']).concat([ 'حالة الفرعي', 'تاريخ تبليغ المورد', 'عمر الأوردر']).map((x) => h('th', { scope: 'col' }, x)))),
+      h('thead', null, h('tr', null, ['رقم الأوردر'].concat(kind === 'all' ? ['التأخير'] : [], ['العميل', 'المنتج · SKU']).concat([ 'حالة الفرعي', 'تاريخ تبليغ المبتكر', 'عمر الأوردر']).map((x) => h('th', { scope: 'col' }, x)))),
       h('tbody', null, rows.map((r) => h('tr', null,
         h('td', { 'data-l': 'رقم الأوردر' }, h('button', { type: 'button', class: 'vlo-link', onClick: () => { m.close(); OA().details(r.id, r.sid ? 'subs' : 'info'); } }, 'IB-' + r.id, Icon('external', 'sm'))),
         kind === 'all' ? h('td', { 'data-l': 'التأخير' }, U.DelayBadge(r.state)) : null,
         h('td', { 'data-l': 'العميل' }, r.name),
         h('td', { 'data-l': 'المنتج · SKU' }, h('div', { class: 'vlo-prod' }, h('span', { class: 'th' }, OA().thumb(r.sku) ? h('img', { src: OA().thumb(r.sku), alt: '' }) : Icon('box', 'sm')), h('span', { class: 'tx' }, h('span', null, r.prod + ' × ' + r.qty), h('small', null, r.sku || '—')))),
         h('td', { 'data-l': 'حالة الفرعي' }, r.ss || '— اختر الحالة —'),
-        h('td', { 'data-l': 'تاريخ تبليغ المورد' }, r.exp ? D.formatDateNumeric(r.exp) : 'أضف تاريخ الإبلاغ'),
+        h('td', { 'data-l': 'تاريخ تبليغ المبتكر' }, r.exp ? D.formatDateNumeric(r.exp) : 'أضف تاريخ الإبلاغ'),
         h('td', { 'data-l': 'عمر الأوردر' }, r.age + ' يوم')))));
     const sub = h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, String(rows.length) + (kind === 'all' ? ' أوردر — ' + lateN + ' متأخر · ' + riskN + ' قابل للتأخير' : kind === 'risk' ? ' أوردر قابل للتأخير' : ' أوردر متأخر') + (oldest ? ' · أقدمها ' + oldest + ' يوم' : '') + (v && v.phone ? ' · الموبايل ' + v.phone : '') + ' · «مشاركة» بتبعت البوب أب كصورة على واتساب أو إيميل');
     const shareWrap = h('div', { class: 'pop-anchor', 'data-popover-root': '', style: 'position:relative' });
@@ -757,15 +757,15 @@
       } catch (e) { note = 'ما قدرتش أعمل الصورة — اتبعت النص بس.'; }
       log.append({ action: 'vendor.notify', actor: ACTOR, newValue: vendor + ' · ' + (via === 'whatsapp' ? 'واتساب' : 'إيميل') + ' · ' + rows.length + ' أوردر' });
       const a = document.createElement('a'); a.href = href; a.target = '_blank'; a.rel = 'noopener'; document.body.appendChild(a); a.click(); a.remove();
-      vnotify('success', 'اتفتح ' + (via === 'whatsapp' ? 'واتساب' : 'الإيميل') + ' للمورد. ' + note);
+      vnotify('success', 'اتفتح ' + (via === 'whatsapp' ? 'واتساب' : 'الإيميل') + ' للمبتكر. ' + note);
     }
   }
 
   // ---------- AI assistant (header button + panel). Parsing is pure (commands.js); every write is confirmed, validated and goes through the adapter. ----------
   const C = window.IbtekrCommands;
   const AI_ACTOR = 'AI (بأمر ' + ACTOR + ')';
-  const AI_EXAMPLES = ['افتح حسابات الموردين', 'اعرض الأوردرات المتأخرة', 'سجل سحب مرتبات 5000', 'رتب الموردين بالعربون'];
-  const AI_HELP = 'مش فاهم الأمر ده. أقدر أفتح صفحة، أفلتر الأوردرات، أغيّر الفترة، أرتّب الموردين، أو أسجّل حركة مصروفات / مورد / حساب. جرّب واحد من الأمثلة.';
+  const AI_EXAMPLES = ['افتح حسابات المبتكرين', 'اعرض الأوردرات المتأخرة', 'سجل سحب مرتبات 5000', 'رتب المبتكرين بالعربون'];
+  const AI_HELP = 'مش فاهم الأمر ده. أقدر أفتح صفحة، أفلتر الأوردرات، أغيّر الفترة، أرتّب المبتكرين، أو أسجّل حركة مصروفات / مبتكر / حساب. جرّب واحد من الأمثلة.';
   const ai = { msgs: [{ role: 'ai', text: 'أهلاً يا صفوت. اكتب الأمر وأنا أنفذه. أي تسجيل بيتأكد منك الأول.' }], pending: null, busy: false, turns: [] };
   let aiPanel = null, aiBtn = null, aiList = null, aiInput = null;
   const aiCtx = () => {
@@ -773,15 +773,15 @@
     const orders = (window.OrdersApp && window.OrdersApp.vendors) ? window.OrdersApp.vendors() : [];
     return { vendors: names.concat(orders.filter((n) => !seen.has(n.toLowerCase()))), today: TODAY };
   };
-  const AI_ASK = { amount: 'المبلغ كام؟', category: 'النوع إيه؟ (المرتبات، المصروفات، الاشتراكات، الإعلانات)', vendor: 'أنهي مورد؟' };
+  const AI_ASK = { amount: 'المبلغ كام؟', category: 'النوع إيه؟ (المرتبات، المصروفات، الاشتراكات، الإعلانات)', vendor: 'أنهي مبتكر؟' };
   const KIND_OF = { addExpense: 'expenses', addVendorMove: 'vendorMoves', addAccountMove: 'accountMoves' };
   const TAB_OF = { expenses: 'expenses', vendorMoves: 'vendors', accountMoves: 'actual' };
   function aiSay(text) { ai.msgs.push({ role: 'ai', text }); aiDraw(); }
   function aiSummary(cmd) {
     const dirWord = cmd.direction === 'deposit' ? 'إيداع' : 'سحب';
-    const rows = [['العملية', dirWord + (cmd.type === 'addExpense' ? ' مصروفات' : cmd.type === 'addVendorMove' ? ' للمورد' : ' في حساب')], ['المبلغ (ج.م)', num(D.formatMoney(Number(cmd.amount)))]];
+    const rows = [['العملية', dirWord + (cmd.type === 'addExpense' ? ' مصروفات' : cmd.type === 'addVendorMove' ? ' للمبتكر' : ' في حساب')], ['المبلغ (ج.م)', num(D.formatMoney(Number(cmd.amount)))]];
     if (cmd.type === 'addExpense') { rows.push(['النوع', cmd.category]); if (cmd.beneficiary) rows.push(['المستفيد', cmd.beneficiary === D.OTHER ? cmd.otherName : cmd.beneficiary]); }
-    if (cmd.type === 'addVendorMove') rows.push(['المورد', cmd.vendor], ['النوع', cmd.vendorType]);
+    if (cmd.type === 'addVendorMove') rows.push(['المبتكر', cmd.vendor], ['النوع', cmd.vendorType]);
     if (cmd.type === 'addAccountMove') rows.push(['نوع الحساب', cmd.account]);
     rows.push(['التاريخ', ['اليوم — ', num(D.formatDateNumeric(TODAY))]]);
     return rows;
@@ -811,11 +811,11 @@
       case 'ordersFilter': {
         if (state.page !== 'orders') go('orders'); window.OrdersApp.apply(cmd.filter);
         const gq = document.getElementById('gq'); if (gq && cmd.filter.q !== undefined) gq.value = cmd.filter.q;
-        aiSay('فلترت الأوردرات: ' + Object.entries(cmd.filter).map(([k, v]) => ({ q: 'بحث', st: 'الحالة', deliv: 'التسليم', vendor: 'المورد' }[k]) + ' = ' + ({ late: 'متأخر', risk: 'قابل للتأخير', ok: 'غير متأخر' }[v] || v)).join('، ') + '.'); return;
+        aiSay('فلترت الأوردرات: ' + Object.entries(cmd.filter).map(([k, v]) => ({ q: 'بحث', st: 'الحالة', deliv: 'التسليم', vendor: 'المبتكر' }[k]) + ' = ' + ({ late: 'متأخر', risk: 'قابل للتأخير', ok: 'غير متأخر' }[v] || v)).join('، ') + '.'); return;
       }
       case 'ordersClear': window.OrdersApp.clear(); { const gq = document.getElementById('gq'); if (gq) gq.value = ''; } aiSay('مسحت فلاتر الأوردرات.'); return;
       case 'setRange': { const r = cmd.range || D.presetRange(cmd.preset, TODAY); state.range = { from: r.from, to: r.to, preset: cmd.preset || 'custom' }; if (state.page !== 'accounts') go('accounts'); else render(); aiSay('غيّرت ' + D.rangeLabel(r.from, r.to) + '.'); return; }
-      case 'sortVendors': state.sort = cmd.sort; state.tab = 'vendors'; go('accounts'); aiSay('رتّبت الموردين: ' + SORTS.find((x) => x.value === cmd.sort).label + '.'); return;
+      case 'sortVendors': state.sort = cmd.sort; state.tab = 'vendors'; go('accounts'); aiSay('رتّبت المبتكرين: ' + SORTS.find((x) => x.value === cmd.sort).label + '.'); return;
       case 'addExpense': case 'addVendorMove': case 'addAccountMove':
         if (cmd.missing.length) { ai.pending = cmd; aiSay(AI_ASK[cmd.missing[0]]); return; }
         ai.msgs.push({ role: 'ai', text: 'هسجّل الحركة دي — راجعها وأكّد:', confirm: cmd }); aiDraw(); return;
@@ -826,10 +826,10 @@
   let aiSample = null, aiCtl = null, aiNoteEl = null, aiSendBtn = null, aiStopBtn = null;
   const FALLBACK_CODES = ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'tools_unavailable'];
   const aiRules = () => 'أنت "مساعد AI" جوه نظام إبتكر للأوبريشن (إبتكر كلوب — ماركت بليس هاند ميد). المستخدم صفوت كمال، المؤسس. اتكلم مصري مختصر ومباشر. النهارده ' + TODAY + '.\n'
-    + 'تنفّذ طلبات المستخدم بالأدوات المتاحة: تفتح صفحات، تفلتر الأوردرات، تغيّر الفترة، ترتّب الموردين، وتجيب أرقام. لأي سؤال عن أرقام أو أوردرات استخدم get_summary أو get_orders ومتخترعش أرقام أبداً.\n'
-    + 'التسجيل المالي (مصروفات / حركة مورد / حركة حساب) بيتم بأداة propose_entry بس. هي بتعرض كارت تأكيد للمستخدم وما بتسجّلش لوحدها، فمتقولش إن الحاجة اتسجّلت — قول إنك عرضت الكارت ومستني تأكيده. لو ناقص مبلغ أو نوع أو مورد اسأل الأول. التاريخ دايماً النهارده.\n'
-    + 'قيم مسموحة. أنواع المصروفات: ' + D.CATEGORIES.join('، ') + '. أنواع الحساب: ' + D.ACCOUNTS.join('، ') + '. أنواع حركة المورد: ' + D.VENDOR_TYPES.join('، ') + '. حالات الأوردر: قيد الانتظار، جاري التنفيذ، جاهز للشحن، قيد الشحن، مكتمل، معلّق، استرجاع، ملغي، فشل. حالة التأكيد: مؤكد بعربون، مؤكد بدون عربون، غير مؤكد. التسليم: late = متأخر، risk = قابل للتأخير، ok = غير متأخر.\n'
-    + 'إيداع للمورد = مدفوع للمورد (العربون يزيد والرصيد ينقص). متعرضش أرقام تليفونات العملاء. لو الطلب برة قدرات الأدوات قول كده بصراحة. رد قصير، من غير مقدمات.';
+    + 'تنفّذ طلبات المستخدم بالأدوات المتاحة: تفتح صفحات، تفلتر الأوردرات، تغيّر الفترة، ترتّب المبتكرين، وتجيب أرقام. لأي سؤال عن أرقام أو أوردرات استخدم get_summary أو get_orders ومتخترعش أرقام أبداً.\n'
+    + 'التسجيل المالي (مصروفات / حركة مبتكر / حركة حساب) بيتم بأداة propose_entry بس. هي بتعرض كارت تأكيد للمستخدم وما بتسجّلش لوحدها، فمتقولش إن الحاجة اتسجّلت — قول إنك عرضت الكارت ومستني تأكيده. لو ناقص مبلغ أو نوع أو مبتكر اسأل الأول. التاريخ دايماً النهارده.\n'
+    + 'قيم مسموحة. أنواع المصروفات: ' + D.CATEGORIES.join('، ') + '. أنواع الحساب: ' + D.ACCOUNTS.join('، ') + '. أنواع حركة المبتكر: ' + D.VENDOR_TYPES.join('، ') + '. حالات الأوردر: قيد الانتظار، جاري التنفيذ، جاهز للشحن، قيد الشحن، مكتمل، معلّق، استرجاع، ملغي، فشل. حالة التأكيد: مؤكد بعربون، مؤكد بدون عربون، غير مؤكد. التسليم: late = متأخر، risk = قابل للتأخير، ok = غير متأخر.\n'
+    + 'إيداع للمبتكر = مدفوع للمبتكر (العربون يزيد والرصيد ينقص). متعرضش أرقام تليفونات العملاء. لو الطلب برة قدرات الأدوات قول كده بصراحة. رد قصير، من غير مقدمات.';
   function aiVendorName(n) { const l = String(n || '').trim().toLowerCase(); const hit = SEED.vendors.find((v) => v.name.toLowerCase() === l); return hit ? hit.name : ''; }
   const syncGq = (v) => { const gq = document.getElementById('gq'); if (gq) gq.value = v || ''; };
   function aiTools() {
@@ -837,7 +837,7 @@
     const ordFilter = { q: { ...str, description: 'بحث برقم الأوردر أو اسم العميل' }, st: str, conf: str, vendor: str, deliv: { type: 'string', enum: ['late', 'risk', 'ok'] } };
     const pick = (i) => { const f = {}; for (const k of ['q', 'st', 'conf', 'vendor', 'deliv']) if (i[k]) f[k] = String(i[k]); return f; };
     return [
-      { name: 'navigate', description: 'افتح صفحة. page = orders أو accounts. لو accounts ممكن تحدد tab: expenses (المصروفات) / sales (المبيعات) / vendors (حسابات الموردين) / actual (الحساب الفعلي).', inputSchema: { type: 'object', properties: { page: { type: 'string', enum: ['orders', 'accounts'] }, tab: { type: 'string', enum: ['expenses', 'sales', 'vendors', 'actual'] } }, required: ['page'] },
+      { name: 'navigate', description: 'افتح صفحة. page = orders أو accounts. لو accounts ممكن تحدد tab: expenses (المصروفات) / sales (المبيعات) / vendors (حسابات المبتكرين) / actual (الحساب الفعلي).', inputSchema: { type: 'object', properties: { page: { type: 'string', enum: ['orders', 'accounts'] }, tab: { type: 'string', enum: ['expenses', 'sales', 'vendors', 'actual'] } }, required: ['page'] },
         execute: (i) => { if (i.tab && TABS.some((t) => t.id === i.tab)) state.tab = i.tab; go(i.page === 'orders' ? 'orders' : 'accounts'); return 'opened ' + state.page + (state.page === 'accounts' ? '/' + state.tab : ''); } },
       { name: 'filter_orders', description: 'افتح الأوردرات وطبّق فلاتر على الشاشة (بتتجمع فوق الفلاتر الحالية إلا لو clear=true). بيرجّع عدد الأوردرات المطابقة.', inputSchema: { type: 'object', properties: { clear: { type: 'boolean' }, ...ordFilter } },
         execute: (i) => { if (state.page !== 'orders') go('orders'); if (i.clear) OA.clear(); const f = pick(i); if (f.vendor) { const hit = OA.vendors().find((v) => v.toLowerCase() === f.vendor.toLowerCase()); if (!hit) throw new Error('unknown vendor'); f.vendor = hit; } const n = OA.apply(f); syncGq(f.q !== undefined ? f.q : (i.clear ? '' : document.getElementById('gq') && document.getElementById('gq').value)); return { matching: n }; } },
@@ -845,14 +845,14 @@
         execute: (i) => OA.query(pick(i), Math.min(Number(i.limit) || 10, 20)) },
       { name: 'set_period', description: 'غيّر الفترة في صفحة الحسابات. إمّا preset (today, yesterday, todayYesterday, last7, last14, last28, last30, thisWeek, lastWeek, thisMonth, lastMonth) أو from و to بصيغة YYYY-MM-DD.', inputSchema: { type: 'object', properties: { preset: str, from: str, to: str } },
         execute: (i) => { let r; if (i.preset) { r = D.presetRange(String(i.preset), TODAY); if (!r) throw new Error('unknown preset'); } else if (/^\d{4}-\d{2}-\d{2}$/.test(i.from || '') && /^\d{4}-\d{2}-\d{2}$/.test(i.to || '') && i.from <= i.to) r = { from: i.from, to: i.to }; else throw new Error('need preset or valid from<=to'); state.range = { from: r.from, to: r.to, preset: i.preset || 'custom' }; if (state.page !== 'accounts') go('accounts'); else render(); return D.rangeLabel(r.from, r.to); } },
-      { name: 'sort_vendors', description: 'رتّب حسابات الموردين. sort = balance:desc | balance:asc | deposits:desc | deposits:asc.', inputSchema: { type: 'object', properties: { sort: { type: 'string', enum: SORTS.map((x) => x.value) } }, required: ['sort'] },
+      { name: 'sort_vendors', description: 'رتّب حسابات المبتكرين. sort = balance:desc | balance:asc | deposits:desc | deposits:asc.', inputSchema: { type: 'object', properties: { sort: { type: 'string', enum: SORTS.map((x) => x.value) } }, required: ['sort'] },
         execute: (i) => { if (!SORTS.some((x) => x.value === i.sort)) throw new Error('bad sort'); state.sort = i.sort; state.tab = 'vendors'; go('accounts'); return 'sorted ' + i.sort; } },
-      { name: 'get_summary', description: 'اقرا أرقام النظام الحالية: الفترة المعروضة، المصروفات حسب النوع، أرصدة الحسابات، ملخص الموردين وأعلى 5 أرصدة، وأعداد الأوردرات والتنبيهات. استخدمها قبل أي إجابة فيها أرقام.', inputSchema: { type: 'object', properties: {} },
+      { name: 'get_summary', description: 'اقرا أرقام النظام الحالية: الفترة المعروضة، المصروفات حسب النوع، أرصدة الحسابات، ملخص المبتكرين وأعلى 5 أرصدة، وأعداد الأوردرات والتنبيهات. استخدمها قبل أي إجابة فيها أرقام.', inputSchema: { type: 'object', properties: {} },
         execute: () => {
           const tot = D.categoryTotals(SEED.expenseSeed, store.expenses, state.range.from, state.range.to); const accs = D.deriveAccounts(SEED.accounts, store.accountMoves).balances; const vs = vendorsNow(); const o = OA.query({}, 0); const al = OA.alerts();
           return { today: TODAY, page: state.page, tab: state.tab, period: D.rangeLabel(state.range.from, state.range.to), expenseTotal: tot.total, expensesByCategory: Object.fromEntries(D.CATEGORIES.map((c) => [c, tot.byCategory[c].amount])), accounts: accs, vendors: D.vendorSummary(vs), topVendorsByBalance: [...vs].sort((a, b) => b.balance - a.balance).slice(0, 5).map((v) => ({ name: v.name, balance: v.balance, deposits: v.deposits })), orders: { total: o.total, byStatus: o.byStatus, delivery: o.delivery }, alerts: { followUp: al.follow.length, unconfirmed: al.unconfirmed.length, lateVendors: al.lateVendors.length } };
         } },
-      { name: 'propose_entry', description: 'جهّز حركة مالية وورّي المستخدم كارت تأكيد. ما بتسجّلش لوحدها — لازم المستخدم يضغط تأكيد. kind: expense (مصروفات: category مطلوب، beneficiary اسم مورد أو "آخر" + otherName) | vendor (حركة مورد: vendor و vendorType) | account (حركة حساب: account). direction: withdraw أو deposit. amount رقم موجب.', inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['expense', 'vendor', 'account'] }, direction: { type: 'string', enum: ['withdraw', 'deposit'] }, amount: { type: 'number' }, category: { type: 'string', enum: [...D.CATEGORIES] }, beneficiary: str, otherName: str, vendor: str, vendorType: { type: 'string', enum: [...D.VENDOR_TYPES] }, account: { type: 'string', enum: [...D.ACCOUNTS] } }, required: ['kind', 'direction', 'amount'] },
+      { name: 'propose_entry', description: 'جهّز حركة مالية وورّي المستخدم كارت تأكيد. ما بتسجّلش لوحدها — لازم المستخدم يضغط تأكيد. kind: expense (مصروفات: category مطلوب، beneficiary اسم مبتكر أو "آخر" + otherName) | vendor (حركة مبتكر: vendor و vendorType) | account (حركة حساب: account). direction: withdraw أو deposit. amount رقم موجب.', inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['expense', 'vendor', 'account'] }, direction: { type: 'string', enum: ['withdraw', 'deposit'] }, amount: { type: 'number' }, category: { type: 'string', enum: [...D.CATEGORIES] }, beneficiary: str, otherName: str, vendor: str, vendorType: { type: 'string', enum: [...D.VENDOR_TYPES] }, account: { type: 'string', enum: [...D.ACCOUNTS] } }, required: ['kind', 'direction', 'amount'] },
         execute: (i) => {
           const base = { direction: i.direction, amount: String(i.amount) };
           let cmd;
@@ -1130,7 +1130,7 @@
     const area = (id, key, label, opts) => U.Textarea(Object.assign({ id, label, value: f[key], error: errs[key], rows: 2, onInput: (v) => { f[key] = v; } }, opts || {}));
     // الإيداع في المصروفات = فلوس راجعة (استرجاع / إلغاء اشتراك / خصم) — مش نفس حقول السحب
     if (direction === 'deposit') {
-      out.push(txt('f-src', 'source', 'مصدر المبلغ', { required: true, maxlength: 80, placeholder: 'مين رجّع الفلوس — مورد، منصة إعلانات، موظف…' }));
+      out.push(txt('f-src', 'source', 'مصدر المبلغ', { required: true, maxlength: 80, placeholder: 'مين رجّع الفلوس — مبتكر، منصة إعلانات، موظف…' }));
       out.push(U.Select({ id: 'f-reason', label: 'سبب الإيداع', required: true, options: D.REFUND_REASONS.map((r) => ({ value: r, label: r })), value: f.reason, error: errs.reason, placeholder: 'اختار السبب', onChange: (v) => { f.reason = v; redraw(); } }));
       out.push(area('f-note', 'note', 'ملاحظات', { placeholder: 'اختياري — رقم الفاتورة، المرجع، أي تفاصيل' }));
       return out;
@@ -1671,34 +1671,6 @@
           () => CardList({ headers, titleIndex: 1, rows: rep.actionRows.map((r) => [num(r.id), r.customer, r.status, cfText(r.confirm), U.DelayBadge(r.delivery), num(String(r.ageDays)), num(money(r.total))]) })) }),
       h('p', { class: 'source' }, 'المصدر: الأوردرات (Airtable base appwlLhZ8JpVAgzgI) · الفترة تُحسب من تاريخ الأوردر · كل الأرقام مشتقة ولا تُكتب يدويًا')];
   }
-  function VendorsReportView() {
-    const rep = R.vendorsReport(ordersRows(), state.rrange, TODAY, vendorsNow());
-    const tA = trAll(); rep.rows.forEach((r) => { r.transport = trVendor(r.name).total; }); const trTot = Math.round(rep.rows.reduce((x, r) => x + r.transport, 0) * 100) / 100;
-    const headers = ['المورد', 'الأوردرات', 'قابلة للتأخير', 'العمولة', 'حصة إبتكر (مكتمل)', 'العرابين', 'المواصلات', 'الرصيد الحالي'];
-    rExport = { label: 'جدول الموردين', headers, rows: rep.rows.map((r) => [r.name, r.orders, r.late, r.pct, r.share, r.deposits, r.transport, r.balance]) };
-    const vs = vendorsNow(); const vOpen = (list) => (i) => { const v = vstore.findByName(list[i].name); if (v) openVendor(v.id, { inPlace: true }); };
-    const vrow = (r) => [r.name, String(r.orders), String(r.late), r.pct, money(r.share), money(r.deposits), money(r.transport), money(r.balance)];
-    const vdet2 = (k) => {
-      if (k === 'active') { const l = rep.rows.filter((r) => r.orders > 0); return { title: 'الموردين النشطين في الفترة — ' + l.length, sub: 'مورد له أوردر واحد على الأقل · الأوردر المشترك بيتحسب لكل مورد فيه', summary: [{ label: 'موردين', value: String(l.length) }, { label: 'أوردرات', value: String(l.reduce((x, r) => x + r.orders, 0)) }], headers, rows: l.map(vrow), onRow: vOpen(l) }; }
-      if (k === 'pct') { const l = vs.filter((v) => /%/.test(v.pct) && parseFloat(v.pct) < 100).sort((a, b) => parseFloat(b.pct) - parseFloat(a.pct)); return { title: 'عمولة إبتكر لكل مورد — المتوسط ' + Math.round(rep.avgCommission * 100) + '%', sub: 'ثابتة حسب جدول الموردين · بتتراوح 30% – 65%', summary: [{ label: 'المتوسط', value: Math.round(rep.avgCommission * 100) + '%' }, { label: 'أعلى', value: l.length ? l[0].name + ' ' + l[0].pct : '—' }, { label: 'أقل', value: l.length ? l[l.length - 1].name + ' ' + l[l.length - 1].pct : '—' }], headers: ['المورد', 'العمولة', 'حصة إبتكر (مكتمل)'], rows: l.map((v) => [v.name, v.pct, money(v.c[2])]), onRow: vOpen(l), note: 'نسب Antikiano / Rufaida / HANDS بانتظار تأكيد المالك.' }; }
-      if (k === 'dep') { const l = vs.filter((v) => v.deposits > 0).sort((a, b) => b.deposits - a.deposits); return { title: 'عرابين مدفوعة للموردين — ' + money(rep.deposits) + ' ج.م', sub: 'بتتخصم من رصيد المورد لما الأوردرات تكتمل', summary: [{ label: 'الإجمالي', value: money(rep.deposits) + ' ج.م' }, { label: 'موردين', value: String(l.length) }], headers: ['المورد', 'العربون', 'الرصيد الحالي'], rows: l.map((v) => [v.name, money(v.deposits), money(v.balance)]), total: ['الإجمالي', money(l.reduce((x, v) => x + v.deposits, 0)), money(l.reduce((x, v) => x + v.balance, 0))], onRow: vOpen(l), source: 'شيت Balances_Payouts + الحركات المالية' }; }
-      const l = rep.rows.filter((r) => r.late > 0).sort((a, b) => b.late - a.late); return { title: 'موردين عندهم أوردرات قابلة للتأخير — ' + l.length, sub: 'من ' + rep.active + ' مورد نشط في الفترة · قاعدة 9 / 11 يوم', summary: [{ label: 'موردين', value: String(l.length) }, { label: 'أوردرات قابلة للتأخير / متأخرة', value: String(l.reduce((x, r) => x + r.late, 0)) }], headers, rows: l.map(vrow), onRow: vOpen(l) }; };
-    return [
-      h('div', { class: 'cards five' },
-        U.KpiTile({ label: 'موردين نشطين', value: String(rep.active), unit: 'مورد', compare: kpiTone(rep.deltas.active), delta: rep.deltas.active, note: 'مورد له أوردر واحد على الأقل في الفترة', details: () => vdet2('active') }),
-        U.KpiTile({ label: 'متوسط عمولة إبتكر', value: Math.round(rep.avgCommission * 100) + '%', compare: 'off', note: 'ثابتة حسب جدول الموردين · تتراوح 30% – 65%', details: () => vdet2('pct') }),
-        U.KpiTile({ label: 'عرابين مدفوعة للموردين', value: money(rep.deposits), unit: 'ج.م', compare: 'off', note: 'حسب شيت الحسابات · تُخصم من رصيد المورد', details: () => vdet2('dep') }),
-        U.KpiTile({ label: 'مواصلات الموردين', value: money(tA.vendors), unit: 'ج.م', compare: 'off', note: [num(String(tA.vendorTrips)), ' مشوار لـ ', num(String(tA.vendorCount)), ' موردين · من البداية'], details: () => transportDetails('') }),
-        U.KpiTile({ label: 'موردين عندهم أوردرات قابلة للتأخير', value: String(rep.withDelay), unit: 'مورد', compare: kpiTone(rep.deltas.withDelay), delta: rep.deltas.withDelay, note: 'من ' + rep.active + ' مورد نشط في الفترة', details: () => vdet2('late') })),
-      h('div', { class: 'charts' },
-        U.ChartCard({ title: 'أعلى الموردين بعدد الأوردرات', subtitle: 'الفترة المحددة · أوردرات فيها المورد', footnote: 'الأوردر المشترك يُحسب لكل مورد فيه', body: rep.topByOrders.length ? barList(rep.topByOrders, { fmt: String, tones: ['brand', 'brand', 'brand', 'goldlight', 'goldlight', 'neutral'] }) : U.EmptyState('مفيش بيانات', 'لا توجد أوردرات في الفترة') }),
-        U.ChartCard({ title: 'الموردون الأكثر تأخيرًا', subtitle: 'أوردرات مفتوحة قابلة للتأخير أو متأخرة', footnote: 'يُحسب من قاعدة 9 / 11 يوم · نفس مصدر إشعار «موردين متأخرين»', body: rep.topLate.length ? barList(rep.topLate, { fmt: String, tones: ['gold', 'gold', 'goldlight', 'goldlight', 'goldlight', 'neutral'] }) : U.EmptyState('كله في الموعد', 'مفيش موردين عندهم أوردرات قابلة للتأخير في الفترة') })),
-      TableCard({ title: 'جدول الموردين — الفترة المحددة', count: rep.rows.length + ' مورد', action: Button({ type: 'text', size: 'sm', label: 'فتح حسابات الموردين', onClick: () => { state.tab = 'vendors'; go('accounts'); } }),
-        body: tableOrList(() => U.Table({ cls: 'vendors-table', headers, rows: rep.rows.map((r) => [r.name, num(String(r.orders)), num(String(r.late)), num(r.pct), num(money(r.share)), num(money(r.deposits)), num(money(r.transport)), num(money(r.balance))]),
-          totalRow: ['الإجمالي', num(String(rep.totals.orders)), num(String(rep.totals.late)), '—', num(money(rep.totals.share)), num(money(rep.totals.deposits)), num(money(trTot)), num(money(rep.totals.balance))] }),
-          () => CardList({ headers, titleIndex: 0, rows: rep.rows.map((r) => [r.name, num(String(r.orders)), num(String(r.late)), num(r.pct), num(money(r.share)), num(money(r.deposits)), num(money(r.transport)), num(money(r.balance))]) })) }),
-      h('p', { class: 'source' }, 'المصدر: الأوردرات (Airtable) + شيت Vendors Orders mangment-Invoices (Commissions, Balances_Payouts) · نسب Antikiano / Rufaida / HANDS بانتظار تأكيد المالك · المواصلات من شيت Logistics expenses (' + trPeriod(tA) + ') إجمالي من البداية مش الفترة')];
-  }
   function AccountsReportView() {
     // phase 5.5 decision 4 (owner 31 Oct 16:42): the report follows the period picked above (expenses + sales + net) instead of a fixed month; (owner 1 Nov): a month-by-month summary
     const rr = state.rrange; const PER = D.formatDateNumeric(rr.from) + ' – ' + D.formatDateNumeric(rr.to); const A = AC();
@@ -1744,7 +1716,7 @@
       U.InlineNote({ kind: rep.net < 0 ? 'error' : 'success', children: h('span', null, 'الفترة ' + PER + ': حصة إبتكر ' + money(rep.share) + ' − المصروفات ' + money(rep.expensesTotal) + ' = ', h('b', null, money(rep.net) + ' ج.م ' + (rep.net < 0 ? 'خسارة' : 'ربح')), ' · الحساب الفعلي دلوقتي ' + money(rep.actual) + ' · الرصيد المحتمل ' + money(rep.potential) + ' (الفعلي + حصة إبتكر من أوردرات التنفيذ + العرابين)') }),
       h('p', { class: 'source' }, 'المصدر: الأوردرات (السيستم، حسب تاريخ الأوردر) والمصروفات المتسجلة في السيستم للفترة المختارة · الحساب الفعلي رصيد اللحظة الحالية · الصافي = حصة إبتكر − المصروفات')].filter(Boolean);
   }
-  const RVIEWS = { orders: OrdersReportView, vendors: VendorsReportView, accounts: AccountsReportView };
+  const RVIEWS = { orders: OrdersReportView, accounts: AccountsReportView }; // 5.5 decision 10: the September makers report (VendorsReportView) is gone
   function renderReports() {
     U.closePopover();
     const main = document.getElementById('reports'); if (!main) return; const sc = window.scrollY;
@@ -1777,9 +1749,9 @@
     const mk = (input, by, hours) => { step(hours || 6); return api.create(input, by); };
     step(0);
     const S = { name: 'سارة أحمد', role: 'خدمة العملاء' }, M = { name: 'محمد علي', role: 'متابعة الموردين' }, H = { name: 'هبة سمير', role: 'الحسابات' };
-    const t1 = mk({ type: 'customer', title: 'العميلة مستنية أوردر 177611 بقاله 11 يوم', description: 'العميلة اتصلت مرتين. المورد قال الشحنة هتخرج الخميس. محتاجين نأكد عليه ونبلغ العميلة بالموعد.', priority: 'high', assigneeRole: 'متابعة الموردين', orderId: '177611', customer: 'Customer 16', reason: 'تأخير في التسليم', followUp: '2026-10-22' }, S, 24 * 5);
+    const t1 = mk({ type: 'customer', title: 'العميلة مستنية أوردر 177611 بقاله 11 يوم', description: 'العميلة اتصلت مرتين. المبتكر قال الشحنة هتخرج الخميس. محتاجين نأكد عليه ونبلغ العميلة بالموعد.', priority: 'high', assigneeRole: 'متابعة الموردين', orderId: '177611', customer: 'Customer 16', reason: 'تأخير في التسليم', followUp: '2026-10-22' }, S, 24 * 5);
     step(19); api.setStatus(t1.id, 'in_progress', M); step(0.1); api.reply(t1.id, 'كلمت Bian eg — الشحنة هتخرج الخميس 23 أكتوبر بعد الضهر. @خدمة العملاء بلّغوا العميلة.', M); step(25); api.reply(t1.id, 'بلّغت العميلة، موافقة على الخميس بعد 4 العصر.', S);
-    const t2 = mk({ type: 'vendor', title: 'خلاف على عمولة سبتمبر — المورد بيقول 35% مش 40%', description: 'Antikiano بيقول إن نسبته في جدول الموردين 35% واتحسب 40% على أوردرات سبتمبر. محتاجين قرار المالك.', priority: 'urgent', assigneeRole: 'الحسابات', vendor: 'Antikiano', reason: 'خلاف على الحساب أو العمولة', followUp: '2026-10-19' }, H);
+    const t2 = mk({ type: 'vendor', title: 'خلاف على عمولة سبتمبر — المبتكر بيقول 35% مش 40%', description: 'Antikiano بيقول إن نسبته في جدول المبتكرين 35% واتحسب 40% على أوردرات سبتمبر. محتاجين قرار المالك.', priority: 'urgent', assigneeRole: 'الحسابات', vendor: 'Antikiano', reason: 'خلاف على الحساب أو العمولة', followUp: '2026-10-19' }, H);
     const t3 = mk({ type: 'customer', title: 'العميلة مش بتأكد الأوردر — اتصلنا 3 مرات', description: 'أوردر 177902 غير مؤكد من 9 أيام. اتصلنا 3 مرات ومفيش رد. نبعت واتساب أخير قبل الإلغاء؟', priority: 'high', assigneeRole: 'خدمة العملاء', orderId: '177902', customer: 'Customer 01', reason: 'العميل مش بيرد', followUp: '2026-10-21' }, S, 20);
     api.setStatus(t3.id, 'waiting', S);
     const t4 = mk({ type: 'vendor', title: '4 أوردرات قابلة للتأخير عند rufaida — محتاج موعد تسليم', description: 'rufaida_store عندها 4 أوردرات عمرها 9–11 يوم. محتاجين موعد تسليم مؤكد لكل أوردر.', priority: 'normal', assigneeRole: 'متابعة الموردين', vendor: 'rufaida_store', reason: 'تأخير تسليم' }, M);
@@ -1817,13 +1789,13 @@
     const search = h('input', { type: 'search', class: 'input', placeholder: 'ابحث برقم التذكرة أو الأوردر أو اسم العميل', 'aria-label': 'بحث في التذاكر', value: state.tfilter.q, style: 'width:320px;max-width:100%' });
     search.addEventListener('input', () => { state.tfilter.q = search.value; state.tpage = 1; renderTickets(true); });
     const mine = h('label', { class: 'check', style: 'display:flex;align-items:center;gap:8px;cursor:pointer' }, (() => { const c = h('input', { type: 'checkbox', checked: state.tfilter.mine }); c.addEventListener('change', () => setF('mine', c.checked)); return c; })(), 'تذاكر دوري بس');
-    const headers = ['الرقم', 'العنوان', 'النوع', 'العميل / المورد', 'الأوردر', 'الأولوية', 'الحالة', 'المسؤول', 'آخر تحديث'];
+    const headers = ['الرقم', 'العنوان', 'النوع', 'العميل / المبتكر', 'الأوردر', 'الأولوية', 'الحالة', 'المسؤول', 'آخر تحديث'];
     const who = (t) => t.type === 'vendor' ? (t.vendor || '—') : t.type === 'customer' ? (t.customer || (orderCtx(t.orderId) || {}).customer || '—') : '—';
     const rowEl = (t) => { const tr = h('tr', { 'data-id': t.id, tabindex: '0', role: 'button', 'aria-label': 'فتح التذكرة ' + t.id }, [num(t.id), t.title, typeLabel(t.type), who(t), t.orderId ? num(t.orderId) : '—', U.PriorityTag(t.priority), U.TicketStatus(t.status), t.assigneeRole, num(fmtTime(t.lastUpdate))].map((c, i) => h('td', { class: i === 1 ? 'ttl' : '' }, c)));
       tr.addEventListener('click', () => openTicket(t.id)); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTicket(t.id); } }); return tr; };
     const table = h('div', { class: 'scroll-x' }, h('table', { class: 'tickets-table' }, h('thead', null, h('tr', null, headers.map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, slice.map(rowEl))));
     const cards = h('div', { class: 'kv-list' }, slice.map((t) => { const c = h('div', { class: 'card list-card', tabindex: '0', role: 'button', 'aria-label': 'فتح التذكرة ' + t.id }, h('div', { class: 't-label title' }, t.title),
-      [['الرقم', num(t.id)], ['النوع', typeLabel(t.type)], ['العميل / المورد', who(t)], ['الأولوية', U.PriorityTag(t.priority)], ['الحالة', U.TicketStatus(t.status)], ['المسؤول', t.assigneeRole], ['آخر تحديث', num(fmtTime(t.lastUpdate))]].map(([k, v]) => h('div', { class: 'kv' }, h('span', { class: 't-small' }, k), h('span', { class: 't-body' }, v))));
+      [['الرقم', num(t.id)], ['النوع', typeLabel(t.type)], ['العميل / المبتكر', who(t)], ['الأولوية', U.PriorityTag(t.priority)], ['الحالة', U.TicketStatus(t.status)], ['المسؤول', t.assigneeRole], ['آخر تحديث', num(fmtTime(t.lastUpdate))]].map(([k, v]) => h('div', { class: 'kv' }, h('span', { class: 't-small' }, k), h('span', { class: 't-body' }, v))));
       c.addEventListener('click', () => openTicket(t.id)); c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openTicket(t.id); }); return c; }));
     const pager = h('div', { class: 'pager' }, h('div', { class: 'pages' }, Button({ type: 'text', size: 'sm', label: 'السابق', disabled: state.tpage <= 1, onClick: () => { state.tpage--; renderTickets(); } }),
       Array.from({ length: pages }, (_, i) => Button({ type: i + 1 === state.tpage ? 'primary' : 'text', size: 'sm', label: String(i + 1), attrs: { 'aria-current': i + 1 === state.tpage ? 'page' : false }, onClick: () => { state.tpage = i + 1; renderTickets(); } })),
@@ -1836,7 +1808,7 @@
       if (k === 'reopened') return { title: 'تذاكر اتفتحت تاني الأسبوع ده — ' + d.reopened.length, sub: 'مشكلة رجعت بعد الإغلاق — راجع السبب', summary: [{ label: 'اتفتحت تاني', value: String(d.reopened.length) }, { label: 'اتقفلت بالحل (الكل)', value: String(d.resolved.length) }], empty: 'مفيش تذاكر اتفتحت تاني الأسبوع ده.', headers: tHead.concat(['مرات الفتح']), rows: d.reopened.map((t) => tRow(t).concat([String(t.reopenCount)])), onRow: oT(d.reopened) };
       return { title: 'متوسط وقت الحل — ' + sum.avgDays + ' يوم', sub: 'من الإنشاء لـ «تم الحل» · ' + d.resolved.length + ' تذكرة', summary: [{ label: 'المتوسط', value: sum.avgDays + ' يوم' }, { label: 'أطول', value: d.resolved.length ? d.resolved[0].days + ' يوم' : '—' }], headers: ['التذكرة', 'العنوان', 'النوع', 'وقت الحل'], rows: d.resolved.map((t) => [num(t.id), t.title, typeLabel(t.type), num(t.days + ' يوم')]), onRow: oT(d.resolved) }; };
     return [
-      h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'تذاكر الفريق'), h('p', { class: 't-small' }, 'تذاكر الفريق: مشاكل العملاء، مشاكل الموردين، والتعليقات الداخلية — كل تحديث بيتسجل في السجل')),
+      h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'تذاكر الفريق'), h('p', { class: 't-small' }, 'تذاكر الفريق: مشاكل العملاء، مشاكل المبتكرين، والتعليقات الداخلية — كل تحديث بيتسجل في السجل')),
         h('div', { class: 'actions' }, window.IBDataActions.Menu(window.IBDataActions.PAGES.tickets), Button({ type: 'brand', icon: 'plus', label: 'إنشاء تذكرة', onClick: () => openNewTicket() }))),
       h('div', { class: 'toolbar' }, search, sel('f-st', 'الحالة', [{ value: 'open_any', label: 'مفتوحة' }, { value: 'all', label: 'الكل' }].concat(TK.STATUSES.map(([v, l]) => ({ value: v, label: l }))), state.tfilter.status, 'status'),
         sel('f-ty', 'النوع', [{ value: 'all', label: 'الكل' }].concat(TK.TYPES.map(([v, l]) => ({ value: v, label: l }))), state.tfilter.type, 'type'),
@@ -1848,7 +1820,7 @@
         U.KpiTile({ label: 'متأخرة عن موعد المتابعة', value: String(sum.overdue), unit: 'تذكرة', compare: sum.overdue ? 'negative' : 'off', delta: { text: 'تحتاج تدخّل', caption: 'عدّت تاريخ المتابعة ولسه مفتوحة' }, note: 'بتظهر كمان في إشعار «مهام داخلية»', details: () => tdet('overdue') }),
         U.KpiTile({ label: 'متوسط وقت الحل', value: String(sum.avgDays), unit: 'يوم', compare: 'off', note: 'من الإنشاء لـ «تم الحل» · ' + sum.resolvedCount + ' تذكرة', details: () => tdet('avg') }),
         U.KpiTile({ label: 'أُعيد فتحها هذا الأسبوع', value: String(sum.reopened), unit: 'تذكرة', compare: sum.reopened ? 'negative' : 'off', delta: { text: 'راجع السبب', caption: 'مشكلة رجعت بعد الإغلاق' }, note: 'إعادة الفتح بتحتاج سبب وبترجع لنفس المسؤول', details: () => tdet('reopened') })),
-      TableCard({ title: 'التذاكر', count: list.length + ' تذكرة · مرتبة بالأولوية ثم آخر تحديث', body: list.length === 0 ? U.EmptyState('مفيش تذاكر مطابقة', 'غيّر الفلاتر، أو اضغط «إنشاء تذكرة» لو ظهرت مشكلة مع عميل أو مورد.') : [tableOrList(() => table, () => cards), pager] }),
+      TableCard({ title: 'التذاكر', count: list.length + ' تذكرة · مرتبة بالأولوية ثم آخر تحديث', body: list.length === 0 ? U.EmptyState('مفيش تذاكر مطابقة', 'غيّر الفلاتر، أو اضغط «إنشاء تذكرة» لو ظهرت مشكلة مع عميل أو مبتكر.') : [tableOrList(() => table, () => cards), pager] }),
       h('p', { class: 'source' }, 'المصدر: جدول التذاكر في النظام (Airtable مؤقتًا) · الأوردر والعميل بيتجابوا لايف من الأوردرات · كل تغيير حالة أو رد بيتسجل في Event Log')];
   }
   function renderTickets(keepFocus) {
@@ -1868,10 +1840,10 @@
       const fields = [
         h('div', { class: 'row cols2' }, U.TextInput({ id: 't-title', label: 'العنوان', required: true, value: f.title, error: errs.title, placeholder: 'سطر واحد يلخّص المشكلة', maxlength: TK.TITLE_MAX, onInput: (v) => { f.title = v; } }),
           U.Select({ id: 't-type', label: 'النوع', required: true, options: TK.TYPES.map(([v, l]) => ({ value: v, label: l })), value: f.type, error: errs.type, onChange: (v) => { f.type = v; f.reason = ''; errs = {}; draw(); } })),
-        f.type === 'customer' ? U.TextInput({ id: 't-order', label: 'رقم الأوردر', required: true, value: f.orderId, error: errs.orderId, placeholder: 'مثال 177611', inputmode: 'numeric', help: ctx ? null : 'اختيار الأوردر بيجيب العميل والهاتف والمورد تلقائي', onInput: (v) => { f.orderId = v; const c = orderCtx(v.trim()); if (c) draw(); } }) : null,
+        f.type === 'customer' ? U.TextInput({ id: 't-order', label: 'رقم الأوردر', required: true, value: f.orderId, error: errs.orderId, placeholder: 'مثال 177611', inputmode: 'numeric', help: ctx ? null : 'اختيار الأوردر بيجيب العميل والهاتف والمبتكر تلقائي', onInput: (v) => { f.orderId = v; const c = orderCtx(v.trim()); if (c) draw(); } }) : null,
         ctx ? h('div', { class: 'ctx-card', style: 'padding:8px 12px' }, h('div', { class: 'facts' }, U.DelayBadge(ctx.delivery), h('span', { class: 't-small' }, num(ctx.customer + ' · ' + (ctx.vendors || []).join('، ') + ' · ' + ctx.status + ' · ' + ctx.ageDays + ' يوم · ' + D.formatMoney(ctx.total) + ' ج.م')))) : null,
         f.type === 'customer' ? U.Select({ id: 't-reason', label: 'سبب المشكلة', required: true, options: TK.CUSTOMER_REASONS.map((r) => ({ value: r, label: r })), value: f.reason, error: errs.reason, onChange: (v) => { f.reason = v; draw(); } }) : null,
-        f.type === 'vendor' ? U.Select({ id: 't-vendor', label: 'المورد', required: true, options: vendorOpts, value: f.vendor, error: errs.vendor, placeholder: 'اختار المورد', onChange: (v) => { f.vendor = v; draw(); } }) : null,
+        f.type === 'vendor' ? U.Select({ id: 't-vendor', label: 'المبتكر', required: true, options: vendorOpts, value: f.vendor, error: errs.vendor, placeholder: 'اختار المبتكر', onChange: (v) => { f.vendor = v; draw(); } }) : null,
         f.type === 'vendor' ? U.TextInput({ id: 't-order', label: 'رقم الأوردر', value: f.orderId, error: errs.orderId, placeholder: 'اختياري', inputmode: 'numeric', onInput: (v) => { f.orderId = v; } }) : null,
         f.type === 'vendor' ? U.Select({ id: 't-reason', label: 'سبب المشكلة', required: true, options: TK.VENDOR_REASONS.map((r) => ({ value: r, label: r })), value: f.reason, error: errs.reason, onChange: (v) => { f.reason = v; draw(); } }) : null,
         U.Textarea({ id: 't-desc', label: 'الوصف', required: true, value: f.description, error: errs.description, placeholder: 'إيه اللي حصل + إيه المطلوب من الفريق', onInput: (v) => { f.description = v; } }),
@@ -1952,8 +1924,8 @@
         h('h2', { class: 't-h4' }, t.title),
         h('div', { class: 'meta t-small' }, h('span', null, 'المسؤول: ' + t.assigneeRole + ' · أنشأه ' + t.createdBy.role + ' (' + t.createdBy.name + ') · ' + D.formatDateLong(t.createdAt.slice(0, 10)) + (t.followUp ? ' · متابعة ' + D.formatDateLong(t.followUp) : '')), h('div', { class: 'actions' }, actions)));
       const ctxCard = t.type === 'internal' ? null : h('div', { class: 'ctx-card' },
-        h('div', { class: 'head' }, h('span', { class: 't-label' }, t.type === 'customer' ? (ctx ? 'الأوردر ' + t.orderId + ' — ' + ctx.customer : 'الأوردر ' + t.orderId + ' — مش موجود في الأوردرات الحالية') : 'المورد ' + t.vendor + (t.orderId ? ' — الأوردر ' + t.orderId : '')),
-          h('div', { class: 'links' }, t.orderId ? Button({ type: 'text', size: 'sm', label: 'فتح الأوردر', onClick: () => { drawerApi.close(); showOrders({ q: t.orderId }); } }) : null, (t.vendor || (ctx && ctx.vendors && ctx.vendors[0])) ? Button({ type: 'text', size: 'sm', label: 'فتح المورد', onClick: () => { drawerApi.close(); showOrders({ vendor: t.vendor || ctx.vendors[0] }); } }) : null, t.type === 'customer' ? Button({ type: 'text', size: 'sm', label: 'واتساب العميل', icon: 'whatsapp', disabled: !ctx, attrs: { title: 'بيفتح واتساب برقم العميل' } }) : null)),
+        h('div', { class: 'head' }, h('span', { class: 't-label' }, t.type === 'customer' ? (ctx ? 'الأوردر ' + t.orderId + ' — ' + ctx.customer : 'الأوردر ' + t.orderId + ' — مش موجود في الأوردرات الحالية') : 'المبتكر ' + t.vendor + (t.orderId ? ' — الأوردر ' + t.orderId : '')),
+          h('div', { class: 'links' }, t.orderId ? Button({ type: 'text', size: 'sm', label: 'فتح الأوردر', onClick: () => { drawerApi.close(); showOrders({ q: t.orderId }); } }) : null, (t.vendor || (ctx && ctx.vendors && ctx.vendors[0])) ? Button({ type: 'text', size: 'sm', label: 'فتح المبتكر', onClick: () => { drawerApi.close(); showOrders({ vendor: t.vendor || ctx.vendors[0] }); } }) : null, t.type === 'customer' ? Button({ type: 'text', size: 'sm', label: 'واتساب العميل', icon: 'whatsapp', disabled: !ctx, attrs: { title: 'بيفتح واتساب برقم العميل' } }) : null)),
         ctx ? h('div', { class: 'facts t-small' }, U.DelayBadge(ctx.delivery), h('span', null, num((ctx.vendors || []).join('، ') + ' · ' + ctx.status + ' · ' + ctx.confirm + ' · الإجمالي ' + D.formatMoney(ctx.total) + ' · العمر ' + ctx.ageDays + ' يوم'))) : (t.reason ? h('div', { class: 'facts t-small' }, h('span', null, 'السبب: ' + t.reason)) : null));
       const items = tstore.events(id);
       const tl = h('div', { class: 'tl' }, h('div', { class: 't-label', style: 'color:var(--color-text-secondary)' }, 'آخر التحديثات'),
@@ -2057,7 +2029,7 @@
     const vdet = (kind) => { const d = VD.summaryDetails(all, stats); const money = (x) => D.formatMoney(x); const vstat = (v) => stats[v.id] || {};
       const open = (list) => (i) => openVendor(list[i].id);
       if (kind === 'active') { const l = d.active.slice().sort((a, b) => (vstat(b).open || 0) - (vstat(a).open || 0)); return { title: 'المبتكرين النشطين — ' + l.length, sub: 'من ' + sum.total + ' مبتكر مسجّل · مرتبين بعدد الأوردرات المفتوحة · اضغط على أي صف يفتح ملفه', summary: [{ label: 'نشط', value: String(sum.active) }, { label: 'غير نشط', value: String(sum.total - sum.active) }, { label: 'أوردرات مفتوحة', value: String(l.reduce((x, v) => x + (vstat(v).open || 0), 0)) }], headers: ['المبتكر', 'الفئة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'مستحقاته', 'آخر أوردر'], rows: l.map((v) => [v.name, v.category || '—', v.rate == null ? '—' : v.rate + '%', String(vstat(v).open || 0), String(vstat(v).late || 0), money(vstat(v).balance || 0), ageLabel(vstat(v).lastAge)]), onRow: open(l), source: 'جدول المبتكرين + الأوردرات لايف' }; }
-      if (kind === 'delay') { const l = d.delay; return { title: 'مبتكرين عندهم أوردرات قابلة للتأخير / متأخرة — ' + l.length, sub: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة · نفس مصدر إشعار «موردين متأخرين»', summary: [{ label: 'مبتكرين', value: String(l.length) }, { label: 'قابل للتأخير', value: String(l.reduce((x, r) => x + r.risk, 0)) + ' أوردر' }, { label: 'متأخر', value: String(l.reduce((x, r) => x + r.late, 0)) + ' أوردر' }], headers: ['المبتكر', 'قابل للتأخير', 'متأخر', 'أوردرات مفتوحة', 'أقدم أوردر مفتوح', 'الموبايل'], rows: l.map((r) => { const v = all.find((x) => x.id === r.id); return [r.name, String(r.risk), String(r.late), String(r.open), r.oldest + ' يوم', v && v.phone || '—']; }), total: ['الإجمالي', String(l.reduce((x, r) => x + r.risk, 0)), String(l.reduce((x, r) => x + r.late, 0)), String(l.reduce((x, r) => x + r.open, 0)), '—', '—'], onRow: (i) => openVendorLate(l[i].name, 'all'), note: 'قابل للتأخير = عمر الأوردر 9–11 يوم · متأخر = أكتر من 11 يوم (مدة التسليم 12–15 يوم).', source: 'الأوردرات لايف' }; }
+      if (kind === 'delay') { const l = d.delay; return { title: 'مبتكرين عندهم أوردرات قابلة للتأخير / متأخرة — ' + l.length, sub: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة · نفس مصدر إشعار «مبتكرين متأخرين»', summary: [{ label: 'مبتكرين', value: String(l.length) }, { label: 'قابل للتأخير', value: String(l.reduce((x, r) => x + r.risk, 0)) + ' أوردر' }, { label: 'متأخر', value: String(l.reduce((x, r) => x + r.late, 0)) + ' أوردر' }], headers: ['المبتكر', 'قابل للتأخير', 'متأخر', 'أوردرات مفتوحة', 'أقدم أوردر مفتوح', 'الموبايل'], rows: l.map((r) => { const v = all.find((x) => x.id === r.id); return [r.name, String(r.risk), String(r.late), String(r.open), r.oldest + ' يوم', v && v.phone || '—']; }), total: ['الإجمالي', String(l.reduce((x, r) => x + r.risk, 0)), String(l.reduce((x, r) => x + r.late, 0)), String(l.reduce((x, r) => x + r.open, 0)), '—', '—'], onRow: (i) => openVendorLate(l[i].name, 'all'), note: 'قابل للتأخير = عمر الأوردر 9–11 يوم · متأخر = أكتر من 11 يوم (مدة التسليم 12–15 يوم).', source: 'الأوردرات لايف' }; }
       if (kind === 'due') { const l = d.due; return { title: 'مستحقات المبتكرين — ' + money(sum.due) + ' ج.م', sub: l.length + ' مبتكر ليهم رصيد لصالحهم', summary: [{ label: 'الإجمالي', value: money(sum.due) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }, { label: 'أكبر رصيد', value: l.length ? l[0].name + ' — ' + money(l[0].balance) : '—' }], headers: ['المبتكر', 'الرصيد (له)', 'من الإجمالي'], rows: l.map((r) => [r.name, money(r.balance), (sum.due ? Math.round(r.balance / sum.due * 100) : 0) + '%']), total: ['الإجمالي', money(l.reduce((x, r) => x + r.balance, 0)), '100%'], onRow: open(l), source: 'الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر (الافتتاحي والعرابين من مرحلة الحسابات)' }; }
       const l = d.negative; return { title: 'مبتكرين عندهم رصيد سالب (عرابين / مواصلات) — ' + l.length, sub: 'عرابين اتدفعت لهم قبل ما الأوردرات تكتمل — بتتخصم من مستحقاتهم', summary: [{ label: 'إجمالي العرابين', value: money(sum.negativeTotal) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }], headers: ['المبتكر', 'العربون', 'المواصلات', 'الرصيد (عليه)', 'أوردرات مفتوحة'], rows: l.map((r) => [r.name, money(r.deposits), money((vendorsNow().find((x) => x.name === r.name) || {}).transport || 0), money(r.balance), String((stats[r.id] || {}).open || 0)]), total: ['الإجمالي', money(l.reduce((x, r) => x + r.deposits, 0)), money(l.reduce((x, r) => x + ((vendorsNow().find((y) => y.name === r.name) || {}).transport || 0), 0)), money(l.reduce((x, r) => x + r.balance, 0)), String(l.reduce((x, r) => x + ((stats[r.id] || {}).open || 0), 0))], onRow: open(l), source: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات' };
     };
@@ -2116,9 +2088,9 @@
       vnote ? (() => { const n = vnote; vnote = null; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); return el; })() : null,
       h('div', { class: 'cards five' },
         U.KpiTile({ label: 'مبتكرين نشطين', value: String(sum.active), unit: 'مبتكر', compare: 'off', note: 'من ' + sum.total + ' مبتكر مسجّل', details: () => vdet('active') }),
-        U.KpiTile({ label: 'عندهم أوردرات قابلة للتأخير', value: String(sum.withDelay), unit: 'مبتكرين', compare: sum.withDelay ? 'negative' : 'off', delta: { text: 'متابعة', caption: 'نفس مصدر إشعار «موردين متأخرين»' }, note: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة', details: () => vdet('delay') }),
-        U.KpiTile({ label: 'إجمالي مستحقات المبتكرين', value: D.formatMoney(sum.due), unit: 'ج.م', compare: 'off', note: 'من الأوردرات المكتملة من 1 أكتوبر · الافتتاحي والعرابين من مرحلة 4', details: () => vdet('due') }),
-        U.KpiTile({ label: 'عندهم رصيد سالب (عرابين)', value: String(sum.negative), unit: 'مبتكرين', compare: 'off', note: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات', details: () => vdet('negative') }),
+        U.KpiTile({ label: 'عندهم أوردرات قابلة للتأخير — الآن', value: String(sum.withDelay), unit: 'مبتكرين', compare: sum.withDelay ? 'negative' : 'off', delta: { text: 'متابعة', caption: 'نفس مصدر إشعار «مبتكرين متأخرين»' }, note: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة', details: () => vdet('delay') }),
+        U.KpiTile({ label: 'إجمالي مستحقات المبتكرين — الآن', value: D.formatMoney(sum.due), unit: 'ج.م', compare: 'off', note: 'من الأوردرات المكتملة من 1 أكتوبر · الافتتاحي والعرابين من مرحلة 4', details: () => vdet('due') }),
+        U.KpiTile({ label: 'عندهم رصيد سالب (عرابين) — الآن', value: String(sum.negative), unit: 'مبتكرين', compare: 'off', note: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات', details: () => vdet('negative') }),
         U.KpiTile({ label: 'مواصلات المبتكرين', value: '—', compare: 'off', note: 'بتتسجل من مرحلة الحسابات (4)' })),
       TableCard({ title: 'المبتكرين', cls: 'own-filter', count: list.length + ' مبتكر · ' + ((VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label || ''), action: h('span', { class: 'acts-inline' }, vFilterBtn(), vSortBtn()), pre: [vChips(), bulk],
         body: list.length === 0 ? U.EmptyState(state.vfilter.q ? 'مفيش مبتكر بالاسم ده' : 'مفيش مبتكر بالفلتر ده', 'جرّب اسم بديل أو رقم الهاتف، أو شيل اختيار من الفلتر، أو اضغط «إضافة مبتكر» لو جديد.') : [tableOrList(() => table, () => cards), pager] }),
@@ -2594,7 +2566,7 @@
       const header = h('div', { class: 'drawer-h' },
         h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, vendorLogo(v), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status), siteOffTag(v)), h('span', { class: 't-small' }, num((v.category || 'بدون فئة') + ' · نسبة إبتكر ' + (canRate && v.rate != null ? v.rate + '%' : '—') + ' · مبتكر من ' + D.formatDateLong(v.joinedAt) + (v.wooVendorId ? ' · متجر #' + v.wooVendorId : ' · بدون متجر على الموقع'))), missingTag())),
           h('div', { class: 'actions' }, moreMenu(v), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => vdrawer.close() }))),
-        U.Tabs({ items: [{ id: 'info', label: 'معلومات المورد' }, { id: 'products', label: 'المنتجات' }, { id: 'orders', label: 'الأوردرات' }, { id: 'accounts', label: 'الحسابات' }], active: vtab, onChange: (t) => { vtab = t; if (t === 'products') { vpQ = ''; const a = PAPI(); if (a) a.ensure(); } draw(); } }));
+        U.Tabs({ items: [{ id: 'info', label: 'معلومات المبتكر' }, { id: 'products', label: 'المنتجات' }, { id: 'orders', label: 'الأوردرات' }, { id: 'accounts', label: 'الحسابات' }], active: vtab, onChange: (t) => { vtab = t; if (t === 'products') { vpQ = ''; const a = PAPI(); if (a) a.ensure(); } draw(); } }));
       let body;
         const copy = (val, label) => copyText(val, label);
         // decision 10: «عرض / تحميل» = a signed URL (60 s) from the private bucket, opened in a new tab
@@ -2705,7 +2677,7 @@
             U.KpiTile({ label: 'العربون', value: '—', compare: 'off', note: 'من مرحلة الحسابات' }),
             U.KpiTile({ label: 'المواصلات', value: '—', compare: 'off', note: 'من مرحلة الحسابات' })),
           st.noRate ? U.InlineNote({ kind: 'warning', children: num(st.noRate + ' سطر بدون نسبة — محسوب بالإجمالي لحد ما نسبة الموقع تتسجل عليه.') }) : null,
-          section('ملخص حسابه معانا', Button({ type: 'text', size: 'sm', icon: 'chart', label: 'تقرير المورد', attrs: { 'data-vreport': v.name }, onClick: () => openVendorReport(v.name) }),
+          section('ملخص حسابه معانا', Button({ type: 'text', size: 'sm', icon: 'chart', label: 'تقرير المبتكر', attrs: { 'data-vreport': v.name }, onClick: () => openVendorReport(v.name) }),
             U.InfoRow({ label: 'مبيعات الأوردرات المكتملة', value: money(st.sales) }),
             canRate ? U.InfoRow({ label: 'حصة إبتكر' + (v.rate != null ? ' (' + v.rate + '% دلوقتي)' : ''), value: money(st.ibtekrShare) }) : null,
             U.InfoRow({ label: 'حقه من الأوردرات المكتملة', value: money(st.earned) }),
@@ -2770,11 +2742,11 @@
     const local = C.parseFilter(text, ctx);
     if (!aiSample) return { filter: local, mode: 'local' };
     let out = null;
-    const tool = { name: 'set_filter', description: 'حوّل وصف المستخدم إلى شروط فلتر للأوردرات. الحقول: id رقم الأوردر، name اسم العميل، phone، st حالة الأوردر، cf حالة التأكيد (مؤكد بعربون/مؤكد بدون عربون/غير مؤكد/في انتظار الرد)، deliv حالة التسليم (متأخر/قابل للتأخير/غير متأخر)، vendor المورد، tot إجمالي القيمة، dep العربون، age عمر الأوردر بالأيام، date تاريخ الأوردر، note التعليق. العمليات: has يحتوي، not لا يحتوي، eq يساوي، ne لا يساوي، empty فاضي، gt أكبر من، lt أقل من، before قبل، after بعد. op = and أو or بين الشروط.',
+    const tool = { name: 'set_filter', description: 'حوّل وصف المستخدم إلى شروط فلتر للأوردرات. الحقول: id رقم الأوردر، name اسم العميل، phone، st حالة الأوردر، cf حالة التأكيد (مؤكد بعربون/مؤكد بدون عربون/غير مؤكد/في انتظار الرد)، deliv حالة التسليم (متأخر/قابل للتأخير/غير متأخر)، vendor المبتكر، tot إجمالي القيمة، dep العربون، age عمر الأوردر بالأيام، date تاريخ الأوردر، note التعليق. العمليات: has يحتوي، not لا يحتوي، eq يساوي، ne لا يساوي، empty فاضي، gt أكبر من، lt أقل من، before قبل، after بعد. op = and أو or بين الشروط.',
       inputSchema: { type: 'object', properties: { op: { type: 'string', enum: ['and', 'or'] }, items: { type: 'array', items: { type: 'object', properties: { f: { type: 'string', enum: FILTER_FIELDS }, op: { type: 'string', enum: FILTER_OPS }, v: { type: 'string' } }, required: ['f', 'op'] } } }, required: ['items'] },
       execute: (i) => { out = { op: i.op === 'or' ? 'or' : 'and', items: (i.items || []).filter((x) => FILTER_FIELDS.includes(x.f) && FILTER_OPS.includes(x.op)).map((x) => ({ f: x.f, op: x.op, v: x.v == null ? '' : String(x.v) })) }; return 'ok'; } };
     try {
-      await aiSample([{ role: 'user', content: 'الموردين المتاحين: ' + ctx.vendors.join('، ') + '\nحالات الأوردر: ' + (window.OrdersApp ? window.OrdersApp.statuses().join('، ') : '') + '\nاستخدم أداة set_filter مرة واحدة ورد بجملة قصيرة.\n\nالوصف: ' + text }], { tools: [tool], modelTier: 'quick' });
+      await aiSample([{ role: 'user', content: 'المبتكرين المتاحين: ' + ctx.vendors.join('، ') + '\nحالات الأوردر: ' + (window.OrdersApp ? window.OrdersApp.statuses().join('، ') : '') + '\nاستخدم أداة set_filter مرة واحدة ورد بجملة قصيرة.\n\nالوصف: ' + text }], { tools: [tool], modelTier: 'quick' });
     } catch (e) { out = null; }
     return out && out.items.length ? { filter: out, mode: 'ai' } : { filter: local, mode: 'local' };
   }

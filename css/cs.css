@@ -1,0 +1,73 @@
+/* خدمة العملاء — المرحلة 6: القواعد اللي الـ prototype v2 (artifact «نظام إبتكر» 2 نوفمبر) ضافها أو غيّرها على .cs-* وما يخصها،
+   فوق قواعد الصفحة القديمة في app.css (بتتحمّل بعده). مصدرها style-1.css بتاع الـ v2. */
+.cs-inbox.no-panel{grid-template-columns:360px minmax(0,1fr)}
+.cs-ch .acts [data-panel-toggle][aria-pressed=true]{background:var(--color-bg-tint)}
+.seg-bar{display:flex;flex-direction:column;gap:8px}
+.seg-info{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-radius:8px;background:var(--color-brand-subtle-bg);color:var(--color-text-primary)}
+.seg-info .grow{flex:1}
+.seg-rates{display:flex;flex-direction:column;gap:8px}
+.seg-rate{display:grid;grid-template-columns:120px 1fr 1fr;gap:8px;align-items:end}
+.seg-rate .err-msg{grid-column:1/-1}
+.seg-rate .t-label{align-self:center}
+/* المسافة بين سكاشن خدمة العملاء — نفس إيقاع باقي الصفحات (owner 29 Oct) */
+.cs-body{display:flex;flex-direction:column;gap:16px;min-width:0}
+.cs-body>*{margin-block:0}
+.cs-body>.src-note{margin-top:-4px}
+/* chat header + compact composer (owner 1 Nov) */
+.cs-ch{flex-wrap:wrap;row-gap:8px}
+.cv-r3{flex-wrap:nowrap}
+.cv-r3>.t-small{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cs-ch .sub-t{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.cs-ch .sub-st{flex:none;margin-inline-start:6px}
+.tone-pick .chips{display:flex;flex-wrap:wrap;gap:8px}
+.tone-opt{padding:2px;border:2px solid transparent;border-radius:var(--radius-md);background:none;cursor:pointer}
+.tone-opt[aria-checked=true]{border-color:var(--color-brand-default)}
+.tone-opt:focus-visible{outline:2px solid var(--color-brand-default);outline-offset:2px}
+.seg-steps{display:flex;gap:16px;margin:0 0 4px;padding:0;list-style:none}
+.seg-steps li{display:flex;align-items:center;gap:6px;color:var(--color-text-secondary);font-size:13px}
+.seg-steps .n{width:24px;height:24px;border-radius:50%;display:inline-flex;align-items:center;justify-content:center;border:1px solid var(--color-border-default);font-weight:700}
+.seg-steps li.cur{color:var(--color-brand-default);font-weight:700}
+.seg-steps li.cur .n{background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-bg-base)}
+.seg-steps li.done .n{background:var(--color-brand-subtle-bg);border-color:var(--color-brand-default);color:var(--color-brand-default)}
+.seg-pick{max-height:min(420px,50vh)}
+/* inbox zones (owner 1 Nov): نفس التقسيمة — خلفية مختلفة لكل عمود عشان العين تفصل · رسايلنا خضرا والكلام بيج */
+.cs-list{background:var(--color-bg-container)}
+.cs-list .cv{background:transparent;border-bottom-color:var(--color-border-subtle)}
+.cs-list .cv:hover{background:var(--color-bg-tint)}
+.cs-list .cv.sel{background:var(--color-bg-base);box-shadow:inset -3px 0 0 var(--color-brand-default)}
+.cs-list .cs-lh .search,.cs-list .cs-lh .select{background:var(--color-bg-base)}
+.cs-inbox>.cs-list{border-inline-end:1px solid var(--color-border-default)}
+.cs-inbox>.cs-panel{border-inline-start:1px solid var(--color-border-default)}
+.seg-pick .pick-row{gap:12px}
+.modal .seg-pick{max-height:min(460px,52vh)}
+.ar-lib .seg-b{padding:0 16px}
+.ar-lib .seg-b[aria-pressed=true]{background:var(--color-bg-base);color:var(--color-brand-default);font-weight:700}
+.qr-dots{display:grid;grid-template-columns:repeat(9,12px);grid-auto-rows:12px}
+.qr-dots i.on{background:var(--color-text-primary)}
+.wiz-foot .help{display:none}
+.wiz-foot .btn{flex:1}
+.cs-ch .who{flex:1 1 180px}
+.cs-ch .acts{flex:1 1 auto;justify-content:flex-end;flex-wrap:wrap}
+.cs-ch .sub{flex-wrap:nowrap;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.cs-ch .asg{width:auto;min-width:128px;max-width:180px}
+.cs-ch .sub{overflow:visible}
+.cs-chat{background:var(--color-bg-base)}
+.cs-msgs{background:var(--color-brand-subtle-bg)}
+.cs-panel{background:var(--color-bg-layout)}
+@media (max-width:599px){
+  .seg-rate{grid-template-columns:1fr 1fr}
+  .seg-rate .t-label{grid-column:1/-1}
+  .seg-pick .pick-row{display:grid;grid-template-columns:auto auto 1fr;column-gap:12px;row-gap:6px;padding:12px}
+  .seg-pick .pick-row .pick-meta{grid-column:3;justify-content:flex-start}
+  .seg-pick .pick-row .pick-who b{white-space:normal}
+  .modal .seg-pick{max-height:none}
+}
+@media (max-width:1023px){
+  .tone-opt{min-height:44px;min-width:44px}
+}
+@media (max-width:767px){
+  .ar-lib .seg-b{height:44px}
+  .cw-seg .seg-b{height:44px}
+  .cs-ch .acts{flex-wrap:nowrap}
+  .cs-ch .asg{min-width:0;max-width:none;flex:1}
+}

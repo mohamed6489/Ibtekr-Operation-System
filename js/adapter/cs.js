@@ -312,7 +312,7 @@
   async function importCustomers(rows) {
     const out = { ok: true, added: 0, existing: 0, invalid: 0 };
     for (const r of rows || []) {
-      const res = await addCustomer({ name: r.name || 'عميل', phone: r.phone, city: r.city, source: r.source || 'استيراد شيت' }, 'import');
+      const res = await addCustomer(Object.assign({ source: 'استيراد شيت' }, r, { name: r.name || 'عميل' }), 'import');
       if (res.ok) out.added += 1; else if (res.duplicate) out.existing += 1; else if (res.reason === 'invalid') out.invalid += 1; else { out.ok = false; out.reason = res.reason; break; }
     }
     return out;
@@ -462,7 +462,7 @@
 
   // ---------- Realtime: a change on the conversations or the messages → one load() a moment later ----------
   function subscribe() {
-    const cl = c(); if (!cl || channel) return;
+    const cl = c(); const cfg = window.IB_CONFIG || {}; if (!cl || channel || !myUid() || cfg.realtime === false) return; // IB_CONFIG.realtime === false: no socket (the mock)
     try {
       let ch = cl.channel('cs');
       const onChange = () => { if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; load(); }, 400); };

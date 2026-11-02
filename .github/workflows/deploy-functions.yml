@@ -34,7 +34,7 @@ jobs:
           if [ "$FN" = all ]; then list="woo-sync woo-webhook ai-content ai-images"; else list="$FN"; fi
           for f in $list; do
             echo "::group::deploy $f"
-            supabase functions deploy "$f" --project-ref fsynculhaupcktzkfkdd
+            supabase functions deploy "$f" --project-ref fsynculhaupcktzkfkdd --yes
             echo "::endgroup::"
           done
         env:

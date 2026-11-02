@@ -16,4 +16,4 @@
   العام زي ما هو): الأوردرات (29) البحث والأربع دروب داون `hidden` + «مسح» للملغي عبر `0033` `order_delete` (+ `rls_order_delete.sql`،
   `IBOrders.deleteOrder`، `OrdersApp.removeOrder`، `order.delete` في `LOGGED_ACTIONS`، الـ mock)؛ اللوحة (25 + 24) «المبتكرين»؛ المبتكرين
   والحسابات (28) التسميات + «— الآن» + شيل `VendorsReportView`. e2e: 3 اختبارات جديدة للأوردرات، وتعديل اللي كان بيكتب في `#oq` أو يختار من
-  `#fv`/`#fc` (مخفيين — `force` / `setQuery` / `#gq`)، وتاب «معلومات المبتكر».
+  `#fv`/`#fc` (مخفيين — `force` / `setQuery` / `#gq`)، وتاب «معلومات المبتكر». الحي: `0033` اتطبّق بالـ MCP و`rls_order_delete` عدّى على الحي؛ `rls_orders` بقى 28 عمود؛ CI ✓ (831ed31)، main اتدفع. مافيش Edge Functions اتغيرت.

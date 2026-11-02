@@ -12,7 +12,7 @@ const OURS = `${ENV.SUPABASE_URL}/functions/v1/woo-webhook`;
 // Member tokens → what has_perm('orders.status') / is_admin() answer for them, plus (phase 3.3) has_perm('vendors.edit') /
 // has_perm('sensitive.commission') for push_vendor: ops = vendors.edit P, vf = vendors follow-up (vendors.edit F, commission N),
 // acct = accounts (nothing). (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
-const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; pbulk?: unknown; ptrash?: unknown; padd?: unknown }> = {
+const MEMBERS: Record<string, { perm: unknown; admin: unknown; view?: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; pbulk?: unknown; ptrash?: unknown; padd?: unknown }> = {
   'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false, edit: 'P' }, 'jwt-acct': { perm: 'P', admin: false, edit: 'N', accounts: 'P' },
   'jwt-vf': { perm: 'N', admin: false, edit: 'F', commission: 'N' },
   'jwt-bank': { perm: 'N', admin: false, edit: 'N', bank: 'F' }, // phase 3.5: accounts — sensitive.vendor_bank = F, vendors.edit = N
@@ -22,6 +22,7 @@ const MEMBERS: Record<string, { perm: unknown; admin: unknown; edit?: unknown; c
   'jwt-ptrash': { perm: 'N', admin: false, pview: 'F', ptrash: 'F' },
   'jwt-padd': { perm: 'N', admin: false, pview: 'F', padd: 'F' }, // phase 5.2: products.add = F (the studio)
   'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
+  'jwt-noview': { perm: 'F', admin: false, view: 'N' }, // phase 5.5 decision 10: orders.status F without orders.view — never deletes
 };
 
 type Opts = { seed?: Record<string, any[]>; routes?: Record<string, any>; env?: Record<string, string>; secretAnswer?: (ok: boolean) => unknown; fail?: (c: any) => any; storage?: Record<string, Uint8Array> };
@@ -33,7 +34,7 @@ function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fa
   const members: any[] = [];
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : key === 'products.add' ? m.padd ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
+    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'orders.view' ? m.view ?? (m.perm === 'F' || m.perm === 'P' ? 'F' : 'N') : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : key === 'products.add' ? m.padd ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
     members.push({ jwt, client });
     return client;
   };
@@ -1791,10 +1792,13 @@ const trashSeed = {
 Deno.test('order_trash: orders.status = F only, never the sync secret; a bad id → 400; unknown → 404; nothing on Woo', async () => {
   const { woo, deps } = setup({ seed: trashSeed, env: PUSH_ON });
   assertEquals((await call(deps, { action: 'order_trash', order_id: 1001 }, { jwt: 'jwt-acct' })).res.status, 401, 'orders.status P');
+  assertEquals((await call(deps, { action: 'order_trash', order_id: 1001 }, { jwt: 'jwt-noview' })).res.status, 401, 'orders.view N (the same two checks as order_delete)');
   assertEquals((await call(deps, { action: 'order_trash', order_id: 1001 })).res.status, 401, 'the sync secret never deletes an order');
   assertEquals((await call(deps, { action: 'order_trash', order_id: 'x' }, { jwt: 'jwt-ops' })).res.status, 400);
   assertEquals((await call(deps, { action: 'order_trash', order_id: 99 }, { jwt: 'jwt-ops' })).res.status, 404);
-  assertEquals(woo.calls.length, 0);
+  const gone = setup({ seed: { ...trashSeed, orders: [{ ...trashSeed.orders[0], deleted_at: '2026-11-02T10:00:00Z' }] }, env: PUSH_ON });
+  assertEquals((await call(gone.deps, { action: 'order_trash', order_id: 1001 }, { jwt: 'jwt-ops' })).res.status, 404, 'already marked deleted');
+  assertEquals(woo.calls.length + gone.woo.calls.length, 0);
 });
 
 Deno.test('order_trash: an order that is not «ملغي» → skipped/not_cancelled; WOO_PUSH_ENABLED off → skipped/push_disabled; no Woo call either way', async () => {

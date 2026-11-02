@@ -34,7 +34,8 @@ const COLUMNS: Record<string, string[]> = {
     'woo_modified_at', 'trashed_at'],
   orders: ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method',
     'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note',
-    'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'raw', 'synced_at', 'created_at', 'updated_at', 'customer_state'],
+    'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'raw', 'synced_at', 'created_at', 'updated_at', 'customer_state',
+    'deleted_at', 'deleted_by', 'delete_reason'], // 0033 (phase 5.5 decision 10)
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw', 'updated_at'],
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status',
     'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'raw', 'updated_at', 'commission_rate', 'commission_fee'],

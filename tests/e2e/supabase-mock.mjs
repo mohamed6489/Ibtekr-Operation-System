@@ -1409,7 +1409,7 @@ export async function installSupabaseMock(page, opts = {}) {
       const mayPushVendor = () => isAdmin(u) || ((!bankAsked() || hasPerm(u, 'sensitive.vendor_bank') === 'F')
         && (storeAsked().length === 0 ? bankAsked() : (hasPerm(u, 'vendors.edit') === 'F' || (hasPerm(u, 'vendors.edit') === 'P' && storeAsked().every((f) => CONTACT_PUSH.includes(f)))))
         && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
-      if (!u || !(action === 'push_status' || action === 'order_trash' ? hasPerm(u, 'orders.status') === 'F' : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'order_trash' ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
@@ -1574,7 +1574,7 @@ export async function installSupabaseMock(page, opts = {}) {
       // 0033 / phase 5.5 decision 10: order_trash — the cancelled order and its Dokan sub-orders to the site's trash (no force); not
       // «ملغي» → skipped/not_cancelled; pushEnabled off → skipped/push_disabled; wooDown → 502. Recorded in trashes.
       if (action === 'order_trash') {
-        const o = mock.orders.find((x) => x.id === Number(b.order_id));
+        const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at);
         if (!o) return json(404, { error: 'order_not_found' });
         if (o.status !== 'ملغي') return json(200, { action, result: 'skipped', reason: 'not_cancelled', counts: { trashed: 0, already: 0 } });
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled', counts: { trashed: 0, already: 0 } });

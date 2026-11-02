@@ -142,7 +142,9 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   const member = deps.userDb(jwt);
   const perm = async (key: string) => { const { data, error } = await member.rpc('has_perm', { key }); return !error && data === 'F'; };
   const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
-  if (action === 'push_status' || action === 'order_trash') return (await perm('orders.status')) ? 'member' : null;
+  if (action === 'push_status') return (await perm('orders.status')) ? 'member' : null;
+  // phase 5.5 decision 10: the site trash needs the same two permissions RPC order_delete checks — orders.status = F and orders.view <> N
+  if (action === 'order_trash') { if (!(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   if (action === 'statement' || action === 'withdrawals') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // phase 4.1 (decision 1): approving a Dokan withdraw request — the admin or accounts.approve = F (has_perm carries aal2)
   if (action === 'withdraw_approve') return (await admin()) || (await perm('accounts.approve')) ? 'member' : null;
@@ -343,7 +345,7 @@ async function pushStatus(run: Run, args: Json) {
 async function orderTrash(run: Run, args: Json) {
   const id = wooId(args.order_id);
   if (id === null) return json(400, { error: 'bad_request' });
-  const { data: order, error } = await run.db.from('orders').select('id, status').eq('id', id).maybeSingle();
+  const { data: order, error } = await run.db.from('orders').select('id, status').eq('id', id).is('deleted_at', null).maybeSingle(); // an order already marked deleted is gone for members too
   if (error) throw new Error(`orders: ${error.message}`);
   if (!order) return json(404, { error: 'order_not_found' });
   const entry = { kind: 'push', direction: 'out', entity: 'order', entity_id: String(id), action: 'trash' };

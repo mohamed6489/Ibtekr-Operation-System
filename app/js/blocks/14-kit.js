@@ -352,6 +352,17 @@
     });
   }
   // بيضيف زرار «الأعمدة» لكارت الجدول (4 أعمدة فأكتر) وبيطبّق التفضيلات بعد الرسم
+  // ---------- تصدير Excel سريع (owner 27 Oct: «مشاركة ك اكسيل») ----------
+  // aoa = مصفوفة صفوف (أول صف العناوين). المكتبة (app/js/vendor/xlsx.full.min.js) بتتحمّل وقت الطلب؛ لو ماتحمّلتش بينزّل CSV.
+  const loadXLSX = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'js/vendor/xlsx.full.min.js'; sc.onload = () => res(window.XLSX); sc.onerror = rej; document.head.appendChild(sc); }));
+  function downloadText(filename, text, type) { const blob = new Blob([text], { type: type || 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = h('a', { href: url, download: filename }); document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0); }
+  function xlsxExport(filename, sheetName, aoa) {
+    window.__lastExport = { filename, sheetName, rows: aoa.length }; // the e2e reads what was exported
+    const csv = () => { const esc = (c) => { const v = c == null ? '' : String(c); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+      downloadText(filename.replace(/\.xlsx$/, '.csv'), '﻿' + aoa.map((r) => r.map(esc).join(',')).join('\r\n'), 'text/csv;charset=utf-8'); toast('اتنزل CSV — Excel مش متاح دلوقتي'); };
+    return loadXLSX().then((XL) => { const wb = XL.utils.book_new(); const ws = XL.utils.aoa_to_sheet(aoa); ws['!views'] = [{ RTL: true }];
+      XL.utils.book_append_sheet(wb, ws, String(sheetName || 'Sheet1').slice(0, 31).replace(/[\\/?*[\]:]/g, ' ')); XL.writeFile(wb, filename); toast('اتنزل ملف Excel', 'success'); }).catch(csv);
+  }
   // ---------- فلتر + ترتيب تلقائي لأي جدول تفاصيل (owner 1 Nov) ----------
   // جنب زرار الأعمدة: «فلتر» من الأعمدة اللي ليها قيم محدودة (حالة، نوع، قناة…) والأعمدة الرقمية بالإشارة، و«ترتيب» بالتاريخ أو الرقم أو النص.
   // النتيجة: شيبس (اختيار لوحده + عدده في دايرة + ✕) تحت التايتل قبل راس الجدول. الجداول اللي ليها فلتر خاص بيها (`own-filter` أو فلتر في راسها) مابتتلمسش.
@@ -523,6 +534,6 @@
       h('div', { class: 'sp-row' }, g, h('span', { class: 't-small help sp-word', 'aria-live': 'polite' }, v ? v + ' من 5 · ' + words[v] : 'اختار من 1 لـ 5')),
       error ? h('div', { class: 'err-msg', role: 'alert', id: id + '-err' }, error) : help ? h('p', { class: 't-small help', style: 'margin:0' }, help) : null);
   }
-  window.IBKit = { Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+  window.IBKit = { Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, xlsxExport, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
 })();
 

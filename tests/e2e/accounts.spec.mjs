@@ -44,9 +44,9 @@ const modal = (page) => page.locator('.modal[role=dialog]');
 async function pick(page, id, label) { await modal(page).locator('#' + id).click(); await page.locator('[role=listbox] [role=option]', { hasText: label }).first().click(); }
 async function add(page, menu, dir) { await main(page).getByRole('button', { name: menu }).click(); await page.locator('[role=menu] [role=menuitem], [role=menu] .opt', { hasText: dir }).first().click(); await expect(modal(page)).toBeVisible(); }
 
-test('the page is open with its five tabs, no September seed: the numbers start at zero and the range is this month', async ({ page }) => {
+test('the page is open with its six tabs, no September seed: the numbers start at zero and the range is this month', async ({ page }) => {
   await openAccounts(page);
-  await expect(main(page).getByRole('tab')).toHaveText(['المصروفات', 'المبيعات', 'حسابات المبتكرين', 'الحساب الفعلي', 'سجل الحركات']);
+  await expect(main(page).getByRole('tab')).toHaveText(['المصروفات', 'الاشتراكات', 'المبيعات', 'حسابات المبتكرين', 'الحساب الفعلي', 'سجل الحركات']); // phase 5.5: «الاشتراكات» of its own
   await expect(main(page)).not.toContainText('سبتمبر 2026');
   await expect(main(page)).not.toContainText('Monthly Performance');
   await expect(main(page).locator('.empty')).toContainText('لسه مفيش مصروفات');
@@ -101,6 +101,8 @@ test('a subscription needs its name, end date and alerts; it is stored with them
   await expect(modal(page)).toBeHidden();
   await expect.poll(() => mock.accWrites.length).toBe(1);
   expect(mock.accWrites[0]).toMatchObject({ table: 'acc_expenses', category: 'الاشتراكات', sub_name: 'Canva', sub_is_other: false, sub_alerts: ['month', 'week', 'day'] });
+  await expect(main(page).locator('[data-subs-summary]')).toContainText('اشتراكات نشطة'); // phase 5.5: a summary in «المصروفات», the table in its own tab
+  await main(page).locator('[data-go-subs]').click();
   await expect(main(page).locator('.subs-tbl')).toContainText('Canva');
   await expect(main(page).locator('.subs-tbl')).toContainText(/باقي [45] يوم/);
 });
@@ -272,6 +274,7 @@ test('subscriptions: «جدّد» opens a new expense a year on; the sales show 
   await modal(page).locator('#f-subends').fill(d); await modal(page).locator('#f-subends').press('Tab');
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
   await expect(modal(page)).toBeHidden();
+  await tab(page, 'الاشتراكات').click();
   await expect(main(page).locator('.subs-tbl')).toContainText('Canva');
   await main(page).locator('[data-renew="Canva"]').click();
   await expect(modal(page)).toBeVisible();
@@ -310,3 +313,49 @@ test('the refresh needs accounts.view; ops (view P) may refresh, Dokan down → 
   await main(page).locator('[data-dokan-refresh]').click();
   await expect(main(page)).toContainText('Dokan مش بيرد دلوقتي');
 });
+
+
+// ---- phase 5.5 (the owner's prototype v2, plan decision 4): the accounts additions ----
+test('5.5: the moves log has its own period (wide by default) and a bulk export; the expenses details take a closed filter + sort with chips', async ({ page }) => {
+  await openAccounts(page);
+  // expenses details: the filter next to the columns button
+  await main(page).locator('[data-fm-btn="exp"]').click();
+  await page.locator('[data-fm-menu="exp"] [data-fm="cat:المرتبات"]').click();
+  await page.locator('[data-fm-menu="exp"] [data-fm-apply]').dispatchEvent('click');
+  const details = main(page).locator('.table-card', { hasText: 'تفاصيل المصروفات' });
+  await expect(details.locator('.af-row .af-chip')).toHaveCount(1);
+  await expect(details.locator('tbody tr')).toHaveCount(1);
+  await expect(details.locator('table')).toContainText('إجمالي البنود المعروضة');
+  await main(page).locator('[data-sm-btn="exp"]').click();
+  await page.locator('[role=listbox] [role=option]', { hasText: 'القيمة: الأعلى للأقل' }).click();
+  await expect(main(page).locator('[data-sm-btn="exp"] .sm-v')).toHaveText(': القيمة: الأعلى للأقل');
+  await details.locator('[data-af-clear]').click();
+  await expect(details.locator('tbody tr')).toHaveCount(4);
+  // the moves log: the Dokan request of 25 Oct is in the wide default period; its own range field; the bulk bar exports the ticked rows
+  await tab(page, 'سجل الحركات').click();
+  await main(page).getByRole('tab', { name: 'حسابات المبتكرين' }).last().click();
+  await expect(main(page).locator('.mlog-table')).toContainText('#501');
+  await expect(main(page).locator('.mlog-bar [aria-label="اختيار الفترة"]')).toBeVisible();
+  await main(page).locator('.mlog-table [data-bulk-box]').first().click();
+  await expect(main(page).locator('[data-bulk^="mlog-"] b')).toHaveText('محدد 1 حركة');
+  await main(page).locator('[data-bulk-act="xlsx"]').click();
+  await expect.poll(() => page.evaluate(() => window.__lastExport && window.__lastExport.rows)).toBe(2); // the header + one row
+  await expect(main(page).locator('[data-bulk^="mlog-"]')).toHaveCount(0);
+});
+
+test('5.5: the makers\' table shows the latest Dokan request per maker; the actual balance shows Ibtekr\'s balance after the makers\' Dokan balances', async ({ page }) => {
+  await openAccounts(page);
+  await tab(page, 'حسابات المبتكرين').click();
+  const table = main(page).locator('table.vendors-table');
+  await expect(table.locator('thead th')).toContainText(['آخر طلب سحب']);
+  await expect(table.locator('tbody tr', { hasText: 'Art Craft' }).locator('[data-last]')).toHaveAttribute('data-last', '2026-10-25');
+  await expect(table.locator('tbody tr', { hasText: 'Art Craft' }).locator('[data-last]')).toContainText('25/10/2026');
+  await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-last]')).toHaveText('—'); // a cancelled request does not count
+  await tab(page, 'الحساب الفعلي').click();
+  const owed = main(page).locator('[data-owed]');
+  await expect(owed).toContainText('رصيد إبتكر بعد حساب المبتكرين');
+  await expect(owed).toContainText('2,500'); // Art Craft's Dokan balance
+  await expect(owed.locator('[data-owed-wd]')).toContainText('1 مبتكر · منه 1,200.00 في 1 طلب سحب');
+});
+
+// the accounts report by period (decision 4) is ported in AccountsReportView, but the reports page is still «soon» (SOON in block 28): no e2e until it opens

@@ -1357,3 +1357,17 @@ tr.af-hide{display:none!important}
 .vp-all{display:inline-flex;align-items:center;gap:6px}
 .vprod-row.is-sel{background:var(--color-brand-subtle-bg);margin-inline:-8px;padding-inline:8px;border-radius:var(--radius-sm,4px)}
 .drawer .bulk-bar{flex-wrap:wrap}
+/* الحسابات — المرحلة 5.5 (owner 31 Oct / 1 Nov): آخر طلب سحب · رصيد إبتكر بعد المبتكرين · ملخص الاشتراكات · فترة سجل الحركات */
+.last-wd{display:inline-flex;flex-direction:column;gap:2px;line-height:1.3}
+.owed-card{padding:0 0 4px}
+.owed-card .owed-cards{grid-template-columns:repeat(3,minmax(0,1fr));padding:0 16px 8px}
+@media (max-width:767px){.owed-card .owed-cards{grid-template-columns:1fr}}
+.subs-sum{padding:16px 20px;display:flex;flex-direction:column;gap:12px}
+.subs-sum-h{display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap}
+.subs-sum-h h2{margin:0;color:var(--color-brand-default)}
+.subs-sum-b{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
+.subs-sum-b>div{display:flex;flex-direction:column;gap:4px;min-width:0}
+.subs-sum-b .neg{color:var(--color-error-text,#b42318)}
+@media (max-width:767px){.subs-sum-b{grid-template-columns:repeat(2,minmax(0,1fr))}}
+#main .table-card>.bulk-bar,#main .table-card>.af-row{margin-inline:24px}
+@media (max-width:767px){.mlog-bar>input[type=search],.mlog-bar>.pop-anchor{flex:1 1 100%;width:100%!important}.mlog-bar>.pop-anchor .date-field{width:100%}}

@@ -1132,7 +1132,7 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
 
 **د) الصلاحيات اللي الـ dialog بيطلبها:** `pages_show_list, pages_messaging, pages_manage_metadata, pages_read_engagement, pages_manage_engagement, instagram_basic, instagram_manage_messages, instagram_manage_comments`. في وضع التطوير كلها متاحة للأعضاء من غير مراجعة؛ **App Review** (مع التحويل للحي) على نفس القايمة + Business verification.
 
-**هـ) إيه اللي بيتخزن:** توكن الصفحة الطويل في Vault بس (`cs_meta_pages` عبر `cs_secret_set` — `service_role`)، `cs_channels.meta` فيه ids الصفحة/إنستجرام من غير توكن، `cs_channel_events` أعداد وأكواد أخطاء بس، `activity_log` `cs.channel.*` أسماء القنوات والـ ids بس. فصل القناة بيمسح السر وبيلغي `subscribed_apps`.
+**هـ) إيه اللي بيتخزن:** توكن الصفحة الطويل في Vault بس (`cs_meta_pages` عبر `cs_secret_set` — `service_role`)، `cs_channels.meta` فيه ids الصفحة/إنستجرام من غير توكن، `cs_channel_events` أعداد وأكواد أخطاء بس، `activity_log` `cs.channel.*` أسماء القنوات والـ ids بس. فصل القناة بيمسح السر وبيلغي `subscribed_apps`. الـ webhook بيقرا entries الصفحة المربوطة بس (ومن غير ربط مابيكتبش حاجة)، وربط صفحة تانية بيلغي اشتراك القديمة.
 
 **و) نافذة الـ 24 ساعة:** Meta بتسمح بالرد الحر خلال 24 ساعة من آخر رسالة للعميل؛ بعدها الإرسال بيرجع `graph_10:2018278` والرسالة بتتعلم `failed` (الواجهة بتقول). الرد الخاص على تعليق مرة واحدة لكل تعليق.
 

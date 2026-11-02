@@ -7,7 +7,8 @@
 //        user and channel; «مستنية ردنا» again when it was closed / waiting) → an `in` message (mid as external_id: a redelivery is
 //        a duplicate, ignored); an echo (a reply sent from Meta's inbox) → an `out` message without an author; delivery / read
 //        receipts → the `out` messages' delivery; a Facebook feed comment or an Instagram comment → a `comments` conversation per
-//        (post × commenter) with the comment as an `in` message (the page's own comment: an echo). Always 200 after the signature
+//        (post × commenter) with the comment as an `in` message (the page's own comment: an echo). Only the linked page's entries
+//        (its id or its Instagram account's id) are read — nothing before a page is linked. Always 200 after the signature
 //        (Meta resends on anything else) except a database failure (500 → Meta retries); the delivery is summarised in
 //        cs_channel_events (counts, an error code — never a text, a name or a token).
 //   POST { action, … } with a member's Authorization: Bearer <jwt>:
@@ -20,7 +21,8 @@
 //                      (0035 cs_secret_set «meta_pages») + cs_channels messenger connected (instagram too when the page has an
 //                      Instagram account) + activity_log cs.channel.connect.
 //     disconnect       (the admin) → DELETE subscribed_apps (best effort), the secret removed, both channels disconnected.
-//     send             (cs.reply) { message_id } → the member's queued `out` message sent: a DM through the Send API (RESPONSE), a
+//     send             (cs.reply, on a conversation the member sees — cs.view F, or P and assigned to them — and their own row unless
+//                      the admin) { message_id } → the member's queued `out` message sent: a DM through the Send API (RESPONSE), a
 //                      comments conversation's reply through POST /{comment}/comments (Facebook) or /replies (Instagram) on the last
 //                      incoming comment → delivery sent + Meta's id; a refusal → delivery failed + meta.error (a code) and 502.
 //     comment_private  (cs.reply) { message_id } → the queued message as a private reply to the last incoming comment (opens a DM).
@@ -114,7 +116,7 @@ const pageOf = async (deps: Deps): Promise<Page | null> => { const s = await sec
 
 // ---------------------------------------------------------------- auth of a member
 
-type Who = { uid: string; admin: boolean; view: boolean; reply: boolean };
+type Who = { uid: string; admin: boolean; view: boolean; viewAll: boolean; reply: boolean };
 async function whoIs(req: Request, deps: Deps): Promise<Who | null> {
   const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
   if (!jwt || !deps.userDb || !deps.userId) return null;
@@ -124,8 +126,11 @@ async function whoIs(req: Request, deps: Deps): Promise<Who | null> {
   const admin = !adminErr && adminData === true;
   const uid = await deps.userId(jwt);
   if (!uid) return null;
-  return { uid, admin, view: admin || (await perm('cs.view')) !== 'N', reply: admin || (await perm('cs.reply')) === 'F' };
+  const view = admin ? 'F' : await perm('cs.view');
+  return { uid, admin, view: view !== 'N', viewAll: view === 'F', reply: admin || (await perm('cs.reply')) === 'F' };
 }
+// 0034 cs_conv_visible, repeated here on the service client: cs.view F sees every conversation, P the ones assigned to them
+const canSee = (who: Who, conv: Json) => who.viewAll || (who.view && conv.assignee === who.uid);
 async function logActivity(deps: Deps, who: Who, action: string, entityId: string, value: string | null) {
   try { await deps.db.from('activity_log').insert({ at: deps.now(), actor: who.uid, action, entity: 'cs_channel', entity_id: entityId, new_value: value }); } catch { /* the log never blocks the action */ }
 }
@@ -243,10 +248,14 @@ async function webhook(req: Request, deps: Deps): Promise<Response> {
   try { body = JSON.parse(new TextDecoder().decode(bytes)); } catch { await logEvent(deps, { object: 'unknown', status: 'error', error: 'bad_json' }); return json(200, { status: 'ignored' }); }
   const parsed = parseWebhook(body);
   if (!parsed) { await logEvent(deps, { object: isObj(body) && typeof body.object === 'string' ? body.object.slice(0, 40) : 'unknown', status: 'ignored', error: 'unknown_object' }); return json(200, { status: 'ignored' }); }
+  // the linked page is the only tenant: nothing is written before a page is linked, and only its own entries (the page's id, or
+  // its Instagram account's id) are read — another page the app happens to be subscribed to is ignored
   const page = await pageOf(deps);
+  if (!page) { await logEvent(deps, { object: parsed.object, status: 'ignored', error: 'not_linked', summary: { entries: parsed.entries.length } }); return json(200, { status: 'ignored' }); }
   let failed = false;
   for (const entry of parsed.entries) {
     const s: Summary = {}; let error: string | null = null;
+    if (entry.id !== page.id && entry.id !== page.ig?.id) { await logEvent(deps, { object: parsed.object, entry_id: entry.id, status: 'ignored', error: 'other_page', summary: { events: entry.events.length } }); continue; }
     for (const ev of entry.events) {
       try {
         if (ev.type === 'message') await onMessage(deps, page, ev, s);
@@ -287,6 +296,8 @@ async function connectStart(deps: Deps, who: Who, args: Json) {
 // the page linked: subscribed to the app's webhooks, kept in Vault, the channels connected
 async function linkPage(deps: Deps, who: Who, page: Page) {
   try { await graph(deps, 'POST', graphPath.subscribe(page.id), { token: page.token, form: { subscribed_fields: SUBSCRIBED_FIELDS.join(',') } }); } catch (e) { return graphFail(e); }
+  const before = await pageOf(deps); // another page linked before: its subscription goes (best effort), so only one page feeds the inbox
+  if (before && before.id !== page.id) { try { await graph(deps, 'DELETE', graphPath.subscribe(before.id), { token: before.token }); } catch { /* the old token may be gone */ } }
   await secretSet(deps, { page, linked_by: who.uid, linked_at: deps.now() });
   const meta = { page_id: page.id, page_name: page.name, ig_id: page.ig?.id ?? null, ig_username: page.ig?.username ?? null, fields: SUBSCRIBED_FIELDS };
   const now = deps.now();
@@ -346,8 +357,8 @@ async function queuedOf(deps: Deps, who: Who, args: Json) {
   if (!isObj(m)) return { res: json(404, { error: 'not_found' }) };
   if (m.kind !== 'out' || m.delivery !== 'queued') return { res: json(409, { error: 'not_queued', delivery: m.delivery ?? null }) };
   if (!who.admin && m.author && m.author !== who.uid) return { res: json(401, { error: 'unauthorized' }) };
-  const { data: v } = await deps.db.from('cs_conversations').select('id, seg, platform, channel, external_id, status').eq('id', m.conversation_id).maybeSingle();
-  if (!isObj(v)) return { res: json(404, { error: 'not_found' }) };
+  const { data: v } = await deps.db.from('cs_conversations').select('id, seg, platform, channel, external_id, status, assignee').eq('id', m.conversation_id).maybeSingle();
+  if (!isObj(v) || !canSee(who, v)) return { res: json(404, { error: 'not_found' }) };
   if (v.channel !== 'messenger' && v.channel !== 'instagram') return { res: json(400, { error: 'bad_request', field: 'channel' }) };
   return { msg: m, conv: v };
 }
@@ -403,8 +414,8 @@ async function commentHide(deps: Deps, who: Who, args: Json) {
   if (!who.reply) return json(401, { error: 'unauthorized' });
   const id = typeof args.conversation_id === 'string' && UUID.test(args.conversation_id) ? args.conversation_id : null;
   if (!id) return json(400, { error: 'bad_request', field: 'conversation_id' });
-  const { data: v } = await deps.db.from('cs_conversations').select('id, seg, platform, channel').eq('id', id).maybeSingle();
-  if (!isObj(v)) return json(404, { error: 'not_found' });
+  const { data: v } = await deps.db.from('cs_conversations').select('id, seg, platform, channel, assignee').eq('id', id).maybeSingle();
+  if (!isObj(v) || !canSee(who, v)) return json(404, { error: 'not_found' });
   if (v.seg !== 'comments') return json(400, { error: 'bad_request', field: 'conversation' });
   const page = await pageOf(deps); if (!page) return json(503, { error: 'not_linked' });
   const commentId = await lastIncomingComment(deps, id); if (!commentId) return json(409, { error: 'no_comment' });

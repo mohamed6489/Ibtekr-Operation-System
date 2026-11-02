@@ -6,9 +6,10 @@ import { assert, assertEquals, assertFalse } from 'jsr:@std/assert@1';
 import { handler, signBody } from './index.ts';
 import { ENV, NOW, fakeDb } from '../_test/fakes.ts';
 
-const U = { admin: '00000000-0000-4000-8000-0000000000c1', reply: '00000000-0000-4000-8000-0000000000c2', view: '00000000-0000-4000-8000-0000000000c3', none: '00000000-0000-4000-8000-0000000000c4' };
+const U = { admin: '00000000-0000-4000-8000-0000000000c1', reply: '00000000-0000-4000-8000-0000000000c2', view: '00000000-0000-4000-8000-0000000000c3', none: '00000000-0000-4000-8000-0000000000c4', part: '00000000-0000-4000-8000-0000000000c5' };
 const MEMBERS: Record<string, { uid: string; admin?: boolean; view?: string; reply?: string }> = {
   'jwt-admin': { uid: U.admin, admin: true }, 'jwt-reply': { uid: U.reply, view: 'F', reply: 'F' }, 'jwt-view': { uid: U.view, view: 'P', reply: 'N' }, 'jwt-none': { uid: U.none, view: 'N', reply: 'N' },
+  'jwt-part': { uid: U.part, view: 'P', reply: 'F' }, // sees the conversations assigned to them only
 };
 const SECRET = 'app-secret-0123456789abcdef';
 const META_ENV = { ...ENV, META_APP_ID: '1234567890', META_APP_SECRET: SECRET, META_VERIFY_TOKEN: 'verify-me' };
@@ -132,10 +133,17 @@ Deno.test('webhook: a Messenger message makes the customer (named from the profi
   assertEquals(other.body, { status: 'ok' }); assertEquals(db.rows('cs_channel_events').at(-1).status, 'ignored');
 });
 
-Deno.test('webhook: no page linked → the customer gets the default name (no profile call); an Instagram DM lands on the instagram channel with the handle', async () => {
+Deno.test('webhook: no page linked → nothing is written (ignored, not_linked); another page\'s entry → ignored (other_page); a profile the Graph cannot answer → the default name; an Instagram DM lands on the instagram channel with the handle', async () => {
   const { deps, db, graph } = setup({ routes: { 'GET 55': { body: { name: 'Noha', username: 'noha_h' } } } });
-  await deliver(deps, page(msgEvent('900', 'm.1', 'hi', T)));
-  assertEquals(db.rows('cs_customers')[0].name, 'عميل ماسنجر'); assertEquals(graph.calls.length, 0);
+  assertEquals((await deliver(deps, page(msgEvent('900', 'm.1', 'hi', T)))).body, { status: 'ignored' });
+  assertEquals([db.rows('cs_customers').length, db.rows('cs_messages').length, graph.calls.length], [0, 0, 0]);
+  assertEquals(db.rows('cs_channel_events').map((r: any) => [r.status, r.error, r.summary]), [['ignored', 'not_linked', { entries: 1 }]]);
+  const other = setup({ vault: linked(), routes: { 'GET 900': { status: 400, body: { error: { code: 100 } } } } });
+  await deliver(other.deps, { object: 'page', entry: [{ id: '222', time: T, messaging: [msgEvent('900', 'm.1', 'hi', T)] }] });
+  assertEquals(other.db.rows('cs_messages').length, 0);
+  assertEquals(other.db.rows('cs_channel_events').map((r: any) => [r.entry_id, r.status, r.error]), [['222', 'ignored', 'other_page']]);
+  await deliver(other.deps, page(msgEvent('900', 'm.1', 'hi', T)));
+  assertEquals(other.db.rows('cs_customers')[0].name, 'عميل ماسنجر'); assertEquals(other.graph.calls.length, 1);
   const ig = setup({ vault: linked(), routes: { 'GET 55': { body: { name: 'Noha', username: 'noha_h' } } } });
   await deliver(ig.deps, { object: 'instagram', entry: [{ id: '777', time: 1762000000, messaging: [{ sender: { id: '55' }, recipient: { id: '777' }, timestamp: 1762000001, message: { mid: 'ig.1', text: 'بكام؟' } }] }] });
   const cu = ig.db.rows('cs_customers')[0]; const v = ig.db.rows('cs_conversations')[0];
@@ -173,7 +181,7 @@ Deno.test('webhook: Facebook feed comments → a comments conversation per post 
 });
 
 Deno.test('webhook: a database failure answers 500 (Meta retries) and logs an error row with a code only', async () => {
-  const { deps, db } = setup({ fail: (c: any) => (c.table === 'cs_messages' && c.op === 'insert' ? { code: '57P01', message: 'down', details: 'the row with the text' } : null) });
+  const { deps, db } = setup({ vault: linked(), fail: (c: any) => (c.table === 'cs_messages' && c.op === 'insert' ? { code: '57P01', message: 'down', details: 'the row with the text' } : null) });
   const r = await deliver(deps, page(msgEvent('900', 'm.1', 'سري', T)));
   assertEquals(r.res.status, 500);
   const ev = db.rows('cs_channel_events')[0];
@@ -295,6 +303,12 @@ Deno.test('send: the queued DM goes through the Send API (RESPONSE, the page tok
   const unlinked = setup({ seed: CONV_SEED });
   assertEquals((await call(unlinked.deps, { action: 'send', message_id: M1 })).body, { error: 'not_linked' });
   assertEquals(unlinked.db.row('cs_messages', M1).delivery, 'queued');
+  // cs.view = P sees the conversations assigned to them only: another one is not found, for send and for comment_hide
+  const part = setup({ seed: { ...CONV_SEED, cs_messages: CONV_SEED.cs_messages.map((m) => (m.id === M1 ? { ...m, author: U.part } : m)) }, vault: linked(), routes: { 'POST me/messages': { body: { message_id: 'x' } } } });
+  assertEquals((await call(part.deps, { action: 'send', message_id: M1 }, 'jwt-part')).body, { error: 'not_found' });
+  assertEquals((await call(part.deps, { action: 'comment_hide', conversation_id: VC }, 'jwt-part')).body, { error: 'not_found' });
+  await part.db.from('cs_conversations').update({ assignee: U.part }).eq('id', V);
+  assertEquals((await call(part.deps, { action: 'send', message_id: M1 }, 'jwt-part')).body.delivery, 'sent');
 });
 
 Deno.test('comments: send = a public reply on the last incoming comment; comment_private = a private reply through the Send API; comment_hide hides it and leaves an event', async () => {

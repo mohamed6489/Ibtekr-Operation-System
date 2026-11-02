@@ -150,11 +150,11 @@ do $$ begin
     raise exception 'case orders.customer_state grants (authenticated select only, service_role select/insert/update, anon none) failed';
   end if;
   if not ((select count(*) from information_schema.column_privileges
-           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'orders' and privilege_type = 'SELECT') = 25
+           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'orders' and privilege_type = 'SELECT') = 28 -- 0010 customer_state + 0033 deleted_at / deleted_by / delete_reason
           and not exists (select 1 from information_schema.column_privileges
                           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'orders'
                             and privilege_type = 'SELECT' and column_name in ('customer_phone', 'raw'))) then
-    raise exception 'case authenticated selects 25 orders columns, never customer_phone or raw failed';
+    raise exception 'case authenticated selects 28 orders columns, never customer_phone or raw failed';
   end if;
   -- orders_v: the 0007 columns in the same order, customer_state appended (create or replace view can only append).
   if not ((select string_agg(column_name, ',' order by ordinal_position) from information_schema.columns

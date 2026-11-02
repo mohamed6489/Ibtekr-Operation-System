@@ -9,7 +9,7 @@
   const CARD = Object.freeze({
     kpis: 'المؤشرات', daily: 'يومي', need: 'محتاج منك دلوقتي', weeks: 'الأوردرات آخر 5 أسابيع', health: 'صحة العمليات النهارده',
     confirm: 'حالة التأكيد', followCustomers: 'عملاء محتاجين متابعة', stockToday: 'المخزن النهارده', money: 'الفلوس', expByType: 'مصروفات الشهر حسب النوع',
-    vendors: 'الموردين المحتاجين متابعة', statements: 'كشوف حساب الموردين', team: 'الفريق دلوقتي', system: 'تنبيهات النظام', activity: 'آخر نشاط',
+    vendors: 'المبتكرين المحتاجين متابعة', statements: 'كشوف حساب المبتكرين', team: 'الفريق دلوقتي', system: 'تنبيهات النظام', activity: 'آخر نشاط',
   });
   const LOCKED = new Set(['need']);
   const BY_ROLE = Object.freeze({
@@ -59,8 +59,8 @@
   function countDelta(cur, prev, good) { const d = cur - prev; return { text: (d > 0 ? '+' : '') + d, tone: d === 0 ? 'neutral' : ((d > 0) === (good === 'up') ? 'positive' : 'negative') }; }
   const countIn = (orders, r) => (orders || []).filter((o) => o.date >= r.from && o.date <= r.to).length;
   const QA = [
-    ['expense', '+ مصروف', 'wallet', ['أدمن', 'حسابات']], ['vendorMove', '+ حركة لمورد', 'wallet', ['أدمن', 'حسابات', 'متابعة الموردين']], ['vendor', '+ مبتكر جديد', 'users', ['أدمن', 'متابعة الموردين']],
-    ['ticket', '+ تذكرة', 'ticket', ['أدمن', 'عمليات', 'خدمة العملاء', 'حسابات', 'متابعة الموردين']], ['vendorReport', 'تقرير مورد…', 'chart', ['أدمن', 'حسابات', 'متابعة الموردين']],
+    ['expense', '+ مصروف', 'wallet', ['أدمن', 'حسابات']], ['vendorMove', '+ حركة لمبتكر', 'wallet', ['أدمن', 'حسابات', 'متابعة الموردين']], ['vendor', '+ مبتكر جديد', 'users', ['أدمن', 'متابعة الموردين']],
+    ['ticket', '+ تذكرة', 'ticket', ['أدمن', 'عمليات', 'خدمة العملاء', 'حسابات', 'متابعة الموردين']], ['vendorReport', 'تقرير مبتكر…', 'chart', ['أدمن', 'حسابات', 'متابعة الموردين']],
     ['clock', 'بدء / إنهاء الدوام', 'clock', ROLES], ['leave', 'طلب إجازة', 'cal', ROLES], ['notifs', 'فتح الإشعارات', 'bell', ROLES]];
   const quickActions = (role) => QA.filter((a) => a[3].includes(roleOf(role))).map(([id, label, icon]) => ({ id, label, icon }));
   // next send date for «أيام محددة من الشهر» (1–28 + 'last'); today counts

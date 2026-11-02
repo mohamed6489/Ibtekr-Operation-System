@@ -529,7 +529,7 @@ R.addEventListener('click',function(e){setTimeout(flush,0);
  if(t.closest('[data-obulk-clear]')){SEL={};draw(1);return}
  if(t.closest('[data-obulk-copy]')||t.closest('[data-obulk-csv]')){var ids=Object.keys(SEL).filter(function(k){return SEL[k]});var csv=t.closest('[data-obulk-csv]');
   var txt=csv?['رقم الأوردر,العميل,الموبايل,الحالة,التأكيد,الإجمالي'].concat(ids.map(function(id){var o=OM[id]||{};return[o.id,o.name,o.phone,o.st,o.cf,o.tot].map(function(x){return'"'+String(x==null?'':x).replace(/"/g,'""')+'"'}).join(',')})).join('\n'):ids.join('\n');
-  window.__lastCopy=txt;try{navigator.clipboard.writeText(txt)}catch(er){}toast(csv?'اتنسخ CSV لـ '+ids.length+' أوردر — الصقه في إكسل':'اتنسخت '+ids.length+' أرقام أوردرات');return}
+  window.__lastCopy=txt;try{var cp=navigator.clipboard.writeText(txt);if(cp&&cp.then)cp.then(null,function(){})}catch(er){}toast(csv?'اتنسخ CSV لـ '+ids.length+' أوردر — الصقه في إكسل':'اتنسخت '+ids.length+' أرقام أوردرات');return}
  if(t.closest('[data-car-b]')){var cc=$('chips'),dd=+t.closest('[data-car-b]').dataset.carB;cc.scrollBy({left:-dd*Math.max(160,cc.clientWidth*0.7),behavior:'smooth'});return}
  if(t.closest('[data-afc]')){var k=t.closest('[data-afc]').dataset.afc;if(k==='legacy:st'){S.st='الكل'}else if(k==='legacy:q'){S.q='';$('oq').value='';(document.getElementById('gq')||{}).value=''}else if(k.indexOf('legacy:')===0){S[k.slice(7)]=''}else{var ij=k.slice(3).split('.');if(ij.length>1){var g=S.fb.items[+ij[0]];g.items.splice(+ij[1],1);if(!g.items.length)S.fb.items.splice(+ij[0],1)}else S.fb.items.splice(+ij[0],1)}S.page=1;draw();var nx=R.querySelector('[data-afc]')||$('fbtn');if(nx)nx.focus();return}
  if(b=t.closest('[data-more]')){e.stopPropagation();mpOpen(b);return}

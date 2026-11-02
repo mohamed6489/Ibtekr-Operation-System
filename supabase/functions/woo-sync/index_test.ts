@@ -1379,10 +1379,19 @@ const studioSeed = (item: any = studioItem) => ({
 });
 const STUDIO_FILES = { [`studio/${SB}/1-1.webp`]: new Uint8Array([1, 2, 3]), [`studio/${SB}/1-be.webp`]: new Uint8Array([4, 5]) };
 const WP_ENV = { ...PUSH_ON, WOO_WP_USER: 'wp-user', WOO_WP_APP_PASSWORD: 'wp app pass' };
+// the attribute terms the site has, both languages (the fake ignores the query: a search answers the whole list) — the Arabic
+// terms exist, so the standard upload makes none (the owner, 2 Nov)
+const TERMS: Record<number, any[]> = {
+  12: [{ id: 26, name: 'Beige' }, { id: 27, name: 'Black' }, { id: 201, name: 'بيج' }, { id: 202, name: 'أسود' }],
+  3: [{ id: 351, name: '40*50 Cm' }, { id: 409, name: '40*50 سم' }],
+  15: [{ id: 601, name: 'Cotton' }, { id: 602, name: 'Linen' }],
+  13: [{ id: 3055, name: 'Art Craft' }, { id: 3056, name: '@Art-craft' }],
+};
 function studioRoutes(over: Record<string, any> = {}) {
   let media = 7000;
   return {
     'GET wc/v3/products/attributes': { body: [{ id: 12, slug: 'pa_color' }, { id: 3, slug: 'pa_size' }, { id: 15, slug: 'pa_material' }, { id: 13, slug: 'pa_brand' }] },
+    ...Object.fromEntries(Object.entries(TERMS).map(([id, list]) => [`GET wc/v3/products/attributes/${id}/terms`, { body: list }])),
     'POST wp/v2/media': () => ({ body: { id: ++media } }),
     'POST wc/v3/products': (c: any) => (c.body.wpml_language === 'ar' ? { body: { id: 901, lang: 'ar', translations: { en: 900, ar: 901 } } } : { body: wooProduct(900, 44, { type: 'variable', sku: c.body.sku }) }),
     'POST wc/v3/products/900/variations/batch': (c: any) => ({ body: { create: c.body.create.map((_: any, i: number) => ({ id: 9100 + i })) } }),
@@ -1408,6 +1417,9 @@ Deno.test('studio_upload (phase 5.2): products.add only; images to the media lib
   assertEquals(en.body.attributes.slice(0, 2), [{ id: 12, visible: true, variation: true, options: ['Beige', 'Black'] }, { id: 15, visible: true, variation: false, options: ['Cotton'] }]);
   assertEquals(en.headers.authorization, WC_AUTH);
   assertEquals([ar.body.lang, ar.body.wpml_language, ar.body.translation_of, ar.body.name, ar.body.status, ar.body.sku], ['ar', 'ar', 900, 'مخدة بوهيمي', 'draft', undefined]);
+  // the owner (2 Nov): the translation carries the attributes with the Arabic terms (the color from sku_colors), the same ids
+  assertEquals(ar.body.attributes.slice(0, 2), [{ id: 12, visible: true, variation: true, options: ['بيج', 'أسود'] }, { id: 15, visible: true, variation: false, options: ['Cotton'] }]);
+  assertEquals(body.item.arAttrs, 'ok');
   assertEquals(en.body.lang, 'en');
   const vars = woo.calls.find((c) => c.path === 'wc/v3/products/900/variations/batch')!.body.create;
   assertEquals(vars.map((v: any) => [v.sku, v.image?.id ?? null, v.manage_stock, v.stock_status ?? null]), [['IBTARBE0999', 7002, true, null], ['IBTARBK0999', null, false, 'onbackorder']]);
@@ -1510,7 +1522,7 @@ Deno.test('studio_upload: the maker stays on the result with the ids it took (au
   await upload(deps);
   assertEquals(siteWrites(woo, n), [], 'the same maker: a retry writes nothing');
   // woo-sync v32 kept the ids without their maker: they count as the batch's maker (nothing asked again), and it is written
-  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], author: 'ok', error: null }] });
+  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], author: 'ok', arAttrs: 'ok', error: null }] });
   const v32 = setup({ seed: old, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
   const l = await upload(v32.deps);
   assertEquals([siteWrites(v32.woo, 0), l.body.item.author, l.body.item.authorOwner], [[], 'ok', 44]);
@@ -1580,7 +1592,7 @@ Deno.test('studio_upload: the SKU stays the one the product was made with — th
   assertEquals(db.row('studio_batches', SB).status, 'done');
   // a product made on v33 (no wooBrand on its result yet) whose batch went to another brand: refused before the WooCommerce
   // brand a retry would add (decision 5) — never the new brand's on a product made with the old one's SKU
-  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', error: null }] });
+  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', arAttrs: 'ok', error: null }] });
   const v33 = setup({ seed: { ...twoBrands(old), woo_brands: [{ id: 77, name: 'Bian eg', slug: 'bian-eg' }] }, routes: studioRoutes(), env: WP_ENV, storage: STUDIO_FILES });
   await setBrand(v33.db, BRAND_B);
   const r = await upload(v33.deps);
@@ -1624,7 +1636,7 @@ Deno.test('studio_upload (decision 5): the site\'s WooCommerce brand named like 
   const n = await upload(none.deps);
   const enN = none.woo.calls.find((c) => c.method === 'POST' && c.path === 'wc/v3/products')!;
   assertEquals(['brands' in enN.body, n.body.item.wooBrand, n.body.result], [false, null, 'ok'], 'the pa_brand attribute only; the report says so');
-  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', error: null }] });
+  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', arAttrs: 'ok', error: null }] });
   const v33 = setup({ seed: { ...old, woo_brands: [{ id: 4363, name: 'Art Craft', slug: 'art-craft' }] }, env: WP_ENV, storage: STUDIO_FILES,
     routes: studioRoutes({ 'PUT wc/v3/products/900': (c: any) => ({ body: { id: 900, brands: c.body.brands } }) }) });
   const l = await upload(v33.deps);
@@ -1632,6 +1644,46 @@ Deno.test('studio_upload (decision 5): the site\'s WooCommerce brand named like 
   const m = v33.woo.calls.length;
   await upload(v33.deps);
   assertEquals(siteWrites(v33.woo, m), [], 'once');
+});
+
+Deno.test('studio_upload (the owner, 2 Nov): a size typed as numbers gets «cm» / «سم»; an Arabic term the site lacks is made as the English term\'s translation (lang ar + translation_of) before the translation is posted; a translation made before this gets its attributes on a retry (the terms, one PUT), once; a term the site refuses → arAttrs partial, never the item\'s error', async () => {
+  const posts: any[] = [];
+  const made = { 3: [] as any[], 13: [] as any[] };
+  // the site answers by language (lang=ar): the Arabic size and brand terms are missing, the English ones are there
+  const routes = studioRoutes({
+    'GET wc/v3/products/attributes/3/terms': (c: any) => ({ body: c.query.lang === 'ar' ? [TERMS[3][1], ...made[3]] : [TERMS[3][0], { id: 5635, name: '40×50 cm' }] }),
+    'GET wc/v3/products/attributes/13/terms': (c: any) => ({ body: c.query.lang === 'ar' ? made[13] : [TERMS[13][0]] }),
+    'POST wc/v3/products/attributes/3/terms': (c: any) => { posts.push([3, c.body]); const t = { id: 5700, name: c.body.name }; made[3].push(t); return { body: t }; },
+    'POST wc/v3/products/attributes/13/terms': (c: any) => { posts.push([13, c.body]); const t = { id: 5701, name: c.body.name }; made[13].push(t); return { body: t }; },
+  });
+  const sized = studioSeed({ ...studioSimple, sizes: ['40×50'] });
+  const { woo, deps } = setup({ seed: { ...sized, studio_batches: [{ ...sized.studio_batches[0], type: 'Simple' }] }, routes, env: WP_ENV, storage: STUDIO_FILES });
+  const r = await upload(deps);
+  assertEquals(r.body.result, 'ok');
+  const [en, ar] = woo.calls.filter((c) => c.method === 'POST' && c.path === 'wc/v3/products');
+  assertEquals(en.body.attributes.find((a: any) => a.id === 3).options, ['40×50 cm'], 'the English size with cm');
+  assertEquals(ar.body.attributes.map((a: any) => [a.id, a.options]), [[12, ['بيج']], [3, ['40×50 سم']], [15, ['Linen']], [13, ['Art Craft']]], 'the Arabic size with سم, the color in Arabic, the rest as typed');
+  // the Arabic terms made: the size (its English term 5635 found by name) and the brand (3055) — the color and the material had theirs
+  assertEquals(posts, [[3, { name: '40×50 سم', lang: 'ar', translation_of: 5635 }], [13, { name: 'Art Craft', lang: 'ar', translation_of: 3055 }]]);
+  assertEquals(r.body.item.arAttrs, 'ok');
+  const termsBefore = woo.calls.findIndex((c) => c.method === 'POST' && c.path.endsWith('/terms')) < woo.calls.indexOf(ar);
+  assert(termsBefore, 'the terms before the translation is posted');
+  // a translation from before this (no arAttrs on the result): the terms, then the attributes on the translation; a second retry writes nothing
+  const old = simpleSeed({ items: [{ sku: 'IBTARBE1000', productId: 900, arId: 901, media: { [`${SB}/1-1.webp`]: 7001 }, authorIds: [900, 901], authorOwner: 44, author: 'ok', wooBrand: null, error: null }] });
+  const prior = setup({ seed: old, env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({ 'PUT wc/v3/products/901': (c: any) => ({ body: { id: 901, attributes: c.body.attributes } }) }) });
+  const p = await upload(prior.deps);
+  assertEquals([siteWrites(prior.woo, 0), p.body.item.arAttrs], [['PUT wc/v3/products/901'], 'ok']);
+  assertEquals(prior.woo.calls.find((c) => c.method === 'PUT' && c.path === 'wc/v3/products/901')!.body, { attributes: [{ id: 12, visible: true, variation: false, options: ['بيج'] }, { id: 15, visible: true, variation: false, options: ['Linen'] }, { id: 13, visible: true, variation: false, options: ['Art Craft'] }] });
+  const m = prior.woo.calls.length;
+  await upload(prior.deps);
+  assertEquals(siteWrites(prior.woo, m), [], 'once');
+  // the site refusing a term: the translation still gets its attributes, arAttrs says partial, the item is ok
+  const refused = setup({ seed: old, env: WP_ENV, storage: STUDIO_FILES, routes: studioRoutes({
+    'GET wc/v3/products/attributes/13/terms': (c: any) => ({ body: c.query.lang === 'ar' ? [] : [TERMS[13][0]] }),
+    'POST wc/v3/products/attributes/13/terms': { status: 400, body: { code: 'rest_invalid_param', message: 'Invalid parameter(s): lang' } },
+    'PUT wc/v3/products/901': (c: any) => ({ body: { id: 901, attributes: c.body.attributes } }) }) });
+  const rf = await upload(refused.deps);
+  assertEquals([rf.body.result, rf.body.item.error, rf.body.item.arAttrs, siteWrites(refused.woo, 0)], ['ok', null, 'partial', ['POST wc/v3/products/attributes/13/terms', 'PUT wc/v3/products/901']]);
 });
 
 Deno.test('category_create (phase 5.2): products.add; the English category then its Arabic translation; woo_categories written; names with tags refused', async () => {

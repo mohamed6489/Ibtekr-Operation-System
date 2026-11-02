@@ -850,6 +850,38 @@ async function attributeIds(run: Run, ctx: Ctx) {
   const bySlug = new Map((Array.isArray(list) ? list : []).filter(isObj).map((a: Json) => [String(a.slug), wooId(a.id)]));
   return Object.fromEntries(Object.entries(STUDIO_ATTRS).map(([k, slug]) => [k, bySlug.get(slug) ?? null]));
 }
+// The attribute terms the site shows are translated in WPML (Brown ↔ بنى, Sugar crafts ↔ Sugar crafts): a term WooCommerce
+// made for the English product has no Arabic term, so the translation came without a size or a brand (the owner, 2 Nov).
+// For every English option: its term (GET by search, the name compared), then the Arabic term — found with lang=ar, or made
+// as the English term's translation (WCML's `lang` + `translation_of`, as category_create does). Soft: a failure is reported
+// in the result (arAttrs), never the item's error; the translation's attributes are then written with the Arabic names.
+const termKey = (s: unknown) => String(s ?? '').replace(/&amp;/g, '&').replace(/&#8211;|&ndash;/g, '–').replace(/&#215;|&times;/g, '×').normalize('NFKC').trim().toLowerCase();
+async function ensureArTerms(ctx: Ctx, enAttrs: Json[], arAttrs: Json[]) {
+  let ok = true;
+  const find = async (attr: number, name: string, lang: string | null) => {
+    const q: Record<string, string> = { search: name, per_page: '100' }; if (lang) q.lang = lang;
+    const list = (await ctx.woo.get(`wc/v3/products/attributes/${attr}/terms`, q)).data;
+    const hit = (Array.isArray(list) ? list : []).find((t: Json) => isObj(t) && termKey(t.name) === termKey(name));
+    return hit ? wooId(hit.id) : null;
+  };
+  for (let i = 0; i < enAttrs.length; i++) {
+    const en = enAttrs[i]; const ar = arAttrs[i]; const attr = wooId(en?.id);
+    if (attr === null || !isObj(ar) || !Array.isArray(en.options) || !Array.isArray(ar.options)) continue;
+    for (let j = 0; j < en.options.length; j++) {
+      const enName = String(en.options[j]); const arName = String(ar.options[j] ?? enName);
+      try {
+        if (await find(attr, arName, 'ar') !== null) continue;
+        const enId = await find(attr, enName, null);
+        if (enId === null) { ok = false; continue; }
+        await ctx.woo.post(`wc/v3/products/attributes/${attr}/terms`, { name: arName, lang: 'ar', translation_of: enId });
+      } catch (e) {
+        if (!(e instanceof WooError)) throw e;
+        if (!/term_exists/.test(e.message)) ok = false;
+      }
+    }
+  }
+  return ok;
+}
 async function studioUpload(run: Run, args: Json) {
   const batchId = typeof args.batch_id === 'string' && UUID.test(args.batch_id) ? args.batch_id : null;
   const index = Number.isInteger(args.index) && (args.index as number) >= 0 && (args.index as number) < 500 ? (args.index as number) : null;
@@ -862,15 +894,16 @@ async function studioUpload(run: Run, args: Json) {
   const [{ data: brand }, { data: vendor }, { data: colorRows }, { data: wooBrands }] = await Promise.all([
     batch.brand_id ? run.db.from('brands').select('name, aliases').eq('id', batch.brand_id).maybeSingle() : Promise.resolve({ data: null }),
     batch.vendor_id ? run.db.from('vendors').select('woo_vendor_id').eq('id', batch.vendor_id).maybeSingle() : Promise.resolve({ data: null }),
-    run.db.from('sku_colors').select('code, name_en'), run.db.from('woo_brands').select('id, name, slug')]);
+    run.db.from('sku_colors').select('code, name_en, name_ar'), run.db.from('woo_brands').select('id, name, slug')]);
   const colors = Object.fromEntries((colorRows ?? []).map((c: Json) => [c.code, c.name_en]));
+  const colorsAr = Object.fromEntries((colorRows ?? []).map((c: Json) => [c.code, c.name_ar]));
   const wooBrand = matchWooBrand(brand, wooBrands ?? []) as number | null; // decision 5: the site's WooCommerce brand, by name
-  const check = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', wooBrand, colors, attrs: {} }) as Json;
+  const check = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', wooBrand, colors, colorsAr, attrs: {} }) as Json;
   if (check.error) return json(400, check);
   const entry = { ...productEntry(null, 'studio_upload'), entity_id: `${batchId}#${index}` };
   if (!pushEnabled(run.env)) return await pushSkip(run, 'studio_upload', null, { batch: batchId, index });
   const ctx = await run.ctx();
-  const built = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', wooBrand, colors, attrs: await attributeIds(run, ctx) }) as Json;
+  const built = buildStudio(item, { batchId, type: batch.type, brand: brand?.name ?? '', wooBrand, colors, colorsAr, attrs: await attributeIds(run, ctx) }) as Json;
   if (built.error) return json(400, built);
   const prev = isObj(batch.result) && Array.isArray(batch.result.items) && isObj(batch.result.items[index]) ? batch.result.items[index] : {};
   // the SKU (decision 2) is fixed when the product is made: the result keeps it, and a retry whose item builds another (its
@@ -955,12 +988,23 @@ async function studioUpload(run: Run, args: Json) {
         // product page before its translation existed — a draft translation would leave the Arabic site without it)
         let status = 'draft';
         if (made) { try { const p = (await ctx.woo.get(`wc/v3/products/${res.productId}`)).data; if (isObj(p) && p.status === 'publish') status = 'publish'; } catch (e) { if (!(e instanceof WooError)) throw e; } }
-        const a = (await ctx.woo.post('wc/v3/products', { ...built.ar, type: built.product.type, status, lang: 'ar', wpml_language: 'ar', translation_of: res.productId })).data;
+        // the Arabic terms first (the owner, 2 Nov), so the translation's attributes land on linked, translated terms
+        const termsOk = await ensureArTerms(ctx, built.product.attributes, built.arAttributes);
+        const a = (await ctx.woo.post('wc/v3/products', { ...built.ar, attributes: built.arAttributes, type: built.product.type, status, lang: 'ar', wpml_language: 'ar', translation_of: res.productId })).data;
         const arId = wooId(isObj(a) ? a.id : null);
         const linked = isObj(a) && isObj(a.translations) && wooId(a.translations.en) === res.productId;
         delete res.arNote; delete res.arError;
-        if (arId !== null && !linked) { await ctx.woo.del(`wc/v3/products/${arId}`); res.arId = null; res.arNote = 'not_linked'; } else res.arId = arId;
+        if (arId !== null && !linked) { await ctx.woo.del(`wc/v3/products/${arId}`); res.arId = null; res.arNote = 'not_linked'; } else { res.arId = arId; res.arAttrs = termsOk ? 'ok' : 'partial'; }
       } catch (e) { if (!(e instanceof WooError)) throw e; res.arId = null; res.arNote = wooCode(e); res.arError = String(e.message).slice(0, 240); }
+    }
+    // a translation made before this run (or one whose terms failed then) gets its attributes on a retry: the Arabic terms, then
+    // one PUT — never in the run that just posted the translation with them
+    if (!res.error && wooId(prev.arId) !== null && wooId(res.arId) !== null && res.arAttrs !== 'ok' && Array.isArray(built.arAttributes) && built.arAttributes.length) {
+      try {
+        const termsOk = await ensureArTerms(ctx, built.product.attributes, built.arAttributes);
+        await ctx.woo.put(`wc/v3/products/${res.arId}`, { attributes: built.arAttributes });
+        res.arAttrs = termsOk ? 'ok' : 'partial';
+      } catch (e) { if (!(e instanceof WooError)) throw e; res.arAttrs = 'failed'; }
     }
     if (!res.error && owner !== null && wooId(res.arId) !== null) await authorOf(res.arId);
     if (wooId(res.productId) !== null) {
@@ -980,7 +1024,7 @@ async function studioUpload(run: Run, args: Json) {
   await saveResult();
   await logSync(run.db, { ...entry, entity_id: res.productId == null ? entry.entity_id : String(res.productId), result: res.error ? 'error' : 'ok',
     // ar_code / ar_error, not ar_note: redactPII masks every key with «note» (the 29 / 31 Oct rows show <redacted>)
-    detail: { batch: batchId, index, sku: res.sku, media: Object.keys(res.media).length, variations: res.variations ?? null, ar: res.arId ?? null, ar_code: res.arNote ?? null, ar_error: res.arError ?? null, author: res.author ?? null, woo_brand: res.wooBrand ?? null, error: res.error } });
+    detail: { batch: batchId, index, sku: res.sku, media: Object.keys(res.media).length, variations: res.variations ?? null, ar: res.arId ?? null, ar_code: res.arNote ?? null, ar_error: res.arError ?? null, ar_attrs: res.arAttrs ?? null, author: res.author ?? null, woo_brand: res.wooBrand ?? null, error: res.error } });
   return json(200, { action: 'studio_upload', result: res.error ? 'error' : 'ok', item: res });
 }
 

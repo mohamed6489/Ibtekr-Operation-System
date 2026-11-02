@@ -18,6 +18,16 @@ const asciiDigits = (s) => String(s == null ? '' : s).replace(/[٠-٩]/g, (c) =>
 // least) + «-size digits» for a variation with a size. The page's products-domain.js studioSku is the same rule.
 export const brandCode = (name) => { const l = String(name || '').toUpperCase().replace(/[^A-Z]/g, ''); return l.length >= 2 ? l.slice(0, 2) : null; };
 export const sizeDigits = (s) => asciiDigits(s).replace(/[^\d]+/g, '');
+// The size as the site shows it (the owner, 2 Nov): a size typed as numbers only («40×50», «٥٠×٥٠», «30») gets the unit — «cm»
+// on the English product, «سم» on the Arabic one; a size with its own unit keeps it (the unit word swapped for the other
+// language when it is cm / سم); «S» / «M» / «L» and the like stay as typed in both.
+const BARE_SIZE = /^[\d.,٠-٩۰-۹\s×xX*\-–]+$/;
+export function sizeLabel(size, lang = 'en') {
+  const s = String(size == null ? '' : size).trim();
+  if (!s) return s;
+  if (BARE_SIZE.test(s)) return s + (lang === 'ar' ? ' سم' : ' cm');
+  return lang === 'ar' ? s.replace(/\s*\bcm\b\.?/i, ' سم') : s.replace(/\s*سم(?![؀-ۿ])/, ' cm');
+}
 export function studioSku({ brand, color, serial, size }) {
   const b = brandCode(brand);
   if (!b || !Number.isInteger(serial) || serial < 0 || (color && !/^[A-Z]{2}$/.test(color))) return null;
@@ -45,9 +55,10 @@ export function matchWooBrand(brand, wooBrands) {
 }
 
 /**
- * item + { batchId, type, brand, wooBrand (the site's WooCommerce brand id or null), colors: { CODE: 'Name EN' },
+ * item + { batchId, type, brand, wooBrand (the site's WooCommerce brand id or null), colors: { CODE: 'Name EN' }, colorsAr?: { CODE: 'الاسم' },
  *   attrs: { color, size, material, style, brand } (ids or null) }
- * → { error, field } | { sku, product, variations: [{ sku, payload, image }], images: [path…], ar: { name, short_description? } } (the Arabic name is required, decision 15)
+ * → { error, field } | { sku, product, variations: [{ sku, payload, image }], images: [path…], ar: { name, short_description? },
+ *   arAttributes: [{ id, visible, variation, options }] (the translation's attributes, the same ids) } (the Arabic name is required, decision 15)
  */
 export function buildStudio(item, o) {
   const bad = (field) => ({ error: 'bad_field', field });
@@ -73,16 +84,21 @@ export function buildStudio(item, o) {
   const arShort = item.shortDescAr ? cleanFields({ short_description: item.shortDescAr }, ['short_description']) : { payload: {} };
   if (arShort.error) return bad('shortDescAr');
 
-  const attrs = [];
-  const add = (id, options, variation) => { if (Number.isInteger(id) && options.length) attrs.push({ id, visible: true, variation, options }); };
+  // the attributes twice: the English product's and the Arabic translation's (the same taxonomy ids; the Arabic color name
+  // from sku_colors, the size with «سم», the rest as typed — the owner, 2 Nov: the translation used to come without a size or
+  // a brand because the English terms the site made had no Arabic translation)
+  const attrs = []; const arAttrs = [];
+  const add = (id, options, variation, arOptions = options) => { if (Number.isInteger(id) && options.length) { attrs.push({ id, visible: true, variation, options }); arAttrs.push({ id, visible: true, variation, options: arOptions }); } };
   const colorNames = colors.map((c) => o.colors[c]);
+  const colorNamesAr = colors.map((c) => (o.colorsAr && typeof o.colorsAr[c] === 'string' && o.colorsAr[c].trim()) || o.colors[c]);
+  const sizesEn = sizes.map((s) => sizeLabel(s, 'en')); const sizesAr = sizes.map((s) => sizeLabel(s, 'ar'));
   const at = o.attrs || {};
   if (type === 'Simple') {
     if (colors.length > 1 || sizes.length > 1) return bad('variations');
-    add(at.color, colorNames, false); add(at.size, sizes, false);
+    add(at.color, colorNames, false, colorNamesAr); add(at.size, sizesEn, false, sizesAr);
   } else {
     if (!colors.length && !sizes.length) return bad('variations');
-    add(at.color, colorNames, colors.length > 0); add(at.size, sizes, sizes.length > 0);
+    add(at.color, colorNames, colors.length > 0, colorNamesAr); add(at.size, sizesEn, sizes.length > 0, sizesAr);
   }
   add(at.material, material ? [material] : [], false); add(at.style, style ? [style] : [], false); add(at.brand, [String(o.brand).trim()], false);
 
@@ -109,12 +125,12 @@ export function buildStudio(item, o) {
       const image = v.image == null ? null : typeof v.image === 'string' && pathRe.test(v.image) ? v.image : undefined; if (image === undefined) return bad('variations.image');
       const vsku = studioSku({ brand: o.brand, color, serial: item.serial, size: sizes.length ? size : null });
       variations.push({ sku: vsku, image, payload: { sku: vsku, ...price.payload, ...stock,
-        attributes: [color && Number.isInteger(at.color) ? { id: at.color, option: o.colors[color] } : null, size && Number.isInteger(at.size) ? { id: at.size, option: size } : null].filter(Boolean) } });
+        attributes: [color && Number.isInteger(at.color) ? { id: at.color, option: o.colors[color] } : null, size && Number.isInteger(at.size) ? { id: at.size, option: sizeLabel(size, 'en') } : null].filter(Boolean) } });
     }
   }
   if (!sku) return bad('sku');
   product.sku = sku;
-  return { sku, product, variations, images, ar: { name: nameAr, ...arShort.payload } };
+  return { sku, product, variations, images, ar: { name: nameAr, ...arShort.payload }, arAttributes: arAttrs };
 }
 
 // A Google Sheets link for the studio's «الاستلام» (decision 13; the owner, 28 Oct): «Publish to the web»

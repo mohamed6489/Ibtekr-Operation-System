@@ -1,11 +1,11 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
-import { buildStudio, matchWooBrand, studioSku, brandCode, sheetCsvUrl, fetchSheetCsv } from '../../supabase/functions/_shared/woo-studio.js';
+import { buildStudio, matchWooBrand, studioSku, brandCode, sheetCsvUrl, fetchSheetCsv, sizeLabel } from '../../supabase/functions/_shared/woo-studio.js';
 import { loadUmd } from '../helpers/load-umd.mjs';
 // The product studio's upload payloads (phase 5.2, docs/superpowers/plans/2026-10-28-phase-5-2-studio.md decisions 2 / 5 / 7):
 // the SKU rule (the same as the page's), the product / variations / translation built from a batch item, and the refusals.
 const PD = loadUmd(new URL('../../app/js/pages/products-domain.js', import.meta.url));
 const B = '0b6f2f5e-1d2c-4a8b-9e3f-1234567890ab';
-const O = { batchId: B, type: 'Simple', brand: 'Art Craft', colors: { BE: 'Beige', BK: 'Black' }, attrs: { color: 12, size: 3, material: 15, style: 14, brand: 13 } };
+const O = { batchId: B, type: 'Simple', brand: 'Art Craft', colors: { BE: 'Beige', BK: 'Black' }, colorsAr: { BE: 'بيج', BK: 'أسود' }, attrs: { color: 12, size: 3, material: 15, style: 14, brand: 13 } };
 const simple = { nameEn: 'Boho Cushion', nameAr: 'مخدة بوهيمي', serial: 999, colors: ['BE'], sizes: ['50×50'], material: 'Cotton', style: 'Bohemian', weight: '0.4', stock: 5,
   sale: 1200, regular: 1500, shortDesc: '<p>Soft</p>', shortDescAr: '<p>ناعمة</p>', categories: [20], images: [B + '/1-1.webp', B + '/1-2.webp'] };
 
@@ -22,12 +22,23 @@ test('buildStudio Simple: a draft English product with the SKU, prices, stock, a
   assert.equal(r.sku, 'IBTARBE0999');
   assert.deepEqual(r.product, { name: 'Boho Cushion', short_description: '<p>Soft</p>', weight: '0.4', categories: [{ id: 20 }], type: 'simple', status: 'draft', lang: 'en', wpml_language: 'en', sku: 'IBTARBE0999',
     regular_price: '1500', sale_price: '1200', manage_stock: true, stock_quantity: 5,
-    attributes: [{ id: 12, visible: true, variation: false, options: ['Beige'] }, { id: 3, visible: true, variation: false, options: ['50×50'] }, { id: 15, visible: true, variation: false, options: ['Cotton'] },
+    attributes: [{ id: 12, visible: true, variation: false, options: ['Beige'] }, { id: 3, visible: true, variation: false, options: ['50×50 cm'] }, { id: 15, visible: true, variation: false, options: ['Cotton'] },
       { id: 14, visible: true, variation: false, options: ['Bohemian'] }, { id: 13, visible: true, variation: false, options: ['Art Craft'] }] });
   assert.deepEqual(r.images, simple.images);
   assert.deepEqual(r.ar, { name: 'مخدة بوهيمي', short_description: '<p>ناعمة</p>' });
+  // the owner (2 Nov): the translation's attributes — the same ids, the Arabic color name, the size with «سم», the rest as typed
+  assert.deepEqual(r.arAttributes, [{ id: 12, visible: true, variation: false, options: ['بيج'] }, { id: 3, visible: true, variation: false, options: ['50×50 سم'] }, { id: 15, visible: true, variation: false, options: ['Cotton'] },
+    { id: 14, visible: true, variation: false, options: ['Bohemian'] }, { id: 13, visible: true, variation: false, options: ['Art Craft'] }]);
+  assert.deepEqual(buildStudio(simple, { ...O, colorsAr: undefined }).arAttributes[0].options, ['Beige'], 'no Arabic color name: the English one');
   assert.deepEqual(r.variations, []);
   assert.deepEqual(buildStudio({ ...simple, onDemand: true, stock: null }, O).product.stock_status, 'onbackorder');
+});
+
+test('sizeLabel (the owner, 2 Nov): numbers only get the unit — «cm» in English, «سم» in Arabic; a size with its own unit keeps it (cm ↔ سم swapped); letters stay as typed', () => {
+  assert.deepEqual(['50×50', '40*50', '٥٠×٥٠', '30', '1.5 x 2'].map((s) => [sizeLabel(s), sizeLabel(s, 'ar')]),
+    [['50×50 cm', '50×50 سم'], ['40*50 cm', '40*50 سم'], ['٥٠×٥٠ cm', '٥٠×٥٠ سم'], ['30 cm', '30 سم'], ['1.5 x 2 cm', '1.5 x 2 سم']]);
+  assert.deepEqual([sizeLabel('40×50 cm'), sizeLabel('40×50 cm', 'ar'), sizeLabel('40×50 سم'), sizeLabel('40×50 سم', 'ar')], ['40×50 cm', '40×50 سم', '40×50 cm', '40×50 سم']);
+  assert.deepEqual([sizeLabel('1.83*2.14 in'), sizeLabel('1.83*2.14 in', 'ar'), sizeLabel('M'), sizeLabel('M', 'ar'), sizeLabel('XL'), sizeLabel('')], ['1.83*2.14 in', '1.83*2.14 in', 'M', 'M', 'XL', '']);
 });
 
 test('buildStudio Variable: the parent without a color, a variation per color × size with its own SKU, prices, stock and image; color and size are variation attributes', () => {
@@ -37,9 +48,10 @@ test('buildStudio Variable: the parent without a color, a variation per color ×
   assert.equal(r.sku, 'IBTAR0999');
   assert.equal(r.product.type, 'variable');
   assert.equal(r.product.regular_price, undefined);
-  assert.deepEqual(r.product.attributes.slice(0, 2), [{ id: 12, visible: true, variation: true, options: ['Beige', 'Black'] }, { id: 3, visible: true, variation: true, options: ['50×50', '40×40'] }]);
+  assert.deepEqual(r.product.attributes.slice(0, 2), [{ id: 12, visible: true, variation: true, options: ['Beige', 'Black'] }, { id: 3, visible: true, variation: true, options: ['50×50 cm', '40×40 cm'] }]);
+  assert.deepEqual(r.arAttributes.slice(0, 2), [{ id: 12, visible: true, variation: true, options: ['بيج', 'أسود'] }, { id: 3, visible: true, variation: true, options: ['50×50 سم', '40×40 سم'] }]);
   assert.deepEqual(r.variations.map((v) => v.sku), ['IBTARBE0999-5050', 'IBTARBK0999-4040']);
-  assert.deepEqual(r.variations[0].payload, { sku: 'IBTARBE0999-5050', regular_price: '1500', sale_price: '1200', manage_stock: true, stock_quantity: 3, attributes: [{ id: 12, option: 'Beige' }, { id: 3, option: '50×50' }] });
+  assert.deepEqual(r.variations[0].payload, { sku: 'IBTARBE0999-5050', regular_price: '1500', sale_price: '1200', manage_stock: true, stock_quantity: 3, attributes: [{ id: 12, option: 'Beige' }, { id: 3, option: '50×50 cm' }] });
   assert.equal(r.variations[0].image, B + '/1-be.webp');
   assert.deepEqual(r.variations[1].payload.stock_status, 'onbackorder');
   const colorsOnly = buildStudio({ ...it, sizes: [], variations: [{ color: 'BE', sale: 100, regular: 120 }] }, { ...O, type: 'Variable' });

@@ -280,25 +280,21 @@
         rows: () => K().store.holidays.map((x) => ({ date: x.date, name: x.name, days: x.days, kind: x.kind, status: x.status })),
         existing: () => K().store.holidays.map((x) => x.date),
         apply: (rows, onMatch) => upsert(K().store.holidays, rows, onMatch, (x, d) => x.date === d.date, (d) => ({ date: d.date, name: d.name, days: d.days, kind: d.kind || 'هجري', status: d.status || 'متوقع' })) },
+      // phase 6: the customers live in cs_customers — the import writes through IBCS (a new phone = a lead, created_from import; a known
+      // phone = the profile fields, cs.manage); templates / quick replies are postponed with «الرد الآلي» and are not imported
       { id: 'customers', label: 'العملاء (خدمة العملاء)', key: 'phone', modes: ['add', 'update'],
         fields: () => [{ key: 'name', label: 'الاسم', en: 'Name', required: true }, { key: 'phone', label: 'الموبايل', en: 'Phone', type: 'phone', required: true, sensitive: true }, { key: 'city', label: 'المدينة / المنطقة', en: 'City' }, { key: 'address', label: 'العنوان', en: 'Address', sensitive: true },
           { key: 'tags', label: 'التاجات (افصلهم بـ ،)', en: 'Tags' }, { key: 'consent', label: 'موافق على الرسايل التسويقية', en: 'Marketing consent', type: 'enum', options: ['نعم', 'لا'] }, { key: 'source', label: 'جه منين', en: 'Source' }],
         rows: () => csData().customers.map((c) => ({ name: c.name, phone: c.phone, city: c.city || '', address: c.address || '', tags: (c.tags || []).join('، '), consent: c.consent ? 'نعم' : 'لا', source: c.source || '' })),
         existing: () => csData().customers.map((c) => c.phone),
-        apply: (rows, onMatch) => upsert(csData().customers, rows, onMatch, (x, d) => x.phone === d.phone, (d) => ({ id: 'C' + (csData().customers.length + 1) + 'i', name: d.name, phone: d.phone, city: d.city || '', since: 'استيراد', address: d.address || '', channels: ['whatsapp'], tags: splitTags(d.tags), orders: 0, total: 0, lastOrderDays: null, refused: 0, returned: 0, openComplaints: 0, lateOpen: 0, consent: d.consent !== 'لا', autoConsent: d.consent !== 'لا', conversations: 0, source: d.source || 'استيراد', orderList: [], tickets: [], notes: [], lastActive: '—', province: '' }),
-          (d) => { const p = {}; ['name', 'city', 'address', 'source'].forEach((k) => { if (d[k]) p[k] = d[k]; }); if (d.tags) p.tags = splitTags(d.tags); if (d.consent) { p.consent = d.consent === 'نعم'; p.autoConsent = p.consent; } return p; }) },
-      { id: 'templates', label: 'قوالب الرسايل', key: 'name', modes: ['add', 'update'],
-        fields: () => [{ key: 'lib', label: 'المكتبة', en: 'Library', type: 'enum', options: ['العملاء', 'المبتكرين'], required: true }, { key: 'name', label: 'اسم القالب', en: 'Template name', required: true }, { key: 'cat', label: 'التصنيف', en: 'Category' }, { key: 'body', label: 'النص (المتغيرات بين {})', en: 'Text', required: true }, { key: 'channels', label: 'القنوات', en: 'Channels' }],
-        rows: () => csData().templates.map((t) => ({ lib: t.lib === 'vendors' ? 'المبتكرين' : 'العملاء', name: t.name, cat: t.cat || '', body: t.body, channels: t.channels || '' })),
-        existing: () => csData().templates.map((t) => t.name),
-        apply: (rows, onMatch) => upsert(csData().templates, rows, onMatch, (x, d) => VD.norm(x.name) === VD.norm(d.name), (d) => ({ id: 'T' + (csData().templates.length + 1) + 'i', lib: d.lib === 'المبتكرين' ? 'vendors' : 'customers', name: d.name, cat: d.cat || 'عام', tone: 'brand', body: d.body, trigger: 'يدوي', used: 0, channels: d.channels || 'كل القنوات', key: '' }),
-          (d) => { const p = {}; if (d.lib) p.lib = d.lib === 'المبتكرين' ? 'vendors' : 'customers'; ['cat', 'body', 'channels'].forEach((k) => { if (d[k]) p[k] = d[k]; }); return p; }) },
-      { id: 'quick', label: 'الردود السريعة', key: 'key', modes: ['add', 'update'],
-        fields: () => [{ key: 'key', label: 'الاختصار (يبدأ بـ /)', en: 'Shortcut', required: true }, { key: 'label', label: 'الوصف', en: 'Label', required: true }, { key: 'text', label: 'نص الرد', en: 'Reply text', required: true }],
-        rows: () => csData().quick.map((q) => ({ key: q.key, label: q.label, text: q.text })),
-        existing: () => csData().quick.map((q) => q.key),
-        check: (d) => ({ errors: d.key && !/^\//.test(d.key) ? ['الاختصار لازم يبدأ بـ / (مثلًا /شحن)'] : [] }),
-        apply: (rows, onMatch) => upsert(csData().quick, rows, onMatch, (x, d) => x.key === d.key, (d) => ({ key: d.key, label: d.label, text: d.text })) },
+        apply: (rows, onMatch) => {
+          const A = window.IBCS; const CSD = window.IbtekrCS; const list = csData().customers; const done = { created: [], updated: [] }; const adds = [];
+          for (const r of rows) { const d = r.data; const ph = CSD && CSD.normPhone ? CSD.normPhone(d.phone) : d.phone; const ex = list.find((x) => x.phone === ph);
+            if (ex) { if (onMatch === 'تخطّي') continue; const p = {}; ['name', 'city', 'address', 'source'].forEach((k) => { if (d[k]) p[k] = d[k]; }); if (d.tags) p.tags = splitTags(d.tags); if (d.consent) { p.consent = d.consent === 'نعم'; p.autoConsent = p.consent; } if (A) A.updateCustomer(ex.id, p); done.updated.push({ ex, old: {} }); }
+            else { adds.push({ phone: ph, name: d.name, city: d.city, address: d.address, source: d.source || 'استيراد شيت', tags: splitTags(d.tags), consent: d.consent !== 'لا' }); done.created.push(d); } }
+          if (A && adds.length) A.importCustomers(adds);
+          return { done, undo: () => { const K = window.IBKit; if (K) K.toast('الاستيراد اتكتب في السيستم — مفيش تراجع تلقائي'); } };
+        } },
       { id: 'delayRules', label: 'قواعد التأخير لكل مبتكر', key: 'maker', modes: ['add', 'update'],
         fields: () => [{ key: 'maker', label: 'المبتكر', en: 'Vendor', type: 'enum', options: vnames(), required: true }, { key: 'lead', label: 'مدة التصنيع (يوم)', en: 'Lead time (days)', required: true }, { key: 'risk', label: 'قابل للتأخير من يوم', en: 'At risk from day', type: 'number', required: true }, { key: 'late', label: 'متأخر بعد يوم', en: 'Late after day', type: 'number', required: true }],
         rows: () => (sapi().makerRules ? sapi().makerRules() : []).map((r) => ({ maker: r[0], lead: String(r[1]).replace(' يوم', ''), risk: Number(String(r[2]).replace(/\D/g, '')), late: Number(String(r[3]).replace(/\D/g, '')) })),
@@ -342,7 +338,7 @@
   // Phase 3.6 (plan decision 5): the pages not built on real data yet are closed — «soon» in the menus; any way in (a link, an
   // alert, a typed hash) lands on the dashboard with a note. Open: لوحة التحكم، الأوردرات، المبتكرين، and «ملفي» (account menu).
   // phase 5 (plan decision 2): «المنتجات» is open (app/js/pages/products.js) — the owner chose it before «المخزون»
-  const SOON = ['inventory', 'cs', 'tickets', 'reports', 'marketing', 'hr', 'settings'];
+  const SOON = ['inventory', 'tickets', 'reports', 'marketing', 'hr', 'settings']; // phase 6: «خدمة العملاء» opened (cs); «الرد الآلي» stays postponed
   const isSoon = (page) => SOON.includes(page);
   const soonNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي لسه — soon'); };
   state.page = pageOfHash(location.hash.slice(1));

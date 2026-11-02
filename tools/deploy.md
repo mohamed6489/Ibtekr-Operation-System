@@ -1100,3 +1100,12 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
   (سلة المهملات على الموقع — الاسترجاع من لوحة WooCommerce → Orders → Trash)، الفرعية الأول ثم الأصلي. `woo_sync_log`: `push/out/order/{id}`
   action `trash`.
 - الترتيب في الواجهة: إلغاء (لو لازم) → `order_trash` → `order_delete`. فشل الموقع = الأوردر يفضل زي ما هو عندنا والرسالة «الموقع ماردش».
+
+#### 2.7.15 خدمة العملاء (المرحلة 6.1، 2 نوفمبر)
+
+- `0034_cs.sql` بالـ MCP (`apply_migration`) ثم `supabase/tests/rls_cs.sql` على الحي (`execute_sql` — الملف `begin … rollback`، بيطبع `rls_cs: ok`).
+  المهاجرة بتضيف `cs.view/reply/manage` للأدوار اللي مافيهاش (`where not (permissions ? 'cs.view')`)، وبتعمل عميل لكل رقم مطبّع في `orders` (تعبئة re-runnable).
+- مافيش Edge Functions ولا أسرار في 6.1 (القنوات كلها `disconnected`). الـ Realtime على `cs_conversations` و`cs_messages` بيتضاف في المهاجرة.
+- بعدها `main` (الواجهة: الكتل 14/19/20/28، `app/js/adapter/cs.js`، `app/css/cs.css`). التحقق: دخول أدمن → «خدمة العملاء» → تاب «العملاء» فيه عملاء الأوردرات بأرقامهم.
+- 6.2 (Meta): Edge Function `cs-channel` + أسرار `META_APP_ID`/`META_APP_SECRET`/`META_VERIFY_TOKEN` — مش دلوقتي.
+

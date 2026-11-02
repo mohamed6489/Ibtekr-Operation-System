@@ -33,6 +33,7 @@ async function signIn(page, id, pw, { remember = true } = {}) {
   if (!remember) await page.getByRole('checkbox', { name: 'افتكرني على الجهاز ده' }).click();
   await page.getByRole('button', { name: 'دخول', exact: true }).click();
   await expect(page.locator('#root')).toBeVisible();
+  await page.waitForFunction(() => !window.IBCS || ['ready', 'error'].includes(window.IBCS.state())); // phase 6: the bell's «رسايل» group counts once the CS data is in
 }
 const card = (page, id) => page.locator(`[data-card="${id}"]`);
 // an activity_log row as the server keeps it (seeded into mock.activityRows before sign-in); `daysBack` days ago at hh:mm local time

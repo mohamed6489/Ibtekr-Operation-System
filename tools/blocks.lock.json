@@ -53,7 +53,7 @@
   },
   "14-kit.js": {
     "prototype": "2a924af8c731555a02958f802f051efe4ef180be78d65a0f3340b342a064e432",
-    "current": "419bfda4f2d6f090075b615f57fcf661db55a0c50b4ae412d822c1aa4e8f1cd2"
+    "current": "69d96d9d23f48a50b65aa19d9487e622bd796f4e49bb580f94a68420ae8c5fe8"
   },
   "15-page-hr.js": {
     "prototype": "ee600dbb6d1a699847ee0528e7454c3bc857f4801989b1cf85cdba72aa135d76",
@@ -77,7 +77,7 @@
   },
   "20-page-cs.js": {
     "prototype": "07edfb71ffed3920bba96b1602645c9224249cc9a0ce63e07b4d4fe58295118b",
-    "current": "07edfb71ffed3920bba96b1602645c9224249cc9a0ce63e07b4d4fe58295118b"
+    "current": "de9274f0a58c057e4250e0e9fedac62e9770408b1bcc382548f0dcedee63dbf8"
   },
   "21-shell.js": {
     "prototype": "da3316ca93e76c490b7a58d4f817bdc7852887e007200bb438efa591045a05f9",
@@ -109,7 +109,7 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "34cba1836f1883ebe7421f7fd417072bbf3748000b800e7bdc3f0f13b528775a"
+    "current": "93cbe754c2878f74509309f0aae1d25c2faf4473ece8c74540aa42dc1eb8f246"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",

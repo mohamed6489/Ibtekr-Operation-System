@@ -42,6 +42,10 @@
     const card = h('section', { class: 'card sec' + (opts.cls ? ' ' + opts.cls : '') }, title || actions ? h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, title), opts.sub ? h('div', { class: 't-small sub' }, opts.sub) : null), h('div', { class: 'acts' }, actions || null)) : null, h('div', { class: 'sec-b' }, body));
     return opts.cols === false ? card : withColumns(card, title ? 'sec:' + title : '', title, opts.rerender);
   }
+  // الجدول القياسي (owner 28 Oct — phase 6 brought it from the v2 kit): كارت فيه تايتل + sub وأزرار، وتحتيهم الجدول بترويسة خضرا فل-بليد (tbl-v2)
+  function TableSection({ title, sub, actions, body, cls, rerender }) {
+    return Section(title, body, actions, { sub, cls: 'tbl-v2' + (cls ? ' ' + cls : ''), rerender });
+  }
   function Switch({ id, label, checked, onChange, help, disabled }) {
     const b = h('button', { type: 'button', role: 'switch', id, class: 'sw', 'aria-checked': String(!!checked), 'aria-label': label, disabled, onClick: () => onChange(!checked) }, h('i'));
     return h('div', { class: 'sw-row' }, h('div', { class: 'sw-txt' }, h('label', { for: id, class: 't-label' }, label), help ? h('div', { class: 't-small help' }, help) : null), b);
@@ -49,10 +53,13 @@
   function Checkbox({ label, checked, onChange, disabled, small }) {
     return h('button', { type: 'button', role: 'checkbox', class: 'cb' + (small ? ' sm' : ''), 'aria-checked': String(!!checked), disabled, onClick: () => onChange(!checked) }, h('i', null, checked ? Icon('check', 'sm') : null), label ? h('span', null, label) : null);
   }
-  function Radios({ label, options, value, onChange, name }) {
-    const g = h('div', { class: 'radios', role: 'radiogroup', 'aria-label': label || name });
+  // phase 6 (from the v2 kit): error / required / option hints — the message under the group was missing here
+  function Radios({ label, options, value, onChange, name, error, required }) {
+    const g = h('div', { class: 'radios' + (error ? ' err' : ''), role: 'radiogroup', 'aria-label': label || name, 'aria-invalid': error ? 'true' : false });
     options.forEach((o) => g.append(h('button', { type: 'button', role: 'radio', class: 'radio', 'aria-checked': String(o.value === value), onClick: () => onChange(o.value) }, h('i'), h('span', null, o.label), o.hint ? h('small', { class: 't-small help' }, o.hint) : null)));
-    return label ? h('div', { class: 'field' }, h('span', { class: 'flabel' }, label), g) : g;
+    const err = error ? h('p', { class: 'ferr t-small', role: 'alert' }, error) : null;
+    const out = label ? h('div', { class: 'field' }, h('span', { class: 'flabel' }, label + (required ? ' *' : '')), g) : g; if (err) out.append(err);
+    return out;
   }
   // Accordion (owner 22 Oct): small title + small description under it, and a bordered up/down arrow button like the orders cards.
   function Accordion({ title, desc, meta, open, onToggle, body, id }) {
@@ -397,6 +404,10 @@
   // aoa = مصفوفة صفوف (أول صف العناوين). المكتبة (app/js/vendor/xlsx.full.min.js) بتتحمّل وقت الطلب؛ لو ماتحمّلتش بينزّل CSV.
   const loadXLSX = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'js/vendor/xlsx.full.min.js'; sc.onload = () => res(window.XLSX); sc.onerror = rej; document.head.appendChild(sc); }));
   function downloadText(filename, text, type) { const blob = new Blob([text], { type: type || 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = h('a', { href: url, download: filename }); document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0); }
+  // save a generated file on the viewer's device (owner 26 Oct «حفظ على الجهاز» — phase 6 from the v2 kit): a plain browser download
+  function saveFile(filename, data, type) {
+    try { const blob = data instanceof Blob ? data : new Blob([data], type ? { type } : undefined); const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = filename; document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 1500); return Promise.resolve('saved'); } catch (e) { return Promise.resolve('unavailable'); }
+  }
   function xlsxExport(filename, sheetName, aoa) {
     window.__lastExport = { filename, sheetName, rows: aoa.length }; // the e2e reads what was exported
     // a cell that starts like a formula (= + - @ tab CR) gets a leading apostrophe so a spreadsheet never runs it (CSV injection)
@@ -576,6 +587,6 @@
       h('div', { class: 'sp-row' }, g, h('span', { class: 't-small help sp-word', 'aria-live': 'polite' }, v ? v + ' من 5 · ' + words[v] : 'اختار من 1 لـ 5')),
       error ? h('div', { class: 'err-msg', role: 'alert', id: id + '-err' }, error) : help ? h('p', { class: 't-small help', style: 'margin:0' }, help) : null);
   }
-  window.IBKit = { Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, xlsxExport, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+  window.IBKit = { Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, xlsxExport, saveFile, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, TableSection, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
 })();
 

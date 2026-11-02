@@ -358,7 +358,8 @@
   function downloadText(filename, text, type) { const blob = new Blob([text], { type: type || 'text/plain;charset=utf-8' }); const url = URL.createObjectURL(blob); const a = h('a', { href: url, download: filename }); document.body.appendChild(a); a.click(); setTimeout(() => { URL.revokeObjectURL(url); a.remove(); }, 0); }
   function xlsxExport(filename, sheetName, aoa) {
     window.__lastExport = { filename, sheetName, rows: aoa.length }; // the e2e reads what was exported
-    const csv = () => { const esc = (c) => { const v = c == null ? '' : String(c); return /[",\n]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
+    // a cell that starts like a formula (= + - @ tab CR) gets a leading apostrophe so a spreadsheet never runs it (CSV injection)
+    const csv = () => { const esc = (c) => { let v = c == null ? '' : String(c); if (/^[=+\-@\t\r]/.test(v)) v = "'" + v; return /[",\n\r]/.test(v) ? '"' + v.replace(/"/g, '""') + '"' : v; };
       downloadText(filename.replace(/\.xlsx$/, '.csv'), '﻿' + aoa.map((r) => r.map(esc).join(',')).join('\r\n'), 'text/csv;charset=utf-8'); toast('اتنزل CSV — Excel مش متاح دلوقتي'); };
     return loadXLSX().then((XL) => { const wb = XL.utils.book_new(); const ws = XL.utils.aoa_to_sheet(aoa); ws['!views'] = [{ RTL: true }];
       XL.utils.book_append_sheet(wb, ws, String(sheetName || 'Sheet1').slice(0, 31).replace(/[\\/?*[\]:]/g, ' ')); XL.writeFile(wb, filename); toast('اتنزل ملف Excel', 'success'); }).catch(csv);

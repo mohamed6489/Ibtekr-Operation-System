@@ -388,3 +388,32 @@ test('products.bulk: a member with products.edit but not products.bulk sees no b
   await expect(rowOf(page, 'Boho mirror')).toContainText('منشور');
   expect(mock.productWrites.at(-1)).toMatchObject({ action: 'product_save', by: OPS, id: 9004 });
 });
+
+// ---- phase 5.5 (the owner's prototype v2, plan decision 5) ----
+test('5.5: the records card header has the closed filter, the sort menu and the picks as chips; «تخصيص التقارير» picks up to 8 cards saved per member', async ({ page }) => {
+  await openProducts(page);
+  const rows = page.locator('#pg-products .pr-table tbody tr');
+  await page.locator('#pg-products [data-fm-btn="products"]').click();
+  await page.locator('[data-fm-menu="products"] [data-fm="type:Variable"]').click();
+  await expect(page.locator('[data-fm-menu="products"] [data-fm-apply]')).toHaveText('اعرض 1 منتج');
+  await page.locator('[data-fm-menu="products"] [data-fm-apply]').dispatchEvent('click');
+  await expect(rows).toHaveCount(1);
+  await expect(page.locator('#pg-products .af-row .af-chip')).toHaveCount(1);
+  await expect(page.locator('#pg-products .af-chip .af-t')).toHaveText('النوع: Variable');
+  await expect(page.locator('#pf-type .val')).toContainText('Variable'); // the select above follows the same filter
+  await page.locator('#pg-products [data-af-chip="type:Variable"]').click();
+  await expect(rows).toHaveCount(4);
+  await page.locator('#pg-products [data-sm-btn="products"]').click();
+  await page.locator('[role=listbox] [role=option]', { hasText: 'الاسم: A → Z' }).click();
+  await expect(rows.first()).toContainText('Boho mirror');
+  // the reports tab: four default cards, the picker adds one and saves the choice for the member
+  await page.getByRole('tab', { name: 'التقارير' }).click();
+  await expect(page.locator('#pg-products [data-prod-kpis] .kpi')).toHaveCount(4);
+  await page.locator('[data-prod-kpi-custom]').click();
+  await expect(page.locator('[data-kpi-pick] [data-kpi-count]')).toHaveText('مختار 4 من 8');
+  await page.locator('[data-kpi="drafts"]').click();
+  await page.locator('[data-kpi-save]').click();
+  await expect(page.locator('#pg-products [data-prod-kpis] .kpi')).toHaveCount(5);
+  await expect(page.locator('#pg-products .kpi').filter({ hasText: 'مسودات' })).toContainText('1'); // Macrame Feathers
+  await expect.poll(() => mock.requests.filter((r) => /user_prefs/.test(r) && /POST/.test(r)).length).toBeGreaterThan(0);
+});

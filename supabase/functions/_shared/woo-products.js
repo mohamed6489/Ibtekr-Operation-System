@@ -122,6 +122,9 @@ export function editView(p) {
     images: Array.isArray(p.images) ? p.images.filter(isObj).map((i) => ({ id: posId(i.id), src: pickStr(i.src).startsWith('https://') ? i.src : '', name: pickStr(i.name) })).filter((i) => i.id !== null) : [],
     short_description: pickStr(p.short_description), description: pickStr(p.description), modified: pickStr(p.date_modified_gmt),
     store: isObj(p.store) ? { id: posId(p.store.id), shop_name: pickStr(p.store.shop_name) } : null,
+    // decision 15 (the images tool's size drawing): the product's size attribute values (pa_size / «Size»), as the site holds them
+    sizes: (Array.isArray(p.attributes) ? p.attributes : []).filter((a) => isObj(a) && (pickStr(a.slug) === 'pa_size' || /^size$/i.test(pickStr(a.name)) || pickStr(a.name) === 'المقاس'))
+      .flatMap((a) => (Array.isArray(a.options) ? a.options : []).map((o) => pickStr(o).trim()).filter(Boolean)).slice(0, 10),
   };
 }
 

@@ -4,6 +4,8 @@
 // sizes, the models and their credits, the paths in the buckets, and the image settings of the settings row «ai» over the secrets.
 // Nothing here talks to a provider or a database.
 
+import { sizePrompt } from './magnific-bridge.js';
+
 export const PROVIDER = 'magnific';
 // The models offered (plan decision 4, pinned in T2 on 31 Oct against docs.magnific.com): the id is ours, the provider's route is in
 // providers/magnific.ts (ROUTES); credits = about one image at the product size from the provider's price list — the API's answers
@@ -26,7 +28,8 @@ export const usdOf = (credits) => Math.round((Number(credits) || 0) * CREDIT_USD
 
 // The studio's slots (the page's PD.SLOTS, same order) and the images tool's shapes
 export const SLOTS = ['closeup', 'environment', 'feature', 'sizes', 'extra1', 'extra2'];
-export const SHAPES = ['studio', 'home', 'detail', 'hand', 'custom'];
+export const SHAPES = ['studio', 'home', 'detail', 'hand', 'custom', 'size']; // size (decision 15, the images tool): the dimension drawing of a site product
+export const MAX_SIZES = 10;
 export const EDIT_OPS = ['instruction', 'remove_bg', 'upscale', 'relight'];
 export const SOURCES = ['text', 'image'];
 export const IMAGE_TYPES = ['image/jpeg', 'image/png', 'image/webp'];
@@ -123,7 +126,14 @@ export function parseCreate(b) {
   const productId = b.product_id == null ? null : posInt(b.product_id);
   if (b.product_id != null && productId === null) return bad('product_id');
   if (b.source === 'image' && !image && !productId) return bad('image');
-  return { req: { source: b.source, prompt, shape: b.shape, size, count, model, image, productId } };
+  // the size drawing (decision 15): from a photo only, with the product's sizes as the studio writes them (one numeric at least)
+  let sizes = null;
+  if (b.shape === 'size') {
+    if (b.source !== 'image') return bad('source');
+    sizes = Array.isArray(b.sizes) ? b.sizes.map((s) => line(String(s == null ? '' : s), 30)).filter(Boolean).slice(0, MAX_SIZES) : [];
+    if (!sizes.length || !sizePrompt(sizes)) return bad('sizes');
+  }
+  return { req: { source: b.source, prompt, shape: b.shape, size, count, model, image, productId, sizes } };
 }
 
 // ---------------------------------------------------------------- prompts (English; the provider reads English best)
@@ -155,9 +165,11 @@ export function slotPrompt(item, slot, ctx = {}) {
   return [BASE, subject + '.', scene, FRAME_NOTE].join(' ');
 }
 /** The images tool's prompt from its shape: a scene around the product (from its photo or its name) or the user's own words. */
-export function shapePrompt(shape, subject, extra) {
+export function shapePrompt(shape, subject, extra, opts = {}) {
   const s = line(subject, 160) || 'the handmade product';
   const more = line(extra, MAX_PROMPT);
+  // decision 15: the dimension drawing — the same words as the studio flow's fourth shot (magnific-bridge sizePrompt), the member's notes after
+  if (shape === 'size') { const p = sizePrompt(opts.sizes); return p ? [p, more].filter(Boolean).join(' ') : null; }
   if (shape === 'custom') return [BASE, FRAME_NOTE, more].filter(Boolean).join(' ');
   const scene = shape === 'studio' ? `${s} centered on a clean warm cream studio background, soft natural window light, gentle shadow.`
     : shape === 'home' ? `${s} in its place in a warm modern Egyptian home, lifestyle scene, afternoon daylight, plants in the background.`

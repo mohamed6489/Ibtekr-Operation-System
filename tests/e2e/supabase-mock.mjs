@@ -207,7 +207,7 @@ function ordersSeed(opts = {}) {
       { vendor_id: VND(3), username: 'bian.eg', email: 'bian.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 }], // bian.eg: a row whose password step was refused (no password yet)
     vault: new Map([[SECRET_ID, TEST_PW]]), // vault.secrets: id → the decrypted secret (never read by the client)
     objects: new Map([[CONTRACT_PATH, { type: 'application/pdf', bytes: CONTRACT_BYTES }]]), // the bucket vendor-contracts
-    products: [product(9001, 'IBTA4040PAHC000013', 'Cushion', IMG.cushion, 1, 'cushion', { translation_ids: { en: 9001, ar: 9101 }, total_sales: 40 }),
+    products: [product(9001, 'IBTA4040PAHC000013', 'Cushion', IMG.cushion, 1, 'cushion', { translation_ids: { en: 9001, ar: 9101 }, total_sales: 40, sizes: ['50×50 cm'] }), // sizes: the site's pa_size values (product_get → editView.sizes, decision 15)
       product(9002, 'IBTAMCTOWM200X10014', 'Macrame Curtain', IMG.curtain, 2, 'macrame-curtain', { type: 'variable', manage_stock: false, stock_quantity: null, stock_status: 'onbackorder', total_sales: 12, brand_ids: [4], category_ids: [22] }),
       product(9003, 'IBTB0CSW6RFTM', 'Macrame Feathers', null, 2, 'macrame-feathers', { status: 'draft', stock_quantity: 0, weight: null, image_count: 0, total_sales: 0, brand_ids: [4] }),
       product(9004, 'IBTK20035BBLM000003214', 'Boho mirror', IMG.cushion, 3, 'boho-mirror', { status: 'pending', stock_quantity: 1, total_sales: 2 }),
@@ -1321,6 +1321,7 @@ export async function installSupabaseMock(page, opts = {}) {
         source = 'tool'; count = req.count; bucket = 'ai-images'; label = req.prompt || 'صورة';
         if (req.source === 'image' && !req.image) { const p = product(req.productId); if (!p) return json(404, { error: 'not_found' }); if (!/^https:\/\//.test(p.image_url || '')) return json(400, { error: 'bad_request', field: 'image' }); label = p.name || label; productId = req.productId; }
         else if (req.productId) { const p = product(req.productId); if (!p) return json(404, { error: 'not_found' }); label = p.name || label; productId = req.productId; }
+        if (req.shape === 'size') label += ' — المقاس'; // decision 15: the size drawing's run, like the server
         where = (k) => toolPath(u.id, stamp, k, 'png');
       }
       const model = req.model; const planned = creditsFor(model, count);
@@ -1457,7 +1458,7 @@ export async function installSupabaseMock(page, opts = {}) {
           regular_price: str(p.regular_price), sale_price: str(p.sale_price), price: str(p.sale_price ?? p.price), manage_stock: !!p.manage_stock, stock_quantity: p.stock_quantity, stock_status: p.stock_status, backorders: p.backorders,
           low_stock_amount: p.low_stock_amount, total_sales: p.total_sales, weight: p.weight || '', featured: !!p.featured, categories: term(mock.wooCategories, p.category_ids), brands: term(mock.wooBrands, p.brand_ids),
           images: Array.from({ length: p.image_count || 0 }, (_, i) => ({ id: 100 + i, src: p.image_url || '', name: 'img-' + i })), short_description: p.short_desc_filled ? 'وصف قصير' : '', description: p.desc_filled ? '<p>وصف</p>' : '', modified: p.woo_modified_at, store: { id: 44, shop_name: 'Store' },
-          seo_title: str(p.seo_title), seo_description: str(p.seo_description) },
+          seo_title: str(p.seo_title), seo_description: str(p.seo_description), sizes: Array.isArray(p.sizes) ? p.sizes : [] },
           ar: ar ? { id: ar.id, name: ar.name, short_description: '', description: '', seo_title: str(ar.seo_title), seo_description: str(ar.seo_description), status: ar.status } : null,
           variations: p.type === 'variable' ? [{ id: 9901, sku: p.sku + '-R', attributes: [{ name: 'Color', option: 'Red' }], regular_price: '900', sale_price: '', price: '900', manage_stock: true, stock_quantity: 2, stock_status: 'instock', backorders: 'no', image: '' }] : [] });
       }

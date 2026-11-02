@@ -228,6 +228,16 @@ Deno.test('create (the tool): text → the shape prompt, N images at the asked s
   assertEquals((await call(deps, { action: 'create', source: 'text', shape: 'studio', prompt: 'x', count: 5 }, 'jwt-add')).body.field, 'count');
 });
 
+Deno.test('create shape size (decision 15, the images tool): the product\'s photo as the reference, the dimension-drawing words with its numbers (the largest size drawn, the rest in the table), the run labelled «— المقاس»; letters alone → 400 sizes', async () => {
+  const { deps, asked, db } = setup({ replies: [{ images: [img()], credits: 75 }] });
+  const r = await call(deps, { action: 'create', source: 'image', shape: 'size', product_id: 4001, sizes: ['40×50', '60×90 cm', 'M'], prompt: 'show the strap' }, 'jwt-edit');
+  assertEquals([r.res.status, r.body.result, r.body.paths.length, asked[0].refs], [200, 'ok', 1, [['image/jpeg', 11]]]);
+  assert(asked[0].prompt.startsWith('A clean technical line-drawing') && asked[0].prompt.includes('"90 CM"') && asked[0].prompt.includes('"60 CM"') && asked[0].prompt.includes('40 × 50 cm') && asked[0].prompt.endsWith('show the strap'), asked[0].prompt);
+  assertEquals([db.rows('ai_runs')[0].label, db.rows('ai_runs')[0].product_id], ['Boho Cushion — المقاس', 4001]);
+  assertEquals((await call(deps, { action: 'create', source: 'image', shape: 'size', product_id: 4001, sizes: ['M'] }, 'jwt-edit')).body.field, 'sizes');
+  assertEquals((await call(deps, { action: 'create', source: 'text', shape: 'size', prompt: 'x', sizes: ['40×50'] }, 'jwt-edit')).body.field, 'source');
+});
+
 Deno.test('webp (decision 7): the browser\'s WebP of a result replaces the original under the same name — a tool path in the member\'s own folder (the admin any), a studio path with products.add and its batch; the run row\'s path renamed; RIFF/WEBP bytes only; no credits', async () => {
   const WEBP_FULL = new Uint8Array([0x52, 0x49, 0x46, 0x46, 20, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20, 1, 2, 3, 4]);
   const b64 = btoa(String.fromCharCode(...WEBP_FULL));

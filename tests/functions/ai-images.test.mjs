@@ -70,7 +70,7 @@ test('parseEdit: an op on a studio path (with its batch) or a site product; inst
 
 test('parseCreate: text needs a prompt, image needs a photo or a product, custom needs a prompt; count 1–4; the image checked like the content tool', () => {
   const r = parseCreate({ source: 'image', shape: 'home', image: IMG, count: 2, size: '1080x1350' }).req;
-  assert.deepEqual(r, { source: 'image', prompt: '', shape: 'home', size: { w: 1080, h: 1350, id: '1080x1350' }, count: 2, model: 'seedream-5-pro', image: IMG, productId: null });
+  assert.deepEqual(r, { source: 'image', prompt: '', shape: 'home', size: { w: 1080, h: 1350, id: '1080x1350' }, count: 2, model: 'seedream-5-pro', image: IMG, productId: null, sizes: null });
   assert.equal(parseCreate({ source: 'image', shape: 'studio', product_id: 7 }).req.productId, 7);
   assert.equal(parseCreate({ source: 'text', shape: 'studio' }).field, 'prompt');
   assert.equal(parseCreate({ source: 'image', shape: 'custom', image: IMG }).field, 'prompt');
@@ -80,6 +80,12 @@ test('parseCreate: text needs a prompt, image needs a photo or a product, custom
   assert.equal(parseCreate({ source: 'text', shape: 'studio', prompt: 'a mug', count: 5 }).field, 'count');
   assert.equal(parseCreate({ source: 'text', shape: 'studio', prompt: 'a mug', count: 0 }).field, 'count');
   assert.equal(parseCreate({ source: 'text', shape: 'poster', prompt: 'a mug' }).field, 'shape');
+  // decision 15: the size drawing — from a photo, with one numeric size at least; letters alone are no size
+  assert.deepEqual(parseCreate({ source: 'image', shape: 'size', product_id: 7, sizes: ['40×180×30', 'M', ' 30×120 '] }).req.sizes, ['40×180×30', 'M', '30×120']);
+  assert.equal(parseCreate({ source: 'image', shape: 'size', product_id: 7, sizes: ['M', 'L'] }).field, 'sizes');
+  assert.equal(parseCreate({ source: 'image', shape: 'size', product_id: 7 }).field, 'sizes');
+  assert.equal(parseCreate({ source: 'text', shape: 'size', prompt: 'x', sizes: ['40×50'] }).field, 'source');
+  assert.equal(parseCreate({ source: 'image', shape: 'home', product_id: 7 }).req.sizes, null);
   assert.equal(parseCreate({ source: 'web', shape: 'studio', prompt: 'a mug' }).field, 'source');
   assert.equal(parseCreate({ source: 'text', shape: 'studio', prompt: 'a mug', size: 'custom', width: 2000, height: 100 }).field, 'size');
 });
@@ -100,6 +106,10 @@ test('shapePrompt / editPrompt: the tool shapes around the subject, custom = the
   assert.ok(shapePrompt('home', 'Macrame Bag', 'on a beige sofa').includes(FRAME_NOTE) && shapePrompt('custom', 'x', 'my words').includes(FRAME_NOTE) && slotPrompt({}, 0).endsWith(FRAME_NOTE), 'decision 14: the framing for the 7:8 crop in every prompt');
   assert.ok(shapePrompt('custom', 'Macrame Bag', 'a <script>bag</script> on the beach').includes('a bag on the beach'));
   assert.ok(shapePrompt('hand', '').includes('the handmade product'));
+  // decision 15: the size shape = the studio flow's fourth-shot words (the numbers in), the member's notes after; no numeric size → null
+  const sz = shapePrompt('size', 'Boho Cushion', 'show the strap', { sizes: ['40×180×30', '30×120'] });
+  assert.ok(sz.startsWith('A clean technical line-drawing') && sz.includes('"180 CM"') && sz.includes('"40 CM"') && sz.includes('depth labelled "30 CM"') && sz.includes('30 × 120 cm') && sz.endsWith('show the strap'), sz);
+  assert.equal(shapePrompt('size', 'x', '', { sizes: ['M'] }), null);
   assert.ok(editPrompt('instruction', 'lighter background').startsWith('Edit the reference photo'));
   assert.equal(editPrompt('remove_bg', '', { bg: 'transparent' }), 'Cut the product out on a transparent background.');
   assert.ok(editPrompt('remove_bg', '', { bg: '#ffffff' }).includes('#ffffff'));

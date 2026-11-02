@@ -104,6 +104,27 @@ test('a product\'s photo → images (source image + product_id), an edit of the 
   await expect(page.locator('#pg-products')).toContainText('Cushion');
 });
 
+test('decision 15 — «صورة المقاس» in the tool: a site product by SKU, its sizes read from the site (product_get) and editable, the dimension-drawing call (shape size + sizes + product_id) with the member\'s notes; letters alone are refused before any call', async ({ page }) => {
+  await openProducts(page);
+  await openTool(page);
+  await page.getByRole('tab', { name: 'صورة المقاس' }).click();
+  await page.locator('[data-igrun]').click();
+  await expect(page.locator('[data-igprob]')).toHaveText('اكتب SKU منتج موجود على الموقع');
+  await page.fill('#ig-sku', SKU);
+  await expect(page.locator('#ig-sizes')).toHaveValue('50×50 cm'); // the site's size, read once
+  await page.fill('#ig-sizes', 'M, L');
+  await page.locator('[data-igrun]').click();
+  await expect(page.locator('[data-igprob]')).toHaveText('اكتب المقاس بالأرقام: عرض × ارتفاع (× عمق)');
+  expect(mock.imgCalls).toEqual([]);
+  await page.fill('#ig-sizes', '40×180×30, 30×120');
+  await page.fill('#ig-prompt', 'وضّح الحزام');
+  await page.locator('[data-igrun]').click();
+  await expect(page.locator('.ig-it')).toHaveCount(1);
+  expect(mock.imgCalls.at(-1)).toEqual({ action: 'create', by: OPS, source: 'image', shape: 'size', sizes: ['40×180×30', '30×120'], prompt: 'وضّح الحزام', count: 1, model: 'seedream-5-pro', size: '700x800', product_id: 9001 });
+  await expect(page.locator('#pg-products')).toContainText('لـ «Cushion»');
+  expect(mock.aiRuns.map((r) => [r.action, r.source, r.product_id, r.label])).toEqual([['image', 'tool', 9001, 'Cushion — المقاس']]);
+});
+
 test('permissions and settings: accounts sees «محتاج صلاحية» and an empty tool; the admin\'s «إعدادات الصور» shows the month\'s credits and saves the default model and the credit cap into the row «ai»', async ({ page }) => {
   await openProducts(page, ACCOUNTS);
   await page.getByRole('tab', { name: 'إضافة' }).click();

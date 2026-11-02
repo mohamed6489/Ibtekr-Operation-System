@@ -135,3 +135,7 @@
   `ai-images`: `bridge_flow` بيبعت `sizes` ويسجّل `gens` بـ `{ shot: 4, index }` (+ `sizes` في الرد)، `fetchFromFlow` بيحط مخرجات مولّد
   المقاس في الخانة 3 لمنتجه. `0032_shot_prompts_size` (shot 1..4). الاستوديو: نص شريط الفلو. الاختبارات: node (bridge)، Deno (flow/fetch)،
   mock (`flowResults[bid][4] = { index: [ids] }`)، e2e. **فاضل:** التطبيق الحي (`0032` بالـ MCP، `ai-images` v19) والقبول على دفعة حقيقية.
+- [x] قرار 15 — أداة الصور (2 نوفمبر، «شغّل صورة المقاس اللي جوه أداة الصور»): تاب «صورة المقاس» شغال: `editView.sizes` (قيم pa_size) في
+  `product_get`، `parseCreate` بيقبل shape `size` + `sizes[]` (من صورة بس، مقاس رقمي واحد على الأقل)، `shapePrompt('size')` = `sizePrompt` +
+  الملاحظات، label «<المنتج> — المقاس»؛ الصفحة: SKU + المقاس (بيتملا من الموقع) + ملاحظات + العدد/الموديل؛ mock + node + Deno + e2e.
+  **فاضل:** نشر `ai-images` v20 و`woo-sync` v49 + القبول الحي؛ تجربة قايمة النصوص على الـ Space لما الحد يفك.

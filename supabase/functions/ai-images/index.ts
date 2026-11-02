@@ -278,7 +278,7 @@ async function create(deps: Deps, who: Who, args: Json) {
   if (!who.add && !who.edit) return json(401, { error: 'unauthorized' });
   const parsed = parseCreate(args);
   if ('error' in parsed) return json(400, parsed);
-  const { source, prompt, shape, size, count, model, image, productId } = parsed.req;
+  const { source, prompt, shape, size, count, model, image, productId, sizes } = parsed.req;
   const refs: Ref[] = [];
   let subject = '';
   const st = stamp(deps);
@@ -292,8 +292,9 @@ async function create(deps: Deps, who: Who, args: Json) {
     }
     if (!refs.length) return json(400, { error: 'bad_request', field: 'image' });
   }
-  const full = shapePrompt(shape, subject, prompt);
-  const label = line(subject || prompt, 200) || 'صورة';
+  const full = shapePrompt(shape, subject, prompt, { sizes });
+  if (!full) return json(400, { error: 'bad_request', field: 'sizes' });
+  const label = line((subject || prompt) + (shape === 'size' ? ' — المقاس' : ''), 200) || 'صورة';
   const base = { created_by: who.uid, action: 'image', source: 'tool', label, product_id: productId };
   return await runImages(deps, base, model, count,
     () => deps.provider.generate({ model, prompt: full, width: size.w, height: size.h, count, references: refs }),

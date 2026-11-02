@@ -682,3 +682,24 @@ test('5.5: the drawer\'s «المنتجات» tab lists his products from the mi
   expect(await page.evaluate(() => window.IBPages.all().products.api.st.f.vendor)).toBe('Antikiano');
   await expect(page.locator('#pg-products .pr-table tbody tr')).toHaveCount(2);
 });
+
+test('5.5 (decision 7): the top search lists orders, makers and members as you type; a maker opens his file, Enter filters the orders page', async ({ page }) => {
+  await signIn(page, ADMIN);
+  const q = page.locator('#gq'); const res = page.locator('#gq-res');
+  await q.fill('art c');
+  await expect(res).toBeVisible();
+  await expect(res.locator('[data-gq-group="مبتكرين"]')).toHaveCount(1);
+  await expect(res.locator('[data-gq-group="مبتكرين"]')).toContainText('Art Craft');
+  await res.locator('[data-gq-group="مبتكرين"]').click();
+  await expect(drawer(page)).toBeVisible();
+  await expect(page).toHaveURL(new RegExp('#makers/' + V1 + '$'));
+  await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
+  await expect(drawer(page)).toHaveCount(0);
+  await q.fill('181668');
+  await expect(res.locator('[data-gq-group="أوردرات"]').first()).toContainText('IB-181668');
+  await q.press('Enter');
+  await expect(page.locator('#orders')).toBeVisible();
+  await expect(page.locator('#orders #cn')).toHaveText('1');
+  await q.fill('zzzz-nothing');
+  await expect(res.locator('.gq-empty')).toContainText('مفيش نتايج');
+});

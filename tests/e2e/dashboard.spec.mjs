@@ -320,7 +320,12 @@ test.describe('the dashboard on the real clock', () => {
     const on = (id) => page.evaluate((id) => { const d = window.OrdersApp.get(id).date; return [d, window.IBDashData.report({ from: d, to: d }).rows.map((r) => r.id)]; }, id);
     expect(await on('181668')).toEqual([ago(6).slice(0, 10), ['181668']]);
     expect(await on('180656')).toEqual([ago(29).slice(0, 10), ['180656']]);
-    // the confirmation card's window (the last render's snapshot): 181668 (6 days) and 180656 (29 days), not 180686 (31 days)
+    // phase 5.5 decision 6 (owner 31 Oct): the confirmation card follows the dashboard's period — «today» holds none of them; the last 30 days hold
+    // 181668 (6 days) and 180656 (29 days), not 180686 (31 days)
+    await expect.poll(() => settled(page, () => { const c = window.IBPages.all().dashboard.api.state.last.conf; return { count: c.count, by: c.byConfirm }; })).toEqual({ count: 0, by: [] });
+    await page.getByRole('button', { name: 'اختيار الفترة' }).click();
+    await page.getByRole('radio', { name: 'آخر 30 يومًا' }).click();
+    await page.getByRole('button', { name: 'تحديث', exact: true }).click();
     await expect.poll(() => settled(page, () => { const c = window.IBPages.all().dashboard.api.state.last.conf; return { count: c.count, by: c.byConfirm }; }))
       .toEqual({ count: 2, by: [['غير مؤكد', 1], ['في انتظار الرد', 1]] });
   });
@@ -527,4 +532,27 @@ test.describe('sign-out leaves no member data in memory and keeps the expired me
     expect(mock.logoutScopes).toEqual(['local']);
     expect(mock.afterLogout).toBe(0);
   });
+});
+
+
+// ---- phase 5.5 (the owner's prototype v2, plan decision 6) ----
+test('5.5: the money KPIs follow the dashboard period (sales / net / expenses from accounts_sales and acc_expenses); the customize popup orders the cards by a grip (keyboard)', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  const kpi = (label) => page.locator('#pg-dashboard .kpi').filter({ hasText: label });
+  await expect(kpi('المبيعات المكتملة')).toHaveCount(1);
+  await expect(page.locator('#pg-dashboard')).not.toContainText('مبيعات سبتمبر');
+  await expect(kpi('صافي الفترة')).toBeVisible();
+  await expect(kpi('المبيعات المكتملة')).not.toContainText('بنحمّل', { timeout: 10000 }); // the period's sales came in (accounts_sales)
+  await expect(kpi('صافي الفترة')).toContainText('مصروفات 0.00'); // no expense recorded in the period (the admin frame has no expenses tile)
+  // the grip: ArrowDown moves «الفريق دلوقتي» one row down; the saved order follows
+  await customizeButton(page).click();
+  const dlg = page.getByRole('dialog');
+  const order0 = await dlg.locator('[data-dash-item]').evaluateAll((l) => l.map((x) => x.dataset.dashItem));
+  const i = order0.indexOf('team'); expect(i).toBeGreaterThan(-1); expect(i).toBeLessThan(order0.length - 1);
+  await dlg.locator('[data-dash-item="team"] [data-grip]').focus();
+  await page.keyboard.press('ArrowDown');
+  await dlg.getByRole('button', { name: 'حفظ', exact: true }).click();
+  const want = order0.slice(); [want[i], want[i + 1]] = [want[i + 1], want[i]];
+  await expect.poll(() => mock.prefs.filter((p) => p.key === 'dashboard').map((p) => p.data.order)).toEqual([want]);
 });

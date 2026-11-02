@@ -37,7 +37,7 @@
   },
   "10-ui-kit.js": {
     "prototype": "6d7129cf7ed40e7276739b75c131c31935f1f1a10c57d62a509dcbfd5e340cca",
-    "current": "9a56211afc3942c7e8e3f538330815691774359de976548b9ec056680bce6aa0"
+    "current": "44bef67e6a61113168e47edd60b3d5dfa03285b4419efb85751274540b2cd694"
   },
   "11-seed-product-images.js": {
     "prototype": "e378804fb28fedc3fccfbf1a287ebfb2ac99a23d28529f86e8e0afd319be6187",
@@ -53,7 +53,7 @@
   },
   "14-kit.js": {
     "prototype": "2a924af8c731555a02958f802f051efe4ef180be78d65a0f3340b342a064e432",
-    "current": "ff13062653d5979d0a984217cf6089c29468614fd09244701cf10c294e0665c5"
+    "current": "419bfda4f2d6f090075b615f57fcf661db55a0c50b4ae412d822c1aa4e8f1cd2"
   },
   "15-page-hr.js": {
     "prototype": "ee600dbb6d1a699847ee0528e7454c3bc857f4801989b1cf85cdba72aa135d76",
@@ -97,7 +97,7 @@
   },
   "25-page-dashboard.js": {
     "prototype": "f0ac7e16f52f393457bde9d1617eab227f9d9a3d36da857ec81c7b7684e3bb84",
-    "current": "c7671942de0de1c04f52edc47c201a898b23838cc3510280dc83d53a8b3cf2b0"
+    "current": "757b95590590b3e305dbc9250ad8579fd11885d71f45bbd7bc654656e3928e54"
   },
   "26-data-actions.js": {
     "prototype": "fafccd1bfeb257fa467d090d00589b9d01bcfe738dbf77d17cc8c26c4c0da6f4",
@@ -109,7 +109,7 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "c67d9bc44d1a5d83b75655f9474961f61f36acec1d9636c7320bcc84f7d8006e"
+    "current": "3e632a10eef9c57520aaf5446543ce3e6a8b46f0b2660049b83e994ca60f7d8e"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",

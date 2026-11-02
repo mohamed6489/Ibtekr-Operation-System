@@ -383,10 +383,40 @@
     return h('nav', { class: 'bottom-nav', 'aria-label': 'القائمة السفلية' }, BN.map(([ic, lb, page]) => item(ic, lb, page)), wrap);
   }
   function TopHeader() {
-    const q = h('input', { id: 'gq', type: 'search', placeholder: 'ابحث برقم الأوردر أو اسم العميل أو الهاتف', 'aria-label': 'بحث عام', autocomplete: 'off' });
-    q.addEventListener('input', () => { if (state.page !== 'orders') go('orders'); window.OrdersApp.setQuery(q.value); });
+    // بحث عام (phase 5.5 decision 7, owner 1 Nov): أوردرات + مبتكرين + موظفين بالاسم أو الرقم أو الهاتف في قايمة نتايج؛ Enter = فلترة الأوردرات (العملاء لما خدمة العملاء تتبني)
+    const q = h('input', { id: 'gq', type: 'search', placeholder: 'ابحث برقم الأوردر أو الاسم أو الهاتف', 'aria-label': 'بحث عام: أوردرات، مبتكرين، موظفين', autocomplete: 'off', role: 'combobox', 'aria-expanded': 'false', 'aria-controls': 'gq-res', 'aria-autocomplete': 'list' });
+    const res = h('div', { id: 'gq-res', class: 'menu gq-res', 'aria-label': 'نتايج البحث', hidden: true }); // role=listbox only while open (a hidden listbox would still match the dropdown locators)
+    const norm = (x) => String(x || '').toLowerCase().replace(/[\s\-+]/g, '').replace(/^ib-?/, '');
+    const hit = (needle, ...fields) => fields.some((f) => norm(f).includes(needle));
+    const closeRes = () => { res.hidden = true; res.removeAttribute('role'); q.setAttribute('aria-expanded', 'false'); };
+    const toOrders = () => { closeRes(); if (state.page !== 'orders') go('orders'); if (window.OrdersApp) window.OrdersApp.setQuery(q.value); };
+    const search = (raw) => {
+      const n = norm(raw); if (n.length < 2) return [];
+      const out = [];
+      const OA = window.OrdersApp; if (OA && OA.query) { const r = OA.query({ q: raw.trim() }, 4); r.rows.forEach((o) => out.push({ g: 'أوردرات', t: 'IB-' + o.id + ' · ' + o.customer, s: o.status + ' · ' + D.formatMoney(o.total) + ' ج.م', run: () => { closeRes(); OA.details(o.id); } })); if (r.total > 4) out.push({ g: 'أوردرات', t: 'كل الأوردرات المطابقة (' + r.total + ')', s: 'فلترة صفحة الأوردرات', run: toOrders }); }
+      vstore.all().filter((v) => hit(n, v.name, v.phone, v.altPhone, (v.aliases || []).join(' '), v.contactName)).slice(0, 4).forEach((v) => out.push({ g: 'مبتكرين', t: v.name, s: [v.phone, v.category].filter(Boolean).join(' · '), run: () => { closeRes(); location.hash = 'makers/' + v.id; } }));
+      ((window.IBKit && window.IBKit.store.members) || []).filter((m) => m.status === 'active' && hit(n, m.name, m.phone, m.id, m.email)).slice(0, 4).forEach((m) => out.push({ g: 'موظفين', t: m.name, s: [m.title, m.phone].filter(Boolean).join(' · '), run: () => { closeRes(); location.hash = 'member-' + m.id; } }));
+      return out;
+    };
+    let items = []; let act = -1;
+    const paint = () => { const L = search(q.value); items = L; act = -1;
+      if (!q.value.trim() || norm(q.value).length < 2) { closeRes(); return; }
+      const groups = [...new Set(L.map((x) => x.g))];
+      res.replaceChildren(...(L.length ? groups.flatMap((g) => [h('div', { class: 'opt-group t-small', role: 'presentation' }, g)].concat(L.filter((x) => x.g === g).map((x) => { const b = h('button', { type: 'button', class: 'opt gq-opt', role: 'option', 'aria-selected': 'false', 'data-gq-group': g, onClick: () => x.run() }, h('b', null, x.t), h('small', { class: 't-small help' }, x.s)); b.addEventListener('mousedown', (e) => e.preventDefault()); x.el = b; return b; })))
+        : [h('div', { class: 'gq-empty t-small' }, 'مفيش نتايج لـ «' + q.value.trim() + '» — جرّب رقم أوردر أو اسم أو رقم تليفون')]));
+      res.hidden = false; res.setAttribute('role', 'listbox'); q.setAttribute('aria-expanded', 'true'); };
+    const mark = (i) => { items.forEach((x, j) => x.el && x.el.setAttribute('aria-selected', String(j === i))); act = i; if (items[i] && items[i].el) items[i].el.scrollIntoView({ block: 'nearest' }); };
+    let tmr = null;
+    q.addEventListener('input', () => { clearTimeout(tmr); tmr = setTimeout(paint, 150); if (state.page === 'orders' && window.OrdersApp) window.OrdersApp.setQuery(q.value); });
+    q.addEventListener('keydown', (e) => {
+      if (e.key === 'ArrowDown' && items.length) { e.preventDefault(); mark(Math.min(items.length - 1, act + 1)); }
+      else if (e.key === 'ArrowUp' && items.length) { e.preventDefault(); mark(Math.max(0, act - 1)); }
+      else if (e.key === 'Enter') { e.preventDefault(); if (act > -1 && items[act]) items[act].run(); else toOrders(); }
+      else if (e.key === 'Escape') closeRes(); });
+    q.addEventListener('blur', () => setTimeout(closeRes, 150));
+    q.addEventListener('focus', () => { if (q.value.trim()) paint(); });
     return h('header', { class: 'topbar' },
-      h('label', { class: 'search' }, Icon('search', 'sm'), q),
+      h('div', { class: 'gq-wrap' }, h('label', { class: 'search' }, Icon('search', 'sm'), q), res),
       AiButton(),
       NotificationsMenu(),
       window.IBShell.ClockWidget(),
@@ -2760,7 +2790,10 @@
     report: (range) => R.ordersReport(ordersRows(), range, dashToday()),
     money: () => { const acc = accountsNow().balances; const vs = D.vendorSummary(vendorsNow()); const P = D.potential(acc, SEED.inProgressShare, vs.deposits);
       const mon = TODAY.slice(0, 7); const [yy, mm] = mon.split('-').map(Number);
-      return { acc, actual: P.actual, vs, vendors: vendorsNow(), sales: SEED.salesTotal, salesRows: SEED.sales, expSept: D.categoryTotals(SEED.expenseSeed, store.expenses, '2026-09-01', '2026-09-30'), expNow: D.categoryTotals(SEED.expenseSeed, store.expenses, mon + '-01', mon + '-' + lastDay(yy, mm)), transport: trAll(), payroll: payrollInfo(), cycle: cycleLabel() }; },
+      // phase 5.5 decision 6 (owner 31 Oct 16:42): the sales / net / expenses of the dashboard's own period (accounts_sales is cached per range — null while loading)
+      const dr = state.drange; const A = AC(); const srows = A ? A.sales(dr.from, dr.to) : []; const sv = srows ? D.liveSeed({ makers: [], balances: [], sales: srows }) : null;
+      const per = { range: dr, label: D.formatDateNumeric(dr.from) + ' – ' + D.formatDateNumeric(dr.to), sales: sv ? { rows: sv.sales, total: sv.salesTotal } : null, loading: !sv, exp: D.categoryTotals(SEED.expenseSeed, store.expenses, dr.from, dr.to) };
+      return { per, acc, actual: P.actual, vs, vendors: vendorsNow(), sales: SEED.salesTotal, salesRows: SEED.sales, expSept: D.categoryTotals(SEED.expenseSeed, store.expenses, '2026-09-01', '2026-09-30'), expNow: D.categoryTotals(SEED.expenseSeed, store.expenses, mon + '-01', mon + '-' + lastDay(yy, mm)), transport: trAll(), payroll: payrollInfo(), cycle: cycleLabel() }; },
     go, showOrders, openVendorLate, openVendorStatement, openVendorReport, openPayrollAlert, openVendor: (name) => { go('vendors'); const v = vstore.findByName ? vstore.findByName(name) : null; if (v) openVendor(v.id); },
     addExpense: () => openForm('expenses', 'withdraw'), addVendorMove: () => openForm('vendorMoves', 'withdraw'), addVendor: () => { go('vendors'); openAddVendor(); }, newTicket: (pre) => { showTickets(); openNewTicket(pre); },
     vendorNames: () => vendorsNow().map((v) => v.name),

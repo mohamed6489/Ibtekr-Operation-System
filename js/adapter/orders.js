@@ -20,8 +20,9 @@
 // answers its result in `push` ('ok' | 'skipped' | 'error') without failing the write.
 // «مكتمل» with extra.rating { sat, manners, note } (phase 3.6) goes through RPC order_complete instead (the rating and the
 // status in one transaction; 22023 → reason 'invalid'), logged as order.rating with the two figures only, then pushed the same way.
-// deleteOrder(id, reason) (phase 5.5 decision 10) → RPC order_delete: a cancelled order marked deleted (never a row deleted, never a
-// WooCommerce call), logged as order.delete; 22023 → 'invalid', P0002 → 'missing'. A Realtime refetch that finds no row drops the order.
+// deleteOrder(id, reason, { cancel }) (phase 5.5 decision 10): cancel first when asked (the same reason), woo-sync order_trash (the site's
+// trash, never a permanent delete), then RPC order_delete marks the row deleted (never a row deleted here); logged as order.delete with the
+// site's answer; 22023 → 'invalid', P0002 → 'missing', a Woo failure → 'site' (nothing deleted). A Realtime refetch that finds no row drops the order.
 // A sub's `n` is its order_items id (block 29 finds a sub by n across every order: allSub/editSub), `itemId` the same
 // as text — the id the item writes take. subscribe() adds Realtime INSERT/UPDATE on orders / order_items / sub_orders
 // (skipped with IB_CONFIG.realtime === false): each event re-reads that order from orders_v (a payload from orders
@@ -200,21 +201,31 @@
     log('order.rating', 'IB-' + id + ' · رضا ' + sat + ' · أخلاق ' + manners);
     return { ok: true };
   }
-  // «مسح» (phase 5.5 decision 10): RPC order_delete marks a cancelled order deleted (deleted_at + the reason) — the view
-  // orders_v no longer returns it. 22023 (not «ملغي», empty reason) → 'invalid'; P0002 (not visible / already deleted) → 'missing'.
-  // Logged as order.delete with the id and the reason; the screen drops the order itself (OrdersApp.removeOrder).
-  async function deleteOrder(id, reason) {
+  // «مسح» (phase 5.5 decision 10, the owner 2 Nov): one step — an order that is not «ملغي» is cancelled first (setOrderStatus with the
+  // same reason: the row + push_status), then woo-sync order_trash puts the order and its Dokan sub-orders in the site's trash (ok |
+  // skipped when WOO_PUSH_ENABLED is off | a failure stops here: nothing deleted), then RPC order_delete marks the row deleted
+  // (deleted_at + the reason) — orders_v no longer returns it. 22023 → 'invalid'; P0002 → 'missing'; a Woo failure → 'site'.
+  // Logged as order.delete with the id, the reason and the site's answer; the screen drops the order itself (OrdersApp.removeOrder).
+  async function deleteOrder(id, reason, opts) {
     const cl = c();
     if (!cl || !uid()) return fail('network');
     const why = typeof reason === 'string' ? reason.trim() : '';
     if (!why || why.length > 120) return fail('invalid');
+    if (opts && opts.cancel) {
+      const cur = (orders || []).find((x) => x.id === String(id));
+      if (!cur || cur.st !== 'ملغي') { const r = await setOrderStatus(id, 'ملغي', { cancel: { reason: why } }); if (!r.ok) return r; }
+    }
+    const t = await invoke({ action: 'order_trash', order_id: Number(id) });
+    if (!t.ok) return fail(t.reason === 'forbidden' ? 'forbidden' : 'site');
+    const site = t.data.result === 'ok' ? 'ok' : t.data.result === 'skipped' ? (t.data.reason || 'skipped') : 'error';
+    if (site === 'error') return fail('site');
     try {
       const { error } = await cl.rpc('order_delete', { p_order: Number(id), p_reason: why });
       if (error) return fail(error.code === '42501' ? 'forbidden' : error.code === '22023' ? 'invalid' : error.code === 'P0002' ? 'missing' : 'network');
     } catch (e) { return fail('network'); }
     if (orders) { const i = orders.findIndex((x) => x.id === String(id)); if (i >= 0) { orders.splice(i, 1); names = vendorNames(orders); notifySoon(); } }
-    log('order.delete', 'IB-' + id + ' · ' + why);
-    return { ok: true };
+    log('order.delete', 'IB-' + id + ' · ' + why + ' · الموقع: ' + site);
+    return { ok: true, site };
   }
   async function setOrderStatus(id, status, extra) {
     if (status === 'مكتمل' && extra && extra.rating) {

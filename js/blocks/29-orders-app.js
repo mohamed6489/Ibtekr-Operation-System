@@ -354,7 +354,7 @@ function mpClose(refocus){var e=R.getElementById('mpop');if(e)e.remove();if(MP){
 function mpOpen(btn){var key=btn.dataset.more;if(MP&&MP.key===key){mpClose(1);return}mpClose();dpClose(0);
  var w=document.createElement('div');w.id='mpop';w.setAttribute('role','menu');w.setAttribute('aria-label','إجراءات');w.dataset.key=key;
  var OX=window.IBOrdersOps,cx=key.charAt(0)==='o'&&OX?OX.cons(key.slice(2)):null,extra=key.charAt(0)!=='o'||!OX?'':cx?'<button type="button" role="menuitem" data-ma="shipall">'+ic('truck')+'<span>شحن كامل من المخزن</span></button><button type="button" role="menuitem" data-ma="uncons">'+ic('xx')+'<span>إلغاء التجميع</span></button>':'<button type="button" role="menuitem" data-ma="cons">'+ic('box')+'<span>تجميع في المخزن</span></button>';
-  var oo=key.charAt(0)==='o'?OM[key.slice(2)]:null,del=oo&&oo.st==='ملغي'?'<button type="button" role="menuitem" class="danger" data-ma="del">'+ic('xx')+'<span>مسح</span></button>':''; // 5.5 decision 10: a cancelled order only (the server checks too)
+  var oo=key.charAt(0)==='o'?OM[key.slice(2)]:null,del=oo&&oo.st!=='مكتمل'&&oo.st!=='استرجاع'?'<button type="button" role="menuitem" class="danger" data-ma="del">'+ic('xx')+'<span>مسح</span></button>':''; // 5.5 decision 10: not a completed / returned order; an open one is cancelled first (the server checks too)
   w.innerHTML='<button type="button" role="menuitem" data-ma="edit">'+ic('edit')+'<span>تعديل</span></button>'+extra+del;
  R.appendChild(w);var r=btn.getBoundingClientRect();
  w.style.left=(Math.max(8,r.left+window.scrollX))+'px';w.style.top=(r.bottom+window.scrollY+4)+'px';
@@ -365,17 +365,18 @@ function mpAct(a){var k=MP.key.split(':'),kind=k[0],id=k[1];mpClose(0);
   return}
  if(a==='cons'||a==='shipall'||a==='uncons'){if(window.IBOrdersOps)window.IBOrdersOps[a==='cons'?'consolidate':a](orderSnap(OM[id]));return}
  if(a==='del'&&kind==='o')confirmDelete(id)}
-/* ---- «مسح» (5.5 decision 10, owner 2 Nov): a cancelled order leaves the list with a reason; the server (order_delete) refuses any other
-   status. The row stays in the database (deleted_at) and the reason goes to the activity log, never a WooCommerce call. ---- */
+/* ---- «مسح» (5.5 decision 10, owner 2 Nov): an order leaves the list with a reason — one that is not «ملغي» is cancelled first with that reason,
+   then the order and its sub-orders go to the site's trash (woo-sync order_trash), then the row is marked deleted (order_delete; it stays in the
+   database) and the reason goes to the activity log. Completed / returned orders have no «مسح». ---- */
 var DEL_REASONS=['إلغاء من العميل','خامات غير متوفرة','تعديل من العميل','أوردر مكرر'];
 function removeOrder(id){id=String(id);var i=O.findIndex(function(o){return o.id===id});if(i<0)return false;O.splice(i,1);delete OM[id];delete SEL[id];if(DET&&DET.id===id)DET.close();draw(1);return true}
-function confirmDelete(id){var o=OM[id];if(!o||o.st!=='ملغي')return;
+function confirmDelete(id){var o=OM[id];if(!o||o.st==='مكتمل'||o.st==='استرجاع')return;var cancelFirst=o.st!=='ملغي';
  var w=document.createElement('div');w.id='cscrim';
  w.innerHTML='<div id="cdlg" role="dialog" aria-modal="true" aria-labelledby="cdt"><div class="ch"><h2 id="cdt">مسح الأوردر IB-'+esc(id)+'؟</h2><button type="button" class="ibtn" data-cc aria-label="إغلاق">'+ic('xx')+'</button></div>'
   +'<div class="cb"><div><label class="lb" for="creason">سبب المسح <span aria-hidden="true" style="color:var(--err)">*</span></label><select id="creason" class="sel2" aria-required="true"><option value="">— اختار السبب —</option>'+DEL_REASONS.map(function(r){return'<option>'+r+'</option>'}).join('')+'<option>أخرى</option></select><div class="err" id="cerr" role="alert" hidden>اختار سبب المسح الأول</div></div>'
   +'<div id="cother" hidden><label class="lb" for="cotxt">اكتب السبب <span aria-hidden="true" style="color:var(--err)">*</span></label><input id="cotxt" class="sel2" maxlength="120" placeholder="مثال: العميل غيّر المقاس"><div class="err" id="cerr2" role="alert" hidden>اكتب السبب</div></div>'
-  +'<div class="nt">الأوردر هيختفي من القائمة وهيفضل في سجل النشاط (مين / إمتى / السبب) للمراجعة. المسح للأوردرات الملغية بس.</div></div>'
-  +'<div class="cf"><button type="button" class="btn dgr" data-cok>مسح الأوردر</button><button type="button" class="btn" data-cc>إلغاء</button></div></div>';
+  +'<div class="nt">'+(cancelFirst?'الأوردر لسه «'+esc(o.st)+'» — هيتلغي الأول بالسبب ده (وبيتبعت للموقع زي أي إلغاء) وبعدين يتمسح. ':'')+'الأوردر هيتحط في سلة مهملات الموقع هو وأوردراته الفرعية، وهيختفي من القائمة هنا وهيفضل في سجل النشاط (مين / إمتى / السبب) للمراجعة.</div></div>'
+  +'<div class="cf"><button type="button" class="btn dgr" data-cok>'+(cancelFirst?'إلغاء ومسح الأوردر':'مسح الأوردر')+'</button><button type="button" class="btn" data-cc>إلغاء</button></div></div>';
  R.appendChild(w);var prev=R.activeElement;w.querySelector('#creason').focus();
  function close(){w.remove();R.removeEventListener('keydown',keys,true);if(prev&&prev.focus)prev.focus()}
  var keys=dlgKeys(w,close);R.addEventListener('keydown',keys,true);
@@ -386,8 +387,8 @@ function confirmDelete(id){var o=OM[id];if(!o||o.st!=='ملغي')return;
    if(!sel.value){w.querySelector('#cerr').hidden=false;sel.focus();return}if(sel.value==='أخرى'&&!reason){w.querySelector('#cerr2').hidden=false;txt.focus();return}
    var ok=w.querySelector('[data-cok]');ok.disabled=true;var ws=WS();
    if(!ws||!ws.deleteOrder){close();removeOrder(id);toast('اتمسح الأوردر IB-'+id);return}
-   ws.deleteOrder(id,reason).then(function(r){if(r&&r.ok){close();removeOrder(id);toast('اتمسح الأوردر IB-'+id);return}ok.disabled=false;
-    toast(r&&r.reason==='forbidden'?'مش مسموح لك تمسح أوردرات':r&&r.reason==='invalid'?'المسح للأوردرات الملغية بس':'مافيش اتصال — الأوردر ماتمسحش')},function(){ok.disabled=false;toast('مافيش اتصال — الأوردر ماتمسحش')})}})}
+   ws.deleteOrder(id,reason,{cancel:cancelFirst}).then(function(r){if(r&&r.ok){close();removeOrder(id);toast('اتمسح الأوردر IB-'+id+(r.site==='ok'?' واتحط في مهملات الموقع':r.site==='push_disabled'?' — الموقع ماتلمسش (الدفع متقفل)':''));return}ok.disabled=false;
+    toast(r&&r.reason==='forbidden'?'مش مسموح لك تمسح أوردرات':r&&r.reason==='invalid'?'المسح للأوردرات الملغية بس':r&&r.reason==='site'?'الموقع ماردش — الأوردر ماتمسحش':'مافيش اتصال — الأوردر ماتمسحش')},function(){ok.disabled=false;toast('مافيش اتصال — الأوردر ماتمسحش')})}})}
 var FB_FIELDS=[['id','رقم الأوردر','text'],['name','اسم العميل','text'],['phone','الهاتف','text'],['st','حالة الأوردر','enum',function(){return ST}],['cf','حالة التأكيد','enum',function(){return CF}],['deliv','حالة التسليم','enum',function(){return['غير متأخر','قابل للتأخير','متأخر']}],['vendor','المبتكر','enum',function(){var m={};O.forEach(function(o){o.subs.forEach(function(x){m[x.vendor]=1})});return Object.keys(m).sort()}],['tot','إجمالي القيمة','num'],['dep','العربون','num'],['age','عمر الأوردر (يوم)','num'],['date','تاريخ الأوردر','date'],['note','تعليق خدمة العملاء','text']];
 var FB_OPS={text:[['has','يحتوي'],['nhas','لا يحتوي'],['eq','يساوي'],['neq','لا يساوي'],['empty','فارغ'],['nempty','غير فارغ']],enum:[['eq','يساوي'],['neq','لا يساوي'],['empty','فارغ'],['nempty','غير فارغ']],num:[['eq','يساوي'],['neq','لا يساوي'],['gt','أكبر من'],['lt','أقل من'],['empty','فارغ'],['nempty','غير فارغ']],date:[['eq','يساوي'],['gt','بعد'],['lt','قبل'],['empty','فارغ'],['nempty','غير فارغ']]};
 var DLAB={ok:'غير متأخر',risk:'قابل للتأخير',late:'متأخر'};

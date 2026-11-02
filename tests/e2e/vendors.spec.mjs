@@ -69,27 +69,29 @@ const inert = async (page) => {
   expect(await page.evaluate(() => window.__xss)).toBeUndefined();
 };
 // the status filter of the page («فلتر» → الحالة)
+// phase 5.5 (decision 3): the kit's closed multi-value filter — clear the ticked statuses, tick the wanted one, apply
 async function statusFilter(page, label) {
-  await page.locator('#vendors [data-vfilter]').click();
-  await page.locator('.vfilter-pop [role=radiogroup][aria-label="الحالة"] [role=radio]', { hasText: label }).click();
-  await page.locator('.vfilter-pop [data-vapply]').dispatchEvent('click'); // the popover's foot sits below the viewport
+  await page.locator('#vendors [data-fm-btn="vendors"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm-clear]').click();
+  if (label !== 'الكل') await page.locator('[data-fm-menu="vendors"] [data-fm^="status:"]', { hasText: label }).click(); // «الكل» = no status ticked
+  await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click'); // the menu's foot may sit below the viewport
 }
 
 test('the vendors page lists the sync\'s makers with the team columns and no seed; the reads name their columns', async ({ page }) => {
   await openVendors(page);
   await expect(row(page, V1)).toContainText('Art Craft');
   await expect(row(page, V2)).toContainText('Antikiano');
-  await expect(row(page, V1).locator('td').nth(2)).toHaveText('35%'); // the rate effective today (sensitive.commission = F)
-  await expect(row(page, V2).locator('td').nth(2)).toHaveText('45%'); // raised in October
-  await expect(row(page, V1).locator('td').nth(3)).toHaveText('2'); // open orders
-  for (const i of [5, 6, 9]) await expect(row(page, V1).locator('td').nth(i)).toHaveText('—'); // العربون / المواصلات / تذاكر: later phases
+  await expect(row(page, V1).locator('td').nth(3)).toHaveText('35%'); // the rate effective today (sensitive.commission = F)
+  await expect(row(page, V2).locator('td').nth(3)).toHaveText('45%'); // raised in October
+  await expect(row(page, V1).locator('td').nth(4)).toHaveText('2'); // open orders
+  for (const i of [6, 7, 10]) await expect(row(page, V1).locator('td').nth(i)).toHaveText('—'); // العربون / المواصلات / تذاكر: later phases
   await expect(page.locator('#vendors thead')).toContainText('مستحقاته (من 1 أكتوبر)');
   await expect(page.locator('#vendors')).not.toContainText('Medo .crafts'); // the prototype's seed is gone
   await expect(page.locator('#vendors')).not.toContainText('Balances_Payouts');
   await expect(page.locator('#vendors')).not.toContainText('Bian eg'); // inactive: not in the default list
   await statusFilter(page, 'الكل');
   await expect(rows(page)).toHaveCount(3);
-  await expect(row(page, V3).locator('td').nth(2)).toHaveText('—'); // no rate yet
+  await expect(row(page, V3).locator('td').nth(3)).toHaveText('—'); // no rate yet
   expect(mock.requests.filter((r) => r === 'GET /rest/v1/vendors').length).toBeGreaterThanOrEqual(1);
   expect(mock.requests).toContain('GET /rest/v1/vendor_rates');
   expect(mock.requests).toContain('GET /rest/v1/vendor_bank');
@@ -184,7 +186,7 @@ test('ops (vendors.edit = P) changes a phone: written, logged with the vendor as
   await page.keyboard.press('Escape');
   await expect(info(section(page, 'الاتفاق التجاري'), page, 'نسبة إبتكر')).toHaveText('—');
   await expect(drawer(page).locator('.drawer-h')).toContainText('نسبة إبتكر —');
-  await expect(row(page, V1).locator('td').nth(2)).toHaveText('—');
+  await expect(row(page, V1).locator('td').nth(3)).toHaveText('—');
 });
 
 test('the admin toggles the status and sets the rate (no date — decision 12: from today; a second change the same day replaces it); the history shows both rates', async ({ page }) => {
@@ -413,7 +415,7 @@ test('the shares (decision 4): a completed order counts in «حقه من الم�
   await expect(byStatus.locator('tbody tr').nth(1).locator('td').nth(3)).toHaveText('651.30'); // قيد التنفيذ
   await expect(section(page, 'الحركات المالية')).toContainText('بتتسجل من مرحلة الحسابات');
   await expect(info(section(page, 'ملخص حسابه معانا'), page, 'مستحقاته (من 1 أكتوبر)')).toContainText('651.30 (له)');
-  await expect(row(page, V1).locator('td').nth(7)).toHaveText('651.30');
+  await expect(row(page, V1).locator('td').nth(8)).toHaveText('651.30');
   // Antikiano: 2539 − (1015.60 + 10) on the completed order; the on-hold order is open (its line has no rate: 45% since October)
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   await openDrawer(page, V2);
@@ -444,7 +446,7 @@ test('a rename reloads the orders (their makers carry vendors.name) and the draw
   await expect(drawer(page).locator('.drawer-h h2')).toHaveText('Art Craft Studio');
   await tab(page, 'الأوردرات').click();
   await expect(kindTile(page, 'all').locator('.t-h3')).toHaveText('2');
-  await expect(row(page, V1).locator('td').nth(3)).toHaveText('2');
+  await expect(row(page, V1).locator('td').nth(4)).toHaveText('2');
 });
 
 test('a maker name and a note with html render as text in the list, the search and the drawer', async ({ page }) => {
@@ -575,7 +577,7 @@ test('«في إجازة» (phase 3.1): a status like the others — from «ال�
   await statusFilter(page, 'في إجازة');
   await expect(rows(page)).toHaveCount(1);
   await expect(row(page, V2).locator('.vstatus')).toHaveText('في إجازة');
-  await expect(page.locator('#vendors .fchips')).toContainText('الحالة: في إجازة');
+  await expect(page.locator('#vendors .af-row')).toContainText('الحالة: في إجازة');
   await openByHash(page, V2);
   await section(page, 'الهوية').getByRole('button', { name: 'تعديل بيانات الهوية' }).click();
   await expect(modal(page).locator('#g-status .val')).toHaveText('في إجازة');
@@ -594,4 +596,89 @@ test('sign-out leaves no maker on the page', async ({ page }) => {
   await page.evaluate(() => window.IBAuth.signOut());
   await expect(page.locator('#login')).toBeVisible();
   expect(await page.evaluate(() => [window.IBVendors.state(), window.IBVendors.store.all().length, window.IBVendors.data()])).toEqual(['idle', 0, null]);
+});
+
+// ---- phase 5.5 (the owner's prototype v2, plan decision 3): the closed multi-value filter, the bulk bar, the row menu, the drawer's products tab ----
+test('5.5: the closed filter picks several values per group, the picks show as chips with their counts, the sort menu sits beside it in the card header', async ({ page }) => {
+  await openVendors(page);
+  await expect(page.locator('#vendors .page-head [data-fm-btn]')).toHaveCount(0); // moved next to the columns button
+  const menu = page.locator('[data-fm-menu="vendors"]');
+  await page.locator('#vendors [data-fm-btn="vendors"]').click();
+  await expect(menu.locator('[data-fm="status:active"]')).toHaveAttribute('aria-checked', 'true'); // «نشط» by default
+  await menu.locator('[data-fm="status:inactive"]').click();
+  await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 3 مبتكر');
+  await menu.locator('[data-fm-apply]').dispatchEvent('click');
+  await expect(rows(page)).toHaveCount(3);
+  await expect(page.locator('#vendors .af-row .af-chip')).toHaveCount(2);
+  await expect(page.locator('#vendors [data-af-chip="status:active"] .af-c')).toHaveText('2');
+  await expect(page.locator('#vendors [data-af-chip="status:inactive"] .af-c')).toHaveText('1');
+  await expect(page.locator('#vendors .af-row .af-n')).toHaveText('3 مبتكر');
+  await page.locator('#vendors [data-af-chip="status:active"]').click();
+  await expect(rows(page)).toHaveCount(1);
+  await expect(row(page, V3)).toBeVisible();
+  await page.locator('#vendors [data-af-clear]').click();
+  await expect(rows(page)).toHaveCount(3); // no filter at all
+  await expect(page.locator('#vendors .af-row')).toHaveCount(0);
+  await page.locator('#vendors [data-sm-btn="vendors"]').click();
+  await page.locator('[role=listbox] [role=option]', { hasText: 'الاسم (أ – ي)' }).click();
+  await expect(page.locator('#vendors [data-sm-btn="vendors"] .sm-v')).toHaveText(': الاسم (أ – ي)');
+  expect(await rows(page).evaluateAll((l) => l.map((r) => r.dataset.id))).toEqual([V2, V1, V3]); // Antikiano · Art Craft · Bian eg
+});
+
+test('5.5: the bulk bar moves the selected makers\' products to another maker (products_vendor) and sets the rate of several at once (vendor_rate_set each); the row menu opens his orders', async ({ page }) => {
+  await openVendors(page);
+  await page.locator('#vendors [data-vsel="' + V1 + '"]').click();
+  const bar = page.locator('#vendors [data-vbulk]');
+  await expect(bar.locator('b')).toHaveText('محدد 1 مبتكر');
+  await expect(bar.locator('[data-vbulk-products]')).toHaveText('1 منتج'); // Cushion; the trashed tray and the translation do not count
+  await expect(drawer(page)).toHaveCount(0); // the checkbox does not open the file
+  await bar.locator('[data-vbulk-move]').click();
+  await expect(modal(page)).toContainText('نقل منتج لمبتكر تاني');
+  await modal(page).locator('#vendor').click();
+  const opts = page.locator('[role=listbox] [role=option]');
+  await expect(opts.filter({ hasText: 'Art Craft' })).toHaveCount(0); // the source is not offered
+  await opts.filter({ hasText: 'Antikiano' }).click();
+  await modal(page).getByRole('button', { name: 'انقل المنتجات' }).click();
+  await expect.poll(() => (mock.productWrites || []).filter((w) => w.action === 'products_vendor')).toEqual([{ action: 'products_vendor', by: ADMIN, ids: [9001], vendor_id: V2 }]);
+  await expect(bar).toHaveCount(0); // the selection is cleared after the move
+  // the rate of two makers at once
+  await page.locator('#vendors [data-vsel-all]').click();
+  await expect(bar.locator('b')).toHaveText('محدد 2 مبتكرين');
+  await bar.locator('[data-vbulk-rate]').click();
+  await modal(page).locator('#rate').fill('30');
+  await modal(page).getByRole('button', { name: 'غيّر النسبة' }).click();
+  await expect.poll(() => mock.vendorRates.filter((r) => r.rate === 30).map((r) => r.vendor_id).sort()).toEqual([V1, V2].sort());
+  await expect(page.locator('#vendors')).toContainText('اتغيرت نسبة إبتكر لـ 2 مبتكرين');
+  await expect(row(page, V1)).toContainText('30%');
+  // the row menu → his orders
+  await page.locator('#vendors tr[data-id="' + V2 + '"] .act-col button[aria-haspopup=menu]').click();
+  await page.locator('[role=menu] [role=menuitem]', { hasText: 'أوردراته' }).click();
+  await expect(page.locator('#orders')).toBeVisible();
+  await expect(page.locator('#orders #v1')).toHaveText('المبتكر: Antikiano');
+});
+
+test('5.5: the drawer\'s «المنتجات» tab lists his products from the mirror — search by name or SKU, copy the site links, a multi-select and the products page\'s actions, «الذهاب لصفحة المنتجات» filtered on him', async ({ page }) => {
+  await openVendors(page);
+  await openDrawer(page, V2);
+  await drawer(page).getByRole('tab', { name: 'المنتجات' }).click();
+  const prows = drawer(page).locator('[data-vprods] .vprod-row');
+  await expect(prows).toHaveCount(2); // Macrame Curtain + Macrame Feathers (the mirror loads on demand)
+  await expect(drawer(page).locator('[data-vprod="9003"]')).toContainText('مسودة');
+  await drawer(page).locator('[data-vp-search]').fill('IBTB0CSW6RFTM');
+  await expect(prows).toHaveCount(1);
+  await drawer(page).locator('[data-vp-search]').fill('');
+  await expect(prows).toHaveCount(2);
+  await drawer(page).locator('[data-bulk-box="9003"]').click();
+  await expect(drawer(page).locator('[data-bulk="vprods:' + V2 + '"] b')).toHaveText('محدد 1 منتج');
+  await drawer(page).locator('[data-bulk-act="link"]').click();
+  expect(await page.evaluate(() => window.__lastCopy)).toMatch(/\/product\/macrame-feathers\/$/);
+  await drawer(page).locator('[data-vprod="9003"] button[aria-haspopup=menu]').click();
+  await page.locator('[role=menu] [role=menuitem]', { hasText: 'نشر على الموقع' }).click();
+  await modal(page).getByRole('button', { name: 'انشر' }).click();
+  await expect.poll(() => (mock.productWrites || []).filter((w) => w.action === 'product_save').map((w) => [w.id, w.fields.status])).toEqual([[9003, 'publish']]);
+  await expect(drawer(page).locator('[data-vprod="9003"]')).not.toContainText('مسودة'); // the mirror row came back published
+  await drawer(page).locator('[data-vgo="products"]').click();
+  await expect(page.locator('#pg-products')).toBeVisible();
+  expect(await page.evaluate(() => window.IBPages.all().products.api.st.f.vendor)).toBe('Antikiano');
+  await expect(page.locator('#pg-products .pr-table tbody tr')).toHaveCount(2);
 });

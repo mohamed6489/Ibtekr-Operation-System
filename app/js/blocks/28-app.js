@@ -1218,8 +1218,8 @@
   const sourceNote = (t) => h('p', { class: 'source', style: 'margin:0' }, t);
   const pctTxt = (p) => num(p);
   // كل كارت جدول بياخد زرار «الأعمدة» تلقائي (4 أعمدة فأكتر) — إظهار/إخفاء وترتيب، محفوظ لكل مستخدم
-  function TableCard({ title, count, action, body, cols }) {
-    const card = h('section', { class: 'card table-card' }, h('div', { class: 'table-title' }, h('h2', { class: 't-h4' }, title), h('span', { class: 'count t-body' }, count || ''), action || null), body);
+  function TableCard({ title, count, action, body, cols, pre, cls }) {
+    const card = h('section', { class: 'card table-card' + (cls ? ' ' + cls : '') }, h('div', { class: 'table-title' }, h('h2', { class: 't-h4' }, title), h('span', { class: 'count t-body' }, count || ''), action || null), pre || null, body);
     // the key leaves out « — <الفترة>» so a choice outlives the range picked (phase 4.1: the titles carry the period)
     return cols === false ? card : window.IBKit.withColumns(card, 'tbl:' + String(title).split(' — ')[0], title);
   }
@@ -1869,6 +1869,34 @@
   // the orders behind the stats changed (IBOrders: a load, a Realtime burst) — not while a menu or the filter is open
   document.addEventListener('ib:notify', () => { if (state.page === 'vendors' && !document.querySelector('.pop-anchor .menu, .pop-anchor [role=dialog]')) renderVendors(true); if (vredraw) vredraw(); });
   state.vfilter = { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false, q: '' }; state.vsort = 'open'; state.vpage = 1; const VPAGE = 9;
+  // phase 5.5 decision 3 (owner 1 Nov): the closed filter picks several values per group; «نشط» ticked by default. decision 3 (owner 31 Oct): the selection for the bulk actions
+  const VF0 = () => ({ status: ['active'], category: [], balance: [], contract: [], other: [] }); state.vf = VF0(); state.vsel = new Set();
+  const PAPI = () => ((window.IBPages && window.IBPages.all().products) || {}).api || null;
+  const prodCount = (ids) => { const a = PAPI(); return a ? a.makerItems(ids).length : 0; };
+  // the actions on one or more makers (decision 3): their products through the products page's own popups; the rate through the store (vendor_rate_set + push)
+  function makerAct(kind, ids, after) {
+    const done = () => { if (after) after(); renderVendors(); };
+    if (kind === 'rate') { rateForm(ids, done); return; }
+    const a = PAPI(); if (!a) { vnotify('error', 'صفحة المنتجات مش متاحة.'); return; }
+    a.ensure(); if (!a.ready()) { vnotify('warning', 'بنحمّل المنتجات — جرّب كمان ثانية.'); return; }
+    if (kind === 'move') a.makerMove(ids, done); else a.makerPrice(ids);
+  }
+  function rateForm(ids, done) {
+    if (!vstore.canRate()) { vnotify('error', 'مش من صلاحياتك'); return; }
+    const vs = ids.map((i) => vstore.get(i)).filter(Boolean); const K = window.IBKit;
+    K.form({ title: 'تعديل نسبة إبتكر — ' + (vs.length === 1 ? '«' + vs[0].name + '»' : vs.length + ' مبتكرين'), values: { rate: vs.length === 1 && vs[0].rate != null ? String(vs[0].rate) : '' }, submitLabel: 'غيّر النسبة',
+      note: h('p', { class: 't-small help', style: 'margin:0' }, vs.map((v) => v.name + (v.rate != null ? ' (' + v.rate + '%)' : '')).join(' · ')),
+      fields: (f, e, set) => [K.field.text('rate', 'نسبة إبتكر الجديدة (%)', f, e, set, { required: true, inputmode: 'decimal', help: 'من النهارده على الأوردرات الجديدة بس — القديمة زي ما هي. بتتبعت لمتجر المبتكر على الموقع.' }),
+        U.InlineNote({ kind: 'warning', children: 'النسبة بتتغير على مستوى المبتكر (كل منتجاته)، مش لمنتج لوحده.' })],
+      validate: (f) => { const r = Number(String(f.rate).trim().replace(/[٠-٩]/g, (c) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(c)))); return Number.isFinite(r) && r >= 0 && r <= 65 && String(f.rate).trim() !== '' ? {} : { rate: 'اكتب نسبة من 0 لـ 65' }; },
+      submit: (f) => { const r = Number(String(f.rate).trim().replace(/[٠-٩]/g, (c) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(c)))); let n = 0;
+        vs.forEach((v) => { try { vstore.setRate(v.id, r, null, vstore.actor()); n++; } catch (err) { vnotify('error', err.message); } });
+        done(); if (n) vnotify('success', 'اتغيرت نسبة إبتكر لـ ' + n + (n === 1 ? ' مبتكر' : ' مبتكرين') + ' — ' + r + '% على الأوردرات الجديدة.'); } });
+  }
+  const makerMenuItems = (v) => [{ label: 'تعديل الأسعار', icon: 'edit', run: () => makerAct('price', [v.id]) }, vstore.canRate() ? { label: 'تعديل نسبة إبتكر', icon: 'sliders', run: () => makerAct('rate', [v.id]) } : null, { label: 'نقل المنتجات لمبتكر تاني', icon: 'users', run: () => makerAct('move', [v.id]) }, { label: 'منتجاته', icon: 'box', run: () => goMakerProducts(v) }, { label: 'أوردراته', icon: 'external', run: () => { if (vdrawer) vdrawer.close(); showOrders({ vendor: v.name }); } }];
+  function goMakerProducts(v) { const a = PAPI(); if (vdrawer) vdrawer.close(); if (!a) return; go('products'); a.openRecords({ vendor: v.name }); }
+  // the drawer's products tab follows the mirror (a load, a write); the makers list carries no product counts of its own
+  document.addEventListener('ib:products', () => { if (vredraw && vtab === 'products') vredraw(); if (state.page === 'vendors' && state.vsel.size && !document.querySelector('.pop-anchor .menu, .modal[role=dialog]')) renderVendors(true); });
   let vnote = null; const vnotify = (kind, text) => { vnote = { kind, text }; renderVendors(); };
   // plan 3.4 decision 10 (owner, 27 Oct): «مزامنة دلوقتي» — the site's store changes now instead of at the next quarter-hour run (admin)
   function syncNowBtn() {
@@ -1912,7 +1940,9 @@
       if (kind === 'due') { const l = d.due; return { title: 'مستحقات المبتكرين — ' + money(sum.due) + ' ج.م', sub: l.length + ' مبتكر ليهم رصيد لصالحهم', summary: [{ label: 'الإجمالي', value: money(sum.due) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }, { label: 'أكبر رصيد', value: l.length ? l[0].name + ' — ' + money(l[0].balance) : '—' }], headers: ['المبتكر', 'الرصيد (له)', 'من الإجمالي'], rows: l.map((r) => [r.name, money(r.balance), (sum.due ? Math.round(r.balance / sum.due * 100) : 0) + '%']), total: ['الإجمالي', money(l.reduce((x, r) => x + r.balance, 0)), '100%'], onRow: open(l), source: 'الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر (الافتتاحي والعرابين من مرحلة الحسابات)' }; }
       const l = d.negative; return { title: 'مبتكرين عندهم رصيد سالب (عرابين / مواصلات) — ' + l.length, sub: 'عرابين اتدفعت لهم قبل ما الأوردرات تكتمل — بتتخصم من مستحقاتهم', summary: [{ label: 'إجمالي العرابين', value: money(sum.negativeTotal) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }], headers: ['المبتكر', 'العربون', 'المواصلات', 'الرصيد (عليه)', 'أوردرات مفتوحة'], rows: l.map((r) => [r.name, money(r.deposits), money((vendorsNow().find((x) => x.name === r.name) || {}).transport || 0), money(r.balance), String((stats[r.id] || {}).open || 0)]), total: ['الإجمالي', money(l.reduce((x, r) => x + r.deposits, 0)), money(l.reduce((x, r) => x + ((vendorsNow().find((y) => y.name === r.name) || {}).transport || 0), 0)), money(l.reduce((x, r) => x + r.balance, 0)), String(l.reduce((x, r) => x + ((stats[r.id] || {}).open || 0), 0))], onRow: open(l), source: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات' };
     };
-    const list = VD.sortVendors(vfilter(all, stats, state.vfilter), stats, state.vsort);
+    const vPass = (f) => (v) => ['status', 'category', 'balance', 'contract', 'other'].every((k) => !(f[k] || []).length || f[k].some((val) => VD.filterVendors([v], stats, k === 'other' ? { status: 'all', [val]: true } : { status: 'all', [k]: val }, VTODAY()).length));
+    const base0 = vfilter(all, stats, { status: 'all', q: state.vfilter.q });
+    const list = VD.sortVendors(base0.filter(vPass(state.vf)), stats, state.vsort);
     const pages = Math.max(1, Math.ceil(list.length / VPAGE)); if (state.vpage > pages) state.vpage = pages;
     const slice = list.slice((state.vpage - 1) * VPAGE, state.vpage * VPAGE);
     const setF = (k, v) => { state.vfilter[k] = v; state.vpage = 1; renderVendors(); };
@@ -1922,54 +1952,46 @@
     const search = h('input', { type: 'search', class: 'input', placeholder: 'ابحث بالاسم أو الهاتف أو الاسم البديل أو البراند', 'aria-label': 'بحث في المبتكرين', value: state.vfilter.q, style: 'width:320px;max-width:100%' });
     search.addEventListener('input', () => { state.vfilter.q = search.value; state.vpage = 1; renderVendors(true); });
     const check = (key, label) => h('label', { class: 'check', style: 'display:flex;align-items:center;gap:8px;cursor:pointer' }, (() => { const c = h('input', { type: 'checkbox', checked: state.vfilter[key] }); c.addEventListener('change', () => setF(key, c.checked)); return c; })(), label);
-    // «فلتر» + «ترتيب حسب» (owner, 22 Oct) — same pattern as the orders page header; active filters show as removable chips under the header.
-    const VF = { status: [['active', 'نشط'], ['leave', 'في إجازة'], ['inactive', 'غير نشط'], ['all', 'الكل']], balance: [['all', 'الكل'], ['due', 'ليه رصيد'], ['negative', 'عليه (عربون / مواصلات)'], ['zero', 'متصفّي']], contract: [['all', 'الكل'], ['uploaded', 'مرفوع وساري'], ['expiring', 'بينتهي خلال 30 يوم'], ['expired', 'منتهي'], ['missing', 'غير مرفوع']] };
-    const lab = (k, v) => (VF[k].find((x) => x[0] === v) || [, v])[1];
+    // «فلتر» + «ترتيب» (phase 5.5 decision 3, owner 1 Nov): the kit's closed multi-value filter and sort next to the columns button, the picks as chips with their counts
+    const VF = { status: [['active', 'نشط'], ['leave', 'في إجازة'], ['inactive', 'غير نشط']], balance: [['due', 'ليه رصيد'], ['negative', 'عليه (عربون / مواصلات)'], ['zero', 'متصفّي']], contract: [['uploaded', 'مرفوع وساري'], ['expiring', 'بينتهي خلال 30 يوم'], ['expired', 'منتهي'], ['missing', 'غير مرفوع']] };
+    const VG = () => [{ key: 'status', label: 'الحالة', options: VF.status }, { key: 'category', label: 'الفئة', options: CATS.map((c) => [c, c]) }, { key: 'balance', label: 'الرصيد', options: VF.balance }, { key: 'contract', label: 'العقد', options: VF.contract }, { key: 'other', label: 'المتابعة', options: [['late', 'عنده تأخير'], ['tickets', 'عليه تذاكر']] }];
     function vFilterBtn() {
-      const K = window.IBKit; const n = VD.activeFilterCount(state.vfilter);
-      const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
-      const btn = Button({ label: 'فلتر', icon: 'filter', attrs: { 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'data-vfilter': '' } }); if (n) btn.append(h('span', { class: 'fcount' }, num(String(n))));
-      const pop = U.popover(wrap, btn, (close) => { const d = Object.assign({}, state.vfilter); let el = null;
-        const radio = (k, label) => K.Radios({ label, name: 'vf-' + k, value: d[k], options: VF[k].map(([value, l]) => ({ value, label: l })), onChange: (v) => { d[k] = v; draw(); } });
-        const draw = () => { const body = [radio('status', 'الحالة'),
-          h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'الفئة'), h('div', { class: 'chips' }, [['all', 'الكل']].concat(CATS.map((c) => [c, c])).map(([v, l]) => h('button', { type: 'button', class: 'chip', 'aria-pressed': String(d.category === v), onClick: () => { d.category = v; draw(); } }, l)))),
-          radio('balance', 'الرصيد'), radio('contract', 'العقد'),
-          h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'المتابعة'), K.Checkbox({ label: 'عنده أوردرات قابلة للتأخير / متأخرة', checked: d.late, onChange: (v) => { d.late = v; draw(); } }), K.Checkbox({ label: 'عليه تذاكر مفتوحة', checked: d.tickets, onChange: (v) => { d.tickets = v; draw(); } }))];
-          const preview = vfilter(all, stats, Object.assign({}, d, { q: state.vfilter.q })).length;
-          el.replaceChildren(h('div', { class: 'vf-h' }, h('b', { class: 't-h5' }, 'فلتر المبتكرين'), IconButton({ icon: 'close', label: 'إغلاق', onClick: close })), h('div', { class: 'vf-b' }, ...body),
-            h('div', { class: 'vf-f' }, Button({ type: 'primary', label: 'عرض ' + preview + ' مبتكر', attrs: { 'data-vapply': '' }, onClick: () => { Object.assign(state.vfilter, d, { negative: false }); state.vpage = 1; close(); renderVendors(); } }), Button({ type: 'text', label: 'مسح الكل', onClick: () => { Object.assign(d, { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false }); draw(); } }))); };
-        el = h('div', { class: 'menu vfilter-pop', role: 'dialog', 'aria-label': 'فلتر المبتكرين', 'data-focus': 'no' }); draw(); return el; });
-      btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
+      return window.IBKit.FilterMenu({ id: 'vendors', label: 'فلتر المبتكرين', noun: 'مبتكر', groups: VG(), value: state.vf, count: (d) => base0.filter(vPass(d)).length, onApply: (d) => { state.vf = d; state.vpage = 1; renderVendors(); } });
     }
     function vSortBtn() {
-      const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const cur = VD.VENDOR_SORTS.find((x) => x.value === state.vsort);
-      const btn = h('button', { type: 'button', class: 'sort-btn', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'data-vsort': '' }, Icon('chevD', 'sm'), h('span', null, 'ترتيب حسب: ' + cur.label), Icon('sliders', 'sm'));
-      const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: VD.VENDOR_SORTS.map((x) => ({ value: x.value, label: x.label })), value: state.vsort, onSelect: (v) => { close(); state.vsort = v; state.vpage = 1; renderVendors(); } }));
-      btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
+      return window.IBKit.SortMenu({ id: 'vendors', label: 'ترتيب المبتكرين', options: VD.VENDOR_SORTS.map((x) => [x.value, x.label]), value: state.vsort, onChange: (v) => { state.vsort = v; state.vpage = 1; renderVendors(); } });
     }
     function vChips() {
-      const f = state.vfilter; const chips = [];
-      const chip = (text, reset) => chips.push(h('button', { type: 'button', class: 'chip fchip', 'aria-label': 'شيل الفلتر ' + text, onClick: () => { reset(); state.vpage = 1; renderVendors(); } }, text, Icon('close', 'sm')));
-      if (f.status !== 'active') chip('الحالة: ' + lab('status', f.status), () => { f.status = 'active'; });
-      if (f.category !== 'all') chip('الفئة: ' + f.category, () => { f.category = 'all'; });
-      if (f.balance !== 'all') chip('الرصيد: ' + lab('balance', f.balance), () => { f.balance = 'all'; });
-      if (f.contract !== 'all') chip('العقد: ' + lab('contract', f.contract), () => { f.contract = 'all'; });
-      if (f.late) chip('عنده تأخير', () => { f.late = false; });
-      if (f.tickets) chip('عليه تذاكر', () => { f.tickets = false; });
-      if (chips.length > 1) chips.push(Button({ type: 'text', size: 'sm', label: 'مسح الكل', onClick: () => { Object.assign(f, { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false }); state.vpage = 1; renderVendors(); } }));
-      return chips.length ? h('div', { class: 'fchips' }, ...chips) : null;
+      const f = state.vf; const chips = [];
+      VG().forEach((g) => (f[g.key] || []).forEach((val) => { const lbl = (g.options.find((o) => o[0] === val) || [, val])[1];
+        chips.push({ key: g.key + ':' + val, label: (g.key === 'other' ? '' : g.label + ': ') + lbl, count: base0.filter(vPass({ [g.key]: [val] })).length, remove: () => { f[g.key] = f[g.key].filter((x) => x !== val); state.vpage = 1; renderVendors(); } }); }));
+      return window.IBKit.ActiveFilters({ id: 'vendors', chips, total: list.length, noun: 'مبتكر', onClear: () => { state.vf = { status: [], category: [], balance: [], contract: [], other: [] }; state.vpage = 1; renderVendors(); } });
     }
+    // the bulk selection (decision 3, owner 31 Oct): a checkbox per row, «حدد كل الصفحة», the bar with the three actions
+    const VS = state.vsel; [...VS].forEach((i) => { if (!vstore.get(i)) VS.delete(i); });
+    const KK = window.IBKit; const stop = (el) => { el.addEventListener('click', (e) => e.stopPropagation()); el.addEventListener('keydown', (e) => e.stopPropagation()); return el; };
+    const selBox = (v) => { const c = KK.Checkbox({ label: '', checked: VS.has(v.id), onChange: (on) => { if (on) VS.add(v.id); else VS.delete(v.id); renderVendors(); } }); c.setAttribute('data-vsel', v.id); c.setAttribute('aria-label', 'حدد ' + v.name); return stop(c); };
+    const rowMenu = (v) => stop(KK.RowMenu(makerMenuItems(v), 'إجراءات ' + v.name));
     const headers = ['المبتكر', 'الحالة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'العربون', 'المواصلات', 'مستحقاته (من 1 أكتوبر)', 'آخر أوردر', 'تذاكر مفتوحة'];
     const later = (phase) => h('span', { class: 't-small', style: 'color:var(--color-text-secondary)', title: 'من مرحلة ' + phase }, '—'); // decision 4: deposits / transport with phase 4, tickets with phase 7
     const cells = (v) => { const st = stats[v.id]; return [h('span', { class: 'vendor-cell' }, U.VendorLogo({ letter: v.logoLetter, size: 'sm' }), h('span', { class: 'vnames' }, h('span', { class: 't-label' }, v.name), brandLine(v))), v.siteRemovedAt ? h('span', { class: 'chips' }, U.VendorStatus(v.status), h('span', { class: 'tg tg-error', 'data-site-removed': '' }, 'اتحذف من الموقع')) : U.VendorStatus(v.status), v.rate == null ? '—' : num(v.rate + '%'), num(String(st.open)), num(String(st.late)), later(4), later(4), h('span', { class: st.balance < 0 ? 'bal-neg' : '' }, num(D.formatMoney(st.balance))), num(ageLabel(st.lastAge)), later(7)]; }; // مستحقاته = الافتتاحي + حقه من الأوردرات المكتملة
-    const table = h('div', { class: 'scroll-x' }, h('table', { class: 'tickets-table' }, h('thead', null, h('tr', null, headers.map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, slice.map((v) => { const tr = h('tr', { 'data-id': v.id, tabindex: '0', role: 'button', 'aria-label': 'فتح ملف ' + v.name }, cells(v).map((c) => h('td', null, c))); tr.addEventListener('click', () => openVendor(v.id)); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openVendor(v.id); } }); return tr; }))));
-    const cards = h('div', { class: 'kv-list' }, slice.map((v) => { const cs = cells(v); const c = h('div', { class: 'card list-card', tabindex: '0', role: 'button' }, h('div', { class: 'title' }, cs[0]), headers.slice(1).map((k, i) => h('div', { class: 'kv' }, h('span', { class: 't-small' }, k), h('span', { class: 't-body' }, cs[i + 1])))); c.addEventListener('click', () => openVendor(v.id)); c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openVendor(v.id); }); return c; }));
+    const pageAll = slice.length > 0 && slice.every((v) => VS.has(v.id));
+    const allBox = (() => { const c = KK.Checkbox({ label: '', checked: pageAll, onChange: (on) => { slice.forEach((v) => (on ? VS.add(v.id) : VS.delete(v.id))); renderVendors(); } }); c.setAttribute('aria-label', 'حدد كل الصفحة'); c.setAttribute('data-vsel-all', ''); if (!pageAll && slice.some((v) => VS.has(v.id))) c.setAttribute('aria-checked', 'mixed'); return c; })();
+    const selIds = [...VS]; const selN = selIds.length;
+    if (selN) { const pa = PAPI(); if (pa) pa.ensure(); } // the bar's product count needs the mirror
+    const bulk = selN ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد', 'data-vbulk': '' }, h('b', null, 'محدد ' + selN + (selN === 1 ? ' مبتكر' : ' مبتكرين')), h('span', { class: 't-small help', 'data-vbulk-products': '' }, num(prodCount(selIds) + ' منتج')), h('span', { class: 'grow' }),
+      Button({ size: 'sm', icon: 'users', label: 'نقل المنتجات لمبتكر تاني', attrs: { 'data-vbulk-move': '' }, onClick: () => makerAct('move', selIds, () => VS.clear()) }),
+      Button({ size: 'sm', icon: 'edit', label: 'تعديل الأسعار', attrs: { 'data-vbulk-price': '' }, onClick: () => makerAct('price', selIds) }),
+      vstore.canRate() ? Button({ size: 'sm', icon: 'sliders', label: 'تعديل نسبة إبتكر', attrs: { 'data-vbulk-rate': '' }, onClick: () => makerAct('rate', selIds, () => VS.clear()) }) : null,
+      Button({ type: 'text', size: 'sm', label: 'إلغاء التحديد', attrs: { 'data-vbulk-clear': '' }, onClick: () => { VS.clear(); renderVendors(); } })) : null;
+    const table = h('div', { class: 'scroll-x' }, h('table', { class: 'tickets-table' }, h('thead', null, h('tr', null, h('th', { scope: 'col', class: 'sel-col' }, allBox), headers.map((x) => h('th', { scope: 'col' }, x)), h('th', { scope: 'col', class: 'act-col' }, h('span', { class: 'sr-only' }, 'إجراءات')))), h('tbody', null, slice.map((v) => { const tr = h('tr', { 'data-id': v.id, tabindex: '0', role: 'button', 'aria-label': 'فتح ملف ' + v.name, class: VS.has(v.id) ? 'is-sel' : null }, h('td', { class: 'sel-col' }, selBox(v)), cells(v).map((c) => h('td', null, c)), h('td', { class: 'act-col' }, rowMenu(v))); tr.addEventListener('click', () => openVendor(v.id)); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openVendor(v.id); } }); return tr; }))));
+    const cards = h('div', { class: 'kv-list' }, slice.map((v) => { const cs = cells(v); const c = h('div', { class: 'card list-card', tabindex: '0', role: 'button' }, h('div', { class: 'title vcard-title' }, selBox(v), cs[0], h('span', { class: 'grow' }), rowMenu(v)), headers.slice(1).map((k, i) => h('div', { class: 'kv' }, h('span', { class: 't-small' }, k), h('span', { class: 't-body' }, cs[i + 1])))); c.addEventListener('click', () => openVendor(v.id)); c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openVendor(v.id); }); return c; }));
     const pager = h('div', { class: 'pager' }, h('div', { class: 'pages' }, Button({ type: 'text', size: 'sm', label: 'السابق', disabled: state.vpage <= 1, onClick: () => { state.vpage--; renderVendors(); } }), Array.from({ length: pages }, (_, i) => Button({ type: i + 1 === state.vpage ? 'primary' : 'text', size: 'sm', label: String(i + 1), onClick: () => { state.vpage = i + 1; renderVendors(); } })), Button({ type: 'text', size: 'sm', label: 'التالي', disabled: state.vpage >= pages, onClick: () => { state.vpage++; renderVendors(); } })),
       h('span', { class: 't-small' }, num(list.length ? 'عرض ' + ((state.vpage - 1) * VPAGE + 1) + '–' + Math.min(list.length, state.vpage * VPAGE) + ' من ' + list.length : '')));
     return [
       h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'المبتكرين'), h('p', { class: 't-small' }, 'ملف كل مبتكر: البيانات والعقد والحساب البنكي، وأوردراته ورصيده — المبتكر هو المرجع الأساسي للأوردرات والنسب')),
-        h('div', { class: 'actions' }, vFilterBtn(), vSortBtn(), window.IBDataActions.Menu(window.IBDataActions.PAGES.vendors), syncNowBtn(), Button({ type: 'brand', icon: 'plus', label: 'إضافة مبتكر', disabled: !vstore.canEdit(), onClick: () => openAddVendor() }))),
-      h('div', { class: 'toolbar vtoolbar' }, search, vChips(), h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(list.length + ' مبتكر · ' + (VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label))),
+        h('div', { class: 'actions' }, window.IBDataActions.Menu(window.IBDataActions.PAGES.vendors), syncNowBtn(), Button({ type: 'brand', icon: 'plus', label: 'إضافة مبتكر', disabled: !vstore.canEdit(), onClick: () => openAddVendor() }))),
+      h('div', { class: 'toolbar vtoolbar' }, search, h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(list.length + ' مبتكر · ' + (VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label))),
       vnote ? (() => { const n = vnote; vnote = null; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); return el; })() : null,
       h('div', { class: 'cards five' },
         U.KpiTile({ label: 'مبتكرين نشطين', value: String(sum.active), unit: 'مبتكر', compare: 'off', note: 'من ' + sum.total + ' مبتكر مسجّل', details: () => vdet('active') }),
@@ -1977,7 +1999,8 @@
         U.KpiTile({ label: 'إجمالي مستحقات المبتكرين', value: D.formatMoney(sum.due), unit: 'ج.م', compare: 'off', note: 'من الأوردرات المكتملة من 1 أكتوبر · الافتتاحي والعرابين من مرحلة 4', details: () => vdet('due') }),
         U.KpiTile({ label: 'عندهم رصيد سالب (عرابين)', value: String(sum.negative), unit: 'مبتكرين', compare: 'off', note: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات', details: () => vdet('negative') }),
         U.KpiTile({ label: 'مواصلات المبتكرين', value: '—', compare: 'off', note: 'بتتسجل من مرحلة الحسابات (4)' })),
-      TableCard({ title: 'المبتكرين', count: list.length + ' مبتكر · مرتبين بعدد الأوردرات المفتوحة', body: list.length === 0 ? U.EmptyState('مفيش مبتكر بالاسم ده', 'جرّب اسم بديل أو رقم الهاتف، أو اضغط «إضافة مبتكر» لو جديد.') : [tableOrList(() => table, () => cards), pager] }),
+      TableCard({ title: 'المبتكرين', cls: 'own-filter', count: list.length + ' مبتكر · ' + ((VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label || ''), action: h('span', { class: 'acts-inline' }, vFilterBtn(), vSortBtn()), pre: [vChips(), bulk],
+        body: list.length === 0 ? U.EmptyState(state.vfilter.q ? 'مفيش مبتكر بالاسم ده' : 'مفيش مبتكر بالفلتر ده', 'جرّب اسم بديل أو رقم الهاتف، أو شيل اختيار من الفلتر، أو اضغط «إضافة مبتكر» لو جديد.') : [tableOrList(() => table, () => cards), pager] }),
       h('p', { class: 'source' }, 'المصدر: جدول المبتكرين (متاجر الموقع من المزامنة + اللي الفريق بيكمّله) — الأسماء البديلة لتوحيد الأوردرات والشيت · المستحقات من الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر · الأوردرات والتأخير لايف من الأوردرات')];
   }
   function renderVendors(keepFocus) {
@@ -2070,7 +2093,7 @@
   }
 
   // ----- vendor drawer (Figma: Drawer / Vendor, Tab=Info | Orders) -----
-  let vdrawer = null; let vtab = 'info'; const shown = new Set(); let lastShare = null; window.__vLastShare = () => lastShare;
+  let vdrawer = null; let vtab = 'info'; const shown = new Set(); let lastShare = null; window.__vLastShare = () => lastShare; let vpQ = '';
   let pwShown = null; // the temporary password revealed in the open drawer (decision 9 b) — forgotten when it closes
   // inPlace (owner 27 Oct): يفتح درج ملف المبتكر وانت مكانك — من غير ما ينقلك لصفحة المبتكرين
   function openVendor(id, opts) {
@@ -2450,7 +2473,7 @@
       const header = h('div', { class: 'drawer-h' },
         h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, vendorLogo(v), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status), siteOffTag(v)), h('span', { class: 't-small' }, num((v.category || 'بدون فئة') + ' · نسبة إبتكر ' + (canRate && v.rate != null ? v.rate + '%' : '—') + ' · مبتكر من ' + D.formatDateLong(v.joinedAt) + (v.wooVendorId ? ' · متجر #' + v.wooVendorId : ' · بدون متجر على الموقع'))), missingTag())),
           h('div', { class: 'actions' }, moreMenu(v), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => vdrawer.close() }))),
-        U.Tabs({ items: [{ id: 'info', label: 'معلومات المورد' }, { id: 'orders', label: 'الأوردرات' }, { id: 'accounts', label: 'الحسابات' }], active: vtab, onChange: (t) => { vtab = t; draw(); } }));
+        U.Tabs({ items: [{ id: 'info', label: 'معلومات المورد' }, { id: 'products', label: 'المنتجات' }, { id: 'orders', label: 'الأوردرات' }, { id: 'accounts', label: 'الحسابات' }], active: vtab, onChange: (t) => { vtab = t; if (t === 'products') { vpQ = ''; const a = PAPI(); if (a) a.ensure(); } draw(); } }));
       let body;
         const copy = (val, label) => copyText(val, label);
         // decision 10: «عرض / تحميل» = a signed URL (60 s) from the private bucket, opened in a new tab
@@ -2490,6 +2513,30 @@
             sub: cstat === 'missing' ? 'ارفع نسخة موقّعة (PDF أو صورة، حتى 10 ميجا) أو حمّل قالب العقد وابعته للمبتكر' : (v.contract.expires ? (cstat === 'expired' ? 'انتهى ' : 'ساري حتى ') + D.formatDateLong(v.contract.expires) + ' · ' : '') + 'رفعه ' + (v.contract.uploadedBy || '—') + ' في ' + D.formatDateLong(v.contract.uploadedAt.slice(0, 10)) + ' · ' + v.contract.fileName.split('.').pop().toUpperCase() + ' ' + (v.contract.size / 1048576).toFixed(1) + ' ميجا',
             canManage: canBank, onUpload: () => contractForm(v), onTemplate: () => vnotify('success', 'قالب العقد هيتحمّل من السيرفر في النسخة الحقيقية.'), onView: openContract, onDownload: openContract })),
           section('سجل النشاط', null, h('div', { class: 'tl' }, (() => { const ev = vstore.events(id).slice().reverse().slice(0, 8); return ev.length ? ev.map((e) => U.TimelineEvent({ text: e.text, time: fmtTime(e.at) })) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'لسه مفيش نشاط متسجل على المبتكر ده.'); })())));
+      } else if (vtab === 'products') {
+        // phase 5.5 decision 3 (owner 31 Oct): his products from the mirror — search by name or SKU · copy the site link · a multi-select with the products page's actions
+        const a = PAPI(); const KK = window.IBKit; const ALL = a && a.ready() ? a.makerItems([v.id]) : []; const m0 = (x) => num(D.formatMoney(x).replace(/\.00$/, ''));
+        const q = vpQ.trim().toLowerCase(); const L = q ? ALL.filter((p) => (p.nameEn + ' ' + (p.nameAr || '') + ' ' + p.sku).toLowerCase().includes(q)) : ALL;
+        const PB = KK.Bulk({ key: 'vprods:' + v.id, ids: L.map((p) => p.id), noun: 'منتج', render: draw, actions: !a ? [] : [
+          { id: 'price', label: 'تعديل السعر', icon: 'edit', run: (ids, done) => { a.bulkPrice(ALL.filter((p) => ids.includes(String(p.id)))); done(); } },
+          { id: 'link', label: 'نسخ الروابط', icon: 'link', run: (ids, done) => { a.copyLinks(ALL.filter((p) => ids.includes(String(p.id)))); done(); } },
+          { id: 'draft', label: 'تحويل لمسودة', icon: 'eyeoff', run: (ids, done) => { const l = ALL.filter((p) => ids.includes(String(p.id)) && p.status === 'منشور'); if (!l.length) { KK.toast('كل المحدد مسودات أصلاً', 'error'); return; } a.toDraft(l); done(); } },
+          { id: 'publish', label: 'نشر', icon: 'eye', run: (ids, done) => { const l = ALL.filter((p) => ids.includes(String(p.id)) && p.status !== 'منشور'); if (!l.length) { KK.toast('كل المحدد منشور أصلاً', 'error'); return; } a.publish(l); done(); } },
+          { id: 'brand', label: 'نقل لبراند تاني', icon: 'sliders', run: (ids, done) => { a.moveBrand(ALL.filter((p) => ids.includes(String(p.id)))); done(); } },
+          { id: 'del', label: 'مسح', icon: 'trash', danger: true, run: (ids, done) => { a.toTrash(ALL.filter((p) => ids.includes(String(p.id)))); done(); } }] });
+        const row = (p) => h('div', { class: 'vprod-row' + (PB.has(p.id) ? ' is-sel' : ''), 'data-vprod': String(p.id) }, PB.box(p.id, p.nameEn || p.nameAr), a.thumb(p),
+          h('div', { class: 'vp-name' }, h('b', null, p.nameEn || p.nameAr), h('small', { dir: 'ltr' }, p.sku), p.status !== 'منشور' ? h('span', null, h('span', { class: 'tg tg-orange' }, p.status)) : null),
+          h('div', { class: 'vp-price' }, p.sale != null ? h('b', null, m0(p.sale), ' ج.م') : h('span', { class: 'help' }, '—'), p.regular != null && p.sale != null && p.regular > p.sale ? h('s', { 'aria-label': 'قبل الخصم' }, m0(p.regular)) : null),
+          KK.RowMenu([{ label: 'تعديل المنتج', icon: 'edit', run: () => { vdrawer.close(); go('products'); a.openEdit(p.id); } }, p.permalink ? { label: 'نسخ رابط المنتج', icon: 'link', run: () => a.copyLinks([p]) } : null, p.status === 'منشور' ? { label: 'تحويل لمسودة', icon: 'eyeoff', run: () => a.toDraft([p]) } : { label: 'نشر على الموقع', icon: 'eye', run: () => a.publish([p]) }, { label: 'مسح', icon: 'trash', danger: true, run: () => a.toTrash([p]) }], 'إجراءات ' + (p.nameEn || p.nameAr)));
+        const srch = h('input', { type: 'search', placeholder: 'ابحث بالاسم أو الـ SKU', 'aria-label': 'بحث في منتجات المبتكر', value: vpQ, 'data-vp-search': '' });
+        srch.addEventListener('input', () => { vpQ = srch.value; const pos = srch.selectionStart; draw(); const n = document.querySelector('[data-vp-search]'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) { /* type=search */ } } });
+        body = h('div', { class: 'drawer-b' },
+          h('div', { class: 'vtab-go' }, Button({ icon: 'external', label: 'الذهاب لصفحة المنتجات', attrs: { 'data-vgo': 'products' }, onClick: () => goMakerProducts(v) })),
+          section('منتجات المبتكر · ' + (q ? L.length + ' من ' + ALL.length : ALL.length), null,
+            !a ? U.InlineNote({ kind: 'warning', children: 'صفحة المنتجات مش متاحة.' }) : !a.ready() ? U.InlineNote({ children: 'بنحمّل المنتجات من المرآة…' }) : null,
+            ALL.length ? h('div', { class: 'vp-tools' }, h('label', { class: 'search-field' }, Icon('search', 'sm'), srch), L.length ? h('span', { class: 'vp-all' }, PB.head(), h('span', { class: 't-small' }, 'حدد الكل')) : null) : null,
+            PB.bar(),
+            L.length ? h('div', { class: 'vprod-list', 'data-vprods': '' }, L.map(row)) : ALL.length ? U.EmptyState('مفيش منتج بالاسم أو الـ SKU ده', 'جرّب جزء من الاسم أو الـ SKU.') : a && a.ready() ? U.EmptyState('مفيش منتجات للمبتكر ده', 'المنتجات بتتضاف من استوديو المنتجات، أو بتتنقل له من صفحة المنتجات.') : null));
       } else if (vtab === 'orders') {
         const cnt = VD.orderCounts(st.orders); const pf = VD.performance(st.orders, v.leadDays); const dc = VD.delayCounts(st.orders);
         const orders = st.orders.slice().sort((a, b) => a.ageDays - b.ageDays).slice(0, 8);

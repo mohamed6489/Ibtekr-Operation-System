@@ -267,16 +267,32 @@
   }
   // the owner (1 Nov): the products' maker on the site — Dokan's post_author, the studio's own way (products.bulk, like the
   // other bulk writes); the brand shown on the product, the price and the SKU stay
-  function moveVendor(l) {
-    const V = window.IBVendors; const vendors = (V && V.store && V.store.all ? V.store.all() : []).filter((v) => v.wooVendorId).sort((a, b) => a.name.localeCompare(b.name));
+  function moveVendor(l, opts = {}) {
+    const skip = new Set((opts.exclude || []).map(String));
+    const V = window.IBVendors; const vendors = (V && V.store && V.store.all ? V.store.all() : []).filter((v) => v.wooVendorId && !skip.has(String(v.id))).sort((a, b) => a.name.localeCompare(b.name));
     if (!vendors.length) { K.toast('مفيش مبتكرين بمتجر على الموقع لسه', 'error'); return; }
     K.form({ title: 'نقل ' + (l.length === 1 ? 'منتج' : l.length + ' منتجات') + ' لمبتكر تاني', values: { vendor: '' }, submitLabel: 'انقل المنتجات',
       note: h('p', { class: 't-small help', style: 'margin:0' }, names(l)),
       fields: (f, e, set) => [K.field.select('vendor', 'المبتكر الجديد', vendors.map((v) => ({ value: String(v.id), label: v.name })), f, e, set, { required: true, help: 'المبتكر اللي بيتحاسب على المنتج (متجره على Dokan) — المنتج وترجمته العربي بيتنقلوا.' }),
         U.InlineNote({ kind: 'warning', children: 'البراند الظاهر على المنتج والسعر والـ SKU مش بيتغيروا — المتجر بس.' })],
       validate: (f) => K.req(f, ['vendor'], { vendor: 'اختار المبتكر' }),
-      submit: (f, m) => { write(() => PR().moveVendor(l.map((p) => p.id), f.vendor), 'اتنقلوا لـ ' + ((vendors.find((v) => String(v.id) === f.vendor) || {}).name || 'المبتكر'), m, l.length); return false; } });
+      submit: (f, m) => { write(() => PR().moveVendor(l.map((p) => p.id), f.vendor), 'اتنقلوا لـ ' + ((vendors.find((v) => String(v.id) === f.vendor) || {}).name || 'المبتكر'), m, l.length).then((ok) => { if (ok && opts.after) opts.after(); }); return false; } });
   }
+  // phase 5.5 (the owner's prototype v2, 31 Oct): the makers page and the maker's drawer act on his products with this page's own popups
+  const makerItems = (ids) => { const S = new Set((ids || []).map(String)); return PR() && PR().state() === 'ready' ? PR().list().filter((p) => p.vendorId && S.has(String(p.vendorId))) : []; };
+  function copyLinks(l) {
+    const text = l.map((p) => p.permalink).filter(Boolean).join('\n'); if (!text) { K.toast('المنتجات دي ملهاش رابط على الموقع لسه', 'error'); return; }
+    window.__lastCopy = text; const ok = () => K.toast(l.length === 1 ? 'اتنسخ رابط المنتج' : 'اتنسخت ' + l.length + ' روابط', 'success');
+    try { navigator.clipboard.writeText(text).then(ok, ok); } catch (e) { ok(); }
+  }
+  // the records filtered on one maker (his name, as the «المبتكر» select filters)
+  function openRecords(filter) {
+    if (PR()) PR().ensure();
+    st.status = 'all'; st.q = ''; st.missingOnly = false; st.sel.clear(); st.f = { vendor: (filter && filter.vendor) || '', brand: '', category: '', stock: '', type: '' };
+    go('products-records');
+  }
+  const makerMove = (ids, after) => { const l = makerItems(ids); if (!l.length) { K.toast((ids.length === 1 ? 'المبتكر ده ملوش' : 'المبتكرين دول ملهمش') + ' منتجات على الموقع', 'error'); return; } moveVendor(l, { exclude: ids, after }); };
+  const makerPrice = (ids) => { const l = makerItems(ids); if (!l.length) { K.toast((ids.length === 1 ? 'المبتكر ده ملوش' : 'المبتكرين دول ملهمش') + ' منتجات على الموقع', 'error'); return; } bulkPrice(l); };
   // the owner (2 Nov): the maker on the product page itself — a select of the makers with a store; a change moves the product
   // (and its Arabic translation) on the site at once through products_vendor (products.bulk), after a confirmation; it is not
   // part of «احفظ على الموقع» (another permission, another write), so unsaved edits are saved first
@@ -613,5 +629,5 @@
   // a deep link opened before the sign-in finished: draw again once the permissions are known
   document.addEventListener('ib:directory', () => { if (window.IBPages.current === 'products') R(); });
 
-  window.IBPages.register('products', { title: 'المنتجات', hash: (hs) => route(hs), defaultHash, view, canLeave: (proceed) => leaveGuard(proceed), api: { st, go } });
+  window.IBPages.register('products', { title: 'المنتجات', hash: (hs) => route(hs), defaultHash, view, canLeave: (proceed) => leaveGuard(proceed), api: { st, go, ensure: () => { if (PR()) PR().ensure(); }, ready: () => !!PR() && PR().state() === 'ready', makerItems, openRecords, openEdit: (id) => go('products-edit-' + id), copyLinks, bulkPrice, makerPrice, makerMove, toDraft, publish, toTrash, moveBrand, moveVendor, thumb: (p) => Thumb(p.img) } });
 })();

@@ -1334,3 +1334,26 @@ tr.af-hide{display:none!important}
   .sec-h .acts:has(.select) .select .val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
   .sec-h .acts:has(.select)>[data-cols]{flex:none}
 }
+/* ===== المبتكرين — تحديد وتعديل جماعي (owner 31 Oct) ===== */
+#vendors .tickets-table th.sel-col,#vendors .tickets-table td.sel-col{width:44px;padding-inline:12px 4px}
+#vendors .tickets-table th.act-col,#vendors .tickets-table td.act-col{width:56px;text-align:center}
+#vendors .tickets-table tr.is-sel td{background:var(--color-brand-subtle-bg)}
+#vendors .vcard-title{display:flex;align-items:center;gap:8px}
+#vendors .table-card>.bulk-bar,#vendors .table-card>.af-row{margin-inline:24px}
+/* درج المبتكر › المنتجات */
+.vprod-list{display:flex;flex-direction:column}
+.vprod-row{display:flex;align-items:center;gap:12px;padding:12px 0;border-bottom:1px solid var(--color-border-subtle)}
+.vprod-row:last-child{border-bottom:0}
+.vprod-row .thumb{width:48px;height:48px;border-radius:var(--radius-sm,4px);flex:0 0 48px;background:var(--color-bg-tint);overflow:hidden;display:inline-flex;align-items:center;justify-content:center}
+.vprod-row .thumb img{width:100%;height:100%;object-fit:cover}
+.vprod-row .vp-name{display:flex;flex-direction:column;align-items:flex-start;gap:2px;min-width:0;flex:1}
+.vprod-row .vp-name b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;max-width:100%}
+.vprod-row .vp-name small{color:var(--color-text-secondary)}
+.vprod-row .vp-price{display:flex;flex-direction:column;align-items:flex-end;gap:2px;white-space:nowrap}
+.vprod-row .vp-price s,.vprod-row .vp-price s .num{color:var(--color-text-secondary);font-size:13px;text-decoration:line-through}
+.vtab-go{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+.vp-tools{display:flex;align-items:center;gap:12px;flex-wrap:wrap;margin-bottom:4px}
+.vp-tools .search-field{flex:1 1 220px}
+.vp-all{display:inline-flex;align-items:center;gap:6px}
+.vprod-row.is-sel{background:var(--color-brand-subtle-bg);margin-inline:-8px;padding-inline:8px;border-radius:var(--radius-sm,4px)}
+.drawer .bulk-bar{flex-wrap:wrap}

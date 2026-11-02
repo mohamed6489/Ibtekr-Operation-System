@@ -228,7 +228,26 @@ async function pullVendors(run: Run) {
   const ctx = await run.ctx();
   let vendors = 0;
   const res = await ctx.woo.eachPage('dokan/v1/stores', {}, async (stores: Json[]) => { vendors += await saveVendors(ctx, stores.filter(isObj).map(mapStore)); });
-  return { vendors, ...ctx.vendorSync, pages: res.pages, done: res.done };
+  // the owner (2 Nov): a store gone from the site → its maker is marked here (site_removed_at, the status inactive) — never
+  // deleted: orders, the accounts and the brands' history point at it; the admin removes it from the drawer. Back on the site →
+  // the mark lifts. Only after a complete run that saw at least one store (a bad answer must not mark everyone).
+  const removed: string[] = []; const back: string[] = [];
+  if (res.done && ctx.vendors.size) {
+    for (let from = 0; ; from += 1000) {
+      const { data, error } = await run.db.from('vendors').select('id, woo_vendor_id, site_removed_at').order('id').range(from, from + 999);
+      if (error) throw new Error(`vendors: ${error.message}`);
+      const rows = (data ?? []) as Json[];
+      for (const v of rows) {
+        const w = wooId(v.woo_vendor_id); if (w === null) continue;
+        if (!ctx.vendors.has(w) && !v.site_removed_at) removed.push(String(v.id));
+        else if (ctx.vendors.has(w) && v.site_removed_at) back.push(String(v.id));
+      }
+      if (rows.length < 1000) break;
+    }
+    if (removed.length) await run.db.from('vendors').update({ site_removed_at: run.now(), status: 'inactive' }).in('id', removed);
+    if (back.length) await run.db.from('vendors').update({ site_removed_at: null }).in('id', back);
+  }
+  return { vendors, ...ctx.vendorSync, removed: removed.length, back: back.length, pages: res.pages, done: res.done };
 }
 
 // The site's product categories, page by page (wc/: the WC keys), upserted on id; nothing is deleted.

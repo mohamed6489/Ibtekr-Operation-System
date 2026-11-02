@@ -164,10 +164,10 @@ do $$ begin
           and not has_table_privilege('authenticated', 'public.vendors', 'SELECT')) then
     raise exception 'case authenticated selects vendors by column list, never commission_pct failed';
   end if;
-  -- 22 of 0011 + the 8 of 0014 (never woo_snapshot, never commission_pct)
+  -- 22 of 0011 + the 8 of 0014 + site_removed_at of 0031 (never woo_snapshot, never commission_pct)
   if not ((select count(*) from information_schema.column_privileges
-           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'vendors' and privilege_type = 'SELECT') = 30) then
-    raise exception 'case authenticated selects exactly 30 vendors columns (22 of 0011 + 8 of 0014) failed';
+           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'vendors' and privilege_type = 'SELECT') = 31) then
+    raise exception 'case authenticated selects exactly 31 vendors columns (22 of 0011 + 8 of 0014 + 1 of 0031) failed';
   end if;
   if not (has_column_privilege('authenticated', 'public.vendors', 'name', 'INSERT')
           and has_column_privilege('authenticated', 'public.vendors', 'joined_at', 'INSERT')

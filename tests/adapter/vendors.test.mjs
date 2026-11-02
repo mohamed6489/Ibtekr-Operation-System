@@ -93,7 +93,7 @@ test('load names every column (no *, no commission_pct), reads the rates and the
   assert.match(selectOf(calls, 'vendor_logins')[0], /^vendor_id, username, email, pw_mode, status, must_change, invite_sent_at, password_set_at, created_by, created_at, updated_at$/);
   assert.match(selectOf(calls, 'vendors')[0], /\bcontract\b.*\bopening_balance\b/);
   assert.deepEqual(opsOf(calls, 'vendors').filter((c) => c.op === 'range'), [{ op: 'range', args: [0, 999] }]);
-  assert.deepEqual(plain(S.get(V1)), { id: V1, name: 'Art Craft', legalName: null, category: 'فنون ولوحات', aliases: ['ArtCraft', 'آرت كرافت'], status: 'active', phone: '01000000003', altPhone: null, email: null, address: null, instagram: null, storeUrl: null,
+  assert.deepEqual(plain(S.get(V1)), { id: V1, siteRemovedAt: null, name: 'Art Craft', legalName: null, category: 'فنون ولوحات', aliases: ['ArtCraft', 'آرت كرافت'], status: 'active', phone: '01000000003', altPhone: null, email: null, address: null, instagram: null, storeUrl: null,
     contactName: null, addressParts: EMPTY_PARTS, social: EMPTY_SOCIAL, logoUrl: null, bannerUrl: null, wooPaymentMethods: [], wooSyncedAt: null, pushPending: [], categoryRates: [], rateFlat: null, // phase 3.3: no synced data on this row
     rate: 35, rateSince: '2026-03-01', rateHistory: [{ rate: 35, flat: null, since: '2026-03-01', by: 'صفوت كمال', type: 'fixed' }], ratesVisible: true, commissionType: 'fixed', leadDays: 7, depositPolicy: null, notes: 'الشحن على المبتكر', logoLetter: 'A', joinedAt: '2026-03-01',
     contract: null, bank: null, login: null, openingBalance: 0, wooVendorId: 2376, shopUrl: 'https://ibtekr.club/store/art-craft/', createdAt: T0, lastUpdate: T0, brands: [B1_SHAPE, B4_SHAPE], brandsEver: [] });
@@ -981,7 +981,7 @@ test('pushVendor answers (3.3): skipped reasons pass through, 502 / 500 / networ
   assert.equal(V.MESSAGES.push_lost, 'اتحفظ في السيستم، ومابعتش للموقع — ومش هيتبعت لوحده: افتح التعديل واحفظ تاني');
   assert.equal(V.MESSAGES.push_refused, 'اتحفظ في السيستم بس — الموقع رفض التعديل ده، راجع القيم');
   // a maker without a store: saved, nothing sent (the server would say no_store)
-  const ns = load({ responses: { ...seed(), vendors: ok([VENDORS[0], VENDORS[1], row({ id: V3, name: 'Bian eg', phone: '01000000000' })]) } });
+  const ns = load({ responses: { ...seed(), vendors: ok([VENDORS[0], VENDORS[1], row({ id: V3, siteRemovedAt: null, name: 'Bian eg', phone: '01000000000' })]) } });
   await ns.V.load(); ns.calls.length = 0; ns.events.length = 0;
   ns.S.update(V3, { phone: '01000000009' }, ns.S.actor()); await settle();
   assert.deepEqual(invokes(ns.calls), []);

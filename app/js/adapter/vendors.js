@@ -65,7 +65,7 @@
   'use strict';
   const PAGE = 1000; // PostgREST max_rows
   const COLS = {
-    vendor: 'id, woo_vendor_id, name, aliases, phone, email, status, raw, created_at, updated_at, legal_name, category, alt_phone, address, instagram, store_url, lead_days, deposit_policy, notes, joined_at, contract, opening_balance, contact_name, address_parts, social, logo_url, banner_url, woo_payment_methods, push_pending, woo_synced_at', // 0014: never woo_snapshot (service_role only)
+    vendor: 'id, woo_vendor_id, site_removed_at, name, aliases, phone, email, status, raw, created_at, updated_at, legal_name, category, alt_phone, address, instagram, store_url, lead_days, deposit_policy, notes, joined_at, contract, opening_balance, contact_name, address_parts, social, logo_url, banner_url, woo_payment_methods, push_pending, woo_synced_at', // 0014: never woo_snapshot (service_role only)
     rate: 'id, vendor_id, rate, flat, since, set_by, created_at, commission_type', // 0016: commission_type
     catRate: 'id, vendor_id, woo_category_id, rate, flat, since, set_by, created_at', // 0014 (phase 3.3): sensitive.commission
     category: 'id, name, slug, parent_id, updated_at', // 0014: woo_categories (vendors.view)
@@ -181,6 +181,7 @@
       leadDays: Number(r.lead_days) || 7, depositPolicy: r.deposit_policy || null, notes: r.notes || null, logoLetter: name.charAt(0),
       joinedAt: localDate(r.joined_at) || localDate(r.created_at) || T, contract, bank: b, login: toLogin(opts && opts.login), openingBalance: Number(r.opening_balance) || 0,
       wooVendorId: r.woo_vendor_id == null ? null : Number(r.woo_vendor_id), shopUrl: text(raw.shop_url), createdAt: text(r.created_at), lastUpdate: text(r.updated_at) || text(r.created_at),
+      siteRemovedAt: text(r.site_removed_at) || null, // the owner (2 Nov): the store is gone from the site (woo-sync marks it; the admin deletes from the drawer)
       brands: [], brandsEver: [] }; // phase 3.2: filled by load() from the brands tables (syncVendorBrands)
   }
   // ---------- the brands (phase 3.2, pure) ----------
@@ -864,7 +865,7 @@
     }
   }
 
-  const store = { get, all, events, update, setRate, setBank, reveal, setContract, findByName, remove, restoreMoney, create, addLogin, setLogin, setLoginStatus, setLoginPassword, revealPassword, usernameTaken, missing, canEdit, canBank, canToggle, canRate, canLogin, canBrands, actor,
+  const store = { get, all, events, update, setRate, setBank, reveal, setContract, findByName, remove, restoreMoney, create, addLogin, setLogin, setLoginStatus, setLoginPassword, revealPassword, usernameTaken, missing, canEdit, canBank, canToggle, canRate, canLogin, canBrands, canRemove: () => isAdmin(), actor,
     brand, allBrands, brandByName, namesOf, ownerAt, storeOwnerAt, rateFor, addBrand, updateBrand, transferBrand, returnBrand,
     setCategoryRate, setCommission, categories, canPush, pushVendor, // phase 3.3
     canSyncNow, syncing, syncNow }; // plan 3.4 decision 10

@@ -443,7 +443,7 @@ Deno.test('vendors: a new store is inserted whole (the phase-3.3 columns, its fi
     vendor_rates: [{ vendor_id: vendorId(44), rate: 12.5, since: '2026-10-01', set_by: 'x' }] };
   const { db, woo, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStore(44, { enabled: false, store_name: 'Store 44 renamed', phone: '01000000999' }), wooStoreFull(900)]) } });
   const { body } = await call(deps, { action: 'vendors' }, { jwt: 'jwt-admin' });
-  assertEquals([body.result, body.counts.vendors], ['ok', { vendors: 2, from_site: 1, conflicts: 0, pushed: 0, push_failed: 0, push_refused: 0, push_held: 0, pages: 1, done: true }]);
+  assertEquals([body.result, body.counts.vendors], ['ok', { vendors: 2, from_site: 1, conflicts: 0, pushed: 0, push_failed: 0, push_refused: 0, push_held: 0, removed: 0, back: 0, pages: 1, done: true }]);
   assertEquals([woo.calls[0].path, woo.calls[0].query], ['dokan/v1/stores', { per_page: '100', page: '1' }]);
   assertFalse('authorization' in woo.calls[0].headers);
   assertEquals(woo.calls.length, 1, 'nothing is written to the site');
@@ -466,6 +466,27 @@ Deno.test('vendors: a new store is inserted whole (the phase-3.3 columns, its fi
   assertEquals(db.rows('activity_log').map((r: any) => [r.action, r.entity, r.entity_id, r.new_value]), [['vendor.sync', 'vendor', vendorId(44), 'name, phone, email']], 'one activity row per changed store: the field names only');
   assertFalse(JSON.stringify(db.rows('activity_log')).includes('01000000999'), 'no phone in activity_log');
   assertEquals(db.rows('woo_sync_log').at(-1).kind, 'manual');
+});
+
+Deno.test('vendors (the owner, 2 Nov): a store gone from the site marks its maker (site_removed_at, inactive) after a complete run — never deletes it; back on the site, the mark lifts; a run that saw no store marks no one', async () => {
+  const seed = { vendors: [vendorRow(44), vendorRow(2376, { status: 'active' }), vendorRow(0, { woo_vendor_id: null, name: 'بدون متجر' })] };
+  const gone = setup({ seed, routes: { 'GET dokan/v1/stores': page([wooStore(44)]) } });
+  const r1 = await call(gone.deps, { action: 'vendors' }, { jwt: 'jwt-admin' });
+  assertEquals([r1.body.counts.vendors.removed, r1.body.counts.vendors.back], [1, 0]);
+  const v = gone.db.row('vendors', 2376, 'woo_vendor_id');
+  assertEquals([v.site_removed_at, v.status, gone.db.rows('vendors').length], [NOW, 'inactive', 3], 'marked and kept, not deleted');
+  assertEquals([gone.db.row('vendors', 44, 'woo_vendor_id').site_removed_at ?? null, gone.db.row('vendors', 0, 'woo_vendor_id')?.site_removed_at ?? null], [null, null], 'the store still there and a maker without a store: untouched');
+  // a second run with the store still gone: marked once, counted no more
+  const again = await call(gone.deps, { action: 'vendors' }, { jwt: 'jwt-admin' });
+  assertEquals([again.body.counts.vendors.removed, again.body.counts.vendors.back], [0, 0]);
+  // back on the site → the mark lifts (the status is the team's to set again)
+  const back = setup({ seed: { vendors: [vendorRow(44), vendorRow(2376, { status: 'inactive', site_removed_at: '2026-10-30T10:00:00Z' })] }, routes: { 'GET dokan/v1/stores': page([wooStore(44), wooStore(2376)]) } });
+  const r3 = await call(back.deps, { action: 'vendors' }, { jwt: 'jwt-admin' });
+  assertEquals([r3.body.counts.vendors.back, r3.body.counts.vendors.removed, back.db.row('vendors', 2376, 'woo_vendor_id').site_removed_at ?? null], [1, 0, null]);
+  // the site answering no store at all: nothing marked
+  const empty = setup({ seed, routes: { 'GET dokan/v1/stores': page([]) } });
+  const r4 = await call(empty.deps, { action: 'vendors' }, { jwt: 'jwt-admin' });
+  assertEquals([r4.body.counts.vendors.removed, empty.db.rows('vendors').filter((x: any) => x.site_removed_at).length], [0, 0]);
 });
 
 Deno.test('vendors: a second run over the same stores with no change on either side writes the mirrors only (no activity row); the team\'s rename stays and is not pushed when nothing is pending', async () => {
@@ -944,7 +965,7 @@ Deno.test('store sync — the four cases of decision 3: site only → written he
   const store = wooStoreFull(44, { store_name: 'Site 44', phone: '01000000011' });
   const { db, woo, deps } = setup({ seed, routes: { 'GET dokan/v1/stores': page([store]) }, env: PUSH_ON });
   const { body } = await call(deps, { action: 'vendors' });
-  assertEquals(body.counts.vendors, { vendors: 1, from_site: 1, conflicts: 1, pushed: 0, push_failed: 0, push_refused: 0, push_held: 0, pages: 1, done: true });
+  assertEquals(body.counts.vendors, { vendors: 1, from_site: 1, conflicts: 1, pushed: 0, push_failed: 0, push_refused: 0, push_held: 0, removed: 0, back: 0, pages: 1, done: true });
   const v = db.row('vendors', 44, 'woo_vendor_id');
   assertEquals([v.name, v.phone, v.contact_name, v.status, v.push_pending], ['Site 44', '01000000011', 'صاحب من الفريق', 'active', null]);
   assertEquals([v.woo_snapshot.name, v.woo_snapshot.phone, v.woo_snapshot.contact_name], ['Site 44', '01000000011', 'Maker Owner 44'], 'the snapshot is the site as of this run');

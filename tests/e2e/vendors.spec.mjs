@@ -98,6 +98,27 @@ test('the vendors page lists the sync\'s makers with the team columns and no see
   await expect(page.getByRole('button', { name: 'إضافة مبتكر' })).toBeEnabled();
 });
 
+test('0031 (the owner, 2 Nov): a maker whose store is gone from the site is marked, not deleted — «اتحذف من الموقع» in the drawer; the admin removes it from «المزيد» (a maker without orders); the mark lifts with the sync', async ({ page }) => {
+  const V4 = 'a0000000-0000-4000-8000-000000000004';
+  mock.vendors.push({ ...mock.vendors[2], id: V4, woo_vendor_id: 7777, name: 'Gone Store', aliases: [], status: 'inactive', site_removed_at: '2026-11-01T10:00:00Z', raw: { id: 7777, shop_url: 'https://woo.test/store/gone-store/' } });
+  await openVendors(page, ADMIN);
+  await openByHash(page, V4);
+  await expect(drawer(page).locator('[data-site-removed]')).toHaveText('اتحذف من الموقع');
+  await expect(drawer(page).locator('[data-site-off]')).toHaveCount(0); // the removed tag replaces «موقوف على الموقع»
+  await drawer(page).getByRole('button', { name: 'المزيد' }).click();
+  await page.getByRole('menuitem', { name: 'احذف من السيستم' }).click();
+  await expect(modal(page)).toContainText('حذف «Gone Store» من السيستم؟');
+  await modal(page).getByRole('button', { name: 'احذف من السيستم' }).click();
+  await expect(drawer(page)).toBeHidden();
+  await expect.poll(() => mock.vendors.some((v) => v.id === V4)).toBe(false);
+  // a maker still on the site has no such item
+  await openByHash(page, V3);
+  await expect(drawer(page).locator('[data-site-removed]')).toHaveCount(0);
+  await expect(drawer(page).locator('[data-site-off]')).toHaveText('موقوف على الموقع'); // inactive with a store
+  await drawer(page).getByRole('button', { name: 'المزيد' }).click();
+  await expect(page.getByRole('menuitem', { name: 'احذف من السيستم' })).toHaveCount(0);
+});
+
 test('search finds a maker by an alias', async ({ page }) => {
   await openVendors(page);
   const search = page.locator('#vendors input[type=search]');

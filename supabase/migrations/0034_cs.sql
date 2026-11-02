@@ -110,6 +110,20 @@ create table if not exists public.cs_rating_overrides (
 );
 create index if not exists cs_rating_overrides_customer_idx on public.cs_rating_overrides (customer_id, at desc);
 
+-- The team's rating of a customer given when a conversation is closed (no order to hang it on): the same two figures as
+-- customer_ratings (0018); cs_customers_list averages both sources.
+create table if not exists public.cs_team_ratings (
+  id bigserial primary key,
+  customer_id uuid not null references public.cs_customers on delete cascade,
+  conversation_id uuid, -- cs_conversations is created below; a closed conversation may be deleted later, the rating stays
+  sat smallint not null check (sat between 1 and 5),
+  manners smallint not null check (manners between 1 and 5),
+  note text check (note is null or char_length(note) <= 500),
+  by_user uuid references public.profiles default auth.uid(),
+  at timestamptz not null default now()
+);
+create index if not exists cs_team_ratings_customer_idx on public.cs_team_ratings (customer_id, at desc);
+
 -- A member with cs.reply alone may change mood / tags only; cs.manage edits the rest; phone / created_from / created_by /
 -- created_at are never a member's to change (the phone is the key to the orders); updated_at is stamped here.
 create or replace function public.cs_customers_guard() returns trigger
@@ -402,16 +416,19 @@ create trigger cs_segments_touch before update on public.cs_segments for each ro
 -- Every customer with the figures the page shows, computed from the orders of the same normalised phone (deleted orders
 -- left out): orders / total (not cancelled, failed or returned) / last order / refused (فشل) / returned (استرجاع) / open
 -- complaints (open conversations tagged «شكوى») / late open orders (open for 11+ days) / conversations / the team's rating
--- average over the orders' customer_ratings / the latest manual override / the last five orders. The phone follows
--- sensitive.customer_phone. cs.view = N → 42501.
+-- (average رضا and أخلاق over the orders' customer_ratings and the chat's cs_team_ratings) / the latest manual override /
+-- the last five orders / last activity. The phone follows sensitive.customer_phone (the base table never grants it);
+-- the orders' figures and list follow orders.view (0007's rule: N → nothing of the orders). cs.view = N → 42501.
 create or replace function public.cs_customers_list()
 returns table (
   id uuid, phone text, name text, ig text, city text, province text, address text, address2 text, mood text, tags text[],
   consent boolean, auto_consent boolean, source text, created_from text, blocked_at timestamptz, merged_into uuid, created_at timestamptz,
   orders bigint, total numeric, last_order_at timestamptz, refused bigint, returned bigint, open_complaints bigint, late_open bigint,
-  conversations bigint, rating_avg numeric, rating_count bigint, override_stars smallint, override_reason text, order_list jsonb)
+  conversations bigint, last_active_at timestamptz, rating_sat numeric, rating_manners numeric, rating_count bigint, override_stars smallint, override_reason text, order_list jsonb)
 language plpgsql stable security definer set search_path = public as $$
-declare v_full boolean := public.is_admin() or coalesce(public.has_perm('sensitive.customer_phone'), 'N') = 'F';
+declare
+  v_full boolean := public.is_admin() or coalesce(public.has_perm('sensitive.customer_phone'), 'N') = 'F';
+  v_orders boolean := coalesce(public.has_perm('orders.view'), 'N') <> 'N';
 begin
   if coalesce(public.has_perm('cs.view'), 'N') = 'N' then
     raise exception 'cs.view is needed' using errcode = '42501';
@@ -421,9 +438,17 @@ begin
          case when c.phone is null then null when v_full then c.phone else public.mask_phone(c.phone) end,
          c.name, c.ig, c.city, c.province, c.address, c.address2, c.mood, c.tags, c.consent, c.auto_consent, c.source, c.created_from,
          c.blocked_at, c.merged_into, c.created_at,
-         coalesce(o.orders, 0), coalesce(o.total, 0), o.last_order_at, coalesce(o.refused, 0), coalesce(o.returned, 0),
-         coalesce(cv.complaints, 0), coalesce(o.late_open, 0), coalesce(cv.conversations, 0),
-         r.rating_avg, coalesce(r.rating_count, 0), ov.stars, ov.reason, coalesce(o.order_list, '[]'::jsonb)
+         case when v_orders then coalesce(o.orders, 0) else 0 end,
+         case when v_orders then coalesce(o.total, 0) else 0 end,
+         case when v_orders then o.last_order_at end,
+         case when v_orders then coalesce(o.refused, 0) else 0 end,
+         case when v_orders then coalesce(o.returned, 0) else 0 end,
+         coalesce(cv.complaints, 0),
+         case when v_orders then coalesce(o.late_open, 0) else 0 end,
+         coalesce(cv.conversations, 0),
+         greatest(cv.last_at, case when v_orders then o.last_order_at end, c.created_at),
+         r.rating_sat, r.rating_manners, coalesce(r.rating_count, 0), ov.stars, ov.reason,
+         case when v_orders then coalesce(o.order_list, '[]'::jsonb) else '[]'::jsonb end
   from public.cs_customers c
   left join lateral (
     select count(*) filter (where x.status not in ('ملغي', 'فشل', 'استرجاع')) as orders,
@@ -441,13 +466,16 @@ begin
   ) o on true
   left join lateral (
     select count(*) as conversations,
-           count(*) filter (where v.status <> 'اتحلت' and 'شكوى' = any(v.tags)) as complaints
+           count(*) filter (where v.status <> 'اتحلت' and 'شكوى' = any(v.tags)) as complaints,
+           max(coalesce(v.updated_at, v.created_at)) as last_at
     from public.cs_conversations v where v.customer_id = c.id
   ) cv on true
   left join lateral (
-    select round(avg((cr.sat + cr.manners) / 2.0), 1) as rating_avg, count(*) as rating_count
-    from public.customer_ratings cr join public.orders x2 on x2.id = cr.order_id
-    where c.phone is not null and public.norm_phone(x2.customer_phone) = c.phone
+    select round(avg(u.sat), 1) as rating_sat, round(avg(u.manners), 1) as rating_manners, count(*) as rating_count
+    from (select cr.sat, cr.manners from public.customer_ratings cr join public.orders x2 on x2.id = cr.order_id
+           where c.phone is not null and public.norm_phone(x2.customer_phone) = c.phone
+          union all
+          select tr.sat, tr.manners from public.cs_team_ratings tr where tr.customer_id = c.id) u
   ) r on true
   left join lateral (
     select ro.stars, ro.reason from public.cs_rating_overrides ro where ro.customer_id = c.id order by ro.at desc limit 1
@@ -457,12 +485,41 @@ end $$;
 revoke execute on function public.cs_customers_list() from public, anon;
 grant execute on function public.cs_customers_list() to authenticated, service_role;
 
+-- Merging two customers (the same person from two channels): the other's conversations, notes, ratings and contacts move
+-- to the kept one, tags are joined, empty fields are filled, and the other row is marked merged_into (never deleted — it
+-- keeps its phone for the orders). cs.manage = F; both must be visible and distinct.
+create or replace function public.cs_merge_customers(p_keep uuid, p_other uuid)
+returns uuid language plpgsql volatile security definer set search_path = public as $$
+declare k public.cs_customers%rowtype; o public.cs_customers%rowtype;
+begin
+  if coalesce(public.has_perm('cs.manage'), 'N') <> 'F' then raise exception 'cs.manage = F is required to merge customers' using errcode = '42501'; end if;
+  if p_keep is null or p_other is null or p_keep = p_other then raise exception 'two different customers are needed' using errcode = '22023'; end if;
+  select * into k from public.cs_customers where id = p_keep and merged_into is null;
+  select * into o from public.cs_customers where id = p_other and merged_into is null;
+  if k.id is null or o.id is null then raise exception 'customer not found' using errcode = 'P0002'; end if;
+  update public.cs_conversations set customer_id = p_keep where customer_id = p_other;
+  update public.cs_customer_notes set customer_id = p_keep where customer_id = p_other;
+  update public.cs_rating_overrides set customer_id = p_keep where customer_id = p_other;
+  update public.cs_team_ratings set customer_id = p_keep where customer_id = p_other;
+  update public.cs_contacts set customer_id = p_keep where customer_id = p_other and not exists (select 1 from public.cs_contacts c2 where c2.customer_id = p_keep and c2.platform = public.cs_contacts.platform);
+  update public.cs_customers set
+    ig = coalesce(k.ig, o.ig), city = coalesce(k.city, o.city), province = coalesce(k.province, o.province), address = coalesce(k.address, o.address),
+    address2 = coalesce(k.address2, o.address2), source = coalesce(k.source, o.source),
+    tags = (select array_agg(distinct t) from unnest(k.tags || o.tags) t), updated_at = now()
+  where id = p_keep;
+  update public.cs_customers set merged_into = p_keep, updated_at = now() where id = p_other;
+  return p_keep;
+end $$;
+revoke execute on function public.cs_merge_customers(uuid, uuid) from public, anon;
+grant execute on function public.cs_merge_customers(uuid, uuid) to authenticated, service_role;
+
 -- ---------------------------------------------------------------- RLS
 
 alter table public.cs_customers enable row level security;
 alter table public.cs_contacts enable row level security;
 alter table public.cs_customer_notes enable row level security;
 alter table public.cs_rating_overrides enable row level security;
+alter table public.cs_team_ratings enable row level security;
 alter table public.cs_conversations enable row level security;
 alter table public.cs_messages enable row level security;
 alter table public.cs_segments enable row level security;
@@ -503,6 +560,11 @@ do $$ begin
     create policy cs_rating_overrides_insert on public.cs_rating_overrides for insert to authenticated
       with check ((select public.has_perm('cs.reply')) = 'F' and by_user = (select auth.uid()));
   end if;
+  if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'cs_team_ratings' and policyname = 'cs_team_ratings_select') then
+    create policy cs_team_ratings_select on public.cs_team_ratings for select to authenticated using ((select public.has_perm('cs.view')) <> 'N');
+    create policy cs_team_ratings_insert on public.cs_team_ratings for insert to authenticated
+      with check ((select public.has_perm('cs.reply')) = 'F' and by_user = (select auth.uid()));
+  end if;
   -- conversations: F sees all, P the assigned ones; reply opens / changes
   if not exists (select 1 from pg_policies where schemaname = 'public' and tablename = 'cs_conversations' and policyname = 'cs_conversations_select') then
     create policy cs_conversations_select on public.cs_conversations for select to authenticated
@@ -539,19 +601,25 @@ end $$;
 
 -- ---------------------------------------------------------------- grants (rule 4)
 
-grant select, insert, update on public.cs_customers to authenticated;
+-- the phone is never granted to members on the base table (review): it reaches them only through cs_customers_list, masked
+-- without sensitive.customer_phone; a member inserts it (a manual lead) but neither reads nor updates it there
+grant select (id, name, ig, city, province, address, address2, mood, tags, consent, auto_consent, source, created_from, blocked_at, blocked_by, merged_into, created_by, created_at, updated_at) on public.cs_customers to authenticated;
+grant insert (phone, name, ig, city, province, address, address2, mood, tags, consent, auto_consent, source, created_from) on public.cs_customers to authenticated;
+grant update (name, ig, city, province, address, address2, mood, tags, consent, auto_consent, source, blocked_at, blocked_by, updated_at) on public.cs_customers to authenticated;
 grant select on public.cs_contacts to authenticated;
-grant select, insert on public.cs_customer_notes, public.cs_rating_overrides to authenticated;
+grant select, insert on public.cs_customer_notes, public.cs_rating_overrides, public.cs_team_ratings to authenticated;
 grant select, insert, update on public.cs_conversations to authenticated;
 grant select, insert on public.cs_messages to authenticated;
-grant select, insert, update, delete on public.cs_segments, public.cs_campaigns to authenticated;
-grant select on public.cs_campaign_recipients, public.cs_channels to authenticated;
-grant usage, select on sequence public.cs_contacts_id_seq, public.cs_customer_notes_id_seq, public.cs_rating_overrides_id_seq, public.cs_campaign_recipients_id_seq to authenticated, service_role;
-grant select, insert, update, delete on public.cs_customers, public.cs_contacts, public.cs_customer_notes, public.cs_rating_overrides, public.cs_conversations,
+grant select, insert, update, delete on public.cs_segments to authenticated;
+grant select (id, name, segment_id, channel, body, image_path, discount_code, scheduled_at, cap_per_day, min_delay_s, status, size, stats, created_by, created_at, updated_at), insert, update, delete on public.cs_campaigns to authenticated; -- test_phone is written, never read back
+grant select (id, campaign_id, customer_id, status, at, reply) on public.cs_campaign_recipients to authenticated; -- never the phone
+grant select on public.cs_channels to authenticated;
+grant usage, select on sequence public.cs_contacts_id_seq, public.cs_customer_notes_id_seq, public.cs_rating_overrides_id_seq, public.cs_team_ratings_id_seq, public.cs_campaign_recipients_id_seq to authenticated, service_role;
+grant select, insert, update, delete on public.cs_customers, public.cs_contacts, public.cs_customer_notes, public.cs_rating_overrides, public.cs_team_ratings, public.cs_conversations,
   public.cs_messages, public.cs_segments, public.cs_campaigns, public.cs_campaign_recipients, public.cs_channels to service_role;
-revoke truncate, references, trigger on public.cs_customers, public.cs_contacts, public.cs_customer_notes, public.cs_rating_overrides, public.cs_conversations,
+revoke truncate, references, trigger on public.cs_customers, public.cs_contacts, public.cs_customer_notes, public.cs_rating_overrides, public.cs_team_ratings, public.cs_conversations,
   public.cs_messages, public.cs_segments, public.cs_campaigns, public.cs_campaign_recipients, public.cs_channels from anon, authenticated, service_role;
-revoke all on public.cs_customers, public.cs_contacts, public.cs_customer_notes, public.cs_rating_overrides, public.cs_conversations,
+revoke all on public.cs_customers, public.cs_contacts, public.cs_customer_notes, public.cs_rating_overrides, public.cs_team_ratings, public.cs_conversations,
   public.cs_messages, public.cs_segments, public.cs_campaigns, public.cs_campaign_recipients, public.cs_channels from anon;
 revoke execute on function public.cs_customers_guard(), public.cs_conversations_guard(), public.cs_messages_guard(), public.cs_campaigns_guard(), public.cs_touch() from public, anon, authenticated;
 

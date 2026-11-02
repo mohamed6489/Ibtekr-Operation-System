@@ -21,7 +21,7 @@ where u.id in ('00000000-0000-4000-8000-0000000000e1', '00000000-0000-4000-8000-
 insert into public.profiles (id, name, email, phone, role_id, status, custom_perms) values
   ('00000000-0000-4000-8000-0000000000e1', 'خدمة كامل', 'cs-full.dev@ibtekr.local',  '010000000e1', 'ops', 'active', '{"cs.view":"F","cs.reply":"F","cs.manage":"F","sensitive.customer_phone":"F","orders.view":"F"}'),
   ('00000000-0000-4000-8000-0000000000e2', 'خدمة رد',   'cs-reply.dev@ibtekr.local', '010000000e2', 'ops', 'active', '{"cs.view":"F","cs.reply":"F","cs.manage":"N","sensitive.customer_phone":"N"}'),
-  ('00000000-0000-4000-8000-0000000000e3', 'خدمة جزئي', 'cs-part.dev@ibtekr.local',  '010000000e3', 'ops', 'active', '{"cs.view":"P","cs.reply":"N","cs.manage":"N","sensitive.customer_phone":"N"}'),
+  ('00000000-0000-4000-8000-0000000000e3', 'خدمة جزئي', 'cs-part.dev@ibtekr.local',  '010000000e3', 'ops', 'active', '{"cs.view":"P","cs.reply":"N","cs.manage":"N","sensitive.customer_phone":"N","orders.view":"N"}'),
   ('00000000-0000-4000-8000-0000000000e4', 'خدمة بدون', 'cs-none.dev@ibtekr.local',  '010000000e4', 'ops', 'active', '{"cs.view":"N","cs.reply":"N","cs.manage":"N"}');
 
 -- Two orders of one customer (Arabic digits and a +20 prefix on the second: one normalised phone) and one of another.
@@ -48,6 +48,10 @@ do $$ declare c1 uuid; begin
   -- a later order with another name keeps the team's name; an empty city is filled
   update public.orders set customer_name = 'اسم تاني' where id = 99980003;
   if (select name from public.cs_customers where phone = '01099980002') <> 'عميل تاني' then raise exception 'case an existing customer keeps its name failed'; end if;
+  if has_column_privilege('authenticated', 'public.cs_customers', 'phone', 'SELECT') or has_column_privilege('authenticated', 'public.cs_customers', 'phone', 'UPDATE') or not has_column_privilege('authenticated', 'public.cs_customers', 'phone', 'INSERT')
+     or has_column_privilege('authenticated', 'public.cs_campaign_recipients', 'phone', 'SELECT') or has_column_privilege('authenticated', 'public.cs_campaigns', 'test_phone', 'SELECT') then
+    raise exception 'case the phones are never granted to members on the base tables failed';
+  end if;
   if has_table_privilege('anon', 'public.cs_customers', 'SELECT') or has_table_privilege('authenticated', 'public.cs_customers', 'DELETE') or has_table_privilege('authenticated', 'public.cs_messages', 'UPDATE')
      or has_table_privilege('authenticated', 'public.cs_channels', 'UPDATE') or has_table_privilege('authenticated', 'public.cs_contacts', 'INSERT') or not has_table_privilege('authenticated', 'public.cs_segments', 'DELETE') then
     raise exception 'case grants failed';
@@ -61,11 +65,11 @@ end $$;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-0000000000e1","role":"authenticated"}';
 do $$ declare c1 uuid; c2 uuid; cv uuid; r record; sg uuid; k uuid; begin
-  select id into c1 from public.cs_customers where phone = '01099980001';
+  select l.id into c1 from public.cs_customers_list() l where l.name = 'عميلة تجريبية';
   select * into r from public.cs_customers_list() l where l.id = c1;
   if r.phone <> '01099980001' then raise exception 'case the full phone with sensitive.customer_phone = F failed (%)', r.phone; end if;
-  if r.orders <> 2 or r.total <> 800 or r.refused <> 0 or r.returned <> 0 or r.rating_count <> 1 or r.rating_avg <> 4.0 or jsonb_array_length(r.order_list) <> 2 then
-    raise exception 'case the figures from the orders failed (% % % %)', r.orders, r.total, r.rating_avg, r.order_list;
+  if r.orders <> 2 or r.total <> 800 or r.refused <> 0 or r.returned <> 0 or r.rating_count <> 1 or r.rating_sat <> 5.0 or r.rating_manners <> 3.0 or jsonb_array_length(r.order_list) <> 2 then
+    raise exception 'case the figures from the orders failed (% % % % %)', r.orders, r.total, r.rating_sat, r.rating_manners, r.order_list;
   end if;
   if (select l.total from public.cs_customers_list() l where l.phone = '01099980002') <> 0 then raise exception 'case a cancelled order is not a sale failed'; end if;
   -- a manual lead
@@ -85,6 +89,13 @@ do $$ declare c1 uuid; c2 uuid; cv uuid; r record; sg uuid; k uuid; begin
   insert into public.cs_customer_notes (customer_id, text) values (c1, 'بتحب التغليف كهدية');
   insert into public.cs_rating_overrides (customer_id, stars, reason) values (c1, 4, 'تعديل يدوي');
   if (select l.override_stars from public.cs_customers_list() l where l.id = c1) <> 4 then raise exception 'case the override shows in the list failed'; end if;
+  insert into public.cs_team_ratings (customer_id, sat, manners) values (c1, 3, 5); -- a rating from the chat joins the order's: sat (5+3)/2, manners (3+5)/2
+  if (select l.rating_count || '|' || l.rating_sat || '|' || l.rating_manners from public.cs_customers_list() l where l.id = c1) <> '2|4.0|4.0' then raise exception 'case the chat rating averages with the order rating failed'; end if;
+  begin
+    perform * from public.cs_customers where phone = '01099980001';
+    raise exception 'case a member cannot read the phone column failed';
+  exception when insufficient_privilege then null;
+  end;
   -- a plain conversation + a note + an outgoing message (queued) + an event
   insert into public.cs_conversations (seg, platform, channel, customer_id, assignee) values ('customers', 'whatsapp', 'wa1', c1, '00000000-0000-4000-8000-0000000000e3') returning id into cv;
   insert into public.cs_messages (conversation_id, kind, text) values (cv, 'note', 'ملاحظة داخلية');
@@ -123,6 +134,19 @@ do $$ declare c1 uuid; c2 uuid; cv uuid; r record; sg uuid; k uuid; begin
   end;
   delete from public.cs_campaigns where id = k;
   delete from public.cs_segments where id = sg;
+  -- merge: the lead into the customer — conversations and notes move, tags join, the other row is marked
+  update public.cs_customers set tags = array['هدايا'] where id = c2;
+  insert into public.cs_customer_notes (customer_id, text) values (c2, 'ملاحظة على الليد');
+  if public.cs_merge_customers(c1, c2) <> c1 then raise exception 'case merge returns the kept id failed'; end if;
+  if (select merged_into from public.cs_customers where id = c2) <> c1 then raise exception 'case the other is marked merged failed'; end if;
+  if (select count(*) from public.cs_customer_notes where customer_id = c1) <> 2 then raise exception 'case the notes move on merge failed'; end if;
+  if not ((select tags from public.cs_customers where id = c1) @> array['هدايا']) then raise exception 'case tags join on merge failed'; end if;
+  if (select count(*) from public.cs_customers_list() l where l.id = c2) <> 0 then raise exception 'case a merged customer leaves the list failed'; end if;
+  begin
+    perform public.cs_merge_customers(c1, c1);
+    raise exception 'case merging a customer with itself must error failed';
+  exception when others then if sqlstate <> '22023' then raise exception 'case self merge: expected 22023, got %', sqlstate; end if;
+  end;
   if (select count(*) from public.cs_channels) < 5 then raise exception 'case channels readable failed'; end if;
   begin
     update public.cs_channels set status = 'connected' where id = 'wa1';
@@ -137,7 +161,7 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-0000000000e2","role":"authenticated"}';
 do $$ declare c1 uuid; begin
-  select id into c1 from public.cs_customers where phone = '01099980001';
+  select l.id into c1 from public.cs_customers_list() l where l.name = 'عميلة تجريبية';
   if (select l.phone from public.cs_customers_list() l where l.id = c1) <> '010••••0001' then raise exception 'case the masked phone failed (%)', (select l.phone from public.cs_customers_list() l where l.id = c1); end if;
   update public.cs_customers set mood = 'متضايق', tags = array['مستعجل'] where id = c1;
   begin
@@ -156,6 +180,11 @@ do $$ declare c1 uuid; begin
   exception when others then if sqlstate <> '42501' then raise exception 'case segment by reply-only: expected 42501, got %', sqlstate; end if;
   end;
   insert into public.cs_customer_notes (customer_id, text) values (c1, 'ملاحظة من الرد');
+  begin
+    perform public.cs_merge_customers(c1, (select l.id from public.cs_customers_list() l where l.name = 'عميل تاني'));
+    raise exception 'case reply-only cannot merge failed';
+  exception when others then if sqlstate <> '42501' then raise exception 'case merge by reply-only: expected 42501, got %', sqlstate; end if;
+  end;
 end $$;
 
 -- ================================================================ partial: the assigned conversation only, no writes
@@ -164,8 +193,9 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-0000000000e3","role":"authenticated"}';
 do $$ declare c1 uuid; cv uuid; begin
-  select id into c1 from public.cs_customers where phone = '01099980001';
+  select l.id into c1 from public.cs_customers_list() l where l.name = 'عميلة تجريبية';
   if (select count(*) from public.cs_customers_list() l where l.id = c1) <> 1 then raise exception 'case P reads the customers failed'; end if;
+  if (select l.orders || '|' || l.total || '|' || jsonb_array_length(l.order_list) from public.cs_customers_list() l where l.id = c1) <> '0|0|0' then raise exception 'case without orders.view the orders figures are hidden failed'; end if;
   select id into cv from public.cs_conversations where customer_id = c1;
   if cv is null then raise exception 'case P sees the conversation assigned to them failed'; end if;
   if (select count(*) from public.cs_messages where conversation_id = cv) <> 3 then raise exception 'case P reads the messages of their conversation failed'; end if;
@@ -182,7 +212,7 @@ update public.cs_conversations set assignee = '00000000-0000-4000-8000-000000000
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-0000000000e3","role":"authenticated"}';
 do $$ begin
-  if (select count(*) from public.cs_conversations where customer_id = (select id from public.cs_customers where phone = '01099980001')) <> 0 then raise exception 'case P does not see another''s conversation failed'; end if;
+  if (select count(*) from public.cs_conversations where customer_id = (select l.id from public.cs_customers_list() l where l.name = 'عميلة تجريبية')) <> 0 then raise exception 'case P does not see another''s conversation failed'; end if;
   if (select count(*) from public.cs_messages m where m.conversation_id in (select id from public.cs_conversations)) <> 0 then raise exception 'case P does not see another''s messages failed'; end if;
 end $$;
 

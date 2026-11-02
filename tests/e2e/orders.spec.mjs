@@ -764,3 +764,62 @@ test('the orders page says «المبتكر», never «المورد» (plan deci
   expect(text).toContain('عدد المبتكرين: الكل');
   expect(await page.locator('#orders select[data-ss="5001"] option').allTextContents()).toEqual(expect.arrayContaining(['جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المبتكر للمخزن', 'مرتجع للمبتكر']));
 });
+
+// المرحلة 5.5 (prototype v2, owner 31 Oct / 1 Nov): bulk selection, the status carousel, the active-filter chips, ib:orders-ready
+test('bulk select: the bar changes the status of the selected orders one by one (saved and pushed), the confirmation too, copies the numbers; «مكتمل» is not offered', async ({ page }) => {
+  await page.addInitScript(() => { document.addEventListener('ib:orders-ready', () => { window.__ordersReady = (window.__ordersReady || 0) + 1; }); });
+  await openOrders(page);
+  expect(await page.evaluate(() => window.__ordersReady)).toBe(1); // dispatched once the orders are first drawn
+  const sr = (sel) => page.locator('#orders ' + sel);
+  await expect(sr('#obulk')).toBeHidden();
+  await sr('[data-osel="180656"]').click();
+  await sr('[data-osel="181668"]').click();
+  await expect(sr('#obulk')).toBeVisible();
+  await expect(sr('#obulk b')).toHaveText('محدد 2 أوردر');
+  await expect(sr('[data-osel="180656"]')).toHaveAttribute('aria-checked', 'true');
+  const opts = await sr('select[data-obulk-st] option').allTextContents();
+  expect(opts).not.toContain('مكتمل'); expect(opts).not.toContain('ملغي'); expect(opts).not.toContain('استرجاع');
+  await sr('select[data-obulk-st]').selectOption('قيد الشحن');
+  await expect(toast(page)).toHaveText('اتغيرت حالة 2 أوردر');
+  await expect.poll(() => mock.pushes.length).toBe(2);
+  expect(mock.patches).toContainEqual({ table: 'orders', id: 180656, status: 'قيد الشحن' });
+  expect(mock.patches).toContainEqual({ table: 'orders', id: 181668, status: 'قيد الشحن' });
+  expect(mock.pushes.map((p) => p.order_id).sort()).toEqual([180656, 181668]);
+  await expect(sr('#obulk')).toBeHidden(); // the selection is cleared after the action
+  await expect(card(page, '180656').locator('.sdd')).toContainText('قيد الشحن');
+  // confirmation for two, copy the numbers, select the whole page, clear
+  await sr('[data-osel="180686"]').click(); await sr('[data-osel="180656"]').click();
+  await sr('select[data-obulk-cf]').selectOption('مؤكد بعربون');
+  await expect(toast(page)).toHaveText(/^اتغيرت حالة التأكيد لـ [12] أوردر$/); // an order already on that value is skipped
+  await expect.poll(() => mock.patches.filter((p) => p.confirm === 'مؤكد بعربون').length).toBeGreaterThan(0);
+  await sr('[data-osel="180686"]').click();
+  await sr('[data-obulk-copy]').click();
+  expect(await page.evaluate(() => window.__lastCopy)).toBe('180686');
+  await sr('[data-osel-page]').click();
+  await expect(sr('#obulk b')).toHaveText('محدد 3 أوردر');
+  await sr('[data-obulk-csv]').click();
+  expect((await page.evaluate(() => window.__lastCopy)).split('\n')).toHaveLength(4); // header + 3
+  await sr('[data-obulk-clear]').click();
+  await expect(sr('#obulk')).toBeHidden();
+});
+
+test('the status chips sit in a carousel; the chosen filters show as chips with their counts and a ✕ that removes one', async ({ page }) => {
+  await openOrders(page);
+  const sr = (sel) => page.locator('#orders ' + sel);
+  await expect(sr('.sc-car #chips .sc')).toHaveCount(10);
+  await expect(sr('.car-prev')).toBeHidden(); await expect(sr('.car-next')).toBeHidden(); // nothing hidden on the desktop
+  await expect(sr('#afcr')).toBeHidden();
+  await sr('#fv').selectOption('Antikiano');
+  await expect(sr('#afc .afc-chip')).toHaveCount(1);
+  await expect(sr('#afc .afc-chip .afc-t')).toHaveText('المبتكر: Antikiano');
+  await expect(sr('#afc .afc-chip .afc-c')).toHaveText(String(await page.evaluate(() => window.OrdersApp.query({ vendor: 'Antikiano' }, 10).total)));
+  await sr('[data-sc="معلّق"]').click();
+  await expect(sr('#afc .afc-chip')).toHaveCount(2);
+  await expect(sr('#afcn')).toContainText('أوردر');
+  await sr('[data-afc="legacy:vendor"]').click();
+  await expect(sr('#afc .afc-chip')).toHaveCount(1);
+  await expect(sr('#afc .afc-chip .afc-t')).toHaveText('الحالة: معلّق');
+  await expect(sr('#cn')).toHaveText(String(await page.evaluate(() => window.OrdersApp.query({ st: 'معلّق' }, 10).total)));
+  await sr('#clr').click();
+  await expect(sr('#afcr')).toBeHidden();
+});

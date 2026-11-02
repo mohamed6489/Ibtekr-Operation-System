@@ -277,6 +277,25 @@
       validate: (f) => K.req(f, ['vendor'], { vendor: 'اختار المبتكر' }),
       submit: (f, m) => { write(() => PR().moveVendor(l.map((p) => p.id), f.vendor), 'اتنقلوا لـ ' + ((vendors.find((v) => String(v.id) === f.vendor) || {}).name || 'المبتكر'), m, l.length); return false; } });
   }
+  // the owner (2 Nov): the maker on the product page itself — a select of the makers with a store; a change moves the product
+  // (and its Arabic translation) on the site at once through products_vendor (products.bulk), after a confirmation; it is not
+  // part of «احفظ على الموقع» (another permission, another write), so unsaved edits are saved first
+  function makerField(id, p, rec, C) {
+    const V = window.IBVendors; const makers = (V && V.store && V.store.all ? V.store.all() : []).filter((v) => v.wooVendorId).sort((a, b) => a.name.localeCompare(b.name));
+    const byStore = p.store && p.store.id != null ? makers.find((v) => Number(v.wooVendorId) === Number(p.store.id)) : null;
+    const cur = rec && rec.vendorId && makers.some((v) => String(v.id) === String(rec.vendorId)) ? String(rec.vendorId) : byStore ? String(byStore.id) : '';
+    const curName = (rec && rec.vendor) || (p.store && p.store.shop_name) || '';
+    const opts = (cur ? [] : [{ value: '', label: curName || '—' }]).concat(makers.map((v) => ({ value: String(v.id), label: v.name })));
+    const move = (v) => {
+      const to = makers.find((m) => String(m.id) === v); if (!to) { R(); return; }
+      if (dirtyCount()) { K.toast('احفظ تعديلاتك الأول وبعدين غيّر المبتكر', 'error'); R(); return; }
+      K.confirm({ title: 'نقل المنتج لـ «' + to.name + '»؟', text: 'المنتج وترجمته العربي هيتنقلوا لمتجر المبتكر ده على Dokan دلوقتي. البراند الظاهر على المنتج والسعر والـ SKU مش بيتغيروا.', okLabel: 'انقل المنتج',
+        onOk: async () => { const ok = await write(() => PR().moveVendor([id], v), 'اتنقل لـ ' + to.name, null, 1); if (ok) { st.live = null; st.liveFor = null; fetchLive(id); } R(); } });
+      R(); // the select shows the current maker until the move is confirmed and done
+    };
+    return U.Select({ id: 'e-maker', label: 'المبتكر (متجر Dokan)', options: opts, value: cur, disabled: !C.bulk || st.saving || !makers.length,
+      help: C.bulk ? 'تغييره بينقل المنتج على الموقع فورًا' : 'نقل المنتج لمبتكر تاني محتاج صلاحية التعديل الجماعي', onChange: (v) => { if (v && v !== cur) move(v); } });
+  }
   // the owner (1 Nov): the categories picked on the site's tree (the studio's picker — a search box, the branches with +/−, a
   // child ticks its parents), several at once; add / replace / remove
   function changeCat(l) {
@@ -437,8 +456,9 @@
     let body;
     if (st.etab === 'data') body = h('div', { class: 'side-layout' }, Card('البيانات الأساسية', null, [K.two(inp('en', 'الاسم (EN)', 'name', { required: true }), st.live.ar ? inp('ar', 'الاسم (AR)', 'arName') : U.InlineNote({ children: 'المنتج ده ملوش ترجمة عربي على الموقع.' })),
       K.two(inp('sku', 'SKU', 'sku', { help: 'تغيير الـ SKU بيغيّر الباركود واللينكات القديمة.' }), inp('w', 'الوزن (كجم)', 'weight', { inputmode: 'decimal' })),
-      K.two(U.Select({ id: 'e-brand', label: 'البراند', options: [{ value: '', label: '—' }].concat(PR().brands().map((b) => ({ value: String(b.id), label: b.name }))), value: d.brands[0] != null ? String(d.brands[0]) : '', disabled: dis, help: 'المبتكر (متجر Dokan): ' + ((rec && rec.vendor) || (p.store && p.store.shop_name) || '—'), onChange: (v) => { d.brands = v ? [Number(v)] : []; R(); } }),
-        U.TextInput({ id: 'e-type', label: 'النوع', value: p.type === 'variable' ? 'Variable' : p.type === 'simple' ? 'Simple' : p.type, disabled: true, onInput: () => {}, help: 'النوع بيتغير من الاستوديو بس' }))], null, 'grow'),
+      K.two(U.Select({ id: 'e-brand', label: 'البراند', options: [{ value: '', label: '—' }].concat(PR().brands().map((b) => ({ value: String(b.id), label: b.name }))), value: d.brands[0] != null ? String(d.brands[0]) : '', disabled: dis, help: 'براند WooCommerce الظاهر على المنتج', onChange: (v) => { d.brands = v ? [Number(v)] : []; R(); } }),
+        makerField(id, p, rec, C)),
+      K.two(U.TextInput({ id: 'e-type', label: 'النوع', value: p.type === 'variable' ? 'Variable' : p.type === 'simple' ? 'Simple' : p.type, disabled: true, onInput: () => {}, help: 'النوع بيتغير من الاستوديو بس' }), h('div'))], null, 'grow'),
       h('div', { class: 'stack side-card' }, Card('الحالة والظهور', null, [U.Select({ id: 'e-status', label: 'الحالة', options: [{ value: 'publish', label: 'منشور' }, { value: 'draft', label: 'مسودة' }, { value: 'pending', label: 'قيد المراجعة' }].concat(['publish', 'draft', 'pending'].includes(p.status) ? [] : [{ value: p.status, label: status }]), value: d.status, disabled: dis, onChange: (v) => { d.status = v; R(); } }),
         K.Switch({ id: 'e-feat', label: 'منتج مميز', checked: d.featured, disabled: dis, onChange: (v) => { d.featured = v; R(); } }),
         arStatusNote(p, dis)]), priceCard(p, inp, dis, rec)));

@@ -1139,10 +1139,12 @@ export async function installSupabaseMock(page, opts = {}) {
           const order = [...new Set(sent.map((x) => x.item_index))].sort((a, c) => a - c);
           const prompts = mock.shotPrompts.filter((x) => x.category === category);
           const n = M.flows.length + 1;
-          const flow = { space_id: M.space.id, url: M.space.url, page_id: M.pages[category], category, panel: 'panel-' + n, list: 'list-' + n, gens: [1, 2, 3].map((s) => ({ shot: s, id: 'gen-' + n + '-' + s, out: 'out-' + n + '-' + s })), order, made_at: new Date().toISOString(), prompts: prompts.map((p) => p.prompt) };
+          // decision 15: a size generator a product with a numeric size (its output → slot 3)
+          const sizeGens = order.filter((i) => { const it = (batch.state.items || [])[i]; return it && Array.isArray(it.sizes) && it.sizes.some((s) => /\d/.test(String(s)) && !/[A-Za-z؀-ۿ]/.test(String(s).replace(/cm|سم/gi, ''))); }).map((i) => ({ shot: 4, index: i, id: 'gen-' + n + '-4-' + i, out: 'out-' + n + '-4-' + i }));
+          const flow = { space_id: M.space.id, url: M.space.url, page_id: M.pages[category], category, panel: 'panel-' + n, list: 'list-' + n, gens: [1, 2, 3].map((s) => ({ shot: s, id: 'gen-' + n + '-' + s, out: 'out-' + n + '-' + s })).concat(sizeGens), order, made_at: new Date().toISOString(), prompts: prompts.map((p) => p.prompt) };
           M.flows.push({ batch_id: bid, ...flow });
           batch.state = { ...batch.state, flow }; batch.updated_at = new Date().toISOString();
-          return json(200, { result: 'ok', batch_id: bid, url: M.space.url, space_id: M.space.id, page_id: M.pages[category], photos: order.length, category, prompts: prompts.length });
+          return json(200, { result: 'ok', batch_id: bid, url: M.space.url, space_id: M.space.id, page_id: M.pages[category], photos: order.length, sizes: sizeGens.length, category, prompts: prompts.length });
         }
         // bridge_fetch
         if (!M.linked) return json(503, { error: 'not_linked', status: null, detail: null });
@@ -1159,6 +1161,8 @@ export async function installSupabaseMock(page, opts = {}) {
           // decision 12: the flow's output lists in order — shot s of photo k → product order[k], slot s−1
           const flow = batch.state.flow; const outs = M.flowResults[bid] || {}; const known = new Set(); mock.imageImports.filter((x) => x.batch_id === bid).forEach((x) => (x.refs || []).forEach((r) => known.add(r)));
           const picks = []; [1, 2, 3].forEach((s) => (outs[s] || []).forEach((id, k) => { if (k < flow.order.length && !known.has(id)) picks.push({ id, index: flow.order[k], slot: s - 1 }); }));
+          // decision 15: flowResults[bid][4] = { [index]: [ids] } — a product's size drawings → its slot 3
+          Object.entries(outs[4] || {}).forEach(([idx, ids]) => (ids || []).forEach((id) => { if (!known.has(id) && (flow.gens || []).some((g) => g.shot === 4 && g.index === Number(idx))) picks.push({ id, index: Number(idx), slot: 3 }); }));
           if (!picks.length) return json(200, { result: 'ok', batch_id: bid, found: 0, placed: 0, unmatched: 0, imported: 0, failed: 0, status: 'ok', flow: true });
           const byIndex = new Map(); picks.forEach((p, nn) => { if (!byIndex.has(p.index)) byIndex.set(p.index, { images: [], slots: [] }); byIndex.get(p.index).images.push(nn); byIndex.get(p.index).slots.push(p.slot); });
           const row = { id: mock.imageImports.length + 1, created_at: new Date().toISOString(), created_by: u.id, source: 'magnific', folder: 'ابتكر', label: 'نتائج Magnific — ' + batch.title, product_id: null, urls: picks.map((p) => 'https://pikaso.cdnpk.net/p/' + p.id + '.png'), refs: picks.map((p) => p.id), status: 'pending', paths: null, error: null, run_id: null, done_at: null, target: 'batch', items: [...byIndex.entries()].map(([index, v]) => ({ index, images: v.images, slots: v.slots })), brand_id: null, vendor_id: null, batch_type: null, batch_id: bid };

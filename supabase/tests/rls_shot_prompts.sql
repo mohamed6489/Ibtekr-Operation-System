@@ -29,8 +29,8 @@ do $$ begin
   exception when unique_violation then null;
   end;
   begin
-    insert into public.shot_prompts (category, shot, prompt) values ('كرسي-اختبار', 4, 'x');
-    raise exception 'case a shot outside 1..3 is refused failed';
+    insert into public.shot_prompts (category, shot, prompt) values ('كرسي-اختبار', 5, 'x'); -- 0032: shot 4 (the size drawing) is allowed
+    raise exception 'case a shot outside 1..4 is refused failed';
   exception when check_violation then null;
   end;
   begin

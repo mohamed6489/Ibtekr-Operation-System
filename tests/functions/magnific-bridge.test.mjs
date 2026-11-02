@@ -116,4 +116,40 @@ test('decision 12 — flowNodes / listIdsOf / urlsById: the flow of a batch (pan
   assert.deepEqual(listIdsOf(nd, 'o2'), []);
   assert.deepEqual(urlsById({ creations: [{ identifier: 'R1', url: 'https://pikaso.cdnpk.net/a.png' }, { identifier: 'R2', url: 'http://plain' }, { identifier: 'R3' }] }), { R1: 'https://pikaso.cdnpk.net/a.png' });
   assert.deepEqual(urlsById({ identifier: 'R9', url: 'https://x/y.png' }), { R9: 'https://x/y.png' });
+  assert.deepEqual(f.sizeGens, [], 'no sizes: no size generators');
+});
+
+test('decision 15 (the owner, 2 Nov) — parseSize / sizePrompt / flowNodes sizes: width × height (× depth), Arabic digits and units read, letters skipped; the largest size drawn and the rest in a table; one generator a product with a numeric size, its photo as a creation node, its own output list; a template row for shot 4 replaces the drawing words', async () => {
+  const { parseSize, sizePrompt, flowNodes, SIZE_PROMPT, SIZE_FRAME_NOTE, SHOT_LABELS, templatePrompts } = await import('../../supabase/functions/_shared/magnific-bridge.js');
+  assert.deepEqual(['40×180', '40*180*30', '٤٠×٥٠ سم', '40 x 50 cm', '30', 'M', 'XL', '', null].map(parseSize),
+    [{ w: 40, h: 180, d: null, one: false }, { w: 40, h: 180, d: 30, one: false }, { w: 40, h: 50, d: null, one: false }, { w: 40, h: 50, d: null, one: false }, { w: null, h: 30, d: null, one: true }, null, null, null, null]);
+  const one = sizePrompt(['40×180']);
+  assert.ok(one.includes('"180 CM"') && one.includes('"40 CM"') && one.startsWith('A clean technical line-drawing') && one.endsWith(SIZE_FRAME_NOTE), one);
+  assert.ok(!one.includes('Available sizes') && !one.includes('depth'), 'one size: no table, no depth line');
+  const many = sizePrompt(['30×40', '50×60 cm', 'M', '40*50*20']);
+  assert.ok(many.includes('"60 CM"') && many.includes('"50 CM"'), 'the largest (50×60) is drawn');
+  assert.ok(many.includes('Available sizes') && many.includes('40 × 50 × 20 cm') && many.includes('30 × 40 cm') && !many.includes(' M'), 'the rest in the table, the letter size skipped');
+  assert.ok(sizePrompt(['40×50×20']).includes('depth labelled "20 CM"'), 'a third number = the depth');
+  assert.ok(sizePrompt(['30']).includes('one overall dimension of 30 cm'));
+  assert.equal(sizePrompt(['S', 'M']), null); assert.equal(sizePrompt([]), null); assert.equal(sizePrompt(undefined), null);
+  assert.equal(sizePrompt(['40×50'], 'DRAW {W} by {H}{D}'), 'DRAW 40 by 50 ' + SIZE_FRAME_NOTE, 'a template row\'s words with the numbers filled');
+  assert.equal(SHOT_LABELS[3], 'المقاسات');
+  // the flow: the three shots as before, then a creation + generator + output list for each product with a numeric size (the second has none)
+  const f = flowNodes({ title: 't', category: 'أباجورة', photos: ['UP1', 'UP2', 'UP3'], prompts: [], sizes: [['40×180'], ['M'], ['30×30', '20×20']] });
+  assert.deepEqual(f.nodes.slice(8).map((n) => [n.nodeType, n.ref, n.name]), [['creation', 'src4_0', 'صورة 1'], ['image-generator', 'gen4_0', 'أباجورة 4 — المقاسات · 1'], ['list', 'out4_0', 'مخرجات 4 — المقاسات · 1'],
+    ['creation', 'src4_2', 'صورة 3'], ['image-generator', 'gen4_2', 'أباجورة 4 — المقاسات · 3'], ['list', 'out4_2', 'مخرجات 4 — المقاسات · 3']]);
+  assert.deepEqual(f.nodes[8].data, { creationIdentifier: 'UP1' });
+  assert.deepEqual([f.nodes[9].data.mode, f.nodes[9].data.aspectRatio, f.nodes[9].data.resolution, f.nodes[9].data.numberOfGenerations], ['imagen-nano-banana-2', '3:4', '1k', 1]);
+  assert.equal(f.nodes[9].data.prompt, sizePrompt(['40×180']));
+  assert.ok(f.nodes[12].data.prompt.includes('"30 CM"') && f.nodes[12].data.prompt.includes('20 × 20 cm'));
+  assert.deepEqual(f.nodes[8].layout, { groupId: 'panel', relativeToNodeId: 'gen3', direction: 'below' });
+  assert.deepEqual(f.nodes[11].layout, { groupId: 'panel', relativeToNodeId: 'src4_0', direction: 'below' });
+  assert.deepEqual(f.connections.slice(6), [{ from: 'src4_0', fromPort: 'output', to: 'gen4_0', toPort: 'reference' }, { from: 'gen4_0', fromPort: 'output', to: 'out4_0', toPort: 'images' },
+    { from: 'src4_2', fromPort: 'output', to: 'gen4_2', toPort: 'reference' }, { from: 'gen4_2', fromPort: 'output', to: 'out4_2', toPort: 'images' }]);
+  assert.deepEqual(f.sizeGens, [{ k: 0, gen: 'gen4_0', out: 'out4_0' }, { k: 2, gen: 'gen4_2', out: 'out4_2' }]);
+  // a template row for shot 4: its words (the numbers filled), its negative and name
+  const t = flowNodes({ title: 't', category: 'أباجورة', photos: ['UP1'], prompts: [{ shot: 4, name: 'أباجورة 4 — المقاسات', prompt: 'TEMPLATE {W}x{H}{D}', negative: 'colour', aspect: '4:5', resolution: '2k' }], sizes: [['40×180×10']] });
+  assert.deepEqual([t.nodes[9].data.prompt.startsWith('TEMPLATE 40x180, and a third dimension line for the depth labelled "10 CM"'), t.nodes[9].data.negativePrompt, t.nodes[9].data.aspectRatio, t.nodes[9].data.resolution, t.nodes[9].name], [true, 'colour', '4:5', '2k', 'أباجورة 4 — المقاسات · 1']);
+  assert.equal(templatePrompts([{ id: 'a3000000-0000-4000-8000-000000000011', type: 'image-generator', name: 'كرسي 4 — المقاسات', x: 0, y: 0 }], { 'a3000000-0000-4000-8000-000000000011': { prompt: 'P4' } })[0].shot, 4, 'the template library takes a fourth shot');
+  assert.equal(SIZE_PROMPT.includes('{W} CM') && SIZE_PROMPT.includes('{H} CM') && SIZE_PROMPT.includes('{D}'), true);
 });

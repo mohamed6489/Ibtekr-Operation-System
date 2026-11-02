@@ -724,13 +724,19 @@ Deno.test('bridge_flow (products.add): the one Space made once and kept in setti
   assertEquals([r.body.result, r.body.photos, r.body.category, r.body.prompts, r.body.page_id, r.body.url], ['ok', 2, 'كرسي', 2, 'page-1', 'https://www.magnific.com/app/spaces/' + F.spaces[0].id]);
   assertEquals(F.spaces.map((s) => [s.name, s.projectReference]), [['استوديو ابتكر', PROJECT]]);
   assertEquals(F.pages.map((p) => [p.spaceId, p.name]), [[F.spaces[0].id, 'كرسي']]);
-  assertEquals(F.created.map((n) => [n.pageId, n.nodeType, n.ref]), [['page-1', 'panel', 'panel'], ['page-1', 'list', 'list'], ['page-1', 'image-generator', 'gen1'], ['page-1', 'list', 'out1'], ['page-1', 'image-generator', 'gen2'], ['page-1', 'list', 'out2'], ['page-1', 'image-generator', 'gen3'], ['page-1', 'list', 'out3']]);
+  // decision 15: each product with a numeric size (both carry 50×50) gets a size generator — its photo as a creation node, its own output list
+  assertEquals(F.created.map((n) => [n.pageId, n.nodeType, n.ref]), [['page-1', 'panel', 'panel'], ['page-1', 'list', 'list'], ['page-1', 'image-generator', 'gen1'], ['page-1', 'list', 'out1'], ['page-1', 'image-generator', 'gen2'], ['page-1', 'list', 'out2'], ['page-1', 'image-generator', 'gen3'], ['page-1', 'list', 'out3'],
+    ['page-1', 'creation', 'src4_0'], ['page-1', 'image-generator', 'gen4_0'], ['page-1', 'list', 'out4_0'], ['page-1', 'creation', 'src4_1'], ['page-1', 'image-generator', 'gen4_1'], ['page-1', 'list', 'out4_1']]);
   assertEquals(F.created[1].data, { itemType: 'image', mode: 'replace', items: [{ type: 'image', creationIdentifier: 'UP1' }, { type: 'image', creationIdentifier: 'UP2' }] }, 'the photos in product order, the product without a photo left out');
   assertEquals([F.created[2].data.prompt, F.created[2].data.negativePrompt, F.created[2].data.resolution, F.created[4].data.prompt, F.created[6].data.prompt.startsWith('A close-up detail photograph')], ['CHAIR FOCUS ' + FRAME_NOTE, 'people', '2k', 'CHAIR ENV ' + FRAME_NOTE, true]);
-  assertEquals(F.connections.length, 6);
+  assertEquals([F.created[8].data, F.created[9].data.prompt.includes('"50 CM"'), F.created[9].data.mode], [{ creationIdentifier: 'UP1' }, true, 'imagen-nano-banana-2']);
+  assertEquals(F.connections.length, 10);
   assertEquals(F.connections[0], { spaceId: F.spaces[0].id, sourceElementId: F.created[1].nodeId, sourcePort: 'output-images', targetElementId: F.created[2].nodeId, targetPort: 'reference', dataType: 'image', pageId: 'page-1' });
+  assertEquals([F.connections[6].sourceElementId, F.connections[6].sourcePort, F.connections[6].targetElementId], [F.created[8].nodeId, 'output', F.created[9].nodeId], 'the creation feeds its generator directly');
+  assertEquals(F.created[11].data, { creationIdentifier: 'UP2' });
+  assertEquals(r.body.sizes, 2);
   const flow = db.rows('studio_batches')[0].state.flow;
-  assertEquals([flow.space_id, flow.page_id, flow.category, flow.order, flow.gens.map((g: any) => [g.shot, g.id, g.out])], [F.spaces[0].id, 'page-1', 'كرسي', [0, 1], [[1, F.created[2].nodeId, F.created[3].nodeId], [2, F.created[4].nodeId, F.created[5].nodeId], [3, F.created[6].nodeId, F.created[7].nodeId]]]);
+  assertEquals([flow.space_id, flow.page_id, flow.category, flow.order, flow.gens.map((g: any) => [g.shot, g.id, g.out, g.index])], [F.spaces[0].id, 'page-1', 'كرسي', [0, 1], [[1, F.created[2].nodeId, F.created[3].nodeId, undefined], [2, F.created[4].nodeId, F.created[5].nodeId, undefined], [3, F.created[6].nodeId, F.created[7].nodeId, undefined], [4, F.created[9].nodeId, F.created[10].nodeId, 0], [4, F.created[12].nodeId, F.created[13].nodeId, 1]]]);
   const cfg = db.rows('settings').find((s: any) => s.section === 'magnific').data;
   assertEquals([cfg.space_id, cfg.pages], [F.spaces[0].id, { 'كرسي': 'page-1' }]);
   assertEquals(cfg.flows[SB].gens, flow.gens, 'the server keeps its own record of the flow (the fetch trusts this one, not the batch state)');
@@ -740,15 +746,16 @@ Deno.test('bridge_flow (products.add): the one Space made once and kept in setti
   await db.from('image_shares').insert({ created_by: U.add, batch_id: second, item_index: 0, name: 'M.webp', path: second + '/row1-main.webp', url: 'https://s/3', expires_at: NOW, status: 'sent', creation_ref: 'UP3', sent_at: NOW });
   const r2 = await call(deps, { action: 'bridge_flow', batch_id: second, category: 'مرآة' });
   assertEquals([r2.body.page_id, r2.body.prompts, F.spaces.length, F.pages.length], ['page-2', 0, 1, 2]);
-  assert(F.created.at(-6)!.data.prompt.startsWith('A professional product photograph'), 'no rows for the category: the generic words');
+  assert(F.created.at(-9)!.data.prompt.startsWith('A professional product photograph'), 'no rows for the category: the generic words (8 nodes + the one product\'s 3 size nodes)');
   const r3 = await call(deps, { action: 'bridge_flow', batch_id: SB, category: 'كرسي' });
   assertEquals([r3.body.page_id, F.pages.length], ['page-1', 2]);
 });
 
 Deno.test('bridge_fetch on a batch with a flow: the output lists read in order → shot s of photo k lands in slot s−1 of product order[k]; a second call finds nothing new; a link off the allowed hosts fails without stopping the rest', async () => {
   const F = flowBridge();
-  const gens = [{ shot: 1, id: NID(201), out: NID(301) }, { shot: 2, id: NID(202), out: NID(302) }, { shot: 3, id: NID(203), out: NID(303) }];
-  F.outputs[NID(301)] = ['R11', 'R12']; F.outputs[NID(302)] = ['R21', 'OFF']; F.outputs[NID(303)] = ['R31']; // shot 3 of the second photo not made yet
+  // decision 15: a size generator of the second product (index 1) — its results go to that product's slot 3, whatever their place
+  const gens = [{ shot: 1, id: NID(201), out: NID(301) }, { shot: 2, id: NID(202), out: NID(302) }, { shot: 3, id: NID(203), out: NID(303) }, { shot: 4, index: 1, id: NID(204), out: NID(304) }];
+  F.outputs[NID(301)] = ['R11', 'R12']; F.outputs[NID(302)] = ['R21', 'OFF']; F.outputs[NID(303)] = ['R31']; F.outputs[NID(304)] = ['S41']; // shot 3 of the second photo not made yet
   const items = [item({ slots: [] }), item({ nameEn: 'Clay Mug', main: SB + '/row2-main.webp', refs: [], slots: [SB + '/own.png'] })];
   const flow = { space_id: 'a3000000-0000-4000-8000-000000000001', url: 'https://www.magnific.com/app/spaces/x', page_id: 'page-1', category: 'كرسي', panel: NID(100), list: NID(101), gens, order: [0, 1], made_at: NOW };
   const seed = { ...SEED, studio_batches: [batch({ created_by: U.add, state: { items, imgCount: 4, flow } })], settings: [{ section: 'magnific', data: { space_id: flow.space_id, pages: { 'كرسي': 'page-1' }, flows: { [SB]: flow } } }] };
@@ -758,15 +765,16 @@ Deno.test('bridge_fetch on a batch with a flow: the output lists read in order �
   assertEquals([rf.body.flow, rf.body.found], [undefined, 0], 'the forged flow is ignored');
   const { deps, db } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed });
   const r = await call(deps, { action: 'bridge_fetch', batch_id: SB });
-  assertEquals([r.res.status, r.body.result, r.body.flow, r.body.found, r.body.offhost, r.body.placed, r.body.imported, r.body.failed, r.body.status], [200, 'ok', true, 4, 1, 4, 4, 0, 'ok'], 'OFF is dropped before the row (never fetched), counted as offhost');
+  assertEquals([r.res.status, r.body.result, r.body.flow, r.body.found, r.body.offhost, r.body.placed, r.body.imported, r.body.failed, r.body.status], [200, 'ok', true, 5, 1, 5, 5, 0, 'ok'], 'OFF is dropped before the row (never fetched), counted as offhost');
   assertEquals(F.bridge.calls.filter((c) => c.op === 'tool').map((c) => c.name), ['spaces_get_nodes', 'creations_get']);
-  assertEquals(F.bridge.calls[0].args, { spaceId: flow.space_id, nodeIds: [NID(301), NID(302), NID(303)] });
+  assertEquals(F.bridge.calls[0].args, { spaceId: flow.space_id, nodeIds: [NID(301), NID(302), NID(303), NID(304)] });
   const imp = db.rows('image_imports')[0];
-  assertEquals([imp.refs, imp.items], [['R11', 'R12', 'R21', 'R31'], [{ index: 0, images: [0, 2, 3], slots: [0, 1, 2] }, { index: 1, images: [1], slots: [0] }]]);
+  assertEquals([imp.refs, imp.items], [['R11', 'R12', 'R21', 'R31', 'S41'], [{ index: 0, images: [0, 2, 3], slots: [0, 1, 2] }, { index: 1, images: [1, 4], slots: [0, 3] }]]);
   const st = db.rows('studio_batches')[0].state.items;
   assert(/imp-.*-1\.png$/.test(st[0].slots[0]) && /imp-.*-3\.png$/.test(st[0].slots[1]) && /imp-.*-4\.png$/.test(st[0].slots[2]), 'the pouf: shot 1 → slot 0, shot 2 → slot 1, shot 3 → slot 2');
   assertEquals(st[1].slots[0], SB + '/own.png', 'a filled slot is never overwritten');
   assert(/imp-.*-2\.png$/.test(st[1].slots[1]), 'the mug\'s shot 1 takes the next empty slot');
+  assert(/imp-.*-5\.png$/.test(st[1].slots[3]), 'the mug\'s size drawing (decision 15) → slot 3');
   // again: nothing new; then the site finishes the missing shot → one more
   const r2 = await call(deps, { action: 'bridge_fetch', batch_id: SB });
   assertEquals([r2.body.found, r2.body.placed, db.rows('image_imports').length], [0, 0, 1]);

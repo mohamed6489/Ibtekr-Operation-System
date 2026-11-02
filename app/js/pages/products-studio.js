@@ -540,7 +540,7 @@
       U.Select({ id: 'flow-cat', label: null, placeholder: 'فئة المنتجات', options: opts, value: S.state.category || '', onChange: (v) => { if (v === '__new__') { newFlowCategory(); return; } S.state.category = v; touch(); R(); } }),
       Button({ size: 'sm', icon: 'sparkle', label: S.flowing === 'prompts' ? 'بنكتب البرومبتات بالـ AI…' : S.flowing ? 'بنجهّز…' : flow ? 'جهّز فلو جديد' : 'جهّز فلو على Magnific', disabled: !!S.flowing, attrs: { 'data-flow': '' }, onClick: makeFlow }),
       flow && flow.url ? h('a', { class: 'btn btn-sm', href: flow.url, target: '_blank', rel: 'noopener', 'data-flow-open': '' }, 'افتح الـ Space ↗') : null,
-      flow ? h('span', { class: 't-small help', 'data-flow-state': '' }, 'فلو «' + (flow.category || '') + '» · ' + (Array.isArray(flow.order) ? flow.order.length : 0) + ' صورة') : null);
+      flow ? h('span', { class: 't-small help', 'data-flow-state': '' }, 'فلو «' + (flow.category || '') + '» · ' + (Array.isArray(flow.order) ? flow.order.length : 0) + ' صورة · 3 لقطات + صورة المقاس لكل منتج له مقاس') : null);
   }
   function shareBar() {
     const I = IM(); if (!I || !S.id || !canImgAI()) return null;

@@ -590,7 +590,7 @@ test('decision 13 — a category not in the library: «+ فئة جديدة…» 
   expect(mock.shotPrompts.filter((x) => x.category === 'مزهرية').map((x) => [x.shot, x.model, x.aspect, x.name])).toEqual([[1, 'imagen-nano-banana-2', '3:4', 'مزهرية 1 — تركيز على المنتج (AI)'], [2, 'imagen-nano-banana-2', '3:4', 'مزهرية 2 — المنتج في بيئة محيطة (AI)'], [3, 'imagen-nano-banana-2', '3:4', 'مزهرية 3 — Closeup للتفاصيل (AI)']]);
   expect(mock.magnific.flows.map((f) => [f.batch_id, f.category, f.prompts.length])).toEqual([[SB, 'مزهرية', 3]]);
   expect(mock.aiRuns.map((r) => [r.action, r.source, r.label])).toEqual([['studio', 'studio', 'مزهرية']]);
-  await expect(page.locator('[data-flow-state]')).toHaveText('فلو «مزهرية» · 1 صورة');
+  await expect(page.locator('[data-flow-state]')).toHaveText('فلو «مزهرية» · 1 صورة · 3 لقطات + صورة المقاس لكل منتج له مقاس');
   await page.locator('#flow-cat').click();
   await expect(page.getByRole('option', { name: 'مزهرية', exact: true })).toBeVisible(); // in the library now
   await page.keyboard.press('Escape');
@@ -628,7 +628,7 @@ test('decision 12 — the flow on the one Space: the category chosen, «جهّز
   await page.getByRole('radio', { name: /^صور بس/ }).click();
   await next(page, 'التالي: الاستلام');
   await pick(page, /اختار صور المنتجات/, [
-    { name: 'Oak Chair - كرسي بلوط - Beige - 1200.png', mimeType: 'image/png', buffer: PNG },
+    { name: 'Oak Chair - كرسي بلوط - Beige - 1200 - 40×90.png', mimeType: 'image/png', buffer: PNG }, // decision 15: a size → a size generator of its own
     { name: 'Rattan Chair - كرسي راتان - Black - 900.png', mimeType: 'image/png', buffer: PNG }]);
   await expect(page.locator('#pg-products .st-table tbody tr')).toHaveCount(2);
   await expect(page.locator('[data-flow-bar]')).toHaveCount(0); // nothing sent yet: no flow
@@ -641,21 +641,22 @@ test('decision 12 — the flow on the one Space: the category chosen, «جهّز
   await page.locator('[data-flow]').click();
   await expect(page.locator('.toast.show')).toContainText('اتعمل فلو «كرسي» بـ 2 صورة وبرومبتات الفئة');
   await expect(page.locator('[data-flow-open]')).toHaveAttribute('href', 'https://www.magnific.com/app/spaces/a3000000-0000-4000-8000-000000000001');
-  await expect(page.locator('[data-flow-state]')).toHaveText('فلو «كرسي» · 2 صورة');
+  await expect(page.locator('[data-flow-state]')).toHaveText('فلو «كرسي» · 2 صورة · 3 لقطات + صورة المقاس لكل منتج له مقاس');
   expect(mock.magnific.flows.map((f) => [f.batch_id, f.category, f.page_id, f.order, f.prompts])).toEqual([[SB, 'كرسي', 'page-1', [0, 1], ['CHAIR FOCUS PROMPT', 'CHAIR ENV PROMPT', 'CHAIR DETAIL PROMPT']]]);
   expect(mock.studioBatches[0].state.category).toBe('كرسي');
-  // the owner runs the flow on the site: three output lists, one image a photo each (the second photo's detail still running)
-  mock.magnific.flowResults[SB] = { 1: ['F11', 'F12'], 2: ['F21', 'F22'], 3: ['F31'] };
+  expect(mock.magnific.flows[0].gens.filter((g) => g.shot === 4).map((g) => g.index)).toEqual([0]); // decision 15: the oak chair (40×90) has a size generator; the rattan chair has no size
+  // the owner runs the flow on the site: three output lists, one image a photo each (the second photo's detail still running), and the oak chair's size drawing
+  mock.magnific.flowResults[SB] = { 1: ['F11', 'F12'], 2: ['F21', 'F22'], 3: ['F31'], 4: { 0: ['F41'] } };
   await page.locator('[data-fetch]').click();
-  await expect(page.locator('.toast.show')).toContainText('نزلت 5 صورة من Magnific في خانات المنتجات');
+  await expect(page.locator('.toast.show')).toContainText('نزلت 6 صورة من Magnific في خانات المنتجات');
   const slots = mock.studioBatches[0].state.items.map((it) => it.slots.map((p) => (p ? p.replace(/^.*-imp-[a-z0-9]+-/, '') : null)));
-  expect(slots).toEqual([['1.webp', '3.webp', '5.webp'], ['2.webp', '4.webp']]); // chair 1: F11 → slot 0, F21 → slot 1, F31 → slot 2; chair 2: F12, F22 — each 700×800 WebP (decision 14)
-  expect(mock.webpCalls.filter((c) => c.bucket === 'studio').length).toBe(5);
-  expect(mock.imageImports[0].items).toEqual([{ index: 0, images: [0, 2, 4], slots: [0, 1, 2] }, { index: 1, images: [1, 3], slots: [0, 1] }]);
+  expect(slots).toEqual([['1.webp', '3.webp', '5.webp', '6.webp'], ['2.webp', '4.webp']]); // chair 1: F11 → slot 0, F21 → slot 1, F31 → slot 2, F41 (the size drawing) → slot 3; chair 2: F12, F22 — each 700×800 WebP (decision 14)
+  expect(mock.webpCalls.filter((c) => c.bucket === 'studio').length).toBe(6);
+  expect(mock.imageImports[0].items).toEqual([{ index: 0, images: [0, 2, 4, 5], slots: [0, 1, 2, 3] }, { index: 1, images: [1, 3], slots: [0, 1] }]);
   // the late image lands in its slot
   mock.magnific.flowResults[SB][3].push('F32');
   await page.locator('[data-fetch]').click();
   await expect(page.locator('.toast.show')).toContainText('نزلت 1 صورة');
   expect(mock.studioBatches[0].state.items[1].slots.length).toBe(3);
-  expect(mock.activityRows.filter((x) => x.action === 'product.ai.image').map((x) => x.new_value)).toEqual(['bridge upload · 2 photos', 'bridge flow · كرسي · 2 photos · 3 prompts', 'bridge fetch · 5 found · 5 placed', 'bridge fetch · 1 found · 1 placed']);
+  expect(mock.activityRows.filter((x) => x.action === 'product.ai.image').map((x) => x.new_value)).toEqual(['bridge upload · 2 photos', 'bridge flow · كرسي · 2 photos · 3 prompts', 'bridge fetch · 6 found · 6 placed', 'bridge fetch · 1 found · 1 placed']);
 });

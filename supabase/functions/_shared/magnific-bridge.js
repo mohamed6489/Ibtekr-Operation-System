@@ -67,7 +67,41 @@ export function matchResults(sources, results, lineages = {}) {
 }
 // ---------------------------------------------------------------- decision 12: the category flows of one Space
 
-export const SHOT_LABELS = ['تركيز على المنتج', 'المنتج في بيئة محيطة', 'Closeup للتفاصيل']; // the owner's three shots, in order
+export const SHOT_LABELS = ['تركيز على المنتج', 'المنتج في بيئة محيطة', 'Closeup للتفاصيل', 'المقاسات']; // the owner's three shots, in order, and the size drawing (decision 15)
+// ---------------------------------------------------------------- decision 15 (the owner, 2 Nov): the size drawing as the fourth shot
+// A size as the studio keeps it («40×180», «40*180*30», «٤٠×٥٠ سم», «40 x 50 cm») → { w, h, d } in the owner's reading: width × height,
+// a third number = depth; one number alone = one overall dimension; letters (S / M / L) → null.
+const toAscii = (s) => String(s == null ? '' : s).replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 1632)).replace(/[۰-۹]/g, (c) => String(c.charCodeAt(0) - 1776));
+export function parseSize(size) {
+  const s = toAscii(size).replace(/\b(cm|mm|m|in|inch|inches)\b\.?/gi, ' ').replace(/سم|مم|متر|بوصة/g, ' ').replace(/(\d)\s*[xX]\s*(?=\d)/g, '$1×');
+  if (/[A-Za-z؀-ۿ]/.test(s)) return null;
+  const nums = (s.match(/\d+(?:\.\d+)?/g) || []).map(Number).filter((n) => n > 0 && n < 100000).slice(0, 3);
+  if (!nums.length) return null;
+  if (nums.length === 1) return { w: null, h: nums[0], d: null, one: true };
+  return { w: nums[0], h: nums[1], d: nums[2] ?? null, one: false };
+}
+const num = (n) => String(Math.round(n * 100) / 100);
+const sizeText = (p) => (p.one ? num(p.h) + ' cm' : num(p.w) + ' × ' + num(p.h) + (p.d ? ' × ' + num(p.d) : '') + ' cm');
+/**
+ * The size shot's words for one product (the reference the owner gave, 2 Nov: a black-ink technical line drawing of the product on a
+ * warm cream background, a vertical dimension line on the right with the height, a horizontal one below with the width): the largest
+ * size is drawn, the rest listed in a small table under the drawing (a Variable with several sizes). Sizes that are not numbers are
+ * skipped; none → null (no size shot for that product). `base` replaces the standard drawing words (a template row for shot 4).
+ */
+export const SIZE_PROMPT = 'A clean technical line-drawing illustration of the exact product from the reference image, kept completely identical in design, shape and proportions: thin black ink outlines with light hatching, no colours, no photo, on a plain warm cream background. Engineering dimension lines in thin black: a vertical dimension line on the right side spanning the full height of the product with the label "{H} CM", a horizontal dimension line below spanning the full width with the label "{W} CM"{D}. Labels in a classic serif font, clearly legible. Nothing else: no people, no other text, no logos, no shadows.';
+export const SIZE_FRAME_NOTE = 'Framing for a later center crop to 7:8: the drawing, its dimension lines, labels and the table all sit in the middle of the frame with clear empty margins above and below (at least 15% of the height each), nothing near the top or bottom edges.';
+export function sizePrompt(sizes, base = SIZE_PROMPT) {
+  const parsed = (Array.isArray(sizes) ? sizes : []).map((s) => ({ s, p: parseSize(s) })).filter((x) => x.p);
+  if (!parsed.length) return null;
+  const area = (p) => (p.one ? p.h * p.h : p.w * p.h);
+  parsed.sort((a, b) => area(b.p) - area(a.p));
+  const main = parsed[0].p; const rest = parsed.slice(1).map((x) => sizeText(x.p));
+  const dims = main.one ? { W: num(main.h), H: num(main.h), D: '' } : { W: num(main.w), H: num(main.h), D: main.d ? ', and a third dimension line for the depth labelled "' + num(main.d) + ' CM"' : '' };
+  let out = String(base).replace(/\{W\}/g, dims.W).replace(/\{H\}/g, dims.H).replace(/\{D\}/g, dims.D);
+  if (main.one) out += ' The product has one overall dimension of ' + num(main.h) + ' cm: draw a single dimension line for it.';
+  if (rest.length) out += ' Under the drawing, a small neat table titled "Available sizes" listing the other sizes, one per row: ' + rest.join('; ') + '.';
+  return out + ' ' + SIZE_FRAME_NOTE;
+}
 export const FLOW_MODEL = 'imagen-nano-banana-2'; // Google Nano Banana Pro — the one model of every flow generator (the owner, 1 Nov)
 // decision 14 (the owner, 1 Nov): every result is center-cropped to 7:8 (700×800) afterwards — every generator is told to keep the
 // product in the middle with room above and below (the same words as _shared/ai-images.js FRAME_NOTE and the page's slotPrompt)
@@ -115,7 +149,7 @@ export function templatePrompts(nodes, nodeData) {
     const unnumbered = list.filter((p) => !p.shot).sort((a, b) => a.node.y - b.node.y || a.node.x - b.node.x);
     unnumbered.forEach((p, i) => { p.shot = i + 1; });
     for (const p of list) {
-      if (!(p.shot >= 1 && p.shot <= 3)) continue;
+      if (!(p.shot >= 1 && p.shot <= 4)) continue; // shot 4 = the size drawing's words (decision 15; {W} {H} {D} filled a product)
       const d = nodeData[p.node.id] || {};
       const prompt = text(d.prompt, 6000);
       if (!prompt) continue;
@@ -131,7 +165,7 @@ export function templatePrompts(nodes, nodeData) {
  * order), one image generator a shot with the category's prompt (the generic words when the category has none) and one output
  * list a shot; `refs` name them for the connections (list → generator.reference, generator → out.images).
  */
-export function flowNodes({ title, category, photos, prompts, model = FLOW_MODEL }) {
+export function flowNodes({ title, category, photos, prompts, sizes, model = FLOW_MODEL }) {
   // the owner (1 Nov, decision 13): every generator runs Nano Banana Pro — a template row's own model is not carried over
   const byShot = new Map((prompts || []).map((p) => [Number(p.shot), p]));
   const items = photos.map((id) => ({ type: 'image', creationIdentifier: id }));
@@ -154,7 +188,22 @@ export function flowNodes({ title, category, photos, prompts, model = FLOW_MODEL
     nodes.push({ nodeType: 'list', ref: 'out' + shot, name: 'مخرجات ' + shot + ' — ' + (p ? p.name : SHOT_LABELS[shot - 1]), data: { itemType: 'image', mode: 'accumulate' }, layout: { groupId: 'panel', relativeToNodeId: 'gen' + shot, direction: 'right' } });
     connections.push({ from: 'list', fromPort: 'output-images', to: 'gen' + shot, toPort: 'reference' }, { from: 'gen' + shot, fromPort: 'output', to: 'out' + shot, toPort: 'images' });
   }
-  return { nodes, connections };
+  // decision 15 (the owner, 2 Nov): the size drawing is the fourth shot — its words carry the product's own numbers, so it is one
+  // generator a product (its photo as a creation node → the generator → its own output list), only for products with a numeric size
+  const p4 = byShot.get(4); let prev = 'gen3'; const sizeGens = [];
+  (Array.isArray(sizes) ? sizes : []).forEach((list, k) => {
+    const prompt = k < photos.length ? sizePrompt(list, p4 && p4.prompt ? p4.prompt : SIZE_PROMPT) : null;
+    if (!prompt) return;
+    const data = { prompt, mode: model, aspectRatio: (p4 && p4.aspect) || '3:4', resolution: (p4 && p4.resolution) || '1k', numberOfGenerations: 1 };
+    if (p4 && p4.negative) data.negativePrompt = p4.negative;
+    const name = ((p4 && p4.name) || (category + ' 4 — ' + SHOT_LABELS[3])) + ' · ' + (k + 1);
+    nodes.push({ nodeType: 'creation', ref: 'src4_' + k, name: 'صورة ' + (k + 1), data: { creationIdentifier: photos[k] }, layout: { groupId: 'panel', relativeToNodeId: prev, direction: 'below' } });
+    nodes.push({ nodeType: 'image-generator', ref: 'gen4_' + k, name, data, layout: { groupId: 'panel', relativeToNodeId: 'src4_' + k, direction: 'right' } });
+    nodes.push({ nodeType: 'list', ref: 'out4_' + k, name: 'مخرجات 4 — ' + SHOT_LABELS[3] + ' · ' + (k + 1), data: { itemType: 'image', mode: 'accumulate' }, layout: { groupId: 'panel', relativeToNodeId: 'gen4_' + k, direction: 'right' } });
+    connections.push({ from: 'src4_' + k, fromPort: 'output', to: 'gen4_' + k, toPort: 'reference' }, { from: 'gen4_' + k, fromPort: 'output', to: 'out4_' + k, toPort: 'images' });
+    sizeGens.push({ k, gen: 'gen4_' + k, out: 'out4_' + k }); prev = 'src4_' + k;
+  });
+  return { nodes, connections, sizeGens };
 }
 /** An output list's items (spaces_get_nodes nodeData) → the creation identifiers in order. */
 export function listIdsOf(nodeData, nodeId) {

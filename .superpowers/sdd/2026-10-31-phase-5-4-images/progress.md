@@ -129,3 +129,9 @@
   الـ check بـ `image`، الـ bucket وسياستيه، والعضو مايقدرش ينفّذ الحجز). `rls_ai_images rls_ai` حي **ok** (RLS live run 41225159897).
   `MAGNIFIC_API_KEY` اتحط (صاحب المشروع). **فاضل:** T2 — «اختبار الاتصال بـ Magnific» من «إعدادات الصور» (الأدمن) بيرجّع شكل رد
   الحساب أو الغلط برقم HTTP؛ على النتيجة بتتظبط `providers/magnific.ts` (الدومينات لسه محجوبة في الـ sandbox) — ثم القبول.
+- [x] قرار 15 (2 نوفمبر): صورة المقاس = اللقطة الرابعة في الفلو. `_shared/magnific-bridge.js`: `parseSize` (عرض × ارتفاع × عمق، أرقام عربي
+  ووحدات، حروف = لأ)، `sizePrompt` (أكبر مقاس يترسم + جدول «Available sizes» للباقي، `SIZE_PROMPT` + `SIZE_FRAME_NOTE`)، `flowNodes({ sizes })`
+  بيضيف لكل منتج له مقاس `creation` → `image-generator` → `list` ويرجّع `sizeGens`؛ `templatePrompts` بيقبل shot 4؛ `SHOT_LABELS[3]` «المقاسات».
+  `ai-images`: `bridge_flow` بيبعت `sizes` ويسجّل `gens` بـ `{ shot: 4, index }` (+ `sizes` في الرد)، `fetchFromFlow` بيحط مخرجات مولّد
+  المقاس في الخانة 3 لمنتجه. `0032_shot_prompts_size` (shot 1..4). الاستوديو: نص شريط الفلو. الاختبارات: node (bridge)، Deno (flow/fetch)،
+  mock (`flowResults[bid][4] = { index: [ids] }`)، e2e. **فاضل:** التطبيق الحي (`0032` بالـ MCP، `ai-images` v19) والقبول على دفعة حقيقية.

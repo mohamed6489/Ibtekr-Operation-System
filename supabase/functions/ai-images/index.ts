@@ -781,7 +781,9 @@ async function bridgeFlow(deps: Deps, who: Who, args: Json) {
       await saveMagnificSettings(deps, { pages });
     }
     const title = line(String(batch.title ?? ''), 80) + ' · ' + deps.now().slice(0, 10);
-    const plan = flowNodes({ title, category, photos: order.map((i) => byIndex.get(i) as string), prompts: Array.isArray(promptRows) ? promptRows : [] });
+    // decision 15: the size drawing a product (its own numbers) — the item's sizes as the studio keeps them (strings)
+    const sizes = order.map((i) => (Array.isArray(items[i]?.sizes) ? items[i].sizes.filter((s: unknown) => typeof s === 'string') : []));
+    const plan = flowNodes({ title, category, photos: order.map((i) => byIndex.get(i) as string), prompts: Array.isArray(promptRows) ? promptRows : [], sizes });
     const created = await bridge.callTool(token, 'spaces_create_node', { spaceId, pageId, nodes: plan.nodes }) as Json;
     const results: Json[] = Array.isArray(created?.results) ? created.results : [];
     const idOf: Record<string, string> = {};
@@ -789,12 +791,15 @@ async function bridgeFlow(deps: Deps, who: Who, args: Json) {
     const missing = plan.nodes.map((n) => n.ref).filter((ref) => !idOf[ref]);
     if (missing.length) throw new BridgeError('mcp_error', null, 'nodes not created: ' + missing.join(','));
     await bridge.callTool(token, 'spaces_add_connection', { spaceId, connections: plan.connections.map((c) => ({ sourceElementId: idOf[c.from], sourcePort: c.fromPort, targetElementId: idOf[c.to], targetPort: c.toPort, dataType: 'image', pageId })) });
-    const flow = { space_id: spaceId, url: spaceUrl, page_id: pageId, category, panel: idOf.panel, list: idOf.list, gens: [1, 2, 3].map((s) => ({ shot: s, id: idOf['gen' + s], out: idOf['out' + s] })), order, made_at: deps.now() };
+    // the three shots read the list (shot s, item k → product order[k]); a size generator carries its product (index) — its output goes to slot 3
+    const gens: Json[] = [1, 2, 3].map((s) => ({ shot: s, id: idOf['gen' + s], out: idOf['out' + s] }));
+    for (const g of plan.sizeGens) gens.push({ shot: 4, index: order[g.k], id: idOf[g.gen], out: idOf[g.out] });
+    const flow = { space_id: spaceId, url: spaceUrl, page_id: pageId, category, panel: idOf.panel, list: idOf.list, gens, order, made_at: deps.now() };
     // the record the fetch trusts lives with the server (settings «magnific».flows — members cannot write it); the batch keeps a copy for the page
     const latest = await magnificSettings(deps);
     await saveMagnificSettings(deps, { flows: { ...(isObj(latest.flows) ? latest.flows : {}), [batchId]: flow } });
     await deps.db.from('studio_batches').update({ state: { ...state, flow } }).eq('id', batchId);
-    return json(200, { result: 'ok', batch_id: batchId, url: spaceUrl, space_id: spaceId, page_id: pageId, photos: order.length, category, prompts: Array.isArray(promptRows) ? promptRows.length : 0 });
+    return json(200, { result: 'ok', batch_id: batchId, url: spaceUrl, space_id: spaceId, page_id: pageId, photos: order.length, sizes: plan.sizeGens.length, category, prompts: Array.isArray(promptRows) ? promptRows.length : 0 });
   } catch (e) { return bridgeFail(e); }
 }
 // the flow's output lists read in order (shot s, item k → product order[k], slot s−1) → one image_imports row → importBatch
@@ -808,6 +813,8 @@ async function fetchFromFlow(deps: Deps, who: Who, batch: Json, flow: Json, know
   const picks: { id: string; index: number; slot: number }[] = [];
   for (const g of gens) {
     const ids = listIdsOf(nodeData, String(g.out)); const shot = Number(g.shot);
+    // a size generator (decision 15) is one product's: every new result of it → that product, slot 3
+    if (Number.isInteger(g.index)) { ids.forEach((id) => { if (!known.has(id)) picks.push({ id, index: Number(g.index), slot: 3 }); }); continue; }
     ids.forEach((id, k) => { if (k < order.length && !known.has(id)) picks.push({ id, index: order[k], slot: shot - 1 }); });
   }
   const fresh = picks.filter((p, i, a) => a.findIndex((x) => x.id === p.id) === i).slice(0, 50);

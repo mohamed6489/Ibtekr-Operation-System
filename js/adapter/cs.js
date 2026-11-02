@@ -1,7 +1,7 @@
 // Customer service (phase 6, 0034): the CRM (cs_customers through the rpc cs_customers_list — the base table never hands a
 // member the phone), the conversations and their messages (cs_conversations / cs_messages, the open ones and the last 90 days),
-// the segments, the campaigns (drafts / schedules in 6.1), the channels (all «disconnected» until 6.2 / 6.4) and the settings row
-// «cs». Everything is handed to block 20 in the v2 prototype's shapes, on IBCS.data (one object, same arrays — the page holds it):
+// the segments, the campaigns (drafts / schedules in 6.1), the channels (Messenger / Instagram through the Edge Function cs-channel
+// from 6.2 — the link by the admin, the sending of an `out` row, the comment actions; WhatsApp in 6.4) and the settings row «cs». Everything is handed to block 20 in the v2 prototype's shapes, on IBCS.data (one object, same arrays — the page holds it):
 //   customers  { id, name, phone (masked without sensitive.customer_phone), ig, city, province, address, address2, mood, tags,
 //                consent, autoConsent, source, createdFrom, blocked, since (ISO), orders, total, lastOrderAt, lastOrderDays, refused,
 //                returned, openComplaints, lateOpen, conversations, lastActive (ISO), ratingSat, ratingManners, ratingCount,
@@ -233,7 +233,14 @@
       emit({ conv: convId }); return { ok: true, msg: m };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
-  const send = (convId, text, opts) => addMessage(convId, 'out', text, opts && opts.tpl ? { tpl: opts.tpl } : {});
+  // an outgoing message: the queued row, then — on a connected Meta channel (6.2) — cs-channel sends it and the row's delivery follows
+  async function send(convId, text, opts) {
+    const r = await addMessage(convId, 'out', text, opts && opts.tpl ? { tpl: opts.tpl } : {});
+    if (!r.ok) return r;
+    const v = conv(convId);
+    if (!v || !metaChannel(v) || !metaConnected(v)) return r;
+    return deliverMeta(r.msg, 'send');
+  }
   const note = (convId, text) => addMessage(convId, 'note', text);
   const event = (convId, text) => addMessage(convId, 'event', text);
   async function patchConv(convId, patch, action, detail) {
@@ -460,6 +467,93 @@
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
 
+  // ---------- the Meta channel (phase 6.2): Edge Function cs-channel — the link (the admin), the sending, the comment actions ----------
+  const FN = 'cs-channel';
+  const META = ['messenger', 'instagram'];
+  const metaChannel = (v) => !!v && META.includes(v.channel);
+  const metaConnected = (v) => { const ch = data.channels[v.channel]; return !!ch && ch.status === 'connected'; };
+  async function invoke(body) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    try {
+      const { data: out, error } = await cl.functions.invoke(FN, { body });
+      if (error || !out) {
+        const s = error && error.context && error.context.status;
+        let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
+        const code = b && typeof b.error === 'string' ? b.error : '';
+        const reason = code === 'not_linked' || code === 'not_configured' ? code : code === 'not_queued' || code === 'no_comment' || code === 'no_thread' ? 'not_queued' : /^graph_/.test(code) ? 'refused'
+          : s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'notfound' : 'network';
+        return { ok: false, reason, code: code || null, field: b && b.field ? String(b.field) : null, delivery: b && b.delivery ? String(b.delivery) : null };
+      }
+      return { ok: true, body: out };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  const refusalText = (r) => (r.reason === 'not_linked' ? 'القناة مش مربوطة بالسيستم — الأدمن بيربطها من تاب «القنوات».' : r.reason === 'not_configured' ? 'تطبيق Meta لسه مش متظبط على السيرفر (الأسرار ناقصة).'
+    : r.reason === 'refused' ? 'الرسالة اتحفظت بس Meta رفضتها (' + (r.code || 'graph') + ') — غالبًا عدّى 24 ساعة من آخر رسالة للعميل.' : r.reason === 'forbidden' ? 'مش مسموح — الصلاحية دي مش عندك' : 'حصلت مشكلة في الاتصال — جرّب تاني');
+  // the queued row → the server sends it (a DM / a public reply on a comment / a private reply) and the local row follows its delivery
+  async function deliverMeta(m, action) {
+    const r = await invoke({ action, message_id: m.id });
+    const v = conv(m.convId); const row = v && v.msgs.find((x) => x.id === m.id);
+    if (r.ok) { if (row) row.delivery = 'sent'; emit({ conv: m.convId }); return { ok: true, msg: row || m, delivery: 'sent' }; }
+    if (row && (r.delivery === 'failed' || r.reason === 'refused')) row.delivery = 'failed';
+    emit({ conv: m.convId });
+    return { ok: false, reason: r.reason === 'refused' || r.reason === 'not_linked' || r.reason === 'not_configured' ? 'invalid' : r.reason, code: r.code, message: refusalText(r), msg: row || m };
+  }
+  const toMetaChannel = (r) => { const ch = data.channels[r.id]; if (!ch) return; ch.status = r.status || ch.status; ch.number = r.number || ''; ch.since = r.since || null; ch.last = r.last_message_at ? 'آخر رسالة: ' + timeLabel(ms(r.last_message_at)) : ch.status === 'connected' ? '' : 'مش مربوط'; };
+  // the channels' state from the server (+ the configuration for the admin: the app secrets set?, the redirect, the webhook url, the page)
+  async function channelStatus() {
+    const r = await invoke({ action: 'status' });
+    if (!r.ok) return r;
+    const b = r.body; (Array.isArray(b.channels) ? b.channels : []).forEach(toMetaChannel);
+    const out = { ok: true, linked: !!b.linked, configured: b.configured !== false, verifyConfigured: b.verify_configured !== false, redirect: typeof b.redirect === 'string' ? b.redirect : null, webhookUrl: typeof b.webhook_url === 'string' ? b.webhook_url : null, page: b.page && typeof b.page === 'object' ? b.page : null };
+    emit({ channels: true }); return out;
+  }
+  // the admin: the Facebook dialog's url (the page sends the browser there; Meta comes back to app/meta-callback.html)
+  async function connectStart(id) {
+    if (!can().admin) return { ok: false, reason: 'forbidden' };
+    const r = await invoke({ action: 'connect_start', channel: META.includes(id) ? id : 'messenger' });
+    if (!r.ok) return r;
+    const url = typeof r.body.url === 'string' && /^https:\/\/www\.facebook\.com\//.test(r.body.url) ? r.body.url : null;
+    if (!url) return { ok: false, reason: 'network' };
+    log('cs.channel.link', 'start · ' + id, 'cs_channel', id);
+    return { ok: true, url };
+  }
+  const linkOut = (b) => ({ ok: true, result: b.result === 'choose' ? 'choose' : 'ok', linked: !!b.linked, instagram: !!b.instagram, page: b.page && typeof b.page === 'object' ? b.page : null, pages: Array.isArray(b.pages) ? b.pages.map((p) => ({ id: String(p.id), name: String(p.name || p.id), ig: p.ig && typeof p.ig === 'object' ? p.ig : null })) : [] });
+  // the callback page: the code + state → the page linked (or a list to pick from)
+  async function connectCallback(code, state) {
+    const r = await invoke({ action: 'connect_callback', code: String(code || ''), state: String(state || '') });
+    if (!r.ok) return r;
+    const out = linkOut(r.body); (Array.isArray(r.body.channels) ? r.body.channels : []).forEach(toMetaChannel);
+    if (out.result === 'ok') log('cs.channel.link', 'linked' + (out.page ? ' · ' + out.page.name : ''), 'cs_channel', 'messenger');
+    emit({ channels: true }); return out;
+  }
+  async function connectPick(pageId) {
+    const r = await invoke({ action: 'connect_pick', page_id: String(pageId || '') });
+    if (!r.ok) return r;
+    const out = linkOut(r.body); (Array.isArray(r.body.channels) ? r.body.channels : []).forEach(toMetaChannel);
+    log('cs.channel.link', 'linked' + (out.page ? ' · ' + out.page.name : ''), 'cs_channel', 'messenger'); emit({ channels: true }); return out;
+  }
+  async function disconnect() {
+    if (!can().admin) return { ok: false, reason: 'forbidden' };
+    const r = await invoke({ action: 'disconnect' });
+    if (!r.ok) return r;
+    (Array.isArray(r.body.channels) ? r.body.channels : []).forEach(toMetaChannel);
+    log('cs.channel.link', 'unlinked', 'cs_channel', 'messenger'); emit({ channels: true }); return { ok: true, linked: false };
+  }
+  // a comments conversation: a private reply (a DM to the commenter) and hiding the last comment
+  async function commentPrivate(convId, text) {
+    const v = conv(convId); if (!v || v.seg !== 'comments') return { ok: false, reason: 'invalid' };
+    const r = await addMessage(convId, 'out', text, { private: true });
+    if (!r.ok) return r;
+    return deliverMeta(r.msg, 'comment_private');
+  }
+  async function commentHide(convId) {
+    const v = conv(convId); if (!v || v.seg !== 'comments') return { ok: false, reason: 'invalid' };
+    const r = await invoke({ action: 'comment_hide', conversation_id: convId });
+    if (!r.ok) return { ok: false, reason: r.reason === 'refused' || r.reason === 'not_linked' ? 'invalid' : r.reason, message: refusalText(r) };
+    log('cs.channel.hide', v.platform, 'cs_conversation', convId);
+    await refreshConv(convId); emit({ conv: convId }); return { ok: true, hidden: r.body.hidden || null };
+  }
+
   // ---------- Realtime: a change on the conversations or the messages → one load() a moment later ----------
   function subscribe() {
     const cl = c(); const cfg = window.IB_CONFIG || {}; if (!cl || channel || !myUid() || cfg.realtime === false) return; // IB_CONFIG.realtime === false: no socket (the mock)
@@ -479,5 +573,6 @@
     send, note, event, setStatus, assign, setConvTags, snooze, setUnread, close, open, refreshConv,
     addCustomer, importCustomers, updateCustomer, setMood, setTags, block, addNote, setOverride, rateCustomer, merge,
     saveSegment, deleteSegment, saveCampaign, setCampaignStatus, deleteCampaign, saveSettings,
+    channelStatus, connectStart, connectCallback, connectPick, disconnect, commentPrivate, commentHide, metaChannel, metaConnected,
     toCustomer, toConv, toMessage, toSegment, toCampaign, toChannel, toSettings, segColumns, campColumns, STATUSES, MOODS, UNASSIGNED, DEFAULT_SETTINGS };
 })();

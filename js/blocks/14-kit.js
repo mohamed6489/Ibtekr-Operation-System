@@ -304,6 +304,10 @@
   const colPrefs = (key) => { const p = colAll()[key]; return p && typeof p === 'object' ? { order: strList(p.order), hidden: strList(p.hidden) } : { order: [], hidden: [] }; };
   const colWrite = (key, v) => { const next = Object.assign({}, colAll()); if (v) next[key] = v; else delete next[key]; (store.colPrefs = store.colPrefs || {})[ME] = next; if (window.IBPrefs) window.IBPrefs.set(COLS_PREF, next); };
   const colHeads = (t) => [...t.querySelectorAll(':scope > thead > tr > th')].map((th) => (th.textContent || '').trim());
+  const autoState = (key) => { const all = (store.autoF = store.autoF || {}); return (all[key] = all[key] || { f: {}, sort: '' }); };
+  const cellTxt = (td) => (td ? (td.innerText || td.textContent || '').replace(/\s+/g, ' ').trim() : '');
+  const numOf = (x) => { const v = x.replace(/ج\.م|%|,|\+|\s/g, '').replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)); return /^-?\d+(\.\d+)?$/.test(v) ? parseFloat(v) : null; };
+  const dateOf = (x) => { let m = x.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (m) return m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0'); m = x.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[0] : null; };
   function applyColumnPrefs(key, table) {
     if (!table) return; const p = colPrefs(key); const heads = colHeads(table); if (!heads.length) return;
     const rank = (lb, i) => { const k = p.order.indexOf(lb); return k < 0 ? 1000 + i : k; };
@@ -348,6 +352,94 @@
     });
   }
   // بيضيف زرار «الأعمدة» لكارت الجدول (4 أعمدة فأكتر) وبيطبّق التفضيلات بعد الرسم
+  // ---------- فلتر + ترتيب تلقائي لأي جدول تفاصيل (owner 1 Nov) ----------
+  // جنب زرار الأعمدة: «فلتر» من الأعمدة اللي ليها قيم محدودة (حالة، نوع، قناة…) والأعمدة الرقمية بالإشارة، و«ترتيب» بالتاريخ أو الرقم أو النص.
+  // النتيجة: شيبس (اختيار لوحده + عدده في دايرة + ✕) تحت التايتل قبل راس الجدول. الجداول اللي ليها فلتر خاص بيها (`own-filter` أو فلتر في راسها) مابتتلمسش.
+  function autoFilter(card, key, t) {
+    if (!card || !t || card.classList.contains('own-filter') || card.querySelector('[data-fm-btn]:not([data-fm-btn^="auto"]), [data-af]:not([data-af="auto"])')) return;
+    if (t.closest('.modal, .drawer, [role=dialog]')) return;
+    const hd0 = card.querySelector(':scope>.table-title, :scope>.sec-h, :scope>.cons-h');
+    if (hd0 && hd0.querySelector('select, .select:not([data-fm-btn^=auto]):not([data-sm-btn^=auto])')) return; // الكارت عنده فلتر خاص في راسه
+    const tb = t.tBodies[0]; if (!tb) return;
+    const heads = colHeads(t);
+    const rows = [...tb.rows].filter((r) => r.cells.length === heads.length);
+    rows.forEach((r, i) => { if (r.dataset.afi == null) r.dataset.afi = String(i); });
+    if (rows.length < 2) return;
+    const cols = heads.map((lb, i) => {
+      if (!lb) return null; const vals = rows.map((r) => cellTxt(r.cells[i])); const ne = vals.filter((v) => v && v !== '—' && v !== '-');
+      if (!ne.length) return null;
+      const nums = ne.map(numOf), dates = ne.map(dateOf);
+      const type = nums.every((x) => x !== null) ? 'num' : dates.every(Boolean) ? 'date' : ne.every((v) => /^\d{1,2}:\d{2}/.test(v)) ? 'time' : 'text';
+      const distinct = [...new Set(ne)];
+      const cat = type === 'text' && distinct.length >= 2 && distinct.length <= 12 && distinct.every((v) => v.length <= 40) && !(distinct.length === rows.length && rows.length > 5);
+      return { lb, i, type, cat, distinct };
+    }).filter(Boolean);
+    // فلتر لكل جدول (owner 1 Nov): أعمدة القيم المحدودة + الأعمدة الرقمية بالإشارة (فيه قيمة / صفر / سالب) — عشان جداول الأرقام بس يبقى ليها فلتر برضه
+    const SIGN = [['pos', 'أكبر من صفر'], ['zero', 'صفر / فاضي'], ['neg', 'سالب']];
+    const signOf = (x) => { const n = numOf(x); return n == null || n === 0 ? 'zero' : n > 0 ? 'pos' : 'neg'; };
+    const numGroups = cols.filter((c) => c.type === 'num').map((c) => { const present = new Set(rows.map((r) => signOf(cellTxt(r.cells[c.i])))); return present.size >= 2 ? { key: c.lb, label: c.lb, num: true, options: SIGN.filter(([k]) => present.has(k)) } : null; }).filter(Boolean);
+    const groups = cols.filter((c) => c.cat).slice(0, 4).map((c) => ({ key: c.lb, label: c.lb, options: c.distinct.map((v) => [v, v]) })).concat(numGroups).slice(0, 6);
+    // جدول أرقام موجبة بس (زي «الأكثر مبيعًا»): فلتر بالمتوسط
+    const AVG = {}; if (!groups.length) cols.filter((c) => c.type === 'num').slice(0, 2).forEach((c) => { const v = rows.map((r) => numOf(cellTxt(r.cells[c.i])) || 0); AVG[c.lb] = v.reduce((a, b) => a + b, 0) / v.length; groups.push({ key: c.lb, label: c.lb, avg: true, options: [['hi', 'أعلى من المتوسط'], ['lo', 'المتوسط أو أقل']] }); });
+    const SORTS = [['', 'الترتيب الافتراضي']];
+    cols.filter((c) => c.type === 'date').slice(0, 2).forEach((c) => SORTS.push(['d-desc:' + c.lb, c.lb + ': الأحدث للأقدم'], ['d-asc:' + c.lb, c.lb + ': الأقدم للأحدث']));
+    cols.filter((c) => c.type === 'time').slice(0, 2).forEach((c) => SORTS.push(['m-asc:' + c.lb, c.lb + ': الأبكر الأول'], ['m-desc:' + c.lb, c.lb + ': الأتأخر الأول']));
+    cols.filter((c) => c.type === 'num').slice(0, 4).forEach((c) => SORTS.push(['n-desc:' + c.lb, c.lb + ': الأعلى للأقل'], ['n-asc:' + c.lb, c.lb + ': الأقل للأعلى']));
+    const txt = cols.find((c) => c.type === 'text' && !c.cat) || cols.find((c) => c.type === 'text'); if (txt) SORTS.push(['t-asc:' + txt.lb, txt.lb + ': أ ← ي']);
+    if (!groups.length && SORTS.length < 2) return;
+    const S = autoState(key + '|' + heads.join('|'));
+    Object.keys(S.f).forEach((k) => { if (!groups.some((g) => g.key === k)) delete S.f[k]; });
+    if (S.sort && !SORTS.some((x) => x[0] === S.sort)) S.sort = '';
+    const idx = (lb) => colHeads(t).indexOf(lb);
+    const gOf = (k) => groups.find((g) => g.key === k) || {};
+    const cellKey = (r, k) => { const x = cellTxt(r.cells[idx(k)]); const g = gOf(k); return g.num ? signOf(x) : g.avg ? ((numOf(x) || 0) > AVG[k] ? 'hi' : 'lo') : x; };
+    const match = (r, f) => Object.keys(f).every((k) => !f[k] || !f[k].length || f[k].includes(cellKey(r, k)));
+    const head = card.querySelector(':scope>.table-title, :scope>.sec-h, :scope>.cons-h');
+    const colsBtn = card.querySelector('[data-cols]');
+    const anchor = t.closest('.xwrap') || t.closest('.scroll-x') || t;
+    function apply() {
+      // ترتيب
+      const all = [...tb.rows].filter((r) => r.dataset.afi != null);
+      const [mode, lb] = S.sort ? [S.sort.slice(0, S.sort.indexOf(':')), S.sort.slice(S.sort.indexOf(':') + 1)] : ['', ''];
+      const ci = lb ? idx(lb) : -1;
+      const kv = (r) => { const x = cellTxt(r.cells[ci]); return mode[0] === 'n' ? numOf(x) : mode[0] === 'd' ? dateOf(x) : mode[0] === 'm' ? ((x.match(/^(\d{1,2}):(\d{2})/) || [, '', '']).slice(1).map((y) => y.padStart(2, '0')).join(':') || null) : x; };
+      const sorted = all.slice().sort((a, b) => {
+        if (!mode || ci < 0) return a.dataset.afi - b.dataset.afi;
+        const A = kv(a), B = kv(b); if (A == null || A === '') return 1; if (B == null || B === '') return -1;
+        const c = mode[0] === 't' ? String(A).localeCompare(String(B), 'ar') : A < B ? -1 : A > B ? 1 : 0;
+        return (mode.endsWith('desc') ? -c : c) || a.dataset.afi - b.dataset.afi; });
+      const rest = [...tb.rows].filter((r) => r.dataset.afi == null);
+      sorted.concat(rest).forEach((r) => tb.append(r));
+      // فلتر
+      let shown = 0; all.forEach((r) => { const ok = match(r, S.f); r.classList.toggle('af-hide', !ok); if (ok) shown++; });
+      // صف الإجمالي: لو هو مجموع الصفوف بنحسبه للمعروض بس (وبنرجّعه لما الفلتر يتشال)
+      const active = Object.keys(S.f).some((k) => (S.f[k] || []).length);
+      [...(t.tFoot ? t.tFoot.rows : [])].filter((r) => r.cells.length === heads.length).forEach((fr) => {
+        [...fr.cells].forEach((td) => { if (td.dataset.aft == null) td.dataset.aft = td.textContent; });
+        cols.filter((c) => c.type === 'num').forEach((c) => { const td = fr.cells[idx(c.lb)]; if (!td) return; const o = td.dataset.aft.trim();
+          if (!/^-?[\d,]+(\.\d+)?$/.test(o)) return; const ov = numOf(o); const sumOf = (l) => l.reduce((n, r) => n + (numOf(cellTxt(r.cells[idx(c.lb)])) || 0), 0);
+          if (Math.abs(sumOf(all) - ov) > 0.6) return; const dec = (o.split('.')[1] || '').length;
+          td.textContent = active ? sumOf(all.filter((r) => !r.classList.contains('af-hide'))).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }) : td.dataset.aft; });
+        const first = fr.cells[0]; if (first && first.dataset.aft != null && cols.some((c) => c.type === 'num')) first.textContent = active ? first.dataset.aft.trim() + ' (المعروض)' : first.dataset.aft;
+      });
+      // الأزرار جنب زرار الأعمدة
+      card.querySelectorAll('[data-auto-ctl]').forEach((x) => x.remove());
+      const ctl = [];
+      if (groups.length) ctl.push(FilterMenu({ id: 'auto:' + key, label: 'فلتر ' + (card.querySelector('h2') || {}).textContent, groups, value: S.f, noun: 'صف', count: (d) => all.filter((r) => match(r, d)).length, onApply: (d) => { S.f = d; apply(); } }));
+      if (SORTS.length > 1) ctl.push(SortMenu({ id: 'auto:' + key, label: 'ترتيب ' + (card.querySelector('h2') || {}).textContent, options: SORTS, value: S.sort, onChange: (v) => { S.sort = v; apply(); } }));
+      ctl.forEach((c) => c.setAttribute('data-auto-ctl', ''));
+      if (colsBtn && colsBtn.parentElement) ctl.forEach((c) => colsBtn.before(c)); else if (head) { const a = head.querySelector('.acts, .acts-inline') || head; ctl.forEach((c) => a.append(c)); }
+      // النتيجة
+      const chips = []; groups.forEach((g) => (S.f[g.key] || []).forEach((v) => chips.push({ key: g.key + ':' + v, label: g.label + ': ' + (g.num || g.avg ? (g.options.find((x) => x[0] === v) || [, v])[1] : v), count: all.filter((r) => cellKey(r, g.key) === v).length,
+        remove: () => { S.f[g.key] = S.f[g.key].filter((x) => x !== v); apply(); } })));
+      const row = ActiveFilters({ id: 'auto', chips, total: shown, noun: 'صف', onClear: () => { S.f = {}; apply(); } });
+      if (row) { row.setAttribute('data-auto-row', ''); anchor.before(row); }
+      if (!shown && all.length) anchor.after(h('p', { class: 't-small help af-empty', 'data-auto-row': '' }, 'مفيش صفوف بالفلتر ده — شيل اختيار أو اضغط «مسح الكل».'));
+    }
+    card.querySelectorAll('[data-auto-row]').forEach((x) => x.remove());
+    const _apply = apply; apply = function () { card.querySelectorAll('[data-auto-row]').forEach((x) => x.remove()); _apply(); }; // eslint-disable-line no-func-assign
+    apply();
+  }
   function withColumns(card, key0, label0, done) {
     if (!card || !card.querySelector) return card;
     setTimeout(() => {
@@ -357,14 +449,64 @@
       const key = key0 && !/:$/.test(key0) ? key0 : 'cols:' + heads.filter(Boolean).slice(0, 4).join('|');
       const label = label0 || heads.filter(Boolean).slice(0, 2).join(' · ');
       applyColumnPrefs(key, t);
-      if (card.querySelector('[data-cols]')) return;
+      if (card.querySelector('[data-cols]')) { autoFilter(card, key, t); return; }
       const btn = IconButton({ icon: 'sliders', label: 'أعمدة الجدول — ' + label, attrs: { 'data-cols': key },
         onClick: () => customizeColumns(key, label, card.querySelector('table'), done || (() => { applyColumnPrefs(key, card.querySelector('table')); })) });
-      let head = card.querySelector('.table-title, .sec-h');
+      let head = card.querySelector(':scope>.table-title, :scope>.sec-h, :scope>.cons-h');
       if (!head) { head = h('div', { class: 'sec-h cols-only' }, h('div', { class: 'acts' })); card.prepend(head); }
-      const acts = head.querySelector('.acts'); (acts || head).append(btn);
+      const acts = head.querySelector('.acts, .acts-inline'); (acts || head).append(btn);
+      autoFilter(card, key, t);
     }, 0);
     return card;
+  }
+
+  // Bulk({ key, ids, noun, actions:[{label, icon, danger, run(ids, done)}], render }) → { head(), box(id, name), bar(), sel, has(id) }
+  // نفس الشكل في كل السيستم: عمود checkbox أول الجدول + checkbox «حدد الكل» في العنوان (mixed لو جزء) + شريط فوق الجدول «محدد N …» وأزراره و«إلغاء التحديد».
+  const bulkSel = {};
+  function Bulk({ key, ids, noun, actions, render }) {
+    const S = (bulkSel[key] = bulkSel[key] || new Set()); const idset = new Set(ids.map(String)); [...S].forEach((i) => { if (!idset.has(i)) S.delete(i); });
+    const all = ids.length > 0 && ids.every((i) => S.has(String(i))); const some = !all && ids.some((i) => S.has(String(i)));
+    const stop = (el) => { el.addEventListener('click', (e) => e.stopPropagation()); el.addEventListener('keydown', (e) => e.stopPropagation()); return el; };
+    const head = () => { const c = Checkbox({ label: '', checked: all, onChange: (v) => { ids.forEach((i) => (v ? S.add(String(i)) : S.delete(String(i)))); render(); } }); c.setAttribute('aria-label', 'حدد الكل'); c.setAttribute('data-bulk-all', key); if (some) c.setAttribute('aria-checked', 'mixed'); return stop(c); };
+    const box = (id, name) => { const c = Checkbox({ label: '', checked: S.has(String(id)), onChange: (v) => { if (v) S.add(String(id)); else S.delete(String(id)); render(); } }); c.setAttribute('aria-label', 'حدد ' + (name || id)); c.setAttribute('data-bulk-box', String(id)); return stop(c); };
+    const bar = () => { if (!S.size) return null; const sel = [...S]; const done = (msg) => { S.clear(); if (msg) toast(msg, 'success'); render(); };
+      return h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد', 'data-bulk': key }, h('b', null, 'محدد ' + S.size + (noun ? ' ' + noun : '')), h('span', { class: 'grow' }),
+        ...(actions || []).filter(Boolean).map((a) => Button({ size: 'sm', icon: a.icon, type: a.danger ? 'danger' : undefined, label: a.label, attrs: { 'data-bulk-act': a.id || a.label }, onClick: () => a.run(sel, done) })),
+        Button({ type: 'text', size: 'sm', label: 'إلغاء التحديد', attrs: { 'data-bulk-clear': '' }, onClick: () => { S.clear(); render(); } })); };
+    return { head, box, bar, sel: S, has: (id) => S.has(String(id)), clear: () => S.clear() };
+  }
+
+  // ---------- فلتر مقفول + ترتيب + شيبس النتيجة — مكوّن واحد لأي جدول (owner 1 Nov) ----------
+  // groups: [{ key, label, options:[[value,label]] }] · value: { key:[...] } · count(draft) → عدد النتايج · onApply(newValue)
+  function FilterMenu({ id, groups, value, count, noun, onApply, label }) {
+    const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const n0 = groups.reduce((n, g) => n + (value[g.key] || []).length, 0);
+    const btn = h('button', { type: 'button', class: 'select sm' + (n0 ? ' has-val' : ''), 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': label || 'فلتر', 'data-fm-btn': id }, Icon('chevD', 'sm'), h('span', { class: 'val' }, Icon('filter', 'sm'), ' فلتر' + (n0 ? ' (' + n0 + ')' : '')));
+    const pop = U.popover(wrap, btn, (close) => {
+      const d = {}; groups.forEach((g) => { d[g.key] = [...(value[g.key] || [])]; });
+      const cnt = h('span', null); const upd = () => { cnt.textContent = 'اعرض ' + count(d) + ' ' + noun; }; const items = [];
+      const opt = (k, v, l) => { const on = () => d[k].includes(v); const b = h('button', { type: 'button', class: 'opt multi', role: 'menuitemcheckbox', 'aria-checked': String(on()), 'data-fm': k + ':' + v }, h('span', { class: 'mchk', 'aria-hidden': 'true' }, on() ? Icon('check', 'sm') : null), l); b._on = on; items.push(b);
+        b.addEventListener('click', (e) => { e.stopPropagation(); const a = d[k]; const i = a.indexOf(v); if (i > -1) a.splice(i, 1); else a.push(v); items.forEach((x) => { x.setAttribute('aria-checked', String(x._on())); x.querySelector('.mchk').replaceChildren(...(x._on() ? [Icon('check', 'sm')] : [])); }); upd(); }); return b; };
+      const m = h('div', { class: 'menu view-menu', role: 'menu', 'aria-label': label || 'فلتر', 'data-fm-menu': id },
+        groups.map((g) => [h('div', { class: 'opt-group t-small', role: 'presentation' }, g.label), g.options.map(([v, l]) => opt(g.key, v, l))]),
+        h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-fm-clear': '' }, onClick: () => { groups.forEach((g) => { d[g.key] = []; }); items.forEach((x) => { x.setAttribute('aria-checked', 'false'); x.querySelector('.mchk').replaceChildren(); }); upd(); } }),
+          Button({ size: 'sm', type: 'primary', label: cnt, attrs: { 'data-fm-apply': '' }, onClick: () => { close(); onApply(d); } })));
+      m.addEventListener('keydown', (e) => { const i = items.indexOf(document.activeElement); if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); } if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); } });
+      upd(); return m; });
+    btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
+  }
+  function SortMenu({ id, options, value, onChange, label }) {
+    const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const cur = options.find((x) => x[0] === value) || options[0];
+    const btn = h('button', { type: 'button', class: 'select sm', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-label': label || 'ترتيب', 'data-sm-btn': id }, Icon('chevD', 'sm'), h('span', { class: 'val' }, h('span', null, 'ترتيب'), h('span', { class: 'sm-v' }, ': ' + cur[1])));
+    const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: options.map(([v, l]) => ({ value: v, label: l })), value: cur[0], onSelect: (v) => { close(); onChange(v); } }));
+    btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
+  }
+  // chips: [{ key, label, count, remove }] — كل اختيار شيبس لوحده + عدده في دايرة + ✕ · total/noun للعدد · onClear «مسح الكل»
+  function ActiveFilters({ id, chips, total, noun, onClear }) {
+    if (!chips.length) return null;
+    return h('div', { class: 'af-row', 'data-af': id },
+      chips.map((c) => h('button', { type: 'button', class: 'af-chip', 'data-af-chip': c.key, 'aria-label': 'شيل الفلتر: ' + c.label + ' — ' + c.count + ' ' + noun, onClick: c.remove }, h('span', { class: 'af-t' }, c.label), h('span', { class: 'af-c', 'aria-hidden': 'true' }, String(c.count)), h('span', { class: 'af-x', 'aria-hidden': 'true' }, Icon('close', 'sm')))),
+      h('span', { class: 'af-n', 'data-af-count': String(total) }, total + ' ' + noun),
+      h('button', { type: 'button', class: 'af-clr', 'data-af-clear': '', onClick: onClear }, h('span', null, 'مسح الكل')));
   }
 
   // ---------- StarPicker: نجوم 1–5 (radiogroup — WAI-ARIA APG radio: الأسهم بتغيّر، Home/End، رقم 1–5) ----------
@@ -381,6 +523,6 @@
       h('div', { class: 'sp-row' }, g, h('span', { class: 't-small help sp-word', 'aria-live': 'polite' }, v ? v + ' من 5 · ' + words[v] : 'اختار من 1 لـ 5')),
       error ? h('div', { class: 'err-msg', role: 'alert', id: id + '-err' }, error) : help ? h('p', { class: 't-small help', style: 'margin:0' }, help) : null);
   }
-  window.IBKit = { sweepColumns, applyColumnPrefs, customizeColumns, withColumns, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+  window.IBKit = { Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
 })();
 

@@ -1279,3 +1279,58 @@ b.pos{color:var(--color-success-text)}
   .modal-f>.btn,.modal-f>.pop-anchor{flex:1 1 140px;min-height:44px}
   .modal-f>.pop-anchor>.btn{width:100%;min-height:44px}
 }
+
+/* ===== المرحلة 5.5 — مكوّنات الـ v2 المشتركة (owner 31 Oct / 1 Nov): التحديد الجماعي · الفلتر المقفول · شيبس النتيجة ===== */
+.sr-only{position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);white-space:nowrap;border:0}
+.bulk-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-radius:var(--radius-md);background:var(--color-brand-subtle-bg);border:1px solid var(--color-border-subtle)}
+.bulk-bar>b{white-space:nowrap}
+.sel-col{width:44px;padding-inline:12px 4px}
+.act-col{width:56px;text-align:center}
+tr.is-sel td{background:var(--color-brand-subtle-bg)}
+.menu .opt-group{padding:8px 12px 4px;color:var(--color-text-secondary);font-weight:600}
+.view-menu{min-width:240px;max-height:min(70vh,520px);overflow-y:auto}
+.view-menu .opt.multi{display:flex;align-items:center;gap:8px}
+.view-menu .mchk{width:18px;height:18px;flex:none;border:1px solid var(--color-border-default);border-radius:4px;display:inline-flex;align-items:center;justify-content:center;background:var(--color-bg-base)}
+.view-menu .opt[aria-checked=true] .mchk,.view-menu .opt[aria-selected=true] .mchk{background:var(--color-brand-default);border-color:var(--color-brand-default);color:var(--color-bg-base)}
+.view-menu .opt[aria-selected=true],.view-menu .opt[aria-checked=true]{background:transparent}
+.view-foot{position:sticky;bottom:0;display:flex;justify-content:space-between;gap:8px;padding:8px;border-top:1px solid var(--color-border-subtle);background:var(--color-bg-base)}
+.select.has-val{border-color:var(--color-brand-default);color:var(--color-brand-default)}
+.select .val>svg,.select .val>.ic,.val>svg{vertical-align:middle;position:relative;top:-1px;margin-inline-end:4px}
+.sm-v{color:var(--color-text-secondary);font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+/* active filters row — same look as orders (owner 1 Nov) */
+.af-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding-block:12px}
+.af-chip{display:inline-flex;align-items:center;gap:6px;height:32px;padding-inline:12px 10px;border:1px solid var(--color-border-default);border-radius:999px;background:var(--color-bg-base);color:var(--color-text-primary);font:inherit;font-size:13px;font-weight:600;max-width:100%;cursor:pointer}
+.af-chip:hover{border-color:var(--color-brand-default)}.af-chip:hover .af-x{color:var(--color-error-base,#b42318)}
+.af-chip:focus-visible,.af-clr:focus-visible{outline:2px solid var(--color-brand-default);outline-offset:2px}
+.af-t{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.af-c{min-width:20px;height:20px;padding-inline:6px;border-radius:999px;background:var(--color-brand-default);color:var(--color-bg-tint);font-size:11px;font-weight:700;line-height:20px;text-align:center;flex:none}
+.af-x{display:inline-flex;width:16px;height:16px;align-items:center;justify-content:center;flex:none}.af-x svg{width:14px;height:14px}
+.af-n{font-size:13px;color:var(--color-text-secondary);font-weight:600;white-space:nowrap}
+.af-clr{display:inline-flex;align-items:center;white-space:nowrap;flex:none;height:32px;padding-inline:14px;border:0;border-radius:6px;background:var(--color-bg-container);color:var(--color-brand-default);font:inherit;font-size:13px;font-weight:600;cursor:pointer}
+.af-clr:hover{background:var(--color-brand-subtle-bg,var(--color-bg-container))}
+@media (max-width:1023px){.af-chip,.af-clr{height:44px}}
+tr.af-hide{display:none!important}
+.af-empty{margin:12px 0}
+@media (max-width:599px){.table-title [data-auto-ctl] .sm-v,.sec-h [data-auto-ctl] .sm-v{display:none}}
+/* ترويسة كارت الجدول (owner 1 Nov): المعلومات تحت التايتل ومحاذية يمين معاه، والأزرار على الشمال */
+.table-title .tt-main{display:flex;flex-direction:column;gap:2px;min-width:0;margin-inline-end:auto}
+.table-title .tt-main .count{margin:0}
+.table-title .acts-inline{display:flex;align-items:center;gap:8px;flex-wrap:wrap}
+@media (max-width:1023px){.table-title .tt-main{flex:1 1 100%}}
+/* موبايل (owner 1 Nov): قوايم الفلتر = bottom sheet بعرض الشاشة، زرار «اعرض N» ثابت تحت */
+@media (max-width:767px){
+  .table-title:has([data-auto-ctl]) [data-auto-ctl]{flex:1 1 0;min-width:0}
+  .table-title:has([data-auto-ctl]) [data-auto-ctl] .select{width:100%}
+  .table-title [data-cols]{flex:none}
+  .menu.view-menu{position:fixed!important;inset:auto 0 0 0!important;top:auto!important;left:0!important;right:0!important;width:100%!important;max-width:100%!important;min-width:0!important;max-height:75vh!important;border-radius:16px 16px 0 0;box-shadow:0 -12px 32px rgba(46,42,27,.28);z-index:300;padding-bottom:env(safe-area-inset-bottom)}
+  .menu.view-menu .view-foot{position:sticky;bottom:0;background:var(--color-bg-base);padding-block:12px;border-top:1px solid var(--color-border-subtle)}
+  .menu.view-menu .view-foot .btn{min-height:44px;flex:1}
+  .menu.view-menu .opt{min-height:44px}
+  .sec-h:has(.acts .select){flex-wrap:wrap;row-gap:8px}
+  .sec-h:has(.acts .select)>div:first-child{flex:1 1 100%}
+  .sec-h .acts:has(.select){flex:1 1 100%;display:flex;flex-wrap:nowrap;gap:8px;align-items:center}
+  .sec-h .acts:has(.select)>.pop-anchor{flex:1 1 0;min-width:0}
+  .sec-h .acts:has(.select)>.pop-anchor .select{width:100%}
+  .sec-h .acts:has(.select) .select .val{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;min-width:0}
+  .sec-h .acts:has(.select)>[data-cols]{flex:none}
+}

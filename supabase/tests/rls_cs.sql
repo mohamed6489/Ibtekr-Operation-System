@@ -196,6 +196,8 @@ do $$ declare c1 uuid; cv uuid; begin
   select l.id into c1 from public.cs_customers_list() l where l.name = 'عميلة تجريبية';
   if (select count(*) from public.cs_customers_list() l where l.id = c1) <> 1 then raise exception 'case P reads the customers failed'; end if;
   if (select l.orders || '|' || l.total || '|' || jsonb_array_length(l.order_list) from public.cs_customers_list() l where l.id = c1) <> '0|0|0' then raise exception 'case without orders.view the orders figures are hidden failed'; end if;
+  -- the orders' ratings are hidden with them: only the chat rating (3/5) remains
+  if (select l.rating_count || '|' || l.rating_sat || '|' || l.rating_manners from public.cs_customers_list() l where l.id = c1) <> '1|3.0|5.0' then raise exception 'case without orders.view the orders ratings are hidden failed'; end if;
   select id into cv from public.cs_conversations where customer_id = c1;
   if cv is null then raise exception 'case P sees the conversation assigned to them failed'; end if;
   if (select count(*) from public.cs_messages where conversation_id = cv) <> 3 then raise exception 'case P reads the messages of their conversation failed'; end if;

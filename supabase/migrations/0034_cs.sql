@@ -473,7 +473,7 @@ begin
   left join lateral (
     select round(avg(u.sat), 1) as rating_sat, round(avg(u.manners), 1) as rating_manners, count(*) as rating_count
     from (select cr.sat, cr.manners from public.customer_ratings cr join public.orders x2 on x2.id = cr.order_id
-           where c.phone is not null and public.norm_phone(x2.customer_phone) = c.phone
+           where v_orders and c.phone is not null and public.norm_phone(x2.customer_phone) = c.phone -- the orders' ratings need orders.view too (review)
           union all
           select tr.sat, tr.manners from public.cs_team_ratings tr where tr.customer_id = c.id) u
   ) r on true
@@ -602,7 +602,9 @@ end $$;
 -- ---------------------------------------------------------------- grants (rule 4)
 
 -- the phone is never granted to members on the base table (review): it reaches them only through cs_customers_list, masked
--- without sensitive.customer_phone; a member inserts it (a manual lead) but neither reads nor updates it there
+-- without sensitive.customer_phone; a member inserts it (a manual lead) but neither reads nor updates it there.
+-- No table-level privilege may precede the column lists (review): revoke any first so a default privilege cannot widen them.
+revoke all on public.cs_customers, public.cs_campaigns, public.cs_campaign_recipients from authenticated;
 grant select (id, name, ig, city, province, address, address2, mood, tags, consent, auto_consent, source, created_from, blocked_at, blocked_by, merged_into, created_by, created_at, updated_at) on public.cs_customers to authenticated;
 grant insert (phone, name, ig, city, province, address, address2, mood, tags, consent, auto_consent, source, created_from) on public.cs_customers to authenticated;
 grant update (name, ig, city, province, address, address2, mood, tags, consent, auto_consent, source, blocked_at, blocked_by, updated_at) on public.cs_customers to authenticated;

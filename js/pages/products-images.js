@@ -1,7 +1,8 @@
 /* «أداة الصور» (phase 5.4, plan docs/superpowers/plans/2026-10-31-phase-5-4-images.md, decision 5) — the prototype's images
    tool (artifact «نظام إبتكر», block 18) on Magnific through IBImages (the ai-images Edge Function). Tabs: صورة لصورة (a photo
    shrunk in the browser, or a product on the site by its SKU — the server fetches its photo), نص لصورة (words alone), تعديل
-   الصورة (remove the background / upscale on a site product's photo); «صورة المقاس» stays soon (phase 5.5, canvas). The shared
+   الصورة (remove the background / upscale on a site product's photo), صورة المقاس (decision 15: the dimension drawing of a site
+   product — its sizes from the site or typed, the studio flow's fourth-shot words, shape `size`). The shared
    fields: the shape, the count (1–4), the size (IMG_SIZES or custom), the model, with the credits before the call. The results
    land in bucket ai-images under the member: a preview (signed URL), a download, and «احفظ على المنتج» through IBProducts.addImages
    (woo-sync product_images_add: products.edit, WOO_PUSH_ENABLED) after a confirmation. «سجل الصور» = the member's image runs.
@@ -32,8 +33,8 @@
 
   // ---------------- state ----------------
   const S = { tab: 'i2i', fromProduct: null, photo: null, photoName: '', sku: '', prompt: '', shape: 'studio', size: '700x800', width: '', height: '', count: 1, model: '', op: 'remove_bg', bg: 'transparent', scale: 2,
-    running: false, err: '', result: null, sel: new Set(), saving: false, settingsRead: false, imports: null, importing: null, lastBatch: null };
-  const reset = () => Object.assign(S, { tab: 'i2i', fromProduct: null, photo: null, photoName: '', sku: '', prompt: '', shape: 'studio', running: false, err: '', result: null, sel: new Set(), imports: null, importing: null });
+    sizes: '', sizesFor: null, running: false, err: '', result: null, sel: new Set(), saving: false, settingsRead: false, imports: null, importing: null, lastBatch: null };
+  const reset = () => Object.assign(S, { tab: 'i2i', fromProduct: null, photo: null, photoName: '', sku: '', prompt: '', shape: 'studio', sizes: '', sizesFor: null, running: false, err: '', result: null, sel: new Set(), imports: null, importing: null });
 
   function route(id) {
     if (id) { if (S.fromProduct !== id) { reset(); S.fromProduct = id; } }
@@ -52,9 +53,18 @@
     const k = S.sku.trim().toLowerCase(); if (!k) return null;
     return P.list().find((p) => (p.sku || '').toLowerCase() === k) || null;
   }
-  const usesProduct = () => S.tab === 'edit' || (S.tab === 'i2i' && !S.photo);
+  const usesProduct = () => S.tab === 'edit' || S.tab === 'size' || (S.tab === 'i2i' && !S.photo);
+  // decision 15 — the size drawing: the sizes typed as the studio writes them («40×50», «40×50×20», one a line or comma-separated), width × height (× depth)
+  const sizeList = () => S.sizes.split(/[\n,،;]+/).map((s) => s.trim()).filter(Boolean).slice(0, 10);
+  const numericSize = (s) => /\d/.test(s) && !/[A-Za-z؀-ۿ]/.test(s.replace(/\b(cm|mm|in)\b/gi, '').replace(/سم|مم/g, ''));
+  // the product's sizes from the site (product_get → editView.sizes), read once per product when the tab opens
+  function readSizes(p) {
+    if (!p || S.sizesFor === p.id) return; S.sizesFor = p.id;
+    const P = PR(); if (!P || !P.fetchLive) return;
+    P.fetchLive(p.id).then((r) => { if (r.ok && S.sizesFor === p.id && !S.sizes.trim() && Array.isArray(r.product.sizes) && r.product.sizes.length) { S.sizes = r.product.sizes.join(', '); R(); } });
+  }
   function problem() {
-    if (S.tab === 'size') return 'صورة المقاس لسه — soon';
+    if (S.tab === 'size') { if (!product()) return 'اكتب SKU منتج موجود على الموقع'; if (!sizeList().some(numericSize)) return 'اكتب المقاس بالأرقام: عرض × ارتفاع (× عمق)'; }
     if (S.tab === 't2i' && !S.prompt.trim()) return 'اكتب وصف الصورة';
     if (S.tab !== 't2i' && S.tab !== 'edit' && S.shape === 'custom' && !S.prompt.trim()) return 'الشكل المخصص محتاج وصف';
     if (usesProduct() && !product()) return S.tab === 'i2i' ? 'ارفع صورة أو اكتب SKU منتج على الموقع' : 'اكتب SKU منتج موجود على الموقع';
@@ -71,6 +81,7 @@
     S.running = true; S.err = ''; S.sel = new Set(); R();
     let r;
     if (S.tab === 'edit') r = await I.edit({ productId: p.id }, S.op, { model: model(), options: S.op === 'remove_bg' ? { bg: S.bg } : { scale: S.scale } });
+    else if (S.tab === 'size') r = await I.create({ source: 'image', prompt: S.prompt.trim(), shape: 'size', sizes: sizeList(), size: S.size, width: S.width, height: S.height, count: S.count, model: model(), productId: p.id });
     else r = await I.create({ source: S.tab === 't2i' ? 'text' : 'image', prompt: S.prompt.trim(), shape: S.shape, size: S.size, width: S.width, height: S.height, count: S.count, model: model(), image: S.tab === 'i2i' && S.photo ? S.photo : null, productId: p ? p.id : null });
     S.running = false;
     if (!r.ok) { S.err = errText(r); S.result = null; K.toast(S.err, 'error'); R(); return; }
@@ -209,7 +220,7 @@
     const cost = document.querySelector('[data-igcost]'); if (cost) cost.textContent = costText();
   }
   const costText = () => { const I = IM(); const n = credits(); return 'التكلفة ≈ ' + n + ' كريدت Magnific (≈ $' + I.usd(n).toFixed(2) + ') بموديل ' + ((I.modelOf(model()) || {}).name || model()); };
-  const skuField = () => U.TextInput({ id: 'ig-sku', label: 'SKU المنتج على الموقع', required: S.tab === 'edit', value: S.sku, dir: 'ltr', help: skuHelp(), onInput: (v) => { S.sku = v; hints(); } });
+  const skuField = () => U.TextInput({ id: 'ig-sku', label: 'SKU المنتج على الموقع', required: S.tab === 'edit' || S.tab === 'size', value: S.sku, dir: 'ltr', help: skuHelp(), onInput: (v) => { S.sku = v; hints(); if (S.tab === 'size') readSizes(product()); } });
   function sourceFields() {
     const I = IM();
     if (S.tab === 'i2i') return [S.photo ? h('div', { class: 'ig-src' }, h('img', { src: S.photo.preview, alt: S.photoName }), h('div', null, h('b', null, S.photoName), h('small', { class: 'help' }, 'الـ AI بياخد المنتج من الصورة دي ويحطه في الشكل اللي تختاره'), Button({ size: 'sm', type: 'text', label: 'شيلها', onClick: () => { S.photo = null; S.photoName = ''; R(); } })))
@@ -224,7 +235,12 @@
       U.FieldShell({ id: 'ig-op', label: 'التعديل' }, h('div', { class: 'chips' }, EDITS.map(([k, l]) => chipBtn(l, S.op === k, () => { S.op = k; R(); }, { 'data-igop': k })))),
       S.op === 'remove_bg' ? U.FieldShell({ id: 'ig-bg', label: 'الخلفية الجديدة' }, h('div', { class: 'chips' }, BGS.map(([k, l]) => chipBtn(l, S.bg === k, () => { S.bg = k; R(); }, { 'data-igbg': k }))))
         : U.FieldShell({ id: 'ig-scale', label: 'التكبير' }, h('div', { class: 'chips' }, [2, 4].map((n) => chipBtn(n + '×', S.scale === n, () => { S.scale = n; R(); }))))];
-    return [U.InlineNote({ children: 'صورة المقاس بالأبعاد على صورة المنتج — لسه (المرحلة 5.5، من غير AI). «شيل النصوص» و«كومنتات على أجزاء الصورة» برّه دلوقتي كمان.' })];
+    // decision 15: the size drawing of a site product — its photo as the reference, its sizes (from the site, or typed) in the words
+    readSizes(product());
+    return [skuField(),
+      U.Textarea({ id: 'ig-sizes', label: 'المقاس', required: true, value: S.sizes, rows: 2, placeholder: 'مثال: 40×50 أو 40×180×30 — أكتر من مقاس بفاصلة', help: 'عرض × ارتفاع، والرقم التالت عمق. أكتر من مقاس: الأكبر بيترسم والباقي في جدول تحت الرسمة. بيتملا من مقاس المنتج على الموقع لو موجود.', onInput: (v) => { S.sizes = v; hints(); } }),
+      U.Textarea({ id: 'ig-prompt', label: 'ملاحظات للرسمة (اختياري)', value: S.prompt, rows: 2, placeholder: 'مثال: وضّح الحزام والجيب الأمامي', onInput: (v) => { S.prompt = v; hints(); } }),
+      U.InlineNote({ children: 'رسم خطي تقني أسود على خلفية كريمي بخطوط القياس — نفس لقطة المقاس في الاستوديو. «شيل النصوص» و«كومنتات على أجزاء الصورة» برّه دلوقتي.' })];
   }
   function genFields() {
     const I = IM(); const edit = S.tab === 'edit';
@@ -236,10 +252,10 @@
   }
   function inputCard() {
     const bad = problem();
-    return Card(S.tab === 'edit' ? 'الصورة والتعديل' : 'المصدر والشكل', S.tab === 'i2i' ? 'المنتج بيفضل زي ما هو في صورتك، والـ AI بيغيّر المكان والإضاءة.' : S.tab === 't2i' ? 'من غير صورة مرجعية — للبوستات والتصميمات.' : S.tab === 'edit' ? 'التعديل بيتعمل على الصورة الرئيسية بتاعة المنتج على الموقع.' : null,
-      [h('div', { class: 'ig-fields' }, ...sourceFields(), ...(S.tab === 'size' ? [] : genFields())),
-        S.tab === 'size' ? null : Button({ type: 'primary', label: S.running ? 'بيتعمل…' : S.tab === 'edit' ? 'عدّل الصورة' : 'اعمل الصور', icon: 'sparkle', disabled: S.running || !IM(), attrs: { class: 'btn btn-primary block', 'data-igrun': '' }, onClick: run }),
-        S.running || S.tab === 'size' ? null : h('p', { class: 't-small help', style: 'margin:0', 'data-igprob': '' }, bad)]);
+    return Card(S.tab === 'edit' ? 'الصورة والتعديل' : S.tab === 'size' ? 'المنتج ومقاسه' : 'المصدر والشكل', S.tab === 'i2i' ? 'المنتج بيفضل زي ما هو في صورتك، والـ AI بيغيّر المكان والإضاءة.' : S.tab === 't2i' ? 'من غير صورة مرجعية — للبوستات والتصميمات.' : S.tab === 'edit' ? 'التعديل بيتعمل على الصورة الرئيسية بتاعة المنتج على الموقع.' : 'رسمة الأبعاد بتتعمل من الصورة الرئيسية بتاعة المنتج على الموقع.',
+      [h('div', { class: 'ig-fields' }, ...sourceFields(), ...genFields()),
+        Button({ type: 'primary', label: S.running ? 'بيتعمل…' : S.tab === 'edit' ? 'عدّل الصورة' : S.tab === 'size' ? 'اعمل صورة المقاس' : 'اعمل الصور', icon: 'sparkle', disabled: S.running || !IM(), attrs: { class: 'btn btn-primary block', 'data-igrun': '' }, onClick: run }),
+        S.running ? null : h('p', { class: 't-small help', style: 'margin:0', 'data-igprob': '' }, bad)]);
   }
   function outCard() {
     const I = IM();
@@ -264,7 +280,7 @@
         I && I.can().settings ? Button({ label: 'إعدادات الصور', icon: 'gear', attrs: { 'data-img-settings': '' }, onClick: openSettings }) : null));
     if (!I || !I.can().tool) return [top, K.Empty('مش مسموحلك تستخدم أداة الصور', 'محتاج صلاحية «إضافة منتجات» أو «تعديل المنتجات».')];
     readSettings(); readImports();
-    const tabs = K.MainTabs({ items: TABS.map(([id, label]) => ({ id, label: id === 'size' ? label + ' — soon' : label })), active: S.tab, onChange: (id) => { S.tab = id; S.result = null; S.err = ''; R(); }, label: 'نوع الصورة' });
+    const tabs = K.MainTabs({ items: TABS.map(([id, label]) => ({ id, label })), active: S.tab, onChange: (id) => { S.tab = id; S.result = null; S.err = ''; R(); }, label: 'نوع الصورة' });
     return [top, importsCard(), tabs, h('div', { class: 'cols2-wide' }, inputCard(), outCard())];
   }
   document.addEventListener('ib:images', () => { if (window.IBPages && window.IBPages.current === 'products') R(); });

@@ -167,6 +167,7 @@
     const body = Object.assign({ action: 'create', source: q.source, shape: q.shape, prompt: q.prompt || undefined, count: q.count || 1, model: q.model || undefined }, sizeArgs(q));
     if (q.image) body.image = { media_type: q.image.media_type, data: q.image.data };
     if (q.productId) body.product_id = Number(q.productId);
+    if (q.shape === 'size') body.sizes = Array.isArray(q.sizes) ? q.sizes : []; // decision 15: the product's sizes for the dimension drawing
     const r = await invoke(body);
     if (!r.ok) return r;
     const out = await webpAll(answer(r.body));

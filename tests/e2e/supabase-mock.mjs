@@ -49,13 +49,13 @@ export const USERS = [
   { id: '00000000-0000-4000-8000-000000000005', member_code: 'M05', name: 'هدى سمير', email: 'vf.dev@ibtekr.local', phone: '01000000005', role_id: 'vendors_followup', title: 'متابعة الموردين', dept: 'العمليات', manager_id: ADMIN, status: 'active', twofa: false, custom_perms: {}, created_at: T0 },
   { id: '00000000-0000-4000-8000-000000000099', member_code: 'M99', name: 'مشاهد تجريبي', email: 'viewer.dev@ibtekr.local', phone: '01000000099', role_id: 'viewer', title: 'مشاهد', dept: 'الإدارة', manager_id: ADMIN, status: 'suspended', twofa: false, custom_perms: {}, created_at: T0 },
 ];
-// permissions: the keys the emulated tables read, as in 0003_seed_roles.sql (+ 0021: products.view / edit / trash)
+// permissions: the keys the emulated tables read, as in 0003_seed_roles.sql (+ 0021: products.view / edit / trash; 0034: cs.view / reply / manage)
 const ROLES = [
-  { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'settings.view': 'F', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'F', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'F', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'F' }, sort: 1 },
-  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'F', 'products.bulk': 'F', 'products.trash': 'N', 'products.add': 'F', 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
-  { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'F', 'accounts.add': 'F', 'accounts.approve': 'P', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
-  { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
-  { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
+  { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'F', 'settings.view': 'F', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'F', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'F', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'F' }, sort: 1 },
+  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'F', 'products.bulk': 'F', 'products.trash': 'N', 'products.add': 'F', 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
+  { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'cs.view': 'N', 'cs.reply': 'N', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'F', 'accounts.add': 'F', 'accounts.approve': 'P', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
+  { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
+  { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'cs.view': 'P', 'cs.reply': 'N', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
 ];
 const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts, status_map), 0006_dashboard.sql (user_prefs,
   // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw),
@@ -248,6 +248,8 @@ const aalGated = (u) => !!u.twofa && u.aal !== 'aal2';
 const hasPerm = (u, key) => (u.status !== 'active' || aalGated(u) ? 'N' : u.role_id === 'admin' ? 'F' : (u.custom_perms || {})[key] || ROLES.find((r) => r.id === u.role_id).permissions[key] || 'N');
 const isAdmin = (u) => u.status === 'active' && u.role_id === 'admin' && !aalGated(u);
 // mask_phone of 0007: the first 3 and last 4 characters (10 or more), else •••• and the last 2
+// norm_phone (0034): Arabic / Persian digits → ASCII, digits only, 0020 / 20 (12 digits) stripped, a 10-digit number starting with 1 gets its 0
+const normPhone = (p) => { let d = String(p ?? '').replace(/[٠-٩۰-۹]/g, (ch) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(ch) >= 0 ? '٠١٢٣٤٥٦٧٨٩'.indexOf(ch) : '۰۱۲۳۴۵۶۷۸۹'.indexOf(ch))).replace(/\D/g, ''); if (d.startsWith('0020')) d = d.slice(4); else if (d.startsWith('20') && d.length === 12) d = d.slice(2); return d.length === 10 && d[0] === '1' ? '0' + d : d; };
 const maskPhone = (p) => (!p ? p : p.length < 10 ? '••••' + p.slice(-2) : p.slice(0, 3) + '••••' + p.slice(-4));
 // a row of orders_v as `u` reads it: every column but raw, the phone through order_customer_phone (full with
 // sensitive.customer_phone = F, masked otherwise, null without orders.view)
@@ -316,6 +318,31 @@ export async function installSupabaseMock(page, opts = {}) {
   // withdraw_approve call ({ id, by, result, reason? }) — mock.pushEnabled is the same WOO_PUSH_ENABLED gate.
   mock.acc = { acc_expenses: [], acc_vendor_moves: [], acc_account_moves: [], acc_list_items: [], dokan_balances: (opts.dokanBalances || []).map((x) => ({ ...x })), dokan_withdrawals: (opts.dokanWithdrawals || []).map((x) => ({ ...x })) };
   mock.approvals = [];
+  // phase 6 (0034): the customer-service tables. cs.customers: one row per normalised phone of the seeded orders (the backfill)
+  // plus a manual lead; one open customer conversation (assigned to M02, two messages) and one closed maker conversation; the
+  // five channels disconnected; csWrites: each insert / update / delete a member sent as { table, op, ...columns } (never the phone).
+  const CS_C = (n) => 'c0000000-0000-4000-8000-' + String(n).padStart(12, '0'); const CS_K = (n) => 'd1000000-0000-4000-8000-' + String(n).padStart(12, '0');
+  const csAgo = (minutes) => new Date(Date.now() - minutes * 60000).toISOString();
+  mock.cs = {
+    customers: mock.orders.map((o) => ({ phone: normPhone(o.customer_phone), name: o.customer_name, city: o.customer_city || null, address: o.customer_address || null, province: o.customer_state || null }))
+      .filter((c, i, a) => c.phone && a.findIndex((x) => x.phone === c.phone) === i)
+      .map((c, i) => ({ id: CS_C(i + 1), ...c, ig: null, address2: null, mood: null, tags: [], consent: true, auto_consent: true, source: null, created_from: 'orders', blocked_at: null, blocked_by: null, merged_into: null, created_by: null, created_at: T0, updated_at: null }))
+      .concat([{ id: CS_C(9), phone: '01277766655', name: 'يوسف حامد', ig: null, city: 'المنصورة', province: null, address: null, address2: null, mood: 'متوسط', tags: ['مهتم'], consent: true, auto_consent: true, source: 'إعلان فيسبوك', created_from: 'manual', blocked_at: null, blocked_by: null, merged_into: null, created_by: ADMIN, created_at: T0, updated_at: null }]),
+    notes: [{ id: 1, customer_id: CS_C(1), text: 'بتحب التغليف كهدية دايماً — اسألها قبل الشحن.', author: '00000000-0000-4000-8000-000000000002', at: csAgo(90) }],
+    overrides: [], teamRatings: [],
+    conversations: [
+      { id: CS_K(1), seg: 'customers', platform: 'whatsapp', channel: 'wa1', customer_id: CS_C(1), vendor_id: null, handle: null, external_id: null, status: 'مستنية ردنا', assignee: '00000000-0000-4000-8000-000000000002', outcome: null, tags: ['شكوى'], last_in_at: csAgo(18), last_out_at: null, waiting_since: csAgo(18), unread: 1, snoozed_until: null, closed_at: null, closed_by: null, created_by: null, created_at: csAgo(200), updated_at: csAgo(18) },
+      { id: CS_K(2), seg: 'vendors', platform: 'whatsapp', channel: 'wa2', customer_id: null, vendor_id: VND(1), handle: null, external_id: null, status: 'اتحلت', assignee: ADMIN, outcome: 'اتحل', tags: [], last_in_at: csAgo(1500), last_out_at: csAgo(1440), waiting_since: null, unread: 0, snoozed_until: null, closed_at: csAgo(1400), closed_by: ADMIN, created_by: ADMIN, created_at: csAgo(1600), updated_at: csAgo(1400) }],
+    messages: [
+      { id: CS_K(11), conversation_id: CS_K(1), kind: 'in', text: 'لو سمحت الأوردر 181668 اتأخر ليه؟', author: null, external_id: null, delivery: null, meta: {}, created_at: csAgo(18) },
+      { id: CS_K(12), conversation_id: CS_K(1), kind: 'note', text: 'كلموا المبتكر على واتساب 2', author: '00000000-0000-4000-8000-000000000002', external_id: null, delivery: null, meta: {}, created_at: csAgo(15) },
+      { id: CS_K(21), conversation_id: CS_K(2), kind: 'out', text: 'إمتى تقدروا تسلّموا الأوردر الفرعي؟', author: ADMIN, external_id: null, delivery: 'read', meta: {}, created_at: csAgo(1440) }],
+    segments: [{ id: CS_K(31), name: 'VIP راضيين', min_total: 1000, min_orders: null, moods: [], last_kind: null, last_from: null, last_to: null, ranges: { sat: [4, 5] }, include_unrated: false, add_ids: [], remove_ids: [], created_by: ADMIN, created_at: T0, updated_at: null }],
+    campaigns: [{ id: CS_K(41), name: 'عرض العملاء المتكررين — أكتوبر', segment_id: CS_K(31), channel: 'wa1', body: 'خصم 10% بالكود {كود_الخصم}', image_path: null, discount_code: 'OCT10', scheduled_at: null, cap_per_day: 300, min_delay_s: 20, test_phone: null, status: 'مسودة', size: 2, stats: {}, created_by: ADMIN, created_at: T0, updated_at: null }],
+    channels: [['wa1', 'واتساب 1 · العملاء', 'customers', 'qr', 300], ['wa2', 'واتساب 2 · المبتكرين', 'vendors', 'qr', 150], ['messenger', 'ماسنجر', 'customers', 'meta', 1000], ['instagram', 'إنستجرام', 'customers', 'meta', 1000], ['tiktok', 'تيك توك', 'customers', 'none', 0]]
+      .map(([id, name, audience, kind, cap_per_day]) => ({ id, name, audience, kind, status: 'disconnected', number: null, cap_per_day, since: null, last_message_at: null, meta: {}, updated_at: null })),
+  };
+  mock.csWrites = []; mock.csDown = false; let csSeq = 100;
   mock.accWrites = []; mock.accountsDown = false; mock.statements = []; mock.statementRows = opts.statementRows || [];
   let accSeq = 0;
   // brands / brandOwners / brandRates: the 0013 tables (ordersSeed(opts): opts.transfer seeds the temporary transfer); brandWrites: each
@@ -438,6 +465,146 @@ export async function installSupabaseMock(page, opts = {}) {
         return json(200, x ? [{ email: x.email, status: x.status }] : []);
       }
       if (!u) return json(401, { code: '42501', message: 'permission denied', details: null, hint: null }); // anon: no grants below
+      // 0034 (phase 6): the customer-service tables as RLS + the guards + the column grants read them. cs_customers: a member never
+      // reads the phone (the rpc below masks it), inserts a manual / import lead with cs.manage, updates mood / tags with cs.reply
+      // or the rest with cs.manage (phone / created_* fixed); conversations: cs.view F all, P the assigned ones; insert / update
+      // with cs.reply (a plain conversation only; identity fixed; closed_* stamped); messages: note / event / out only (out → queued);
+      // notes / overrides / team ratings insert with cs.reply as oneself; segments / campaigns cs.manage (a draft or a schedule;
+      // delete a draft); channels read-only. Filters: id / customer_id / conversation_id eq. or in.(…), or=(status.neq.اتحلت,updated_at.gte.X).
+      const csT = /^\/rest\/v1\/(cs_customers|cs_customer_notes|cs_rating_overrides|cs_team_ratings|cs_conversations|cs_messages|cs_segments|cs_campaigns|cs_channels|cs_contacts|cs_campaign_recipients)$/.exec(path);
+      if (csT) {
+        if (mock.csDown) return json(503, { message: 'mock: cs down' });
+        const t = csT[1]; const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        const view = hasPerm(u, 'cs.view'); const reply = hasPerm(u, 'cs.reply') === 'F'; const manage = hasPerm(u, 'cs.manage') === 'F';
+        const STORE = { cs_customers: 'customers', cs_customer_notes: 'notes', cs_rating_overrides: 'overrides', cs_team_ratings: 'teamRatings', cs_conversations: 'conversations', cs_messages: 'messages', cs_segments: 'segments', cs_campaigns: 'campaigns', cs_channels: 'channels', cs_contacts: 'contacts', cs_campaign_recipients: 'recipients' };
+        const rows = mock.cs[STORE[t]] || (mock.cs[STORE[t]] = []);
+        const now = new Date().toISOString(); const single = /vnd\.pgrst\.object\+json/.test(hd.accept || '');
+        const convVisible = (id) => view === 'F' || (view === 'P' && mock.cs.conversations.some((v) => v.id === id && v.assignee === u.id));
+        const visible = (r) => (view === 'N' ? false : t === 'cs_conversations' ? convVisible(r.id) : t === 'cs_messages' ? convVisible(r.conversation_id) : true);
+        // the horizontal filters the adapter sends
+        const filters = [...url.searchParams].filter(([k]) => !NOT_FILTERS.has(k));
+        const one = ([k, v]) => {
+          if (k === 'or') { const m = /^\(status\.neq\.([^,]+),updated_at\.gte\.(.+)\)$/.exec(v); if (!m) return null; const T = Date.parse(m[2]); return (r) => r.status !== m[1] || (r.updated_at && Date.parse(r.updated_at) >= T); }
+          if (v.startsWith('eq.')) return (r) => String(r[k]) === v.slice(3);
+          if (/^in\.\(.*\)$/.test(v)) { const set = v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1')); return (r) => set.includes(String(r[k])); }
+          return null;
+        };
+        const fns = filters.map(one); if (fns.some((f) => !f)) return refuse(400, 'PGRST100', 'mock: unsupported filter on ' + t + ': ' + filters.map((f) => f.join('=')).join('&'));
+        const match = (r) => fns.every((f) => f(r));
+        const NO_READ = { cs_customers: ['phone'], cs_campaigns: ['test_phone'], cs_campaign_recipients: ['phone'] }; // the columns never granted to a member
+        const strip = (r) => { const o = { ...r }; (NO_READ[t] || []).forEach((k) => { delete o[k]; }); if (t === 'cs_channels') delete o.meta; return o; };
+        const asked = (url.searchParams.get('select') || '*').split(',').map((x) => x.trim());
+        if (!asked.includes('*') && asked.some((c) => (NO_READ[t] || []).includes(c))) return refuse(401, '42501', 'permission denied for table ' + t);
+        const pick = (r) => (asked.includes('*') ? strip(r) : Object.fromEntries(asked.map((c) => [c, r[c] === undefined ? null : r[c]])));
+        if (method === 'GET') { const out = pageOf(rows.filter(visible).filter(match), url.searchParams).map(pick); return json(200, single ? out[0] || null : out); }
+        if (['cs_channels', 'cs_contacts', 'cs_campaign_recipients'].includes(t)) return refuse(401, '42501', 'permission denied for table ' + t);
+        const b = body(); const rowIn = Array.isArray(b) ? b[0] : b;
+        const deny = () => refuse(401, '42501', 'new row violates row-level security policy for table "' + t + '"');
+        const returning = (list) => { const prefer = hd.prefer || ''; const out = list.filter(visible).map(pick); return /return=representation/.test(prefer) || url.searchParams.has('select') ? json(method === 'POST' ? 201 : 200, single ? out[0] || null : out) : empty(204); };
+        if (method === 'POST') {
+          csSeq += 1; const uid = () => (t === 'cs_customers' || t === 'cs_conversations' || t === 'cs_segments' || t === 'cs_campaigns' ? 'c' + t.slice(3, 4) + '000000-0000-4000-8000-' + String(csSeq).padStart(12, '0') : csSeq);
+          if (t === 'cs_customers') {
+            if (!manage) return deny();
+            if (!['manual', 'import'].includes(rowIn.created_from || 'manual')) return refuse(403, '42501', 'a member adds a customer as manual or import');
+            if (rowIn.phone != null && !/^\d{6,15}$/.test(rowIn.phone)) return refuse(400, '23514', 'cs_customers_phone_check');
+            if (rowIn.phone != null && rows.some((r) => r.phone === rowIn.phone)) return refuse(409, '23505', 'duplicate key value violates unique constraint "cs_customers_phone_key"');
+            if (!String(rowIn.name || '').trim()) return refuse(400, '23514', 'cs_customers_name_check');
+            const rec = { id: uid(), phone: rowIn.phone ?? null, name: rowIn.name, ig: rowIn.ig ?? null, city: rowIn.city ?? null, province: rowIn.province ?? null, address: rowIn.address ?? null, address2: rowIn.address2 ?? null, mood: rowIn.mood ?? null, tags: rowIn.tags ?? [], consent: rowIn.consent ?? true, auto_consent: rowIn.auto_consent ?? true, source: rowIn.source ?? null, created_from: rowIn.created_from || 'manual', blocked_at: null, blocked_by: null, merged_into: null, created_by: u.id, created_at: now, updated_at: null };
+            rows.push(rec); const { phone, ...logged } = rowIn; mock.csWrites.push({ table: t, op: 'insert', ...logged }); return returning([rec]);
+          }
+          if (t === 'cs_conversations') {
+            if (!reply) return deny();
+            if (rowIn.external_id != null || rowIn.seg === 'comments' || rowIn.last_in_at != null) return refuse(403, '42501', 'a member opens a plain conversation: no channel thread, no comment');
+            if (!['customers', 'vendors'].includes(rowIn.seg) || (rowIn.seg === 'vendors' ? !rowIn.vendor_id || rowIn.customer_id : rowIn.vendor_id)) return refuse(400, '23514', 'cs_conversations_party');
+            const rec = { id: uid(), seg: rowIn.seg, platform: rowIn.platform || 'whatsapp', channel: rowIn.channel || 'wa1', customer_id: rowIn.customer_id ?? null, vendor_id: rowIn.vendor_id ?? null, handle: rowIn.handle ?? null, external_id: null, status: rowIn.status || 'جديدة', assignee: rowIn.assignee ?? null, outcome: rowIn.outcome ?? null, tags: rowIn.tags ?? [], last_in_at: null, last_out_at: null, waiting_since: null, unread: 0, snoozed_until: rowIn.snoozed_until ?? null, closed_at: null, closed_by: null, created_by: u.id, created_at: now, updated_at: null };
+            rows.push(rec); mock.csWrites.push({ table: t, op: 'insert', ...rowIn }); return returning([rec]);
+          }
+          if (t === 'cs_messages') {
+            if (!reply || !convVisible(rowIn.conversation_id)) return deny();
+            if (!['note', 'event', 'out'].includes(rowIn.kind)) return refuse(403, '42501', 'incoming and automatic messages are written by the server');
+            if (!String(rowIn.text || '').trim() || String(rowIn.text).length > 4000) return refuse(400, '23514', 'cs_messages_text_check');
+            const rec = { id: 'd1000000-0000-4000-8000-' + String(csSeq).padStart(12, '0'), conversation_id: rowIn.conversation_id, kind: rowIn.kind, text: rowIn.text, author: u.id, external_id: null, delivery: rowIn.kind === 'out' ? 'queued' : null, meta: rowIn.meta ?? {}, created_at: now };
+            rows.push(rec); const v = mock.cs.conversations.find((x) => x.id === rec.conversation_id); if (v) { v.updated_at = now; if (rec.kind === 'out') { v.last_out_at = now; v.waiting_since = null; } }
+            mock.csWrites.push({ table: t, op: 'insert', conversation_id: rec.conversation_id, kind: rec.kind, meta: rec.meta }); return returning([rec]);
+          }
+          if (t === 'cs_customer_notes' || t === 'cs_rating_overrides' || t === 'cs_team_ratings') {
+            if (!reply) return deny();
+            if (t === 'cs_rating_overrides' && !(rowIn.stars >= 1 && rowIn.stars <= 5 && String(rowIn.reason || '').trim())) return refuse(400, '23514', 'cs_rating_overrides check');
+            if (t === 'cs_team_ratings' && !(rowIn.sat >= 1 && rowIn.sat <= 5 && rowIn.manners >= 1 && rowIn.manners <= 5)) return refuse(400, '23514', 'cs_team_ratings check');
+            const rec = { id: csSeq, ...rowIn, ...(t === 'cs_customer_notes' ? { author: u.id } : { by_user: u.id }), at: now };
+            rows.push(rec); const { text, note, ...logged } = rowIn; mock.csWrites.push({ table: t, op: 'insert', ...logged }); return returning([rec]);
+          }
+          if (t === 'cs_segments' || t === 'cs_campaigns') {
+            if (!manage) return deny();
+            if (t === 'cs_segments' && rows.some((r) => r.name.trim().toLowerCase() === String(rowIn.name || '').trim().toLowerCase())) return refuse(409, '23505', 'duplicate key value violates unique constraint "cs_segments_name_idx"');
+            if (t === 'cs_campaigns' && !['مسودة', 'مجدولة'].includes(rowIn.status || 'مسودة')) return refuse(403, '42501', 'a member saves a draft or a schedule');
+            const rec = Object.assign(t === 'cs_segments' ? { min_total: null, min_orders: null, moods: [], last_kind: null, last_from: null, last_to: null, ranges: {}, include_unrated: false, add_ids: [], remove_ids: [] } : { segment_id: null, channel: 'wa1', body: null, image_path: null, discount_code: null, scheduled_at: null, cap_per_day: 300, min_delay_s: 20, test_phone: null, status: 'مسودة', size: 0 }, rowIn, { id: uid(), stats: {}, created_by: u.id, created_at: now, updated_at: null });
+            if (t === 'cs_segments') delete rec.stats;
+            rows.push(rec); const { test_phone, ...logged } = rowIn; mock.csWrites.push({ table: t, op: 'insert', ...logged }); return returning([rec]);
+          }
+        }
+        if (method === 'PATCH') {
+          const targets = rows.filter(visible).filter(match);
+          const LIGHT = ['mood', 'tags']; const CONV_OK = ['status', 'assignee', 'tags', 'outcome', 'snoozed_until', 'unread'];
+          const may = (r) => (t === 'cs_customers' ? (reply || manage) : t === 'cs_conversations' ? reply : manage);
+          const list = targets.filter(may); if (!list.length) return returning([]);
+          for (const r of list) {
+            if (t === 'cs_customers') {
+              if (['phone', 'created_from', 'created_by', 'created_at', 'merged_into'].some((k) => k in b)) return refuse(401, '42501', 'permission denied for table cs_customers');
+              if (Object.keys(b).some((k) => !LIGHT.includes(k)) && !manage) return refuse(403, '42501', 'cs.manage = F is required to edit a customer (cs.reply changes mood and tags only)');
+              if ('blocked_at' in b) b.blocked_by = b.blocked_at ? u.id : null;
+            }
+            if (t === 'cs_conversations') {
+              if (Object.keys(b).some((k) => !CONV_OK.includes(k))) return refuse(403, '42501', 'only the status, assignee, tags, outcome, snooze and read state of a conversation can be changed here');
+              if (b.status === 'اتحلت' && r.status !== 'اتحلت') { b.closed_at = now; b.closed_by = u.id; } else if (b.status && b.status !== 'اتحلت') { b.closed_at = null; b.closed_by = null; }
+            }
+            if (t === 'cs_campaigns') { if (['شغالة', 'خلصت'].includes(r.status) && ['status', 'body', 'segment_id'].some((k) => k in b && b[k] !== r[k])) return refuse(403, '42501', 'a running or finished campaign is not edited'); if (b.status && !['مسودة', 'مجدولة', 'متوقفة'].includes(b.status)) return refuse(403, '42501', 'a member sets draft, scheduled or paused'); delete b.stats; }
+            Object.assign(r, b, { updated_at: now }); const { phone, test_phone, ...logged } = b; mock.csWrites.push({ table: t, op: 'update', id: r.id, ...logged });
+          }
+          return returning(list);
+        }
+        if (method === 'DELETE') {
+          if (!['cs_segments', 'cs_campaigns'].includes(t)) return refuse(401, '42501', 'permission denied for table ' + t);
+          const list = rows.filter(visible).filter(match).filter(() => manage).filter((r) => t === 'cs_segments' || r.status === 'مسودة');
+          list.forEach((r) => { rows.splice(rows.indexOf(r), 1); mock.csWrites.push({ table: t, op: 'delete', id: r.id }); if (t === 'cs_segments') mock.cs.campaigns.forEach((k) => { if (k.segment_id === r.id) k.segment_id = null; }); });
+          return returning(list);
+        }
+      }
+      // cs_customers_list (0034): every customer not merged with the figures from the seeded orders of the same normalised phone
+      // (deleted orders left out), the chat figures, the ratings (customer_ratings + cs_team_ratings), the latest override, the
+      // last five orders; the phone masked without sensitive.customer_phone; the orders' figures only with orders.view; cs.view N → 42501
+      if (method === 'POST' && path === '/rest/v1/rpc/cs_customers_list') {
+        if (mock.csDown) return json(503, { message: 'mock: cs down' });
+        if (hasPerm(u, 'cs.view') === 'N') return json(403, { code: '42501', details: null, hint: null, message: 'cs.view is needed' });
+        const full = isAdmin(u) || hasPerm(u, 'sensitive.customer_phone') === 'F'; const ov = hasPerm(u, 'orders.view') !== 'N';
+        const OPEN = ['جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن']; const DEAD = ['ملغي', 'فشل', 'استرجاع']; const r1 = (xs) => (xs.length ? Math.round(xs.reduce((a, x) => a + x, 0) / xs.length * 10) / 10 : null);
+        const out = mock.cs.customers.filter((c) => !c.merged_into).map((c) => {
+          const os = c.phone && ov ? mock.orders.filter((o) => !o.deleted_at && normPhone(o.customer_phone) === c.phone).sort((a, b) => (a.placed_at < b.placed_at ? 1 : -1)) : [];
+          const live = os.filter((o) => !DEAD.includes(o.status)); const convs = mock.cs.conversations.filter((v) => v.customer_id === c.id);
+          const rates = (ov ? mock.ratings.filter((x) => os.some((o) => Number(o.id) === Number(x.order_id))) : []).concat(mock.cs.teamRatings.filter((x) => x.customer_id === c.id));
+          const o1 = mock.cs.overrides.filter((x) => x.customer_id === c.id).sort((a, b) => (a.at < b.at ? 1 : -1))[0];
+          const lastConv = convs.map((v) => v.updated_at || v.created_at).sort().pop() || null; const lastOrder = os[0] ? os[0].placed_at : null;
+          return { id: c.id, phone: c.phone == null ? null : full ? c.phone : maskPhone(c.phone), name: c.name, ig: c.ig, city: c.city, province: c.province, address: c.address, address2: c.address2, mood: c.mood, tags: c.tags, consent: c.consent, auto_consent: c.auto_consent, source: c.source, created_from: c.created_from, blocked_at: c.blocked_at, merged_into: c.merged_into, created_at: c.created_at,
+            orders: live.length, total: live.reduce((a, o) => a + Number(o.total || 0), 0), last_order_at: lastOrder, refused: os.filter((o) => o.status === 'فشل').length, returned: os.filter((o) => o.status === 'استرجاع').length,
+            open_complaints: convs.filter((v) => v.status !== 'اتحلت' && (v.tags || []).includes('شكوى')).length, late_open: os.filter((o) => OPEN.includes(o.status) && Date.parse(o.placed_at) < Date.now() - 11 * 864e5).length,
+            conversations: convs.length, last_active_at: [lastConv, lastOrder, c.created_at].filter(Boolean).sort().pop(), rating_sat: r1(rates.map((x) => Number(x.sat))), rating_manners: r1(rates.map((x) => Number(x.manners))), rating_count: rates.length,
+            override_stars: o1 ? o1.stars : null, override_reason: o1 ? o1.reason : null, order_list: os.slice(0, 5).map((o) => ({ id: o.id, status: o.status, total: Number(o.total || 0), placed_at: o.placed_at })) };
+        });
+        return json(200, out);
+      }
+      // cs_merge_customers (0034): cs.manage; two distinct unmerged customers; the other's conversations / notes / ratings move, tags join, empties fill
+      if (method === 'POST' && path === '/rest/v1/rpc/cs_merge_customers') {
+        const b = body(); const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        if (hasPerm(u, 'cs.manage') !== 'F') return refuse(403, '42501', 'cs.manage = F is required to merge customers');
+        if (!b.p_keep || !b.p_other || b.p_keep === b.p_other) return refuse(400, '22023', 'two different customers are needed');
+        const k = mock.cs.customers.find((c) => c.id === b.p_keep && !c.merged_into); const o = mock.cs.customers.find((c) => c.id === b.p_other && !c.merged_into);
+        if (!k || !o) return refuse(400, 'P0002', 'customer not found');
+        const now = new Date().toISOString();
+        mock.cs.conversations.forEach((v) => { if (v.customer_id === o.id) v.customer_id = k.id; }); ['notes', 'overrides', 'teamRatings'].forEach((key) => mock.cs[key].forEach((r) => { if (r.customer_id === o.id) r.customer_id = k.id; }));
+        ['ig', 'city', 'province', 'address', 'address2', 'source'].forEach((f) => { if (k[f] == null) k[f] = o[f]; }); k.tags = [...new Set([...(k.tags || []), ...(o.tags || [])])]; k.updated_at = now;
+        o.merged_into = k.id; o.updated_at = now; mock.csWrites.push({ table: 'cs_customers', op: 'merge', keep: k.id, other: o.id });
+        return json(200, k.id);
+      }
       // 0019 (phase 4): the ledgers — read with accounts.view <> N (view P: no «المرتبات»), insert with accounts.add = F as oneself,
       // update one's own row with add F or any row with approve F (others: zero rows, like RLS); a voided row is final (42501); the
       // void is stamped here (voided_at / voided_by). The Dokan mirrors are read-only (42501 on a write). Filters: voided_at=is.null, id=eq.

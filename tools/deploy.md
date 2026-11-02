@@ -1103,7 +1103,7 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
 
 #### 2.7.15 خدمة العملاء (المرحلة 6.1، 2 نوفمبر)
 
-- `0034_cs.sql` بالـ MCP (`apply_migration`) ثم `supabase/tests/rls_cs.sql` على الحي (`execute_sql` — الملف `begin … rollback`، بيطبع `rls_cs: ok`).
+- `0034_cs.sql` **اتطبّق على الحي 2 نوفمبر** بـ `execute_sql` (نسخة أول تطبيق من غير سطور `drop trigger if exists` — `apply_migration` بيطلب تأكيد صاحب المشروع على الـ drop/revoke؛ الصف مش في `supabase_migrations` زي `0028`): 85 عميل + 5 قنوات. `supabase/tests/rls_cs.sql` على الحي (`execute_sql` — الملف `begin … rollback`، بيطبع `rls_cs: ok`) **لسه** — الـ MCP بيطلب تأكيد (فيه `delete`)؛ شغّله من SQL Editor.
   المهاجرة بتضيف `cs.view/reply/manage` للأدوار اللي مافيهاش (`where not (permissions ? 'cs.view')`)، وبتعمل عميل لكل رقم مطبّع في `orders` (تعبئة re-runnable).
 - مافيش Edge Functions ولا أسرار في 6.1 (القنوات كلها `disconnected`). الـ Realtime على `cs_conversations` و`cs_messages` بيتضاف في المهاجرة.
 - بعدها `main` (الواجهة: الكتل 14/19/20/28، `app/js/adapter/cs.js`، `app/css/cs.css`). التحقق: دخول أدمن → «خدمة العملاء» → تاب «العملاء» فيه عملاء الأوردرات بأرقامهم.

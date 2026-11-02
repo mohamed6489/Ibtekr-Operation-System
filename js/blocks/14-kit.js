@@ -352,6 +352,47 @@
     });
   }
   // بيضيف زرار «الأعمدة» لكارت الجدول (4 أعمدة فأكتر) وبيطبّق التفضيلات بعد الرسم
+  function sortableRows(wrap, attr, onEnd) {
+    const rows = () => [...wrap.querySelectorAll('[' + attr + ']')];
+    const ids = () => rows().map((r) => r.getAttribute(attr));
+    const movable = (r) => r.dataset.fixed !== '1';
+    const commit = () => { if (onEnd) onEnd(ids()); };
+    wrap.querySelectorAll('[data-grip]').forEach((g) => {
+      const row = g.closest('[' + attr + ']'); if (!row || !movable(row)) return;
+      let dragging = false;
+      g.addEventListener('pointerdown', (e) => {
+        if (e.button) return;
+        dragging = true; g.setPointerCapture(e.pointerId); e.preventDefault();
+        row.classList.add('dragging'); wrap.classList.add('sorting');
+      });
+      g.addEventListener('pointermove', (e) => {
+        if (!dragging) return;
+        // بنحرّك الصفوف التانية حوالين الصف المسحوب — لو حرّكنا الصف نفسه الـ pointer capture بيضيع
+        const others = rows().filter((r) => r !== row && movable(r));
+        for (const o of others) {
+          const b = o.getBoundingClientRect();
+          const mid = b.top + b.height / 2;
+          const below = !!(row.compareDocumentPosition(o) & Node.DOCUMENT_POSITION_FOLLOWING);
+          if (!below && e.clientY < mid) { row.parentNode.insertBefore(o, row.nextSibling); break; }
+          if (below && e.clientY > mid) { row.parentNode.insertBefore(o, row); break; }
+        }
+      });
+      const end = (e) => { if (!dragging) return; dragging = false; try { g.releasePointerCapture(e.pointerId); } catch (x) {} row.classList.remove('dragging'); wrap.classList.remove('sorting'); commit(); };
+      g.addEventListener('pointerup', end);
+      g.addEventListener('pointercancel', end);
+      g.addEventListener('keydown', (e) => {
+        const list = rows(); const i = list.indexOf(row); const id = row.getAttribute(attr);
+        let moved = false;
+        if (e.key === 'ArrowUp' && i > 0 && movable(list[i - 1])) { row.parentNode.insertBefore(row, list[i - 1]); moved = true; }
+        else if (e.key === 'ArrowDown' && i < list.length - 1) { row.parentNode.insertBefore(list[i + 1], row); moved = true; }
+        if (!moved) return;
+        e.preventDefault(); commit();
+        // الفورم بيعيد الرسم بعد الحفظ، فبنرجّع الفوكس لنفس المسكة عشان تقدر تكمّل بالكيبورد
+        setTimeout(() => { const again = document.querySelector('[' + attr + '="' + (window.CSS && CSS.escape ? CSS.escape(id) : id) + '"] [data-grip]'); if (again) again.focus(); }, 0);
+      });
+    });
+  }
+  const Grip = (label) => h('button', { type: 'button', class: 'dc-grip', 'data-grip': '', 'aria-label': 'اسحب لترتيب ' + label + ' (أو استعمل فوق وتحت)', title: 'اسحب للترتيب' }, Icon('grip', 'sm'));
   // ---------- تصدير Excel سريع (owner 27 Oct: «مشاركة ك اكسيل») ----------
   // aoa = مصفوفة صفوف (أول صف العناوين). المكتبة (app/js/vendor/xlsx.full.min.js) بتتحمّل وقت الطلب؛ لو ماتحمّلتش بينزّل CSV.
   const loadXLSX = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'js/vendor/xlsx.full.min.js'; sc.onload = () => res(window.XLSX); sc.onerror = rej; document.head.appendChild(sc); }));
@@ -535,6 +576,6 @@
       h('div', { class: 'sp-row' }, g, h('span', { class: 't-small help sp-word', 'aria-live': 'polite' }, v ? v + ' من 5 · ' + words[v] : 'اختار من 1 لـ 5')),
       error ? h('div', { class: 'err-msg', role: 'alert', id: id + '-err' }, error) : help ? h('p', { class: 't-small help', style: 'margin:0' }, help) : null);
   }
-  window.IBKit = { Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, xlsxExport, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+  window.IBKit = { Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, xlsxExport, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
 })();
 

@@ -1371,3 +1371,179 @@ tr.af-hide{display:none!important}
 @media (max-width:767px){.subs-sum-b{grid-template-columns:repeat(2,minmax(0,1fr))}}
 #main .table-card>.bulk-bar,#main .table-card>.af-row{margin-inline:24px}
 @media (max-width:767px){.mlog-bar>input[type=search],.mlog-bar>.pop-anchor{flex:1 1 100%;width:100%!important}.mlog-bar>.pop-anchor .date-field{width:100%}}
+/* ترتيب بالسحب في «تخصيص اللوحة» (owner 28 Oct) */
+.dash-cust .dc-row .dc-grip{order:-1;flex:none;width:28px;height:28px;display:grid;place-items:center;border:0;background:transparent;border-radius:var(--radius-xs,4px);color:var(--color-text-secondary);cursor:grab;touch-action:none}
+.dash-cust .dc-row .dc-grip:hover{background:var(--color-bg-tint);color:var(--color-text-primary)}
+.dash-cust .dc-row .dc-grip:active{cursor:grabbing}
+.dash-cust .dc-row .dc-grip:focus-visible{outline:2px solid var(--color-action-default);outline-offset:1px}
+.dash-cust .dc-row.dragging{background:var(--color-bg-tint);box-shadow:var(--shadow-popover);border-radius:var(--radius-sm);position:relative;z-index:2}
+.dash-cust.sorting{cursor:grabbing}
+.dash-cust.sorting .dc-row:not(.dragging){transition:transform .12s ease}
+.dash-cust .dc-row{grid-template-columns:auto minmax(0,1fr) auto}
+
+/* ===== المرحلة 5.5 قرار 7 — قواعد صاحب المشروع بتاريخ من الـ prototype v2 (زي ما هي) ===== */
+/* الزرار الرئيسي في أي بوب أب بالأخضر زي أزرار الإضافة (owner 1 Nov 21:51) */
+.modal .btn-primary,.drawer .btn-primary{background:var(--color-brand-default);color:var(--color-text-on-brand)}
+.modal .btn-primary:hover,.drawer .btn-primary:hover{background:var(--color-brand-hover)}
+.modal .btn-primary:disabled,.drawer .btn-primary:disabled{background:var(--color-bg-disabled);color:var(--color-text-disabled)}
+/* كروت الرسوم مكانتش بتكبر على قد المحتوى: العمود الأب بيضغطها (flex-shrink) فالنص اللي تحت بيركب على الأشرطة (owner 31 Oct) */
+.charts,[data-rgroup]{flex-shrink:0}
+.chart-card>*{flex-shrink:0}
+.chart-card .chart-foot{margin-top:auto;padding-top:4px}
+/* أيقونة + نص في نفس السطر (owner 1 Nov): دايمًا في النص رأسيًا */
+.select .val>svg,.select .val>.ic,.val>svg{vertical-align:middle;position:relative;top:-1px;margin-inline-end:4px}
+/* اختيار الفترة (owner 1 Nov — مشكلة السكرول): التقويم والاختيارات بيعملوا سكرول جوه، وسطر التواريخ والأزرار ثابتين تحت ومش بيتغطّوا */
+.dp.range{overflow:hidden}
+.dp.range .dp-body{flex:1 1 auto;min-height:0;overflow:auto;overscroll-behavior:contain}
+.dp.range .presets{overflow-y:auto;overscroll-behavior:contain}
+.dp.range .range-row,.dp.range .dp-foot{flex:none;background:var(--color-bg-elevated);position:relative;z-index:1}
+@media (max-width:767px){
+  /* موبايل: bottom sheet بعرض الشاشة، الأزرار تحت في متناول الصباع */
+  .dp.range{inset:auto 0 0 0!important;top:auto!important;width:100%!important;max-height:88vh!important;overflow:hidden;border-radius:16px 16px 0 0;box-shadow:0 -12px 32px rgba(46,42,27,.28);z-index:300}
+  .dp.range .cal{width:100%}.dp.range .cal-grid{grid-template-columns:repeat(7,minmax(0,1fr))}.dp.range .day{width:100%;height:40px}
+  .dp.range .dp-foot .btn{min-height:44px;flex:1}.dp.range .dp-foot .tz{flex-basis:100%}.dp.range .dp-foot{flex-wrap:wrap;padding-bottom:calc(12px + env(safe-area-inset-bottom))}
+}
+@media (max-width:767px){
+  .dp.range .range-row{display:grid;grid-template-columns:1fr 1fr;gap:8px;padding:10px 16px}
+  .dp.range .range-row>:first-child,.dp.range .range-row>.check{grid-column:1/-1}
+  .dp.range .range-row>span:not(.check){display:none}
+  .dp.range .range-row .input{height:44px}
+}
+@media (max-width:767px){
+  .dp.range .range-row>*{min-width:0;width:100%!important;box-sizing:border-box}
+  /* الشهرين تحت بعض على الموبايل — عشان سهم «الشهر الجاي» يبقى موجود (كان مستخبي مع الشهر التاني) */
+  .dp.range .cal+.cal{display:block}
+  .dp.range .cals{flex-direction:column;flex-wrap:nowrap;align-items:stretch;gap:16px;flex:none}
+}
+@media (max-width:767px){.dp.range .cals>.cal{width:100%!important;max-width:none}.dp.range .cals>.cal .cal-grid{width:100%}}
+@media (max-width:767px){.dp.range .cals{width:100%;box-sizing:border-box}}
+/* البوباب (owner 1 Nov): أقصى عرض 800 على الديسكتوب (≥1024) في كل السيستم — الجداول جواه بتعمل سكرول أفقي بدل ما تكبّر البوباب */
+@media (min-width:1024px){.modal,.modal.wide,.modal.mid,.modal.xl{max-width:min(800px, calc(100vw - 32px))}}
+/* ===== Inner spacing (owner 31 Oct 18:16): مفيش محتوى لازق في حرف الكارت — 16px فوق/تحت و20px يمين/شمال، والجدول بس هو اللي فل-بليد ===== */
+.dash-card{padding:var(--space-md) 20px}
+.dash-card.tbl-v2>.scroll-x,.dash-card.tbl-v2>.xwrap{margin-inline:-20px;width:calc(100% + 40px);max-width:none}
+.tbl-v2>.sec-b>:not(.scroll-x,.xwrap,.sticky-wrap,table,.empty,.sr-only){margin-inline:20px}
+.tbl-v2>.sec-b>:not(.scroll-x,.xwrap,.sticky-wrap,table,.empty,.sr-only):first-child{margin-top:var(--space-md)}
+.tbl-v2>.sec-b>:not(.scroll-x,.xwrap,.sticky-wrap,table,.empty,.sr-only):last-child{margin-bottom:var(--space-md)}
+.tbl-v2>.sec-b>:is(.toolbar,.bulk-bar,p,.legend,.note,.help,.t-small){margin-block:var(--space-sm)!important;margin-inline:20px!important}
+.tbl-v2>.sec-b>.toolbar:first-child{margin-top:var(--space-md)}
+.tbl-v2>:is(p,.note,.toolbar,.legend,.help,.bulk-bar,.t-small){margin:var(--space-sm) 20px!important}
+.tbl-v2>:is(p,.note,.toolbar,.legend,.help,.bulk-bar,.t-small):last-child{margin-bottom:var(--space-md)!important}
+.tbl-v2>.sec-b>:is(.toolbar,.bulk-bar,p,.legend,.note,.help,.t-small):last-child{margin-bottom:var(--space-md)!important}
+.owed-card{padding:var(--space-md) 20px}
+@media (max-width:1023px){.dash-card{padding:var(--space-sm) var(--space-md)}.dash-card.tbl-v2>.scroll-x,.dash-card.tbl-v2>.xwrap{margin-inline:calc(-1*var(--space-md));width:calc(100% + 32px)}
+  .tbl-v2>.sec-b>:not(.scroll-x,.xwrap,.sticky-wrap,table,.empty,.sr-only){margin-inline:0!important}}
+
+/* كارت التجميع على الجدول القياسي: ترويسة بخلفية container والجدول فل-بليد */
+.cons.tbl-v2{padding:0;gap:0}
+.cons.tbl-v2>.cons-h{background:var(--color-bg-container);padding:14px 20px}
+.cons.tbl-v2>:not(.cons-h,.scroll-x,.xwrap,.sticky-wrap,table){margin:var(--space-sm) 20px}
+/* ===== Touch & small screens (owner 31 Oct 19:32): كل حاجة بتتداس ≥ 44 على الموبايل والتابلت، ومفيش صف بيتقص ===== */
+@media (max-width:1023px){
+  /* أزرار حقيقية بتكبر لـ 44 */
+  .topbar .ai-btn,.topbar .user-btn,.subtab,.sn-i,.seg-b,.ptab,.icon-btn.acc-tog,.pages .btn,.sec-b>.btn-text,.set-nav-item{min-height:44px}
+  .icon-btn.acc-tog{min-width:44px}
+  /* عناصر صغيرة جوه سطر: مساحة ضغط 44 من غير ما شكلها يكبر */
+  .cb,.sw,.kpi-details,.kpi-more,nav.crumbs a,button.tg,.link-btn,.dash-link,.dash-name,.dc-grip,a.num,.who-cell,.ptab .cnt{position:relative}
+  :is(.cb,.sw,.kpi-details,.kpi-more,nav.crumbs a,button.tg,.link-btn,.dash-link,.dash-name,.dc-grip,a.num,.who-cell)::after{content:'';position:absolute;left:50%;top:50%;width:max(100%,44px);height:max(100%,44px);transform:translate(-50%,-50%)}
+  .kpi-details,.kpi-more{min-height:32px}
+  /* صفوف التابات/الأقسام: بتلتف بدل ما تتقص */
+  .ptabs{flex-wrap:wrap;overflow:visible}
+  .subnav{flex-wrap:wrap;overflow:visible}
+  .set-nav{flex-wrap:wrap;overflow:visible}.set-nav-item{white-space:normal}
+  .st-row{grid-template-columns:24px 32px minmax(0,1fr)}.st-row .st-val{grid-column:3;justify-self:start}
+}
+@media (max-width:1023px){
+  .tab,.chip,.cnt-in{min-height:44px}
+  .check input{position:relative}.check{min-height:44px}
+}
+/* الموبايل: البحث العام بيبقى أيقونة 44 — لما تدوس عليه بيفتح بعرض الهيدر كله */
+@media (max-width:767px){
+  .topbar{position:sticky}
+  .topbar .search{flex:0 0 44px;width:44px;height:44px;padding:0;justify-content:center;border-color:transparent;background:transparent;cursor:pointer}
+  .topbar .search input{width:0;flex:0 0 0;padding:0}
+  .topbar .search:focus-within{position:absolute;inset:2px 12px;width:auto;height:44px;z-index:6;justify-content:flex-start;padding:0 12px;background:var(--color-bg-base);border-color:var(--color-border-focus);box-shadow:var(--shadow-popover)}
+  .topbar .search:focus-within input{flex:1;width:auto}
+}
+
+@media (max-width:767px){
+  .topbar{gap:4px;padding:0 8px}
+  .topbar .clock-widget .btn{width:44px;padding:0;gap:0;font-size:0}.topbar .clock-widget .btn svg{width:20px;height:20px}
+  .clock .lbl{display:none}
+}
+@media (max-width:1023px){.topbar .user .t-label{max-width:88px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}}
+@media (max-width:1023px){
+  .topbar .qa-lbl,.topbar .qa-anchor .btn svg:last-child{display:none}.topbar .qa-anchor .btn{width:44px;padding:0}
+  .topbar .clock .lbl{display:none}
+  .topbar .ai-btn{min-width:44px;justify-content:center}
+  .pages .btn,.sec-b>.btn-text{min-width:44px}
+  .st-row .st-val{white-space:normal;min-width:0}
+}
+@media (max-width:1023px){.topbar .user-btn .nm,.topbar .user-btn>svg{display:none}.topbar .user-btn{min-width:44px;justify-content:center}}
+@media (max-width:1023px){.sec-b>.btn-text{min-height:44px!important;height:auto!important;white-space:normal;text-align:start}}
+/* كروت الجداول على الموبايل/التابلت: لو أول عمود checkbox التحديد، الـ checkbox بيبقى في ركن الكارت والعمود التاني هو العنوان */
+@media (max-width:1023px){
+  .scroll-x tr:has(>td:first-child>[role=checkbox]:only-child){position:relative}
+  .scroll-x tr:has(>td:first-child>[role=checkbox]:only-child)>td:first-child{position:absolute;top:10px;inset-inline-start:12px;border:0;padding:0;grid-column:auto}
+  .scroll-x tr:has(>td:first-child>[role=checkbox]:only-child)>td:nth-child(2){grid-column:1/-1;grid-row:1;padding-inline-start:40px;padding-bottom:8px;border-bottom:1px solid var(--color-border-subtle);font-weight:600;color:var(--color-brand-default);font-size:14px}
+  .scroll-x tr:has(>td:first-child>[role=checkbox]:only-child):has(>td[data-l=""]:not(:first-child))>td:nth-child(2){grid-column:1/-2}
+  .scroll-x tr:has(>td:first-child>[role=checkbox]:only-child)>td:nth-child(2)::before{display:none}
+}
+/* كروت الجداول: زرار ⋮ في الركن التاني، والعنوان بياخد عرض الكارت كله */
+@media (max-width:1023px){
+  .scroll-x tbody tr:has(>td[data-l=""]:not(:first-child)){position:relative}
+  .scroll-x tbody tr>td[data-l=""]:not(:first-child){position:absolute;top:6px;inset-inline-end:6px;grid-column:auto;grid-row:auto}
+  .scroll-x tbody tr:has(>td[data-l=""]:not(:first-child))>td:first-child,
+  .scroll-x tbody tr:has(>td:first-child>[role=checkbox]:only-child):has(>td[data-l=""]:not(:first-child))>td:nth-child(2){grid-column:1/-1;padding-inline-end:48px}
+  .scroll-x tbody tr:has(>td:first-child>[role=checkbox]:only-child)>td:nth-child(2){height:auto;min-height:0;overflow:visible}
+}
+
+/* global search results (owner 1 Nov) */
+.gq-wrap{position:relative;flex:1 1 auto;min-width:0;max-width:520px}.gq-wrap>.search{width:100%}
+.gq-res{position:absolute;top:calc(100% + 4px);inset-inline:0;z-index:60;max-height:min(70vh,480px);overflow-y:auto;min-width:280px}
+.gq-res[hidden]{display:none}
+.gq-opt{display:flex!important;flex-direction:column;align-items:flex-start;gap:2px;text-align:start}
+.gq-opt[aria-selected=true]{background:var(--color-bg-tint)}
+.gq-empty{padding:12px;color:var(--color-text-secondary)}
+@media (max-width:767px){.gq-res{position:fixed;top:56px;inset-inline:8px}}
+
+/* «.wrap» (لف النص، max 280) كان بيقفل عرض أي «toolbar wrap» على 280px — owner 1 Nov */
+.toolbar.wrap{display:flex;max-width:none;white-space:normal}
+
+/* ===================== مقاسات الأزرار والكنترولز الموحدة (owner 31 Oct) =====================
+   القاعدة: 3 مقاسات بس، وأي عناصر جنب بعض في نفس الصف بنفس المقاس.
+   ┌──────┬────────┬───────────────────────────────────────────────────────────────┐
+   │ Size │ Height │ بيتستخدم فين                                                    │
+   ├──────┼────────┼───────────────────────────────────────────────────────────────┤
+   │ sm   │ 32px   │ جوه صفوف الجداول والقوايم بس (إجراءات الصف)                       │
+   │ md   │ 36px   │ الافتراضي في كل حتة تانية: هيدر الصفحة، هيدر السكشن، التولبار،   │
+   │      │        │ الفلاتر، الفورمز، الكروت، فوتر البوب أب، شريط التحديد            │
+   │ lg   │ 44px   │ الموبايل والتابلت (≤1023px) لكل الكنترولز — مساحة لمس            │
+   └──────┴────────┴───────────────────────────────────────────────────────────────┘
+   الأزرار، أزرار الأيقونات، القوايم المنسدلة، حقول البحث والتاريخ كلهم بيمشوا على نفس الجدول.
+   الملف ده بيتحمّل آخر حاجة عشان يكون هو المرجع. */
+:root{--ctl-sm:32px;--ctl-md:36px;--ctl-lg:44px}
+
+/* md — الافتراضي (ديسكتوب بكل عروضه، من غير تصغير عند 1300) */
+.btn,.btn.sm,.btn.lg{height:var(--ctl-md);min-height:var(--ctl-md);padding:0 14px;font-size:14px;gap:8px}
+.btn.lg{height:var(--ctl-lg);min-height:var(--ctl-lg);padding:0 20px}
+.icon-btn{width:var(--ctl-md);height:var(--ctl-md);min-height:var(--ctl-md)}
+.select,.date-field,.sort-btn,.search-field,input.input,.input:not(textarea):not(.textarea){height:var(--ctl-md);min-height:var(--ctl-md)}
+.pop-anchor>.btn,.pop-anchor>.select{height:var(--ctl-md)}
+
+/* sm — صفوف الجداول والقوايم بس: كل اللي في الصف بنفس المقاس */
+:is(td,.pick-row,.cv,.dn-item,.rule,.set-row,.chan-opt,.list-row) :is(.btn,.btn.sm){height:var(--ctl-sm);min-height:var(--ctl-sm);padding:0 10px;font-size:13px;gap:6px}
+:is(td,.pick-row,.cv,.dn-item,.rule,.list-row) .icon-btn{width:var(--ctl-sm);height:var(--ctl-sm);min-height:var(--ctl-sm)}
+td :is(.select,.date-field,.input:not(textarea)){height:var(--ctl-sm);min-height:var(--ctl-sm)}
+
+/* زرار النص بياخد نفس الارتفاع عشان يتصف مع اللي جنبه */
+.btn-text{height:var(--ctl-md)}
+:is(td,.pick-row,.cv,.dn-item,.rule,.list-row) .btn-text{height:var(--ctl-sm)}
+
+/* lg — اللمس (موبايل وتابلت): كل الكنترولز 44 */
+@media (max-width:1023px){
+  .btn,.btn.sm,.btn.lg,#main .btn,:is(td,.pick-row,.cv,.dn-item,.rule,.set-row,.chan-opt,.list-row) :is(.btn,.btn.sm,.btn-text){height:var(--ctl-lg);min-height:var(--ctl-lg)}
+  .icon-btn,#main .icon-btn,:is(td,.pick-row,.cv,.dn-item,.rule,.list-row) .icon-btn{width:var(--ctl-lg);height:var(--ctl-lg);min-height:var(--ctl-lg)}
+  .select,.date-field,.sort-btn,.search-field,input.input,.input:not(textarea):not(.textarea),td :is(.select,.date-field,.input:not(textarea)){height:var(--ctl-lg);min-height:var(--ctl-lg)}
+}
+

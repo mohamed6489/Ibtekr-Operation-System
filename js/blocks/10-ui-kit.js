@@ -59,6 +59,7 @@
     filter: 'M3 5h18l-7 8v6l-4 2v-8z',
     plus: 'M12 5v14M5 12h14', chevD: 'M6 9l6 6 6-6', chevU: 'M6 15l6-6 6 6', chevL: 'M15 6l-6 6 6 6', chevR: 'M9 6l6 6-6 6', close: 'M6 6l12 12M18 6L6 18',
     edit: 'M4 20h4L19 9l-4-4L4 16zM14 6l4 4',
+    grip: 'M9 5h.01M15 5h.01M9 12h.01M15 12h.01M9 19h.01M15 19h.01',
     cal: 'M4 7h16v13H4zM4 11h16M8 3v4M16 3v4', more: 'M12 6h.01M12 12h.01M12 18h.01', sliders: 'M4 7h10M18 7h2M4 17h2M10 17h10M14 5v4M6 15v4',
     bell: 'M6 16v-5a6 6 0 0112 0v5l2 2H4zM10 21h4', search: 'M11 4a7 7 0 100 14 7 7 0 000-14zM21 21l-5-5',
     home: 'M4 11l8-7 8 7v9H4z', box: 'M4 8l8-4 8 4v9l-8 4-8-4zM4 8l8 4 8-4M12 12v9', tag: 'M3 12V4h8l10 10-8 8zM7.5 8h.01',
@@ -78,6 +79,8 @@
 
   // ---- Button / Icon button ----
   function Button({ type = 'default', size, label, icon, iconEnd, onClick, disabled, attrs }) {
+    // أزرار الإضافة (+ … / أيقونة plus) بالأخضر زي «إضافة» في الهيدر (owner 1 Nov 21:49 — المرحلة 5.5 قرار 7)
+    if (type === 'default' && (icon === 'plus' || (typeof label === 'string' && /^\+\s?/.test(label)))) type = 'brand';
     return h('button', Object.assign({ type: 'button', class: 'btn btn-' + type + (size ? ' ' + size : ''), disabled, onClick }, attrs || {}),
       icon ? Icon(icon, 'sm') : null, label, iconEnd ? Icon(iconEnd, 'sm') : null);
   }

@@ -44,7 +44,7 @@
     remove(kind, id) { const old = adapterLocal.remove(kind, id); if (ACC()) settle(ACC().remove(kind, id)); return old; },
     restore(kind, rec) { adapterLocal.restore(kind, rec); if (ACC()) settle(ACC().add(kind, rec)); },
   };
-  document.addEventListener('ib:accounts', () => { syncStore(); rerender(); });
+  document.addEventListener('ib:accounts', () => { syncStore(); rerender(); if (state.page === 'reports') renderReports(); });
   document.addEventListener('ib:vendors', () => { rerender(); });
 
   // ---------- transport (المواصلات): Logistics expenses sheet + «مواصلات» vendor moves recorded here ----------
@@ -321,7 +321,7 @@
   window.IBData = IBData;
 
   // ---------- state ----------
-  const TABS = [{ id: 'expenses', label: 'المصروفات' }, { id: 'sales', label: 'المبيعات' }, { id: 'vendors', label: 'حسابات المبتكرين' }, { id: 'actual', label: 'الحساب الفعلي' }, { id: 'moves-log', label: 'سجل الحركات' }];
+  const TABS = [{ id: 'expenses', label: 'المصروفات' }, { id: 'subscriptions', label: 'الاشتراكات' }, { id: 'sales', label: 'المبيعات' }, { id: 'vendors', label: 'حسابات المبتكرين' }, { id: 'actual', label: 'الحساب الفعلي' }, { id: 'moves-log', label: 'سجل الحركات' }];
   const PRESETS = [['today', 'اليوم'], ['yesterday', 'أمس'], ['todayYesterday', 'اليوم وأمس'], ['last7', 'آخر 7 أيام'], ['last14', 'آخر 14 يومًا'], ['last28', 'آخر 28 يومًا'], ['last30', 'آخر 30 يومًا'], ['thisWeek', 'هذا الأسبوع'], ['lastWeek', 'الأسبوع الماضي'], ['thisMonth', 'هذا الشهر'], ['lastMonth', 'الشهر الماضي'], ['max', 'أقصى فترة'], ['custom', 'مخصص']];
   const SORTS = [
     { value: 'balance:desc', label: 'الرصيد: من الأعلى للأقل', key: 'balance', dir: 'desc' }, { value: 'balance:asc', label: 'الرصيد: من الأقل للأعلى', key: 'balance', dir: 'asc' },
@@ -920,7 +920,7 @@
   }
   // dashboard: the preset name + what it is compared with (Figma «الفترة: النهارده · مقارنة بإمبارح»)
   const dashRangeLabel = (r) => { const p = PRESETS.find((x) => x[0] === r.preset); if (!p || r.preset === 'custom') return D.rangeLabel(r.from, r.to) + ' · مقارنة بالفترة اللي قبلها'; return 'الفترة: ' + p[1] + ' · ' + (r.preset === 'today' ? 'مقارنة بأمس' : 'مقارنة بالفترة اللي قبلها'); };
-  const rangeOf = (target) => (target === 'reports' ? state.rrange : target === 'dash' ? state.drange : state.range);
+  const rangeOf = (target) => (target === 'reports' ? state.rrange : target === 'dash' ? state.drange : target === 'mlog' ? (state.mrange = state.mrange || { from: '2026-09-01', to: TODAY, preset: 'custom' }) : state.range); // mlog (phase 5.5 decision 4, owner 1 Nov): the moves log's own period, wide by default
   function RangePicker(close, target = 'accounts') {
     const TODAY = target === 'dash' ? dashToday() : TODAY_APP; // the dashboard's presets / calendar follow its real today (dashToday)
     const cur = rangeOf(target); const draft = { from: cur.from, to: cur.to, preset: cur.preset };
@@ -950,7 +950,7 @@
         err ? h('div', { class: 'err-msg', role: 'alert', style: 'padding:0 16px 8px' }, err) : null,
         h('div', { class: 'dp-foot' }, h('span', { class: 'tz' }, 'التواريخ بتوقيت القاهرة (GMT+3)'),
           Button({ label: 'إلغاء', onClick: close }),
-          Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err, onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset }; if (target === 'reports') { state.rrange = nr; close(); renderReports(); if (window.IBPages && window.IBPages.current === 'products') window.IBPages.render('products'); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
+          Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err, onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset }; if (target === 'reports') { state.rrange = nr; close(); renderReports(); if (window.IBPages && window.IBPages.current === 'products') window.IBPages.render('products'); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
     }
     draw(); return dp;
   }
@@ -1169,29 +1169,61 @@
     const base = x.ends >= TODAY ? x.ends : TODAY;
     openForm('expenses', 'withdraw', null, false, { category: SUBS_CAT, subName: x.name, amount: x.amount ? String(x.amount) : '', subEnds: plusYear(base), subAlerts: (x.alerts || []).slice(), subNote: x.note || '' });
   }
+  // الاشتراكات (phase 5.5 decision 4, owner 1 Nov): في «المصروفات» ملخص بس، والتفاصيل كلها في تاب «الاشتراكات» لوحدها (زي «المبيعات»)
+  const subWord = (x) => (x.expired ? 'انتهى من ' + Math.abs(x.daysLeft) + ' يوم' : x.daysLeft === 0 ? 'بينتهي النهاردة' : 'باقي ' + x.daysLeft + ' يوم');
+  const subTone = (x) => (x.expired ? 'error' : x.due ? 'orange' : 'success');
+  const goSubs = () => { state.tab = 'subscriptions'; try { history.replaceState(null, '', '#subscriptions'); } catch (e) { /* sandboxed */ } render(); window.scrollTo(0, 0); };
   function subsSection() {
     const rows0 = D.subsDue(subsAll(), TODAY); if (!rows0.length) return null;
+    const due = rows0.filter((x) => x.due); const next = rows0.filter((x) => !x.expired).sort((p, q) => (p.ends < q.ends ? -1 : 1))[0];
+    const last = rows0.reduce((n, x) => n + (Number(x.amount) || 0), 0);
+    return h('section', { class: 'card subs-sum', 'data-subs-summary': '' },
+      h('div', { class: 'subs-sum-h' }, h('div', null, h('h2', { class: 't-h5' }, 'الاشتراكات'), h('div', { class: 't-small help' }, 'كل الاشتراكات · مش متأثرة بفترة الصفحة')),
+        Button({ size: 'sm', label: 'كل تفاصيل الاشتراكات', icon: 'chevL', attrs: { 'data-go-subs': '' }, onClick: goSubs })),
+      h('div', { class: 'subs-sum-b' },
+        h('div', null, h('span', { class: 't-small help' }, 'اشتراكات نشطة'), h('b', { class: 't-h4' }, num(String(rows0.filter((x) => !x.expired).length)))),
+        h('div', null, h('span', { class: 't-small help' }, 'محتاجة تجديد'), h('b', { class: 't-h4' + (due.length ? ' neg' : '') }, num(String(due.length)))),
+        h('div', null, h('span', { class: 't-small help' }, 'أقرب تجديد'), next ? h('b', { class: 't-body' }, next.name + ' · ', h('span', { class: 'tg tg-' + subTone(next) }, subWord(next))) : h('b', null, '—')),
+        h('div', null, h('span', { class: 't-small help' }, 'إجمالي آخر دفعات'), h('b', { class: 't-h4' }, num(D.formatMoney(last)), h('small', { class: 't-small help' }, ' ج.م')))),
+      due.length ? U.InlineNote({ kind: due.some((x) => x.expired) ? 'error' : 'warning', children: ['محتاجة تجديد: ' + due.map((x) => x.name + ' (' + subWord(x) + ')').join(' · ')],
+        action: Button({ type: 'text', size: 'sm', label: 'جدّد ' + due[0].name, attrs: { 'data-renew-first': '' }, onClick: () => renewSub(due[0]) }) }) : null);
+  }
+  function SubsView() {
+    subsNotify();
+    const rows0 = D.subsDue(subsAll(), TODAY);
     const AL = (k) => (D.SUB_ALERTS.find((a) => a[0] === k) || [, k])[1];
-    const tone = (x) => (x.expired ? 'error' : x.due ? 'orange' : 'success');
-    const word = (x) => (x.expired ? 'انتهى من ' + Math.abs(x.daysLeft) + ' يوم' : x.daysLeft === 0 ? 'بينتهي النهاردة' : 'باقي ' + x.daysLeft + ' يوم');
-    const headers = ['الاشتراك', 'تاريخ التجديد', 'الحالة', 'آخر دفعة (ج.م)', 'التنبيه قبل الانتهاء', 'ملاحظة', ''];
-    const rows = rows0.map((x) => [x.name, num(D.formatDateNumeric(x.ends)), h('span', { class: 'tg tg-' + tone(x) }, word(x)), num(D.formatMoney(x.amount || 0)), x.alerts.map(AL).join(' · ') || '—', x.note || '—',
-      Button({ type: x.due ? 'primary' : 'text', size: 'sm', label: 'جدّد', attrs: { 'data-renew': x.name, 'aria-label': 'جدّد اشتراك ' + x.name }, onClick: () => renewSub(x) })]);
-    const due = rows0.filter((x) => x.due);
-    return h('div', { class: 'subs-wrap', style: 'display:flex;flex-direction:column;gap:16px' },
-      due.length ? U.InlineNote({ kind: due.some((x) => x.expired) ? 'error' : 'warning',
-        children: ['اشتراكات محتاجة تجديد: ' + due.map((x) => x.name + ' (' + word(x) + ')').join(' · ')],
+    const due = rows0.filter((x) => x.due), active = rows0.filter((x) => !x.expired);
+    const pays = store.expenses.filter((e) => e.category === SUBS_CAT && e.direction !== 'deposit').slice().sort((p, q) => (p.date < q.date ? 1 : -1));
+    const inPer = pays.filter((e) => inRange(e.date)); const perSum = inPer.reduce((n, e) => n + (Number(e.amount) || 0), 0);
+    const per = 'من ' + D.formatDateNumeric(state.range.from) + ' لـ ' + D.formatDateNumeric(state.range.to);
+    const lastPay = (name) => pays.find((e) => e.subName === name);
+    const yearly = (x) => (/سنوي/.test(x.note || '') ? Number(x.amount) || 0 : /شهري/.test(x.note || '') ? (Number(x.amount) || 0) * 12 : Number(x.amount) || 0);
+    const headers = ['الاشتراك', 'المستفيد', 'تاريخ التجديد', 'الحالة', 'آخر دفعة (ج.م)', 'تاريخ آخر دفعة', 'التكلفة السنوية (ج.م)', 'التنبيه قبل الانتهاء', 'ملاحظة', ''];
+    const rows = rows0.map((x) => { const lp = lastPay(x.name) || {}; return [x.name, lp.beneficiaryName || '—', num(D.formatDateNumeric(x.ends)), h('span', { class: 'tg tg-' + subTone(x) }, subWord(x)), num(D.formatMoney(x.amount || 0)), lp.date ? num(D.formatDateNumeric(lp.date)) : '—', num(D.formatMoney(yearly(x))), (x.alerts || []).map(AL).join(' · ') || '—', x.note || '—',
+      Button({ type: x.due ? 'primary' : 'text', size: 'sm', label: 'جدّد', attrs: { 'data-renew': x.name, 'aria-label': 'جدّد اشتراك ' + x.name }, onClick: () => renewSub(x) })]; });
+    const payH = ['التاريخ', 'الاشتراك', 'المستفيد', 'المبلغ (ج.م)', 'ينتهي في', 'المصدر'];
+    const payRows = inPer.map((e) => [num(D.formatDateNumeric(e.date)), e.subName || '—', e.beneficiaryName || '—', num(D.formatMoney(e.amount || 0)), e.subEnds ? num(D.formatDateNumeric(e.subEnds)) : '—', 'تسجيل يدوي']);
+    const det = (title, list) => () => ({ title, sub: 'كل الاشتراكات · مش متأثرة بالفترة', headers: ['الاشتراك', 'تاريخ التجديد', 'الحالة', 'آخر دفعة'], rows: list.map((x) => [x.name, D.formatDateNumeric(x.ends), subWord(x), D.formatMoney(x.amount || 0)]), source: 'المصدر: سجل الاشتراكات (المصروفات المتسجلة في السيستم)' });
+    return [
+      h('div', { class: 'cards four' },
+        U.KpiTile({ label: 'اشتراكات نشطة', value: String(active.length), unit: 'اشتراك', compare: 'off', note: 'من ' + rows0.length + ' مسجّل', details: det('الاشتراكات النشطة — ' + active.length, active) }),
+        U.KpiTile({ label: 'محتاجة تجديد', value: String(due.length), unit: 'اشتراك', compare: due.length ? 'negative' : 'off', note: due.length ? due.map((x) => x.name).join(' · ') : 'كله ساري', details: det('محتاجة تجديد — ' + due.length, due) }),
+        U.KpiTile({ label: 'التكلفة السنوية المتوقعة', value: D.formatMoney(rows0.reduce((n, x) => n + yearly(x), 0)), unit: 'ج.م', compare: 'off', note: 'الشهري × 12 + السنوي' }),
+        U.KpiTile({ label: 'مدفوع في الفترة', value: D.formatMoney(perSum), unit: 'ج.م', compare: 'off', note: per + ' · ' + inPer.length + ' دفعة' })),
+      due.length ? U.InlineNote({ kind: due.some((x) => x.expired) ? 'error' : 'warning', children: ['اشتراكات محتاجة تجديد: ' + due.map((x) => x.name + ' (' + subWord(x) + ')').join(' · ')],
         action: Button({ type: 'text', size: 'sm', label: 'جدّد ' + due[0].name, attrs: { 'data-renew-first': '' }, onClick: () => renewSub(due[0]) }) }) : null,
-      TableCard({ title: 'الاشتراكات النشطة ومواعيد تجديدها', count: rows0.length + ' اشتراك' + (due.length ? ' · ' + due.length + ' محتاج تجديد' : '') + ' · كل الاشتراكات، مش متأثرة بفترة الصفحة',
-        body: [U.Table({ cls: 'subs-tbl', headers, rows }),
-          h('p', { class: 'source', style: 'margin:0;padding:12px 16px' }, 'ده سجل الاشتراكات نفسها ومواعيد تجديدها — «آخر دفعة» هي قيمة آخر مرة اتدفعت. إجمالي مصروفات الاشتراكات في الفترة موجود فوق في كارت «الاشتراكات»، و«جدّد» بيفتحلك مصروف جديد متملّي ببيانات الاشتراك.')] }));
+      TableCard({ title: 'الاشتراكات ومواعيد تجديدها', count: rows0.length + ' اشتراك' + (due.length ? ' · ' + due.length + ' محتاج تجديد' : '') + ' · كل الاشتراكات، مش متأثرة بفترة الصفحة',
+        body: rows0.length ? U.Table({ cls: 'subs-tbl', headers, rows }) : U.EmptyState('مفيش اشتراكات', 'اضغط «إضافة اشتراك» وسجّل أول اشتراك وميعاد تجديده.') }),
+      TableCard({ title: 'دفعات الاشتراكات في الفترة', count: per + ' · ' + inPer.length + ' دفعة · ' + D.formatMoney(perSum) + ' ج.م',
+        body: inPer.length ? U.Table({ cls: 'subs-pay-tbl', headers: payH, rows: payRows, totalRow: ['الإجمالي', '', '', num(D.formatMoney(perSum)), '', inPer.length + ' دفعة'] }) : U.EmptyState('مفيش دفعات في الفترة دي', 'غيّر الفترة من فوق.') }),
+      sourceNote('المصدر: سجل الاشتراكات (المصروفات المتسجلة في السيستم) · «جدّد» بتسجّل دفعة جديدة في المصروفات وبتحدّث ميعاد التجديد · التنبيه بيوصل على الجرس.')].filter(Boolean);
   }
   // تنبيه مرة واحدة لكل اشتراك مستحق (الجرس) — owner 27 Oct
   const subsNotified = {};
   function subsNotify() {
     const K = window.IBKit; if (!K || !K.notify) return;
     D.subsDue(subsAll(), TODAY).filter((x) => x.due).forEach((x) => { const key = x.name + '|' + x.ends; if (subsNotified[key]) return; subsNotified[key] = true;
-      K.notify({ title: (x.expired ? 'اشتراك منتهي: ' : 'اشتراك قرب ينتهي: ') + x.name + ' — ' + (x.expired ? 'انتهى من ' + Math.abs(x.daysLeft) + ' يوم' : 'باقي ' + x.daysLeft + ' يوم'), link: '#expenses' });
+      K.notify({ title: (x.expired ? 'اشتراك منتهي: ' : 'اشتراك قرب ينتهي: ') + x.name + ' — ' + (x.expired ? 'انتهى من ' + Math.abs(x.daysLeft) + ' يوم' : 'باقي ' + x.daysLeft + ' يوم'), link: '#subscriptions' });
       K.logEvent('subs.alert', x.name + ' · ' + x.ends); });
   }
 
@@ -1238,27 +1270,56 @@
       vendorSeed: [], seedDate: '', transport: transportRows(), withdrawals: dokanRequests(), accountMoves: store.accountMoves, accounts: {} });
   }
   function MovesLogView() {
-    const kind = state.mlog; const r = mlogData(kind); const KK = window.IBKit;
+    const kind = state.mlog; const r0 = mlogData(kind); const KK = window.IBKit;
+    // الفترة (phase 5.5 decision 4, owner 1 Nov): فترة سجل الحركات لوحدها جنب البحث في التلات تابس — الأرصدة الافتتاحية (من غير تاريخ) بتفضل ظاهرة
+    const MR = rangeOf('mlog'); const inPer = (x) => !x.date || (x.date >= MR.from && x.date <= MR.to);
+    const perRows = r0.rows.filter(inPer); const sumK = (f) => D.round2(perRows.filter(f).reduce((n, x) => n + (Number(x.amount) || 0), 0));
+    const r = { rows: perRows, count: perRows.length, inTotal: sumK((x) => x.kind === 'إيداع' || x.kind === 'رصيد افتتاحي'), outTotal: sumK((x) => x.kind === 'سحب'), requests: perRows.filter((x) => x.kind === 'طلب سحب').length };
     const q = (state.mlogQ || '').trim();
     const rows0 = q ? r.rows.filter((x) => (x.what + ' ' + x.who + ' ' + x.note + ' ' + x.ref).toLowerCase().includes(q.toLowerCase())) : r.rows;
     const tone = (k) => (k === 'إيداع' ? 'success' : k === 'سحب' ? 'neutral' : k === 'طلب سحب' ? 'orange' : 'goldlight');
     const headers = ['التاريخ', 'الحركة', 'البند', kind === 'vendorMoves' ? 'المبتكر' : kind === 'expenses' ? 'المستفيد' : 'الحساب', 'المبلغ (ج.م)', 'بواسطة', 'المصدر', 'المرجع', 'ملاحظة'];
-    const rows = rows0.map((x) => [num(x.date ? D.formatDateNumeric(x.date) : '—'), h('span', { class: 'tg tg-' + tone(x.kind) }, x.kind), x.what, kind === 'accountMoves' ? x.what : x.who, num(D.formatMoney(x.amount)), x.by, x.source, x.ref ? h('bdi', { dir: 'ltr' }, x.ref) : '—', x.note || '—']);
+    const flat = (x) => [x.date, x.kind, x.what, kind === 'accountMoves' ? x.what : x.who, x.amount, x.by, x.source, x.ref, x.note];
+    const rid = (x, i) => kind + ':' + (x.id || x.ref || '') + ':' + i; const ids0 = rows0.map(rid);
+    const pickRows = (ids) => rows0.filter((x, i) => ids.includes(ids0[i]));
+    // التحديد الجماعي (owner 31 Oct): تصدير المحدد إكسل / CSV
+    const LB = KK.Bulk({ key: 'mlog-' + kind, ids: ids0, noun: 'حركة', render, actions: [
+      { id: 'xlsx', label: 'تصدير إكسل', icon: 'download', run: (ids, done) => { KK.xlsxExport('ibtekr-moves-' + kind + '-' + TODAY + '.xlsx', 'سجل الحركات', [headers].concat(pickRows(ids).map(flat))); done(); } },
+      { id: 'csv', label: 'نسخ CSV', icon: 'copy', run: (ids, done) => { csvCopy(headers, pickRows(ids).map(flat), 'سجل الحركات (المحدد)'); done(); } }] });
+    const rows = rows0.map((x, i) => [LB.box(ids0[i], x.what), num(x.date ? D.formatDateNumeric(x.date) : '—'), h('span', { class: 'tg tg-' + tone(x.kind) }, x.kind), x.what, kind === 'accountMoves' ? x.what : x.who, num(D.formatMoney(x.amount)), x.by, x.source, x.ref ? h('bdi', { dir: 'ltr' }, x.ref) : '—', x.note || '—']);
     const search = h('input', { type: 'search', class: 'input', placeholder: 'ابحث بالبند أو الاسم أو المرجع', 'aria-label': 'بحث في سجل الحركات', value: state.mlogQ || '', style: 'width:300px;max-width:100%' });
     search.addEventListener('input', () => { state.mlogQ = search.value; const p = search.selectionStart; render(); const n = document.querySelector('#panel input[type=search]'); if (n) { n.focus(); n.setSelectionRange(p, p); } });
     return h('div', { style: 'display:flex;flex-direction:column;gap:24px;min-width:0' },
       KK.SubTabs ? KK.SubTabs({ items: MLOG_TABS, active: kind, label: 'أقسام سجل الحركات', onChange: (id) => { state.mlog = id; state.mlogQ = ''; render(); } }) : null,
       h('div', { class: 'cards four' },
-        U.KpiTile({ label: 'عدد الحركات', value: String(r.count), unit: 'حركة', compare: 'off', note: (MLOG_TABS.find((t) => t.id === kind) || {}).label }),
+        U.KpiTile({ label: 'عدد الحركات', value: String(r.count), unit: 'حركة', compare: 'off', note: (MLOG_TABS.find((t) => t.id === kind) || {}).label + ' · في الفترة المختارة' }),
         U.KpiTile({ label: 'داخل', value: D.formatMoney(r.inTotal), unit: 'ج.م', compare: 'off', note: kind === 'accountMoves' ? 'إيداعات + الرصيد الافتتاحي' : 'إيداعات وعرابين' }),
         U.KpiTile({ label: 'خارج', value: D.formatMoney(r.outTotal), unit: 'ج.م', compare: 'off', note: 'سحب ومصروفات ومواصلات' }),
-        kind === 'vendorMoves' ? U.KpiTile({ label: 'طلبات سحب', value: String(r.requests), unit: 'طلب', compare: 'off', note: 'من المبتكرين + طلبات داخلية' })
+        kind === 'vendorMoves' ? U.KpiTile({ label: 'طلبات سحب', value: String(r.requests), unit: 'طلب', compare: 'off', note: 'من المبتكرين على Dokan' })
           : U.KpiTile({ label: 'الصافي', value: D.formatMoney(D.round2(r.inTotal - r.outTotal)), unit: 'ج.م', compare: 'off', note: 'داخل − خارج' })),
-      h('div', { class: 'toolbar' }, search, h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(rows0.length + ' من ' + r.count + ' حركة')),
-        Button({ label: 'نسخ CSV', icon: 'download', attrs: { 'data-mlog-csv': '' }, onClick: () => csvCopy(headers, rows0.map((x) => [x.date, x.kind, x.what, kind === 'accountMoves' ? x.what : x.who, x.amount, x.by, x.source, x.ref, x.note]), 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label) })),
-      TableCard({ title: 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label, count: rows0.length + ' حركة',
-        body: rows0.length ? tableOrList(() => U.Table({ cls: 'mlog-table', headers, rows }), () => CardList({ headers, titleIndex: 2, rows })) : U.EmptyState('مفيش حركات', q ? 'مفيش نتيجة للبحث ده — امسح البحث.' : 'أول ما حركة تتسجل هتظهر هنا.') }),
+      h('div', { class: 'toolbar mlog-bar' }, search, DateRangeField('mlog'), h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(rows0.length + ' من ' + r.count + ' حركة في الفترة')),
+        Button({ label: 'نسخ CSV', icon: 'download', attrs: { 'data-mlog-csv': '' }, onClick: () => csvCopy(headers, rows0.map(flat), 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label) })),
+      TableCard({ title: 'سجل الحركات — ' + (MLOG_TABS.find((t) => t.id === kind) || {}).label, count: rows0.length + ' حركة', pre: LB.bar(),
+        body: rows0.length ? tableOrList(() => U.Table({ cls: 'mlog-table', headers: [LB.head()].concat(headers), rows }), () => CardList({ headers: [''].concat(headers), titleIndex: 3, rows })) : U.EmptyState('مفيش حركات', q ? 'مفيش نتيجة للبحث ده — امسح البحث.' : 'مفيش حركات في الفترة دي — غيّر الفترة من جنب البحث.') }),
       sourceNote('المصدر: الحركات المتسجلة في السيستم + طلبات السحب من Dokan (قراءة بس).'));
+  }
+  // تفاصيل المصروفات (phase 5.5 decision 4, owner 1 Nov): فلتر مقفول + ترتيب في راس الكارت، ونتيجة الفلتر شيبس تحت التايتل قبل راس الجدول
+  const EXP_SORTS = [['default', 'الترتيب الافتراضي'], ['amt-desc', 'القيمة: الأعلى للأقل'], ['amt-asc', 'القيمة: الأقل للأعلى'], ['name', 'البند: أ ← ي']];
+  function expDetailsCard(tot, srcFor) {
+    const KK = window.IBKit; const f = (state.expF = state.expF || { cat: [] }); const sort = state.expSort || 'default';
+    const all = D.CATEGORIES.map((c, i) => ({ c, i, amt: tot.byCategory[c].amount, share: tot.byCategory[c].share }));
+    const ok = (x, d) => !(d.cat || []).length || d.cat.includes(x.c);
+    let list = all.filter((x) => ok(x, f));
+    if (sort === 'amt-desc') list = list.slice().sort((p, q) => q.amt - p.amt); else if (sort === 'amt-asc') list = list.slice().sort((p, q) => p.amt - q.amt); else if (sort === 'name') list = list.slice().sort((p, q) => p.c.localeCompare(q.c, 'ar'));
+    const sum = list.reduce((n, x) => n + x.amt, 0);
+    const chips = (f.cat || []).map((v) => ({ key: 'cat:' + v, label: 'البند: ' + v, count: all.filter((x) => x.c === v).length, remove: () => { f.cat = f.cat.filter((x) => x !== v); render(); } }));
+    const actions = h('span', { class: 'acts-inline' }, KK.FilterMenu({ id: 'exp', label: 'فلتر تفاصيل المصروفات', noun: 'بند', value: f, groups: [{ key: 'cat', label: 'البند', options: D.CATEGORIES.map((c) => [c, c]) }], count: (d) => all.filter((x) => ok(x, d)).length, onApply: (d) => { state.expF = d; render(); } }),
+      KK.SortMenu({ id: 'exp', label: 'ترتيب تفاصيل المصروفات', options: EXP_SORTS, value: sort, onChange: (v) => { state.expSort = v; render(); } }));
+    return TableCard({ title: 'تفاصيل المصروفات', cls: 'own-filter', count: chips.length ? list.length + ' من ' + all.length + ' بند' : '', action: actions,
+      pre: KK.ActiveFilters({ id: 'exp', chips, total: list.length, noun: 'بند', onClear: () => { state.expF = { cat: [] }; render(); } }),
+      body: list.length ? U.Table({ headers: ['البند', 'القيمة (ج.م)', 'النسبة', 'المصدر'], rows: list.map((x) => [x.c, num(D.formatMoney(x.amt)), num(D.formatPct(x.share)), srcFor(x.c, x.i)]),
+        totalRow: chips.length ? ['إجمالي البنود المعروضة', num(D.formatMoney(sum)), num(D.formatPct(tot.total ? sum / tot.total : 0)), list.length + ' من ' + all.length + ' بند'] : ['إجمالي الأربع فئات', num(D.formatMoney(tot.total)), num(tot.total === 0 ? '0.0%' : '100.0%'), 'إجمالي المصروفات'] })
+        : U.EmptyState('مفيش بنود بالفلتر ده', 'غيّر الفلتر أو امسحه.') });
   }
   // ---------- views ----------
   function ExpensesView() {
@@ -1278,9 +1339,7 @@
       h('div', { class: 'card sum-card' }, h('div', null, h('div', { class: 'lab t-small' }, monthTxt), h('div', { class: 't-h5' }, full ? 'إجمالي مصروفات ' + D.monthName(full.m) : 'إجمالي المصروفات'),
           h('button', { type: 'button', class: 'kpi-more kpi-details', 'data-details': 'إجمالي المصروفات', 'aria-label': 'تفاصيل إجمالي المصروفات', onClick: () => U.DetailsModal(() => ({ title: 'إجمالي المصروفات — ' + D.formatMoney(tot.total) + ' ج.م', sub: monthTxt, summary: D.CATEGORIES.map((c) => ({ label: c, value: D.formatMoney(tot.byCategory[c].amount) })), headers: ['البند', 'القيمة', 'النسبة', 'المصدر'], rows: D.CATEGORIES.map((c, i) => [c, D.formatMoney(tot.byCategory[c].amount), D.formatPct(tot.byCategory[c].share), srcFor(c, i)]).concat(entries.map((e) => [e.category + ' · ' + D.formatDateNumeric(e.date), D.formatMoney(e.amount), '—', 'تسجيل يدوي — ' + (e.beneficiaryName || '—')])) }), { label: 'إجمالي المصروفات' }) }, 'التفاصيل', Icon('chevL', 'sm'))),
         h('div', { class: 'cat-val' }, h('span', { class: 'unit' }, 'ج.م'), h('span', { class: 't-h3' }, num(D.formatMoney(tot.total))))),
-      TableCard({ title: 'تفاصيل المصروفات', body: U.Table({ headers: ['البند', 'القيمة (ج.م)', 'النسبة', 'المصدر'],
-        rows: D.CATEGORIES.map((c, i) => [c, num(D.formatMoney(tot.byCategory[c].amount)), num(D.formatPct(tot.byCategory[c].share)), srcFor(c, i)]),
-        totalRow: ['إجمالي الأربع فئات', num(D.formatMoney(tot.total)), num(tot.total === 0 ? '0.0%' : '100.0%'), 'إجمالي المصروفات'] }) }),
+      expDetailsCard(tot, srcFor),
       TableCard({ title: 'سجل المصروفات التفصيلي', count: entries.length + ' مصروف مسجّل', body: entries.length === 0 ? U.EmptyState('لسه مفيش مصروفات مسجّلة', 'اضغط «إضافة مصروفات» وسجّل أول سحب أو إيداع، وهيظهر هنا.') :
         U.Table({ headers: ['التاريخ', 'النوع', 'اسم المستفيد', 'البيان', 'المبلغ (ج.م)', ''], rows: entries.map((e) => [num(D.formatDateNumeric(e.date)), e.category, e.beneficiaryName || '—', expenseLine(e),
           h('span', { class: e.direction === 'deposit' ? 'pos' : '' }, num((e.direction === 'deposit' ? '+' : '') + D.formatMoney(e.amount))), RowActions('expenses', e, (r) => deleteRec('expenses', r))]) }) }),
@@ -1411,7 +1470,13 @@
   }
   // أعمدة جدول حسابات المبتكرين — الإظهار/الإخفاء والترتيب بقوا من زرار «أعمدة الجدول» العام (kit: withColumns، phase 4.1)
   const VCOLS = [['name', 'المبتكر'], ['pct', 'نسبة إبتكر'], ['cN', 'مكتمل — عدد'], ['cV', 'مكتمل — حصة إبتكر'], ['pN', 'قيد التنفيذ — عدد'], ['pV', 'قيد التنفيذ — حصة إبتكر'],
-    ['xN', 'ملغي — عدد'], ['xV', 'ملغي — حصة إبتكر'], ['dokan', 'رصيد Dokan'], ['dep', 'إجمالي العرابين'], ['tr', 'المواصلات'], ['wd', 'طلب سحب'], ['bal', 'الصافي'], ['act', 'إجراءات']];
+    ['xN', 'ملغي — عدد'], ['xV', 'ملغي — حصة إبتكر'], ['dokan', 'رصيد Dokan'], ['dep', 'إجمالي العرابين'], ['tr', 'المواصلات'], ['wd', 'طلب سحب'], ['last', 'آخر طلب سحب'], ['bal', 'الصافي'], ['act', 'إجراءات']];
+  // phase 5.5 decision 4 (owner 31 Oct 16:38): the maker's latest Dokan request (any status but rejected / cancelled) — the date and how many days ago
+  const lastWd = (name) => { const id = makerId(name); if (!id || !AC()) return null;
+    const c = AC().withdrawals().filter((w) => w.vendorId === id && w.status !== 'rejected' && w.status !== 'cancelled' && w.at).map((w) => ({ date: String(w.at).slice(0, 10), id: w.id, status: w.status, amount: w.amount })).sort((p, q) => (p.date < q.date ? 1 : p.date > q.date ? -1 : Number(q.id) - Number(p.id)));
+    const x = c[0]; if (!x) return null; x.days = Math.max(0, Math.round((Date.parse(TODAY + 'T00:00:00Z') - Date.parse(x.date + 'T00:00:00Z')) / 864e5)); return x; };
+  const lastCell = (v) => { const x = lastWd(v.name); if (!x) return h('span', { class: 'help', 'data-last': '' }, '—');
+    return h('span', { class: 'last-wd', 'data-last': x.date, title: 'طلب #' + x.id + ' · ' + VD.wdLabel(x.status) + ' · ' + D.formatMoney(x.amount) + ' ج.م' }, num(D.formatDateNumeric(x.date)), h('span', { class: 't-small help' }, x.days === 0 ? 'اليوم الحالي' : num('من ' + x.days + ' يوم'))); };
   function VendorsView() {
     const list = vendorsNow(); const s = D.vendorSummary(list); const sort = SORTS.find((x) => x.value === state.sort);
     const sorted = D.sortVendors(list, sort.key, sort.dir).filter(wdFilterOk); const T = SEED.vendorTotals;
@@ -1443,13 +1508,13 @@
           onClick: (e) => { e.stopPropagation(); openAccountBrief(v.name); },
           onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAccountBrief(v.name); } } }, v.name)),
           pct: (v) => num(v.pct), cN: (v) => num(String(v.c[0])), cV: (v) => num(D.formatMoney(v.c[2])), pN: (v) => num(String(v.p[0])), pV: (v) => num(D.formatMoney(v.p[2])),
-          xN: (v) => num(String(v.x[0])), xV: (v) => num(D.formatMoney(v.x[2])), dokan: (v) => (v.dokanBalance == null ? '—' : num(D.formatMoney(v.dokanBalance))), dep: (v) => num(D.formatMoney(v.deposits)), tr: (v) => num(D.formatMoney(trOf(v.name))), wd: wdTag, bal: (v) => bal(v.balance), act: rowMenu };
+          xN: (v) => num(String(v.x[0])), xV: (v) => num(D.formatMoney(v.x[2])), dokan: (v) => (v.dokanBalance == null ? '—' : num(D.formatMoney(v.dokanBalance))), dep: (v) => num(D.formatMoney(v.deposits)), tr: (v) => num(D.formatMoney(trOf(v.name))), wd: wdTag, last: lastCell, bal: (v) => bal(v.balance), act: rowMenu };
         // filtered (decision 13): the total row is the shown makers' own sum
         const sumOf = (k) => sorted.reduce((t, v) => [t[0] + v[k][0], D.round2(t[1] + v[k][1]), D.round2(t[2] + v[k][2])], [0, 0, 0]);
         const Tt = wdFiltered ? { c: sumOf('c'), p: sumOf('p'), x: sumOf('x') } : T; const sT = wdFiltered ? D.vendorSummary(sorted) : s;
         const trT = wdFiltered ? D.round2(sorted.reduce((t, v) => t + trOf(v.name), 0)) : tA.vendors;
         const TOT = { name: 'الإجمالي', pct: '—', cN: num(String(Tt.c[0])), cV: num(D.formatMoney(Tt.c[2])), pN: num(String(Tt.p[0])), pV: num(D.formatMoney(Tt.p[2])), xN: num(String(Tt.x[0])), xV: num(D.formatMoney(Tt.x[2])),
-          dokan: num(D.formatMoney(D.round2(sorted.reduce((t, v) => t + (v.dokanBalance || 0), 0)))), dep: num(D.formatMoney(sT.deposits)), tr: num(D.formatMoney(trT)), wd: h('span', null, num(String(sorted.filter((v) => wdOf(v.name)).length)), ' طلب'), bal: bal(sT.net), act: '' };
+          dokan: num(D.formatMoney(D.round2(sorted.reduce((t, v) => t + (v.dokanBalance || 0), 0)))), dep: num(D.formatMoney(sT.deposits)), tr: num(D.formatMoney(trT)), wd: h('span', null, num(String(sorted.filter((v) => wdOf(v.name)).length)), ' طلب'), last: '', bal: bal(sT.net), act: '' };
         const cols = VCOLS;
         return TableCard({ title: 'حسابات المبتكرين — ' + periodText(), count: sorted.length + ' مبتكر · ' + sorted.filter((v) => wdOf(v.name)).length + ' طلب سحب' + (wdFiltered ? ' · ' + (WD_FILTERS.find((x) => x.value === state.wdFilter) || {}).label : ''), action: refreshDokanBtn(),
           body: !sorted.length ? U.EmptyState(wdFiltered ? 'مفيش مبتكرين عندهم طلبات سحب' : 'مفيش مبتكرين', wdFiltered ? 'اضغط «تحديث من Dokan» تجيب الطلبات الجديدة، أو رجّع الفلتر لـ «الكل».' : '') : U.Table({ cls: 'vendors-table', headers: cols.map(([, lb]) => lb), rows: sorted.map((v) => cols.map(([k]) => CELL[k](v))), totalRow: cols.map(([k]) => TOT[k]) }) });
@@ -1468,6 +1533,19 @@
     return [
       h('div', { class: 'cards five' }, U.CategoryCard({ tone: 'goldlight', name: 'إجمالي الرصيد الفعلي', value: totalActual, pct: totalActual === 0 ? 0 : 1, caption: 'من إجمالي الرصيد الفعلي', details: () => ({ title: 'إجمالي الرصيد الفعلي — ' + D.formatMoney(totalActual) + ' ج.م', sub: 'الأرصدة الحالية لكل حساب · الرصيد المتوقع ' + D.formatMoney(P.total) + ' ج.م', summary: [{ label: 'الفعلي', value: D.formatMoney(P.actual) + ' ج.م' }, { label: 'حصة إبتكر قيد التنفيذ', value: D.formatMoney(P.inProgress) + ' ج.م' }, { label: 'العرابين', value: D.formatMoney(P.deposits) + ' ج.م' }, { label: 'المتوقع', value: D.formatMoney(P.total) + ' ج.م' }], headers: ['الحساب', 'الرصيد', 'النسبة', 'حركات في الفترة'], rows: D.ACCOUNTS.map((a) => [names[a], D.formatMoney(acc[a]), D.formatPct(totalActual ? acc[a] / totalActual : 0), String(moves.filter((m) => m.account === a).length)]), total: ['الإجمالي', D.formatMoney(totalActual), '100.0%', String(moves.length)], source: 'تاب الحساب الفعلي' }) }),
         D.ACCOUNTS.map((a) => U.CategoryCard({ tone: tones[a], name: names[a], value: acc[a], pct: totalActual === 0 ? 0 : acc[a] / totalActual, caption: 'من إجمالي الرصيد الفعلي', details: () => { const l = moves.filter((m) => m.account === a); return { title: names[a] + ' — ' + D.formatMoney(acc[a]) + ' ج.م', sub: D.formatPct(totalActual ? acc[a] / totalActual : 0) + ' من إجمالي الرصيد الفعلي · حركات الفترة', summary: [{ label: 'الرصيد', value: D.formatMoney(acc[a]) + ' ج.م' }, { label: 'إيداع', value: D.formatMoney(l.filter((m) => m.direction === 'deposit').reduce((x, m) => x + m.amount, 0)) + ' ج.م' }, { label: 'سحب', value: D.formatMoney(l.filter((m) => m.direction !== 'deposit').reduce((x, m) => x + m.amount, 0)) + ' ج.م' }], headers: ['التاريخ', 'العملية', 'البيان', 'المبلغ'], rows: l.map((m) => [num(D.formatDateNumeric(m.date)), m.direction === 'deposit' ? 'إيداع' : 'سحب', m.note || m.typeName || '—', D.formatMoney(m.amount)]), empty: 'مفيش حركات مسجّلة على الحساب ده في الفترة — الرصيد من الشيت.', source: 'تاب الحساب الفعلي' }; } }))),
+      (() => { // phase 5.5 decision 4 (owner 31 Oct): جوّه الرصيد الفعلي فلوس للمبتكرين هياخدوها — أرصدة Dokan الموجبة، ومنها اللي في طلبات سحب مفتوحة
+        const A = AC(); const L = (A ? A.balances() : []).filter((b) => b.balance > 0).sort((p, q) => q.balance - p.balance); const owed = D.round2(L.reduce((t, b) => t + b.balance, 0));
+        const open = A ? A.withdrawals().filter((w) => w.status === 'pending' || w.status === 'approved') : []; const openAmt = D.round2(open.reduce((t, w) => t + (w.amount || 0), 0)); const net = D.round2(totalActual - owed);
+        const nameOf = (id) => { const v = vstore.get(id); return v ? v.name : '—'; }; const openOf = (id) => open.filter((w) => w.vendorId === id).reduce((t, w) => t + (w.amount || 0), 0);
+        const owedDet = () => ({ title: 'مستحق للمبتكرين — ' + D.formatMoney(owed) + ' ج.م', sub: 'رصيد كل مبتكر على Dokan دلوقتي · منه ' + D.formatMoney(openAmt) + ' ج.م في ' + open.length + ' طلب سحب مفتوح', summary: [{ label: 'مبتكرين', value: String(L.length) }, { label: 'المستحق', value: D.formatMoney(owed) + ' ج.م' }, { label: 'في طلبات سحب', value: D.formatMoney(openAmt) + ' ج.م' }],
+          headers: ['المبتكر', 'رصيد Dokan', 'في طلبات سحب مفتوحة'], rows: L.map((b) => [nameOf(b.vendorId), D.formatMoney(b.balance), D.formatMoney(openOf(b.vendorId))]), total: ['الإجمالي', D.formatMoney(owed), D.formatMoney(openAmt)], source: 'أرصدة Dokan وطلبات السحب (قراءة بس، بتتحدّث كل ساعة)' });
+        return h('section', { class: 'card owed-card', 'data-owed': '' }, h('div', { class: 'table-title' }, h('h2', { class: 't-h4' }, 'رصيد إبتكر بعد حساب المبتكرين'), h('span', { class: 'count t-body' }, 'أرصدة Dokan دلوقتي')),
+          h('div', { class: 'cards three owed-cards' },
+            U.CategoryCard({ tone: 'goldlight', name: 'الرصيد الفعلي', value: totalActual, sub: 'كل الحسابات' }),
+            U.CategoryCard({ tone: 'neutral', name: 'مستحق للمبتكرين', value: -owed, sub: h('span', { 'data-owed-wd': '' }, L.length + ' مبتكر · منه ', num(D.formatMoney(openAmt)), ' في ' + open.length + ' طلب سحب'), details: owedDet }),
+            U.CategoryCard({ tone: 'brand', name: 'رصيد إبتكر الصافي', value: net, sub: 'الرصيد الفعلي − المستحق للمبتكرين' })),
+          h('p', { class: 'source', style: 'margin:0;padding:0 16px 16px' }, 'المستحق = مجموع أرصدة المبتكرين الموجبة على Dokan (قراءة بس). لما طلب سحب يتوافق عليه على Dokan، الرصيد بينزل لوحده مع المزامنة.'));
+      })(),
       TableCard({ title: 'الرصيد المتوقع', body: U.Table({ headers: ['البند', 'المبلغ (ج.م)', 'النسبة من المتوقع'],
         rows: [['الرصيد الفعلي', num(D.formatMoney(P.actual)), num(D.formatPct(P.shares.actual))], ['حصة إبتكر من الأوردرات قيد التنفيذ', num(D.formatMoney(P.inProgress)), num(D.formatPct(P.shares.inProgress))], ['العرابين المدفوعة للمبتكرين', num(D.formatMoney(P.deposits)), num(D.formatPct(P.shares.deposits))]],
         totalRow: ['الرصيد المتوقع', num(D.formatMoney(P.total)), num('100.0%')] }) }),
@@ -1479,7 +1557,7 @@
   }
 
   // ---------- render ----------
-  const VIEWS = { expenses: ExpensesView, sales: SalesView, vendors: VendorsView, actual: ActualView, 'moves-log': MovesLogView };
+  const VIEWS = { expenses: ExpensesView, subscriptions: SubsView, sales: SalesView, vendors: VendorsView, actual: ActualView, 'moves-log': MovesLogView };
   let focusTab = false;
   // ---------- Reports page (Figma: التقارير — Desktop 1440 / Mobile 360) ----------
   const R = window.IbtekrReports;
@@ -1592,36 +1670,49 @@
       h('p', { class: 'source' }, 'المصدر: الأوردرات (Airtable) + شيت Vendors Orders mangment-Invoices (Commissions, Balances_Payouts) · نسب Antikiano / Rufaida / HANDS بانتظار تأكيد المالك · المواصلات من شيت Logistics expenses (' + trPeriod(tA) + ') إجمالي من البداية مش الفترة')];
   }
   function AccountsReportView() {
-    const tot = D.categoryTotals(SEED.expenseSeed, store.expenses, '2026-09-01', '2026-09-30');
-    const byCat = {}; D.CATEGORIES.forEach((c) => { byCat[c] = tot.byCategory[c].amount; });
-    const rep = R.accountsReport({ expenses: byCat, sales: SEED.sales, accounts: accountsNow().balances, inProgressShare: SEED.inProgressShare, deposits: SEED.vendorTotals.dep });
-    const headers = ['الشهر', 'الأوردرات', 'المبيعات', 'حصة إبتكر', 'المصروفات', 'الصافي'];
-    const rows = [['سبتمبر 2026', rep.orders, rep.salesTotal, rep.share, rep.expensesTotal, rep.net]];
-    rExport = { label: 'ملخص الحسابات', headers, rows };
+    // phase 5.5 decision 4 (owner 31 Oct 16:42): the report follows the period picked above (expenses + sales + net) instead of a fixed month; (owner 1 Nov): a month-by-month summary
+    const rr = state.rrange; const PER = D.formatDateNumeric(rr.from) + ' – ' + D.formatDateNumeric(rr.to); const A = AC();
+    const salesFor = (from, to) => { const rows = A ? A.sales(from, to) : []; return rows ? D.liveSeed({ makers: [], balances: [], sales: rows }) : null; };
+    const repOf = (from, to) => { const tot = D.categoryTotals(SEED.expenseSeed, store.expenses, from, to); const byCat = {}; D.CATEGORIES.forEach((c) => { byCat[c] = tot.byCategory[c].amount; });
+      const sv = salesFor(from, to); return { sv, loading: !sv, rep: R.accountsReport({ expenses: byCat, sales: sv ? sv.sales : [], accounts: accountsNow().balances, inProgressShare: sv ? sv.inProgressShare : 0, deposits: SEED.vendorTotals.dep }) }; };
+    const { sv: SV, rep, loading } = repOf(rr.from, rr.to);
+    const headers = ['الشهر', 'الأوردرات', 'المبيعات', 'حصة إبتكر', 'المرتبات', 'المصروفات', 'الاشتراكات', 'الإعلانات', 'إجمالي المصروفات', 'الصافي', 'النتيجة', 'الحساب الفعلي (الآن)', 'الحساب المحتمل (الآن)'];
+    const catOf = (x, c) => ((x.expenseRows.find((r) => r[0] === c) || [, 0])[1]) || 0;
+    const resTag = (n) => h('span', { class: 'tg tg-' + (n < 0 ? 'error' : n > 0 ? 'success' : 'neutral') }, n < 0 ? 'خسارة' : n > 0 ? 'ربح' : 'تعادل');
+    const months = []; let anyLoading = loading;
+    { let [y, m] = rr.from.split('-').map(Number); for (;;) { const ym = y + '-' + String(m).padStart(2, '0'); if (ym + '-01' > rr.to) break; const a0 = ym + '-01' < rr.from ? rr.from : ym + '-01'; const e = ym + '-' + String(lastDay(y, m)).padStart(2, '0'); const b = e > rr.to ? rr.to : e;
+      const x0 = repOf(a0, b); const x = x0.rep; anyLoading = anyLoading || x0.loading; const part = a0 !== ym + '-01' || b !== e;
+      months.push([D.monthName(m) + ' ' + y + (part ? ' (' + Number(a0.slice(8)) + '–' + Number(b.slice(8)) + ')' : ''), x.orders, x.salesTotal, x.share, catOf(x, 'المرتبات'), catOf(x, 'المصروفات'), catOf(x, 'الاشتراكات'), catOf(x, 'الإعلانات'), x.expensesTotal, x.net]);
+      m++; if (m > 12) { m = 1; y++; } if (months.length > 24) break; } }
+    const rows = months;
+    rExport = { label: 'ملخص الحسابات', headers, rows: rows.map((r) => r.concat([r[9] < 0 ? 'خسارة' : r[9] > 0 ? 'ربح' : 'تعادل', '', ''])).concat([['الإجمالي', rep.orders, rep.salesTotal, rep.share, catOf(rep, 'المرتبات'), catOf(rep, 'المصروفات'), catOf(rep, 'الاشتراكات'), catOf(rep, 'الإعلانات'), rep.expensesTotal, rep.net, rep.net < 0 ? 'خسارة' : 'ربح', rep.actual, rep.potential]]) };
     const netTone = rep.net < 0 ? 'negative' : 'positive';
     const pctRow = ([l, v, p]) => [l, money(v), D.formatPct(p)];
     const adet = (k) => {
       if (k === 'actual') return { title: 'الحساب الفعلي — ' + money(rep.actual) + ' ج.م', sub: 'الأرصدة الحالية · بتتدخل يدويًا في تاب «الحساب الفعلي» لحد الربط البنكي', summary: [{ label: 'الحساب الفعلي', value: money(rep.actual) + ' ج.م' }, { label: 'الرصيد المحتمل', value: money(rep.potential) + ' ج.م' }], headers: ['الحساب', 'الرصيد', 'النسبة'], rows: rep.accountRows.map(pctRow), total: ['الإجمالي', money(rep.actual), '100%'], note: 'الرصيد المحتمل = الحساب الفعلي + حصة إبتكر من أوردرات التنفيذ + العرابين المدفوعة: ' + rep.potentialParts.map(([l, v]) => l + ' ' + money(v)).join(' + '), actions: [{ label: 'فتح الحساب الفعلي', onClick: () => { state.tab = 'actual'; go('accounts'); } }] };
-      if (k === 'share') return { title: 'حصة إبتكر من المبيعات — ' + money(rep.share) + ' ج.م', sub: 'سبتمبر 2026 · حصة كل أوردر بنسبة المورد بتاعه', summary: [{ label: 'المبيعات', value: money(rep.salesTotal) + ' ج.م' }, { label: 'حصة إبتكر', value: money(rep.share) + ' ج.م' }, { label: 'متوسط العمولة', value: Math.round(rep.sharePct * 1000) / 10 + '%' }], headers: ['حالة الأوردر', 'الأوردرات', 'المبيعات', 'حصة إبتكر', 'النسبة'], rows: SEED.sales.map((x) => [x.label, String(x.orders), money(x.sales), money(x.share), x.pct]), total: ['الإجمالي', String(SEED.salesTotal.orders), money(SEED.salesTotal.sales), money(SEED.salesTotal.share), SEED.salesTotal.pct], actions: [{ label: 'فتح المبيعات', onClick: () => { state.tab = 'sales'; go('accounts'); } }] };
-      if (k === 'exp') return { title: 'المصروفات — ' + money(rep.expensesTotal) + ' ج.م', sub: 'سبتمبر 2026 حسب الفئة', summary: [{ label: 'الإجمالي', value: money(rep.expensesTotal) + ' ج.م' }, { label: 'أكبر فئة', value: rep.expenseRows.slice().sort((a, b) => b[1] - a[1])[0][0] }], headers: ['الفئة', 'المبلغ', 'النسبة'], rows: rep.expenseRows.map(pctRow), total: ['الإجمالي', money(rep.expensesTotal), '100%'], actions: [{ label: 'فتح المصروفات', onClick: () => { state.tab = 'expenses'; go('accounts'); } }] };
-      return { title: 'صافي الشهر — ' + money(rep.net) + ' ج.م (' + (rep.net < 0 ? 'خسارة' : 'ربح') + ')', sub: 'سبتمبر 2026 · الصافي = حصة إبتكر − المصروفات', summary: [{ label: 'حصة إبتكر', value: money(rep.share) + ' ج.م' }, { label: 'المصروفات', value: money(rep.expensesTotal) + ' ج.م' }, { label: 'الصافي', value: money(rep.net) + ' ج.م' }], headers: ['البند', 'المبلغ'], rows: [['حصة إبتكر من المبيعات (+)', money(rep.share)]].concat(rep.expenseRows.map(([l, v]) => [l + ' (−)', money(v)])).concat([['الصافي', money(rep.net)]]) }; };
+      if (k === 'share') return { title: 'حصة إبتكر من المبيعات — ' + money(rep.share) + ' ج.م', sub: PER + ' · حصة كل أوردر بنسبة المبتكر بتاعه', summary: [{ label: 'المبيعات', value: money(rep.salesTotal) + ' ج.م' }, { label: 'حصة إبتكر', value: money(rep.share) + ' ج.م' }, { label: 'متوسط العمولة', value: Math.round(rep.sharePct * 1000) / 10 + '%' }], headers: ['حالة الأوردر', 'الأوردرات', 'المبيعات', 'حصة إبتكر', 'النسبة'], rows: (SV ? SV.sales : []).map((x) => [x.label, String(x.orders), money(x.sales), money(x.share), x.sales ? D.formatPct(x.share / x.sales) : '—']), total: ['الإجمالي', String(rep.orders), money(rep.salesTotal), money(rep.share), rep.salesTotal ? D.formatPct(rep.share / rep.salesTotal) : '—'], actions: [{ label: 'فتح المبيعات', onClick: () => { state.tab = 'sales'; go('accounts'); } }] };
+      if (k === 'exp') return { title: 'المصروفات — ' + money(rep.expensesTotal) + ' ج.م', sub: PER + ' · حسب الفئة', summary: [{ label: 'الإجمالي', value: money(rep.expensesTotal) + ' ج.م' }, { label: 'أكبر فئة', value: (rep.expenseRows.slice().sort((p, q) => q[1] - p[1])[0] || ['—'])[0] }], headers: ['الفئة', 'المبلغ', 'النسبة'], rows: rep.expenseRows.map(pctRow), total: ['الإجمالي', money(rep.expensesTotal), '100%'], actions: [{ label: 'فتح المصروفات', onClick: () => { state.tab = 'expenses'; go('accounts'); } }] };
+      return { title: 'صافي الفترة — ' + money(rep.net) + ' ج.م (' + (rep.net < 0 ? 'خسارة' : 'ربح') + ')', sub: PER + ' · الصافي = حصة إبتكر − المصروفات', summary: [{ label: 'حصة إبتكر', value: money(rep.share) + ' ج.م' }, { label: 'المصروفات', value: money(rep.expensesTotal) + ' ج.م' }, { label: 'الصافي', value: money(rep.net) + ' ج.م' }], headers: ['البند', 'المبلغ'], rows: [['حصة إبتكر من المبيعات (+)', money(rep.share)]].concat(rep.expenseRows.map(([l, v]) => [l + ' (−)', money(v)])).concat([['الصافي', money(rep.net)]]) }; };
     const tA = trAll();
     return [
+      anyLoading ? U.InlineNote({ children: 'بنحمّل أرقام الفترة…' }) : null,
       h('div', { class: 'cards five' },
         U.KpiTile({ label: 'الحساب الفعلي', value: money(rep.actual), unit: 'ج.م', compare: 'off', note: ['بنك + بوسطة + باي موب + محفظة · الرصيد المحتمل ', num(money(rep.potential))], details: () => adet('actual') }),
         U.KpiTile({ label: 'حصة إبتكر من المبيعات', value: money(rep.share), unit: 'ج.م', compare: 'off', note: ['من مبيعات ', num(money(rep.salesTotal)), ' · متوسط عمولة ', num(Math.round(rep.sharePct * 1000) / 10 + '%')], details: () => adet('share') }),
-        U.KpiTile({ label: 'إجمالي المصروفات', value: money(rep.expensesTotal), unit: 'ج.م', compare: 'off', note: 'سبتمبر 2026 · المرتبات · المصروفات · الاشتراكات · الإعلانات', details: () => adet('exp') }),
-        U.KpiTile({ label: 'صافي الشهر (حصة إبتكر − المصروفات)', value: money(rep.net), unit: 'ج.م', compare: netTone, delta: { text: rep.net < 0 ? 'خسارة' : 'ربح', caption: 'سبتمبر 2026' }, note: [num(money(rep.share)), ' − ', num(money(rep.expensesTotal))], details: () => adet('net') }),
-        U.KpiTile({ label: 'المواصلات', value: money(tA.total), unit: 'ج.م', compare: 'off', note: ['موردين ', num(money(tA.vendors)), ' · تشغيل ', num(money(tA.ops)), ' · من البداية'], details: () => transportDetails(null) })),
+        U.KpiTile({ label: 'إجمالي المصروفات', value: money(rep.expensesTotal), unit: 'ج.م', compare: 'off', note: PER + ' · المرتبات · المصروفات · الاشتراكات · الإعلانات', details: () => adet('exp') }),
+        U.KpiTile({ label: 'صافي الفترة (حصة إبتكر − المصروفات)', value: money(rep.net), unit: 'ج.م', compare: netTone, delta: { text: rep.net < 0 ? 'خسارة' : 'ربح', caption: PER }, note: [num(money(rep.share)), ' − ', num(money(rep.expensesTotal))], details: () => adet('net') }),
+        U.KpiTile({ label: 'المواصلات', value: money(tA.total), unit: 'ج.م', compare: 'off', note: ['مبتكرين ', num(money(tA.vendors)), ' · تشغيل ', num(money(tA.ops)), ' · من البداية'], details: () => transportDetails(null) })),
       h('div', { class: 'charts' },
-        U.ChartCard({ title: 'المصروفات حسب الفئة', subtitle: 'سبتمبر 2026 · ' + money(rep.expensesTotal) + ' ج.م', footnote: 'نفس أرقام تاب «المصروفات» في الحسابات', body: barList(rep.expenseRows.map(([l, v, p]) => [l, v, money(v) + ' (' + D.formatPct(p) + ')']), { fmt: money }) }),
-        U.ChartCard({ title: 'المبيعات حسب حالة الأوردر', subtitle: 'سبتمبر 2026 · ' + rep.orders + ' أوردر', footnote: 'حصة إبتكر تُحسب بنسبة كل مورد', body: barList(rep.salesRows.map(([l, v, sh]) => [l, v, money(v) + ' · حصة ' + money(sh)]), { fmt: money, tones: ['brand', 'gold', 'neutral'] }) }),
+        U.ChartCard({ title: 'المصروفات حسب الفئة', subtitle: PER + ' · ' + money(rep.expensesTotal) + ' ج.م', footnote: 'نفس أرقام تاب «المصروفات» في الحسابات', body: barList(rep.expenseRows.map(([l, v, p]) => [l, v, money(v) + ' (' + D.formatPct(p) + ')']), { fmt: money }) }),
+        U.ChartCard({ title: 'المبيعات حسب حالة الأوردر', subtitle: PER + ' · ' + rep.orders + ' أوردر', footnote: 'حصة إبتكر تُحسب بنسبة كل مبتكر', body: barList(rep.salesRows.map(([l, v, sh]) => [l, v, money(v) + ' · حصة ' + money(sh)]), { fmt: money, tones: ['brand', 'gold', 'neutral'] }) }),
         U.ChartCard({ title: 'توزيع الحساب الفعلي', subtitle: 'الأرصدة الحالية', footnote: 'تُدخل يدويًا في تاب «الحساب الفعلي» حتى يتم الربط البنكي', body: barList(rep.accountRows.map(([l, v, p]) => [l, v, money(v) + ' (' + D.formatPct(p) + ')']), { fmt: money }) }),
         U.ChartCard({ title: 'مكوّنات الرصيد المحتمل', subtitle: money(rep.potential) + ' ج.م', footnote: 'الرصيد المحتمل = الحساب الفعلي + حصة إبتكر من أوردرات التنفيذ + العرابين المدفوعة', body: barList(rep.potentialParts.map(([l, v, p]) => [l, v, money(v) + ' (' + D.formatPct(p) + ')']), { fmt: money, tones: ['brand', 'gold', 'goldlight'] }) })),
-      TableCard({ title: 'ملخص الحسابات الشهري', action: Button({ type: 'text', size: 'sm', label: 'فتح الحسابات', onClick: () => { state.tab = 'actual'; go('accounts'); } }),
-        body: (() => { const tRows = [rows[0].map((c, i) => (i === 0 ? c : num(i === 1 ? String(c) : money(c)))), ['أكتوبر 2026 (حتى 20 أكتوبر) — المصروفات لم تُسجَّل بعد', num(String(R.ordersReport(ordersRows(), { from: '2026-10-01', to: TODAY }, TODAY).count)), '—', '—', '—', '—']];
-          return tableOrList(() => U.Table({ headers, rows: tRows, totalRow: ['الإجمالي', num(String(rep.orders)), num(money(rep.salesTotal)), num(money(rep.share)), num(money(rep.expensesTotal)), num(money(rep.net))] }), () => CardList({ headers, titleIndex: 0, rows: tRows })); })() }),
-      h('p', { class: 'source' }, 'المصدر: شيت الحسابات (المصروفات، المبيعات، حسابات الفيندورز، إجمالي الحساب الفعلي) · الصافي = حصة إبتكر − المصروفات · مبالغ المصروفات الفعلية تُقرأ من شيت Monthly Performance')];
+      TableCard({ title: 'ملخص الحسابات الشهري', count: PER + ' · الصافي ' + money(rep.net) + ' ج.م (' + (rep.net < 0 ? 'خسارة' : 'ربح') + ') · الحساب الفعلي ' + money(rep.actual) + ' · المحتمل ' + money(rep.potential),
+        action: Button({ type: 'text', size: 'sm', label: 'فتح الحسابات', onClick: () => { state.tab = 'actual'; go('accounts'); } }),
+        body: (() => { const tRows = rows.map((r) => r.map((c, i) => (i === 0 ? c : i === 1 ? num(String(c)) : i === 9 ? h('span', { class: c < 0 ? 'neg' : 'pos' }, num(money(c))) : num(money(c)))).concat([resTag(r[9]), '—', '—']));
+          return tableOrList(() => U.Table({ cls: 'acc-month-tbl', headers, rows: tRows, totalRow: ['الإجمالي', num(String(rep.orders)), num(money(rep.salesTotal)), num(money(rep.share)), num(money(catOf(rep, 'المرتبات'))), num(money(catOf(rep, 'المصروفات'))), num(money(catOf(rep, 'الاشتراكات'))), num(money(catOf(rep, 'الإعلانات'))), num(money(rep.expensesTotal)), h('span', { class: rep.net < 0 ? 'neg' : 'pos' }, num(money(rep.net))), resTag(rep.net), num(money(rep.actual)), num(money(rep.potential))] }), () => CardList({ headers, titleIndex: 0, rows: tRows })); })() }),
+      U.InlineNote({ kind: rep.net < 0 ? 'error' : 'success', children: h('span', null, 'الفترة ' + PER + ': حصة إبتكر ' + money(rep.share) + ' − المصروفات ' + money(rep.expensesTotal) + ' = ', h('b', null, money(rep.net) + ' ج.م ' + (rep.net < 0 ? 'خسارة' : 'ربح')), ' · الحساب الفعلي دلوقتي ' + money(rep.actual) + ' · الرصيد المحتمل ' + money(rep.potential) + ' (الفعلي + حصة إبتكر من أوردرات التنفيذ + العرابين)') }),
+      h('p', { class: 'source' }, 'المصدر: الأوردرات (السيستم، حسب تاريخ الأوردر) والمصروفات المتسجلة في السيستم للفترة المختارة · الحساب الفعلي رصيد اللحظة الحالية · الصافي = حصة إبتكر − المصروفات')].filter(Boolean);
   }
   const RVIEWS = { orders: OrdersReportView, vendors: VendorsReportView, accounts: AccountsReportView };
   function renderReports() {
@@ -2619,7 +2710,7 @@
     main.replaceChildren(...[
       h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'المصروفات · المبيعات · حسابات المبتكرين · الحساب الفعلي · سجل الحركات')), h('div', { class: 'actions' }, window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
       tabs,
-      state.tab === 'moves-log' ? null : h('div', { class: 'toolbar' }, DateRangeField(), state.tab === 'vendors' ? SortDropdown() : null, state.tab === 'vendors' ? WdFilterDropdown() : null, h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'vendors' ? AddMenu('إضافة مبلغ', 'vendorMoves') : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
+      state.tab === 'moves-log' ? null : h('div', { class: 'toolbar' }, DateRangeField(), state.tab === 'vendors' ? SortDropdown() : null, state.tab === 'vendors' ? WdFilterDropdown() : null, h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'subscriptions' ? Button({ type: 'brand', icon: 'plus', label: 'إضافة اشتراك', attrs: { 'data-add-sub': '' }, onClick: () => openForm('expenses', 'withdraw', null, false, { category: SUBS_CAT }) }) : state.tab === 'vendors' ? AddMenu('إضافة مبلغ', 'vendorMoves') : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
       noteEl,
       h('div', { id: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.tab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, VIEWS[state.tab]())].filter(Boolean));
     window.IBKit.sweepColumns(document.getElementById('panel'));

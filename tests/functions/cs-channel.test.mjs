@@ -14,6 +14,9 @@ test('authUrl: the Facebook dialog with the app, the redirect, the state and the
   assert.equal(u.searchParams.get('client_id'), '123'); assert.equal(u.searchParams.get('redirect_uri'), REDIRECT); assert.equal(u.searchParams.get('state'), 'st_' + 'x'.repeat(40));
   assert.deepEqual(u.searchParams.get('scope').split(','), SCOPES);
   assert.ok(SCOPES.includes('pages_messaging') && SCOPES.includes('instagram_manage_messages') && SCOPES.includes('instagram_manage_comments') && SCOPES.includes('pages_manage_engagement'));
+  const c = new URL(authUrl('123', REDIRECT, 's'.repeat(40), '987654321'));
+  assert.equal(c.searchParams.get('config_id'), '987654321'); assert.equal(c.searchParams.get('override_default_response_type'), 'true');
+  assert.equal(c.searchParams.get('scope'), null, 'a configuration replaces the scopes'); assert.equal(c.searchParams.get('response_type'), 'code');
   assert.ok(SUBSCRIBED_FIELDS.includes('messages') && SUBSCRIBED_FIELDS.includes('message_echoes') && SUBSCRIBED_FIELDS.includes('feed'));
 });
 

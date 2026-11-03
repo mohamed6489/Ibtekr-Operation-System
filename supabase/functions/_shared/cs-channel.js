@@ -21,8 +21,12 @@ const idOf = (v) => { const s = str(v); return ID_RE.test(s) ? s : null; };
 const text = (v) => str(v, MAX_TEXT).replace(/\u0000/g, '').trim();
 const when = (v) => { const n = typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) : NaN; if (!Number.isFinite(n)) return null; return n < 1e11 ? n * 1000 : n; }; // seconds or ms → ms
 
-export function authUrl(appId, redirectUri, state) {
-  const q = new URLSearchParams({ client_id: appId, redirect_uri: redirectUri, state, response_type: 'code', scope: SCOPES.join(',') });
+// a Business app signs in through Facebook Login for Business: a configuration (its id, made in the app's dashboard with the same
+// permissions) replaces the scopes — config_id + override_default_response_type keeps the code flow; without one, the scopes
+/** @param {string} appId @param {string} redirectUri @param {string} state @param {string | null} [configId] */
+export function authUrl(appId, redirectUri, state, configId = null) {
+  const q = new URLSearchParams({ client_id: appId, redirect_uri: redirectUri, state, response_type: 'code' });
+  if (configId) { q.set('config_id', configId); q.set('override_default_response_type', 'true'); } else q.set('scope', SCOPES.join(','));
   return DIALOG + '?' + q.toString();
 }
 

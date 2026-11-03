@@ -27,7 +27,9 @@
 //                      incoming comment → delivery sent + Meta's id; a refusal → delivery failed + meta.error (a code) and 502.
 //     comment_private  (cs.reply) { message_id } → the queued message as a private reply to the last incoming comment (opens a DM).
 //     comment_hide     (cs.reply) { conversation_id } → the last incoming comment hidden + an `event` message.
-// Secrets: META_APP_ID, META_APP_SECRET, META_VERIFY_TOKEN (Supabase secrets — the owner sets them); META_REDIRECT_URI optional.
+// Secrets: META_APP_ID, META_APP_SECRET, META_VERIFY_TOKEN (Supabase secrets — the owner sets them); META_LOGIN_CONFIG_ID (the
+// Facebook Login for Business configuration of a Business app — the dialog then takes config_id instead of the scopes) and
+// META_REDIRECT_URI optional.
 // Errors: 400 bad_request { field }, 401 unauthorized / bad_signature, 403 verify_failed, 404 not_found, 409 not_queued, 502 graph
 // codes, 503 not_configured / not_linked. Nothing here logs a token, a message's text or a phone.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
@@ -56,6 +58,7 @@ const isObj = (v: unknown): v is Json => v !== null && typeof v === 'object' && 
 const UUID = /^[0-9a-f-]{36}$/i;
 const redirectUri = (env: Deps['env']) => { const v = (env.META_REDIRECT_URI ?? '').trim(); return /^https:\/\/[^\s]+$/.test(v) ? v : REDIRECT_DEFAULT; };
 const appOf = (env: Deps['env']) => { const id = (env.META_APP_ID ?? '').trim(); const secret = (env.META_APP_SECRET ?? '').trim(); return /^\d{5,30}$/.test(id) && secret.length >= 16 ? { id, secret } : null; };
+const loginConfig = (env: Deps['env']) => { const v = (env.META_LOGIN_CONFIG_ID ?? '').trim(); return /^\d{5,30}$/.test(v) ? v : null; }; // Facebook Login for Business
 const webhookUrl = (env: Deps['env']) => (env.SUPABASE_URL ?? '').replace(/\/$/, '') + '/functions/v1/cs-channel';
 export function randomText(bytes = 32) { const a = new Uint8Array(bytes); crypto.getRandomValues(a); return btoa(String.fromCharCode(...a)).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, ''); }
 
@@ -280,7 +283,7 @@ async function status(deps: Deps, who: Who) {
   if (!who.view) return json(401, { error: 'unauthorized' });
   const page = await pageOf(deps);
   const out: Json = { result: 'ok', linked: !!page, channels: await channelsOf(deps) };
-  if (who.admin) { out.configured = !!appOf(deps.env); out.verify_configured = !!(deps.env.META_VERIFY_TOKEN ?? '').trim(); out.redirect = redirectUri(deps.env); out.webhook_url = webhookUrl(deps.env); out.page = page ? { id: page.id, name: page.name, ig: page.ig } : null; }
+  if (who.admin) { out.configured = !!appOf(deps.env); out.verify_configured = !!(deps.env.META_VERIFY_TOKEN ?? '').trim(); out.login_config = !!loginConfig(deps.env); out.redirect = redirectUri(deps.env); out.webhook_url = webhookUrl(deps.env); out.page = page ? { id: page.id, name: page.name, ig: page.ig } : null; }
   return json(200, out);
 }
 async function connectStart(deps: Deps, who: Who, args: Json) {
@@ -291,7 +294,7 @@ async function connectStart(deps: Deps, who: Who, args: Json) {
   const state = randomText();
   const { error } = await deps.db.from('cs_oauth_states').insert({ state, verifier: randomText(48), channel, created_by: who.uid, created_at: deps.now() });
   if (error) return json(500, { error: 'failed' });
-  return json(200, { result: 'ok', url: authUrl(app.id, redirectUri(deps.env), state), channel });
+  return json(200, { result: 'ok', url: authUrl(app.id, redirectUri(deps.env), state, loginConfig(deps.env)), channel });
 }
 // the page linked: subscribed to the app's webhooks, kept in Vault, the channels connected
 async function linkPage(deps: Deps, who: Who, page: Page) {

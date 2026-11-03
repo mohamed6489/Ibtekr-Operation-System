@@ -197,6 +197,7 @@ Deno.test('auth: a member JWT only; status for cs.view ≠ N (the admin sees the
   const view = await call(deps, { action: 'status' }, 'jwt-view');
   assertEquals(view.body, { result: 'ok', linked: false, channels: [{ id: 'messenger', name: 'ماسنجر', status: 'disconnected', number: null, since: null, last_message_at: null }, { id: 'instagram', name: 'إنستجرام', status: 'disconnected', number: null, since: null, last_message_at: null }] });
   const admin = await call(deps, { action: 'status' }, 'jwt-admin');
+  assertEquals(admin.body.login_config, false);
   assertEquals([admin.body.configured, admin.body.verify_configured, admin.body.redirect, admin.body.webhook_url, admin.body.page], [true, true, 'https://operation-system.ibtekr.club/meta-callback.html', 'https://proj.supabase.test/functions/v1/cs-channel', null]);
   for (const action of ['connect_start', 'connect_callback', 'connect_pick', 'disconnect']) assertEquals((await call(deps, { action }, 'jwt-reply')).res.status, 401, action);
   for (const action of ['send', 'comment_private', 'comment_hide']) assertEquals((await call(deps, { action }, 'jwt-view')).res.status, 401, action);
@@ -218,7 +219,13 @@ Deno.test('connect: the dialog url with a state kept ten minutes; the callback e
   assertEquals([st.channel, st.created_by, st.used_at], ['instagram', U.admin, null]); assert(/^[A-Za-z0-9_-]{32,128}$/.test(st.state));
   const u = new URL(start.body.url);
   assertEquals([u.host, u.searchParams.get('client_id'), u.searchParams.get('state'), u.searchParams.get('redirect_uri')], ['www.facebook.com', '1234567890', st.state, 'https://operation-system.ibtekr.club/meta-callback.html']);
+  assertEquals([u.searchParams.has('scope'), u.searchParams.has('config_id')], [true, false]);
   assertEquals((await call(deps, { action: 'connect_start', channel: 'tiktok' }, 'jwt-admin')).body, { error: 'bad_request', field: 'channel' });
+  // a Business app's Facebook Login for Business configuration: config_id instead of the scopes
+  const fl4b = setup({ env: { ...META_ENV, META_LOGIN_CONFIG_ID: '987654321' } });
+  const u2 = new URL((await call(fl4b.deps, { action: 'connect_start' }, 'jwt-admin')).body.url);
+  assertEquals([u2.searchParams.get('config_id'), u2.searchParams.has('scope')], ['987654321', false]);
+  assertEquals((await call(fl4b.deps, { action: 'status' }, 'jwt-admin')).body.login_config, true);
   // the callback: a wrong state, a bad code, then the right pair (spent), then the same pair again
   assertEquals((await call(deps, { action: 'connect_callback', code: 'code-12345678', state: 'x'.repeat(40) }, 'jwt-admin')).body, { error: 'bad_request', field: 'state' });
   assertEquals((await call(deps, { action: 'connect_callback', code: 'bad code', state: st.state }, 'jwt-admin')).body, { error: 'bad_request', field: 'code' });

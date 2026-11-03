@@ -106,7 +106,7 @@
       و`meta { post_id, comment_id, parent_id }`؛ تعليق من الصفحة نفسها = `out` echo. أي حاجة تانية (postbacks, reactions, …) = ignored.
     - **أفعال العضو (JWT):** `status` (`cs.view ≠ N`: القنوات + للأدمن `configured`/`redirect`/`webhook_url`) · `connect_start { channel }`
       (الأدمن: state + رابط `facebook.com/v21.0/dialog/oauth` بالصلاحيات `pages_show_list, pages_messaging, pages_manage_metadata,
-      pages_read_engagement, pages_manage_engagement, instagram_basic, instagram_manage_messages, instagram_manage_comments`، الرجوع على
+      pages_read_engagement, pages_read_user_content, pages_manage_engagement, instagram_basic, instagram_manage_messages, instagram_manage_comments`، الرجوع على
       `app/meta-callback.html`) · `connect_callback { code, state }` (الأدمن: الكود → توكن مستخدم قصير → طويل (`fb_exchange_token`) →
       `/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}`؛ صفحة واحدة = بتتربط فورًا، أكتر = المرشّحين في Vault
       والرد `choose` بقايمة من غير توكنات ← `connect_pick { page_id }`؛ الربط = `POST /{page}/subscribed_apps` بـ `subscribed_fields =

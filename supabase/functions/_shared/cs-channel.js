@@ -8,8 +8,8 @@ export const GRAPH_VERSION = 'v21.0';
 export const GRAPH = 'https://graph.facebook.com/' + GRAPH_VERSION;
 export const DIALOG = 'https://www.facebook.com/' + GRAPH_VERSION + '/dialog/oauth';
 // the permissions the page link asks for (decision 12): the pages list, messaging + metadata (webhooks) + engagement (comments) of
-// the page, and the Instagram account's basics, messages and comments
-export const SCOPES = ['pages_show_list', 'pages_messaging', 'pages_manage_metadata', 'pages_read_engagement', 'pages_manage_engagement', 'instagram_basic', 'instagram_manage_messages', 'instagram_manage_comments'];
+// the page (pages_read_user_content: the visitors' comments on its posts), and the Instagram account's basics, messages and comments
+export const SCOPES = ['pages_show_list', 'pages_messaging', 'pages_manage_metadata', 'pages_read_engagement', 'pages_read_user_content', 'pages_manage_engagement', 'instagram_basic', 'instagram_manage_messages', 'instagram_manage_comments'];
 // the webhook fields the page is subscribed to at connect time
 export const SUBSCRIBED_FIELDS = ['messages', 'messaging_postbacks', 'message_deliveries', 'message_reads', 'message_echoes', 'feed'];
 export const MAX_TEXT = 4000;

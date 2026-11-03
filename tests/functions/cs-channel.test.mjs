@@ -8,12 +8,12 @@ import {
 
 const REDIRECT = 'https://operation-system.ibtekr.club/meta-callback.html';
 
-test('authUrl: the Facebook dialog with the app, the redirect, the state and the eight permissions', () => {
+test('authUrl: the Facebook dialog with the app, the redirect, the state and the nine permissions (or a configuration)', () => {
   const u = new URL(authUrl('123', REDIRECT, 'st_' + 'x'.repeat(40)));
   assert.equal(u.origin + u.pathname, 'https://www.facebook.com/v21.0/dialog/oauth');
   assert.equal(u.searchParams.get('client_id'), '123'); assert.equal(u.searchParams.get('redirect_uri'), REDIRECT); assert.equal(u.searchParams.get('state'), 'st_' + 'x'.repeat(40));
   assert.deepEqual(u.searchParams.get('scope').split(','), SCOPES);
-  assert.ok(SCOPES.includes('pages_messaging') && SCOPES.includes('instagram_manage_messages') && SCOPES.includes('instagram_manage_comments') && SCOPES.includes('pages_manage_engagement'));
+  assert.ok(SCOPES.includes('pages_messaging') && SCOPES.includes('pages_read_user_content') && SCOPES.length === 9 && SCOPES.includes('instagram_manage_messages') && SCOPES.includes('instagram_manage_comments') && SCOPES.includes('pages_manage_engagement'));
   const c = new URL(authUrl('123', REDIRECT, 's'.repeat(40), '987654321'));
   assert.equal(c.searchParams.get('config_id'), '987654321'); assert.equal(c.searchParams.get('override_default_response_type'), 'true');
   assert.equal(c.searchParams.get('scope'), null, 'a configuration replaces the scopes'); assert.equal(c.searchParams.get('response_type'), 'code');

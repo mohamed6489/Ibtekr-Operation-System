@@ -13,7 +13,7 @@
 //        cs_channel_events (counts, an error code — never a text, a name or a token).
 //   POST { action, … } with a member's Authorization: Bearer <jwt>:
 //     status           (cs.view ≠ N) → the channels' state; the admin also: configured (the app secrets), redirect, webhook_url, page.
-//     connect_start    (the admin) { channel } → the Facebook dialog url (the eight scopes), a state kept ten minutes in cs_oauth_states.
+//     connect_start    (the admin) { channel } → the Facebook dialog url (the nine scopes, or a Facebook Login for Business configuration), a state kept ten minutes in cs_oauth_states.
 //     connect_callback (the admin) { code, state } → the state spent, the code → a long-lived user token → /me/accounts: one page →
 //                      linked now; several → { result: 'choose', pages } with the candidates kept in Vault for connect_pick.
 //     connect_pick     (the admin) { page_id } → the candidate linked.

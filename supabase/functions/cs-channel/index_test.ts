@@ -177,7 +177,7 @@ Deno.test('webhook: Facebook feed comments → a comments conversation per post 
   await deliver(deps, { object: 'instagram', entry: [{ id: '777', time: 1762000000, changes: [{ field: 'comments', value: { id: 'c9', text: 'بكام؟', from: { id: '55', username: 'noha_h' }, media: { id: 'med1' } } }] }] });
   const igc = db.rows('cs_conversations').at(-1);
   assertEquals([igc.seg, igc.platform, igc.channel, igc.external_id, igc.handle], ['comments', 'instagram', 'instagram', 'med1:55', '@noha_h']);
-  assertEquals(db.rows('cs_channel_events').map((r: any) => r.summary), [{ comments: 1 }, { echoes: 1 }, { edits: 1 }, { ignored: 1 }, { comments: 1 }, { comments: 1 }, { comments: 1 }]);
+  assertEquals(db.rows('cs_channel_events').map((r: any) => r.summary), [{ comments: 1 }, { echoes: 1 }, { edits: 1 }, { 'ignored:removed': 1 }, { comments: 1 }, { comments: 1 }, { comments: 1 }]);
 });
 
 Deno.test('webhook: a database failure answers 500 (Meta retries) and logs an error row with a code only', async () => {

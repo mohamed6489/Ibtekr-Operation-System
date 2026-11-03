@@ -77,6 +77,8 @@ do $$ begin
   exception when insufficient_privilege then null;
   end;
   if (select count(*) from public.cs_channel_events where entry_id = '123') <> 1 then raise exception 'case service_role reads the events failed'; end if;
+  insert into public.cs_channel_events (object, status) values ('page', 'ok'); -- 0036: the sequence is granted
+  if not has_sequence_privilege('service_role', 'public.cs_channel_events_id_seq', 'USAGE') then raise exception 'case service_role uses the events sequence failed'; end if;
   begin
     perform public.cs_secret_get('something_else');
     raise exception 'case a name outside the list is refused failed';

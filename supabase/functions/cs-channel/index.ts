@@ -218,10 +218,10 @@ async function onReceipt(deps: Deps, ev: Json, s: Summary) {
 async function onComment(deps: Deps, page: Page | null, ev: Json, s: Summary) {
   const platform = ev.platform === 'instagram' ? 'instagram' : 'facebook'; const channel = platform === 'instagram' ? 'instagram' : 'messenger';
   const ours = !!ev.fromId && !!page && (ev.fromId === page.id || (page.ig && ev.fromId === page.ig.id));
-  if (ev.removed) { bump(s, 'ignored'); return; }
+  if (ev.removed) { bump(s, 'ignored:removed'); return; }
   if (ours) { // the page's own reply: an echo on the thread of the parent comment
     const { data: parent } = ev.parentId ? await deps.db.from('cs_messages').select('conversation_id').eq('external_id', ev.parentId).maybeSingle() : { data: null };
-    if (!isObj(parent) || !parent.conversation_id) { bump(s, 'ignored'); return; }
+    if (!isObj(parent) || !parent.conversation_id) { bump(s, 'ignored:page_comment'); return; }
     const put = await putMessage(deps, { conversation_id: parent.conversation_id, kind: 'out', text: ev.text, author: null, external_id: ev.commentId, delivery: 'sent', meta: { echo: true, comment_id: ev.commentId, post_id: ev.postId, parent_id: ev.parentId }, created_at: isoOf(ev.at, deps) });
     bump(s, put ? 'echoes' : 'ignored'); return;
   }
@@ -264,10 +264,10 @@ async function webhook(req: Request, deps: Deps): Promise<Response> {
         if (ev.type === 'message') await onMessage(deps, page, ev, s);
         else if (ev.type === 'delivery' || ev.type === 'read') await onReceipt(deps, ev, s);
         else if (ev.type === 'comment') await onComment(deps, page, ev, s);
-        else bump(s, 'ignored');
+        else bump(s, 'ignored:' + String(ev.field ?? 'other').replace(/[^a-z_]/g, '').slice(0, 30));
       } catch (e) { failed = true; bump(s, 'errors'); error = String((e as Error)?.message ?? 'error').replace(/[^\w: .-]/g, '').slice(0, 200); console.error('cs-channel webhook: ' + error); }
     }
-    const handled = Object.keys(s).some((k) => !['ignored', 'duplicates', 'errors'].includes(k));
+    const handled = Object.keys(s).some((k) => !k.startsWith('ignored') && !['duplicates', 'errors'].includes(k));
     await logEvent(deps, { object: parsed.object, entry_id: entry.id, status: error ? 'error' : handled ? 'ok' : 'ignored', error, summary: s });
   }
   return failed ? json(500, { status: 'error' }) : json(200, { status: 'ok' });

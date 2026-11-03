@@ -7,9 +7,9 @@
 export const GRAPH_VERSION = 'v21.0';
 export const GRAPH = 'https://graph.facebook.com/' + GRAPH_VERSION;
 export const DIALOG = 'https://www.facebook.com/' + GRAPH_VERSION + '/dialog/oauth';
-// the permissions the page link asks for (decision 12): the pages list, messaging + metadata (webhooks) + engagement (comments) of
+// the permissions the page link asks for (decision 12; business_management: a page owned by a Business Portfolio): the pages list, messaging + metadata (webhooks) + engagement (comments) of
 // the page (pages_read_user_content: the visitors' comments on its posts), and the Instagram account's basics, messages and comments
-export const SCOPES = ['pages_show_list', 'pages_messaging', 'pages_manage_metadata', 'pages_read_engagement', 'pages_read_user_content', 'pages_manage_engagement', 'instagram_basic', 'instagram_manage_messages', 'instagram_manage_comments'];
+export const SCOPES = ['pages_show_list', 'pages_messaging', 'pages_manage_metadata', 'pages_read_engagement', 'pages_read_user_content', 'pages_manage_engagement', 'instagram_basic', 'instagram_manage_messages', 'instagram_manage_comments', 'business_management'];
 // the webhook fields the page is subscribed to at connect time
 export const SUBSCRIBED_FIELDS = ['messages', 'messaging_postbacks', 'message_deliveries', 'message_reads', 'message_echoes', 'feed'];
 export const MAX_TEXT = 4000;
@@ -127,6 +127,21 @@ export function pagesOf(json) {
     return { id, name: str(p.name, 120) || id, token, ig };
   }).filter(Boolean);
 }
+// /me/accounts entries that came back without a page token (the page is seen, its management is not granted) — a count for the diagnosis
+export const tokenlessCount = (json) => (isObj(json) && Array.isArray(json.data) ? json.data.filter((p) => isObj(p) && idOf(p.id) && !(typeof p.access_token === 'string' && p.access_token.length >= 20)).length : 0);
+// the pages of several answers, once each (the first answer with a token wins)
+export function mergePages(...lists) {
+  const seen = new Map(); lists.flat().forEach((p) => { if (p && !seen.has(p.id)) seen.set(p.id, p); }); return [...seen.values()];
+}
+// /me/businesses → the portfolio ids (a page owned by a Business Portfolio may not be in /me/accounts)
+export const businessIdsOf = (json) => (isObj(json) && Array.isArray(json.data) ? json.data.map((b) => (isObj(b) ? idOf(b.id) : null)).filter(Boolean).slice(0, 10) : []);
+// /me/permissions → { granted, declined } names only; and what the system needs that is not granted
+export function permissionsOf(json) {
+  const list = isObj(json) && Array.isArray(json.data) ? json.data : [];
+  const granted = [], declined = [];
+  list.forEach((p) => { if (!isObj(p) || typeof p.permission !== 'string') return; const n = p.permission.slice(0, 60); if (p.status === 'granted') granted.push(n); else declined.push(n); });
+  return { granted, declined, missing: SCOPES.filter((s) => s !== 'business_management' && !granted.includes(s)) };
+}
 // the pages without their tokens (the answer to the admin)
 export const publicPages = (pages) => pages.map((p) => ({ id: p.id, name: p.name, ig: p.ig ? { id: p.ig.id, username: p.ig.username } : null }));
 
@@ -143,6 +158,9 @@ export const graphPath = {
   tokenExchange: (appId, redirectUri, code) => GRAPH + '/oauth/access_token?' + new URLSearchParams({ client_id: appId, redirect_uri: redirectUri, code }).toString() + '&client_secret=',
   longLived: (appId) => GRAPH + '/oauth/access_token?' + new URLSearchParams({ grant_type: 'fb_exchange_token', client_id: appId }).toString() + '&client_secret=',
   accounts: () => GRAPH + '/me/accounts?fields=id,name,access_token,instagram_business_account{id,username}&limit=50',
+  permissions: () => GRAPH + '/me/permissions',
+  businesses: () => GRAPH + '/me/businesses?fields=id&limit=10',
+  businessPages: (businessId, kind) => GRAPH + '/' + businessId + '/' + (kind === 'client' ? 'client_pages' : 'owned_pages') + '?fields=id,name,access_token,instagram_business_account{id,username}&limit=50',
   subscribe: (pageId) => GRAPH + '/' + pageId + '/subscribed_apps',
   profile: (userId, platform) => GRAPH + '/' + userId + (platform === 'instagram' ? '?fields=name,username' : '?fields=first_name,last_name,name'),
   send: () => GRAPH + '/me/messages',

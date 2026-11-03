@@ -271,7 +271,21 @@ Deno.test('connect: several pages → choose (no tokens in the answer), then con
   assertEquals(db.row('cs_channels', 'instagram').meta.note, 'no_instagram_account');
   const none = setup({ routes: { ...routes, 'GET me/accounts': { body: { data: [] } } } });
   const st2 = (await call(none.deps, { action: 'connect_start' }, 'jwt-admin'), none.db.rows('cs_oauth_states')[0].state);
-  assertEquals((await call(none.deps, { action: 'connect_callback', code: 'AQD-code-12345678', state: st2 }, 'jwt-admin')).body, { error: 'no_pages' });
+  assertEquals((await call(none.deps, { action: 'connect_callback', code: 'AQD-code-12345678', state: st2 }, 'jwt-admin')).body, { error: 'no_pages', seen: 0, granted: null, declined: null, missing: null });
+  // nothing anywhere: the diagnosis (a page seen without a token, the permissions granted / declined / missing — names only)
+  const perms = { data: [{ permission: 'pages_show_list', status: 'granted' }, { permission: 'pages_messaging', status: 'declined' }, { permission: 'public_profile', status: 'granted' }] };
+  const none2 = setup({ routes: { ...routes, 'GET me/accounts': { body: { data: [{ id: '111', name: 'Ibtekr Club' }] } }, 'GET me/businesses': { status: 403, body: { error: { code: 200 } } }, 'GET me/permissions': { body: perms } } });
+  const st3 = (await call(none2.deps, { action: 'connect_start' }, 'jwt-admin'), none2.db.rows('cs_oauth_states')[0].state);
+  const diag = await call(none2.deps, { action: 'connect_callback', code: 'AQD-code-12345678', state: st3 }, 'jwt-admin');
+  assertEquals([diag.res.status, diag.body.error, diag.body.seen, diag.body.granted, diag.body.declined], [400, 'no_pages', 1, ['pages_show_list', 'public_profile'], ['pages_messaging']]);
+  assertEquals(diag.body.missing, ['pages_messaging', 'pages_manage_metadata', 'pages_read_engagement', 'pages_read_user_content', 'pages_manage_engagement', 'instagram_basic', 'instagram_manage_messages', 'instagram_manage_comments']);
+  assertFalse(JSON.stringify(diag.body).includes('tok-'), 'no token in the diagnosis');
+  // a page owned by a Business Portfolio: /me/accounts empty, found through the portfolio's owned pages, linked
+  const biz = setup({ routes: { ...routes, 'GET me/accounts': { body: { data: [] } }, 'GET me/businesses': { body: { data: [{ id: '5005' }] } },
+    'GET 5005/owned_pages': { body: { data: [{ id: '111', name: 'Ibtekr Club', access_token: PAGE.token, instagram_business_account: { id: '777', username: 'ibtekr.club' } }] } }, 'GET 5005/client_pages': { body: { data: [] } } } });
+  const st4 = (await call(biz.deps, { action: 'connect_start' }, 'jwt-admin'), biz.db.rows('cs_oauth_states')[0].state);
+  const linked4 = await call(biz.deps, { action: 'connect_callback', code: 'AQD-code-12345678', state: st4 }, 'jwt-admin');
+  assertEquals([linked4.body.result, linked4.body.page.id, linked4.body.instagram], ['ok', '111', true]);
 });
 
 const V = 'd1000000-0000-4000-8000-000000000001'; const VC = 'd1000000-0000-4000-8000-000000000002'; const M1 = 'd1000000-0000-4000-8000-000000000011'; const M2 = 'd1000000-0000-4000-8000-000000000012';

@@ -1,7 +1,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   SCOPES, SUBSCRIBED_FIELDS, authUrl, attachmentsOf, attachmentText, messageText, parseWebhook, commentThreadId, statusAfterIn, profileName, profileHandle, pagesOf, publicPages,
-  graphErrorCode, graphPath, sendBody, privateReplyBody, hideBody, DEFAULT_NAME,
+  graphErrorCode, graphPath, sendBody, privateReplyBody, hideBody, DEFAULT_NAME, permissionsOf, tokenlessCount, mergePages, businessIdsOf,
 } from '../../supabase/functions/_shared/cs-channel.js';
 // The Meta channel's pure part (phase 6.2): the dialog url, the attachments' labels, the webhook normalisation (messages, echoes,
 // receipts, comments on Facebook and Instagram), the pages list, the error codes and the Graph addresses.
@@ -13,7 +13,7 @@ test('authUrl: the Facebook dialog with the app, the redirect, the state and the
   assert.equal(u.origin + u.pathname, 'https://www.facebook.com/v21.0/dialog/oauth');
   assert.equal(u.searchParams.get('client_id'), '123'); assert.equal(u.searchParams.get('redirect_uri'), REDIRECT); assert.equal(u.searchParams.get('state'), 'st_' + 'x'.repeat(40));
   assert.deepEqual(u.searchParams.get('scope').split(','), SCOPES);
-  assert.ok(SCOPES.includes('pages_messaging') && SCOPES.includes('pages_read_user_content') && SCOPES.length === 9 && SCOPES.includes('instagram_manage_messages') && SCOPES.includes('instagram_manage_comments') && SCOPES.includes('pages_manage_engagement'));
+  assert.ok(SCOPES.includes('pages_messaging') && SCOPES.includes('pages_read_user_content') && SCOPES.length === 10 && SCOPES.includes('business_management') && SCOPES.includes('instagram_manage_messages') && SCOPES.includes('instagram_manage_comments') && SCOPES.includes('pages_manage_engagement'));
   const c = new URL(authUrl('123', REDIRECT, 's'.repeat(40), '987654321'));
   assert.equal(c.searchParams.get('config_id'), '987654321'); assert.equal(c.searchParams.get('override_default_response_type'), 'true');
   assert.equal(c.searchParams.get('scope'), null, 'a configuration replaces the scopes'); assert.equal(c.searchParams.get('response_type'), 'code');
@@ -92,4 +92,14 @@ test('profiles, pages, error codes, addresses and bodies', () => {
   assert.deepEqual(sendBody('900', 'أهلاً'), { recipient: { id: '900' }, messaging_type: 'RESPONSE', message: { text: 'أهلاً' } });
   assert.deepEqual(privateReplyBody('c1', 'أهلاً'), { recipient: { comment_id: 'c1' }, message: { text: 'أهلاً' } });
   assert.deepEqual(hideBody('facebook'), { is_hidden: true }); assert.deepEqual(hideBody('instagram'), { hide: true });
+});
+
+test('the no-pages diagnosis: tokenless pages counted, permissions granted / declined / missing (business_management never required), merged pages once each, business ids', () => {
+  assert.equal(tokenlessCount({ data: [{ id: '111', name: 'A' }, { id: '222', access_token: 'EAAB'.repeat(10) }, 'x'] }), 1); assert.equal(tokenlessCount(null), 0);
+  const p = permissionsOf({ data: [{ permission: 'pages_show_list', status: 'granted' }, { permission: 'pages_messaging', status: 'declined' }, { permission: 'business_management', status: 'declined' }] });
+  assert.deepEqual(p.granted, ['pages_show_list']); assert.deepEqual(p.declined, ['pages_messaging', 'business_management']);
+  assert.ok(p.missing.includes('pages_messaging') && !p.missing.includes('pages_show_list') && !p.missing.includes('business_management')); assert.equal(p.missing.length, 8);
+  assert.deepEqual(mergePages([{ id: '1', name: 'a' }], [{ id: '1', name: 'b' }, { id: '2', name: 'c' }]).map((x) => x.name), ['a', 'c']);
+  assert.deepEqual(businessIdsOf({ data: [{ id: '5005' }, { id: 'bad id' }, 'x'] }), ['5005']);
+  assert.ok(graphPath.businessPages('5005', 'owned').includes('/5005/owned_pages?') && graphPath.businessPages('5005', 'client').includes('/5005/client_pages?'));
 });

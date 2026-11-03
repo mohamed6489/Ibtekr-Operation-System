@@ -34,7 +34,7 @@
 // codes, 503 not_configured / not_linked. Nothing here logs a token, a message's text or a phone.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import {
-  DEFAULT_NAME, SUBSCRIBED_FIELDS, authUrl, commentThreadId, graphErrorCode, graphPath, hideBody, pagesOf, parseWebhook, privateReplyBody, profileHandle, profileName, publicPages,
+  DEFAULT_NAME, SUBSCRIBED_FIELDS, authUrl, businessIdsOf, mergePages, permissionsOf, tokenlessCount, commentThreadId, graphErrorCode, graphPath, hideBody, pagesOf, parseWebhook, privateReplyBody, profileHandle, profileName, publicPages,
   sendBody, statusAfterIn,
 } from '../_shared/cs-channel.js';
 
@@ -320,15 +320,27 @@ async function connectCallback(deps: Deps, who: Who, args: Json) {
   const row = isObj(found) ? { createdAt: String(found.created_at ?? ''), used: !!found.used_at } : null;
   if (row && !row.used) await deps.db.from('cs_oauth_states').update({ used_at: deps.now() }).eq('state', state); // spent, whatever follows
   if (!row || row.used || Date.parse(deps.now()) - Date.parse(row.createdAt) > STATE_MINUTES * 60_000) return json(400, { error: 'bad_request', field: 'state' });
-  let pages: Page[];
+  let pages: Page[] = []; let seen = 0; let perms: { granted: string[]; declined: string[]; missing: string[] } | null = null;
   try {
     const short = await graph(deps, 'GET', graphPath.tokenExchange(app.id, redirectUri(deps.env), code) + encodeURIComponent(app.secret));
     if (typeof short.access_token !== 'string' || !short.access_token) throw new GraphError('graph_no_token');
     const long = await graph(deps, 'GET', graphPath.longLived(app.id) + encodeURIComponent(app.secret) + '&fb_exchange_token=' + encodeURIComponent(short.access_token));
     const userToken = typeof long.access_token === 'string' && long.access_token ? long.access_token : short.access_token;
-    pages = pagesOf(await graph(deps, 'GET', graphPath.accounts(), { token: userToken }));
+    const accounts = await graph(deps, 'GET', graphPath.accounts(), { token: userToken });
+    pages = pagesOf(accounts); seen = tokenlessCount(accounts);
+    if (!pages.length) { // a page owned by a Business Portfolio: through the portfolio's pages (business_management), best effort
+      const found: Page[][] = [];
+      try {
+        for (const biz of businessIdsOf(await graph(deps, 'GET', graphPath.businesses(), { token: userToken }))) {
+          for (const kind of ['owned', 'client']) { try { found.push(pagesOf(await graph(deps, 'GET', graphPath.businessPages(biz, kind), { token: userToken }))); } catch { /* not this kind */ } }
+        }
+      } catch { /* no business_management */ }
+      pages = mergePages(...found);
+    }
+    if (!pages.length) { try { perms = permissionsOf(await graph(deps, 'GET', graphPath.permissions(), { token: userToken })); } catch { perms = null; } }
   } catch (e) { return graphFail(e); }
-  if (!pages.length) return json(400, { error: 'no_pages' });
+  // nothing to link: the diagnosis for the admin — how many pages came without a token, the permissions granted / declined / missing (names only)
+  if (!pages.length) return json(400, { error: 'no_pages', seen, granted: perms?.granted ?? null, declined: perms?.declined ?? null, missing: perms?.missing ?? null });
   if (pages.length === 1) return linkPage(deps, who, pages[0]);
   await secretSet(deps, { page: (await pageOf(deps)) ?? null, candidates: pages });
   return json(200, { result: 'choose', pages: publicPages(pages) });

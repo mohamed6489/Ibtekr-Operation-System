@@ -1568,7 +1568,7 @@ export async function installSupabaseMock(page, opts = {}) {
         if (!/^[A-Za-z0-9._~#-]{8,2048}$/.test(String(b.code || ''))) return json(400, { error: 'bad_request', field: 'code' });
         const st = mock.oauthStates.find((x) => x.state === b.state && x.kind === 'meta'); if (!st || st.used) return json(400, { error: 'bad_request', field: 'state' }); st.used = true;
         if (String(b.code).startsWith('bad')) return json(502, { error: 'graph_100', status: 400 });
-        if (!M.pages.length) return json(400, { error: 'no_pages' });
+        if (!M.pages.length) return json(400, { error: 'no_pages', seen: 0, granted: ['pages_show_list'], declined: [], missing: ['pages_messaging'] });
         if (M.pages.length === 1) return link(M.pages[0]);
         M.candidates = M.pages.slice(); return json(200, { result: 'choose', pages: M.pages.map((p) => ({ id: p.id, name: p.name, ig: p.ig })) });
       }

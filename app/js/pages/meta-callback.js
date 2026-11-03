@@ -13,7 +13,10 @@
   if (!code || !state) { show('مفيش كود ربط', 'افتح الربط من تاب «القنوات» في خدمة العملاء.', true); return; }
   const cl = window.IBSupabase && window.IBSupabase.client;
   if (!cl) { show('السيستم مش متوصّل', 'الإعدادات ناقصة في config.js.', true); return; }
-  const why = (b) => (b && b.error === 'no_pages' ? 'الحساب اللي سجّلت بيه مالوش صفحات فيسبوك بيديرها — سجّل بحساب أدمن صفحة Ibtekr Club.'
+  const noPages = (b) => (Array.isArray(b.missing) && b.missing.length ? 'فيسبوك ماادّاش السيستم الصلاحيات دي: ' + b.missing.join('، ') + ' — في شاشة الربط اضغط «Edit access / تعديل الوصول» وعلّم على صفحة Ibtekr Club وحساب إنستجرام، أو ضيف الصلاحيات الناقصة للـ Configuration في Meta وجرّب تاني.'
+    : b.seen > 0 ? 'الصفحة ظهرت بس من غير صلاحية إدارتها — في شاشة الربط اختار صفحة Ibtekr Club في خطوة اختيار الصفحات، وجرّب تاني.'
+    : 'مالقيناش صفحة ممكن تتربط — في شاشة فيسبوك اختار صفحة Ibtekr Club (ولو الصفحة تبع Business Portfolio ضيف صلاحية business_management للـ Configuration)، وجرّب تاني.');
+  const why = (b) => (b && b.error === 'no_pages' ? noPages(b)
     : b && b.field === 'state' ? 'انتهت صلاحية الربط (10 دقايق) أو اتستخدم قبل كده — جرّب تاني من «القنوات».'
     : b && b.error === 'unauthorized' ? 'الأدمن بس يقدر يربط القنوات.' : b && b.error === 'not_configured' ? 'تطبيق Meta لسه مش متظبط على السيرفر (الأسرار ناقصة).'
     : b && /^graph_/.test(String(b.error || '')) ? 'Meta رفضت الربط (' + b.error + ') — اتأكد إن الصفحة في التطبيق وإنك Tester، وجرّب تاني.' : 'الربط ماكملش — جرّب تاني.');

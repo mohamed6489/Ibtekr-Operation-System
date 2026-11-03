@@ -247,6 +247,7 @@ Deno.test('connect: the dialog url with a state kept ten minutes; the callback e
   assertEquals((await call(deps, { action: 'connect_callback', code: 'AQD-code-12345678', state: st.state }, 'jwt-admin')).body, { error: 'bad_request', field: 'state' });
   const status = await call(deps, { action: 'status' }, 'jwt-admin');
   assertEquals([status.body.linked, status.body.page.name], [true, 'Ibtekr Club']);
+  assertEquals([status.body.subscribed_fields, status.body.missing_permissions], [null, null], 'no Graph answer for those reads here: null, never an error');
   // disconnect: the subscription removed, the secret gone, both channels back
   const off = await call(deps, { action: 'disconnect' }, 'jwt-admin');
   assertEquals([off.body.linked, off.body.channels.map((c: any) => c.status)], [false, ['disconnected', 'disconnected']]);
@@ -366,4 +367,31 @@ Deno.test('a real-length mid (88 characters, 3 Nov): kept whole by the webhook, 
   await deliver(before.deps, page({ sender: { id: '111' }, recipient: { id: '900' }, timestamp: T, message: { mid: MID, text: 'في الطريق', is_echo: true } }));
   assertEquals([before.db.row('cs_messages', M1).external_id, before.db.row('cs_messages', M1).delivery], [MID, 'sent']);
   assertEquals(before.db.rows('cs_messages').filter((m: any) => m.conversation_id === V && m.kind === 'out').length, 1);
+});
+
+Deno.test('status (the admin, a linked page): the page\'s subscribed fields from Graph, re-subscribed once when feed is missing; the permissions the link misses', async () => {
+  let fields = ['messages', 'message_echoes'];
+  const routes: Record<string, Route> = {
+    'GET 111/subscribed_apps': () => ({ body: { data: [{ id: '1234567890', name: 'ibtekr Ops', subscribed_fields: fields }] } }),
+    'POST 111/subscribed_apps': (c) => { fields = String(c.body.subscribed_fields).split(','); return { body: { success: true } }; },
+    'GET me/permissions': { body: { data: [{ permission: 'pages_messaging', status: 'granted' }, { permission: 'pages_read_user_content', status: 'declined' }] } },
+  };
+  const { deps, graph } = setup({ vault: linked(), routes });
+  const s = await call(deps, { action: 'status' }, 'jwt-admin');
+  assertEquals(s.body.resubscribed, true);
+  assertEquals(s.body.subscribed_fields, ['messages', 'messaging_postbacks', 'message_deliveries', 'message_reads', 'message_echoes', 'feed']);
+  assert(s.body.missing_permissions.includes('pages_read_user_content') && !s.body.missing_permissions.includes('pages_messaging'));
+  assertEquals(graph.calls.filter((c) => c.method === 'POST').length, 1);
+  const again = await call(deps, { action: 'status' }, 'jwt-admin');
+  assertEquals(again.body.resubscribed, undefined, 'complete: no second subscribe');
+  const member = await call(deps, { action: 'status' }, 'jwt-reply');
+  assertEquals([member.body.subscribed_fields, member.body.missing_permissions], [undefined, undefined], 'a member sees the channels only');
+});
+
+Deno.test('an Instagram DM with a long mid (≈ 200 characters) lands; a message without a usable id is counted as ignored:bad_id', async () => {
+  const LONG = 'aWdfZAG1faXRlbToxOklHTWVzc2FnZAUlEOjE3ODQx' + 'A'.repeat(160);
+  const ig = setup({ vault: linked(), routes: { 'GET 55': { body: { name: 'Noha', username: 'noha_h' } } } });
+  await deliver(ig.deps, { object: 'instagram', entry: [{ id: '777', time: 1762000000, messaging: [{ sender: { id: '55' }, recipient: { id: '777' }, timestamp: 1762000001, message: { mid: LONG, text: 'بكام؟' } }, { sender: { id: '55' }, recipient: { id: '777' }, message: { mid: 'bad mid', text: 'x' } }] }] });
+  assertEquals(ig.db.rows('cs_messages').map((m: any) => [m.kind, m.external_id.length]), [['in', LONG.length]]);
+  assertEquals(ig.db.rows('cs_channel_events').at(-1).summary, { messages: 1, 'ignored:bad_id': 1 });
 });

@@ -34,7 +34,7 @@
 // codes, 503 not_configured / not_linked. Nothing here logs a token, a message's text or a phone.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import {
-  DEFAULT_NAME, SUBSCRIBED_FIELDS, authUrl, businessIdsOf, mergePages, permissionsOf, tokenlessCount, commentThreadId, graphErrorCode, graphPath, hideBody, pagesOf, parseWebhook, privateReplyBody, profileHandle, profileName, publicPages,
+  DEFAULT_NAME, SUBSCRIBED_FIELDS, authUrl, businessIdsOf, subscribedFieldsOf, mergePages, permissionsOf, tokenlessCount, commentThreadId, graphErrorCode, graphPath, hideBody, pagesOf, parseWebhook, privateReplyBody, profileHandle, profileName, publicPages,
   sendBody, statusAfterIn,
 } from '../_shared/cs-channel.js';
 
@@ -283,7 +283,20 @@ async function status(deps: Deps, who: Who) {
   if (!who.view) return json(401, { error: 'unauthorized' });
   const page = await pageOf(deps);
   const out: Json = { result: 'ok', linked: !!page, channels: await channelsOf(deps) };
-  if (who.admin) { out.configured = !!appOf(deps.env); out.verify_configured = !!(deps.env.META_VERIFY_TOKEN ?? '').trim(); out.login_config = !!loginConfig(deps.env); out.redirect = redirectUri(deps.env); out.webhook_url = webhookUrl(deps.env); out.page = page ? { id: page.id, name: page.name, ig: page.ig } : null; }
+  if (who.admin) {
+    out.configured = !!appOf(deps.env); out.verify_configured = !!(deps.env.META_VERIFY_TOKEN ?? '').trim(); out.login_config = !!loginConfig(deps.env); out.redirect = redirectUri(deps.env); out.webhook_url = webhookUrl(deps.env); out.page = page ? { id: page.id, name: page.name, ig: page.ig } : null;
+    // the page's live subscription to this app (Graph): the fields, re-subscribed once when one is missing; the permissions the link holds
+    if (page) {
+      const app = appOf(deps.env);
+      const read = async () => { try { return subscribedFieldsOf(await graph(deps, 'GET', graphPath.subscribedFields(page.id), { token: page.token }), app?.id ?? ''); } catch { return null; } };
+      let fields = await read();
+      if (fields && SUBSCRIBED_FIELDS.some((x) => !fields!.includes(x))) {
+        try { await graph(deps, 'POST', graphPath.subscribe(page.id), { token: page.token, form: { subscribed_fields: SUBSCRIBED_FIELDS.join(',') } }); out.resubscribed = true; fields = await read(); } catch (e) { out.resubscribe_error = e instanceof GraphError ? e.code : 'error'; }
+      }
+      out.subscribed_fields = fields;
+      try { out.missing_permissions = permissionsOf(await graph(deps, 'GET', graphPath.permissions(), { token: page.token })).missing; } catch { out.missing_permissions = null; }
+    }
+  }
   return json(200, out);
 }
 async function connectStart(deps: Deps, who: Who, args: Json) {

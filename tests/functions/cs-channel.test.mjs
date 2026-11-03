@@ -46,7 +46,7 @@ test('parseWebhook: a Messenger delivery — a customer message, an echo of the 
   assert.deepEqual(ev[2], { type: 'delivery', platform: 'messenger', pageId: '111', userId: '900', watermark: 1762000002500, mids: ['m.2'] });
   assert.deepEqual(ev[3], { type: 'read', platform: 'messenger', pageId: '111', userId: '900', watermark: 1762000003500 });
   assert.deepEqual(ev[4], { type: 'other', field: 'postback' });
-  assert.equal(ev.length, 5, 'a sender id outside the id shape is dropped');
+  assert.deepEqual(ev[5], { type: 'other', field: 'bad_id' }, 'a sender id outside the id shape is counted, never written'); assert.equal(ev.length, 6);
   assert.equal(parseWebhook({ object: 'user', entry: [] }), null); assert.equal(parseWebhook(null), null); assert.equal(parseWebhook({ object: 'page' }), null);
 });
 
@@ -111,5 +111,5 @@ test('a message id longer than 80 characters (88 live) is kept whole, never cut;
     { sender: { id: '900' }, recipient: { id: '111' }, timestamp: 1762000002000, delivery: { mids: [MID], watermark: 1762000001500 } },
     { sender: { id: '900' }, recipient: { id: '111' }, message: { mid: 'bad mid', text: 'y' } }] }] });
   const ev = p.entries[0].events;
-  assert.equal(ev[0].mid, MID); assert.equal(ev[0].mid.length, 88); assert.deepEqual(ev[1].mids, [MID]); assert.equal(ev.length, 2);
+  assert.equal(ev[0].mid, MID); assert.equal(ev[0].mid.length, 88); assert.deepEqual(ev[1].mids, [MID]); assert.deepEqual(ev[2], { type: 'other', field: 'bad_id' }); assert.equal(ev.length, 3);
 });

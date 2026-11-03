@@ -18,8 +18,9 @@ export const ID_RE = /^[A-Za-z0-9_.:-]{1,80}$/;
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const str = (v, max = 80) => (typeof v === 'string' ? v.slice(0, max) : typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
 const idOf = (v) => { const s = str(v); return ID_RE.test(s) ? s : null; };
-// a message id (mid) runs past 80 characters (88 seen live, 3 Nov): the whole id or nothing — a cut one never matches the Send API's
-export const MID_RE = /^[A-Za-z0-9_.:+/=-]{1,160}$/;
+// a message id (mid) runs past 80 characters (Messenger 88, Instagram longer — seen live, 3 Nov): the whole id or nothing — a cut one
+// never matches the Send API's; cs_messages.external_id takes up to 1000 (0037)
+export const MID_RE = /^[A-Za-z0-9_.:+/=-]{1,1000}$/;
 const midOf = (v) => (typeof v === 'string' && MID_RE.test(v) ? v : null);
 const text = (v) => str(v, MAX_TEXT).replace(/\u0000/g, '').trim();
 const when = (v) => { const n = typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) : NaN; if (!Number.isFinite(n)) return null; return n < 1e11 ? n * 1000 : n; }; // seconds or ms → ms
@@ -71,7 +72,7 @@ export function parseWebhook(body) {
       const at = when(m.timestamp) ?? time;
       if (isObj(m.message)) {
         const msg = m.message; const echo = msg.is_echo === true; const userId = echo ? recipient : sender; const mid = midOf(msg.mid);
-        if (!userId || !mid) return;
+        if (!userId || !mid) { events.push({ type: 'other', field: 'bad_id' }); return; }
         const attachments = attachmentsOf(msg.attachments);
         events.push({ type: 'message', platform, pageId: echo ? sender : recipient || pageId, userId, mid, text: messageText(msg.text, attachments), attachments, at, echo,
           replyTo: isObj(msg.reply_to) ? midOf(msg.reply_to.mid) : null, deleted: msg.is_deleted === true, unsupported: msg.is_unsupported === true });
@@ -145,6 +146,12 @@ export function permissionsOf(json) {
   list.forEach((p) => { if (!isObj(p) || typeof p.permission !== 'string') return; const n = p.permission.slice(0, 60); if (p.status === 'granted') granted.push(n); else declined.push(n); });
   return { granted, declined, missing: SCOPES.filter((s) => s !== 'business_management' && !granted.includes(s)) };
 }
+// /{page}/subscribed_apps → this app's subscribed fields (null when the app is not in the list)
+export function subscribedFieldsOf(json, appId) {
+  const list = isObj(json) && Array.isArray(json.data) ? json.data : [];
+  const row = list.find((a) => isObj(a) && String(a.id) === String(appId)) || (list.length === 1 && isObj(list[0]) ? list[0] : null);
+  return row && Array.isArray(row.subscribed_fields) ? row.subscribed_fields.filter((f) => typeof f === 'string').map((f) => f.slice(0, 60)) : null;
+}
 // the pages without their tokens (the answer to the admin)
 export const publicPages = (pages) => pages.map((p) => ({ id: p.id, name: p.name, ig: p.ig ? { id: p.ig.id, username: p.ig.username } : null }));
 
@@ -165,6 +172,7 @@ export const graphPath = {
   businesses: () => GRAPH + '/me/businesses?fields=id&limit=10',
   businessPages: (businessId, kind) => GRAPH + '/' + businessId + '/' + (kind === 'client' ? 'client_pages' : 'owned_pages') + '?fields=id,name,access_token,instagram_business_account{id,username}&limit=50',
   subscribe: (pageId) => GRAPH + '/' + pageId + '/subscribed_apps',
+  subscribedFields: (pageId) => GRAPH + '/' + pageId + '/subscribed_apps?fields=id,subscribed_fields',
   profile: (userId, platform) => GRAPH + '/' + userId + (platform === 'instagram' ? '?fields=name,username' : '?fields=first_name,last_name,name'),
   send: () => GRAPH + '/me/messages',
   commentReply: (commentId, platform) => GRAPH + '/' + commentId + (platform === 'instagram' ? '/replies' : '/comments'),

@@ -504,7 +504,7 @@
     const r = await invoke({ action: 'status' });
     if (!r.ok) return r;
     const b = r.body; (Array.isArray(b.channels) ? b.channels : []).forEach(toMetaChannel);
-    const out = { ok: true, linked: !!b.linked, configured: b.configured !== false, verifyConfigured: b.verify_configured !== false, loginConfig: b.login_config === true, redirect: typeof b.redirect === 'string' ? b.redirect : null, webhookUrl: typeof b.webhook_url === 'string' ? b.webhook_url : null, page: b.page && typeof b.page === 'object' ? b.page : null };
+    const out = { ok: true, linked: !!b.linked, configured: b.configured !== false, verifyConfigured: b.verify_configured !== false, loginConfig: b.login_config === true, subscribedFields: Array.isArray(b.subscribed_fields) ? b.subscribed_fields : null, missingPermissions: Array.isArray(b.missing_permissions) ? b.missing_permissions : null, resubscribed: b.resubscribed === true, redirect: typeof b.redirect === 'string' ? b.redirect : null, webhookUrl: typeof b.webhook_url === 'string' ? b.webhook_url : null, page: b.page && typeof b.page === 'object' ? b.page : null };
     emit({ channels: true }); return out;
   }
   // the admin: the Facebook dialog's url (the page sends the browser there; Meta comes back to app/meta-callback.html)

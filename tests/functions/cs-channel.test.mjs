@@ -103,3 +103,13 @@ test('the no-pages diagnosis: tokenless pages counted, permissions granted / dec
   assert.deepEqual(businessIdsOf({ data: [{ id: '5005' }, { id: 'bad id' }, 'x'] }), ['5005']);
   assert.ok(graphPath.businessPages('5005', 'owned').includes('/5005/owned_pages?') && graphPath.businessPages('5005', 'client').includes('/5005/client_pages?'));
 });
+
+test('a message id longer than 80 characters (88 live) is kept whole, never cut; an id with a space is dropped', () => {
+  const MID = 'm_IL1l' + 'x'.repeat(72) + 'TKyfHPYcxg';
+  const p = parseWebhook({ object: 'page', entry: [{ id: '111', time: 1762000000000, messaging: [
+    { sender: { id: '111' }, recipient: { id: '900' }, timestamp: 1762000001000, message: { mid: MID, text: 'x', is_echo: true } },
+    { sender: { id: '900' }, recipient: { id: '111' }, timestamp: 1762000002000, delivery: { mids: [MID], watermark: 1762000001500 } },
+    { sender: { id: '900' }, recipient: { id: '111' }, message: { mid: 'bad mid', text: 'y' } }] }] });
+  const ev = p.entries[0].events;
+  assert.equal(ev[0].mid, MID); assert.equal(ev[0].mid.length, 88); assert.deepEqual(ev[1].mids, [MID]); assert.equal(ev.length, 2);
+});

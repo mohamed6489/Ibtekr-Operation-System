@@ -186,6 +186,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       if (kind === 'gte') return row[col] != null && String(row[col]) >= String(value); // ISO timestamps of one format
       if (kind === 'lte') return row[col] != null && String(row[col]) <= String(value);
       if (kind === 'neq') return !same(row[col], value);
+      if (kind === 'not.null') return row[col] !== null && row[col] !== undefined;
       throw new Error(`fakeDb: unsupported filter ${kind}`);
     });
   }
@@ -258,7 +259,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       lte(col: string, v: unknown) { q.filters.push(['lte', col, v]); return b; },
       neq(col: string, v: unknown) { q.filters.push(['neq', col, v]); return b; },
       limit(n: number) { q.range = [0, n - 1]; return b; },
-      not(col: string, op: string, v: unknown) { if (op !== 'in') throw new Error(`fakeDb: unsupported not.${op}`); q.filters.push(['not.in', col, v]); return b; },
+      not(col: string, op: string, v: unknown) { if (op === 'is' && v === null) { q.filters.push(['not.null', col, null]); return b; } if (op !== 'in') throw new Error(`fakeDb: unsupported not.${op}`); q.filters.push(['not.in', col, v]); return b; },
       range(a: number, z: number) { q.range = [a, z]; return b; },
       order(col: string, o: { ascending?: boolean } = {}) { q.order = col; q.desc = o.ascending === false; return b; },
       single() { q.single = 'one'; return b; },

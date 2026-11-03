@@ -18,6 +18,9 @@ export const ID_RE = /^[A-Za-z0-9_.:-]{1,80}$/;
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const str = (v, max = 80) => (typeof v === 'string' ? v.slice(0, max) : typeof v === 'number' && Number.isFinite(v) ? String(v) : '');
 const idOf = (v) => { const s = str(v); return ID_RE.test(s) ? s : null; };
+// a message id (mid) runs past 80 characters (88 seen live, 3 Nov): the whole id or nothing — a cut one never matches the Send API's
+export const MID_RE = /^[A-Za-z0-9_.:+/=-]{1,160}$/;
+const midOf = (v) => (typeof v === 'string' && MID_RE.test(v) ? v : null);
 const text = (v) => str(v, MAX_TEXT).replace(/\u0000/g, '').trim();
 const when = (v) => { const n = typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) : NaN; if (!Number.isFinite(n)) return null; return n < 1e11 ? n * 1000 : n; }; // seconds or ms → ms
 
@@ -67,14 +70,14 @@ export function parseWebhook(body) {
       const sender = isObj(m.sender) ? idOf(m.sender.id) : null; const recipient = isObj(m.recipient) ? idOf(m.recipient.id) : null;
       const at = when(m.timestamp) ?? time;
       if (isObj(m.message)) {
-        const msg = m.message; const echo = msg.is_echo === true; const userId = echo ? recipient : sender; const mid = idOf(msg.mid);
+        const msg = m.message; const echo = msg.is_echo === true; const userId = echo ? recipient : sender; const mid = midOf(msg.mid);
         if (!userId || !mid) return;
         const attachments = attachmentsOf(msg.attachments);
         events.push({ type: 'message', platform, pageId: echo ? sender : recipient || pageId, userId, mid, text: messageText(msg.text, attachments), attachments, at, echo,
-          replyTo: isObj(msg.reply_to) ? idOf(msg.reply_to.mid) : null, deleted: msg.is_deleted === true, unsupported: msg.is_unsupported === true });
+          replyTo: isObj(msg.reply_to) ? midOf(msg.reply_to.mid) : null, deleted: msg.is_deleted === true, unsupported: msg.is_unsupported === true });
         return;
       }
-      if (isObj(m.delivery) && sender) { events.push({ type: 'delivery', platform, pageId: recipient || pageId, userId: sender, watermark: when(m.delivery.watermark), mids: (Array.isArray(m.delivery.mids) ? m.delivery.mids : []).map(idOf).filter(Boolean) }); return; }
+      if (isObj(m.delivery) && sender) { events.push({ type: 'delivery', platform, pageId: recipient || pageId, userId: sender, watermark: when(m.delivery.watermark), mids: (Array.isArray(m.delivery.mids) ? m.delivery.mids : []).map(midOf).filter(Boolean) }); return; }
       if (isObj(m.read) && sender) { events.push({ type: 'read', platform, pageId: recipient || pageId, userId: sender, watermark: when(m.read.watermark) }); return; }
       events.push({ type: 'other', field: isObj(m.postback) ? 'postback' : isObj(m.reaction) ? 'reaction' : 'messaging' });
     });

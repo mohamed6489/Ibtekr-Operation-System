@@ -351,3 +351,19 @@ Deno.test('comments: send = a public reply on the last incoming comment; comment
   assertEquals((await call(deps, { action: 'comment_hide', conversation_id: V })).body, { error: 'bad_request', field: 'conversation' });
   assertEquals(db.rows('activity_log').map((x: any) => x.action), ['cs.channel.send', 'cs.channel.private', 'cs.channel.hide']);
 });
+
+Deno.test('a real-length mid (88 characters, 3 Nov): kept whole by the webhook, so the echo of our own send is recognised whether it lands after the Send API answer or before it', async () => {
+  const MID = 'm_IL1l' + 'x'.repeat(72) + 'TKyfHPYcxg';
+  assertEquals(MID.length, 88);
+  // after: the member's row already holds the Send API's id → the echo is ignored
+  const after = setup({ seed: CONV_SEED, vault: linked(), routes: { 'POST me/messages': { body: { recipient_id: '900', message_id: MID } } } });
+  assertEquals((await call(after.deps, { action: 'send', message_id: M1 })).body.external_id, MID);
+  await deliver(after.deps, page({ sender: { id: '111' }, recipient: { id: '900' }, timestamp: T, message: { mid: MID, text: 'في الطريق', is_echo: true } }));
+  assertEquals(after.db.rows('cs_messages').filter((m: any) => m.kind === 'out').length, 2, 'the seeded queued reply of the comments thread + ours — no echo copy');
+  assertEquals(after.db.rows('cs_channel_events').at(-1).summary, { ignored: 1 });
+  // before: the echo comes while our row is still queued without an id → our row takes the whole mid, no copy
+  const before = setup({ seed: CONV_SEED, vault: linked() });
+  await deliver(before.deps, page({ sender: { id: '111' }, recipient: { id: '900' }, timestamp: T, message: { mid: MID, text: 'في الطريق', is_echo: true } }));
+  assertEquals([before.db.row('cs_messages', M1).external_id, before.db.row('cs_messages', M1).delivery], [MID, 'sent']);
+  assertEquals(before.db.rows('cs_messages').filter((m: any) => m.conversation_id === V && m.kind === 'out').length, 1);
+});

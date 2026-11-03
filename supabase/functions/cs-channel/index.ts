@@ -190,7 +190,7 @@ async function onMessage(deps: Deps, page: Page | null, ev: Json, s: Summary) {
     let conv = isObj(found) && found.id ? { id: String(found.id), status: String(found.status) } : null;
     if (!conv) { const cu = await ensureCustomer(deps, page, platform, ev.userId); conv = await ensureConversation(deps, { seg: 'customers', platform, channel: platform, customer_id: cu.id, external_id: ev.userId, handle: cu.handle }); }
     // our own send whose echo arrived before the Send API's answer was written: the member's row with that text and no id yet takes the mid
-    const { data: mine } = await deps.db.from('cs_messages').select('id').eq('conversation_id', conv.id).eq('kind', 'out').eq('text', ev.text).is('external_id', null).neq('author', null).limit(1);
+    const { data: mine } = await deps.db.from('cs_messages').select('id').eq('conversation_id', conv.id).eq('kind', 'out').eq('text', ev.text).is('external_id', null).not('author', 'is', null).limit(1);
     const own = Array.isArray(mine) && isObj(mine[0]) ? mine[0] : null;
     if (own) { const { error } = await deps.db.from('cs_messages').update({ external_id: ev.mid, delivery: 'sent' }).eq('id', own.id); if (error && error.code !== '23505') throw new Error('cs_messages: ' + error.code); bump(s, 'ignored'); return; }
     const put = await putMessage(deps, { conversation_id: conv.id, kind: 'out', text: ev.text, author: null, external_id: ev.mid, delivery: 'sent', meta: { echo: true, attachments: ev.attachments, at: ev.at }, created_at: isoOf(ev.at, deps) });

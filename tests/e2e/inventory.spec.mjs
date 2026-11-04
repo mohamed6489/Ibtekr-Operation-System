@@ -161,6 +161,9 @@ test('«وصل المخزن» on a line inside a consolidation: the lot of that 
   const m = modal(page, 'وصل المخزن — فرعي #181669');
   await expect(m.getByRole('radio', { name: /^تجميع أوردر/ })).toHaveAttribute('aria-checked', 'true');
   await m.getByRole('button', { name: 'تأكيد' }).click();
+  await expect(m).toContainText('اختار المكان'); // decision 10: the place is required
+  await m.locator('#loc').fill('T-01');
+  await m.getByRole('button', { name: 'تأكيد' }).click();
   const lotOf = (item) => mock.inv.inv_lots.find((l) => l.item_id === item);
   await expect.poll(() => lotOf(5001)).toMatchObject({ reason: 'تجميع أوردر', status: 'وصل المخزن', order_id: 181668, name: 'Cushion', loc: 'T' });
   await expect.poll(() => mock.inv.inv_moves.filter((x) => x.lot_id === lotOf(5001).id)).toEqual([expect.objectContaining({ type: 'in', qty: 2 })]);
@@ -241,7 +244,7 @@ test('«استلام في المخزن» from an order: search the order, its li
   await m.locator('#loc').fill('A-02');
   await m.getByRole('button', { name: 'استلام', exact: true }).click();
   const lot = () => mock.inv.inv_lots.find((l) => l.item_id === 5001);
-  await expect.poll(lot).toMatchObject({ reason: 'متاح للبيع', status: 'متاح', order_id: 181668, name: 'Cushion', sku: 'IBTA4040PAHC000013', mode: 'ملك ابتكر', loc: 'A', cost: 1002 });
+  await expect.poll(lot).toMatchObject({ reason: 'متاح للبيع', status: 'متاح', order_id: 181668, name: 'Cushion', sku: 'IBTA4040PAHC000013', mode: 'ملك ابتكر', loc: 'A', cost: 651.3 }); // decision 10: the maker's price — 1002 less the line's 35%
   expect(mock.inv.inv_lots.find((l) => l.item_id === 5002)).toBeUndefined();
   await expect.poll(() => mock.inv.inv_moves.filter((x) => x.lot_id === lot().id)).toEqual([expect.objectContaining({ type: 'in', qty: 2 })]);
   // the line already in the hub is not offered again
@@ -272,6 +275,7 @@ test('receiving an order\'s line as «تجميع أوردر» opens the order\'s
   await m.locator('[data-rc-order="181668"]').click();
   await m.locator('[data-rc-lines] [role=checkbox]', { hasText: 'Cushion' }).click();
   await m.getByRole('radio', { name: /^تجميع أوردر/ }).click();
+  await m.locator('#loc').fill('T-01');
   await m.getByRole('button', { name: 'استلام', exact: true }).click();
   await expect.poll(() => mock.inv.inv_consolidation_items.map((x) => x.item_id).sort()).toEqual([5001, 5002]);
   expect(mock.inv.inv_consolidations).toEqual([expect.objectContaining({ order_id: 181668, zone: 'T', status: 'open' })]);
@@ -285,6 +289,7 @@ test('receiving an order\'s line as «تجميع أوردر» opens the order\'s
   await m2.locator('[data-rc-order="181668"]').click();
   await m2.locator('[data-rc-lines] [role=checkbox]', { hasText: 'Macrame Curtain' }).click();
   await m2.getByRole('radio', { name: /^تجميع أوردر/ }).click();
+  await m2.locator('#loc').fill('T-01');
   await m2.getByRole('button', { name: 'استلام', exact: true }).click();
   await expect.poll(() => mock.inv.inv_lots.filter((l) => l.order_id === 181668).length).toBe(2);
   expect(mock.inv.inv_consolidations).toHaveLength(1);
@@ -301,6 +306,7 @@ test('a gathered order saved as «قيد الشحن» on the orders page: its pi
   await m.locator('[data-rc-order="181668"]').click();
   await m.getByRole('button', { name: 'اختار الكل' }).click();
   await m.getByRole('radio', { name: /^تجميع أوردر/ }).click();
+  await m.locator('#loc').fill('T-01');
   await m.getByRole('button', { name: 'استلام', exact: true }).click();
   await expect.poll(() => mock.inv.inv_consolidations.length).toBe(1);
   await expect.poll(() => mock.inv.inv_moves.filter((x) => x.type === 'in' && mock.inv.inv_lots.some((l) => l.id === x.lot_id && l.order_id === 181668)).length).toBe(2);

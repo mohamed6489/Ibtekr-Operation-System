@@ -182,7 +182,7 @@
   function markArrived(c, x) {
     const o = window.OrdersApp && window.OrdersApp.get ? window.OrdersApp.get(String(c.order)) : null; const sub = o && o.subs ? o.subs.find((s) => String(s.sid) === String(x[0])) : null;
     x[2] = 'وصل المخزن'; const key = newKey(); const ready = O.consolidation(c.subs.map((y) => y[2])).ready;
-    newLot({ key, sku: sub ? sub.sku : 'SUB-' + x[0], name: sub ? sub.prod : (x[3] || 'فرعي #' + x[0]), vendor: x[1], reason: 'تجميع أوردر', status: ready ? 'جاهز يطلع كامل' : 'وصل المخزن', ref: 'IB-' + c.order, sub: x[0], itemId: x[4], order: c.order, since: TODAY, loc: c.zone, cost: sub ? sub.tot : 0 },
+    newLot({ key, sku: sub ? sub.sku : 'SUB-' + x[0], name: sub ? sub.prod : (x[3] || 'فرعي #' + x[0]), vendor: x[1], reason: 'تجميع أوردر', status: ready ? 'جاهز يطلع كامل' : 'وصل المخزن', ref: 'IB-' + c.order, sub: x[0], itemId: x[4], order: c.order, since: TODAY, loc: c.zone, cost: lineCost(x[4], sub ? sub.tot : 0) },
       { type: 'in', qty: sub ? sub.qty || 1 : 1, label: 'دخول — تجميع', reason: 'تجميع أوردر', ref: 'IB-' + c.order + ' · #' + x[0], note: 'وصل من ' + x[1] });
     if (ready) S.stock.forEach((s) => { if (String(s.order) === String(c.order) && s.reason === 'تجميع أوردر' && s.key !== key && s.status !== 'جاهز يطلع كامل') { s.status = 'جاهز يطلع كامل'; patchLot(s.key, { status: 'جاهز يطلع كامل' }, 'inventory.status'); } });
     window.OrdersSetSub && window.OrdersSetSub(x[0], 'وصل المخزن'); K.logEvent('stock.consolidation.arrive', '#' + x[0]); rerender();
@@ -337,12 +337,12 @@
         f.reason === 'مرتجع' && f.condition ? K.field.area('conditionNote', 'وصف الحالة', f, e, set, { required: ['عيب بسيط', 'ناقص', 'تالف'].includes(f.condition), placeholder: f.condition === 'ناقص' ? 'إيه اللي ناقص؟' : f.condition === 'سليم' ? 'اختياري' : 'وصف العيب أو التلف' }) : null,
         f.reason === 'مرتجع' && (f.condition === 'تالف' || f.condition === 'عيب بسيط') ? K.field.file('conditionPhoto', 'صورة الحالة', f, e, set) : null,
         f.reason === 'متاح للبيع' ? K.Radios({ label: 'الملكية', value: f.mode, onChange: (v) => set('mode', v, true), options: [{ value: 'أمانة', label: 'أمانة (فلوس المبتكر بعد البيع)' }, { value: 'ملك', label: 'ملك ابتكر' }] }) : null,
-        K.two(K.field.text('loc', 'المكان', f, e, set, { placeholder: f.reason ? O.arrivalStock({ reason: f.reason, order: info.order, sid: info.sid }).zone + '-01' : 'T-01' }), K.field.date('date', 'تاريخ الوصول', f, e, set, { required: true })),
+        K.two(K.field.text('loc', 'المكان', f, e, set, { required: true, placeholder: f.reason ? O.arrivalStock({ reason: f.reason, order: info.order, sid: info.sid }).zone + '-01' : 'T-01' }), K.field.date('date', 'تاريخ الوصول', f, e, set, { required: true })),
         K.field.area('note', 'ملاحظة', f, e, set, { placeholder: 'اختياري' })],
-      validate: (f) => { const e = O.validateReceive({ sku: info.sku || 'SUB-' + info.sid, qty: info.qty || 1, reason: f.reason, condition: f.condition, conditionNote: f.conditionNote }); if (e.reason) e.reason = 'اختار سبب التخزين'; if (!f.date) e.date = 'اختار التاريخ'; return e; },
+      validate: (f) => { const e = O.validateReceive({ sku: info.sku || 'SUB-' + info.sid, qty: info.qty || 1, reason: f.reason, condition: f.condition, conditionNote: f.conditionNote }); if (e.reason) e.reason = 'اختار سبب التخزين'; if (!f.date) e.date = 'اختار التاريخ'; if (!String(f.loc || '').trim()) e.loc = 'اختار المكان'; return e; },
       submitLabel: 'تأكيد', cancelLabel: 'ليس الآن', submit: (f) => {
         const a = O.arrivalStock({ reason: f.reason, order: info.order, sid: info.sid }); const key = newKey(); const qty = info.qty || 1;
-        newLot({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: f.reason, status: a.status, ref: a.ref, order: f.reason === 'تجميع أوردر' ? info.order : null, sub: info.sid, itemId: info.itemId, since: f.date, loc: f.loc || a.zone + '-01', cost: info.tot || 0, mode: f.reason === 'متاح للبيع' ? f.mode : undefined, condition: f.reason === 'مرتجع' ? f.condition : undefined, conditionNote: f.reason === 'مرتجع' ? (f.conditionNote || '') : undefined, note: f.reason === 'مرتجع' ? (info.retReason || '') : (f.note || '') },
+        newLot({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: f.reason, status: a.status, ref: a.ref, order: f.reason === 'تجميع أوردر' ? info.order : null, sub: info.sid, itemId: info.itemId, since: f.date, loc: f.loc || a.zone + '-01', cost: lineCost(info.itemId, info.tot), mode: f.reason === 'متاح للبيع' ? f.mode : undefined, condition: f.reason === 'مرتجع' ? f.condition : undefined, conditionNote: f.reason === 'مرتجع' ? (f.conditionNote || '') : undefined, note: f.reason === 'مرتجع' ? (info.retReason || '') : (f.note || '') },
           { type: 'in', qty, label: a.label, reason: f.reason, ref: a.ref + ' · #' + info.sid, note: 'من الأوردرات — ' + info.vendor + (f.note ? ' · ' + f.note : '') });
         if (f.reason === 'مرتجع') S.returns.unshift({ name: info.prod, vendor: info.vendor, mode: 'أمانة', sub: '#' + info.sid, sku: info.sku, type: 'مرتجع للمخزن', reason: 'وصل المخزن من الأوردرات · ' + (O.RETURN_CONDITIONS.find((c) => c.value === f.condition) || {}).label, condition: f.condition, conditionNote: f.conditionNote || '', at: K.dshort(f.date), status: 'بانتظار الفحص', effect: '+ ' + qty + ' بعد الفحص', key });
         K.logEvent('stock.arrival', '#' + info.sid + ' · ' + f.reason); K.toast('اتسجل وصول #' + info.sid + ' للمخزن — ' + f.reason, 'success');
@@ -355,6 +355,16 @@
   // with the line's product, SKU, maker, quantity and value. «يدوي» = the v2 form for a piece without an order.
   const orderList = () => { const D = window.IBOrders && window.IBOrders.data ? window.IBOrders.data() : null; return D && Array.isArray(D.orders) ? D.orders : []; };
   const inHub = (itemId) => S.stock.some((x) => !x.closed && x.itemId && String(x.itemId) === String(itemId));
+  // decision 10 (owner, 4 Nov): a piece's value in the hub = the maker's price — the line's total less Ibtekr's commission on the line
+  // (order_items.commission_rate / commission_fee), else the maker's current rate when visible, else the line's total
+  const lineOf = (itemId) => { for (const o of orderList()) { const x = o.subs.find((y) => String(y.itemId) === String(itemId)); if (x) return x; } return null; };
+  function makerCost(x) {
+    if (!x) return 0; const tot = Number(x.tot) || 0; let rate = x.rate; let fee = Number(x.fee) || 0;
+    if (rate == null) { const V = window.IBVendors && window.IBVendors.store; const v = x.vendorId && V && V.get ? V.get(x.vendorId) : null; if (v && v.rate != null) { rate = v.rate; fee = 0; } }
+    if (rate == null || !Number.isFinite(Number(rate))) return tot;
+    return Math.max(0, Math.round((tot - tot * Number(rate) / 100 - fee) * 100) / 100);
+  }
+  const lineCost = (itemId, tot) => { const x = itemId ? lineOf(itemId) : null; return x ? makerCost(x) : Number(tot) || 0; };
   function receive() { if (!orderList().length) return receiveManual(); receiveOrder(); }
   function receiveOrder() {
     const orders = orderList().slice().sort((a, b) => (String(b.date) > String(a.date) ? 1 : String(b.date) < String(a.date) ? -1 : Number(b.id) - Number(a.id)));
@@ -396,11 +406,11 @@
           o && f.reason === 'مرتجع' && e.condition ? h('div', { class: 'err-msg', role: 'alert' }, e.condition) : null,
           o && f.reason === 'مرتجع' && f.condition ? K.field.area('conditionNote', 'وصف الحالة', f, e, set, { required: ['عيب بسيط', 'ناقص', 'تالف'].includes(f.condition), placeholder: f.condition === 'ناقص' ? 'إيه اللي ناقص؟' : f.condition === 'سليم' ? 'اختياري' : 'وصف العيب أو التلف' }) : null,
           o && f.reason === 'متاح للبيع' ? K.Radios({ label: 'الملكية', value: f.mode, onChange: (v) => set('mode', v, true), options: [{ value: 'أمانة', label: 'أمانة (فلوس المبتكر بعد البيع)' }, { value: 'ملك', label: 'ملك ابتكر' }] }) : null,
-          o ? K.field.text('loc', 'المكان', f, e, set, { placeholder: f.reason === 'مرتجع' ? 'R-02' : f.reason === 'تصوير' ? 'P-03' : f.reason === 'متاح للبيع' ? 'A-02' : 'T-04' }) : null,
+          o ? K.field.text('loc', 'المكان', f, e, set, { required: true, placeholder: f.reason === 'مرتجع' ? 'R-02' : f.reason === 'تصوير' ? 'P-03' : f.reason === 'متاح للبيع' ? 'A-02' : 'T-04' }) : null,
           h('div', null, Button({ type: 'text', size: 'sm', label: 'استلام يدوي (من غير أوردر)', attrs: { 'data-rc-manual': '' }, onClick: () => { if (md) md.close(); receiveManual(); } }))]; },
       validate: (f) => { const e = {}; const o = f.order ? byId(f.order) : null; if (!o) { e.order = 'اختار الأوردر'; return e; }
         const picked = o.subs.filter((x) => f.pick[String(x.itemId)] && !inHub(x.itemId)); if (!picked.length) e.pick = 'علّم على منتج واحد على الأقل';
-        const v = O.validateReceive({ sku: (picked[0] && picked[0].sku) || 'SUB', qty: 1, reason: f.reason, condition: f.condition, conditionNote: f.conditionNote }); if (v.reason) e.reason = 'اختار سبب الاستلام'; if (v.condition) e.condition = v.condition; if (v.conditionNote) e.conditionNote = v.conditionNote; return e; },
+        const v = O.validateReceive({ sku: (picked[0] && picked[0].sku) || 'SUB', qty: 1, reason: f.reason, condition: f.condition, conditionNote: f.conditionNote }); if (v.reason) e.reason = 'اختار سبب الاستلام'; if (v.condition) e.condition = v.condition; if (v.conditionNote) e.conditionNote = v.conditionNote; if (!String(f.loc || '').trim()) e.loc = 'اختار المكان'; return e; },
       submitLabel: 'استلام', submit: (f) => { const o = byId(f.order);
         const picked = o.subs.filter((x) => f.pick[String(x.itemId)] && !inHub(x.itemId));
         // «تجميع أوردر»: when these are the last lines of the order not in the hub yet, the order is «جاهز يطلع كامل» (its earlier lots too)
@@ -409,7 +419,7 @@
         if (ready) S.stock.forEach((x) => { if (String(x.order) === String(o.id) && x.reason === 'تجميع أوردر' && !x.closed && x.status !== 'جاهز يطلع كامل') { x.status = 'جاهز يطلع كامل'; patchLot(x.key, { status: 'جاهز يطلع كامل' }, 'inventory.status'); } });
         const label = 'دخول — ' + (f.reason === 'متاح للبيع' ? 'للبيع' : f.reason === 'تجميع أوردر' ? 'تجميع' : f.reason);
         picked.forEach((x) => { const ref = f.reason === 'مرتجع' ? '#' + x.sid : 'IB-' + o.id;
-          newLot({ key: newKey(), sku: x.sku || 'SUB-' + x.sid, name: x.prod, vendor: x.vendor, vendorId: x.vendorId || null, reason: f.reason, status, ref, order: o.id, sub: x.sid, itemId: x.itemId, since: TODAY, loc: f.loc || '—', cost: x.tot || 0,
+          newLot({ key: newKey(), sku: x.sku || 'SUB-' + x.sid, name: x.prod, vendor: x.vendor, vendorId: x.vendorId || null, reason: f.reason, status, ref, order: o.id, sub: x.sid, itemId: x.itemId, since: TODAY, loc: f.loc || '—', cost: makerCost(x),
             mode: f.reason === 'متاح للبيع' ? f.mode : undefined, condition: f.reason === 'مرتجع' ? f.condition : undefined, conditionNote: f.reason === 'مرتجع' ? (f.conditionNote || '') : undefined, note: f.reason === 'مرتجع' ? 'استلام من الأوردر IB-' + o.id : '' },
             { type: 'in', qty: x.qty || 1, label, reason: f.reason, ref: ref + ' · #' + x.sid }); });
         // «تجميع أوردر» (owner, 4 Nov — the cards stayed 0): the order is being gathered — its open consolidation gets the ticked lines,
@@ -432,8 +442,8 @@
         f.reason === 'مرتجع' && f.condition ? K.field.area('conditionNote', 'وصف الحالة', f, e, set, { required: ['عيب بسيط', 'ناقص', 'تالف'].includes(f.condition), placeholder: f.condition === 'ناقص' ? 'إيه اللي ناقص؟' : f.condition === 'سليم' ? 'اختياري' : 'وصف العيب أو التلف' }) : null,
         f.reason === 'مرتجع' && (f.condition === 'تالف' || f.condition === 'عيب بسيط') ? K.field.file('conditionPhoto', 'صورة الحالة', f, e, set) : null,
         f.reason === 'متاح للبيع' ? K.Radios({ label: 'الملكية', value: f.mode, onChange: (v) => set('mode', v, true), options: [{ value: 'أمانة', label: 'أمانة (فلوس المبتكر بعد البيع)' }, { value: 'ملك', label: 'ملك ابتكر' }] }) : null,
-        K.field.text('loc', 'المكان', f, e, set, { placeholder: f.reason === 'تجميع أوردر' ? 'T-04' : f.reason === 'مرتجع' ? 'R-02' : f.reason === 'تصوير' ? 'P-03' : 'A-02' })],
-      validate: (f) => { const e = O.validateReceive({ sku: f.sku, qty: f.qty, reason: f.reason, condition: f.condition, conditionNote: f.conditionNote }); Object.assign(e, K.req(f, ['name', 'vendor'])); if ((f.reason === 'تجميع أوردر' || f.reason === 'مرتجع') && !f.order) e.order = 'اكتب الرقم'; if (e.sku) e.sku = 'اكتب الـ SKU'; return e; },
+        K.field.text('loc', 'المكان', f, e, set, { required: true, placeholder: f.reason === 'تجميع أوردر' ? 'T-04' : f.reason === 'مرتجع' ? 'R-02' : f.reason === 'تصوير' ? 'P-03' : 'A-02' })],
+      validate: (f) => { const e = O.validateReceive({ sku: f.sku, qty: f.qty, reason: f.reason, condition: f.condition, conditionNote: f.conditionNote }); Object.assign(e, K.req(f, ['name', 'vendor', 'loc'], { loc: 'اختار المكان' })); if ((f.reason === 'تجميع أوردر' || f.reason === 'مرتجع') && !f.order) e.order = 'اكتب الرقم'; if (e.sku) e.sku = 'اكتب الـ SKU'; return e; },
       submitLabel: 'استلام', submit: (f) => { const status = O.STATUS_BY_REASON[f.reason][0]; const key = newKey(); const ref = f.order ? (f.reason === 'مرتجع' ? '#' : 'IB-') + O.toLatin(f.order) : null;
         newLot({ key, sku: f.sku.trim(), name: f.name.trim(), vendor: f.vendor, reason: f.reason, status, ref, order: f.reason === 'تجميع أوردر' ? O.toLatin(f.order) : null, since: TODAY, loc: f.loc || '—', cost: 0, mode: f.reason === 'متاح للبيع' ? f.mode : undefined, condition: f.reason === 'مرتجع' ? f.condition : undefined, conditionNote: f.reason === 'مرتجع' ? (f.conditionNote || '') : undefined, note: f.reason === 'مرتجع' ? 'استلام يدوي' : '' },
           { type: 'in', qty: Number(O.toLatin(f.qty)), label: 'دخول — ' + (f.reason === 'متاح للبيع' ? 'للبيع' : f.reason === 'تجميع أوردر' ? 'تجميع' : f.reason), reason: f.reason, ref: ref || '—' });
@@ -498,5 +508,5 @@
     if (S.invSettings.pullAlert) K.notify({ title: 'اتحجزت قطعة من المخزن: ' + it.name + ' لأوردر IB-' + order, link: '#inventory-now' }); K.logEvent('stock.autopull', sku + ' → IB-' + order); return true;
   }
 
-  window.IBPages.register('inventory', { title: 'المخزن', hash: (hs) => { const m = /^inventory(?:-(now|consolidate|returns|moves|count|reports|settings))?$/.exec(hs); if (!m) return false; st.tab = m[1] || 'now'; return true; }, defaultHash: () => 'inventory-' + st.tab, view, api: { autoPull, receive, arrival, shipAll, cancelCons, shipOut } });
+  window.IBPages.register('inventory', { title: 'المخزن', hash: (hs) => { const m = /^inventory(?:-(now|consolidate|returns|moves|count|reports|settings))?$/.exec(hs); if (!m) return false; st.tab = m[1] || 'now'; return true; }, defaultHash: () => 'inventory-' + st.tab, view, api: { autoPull, receive, arrival, shipAll, cancelCons, shipOut, lineCost } });
 })();

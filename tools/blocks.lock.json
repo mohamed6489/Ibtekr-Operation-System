@@ -61,7 +61,7 @@
   },
   "16-page-inventory.js": {
     "prototype": "80101269ffc51399a6b19dad74375aa32575fa9e2e6071885c5c77885afee8f5",
-    "current": "1c9d77f9bb3be8b5bc1a66a7891dec08fc3382d9bf3629d03747989599441208"
+    "current": "2cfec6bb2acbf4e8e98e853a5b181aa3b93253fb68e460e857f688c86e3e1edc"
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
@@ -85,7 +85,7 @@
   },
   "22-orders-ops.js": {
     "prototype": "840c4a2093e78030058acaac11c712410a8107419aa1d34bea7da2526ee80885",
-    "current": "e23f52433f02ad1cfc67e9f801f51a06dfe44540035f46d49b5782bd4a423544"
+    "current": "624110260fb85bd85792fe655b6523bcad48b94e0aac7f44d63286b2a61cee90"
   },
   "23-notif-roles-domain.js": {
     "prototype": "68697112a566dd41c2cd864e4f5540db306821930b9c3ad448e66008f688aec2",

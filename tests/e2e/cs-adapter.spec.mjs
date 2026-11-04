@@ -44,7 +44,7 @@ test('admin: the customers come from the orders (full phone, figures, the last o
   expect(d.campaigns[0]).toMatchObject({ name: 'عرض العملاء المتكررين — أكتوبر', seg: 'VIP راضيين', from: 'واتساب 1 · العملاء', status: 'مسودة', size: 2, discountCode: 'OCT10' });
   expect(Object.keys(d.channels).sort()).toEqual(['instagram', 'messenger', 'tiktok', 'wa1', 'wa2']);
   expect(d.channels.wa1).toMatchObject({ status: 'disconnected', kind: 'qr', cap: 300, aud: 'customers' });
-  expect(d.settings).toEqual({ routing: 'auto', slaWarn: 10, slaLate: 15, hours: expect.any(String), autoCloseDays: 3 });
+  expect(d.settings).toEqual({ routing: 'auto', slaWarn: 10, slaLate: 15, hours: expect.any(String), autoCloseDays: 3, live: { wa: false, campaigns: false } }); // decision 24: hidden until the owner opens them
   expect(d.agents.map((a) => a.name)).toEqual(['صفوت كمال', 'سارة أحمد', 'محمد علي', 'هدى سمير']);
 });
 
@@ -84,7 +84,7 @@ test('admin writes: note, status, close with mood + rating, a new conversation, 
   expect(r.after.newConv).toMatchObject({ status: 'مستنية العميل', assignee: 'صفوت كمال', who: r.after.cu.id }); // the lead's conversation followed the merge
   expect(r.after.newConv.msgs.map((m) => [m.t, m.delivery])).toEqual([['out', 'queued']]);
   expect(r.after.rehab).toMatchObject({ phone: '01011122233', city: 'القاهرة', createdFrom: 'manual' });
-  expect(r.after.settings).toEqual({ routing: 'manual', slaWarn: 8, slaLate: 12, hours: '10 ص – 10 م', autoCloseDays: 5 });
+  expect(r.after.settings).toEqual({ routing: 'manual', slaWarn: 8, slaLate: 12, hours: '10 ص – 10 م', autoCloseDays: 5, live: { wa: false, campaigns: false } }); // the form never opens the hidden parts
   const w = mock.csWrites;
   expect(w.filter((x) => x.table === 'cs_messages').map((x) => x.kind)).toEqual(['note', 'event', 'out']);
   expect(w.filter((x) => x.table === 'cs_conversations' && x.op === 'update').map((x) => x.status || x.assignee)).toEqual(['مستنية العميل', null, 'اتحلت']);
@@ -92,7 +92,7 @@ test('admin writes: note, status, close with mood + rating, a new conversation, 
   expect(w.find((x) => x.table === 'cs_customers' && x.op === 'insert')).toEqual({ table: 'cs_customers', op: 'insert', name: 'رحاب محمود', ig: null, city: 'القاهرة', province: null, address: null, address2: null, mood: null, tags: [], consent: true, auto_consent: true, source: null, created_from: 'manual' });
   expect(w.find((x) => x.op === 'merge')).toMatchObject({ table: 'cs_customers' });
   expect(JSON.stringify(w)).not.toMatch(/01011122233|01277766655|ملاحظة داخلية|أهلاً يوسف/);
-  expect(mock.settings.find((s) => s.section === 'cs').data).toEqual({ routing: 'manual', sla_warn: 8, sla_late: 12, hours: '10 ص – 10 م', auto_close_days: 5 });
+  expect(mock.settings.find((s) => s.section === 'cs').data).toEqual({ routing: 'manual', sla_warn: 8, sla_late: 12, hours: '10 ص – 10 م', auto_close_days: 5, live: { wa: false, campaigns: false } });
   // the activity rows are fire-and-forget: wait for the last one
   await expect.poll(() => mock.activity.map((a) => a.action)).toEqual(expect.arrayContaining(['cs.note', 'cs.status', 'cs.assign', 'cs.close', 'cs.rating', 'cs.open', 'cs.send', 'cs.customer.add', 'cs.customer.tags', 'cs.customer.edit', 'cs.customer.rating', 'cs.merge', 'cs.segment.add', 'cs.campaign.add', 'cs.campaign.delete', 'cs.segment.delete', 'cs.settings']));
   expect(JSON.stringify(mock.activity)).not.toMatch(/01011122233|ملاحظة داخلية|أهلاً يوسف/);

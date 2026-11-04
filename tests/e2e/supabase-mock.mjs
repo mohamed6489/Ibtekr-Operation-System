@@ -604,6 +604,21 @@ export async function installSupabaseMock(page, opts = {}) {
         });
         return json(200, out);
       }
+      // cs_campaign_schedule (0042, decision 23): cs.manage; a draft / paused campaign; the queued recipients = the picked customers who
+      // agreed, are not blocked / merged and have a phone; the campaign «مجدولة» at p_at with its size
+      if (method === 'POST' && path === '/rest/v1/rpc/cs_campaign_schedule') {
+        const b = body(); const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        if (hasPerm(u, 'cs.manage') !== 'F') return refuse(403, '42501', 'not allowed');
+        const k = mock.cs.campaigns.find((x) => x.id === b.p_id); if (!k) return refuse(400, 'P0002', 'no campaign');
+        if (!['مسودة', 'متوقفة'].includes(k.status)) return refuse(400, '22023', 'campaign is ' + k.status);
+        const rec = mock.cs.recipients || (mock.cs.recipients = []);
+        for (let i = rec.length - 1; i >= 0; i--) if (rec[i].campaign_id === k.id && rec[i].status === 'queued') rec.splice(i, 1);
+        (b.p_customers || []).forEach((id) => { const c = mock.cs.customers.find((x) => x.id === id); if (c && c.phone && c.consent !== false && !c.blocked_at && !c.merged_into) rec.push({ id: rec.length + 1, campaign_id: k.id, customer_id: c.id, phone: c.phone, status: 'queued' }); });
+        const n = rec.filter((r) => r.campaign_id === k.id && r.status === 'queued').length; if (!n) return refuse(400, '22023', 'empty audience');
+        Object.assign(k, { status: 'مجدولة', scheduled_at: b.p_at || new Date().toISOString(), size: n, updated_at: new Date().toISOString() });
+        mock.csWrites.push({ table: 'cs_campaigns', op: 'schedule', id: k.id, size: n });
+        return json(200, n);
+      }
       // cs_merge_customers (0034): cs.manage; two distinct unmerged customers; the other's conversations / notes / ratings move, tags join, empties fill
       if (method === 'POST' && path === '/rest/v1/rpc/cs_merge_customers') {
         const b = body(); const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
@@ -1536,6 +1551,16 @@ export async function installSupabaseMock(page, opts = {}) {
       const run = { ...base, status: 'ok', error: null, credits: planned, cost_usd: usdOf(planned), output: { paths, bucket } };
       mock.aiRuns.push(run);
       return json(200, { result: 'ok', bucket, path: paths[0], paths, credits: planned, model, run_id: run.id });
+    }
+    // cs-wa (6.4, decisions 21–22): the admin's wa_status (the states + the QR, from mock.wa — a test moves it along) and wa_logout
+    if (method === 'POST' && path === '/functions/v1/cs-wa') {
+      const u = tokenUser(); const b = body(); if (!u || !isAdmin(u)) return json(401, { error: 'unauthorized' });
+      const W = mock.wa || (mock.wa = { states: { wa1: { status: 'offline' }, wa2: { status: 'offline' } }, calls: [], script: null });
+      W.calls.push(b.action);
+      const row = mock.settings.find((r) => r.section === 'cs'); const lv = row && row.data && row.data.live ? row.data.live : {};
+      if (b.action === 'wa_status') { if (typeof W.script === 'function') W.script(W); return json(200, { result: 'ok', live: { wa: lv.wa === true, campaigns: lv.campaigns === true }, states: Object.entries(W.states).map(([channel, x]) => ({ channel, status: x.status, qr_svg: x.status === 'qr' ? x.qr_svg || null : null, phone: x.phone || null, updated_at: new Date().toISOString() })) }); }
+      if (b.action === 'wa_logout') { W.logout = b.channel; return json(200, { result: 'ok' }); }
+      return json(400, { error: 'unknown_action' });
     }
     if (method === 'POST' && path === '/functions/v1/cs-channel') {
       // phase 6.2: the Meta channel's member actions like the server answers them (the webhook side is the server's alone — no browser call).

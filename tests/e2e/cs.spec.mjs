@@ -123,7 +123,36 @@ test('segments: a two-step segment (rules → matching customers) is saved; its 
   await expect(P.locator('table tbody tr')).toHaveCount(2);
 });
 
+test('6.3 hidden (decision 24): without settings «cs».live the last wizard step\'s «جدولة الحملة» and WhatsApp\'s «ربط» carry soon and stay disabled', async ({ page }) => {
+  await signIn(page, ADMIN, '#cs-campaigns');
+  const P = pg(page);
+  await P.getByRole('button', { name: 'حملة جديدة' }).click();
+  await P.locator('#wz-name').fill('حملة مخفية');
+  await page.evaluate(() => { const S = window.IBPages.all().cs.api.state; S.wiz.src = 'filters'; S.wiz.picked = window.IBCS.data.customers.filter((c) => c.name === 'هدير عميل').map((c) => c.id); S.wiz.pickDesc = 'اختيار يدوي'; window.IBPages.render('cs'); });
+  await P.locator('[data-wz-next]').click(); await P.locator('#wz-text').fill('x'); await P.locator('[data-wz-next]').click(); await P.locator('[data-wz-next]').click();
+  await expect(P.locator('[data-wz-next][data-soon]')).toBeDisabled();
+  await expect(P.locator('[data-wz-next] .soon')).toHaveText('soon');
+  await P.getByRole('tab', { name: 'القنوات' }).click();
+  await expect(P.locator('[data-chan-connect="wa1"][data-soon]')).toBeDisabled();
+  await expect(P.locator('[data-chan-connect="wa2"][data-soon]')).toBeDisabled();
+  await expect(P.locator('[data-chan-connect="messenger"]')).not.toHaveAttribute('data-soon', '');
+});
+
+test('6.4 (decisions 21–22, live): «ربط» واتساب 1 shows the bridge\'s QR to the admin, closes once the number is linked; «فصل الرقم» sends the logout', async ({ page }) => {
+  mock.settings.push({ section: 'cs', data: { live: { wa: true, campaigns: true } } });
+  let polls = 0;
+  mock.wa = { states: { wa1: { status: 'qr', qr_svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><path d="M0 0h1v1H0z"/></svg>' }, wa2: { status: 'offline' } }, calls: [], script: (W) => { polls += 1; if (polls >= 3) { W.states.wa1 = { status: 'connected', phone: '01000000001' }; mock.cs.channels.find((c) => c.id === 'wa1').status = 'connected'; } } };
+  await signIn(page, ADMIN, '#cs-channels');
+  const P = pg(page);
+  await P.locator('[data-chan-connect="wa1"]').click();
+  await expect(page.locator('.modal [data-wa-qr="wa1"] img.wa-qr-img')).toBeVisible();
+  await expect(page.locator('.modal [data-wa-qr="wa1"]')).toContainText('الأجهزة المرتبطة');
+  await expect(page.locator('.modal')).toHaveCount(0, { timeout: 15000 }); // linked → the window closes by itself
+  expect(mock.wa.calls.filter((x) => x === 'wa_status').length).toBeGreaterThanOrEqual(3);
+});
+
 test('campaigns: the wizard saves a draft, then a scheduled campaign with a segment made from the picked customers', async ({ page }) => {
+  mock.settings.push({ section: 'cs', data: { live: { wa: false, campaigns: true } } }); // decision 24: the sending is open in this test
   await signIn(page, ADMIN, '#cs-campaigns');
   const P = pg(page);
   await expect(P).toContainText('عرض العملاء المتكررين — أكتوبر');
@@ -145,6 +174,9 @@ test('campaigns: the wizard saves a draft, then a scheduled campaign with a segm
   expect(k).toMatchObject({ status: 'مجدولة', channel: 'wa1', body: 'خصم 10% على كل حاجة' });
   expect(k.scheduled_at).toMatch(/^\d{4}-/);
   const made = mock.cs.segments.find((g) => g.name === 'الجمعة البيضاء'); expect(made).toBeTruthy(); expect(made.add_ids.length).toBe(2); expect(k.segment_id).toBe(made.id); expect(k.size).toBe(2);
+  // decision 23: the audience frozen on the server (cs_campaign_schedule) — one queued recipient per picked customer
+  expect(mock.csWrites.some((w) => w.op === 'schedule' && w.id === k.id && w.size === 2)).toBe(true);
+  expect(mock.cs.recipients.filter((r) => r.campaign_id === k.id && r.status === 'queued').length).toBe(2);
   // a draft from the header action
   await P.getByRole('button', { name: 'حملة جديدة' }).click();
   await P.locator('#wz-name').fill('مسودة تجريبية');
@@ -159,8 +191,7 @@ test('channels (all disconnected; WhatsApp waits for the last stage; the admin s
   const P = pg(page);
   await expect(P.locator('[data-channel]')).toHaveCount(5);
   await expect(P.locator('[data-channel="wa1"]')).toContainText('غير متصلة');
-  await P.locator('[data-chan-connect="wa1"]').click();
-  await expect(page.locator('.toast.show')).toContainText('آخر مرحلة');
+  await expect(P.locator('[data-chan-connect="wa1"]')).toContainText('soon'); // decision 24: WhatsApp hidden until the owner opens it
   await expect(P.locator('[data-meta-setup]')).toContainText('الأسرار موجودة ✓');
   await expect(P.locator('[data-meta-setup]')).toContainText('https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-channel');
   expect(mock.metaCalls.map((c) => c.action)).toEqual(['status']);

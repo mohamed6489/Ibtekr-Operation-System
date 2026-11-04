@@ -32,6 +32,9 @@
     set(t, k, v) { const D = A() && A().data; if (D && k in D) { D[k] = v; return true; } t[k] = v; return true; },
   });
   const settings = () => ((A() && A().data.settings) || A().DEFAULT_SETTINGS || {});
+  // قرارات 21–24 (6.3 + 6.4): واتساب بالـ QR وإرسال الحملات مبنيين ومخفيين — soon لحد ما صاحب المشروع يفتح settings «cs».live
+  const live = () => settings().live || { wa: false, campaigns: false };
+  const soonBtn = (label, attrs) => h('button', Object.assign({ type: 'button', class: 'btn btn-primary sm', disabled: true, title: 'قريبًا — مستني قرار صاحب المشروع' }, attrs || {}), label, ' ', h('span', { class: 'soon' }, 'soon'));
   function routingRows() { const s = settings(); return [['توزيع تلقائي بالدور', s.routing === 'manual' ? 'يدوي — المسؤول بيعيّن المحادثة بنفسه' : 'المحادثة الجديدة بتروح للي أونلاين وعنده أقل محادثات مفتوحة. محادثات المبتكرين لدور «متابعة المبتكرين» بس.'], ['هدف أول رد (SLA)', s.slaLate + ' دقيقة في مواعيد العمل · تحذير برتقالي بعد ' + s.slaWarn + ' دقايق وأحمر بعد ' + s.slaLate], ['مواعيد العمل', s.hours || '—'], ['قفل تلقائي', 'المحادثة «مستنية العميل» بتتقفل لوحدها بعد ' + s.autoCloseDays + ' أيام من غير رد']]; }
   const OPEN_ST = ['جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن']; const SUB_DONE = ['اتسلم', 'ملغي', 'مرتجع للمبتكر'];
   // the maker as the side panel shows them: open sub-orders from IBOrders, the store data from IBVendors
@@ -1020,11 +1023,14 @@
       if (w.step === 3 && !w.ok) w.errs.ok = 'أكّد إنك راجعت قبل الحفظ';
       if (Object.keys(w.errs).length) { R(); setTimeout(() => { const f = document.querySelector('#pg-cs [aria-invalid=true]'); if (f) f.focus(); }); return; }
       if (w.step < 3) { w.step++; R(); window.scrollTo(0, 0); return; }
+      if (!live().campaigns) { SOON('إرسال الحملات'); return; }
       K.confirm({ title: 'نجدول الحملة؟', text: K.n0(n) + ' رسالة من ' + chansLabel(w) + ' · ' + (w.when === 'now' ? 'أول ما القناة تتربط' : K.dlabel(w.date) + ' ' + w.time) + '. هتقدر توقفها في أي وقت من صفحة الحملة.', okLabel: 'تأكيد وجدولة', cancelLabel: 'رجوع',
-        onOk: async () => { const r = await persistCampaign(w, 'مجدولة'); if (!done(r, 'الحملة اتجدولت')) return; K.notify({ title: 'حملة «' + w.name + '» اتجدولت', link: '#cs-campaigns', kind: 'cs' }); st.wiz = null; R(); } });
+        // قرار 23: الحملة بتتحفظ مسودة، وبعدها الجمهور بيتثبّت على السيرفر (cs_campaign_schedule — الأرقام والموافقة من عندنا) وبتبقى مجدولة
+        onOk: async () => { const r = await persistCampaign(w, 'مسودة'); if (!done(r)) return; const at = w.when === 'now' ? new Date().toISOString() : schedIso(w.date, w.time);
+          const s2 = await A().scheduleCampaign(r.campaign.id, wizAudience(w).recipients.map((x) => x.id), at); if (!done(s2, 'الحملة اتجدولت لـ ' + K.n0(s2.size || 0) + ' عميل')) return; K.notify({ title: 'حملة «' + w.name + '» اتجدولت', link: '#cs-campaigns', kind: 'cs' }); st.wiz = null; R(); } });
     };
     return [stepper, h('div', { class: 'wiz' }, h('section', { class: 'card wiz-form' }, form), h('aside', { class: 'card wiz-side' }, h('h3', { class: 't-h5' }, w.step === 1 || w.step === 3 ? 'معاينة وملخص' : 'ملخص الحملة'), side)),
-      h('div', { class: 'wiz-nav' }, Button({ label: 'السابق', disabled: w.step === 0, onClick: () => { w.step--; R(); } }), Button({ type: 'text', label: 'إلغاء', onClick: () => K.confirm({ title: 'إلغاء الحملة؟', text: 'التعديلات اللي مش محفوظة هتضيع.', okLabel: 'إلغاء الحملة', okType: 'danger', cancelLabel: 'رجوع', onOk: () => { st.wiz = null; R(); } }) }), h('span', { class: 'grow' }), Button({ type: 'primary', label: w.step === 3 ? 'جدولة الحملة' : 'التالي: ' + labels[w.step + 1], attrs: { 'data-wz-next': '' }, onClick: next }))];
+      h('div', { class: 'wiz-nav' }, Button({ label: 'السابق', disabled: w.step === 0, onClick: () => { w.step--; R(); } }), Button({ type: 'text', label: 'إلغاء', onClick: () => K.confirm({ title: 'إلغاء الحملة؟', text: 'التعديلات اللي مش محفوظة هتضيع.', okLabel: 'إلغاء الحملة', okType: 'danger', cancelLabel: 'رجوع', onOk: () => { st.wiz = null; R(); } }) }), h('span', { class: 'grow' }), w.step === 3 && !live().campaigns ? soonBtn('جدولة الحملة', { 'data-wz-next': '', 'data-soon': '' }) : Button({ type: 'primary', label: w.step === 3 ? 'جدولة الحملة' : 'التالي: ' + labels[w.step + 1], attrs: { 'data-wz-next': '' }, onClick: next }))];
   }
   function CampaignDetails(k) {
     const pct = k.size ? (k.sent || 0) / k.size : 0; const manage = can().manage;
@@ -1037,6 +1043,24 @@
   }
 
   // ======================= channels (in the page until the settings page — connecting comes with 6.2 / 6.4) =======================
+  // 6.4 (قرار 21): ربط واتساب بالـ QR — الـ QR بتولّده خدمة wa-bridge وبيوصل للأدمن بس عبر cs-wa؛ الشاشة بتسأل كل 3 ثواني لحد ما يتربط
+  function waConnect(id, c) {
+    if (!can().admin) { K.toast('الأدمن بس يقدر يربط القنوات', 'error'); return; }
+    let timer = null; let m = null; const box = h('div', { class: 'wa-qr', 'data-wa-qr': id }, h('p', { class: 't-small help' }, 'بنجيب الـ QR من خدمة واتساب…'));
+    const stop = () => { if (timer) clearTimeout(timer); timer = null; };
+    const draw = (x) => {
+      if (!x) { box.replaceChildren(h('p', { class: 't-small help' }, 'خدمة واتساب لسه مش شغالة على السيرفر — اتأكد إن wa-bridge متشغلة (tools/deploy.md §2.7.17).')); return; }
+      if (x.status === 'connected') { stop(); m.close(); K.toast(c.name + ' اتربط' + (x.phone ? ' بالرقم ' + x.phone : ''), 'success'); R(); return; }
+      if (x.status === 'qr' && x.qr) { box.replaceChildren(h('img', { class: 'wa-qr-img', alt: 'QR ربط ' + c.name, src: 'data:image/svg+xml;base64,' + btoa(unescape(encodeURIComponent(x.qr))) }), h('ol', { class: 't-small help' }, h('li', null, 'افتح واتساب على الموبايل اللي عليه الرقم'), h('li', null, 'الإعدادات ← الأجهزة المرتبطة ← ربط جهاز'), h('li', null, 'امسح الـ QR ده — بيتجدد لوحده كل شوية'))); return; }
+      box.replaceChildren(h('p', { class: 't-small help' }, x.status === 'connecting' ? 'بيتصل بواتساب…' : x.status === 'logged_out' ? 'الرقم اتفك — مستني QR جديد…' : 'خدمة واتساب مش متصلة دلوقتي — مستنيها تطلّع QR…'));
+    };
+    const poll = async () => { const r = await A().waStatus(); if (!m) return; draw(r && r.ok ? r.states[id] : null); if (timer !== false) timer = setTimeout(poll, 3000); };
+    m = U.Modal({ title: 'ربط ' + c.name, body: box, footer: [Button({ type: 'text', label: 'قفل', onClick: () => { stop(); timer = false; m.close(); } })], onClose: () => { stop(); timer = false; } });
+    poll();
+  }
+  function waDisconnect(id, c) {
+    K.confirm({ title: 'فصل ' + c.name + '؟', text: 'الرقم هيتفك من السيستم (زي «تسجيل الخروج» من الأجهزة المرتبطة) — الرسايل الجديدة مش هتوصل لحد ما تربطه تاني بـ QR. المحادثات القديمة بتفضل.', okLabel: 'فصل', okType: 'danger', onOk: async () => { const r = await A().waLogout(id); done(r, 'اتبعت أمر الفصل — بيتنفذ في خلال دقيقة'); } });
+  }
   function Channels() {
     const ch = S.channels; const tone = { connected: 'success', error: 'error', disconnected: 'neutral' }; const lbl = { connected: 'متصلة', error: 'فصلت', disconnected: 'غير متصلة' };
     const s = settings(); const admin = can().admin;
@@ -1046,7 +1070,8 @@
     const page = meta && meta.page ? meta.page : null;
     const anyMeta = ['messenger', 'instagram'].some((k) => ch[k] && ch[k].status === 'connected');
     const connect = (id, c) => {
-      if (c.kind !== 'meta') { K.toast(c.kind === 'qr' ? 'ربط واتساب آخر مرحلة بقرار صاحب المشروع' : 'تيك توك مفيهوش API رسايل عام — بيفضل غير متصل'); return; }
+      if (c.kind === 'qr') { waConnect(id, c); return; }
+      if (c.kind !== 'meta') { K.toast('تيك توك مفيهوش API رسايل عام — بيفضل غير متصل'); return; }
       if (meta && !meta.configured) { K.toast('تطبيق Meta لسه مش متظبط على السيرفر — الأسرار META_APP_ID / META_APP_SECRET الأول (tools/deploy.md §2.7.16)', 'error'); return; }
       A().connectStart(id).then((r) => { if (!r.ok) { K.toast(r.reason === 'not_configured' ? 'تطبيق Meta لسه مش متظبط على السيرفر (الأسرار ناقصة)' : r.reason === 'forbidden' ? 'الأدمن بس يقدر يربط القنوات' : 'حصلت مشكلة في الاتصال — جرّب تاني', 'error'); return; } location.assign(r.url); });
     };
@@ -1059,7 +1084,8 @@
         h('div', { class: 't-small' }, c.last || ''), h('div', { class: 't-small help' }, CHAN_USE[id] || ''), c.cap ? h('div', { class: 't-small help' }, 'الحد اليومي: ' + K.n0(c.cap)) : null,
         h('div', { class: 't-small help' }, 'بيشتغل عليها: كل فريق خدمة العملاء (التخصيص من الإعدادات)'),
         c.status === 'connected' && c.since ? h('div', { class: 't-small help' }, 'متصلة من ' + A().timeLabel(Date.parse(c.since))) : null,
-        h('div', { class: 'acts-inline start' }, c.status === 'connected' ? (c.kind === 'meta' ? Button({ size: 'sm', label: 'فصل', disabled: !admin, attrs: { 'data-chan-disconnect': id }, onClick: () => disconnect(c) }) : Button({ size: 'sm', label: 'الإعدادات', onClick: () => SOON('إعدادات القناة') })) : Button({ type: 'primary', size: 'sm', label: 'ربط', disabled: !admin, attrs: { 'data-chan-connect': id }, onClick: () => connect(id, c) }))))),
+        h('div', { class: 'acts-inline start' }, c.kind === 'qr' && !live().wa ? soonBtn('ربط', { 'data-chan-connect': id, 'data-soon': '' })
+          : c.status === 'connected' ? (c.kind === 'meta' ? Button({ size: 'sm', label: 'فصل', disabled: !admin, attrs: { 'data-chan-disconnect': id }, onClick: () => disconnect(c) }) : c.kind === 'qr' ? Button({ size: 'sm', label: 'فصل الرقم', disabled: !admin, attrs: { 'data-chan-disconnect': id }, onClick: () => waDisconnect(id, c) }) : Button({ size: 'sm', label: 'الإعدادات', onClick: () => SOON('إعدادات القناة') })) : Button({ type: 'primary', size: 'sm', label: 'ربط', disabled: !admin, attrs: { 'data-chan-connect': id }, onClick: () => connect(id, c) }))))),
       setupRows ? K.Section('إعداد تطبيق Meta (الأدمن)', h('div', { 'data-meta-setup': '' }, setupRows.map(([t, d]) => h('div', { class: 'set-row' }, h('div', null, h('b', null, t), h('div', { class: 't-small help', dir: /^(http|META|—)/.test(d) ? 'ltr' : 'rtl' }, d))))), null, { sub: 'الخطوات بالتفصيل في tools/deploy.md §2.7.16 — التطبيق في وضع التطوير لحد التحويل للموقع الحي' }) : null,
       K.Section('توزيع المحادثات ومواعيد الرد', S.routing.map(([t, d]) => h('div', { class: 'set-row' }, h('div', null, h('b', null, t), h('div', { class: 't-small help' }, d)))), admin ? [Button({ size: 'sm', label: 'تعديل', attrs: { 'data-cs-settings': '' }, onClick: () => K.form({ title: 'إعدادات خدمة العملاء', values: { routing: s.routing, slaWarn: String(s.slaWarn), slaLate: String(s.slaLate), hours: s.hours, autoCloseDays: String(s.autoCloseDays) },
         fields: (f, e, set) => [K.Radios({ label: 'توزيع المحادثات الجديدة', options: [{ value: 'auto', label: 'تلقائي بالدور (أقل شغل من المتاحين)' }, { value: 'manual', label: 'يدوي' }], value: f.routing, onChange: (v) => set('routing', v, true) }), K.two(K.field.text('slaWarn', 'تحذير أول رد بعد (دقيقة)', f, e, set, { inputmode: 'numeric', required: true }), K.field.text('slaLate', 'متأخر بعد (دقيقة)', f, e, set, { inputmode: 'numeric', required: true })), K.field.text('hours', 'مواعيد العمل', f, e, set), K.field.text('autoCloseDays', 'قفل «مستنية العميل» بعد (يوم)', f, e, set, { inputmode: 'numeric', required: true })],

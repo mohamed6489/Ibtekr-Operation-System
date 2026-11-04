@@ -75,7 +75,7 @@ test('load: the customers through the rpc only (merged rows dropped), the conver
   eq(plain(S.data.segments[0]), { id: G1, name: 'VIP راضيين', minTotal: 5000, minOrders: '', moods: ['سعيد'], last: 'in90', lastFrom: '', lastTo: '', ranges: { sat: [4, 5] }, includeUnrated: false, add: [C2], remove: [] });
   const k = S.data.campaigns[0]; assert.equal(k.seg, 'VIP راضيين'); assert.equal(k.from, 'واتساب 1 · العملاء'); assert.equal(k.sent, 3); assert.equal(k.read, 1); assert.equal(k.status, 'مسودة'); assert.match(k.sub, /^مسودة — آخر تعديل أمس$/);
   assert.equal(S.data.channels.wa1.status, 'disconnected'); assert.equal(S.data.channels.wa1.cap, 300); assert.equal(S.data.channels.messenger.kind, 'meta'); assert.equal(S.data.channels.wa1.last, 'مش مربوط');
-  eq(plain(S.data.settings), { routing: 'manual', slaWarn: 5, slaLate: 20, hours: S.DEFAULT_SETTINGS.hours, autoCloseDays: 3 });
+  eq(plain(S.data.settings), { routing: 'manual', slaWarn: 5, slaLate: 20, hours: S.DEFAULT_SETTINGS.hours, autoCloseDays: 3, live: { wa: false, campaigns: false } });
   assert.ok(events.includes('ib:cs'));
 });
 
@@ -241,8 +241,8 @@ test('settings: the admin upserts the row «cs»; others are forbidden; warn bel
   const r = await S.saveSettings({ routing: 'auto', slaWarn: 8, slaLate: 12, hours: '10 ص – 10 م', autoCloseDays: 5 });
   assert.equal(r.ok, true);
   const up = opsOf(stub.calls, 'settings').find((c) => c.op === 'upsert');
-  eq(up.args, [{ section: 'cs', data: { routing: 'auto', sla_warn: 8, sla_late: 12, hours: '10 ص – 10 م', auto_close_days: 5 } }, { onConflict: 'section' }]);
-  eq(plain(S.data.settings), { routing: 'auto', slaWarn: 8, slaLate: 12, hours: '10 ص – 10 م', autoCloseDays: 5 }); assert.equal(logs.at(-1)[0], 'cs.settings');
+  eq(up.args, [{ section: 'cs', data: { routing: 'auto', sla_warn: 8, sla_late: 12, hours: '10 ص – 10 م', auto_close_days: 5, live: { wa: false, campaigns: false } } }, { onConflict: 'section' }]);
+  eq(plain(S.data.settings), { routing: 'auto', slaWarn: 8, slaLate: 12, hours: '10 ص – 10 م', autoCloseDays: 5, live: { wa: false, campaigns: false } }); assert.equal(logs.at(-1)[0], 'cs.settings');
   eq(await S.saveSettings({ slaWarn: 20, slaLate: 10 }), { ok: false, reason: 'invalid', field: 'slaLate' });
 });
 
@@ -320,4 +320,12 @@ test('the safety net: check() reads the newest conversation; newer than what is 
   newest = new Date(mine + 60000).toISOString();
   assert.equal(await S.check(), true, 'a newer conversation: one reload'); assert.equal(stub.calls.filter((c) => c.op === 'rpc').length, before + 1);
   newest = null; assert.equal(await S.check(), false, 'no answer: nothing');
+});
+
+test('decisions 23–24: settings «cs».live is read (hidden by default) and kept by the settings form; scheduleCampaign needs cs.manage and calls cs_campaign_schedule', async () => {
+  const { S } = load({ admin: true }); await S.load();
+  eq(plain(S.DEFAULT_SETTINGS.live), { wa: false, campaigns: false });
+  assert.equal(typeof S.scheduleCampaign, 'function'); assert.equal(typeof S.waStatus, 'function'); assert.equal(typeof S.waLogout, 'function');
+  eq(await S.waLogout('wa9'), { ok: false, reason: 'invalid' });
+  assert.equal((await S.scheduleCampaign('c0000000-0000-4000-8000-000000000001', [], null)).ok, false);
 });

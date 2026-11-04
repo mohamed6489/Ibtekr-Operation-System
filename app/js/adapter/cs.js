@@ -34,7 +34,7 @@
   const STATUSES = ['جديدة', 'مستنية ردنا', 'مستنية العميل', 'مؤجلة', 'اتحلت'];
   const MOODS = ['سعيد', 'متوسط', 'متضايق'];
   const DONE = ['مكتمل']; const DEAD = ['ملغي', 'استرجاع', 'فشل'];
-  const DEFAULT_SETTINGS = { routing: 'auto', slaWarn: 10, slaLate: 15, hours: 'السبت – الخميس، 10 ص – 10 م · الجمعة 2 م – 10 م', autoCloseDays: 3 };
+  const DEFAULT_SETTINGS = { routing: 'auto', slaWarn: 10, slaLate: 15, hours: 'السبت – الخميس، 10 ص – 10 م · الجمعة 2 م – 10 م', autoCloseDays: 3, live: { wa: false, campaigns: false } };
   const UNASSIGNED = 'غير معيّنة';
   const DAYS_BACK = 90; const PAGE = 1000; const CHUNK = 200;
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
@@ -143,7 +143,8 @@
   function toSettings(d) {
     const x = d && typeof d === 'object' ? d : {};
     const n = (v, def) => (Number.isFinite(Number(v)) && Number(v) > 0 ? Number(v) : def);
-    return { routing: x.routing === 'manual' ? 'manual' : 'auto', slaWarn: n(x.sla_warn, DEFAULT_SETTINGS.slaWarn), slaLate: n(x.sla_late, DEFAULT_SETTINGS.slaLate), hours: typeof x.hours === 'string' && x.hours ? x.hours : DEFAULT_SETTINGS.hours, autoCloseDays: n(x.auto_close_days, DEFAULT_SETTINGS.autoCloseDays) };
+    const l = x.live && typeof x.live === 'object' ? x.live : {}; // decision 24: WhatsApp / the campaigns' sending stay «soon» until the owner opens them
+    return { routing: x.routing === 'manual' ? 'manual' : 'auto', slaWarn: n(x.sla_warn, DEFAULT_SETTINGS.slaWarn), slaLate: n(x.sla_late, DEFAULT_SETTINGS.slaLate), hours: typeof x.hours === 'string' && x.hours ? x.hours : DEFAULT_SETTINGS.hours, autoCloseDays: n(x.auto_close_days, DEFAULT_SETTINGS.autoCloseDays), live: { wa: l.wa === true, campaigns: l.campaigns === true } };
   }
 
   // ---------- load ----------
@@ -474,9 +475,10 @@
     const s = toSettings({ routing: v.routing, sla_warn: v.slaWarn, sla_late: v.slaLate, hours: v.hours, auto_close_days: v.autoCloseDays });
     if (s.slaWarn >= s.slaLate) return { ok: false, reason: 'invalid', field: 'slaLate' };
     try {
-      const { error } = await cl.from('settings').upsert({ section: 'cs', data: { routing: s.routing, sla_warn: s.slaWarn, sla_late: s.slaLate, hours: s.hours, auto_close_days: s.autoCloseDays } }, { onConflict: 'section' });
+      const live = (data.settings && data.settings.live) || { wa: false, campaigns: false }; // kept: this form never opens or closes them
+      const { error } = await cl.from('settings').upsert({ section: 'cs', data: { routing: s.routing, sla_warn: s.slaWarn, sla_late: s.slaLate, hours: s.hours, auto_close_days: s.autoCloseDays, live } }, { onConflict: 'section' });
       if (error) return fail(error);
-      data.settings = s; log('cs.settings', [s.routing, s.slaWarn + '/' + s.slaLate, s.autoCloseDays].join(' · '), 'settings', 'cs'); emit({ settings: true }); return { ok: true, settings: s };
+      s.live = live; data.settings = s; log('cs.settings', [s.routing, s.slaWarn + '/' + s.slaLate, s.autoCloseDays].join(' · '), 'settings', 'cs'); emit({ settings: true }); return { ok: true, settings: s };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
 
@@ -485,10 +487,10 @@
   const META = ['messenger', 'instagram'];
   const metaChannel = (v) => !!v && META.includes(v.channel);
   const metaConnected = (v) => { const ch = data.channels[v.channel]; return !!ch && ch.status === 'connected'; };
-  async function invoke(body) {
+  async function invoke(body, fn) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     try {
-      const { data: out, error } = await cl.functions.invoke(FN, { body });
+      const { data: out, error } = await cl.functions.invoke(fn || FN, { body });
       if (error || !out) {
         const s = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
@@ -512,6 +514,32 @@
     return { ok: false, reason: r.reason === 'refused' || r.reason === 'not_linked' || r.reason === 'not_configured' ? 'invalid' : r.reason, code: r.code, message: refusalText(r), msg: row || m };
   }
   const toMetaChannel = (r) => { const ch = data.channels[r.id]; if (!ch) return; ch.status = r.status || ch.status; ch.number = r.number || ''; ch.since = r.since || null; ch.last = r.last_message_at ? 'آخر رسالة: ' + timeLabel(ms(r.last_message_at)) : ch.status === 'connected' ? '' : 'مش مربوط'; };
+  // ---------- WhatsApp by QR + the campaigns' sending (6.3 / 6.4, decisions 21–24) ----------
+  // the admin: the bridge's state per channel (+ the QR while it waits to be scanned) through cs-wa
+  async function waStatus() {
+    const r = await invoke({ action: 'wa_status' }, 'cs-wa'); if (!r.ok) return r;
+    const b = r.body; const states = {};
+    (Array.isArray(b.states) ? b.states : []).forEach((x) => { if (x && (x.channel === 'wa1' || x.channel === 'wa2')) states[x.channel] = { status: String(x.status || 'offline'), qr: typeof x.qr_svg === 'string' && /^<svg[\s>]/.test(x.qr_svg) ? x.qr_svg : null, phone: x.phone || null, updatedAt: x.updated_at || null }; });
+    return { ok: true, live: { wa: !!(b.live && b.live.wa), campaigns: !!(b.live && b.live.campaigns) }, states };
+  }
+  async function waLogout(channel) {
+    if (channel !== 'wa1' && channel !== 'wa2') return { ok: false, reason: 'invalid' };
+    const r = await invoke({ action: 'wa_logout', channel }, 'cs-wa'); if (!r.ok) return r;
+    log('cs.wa.logout', channel, 'cs_channel', channel); return { ok: true };
+  }
+  // a campaign's audience frozen and the campaign scheduled (cs_campaign_schedule — the phones and the consent are read on the server)
+  async function scheduleCampaign(id, customerIds, atIso) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().manage) return { ok: false, reason: 'forbidden' };
+    const ids = [...new Set((customerIds || []).filter((x) => /^[0-9a-f-]{36}$/i.test(String(x))))];
+    if (!ids.length) return { ok: false, reason: 'invalid', field: 'audience' };
+    try {
+      const { data: n, error } = await cl.rpc('cs_campaign_schedule', { p_id: id, p_customers: ids, p_at: atIso || new Date().toISOString() });
+      if (error) return fail(error);
+      const k = (data.campaigns || []).find((x) => x.id === id); if (k) { k.status = 'مجدولة'; k.size = Number(n) || 0; k.scheduledAt = atIso || k.scheduledAt; }
+      log('cs.campaign.schedule', String(n), 'cs_campaign', id); emit({ campaigns: true }); return { ok: true, size: Number(n) || 0 };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
   // the channels' state from the server (+ the configuration for the admin: the app secrets set?, the redirect, the webhook url, the page)
   async function channelStatus() {
     const r = await invoke({ action: 'status' });
@@ -614,6 +642,6 @@
     send, note, event, setStatus, assign, setConvTags, snooze, setUnread, close, open, refreshConv,
     addCustomer, importCustomers, updateCustomer, setMood, setTags, block, addNote, setOverride, rateCustomer, merge,
     saveSegment, deleteSegment, saveCampaign, setCampaignStatus, deleteCampaign, saveSettings,
-    channelStatus, connectStart, connectCallback, connectPick, disconnect, commentPrivate, commentHide, metaChannel, metaConnected,
+    channelStatus, connectStart, connectCallback, connectPick, disconnect, commentPrivate, commentHide, metaChannel, metaConnected, waStatus, waLogout, scheduleCampaign,
     toCustomer, toConv, toMessage, toSegment, toCampaign, toChannel, toSettings, segColumns, campColumns, STATUSES, MOODS, UNASSIGNED, DEFAULT_SETTINGS };
 })();

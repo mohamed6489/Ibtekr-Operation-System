@@ -1143,3 +1143,16 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
 **ز) التعليقات بالسحب (قرار 18، `0040`):** Meta مابتبعتش webhooks التعليقات (`feed` / `comments`) لتطبيق من غير Advanced Access — حتى لعضو في التطبيق (اتأكد حي 4 نوفمبر). عشان كده `0040` بيعمل cron `cs-comments-pull` كل دقيقة بسر `sync_secret` بتاع `0008` (من Vault، مافيش سر جديد) على `cs-channel` `{"action":"comments_pull"}`: آخر 10 بوستات فيسبوك وآخر 10 ميديا إنستجرام، تعليقات آخر ساعتين، بنفس مسار الـ webhook. التطبيق: `0040` بـ `execute_sql` بعد نشر `cs-channel`. التحقق: `select * from cron.job where jobname = 'cs-comments-pull'`، وبعد تعليق جديد صف `cs_channel_events` `object = 'pull'` في خلال دقيقة. الأدمن يقدر يشغّله بإيده (`comments_pull` بالـ JWT). بعد مراجعة التطبيق الـ webhook بيوصل لوحده والسحب يفضل احتياطي (من غير تكرار).
 
 **ح) البوست اللي عليه التعليق (قرار 19، `0041`):** `0041` بـ `execute_sql` (من غير سطر `drop policy` لو الـ MCP طلب تأكيد) ثم نشر `cs-channel`. التحقق: في خلال دقيقة من أي تعليق `select id, platform, left(caption, 40), kind from cs_posts` فيه البوستات اللي عليها تعليقات، والكارت بيظهر فوق شات التعليقات بعد refresh.
+
+#### 2.7.17 واتساب 1 و2 بالـ QR + إرسال الحملات (6.3 + 6.4، مبنيين ومخفيين — 4 نوفمبر)
+
+**دلوقتي (اتعمل):** `0042_cs_wa.sql` + `rls_cs_wa.sql` على الحي، و`cs-wa` منشورة. الواجهة عليها **soon** لأن `settings` `cs`.`live` = false.
+
+**لما صاحب المشروع يقول «افتح»:**
+1. سر الخدمة: 40 حرف عشوائي على الأقل → Supabase ← Edge Functions ← Secrets: `WA_BRIDGE_SECRET` (صاحب المشروع بيحطه بنفسه، مايتبعتش في الشات).
+2. السيرفر (VPS عليه Docker): فولدر `services/wa-bridge` → `cp .env.example .env` + نفس السر → `docker compose up -d --build` (التفاصيل في `services/wa-bridge/README.md`).
+3. الفتح: `update settings set data = jsonb_set(coalesce(data, '{}'), '{live}', '{"wa": true, "campaigns": false}') where section = 'cs';` (واتساب الأول، والحملات `true` بعد ما الأرقام تتربط وتتجرب).
+4. **خدمة العملاء ← القنوات ← واتساب 1 ← ربط** → QR → يتمسح من الموبايل (الأجهزة المرتبطة). نفس الكلام لواتساب 2.
+5. التحقق: `select channel, status, phone, updated_at from cs_wa_state;` = `connected`، ورسالة من موبايل تاني تظهر في الصندوق، والرد يوصل.
+
+**الأمان:** الخدمة مالهاش أي مفتاح داتابيز؛ كل حاجة عبر `cs-wa` بالسر (مقارنة ثابتة الوقت). الـ QR بيوصل للأدمن بس، ومافيش نص رسالة ولا رقم في أي log. الحملات: الجمهور بيتثبّت على السيرفر وقت الجدولة، والموافقة والحظر والدمج بيتشيّكوا تاني وقت كل إرسال.

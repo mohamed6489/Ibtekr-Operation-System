@@ -94,6 +94,8 @@
   }
   window.IBOrdersOps = { cons, returnPopup, orderReturnPopup, orderReasonPopup, ratePopup, subChanged, arrivalPopup, consolidate: consPopup,
     shipall: (o) => { const c = cons(o.id); if (c) inv().shipAll(c); },
-    uncons: (o) => { const c = cons(o.id); if (c) inv().cancelCons(c); } };
+    uncons: (o) => { const c = cons(o.id); if (c) inv().cancelCons(c); },
+    // phase 7 decision 9 (owner, 4 Nov): the order's status saved as «قيد الشحن» / «مكتمل» = it left — its gathered pieces leave the hub
+    orderShipped: (orderId, status) => inv().shipOut(orderId, status) };
 })();
 

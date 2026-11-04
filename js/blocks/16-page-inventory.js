@@ -194,6 +194,26 @@
         lots.forEach((s) => move({ key: s.key, type: 'out', qty: s.onHand, label: 'خروج — شحن مجمّع', reason: 'تجميع', ref: 'IB-' + c.order, note: 'شحنة واحدة ' + f.carrier + ' ' + f.awb }));
         S.consolidations = S.consolidations.filter((x) => x !== c); if (live() && c.id) saved(A().closeConsolidation(c.id, 'shipped', f.carrier + ' ' + f.awb)); c.subs.forEach((x) => window.OrdersSetSub && window.OrdersSetSub(x[0], 'تم الشحن للعميل')); K.logEvent('stock.consolidation.ship', c.order); K.toast('اتشحن IB-' + c.order + ' كامل', 'success'); rerender(); } });
   }
+  // phase 7 decision 9 (owner, 4 Nov — «لو جمعت أوردر عندي في المخزن ولو حولته قيد الشحن ينقص من المخزن لأني بكده أبقى خرّجته»):
+  // the order's status saved as «قيد الشحن» / «مكتمل» → every «تجميع أوردر» piece of it still in the hub leaves (an out move), the lines
+  // that arrived are «تم الشحن للعميل», and its consolidation is closed (shipped, or partial when not every line had arrived)
+  function shipOut(orderId, status) {
+    const lots = K.stockNow().filter((s) => String(s.order) === String(orderId) && s.reason === 'تجميع أوردر' && !s.closed && s.onHand > 0);
+    const c = S.consolidations.find((x) => String(x.order) === String(orderId)) || null;
+    if (!lots.length && !c) return 0;
+    if (!canEdit()) { K.toast('القطع لسه في المخزن — خروجها محتاج صلاحية المخزن', 'error'); return 0; }
+    lots.forEach((s) => move({ key: s.key, type: 'out', qty: s.onHand, label: 'خروج — الأوردر اتشحن', reason: 'تجميع', ref: 'IB-' + orderId, note: 'الأوردر بقى «' + (status || 'قيد الشحن') + '»' }));
+    const close = (x) => { const ready = O.consolidation(x.subs.map((y) => y[2])).ready;
+      x.subs.filter((y) => y[2] === 'وصل المخزن').forEach((y) => window.OrdersSetSub && window.OrdersSetSub(y[0], 'تم الشحن للعميل'));
+      S.consolidations = S.consolidations.filter((y) => y !== x); return x.id ? saved(A().closeConsolidation(x.id, ready ? 'shipped' : 'partial')) : null; };
+    if (c && (c.id || !live())) close(c);
+    // a consolidation opened a moment ago may not be on the page yet, or not carry its id (the hub not reloaded): read the hub, then close it
+    else if (live()) A().load().then(() => { const c2 = S.consolidations.find((x) => String(x.order) === String(orderId)); if (c2) Promise.resolve(close(c2)).then(() => rerender()); });
+    const pieces = lots.reduce((n, s) => n + s.onHand, 0);
+    K.logEvent('stock.order.shipped', 'IB-' + orderId + ' · ' + pieces);
+    if (pieces) K.toast('خرجت ' + pieces + ' قطعة من المخزن — IB-' + orderId, 'success');
+    rerender(); return pieces;
+  }
   function shipPartial(c, p) {
     K.confirm({ title: 'اشحن الموجود والباقي بعدين', text: 'هيطلع ' + p.arrived + ' من ' + p.total + ' دلوقتي والباقي هيتشحن لوحده من المبتكر للعميل لما يخلص.', okLabel: 'اشحن الموجود', onOk: () => {
       K.stockNow().filter((s) => String(s.order) === String(c.order) && s.reason === 'تجميع أوردر').forEach((s) => move({ key: s.key, type: 'out', qty: s.onHand, label: 'خروج — شحن جزئي', reason: 'تجميع', ref: 'IB-' + c.order }));
@@ -478,5 +498,5 @@
     if (S.invSettings.pullAlert) K.notify({ title: 'اتحجزت قطعة من المخزن: ' + it.name + ' لأوردر IB-' + order, link: '#inventory-now' }); K.logEvent('stock.autopull', sku + ' → IB-' + order); return true;
   }
 
-  window.IBPages.register('inventory', { title: 'المخزن', hash: (hs) => { const m = /^inventory(?:-(now|consolidate|returns|moves|count|reports|settings))?$/.exec(hs); if (!m) return false; st.tab = m[1] || 'now'; return true; }, defaultHash: () => 'inventory-' + st.tab, view, api: { autoPull, receive, arrival, shipAll, cancelCons } });
+  window.IBPages.register('inventory', { title: 'المخزن', hash: (hs) => { const m = /^inventory(?:-(now|consolidate|returns|moves|count|reports|settings))?$/.exec(hs); if (!m) return false; st.tab = m[1] || 'now'; return true; }, defaultHash: () => 'inventory-' + st.tab, view, api: { autoPull, receive, arrival, shipAll, cancelCons, shipOut } });
 })();

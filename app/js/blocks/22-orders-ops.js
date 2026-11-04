@@ -1,7 +1,7 @@
 
 /* Orders ↔ inventory hub hooks used by the orders page (orders_src.html): return popups (mandatory reason + date + impact),
    «تجميع في المخزن» popup, consolidation state, and stock side effects. Figma: orders page 1:9061 (385:21259, 385:21407, 391:21871).
-   Phase 7 T5 (plan decision 3): on real data the side effects are written through IBInventory — a consolidation of the picked lines
+   Phase 7 T5 (plan decisions 1 a and 2): on real data the side effects are written through IBInventory — a consolidation of the picked lines
    (order_items ids), the lot + first move of a sub-order arriving or returned to the warehouse, «جاهز يطلع كامل» on the lots — and
    the hub reloads from the server; a consolidation's sub is [sid, maker, status, product, item id]. */
 (function () {

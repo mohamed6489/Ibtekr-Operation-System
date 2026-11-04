@@ -30,7 +30,8 @@ test('admin: the customers come from the orders (full phone, figures, the last o
   const salwa = d.customers.find((c) => c.name === 'سلوى زيتوني');
   expect(salwa).toMatchObject({ phone: '01200007052', city: 'مدينة نصر', createdFrom: 'orders', orders: 1, total: 3541, refused: 0, returned: 0, openComplaints: 1, conversations: 1, channels: ['whatsapp'] });
   expect(salwa.orderList).toEqual([['181668', 'Processing', expect.stringMatching(/^3,541 ج\.م · /), 'OnTime']]);
-  expect(salwa.lastOrderDays).toBe(6);
+  // whole days since the seeded order, counted like the adapter (was a literal 6 on 2 Nov and broke with the clock)
+  expect(salwa.lastOrderDays).toBe(Math.max(0, Math.floor((Date.now() - Date.parse(salwa.lastOrderAt)) / 864e5)));
   expect(salwa.notes.map((n) => [n.author, n.text])).toEqual([['سارة أحمد', 'بتحب التغليف كهدية دايماً — اسألها قبل الشحن.']]);
   expect(d.customers.find((c) => c.name === 'يوسف حامد')).toMatchObject({ createdFrom: 'manual', orders: 0, mood: 'متوسط', tags: ['مهتم'], orderList: [] });
   expect(d.customers.find((c) => c.name === 'أوردر قديم')).toMatchObject({ orders: 1, orderList: [['150001', 'Completed', expect.any(String), null]] });

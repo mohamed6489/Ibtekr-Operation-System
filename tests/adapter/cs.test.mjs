@@ -302,3 +302,16 @@ test('6.2 — send on a connected Meta channel: the queued row then cs-channel s
   eq(await member.S.connectStart('messenger'), { ok: false, reason: 'forbidden' });
   eq(await member.S.disconnect(), { ok: false, reason: 'forbidden' });
 });
+
+test('the safety net: check() reads the newest conversation; newer than what is loaded → one load(), else nothing; not before ready', async () => {
+  let newest = null;
+  const { S, stub } = load({ responses: { cs_conversations: (q) => (q.some((c) => c.op === 'limit') ? ok(newest ? [{ updated_at: newest }] : []) : ok(CONVS)) } });
+  assert.equal(await S.check(), false, 'not loaded yet');
+  await S.load(); const before = stub.calls.filter((c) => c.op === 'rpc').length;
+  const mine = Math.max(...CONVS.map((r) => Date.parse(r.updated_at || r.created_at)));
+  newest = new Date(mine).toISOString();
+  assert.equal(await S.check(), false, 'the same moment: nothing new'); assert.equal(stub.calls.filter((c) => c.op === 'rpc').length, before);
+  newest = new Date(mine + 60000).toISOString();
+  assert.equal(await S.check(), true, 'a newer conversation: one reload'); assert.equal(stub.calls.filter((c) => c.op === 'rpc').length, before + 1);
+  newest = null; assert.equal(await S.check(), false, 'no answer: nothing');
+});

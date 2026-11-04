@@ -297,7 +297,7 @@ async function commentsPull(deps: Deps): Promise<Response> {
   const events = pulledComments(feed, media, page.id, Date.parse(deps.now()) - PULL_WINDOW_MS);
   // the posts that carry comments (decision 19): their caption / link / picture kept fresh for the comments conversations
   const posts = postsOf(feed, media);
-  if (posts.length) { const { error: pe } = await deps.db.from('cs_posts').upsert(posts.map((p) => ({ ...p, seen_at: deps.now() })), { onConflict: 'id' }); if (pe) console.error('cs_posts: ' + (pe.code ?? 'upsert')); }
+  if (posts.length) { const { error: pe } = await deps.db.from('cs_posts').upsert(posts.map((p) => ({ ...p, seen_at: deps.now() })), { onConflict: 'id' }); if (pe) console.error('cs_posts: ' + (pe.code ?? 'upsert') + ' ' + String(pe.message ?? '').replace(/"[^"]*"/g, '"…"').slice(0, 160)); } // the value never in the log
   // the ones already in the inbox (pulled before, or delivered by a webhook) are skipped before any write
   const ids = events.map((e) => e.commentId);
   const known = new Set<string>();

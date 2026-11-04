@@ -31,8 +31,8 @@ export function stubClient({ responses = {}, channelThrows = false } = {}) {
   };
   const client = {
     from: table,
-    channel: (name) => {
-      rec({ op: 'channel', args: [name] });
+    channel: (name, opts) => {
+      rec({ op: 'channel', args: opts === undefined ? [name] : [name, opts] });
       if (channelThrows) throw new Error('realtime unavailable');
       const ch = { on: (type, filter, cb) => { rec({ op: 'on', args: [type, filter] }); handler = cb; handlers.push({ type, filter, cb }); return ch; }, subscribe: (cb) => { rec({ op: 'subscribe' }); statusCb = typeof cb === 'function' ? cb : null; return ch; } };
       return ch;

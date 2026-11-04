@@ -249,6 +249,18 @@ test('6.2 — the admin links the Facebook page from «القنوات» (the dia
   await expect(P.locator('[data-post-link]')).toHaveAttribute('href', 'https://www.facebook.com/ibtekr/posts/1');
   await expect(P.locator('[data-post-link]')).toHaveAttribute('target', '_blank');
   await expect(P.locator('.cv [data-post-line]').first()).toContainText('على: مراية خشب دهبي');
+  // decision 20: the «البوست» filter — the posts with their open count; one post = its conversations only; back to all
+  await expect(P.locator('.cs-items .cv')).toHaveCount(2);
+  await P.locator('[data-post-filter]').click();
+  await expect(page.locator('.post-menu [data-post-opt]')).toHaveCount(2);
+  await page.locator('.post-menu [data-post-opt="111_p2"]').click();
+  await expect(P.locator('.cs-items .cv')).toHaveCount(1);
+  await expect(P.locator('.cs-items .cv .nm')).toHaveText('Ali S');
+  await expect(P.locator('[data-post-filter]')).toContainText('البوست: ترابيزة قهوة رخام');
+  await P.locator('[data-post-filter]').click();
+  await page.locator('.post-menu .opt').first().click();
+  await expect(P.locator('.cs-items .cv')).toHaveCount(2);
+  await P.locator('.cs-items .cv', { hasText: 'Noha H' }).click();
   await P.locator('#cs-ta').fill('950 جنيه والشحن مجاني');
   await P.locator('[data-cmp-send]').click();
   await expect(P.locator('.cs-msgs .bub.b-out').last()).toContainText('✓ اتبعتت');

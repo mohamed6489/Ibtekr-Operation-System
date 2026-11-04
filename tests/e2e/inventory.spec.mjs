@@ -263,3 +263,31 @@ test('the order search matches the customer\'s name too; a word with no order sa
   await m.locator('#rc-q').fill('zzzz-مفيش');
   await expect(m).toContainText('مفيش أوردر بالرقم أو الاسم ده');
 });
+
+test('receiving an order\'s line as «تجميع أوردر» opens the order\'s consolidation (its lines not shipped), the line counts as arrived, «بتتجمع» shows it', async ({ page }) => {
+  await openInventory(page);
+  await page.getByRole('button', { name: 'استلام في المخزن' }).click();
+  const m = modal(page, 'استلام في المخزن');
+  await m.locator('#rc-q').fill('181668');
+  await m.locator('[data-rc-order="181668"]').click();
+  await m.locator('[data-rc-lines] [role=checkbox]', { hasText: 'Cushion' }).click();
+  await m.getByRole('radio', { name: /^تجميع أوردر/ }).click();
+  await m.getByRole('button', { name: 'استلام', exact: true }).click();
+  await expect.poll(() => mock.inv.inv_consolidation_items.map((x) => x.item_id).sort()).toEqual([5001, 5002]);
+  expect(mock.inv.inv_consolidations).toEqual([expect.objectContaining({ order_id: 181668, zone: 'T', status: 'open' })]);
+  await expect(page.locator('#pg-inventory .kpi, #pg-inventory [data-details]', { hasText: 'بتتجمع' }).first()).toContainText('1');
+  await page.evaluate(() => { location.hash = 'inventory-consolidate'; });
+  await expect(page.locator('#pg-inventory')).toContainText('1 من 2');
+  // the second line received later joins the same consolidation (no second one)
+  await page.getByRole('button', { name: 'استلام في المخزن' }).click();
+  const m2 = modal(page, 'استلام في المخزن');
+  await m2.locator('#rc-q').fill('181668');
+  await m2.locator('[data-rc-order="181668"]').click();
+  await m2.locator('[data-rc-lines] [role=checkbox]', { hasText: 'Macrame Curtain' }).click();
+  await m2.getByRole('radio', { name: /^تجميع أوردر/ }).click();
+  await m2.getByRole('button', { name: 'استلام', exact: true }).click();
+  await expect.poll(() => mock.inv.inv_lots.filter((l) => l.order_id === 181668).length).toBe(2);
+  expect(mock.inv.inv_consolidations).toHaveLength(1);
+  await expect(page.locator('#pg-inventory')).toContainText('2 من 2');
+  await expect.poll(() => mock.inv.inv_lots.filter((l) => l.order_id === 181668).map((l) => l.status)).toEqual(['جاهز يطلع كامل', 'جاهز يطلع كامل']); // the last line made the order ready
+});

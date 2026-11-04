@@ -112,7 +112,10 @@
       const returns = stock.filter((l) => (firstIn.get(l.key) || {}).reason === 'مرتجع' || l.reason === 'مرتجع').map((l) => toReturn(l, firstIn.get(l.key)));
       const itemById = itemOf; const custOf = new Map(orders.map((o) => [String(o.id), o.customer_name || '']));
       const consolidations = cons.map((x) => ({ id: x.id, order: String(x.order_id), customer: custOf.get(String(x.order_id)) || '', since: x.since, zone: x.zone || 'T', by: nameOf(x.created_by),
-        subs: links.filter((l) => l.consolidation_id === x.id).map((l) => { const i = itemById.get(String(l.item_id)) || {}; return [sidOf(l.item_id), vendorName(i.vendor_id), i.status || 'قيد التنفيذ', i.name || '', String(l.item_id)]; }) }));
+        subs: links.filter((l) => l.consolidation_id === x.id).map((l) => { const i = itemById.get(String(l.item_id)) || {};
+          // a line with an open «تجميع أوردر» lot in the hub has arrived, whatever its line status says (decision 8 — received here, not from the orders page)
+          const got = stock.some((s) => !s.closed && s.reason === 'تجميع أوردر' && s.itemId === String(l.item_id)) && !['تم الشحن للعميل', 'مكتمل'].includes(i.status);
+          return [sidOf(l.item_id), vendorName(i.vendor_id), got ? 'وصل المخزن' : i.status || 'قيد التنفيذ', i.name || '', String(l.item_id)]; }) }));
       const lotLines = (id) => lines.filter((l) => l.count_id === id).map((l) => { const lot = byKey.get(l.lot_id) || {}; return { key: l.lot_id, sku: lot.sku || '', name: lot.name || '', loc: lot.loc || '—', system: l.system, counted: l.counted == null ? '' : String(l.counted), cost: lot.cost || 0, note: l.note || '' }; });
       countRow = open;
       const count = open ? { id: 'CNT-' + String(open.id).padStart(2, '0'), dbId: open.id, zone: open.zone, started: cairo(open.started_at), total: 0, base: 0, lines: lotLines(open.id) } : null;
@@ -195,6 +198,15 @@
       log('inventory.consolidate', 'IB-' + orderId + ' · ' + ids.length, id); return { ok: true, id };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
+  // more lines of the order joining its open consolidation (the server checks: the same order, the consolidation open)
+  async function addToConsolidation(id, itemIds) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().edit) return { ok: false, reason: 'forbidden' };
+    const ids = [...new Set((itemIds || []).map(String).filter((x) => /^\d+$/.test(x)))];
+    if (!UUID.test(String(id)) || !ids.length) return { ok: false, reason: 'invalid' };
+    try { const { error } = await cl.from('inv_consolidation_items').insert(ids.map((x) => ({ consolidation_id: id, item_id: Number(x) }))); if (error) return fail(error); log('inventory.consolidate.add', ids.length + '', id); return { ok: true }; }
+    catch (e) { return { ok: false, reason: 'network' }; }
+  }
   async function closeConsolidation(id, status, carrier) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     if (!can().edit) return { ok: false, reason: 'forbidden' };
@@ -247,6 +259,6 @@
   }
 
   window.IBInventory = { load, clear, state: () => st, can, today, cairo, newKey, settings: () => Object.assign({}, data.settings), DEFAULTS,
-    addLot, addMove, updateLot, pushSite, consolidate, closeConsolidation, startCount, countLine, approveCount, addLocation, saveSettings, countId: () => (countRow ? countRow.id : null),
+    addLot, addMove, updateLot, pushSite, consolidate, addToConsolidation, closeConsolidation, startCount, countLine, approveCount, addLocation, saveSettings, countId: () => (countRow ? countRow.id : null),
     _test: { toStock, toMove, toReturn, lotRow, moveRow, locCode, modeIn, modeOut } };
 })();

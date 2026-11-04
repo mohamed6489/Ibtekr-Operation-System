@@ -21,8 +21,10 @@
   const COUNT_COLS = 'id, zone, status, note, started_by, started_at, approved_by, approved_at';
   const LINE_COLS = 'count_id, lot_id, system, counted, note';
   const LOC_COLS = 'code, label, kind, note';
-  const DEFAULTS = Object.freeze({ firstWarehouse: false, reserveAt: 'إنشاء الأوردر', deductAt: 'شحن الأوردر الفرعي', autoRelease: true, pullAlert: true, zone: 'T',
-    consolidationAlert: 5, partial: true, photoMax: 14, photoDefault: 'يرجع للمبتكر', lowAlert: 2, inspectReturns: true, wooSync: false });
+  // the v2 settings tab's keys (decision 1 b / c: auto-pull and the site quantity off until the owner opens them)
+  const DEFAULTS = Object.freeze({ firstWarehouse: false, reserveAt: 'إنشاء الأوردر', deductAt: 'شحن الأوردر الفرعي', autoRelease: true, pullAlert: true, zone: 'T — منطقة التجميع',
+    consolidationAlert: 5, partial: true, photoMax: 14, photoDefault: 'يرجع للمبتكر', minQty: 2, stale: 90, lowAlert: true, inspect: true,
+    returnOwner: 'بنفس ملكية الأوردر الأصلي', vendorReturn: 'يتلغي (من غير خصم إضافي)', wooSync: false });
   const SETTING_KEYS = Object.keys(DEFAULTS);
   const LIMIT = 5000;
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;

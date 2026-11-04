@@ -49,6 +49,13 @@ Messenger / Instagram (optional now — needed anyway when the app goes Live wit
 > The admin picks the Ibtekr Club Page (owned by our Business Portfolio) when linking; we subscribe the app to the Page's webhooks
 > and read the connected Instagram account's id and username.
 
+## 3a. The video Meta's dialogs ask for (4 Nov)
+- `whatsapp_business_messaging`: «a message sending from your app to a WhatsApp number» — from the system: API Setup → the test
+  number → Generate access token → system: القنوات → واتساب 1 → ربط → «ربط يدوي» (WABA id, phone number id, token — `connect_token`)
+  → from the phone message the test number → it lands in الرسايل → reply from the system → it arrives on the phone.
+- `whatsapp_business_management`: API test calls (Graph API Explorer: GET <WABA>/phone_numbers, GET <WABA>/message_templates — up to
+  24 h to show in the form) + a video of creating a message template in WhatsApp Manager.
+
 ## 3. Screencast (one video per platform, 2–4 minutes, English captions — the interface is Arabic)
 WhatsApp (record with a spare SIM that is not on WhatsApp — the normal «create a new number» path works today; the main number is
 linked by coexistence after approval):

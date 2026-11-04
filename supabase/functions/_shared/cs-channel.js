@@ -162,21 +162,25 @@ export function tokenScopesOf(json) {
 // the comments probe (decision 17): what Graph shows of the latest posts' comments — counts and dates only, never a text or a name.
 // `from` is what the webhook needs to open a thread; a comment without it is one Meta hides from the app (no pages_read_user_content /
 // Advanced Access) — the reason a live comment may never reach the inbox
-export function commentsProbeOf(json, platform) {
+export function commentsProbeOf(json, platform, ownIds = []) {
   const posts = isObj(json) && Array.isArray(json.data) ? json.data.filter(isObj) : [];
-  let comments = 0, sampled = 0, withFrom = 0, latest = null;
+  let comments = 0, sampled = 0, withFrom = 0, latest = null; const items = [];
   posts.forEach((p) => {
     const c = isObj(p.comments) ? p.comments : null;
     const total = platform === 'instagram' ? Number(p.comments_count) : Number(c && isObj(c.summary) ? c.summary.total_count : NaN);
     if (Number.isFinite(total) && total > 0) comments += total;
     (c && Array.isArray(c.data) ? c.data : []).forEach((x) => {
       if (!isObj(x)) return; sampled++;
-      if (isObj(x.from) && x.from.id) withFrom++;
+      const fromId = isObj(x.from) && x.from.id ? String(x.from.id) : null;
+      if (fromId) withFrom++;
       const at = typeof x.created_time === 'string' ? x.created_time : typeof x.timestamp === 'string' ? x.timestamp : null;
       if (at && (!latest || at > latest)) latest = at.slice(0, 30);
+      // each sampled comment: its date and who Graph says wrote it — the page itself, a person (no id kept), or hidden
+      items.push({ at: at ? at.slice(0, 30) : null, by: !fromId ? 'hidden' : ownIds.includes(fromId) ? 'page' : 'user' });
     });
   });
-  return { posts: posts.length, comments, sampled, with_from: withFrom, latest };
+  items.sort((a, b) => String(b.at).localeCompare(String(a.at)));
+  return { posts: posts.length, comments, sampled, with_from: withFrom, latest, items: items.slice(0, 15) };
 }
 // the pages without their tokens (the answer to the admin)
 export const publicPages = (pages) => pages.map((p) => ({ id: p.id, name: p.name, ig: p.ig ? { id: p.ig.id, username: p.ig.username } : null }));

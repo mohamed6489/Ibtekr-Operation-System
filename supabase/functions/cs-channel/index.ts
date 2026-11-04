@@ -299,7 +299,8 @@ async function status(deps: Deps, who: Who) {
       try { scopes = app ? tokenScopesOf(await graph(deps, 'GET', graphPath.debugToken(page.token), { token: app.id + '|' + app.secret })) : null; } catch (e) { out.scopes_error = e instanceof GraphError ? e.code : 'error'; }
       out.missing_permissions = scopes ? scopes.missing : null;
       // the comments probe (decision 17): can the app see the latest comments and their commenter — counts only, logged for the diagnosis
-      const probe = async (url: string, platform: string) => { try { return commentsProbeOf(await graph(deps, 'GET', url, { token: page.token }), platform); } catch (e) { return { error: e instanceof GraphError ? e.code : 'error' }; } };
+      const own = [page.id, page.ig?.id].filter(Boolean) as string[];
+      const probe = async (url: string, platform: string) => { try { return commentsProbeOf(await graph(deps, 'GET', url, { token: page.token }), platform, own); } catch (e) { return { error: e instanceof GraphError ? e.code : 'error' }; } };
       const fb = await probe(graphPath.feedProbe(page.id), 'facebook');
       const ig = page.ig ? await probe(graphPath.mediaProbe(page.ig.id), 'instagram') : null;
       out.comments_probe = { facebook: fb, instagram: ig };

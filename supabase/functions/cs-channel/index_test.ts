@@ -389,7 +389,7 @@ Deno.test('status (the admin, a linked page): the page\'s subscribed fields from
   const dbg = graph.calls.find((c) => c.path === 'debug_token')!;
   assertEquals([dbg.auth, typeof dbg.query.input_token], ['Bearer 1234567890|' + META_ENV.META_APP_SECRET, 'string'], 'the app token in the header, the page token as input_token');
   // the comments probe: counts and dates only, the commenter visible on one of two, Instagram's Graph error as its code
-  assertEquals(s.body.comments_probe, { facebook: { posts: 2, comments: 2, sampled: 2, with_from: 1, latest: '2026-11-04T05:10:00+0000' }, instagram: { error: 'graph_10' } });
+  assertEquals(s.body.comments_probe, { facebook: { posts: 2, comments: 2, sampled: 2, with_from: 1, latest: '2026-11-04T05:10:00+0000', items: [{ at: '2026-11-04T05:10:00+0000', by: 'hidden' }, { at: '2026-11-04T05:00:00+0000', by: 'user' }] }, instagram: { error: 'graph_10' } });
   const ev = db.rows('cs_channel_events').at(-1);
   assertEquals([ev.object, ev.entry_id, ev.status, ev.summary.facebook.with_from, ev.summary.scopes, ev.summary.token_valid], ['probe', '111', 'ok', 1, ['pages_messaging', 'pages_show_list'], true]);
   assert(!JSON.stringify(ev).includes('"X"'), 'no commenter name in the log');

@@ -268,6 +268,10 @@ export const graphPath = {
   // the pull (decision 18): the latest 10 posts / media with their recent comments (replies included)
   feedPull: (pageId) => GRAPH + '/' + pageId + '/feed?fields=id,message,permalink_url,full_picture,status_type,created_time,comments.filter(stream).order(reverse_chronological).limit(50){id,created_time,from,message,parent{id}}&limit=10',
   mediaPull: (igId) => GRAPH + '/' + igId + '/media?fields=id,caption,permalink,media_type,media_url,thumbnail_url,timestamp,comments.limit(50){id,timestamp,from,username,text,replies.limit(25){id,timestamp,from,username,text}}&limit=10',
+  // the WhatsApp probe (owner, 4 Nov — «the page's WhatsApp, can we show it?»): the number linked to the page and a
+  // conversations list on the whatsapp platform; read-only, the answer is reduced to booleans / counts / codes
+  waNumberProbe: (pageId) => GRAPH + '/' + pageId + '?fields=whatsapp_number',
+  waConvProbe: (pageId) => GRAPH + '/' + pageId + '/conversations?platform=whatsapp&fields=id,updated_time&limit=5',
   // the one call with a token in the url: debug_token takes the token it inspects as input_token (sent to Meta only, never logged)
   debugToken: (inputToken) => GRAPH + '/debug_token?' + new URLSearchParams({ input_token: inputToken }).toString(),
   // one post / media by id (decision 19: a webhook comment on a post the pull has not seen)
@@ -276,6 +280,12 @@ export const graphPath = {
   commentReply: (commentId, platform) => GRAPH + '/' + commentId + (platform === 'instagram' ? '/replies' : '/comments'),
   commentHide: (commentId) => GRAPH + '/' + commentId,
 };
+// the WhatsApp probe reduced: never the number itself, only whether the page has one and how many conversations answer
+export function waProbeOf(numberJson, convJson) {
+  const linked = typeof numberJson?.whatsapp_number === 'string' && numberJson.whatsapp_number.trim() !== '';
+  const list = Array.isArray(convJson?.data) ? convJson.data : null;
+  return { number_linked: linked, conversations: list ? list.length : null };
+}
 // the body of a Send API call: a DM answer (RESPONSE: within the 24-hour window) or a private reply to a comment
 export const sendBody = (userId, text) => ({ recipient: { id: userId }, messaging_type: 'RESPONSE', message: { text } });
 export const privateReplyBody = (commentId, text) => ({ recipient: { comment_id: commentId }, message: { text } });

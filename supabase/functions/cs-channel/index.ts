@@ -35,7 +35,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import {
   DEFAULT_NAME, SUBSCRIBED_FIELDS, authUrl, businessIdsOf, subscribedFieldsOf, mergePages, permissionsOf, tokenlessCount, commentThreadId, graphErrorCode, graphPath, hideBody, pagesOf, parseWebhook, privateReplyBody, profileHandle, profileName, publicPages,
-  sendBody, statusAfterIn, tokenScopesOf, commentsProbeOf, pulledComments, PULL_WINDOW_MS, postsOf, postOf,
+  sendBody, statusAfterIn, tokenScopesOf, commentsProbeOf, waProbeOf, pulledComments, PULL_WINDOW_MS, postsOf, postOf,
 } from '../_shared/cs-channel.js';
 
 // deno-lint-ignore no-explicit-any
@@ -346,7 +346,14 @@ async function status(deps: Deps, who: Who) {
       const fb = await probe(graphPath.feedProbe(page.id), 'facebook');
       const ig = page.ig ? await probe(graphPath.mediaProbe(page.ig.id), 'instagram') : null;
       out.comments_probe = { facebook: fb, instagram: ig };
-      await logEvent(deps, { object: 'probe', entry_id: page.id, status: 'ok', summary: { facebook: fb, instagram: ig, fields: fields ?? null, scopes: scopes ? scopes.granted : null, token_valid: scopes ? scopes.valid : null } });
+      // the WhatsApp probe: the number field and the whatsapp conversations, each its own call (one may fail alone)
+      const get = async (url: string) => { try { return { ok: await graph(deps, 'GET', url, { token: page.token }) }; } catch (e) { return { err: e instanceof GraphError ? e.code : 'error' }; } };
+      const waNum = await get(graphPath.waNumberProbe(page.id));
+      const waConv = await get(graphPath.waConvProbe(page.id));
+      const waReduced = waProbeOf(waNum.ok, waConv.ok);
+      const wa = { ...waReduced, number_error: waNum.err ?? null, conversations_error: waConv.err ?? null };
+      out.whatsapp_probe = wa;
+      await logEvent(deps, { object: 'probe', entry_id: page.id, status: 'ok', summary: { facebook: fb, instagram: ig, whatsapp: wa, fields: fields ?? null, scopes: scopes ? scopes.granted : null, token_valid: scopes ? scopes.valid : null } });
     }
   }
   return json(200, out);

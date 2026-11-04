@@ -381,9 +381,15 @@ Deno.test('status (the admin, a linked page): the page\'s subscribed fields from
       { id: '111_2', comments: { data: [], summary: { total_count: 0 } } },
     ] } },
     'GET 777/media': { status: 400, body: { error: { code: 10, message: 'needs Advanced Access' } } },
+    'GET 111': { body: { id: '111', whatsapp_number: '+201000000000' } },
+    'GET 111/conversations': { status: 400, body: { error: { code: 100, message: 'platform' } } },
   };
   const { deps, graph, db } = setup({ vault: linked(), routes });
   const s = await call(deps, { action: 'status' }, 'jwt-admin');
+  // the WhatsApp probe: whether a number is linked (never the number) and the conversations call's code
+  assertEquals(s.body.whatsapp_probe, { number_linked: true, conversations: null, number_error: null, conversations_error: 'graph_100' });
+  assert(!JSON.stringify(db.rows('cs_channel_events')).includes('201000000000'), 'no WhatsApp number in the log');
+  assertEquals(graph.calls.find((c) => c.path === '111/conversations')!.query.platform, 'whatsapp');
   assertEquals(s.body.resubscribed, true);
   assertEquals(s.body.subscribed_fields, ['messages', 'messaging_postbacks', 'message_deliveries', 'message_reads', 'message_echoes', 'feed']);
   assert(s.body.missing_permissions.includes('pages_read_user_content') && !s.body.missing_permissions.includes('pages_messaging'));

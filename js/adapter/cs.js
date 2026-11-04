@@ -568,7 +568,7 @@
     // conversations / messages (no content in it); the page reloads through its own RLS a moment later
     if (!live) {
       try {
-        live = cl.channel('cs-inbox').on('broadcast', { event: 'changed' }, onLive)
+        live = cl.channel('cs-inbox', { config: { private: true } }).on('broadcast', { event: 'changed' }, onLive) // 0039: members with cs.view only, nobody sends
           .subscribe((status) => { if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') { const dead = live; live = null; if (dead) quiet(() => Promise.resolve(cl.removeChannel(dead)).catch(() => {})); } });
       } catch (e) { live = null; }
     }
@@ -577,7 +577,9 @@
     if (!poll && typeof setInterval === 'function') poll = setInterval(() => { check(); }, POLL_MS);
   }
   const POLL_MS = 10000;
-  function onLive() { if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; if (st === 'ready') load(); }, 250); }
+  // one reload per burst, and at most one every 1.5 s however many pings arrive
+  let lastLive = 0;
+  function onLive() { if (timer) clearTimeout(timer); const wait = Math.max(250, lastLive + 1500 - Date.now()); timer = setTimeout(() => { timer = null; if (st === 'ready') { lastLive = Date.now(); load(); } }, wait); }
   async function check() {
     if (st !== 'ready' || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return false;
     const cl = c(); if (!cl) return false;

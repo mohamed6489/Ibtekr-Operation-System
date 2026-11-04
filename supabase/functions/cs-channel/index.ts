@@ -35,7 +35,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import {
   DEFAULT_NAME, SUBSCRIBED_FIELDS, authUrl, businessIdsOf, subscribedFieldsOf, mergePages, permissionsOf, tokenlessCount, commentThreadId, graphErrorCode, graphPath, hideBody, pagesOf, parseWebhook, privateReplyBody, profileHandle, profileName, publicPages,
-  sendBody, statusAfterIn,
+  sendBody, statusAfterIn, tokenScopesOf, commentsProbeOf,
 } from '../_shared/cs-channel.js';
 
 // deno-lint-ignore no-explicit-any
@@ -294,7 +294,16 @@ async function status(deps: Deps, who: Who) {
         try { await graph(deps, 'POST', graphPath.subscribe(page.id), { token: page.token, form: { subscribed_fields: SUBSCRIBED_FIELDS.join(',') } }); out.resubscribed = true; fields = await read(); } catch (e) { out.resubscribe_error = e instanceof GraphError ? e.code : 'error'; }
       }
       out.subscribed_fields = fields;
-      try { out.missing_permissions = permissionsOf(await graph(deps, 'GET', graphPath.permissions(), { token: page.token })).missing; } catch { out.missing_permissions = null; }
+      // the scopes of the page token: debug_token with the app token (/me/permissions does not answer a page token)
+      let scopes: Json | null = null;
+      try { scopes = app ? tokenScopesOf(await graph(deps, 'GET', graphPath.debugToken(page.token), { token: app.id + '|' + app.secret })) : null; } catch (e) { out.scopes_error = e instanceof GraphError ? e.code : 'error'; }
+      out.missing_permissions = scopes ? scopes.missing : null;
+      // the comments probe (decision 17): can the app see the latest comments and their commenter — counts only, logged for the diagnosis
+      const probe = async (url: string, platform: string) => { try { return commentsProbeOf(await graph(deps, 'GET', url, { token: page.token }), platform); } catch (e) { return { error: e instanceof GraphError ? e.code : 'error' }; } };
+      const fb = await probe(graphPath.feedProbe(page.id), 'facebook');
+      const ig = page.ig ? await probe(graphPath.mediaProbe(page.ig.id), 'instagram') : null;
+      out.comments_probe = { facebook: fb, instagram: ig };
+      await logEvent(deps, { object: 'probe', entry_id: page.id, status: 'ok', summary: { facebook: fb, instagram: ig, fields: fields ?? null, scopes: scopes ? scopes.granted : null, token_valid: scopes ? scopes.valid : null } });
     }
   }
   return json(200, out);

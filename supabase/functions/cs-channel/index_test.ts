@@ -374,13 +374,25 @@ Deno.test('status (the admin, a linked page): the page\'s subscribed fields from
   const routes: Record<string, Route> = {
     'GET 111/subscribed_apps': () => ({ body: { data: [{ id: '1234567890', name: 'ibtekr Ops', subscribed_fields: fields }] } }),
     'POST 111/subscribed_apps': (c) => { fields = String(c.body.subscribed_fields).split(','); return { body: { success: true } }; },
-    'GET me/permissions': { body: { data: [{ permission: 'pages_messaging', status: 'granted' }, { permission: 'pages_read_user_content', status: 'declined' }] } },
+    'GET debug_token': { body: { data: { is_valid: true, scopes: ['pages_messaging', 'pages_show_list'] } } },
+    'GET 111/feed': { body: { data: [
+      { id: '111_1', comments: { data: [{ id: 'c1', created_time: '2026-11-04T05:00:00+0000', from: { id: '42', name: 'X' } }, { id: 'c2', created_time: '2026-11-04T05:10:00+0000' }], summary: { total_count: 2 } } },
+      { id: '111_2', comments: { data: [], summary: { total_count: 0 } } },
+    ] } },
+    'GET 777/media': { status: 400, body: { error: { code: 10, message: 'needs Advanced Access' } } },
   };
-  const { deps, graph } = setup({ vault: linked(), routes });
+  const { deps, graph, db } = setup({ vault: linked(), routes });
   const s = await call(deps, { action: 'status' }, 'jwt-admin');
   assertEquals(s.body.resubscribed, true);
   assertEquals(s.body.subscribed_fields, ['messages', 'messaging_postbacks', 'message_deliveries', 'message_reads', 'message_echoes', 'feed']);
   assert(s.body.missing_permissions.includes('pages_read_user_content') && !s.body.missing_permissions.includes('pages_messaging'));
+  const dbg = graph.calls.find((c) => c.path === 'debug_token')!;
+  assertEquals([dbg.auth, typeof dbg.query.input_token], ['Bearer 1234567890|' + META_ENV.META_APP_SECRET, 'string'], 'the app token in the header, the page token as input_token');
+  // the comments probe: counts and dates only, the commenter visible on one of two, Instagram's Graph error as its code
+  assertEquals(s.body.comments_probe, { facebook: { posts: 2, comments: 2, sampled: 2, with_from: 1, latest: '2026-11-04T05:10:00+0000' }, instagram: { error: 'graph_10' } });
+  const ev = db.rows('cs_channel_events').at(-1);
+  assertEquals([ev.object, ev.entry_id, ev.status, ev.summary.facebook.with_from, ev.summary.scopes, ev.summary.token_valid], ['probe', '111', 'ok', 1, ['pages_messaging', 'pages_show_list'], true]);
+  assert(!JSON.stringify(ev).includes('"X"'), 'no commenter name in the log');
   assertEquals(graph.calls.filter((c) => c.method === 'POST').length, 1);
   const again = await call(deps, { action: 'status' }, 'jwt-admin');
   assertEquals(again.body.resubscribed, undefined, 'complete: no second subscribe');

@@ -152,6 +152,32 @@ export function subscribedFieldsOf(json, appId) {
   const row = list.find((a) => isObj(a) && String(a.id) === String(appId)) || (list.length === 1 && isObj(list[0]) ? list[0] : null);
   return row && Array.isArray(row.subscribed_fields) ? row.subscribed_fields.filter((f) => typeof f === 'string').map((f) => f.slice(0, 60)) : null;
 }
+// /debug_token (with the app token) → the scopes the linked page token holds; and what the system needs that it lacks
+export function tokenScopesOf(json) {
+  const d = isObj(json) && isObj(json.data) ? json.data : null;
+  if (!d || !Array.isArray(d.scopes)) return null;
+  const granted = d.scopes.filter((s) => typeof s === 'string').map((s) => s.slice(0, 60));
+  return { valid: d.is_valid === true, granted, missing: SCOPES.filter((s) => s !== 'business_management' && !granted.includes(s)) };
+}
+// the comments probe (decision 17): what Graph shows of the latest posts' comments — counts and dates only, never a text or a name.
+// `from` is what the webhook needs to open a thread; a comment without it is one Meta hides from the app (no pages_read_user_content /
+// Advanced Access) — the reason a live comment may never reach the inbox
+export function commentsProbeOf(json, platform) {
+  const posts = isObj(json) && Array.isArray(json.data) ? json.data.filter(isObj) : [];
+  let comments = 0, sampled = 0, withFrom = 0, latest = null;
+  posts.forEach((p) => {
+    const c = isObj(p.comments) ? p.comments : null;
+    const total = platform === 'instagram' ? Number(p.comments_count) : Number(c && isObj(c.summary) ? c.summary.total_count : NaN);
+    if (Number.isFinite(total) && total > 0) comments += total;
+    (c && Array.isArray(c.data) ? c.data : []).forEach((x) => {
+      if (!isObj(x)) return; sampled++;
+      if (isObj(x.from) && x.from.id) withFrom++;
+      const at = typeof x.created_time === 'string' ? x.created_time : typeof x.timestamp === 'string' ? x.timestamp : null;
+      if (at && (!latest || at > latest)) latest = at.slice(0, 30);
+    });
+  });
+  return { posts: posts.length, comments, sampled, with_from: withFrom, latest };
+}
 // the pages without their tokens (the answer to the admin)
 export const publicPages = (pages) => pages.map((p) => ({ id: p.id, name: p.name, ig: p.ig ? { id: p.ig.id, username: p.ig.username } : null }));
 
@@ -174,6 +200,11 @@ export const graphPath = {
   subscribe: (pageId) => GRAPH + '/' + pageId + '/subscribed_apps',
   subscribedFields: (pageId) => GRAPH + '/' + pageId + '/subscribed_apps?fields=id,subscribed_fields',
   profile: (userId, platform) => GRAPH + '/' + userId + (platform === 'instagram' ? '?fields=name,username' : '?fields=first_name,last_name,name'),
+  // the probe (decision 17): the latest 5 posts / media with up to 3 comments each (ids, dates and the commenter id only)
+  feedProbe: (pageId) => GRAPH + '/' + pageId + '/feed?fields=id,comments.summary(true).limit(3){id,created_time,from}&limit=5',
+  mediaProbe: (igId) => GRAPH + '/' + igId + '/media?fields=id,comments_count,comments.limit(3){id,timestamp,from}&limit=5',
+  // the one call with a token in the url: debug_token takes the token it inspects as input_token (sent to Meta only, never logged)
+  debugToken: (inputToken) => GRAPH + '/debug_token?' + new URLSearchParams({ input_token: inputToken }).toString(),
   send: () => GRAPH + '/me/messages',
   commentReply: (commentId, platform) => GRAPH + '/' + commentId + (platform === 'instagram' ? '/replies' : '/comments'),
   commentHide: (commentId) => GRAPH + '/' + commentId,

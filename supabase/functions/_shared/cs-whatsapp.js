@@ -35,6 +35,7 @@ export function waAuthUrl(appId, redirectUri, state, configId) {
 
 export const waPath = {
   tokenExchange: (appId, redirectUri, code) => WA_GRAPH + '/oauth/access_token?' + new URLSearchParams({ client_id: appId, redirect_uri: redirectUri, code }).toString() + '&client_secret=',
+  tokenExchangeSdk: (appId, code) => WA_GRAPH + '/oauth/access_token?' + new URLSearchParams({ client_id: appId, code }).toString() + '&client_secret=',
   debugToken: (inputToken) => WA_GRAPH + '/debug_token?' + new URLSearchParams({ input_token: inputToken }).toString(),
   phones: (wabaId) => WA_GRAPH + '/' + wabaId + '/phone_numbers?fields=id,display_phone_number,verified_name,is_on_biz_app,platform_type&limit=20',
   phone: (phoneId) => WA_GRAPH + '/' + phoneId + '?fields=id,display_phone_number,verified_name,is_on_biz_app,platform_type,quality_rating',

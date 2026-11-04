@@ -42,3 +42,4 @@
 - T26 ✓ `cs-whatsapp` + `index_test.ts` (6) + حارس `cs-wa` لقناة meta (+1 اختبار)؛ `deno:check` + `deno:test` 208 عدّوا.
 - T27 ✓ `IBCS` (waCloudStatus / waSync / connectStart / disconnect / send لـ wa1) + الكتلة 20 (lock) + `meta-callback.js` + mock + e2e (243 عدّوا)؛ `npm test` 433.
 - T28: الوثائق ✓ (الخطة قرار 26، CLAUDE.md، deploy §2.7.18)؛ الحي: `0043` + النشر + الإعداد على Meta (صاحب المشروع) + الربط.
+- T28 (حي): `0043` على الحي + `rls_cs_wa_cloud` حي ok؛ `cs-whatsapp` v1 + `cs-wa` v2. ES v4 في الـ extras («Check a launch config» عند صاحب المشروع: v4، cloud_api، WhatsApp Business app onboarding On). أول «ربط»: صفحة فيسبوك 500 (الـ dialog المباشر مابيشتغلش مع Embedded Signup) → `app/wa-connect.html` + `js/pages/wa-connect.js` بمكتبة Meta (FB.login بالـ config، session info كتلميح)، CSP خاص بالصفحة دي بس في `.htaccess`، `connect_callback { sdk: true }` بيبدّل الكود من غير redirect_uri.

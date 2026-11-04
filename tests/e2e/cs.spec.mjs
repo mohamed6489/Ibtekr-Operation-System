@@ -336,18 +336,23 @@ test('6.2 — several pages on the account: the callback page lists them and the
   expect(mock.metaCalls.map((c) => c.action)).toEqual(['status', 'connect_start', 'connect_callback', 'connect_pick']);
 });
 
-test('decision 26: WhatsApp 1 on Meta — «ربط» opens the Embedded Signup dialog; the callback links the number and asks for the history; a reply on wa1 goes through cs-whatsapp', async ({ page }) => {
+test('decision 26: WhatsApp 1 on Meta — «ربط» opens wa-connect.html, Meta\'s SDK (faked) gives a code and the session info, the number is linked and the history asked for; a reply on wa1 goes through cs-whatsapp', async ({ page }) => {
   await signIn(page, ADMIN, '#cs-channels');
   const P = pg(page);
-  await page.route('https://www.facebook.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>facebook</body></html>' }));
-  const [req] = await Promise.all([page.waitForRequest((r) => r.url().startsWith('https://www.facebook.com/v25.0/dialog/oauth')), P.locator('[data-chan-connect="wa1"]').click()]);
-  const state = new URL(req.url()).searchParams.get('state');
-  expect(state).toMatch(/^wa_/);
-  expect(new URL(req.url()).searchParams.get('config_id')).toBe('5550001112');
-  await page.goto('/meta-callback.html?code=code-123456&state=' + state);
-  await expect(page.locator('#cb-title')).toContainText('اتربط واتساب');
-  await expect(page.locator('#cb-text')).toContainText('آخر 6 شهور');
-  expect(mock.waCloud.calls).toContain('connect_callback');
+  // Meta's JavaScript SDK, faked: FB.login records its options, posts no session info (another origin's message is refused anyway) and answers a code
+  await page.route('https://connect.facebook.net/**', (r) => r.fulfill({ status: 200, contentType: 'application/javascript', body: "window.FB = { init: function (o) { window.__fbInit = o; }, login: function (cb, o) { window.__fbLogin = o; window.postMessage(JSON.stringify({ type: 'WA_EMBEDDED_SIGNUP', event: 'FINISH_WHATSAPP_BUSINESS_APP_ONBOARDING', data: { waba_id: '999' } }), '*'); cb({ authResponse: { code: 'code-123456' } }); } }; setTimeout(function () { window.fbAsyncInit && window.fbAsyncInit(); }, 0);" }));
+  await P.locator('[data-chan-connect="wa1"]').click();
+  await expect(page).toHaveURL(/wa-connect\.html$/);
+  await expect(page.locator('#wc-go')).toBeEnabled();
+  expect(await page.evaluate(() => window.__fbInit.appId)).toBe('1234567890');
+  await page.locator('#wc-go').click();
+  await expect(page.locator('#wc-title')).toContainText('اتربط واتساب', { timeout: 10000 });
+  await expect(page.locator('#wc-text')).toContainText('آخر 6 شهور');
+  const opts = await page.evaluate(() => window.__fbLogin);
+  expect([opts.config_id, opts.response_type, opts.extras.featureType, opts.extras.version]).toEqual(['5550001112', 'code', 'whatsapp_business_app_onboarding', 'v4']);
+  expect(mock.waCloud.calls).toEqual(expect.arrayContaining(['connect_start', 'connect_callback']));
+  expect(mock.waCloud.last).toMatchObject({ sdk: true, code: 'code-123456' });
+  expect(mock.waCloud.last.waba_id).toBeUndefined(); // a message from this page's own origin is not Meta's session info
   await page.goto('/index.html#cs-channels');
   const P2 = pg(page);
   await expect(P2.locator('[data-channel="wa1"]')).toContainText('متصلة');

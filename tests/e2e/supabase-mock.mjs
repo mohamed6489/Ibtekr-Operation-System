@@ -1578,9 +1578,10 @@ export async function installSupabaseMock(page, opts = {}) {
       if (action === 'connect_start') {
         if (!W.configured || !W.configId) return json(503, { error: 'not_configured', configured: W.configured, config_id: W.configId });
         const state = 'wa_' + Math.random().toString(36).slice(2).padEnd(41, 'x'); mock.oauthStates.push({ state, used: false, at: Date.now(), kind: 'wa' });
-        return json(200, { result: 'ok', url: 'https://www.facebook.com/v25.0/dialog/oauth?client_id=1234567890&config_id=5550001112&response_type=code&override_default_response_type=true&state=' + state });
+        return json(200, { result: 'ok', state, url: 'https://www.facebook.com/v25.0/dialog/oauth?client_id=1234567890&config_id=5550001112&response_type=code&override_default_response_type=true&state=' + state, sdk: { app_id: '1234567890', config_id: '5550001112', version: 'v25.0', extras: { setup: {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3', version: 'v4' } } });
       }
       if (action === 'connect_callback') {
+        W.last = { sdk: b.sdk, code: b.code, waba_id: b.waba_id, phone_id: b.phone_id };
         const st = mock.oauthStates.find((x) => x.state === b.state && x.kind === 'wa'); if (!st || st.used) return json(400, { error: 'bad_request', field: 'state' }); st.used = true;
         if (String(b.code || '').startsWith('bad')) return json(400, { error: 'no_account' });
         W.linked = true; W.number = '+20 100 000 0001';

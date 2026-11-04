@@ -165,3 +165,26 @@ Deno.test('status: the members see wa1\'s state; the admin also the configuratio
   assertEquals([a.body.config_id, a.body.number.biz_app, a.body.webhook_url.endsWith('/functions/v1/cs-whatsapp')], [true, true, true]);
   assert(!JSON.stringify(a.body).includes(TOKEN));
 });
+
+Deno.test('the SDK sign-in (app/wa-connect.html): connect_start hands the public app / config ids and the extras; a code from FB.login is exchanged without a redirect_uri; the session info\'s WABA is a hint the token must be able to read', async () => {
+  const routes: Record<string, Route> = {
+    'GET oauth/access_token': { body: { access_token: TOKEN } },
+    'GET debug_token': { body: { data: { granular_scopes: [] } } },
+    ['GET ' + WABA + '/phone_numbers']: { body: { data: [{ id: '111222', display_phone_number: '+20 1', is_on_biz_app: false }, { id: PHONE_ID, display_phone_number: '+20 100 000 0001', verified_name: 'Ibtekr', is_on_biz_app: true }] } },
+    ['POST ' + WABA + '/subscribed_apps']: { body: { success: true } },
+    ['POST ' + PHONE_ID + '/smb_app_data']: { body: { request_id: 'r' } },
+  };
+  const { deps, vault, graph } = setup({ routes });
+  const s = await call(deps, { action: 'connect_start' }, 'jwt-admin');
+  assertEquals([s.body.sdk.app_id, s.body.sdk.config_id, s.body.sdk.extras.featureType, s.body.sdk.extras.version], ['1234567890', '5550001112', 'whatsapp_business_app_onboarding', 'v4']);
+  assert(s.body.state.startsWith('wa_') && !JSON.stringify(s.body).includes(SECRET));
+  const cb = await call(deps, { action: 'connect_callback', code: 'sdk-code-123456', state: s.body.state, sdk: true, waba_id: WABA, phone_id: PHONE_ID }, 'jwt-admin');
+  assertEquals([cb.res.status, cb.body.linked], [200, true]);
+  const ex = graph.calls.find((c: any) => c.path === 'oauth/access_token');
+  assertEquals([ex.query.code, 'redirect_uri' in ex.query], ['sdk-code-123456', false]);
+  assertEquals(JSON.parse(vault.meta_wa!).phone_id, PHONE_ID);
+  // a hint the token cannot read, and no scope: no account
+  const other = setup({ routes: { ...routes, ['GET ' + WABA + '/phone_numbers']: { status: 403, body: { error: { code: 200 } } } } });
+  const s2 = await call(other.deps, { action: 'connect_start' }, 'jwt-admin');
+  assertEquals((await call(other.deps, { action: 'connect_callback', code: 'sdk-code-123456', state: s2.body.state, sdk: true, waba_id: WABA }, 'jwt-admin')).body.error, 'no_number');
+});

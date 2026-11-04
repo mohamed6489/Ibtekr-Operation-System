@@ -1,0 +1,33 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ربط واتساب — نظام إبتكر</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;900&display=swap">
+<link rel="stylesheet" href="css/base.css"><link rel="stylesheet" href="css/app.css">
+<style>
+  body { display: grid; place-items: center; min-height: 100vh; margin: 0; }
+  .cb-card { max-width: 480px; width: calc(100% - 32px); padding: 28px 24px; border-radius: 16px; background: var(--card, #fff); box-shadow: 0 10px 40px rgba(0,0,0,.08); text-align: center; }
+  .cb-card h1 { font-size: 20px; margin: 0 0 10px; }
+  .cb-card p { margin: 0 0 16px; color: var(--muted, #666); }
+  .cb-card ol { text-align: right; margin: 0 0 16px; padding-inline-start: 20px; color: var(--muted, #666); font-size: 14px; }
+  .cb-card a, .cb-card button { display: inline-block; padding: 10px 18px; border-radius: 10px; background: var(--primary, #0b3b5c); color: #fff; text-decoration: none; border: 0; font: inherit; cursor: pointer; margin: 4px; }
+  .cb-card button[disabled] { opacity: .5; cursor: default; }
+  .cb-card .err { color: #b3261e; }
+</style>
+</head><body>
+<!-- phase 6 decision 26: WhatsApp 1 on Meta's Cloud API — Embedded Signup runs through Meta's JavaScript SDK (FB.login with the
+     configuration); js/pages/wa-connect.js hands the code (+ the session info's WABA) to cs-whatsapp. This page alone allows
+     connect.facebook.net in its CSP (.htaccess). -->
+<div class="cb-card" dir="rtl" lang="ar">
+  <h1 id="wc-title">ربط واتساب البيزنس</h1>
+  <p id="wc-text">لحظة واحدة…</p>
+  <ol id="wc-steps" hidden>
+    <li>دوس «ابدأ الربط» — هتفتح نافذة من Meta.</li>
+    <li>اختار «Connect your existing WhatsApp Business app» واكتب الرقم.</li>
+    <li>أكّد من تطبيق WhatsApp Business على الموبايل، ووافق على <b>مشاركة سجل المحادثات</b>.</li>
+  </ol>
+  <button type="button" id="wc-go" hidden disabled>ابدأ الربط</button>
+  <a id="wc-back" href="index.html#cs-channels" hidden>ارجع لخدمة العملاء</a>
+</div>
+<script src="config.js"></script><script src="js/vendor/supabase.js"></script><script src="js/adapter/supabase-client.js"></script>
+<script src="js/pages/wa-connect.js"></script>
+</body></html>

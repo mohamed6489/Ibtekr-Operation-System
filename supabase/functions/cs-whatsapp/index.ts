@@ -27,7 +27,7 @@
 // Secrets: META_APP_ID, META_APP_SECRET, META_VERIFY_TOKEN (shared with cs-channel), META_WA_CONFIG_ID (the Embedded Signup
 // configuration); the owner sets them. Nothing here logs a token, a phone or a message's text.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
-import { STATE_PREFIX, graphErrorCode, parseWaWebhook, phoneOfWaId, phonesOf, sentIdOf, syncBody, textBody, waAuthUrl, waIdOfPhone, wabaIdsOf, waPath } from '../_shared/cs-whatsapp.js';
+import { EXTRAS, STATE_PREFIX, WA_GRAPH_VERSION, graphErrorCode, parseWaWebhook, phoneOfWaId, phonesOf, sentIdOf, syncBody, textBody, waAuthUrl, waIdOfPhone, wabaIdsOf, waPath } from '../_shared/cs-whatsapp.js';
 import { isOptOut } from '../_shared/cs-wa.js';
 
 // deno-lint-ignore no-explicit-any
@@ -297,7 +297,10 @@ async function connectStart(deps: Deps, who: Who) {
   const state = STATE_PREFIX + randomText();
   const { error } = await deps.db.from('cs_oauth_states').insert({ state, verifier: randomText(48), channel: 'wa1', created_by: who.uid, created_at: deps.now() });
   if (error) return json(500, { error: 'failed' });
-  return json(200, { result: 'ok', url: waAuthUrl(app.id, redirectUri(deps.env), state, config) });
+  // the sign-in runs through Meta's JavaScript SDK on app/wa-connect.html (FB.login with the configuration — the plain dialog url
+  // answers 500 for Embedded Signup, seen live 4 Nov); the url stays for reference. app id and config id are public (Meta puts both
+  // in its own landing page url), nothing secret leaves here.
+  return json(200, { result: 'ok', state, url: waAuthUrl(app.id, redirectUri(deps.env), state, config), sdk: { app_id: app.id, config_id: config, version: WA_GRAPH_VERSION, extras: EXTRAS } });
 }
 async function requestSync(deps: Deps, link: Link, type: 'history' | 'contacts') {
   const key = type === 'history' ? 'history' : 'contacts';
@@ -317,13 +320,23 @@ async function connectCallback(deps: Deps, who: Who, args: Json) {
   if (!row || row.used || Date.parse(deps.now()) - Date.parse(row.createdAt) > STATE_MINUTES * 60_000) return json(400, { error: 'bad_request', field: 'state' });
   let link: Link;
   try {
-    const t = await graph(deps, 'GET', waPath.tokenExchange(app.id, redirectUri(deps.env), code) + encodeURIComponent(app.secret));
+    // a code from the JavaScript SDK (FB.login) is exchanged without a redirect_uri; one from the dialog with ours
+    const t = await graph(deps, 'GET', (args.sdk === true ? waPath.tokenExchangeSdk(app.id, code) : waPath.tokenExchange(app.id, redirectUri(deps.env), code)) + encodeURIComponent(app.secret));
     const token = typeof t.access_token === 'string' ? t.access_token : '';
     if (!token) throw new GraphError('graph_no_token');
-    const wabas = wabaIdsOf(await graph(deps, 'GET', waPath.debugToken(token), { token: app.id + '|' + app.secret }));
+    // the WABA: the token's own scopes; the session info the SDK page saw (waba_id) is a hint only — it is used when the token can read it
+    const hint = typeof args.waba_id === 'string' && /^\d{5,30}$/.test(args.waba_id) ? args.waba_id : null;
+    const scoped = wabaIdsOf(await graph(deps, 'GET', waPath.debugToken(token), { token: app.id + '|' + app.secret }));
+    const wabas = hint && !scoped.includes(hint) ? [hint, ...scoped] : scoped;
     if (!wabas.length) return json(400, { error: 'no_account' });
     let picked: { waba: string; phone: ReturnType<typeof phonesOf>[number] } | null = null;
-    for (const waba of wabas) { const p = phonesOf(await graph(deps, 'GET', waPath.phones(waba), { token }))[0]; if (p) { picked = { waba, phone: p }; break; } }
+    for (const waba of wabas) {
+      let list: ReturnType<typeof phonesOf> = [];
+      try { list = phonesOf(await graph(deps, 'GET', waPath.phones(waba), { token })); } catch (e) { if (waba === hint && !scoped.includes(hint)) continue; throw e; } // a hint the token cannot read is skipped
+      const want = typeof args.phone_id === 'string' && /^\d{5,30}$/.test(args.phone_id) ? args.phone_id : null;
+      const p = (want && list.find((x: Json) => x.id === want)) || list[0];
+      if (p) { picked = { waba, phone: p }; break; }
+    }
     if (!picked) return json(400, { error: 'no_number' });
     await graph(deps, 'POST', waPath.subscribe(picked.waba), { token });
     link = { token, waba_id: picked.waba, phone_id: picked.phone.id, display: picked.phone.display, name: picked.phone.name, linked_by: who.uid, linked_at: deps.now() };

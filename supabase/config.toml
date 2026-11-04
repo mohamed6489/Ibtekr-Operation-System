@@ -14,3 +14,6 @@ verify_jwt = false
 
 [functions.cs-channel]
 verify_jwt = false
+
+[functions.cs-wa]
+verify_jwt = false

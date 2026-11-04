@@ -67,12 +67,16 @@ const COLUMNS: Record<string, string[]> = {
   cs_customers: ['id', 'phone', 'name', 'ig', 'city', 'province', 'address', 'address2', 'mood', 'tags', 'consent', 'auto_consent', 'source', 'created_from', 'blocked_at', 'blocked_by', 'merged_into', 'created_by', 'created_at', 'updated_at'],
   cs_contacts: ['id', 'customer_id', 'platform', 'external_id', 'handle', 'created_at'],
   cs_conversations: ['id', 'seg', 'platform', 'channel', 'customer_id', 'vendor_id', 'handle', 'external_id', 'status', 'assignee', 'outcome', 'tags', 'last_in_at', 'last_out_at', 'waiting_since', 'unread', 'snoozed_until', 'closed_at', 'closed_by', 'created_by', 'created_at', 'updated_at'],
-  cs_messages: ['id', 'conversation_id', 'kind', 'text', 'author', 'external_id', 'delivery', 'meta', 'created_at'],
+  cs_messages: ['id', 'conversation_id', 'kind', 'text', 'author', 'external_id', 'delivery', 'meta', 'created_at', 'claimed_at'],
   cs_channels: ['id', 'name', 'audience', 'kind', 'status', 'number', 'cap_per_day', 'since', 'last_message_at', 'meta', 'updated_at'],
   cs_oauth_states: ['state', 'verifier', 'channel', 'created_by', 'created_at', 'used_at'],
   cs_channel_events: ['id', 'received_at', 'object', 'entry_id', 'status', 'error', 'summary'],
   // 0041 (phase 6.2 decision 19): the posts the comments are on
   cs_posts: ['id', 'platform', 'caption', 'permalink', 'thumb', 'kind', 'posted_at', 'seen_at'],
+  // 0042 (phase 6.3 + 6.4): WhatsApp by QR and the campaigns' sending
+  cs_wa_state: ['channel', 'status', 'qr_svg', 'phone', 'command', 'updated_at'],
+  cs_campaigns: ['id', 'name', 'segment_id', 'channel', 'body', 'image_path', 'discount_code', 'scheduled_at', 'cap_per_day', 'min_delay_s', 'test_phone', 'status', 'size', 'stats', 'created_by', 'created_at', 'updated_at'],
+  cs_campaign_recipients: ['id', 'campaign_id', 'customer_id', 'phone', 'status', 'at', 'reply', 'wa_id', 'error', 'claimed_at'],
 };
 const DEFAULTS: Record<string, Row> = {
   status_map: { direction: 'both' },
@@ -83,10 +87,11 @@ const DEFAULTS: Record<string, Row> = {
   vendor_bank: { method: 'bank' },
   cs_customers: { tags: [], consent: true, auto_consent: true, created_from: 'manual' }, cs_conversations: { status: 'جديدة', tags: [], unread: 0 }, cs_messages: { meta: {} },
   cs_channels: { status: 'disconnected', cap_per_day: 300, meta: {} }, cs_channel_events: { summary: {} },
+  cs_wa_state: { status: 'offline' }, cs_campaigns: { status: 'مسودة', cap_per_day: 300, min_delay_s: 20, size: 0, stats: {} }, cs_campaign_recipients: { status: 'queued' },
 };
 const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
   vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', image_imports: 'int', image_shares: 'int', shot_prompts: 'int',
-  cs_customers: 'uuid', cs_contacts: 'int', cs_conversations: 'uuid', cs_messages: 'uuid', cs_channel_events: 'int' };
+  cs_customers: 'uuid', cs_contacts: 'int', cs_conversations: 'uuid', cs_messages: 'uuid', cs_channel_events: 'int', cs_campaigns: 'uuid', cs_campaign_recipients: 'int' };
 const UNIQUE: Record<string, string[][]> = {
   status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
@@ -94,7 +99,7 @@ const UNIQUE: Record<string, string[][]> = {
   vendor_rates: [['id'], ['vendor_id', 'since']], vendor_category_rates: [['id'], ['vendor_id', 'woo_category_id', 'since']], woo_categories: [['id']], activity_log: [['id']],
   vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']], image_imports: [['id']], image_shares: [['id']], magnific_oauth_states: [['state']], shot_prompts: [['id'], ['category', 'shot']],
   cs_customers: [['id'], ['phone']], cs_contacts: [['id'], ['platform', 'external_id']], cs_conversations: [['id'], ['channel', 'external_id']], cs_messages: [['id'], ['external_id']], cs_channels: [['id']],
-  cs_oauth_states: [['state']], cs_channel_events: [['id']], cs_posts: [['id']],
+  cs_oauth_states: [['state']], cs_channel_events: [['id']], cs_posts: [['id']], cs_wa_state: [['channel']], cs_campaigns: [['id']], cs_campaign_recipients: [['id'], ['campaign_id', 'customer_id']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],

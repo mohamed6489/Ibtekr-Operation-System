@@ -12,6 +12,7 @@
 - سجل التنفيذ: `.superpowers/sdd/<plan>/progress.md` — لو هتكمّل خطة، اقراه الأول قبل أي حاجة.
 - مرجع WP All Import / Export Pro (طريق صاحب المشروع القديم للرفع والتنزيل الجماعي على الموقع؛ السيستم بيكتب بـ REST مش بيهم): `docs/superpowers/reference/wp-all-import-export.md`.
 - المرحلة 6 (خدمة العملاء): الخطة `docs/superpowers/plans/2026-11-02-phase-6-customer-service.md`، ودفترها `.superpowers/sdd/2026-11-02-phase-6-customer-service/progress.md`. النشر `tools/deploy.md` §2.7.15، وقناة Meta (6.2) §2.7.16، وواتساب 1 على Meta §2.7.18.
+- مشاكل معروفة مستنية مرحلتها (الدوام بيتلغي مع الـ refresh …): `docs/superpowers/known-issues.md` — اقراه قبل ما تبدأ مرحلة.
 - مشروع Supabase: `fsynculhaupcktzkfkdd` (eu-central-1). `app/config.js` فيه مفتاح الـ anon العام بس.
 
 ## القواعد العشر

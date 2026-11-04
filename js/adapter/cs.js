@@ -46,7 +46,7 @@
   const reasonOf = (err) => { const code = String((err && err.code) || ''); return code === '42501' ? 'forbidden' : code === 'P0002' ? 'notfound' : /^2[23]/.test(code) ? 'invalid' : 'network'; };
   const fail = (err) => ({ ok: false, reason: reasonOf(err) });
 
-  let st = 'idle'; let gen = 0; let channel = null; let timer = null;
+  let st = 'idle'; let gen = 0; let channel = null; let timer = null; let poll = null;
   const data = { customers: [], convs: [], segments: [], campaigns: [], channels: {}, settings: Object.assign({}, DEFAULT_SETTINGS) };
   const emit = (detail) => quiet(() => document.dispatchEvent(new CustomEvent('ib:cs', { detail: detail || {} })));
 
@@ -561,15 +561,32 @@
       let ch = cl.channel('cs');
       const onChange = () => { if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; load(); }, 400); };
       ['cs_conversations', 'cs_messages'].forEach((table) => ['INSERT', 'UPDATE'].forEach((ev) => { ch = ch.on('postgres_changes', { event: ev, schema: 'public', table }, onChange); }));
-      channel = ch.subscribe(() => {});
+      // a channel that errors or times out is dropped, so the next check (below) opens a fresh one
+      channel = ch.subscribe((status) => { if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') { const dead = channel; channel = null; if (dead) quiet(() => Promise.resolve(cl.removeChannel(dead)).catch(() => {})); } });
     } catch (e) { channel = null; }
+    // the safety net (3 Nov — a live Instagram message saved at 03:39 never reached the open page): every 30 s while the page is
+    // shown, one tiny read of the newest conversation; newer than what is loaded → one load() (no redraw when nothing changed)
+    if (!poll && typeof setInterval === 'function') poll = setInterval(() => { check(); }, POLL_MS);
+  }
+  const POLL_MS = 30000;
+  async function check() {
+    if (st !== 'ready' || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return false;
+    const cl = c(); if (!cl) return false;
+    if (!channel) subscribe();
+    try {
+      const { data: rows, error } = await cl.from('cs_conversations').select('updated_at').order('updated_at', { ascending: false }).limit(1);
+      if (error || !rows || !rows.length || !rows[0].updated_at) return false;
+      const latest = Date.parse(rows[0].updated_at); const mine = data.convs.reduce((m, v) => Math.max(m, Date.parse(v.updatedAt || '') || 0), 0);
+      if (!(latest > mine)) return false;
+      await load(); return true;
+    } catch (e) { return false; }
   }
   function unsubscribe() {
-    const ch = channel; channel = null; if (timer) { clearTimeout(timer); timer = null; }
+    const ch = channel; channel = null; if (timer) { clearTimeout(timer); timer = null; } if (poll) { clearInterval(poll); poll = null; }
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
 
-  window.IBCS = { load, clear, subscribe, unsubscribe, state: () => st, data, can, agents, customer, conv, withDays, timeLabel, clock,
+  window.IBCS = { load, clear, subscribe, unsubscribe, check, state: () => st, data, can, agents, customer, conv, withDays, timeLabel, clock,
     send, note, event, setStatus, assign, setConvTags, snooze, setUnread, close, open, refreshConv,
     addCustomer, importCustomers, updateCustomer, setMood, setTags, block, addNote, setOverride, rateCustomer, merge,
     saveSegment, deleteSegment, saveCampaign, setCampaignStatus, deleteCampaign, saveSettings,

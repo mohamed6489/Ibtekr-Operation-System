@@ -21,7 +21,8 @@ const MEMBERS: Record<string, { perm: unknown; admin: unknown; view?: unknown; e
   'jwt-pview': { perm: 'N', admin: false, pview: 'P' }, 'jwt-pedit': { perm: 'N', admin: false, pview: 'F', pedit: 'F', pbulk: 'F' }, 'jwt-pone': { perm: 'N', admin: false, pview: 'F', pedit: 'F' },
   'jwt-ptrash': { perm: 'N', admin: false, pview: 'F', ptrash: 'F' },
   'jwt-padd': { perm: 'N', admin: false, pview: 'F', padd: 'F' }, // phase 5.2: products.add = F (the studio)
-  'jwt-inv': { perm: 'N', admin: false, iedit: 'F' }, // phase 7: inventory.edit = F (ops)
+  'jwt-inv': { perm: 'N', admin: false, iedit: 'F', pedit: 'F' }, // phase 7: ops — inventory.edit = F and products.edit = F
+  'jwt-invonly': { perm: 'N', admin: false, iedit: 'F' }, // inventory.edit = F without products.edit: never pushes
   'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
   'jwt-noview': { perm: 'F', admin: false, view: 'N' }, // phase 5.5 decision 10: orders.status F without orders.view — never deletes
 };
@@ -1850,7 +1851,7 @@ const invSeed = {
   settings: [{ section: 'inventory', data: { wooSync: true } }],
 };
 
-Deno.test('inventory_push: the owned SKUs\' available pieces onto the product and its translation (manage_stock + stock_quantity), the mirror follows; a «أمانة» SKU untouched; a SKU not on the site counted missing; inventory.edit; never the sync secret', async () => {
+Deno.test('inventory_push: the owned SKUs\' available pieces onto the product and its translation (manage_stock + stock_quantity), the mirror follows; a «أمانة» SKU untouched; a SKU not on the site counted missing; inventory.edit + products.edit; never the sync secret', async () => {
   const puts: [string, unknown][] = [];
   const routes = { 'PUT wc/v3/products/501': (c: any) => { puts.push(['501', c.body]); return { body: { id: 501 } }; }, 'PUT wc/v3/products/601': (c: any) => { puts.push(['601', c.body]); return { body: { id: 601 } }; } };
   const { db, deps } = setup({ seed: invSeed, routes, env: PUSH_ON });
@@ -1864,6 +1865,7 @@ Deno.test('inventory_push: the owned SKUs\' available pieces onto the product an
   assertEquals((await call(deps, { action: 'inventory_push', skus: ['IBT-AM'] }, { jwt: 'jwt-inv' })).body.counts, { pushed: 0, missing: 0, failed: 0 }, 'a maker\'s SKU is not followed');
   assertEquals((await call(deps, { action: 'inventory_push', skus: 'IBT-OWN' }, { jwt: 'jwt-inv' })).body.field, 'skus');
   assertEquals((await call(deps, { action: 'inventory_push' }, { jwt: 'jwt-pedit' })).res.status, 401, 'products.edit is not inventory.edit');
+  assertEquals((await call(deps, { action: 'inventory_push' }, { jwt: 'jwt-invonly' })).res.status, 401, 'inventory.edit alone cannot set a product\'s stock (the lot\'s mode and SKU are the member\'s input)');
   assertEquals((await call(deps, { action: 'inventory_push' })).res.status, 401, 'never the sync secret');
   assertEquals(puts.length, 2);
 });

@@ -117,7 +117,7 @@ test('the site quantity (decision 1 c): off → no call; on → a move or a new 
   await off.I.load(); // the settings row has no wooSync
   eq((await off.I.addMove({ key: L2, type: 'out', qty: 1 })).ok, true);
   eq(invokes(off.stub), []);
-  const on = load({ responses: { settings: ok({ data: { wooSync: true } }), 'fn:woo-sync': { data: { action: 'inventory_push', result: 'ok', counts: { pushed: 1, missing: 0, failed: 0 } }, error: null } } });
+  const on = load({ perms: { ...BASE, 'products.edit': 'F' }, responses: { settings: ok({ data: { wooSync: true } }), 'fn:woo-sync': { data: { action: 'inventory_push', result: 'ok', counts: { pushed: 1, missing: 0, failed: 0 } }, error: null } } });
   await on.I.load();
   await on.I.addMove({ key: L2, type: 'out', qty: 1 }); // L2: مكرمية, ملك ابتكر
   await on.I.addMove({ key: L1, type: 'move', qty: 0 }); // L1: أمانة
@@ -129,4 +129,6 @@ test('the site quantity (decision 1 c): off → no call; on → a move or a new 
   eq(invokes(on.stub).at(-1), { action: 'inventory_push', skus: ['IBT-MD'] });
   const viewer = load({ perms: { 'inventory.view': 'F' } });
   eq(await viewer.I.pushSite(['IBT-MD']), { ok: false, reason: 'forbidden' });
+  const invOnly = load(); // inventory.edit without products.edit: the lot's SKU is the member's input — no push (the server refuses it too)
+  eq(await invOnly.I.pushSite(['IBT-MD']), { ok: false, reason: 'forbidden' });
 });

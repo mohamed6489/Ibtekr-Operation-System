@@ -14,7 +14,8 @@
 // Writes return a Promise of { ok, reason? } and never throw (reason 'forbidden' 42501, 'invalid' 22/23xxx, 'notfound', 'network');
 // each one the server took is logged as inventory.<x> through IBActivity (ids, names and numbers only). can(): { view, edit, approve, admin }.
 // The site quantity (decision 1 c): with the setting wooSync on, a lot or a move of a «ملك ابتكر» piece asks woo-sync inventory_push for
-// its SKU (the server reads the hub and checks the setting, the permission and WOO_PUSH_ENABLED again); pushSite(skus) by hand.
+// its SKU (the server reads the hub and checks the setting, the permission — the admin, or inventory.edit + products.edit — and
+// WOO_PUSH_ENABLED again); pushSite(skus) by hand.
 (function () {
   'use strict';
   const LOT_COLS = 'id, reason, status, sku, product_id, name, vendor_id, order_id, item_id, ref, loc, mode, cost, condition, condition_note, note, since, closed_at, created_by, created_at';
@@ -140,7 +141,7 @@
   // the site quantity of these SKUs (woo-sync inventory_push) — { ok, result ('ok' | 'skipped'), counts }; never throws
   async function pushSite(skus) {
     const cl = c(); if (!cl || !cl.functions) return { ok: false, reason: 'network' };
-    if (!can().edit) return { ok: false, reason: 'forbidden' };
+    if (!can().admin && !(can().edit && perm('products.edit') === 'F')) return { ok: false, reason: 'forbidden' };
     const list = [...new Set((skus || []).map((x) => String(x || '').trim()).filter(Boolean))].slice(0, 50);
     try { const { data: d, error } = await cl.functions.invoke('woo-sync', { body: list.length ? { action: 'inventory_push', skus: list } : { action: 'inventory_push' } });
       if (error) return { ok: false, reason: error.context && error.context.status === 401 ? 'forbidden' : 'network' };

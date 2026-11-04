@@ -156,8 +156,9 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
   // phase 5.2 (decisions 7 / 8 / 13): the studio's upload, a new category and reading a sheet link need products.add = F
   if (action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet') return (await admin()) || (await perm('products.add')) ? 'member' : null;
-  // phase 7 (decision 1 c): the site quantity from the hub — the admin or inventory.edit = F (a person, never the sync secret)
-  if (action === 'inventory_push') return (await admin()) || (await perm('inventory.edit')) ? 'member' : null;
+  // phase 7 (decision 1 c): the site quantity from the hub — the admin, or inventory.edit = F AND products.edit = F (a person, never the
+  // sync secret): a lot's mode and SKU are the member's own input, so pushing needs the right that already sets a product's stock
+  if (action === 'inventory_push') return (await admin()) || ((await perm('inventory.edit')) && (await perm('products.edit'))) ? 'member' : null;
   if (action === 'push_vendor') {
     if (await admin()) return 'member';
     const fields = Array.isArray(args.fields) ? args.fields : [];
@@ -844,7 +845,7 @@ async function productsVendor(run: Run, args: Json) {
   return json(200, { action: 'products_vendor', result: 'ok', counts: { moved: moved.length, failed: failed.length }, failed_ids: failed });
 }
 
-// inventory_push { skus? } (phase 7, decision 1 c): the site quantity of the SKUs Ibtekr owns («ملك ابتكر» lots) = the hub's
+// inventory_push { skus? } (phase 7, decision 1 c; the admin or inventory.edit + products.edit): the site quantity of the SKUs Ibtekr owns («ملك ابتكر» lots) = the hub's
 // available pieces held «متاح للبيع» (siteQuantities). Off until the settings row «inventory» has wooSync = true, and gated by
 // WOO_PUSH_ENABLED; a maker's «أمانة» SKU is never touched. The product of the mirror by its SKU (not the Arabic one), then its
 // Arabic translation: PUT manage_stock + stock_quantity; the mirror follows. Counts and SKUs only in the log.

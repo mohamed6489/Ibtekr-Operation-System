@@ -1173,3 +1173,24 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
 **التحقق:** `select status, number, meta->'history' from cs_channels where id = 'wa1';` = `connected` والتقدم بيزيد؛ `select object, status, error, summary from cs_channel_events where object = 'whatsapp' order by id desc limit 5;`؛ رسالة من موبايل تاني تظهر في الصندوق، والرد يوصل من نفس الرقم.
 
 **الأمان:** التوكن في Vault (`cs_meta_wa`) بس؛ الـ webhook بالتوقيع والحساب المربوط بس؛ مافيش نص ولا رقم ولا توكن في `cs_channel_events` أو `activity_log`.
+
+#### 2.7.19 المخزون — مخزن إبتكر المؤقت (المرحلة 7، 4 نوفمبر)
+
+الخطة `docs/superpowers/plans/2026-11-04-phase-7-inventory.md`، ودفترها `.superpowers/sdd/2026-11-04-phase-7-inventory/progress.md`.
+
+**النشر:**
+1. `0044_inventory.sql` (Supabase MCP `apply_migration` أو SQL editor) ثم `supabase/tests/rls_inventory.sql` على الحي (بيرجع كل حاجة — المفروض `NOTICE rls_inventory: ok`).
+2. `woo-sync` من `deploy-functions.yml` (input `function = woo-sync`) — فيها `inventory_push`.
+3. الواجهة: push على `main`.
+
+**مقفول افتراضي (قرار 1 ب و ج):** «المخزن الأول» (السحب التلقائي) و«تحديث كمية الموقع» — الأدمن بيفتحهم من المخزون ← الإعدادات (صف `settings` قسم `inventory`). كمية الموقع كمان مشروطة بـ `WOO_PUSH_ENABLED = 1`، وعلى الأصناف اللي ليها lot «ملك ابتكر» بس (الـ «أمانة» مابتتلمسش). السحب التلقائي لسه مالوش نقطة نداء من المزامنة — بتتعمل لما يتفتح.
+
+**التحقق:**
+```sql
+select code, label, kind from public.inv_locations order by code;                    -- T/R/P/A–D
+select reason, status, count(*) from public.inv_lots where closed_at is null group by 1, 2;
+select at, action, result, detail from public.woo_sync_log where action = 'inventory_push' order by at desc limit 20;
+select data from public.settings where section = 'inventory';                          -- فاضي = الافتراضي (الاتنين مقفولين)
+```
+
+**الأمان:** الحركات إضافة بس (مافيش تعديل ولا حذف)، الـ lot مابيتمسحش، الجرد بيتعتمد بـ RPC `inv_count_approve` بس (`inventory.approve`) والكمية «في السيستم» من السيرفر؛ `activity_log` `inventory.*` من غير ملاحظات؛ `inventory_push` بعضو بس (أدمن أو `inventory.edit = F` و`products.edit = F` — الـ SKU والملكية من إدخال العضو، فالدفع محتاج نفس صلاحية تعديل مخزون المنتج)، وفي `woo_sync_log` أعداد وSKUs بس.

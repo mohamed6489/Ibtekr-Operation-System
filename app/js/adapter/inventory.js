@@ -1,12 +1,13 @@
 // The inventory hub «المخزن» (phase 7, 0044): lots, their append-only moves, the consolidations of orders' lines, the stock counts,
 // the places and the settings row «inventory». load() puts everything in block 16's v2 shapes on IBKit.store (the page reads them
 // there, like the prototype):
-//   stock          [{ key (the lot's uuid), sku, name, vendor (a name), vendorId, reason, status, ref, sub (order_items.id), order,
+//   stock          [{ key (the lot's uuid), sku, name, vendor (a name), vendorId, reason, status, ref, sub (the sub-order's number as the
+//                     orders page shows it: sub_orders.woo_order_id, else the order), itemId (order_items.id), order,
 //                     since (YYYY-MM-DD), loc, cost, mode ('أمانة' | 'ملك'), condition, conditionNote, note }]
 //   ledger         [{ id, at ('YYYY-MM-DD HH:MM' Cairo), key, type, qty, label, reason, ref, by (a name), note, name, sku }] newest first
 //   returns        derived from the lots received as «مرتجع» (their first in-move): { key, name, vendor, mode, sub, type, reason,
 //                     condition, conditionNote, at, status, effect, value }
-//   consolidations [{ id, order, customer, subs: [[item id, maker, line status, product]], since, zone, by }] (open ones)
+//   consolidations [{ id, order, customer, subs: [[sid, maker, line status, product, item id]], since, zone, by }] (open ones)
 //   count          the open count { id: 'CNT-n', dbId, zone, started, total, base, lines: [{ key, sku, name, loc, system, counted, cost, note }] } or null
 //   counts         the approved ones { id, date, zone, by, items, value, status: 'اتعتمد' }
 //   racks          [{ code, desc, kind, products, pieces }]       invSettings  DEFAULTS ∪ the settings row
@@ -17,7 +18,7 @@
   const LOT_COLS = 'id, reason, status, sku, product_id, name, vendor_id, order_id, item_id, ref, loc, mode, cost, condition, condition_note, note, since, closed_at, created_by, created_at';
   const MOVE_COLS = 'id, lot_id, type, qty, label, reason, ref, note, by, at';
   const CONS_COLS = 'id, order_id, zone, status, carrier, since, created_by, created_at';
-  const ITEM_COLS = 'id, order_id, name, sku, qty, total, vendor_id, status';
+  const ITEM_COLS = 'id, order_id, sub_order_id, name, sku, qty, total, vendor_id, status';
   const COUNT_COLS = 'id, zone, status, note, started_by, started_at, approved_by, approved_at';
   const LINE_COLS = 'count_id, lot_id, system, counted, note';
   const LOC_COLS = 'code, label, kind, note';
@@ -55,8 +56,8 @@
   const modeOut = (m) => (m === 'ملك ابتكر' ? 'ملك' : 'أمانة');
 
   // ---------- shapes ----------
-  const toStock = (r) => ({ key: r.id, sku: r.sku || '', name: r.name, vendor: vendorName(r.vendor_id), vendorId: r.vendor_id || null, reason: r.reason, status: r.status,
-    ref: r.ref || null, sub: r.item_id != null ? String(r.item_id) : '', order: r.order_id != null ? String(r.order_id) : null, since: r.since, loc: r.loc || '—', cost: num(r.cost),
+  const toStock = (r, sidOf) => ({ key: r.id, sku: r.sku || '', name: r.name, vendor: vendorName(r.vendor_id), vendorId: r.vendor_id || null, reason: r.reason, status: r.status,
+    ref: r.ref || null, sub: r.item_id != null ? (sidOf ? sidOf(r.item_id) : String(r.item_id)) : '', itemId: r.item_id != null ? String(r.item_id) : null, order: r.order_id != null ? String(r.order_id) : null, since: r.since, loc: r.loc || '—', cost: num(r.cost),
     mode: modeOut(r.mode), condition: r.condition || undefined, conditionNote: r.condition_note || '', note: r.note || '', closed: !!r.closed_at });
   const toMove = (m, lots) => { const l = lots.get(m.lot_id) || {}; return { id: m.id, at: cairo(m.at), key: m.lot_id, type: m.type, qty: m.qty, label: m.label || '', reason: m.reason || '', ref: m.ref || '—', by: nameOf(m.by), note: m.note || '', name: l.name || '', sku: l.sku || '' }; };
   const RET_STATUS = { 'بانتظار الفحص': 'بانتظار الفحص', 'تالف': 'اتفحص — تالف', 'راجع للمبتكر': 'اتفحص — رجع للمبتكر' };
@@ -88,8 +89,11 @@
       ]);
       const consIds = cons.map((x) => x.id);
       const links = consIds.length ? await rows(cl.from('inv_consolidation_items').select('consolidation_id, item_id').in('consolidation_id', consIds)) : [];
-      const itemIds = [...new Set(links.map((x) => x.item_id))];
-      const items = itemIds.length ? await rows(cl.from('order_items').select(ITEM_COLS).in('id', itemIds)) : [];
+      // the lines of the consolidations and of the lots (a member without orders.view: none — the item id stands for the sub-order)
+      const itemIds = [...new Set(links.map((x) => x.item_id).concat(lots.map((l) => l.item_id).filter((x) => x != null)))];
+      const items = itemIds.length ? await rows(cl.from('order_items').select(ITEM_COLS).in('id', itemIds)).catch(() => []) : [];
+      const subIds = [...new Set(items.map((i) => i.sub_order_id).filter((x) => x != null))];
+      const subs = subIds.length ? await rows(cl.from('sub_orders').select('id, woo_order_id').in('id', subIds)).catch(() => []) : [];
       const orderIds = [...new Set(cons.map((x) => x.order_id))];
       const orders = orderIds.length ? await rows(cl.from('orders_v').select('id, customer_name').in('id', orderIds)) : [];
       const open = counts.find((x) => x.status === 'open') || null;
@@ -97,13 +101,15 @@
       const lineIds = (open ? [open.id] : []).concat(closedIds);
       const lines = lineIds.length ? await rows(cl.from('inv_count_lines').select(LINE_COLS).in('count_id', lineIds)) : [];
       if (g !== gen) return { ok: false, reason: 'stale' };
-      const stock = lots.map(toStock); const byKey = new Map(stock.map((l) => [l.key, l]));
+      const itemOf = new Map(items.map((i) => [String(i.id), i])); const wooOf = new Map(subs.map((x) => [String(x.id), x.woo_order_id]));
+      const sidOf = (id) => { const i = itemOf.get(String(id)); if (!i) return String(id); const w = i.sub_order_id != null ? wooOf.get(String(i.sub_order_id)) : null; return w != null ? String(w) : String(i.order_id); };
+      const stock = lots.map((r) => toStock(r, sidOf)); const byKey = new Map(stock.map((l) => [l.key, l]));
       const ledger = moves.map((m) => toMove(m, byKey));
       const firstIn = new Map(); for (let i = ledger.length - 1; i >= 0; i--) { const m = ledger[i]; if (m.type === 'in' && !firstIn.has(m.key)) firstIn.set(m.key, m); }
       const returns = stock.filter((l) => (firstIn.get(l.key) || {}).reason === 'مرتجع' || l.reason === 'مرتجع').map((l) => toReturn(l, firstIn.get(l.key)));
-      const itemById = new Map(items.map((i) => [String(i.id), i])); const custOf = new Map(orders.map((o) => [String(o.id), o.customer_name || '']));
+      const itemById = itemOf; const custOf = new Map(orders.map((o) => [String(o.id), o.customer_name || '']));
       const consolidations = cons.map((x) => ({ id: x.id, order: String(x.order_id), customer: custOf.get(String(x.order_id)) || '', since: x.since, zone: x.zone || 'T', by: nameOf(x.created_by),
-        subs: links.filter((l) => l.consolidation_id === x.id).map((l) => { const i = itemById.get(String(l.item_id)) || {}; return [String(l.item_id), vendorName(i.vendor_id), i.status || 'قيد التنفيذ', i.name || '']; }) }));
+        subs: links.filter((l) => l.consolidation_id === x.id).map((l) => { const i = itemById.get(String(l.item_id)) || {}; return [sidOf(l.item_id), vendorName(i.vendor_id), i.status || 'قيد التنفيذ', i.name || '', String(l.item_id)]; }) }));
       const lotLines = (id) => lines.filter((l) => l.count_id === id).map((l) => { const lot = byKey.get(l.lot_id) || {}; return { key: l.lot_id, sku: lot.sku || '', name: lot.name || '', loc: lot.loc || '—', system: l.system, counted: l.counted == null ? '' : String(l.counted), cost: lot.cost || 0, note: l.note || '' }; });
       countRow = open;
       const count = open ? { id: 'CNT-' + String(open.id).padStart(2, '0'), dbId: open.id, zone: open.zone, started: cairo(open.started_at), total: 0, base: 0, lines: lotLines(open.id) } : null;
@@ -122,7 +128,7 @@
 
   // ---------- writes ----------
   const lotRow = (l) => ({ id: UUID.test(String(l.key)) ? l.key : newKey(), reason: l.reason, status: l.status, sku: l.sku ? String(l.sku).trim().slice(0, 80) : null, name: String(l.name || '').trim().slice(0, 200),
-    vendor_id: l.vendorId || vendorIdOf(l.vendor), order_id: l.order && /^\d+$/.test(String(l.order)) ? Number(l.order) : null, item_id: l.sub && /^\d+$/.test(String(l.sub)) ? Number(l.sub) : null,
+    vendor_id: l.vendorId || vendorIdOf(l.vendor), order_id: l.order && /^\d+$/.test(String(l.order)) ? Number(l.order) : null, item_id: l.itemId && /^\d+$/.test(String(l.itemId)) ? Number(l.itemId) : null,
     ref: l.ref ? String(l.ref).slice(0, 80) : null, loc: locCode(l.loc), mode: modeIn(l.mode), cost: num(l.cost), condition: l.condition || null, condition_note: l.conditionNote ? String(l.conditionNote).slice(0, 500) : null,
     note: l.note ? String(l.note).slice(0, 500) : null, since: /^\d{4}-\d{2}-\d{2}$/.test(String(l.since || '')) ? l.since : today() });
   // «A-02» / «رف A» / «T» → the place's code (the first letter of a known place); unknown → null

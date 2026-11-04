@@ -1,6 +1,9 @@
 
 /* Orders ↔ inventory hub hooks used by the orders page (orders_src.html): return popups (mandatory reason + date + impact),
-   «تجميع في المخزن» popup, consolidation state, and stock side effects. Figma: orders page 1:9061 (385:21259, 385:21407, 391:21871). */
+   «تجميع في المخزن» popup, consolidation state, and stock side effects. Figma: orders page 1:9061 (385:21259, 385:21407, 391:21871).
+   Phase 7 T5 (plan decision 3): on real data the side effects are written through IBInventory — a consolidation of the picked lines
+   (order_items ids), the lot + first move of a sub-order arriving or returned to the warehouse, «جاهز يطلع كامل» on the lots — and
+   the hub reloads from the server; a consolidation's sub is [sid, maker, status, product, item id]. */
 (function () {
   'use strict';
   const U = window.IBUI, O = window.IbtekrOps, K = window.IBKit;
@@ -8,19 +11,26 @@
   const inv = () => window.IBPages.all().inventory.api;
   const rerenderInv = () => { if (window.IBPages.current === 'inventory') window.IBPages.render('inventory'); document.dispatchEvent(new CustomEvent('ib:notify')); };
   const cons = (orderId) => S.consolidations.find((c) => String(c.order) === String(orderId)) || null;
+  const A = () => window.IBInventory || null;
+  const live = () => !!(A() && window.IBSupabase && window.IBSupabase.client);
+  const TODAY = () => (A() && A().today()) || K.TODAY;
+  const reload = () => { if (live()) A().load().then(rerenderInv); };
+  const told = (p, okMsg) => Promise.resolve(p).then((r) => { if (r && r.ok) { if (okMsg) K.toast(okMsg, 'success'); } else K.toast(r && r.reason === 'forbidden' ? 'المخزن ماتحدّثش — الصلاحية دي مش عندك' : 'المخزن ماتحدّثش — جرّب تاني', 'error'); reload(); return r || { ok: false }; });
 
   function returnPopup(info, ok) {
     const toStock = info.status === 'مرتجع للمخزن';
     K.form({ title: info.status + ' — فرعي #' + info.sid, values: { date: K.TODAY },
       note: U.InlineNote({ children: info.prod + ' · ' + info.vendor + ' · IB-' + info.order + ' · ' + K.money(info.tot) + ' ج.م' }),
       fields: (f, e, set) => [K.field.select('reason', 'سبب المرتجع', O.RETURN_REASONS, f, e, set, { required: true }), f.reason === 'أخرى' ? K.field.area('other', 'اكتب السبب', f, e, set, { required: true }) : null, K.field.date('date', 'تاريخ المرتجع', f, e, set, { required: true }),
-        U.InlineNote({ kind: 'warning', children: toStock ? 'الأثر: القطعة هتتسجل في المخزن «مرتجع — بانتظار الفحص» (لازم تتفحص خلال ' + S.invSettings.returnsInspect + ' ساعة) وقيمتها تتشال من مبيعات الأوردر لحد قرار الفحص.' : 'الأثر: حصة المبتكر في الفرعي ده بس هتتلغي (' + K.money(info.tot) + ' ج.م) والقطعة هترجع للمبتكر مباشرة — باقي الأوردر زي ما هو.' }),
+        U.InlineNote({ kind: 'warning', children: toStock ? 'الأثر: القطعة هتتسجل في المخزن «مرتجع — بانتظار الفحص»' + (S.invSettings.returnsInspect ? ' (لازم تتفحص خلال ' + S.invSettings.returnsInspect + ' ساعة)' : '') + ' وقيمتها تتشال من مبيعات الأوردر لحد قرار الفحص.' : 'الأثر: حصة المبتكر في الفرعي ده بس هتتلغي (' + K.money(info.tot) + ' ج.م) والقطعة هترجع للمبتكر مباشرة — باقي الأوردر زي ما هو.' }),
         K.field.area('note', 'ملاحظة', f, e, set, { placeholder: 'اختياري' })],
       validate: (f) => { const err = O.validateReturn({ reason: f.reason, other: f.other }); const e = {}; if (err) e[err === 'اكتب السبب' ? 'other' : 'reason'] = err; if (!f.date) e.date = 'اختار التاريخ'; return e; },
       submitType: toStock ? 'primary' : 'danger', submitLabel: 'تسجيل ' + info.status,
       submit: (f) => {
         const reason = f.reason === 'أخرى' ? 'أخرى: ' + f.other.trim() : f.reason;
-        const key = 'L-R-' + info.sid + '-' + Date.now();
+        const key = live() ? A().newKey() : 'L-R-' + info.sid + '-' + Date.now();
+        if (toStock && live()) told(A().addLot({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: 'مرتجع', status: 'بانتظار الفحص', ref: '#' + info.sid, order: info.order, sub: info.sid, itemId: info.itemId, since: f.date, loc: 'R', cost: info.tot, mode: 'أمانة', note: reason },
+          { type: 'in', qty: info.qty || 1, label: 'دخول — مرتجع', reason: 'مرتجع', ref: '#' + info.sid, note: 'بانتظار الفحص' }));
         if (toStock) { S.stock.unshift({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: 'مرتجع', status: 'بانتظار الفحص', ref: '#' + info.sid, order: info.order, since: f.date, loc: 'R-02', cost: info.tot, mode: 'أمانة' });
           S.ledger.unshift({ at: f.date + ' ' + K.clockNow(), key, type: 'in', qty: 1, label: 'دخول — مرتجع', reason: 'مرتجع', ref: '#' + info.sid, by: K.member(K.ME).name, note: 'بانتظار الفحص' }); K.notify({ title: 'مرتجع وصل المخزن — ' + info.prod, link: '#inventory-returns' }); }
         S.returns.unshift({ name: info.prod, vendor: info.vendor, mode: 'أمانة', sub: '#' + info.sid, type: info.status, reason, at: K.dshort(f.date), status: toStock ? 'بانتظار الفحص' : 'اتسلم للمبتكر', effect: toStock ? '+ 1 بعد الفحص' : 'نصيب ' + info.vendor + ' اتلغى', key: toStock ? key : null });
@@ -46,20 +56,24 @@
     const c = cons(orderId); if (!c) { rerenderInv(); return; }
     const row = c.subs.find((x) => String(x[0]) === String(sid)); if (!row) return;
     const was = row[2]; row[2] = v;
-    if (v === 'وصل المخزن' && was !== v && !(opts && opts.stockAdded)) { const key = 'L-' + orderId + '-' + sid + '-' + Date.now(); S.stock.unshift({ key, sku: sub.sku || 'SUB-' + sid, name: sub.prod, vendor: sub.vendor, reason: 'تجميع أوردر', status: 'وصل المخزن', ref: 'IB-' + orderId, sub: sid, order: orderId, since: K.TODAY, loc: c.zone, cost: sub.tot });
+    const ready = O.consolidation(c.subs.map((x) => x[2])).ready;
+    if (v === 'وصل المخزن' && was !== v && !(opts && opts.stockAdded) && live()) told(A().addLot({ key: A().newKey(), sku: sub.sku || 'SUB-' + sid, name: sub.prod, vendor: sub.vendor, reason: 'تجميع أوردر', status: ready ? 'جاهز يطلع كامل' : 'وصل المخزن', ref: 'IB-' + orderId, sub: sid, itemId: sub.itemId || row[4], order: orderId, since: TODAY(), loc: c.zone, cost: sub.tot },
+      { type: 'in', qty: sub.qty || 1, label: 'دخول — تجميع', reason: 'تجميع أوردر', ref: 'IB-' + orderId + ' · #' + sid, note: 'وصل من ' + sub.vendor }));
+    else if (v === 'وصل المخزن' && was !== v && !(opts && opts.stockAdded)) { const key = 'L-' + orderId + '-' + sid + '-' + Date.now(); S.stock.unshift({ key, sku: sub.sku || 'SUB-' + sid, name: sub.prod, vendor: sub.vendor, reason: 'تجميع أوردر', status: 'وصل المخزن', ref: 'IB-' + orderId, sub: sid, order: orderId, since: K.TODAY, loc: c.zone, cost: sub.tot });
       S.ledger.unshift({ at: K.TODAY + ' ' + K.clockNow(), key, type: 'in', qty: sub.qty || 1, label: 'دخول — تجميع', reason: 'تجميع أوردر', ref: 'IB-' + orderId + ' · #' + sid, by: K.member(K.ME).name, note: 'وصل من ' + sub.vendor }); }
-    if (O.consolidation(c.subs.map((x) => x[2])).ready) { S.stock.forEach((x) => { if (String(x.order) === String(orderId) && x.reason === 'تجميع أوردر') x.status = 'جاهز يطلع كامل'; }); K.notify({ title: 'IB-' + orderId + ' جاهز يطلع كامل من المخزن', link: '#inventory-consolidate' }); }
+    if (ready) { S.stock.forEach((x) => { if (String(x.order) === String(orderId) && x.reason === 'تجميع أوردر' && x.status !== 'جاهز يطلع كامل') { x.status = 'جاهز يطلع كامل'; if (live()) told(A().updateLot(x.key, { status: 'جاهز يطلع كامل' }, 'inventory.status')); } }); K.notify({ title: 'IB-' + orderId + ' جاهز يطلع كامل من المخزن', link: '#inventory-consolidate' }); }
     rerenderInv();
   }
   // «تجميع في المخزن» popup: choose sub-orders + zone
   function consPopup(o) {
     const used = S.consolidations.map((c) => c.zone); const free = ['T-01', 'T-02', 'T-03', 'T-04', 'T-05', 'T-06'].filter((z) => !used.includes(z));
-    const pick = {}; o.subs.forEach((s) => { pick[s.sid] = !s.pulled && s.ss !== 'تم الشحن للعميل'; });
+    const pk = (s) => s.itemId || s.sid; const pick = {}; o.subs.forEach((s) => { pick[pk(s)] = !s.pulled && s.ss !== 'تم الشحن للعميل'; });
     K.form({ title: 'تجميع في المخزن — IB-' + o.id, values: { zone: free[0] || '' }, note: U.InlineNote({ children: 'الفرعيات المختارة هتتشحن من المبتكرين للمخزن وتطلع للعميل في شحنة واحدة. تنبيه لو التجميع عدّى ' + S.invSettings.consolidationAlert + ' أيام.' }),
-      fields: (f, e, set, draw) => [h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'الفرعيات اللي هتتجمع *'), ...o.subs.map((s) => K.Checkbox({ label: '#' + s.sid + ' · ' + s.prod + ' — ' + (s.pulled ? 'مخزن ابتكر' : s.vendor) + (s.ss ? ' (' + s.ss + ')' : ''), checked: pick[s.sid], disabled: s.pulled, onChange: (v) => { pick[s.sid] = v; draw(); } })), e.subs ? h('div', { class: 'err-msg', role: 'alert' }, e.subs) : null),
+      fields: (f, e, set, draw) => [h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'الفرعيات اللي هتتجمع *'), ...o.subs.map((s) => K.Checkbox({ label: '#' + s.sid + ' · ' + s.prod + ' — ' + (s.pulled ? 'مخزن ابتكر' : s.vendor) + (s.ss ? ' (' + s.ss + ')' : ''), checked: pick[pk(s)], disabled: s.pulled, onChange: (v) => { pick[pk(s)] = v; draw(); } })), e.subs ? h('div', { class: 'err-msg', role: 'alert' }, e.subs) : null),
         K.field.select('zone', 'منطقة التجميع', free.length ? free : ['T-07'], f, e, set, { required: true })],
       validate: (f) => { const n = Object.values(pick).filter(Boolean).length; const e = {}; if (n < 2) e.subs = 'اختار فرعيين على الأقل — التجميع لأكتر من مبتكر'; if (!f.zone) e.zone = 'اختار المنطقة'; return e; },
-      submitLabel: 'ابدأ التجميع', submit: (f) => { const subs = o.subs.filter((s) => pick[s.sid]).map((s) => [s.sid, s.vendor, s.ss === 'وصل المخزن' ? 'وصل المخزن' : s.ss || 'قيد التنفيذ']);
+      submitLabel: 'ابدأ التجميع', submit: (f) => { const subs = o.subs.filter((s) => pick[pk(s)]).map((s) => [s.sid, s.vendor, s.ss === 'وصل المخزن' ? 'وصل المخزن' : s.ss || 'قيد التنفيذ', s.prod, s.itemId]);
+        if (live()) told(A().consolidate(o.id, subs.map((x) => x[4]), f.zone)).then((r) => { if (r.ok) reload(); });
         S.consolidations.unshift({ order: o.id, customer: o.name, subs, since: K.TODAY, zone: f.zone, by: K.member(K.ME).name }); K.logEvent('order.consolidate', 'IB-' + o.id + ' · ' + subs.length + ' فرعي · ' + f.zone); K.toast('IB-' + o.id + ' بيتجمع في المخزن (' + f.zone + ')', 'success'); window.OrdersSetSub && window.OrdersSetSub('__redraw__', null); rerenderInv(); } });
   }
   // «وصل المخزن» on a sub-order → choose the storage reason (owner 22 Oct). The stock row is added by the popup.

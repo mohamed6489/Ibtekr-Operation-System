@@ -25,8 +25,8 @@ const BASE = { 'inventory.view': 'F', 'inventory.edit': 'F', 'inventory.approve'
 function load({ responses = {}, perms = BASE, admin = false } = {}) {
   const stub = stubClient({ responses: { inv_lots: ok(LOTS), inv_moves: ok(MOVES), inv_consolidations: ok([{ id: C1, order_id: 180662, zone: 'T', status: 'open', since: '2026-11-01', created_by: ME }]),
     inv_consolidation_items: ok([{ consolidation_id: C1, item_id: 5001 }, { consolidation_id: C1, item_id: 5003 }]),
-    order_items: ok([{ id: 5001, order_id: 180662, name: 'سلة كروشيه', sku: 'IBT-CB', qty: 1, total: 260, vendor_id: V1, status: 'وصل المخزن' }, { id: 5003, order_id: 180662, name: 'فازة', sku: 'IBT-VZ', qty: 1, total: 300, vendor_id: V1, status: 'قيد التنفيذ' }]),
-    orders_v: ok([{ id: 180662, customer_name: 'منى' }]), inv_counts: ok([{ id: 4, zone: 'رف A', status: 'open', started_by: ME, started_at: '2026-11-04T08:00:00Z' }]),
+    order_items: ok([{ id: 5001, order_id: 180662, sub_order_id: 77, name: 'سلة كروشيه', sku: 'IBT-CB', qty: 1, total: 260, vendor_id: V1, status: 'وصل المخزن' }, { id: 5003, order_id: 180662, name: 'فازة', sku: 'IBT-VZ', qty: 1, total: 300, vendor_id: V1, status: 'قيد التنفيذ' }]),
+    sub_orders: ok([{ id: 77, woo_order_id: 180700 }]), orders_v: ok([{ id: 180662, customer_name: 'منى' }]), inv_counts: ok([{ id: 4, zone: 'رف A', status: 'open', started_by: ME, started_at: '2026-11-04T08:00:00Z' }]),
     inv_count_lines: ok([{ count_id: 4, lot_id: L2, system: 2, counted: 1, note: 'ناقصة' }]), inv_locations: ok([{ code: 'A', label: 'رف A', kind: 'rack' }, { code: 'R', label: 'المرتجعات', kind: 'zone' }, { code: 'T', label: 'منطقة التجميع', kind: 'zone' }]),
     settings: ok({ data: { firstWarehouse: true, photoMax: 21, junk: 1 } }), ...responses } });
   const events = []; const logs = []; const KS = { store: {}, dshort: (d) => d, money: (n) => String(n) };
@@ -39,13 +39,13 @@ function load({ responses = {}, perms = BASE, admin = false } = {}) {
 }
 const inserted = (stub, table) => opsOf(stub.calls, table).filter((c) => c.op === 'insert').map((c) => c.args[0]);
 
-test('load: the lots, moves (newest first, Cairo time), returns, the open consolidation with its lines, the open count, places, settings', async () => {
+test('load: the lots, moves (newest first, Cairo time), returns, the open consolidation with its lines (the sub-order number as the orders page shows it — its Dokan order, else the order — and the line id), the open count, places, settings', async () => {
   const { I, S, events } = load();
   eq((await I.load()).ok, true);
-  eq(S.stock.map((x) => [x.key, x.vendor, x.mode, x.order, x.sub, x.loc]), [[L1, 'HANDS', 'أمانة', '180662', '5001', 'T'], [L2, 'HANDS', 'ملك', null, '', 'A'], [L3, 'HANDS', 'أمانة', null, '5002', 'R']]);
+  eq(S.stock.map((x) => [x.key, x.vendor, x.mode, x.order, x.sub, x.itemId, x.loc]), [[L1, 'HANDS', 'أمانة', '180662', '180700', '5001', 'T'], [L2, 'HANDS', 'ملك', null, '', null, 'A'], [L3, 'HANDS', 'أمانة', null, '5002', '5002', 'R']]);
   eq(S.ledger.map((m) => [m.key, m.at, m.by]), [[L3, '2026-11-03 12:00', 'سارة أحمد'], [L2, '2026-10-12 13:00', 'سارة أحمد'], [L1, '2026-11-01 11:30', 'السيستم']]);
   eq(S.returns.map((r) => [r.key, r.status, r.reason, r.condition, r.effect]), [[L3, 'بانتظار الفحص', 'العميل رفض الاستلام', 'عيب بسيط', '+ 1 بعد الفحص']]);
-  eq(S.consolidations, [{ id: C1, order: '180662', customer: 'منى', since: '2026-11-01', zone: 'T', by: 'سارة أحمد', subs: [['5001', 'HANDS', 'وصل المخزن', 'سلة كروشيه'], ['5003', 'HANDS', 'قيد التنفيذ', 'فازة']] }]);
+  eq(S.consolidations, [{ id: C1, order: '180662', customer: 'منى', since: '2026-11-01', zone: 'T', by: 'سارة أحمد', subs: [['180700', 'HANDS', 'وصل المخزن', 'سلة كروشيه', '5001'], ['180662', 'HANDS', 'قيد التنفيذ', 'فازة', '5003']] }]);
   eq([S.count.id, S.count.dbId, S.count.lines[0].counted, S.count.lines[0].name], ['CNT-04', 4, '1', 'مكرمية']);
   eq(S.racks.map((r) => r.code), ['A', 'R', 'T']);
   eq([S.invSettings.firstWarehouse, S.invSettings.photoMax, S.invSettings.wooSync, S.invSettings.junk], [true, 21, false, undefined]);
@@ -102,4 +102,11 @@ test('a consolidation of an order\'s lines, then its close; a count with its lin
   eq((await ad.I.saveSettings({ wooSync: true, junk: 1 })).ok, true);
   const up = opsOf(ad.stub.calls, 'settings').find((c) => c.op === 'upsert').args[0];
   eq([up.section, up.data.wooSync, up.data.firstWarehouse, up.data.junk], ['inventory', true, true, undefined]);
+});
+
+test('a lot from the orders page: item_id is the line\'s id (itemId), never the sub-order number it shows (sub)', () => {
+  const { I } = load();
+  const row = I._test.lotRow({ key: 'x', reason: 'مرتجع', status: 'بانتظار الفحص', name: 'برواز', sub: '180700', itemId: '5002', order: '180662', since: '2026-11-04' });
+  eq([row.item_id, row.order_id], [5002, 180662]);
+  eq(I._test.lotRow({ key: 'x', reason: 'مرتجع', status: 'بانتظار الفحص', name: 'برواز', sub: '180700' }).item_id, null);
 });

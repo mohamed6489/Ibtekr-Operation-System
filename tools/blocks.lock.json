@@ -61,7 +61,7 @@
   },
   "16-page-inventory.js": {
     "prototype": "80101269ffc51399a6b19dad74375aa32575fa9e2e6071885c5c77885afee8f5",
-    "current": "4b8b04f008ccfafe7db0c166f3c705e92f47be34b6ad23b1d9a25a1cc315af30"
+    "current": "9a7549a5914d5bb8635fc33a0266b524f5d2566e6f306029bf19ca5b20d7bd17"
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
@@ -85,7 +85,7 @@
   },
   "22-orders-ops.js": {
     "prototype": "840c4a2093e78030058acaac11c712410a8107419aa1d34bea7da2526ee80885",
-    "current": "c435574f3266ee72a2a5add69a1d23f929236c112b0e955fba0d91288a44d956"
+    "current": "c779698d5a989a10259e1817b6ec1ea3051a68bee15cb417f4c7fefb0a60095d"
   },
   "23-notif-roles-domain.js": {
     "prototype": "68697112a566dd41c2cd864e4f5540db306821930b9c3ad448e66008f688aec2",
@@ -113,6 +113,6 @@
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",
-    "current": "3f198a9dadaaf5a6dad8683702772c49855b1cdd291d2ff25c4896256c1776e5"
+    "current": "024c7147ca2ed7405df7a8d25b5b73184225ea629182d148cedc6a2171d4c224"
   }
 }

@@ -81,3 +81,12 @@
 .cs-post-t{font-size:13px;line-height:18px;overflow:hidden;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical}
 .cs-post-a{flex:none;text-decoration:none}
 .cv-post{display:block;color:var(--color-text-secondary, #777);overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+/* قرار 20: فلتر «البوست» في قسم التعليقات */
+.post-f{display:block;margin-top:8px}
+.post-f>.select{width:100%;justify-content:space-between}
+.post-f .val{overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.post-menu{max-height:360px;overflow:auto;min-width:280px}
+.post-opt{display:flex;align-items:center;gap:8px;text-align:start}
+.post-opt-img{width:32px;height:32px;object-fit:cover;border-radius:4px;flex:none;background:#eee;display:inline-flex;align-items:center;justify-content:center}
+.post-opt-t{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
+.post-opt .cnt{flex:none}

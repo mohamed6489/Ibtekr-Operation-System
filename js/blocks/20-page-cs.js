@@ -75,7 +75,7 @@
     const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: opts, value: cur, onSelect: (v) => { close(); if (v !== cur) apply(v); } }));
     btn.addEventListener('click', (e) => { e.stopPropagation(); pop.toggle(e); }); wrap.append(btn); return wrap;
   }
-  const st = { meta: null, panel: true, fTags: [], fState: ['open'], tab: 'inbox', seg: 'customers', plat: 'all', view: 'all-open', sort: 'oldest', q: '', fChannel: '', fAgent: '', sel: { customers: null, vendors: null, comments: null }, mode: 'reply', draft: '', mobileChat: false,
+  const st = { meta: null, panel: true, fTags: [], fState: ['open'], tab: 'inbox', seg: 'customers', plat: 'all', view: 'all-open', sort: 'oldest', q: '', fChannel: '', fAgent: '', sel: { customers: null, vendors: null, comments: null }, fPost: '', mode: 'reply', draft: '', mobileChat: false,
     cust: { q: '', stage: '', tag: '', rating: '', prov: '', chan: '', problems: false, moods: [], provs: [], chans: [], sort: 'recent', seg: '', mode: 'filters', sheet: null, page: 1, picked: new Set() }, segs: { open: '', picked: new Set() }, wiz: null, campaign: null, campFilter: '', recFilter: '' };
   const R = () => { if (window.IBPages.current === 'cs') window.IBPages.render('cs'); };
   const conv = () => S.convs.find((c) => c.id === st.sel[st.seg]);
@@ -118,6 +118,7 @@
     else if (v === 'resolved') list = list.filter((c) => c.status === 'اتحلت');
     if (st.fChannel) list = list.filter((c) => c.platform === st.fChannel);
     if (st.fTags.length) list = list.filter((c) => st.fTags.includes(statusOf(c)));
+    if (st.seg === 'comments' && st.fPost) list = list.filter((c) => c.postId === st.fPost); // قرار 20: فلتر البوست
     const q = st.q.trim().toLowerCase();
     if (q) list = list.filter((c) => (whoName(c) + ' ' + (c.who && c.seg !== 'vendors' && C(c.who) ? C(c.who).phone + ' ' + C(c.who).orderList.map((o) => o[0]).join(' ') : '') + ' ' + c.msgs.map((m) => m.text).join(' ')).toLowerCase().includes(q));
     if (st.sort === 'oldest') list = list.slice().sort((a, b) => (b.status === 'مستنية ردنا' || b.status === 'جديدة' ? b.waiting : -1) - (a.status === 'مستنية ردنا' || a.status === 'جديدة' ? a.waiting : -1));
@@ -242,10 +243,40 @@
     btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
   }
   function select(id) { st.sel[st.seg] = id; const c = conv(); if (c && c.unread) { c.unread = 0; if (can().reply) A().setUnread(c.id, 0); } st.draft = ''; st.mode = 'reply'; st.mobileChat = true; R(); setTimeout(() => { const l = document.querySelector('.cs-msgs'); if (l) l.scrollTop = l.scrollHeight; }); }
+  // قرار 20 (6.2، 4 نوفمبر — «ضيفه»): فلتر «البوست» في قسم التعليقات — البوستات اللي عليها محادثات (بصورتها وعدد المفتوح منها)،
+  // اختيار بوست = المحادثات اللي عليه بس؛ بيحترم تاب المنصة
+  function postsInList() {
+    const by = new Map();
+    S.convs.filter((c) => c.seg === 'comments' && c.postId && (st.plat === 'all' || c.platform === st.plat)).forEach((c) => {
+      const x = by.get(c.postId) || { id: c.postId, post: c.post, platform: c.platform, open: 0, all: 0, last: '' };
+      x.all += 1; if (c.status !== 'اتحلت') x.open += 1; if (c.updatedAt > x.last) x.last = c.updatedAt; if (!x.post && c.post) x.post = c.post;
+      by.set(c.postId, x);
+    });
+    return [...by.values()].sort((a, b) => b.open - a.open || (b.last > a.last ? 1 : -1));
+  }
+  function PostMenu() {
+    if (st.seg !== 'comments') return null;
+    const list = postsInList(); if (!list.length) return null;
+    const cur = list.find((x) => x.id === st.fPost);
+    const name = (x) => (x.post ? postLabel(x.post, 34) : (x.platform === 'instagram' ? 'بوست إنستجرام' : 'بوست فيسبوك'));
+    const wrap = h('div', { class: 'pop-anchor post-f', 'data-popover-root': '' });
+    const btn = h('button', { type: 'button', class: 'select sm', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-label': 'فلتر البوست', 'data-post-filter': '' }, Icon('chevD', 'sm'), h('span', { class: 'val' }, cur ? 'البوست: ' + name(cur) : 'كل البوستات (' + list.length + ')'));
+    const pop = U.popover(wrap, btn, (close) => {
+      const pick = (v) => { close(); st.fPost = v; R(); };
+      const menu = h('div', { class: 'menu post-menu', role: 'listbox', 'data-popover-root': '' },
+        h('button', { type: 'button', class: 'opt', role: 'option', 'aria-selected': String(!st.fPost), onClick: () => pick('') }, 'كل البوستات'),
+        list.map((x) => h('button', { type: 'button', class: 'opt post-opt', role: 'option', 'aria-selected': String(st.fPost === x.id), 'data-post-opt': x.id, onClick: () => pick(x.id) },
+          x.post && x.post.thumb ? h('img', { class: 'post-opt-img', src: x.post.thumb, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer', onError: (e) => { e.target.remove(); } }) : h('span', { class: 'post-opt-img ph' }, PlatIcon(x.platform)),
+          h('span', { class: 'post-opt-t' }, name(x)),
+          h('span', { class: 'cnt', title: x.open + ' مفتوحة من ' + x.all }, String(x.open) + (x.all !== x.open ? '/' + x.all : '')))));
+      return menu;
+    });
+    btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
+  }
   function ListCol() {
     const segCount = (s) => S.convs.filter((c) => c.seg === s && c.status !== 'اتحلت').length;
     const segsEl = h('div', { class: 'seg', role: 'tablist', 'aria-label': 'نوع المحادثات' }, [['customers', 'العملاء'], ['vendors', 'المبتكرين'], ['comments', 'التعليقات']].map(([id, l]) =>
-      h('button', { type: 'button', role: 'tab', 'aria-selected': String(st.seg === id), class: 'seg-b', onClick: () => { st.seg = id; st.plat = 'all'; st.draft = ''; st.mode = 'reply'; R(); } }, l, h('span', { class: 'cnt' }, String(segCount(id))))));
+      h('button', { type: 'button', role: 'tab', 'aria-selected': String(st.seg === id), class: 'seg-b', onClick: () => { st.seg = id; st.plat = 'all'; st.fPost = ''; st.draft = ''; st.mode = 'reply'; R(); } }, l, h('span', { class: 'cnt' }, String(segCount(id))))));
     const plats = st.seg === 'customers' ? [['all', 'الكل'], ['whatsapp', 'واتساب'], ['messenger', 'ماسنجر'], ['instagram', 'إنستجرام'], ['tiktok', 'تيك توك']] : st.seg === 'comments' ? [['all', 'الكل'], ['facebook', 'فيسبوك'], ['instagram', 'إنستجرام'], ['tiktok', 'تيك توك']] : null;
     const counts = CS.unreadBy(S.convs.map((c) => ({ seg: c.seg, platform: c.platform, unread: c.unread || (c.status === 'جديدة' || c.status === 'مستنية ردنا' ? 1 : 0) })), st.seg);
     const disc = (p) => { const key = p === 'whatsapp' ? 'wa1' : p === 'facebook' ? 'messenger' : p; const ch = S.channels[key]; return !!ch && ch.status !== 'connected'; };
@@ -260,6 +291,7 @@
     return h('aside', { class: 'cs-list', 'aria-label': 'قائمة المحادثات' },
       h('div', { class: 'cs-lh' }, segsEl, h('div', { class: 'row-f' }, h('label', { class: 'search grow' }, Icon('search', 'sm'), q), filt),
         h('div', { class: 'row-f' }, viewMenu(() => lst.replaceChildren(...items())), pickMenu('الترتيب', SORTS, st.sort, (v) => { st.sort = v; R(); }, 'sort')),
+        st.seg === 'comments' ? PostMenu() : null,
         st.view !== 'all-open' && st.view !== 'all' ? h('div', { class: 'chips' }, h('span', { class: 'chip', 'data-view-chip': st.view }, (VIEWS.find((x) => x[0] === st.view) || ['', st.view])[1], IconButton({ icon: 'close', label: 'مسح', onClick: () => { st.view = 'all-open'; R(); } }))) : null,
         st.fAgent ? h('div', { class: 'chips' }, h('span', { class: 'chip', 'data-agent-chip': '' }, 'المسؤول: ' + st.fAgent, IconButton({ icon: 'close', label: 'مسح فلتر المسؤول', onClick: () => { st.fAgent = ''; R(); } }))) : null,
         st.fChannel ? h('div', { class: 'chips' }, h('span', { class: 'chip' }, 'القناة: ' + PL[st.fChannel][0], IconButton({ icon: 'close', label: 'مسح فلتر القناة', onClick: () => { st.fChannel = ''; R(); } })), Button({ type: 'text', size: 'sm', label: 'مسح الكل', onClick: () => { st.fChannel = ''; R(); } })) : null),

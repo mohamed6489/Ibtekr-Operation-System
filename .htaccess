@@ -23,6 +23,14 @@ AddCharset UTF-8 .html .js .css
   Header always set Content-Security-Policy "default-src 'self'; script-src 'self'; connect-src 'self' https://fsynculhaupcktzkfkdd.supabase.co wss://fsynculhaupcktzkfkdd.supabase.co; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self'"
 </IfModule>
 
+# Phase 6 decision 26: the WhatsApp sign-in page alone loads Meta's JavaScript SDK (Embedded Signup needs FB.login; the plain
+# dialog answers 500) — its script, its popup / iframes and its calls to facebook.com. Every other page keeps the policy above.
+<Files "wa-connect.html">
+  <IfModule mod_headers.c>
+    Header always set Content-Security-Policy "default-src 'self'; script-src 'self' https://connect.facebook.net; connect-src 'self' https://fsynculhaupcktzkfkdd.supabase.co wss://fsynculhaupcktzkfkdd.supabase.co https://*.facebook.com https://*.facebook.net; frame-src https://*.facebook.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: blob: https:; object-src 'none'; base-uri 'self'; form-action 'self' https://*.facebook.com; frame-ancestors 'self'"
+  </IfModule>
+</Files>
+
 # Our html/js/css carry no version suffix, so browsers revalidate them on every load (cheap 304s via
 # ETag): after a redeploy no client mixes a fresh index.html with stale blocks or adapters.
 <FilesMatch "\.(html|js|css)$">

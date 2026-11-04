@@ -1076,6 +1076,7 @@
       if (c.kind === 'qr') { waConnect(id, c); return; }
       if (c.kind !== 'meta') { K.toast('تيك توك مفيهوش API رسايل عام — بيفضل غير متصل'); return; }
       if (id === 'wa1' && wa && (!wa.configured || !wa.configId)) { K.toast('ربط واتساب لسه مش متظبط على السيرفر — META_WA_CONFIG_ID ناقص (tools/deploy.md §2.7.18)', 'error'); return; }
+      if (id === 'wa1') { location.assign('wa-connect.html'); return; } // قرار 26: Embedded Signup بمكتبة Meta (الـ dialog المباشر بيرجع 500)
       if (id !== 'wa1' && meta && !meta.configured) { K.toast('تطبيق Meta لسه مش متظبط على السيرفر — الأسرار META_APP_ID / META_APP_SECRET الأول (tools/deploy.md §2.7.16)', 'error'); return; }
       A().connectStart(id).then((r) => { if (!r.ok) { K.toast(r.reason === 'not_configured' ? (id === 'wa1' ? 'ربط واتساب لسه مش متظبط على السيرفر (META_WA_CONFIG_ID ناقص)' : 'تطبيق Meta لسه مش متظبط على السيرفر (الأسرار ناقصة)') : r.reason === 'forbidden' ? 'الأدمن بس يقدر يربط القنوات' : 'حصلت مشكلة في الاتصال — جرّب تاني', 'error'); return; } location.assign(r.url); });
     };

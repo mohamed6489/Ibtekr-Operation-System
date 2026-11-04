@@ -26,7 +26,8 @@ export const phoneOfWaId = (waId) => { const d = digits(waId); return d.length >
 export const waIdOfPhone = (phone) => { const d = digits(phone); if (/^01\d{9}$/.test(d)) return '20' + d.slice(1); return d.length >= 6 && d.length <= 15 ? d : null; };
 
 // ---------------------------------------------------------------- the dialog (Embedded Signup, the WhatsApp Business app option)
-export const EXTRAS = { setup: {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3' };
+// ES v4 (Meta's Embedded Signup Builder, 4 Nov: v2/v3 deprecated after 15 Oct 2026)
+export const EXTRAS = { setup: {}, featureType: 'whatsapp_business_app_onboarding', sessionInfoVersion: '3', version: 'v4' };
 export function waAuthUrl(appId, redirectUri, state, configId) {
   const q = new URLSearchParams({ client_id: appId, redirect_uri: redirectUri, state, config_id: configId, response_type: 'code', override_default_response_type: 'true', extras: JSON.stringify(EXTRAS) });
   return WA_DIALOG + '?' + q.toString();

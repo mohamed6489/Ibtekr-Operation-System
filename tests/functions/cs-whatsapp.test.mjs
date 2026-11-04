@@ -22,6 +22,7 @@ test('the Embedded Signup dialog: config_id, code, the WhatsApp Business app opt
   assert.equal(u.searchParams.get('override_default_response_type'), 'true');
   assert.deepEqual(JSON.parse(u.searchParams.get('extras')), EXTRAS);
   assert.equal(EXTRAS.featureType, 'whatsapp_business_app_onboarding');
+  assert.equal(EXTRAS.version, 'v4', 'v2 / v3 are deprecated');
   assert.ok(u.searchParams.get('state').startsWith('wa_'));
 });
 

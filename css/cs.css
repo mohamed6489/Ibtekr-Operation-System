@@ -90,3 +90,8 @@
 .post-opt-img{width:32px;height:32px;object-fit:cover;border-radius:4px;flex:none;background:#eee;display:inline-flex;align-items:center;justify-content:center}
 .post-opt-t{flex:1;min-width:0;overflow:hidden;white-space:nowrap;text-overflow:ellipsis}
 .post-opt .cnt{flex:none}
+/* 6.3 + 6.4 (قرارات 21–24): soon على الأزرار المخفية، وشاشة QR واتساب */
+.btn .soon{margin:0;background:rgba(255,255,255,.22);color:inherit}
+.wa-qr{display:flex;flex-direction:column;align-items:center;gap:12px;min-height:200px;justify-content:center}
+.wa-qr-img{width:260px;height:260px;background:#fff;padding:8px;border-radius:8px}
+.wa-qr ol{margin:0;padding-inline-start:18px;align-self:stretch}

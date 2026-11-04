@@ -49,11 +49,27 @@
       text.classList.add('err');
     }, { config_id: start.sdk.config_id, response_type: 'code', override_default_response_type: true, extras: start.sdk.extras });
   });
+  // the manual link (the App Review test number): the three values from Meta's API Setup → cs-whatsapp connect_token; the token
+  // field is cleared right after the call, whatever its answer
+  const manual = $('wc-manual');
+  $('wc-manual-go').addEventListener('click', async () => {
+    const waba = $('wc-waba').value.trim(), phone = $('wc-phone').value.trim(), token = $('wc-token').value.trim();
+    if (!/^\d{5,30}$/.test(waba) || !/^\d{5,30}$/.test(phone) || token.length < 40) { text.textContent = 'اكتب الـ Messaging account ID والـ Phone number ID (أرقام) والتوكن كامل.'; text.classList.add('err'); return; }
+    $('wc-manual-go').disabled = true;
+    try {
+      const { data: out, error } = await cl.functions.invoke('cs-whatsapp', { body: { action: 'connect_token', waba_id: waba, phone_id: phone, token } });
+      $('wc-token').value = '';
+      if (error || !out || !out.linked) { $('wc-manual-go').disabled = false; const b = await bodyOf(error); text.textContent = b && b.error === 'no_number' ? 'الـ Phone number ID ده مش تبع الحساب ده — راجع الرقمين.' : b && b.field ? 'الخانة «' + b.field + '» مش مظبوطة.' : why(b); text.classList.add('err'); return; }
+      manual.hidden = true;
+      show('اتربط الرقم ' + (out.number && out.number.display ? out.number.display : '') + ' ✓', 'ابعت رسالة من موبايلك للرقم ده، وهتظهر في صندوق الرسايل وترد عليها من السيستم.', false);
+    } catch (e) { $('wc-token').value = ''; $('wc-manual-go').disabled = false; text.textContent = 'في مشكلة في الاتصال — جرّب تاني.'; text.classList.add('err'); }
+  });
   cl.auth.getSession().then(async ({ data }) => {
     if (!data || !data.session) { show('سجّل دخولك الأول', 'افتح السيستم وسجّل دخولك كأدمن، وبعدها افتح الربط من «القنوات».', true); return; }
     const { data: out, error } = await cl.functions.invoke('cs-whatsapp', { body: { action: 'connect_start' } });
     if (error || !out || !out.sdk || !out.state) { show('مش جاهز للربط', why(await bodyOf(error)), true); return; }
     start = { state: String(out.state), sdk: out.sdk, at: Date.now() };
+    manual.hidden = false;
     window.fbAsyncInit = function () {
       window.FB.init({ appId: String(start.sdk.app_id), autoLogAppEvents: true, xfbml: false, version: String(start.sdk.version || 'v25.0') });
       text.textContent = 'كل حاجة جاهزة.'; steps.hidden = false; go.hidden = false; go.disabled = false;

@@ -243,6 +243,12 @@ test('6.2 — the admin links the Facebook page from «القنوات» (the dia
   await P.getByRole('tab', { name: /^التعليقات/ }).click(); // «التعليقات 1» (the count rides along)
   await expect(P.locator('.cs-ch .who b')).toHaveText('Noha H');
   await expect(P.locator('.cs-msgs .bub.b-in')).toContainText('السعر كام؟');
+  // decision 19: the post the comment is on — a card over the chat (caption + «افتح البوست ↗» to the post) and a line in the list
+  await expect(P.locator('.cs-post')).toContainText('مراية خشب دهبي');
+  await expect(P.locator('.cs-post')).toContainText('بوست صور · فيسبوك');
+  await expect(P.locator('[data-post-link]')).toHaveAttribute('href', 'https://www.facebook.com/ibtekr/posts/1');
+  await expect(P.locator('[data-post-link]')).toHaveAttribute('target', '_blank');
+  await expect(P.locator('.cv [data-post-line]').first()).toContainText('على: مراية خشب دهبي');
   await P.locator('#cs-ta').fill('950 جنيه والشحن مجاني');
   await P.locator('[data-cmp-send]').click();
   await expect(P.locator('.cs-msgs .bub.b-out').last()).toContainText('✓ اتبعتت');

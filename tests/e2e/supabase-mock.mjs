@@ -332,6 +332,8 @@ export async function installSupabaseMock(page, opts = {}) {
       .concat([{ id: CS_C(9), phone: '01277766655', name: 'يوسف حامد', ig: null, city: 'المنصورة', province: null, address: null, address2: null, mood: 'متوسط', tags: ['مهتم'], consent: true, auto_consent: true, source: 'إعلان فيسبوك', created_from: 'manual', blocked_at: null, blocked_by: null, merged_into: null, created_by: ADMIN, created_at: T0, updated_at: null }]),
     notes: [{ id: 1, customer_id: CS_C(1), text: 'بتحب التغليف كهدية دايماً — اسألها قبل الشحن.', author: '00000000-0000-4000-8000-000000000002', at: csAgo(90) }],
     overrides: [], teamRatings: [],
+    // decision 19: the post the comments thread is on (the pull keeps it)
+    posts: [{ id: '111_p1', platform: 'facebook', caption: 'مراية خشب دهبي بمقاس 60×90 — متاحة دلوقتي', permalink: 'https://www.facebook.com/ibtekr/posts/1', thumb: null, kind: 'added_photos', posted_at: csAgo(600), seen_at: csAgo(1) }],
     conversations: [
       { id: CS_K(1), seg: 'customers', platform: 'whatsapp', channel: 'wa1', customer_id: CS_C(1), vendor_id: null, handle: null, external_id: null, status: 'مستنية ردنا', assignee: '00000000-0000-4000-8000-000000000002', outcome: null, tags: ['شكوى'], last_in_at: csAgo(18), last_out_at: null, waiting_since: csAgo(18), unread: 1, snoozed_until: null, closed_at: null, closed_by: null, created_by: null, created_at: csAgo(200), updated_at: csAgo(18) },
       { id: CS_K(2), seg: 'vendors', platform: 'whatsapp', channel: 'wa2', customer_id: null, vendor_id: VND(1), handle: null, external_id: null, status: 'اتحلت', assignee: ADMIN, outcome: 'اتحل', tags: [], last_in_at: csAgo(1500), last_out_at: csAgo(1440), waiting_since: null, unread: 0, snoozed_until: null, closed_at: csAgo(1400), closed_by: ADMIN, created_by: ADMIN, created_at: csAgo(1600), updated_at: csAgo(1400) },
@@ -479,12 +481,12 @@ export async function installSupabaseMock(page, opts = {}) {
       // with cs.reply (a plain conversation only; identity fixed; closed_* stamped); messages: note / event / out only (out → queued);
       // notes / overrides / team ratings insert with cs.reply as oneself; segments / campaigns cs.manage (a draft or a schedule;
       // delete a draft); channels read-only. Filters: id / customer_id / conversation_id eq. or in.(…), or=(status.neq.اتحلت,updated_at.gte.X).
-      const csT = /^\/rest\/v1\/(cs_customers|cs_customer_notes|cs_rating_overrides|cs_team_ratings|cs_conversations|cs_messages|cs_segments|cs_campaigns|cs_channels|cs_contacts|cs_campaign_recipients)$/.exec(path);
+      const csT = /^\/rest\/v1\/(cs_customers|cs_customer_notes|cs_rating_overrides|cs_team_ratings|cs_conversations|cs_messages|cs_segments|cs_campaigns|cs_channels|cs_contacts|cs_campaign_recipients|cs_posts)$/.exec(path);
       if (csT) {
         if (mock.csDown) return json(503, { message: 'mock: cs down' });
         const t = csT[1]; const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
         const view = hasPerm(u, 'cs.view'); const reply = hasPerm(u, 'cs.reply') === 'F'; const manage = hasPerm(u, 'cs.manage') === 'F';
-        const STORE = { cs_customers: 'customers', cs_customer_notes: 'notes', cs_rating_overrides: 'overrides', cs_team_ratings: 'teamRatings', cs_conversations: 'conversations', cs_messages: 'messages', cs_segments: 'segments', cs_campaigns: 'campaigns', cs_channels: 'channels', cs_contacts: 'contacts', cs_campaign_recipients: 'recipients' };
+        const STORE = { cs_customers: 'customers', cs_customer_notes: 'notes', cs_rating_overrides: 'overrides', cs_team_ratings: 'teamRatings', cs_conversations: 'conversations', cs_messages: 'messages', cs_segments: 'segments', cs_campaigns: 'campaigns', cs_channels: 'channels', cs_contacts: 'contacts', cs_campaign_recipients: 'recipients', cs_posts: 'posts' };
         const rows = mock.cs[STORE[t]] || (mock.cs[STORE[t]] = []);
         const now = new Date().toISOString(); const single = /vnd\.pgrst\.object\+json/.test(hd.accept || '');
         const convVisible = (id) => view === 'F' || (view === 'P' && mock.cs.conversations.some((v) => v.id === id && v.assignee === u.id));

@@ -145,8 +145,26 @@
       U.Avatar(whoName(c)),
       h('span', { class: 'cv-b' },
         h('span', { class: 'cv-r1' }, h('b', { class: 'nm' }, whoName(c)), h('span', { class: 't-small tm' }, c.time)),
+        c.seg === 'comments' && c.post ? h('span', { class: 'cv-post t-small', 'data-post-line': '' }, 'على: ' + postLabel(c.post, 40)) : null,
         h('span', { class: 'cv-r2' }, PlatIcon(c.platform), h('span', { class: 'pv' }, preview), c.unread ? h('span', { class: 'badge', 'aria-label': c.unread + ' غير مقروءة' }, String(c.unread)) : null),
         h('span', { class: 'cv-r3' }, statusPick(c, stTag), stTag ? null : tag, h('span', { class: 't-small' }, c.assignee))));
+  }
+  // قرار 19 (6.2، 4 نوفمبر — «محتاج أعرف البوست اللي بيعلقوا عليه»): البوست اللي عليه التعليق — سطر في القايمة وكارت فوق الشات
+  // (الصورة الصغيرة + أول الكابشن + التاريخ + «افتح البوست ↗»)؛ البيانات من cs_posts عبر IBCS (c.post)
+  const POST_KIND = { added_photos: 'بوست صور', added_video: 'فيديو', mobile_status_update: 'بوست', shared_story: 'مشاركة', created_event: 'إيفنت', image: 'صورة', video: 'ريل / فيديو', carousel_album: 'ألبوم صور' };
+  const postLabel = (p, n) => { const t = String(p.caption || '').replace(/\s+/g, ' ').trim(); return t ? (t.length > n ? t.slice(0, n) + '…' : t) : (POST_KIND[p.kind] || 'بوست') + ' من غير كلام'; };
+  function PostCard(c) {
+    if (c.seg !== 'comments') return null;
+    const p = c.post;
+    if (!p) return h('div', { class: 'cs-post empty', 'data-post': '' }, h('span', { class: 't-small' }, 'بيانات البوست لسه ماوصلتش — بتيجي مع السحب الجاي'));
+    const when = p.postedAt && !Number.isNaN(Date.parse(p.postedAt)) ? new Date(p.postedAt).toLocaleDateString('ar-EG', { day: 'numeric', month: 'long', year: 'numeric' }) : '';
+    const img = p.thumb ? h('img', { class: 'cs-post-img', src: p.thumb, alt: 'صورة البوست', loading: 'lazy', referrerpolicy: 'no-referrer', onError: (e) => { e.target.remove(); } }) : null;
+    return h('div', { class: 'cs-post', 'data-post': p.id },
+      img,
+      h('div', { class: 'cs-post-b' },
+        h('div', { class: 't-small cs-post-k' }, 'التعليق على ' + (POST_KIND[p.kind] || 'بوست') + ' · ' + (p.platform === 'instagram' ? 'إنستجرام' : 'فيسبوك') + (when ? ' · ' + when : '')),
+        h('div', { class: 'cs-post-t' }, postLabel(p, 160))),
+      p.permalink ? h('a', { class: 'btn btn-default sm cs-post-a', href: p.permalink, target: '_blank', rel: 'noopener noreferrer', 'data-post-link': '' }, 'افتح البوست ↗') : null);
   }
   // تاج الحالة على كارت المحادثة (owner 1 Nov): حالة واحدة لكل عميل (تاج على العميل)؛ لمحادثة المبتكر / التعليق على المحادثة نفسها
   function statusOf(c) { if (c.who && c.seg !== 'vendors') { const cu = C(c.who); return cu ? [...(cu.tags || [])].reverse().find((t) => statusTone(t)) || '' : ''; } return (c.tags || []).find((t) => statusTone(t)) || ''; }
@@ -286,7 +304,7 @@
       : lvl !== 'none' ? h('div', { class: 'cs-bar ' + (lvl === 'late' ? 'err' : 'warn'), role: 'status' }, Icon('clock', 'sm'), 'مستنية ردنا من ' + c.waiting + ' دقيقة — الهدف أول رد خلال ' + CS.SLA.late + ' دقيقة') : null;
     const log = h('div', { class: 'cs-msgs', role: 'log', 'aria-live': 'polite', 'aria-label': 'المحادثة', tabindex: '0' }, msgsOf(c).map((m) => Bubble(m)));
     setTimeout(() => { log.scrollTop = log.scrollHeight; });
-    return h('section', { class: 'cs-chat', 'aria-label': 'المحادثة مع ' + whoName(c) }, h('div', { class: 'back-m' }, Button({ type: 'text', size: 'sm', icon: 'chevR', label: 'رجوع للقائمة', onClick: () => { st.mobileChat = false; R(); } })), head, bar, log, Composer(c));
+    return h('section', { class: 'cs-chat', 'aria-label': 'المحادثة مع ' + whoName(c) }, h('div', { class: 'back-m' }, Button({ type: 'text', size: 'sm', icon: 'chevR', label: 'رجوع للقائمة', onClick: () => { st.mobileChat = false; R(); } })), head, PostCard(c), bar, log, Composer(c));
   }
   // تقرير حجم شغل الموظف قبل التحويل (owner 1 Nov)
   function workload(name) {

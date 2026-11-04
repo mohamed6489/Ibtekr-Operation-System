@@ -412,14 +412,14 @@ Deno.test('an Instagram DM with a long mid (≈ 200 characters) lands; a message
 Deno.test('comments pull (decision 18): the cron (X-Sync-Secret) reads the latest posts\' comments into the inbox once; a hidden author opens its own visitor thread; the members cannot run it, the admin can', async () => {
   const at = (minAgo: number) => new Date(Date.parse(NOW) - minAgo * 60000).toISOString().replace('.000Z', '+0000');
   const routes: Record<string, Route> = {
-    'GET 111/feed': { body: { data: [{ id: '111_9', comments: { data: [
+    'GET 111/feed': { body: { data: [{ id: '111_8', message: 'بوست من غير تعليقات', comments: { data: [] } }, { id: '111_9', message: 'كرسي خشب جديد', permalink_url: 'https://www.facebook.com/ibtekr/posts/9', full_picture: 'https://scontent.xx.fbcdn.net/9.jpg', status_type: 'added_photos', created_time: at(600), comments: { data: [
       { id: '9_3', created_time: at(1), from: { id: '42', name: 'Mohamed Gamal' }, message: 'بكام؟' },
       { id: '9_2', created_time: at(3), message: 'متاح؟' }, // a person Graph hides
       { id: '9_4', created_time: at(2), message: 'لونه ايه؟', parent: { id: '9_2' } }, // their reply: the same thread
       { id: '9_5', created_time: at(1), from: { id: '111', name: 'Ibtekr Club' }, message: 'أهلا', parent: { id: '9_3' } }, // the page's own reply: an echo
       { id: '9_1', created_time: at(60 * 5), message: 'قديم' }, // older than the window: left
     ] } }] } },
-    'GET 777/media': { body: { data: [{ id: '1801', comments: { data: [{ id: '1801_1', timestamp: at(2), from: { id: '77', username: 'mohamed_gamal_257' }, text: 'حلو', replies: { data: [] } }] } }] } },
+    'GET 777/media': { body: { data: [{ id: '1801', caption: 'ريل الكرسي', permalink: 'https://www.instagram.com/reel/x/', media_type: 'VIDEO', media_url: 'https://video.cdninstagram.com/v.mp4', thumbnail_url: 'https://scontent.cdninstagram.com/t.jpg', timestamp: at(300), comments: { data: [{ id: '1801_1', timestamp: at(2), from: { id: '77', username: 'mohamed_gamal_257' }, text: 'حلو', replies: { data: [] } }] } }] } },
   };
   const { deps, db } = setup({ vault: linked(), routes });
   const cron = (secret: string, action = 'comments_pull') => handler(new Request('http://x/cs-channel', { method: 'POST', headers: { 'content-type': 'application/json', 'x-sync-secret': secret }, body: JSON.stringify({ action }) }), deps);
@@ -437,10 +437,28 @@ Deno.test('comments pull (decision 18): the cron (X-Sync-Secret) reads the lates
   assertEquals(msgs.filter((m: any) => m.conversation_id === visitor.id).map((m: any) => m.text), ['متاح؟', 'لونه ايه؟']);
   assertEquals(msgs.filter((m: any) => m.kind === 'out').map((m: any) => [m.external_id, m.author]), [['9_5', null]], 'the page\'s reply lands as an echo on the commenter\'s thread');
   assertEquals(db.rows('cs_channel_events').at(-1).object, 'pull');
+  // decision 19: the posts that carry comments, with their caption / link / picture (a video's thumbnail, never the video)
+  assertEquals(db.rows('cs_posts').map((p: any) => [p.id, p.platform, p.caption, p.permalink, p.thumb, p.kind]).sort(), [
+    ['111_9', 'facebook', 'كرسي خشب جديد', 'https://www.facebook.com/ibtekr/posts/9', 'https://scontent.xx.fbcdn.net/9.jpg', 'added_photos'],
+    ['1801', 'instagram', 'ريل الكرسي', 'https://www.instagram.com/reel/x/', 'https://scontent.cdninstagram.com/t.jpg', 'video'],
+  ]);
   // the next minute: nothing new, nothing written, no log row
   const events = db.rows('cs_channel_events').length;
   await cron('sync-secret-ok');
   assertEquals([db.rows('cs_messages').length, db.rows('cs_channel_events').length], [msgs.length, events]);
   assertEquals((await call(deps, { action: 'comments_pull' }, 'jwt-reply')).res.status, 401);
   assertEquals((await call(deps, { action: 'comments_pull' }, 'jwt-admin')).res.status, 200);
+});
+
+Deno.test('decision 19: a webhook comment on a post not kept yet reads the post once (caption, link, picture); a Graph failure never stops the comment', async () => {
+  let reads = 0;
+  const { deps, db } = setup({ vault: linked(), routes: { 'GET 111_500': () => { reads++; return { body: { id: '111_500', message: 'ترابيزة', permalink_url: 'https://www.facebook.com/p/500', full_picture: 'https://scontent.xx.fbcdn.net/500.jpg', status_type: 'added_photos', created_time: '2026-10-24T10:00:00+0000' } }; } } });
+  const feed = (value: any) => ({ object: 'page', entry: [{ id: '111', time: 1762000000, changes: [{ field: 'feed', value }] }] });
+  await deliver(deps, feed({ item: 'comment', verb: 'add', comment_id: '500_1', post_id: '111_500', parent_id: '111_500', from: { id: '42', name: 'Noha H' }, message: 'بكام؟', created_time: 1762000005 }));
+  await deliver(deps, feed({ item: 'comment', verb: 'add', comment_id: '500_2', post_id: '111_500', parent_id: '111_500', from: { id: '43', name: 'Ali' }, message: 'متاح؟', created_time: 1762000006 }));
+  assertEquals(reads, 1, 'kept after the first read');
+  assertEquals(db.rows('cs_posts').map((p: any) => [p.id, p.platform, p.caption, p.permalink, p.thumb]), [['111_500', 'facebook', 'ترابيزة', 'https://www.facebook.com/p/500', 'https://scontent.xx.fbcdn.net/500.jpg']]);
+  // a post Graph refuses: the comment still lands, no post row
+  await deliver(deps, feed({ item: 'comment', verb: 'add', comment_id: '600_1', post_id: '111_600', parent_id: '111_600', from: { id: '42', name: 'Noha H' }, message: 'تمام', created_time: 1762000007 }));
+  assertEquals([db.rows('cs_messages').length, db.rows('cs_posts').length], [3, 1]);
 });

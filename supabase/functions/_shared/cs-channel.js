@@ -143,6 +143,23 @@ export function pulledComments(feedJson, mediaJson, pageId, sinceMs) {
   return out.sort((a, b) => a.at - b.at); // oldest first: a reply lands after its comment
 }
 
+// the posts (decision 19): what a comments conversation shows of the post it is on — the caption's start, the link, the picture,
+// the kind and the date; https links only. With `withComments`, only the posts that carry comments in this answer.
+const https = (v, n) => (typeof v === 'string' && /^https:\/\//.test(v) && v.length <= n ? v : null);
+export function postOf(p, platform) {
+  if (!isObj(p)) return null; const id = idOf(p.id); if (!id || !/^[0-9_]{1,80}$/.test(id)) return null;
+  const at = when(platform === 'instagram' ? p.timestamp : p.created_time);
+  return platform === 'instagram'
+    ? { id, platform, caption: text(p.caption).slice(0, 300) || null, permalink: https(p.permalink, 1000), thumb: https(p.thumbnail_url, 2000) || (p.media_type === 'VIDEO' ? null : https(p.media_url, 2000)), kind: str(p.media_type, 40).toLowerCase() || null, posted_at: at == null ? null : new Date(at).toISOString() }
+    : { id, platform, caption: text(p.message).slice(0, 300) || null, permalink: https(p.permalink_url, 1000), thumb: https(p.full_picture, 2000), kind: str(p.status_type, 40) || null, posted_at: at == null ? null : new Date(at).toISOString() };
+}
+export function postsOf(feedJson, mediaJson, withComments = true) {
+  const has = (p) => !withComments || (isObj(p.comments) && Array.isArray(p.comments.data) && p.comments.data.length > 0);
+  const fb = (isObj(feedJson) && Array.isArray(feedJson.data) ? feedJson.data : []).filter((p) => isObj(p) && has(p)).map((p) => postOf(p, 'facebook'));
+  const ig = (isObj(mediaJson) && Array.isArray(mediaJson.data) ? mediaJson.data : []).filter((p) => isObj(p) && has(p)).map((p) => postOf(p, 'instagram'));
+  return [...fb, ...ig].filter(Boolean).slice(0, 50);
+}
+
 // the conversation of a comment: one per (post × commenter); a hidden commenter: one per top-level comment (its replies join it)
 export const commentThreadId = (postId, fromId, topCommentId = null) => (postId + ':' + (fromId || (topCommentId ? 'c' + topCommentId : 'anon'))).slice(0, 160);
 // the status an incoming message gives a conversation (block 19 nextStatus(status, 'in'))
@@ -245,10 +262,12 @@ export const graphPath = {
   feedProbe: (pageId) => GRAPH + '/' + pageId + '/feed?fields=id,comments.summary(true).limit(3){id,created_time,from}&limit=5',
   mediaProbe: (igId) => GRAPH + '/' + igId + '/media?fields=id,comments_count,comments.limit(3){id,timestamp,from}&limit=5',
   // the pull (decision 18): the latest 10 posts / media with their recent comments (replies included)
-  feedPull: (pageId) => GRAPH + '/' + pageId + '/feed?fields=id,comments.filter(stream).order(reverse_chronological).limit(50){id,created_time,from,message,parent{id}}&limit=10',
-  mediaPull: (igId) => GRAPH + '/' + igId + '/media?fields=id,comments.limit(50){id,timestamp,from,username,text,replies.limit(25){id,timestamp,from,username,text}}&limit=10',
+  feedPull: (pageId) => GRAPH + '/' + pageId + '/feed?fields=id,message,permalink_url,full_picture,status_type,created_time,comments.filter(stream).order(reverse_chronological).limit(50){id,created_time,from,message,parent{id}}&limit=10',
+  mediaPull: (igId) => GRAPH + '/' + igId + '/media?fields=id,caption,permalink,media_type,media_url,thumbnail_url,timestamp,comments.limit(50){id,timestamp,from,username,text,replies.limit(25){id,timestamp,from,username,text}}&limit=10',
   // the one call with a token in the url: debug_token takes the token it inspects as input_token (sent to Meta only, never logged)
   debugToken: (inputToken) => GRAPH + '/debug_token?' + new URLSearchParams({ input_token: inputToken }).toString(),
+  // one post / media by id (decision 19: a webhook comment on a post the pull has not seen)
+  post: (postId, platform) => GRAPH + '/' + postId + (platform === 'instagram' ? '?fields=id,caption,permalink,media_type,media_url,thumbnail_url,timestamp' : '?fields=id,message,permalink_url,full_picture,status_type,created_time'),
   send: () => GRAPH + '/me/messages',
   commentReply: (commentId, platform) => GRAPH + '/' + commentId + (platform === 'instagram' ? '/replies' : '/comments'),
   commentHide: (commentId) => GRAPH + '/' + commentId,

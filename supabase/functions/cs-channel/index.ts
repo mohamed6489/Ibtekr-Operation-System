@@ -35,7 +35,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import {
   DEFAULT_NAME, SUBSCRIBED_FIELDS, authUrl, businessIdsOf, subscribedFieldsOf, mergePages, permissionsOf, tokenlessCount, commentThreadId, graphErrorCode, graphPath, hideBody, pagesOf, parseWebhook, privateReplyBody, profileHandle, profileName, publicPages,
-  sendBody, statusAfterIn, tokenScopesOf, commentsProbeOf, pulledComments, PULL_WINDOW_MS,
+  sendBody, statusAfterIn, tokenScopesOf, commentsProbeOf, pulledComments, PULL_WINDOW_MS, postsOf, postOf,
 } from '../_shared/cs-channel.js';
 
 // deno-lint-ignore no-explicit-any
@@ -215,6 +215,16 @@ async function onReceipt(deps: Deps, ev: Json, s: Summary) {
   if (error) throw new Error('cs_messages: ' + (error.code ?? 'update'));
   bump(s, ev.type === 'read' ? 'reads' : 'deliveries');
 }
+// decision 19: a post not kept yet is read once from Graph (best effort — a comment never fails on it)
+async function ensurePost(deps: Deps, page: Page, postId: string, platform: string) {
+  try {
+    if (!postId || !/^[0-9_]{1,80}$/.test(postId)) return;
+    const { data: had } = await deps.db.from('cs_posts').select('id').eq('id', postId).maybeSingle();
+    if (isObj(had)) return;
+    const row = postOf(await graph(deps, 'GET', graphPath.post(postId, platform), { token: page.token }), platform);
+    if (row) await deps.db.from('cs_posts').upsert({ ...row, seen_at: deps.now() }, { onConflict: 'id' });
+  } catch { /* the post card stays empty */ }
+}
 async function onComment(deps: Deps, page: Page | null, ev: Json, s: Summary) {
   const platform = ev.platform === 'instagram' ? 'instagram' : 'facebook'; const channel = platform === 'instagram' ? 'instagram' : 'messenger';
   const ours = !!ev.fromId && !!page && (ev.fromId === page.id || (page.ig && ev.fromId === page.ig.id));
@@ -230,6 +240,7 @@ async function onComment(deps: Deps, page: Page | null, ev: Json, s: Summary) {
     if (error) throw new Error('cs_messages: ' + (error.code ?? 'update'));
     bump(s, 'edits'); return;
   }
+  if (!ev.pulled && page) await ensurePost(deps, page, ev.postId, platform); // a webhook comment: the post it is on, once
   const topId = ev.parentId && ev.parentId !== ev.postId ? ev.parentId : ev.commentId; // a hidden commenter: the thread of the top-level comment
   const threadId = commentThreadId(ev.postId, ev.fromId, ev.fromId ? null : topId);
   const conv = await ensureConversation(deps, { seg: 'comments', platform, channel, customer_id: null, external_id: threadId, handle: ev.fromName });
@@ -284,6 +295,9 @@ async function commentsPull(deps: Deps): Promise<Response> {
   const feed = await read(graphPath.feedPull(page.id));
   const media = page.ig ? await read(graphPath.mediaPull(page.ig.id)) : null;
   const events = pulledComments(feed, media, page.id, Date.parse(deps.now()) - PULL_WINDOW_MS);
+  // the posts that carry comments (decision 19): their caption / link / picture kept fresh for the comments conversations
+  const posts = postsOf(feed, media);
+  if (posts.length) { const { error: pe } = await deps.db.from('cs_posts').upsert(posts.map((p) => ({ ...p, seen_at: deps.now() })), { onConflict: 'id' }); if (pe) console.error('cs_posts: ' + (pe.code ?? 'upsert')); }
   // the ones already in the inbox (pulled before, or delivered by a webhook) are skipped before any write
   const ids = events.map((e) => e.commentId);
   const known = new Set<string>();

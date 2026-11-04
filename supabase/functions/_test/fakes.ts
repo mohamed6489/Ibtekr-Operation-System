@@ -71,6 +71,8 @@ const COLUMNS: Record<string, string[]> = {
   cs_channels: ['id', 'name', 'audience', 'kind', 'status', 'number', 'cap_per_day', 'since', 'last_message_at', 'meta', 'updated_at'],
   cs_oauth_states: ['state', 'verifier', 'channel', 'created_by', 'created_at', 'used_at'],
   cs_channel_events: ['id', 'received_at', 'object', 'entry_id', 'status', 'error', 'summary'],
+  // 0041 (phase 6.2 decision 19): the posts the comments are on
+  cs_posts: ['id', 'platform', 'caption', 'permalink', 'thumb', 'kind', 'posted_at', 'seen_at'],
 };
 const DEFAULTS: Record<string, Row> = {
   status_map: { direction: 'both' },
@@ -92,7 +94,7 @@ const UNIQUE: Record<string, string[][]> = {
   vendor_rates: [['id'], ['vendor_id', 'since']], vendor_category_rates: [['id'], ['vendor_id', 'woo_category_id', 'since']], woo_categories: [['id']], activity_log: [['id']],
   vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']], image_imports: [['id']], image_shares: [['id']], magnific_oauth_states: [['state']], shot_prompts: [['id'], ['category', 'shot']],
   cs_customers: [['id'], ['phone']], cs_contacts: [['id'], ['platform', 'external_id']], cs_conversations: [['id'], ['channel', 'external_id']], cs_messages: [['id'], ['external_id']], cs_channels: [['id']],
-  cs_oauth_states: [['state']], cs_channel_events: [['id']],
+  cs_oauth_states: [['state']], cs_channel_events: [['id']], cs_posts: [['id']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],

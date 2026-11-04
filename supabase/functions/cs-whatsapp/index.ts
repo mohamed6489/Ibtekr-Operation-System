@@ -20,6 +20,7 @@
 //                      kept ten minutes (cs_oauth_states channel wa1).
 //     connect_callback (the admin) { code, state } → the business token → its WABA (debug_token) → the number → the app subscribed to
 //                      the WABA → Vault (meta_wa) → wa1 connected → the contacts and the history asked for (within Meta's 24 hours).
+//     connect_token    (the admin) { token, waba_id, phone_id } → a number linked by hand with a token from Meta's API Setup (no sync).
 //     sync             (the admin) { type: 'history' | 'contacts' } → asked again (Meta answers once per number).
 //     disconnect       (the admin) → the subscription removed (best effort), the secret removed, wa1 disconnected.
 //     send             (cs.reply, on a wa1 conversation the member sees, their own queued row unless the admin) { message_id } →
@@ -40,7 +41,7 @@ export type Deps = {
   fetch?: typeof fetch;
 };
 
-const ACTIONS = ['status', 'connect_start', 'connect_callback', 'sync', 'disconnect', 'send'];
+const ACTIONS = ['status', 'connect_start', 'connect_callback', 'connect_token', 'sync', 'disconnect', 'send'];
 const REDIRECT_DEFAULT = 'https://operation-system.ibtekr.club/meta-callback.html';
 const STATE_MINUTES = 10;
 const GRAPH_MS = 15_000;
@@ -352,6 +353,33 @@ async function connectCallback(deps: Deps, who: Who, args: Json) {
   await logActivity(deps, who, 'cs.channel.connect', 'wa1', link.name ?? 'whatsapp');
   return json(200, { result: 'ok', linked: true, number: { display: link.display, name: link.name }, sync: { contacts: contacts.ok ? 'requested' : contacts.code, history: history.ok ? 'requested' : history.code }, channel: await channelOf(deps) });
 }
+// the admin links a number by hand with a token from Meta's API Setup (the test number of the App Review screencast, 4 Nov — the
+// coexistence option opens only after the review): the token is checked against the number and the WABA it names, the app is
+// subscribed to that WABA, and the link goes to Vault like the Embedded Signup one; no contacts / history sync (a test number has
+// none). The token never comes back, never reaches a log.
+async function connectToken(deps: Deps, who: Who, args: Json) {
+  if (!who.admin) return json(401, { error: 'unauthorized' });
+  const token = typeof args.token === 'string' && /^[A-Za-z0-9_-]{40,1024}$/.test(args.token.trim()) ? args.token.trim() : null;
+  const waba = typeof args.waba_id === 'string' && /^\d{5,30}$/.test(args.waba_id.trim()) ? args.waba_id.trim() : null;
+  const phoneId = typeof args.phone_id === 'string' && /^\d{5,30}$/.test(args.phone_id.trim()) ? args.phone_id.trim() : null;
+  if (!token) return json(400, { error: 'bad_request', field: 'token' });
+  if (!waba) return json(400, { error: 'bad_request', field: 'waba_id' });
+  if (!phoneId) return json(400, { error: 'bad_request', field: 'phone_id' });
+  let link: Link;
+  try {
+    const phone = phonesOf(await graph(deps, 'GET', waPath.phones(waba), { token })).find((x: Json) => x.id === phoneId);
+    if (!phone) return json(400, { error: 'no_number' });
+    await graph(deps, 'POST', waPath.subscribe(waba), { token });
+    link = { token, waba_id: waba, phone_id: phoneId, display: phone.display, name: phone.name, linked_by: who.uid, linked_at: deps.now() };
+  } catch (e) { return graphFail(e); }
+  const before = await linkOf(deps);
+  if (before && before.waba_id !== link.waba_id) { try { await graph(deps, 'DELETE', waPath.subscribe(before.waba_id), { token: before.token }); } catch { /* the old token may be gone */ } }
+  await linkSet(deps, link);
+  const now = deps.now();
+  await deps.db.from('cs_channels').update({ kind: 'meta', status: 'connected', number: link.display, since: now, meta: { waba_id: link.waba_id, phone_id: link.phone_id, name: link.name, manual: true }, updated_at: now }).eq('id', 'wa1');
+  await logActivity(deps, who, 'cs.channel.connect', 'wa1', 'manual · ' + (link.name ?? 'whatsapp'));
+  return json(200, { result: 'ok', linked: true, manual: true, number: { display: link.display, name: link.name }, channel: await channelOf(deps) });
+}
 async function sync(deps: Deps, who: Who, args: Json) {
   if (!who.admin) return json(401, { error: 'unauthorized' });
   const type = args.type === 'history' ? 'history' : args.type === 'contacts' ? 'contacts' : null;
@@ -424,6 +452,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'status') return await status(deps, who);
     if (action === 'connect_start') return await connectStart(deps, who);
     if (action === 'connect_callback') return await connectCallback(deps, who, args);
+    if (action === 'connect_token') return await connectToken(deps, who, args);
     if (action === 'sync') return await sync(deps, who, args);
     if (action === 'disconnect') return await disconnect(deps, who);
     return await send(deps, who, args);

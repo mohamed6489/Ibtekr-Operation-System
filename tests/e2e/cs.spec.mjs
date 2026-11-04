@@ -366,3 +366,17 @@ test('decision 26: WhatsApp 1 on Meta — «ربط» opens wa-connect.html, Meta
   expect([m.delivery, /^wamid\./.test(m.external_id)]).toEqual(['sent', true]);
   expect(mock.waCloud.calls).toContain('send');
 });
+
+test('decision 26 (App Review): the admin links the test number by hand on wa-connect.html — WABA id, phone number id and a token from API Setup; the token field is cleared', async ({ page }) => {
+  await signIn(page, ADMIN, '#cs-channels');
+  await page.route('https://connect.facebook.net/**', (r) => r.fulfill({ status: 200, contentType: 'application/javascript', body: 'window.FB = { init: function () {}, login: function () {} }; setTimeout(function () { window.fbAsyncInit && window.fbAsyncInit(); }, 0);' }));
+  await page.goto('/wa-connect.html');
+  await expect(page.locator('#wc-manual')).toBeVisible();
+  await page.locator('#wc-manual summary').click();
+  await page.locator('#wc-waba').fill('772702332337903'); await page.locator('#wc-phone').fill('883530021516888'); await page.locator('#wc-token').fill('EAAT' + 'x'.repeat(60));
+  await page.locator('#wc-manual-go').click();
+  await expect(page.locator('#wc-title')).toContainText('اتربط الرقم +1 555 161 0811');
+  await expect(page.locator('#wc-token')).toHaveValue('');
+  expect(mock.waCloud.last).toMatchObject({ manual: true, waba_id: '772702332337903', phone_id: '883530021516888', token_len: 64 });
+  expect(mock.cs.channels.find((c) => c.id === 'wa1').status).toBe('connected');
+});

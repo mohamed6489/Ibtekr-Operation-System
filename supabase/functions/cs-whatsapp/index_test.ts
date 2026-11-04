@@ -188,3 +188,20 @@ Deno.test('the SDK sign-in (app/wa-connect.html): connect_start hands the public
   const s2 = await call(other.deps, { action: 'connect_start' }, 'jwt-admin');
   assertEquals((await call(other.deps, { action: 'connect_callback', code: 'sdk-code-123456', state: s2.body.state, sdk: true, waba_id: WABA }, 'jwt-admin')).body.error, 'no_number');
 });
+
+Deno.test('connect_token (the admin, the App Review test number): the token checked against the WABA\'s numbers, the app subscribed, Vault, wa1 connected; no sync; the token never comes back', async () => {
+  const routes: Record<string, Route> = {
+    ['GET ' + WABA + '/phone_numbers']: { body: { data: [{ id: PHONE_ID, display_phone_number: '+1 555 161 0811', verified_name: 'Test Number' }] } },
+    ['POST ' + WABA + '/subscribed_apps']: { body: { success: true } },
+  };
+  const { deps, db, vault, graph } = setup({ routes });
+  assertEquals((await call(deps, { action: 'connect_token', token: TOKEN, waba_id: WABA, phone_id: PHONE_ID }, 'jwt-reply')).res.status, 401);
+  assertEquals((await call(deps, { action: 'connect_token', token: 'short', waba_id: WABA, phone_id: PHONE_ID }, 'jwt-admin')).body.field, 'token');
+  assertEquals((await call(deps, { action: 'connect_token', token: TOKEN, waba_id: WABA, phone_id: '999999' }, 'jwt-admin')).body.error, 'no_number');
+  const ok = await call(deps, { action: 'connect_token', token: TOKEN, waba_id: WABA, phone_id: PHONE_ID }, 'jwt-admin');
+  assertEquals([ok.res.status, ok.body.linked, ok.body.manual, ok.body.number.display], [200, true, true, '+1 555 161 0811']);
+  assertEquals([JSON.parse(vault.meta_wa!).token, JSON.parse(vault.meta_wa!).phone_id], [TOKEN, PHONE_ID]);
+  assertEquals([db.row('cs_channels', 'wa1').status, db.row('cs_channels', 'wa1').meta.manual], ['connected', true]);
+  assertEquals(graph.calls.filter((c: any) => c.path.endsWith('/smb_app_data')).length, 0, 'no sync for a test number');
+  assert(!JSON.stringify(ok.body).includes(TOKEN) && !JSON.stringify(db.rows('activity_log')).includes(TOKEN));
+});

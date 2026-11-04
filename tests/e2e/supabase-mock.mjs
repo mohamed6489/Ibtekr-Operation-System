@@ -1574,7 +1574,14 @@ export async function installSupabaseMock(page, opts = {}) {
       const now = new Date().toISOString(); const c1 = mock.cs.channels.find((c) => c.id === 'wa1');
       const chan = () => ({ id: 'wa1', name: c1.name, status: c1.status, number: c1.number, since: c1.since, last_message_at: c1.last_message_at, history: c1.meta && c1.meta.history ? c1.meta.history : null, contacts: null });
       if (action === 'status') { if (!canView) return json(401, { error: 'unauthorized' }); return json(200, { result: 'ok', linked: W.linked, channel: chan(), ...(isAdmin(u) ? { configured: W.configured, config_id: W.configId, verify_configured: true, webhook_url: 'https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-whatsapp', redirect: 'https://operation-system.ibtekr.club/meta-callback.html', ...(W.linked ? { number: { display: W.number, name: 'Ibtekr', biz_app: true } } : {}) } : {}) }); }
-      if (['connect_start', 'connect_callback', 'sync', 'disconnect'].includes(action) && !isAdmin(u)) return json(401, { error: 'unauthorized' });
+      if (['connect_start', 'connect_callback', 'connect_token', 'sync', 'disconnect'].includes(action) && !isAdmin(u)) return json(401, { error: 'unauthorized' });
+      if (action === 'connect_token') {
+        if (!/^\d{5,30}$/.test(String(b.waba_id || '')) || !/^\d{5,30}$/.test(String(b.phone_id || ''))) return json(400, { error: 'bad_request', field: 'waba_id' });
+        if (String(b.token || '').length < 40) return json(400, { error: 'bad_request', field: 'token' });
+        W.linked = true; W.number = '+1 555 161 0811'; W.last = { manual: true, waba_id: b.waba_id, phone_id: b.phone_id, token_len: String(b.token).length };
+        Object.assign(c1, { kind: 'meta', status: 'connected', number: W.number, since: now, meta: { waba_id: b.waba_id, phone_id: b.phone_id, manual: true }, updated_at: now });
+        return json(200, { result: 'ok', linked: true, manual: true, number: { display: W.number, name: 'Test Number' }, channel: chan() });
+      }
       if (action === 'connect_start') {
         if (!W.configured || !W.configId) return json(503, { error: 'not_configured', configured: W.configured, config_id: W.configId });
         const state = 'wa_' + Math.random().toString(36).slice(2).padEnd(41, 'x'); mock.oauthStates.push({ state, used: false, at: Date.now(), kind: 'wa' });

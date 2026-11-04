@@ -51,11 +51,11 @@ export const USERS = [
 ];
 // permissions: the keys the emulated tables read, as in 0003_seed_roles.sql (+ 0021: products.view / edit / trash; 0034: cs.view / reply / manage)
 const ROLES = [
-  { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'F', 'settings.view': 'F', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'F', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'F', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'F' }, sort: 1 },
-  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'F', 'products.bulk': 'F', 'products.trash': 'N', 'products.add': 'F', 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
-  { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'cs.view': 'N', 'cs.reply': 'N', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'F', 'accounts.add': 'F', 'accounts.approve': 'P', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
-  { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
-  { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'cs.view': 'P', 'cs.reply': 'N', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
+  { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'inventory.view': 'F', 'inventory.edit': 'F', 'inventory.approve': 'F', 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'F', 'settings.view': 'F', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'F', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'F', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'F' }, sort: 1 },
+  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'inventory.view': 'F', 'inventory.edit': 'F', 'inventory.approve': 'N', 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'F', 'products.bulk': 'F', 'products.trash': 'N', 'products.add': 'F', 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
+  { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'inventory.view': 'F', 'inventory.edit': 'N', 'inventory.approve': 'N', 'cs.view': 'N', 'cs.reply': 'N', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'F', 'accounts.add': 'F', 'accounts.approve': 'P', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
+  { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'inventory.view': 'F', 'inventory.edit': 'N', 'inventory.approve': 'N', 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
+  { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'inventory.view': 'F', 'inventory.edit': 'N', 'inventory.approve': 'N', 'cs.view': 'P', 'cs.reply': 'N', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
 ];
 const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts, status_map), 0006_dashboard.sql (user_prefs,
   // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw),
@@ -355,6 +355,13 @@ export async function installSupabaseMock(page, opts = {}) {
       .map(([id, name, audience, kind, cap_per_day]) => ({ id, name, audience, kind, status: 'disconnected', number: null, cap_per_day, since: null, last_message_at: null, meta: {}, updated_at: null })),
   };
   mock.csWrites = []; mock.csDown = false; let csSeq = 100;
+  // phase 7 (0044): the inventory hub — places seeded like the migration; lots / moves from opts; every write in invWrites
+  mock.inv = { inv_locations: [['T', 'منطقة التجميع', 'zone'], ['R', 'المرتجعات', 'zone'], ['P', 'التصوير', 'zone'], ['A', 'رف A', 'rack'], ['B', 'رف B', 'rack'], ['C', 'رف C', 'rack'], ['D', 'رف D', 'rack']].map(([code, label, kind]) => ({ code, label, kind, note: null })),
+    inv_lots: (opts.invLots || []).map((x) => ({ product_id: null, vendor_id: null, order_id: null, item_id: null, ref: null, loc: null, mode: 'أمانة', cost: 0, condition: null, condition_note: null, note: null, closed_at: null, created_by: ADMIN, created_at: T0, since: '2026-11-01', ...x })),
+    inv_moves: (opts.invMoves || []).map((x, i) => ({ id: i + 1, label: null, reason: null, ref: null, note: null, by: ADMIN, at: T0, ...x })),
+    inv_consolidations: (opts.invConsolidations || []).map((x) => ({ zone: 'T', status: 'open', carrier: null, since: '2026-11-01', created_by: ADMIN, created_at: T0, ...x })),
+    inv_consolidation_items: (opts.invConsolidationItems || []).map((x) => ({ ...x })), inv_counts: [], inv_count_lines: [] };
+  mock.invWrites = [];
   mock.accWrites = []; mock.accountsDown = false; mock.statements = []; mock.statementRows = opts.statementRows || [];
   let accSeq = 0;
   // brands / brandOwners / brandRates: the 0013 tables (ordersSeed(opts): opts.transfer seeds the temporary transfer); brandWrites: each
@@ -483,6 +490,68 @@ export async function installSupabaseMock(page, opts = {}) {
       // with cs.reply (a plain conversation only; identity fixed; closed_* stamped); messages: note / event / out only (out → queued);
       // notes / overrides / team ratings insert with cs.reply as oneself; segments / campaigns cs.manage (a draft or a schedule;
       // delete a draft); channels read-only. Filters: id / customer_id / conversation_id eq. or in.(…), or=(status.neq.اتحلت,updated_at.gte.X).
+      // phase 7 (0044): the inventory tables — select with inventory.view; insert / update with inventory.edit (a manual adjust with
+      // inventory.approve); moves append-only; a count line's system quantity the server's (the lot's on hand); a closed
+      // consolidation final. Filters: eq. / in.(…) / is.null. inv_count_approve: inventory.approve, the adjustments = counted − on hand.
+      const invT = /^\/rest\/v1\/(inv_locations|inv_lots|inv_moves|inv_consolidations|inv_consolidation_items|inv_counts|inv_count_lines)$/.exec(path);
+      const onHand = (lot) => mock.inv.inv_moves.filter((m) => m.lot_id === lot).reduce((n, m) => n + (['in', 'adjust'].includes(m.type) ? m.qty : ['out', 'ship'].includes(m.type) ? -m.qty : 0), 0);
+      if (invT) {
+        const t = invT[1]; const rows = mock.inv[t]; const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        const single = /vnd\.pgrst\.object\+json/.test(hd.accept || ''); const now = new Date().toISOString();
+        const fns = [...url.searchParams].filter(([k]) => !NOT_FILTERS.has(k)).map(([k, v]) => (v.startsWith('eq.') ? (r) => String(r[k]) === v.slice(3) : v === 'is.null' ? (r) => r[k] == null : /^in\.\(.*\)$/.test(v) ? ((set) => (r) => set.includes(String(r[k])))(v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1'))) : null));
+        if (fns.some((f) => !f)) return refuse(400, 'PGRST100', 'mock: unsupported filter on ' + t);
+        const match = (r) => fns.every((f) => f(r)); const view = hasPerm(u, 'inventory.view') !== 'N'; const edit = hasPerm(u, 'inventory.edit') === 'F';
+        const out = (list) => (single ? (list.length ? json(200, { ...list[0] }) : refuse(406, 'PGRST116', 'no rows')) : json(method === 'POST' ? 201 : 200, list.map((r) => ({ ...r }))));
+        if (method === 'GET') {
+          if (!view) return json(200, []);
+          let list = rows.filter(match); if (t === 'inv_moves') list = list.slice().sort((a, b) => (a.at < b.at ? 1 : a.at > b.at ? -1 : b.id - a.id)); if (t === 'inv_counts') list = list.slice().sort((a, b) => b.id - a.id);
+          return out(list);
+        }
+        if (mock.invDown) return json(503, { message: 'mock: inventory down' });
+        const rls = () => refuse(403, '42501', 'new row violates row-level security policy for table "' + t + '"');
+        if (method === 'POST') {
+          if (!edit) return rls();
+          const made = [];
+          for (const r of [].concat(body())) {
+            let rec;
+            if (t === 'inv_moves') {
+              if (r.type === 'adjust' && hasPerm(u, 'inventory.approve') !== 'F') return refuse(403, '42501', 'a manual adjustment needs inventory.approve');
+              if (!(r.type === 'move' ? r.qty === 0 : r.type === 'adjust' ? r.qty !== 0 : r.qty > 0)) return refuse(400, '23514', 'inv_moves_check');
+              if (!mock.inv.inv_lots.some((l) => l.id === r.lot_id)) return refuse(409, '23503', 'inv_moves_lot_id_fkey');
+              rec = { label: null, reason: null, ref: null, note: null, ...r, id: mock.inv.inv_moves.reduce((n, m) => Math.max(n, m.id), 0) + 1, by: u.id, at: now };
+            } else if (t === 'inv_lots') rec = { product_id: null, vendor_id: null, order_id: null, item_id: null, ref: null, loc: null, cost: 0, condition: null, condition_note: null, note: null, ...r, closed_at: null, created_by: u.id, created_at: now };
+            else if (t === 'inv_consolidations') { if (rows.some((x) => x.order_id === r.order_id && x.status === 'open')) return refuse(409, '23505', 'inv_consolidations_open_idx'); rec = { zone: 'T', ...r, status: 'open', carrier: null, since: now.slice(0, 10), created_by: u.id, created_at: now }; }
+            else if (t === 'inv_consolidation_items') { const c = mock.inv.inv_consolidations.find((x) => x.id === r.consolidation_id); const it = mock.orderItems.find((x) => String(x.id) === String(r.item_id)); if (!c || c.status !== 'open' || !it || Number(it.order_id) !== Number(c.order_id)) return rls(); rec = { ...r }; }
+            else if (t === 'inv_counts') rec = { note: null, ...r, id: rows.reduce((n, x) => Math.max(n, x.id), 0) + 1, status: 'open', started_by: u.id, started_at: now, approved_by: null, approved_at: null };
+            else if (t === 'inv_count_lines') rec = { counted: null, note: null, ...r, system: onHand(r.lot_id) };
+            else { if (rows.some((x) => x.code === r.code)) return refuse(409, '23505', 'inv_locations_pkey'); rec = { note: null, ...r }; }
+            made.push(rec);
+          }
+          made.forEach((rec) => { rows.push(rec); mock.invWrites.push({ table: t, op: 'insert', ...rec }); });
+          return out(made);
+        }
+        if (method === 'PATCH') {
+          if (!['inv_lots', 'inv_consolidations', 'inv_count_lines'].includes(t)) return refuse(403, '42501', 'permission denied for table ' + t);
+          if (!edit) return json(200, []);
+          const b = body(); const list = rows.filter(match);
+          for (const r of list) {
+            if (t === 'inv_consolidations' && r.status !== 'open') return refuse(403, '42501', 'a closed consolidation is final');
+            if (t === 'inv_count_lines' && (mock.inv.inv_counts.find((x) => x.id === r.count_id) || {}).status !== 'open') return refuse(403, '42501', 'an approved count is final');
+            const { system, created_by, created_at, ...patch } = b; Object.assign(r, patch); if (t === 'inv_consolidations' && patch.status && patch.status !== 'open') Object.assign(r, { closed_at: now, closed_by: u.id });
+            mock.invWrites.push({ table: t, op: 'update', ...patch, id: r.id || r.lot_id });
+          }
+          return out(list);
+        }
+        return refuse(403, '42501', 'permission denied for table ' + t);
+      }
+      if (method === 'POST' && path === '/rest/v1/rpc/inv_count_approve') {
+        if (hasPerm(u, 'inventory.approve') !== 'F') return json(403, { code: '42501', details: null, hint: null, message: 'inventory.approve is needed' });
+        const b = body(); const c = mock.inv.inv_counts.find((x) => x.id === Number(b.p_id)); if (!c || c.status !== 'open') return json(400, { code: '22023', details: null, hint: null, message: 'not an open count' });
+        let n = 0; const now = new Date().toISOString();
+        for (const l of mock.inv.inv_count_lines.filter((x) => x.count_id === c.id && x.counted != null)) { const d = l.counted - onHand(l.lot_id); if (d) { n += 1; mock.inv.inv_moves.push({ id: mock.inv.inv_moves.reduce((k, m) => Math.max(k, m.id), 0) + 1, lot_id: l.lot_id, type: 'adjust', qty: d, label: 'تسوية جرد', reason: 'جرد', ref: 'CNT-' + c.id, note: l.note, by: u.id, at: now }); } }
+        Object.assign(c, { status: 'approved', approved_by: u.id, approved_at: now }); mock.invWrites.push({ table: 'inv_counts', op: 'approve', id: c.id, adjusted: n });
+        return json(200, n);
+      }
       const csT = /^\/rest\/v1\/(cs_customers|cs_customer_notes|cs_rating_overrides|cs_team_ratings|cs_conversations|cs_messages|cs_segments|cs_campaigns|cs_channels|cs_contacts|cs_campaign_recipients|cs_posts)$/.exec(path);
       if (csT) {
         if (mock.csDown) return json(503, { message: 'mock: cs down' });

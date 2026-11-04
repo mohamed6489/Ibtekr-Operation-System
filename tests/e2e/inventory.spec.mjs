@@ -1,0 +1,134 @@
+import { test, expect } from '@playwright/test';
+import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
+
+// The inventory hub «المخزن» on real data (phase 7, docs/superpowers/plans/2026-11-04-phase-7-inventory.md): the v2 page (block 16)
+// on IBInventory (0044) — the quantities from the moves, receiving writes a lot + its first move, a status change patches the lot,
+// a count's lines carry the server's quantity and its approval writes the adjustments, and the buttons follow inventory.edit /
+// inventory.approve. Mock only: the cases assert the mock's seed and the writes it recorded (mock.invWrites / activity).
+const ADMIN = 'admin.dev@ibtekr.local'; const OPS = 'ops.dev@ibtekr.local'; const ACCOUNTS = 'accounts.dev@ibtekr.local';
+const V1 = 'a0000000-0000-4000-8000-000000000001'; // Art Craft
+const L1 = 'b7000000-0000-4000-8000-000000000001'; const L2 = 'b7000000-0000-4000-8000-000000000002';
+let mock = null; let pageErrors = [];
+test.beforeEach(async ({ page }) => {
+  test.skip(LIVE, 'asserts on the mocked Supabase (its seed and the writes it recorded)');
+  pageErrors = []; page.on('pageerror', (e) => pageErrors.push(e.message));
+  mock = await installSupabaseMock(page, {
+    invLots: [{ id: L1, reason: 'متاح للبيع', status: 'متاح', sku: 'IBT-AR-0999', name: 'سلة كروشيه', vendor_id: V1, loc: 'A', cost: 260, mode: 'أمانة' },
+      { id: L2, reason: 'تصوير', status: 'مستني تصوير', sku: 'IBT-AR-1000', name: 'فازة سيراميك', vendor_id: V1, loc: 'P', cost: 300 }],
+    invMoves: [{ lot_id: L1, type: 'in', qty: 3, label: 'دخول — للبيع', reason: 'متاح للبيع' }, { lot_id: L1, type: 'out', qty: 1, label: 'خروج', reason: 'متاح للبيع' },
+      { lot_id: L2, type: 'in', qty: 1, label: 'دخول — تصوير', reason: 'تصوير' }],
+  });
+});
+test.afterEach(() => {
+  if (LIVE) return;
+  expect(pageErrors).toEqual([]);
+  expect(mock.unhandled).toEqual([]);
+});
+
+async function signIn(page, email) {
+  await page.goto('/');
+  await expect(page.locator('#login')).toBeVisible();
+  await page.fill('#lg-id', email);
+  await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(page.locator('#root')).toBeVisible();
+}
+async function openInventory(page, email = ADMIN) {
+  await signIn(page, email);
+  await page.locator('.sidebar .nav-item[data-page="inventory"]').click();
+  await expect(page.locator('#pg-inventory')).toBeVisible();
+  await expect(page.locator('#pg-inventory')).toContainText('سلة كروشيه');
+}
+const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
+const rowOf = (page, name) => page.locator('#pg-inventory tr', { hasText: name });
+
+test('«المخزون» is open: the lots from inv_lots, the quantity from the moves (3 in − 1 out = 2), the maker by its id', async ({ page }) => {
+  await openInventory(page);
+  await expect(page.locator('nav.sidebar .nav-item[data-page="inventory"]')).not.toHaveAttribute('data-soon', /.*/);
+  const r = rowOf(page, 'سلة كروشيه');
+  await expect(r).toContainText('Art Craft');
+  await expect(r).toContainText('متاح للبيع');
+  await expect(r.locator('td').nth(7)).toHaveText('2');
+  await expect(rowOf(page, 'فازة سيراميك')).toContainText('مستني تصوير');
+});
+
+test('receiving writes the lot and its first move (the maker\'s id, the place\'s code, the quantity) and the page reloads it', async ({ page }) => {
+  await openInventory(page);
+  await page.getByRole('button', { name: 'استلام في المخزن' }).click();
+  const m = modal(page, 'استلام في المخزن');
+  await m.locator('#name').fill('شنطة جلد');
+  await m.locator('#sku').fill('IBT-AR-1001');
+  await m.locator('#vendor').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
+  await m.locator('#qty').fill('4');
+  await m.getByRole('radio', { name: /^متاح للبيع/ }).click();
+  await m.locator('#loc').fill('B-03');
+  await m.getByRole('button', { name: 'استلام' }).click();
+  await expect(rowOf(page, 'شنطة جلد')).toBeVisible();
+  await expect.poll(() => mock.invWrites.filter((w) => w.table === 'inv_moves').length).toBe(1);
+  const lot = mock.invWrites.find((w) => w.table === 'inv_lots');
+  expect(lot).toMatchObject({ op: 'insert', reason: 'متاح للبيع', status: 'متاح', sku: 'IBT-AR-1001', name: 'شنطة جلد', vendor_id: V1, loc: 'B', mode: 'أمانة' });
+  expect(mock.invWrites.find((w) => w.table === 'inv_moves')).toMatchObject({ lot_id: lot.id, type: 'in', qty: 4, by: '00000000-0000-4000-8000-000000000001' });
+  await expect(rowOf(page, 'شنطة جلد').locator('td').nth(7)).toHaveText('4');
+});
+
+test('a status change patches the lot (علّم إنه اتصور)', async ({ page }) => {
+  await openInventory(page);
+  await rowOf(page, 'فازة سيراميك').getByRole('button', { name: 'إجراءات فازة سيراميك' }).click();
+  await page.getByRole('menuitem', { name: 'علّم إنه اتصور' }).click();
+  await expect.poll(() => mock.invWrites.find((w) => w.table === 'inv_lots' && w.op === 'update')).toMatchObject({ status: 'اتصور', id: L2 });
+  await expect(rowOf(page, 'فازة سيراميك')).toContainText('اتصور');
+});
+
+test('a manual adjustment needs inventory.approve: ops does not get «تسوية كمية»; the admin\'s writes an adjust move', async ({ page }) => {
+  await openInventory(page, OPS);
+  await rowOf(page, 'سلة كروشيه').getByRole('button', { name: 'إجراءات سلة كروشيه' }).click();
+  await expect(page.getByRole('menuitem', { name: 'تفاصيل المنتج' })).toBeVisible();
+  await expect(page.getByRole('menuitem', { name: 'تسوية كمية' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'استلام في المخزن' })).toBeVisible();
+});
+
+test('the admin\'s adjustment: the difference as an adjust move', async ({ page }) => {
+  await openInventory(page);
+  await rowOf(page, 'سلة كروشيه').getByRole('button', { name: 'إجراءات سلة كروشيه' }).click();
+  await page.getByRole('menuitem', { name: 'تسوية كمية' }).click();
+  const m = modal(page, 'تسوية كمية — سلة كروشيه');
+  await m.locator('#qty').fill('1');
+  await m.locator('#why').click(); await page.getByRole('option', { name: 'ضايع' }).click();
+  await m.getByRole('button', { name: 'حفظ التسوية' }).click();
+  await expect.poll(() => mock.invWrites.find((w) => w.table === 'inv_moves')).toMatchObject({ lot_id: L1, type: 'adjust', qty: -1, reason: 'ضايع' });
+});
+
+test('view only (accounts): no receiving, no count, no actions but the details', async ({ page }) => {
+  await openInventory(page, ACCOUNTS);
+  await expect(page.getByRole('button', { name: 'استلام في المخزن' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: 'جرد جديد' })).toHaveCount(0);
+  await rowOf(page, 'فازة سيراميك').getByRole('button', { name: 'إجراءات فازة سيراميك' }).click();
+  await expect(page.getByRole('menuitem')).toHaveCount(1);
+  expect(mock.invWrites).toEqual([]);
+});
+
+test('a count: its lines carry the server\'s quantity, a counted figure is saved, the approval writes the adjustment', async ({ page }) => {
+  await openInventory(page);
+  await page.getByRole('button', { name: 'جرد جديد' }).click();
+  const m = modal(page, 'جرد جديد');
+  await m.getByRole('button', { name: /ابدأ/ }).click();
+  await expect.poll(() => mock.inv.inv_count_lines.length).toBe(2);
+  expect(mock.inv.inv_count_lines.find((l) => l.lot_id === L1).system).toBe(2);
+  await expect(page.locator('#pg-inventory')).toContainText('اعتماد الجرد');
+  const input = page.locator('#pg-inventory tr', { hasText: 'سلة كروشيه' }).locator('input').first();
+  await input.fill('5'); await input.press('Tab');
+  await expect.poll(() => (mock.inv.inv_count_lines.find((l) => l.lot_id === L1) || {}).counted).toBe(5);
+  await page.getByRole('button', { name: 'اعتماد الجرد' }).click();
+  await modal(page, 'اعتماد الجرد').getByRole('button', { name: 'اعتماد الجرد' }).click();
+  await expect.poll(() => mock.inv.inv_moves.find((x) => x.type === 'adjust')).toMatchObject({ lot_id: L1, qty: 3, ref: 'CNT-1' });
+  expect(mock.inv.inv_counts[0].status).toBe('approved');
+});
+
+test('the reports tab (decision 6): the pieces and the value now from the lots × their quantity', async ({ page }) => {
+  await openInventory(page);
+  await page.evaluate(() => { location.hash = 'inventory-reports'; });
+  const kpi = (label) => page.locator('#pg-inventory .kpi', { hasText: label });
+  await expect(kpi('قطع في المخزن الآن')).toContainText('3'); // 2 + 1
+  await expect(kpi('قيمة المخزن')).toContainText('820'); // 260 × 2 + 300 × 1
+  await expect(page.locator('#pg-inventory')).toContainText('أعلى 20 قطعة بالتكلفة');
+});

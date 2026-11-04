@@ -564,11 +564,11 @@
       // a channel that errors or times out is dropped, so the next check (below) opens a fresh one
       channel = ch.subscribe((status) => { if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') { const dead = channel; channel = null; if (dead) quiet(() => Promise.resolve(cl.removeChannel(dead)).catch(() => {})); } });
     } catch (e) { channel = null; }
-    // the safety net (3 Nov — a live Instagram message saved at 03:39 never reached the open page): every 30 s while the page is
+    // the safety net (3 Nov — a live Instagram message saved at 03:39 never reached the open page): every 10 s while the page is
     // shown, one tiny read of the newest conversation; newer than what is loaded → one load() (no redraw when nothing changed)
     if (!poll && typeof setInterval === 'function') poll = setInterval(() => { check(); }, POLL_MS);
   }
-  const POLL_MS = 30000;
+  const POLL_MS = 10000;
   async function check() {
     if (st !== 'ready' || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return false;
     const cl = c(); if (!cl) return false;

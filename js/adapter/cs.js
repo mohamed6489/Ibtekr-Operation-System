@@ -9,7 +9,8 @@
 //                channels [platforms of their conversations], notes [{ author, time, text }], ratings [{ chat, at, by, sat, manners, note }] }
 //   convs      { id, seg, platform, channel, who (customer / maker uuid), handle, status, assigneeUid, assignee (a name or «غير معيّنة»),
 //                outcome, tags, lastIn (ms), lastOut (ms), waiting (minutes since waiting_since), unread, snoozedUntil, closedAt,
-//                createdAt, updatedAt, time (a clock / day label), msgs [{ id, t: kind, text, time, at, author (a name), delivery, tpl }] }
+//                createdAt, updatedAt, time (a clock / day label), msgs [{ id, t: kind, text, time, at, author (a name), delivery, tpl }],
+//                postId + post { id, platform, caption, permalink, thumb, kind, postedAt } on a comments conversation (decision 19) }
 //   segments   { id, name, minTotal, minOrders, moods, last, lastFrom, lastTo, ranges, includeUnrated, add, remove }  (the rules' shape)
 //   campaigns  { id, name, segId, seg (the segment's name), channel, from (the channel's name), body, imagePath, discountCode,
 //                scheduledAt, capPerDay, minDelayS, status, size, stats, sent, delivered, read, replies, orders, revenue, sub }
@@ -27,6 +28,7 @@
   const CHAN_COLS = 'id, name, audience, kind, status, number, cap_per_day, since, last_message_at, updated_at';
   const NOTE_COLS = 'id, customer_id, text, author, at';
   const RATING_COLS = 'id, customer_id, conversation_id, sat, manners, note, by_user, at';
+  const POST_COLS = 'id, platform, caption, permalink, thumb, kind, posted_at'; // decision 19: the post a comment is on
   const CUSTOMER_EDIT = ['name', 'ig', 'city', 'province', 'address', 'address2', 'consent', 'auto_consent', 'source']; // cs.manage
   const CUSTOMER_LIGHT = ['mood', 'tags']; // cs.reply
   const STATUSES = ['جديدة', 'مستنية ردنا', 'مستنية العميل', 'مؤجلة', 'اتحلت'];
@@ -102,9 +104,18 @@
     const meta = r.meta && typeof r.meta === 'object' ? r.meta : {}; const t = ms(r.created_at);
     return { id: r.id, convId: r.conversation_id, t: r.kind, text: r.text || '', time: clock(t == null ? Date.now() : t), at: r.created_at || '', author: r.kind === 'in' ? '' : nameOf(r.author), delivery: r.delivery || null, tpl: meta.tpl || null };
   }
+  // decision 19: the posts of the comments conversations (cs_posts), kept across reloads; a comments conversation's external_id is
+  // «<post id>:<commenter>», so its post is the prefix
+  const posts = new Map();
+  const toPost = (r) => ({ id: r.id, platform: r.platform, caption: r.caption || '', permalink: /^https:\/\//.test(r.permalink || '') ? r.permalink : null, thumb: /^https:\/\//.test(r.thumb || '') ? r.thumb : null, kind: r.kind || '', postedAt: r.posted_at || null });
+  const postIdOf = (r) => (r.seg === 'comments' && typeof r.external_id === 'string' && r.external_id.includes(':') ? r.external_id.split(':')[0] : null);
+  async function fetchPosts(ids, g) {
+    const want = [...new Set(ids.filter(Boolean))]; if (!want.length) return;
+    try { (await inChunks('cs_posts', POST_COLS, 'id', want, g)).forEach((r) => posts.set(r.id, toPost(r))); } catch (e) { if (e && e.message === 'stale') throw e; /* no card: the conversation still shows */ }
+  }
   function toConv(r, msgs, now) {
-    const N = now == null ? Date.now() : now; const ws = ms(r.waiting_since); const last = ms(r.updated_at) || ms(r.created_at);
-    return { id: r.id, seg: r.seg, platform: r.platform, channel: r.channel, who: r.seg === 'vendors' ? r.vendor_id : r.customer_id, handle: r.handle || null, externalId: r.external_id || null,
+    const N = now == null ? Date.now() : now; const ws = ms(r.waiting_since); const last = ms(r.updated_at) || ms(r.created_at); const postId = postIdOf(r);
+    return { id: r.id, seg: r.seg, platform: r.platform, channel: r.channel, who: r.seg === 'vendors' ? r.vendor_id : r.customer_id, handle: r.handle || null, externalId: r.external_id || null, postId, post: postId ? posts.get(postId) || null : null,
       status: r.status, assigneeUid: r.assignee || null, assignee: r.assignee ? nameOf(r.assignee) : UNASSIGNED, outcome: r.outcome || null, tags: Array.isArray(r.tags) ? r.tags.slice() : [],
       lastIn: ms(r.last_in_at), lastOut: ms(r.last_out_at), waiting: ws == null || r.status === 'اتحلت' ? 0 : Math.max(0, Math.floor((N - ws) / 60000)), unread: num(r.unread),
       snoozedUntil: r.snoozed_until || null, closedAt: r.closed_at || null, closedBy: r.closed_by || null, createdAt: r.created_at || '', updatedAt: r.updated_at || r.created_at || '',
@@ -189,6 +200,7 @@
       stale(g);
       const msgRows = convRows.length ? await inChunks('cs_messages', MSG_COLS, 'conversation_id', convRows.map((r) => r.id), g, 'created_at') : [];
       stale(g);
+      await fetchPosts(convRows.map(postIdOf), g); stale(g);
       const now = Date.now(); const byConv = new Map();
       msgRows.forEach((m) => { if (!byConv.has(m.conversation_id)) byConv.set(m.conversation_id, []); byConv.get(m.conversation_id).push(m); });
       const customers = (cu.data || []).filter((r) => !r.merged_into).map((r) => toCustomer(r, now));
@@ -203,7 +215,7 @@
     } catch (e) { if (e && e.message === 'stale') return; st = 'error'; }
     emit();
   }
-  function clear() { gen += 1; unsubscribe(); data.customers = []; data.convs = []; data.segments = []; data.campaigns = []; data.channels = {}; data.settings = Object.assign({}, DEFAULT_SETTINGS); st = 'idle'; }
+  function clear() { gen += 1; unsubscribe(); posts.clear(); data.customers = []; data.convs = []; data.segments = []; data.campaigns = []; data.channels = {}; data.settings = Object.assign({}, DEFAULT_SETTINGS); st = 'idle'; }
 
   // ---------- lookups ----------
   const customer = (id) => data.customers.find((x) => x.id === id) || null;
@@ -215,6 +227,7 @@
     const cl = c(); const { data: rows, error } = await cl.from('cs_conversations').select(CONV_COLS).eq('id', id);
     if (error || !rows || !rows.length) return null;
     const { data: msgs } = await cl.from('cs_messages').select(MSG_COLS).eq('conversation_id', id).order('created_at');
+    const pid = postIdOf(rows[0]); if (pid && !posts.has(pid)) await fetchPosts([pid], gen);
     const v = toConv(rows[0], msgs || [], Date.now());
     const i = data.convs.findIndex((x) => x.id === id); if (i >= 0) data.convs[i] = v; else data.convs.unshift(v);
     return v;

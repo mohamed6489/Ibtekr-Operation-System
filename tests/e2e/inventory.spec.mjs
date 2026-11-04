@@ -179,3 +179,31 @@ test('«مرتجع للمخزن» on a line: a «مرتجع — بانتظار �
   await page.evaluate(() => { location.hash = 'inventory-returns'; });
   await expect(page.locator('#pg-inventory')).toContainText('Macrame Curtain');
 });
+
+// ---------- T6: places and settings ----------
+test('the settings tab: the admin\'s change is saved in the settings row «inventory» (auto-pull and the site quantity off by default); the places with their pieces; a new place', async ({ page }) => {
+  await openInventory(page);
+  await page.evaluate(() => { location.hash = 'inventory-settings'; });
+  const first = page.getByRole('switch', { name: 'المخزن الأول' });
+  await expect(first).toHaveAttribute('aria-checked', 'false');
+  await expect(page.getByRole('switch', { name: 'تحديث كمية الموقع' })).toHaveAttribute('aria-checked', 'false');
+  await first.click();
+  await expect.poll(() => (mock.settings.find((x) => x.section === 'inventory') || {}).data).toMatchObject({ firstWarehouse: true, wooSync: false, photoMax: 14 });
+  const rack = page.locator('#pg-inventory tr', { hasText: 'رف A' });
+  await expect(rack.locator('td').nth(2)).toHaveText('1'); await expect(rack.locator('td').nth(3)).toHaveText('2');
+  await page.getByRole('button', { name: '+ مكان' }).click();
+  const m = modal(page, 'مكان تخزين جديد');
+  await m.locator('#code').fill('رف E'); await m.locator('#desc').fill('رف الشنط');
+  await m.getByRole('button', { name: 'إضافة' }).click();
+  await expect.poll(() => mock.inv.inv_locations.find((x) => x.code === 'E')).toMatchObject({ label: 'رف الشنط', kind: 'rack' });
+  await expect(page.locator('#pg-inventory tr', { hasText: 'رف الشنط' })).toBeVisible();
+});
+
+test('the settings are the admin\'s: ops sees them read-only and can still add a place', async ({ page }) => {
+  await openInventory(page, OPS);
+  await page.evaluate(() => { location.hash = 'inventory-settings'; });
+  await expect(page.getByRole('switch', { name: 'المخزن الأول' })).toBeDisabled();
+  await expect(page.locator('#pg-inventory')).toContainText('إعدادات المخزن بيغيّرها الأدمن بس');
+  await expect(page.getByRole('button', { name: '+ مكان' })).toBeVisible();
+  expect(mock.settings.find((x) => x.section === 'inventory')).toBeUndefined();
+});

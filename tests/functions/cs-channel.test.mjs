@@ -113,3 +113,15 @@ test('a message id longer than 80 characters (88 live) is kept whole, never cut;
   const ev = p.entries[0].events;
   assert.equal(ev[0].mid, MID); assert.equal(ev[0].mid.length, 88); assert.deepEqual(ev[1].mids, [MID]); assert.deepEqual(ev[2], { type: 'other', field: 'bad_id' }); assert.equal(ev.length, 3);
 });
+
+test('decision 19: a caption cut at 300 never splits an emoji (a lone half makes Postgres refuse the JSON body); stray halves dropped', async () => {
+  const m = await import('../../supabase/functions/_shared/cs-channel.js');
+  const long = 'أ'.repeat(299) + '🪑🪑';
+  const p = m.postOf({ id: '1_2', message: long, permalink_url: 'https://www.facebook.com/x', created_time: '2026-11-04T05:41:05+0000' }, 'facebook');
+  assert.equal(Array.from(p.caption).length, 300);
+  assert.ok(!/[\uD800-\uDBFF](?![\uDC00-\uDFFF])/.test(p.caption), 'no lone high surrogate');
+  assert.doesNotThrow(() => JSON.parse(JSON.stringify(p)));
+  assert.equal(m.cut('ab\uD83Dcd', 10), 'abcd');
+  assert.equal(m.cut('🪑🪑🪑', 2), '🪑🪑');
+  assert.equal(p.posted_at, '2026-11-04T05:41:05.000Z');
+});

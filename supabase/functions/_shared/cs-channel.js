@@ -22,7 +22,11 @@ const idOf = (v) => { const s = str(v); return ID_RE.test(s) ? s : null; };
 // never matches the Send API's; cs_messages.external_id takes up to 1000 (0037)
 export const MID_RE = /^[A-Za-z0-9_.:+/=-]{1,1000}$/;
 const midOf = (v) => (typeof v === 'string' && MID_RE.test(v) ? v : null);
-const text = (v) => str(v, MAX_TEXT).replace(/\u0000/g, '').trim();
+// a cut never splits an emoji: a lone surrogate half makes Postgres refuse the whole body («invalid input syntax for type json» —
+// seen live 4 Nov on a caption cut at 300); cut by code points and drop any stray half
+const LONE = /[\uD800-\uDBFF](?![\uDC00-\uDFFF])|(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/g;
+export const cut = (v, n) => Array.from(String(v ?? '').replace(LONE, '')).slice(0, n).join('');
+const text = (v) => cut(typeof v === 'string' ? v : '', MAX_TEXT).replace(/\u0000/g, '').trim();
 const when = (v) => { const n = typeof v === 'number' ? v : typeof v === 'string' ? Date.parse(v) : NaN; if (!Number.isFinite(n)) return null; return n < 1e11 ? n * 1000 : n; }; // seconds or ms → ms
 
 // a Business app signs in through Facebook Login for Business: a configuration (its id, made in the app's dashboard with the same
@@ -150,8 +154,8 @@ export function postOf(p, platform) {
   if (!isObj(p)) return null; const id = idOf(p.id); if (!id || !/^[0-9_]{1,80}$/.test(id)) return null;
   const at = when(platform === 'instagram' ? p.timestamp : p.created_time);
   return platform === 'instagram'
-    ? { id, platform, caption: text(p.caption).slice(0, 300) || null, permalink: https(p.permalink, 1000), thumb: https(p.thumbnail_url, 2000) || (p.media_type === 'VIDEO' ? null : https(p.media_url, 2000)), kind: str(p.media_type, 40).toLowerCase() || null, posted_at: at == null ? null : new Date(at).toISOString() }
-    : { id, platform, caption: text(p.message).slice(0, 300) || null, permalink: https(p.permalink_url, 1000), thumb: https(p.full_picture, 2000), kind: str(p.status_type, 40) || null, posted_at: at == null ? null : new Date(at).toISOString() };
+    ? { id, platform, caption: cut(text(p.caption), 300) || null, permalink: https(p.permalink, 1000), thumb: https(p.thumbnail_url, 2000) || (p.media_type === 'VIDEO' ? null : https(p.media_url, 2000)), kind: str(p.media_type, 40).toLowerCase() || null, posted_at: at == null ? null : new Date(at).toISOString() }
+    : { id, platform, caption: cut(text(p.message), 300) || null, permalink: https(p.permalink_url, 1000), thumb: https(p.full_picture, 2000), kind: str(p.status_type, 40) || null, posted_at: at == null ? null : new Date(at).toISOString() };
 }
 export function postsOf(feedJson, mediaJson, withComments = true) {
   const has = (p) => !withComments || (isObj(p.comments) && Array.isArray(p.comments.data) && p.comments.data.length > 0);

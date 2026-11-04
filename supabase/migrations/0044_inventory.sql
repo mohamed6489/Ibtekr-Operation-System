@@ -122,6 +122,14 @@ create table if not exists public.inv_count_lines (
   primary key (count_id, lot_id)
 );
 
+-- the pieces on hand of a lot, from its moves only (in + adjust − out − ship; the v2's stockFromLedger)
+create or replace function public.inv_lot_on_hand(p_lot uuid) returns int
+language sql stable set search_path = public as $$
+  select coalesce(sum(case type when 'in' then qty when 'adjust' then qty when 'out' then -qty when 'ship' then -qty else 0 end), 0)::int
+    from public.inv_moves where lot_id = p_lot
+$$;
+grant execute on function public.inv_lot_on_hand(uuid) to authenticated, service_role;
+
 -- ---------------------------------------------------------------- guards
 
 -- a member writes as themselves; created_* / by / at are stamped; a lot's identity (reason is changeable — the photo decision
@@ -150,7 +158,7 @@ begin
         if new.order_id is distinct from old.order_id or new.created_by is distinct from old.created_by then
           raise exception 'the order of a consolidation cannot be changed' using errcode = '42501';
         end if;
-        if old.status <> 'open' and new.status is distinct from old.status then
+        if old.status <> 'open' and (new.status is distinct from old.status or new.closed_at is distinct from old.closed_at or new.closed_by is distinct from old.closed_by) then
           raise exception 'a closed consolidation stays closed' using errcode = '42501';
         end if;
         if new.status <> 'open' and old.status = 'open' then new.closed_at := now(); new.closed_by := auth.uid(); end if;
@@ -163,8 +171,18 @@ begin
         raise exception 'a closed count stays closed' using errcode = '42501';
       end if;
     elsif tg_table_name = 'inv_count_lines' then
+      if tg_op = 'UPDATE' and (new.count_id is distinct from old.count_id or new.lot_id is distinct from old.lot_id) then
+        raise exception 'a count line keeps its count and lot' using errcode = '42501';
+      end if;
       if (select status from public.inv_counts where id = new.count_id) <> 'open' then
         raise exception 'the lines of a closed count are frozen' using errcode = '42501';
+      end if;
+      -- the system quantity is the server's: from the moves when the line is made, never from the member
+      if tg_op = 'INSERT' then new.system := public.inv_lot_on_hand(new.lot_id); else new.system := old.system; end if;
+    elsif tg_table_name = 'inv_consolidation_items' then
+      if not exists (select 1 from public.inv_consolidations c join public.order_items i on i.order_id = c.order_id
+                      where c.id = new.consolidation_id and c.status = 'open' and i.id = new.item_id) then
+        raise exception 'a line joins an open consolidation of its own order' using errcode = '42501';
       end if;
     end if;
   end if;
@@ -179,13 +197,16 @@ drop trigger if exists inv_consolidations_guard on public.inv_consolidations;
 create trigger inv_consolidations_guard before insert or update on public.inv_consolidations for each row execute function public.inv_guard();
 drop trigger if exists inv_counts_guard on public.inv_counts;
 create trigger inv_counts_guard before insert or update on public.inv_counts for each row execute function public.inv_guard();
+drop trigger if exists inv_consolidation_items_guard on public.inv_consolidation_items;
+create trigger inv_consolidation_items_guard before insert on public.inv_consolidation_items for each row execute function public.inv_guard();
 drop trigger if exists inv_count_lines_guard on public.inv_count_lines;
 create trigger inv_count_lines_guard before insert or update on public.inv_count_lines for each row execute function public.inv_guard();
 
 -- ---------------------------------------------------------------- approving a count (one transaction)
 
--- inventory.approve: every line counted differently from the system becomes an adjust move on its lot (the difference), then the
--- count is approved. Returns the number of adjusted lines. A line not counted (null) is left as it is.
+-- inventory.approve: every counted line becomes an adjust move on its lot by the difference between the count and the lot's pieces
+-- on hand NOW (inv_lot_on_hand — the moves since the line was made included, never a figure a member typed), then the count is
+-- approved. Returns the number of adjusted lines. A line not counted (null) is left as it is.
 create or replace function public.inv_count_approve(p_id bigint) returns int
 language plpgsql security definer set search_path = public as $$
 declare
@@ -195,10 +216,12 @@ begin
   select * into c from public.inv_counts where id = p_id for update;
   if not found then raise exception 'count not found' using errcode = 'P0002'; end if;
   if c.status <> 'open' then raise exception 'the count is not open' using errcode = '22023'; end if;
-  for l in select * from public.inv_count_lines where count_id = p_id and counted is not null and counted <> system loop
-    insert into public.inv_moves (lot_id, type, qty, label, reason, ref, note, by)
-    values (l.lot_id, 'adjust', l.counted - l.system, 'تسوية جرد', 'جرد', 'CNT-' || p_id, l.note, auth.uid());
-    n := n + 1;
+  for l in select cl.*, public.inv_lot_on_hand(cl.lot_id) as now_on_hand from public.inv_count_lines cl where cl.count_id = p_id and cl.counted is not null loop
+    if l.counted <> l.now_on_hand then
+      insert into public.inv_moves (lot_id, type, qty, label, reason, ref, note, by)
+      values (l.lot_id, 'adjust', l.counted - l.now_on_hand, 'تسوية جرد', 'جرد', 'CNT-' || p_id, l.note, auth.uid());
+      n := n + 1;
+    end if;
   end loop;
   update public.inv_counts set status = 'approved', approved_by = auth.uid(), approved_at = now() where id = p_id;
   return n;

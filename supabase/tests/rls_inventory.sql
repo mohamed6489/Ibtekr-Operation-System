@@ -18,7 +18,9 @@ insert into public.profiles (id, name, email, phone, role_id, status, custom_per
 
 -- an order with one line (as the sync writes them)
 insert into public.orders (id, number, customer_name, status, placed_at) values (990044, '990044', 'عميل مخزن', (select system_status from public.status_map order by id limit 1), now());
-insert into public.order_items (id, order_id, name, qty, total) values (99004401, 990044, 'سلة كروشيه', 1, 260);
+insert into public.order_items (id, order_id, name, qty, total) values (99004401, 990044, 'سلة كروشيه', 1, 260), (99004402, 990044, 'فازة', 1, 300);
+insert into public.orders (id, number, customer_name, status, placed_at) values (990045, '990045', 'عميل تاني', (select system_status from public.status_map order by id limit 1), now());
+insert into public.order_items (id, order_id, name, qty, total) values (99004501, 990045, 'شنطة', 1, 400);
 
 create temp table inv_ids (k text primary key, v text) on commit drop;
 grant all on inv_ids to authenticated;
@@ -71,12 +73,28 @@ begin
   -- a consolidation: one open per order; closed stays closed
   insert into public.inv_consolidations (order_id, zone) values (990044, 'T') returning id into c;
   insert into public.inv_consolidation_items (consolidation_id, item_id) values (c, 99004401);
+  insert into inv_ids values ('cons', c::text);
+  begin
+    insert into public.inv_consolidation_items (consolidation_id, item_id) values (c, 99004501);
+    raise exception 'case a line of another order is refused failed';
+  exception when insufficient_privilege then null;
+  end;
   begin
     insert into public.inv_consolidations (order_id, zone) values (990044, 'T');
     raise exception 'case one open consolidation per order failed';
   exception when unique_violation then null;
   end;
   update public.inv_consolidations set status = 'shipped', carrier = 'Bosta' where id = c;
+  begin
+    insert into public.inv_consolidation_items (consolidation_id, item_id) values (c, 99004402);
+    raise exception 'case no line joins a closed consolidation failed';
+  exception when insufficient_privilege then null;
+  end;
+  begin
+    update public.inv_consolidations set closed_at = now() - interval '9 days' where id = c;
+    raise exception 'case a closed consolidation''s close stays failed';
+  exception when insufficient_privilege then null;
+  end;
   if (select closed_by from public.inv_consolidations where id = c) <> '00000000-0000-4000-8000-0000000000a1' then raise exception 'case the close is stamped failed'; end if;
   begin
     update public.inv_consolidations set status = 'open' where id = c;
@@ -86,7 +104,10 @@ begin
   -- a count: ops starts and counts it, cannot approve it
   insert into public.inv_counts (zone) values ('رف A') returning id into n;
   insert into inv_ids values ('count', n::text);
-  insert into public.inv_count_lines (count_id, lot_id, system, counted, note) values (n, l, 1, 0, 'مش لاقيينها');
+  insert into public.inv_count_lines (count_id, lot_id, system, counted, note) values (n, l, 99, 0, 'مش لاقيينها');
+  if (select system from public.inv_count_lines where count_id = n) <> 1 then raise exception 'case the system quantity is the server''s failed'; end if;
+  update public.inv_count_lines set system = 50 where count_id = n;
+  if (select system from public.inv_count_lines where count_id = n) <> 1 then raise exception 'case the system quantity cannot be changed failed'; end if;
   begin
     update public.inv_counts set status = 'approved' where id = n;
     raise exception 'case a count is approved through the RPC only failed';
@@ -121,6 +142,7 @@ begin
   a := public.inv_count_approve(n);
   if a <> 1 then raise exception 'case one adjusted line failed (%)', a; end if;
   if (select qty from public.inv_moves where lot_id = l and type = 'adjust') <> -1 then raise exception 'case the adjustment is the difference failed'; end if;
+  if public.inv_lot_on_hand(l) <> 0 then raise exception 'case on hand after the count failed'; end if;
   if (select status from public.inv_counts where id = n) <> 'approved' then raise exception 'case the count is approved failed'; end if;
   begin
     update public.inv_count_lines set counted = 3 where count_id = n;

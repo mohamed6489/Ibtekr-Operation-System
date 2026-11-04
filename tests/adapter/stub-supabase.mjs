@@ -34,7 +34,7 @@ export function stubClient({ responses = {}, channelThrows = false } = {}) {
     channel: (name) => {
       rec({ op: 'channel', args: [name] });
       if (channelThrows) throw new Error('realtime unavailable');
-      const ch = { on: (type, filter, cb) => { rec({ op: 'on', args: [type, filter] }); handler = cb; handlers.push({ filter, cb }); return ch; }, subscribe: (cb) => { rec({ op: 'subscribe' }); statusCb = typeof cb === 'function' ? cb : null; return ch; } };
+      const ch = { on: (type, filter, cb) => { rec({ op: 'on', args: [type, filter] }); handler = cb; handlers.push({ type, filter, cb }); return ch; }, subscribe: (cb) => { rec({ op: 'subscribe' }); statusCb = typeof cb === 'function' ? cb : null; return ch; } };
       return ch;
     },
     removeChannel: () => { rec({ op: 'removeChannel' }); return Promise.resolve('ok'); },
@@ -56,8 +56,10 @@ export function stubClient({ responses = {}, channelThrows = false } = {}) {
       mfa: Object.fromEntries(MFA.map((m) => [m, (args) => { rec({ op: 'mfa.' + m, args: args === undefined ? [] : [args] }); return Promise.resolve().then(() => answer(responses['mfa:' + m], plain(args)) || { data: null, error: null }); }])),
     },
   };
+  // emitBroadcast(event, payload) plays a broadcast to every handler registered with on('broadcast', { event })
+  const emitBroadcast = (event, payload = {}) => Promise.all(handlers.filter(({ type, filter }) => type === 'broadcast' && filter && filter.event === event).map(({ cb }) => cb({ type: 'broadcast', event, payload })));
   const emitChange = (p) => Promise.all(handlers.filter(({ filter }) => filter && filter.table === p.table && (filter.event === '*' || filter.event === p.eventType)).map(({ cb }) => cb({ schema: 'public', ...p })));
-  return { client, calls, responses, emit: (row) => handler && handler({ eventType: 'INSERT', schema: 'public', table: 'alerts', new: row }), emitChange, emitStatus: (s) => statusCb && statusCb(s), emitAuth: (event, session = null) => authHandler && authHandler(event, session) };
+  return { client, calls, responses, emit: (row) => handler && handler({ eventType: 'INSERT', schema: 'public', table: 'alerts', new: row }), emitChange, emitBroadcast, emitStatus: (s) => statusCb && statusCb(s), emitAuth: (event, session = null) => authHandler && authHandler(event, session) };
 }
 // calls of one table, without the from() entry: [{ op, args }]
 export const opsOf = (calls, table) => calls.filter((c) => c.table === table && c.op !== 'from').map(({ op, args }) => ({ op, args }));

@@ -132,3 +132,10 @@
 15. **النشر:** `cs-channel` في `deploy-functions.yml` و`config.toml` و`deno:check`؛ `tools/deploy.md` §2.7.16 خطوات التطبيق على Meta (المنتجات
     Messenger + Instagram + Webhooks، رابط الـ callback `https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-channel`، الـ verify token،
     حقول الاشتراك، الـ redirect URI، الأسرار، Tester، وApp Review في الآخر).
+16. **الرسايل لحظية زي الشات (4 نوفمبر، صاحب المشروع: «عايز الرسايل تبقى لحظية كأنه شات… مش هستنى 10 ثواني»):** اشتراك
+    `postgres_changes` على `cs_conversations`/`cs_messages` مابيوصلش على الحي (DM إنستجرام 3 نوفمبر اتحفظ ومظهرش غير بعد Refresh، و`realtime.subscription`
+    فاضي). **`0038_cs_live.sql`:** تريجر لكل statement على الجدولين بيبعت Realtime broadcast من قاعدة البيانات نفسها (`realtime.send`) على
+    topic `cs-inbox` event `changed` بـ payload `{ at }` بس — مافيش id ولا نص ولا اسم (قناة عامة مابتحملش غير «فيه جديد»)، وفشله عمره ما
+    يوقف الكتابة. `IBCS.subscribe` بيفتح القناة دي جنب اشتراك الـ postgres changes، وأي `changed` → `load()` واحد بعد 250ms (بالـ RLS بتاعة
+    العضو). الفحص كل 10 ثواني (`IBCS.check`) فاضل احتياطي، والقنوات اللي بتقع بتتفتح تاني. الكتلة 20: إعادة الرسم بتحافظ على التركيز ومكان
+    المؤشر في خانة الرد (التحديث بيوصل وإنت بتكتب).

@@ -250,12 +250,17 @@ test('subscribe: one channel on cs_conversations / cs_messages (INSERT + UPDATE)
   const { S, stub } = load();
   await S.load(); const before = stub.calls.filter((c) => c.op === 'rpc').length;
   S.subscribe(); S.subscribe();
-  assert.equal(stub.calls.filter((c) => c.op === 'channel').length, 1);
-  eq(stub.calls.filter((c) => c.op === 'on').map((c) => c.args[1].table + ':' + c.args[1].event), ['cs_conversations:INSERT', 'cs_conversations:UPDATE', 'cs_messages:INSERT', 'cs_messages:UPDATE']);
+  eq(stub.calls.filter((c) => c.op === 'channel').map((c) => c.args[0]), ['cs', 'cs-inbox'], 'the postgres changes channel + the live broadcast line (0038), once each');
+  eq(stub.calls.filter((c) => c.op === 'on').map((c) => c.args[0] + ':' + (c.args[1].table || '') + ':' + c.args[1].event), ['postgres_changes:cs_conversations:INSERT', 'postgres_changes:cs_conversations:UPDATE', 'postgres_changes:cs_messages:INSERT', 'postgres_changes:cs_messages:UPDATE', 'broadcast::changed']);
   await stub.emitChange({ table: 'cs_messages', eventType: 'INSERT', new: { id: 'x' } }); await stub.emitChange({ table: 'cs_conversations', eventType: 'UPDATE', new: { id: K1 } });
   await new Promise((r) => setTimeout(r, 500));
   assert.equal(stub.calls.filter((c) => c.op === 'rpc').length, before + 1, 'one load for the two changes');
-  S.clear(); assert.equal(stub.calls.filter((c) => c.op === 'removeChannel').length, 1); eq(S.data.customers, []); assert.equal(S.state(), 'idle');
+  // the live line: a database broadcast «changed» → one load() a moment later (two quick ones → still one)
+  const mid = stub.calls.filter((c) => c.op === 'rpc').length;
+  await stub.emitBroadcast('changed', { at: 'x' }); await stub.emitBroadcast('changed', { at: 'y' });
+  await new Promise((r) => setTimeout(r, 400));
+  assert.equal(stub.calls.filter((c) => c.op === 'rpc').length, mid + 1, 'one load for the two broadcasts');
+  S.clear(); assert.equal(stub.calls.filter((c) => c.op === 'removeChannel').length, 2, 'both channels closed'); eq(S.data.customers, []); assert.equal(S.state(), 'idle');
   const t = load({ channelThrows: true }); t.S.subscribe(); assert.equal(t.stub.calls.filter((c) => c.op === 'subscribe').length, 0);
 });
 

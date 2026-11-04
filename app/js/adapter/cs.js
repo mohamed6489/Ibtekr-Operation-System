@@ -46,7 +46,7 @@
   const reasonOf = (err) => { const code = String((err && err.code) || ''); return code === '42501' ? 'forbidden' : code === 'P0002' ? 'notfound' : /^2[23]/.test(code) ? 'invalid' : 'network'; };
   const fail = (err) => ({ ok: false, reason: reasonOf(err) });
 
-  let st = 'idle'; let gen = 0; let channel = null; let timer = null; let poll = null;
+  let st = 'idle'; let gen = 0; let channel = null; let live = null; let timer = null; let poll = null;
   const data = { customers: [], convs: [], segments: [], campaigns: [], channels: {}, settings: Object.assign({}, DEFAULT_SETTINGS) };
   const emit = (detail) => quiet(() => document.dispatchEvent(new CustomEvent('ib:cs', { detail: detail || {} })));
 
@@ -556,23 +556,32 @@
 
   // ---------- Realtime: a change on the conversations or the messages → one load() a moment later ----------
   function subscribe() {
-    const cl = c(); const cfg = window.IB_CONFIG || {}; if (!cl || channel || !myUid() || cfg.realtime === false) return; // IB_CONFIG.realtime === false: no socket (the mock)
-    try {
+    const cl = c(); const cfg = window.IB_CONFIG || {}; if (!cl || (channel && live) || !myUid() || cfg.realtime === false) return; // IB_CONFIG.realtime === false: no socket (the mock)
+    if (!channel) try {
       let ch = cl.channel('cs');
       const onChange = () => { if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; load(); }, 400); };
       ['cs_conversations', 'cs_messages'].forEach((table) => ['INSERT', 'UPDATE'].forEach((ev) => { ch = ch.on('postgres_changes', { event: ev, schema: 'public', table }, onChange); }));
       // a channel that errors or times out is dropped, so the next check (below) opens a fresh one
       channel = ch.subscribe((status) => { if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') { const dead = channel; channel = null; if (dead) quiet(() => Promise.resolve(cl.removeChannel(dead)).catch(() => {})); } });
     } catch (e) { channel = null; }
+    // the live line (0038, 4 Nov — «لحظية كأنه شات»): the database broadcasts «changed» on «cs-inbox» after every write on the
+    // conversations / messages (no content in it); the page reloads through its own RLS a moment later
+    if (!live) {
+      try {
+        live = cl.channel('cs-inbox').on('broadcast', { event: 'changed' }, onLive)
+          .subscribe((status) => { if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') { const dead = live; live = null; if (dead) quiet(() => Promise.resolve(cl.removeChannel(dead)).catch(() => {})); } });
+      } catch (e) { live = null; }
+    }
     // the safety net (3 Nov — a live Instagram message saved at 03:39 never reached the open page): every 10 s while the page is
     // shown, one tiny read of the newest conversation; newer than what is loaded → one load() (no redraw when nothing changed)
     if (!poll && typeof setInterval === 'function') poll = setInterval(() => { check(); }, POLL_MS);
   }
   const POLL_MS = 10000;
+  function onLive() { if (timer) clearTimeout(timer); timer = setTimeout(() => { timer = null; if (st === 'ready') load(); }, 250); }
   async function check() {
     if (st !== 'ready' || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return false;
     const cl = c(); if (!cl) return false;
-    if (!channel) subscribe();
+    if (!channel || !live) subscribe();
     try {
       const { data: rows, error } = await cl.from('cs_conversations').select('updated_at').order('updated_at', { ascending: false }).limit(1);
       if (error || !rows || !rows.length || !rows[0].updated_at) return false;
@@ -582,8 +591,8 @@
     } catch (e) { return false; }
   }
   function unsubscribe() {
-    const ch = channel; channel = null; if (timer) { clearTimeout(timer); timer = null; } if (poll) { clearInterval(poll); poll = null; }
-    if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
+    const ch = channel; channel = null; const lv = live; live = null; if (timer) { clearTimeout(timer); timer = null; } if (poll) { clearInterval(poll); poll = null; }
+    [ch, lv].forEach((x) => { if (x && c()) { try { Promise.resolve(c().removeChannel(x)).catch(() => {}); } catch (e) { /* already closed */ } } });
   }
 
   window.IBCS = { load, clear, subscribe, unsubscribe, check, state: () => st, data, can, agents, customer, conv, withDays, timeLabel, clock,

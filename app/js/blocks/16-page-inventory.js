@@ -330,7 +330,69 @@
   }
   // the makers of the system (IBVendors), else the prototype's list
   const makerNames = () => { const V = window.IBVendors && window.IBVendors.store; const l = V && V.all ? (V.all() || []).map((v) => v.name).filter(Boolean).sort((a, b) => a.localeCompare(b, 'ar')) : []; return l.length ? l : ['Antikiano', 'zaan', 'W&R', 'HANDS', 'Rufaida', 'Ibtekr']; };
-  function receive() {
+  // «استلام في المخزن» (owner, 4 Nov — plan decision 8): «من أوردر» by default — a searchable list of the orders (number or
+  // customer), then the order's lines with a box each; every line ticked is a lot of its own tied to its order line (item_id),
+  // with the line's product, SKU, maker, quantity and value. «يدوي» = the v2 form for a piece without an order.
+  const orderList = () => { const D = window.IBOrders && window.IBOrders.data ? window.IBOrders.data() : null; return D && Array.isArray(D.orders) ? D.orders : []; };
+  const inHub = (itemId) => S.stock.some((x) => !x.closed && x.itemId && String(x.itemId) === String(itemId));
+  function receive() { if (!orderList().length) return receiveManual(); receiveOrder(); }
+  function receiveOrder() {
+    const orders = orderList().slice().sort((a, b) => (String(b.date) > String(a.date) ? 1 : String(b.date) < String(a.date) ? -1 : Number(b.id) - Number(a.id)));
+    const byId = (id) => orders.find((o) => String(o.id) === String(id)) || null;
+    const picker = (f, e, set) => {
+      const list = h('div', { class: 'rc-orders', role: 'listbox', 'aria-label': 'الأوردرات', style: 'max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:4px;margin-top:8px' });
+      const paint = (q) => {
+        const t = O.toLatin(String(q || '')).trim().toLowerCase().replace(/^ib-?/, '');
+        const hits = orders.filter((o) => !t || String(o.id).includes(t) || String(o.name || '').toLowerCase().includes(t)).slice(0, 20);
+        list.replaceChildren(...(hits.length ? hits.map((o) => Button({ type: 'text', size: 'sm', attrs: { role: 'option', 'data-rc-order': String(o.id), style: 'justify-content:flex-start;text-align:start' },
+          label: 'IB-' + o.id + ' · ' + (o.name || '—') + ' · ' + o.subs.length + ' منتج · ' + (o.st || ''), onClick: () => { f.pick = {}; set('order', String(o.id), true); } }))
+          : [h('div', { class: 't-small help' }, 'مفيش أوردر بالرقم أو الاسم ده')]));
+      };
+      const inp = h('input', { id: 'rc-q', type: 'search', placeholder: 'اكتب رقم الأوردر أو اسم العميل', autocomplete: 'off', value: f.oq || '' });
+      inp.addEventListener('input', () => { f.oq = inp.value; paint(inp.value); });
+      paint(f.oq);
+      setTimeout(() => { try { inp.focus(); } catch (x) { /* */ } }, 0);
+      return U.FieldShell({ id: 'rc-q', label: 'الأوردر', required: true, error: e.order }, h('div', null, h('div', { class: 'input' + (e.order ? ' err' : '') }, inp), list));
+    };
+    const linesOf = (o, f, e, set) => {
+      const rows = o.subs.map((x) => { const done = inHub(x.itemId); const key = String(x.itemId);
+        return K.Checkbox({ label: x.prod + ' × ' + (x.qty || 1) + ' — ' + (x.vendor || '—') + ' · #' + x.sid + (x.ss ? ' (' + x.ss + ')' : '') + (done ? ' · في المخزن' : ''), checked: !!f.pick[key], disabled: done,
+          onChange: (v) => { f.pick[key] = v; set('pick', Object.assign({}, f.pick), true); } }); });
+      const free = o.subs.filter((x) => !inHub(x.itemId));
+      return h('div', { class: 'field', 'data-rc-lines': '' }, h('span', { class: 'flabel' }, 'المنتجات اللي هتستلمها *'),
+        free.length > 1 ? Button({ type: 'text', size: 'sm', label: free.every((x) => f.pick[String(x.itemId)]) ? 'شيل الكل' : 'اختار الكل', onClick: () => { const all = free.every((x) => f.pick[String(x.itemId)]); free.forEach((x) => { f.pick[String(x.itemId)] = !all; }); set('pick', Object.assign({}, f.pick), true); } }) : null,
+        ...rows, e.pick ? h('div', { class: 'err-msg', role: 'alert' }, e.pick) : null);
+    };
+    let md = null;
+    md = K.form({ title: 'استلام في المخزن', wide: true, values: { order: '', oq: '', pick: {}, loc: '', mode: 'أمانة' },
+      note: U.InlineNote({ children: 'اختار الأوردر، وعلّم على المنتجات اللي وصلت — كل منتج بيتسجل لوحده ومربوط بسطره في الأوردر. القطعة اللي مالهاش أوردر من «استلام يدوي».' }),
+      fields: (f, e, set) => { const o = f.order ? byId(f.order) : null;
+        return [o ? h('div', { class: 'field' }, h('span', { class: 'flabel' }, 'الأوردر'), h('div', { class: 'row', style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap' }, h('b', { dir: 'ltr' }, 'IB-' + o.id), h('span', null, (o.name || '—') + ' · ' + K.money(o.tot || 0) + ' ج.م · ' + (o.st || '')),
+            Button({ type: 'text', size: 'sm', label: 'غيّر الأوردر', onClick: () => { f.pick = {}; set('order', '', true); } }))) : picker(f, e, set),
+          o ? linesOf(o, f, e, set) : null,
+          o ? K.Radios({ label: 'سبب الاستلام *', value: f.reason, onChange: (v) => set('reason', v, true), options: O.REASONS.map((r) => ({ value: r, label: r, hint: REASON_HINT()[r] })) }) : null,
+          o && e.reason ? h('div', { class: 'err-msg', role: 'alert' }, e.reason) : null,
+          o && f.reason === 'مرتجع' ? K.Radios({ label: 'حالة المنتج *', value: f.condition, onChange: (v) => set('condition', v, true), options: O.RETURN_CONDITIONS.map((c) => ({ value: c.value, label: c.label, hint: c.hint })) }) : null,
+          o && f.reason === 'مرتجع' && e.condition ? h('div', { class: 'err-msg', role: 'alert' }, e.condition) : null,
+          o && f.reason === 'مرتجع' && f.condition ? K.field.area('conditionNote', 'وصف الحالة', f, e, set, { required: ['عيب بسيط', 'ناقص', 'تالف'].includes(f.condition), placeholder: f.condition === 'ناقص' ? 'إيه اللي ناقص؟' : f.condition === 'سليم' ? 'اختياري' : 'وصف العيب أو التلف' }) : null,
+          o && f.reason === 'متاح للبيع' ? K.Radios({ label: 'الملكية', value: f.mode, onChange: (v) => set('mode', v, true), options: [{ value: 'أمانة', label: 'أمانة (فلوس المبتكر بعد البيع)' }, { value: 'ملك', label: 'ملك ابتكر' }] }) : null,
+          o ? K.field.text('loc', 'المكان', f, e, set, { placeholder: f.reason === 'مرتجع' ? 'R-02' : f.reason === 'تصوير' ? 'P-03' : f.reason === 'متاح للبيع' ? 'A-02' : 'T-04' }) : null,
+          h('div', null, Button({ type: 'text', size: 'sm', label: 'استلام يدوي (من غير أوردر)', attrs: { 'data-rc-manual': '' }, onClick: () => { if (md) md.close(); receiveManual(); } }))]; },
+      validate: (f) => { const e = {}; const o = f.order ? byId(f.order) : null; if (!o) { e.order = 'اختار الأوردر'; return e; }
+        const picked = o.subs.filter((x) => f.pick[String(x.itemId)] && !inHub(x.itemId)); if (!picked.length) e.pick = 'علّم على منتج واحد على الأقل';
+        const v = O.validateReceive({ sku: (picked[0] && picked[0].sku) || 'SUB', qty: 1, reason: f.reason, condition: f.condition, conditionNote: f.conditionNote }); if (v.reason) e.reason = 'اختار سبب الاستلام'; if (v.condition) e.condition = v.condition; if (v.conditionNote) e.conditionNote = v.conditionNote; return e; },
+      submitLabel: 'استلام', submit: (f) => { const o = byId(f.order); const status = O.STATUS_BY_REASON[f.reason][0];
+        const picked = o.subs.filter((x) => f.pick[String(x.itemId)] && !inHub(x.itemId));
+        const label = 'دخول — ' + (f.reason === 'متاح للبيع' ? 'للبيع' : f.reason === 'تجميع أوردر' ? 'تجميع' : f.reason);
+        picked.forEach((x) => { const ref = f.reason === 'مرتجع' ? '#' + x.sid : 'IB-' + o.id;
+          newLot({ key: newKey(), sku: x.sku || 'SUB-' + x.sid, name: x.prod, vendor: x.vendor, vendorId: x.vendorId || null, reason: f.reason, status, ref, order: o.id, sub: x.sid, itemId: x.itemId, since: TODAY, loc: f.loc || '—', cost: x.tot || 0,
+            mode: f.reason === 'متاح للبيع' ? f.mode : undefined, condition: f.reason === 'مرتجع' ? f.condition : undefined, conditionNote: f.reason === 'مرتجع' ? (f.conditionNote || '') : undefined, note: f.reason === 'مرتجع' ? 'استلام من الأوردر IB-' + o.id : '' },
+            { type: 'in', qty: x.qty || 1, label, reason: f.reason, ref: ref + ' · #' + x.sid }); });
+        // «تجميع أوردر»: a sub-order whose lines all arrived is «وصل المخزن» on the orders page too (the same write as the orders page)
+        if (f.reason === 'تجميع أوردر' && window.OrdersSetSub) [...new Set(picked.map((x) => x.sid))].forEach((sid) => { if (o.subs.filter((x) => x.sid === sid).every((x) => f.pick[String(x.itemId)] || inHub(x.itemId))) window.OrdersSetSub(sid, 'وصل المخزن'); });
+        K.logEvent('stock.receive', 'IB-' + o.id + ' · ' + picked.length + ' (' + f.reason + ')'); K.toast('اتسجل استلام ' + picked.length + ' منتج من IB-' + o.id, 'success'); rerender(); } });
+  }
+  function receiveManual() {
     K.form({ title: 'استلام في المخزن', wide: true, values: { qty: '1', loc: '', mode: 'أمانة' }, note: U.InlineNote({ children: 'السبب مطلوب — هو اللي بيحدد الحالة والخطوة الجاية.' }),
       fields: (f, e, set) => [K.two(K.field.text('name', 'المنتج', f, e, set, { required: true }), K.field.text('sku', 'SKU', f, e, set, { required: true })), K.two(K.field.select('vendor', 'المبتكر', makerNames(), f, e, set, { required: true }), K.field.text('qty', 'الكمية', f, e, set, { required: true, inputmode: 'numeric' })),
         K.Radios({ label: 'سبب الاستلام *', value: f.reason, onChange: (v) => set('reason', v, true), options: O.REASONS.map((r) => ({ value: r, label: r, hint: REASON_HINT()[r] })) }), e.reason ? h('div', { class: 'err-msg', role: 'alert' }, e.reason) : null,

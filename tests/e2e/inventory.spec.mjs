@@ -52,9 +52,10 @@ test('«المخزون» is open: the lots from inv_lots, the quantity from the 
   await expect(rowOf(page, 'فازة سيراميك')).toContainText('مستني تصوير');
 });
 
-test('receiving writes the lot and its first move (the maker\'s id, the place\'s code, the quantity) and the page reloads it', async ({ page }) => {
+test('receiving by hand (no order) writes the lot and its first move (the maker\'s id, the place\'s code, the quantity) and the page reloads it', async ({ page }) => {
   await openInventory(page);
   await page.getByRole('button', { name: 'استلام في المخزن' }).click();
+  await modal(page, 'استلام في المخزن').getByRole('button', { name: 'استلام يدوي (من غير أوردر)' }).click(); // decision 8: «من أوردر» is the default
   const m = modal(page, 'استلام في المخزن');
   await m.locator('#name').fill('شنطة جلد');
   await m.locator('#sku').fill('IBT-AR-1001');
@@ -62,7 +63,7 @@ test('receiving writes the lot and its first move (the maker\'s id, the place\'s
   await m.locator('#qty').fill('4');
   await m.getByRole('radio', { name: /^متاح للبيع/ }).click();
   await m.locator('#loc').fill('B-03');
-  await m.getByRole('button', { name: 'استلام' }).click();
+  await m.getByRole('button', { name: 'استلام', exact: true }).click();
   await expect(rowOf(page, 'شنطة جلد')).toBeVisible();
   await expect.poll(() => mock.invWrites.filter((w) => w.table === 'inv_moves').length).toBe(1);
   const lot = mock.invWrites.find((w) => w.table === 'inv_lots');
@@ -220,4 +221,45 @@ test('auto-pull from «متاح للبيع» is off by default; with «المخ�
   expect(await pull()).toBe(true);
   await expect.poll(() => mock.inv.inv_moves.find((x) => x.type === 'reserve')).toMatchObject({ lot_id: L1, qty: 1, ref: 'IB-181668' });
   await expect.poll(() => mock.inv.inv_lots.find((x) => x.id === L1).status).toBe('محجوز لأوردر');
+});
+
+// ---------- decision 8 (owner, 4 Nov): receiving from an order ----------
+test('«استلام في المخزن» from an order: search the order, its lines with a box each, the ticked lines become lots tied to their order line', async ({ page }) => {
+  await openInventory(page);
+  await page.getByRole('button', { name: 'استلام في المخزن' }).click();
+  const m = modal(page, 'استلام في المخزن');
+  await m.locator('#rc-q').fill('181668');
+  await expect(m.locator('[data-rc-order]')).toHaveCount(1);
+  await m.locator('[data-rc-order="181668"]').click();
+  const lines = m.locator('[data-rc-lines] [role=checkbox]');
+  await expect(lines).toHaveCount(2);
+  await m.getByRole('button', { name: 'استلام', exact: true }).click();
+  await expect(m).toContainText('علّم على منتج واحد على الأقل');
+  await lines.filter({ hasText: 'Cushion' }).click();
+  await m.getByRole('radio', { name: /^متاح للبيع/ }).click();
+  await m.getByRole('radio', { name: /^ملك ابتكر/ }).click();
+  await m.locator('#loc').fill('A-02');
+  await m.getByRole('button', { name: 'استلام', exact: true }).click();
+  const lot = () => mock.inv.inv_lots.find((l) => l.item_id === 5001);
+  await expect.poll(lot).toMatchObject({ reason: 'متاح للبيع', status: 'متاح', order_id: 181668, name: 'Cushion', sku: 'IBTA4040PAHC000013', mode: 'ملك ابتكر', loc: 'A', cost: 1002 });
+  expect(mock.inv.inv_lots.find((l) => l.item_id === 5002)).toBeUndefined();
+  await expect.poll(() => mock.inv.inv_moves.filter((x) => x.lot_id === lot().id)).toEqual([expect.objectContaining({ type: 'in', qty: 2 })]);
+  // the line already in the hub is not offered again
+  await page.getByRole('button', { name: 'استلام في المخزن' }).click();
+  const m2 = modal(page, 'استلام في المخزن');
+  await m2.locator('#rc-q').fill('IB-181668');
+  await m2.locator('[data-rc-order="181668"]').click();
+  await expect(m2.locator('[data-rc-lines] [role=checkbox]', { hasText: 'Cushion' })).toBeDisabled();
+  await expect(m2.locator('[data-rc-lines] [role=checkbox]', { hasText: 'Macrame Curtain' })).toBeEnabled();
+});
+
+test('the order search matches the customer\'s name too; a word with no order says so', async ({ page }) => {
+  await openInventory(page);
+  await page.getByRole('button', { name: 'استلام في المخزن' }).click();
+  const m = modal(page, 'استلام في المخزن');
+  const name = await page.evaluate(() => window.IBOrders.data().orders.find((o) => o.id === '181668').name);
+  await m.locator('#rc-q').fill(name.slice(0, 3));
+  await expect(m.locator('[data-rc-order="181668"]')).toBeVisible();
+  await m.locator('#rc-q').fill('zzzz-مفيش');
+  await expect(m).toContainText('مفيش أوردر بالرقم أو الاسم ده');
 });

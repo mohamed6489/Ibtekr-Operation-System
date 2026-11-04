@@ -29,7 +29,7 @@
       submit: (f) => {
         const reason = f.reason === 'أخرى' ? 'أخرى: ' + f.other.trim() : f.reason;
         const key = live() ? A().newKey() : 'L-R-' + info.sid + '-' + Date.now();
-        if (toStock && live()) told(A().addLot({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: 'مرتجع', status: 'بانتظار الفحص', ref: '#' + info.sid, order: info.order, sub: info.sid, itemId: info.itemId, since: f.date, loc: 'R', cost: info.tot, mode: 'أمانة', note: reason },
+        if (toStock && live()) told(A().addLot({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: 'مرتجع', status: 'بانتظار الفحص', ref: '#' + info.sid, order: info.order, sub: info.sid, itemId: info.itemId, since: f.date, loc: 'R', cost: inv().lineCost ? inv().lineCost(info.itemId, info.tot) : info.tot, mode: 'أمانة', note: reason },
           { type: 'in', qty: info.qty || 1, label: 'دخول — مرتجع', reason: 'مرتجع', ref: '#' + info.sid, note: 'بانتظار الفحص' }));
         if (toStock) { S.stock.unshift({ key, sku: info.sku || 'SUB-' + info.sid, name: info.prod, vendor: info.vendor, reason: 'مرتجع', status: 'بانتظار الفحص', ref: '#' + info.sid, order: info.order, since: f.date, loc: 'R-02', cost: info.tot, mode: 'أمانة' });
           S.ledger.unshift({ at: f.date + ' ' + K.clockNow(), key, type: 'in', qty: 1, label: 'دخول — مرتجع', reason: 'مرتجع', ref: '#' + info.sid, by: K.member(K.ME).name, note: 'بانتظار الفحص' }); K.notify({ title: 'مرتجع وصل المخزن — ' + info.prod, link: '#inventory-returns' }); }
@@ -57,7 +57,7 @@
     const row = c.subs.find((x) => String(x[0]) === String(sid)); if (!row) return;
     const was = row[2]; row[2] = v;
     const ready = O.consolidation(c.subs.map((x) => x[2])).ready;
-    if (v === 'وصل المخزن' && was !== v && !(opts && opts.stockAdded) && live()) told(A().addLot({ key: A().newKey(), sku: sub.sku || 'SUB-' + sid, name: sub.prod, vendor: sub.vendor, reason: 'تجميع أوردر', status: ready ? 'جاهز يطلع كامل' : 'وصل المخزن', ref: 'IB-' + orderId, sub: sid, itemId: sub.itemId || row[4], order: orderId, since: TODAY(), loc: c.zone, cost: sub.tot },
+    if (v === 'وصل المخزن' && was !== v && !(opts && opts.stockAdded) && live()) told(A().addLot({ key: A().newKey(), sku: sub.sku || 'SUB-' + sid, name: sub.prod, vendor: sub.vendor, reason: 'تجميع أوردر', status: ready ? 'جاهز يطلع كامل' : 'وصل المخزن', ref: 'IB-' + orderId, sub: sid, itemId: sub.itemId || row[4], order: orderId, since: TODAY(), loc: c.zone, cost: inv().lineCost ? inv().lineCost(sub.itemId || row[4], sub.tot) : sub.tot },
       { type: 'in', qty: sub.qty || 1, label: 'دخول — تجميع', reason: 'تجميع أوردر', ref: 'IB-' + orderId + ' · #' + sid, note: 'وصل من ' + sub.vendor }));
     else if (v === 'وصل المخزن' && was !== v && !(opts && opts.stockAdded)) { const key = 'L-' + orderId + '-' + sid + '-' + Date.now(); S.stock.unshift({ key, sku: sub.sku || 'SUB-' + sid, name: sub.prod, vendor: sub.vendor, reason: 'تجميع أوردر', status: 'وصل المخزن', ref: 'IB-' + orderId, sub: sid, order: orderId, since: K.TODAY, loc: c.zone, cost: sub.tot });
       S.ledger.unshift({ at: K.TODAY + ' ' + K.clockNow(), key, type: 'in', qty: sub.qty || 1, label: 'دخول — تجميع', reason: 'تجميع أوردر', ref: 'IB-' + orderId + ' · #' + sid, by: K.member(K.ME).name, note: 'وصل من ' + sub.vendor }); }

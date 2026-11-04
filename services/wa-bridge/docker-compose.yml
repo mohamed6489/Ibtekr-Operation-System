@@ -1,0 +1,13 @@
+# docker compose up -d   (on the VPS, next to a .env with CS_WA_URL and WA_BRIDGE_SECRET — see README.md)
+services:
+  wa-bridge:
+    build: .
+    restart: unless-stopped
+    env_file: .env
+    volumes:
+      - wa-sessions:/data
+    logging:
+      driver: json-file
+      options: { max-size: "5m", max-file: "3" }
+volumes:
+  wa-sessions:

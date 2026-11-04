@@ -1,0 +1,15 @@
+{
+  "name": "ibtekr-wa-bridge",
+  "private": true,
+  "version": "1.0.0",
+  "description": "WhatsApp 1 / 2 by QR for the Ibtekr Operation System (phase 6.4) — talks to the cs-wa Edge Function only.",
+  "type": "module",
+  "main": "src/main.js",
+  "engines": { "node": ">=20" },
+  "scripts": { "start": "node src/main.js" },
+  "dependencies": {
+    "@whiskeysockets/baileys": "6.7.24",
+    "pino": "10.4.0",
+    "qrcode": "1.5.4"
+  }
+}

@@ -136,9 +136,9 @@
     const n = /^\d+/.test(count) ? parseInt(count, 10) : 3; const g = everyHours(every);
     return Array.from({ length: n }, (_, i) => i * g);
   }
-  const NOTIF_TEAMS = Object.freeze(['أدمن', 'خدمة العملاء', 'متابعة الموردين', 'العمليات', 'المخزن', 'الحسابات', 'المدير المباشر', 'المسؤول عن التذكرة', 'المسؤول عن التوصيل', 'المورد (واتساب)']);
+  const NOTIF_TEAMS = Object.freeze(['أدمن', 'خدمة العملاء', 'متابعة المبتكرين', 'العمليات', 'المخزن', 'الحسابات', 'المدير المباشر', 'المسؤول عن التذكرة', 'المسؤول عن التوصيل', 'المبتكر (واتساب)']);
   // Owner (22 Oct): vendors can receive alerts — always on WhatsApp, on the number in their profile.
-  const VENDOR_RECIPIENT = 'المورد (واتساب)';
+  const VENDOR_RECIPIENT = 'المبتكر (واتساب)';
   const recipientChannels = (to, ch) => ({ team: ch, vendor: (to || []).includes(VENDOR_RECIPIENT) ? 'واتساب' : null });
   const splitRecipients = (s) => String(s || '').split(/\s*\+\s*/).map((x) => x.trim()).filter(Boolean);
   function joinRecipients(list) {
@@ -146,11 +146,11 @@
     return u.sort((a, b) => rank(a) - rank(b)).join(' + ');
   }
   // Owner (22 Oct): delivery — «جاهز للشحن» split into three routes; each one needs a Bosta waybill (sender → receiver).
-  const SHIP_READY = Object.freeze(['جاهز للشحن من المورد للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المورد للمخزن']);
-  const ROUTES = { 'جاهز للشحن من المورد للعميل': ['vendor', 'customer'], 'جاهز للشحن من المخزن للعميل': ['warehouse', 'customer'], 'جاهز للشحن من المورد للمخزن': ['vendor', 'warehouse'] };
+  const SHIP_READY = Object.freeze(['جاهز للشحن من المبتكر للعميل', 'جاهز للشحن من المخزن للعميل', 'جاهز للشحن من المبتكر للمخزن']);
+  const ROUTES = { 'جاهز للشحن من المبتكر للعميل': ['vendor', 'customer'], 'جاهز للشحن من المخزن للعميل': ['warehouse', 'customer'], 'جاهز للشحن من المبتكر للمخزن': ['vendor', 'warehouse'] };
   const isShipReady = (ss) => SHIP_READY.includes(ss);
   const shipRoute = (ss) => (ROUTES[ss] ? { from: ROUTES[ss][0], to: ROUTES[ss][1], label: ss.replace('جاهز للشحن ', '') } : null);
-  const PARTY = { customer: 'العميل', vendor: 'المورد', warehouse: 'المخزن' };
+  const PARTY = { customer: 'العميل', vendor: 'المبتكر', warehouse: 'المخزن' };
   const r2m = (n) => Math.round((Number(n) || 0) * 100) / 100;
   function waybillFor(order, sub, vendor, wh) {
     const rt = shipRoute(sub && sub.ss); if (!rt) return null;

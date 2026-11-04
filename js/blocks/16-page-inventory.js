@@ -381,13 +381,23 @@
       validate: (f) => { const e = {}; const o = f.order ? byId(f.order) : null; if (!o) { e.order = 'اختار الأوردر'; return e; }
         const picked = o.subs.filter((x) => f.pick[String(x.itemId)] && !inHub(x.itemId)); if (!picked.length) e.pick = 'علّم على منتج واحد على الأقل';
         const v = O.validateReceive({ sku: (picked[0] && picked[0].sku) || 'SUB', qty: 1, reason: f.reason, condition: f.condition, conditionNote: f.conditionNote }); if (v.reason) e.reason = 'اختار سبب الاستلام'; if (v.condition) e.condition = v.condition; if (v.conditionNote) e.conditionNote = v.conditionNote; return e; },
-      submitLabel: 'استلام', submit: (f) => { const o = byId(f.order); const status = O.STATUS_BY_REASON[f.reason][0];
+      submitLabel: 'استلام', submit: (f) => { const o = byId(f.order);
         const picked = o.subs.filter((x) => f.pick[String(x.itemId)] && !inHub(x.itemId));
+        // «تجميع أوردر»: when these are the last lines of the order not in the hub yet, the order is «جاهز يطلع كامل» (its earlier lots too)
+        const ready = f.reason === 'تجميع أوردر' && o.subs.filter((x) => !x.pulled && x.ss !== 'تم الشحن للعميل').every((x) => inHub(x.itemId) || picked.includes(x));
+        const status = ready ? 'جاهز يطلع كامل' : O.STATUS_BY_REASON[f.reason][0];
+        if (ready) S.stock.forEach((x) => { if (String(x.order) === String(o.id) && x.reason === 'تجميع أوردر' && !x.closed && x.status !== 'جاهز يطلع كامل') { x.status = 'جاهز يطلع كامل'; patchLot(x.key, { status: 'جاهز يطلع كامل' }, 'inventory.status'); } });
         const label = 'دخول — ' + (f.reason === 'متاح للبيع' ? 'للبيع' : f.reason === 'تجميع أوردر' ? 'تجميع' : f.reason);
         picked.forEach((x) => { const ref = f.reason === 'مرتجع' ? '#' + x.sid : 'IB-' + o.id;
           newLot({ key: newKey(), sku: x.sku || 'SUB-' + x.sid, name: x.prod, vendor: x.vendor, vendorId: x.vendorId || null, reason: f.reason, status, ref, order: o.id, sub: x.sid, itemId: x.itemId, since: TODAY, loc: f.loc || '—', cost: x.tot || 0,
             mode: f.reason === 'متاح للبيع' ? f.mode : undefined, condition: f.reason === 'مرتجع' ? f.condition : undefined, conditionNote: f.reason === 'مرتجع' ? (f.conditionNote || '') : undefined, note: f.reason === 'مرتجع' ? 'استلام من الأوردر IB-' + o.id : '' },
             { type: 'in', qty: x.qty || 1, label, reason: f.reason, ref: ref + ' · #' + x.sid }); });
+        // «تجميع أوردر» (owner, 4 Nov — the cards stayed 0): the order is being gathered — its open consolidation gets the ticked lines,
+        // or one is opened with every line of the order not shipped yet (the progress counts the lots received)
+        if (f.reason === 'تجميع أوردر' && live()) { const c = S.consolidations.find((x) => String(x.order) === String(o.id));
+          const open = o.subs.filter((x) => !x.pulled && x.ss !== 'تم الشحن للعميل' && x.itemId).map((x) => x.itemId);
+          if (c && c.id) { const have = new Set(c.subs.map((y) => String(y[4]))); const add = picked.map((x) => x.itemId).filter((x) => x && !have.has(String(x))); if (add.length) saved(A().addToConsolidation(c.id, add)).then((r) => { if (r.ok) reload(); }); }
+          else if (!c && open.length) saved(A().consolidate(o.id, [...new Set(open.concat(picked.map((x) => x.itemId)))], 'T')).then((r) => { if (r.ok) reload(); }); }
         // «تجميع أوردر»: a sub-order whose lines all arrived is «وصل المخزن» on the orders page too (the same write as the orders page)
         if (f.reason === 'تجميع أوردر' && window.OrdersSetSub) [...new Set(picked.map((x) => x.sid))].forEach((sid) => { if (o.subs.filter((x) => x.sid === sid).every((x) => f.pick[String(x.itemId)] || inHub(x.itemId))) window.OrdersSetSub(sid, 'وصل المخزن'); });
         K.logEvent('stock.receive', 'IB-' + o.id + ' · ' + picked.length + ' (' + f.reason + ')'); K.toast('اتسجل استلام ' + picked.length + ' منتج من IB-' + o.id, 'success'); rerender(); } });

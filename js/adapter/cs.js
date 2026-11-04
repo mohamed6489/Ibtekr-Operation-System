@@ -485,7 +485,11 @@
   // ---------- the Meta channel (phase 6.2): Edge Function cs-channel — the link (the admin), the sending, the comment actions ----------
   const FN = 'cs-channel';
   const META = ['messenger', 'instagram'];
-  const metaChannel = (v) => !!v && META.includes(v.channel);
+  // decision 26 (0043): WhatsApp 1 on Meta's Cloud API — its own Edge Function, cs-whatsapp
+  const WA_FN = 'cs-whatsapp';
+  const waCloud = () => !!data.channels.wa1 && data.channels.wa1.kind === 'meta';
+  const metaChannel = (v) => !!v && (META.includes(v.channel) || (v.channel === 'wa1' && waCloud()));
+  const fnOf = (channel) => (channel === 'wa1' ? WA_FN : FN);
   const metaConnected = (v) => { const ch = data.channels[v.channel]; return !!ch && ch.status === 'connected'; };
   async function invoke(body, fn) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
@@ -506,8 +510,9 @@
     : r.reason === 'refused' ? 'الرسالة اتحفظت بس Meta رفضتها (' + (r.code || 'graph') + ') — غالبًا عدّى 24 ساعة من آخر رسالة للعميل.' : r.reason === 'forbidden' ? 'مش مسموح — الصلاحية دي مش عندك' : 'حصلت مشكلة في الاتصال — جرّب تاني');
   // the queued row → the server sends it (a DM / a public reply on a comment / a private reply) and the local row follows its delivery
   async function deliverMeta(m, action) {
-    const r = await invoke({ action, message_id: m.id });
-    const v = conv(m.convId); const row = v && v.msgs.find((x) => x.id === m.id);
+    const cv = conv(m.convId);
+    const r = await invoke({ action, message_id: m.id }, fnOf(cv && cv.channel));
+    const v = cv; const row = v && v.msgs.find((x) => x.id === m.id);
     if (r.ok) { if (row) row.delivery = 'sent'; emit({ conv: m.convId }); return { ok: true, msg: row || m, delivery: 'sent' }; }
     if (row && (r.delivery === 'failed' || r.reason === 'refused')) row.delivery = 'failed';
     emit({ conv: m.convId });
@@ -551,7 +556,7 @@
   // the admin: the Facebook dialog's url (the page sends the browser there; Meta comes back to app/meta-callback.html)
   async function connectStart(id) {
     if (!can().admin) return { ok: false, reason: 'forbidden' };
-    const r = await invoke({ action: 'connect_start', channel: META.includes(id) ? id : 'messenger' });
+    const r = id === 'wa1' ? await invoke({ action: 'connect_start' }, WA_FN) : await invoke({ action: 'connect_start', channel: META.includes(id) ? id : 'messenger' });
     if (!r.ok) return r;
     const url = typeof r.body.url === 'string' && /^https:\/\/www\.facebook\.com\//.test(r.body.url) ? r.body.url : null;
     if (!url) return { ok: false, reason: 'network' };
@@ -561,11 +566,33 @@
   const linkOut = (b) => ({ ok: true, result: b.result === 'choose' ? 'choose' : 'ok', linked: !!b.linked, instagram: !!b.instagram, page: b.page && typeof b.page === 'object' ? b.page : null, pages: Array.isArray(b.pages) ? b.pages.map((p) => ({ id: String(p.id), name: String(p.name || p.id), ig: p.ig && typeof p.ig === 'object' ? p.ig : null })) : [] });
   // the callback page: the code + state → the page linked (or a list to pick from)
   async function connectCallback(code, state) {
+    if (/^wa_/.test(String(state || ''))) { // decision 26: the WhatsApp sign-in
+      const w = await invoke({ action: 'connect_callback', code: String(code || ''), state: String(state) }, WA_FN); if (!w.ok) return w;
+      if (w.body.channel) toMetaChannel(w.body.channel);
+      log('cs.channel.link', 'linked · whatsapp', 'cs_channel', 'wa1'); emit({ channels: true });
+      return { ok: true, result: 'ok', linked: !!w.body.linked, whatsapp: true, number: w.body.number || null, sync: w.body.sync || null };
+    }
     const r = await invoke({ action: 'connect_callback', code: String(code || ''), state: String(state || '') });
     if (!r.ok) return r;
     const out = linkOut(r.body); (Array.isArray(r.body.channels) ? r.body.channels : []).forEach(toMetaChannel);
     if (out.result === 'ok') log('cs.channel.link', 'linked' + (out.page ? ' · ' + out.page.name : ''), 'cs_channel', 'messenger');
     emit({ channels: true }); return out;
+  }
+  // WhatsApp 1 on the Cloud API: its state (+ the configuration, the number on the Business app and the history's progress for the admin)
+  const toHistory = (x) => (x && typeof x === 'object' ? { requestedAt: x.requested_at || null, progress: Number.isFinite(Number(x.progress)) ? Number(x.progress) : null, phase: Number.isFinite(Number(x.phase)) ? Number(x.phase) : null, done: x.done === true, error: typeof x.error === 'string' ? x.error : null } : null);
+  async function waCloudStatus() {
+    const r = await invoke({ action: 'status' }, WA_FN); if (!r.ok) return r;
+    const b = r.body; if (b.channel) toMetaChannel(b.channel);
+    const n = b.number && typeof b.number === 'object' ? b.number : null;
+    emit({ channels: true });
+    return { ok: true, linked: !!b.linked, configured: b.configured !== false, configId: b.config_id === true, verifyConfigured: b.verify_configured !== false, webhookUrl: typeof b.webhook_url === 'string' ? b.webhook_url : null,
+      number: n ? { display: n.display || null, name: n.name || null, bizApp: n.biz_app === true ? true : n.biz_app === false ? false : null } : null, history: toHistory(b.channel && b.channel.history), contacts: toHistory(b.channel && b.channel.contacts) };
+  }
+  async function waSync(type) {
+    if (!can().admin) return { ok: false, reason: 'forbidden' };
+    if (type !== 'history' && type !== 'contacts') return { ok: false, reason: 'invalid' };
+    const r = await invoke({ action: 'sync', type }, WA_FN); if (!r.ok) return r;
+    log('cs.channel.sync', type, 'cs_channel', 'wa1'); return { ok: true };
   }
   async function connectPick(pageId) {
     const r = await invoke({ action: 'connect_pick', page_id: String(pageId || '') });
@@ -573,8 +600,13 @@
     const out = linkOut(r.body); (Array.isArray(r.body.channels) ? r.body.channels : []).forEach(toMetaChannel);
     log('cs.channel.link', 'linked' + (out.page ? ' · ' + out.page.name : ''), 'cs_channel', 'messenger'); emit({ channels: true }); return out;
   }
-  async function disconnect() {
+  async function disconnect(id) {
     if (!can().admin) return { ok: false, reason: 'forbidden' };
+    if (id === 'wa1') {
+      const w = await invoke({ action: 'disconnect' }, WA_FN); if (!w.ok) return w;
+      if (w.body.channel) toMetaChannel(w.body.channel);
+      log('cs.channel.link', 'unlinked', 'cs_channel', 'wa1'); emit({ channels: true }); return { ok: true, linked: false };
+    }
     const r = await invoke({ action: 'disconnect' });
     if (!r.ok) return r;
     (Array.isArray(r.body.channels) ? r.body.channels : []).forEach(toMetaChannel);
@@ -642,6 +674,6 @@
     send, note, event, setStatus, assign, setConvTags, snooze, setUnread, close, open, refreshConv,
     addCustomer, importCustomers, updateCustomer, setMood, setTags, block, addNote, setOverride, rateCustomer, merge,
     saveSegment, deleteSegment, saveCampaign, setCampaignStatus, deleteCampaign, saveSettings,
-    channelStatus, connectStart, connectCallback, connectPick, disconnect, commentPrivate, commentHide, metaChannel, metaConnected, waStatus, waLogout, scheduleCampaign,
+    channelStatus, connectStart, connectCallback, connectPick, disconnect, waCloudStatus, waSync, commentPrivate, commentHide, metaChannel, metaConnected, waStatus, waLogout, scheduleCampaign,
     toCustomer, toConv, toMessage, toSegment, toCampaign, toChannel, toSettings, segColumns, campColumns, STATUSES, MOODS, UNASSIGNED, DEFAULT_SETTINGS };
 })();

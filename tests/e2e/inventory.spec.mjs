@@ -291,3 +291,33 @@ test('receiving an order\'s line as «تجميع أوردر» opens the order\'s
   await expect(page.locator('#pg-inventory')).toContainText('2 من 2');
   await expect.poll(() => mock.inv.inv_lots.filter((l) => l.order_id === 181668).map((l) => l.status)).toEqual(['جاهز يطلع كامل', 'جاهز يطلع كامل']); // the last line made the order ready
 });
+
+// ---------- decision 9 (owner, 4 Nov): the gathered order goes «قيد الشحن» → its pieces leave the hub ----------
+test('a gathered order saved as «قيد الشحن» on the orders page: its pieces leave the hub (out moves), the consolidation closes, the lines are «تم الشحن للعميل»', async ({ page }) => {
+  await openInventory(page);
+  await page.getByRole('button', { name: 'استلام في المخزن' }).click();
+  const m = modal(page, 'استلام في المخزن');
+  await m.locator('#rc-q').fill('181668');
+  await m.locator('[data-rc-order="181668"]').click();
+  await m.getByRole('button', { name: 'اختار الكل' }).click();
+  await m.getByRole('radio', { name: /^تجميع أوردر/ }).click();
+  await m.getByRole('button', { name: 'استلام', exact: true }).click();
+  await expect.poll(() => mock.inv.inv_consolidations.length).toBe(1);
+  await expect.poll(() => mock.inv.inv_moves.filter((x) => x.type === 'in' && mock.inv.inv_lots.some((l) => l.id === x.lot_id && l.order_id === 181668)).length).toBe(2);
+  await page.evaluate(() => { location.hash = 'orders'; });
+  await page.locator('#orders select[data-st="181668"]').selectOption('قيد الشحن');
+  const outs = () => mock.inv.inv_moves.filter((x) => x.type === 'out' && x.ref === 'IB-181668');
+  await expect.poll(() => outs().map((x) => x.qty).sort()).toEqual([1, 2]); // Cushion × 2, Macrame Curtain × 1
+  await expect.poll(() => mock.inv.inv_consolidations[0].status).toBe('shipped');
+  await expect.poll(() => mock.patches.filter((p) => p.table === 'order_items' && p.status === 'تم الشحن للعميل').map((p) => p.id).sort()).toEqual([5001, 5002]);
+  await page.evaluate(() => { location.hash = 'inventory-consolidate'; });
+  await expect(page.locator('#pg-inventory')).not.toContainText('IB-181668');
+});
+
+test('an order not gathered in the hub going «قيد الشحن» writes nothing to the hub', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.evaluate(() => { location.hash = 'orders'; });
+  await page.locator('#orders select[data-st="181668"]').selectOption('قيد الشحن');
+  await expect.poll(() => mock.patches.find((p) => p.table === 'orders')).toBeTruthy();
+  expect(mock.invWrites).toEqual([]);
+});

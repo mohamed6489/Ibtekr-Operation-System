@@ -39,6 +39,7 @@ function setup({ seed = {}, env = META_ENV, vault = {}, routes = {}, fail }: Opt
   const rpc = {
     cs_secret_get: ({ p_name }: any) => { if (p_name !== 'meta_pages') throw new Error('unknown secret'); return vault.meta_pages ?? null; },
     cs_secret_set: ({ p_name, p_value }: any) => { if (p_name !== 'meta_pages') throw new Error('unknown secret'); if (p_value === null) delete vault.meta_pages; else vault.meta_pages = p_value; return null; },
+    sync_secret_matches: ({ candidate }: any) => candidate === 'sync-secret-ok',
   };
   const db = fakeDb({ cs_channels: CHANNELS, ...seed }, { rpc, fail });
   const userDb = (jwt: string) => { const m = MEMBERS[jwt]; return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'cs.view' ? m.view ?? 'N' : key === 'cs.reply' ? m.reply ?? 'N' : 'N'), is_admin: () => m.admin ?? false } : {} }); };
@@ -406,4 +407,40 @@ Deno.test('an Instagram DM with a long mid (≈ 200 characters) lands; a message
   await deliver(ig.deps, { object: 'instagram', entry: [{ id: '777', time: 1762000000, messaging: [{ sender: { id: '55' }, recipient: { id: '777' }, timestamp: 1762000001, message: { mid: LONG, text: 'بكام؟' } }, { sender: { id: '55' }, recipient: { id: '777' }, message: { mid: 'bad mid', text: 'x' } }] }] });
   assertEquals(ig.db.rows('cs_messages').map((m: any) => [m.kind, m.external_id.length]), [['in', LONG.length]]);
   assertEquals(ig.db.rows('cs_channel_events').at(-1).summary, { messages: 1, 'ignored:bad_id': 1 });
+});
+
+Deno.test('comments pull (decision 18): the cron (X-Sync-Secret) reads the latest posts\' comments into the inbox once; a hidden author opens its own visitor thread; the members cannot run it, the admin can', async () => {
+  const at = (minAgo: number) => new Date(Date.parse(NOW) - minAgo * 60000).toISOString().replace('.000Z', '+0000');
+  const routes: Record<string, Route> = {
+    'GET 111/feed': { body: { data: [{ id: '111_9', comments: { data: [
+      { id: '9_3', created_time: at(1), from: { id: '42', name: 'Mohamed Gamal' }, message: 'بكام؟' },
+      { id: '9_2', created_time: at(3), message: 'متاح؟' }, // a person Graph hides
+      { id: '9_4', created_time: at(2), message: 'لونه ايه؟', parent: { id: '9_2' } }, // their reply: the same thread
+      { id: '9_5', created_time: at(1), from: { id: '111', name: 'Ibtekr Club' }, message: 'أهلا', parent: { id: '9_3' } }, // the page's own reply: an echo
+      { id: '9_1', created_time: at(60 * 5), message: 'قديم' }, // older than the window: left
+    ] } }] } },
+    'GET 777/media': { body: { data: [{ id: '1801', comments: { data: [{ id: '1801_1', timestamp: at(2), from: { id: '77', username: 'mohamed_gamal_257' }, text: 'حلو', replies: { data: [] } }] } }] } },
+  };
+  const { deps, db } = setup({ vault: linked(), routes });
+  const cron = (secret: string, action = 'comments_pull') => handler(new Request('http://x/cs-channel', { method: 'POST', headers: { 'content-type': 'application/json', 'x-sync-secret': secret }, body: JSON.stringify({ action }) }), deps);
+  assertEquals((await cron('wrong')).status, 401);
+  assertEquals((await cron('sync-secret-ok', 'send')).status, 401, 'the secret runs the pull only');
+  const first = await cron('sync-secret-ok'); const b = await first.json();
+  assertEquals([first.status, b.seen], [200, 5]);
+  const conv = db.rows('cs_conversations');
+  assertEquals(conv.map((c: any) => [c.seg, c.platform, c.external_id, c.handle]).sort(), [
+    ['comments', 'facebook', '111_9:42', 'Mohamed Gamal'], ['comments', 'facebook', '111_9:c9_2', 'زائر فيسبوك'], ['comments', 'instagram', '1801:77', '@mohamed_gamal_257'],
+  ].sort());
+  const msgs = db.rows('cs_messages');
+  assertEquals(msgs.filter((m: any) => m.kind === 'in').map((m: any) => m.external_id).sort(), ['1801_1', '9_2', '9_3', '9_4']);
+  const visitor = conv.find((c: any) => c.external_id === '111_9:c9_2');
+  assertEquals(msgs.filter((m: any) => m.conversation_id === visitor.id).map((m: any) => m.text), ['متاح؟', 'لونه ايه؟']);
+  assertEquals(msgs.filter((m: any) => m.kind === 'out').map((m: any) => [m.external_id, m.author]), [['9_5', null]], 'the page\'s reply lands as an echo on the commenter\'s thread');
+  assertEquals(db.rows('cs_channel_events').at(-1).object, 'pull');
+  // the next minute: nothing new, nothing written, no log row
+  const events = db.rows('cs_channel_events').length;
+  await cron('sync-secret-ok');
+  assertEquals([db.rows('cs_messages').length, db.rows('cs_channel_events').length], [msgs.length, events]);
+  assertEquals((await call(deps, { action: 'comments_pull' }, 'jwt-reply')).res.status, 401);
+  assertEquals((await call(deps, { action: 'comments_pull' }, 'jwt-admin')).res.status, 200);
 });

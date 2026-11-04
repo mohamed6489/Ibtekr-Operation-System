@@ -106,8 +106,45 @@ export function parseWebhook(body) {
   return { object: body.object, platform, entries };
 }
 
-// the conversation of a comment: one per (post × commenter)
-export const commentThreadId = (postId, fromId) => (postId + ':' + (fromId || 'anon')).slice(0, 160);
+// ---------------------------------------------------------------- the comments pull (decision 18)
+// Meta sends no comment webhook to an app without Advanced Access (seen live 4 Nov: an app member's comment, its author visible
+// to Graph, and no delivery). The function reads the latest posts' comments itself (cron every minute) and feeds them through the
+// webhook's own path (the same events, the same dedupe on the comment id). A comment whose author Graph hides (a person with no
+// role on the app, before App Review) opens its own conversation as «زائر فيسبوك / إنستجرام»; its replies join it.
+export const PULL_WINDOW_MS = 2 * 60 * 60 * 1000; // the comments of the last two hours (older ones are not pulled into the inbox)
+export const VISITOR = { facebook: 'زائر فيسبوك', instagram: 'زائر إنستجرام' };
+export function pulledComments(feedJson, mediaJson, pageId, sinceMs) {
+  const out = [];
+  const keep = (ev) => { if (ev.commentId && ev.at != null && ev.at >= sinceMs) out.push(ev); };
+  (isObj(feedJson) && Array.isArray(feedJson.data) ? feedJson.data : []).slice(0, 25).forEach((p) => {
+    if (!isObj(p)) return; const postId = idOf(p.id); if (!postId) return;
+    const list = isObj(p.comments) && Array.isArray(p.comments.data) ? p.comments.data : [];
+    list.slice(0, 100).forEach((c) => {
+      if (!isObj(c)) return; const from = isObj(c.from) ? c.from : {}; const fromId = idOf(from.id);
+      // a top-level comment's parent is the post (as in the feed webhook); a reply's is its comment
+      const parentId = isObj(c.parent) && idOf(c.parent.id) ? idOf(c.parent.id) : postId;
+      keep({ type: 'comment', platform: 'facebook', pageId, commentId: idOf(c.id), postId, parentId, fromId, fromName: str(from.name, 120) || (fromId ? null : VISITOR.facebook),
+        text: messageText(c.message, []), at: when(c.created_time), removed: false, edited: false, pulled: true });
+    });
+  });
+  (isObj(mediaJson) && Array.isArray(mediaJson.data) ? mediaJson.data : []).slice(0, 25).forEach((m) => {
+    if (!isObj(m)) return; const postId = idOf(m.id); if (!postId) return;
+    const one = (c, parentId) => {
+      if (!isObj(c)) return; const from = isObj(c.from) ? c.from : {}; const fromId = idOf(from.id);
+      const user = str(from.username, 118) || str(c.username, 118);
+      keep({ type: 'comment', platform: 'instagram', pageId, commentId: idOf(c.id), postId, parentId, fromId, fromName: user ? '@' + user : (fromId ? null : VISITOR.instagram),
+        text: messageText(c.text, []), at: when(c.timestamp), removed: false, edited: false, pulled: true });
+    };
+    (isObj(m.comments) && Array.isArray(m.comments.data) ? m.comments.data : []).slice(0, 100).forEach((c) => {
+      one(c, null);
+      if (isObj(c) && isObj(c.replies) && Array.isArray(c.replies.data)) c.replies.data.slice(0, 50).forEach((r) => one(r, idOf(c.id)));
+    });
+  });
+  return out.sort((a, b) => a.at - b.at); // oldest first: a reply lands after its comment
+}
+
+// the conversation of a comment: one per (post × commenter); a hidden commenter: one per top-level comment (its replies join it)
+export const commentThreadId = (postId, fromId, topCommentId = null) => (postId + ':' + (fromId || (topCommentId ? 'c' + topCommentId : 'anon'))).slice(0, 160);
 // the status an incoming message gives a conversation (block 19 nextStatus(status, 'in'))
 export const statusAfterIn = (existing) => (existing == null ? 'جديدة' : 'مستنية ردنا');
 export const DEFAULT_NAME = { messenger: 'عميل ماسنجر', instagram: 'عميل إنستجرام' };
@@ -207,6 +244,9 @@ export const graphPath = {
   // the probe (decision 17): the latest 5 posts / media with up to 3 comments each (ids, dates and the commenter id only)
   feedProbe: (pageId) => GRAPH + '/' + pageId + '/feed?fields=id,comments.summary(true).limit(3){id,created_time,from}&limit=5',
   mediaProbe: (igId) => GRAPH + '/' + igId + '/media?fields=id,comments_count,comments.limit(3){id,timestamp,from}&limit=5',
+  // the pull (decision 18): the latest 10 posts / media with their recent comments (replies included)
+  feedPull: (pageId) => GRAPH + '/' + pageId + '/feed?fields=id,comments.filter(stream).order(reverse_chronological).limit(50){id,created_time,from,message,parent{id}}&limit=10',
+  mediaPull: (igId) => GRAPH + '/' + igId + '/media?fields=id,comments.limit(50){id,timestamp,from,username,text,replies.limit(25){id,timestamp,from,username,text}}&limit=10',
   // the one call with a token in the url: debug_token takes the token it inspects as input_token (sent to Meta only, never logged)
   debugToken: (inputToken) => GRAPH + '/debug_token?' + new URLSearchParams({ input_token: inputToken }).toString(),
   send: () => GRAPH + '/me/messages',

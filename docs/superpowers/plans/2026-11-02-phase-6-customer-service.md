@@ -147,3 +147,13 @@
     (`posts`/`comments`/`sampled`/`with_from`/`latest`) أو كود خطأ Graph، ويتسجل صف `cs_channel_events` `object = 'probe'` (أعداد وأسماء صلاحيات
     بس — مافيش نص ولا اسم). والصلاحيات الناقصة بقت من `debug_token` بتوكن التطبيق (`/me/permissions` مابيردش على توكن صفحة). لو Graph بيوري
     التعليقات و`from` → نسحبها بنفسنا (قرار جاي)؛ لو مخفية أو خطأ صلاحية → المراجعة/الـ Live.
+    **النتيجة الحية (4 نوفمبر 07:41):** تعليق Mohamed Gamal (عضو في التطبيق) على فيسبوك وإنستجرام — Graph بيوريه وصاحبه ظاهر،
+    والصلاحيات العشرة ممنوحة والصفحة مشتركة في `feed` — ومافيش أي webhook. يعني Meta مابتبعتش webhooks التعليقات من غير **Advanced Access**
+    (مراجعة التطبيق)، مش موضوع دور.
+18. **سحب التعليقات (4 نوفمبر، صاحب المشروع: «ابدأ»):** `0040_cs_comments_pull.sql` — cron `cs-comments-pull` كل دقيقة بـ `X-Sync-Secret`
+    (سر `sync_secret` بتاع `0008` في Vault، من غير سر جديد) → `cs-channel` action `comments_pull` (السر بيشغّل الـ action دي بس؛ والأدمن
+    بالـ JWT بإيده): `GET /{page}/feed` (آخر 10 بوستات، `comments.filter(stream)` بالردود) و`/{ig}/media` (آخر 10 + `replies`) →
+    `pulledComments` (نفس شكل أحداث الـ webhook، آخر ساعتين بس — `PULL_WINDOW_MS`) → اللي موجود في `cs_messages.external_id` بيتساب قبل أي
+    كتابة → `onComment` نفسه (التكرار محمي بالـ unique، والـ webhook لما يشتغل بعد المراجعة مش هيكرر). تعليق صاحبه مخفي (حد مالوش دور قبل
+    المراجعة) = محادثة لوحده «زائر فيسبوك/إنستجرام» (`<post>:c<التعليق الأساسي>`) وردوده بتدخلها؛ رد الصفحة نفسها = echo. صف
+    `cs_channel_events` `object = 'pull'` بس لما يدخل جديد أو يحصل خطأ.

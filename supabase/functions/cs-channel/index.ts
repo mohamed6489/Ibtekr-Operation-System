@@ -35,7 +35,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import {
   DEFAULT_NAME, SUBSCRIBED_FIELDS, authUrl, businessIdsOf, subscribedFieldsOf, mergePages, permissionsOf, tokenlessCount, commentThreadId, graphErrorCode, graphPath, hideBody, pagesOf, parseWebhook, privateReplyBody, profileHandle, profileName, publicPages,
-  sendBody, statusAfterIn, tokenScopesOf, commentsProbeOf,
+  sendBody, statusAfterIn, tokenScopesOf, commentsProbeOf, pulledComments, PULL_WINDOW_MS,
 } from '../_shared/cs-channel.js';
 
 // deno-lint-ignore no-explicit-any
@@ -48,7 +48,7 @@ export type Deps = {
   fetch?: typeof fetch;
 };
 
-const ACTIONS = ['status', 'connect_start', 'connect_callback', 'connect_pick', 'disconnect', 'send', 'comment_private', 'comment_hide'];
+const ACTIONS = ['status', 'connect_start', 'connect_callback', 'connect_pick', 'disconnect', 'send', 'comment_private', 'comment_hide', 'comments_pull'];
 const REDIRECT_DEFAULT = 'https://operation-system.ibtekr.club/meta-callback.html';
 const STATE_MINUTES = 10;
 const GRAPH_MS = 15_000;
@@ -230,7 +230,8 @@ async function onComment(deps: Deps, page: Page | null, ev: Json, s: Summary) {
     if (error) throw new Error('cs_messages: ' + (error.code ?? 'update'));
     bump(s, 'edits'); return;
   }
-  const threadId = commentThreadId(ev.postId, ev.fromId);
+  const topId = ev.parentId && ev.parentId !== ev.postId ? ev.parentId : ev.commentId; // a hidden commenter: the thread of the top-level comment
+  const threadId = commentThreadId(ev.postId, ev.fromId, ev.fromId ? null : topId);
   const conv = await ensureConversation(deps, { seg: 'comments', platform, channel, customer_id: null, external_id: threadId, handle: ev.fromName });
   const put = await putMessage(deps, { conversation_id: conv.id, kind: 'in', text: ev.text, author: null, external_id: ev.commentId, delivery: null, meta: { comment_id: ev.commentId, post_id: ev.postId, parent_id: ev.parentId, from_id: ev.fromId, at: ev.at }, created_at: isoOf(ev.at, deps) });
   if (!put) { bump(s, 'duplicates'); return; }
@@ -271,6 +272,33 @@ async function webhook(req: Request, deps: Deps): Promise<Response> {
     await logEvent(deps, { object: parsed.object, entry_id: entry.id, status: error ? 'error' : handled ? 'ok' : 'ignored', error, summary: s });
   }
   return failed ? json(500, { status: 'error' }) : json(200, { status: 'ok' });
+}
+
+// ---------------------------------------------------------------- the comments pull (decision 18: cron every minute, X-Sync-Secret)
+
+async function commentsPull(deps: Deps): Promise<Response> {
+  const page = await pageOf(deps);
+  if (!page) return json(200, { result: 'skipped', reason: 'not_linked' });
+  const s: Summary = {}; let error: string | null = null;
+  const read = async (url: string) => { try { return await graph(deps, 'GET', url, { token: page.token }); } catch (e) { error = (e instanceof GraphError ? e.code : 'error'); bump(s, 'errors'); return null; } };
+  const feed = await read(graphPath.feedPull(page.id));
+  const media = page.ig ? await read(graphPath.mediaPull(page.ig.id)) : null;
+  const events = pulledComments(feed, media, page.id, Date.parse(deps.now()) - PULL_WINDOW_MS);
+  // the ones already in the inbox (pulled before, or delivered by a webhook) are skipped before any write
+  const ids = events.map((e) => e.commentId);
+  const known = new Set<string>();
+  if (ids.length) { const { data } = await deps.db.from('cs_messages').select('external_id').in('external_id', ids); (Array.isArray(data) ? data : []).forEach((r: Json) => known.add(String(r.external_id))); }
+  for (const ev of events) {
+    if (known.has(ev.commentId)) continue;
+    try { await onComment(deps, page, ev, s); } catch (e) { bump(s, 'errors'); error = String((e as Error)?.message ?? 'error').replace(/[^\w: .-]/g, '').slice(0, 200); }
+  }
+  // a row only when something came in or failed (not one a minute for nothing)
+  if (Object.keys(s).length) await logEvent(deps, { object: 'pull', entry_id: page.id, status: error ? 'error' : Object.keys(s).some((k) => !k.startsWith('ignored') && k !== 'duplicates' && k !== 'errors') ? 'ok' : 'ignored', error, summary: { ...s, seen: events.length } });
+  return json(200, { result: 'ok', seen: events.length, summary: s });
+}
+async function syncAllowed(deps: Deps, secret: string) {
+  const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
+  return !error && data === true;
 }
 
 // ---------------------------------------------------------------- the members' actions
@@ -480,6 +508,12 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   try { body = await req.json(); } catch { return json(400, { error: 'bad_json' }); }
   const args: Json = isObj(body) ? body : {};
   const action = typeof args.action === 'string' ? args.action : '';
+  // the cron (decision 18): the sync secret of 0008 (Vault), the comments pull only — never a member's action
+  const syncSecret = req.headers.get('x-sync-secret');
+  if (syncSecret && !req.headers.get('authorization')) {
+    if (action !== 'comments_pull' || !(await syncAllowed(deps, syncSecret))) return json(401, { error: 'unauthorized' });
+    try { return await commentsPull(deps); } catch (e) { console.error('cs-channel comments_pull: ' + String((e as Error)?.message ?? 'error').replace(/[^\w: .-]/g, '').slice(0, 200)); return json(500, { error: 'failed' }); }
+  }
   const who = await whoIs(req, deps);
   if (!who) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
@@ -491,6 +525,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'disconnect') return await disconnect(deps, who);
     if (action === 'send') return await deliver(deps, who, args, 'send');
     if (action === 'comment_private') return await deliver(deps, who, args, 'private');
+    if (action === 'comments_pull') return who.admin ? await commentsPull(deps) : json(401, { error: 'unauthorized' }); // the admin, by hand
     return await commentHide(deps, who, args);
   } catch (e) {
     console.error('cs-channel ' + action + ': ' + String((e as Error)?.message ?? 'error').replace(/[^\w: .-]/g, '').slice(0, 200));

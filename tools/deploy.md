@@ -1156,3 +1156,20 @@ E2E_OPS_PW=IbtekrDev-2026 E2E_VIEWER_PW=IbtekrDev-2026 npm run e2e
 5. التحقق: `select channel, status, phone, updated_at from cs_wa_state;` = `connected`، ورسالة من موبايل تاني تظهر في الصندوق، والرد يوصل.
 
 **الأمان:** الخدمة مالهاش أي مفتاح داتابيز؛ كل حاجة عبر `cs-wa` بالسر (مقارنة ثابتة الوقت). الـ QR بيوصل للأدمن بس، ومافيش نص رسالة ولا رقم في أي log. الحملات: الجمهور بيتثبّت على السيرفر وقت الجدولة، والموافقة والحظر والدمج بيتشيّكوا تاني وقت كل إرسال.
+
+#### 2.7.18 واتساب 1 على Meta — رقم الواتساب بيزنس بمحادثاته (قرار 26، 4 نوفمبر)
+
+**اتعمل:** `0043_cs_wa_cloud.sql` + `rls_cs_wa_cloud.sql` على الحي، و`cs-whatsapp` منشورة (`deploy-functions.yml`، `verify_jwt = false`).
+
+**صاحب المشروع على Meta (نفس تطبيق ماسنجر/إنستجرام):**
+1. App Dashboard ← **Add product ← WhatsApp ← Set up** (اختار الـ Business Portfolio بتاع الصفحة).
+2. **Facebook Login for Business ← Configurations ← Create configuration** من نوع **WhatsApp Embedded Signup** بالصلاحيات `whatsapp_business_management` و`whatsapp_business_messaging` (و`business_management`) → انسخ الـ **Configuration ID** → Supabase ← Edge Functions ← Secrets: **`META_WA_CONFIG_ID`** (بنفسك؛ مايتبعتش في الشات).
+3. Valid OAuth Redirect URIs فيها `https://operation-system.ibtekr.club/meta-callback.html` (موجودة من 2.7.16).
+4. **WhatsApp ← Configuration ← Webhook:** Callback URL = `https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-whatsapp`، Verify token = نفس `META_VERIFY_TOKEN` → Verify and save → **Webhook fields:** `messages`، `smb_message_echoes`، `history`، `smb_app_state_sync`، `account_update`.
+5. الموبايل: تطبيق WhatsApp Business **2.24.17 أو أحدث**، والرقم شغال عليه 7 أيام على الأقل.
+
+**الربط:** خدمة العملاء ← القنوات ← **واتساب 1 ← ربط** → نافذة Meta → «Connect your existing WhatsApp Business app» → الرقم → التأكيد من الموبايل (ووافق على **مشاركة سجل المحادثات**) → بيرجع على `meta-callback.html` «اتربط واتساب ✓». السيستم بيطلب جهات الاتصال والتاريخ فورًا (Meta بتسمح بيهم **مرة واحدة في خلال 24 ساعة** من الربط — لو فشل، «اطلب المحادثات القديمة تاني» من صف الأدمن).
+
+**التحقق:** `select status, number, meta->'history' from cs_channels where id = 'wa1';` = `connected` والتقدم بيزيد؛ `select object, status, error, summary from cs_channel_events where object = 'whatsapp' order by id desc limit 5;`؛ رسالة من موبايل تاني تظهر في الصندوق، والرد يوصل من نفس الرقم.
+
+**الأمان:** التوكن في Vault (`cs_meta_wa`) بس؛ الـ webhook بالتوقيع والحساب المربوط بس؛ مافيش نص ولا رقم ولا توكن في `cs_channel_events` أو `activity_log`.

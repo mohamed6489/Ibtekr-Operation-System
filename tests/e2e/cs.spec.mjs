@@ -133,20 +133,20 @@ test('6.3 hidden (decision 24): without settings «cs».live the last wizard ste
   await expect(P.locator('[data-wz-next][data-soon]')).toBeDisabled();
   await expect(P.locator('[data-wz-next] .soon')).toHaveText('soon');
   await P.getByRole('tab', { name: 'القنوات' }).click();
-  await expect(P.locator('[data-chan-connect="wa1"][data-soon]')).toBeDisabled();
   await expect(P.locator('[data-chan-connect="wa2"][data-soon]')).toBeDisabled();
+  await expect(P.locator('[data-chan-connect="wa1"]')).not.toHaveAttribute('data-soon', ''); // decision 26: WhatsApp 1 is on Meta, not the hidden QR
   await expect(P.locator('[data-chan-connect="messenger"]')).not.toHaveAttribute('data-soon', '');
 });
 
-test('6.4 (decisions 21–22, live): «ربط» واتساب 1 shows the bridge\'s QR to the admin, closes once the number is linked; «فصل الرقم» sends the logout', async ({ page }) => {
+test('6.4 (decisions 21–22, live): «ربط» واتساب 2 shows the bridge\'s QR to the admin, closes once the number is linked', async ({ page }) => {
   mock.settings.push({ section: 'cs', data: { live: { wa: true, campaigns: true } } });
   let polls = 0;
-  mock.wa = { states: { wa1: { status: 'qr', qr_svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><path d="M0 0h1v1H0z"/></svg>' }, wa2: { status: 'offline' } }, calls: [], script: (W) => { polls += 1; if (polls >= 3) { W.states.wa1 = { status: 'connected', phone: '01000000001' }; mock.cs.channels.find((c) => c.id === 'wa1').status = 'connected'; } } };
+  mock.wa = { states: { wa1: { status: 'offline' }, wa2: { status: 'qr', qr_svg: '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 4 4"><path d="M0 0h1v1H0z"/></svg>' } }, calls: [], script: (W) => { polls += 1; if (polls >= 3) { W.states.wa2 = { status: 'connected', phone: '01000000002' }; mock.cs.channels.find((c) => c.id === 'wa2').status = 'connected'; } } };
   await signIn(page, ADMIN, '#cs-channels');
   const P = pg(page);
-  await P.locator('[data-chan-connect="wa1"]').click();
-  await expect(page.locator('.modal [data-wa-qr="wa1"] img.wa-qr-img')).toBeVisible();
-  await expect(page.locator('.modal [data-wa-qr="wa1"]')).toContainText('الأجهزة المرتبطة');
+  await P.locator('[data-chan-connect="wa2"]').click();
+  await expect(page.locator('.modal [data-wa-qr="wa2"] img.wa-qr-img')).toBeVisible();
+  await expect(page.locator('.modal [data-wa-qr="wa2"]')).toContainText('الأجهزة المرتبطة');
   await expect(page.locator('.modal')).toHaveCount(0, { timeout: 15000 }); // linked → the window closes by itself
   expect(mock.wa.calls.filter((x) => x === 'wa_status').length).toBeGreaterThanOrEqual(3);
 });
@@ -191,7 +191,10 @@ test('channels (all disconnected; WhatsApp waits for the last stage; the admin s
   const P = pg(page);
   await expect(P.locator('[data-channel]')).toHaveCount(5);
   await expect(P.locator('[data-channel="wa1"]')).toContainText('غير متصلة');
-  await expect(P.locator('[data-chan-connect="wa1"]')).toContainText('soon'); // decision 24: WhatsApp hidden until the owner opens it
+  await expect(P.locator('[data-chan-connect="wa2"]')).toContainText('soon'); // decision 24: WhatsApp 2 (QR) hidden until the owner opens it
+  await expect(P.locator('[data-chan-connect="wa1"]')).not.toContainText('soon'); // decision 26: WhatsApp 1 links through Meta
+  await expect(P.locator('[data-wa-setup]')).toContainText('META_WA_CONFIG_ID موجود ✓');
+  await expect(P.locator('[data-wa-setup]')).toContainText('https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-whatsapp');
   await expect(P.locator('[data-meta-setup]')).toContainText('الأسرار موجودة ✓');
   await expect(P.locator('[data-meta-setup]')).toContainText('https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-channel');
   expect(mock.metaCalls.map((c) => c.action)).toEqual(['status']);
@@ -331,4 +334,30 @@ test('6.2 — several pages on the account: the callback page lists them and the
   await expect(page.locator('#cb-title')).toHaveText('اتربطت صفحة Ibtekr Club ✓');
   expect(mock.meta.page.id).toBe('111');
   expect(mock.metaCalls.map((c) => c.action)).toEqual(['status', 'connect_start', 'connect_callback', 'connect_pick']);
+});
+
+test('decision 26: WhatsApp 1 on Meta — «ربط» opens the Embedded Signup dialog; the callback links the number and asks for the history; a reply on wa1 goes through cs-whatsapp', async ({ page }) => {
+  await signIn(page, ADMIN, '#cs-channels');
+  const P = pg(page);
+  await page.route('https://www.facebook.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<html><body>facebook</body></html>' }));
+  const [req] = await Promise.all([page.waitForRequest((r) => r.url().startsWith('https://www.facebook.com/v25.0/dialog/oauth')), P.locator('[data-chan-connect="wa1"]').click()]);
+  const state = new URL(req.url()).searchParams.get('state');
+  expect(state).toMatch(/^wa_/);
+  expect(new URL(req.url()).searchParams.get('config_id')).toBe('5550001112');
+  await page.goto('/meta-callback.html?code=code-123456&state=' + state);
+  await expect(page.locator('#cb-title')).toContainText('اتربط واتساب');
+  await expect(page.locator('#cb-text')).toContainText('آخر 6 شهور');
+  expect(mock.waCloud.calls).toContain('connect_callback');
+  await page.goto('/index.html#cs-channels');
+  const P2 = pg(page);
+  await expect(P2.locator('[data-channel="wa1"]')).toContainText('متصلة');
+  await expect(P2.locator('[data-wa-setup]')).toContainText('+20 100 000 0001');
+  await expect(P2.locator('[data-wa-setup]')).toContainText('اتطلبت');
+  // a reply on a wa1 conversation: queued, then sent by cs-whatsapp
+  const conv = mock.cs.conversations.find((c) => c.channel === 'wa1'); conv.external_id = '01000000011'; conv.last_in_at = new Date().toISOString();
+  const r = await page.evaluate(async (id) => { await window.IBCS.load(); return window.IBCS.send(id, 'أهلا من السيستم'); }, conv.id);
+  expect(r.ok).toBe(true);
+  const m = mock.cs.messages.find((x) => x.text === 'أهلا من السيستم');
+  expect([m.delivery, /^wamid\./.test(m.external_id)]).toEqual(['sent', true]);
+  expect(mock.waCloud.calls).toContain('send');
 });

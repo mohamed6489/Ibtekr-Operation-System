@@ -43,7 +43,7 @@ test('admin: the customers come from the orders (full phone, figures, the last o
   expect(d.segments).toEqual([{ id: expect.any(String), name: 'VIP راضيين', minTotal: 1000, minOrders: '', moods: [], last: '', lastFrom: '', lastTo: '', ranges: { sat: [4, 5] }, includeUnrated: false, add: [], remove: [] }]);
   expect(d.campaigns[0]).toMatchObject({ name: 'عرض العملاء المتكررين — أكتوبر', seg: 'VIP راضيين', from: 'واتساب 1 · العملاء', status: 'مسودة', size: 2, discountCode: 'OCT10' });
   expect(Object.keys(d.channels).sort()).toEqual(['instagram', 'messenger', 'tiktok', 'wa1', 'wa2']);
-  expect(d.channels.wa1).toMatchObject({ status: 'disconnected', kind: 'qr', cap: 300, aud: 'customers' });
+  expect(d.channels.wa1).toMatchObject({ status: 'disconnected', kind: 'meta', cap: 300, aud: 'customers' }); // decision 26: WhatsApp 1 on Meta's Cloud API
   expect(d.settings).toEqual({ routing: 'auto', slaWarn: 10, slaLate: 15, hours: expect.any(String), autoCloseDays: 3, live: { wa: false, campaigns: false } }); // decision 24: hidden until the owner opens them
   expect(d.agents.map((a) => a.name)).toEqual(['صفوت كمال', 'سارة أحمد', 'محمد علي', 'هدى سمير']);
 });

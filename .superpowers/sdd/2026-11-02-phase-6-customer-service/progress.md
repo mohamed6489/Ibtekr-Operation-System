@@ -34,3 +34,11 @@
 - [x] 6.2 T17 (4 نوفمبر, قرار 20): فلتر «البوست» في قسم التعليقات (الكتلة 20 + cs.css؛ صورة + كابشن + عدد المفتوح/الكل، بيحترم تاب المنصة)، الـ mock بمحادثة تانية على بوست تاني + e2e. node 414 ✓ · e2e 239 ✓ · lock ✓.
 - [x] 6.3 + 6.4 T18–T22 (4 نوفمبر, «ابنيهم كاملين ومخفيين» + QR): الخطة (قرارات 21–25) · `0042_cs_wa` + `rls_cs_wa` (db ✓؛ المراجعة الأمنية: «مجدولة» يدوي → إعادة فحص الموافقة/الحظر/الدمج وقت الإرسال) · `cs-wa` + `_shared/cs-wa.js` (Deno 7 + node 5) · `services/wa-bridge` (Baileys، Docker، اختبارات المنطق 5؛ اتشغلت محليًا ضد cs-wa وهمي — الربط بواتساب نفسه مستني السيرفر) · `IBCS` waStatus/waLogout/scheduleCampaign + `live` · الكتلة 20 (QR modal، فصل الرقم، الجدولة عبر RPC، soon) + mock + e2e. node 425 ✓ · e2e 242 ✓ · Deno 201 ✓ · lock ✓.
 - [x] 6.3 + 6.4 T23 (4 نوفمبر, الحي — مخفي): `0042` بـ execute_sql (حالتين `cs_wa_state` + أعمدة المستلمين + `cs_campaign_schedule`)، `cs-wa` v1 ACTIVE، الواجهة على main بـ soon (`settings` `cs`.`live` = false). فاضل لما صاحب المشروع يقول «افتح»: `WA_BRIDGE_SECRET` + VPS + `docker compose up -d` + `live` (`tools/deploy.md` §2.7.17).
+
+## قرار 26 — واتساب 1 على Meta (Cloud API بالـ Coexistence) — 4 نوفمبر
+- السبب: صاحب المشروع عايز رقم الواتساب بيزنس بمحادثاته في السيستم. فحص الصفحة (`whatsapp_probe` في `status` بتاع cs-channel) اتنشر؛ الطريق الرسمي = Coexistence (`developers.facebook.com` مقفول من الـ sandbox — التفاصيل من مرجع على GitHub).
+- T24 ✓ `0043_cs_wa_cloud.sql` + `rls_cs_wa_cloud.sql` (wa1 meta، state wa1، secret meta_wa، التاريخ من غير مقروء) — `db:test` كله عدّى.
+- T25 ✓ `_shared/cs-whatsapp.js` + `tests/functions/cs-whatsapp.test.mjs` (8).
+- T26 ✓ `cs-whatsapp` + `index_test.ts` (6) + حارس `cs-wa` لقناة meta (+1 اختبار)؛ `deno:check` + `deno:test` 208 عدّوا.
+- T27 ✓ `IBCS` (waCloudStatus / waSync / connectStart / disconnect / send لـ wa1) + الكتلة 20 (lock) + `meta-callback.js` + mock + e2e (243 عدّوا)؛ `npm test` 433.
+- T28: الوثائق ✓ (الخطة قرار 26، CLAUDE.md، deploy §2.7.18)؛ الحي: `0043` + النشر + الإعداد على Meta (صاحب المشروع) + الربط.

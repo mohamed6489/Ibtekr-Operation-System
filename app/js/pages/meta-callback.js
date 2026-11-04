@@ -1,7 +1,8 @@
 // Phase 6.2 decision 13: Facebook's sign-in comes back to meta-callback.html with ?code=…&state=… (the redirect URI registered on the
 // Meta app). This page hands both to cs-channel action connect_callback as the signed-in admin (the same Supabase session as the
 // app, same origin — the CSP allows no inline script, hence this file); the server spends the state, exchanges the code, reads the
-// pages and links the one page (or lists several to pick from here → connect_pick). Nothing is stored or logged here, and the query
+// pages and links the one page (or lists several to pick from here → connect_pick); a state «wa_…» (decision 26) is the WhatsApp
+// sign-in and goes to cs-whatsapp instead. Nothing is stored or logged here, and the query
 // is wiped from the address bar once read.
 (function () {
   'use strict';
@@ -28,8 +29,23 @@
     if (error || !out || !out.linked) { show('الربط ماكملش', why(await bodyOf(error)), true); return; }
     linked(out);
   };
+  // decision 26: a state «wa_…» is the WhatsApp sign-in (Embedded Signup) → cs-whatsapp
+  const waWhy = (b) => (b && b.error === 'no_account' ? 'Meta مارجّعتش حساب WhatsApp Business — في شاشة الربط اختار «ربط حساب WhatsApp Business موجود» وكمّل لحد ما الموبايل يأكد.'
+    : b && b.error === 'no_number' ? 'الحساب اتربط بس من غير رقم — كمّل الخطوة اللي بتأكد بالموبايل وجرّب تاني.' : why(b));
+  const waLinked = (out) => show('اتربط واتساب ' + (out.number && out.number.display ? out.number.display : '') + ' ✓',
+    'الرسايل الجديدة وردودك من الموبايل بقت توصل صندوق الرسايل. ' + (out.sync && out.sync.history === 'requested' ? 'المحادثات القديمة (آخر 6 شهور) بتتسحب دلوقتي — لو الموبايل سألك «مشاركة سجل المحادثات» وافق، وممكن تاخد شوية وقت.' : 'سحب المحادثات القديمة ماتطلبش — اطلبه من تاب «القنوات» في خلال 24 ساعة.'), false);
+  const wa = String(state).indexOf('wa_') === 0;
   cl.auth.getSession().then(async ({ data }) => {
-    if (!data || !data.session) { show('سجّل دخولك الأول', 'افتح السيستم وسجّل دخولك كأدمن، وبعدها اربط فيسبوك تاني من «القنوات».', true); return; }
+    if (!data || !data.session) { show('سجّل دخولك الأول', 'افتح السيستم وسجّل دخولك كأدمن، وبعدها اربط ' + (wa ? 'واتساب' : 'فيسبوك') + ' تاني من «القنوات».', true); return; }
+    if (wa) {
+      title.textContent = 'بنربط واتساب…';
+      try {
+        const { data: out, error } = await cl.functions.invoke('cs-whatsapp', { body: { action: 'connect_callback', code, state } });
+        if (error || !out || !out.linked) { show('الربط ماكملش', waWhy(await bodyOf(error)), true); return; }
+        waLinked(out);
+      } catch (e) { show('الربط ماكملش', 'في مشكلة في الاتصال — جرّب تاني.', true); }
+      return;
+    }
     try {
       const { data: out, error } = await cl.functions.invoke('cs-channel', { body: { action: 'connect_callback', code, state } });
       if (error || !out) { show('الربط ماكملش', why(await bodyOf(error)), true); return; }

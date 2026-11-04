@@ -114,7 +114,7 @@ const CHECK: Record<string, Record<string, unknown[]>> = {
   cs_customers: { created_from: ['orders', 'manual', 'import', 'channel'] }, cs_contacts: { platform: ['whatsapp', 'messenger', 'instagram', 'tiktok', 'facebook'] },
   cs_conversations: { seg: ['customers', 'vendors', 'comments'], platform: ['whatsapp', 'messenger', 'instagram', 'tiktok', 'facebook'], channel: ['wa1', 'wa2', 'messenger', 'instagram', 'tiktok', 'facebook'], status: ['جديدة', 'مستنية ردنا', 'مستنية العميل', 'مؤجلة', 'اتحلت'] },
   cs_messages: { kind: ['in', 'out', 'note', 'auto', 'event'], delivery: [null, 'queued', 'sent', 'delivered', 'read', 'failed'] }, // external_id ≤ 1000 (0037)
-  cs_channels: { status: ['disconnected', 'connected', 'error'] }, cs_oauth_states: { channel: ['messenger', 'instagram'] }, cs_channel_events: { status: ['ok', 'ignored', 'error'] },
+  cs_channels: { status: ['disconnected', 'connected', 'error'] }, cs_oauth_states: { channel: ['messenger', 'instagram', 'wa1'] }, cs_channel_events: { status: ['ok', 'ignored', 'error'] },
   vendors: { status: ['active', 'leave', 'inactive'] },
   woo_webhook_events: { status: ['ok', 'ignored', 'duplicate', 'error'] },
   woo_sync_log: { kind: ['webhook', 'sync', 'push', 'manual', 'cron'], direction: [null, 'in', 'out'], result: ['ok', 'error', 'conflict', 'skipped'] },

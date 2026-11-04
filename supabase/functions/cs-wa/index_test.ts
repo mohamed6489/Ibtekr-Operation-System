@@ -143,3 +143,13 @@ Deno.test('campaigns: the day\'s cap holds the rest for tomorrow; failures over 
   await bridge(deps, { action: 'campaign_result', recipient_id: 22, ok: false, error: 'x' });
   assertEquals(db.row('cs_campaigns', K).status, 'متوقفة', '2 failed of 21 > 2%');
 });
+
+Deno.test('decision 26: wa1 on the Cloud API (kind meta) — the bridge neither feeds it, sends from it nor changes its state; its session is told to log out', async () => {
+  const { db, deps } = setup({ cs_channels: [{ ...CHANNELS[0], kind: 'meta', status: 'connected', number: '+20 100 000 0001' }, CHANNELS[1]] });
+  const inb = await bridge(deps, { action: 'inbound', channel: 'wa1', jid: JID, id: '3EB0CLOUD', fromMe: false, text: 'أهلا' });
+  assertEquals(inb.body, { result: 'ignored', reason: 'cloud_channel' });
+  assertEquals(db.rows('cs_messages').length, 0);
+  assertEquals((await bridge(deps, { action: 'outbox', channel: 'wa1' })).body.items, []);
+  const st = await bridge(deps, { action: 'state', channel: 'wa1', status: 'offline' });
+  assertEquals([st.body.command, db.row('cs_channels', 'wa1').status, db.row('cs_channels', 'wa1').number], ['logout', 'connected', '+20 100 000 0001']);
+});

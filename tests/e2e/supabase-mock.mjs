@@ -351,7 +351,7 @@ export async function installSupabaseMock(page, opts = {}) {
       { id: CS_K(21), conversation_id: CS_K(2), kind: 'out', text: 'إمتى تقدروا تسلّموا الأوردر الفرعي؟', author: ADMIN, external_id: null, delivery: 'read', meta: {}, created_at: csAgo(1440) }],
     segments: [{ id: CS_K(31), name: 'VIP راضيين', min_total: 1000, min_orders: null, moods: [], last_kind: null, last_from: null, last_to: null, ranges: { sat: [4, 5] }, include_unrated: false, add_ids: [], remove_ids: [], created_by: ADMIN, created_at: T0, updated_at: null }],
     campaigns: [{ id: CS_K(41), name: 'عرض العملاء المتكررين — أكتوبر', segment_id: CS_K(31), channel: 'wa1', body: 'خصم 10% بالكود {كود_الخصم}', image_path: null, discount_code: 'OCT10', scheduled_at: null, cap_per_day: 300, min_delay_s: 20, test_phone: null, status: 'مسودة', size: 2, stats: {}, created_by: ADMIN, created_at: T0, updated_at: null }],
-    channels: [['wa1', 'واتساب 1 · العملاء', 'customers', 'qr', 300], ['wa2', 'واتساب 2 · المبتكرين', 'vendors', 'qr', 150], ['messenger', 'ماسنجر', 'customers', 'meta', 1000], ['instagram', 'إنستجرام', 'customers', 'meta', 1000], ['tiktok', 'تيك توك', 'customers', 'none', 0]]
+    channels: [['wa1', 'واتساب 1 · العملاء', 'customers', 'meta', 300], ['wa2', 'واتساب 2 · المبتكرين', 'vendors', 'qr', 150], ['messenger', 'ماسنجر', 'customers', 'meta', 1000], ['instagram', 'إنستجرام', 'customers', 'meta', 1000], ['tiktok', 'تيك توك', 'customers', 'none', 0]]
       .map(([id, name, audience, kind, cap_per_day]) => ({ id, name, audience, kind, status: 'disconnected', number: null, cap_per_day, since: null, last_message_at: null, meta: {}, updated_at: null })),
   };
   mock.csWrites = []; mock.csDown = false; let csSeq = 100;
@@ -1560,6 +1560,43 @@ export async function installSupabaseMock(page, opts = {}) {
       const row = mock.settings.find((r) => r.section === 'cs'); const lv = row && row.data && row.data.live ? row.data.live : {};
       if (b.action === 'wa_status') { if (typeof W.script === 'function') W.script(W); return json(200, { result: 'ok', live: { wa: lv.wa === true, campaigns: lv.campaigns === true }, states: Object.entries(W.states).map(([channel, x]) => ({ channel, status: x.status, qr_svg: x.status === 'qr' ? x.qr_svg || null : null, phone: x.phone || null, updated_at: new Date().toISOString() })) }); }
       if (b.action === 'wa_logout') { W.logout = b.channel; return json(200, { result: 'ok' }); }
+      return json(400, { error: 'unknown_action' });
+    }
+    // cs-whatsapp (decision 26): WhatsApp 1 on the Cloud API — status (cs.view; the admin: the configuration, the number, the
+    // history's progress), connect_start (the admin → an Embedded Signup url with a «wa_» state), connect_callback (the state once →
+    // linked + the syncs asked for), sync, disconnect, send (cs.reply: the queued wa1 row → sent + a wamid; «ارفض» → 502 graph_131047).
+    if (method === 'POST' && path === '/functions/v1/cs-whatsapp') {
+      const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
+      if (!u) return json(401, { error: 'unauthorized' });
+      const W = mock.waCloud || (mock.waCloud = { configured: true, configId: true, linked: false, number: null, calls: [] });
+      W.calls.push(action);
+      const canView = isAdmin(u) || hasPerm(u, 'cs.view') !== 'N'; const canReply = isAdmin(u) || hasPerm(u, 'cs.reply') === 'F';
+      const now = new Date().toISOString(); const c1 = mock.cs.channels.find((c) => c.id === 'wa1');
+      const chan = () => ({ id: 'wa1', name: c1.name, status: c1.status, number: c1.number, since: c1.since, last_message_at: c1.last_message_at, history: c1.meta && c1.meta.history ? c1.meta.history : null, contacts: null });
+      if (action === 'status') { if (!canView) return json(401, { error: 'unauthorized' }); return json(200, { result: 'ok', linked: W.linked, channel: chan(), ...(isAdmin(u) ? { configured: W.configured, config_id: W.configId, verify_configured: true, webhook_url: 'https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-whatsapp', redirect: 'https://operation-system.ibtekr.club/meta-callback.html', ...(W.linked ? { number: { display: W.number, name: 'Ibtekr', biz_app: true } } : {}) } : {}) }); }
+      if (['connect_start', 'connect_callback', 'sync', 'disconnect'].includes(action) && !isAdmin(u)) return json(401, { error: 'unauthorized' });
+      if (action === 'connect_start') {
+        if (!W.configured || !W.configId) return json(503, { error: 'not_configured', configured: W.configured, config_id: W.configId });
+        const state = 'wa_' + Math.random().toString(36).slice(2).padEnd(41, 'x'); mock.oauthStates.push({ state, used: false, at: Date.now(), kind: 'wa' });
+        return json(200, { result: 'ok', url: 'https://www.facebook.com/v25.0/dialog/oauth?client_id=1234567890&config_id=5550001112&response_type=code&override_default_response_type=true&state=' + state });
+      }
+      if (action === 'connect_callback') {
+        const st = mock.oauthStates.find((x) => x.state === b.state && x.kind === 'wa'); if (!st || st.used) return json(400, { error: 'bad_request', field: 'state' }); st.used = true;
+        if (String(b.code || '').startsWith('bad')) return json(400, { error: 'no_account' });
+        W.linked = true; W.number = '+20 100 000 0001';
+        Object.assign(c1, { kind: 'meta', status: 'connected', number: W.number, since: now, meta: { waba_id: '1029384756', phone_id: '5566778899', history: { requested_at: now } }, updated_at: now });
+        return json(200, { result: 'ok', linked: true, number: { display: W.number, name: 'Ibtekr' }, sync: { contacts: 'requested', history: 'requested' }, channel: chan() });
+      }
+      if (action === 'sync') { if (!W.linked) return json(503, { error: 'not_linked' }); return json(200, { result: 'ok', type: b.type }); }
+      if (action === 'disconnect') { W.linked = false; W.number = null; Object.assign(c1, { status: 'disconnected', number: null, since: null, meta: {}, updated_at: now }); return json(200, { result: 'ok', linked: false, channel: chan() }); }
+      if (action === 'send') {
+        if (!canReply) return json(401, { error: 'unauthorized' });
+        const m = mock.cs.messages.find((x) => x.id === b.message_id); if (!m) return json(404, { error: 'not_found' });
+        if (m.kind !== 'out' || m.delivery !== 'queued') return json(409, { error: 'not_queued', delivery: m.delivery });
+        if (!W.linked) return json(503, { error: 'not_linked' });
+        if (String(m.text).includes('ارفض')) { m.delivery = 'failed'; m.meta = { ...(m.meta || {}), error: 'graph_131047' }; return json(502, { error: 'graph_131047', status: 400, delivery: 'failed' }); }
+        m.delivery = 'sent'; m.external_id = 'wamid.' + Math.random().toString(36).slice(2, 10); return json(200, { result: 'ok', delivery: 'sent', external_id: m.external_id });
+      }
       return json(400, { error: 'unknown_action' });
     }
     if (method === 'POST' && path === '/functions/v1/cs-channel') {

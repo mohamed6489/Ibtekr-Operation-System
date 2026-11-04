@@ -49,6 +49,7 @@ async function onState(deps: Deps, b: Json) {
   if (s.status === 'connected') row.phone = s.phone; else if (s.status === 'logged_out') row.phone = null;
   const { error } = await deps.db.from('cs_wa_state').update(row).eq('channel', s.channel);
   if (error) fail('cs_wa_state', error);
+  if (await onCloud(deps, s.channel)) return json(200, { result: 'ok', command: command ?? 'logout' }); // decision 26: wa1 is on the Cloud API — the bridge's session goes
   const was = isObj(before) ? String(before.status) : 'offline';
   const chan = s.status === 'connected' ? 'connected' : s.status === 'offline' && was === 'connected' ? 'error' : 'disconnected';
   const patch: Json = { status: chan, updated_at: deps.now() };
@@ -82,8 +83,14 @@ async function conversation(deps: Deps, row: Json): Promise<{ id: string; status
   if (error || !isObj(made)) fail('cs_conversations', error);
   return { id: String(made.id), status: 'جديدة', fresh: true };
 }
+// decision 26 (0043): a channel on Meta's Cloud API (wa1) is cs-whatsapp's — the QR bridge neither feeds it nor sends from it
+async function onCloud(deps: Deps, channel: string): Promise<boolean> {
+  const { data } = await deps.db.from('cs_channels').select('kind').eq('id', channel).maybeSingle();
+  return isObj(data) && data.kind === 'meta';
+}
 async function onInbound(deps: Deps, b: Json) {
   const ev = parseInbound(b); if (!ev) return json(400, { error: 'bad_request' });
+  if (await onCloud(deps, ev.channel)) return json(200, { result: 'ignored', reason: 'cloud_channel' });
   const at = ev.at != null ? iso(ev.at) : deps.now();
   let conv: { id: string; status: string; fresh: boolean }; let customerId: string | null = null;
   if (ev.channel === 'wa1') {
@@ -138,6 +145,7 @@ async function phoneOfConv(deps: Deps, c: Json): Promise<string | null> {
 }
 async function onOutbox(deps: Deps, b: Json) {
   if (!CHANNELS.includes(b.channel)) return json(400, { error: 'bad_request' });
+  if (await onCloud(deps, b.channel)) return json(200, { result: 'ok', items: [] });
   const { data: convs } = await deps.db.from('cs_conversations').select('id, seg, customer_id, vendor_id, external_id').eq('channel', b.channel).neq('status', 'اتحلت');
   const byId = new Map((Array.isArray(convs) ? convs : []).map((c: Json) => [String(c.id), c]));
   if (!byId.size) return json(200, { result: 'ok', items: [] });

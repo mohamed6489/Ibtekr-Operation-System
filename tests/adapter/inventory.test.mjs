@@ -110,3 +110,23 @@ test('a lot from the orders page: item_id is the line\'s id (itemId), never the 
   eq([row.item_id, row.order_id], [5002, 180662]);
   eq(I._test.lotRow({ key: 'x', reason: 'مرتجع', status: 'بانتظار الفحص', name: 'برواز', sub: '180700' }).item_id, null);
 });
+
+test('the site quantity (decision 1 c): off → no call; on → a move or a new lot of a «ملك ابتكر» piece asks inventory_push for its SKU, a maker\'s «أمانة» never', async () => {
+  const invokes = (stub) => stub.calls.filter((c) => c.op === 'invoke').map((c) => c.args[1].body);
+  const off = load({ responses: { inv_moves: ok(MOVES) } });
+  await off.I.load(); // the settings row has no wooSync
+  eq((await off.I.addMove({ key: L2, type: 'out', qty: 1 })).ok, true);
+  eq(invokes(off.stub), []);
+  const on = load({ responses: { settings: ok({ data: { wooSync: true } }), 'fn:woo-sync': { data: { action: 'inventory_push', result: 'ok', counts: { pushed: 1, missing: 0, failed: 0 } }, error: null } } });
+  await on.I.load();
+  await on.I.addMove({ key: L2, type: 'out', qty: 1 }); // L2: مكرمية, ملك ابتكر
+  await on.I.addMove({ key: L1, type: 'move', qty: 0 }); // L1: أمانة
+  await on.I.addLot({ key: 'x', reason: 'متاح للبيع', status: 'متاح', sku: 'IBT-NEW', name: 'شنطة', vendor: 'HANDS', mode: 'ملك', loc: 'A' }, { type: 'in', qty: 2 });
+  await on.I.addLot({ key: 'y', reason: 'متاح للبيع', status: 'متاح', sku: 'IBT-AM', name: 'كوب', vendor: 'HANDS', mode: 'أمانة', loc: 'A' }, { type: 'in', qty: 1 });
+  await new Promise((r) => setTimeout(r, 0));
+  eq(invokes(on.stub), [{ action: 'inventory_push', skus: ['IBT-MD'] }, { action: 'inventory_push', skus: ['IBT-NEW'] }]);
+  eq(await on.I.pushSite([' IBT-MD ', 'IBT-MD']), { ok: true, result: 'ok', counts: { pushed: 1, missing: 0, failed: 0 } });
+  eq(invokes(on.stub).at(-1), { action: 'inventory_push', skus: ['IBT-MD'] });
+  const viewer = load({ perms: { 'inventory.view': 'F' } });
+  eq(await viewer.I.pushSite(['IBT-MD']), { ok: false, reason: 'forbidden' });
+});

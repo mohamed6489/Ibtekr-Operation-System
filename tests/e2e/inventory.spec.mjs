@@ -207,3 +207,17 @@ test('the settings are the admin\'s: ops sees them read-only and can still add a
   await expect(page.getByRole('button', { name: '+ مكان' })).toBeVisible();
   expect(mock.settings.find((x) => x.section === 'inventory')).toBeUndefined();
 });
+
+// ---------- T7: auto-pull (decision 1 b) — built, off ----------
+test('auto-pull from «متاح للبيع» is off by default; with «المخزن الأول» on it reserves the piece for the order (a reserve move) and the lot is «محجوز لأوردر»', async ({ page }) => {
+  await openInventory(page);
+  const pull = () => page.evaluate(() => window.IBPages.all().inventory.api.autoPull('IBT-AR-0999', 1, '181668'));
+  expect(await pull()).toBe(false);
+  expect(mock.invWrites).toEqual([]);
+  await page.evaluate(() => { location.hash = 'inventory-settings'; });
+  await page.getByRole('switch', { name: 'المخزن الأول' }).click();
+  await expect.poll(() => (mock.settings.find((x) => x.section === 'inventory') || {}).data).toMatchObject({ firstWarehouse: true });
+  expect(await pull()).toBe(true);
+  await expect.poll(() => mock.inv.inv_moves.find((x) => x.type === 'reserve')).toMatchObject({ lot_id: L1, qty: 1, ref: 'IB-181668' });
+  await expect.poll(() => mock.inv.inv_lots.find((x) => x.id === L1).status).toBe('محجوز لأوردر');
+});

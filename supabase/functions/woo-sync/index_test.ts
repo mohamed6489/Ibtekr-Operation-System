@@ -12,7 +12,7 @@ const OURS = `${ENV.SUPABASE_URL}/functions/v1/woo-webhook`;
 // Member tokens → what has_perm('orders.status') / is_admin() answer for them, plus (phase 3.3) has_perm('vendors.edit') /
 // has_perm('sensitive.commission') for push_vendor: ops = vendors.edit P, vf = vendors follow-up (vendors.edit F, commission N),
 // acct = accounts (nothing). (the last three answer "truthy" values that are not the exact true / 'F' the function requires).
-const MEMBERS: Record<string, { perm: unknown; admin: unknown; view?: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; pbulk?: unknown; ptrash?: unknown; padd?: unknown }> = {
+const MEMBERS: Record<string, { perm: unknown; admin: unknown; view?: unknown; edit?: unknown; commission?: unknown; bank?: unknown; accounts?: unknown; approve?: unknown; pview?: unknown; pedit?: unknown; pbulk?: unknown; ptrash?: unknown; padd?: unknown; iedit?: unknown }> = {
   'jwt-admin': { perm: 'F', admin: true }, 'jwt-ops': { perm: 'F', admin: false, edit: 'P' }, 'jwt-acct': { perm: 'P', admin: false, edit: 'N', accounts: 'P' },
   'jwt-vf': { perm: 'N', admin: false, edit: 'F', commission: 'N' },
   'jwt-bank': { perm: 'N', admin: false, edit: 'N', bank: 'F' }, // phase 3.5: accounts — sensitive.vendor_bank = F, vendors.edit = N
@@ -21,6 +21,7 @@ const MEMBERS: Record<string, { perm: unknown; admin: unknown; view?: unknown; e
   'jwt-pview': { perm: 'N', admin: false, pview: 'P' }, 'jwt-pedit': { perm: 'N', admin: false, pview: 'F', pedit: 'F', pbulk: 'F' }, 'jwt-pone': { perm: 'N', admin: false, pview: 'F', pedit: 'F' },
   'jwt-ptrash': { perm: 'N', admin: false, pview: 'F', ptrash: 'F' },
   'jwt-padd': { perm: 'N', admin: false, pview: 'F', padd: 'F' }, // phase 5.2: products.add = F (the studio)
+  'jwt-inv': { perm: 'N', admin: false, iedit: 'F' }, // phase 7: inventory.edit = F (ops)
   'jwt-admin-text': { perm: 'f', admin: 'true' }, 'jwt-admin-one': { perm: 'F ', admin: 1 },
   'jwt-noview': { perm: 'F', admin: false, view: 'N' }, // phase 5.5 decision 10: orders.status F without orders.view — never deletes
 };
@@ -34,7 +35,7 @@ function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fa
   const members: any[] = [];
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'orders.view' ? m.view ?? (m.perm === 'F' || m.perm === 'P' ? 'F' : 'N') : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : key === 'products.add' ? m.padd ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
+    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'orders.view' ? m.view ?? (m.perm === 'F' || m.perm === 'P' ? 'F' : 'N') : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : key === 'products.add' ? m.padd ?? 'N' : key === 'inventory.edit' ? m.iedit ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
     members.push({ jwt, client });
     return client;
   };
@@ -1837,4 +1838,40 @@ Deno.test('order_trash: a Woo failure (500) → 502 woo_error, an error row, the
   assertEquals(woo.calls.map((c) => c.path), ['wc/v3/orders/1002']);
   const log = db.rows('woo_sync_log')[0];
   assertEquals([log.kind, log.entity, log.entity_id, log.action, log.result], ['push', 'order', '1001', 'order_trash', 'error']);
+});
+
+// ---------------------------------------------------------------- phase 7 (decision 1 c): the site quantity from the hub
+const invLot = (id: string, sku: string, o: Record<string, unknown> = {}) => ({ id, sku, name: sku, reason: 'متاح للبيع', status: 'متاح', mode: 'ملك ابتكر', cost: 0, since: '2026-11-01', closed_at: null, ...o });
+const invSeed = {
+  products: [{ id: 501, sku: 'IBT-OWN', name: 'Lamp', status: 'publish', lang: 'en', translation_ids: { ar: 601, en: 501 } }, { id: 601, sku: 'IBT-OWN', name: 'لمبة', status: 'publish', lang: 'ar', translation_ids: { ar: 601, en: 501 } },
+    { id: 502, sku: 'IBT-AM', name: 'Vase', status: 'publish', lang: 'en', translation_ids: { en: 502 } }],
+  inv_lots: [invLot('l1', 'IBT-OWN'), invLot('l2', 'IBT-AM', { mode: 'أمانة' }), invLot('l3', 'IBT-GONE')],
+  inv_moves: [{ id: 1, lot_id: 'l1', type: 'in', qty: 4 }, { id: 2, lot_id: 'l1', type: 'reserve', qty: 1 }, { id: 3, lot_id: 'l2', type: 'in', qty: 9 }, { id: 4, lot_id: 'l3', type: 'in', qty: 2 }],
+  settings: [{ section: 'inventory', data: { wooSync: true } }],
+};
+
+Deno.test('inventory_push: the owned SKUs\' available pieces onto the product and its translation (manage_stock + stock_quantity), the mirror follows; a «أمانة» SKU untouched; a SKU not on the site counted missing; inventory.edit; never the sync secret', async () => {
+  const puts: [string, unknown][] = [];
+  const routes = { 'PUT wc/v3/products/501': (c: any) => { puts.push(['501', c.body]); return { body: { id: 501 } }; }, 'PUT wc/v3/products/601': (c: any) => { puts.push(['601', c.body]); return { body: { id: 601 } }; } };
+  const { db, deps } = setup({ seed: invSeed, routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'inventory_push' }, { jwt: 'jwt-inv' });
+  assertEquals(res.status, 200);
+  assertEquals([body.counts, body.missing], [{ pushed: 1, missing: 1, failed: 0 }, ['IBT-GONE']]);
+  assertEquals(puts, [['501', { manage_stock: true, stock_quantity: 3 }], ['601', { manage_stock: true, stock_quantity: 3 }]], '4 in − 1 reserved; the Arabic translation too; IBT-AM (أمانة) never');
+  assertEquals(db.rows('products').map((p: any) => [p.id, p.stock_quantity ?? null]), [[501, 3], [601, 3], [502, null]]);
+  const log = db.rows('woo_sync_log').at(-1);
+  assertEquals([log.action, log.result, log.detail.pushed, log.detail.missing], ['inventory_push', 'ok', 1, 1]);
+  assertEquals((await call(deps, { action: 'inventory_push', skus: ['IBT-AM'] }, { jwt: 'jwt-inv' })).body.counts, { pushed: 0, missing: 0, failed: 0 }, 'a maker\'s SKU is not followed');
+  assertEquals((await call(deps, { action: 'inventory_push', skus: 'IBT-OWN' }, { jwt: 'jwt-inv' })).body.field, 'skus');
+  assertEquals((await call(deps, { action: 'inventory_push' }, { jwt: 'jwt-pedit' })).res.status, 401, 'products.edit is not inventory.edit');
+  assertEquals((await call(deps, { action: 'inventory_push' })).res.status, 401, 'never the sync secret');
+  assertEquals(puts.length, 2);
+});
+
+Deno.test('inventory_push is off by default (wooSync not set) and gated by WOO_PUSH_ENABLED', async () => {
+  const off = setup({ seed: { ...invSeed, settings: [] }, env: PUSH_ON });
+  assertEquals((await call(off.deps, { action: 'inventory_push' }, { jwt: 'jwt-inv' })).body, { action: 'inventory_push', result: 'skipped', reason: 'off' });
+  const gate = setup({ seed: invSeed });
+  assertEquals((await call(gate.deps, { action: 'inventory_push' }, { jwt: 'jwt-admin' })).body, { action: 'inventory_push', result: 'skipped', reason: 'push_disabled' });
+  assertEquals([...off.woo.calls, ...gate.woo.calls].length, 0);
 });

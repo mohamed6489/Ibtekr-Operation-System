@@ -93,6 +93,7 @@ import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, toWoo, variationView } from '../_shared/woo-products.js';
 import { STUDIO_ATTRS, buildStudio, fetchSheetCsv, matchWooBrand } from '../_shared/woo-studio.js';
+import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
@@ -104,10 +105,10 @@ type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals', 'order_trash',
-  'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add'];
+  'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product
-const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add'];
+const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push'];
 const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
@@ -155,6 +156,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
   // phase 5.2 (decisions 7 / 8 / 13): the studio's upload, a new category and reading a sheet link need products.add = F
   if (action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet') return (await admin()) || (await perm('products.add')) ? 'member' : null;
+  // phase 7 (decision 1 c): the site quantity from the hub — the admin or inventory.edit = F (a person, never the sync secret)
+  if (action === 'inventory_push') return (await admin()) || (await perm('inventory.edit')) ? 'member' : null;
   if (action === 'push_vendor') {
     if (await admin()) return 'member';
     const fields = Array.isArray(args.fields) ? args.fields : [];
@@ -841,6 +844,51 @@ async function productsVendor(run: Run, args: Json) {
   return json(200, { action: 'products_vendor', result: 'ok', counts: { moved: moved.length, failed: failed.length }, failed_ids: failed });
 }
 
+// inventory_push { skus? } (phase 7, decision 1 c): the site quantity of the SKUs Ibtekr owns («ملك ابتكر» lots) = the hub's
+// available pieces held «متاح للبيع» (siteQuantities). Off until the settings row «inventory» has wooSync = true, and gated by
+// WOO_PUSH_ENABLED; a maker's «أمانة» SKU is never touched. The product of the mirror by its SKU (not the Arabic one), then its
+// Arabic translation: PUT manage_stock + stock_quantity; the mirror follows. Counts and SKUs only in the log.
+async function inventoryPush(run: Run, args: Json) {
+  const skus = skuList(args.skus);
+  if (skus === null) return json(400, { error: 'bad_request', field: 'skus' });
+  const { data: set } = await run.db.from('settings').select('data').eq('section', 'inventory').maybeSingle();
+  if (!(isObj(set) && isObj(set.data) && set.data.wooSync === true)) {
+    await logSync(run.db, { ...productEntry(null, 'inventory_push'), result: 'skipped', detail: { reason: 'off', count: skus?.length ?? 0 } });
+    return json(200, { action: 'inventory_push', result: 'skipped', reason: 'off' });
+  }
+  if (!pushEnabled(run.env)) return await pushSkip(run, 'inventory_push', null, { count: skus?.length ?? 0 });
+  let q = run.db.from('inv_lots').select('id, sku, reason, mode, closed_at').eq('mode', OWNED);
+  if (skus) q = q.in('sku', skus);
+  const { data: lots, error: lotErr } = await q;
+  if (lotErr) throw new Error(`inv_lots: ${lotErr.message}`);
+  const lotIds = (lots ?? []).map((l: Json) => l.id);
+  const { data: moves, error: mvErr } = lotIds.length ? await run.db.from('inv_moves').select('lot_id, type, qty').in('lot_id', lotIds) : { data: [], error: null };
+  if (mvErr) throw new Error(`inv_moves: ${mvErr.message}`);
+  const qty = siteQuantities(lots ?? [], moves ?? []) as Map<string, number>;
+  const counts = { pushed: 0, missing: 0, failed: 0 };
+  if (!qty.size) { await logSync(run.db, { ...productEntry(null, 'inventory_push'), result: 'ok', detail: { ...counts } }); return json(200, { action: 'inventory_push', result: 'ok', counts, missing: [], failed: [] }); }
+  const { data: prods, error: pErr } = await run.db.from('products').select('id, sku, lang, translation_ids, trashed_at').in('sku', [...qty.keys()]);
+  if (pErr) throw new Error(`products: ${pErr.message}`);
+  const main = new Map<string, number>();
+  for (const p of prods ?? []) { if (p.lang === 'ar' || p.trashed_at) continue; const k = String(p.sku ?? '').trim(); if (k && !main.has(k)) main.set(k, Number(p.id)); }
+  const ar = main.size ? await arIds(run, [...main.values()]) : new Map<number, number>();
+  const ctx = await run.ctx();
+  const missing: string[] = []; const failed: string[] = [];
+  for (const [sku, n] of qty) {
+    const id = main.get(sku); if (id === undefined) { missing.push(sku); continue; }
+    try {
+      for (const pid of [id, ...(ar.has(id) ? [ar.get(id) as number] : [])]) {
+        await ctx.woo.put(`wc/v3/products/${pid}`, { manage_stock: true, stock_quantity: n });
+        await run.db.from('products').update({ manage_stock: true, stock_quantity: n }).eq('id', pid);
+      }
+      counts.pushed += 1;
+    } catch (e) { if (!(e instanceof WooError)) throw e; failed.push(sku); }
+  }
+  counts.missing = missing.length; counts.failed = failed.length;
+  await logSync(run.db, { ...productEntry(null, 'inventory_push'), result: failed.length ? 'error' : 'ok', detail: { ...counts, skus: [...qty.keys()].slice(0, 50) } });
+  return json(200, { action: 'inventory_push', result: 'ok', counts, missing, failed });
+}
+
 async function productsTrash(run: Run, args: Json, restore: boolean) {
   const action = restore ? 'products_restore' : 'products_trash';
   const ids = idList(args.ids, PRODUCT_BATCH_MAX);
@@ -1183,6 +1231,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'studio_upload') return await studioUpload(run, args);
     if (action === 'category_create') return await categoryCreate(run, args);
     if (action === 'studio_sheet') return await studioSheet(args, deps.fetch);
+    if (action === 'inventory_push') return await inventoryPush(run, args);
     if (action === 'product_images_add') {
       // who sends: the member's id (the paths must be of their folder) and whether they are the admin
       const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? '';

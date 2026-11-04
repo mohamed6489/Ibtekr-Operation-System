@@ -63,6 +63,9 @@ const COLUMNS: Record<string, string[]> = {
   shot_prompts: ['id', 'category', 'shot', 'name', 'prompt', 'negative', 'model', 'aspect', 'resolution', 'source_node', 'updated_at', 'updated_by'],
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
+  // 0044 (phase 7): the inventory hub's lots and moves (woo-sync inventory_push reads them)
+  inv_lots: ['id', 'reason', 'status', 'sku', 'product_id', 'name', 'vendor_id', 'order_id', 'item_id', 'ref', 'loc', 'mode', 'cost', 'condition', 'condition_note', 'note', 'since', 'closed_at', 'created_by', 'created_at'],
+  inv_moves: ['id', 'lot_id', 'type', 'qty', 'label', 'reason', 'ref', 'note', 'by', 'at'],
   // 0034 / 0035 (phase 6.2): the customer-service tables the Meta channel writes
   cs_customers: ['id', 'phone', 'name', 'ig', 'city', 'province', 'address', 'address2', 'mood', 'tags', 'consent', 'auto_consent', 'source', 'created_from', 'blocked_at', 'blocked_by', 'merged_into', 'created_by', 'created_at', 'updated_at'],
   cs_contacts: ['id', 'customer_id', 'platform', 'external_id', 'handle', 'created_at'],

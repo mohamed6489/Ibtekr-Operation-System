@@ -1090,7 +1090,11 @@
       // the tabs do not overlap (the bell counts every tab but «الكل»): late ones under «متأخرة» only
       tabs: [['all', 'الكل', all], ['waiting', 'مستنية ردنا', waiting.filter((x) => x.tone !== 'orange')], ['late', 'متأخرة عن الرد', waiting.filter((x) => x.tone === 'orange')], ['mention', 'منشن', mentions], ['channels', 'القنوات', chans], ['camps', 'حملات', camps]] };
   }
-  document.addEventListener('ib:cs', () => { R(); try { document.dispatchEvent(new CustomEvent('ib:notify')); } catch (e) { /* the bell's badge counts «رسايل» */ } });
+  document.addEventListener('ib:cs', () => {
+    const ta = document.activeElement && document.activeElement.id === 'cs-ta' ? document.activeElement : null; const pos = ta ? [ta.selectionStart, ta.selectionEnd] : null;
+    R();
+    if (pos) { const n = document.getElementById('cs-ta'); if (n) { n.focus(); try { n.setSelectionRange(pos[0], pos[1]); } catch (e) { /* not a text field */ } } }
+    try { document.dispatchEvent(new CustomEvent('ib:notify')); } catch (e) { /* the bell's badge counts «رسايل» */ } });
   document.addEventListener('ib:directory', () => R());
   window.IBPages.register('cs', { title: 'خدمة العملاء', hash: (hs) => { const m = /^cs(?:-(inbox|customers|segments|campaigns|channels|performance|reports))?$/.exec(hs); if (!m) return false; st.tab = m[1] || 'inbox'; return true; }, defaultHash: () => 'cs-' + st.tab, view,
     api: { notifSection, state: st, data: S, openCustomer: (id) => { const cu = C(id); if (!cu) return; st.tab = 'customers'; location.hash = 'cs-customers'; setTimeout(() => profile(cu), 120); }, openConversation: (id) => { const c = S.convs.find((x) => x.id === id); if (!c) return; st.tab = 'inbox'; st.seg = c.seg; st.plat = 'all'; st.view = 'all'; st.sel[c.seg] = c.id; st.mobileChat = true; location.hash = 'cs-inbox'; R(); } } });

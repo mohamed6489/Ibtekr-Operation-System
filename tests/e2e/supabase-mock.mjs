@@ -51,11 +51,11 @@ export const USERS = [
 ];
 // permissions: the keys the emulated tables read, as in 0003_seed_roles.sql (+ 0021: products.view / edit / trash; 0034: cs.view / reply / manage)
 const ROLES = [
-  { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'inventory.view': 'F', 'inventory.edit': 'F', 'inventory.approve': 'F', 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'F', 'settings.view': 'F', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'F', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'F', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'F' }, sort: 1 },
-  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'inventory.view': 'F', 'inventory.edit': 'F', 'inventory.approve': 'N', 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'F', 'products.bulk': 'F', 'products.trash': 'N', 'products.add': 'F', 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
-  { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'inventory.view': 'F', 'inventory.edit': 'N', 'inventory.approve': 'N', 'cs.view': 'N', 'cs.reply': 'N', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'F', 'accounts.add': 'F', 'accounts.approve': 'P', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
-  { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'inventory.view': 'F', 'inventory.edit': 'N', 'inventory.approve': 'N', 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
-  { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'inventory.view': 'F', 'inventory.edit': 'N', 'inventory.approve': 'N', 'cs.view': 'P', 'cs.reply': 'N', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
+  { id: 'admin', name: 'أدمن', description: 'كل الصلاحيات — المالك والمديرين', is_system: true, permissions: { 'tickets.view': 'F', 'tickets.manage': 'F', 'inventory.view': 'F', 'inventory.edit': 'F', 'inventory.approve': 'F', 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'F', 'settings.view': 'F', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'F', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'F', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'F' }, sort: 1 },
+  { id: 'ops', name: 'عمليات', description: 'الأوردرات والمخزن والتجميع والشحن', is_system: true, permissions: { 'tickets.view': 'F', 'tickets.manage': 'F', 'inventory.view': 'F', 'inventory.edit': 'F', 'inventory.approve': 'N', 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'F', 'products.bulk': 'F', 'products.trash': 'N', 'products.add': 'F', 'accounts.view': 'P', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'P', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'P', 'vendors.view': 'F', 'vendors.edit': 'P', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'F', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 2 },
+  { id: 'accounts', name: 'حسابات', description: 'المصروفات والتحويلات وكشوف الموردين', is_system: true, permissions: { 'tickets.view': 'P', 'tickets.manage': 'F', 'inventory.view': 'F', 'inventory.edit': 'N', 'inventory.approve': 'N', 'cs.view': 'N', 'cs.reply': 'N', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'F', 'accounts.add': 'F', 'accounts.approve': 'P', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'F', 'sensitive.commission': 'N' }, sort: 4 },
+  { id: 'vendors_followup', name: 'متابعة الموردين', description: 'تبليغ الموردين ومتابعة التأخير', is_system: true, permissions: { 'tickets.view': 'P', 'tickets.manage': 'F', 'inventory.view': 'F', 'inventory.edit': 'N', 'inventory.approve': 'N', 'cs.view': 'F', 'cs.reply': 'F', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'F', 'orders.status': 'F', 'orders.edit': 'N', 'vendors.view': 'F', 'vendors.edit': 'F', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 5 },
+  { id: 'viewer', name: 'مشاهد', description: 'عرض بس من غير تعديل', is_system: true, permissions: { 'tickets.view': 'P', 'tickets.manage': 'N', 'inventory.view': 'F', 'inventory.edit': 'N', 'inventory.approve': 'N', 'cs.view': 'P', 'cs.reply': 'N', 'cs.manage': 'N', 'products.view': 'F', 'products.edit': 'N', 'products.trash': 'N', 'accounts.view': 'N', 'accounts.add': 'N', 'accounts.approve': 'N', 'settings.view': 'N', 'orders.view': 'P', 'orders.status': 'N', 'orders.edit': 'N', 'vendors.view': 'P', 'vendors.edit': 'N', 'vendors.toggle': 'N', 'sensitive.customer_phone': 'N', 'sensitive.vendor_bank': 'N', 'sensitive.commission': 'N' }, sort: 6 },
 ];
 const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (activity_log, alerts, status_map), 0006_dashboard.sql (user_prefs,
   // alert_reads), 0007_orders.sql (orders_v; order_items / sub_orders: the columns granted to authenticated, i.e. all but raw),
@@ -247,6 +247,18 @@ const aalGated = (u) => !!u.twofa && u.aal !== 'aal2';
 // has_perm of 0001 + 0008: 'N' for a profile that is not active or aal-gated, 'F' for admin, else custom_perms, then the role's matrix
 const hasPerm = (u, key) => (u.status !== 'active' || aalGated(u) ? 'N' : u.role_id === 'admin' ? 'F' : (u.custom_perms || {})[key] || ROLES.find((r) => r.id === u.role_id).permissions[key] || 'N');
 const isAdmin = (u) => u.status === 'active' && u.role_id === 'admin' && !aalGated(u);
+// 0045 (phase 8): the ticket roles of a system role (ticket_role_labels) and the v2 lists the server checks
+const TK_ROLES = { admin: ['مدير النظام'], cs: ['خدمة العملاء'], vendors_followup: ['متابعة المبتكرين'], accounts: ['الحسابات'], ops: ['اللوجستيك والشحن', 'المحتوى والتصوير'] };
+const TK_ALL_ROLES = ['مدير النظام', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'اللوجستيك والشحن', 'المحتوى والتصوير'];
+const TK_CUSTOMER = ['تأخير في التسليم', 'منتج تالف', 'منتج مختلف عن الطلب', 'مشكلة دفع أو استرجاع', 'العميل مش بيرد', 'أخرى'];
+const TK_VENDOR = ['تأخير تسليم', 'جودة', 'خامة ناقصة', 'خلاف على الحساب أو العمولة', 'مش بيرد', 'أخرى'];
+const TK_OUTCOMES = ['اتحلت المشكلة', 'مش مشكلة', 'مكرر', 'العميل / المبتكر ما ردش'];
+const TK_STATUS = { open: 'مفتوح', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلق' };
+const TK_PRIO = { urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض' };
+const TK_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf'];
+const tkClean = (v, n) => String(v ?? '').replace(/[\u0001-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
+const tkRoles = (u) => (u && u.status === 'active' ? TK_ROLES[u.role_id] || [] : []);
+const tkSees = (u, t) => { const v = hasPerm(u, 'tickets.view'); return v === 'F' || (v === 'P' && (t.created_by === u.id || tkRoles(u).includes(t.assignee_role))); };
 // mask_phone of 0007: the first 3 and last 4 characters (10 or more), else •••• and the last 2
 // norm_phone (0034): Arabic / Persian digits → ASCII, digits only, 0020 / 20 (12 digits) stripped, a 10-digit number starting with 1 gets its 0
 const normPhone = (p) => { let d = String(p ?? '').replace(/[٠-٩۰-۹]/g, (ch) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(ch) >= 0 ? '٠١٢٣٤٥٦٧٨٩'.indexOf(ch) : '۰۱۲۳۴۵۶۷۸۹'.indexOf(ch))).replace(/\D/g, ''); if (d.startsWith('0020')) d = d.slice(4); else if (d.startsWith('20') && d.length === 12) d = d.slice(2); return d.length === 10 && d[0] === '1' ? '0' + d : d; };
@@ -362,6 +374,13 @@ export async function installSupabaseMock(page, opts = {}) {
     inv_consolidations: (opts.invConsolidations || []).map((x) => ({ zone: 'T', status: 'open', carrier: null, since: '2026-11-01', created_by: ADMIN, created_at: T0, ...x })),
     inv_consolidation_items: (opts.invConsolidationItems || []).map((x) => ({ ...x })), inv_counts: [], inv_count_lines: [] };
   mock.invWrites = [];
+  // phase 8 (0045): team tickets — rows as the database holds them (opts.tickets / opts.ticketEvents), the files of the bucket
+  // «tickets» (path → { type, size }), and every RPC call the client sent as { fn, ...args }
+  mock.tickets = (opts.tickets || []).map((x) => ({ order_number: null, order_id: null, customer: null, cs_customer_id: null, cs_conversation_id: null, vendor_id: null, vendor: null, reason: null, follow_up: null,
+    attachments: [], status: 'open', created_by: ADMIN, created_by_name: 'صفوت كمال', created_by_role: 'مدير النظام', created_at: T0, last_update: T0, reopen_count: 0, resolution_outcome: null, resolution_note: null,
+    resolved_by: null, resolved_by_name: null, resolved_at: null, closed_by: null, closed_by_name: null, closed_at: null, ...x }));
+  mock.ticketEvents = (opts.ticketEvents || []).map((x, i) => ({ id: i + 1, kind: 'event', at: T0, actor: ADMIN, actor_name: 'صفوت كمال', actor_role: 'مدير النظام', old_value: null, new_value: null, attachments: [], ...x }));
+  mock.ticketObjects = new Map(Object.entries(opts.ticketObjects || {})); mock.ticketWrites = []; mock.ticketsDown = false;
   mock.accWrites = []; mock.accountsDown = false; mock.statements = []; mock.statementRows = opts.statementRows || [];
   let accSeq = 0;
   // brands / brandOwners / brandRates: the 0013 tables (ordersSeed(opts): opts.transfer seeds the temporary transfer); brandWrites: each
@@ -413,6 +432,9 @@ export async function installSupabaseMock(page, opts = {}) {
     // phase 5.4: a signed URL of the bucket ai-images (the images tool's results) — same rule
     const sgi = /^\/storage\/v1\/object\/sign\/ai-images\/(.+)$/.exec(path);
     if (method === 'GET' && sgi) { const obj = mock.imgObjects.get(decodeURIComponent(sgi[1])); return obj ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': ctOf(sgi[1]) }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
+    // phase 8: a signed URL of the bucket tickets (an attachment's thumbnail / link) — any token the mock signed opens the object
+    const sgt = /^\/storage\/v1\/object\/sign\/tickets\/(.+)$/.exec(path);
+    if (method === 'GET' && sgt) { const obj = mock.ticketObjects.get(decodeURIComponent(sgt[1])); return obj ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': obj.type || 'image/png' }, body: obj.type === 'application/pdf' ? Buffer.from('%PDF-1.4\n%mock\n') : PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
     // a signed URL of vendor-contracts is opened with no api key (a new tab, an <a>): its token alone opens the object
     const sg = /^\/storage\/v1\/object\/sign\/vendor-contracts\/(.+)$/.exec(path);
     if (method === 'GET' && sg) {
@@ -543,6 +565,93 @@ export async function installSupabaseMock(page, opts = {}) {
           return out(list);
         }
         return refuse(403, '42501', 'permission denied for table ' + t);
+      }
+      // phase 8 (0045): tickets / ticket_events — read through ticket_can_see (F all; P my role's + the ones I opened); no direct
+      // write for a member; ticket_create / ticket_act apply the v2 domain's rules and write the timeline (the server's texts).
+      const tkT = /^\/rest\/v1\/(tickets|ticket_events)$/.exec(path);
+      if (tkT) {
+        const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        if (method !== 'GET') return refuse(403, '42501', 'permission denied for table ' + tkT[1]);
+        if (!u) return json(200, []);
+        if (mock.ticketsDown) return json(503, { message: 'mock: tickets down' });
+        const fns = [...url.searchParams].filter(([k]) => !NOT_FILTERS.has(k)).map(([k, v]) => (v.startsWith('eq.') ? (r) => String(r[k]) === v.slice(3) : v.startsWith('gte.') ? (r) => String(r[k]) >= v.slice(4) : null));
+        if (fns.some((f) => !f)) return refuse(400, 'PGRST100', 'mock: unsupported filter on ' + tkT[1]);
+        const seen = new Set(mock.tickets.filter((t) => tkSees(u, t)).map((t) => t.id));
+        const ord = url.searchParams.get('order') || ''; const lim = Number(url.searchParams.get('limit')) || 0;
+        let list = (tkT[1] === 'tickets' ? mock.tickets.filter((t) => seen.has(t.id)) : mock.ticketEvents.filter((e) => seen.has(e.ticket_id))).filter((r) => fns.every((f) => f(r)));
+        const [col, dir] = ord.split('.'); if (col) list = list.slice().sort((a, b) => (a[col] < b[col] ? -1 : a[col] > b[col] ? 1 : a.id - b.id) * (dir === 'desc' ? -1 : 1));
+        if (lim) list = list.slice(0, lim);
+        return json(200, list.map((r) => JSON.parse(JSON.stringify(r))));
+      }
+      if (method === 'POST' && (path === '/rest/v1/rpc/ticket_create' || path === '/rest/v1/rpc/ticket_act')) {
+        const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        const bad = (f) => refuse(400, '22023', 'invalid: ' + f); const deny = (m) => refuse(403, '42501', m);
+        if (!u || hasPerm(u, 'tickets.manage') !== 'F') return deny('tickets.manage required');
+        if (mock.ticketsDown) return json(503, { message: 'mock: tickets down' });
+        const b = body(); const now = new Date().toISOString(); const roles = tkRoles(u);
+        const who = { name: u.name, role: roles[0] || (ROLES.find((r) => r.id === u.role_id) || {}).name || 'عضو' };
+        const ev = (tk, kind, text, oldV, newV, files) => { mock.ticketEvents.push({ id: mock.ticketEvents.reduce((m, e) => Math.max(m, e.id), 0) + 1, ticket_id: tk.id, kind, at: now, actor: u.id, actor_name: who.name, actor_role: who.role, text, old_value: oldV ?? null, new_value: newV ?? null, attachments: files || [] }); tk.last_update = now; };
+        const day = (v) => { if (v == null || String(v).trim() === '') return null; const x = String(v).trim(); const d = new Date(x + 'T00:00:00Z'); return /^\d{4}-\d{2}-\d{2}$/.test(x) && Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === x ? x : undefined; };
+        const filesOf = (a) => { if (a == null) return []; if (!Array.isArray(a) || a.length > 10) return undefined; const out = [];
+          for (const f of a) { if (!f || typeof f.path !== 'string' || !new RegExp('^' + u.id + '/[A-Za-z0-9][A-Za-z0-9._-]{0,159}$').test(f.path)) return undefined; if (out.some((x) => x.path === f.path)) continue;
+            const obj = mock.ticketObjects.get(f.path); const type = obj ? obj.type : f.type; const size = obj ? obj.size : Number(f.size);
+            if (!TK_MIME.includes(type) || !(size >= 0 && size <= 10485760)) return undefined; out.push({ path: f.path, name: tkClean(f.name, 120) || f.path.replace(/^.*\//, ''), type, size }); }
+          return out; };
+        if (path.endsWith('ticket_create')) {
+          const i = b.p_input || {}; mock.ticketWrites.push({ fn: 'ticket_create', ...JSON.parse(JSON.stringify(i)) });
+          if (!['customer', 'vendor', 'internal'].includes(i.type)) return bad('type');
+          const title = tkClean(i.title, 1000); if (!title || title.length > 80) return bad('title');
+          const description = tkClean(i.description, 5000); if (!description) return bad('description');
+          if (!TK_PRIO[i.priority]) return bad('priority'); if (!TK_ALL_ROLES.includes(i.assigneeRole)) return bad('assigneeRole');
+          const follow = day(i.followUp); if (follow === undefined) return bad('followUp');
+          const attachments = filesOf(i.attachments); if (!attachments) return bad('attachments');
+          const rec = { id: mock.tickets.reduce((m, t) => Math.max(m, t.id), 0) + 1, type: i.type, title, description, priority: i.priority, assignee_role: i.assigneeRole, order_number: null, order_id: null,
+            customer: tkClean(i.customer, 80) || null, cs_customer_id: null, cs_conversation_id: null, vendor_id: null, vendor: null, reason: null, follow_up: follow, attachments, status: 'open',
+            created_by: u.id, created_by_name: who.name, created_by_role: who.role, created_at: now, last_update: now, reopen_count: 0, resolution_outcome: null, resolution_note: null,
+            resolved_by: null, resolved_by_name: null, resolved_at: null, closed_by: null, closed_by_name: null, closed_at: null };
+          if (i.csConversationId) { if (hasPerm(u, 'cs.view') === 'N') return bad('csConversationId'); const cv = mock.cs.conversations.find((x) => x.id === i.csConversationId); if (!cv) return bad('csConversationId'); rec.cs_conversation_id = cv.id; rec.cs_customer_id = cv.customer_id || null; }
+          if (i.csCustomerId) { if (hasPerm(u, 'cs.view') === 'N' || !mock.cs.customers.some((x) => x.id === i.csCustomerId)) return bad('csCustomerId'); rec.cs_customer_id = i.csCustomerId; }
+          if (i.type === 'customer') {
+            rec.order_number = tkClean(i.orderId, 20) || null; if (!rec.order_number) return bad('orderId'); if (!TK_CUSTOMER.includes(i.reason)) return bad('reason'); rec.reason = i.reason;
+            const o = hasPerm(u, 'orders.view') === 'F' ? mock.orders.find((x) => String(x.number) === rec.order_number || String(x.id) === rec.order_number) : null;
+            if (o) { rec.order_id = Number(o.id); rec.customer = rec.customer || String(o.customer_name || '').slice(0, 80) || null;
+              if (!rec.cs_customer_id && o.customer_phone && hasPerm(u, 'cs.view') !== 'N') { const cu = mock.cs.customers.find((x) => x.phone === normPhone(o.customer_phone)); if (cu) rec.cs_customer_id = cu.id; } }
+          } else if (i.type === 'vendor') {
+            const v = mock.vendors.find((x) => x.id === i.vendorId); if (!v) return bad('vendor'); if (!TK_VENDOR.includes(i.reason)) return bad('reason'); rec.vendor_id = v.id; rec.vendor = String(v.name).slice(0, 80); rec.reason = i.reason;
+          }
+          mock.tickets.push(rec); ev(rec, 'event', who.name + ' أنشأ التذكرة وعيّنها لدور «' + rec.assignee_role + '»'); ev(rec, 'message', description);
+          return json(200, rec.id);
+        }
+        const tk = mock.tickets.find((t) => t.id === Number(b.p_id)); const a = b.p_args || {}; mock.ticketWrites.push({ fn: 'ticket_act', id: Number(b.p_id), action: b.p_action, ...JSON.parse(JSON.stringify(a)) });
+        if (!tk || !tkSees(u, tk)) return refuse(404, 'P0002', 'ticket not found');
+        const work = isAdmin(u) || roles.includes(tk.assignee_role); const closer = isAdmin(u) || tk.created_by === u.id;
+        const act = b.p_action;
+        if (act === 'set_status') {
+          if (!['in_progress', 'waiting'].includes(a.status)) return bad('status'); if (!work) return deny('not the role of this ticket'); if (tk.status === 'closed') return bad('closed');
+          if (tk.status !== a.status) { const old = tk.status; tk.status = a.status; ev(tk, 'event', who.name + ' غيّر الحالة من «' + TK_STATUS[old] + '» إلى «' + TK_STATUS[a.status] + '»', old, a.status); }
+        } else if (act === 'resolve') {
+          if (!work) return deny('not the role of this ticket'); if (!TK_OUTCOMES.includes(a.outcome)) return bad('outcome'); if (tk.status === 'closed') return bad('closed');
+          const note = tkClean(a.note, 1000) || null; const old = tk.status;
+          Object.assign(tk, { status: 'resolved', resolution_outcome: a.outcome, resolution_note: note, resolved_by: u.id, resolved_by_name: who.name, resolved_at: now });
+          ev(tk, 'event', who.name + ' حوّل التذكرة إلى «تم الحل» — ' + a.outcome + (note ? ' · ' + note : ''), old, 'resolved');
+        } else if (act === 'close') {
+          if (!closer) return deny('not the opener of this ticket');
+          if (tk.status !== 'closed') { const old = tk.status; Object.assign(tk, { status: 'closed', closed_by: u.id, closed_by_name: who.name, closed_at: now }); ev(tk, 'event', who.name + ' قفل التذكرة نهائيًا', old, 'closed'); }
+        } else if (act === 'reopen') {
+          const r = tkClean(a.reason, 1000); if (!r) return bad('reason'); if (!closer) return deny('not the opener of this ticket'); if (!['resolved', 'closed'].includes(tk.status)) return bad('status');
+          const old = tk.status; tk.reopen_count += 1;
+          Object.assign(tk, { status: 'open', closed_by: null, closed_by_name: null, closed_at: null, resolution_outcome: null, resolution_note: null, resolved_by: null, resolved_by_name: null, resolved_at: null });
+          ev(tk, 'event', who.name + ' أُعيد فتحه (×' + tk.reopen_count + ') — السبب: ' + r + ' · رجع لدور «' + tk.assignee_role + '»', old, 'open');
+        } else if (act === 'update') {
+          if (!work && !closer) return deny('not the role or the opener of this ticket');
+          if ('assigneeRole' in a) { if (!TK_ALL_ROLES.includes(a.assigneeRole)) return bad('assigneeRole'); if (a.assigneeRole !== tk.assignee_role) { const old = tk.assignee_role; tk.assignee_role = a.assigneeRole; ev(tk, 'event', who.name + ' غيّر المسؤول من «' + old + '» إلى «' + a.assigneeRole + '»', old, a.assigneeRole); } }
+          if ('priority' in a) { if (!TK_PRIO[a.priority]) return bad('priority'); if (a.priority !== tk.priority) { const old = tk.priority; tk.priority = a.priority; ev(tk, 'event', who.name + ' غيّر الأولوية من «' + TK_PRIO[old] + '» إلى «' + TK_PRIO[a.priority] + '»', old, a.priority); } }
+          if ('followUp' in a) { const d = day(a.followUp); if (d === undefined) return bad('followUp'); if (d !== tk.follow_up) { const old = tk.follow_up; tk.follow_up = d; ev(tk, 'event', who.name + ' غيّر تاريخ المتابعة من «' + (old || '—') + '» إلى «' + (d || '—') + '»', old, d); } }
+        } else if (act === 'reply') {
+          const text = tkClean(a.text, 5000); if (!text) return bad('text'); if (tk.status === 'closed') return bad('closed');
+          const files = filesOf(a.attachments); if (!files) return bad('attachments'); ev(tk, 'message', text, null, null, files);
+        } else return bad('action');
+        return json(200, null);
       }
       if (method === 'POST' && path === '/rest/v1/rpc/inv_count_approve') {
         if (hasPerm(u, 'inventory.approve') !== 'F') return json(403, { code: '42501', details: null, hint: null, message: 'inventory.approve is needed' });
@@ -1296,6 +1405,26 @@ export async function installSupabaseMock(page, opts = {}) {
         activityId += 1; mock.activityRows.push({ id: activityId, at: new Date().toISOString(), actor: u.id, action: b.action, entity: b.entity ?? null, entity_id: b.entity_id ?? null, new_value: b.new_value ?? null }); // actor / at / id: the server's (0002 trigger)
         return empty(204).catch(() => {}); // the page may be gone after a long delay
       }
+    }
+    // Storage, bucket tickets (0045, phase 8): private, images / PDF ≤ 10 MB; upload into the member's own folder with tickets.manage F;
+    // a signed URL for the uploader or a member who sees a ticket carrying the file
+    const stk = /^\/storage\/v1\/object\/(sign\/)?tickets\/(.+)$/.exec(path);
+    if (stk && method === 'POST') {
+      const u = tokenUser(); if (!u) return json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' });
+      const key = decodeURIComponent(stk[2]);
+      if (stk[1]) {
+        const mine = key.startsWith(u.id + '/'); const has = (a) => (a || []).some((f) => f.path === key);
+        const seen = mock.tickets.some((t) => tkSees(u, t) && (has(t.attachments) || mock.ticketEvents.some((e) => e.ticket_id === t.id && has(e.attachments))));
+        if (!(mine || seen) || !mock.ticketObjects.has(key)) return json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' });
+        n += 1; return json(200, { signedURL: '/object/sign/tickets/' + key + '?token=tk-' + n });
+      }
+      if (!key.startsWith(u.id + '/') || hasPerm(u, 'tickets.manage') !== 'F') return json(403, { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' });
+      const type = hd['content-type'] || ''; const bytes = req.postDataBuffer() || Buffer.alloc(0);
+      if (!TK_MIME.includes(type)) return json(415, { statusCode: '415', error: 'invalid_mime_type', message: 'mime type ' + type + ' is not supported' });
+      if (bytes.length > 10485760) return json(413, { statusCode: '413', error: 'Payload too large', message: 'The object exceeded the maximum allowed size' });
+      if (mock.ticketObjects.has(key)) return json(409, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' });
+      mock.ticketObjects.set(key, { type, size: bytes.length, by: u.id });
+      return json(200, { Key: 'tickets/' + key, Id: 'obj-tk-' + mock.ticketObjects.size });
     }
     // Storage, bucket ai-images (0025, phase 5.4): private; a member with products.add or products.edit = F reads (a signed URL, a
     // download) and deletes their own folder (<uid>/…) only; members never write (the server does — the ai-images handler below)

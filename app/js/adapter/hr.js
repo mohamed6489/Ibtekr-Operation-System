@@ -18,7 +18,8 @@
 //   sheet { month 'YYYY-MM', status } (this month's) · sheets { 'YYYY-MM': { status, total, paidAccount } }
 // Every write goes through the RPCs / the tables RLS lets the member write and returns a Promise of { ok, reason?, field?,
 // message? } that never throws (reason 'forbidden' 42501, 'invalid' 22xxx / 23xxx, 'notfound' P0002, 'exists', 'network'); each
-// one the server took is logged hr.<x> through IBActivity (codes, names, statuses, counts — never an amount, a password or a note;
+// one the server took is logged hr.<x> through IBActivity (codes, months and counts — never an amount, a score, a label, a request's
+// type, a meeting's outcome, a password or a note: the log's HR rows are their actor's and hr.view F's only, 0046;
 // «hr.» joins IBActivity.LOGGED_PREFIXES with the page on IBHR — T5 — so the old demo page's events never reach the server).
 // «إضافة عضو» = the Edge Function team-admin (the admin; the temporary password comes back once and is never kept). Files: the
 // private bucket «hr-docs» under the member's folder. Live: the private broadcast «hr» / «changed» → one load(), plus a check
@@ -253,6 +254,14 @@
   async function write(q) { try { const r = await q; return r && r.error ? r : { data: r ? r.data : null }; } catch (e) { return { error: { code: 'net' } }; } }
 
   // ---------- the clock (decision 10; block 21) ----------
+  // my shift as the server has it (hr_shift_now's rule on the loaded rows): the open one within 20 hours, else today's — or null
+  function myShift() {
+    const uid = myUid(); if (!uid) return null; const t = today(); const since = Date.now() - 20 * 3600000;
+    const mine = raw.att.filter((a) => a.member_id === uid);
+    const open = mine.filter((a) => !a.out_at && Date.parse(a.in_at) > since).sort((a, b) => (a.in_at < b.in_at ? 1 : -1))[0];
+    const row = open || mine.find((a) => a.day === t) || null;
+    return row ? { id: Number(row.id), day: row.day, in_at: row.in_at, out_at: row.out_at || null, remote: !!row.remote } : null;
+  }
   async function shiftNow() { const { data, error } = await rpc('hr_shift_now', {}); if (error) return fail(error); return { ok: true, shift: data || null }; }
   async function clockIn(remote) { const { data, error } = await rpc('hr_clock_in', { p_remote: !!remote }); if (error) return fail(error); log('hr.shift.start', remote ? 'عن بُعد' : ''); await load(); return { ok: true, shift: data }; }
   async function clockOut(note, at) {
@@ -285,7 +294,7 @@
       months: f.months == null ? null : String(f.months), note: f.note ? clean(f.note, 500) : null, doc: f.doc || null };
     const uid = f.member ? uidOf(f.member) : null; if (uid && uid !== myUid()) input.member = uid;
     const { data, error } = await rpc('hr_request_create', { p_input: input }); if (error) return fail(error);
-    const id = reqId(data); log('hr.request.create', id + ' · ' + f.type, id); await load(); return { ok: true, id };
+    const id = reqId(data); log('hr.request.create', id, id); /* no type: a sick leave is health information */ await load(); return { ok: true, id };
   }
   async function decide(id, decision, reason) {
     const k = dbOf(id, ids.req); if (k == null) return no('invalid');
@@ -306,7 +315,7 @@
     const uid = uidOf(member); if (!uid) return no('invalid');
     const a = {}; Object.keys(actuals || {}).forEach((k) => { a[String(k)] = Number(actuals[k]); });
     const { data, error } = await rpc('hr_rate_month', { p_member: uid, p_month: monthStart(monthKey(month)), p_actuals: a, p_note: note ? clean(note, 500) : null });
-    if (error) return fail(error); log('hr.kpi.rate', (byUid(uid) || {}).id + ' ' + monthKey(month) + ' ' + Number(data) + '%', uid); await load(); return { ok: true, score: Number(data) };
+    if (error) return fail(error); log('hr.kpi.rate', (byUid(uid) || {}).id + ' ' + monthKey(month), uid); /* no score */ await load(); return { ok: true, score: Number(data) };
   }
   // the member's KPIs: the rows given (weights adding to 100) replace the active ones; a row not given is deactivated
   async function saveKpis(member, list) {
@@ -354,13 +363,13 @@
     const amount = Number(f.amount); const kind = f.kind === 'achievement' ? 'achievement' : 'adjust';
     if (!(Math.abs(amount) > 0) || (kind === 'achievement' && amount < 0)) return no('invalid', 'amount');
     const r = await write(cl.from('hr_adjustments').insert({ member_id: uid, month: monthArg(f.month), amount, label: clean(f.label, 80), note: f.note ? clean(f.note, 300) : null, kind }));
-    if (r.error) return fail(r.error); return after(kind === 'achievement' ? 'hr.achievement' : 'hr.payroll.adjust', (byUid(uid) || {}).id + ' · ' + clean(f.label, 80), uid);
+    if (r.error) return fail(r.error); return after(kind === 'achievement' ? 'hr.achievement' : 'hr.payroll.adjust', (byUid(uid) || {}).id + ' · ' + monthKey(f.month || today()), uid); // no label, no amount
   }
   async function voidAdjustment(id) { const cl = c(); if (!cl) return no('network'); const r = await write(cl.from('hr_adjustments').update({ voided_at: new Date().toISOString() }).eq('id', id)); if (r.error) return fail(r.error); return after('hr.payroll.adjust.void', String(id)); }
   async function addExtra(f) {
     const cl = c(); const uid = uidOf(f.member); if (!cl || !uid) return no('network');
     const r = await write(cl.from('hr_extras').insert({ member_id: uid, quarter: f.quarter || quarterOf(monthKey(today())), rule: clean(f.rule, 80), amount: Number(f.amount) }));
-    if (r.error) return fail(r.error); return after('hr.extra.create', (byUid(uid) || {}).id + ' · ' + clean(f.rule, 80), uid);
+    if (r.error) return fail(r.error); return after('hr.extra.create', (byUid(uid) || {}).id + ' · ' + (f.quarter || quarterOf(monthKey(today()))), uid);
   }
   async function decideExtra(id, approve) {
     const cl = c(); if (!cl) return no('network');
@@ -390,13 +399,13 @@
     const cl = c(); const uid = uidOf(f.member); if (!cl || !uid) return no('network');
     const row = meetingRow(Object.assign({ status: 'مطلوب' }, f)); if (!row || !row.reason) return no('invalid', 'reason');
     const r = await write(cl.from('hr_meetings').insert(Object.assign({ member_id: uid }, row))); if (r.error) return fail(r.error);
-    return after('hr.meeting.create', (byUid(uid) || {}).id + ' · ' + row.status, uid);
+    return after('hr.meeting.create', (byUid(uid) || {}).id, uid);
   }
   async function meetingUpdate(id, f) {
     const cl = c(); const k = dbOf(id, ids.meet); if (!cl || k == null) return no('invalid');
     const row = meetingRow(f); if (!row) return no('invalid', 'status');
     const r = await write(cl.from('hr_meetings').update(row).eq('id', k)); if (r.error) return fail(r.error);
-    return after('hr.meeting.update', mtId(k) + (row.status ? ' → ' + row.status : '') + (row.outcome ? ' · ' + row.outcome : ''), mtId(k));
+    return after('hr.meeting.update', mtId(k), mtId(k)); // no outcome (a warning is HR information)
   }
 
   // ---------- the lists + the settings (hr.edit F / the admin) ----------
@@ -493,7 +502,7 @@
     const cl = c(); const uid = uidOf(member); if (!cl || !uid) return no('network');
     if (!DOC_KINDS.includes(f.kind)) return no('invalid');
     const r = await write(cl.from('hr_documents').insert({ member_id: uid, kind: f.kind, path: f.path, name: clean(f.name, 120) || 'file', start_on: f.start || null, end_on: f.end || null }));
-    if (r.error) return fail(r.error); return after('hr.contract.upload', (byUid(uid) || {}).id + ' · ' + f.kind, uid);
+    if (r.error) return fail(r.error); return after('hr.contract.upload', (byUid(uid) || {}).id, uid);
   }
   async function voidDocument(id) { const cl = c(); if (!cl) return no('network'); const r = await write(cl.from('hr_documents').update({ voided_at: new Date().toISOString() }).eq('id', id)); if (r.error) return fail(r.error); return after('hr.contract.void', String(id)); }
   const urls = new Map();
@@ -526,7 +535,7 @@
   }
 
   window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, can, settings, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
-    shiftNow, clockIn, clockOut, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
+    shiftNow, myShift, clockIn, clockOut, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,
     memberCreate, memberPassword, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,

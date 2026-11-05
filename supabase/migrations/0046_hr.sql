@@ -509,6 +509,14 @@ end $pol$;
 -- review: no email / phone / custom_perms / twofa through HR)
 drop policy if exists profiles_select_hr on public.profiles;
 
+-- the activity log's HR rows (entity 'hr': a request filed, a month rated, an adjustment, a meeting …) are their actor's and hr.view
+-- F's only — settings.view alone (ops) reads the rest of the log as before (0006), not a colleague's HR events (the security review)
+alter policy activity_log_select on public.activity_log
+  using ((actor = (select auth.uid())
+          and exists (select 1 from public.profiles p where p.id = (select auth.uid()) and p.status = 'active'))
+         or ((select public.has_perm('settings.view')) <> 'N'
+             and (entity is distinct from 'hr' or (select public.has_perm('hr.view')) = 'F')));
+
 -- the requests as members read them: an advance's amount for sensitive.salaries F or its own member only
 create or replace view public.hr_requests_v with (security_barrier = true) as
   select r.id, 'HR-' || lpad(r.id::text, 4, '0') as code, r.member_id, r.type, r.from_day, r.to_day, r.at_time, r.hours,

@@ -358,6 +358,25 @@ begin
   if (select count(*) from public.profiles) <> 1 then raise exception 'case the profiles stay settings.view''s failed'; end if;
 end $$;
 
+-- the activity log's HR rows: the actor and hr.view F read them; ops (settings.view P) reads the rest of the log, not these
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a1","role":"authenticated"}', true);
+do $$
+begin
+  perform public.log_activity('hr.kpi.rate', 'hr', 'M03', null, to_jsonb('M03 2026-10'::text));
+  perform public.log_activity('vendor.status', 'vendor', 'v1', null, to_jsonb('active'::text));
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a2","role":"authenticated"}', true);
+do $$
+begin
+  if exists (select 1 from public.activity_log where entity = 'hr' and actor = '00000000-0000-4000-8000-0000000046a1') then raise exception 'case a colleague''s HR events are hidden from settings.view P failed'; end if;
+  if not exists (select 1 from public.activity_log where action = 'vendor.status' and actor = '00000000-0000-4000-8000-0000000046a1') then raise exception 'case the rest of the log stays readable to settings.view P failed'; end if;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a1","role":"authenticated"}', true);
+do $$
+begin
+  if not exists (select 1 from public.activity_log where entity = 'hr' and action = 'hr.kpi.rate') then raise exception 'case the admin reads the HR events failed'; end if;
+end $$;
+
 reset role;
 do $$ begin raise notice 'rls_hr: ok'; end $$;
 rollback;

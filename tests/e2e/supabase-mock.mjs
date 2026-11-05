@@ -1159,8 +1159,9 @@ export async function installSupabaseMock(page, opts = {}) {
           rows.sort((a, b) => (a[col] < b[col] ? -1 : a[col] > b[col] ? 1 : 0) * (dir === 'desc' ? -1 : 1));
           return json(200, rows.slice(0, limit).map(sel.pick));
         };
-        // RLS activity_log_select (0006): an active user's own rows; every row with settings.view
-        if (t === 'activity_log') return answer(mock.activityRows.filter((r) => (viewPerm(u) !== 'N' || (u.status === 'active' && r.actor === u.id)) && f.match(r)));
+        // RLS activity_log_select (0006, 0046): an active user's own rows; every row with settings.view — but the HR ones (entity 'hr')
+        // with hr.view F too
+        if (t === 'activity_log') return answer(mock.activityRows.filter((r) => ((viewPerm(u) !== 'N' && (r.entity !== 'hr' || hasPerm(u, 'hr.view') === 'F')) || (u.status === 'active' && r.actor === u.id)) && f.match(r)));
         // RLS alerts_select (0002): an active user sees the alerts addressed to them or to their role
         const visible = (a) => u.status === 'active' && (a.user_id === u.id || a.role_id === u.role_id);
         if (t === 'alerts') return answer(mock.alerts.filter((a) => visible(a) && f.match(a)));

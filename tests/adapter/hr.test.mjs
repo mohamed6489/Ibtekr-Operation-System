@@ -148,6 +148,14 @@ test('the roster: a member only hr_team() shows (a manager\'s team the profiles 
   eq(solo.H.team().map((m) => m.id), ['M03'], 'N: me');
 });
 
+test('myShift: my open shift within 20 hours, else today\'s, else null (the clock after a refresh or on another device)', async () => {
+  const { H } = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'P' } }); await H.load();
+  eq(H.myShift(), { id: 1, day: '2026-11-05', in_at: cairo('2026-11-05', '09:02'), out_at: null, remote: false });
+  const done = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'P' }, responses: { hr_attendance: ok([{ id: 9, member_id: B, day: '2026-11-05', in_at: cairo('2026-11-05', '08:00'), out_at: cairo('2026-11-05', '13:00'), remote: true, source: 'clock', note: null, by_id: B }]) } });
+  await done.H.load(); eq(done.H.myShift().out_at, cairo('2026-11-05', '13:00'));
+  const none = load({ meId: A }); await none.H.load(); eq(none.H.myShift(), null);
+});
+
 test('the clock: hr_clock_in / hr_clock_out (the note only when there is one) and the reload; «ended» comes back in Arabic', async () => {
   const { H, stub, logs } = load({ responses: { 'rpc:hr_clock_in': ok({ id: 9, day: '2026-11-05', in_at: '2026-11-05T07:00:00Z', out_at: null, remote: true }), 'rpc:hr_clock_out': ok({ worked: 540, overtime_id: 77, overtime: 60 }) } });
   eq((await H.clockIn(true)).shift.id, 9);
@@ -171,7 +179,7 @@ test('requests: hr_request_create (another member by uid, mine without), decide 
   eq((await H.decide('HR-0009', 'موافق')).ok, true);
   eq(rpcs(stub).find((x) => x[0] === 'hr_request_decide'), ['hr_request_decide', { p_id: 9, p_decision: 'موافق', p_reason: null }]);
   eq(await H.decide('HR-0009', 'مرفوض'), { ok: false, reason: 'invalid', field: 'reason', message: 'اكتب السبب' });
-  assert(!JSON.stringify(logs).includes('فرح'));
+  assert(!JSON.stringify(logs).includes('فرح') && !JSON.stringify(logs).includes('إجازة سنوية'), 'no note, no type in the log');
   eq(logs.filter((l) => l[0] === 'hr.request.approve').map((l) => l[1]), ['HR-0009']);
   void store;
 });
@@ -198,6 +206,7 @@ test('the KPIs: weights must add to 100; a row left out is deactivated, a new on
   eq([r.ok, r.score], [true, 102]);
   eq(rpcs(stub).find((x) => x[0] === 'hr_rate_month'), ['hr_rate_month', { p_member: C, p_month: '2026-10-01', p_actuals: { 21: 90, 22: 1 }, p_note: 'كويس' }]);
   eq(logs.map((l) => l[0]), ['hr.kpi.define', 'hr.kpi.rate']);
+  assert(!JSON.stringify(logs).includes('102'), 'no score in the log');
   const noEdit = load({ perms: { 'hr.view': 'P' } }); await noEdit.H.load();
   eq((await noEdit.H.saveKpis('M03', [{ name: 'x', weight: 100, target: 1 }])).reason, 'forbidden');
 });

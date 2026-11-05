@@ -7,40 +7,70 @@
   const { h, Icon, Button } = U; const S = K.store;
 
   // ================= shift / overtime =================
-  const sh = { state: 'out', start: 0, sim: 0, otStart: null, prompted: 0, endAsked: false, presence: null, note: '' };
+  // phase 10 T6 (decision 10): the shift lives on the server (hr_clock_in / hr_clock_out through IBHR) — a refresh, another tab or
+  // another device shows the same open shift (known issue 1); the timer counts from the server's start. The overtime flow is the
+  // prototype's: at 8 hours «إنهاء الدوام» (ends at the 8-hour mark) or «لسه — وقت إضافي»; ending overtime asks what was worked on
+  // (the server records it past 8 hours for the direct manager); «لسه شغال؟» unanswered ends the shift at the moment it was shown.
+  // What the member chose for this shift (the 8-hour question, the presence prompts) stays in sessionStorage by the shift's id.
+  const HR = () => window.IBHR;
+  const sh = { state: 'out', start: 0, id: null, otStart: null, prompted: 0, endAsked: false, presence: null, note: '', ended: false, endedMin: 0, busy: false };
   const now = () => Date.now();
-  const worked = () => (sh.state === 'out' ? 0 : (now() - sh.start) / 60000 + sh.sim);
+  const worked = () => (sh.state === 'out' ? 0 : Math.max(0, (now() - sh.start) / 60000));
   const otMin = () => (sh.otStart == null ? 0 : worked() - sh.otStart);
-  const clockLabel = (ms) => { const d = new Date(ms); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
-  const realOf = (min) => sh.start + (min - sh.sim) * 60000; // wall-clock time when `min` worked minutes were reached
+  const clockLabel = (ms) => { const d = new Date(ms); try { return new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d); } catch (e) { return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); } };
+  const realOf = (min) => sh.start + min * 60000; // wall-clock time when `min` worked minutes were reached
+  const settings = () => (HR() ? HR().data.hrSettings : S.hrSettings);
+  const SKEY = (id) => 'ib.shift.' + id;
+  const remember = () => { if (sh.id == null) return; try { sessionStorage.setItem(SKEY(sh.id), JSON.stringify({ endAsked: sh.endAsked, ot: sh.otStart != null, prompted: sh.prompted })); } catch (e) { /* storage blocked: asked again after a refresh */ } };
+  const forget = (id) => { try { sessionStorage.removeItem(SKEY(id)); } catch (e) { /* */ } };
   let widget = null;
-  function state() { return { state: sh.state, worked: worked(), startLabel: sh.start ? clockLabel(sh.start) : '' }; }
-  function clockIn() { sh.state = 'in'; sh.start = now(); sh.sim = 0; sh.otStart = null; sh.prompted = 0; sh.endAsked = false; S.today[K.ME] = { in: new Date().getHours() * 60 + new Date().getMinutes(), out: null }; K.logEvent('shift.start', K.member(K.ME).name); K.toast('بدأ الدوام — بالتوفيق', 'success'); paint(); refreshPages(); }
-  function finish(endMinWorked, note, auto) {
-    const ot = sh.otStart != null ? Math.max(0, Math.round(endMinWorked - sh.otStart)) : 0;
-    if (ot > 0) { const id = 'OT-' + (312 + S.overtime.length); const st = clockLabel(realOf(sh.otStart)); const en = clockLabel(realOf(endMinWorked));
-      S.overtime.unshift({ id, member: K.ME, date: K.TODAY, start: st, end: en, minutes: ot, note, status: 'مستني', waitedHours: 0 });
-      K.notify({ title: 'وقت إضافي محتاج تأكيد — ' + K.member(K.ME).name + ' (' + K.hrs(ot) + ')', link: '#hr-requests', kind: 'ot' }); K.logEvent(auto ? 'shift.autoEnd' : 'shift.overtime.end', id + ' ' + ot + 'د'); }
-    else K.logEvent('shift.end', K.member(K.ME).name);
-    const t = S.today[K.ME]; if (t) t.out = t.in + Math.round(endMinWorked);
-    sh.state = 'out'; sh.otStart = null; sh.sim = 0; closePresence(); paint(); refreshPages();
-    K.toast(auto ? 'الدوام خلص تلقائي من وقت ظهور «لسه شغال؟»' + (ot ? ' — الوقت الإضافي اتبعت للتأكيد' : '') : ot ? 'انتهى الدوام — اتبعت ' + K.hrs(ot) + ' وقت إضافي لمديرك للتأكيد' : 'انتهى الدوام', auto ? '' : 'success');
+  function state() { return { state: sh.state, worked: worked(), startLabel: sh.start && sh.state !== 'out' ? clockLabel(sh.start) : '', ended: sh.ended, endedMin: sh.endedMin }; }
+  // the clock from the server's rows (IBHR.myShift): on every load and the live line
+  function sync() {
+    const s = HR() && HR().myShift ? HR().myShift() : null;
+    if (!s) { if (sh.state !== 'out' || sh.ended) { closePresence(); Object.assign(sh, { state: 'out', id: null, start: 0, otStart: null, ended: false, endedMin: 0 }); } paint(); return; }
+    if (s.out_at) { closePresence(); Object.assign(sh, { state: 'out', id: s.id, start: Date.parse(s.in_at), otStart: null, ended: s.day === (HR().today ? HR().today() : ''), endedMin: Math.max(0, Math.round((Date.parse(s.out_at) - Date.parse(s.in_at)) / 60000)) }); paint(); return; }
+    if (sh.id !== s.id) {
+      let saved = {}; try { saved = JSON.parse(sessionStorage.getItem(SKEY(s.id)) || '{}') || {}; } catch (e) { saved = {}; }
+      Object.assign(sh, { id: s.id, endAsked: !!saved.endAsked, prompted: Number(saved.prompted) || 0, otStart: saved.ot ? 480 : null });
+    }
+    sh.start = Date.parse(s.in_at); sh.ended = false; sh.state = sh.otStart != null ? 'overtime' : 'in';
+    paint();
+  }
+  document.addEventListener('ib:hr', sync);
+  async function clockIn() {
+    if (sh.busy || !HR()) return; sh.busy = true; paint();
+    const me = K.ME; const t = HR().today();
+    const remote = HR().data.requests.some((r) => r.member === me && r.type === 'شغل عن بُعد' && r.status === 'موافق' && r.from <= t && r.to >= t);
+    const r = await HR().clockIn(remote); sh.busy = false;
+    if (!r.ok) { K.toast(r.message || 'تعذّر بدء الدوام — جرّب تاني', 'error'); paint(); return; }
+    const off = [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay()) || HR().holidayDates().includes(t);
+    K.toast(off ? 'بدأ الدوام — يوم راحة: بيتحسب بيومين بعد تأكيد مديرك' : remote ? 'بدأ الدوام عن بُعد — بالتوفيق' : 'بدأ الدوام — بالتوفيق', 'success'); sync();
+  }
+  async function finish(endMinWorked, note, auto) {
+    if (sh.busy || !HR()) return; sh.busy = true;
+    const id = sh.id; const r = await HR().clockOut(note || null, new Date(realOf(endMinWorked)).toISOString()); sh.busy = false;
+    if (!r.ok) { K.toast(r.message || 'تعذّر إنهاء الدوام — جرّب تاني', 'error'); paint(); return; }
+    const res = r.result || {}; const ot = Number(res.overtime) || 0;
+    forget(id); sh.otStart = null; closePresence(); sync();
+    K.toast(res.rest_day ? 'انتهى الدوام — يوم الراحة اتبعت لمديرك يأكده' : auto ? 'الدوام خلص تلقائي من وقت ظهور «لسه شغال؟»' + (ot ? ' — الوقت الإضافي اتبعت للتأكيد' : '') : ot ? 'انتهى الدوام — اتبعت ' + K.hrs(ot) + ' وقت إضافي لمديرك للتأكيد' : 'انتهى الدوام', auto ? '' : 'success');
   }
   // «إنهاء الدوام»: plain confirm while in; overtime needs the note of what was worked on
   function endShift(after) {
+    if (sh.state === 'out') { if (after) after(); return; }
     if (sh.state === 'overtime') return endOvertime(after);
-    K.confirm({ title: 'إنهاء الدوام', text: 'اشتغلت ' + K.hrs(worked()) + ' النهارده. هينتهي الدوام دلوقتي.', okLabel: 'إنهاء الدوام', onOk: () => { finish(worked(), '', false); after && after(); } });
+    K.confirm({ title: 'إنهاء الدوام', text: 'اشتغلت ' + K.hrs(worked()) + ' النهارده. هينتهي الدوام دلوقتي.', okLabel: 'إنهاء الدوام', onOk: async () => { await finish(worked(), '', false); if (after) after(); } });
   }
   function endOvertime(after) {
     const end = worked();
-    K.form({ title: 'إنهاء الوقت الإضافي', values: {}, note: U.InlineNote({ children: 'اشتغلت ' + K.hrs(end - sh.otStart) + ' وقت إضافي (من ' + clockLabel(realOf(sh.otStart)) + '). هيتبعت لمديرك المباشر يأكده — ولو عدّى 24 ساعة بيروح للأدمن.' }),
+    K.form({ title: 'إنهاء الوقت الإضافي', values: {}, note: U.InlineNote({ children: 'اشتغلت ' + K.hrs(end - sh.otStart) + ' وقت إضافي (من ' + clockLabel(realOf(sh.otStart)) + '). هيتبعت لمديرك المباشر يأكده — ولو عدّى ' + (settings().escalate || 24) + ' ساعة بيروح للأدمن.' }),
       fields: (f, e, set) => [K.field.area('note', 'اشتغلت على إيه في الوقت ده؟', f, e, set, { required: true, placeholder: 'مثلاً: جهزت 14 أوردر لشحنة أرامكس' })],
-      validate: (f) => { const err = O.validateOtEnd(f.note); return err ? { note: err } : {}; }, submitLabel: 'إنهاء الدوام وإرسال للتأكيد', submit: (f) => { finish(end, f.note.trim(), false); after && after(); } });
+      validate: (f) => { const err = O.validateOtEnd(f.note); return err ? { note: err } : {}; }, submitLabel: 'إنهاء الدوام وإرسال للتأكيد', submit: (f) => { finish(end, f.note.trim(), false).then(() => { if (after) after(); }); } });
   }
   function shiftOver() {
-    sh.endAsked = true;
-    const m = U.Modal({ title: 'ساعات العمل خلصت', body: [h('p', { style: 'margin:0' }, 'كمّلت 8 ساعات النهارده (من ' + clockLabel(sh.start) + '). تحب تنهي الدوام ولا لسه شغال وقت إضافي؟'), (() => { const t = U.Textarea({ id: 'ot-note', label: 'ملاحظة (اختياري)', value: sh.note, placeholder: 'هتشتغل على إيه؟', onInput: (v) => { sh.note = v; } }); return t; })(), h('p', { class: 't-small help', style: 'margin:0' }, 'الوقت الإضافي بيتحسب بنفس سعر الساعة بعد ما مديرك يأكده. هنسألك «لسه شغال؟» كل ' + S.hrSettings.presenceEvery / 60 + ' ساعة.')],
-      footer: [Button({ label: 'لسه — وقت إضافي', onClick: () => { m.close(); sh.state = 'overtime'; sh.otStart = 480; sh.prompted = 0; K.logEvent('shift.overtime.start', sh.note || ''); K.toast('بدأ الوقت الإضافي'); paint(); } }), Button({ type: 'primary', label: 'إنهاء الدوام', onClick: () => { m.close(); finish(Math.min(worked(), 480), '', false); } })] });
+    sh.endAsked = true; remember();
+    const m = U.Modal({ title: 'ساعات العمل خلصت', body: [h('p', { style: 'margin:0' }, 'كمّلت 8 ساعات النهارده (من ' + clockLabel(sh.start) + '). تحب تنهي الدوام ولا لسه شغال وقت إضافي؟'), (() => { const t = U.Textarea({ id: 'ot-note', label: 'ملاحظة (اختياري)', value: sh.note, placeholder: 'هتشتغل على إيه؟', onInput: (v) => { sh.note = v; } }); return t; })(), h('p', { class: 't-small help', style: 'margin:0' }, 'الوقت الإضافي بيتسجل لما تنهيه وبيستنى تأكيد مديرك المباشر.')],
+      footer: [Button({ label: 'لسه — وقت إضافي', onClick: () => { m.close(); sh.state = 'overtime'; sh.otStart = 480; sh.prompted = 0; remember(); K.toast('بدأ الوقت الإضافي'); paint(); } }), Button({ type: 'primary', label: 'إنهاء الدوام', onClick: () => { m.close(); finish(Math.min(worked(), 480), '', false); } })] });
   }
   function closePresence() { if (sh.presence) { clearInterval(sh.presence.t); sh.presence.modal.close(); sh.presence = null; } }
   function presencePrompt() {
@@ -52,31 +82,33 @@
     sh.presence = { t, modal };
   }
   function tick() {
-    if (sh.state === 'out') return;
-    const w = worked();
-    if (sh.state === 'in' && O.shiftState(w) === 'overtime' && !sh.endAsked && S.hrSettings.shiftEnd && !document.querySelector('.scrim')) shiftOver();
-    if (sh.state === 'overtime' && S.hrSettings.presence && !sh.presence) { const n = Math.floor(otMin() / S.hrSettings.presenceEvery); if (n > sh.prompted) { sh.prompted = n; presencePrompt(); } }
+    if (sh.state === 'out' || sh.busy) return;
+    const w = worked(); const c = settings();
+    if (sh.state === 'in' && O.shiftState(w) === 'overtime' && !sh.endAsked && c.shiftEnd && !document.querySelector('.scrim')) shiftOver();
+    if (sh.state === 'overtime' && c.presence && !sh.presence) { const n = Math.floor(otMin() / (Number(c.presenceEvery) || 120)); if (n > sh.prompted) { sh.prompted = n; remember(); presencePrompt(); } }
     paintTimer();
   }
   setInterval(tick, 1000);
-  function refreshPages() { const c = window.IBPages.current; if (c === 'profile' || c === 'hr') window.IBPages.render(c); }
 
   // Clock widget (State=Out/In/Overtime + Timer)
   let timerEl = null;
   function paintTimer() { if (timerEl) timerEl.textContent = K.hm(worked()) + (sh.state === 'overtime' ? ' · +' + K.hm(otMin()) : ''); }
   function paint() { if (!widget) return; widget.replaceChildren(...clockInner()); }
   function clockInner() {
-    if (sh.state === 'out') { timerEl = null; return [Button({ type: 'primary', size: 'sm', label: 'ابدأ الدوام', icon: 'clock', onClick: clockIn })]; }
+    if (sh.state === 'out') {
+      timerEl = null;
+      if (sh.ended) return [Button({ type: 'text', size: 'sm', label: 'خلص الدوام · ' + K.hm(sh.endedMin), icon: 'check', attrs: { 'data-shift-ended': '' }, onClick: () => K.toast('الدوام اتقفل النهارده — لو فيه غلط قدّم «تصحيح انصراف» من «ملفي › طلباتي»') })];
+      return [Button({ type: 'primary', size: 'sm', label: sh.busy ? 'بيبدأ…' : 'ابدأ الدوام', icon: 'clock', disabled: sh.busy || !HR() || HR().state() !== 'ready', attrs: { 'aria-label': 'ابدأ الدوام' }, onClick: clockIn })];
+    }
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
     timerEl = h('span', { class: 'num' });
     const trig = h('button', { type: 'button', class: 'clock clock-' + sh.state, 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': sh.state === 'overtime' ? 'وقت إضافي — تفاصيل الدوام' : 'على الدوام — تفاصيل الدوام' }, h('i', { class: 'dot' }), h('span', { class: 'lbl' }, sh.state === 'overtime' ? 'وقت إضافي' : 'على الدوام'), timerEl);
     const pop = U.popover(wrap, trig, (close) => h('div', { class: 'menu end clock-pop', role: 'dialog', 'aria-label': 'الدوام', 'data-popover-root': '' },
       K.Kv([['بدأت', clockLabel(sh.start)], ['اشتغلت', K.hrs(worked())], ['الشيفت', '8 ساعات'], sh.state === 'overtime' ? ['وقت إضافي', K.hrs(otMin())] : ['فاضل', K.hrs(Math.max(0, 480 - worked()))]]),
-      Button({ type: 'primary', label: sh.state === 'overtime' ? 'إنهاء الوقت الإضافي' : 'إنهاء الدوام', onClick: () => { close(); endShift(); } }),
-      h('div', { class: 'demo' }, h('span', { class: 't-small help' }, 'للتجربة فقط:'), Button({ type: 'text', size: 'sm', label: 'قدّم الوقت ساعة', onClick: () => { sh.sim += 60; close(); tick(); paintTimer(); } }), Button({ type: 'text', size: 'sm', label: 'قدّم ساعتين', onClick: () => { sh.sim += 120; close(); tick(); paintTimer(); } }))));
+      Button({ type: 'primary', label: sh.state === 'overtime' ? 'إنهاء الوقت الإضافي' : 'إنهاء الدوام', onClick: () => { close(); endShift(); } })));
     trig.addEventListener('click', pop.toggle); wrap.append(trig); paintTimer(); return [wrap];
   }
-  function ClockWidget() { widget = h('div', { class: 'clock-widget' }); paint(); return widget; }
+  function ClockWidget() { widget = h('div', { class: 'clock-widget' }); sync(); return widget; }
 
   // ================= account menu / logout =================
   function AccountMenu(go) {

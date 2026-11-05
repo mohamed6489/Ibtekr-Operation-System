@@ -275,3 +275,30 @@ test('the bell: a new ticket for my role and a reply by someone else reach it li
   await expect.poll(() => page.evaluate(() => (window.IBPrefs.get('tickets.seen') || { ids: {} }).ids['9'])).toBe(90);
   await expect.poll(() => page.evaluate(() => window.IBTickets.bell().map((b) => b.id))).toEqual(['TKT-0001']);
 });
+
+test('decision 19: «رقم الأوردر» lists the matching orders as it is typed (number or customer); a pick fills the number and the customer', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.locator('.sidebar .nav-item[data-page="orders"]').click(); // the orders are loaded
+  await expect(page.locator('#orders [data-more="o:180686"]').first()).toBeVisible();
+  await page.locator('.sidebar .nav-item[data-page="tickets"]').click();
+  await page.getByRole('button', { name: 'إنشاء تذكرة' }).click();
+  const m = modal(page, 'تذكرة جديدة');
+  await m.locator('#t-order').fill('هدير');
+  const opt = m.locator('[data-tk-pick="180686"]');
+  await expect(opt).toContainText('هدير عميل');
+  await expect(m.locator('[data-tk-pick]')).toHaveCount(1);
+  await opt.click();
+  await expect(m.locator('#t-order')).toHaveValue('180686');
+  await expect(m.locator('[data-tk-pick]')).toHaveCount(0);
+  await m.locator('#t-order').fill('1816');
+  await expect(m.locator('[data-tk-pick="181668"]')).toBeVisible();
+  await m.locator('#t-order').press('Enter');
+  await expect(m.locator('#t-order')).toHaveValue('181668');
+  await m.locator('#t-title').fill('اختيار من القايمة');
+  await m.locator('#t-desc').fill('x');
+  await pick(page, m, 't-reason', 'أخرى');
+  await pick(page, m, 't-role', 'الحسابات');
+  await m.getByRole('button', { name: 'إنشاء التذكرة' }).click();
+  await expect(drawer(page)).toContainText('اختيار من القايمة');
+  expect(mock.ticketWrites.find((x) => x.fn === 'ticket_create')).toMatchObject({ orderId: '181668', customer: 'سلوى زيتوني' });
+});

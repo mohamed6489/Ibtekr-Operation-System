@@ -7,14 +7,14 @@
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
 
-  const TYPES = Object.freeze([['customer', 'مشكلة عميل'], ['vendor', 'مشكلة مورد'], ['internal', 'تعليق داخلي']]);
+  const TYPES = Object.freeze([['customer', 'مشكلة عميل'], ['vendor', 'مشكلة مبتكر'], ['internal', 'تعليق داخلي']]);
   const STATUSES = Object.freeze([['open', 'مفتوح'], ['in_progress', 'جاري العمل'], ['waiting', 'بانتظار الرد'], ['resolved', 'تم الحل'], ['closed', 'مغلق']]);
   const PRIORITIES = Object.freeze([['urgent', 'عاجل'], ['high', 'عالي'], ['normal', 'عادي'], ['low', 'منخفض']]);
-  const ROLES = Object.freeze(['مدير النظام', 'خدمة العملاء', 'متابعة الموردين', 'الحسابات', 'اللوجستيك والشحن', 'المحتوى والتصوير']);
+  const ROLES = Object.freeze(['مدير النظام', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'اللوجستيك والشحن', 'المحتوى والتصوير']);
   const ADMIN_ROLE = ROLES[0];
   const CUSTOMER_REASONS = Object.freeze(['تأخير في التسليم', 'منتج تالف', 'منتج مختلف عن الطلب', 'مشكلة دفع أو استرجاع', 'العميل مش بيرد', 'أخرى']);
   const VENDOR_REASONS = Object.freeze(['تأخير تسليم', 'جودة', 'خامة ناقصة', 'خلاف على الحساب أو العمولة', 'مش بيرد', 'أخرى']);
-  const OUTCOMES = Object.freeze(['اتحلت المشكلة', 'مش مشكلة', 'مكرر', 'العميل / المورد ما ردش']);
+  const OUTCOMES = Object.freeze(['اتحلت المشكلة', 'مش مشكلة', 'مكرر', 'العميل / المبتكر ما ردش']);
   const OPEN = new Set(['open', 'in_progress', 'waiting']);
   const WORK_STATUSES = new Set(['in_progress', 'waiting']);
   const label = (list, key) => { const f = list.find((x) => x[0] === key); return f ? f[1] : key; };
@@ -33,7 +33,7 @@
     if (!PRIORITIES.some((p) => p[0] === input.priority)) e.priority = 'اختار الأولوية';
     if (!ROLES.includes(input.assigneeRole)) e.assigneeRole = 'اختار الدور المسؤول';
     if (input.type === 'customer') { if (!clean(input.orderId, 20)) e.orderId = 'اكتب رقم الأوردر'; if (!CUSTOMER_REASONS.includes(input.reason)) e.reason = 'اختار سبب المشكلة'; }
-    if (input.type === 'vendor') { if (!clean(input.vendor, 80)) e.vendor = 'اختار المورد'; if (!VENDOR_REASONS.includes(input.reason)) e.reason = 'اختار سبب المشكلة'; }
+    if (input.type === 'vendor') { if (!clean(input.vendor, 80)) e.vendor = 'اختار المبتكر'; if (!VENDOR_REASONS.includes(input.reason)) e.reason = 'اختار سبب المشكلة'; }
     if (input.followUp && !isIso(input.followUp)) e.followUp = 'اكتب التاريخ بالشكل يوم/شهر/سنة';
     return e;
   }

@@ -82,13 +82,15 @@
   const present = (m) => { const t = S.today[m.id]; return !!t && t.in != null && t.out == null; };
   const todayMin = (m) => { const t = S.today[m.id]; if (!t || t.in == null) return null; return (t.out != null ? t.out : nowMin()) - t.in; };
 
+  // «تخصيص اللوحة» (decision 22): the tab's blocks follow the member's choice after each render; the reports tab has its own
+  const pnl = (...kids) => { const el = h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...kids); if (st.tab !== 'reports') setTimeout(() => K.applyPanelPrefs('hr:' + st.tab, el), 0); return el; };
   function view() {
     if (!H()) return [K.Empty('الموارد البشرية مش متاحة', 'جرّب تفتح الصفحة تاني.')];
     const c = can();
-    return [K.PageHead('الموارد البشرية', 'الفريق · الحضور والانصراف · الطلبات · المرتبات والمكافآت', [c.edit ? Button({ label: 'تسجيل حضور يدوي', icon: 'clock', onClick: () => manualAtt() }) : null, c.admin ? Button({ type: 'brand', label: 'إضافة عضو', icon: 'plus', onClick: () => addMember() }) : null]),
+    return [K.PageHead('الموارد البشرية', 'الفريق · الحضور والانصراف · الطلبات · المرتبات والمكافآت', [st.tab === 'reports' ? null : K.PanelButton('hr:' + st.tab, 'الموارد البشرية — ' + (TABS.find((t) => t.id === st.tab) || {}).label, () => document.querySelector('#pg-hr .panel'), R), c.edit ? Button({ label: 'تسجيل حضور يدوي', icon: 'clock', onClick: () => manualAtt() }) : null, c.admin ? Button({ type: 'brand', label: 'إضافة عضو', icon: 'plus', onClick: () => addMember() }) : null]),
       H().state() === 'error' ? U.InlineNote({ kind: 'error', children: 'تعذّر تحميل بيانات الموارد البشرية — جرّب تاني بعد شوية.' }) : null,
       K.MainTabs({ items: TABS.map((t) => (t.id === 'requests' ? Object.assign({}, t, { label: t.label + ' (' + pendingCount() + ')' }) : t)), active: st.tab, onChange: (id) => { st.tab = id; try { history.replaceState(null, '', '#hr-' + id); } catch (e) { /* */ } R(); }, label: 'أقسام الموارد البشرية' }),
-      h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...(st.tab === 'team' ? teamTab() : st.tab === 'requests' ? requestsTab() : st.tab === 'payroll' ? payrollTab() : st.tab === 'reports' ? reportsTab() : settingsTab()))];
+      pnl(...(st.tab === 'team' ? teamTab() : st.tab === 'requests' ? requestsTab() : st.tab === 'payroll' ? payrollTab() : st.tab === 'reports' ? reportsTab() : settingsTab()))];
   }
   // تاب «التقارير»: تقارير الموظفين بتتفتح مع تاب «الموظفين» في صفحة التقارير (T8)
   // «التقارير» (T8, decision 20): the reports page's «تقارير الموظفين» (IBReportBlocks.staff — one source) with its range

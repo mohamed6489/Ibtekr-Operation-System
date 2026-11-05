@@ -80,7 +80,7 @@
       const recent = new Map(); evs.forEach((e) => { const k = Number(e.ticket_id); if (!recent.has(k)) recent.set(k, []); recent.get(k).push(e); });
       for (const k of [...data.events.keys()]) if (!keep.has(k)) { data.events.delete(k); data.full.delete(k); }
       keep.forEach((k) => { if (!data.full.has(k)) data.events.set(k, (recent.get(k) || []).map(toEvent).sort(byAt)); else if (recent.has(k)) mergeEvents(k, recent.get(k)); });
-      st = 'ready'; emit(); subscribe(); return { ok: true };
+      ensureSeen(); st = 'ready'; emit(); subscribe(); return { ok: true };
     } catch (e) { if (g === gen) st = 'error'; emit(); return fail(e); }
   }
   function mergeEvents(k, list) { const have = data.events.get(k) || []; const ids = new Set(have.map((x) => x.id)); list.forEach((e) => { if (!ids.has(Number(e.id))) have.push(toEvent(e)); }); data.events.set(k, have.sort(byAt)); }
@@ -101,7 +101,7 @@
     } catch (e) { /* the next load() picks it up */ }
     emit({ id: tid(k) });
   }
-  function clear() { gen += 1; unsubscribe(); data.tickets = []; data.events.clear(); data.full.clear(); st = 'idle'; }
+  function clear() { gen += 1; unsubscribe(); data.tickets = []; data.events.clear(); data.full.clear(); memSince = null; st = 'idle'; }
 
   // ---------- the store the page reads (block 05's createStore names) ----------
   const copy = (t) => (t ? Object.assign({}, t, { createdBy: Object.assign({}, t.createdBy), resolution: t.resolution ? Object.assign({}, t.resolution) : null, attachments: t.attachments.slice() }) : null);
@@ -113,6 +113,44 @@
   const forVendor = (vid) => (vid ? openOnes((t) => t.vendorId === vid) : []);
   const forCustomer = (cid, any) => (cid ? (any ? data.tickets.filter((t) => t.csCustomerId === cid).map(copy) : openOnes((t) => t.csCustomerId === cid)) : []);
   const forConversation = (vid, any) => (vid ? (any ? data.tickets.filter((t) => t.csConversationId === vid).map(copy) : openOnes((t) => t.csConversationId === vid)) : []);
+
+  // ---------- the bell (decisions 7 + 9) ----------
+  // what reaches the member: a new ticket for their role, a reply / a change by someone else on a ticket they opened or their role
+  // owns — after the last one they saw (user_prefs «tickets.seen» = { since, ids: { dbId: last event id } }; the first time = from now,
+  // so the history does not flood the bell). Opening a ticket marks it seen. Overdue / reopened stay tasks until they are handled.
+  const SEEN = 'tickets.seen';
+  const prefs = () => window.IBPrefs || null;
+  // the baseline lives in memory from the first load and is saved with the first item that reaches the bell (no write per sign-in)
+  let memSince = null;
+  const saved = () => { const v = prefs() && prefs().get ? prefs().get(SEEN) : null; return v && typeof v === 'object' && v.ids && v.since ? v : null; };
+  const seenState = () => saved() || (memSince ? { since: memSince, ids: {} } : null);
+  function ensureSeen() { if (!saved() && !memSince) memSince = new Date().toISOString(); }
+  const relevant = (t) => isMine(t) || (!!t.createdBy.uid && t.createdBy.uid === myUid());
+  function bell() {
+    const uid = myUid(); const seen = seenState(); if (!uid || !seen || !can().view) return [];
+    const out = [];
+    for (const t of data.tickets) {
+      if (!relevant(t)) continue;
+      const evs = data.events.get(t.dbId) || []; const last = Number(seen.ids[t.dbId]) || 0;
+      const fresh = evs.filter((e) => e.id > last && e.at > seen.since && e.actorUid !== uid); if (!fresh.length) continue;
+      const isNew = !last && isMine(t) && t.createdBy.uid !== uid && t.createdAt > seen.since;
+      const e = fresh[fresh.length - 1];
+      const sub = isNew ? 'تذكرة جديدة لدور «' + t.assigneeRole + '» من ' + t.createdBy.name
+        : e.kind === 'message' ? 'رد من ' + e.author.name + ': ' + String(e.text || '').slice(0, 60) : e.text;
+      out.push({ id: t.id, kind: isNew ? 'new' : 'update', title: t.id + ' — ' + t.title, sub, prio: t.priority, at: e.at, count: fresh.length });
+    }
+    if (out.length && !saved() && prefs() && prefs().set) quiet(() => prefs().set(SEEN, { since: seen.since, ids: {} }));
+    return out.sort((a, b) => (a.at < b.at ? 1 : -1));
+  }
+  function markSeen(id) {
+    const k = dbIdOf(id); const seen = seenState(); if (k == null || !seen || !prefs()) return;
+    const evs = data.events.get(k) || []; const last = evs.reduce((m, e) => Math.max(m, e.id), 0);
+    if (!last || (Number(seen.ids[k]) || 0) >= last) return;
+    const keep = new Set(data.tickets.map((t) => String(t.dbId)));
+    const ids = {}; Object.keys(seen.ids).forEach((x) => { if (keep.has(x)) ids[x] = seen.ids[x]; }); ids[k] = last;
+    quiet(() => prefs().set(SEEN, { since: seen.since, ids }));
+    quiet(() => document.dispatchEvent(new CustomEvent('ib:notify')));
+  }
 
   // ---------- writes ----------
   const clean = (s, n) => String(s == null ? '' : s).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, n);
@@ -213,6 +251,6 @@
   }
 
   window.IBTickets = { load, clear, loadEvents, subscribe, unsubscribe, check, state: () => st, can, myRoles, actor, canWork, canClose, canReopen: canClose, isMine,
-    all, get, events, forOrder, forVendor, forCustomer, forConversation, create, setStatus, resolve, close, reopen, update, reply, upload, fileUrl, checkFile,
+    all, get, events, bell, markSeen, forOrder, forVendor, forCustomer, forConversation, create, setStatus, resolve, close, reopen, update, reply, upload, fileUrl, checkFile,
     MAX_FILES, MAX_BYTES, MIME, tid, dbIdOf, _test: { toTicket, toEvent, safeName, files, fail } };
 })();

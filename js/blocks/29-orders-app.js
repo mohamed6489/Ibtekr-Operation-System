@@ -130,7 +130,7 @@ function field(lbl,icn,val,w,extra){return'<div class="fld" style="width:'+w+'px
 function header(o,l,open){
  var cd=o.cdate;
  return'<div class="oh">'+ocb(o)
- +field('رقم الأوردر','tag','<div class="vv"><span class="oid">IB-'+o.id+'</span></div>',88)
+ +field('رقم الأوردر','tag','<div class="vv"><span class="oid">IB-'+o.id+'</span>'+tkChip(o)+'</div>',88)
  +field('تاريخ الأوردر','cal','<div class="vv"><b style="font-weight:600">'+dt(o.date)+'</b></div>',100)
  +field('الأوردرات الفرعية','box','<div class="vv">'+o.subs.length+(o.subs.length>2?' أوردرات':' أوردر')+'</div>',115)
  +field('إجمالي القيمة','coins','<div class="vv"><b style="font-weight:600">'+fmt(o.tot)+' ج.م</b></div>',104)
@@ -175,7 +175,7 @@ function mode(){var w=window.innerWidth;return w<=767?'m':w<=1023?'t':'d'}
 var MODE=mode();
 window.addEventListener('resize',function(){var m=mode();if(m!==MODE){MODE=m;draw(true);if(DET&&DET.refresh)DET.refresh()}});
 function kpiStrip(o){return'<div class="kpis"><div><b>'+fmt(o.tot)+' ج.م</b><small>الإجمالي</small></div><div><b>'+fmt(Math.max(0,o.tot-o.dep))+' ج.م</b><small>المتبقي</small></div><div><b>'+fmt(o.dep||0)+' ج.م</b><small>العربون</small></div></div>'}
-function titleBlock(o){return'<div class="tt"><span class="oid">IB-'+o.id+'</span><small>'+esc(o.name)+' · '+dt(o.date)+' · '+o.subs.length+(o.subs.length>2?' أوردرات فرعية':' أوردر فرعي')+'</small></div>'}
+function titleBlock(o){return'<div class="tt"><span class="oid">IB-'+o.id+'</span>'+tkChip(o)+'<small>'+esc(o.name)+' · '+dt(o.date)+' · '+o.subs.length+(o.subs.length>2?' أوردرات فرعية':' أوردر فرعي')+'</small></div>'}
 function moreBtn(key){return'<button class="ibtn" data-more="'+key+'" aria-haspopup="menu" aria-expanded="false" aria-label="المزيد">'+ic('more')+'</button>'}
 function tgBtn(o,open){return'<button class="ibtn" data-tg="'+o.id+'" aria-label="'+(open?'طي':'فتح')+'" aria-expanded="'+(open?'true':'false')+'">'+ic(open?'up':'down')+'</button>'}
 function ocb(o){var on=!!SEL[o.id];return'<button type="button" class="ocb'+(on?' on':'')+'" role="checkbox" aria-checked="'+on+'" aria-label="حدد الأوردر '+o.id+'" data-osel="'+o.id+'">'+(on?ic('check'):'')+'</button>'}
@@ -338,6 +338,8 @@ function subW(s,b){var ws=WS();if(!ws||!s)return;var id=s.itemId||String(s.n),f=
 /* ---- inventory hub links (Figma orders 385:20898 auto-pull, 391:21463 consolidation, 385:21259/385:21407 returns) ---- */
 // phase 7 decision 10 (d): «في المخزن» on a line not pulled yet whose SKU is held «متاح للبيع» in the hub
 function hubChip(s){return !s.pulled&&window.IBOrdersOps&&window.IBOrdersOps.hubHas&&['تم الشحن للعميل','مكتمل','ملغي'].indexOf(s.ss)<0&&window.IBOrdersOps.hubHas(s.sku,s.qty)?' <span class="vchip pull" data-hub-has title="فيه قطعة متاحة في مخزن ابتكر — «اسحب من المخزن» من قايمة السطر">في المخزن</span>':''}
+// phase 8 decision 3: the open tickets on the order (IBTickets.forOrder — what the member sees); a press opens them in «تذاكر الفريق»
+function tkChip(o){var T=window.IBTickets,n=T&&T.forOrder?T.forOrder(o.id).length:0;return n?' <button type="button" class="vchip tk" data-tk-order="'+esc(o.id)+'" title="تذاكر مفتوحة على الأوردر — اضغط تشوفها">'+n+(n>2&&n<11?' تذاكر':' تذكرة')+'</button>':''}
 function vcell(s){return s.pulled?'<span class="vchip pull">مخزن ابتكر</span><small class="pullsub">سحب تلقائي</small>':esc(s.vendor)+hubChip(s)}
 function pullNote(s){return'<div class="pulln">'+ic('box')+'<span>من مخزن ابتكر — مفيش تبليغ مبتكر ولا عدّاد</span></div>'}
 function consBar(o){var c=window.IBOrdersOps&&window.IBOrdersOps.cons(o.id);if(!c)return'';var a=c.subs.filter(function(x){return x[2]==='وصل المخزن'}).length,rd=a===c.subs.length;
@@ -359,11 +361,13 @@ function mpOpen(btn){var key=btn.dataset.more;if(MP&&MP.key===key){mpClose(1);re
   // phase 7 decision 10 (d): a line whose SKU is held «متاح للبيع» in the hub — «اسحب من المخزن» (the team confirms; never automatic)
   var ls=key.charAt(0)==='s'?allSub(key.slice(2)):null;if(ls&&!ls.pulled&&OX&&OX.hubHas&&OX.hubHas(ls.sku,ls.qty)&&['تم الشحن للعميل','مكتمل','ملغي','مرتجع للمخزن','مرتجع للمبتكر'].indexOf(ls.ss)<0)extra+='<button type="button" role="menuitem" data-ma="pull">'+ic('box')+'<span>اسحب من المخزن</span></button>';
   var oo=key.charAt(0)==='o'?OM[key.slice(2)]:null,del=oo&&oo.st!=='مكتمل'&&oo.st!=='استرجاع'?'<button type="button" role="menuitem" class="danger" data-ma="del">'+ic('xx')+'<span>مسح</span></button>':''; // 5.5 decision 10: not a completed / returned order; an open one is cancelled first (the server checks too)
-  w.innerHTML='<button type="button" role="menuitem" data-ma="edit">'+ic('edit')+'<span>تعديل</span></button>'+extra+del;
+  var tk=window.IbtekrApp&&window.IbtekrApp.newTicket&&window.IBTickets&&window.IBTickets.can().manage?'<button type="button" role="menuitem" data-ma="ticket">'+ic('edit')+'<span>افتح تذكرة</span></button>':''; // phase 8 decision 3
+  w.innerHTML='<button type="button" role="menuitem" data-ma="edit">'+ic('edit')+'<span>تعديل</span></button>'+tk+extra+del;
  R.appendChild(w);var r=btn.getBoundingClientRect();
  w.style.left=(Math.max(8,r.left+window.scrollX))+'px';w.style.top=(r.bottom+window.scrollY+4)+'px';
  MP={key:key,btn:btn};btn.setAttribute('aria-expanded','true');w.querySelector('button').focus()}
 function mpAct(a){var k=MP.key.split(':'),kind=k[0],id=k[1];mpClose(0);
+ if(a==='ticket'&&window.IbtekrApp&&window.IbtekrApp.newTicket){if(kind==='o'){var to=OM[id];window.IbtekrApp.newTicket({type:'customer',orderId:String(id),customer:to?to.name:''});}else{var ts=allSub(id);if(ts)window.IbtekrApp.newTicket({type:'vendor',orderId:String(ts.oid),vendor:ts.vendor,vendorId:ts.vendorId||null});}return}
  if(a==='edit'){if(kind==='o'){editOrder(id);}
   else{editSub(id);}
   return}
@@ -563,6 +567,7 @@ R.addEventListener('click',function(e){setTimeout(flush,0);
   window.__lastCopy=txt;try{var cp=navigator.clipboard.writeText(txt);if(cp&&cp.then)cp.then(null,function(){})}catch(er){}toast(csv?'اتنسخ CSV لـ '+ids.length+' أوردر — الصقه في إكسل':'اتنسخت '+ids.length+' أرقام أوردرات');return}
  if(t.closest('[data-car-b]')){var cc=$('chips'),dd=+t.closest('[data-car-b]').dataset.carB;cc.scrollBy({left:-dd*Math.max(160,cc.clientWidth*0.7),behavior:'smooth'});return}
  if(t.closest('[data-afc]')){var k=t.closest('[data-afc]').dataset.afc;if(k==='legacy:st'){S.st='الكل'}else if(k==='legacy:q'){S.q='';$('oq').value='';(document.getElementById('gq')||{}).value=''}else if(k.indexOf('legacy:')===0){S[k.slice(7)]=''}else{var ij=k.slice(3).split('.');if(ij.length>1){var g=S.fb.items[+ij[0]];g.items.splice(+ij[1],1);if(!g.items.length)S.fb.items.splice(+ij[0],1)}else S.fb.items.splice(+ij[0],1)}S.page=1;draw();var nx=R.querySelector('[data-afc]')||$('fbtn');if(nx)nx.focus();return}
+ if(b=t.closest('[data-tk-order]')){e.stopPropagation();if(window.IbtekrApp&&window.IbtekrApp.ticketsFor)window.IbtekrApp.ticketsFor(b.dataset.tkOrder);return}
  if(b=t.closest('[data-more]')){e.stopPropagation();mpOpen(b);return}
  if(t.closest('#mpop')){var mb=t.closest('[data-ma]');if(mb)mpAct(mb.dataset.ma);return}
  if(MP&&!t.closest('#mpop'))mpClose(0);

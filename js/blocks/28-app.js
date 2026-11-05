@@ -194,7 +194,11 @@
           { key: 'status', label: 'الحالة', en: 'Status', readOnly: true }, { key: 'created', label: 'تاريخ الإنشاء', en: 'Created', type: 'date', readOnly: true }],
         rows: () => tstore.all().map((t) => ({ id: t.id, type: TK.label(TK.TYPES, t.type), title: t.title, description: t.description, priority: TK.label(TK.PRIORITIES, t.priority), role: t.assigneeRole, orderId: t.orderId || '', customer: t.customer || '', vendor: t.vendor || '', reason: t.reason || '', status: t.status, created: String(t.createdAt || '').slice(0, 10) })),
         check: (d) => ({ errors: Object.values(TK.validateTicket(tkIn(d))) }),
-        apply: (rows) => { const ids = []; for (const r of rows) { try { ids.push(tstore.create(tkIn(r.data), ME).id); } catch (e) { /* invalid row */ } } return { done: { created: ids, updated: [] }, undo: () => ids.forEach((id) => { try { tstore.remove(id, ME); } catch (e) { /* gone */ } }) }; } },
+        // phase 8: each row is a new ticket through IBTickets (ticket_create — the server's rules); no undo (decision 13: no delete)
+        apply: (rows) => { const A = window.IBTickets; const done = { created: [], updated: [] }; const list = rows.map((r) => tkIn(r.data)).filter((d) => !Object.keys(TK.validateTicket(d)).length);
+          if (A) list.reduce((p, d) => p.then(() => A.create(d)), Promise.resolve()).then(() => { const K = window.IBKit; if (K) K.toast('اتعمل ' + list.length + ' تذكرة من الاستيراد'); });
+          list.forEach((d) => done.created.push(d.title));
+          return { done, undo: () => { const K = window.IBKit; if (K) K.toast('التذاكر اتكتبت في السيستم — مافيش مسح، اقفل الغلط بنتيجة «مكرر»'); } }; } },
       { id: 'transport', label: 'المواصلات (المشاوير)', key: ['date', 'amount', 'vendor'], modes: ['add'], dateKey: 'date', filter: { key: 'vendor', label: 'المبتكر', options: () => [...new Set(transportRows().map((r) => r.vendor || 'تشغيل'))] },
         fields: () => [{ key: 'date', label: 'التاريخ', en: 'Date', type: 'date', required: true }, { key: 'amount', label: 'المبلغ (ج.م)', en: 'Amount (EGP)', type: 'number', required: true }, { key: 'vendor', label: 'المبتكر (أو تشغيل)', en: 'Vendor (or ops)', type: 'enum', options: ['تشغيل'].concat(vnames()), required: true },
           { key: 'payer', label: 'دفع', en: 'Paid by' }, { key: 'note', label: 'ملاحظة / المكان', en: 'Note' }],
@@ -331,14 +335,14 @@
   state.rtab = reportTabOf(location.hash.slice(1)) || 'orders';
   state.rrange = Object.assign(D.presetRange('last30', TODAY), { preset: 'last30' });
   state.rcompare = false;
-  const ticketOf = (hash) => { const m = /^tickets(?:\/(TKT-\d{4}))?$/.exec(hash); return m ? (m[1] || '') : null; };
+  const ticketOf = (hash) => { const m = /^tickets(?:\/(TKT-\d{4,}))?$/.exec(hash); return m ? (m[1] || '') : null; };
   const vendorOf = (hash) => { const m = /^makers(?:\/([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}))?$/i.exec(hash); return m ? (m[1] || '') : null; }; // #makers/<vendor uuid> (phase 3) — '#vendors' stays the accounts tab
   const modPage = (hs) => (window.IBPages ? window.IBPages.match(hs) : null);
   const pageOfHash = (hs) => modPage(hs) || (hs === 'orders' ? 'orders' : reportTabOf(hs) ? 'reports' : ticketOf(hs) !== null ? 'tickets' : vendorOf(hs) !== null ? 'vendors' : 'accounts');
   // Phase 3.6 (plan decision 5): the pages not built on real data yet are closed — «soon» in the menus; any way in (a link, an
   // alert, a typed hash) lands on the dashboard with a note. Open: لوحة التحكم، الأوردرات، المبتكرين، and «ملفي» (account menu).
   // phase 5 (plan decision 2): «المنتجات» is open (app/js/pages/products.js) — the owner chose it before «المخزون»
-  const SOON = ['tickets', 'reports', 'marketing', 'hr', 'settings']; // phase 6: «خدمة العملاء» opened (cs); «الرد الآلي» stays postponed; phase 7: «المخزون» opened (inventory)
+  const SOON = ['reports', 'marketing', 'hr', 'settings']; // phase 6: «خدمة العملاء» opened (cs); «الرد الآلي» stays postponed; phase 7: «المخزون» opened (inventory); phase 8: «تذاكر الفريق» opened (tickets)
   const isSoon = (page) => SOON.includes(page);
   const soonNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي لسه — soon'); };
   state.page = pageOfHash(location.hash.slice(1));
@@ -1734,128 +1738,197 @@
     if (focusTab) { const t = main.querySelector('[role=tab][aria-selected=true]'); if (t) t.focus(); focusTab = false; }
   }
 
-  // ---------- Team tickets «تذاكر الفريق» (renamed from خدمة العملاء 21 Oct 2026; Figma page 180:4669: تذاكر الفريق — Desktop 1440; Modal / New ticket; Drawer / Ticket; Resolve; Reopen) ----------
+  // ---------- Team tickets «تذاكر الفريق» (Figma page 180:4669: تذاكر الفريق — Desktop 1440; Modal / New ticket; Drawer / Ticket; Resolve; Reopen) ----------
+  // Phase 8 (docs/superpowers/plans/2026-11-05-phase-8-tickets.md, decision 6): the v2 page on real data — the tickets come from
+  // IBTickets (app/js/adapter/tickets.js, 0045) in block 05's shapes; every change goes through its RPCs (the server applies the
+  // domain's rules: the role works, the opener closes / reopens, a closed ticket takes no reply) and comes back as { ok, message }.
+  // The buttons follow IBTickets.canWork / canClose (the member's ticket roles — ops holds «اللوجستيك والشحن» and «المحتوى والتصوير»).
+  // Attachments (decision 2): images / PDF, ≤ 10, 10 MB each, uploaded into the bucket «tickets» before the ticket / reply is sent.
+  // The reports tab is in the page (the v2 kit's reportTab / PanelButton are not in ours). No delete (decision 13).
   const TK = window.IbtekrTickets;
-  const ME = Object.freeze({ name: ACTOR, role: TK.ADMIN_ROLE }); // the prototype runs as the system admin
-  let seedClock = null; // seed data uses fixed past timestamps so the prototype is deterministic
-  const tstore = TK.createStore({ now: () => seedClock || new Date().toISOString(), seed: seedTickets });
-  function seedTickets(api) {
-    // deterministic sample data built from real orders; timestamps are fixed so the prototype is stable
-    let tick = Date.parse('2026-10-13T09:00:00Z'); const step = (h) => { tick += h * 3600000; seedClock = new Date(tick).toISOString(); };
-    const mk = (input, by, hours) => { step(hours || 6); return api.create(input, by); };
-    step(0);
-    const S = { name: 'سارة أحمد', role: 'خدمة العملاء' }, M = { name: 'محمد علي', role: 'متابعة الموردين' }, H = { name: 'هبة سمير', role: 'الحسابات' };
-    const t1 = mk({ type: 'customer', title: 'العميلة مستنية أوردر 177611 بقاله 11 يوم', description: 'العميلة اتصلت مرتين. المبتكر قال الشحنة هتخرج الخميس. محتاجين نأكد عليه ونبلغ العميلة بالموعد.', priority: 'high', assigneeRole: 'متابعة الموردين', orderId: '177611', customer: 'Customer 16', reason: 'تأخير في التسليم', followUp: '2026-10-22' }, S, 24 * 5);
-    step(19); api.setStatus(t1.id, 'in_progress', M); step(0.1); api.reply(t1.id, 'كلمت Bian eg — الشحنة هتخرج الخميس 23 أكتوبر بعد الضهر. @خدمة العملاء بلّغوا العميلة.', M); step(25); api.reply(t1.id, 'بلّغت العميلة، موافقة على الخميس بعد 4 العصر.', S);
-    const t2 = mk({ type: 'vendor', title: 'خلاف على عمولة سبتمبر — المبتكر بيقول 35% مش 40%', description: 'Antikiano بيقول إن نسبته في جدول المبتكرين 35% واتحسب 40% على أوردرات سبتمبر. محتاجين قرار المالك.', priority: 'urgent', assigneeRole: 'الحسابات', vendor: 'Antikiano', reason: 'خلاف على الحساب أو العمولة', followUp: '2026-10-19' }, H);
-    const t3 = mk({ type: 'customer', title: 'العميلة مش بتأكد الأوردر — اتصلنا 3 مرات', description: 'أوردر 177902 غير مؤكد من 9 أيام. اتصلنا 3 مرات ومفيش رد. نبعت واتساب أخير قبل الإلغاء؟', priority: 'high', assigneeRole: 'خدمة العملاء', orderId: '177902', customer: 'Customer 01', reason: 'العميل مش بيرد', followUp: '2026-10-21' }, S, 20);
-    api.setStatus(t3.id, 'waiting', S);
-    const t4 = mk({ type: 'vendor', title: '4 أوردرات قابلة للتأخير عند rufaida — محتاج موعد تسليم', description: 'rufaida_store عندها 4 أوردرات عمرها 9–11 يوم. محتاجين موعد تسليم مؤكد لكل أوردر.', priority: 'normal', assigneeRole: 'متابعة الموردين', vendor: 'rufaida_store', reason: 'تأخير تسليم' }, M);
-    api.setStatus(t4.id, 'waiting', M);
-    mk({ type: 'internal', title: 'صور منتجات Art Craft الجديدة لسه ما اترفعتش', description: 'التصوير خلص الأسبوع اللي فات والصور لسه ما اترفعتش على المنتجات.', priority: 'normal', assigneeRole: 'المحتوى والتصوير' }, S);
-    const t6 = mk({ type: 'customer', title: 'طلب تغيير عنوان الشحن قبل الخروج', description: 'العميلة عايزة تغيّر العنوان لمدينة نصر قبل ما الشحنة تخرج.', priority: 'normal', assigneeRole: 'اللوجستيك والشحن', orderId: '177573', customer: 'Customer 14', reason: 'أخرى' }, S, 12);
-    api.setStatus(t6.id, 'in_progress', { name: 'كريم فوزي', role: 'اللوجستيك والشحن' });
-    const t7 = mk({ type: 'customer', title: 'استرجاع فرق سعر الشحن 50 ج.م', description: 'العميل اتحاسب 100 شحن والصح 50.', priority: 'low', assigneeRole: 'الحسابات', orderId: '176513', customer: 'Customer 47', reason: 'مشكلة دفع أو استرجاع' }, S, 8);
-    step(30); api.resolve(t7.id, { outcome: 'اتحلت المشكلة', note: 'اتحوّل الفرق على المحفظة' }, H);
-    const t8 = mk({ type: 'customer', title: 'القطعة المفتوحة فقط يوم 6/10 — اتسلمت', description: 'العميلة طلبت القطعة المفتوحة بس يوم 6/10.', priority: 'low', assigneeRole: 'خدمة العملاء', orderId: '174354', customer: 'عميل 44', reason: 'أخرى' }, S, 5);
-    step(50); api.resolve(t8.id, { outcome: 'اتحلت المشكلة' }, S); step(4); api.close(t8.id, S);
-    seedClock = null;
-  }
+  const TA = () => window.IBTickets || null;
+  const ME = { get name() { return TA() ? TA().actor().name : ACTOR; }, get role() { return TA() ? TA().actor().role : TK.ADMIN_ROLE; } };
+  const tstore = { all: () => (TA() ? TA().all() : []), get: (id) => (TA() ? TA().get(id) : null), events: (id) => (TA() ? TA().events(id) : []) };
+  const tCanWork = (t) => !!TA() && TA().canWork(t); const tCanClose = (t) => !!TA() && TA().canClose(t);
+  const tCanManage = () => !!TA() && TA().can().manage;
+  const offline = { ok: false, message: 'تعذّر الاتصال — جرّب تاني' };
   state.tfilter = { status: 'open_any', type: 'all', priority: 'all', role: 'all', mine: false, q: '' };
+  // فلتر + ترتيب جنب زرار الأعمدة (owner 1 Nov) — اختيارات متعددة، والافتراضي «مفتوحة»
+  state.tf = { status: ['open_any'], type: [], priority: [], role: [], mine: [] }; state.tsort = 'prio'; state.tsub = 'log';
+  const TSORTS = [['prio', 'الأولوية ثم آخر تحديث'], ['upd', 'آخر تحديث'], ['new', 'الأحدث إنشاءً'], ['old', 'الأقدم إنشاءً'], ['follow', 'أقرب موعد متابعة']];
+  const tMatch = (t, f) => (!f.status.length || f.status.some((v) => (v === 'open_any' ? TK.OPEN.has(t.status) : t.status === v))) && (!f.type.length || f.type.includes(t.type)) && (!f.priority.length || f.priority.includes(t.priority)) && (!f.role.length || f.role.includes(t.assigneeRole)) && (!f.mine.length || (TA() && TA().isMine(t)));
+  const tSort = (l) => { const k = state.tsort; const c = (x, y) => (x < y ? -1 : x > y ? 1 : 0); if (k === 'upd') return l.sort((a, b) => c(b.lastUpdate, a.lastUpdate)); if (k === 'new') return l.sort((a, b) => c(b.createdAt, a.createdAt)); if (k === 'old') return l.sort((a, b) => c(a.createdAt, b.createdAt)); if (k === 'follow') return l.sort((a, b) => c(a.followUp || '9999', b.followUp || '9999')); return l; };
   state.tpage = 1; const TPAGE = 8;
   const typeLabel = (t) => TK.label(TK.TYPES, t);
   const roleOpts = (allLabel) => [].concat(allLabel ? [{ value: 'all', label: allLabel }] : [], TK.ROLES.map((r) => ({ value: r, label: r })));
-  const fmtTime = (iso) => { const d = new Date(iso); const local = d.toISOString().slice(0, 10); const hm = String(d.getUTCHours() + 3).padStart(2, '0') + ':' + String(d.getUTCMinutes()).padStart(2, '0'); return (local === TODAY ? 'اليوم ' + hm : local === D.formatDateNumeric ? '' : D.formatDateLong(local) + ' ' + hm); };
-  const orderCtx = (id) => { if (!id || !window.OrdersApp) return null; const r = window.OrdersApp.query({ q: id }, 1).rows.find((x) => x.id === id); return r || null; };
+  const cairoParts = (iso) => { const d = new Date(iso); if (!Number.isFinite(d.getTime())) return null; const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d).map((x) => [x.type, x.value])); return { day: p.year + '-' + p.month + '-' + p.day, hm: p.hour + ':' + p.minute }; };
+  const fmtTime = (iso) => { const p = cairoParts(iso); if (!p) return ''; return p.day === TODAY ? 'اليوم ' + p.hm : D.formatDateLong(p.day) + ' ' + p.hm; };
+  const dayOf = (iso) => { const p = cairoParts(iso); return p ? p.day : ''; };
+  const orderCtx = (id) => { if (!id || !window.OrdersApp || !window.OrdersApp.query) return null; try { const r = window.OrdersApp.query({ q: id }, 1).rows.find((x) => String(x.id) === String(id)); return r || null; } catch (e) { return null; } };
   function ticketTasks() { return TK.filterTickets(tstore.all(), { status: 'open_any' }).filter((t) => (t.followUp && t.followUp < TODAY) || t.reopenCount > 0).map((t) => ({ id: t.id, role: t.assigneeRole, title: t.title, prio: t.priority, sub: t.followUp && t.followUp < TODAY ? 'عدّى موعد المتابعة ' + D.formatDateNumeric(t.followUp) : 'أُعيد فتحه ×' + t.reopenCount })); }
   function showTickets() { if (state.page !== 'tickets') go('tickets'); }
   let tnote = null;
   const notify = (kind, text) => { tnote = { kind, text }; renderTickets(); };
+  // the page follows the adapter: a load / a write / a live ping redraws it (and the open drawer)
+  let drawerRedraw = null;
+  document.addEventListener('ib:tickets', () => { if (state.page === 'tickets') renderTickets(); if (drawerRedraw) drawerRedraw(); });
+
+  // ----- attachments (decision 2): a picker that uploads into the member's folder and keeps the files for the ticket / reply -----
+  const ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,application/pdf';
+  const isImg = (f) => /^image\//.test(f.type || '');
+  function openFile(f) { if (!TA()) return; TA().fileUrl(f.path).then((url) => { if (url) window.open(url, '_blank', 'noopener'); else notify('error', 'تعذّر فتح الملف.'); }); }
+  function FileChips(files, onRemove) {
+    return h('div', { class: 'tk-files' }, files.map((f, i) => {
+      const chip = h('span', { class: 'chip tk-file', title: f.name }, Icon(isImg(f) ? 'image' : 'file', 'sm'), h('button', { type: 'button', class: 'linkish', onClick: () => openFile(f), 'aria-label': 'افتح ' + f.name }, f.name));
+      if (onRemove) chip.append(IconButton({ icon: 'close', label: 'شيل ' + f.name, onClick: () => onRemove(i) }));
+      return chip; }));
+  }
+  function Thumbs(files) {
+    if (!files || !files.length) return null;
+    return h('div', { class: 'tk-files' }, files.map((f) => {
+      if (!isImg(f)) return h('button', { type: 'button', class: 'chip tk-file', onClick: () => openFile(f), title: f.name }, Icon('file', 'sm'), f.name);
+      const img = h('img', { alt: f.name, class: 'tk-thumb', loading: 'lazy' });
+      if (TA()) TA().fileUrl(f.path).then((url) => { if (url) img.src = url; });
+      return h('button', { type: 'button', class: 'tk-thumb-btn', onClick: () => openFile(f), 'aria-label': 'افتح ' + f.name }, img); }));
+  }
+  // the picker: a hidden input, uploads one by one, reports what was refused; files = the caller's array (kept between redraws)
+  function AttachPicker(files, redraw) {
+    const input = h('input', { type: 'file', multiple: true, accept: ACCEPT, hidden: true, 'data-tk-file': '' });
+    const msg = h('span', { class: 't-small', 'aria-live': 'polite' });
+    input.addEventListener('change', async () => {
+      const list = [...(input.files || [])]; input.value = ''; if (!list.length || !TA()) return;
+      const room = TA().MAX_FILES - files.length; if (room <= 0) { msg.textContent = 'أقصى عدد ' + TA().MAX_FILES + ' ملفات.'; return; }
+      const bad = []; msg.textContent = 'بيترفع…';
+      for (const file of list.slice(0, room)) { const r = await TA().upload(file); if (r.ok) files.push(r.file); else bad.push(file.name + ': ' + r.message); }
+      if (list.length > room) bad.push('اتشال ' + (list.length - room) + ' — أقصى عدد ' + TA().MAX_FILES + ' ملفات');
+      redraw(bad.length ? bad.join(' · ') : '');
+    });
+    const btn = Button({ label: 'إضافة صورة أو ملف', icon: 'attach', disabled: !tCanManage() || files.length >= ((TA() && TA().MAX_FILES) || 10), onClick: () => input.click() });
+    return { el: h('div', { class: 'tk-attach' }, btn, input, files.length ? FileChips(files, (i) => { files.splice(i, 1); redraw(''); }) : null, msg), msg };
+  }
+
+  // ----- the reports tab (the v2's KPI tiles moved here) -----
+  function ticketDetails(k) {
+    const all = tstore.all(); const sum = TK.summary(all, TODAY); const d = TK.summaryDetails(all, TODAY); const oT = (l) => (i) => openTicket(l[i].id);
+    const tHead = ['التذكرة', 'العنوان', 'النوع', 'الأولوية', 'الحالة', 'المسؤول', 'المتابعة'];
+    const tRow = (t) => [num(t.id), t.title, typeLabel(t.type), U.PriorityTag(t.priority), U.TicketStatus(t.status), t.assigneeRole || '—', t.followUp ? num(D.formatDateNumeric(t.followUp)) : '—'];
+    if (k === 'open') return { title: 'التذاكر المفتوحة — ' + d.open.length, sub: 'مفتوح + جاري العمل + بانتظار الرد · اضغط على أي تذكرة تفتحها', summary: TK.TYPES.map(([v, l]) => ({ label: l, value: String(d.open.filter((t) => t.type === v).length) })), headers: tHead, rows: d.open.map(tRow), onRow: oT(d.open) };
+    if (k === 'overdue') return { title: 'تذاكر متأخرة عن موعد المتابعة — ' + d.overdue.length, sub: 'عدّت تاريخ المتابعة ولسه مفتوحة', summary: [{ label: 'متأخرة', value: String(d.overdue.length) }, { label: 'من المفتوحة', value: String(d.open.length) }], empty: 'مفيش تذاكر عدّت موعد المتابعة.', headers: tHead, rows: d.overdue.map(tRow), onRow: oT(d.overdue) };
+    if (k === 'reopened') return { title: 'تذاكر اتفتحت تاني الأسبوع ده — ' + d.reopened.length, sub: 'مشكلة رجعت بعد الإغلاق — راجع السبب', summary: [{ label: 'اتفتحت تاني', value: String(d.reopened.length) }, { label: 'اتقفلت بالحل (الكل)', value: String(d.resolved.length) }], empty: 'مفيش تذاكر اتفتحت تاني الأسبوع ده.', headers: tHead.concat(['مرات الفتح']), rows: d.reopened.map((t) => tRow(t).concat([String(t.reopenCount)])), onRow: oT(d.reopened) };
+    return { title: 'متوسط وقت الحل — ' + sum.avgDays + ' يوم', sub: 'من الإنشاء لـ «تم الحل» · ' + d.resolved.length + ' تذكرة', summary: [{ label: 'المتوسط', value: sum.avgDays + ' يوم' }, { label: 'أطول', value: d.resolved.length ? d.resolved[0].days + ' يوم' : '—' }], headers: ['التذكرة', 'العنوان', 'النوع', 'وقت الحل'], rows: d.resolved.map((t) => [num(t.id), t.title, typeLabel(t.type), num(t.days + ' يوم')]), onRow: oT(d.resolved) };
+  }
+  function TicketsReport() {
+    const all = tstore.all(); const sum = TK.summary(all, TODAY); const open = all.filter((t) => TK.OPEN.has(t.status));
+    const by = (key, keys, label) => { const rows = keys.map((k) => { const of = all.filter((t) => t[key] === k[0]); const o = of.filter((t) => TK.OPEN.has(t.status)); return [k[1], num(String(o.length)), num(String(o.filter((t) => t.followUp && t.followUp < TODAY).length)), num(String(of.filter((t) => t.status === 'resolved' || t.status === 'closed').length)), num(String(of.length))]; });
+      return TableCard({ title: label, count: all.length + ' تذكرة', body: h('div', { class: 'scroll-x' }, h('table', { class: 'tickets-table' }, h('thead', null, h('tr', null, [label.replace('حسب ', ''), 'مفتوحة', 'متأخرة', 'اتحلت / اتقفلت', 'الكل'].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, rows.map((r) => h('tr', null, r.map((c) => h('td', null, c))))))) }); };
+    return [
+      h('div', { class: 'cards' },
+        U.KpiTile({ label: 'تذاكر مفتوحة', value: String(sum.open), unit: 'تذكرة', compare: 'off', note: 'مفتوح + جاري العمل + بانتظار الرد', details: () => ticketDetails('open') }),
+        U.KpiTile({ label: 'متأخرة عن موعد المتابعة', value: String(sum.overdue), unit: 'تذكرة', compare: sum.overdue ? 'negative' : 'off', delta: { text: 'تحتاج تدخّل', caption: 'عدّت تاريخ المتابعة ولسه مفتوحة' }, note: 'بتظهر كمان في الجرس', details: () => ticketDetails('overdue') }),
+        U.KpiTile({ label: 'متوسط وقت الحل', value: String(sum.avgDays), unit: 'يوم', compare: 'off', note: 'من الإنشاء لـ «تم الحل» · ' + sum.resolvedCount + ' تذكرة', details: () => ticketDetails('avg') }),
+        U.KpiTile({ label: 'أُعيد فتحها هذا الأسبوع', value: String(sum.reopened), unit: 'تذكرة', compare: sum.reopened ? 'negative' : 'off', delta: { text: 'راجع السبب', caption: 'مشكلة رجعت بعد الإغلاق' }, note: 'إعادة الفتح بتحتاج سبب وبترجع لنفس المسؤول', details: () => ticketDetails('reopened') })),
+      by('assigneeRole', TK.ROLES.map((r) => [r, r]), 'حسب المسؤول'),
+      by('type', TK.TYPES, 'حسب النوع'),
+      open.length ? null : U.InlineNote({ children: 'مفيش تذاكر مفتوحة دلوقتي.' })];
+  }
 
   function TicketsView() {
-    const all = tstore.all(); const sum = TK.summary(all, TODAY);
-    const f = Object.assign({}, state.tfilter, state.tfilter.mine ? { role: ME.role } : {});
-    const list = TK.filterTickets(all, f);
+    const all = tstore.all();
+    const list = tSort(TK.filterTickets(all, { q: state.tfilter.q }).filter((t) => tMatch(t, state.tf)));
     const pages = Math.max(1, Math.ceil(list.length / TPAGE)); if (state.tpage > pages) state.tpage = pages;
     const slice = list.slice((state.tpage - 1) * TPAGE, state.tpage * TPAGE);
-    const setF = (k, v) => { state.tfilter[k] = v; state.tpage = 1; renderTickets(); };
-    const sel = (id, label, options, value, key) => { const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '', style: 'display:block' }); const cur = options.find((o) => o.value === value);
-      const btn = h('button', { type: 'button', class: 'select', 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-label': label, style: 'width:auto;min-width:140px' }, Icon('chevD', 'sm'), h('span', { class: 'val' }, label + ': ' + (cur ? cur.label : '—')));
-      const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options, value, onSelect: (v) => { close(); setF(key, v); } })); btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap; };
     const search = h('input', { type: 'search', class: 'input', placeholder: 'ابحث برقم التذكرة أو الأوردر أو اسم العميل', 'aria-label': 'بحث في التذاكر', value: state.tfilter.q, style: 'width:320px;max-width:100%' });
     search.addEventListener('input', () => { state.tfilter.q = search.value; state.tpage = 1; renderTickets(true); });
-    const mine = h('label', { class: 'check', style: 'display:flex;align-items:center;gap:8px;cursor:pointer' }, (() => { const c = h('input', { type: 'checkbox', checked: state.tfilter.mine }); c.addEventListener('change', () => setF('mine', c.checked)); return c; })(), 'تذاكر دوري بس');
-    const headers = ['الرقم', 'العنوان', 'النوع', 'العميل / المبتكر', 'الأوردر', 'الأولوية', 'الحالة', 'المسؤول', 'آخر تحديث'];
+    // تحديد جماعي (owner 31 Oct): تغيير الحالة · الأولوية · المسؤول · إغلاق — one ticket at a time through the same RPC; refused ones counted
+    const TBK = window.IBKit;
+    const bulkTry = async (ids, fn, msg, done) => { let ok = 0, bad = 0; for (const id of ids) { const r = await Promise.resolve(fn(id)).catch(() => offline); if (r && r.ok) ok++; else bad++; } done(ok + ' تذكرة: ' + msg + (bad ? ' · ' + bad + ' مش مسموح' : '')); };
+    const pickForm = (title, label, options, key, apply) => (ids, done) => TBK.form({ title: title + ' — ' + ids.length + ' تذكرة', values: { v: options[0][0] }, submitLabel: 'طبّق', fields: (f, e, set) => [TBK.field.select('v', label, options.map(([value, lb]) => ({ value, label: lb })), f, e, set, { required: true })], submit: (f) => bulkTry(ids, (id) => apply(id, f.v), label + ': ' + (options.find((o) => o[0] === f.v) || [0, f.v])[1], done) });
+    const TB = TBK.Bulk({ key: 'tickets', ids: slice.map((t) => t.id), noun: 'تذكرة', render: () => renderTickets(), actions: tCanManage() ? [
+      { id: 'status', label: 'تغيير الحالة', icon: 'edit', run: pickForm('تغيير الحالة', 'الحالة', [['in_progress', 'جاري العمل'], ['waiting', 'بانتظار الرد'], ['resolved', 'تم الحل']], 'status', (id, v) => (v === 'resolved' ? TA().resolve(id, { outcome: 'اتحلت المشكلة', note: 'تحديد جماعي' }) : TA().setStatus(id, v))) },
+      { id: 'prio', label: 'الأولوية', icon: 'sliders', run: pickForm('تغيير الأولوية', 'الأولوية', TK.PRIORITIES.map((x) => [x[0], x[1]]), 'priority', (id, v) => TA().update(id, { priority: v })) },
+      { id: 'role', label: 'المسؤول', icon: 'users', run: pickForm('تغيير المسؤول', 'المسؤول', TK.ROLES.map((x) => [x, x]), 'assigneeRole', (id, v) => TA().update(id, { assigneeRole: v })) },
+      { id: 'close', label: 'إغلاق نهائي', icon: 'check', run: (ids, done) => TBK.confirm({ title: 'إغلاق ' + ids.length + ' تذكرة نهائيًا؟', text: 'تقدر تعيد فتح أي واحدة بعدين لو المشكلة رجعت.', okLabel: 'اقفلهم', onOk: () => bulkTry(ids, (id) => TA().close(id), 'اتقفلت', done) }) }] : [] });
+    const headers = [TB.head(), 'الرقم', 'العنوان', 'النوع', 'العميل / المبتكر', 'الأوردر', 'الأولوية', 'الحالة', 'المسؤول', 'آخر تحديث'];
     const who = (t) => t.type === 'vendor' ? (t.vendor || '—') : t.type === 'customer' ? (t.customer || (orderCtx(t.orderId) || {}).customer || '—') : '—';
-    const rowEl = (t) => { const tr = h('tr', { 'data-id': t.id, tabindex: '0', role: 'button', 'aria-label': 'فتح التذكرة ' + t.id }, [num(t.id), t.title, typeLabel(t.type), who(t), t.orderId ? num(t.orderId) : '—', U.PriorityTag(t.priority), U.TicketStatus(t.status), t.assigneeRole, num(fmtTime(t.lastUpdate))].map((c, i) => h('td', { class: i === 1 ? 'ttl' : '' }, c)));
-      tr.addEventListener('click', () => openTicket(t.id)); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openTicket(t.id); } }); return tr; };
+    const rowEl = (t) => { const tr = h('tr', { 'data-id': t.id, tabindex: '0', role: 'button', 'aria-label': 'فتح التذكرة ' + t.id }, [TB.box(t.id, t.id), num(t.id), t.title, typeLabel(t.type), who(t), t.orderId ? num(t.orderId) : '—', U.PriorityTag(t.priority), U.TicketStatus(t.status), t.assigneeRole, num(fmtTime(t.lastUpdate))].map((c, i) => h('td', { class: i === 2 ? 'ttl' : '' }, c)));
+      tr.addEventListener('click', (e) => { if (e.target.closest('input,label,.sel-col')) return; openTicket(t.id); }); tr.addEventListener('keydown', (e) => { if (e.target === tr && (e.key === 'Enter' || e.key === ' ')) { e.preventDefault(); openTicket(t.id); } }); return tr; };
     const table = h('div', { class: 'scroll-x' }, h('table', { class: 'tickets-table' }, h('thead', null, h('tr', null, headers.map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, slice.map(rowEl))));
-    const cards = h('div', { class: 'kv-list' }, slice.map((t) => { const c = h('div', { class: 'card list-card', tabindex: '0', role: 'button', 'aria-label': 'فتح التذكرة ' + t.id }, h('div', { class: 't-label title' }, t.title),
+    const cards = h('div', { class: 'kv-list' }, slice.map((t) => { const c = h('div', { class: 'card list-card', tabindex: '0', role: 'button', 'aria-label': 'فتح التذكرة ' + t.id, 'data-id': t.id }, h('div', { class: 't-label title' }, t.title),
       [['الرقم', num(t.id)], ['النوع', typeLabel(t.type)], ['العميل / المبتكر', who(t)], ['الأولوية', U.PriorityTag(t.priority)], ['الحالة', U.TicketStatus(t.status)], ['المسؤول', t.assigneeRole], ['آخر تحديث', num(fmtTime(t.lastUpdate))]].map(([k, v]) => h('div', { class: 'kv' }, h('span', { class: 't-small' }, k), h('span', { class: 't-body' }, v))));
       c.addEventListener('click', () => openTicket(t.id)); c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openTicket(t.id); }); return c; }));
     const pager = h('div', { class: 'pager' }, h('div', { class: 'pages' }, Button({ type: 'text', size: 'sm', label: 'السابق', disabled: state.tpage <= 1, onClick: () => { state.tpage--; renderTickets(); } }),
       Array.from({ length: pages }, (_, i) => Button({ type: i + 1 === state.tpage ? 'primary' : 'text', size: 'sm', label: String(i + 1), attrs: { 'aria-current': i + 1 === state.tpage ? 'page' : false }, onClick: () => { state.tpage = i + 1; renderTickets(); } })),
       Button({ type: 'text', size: 'sm', label: 'التالي', disabled: state.tpage >= pages, onClick: () => { state.tpage++; renderTickets(); } })), h('span', { class: 't-small' }, num(list.length ? 'عرض ' + ((state.tpage - 1) * TPAGE + 1) + '–' + Math.min(list.length, state.tpage * TPAGE) + ' من ' + list.length : '')));
-    const tHead = ['التذكرة', 'العنوان', 'النوع', 'الأولوية', 'الحالة', 'المسؤول', 'المتابعة'];
-    const tRow = (t) => [num(t.id), t.title, typeLabel(t.type), U.PriorityTag(t.priority), U.TicketStatus(t.status), t.assigneeRole || '—', t.followUp ? num(D.formatDateNumeric(t.followUp)) : '—'];
-    const tdet = (k) => { const d = TK.summaryDetails(all, TODAY); const oT = (l) => (i) => openTicket(l[i].id);
-      if (k === 'open') return { title: 'التذاكر المفتوحة — ' + d.open.length, sub: 'مفتوح + جاري العمل + بانتظار الرد · اضغط على أي تذكرة تفتحها', summary: TK.TYPES.map(([v, l]) => ({ label: l, value: String(d.open.filter((t) => t.type === v).length) })), headers: tHead, rows: d.open.map(tRow), onRow: oT(d.open) };
-      if (k === 'overdue') return { title: 'تذاكر متأخرة عن موعد المتابعة — ' + d.overdue.length, sub: 'عدّت تاريخ المتابعة ولسه مفتوحة', summary: [{ label: 'متأخرة', value: String(d.overdue.length) }, { label: 'من المفتوحة', value: String(d.open.length) }], empty: 'مفيش تذاكر عدّت موعد المتابعة.', headers: tHead, rows: d.overdue.map(tRow), onRow: oT(d.overdue) };
-      if (k === 'reopened') return { title: 'تذاكر اتفتحت تاني الأسبوع ده — ' + d.reopened.length, sub: 'مشكلة رجعت بعد الإغلاق — راجع السبب', summary: [{ label: 'اتفتحت تاني', value: String(d.reopened.length) }, { label: 'اتقفلت بالحل (الكل)', value: String(d.resolved.length) }], empty: 'مفيش تذاكر اتفتحت تاني الأسبوع ده.', headers: tHead.concat(['مرات الفتح']), rows: d.reopened.map((t) => tRow(t).concat([String(t.reopenCount)])), onRow: oT(d.reopened) };
-      return { title: 'متوسط وقت الحل — ' + sum.avgDays + ' يوم', sub: 'من الإنشاء لـ «تم الحل» · ' + d.resolved.length + ' تذكرة', summary: [{ label: 'المتوسط', value: sum.avgDays + ' يوم' }, { label: 'أطول', value: d.resolved.length ? d.resolved[0].days + ' يوم' : '—' }], headers: ['التذكرة', 'العنوان', 'النوع', 'وقت الحل'], rows: d.resolved.map((t) => [num(t.id), t.title, typeLabel(t.type), num(t.days + ' يوم')]), onRow: oT(d.resolved) }; };
+    const K2 = window.IBKit;
+    const tkHead = h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'تذاكر الفريق'), h('p', { class: 't-small' }, 'تذاكر الفريق: مشاكل العملاء، مشاكل المبتكرين، والتعليقات الداخلية — كل تحديث بيتسجل في السجل')),
+      h('div', { class: 'actions' }, state.tsub === 'log' && K2.PanelButton ? K2.PanelButton('tickets', 'تذاكر الفريق', () => document.getElementById('tickets'), renderTickets) : null, window.IBDataActions.Menu(window.IBDataActions.PAGES.tickets),
+        tCanManage() ? Button({ type: 'brand', icon: 'plus', label: 'إنشاء تذكرة', onClick: () => openNewTicket() }) : null));
+    const tkTabs = K2.SubTabs({ items: [{ id: 'log', label: 'السجل', count: all.filter((t) => TK.OPEN.has(t.status)).length }, { id: 'reports', label: 'التقارير' }], active: state.tsub, onChange: (id) => { state.tsub = id; renderTickets(); }, label: 'أقسام التذاكر' });
+    if (state.tsub === 'reports') return [tkHead, tkTabs].concat(TicketsReport());
+    const TFG = [{ key: 'status', label: 'الحالة', options: [['open_any', 'مفتوحة (كل الحالات المفتوحة)']].concat(TK.STATUSES) }, { key: 'type', label: 'النوع', options: TK.TYPES }, { key: 'priority', label: 'الأولوية', options: TK.PRIORITIES.map((x) => [x[0], x[1]]) }, { key: 'role', label: 'المسؤول', options: TK.ROLES.map((r) => [r, r]) }, { key: 'mine', label: 'تذاكري', options: [['mine', 'تذاكر دوري بس']] }];
+    const tCount = (f) => TK.filterTickets(all, { q: state.tfilter.q }).filter((t) => tMatch(t, f)).length;
+    const tFM = K2.FilterMenu({ id: 'tickets', groups: TFG, value: state.tf, count: tCount, noun: 'تذكرة', label: 'فلتر التذاكر', onApply: (d) => { state.tf = d; state.tpage = 1; renderTickets(); } });
+    const tSM = K2.SortMenu({ id: 'tickets', options: TSORTS, value: state.tsort, label: 'ترتيب التذاكر', onChange: (v) => { state.tsort = v; state.tpage = 1; renderTickets(); } });
+    const tChips = []; const none = { status: [], type: [], priority: [], role: [], mine: [] };
+    if (state.tfilter.q) tChips.push({ key: 'q', label: 'بحث: ' + state.tfilter.q, count: list.length, remove: () => { state.tfilter.q = ''; renderTickets(); } });
+    TFG.forEach((g) => (state.tf[g.key] || []).forEach((v) => { const o = g.options.find((x) => x[0] === v); tChips.push({ key: g.key + ':' + v, label: (g.key === 'mine' ? '' : g.label + ': ') + (o ? o[1] : v).replace(' (كل الحالات المفتوحة)', ''), count: tCount(Object.assign({}, none, { [g.key]: [v] })), remove: () => { state.tf = Object.assign({}, state.tf, { [g.key]: state.tf[g.key].filter((x) => x !== v) }); state.tpage = 1; renderTickets(); } }); }));
+    const tAF = K2.ActiveFilters({ id: 'tickets', chips: tChips, total: list.length, noun: 'تذكرة', onClear: () => { state.tf = Object.assign({}, none); state.tfilter.q = ''; state.tpage = 1; renderTickets(); } });
+    const loading = TA() && TA().state() !== 'ready' && !all.length;
     return [
-      h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'تذاكر الفريق'), h('p', { class: 't-small' }, 'تذاكر الفريق: مشاكل العملاء، مشاكل المبتكرين، والتعليقات الداخلية — كل تحديث بيتسجل في السجل')),
-        h('div', { class: 'actions' }, window.IBDataActions.Menu(window.IBDataActions.PAGES.tickets), Button({ type: 'brand', icon: 'plus', label: 'إنشاء تذكرة', onClick: () => openNewTicket() }))),
-      h('div', { class: 'toolbar' }, search, sel('f-st', 'الحالة', [{ value: 'open_any', label: 'مفتوحة' }, { value: 'all', label: 'الكل' }].concat(TK.STATUSES.map(([v, l]) => ({ value: v, label: l }))), state.tfilter.status, 'status'),
-        sel('f-ty', 'النوع', [{ value: 'all', label: 'الكل' }].concat(TK.TYPES.map(([v, l]) => ({ value: v, label: l }))), state.tfilter.type, 'type'),
-        sel('f-pr', 'الأولوية', [{ value: 'all', label: 'الكل' }].concat(TK.PRIORITIES.map(([v, l]) => ({ value: v, label: l }))), state.tfilter.priority, 'priority'),
-        sel('f-ro', 'المسؤول', roleOpts('الكل'), state.tfilter.role, 'role'), h('span', { class: 'grow' }), mine),
+      tkHead, tkTabs,
+      h('div', { class: 'toolbar' }, search),
       tnote ? (() => { const n = tnote; tnote = null; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); return el; })() : null,
-      h('div', { class: 'cards' },
-        U.KpiTile({ label: 'تذاكر مفتوحة', value: String(sum.open), unit: 'تذكرة', compare: 'off', note: 'مفتوح + جاري العمل + بانتظار الرد', details: () => tdet('open') }),
-        U.KpiTile({ label: 'متأخرة عن موعد المتابعة', value: String(sum.overdue), unit: 'تذكرة', compare: sum.overdue ? 'negative' : 'off', delta: { text: 'تحتاج تدخّل', caption: 'عدّت تاريخ المتابعة ولسه مفتوحة' }, note: 'بتظهر كمان في إشعار «مهام داخلية»', details: () => tdet('overdue') }),
-        U.KpiTile({ label: 'متوسط وقت الحل', value: String(sum.avgDays), unit: 'يوم', compare: 'off', note: 'من الإنشاء لـ «تم الحل» · ' + sum.resolvedCount + ' تذكرة', details: () => tdet('avg') }),
-        U.KpiTile({ label: 'أُعيد فتحها هذا الأسبوع', value: String(sum.reopened), unit: 'تذكرة', compare: sum.reopened ? 'negative' : 'off', delta: { text: 'راجع السبب', caption: 'مشكلة رجعت بعد الإغلاق' }, note: 'إعادة الفتح بتحتاج سبب وبترجع لنفس المسؤول', details: () => tdet('reopened') })),
-      TableCard({ title: 'التذاكر', count: list.length + ' تذكرة · مرتبة بالأولوية ثم آخر تحديث', body: list.length === 0 ? U.EmptyState('مفيش تذاكر مطابقة', 'غيّر الفلاتر، أو اضغط «إنشاء تذكرة» لو ظهرت مشكلة مع عميل أو مبتكر.') : [tableOrList(() => table, () => cards), pager] }),
-      h('p', { class: 'source' }, 'المصدر: جدول التذاكر في النظام (Airtable مؤقتًا) · الأوردر والعميل بيتجابوا لايف من الأوردرات · كل تغيير حالة أو رد بيتسجل في Event Log')];
+      TableCard({ title: 'التذاكر', cls: 'own-filter', count: list.length + ' تذكرة · مرتبة حسب ' + (TSORTS.find((x) => x[0] === state.tsort) || TSORTS[0])[1], action: h('div', { class: 'acts-inline tk-acts' }, tFM, tSM), pre: tAF,
+        body: loading ? U.EmptyState('بنجيب التذاكر…', 'لحظة.') : list.length === 0 ? U.EmptyState('مفيش تذاكر مطابقة', tCanManage() ? 'غيّر الفلاتر، أو اضغط «إنشاء تذكرة» لو ظهرت مشكلة مع عميل أو مبتكر.' : 'غيّر الفلاتر.') : [TB.bar(), tableOrList(() => table, () => cards), pager] }),
+      h('p', { class: 'source' }, 'المصدر: جدول التذاكر في السيستم · الأوردر والعميل بيتجابوا من الأوردرات · كل تغيير حالة أو رد بيتسجل في الخط الزمني وسجل النشاط')];
   }
   function renderTickets(keepFocus) {
+    const main = document.getElementById('tickets'); if (!main || state.page !== 'tickets') return;
     U.closePopover();
-    const main = document.getElementById('tickets'); if (!main) return; const sc = window.scrollY; const hadFocus = keepFocus && document.activeElement && document.activeElement.type === 'search';
-    main.replaceChildren(...TicketsView().filter(Boolean)); window.IBKit.sweepColumns(main);
+    const sc = window.scrollY; const hadFocus = keepFocus && document.activeElement && document.activeElement.type === 'search';
+    main.replaceChildren(...TicketsView().filter(Boolean));
+    if (window.IBKit.applyPanelPrefs) window.IBKit.applyPanelPrefs('tickets', main); window.IBKit.sweepColumns(main);
     window.scrollTo(0, sc); if (hadFocus) { const s = main.querySelector('input[type=search]'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
   }
 
-  // ----- new ticket modal (Figma: Modal / New ticket) -----
+  // ----- new ticket modal (Figma: Modal / New ticket) — pre: { type, orderId, customer, vendor, vendorId, csConversationId, csCustomerId, title, description } -----
   function openNewTicket(pre) {
-    const f = Object.assign({ type: 'customer', title: '', description: '', priority: 'normal', assigneeRole: '', orderId: '', vendor: '', reason: '', followUp: '' }, pre || {});
-    let errs = {}; let modal = null;
-    const vendorOpts = vendorsNow().map((v) => ({ value: v.name, label: v.name }));
+    if (!tCanManage()) { notify('error', 'مفيش صلاحية تفتح تذاكر.'); return; }
+    const f = Object.assign({ type: 'customer', title: '', description: '', priority: 'normal', assigneeRole: '', orderId: '', vendor: '', reason: '', followUp: '', attachments: [] }, pre || {});
+    f.attachments = (f.attachments || []).slice();
+    let errs = {}; let modal = null; let sending = false; let fileMsg = '';
+    const vendorOpts = (typeof vstore !== 'undefined' && vstore.all ? vstore.all() : []).filter((v) => !v.siteRemoved).map((v) => ({ value: v.name, label: v.name }));
     function draw() {
-      const ctx = f.type === 'customer' && f.orderId ? orderCtx(f.orderId.trim()) : null;
+      const ctx = f.type === 'customer' && f.orderId ? orderCtx(String(f.orderId).trim()) : null;
+      const pick = AttachPicker(f.attachments, (m) => { fileMsg = m; draw(); }); pick.msg.textContent = fileMsg;
+      const linked = f.csConversationId ? U.InlineNote({ children: 'التذكرة هتتربط بمحادثة خدمة العملاء' + (f.customer ? ' مع ' + f.customer : '') + '.' }) : null;
       const fields = [
+        linked,
         h('div', { class: 'row cols2' }, U.TextInput({ id: 't-title', label: 'العنوان', required: true, value: f.title, error: errs.title, placeholder: 'سطر واحد يلخّص المشكلة', maxlength: TK.TITLE_MAX, onInput: (v) => { f.title = v; } }),
           U.Select({ id: 't-type', label: 'النوع', required: true, options: TK.TYPES.map(([v, l]) => ({ value: v, label: l })), value: f.type, error: errs.type, onChange: (v) => { f.type = v; f.reason = ''; errs = {}; draw(); } })),
         f.type === 'customer' ? U.TextInput({ id: 't-order', label: 'رقم الأوردر', required: true, value: f.orderId, error: errs.orderId, placeholder: 'مثال 177611', inputmode: 'numeric', help: ctx ? null : 'اختيار الأوردر بيجيب العميل والهاتف والمبتكر تلقائي', onInput: (v) => { f.orderId = v; const c = orderCtx(v.trim()); if (c) draw(); } }) : null,
         ctx ? h('div', { class: 'ctx-card', style: 'padding:8px 12px' }, h('div', { class: 'facts' }, U.DelayBadge(ctx.delivery), h('span', { class: 't-small' }, num(ctx.customer + ' · ' + (ctx.vendors || []).join('، ') + ' · ' + ctx.status + ' · ' + ctx.ageDays + ' يوم · ' + D.formatMoney(ctx.total) + ' ج.م')))) : null,
         f.type === 'customer' ? U.Select({ id: 't-reason', label: 'سبب المشكلة', required: true, options: TK.CUSTOMER_REASONS.map((r) => ({ value: r, label: r })), value: f.reason, error: errs.reason, onChange: (v) => { f.reason = v; draw(); } }) : null,
-        f.type === 'vendor' ? U.Select({ id: 't-vendor', label: 'المبتكر', required: true, options: vendorOpts, value: f.vendor, error: errs.vendor, placeholder: 'اختار المبتكر', onChange: (v) => { f.vendor = v; draw(); } }) : null,
+        f.type === 'vendor' ? U.Select({ id: 't-vendor', label: 'المبتكر', required: true, options: vendorOpts, value: f.vendor, error: errs.vendor, placeholder: 'اختار المبتكر', onChange: (v) => { f.vendor = v; f.vendorId = null; draw(); } }) : null,
         f.type === 'vendor' ? U.TextInput({ id: 't-order', label: 'رقم الأوردر', value: f.orderId, error: errs.orderId, placeholder: 'اختياري', inputmode: 'numeric', onInput: (v) => { f.orderId = v; } }) : null,
         f.type === 'vendor' ? U.Select({ id: 't-reason', label: 'سبب المشكلة', required: true, options: TK.VENDOR_REASONS.map((r) => ({ value: r, label: r })), value: f.reason, error: errs.reason, onChange: (v) => { f.reason = v; draw(); } }) : null,
         U.Textarea({ id: 't-desc', label: 'الوصف', required: true, value: f.description, error: errs.description, placeholder: 'إيه اللي حصل + إيه المطلوب من الفريق', onInput: (v) => { f.description = v; } }),
         h('div', { class: 'row cols2' }, U.Select({ id: 't-prio', label: 'الأولوية', required: true, options: TK.PRIORITIES.map(([v, l]) => ({ value: v, label: l })), value: f.priority, error: errs.priority, onChange: (v) => { f.priority = v; draw(); } }),
           U.Select({ id: 't-role', label: 'المسؤول (الدور)', required: true, options: roleOpts(), value: f.assigneeRole, error: errs.assigneeRole, placeholder: 'اختار الدور', onChange: (v) => { f.assigneeRole = v; draw(); } })),
         h('div', { class: 'row cols2' }, U.DateField({ id: 't-follow', label: 'تاريخ المتابعة', value: f.followUp || null, error: errs.followUp, today: TODAY, onChange: (iso, e) => { if (!e) f.followUp = iso || ''; errs.followUp = e || undefined; draw(); } }),
-          U.FieldShell({ id: 't-att', label: 'مرفقات' }, Button({ label: 'إضافة صورة أو ملف', icon: 'attach', disabled: true, attrs: { title: 'غير متاح في النموذج' } }))),
+          U.FieldShell({ id: 't-att', label: 'مرفقات (صور أو PDF — لحد 10 ملفات، 10 ميجا للملف)' }, pick.el)),
         errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: 'هتتسجل باسمك (' + ME.name + ' · ' + ME.role + ') وتاريخ النهارده، والحالة هتبدأ «مفتوح».' })].filter(Boolean);
       modal.setBody(...fields);
-      modal.setFooter(Button({ type: 'primary', label: 'إنشاء التذكرة', onClick: submit }), Button({ label: 'إلغاء', onClick: modal.close }));
+      modal.setFooter(Button({ type: 'primary', label: sending ? 'بيتبعت…' : 'إنشاء التذكرة', disabled: sending, onClick: submit }), Button({ label: 'إلغاء', onClick: modal.close }));
     }
-    function submit() {
+    async function submit() {
+      if (sending) return;
       errs = TK.validateTicket(f); if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; draw(); return; }
-      const c0 = f.type === 'customer' ? orderCtx(f.orderId.trim()) : null; if (c0) f.customer = c0.customer;
-      const t = tstore.create(f, ME); log.append({ action: 'ticket.create', actor: ME.name, newValue: t.id });
-      modal.close(); state.tfilter.status = 'open_any'; state.tpage = 1; notify('success', 'اتعملت التذكرة ' + t.id + ' ووصلت لدور «' + t.assigneeRole + '».'); openTicket(t.id);
+      const c0 = f.type === 'customer' ? orderCtx(String(f.orderId).trim()) : null; if (c0 && !f.customer) f.customer = c0.customer;
+      sending = true; draw();
+      const r = await TA().create(f).catch(() => offline); sending = false;
+      if (!r.ok) { errs = r.field && ['title', 'orderId', 'vendor', 'reason', 'followUp', 'description', 'priority', 'assigneeRole'].includes(r.field) ? { [r.field]: r.message } : {}; errs._form = r.message || 'تعذّر إنشاء التذكرة'; draw(); return; }
+      modal.close(); state.tf = Object.assign({}, state.tf, { status: ['open_any'] }); state.tpage = 1; notify('success', 'اتعملت التذكرة ' + r.id + ' ووصلت لدور «' + f.assigneeRole + '».'); openTicket(r.id);
     }
     modal = U.Modal({ title: 'تذكرة جديدة', body: [], footer: [] }); draw();
     const first = modal.el.querySelector('#t-title'); if (first) first.focus();
@@ -1864,16 +1937,19 @@
   // ----- ticket drawer (Figma: Drawer / Ticket) -----
   let drawerApi = null;
   function openTicket(id) {
-    const t0 = tstore.get(id); if (!t0) { notify('error', 'التذكرة ' + id + ' مش موجودة.'); return; }
+    const t0 = tstore.get(id); if (!t0) { notify('error', 'التذكرة ' + id + ' مش موجودة أو مش متاحة ليك.'); return; }
     if (drawerApi) drawerApi.close();
     try { history.replaceState(null, '', '#tickets/' + id); } catch (e) { /* sandboxed */ }
-    drawerApi = U.Drawer({ label: 'التذكرة ' + id, onClose: () => { drawerApi = null; try { history.replaceState(null, '', '#tickets'); } catch (e) { /* sandboxed */ } renderTickets(); } });
-    const act = (fn, okMsg) => { try { fn(); log.append({ action: 'ticket.update', actor: ME.name, newValue: id }); if (okMsg) notify('success', okMsg); draw(); } catch (e) { notify('error', e.message); draw(); } };
+    let busy = false; const replyFiles = []; let replyMsg = ''; let replyDraft = '';
+    drawerApi = U.Drawer({ label: 'التذكرة ' + id, onClose: () => { drawerApi = null; drawerRedraw = null; try { history.replaceState(null, '', '#tickets'); } catch (e) { /* sandboxed */ } renderTickets(); } });
+    // a write: one at a time; the drawer redraws from the adapter after it (ib:tickets), the note says how it went
+    const act = (run, okMsg) => { if (busy || !TA()) return; busy = true; Promise.resolve().then(run).catch(() => offline).then((r) => { busy = false; if (r && r.ok === false) notify('error', r.message || 'تعذّر الحفظ'); else if (okMsg) notify('success', okMsg); if (drawerApi) draw(); }); };
     function moreMenu(t) {
       const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
       const trig = IconButton({ icon: 'more', label: 'المزيد', attrs: { 'aria-haspopup': 'menu', 'aria-expanded': 'false' } });
-      const opts = [{ value: 'role', label: 'تغيير المسؤول (الدور)' }, { value: 'prio', label: 'تغيير الأولوية' }, { value: 'follow', label: 'تغيير تاريخ المتابعة' }, { value: 'copy', label: 'نسخ رابط التذكرة' }];
-      if (TK.canClose(t, ME) && t.status !== 'closed') opts.push({ value: 'close', label: 'إغلاق نهائي', danger: true });
+      const editable = (tCanWork(t) || tCanClose(t));
+      const opts = [].concat(editable ? [{ value: 'role', label: 'تغيير المسؤول (الدور)' }, { value: 'prio', label: 'تغيير الأولوية' }, { value: 'follow', label: 'تغيير تاريخ المتابعة' }] : [], [{ value: 'copy', label: 'نسخ رابط التذكرة' }]);
+      if (tCanClose(t) && t.status !== 'closed') opts.push({ value: 'close', label: 'إغلاق نهائي', danger: true });
       const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (v) => { close();
         if (v === 'copy') { const link = location.href.split('#')[0] + '#tickets/' + id; try { navigator.clipboard.writeText(link).then(() => notify('success', 'اتنسخ رابط التذكرة.'), () => notify('error', 'تعذّر النسخ.')); } catch (e) { notify('error', 'تعذّر النسخ.'); } draw(); }
         if (v === 'close') confirmClose(t);
@@ -1885,53 +1961,69 @@
       const body = () => which === 'role' ? U.Select({ id: 'e-role', label: 'المسؤول (الدور)', required: true, options: roleOpts(), value: f.assigneeRole, onChange: (v) => { f.assigneeRole = v; m.setBody(body()); } })
         : which === 'prio' ? U.Select({ id: 'e-prio', label: 'الأولوية', required: true, options: TK.PRIORITIES.map(([v, l]) => ({ value: v, label: l })), value: f.priority, onChange: (v) => { f.priority = v; m.setBody(body()); } })
         : U.DateField({ id: 'e-follow', label: 'تاريخ المتابعة', value: f.followUp || null, error: err, today: TODAY, onChange: (iso, e) => { if (!e) f.followUp = iso || ''; err = e; m.setBody(body()); } });
-      m = U.Modal({ title: which === 'role' ? 'تغيير المسؤول' : which === 'prio' ? 'تغيير الأولوية' : 'تغيير تاريخ المتابعة', body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: () => { if (err) return; m.close(); act(() => tstore.update(id, which === 'role' ? { assigneeRole: f.assigneeRole } : which === 'prio' ? { priority: f.priority } : { followUp: f.followUp || null }, ME), 'اتحفظ التغيير.'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+      m = U.Modal({ title: which === 'role' ? 'تغيير المسؤول' : which === 'prio' ? 'تغيير الأولوية' : 'تغيير تاريخ المتابعة', body: body(), footer: [Button({ type: 'primary', label: 'حفظ', onClick: () => { if (err) return; m.close(); act(() => TA().update(id, which === 'role' ? { assigneeRole: f.assigneeRole } : which === 'prio' ? { priority: f.priority } : { followUp: f.followUp || null }), 'اتحفظ التغيير.'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
     }
     function confirmResolve(t) {
       const f = { outcome: '', note: '' }; let errs = {}; let m = null;
       const body = () => [U.Select({ id: 'r-out', label: 'نتيجة الحل', required: true, options: TK.OUTCOMES.map((o) => ({ value: o, label: o })), value: f.outcome, error: errs.outcome, onChange: (v) => { f.outcome = v; errs = {}; m.setBody(...body()); } }),
         U.Textarea({ id: 'r-note', label: 'ملاحظة الإغلاق', value: f.note, placeholder: 'اكتب إيه اللي اتعمل بالظبط…', onInput: (v) => { f.note = v; } }),
-        U.InlineNote({ children: 'هتتحول لـ «تم الحل» وصاحب التذكرة (' + t.createdBy.name + ') أو الأدمن يقدر يقفلها نهائي أو يرجّعها. لو مفيش رد خلال 3 أيام بتتقفل تلقائي.' })];
-      m = U.Modal({ title: 'تم حل التذكرة؟', body: body(), footer: [Button({ type: 'primary', label: 'تأكيد الحل', onClick: () => { if (!f.outcome) { errs.outcome = 'اختار نتيجة الحل'; m.setBody(...body()); return; } m.close(); act(() => tstore.resolve(id, f, ME), 'التذكرة اتحوّلت لـ «تم الحل».'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+        U.InlineNote({ children: 'هتتحول لـ «تم الحل» وصاحب التذكرة (' + t.createdBy.name + ') أو الأدمن يقدر يقفلها نهائي أو يرجّعها. مافيش قفل تلقائي.' })];
+      m = U.Modal({ title: 'تم حل التذكرة؟', body: body(), footer: [Button({ type: 'primary', label: 'تأكيد الحل', onClick: () => { if (!f.outcome) { errs.outcome = 'اختار نتيجة الحل'; m.setBody(...body()); return; } m.close(); act(() => TA().resolve(id, f), 'التذكرة اتحوّلت لـ «تم الحل».'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
     }
     function confirmClose(t) {
-      const m = U.Modal({ title: 'إغلاق نهائي', body: U.InlineNote({ kind: 'warning', children: 'هتتقفل التذكرة ' + t.id + ' نهائيًا. تقدر تعيد فتحها بعدين بسبب لو المشكلة رجعت.' }), footer: [Button({ type: 'danger', label: 'إغلاق نهائي', onClick: () => { m.close(); act(() => tstore.close(id, ME), 'التذكرة اتقفلت.'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+      const m = U.Modal({ title: 'إغلاق نهائي', body: U.InlineNote({ kind: 'warning', children: 'هتتقفل التذكرة ' + t.id + ' نهائيًا. تقدر تعيد فتحها بعدين بسبب لو المشكلة رجعت.' }), footer: [Button({ type: 'danger', label: 'إغلاق نهائي', onClick: () => { m.close(); act(() => TA().close(id), 'التذكرة اتقفلت.'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
     }
     function confirmReopen(t) {
       const f = { reason: '' }; let err = null; let m = null;
       const body = () => [U.Textarea({ id: 'o-reason', label: 'سبب إعادة الفتح', required: true, value: f.reason, error: err, placeholder: 'مثال: العميلة لسه ما استلمتش…', help: 'إجباري — بيظهر في الخط الزمني كحدث «أُعيد فتحه»', onInput: (v) => { f.reason = v; } }), U.InlineNote({ children: 'هترجع «مفتوح» لدور «' + t.assigneeRole + '» وهيوصله إشعار.' })];
-      m = U.Modal({ title: 'إعادة فتح التذكرة', body: body(), footer: [Button({ type: 'brand', label: 'إعادة الفتح', onClick: () => { if (!f.reason.trim()) { err = 'اكتب سبب إعادة الفتح'; m.setBody(...body()); return; } m.close(); act(() => tstore.reopen(id, f, ME), 'التذكرة اتفتحت تاني ورجعت لدور «' + t.assigneeRole + '».'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
+      m = U.Modal({ title: 'إعادة فتح التذكرة', body: body(), footer: [Button({ type: 'brand', label: 'إعادة الفتح', onClick: () => { if (!f.reason.trim()) { err = 'اكتب سبب إعادة الفتح'; m.setBody(...body()); return; } m.close(); act(() => TA().reopen(id, f), 'التذكرة اتفتحت تاني ورجعت لدور «' + t.assigneeRole + '».'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
     }
     function draw() {
-      const t = tstore.get(id); const closed = t.status === 'closed'; const ctx = orderCtx(t.orderId);
-      const canWork = TK.canWork(t, ME), canClose = TK.canClose(t, ME);
+      if (!drawerApi) return;
+      const t = tstore.get(id); if (!t) { drawerApi.close(); notify('error', 'التذكرة ' + id + ' مابقتش متاحة ليك.'); return; }
+      const closed = t.status === 'closed'; const ctx = orderCtx(t.orderId);
+      const canWork = tCanWork(t), canClose = tCanClose(t);
       const actions = [];
-      if (closed) { if (TK.canReopen(t, ME)) actions.push(Button({ type: 'brand', size: 'sm', label: 'إعادة فتح', onClick: () => confirmReopen(t) })); }
+      if (closed) { if (canClose) actions.push(Button({ type: 'brand', size: 'sm', label: 'إعادة فتح', onClick: () => confirmReopen(t) })); }
       else if (canWork) {
         if (t.status !== 'resolved') actions.push(Button({ type: 'primary', size: 'sm', label: 'تم الحل', onClick: () => confirmResolve(t) }));
-        if (t.status === 'open' || t.status === 'waiting') actions.push(Button({ size: 'sm', label: 'جاري العمل', onClick: () => act(() => tstore.setStatus(id, 'in_progress', ME)) }));
-        if (t.status === 'open' || t.status === 'in_progress') actions.push(Button({ size: 'sm', label: 'بانتظار الرد', onClick: () => act(() => tstore.setStatus(id, 'waiting', ME)) }));
+        if (t.status === 'open' || t.status === 'waiting') actions.push(Button({ size: 'sm', label: 'جاري العمل', onClick: () => act(() => TA().setStatus(id, 'in_progress')) }));
+        if (t.status === 'open' || t.status === 'in_progress') actions.push(Button({ size: 'sm', label: 'بانتظار الرد', onClick: () => act(() => TA().setStatus(id, 'waiting')) }));
         if (t.status === 'resolved' && canClose) actions.push(Button({ type: 'primary', size: 'sm', label: 'إغلاق نهائي', onClick: () => confirmClose(t) }));
       }
-      if (!closed && TK.canReopen(t, ME) && t.status === 'resolved' && !canWork) actions.push(Button({ type: 'brand', size: 'sm', label: 'إعادة فتح', onClick: () => confirmReopen(t) }));
+      if (!closed && canClose && t.status === 'resolved') actions.push(Button({ type: 'brand', size: 'sm', label: 'إعادة فتح', onClick: () => confirmReopen(t) }));
       actions.push(moreMenu(t));
       const header = h('div', { class: 'drawer-h' },
         h('div', { class: 'row1' }, h('div', { class: 'ids' }, h('span', { class: 't-label', style: 'color:var(--color-text-secondary)' }, num(t.id)), h('span', { class: 'chip' }, typeLabel(t.type)), U.TicketStatus(t.status), U.PriorityTag(t.priority), t.reopenCount ? h('span', { class: 'chip' }, 'أُعيد فتحه ×' + t.reopenCount) : null), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => drawerApi.close() })),
         h('h2', { class: 't-h4' }, t.title),
-        h('div', { class: 'meta t-small' }, h('span', null, 'المسؤول: ' + t.assigneeRole + ' · أنشأه ' + t.createdBy.role + ' (' + t.createdBy.name + ') · ' + D.formatDateLong(t.createdAt.slice(0, 10)) + (t.followUp ? ' · متابعة ' + D.formatDateLong(t.followUp) : '')), h('div', { class: 'actions' }, actions)));
-      const ctxCard = t.type === 'internal' ? null : h('div', { class: 'ctx-card' },
-        h('div', { class: 'head' }, h('span', { class: 't-label' }, t.type === 'customer' ? (ctx ? 'الأوردر ' + t.orderId + ' — ' + ctx.customer : 'الأوردر ' + t.orderId + ' — مش موجود في الأوردرات الحالية') : 'المبتكر ' + t.vendor + (t.orderId ? ' — الأوردر ' + t.orderId : '')),
-          h('div', { class: 'links' }, t.orderId ? Button({ type: 'text', size: 'sm', label: 'فتح الأوردر', onClick: () => { drawerApi.close(); showOrders({ q: t.orderId }); } }) : null, (t.vendor || (ctx && ctx.vendors && ctx.vendors[0])) ? Button({ type: 'text', size: 'sm', label: 'فتح المبتكر', onClick: () => { drawerApi.close(); showOrders({ vendor: t.vendor || ctx.vendors[0] }); } }) : null, t.type === 'customer' ? Button({ type: 'text', size: 'sm', label: 'واتساب العميل', icon: 'whatsapp', disabled: !ctx, attrs: { title: 'بيفتح واتساب برقم العميل' } }) : null)),
+        h('div', { class: 'meta t-small' }, h('span', null, 'المسؤول: ' + t.assigneeRole + ' · أنشأه ' + t.createdBy.role + ' (' + t.createdBy.name + ') · ' + D.formatDateLong(dayOf(t.createdAt)) + (t.followUp ? ' · متابعة ' + D.formatDateLong(t.followUp) : '')), h('div', { class: 'actions' }, actions)));
+      const ctxCard = t.type === 'internal' && !t.csConversationId ? null : h('div', { class: 'ctx-card' },
+        h('div', { class: 'head' }, h('span', { class: 't-label' }, t.type === 'customer' ? (ctx ? 'الأوردر ' + t.orderId + ' — ' + ctx.customer : 'الأوردر ' + t.orderId + (t.customer ? ' — ' + t.customer : ' — مش موجود في الأوردرات الحالية')) : t.type === 'vendor' ? 'المبتكر ' + t.vendor + (t.orderId ? ' — الأوردر ' + t.orderId : '') : 'محادثة خدمة العملاء'),
+          h('div', { class: 'links' }, t.orderId ? Button({ type: 'text', size: 'sm', label: 'فتح الأوردر', onClick: () => { drawerApi.close(); showOrders({ q: t.orderId }); } }) : null,
+            t.vendorId && typeof openVendor === 'function' ? Button({ type: 'text', size: 'sm', label: 'فتح المبتكر', onClick: () => { drawerApi.close(); go('vendors'); openVendor(t.vendorId); } }) : null,
+            t.csConversationId && typeof window.IBCSOpen === 'function' ? Button({ type: 'text', size: 'sm', label: 'فتح المحادثة', onClick: () => { drawerApi.close(); window.IBCSOpen(t.csConversationId); } }) : null)),
         ctx ? h('div', { class: 'facts t-small' }, U.DelayBadge(ctx.delivery), h('span', null, num((ctx.vendors || []).join('، ') + ' · ' + ctx.status + ' · ' + ctx.confirm + ' · الإجمالي ' + D.formatMoney(ctx.total) + ' · العمر ' + ctx.ageDays + ' يوم'))) : (t.reason ? h('div', { class: 'facts t-small' }, h('span', null, 'السبب: ' + t.reason)) : null));
       const items = tstore.events(id);
       const tl = h('div', { class: 'tl' }, h('div', { class: 't-label', style: 'color:var(--color-text-secondary)' }, 'آخر التحديثات'),
-        items.map((e) => e.kind === 'message' ? U.TimelineMessage({ author: e.author.name, role: e.author.role, time: fmtTime(e.at), text: e.text }) : U.TimelineEvent({ text: e.text, time: fmtTime(e.at) })));
-      const body = h('div', { class: 'drawer-b' }, closed ? U.InlineNote({ kind: 'warning', children: 'مغلق بواسطة ' + t.closedBy + ' · ' + D.formatDateLong(t.closedAt.slice(0, 10)) + (t.resolution ? ' · «' + t.resolution.outcome + '»' : '') + ' — لو المشكلة رجعت اضغط «إعادة فتح».' }) : null, ctxCard, tl);
-      const reply = closed ? null : U.ReplyBox({ onSend: (text) => act(() => tstore.reply(id, text, ME)) });
+        items.map((e) => e.kind === 'message' ? h('div', { class: 'tk-msg' }, U.TimelineMessage({ author: e.author.name, role: e.author.role, time: fmtTime(e.at), text: e.text }), Thumbs(e.attachments)) : U.TimelineEvent({ text: e.text, time: fmtTime(e.at) })));
+      const own = t.attachments && t.attachments.length ? h('div', { class: 'tk-own' }, h('div', { class: 't-label', style: 'color:var(--color-text-secondary)' }, 'مرفقات التذكرة'), Thumbs(t.attachments)) : null;
+      const body = h('div', { class: 'drawer-b' }, closed ? U.InlineNote({ kind: 'warning', children: 'مغلق بواسطة ' + (t.closedBy || '—') + (t.closedAt ? ' · ' + D.formatDateLong(dayOf(t.closedAt)) : '') + (t.resolution ? ' · «' + t.resolution.outcome + '»' : '') + ' — لو المشكلة رجعت اضغط «إعادة فتح».' }) : null, ctxCard, own, tl);
+      let reply = null;
+      if (!closed && tCanManage()) {
+        const pick = AttachPicker(replyFiles, (m) => { replyMsg = m; draw(); }); pick.msg.textContent = replyMsg;
+        const box = U.ReplyBox({ onSend: (text) => { replyDraft = ''; const files = replyFiles.slice(); act(() => TA().reply(id, text, files).then((r) => { if (r && r.ok) { replyFiles.length = 0; replyMsg = ''; } return r; })); } });
+        const ta = box.querySelector('textarea'); if (ta) { ta.value = replyDraft; ta.addEventListener('input', () => { replyDraft = ta.value; }); }
+        const dead = box.querySelector('.hint .icon-btn'); if (dead) dead.remove(); // the prototype's disabled «إضافة مرفق» — the picker above is the real one
+        reply = h('div', { class: 'tk-reply' }, pick.el, box);
+      }
+      const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('.tk-reply textarea'); // a live redraw keeps the reply's focus (as decision 16 did for the inbox)
       drawerApi.set(header, body, reply);
       const b = drawerApi.el.querySelector('.drawer-b'); if (b) b.scrollTop = b.scrollHeight;
+      if (typing) { const ta2 = drawerApi.el.querySelector('.tk-reply textarea'); if (ta2) { ta2.focus(); ta2.setSelectionRange(ta2.value.length, ta2.value.length); } }
     }
+    drawerRedraw = draw;
     draw(); const c = drawerApi.el.querySelector('.icon-btn'); if (c) c.focus();
+    if (TA()) TA().loadEvents(id); // the whole timeline (the list carries the last 30 days)
   }
 
   // ---------- Vendors / المبتكرين (Figma: المبتكرين — Desktop 1440; Modal / Add vendor; Drawer / Vendor Tab=Info/Orders) ----------

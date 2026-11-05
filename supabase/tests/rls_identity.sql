@@ -94,7 +94,7 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000005","role":"authenticated"}';
 do $$ begin
   if not (public.has_perm('accounts.add') = 'F') then raise exception 'case accounts accounts.add = F failed'; end if;
-  if not (public.has_perm('tickets.view') = 'N') then raise exception 'case accounts tickets.view = N failed'; end if;
+  if not (public.has_perm('tickets.view') = 'P') then raise exception 'case accounts tickets.view = P (0045, decision 4) failed'; end if;
   if not (public.has_perm('orders.edit') = 'N') then raise exception 'case accounts orders.edit = N failed'; end if;
 end $$;
 

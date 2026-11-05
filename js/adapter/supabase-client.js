@@ -15,5 +15,8 @@
     removeItem: (k) => quiet(() => { localStorage.removeItem(k); sessionStorage.removeItem(k); }),
   };
   const frag = location.hash; const recoveryHint = /(^|[#&])type=recovery(&|$)/.test(frag) && /(^|[#&])access_token=/.test(frag);
-  window.IBSupabase = { client: ok ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { storage } }) : null, recoveryHint };
+  // checker(): a throwaway client for «تغيير كلمة المرور» (IBAuth.changePassword) — it checks the current password and keeps no session
+  // (nothing stored, nothing refreshed), so the member's own session is never replaced
+  const checker = () => (ok ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { persistSession: false, autoRefreshToken: false, detectSessionInUrl: false, storageKey: 'ib-password-check' } }) : null);
+  window.IBSupabase = { client: ok ? window.supabase.createClient(cfg.supabaseUrl, cfg.supabaseAnonKey, { auth: { storage } }) : null, recoveryHint, checker };
 })();

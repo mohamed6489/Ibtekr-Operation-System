@@ -340,9 +340,10 @@
     const { data, error } = await rpc('hr_payroll_calc', { p_month: monthArg(month) }); if (error) return fail(error);
     return { ok: true, lines: (data || []).map(line) };
   }
+  const LINE_COLS = 'month, member_id, name, salary, holdback, paid, ot_minutes, ot_pay, rest_days, rest_pay, unpaid_days, unpaid_cut, allowances, deductions, advance, quarter_bonus, net';
   async function payrollLines(month) {
     const cl = c(); if (!cl) return no('network');
-    try { const list = await rows(cl.from('hr_payroll_lines').select('month, member_id, name, salary, holdback, paid, ot_minutes, ot_pay, rest_days, rest_pay, unpaid_days, unpaid_cut, allowances, deductions, advance, quarter_bonus, net').eq('month', monthArg(month)));
+    try { const list = await rows(cl.from('hr_payroll_lines').select(LINE_COLS).eq('month', monthArg(month)));
       return { ok: true, lines: list.map(line) }; } catch (e) { return fail(e); }
   }
   // the month's lines as the sheet reads them: snapshotted once approved, live from hr_payroll_calc before
@@ -350,6 +351,19 @@
   const line = (r) => ({ member: codeOf(r.member_id) || r.member_id, memberUid: r.member_id, name: r.name, salary: Number(r.salary), holdback: Number(r.holdback), paid: Number(r.paid), otMin: Number(r.ot_minutes) || 0,
     otPay: Number(r.ot_pay) || 0, rest: Number(r.rest_days) || 0, restPay: Number(r.rest_pay) || 0, unpaidDays: Number(r.unpaid_days) || 0, unpaidCut: Number(r.unpaid_cut) || 0, allow: Number(r.allowances) || 0,
     ded: Number(r.deductions) || 0, advance: Number(r.advance) || 0, quarterBonus: Number(r.quarter_bonus) || 0, net: Number(r.net) || 0, missingScores: r.missing_scores == null ? 0 : Number(r.missing_scores) });
+  // «ملفي › مرتبي» (T7): a member's payslips — mine through hr_my_slips (the approved / paid months with the sheet's status, never
+  // its total); another member's (sensitive.salaries) from hr_payroll_lines with the statuses of the sheets I read
+  async function slips(member) {
+    const cl = c(); const uid = uidOf(member); if (!cl || !uid) return no('network');
+    if (uid === myUid()) {
+      const { data: d, error } = await rpc('hr_my_slips', {}); if (error) return fail(error);
+      return { ok: true, list: (Array.isArray(d) ? d : []).map((r) => Object.assign(line(Object.assign({}, r, { member_id: uid })), { month: monthKey(r.month), status: r.status, paidAt: r.paid_at || null })) };
+    }
+    try {
+      const list = await rows(cl.from('hr_payroll_lines').select(LINE_COLS).eq('member_id', uid).order('month', { ascending: false }).limit(36));
+      return { ok: true, list: list.map((r) => Object.assign(line(r), { month: monthKey(r.month), status: (data.sheets[monthKey(r.month)] || {}).status || 'معتمد', paidAt: null })) };
+    } catch (e) { return fail(e); }
+  }
   async function payrollOpen(month) { const { error } = await rpc('hr_payroll_open', { p_month: monthArg(month) }); if (error) return fail(error); await load(); return { ok: true }; }
   async function payrollStep(month, step) { const { error } = await rpc('hr_payroll_step', { p_month: monthArg(month), p_step: step }); if (error) return fail(error); return after(step === 'معتمد' ? 'hr.payroll.approve' : 'hr.payroll.review', monthKey(month) + ' → ' + step); }
   async function payrollPay(month, account) {
@@ -536,7 +550,7 @@
 
   window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, can, settings, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
     shiftNow, myShift, clockIn, clockOut, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
-    payrollCalc, payrollLines, sheetLines, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
+    payrollCalc, payrollLines, sheetLines, slips, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,
     memberCreate, memberPassword, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
     _test: { parts, minOf, atLabel, meetingLabel, shape, raw, safeName, fail, uidOf } };

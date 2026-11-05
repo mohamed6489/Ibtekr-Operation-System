@@ -292,15 +292,16 @@
       validate: (f) => { const e = K.req(f, ['member', 'label', 'amount']); if (f.amount && !(Number(f.amount) > 0)) e.amount = 'اكتب مبلغ أكبر من صفر'; return e; }, submitLabel: 'إضافة',
       submit: (f, m) => busy(m, H().addAdjustment({ member: f.member, month: mk, label: f.label, amount: (f.kind === 'خصم' ? -1 : 1) * Number(f.amount) }), () => K.toast('اتضاف البند', 'success')) });
   }
-  function payslipModal(p, mk) {
-    const m = M(p.member); const r = O.rates(p.salary); const adj = S.adjustments.filter((a) => a.member === p.member && a.month === mk); const sh = S.sheets[mk] || {};
+  function payslipModal(p, mk, status) { // status: «ملفي» passes the sheet's (a member does not read the sheets)
+    const m = M(p.member); const r = O.rates(p.salary); const adj = S.adjustments.filter((a) => a.member === p.member && a.month === mk); const sh = status ? { status } : S.sheets[mk] || {};
+    const own = p.member === (window.IBDirectory.me() || {}).member_code;
     const line = (k, v, neg) => h('div', { class: 'slip-row' }, h('span', null, k), h('b', { class: 'num' + (neg ? ' neg' : '') }, (neg && v ? '−' : '') + K.money(v)));
     const md = U.Modal({ title: 'قسيمة مرتب ' + monLabel(mk), share: true, body: [h('div', { class: 'slip' }, h('div', { class: 'slip-h' }, window.IBLogo.Logo({ tone: 'color', width: 120 }), h('div', null, h('b', null, p.name), h('div', { class: 't-small' }, (m.title || '') + (m.dept ? ' · ' + m.dept : '')))),
       line('المرتب', p.salary), line('الحافز المحجوز (بيتصرف آخر الربع)', p.holdback, true), p.otPay ? line('أوفر تايم ' + K.hm(p.otMin), p.otPay) : null, p.restPay ? line('أيام راحة ×2 (' + p.rest + ')', p.restPay) : null,
       p.allow - adj.filter((a) => a.amount > 0).reduce((s, a) => s + a.amount, 0) > 0 ? line('البدلات', p.allow - adj.filter((a) => a.amount > 0).reduce((s, a) => s + a.amount, 0)) : null, ...adj.filter((a) => a.amount > 0).map((a) => line(a.label, a.amount)),
       ...adj.filter((a) => a.amount < 0).map((a) => line(a.label, -a.amount, true)), p.advance ? line('قسط سُلفة', p.advance, true) : null, p.unpaidCut ? line('إجازة بدون أجر (' + p.unpaidDays + ' يوم)', p.unpaidCut, true) : null, p.quarterBonus ? line('حافز الربع', p.quarterBonus) : null,
       h('div', { class: 'slip-row total' }, h('span', null, 'الصافي'), h('b', { class: 'num' }, K.money(p.net) + ' ج.م')), h('div', { class: 't-small help' }, 'سعر اليوم ' + K.money(r.daily) + ' · سعر الساعة ' + K.money(r.hourly) + ' · حالة الكشف: ' + (sh.status || 'مسودة')))],
-      footer: [Button({ label: 'إغلاق', onClick: () => md.close() }), Button({ type: 'primary', label: 'إرسال للعضو', icon: 'send', disabled: sh.status !== 'معتمد' && sh.status !== 'مدفوع', onClick: () => { md.close(); K.toast('القسيمة ظاهرة لـ ' + p.name + ' في «ملفي › مرتبي»', 'success'); } })] });
+      footer: [Button({ label: 'إغلاق', onClick: () => md.close() }), own ? null : Button({ type: 'primary', label: 'إرسال للعضو', icon: 'send', disabled: sh.status !== 'معتمد' && sh.status !== 'مدفوع', onClick: () => { md.close(); K.toast('القسيمة ظاهرة لـ ' + p.name + ' في «ملفي › مرتبي»', 'success'); } })].filter(Boolean) });
   }
   // the KPIs of a member and the month shown (the latest rated in the quarter)
   const kpisOf = (id) => S.kpis[id] || [];
@@ -460,9 +461,9 @@
         const send = (doc) => H().request({ member: f.member, type: f.kind, from: f.from, to: f.to, note: f.note || '', doc });
         return busy(md, needDoc ? H().upload(picked.leavedoc, f.member).then((u) => (u.ok ? send(u.path) : u)) : send(null), (r) => K.toast('اتقدم الطلب ' + r.id, 'success')); } });
   }
-  function advanceRequest() {
+  function advanceRequest(m) { // m: «ملفي» of another member (hr.edit F files for them)
     const me = (window.IBDirectory.me() || {}).member_code; const who = can().edit ? members() : members().filter((x) => x.value === me);
-    K.form({ title: 'طلب سُلفة', values: { member: me || (who[0] || {}).value, months: '3' }, fields: (f, e, set) => [who.length > 1 ? K.field.select('member', 'العضو', who, f, e, set, { required: true }) : null, K.two(K.field.text('amount', 'المبلغ', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }), K.field.select('months', 'عدد الأقساط', ['1', '2', '3', '6'].map((x) => ({ value: x, label: x + ' شهور' })), f, e, set)),
+    K.form({ title: 'طلب سُلفة', values: { member: (m && who.some((x) => x.value === m.id) ? m.id : null) || me || (who[0] || {}).value, months: '3' }, fields: (f, e, set) => [who.length > 1 ? K.field.select('member', 'العضو', who, f, e, set, { required: true }) : null, K.two(K.field.text('amount', 'المبلغ', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }), K.field.select('months', 'عدد الأقساط', ['1', '2', '3', '6'].map((x) => ({ value: x, label: x + ' شهور' })), f, e, set)),
       Number(f.amount) > 0 ? U.InlineNote({ children: 'هيتخصم ' + K.money(Number(f.amount) / Number(f.months)) + ' ج كل شهر من الشهر اللي بعد الموافقة' }) : null, K.field.area('note', 'السبب', f, e, set)],
       validate: (f) => { const e = K.req(f, ['member', 'amount']); const m = M(f.member); if (f.amount && !(Number(f.amount) > 0)) e.amount = 'اكتب مبلغ صحيح'; else if (m.salary && Number(f.amount) > m.salary) e.amount = 'السُلفة متزيدش عن مرتب شهر (' + K.money(m.salary) + ')'; return e; },
       submitLabel: 'تقديم الطلب', submit: (f, md) => busy(md, H().request({ member: f.member, type: 'سُلفة', amount: Number(f.amount), months: Number(f.months), note: f.note || '' }), (r) => K.toast('اتقدم الطلب ' + r.id, 'success')) });
@@ -565,5 +566,5 @@
   // the old prototype's api for the blocks not on IBHR yet (the profile — T7; the bell / dashboard read these helpers)
   const slipOf = (m) => { const L = st.lines[thisMonth()]; const p = L && L.lines ? slipFor(L.lines, m) : null; return p || O.payslip({ salary: m.salary || 0, holdback: m.holdback || 0, bonus: m.allow || 0 }); };
   window.IBPages.register('hr', { title: 'الموارد البشرية', hash: (hs) => { const m = /^hr(?:-(team|requests|payroll|reports|settings))?$/.exec(hs); if (!m) return false; st.tab = m[1] || 'team'; return true; }, defaultHash: () => 'hr-' + st.tab, view,
-    api: { decide: (r, s, reason) => decide(r, s, reason), rejectReq, reqDetails, otAdd, otReject, leaveRequest, advanceRequest, payslipModal: (m) => { const L = linesOf(thisMonth()); const p = slipFor(L.lines, m); if (p) payslipModal(p, thisMonth()); else K.toast('القسيمة لسه بتتحسب — جرّب كمان شوية'); }, slipOf, manualAtt, uploadContract, scheduleMeeting, status, pendingCount, isPending, reqPeriod, qScore: (id) => qScore(id), cancelReq, present } });
+    api: { decide: (r, s, reason) => decide(r, s, reason), rejectReq, reqDetails, otAdd, otReject, leaveRequest, advanceRequest, newPassword, slipModal: (p, mk, status) => payslipModal(p, mk, status), payslipModal: (m) => { const L = linesOf(thisMonth()); const p = slipFor(L.lines, m); if (p) payslipModal(p, thisMonth()); else K.toast('القسيمة لسه بتتحسب — جرّب كمان شوية'); }, slipOf, manualAtt, uploadContract, scheduleMeeting, status, pendingCount, isPending, reqPeriod, qScore: (id) => qScore(id), cancelReq, present } });
 })();

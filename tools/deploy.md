@@ -1194,3 +1194,22 @@ select data from public.settings where section = 'inventory';                   
 ```
 
 **الأمان:** الحركات إضافة بس (مافيش تعديل ولا حذف)، الـ lot مابيتمسحش، الجرد بيتعتمد بـ RPC `inv_count_approve` بس (`inventory.approve`) والكمية «في السيستم» من السيرفر؛ `activity_log` `inventory.*` من غير ملاحظات؛ `inventory_push` بعضو بس (أدمن أو `inventory.edit = F` و`products.edit = F` — الـ SKU والملكية من إدخال العضو، فالدفع محتاج نفس صلاحية تعديل مخزون المنتج)، وفي `woo_sync_log` أعداد وSKUs بس.
+
+#### 2.7.20 تذاكر الفريق (المرحلة 8، 5 نوفمبر)
+
+الخطة `docs/superpowers/plans/2026-11-05-phase-8-tickets.md`، ودفترها `.superpowers/sdd/2026-11-05-phase-8-tickets/progress.md`.
+
+**النشر:**
+1. `0045_tickets.sql` (Supabase MCP `apply_migration` أو SQL editor) — الصلاحيات (قرار 4) + `tickets` / `ticket_events` + `ticket_create` / `ticket_act` + bucket `tickets` (مقفول، صور وPDF، 10 ميجا) + broadcast `tickets` وسياسته. بعدها `supabase/tests/rls_tickets.sql` على الحي (بيرجع كل حاجة — المفروض `NOTICE rls_tickets: ok`).
+2. مافيش Edge Function ولا أسرار.
+3. الواجهة: push على `main`.
+
+**التحقق:**
+```sql
+select id, permissions ->> 'tickets.view' v, permissions ->> 'tickets.manage' m from public.roles order by sort; -- admin/ops/cs F/F، الحسابات ومتابعة المبتكرين P/F، المشاهد P/N
+select id, public, file_size_limit, allowed_mime_types from storage.buckets where id = 'tickets';
+select status, assignee_role, count(*) from public.tickets group by 1, 2 order by 1, 2;
+select at, action, entity_id, new_value from public.activity_log where action like 'ticket.%' order by at desc limit 20;
+```
+
+**الأمان:** القراية بـ RLS (`ticket_can_see`: F كله، P تذاكر دوري + اللي فتحتها)، ومافيش أي insert/update/delete للأعضاء — كل كتابة بـ `ticket_create` / `ticket_act` (`security definer`) بقواعد الدومين؛ الخط الزمني إضافة بس، ومافيش مسح تذاكر. ربط الأوردر وعميله بس لعضو بـ `orders.view = F` (والعميل بـ `cs.view`)، والمحادثة بس لو العضو شايفها. المرفقات من فولدر العضو نفسه بس (`tickets/<uid>/…`)، النوع والحجم من Storage، والقراية لصاحب الملف أو اللي شايف التذكرة (`ticket_file_visible`). الـ broadcast فيه `{ at }` بس وprivate. `activity_log` `ticket.*` = الرقم والحالات والأدوار والأعداد — مافيش نص رسالة ولا وصف.

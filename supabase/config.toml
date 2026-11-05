@@ -20,3 +20,6 @@ verify_jwt = false
 
 [functions.cs-whatsapp]
 verify_jwt = false
+
+[functions.team-admin]
+verify_jwt = false

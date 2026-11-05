@@ -83,9 +83,12 @@ begin
   insert into hr_ids values ('shift', s ->> 'id');
 end $$;
 
--- the shift started 9 hours ago (as the server)
+-- the shift started 9 hours ago on a working day (as the server; a run on a Friday / Saturday moves it to Thursday)
 reset role;
-update public.hr_attendance set in_at = now() - interval '9 hours' where id = (select v::bigint from hr_ids where k = 'shift');
+update public.hr_attendance set in_at = now() - interval '9 hours',
+  day = public.hr_today() - case extract(isodow from public.hr_today())::int when 5 then 1 when 6 then 2 else 0 end
+where id = (select v::bigint from hr_ids where k = 'shift');
+insert into hr_ids select 'day', day::text from public.hr_attendance where id = (select v::bigint from hr_ids where k = 'shift');
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a3","role":"authenticated"}', true);
 do $$
@@ -95,13 +98,15 @@ begin
   v_ot := (r ->> 'overtime_id')::bigint;
   if v_ot is null or (r ->> 'overtime')::int not between 59 and 61 then raise exception 'case the overtime past 8 hours is recorded failed (%)', r; end if;
   insert into hr_ids values ('ot', v_ot::text);
-  begin perform public.hr_clock_in(); raise exception 'case one shift a day failed'; exception when invalid_parameter_value then null; end;
+  if (select v::date from hr_ids where k = 'day') = public.hr_today() then
+    begin perform public.hr_clock_in(); raise exception 'case one shift a day failed'; exception when invalid_parameter_value then null; end;
+  end if;
   begin perform public.hr_overtime_decide(v_ot, 'add'); raise exception 'case a member does not decide their own overtime failed'; exception when insufficient_privilege then null; end;
   begin perform public.hr_attendance_set('00000000-0000-4000-8000-0000000046a3', public.hr_today(), '08:00'); raise exception 'case only hr.edit sets attendance by hand failed';
   exception when insufficient_privilege then null; end;
   insert into hr_ids values ('leave', public.hr_request_create('{"type":"إجازة سنوية","from":"2026-12-06","to":"2026-12-07","note":"فرح أخويا"}')::text);
   insert into hr_ids values ('adv', public.hr_request_create('{"type":"سُلفة","amount":"6000","months":"3"}')::text);
-  insert into hr_ids values ('fix', public.hr_request_create(jsonb_build_object('type', 'تصحيح انصراف', 'from', public.hr_today(), 'time', '23:30'))::text);
+  insert into hr_ids values ('fix', public.hr_request_create(jsonb_build_object('type', 'تصحيح انصراف', 'from', (select v from hr_ids where k = 'day'), 'time', '23:30'))::text);
   begin perform public.hr_request_create('{"type":"إجازة خيالية"}'); raise exception 'case an unknown type is refused failed'; exception when invalid_parameter_value then null; end;
   begin perform public.hr_request_create('{"type":"سُلفة","amount":"0","months":"3"}'); raise exception 'case an advance needs an amount failed'; exception when invalid_parameter_value then null; end;
   begin perform public.hr_request_create('{"type":"إجازة سنوية","member":"00000000-0000-4000-8000-0000000046a4"}'); raise exception 'case a member files for themselves only failed';
@@ -147,10 +152,22 @@ end $$;
 
 -- ================================================================ the admin: ratings, rejected overtime → meeting, the payroll into the accounts
 
+-- a Friday of that month worked by the member, waiting for its approval (as the clock would record it)
+reset role;
+insert into public.hr_overtime (member_id, day, start_at, end_at, minutes, kind, note)
+select '00000000-0000-4000-8000-0000000046a3', d, public.hr_at(d, '10:00'), public.hr_at(d, '14:00'), 240, 'rest_day', 'شغل يوم راحة / عطلة'
+from (select date_trunc('month', (select v::date from hr_ids where k = 'day'))::date + ((5 - extract(isodow from date_trunc('month', (select v::date from hr_ids where k = 'day')))::int + 7) % 7) as d) x;
+insert into hr_ids select 'rest', max(id)::text from public.hr_overtime where kind = 'rest_day';
+set local role authenticated;
+
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a1","role":"authenticated"}', true);
 do $$
-declare k1 bigint; k2 bigint; sc numeric; v_month date := date_trunc('month', public.hr_today())::date; v_line public.hr_payroll_lines; v_exp int; v_net numeric;
+declare k1 bigint; k2 bigint; sc numeric; v_month date := date_trunc('month', (select v::date from hr_ids where k = 'day'))::date; v_line public.hr_payroll_lines; v_exp int; v_net numeric;
+  v_fri date;
 begin
+  -- a Friday worked this month, still waiting for its approval: not on the sheet (the security review: no self-service ×2)
+  v_fri := v_month + ((5 - extract(isodow from v_month)::int + 7) % 7);
+  insert into hr_ids values ('fri', v_fri::text);
   insert into public.hr_kpis (member_id, name, weight, target) values ('00000000-0000-4000-8000-0000000046a3', 'أوردرات اتأكدت', 60, 100) returning id into k1;
   insert into public.hr_kpis (member_id, name, weight, target, inverse) values ('00000000-0000-4000-8000-0000000046a3', 'أخطاء', 40, 2, true) returning id into k2;
   sc := public.hr_rate_month('00000000-0000-4000-8000-0000000046a3', v_month, jsonb_build_object(k1::text, 90, k2::text, 1));
@@ -171,7 +188,7 @@ begin
   perform public.hr_payroll_step(v_month, 'معتمد');
   select * into v_line from public.hr_payroll_lines where month = v_month and member_id = '00000000-0000-4000-8000-0000000046a3';
   -- 9600 − 1000 = 8600 · overtime 45 min at 9600/24/8 = 50/h → 37.50 · allowances 200 · deduction 150 · advance from next month only
-  if v_line.paid <> 8600 or v_line.ot_minutes <> 45 or v_line.ot_pay <> 37.5 or v_line.allowances <> 200 or v_line.deductions <> 150 or v_line.advance <> 0 then
+  if v_line.paid <> 8600 or v_line.ot_minutes <> 45 or v_line.ot_pay <> 37.5 or v_line.allowances <> 200 or v_line.deductions <> 150 or v_line.advance <> 0 or v_line.rest_days <> 0 then
     raise exception 'case the payslip line failed (%)', row_to_json(v_line);
   end if;
   v_net := v_line.net;
@@ -199,6 +216,15 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000
 do $$
 begin
   if (select count(*) from public.hr_payroll_lines) <> 0 then raise exception 'case the manager does not see their report''s payslip failed'; end if;
+  if public.hr_overtime_decide((select v::bigint from hr_ids where k = 'rest'), 'add', 5) <> 'اتضاف' then raise exception 'case the manager approves the rest day failed'; end if;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a1","role":"authenticated"}', true);
+do $$
+declare c record;
+begin
+  select * into c from public.hr_payroll_calc((select v::date from hr_ids where k = 'fri')) where member_id = '00000000-0000-4000-8000-0000000046a3';
+  -- approved whole (the 5 minutes ignored): one day ×2 = 9600 ÷ 24 × 2
+  if c.rest_days <> 1 or c.rest_pay <> 800 then raise exception 'case an approved rest day counts ×2 failed (%)', row_to_json(c); end if;
 end $$;
 
 -- a rejected overtime opens a one-to-one meeting

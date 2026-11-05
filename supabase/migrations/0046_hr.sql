@@ -7,7 +7,8 @@
 --   payslip). Admin F/F/F/F; ops, cs, vendors_followup, accounts P/N/N/N; viewer N.
 -- * The clock (decision 10): hr_clock_in / hr_clock_out write the member's own day with the server's time (Cairo days);
 --   hr_shift_now gives the open shift back after a refresh or on another device. Overtime is recorded at the end of the shift
---   when the member says what they worked on, and waits for the direct manager (then the admin after 24 hours — decision 9).
+--   when the member says what they worked on, and waits for the direct manager (then the admin after 24 hours — decision 9);
+--   a rest day / holiday worked (×2) is recorded the same way (kind rest_day) and waits for the same approval.
 -- * Requests: hr_request_create (my own, or anyone's with hr.edit F) / hr_request_decide / hr_request_cancel; the money of an
 --   advance is masked in hr_requests_v unless sensitive.salaries F or it is mine.
 -- * Payroll (decisions 3 / 8 / 14): one sheet per month, opened by itself (pg_cron, daily, idempotent) — مسودة → مراجعة →
@@ -124,6 +125,7 @@ create table if not exists public.hr_overtime (
   start_at timestamptz not null,
   end_at timestamptz not null check (end_at > start_at),
   minutes int not null check (minutes > 0 and minutes <= 1440),
+  kind text not null default 'hours' check (kind in ('hours', 'rest_day')),
   note text not null check (char_length(btrim(note)) between 1 and 300),
   status text not null default 'مستني' check (status in ('مستني', 'اتضاف', 'اترفض')),
   paid_minutes int not null default 0 check (paid_minutes >= 0 and paid_minutes <= minutes),
@@ -133,6 +135,10 @@ create table if not exists public.hr_overtime (
   created_at timestamptz not null default now()
 );
 create index if not exists hr_overtime_member_idx on public.hr_overtime (member_id, day);
+-- a rest day / holiday worked (×2) waits for the same approval as overtime (the security review: no self-service pay)
+alter table public.hr_overtime add column if not exists kind text not null default 'hours' check (kind in ('hours', 'rest_day'));
+create unique index if not exists hr_overtime_rest_day_idx on public.hr_overtime (member_id, day) where kind = 'rest_day';
+
 
 -- ---------------------------------------------------------------- requests
 
@@ -453,6 +459,13 @@ create or replace view public.hr_requests_v with (security_barrier = true) as
   from public.hr_requests r
   where public.hr_can_see(r.member_id);
 
+-- a Friday / Saturday or a confirmed holiday (block 12: HR.offDays + the holidays)
+create or replace function public.hr_rest_day(p_day date) returns boolean
+language sql stable security definer set search_path = public as $$
+  select extract(isodow from p_day) in (5, 6)
+    or exists (select 1 from public.hr_holidays h where h.status = 'مؤكد' and p_day between h.day and h.day + (h.days - 1))
+$$;
+
 -- ---------------------------------------------------------------- the clock (decision 10)
 
 -- my open shift (a refresh or another device picks it up): the latest row of mine without an out, within 20 hours
@@ -495,6 +508,15 @@ begin
   if v_note is not null and char_length(v_note) > 300 then raise exception 'invalid: note' using errcode = '22023'; end if;
   update public.hr_attendance set out_at = v_out, updated_at = now() where id = v_row.id;
   v_worked := floor(extract(epoch from (v_out - v_row.in_at)) / 60);
+  if public.hr_rest_day(v_row.day) then
+    -- the whole day counts ×2 once approved (no separate hours row)
+    if v_worked > 0 then
+      insert into public.hr_overtime (member_id, day, start_at, end_at, minutes, kind, note)
+      values (auth.uid(), v_row.day, v_row.in_at, v_out, least(v_worked, 1440), 'rest_day', coalesce(v_note, 'شغل يوم راحة / عطلة'))
+      on conflict (member_id, day) where kind = 'rest_day' do nothing returning id into v_ot;
+    end if;
+    return jsonb_build_object('worked', v_worked, 'overtime_id', v_ot, 'overtime', 0, 'rest_day', true);
+  end if;
   if v_note is not null and v_worked > v_shift then
     insert into public.hr_overtime (member_id, day, start_at, end_at, minutes, note)
     values (auth.uid(), v_row.day, v_row.in_at + make_interval(mins => v_shift), v_out, v_worked - v_shift, v_note)
@@ -519,6 +541,11 @@ begin
   on conflict (member_id, day) do update set in_at = excluded.in_at, out_at = excluded.out_at, remote = excluded.remote,
     source = case when a.source = 'clock' and a.out_at is null then 'fix' else 'manual' end, note = excluded.note, by_id = auth.uid(), updated_at = now()
   returning a.id into v_id;
+  if v_out is not null and v_out > v_in and public.hr_rest_day(p_day) then
+    insert into public.hr_overtime (member_id, day, start_at, end_at, minutes, kind, note)
+    values (p_member, p_day, v_in, v_out, least(floor(extract(epoch from (v_out - v_in)) / 60)::int, 1440), 'rest_day', 'شغل يوم راحة / عطلة (يدوي)')
+    on conflict (member_id, day) where kind = 'rest_day' do nothing;
+  end if;
   return v_id;
 end $$;
 
@@ -614,7 +641,7 @@ begin
   if v_o.status <> 'مستني' then raise exception 'invalid: status' using errcode = '22023'; end if;
   if v_reason is not null and char_length(v_reason) > 300 then raise exception 'invalid: reason' using errcode = '22023'; end if;
   if p_decision = 'add' then
-    v_min := coalesce(p_minutes, v_o.minutes);
+    v_min := case when v_o.kind = 'rest_day' then v_o.minutes else coalesce(p_minutes, v_o.minutes) end;
     if v_min <= 0 or v_min > v_o.minutes then raise exception 'invalid: minutes' using errcode = '22023'; end if;
     update public.hr_overtime set status = 'اتضاف', paid_minutes = v_min, decided_by = auth.uid(), decided_at = now(), reason = v_reason where id = p_id;
     return 'اتضاف';
@@ -685,10 +712,11 @@ begin
   ), hol as (
     select (h.day + g.i) as d from public.hr_holidays h cross join lateral generate_series(0, h.days - 1) g(i) where h.status = 'مؤكد'
   ), ot as (
-    select o.member_id mid, sum(o.paid_minutes)::int mins from public.hr_overtime o where o.status = 'اتضاف' and o.day >= m0 and o.day < m1 group by o.member_id
+    select o.member_id mid, sum(o.paid_minutes)::int mins from public.hr_overtime o
+    where o.kind = 'hours' and o.status = 'اتضاف' and o.day >= m0 and o.day < m1 group by o.member_id
   ), rest as (
-    select a.member_id mid, count(*)::int n from public.hr_attendance a
-    where a.day >= m0 and a.day < m1 and (extract(isodow from a.day) in (5, 6) or a.day in (select d from hol)) group by a.member_id
+    select o.member_id mid, count(*)::int n from public.hr_overtime o
+    where o.kind = 'rest_day' and o.status = 'اتضاف' and o.day >= m0 and o.day < m1 group by o.member_id
   ), unpaid as (
     select r.member_id mid, count(*)::numeric n
     from public.hr_requests r join public.hr_leave_types t on t.name = r.type and t.unpaid
@@ -807,7 +835,7 @@ grant usage on all sequences in schema public to authenticated, service_role;
 
 revoke execute on function public.hr_stamp(), public.hr_meetings_stamp(), public.hr_adjustments_guard() from public, anon, authenticated;
 revoke execute on function public.hr_payroll_calc(date), public.hr_payroll_open(date) from public, anon;
-grant execute on function public.hr_today(), public.hr_active(), public.hr_is_manager_of(uuid), public.hr_can_see(uuid), public.hr_can_decide(uuid),
+grant execute on function public.hr_rest_day(date), public.hr_today(), public.hr_active(), public.hr_is_manager_of(uuid), public.hr_can_see(uuid), public.hr_can_decide(uuid),
   public.hr_salaries(), public.hr_editor(), public.hr_at(date, time), public.hr_shift_now(), public.hr_clock_in(boolean), public.hr_clock_out(text, timestamptz),
   public.hr_attendance_set(uuid, date, time, time, boolean, text), public.hr_request_types(), public.hr_request_create(jsonb),
   public.hr_request_decide(bigint, text, text), public.hr_request_cancel(bigint), public.hr_overtime_decide(bigint, text, int, text),

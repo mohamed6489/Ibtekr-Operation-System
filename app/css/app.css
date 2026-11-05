@@ -1567,3 +1567,5 @@ td :is(.select,.date-field,.input:not(textarea)){height:var(--ctl-sm);min-height
 .tk-order-opts[hidden] { display: none; }
 .tk-order-opt { text-align: start; background: none; border: 0; padding: 8px 12px; cursor: pointer; font: inherit; color: inherit; }
 .tk-order-opt:hover, .tk-order-opt:focus { background: var(--color-surface-2, #f4f4f4); outline: none; }
+/* phase 9: «قريبًا» on a reports tab (staff / campaigns until their pages) */
+.tabs .tab .soon { margin-inline-start: 6px; background: var(--color-bg-tint); color: var(--color-text-secondary); }

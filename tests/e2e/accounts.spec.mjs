@@ -358,4 +358,4 @@ test('5.5: the makers\' table shows the latest Dokan request per maker; the actu
   await expect(owed.locator('[data-owed-wd]')).toContainText('1 مبتكر · منه 1,200.00 في 1 طلب سحب');
 });
 
-// the accounts report by period (decision 4) is ported in AccountsReportView, but the reports page is still «soon» (SOON in block 28): no e2e until it opens
+// the accounts report by period (decision 4): tests/e2e/reports.spec.mjs (phase 9 opened the reports page)

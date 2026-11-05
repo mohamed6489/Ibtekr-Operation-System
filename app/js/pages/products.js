@@ -634,15 +634,16 @@
       Button({ type: 'primary', label: 'احفظ', attrs: { 'data-kpi-save': '' }, onClick: () => { if (!sel.length) { K.toast('اختار كارت واحد على الأقل', 'error'); return; } if (window.IBPrefs) window.IBPrefs.set(KPI_PREF, sel.slice()); m.close(); K.toast('اتحفظ — ' + sel.length + ' كروت', 'success'); done(); } }));
     draw();
   }
-  function reportsView() {
+  // phase 9 (docs/superpowers/plans/2026-11-05-phase-9-reports.md, decision 7): the reports page's «تقارير المنتجات» tab draws these same
+  // blocks — one source. reportBody(redraw) → { blocks, ctx (the KPI picker's, once the report is in), exp (the CSV of the best sellers) };
+  // redraw = what «جرّب تاني» redraws (this page's R, or the reports page)
+  function reportBody(redraw) {
     const P = PR(); const RB = window.IBReportBlocks;
     const rg = RB ? RB.get() : null; const from = rg ? rg.from : null; const to = rg ? rg.to : null;
-    let kpiCtx = null; // set once the report is in
-    const bar = h('div', { class: 'toolbar pr-rep-bar' }, RB ? RB.range() : null, Button({ size: 'sm', icon: 'sliders', label: 'تخصيص التقارير', attrs: { 'data-prod-kpi-custom': '' }, disabled: !from, onClick: () => { if (kpiCtx) kpiPicker(kpiCtx, R); else K.toast('استنى التقارير تتحسب الأول', 'error'); } }), h('span', { class: 't-small help grow' }, 'الأكثر مبيعًا والأقسام من أوردراتنا في الفترة (من غير الملغي والمسترجع والفاشل) · المخزون من كتالوج ووكومرس دلوقتي.'));
     const rep = from ? P.report(from, to) : null;
     if (!rep) {
       const failed = from && P.reportFailed(from, to);
-      return [bar, failed ? K.Empty('مقدرناش نحسب التقارير', 'في مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', onClick: () => { P.reportRetry(from, to); R(); } })) : U.InlineNote({ children: 'بنحسب التقارير…' })];
+      return { blocks: [failed ? K.Empty('مقدرناش نحسب التقارير', 'في مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', onClick: () => { P.reportRetry(from, to); (redraw || R)(); } })) : U.InlineNote({ children: 'بنحسب التقارير…' })], ctx: null, exp: null };
     }
     const out = PD.outOfStock(all()); const cats = PD.categoriesRank(rep.cats); const catTop = cats.slice(0, 15);
     const openRec = (id, label) => (id ? h('button', { type: 'button', class: 'link-btn', onClick: () => go('products-edit-' + id + '-data') }, label) : label);
@@ -656,9 +657,10 @@
     const catRows = catTop.map((c) => [K.n0(c.rank), c.name, K.n0(c.sold), pct(c.share), money(c.revenue), K.n0(c.orders), K.n0(c.products)]);
     const byStatus = [...out.reduce((m, p) => m.set(p.status, (m.get(p.status) || 0) + 1), new Map())].sort((a, b) => b[1] - a[1]);
     const maxC = catTop.length ? catTop[0].sold || 1 : 1;
-    kpiCtx = { rep, out, cats, pct, prods: all(), topH, outH, topRowsTxt: rep.top.map((x, i) => [K.n0(i + 1), x.name, x.sku, x.vendor, K.n0(x.qty), K.n0(x.orders), money(x.revenue)]), outRowsTxt: out.map((p) => [nameOf(p), p.sku || '—', p.vendor || '—', p.status, K.n0(p.sales)]) };
+    const kpiCtx = { rep, out, cats, pct, prods: all(), topH, outH, topRowsTxt: rep.top.map((x, i) => [K.n0(i + 1), x.name, x.sku, x.vendor, K.n0(x.qty), K.n0(x.orders), money(x.revenue)]), outRowsTxt: out.map((p) => [nameOf(p), p.sku || '—', p.vendor || '—', p.status, K.n0(p.sales)]) };
     const picked = kpiPicked();
-    return [bar,
+    const exp = { label: 'المنتجات الأكثر مبيعًا', headers: topH, rows: rep.top.map((x, i) => [i + 1, x.name, x.sku, x.vendor, x.qty, x.orders, x.revenue]) };
+    return { ctx: kpiCtx, exp, blocks: [
       h('div', { class: 'cards', 'data-rgroup': 'kpis', 'data-prod-kpis': String(picked.length) }, picked.map((id) => { const k = KPIS.find((x) => x.id === id); let v; try { v = k.calc(kpiCtx); } catch (e) { v = { value: '—' }; }
         return U.KpiTile({ label: k.label, value: typeof v.value === 'string' ? v.value : String(v.value), unit: v.unit, compare: 'off', note: v.note, details: v.details || null }); })),
       Card('المنتجات الأكثر مبيعًا — أعلى 20', rep.top.length + ' منتج', rep.top.length ? U.Table({ cls: 'dt rp-top', headers: topH, rows: topRows }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.')),
@@ -667,7 +669,21 @@
         U.ChartCard({ title: 'المخزون اللي خلص', subtitle: K.n0(out.length) + ' منتج حسب الحالة', footnote: '«حسب الطلب» مش بيتحسب نفد · التركيبات لوحدها مش ظاهرة هنا (المنتج بيظهر لما كل تركيباته تخلص)', body: out.length ? h('div', { class: 'bars' }, byStatus.map(([k, n], i) => U.BarRow({ tone: i === 0 ? 'brand' : 'gold', label: k, value: K.n0(n), pct: n / out.length }))) : K.Empty('كله متاح', 'مفيش منتج نفد مخزونه.') })),
       Card('منتجات نفد مخزونها', out.length + ' منتج', out.length ? U.Table({ cls: 'dt rp-out', headers: outH, rows: outRows }) : K.Empty('كله متاح', 'مفيش منتج نفد مخزونه دلوقتي.')),
       Card('الأقسام الأكثر مبيعًا', 'أعلى ' + catTop.length + ' من ' + cats.length + ' قسم', catTop.length ? U.Table({ cls: 'dt rp-cats', headers: catH, rows: catRows }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.')),
-      h('p', { class: 'source t-small help' }, 'المصدر: أوردراتنا (الأوردر بتاريخه بتوقيت القاهرة، والسطر على الترجمة العربية بيتحسب على المنتج الإنجليزي) · كتالوج ووكومرس للمخزون.')];
+      h('p', { class: 'source t-small help' }, 'المصدر: أوردراتنا (الأوردر بتاريخه بتوقيت القاهرة، والسطر على الترجمة العربية بيتحسب على المنتج الإنجليزي) · كتالوج ووكومرس للمخزون.')] };
+  }
+  function reportsView() {
+    const RB = window.IBReportBlocks; const rg = RB ? RB.get() : null;
+    const body = reportBody(R);
+    const bar = h('div', { class: 'toolbar pr-rep-bar' }, RB ? RB.range() : null, Button({ size: 'sm', icon: 'sliders', label: 'تخصيص التقارير', attrs: { 'data-prod-kpi-custom': '' }, disabled: !(rg && rg.from), onClick: () => { if (body.ctx) kpiPicker(body.ctx, R); else K.toast('استنى التقارير تتحسب الأول', 'error'); } }), h('span', { class: 't-small help grow' }, 'الأكثر مبيعًا والأقسام من أوردراتنا في الفترة (من غير الملغي والمسترجع والفاشل) · المخزون من كتالوج ووكومرس دلوقتي.'));
+    return [bar].concat(body.blocks);
+  }
+  // the reports page's tab (phase 9): the same blocks once the mirror is in; the picker is this page's (user_prefs products.kpis)
+  function reportBlocks(redraw) {
+    const P = PR(); if (!P || !can().view) return { blocks: [K.Empty('مش مسموحلك تشوف المنتجات', 'اطلب صلاحية «المنتجات» من الأدمن.')], ctx: null, exp: null };
+    P.ensure();
+    if (P.state() === 'error') return { blocks: [K.Empty('مقدرناش نحمّل المنتجات', 'في مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', onClick: () => { P.load(); if (redraw) redraw(); } }))], ctx: null, exp: null };
+    if (P.state() !== 'ready') return { blocks: [U.InlineNote({ children: 'بنحمّل المنتجات…' })], ctx: null, exp: null };
+    return reportBody(redraw);
   }
   const mainTabs = () => K.MainTabs({ items: [{ id: 'add', label: 'إضافة' }, { id: 'records', label: 'السجل · ' + K.n0(all().length) }, { id: 'reports', label: 'التقارير' }], active: st.tab, onChange: (id) => go(id === 'add' ? 'products-add' : id === 'reports' ? 'products-reports' : 'products-records'), label: 'أقسام المنتجات' });
   function view() {
@@ -691,5 +707,5 @@
   // a deep link opened before the sign-in finished: draw again once the permissions are known
   document.addEventListener('ib:directory', () => { if (window.IBPages.current === 'products') R(); });
 
-  window.IBPages.register('products', { title: 'المنتجات', hash: (hs) => route(hs), defaultHash, view, canLeave: (proceed) => leaveGuard(proceed), api: { st, go, ensure: () => { if (PR()) PR().ensure(); }, ready: () => !!PR() && PR().state() === 'ready', makerItems, openRecords, openEdit: (id) => go('products-edit-' + id), copyLinks, bulkPrice, makerPrice, makerMove, toDraft, publish, toTrash, moveBrand, moveVendor, thumb: (p) => Thumb(p.img) } });
+  window.IBPages.register('products', { title: 'المنتجات', hash: (hs) => route(hs), defaultHash, view, canLeave: (proceed) => leaveGuard(proceed), api: { st, go, ensure: () => { if (PR()) PR().ensure(); }, ready: () => !!PR() && PR().state() === 'ready', makerItems, openRecords, openEdit: (id) => go('products-edit-' + id), copyLinks, reportBlocks, kpiPicker, bulkPrice, makerPrice, makerMove, toDraft, publish, toTrash, moveBrand, moveVendor, thumb: (p) => Thumb(p.img) } });
 })();

@@ -103,7 +103,9 @@
       const r = submit(f, m); if (r !== false) m.close();
     }
     m = U.Modal({ title, body: [], footer: [] }); if (wide) m.el.classList.add(wide === true ? 'wide' : wide); draw();
-    setTimeout(() => { const i = m.el.querySelector('.modal-b input,.modal-b textarea,.modal-b button'); if (i) i.focus(); });
+    // phase 10 decision 18 (b): the first field a tick after the form opens — unless a field inside it already has the focus (on a busy page
+    // the tick came late and took the focus mid-typing, so the text landed in the first field)
+    setTimeout(() => { const b = m.el.querySelector('.modal-b'); const a = document.activeElement; if (b && a && a !== b && b.contains(a)) return; const i = m.el.querySelector('.modal-b input,.modal-b textarea,.modal-b button'); if (i) i.focus(); });
     return m;
   }
   function confirm({ title, text, okLabel = 'تأكيد', okType = 'primary', cancelLabel = 'إلغاء', onOk, body }) {

@@ -263,7 +263,7 @@
     return row ? { id: Number(row.id), day: row.day, in_at: row.in_at, out_at: row.out_at || null, remote: !!row.remote } : null;
   }
   async function shiftNow() { const { data, error } = await rpc('hr_shift_now', {}); if (error) return fail(error); return { ok: true, shift: data || null }; }
-  async function clockIn(remote) { const { data, error } = await rpc('hr_clock_in', { p_remote: !!remote }); if (error) return fail(error); log('hr.shift.start', remote ? 'عن بُعد' : ''); await load(); return { ok: true, shift: data }; }
+  async function clockIn() { const { data, error } = await rpc('hr_clock_in', {}); if (error) return fail(error); log('hr.shift.start', data && data.remote ? 'عن بُعد' : ''); await load(); return { ok: true, shift: data }; } /* «عن بُعد» is the server's: an approved «شغل عن بُعد» covering today */
   async function clockOut(note, at) {
     const args = { p_ot_note: note ? clean(note, 300) : null, p_at: at ? new Date(at).toISOString() : null };
     const { data, error } = await rpc('hr_clock_out', args); if (error) return fail(error);

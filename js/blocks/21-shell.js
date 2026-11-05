@@ -40,10 +40,10 @@
   document.addEventListener('ib:hr', sync);
   async function clockIn() {
     if (sh.busy || !HR()) return; sh.busy = true; paint();
-    const me = K.ME; const t = HR().today();
-    const remote = HR().data.requests.some((r) => r.member === me && r.type === 'شغل عن بُعد' && r.status === 'موافق' && r.from <= t && r.to >= t);
-    const r = await HR().clockIn(remote); sh.busy = false;
+    const t = HR().today();
+    const r = await HR().clockIn(); sh.busy = false; // «عن بُعد» comes from the server (an approved «شغل عن بُعد» covering today)
     if (!r.ok) { K.toast(r.message || 'تعذّر بدء الدوام — جرّب تاني', 'error'); paint(); return; }
+    const remote = !!(r.shift && r.shift.remote);
     const off = [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay()) || HR().holidayDates().includes(t);
     K.toast(off ? 'بدأ الدوام — يوم راحة: بيتحسب بيومين بعد تأكيد مديرك' : remote ? 'بدأ الدوام عن بُعد — بالتوفيق' : 'بدأ الدوام — بالتوفيق', 'success'); sync();
   }

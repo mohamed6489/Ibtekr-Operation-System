@@ -622,7 +622,10 @@
     const dy = vendorDailies().map((x) => ({ own: { role: 'متابعة الموردين' }, key: 'vd:' + x.name, title: 'المتابعة اليومية — ' + x.name, sub: 'متأخرة ' + x.r.late.length + ' · قابلة للتأخير ' + x.r.risk.length + ' · اتأكدت ' + x.r.confirmed.length, meta: 'يوميًا 10:00 ص', tone: x.r.late.length ? 'error' : x.r.risk.length ? 'orange' : 'neutral', icon: 'truck', run: () => openVendorDaily(x.name) }));
     const wk = vendorWeeklies().map((x) => ({ own: { role: 'متابعة الموردين' }, key: 'vw:' + x.name, title: 'التقرير الأسبوعي — ' + x.name, sub: 'متأخرة ' + x.r.late.length + ' · قيد التنفيذ ' + x.r.progress.length + ' · مكتملة ' + x.r.completed.length + ' · الحساب الفعلي ' + D.formatMoney(x.r.net) + ' ج.م', meta: 'كل ' + weeklyCfg().weekday, tone: x.r.late.length ? 'error' : 'neutral', icon: 'file', run: () => openVendorWeekly(x.name) }));
     const risk = a.riskVendors.map((v) => ({ own: { role: 'متابعة الموردين' }, key: 'r:' + v.vendor, title: v.vendor, sub: v.count + ' أوردر قابل للتأخير (9–11 يوم)', meta: '', tone: 'orange', icon: 'clockc', run: () => openVendorLate(v.vendor, 'risk') }));
-    const tasks = ticketTasks().map((t) => ({ own: { role: t.role }, key: 't:' + t.id, title: t.id + ' — ' + t.title, sub: t.sub, meta: '', tone: t.prio === 'urgent' || t.prio === 'high' ? 'error' : 'neutral', icon: 'ticket', prio: t.prio, run: () => { showTickets(); openTicket(t.id); } }))
+    // phase 8 decision 9: the live tickets of the member (new for their role, replies / changes by others) first, then the v2's tasks
+    const tkMe = TA() ? TA().actor().name : null;
+    const tasks = (TA() ? TA().bell() : []).map((b) => ({ own: { member: tkMe }, key: 'tn:' + b.id + ':' + b.at, title: b.title, sub: b.sub, meta: b.kind === 'new' ? 'جديدة' : (b.count > 1 ? b.count + ' تحديث' : 'تحديث'), tone: b.kind === 'new' ? 'brand' : 'neutral', icon: 'ticket', prio: b.prio, run: () => { showTickets(); openTicket(b.id); } }))
+      .concat(ticketTasks().map((t) => ({ own: TA() && TA().isMine(tstore.get(t.id)) ? { member: tkMe } : { role: t.role }, key: 't:' + t.id, title: t.id + ' — ' + t.title, sub: t.sub, meta: '', tone: t.prio === 'urgent' || t.prio === 'high' ? 'error' : 'neutral', icon: 'ticket', prio: t.prio, run: () => { showTickets(); openTicket(t.id); } })))
       .concat(vendorTasks().map((v) => ({ own: { role: 'متابعة الموردين' }, key: 'c:' + v.id, title: v.name, sub: v.sub, meta: '', tone: v.prio === 'urgent' ? 'error' : 'warning', icon: 'users', prio: v.prio, run: () => { if (state.page !== 'vendors') go('vendors'); openVendor(v.id); } })));
     const P = ['urgent', 'high', 'normal', 'low'];
     return [
@@ -643,8 +646,17 @@
   const sPerms = () => { const st = window.IBPages.all().settings; return st && st.api && st.api.perms ? st.api.perms() : []; };
   function viewer() { const K = window.IBKit; return K ? K.member(ntfState.viewer || K.ME) : null; }
   function roleIdx(m) { const st = window.IBPages.all().settings; if (st && st.api && st.api.roleIndex) return st.api.roleIndex(m && m.role); const i = NRM().ROLES.indexOf(m && m.role); return i < 0 ? NRM().ROLES.length - 1 : i; }
+  // phase 8: until the settings page (phase 10) owns the role matrix, «تذاكر الفريق — عرض» for the signed-in member is their real
+  // tickets.view (0045 decision 4) — the prototype's matrix said N for «حسابات», so its tasks never reached the bell
+  function tkPerms(perms, ci, m) {
+    const D = window.IBDirectory; const me = D && D.me ? D.me() : null; if (!D || !me || !m || (m.uid || m.id) !== me.id && m.email !== me.email) return perms;
+    const v = D.perm('tickets.view'); const col = (str) => String(str || '').padEnd(ci + 1, 'N').slice(0, ci) + v + String(str || '').slice(ci + 1);
+    const list = (perms || []).map(([g, rows]) => (g !== 'تذاكر الفريق' ? [g, rows] : [g, rows.map((r) => (r[0] === 'عرض' ? [r[0], col(r[1])].concat(r.slice(2)) : r))]));
+    if (!list.some(([g]) => g === 'تذاكر الفريق')) list.push(['تذاكر الفريق', [['عرض', col('')]]]); // the settings page (soon) carries no matrix yet
+    return list;
+  }
   function accFor(m) {
-    const K = window.IBKit, NR = NRM(); const perms = sPerms(); const ci = roleIdx(m); const ov = (K.store.alertOverrides || {})[m.id] || {}; const mute = ((K.store.notifPrefs || {})[m.id] || {}).mute || [];
+    const K = window.IBKit, NR = NRM(); const ci = roleIdx(m); const perms = tkPerms(sPerms(), ci, m); const ov = (K.store.alertOverrides || {})[m.id] || {}; const mute = ((K.store.notifPrefs || {})[m.id] || {}).mute || [];
     return (k) => { let c = NR.access(K.store.alertRoles, perms, k, ci, ov[k]); if (c === 'R' && mute.includes(k)) c = 'S'; return c; };
   }
   function viewSections(noDigest) {
@@ -1751,6 +1763,7 @@
   const tstore = { all: () => (TA() ? TA().all() : []), get: (id) => (TA() ? TA().get(id) : null), events: (id) => (TA() ? TA().events(id) : []) };
   const tCanWork = (t) => !!TA() && TA().canWork(t); const tCanClose = (t) => !!TA() && TA().canClose(t);
   const tCanManage = () => !!TA() && TA().can().manage;
+  const csApi = () => { const p = window.IBPages && window.IBPages.all ? window.IBPages.all().cs : null; return p && p.api ? p.api : null; }; // decision 11: «فتح المحادثة»
   const offline = { ok: false, message: 'تعذّر الاتصال — جرّب تاني' };
   state.tfilter = { status: 'open_any', type: 'all', priority: 'all', role: 'all', mine: false, q: '' };
   // فلتر + ترتيب جنب زرار الأعمدة (owner 1 Nov) — اختيارات متعددة، والافتراضي «مفتوحة»
@@ -1771,7 +1784,7 @@
   const notify = (kind, text) => { tnote = { kind, text }; renderTickets(); };
   // the page follows the adapter: a load / a write / a live ping redraws it (and the open drawer)
   let drawerRedraw = null;
-  document.addEventListener('ib:tickets', () => { if (state.page === 'tickets') renderTickets(); if (drawerRedraw) drawerRedraw(); });
+  document.addEventListener('ib:tickets', () => { if (state.page === 'tickets') renderTickets(); if (drawerRedraw) drawerRedraw(); document.dispatchEvent(new CustomEvent('ib:notify')); }); // decision 9: the bell recounts
 
   // ----- attachments (decision 2): a picker that uploads into the member's folder and keeps the files for the ticket / reply -----
   const ACCEPT = 'image/png,image/jpeg,image/webp,image/gif,application/pdf';
@@ -2001,7 +2014,7 @@
         h('div', { class: 'head' }, h('span', { class: 't-label' }, t.type === 'customer' ? (ctx ? 'الأوردر ' + t.orderId + ' — ' + ctx.customer : 'الأوردر ' + t.orderId + (t.customer ? ' — ' + t.customer : ' — مش موجود في الأوردرات الحالية')) : t.type === 'vendor' ? 'المبتكر ' + t.vendor + (t.orderId ? ' — الأوردر ' + t.orderId : '') : 'محادثة خدمة العملاء'),
           h('div', { class: 'links' }, t.orderId ? Button({ type: 'text', size: 'sm', label: 'فتح الأوردر', onClick: () => { drawerApi.close(); showOrders({ q: t.orderId }); } }) : null,
             t.vendorId && typeof openVendor === 'function' ? Button({ type: 'text', size: 'sm', label: 'فتح المبتكر', onClick: () => { drawerApi.close(); go('vendors'); openVendor(t.vendorId); } }) : null,
-            t.csConversationId && typeof window.IBCSOpen === 'function' ? Button({ type: 'text', size: 'sm', label: 'فتح المحادثة', onClick: () => { drawerApi.close(); window.IBCSOpen(t.csConversationId); } }) : null)),
+            t.csConversationId && csApi() && csApi().openConversation ? Button({ type: 'text', size: 'sm', label: 'فتح المحادثة', onClick: () => { drawerApi.close(); csApi().openConversation(t.csConversationId); } }) : null)),
         ctx ? h('div', { class: 'facts t-small' }, U.DelayBadge(ctx.delivery), h('span', null, num((ctx.vendors || []).join('، ') + ' · ' + ctx.status + ' · ' + ctx.confirm + ' · الإجمالي ' + D.formatMoney(ctx.total) + ' · العمر ' + ctx.ageDays + ' يوم'))) : (t.reason ? h('div', { class: 'facts t-small' }, h('span', null, 'السبب: ' + t.reason)) : null));
       const items = tstore.events(id);
       const tl = h('div', { class: 'tl' }, h('div', { class: 't-label', style: 'color:var(--color-text-secondary)' }, 'آخر التحديثات'),
@@ -2020,8 +2033,10 @@
       drawerApi.set(header, body, reply);
       const b = drawerApi.el.querySelector('.drawer-b'); if (b) b.scrollTop = b.scrollHeight;
       if (typing) { const ta2 = drawerApi.el.querySelector('.tk-reply textarea'); if (ta2) { ta2.focus(); ta2.setSelectionRange(ta2.value.length, ta2.value.length); } }
+      if (typeof seenNow === 'function') setTimeout(seenNow, 0);
     }
     drawerRedraw = draw;
+    const seenNow = () => { if (TA()) TA().markSeen(id); }; // decision 9: what the member opened leaves the bell
     draw(); const c = drawerApi.el.querySelector('.icon-btn'); if (c) c.focus();
     if (TA()) TA().loadEvents(id); // the whole timeline (the list carries the last 30 days)
   }
@@ -2295,7 +2310,7 @@
         if (val.startsWith('status:')) act(() => vstore.update(id, { status: val.slice(7) }, vstore.actor()), 'اتغيرت الحالة.');
         if (val === 'rate') editGroup(v, 'terms');
         if (val === 'copy') copyText(location.href.split('#')[0] + '#makers/' + id, 'رابط الملف');
-        if (val === 'ticket') { vdrawer.close(); showTickets(); openNewTicket(); }
+        if (val === 'ticket') { vdrawer.close(); showTickets(); openNewTicket({ type: 'vendor', vendor: v.name, vendorId: v.id }); } // phase 8 decision 3
         // 0031 (the owner, 2 Nov): a maker whose store is gone from the site — the admin removes it here (the delete the server
         // allows: a maker with orders is refused by the database and the message says so)
         if (val === 'remove') window.IBKit.confirm({ title: 'حذف «' + v.name + '» من السيستم؟', text: 'متجره اتحذف من الموقع. الحذف هنا نهائي: براناته وبيانات دخوله بتتمسح معاه. مبتكر عليه أوردرات مابيتحذفش — يفضل «غير نشط» عشان الأوردرات والحسابات.', okLabel: 'احذف من السيستم', okType: 'danger',
@@ -2743,7 +2758,7 @@
             U.InfoRow({ label: 'تذاكر مفتوحة عليه', value: num(String(st.tickets.length)) }),
             U.InlineNote({ kind: vtone, children: pf.verdict === 'ممتاز' ? 'ملتزم بالمواعيد ومفيش تأخير ولا إلغاء ملحوظ.' : pf.verdict === 'جيد' ? 'أداء كويس — تابع الأوردرات القابلة للتأخير قبل ما تتأخر.' : pf.verdict === 'محتاج متابعة' ? 'نسبة الإلغاء أو التأخير عالية — اتواصل معاه وافتح تذكرة لو محتاج.' : 'هيظهر الملخص أول ما يبقى عنده أوردرات.' })),
           section('أوردرات المبتكر', Button({ type: 'text', size: 'sm', label: 'فتح في الأوردرات', onClick: () => { vdrawer.close(); showOrders({ vendor: v.name }); } }), orders.length ? U.Table({ cls: 'mini-table', headers: ['رقم الأوردر', 'العميل', 'الحالة', 'التسليم', 'الإجمالي', 'حصته'], rows: orders.map((o) => [num(o.id), o.customer, o.status, U.DelayBadge(o.delivery), num(D.formatMoney(o.total)), num(D.formatMoney(o.share || 0))]) }) : U.EmptyState('مفيش أوردرات', 'المبتكر ده ما عندوش أوردرات في الأوردرات الحالية.')),
-          section('التذاكر المفتوحة على المبتكر', Button({ type: 'text', size: 'sm', label: 'إنشاء تذكرة', onClick: () => { vdrawer.close(); showTickets(); openNewTicket(); } }), st.tickets.length ? st.tickets.map((t) => { const b = h('button', { type: 'button', class: 'opt', style: 'display:flex;justify-content:space-between;gap:8px;width:100%', onClick: () => { vdrawer.close(); showTickets(); openTicket(t.id); } }, h('span', null, num(t.id) + ' — ' + t.title), h('span', { style: 'display:flex;gap:8px' }, U.TicketStatus(t.status), U.PriorityTag(t.priority))); return b; }) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'مفيش تذاكر مفتوحة على المبتكر ده.')));
+          section('التذاكر المفتوحة على المبتكر', Button({ type: 'text', size: 'sm', label: 'إنشاء تذكرة', onClick: () => { vdrawer.close(); showTickets(); openNewTicket({ type: 'vendor', vendor: v.name, vendorId: v.id }); } }), st.tickets.length ? st.tickets.map((t) => { const b = h('button', { type: 'button', class: 'opt', style: 'display:flex;justify-content:space-between;gap:8px;width:100%', onClick: () => { vdrawer.close(); showTickets(); openTicket(t.id); } }, h('span', null, num(t.id), ' — ' + t.title), h('span', { style: 'display:flex;gap:8px' }, U.TicketStatus(t.status), U.PriorityTag(t.priority))); return b; }) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'مفيش تذاكر مفتوحة على المبتكر ده.')));
       } else {
         // decision 5: this phase's numbers — his shares of the completed orders (decision 4) over the opening balance (0 until the
         // phase-4 import); deposits, transport and the money moves come with the accounts phase; the agreement (Ibtekr's share)
@@ -2863,7 +2878,9 @@
   // phase 5.1 (decision 20 in the phase 5 plan): the products page's «التقارير» tab shares the reports page's range (state.rrange)
   window.IBReportBlocks = { range: () => DateRangeField('reports'), get: () => state.rrange };
   window.IBShowOrders = () => { if (state.page !== 'orders') go('orders'); };
-  window.IbtekrApp = Object.freeze({ eventLog: () => log.all(), aiRun, aiFilter, newTicket: (pre) => { showTickets(); openNewTicket(pre); }, logEvent: (ev) => log.append(Object.assign({ actor: ACTOR }, ev)) });
+  // phase 8: «تذاكر الفريق» from the other pages — a new ticket with its context, the open tickets of an order (the search), one ticket
+  const ticketsFor = (q) => { state.tfilter.q = String(q || ''); state.tf = Object.assign({}, state.tf, { status: ['open_any'] }); state.tpage = 1; state.tsub = 'log'; if (state.page !== 'tickets') go('tickets'); else renderTickets(); };
+  window.IbtekrApp = Object.freeze({ eventLog: () => log.all(), aiRun, aiFilter, newTicket: (pre) => { showTickets(); openNewTicket(pre); }, ticketsFor, openTicket: (id) => { showTickets(); openTicket(id); }, logEvent: (ev) => log.append(Object.assign({ actor: ACTOR }, ev)) });
   boot(); // synchronous: the orders block (next script) mounts into #orders, which boot() creates
   // Session gate: #root stays hidden until the Supabase session is known. In order: a recovery link confirmed by supabase-js → reset form;
   // no session → login («الجلسة خلصت» again right after an idle sign-out reloaded the page: ib.loginView); idle ≥ AUTH.idleMinutes since ib.lastAct (any earlier page load) → sign out, «الجلسة خلصت»;

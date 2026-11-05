@@ -19,13 +19,13 @@ const EVENTS = [
   { id: 2, ticket_id: 1, kind: 'message', at: '2026-11-05T08:00:01Z', actor: OTHER, actor_name: 'سارة', actor_role: 'خدمة العملاء', text: 'اتحاسب 100', old_value: null, new_value: null, attachments: [] },
   { id: 1, ticket_id: 1, kind: 'event', at: '2026-11-05T08:00:00Z', actor: OTHER, actor_name: 'سارة', actor_role: 'خدمة العملاء', text: 'سارة أنشأ التذكرة وعيّنها لدور «الحسابات»', old_value: null, new_value: null, attachments: [] },
 ];
-function load({ responses = {}, perms = { 'tickets.view': 'F', 'tickets.manage': 'F' }, role = 'accounts', realtime = false } = {}) {
+function load({ responses = {}, perms = { 'tickets.view': 'F', 'tickets.manage': 'F' }, role = 'accounts', realtime = false, prefs = null } = {}) {
   const stub = stubClient({ responses: { tickets: ok(TICKETS), ticket_events: ok(EVENTS), ...responses } });
   const events = []; const logs = [];
   const window = { IBSupabase: { client: stub.client }, IB_CONFIG: { realtime },
     IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: ME, name: 'منى', role_id: role, status: 'active' }) },
     IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
-    IBVendors: { store: { findByName: (n) => (n === 'HANDS' ? { id: V1 } : null) } }, crypto: { randomUUID: () => 'abcdef12-0000-4000-8000-000000000000' } };
+    IBVendors: { store: { findByName: (n) => (n === 'HANDS' ? { id: V1 } : null) } }, IBPrefs: prefs || undefined, crypto: { randomUUID: () => 'abcdef12-0000-4000-8000-000000000000' } };
   runInNewContext(src, { window, document: { dispatchEvent(e) { events.push(e.type); }, visibilityState: 'visible' }, CustomEvent: class { constructor(t) { this.type = t; } },
     Promise, Date, Number, String, Array, Object, JSON, Map, Set, Math, Error, setTimeout, clearTimeout, setInterval: () => 1, clearInterval: () => {} });
   return { T: window.IBTickets, stub, events, logs };
@@ -121,4 +121,24 @@ test('live: the private «tickets» broadcast → one load(); sign-out removes i
   await stub.emitBroadcast('changed', { at: 'x' }); await new Promise((r) => setTimeout(r, 400));
   assert(opsOf(stub.calls, 'tickets').filter((c) => c.op === 'select').length > before);
   T.clear(); assert(stub.calls.some((c) => c.op === 'removeChannel'));
+});
+
+test('the bell: from the first load on (no write at sign-in), a new ticket for my role and a reply by someone else; opening one marks it seen', async () => {
+  const store = new Map(); const writes = []; const prefs = { get: (k) => (store.has(k) ? store.get(k) : null), set: (k, v) => { store.set(k, v); writes.push([k, JSON.parse(JSON.stringify(v))]); return Promise.resolve({ ok: true }); } };
+  const later = new Date(Date.now() + 60000).toISOString();
+  const OLD = '2026-01-01T08:00:00Z'; const oldT = TICKETS.map((t) => ({ ...t, created_at: OLD, last_update: OLD })); const oldE = EVENTS.map((e) => ({ ...e, at: OLD }));
+  const { T, stub } = load({ prefs, responses: { tickets: ok(oldT), ticket_events: ok(oldE) } });
+  await T.load();
+  eq(T.bell(), []); eq(writes, []); // the seeded history is older than the baseline; nothing written yet
+  stub.responses.tickets = ok(oldT.concat([row({ id: 5, title: 'جديدة', created_by: OTHER, created_at: later, last_update: later })]));
+  stub.responses.ticket_events = ok(oldE.concat([
+    { id: 9, ticket_id: 5, kind: 'event', at: later, actor: OTHER, actor_name: 'سارة', actor_role: 'خدمة العملاء', text: 'x', old_value: null, new_value: null, attachments: [] },
+    { id: 10, ticket_id: 1, kind: 'message', at: later, actor: OTHER, actor_name: 'سارة', actor_role: 'خدمة العملاء', text: 'العميلة اتصلت', old_value: null, new_value: null, attachments: [] },
+    { id: 11, ticket_id: 2, kind: 'message', at: later, actor: ME, actor_name: 'منى', actor_role: 'الحسابات', text: 'ردي أنا', old_value: null, new_value: null, attachments: [] }]));
+  await T.load();
+  eq(T.bell().map((b) => [b.id, b.kind, b.sub]).sort(), [['TKT-0001', 'update', 'رد من سارة: العميلة اتصلت'], ['TKT-0005', 'new', 'تذكرة جديدة لدور «الحسابات» من سارة']]);
+  eq(writes.length, 1); eq(writes[0][0], 'tickets.seen'); // the baseline saved with the first item
+  T.markSeen('TKT-0005');
+  eq(store.get('tickets.seen').ids, { 5: 9 });
+  eq(T.bell().map((b) => b.id), ['TKT-0001']);
 });

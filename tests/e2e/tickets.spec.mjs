@@ -184,3 +184,94 @@ test('attachments: an image uploaded into tickets/<my uid>/, carried by the new 
   expect(mock.tickets.at(-1).attachments[0]).toMatchObject({ type: 'image/png', name: 'break.png' });
   await expect(drawer(page).locator('img.tk-thumb')).toHaveCount(1);
 });
+
+// ---------------------------------------------------------------- T6: the links (decisions 3 + 11) and the live bell (decision 9)
+const bell = (page) => page.getByRole('dialog', { name: 'الإشعارات' });
+
+test('orders: the open-ticket chip on the order opens its tickets; «افتح تذكرة» from the order menu fills the customer ticket', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.locator('.sidebar .nav-item[data-page="orders"]').click();
+  const chip = page.locator('#orders [data-tk-order="181668"]').first();
+  await expect(chip).toHaveText('1 تذكرة');
+  await chip.click();
+  await expect(page.locator('#tickets')).toBeVisible();
+  await expect(page.locator('#tickets input[type=search]')).toHaveValue('181668');
+  await expect(page.locator('#tickets tbody tr[data-id]')).toHaveCount(1);
+  await page.locator('.sidebar .nav-item[data-page="orders"]').click();
+  await page.locator('#orders [data-more="o:180686"]').first().click();
+  await page.getByRole('menuitem', { name: 'افتح تذكرة' }).click();
+  const m = modal(page, 'تذكرة جديدة');
+  await expect(m.locator('#t-order')).toHaveValue('180686');
+  await m.locator('#t-title').fill('العميلة عايزة تغيّر المقاس');
+  await m.locator('#t-desc').fill('اتصلت النهارده');
+  await pick(page, m, 't-reason', 'أخرى');
+  await pick(page, m, 't-role', 'خدمة العملاء');
+  await m.getByRole('button', { name: 'إنشاء التذكرة' }).click();
+  await expect(drawer(page)).toContainText('العميلة عايزة تغيّر المقاس');
+  expect(mock.tickets.at(-1)).toMatchObject({ type: 'customer', order_number: '180686', order_id: 180686, customer: 'هدير عميل' });
+});
+
+test('makers: «إنشاء تذكرة» from the maker drawer is a maker ticket on that maker; the drawer counts the open ones', async ({ page }) => {
+  mock.tickets[2].status = 'open'; // TKT-0003 on Art Craft, open again
+  await signIn(page, ADMIN);
+  await page.evaluate(() => { location.hash = 'makers/' + 'a0000000-0000-4000-8000-000000000001'; });
+  const vd = page.locator('.drawer');
+  await expect(vd).toContainText('Art Craft');
+  await vd.getByRole('tab', { name: /الأوردرات|البيانات|المعلومات/ }).first().click().catch(() => {});
+  await expect(vd).toContainText('TKT-0003');
+  await vd.getByRole('button', { name: 'إنشاء تذكرة' }).first().click();
+  const m = modal(page, 'تذكرة جديدة');
+  await expect(m.locator('#t-vendor')).toContainText('Art Craft');
+  await m.locator('#t-title').fill('الشحنة متأخرة');
+  await m.locator('#t-desc').fill('بقالها أسبوع');
+  await pick(page, m, 't-reason', 'تأخير تسليم');
+  await pick(page, m, 't-role', 'متابعة المبتكرين');
+  await m.getByRole('button', { name: 'إنشاء التذكرة' }).click();
+  await expect(drawer(page)).toContainText('الشحنة متأخرة');
+  expect(mock.tickets.at(-1)).toMatchObject({ type: 'vendor', vendor_id: V1, vendor: 'Art Craft', reason: 'تأخير تسليم' });
+});
+
+test('customer service: «تحويل لتذكرة» from the conversation links the customer and the conversation; the panel lists the customer\'s tickets', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.waitForFunction(() => window.IBCS && window.IBCS.state() === 'ready');
+  await page.evaluate(() => { location.hash = 'cs-inbox'; });
+  const P = page.locator('#pg-cs');
+  await expect(P.locator('.cs-ch .who b')).toHaveText('سلوى زيتوني');
+  await expect(P.locator('.cs-panel')).toContainText('التذاكر');
+  await P.locator('.cs-ch').getByRole('button', { name: 'المزيد' }).click();
+  await page.getByRole('menuitem', { name: 'تحويل لتذكرة' }).click();
+  const m = modal(page, 'تذكرة جديدة');
+  await expect(m).toContainText('هتتربط بمحادثة خدمة العملاء مع سلوى زيتوني');
+  await m.locator('#t-title').fill('سؤال عن ميعاد التسليم');
+  await m.locator('#t-desc').fill('العميلة سألت على الشات');
+  await pick(page, m, 't-reason', 'تأخير في التسليم');
+  await pick(page, m, 't-role', 'متابعة المبتكرين');
+  await m.getByRole('button', { name: 'إنشاء التذكرة' }).click();
+  await expect(drawer(page)).toContainText('سؤال عن ميعاد التسليم');
+  const t = mock.tickets.at(-1);
+  expect([t.cs_conversation_id, t.order_number, t.customer]).toEqual([mock.cs.conversations[0].id, '181668', 'سلوى زيتوني']);
+  expect(t.cs_customer_id).toBeTruthy();
+  await expect(drawer(page).getByRole('button', { name: 'فتح المحادثة' })).toBeVisible();
+  await drawer(page).getByRole('button', { name: 'فتح المحادثة' }).click();
+  await expect(P.locator('.cs-panel')).toContainText(mock.tickets.at(-1).id === 4 ? 'TKT-0004' : 'TKT-');
+});
+
+test('the bell: a new ticket for my role and a reply by someone else reach it live; opening the ticket takes it off', async ({ page }) => {
+  await openTickets(page, ACCOUNTS);
+  await expect.poll(() => page.evaluate(() => window.IBTickets.state())).toBe('ready');
+  expect(await page.evaluate(() => window.IBTickets.bell())).toEqual([]); // the baseline is now: the seeded history does not flood the bell
+  expect(mock.prefs.filter((r) => r.key === 'tickets.seen')).toEqual([]); // and nothing is written for it at sign-in
+  const now = new Date(Date.now() + 1000).toISOString();
+  mock.tickets.push({ ...mock.tickets[0], id: 9, title: 'تذكرة جديدة للحسابات', created_by: OPS_ID, created_at: now, last_update: now, status: 'open', reopen_count: 0, follow_up: null, attachments: [] });
+  mock.ticketEvents.push({ id: 90, ticket_id: 9, kind: 'event', at: now, actor: OPS_ID, actor_name: 'سارة أحمد', actor_role: 'اللوجستيك والشحن', text: 'سارة أحمد أنشأ التذكرة وعيّنها لدور «الحسابات»', old_value: null, new_value: null, attachments: [] },
+    { id: 91, ticket_id: 1, kind: 'message', at: now, actor: OPS_ID, actor_name: 'سارة أحمد', actor_role: 'اللوجستيك والشحن', text: 'العميلة اتصلت تاني', old_value: null, new_value: null, attachments: [] });
+  await page.evaluate(() => window.IBTickets.load()); // the live ping (no Realtime socket in the mock) = one load()
+  await page.locator('.notif-btn').click();
+  await bell(page).locator('.ntf-nav-item', { has: page.locator('.lbl', { hasText: /^مهام$/ }) }).click();
+  await expect(bell(page).locator('.ntf-item', { hasText: 'TKT-0009' })).toContainText('تذكرة جديدة لدور «الحسابات» من سارة أحمد');
+  await expect(bell(page).locator('.ntf-item', { hasText: 'TKT-0001' }).first()).toContainText('رد من سارة أحمد: العميلة اتصلت تاني');
+  await bell(page).locator('.ntf-item', { hasText: 'TKT-0009' }).click();
+  await expect(drawer(page)).toContainText('تذكرة جديدة للحسابات');
+  await expect.poll(() => page.evaluate(() => (window.IBPrefs.get('tickets.seen') || { ids: {} }).ids['9'])).toBe(90);
+  await expect.poll(() => page.evaluate(() => window.IBTickets.bell().map((b) => b.id))).toEqual(['TKT-0001']);
+});

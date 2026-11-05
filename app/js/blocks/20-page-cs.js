@@ -325,7 +325,7 @@
     const cu = c.who && c.seg !== 'vendors' ? C(c.who) : null;
     const more = K.RowMenu([
       { label: 'تأجيل', icon: 'moon', run: () => snooze(c) },
-      { label: 'تحويل لتذكرة', icon: 'ticket', run: () => SOON('تذاكر الفريق') },
+      { label: 'تحويل لتذكرة', icon: 'ticket', run: () => ticketFrom(c, cu) },
       cu ? { label: 'إضافة تاج', icon: 'tag', run: () => addTag(cu) } : null,
       cu && can().manage ? { label: 'دمج مع عميل تاني', icon: 'merge', run: () => merge(cu) } : null,
       { label: 'تعليم كغير مقروءة', run: () => A().setUnread(c.id, 1).then((r) => { if (done(r)) R(); }) },
@@ -506,6 +506,24 @@
   function OrderRow(o) { return h('div', { class: 'ord' }, h('div', { class: 'r' }, link(o[0], () => openOrder(o[0])), K.Tag(o[1] === 'Completed' ? 'success' : o[1] === 'Cancelled' ? 'neutral' : 'brand', o[1] === 'Completed' ? 'مكتمل' : o[1] === 'Cancelled' ? 'ملغي' : 'قيد التنفيذ')), h('div', { class: 'r t-small' }, h('span', null, o[2]), o[3] ? U.DelayBadge(o[3] === 'AtRisk' ? 'risk' : o[3] === 'Late' ? 'late' : 'ok') : null)); }
   function openOrder(id) { const OA = window.OrdersApp; if (OA && OA.get && OA.get(id)) OA.details(id); else { location.hash = 'orders'; K.toast('الأوردر ' + id + ' بيتفتح من صفحة الأوردرات'); } }
   const cityOf = (cu) => cu.city || cu.province || '—';
+  // phase 8 decision 11 (docs/superpowers/plans/2026-11-05-phase-8-tickets.md): a ticket from the conversation — «مشكلة عميل» with the
+  // customer, the conversation and its open order (else the latest), «مشكلة مبتكر» for a maker's chat, «تعليق داخلي» for a comment;
+  // the tickets of the customer / the conversation / the maker in the side panel (what IBTickets lets the member see)
+  const TKA = () => window.IBTickets || null; const APP = () => window.IbtekrApp || null;
+  function ticketFrom(c, cu) {
+    const app = APP(); if (!app || !app.newTicket || !TKA() || !TKA().can().manage) { K.toast('مفيش صلاحية تفتح تذاكر', 'error'); return; }
+    if (c.seg === 'vendors') { const v = V(c.who); app.newTicket({ type: 'vendor', vendor: v ? v.name : '', vendorId: v ? v.id : null, csConversationId: c.id }); return; }
+    if (cu) { const open = cu.orderList.filter((o) => o[1] !== 'Completed' && o[1] !== 'Cancelled'); const o = open[0] || cu.orderList[0];
+      app.newTicket({ type: o ? 'customer' : 'internal', orderId: o ? String(o[0]).replace(/^IB-/, '') : '', customer: cu.name, csCustomerId: cu.id, csConversationId: c.id }); return; }
+    app.newTicket({ type: 'internal', csConversationId: c.id });
+  }
+  function TicketsSec(list, more) {
+    const T = TKA(); if (!T || !T.can().view) return null;
+    const app = APP(); const LBL = { open: 'مفتوح', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلق' };
+    return sec('التذاكر', more, list.length ? list.slice(0, 5).map((t) => h('div', { class: 'ord' }, h('div', { class: 'r' }, link(t.id, () => app && app.openTicket && app.openTicket(t.id)), K.Tag(t.status === 'resolved' || t.status === 'closed' ? 'success' : 'brand', LBL[t.status] || t.status)), h('div', { class: 't-small' }, t.title + ' · ' + t.assigneeRole)))
+      : h('div', { class: 't-small' }, 'مفيش تذاكر.'));
+  }
+  const ticketsOf = (cu, c) => { const T = TKA(); if (!T) return []; const seen = new Set(); return T.forCustomer(cu ? cu.id : null, true).concat(c ? T.forConversation(c.id, true) : []).filter((t) => (seen.has(t.id) ? false : seen.add(t.id))).sort((a, b) => (a.lastUpdate < b.lastUpdate ? 1 : -1)); };
   function CustomerPanel(cu, c) {
     const r = ratingOf(cu); const stg = stageOf(cu);
     return h('aside', { class: 'cs-panel', 'aria-label': 'ملف العميل' },
@@ -516,6 +534,7 @@
       sec('أرقام الشراء', null, h('div', { class: 'kvg' }, [['الأوردرات', cu.orders], ['إجمالي الشراء', K.n0(cu.total) + ' ج.م'], ['متوسط الأوردر', cu.orders ? K.n0(cu.total / cu.orders) + ' ج.م' : '—'], ['آخر أوردر', cu.lastOrderDays != null ? 'من ' + cu.lastOrderDays + ' يوم' : '—'], ['رفض استلام', cu.refused], ['مرتجع', cu.returned]].map(([k, v]) => h('div', { class: 'kvc' }, h('span', { class: 't-small' }, k), h('b', null, K.Num(String(v))))))),
       sec('الأوردرات', cu.orderList.length ? link('عرض الكل (' + cu.orders + ')', () => profile(cu, 'orders')) : null, cu.orderList.length ? cu.orderList.map(OrderRow) : h('div', { class: 't-small' }, can().orders ? 'لسه مفيش أوردرات' : 'الأوردرات محتاجة صلاحية عرضها')),
       sec('إجراءات سريعة', null, h('div', { class: 'qa' }, Button({ size: 'sm', label: 'إرسال رابط التتبع', disabled: !cu.orderList.length, onClick: () => { st.draft = fillFor(c, 'تابعي شحنتك من هنا: {رابط_التتبع}'); st.mode = 'reply'; R(); focusComposer(); } }), Button({ size: 'sm', label: 'إرسال لينك دفع', onClick: () => SOON('لينكات الدفع') }), Button({ size: 'sm', label: 'إنشاء أوردر', onClick: () => SOON('إنشاء أوردر من الشات') }), Button({ size: 'sm', label: 'تعديل أوردر', disabled: !cu.orderList.length, attrs: { 'data-edit-order': '', title: cu.orderList.length ? '' : 'مفيش أوردرات للعميل ده' }, onClick: () => editCustOrder(cu, c) }), Button({ size: 'sm', label: 'تحويل لتذكرة', onClick: () => SOON('تذاكر الفريق') }))),
+      TicketsSec(ticketsOf(cu, c), TKA() && TKA().can().manage ? link('+ تذكرة', () => ticketFrom(c, cu)) : null),
       cu.source ? sec('جه منين', null, h('div', { class: 'r t-small' }, Icon('megaphone', 'sm'), cu.source)) : null);
   }
   function VendorPanel(v, c) {
@@ -525,6 +544,7 @@
       sec('التواصل', link('صفحة المبتكر', () => { location.hash = 'vendors'; }), [v.phone ? U.InfoRow({ label: 'واتساب 2', value: v.phone, copy: true, onCopy: (x) => copy(x, 'الرقم') }) : null, U.InfoRow({ label: 'المسؤول عندهم', value: v.contact })]),
       sec('أرقام المبتكر', null, h('div', { class: 'kvg' }, [['فرعي مفتوح', v.open], ['متأخر', v.late], ['مدة التصنيع', v.avg]].map(([k, x]) => h('div', { class: 'kvc' }, h('span', { class: 't-small' }, k), h('b', null, K.Num(String(x))))))),
       sec('الأوردرات الفرعية المفتوحة', v.open ? link('عرض الكل (' + v.open + ')', () => { location.hash = 'orders'; }) : null, v.subs.length ? v.subs.map((s) => h('div', { class: 'ord' }, h('div', { class: 'r' }, link(s[0], () => openOrder(s[3])), U.DelayBadge(s[2] === 'AtRisk' ? 'risk' : s[2] === 'Late' ? 'late' : 'ok')), h('div', { class: 't-small' }, s[1]))) : h('div', { class: 't-small' }, 'مفيش أوردرات فرعية مفتوحة')),
+      TicketsSec(TKA() ? TKA().forVendor(v.id) : [], TKA() && TKA().can().manage ? link('+ تذكرة', () => ticketFrom(c, null)) : null),
       sec('إجراءات سريعة', null, h('div', { class: 'qa' }, Button({ size: 'sm', label: 'تذكير بميعاد التسليم', onClick: () => SOON('القوالب') }), Button({ size: 'sm', label: 'تعديل ميعاد التسليم', onClick: () => K.form({ title: 'تعديل ميعاد التسليم', values: { d: today() }, fields: (f, e, set) => [K.field.date('d', 'ميعاد التسليم الجديد', f, e, set, { required: true })], submitLabel: 'حفظ', submit: async (f) => { const r = await A().event(c.id, 'ميعاد تسليم ' + (v.subs[0] ? v.subs[0][0] : '') + ' اتغير لـ ' + K.dlabel(f.d) + ' — ' + meName()); if (done(r)) R(); } }) }), Button({ size: 'sm', label: 'تحويل لتذكرة', onClick: () => SOON('تذاكر الفريق') }))));
   }
   // تعديل أوردر من الشات (owner 1 Nov): لو أكتر من أوردر بيختار الأول؛ بيفتح نفس شاشة تعديل صفحة الأوردرات
@@ -1175,11 +1195,13 @@
       // the tabs do not overlap (the bell counts every tab but «الكل»): late ones under «متأخرة» only
       tabs: [['all', 'الكل', all], ['waiting', 'مستنية ردنا', waiting.filter((x) => x.tone !== 'orange')], ['late', 'متأخرة عن الرد', waiting.filter((x) => x.tone === 'orange')], ['mention', 'منشن', mentions], ['channels', 'القنوات', chans], ['camps', 'حملات', camps]] };
   }
-  document.addEventListener('ib:cs', () => {
+  document.addEventListener('ib:tickets', () => liveRedraw(false)); // phase 8: the panels' tickets
+  document.addEventListener('ib:cs', () => liveRedraw(true));
+  function liveRedraw(notify) {
     const ta = document.activeElement && document.activeElement.id === 'cs-ta' ? document.activeElement : null; const pos = ta ? [ta.selectionStart, ta.selectionEnd] : null;
     R();
     if (pos) { const n = document.getElementById('cs-ta'); if (n) { n.focus(); try { n.setSelectionRange(pos[0], pos[1]); } catch (e) { /* not a text field */ } } }
-    try { document.dispatchEvent(new CustomEvent('ib:notify')); } catch (e) { /* the bell's badge counts «رسايل» */ } });
+    if (notify) try { document.dispatchEvent(new CustomEvent('ib:notify')); } catch (e) { /* the bell's badge counts «رسايل» */ } }
   document.addEventListener('ib:directory', () => R());
   window.IBPages.register('cs', { title: 'خدمة العملاء', hash: (hs) => { const m = /^cs(?:-(inbox|customers|segments|campaigns|channels|performance|reports))?$/.exec(hs); if (!m) return false; st.tab = m[1] || 'inbox'; return true; }, defaultHash: () => 'cs-' + st.tab, view,
     api: { notifSection, state: st, data: S, openCustomer: (id) => { const cu = C(id); if (!cu) return; st.tab = 'customers'; location.hash = 'cs-customers'; setTimeout(() => profile(cu), 120); }, openConversation: (id) => { const c = S.convs.find((x) => x.id === id); if (!c) return; st.tab = 'inbox'; st.seg = c.seg; st.plat = 'all'; st.view = 'all'; st.sel[c.seg] = c.id; st.mobileChat = true; location.hash = 'cs-inbox'; R(); } } });

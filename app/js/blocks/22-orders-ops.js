@@ -94,6 +94,7 @@
   }
   // the hub loaded or changed: the orders page redraws its «في المخزن» chips and consolidation bars (phase 7)
   document.addEventListener('ib:inventory', () => { if (window.OrdersSetSub) window.OrdersSetSub('__redraw__', null); });
+  document.addEventListener('ib:tickets', () => { if (window.OrdersSetSub) window.OrdersSetSub('__redraw__', null); }); // phase 8: the open-ticket count on the orders
   window.IBOrdersOps = { cons, returnPopup, orderReturnPopup, orderReasonPopup, ratePopup, subChanged, arrivalPopup, consolidate: consPopup,
     shipall: (o) => { const c = cons(o.id); if (c) inv().shipAll(c); },
     uncons: (o) => { const c = cons(o.id); if (c) inv().cancelCons(c); },

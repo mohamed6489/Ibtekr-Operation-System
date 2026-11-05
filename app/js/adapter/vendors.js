@@ -834,7 +834,7 @@
       const earned = r2(by.c.earned);
       out[v.id] = { orders: mine, open: open.length, late: open.filter((r) => r.delivery !== 'ok').length, lastAge: mine.length ? Math.min(...mine.map((r) => Number(r.ageDays) || 0)) : null,
         sales: r2(by.c.sales), earned, ibtekrShare: r2(by.c.sales - by.c.earned), pending: r2(by.p.earned), pendingSales: r2(by.p.sales), noRate,
-        openingBalance: v.openingBalance, balance: r2(v.openingBalance + earned), deposits: 0, transport: { total: 0, trips: 0, last: null }, tickets: [], seed: null,
+        openingBalance: v.openingBalance, balance: r2(v.openingBalance + earned), deposits: 0, transport: { total: 0, trips: 0, last: null }, tickets: window.IBTickets && window.IBTickets.forVendor ? window.IBTickets.forVendor(v.id) : [], seed: null, // phase 8: the open tickets on the maker
         byStatus: { c: [by.c.n, r2(by.c.sales), r2(by.c.earned)], p: [by.p.n, r2(by.p.sales), r2(by.p.earned)], x: [by.x.n, r2(by.x.sales), r2(by.x.earned)] } };
     }
     return out;

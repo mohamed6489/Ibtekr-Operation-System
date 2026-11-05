@@ -132,6 +132,10 @@ test('the admin on a member\'s file: the job and pay card, «تعديل» writes
   const notes = P(page).locator('.card.admin', { hasText: 'ملاحظات داخلية' }).locator('textarea');
   await notes.fill('ممتازة في الشحن'); await notes.press('Tab');
   await expect.poll(() => (mock.hr.members.find((r) => r.member_id === OPS_ID) || {}).notes).toBe('ممتازة في الشحن');
+  // the security review (5 Nov): the note goes through hr_member_note_set, and comes back through hr_member_notes after the reload
+  expect(calls('hr_member_note_set').map((c) => [c.p_member, c.p_notes])).toEqual([[OPS_ID, 'ممتازة في الشحن']]);
+  await expect.poll(() => calls('hr_member_notes').length).toBeGreaterThan(1);
+  await expect(notes).toHaveValue('ممتازة في الشحن');
   await P(page).locator('.card.admin', { hasText: 'الأمان' }).getByRole('button', { name: 'باسورد مؤقت جديد' }).click();
   await page.locator('.modal[role=dialog]').getByRole('button', { name: 'اعمل باسورد جديد' }).click();
   await expect(page.locator('[data-temp-password]')).toHaveText('mock-temp-1');
@@ -151,6 +155,7 @@ test('ops (hr.view P, no sensitive.salaries) on another member\'s file: no money
   await expect(P(page)).toContainText('المرتبات للأدمن بس');
   await expect(P(page)).not.toContainText('9,000');
   expect(calls('hr_my_slips').length).toBe(0);
+  expect(calls('hr_member_notes').length).toBe(0); // the internal notes are hr.edit F's only (security review 5 Nov)
 });
 
 test('«تعديل بياناتي»: the mobile saved on my profile (a taken one refused), a new email through Supabase\'s confirmation link — neither logged', async ({ page }) => {

@@ -1261,6 +1261,8 @@ select id, permissions ->> 'hr.view' v, permissions ->> 'hr.edit' e, permissions
 select count(*) from public.hr_leave_types; select count(*) from public.hr_holidays; -- بذرة الـ prototype
 select id, public, file_size_limit from storage.buckets where id = 'hr-docs';
 select jobname, schedule from cron.job where jobname like 'hr-%';
+-- الملاحظات الداخلية (قرار 23): العمود مش ممنوح للأعضاء — المفروض false
+select has_column_privilege('authenticated', 'public.hr_members', 'notes', 'select') as notes_open;
 select member_id, day, in_at, out_at, remote, source from public.hr_attendance order by in_at desc limit 10; -- بعد أول «ابدأ الدوام»
 select at, action, entity_id, new_value from public.activity_log where entity = 'hr' order by at desc limit 20; -- أكواد وشهور بس
 ```

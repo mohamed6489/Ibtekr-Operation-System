@@ -20,6 +20,8 @@ export function hrAt(day, time) {
   return new Date(Date.parse(day + 'T00:00:00Z') + ((h - off) * 60 + m) * 60000).toISOString();
 }
 const restDay = (st, d) => { const w = new Date(d + 'T00:00:00Z').getUTCDay(); return w === 5 || w === 6 || st.holidays.some((h) => h.status === 'مؤكد' && d >= h.day && d <= addDays(h.day, (h.days || 1) - 1)); };
+// the column grants of 0046 (security review 5 Nov): no member reads or writes hr_members.notes — hr_member_notes / hr_member_note_set
+const CLOSED = { hr_members: ['notes'] };
 const COLS = {
   hr_members: ['member_id', 'shift_start', 'shift_end', 'hire_date', 'leave_days', 'notes', 'updated_by', 'updated_at'],
   hr_pay: ['member_id', 'salary', 'holdback', 'allowances', 'updated_by', 'updated_at'],
@@ -138,6 +140,15 @@ export function hrRoute(c) {
       l.sort((x, y) => ((y.out_at == null) - (x.out_at == null)) || (x.in_at < y.in_at ? 1 : -1)); const a = l[0];
       return a ? { id: a.id, day: a.day, in_at: a.in_at, out_at: a.out_at, remote: a.remote } : null; };
     if (f === 'hr_settings') return json(200, active ? ((mock.settings.find((s) => s.section === 'hr') || {}).data || {}) : null);
+    // the internal notes (security review 5 Nov): hr.edit F, on the members they see, never their own row
+    if (f === 'hr_member_notes') return json(200, editor ? H.members.filter((r) => r.notes != null && r.member_id !== u.id && sees(r.member_id)).map((r) => ({ member_id: r.member_id, notes: r.notes })) : []);
+    if (f === 'hr_member_note_set') {
+      if (!editor || !b.p_member || b.p_member === u.id || !sees(b.p_member)) return no();
+      const v = String(b.p_notes == null ? '' : b.p_notes).trim() || null; if (v && v.length > 500) return bad('notes'); if (!prof(b.p_member)) return nf();
+      const ex = H.members.find((r) => r.member_id === b.p_member);
+      if (ex) Object.assign(ex, { notes: v, updated_by: u.id, updated_at: now }); else H.members.push({ member_id: b.p_member, shift_start: '09:00', shift_end: '17:00', hire_date: null, leave_days: 21, notes: v, updated_by: u.id, updated_at: now });
+      H.writes.push({ table: 'hr_members', op: 'note', member_id: b.p_member }); return json(200, null);
+    }
     if (f === 'hr_team') return json(200, mock.profiles.filter((p) => sees(p.id)).map((p) => ({ id: p.id, member_code: p.member_code, name: p.name, title: p.title || null, dept: p.dept || null, manager_id: p.manager_id || null, status: p.status, role_id: p.role_id })));
     if (f === 'hr_shift_now') return json(200, active ? shift() : null);
     if (f === 'hr_clock_in') {
@@ -256,6 +267,7 @@ export function hrRoute(c) {
   if (method === 'GET') {
     const sel = String(url.searchParams.get('select') || '*').split(',').map((x) => x.trim()); const miss = sel.find((x) => x !== '*' && !COLS[t].includes(x));
     if (miss) return refuse(400, '42703', 'column ' + t + '.' + miss + ' does not exist');
+    if ((CLOSED[t] || []).some((x) => sel.includes(x) || sel.includes('*'))) return refuse(403, '42501', 'permission denied for table ' + t);
     if (!active) return json(200, []);
     const visible = t === 'hr_pay' || t === 'hr_extras' || t === 'hr_payroll_lines' ? (r) => salaries || own(r) : t === 'hr_adjustments' ? (r) => salaries || (own(r) && !r.voided_at)
       : t === 'hr_payroll' ? () => salaries : t === 'hr_documents' ? (r) => editor || own(r) : ['hr_holidays', 'hr_leave_types', 'hr_bonus_rules', 'hr_ot_periods'].includes(t) ? () => true : (r) => sees(r.member_id);
@@ -270,6 +282,7 @@ export function hrRoute(c) {
   const writable = { hr_members: editor, hr_pay: salaries, hr_kpis: editor, hr_meetings: editor, hr_holidays: editor, hr_leave_types: editor, hr_bonus_rules: editor, hr_ot_periods: editor, hr_extras: salaries, hr_adjustments: salaries, hr_documents: editor };
   if (!(t in writable)) return refuse(403, '42501', 'permission denied for table ' + t);
   const b = c.body(); const list = [].concat(b);
+  if (list.some((r) => r && (CLOSED[t] || []).some((x) => x in r))) return refuse(403, '42501', 'permission denied for table ' + t);
   if (method === 'POST') {
     if (!writable[t]) return rls();
     const upsert = /resolution=merge-duplicates/.test(hd.prefer || ''); const made = [];

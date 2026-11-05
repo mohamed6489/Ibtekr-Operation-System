@@ -119,6 +119,7 @@
     const s = data;
     const t = today(); const nm = nowMin(); const mk = monthKey(t); const hol = holidayDates(); const set = settings();
     const hm = new Map(raw.members.map((r) => [r.member_id, r])); const pay = new Map(raw.pay.map((r) => [r.member_id, r]));
+    const notesOf = new Map((raw.notes || []).map((r) => [r.member_id, r.notes]));
     const docsOf = new Map(); raw.docs.forEach((d) => { if (!docsOf.has(d.member_id)) docsOf.set(d.member_id, []); docsOf.get(d.member_id).push({ id: Number(d.id), kind: d.kind, path: d.path, name: d.name, start: d.start_on, end: d.end_on, at: d.created_at }); });
     // the requests
     s.requests = raw.req.map((r) => ({ id: reqId(r.id), dbId: Number(r.id), type: r.type, member: codeOf(r.member_id), memberUid: r.member_id, from: r.from_day, to: r.to_day,
@@ -165,7 +166,7 @@
       if (p) { m.salary = Number(p.salary) || 0; m.holdback = Number(p.holdback) || 0; m.allow = Number(p.allowances) || 0; } else { m.salary = 0; m.holdback = 0; m.allow = 0; }
       m.payKnown = !!p;
       m.shift = [String(r.shift_start || '09:00').slice(0, 5), String(r.shift_end || '17:00').slice(0, 5)];
-      m.leave = r.leave_days == null ? 21 : Number(r.leave_days); m.hire = r.hire_date || m.hire || ''; m.hrNotes = r.notes || '';
+      m.leave = r.leave_days == null ? 21 : Number(r.leave_days); m.hire = r.hire_date || m.hire || ''; m.hrNotes = notesOf.get(m.uid) || '';
       m.used = s.requests.filter((q) => q.member === m.id && q.status === 'موافق' && (leaveType(q.type) || {}).deducts && q.from.slice(0, 4) === year)
         .reduce((n, q) => n + leaveDays(q.from < year + '-01-01' ? year + '-01-01' : q.from, q.to > year + '-12-31' ? year + '-12-31' : q.to, hol), 0);
       const work = s.attendance.filter((a) => a.member === m.id && a.date.startsWith(mk) && a.in != null);
@@ -211,9 +212,9 @@
     const g = ++gen; st = 'loading';
     try {
       const t = today(); const since = addDays(t, -DAYS_BACK); const reqSince = addDays(t, -REQ_DAYS); const scoreSince = addDays(t.slice(0, 8) + '01', -730);
-      const [team, hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, set] = await Promise.all([
+      const [team, hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, set, notes] = await Promise.all([
         cl.rpc('hr_team').then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []),
-        rows(cl.from('hr_members').select('member_id, shift_start, shift_end, hire_date, leave_days, notes')),
+        rows(cl.from('hr_members').select('member_id, shift_start, shift_end, hire_date, leave_days')), // the notes column is closed (hr_member_notes)
         maybe(cl.from('hr_pay').select('member_id, salary, holdback, allowances')),
         rows(cl.from('hr_attendance').select('id, member_id, day, in_at, out_at, remote, source, note, by_id').gte('day', since).order('day', { ascending: false }).limit(5000)),
         rows(cl.from('hr_overtime').select('id, member_id, day, start_at, end_at, minutes, kind, note, status, paid_minutes, pay_month, decided_by, decided_at, reason, created_at').gte('day', since).order('created_at', { ascending: false }).limit(3000)),
@@ -230,9 +231,11 @@
         maybe(cl.from('hr_payroll').select('month, status, total, paid_account').order('month', { ascending: false }).limit(36)),
         maybe(cl.from('hr_documents').select('id, member_id, kind, path, name, start_on, end_on, created_at').is('voided_at', null)),
         cl.rpc('hr_settings').then((r) => (r && !r.error && r.data && typeof r.data === 'object' ? r.data : {}), () => ({})),
+        // the internal notes (security review 5 Nov): hr.edit F only, never my own — the server decides again
+        can().edit ? cl.rpc('hr_member_notes').then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []) : Promise.resolve([]),
       ]);
       if (g !== gen) return { ok: false, reason: 'stale' };
-      Object.assign(raw, { team, members: hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, settings: set });
+      Object.assign(raw, { team, members: hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, settings: set, notes });
       buildRoster(team); shape(); st = 'ready'; emit(); subscribe(); return { ok: true };
     } catch (e) { if (g === gen) st = 'error'; emit(); return fail(e); }
   }
@@ -488,8 +491,9 @@
     if (f.shift) { row.shift_start = f.shift[0]; row.shift_end = f.shift[1]; }
     if (f.hire !== undefined) row.hire_date = f.hire || null;
     if (f.leave !== undefined) row.leave_days = Number(f.leave);
-    if (f.notes !== undefined) row.notes = f.notes ? clean(f.notes, 500) : null;
-    const r = await write(cl.from('hr_members').upsert(row, { onConflict: 'member_id' })); if (r.error) return fail(r.error);
+    // the internal notes go through hr_member_note_set (hr.edit F, not my own row — the column is closed to members)
+    if (f.notes !== undefined) { const n = await write(cl.rpc('hr_member_note_set', { p_member: uid, p_notes: f.notes ? clean(f.notes, 500) : null })); if (n.error) return fail(n.error); }
+    if (Object.keys(row).length > 1) { const r = await write(cl.from('hr_members').upsert(row, { onConflict: 'member_id' })); if (r.error) return fail(r.error); }
     return after('hr.member.update', (byUid(uid) || {}).id + ' · ' + Object.keys(f).join(', '), uid);
   }
   async function payUpdate(member, f) {

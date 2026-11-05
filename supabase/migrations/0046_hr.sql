@@ -21,6 +21,9 @@
 --   themselves stay settings.view's), and a late approval paid with the next open sheet (hr_overtime.pay_month).
 -- * The rules are block 12's (IbtekrOps): the day = salary ÷ 24, the hour = the day ÷ 8, overtime at the hour, a rest day /
 --   holiday worked ×2, the month's incentive = holdback × min(score, 100)% (0 under 70), paid with the quarter's third month.
+-- * The internal notes on a member (hr_members.notes, «ملاحظات داخلية — مش ظاهرة للعضو», security review 5 Nov): no member
+--   reads or writes the column (column grants); hr_member_notes() / hr_member_note_set() for hr.edit F, on the members they see,
+--   never their own row — not even the member the note is about, nor a manager with hr.view P.
 -- Re-runnable; no drop / delete / truncate of data.
 
 update public.roles r set permissions = r.permissions || d.perms
@@ -535,6 +538,27 @@ $$;
 
 -- the settings row «hr» (the clock's end-of-shift / presence rules, the late grace …) for every active member — settings.view
 -- reads the table itself, and most roles have none
+-- the internal notes (security review 5 Nov): hr.edit F reads and writes them on the members they see — never on their own row
+create or replace function public.hr_member_notes()
+returns table (member_id uuid, notes text)
+language sql stable security definer set search_path = public as $$
+  select h.member_id, h.notes from public.hr_members h
+  where public.hr_editor() and h.notes is not null and h.member_id <> auth.uid() and public.hr_can_see(h.member_id)
+$$;
+
+create or replace function public.hr_member_note_set(p_member uuid, p_notes text) returns void
+language plpgsql security definer set search_path = public as $$
+declare v text := nullif(btrim(coalesce(p_notes, '')), '');
+begin
+  if not public.hr_editor() or p_member is null or p_member = auth.uid() or not public.hr_can_see(p_member) then
+    raise exception 'not allowed' using errcode = '42501';
+  end if;
+  if v is not null and char_length(v) > 500 then raise exception 'invalid: notes' using errcode = '22023'; end if;
+  if not exists (select 1 from public.profiles p where p.id = p_member) then raise exception 'not found' using errcode = 'P0002'; end if;
+  insert into public.hr_members (member_id, notes) values (p_member, v)
+  on conflict (member_id) do update set notes = excluded.notes;
+end $$;
+
 create or replace function public.hr_settings() returns jsonb
 language sql stable security definer set search_path = public as $$
   select case when public.hr_active() then coalesce((select s.data from public.settings s where s.section = 'hr'), '{}'::jsonb) end
@@ -947,7 +971,11 @@ end $$;
 
 -- ---------------------------------------------------------------- grants (rule 4)
 
-grant select, insert, update on public.hr_members to authenticated;
+-- hr_members: every column but the internal notes (hr_member_notes / hr_member_note_set); member_id in the update list for the upsert
+revoke select, insert, update on public.hr_members from authenticated;
+grant select (member_id, shift_start, shift_end, hire_date, leave_days, updated_by, updated_at) on public.hr_members to authenticated;
+grant insert (member_id, shift_start, shift_end, hire_date, leave_days), update (member_id, shift_start, shift_end, hire_date, leave_days)
+  on public.hr_members to authenticated;
 grant select, insert, update on public.hr_pay to authenticated;
 grant select on public.hr_attendance, public.hr_overtime, public.hr_scores, public.hr_payroll, public.hr_payroll_lines to authenticated;
 grant select, insert, update on public.hr_holidays, public.hr_leave_types, public.hr_bonus_rules, public.hr_ot_periods, public.hr_kpis, public.hr_meetings,
@@ -966,8 +994,8 @@ grant select on public.hr_requests_v to service_role;
 grant usage on all sequences in schema public to authenticated, service_role;
 
 revoke execute on function public.hr_stamp(), public.hr_meetings_stamp(), public.hr_adjustments_guard(), public.hr_documents_guard() from public, anon, authenticated;
-revoke execute on function public.hr_settings(), public.hr_doc_visible(text), public.hr_team(), public.hr_my_slips() from public, anon;
-grant execute on function public.hr_settings(), public.hr_doc_visible(text), public.hr_team(), public.hr_my_slips() to authenticated, service_role;
+revoke execute on function public.hr_settings(), public.hr_doc_visible(text), public.hr_team(), public.hr_my_slips(), public.hr_member_notes(), public.hr_member_note_set(uuid, text) from public, anon;
+grant execute on function public.hr_settings(), public.hr_doc_visible(text), public.hr_team(), public.hr_my_slips(), public.hr_member_notes(), public.hr_member_note_set(uuid, text) to authenticated, service_role;
 revoke execute on function public.hr_payroll_calc(date), public.hr_payroll_open(date) from public, anon;
 grant execute on function public.hr_rest_day(date), public.hr_today(), public.hr_active(), public.hr_is_manager_of(uuid), public.hr_can_see(uuid), public.hr_can_decide(uuid),
   public.hr_salaries(), public.hr_editor(), public.hr_at(date, time), public.hr_shift_now(), public.hr_clock_in(), public.hr_clock_out(text, timestamptz),

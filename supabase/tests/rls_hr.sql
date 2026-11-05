@@ -406,6 +406,63 @@ begin
   if (public.hr_clock_in() ->> 'remote')::boolean then raise exception 'case a pending remote request does not make the shift remote failed'; end if;
 end $$;
 
+-- the internal notes (security review 5 Nov): the admin writes and reads them through hr_member_note_set / hr_member_notes; the
+-- member they are about, a manager (hr.view P) and a colleague read none; the column is closed to every member; no note on one's own row
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a1","role":"authenticated"}', true);
+do $$
+begin
+  perform public.hr_member_note_set('00000000-0000-4000-8000-0000000046a3', '  ملاحظة داخلية  ');
+  if (select n.notes from public.hr_member_notes() n where n.member_id = '00000000-0000-4000-8000-0000000046a3') is distinct from 'ملاحظة داخلية' then
+    raise exception 'case the admin writes and reads a note failed';
+  end if;
+  begin
+    perform public.hr_member_note_set('00000000-0000-4000-8000-0000000046a1', 'عن نفسي');
+    raise exception 'case nobody writes a note on their own row failed';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform public.hr_member_note_set('00000000-0000-4000-8000-0000000046a3', repeat('x', 501));
+    raise exception 'case a note over 500 characters is refused failed';
+  exception when invalid_parameter_value then null; end;
+  begin
+    perform h.notes from public.hr_members h limit 1;
+    raise exception 'case the notes column is closed even to the admin failed';
+  exception when insufficient_privilege then null; end;
+  begin
+    update public.hr_members set notes = 'x' where member_id = '00000000-0000-4000-8000-0000000046a3';
+    raise exception 'case a note is written only through hr_member_note_set failed';
+  exception when insufficient_privilege then null; end;
+  -- the other columns stay readable and writable (the page's upsert of the shift, as PostgREST's merge-duplicates writes it)
+  insert into public.hr_members (member_id, shift_start, shift_end) values ('00000000-0000-4000-8000-0000000046a3', '10:00', '18:00')
+    on conflict (member_id) do update set member_id = excluded.member_id, shift_start = excluded.shift_start, shift_end = excluded.shift_end;
+  if (select shift_start from public.hr_members where member_id = '00000000-0000-4000-8000-0000000046a3') <> '10:00' then
+    raise exception 'case the shift upsert still works failed';
+  end if;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a3","role":"authenticated"}', true);
+do $$
+begin
+  if (select count(*) from public.hr_member_notes()) <> 0 then raise exception 'case the member reads no note about themselves failed'; end if;
+  if (select shift_start from public.hr_members where member_id = '00000000-0000-4000-8000-0000000046a3') <> '10:00' then
+    raise exception 'case the member reads their own shift failed';
+  end if;
+  begin
+    perform h.notes from public.hr_members h where h.member_id = '00000000-0000-4000-8000-0000000046a3';
+    raise exception 'case the member cannot read the notes column failed';
+  exception when insufficient_privilege then null; end;
+  begin
+    perform public.hr_member_note_set('00000000-0000-4000-8000-0000000046a4', 'x');
+    raise exception 'case a member without hr.edit writes no note failed';
+  exception when insufficient_privilege then null; end;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a2","role":"authenticated"}', true);
+do $$
+begin
+  if (select count(*) from public.hr_members where member_id = '00000000-0000-4000-8000-0000000046a3') <> 1 then
+    raise exception 'case the manager still reads the report''s HR row failed';
+  end if;
+  if (select count(*) from public.hr_member_notes()) <> 0 then raise exception 'case the manager (hr.view P) reads no note failed'; end if;
+end $$;
+
 reset role;
 do $$ begin raise notice 'rls_hr: ok'; end $$;
 rollback;

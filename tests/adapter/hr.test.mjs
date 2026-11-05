@@ -19,7 +19,8 @@ const MEMBERS = () => [
   { id: 'M03', uid: C, name: 'محمد علي', dept: 'العمليات', title: 'تغليف', role: 'خدمة العملاء', manager: 'M01', status: 'active', salary: 0, holdback: 0, allow: 0, shift: ['09:00', '17:00'] },
 ];
 const RESPONSES = () => ({
-  hr_members: ok([{ member_id: B, shift_start: '09:00:00', shift_end: '17:00:00', hire_date: '2025-05-12', leave_days: 21, notes: null }, { member_id: C, shift_start: '10:00:00', shift_end: '18:00:00', hire_date: null, leave_days: 21, notes: 'ملاحظة' }]),
+  hr_members: ok([{ member_id: B, shift_start: '09:00:00', shift_end: '17:00:00', hire_date: '2025-05-12', leave_days: 21 }, { member_id: C, shift_start: '10:00:00', shift_end: '18:00:00', hire_date: null, leave_days: 21 }]),
+  'rpc:hr_member_notes': ok([{ member_id: C, notes: 'ملاحظة' }]), // the notes column is closed: hr.edit F reads them here
   hr_pay: ok([{ member_id: B, salary: 12000, holdback: 1500, allowances: 500 }]),
   hr_attendance: ok([
     { id: 1, member_id: B, day: '2026-11-05', in_at: cairo('2026-11-05', '09:02'), out_at: null, remote: false, source: 'clock', note: null, by_id: B },
@@ -323,4 +324,25 @@ test('live: the private channel «hr» → one load; clear() forgets the rows an
   H.clear();
   eq([H.data.requests, H.data.attendance, H.data.today, H.data.kpis, H.data.sheet.status, H.state()], [[], [], {}, {}, 'مسودة', 'idle']);
   assert(stub.calls.some((c) => c.op === 'removeChannel'));
+});
+
+test('the internal notes (security review 5 Nov): read through hr_member_notes for hr.edit F only, written through hr_member_note_set — never the hr_members column', async () => {
+  const { H, stub } = load({ responses: { 'rpc:hr_member_notes': ok([{ member_id: C, notes: 'ممتازة في الشحن' }]) } }); await H.load();
+  eq(H.data.team.find((m) => m.id === 'M03').hrNotes, 'ممتازة في الشحن');
+  eq(H.data.team.find((m) => m.id === 'M02').hrNotes, '');
+  const sels = opsOf(stub.calls, 'hr_members').filter((c) => c.op === 'select').map((c) => String(c.args[0]));
+  eq(sels.length > 0 && sels.every((x) => !/notes|\*/.test(x)), true, 'the column is never asked for');
+  eq((await H.memberUpdate('M03', { notes: '  ملاحظة   جديدة ' })).ok, true);
+  eq(rpcs(stub).find((x) => x[0] === 'hr_member_note_set'), ['hr_member_note_set', { p_member: C, p_notes: 'ملاحظة جديدة' }]);
+  eq(opsOf(stub.calls, 'hr_members').filter((c) => c.op === 'upsert').length, 0, 'a note alone writes no hr_members row');
+  await H.memberUpdate('M03', { notes: '' });
+  eq(rpcs(stub).filter((x) => x[0] === 'hr_member_note_set').pop(), ['hr_member_note_set', { p_member: C, p_notes: null }]);
+  await H.memberUpdate('M03', { shift: ['10:00', '18:00'] });
+  eq(opsOf(stub.calls, 'hr_members').find((c) => c.op === 'upsert').args[0], { member_id: C, shift_start: '10:00', shift_end: '18:00' });
+  // the server's refusal comes back in Arabic
+  const refused = load({ responses: { 'rpc:hr_member_note_set': { data: null, error: { code: '42501', message: 'not allowed' } } } }); await refused.H.load();
+  eq((await refused.H.memberUpdate('M03', { notes: 'x' })).reason, 'forbidden');
+  // a member without hr.edit never asks for the notes
+  const member = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'P', 'hr.edit': 'N', 'hr.approve': 'N', 'sensitive.salaries': 'N' } }); await member.H.load();
+  eq(rpcs(member.stub).some((x) => x[0] === 'hr_member_notes'), false);
 });

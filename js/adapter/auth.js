@@ -202,5 +202,18 @@
     try { await c().auth.signOut({ scope: 'others' }); } catch (e) { /* the password changed anyway */ }
     return { ok: true };
   }
-  window.IBAuth = { changePassword, signIn, verifyTotp, needsTotp: () => totp, checkTotp, enrollTotp, verifyEnroll, unenrollTotp, signOut, signOutOthers, session: () => current, onChange: (cb) => { subs.push(cb); }, resetPassword, updatePassword, ready: () => ready, recovery: () => recoveryCheck };
+  // «ملفي › تعديل بياناتي» (the owner 5 Nov): a new email through Supabase Auth — it sends the confirmation link (to the new address, and
+  // the old one too when «Secure email change» is on) and the email changes once it is followed; the profile follows it on the server
+  // (0047, profile_email_follow), where the sign-in by phone reads it. → { ok } | { ok: false, reason: 'invalid' | 'same' | 'taken' | 'rate_limited' | 'network' | 'server' }
+  async function changeEmail(email) {
+    if (!c() || !current) return fail('network');
+    const e = String(email || '').trim().toLowerCase(); if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(e) || e.length > 254) return fail('invalid');
+    if (current.user && String(current.user.email || '').toLowerCase() === e) return fail('same');
+    try {
+      const { error } = await c().auth.updateUser({ email: e }, { emailRedirectTo: location.origin + location.pathname });
+      if (error) return fail(/already|exists|registered|email_exists/i.test(errText(error)) ? 'taken' : error.status === 429 || /rate/i.test(errText(error)) ? 'rate_limited' : 'server');
+    } catch (er) { return fail('network'); }
+    return { ok: true };
+  }
+  window.IBAuth = { changePassword, changeEmail, signIn, verifyTotp, needsTotp: () => totp, checkTotp, enrollTotp, verifyEnroll, unenrollTotp, signOut, signOutOthers, session: () => current, onChange: (cb) => { subs.push(cb); }, resetPassword, updatePassword, ready: () => ready, recovery: () => recoveryCheck };
 })();

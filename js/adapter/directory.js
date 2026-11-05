@@ -65,5 +65,19 @@
     const r = rolesById[meRow.role_id]; const p = r && r.permissions && typeof r.permissions === 'object' ? r.permissions[key] : null;
     return p || 'N';
   }
-  window.IBDirectory = { load, refresh, clear, perm, me: () => meRow, members: () => window.IBKit.store.members };
+  // «ملفي › تعديل بياناتي» (phase 10, the owner 5 Nov): my own mobile — a member may change name / phone on their own row (RLS +
+  // profiles_guard_update, 0001); an Egyptian mobile in any digits; taken by another member → 'taken' (profiles.phone is unique and the
+  // sign-in by phone reads it). The number is never logged.
+  async function updatePhone(phone) {
+    const c = window.IBSupabase.client; if (!c || !meRow) return { ok: false, reason: 'network' };
+    const O = window.IbtekrOps; const d = (O && O.toLatin ? O.toLatin(String(phone || '')) : String(phone || '')).replace(/[\s-]/g, '');
+    if (!/^01[0125][0-9]{8}$/.test(d)) return { ok: false, reason: 'invalid' };
+    if (d === meRow.phone) return { ok: true, same: true };
+    let r; try { r = await c.from('profiles').update({ phone: d }).eq('id', meRow.id).select('id'); } catch (e) { return { ok: false, reason: 'network' }; }
+    if (r.error) return { ok: false, reason: r.error.code === '23505' ? 'taken' : r.error.code === '42501' ? 'forbidden' : 'server' };
+    if (!r.data || !r.data.length) return { ok: false, reason: 'forbidden' };
+    try { await refresh(); } catch (e) { /* the number is saved; the copy catches up on the next load */ }
+    return { ok: true };
+  }
+  window.IBDirectory = { load, refresh, clear, perm, updatePhone, me: () => meRow, members: () => window.IBKit.store.members };
 })();

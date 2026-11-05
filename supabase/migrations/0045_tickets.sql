@@ -242,7 +242,8 @@ begin
   if nullif(p_input ->> 'csConversationId', '') is not null then
     if public.has_perm('cs.view') = 'N' then raise exception 'invalid: csConversationId' using errcode = '22023'; end if;
     begin v_conv := (p_input ->> 'csConversationId')::uuid; exception when others then raise exception 'invalid: csConversationId' using errcode = '22023'; end;
-    select c.customer_id into v_cust from public.cs_conversations c where c.id = v_conv;
+    -- only a conversation the member reads (cs.view F, or P and assigned to them — the cs_conversations policy of 0034)
+    select c.customer_id into v_cust from public.cs_conversations c where c.id = v_conv and (public.has_perm('cs.view') = 'F' or c.assignee = auth.uid());
     if not found then raise exception 'invalid: csConversationId' using errcode = '22023'; end if;
   end if;
   if nullif(p_input ->> 'csCustomerId', '') is not null then

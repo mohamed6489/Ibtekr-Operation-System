@@ -609,7 +609,7 @@ export async function installSupabaseMock(page, opts = {}) {
             customer: tkClean(i.customer, 80) || null, cs_customer_id: null, cs_conversation_id: null, vendor_id: null, vendor: null, reason: null, follow_up: follow, attachments, status: 'open',
             created_by: u.id, created_by_name: who.name, created_by_role: who.role, created_at: now, last_update: now, reopen_count: 0, resolution_outcome: null, resolution_note: null,
             resolved_by: null, resolved_by_name: null, resolved_at: null, closed_by: null, closed_by_name: null, closed_at: null };
-          if (i.csConversationId) { if (hasPerm(u, 'cs.view') === 'N') return bad('csConversationId'); const cv = mock.cs.conversations.find((x) => x.id === i.csConversationId); if (!cv) return bad('csConversationId'); rec.cs_conversation_id = cv.id; rec.cs_customer_id = cv.customer_id || null; }
+          if (i.csConversationId) { if (hasPerm(u, 'cs.view') === 'N') return bad('csConversationId'); const cv = mock.cs.conversations.find((x) => x.id === i.csConversationId && (hasPerm(u, 'cs.view') === 'F' || x.assignee === u.id)); if (!cv) return bad('csConversationId'); rec.cs_conversation_id = cv.id; rec.cs_customer_id = cv.customer_id || null; }
           if (i.csCustomerId) { if (hasPerm(u, 'cs.view') === 'N' || !mock.cs.customers.some((x) => x.id === i.csCustomerId)) return bad('csCustomerId'); rec.cs_customer_id = i.csCustomerId; }
           if (i.type === 'customer') {
             rec.order_number = tkClean(i.orderId, 20) || null; if (!rec.order_number) return bad('orderId'); if (!TK_CUSTOMER.includes(i.reason)) return bad('reason'); rec.reason = i.reason;

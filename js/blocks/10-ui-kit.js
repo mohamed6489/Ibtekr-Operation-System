@@ -79,8 +79,9 @@
 
   // ---- Button / Icon button ----
   function Button({ type = 'default', size, label, icon, iconEnd, onClick, disabled, attrs }) {
-    // أزرار الإضافة (+ … / أيقونة plus) بالأخضر زي «إضافة» في الهيدر (owner 1 Nov 21:49 — المرحلة 5.5 قرار 7)
-    if (type === 'default' && (icon === 'plus' || (typeof label === 'string' && /^\+\s?/.test(label)))) type = 'brand';
+    // أزرار الإضافة (+ … / أيقونة plus) بالأخضر زي «إضافة» في الهيدر (owner 1 Nov 21:49 — المرحلة 5.5 قرار 7)، حتى الـ primary
+    // (prototype 2 Nov 18:06: «+ تقرير مهام جديد» كان دهبي — المرحلة 5.5 قرار 11، صاحب المشروع وافق 5 نوفمبر)
+    if ((type === 'default' || type === 'primary') && (icon === 'plus' || (typeof label === 'string' && /^\+\s?/.test(label)))) type = 'brand';
     return h('button', Object.assign({ type: 'button', class: 'btn btn-' + type + (size ? ' ' + size : ''), disabled, onClick }, attrs || {}),
       icon ? Icon(icon, 'sm') : null, label, iconEnd ? Icon(iconEnd, 'sm') : null);
   }

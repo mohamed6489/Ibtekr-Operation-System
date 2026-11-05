@@ -144,7 +144,9 @@ export function hrRoute(c) {
       if (!active) return no();
       const open = H.attendance.find((x) => x.member_id === u.id && x.out_at == null && Date.parse(x.in_at) > Date.now() - 20 * 3600000); if (open) return json(200, shift());
       if (H.attendance.some((x) => x.member_id === u.id && x.day === today)) return bad('ended');
-      H.attendance.push({ id: nextId(), member_id: u.id, day: today, in_at: now, out_at: null, remote: !!b.p_remote, source: 'clock', note: null, by_id: u.id, updated_at: now });
+      const remote = H.requests.some((x) => x.member_id === u.id && x.type === 'شغل عن بُعد' && x.status === 'موافق' && x.from_day <= today && x.to_day >= today); // 0046: the server's, never the caller's
+      if ('p_remote' in b) return json(404, { code: 'PGRST202', message: 'Could not find the function public.hr_clock_in(p_remote) in the schema cache' });
+      H.attendance.push({ id: nextId(), member_id: u.id, day: today, in_at: now, out_at: null, remote, source: 'clock', note: null, by_id: u.id, updated_at: now });
       return json(200, shift());
     }
     if (f === 'hr_clock_out') {

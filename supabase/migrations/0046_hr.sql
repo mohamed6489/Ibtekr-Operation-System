@@ -570,9 +570,11 @@ language sql stable security definer set search_path = public as $$
     order by (a.out_at is null) desc, a.in_at desc limit 1) end
 $$;
 
-create or replace function public.hr_clock_in(p_remote boolean default false) returns jsonb
+-- «عن بُعد» is the server's, never the caller's (security review of T6): an approved «شغل عن بُعد» request of mine covering today
+drop function if exists public.hr_clock_in(boolean);
+create or replace function public.hr_clock_in() returns jsonb
 language plpgsql security definer set search_path = public as $$
-declare v_row public.hr_attendance;
+declare v_row public.hr_attendance; v_remote boolean;
 begin
   if not public.hr_active() then raise exception 'not allowed' using errcode = '42501'; end if;
   select * into v_row from public.hr_attendance where member_id = auth.uid() and out_at is null and in_at > now() - interval '20 hours'
@@ -581,7 +583,9 @@ begin
   if exists (select 1 from public.hr_attendance where member_id = auth.uid() and day = public.hr_today()) then
     raise exception 'invalid: ended' using errcode = '22023';          -- one shift a day; a fix goes through a request
   end if;
-  insert into public.hr_attendance (member_id, day, in_at, remote, source) values (auth.uid(), public.hr_today(), now(), coalesce(p_remote, false), 'clock');
+  v_remote := exists (select 1 from public.hr_requests r where r.member_id = auth.uid() and r.type = 'شغل عن بُعد' and r.status = 'موافق'
+    and public.hr_today() between r.from_day and r.to_day);
+  insert into public.hr_attendance (member_id, day, in_at, remote, source) values (auth.uid(), public.hr_today(), now(), v_remote, 'clock');
   return public.hr_shift_now();
 end $$;
 
@@ -953,7 +957,7 @@ revoke execute on function public.hr_settings(), public.hr_doc_visible(text), pu
 grant execute on function public.hr_settings(), public.hr_doc_visible(text), public.hr_team() to authenticated, service_role;
 revoke execute on function public.hr_payroll_calc(date), public.hr_payroll_open(date) from public, anon;
 grant execute on function public.hr_rest_day(date), public.hr_today(), public.hr_active(), public.hr_is_manager_of(uuid), public.hr_can_see(uuid), public.hr_can_decide(uuid),
-  public.hr_salaries(), public.hr_editor(), public.hr_at(date, time), public.hr_shift_now(), public.hr_clock_in(boolean), public.hr_clock_out(text, timestamptz),
+  public.hr_salaries(), public.hr_editor(), public.hr_at(date, time), public.hr_shift_now(), public.hr_clock_in(), public.hr_clock_out(text, timestamptz),
   public.hr_attendance_set(uuid, date, time, time, boolean, text), public.hr_request_types(), public.hr_request_create(jsonb),
   public.hr_request_decide(bigint, text, text), public.hr_request_cancel(bigint), public.hr_overtime_decide(bigint, text, int, text),
   public.hr_rate_month(uuid, date, jsonb, text), public.hr_payroll_calc(date), public.hr_payroll_open(date), public.hr_payroll_step(date, text),

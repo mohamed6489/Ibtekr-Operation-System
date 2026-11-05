@@ -76,10 +76,28 @@ test('the attendance log: the month day by day, a missing end fixed by hand (hr_
   await row.getByRole('button', { name: 'تصحيح' }).click();
   const f = modal(page, 'تصحيح انصراف ناقص');
   await f.locator('#out').fill('17:30'); await f.locator('#reason').fill('نسيت أسجل');
+  await expect(f.locator('#out')).toHaveValue('17:30'); await expect(f.locator('#reason')).toHaveValue('نسيت أسجل');
   await f.getByRole('button', { name: 'حفظ التصحيح' }).click();
   await expect(f).toBeHidden();
   expect(calls('hr_attendance_set').map((c) => [c.p_member, c.p_day, c.p_in, c.p_out, c.p_note])).toEqual([[ACC_ID, W1, '09:00', '17:30', 'نسيت أسجل']]);
   await expect(P(page).locator('tbody tr', { hasText: 'تصحيح' }).first()).toContainText('17:30');
+});
+
+test('the kit (decision 18 b): a form\'s first-field focus a tick later leaves a field already focused inside it — the text stays where it is typed', async ({ page }) => {
+  await openHr(page);
+  const focused = await page.evaluate(async () => {
+    const K = window.IBKit; let a = '';
+    K.form({ title: 'تجربة التركيز', values: {}, fields: (f, e, set) => [K.field.text('first', 'الأولى', f, e, set), K.field.text('second', 'التانية', f, e, set)], submit: () => true });
+    document.getElementById('second').focus(); // focused before the tick (a busy page made it late)
+    await new Promise((r) => setTimeout(r, 30)); a = document.activeElement && document.activeElement.id; return a;
+  });
+  expect(focused).toBe('second');
+  await modal(page, 'تجربة التركيز').getByRole('button', { name: 'إلغاء' }).click();
+  const first = await page.evaluate(async () => { // nothing focused inside: the first field, as before
+    const K = window.IBKit; K.form({ title: 'تجربة التركيز 2', values: {}, fields: (f, e, set) => [K.field.text('first2', 'الأولى', f, e, set), K.field.text('second2', 'التانية', f, e, set)], submit: () => true });
+    await new Promise((r) => setTimeout(r, 30)); return document.activeElement && document.activeElement.id;
+  });
+  expect(first).toBe('first2');
 });
 
 test('requests: approve the leave, «ضيفه» part of the overtime; «متضيفهوش» opens the one-to-one meeting with its date', async ({ page }) => {

@@ -29,7 +29,8 @@ test('«ابدأ الدوام» writes the shift on the server; a reload shows t
   await clock(page).getByRole('button', { name: 'ابدأ الدوام' }).click();
   await expect(clock(page).locator('.clock')).toContainText('على الدوام');
   expect(calls('hr_clock_in').length).toBe(1);
-  expect(mock.hr.attendance.map((a) => [a.member_id, a.day, a.out_at])).toEqual([[OPS_ID, T, null]]);
+  expect('p_remote' in calls('hr_clock_in')[0]).toBe(false); // «عن بُعد» is the server's
+  expect(mock.hr.attendance.map((a) => [a.member_id, a.day, a.out_at, a.remote])).toEqual([[OPS_ID, T, null, false]]);
   await page.reload(); // known issue 1: the shift used to live in memory only
   await expect(page.locator('#root')).toBeVisible();
   await expect(clock(page).locator('.clock')).toContainText('على الدوام');
@@ -79,4 +80,12 @@ test('at 8 hours: «إنهاء الدوام» ends the shift at the 8-hour mark 
   expect(Math.round((Date.parse(c.p_at) - inAt) / 60000)).toBe(480);
   expect(Math.round((Date.parse(mock.hr.attendance[0].out_at) - inAt) / 60000)).toBe(480);
   expect(mock.hr.overtime.filter((o) => o.kind === 'hours')).toEqual([]);
+});
+
+test('«عن بُعد» from the server: an approved «شغل عن بُعد» covering today makes the shift remote; the page never sends the flag', async ({ page }) => {
+  await start(page, { hrRequests: [{ member_id: OPS_ID, type: 'شغل عن بُعد', from_day: T, to_day: T, status: 'موافق' }] });
+  await clock(page).getByRole('button', { name: 'ابدأ الدوام' }).click();
+  await expect(page.locator('.toast', { hasText: restDay ? 'يوم راحة' : 'بدأ الدوام عن بُعد' })).toBeVisible();
+  expect('p_remote' in calls('hr_clock_in')[0]).toBe(false);
+  expect(mock.hr.attendance.map((a) => [a.member_id, a.remote])).toEqual([[OPS_ID, true]]);
 });

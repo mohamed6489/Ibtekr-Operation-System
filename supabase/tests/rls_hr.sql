@@ -79,6 +79,8 @@ begin
   s := public.hr_clock_in();
   s2 := public.hr_clock_in();
   if s ->> 'id' is null or s ->> 'id' <> s2 ->> 'id' then raise exception 'case one open shift (a second start returns it) failed'; end if;
+  if (s ->> 'remote')::boolean then raise exception 'case a shift without an approved remote request is not remote failed'; end if;
+  begin perform public.hr_clock_in(true); raise exception 'case the caller cannot say «عن بُعد» failed'; exception when undefined_function then null; end;
   if (public.hr_shift_now() ->> 'id') <> s ->> 'id' then raise exception 'case the open shift comes back after a refresh failed'; end if;
   insert into hr_ids values ('shift', s ->> 'id');
 end $$;
@@ -375,6 +377,24 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000
 do $$
 begin
   if not exists (select 1 from public.activity_log where entity = 'hr' and action = 'hr.kpi.rate') then raise exception 'case the admin reads the HR events failed'; end if;
+end $$;
+
+-- «عن بُعد» from the server (security review of T6): an approved «شغل عن بُعد» covering today makes the shift remote; a pending one does not
+reset role;
+insert into public.hr_requests (member_id, type, from_day, to_day, status) values
+  ('00000000-0000-4000-8000-0000000046a5', 'شغل عن بُعد', public.hr_today() - 1, public.hr_today() + 1, 'موافق'),
+  ('00000000-0000-4000-8000-0000000046a4', 'شغل عن بُعد', public.hr_today(), public.hr_today(), 'جديد');
+delete from public.hr_attendance where member_id in ('00000000-0000-4000-8000-0000000046a4', '00000000-0000-4000-8000-0000000046a5');
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a5","role":"authenticated"}', true);
+do $$
+begin
+  if not (public.hr_clock_in() ->> 'remote')::boolean then raise exception 'case an approved remote request makes the shift remote failed'; end if;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a4","role":"authenticated"}', true);
+do $$
+begin
+  if (public.hr_clock_in() ->> 'remote')::boolean then raise exception 'case a pending remote request does not make the shift remote failed'; end if;
 end $$;
 
 reset role;

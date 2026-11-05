@@ -158,8 +158,9 @@ test('myShift: my open shift within 20 hours, else today\'s, else null (the cloc
 
 test('the clock: hr_clock_in / hr_clock_out (the note only when there is one) and the reload; «ended» comes back in Arabic', async () => {
   const { H, stub, logs } = load({ responses: { 'rpc:hr_clock_in': ok({ id: 9, day: '2026-11-05', in_at: '2026-11-05T07:00:00Z', out_at: null, remote: true }), 'rpc:hr_clock_out': ok({ worked: 540, overtime_id: 77, overtime: 60 }) } });
-  eq((await H.clockIn(true)).shift.id, 9);
-  eq(rpcs(stub).find((x) => x[0] === 'hr_clock_in'), ['hr_clock_in', { p_remote: true }]);
+  eq((await H.clockIn(true)).shift.id, 9); // a stray argument never reaches the server: «عن بُعد» is the server's (an approved «شغل عن بُعد»)
+  eq(rpcs(stub).find((x) => x[0] === 'hr_clock_in'), ['hr_clock_in', {}]);
+  eq(logs[0].slice(0, 2), ['hr.shift.start', 'عن بُعد']); // the detail from the server's answer
   const r = await H.clockOut('  جهزت   الشحن ');
   eq([r.ok, r.result.overtime], [true, 60]);
   eq(rpcs(stub).find((x) => x[0] === 'hr_clock_out'), ['hr_clock_out', { p_ot_note: 'جهزت الشحن', p_at: null }]);

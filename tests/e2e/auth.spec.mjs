@@ -45,20 +45,20 @@ test('the menu: the two new pages in place, every page not started yet closed wi
   const items = page.locator('nav.sidebar .nav-item');
   expect(await items.locator('> span:not(.soon)').allTextContents()).toEqual(['لوحة التحكم', 'الأوردرات', 'المبتكرين', 'الحسابات', 'المخزون', 'المنتجات', 'خدمة العملاء', 'تذاكر الفريق', 'التقارير', 'التسويق', 'الموارد البشرية', 'الإعدادات']);
   const soon = page.locator('nav.sidebar .nav-item[data-soon]');
-  expect(await soon.evaluateAll((l) => l.map((e) => e.dataset.page))).toEqual(['marketing', 'hr', 'settings']);
-  await expect(soon.locator('.soon')).toHaveText(Array(3).fill('soon')); // «المنتجات» open since phase 5, «خدمة العملاء» since phase 6, «المخزون» since phase 7, «تذاكر الفريق» since phase 8, «التقارير» since phase 9
+  expect(await soon.evaluateAll((l) => l.map((e) => e.dataset.page))).toEqual(['marketing', 'settings']); // «الموارد البشرية» open since phase 10
+  await expect(soon.locator('.soon')).toHaveText(Array(2).fill('soon')); // «المنتجات» open since phase 5, «خدمة العملاء» since phase 6, «المخزون» since phase 7, «تذاكر الفريق» since phase 8, «التقارير» since phase 9
   await expect(soon.first()).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.locator('nav.sidebar .nav-item:not([data-soon])')).toHaveCount(9);
+  await expect(page.locator('nav.sidebar .nav-item:not([data-soon])')).toHaveCount(10);
   // a closed page is not reached by its menu item, nor by a typed hash: the dashboard, with a note
   await page.locator('nav.sidebar .nav-item[data-page="marketing"]').click({ force: true }); // aria-disabled: a forced press
   await expect(page.locator('#pg-dashboard')).toBeVisible();
-  for (const hs of ['settings-integrations', 'hr', 'hr-team']) { // «التسويق» has no page registered yet: its item is the only way in
+  for (const hs of ['settings-integrations', 'settings']) { // «التسويق» has no page registered yet: its item is the only way in
     await page.evaluate((x) => { location.hash = x; }, hs);
     await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
     await expect(page.locator('#pg-dashboard')).toBeVisible();
     await expect(page.locator('#main')).toBeHidden();
   }
-  await page.goto('/#hr'); // a fresh load on a closed page
+  await page.goto('/#settings-integrations'); // a fresh load on a closed page
   await expect(page.locator('#root')).toBeVisible();
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
   await page.locator('nav.sidebar .nav-item[data-page="orders"]').click(); // the open pages still open

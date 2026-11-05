@@ -6,7 +6,7 @@ import { split } from '../tools/split-prototype.mjs';
 // rules and «في إجازة»). tools/blocks.lock.json records,
 // per block, the sha256 of the prototype's block and of the file on disk (npm run lock regenerates it).
 const SRC = 'Prototype file/نظام إبتكر.html';
-const EDITED = ['02-accounts-domain.js', '04-reports-domain.js', '05-tickets-domain.js', '06-vendors-domain.js', '10-ui-kit.js', '11-seed-product-images.js', '12-ops-domain.js', '14-kit.js', '16-page-inventory.js', '17-page-settings.js', '18-page-profile.js', '19-cs-domain.js', '20-page-cs.js', '21-shell.js', '22-orders-ops.js', '24-dash-domain.js', '25-page-dashboard.js', '28-app.js', '29-orders-app.js'];
+const EDITED = ['02-accounts-domain.js', '04-reports-domain.js', '05-tickets-domain.js', '06-vendors-domain.js', '10-ui-kit.js', '11-seed-product-images.js', '12-ops-domain.js', '14-kit.js', '15-page-hr.js', '16-page-inventory.js', '17-page-settings.js', '18-page-profile.js', '19-cs-domain.js', '20-page-cs.js', '21-shell.js', '22-orders-ops.js', '24-dash-domain.js', '25-page-dashboard.js', '28-app.js', '29-orders-app.js'];
 const sha = (text) => createHash('sha256').update(text).digest('hex');
 const parts = split(readFileSync(SRC, 'utf8'));
 const lock = JSON.parse(readFileSync('tools/blocks.lock.json', 'utf8'));
@@ -18,7 +18,7 @@ test('split yields 29 blocks in order', () => {
   assert.match(parts.blocks[20].code, /window\.IBShell = /);
   assert.deepEqual(Object.keys(lock), parts.blocks.map((b) => b.file));
 });
-test('only the blocks in EDITED (02, 04, 05, 06, 10, 11, 12, 14, 17, 18, 19, 20, 21, 22, 24, 25, 28, 29) differ from the prototype', () => {
+test('only the blocks in EDITED (02, 04, 05, 06, 10, 11, 12, 14, 15, 16, 17, 18, 19, 20, 21, 22, 24, 25, 28, 29) differ from the prototype', () => {
   assert.deepEqual(Object.keys(lock).filter((f) => lock[f].prototype !== lock[f].current), EDITED);
 });
 test('unedited blocks are byte-identical to the prototype', () => {

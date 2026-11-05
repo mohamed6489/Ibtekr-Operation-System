@@ -1561,3 +1561,9 @@ td :is(.select,.date-field,.input:not(textarea)){height:var(--ctl-sm);min-height
 .tk-msg .tk-files { margin-inline-start: 40px; }
 .tk-own { display: flex; flex-direction: column; gap: 4px; }
 .tk-reply { display: flex; flex-direction: column; gap: 8px; }
+/* phase 8 decision 19: «رقم الأوردر» with the matching orders under it */
+.tk-order { position: relative; }
+.tk-order-opts { position: absolute; inset-inline: 0; top: 100%; z-index: 30; margin-top: 4px; max-height: 260px; overflow: auto; background: var(--color-surface, #fff); border: 1px solid var(--color-border, #ddd); border-radius: 8px; box-shadow: 0 8px 24px rgba(0, 0, 0, .12); display: flex; flex-direction: column; }
+.tk-order-opts[hidden] { display: none; }
+.tk-order-opt { text-align: start; background: none; border: 0; padding: 8px 12px; cursor: pointer; font: inherit; color: inherit; }
+.tk-order-opt:hover, .tk-order-opt:focus { background: var(--color-surface-2, #f4f4f4); outline: none; }

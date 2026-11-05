@@ -1911,6 +1911,30 @@
     f.attachments = (f.attachments || []).slice();
     let errs = {}; let modal = null; let sending = false; let fileMsg = '';
     const vendorOpts = (typeof vstore !== 'undefined' && vstore.all ? vstore.all() : []).filter((v) => !v.siteRemoved).map((v) => ({ value: v.name, label: v.name }));
+    // decision 19 (the owner, 5 Nov — «وهو بيكتب تظهرله خيارات الأوردرات الموجودة يختار منها»): «رقم الأوردر» searches the loaded
+    // orders by number or customer as it is typed; a pick fills the number and the customer (a maker ticket: the maker too when the
+    // order has one). Typing a number that is not in the list still works (the server keeps the typed number).
+    function orderPicker(required) {
+      const list = h('div', { class: 'tk-order-opts', role: 'listbox', 'aria-label': 'الأوردرات', hidden: true });
+      const inp = h('input', { id: 't-order', class: 'input' + (errs.orderId ? ' err' : ''), type: 'search', autocomplete: 'off', inputmode: 'search', value: f.orderId || '',
+        placeholder: required ? 'اكتب رقم الأوردر أو اسم العميل' : 'اختياري — رقم الأوردر أو اسم العميل', 'aria-autocomplete': 'list', 'aria-controls': 't-order-opts' });
+      list.id = 't-order-opts';
+      const hits = (q) => { const t = String(q || '').trim().replace(/^ib-?/i, ''); if (!t || !window.OrdersApp || !window.OrdersApp.query) return []; try { return window.OrdersApp.query({ q: t }, 8).rows; } catch (e) { return []; } };
+      const pick = (o) => { f.orderId = String(o.id); f.customer = o.customer || ''; if (f.type === 'vendor' && !f.vendor && o.vendors && o.vendors.length === 1) { f.vendor = o.vendors[0]; f.vendorId = null; } errs.orderId = undefined; draw(); };
+      const paint = () => {
+        const rows = String(inp.value || '').trim() && String(inp.value).trim() !== String(f.picked || '') ? hits(inp.value) : [];
+        list.hidden = !rows.length;
+        list.replaceChildren(...rows.map((o) => { const b = h('button', { type: 'button', role: 'option', class: 'tk-order-opt', 'data-tk-pick': String(o.id) },
+          h('b', null, 'IB-' + o.id), h('span', null, ' · ' + (o.customer || '—') + ' · ' + (o.status || '') + (o.vendors && o.vendors.length ? ' · ' + o.vendors.join('، ') : '')));
+          b.addEventListener('mousedown', (e) => e.preventDefault()); b.addEventListener('click', () => { f.picked = String(o.id); pick(o); }); return b; }));
+      };
+      inp.addEventListener('input', () => { f.orderId = inp.value; f.picked = null; paint(); });
+      inp.addEventListener('focus', paint);
+      inp.addEventListener('blur', () => setTimeout(() => { list.hidden = true; }, 150));
+      inp.addEventListener('keydown', (e) => { if (e.key === 'Escape') list.hidden = true; if (e.key === 'Enter' && !list.hidden) { e.preventDefault(); const first = list.querySelector('[data-tk-pick]'); if (first) first.click(); } });
+      const ctx0 = f.orderId ? orderCtx(String(f.orderId).trim()) : null;
+      return U.FieldShell({ id: 't-order', label: 'رقم الأوردر', required, error: errs.orderId, help: ctx0 ? null : 'اكتب الرقم أو اسم العميل واختار من القايمة — بيجيب العميل والمبتكر تلقائي' }, h('div', { class: 'tk-order' }, inp, list));
+    }
     function draw() {
       const ctx = f.type === 'customer' && f.orderId ? orderCtx(String(f.orderId).trim()) : null;
       const pick = AttachPicker(f.attachments, (m) => { fileMsg = m; draw(); }); pick.msg.textContent = fileMsg;
@@ -1919,11 +1943,11 @@
         linked,
         h('div', { class: 'row cols2' }, U.TextInput({ id: 't-title', label: 'العنوان', required: true, value: f.title, error: errs.title, placeholder: 'سطر واحد يلخّص المشكلة', maxlength: TK.TITLE_MAX, onInput: (v) => { f.title = v; } }),
           U.Select({ id: 't-type', label: 'النوع', required: true, options: TK.TYPES.map(([v, l]) => ({ value: v, label: l })), value: f.type, error: errs.type, onChange: (v) => { f.type = v; f.reason = ''; errs = {}; draw(); } })),
-        f.type === 'customer' ? U.TextInput({ id: 't-order', label: 'رقم الأوردر', required: true, value: f.orderId, error: errs.orderId, placeholder: 'مثال 177611', inputmode: 'numeric', help: ctx ? null : 'اختيار الأوردر بيجيب العميل والهاتف والمبتكر تلقائي', onInput: (v) => { f.orderId = v; const c = orderCtx(v.trim()); if (c) draw(); } }) : null,
+        f.type === 'customer' ? orderPicker(true) : null,
         ctx ? h('div', { class: 'ctx-card', style: 'padding:8px 12px' }, h('div', { class: 'facts' }, U.DelayBadge(ctx.delivery), h('span', { class: 't-small' }, num(ctx.customer + ' · ' + (ctx.vendors || []).join('، ') + ' · ' + ctx.status + ' · ' + ctx.ageDays + ' يوم · ' + D.formatMoney(ctx.total) + ' ج.م')))) : null,
         f.type === 'customer' ? U.Select({ id: 't-reason', label: 'سبب المشكلة', required: true, options: TK.CUSTOMER_REASONS.map((r) => ({ value: r, label: r })), value: f.reason, error: errs.reason, onChange: (v) => { f.reason = v; draw(); } }) : null,
         f.type === 'vendor' ? U.Select({ id: 't-vendor', label: 'المبتكر', required: true, options: vendorOpts, value: f.vendor, error: errs.vendor, placeholder: 'اختار المبتكر', onChange: (v) => { f.vendor = v; f.vendorId = null; draw(); } }) : null,
-        f.type === 'vendor' ? U.TextInput({ id: 't-order', label: 'رقم الأوردر', value: f.orderId, error: errs.orderId, placeholder: 'اختياري', inputmode: 'numeric', onInput: (v) => { f.orderId = v; } }) : null,
+        f.type === 'vendor' ? orderPicker(false) : null,
         f.type === 'vendor' ? U.Select({ id: 't-reason', label: 'سبب المشكلة', required: true, options: TK.VENDOR_REASONS.map((r) => ({ value: r, label: r })), value: f.reason, error: errs.reason, onChange: (v) => { f.reason = v; draw(); } }) : null,
         U.Textarea({ id: 't-desc', label: 'الوصف', required: true, value: f.description, error: errs.description, placeholder: 'إيه اللي حصل + إيه المطلوب من الفريق', onInput: (v) => { f.description = v; } }),
         h('div', { class: 'row cols2' }, U.Select({ id: 't-prio', label: 'الأولوية', required: true, options: TK.PRIORITIES.map(([v, l]) => ({ value: v, label: l })), value: f.priority, error: errs.priority, onChange: (v) => { f.priority = v; draw(); } }),

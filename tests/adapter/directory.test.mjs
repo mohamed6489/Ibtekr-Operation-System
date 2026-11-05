@@ -56,3 +56,21 @@ test('a suspended profile has no permission; clear forgets the rows and the vend
   assert.equal(ok.D.me(), null);
   assert.deepEqual(ok.calls, [['setMe', 'M02'], ['vendors.load'], ['vendors.clear']]);
 });
+
+// «ملفي › تعديل بياناتي» (phase 10): my own mobile on profiles — Arabic digits read, an Egyptian mobile only, taken → 'taken'
+test('updatePhone: my row only, Arabic digits read, an invalid number refused before any request, a taken one → taken, the same one → nothing sent', async () => {
+  const stub = stubClient({ responses: { profiles: (q) => (q.some((x) => x.op === 'update') ? { data: [{ id: 'u1' }], error: null } : { data: [profile()], error: null }), roles: { data: ROLES, error: null } } });
+  const window = { IBSupabase: { client: stub.client }, IBAuth: { session: () => ({ user: { id: 'u1' } }) }, IbtekrOps: { toLatin: (x) => String(x).replace(/[٠-٩]/g, (d) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(d))) },
+    IBKit: { store: { members: [] }, setMe() {} } };
+  runInNewContext(src, { window, document: { dispatchEvent() {} }, Event });
+  const D = window.IBDirectory; await D.refresh();
+  assert.deepEqual({ ...(await D.updatePhone('0123')) }, { ok: false, reason: 'invalid' });
+  assert.deepEqual({ ...(await D.updatePhone('01000000002')) }, { ok: true, same: true });
+  assert.equal(opsOf(stub.calls, 'profiles').filter((c) => c.op === 'update').length, 0, 'nothing sent before a valid, new number');
+  assert.deepEqual({ ...(await D.updatePhone('٠١٢٢٣٣٣٤٤٤٥')) }, { ok: true });
+  const up = opsOf(stub.calls, 'profiles');
+  assert.deepEqual(up.find((c) => c.op === 'update').args, [{ phone: '01223334445' }]);
+  assert.deepEqual(up.find((c) => c.op === 'eq').args, ['id', 'u1']);
+  stub.responses.profiles = { data: null, error: { code: '23505', message: 'duplicate key' } };
+  assert.deepEqual({ ...(await D.updatePhone('01112223334')) }, { ok: false, reason: 'taken' });
+});

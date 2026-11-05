@@ -152,3 +152,24 @@ test('ops (hr.view P, no sensitive.salaries) on another member\'s file: no money
   await expect(P(page)).not.toContainText('9,000');
   expect(calls('hr_my_slips').length).toBe(0);
 });
+
+test('«تعديل بياناتي»: the mobile saved on my profile (a taken one refused), a new email through Supabase\'s confirmation link — neither logged', async ({ page }) => {
+  await open(page, OPS, 'profile-security');
+  await P(page).locator('.prof-head').getByRole('button', { name: 'تعديل بياناتي' }).click(); // the header's (the security tab has one too)
+  const f = modal(page, 'تعديل بياناتي');
+  await expect(f.locator('#phone')).toBeFocused();
+  await f.locator('#phone').fill('01000000003'); // محمد علي's
+  await f.getByRole('button', { name: 'حفظ' }).click();
+  await expect(page.locator('.toast', { hasText: 'الرقم ده مسجّل لعضو تاني' })).toBeVisible();
+  await expect(f).toBeVisible();
+  await f.locator('#phone').fill('٠١٢٢٣٣٣٤٤٤٥'); await f.locator('#email').fill('sara.new@ibtekr.local');
+  await f.getByRole('button', { name: 'حفظ' }).click();
+  await expect(f).toBeHidden();
+  await expect(page.locator('.toast', { hasText: 'اتبعت لينك تأكيد على sara.new@ibtekr.local' })).toBeVisible();
+  expect(mock.profileWrites.map((w) => [w.by, w.phone])).toEqual([[OPS_ID, '01223334445']]);
+  expect(mock.profiles.find((x) => x.id === OPS_ID).phone).toBe('01223334445');
+  expect(mock.userUpdates.map((u) => u.email)).toEqual(['sara.new@ibtekr.local']); // Supabase sends the link; the profile follows once confirmed (0047)
+  await expect(P(page).locator('.kv', { hasText: 'الموبايل' }).first()).toContainText('01223334445');
+  await expect.poll(() => mock.activity.map((a) => a.action)).toContain('profile.edit');
+  const logged = JSON.stringify(mock.activity); expect(logged.includes('01223334445')).toBe(false); expect(logged.includes('sara.new')).toBe(false);
+});

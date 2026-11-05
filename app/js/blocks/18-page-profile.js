@@ -257,7 +257,29 @@
   }
 
   // ---------- popups ----------
-  function editInfo(m) { K.form({ title: 'تعديل بياناتي', values: { phone: m.phone, email: m.email }, fields: (f, e, set) => [K.field.text('phone', 'الموبايل', f, e, set, { required: true, inputmode: 'tel' }), K.field.text('email', 'الإيميل', f, e, set, { required: true, help: 'تغيير الإيميل محتاج تأكيد من اللينك اللي هيوصلك' })], validate: (f) => { const e = {}; if (O.identifierKind(f.phone) !== 'phone') e.phone = 'رقم موبايل مصري صحيح'; if (O.identifierKind(f.email) !== 'email') e.email = 'إيميل صحيح'; return e; }, submitLabel: 'حفظ', submit: (f) => { m.phone = O.toLatin(f.phone); if (f.email !== m.email) K.toast('اتبعت لينك تأكيد لـ ' + f.email); else K.toast('اتحفظ', 'success'); K.logEvent('profile.edit', m.name); rerender(); } }); }
+  // «تعديل بياناتي» (the owner 5 Nov: «دلوقتي»): the mobile on my profile (IBDirectory.updatePhone — taken = refused), the email
+  // through Supabase's confirmation link (IBAuth.changeEmail; the profile follows once it is confirmed — 0047). Neither is logged.
+  const INFO_MSG = { taken: 'الرقم ده مسجّل لعضو تاني', invalid: 'رقم موبايل مصري صحيح', forbidden: 'مش مسموح تغيّر الرقم ده', network: 'مشكلة في الاتصال — جرّب تاني', server: 'معرفناش نحفظ الموبايل — جرّب تاني' };
+  const MAIL_MSG = { taken: 'الإيميل ده مستخدم لحساب تاني', invalid: 'إيميل صحيح', same: 'ده نفس إيميلك', rate_limited: 'محاولات كتير — استنى شوية وجرّب تاني', network: 'مشكلة في الاتصال — جرّب تاني', server: 'معرفناش نبعت لينك التأكيد — جرّب تاني' };
+  function editInfo(m) {
+    K.form({ title: 'تعديل بياناتي', values: { phone: m.phone, email: m.email }, fields: (f, e, set) => [K.field.text('phone', 'الموبايل', f, e, set, { required: true, inputmode: 'tel' }), K.field.text('email', 'الإيميل', f, e, set, { required: true, help: 'تغيير الإيميل محتاج تأكيد من اللينك اللي هيوصلك' })],
+      validate: (f) => { const e = {}; if (O.identifierKind(f.phone) !== 'phone') e.phone = 'رقم موبايل مصري صحيح'; if (O.identifierKind(f.email) !== 'email') e.email = 'إيميل صحيح'; return e; },
+      submitLabel: 'حفظ', submit: (f, md) => {
+        if (md._busy) return false; md._busy = true;
+        (async () => {
+          const out = { phone: false, email: '' }; const phone = O.toLatin(String(f.phone || '')).trim(); const email = String(f.email || '').trim().toLowerCase();
+          if (phone !== String(m.phone || '')) { const r = await window.IBDirectory.updatePhone(phone); if (!r.ok) return { ok: false, message: INFO_MSG[r.reason], out }; out.phone = !r.same; }
+          if (email !== String(m.email || '').toLowerCase()) { const r = await window.IBAuth.changeEmail(email); if (!r.ok) return { ok: false, message: MAIL_MSG[r.reason], out }; out.email = email; }
+          return { ok: true, out };
+        })().then((r) => {
+          md._busy = false; const o = r.out;
+          if (o.phone || o.email) K.logEvent('profile.edit', m.name);
+          if (!r.ok) { K.toast((o.phone ? 'اتحفظ الموبايل · ' : '') + (r.message || 'حصلت مشكلة — جرّب تاني'), 'error'); if (o.phone) rerender(); return; }
+          md.close(); K.toast(o.email ? 'اتبعت لينك تأكيد على ' + o.email + ' — الإيميل بيتغيّر بعد ما تضغطه' + (o.phone ? ' · واتحفظ الموبايل' : '') : o.phone ? 'اتحفظ الموبايل' : 'مفيش حاجة اتغيّرت', o.phone || o.email ? 'success' : undefined); rerender();
+        });
+        return false;
+      } });
+  }
   // the job and the pay (phase 10 T7): the shift, the hire date and the leave days through IBHR.memberUpdate (hr.edit F), the pay through
   // IBHR.payUpdate (sensitive.salaries F) — each part only for who may write it; the title and the role stay the settings page's
   function editJob(m) {

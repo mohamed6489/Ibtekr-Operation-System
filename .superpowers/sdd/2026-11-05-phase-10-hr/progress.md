@@ -50,4 +50,6 @@
   حقيقي (الغياب من الحضور، أسرع رد من محادثات خدمة العملاء، التقييم من الـ KPI، «المهام» قريبًا) في التقارير وفي «الموارد البشرية ›
   التقارير» (`IBReportBlocks.staff`)، وتذكير المرتبات في الجرس من الكشف الحقيقي لـ `sensitive.salaries` بس. e2e `hr-reports` 5 ✓ +
   `reports`/`hr` متحدّثين. **استيراد الشيت لسه مستني شيت صاحب المشروع** (هيتعمل لما يوصل).
+- [x] «تعديل بياناتي» (قرار 21، صاحب المشروع 5 نوفمبر «دلوقتي»): `IBDirectory.updatePhone` + `IBAuth.changeEmail` + `0047_profile_email.sql`
+  (تريجر `profile_email_follow`) + `rls_profile_email` ✓ محليًا؛ unit (directory/auth) + e2e `profile-hr` 5 ✓.
 - [ ] T9 التوثيق + النشر

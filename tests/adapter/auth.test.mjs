@@ -202,3 +202,13 @@ test('changePassword: the server refuses the new one → same / weak / rate_limi
   const many = await pwSetup({ check: { 'auth:signInWithPassword': { data: null, error: { status: 429, code: 'over_request_rate_limit', message: 'Too many requests' } } } });
   assert.deepEqual({ ...(await many.A.changePassword('Old-pass1', 'New-pass22')) }, { ok: false, reason: 'rate_limited' });
 });
+test('changeEmail: Supabase\'s confirmation link (updateUser with the email and a redirect back here); invalid / same / taken come back as reasons', async () => {
+  const t = await pwSetup();
+  assert.deepEqual({ ...(await t.A.changeEmail('not-an-email')) }, { ok: false, reason: 'invalid' });
+  assert.deepEqual({ ...(await t.A.changeEmail('OPS.dev@ibtekr.local')) }, { ok: false, reason: 'same' });
+  assert.deepEqual(t.authCalls(), [], 'nothing sent for an invalid or the same address');
+  assert.deepEqual({ ...(await t.A.changeEmail('  Sara.New@Ibtekr.local ')) }, { ok: true });
+  assert.deepEqual(t.authCalls(), [['auth.updateUser', { email: 'sara.new@ibtekr.local' }]]);
+  const taken = await pwSetup({ main: { 'auth:updateUser': { data: null, error: { status: 422, code: 'email_exists', message: 'A user with this email address has already been registered' } } } });
+  assert.deepEqual({ ...(await taken.A.changeEmail('sara.new@ibtekr.local')) }, { ok: false, reason: 'taken' });
+});

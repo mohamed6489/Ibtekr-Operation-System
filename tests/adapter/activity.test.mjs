@@ -42,7 +42,7 @@ test('dashboard.customize is sent', async () => {
 
 test('the orders writes IBOrders logs are sent by name; block 22\'s demo order.* / suborder.* events are not', async () => {
   const { log, calls, A } = load();
-  const OWN = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating', 'order.delete', 'profile.password'];
+  const OWN = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating', 'order.delete', 'profile.password', 'profile.edit'];
   assert.deepEqual(JSON.parse(JSON.stringify(A.LOGGED_ACTIONS)), OWN);
   for (const a of OWN) await log(a, 'IB-181668 · #5001');
   // logged by block 22 / 29 before any server write (a free-text reason, sample stock): never reach activity_log
@@ -53,14 +53,14 @@ test('the orders writes IBOrders logs are sent by name; block 22\'s demo order.*
   assert.deepEqual(calls.map((c) => c.args.action), OWN);
 });
 
-test('the 2FA enrolment events (profile.2fa.*) are sent; the other «ملفي» events (sample data) are not', async () => {
+test('the 2FA enrolment events (profile.2fa.*) are sent, and the real password / contact changes (phase 10); the other «ملفي» events are not', async () => {
   const { log, calls } = load();
   await log('profile.2fa.enable', 'Authenticator');
   await log('profile.2fa.disable', 'Authenticator');
-  await log('profile.edit', 'سارة أحمد');
+  await log('profile.edit', 'سارة أحمد'); // phase 10: the phone / email change is real (the name only)
   await log('profile.salary', 'x');
   await log('profile.password', 'سارة أحمد'); // phase 10 T7: the change is real (the name only)
-  assert.deepEqual(calls.map((c) => c.args.action), ['profile.2fa.enable', 'profile.2fa.disable', 'profile.password']);
+  assert.deepEqual(calls.map((c) => c.args.action), ['profile.2fa.enable', 'profile.2fa.disable', 'profile.edit', 'profile.password']);
 });
 
 test('recent maps the embed and refresh (newest 25) dispatches ib:activity', async () => {

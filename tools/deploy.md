@@ -1251,6 +1251,7 @@ select user_id, key, data from public.user_prefs where key in ('reports.prefs', 
 **النشر (بالترتيب — الواجهة آخر حاجة، لأن الساعة في الهيدر بتنادي `hr_clock_in` على كل الصفحات):**
 1. `0046_hr.sql` (Supabase MCP `apply_migration` أو SQL editor) — الصلاحيات الأربعة على الأدوار، جداول HR بـ RLS والـ grants، الـ RPCs، bucket `hr-docs` (مقفول، صور وPDF، 10 ميجا) وسياساته، القناة الـ private `hr`، والـ cron اليومي لفتح الكشف (`hr-payroll-open`). re-runnable. بعدها `supabase/tests/rls_hr.sql` على الحي من workflow «RLS live» (`files = rls_hr`) — المفروض `NOTICE rls_hr: ok` (بيرجع كل حاجة).
 2. Edge Function `team-admin` من workflow «Deploy functions» (`function = team-admin`) — مافيش أسرار جديدة (بتستخدم `SUPABASE_SERVICE_ROLE_KEY` الموجود).
+   و`0047_profile_email.sql` (تريجر صغير على `auth.users`: الإيميل الجديد بعد التأكيد بيتنقل لـ `profiles.email` — «تعديل بياناتي») + `supabase/tests/rls_profile_email.sql`.
 3. الواجهة: push على `main` (الـ Deploy workflow بيرفع الموقع).
 4. (اختياري، مستحسن) في لوحة Supabase › Authentication › Settings: فعّل «Secure password change» عشان تغيير كلمة المرور من API برّه الصفحة يطلب إعادة دخول.
 

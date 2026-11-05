@@ -318,7 +318,7 @@ export async function installSupabaseMock(page, opts = {}) {
     // decision 12: shot_prompts (0030) — the owner's template categories; flows: the flows made on the one Space; flowResults[batchId] = { 1: [ids], 2: [...], 3: [...] } the site's output lists
     shotPrompts: [['كرسي', 1, 'كرسي 1 — تركيز على المنتج', 'CHAIR FOCUS PROMPT'], ['كرسي', 2, 'كرسي 2 — المنتج في بيئة محيطة', 'CHAIR ENV PROMPT'], ['كرسي', 3, 'كرسي 3 — Closeup للتفاصيل', 'CHAIR DETAIL PROMPT'], ['مرآة', 1, 'مرآة 1 — تركيز على المنتج', 'MIRROR FOCUS PROMPT']].map(([category, shot, name, prompt], i) => ({ id: i + 1, category, shot, name, prompt, negative: null, model: 'imagen-nano-banana-2', aspect: '3:4', resolution: '1k', updated_at: new Date().toISOString() })), imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
-    profiles, factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
+    profiles, profileWrites: [], factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
     ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [], deletes: [], trashes: [] };
   // phase 3.3: vendorCategoryRates / wooCategories: the 0014 tables (ordersSeed()); vendorPushes: each woo-sync push_vendor as { vendor_id, fields, by, result, reason? }
   // (the body names the fields only — the mock reads the row like the server); pushEnabled: WOO_PUSH_ENABLED on the server (false → skipped/push_disabled,
@@ -1146,6 +1146,16 @@ export async function installSupabaseMock(page, opts = {}) {
         // RLS profiles_select: own row, or every row with has_perm('settings.view') <> 'N'; roles: everyone signed in.
         const rows = table[1] === 'roles' ? ROLES : viewPerm(u) !== 'N' ? mock.profiles : mock.profiles.filter((x) => x.id === u.id);
         return json(200, cols.includes('*') ? rows : rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null]))));
+      }
+      // «ملفي › تعديل بياناتي» (phase 10): RLS profiles_update (one's own row, or the admin) + profiles_guard_update (a non-admin: name /
+      // phone only, 0001); profiles.phone is unique (23505). profileWrites: each PATCH body with its caller.
+      if (method === 'PATCH' && table && table[1] === 'profiles') {
+        const idf = /^eq\.(.+)$/.exec(url.searchParams.get('id') || ''); const b = body(); const isAdmin = u.role_id === 'admin' && u.status === 'active';
+        if (!isAdmin && Object.keys(b).some((k) => !['name', 'phone'].includes(k))) return json(403, { code: '42501', details: null, hint: null, message: 'only an admin can change this profile field' });
+        const rows = mock.profiles.filter((x) => idf && x.id === idf[1] && (x.id === u.id || isAdmin));
+        if (b.phone != null && mock.profiles.some((x) => x.phone === b.phone && !rows.some((r) => r.id === x.id))) return json(409, { code: '23505', details: null, hint: null, message: 'duplicate key value violates unique constraint "profiles_phone_key"' });
+        rows.forEach((r) => Object.assign(r, b)); mock.profileWrites.push({ by: u.id, ...b });
+        return json(200, rows.map((r) => ({ id: r.id })));
       }
       const emulated = /^\/rest\/v1\/(user_prefs|activity_log|alerts|alert_reads)$/.exec(path);
       const METHODS = { user_prefs: ['GET', 'POST', 'DELETE'], activity_log: ['GET'], alerts: ['GET'], alert_reads: ['GET', 'POST'] };

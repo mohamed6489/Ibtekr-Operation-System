@@ -1,6 +1,6 @@
 // Phase 10 (0046): the HR tables, RPCs, the Edge Function team-admin and the bucket «hr-docs», emulated for supabase-mock.mjs (not a
 // test file itself). hrState(opts) seeds the rows as the database holds them (opts.hrMembers / hrPay / hrAttendance / hrOvertime /
-// hrRequests / hrHolidays / hrKpis / hrScores / hrExtras / hrMeetings / hrAdjustments / hrPayroll / hrDocuments — the ids, dates and
+// hrRequests / hrHolidays / hrKpis / hrScores / hrExtras / hrMeetings / hrAdjustments / hrPayroll / hrPayrollLines / hrDocuments — the ids, dates and
 // the uuids of USERS); hrRoute(c) answers a request of those paths (or returns null): RLS as 0046 reads it (hr_can_see: me, hr.view F
 // everyone, P the members I manage; the pay / the money for sensitive.salaries F or one's own; the documents for hr.edit F or one's
 // own), the RPCs with the same rules (the server's clock, the overtime past 8 hours, the payroll lines, «مدفوع» into the accounts'
@@ -63,7 +63,7 @@ export function hrState(opts = {}) {
     meetings: copy(opts.hrMeetings).map((x, i) => ({ id: i + 1, status: 'مطلوب', day: null, time_text: null, place: null, outcome: null, plan: null, goals: [], support: null, review_on: null, progress: null, notes: null, ref: null, created_by: null, created_at: T, updated_at: T, ...x })),
     adjustments: copy(opts.hrAdjustments).map((x, i) => ({ id: i + 1, note: null, kind: 'adjust', created_by: null, created_at: T, voided_by: null, voided_at: null, ...x })),
     payroll: copy(opts.hrPayroll).map((x) => ({ status: 'مسودة', opened_at: T, reviewed_by: null, reviewed_at: null, approved_by: null, approved_at: null, paid_by: null, paid_at: null, paid_account: null, total: null, ...x })),
-    payroll_lines: [], documents: copy(opts.hrDocuments).map((x, i) => ({ id: i + 1, start_on: null, end_on: null, created_by: null, created_at: T, voided_by: null, voided_at: null, ...x })),
+    payroll_lines: copy(opts.hrPayrollLines), documents: copy(opts.hrDocuments).map((x, i) => ({ id: i + 1, start_on: null, end_on: null, created_by: null, created_at: T, voided_by: null, voided_at: null, ...x })),
     objects: new Map(Object.entries(opts.hrObjects || {})), calls: [], writes: [], seq: 1000, down: false,
   };
 }
@@ -219,6 +219,12 @@ export function hrRoute(c) {
       return json(200, score);
     }
     if (f === 'hr_payroll_calc') { if (!salaries) return no(); return json(200, calc(H, mock, monthOf(b.p_month))); }
+    if (f === 'hr_my_slips') { // «ملفي › مرتبي» (T7): my approved / paid lines with the sheet's status, never its total
+      if (!active) return json(200, []);
+      const st = (m) => H.payroll.find((p) => p.month === m);
+      return json(200, H.payroll_lines.filter((l) => l.member_id === u.id && st(l.month) && ['معتمد', 'مدفوع'].includes(st(l.month).status)).sort((a, b) => (a.month < b.month ? 1 : -1))
+        .map(({ member_id, ...l }) => ({ ...l, status: st(l.month).status, paid_at: st(l.month).paid_at })));
+    }
     if (f === 'hr_payroll_open') { if (!salaries) return no(); const m = monthOf(b.p_month || today); if (!H.payroll.some((p) => p.month === m)) H.payroll.push({ month: m, status: 'مسودة', opened_at: now, reviewed_by: null, reviewed_at: null, approved_by: null, approved_at: null, paid_by: null, paid_at: null, paid_account: null, total: null }); return json(200, m); }
     if (f === 'hr_payroll_step') {
       if (!salaries) return no(); const m = monthOf(b.p_month); const p = H.payroll.find((x) => x.month === m); if (!p) return nf(); const s = b.p_step;

@@ -231,6 +231,22 @@ test('the payroll: the lines (live / snapshotted), the steps, «مدفوع» fro
   assert(!JSON.stringify(logs).includes('9487'), 'no amount in the log');
 });
 
+test('«ملفي › مرتبي» (T7): my payslips through hr_my_slips with the sheet\'s status; another member\'s from the lines with the statuses I read', async () => {
+  const LINE = { name: 'محمد علي', salary: 9600, holdback: 1000, paid: 8600, ot_minutes: 0, ot_pay: 0, rest_days: 0, rest_pay: 0, unpaid_days: 0, unpaid_cut: 0, allowances: 200, deductions: 0, advance: 0, quarter_bonus: 0, net: 8800 };
+  const mine = load({ meId: C, meCode: 'M03', role: 'ops', perms: { 'hr.view': 'N' }, responses: { 'rpc:hr_my_slips': ok([{ ...LINE, month: '2026-10-01', status: 'مدفوع', paid_at: '2026-11-01T10:00:00Z' }]) } });
+  await mine.H.load();
+  const r = await mine.H.slips('M03');
+  eq([r.ok, r.list.length, r.list[0].month, r.list[0].status, r.list[0].paidAt, r.list[0].net, r.list[0].member], [true, 1, '2026-10', 'مدفوع', '2026-11-01T10:00:00Z', 8800, 'M03']);
+  eq(rpcs(mine.stub).find((x) => x[0] === 'hr_my_slips'), ['hr_my_slips', {}]);
+  assert(!opsOf(mine.stub.calls, 'hr_payroll_lines').length, 'mine never reads the lines table (no status there)');
+  const adm = load({ responses: { hr_payroll_lines: ok([{ ...LINE, member_id: C, month: '2026-10-01' }]) } });
+  await adm.H.load();
+  const o = await adm.H.slips('M03');
+  eq([o.ok, o.list[0].month, o.list[0].status, o.list[0].net], [true, '2026-10', 'مدفوع', 8800]);
+  assert(opsOf(adm.stub.calls, 'hr_payroll_lines').some((c) => c.op === 'eq' && c.args[0] === 'member_id' && c.args[1] === C), 'the member\'s lines by uid');
+  eq((await adm.H.slips('M77')).ok, false);
+});
+
 test('adjustments / achievements / extras / meetings through the tables RLS lets the admin write', async () => {
   const { H, stub } = load(); await H.load();
   eq((await H.addAdjustment({ member: 'M03', month: '2026-11', label: 'مكافأة', amount: -5, kind: 'achievement' })).field, 'amount', 'an achievement is an addition');

@@ -10,13 +10,13 @@ function memoryStorage(state) {
   return { getItem: (k) => { guard(); return m.has(k) ? m.get(k) : null; }, setItem: (k, v) => { guard(); m.set(k, String(v)); }, removeItem: (k) => { guard(); m.delete(k); } };
 }
 const AR = '٠١٢٣٤٥٦٧٨٩';
-function load({ responses = {}, twofa = false } = {}) {
+function load({ responses = {}, twofa = false, checker } = {}) {
   const stub = stubClient({ responses }); const state = { blocked: false };
   const localStorage = memoryStorage(state); const sessionStorage = memoryStorage(state);
   // the directory's signed-in row and member card (same objects the pages read), the kit's event log, ib:* events
   const meRow = { id: 'u2', member_code: 'M02', name: 'سارة أحمد', twofa }; const members = [{ id: 'M01', twofa: false }, { id: 'M02', twofa }];
   const logs = []; const events = [];
-  const window = { IBSupabase: { client: stub.client, recoveryHint: false },
+  const window = { IBSupabase: { client: stub.client, recoveryHint: false, checker },
     IbtekrOps: { toLatin: (x) => String(x).replace(/[٠-٩]/g, (d) => String(AR.indexOf(d))) },
     IBDirectory: { me: () => meRow, members: () => members },
     IBKit: { logEvent: (action, detail) => { logs.push([action, detail]); return Promise.resolve(); } } };
@@ -26,7 +26,8 @@ function load({ responses = {}, twofa = false } = {}) {
   localStorage.setItem(key, '{"access_token":"remembered"}'); sessionStorage.setItem(key, '{"access_token":"this-tab"}'); localStorage.setItem('ib.remember', '0');
   // mfa.* and rpc calls in order, as [op, args]
   const mfaCalls = () => stub.calls.filter((c) => c.op === 'rpc' || c.op.startsWith('mfa.')).map((c) => [c.op, ...c.args]);
-  return { A: window.IBAuth, emitAuth: stub.emitAuth, key, localStorage, sessionStorage, state, responses, meRow, members, logs, events, mfaCalls };
+  const authCalls = () => stub.calls.filter((c) => c.op.startsWith('auth.')).map((c) => [c.op, ...c.args]);
+  return { A: window.IBAuth, emitAuth: stub.emitAuth, key, localStorage, sessionStorage, state, responses, meRow, members, logs, events, mfaCalls, authCalls };
 }
 // load() + an aal1 session of u2 (as after the password step)
 async function signedIn(opts) {
@@ -162,4 +163,42 @@ test('unenrollTotp: a factor that will not go puts the flag back (mark_twofa_enr
   assert.deepEqual({ ...(await A.unenrollTotp()) }, { ok: false, reason: 'server' });
   assert.deepEqual(mfaCalls().slice(2), [['rpc', 'mark_twofa_disabled', null], ['mfa.unenroll', { factorId: 'f1' }], ['rpc', 'mark_twofa_enrolled', null]]);
   assert.equal(meRow.twofa, true); assert.deepEqual(logs, []);
+});
+
+
+// «ملفي › تغيير كلمة المرور» (phase 10 T7): the current password on a throwaway client (signed out again at once), then the new one on
+// this session and the other devices signed out; the refusals come back as reasons; nothing about a password is logged.
+async function pwSetup({ check = {}, main = {}, user = { id: 'u2', email: 'ops.dev@ibtekr.local' } } = {}) {
+  const chk = stubClient({ responses: check }); let made = 0;
+  const t = load({ responses: main, checker: () => { made += 1; return chk.client; } }); await t.A.ready();
+  t.emitAuth('SIGNED_IN', { access_token: 'mine', user });
+  return { ...t, made: () => made, checkCalls: () => chk.calls.filter((c) => c.op.startsWith('auth.')).map((c) => [c.op, ...c.args]) };
+}
+const SESSION = { data: { session: { access_token: 'chk' }, user: { id: 'u2' } }, error: null };
+test('changePassword: the current one on a throwaway client (signed out locally), the new one on this session, then the other devices out', async () => {
+  const t = await pwSetup({ check: { 'auth:signInWithPassword': SESSION } });
+  assert.deepEqual({ ...(await t.A.changePassword('Old-pass1', 'New-pass22')) }, { ok: true });
+  assert.equal(t.made(), 1);
+  assert.deepEqual(t.checkCalls(), [['auth.signInWithPassword', { password: 'Old-pass1', email: 'ops.dev@ibtekr.local' }], ['auth.signOut', { scope: 'local' }]]);
+  assert.deepEqual(t.authCalls(), [['auth.updateUser', { password: 'New-pass22' }], ['auth.signOut', { scope: 'others' }]]);
+  assert.equal(JSON.stringify(t.logs).includes('pass'), false, 'no password in the log');
+});
+test('changePassword: a wrong current password → current, and this session is never touched; a phone login checks by phone', async () => {
+  const t = await pwSetup({ check: { 'auth:signInWithPassword': { data: { session: null, user: null }, error: { status: 400, code: 'invalid_credentials', message: 'Invalid login credentials' } } } });
+  assert.deepEqual({ ...(await t.A.changePassword('wrong', 'New-pass22')) }, { ok: false, reason: 'current' });
+  assert.deepEqual(t.authCalls(), []);
+  const p = await pwSetup({ check: { 'auth:signInWithPassword': SESSION }, user: { id: 'u2', phone: '201001234567' } });
+  await p.A.changePassword('Old-pass1', 'New-pass22');
+  assert.deepEqual(p.checkCalls()[0], ['auth.signInWithPassword', { password: 'Old-pass1', phone: '201001234567' }]);
+});
+test('changePassword: the server refuses the new one → same / weak / rate_limited; signed out → network before any request', async () => {
+  for (const [err, reason] of [[{ status: 422, code: 'same_password', message: 'New password should be different from the old password.' }, 'same'], [{ status: 422, code: 'weak_password', message: 'Password is known to be weak' }, 'weak'], [{ status: 429, code: 'over_request_rate_limit', message: 'rate limit' }, 'rate_limited']]) {
+    const t = await pwSetup({ check: { 'auth:signInWithPassword': SESSION }, main: { 'auth:updateUser': { data: null, error: err } } });
+    assert.deepEqual({ ...(await t.A.changePassword('Old-pass1', 'New-pass22')) }, { ok: false, reason });
+    assert.deepEqual(t.authCalls().map((c) => c[0]), ['auth.updateUser'], 'no sign-out of the others when nothing changed');
+  }
+  const out = load({ checker: () => { throw new Error('never made'); } }); await out.A.ready();
+  assert.deepEqual({ ...(await out.A.changePassword('a', 'b')) }, { ok: false, reason: 'network' });
+  const many = await pwSetup({ check: { 'auth:signInWithPassword': { data: null, error: { status: 429, code: 'over_request_rate_limit', message: 'Too many requests' } } } });
+  assert.deepEqual({ ...(await many.A.changePassword('Old-pass1', 'New-pass22')) }, { ok: false, reason: 'rate_limited' });
 });

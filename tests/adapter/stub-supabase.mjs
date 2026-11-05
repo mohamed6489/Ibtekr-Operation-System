@@ -12,6 +12,7 @@
 // responses['storage:' + bucket + ':' + method] (a value or a function of the args; default { data: null, error: null }), for
 // createSignedUrl / download / remove / upload.
 // auth: storageKey, getSession (nothing stored) and onAuthStateChange; emitAuth(event, session) plays an auth event to its listener.
+// auth.signInWithPassword / updateUser / signOut(args) record { op: 'auth.<method>', args: [args] } and answer responses['auth:' + method].
 // auth.mfa.<method>(args) records { op: 'mfa.<method>', args: [args] } and answers responses['mfa:' + method] (a value or a
 // function of args; default { data: null, error: null }), for listFactors / enroll / challengeAndVerify / unenroll /
 // getAuthenticatorAssuranceLevel.
@@ -53,6 +54,7 @@ export function stubClient({ responses = {}, channelThrows = false } = {}) {
       storageKey: 'sb-stub-auth-token',
       getSession: () => Promise.resolve({ data: { session: null }, error: null }),
       onAuthStateChange: (cb) => { authHandler = cb; return { data: { subscription: { unsubscribe() {} } } }; },
+      ...Object.fromEntries(['signInWithPassword', 'updateUser', 'signOut'].map((m) => [m, (args) => { rec({ op: 'auth.' + m, args: args === undefined ? [] : [args] }); return Promise.resolve().then(() => answer(responses['auth:' + m], plain(args)) || { data: null, error: null }); }])),
       mfa: Object.fromEntries(MFA.map((m) => [m, (args) => { rec({ op: 'mfa.' + m, args: args === undefined ? [] : [args] }); return Promise.resolve().then(() => answer(responses['mfa:' + m], plain(args)) || { data: null, error: null }); }])),
     },
   };

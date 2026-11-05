@@ -213,6 +213,15 @@ do $$
 begin
   if (select count(*) from public.hr_payroll_lines) <> 1 then raise exception 'case a member reads their own payslip failed'; end if;
   if (select count(*) from public.hr_payroll) <> 0 then raise exception 'case the sheet itself is for sensitive.salaries failed'; end if;
+  -- «ملفي › مرتبي» (T7): my payslip with the sheet's status, never its total
+  if (select count(*) from public.hr_my_slips()) <> 1 or (select status from public.hr_my_slips()) <> 'مدفوع' or (select paid_at from public.hr_my_slips()) is null then
+    raise exception 'case hr_my_slips gives my paid payslip with its status failed';
+  end if;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a1","role":"authenticated"}', true);
+do $$
+begin
+  if (select count(*) from public.hr_my_slips()) <> 0 then raise exception 'case hr_my_slips is mine only (the admin has no line) failed'; end if;
 end $$;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a2","role":"authenticated"}', true);
 do $$

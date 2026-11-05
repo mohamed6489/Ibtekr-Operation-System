@@ -180,5 +180,27 @@
     if (!c() || !recovered) return { ok: false };
     try { const { error } = await c().auth.updateUser({ password: p1 }); return { ok: !error }; } catch (e) { return { ok: false }; }
   }
-  window.IBAuth = { signIn, verifyTotp, needsTotp: () => totp, checkTotp, enrollTotp, verifyEnroll, unenrollTotp, signOut, signOutOthers, session: () => current, onChange: (cb) => { subs.push(cb); }, resetPassword, updatePassword, ready: () => ready, recovery: () => recoveryCheck };
+  // «ملفي › تغيير كلمة المرور» (phase 10 T7; decision 6: the member replaces the temporary password): the current password is checked on
+  // a throwaway client that keeps no session (IBSupabase.checker), signed out again at once; then the new one on this session and the
+  // other devices signed out. Neither password is logged, kept or sent anywhere else.
+  // → { ok } | { ok: false, reason: 'current' (wrong) | 'same' | 'weak' | 'rate_limited' | 'network' | 'server' }
+  const errText = (e) => String((e && e.code) || '') + ' ' + String((e && e.message) || '');
+  async function changePassword(cur, next) {
+    if (!c() || !current) return fail('network');
+    const user = current.user || {}; const login = user.email ? { email: user.email } : user.phone ? { phone: user.phone } : null;
+    const chk = window.IBSupabase.checker ? window.IBSupabase.checker() : null; if (!login || !chk) return fail('network');
+    try {
+      const { data, error } = await chk.auth.signInWithPassword(Object.assign({ password: String(cur || '') }, login));
+      if (error) return fail(error.status === 429 || /rate|too_many/i.test(errText(error)) ? 'rate_limited' : error.status === 400 || /invalid_credentials|invalid login/i.test(errText(error)) ? 'current' : 'network');
+      if (!data || !data.session) return fail('server'); // a second factor never comes up here: the password alone is what is checked
+      try { await chk.auth.signOut({ scope: 'local' }); } catch (e) { /* the throwaway session ends by itself */ }
+    } catch (e) { return fail('network'); }
+    try {
+      const { error } = await c().auth.updateUser({ password: String(next || '') });
+      if (error) return fail(/same_password|should be different/i.test(errText(error)) ? 'same' : /weak_password|weak/i.test(errText(error)) ? 'weak' : error.status === 429 ? 'rate_limited' : 'server');
+    } catch (e) { return fail('network'); }
+    try { await c().auth.signOut({ scope: 'others' }); } catch (e) { /* the password changed anyway */ }
+    return { ok: true };
+  }
+  window.IBAuth = { changePassword, signIn, verifyTotp, needsTotp: () => totp, checkTotp, enrollTotp, verifyEnroll, unenrollTotp, signOut, signOutOthers, session: () => current, onChange: (cb) => { subs.push(cb); }, resetPassword, updatePassword, ready: () => ready, recovery: () => recoveryCheck };
 })();

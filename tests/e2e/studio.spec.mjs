@@ -542,7 +542,7 @@ test('decision 11 — the system\'s own Magnific link: «ابعت الصور ل�
   await page.locator('[data-fetch]').click();
   await expect(page.locator('.toast, [role=status]').last()).toContainText('لقينا 1 صورة بس ماعرفناش منتجها');
   expect(mock.imageImports.length).toBe(1);
-  expect(mock.activityRows.filter((x) => x.action === 'product.ai.image').map((x) => x.new_value)).toEqual(['bridge upload · 2 photos', 'bridge fetch · 4 found · 3 placed · 1 unmatched', 'bridge fetch · 1 found · 0 placed · 1 unmatched']);
+  await expect.poll(() => mock.activityRows.filter((x) => x.action === 'product.ai.image').map((x) => x.new_value)).toEqual(['bridge upload · 2 photos', 'bridge fetch · 4 found · 3 placed · 1 unmatched', 'bridge fetch · 1 found · 0 placed · 1 unmatched']); // the last row lands after the toast (CI, 5 Nov)
 });
 
 test('decision 12 — the prompts library still empty (the owner, 1 Nov: «مفيش تحديد الفئات»): the flow bar says the categories come from the template and the admin reads it from right there; a member sees the hint only', async ({ page }) => {

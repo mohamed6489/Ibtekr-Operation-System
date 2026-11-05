@@ -302,8 +302,10 @@ test('decision 16: the maker price (for the calculation only) → sale = (maker 
   await expect(page.locator('[data-vprice]')).toContainText('1,006'); // read only: 1270 − (254 + 10)
   await page.locator('[data-vapply]').click(); // the same markup while the page is open
   await expect(page.locator('#e-reg')).toHaveValue(String(regular));
+  const n0 = (mock.productWrites || []).length;
   await page.locator('[data-psave]').click();
   await expect(page.locator('.unsaved')).toHaveCount(0);
+  await expect.poll(() => (mock.productWrites || []).length).toBeGreaterThan(n0); // the write lands after the page settles (CI, 5 Nov)
   // the random markup can land on the seeded regular price (1500, one draw in 20): an unchanged price is not sent
   expect(mock.productWrites.at(-1)).toEqual({ action: 'product_save', by: ADMIN, id: 9003, fields: regular === 1500 ? { sale_price: '1270' } : { sale_price: '1270', regular_price: String(regular) } });
 });
@@ -316,8 +318,10 @@ test('decision 16 on a variable product: a maker price per variation → its two
   await page.locator('[data-vapply]').click();
   const sale = Number(await page.locator('#vv-s0').inputValue()); const reg = Number(await page.locator('#vv-r0').inputValue());
   expect(sale % 10).toBe(0); expect(reg % 10).toBe(0); expect(reg).toBeGreaterThan(sale);
+  const n0 = (mock.productWrites || []).length;
   await page.locator('[data-psave]').click();
   await expect(page.locator('.unsaved')).toHaveCount(0);
+  await expect.poll(() => (mock.productWrites || []).length).toBeGreaterThan(n0); // the write lands after the page settles (CI, 5 Nov)
   const w = mock.productWrites.at(-1);
   expect(w.variations).toEqual([{ id: 9901, sale_price: String(sale), regular_price: String(reg) }]);
 });

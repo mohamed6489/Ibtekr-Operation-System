@@ -873,6 +873,19 @@ begin
 end $$;
 
 -- the month's sheet exists (pg_cron daily, the admin too); idempotent
+-- «ملفي › مرتبي» (decision 2, T7): my own payslips — the approved / paid months' lines with the sheet's status and payment date,
+-- never the sheet's total or another member's line (hr_payroll itself stays sensitive.salaries')
+create or replace function public.hr_my_slips()
+returns table (month date, status text, paid_at timestamptz, name text, salary numeric, holdback numeric, paid numeric, ot_minutes int, ot_pay numeric,
+  rest_days int, rest_pay numeric, unpaid_days numeric, unpaid_cut numeric, allowances numeric, deductions numeric, advance numeric, quarter_bonus numeric, net numeric)
+language sql stable security definer set search_path = public as $$
+  select l.month, p.status, p.paid_at, l.name, l.salary, l.holdback, l.paid, l.ot_minutes, l.ot_pay, l.rest_days, l.rest_pay, l.unpaid_days, l.unpaid_cut,
+    l.allowances, l.deductions, l.advance, l.quarter_bonus, l.net
+  from public.hr_payroll_lines l join public.hr_payroll p on p.month = l.month
+  where l.member_id = auth.uid() and public.hr_active() and p.status in ('معتمد', 'مدفوع')
+  order by l.month desc limit 36
+$$;
+
 create or replace function public.hr_payroll_open(p_month date default null) returns date
 language plpgsql security definer set search_path = public as $$
 declare v_month date := date_trunc('month', coalesce(p_month, public.hr_today()))::date;
@@ -953,8 +966,8 @@ grant select on public.hr_requests_v to service_role;
 grant usage on all sequences in schema public to authenticated, service_role;
 
 revoke execute on function public.hr_stamp(), public.hr_meetings_stamp(), public.hr_adjustments_guard(), public.hr_documents_guard() from public, anon, authenticated;
-revoke execute on function public.hr_settings(), public.hr_doc_visible(text), public.hr_team() from public, anon;
-grant execute on function public.hr_settings(), public.hr_doc_visible(text), public.hr_team() to authenticated, service_role;
+revoke execute on function public.hr_settings(), public.hr_doc_visible(text), public.hr_team(), public.hr_my_slips() from public, anon;
+grant execute on function public.hr_settings(), public.hr_doc_visible(text), public.hr_team(), public.hr_my_slips() to authenticated, service_role;
 revoke execute on function public.hr_payroll_calc(date), public.hr_payroll_open(date) from public, anon;
 grant execute on function public.hr_rest_day(date), public.hr_today(), public.hr_active(), public.hr_is_manager_of(uuid), public.hr_can_see(uuid), public.hr_can_decide(uuid),
   public.hr_salaries(), public.hr_editor(), public.hr_at(date, time), public.hr_shift_now(), public.hr_clock_in(), public.hr_clock_out(text, timestamptz),

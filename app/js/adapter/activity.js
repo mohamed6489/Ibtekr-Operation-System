@@ -16,7 +16,7 @@
 (function () {
   'use strict';
   const LOGGED_PREFIXES = ['auth.', 'dashboard.', 'profile.2fa.', 'vendor.', 'accounts.', 'product.', 'cs.', 'inventory.', 'ticket.', 'hr.']; // accounts.: phase 4 (accounts.js); product.: phase 5 (products.js); cs.: phase 6 (cs.js); inventory.: phase 7 (inventory.js); ticket.: phase 8 (tickets.js); hr.: phase 10 (hr.js — the HR page on IBHR)
-  const LOGGED_ACTIONS = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating', 'order.delete']; // orders.js
+  const LOGGED_ACTIONS = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating', 'order.delete', 'profile.password']; // orders.js; «ملفي» › تغيير كلمة المرور (phase 10 T7: the member's name only)
   let rows = null;
   const forwarded = (action) => { const a = String(action || ''); return LOGGED_ACTIONS.includes(a) || LOGGED_PREFIXES.some((p) => a.startsWith(p)); };
   const client = () => (window.IBSupabase && window.IBSupabase.client) || null;

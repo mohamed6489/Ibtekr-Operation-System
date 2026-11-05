@@ -331,10 +331,10 @@
   const hashTab = () => { const t = location.hash.slice(1); return TABS.some((x) => x.id === t) ? t : null; };
   state.tab = hashTab() || 'expenses';
   // phase 9 (docs/superpowers/plans/2026-11-05-phase-9-reports.md, decisions 4 / 6): the v2's nine tabs — a tab shows only with reports.view ≠ N
-  // and its page's view permission; «تقارير الموظفين» / «الحملات الإعلانية» are soon until their pages (HR / marketing). CSV and
+  // and its page's view permission; «الحملات الإعلانية» is soon until its page (marketing) — «تقارير الموظفين» opened with HR (phase 10 T8). CSV and
   // «الإجراءات» need reports.export = F. The server stays the judge: every number is read under its table's RLS.
   const REPORT_TABS = [{ id: 'orders', label: 'تقارير الأوردرات', perm: 'orders.view' }, { id: 'vendors', label: 'تقارير المبتكرين', perm: 'vendors.view' }, { id: 'accounts', label: 'تقارير الحسابات', perm: 'accounts.view' }, { id: 'products', label: 'تقارير المنتجات', perm: 'products.view' },
-    { id: 'staff', label: 'تقارير الموظفين', soon: 'الموارد البشرية' }, { id: 'campaigns', label: 'الحملات الإعلانية', soon: 'التسويق' }, { id: 'inventory', label: 'تقارير المخزن', perm: 'inventory.view' }, { id: 'cs', label: 'تقارير خدمة العملاء', perm: 'cs.view' }, { id: 'tickets', label: 'تقارير التذاكر', perm: 'tickets.view' }];
+    { id: 'staff', label: 'تقارير الموظفين', perm: 'hr.view' }, { id: 'campaigns', label: 'الحملات الإعلانية', soon: 'التسويق' }, { id: 'inventory', label: 'تقارير المخزن', perm: 'inventory.view' }, { id: 'cs', label: 'تقارير خدمة العملاء', perm: 'cs.view' }, { id: 'tickets', label: 'تقارير التذاكر', perm: 'tickets.view' }];
   const reportTabOf = (hash) => { const m = /^reports(?:-(orders|vendors|accounts|products|staff|campaigns|inventory|cs|tickets))?$/.exec(hash); return m ? (m[1] || 'orders') : null; };
   const rperm = (k) => (window.IBDirectory && window.IBDirectory.perm ? window.IBDirectory.perm(k) : 'N');
   const reportTabs = () => (rperm('reports.view') === 'N' ? [] : REPORT_TABS.filter((t) => !t.perm || rperm(t.perm) !== 'N'));
@@ -470,19 +470,26 @@
   const allOrders = () => { const A = OA(); return A && A.query ? A.query({}, 10000).rows.map((r) => A.get(r.id)).filter(Boolean) : []; };
   const accCfg = () => ((window.IBKit && window.IBKit.store.accAlerts) || { payDay: 1, lead: 14, anchor: '2026-09-05' });
   const arDate = (d) => D.formatDateNumeric(d);
+  // «مرتبات الموظفين» before payday (phase 10 T8, decision 20): the month being paid (payrollDue) — its sheet's status and lines from IBHR,
+  // for sensitive.salaries only (the sheet and every amount are theirs, decision 2; «مدفوع» is theirs too); the payday settings stay accAlerts
+  const payLines = { key: '', want: '', lines: [] };
   function payrollInfo() {
-    const K = window.IBKit, O = window.IbtekrOps; if (!K || !O || !O.payrollDue) return null; const HRA = window.IBPages.all().hr.api; const c = accCfg();
-    const due = O.payrollDue(K.TODAY, { payDay: c.payDay, lead: c.lead, status: K.store.sheet.status }); const team = K.team();
-    const slips = team.map((m) => ({ m, s: HRA.slipOf(m) })); const net = Math.round(slips.reduce((t, x) => t + x.s.net, 0) * 100) / 100;
-    return { due, slips, net, status: K.store.sheet.status, month: K.store.sheet.month };
+    const O = window.IbtekrOps; const H = window.IBHR; if (!O || !O.payrollDue || !H || H.state() !== 'ready' || !H.can().salaries) return null;
+    const c = accCfg(); const t = H.today(); const base = O.payrollDue(t, { payDay: c.payDay, lead: c.lead, status: 'مسودة' }); const mk = base.month; const sh = H.data.sheets[mk];
+    const status = sh ? sh.status : 'لسه ما اتفتحش'; const due = Object.assign({}, base, { show: base.show && status !== 'مدفوع' });
+    const key = mk + '|' + status + '|' + H.data.requests.length + ':' + H.data.overtime.length + ':' + H.data.adjustments.length + ':' + H.data.team.length;
+    if (sh && due.show && payLines.key !== key && payLines.want !== key) { payLines.want = key; H.sheetLines(mk).then((r) => { if (payLines.want !== key) return; payLines.key = key; payLines.lines = r.ok ? r.lines : []; document.dispatchEvent(new CustomEvent('ib:notify')); }); }
+    const lines = payLines.key === key ? payLines.lines : []; const net = Math.round(lines.reduce((n, l) => n + (Number(l.net) || 0), 0) * 100) / 100;
+    return { due, lines, net, status, month: mk, ready: !sh || payLines.key === key };
   }
   function openPayrollAlert() {
-    const p = payrollInfo(); if (!p) return; const fmt = (n) => D.formatMoney(n);
-    U.DetailsModal({ title: 'مرتبات الموظفين — يوم الصرف ' + arDate(p.due.date), sub: 'فاضل ' + p.due.daysLeft + ' يوم · كشف ' + p.month + ' حالته «' + p.status + '» — راجعه واعتمده وحوّل قبل يوم الصرف',
-      summary: [{ label: 'الموظفين', value: String(p.slips.length) }, { label: 'إجمالي الصافي', value: fmt(p.net) + ' ج.م' }, { label: 'حالة الكشف', value: p.status }, { label: 'يوم الصرف', value: arDate(p.due.date) }],
-      headers: ['الموظف', 'المرتب المدفوع', 'إضافي + بدلات', 'خصومات', 'الصافي'],
-      rows: p.slips.map((x) => [x.m.name, fmt(x.s.paid), fmt(x.s.overtime + x.s.bonus), fmt(x.s.deductions + x.s.advances + x.s.absence), fmt(x.s.net)]),
-      total: ['الإجمالي', fmt(p.slips.reduce((t, x) => t + x.s.paid, 0)), fmt(p.slips.reduce((t, x) => t + x.s.overtime + x.s.bonus, 0)), fmt(p.slips.reduce((t, x) => t + x.s.deductions + x.s.advances + x.s.absence, 0)), fmt(p.net)],
+    const p = payrollInfo(); if (!p) return; const fmt = (n) => D.formatMoney(n); const plus = (l) => l.otPay + l.restPay + l.allow + l.quarterBonus; const minus = (l) => l.ded + l.advance + l.unpaidCut;
+    U.DetailsModal({ title: 'مرتبات الموظفين — يوم الصرف ' + arDate(p.due.date), sub: 'فاضل ' + p.due.daysLeft + ' يوم · كشف ' + p.month + ' حالته «' + p.status + '» — راجعه واعتمده واعمله «مدفوع» قبل يوم الصرف',
+      summary: [{ label: 'الموظفين', value: String(p.lines.length) }, { label: 'إجمالي الصافي', value: p.ready ? fmt(p.net) + ' ج.م' : '…' }, { label: 'حالة الكشف', value: p.status }, { label: 'يوم الصرف', value: arDate(p.due.date) }],
+      headers: ['الموظف', 'المرتب بعد الحجز', 'إضافي + بدلات', 'خصومات', 'الصافي'],
+      rows: p.lines.map((l) => [l.name, fmt(l.paid), fmt(plus(l)), fmt(minus(l)), fmt(l.net)]),
+      total: p.lines.length ? ['الإجمالي', fmt(p.lines.reduce((t, l) => t + l.paid, 0)), fmt(p.lines.reduce((t, l) => t + plus(l), 0)), fmt(p.lines.reduce((t, l) => t + minus(l), 0)), fmt(p.net)] : null,
+      empty: p.status === 'لسه ما اتفتحش' ? 'الكشف لسه ما اتفتحش — بيتفتح لوحده أول الشهر.' : 'بنحمّل سطور الكشف…',
       actions: [{ label: 'فتح كشف المرتبات', onClick: () => { location.hash = 'hr-payroll'; } }], source: 'الموارد البشرية › المرتبات والمكافآت' }, { label: 'مرتبات الموظفين' });
   }
   function statementPeriod() { const c = accCfg(); const t = window.IBKit ? window.IBKit.TODAY : '2026-10-21'; return c.cycle === 'monthDays' && window.IbtekrOps ? window.IbtekrOps.monthDaysPeriod(t, c.days) : VD.biweeklyPeriod(t, c.anchor); }
@@ -596,7 +603,7 @@
   }
   function accountsSection() {
     const p = payrollInfo(); const per = statementPeriod();
-    const pay = p && p.due.show ? [{ own: { role: 'الحسابات' }, key: 'pay:' + p.due.date, title: 'مرتبات الموظفين — يوم الصرف ' + arDate(p.due.date), sub: 'فاضل ' + p.due.daysLeft + ' يوم · ' + p.slips.length + ' موظف · صافي ' + D.formatMoney(p.net) + ' ج.م · الكشف «' + p.status + '»', meta: '', tone: p.due.daysLeft <= 3 ? 'error' : 'warning', icon: 'wallet', run: openPayrollAlert }] : [];
+    const pay = p && p.due.show ? [{ own: { role: 'الحسابات' }, key: 'pay:' + p.due.date, title: 'مرتبات الموظفين — يوم الصرف ' + arDate(p.due.date), sub: 'فاضل ' + p.due.daysLeft + ' يوم · ' + (p.ready && p.lines.length ? p.lines.length + ' موظف · صافي ' + D.formatMoney(p.net) + ' ج.م · ' : '') + 'الكشف «' + p.status + '»', meta: '', tone: p.due.daysLeft <= 3 ? 'error' : 'warning', icon: 'wallet', run: openPayrollAlert }] : [];
     const st = vendorStatements().map((x) => ({ own: { role: 'الحسابات' }, key: 'vs:' + x.name, title: 'كشف حساب ' + x.name, sub: 'الرصيد ' + D.formatMoney(x.r.balance) + ' ج.م · ناجحة ' + x.r.success + ' · فاشلة ' + x.r.failed + ' · عربون ' + D.formatMoney(x.mo.deposits) + ' · مواصلات ' + D.formatMoney(x.mo.transport), meta: 'من ' + per.from.slice(8) + '/' + per.from.slice(5, 7) + ' لـ ' + per.to.slice(8) + '/' + per.to.slice(5, 7), tone: x.r.balance < 0 ? 'orange' : 'neutral', icon: 'truck', run: () => openVendorStatement(x.name) }));
     return { id: 'accounts', label: 'الحسابات', icon: 'wallet', unit: 'تنبيه', all: () => go('accounts'), allLabel: 'عرض الكل في الحسابات', empty: 'مفيش تنبيهات حسابات.',
       tabs: [['all', 'الكل', pay.concat(st)], ['payroll', 'المرتبات', pay], ['vendors', 'كشوف المبتكرين', st]] };
@@ -1004,7 +1011,7 @@
         err ? h('div', { class: 'err-msg', role: 'alert', style: 'padding:0 16px 8px' }, err) : null,
         h('div', { class: 'dp-foot' }, h('span', { class: 'tz' }, 'التواريخ بتوقيت القاهرة (GMT+3)'),
           Button({ label: 'إلغاء', onClick: close }),
-          Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err, onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset }; if (target === 'reports') { state.rrange = nr; close(); renderReports(); if (window.IBPages && window.IBPages.current === 'products') window.IBPages.render('products'); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
+          Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err, onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset }; if (target === 'reports') { state.rrange = nr; close(); renderReports(); if (window.IBPages && (window.IBPages.current === 'products' || window.IBPages.current === 'hr')) window.IBPages.render(window.IBPages.current); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
     }
     draw(); return dp;
   }
@@ -1926,7 +1933,50 @@
   }
   // decisions 1 / 2: «تقارير الموظفين» and «الحملات الإعلانية» come with their pages — until then the tab says so
   const soonView = (page, what) => () => { rExport = null; const e = U.EmptyState('قريبًا — مع صفحة «' + page + '»', what); e.setAttribute('data-report-soon', ''); return [e]; };
-  const StaffReportView = soonView('الموارد البشرية', 'المهام والحضور والتقييم بتوع الفريق هيظهروا هنا أول ما صفحة «الموارد البشرية» تتبني.');
+  // «تقارير الموظفين» (phase 10 T8, decision 20): the v5 cards on IBHR — the team hr.view shows (IBHR.team()); absence in the range from the
+  // attendance (a work day — not Friday / Saturday / a holiday — from the hire date with no attendance and no approved leave; today once the
+  // shift is over), the first reply from the customer service conversations of the range (cs.view), the monthly KPI scores of the last
+  // three months up to the range's end; «المهام» wait for the team's tasks on the server
+  function staffData(rr) {
+    const H = window.IBHR; const HD = H.data; const mem = H.team(); const t = H.today(); const hol = H.holidayDates();
+    const loaded = H.addDays(t, -119); const from0 = rr.from < loaded ? loaded : rr.from; const to0 = rr.to < t ? rr.to : H.addDays(t, -1);
+    const att = new Set(HD.attendance.map((a) => a.member + '|' + a.date));
+    const first = {}; HD.attendance.forEach((a) => { if (!first[a.member] || a.date < first[a.member]) first[a.member] = a.date; });
+    const onLeave = (code, d) => HD.requests.some((q) => q.member === code && H.isLeave(q.type) && q.status === 'موافق' && q.from <= d && q.to >= d);
+    const absent = [];
+    mem.forEach((m) => { const start = [from0, m.hire || first[m.id] || t].sort().pop(); for (let d = start, i = 0; d <= to0 && i < 400; d = H.addDays(d, 1), i++) { if (H.leaveDays(d, d, hol) !== 1 || att.has(m.id + '|' + d) || onLeave(m.id, d)) continue; absent.push({ member: m.id, date: d, status: 'غياب' }); } });
+    const todayAbsent = rr.from <= t && rr.to >= t ? mem.filter((m) => (HD.today[m.id] || {}).kind === 'absent').map((m) => m.id) : [];
+    const resp = {}; const CSD = window.IBCS && window.IBCS.data; const csOk = rperm('cs.view') !== 'N' && !!CSD;
+    if (csOk) {
+      const byName = {}; (CSD.convs || []).forEach((c) => { const at = String(c.createdAt || '').slice(0, 10); if (!c.assignee || at < rr.from || at > rr.to) return; const i = (c.msgs || []).find((x) => x.t === 'in'); const o = i && (c.msgs || []).find((x) => x.t === 'out' && x.at > i.at); if (o) (byName[c.assignee] = byName[c.assignee] || []).push((Date.parse(o.at) - Date.parse(i.at)) / 60000); });
+      mem.forEach((m) => { const l = byName[m.name]; if (l && l.length) resp[m.id] = Math.max(0, Math.round(l.reduce((a, b) => a + b, 0) / l.length)); });
+    }
+    const end = rr.to.slice(0, 7); const keys = [0, 1, 2].map((n) => { const d = new Date(end + '-01T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() - n); return d.toISOString().slice(0, 7); });
+    const scores = {}; mem.forEach((m) => { const sc = HD.scores[m.id] || {}; const o = {}; keys.forEach((k) => { if (sc[k] != null) o[Number(k.replace('-', ''))] = sc[k]; }); scores[m.id] = o; });
+    return { mem, rep: R.staffReport({ members: mem, tasks: [], attendance: absent, todayAbsent, resp, scores, from: rr.from, to: rr.to }), clamped: rr.from < loaded, csOk };
+  }
+  function StaffReportView() {
+    const H = window.IBHR;
+    if (!H || H.state() !== 'ready') { rExport = null; return [U.InlineNote({ children: H && H.state() === 'error' ? 'مقدرناش نحمّل بيانات الفريق — حدّث الصفحة.' : 'بنحمّل بيانات الفريق…' })]; }
+    const rr = state.rrange; const { mem, rep, clamped, csOk } = staffData(rr); const PER = D.formatDateNumeric(rr.from) + ' – ' + D.formatDateNumeric(rr.to);
+    const MON = (n) => { const k = String(n); return (window.IBKit.AR_MON[Number(k.slice(4, 6)) - 1] || '') + ' ' + k.slice(0, 4); };
+    const card = (title, sub, rows, val, unit, foot, tone, key, empty) => U.ChartCard({ title, subtitle: sub, footnote: foot, body: rows.length ? h('div', { class: 'staff-top', 'data-staff': key }, rows.map((x) => h('div', { class: 'st-row' }, h('span', { class: 'st-rank', 'aria-hidden': 'true' }, String(x.rank)), U.Avatar ? U.Avatar(x.name) : null, h('span', { class: 'st-who' }, h('b', null, x.name), h('small', { class: 't-small help' }, x.title || '')), h('span', { class: 'st-val ' + tone }, num(val(x)), h('small', { class: 't-small' }, ' ' + unit(x)))))) : U.EmptyState(empty ? empty[0] : 'مفيش بيانات', empty ? empty[1] : 'لسه مفيش تسجيلات في الفترة دي.') });
+    rExport = { label: 'تقرير الموظفين', headers: ['التقرير', '#', 'الموظف', 'القيمة'], rows: [].concat(rep.absence.map((x) => ['غياب (يوم)', x.rank, x.name, x.days]), rep.fastest.map((x) => ['أسرع رد (دقيقة)', x.rank, x.name, x.minutes]), rep.rating.map((x) => ['تقييم الأداء %', x.rank, x.name, x.score])) };
+    const SOON_TASKS = ['قريبًا — مع مهام الفريق', 'المهام المفتوحة لكل موظف هتظهر هنا لما «ملفي › مهامي» تبقى على السيرفر.'];
+    return [
+      h('div', { class: 'cards four', 'data-rgroup': 'kpis' },
+        U.KpiTile({ label: 'مهام مفتوحة', value: '—', compare: 'off', note: 'قريبًا — مع «مهامي» على السيرفر' }),
+        U.KpiTile({ label: 'أيام غياب', value: String(rep.counts.absentDays), unit: 'يوم', compare: 'off', note: PER + ' · من غير إذن' + (clamped ? ' · آخر 120 يوم بس' : '') }),
+        U.KpiTile({ label: 'أسرع رد', value: rep.fastest[0] ? String(rep.fastest[0].minutes) : '—', unit: 'دقيقة', compare: 'off', note: !csOk ? 'محتاج صلاحية خدمة العملاء' : rep.fastest[0] ? rep.fastest[0].name : 'مفيش ردود في الفترة' }),
+        U.KpiTile({ label: 'أعلى تقييم أداء', value: rep.rating[0] ? rep.rating[0].score + '%' : '—', compare: 'off', note: rep.rating[0] ? rep.rating[0].name + ' · ' + MON(rep.rating[0].month) : 'لسه مفيش تقييم' })),
+      h('div', { class: 'charts', 'data-rgroup': 'charts' },
+        card('أكتر 5 عندهم مهام', 'المهام المفتوحة (لسه · جاري · متوقفة · جاهزة للمراجعة)', rep.tasks, (x) => String(x.open), () => 'مهمة', 'من «ملفي › مهامي» لكل موظف', 'neutral', 'tasks', SOON_TASKS),
+        card('أكتر 5 غياب', PER, rep.absence, (x) => String(x.days), () => 'يوم', 'من سجل الحضور: يوم شغل من غير حضور ولا إجازة متوافق عليها + غايب النهارده', 'bad', 'absence')),
+      h('div', { class: 'charts', 'data-rgroup': 'charts2' },
+        card('أسرع 5 في الرد', 'متوسط أول رد · ' + PER, rep.fastest, (x) => String(x.minutes), () => 'دقيقة', 'محادثات خدمة العملاء اللي اتفتحت في الفترة', 'good', 'fastest', csOk ? null : ['محتاج صلاحية خدمة العملاء', 'وقت الرد بيتحسب من محادثات خدمة العملاء.']),
+        card('أعلى 5 تقييم', 'تقييم الأداء الشهري (KPI) · آخر 3 شهور لحد آخر الفترة', rep.rating, (x) => x.score + '%', (x) => MON(x.month) + ' · متوسط ' + Math.round(x.avg) + '%', 'من «الموارد البشرية › الأداء والـ KPI»', 'good', 'rating')),
+      h('p', { class: 'source' }, 'المصدر: سجل الحضور والإجازات والتقييم (الموارد البشرية — ' + mem.length + ' عضو ظاهرين ليك) + محادثات خدمة العملاء لوقت الرد.')];
+  }
   const CampaignsReportView = soonView('التسويق', 'أرقام الحملات الإعلانية (Meta و Google و TikTok Ads) هتظهر هنا مع صفحة «التسويق».');
   // «تقارير المخزن»: IBInventory's hub in K.store (0044) — the same numbers as the stock page's own «التقارير» tab
   function InventoryReportView() {
@@ -3280,7 +3330,7 @@
   };
   // an order popup lives inside the orders page, so it is opened there (owner 22 Oct: before this, «فتح الأوردر» from other pages stayed hidden until you visited الأوردرات)
   // phase 5.1 (decision 20 in the phase 5 plan): the products page's «التقارير» tab shares the reports page's range (state.rrange)
-  window.IBReportBlocks = { range: () => DateRangeField('reports'), get: () => state.rrange };
+  window.IBReportBlocks = { range: () => DateRangeField('reports'), get: () => state.rrange, staff: () => StaffReportView() }; // staff: the HR page's own «التقارير» (phase 10 T8)
   window.IBShowOrders = () => { if (state.page !== 'orders') go('orders'); };
   // phase 8: «تذاكر الفريق» from the other pages — a new ticket with its context, the open tickets of an order (the search), one ticket
   const ticketsFor = (q) => { state.tfilter.q = String(q || ''); state.tf = Object.assign({}, state.tf, { status: ['open_any'] }); state.tpage = 1; state.tsub = 'log'; if (state.page !== 'tickets') go('tickets'); else renderTickets(); };

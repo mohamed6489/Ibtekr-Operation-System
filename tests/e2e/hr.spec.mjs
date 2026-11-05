@@ -224,7 +224,7 @@ test('ops (hr.view P, no team of her own): herself only, no money and no admin b
   await expect(P(page).locator('tbody tr', { hasText: 'إجازة سنوية' })).toContainText('إلغاء الطلب');
 });
 
-test('every tab and sub-tab draws without a page error (the calendar, the quarter, the meetings, the settings, the reports «قريبًا»)', async ({ page }) => {
+test('every tab and sub-tab draws without a page error (the calendar, the quarter, the meetings, the settings, the staff reports)', async ({ page }) => {
   await openHr(page);
   const tab = (name) => page.getByRole('tab', { name });
   for (const sub of ['سجل الحضور', 'تقويم الفريق', 'الفريق']) { await P(page).getByRole('tab', { name: sub, exact: true }).click(); await expect(P(page).locator('.panel')).toBeVisible(); }
@@ -238,7 +238,7 @@ test('every tab and sub-tab draws without a page error (the calendar, the quarte
   for (const sub of ['الأداء والـ KPI', 'صرف الربع والمكافآت', 'الميتنجات وخطط التحسين', 'الكشف الشهري']) { await P(page).getByRole('tab', { name: sub }).click(); await expect(P(page).locator('.panel')).toBeVisible(); }
   await P(page).getByRole('tab', { name: 'صرف الربع والمكافآت' }).click();
   await expect(P(page)).toContainText('قواعد المكافآت الإضافية');
-  await tab('التقارير').click(); await expect(P(page)).toContainText('قريبًا');
+  await tab('التقارير').click(); await expect(P(page).locator('[data-staff="absence"], [data-staff="rating"]').first()).toBeVisible(); // the reports page's «تقارير الموظفين» (T8)
   await tab('إعدادات الموارد البشرية').click(); await expect(P(page)).toContainText('العطلات الرسمية');
   await expect(P(page)).toContainText('مكافأة تفوق');
 });

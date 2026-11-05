@@ -2,8 +2,8 @@ import { test, expect } from '@playwright/test';
 import { installSupabaseMock, LIVE, DEV_PW } from './supabase-mock.mjs';
 
 // The reports page on real data (phase 9, docs/superpowers/plans/2026-11-05-phase-9-reports.md): the v2's nine tabs in block 28 —
-// a tab shows with reports.view ≠ N and its page's view permission (decision 4), «الموظفين» / «الحملات الإعلانية» are soon until
-// their pages (decisions 1 / 2), the makers' tab reads our orders + the accounts + Dokan's balances (decision 3: money for
+// a tab shows with reports.view ≠ N and its page's view permission (decision 4), «الحملات الإعلانية» is soon until its page (decision 2;
+// «الموظفين» opened with HR — phase 10 T8, hr-reports.spec), the makers' tab reads our orders + the accounts + Dokan's balances (decision 3: money for
 // accounts.view ≠ N, the commission for sensitive.commission = F), CSV / «الإجراءات» need reports.export = F, the customization is
 // saved per member in user_prefs (decision 8) and «آخر تحديث» is the last orders load (decision 9). Mock only.
 const ADMIN = 'admin.dev@ibtekr.local'; const VF = 'vf.dev@ibtekr.local';
@@ -59,11 +59,11 @@ const tab = (page, id) => page.locator('#reports #tab-' + id);
 const kpi = (page, label) => page.locator('#rpanel .kpi[aria-label="' + label + '"]');
 const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
 
-test('«التقارير» is open: the nine v2 tabs (staff / campaigns «قريبًا»), the orders tab on our orders, the real «آخر تحديث»', async ({ page }) => {
+test('«التقارير» is open: the nine v2 tabs (campaigns «قريبًا»; staff opened with HR — hr-reports.spec), the orders tab on our orders, the real «آخر تحديث»', async ({ page }) => {
   await openReports(page);
   await expect(page.locator('.sidebar .nav-item[data-page="reports"]')).not.toHaveAttribute('data-soon', '');
-  await expect(R(page).locator('[role=tab]')).toHaveText([/^تقارير الأوردرات$/, /^تقارير المبتكرين$/, /^تقارير الحسابات$/, /^تقارير المنتجات$/, /^تقارير الموظفين\s*قريبًا$/, /^الحملات الإعلانية\s*قريبًا$/, /^تقارير المخزن$/, /^تقارير خدمة العملاء$/, /^تقارير التذاكر$/]);
-  await expect(R(page).locator('[role=tab] [data-soon]')).toHaveCount(2);
+  await expect(R(page).locator('[role=tab]')).toHaveText([/^تقارير الأوردرات$/, /^تقارير المبتكرين$/, /^تقارير الحسابات$/, /^تقارير المنتجات$/, /^تقارير الموظفين$/, /^الحملات الإعلانية\s*قريبًا$/, /^تقارير المخزن$/, /^تقارير خدمة العملاء$/, /^تقارير التذاكر$/]);
+  await expect(R(page).locator('[role=tab] [data-soon]')).toHaveCount(1);
   await expect(tab(page, 'orders')).toHaveAttribute('aria-selected', 'true');
   await expect(kpi(page, 'إجمالي الأوردرات')).toContainText('3'); // the three seeded orders of the last 30 days (the 400-day-old one out)
   await expect(kpi(page, 'نسبة الإكمال')).toContainText('33%');
@@ -77,12 +77,10 @@ test('«التقارير» is open: the nine v2 tabs (staff / campaigns «قري
   await expect(R(page).locator('[data-actions]')).toHaveCount(1);
   await expect(R(page).getByRole('button', { name: 'مقارنة بالفترة السابقة' })).toBeVisible();
   // a soon tab says so and offers no range / CSV / customization
-  await tab(page, 'staff').click();
-  await expect(R(page).locator('#rpanel [data-report-soon]')).toContainText('قريبًا — مع صفحة «الموارد البشرية»');
-  await expect(R(page).locator('.date-field')).toHaveCount(0);
-  await expect(R(page).locator('[data-rp-csv], [data-rp-custom]')).toHaveCount(0);
   await tab(page, 'campaigns').click();
   await expect(R(page).locator('#rpanel [data-report-soon]')).toContainText('قريبًا — مع صفحة «التسويق»');
+  await expect(R(page).locator('.date-field')).toHaveCount(0);
+  await expect(R(page).locator('[data-rp-csv], [data-rp-custom]')).toHaveCount(0);
   await expect(page).toHaveURL(/#reports-campaigns$/);
 });
 

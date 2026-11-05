@@ -1243,3 +1243,27 @@ select user_id, key, data from public.user_prefs where key in ('reports.prefs', 
 **التحقق:** في «الحسابات» › «حسابات المبتكرين» › «كشف بالفترة»: «بنجيب كشوف حساب المبتكرين من Dokan… N من M» وبعدها الجدول. قارن مبتكر واحد بـ «كشف حساب Dokan» بتاعه في نفس الفترة: رصيد أول الفترة = رصيد Dokan الافتتاحي ناقص العرابين والمواصلات المتسجلة قبل الفترة، و«حقه من المكتمل» = مجموع المدين على الأوردرات، و«اتحوّله» = السحوبات، ولو الفترة لحد النهارده المستحق آخر الفترة = «الصافي» في «الرصيد دلوقتي».
 
 **الأمان:** قراءة بس — نفس action `statement` (`accounts.view ≠ N`، أبدًا بسر المزامنة)، الكشف مابيتخزنش (ذاكرة الصفحة للجلسة بس)، و`ref` رقم بس. مافيش أي كتابة على Dokan ولا طلب سحب من التبويب ده؛ التصدير إكسل بيحيّد الصيغ (`xlsxExport`).
+
+#### 2.7.23 الموارد البشرية (المرحلة 10، 5 نوفمبر)
+
+الخطة `docs/superpowers/plans/2026-11-05-phase-10-hr.md`، ودفترها `.superpowers/sdd/2026-11-05-phase-10-hr/progress.md`.
+
+**النشر (بالترتيب — الواجهة آخر حاجة، لأن الساعة في الهيدر بتنادي `hr_clock_in` على كل الصفحات):**
+1. `0046_hr.sql` (Supabase MCP `apply_migration` أو SQL editor) — الصلاحيات الأربعة على الأدوار، جداول HR بـ RLS والـ grants، الـ RPCs، bucket `hr-docs` (مقفول، صور وPDF، 10 ميجا) وسياساته، القناة الـ private `hr`، والـ cron اليومي لفتح الكشف (`hr-payroll-open`). re-runnable. بعدها `supabase/tests/rls_hr.sql` على الحي من workflow «RLS live» (`files = rls_hr`) — المفروض `NOTICE rls_hr: ok` (بيرجع كل حاجة).
+2. Edge Function `team-admin` من workflow «Deploy functions» (`function = team-admin`) — مافيش أسرار جديدة (بتستخدم `SUPABASE_SERVICE_ROLE_KEY` الموجود).
+3. الواجهة: push على `main` (الـ Deploy workflow بيرفع الموقع).
+4. (اختياري، مستحسن) في لوحة Supabase › Authentication › Settings: فعّل «Secure password change» عشان تغيير كلمة المرور من API برّه الصفحة يطلب إعادة دخول.
+
+**التحقق:**
+```sql
+select id, permissions ->> 'hr.view' v, permissions ->> 'hr.edit' e, permissions ->> 'hr.approve' a, permissions ->> 'sensitive.salaries' s from public.roles order by sort;
+select count(*) from public.hr_leave_types; select count(*) from public.hr_holidays; -- بذرة الـ prototype
+select id, public, file_size_limit from storage.buckets where id = 'hr-docs';
+select jobname, schedule from cron.job where jobname like 'hr-%';
+select member_id, day, in_at, out_at, remote, source from public.hr_attendance order by in_at desc limit 10; -- بعد أول «ابدأ الدوام»
+select at, action, entity_id, new_value from public.activity_log where entity = 'hr' order by at desc limit 20; -- أكواد وشهور بس
+```
+وفي الواجهة: «الموارد البشرية» من غير soon؛ «ابدأ الدوام» من الهيدر وrefresh = نفس الدوام (المشكلة المعروفة 1 اتحلت)؛ «إضافة عضو» بيطلّع الباسورد المؤقت مرة واحدة؛ العضو بيغيّره من «ملفي › الحساب والأمان»؛ عضو من غير `sensitive.salaries` مابيشوفش أي مبلغ غير قسيمته.
+
+**الأمان:** القراية بـ RLS (`hr_can_see` / `hr_can_decide` / `hr_salaries`)، والكتابة الحساسة RPCs `security definer` بقواعدها (الساعة بوقت السيرفر و«عن بُعد» من الطلب المتوافق عليه؛ القرار للمدير المباشر أو `hr.approve`؛ الكشف والفلوس لـ `sensitive.salaries`)؛ `hr_team()` بالأسامي بس (مافيش إيميل/موبايل/صلاحيات للمدير)؛ المستندات في فولدر العضو ولينك موقّع 10 دقايق؛ الباسورد المؤقت في رد `team-admin` بس (مش متخزن ولا متسجل)؛ تغيير كلمة المرور بيتأكد من الحالية بعميل مؤقت مابيخزّنش جلسة؛ `activity_log` من غير مبالغ ولا نصوص.
+

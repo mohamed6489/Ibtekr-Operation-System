@@ -59,4 +59,8 @@
 - [x] مراجعة أمنية (قرار 23): `hr_members.notes` كانت بتتقري للعضو نفسه وللمدير بـ `hr.view` P — دلوقتي grants بقايمة أعمدة من غير
   `notes` + `hr_member_notes()` / `hr_member_note_set()` لـ `hr.edit` F (مش على صفّه)؛ الـ adapter والـ mock معاهم؛ `rls_hr` ✓ بالحالات
   الجديدة، adapter hr 19 ✓، e2e HR 25 ✓. (`0046` لسه مااتطبقش على الحي — صاحب المشروع هيلصق النسخة دي.)
-- [ ] T9 التوثيق + النشر
+- [x] T9 التوثيق + النشر (5 نوفمبر): `CLAUDE.md` و`tools/deploy.md` §2.7.23 (f6dcc91)؛ `team-admin` من «Deploy functions» (run 42091447995 ✓)؛
+  `0046` (نسخة قرار 23) صاحب المشروع لصقها في الـ SQL editor واتأكدت حي — 17 جدول HR كلها بـ RLS، صلاحيات الأدوار (أدمن FFFF، الباقي PNNN،
+  المشاهد NNNN)، cron `hr-payroll-open` (`5 22 * * *`)، bucket `hr-docs` مقفول 10 ميجا، عمود `notes` مقفول على `authenticated`،
+  `hr_clock_in()` من غير باراميتر والقديمة اتشالت، سياسة `hr_receive`؛ `rls_hr` حي ✓ (run 42120695296)؛ `0047` (الـ MCP مالحقش الموافقة →
+  SQL editor) والتريجر على `auth.users` ✓ + `rls_profile_email` حي ✓ (run 42125516126)؛ `main` ← `0335544` والـ Deploy ✓ (run 42125675510).

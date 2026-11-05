@@ -2,7 +2,8 @@
 // sees (RLS: hr.view F = everyone, P = me + the members I manage, N = me only; the pay / the sheet / the extras for
 // sensitive.salaries F or one's own) into IBHR.data in the prototype's shapes — IBKit.store keeps the demo rows of the blocks not on
 // IBHR yet (the HR page = T5, the clock = T6, «ملفي» = T7 move one by one; the CS pattern: IBCS.data) — with the same names:
-//   team / member(code): copies of IBDirectory's members with salary · holdback · allow (hr_pay) · shift [start, end] · leave (a
+//   team / member(code) / team() (the page's list): copies of IBDirectory's members (+ hr_team(): the names of a manager's team the
+//     profiles' RLS hides) with salary · holdback · allow (hr_pay) · shift [start, end] · leave (a
 //     year) · used (the approved leave days this year that deduct) · hire · contract ('uploaded' | 'missing' | 'expiring') ·
 //     contractEnd · docs · monthMin / otMonth / restDays (this month) · hrNotes · payKnown
 //   today { code: { in, out, remote, kind?, missingYesterday } } — minutes since 00:00 Cairo; kind 'leave' | 'absent' | 'off' | 'holiday'
@@ -44,7 +45,8 @@
   const FIELD_MESSAGES = { ended: 'الدوام النهارده اتقفل — التصحيح بيبقى بطلب «تصحيح انصراف»', shift: 'مفيش دوام مفتوح', day: 'اليوم ده مش متاح', time: 'اكتب الوقت',
     amount: 'اكتب المبلغ وعدد الأقساط', to: 'راجع التاريخ', type: 'النوع ده مش موجود', reason: 'اكتب السبب', minutes: 'راجع عدد الدقايق', weights: 'مجموع الأوزان لازم 100%',
     actual: 'اكتب الفعلي لكل مؤشر', month: 'الشهر ده لسه مجاش', status: 'الحالة دي مش متاحة', step: 'الخطوة دي مش متاحة للكشف دلوقتي', account: 'اختار الحساب',
-    doc: 'ارفع المرفق المطلوب', note: 'الملاحظة طويلة', decision: 'القرار مش صحيح', email: 'الإيميل ده مستخدم', phone: 'رقم الموبايل ده مستخدم' };
+    doc: 'ارفع المرفق المطلوب', note: 'الملاحظة طويلة', decision: 'القرار مش صحيح', email: 'الإيميل ده مستخدم', phone: 'رقم الموبايل ده مستخدم',
+    meeting: 'الوقت الإضافي اللي اترفض بيرجع بنتيجة الميتنج بتاعه بس' };
   const fail = (err) => { const reason = reasonOf(err); const field = reason === 'invalid' ? fieldOf(err) : null; return { ok: false, reason, field, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] }; };
   const no = (reason, field) => ({ ok: false, reason, field: field || null, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] });
   const log = (action, detail, id) => { const L = window.IBActivity; if (L && L.log) quiet(() => L.log(action, detail, { entity: 'hr', entity_id: id || null })); };
@@ -79,7 +81,16 @@
   const quarterMonths = (key) => { const y = key.slice(0, 4); const q0 = Math.floor((Number(key.slice(5, 7)) - 1) / 3) * 3; return [1, 2, 3].map((i) => y + '-' + String(q0 + i).padStart(2, '0')); };
 
   // ---------- names ----------
-  const members = () => (S() && S().members) || [];
+  // the roster: the directory's members (settings.view decides) + the members only HR shows me (hr_team(): a manager's team —
+  // names, title, department, manager, status; never contact details), rebuilt with each load
+  let roster = [];
+  const ROLE_NAME = { admin: 'أدمن', ops: 'عمليات', cs: 'خدمة العملاء', accounts: 'حسابات', vendors_followup: 'متابعة المبتكرين', viewer: 'مشاهد' };
+  function buildRoster(team) {
+    const dir = (S() && S().members) || []; const known = new Set(dir.map((m) => m.uid)); const code = Object.fromEntries((team || []).map((t) => [t.id, t.member_code]).concat(dir.map((m) => [m.uid, m.id])));
+    roster = dir.concat((team || []).filter((t) => !known.has(t.id)).map((t) => ({ id: t.member_code, uid: t.id, name: t.name, title: t.title || '', dept: t.dept || '', manager: code[t.manager_id] || '',
+      status: t.status, role: ROLE_NAME[t.role_id] || '', phone: '', email: '', twofa: false, fromHr: true })));
+  }
+  const members = () => (roster.length ? roster : (S() && S().members) || []);
   const byUid = (uid) => members().find((m) => m.uid === uid) || null;
   const byCode = (code) => members().find((m) => m.id === code) || null;
   const codeOf = (uid) => { const m = byUid(uid); return m ? m.id : null; };
@@ -88,7 +99,7 @@
 
   // ---------- the loaded rows ----------
   let st = 'idle'; let gen = 0;
-  const raw = { members: [], pay: [], att: [], ot: [], req: [], hol: [], lt: [], br: [], otp: [], kpis: [], scores: [], extras: [], meet: [], adj: [], payroll: [], docs: [], settings: {} };
+  const raw = { team: [], members: [], pay: [], att: [], ot: [], req: [], hol: [], lt: [], br: [], otp: [], kpis: [], scores: [], extras: [], meet: [], adj: [], payroll: [], docs: [], settings: {} };
   const ids = { req: 'HR-', ot: 'OT-', meet: 'MT-' };
   const pad = (n, w) => String(n).padStart(w, '0');
   const reqId = (n) => ids.req + pad(n, 4); const otId = (n) => ids.ot + pad(n, 4); const mtId = (n) => ids.meet + pad(n, 2);
@@ -199,7 +210,8 @@
     const g = ++gen; st = 'loading';
     try {
       const t = today(); const since = addDays(t, -DAYS_BACK); const reqSince = addDays(t, -REQ_DAYS); const scoreSince = addDays(t.slice(0, 8) + '01', -730);
-      const [hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, set] = await Promise.all([
+      const [team, hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, set] = await Promise.all([
+        cl.rpc('hr_team').then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []),
         rows(cl.from('hr_members').select('member_id, shift_start, shift_end, hire_date, leave_days, notes')),
         maybe(cl.from('hr_pay').select('member_id, salary, holdback, allowances')),
         rows(cl.from('hr_attendance').select('id, member_id, day, in_at, out_at, remote, source, note, by_id').gte('day', since).order('day', { ascending: false }).limit(5000)),
@@ -219,8 +231,8 @@
         cl.rpc('hr_settings').then((r) => (r && !r.error && r.data && typeof r.data === 'object' ? r.data : {}), () => ({})),
       ]);
       if (g !== gen) return { ok: false, reason: 'stale' };
-      Object.assign(raw, { members: hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, settings: set });
-      shape(); st = 'ready'; emit(); subscribe(); return { ok: true };
+      Object.assign(raw, { team, members: hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, settings: set });
+      buildRoster(team); shape(); st = 'ready'; emit(); subscribe(); return { ok: true };
     } catch (e) { if (g === gen) st = 'error'; emit(); return fail(e); }
   }
   function empty() {
@@ -228,8 +240,14 @@
     Object.assign(data, { today: {}, kpis: {}, scores: {}, scoreRows: {}, sheets: {}, sheet: { month: monthKey(today()), status: 'مسودة', exists: false }, hrSettings: Object.assign({}, DEFAULTS) });
   }
   empty();
-  function clear() { gen += 1; unsubscribe(); Object.keys(raw).forEach((k) => { raw[k] = k === 'settings' ? {} : []; }); st = 'idle'; empty(); }
+  function clear() { gen += 1; unsubscribe(); Object.keys(raw).forEach((k) => { raw[k] = k === 'settings' ? {} : []; }); roster = []; st = 'idle'; empty(); }
   const member = (code) => data.team.find((m) => m.id === code) || null;
+  // the team the HR page lists: active, the ones hr.view lets me see (F all · P me + the members I manage · N me), without an admin
+  // who has no pay row (the owner is not on the sheet)
+  function team() {
+    const p = perm('hr.view'); const mine = me() ? me().member_code : null;
+    return data.team.filter((m) => m.status === 'active' && (p === 'F' || m.id === mine || (p === 'P' && m.manager === mine)) && !(m.role === 'أدمن' && !(m.salary > 0)));
+  }
   const after = async (action, detail, id) => { log(action, detail, id); await load(); return { ok: true }; };
   async function rpc(name, args) { const cl = c(); if (!cl) return { error: { code: 'net' } }; try { return await cl.rpc(name, args); } catch (e) { return { error: { code: 'net' } }; } }
   async function write(q) { try { const r = await q; return r && r.error ? r : { data: r ? r.data : null }; } catch (e) { return { error: { code: 'net' } }; } }
@@ -507,7 +525,7 @@
     if (lv && c()) { try { Promise.resolve(c().removeChannel(lv)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
 
-  window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, can, settings, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
+  window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, can, settings, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
     shiftNow, clockIn, clockOut, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,

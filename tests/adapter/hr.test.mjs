@@ -14,9 +14,9 @@ const clock = (t) => class extends Date { constructor(...a) { super(...(a.length
 const A = 'a0000000-0000-4000-8000-000000000001'; const B = 'a0000000-0000-4000-8000-000000000002'; const C = 'a0000000-0000-4000-8000-000000000003';
 const cairo = (day, hm) => { const [h, m] = hm.split(':').map(Number); return new Date(Date.parse(day + 'T00:00:00Z') + ((h - 2) * 60 + m) * 60000).toISOString(); };
 const MEMBERS = () => [
-  { id: 'M01', uid: A, name: 'صفوت كمال', dept: 'الإدارة', title: 'المؤسس', status: 'active', salary: 0, holdback: 0, allow: 0, shift: ['09:00', '17:00'] },
-  { id: 'M02', uid: B, name: 'سارة أحمد', dept: 'العمليات', title: 'مديرة العمليات', status: 'active', salary: 0, holdback: 0, allow: 0, shift: ['09:00', '17:00'] },
-  { id: 'M03', uid: C, name: 'محمد علي', dept: 'العمليات', title: 'تغليف', status: 'active', salary: 0, holdback: 0, allow: 0, shift: ['09:00', '17:00'] },
+  { id: 'M01', uid: A, name: 'صفوت كمال', dept: 'الإدارة', title: 'المؤسس', role: 'أدمن', manager: '', status: 'active', salary: 0, holdback: 0, allow: 0, shift: ['09:00', '17:00'] },
+  { id: 'M02', uid: B, name: 'سارة أحمد', dept: 'العمليات', title: 'مديرة العمليات', role: 'عمليات', manager: 'M01', status: 'active', salary: 0, holdback: 0, allow: 0, shift: ['09:00', '17:00'] },
+  { id: 'M03', uid: C, name: 'محمد علي', dept: 'العمليات', title: 'تغليف', role: 'خدمة العملاء', manager: 'M01', status: 'active', salary: 0, holdback: 0, allow: 0, shift: ['09:00', '17:00'] },
 ];
 const RESPONSES = () => ({
   hr_members: ok([{ member_id: B, shift_start: '09:00:00', shift_end: '17:00:00', hire_date: '2025-05-12', leave_days: 21, notes: null }, { member_id: C, shift_start: '10:00:00', shift_end: '18:00:00', hire_date: null, leave_days: 21, notes: 'ملاحظة' }]),
@@ -56,12 +56,13 @@ const RESPONSES = () => ({
   hr_payroll: ok([{ month: '2026-10-01', status: 'مدفوع', total: 30000, paid_account: 'حساب البنك' }, { month: '2026-11-01', status: 'مراجعة', total: null, paid_account: null }]),
   hr_documents: ok([{ id: 51, member_id: B, kind: 'عقد عمل', path: B + '/c.pdf', name: 'عقد.pdf', start_on: '2026-01-01', end_on: '2026-11-20', created_at: '2026-01-01T00:00:00Z' }]),
   'rpc:hr_settings': ok({ lateGrace: 30, departments: ['العمليات', 'الإدارة', 'الميديا'] }),
+  'rpc:hr_team': ok([{ id: 'a0000000-0000-4000-8000-000000000005', member_code: 'M05', name: 'كريم سامي', title: 'مصوّر', dept: 'الميديا', manager_id: B, status: 'active', role_id: 'cs' }]),
 });
-function load({ now = NOW, responses = {}, perms = { 'hr.view': 'F', 'hr.edit': 'F', 'hr.approve': 'F', 'sensitive.salaries': 'F' }, role = 'admin', realtime = false, accounts = null } = {}) {
+function load({ now = NOW, meId = A, meCode = 'M01', responses = {}, perms = { 'hr.view': 'F', 'hr.edit': 'F', 'hr.approve': 'F', 'sensitive.salaries': 'F' }, role = 'admin', realtime = false, accounts = null } = {}) {
   const stub = stubClient({ responses: { ...RESPONSES(), ...responses } });
   const events = []; const logs = []; const store = { members: MEMBERS() };
   const window = { IBSupabase: { client: stub.client }, IB_CONFIG: { realtime }, IBKit: { store },
-    IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: A, name: 'صفوت كمال', role_id: role, status: 'active' }), refresh: async () => { store.members.push({ id: 'M04', uid: 'a0000000-0000-4000-8000-000000000004', name: 'كريم', status: 'active', shift: ['09:00', '17:00'] }); } },
+    IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: meId, member_code: meCode, name: 'صفوت كمال', role_id: role, status: 'active' }), refresh: async () => { store.members.push({ id: 'M04', uid: 'a0000000-0000-4000-8000-000000000004', name: 'كريم', status: 'active', shift: ['09:00', '17:00'] }); } },
     IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } }, IBAccounts: accounts || undefined,
     crypto: { randomUUID: () => 'abcdef12-0000-4000-8000-000000000000' } };
   runInNewContext(src, { window, document: { dispatchEvent(e) { events.push(e.type); }, visibilityState: 'visible' }, CustomEvent: class { constructor(t) { this.type = t; } },
@@ -135,6 +136,16 @@ test('load: the requests, overtime and meetings with the prototype\'s ids and la
   eq(H.data.departments, ['العمليات', 'الإدارة', 'الميديا']);
   eq(H.data.holidays[0], { dbId: 1, date: '2026-11-10', name: 'عيد', days: 2, kind: 'هجري', status: 'متوقع' });
   eq([H.quarterOf('2026-11'), H.quarterMonths('2026-11')], ['2026-Q4', ['2026-10', '2026-11', '2026-12']]);
+});
+
+test('the roster: a member only hr_team() shows (a manager\'s team the profiles hide) joins without contact details; team() follows hr.view', async () => {
+  const { H } = load(); await H.load();
+  const k = H.member('M05'); eq([k.name, k.dept, k.manager, k.email, k.phone, k.role], ['كريم سامي', 'الميديا', 'M02', '', '', 'خدمة العملاء']);
+  eq(H.team().map((m) => m.id), ['M02', 'M03', 'M05'], 'F: everyone active but the admin without pay');
+  const mgr = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'P' } }); await mgr.H.load();
+  eq(mgr.H.team().map((m) => m.id), ['M02', 'M05'], 'P: me + the members I manage');
+  const solo = load({ meId: C, meCode: 'M03', role: 'viewer', perms: {} }); await solo.H.load();
+  eq(solo.H.team().map((m) => m.id), ['M03'], 'N: me');
 });
 
 test('the clock: hr_clock_in / hr_clock_out (the note only when there is one) and the reload; «ended» comes back in Arabic', async () => {

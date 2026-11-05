@@ -138,6 +138,7 @@ export function hrRoute(c) {
       l.sort((x, y) => ((y.out_at == null) - (x.out_at == null)) || (x.in_at < y.in_at ? 1 : -1)); const a = l[0];
       return a ? { id: a.id, day: a.day, in_at: a.in_at, out_at: a.out_at, remote: a.remote } : null; };
     if (f === 'hr_settings') return json(200, active ? ((mock.settings.find((s) => s.section === 'hr') || {}).data || {}) : null);
+    if (f === 'hr_team') return json(200, mock.profiles.filter((p) => sees(p.id)).map((p) => ({ id: p.id, member_code: p.member_code, name: p.name, title: p.title || null, dept: p.dept || null, manager_id: p.manager_id || null, status: p.status, role_id: p.role_id })));
     if (f === 'hr_shift_now') return json(200, active ? shift() : null);
     if (f === 'hr_clock_in') {
       if (!active) return no();
@@ -196,6 +197,8 @@ export function hrRoute(c) {
     if (f === 'hr_overtime_decide') {
       const o = H.overtime.find((x) => x.id === Number(b.p_id)); if (!o || !sees(o.member_id)) return nf(); if (!decides(o.member_id)) return no();
       if (!(o.status === 'مستني' || (o.status === 'اترفض' && b.p_decision === 'add'))) return bad('status'); const reason = String(b.p_reason || '').trim() || null;
+      if (o.status === 'اترفض') { if (!editor) return no(); const mt = H.meetings.find((x) => x.member_id === o.member_id && x.ref === 'OT-' + o.id && x.status !== 'اتقفلت'); if (!mt) return bad('meeting');
+        Object.assign(mt, { status: 'اتقفلت', outcome: 'اتضاف الوقت', updated_at: now }); } // the meeting's result (the security review)
       if (b.p_decision === 'add') { const m = o.kind === 'rest_day' ? o.minutes : b.p_minutes == null ? o.minutes : Number(b.p_minutes); if (!(m > 0) || m > o.minutes) return bad('minutes');
         let pm = monthOf(o.day); while (H.payroll.some((p) => p.month === pm && ['معتمد', 'مدفوع'].includes(p.status))) pm = nextMonth(pm); // a late approval rides the next open sheet
         Object.assign(o, { status: 'اتضاف', paid_minutes: m, pay_month: pm, decided_by: u.id, decided_at: now, reason }); return json(200, 'اتضاف'); }

@@ -248,10 +248,31 @@ begin
   if not exists (select 1 from public.hr_meetings where member_id = '00000000-0000-4000-8000-0000000046a3' and ref = 'OT-' || v_ot and status = 'مطلوب') then
     raise exception 'case «متضيفهوش» opens a one-to-one meeting failed';
   end if;
-  -- after the meeting: «الوقت يتضاف» (decision 16); a refused one is never refused again
+  -- a refused one is never refused again, and its manager cannot bring it back alone (it is the meeting's result — hr.edit F)
   begin perform public.hr_overtime_decide(v_ot, 'reject', null, 'تاني'); raise exception 'case a refused overtime is not refused twice failed'; exception when invalid_parameter_value then null; end;
-  if public.hr_overtime_decide(v_ot, 'add') <> 'اتضاف' then raise exception 'case «ضيفه» after the meeting failed'; end if;
-  if (select paid_minutes from public.hr_overtime where id = v_ot) <> 60 then raise exception 'case «ضيفه» after the meeting pays it all failed'; end if;
+  begin perform public.hr_overtime_decide(v_ot, 'add'); raise exception 'case a manager does not re-add a refused overtime failed'; exception when insufficient_privilege then null; end;
+end $$;
+-- the meeting's result (decision 16): «الوقت يتضاف» — the time added and the meeting closed with it, once
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a1","role":"authenticated"}', true);
+do $$
+declare v_ot bigint := (select v::bigint from hr_ids where k = 'ot2');
+begin
+  if public.hr_overtime_decide(v_ot, 'add') <> 'اتضاف' then raise exception 'case «ضيفه» as the meeting''s result failed'; end if;
+  if (select paid_minutes from public.hr_overtime where id = v_ot) <> 60 then raise exception 'case the meeting''s result pays it all failed'; end if;
+  if (select status || ' · ' || outcome from public.hr_meetings where ref = 'OT-' || v_ot) <> 'اتقفلت · اتضاف الوقت' then raise exception 'case the meeting closes with the time added failed'; end if;
+  begin perform public.hr_overtime_decide(v_ot, 'add'); raise exception 'case an added overtime stays failed'; exception when invalid_parameter_value then null; end;
+end $$;
+-- a refused overtime without an open meeting stays refused
+reset role;
+insert into public.hr_overtime (member_id, day, start_at, end_at, minutes, note, status, reason)
+  values ('00000000-0000-4000-8000-0000000046a3', public.hr_today() - 2, now() - interval '50 hours', now() - interval '49 hours', 60, 'من غير ميتنج', 'اترفض', 'لأ');
+insert into hr_ids select 'ot3', max(id)::text from public.hr_overtime;
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a1","role":"authenticated"}', true);
+do $$
+begin
+  begin perform public.hr_overtime_decide((select v::bigint from hr_ids where k = 'ot3'), 'add'); raise exception 'case a refused overtime needs its open meeting failed';
+  exception when invalid_parameter_value then null; end;
 end $$;
 
 -- ================================================================ decision 16: documents, a leave's report, achievements, settings, profiles
@@ -321,18 +342,20 @@ begin
     raise exception 'case a stranger reads no document failed';
   end if;
   if (select count(*) from public.profiles) <> 1 then raise exception 'case a member without settings.view reads their own profile only failed'; end if;
+  if (select count(*) from public.hr_team()) <> 1 then raise exception 'case hr_team without a team is me failed'; end if;
 end $$;
 
--- a direct manager without settings.view (cs) reads the profile of the member they manage
+-- a direct manager without settings.view (cs): the names of the member they manage through hr_team(), the profile itself still closed
 reset role;
 update public.profiles set manager_id = '00000000-0000-4000-8000-0000000046a4' where id = '00000000-0000-4000-8000-0000000046a5';
 set local role authenticated;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a4","role":"authenticated"}', true);
 do $$
 begin
-  if (select count(*) from public.profiles) <> 2 or not exists (select 1 from public.profiles where id = '00000000-0000-4000-8000-0000000046a5') then
-    raise exception 'case a manager reads their team''s profiles failed';
+  if (select count(*) from public.hr_team()) <> 2 or not exists (select 1 from public.hr_team() where id = '00000000-0000-4000-8000-0000000046a5' and name = 'مشاهد') then
+    raise exception 'case a manager reads their team''s names failed';
   end if;
+  if (select count(*) from public.profiles) <> 1 then raise exception 'case the profiles stay settings.view''s failed'; end if;
 end $$;
 
 reset role;

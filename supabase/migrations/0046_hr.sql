@@ -16,8 +16,9 @@
 --   net + one withdrawal of the total from the account picked, in the same transaction).
 -- * Decision 16 (T4): the documents in hr_documents + the private bucket «hr-docs» (the member's folder; hr.edit F writes, the
 --   member reads their own), a leave's report on the request (doc_path — required when the type's «مرفق» is not «—»),
---   «مكافأة إنجاز» = an adjustment of kind achievement, «ضيفه» again on a refused overtime after its meeting, hr_settings() for
---   every active member, and a manager reads the profiles of the members they see (profiles_select_hr).
+--   «مكافأة إنجاز» = an adjustment of kind achievement, «ضيفه» again on a refused overtime as its meeting's result (hr.edit F, the
+--   meeting closed with it), hr_settings() for every active member, hr_team() (the names of the members I see in HR — the profiles
+--   themselves stay settings.view's), and a late approval paid with the next open sheet (hr_overtime.pay_month).
 -- * The rules are block 12's (IbtekrOps): the day = salary ÷ 24, the hour = the day ÷ 8, overtime at the hour, a rest day /
 --   holiday worked ×2, the month's incentive = holdback × min(score, 100)% (0 under 70), paid with the quarter's third month.
 -- Re-runnable; no drop / delete / truncate of data.
@@ -503,11 +504,10 @@ begin
     create policy hr_documents_insert on public.hr_documents for insert to authenticated with check (public.hr_editor());
     create policy hr_documents_update on public.hr_documents for update to authenticated using (public.hr_editor()) with check (public.hr_editor());
   end if;
-  -- a direct manager (hr.view P) reads the profiles of the members they see (their names on the team page), without settings.view
-  if not exists (select 1 from pg_policies where tablename = 'profiles' and policyname = 'profiles_select_hr') then
-    create policy profiles_select_hr on public.profiles for select to authenticated using (public.hr_can_see(id));
-  end if;
 end $pol$;
+-- the profiles stay settings.view's (0001): a direct manager reads their team's names through hr_team() below (the security
+-- review: no email / phone / custom_perms / twofa through HR)
+drop policy if exists profiles_select_hr on public.profiles;
 
 -- the requests as members read them: an advance's amount for sensitive.salaries F or its own member only
 create or replace view public.hr_requests_v with (security_barrier = true) as
@@ -516,6 +516,14 @@ create or replace view public.hr_requests_v with (security_barrier = true) as
     r.decided_by, r.decided_at, r.reason, r.created_by, r.created_at, r.doc_path
   from public.hr_requests r
   where public.hr_can_see(r.member_id);
+
+-- the members I see in HR (hr_can_see) with what the team page shows of them — names, never contact details or permissions
+create or replace function public.hr_team()
+returns table (id uuid, member_code text, name text, title text, dept text, manager_id uuid, status text, role_id text)
+language sql stable security definer set search_path = public as $$
+  select p.id, p.member_code, p.name, p.title, p.dept, p.manager_id, p.status, p.role_id
+  from public.profiles p where public.hr_can_see(p.id) order by p.member_code
+$$;
 
 -- the settings row «hr» (the clock's end-of-shift / presence rules, the late grace …) for every active member — settings.view
 -- reads the table itself, and most roles have none
@@ -723,9 +731,16 @@ begin
   select * into v_o from public.hr_overtime where id = p_id for update;
   if not found or not public.hr_can_see(v_o.member_id) then raise exception 'not found' using errcode = 'P0002'; end if;
   if not public.hr_can_decide(v_o.member_id) then raise exception 'not allowed' using errcode = '42501'; end if;
-  -- «ضيفه» on a waiting one, or on a refused one after its one-to-one meeting («الوقت يتضاف بعد التوضيح»); «متضيفهوش» on a waiting one
+  -- «ضيفه» / «متضيفهوش» on a waiting one; a refused one comes back only as the result of its own one-to-one meeting («الوقت يتضاف
+  -- بعد التوضيح»): hr.edit F (who records meetings), the meeting still open — and it is closed with that outcome here (the security review)
   if not (v_o.status = 'مستني' or (v_o.status = 'اترفض' and p_decision = 'add')) then raise exception 'invalid: status' using errcode = '22023'; end if;
   if v_reason is not null and char_length(v_reason) > 300 then raise exception 'invalid: reason' using errcode = '22023'; end if;
+  if v_o.status = 'اترفض' then
+    if not public.hr_editor() then raise exception 'not allowed' using errcode = '42501'; end if;
+    update public.hr_meetings set status = 'اتقفلت', outcome = 'اتضاف الوقت'
+    where member_id = v_o.member_id and ref = 'OT-' || p_id and status <> 'اتقفلت';
+    if not found then raise exception 'invalid: meeting' using errcode = '22023'; end if;
+  end if;
   if p_decision = 'add' then
     v_min := case when v_o.kind = 'rest_day' then v_o.minutes else coalesce(p_minutes, v_o.minutes) end;
     if v_min <= 0 or v_min > v_o.minutes then raise exception 'invalid: minutes' using errcode = '22023'; end if;
@@ -926,8 +941,8 @@ grant select on public.hr_requests_v to service_role;
 grant usage on all sequences in schema public to authenticated, service_role;
 
 revoke execute on function public.hr_stamp(), public.hr_meetings_stamp(), public.hr_adjustments_guard(), public.hr_documents_guard() from public, anon, authenticated;
-revoke execute on function public.hr_settings(), public.hr_doc_visible(text) from public, anon;
-grant execute on function public.hr_settings(), public.hr_doc_visible(text) to authenticated, service_role;
+revoke execute on function public.hr_settings(), public.hr_doc_visible(text), public.hr_team() from public, anon;
+grant execute on function public.hr_settings(), public.hr_doc_visible(text), public.hr_team() to authenticated, service_role;
 revoke execute on function public.hr_payroll_calc(date), public.hr_payroll_open(date) from public, anon;
 grant execute on function public.hr_rest_day(date), public.hr_today(), public.hr_active(), public.hr_is_manager_of(uuid), public.hr_can_see(uuid), public.hr_can_decide(uuid),
   public.hr_salaries(), public.hr_editor(), public.hr_at(date, time), public.hr_shift_now(), public.hr_clock_in(boolean), public.hr_clock_out(text, timestamptz),

@@ -26,8 +26,8 @@
     if (!meRow || meRow.status !== 'active') return;
     const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity, Or = window.IBOrders, V = window.IBVendors, Ac = window.IBAccounts, CS = window.IBCS;
     await Promise.allSettled([P && P.load(), A && A.load(), L && L.refresh && L.refresh(), Or && Or.load(), V && V.load()]);
-    const Inv = window.IBInventory;
-    if (Ac || CS || Inv) await Promise.allSettled([Ac && Ac.load(), CS && CS.load(), Inv && Inv.load()]); // phase 4 / 6 / 7: after the makers (the moves, the makers' chats and the lots carry their names)
+    const Inv = window.IBInventory, Tk = window.IBTickets;
+    if (Ac || CS || Inv || Tk) await Promise.allSettled([Ac && Ac.load(), CS && CS.load(), Inv && Inv.load(), Tk && Tk.load()]); // phase 4 / 6 / 7 / 8: after the makers (the moves, the makers' chats and the lots carry their names)
     if (A) quiet(() => A.subscribe());
     if (Or) quiet(() => Or.subscribe());
     if (CS) quiet(() => CS.subscribe());
@@ -42,6 +42,7 @@
     if (window.IBProducts) quiet(() => window.IBProducts.clear()); // phase 5: loaded by the products page, forgotten here
     if (window.IBCS) quiet(() => window.IBCS.clear()); // phase 6 (unsubscribes too)
     if (window.IBInventory) quiet(() => window.IBInventory.clear()); // phase 7
+    if (window.IBTickets) quiet(() => window.IBTickets.clear()); // phase 8 (unsubscribes too)
     if (A) { quiet(() => A.unsubscribe()); quiet(() => A.clear()); }
     if (L && L.clear) quiet(() => L.clear());
     if (Or) quiet(() => Or.clear()); // unsubscribes too

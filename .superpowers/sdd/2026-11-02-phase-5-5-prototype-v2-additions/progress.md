@@ -27,6 +27,6 @@
   وخدمة العملاء والتقارير. e2e 1 جديد في `auth.spec.mjs`؛ الكتلة 14 + lock. السكرول بار الأفقي (`xbars`) برّه القرار.
 - قرار 13 ✓ (5 نوفمبر — صاحب المشروع «زوّد الكشف بالفترة» برصيد Dokan أول الفترة): تبويب «كشف بالفترة» في «حسابات المبتكرين» (الكتلة 28 `VendorsTab`
   / `LedgerView`) على كشف حساب Dokan لكل مبتكر (woo-sync `statement` + `ref` جديد) و`D.makerLedger` / `ledgerTotals` (الكتلة 02) و`IBAccounts.loadLedger`
-  (4 في المرة، محفوظ للجلسة). دومين 3 + adapter 1 + Deno + e2e 1؛ اتصوّر. النشر: woo-sync من workflow «Deploy functions» (عشان `ref`؛ من غيره
-  مبيعات المكتمل وحصة إبتكر بتطلع «*» بس والباقي شغال).
+  (4 في المرة، محفوظ للجلسة). دومين 3 + adapter 1 + Deno + e2e 1؛ اتصوّر. الحي (c55b288): الموقع من Deploy، وwoo-sync **v57** من workflow «Deploy
+  functions» (عشان `ref`).
 

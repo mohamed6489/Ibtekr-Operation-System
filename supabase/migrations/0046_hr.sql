@@ -14,6 +14,10 @@
 -- * Payroll (decisions 3 / 8 / 14): one sheet per month, opened by itself (pg_cron, daily, idempotent) — مسودة → مراجعة →
 --   معتمد (the lines are snapshotted from hr_payroll_calc) → مدفوع (hr_payroll_pay: an «المرتبات» expense per member at the
 --   net + one withdrawal of the total from the account picked, in the same transaction).
+-- * Decision 16 (T4): the documents in hr_documents + the private bucket «hr-docs» (the member's folder; hr.edit F writes, the
+--   member reads their own), a leave's report on the request (doc_path — required when the type's «مرفق» is not «—»),
+--   «مكافأة إنجاز» = an adjustment of kind achievement, «ضيفه» again on a refused overtime after its meeting, hr_settings() for
+--   every active member, and a manager reads the profiles of the members they see (profiles_select_hr).
 -- * The rules are block 12's (IbtekrOps): the day = salary ÷ 24, the hour = the day ÷ 8, overtime at the hour, a rest day /
 --   holiday worked ×2, the month's incentive = holdback × min(score, 100)% (0 under 70), paid with the quarter's third month.
 -- Re-runnable; no drop / delete / truncate of data.
@@ -84,7 +88,6 @@ create table if not exists public.hr_members (
   shift_end time not null default '17:00',
   hire_date date,
   leave_days numeric(5,1) not null default 21 check (leave_days >= 0 and leave_days <= 365),
-  contract_path text check (contract_path is null or char_length(contract_path) <= 300),
   notes text check (notes is null or char_length(notes) <= 500),
   updated_by uuid references public.profiles default auth.uid(),
   updated_at timestamptz not null default now()
@@ -138,6 +141,9 @@ create index if not exists hr_overtime_member_idx on public.hr_overtime (member_
 -- a rest day / holiday worked (×2) waits for the same approval as overtime (the security review: no self-service pay)
 alter table public.hr_overtime add column if not exists kind text not null default 'hours' check (kind in ('hours', 'rest_day'));
 create unique index if not exists hr_overtime_rest_day_idx on public.hr_overtime (member_id, day) where kind = 'rest_day';
+-- the sheet that pays it (set by «ضيفه»): the month of the day worked, or — approved after that sheet was approved / paid — the first
+-- sheet still open, so a late approval is never lost
+alter table public.hr_overtime add column if not exists pay_month date check (pay_month is null or extract(day from pay_month) = 1);
 
 
 -- ---------------------------------------------------------------- requests
@@ -153,6 +159,7 @@ create table if not exists public.hr_requests (
   amount numeric(12,2) check (amount is null or (amount > 0 and amount <= 10000000)),
   months int check (months is null or months between 1 and 24),
   note text check (note is null or char_length(note) <= 500),
+  doc_path text check (doc_path is null or char_length(doc_path) <= 300),  -- a sick leave's medical report (bucket «hr-docs», the member's folder)
   status text not null default 'جديد' check (status in ('جديد', 'قيد المراجعة', 'موافق', 'مرفوض', 'اتلغى')),
   decided_by uuid references public.profiles,
   decided_at timestamptz,
@@ -288,11 +295,32 @@ create table if not exists public.hr_adjustments (
   amount numeric(12,2) not null check (amount <> 0 and abs(amount) <= 10000000),
   label text not null check (char_length(btrim(label)) between 1 and 80),
   note text check (note is null or char_length(note) <= 300),
+  -- «مكافأة إنجاز» (the prototype's achievements) is an addition paid with that month's salary
+  kind text not null default 'adjust' check (kind in ('adjust', 'achievement')),
   created_by uuid references public.profiles default auth.uid(),
   created_at timestamptz not null default now(),
   voided_by uuid references public.profiles,
-  voided_at timestamptz
+  voided_at timestamptz,
+  check (kind = 'adjust' or amount > 0)
 );
+
+-- the members' documents (the contract, the ID card …): the files in the private bucket «hr-docs» under the member's folder
+create table if not exists public.hr_documents (
+  id bigint generated always as identity primary key,
+  member_id uuid not null references public.profiles on delete cascade,
+  kind text not null check (kind in ('عقد عمل', 'ملحق عقد', 'بطاقة رقم قومي', 'شهادة تخرج', 'أخرى')),
+  path text not null unique check (char_length(path) between 3 and 300),
+  name text not null check (char_length(btrim(name)) between 1 and 120),
+  start_on date,
+  end_on date,
+  created_by uuid references public.profiles default auth.uid(),
+  created_at timestamptz not null default now(),
+  voided_by uuid references public.profiles,
+  voided_at timestamptz,
+  check (end_on is null or start_on is null or end_on >= start_on),
+  check (path like member_id::text || '/%')
+);
+create index if not exists hr_documents_member_idx on public.hr_documents (member_id);
 
 create table if not exists public.hr_payroll (
   month date primary key check (extract(day from month) = 1),
@@ -336,8 +364,8 @@ begin
     raise exception 'sheet locked' using errcode = '22023';
   end if;
   if tg_op = 'UPDATE' then
-    if (new.member_id, new.month, new.amount, new.label, new.note, new.created_by, new.created_at)
-       is distinct from (old.member_id, old.month, old.amount, old.label, old.note, old.created_by, old.created_at)
+    if (new.member_id, new.month, new.amount, new.label, new.note, new.kind, new.created_by, new.created_at)
+       is distinct from (old.member_id, old.month, old.amount, old.label, old.note, old.kind, old.created_by, old.created_at)
        or old.voided_at is not null or new.voided_at is null then
       raise exception 'only a void' using errcode = '22023';
     end if;
@@ -349,6 +377,25 @@ begin
 end $$;
 drop trigger if exists hr_adjustments_guard on public.hr_adjustments;
 create trigger hr_adjustments_guard before insert or update on public.hr_adjustments for each row execute function public.hr_adjustments_guard();
+
+-- a document never changes after it is written but its void
+create or replace function public.hr_documents_guard() returns trigger
+language plpgsql security definer set search_path = public as $$
+begin
+  if tg_op = 'UPDATE' then
+    if (new.member_id, new.kind, new.path, new.name, new.start_on, new.end_on, new.created_by, new.created_at)
+       is distinct from (old.member_id, old.kind, old.path, old.name, old.start_on, old.end_on, old.created_by, old.created_at)
+       or old.voided_at is not null or new.voided_at is null then
+      raise exception 'only a void' using errcode = '22023';
+    end if;
+    new.voided_by := auth.uid(); new.voided_at := now();
+  else
+    new.created_by := auth.uid(); new.created_at := now(); new.voided_by := null; new.voided_at := null;
+  end if;
+  return new;
+end $$;
+drop trigger if exists hr_documents_guard on public.hr_documents;
+create trigger hr_documents_guard before insert or update on public.hr_documents for each row execute function public.hr_documents_guard();
 
 create or replace function public.hr_stamp() returns trigger
 language plpgsql security definer set search_path = public as $$
@@ -387,6 +434,7 @@ alter table public.hr_meetings enable row level security;
 alter table public.hr_adjustments enable row level security;
 alter table public.hr_payroll enable row level security;
 alter table public.hr_payroll_lines enable row level security;
+alter table public.hr_documents enable row level security;
 
 do $pol$
 declare t text;
@@ -449,15 +497,43 @@ begin
     create policy hr_payroll_lines_select on public.hr_payroll_lines for select to authenticated
       using (public.hr_salaries() or (member_id = auth.uid() and public.hr_active()));
   end if;
+  -- the documents: hr.edit F, and a member's own
+  if not exists (select 1 from pg_policies where tablename = 'hr_documents' and policyname = 'hr_documents_select') then
+    create policy hr_documents_select on public.hr_documents for select to authenticated using (public.hr_editor() or (member_id = auth.uid() and public.hr_active()));
+    create policy hr_documents_insert on public.hr_documents for insert to authenticated with check (public.hr_editor());
+    create policy hr_documents_update on public.hr_documents for update to authenticated using (public.hr_editor()) with check (public.hr_editor());
+  end if;
+  -- a direct manager (hr.view P) reads the profiles of the members they see (their names on the team page), without settings.view
+  if not exists (select 1 from pg_policies where tablename = 'profiles' and policyname = 'profiles_select_hr') then
+    create policy profiles_select_hr on public.profiles for select to authenticated using (public.hr_can_see(id));
+  end if;
 end $pol$;
 
 -- the requests as members read them: an advance's amount for sensitive.salaries F or its own member only
 create or replace view public.hr_requests_v with (security_barrier = true) as
   select r.id, 'HR-' || lpad(r.id::text, 4, '0') as code, r.member_id, r.type, r.from_day, r.to_day, r.at_time, r.hours,
     case when public.hr_salaries() or r.member_id = auth.uid() then r.amount end as amount, r.months, r.note, r.status,
-    r.decided_by, r.decided_at, r.reason, r.created_by, r.created_at
+    r.decided_by, r.decided_at, r.reason, r.created_by, r.created_at, r.doc_path
   from public.hr_requests r
   where public.hr_can_see(r.member_id);
+
+-- the settings row «hr» (the clock's end-of-shift / presence rules, the late grace …) for every active member — settings.view
+-- reads the table itself, and most roles have none
+create or replace function public.hr_settings() returns jsonb
+language sql stable security definer set search_path = public as $$
+  select case when public.hr_active() then coalesce((select s.data from public.settings s where s.section = 'hr'), '{}'::jsonb) end
+$$;
+
+-- a file of the bucket «hr-docs»: the member's own folder, hr.edit F, or whoever decides the request it is attached to
+create or replace function public.hr_doc_visible(p_name text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare v_member uuid;
+begin
+  if not public.hr_active() then return false; end if;
+  begin v_member := split_part(p_name, '/', 1)::uuid; exception when others then return false; end;
+  if v_member = auth.uid() or public.hr_editor() then return true; end if;
+  return exists (select 1 from public.hr_requests r where r.doc_path = p_name and public.hr_can_decide(r.member_id));
+end $$;
 
 -- a Friday / Saturday or a confirmed holiday (block 12: HR.offDays + the holidays)
 create or replace function public.hr_rest_day(p_day date) returns boolean
@@ -561,6 +637,7 @@ create or replace function public.hr_request_create(p_input jsonb) returns bigin
 language plpgsql security definer set search_path = public as $$
 declare v_member uuid := coalesce(nullif(p_input ->> 'member', '')::uuid, auth.uid()); v_type text := btrim(coalesce(p_input ->> 'type', ''));
   v_from date; v_to date; v_at time; v_hours numeric; v_amount numeric; v_months int; v_note text := nullif(btrim(coalesce(p_input ->> 'note', '')), ''); v_id bigint;
+  v_doc text := nullif(btrim(coalesce(p_input ->> 'doc', '')), '');
 begin
   if not public.hr_active() then raise exception 'not allowed' using errcode = '42501'; end if;
   if v_member <> auth.uid() and not public.hr_editor() then raise exception 'not allowed' using errcode = '42501'; end if;
@@ -591,8 +668,16 @@ begin
     v_at := null; v_hours := null; v_amount := null; v_months := null;
     if v_to - v_from > 60 then raise exception 'invalid: to' using errcode = '22023'; end if;
   end if;
-  insert into public.hr_requests (member_id, type, from_day, to_day, at_time, hours, amount, months, note)
-  values (v_member, v_type, v_from, v_to, v_at, v_hours, v_amount, v_months, v_note) returning id into v_id;
+  -- a leave's attachment (the medical report of «إجازة مرضية»: its type's «مرفق» is not «—»), in the member's own folder
+  if not exists (select 1 from public.hr_leave_types t where t.name = v_type) then v_doc := null; end if;
+  if v_doc is not null and (char_length(v_doc) > 300 or v_doc not like v_member::text || '/%' or v_doc like '%..%') then
+    raise exception 'invalid: doc' using errcode = '22023';
+  end if;
+  if v_doc is null and exists (select 1 from public.hr_leave_types t where t.name = v_type and btrim(t.doc) not in ('', '—', '-')) then
+    raise exception 'invalid: doc' using errcode = '22023';
+  end if;
+  insert into public.hr_requests (member_id, type, from_day, to_day, at_time, hours, amount, months, note, doc_path)
+  values (v_member, v_type, v_from, v_to, v_at, v_hours, v_amount, v_months, v_note, v_doc) returning id into v_id;
   return v_id;
 end $$;
 
@@ -633,21 +718,26 @@ end $$;
 -- «ضيفه» (add — all of it or fewer minutes) / «متضيفهوش» (reject — a reason, and a one-to-one meeting is opened)
 create or replace function public.hr_overtime_decide(p_id bigint, p_decision text, p_minutes int default null, p_reason text default null) returns text
 language plpgsql security definer set search_path = public as $$
-declare v_o public.hr_overtime; v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_min int;
+declare v_o public.hr_overtime; v_reason text := nullif(btrim(coalesce(p_reason, '')), ''); v_min int; v_pm date;
 begin
   select * into v_o from public.hr_overtime where id = p_id for update;
   if not found or not public.hr_can_see(v_o.member_id) then raise exception 'not found' using errcode = 'P0002'; end if;
   if not public.hr_can_decide(v_o.member_id) then raise exception 'not allowed' using errcode = '42501'; end if;
-  if v_o.status <> 'مستني' then raise exception 'invalid: status' using errcode = '22023'; end if;
+  -- «ضيفه» on a waiting one, or on a refused one after its one-to-one meeting («الوقت يتضاف بعد التوضيح»); «متضيفهوش» on a waiting one
+  if not (v_o.status = 'مستني' or (v_o.status = 'اترفض' and p_decision = 'add')) then raise exception 'invalid: status' using errcode = '22023'; end if;
   if v_reason is not null and char_length(v_reason) > 300 then raise exception 'invalid: reason' using errcode = '22023'; end if;
   if p_decision = 'add' then
     v_min := case when v_o.kind = 'rest_day' then v_o.minutes else coalesce(p_minutes, v_o.minutes) end;
     if v_min <= 0 or v_min > v_o.minutes then raise exception 'invalid: minutes' using errcode = '22023'; end if;
-    update public.hr_overtime set status = 'اتضاف', paid_minutes = v_min, decided_by = auth.uid(), decided_at = now(), reason = v_reason where id = p_id;
+    v_pm := date_trunc('month', v_o.day)::date;
+    while exists (select 1 from public.hr_payroll p where p.month = v_pm and p.status in ('معتمد', 'مدفوع')) loop
+      v_pm := (v_pm + interval '1 month')::date;
+    end loop;
+    update public.hr_overtime set status = 'اتضاف', paid_minutes = v_min, pay_month = v_pm, decided_by = auth.uid(), decided_at = now(), reason = v_reason where id = p_id;
     return 'اتضاف';
   elsif p_decision = 'reject' then
     if v_reason is null then raise exception 'invalid: reason' using errcode = '22023'; end if;
-    update public.hr_overtime set status = 'اترفض', paid_minutes = 0, decided_by = auth.uid(), decided_at = now(), reason = v_reason where id = p_id;
+    update public.hr_overtime set status = 'اترفض', paid_minutes = 0, pay_month = null, decided_by = auth.uid(), decided_at = now(), reason = v_reason where id = p_id;
     insert into public.hr_meetings (member_id, reason, ref, created_by) values (v_o.member_id, 'وقت إضافي اترفض — نعرف كان بيعمل إيه', 'OT-' || p_id, auth.uid());
     return 'اترفض';
   end if;
@@ -713,10 +803,10 @@ begin
     select (h.day + g.i) as d from public.hr_holidays h cross join lateral generate_series(0, h.days - 1) g(i) where h.status = 'مؤكد'
   ), ot as (
     select o.member_id mid, sum(o.paid_minutes)::int mins from public.hr_overtime o
-    where o.kind = 'hours' and o.status = 'اتضاف' and o.day >= m0 and o.day < m1 group by o.member_id
+    where o.kind = 'hours' and o.status = 'اتضاف' and o.pay_month = m0 group by o.member_id
   ), rest as (
     select o.member_id mid, count(*)::int n from public.hr_overtime o
-    where o.kind = 'rest_day' and o.status = 'اتضاف' and o.day >= m0 and o.day < m1 group by o.member_id
+    where o.kind = 'rest_day' and o.status = 'اتضاف' and o.pay_month = m0 group by o.member_id
   ), unpaid as (
     select r.member_id mid, count(*)::numeric n
     from public.hr_requests r join public.hr_leave_types t on t.name = r.type and t.unpaid
@@ -825,15 +915,19 @@ grant select, insert, update on public.hr_holidays, public.hr_leave_types, publi
 grant delete on public.hr_holidays, public.hr_ot_periods to authenticated;
 grant select, insert on public.hr_adjustments to authenticated;
 grant update (voided_at) on public.hr_adjustments to authenticated;
+grant select, insert on public.hr_documents to authenticated;
+grant update (voided_at) on public.hr_documents to authenticated;
 revoke all on public.hr_requests from authenticated, anon;
 grant select on public.hr_requests_v to authenticated;
 grant all on public.hr_members, public.hr_pay, public.hr_attendance, public.hr_overtime, public.hr_requests, public.hr_holidays, public.hr_leave_types,
   public.hr_bonus_rules, public.hr_ot_periods, public.hr_kpis, public.hr_scores, public.hr_extras, public.hr_meetings, public.hr_adjustments,
-  public.hr_payroll, public.hr_payroll_lines to service_role;
+  public.hr_payroll, public.hr_payroll_lines, public.hr_documents to service_role;
 grant select on public.hr_requests_v to service_role;
 grant usage on all sequences in schema public to authenticated, service_role;
 
-revoke execute on function public.hr_stamp(), public.hr_meetings_stamp(), public.hr_adjustments_guard() from public, anon, authenticated;
+revoke execute on function public.hr_stamp(), public.hr_meetings_stamp(), public.hr_adjustments_guard(), public.hr_documents_guard() from public, anon, authenticated;
+revoke execute on function public.hr_settings(), public.hr_doc_visible(text) from public, anon;
+grant execute on function public.hr_settings(), public.hr_doc_visible(text) to authenticated, service_role;
 revoke execute on function public.hr_payroll_calc(date), public.hr_payroll_open(date) from public, anon;
 grant execute on function public.hr_rest_day(date), public.hr_today(), public.hr_active(), public.hr_is_manager_of(uuid), public.hr_can_see(uuid), public.hr_can_decide(uuid),
   public.hr_salaries(), public.hr_editor(), public.hr_at(date, time), public.hr_shift_now(), public.hr_clock_in(boolean), public.hr_clock_out(text, timestamptz),
@@ -870,6 +964,26 @@ begin
       using (realtime.topic() = 'hr' and extension = 'broadcast' and (select public.hr_active()))$p$;
   end if;
 end $$;
+
+-- ---------------------------------------------------------------- Storage: bucket «hr-docs» (the documents + a leave's report; guarded)
+-- a file lands under the member's folder (<member uuid>/…): hr.edit F writes into any member's folder (the contract), a member
+-- into their own (a medical report); nobody updates or deletes (a document is voided in hr_documents)
+
+do $storage$
+begin
+  if exists (select 1 from pg_namespace where nspname = 'storage') and to_regclass('storage.buckets') is not null then
+    execute $s$insert into storage.buckets (id, name, public, file_size_limit, allowed_mime_types)
+               values ('hr-docs', 'hr-docs', false, 10485760, '{image/png,image/jpeg,image/webp,application/pdf}')
+               on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types$s$;
+    execute $s$drop policy if exists hr_docs_select on storage.objects$s$;
+    execute $s$create policy hr_docs_select on storage.objects for select to authenticated
+               using (bucket_id = 'hr-docs' and public.hr_doc_visible(name))$s$;
+    execute $s$drop policy if exists hr_docs_insert on storage.objects$s$;
+    execute $s$create policy hr_docs_insert on storage.objects for insert to authenticated
+               with check (bucket_id = 'hr-docs' and ((select public.hr_editor())
+                 or ((storage.foldername(name))[1] = (select auth.uid())::text and (select public.hr_active()))))$s$;
+  end if;
+end $storage$;
 
 -- ---------------------------------------------------------------- the month's sheet opens by itself (decision 8; guarded like 0008)
 

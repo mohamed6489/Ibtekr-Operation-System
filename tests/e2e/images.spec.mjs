@@ -75,6 +75,7 @@ test('a product\'s photo → images (source image + product_id), an edit of the 
   await openProducts(page);
   await openTool(page);
   await page.fill('#ig-sku', SKU);
+  await expect(page.locator('.field:has(#ig-sku) .help')).toContainText('Cushion'); // the SKU found in the mirror first: a run before it is refused on the page (CI, 5 Nov)
   await page.locator('[data-igshape="detail"]').click();
   await page.locator('[data-igrun]').click();
   await expect(page.locator('.ig-it')).toHaveCount(1);

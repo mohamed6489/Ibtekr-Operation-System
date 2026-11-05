@@ -222,9 +222,15 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000
 do $$
 declare c record;
 begin
+  -- approved after its month's sheet was paid: it rides the next sheet still open (decision 16), whole (the 5 minutes ignored):
+  -- one day ×2 = 9600 ÷ 24 × 2
+  select * into c from public.hr_payroll_calc((date_trunc('month', (select v::date from hr_ids where k = 'fri')) + interval '1 month')::date) where member_id = '00000000-0000-4000-8000-0000000046a3';
+  if c.rest_days <> 1 or c.rest_pay <> 800 then raise exception 'case an approved rest day counts ×2 on the next open sheet failed (%)', row_to_json(c); end if;
   select * into c from public.hr_payroll_calc((select v::date from hr_ids where k = 'fri')) where member_id = '00000000-0000-4000-8000-0000000046a3';
-  -- approved whole (the 5 minutes ignored): one day ×2 = 9600 ÷ 24 × 2
-  if c.rest_days <> 1 or c.rest_pay <> 800 then raise exception 'case an approved rest day counts ×2 failed (%)', row_to_json(c); end if;
+  if c.rest_days <> 0 then raise exception 'case the paid sheet''s month keeps its lines failed (%)', row_to_json(c); end if;
+  if (select pay_month from public.hr_overtime where id = (select v::bigint from hr_ids where k = 'rest')) <> (date_trunc('month', (select v::date from hr_ids where k = 'fri')) + interval '1 month')::date then
+    raise exception 'case a late approval is paid with the next open sheet failed';
+  end if;
 end $$;
 
 -- a rejected overtime opens a one-to-one meeting
@@ -241,6 +247,91 @@ begin
   perform public.hr_overtime_decide(v_ot, 'reject', null, 'مش متفق عليه');
   if not exists (select 1 from public.hr_meetings where member_id = '00000000-0000-4000-8000-0000000046a3' and ref = 'OT-' || v_ot and status = 'مطلوب') then
     raise exception 'case «متضيفهوش» opens a one-to-one meeting failed';
+  end if;
+  -- after the meeting: «الوقت يتضاف» (decision 16); a refused one is never refused again
+  begin perform public.hr_overtime_decide(v_ot, 'reject', null, 'تاني'); raise exception 'case a refused overtime is not refused twice failed'; exception when invalid_parameter_value then null; end;
+  if public.hr_overtime_decide(v_ot, 'add') <> 'اتضاف' then raise exception 'case «ضيفه» after the meeting failed'; end if;
+  if (select paid_minutes from public.hr_overtime where id = v_ot) <> 60 then raise exception 'case «ضيفه» after the meeting pays it all failed'; end if;
+end $$;
+
+-- ================================================================ decision 16: documents, a leave's report, achievements, settings, profiles
+
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a1","role":"authenticated"}', true);
+do $$
+declare v_next date := (date_trunc('month', public.hr_today()) + interval '1 month')::date;
+begin
+  insert into public.hr_documents (member_id, kind, path, name, start_on, end_on)
+  values ('00000000-0000-4000-8000-0000000046a3', 'عقد عمل', '00000000-0000-4000-8000-0000000046a3/contract.pdf', 'contract.pdf', '2026-01-01', '2026-12-31');
+  begin
+    insert into public.hr_documents (member_id, kind, path, name) values ('00000000-0000-4000-8000-0000000046a3', 'أخرى', '00000000-0000-4000-8000-0000000046a4/x.pdf', 'x.pdf');
+    raise exception 'case a document lives in its member''s folder failed';
+  exception when check_violation then null;
+  end;
+  begin update public.hr_documents set name = 'other.pdf' where path like '%/contract.pdf'; raise exception 'case a document changes only by its void failed';
+  exception when insufficient_privilege or invalid_parameter_value then null; end;
+  update public.hr_documents set voided_at = now() where path like '%/contract.pdf' and false; -- the void column is the one granted
+  begin
+    insert into public.hr_adjustments (member_id, month, amount, label, kind) values ('00000000-0000-4000-8000-0000000046a3', v_next, -100, 'إنجاز بالسالب', 'achievement');
+    raise exception 'case an achievement is an addition failed';
+  exception when check_violation then null;
+  end;
+  insert into public.hr_adjustments (member_id, month, amount, label, kind) values ('00000000-0000-4000-8000-0000000046a3', v_next, 750, 'تصوير 120 منتج في أسبوع', 'achievement');
+  if public.hr_settings() is null then raise exception 'case hr_settings for an active member failed'; end if;
+end $$;
+
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a3","role":"authenticated"}', true);
+do $$
+declare v_id bigint;
+begin
+  if (select count(*) from public.hr_documents) <> 1 then raise exception 'case a member reads their own documents failed'; end if;
+  begin
+    insert into public.hr_documents (member_id, kind, path, name) values ('00000000-0000-4000-8000-0000000046a3', 'أخرى', '00000000-0000-4000-8000-0000000046a3/mine.pdf', 'mine.pdf');
+    raise exception 'case only hr.edit writes the documents failed';
+  exception when insufficient_privilege then null;
+  end;
+  if not public.hr_doc_visible('00000000-0000-4000-8000-0000000046a3/contract.pdf') or public.hr_doc_visible('00000000-0000-4000-8000-0000000046a4/x.pdf')
+     or public.hr_doc_visible('not-a-folder/x.pdf') then
+    raise exception 'case a member reads the files of their own folder only failed';
+  end if;
+  if public.hr_settings() is null then raise exception 'case hr_settings for a member without settings.view failed'; end if;
+  if (select count(*) from public.hr_adjustments where kind = 'achievement') <> 1 then raise exception 'case a member reads their own achievement failed'; end if;
+  -- a sick leave needs its report, in the member's own folder
+  begin perform public.hr_request_create('{"type":"إجازة مرضية","from":"2026-12-13","to":"2026-12-14"}'); raise exception 'case a sick leave needs its report failed'; exception when invalid_parameter_value then null; end;
+  begin perform public.hr_request_create('{"type":"إجازة مرضية","from":"2026-12-13","to":"2026-12-14","doc":"00000000-0000-4000-8000-0000000046a4/r.pdf"}');
+    raise exception 'case the report is in the member''s own folder failed'; exception when invalid_parameter_value then null; end;
+  v_id := public.hr_request_create('{"type":"إجازة مرضية","from":"2026-12-13","to":"2026-12-14","doc":"00000000-0000-4000-8000-0000000046a3/report.pdf"}');
+  if (select doc_path from public.hr_requests_v where id = v_id) <> '00000000-0000-4000-8000-0000000046a3/report.pdf' then raise exception 'case the report is on the request failed'; end if;
+  if (select doc_path from public.hr_requests_v where id = public.hr_request_create('{"type":"شغل عن بُعد","from":"2026-12-15","doc":"00000000-0000-4000-8000-0000000046a3/z.pdf"}')) is not null then
+    raise exception 'case only a leave keeps an attachment failed';
+  end if;
+  insert into hr_ids values ('sick', v_id::text);
+end $$;
+
+-- the manager reads the report of the request they decide; the stranger reads none of it
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a2","role":"authenticated"}', true);
+do $$
+begin
+  if not public.hr_doc_visible('00000000-0000-4000-8000-0000000046a3/report.pdf') then raise exception 'case the decider reads the leave''s report failed'; end if;
+  if public.hr_doc_visible('00000000-0000-4000-8000-0000000046a3/contract.pdf') then raise exception 'case the manager does not read the contract failed'; end if;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a4","role":"authenticated"}', true);
+do $$
+begin
+  if (select count(*) from public.hr_documents) <> 0 or public.hr_doc_visible('00000000-0000-4000-8000-0000000046a3/report.pdf') then
+    raise exception 'case a stranger reads no document failed';
+  end if;
+  if (select count(*) from public.profiles) <> 1 then raise exception 'case a member without settings.view reads their own profile only failed'; end if;
+end $$;
+
+-- a direct manager without settings.view (cs) reads the profile of the member they manage
+reset role;
+update public.profiles set manager_id = '00000000-0000-4000-8000-0000000046a4' where id = '00000000-0000-4000-8000-0000000046a5';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a4","role":"authenticated"}', true);
+do $$
+begin
+  if (select count(*) from public.profiles) <> 2 or not exists (select 1 from public.profiles where id = '00000000-0000-4000-8000-0000000046a5') then
+    raise exception 'case a manager reads their team''s profiles failed';
   end if;
 end $$;
 

@@ -79,6 +79,7 @@ test('customers: the list from the orders + the manual lead, KPIs, a new lead, t
   // a lead by hand
   await P.getByRole('button', { name: 'إضافة عميل' }).click();
   const f = page.locator('.modal');
+  await expect(f.locator('#name')).toBeFocused(); // the form focuses its first field a tick after it opens: typing before it lands the phone in the name (CI, 5 Nov)
   await f.locator('#name').fill('رحاب محمود'); await f.locator('#phone').fill('0101 112 2233'); await f.locator('#city').fill('القاهرة');
   await f.getByRole('button', { name: 'إضافة', exact: true }).click();
   await expect(P.locator('.cs-cust tbody tr')).toHaveCount(6);

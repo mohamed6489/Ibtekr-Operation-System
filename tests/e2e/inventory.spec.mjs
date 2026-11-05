@@ -327,3 +327,26 @@ test('an order not gathered in the hub going «قيد الشحن» writes nothin
   await expect.poll(() => mock.patches.find((p) => p.table === 'orders')).toBeTruthy();
   expect(mock.invWrites).toEqual([]);
 });
+
+// ---------- decision 10 (d): «اسحب من المخزن» with the team's confirmation ----------
+test('a line whose SKU is «متاح للبيع» in the hub shows «في المخزن»; «اسحب من المخزن» asks, then reserves the piece for the order and the line is «مخزن ابتكر»', async ({ page }) => {
+  const LH = 'b7000000-0000-4000-8000-000000000009';
+  mock.inv.inv_lots.push({ id: LH, reason: 'متاح للبيع', status: 'متاح', sku: 'IBTA4040PAHC000013', name: 'Cushion', vendor_id: V1, order_id: null, item_id: null, ref: null, loc: 'A', mode: 'ملك ابتكر', cost: 650, condition: null, condition_note: null, note: null, product_id: null, since: '2026-11-01', closed_at: null, created_by: null, created_at: '2026-11-01T10:00:00Z' });
+  mock.inv.inv_moves.push({ id: 99, lot_id: LH, type: 'in', qty: 3, label: 'دخول — للبيع', reason: 'متاح للبيع', ref: null, note: null, by: null, at: '2026-11-01T10:00:00Z' });
+  await signIn(page, ADMIN);
+  await page.evaluate(() => { location.hash = 'orders'; });
+  const row = (n) => page.locator('#orders .row', { has: page.locator(`[data-ss="${n}"]`) });
+  await expect(row(5001).locator('[data-hub-has]').first()).toBeVisible();
+  await expect(row(5002).locator('[data-hub-has]')).toHaveCount(0);
+  await page.locator('#orders [data-more="s:5002"]').first().click();
+  await expect(page.locator('#orders #mpop [data-ma="pull"]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  await page.locator('#orders [data-more="s:5001"]').first().click();
+  await page.locator('#orders #mpop [data-ma="pull"]').click();
+  const m = modal(page, 'اسحب من المخزن — IB-181668');
+  await expect(m).toContainText('متاح 3');
+  await m.getByRole('button', { name: 'اسحب من المخزن' }).click();
+  await expect.poll(() => mock.inv.inv_moves.find((x) => x.type === 'reserve' && x.lot_id === LH)).toMatchObject({ qty: 2, ref: 'IB-181668' });
+  await expect.poll(() => mock.patches.find((p) => p.table === 'order_items' && p.id === 5001 && p.pulled !== undefined)).toMatchObject({ pulled: true });
+  await expect(row(5001).locator('.vchip.pull').first()).toContainText('مخزن ابتكر');
+});

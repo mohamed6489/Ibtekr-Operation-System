@@ -216,7 +216,7 @@ function notesM(o){
 function subcard(o,s,l,m){
  var el=Math.min(s.exp?daysSince(s.exp):o.age,99),pct=Math.min(el/15,1)*100,sl=OPEN[s.raw]?l:'ok',ce=S.edit==='c'+s.n;
  var thumb=pthumb(s);
- var pt='<div class="pt"><b>'+pname(s)+' × '+s.qty+'</b><span dir="ltr" style="text-align:right">'+esc(s.sku)+'</span><div class="vrow">'+(s.pulled?'<span class="vchip pull" title="مخزن ابتكر">مخزن ابتكر</span><small>سحب تلقائي · فرعي #'+s.sid+'</small>':'<span class="vchip" title="'+esc(s.vendor)+'">'+esc(s.vendor)+'</span><small>فرعي #'+s.sid+'</small>')+'</div></div>';
+ var pt='<div class="pt"><b>'+pname(s)+' × '+s.qty+'</b><span dir="ltr" style="text-align:right">'+esc(s.sku)+'</span><div class="vrow">'+(s.pulled?'<span class="vchip pull" title="مخزن ابتكر">مخزن ابتكر</span><small>سحب تلقائي · فرعي #'+s.sid+'</small>':'<span class="vchip" title="'+esc(s.vendor)+'">'+esc(s.vendor)+'</span>'+hubChip(s)+'<small>فرعي #'+s.sid+'</small>')+'</div></div>';
  var st='<div class="fld">'+lbl('check','حالة الفرعي')+sdd(SSTY,s.ss,'data-ss="'+s.n+'"',110,SS,1)+'</div>';
  var val='<div class="fld val">'+lbl('coins','القيمة')+'<div class="vv"><b>'+fmt(s.tot)+' ج.م</b></div></div>';
  var cnt=s.pulled?pullNote(s):'<div class="scnt"><div class="dcr"><div class="cnt"><s>يوم</s><b>'+el+'/15</b></div>'+dbadge(sl)+'<span class="lead">مدة التصنيع: 12 إلى 15 يوم</span></div><div class="trk"><div class="fil" style="width:'+pct+'%;background:'+DB[sl][3]+'"></div></div></div>';
@@ -336,7 +336,9 @@ function subW(s,b){var ws=WS();if(!ws||!s)return;var id=s.itemId||String(s.n),f=
  if(!same('waybill')&&s.waybill==null)wt(ws.setWaybill(id,null),rv(s,b,['waybill']));
  if(!!s.pulled!==!!b.pulled)wt(ws.setPulled(id,!!s.pulled),rv(s,b,['pulled','vendor']))}
 /* ---- inventory hub links (Figma orders 385:20898 auto-pull, 391:21463 consolidation, 385:21259/385:21407 returns) ---- */
-function vcell(s){return s.pulled?'<span class="vchip pull">مخزن ابتكر</span><small class="pullsub">سحب تلقائي</small>':esc(s.vendor)}
+// phase 7 decision 10 (d): «في المخزن» on a line not pulled yet whose SKU is held «متاح للبيع» in the hub
+function hubChip(s){return !s.pulled&&window.IBOrdersOps&&window.IBOrdersOps.hubHas&&['تم الشحن للعميل','مكتمل','ملغي'].indexOf(s.ss)<0&&window.IBOrdersOps.hubHas(s.sku,s.qty)?' <span class="vchip pull" data-hub-has title="فيه قطعة متاحة في مخزن ابتكر — «اسحب من المخزن» من قايمة السطر">في المخزن</span>':''}
+function vcell(s){return s.pulled?'<span class="vchip pull">مخزن ابتكر</span><small class="pullsub">سحب تلقائي</small>':esc(s.vendor)+hubChip(s)}
 function pullNote(s){return'<div class="pulln">'+ic('box')+'<span>من مخزن ابتكر — مفيش تبليغ مبتكر ولا عدّاد</span></div>'}
 function consBar(o){var c=window.IBOrdersOps&&window.IBOrdersOps.cons(o.id);if(!c)return'';var a=c.subs.filter(function(x){return x[2]==='وصل المخزن'}).length,rd=a===c.subs.length;
  return'<div class="consbar'+(rd?' rdy':'')+'">'+ic('box')+'<b>بيتجمع في المخزن · '+a+' من '+c.subs.length+' وصلوا</b><span>منطقة '+esc(c.zone)+'</span>'+(rd?'<span class="tagok">جاهز يطلع كامل</span>':'')+'<div class="cbar"><i style="width:'+Math.round(a/c.subs.length*100)+'%"></i></div></div>'}
@@ -354,6 +356,8 @@ function mpClose(refocus){var e=R.getElementById('mpop');if(e)e.remove();if(MP){
 function mpOpen(btn){var key=btn.dataset.more;if(MP&&MP.key===key){mpClose(1);return}mpClose();dpClose(0);
  var w=document.createElement('div');w.id='mpop';w.setAttribute('role','menu');w.setAttribute('aria-label','إجراءات');w.dataset.key=key;
  var OX=window.IBOrdersOps,cx=key.charAt(0)==='o'&&OX?OX.cons(key.slice(2)):null,extra=key.charAt(0)!=='o'||!OX?'':cx?'<button type="button" role="menuitem" data-ma="shipall">'+ic('truck')+'<span>شحن كامل من المخزن</span></button><button type="button" role="menuitem" data-ma="uncons">'+ic('xx')+'<span>إلغاء التجميع</span></button>':'<button type="button" role="menuitem" data-ma="cons">'+ic('box')+'<span>تجميع في المخزن</span></button>';
+  // phase 7 decision 10 (d): a line whose SKU is held «متاح للبيع» in the hub — «اسحب من المخزن» (the team confirms; never automatic)
+  var ls=key.charAt(0)==='s'?allSub(key.slice(2)):null;if(ls&&!ls.pulled&&OX&&OX.hubHas&&OX.hubHas(ls.sku,ls.qty)&&['تم الشحن للعميل','مكتمل','ملغي','مرتجع للمخزن','مرتجع للمبتكر'].indexOf(ls.ss)<0)extra+='<button type="button" role="menuitem" data-ma="pull">'+ic('box')+'<span>اسحب من المخزن</span></button>';
   var oo=key.charAt(0)==='o'?OM[key.slice(2)]:null,del=oo&&oo.st!=='مكتمل'&&oo.st!=='استرجاع'?'<button type="button" role="menuitem" class="danger" data-ma="del">'+ic('xx')+'<span>مسح</span></button>':''; // 5.5 decision 10: not a completed / returned order; an open one is cancelled first (the server checks too)
   w.innerHTML='<button type="button" role="menuitem" data-ma="edit">'+ic('edit')+'<span>تعديل</span></button>'+extra+del;
  R.appendChild(w);var r=btn.getBoundingClientRect();
@@ -363,6 +367,7 @@ function mpAct(a){var k=MP.key.split(':'),kind=k[0],id=k[1];mpClose(0);
  if(a==='edit'){if(kind==='o'){editOrder(id);}
   else{editSub(id);}
   return}
+ if(a==='pull'&&kind==='s'){var ps=allSub(id);if(ps&&window.IBOrdersOps&&window.IBOrdersOps.pullPopup)window.IBOrdersOps.pullPopup({order:ps.oid,sid:ps.sid,itemId:ps.itemId,sku:ps.sku,prod:ps.prod,qty:ps.qty,vendor:ps.vendor},function(){var b=snapS(ps);ps.pulled=true;draw(1);subW(ps,b)});return}
  if(a==='cons'||a==='shipall'||a==='uncons'){if(window.IBOrdersOps)window.IBOrdersOps[a==='cons'?'consolidate':a](orderSnap(OM[id]));return}
  if(a==='del'&&kind==='o')confirmDelete(id)}
 /* ---- «مسح» (5.5 decision 10, owner 2 Nov): an order leaves the list with a reason — one that is not «ملغي» is cancelled first with that reason,

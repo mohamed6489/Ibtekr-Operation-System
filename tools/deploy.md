@@ -1213,3 +1213,21 @@ select at, action, entity_id, new_value from public.activity_log where action li
 ```
 
 **الأمان:** القراية بـ RLS (`ticket_can_see`: F كله، P تذاكر دوري + اللي فتحتها)، ومافيش أي insert/update/delete للأعضاء — كل كتابة بـ `ticket_create` / `ticket_act` (`security definer`) بقواعد الدومين؛ الخط الزمني إضافة بس، ومافيش مسح تذاكر. ربط الأوردر وعميله بس لعضو بـ `orders.view = F` (والعميل بـ `cs.view`)، والمحادثة بس لو العضو شايفها. المرفقات من فولدر العضو نفسه بس (`tickets/<uid>/…`)، النوع والحجم من Storage، والقراية لصاحب الملف أو اللي شايف التذكرة (`ticket_file_visible`). الـ broadcast فيه `{ at }` بس وprivate. `activity_log` `ticket.*` = الرقم والحالات والأدوار والأعداد — مافيش نص رسالة ولا وصف.
+
+#### 2.7.21 التقارير (المرحلة 9، 5 نوفمبر)
+
+الخطة `docs/superpowers/plans/2026-11-05-phase-9-reports.md`، ودفترها `.superpowers/sdd/2026-11-05-phase-9-reports/progress.md`.
+
+**النشر:**
+1. مافيش migration ولا Edge Function ولا أسرار (قرار 10) — كل الأرقام من جداول ودوال موجودة بصلاحياتها (`orders_v`/`order_items`، `accounts_sales`، `dokan_balances`، `acc_*`، `products_report` + المرآة، `inv_*`، `cs_*`، `tickets`).
+2. الواجهة: push على `main` (الـ Deploy workflow بيرفع الموقع).
+
+**التحقق:**
+```sql
+select id, permissions ->> 'reports.view' v, permissions ->> 'reports.export' e from public.roles order by sort; -- admin/ops/accounts F/F، cs ومتابعة المبتكرين والمشاهد P/N
+select user_id, key, data from public.user_prefs where key in ('reports.prefs', 'tickets.kpis') order by updated_at desc limit 10; -- التخصيص لكل عضو
+```
+وفي الواجهة: «التقارير» في القايمة من غير soon؛ أدمن شايف 9 تابات («الموظفين» و«الحملات الإعلانية» عليهم «قريبًا»)؛ عضو من غير `accounts.view` مابيشوفش تاب الحسابات ولا فلوس المبتكرين؛ عضو بـ `reports.export ≠ F` مالوش «نسخ CSV» ولا «الإجراءات».
+
+**الأمان:** مافيش كتابة جديدة غير `user_prefs` (صف العضو بس — RLS بتاعة `0006`). التاب بيظهر بـ `reports.view ≠ N` وصلاحية صفحته، والأرقام نفسها بتتقري تحت RLS جداولها (الواجهة بتخبّي، والسيرفر هو الحكم): فلوس المبتكرين بـ `accounts.view ≠ N` (`accounts_sales` مابيتطلبش من غيرها)، والعمولة بـ `sensitive.commission = F` (`vendor_rates` مابيرجّعش نسبة لغيره). التصدير (`نسخ CSV` و«الإجراءات») بـ `reports.export = F` بس، والشيتات المعروضة بتاعة الصفحات اللي العضو شايفها.
+

@@ -39,26 +39,26 @@ test('signs in and lands on dashboard', async ({ page }) => {
   if (!LIVE) expect(mock.lookups).toEqual([]); // an email goes straight to GoTrue: no lookup RPC
 });
 
-test('the menu: the two new pages in place, every page not started yet closed with «soon» (phase 3.6, plan decision 5); «الحسابات» open since phase 4, «المنتجات» since phase 5, «خدمة العملاء» since phase 6, «المخزون» since phase 7', async ({ page }) => {
+test('the menu: the two new pages in place, every page not started yet closed with «soon» (phase 3.6, plan decision 5); «الحسابات» open since phase 4, «المنتجات» since phase 5, «خدمة العملاء» since phase 6, «المخزون» since phase 7, «تذاكر الفريق» since phase 8', async ({ page }) => {
   await signIn(page, ADMIN.id, ADMIN.pw);
   await expect(page.locator('#root')).toBeVisible();
   const items = page.locator('nav.sidebar .nav-item');
   expect(await items.locator('> span:not(.soon)').allTextContents()).toEqual(['لوحة التحكم', 'الأوردرات', 'المبتكرين', 'الحسابات', 'المخزون', 'المنتجات', 'خدمة العملاء', 'تذاكر الفريق', 'التقارير', 'التسويق', 'الموارد البشرية', 'الإعدادات']);
   const soon = page.locator('nav.sidebar .nav-item[data-soon]');
-  expect(await soon.evaluateAll((l) => l.map((e) => e.dataset.page))).toEqual(['tickets', 'reports', 'marketing', 'hr', 'settings']);
-  await expect(soon.locator('.soon')).toHaveText(Array(5).fill('soon')); // «المنتجات» open since phase 5, «خدمة العملاء» since phase 6, «المخزون» since phase 7
+  expect(await soon.evaluateAll((l) => l.map((e) => e.dataset.page))).toEqual(['reports', 'marketing', 'hr', 'settings']);
+  await expect(soon.locator('.soon')).toHaveText(Array(4).fill('soon')); // «المنتجات» open since phase 5, «خدمة العملاء» since phase 6, «المخزون» since phase 7, «تذاكر الفريق» since phase 8
   await expect(soon.first()).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.locator('nav.sidebar .nav-item:not([data-soon])')).toHaveCount(7);
+  await expect(page.locator('nav.sidebar .nav-item:not([data-soon])')).toHaveCount(8);
   // a closed page is not reached by its menu item, nor by a typed hash: the dashboard, with a note
-  await page.locator('nav.sidebar .nav-item[data-page="tickets"]').click({ force: true }); // aria-disabled: a forced press
+  await page.locator('nav.sidebar .nav-item[data-page="reports"]').click({ force: true }); // aria-disabled: a forced press
   await expect(page.locator('#pg-dashboard')).toBeVisible();
-  for (const hs of ['reports-orders', 'tickets', 'settings-integrations', 'hr']) {
+  for (const hs of ['reports-orders', 'settings-integrations', 'hr']) {
     await page.evaluate((x) => { location.hash = x; }, hs);
     await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
     await expect(page.locator('#pg-dashboard')).toBeVisible();
     await expect(page.locator('#main')).toBeHidden();
   }
-  await page.goto('/#tickets'); // a fresh load on a closed page
+  await page.goto('/#hr'); // a fresh load on a closed page
   await expect(page.locator('#root')).toBeVisible();
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
   await page.locator('nav.sidebar .nav-item[data-page="orders"]').click(); // the open pages still open

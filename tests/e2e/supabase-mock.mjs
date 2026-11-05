@@ -1419,7 +1419,9 @@ export async function installSupabaseMock(page, opts = {}) {
         n += 1; return json(200, { signedURL: '/object/sign/tickets/' + key + '?token=tk-' + n });
       }
       if (!key.startsWith(u.id + '/') || hasPerm(u, 'tickets.manage') !== 'F') return json(403, { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' });
-      const type = hd['content-type'] || ''; const bytes = req.postDataBuffer() || Buffer.alloc(0);
+      // supabase-js sends a File / Blob as multipart/form-data: the file's own type and bytes are the part's (as Storage reads them)
+      let type = hd['content-type'] || ''; let bytes = req.postDataBuffer() || Buffer.alloc(0);
+      if (/^multipart\/form-data/.test(type)) { const raw = bytes.toString('latin1'); const m = /Content-Type:\s*([^\r\n]+)\r\n\r\n/i.exec(raw); type = m ? m[1].trim() : ''; if (m) { const start = m.index + m[0].length; const end = raw.indexOf('\r\n--', start); bytes = bytes.subarray(start, end < 0 ? undefined : end); } }
       if (!TK_MIME.includes(type)) return json(415, { statusCode: '415', error: 'invalid_mime_type', message: 'mime type ' + type + ' is not supported' });
       if (bytes.length > 10485760) return json(413, { statusCode: '413', error: 'Payload too large', message: 'The object exceeded the maximum allowed size' });
       if (mock.ticketObjects.has(key)) return json(409, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' });

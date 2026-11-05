@@ -1547,3 +1547,17 @@ td :is(.select,.date-field,.input:not(textarea)){height:var(--ctl-sm);min-height
   .select,.date-field,.sort-btn,.search-field,input.input,.input:not(textarea):not(.textarea),td :is(.select,.date-field,.input:not(textarea)){height:var(--ctl-lg);min-height:var(--ctl-lg)}
 }
 
+
+/* phase 8 — team tickets: attachments (the picker, the chips, the thumbnails in the timeline) */
+.tk-attach { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+.tk-files { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 6px; }
+.tk-file { display: inline-flex; align-items: center; gap: 4px; max-width: 240px; }
+.tk-file .linkish, .tk-file { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tk-file .linkish { background: none; border: 0; padding: 0; color: inherit; cursor: pointer; font: inherit; text-decoration: underline; }
+.tk-file .icon-btn { width: 24px; height: 24px; min-width: 24px; }
+.tk-thumb-btn { padding: 0; border: 1px solid var(--color-border, #ddd); border-radius: 8px; background: var(--color-surface, #fff); cursor: pointer; overflow: hidden; width: 72px; height: 72px; }
+.tk-thumb { width: 100%; height: 100%; object-fit: cover; display: block; }
+.tk-msg { display: flex; flex-direction: column; }
+.tk-msg .tk-files { margin-inline-start: 40px; }
+.tk-own { display: flex; flex-direction: column; gap: 4px; }
+.tk-reply { display: flex; flex-direction: column; gap: 8px; }

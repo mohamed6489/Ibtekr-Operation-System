@@ -117,7 +117,8 @@ test('a page with one block hides the button; the reports tabs, the inbox and th
   await expect(page.locator('#tickets .table-card')).toBeVisible();
   await expect(page.locator('[data-pn-custom="tickets"]')).toBeHidden();
   await go(page, 'hr-reports');
-  await expect(page.locator('#pg-hr [data-staff="absence"]')).toBeVisible();
+  await expect(page.locator('#pg-hr #tab-reports')).toHaveAttribute('aria-selected', 'true'); // (the report's own blocks depend on the hour)
+  await expect(page.locator('#pg-hr .panel')).toBeVisible();
   await expect(page.locator('[data-pn-custom^="hr:"]')).toHaveCount(0);
   await go(page, 'cs-inbox');
   await expect(page.locator('#pg-cs .cs-body')).toBeVisible();

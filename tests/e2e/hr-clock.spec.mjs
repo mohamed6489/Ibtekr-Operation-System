@@ -9,6 +9,13 @@ import { hrToday } from './hr-mock.mjs';
 const OPS = 'ops.dev@ibtekr.local'; const OPS_ID = '00000000-0000-4000-8000-000000000002';
 const T = hrToday(); const dow = (iso) => new Date(iso + 'T00:00:00Z').getUTCDay(); const restDay = dow(T) === 5 || dow(T) === 6;
 const cairoDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
+const restOf = (iso) => dow(iso) === 5 || dow(iso) === 6;
+// a shift that began 8 hours ago is yesterday's between 00:00 and 08:10 Cairo: once it ends, today has none and the clock offers
+// «ابدأ الدوام» again (the shift's day is the Cairo day of its start); otherwise it shows «خلص الدوام»
+async function endedFor(page, day) {
+  if (day === hrToday()) await expect(clock(page).locator('[data-shift-ended]')).toBeVisible();
+  else await expect(clock(page).getByRole('button', { name: 'ابدأ الدوام' })).toBeVisible();
+}
 let mock = null; let pageErrors = [];
 async function start(page, seed = {}) {
   pageErrors = []; page.on('pageerror', (e) => pageErrors.push(e.message));
@@ -61,12 +68,13 @@ test('at 8 hours: «لسه — وقت إضافي», then ending it asks what was
   await expect(f).toContainText('اكتب اشتغلت على إيه'); // the note is required
   await f.locator('#note').fill('جهزت أوردرات شحنة أرامكس');
   await f.getByRole('button', { name: 'إنهاء الدوام وإرسال للتأكيد' }).click();
-  await expect(clock(page).locator('[data-shift-ended]')).toBeVisible();
+  await endedFor(page, cairoDay(inAt));
   expect(calls('hr_clock_out').map((c) => c.p_ot_note)).toEqual(['جهزت أوردرات شحنة أرامكس']);
   const ot = mock.hr.overtime;
   expect(ot.length).toBe(1);
-  expect(ot[0]).toMatchObject({ member_id: OPS_ID, status: 'مستني', kind: restDay ? 'rest_day' : 'hours' });
-  if (!restDay) expect(ot[0].minutes).toBeGreaterThanOrEqual(5);
+  // the overtime's kind follows the shift's own day (a rest day worked = rest_day)
+  expect(ot[0]).toMatchObject({ member_id: OPS_ID, status: 'مستني', kind: restOf(cairoDay(inAt)) ? 'rest_day' : 'hours' });
+  if (!restOf(cairoDay(inAt))) expect(ot[0].minutes).toBeGreaterThanOrEqual(5);
 });
 
 test('at 8 hours: «إنهاء الدوام» ends the shift at the 8-hour mark (no overtime)', async ({ page }) => {
@@ -74,7 +82,7 @@ test('at 8 hours: «إنهاء الدوام» ends the shift at the 8-hour mark 
   await start(page, { hrAttendance: [{ member_id: OPS_ID, day: cairoDay(inAt), in_at: new Date(inAt).toISOString(), out_at: null, source: 'clock' }] });
   const ask = modal(page, 'ساعات العمل خلصت');
   await ask.getByRole('button', { name: 'إنهاء الدوام' }).click();
-  await expect(clock(page).locator('[data-shift-ended]')).toBeVisible();
+  await endedFor(page, cairoDay(inAt));
   const c = calls('hr_clock_out')[0];
   expect(c.p_ot_note).toBeNull();
   expect(Math.round((Date.parse(c.p_at) - inAt) / 60000)).toBe(480);

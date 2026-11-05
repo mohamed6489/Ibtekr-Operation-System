@@ -2167,7 +2167,7 @@
         KK.Grip(c.label),
         h('span', { class: 'dc-l' }, h('b', null, c.label), h('small', { class: 't-small help' }, c.kind)),
         KK.Switch({ id: 'rpc-' + i, label: c.label, checked: !c.hidden, onChange: (v) => { c.hidden = !v; set('list', f.list.slice(), true); } }))));
-        setTimeout(() => KK.sortableRows(wrap, 'data-rp-item', (ids) => set('list', ids.map((id) => f.list.find((x) => x.id === id)).filter(Boolean), true)), 0);
+        KK.sortableRows(wrap, 'data-rp-item', (ids) => set('list', ids.map((id) => f.list.find((x) => x.id === id)).filter(Boolean), true)); // the grips listen right away (phase 10 decision 22)
         return [wrap, e.list ? U.InlineNote({ kind: 'error', children: e.list }) : null]; },
       validate: (f) => (f.list.some((c) => !c.hidden) ? {} : { list: 'سيب تقرير واحد على الأقل ظاهر' }),
       extraFooter: (f, m) => h('span', { class: 'rp-del' }, Button({ type: 'text', label: 'رجوع للافتراضي', attrs: { 'data-rp-reset': '' }, onClick: () => { rpSave(tab, null); KK.toast('رجعت التقارير للافتراضي'); m.close(); renderReports(); } })),

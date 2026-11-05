@@ -69,6 +69,13 @@ test('the menu: the two new pages in place, every page not started yet closed wi
   await expect(page.locator('#pg-profile')).toBeVisible();
 });
 
+test('add buttons are green: a «+» label or a plus icon makes a default or a primary button «brand» (phase 5.5 decisions 7 / 11)', async ({ page }) => {
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(page.locator('#root')).toBeVisible();
+  const cls = await page.evaluate(() => { const B = window.IBUI.Button; return [B({ type: 'primary', label: '+ تقرير مهام جديد' }), B({ type: 'primary', icon: 'plus', label: 'طلب إجازة' }), B({ label: '+ مكان' }), B({ type: 'primary', label: 'حفظ' }), B({ type: 'text', icon: 'plus', label: 'إضافة' })].map((b) => b.className); });
+  expect(cls).toEqual(['btn btn-brand', 'btn btn-brand', 'btn btn-brand', 'btn btn-primary', 'btn btn-text']);
+});
+
 test('arabic-digit phone identifier works', async ({ page }) => {
   await signIn(page, '٠١٠٠٠٠٠٠٠٠٢', OPS_PW);
   await expect(page.locator('#root')).toBeVisible();

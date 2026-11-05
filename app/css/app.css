@@ -1569,3 +1569,41 @@ td :is(.select,.date-field,.input:not(textarea)){height:var(--ctl-sm);min-height
 .tk-order-opt:hover, .tk-order-opt:focus { background: var(--color-surface-2, #f4f4f4); outline: none; }
 /* phase 9: «قريبًا» on a reports tab (staff / campaigns until their pages) */
 .tabs .tab .soon { margin-inline-start: 6px; background: var(--color-bg-tint); color: var(--color-text-secondary); }
+/* ===== phase 5.5 decision 12 (owner 5 Nov): الجدول القياسي tbl-v2 على كل الجداول — ترويسة كارت + صف عناوين أخضر + صفوف متبادلة
+   (القواعد من الـ prototype بالحرف؛ الكلاس بيتحط لوحده من الكتلة 14 — stdTables / sweepColumns — على كارت أي جدول من 3 أعمدة
+   فأكتر برّه البوب أب والدرج) ===== */
+/* table zebra (owner 26 Oct): clear alternating rows — light beige / darker beige */
+tbody tr:nth-child(odd) td{background:var(--color-bg-base)}
+tbody tr:nth-child(even) td{background:var(--color-bg-tint)}
+.tbl-v2{overflow:hidden}
+.tbl-v2>.sec-h{background:var(--color-bg-container);border-bottom:0;padding:14px 20px;align-items:flex-start}
+.tbl-v2>.sec-h>div:first-child{display:flex;flex-direction:column;gap:2px;min-width:0}
+.tbl-v2>.sec-h h2,.tbl-v2>.table-title h2{color:var(--color-brand-default)}
+.tbl-v2>.sec-h .sub,.tbl-v2>.table-title .count{color:var(--color-text-secondary)}
+.tbl-v2>.sec-b{padding:0;gap:0}
+.tbl-v2>.sec-b>.scroll-x{margin:0;width:100%;max-width:100%}
+.tbl-v2>.sec-b>.scroll-x>table{width:100%;table-layout:auto}
+.tbl-v2 .dt td{white-space:normal}
+.tbl-v2 thead th{background:var(--color-brand-default);color:var(--color-text-on-brand);border-bottom:0;height:52px;min-width:72px}
+.tbl-v2 th,.tbl-v2 td{padding-inline:10px}
+.tbl-v2 thead th:first-child{text-align:start}
+.tbl-v2 tbody td:first-child{text-align:start;font-weight:600}
+.tbl-v2 tbody td{height:48px}
+.tbl-v2 tbody tr:last-child td{border-bottom:0}
+.tbl-v2 .pct{display:flex;align-items:center;gap:8px;justify-content:center}
+.tbl-v2 .pct .bar{flex:1 1 72px;min-width:56px;max-width:110px}
+.tbl-v2 .empty{padding:24px}
+@media (max-width:1023px){
+  /* في وضع الكروت الترويسة الخضرا بتتخفي أصلاً — بنرجّع الحشو للكروت */
+  .tbl-v2>.sec-b{padding:12px}
+  .sec.tbl-v2 tbody td,.tbl-v2 tbody td:first-child{height:auto}
+}
+/* الجدول القياسي على كل الجداول (owner 28 Oct): كروت الجداول والسكاشن بنفس الشكل */
+.tbl-v2>.table-title{background:var(--color-bg-container);padding:14px 20px}
+.tbl-v2>.table-title+.scroll-x,.tbl-v2>.table-title+.xwrap{margin:0}
+.tbl-v2 .sticky-wrap .st-table thead th:is(:first-child,:last-child){background:var(--color-brand-default)}
+.tbl-v2 thead th .cb,.tbl-v2 thead th .sw{color:inherit}
+.tbl-v2 thead th a,.tbl-v2 thead th button:not(.btn){color:inherit}
+.tbl-v2 tfoot td,.tbl-v2 tr.total td{background:var(--color-bg-tint)!important}
+/* كارت جدول من غير عنوان: الترويسة تبقى شريط صغير لزرار الأعمدة بس */
+.tbl-v2>.sec-h.cols-only{background:var(--color-bg-container);padding:6px 12px;min-height:0;justify-content:flex-end}

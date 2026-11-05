@@ -76,6 +76,36 @@ test('add buttons are green: a «+» label or a plus icon makes a default or a p
   expect(cls).toEqual(['btn btn-brand', 'btn btn-brand', 'btn btn-brand', 'btn btn-primary', 'btn btn-text']);
 });
 
+test('every page table is the standard table: a green header row + alternating rows, outside popups (phase 5.5 decision 12)', async ({ page }) => {
+  test.skip(LIVE, 'reads the mocked products and makers');
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(page.locator('#root')).toBeVisible();
+  const style = (loc, prop) => loc.evaluate((el, p) => getComputedStyle(el)[p], prop);
+  // a hand-built card (the products register — no K.Section) gets it from the kit on the render, not a frame later
+  await page.locator('.sidebar .nav-item[data-page="products"]').click();
+  const rec = page.locator('#pg-products section.card.sec', { hasText: 'سجل المنتجات' });
+  await expect(rec).toHaveClass(/\btbl-v2\b/);
+  expect(await style(rec.locator('thead th').nth(1), 'backgroundColor')).toBe('rgb(0, 86, 66)'); // --color-brand-default
+  expect(await style(rec.locator('thead th').nth(1), 'color')).toBe('rgb(255, 247, 239)'); // --color-text-on-brand
+  const rows = rec.locator('tbody tr');
+  expect(await style(rows.nth(0).locator('td').nth(2), 'backgroundColor')).toBe('rgb(255, 247, 239)'); // odd row: --color-bg-base
+  expect(await style(rows.nth(1).locator('td').nth(2), 'backgroundColor')).toBe('rgb(240, 229, 207)'); // even row: --color-bg-tint
+  // a TableCard (the makers' register) too
+  await page.locator('.sidebar .nav-item[data-page="vendors"]').click();
+  const reg = page.locator('#vendors section.table-card').first();
+  await expect(reg).toHaveClass(/\btbl-v2\b/);
+  expect(await style(reg.locator('thead th').nth(1), 'backgroundColor')).toBe('rgb(0, 86, 66)');
+  // the prototype's rule: 3 columns or more, and not inside a popup or a drawer
+  const marks = await page.evaluate(() => {
+    const { h } = window.IBUI; const K = window.IBKit;
+    const sec = (n) => K.Section('t' + n, [h('table', null, h('thead', null, h('tr', null, Array.from({ length: n }, (_, i) => h('th', null, 'c' + i)))), h('tbody', null, h('tr', null, Array.from({ length: n }, () => h('td', null, '1')))))], null, { cols: false });
+    const onPage = h('div', null, sec(3), sec(2)); const inPopup = h('div', { class: 'modal', role: 'dialog' }, sec(5));
+    document.body.append(onPage, inPopup); K.sweepColumns(onPage); K.sweepColumns(inPopup);
+    const out = [...onPage.children, ...inPopup.children].map((c) => c.classList.contains('tbl-v2')); onPage.remove(); inPopup.remove(); return out;
+  });
+  expect(marks).toEqual([true, false, false]);
+});
+
 test('arabic-digit phone identifier works', async ({ page }) => {
   await signIn(page, '٠١٠٠٠٠٠٠٠٠٢', OPS_PW);
   await expect(page.locator('#root')).toBeVisible();

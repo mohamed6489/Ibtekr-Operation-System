@@ -318,17 +318,28 @@
   const cellTxt = (td) => (td ? (td.innerText || td.textContent || '').replace(/\s+/g, ' ').trim() : '');
   const numOf = (x) => { const v = x.replace(/ج\.م|%|,|\+|\s/g, '').replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)); return /^-?\d+(\.\d+)?$/.test(v) ? parseFloat(v) : null; };
   const dateOf = (x) => { let m = x.match(/^(\d{1,2})\/(\d{1,2})\/(\d{4})/); if (m) return m[3] + '-' + m[2].padStart(2, '0') + '-' + m[1].padStart(2, '0'); m = x.match(/^(\d{4})-(\d{2})-(\d{2})/); return m ? m[0] : null; };
+  // moving a node blurs it (a field being typed in loses the text — the variations' prices on CI, 6 Nov): a table's own helpers move
+  // cells / rows only when their order really changes, and give the focus (and the caret) back to the field that had it
+  function keepFocus(root, fn) {
+    const a = document.activeElement; const inside = !!(a && a !== document.body && root && root.contains(a)); let s = null, e = null;
+    if (inside) { try { s = a.selectionStart; e = a.selectionEnd; } catch (x) { s = null; } }
+    fn();
+    if (inside && a.isConnected && document.activeElement !== a) { try { a.focus({ preventScroll: true }); if (s != null) a.setSelectionRange(s, e); } catch (x) { /* not a text field */ } }
+  }
   function applyColumnPrefs(key, table) {
     if (!table) return; const p = colPrefs(key); const heads = colHeads(table); if (!heads.length) return;
     const rank = (lb, i) => { const k = p.order.indexOf(lb); return k < 0 ? 1000 + i : k; };
     const order = heads.map((lb, i) => ({ lb, i, r: i === 0 ? -1 : rank(lb, i) })).sort((a, b) => a.r - b.r || a.i - b.i);
+    const moved = order.some((o, k) => o.i !== k);
     const rows = [...table.querySelectorAll(':scope > thead > tr, :scope > tbody > tr, :scope > tfoot > tr')];
-    for (const tr of rows) {
-      const cells = [...tr.children];
-      if (cells.length !== heads.length) continue; // صف مدموج (زي صف إجمالي بخلية واحدة) — سيبه زي ما هو
-      order.forEach((o) => tr.append(cells[o.i]));
-      order.forEach((o) => { cells[o.i].hidden = o.i !== 0 && p.hidden.includes(o.lb); });
-    }
+    keepFocus(table, () => {
+      for (const tr of rows) {
+        const cells = [...tr.children];
+        if (cells.length !== heads.length) continue; // صف مدموج (زي صف إجمالي بخلية واحدة) — سيبه زي ما هو
+        if (moved) order.forEach((o) => tr.append(cells[o.i]));
+        order.forEach((o) => { cells[o.i].hidden = o.i !== 0 && p.hidden.includes(o.lb); });
+      }
+    });
   }
   function customizeColumns(key, label, table, done) {
     if (!table) { toast('مفيش جدول هنا'); return; }
@@ -565,7 +576,8 @@
         const c = mode[0] === 't' ? String(A).localeCompare(String(B), 'ar') : A < B ? -1 : A > B ? 1 : 0;
         return (mode.endsWith('desc') ? -c : c) || a.dataset.afi - b.dataset.afi; });
       const rest = [...tb.rows].filter((r) => r.dataset.afi == null);
-      sorted.concat(rest).forEach((r) => tb.append(r));
+      const want = sorted.concat(rest); const cur = [...tb.rows];
+      if (want.some((r, k) => cur[k] !== r)) keepFocus(t, () => want.forEach((r) => tb.append(r))); // the rows move only when the order changes
       // فلتر
       let shown = 0; all.forEach((r) => { const ok = match(r, S.f); r.classList.toggle('af-hide', !ok); if (ok) shown++; });
       // صف الإجمالي: لو هو مجموع الصفوف بنحسبه للمعروض بس (وبنرجّعه لما الفلتر يتشال)

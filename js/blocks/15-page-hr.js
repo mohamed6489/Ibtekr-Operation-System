@@ -91,7 +91,8 @@
       h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...(st.tab === 'team' ? teamTab() : st.tab === 'requests' ? requestsTab() : st.tab === 'payroll' ? payrollTab() : st.tab === 'reports' ? reportsTab() : settingsTab()))];
   }
   // تاب «التقارير»: تقارير الموظفين بتتفتح مع تاب «الموظفين» في صفحة التقارير (T8)
-  const reportsTab = () => [K.Section('تقارير الموظفين', K.Empty('قريبًا', 'تقارير الموظفين (الحضور، الأوفر تايم، الإجازات، الأداء) هتتفتح مع تاب «الموظفين» في صفحة التقارير.'))];
+  // «التقارير» (T8, decision 20): the reports page's «تقارير الموظفين» (IBReportBlocks.staff — one source) with its range
+  const reportsTab = () => { const RB = window.IBReportBlocks; if (!RB || !RB.staff) return [K.Section('تقارير الموظفين', K.Empty('التقارير مش متاحة', 'افتح «التقارير › تقارير الموظفين» من القائمة.'))]; return [RB.range ? h('div', { class: 'toolbar pr-rep-bar' }, RB.range()) : null].concat(RB.staff()); };
 
   // ================= الفريق والحضور =================
   function teamTab() {

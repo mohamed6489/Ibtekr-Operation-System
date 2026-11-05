@@ -60,3 +60,45 @@ test('Dokan requests: openRequest = the latest pending / approved of the maker; 
   assert.equal(VD.openRequest(list.filter((w) => w.id === 3), 'a'), null);
   assert.deepEqual([VD.wdLabel('pending'), VD.wdLabel('approved'), VD.wdLabel('cancelled')], ['مستني الموافقة', 'اتوافق عليه', 'اتلغى']);
 });
+
+// phase 5.5 decision 13 (owner 5 Nov): «كشف بالفترة» — the opening is Dokan's balance on the first day less our earlier moves
+const ST = (rows) => ({ rows });
+test('makerLedger: the opening = Dokan\'s opening row less our moves before the period; the period from the statement + our moves', () => {
+  const statement = ST([
+    { date: '2026-10-01', type: 'opening_balance', debit: 0, credit: 0, balance: 1000 },
+    { date: '2026-10-05 10:00:00', type: 'dokan_orders', debit: 650, credit: 0, balance: 1650, ref: 55 },
+    { date: '2026-10-09 12:00:00', type: 'dokan_orders', debit: 350, credit: 0, balance: 2000, ref: 61 },
+    { date: '2026-10-20 09:00:00', type: 'dokan_withdraw', debit: 0, credit: 1200, balance: 800, ref: 501 }]);
+  const moves = [
+    { date: '2026-09-20', type: 'عربون', direction: 'deposit', amount: 300 }, // before: −300
+    { date: '2026-09-25', type: 'مواصلات', direction: 'withdraw', amount: 50 }, // before: −50
+    { date: '2026-09-28', type: 'عربون', direction: 'withdraw', amount: 100 }, // before: the maker gave 100 back → +100
+    { date: '2026-10-10', type: 'عربون', direction: 'deposit', amount: 200 }, // in the period
+    { date: '2026-10-12', type: 'مواصلات', direction: 'withdraw', amount: 80 },
+    { date: '2026-11-02', type: 'عربون', direction: 'deposit', amount: 999 }]; // after the period: not counted
+  const sales = { 55: 1000, 61: 500 };
+  const l = D.makerLedger({ statement, moves, from: '2026-10-01', to: '2026-10-31', salesOf: (ref) => (ref in sales ? sales[ref] : null) });
+  assert.deepEqual(plain(l), { from: '2026-10-01', to: '2026-10-31', dokanOpening: 1000, opening: 750,
+    completed: { orders: 2, lines: 2, earned: 1000, sales: 1500, share: 500, matched: 2 },
+    refunds: 0, payouts: 1200, deposits: 200, transport: 80, other: 0, closing: 270, status: 'owed' });
+  // the last day: Dokan's balance (800) less every move up to it (−300 −50 +100 −200 −80) = «الصافي»
+  assert.equal(l.closing, 800 - 300 - 50 + 100 - 200 - 80);
+});
+test('makerLedger: no opening row → from the first row; no statement (no store) → Dokan\'s part 0; refunds, other rows, statuses', () => {
+  const a = D.makerLedger({ statement: ST([{ type: 'dokan_orders', debit: 400, credit: 0, balance: 900, ref: 7 }, { type: 'dokan_refund', debit: 0, credit: 150, balance: 750 }, { type: 'dokan_gateway_fee', debit: 0, credit: 20, balance: 730 }]), moves: [], from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual([a.dokanOpening, a.completed.earned, a.completed.matched, a.completed.sales, a.refunds, a.other, a.closing, a.status], [500, 400, 0, 0, 150, -20, 730, 'owed']);
+  const b = D.makerLedger({ statement: null, moves: [{ date: '2026-10-03', type: 'عربون', direction: 'deposit', amount: 250 }], from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual([b.dokanOpening, b.opening, b.deposits, b.closing, b.status], [0, 0, 250, -250, 'onThem']);
+  const c = D.makerLedger({ statement: ST([{ type: 'opening_balance', balance: 0, debit: 0, credit: 0 }]), moves: [], from: '2026-10-01', to: '2026-10-31' });
+  assert.deepEqual([c.closing, c.status, D.LEDGER_STATUS[c.status]], [0, 'settled', 'متصفّي']);
+  // an unmatched order (not in our mirror) counts in the orders and «حقه», not in the sales / share
+  const d = D.makerLedger({ statement: ST([{ type: 'opening_balance', balance: 0 }, { type: 'dokan_orders', debit: 100, ref: 1 }, { type: 'dokan_orders', debit: 50, ref: 2 }]), moves: [], from: '2026-10-01', to: '2026-10-31', salesOf: (r) => (r === 1 ? 150 : null) });
+  assert.deepEqual(plain(d.completed), { orders: 2, lines: 2, earned: 150, sales: 150, share: 50, matched: 1 });
+});
+test('ledgerTotals: the sums, what is owed to the makers and what is on them', () => {
+  const L = [{ opening: 100, completed: { orders: 2, lines: 2, sales: 1500, share: 500, earned: 1000 }, refunds: 0, payouts: 200, deposits: 50, transport: 10, other: 0, closing: 840, status: 'owed' },
+    { opening: -40, completed: { orders: 0, lines: 0, sales: 0, share: 0, earned: 0 }, refunds: 0, payouts: 0, deposits: 60, transport: 0, other: 0, closing: -100, status: 'onThem' },
+    { opening: 0, completed: { orders: 0, lines: 0, sales: 0, share: 0, earned: 0 }, refunds: 0, payouts: 0, deposits: 0, transport: 0, other: 0, closing: 0, status: 'settled' }];
+  const t = D.ledgerTotals(L);
+  assert.deepEqual([t.opening, t.orders, t.sales, t.share, t.earned, t.payouts, t.deposits, t.transport, t.closing, t.owed, t.owedCount, t.onThem, t.onThemCount], [60, 2, 1500, 500, 1000, 200, 110, 10, 740, 840, 1, -100, 1]);
+});

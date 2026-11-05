@@ -53,7 +53,8 @@
 //              store (sync_state['accounts'].offset goes round) → dokan_balances. Nothing is ever written to Dokan.
 //   'statement' { vendor_id, from, to }  (decision 6) the maker's Dokan statement for the range (at most 400 days),
 //              dokan/v1/vendor/reports/statement, read-only and not stored: rows { date, type, title, debit, credit,
-//              balance } (title scrubbed). A member needs accounts.view <> N.
+//              balance, ref } (title scrubbed; ref = Dokan's trn_id, the maker's order for dokan_orders — phase 5.5
+//              decision 13). A member needs accounts.view <> N.
 //   'withdraw_approve' { id }  (phase 4.1, the owner's one write from the accounts page) approves a Dokan withdraw request
 //              that is pending in dokan_withdrawals and still pending on Dokan (GET, then PUT dokan/v1/withdraw/{id}
 //              { status: 'approved' }; else skipped/stale and the mirror corrected); the maker's balance is read again.
@@ -647,7 +648,10 @@ async function statement(run: Run, args: Json) {
     for (const r of page.filter(isObj)) {
       out.push({ date: localTs(r.trn_date) ?? localTs(r.balance_date) ?? (typeof r.balance_date === 'string' && ISO_DAY.test(r.balance_date) ? r.balance_date : null),
         type: strOrNull(r.trn_type, 40), title: typeof r.perticulars === 'string' ? woo.scrub(r.perticulars, 120) : strOrNull(r.trn_title, 120),
-        debit: numOrNull(r.debit) ?? 0, credit: numOrNull(r.credit) ?? 0, balance: numOrNull(r.balance) });
+        debit: numOrNull(r.debit) ?? 0, credit: numOrNull(r.credit) ?? 0, balance: numOrNull(r.balance),
+        // phase 5.5 decision 13: Dokan's own id of the row (the maker's order for dokan_orders) — the page's period ledger
+        // finds that order's lines in our mirror for the sales; a number or null, nothing else
+        ref: wooId(r.trn_id) });
     }
   }, { maxPages: STATEMENT_MAX_PAGES });
   return json(200, { action: 'statement', result: 'ok', store, from, to, rows: out, done: res.done });

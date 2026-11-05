@@ -348,7 +348,7 @@ Deno.test('statement: the maker\'s Dokan statement for a range, read-only and no
   const { db, woo, deps } = setup({ routes });
   const { res, body } = await call(deps, { action: 'statement', vendor_id: vendorId(44), from: '2026-10-01', to: '2026-10-27' }, { jwt: 'jwt-acct' });
   assertEquals(res.status, 200);
-  assertEquals(body.rows.map((r: any) => [r.date, r.type, r.debit, r.credit, r.balance]), [['2026-10-01', 'opening_balance', 0, 0, 300], ['2026-10-05 10:00:00', 'dokan_orders', 500, 0, 800]]);
+  assertEquals(body.rows.map((r: any) => [r.date, r.type, r.debit, r.credit, r.balance, r.ref]), [['2026-10-01', 'opening_balance', 0, 0, 300, null], ['2026-10-05 10:00:00', 'dokan_orders', 500, 0, 800, 55]]);
   assertFalse(JSON.stringify(body).includes('01000000777'), 'the title is scrubbed');
   assertEquals(db.writes().length, 0, 'nothing is stored');
   assert(woo.calls.every((c) => c.method === 'GET'));

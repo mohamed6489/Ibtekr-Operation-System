@@ -1574,6 +1574,113 @@
     ].filter(Boolean);
   }
 
+  // ================= phase 5.5 decision 13 (owner 5 Nov): كشف المبتكرين بالفترة =================
+  // The prototype's «حسابات المبتكرين بالفترة» (31 Oct) beside the balance now — an addition. The opening is the owner's answer:
+  // Dokan's own balance on the first day (each maker's statement — woo-sync `statement`, read-only, never stored) less our moves
+  // before it, as «الصافي» counts them; the period from the same statement (what Dokan credited for orders, its refunds and its
+  // withdrawals) and our deposits / transport dated in it (D.makerLedger). The orders' sales and Ibtekr's share: our lines of the
+  // orders Dokan credited (the statement row's ref → the sub-order in our mirror). No withdraw request is made from here.
+  const LEDGER_MAX_DAYS = 400; // woo-sync's statement range
+  const VSUBS = [{ id: 'now', label: 'الرصيد دلوقتي' }, { id: 'ledger', label: 'كشف بالفترة' }];
+  let ledgerTimer = 0;
+  document.addEventListener('ib:accounts-ledger', () => {
+    if (state.page !== 'accounts' || state.tab !== 'vendors' || state.vsub !== 'ledger' || ledgerTimer) return;
+    ledgerTimer = setTimeout(() => { ledgerTimer = 0; rerender(); }, 150);
+  });
+  const ledgerRange = () => ({ from: state.range.from, to: state.range.to > TODAY ? TODAY : state.range.to });
+  function salesByRef() { // a Dokan order id (our sub-order's sid) → { maker name: our lines' total }
+    const OA = window.OrdersApp; const m = new Map(); if (!OA || !OA.query) return m;
+    for (const r of OA.query({}, 100000).rows) {
+      const o = OA.get(r.id); if (!o) continue;
+      for (const s of o.subs || []) { const k = String(s.sid); const e = m.get(k) || {}; e[s.vendor] = D.round2((e[s.vendor] || 0) + (Number(s.tot) || 0)); m.set(k, e); }
+    }
+    return m;
+  }
+  function ledgerRows(range, L) {
+    const by = salesByRef();
+    return vendorsNow().map((v) => {
+      const vv = v.id && vstore.get ? vstore.get(v.id) : null; const names = vv && vstore.namesOf ? vstore.namesOf(vv.id) : [v.name];
+      const hasStore = !!(vv && vv.wooVendorId); const st = hasStore && L ? L.by.get(v.id) : null;
+      const salesOf = (ref) => { const e = by.get(String(ref)); if (!e) return null; let t = null; for (const n of names) if (e[n] != null) t = (t || 0) + e[n]; return t; };
+      const l = D.makerLedger({ statement: st && st.status === 'ok' ? { rows: st.rows } : null, moves: store.vendorMoves.filter((m) => m.vendor === v.name), from: range.from, to: range.to, salesOf });
+      return Object.assign(l, { id: v.id, name: v.name, pct: v.pct, hasStore, dokan: !hasStore ? 'none' : st ? st.status : 'pending', cut: !!(st && st.status === 'ok' && st.done === false) });
+    });
+  }
+  function VendorsTab() {
+    const sub = state.vsub === 'ledger' ? 'ledger' : 'now';
+    const tabs = window.IBKit.SubTabs({ items: VSUBS, active: sub, label: 'حسابات المبتكرين', onChange: (id) => { state.vsub = id; render(); } });
+    return [tabs].concat(sub === 'ledger' ? LedgerView() : VendorsView());
+  }
+  function LedgerView() {
+    const range = ledgerRange(); const days = (Date.parse(range.to + 'T00:00:00Z') - Date.parse(range.from + 'T00:00:00Z')) / 864e5;
+    if (!(days >= 0)) return [U.InlineNote({ kind: 'warning', children: 'الفترة بتبدأ بعد النهارده — اختار فترة فيها أيام فاتت.' })];
+    if (days > LEDGER_MAX_DAYS) return [U.InlineNote({ kind: 'warning', children: 'الكشف بالفترة لحد 400 يوم (كشف حساب Dokan) — اختار فترة أقصر.' })];
+    const A = AC(); if (!A || !A.loadLedger) return [U.InlineNote({ kind: 'error', children: 'الحسابات مش متحمّلة — جرّب تحدّث الصفحة.' })];
+    // every maker with a store has its statement asked once for the range (a new maker later too)
+    const withStore = vendorsNow().map((v) => (v.id && vstore.get ? vstore.get(v.id) : null)).filter((vv) => vv && vv.wooVendorId).map((vv) => vv.id);
+    let L = A.ledgerOf(range.from, range.to);
+    const missing = withStore.filter((id) => !L || !L.by.has(id)); if (missing.length) L = A.loadLedger(range.from, range.to, missing);
+    const all = ledgerRows(range, L); const ready = (l) => l.dokan === 'ok' || l.dokan === 'none';
+    const fmt = (n) => D.formatMoney(n); const money = (n) => num(fmt(n)); const bal = (n) => h('span', { class: n > 0 ? 'pos' : n < 0 ? 'neg' : '' }, money(n));
+    const per = D.formatDateNumeric(range.from) + ' – ' + D.formatDateNumeric(range.to);
+    const sort = SORTS.find((x) => x.value === state.sort) || SORTS[0]; const key = sort.key === 'deposits' ? 'deposits' : 'closing';
+    const sorted = all.slice().sort((a, b) => (ready(b) - ready(a)) || (sort.dir === 'asc' ? 1 : -1) * ((a[key] || 0) - (b[key] || 0)) || a.name.localeCompare(b.name));
+    const moved = (l) => !ready(l) || l.opening || l.closing || l.completed.lines || l.deposits || l.transport || l.payouts || l.refunds || l.other;
+    const rows0 = state.vledgerAll ? sorted : sorted.filter(moved); const done = rows0.filter(ready); const T = D.ledgerTotals(done);
+    const failed = all.filter((l) => l.dokan === 'error'); const pending = all.filter((l) => l.dokan === 'pending');
+    const unmatched = done.some((l) => l.completed.matched < l.completed.lines); const showOther = done.some((l) => l.refunds || l.other);
+    const ST = { owed: ['success', D.LEDGER_STATUS.owed], onThem: ['orange', D.LEDGER_STATUS.onThem], settled: ['neutral', D.LEDGER_STATUS.settled] };
+    const wait = (l) => (l.dokan === 'pending' ? h('span', { class: 'help', 'data-ledger-wait': '' }, '…') : l.dokan === 'error' ? h('span', { class: 'help' }, '—') : null);
+    const cellOf = (f) => (l) => wait(l) || f(l);
+    const rowMenu = (l) => window.IBKit.RowMenu([{ label: 'تقرير المبتكر', icon: 'chart', run: () => openAccountBrief(l.name) },
+      l.hasStore ? { label: 'كشف حساب Dokan', icon: 'file', run: () => openStatement(l.name, l.id) } : null,
+      { label: 'افتح ملف المبتكر', icon: 'users', run: () => { const vv = vstore.get && vstore.get(l.id); if (vv) openVendor(vv.id, { inPlace: true }); } }].filter(Boolean), 'إجراءات ' + l.name);
+    const wdTag = (l) => { const r = wdOf(l.name); return h('button', { type: 'button', class: 'tg tg-' + (r ? (r.status === 'approved' ? 'success' : 'orange') : 'neutral') + ' wd-cell', 'data-wd': l.name, 'aria-label': 'طلب سحب ' + l.name + ': ' + (r ? 'يوجد' : 'لا يوجد'), onClick: (e) => { e.stopPropagation(); openAccountBrief(l.name); } }, r ? 'يوجد' : 'لا يوجد'); };
+    const B = window.IBKit.Bulk({ key: 'vledger', ids: rows0.map((l) => l.id), noun: 'مبتكر', render,
+      actions: [{ id: 'xlsx', label: 'كشف حساب إكسل', icon: 'download', run: (ids, fin) => {
+        const l = rows0.filter((x) => ids.includes(x.id) && ready(x));
+        if (!l.length) { window.IBKit.toast('مفيش حد من المحددين كشفه جاهز من Dokan', 'error'); return; }
+        window.IBKit.xlsxExport('ibtekr-makers-' + range.from + '_' + range.to + '.xlsx', 'حسابات المبتكرين ' + per,
+          [['المبتكر', 'نسبة إبتكر', 'رصيد Dokan أول الفترة', 'رصيد أول الفترة', 'أوردرات مكتملة', 'مبيعات المكتمل', 'حصة إبتكر', 'حقه من المكتمل', 'العرابين', 'المواصلات', 'اتحوّله', 'مرتجعات وحركات تانية', 'المستحق آخر الفترة', 'الحالة']]
+            .concat(l.map((x) => [x.name, x.pct, x.dokanOpening, x.opening, x.completed.orders, x.completed.sales, x.completed.share, x.completed.earned, x.deposits, x.transport, x.payouts, D.round2(x.other - x.refunds), x.closing, D.LEDGER_STATUS[x.status]])));
+        fin('اتنزل كشف ' + l.length + ' مبتكر'); } }] });
+    const COLS = [['sel', B.head()], ['name', 'المبتكر'], ['pct', 'نسبة إبتكر'], ['last', 'آخر طلب سحب'], ['open', 'رصيد أول الفترة'], ['cN', 'مكتمل في الفترة — أوردرات'], ['sales', 'مبيعات المكتمل'], ['cV', 'حصة إبتكر'], ['earned', 'حقه من المكتمل'],
+      ['dep', 'العرابين'], ['tr', 'المواصلات'], ['paid', 'اتحوّله'], showOther ? ['oth', 'مرتجعات وحركات تانية'] : null, ['bal', 'المستحق آخر الفترة'], ['due', 'الحالة'], ['wd', 'طلب سحب'], ['act', 'إجراءات']].filter(Boolean);
+    const part = (l) => (l.completed.matched < l.completed.lines ? '*' : '');
+    const CELL = { sel: (l) => B.box(l.id, l.name),
+      name: (l) => h('span', { class: 'vname-cell' }, h('span', { class: 'vname-link', role: 'button', tabindex: '0', dir: 'auto', 'aria-label': 'تقرير ' + l.name, 'data-ledger-row': l.name, onClick: (e) => { e.stopPropagation(); openAccountBrief(l.name); }, onKeydown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); openAccountBrief(l.name); } } }, l.name),
+        l.hasStore ? null : h('small', { class: 't-small help' }, ' · مالوش متجر'), l.cut ? h('small', { class: 't-small help' }, ' · أول 1000 حركة بس') : null,
+        l.dokan === 'error' ? h('span', { class: 'tg tg-error', 'data-ledger-err': '' }, 'Dokan ماردش') : null),
+      pct: (l) => num(l.pct), last: lastCell, open: cellOf((l) => h('span', { title: 'رصيد Dokan يوم ' + D.formatDateNumeric(range.from) + ': ' + fmt(l.dokanOpening) + ' ج.م' }, bal(l.opening))),
+      cN: cellOf((l) => num(String(l.completed.orders))), sales: cellOf((l) => h('span', null, money(l.completed.sales), part(l))), cV: cellOf((l) => h('span', null, money(l.completed.share), part(l))), earned: cellOf((l) => money(l.completed.earned)),
+      dep: (l) => money(l.deposits), tr: (l) => money(l.transport), paid: cellOf((l) => money(l.payouts)), oth: cellOf((l) => bal(D.round2(l.other - l.refunds))),
+      bal: cellOf((l) => h('b', { 'data-ledger-close': l.name }, bal(l.closing))), due: cellOf((l) => h('span', { class: 'tg tg-' + ST[l.status][0], 'data-due': l.status }, ST[l.status][1])), wd: wdTag, act: rowMenu };
+    const TOT = { sel: '', name: 'الإجمالي', pct: '—', last: '', open: bal(T.opening), cN: num(String(T.orders)), sales: money(T.sales), cV: money(T.share), earned: money(T.earned), dep: money(T.deposits), tr: money(T.transport), paid: money(T.payouts),
+      oth: bal(D.round2(T.other - T.refunds)), bal: h('b', { 'data-ledger-total': '' }, bal(T.closing)), due: h('span', null, num(String(T.owedCount)), ' مستحق'), wd: '', act: '' };
+    const detL = (k) => { const l = k === 'owed' ? done.filter((x) => x.status === 'owed') : k === 'on' ? done.filter((x) => x.status === 'onThem') : k === 'earned' ? done.filter((x) => x.completed.lines) : k === 'dep' ? done.filter((x) => x.deposits || x.transport) : done;
+      const ttl = { all: 'المبتكرين في الفترة — ' + l.length, owed: 'مستحق للمبتكرين آخر الفترة — ' + fmt(T.owed) + ' ج.م', on: 'عند المبتكرين — ' + fmt(T.onThem) + ' ج.م', earned: 'حقهم من الأوردرات المكتملة في الفترة — ' + fmt(T.earned) + ' ج.م', dep: 'العرابين والمواصلات في الفترة — ' + fmt(D.round2(T.deposits + T.transport)) + ' ج.م' }[k];
+      return { title: ttl, sub: per + ' · اضغط على أي مبتكر يفتح تقريره', summary: [{ label: 'مبتكرين', value: String(l.length) }, { label: 'حقهم من المكتمل', value: fmt(D.round2(l.reduce((x, v) => x + v.completed.earned, 0))) + ' ج.م' }, { label: 'المستحق آخر الفترة', value: fmt(D.round2(l.reduce((x, v) => x + v.closing, 0))) + ' ج.م' }],
+        headers: ['المبتكر', 'رصيد أول الفترة', 'حقه من المكتمل', 'العرابين', 'المواصلات', 'اتحوّله', 'المستحق آخر الفترة'], rows: l.map((v) => [v.name, fmt(v.opening), fmt(v.completed.earned), fmt(v.deposits), fmt(v.transport), fmt(v.payouts), fmt(v.closing)]),
+        onRow: (i) => openAccountBrief(l[i].name), source: 'كشف حساب Dokan لكل مبتكر في الفترة (رصيد أول يوم + اللي اتحط واتسحب) + العرابين والمواصلات المتسجلة هنا' }; };
+    const refresh = () => { A.dropLedger(range.from, range.to); render(); };
+    const progress = pending.length ? U.InlineNote({ children: h('span', { 'data-ledger-progress': '' }, 'بنجيب كشوف حساب المبتكرين من Dokan… ', num(String(withStore.length - pending.length)), ' من ', num(String(withStore.length))) }) : null;
+    const failNote = !pending.length && failed.length ? U.InlineNote({ kind: 'error', children: 'Dokan مارجّعش كشف ' + failed.length + ' مبتكر — أرقامهم مش في الإجمالي.', action: Button({ type: 'text', size: 'sm', label: 'جرّب تاني', attrs: { 'data-ledger-retry': '' }, onClick: () => { A.loadLedger(range.from, range.to, failed.map((l) => l.id)); render(); } }) }) : null;
+    const card = TableCard({ title: 'كشف المبتكرين — ' + per, count: rows0.length + ' مبتكر · ' + T.owedCount + ' ليهم رصيد', cols: false, cls: 'ledger-card own-filter', // its own sort + «اعرض كل المبتكرين» — the kit's auto filter leaves it
+      action: h('span', { class: 'acts-inline' }, window.IBKit.Checkbox({ label: 'اعرض كل المبتكرين (حتى اللي مالهمش حركة)', checked: !!state.vledgerAll, onChange: (x) => { state.vledgerAll = x; render(); } }),
+        Button({ label: pending.length ? 'بنجيب من Dokan…' : 'حدّث الكشف من Dokan', icon: 'refresh', disabled: !!pending.length, attrs: { 'data-ledger-refresh': '' }, onClick: refresh })),
+      pre: B.bar(), body: !rows0.length ? U.EmptyState('مفيش حركة للمبتكرين في الفترة دي', 'علّم «اعرض كل المبتكرين» تشوفهم كلهم.') : U.Table({ cls: 'vendors-table ledger-table', headers: COLS.map(([, lb]) => lb), rows: rows0.map((l) => COLS.map(([k]) => CELL[k](l))), totalRow: COLS.map(([k]) => TOT[k]) }) });
+    return [progress, failNote,
+      h('div', { class: 'cards five' },
+        U.CategoryCard({ tone: 'brand', name: 'المبتكرين في الفترة', value: rows0.length, unit: 'مبتكر', decimals: false, sub: num(T.orders + ' أوردر حطه Dokan في أرصدتهم'), details: () => detL('all') }),
+        U.CategoryCard({ tone: 'gold', name: 'مستحق للمبتكرين', value: T.owed, sub: T.owedCount + ' مبتكرين · آخر الفترة', details: () => detL('owed') }),
+        U.CategoryCard({ tone: 'neutral', name: 'رصيد عند المبتكرين', value: T.onThem, sub: T.onThemCount + ' مبتكرين (عرابين/مواصلات)', details: () => detL('on') }),
+        U.CategoryCard({ tone: 'goldlight', name: 'حقهم من المكتمل', value: T.earned, sub: h('span', null, 'حصة إبتكر ', num(fmt(T.share))), details: () => detL('earned') }),
+        U.CategoryCard({ tone: 'neutral', name: 'العرابين والمواصلات', value: D.round2(T.deposits + T.transport), sub: h('span', null, 'اتحوّلهم ', num(fmt(T.payouts))), details: () => detL('dep') })),
+      window.IBKit.withColumns(card, 'tbl:vendor-ledger', 'كشف المبتكرين'),
+      sourceNote('الحساب = رصيد أول الفترة + حقه من المكتمل − العرابين − المواصلات − اللي اتحوّله' + (showOther ? ' ± المرتجعات والحركات التانية' : '') + ' = المستحق آخر الفترة. رصيد أول الفترة = رصيد Dokan يوم ' + D.formatDateNumeric(range.from) + ' (كشف حساب المبتكر — قراءة بس، مابيتخزنش) ناقص العرابين والمواصلات المتسجلة هنا قبله، زي «الصافي». «حقه من المكتمل» و«اتحوّله» من كشف Dokan نفسه في الفترة، والعرابين والمواصلات من الحركات المتسجلة هنا بتاريخها. مبيعات المكتمل وحصة إبتكر = سطور أوردراتنا للأوردرات اللي Dokan حطها في رصيده' + (unmatched ? ' (* فيه أوردرات مش عندنا — المبيعات والحصة ناقصينهم)' : '') + '.'),
+    ].filter(Boolean);
+  }
+
   function ActualView() {
     const acc = accountsNow().balances; const vs = D.vendorSummary(vendorsNow());
     const P = D.potential(acc, SEED.inProgressShare, vs.deposits); const totalActual = P.actual;
@@ -1608,7 +1715,7 @@
   }
 
   // ---------- render ----------
-  const VIEWS = { expenses: ExpensesView, subscriptions: SubsView, sales: SalesView, vendors: VendorsView, actual: ActualView, 'moves-log': MovesLogView };
+  const VIEWS = { expenses: ExpensesView, subscriptions: SubsView, sales: SalesView, vendors: VendorsTab, actual: ActualView, 'moves-log': MovesLogView };
   let focusTab = false;
   // ---------- Reports page (Figma: التقارير — Desktop 1440 / Mobile 360) ----------
   const R = window.IbtekrReports;
@@ -3109,7 +3216,7 @@
     main.replaceChildren(...[
       h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'المصروفات · المبيعات · حسابات المبتكرين · الحساب الفعلي · سجل الحركات')), h('div', { class: 'actions' }, window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
       tabs,
-      state.tab === 'moves-log' ? null : h('div', { class: 'toolbar' }, DateRangeField(), state.tab === 'vendors' ? SortDropdown() : null, state.tab === 'vendors' ? WdFilterDropdown() : null, h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'subscriptions' ? Button({ type: 'brand', icon: 'plus', label: 'إضافة اشتراك', attrs: { 'data-add-sub': '' }, onClick: () => openForm('expenses', 'withdraw', null, false, { category: SUBS_CAT }) }) : state.tab === 'vendors' ? AddMenu('إضافة مبلغ', 'vendorMoves') : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
+      state.tab === 'moves-log' ? null : h('div', { class: 'toolbar' }, DateRangeField(), state.tab === 'vendors' ? SortDropdown() : null, state.tab === 'vendors' && state.vsub !== 'ledger' ? WdFilterDropdown() : null, h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'subscriptions' ? Button({ type: 'brand', icon: 'plus', label: 'إضافة اشتراك', attrs: { 'data-add-sub': '' }, onClick: () => openForm('expenses', 'withdraw', null, false, { category: SUBS_CAT }) }) : state.tab === 'vendors' ? AddMenu('إضافة مبلغ', 'vendorMoves') : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
       noteEl,
       h('div', { id: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.tab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, VIEWS[state.tab]())].filter(Boolean));
     window.IBKit.sweepColumns(document.getElementById('panel'));

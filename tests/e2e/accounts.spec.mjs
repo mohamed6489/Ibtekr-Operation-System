@@ -359,3 +359,48 @@ test('5.5: the makers\' table shows the latest Dokan request per maker; the actu
 });
 
 // the accounts report by period (decision 4): tests/e2e/reports.spec.mjs (phase 9 opened the reports page)
+
+test('5.5 decision 13: «كشف بالفترة» — the opening is Dokan\'s balance on the first day less the earlier moves; the period from each maker\'s statement + our moves', async ({ page }) => {
+  const today = cairo(); const from = today.slice(0, 8) + '01';
+  const before = new Date(Date.parse(from + 'T00:00:00Z') - 5 * 864e5).toISOString().slice(0, 10);
+  const V3 = 'a0000000-0000-4000-8000-000000000003'; // Bian eg (store 2047)
+  const mv = (id, vendor_id, on_date, direction, kind, amount) => ({ id, vendor_id, on_date, direction, kind, kind_name: null, amount, note: null, created_by: null, created_at: on_date + 'T09:00:00Z', voided_at: null });
+  mock.acc.acc_vendor_moves.push(mv(91, V1, before, 'deposit', 'عربون', 400), mv(92, V1, from, 'deposit', 'عربون', 100), mv(93, V1, today, 'withdraw', 'مواصلات', 50));
+  mock.statementRows = {
+    [V1]: [{ date: from, type: 'opening_balance', debit: 0, credit: 0, balance: 2000, ref: null },
+      { date: from + ' 10:00:00', type: 'dokan_orders', debit: 650, credit: 0, balance: 2650, ref: 181669 }, // our sub-order: Art Craft's line 1,002
+      { date: from + ' 11:00:00', type: 'dokan_orders', debit: 300, credit: 0, balance: 2950, ref: 777001 }, // not in our mirror
+      { date: today + ' 09:00:00', type: 'dokan_withdraw', debit: 0, credit: 1200, balance: 1750, ref: 501 }],
+    [V2]: [{ date: from, type: 'opening_balance', debit: 0, credit: 0, balance: 0, ref: null }, { date: from + ' 12:00:00', type: 'dokan_orders', debit: 1500, credit: 0, balance: 1500, ref: 181670 }] };
+  mock.statementFail = new Set([V3]);
+  await openAccounts(page);
+  await tab(page, 'حسابات المبتكرين').click();
+  await main(page).getByRole('tab', { name: 'كشف بالفترة' }).click();
+  const table = main(page).locator('table.ledger-table');
+  const art = table.locator('tbody tr', { hasText: 'Art Craft' });
+  // Art Craft: 2,000 − 400 = 1,600 · حقه 650 + 300 · sales 1,002 (the unmatched order marked *) · share 352 · out 1,200 · deposits 100 · transport 50
+  await expect(art.locator('[data-ledger-close="Art Craft"]')).toHaveText('1,200.00');
+  await expect(art).toContainText('1,600.00'); await expect(art).toContainText('950.00'); await expect(art).toContainText('1,002.00*'); await expect(art).toContainText('352.00');
+  await expect(art.locator('[data-due]')).toHaveText('مستحق');
+  const anti = table.locator('tbody tr', { hasText: 'Antikiano' }); // 0 + 1,500 · sales 2,539 · share 1,039
+  await expect(anti.locator('[data-ledger-close="Antikiano"]')).toHaveText('1,500.00'); await expect(anti).toContainText('2,539.00'); await expect(anti).toContainText('1,039.00');
+  // Bian eg: Dokan did not answer — shown, kept out of the totals, «جرّب تاني» asks it again
+  await expect(table.locator('tbody tr', { hasText: 'Bian eg' }).locator('[data-ledger-err]')).toBeVisible();
+  await expect(main(page).locator('[data-ledger-total]')).toHaveText('2,700.00');
+  expect(mock.statements.map((s) => [s.vendor_id, s.from, s.to]).sort()).toEqual([V1, V2, V3].map((v) => [v, from, today]).sort());
+  mock.statementFail = new Set();
+  await main(page).locator('[data-ledger-retry]').click();
+  await expect(table.locator('tbody tr', { hasText: 'Bian eg' })).toHaveCount(0); // answered with no movement: hidden unless «اعرض كل المبتكرين»
+  expect(mock.statements.length).toBe(4);
+  await main(page).getByText('اعرض كل المبتكرين (حتى اللي مالهمش حركة)').click();
+  await expect(table.locator('tbody tr', { hasText: 'Bian eg' }).locator('[data-due]')).toHaveText('متصفّي');
+  // a deposit recorded now lowers the closing at once; the statements are not asked again
+  await add(page, 'إضافة مبلغ', 'إيداع');
+  await pick(page, 'f-vendor', 'Antikiano'); await modal(page).locator('#f-amount').fill('500'); await pick(page, 'f-type', 'عربون');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(anti.locator('[data-ledger-close="Antikiano"]')).toHaveText('1,000.00');
+  expect(mock.statements.length).toBe(4);
+  // «حدّث الكشف من Dokan» asks every maker again
+  await main(page).locator('[data-ledger-refresh]').click();
+  await expect.poll(() => mock.statements.length).toBe(7);
+});

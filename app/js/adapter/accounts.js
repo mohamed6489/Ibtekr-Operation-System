@@ -24,6 +24,11 @@
 // accounts.withdraw.approve (the request and its amount), then load() reads the mirrors again. refreshWithdrawals() (plan
 // decision 12, «تحديث من Dokan») asks woo-sync (withdrawals) for the requests now → { ok, pending, reason } after load();
 // refreshing() is true meanwhile (one request at a time).
+// Phase 5.5 decision 13 («كشف بالفترة»): loadLedger(from, to, ids) asks woo-sync `statement` for each maker id (the page passes
+// the makers with a store), LEDGER_PAR at a time; ledgerOf(from, to) = { from, to, by: Map id → { status 'pending' | 'ok' |
+// 'error', rows, noStore, done }, total, settled, failed, running } or null — kept for this session per range (read-only on
+// Dokan and never stored); a new loadLedger for the same range re-asks the ids it is given (a retry) and dropLedger forgets a
+// range («تحديث من Dokan»). Every answer dispatches ib:accounts-ledger.
 (function () {
   'use strict';
   const KINDS = {
@@ -165,6 +170,32 @@
     } catch (e) { return { ok: false, reason: 'network', rows: [] }; }
   }
 
+  // ---------- phase 5.5 decision 13: the makers' Dokan statements for a period («كشف بالفترة») ----------
+  const LEDGER_PAR = 4; const ledgers = new Map();
+  function ledgerOf(from, to) {
+    const L = ledgers.get(from + '|' + to); if (!L) return null;
+    const all = [...L.by.values()]; const settled = all.filter((x) => x.status !== 'pending').length;
+    return { from, to, by: L.by, total: all.length, settled, failed: all.filter((x) => x.status === 'error').length, running: settled < all.length };
+  }
+  function loadLedger(from, to, ids) {
+    const key = from + '|' + to; let L = ledgers.get(key); if (!L) { L = { by: new Map() }; ledgers.set(key, L); }
+    const queue = [...new Set((ids || []).filter((id) => typeof id === 'string' && id))];
+    queue.forEach((id) => L.by.set(id, { status: 'pending' }));
+    const emit = () => quiet(() => document.dispatchEvent(new CustomEvent('ib:accounts-ledger', { detail: { from, to } })));
+    let active = 0;
+    const next = () => {
+      while (active < LEDGER_PAR && queue.length) {
+        const id = queue.shift(); active += 1;
+        statement(id, from, to).then((r) => {
+          L.by.set(id, r.ok ? { status: 'ok', rows: r.rows, noStore: !!r.noStore, done: r.done !== false } : { status: 'error', reason: r.reason || 'network' });
+        }).catch(() => { L.by.set(id, { status: 'error', reason: 'network' }); }).then(() => { active -= 1; emit(); next(); });
+      }
+    };
+    next(); emit();
+    return ledgerOf(from, to);
+  }
+  const dropLedger = (from, to) => { ledgers.delete(from + '|' + to); };
+
   // ---------- phase 4.1: the lists and the approval of a Dokan request ----------
   const lists = (key) => data.lists.filter((r) => r.list === key).map((r) => r.name);
   async function addListItem(key, name) {
@@ -212,8 +243,8 @@
     } catch (e) { return { ok: false, reason: 'network' }; } finally { refreshingNow = false; emit({ refreshing: false }); }
   }
 
-  function clear() { st = 'idle'; Object.keys(data).forEach((k) => { data[k] = []; }); salesCache.clear(); }
+  function clear() { st = 'idle'; Object.keys(data).forEach((k) => { data[k] = []; }); salesCache.clear(); ledgers.clear(); } // the sign-out wipe — the statements too
 
   window.IBAccounts = { load, clear, state: () => st, rows: (kind) => data[kind].slice(), balances: () => data.balances.slice(), withdrawals: () => data.withdrawals.slice(),
-    add, update, remove, sales, salesFailed, statement, lists, addListItem, approveWithdraw, refreshWithdrawals, refreshing: () => refreshingNow, can, canEdit, toExpense, toVendorMove, toAccountMove, toColumns, KINDS };
+    add, update, remove, sales, salesFailed, statement, ledgerOf, loadLedger, dropLedger, lists, addListItem, approveWithdraw, refreshWithdrawals, refreshing: () => refreshingNow, can, canEdit, toExpense, toVendorMove, toAccountMove, toColumns, KINDS };
 })();

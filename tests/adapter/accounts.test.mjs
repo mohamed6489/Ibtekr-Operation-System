@@ -148,3 +148,28 @@ test('plan 4.1 decision 12: refreshWithdrawals → woo-sync withdrawals, then lo
   answer = { data: null, error: { context: { status: 502 } } };
   assert.deepEqual(plain(await A.refreshWithdrawals()), { ok: false, reason: 'woo_down' });
 });
+
+test('phase 5.5 decision 13: loadLedger asks woo-sync statement per maker (4 at a time), keeps the answers per range; a retry re-asks; ib:accounts-ledger', async () => {
+  const ids = ['v1', 'v2', 'v3', 'v4', 'v5', 'v6'].map((x, i) => 'a0000000-0000-4000-8000-00000000000' + (i + 1));
+  let inFlight = 0, most = 0; const fail = new Set([ids[4]]);
+  const fn = (opts) => { inFlight += 1; most = Math.max(most, inFlight);
+    return new Promise((res) => setTimeout(() => { inFlight -= 1; const id = opts.body.vendor_id;
+      res(fail.has(id) ? { data: null, error: { message: 'boom' } } : ok({ action: 'statement', result: id === ids[5] ? 'no_store' : 'ok', rows: [{ type: 'opening_balance', balance: 100, debit: 0, credit: 0 }], done: true })); }, 5)); };
+  const { A, stub, events } = load({ responses: { 'fn:woo-sync': fn } });
+  const first = A.loadLedger('2026-10-01', '2026-10-31', ids.concat(ids[0], '', null));
+  assert.equal(first.total, 6, 'one call per maker, the duplicates and blanks dropped'); assert.equal(first.running, true);
+  await new Promise((r) => setTimeout(r, 60));
+  assert.ok(most <= 4, 'at most four at a time — ' + most);
+  const L = A.ledgerOf('2026-10-01', '2026-10-31');
+  assert.deepEqual([L.total, L.settled, L.failed, L.running], [6, 6, 1, false]);
+  assert.equal(L.by.get(ids[0]).status, 'ok'); assert.equal(L.by.get(ids[0]).rows[0].balance, 100);
+  assert.equal(L.by.get(ids[4]).status, 'error'); assert.equal(L.by.get(ids[5]).noStore, true);
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').map((c) => c.args[1].body.action), Array(6).fill('statement'));
+  assert.ok(events.filter((e) => e === 'ib:accounts-ledger').length >= 6);
+  assert.equal(A.ledgerOf('2026-11-01', '2026-11-30'), null, 'another range is not loaded');
+  // the retry asks the failed maker only
+  fail.clear(); A.loadLedger('2026-10-01', '2026-10-31', [ids[4]]); await new Promise((r) => setTimeout(r, 30));
+  assert.equal(stub.calls.filter((c) => c.op === 'invoke').length, 7); assert.equal(A.ledgerOf('2026-10-01', '2026-10-31').failed, 0);
+  A.loadLedger('2026-09-01', '2026-09-30', [ids[0]]); A.clear(); assert.equal(A.ledgerOf('2026-09-01', '2026-09-30'), null, 'the sign-out wipe forgets the statements');
+  A.dropLedger('2026-10-01', '2026-10-31'); assert.equal(A.ledgerOf('2026-10-01', '2026-10-31'), null);
+});

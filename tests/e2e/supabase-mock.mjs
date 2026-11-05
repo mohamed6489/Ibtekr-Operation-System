@@ -2062,8 +2062,10 @@ export async function installSupabaseMock(page, opts = {}) {
         const v = mock.vendors.find((x) => x.id === String(b.vendor_id || '').toLowerCase());
         if (!v) return json(404, { error: 'vendor_not_found' });
         if (v.woo_vendor_id == null) return json(200, { action, result: 'no_store', rows: [] });
-        if (mock.wooDown) return json(502, { error: 'woo_error' });
-        return json(200, { action, result: 'ok', store: v.woo_vendor_id, from: b.from, to: b.to, rows: mock.statementRows, done: true });
+        if (mock.wooDown || (mock.statementFail && mock.statementFail.has(v.id))) return json(502, { error: 'woo_error' });
+        // phase 5.5 decision 13: the rows per maker ({ [vendor id]: rows }) or the same rows for every maker
+        const rows = Array.isArray(mock.statementRows) ? mock.statementRows : (mock.statementRows[v.id] || []);
+        return json(200, { action, result: 'ok', store: v.woo_vendor_id, from: b.from, to: b.to, rows, done: true });
       }
       if (action === 'push_vendor') {
         const fields = Array.isArray(b.fields) ? [...new Set(b.fields.filter((f) => typeof f === 'string'))] : [];

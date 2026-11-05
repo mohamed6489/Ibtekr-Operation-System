@@ -180,7 +180,7 @@
         K.Grip(c.label),
         h('span', { class: 'dc-l' }, h('b', null, c.label), c.locked ? h('small', { class: 't-small help' }, 'مقفول — دايمًا ظاهر') : null),
         K.Switch({ id: 'dc-' + c.id, label: c.label, checked: !c.hidden, disabled: c.locked, onChange: (v) => { c.hidden = !v; set('list', f.list.slice(), true); } }))));
-        setTimeout(() => K.sortableRows(wrap, 'data-dash-item', (ids) => set('list', ids.map((id) => f.list.find((x) => x.id === id)).filter(Boolean), true)), 0);
+        K.sortableRows(wrap, 'data-dash-item', (ids) => set('list', ids.map((id) => f.list.find((x) => x.id === id)).filter(Boolean), true)); // the grips listen right away (phase 10 decision 22)
         return [wrap]; },
       extraFooter: (f, m) => h('span', { class: 'rp-del' }, Button({ type: 'text', label: 'رجوع للافتراضي', onClick: () => { delete K.store.dashPrefs[owner]; if (window.IBPrefs) window.IBPrefs.remove('dashboard').then(synced); K.toast('رجعت اللوحة للافتراضي'); m.close(); render(); } })),
       submitLabel: 'حفظ', submit: (f) => { K.store.dashPrefs = K.store.dashPrefs || {}; K.store.dashPrefs[owner] = { order: f.list.map((c) => c.id), hidden: f.list.filter((c) => c.hidden).map((c) => c.id) }; if (window.IBPrefs) window.IBPrefs.set('dashboard', K.store.dashPrefs[owner]).then(synced); K.logEvent('dashboard.customize', f.list.filter((c) => !c.hidden).length + ' كارت'); K.toast('اتحفظ تخصيص اللوحة', 'success'); render(); } });

@@ -695,13 +695,17 @@
     if (st.view === 'studio' && window.IBStudioView) return window.IBStudioView.view(K.PageHead('المنتجات', null, null));
     if (st.view === 'tool-content' && window.IBContentView) return window.IBContentView.view();
     if (st.view === 'tool-images' && window.IBImagesView) return window.IBImagesView.view();
-    const head = K.PageHead('المنتجات', 'عدّل المنتجات اللي على الموقع. البيانات والصور متخزنة على ووكومرس.', [Button({ type: 'brand', label: '+ دفعة منتجات جديدة', onClick: startStudio })]);
+    // «تخصيص اللوحة» (phase 10 decision 22, as in the v5 prototype): the log, the additions and the trash; the reports tab has its own
+    const custom = st.view !== 'reports'; const pkey = 'products:' + st.view;
+    const head = K.PageHead('المنتجات', 'عدّل المنتجات اللي على الموقع. البيانات والصور متخزنة على ووكومرس.', [custom && K.PanelButton ? K.PanelButton(pkey, 'المنتجات — ' + (st.view === 'add' ? 'الإضافة' : st.view === 'trash' ? 'المحذوفات' : 'السجل'), () => document.querySelector('#pg-products .panel'), R) : null, Button({ type: 'brand', label: '+ دفعة منتجات جديدة', onClick: startStudio })]);
     head.firstChild.append(fresh());
     let body;
     if (P.state() === 'error') body = [K.Empty('مقدرناش نحمّل المنتجات', 'في مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', onClick: () => P.load() }))];
     else if (P.state() !== 'ready' && st.view !== 'add') body = [U.InlineNote({ children: 'بنحمّل المنتجات…' })];
     else body = st.view === 'add' ? addView() : st.view === 'trash' ? trashView() : st.view === 'reports' ? reportsView() : recordsView();
-    return [head, mainTabs(), h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...body.filter(Boolean))];
+    const panel = h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...body.filter(Boolean));
+    if (custom && K.applyPanelPrefs) setTimeout(() => K.applyPanelPrefs(pkey, panel), 0);
+    return [head, mainTabs(), panel];
   }
   document.addEventListener('ib:products', () => { if (window.IBPages.current === 'products' && st.view !== 'edit') R(); });
   // a deep link opened before the sign-in finished: draw again once the permissions are known

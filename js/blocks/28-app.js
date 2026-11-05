@@ -2640,7 +2640,7 @@
       h('span', { class: 't-small' }, num(list.length ? 'عرض ' + ((state.vpage - 1) * VPAGE + 1) + '–' + Math.min(list.length, state.vpage * VPAGE) + ' من ' + list.length : '')));
     return [
       h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'المبتكرين'), h('p', { class: 't-small' }, 'ملف كل مبتكر: البيانات والعقد والحساب البنكي، وأوردراته ورصيده — المبتكر هو المرجع الأساسي للأوردرات والنسب')),
-        h('div', { class: 'actions' }, window.IBDataActions.Menu(window.IBDataActions.PAGES.vendors), syncNowBtn(), Button({ type: 'brand', icon: 'plus', label: 'إضافة مبتكر', disabled: !vstore.canEdit(), onClick: () => openAddVendor() }))),
+        h('div', { class: 'actions' }, window.IBKit.PanelButton('makers', 'المبتكرين', () => document.getElementById('vendors'), renderVendors), window.IBDataActions.Menu(window.IBDataActions.PAGES.vendors), syncNowBtn(), Button({ type: 'brand', icon: 'plus', label: 'إضافة مبتكر', disabled: !vstore.canEdit(), onClick: () => openAddVendor() }))),
       h('div', { class: 'toolbar vtoolbar' }, search, h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(list.length + ' مبتكر · ' + (VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label))),
       vnote ? (() => { const n = vnote; vnote = null; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); return el; })() : null,
       h('div', { class: 'cards five' },
@@ -2655,7 +2655,7 @@
   }
   function renderVendors(keepFocus) {
     U.closePopover(); const main = document.getElementById('vendors'); if (!main) return; const sc = window.scrollY; const had = keepFocus && document.activeElement && document.activeElement.type === 'search';
-    main.replaceChildren(...VendorsPageView().filter(Boolean)); window.IBKit.sweepColumns(main); window.scrollTo(0, sc); if (had) { const s = main.querySelector('input[type=search]'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
+    main.replaceChildren(...VendorsPageView().filter(Boolean)); window.IBKit.applyPanelPrefs('makers', main); window.IBKit.sweepColumns(main); window.scrollTo(0, sc); if (had) { const s = main.querySelector('input[type=search]'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
   }
 
   // ----- login + payout fields (owner 26 Oct, phase 3.1 decision 9): shared by «إضافة مبتكر» and the drawer's «بيانات الدخول» popup -----
@@ -3267,11 +3267,13 @@
     const noteEl = note ? U.InlineNote({ kind: note.kind, children: note.text, action: note.undo ? Button({ type: 'text', size: 'sm', label: 'تراجع', onClick: note.undo })
       : note.action ? Button({ type: 'text', size: 'sm', label: note.action.label, attrs: { 'data-note-act': '' }, onClick: note.action.run }) : IconButton({ icon: 'close', label: 'إخفاء', onClick: () => { noteEl.remove(); } }) }) : null;
     main.replaceChildren(...[
-      h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'المصروفات · المبيعات · حسابات المبتكرين · الحساب الفعلي · سجل الحركات')), h('div', { class: 'actions' }, window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
+      h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'المصروفات · المبيعات · حسابات المبتكرين · الحساب الفعلي · سجل الحركات')), h('div', { class: 'actions' }, state.tab === 'moves-log' ? null : window.IBKit.PanelButton('accounts:' + state.tab, 'الحسابات — ' + (TABS.find((t) => t.id === state.tab) || {}).label, () => document.getElementById('panel'), render), window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
       tabs,
       state.tab === 'moves-log' ? null : h('div', { class: 'toolbar' }, DateRangeField(), state.tab === 'vendors' ? SortDropdown() : null, state.tab === 'vendors' && state.vsub !== 'ledger' ? WdFilterDropdown() : null, h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'subscriptions' ? Button({ type: 'brand', icon: 'plus', label: 'إضافة اشتراك', attrs: { 'data-add-sub': '' }, onClick: () => openForm('expenses', 'withdraw', null, false, { category: SUBS_CAT }) }) : state.tab === 'vendors' ? AddMenu('إضافة مبلغ', 'vendorMoves') : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
       noteEl,
       h('div', { id: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.tab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, VIEWS[state.tab]())].filter(Boolean));
+    // «تخصيص اللوحة» (phase 10 decision 22, as in the v5 prototype): every tab but the moves log
+    if (state.tab !== 'moves-log') window.IBKit.applyPanelPrefs('accounts:' + state.tab, document.getElementById('panel'));
     window.IBKit.sweepColumns(document.getElementById('panel'));
     window.scrollTo(0, sc);
     if (focusTab) { const t = main.querySelector('[role=tab][aria-selected=true]'); if (t) t.focus(); focusTab = false; }

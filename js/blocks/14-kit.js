@@ -413,6 +413,85 @@
     });
   }
   const Grip = (label) => h('button', { type: 'button', class: 'dc-grip', 'data-grip': '', 'aria-label': 'اسحب لترتيب ' + label + ' (أو استعمل فوق وتحت)', title: 'اسحب للترتيب' }, Icon('grip', 'sm'));
+  // ---------- «تخصيص اللوحة» في أي صفحة (prototype v5 — صاحب المشروع 5 نوفمبر: «دلوقتي لكل الصفحات»; phase 10 decision 22) ----------
+  // بيقرا بلوكات الصفحة/التاب من الـ DOM (كروت الأرقام · الرسومات · الجداول · الأقسام)، ويرتّبها ويخفي اللي العضو مش عايزه.
+  // per member in user_prefs ('panel.prefs' = { [pageKey]: { order, hidden } }, IBPrefs) like the table columns; before IBPrefs has
+  // loaded (or signed out) the kit's store keeps it for this device. Nothing is removed from the page: a hidden block is `hidden`.
+  const PANEL_PREF = 'panel.prefs';
+  function panelAll() {
+    const saved = window.IBPrefs && window.IBPrefs.get(PANEL_PREF);
+    const all = (store.panelPrefs = store.panelPrefs || {});
+    if (saved && typeof saved === 'object' && !Array.isArray(saved)) all[ME] = saved;
+    return (all[ME] = all[ME] || {});
+  }
+  const panelPrefs = (key) => { const p = panelAll()[key]; return p && typeof p === 'object' ? { order: strList(p.order), hidden: strList(p.hidden) } : { order: [], hidden: [] }; };
+  const panelWrite = (key, v) => { const next = Object.assign({}, panelAll()); if (v) next[key] = v; else delete next[key]; (store.panelPrefs = store.panelPrefs || {})[ME] = next; if (window.IBPrefs) window.IBPrefs.set(PANEL_PREF, next); };
+  // the block's id is its title without a trailing period « — 1 نوفمبر …», with each month name and number in it as a placeholder
+  // («طلبات مستنية (3)» = «طلبات مستنية (#)», «كشف نوفمبر 2026» = «كشف ‹شهر› #»), so a choice outlives the counts and the months
+  const PANEL_MONTHS = /يناير|فبراير|مارس|أبريل|إبريل|ابريل|مايو|يونيو|يوليو|أغسطس|اغسطس|سبتمبر|أكتوبر|اكتوبر|نوفمبر|ديسمبر/g;
+  const panelId = (l) => l.replace(/\s+—\s+[^—]*[\d٠-٩][^—]*$/, '').replace(PANEL_MONTHS, '‹شهر›').replace(/[\d٠-٩]+(?:[.,][\d٠-٩]+)*/g, '#').replace(/\s+/g, ' ').trim();
+  const PANEL_SKIP = ['source', 'src-note', 'pn-allhidden'];
+  function panelItems(root) {
+    const out = []; if (!root) return out; const seen = {};
+    const add = (l, kind, el, blk) => { const label = l.replace(/\s+/g, ' ').trim(); let id = panelId(label); if (!id) return; seen[id] = (seen[id] || 0) + 1; if (seen[id] > 1) id += ' #' + seen[id]; out.push({ id, label, kind, el, blk }); };
+    [...root.children].forEach((blk) => {
+      if (PANEL_SKIP.some((c) => blk.classList.contains(c))) return;
+      if (blk.classList.contains('cards') || blk.classList.contains('charts')) {
+        [...blk.children].forEach((c) => { const l = (c.querySelector('.kpi-label, .chart-head h2, .cat-top .t-h5, .table-title h2, [data-details]') || {}).textContent;
+          if (l) add(l, c.classList.contains('kpi') ? 'رقم' : c.classList.contains('chart-card') ? 'رسم' : 'كارت', c, blk); });
+      } else {
+        const l = (blk.querySelector(':scope > .table-title h2, :scope > .chart-head h2, :scope > .sec-h h2, :scope > .sec-head h2, :scope > .sec-t, :scope > h2, :scope > .cat-top .t-h5, :scope > div > .t-h5') || {}).textContent;
+        if (l) add(l, blk.classList.contains('table-card') ? 'جدول' : blk.classList.contains('sum-card') ? 'ملخص' : 'قسم', blk, blk);
+      }
+    });
+    return out;
+  }
+  function applyPanelPrefs(key, root) {
+    if (!root) return; const p = panelPrefs(key); const items = panelItems(root);
+    // a page with one block or none (like the products log alone) has nothing to customize: the button hides itself
+    const btn = document.querySelector('[data-pn-custom="' + key + '"]'); if (btn) btn.hidden = items.length < 2;
+    if (!items.length) return;
+    const idx = (id) => { const i = p.order.indexOf(id); return i < 0 ? 1000 + items.findIndex((x) => x.id === id) : i; };
+    // with no saved order no block moves (some blocks are not read here, like the notes and the toolbars)
+    if (p.order.length) {
+      const blocks = [...new Set(items.map((x) => x.blk))];
+      blocks.forEach((b) => { items.filter((x) => x.blk === b && x.el !== b).sort((a, c) => idx(a.id) - idx(c.id)).forEach((x) => b.append(x.el)); });
+      const minIdx = (b) => Math.min(...items.filter((x) => x.blk === b).map((x) => idx(x.id)));
+      const tail = [...root.children].filter((c) => c.classList.contains('source') || c.classList.contains('src-note'));
+      blocks.sort((a, b) => minIdx(a) - minIdx(b)).forEach((b) => root.append(b)); tail.forEach((t) => root.append(t));
+    }
+    // only what this hid comes back: a block the page itself rendered `hidden` stays hidden (data-pn-hidden marks ours)
+    const hide = (el, on) => { if (on) { el.hidden = true; el.dataset.pnHidden = '1'; } else if (el.dataset.pnHidden) { el.hidden = false; delete el.dataset.pnHidden; } };
+    const blocks = [...new Set(items.map((x) => x.blk))];
+    items.forEach((x) => hide(x.el, p.hidden.includes(x.id)));
+    blocks.forEach((b) => { const kids = items.filter((x) => x.blk === b && x.el !== b); if (kids.length) hide(b, kids.every((x) => x.el.hidden)); });
+    const old = root.querySelector(':scope > .pn-allhidden'); if (old) old.remove();
+    if (!items.some((x) => !x.el.hidden)) { const e = Empty('كل بلوكات اللوحة مخفية', 'افتح «تخصيص اللوحة» واختار اللي يظهر.'); e.classList.add('pn-allhidden'); root.prepend(e); }
+  }
+  function customizePanel(key, label, root, done) {
+    if (!root) { toast('مفيش لوحة في الصفحة دي'); return; }
+    const p = panelPrefs(key); const all = panelItems(root);
+    if (!all.length) { toast('مفيش بلوكات تتخصص في الصفحة دي'); return; }
+    const idx = (id) => { const i = p.order.indexOf(id); return i < 0 ? 1000 + all.findIndex((x) => x.id === id) : i; };
+    const list = all.slice().sort((a, b) => idx(a.id) - idx(b.id)).map((x) => ({ id: x.id, label: x.label, kind: x.kind, hidden: p.hidden.includes(x.id) }));
+    form({ title: 'تخصيص اللوحة — ' + label, wide: true, values: { list },
+      note: U.InlineNote({ children: 'اختار اللي يظهر في «' + label + '» ورتّبه بالسحب من المسكة اللي جنب الاسم. التخصيص بيتحفظ ليك انت بس، ولكل صفحة/تاب لوحده.' }),
+      fields: (f, e, set) => { const wrap = h('div', { class: 'dash-cust', role: 'list' }, f.list.map((c, i) => h('div', { class: 'dc-row', role: 'listitem', 'data-pn-item': c.id },
+        Grip(c.label),
+        h('span', { class: 'dc-l' }, h('b', null, c.label), h('small', { class: 't-small help' }, c.kind)),
+        Switch({ id: 'pnc-' + i, label: c.label, checked: !c.hidden, onChange: (v) => { c.hidden = !v; set('list', f.list.slice(), true); } }))));
+        // the grips listen right away (not a tick later): a key pressed just after a redraw still moves the row
+        sortableRows(wrap, 'data-pn-item', (ids) => set('list', ids.map((id) => f.list.find((x) => x.id === id)).filter(Boolean), true));
+        return [wrap, e.list ? U.InlineNote({ kind: 'error', children: e.list }) : null]; },
+      validate: (f) => (f.list.some((c) => !c.hidden) ? {} : { list: 'سيب بلوك واحد على الأقل ظاهر' }),
+      extraFooter: (f, m) => h('span', { class: 'rp-del' }, Button({ type: 'text', label: 'رجوع للافتراضي', attrs: { 'data-pn-reset': '' }, onClick: () => { panelWrite(key, null); toast('رجعت اللوحة للافتراضي'); m.close(); if (done) done(); } })),
+      submitLabel: 'حفظ', submit: (f) => { panelWrite(key, { order: f.list.map((c) => c.id), hidden: f.list.filter((c) => c.hidden).map((c) => c.id) });
+        logEvent('panel.customize', label + ' · ' + f.list.filter((c) => !c.hidden).length + ' بلوك'); toast('اتحفظ تخصيص اللوحة', 'success'); if (done) done(); } });
+  }
+  // the button itself — getRoot() returns the container that holds the page's blocks; the page calls applyPanelPrefs after each render
+  function PanelButton(key, label, getRoot, done) {
+    return Button({ label: 'تخصيص اللوحة', icon: 'sliders', attrs: { 'data-pn-custom': key }, onClick: () => customizePanel(key, label, getRoot(), done) });
+  }
   // ---------- تصدير Excel سريع (owner 27 Oct: «مشاركة ك اكسيل») ----------
   // aoa = مصفوفة صفوف (أول صف العناوين). المكتبة (app/js/vendor/xlsx.full.min.js) بتتحمّل وقت الطلب؛ لو ماتحمّلتش بينزّل CSV.
   const loadXLSX = () => (window.XLSX ? Promise.resolve(window.XLSX) : new Promise((res, rej) => { const sc = document.createElement('script'); sc.src = 'js/vendor/xlsx.full.min.js'; sc.onload = () => res(window.XLSX); sc.onerror = rej; document.head.appendChild(sc); }));
@@ -600,6 +679,6 @@
       h('div', { class: 'sp-row' }, g, h('span', { class: 't-small help sp-word', 'aria-live': 'polite' }, v ? v + ' من 5 · ' + words[v] : 'اختار من 1 لـ 5')),
       error ? h('div', { class: 'err-msg', role: 'alert', id: id + '-err' }, error) : help ? h('p', { class: 't-small help', style: 'margin:0' }, help) : null);
   }
-  window.IBKit = { Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, xlsxExport, saveFile, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, TableSection, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+  window.IBKit = { Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, xlsxExport, saveFile, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, PanelButton, applyPanelPrefs, customizePanel, panelItems, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, TableSection, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
 })();
 

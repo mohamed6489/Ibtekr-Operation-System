@@ -292,6 +292,7 @@
     render(id, keepScroll = true) {
       const def = pages[id]; const main = document.getElementById('pg-' + id); if (!def || !main) return;
       U.closePopover(); const sc = window.scrollY; main.replaceChildren(...def.view().filter(Boolean)); if (keepScroll) window.scrollTo(0, sc);
+      stdTables(main); // the standard table right away (no beige header for a frame); the columns sweep stays after the render
       setTimeout(() => sweepColumns(main), 0);
     },
   };
@@ -347,10 +348,20 @@
         logEvent('table.columns', label + ' · ' + f.list.filter((c) => !c.hidden).length + ' عمود'); toast('اتحفظت الأعمدة', 'success'); if (done) done(); } });
   }
   // بتمشي على كل كروت الصفحة وتضيف زرار «الأعمدة» لأي جدول من 4 أعمدة فأكتر (owner 27 Oct)
+  // الشكل القياسي لكل جداول السيستم (prototype 28 Oct — صاحب المشروع وافق 5 نوفمبر، المرحلة 5.5 قرار 12): ترويسة خضرا + صفوف متبادلة
+  // على كارت أي جدول من 3 أعمدة فأكتر برّه البوب أب والدرج — نفس قاعدة الـ prototype في sweepColumns
+  function stdCard(t) {
+    if (t.closest('.modal, .drawer, [role=dialog]') || colHeads(t).length < 3) return null;
+    const card = t.closest('.card, .table-card, .sec, .tbl-card');
+    if (card && (card.classList.contains('table-card') || card.classList.contains('sec') || card.classList.contains('card'))) card.classList.add('tbl-v2');
+    return card;
+  }
+  function stdTables(root) { if (root && root.querySelectorAll) root.querySelectorAll('table').forEach(stdCard); }
   function sweepColumns(root) {
     if (!root || !root.querySelectorAll) return;
     root.querySelectorAll('table').forEach((t) => {
       if (t.closest('.modal, .drawer, [role=dialog]')) return;
+      stdCard(t);
       if (colHeads(t).length < 4) return;
       t.classList.add('sticky-col1'); // أول عمود بيفضل ثابت وانت بتسكرول عرضي (owner 27 Oct)
       const card = t.closest('.card, .table-card, .sec, .tbl-card') || t.parentElement;

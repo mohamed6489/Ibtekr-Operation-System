@@ -10,7 +10,8 @@ insert into auth.users (id, email, phone) values
   ('00000000-0000-4000-8000-0000000045b3', 'tk-vf.dev@ibtekr.local', '01000045b03'),
   ('00000000-0000-4000-8000-0000000045b4', 'tk-view.dev@ibtekr.local', '01000045b04'),
   ('00000000-0000-4000-8000-0000000045b5', 'tk-ops.dev@ibtekr.local', '01000045b05'),
-  ('00000000-0000-4000-8000-0000000045b6', 'tk-adm.dev@ibtekr.local', '01000045b06');
+  ('00000000-0000-4000-8000-0000000045b6', 'tk-adm.dev@ibtekr.local', '01000045b06'),
+  ('00000000-0000-4000-8000-0000000045b7', 'tk-noord.dev@ibtekr.local', '01000045b07');
 insert into auth.identities (user_id, provider, provider_id, identity_data)
 select u.id, 'email', u.id::text, jsonb_build_object('sub', u.id::text, 'email', u.email) from auth.users u where u.email like 'tk-%.dev@ibtekr.local';
 insert into public.profiles (id, name, email, phone, role_id, status, custom_perms) values
@@ -19,7 +20,8 @@ insert into public.profiles (id, name, email, phone, role_id, status, custom_per
   ('00000000-0000-4000-8000-0000000045b3', 'تذاكر متابعة', 'tk-vf.dev@ibtekr.local', '01000045b03', 'vendors_followup', 'active', '{}'),
   ('00000000-0000-4000-8000-0000000045b4', 'تذاكر مشاهد', 'tk-view.dev@ibtekr.local', '01000045b04', 'viewer', 'active', '{}'),
   ('00000000-0000-4000-8000-0000000045b5', 'تذاكر عمليات', 'tk-ops.dev@ibtekr.local', '01000045b05', 'ops', 'active', '{}'),
-  ('00000000-0000-4000-8000-0000000045b6', 'تذاكر أدمن', 'tk-adm.dev@ibtekr.local', '01000045b06', 'admin', 'active', '{}');
+  ('00000000-0000-4000-8000-0000000045b6', 'تذاكر أدمن', 'tk-adm.dev@ibtekr.local', '01000045b06', 'admin', 'active', '{}'),
+  ('00000000-0000-4000-8000-0000000045b7', 'تذاكر من غير أوردرات', 'tk-noord.dev@ibtekr.local', '01000045b07', 'cs', 'active', '{"orders.view":"N","cs.view":"N"}');
 
 insert into public.orders (id, number, customer_name, customer_phone, status, placed_at)
   values (990451, '990451', 'عميلة التذاكر', '01000045999', (select system_status from public.status_map order by id limit 1), now());
@@ -192,6 +194,20 @@ begin
   if (select vendor from public.tickets where id = t3) <> 'مبتكر تذاكر 0045' then raise exception 'case a maker ticket takes the maker name failed'; end if;
   if not exists (select 1 from public.tickets where id = t3) then raise exception 'case P sees the ticket it opened failed'; end if;
   insert into tk_ids values ('t3', t3::text);
+end $$;
+
+-- ================================================================ a member who does not read the orders / customers: the typed number only
+
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000045b7","role":"authenticated"}', true);
+do $$
+declare t bigint;
+begin
+  t := public.ticket_create('{"type":"customer","title":"x","description":"x","priority":"normal","assigneeRole":"الحسابات","orderId":"990451","reason":"أخرى"}');
+  if (select order_number || '|' || coalesce(order_id::text, '-') || '|' || coalesce(customer, '-') || '|' || coalesce(cs_customer_id::text, '-') from public.tickets where id = t) <> '990451|-|-|-' then
+    raise exception 'case no order / customer read without orders.view failed';
+  end if;
+  begin perform public.ticket_create(jsonb_build_object('type', 'internal', 'title', 'x', 'description', 'x', 'priority', 'normal', 'assigneeRole', 'الحسابات', 'csCustomerId', (select v from tk_ids where k = 'cust')));
+    raise exception 'case no customer link without cs.view failed'; exception when invalid_parameter_value then null; end;
 end $$;
 
 -- ================================================================ viewer (P/N): no role of its own, opens nothing

@@ -246,6 +246,7 @@ begin
     if not found then raise exception 'invalid: csConversationId' using errcode = '22023'; end if;
   end if;
   if nullif(p_input ->> 'csCustomerId', '') is not null then
+    if public.has_perm('cs.view') = 'N' then raise exception 'invalid: csCustomerId' using errcode = '22023'; end if;
     begin v_cust := (p_input ->> 'csCustomerId')::uuid; exception when others then raise exception 'invalid: csCustomerId' using errcode = '22023'; end;
     if not exists (select 1 from public.cs_customers where id = v_cust) then raise exception 'invalid: csCustomerId' using errcode = '22023'; end if;
   end if;
@@ -257,12 +258,15 @@ begin
     if v_reason is null or v_reason not in ('تأخير في التسليم', 'منتج تالف', 'منتج مختلف عن الطلب', 'مشكلة دفع أو استرجاع', 'العميل مش بيرد', 'أخرى') then
       raise exception 'invalid: reason' using errcode = '22023';
     end if;
-    select o.id, o.customer_name, o.customer_phone into v_order_id, v_customer, v_phone
-      from public.orders o where o.number = v_order or o.id::text = v_order order by (o.number = v_order) desc limit 1;
+    -- the orders row (and its customer) only for a member who reads the orders (orders.view F) — else the typed number alone
+    if public.has_perm('orders.view') = 'F' then
+      select o.id, o.customer_name, o.customer_phone into v_order_id, v_customer, v_phone
+        from public.orders o where o.deleted_at is null and (o.number = v_order or o.id::text = v_order) order by (o.number = v_order) desc limit 1;
+    end if;
     if v_order_id is null then v_customer := nullif(public.ticket_clean(p_input ->> 'customer', 80), '');
     else
       v_customer := coalesce(nullif(public.ticket_clean(p_input ->> 'customer', 80), ''), left(v_customer, 80));
-      if v_cust is null and v_phone is not null then
+      if v_cust is null and v_phone is not null and public.has_perm('cs.view') <> 'N' then
         select c.id into v_cust from public.cs_customers c where c.phone = public.norm_phone(v_phone) and c.merged_into is null limit 1;
       end if;
     end if;

@@ -349,7 +349,7 @@
   // Phase 3.6 (plan decision 5): the pages not built on real data yet are closed — «soon» in the menus; any way in (a link, an
   // alert, a typed hash) lands on the dashboard with a note. Open: لوحة التحكم، الأوردرات، المبتكرين، and «ملفي» (account menu).
   // phase 5 (plan decision 2): «المنتجات» is open (app/js/pages/products.js) — the owner chose it before «المخزون»
-  const SOON = ['marketing', 'hr', 'settings']; // phase 6: «خدمة العملاء» opened (cs); «الرد الآلي» stays postponed; phase 7: «المخزون» opened (inventory); phase 8: «تذاكر الفريق» opened (tickets); phase 9: «التقارير» opened (reports)
+  const SOON = ['marketing', 'settings']; // phase 6: «خدمة العملاء» opened (cs); «الرد الآلي» stays postponed; phase 7: «المخزون» opened (inventory); phase 8: «تذاكر الفريق» opened (tickets); phase 9: «التقارير» opened (reports) phase 10: «الموارد البشرية» opened (hr).
   const isSoon = (page) => SOON.includes(page);
   const soonNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي لسه — soon'); };
   state.page = pageOfHash(location.hash.slice(1));
@@ -679,9 +679,12 @@
   function csSection() { const cs = window.IBPages.all().cs; return cs && cs.api ? [cs.api.notifSection({ go })] : []; }
   function opsSections() {
     const K = window.IBKit, O = window.IbtekrOps; if (!K) return []; const S = K.store; const goHash = (hs) => () => { location.hash = hs; };
-    const HRA = window.IBPages.all().hr.api; const reqs = S.requests.filter(HRA.isPending).map((r) => ({ own: { manager: K.member(r.member).manager }, key: 'rq:' + r.id, title: r.type + ' — ' + K.member(r.member).name, sub: HRA.reqPeriod(r), meta: r.at, tone: 'warning', icon: 'briefcase', run: goHash('profile-requests') }));
-    const ot = S.overtime.filter((o) => o.status === 'مستني').map((o) => ({ own: { manager: K.member(o.member).manager }, key: 'ot:' + o.id, title: 'وقت إضافي ' + K.hrs(o.minutes) + ' — ' + K.member(o.member).name, sub: o.note + (o.waitedHours >= 24 ? ' · اتصعّد للأدمن' : ' · ضيفه أو متضيفهوش'), meta: K.dshort(o.date), tone: o.waitedHours >= 24 ? 'error' : 'warning', icon: 'clock', run: goHash('hr-requests') }));
-    const meet = S.meetings.filter((x) => x.status === 'مطلوب' || x.status === 'اتحدد ميعاد').map((x) => ({ own: { manager: K.member(x.member).manager }, key: 'mt:' + x.id, title: 'ميتنج 1:1 — ' + K.member(x.member).name, sub: x.reason, meta: x.date ? K.dshort(x.date) + ' ' + x.time : 'لسه متحددش', tone: 'neutral', icon: 'cal', run: goHash('hr-payroll') }));
+    // phase 10: the team's requests / overtime / meetings from IBHR (the server's rows the member sees), the member's own ones left out
+    const HRA = window.IBPages.all().hr.api; const HR = window.IBHR; const HD = HR ? HR.data : S; const Mm = (id) => (HR && HR.member(id)) || K.member(id); const meCode = K.ME;
+    const reqs = HD.requests.filter((r) => HRA.isPending(r) && r.member !== meCode).map((r) => ({ own: { manager: Mm(r.member).manager }, key: 'rq:' + r.id, title: r.type + ' — ' + Mm(r.member).name, sub: HRA.reqPeriod(r), meta: r.at, tone: 'warning', icon: 'briefcase', run: goHash('hr-requests') }));
+    const esc = HR ? Number(HD.hrSettings.escalate) || 24 : 24;
+    const ot = HD.overtime.filter((o) => o.status === 'مستني' && o.member !== meCode).map((o) => ({ own: { manager: Mm(o.member).manager }, key: 'ot:' + o.id, title: (o.kind === 'rest_day' ? 'شغل يوم راحة — ' : 'وقت إضافي ' + K.hrs(o.minutes) + ' — ') + Mm(o.member).name, sub: o.note + (o.waitedHours >= esc ? ' · اتصعّد للأدمن' : ' · ضيفه أو متضيفهوش'), meta: K.dshort(o.date), tone: o.waitedHours >= esc ? 'error' : 'warning', icon: 'clock', run: goHash('hr-requests') }));
+    const meet = HD.meetings.filter((x) => (x.dbStatus || x.status) === 'مطلوب' || (x.dbStatus || x.status) === 'اتحدد ميعاد').map((x) => ({ own: { manager: Mm(x.member).manager }, key: 'mt:' + x.id, title: 'ميتنج 1:1 — ' + Mm(x.member).name, sub: x.reason, meta: x.date ? K.dshort(x.date) + (x.time ? ' ' + x.time : '') : 'لسه متحددش', tone: 'neutral', icon: 'cal', run: goHash('hr-payroll') }));
     const stock = K.stockNow(); const age = (s) => K.daysBetween(s.since, K.TODAY);
     const cons = S.consolidations.filter((c) => O.consolidationLate(K.daysBetween(c.since, K.TODAY)) && !O.consolidation(c.subs.map((x) => x[2])).ready).map((c) => ({ own: { role: 'عمليات' }, key: 'cn:' + c.order, title: 'تجميع IB-' + c.order + ' عدّى ' + K.daysBetween(c.since, K.TODAY) + ' أيام', sub: O.consolidation(c.subs.map((x) => x[2])).arrived + ' من ' + c.subs.length + ' وصلوا', meta: '', tone: 'error', icon: 'truck', run: goHash('inventory-consolidate') }));
     const photo = stock.filter((s) => s.reason === 'تصوير' && O.photoOverdue(age(s))).map((s) => ({ own: { role: 'عمليات' }, key: 'ph:' + s.sku, title: s.name + ' في التصوير بقاله ' + age(s) + ' يوم', sub: 'قاعدة أكتر من اللازم — يرجع للمبتكر أو يتحوّل للبيع', meta: '', tone: 'warning', icon: 'box', run: goHash('inventory-now') }));

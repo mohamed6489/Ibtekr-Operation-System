@@ -330,8 +330,15 @@
   const state = { tab: 'expenses', range: { from: TODAY.slice(0, 8) + '01', to: TODAY, preset: 'custom' }, sort: 'balance:desc', note: null, mlog: 'expenses', mlogQ: '' };
   const hashTab = () => { const t = location.hash.slice(1); return TABS.some((x) => x.id === t) ? t : null; };
   state.tab = hashTab() || 'expenses';
-  const REPORT_TABS = [{ id: 'orders', label: 'تقارير الأوردرات' }, { id: 'vendors', label: 'تقارير المبتكرين' }, { id: 'accounts', label: 'تقارير الحسابات' }];
-  const reportTabOf = (hash) => { const m = /^reports(?:-(orders|vendors|accounts))?$/.exec(hash); return m ? (m[1] || 'orders') : null; };
+  // phase 9 (docs/superpowers/plans/2026-11-05-phase-9-reports.md, decisions 4 / 6): the v2's nine tabs — a tab shows only with reports.view ≠ N
+  // and its page's view permission; «تقارير الموظفين» / «الحملات الإعلانية» are soon until their pages (HR / marketing). CSV and
+  // «الإجراءات» need reports.export = F. The server stays the judge: every number is read under its table's RLS.
+  const REPORT_TABS = [{ id: 'orders', label: 'تقارير الأوردرات', perm: 'orders.view' }, { id: 'vendors', label: 'تقارير المبتكرين', perm: 'vendors.view' }, { id: 'accounts', label: 'تقارير الحسابات', perm: 'accounts.view' }, { id: 'products', label: 'تقارير المنتجات', perm: 'products.view' },
+    { id: 'staff', label: 'تقارير الموظفين', soon: 'الموارد البشرية' }, { id: 'campaigns', label: 'الحملات الإعلانية', soon: 'التسويق' }, { id: 'inventory', label: 'تقارير المخزن', perm: 'inventory.view' }, { id: 'cs', label: 'تقارير خدمة العملاء', perm: 'cs.view' }, { id: 'tickets', label: 'تقارير التذاكر', perm: 'tickets.view' }];
+  const reportTabOf = (hash) => { const m = /^reports(?:-(orders|vendors|accounts|products|staff|campaigns|inventory|cs|tickets))?$/.exec(hash); return m ? (m[1] || 'orders') : null; };
+  const rperm = (k) => (window.IBDirectory && window.IBDirectory.perm ? window.IBDirectory.perm(k) : 'N');
+  const reportTabs = () => (rperm('reports.view') === 'N' ? [] : REPORT_TABS.filter((t) => !t.perm || rperm(t.perm) !== 'N'));
+  const rCanExport = () => rperm('reports.export') === 'F';
   state.rtab = reportTabOf(location.hash.slice(1)) || 'orders';
   state.rrange = Object.assign(D.presetRange('last30', TODAY), { preset: 'last30' });
   state.rcompare = false;
@@ -342,7 +349,7 @@
   // Phase 3.6 (plan decision 5): the pages not built on real data yet are closed — «soon» in the menus; any way in (a link, an
   // alert, a typed hash) lands on the dashboard with a note. Open: لوحة التحكم، الأوردرات، المبتكرين، and «ملفي» (account menu).
   // phase 5 (plan decision 2): «المنتجات» is open (app/js/pages/products.js) — the owner chose it before «المخزون»
-  const SOON = ['reports', 'marketing', 'hr', 'settings']; // phase 6: «خدمة العملاء» opened (cs); «الرد الآلي» stays postponed; phase 7: «المخزون» opened (inventory); phase 8: «تذاكر الفريق» opened (tickets)
+  const SOON = ['marketing', 'hr', 'settings']; // phase 6: «خدمة العملاء» opened (cs); «الرد الآلي» stays postponed; phase 7: «المخزون» opened (inventory); phase 8: «تذاكر الفريق» opened (tickets); phase 9: «التقارير» opened (reports)
   const isSoon = (page) => SOON.includes(page);
   const soonNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي لسه — soon'); };
   state.page = pageOfHash(location.hash.slice(1));
@@ -354,8 +361,10 @@
   function seedKeysIn(r) { return Object.keys(SEED.expenseSeed).filter((k) => { const [y, m] = k.split('-').map(Number); return k + '-01' >= r.from && k + '-' + lastDay(y, m) <= r.to; }); }
   const inRange = (d) => d >= state.range.from && d <= state.range.to;
   // Owner (22 Oct): transport is deducted from the vendor balance. «مواصلات» moves count once, as transport (not as a deposit move).
-  const vendorsNow = () => { const by = {}; transportRows().forEach((r) => { if (r.vendor) by[r.vendor] = (by[r.vendor] || 0) + r.amount; });
-    return D.deductTransport(D.deriveVendors(SEED.vendors.map((v) => ({ ...v })), store.vendorMoves.filter((m) => !(m.type === 'مواصلات' && m.direction === 'withdraw'))), by); };
+  // phase 9: vendorsOf(list) is the same derivation for another seed's makers (the reports page's range — VendorsReportView)
+  const vendorsOf = (list) => { const by = {}; transportRows().forEach((r) => { if (r.vendor) by[r.vendor] = (by[r.vendor] || 0) + r.amount; });
+    return D.deductTransport(D.deriveVendors(list.map((v) => ({ ...v })), store.vendorMoves.filter((m) => !(m.type === 'مواصلات' && m.direction === 'withdraw'))), by); };
+  const vendorsNow = () => vendorsOf(SEED.vendors);
   const accountsNow = () => D.deriveAccounts(SEED.accounts, store.accountMoves);
   const setNote = (n) => { state.note = n; };
 
@@ -1608,14 +1617,32 @@
   const kpiTone = (d) => (state.rcompare ? d.tone : 'off');
   const money = (n) => D.formatMoney(n);
   const pctText = (n, total) => (total ? Math.round(n / total * 100) : 0) + '%';
-  const freshness = () => 'آخر تحديث: ' + D.formatDateLong(TODAY) + '، 09:30 (توقيت القاهرة) · المصدر: الأوردرات والحسابات';
+  // decision 9: «آخر تحديث» = the time of the last real orders load (IBOrders ready), in Cairo — the prototype's fixed 09:30 is gone
+  let ordersAt = null;
+  const cairoAt = (d) => { const p = Object.fromEntries(new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(d).map((x) => [x.type, x.value])); return { day: p.year + '-' + p.month + '-' + p.day, hm: p.hour + ':' + p.minute }; };
+  const RSRC = { orders: 'الأوردرات', vendors: 'الأوردرات + أرصدة Dokan + حركات الحسابات', accounts: 'الأوردرات والحسابات', products: 'الأوردرات + كتالوج ووكومرس', inventory: 'المخزن', cs: 'خدمة العملاء', tickets: 'تذاكر الفريق' };
+  const freshness = () => { const src = RSRC[state.rtab]; const at = ordersAt ? cairoAt(ordersAt) : null;
+    return (at ? 'آخر تحميل للأوردرات: ' + D.formatDateLong(at.day) + '، ' + at.hm + ' (توقيت القاهرة)' : 'بنحمّل الأوردرات…') + (src ? ' · المصدر: ' + src : ''); };
+  // the page follows the data its tabs read: a load / a live change redraws the open tab (each adapter emits on a change only)
+  const RP_ON = { 'ib:orders': ['orders', 'vendors', 'accounts', 'products'], 'ib:vendors': ['vendors'], 'ib:products': ['products'], 'ib:inventory': ['inventory'], 'ib:cs': ['cs'], 'ib:tickets': ['tickets'], 'ib:directory': null };
+  // a popover open on the page (the range picker, «الإجراءات») is never closed under the member's hand: the redraw waits for it
+  let rpTimer = null;
+  const rpRedraw = (wait) => { clearTimeout(rpTimer); rpTimer = setTimeout(() => { if (state.page !== 'reports') return; if (document.querySelector('#reports [aria-expanded="true"]')) { rpRedraw(500); return; } renderReports(); }, wait || 50); };
+  Object.keys(RP_ON).forEach((ev) => document.addEventListener(ev, () => {
+    if (ev === 'ib:orders') { const O = window.IBOrders; if (!O || O.state() !== 'ready') return; ordersAt = new Date(); }
+    if (state.page !== 'reports' || (RP_ON[ev] && !RP_ON[ev].includes(state.rtab))) return;
+    rpRedraw();
+  }));
   function barList(items, { max, fmt, tones }) {
     // items: [label, value, extraText?]; tones: fixed order (color follows the entity, never its rank)
     const top = max || Math.max(1, ...items.map((i) => i[1]));
     return items.map((it, i) => U.BarRow({ tone: (tones && tones[i]) || tone4[Math.min(i, 3)], label: it[0], value: it[2] || fmt(it[1]), pct: it[1] / top }));
   }
+  // a text cell that starts like a formula (= + - @ tab CR) gets a leading apostrophe so a spreadsheet never runs it (CSV injection —
+  // customer names and ticket titles come from outside, like the kit's xlsxExport); numbers stay numbers
+  const csvSafe = (c) => (typeof c === 'string' && /^[=+\-@\t\r]/.test(c) ? "'" + c : c);
   function csvCopy(headers, rows, label) {
-    const text = R.toCsv(headers, rows);
+    const text = R.toCsv(headers.map(csvSafe), rows.map((r) => r.map(csvSafe)));
     const done = () => { state.rnote = { kind: 'success', text: 'تم نسخ ' + label + ' كـ CSV — الصقه في Excel أو Google Sheets.' }; renderReports(); };
     const fail = () => { state.rnote = { kind: 'error', text: 'تعذّر النسخ من المتصفح — جرّب تاني أو انسخ الجدول يدويًا.' }; renderReports(); };
     try { if (navigator.clipboard && navigator.clipboard.writeText) navigator.clipboard.writeText(text).then(done, fail); else fail(); } catch (e) { fail(); }
@@ -1659,7 +1686,7 @@
       onRow: (i) => U.DetailsModal(cancelOrders(cr.byReason[i])),
       note: cr.count > cr.recorded ? 'الأوردرات الملغية قبل إضافة بوب السبب بتظهر «غير مسجّل».' : '', empty: 'مفيش أوردرات ملغية في الفترة دي.', source: 'الأوردرات (حالة «ملغي» + سبب الإلغاء)' });
     const odet = (k) => { const all = rep.rows.slice().sort((a, b) => a.ageDays - b.ageDays);
-      if (k === 'count') return { title: 'أوردرات الفترة — ' + n, sub: per + ' · اضغط على أي أوردر يفتح تفاصيله', summary: [{ label: 'العدد', value: String(n) }, { label: 'إجمالي القيمة', value: money(rep.total) + ' ج.م' }, { label: 'الفترة السابقة', value: String(rep.prev.count) }], headers: oHead, rows: oRows(all), total: ['الإجمالي — ' + n + ' أوردر', '', '', '', '', '', money(rep.total)], onRow: oOpen(all), source: 'الأوردرات (Airtable) — من تاريخ الأوردر' };
+      if (k === 'count') return { title: 'أوردرات الفترة — ' + n, sub: per + ' · اضغط على أي أوردر يفتح تفاصيله', summary: [{ label: 'العدد', value: String(n) }, { label: 'إجمالي القيمة', value: money(rep.total) + ' ج.م' }, { label: 'الفترة السابقة', value: String(rep.prev.count) }], headers: oHead, rows: oRows(all), total: ['الإجمالي — ' + n + ' أوردر', '', '', '', '', '', money(rep.total)], onRow: oOpen(all), source: 'الأوردرات (السيستم) — من تاريخ الأوردر' };
       if (k === 'done') { const l = all.filter((r) => r.status === 'مكتمل'); return { title: 'الأوردرات المكتملة — ' + l.length + ' من ' + n, sub: per, summary: [{ label: 'نسبة الإكمال', value: Math.round(rep.completionRate * 100) + '%' }, { label: 'مكتمل', value: String(l.length) }, { label: 'مش مكتمل', value: String(n - l.length) }, { label: 'الفترة السابقة', value: Math.round(rep.prev.completionRate * 100) + '%' }], headers: oHead, rows: oRows(l), onRow: oOpen(l) }; }
       if (k === 'avg') { const l = all.slice().sort((a, b) => b.total - a.total); return { title: 'متوسط قيمة الأوردر — ' + money(rep.avg) + ' ج.م', sub: per + ' · مرتبة من الأعلى قيمة', summary: [{ label: 'إجمالي المبيعات', value: money(rep.total) + ' ج.م' }, { label: 'عدد الأوردرات', value: String(n) }, { label: 'المتوسط', value: money(rep.avg) + ' ج.م' }, { label: 'الفترة السابقة', value: money(rep.prev.avg) + ' ج.م' }], headers: oHead, rows: oRows(l), onRow: oOpen(l), note: 'المتوسط = إجمالي المبيعات ÷ عدد الأوردرات.' }; }
       if (k === 'cancel') return cancelDetails();
@@ -1681,7 +1708,7 @@
         body: rep.actionRows.length === 0 ? U.EmptyState('كله تمام', 'مفيش أوردرات مفتوحة قابلة للتأخير أو غير مؤكدة في الفترة دي.') : tableOrList(
           () => U.Table({ headers, rows: rep.actionRows.map((r) => [num(r.id), r.customer, r.status, cfText(r.confirm), U.DelayBadge(r.delivery), num(String(r.ageDays)), num(money(r.total))]) }),
           () => CardList({ headers, titleIndex: 1, rows: rep.actionRows.map((r) => [num(r.id), r.customer, r.status, cfText(r.confirm), U.DelayBadge(r.delivery), num(String(r.ageDays)), num(money(r.total))]) })) }),
-      h('p', { class: 'source' }, 'المصدر: الأوردرات (Airtable base appwlLhZ8JpVAgzgI) · الفترة تُحسب من تاريخ الأوردر · كل الأرقام مشتقة ولا تُكتب يدويًا')];
+      h('p', { class: 'source' }, 'المصدر: الأوردرات (الموقع، متزامنة مع السيستم) · الفترة تُحسب من تاريخ الأوردر بتوقيت القاهرة · كل الأرقام مشتقة ولا تُكتب يدويًا')];
   }
   function AccountsReportView() {
     // phase 5.5 decision 4 (owner 31 Oct 16:42): the report follows the period picked above (expenses + sales + net) instead of a fixed month; (owner 1 Nov): a month-by-month summary
@@ -1728,26 +1755,263 @@
       U.InlineNote({ kind: rep.net < 0 ? 'error' : 'success', children: h('span', null, 'الفترة ' + PER + ': حصة إبتكر ' + money(rep.share) + ' − المصروفات ' + money(rep.expensesTotal) + ' = ', h('b', null, money(rep.net) + ' ج.م ' + (rep.net < 0 ? 'خسارة' : 'ربح')), ' · الحساب الفعلي دلوقتي ' + money(rep.actual) + ' · الرصيد المحتمل ' + money(rep.potential) + ' (الفعلي + حصة إبتكر من أوردرات التنفيذ + العرابين)') }),
       h('p', { class: 'source' }, 'المصدر: الأوردرات (السيستم، حسب تاريخ الأوردر) والمصروفات المتسجلة في السيستم للفترة المختارة · الحساب الفعلي رصيد اللحظة الحالية · الصافي = حصة إبتكر − المصروفات')].filter(Boolean);
   }
-  const RVIEWS = { orders: OrdersReportView, accounts: AccountsReportView }; // 5.5 decision 10: the September makers report (VendorsReportView) is gone
+  // ---------- phase 9 (docs/superpowers/plans/2026-11-05-phase-9-reports.md): the v2's other tabs on real data ----------
+  const K0 = (n) => Number(n || 0).toLocaleString('en-US');
+  const isoDay = (x) => (/^\d{4}-\d{2}-\d{2}/.test(String(x || '')) ? String(x).slice(0, 10) : null);
+  const cairoDayOf = (iso) => { const t = Date.parse(iso || ''); return Number.isFinite(t) ? cairoAt(new Date(t)).day : ''; };
+  // «تقارير المبتكرين» (decision 3): the orders and the delays from our orders in the range (R.vendorsReport); the completed share in the
+  // range, the deposits and the transport from the accounts (accounts_sales + acc_vendor_moves — accounts.view ≠ N) and the balance from
+  // Dokan (dokan_balances); the commission for sensitive.commission = F only (vendor_rates answers no rate to the rest — the column and the
+  // card are not drawn). The «— الآن» cards are the makers page's own numbers (makerSummary).
+  function VendorsReportView() {
+    const money$ = rperm('accounts.view') !== 'N', rate$ = rperm('sensitive.commission') === 'F';
+    const A = ACC(), V = window.IBVendors; const rr = state.rrange;
+    const sales = money$ && A ? A.sales(rr.from, rr.to) : null;
+    const failed = money$ && !!A && !sales && A.salesFailed(rr.from, rr.to); const loading = money$ && !!A && !sales && !failed;
+    const makers = V && V.store ? V.store.all().map((v) => ({ id: v.id, name: v.name, rate: rate$ && v.rate != null ? v.rate : null })) : [];
+    const seedV = D.liveSeed({ makers, balances: money$ && A ? A.balances() : [], sales: sales || [] }).vendors;
+    const vs = money$ ? vendorsOf(seedV) : seedV;
+    const rep = R.vendorsReport(ordersRows(), rr, TODAY, vs);
+    rep.rows.forEach((r) => { r.transport = money$ ? trVendor(r.name).total : 0; });
+    const trTot = Math.round(rep.rows.reduce((x, r) => x + r.transport, 0) * 100) / 100; const tA = trAll();
+    const COLS = [{ h: 'المبتكر', v: (r) => r.name, t: (r) => r.name, tot: 'الإجمالي' }, { h: 'الأوردرات', v: (r) => r.orders, t: (r) => num(String(r.orders)), tot: num(String(rep.totals.orders)) }, { h: 'قابلة للتأخير', v: (r) => r.late, t: (r) => num(String(r.late)), tot: num(String(rep.totals.late)) }]
+      .concat(rate$ ? [{ h: 'العمولة', v: (r) => r.pct, t: (r) => num(r.pct), tot: '—' }] : [])
+      .concat(money$ ? [{ h: 'حصة إبتكر (مكتمل)', v: (r) => r.share, t: (r) => num(money(r.share)), tot: num(money(rep.totals.share)) }, { h: 'العرابين', v: (r) => r.deposits, t: (r) => num(money(r.deposits)), tot: num(money(rep.totals.deposits)) },
+        { h: 'المواصلات', v: (r) => r.transport, t: (r) => num(money(r.transport)), tot: num(money(trTot)) }, { h: 'الرصيد الحالي', v: (r) => r.balance, t: (r) => num(money(r.balance)), tot: num(money(rep.totals.balance)) }] : []);
+    const headers = COLS.map((c) => c.h); const vrow = (r) => COLS.map((c) => c.t(r));
+    rExport = { label: 'جدول المبتكرين', headers, rows: rep.rows.map((r) => COLS.map((c) => c.v(r))) };
+    const vOpen = (list) => (i) => { const v = vstore.findByName(list[i].name); if (v) openVendor(v.id, { inPlace: true }); };
+    const avgPct = Math.round(rep.avgCommission * 1000) / 10 + '%';
+    const vdet2 = (k) => {
+      if (k === 'active') { const l = rep.rows.filter((r) => r.orders > 0); return { title: 'المبتكرين النشطين في الفترة — ' + l.length, sub: 'مبتكر له أوردر واحد على الأقل · الأوردر المشترك بيتحسب لكل مبتكر فيه · اضغط على أي صف يفتح ملفه', summary: [{ label: 'مبتكرين', value: String(l.length) }, { label: 'أوردرات', value: String(l.reduce((x, r) => x + r.orders, 0)) }], headers, rows: l.map(vrow), onRow: vOpen(l), empty: 'مفيش مبتكرين ليهم أوردرات في الفترة دي.' }; }
+      if (k === 'pct') { const l = vs.filter((v) => /%/.test(v.pct)).sort((a, b) => parseFloat(b.pct) - parseFloat(a.pct)); return { title: 'نسبة إبتكر لكل مبتكر — المتوسط ' + avgPct, sub: 'النسبة الحالية لكل مبتكر (من الموقع أو من «الاتفاق التجاري») · اضغط على أي صف يفتح ملفه', summary: [{ label: 'المتوسط', value: avgPct }, { label: 'أعلى', value: l.length ? l[0].name + ' ' + l[0].pct : '—' }, { label: 'أقل', value: l.length ? l[l.length - 1].name + ' ' + l[l.length - 1].pct : '—' }], headers: ['المبتكر', 'النسبة'].concat(money$ ? ['حصة إبتكر (مكتمل)'] : []), rows: l.map((v) => [v.name, num(v.pct)].concat(money$ ? [num(money(v.c[2]))] : [])), onRow: vOpen(l), empty: 'مفيش نسب متسجلة.' }; }
+      if (k === 'dep') { const l = vs.filter((v) => v.deposits > 0).sort((a, b) => b.deposits - a.deposits); return { title: 'عرابين مدفوعة للمبتكرين — ' + money(rep.deposits) + ' ج.م', sub: 'بتتخصم من رصيد المبتكر · اضغط على أي صف يفتح ملفه', summary: [{ label: 'الإجمالي', value: money(rep.deposits) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }], headers: ['المبتكر', 'العربون', 'الرصيد الحالي'], rows: l.map((v) => [v.name, num(money(v.deposits)), num(money(v.balance))]), total: l.length ? ['الإجمالي', num(money(l.reduce((x, v) => x + v.deposits, 0))), num(money(l.reduce((x, v) => x + v.balance, 0)))] : null, onRow: vOpen(l), empty: 'مفيش عرابين متسجلة.', source: 'حركات «عربون» في حسابات المبتكرين + أرصدة Dokan' }; }
+      const l = rep.rows.filter((r) => r.late > 0).sort((a, b) => b.late - a.late); return { title: 'مبتكرين عندهم أوردرات قابلة للتأخير — ' + l.length, sub: 'من ' + rep.active + ' مبتكر نشط في الفترة · قاعدة 9 / 11 يوم', summary: [{ label: 'مبتكرين', value: String(l.length) }, { label: 'أوردرات قابلة للتأخير / متأخرة', value: String(l.reduce((x, r) => x + r.late, 0)) }], headers, rows: l.map(vrow), onRow: vOpen(l), empty: 'مفيش مبتكرين عندهم أوردرات قابلة للتأخير في الفترة دي.' }; };
+    const ms = makerSummary({ inPlace: true });
+    return [
+      loading ? U.InlineNote({ children: 'بنحمّل أرقام الفترة…' }) : null,
+      failed ? U.InlineNote({ kind: 'error', children: 'مقدرناش نحمّل مبيعات الفترة — حصة إبتكر في الجدول ناقصة. غيّر الفترة أو حدّث الصفحة.' }) : null,
+      ((tiles) => h('div', { class: tiles.length % 4 === 0 ? 'cards four' : 'cards five' }, tiles))([
+        U.KpiTile({ label: 'مبتكرين نشطين', value: String(rep.active), unit: 'مبتكر', compare: kpiTone(rep.deltas.active), delta: rep.deltas.active, note: 'مبتكر له أوردر واحد على الأقل في الفترة', details: () => vdet2('active') }),
+        rate$ ? U.KpiTile({ label: 'متوسط عمولة إبتكر', value: avgPct, compare: 'off', note: 'متوسط النسبة الحالية على المبتكرين اللي ليهم نسبة', details: () => vdet2('pct') }) : null,
+        money$ ? U.KpiTile({ label: 'عرابين مدفوعة للمبتكرين', value: money(rep.deposits), unit: 'ج.م', compare: 'off', note: 'من حركات حسابات المبتكرين · بتتخصم من رصيد المبتكر', details: () => vdet2('dep') }) : null,
+        money$ ? U.KpiTile({ label: 'مواصلات المبتكرين', value: money(tA.vendors), unit: 'ج.م', compare: 'off', note: [num(String(tA.vendorTrips)), ' مشوار لـ ', num(String(tA.vendorCount)), ' مبتكرين · من البداية'], details: () => transportDetails('') }) : null,
+        U.KpiTile({ label: 'إجمالي مستحقات المبتكرين — الآن', value: money(ms.sum.due), unit: 'ج.م', compare: 'off', note: 'نفس رقم صفحة المبتكرين (من الأوردرات المكتملة) · مش بالفترة', details: () => ms.vdet('due') }),
+        U.KpiTile({ label: 'عندهم أوردرات قابلة للتأخير — الآن', value: String(ms.sum.withDelay), unit: 'مبتكرين', compare: ms.sum.withDelay ? 'negative' : 'off', delta: { text: 'متابعة', caption: 'نفس مصدر إشعار «مبتكرين متأخرين»' }, note: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة · مش بالفترة', details: () => ms.vdet('delay') }),
+        U.KpiTile({ label: 'عندهم رصيد سالب (عرابين) — الآن', value: String(ms.sum.negative), unit: 'مبتكرين', compare: 'off', note: ['إجمالي ', num(money(ms.sum.negativeTotal)), ' ج.م مدفوعة مقدمًا'], details: () => ms.vdet('negative') }),
+        U.KpiTile({ label: 'مبتكرين عندهم أوردرات قابلة للتأخير', value: String(rep.withDelay), unit: 'مبتكر', compare: kpiTone(rep.deltas.withDelay), delta: rep.deltas.withDelay, note: 'من ' + rep.active + ' مبتكر نشط في الفترة', details: () => vdet2('late') })].filter(Boolean)),
+      h('div', { class: 'charts' },
+        U.ChartCard({ title: 'أعلى المبتكرين بعدد الأوردرات', subtitle: 'الفترة المحددة · أوردرات فيها المبتكر', footnote: 'الأوردر المشترك يُحسب لكل مبتكر فيه', body: rep.topByOrders.length ? barList(rep.topByOrders, { fmt: String, tones: ['brand', 'brand', 'brand', 'goldlight', 'goldlight', 'neutral'] }) : U.EmptyState('مفيش بيانات', 'مفيش أوردرات في الفترة') }),
+        U.ChartCard({ title: 'المبتكرون الأكثر تأخيرًا', subtitle: 'أوردرات مفتوحة قابلة للتأخير أو متأخرة', footnote: 'يُحسب من قاعدة 9 / 11 يوم · نفس مصدر إشعار «مبتكرين متأخرين»', body: rep.topLate.length ? barList(rep.topLate, { fmt: String, tones: ['gold', 'gold', 'goldlight', 'goldlight', 'goldlight', 'neutral'] }) : U.EmptyState('كله في الموعد', 'مفيش مبتكرين عندهم أوردرات قابلة للتأخير في الفترة') })),
+      TableCard({ title: 'جدول المبتكرين — الفترة المحددة', count: rep.rows.length + ' مبتكر',
+        body: rep.rows.length ? tableOrList(() => U.Table({ cls: 'vendors-table', headers, rows: rep.rows.map(vrow), totalRow: COLS.map((c) => c.tot) }), () => CardList({ headers, titleIndex: 0, rows: rep.rows.map(vrow) })) : U.EmptyState('مفيش مبتكرين في الفترة دي', 'مفيش أوردرات لأي مبتكر في الفترة — غيّر الفترة من فوق.') }),
+      h('p', { class: 'source' }, 'المصدر: الأوردرات (السيستم، حسب تاريخ الأوردر)' + (money$ ? ' · حصة إبتكر من الأوردرات المكتملة في الفترة بنسبة الموقع على كل سطر · العرابين والمواصلات من حركات حسابات المبتكرين (من البداية) · الرصيد الحالي = رصيد Dokan − العرابين − المواصلات (زي تاب «حسابات المبتكرين»)' : '') + (rate$ ? ' · العمولة = النسبة الحالية لكل مبتكر' : '') + ' · كروت «— الآن» نفس أرقام صفحة المبتكرين.')].filter(Boolean);
+  }
+  // «تقارير المنتجات» (decision 7): the products page's own reports (products.js reportBlocks — products_report + the mirror) — one source
+  let rpProdCtx = null;
+  function ProductsReportView() {
+    const pg = window.IBPages && window.IBPages.all().products; const api = pg && pg.api;
+    if (!api || !api.reportBlocks) { rExport = null; rpProdCtx = null; return [U.EmptyState('تقارير المنتجات مش متاحة', 'صفحة المنتجات ماتحمّلتش — حدّث الصفحة.')]; }
+    const b = api.reportBlocks(() => renderReports()); rExport = b.exp; rpProdCtx = b.ctx; return b.blocks;
+  }
+  // decisions 1 / 2: «تقارير الموظفين» and «الحملات الإعلانية» come with their pages — until then the tab says so
+  const soonView = (page, what) => () => { rExport = null; const e = U.EmptyState('قريبًا — مع صفحة «' + page + '»', what); e.setAttribute('data-report-soon', ''); return [e]; };
+  const StaffReportView = soonView('الموارد البشرية', 'المهام والحضور والتقييم بتوع الفريق هيظهروا هنا أول ما صفحة «الموارد البشرية» تتبني.');
+  const CampaignsReportView = soonView('التسويق', 'أرقام الحملات الإعلانية (Meta و Google و TikTok Ads) هتظهر هنا مع صفحة «التسويق».');
+  // «تقارير المخزن»: IBInventory's hub in K.store (0044) — the same numbers as the stock page's own «التقارير» tab
+  function InventoryReportView() {
+    const KK = window.IBKit; const S2 = KK.store; const rr = state.rrange; const Inv = window.IBInventory;
+    if (Inv && Inv.state() !== 'ready' && !(S2.stock || []).length) { rExport = null; return [U.InlineNote({ children: Inv.state() === 'error' ? 'مقدرناش نحمّل المخزن — حدّث الصفحة.' : 'بنحمّل المخزن…' })]; }
+    const now = (KK.stockNow ? KK.stockNow() : []).filter((x) => x.onHand > 0);
+    const rep = R.inventoryReport(now, S2.returns || [], (S2.ledger || []).filter((m) => { const d = String(m.at || '').slice(0, 10); return d >= rr.from && d <= rr.to; }));
+    // «قطع في المخزن الآن» = the sum of the quantities, like the stock page's own tab (the v2 domain's pieces counts the lots)
+    const pieces = now.reduce((n, x) => n + (Number(x.onHand) || 0), 0);
+    const since = (x) => (x.since && KK.dshort ? KK.dshort(x.since) : (x.since || '—'));
+    const rowsH = ['القطعة', 'المبتكر', 'سبب الدخول', 'الحالة', 'في المخزن', 'المتاح', 'التكلفة', 'من إمتى'];
+    const rows = rep.rows.map((x) => [x.name, x.vendor, x.reason, h('span', { class: 'tg tg-neutral' }, x.status), num(String(x.onHand)), num(String(x.available)), num(money(x.cost)), since(x)]);
+    rExport = { label: 'مخزن — أعلى قيمة', headers: rowsH, rows: rep.rows.map((x) => [x.name, x.vendor, x.reason, x.status, x.onHand, x.available, x.cost, isoDay(x.since) || x.since]) };
+    const maxR = Math.max(1, ...rep.byReason.map((x) => x.count)), maxS = Math.max(1, ...rep.byStatus.map((x) => x.count));
+    const bars = (list, max) => (list.length ? h('div', { class: 'bars' }, list.map((x, i) => U.BarRow({ tone: i === 0 ? 'brand' : i === 1 ? 'gold' : 'neutral', label: x.label, value: String(x.count), pct: x.count / max }))) : U.EmptyState('المخزن فاضي', 'مفيش قطع مسجلة.'));
+    return [
+      h('div', { class: 'cards four', 'data-rgroup': 'kpis' },
+        U.KpiTile({ label: 'قطع في المخزن الآن', value: K0(pieces), unit: 'قطعة', compare: 'off', note: K0(now.length) + ' صنف · رصيد اللحظة الحالية — مش متأثر بالفترة', details: () => ({ title: 'قطع في المخزن', sub: 'أعلى 20 بالتكلفة', headers: rowsH, rows, empty: 'المخزن فاضي.' }) }),
+        U.KpiTile({ label: 'قيمة المخزن', value: money(rep.value), unit: 'ج.م', compare: 'off', note: 'سعر المبتكر × الكمية' }),
+        U.KpiTile({ label: 'مرتجعات مستنية الفحص', value: String(rep.waiting), unit: 'مرتجع', compare: 'off', note: 'من ' + rep.returns + ' مرتجع في السجل' }),
+        U.KpiTile({ label: 'حركات المخزن في الفترة', value: K0(rep.moves), unit: 'حركة', compare: 'off', note: D.formatDateNumeric(rr.from) + ' – ' + D.formatDateNumeric(rr.to) + ' · دخول · خروج · نقل' })),
+      h('div', { class: 'charts', 'data-rgroup': 'charts' },
+        U.ChartCard({ title: 'سبب دخول القطع', subtitle: 'عدد الأصناف', footnote: 'نفس أرقام «المخزن الآن»', body: bars(rep.byReason, maxR) }),
+        U.ChartCard({ title: 'حالة القطع', subtitle: 'عدد الأصناف', footnote: 'الحالة بتتغير من «المخزن الآن» و«المرتجعات»', body: bars(rep.byStatus, maxS) })),
+      TableCard({ title: 'أعلى 20 قطعة بالتكلفة', count: rep.rows.length + ' صف',
+        body: rep.rows.length ? tableOrList(() => U.Table({ cls: 'rp-inv', headers: rowsH, rows }), () => CardList({ headers: rowsH, titleIndex: 0, rows })) : U.EmptyState('المخزن فاضي', 'أول ما قطعة تدخل المخزن هتظهر هنا.') }),
+      h('p', { class: 'source' }, 'المصدر: مخزن إبتكر (الكميات من حركات الدخول والخروج) + سجل المرتجعات · القيمة = سعر المبتكر المسجّل على القطعة.')];
+  }
+  // «تقارير خدمة العملاء» (a snapshot, no range): IBCS's data — the customers' open conversations (the resolved ones of the last 90 days
+  // the adapter keeps for the inbox are left out of the counts), the reply target from the cs settings, the customers from cs_customers_list
+  function CsReportView() {
+    const CS = window.IBCS; const S2 = CS && CS.data ? CS.data : { convs: [], customers: [], settings: {} };
+    if (CS && CS.state() !== 'ready' && !(S2.convs || []).length) { rExport = null; return [U.InlineNote({ children: CS.state() === 'error' ? 'مقدرناش نحمّل خدمة العملاء — حدّث الصفحة.' : 'بنحمّل خدمة العملاء…' })]; }
+    const sla = (S2.settings && Number(S2.settings.slaLate)) || 15;
+    const rep = R.csReport((S2.convs || []).filter((c) => c.status !== 'اتحلت'), S2.customers || [], sla);
+    const topH = ['#', 'العميل', 'الأوردرات', 'إجمالي الشراء', 'متوسط الأوردر'];
+    const topRows = rep.top.map((x) => [num(String(x.rank)), x.name, num(String(x.orders)), num(money(x.total)), num(money(x.avg))]);
+    rExport = { label: 'أعلى العملاء', headers: topH, rows: rep.top.map((x) => [x.rank, x.name, x.orders, x.total, x.avg]) };
+    const probs = (S2.customers || []).filter((x) => x.lateOpen || x.openComplaints);
+    const maxSt = Math.max(1, ...rep.byStatus.map((x) => x.count)), maxAg = Math.max(1, ...rep.byAgent.map((x) => x.count));
+    return [
+      h('div', { class: 'cards four', 'data-rgroup': 'kpis' },
+        U.KpiTile({ label: 'محادثات عملاء مفتوحة', value: String(rep.open), unit: 'محادثة', compare: 'off', note: 'من غير محادثات المبتكرين واللي اتحلت' }),
+        U.KpiTile({ label: 'مستنية ردنا', value: String(rep.waitingUs), unit: 'محادثة', compare: 'off', note: 'جديدة + مستنية ردنا' }),
+        U.KpiTile({ label: 'عدّت هدف الرد', value: String(rep.late), unit: 'محادثة', compare: rep.late ? 'negative' : 'off', delta: rep.late ? { text: 'تحتاج رد', caption: 'عدّت ' + sla + ' دقيقة' } : null, note: 'هدف أول رد ' + sla + ' دقيقة' }),
+        U.KpiTile({ label: 'عملاء محتاجين متابعة', value: String(rep.problems), unit: 'عميل', compare: 'off', note: 'أوردر متأخر أو شكوى مفتوحة · من ' + K0(rep.customers) + ' عميل', details: () => ({ title: 'عملاء محتاجين متابعة — ' + probs.length, sub: 'أوردر متأخر أو شكوى مفتوحة', headers: ['العميل', 'أوردرات متأخرة', 'شكاوى مفتوحة', 'الأوردرات'], rows: probs.map((x) => [x.name, num(String(x.lateOpen || 0)), num(String(x.openComplaints || 0)), num(String(x.orders || 0))]), empty: 'مفيش عملاء محتاجين متابعة.' }) })),
+      h('div', { class: 'charts', 'data-rgroup': 'charts' },
+        U.ChartCard({ title: 'المحادثات حسب الحالة', subtitle: 'محادثات العملاء المفتوحة', footnote: 'نفس أرقام «الرسايل»', body: rep.byStatus.length ? h('div', { class: 'bars' }, rep.byStatus.map((x, i) => U.BarRow({ tone: /مستنية ردنا|جديدة/.test(x.label) ? 'gold' : i === 0 ? 'brand' : 'neutral', label: x.label, value: String(x.count), pct: x.count / maxSt }))) : U.EmptyState('مفيش محادثات مفتوحة', 'أول ما رسالة تيجي هتظهر هنا.') }),
+        U.ChartCard({ title: 'التوزيع على الفريق', subtitle: 'المحادثات المفتوحة لكل موظف', footnote: 'من المسؤول عن كل محادثة في «الرسايل»', body: rep.byAgent.length ? h('div', { class: 'bars' }, rep.byAgent.map((x, i) => U.BarRow({ tone: i === 0 ? 'brand' : i === 1 ? 'gold' : 'neutral', label: x.label, value: String(x.count), pct: x.count / maxAg }))) : U.EmptyState('مفيش توزيع', 'لسه مفيش محادثات متوزعة.') })),
+      TableCard({ title: 'أعلى 10 عملاء بالشراء', count: rep.top.length + ' عميل',
+        body: rep.top.length ? tableOrList(() => U.Table({ cls: 'rp-cust', headers: topH, rows: topRows }), () => CardList({ headers: topH, titleIndex: 1, rows: topRows })) : U.EmptyState('مفيش عملاء', 'لسه مفيش عميل اشترى.') }),
+      h('p', { class: 'source' }, 'المصدر: محادثات خدمة العملاء (المفتوحة دلوقتي) + ملفات العملاء في السيستم (من الأوردرات) · هدف أول رد من إعدادات خدمة العملاء.')];
+  }
+  // «تقارير التذاكر»: IBTickets (0045) — the tickets of the range by their creation day in Cairo + the v2's cards the member picks
+  // (decision 8: up to 8, saved per member in user_prefs tickets.kpis); «عاجل» is the «urgent» priority
+  const TK_KPI_MAX = 8, TK_KPI_DEF = ['open', 'urgent', 'overdue', 'avg', 'total', 'resolved', 'reopened', 'toprole'], TK_KPI_PREF = 'tickets.kpis';
+  const TK_KPI = [
+    { id: 'open', group: 'الحالة دلوقتي', label: 'تذاكر مفتوحة', hint: 'مفتوح + جاري العمل + بانتظار الرد', calc: (c) => ({ value: String(c.d.open.length), unit: 'تذكرة', note: 'كل التذاكر اللي لسه شغالة', details: () => ticketDetails('open') }) },
+    { id: 'urgent', group: 'الحالة دلوقتي', label: 'تذاكر عاجلة', hint: 'مفتوحة وأولويتها عاجل', calc: (c) => { const l = c.d.open.filter((t) => t.priority === 'urgent'); return { value: String(l.length), unit: 'تذكرة', compare: l.length ? 'negative' : 'off', delta: l.length ? { text: 'عاجل', caption: 'مفتوحة وأولويتها عاجل' } : null, note: 'مفتوحة وأولويتها عاجل', details: () => ({ title: 'تذاكر عاجلة — ' + l.length, sub: 'مفتوحة وأولويتها عاجل · اضغط على أي تذكرة تفتحها', headers: c.tHead, rows: l.map(c.tRow), onRow: (i) => openTicket(l[i].id), empty: 'مفيش تذاكر عاجلة مفتوحة.' }) }; } },
+    { id: 'overdue', group: 'الحالة دلوقتي', label: 'متأخرة عن موعد المتابعة', hint: 'عدّت تاريخ المتابعة ولسه مفتوحة', calc: (c) => ({ value: String(c.sm.overdue), unit: 'تذكرة', compare: c.sm.overdue ? 'negative' : 'off', delta: c.sm.overdue ? { text: 'تحتاج تدخّل', caption: 'عدّت تاريخ المتابعة' } : null, note: 'بتظهر كمان في الجرس', details: () => ticketDetails('overdue') }) },
+    { id: 'waiting', group: 'الحالة دلوقتي', label: 'بانتظار الرد', hint: 'مستنية رد العميل أو المبتكر', calc: (c) => { const l = c.d.open.filter((t) => t.status === 'waiting'); return { value: String(l.length), unit: 'تذكرة', note: 'الكورة في ملعب الطرف التاني', details: () => ({ title: 'بانتظار الرد — ' + l.length, sub: 'مستنية رد', headers: c.tHead, rows: l.map(c.tRow), onRow: (i) => openTicket(l[i].id), empty: 'مفيش تذاكر بانتظار الرد.' }) }; } },
+    { id: 'untouched', group: 'الحالة دلوقتي', label: 'لسه محدش اشتغل عليها', hint: 'حالتها «مفتوح» — مفيش حد بدأ', calc: (c) => { const l = c.d.open.filter((t) => t.status === 'open'); return { value: String(l.length), unit: 'تذكرة', compare: l.length ? 'negative' : 'off', delta: l.length ? { text: 'محتاجة حد', caption: 'حالتها مفتوح' } : null, note: 'محتاجة حد يمسكها', details: () => ({ title: 'لسه محدش اشتغل عليها — ' + l.length, sub: 'حالتها مفتوح', headers: c.tHead, rows: l.map(c.tRow), onRow: (i) => openTicket(l[i].id), empty: 'كل التذاكر المفتوحة حد ماسكها.' }) }; } },
+    { id: 'total', group: 'في الفترة', label: 'تذاكر الفترة', hint: 'اتعملت في الفترة المختارة', calc: (c) => ({ value: String(c.per.length), unit: 'تذكرة', note: D.formatDateNumeric(c.rr.from) + ' – ' + D.formatDateNumeric(c.rr.to), details: () => ({ title: 'تذاكر الفترة — ' + c.per.length, sub: 'اتعملت في الفترة · اضغط على أي تذكرة تفتحها', headers: c.tHead, rows: c.per.map(c.tRow), onRow: (i) => openTicket(c.per[i].id), empty: 'مفيش تذاكر اتعملت في الفترة دي.' }) }) },
+    { id: 'resolved', group: 'في الفترة', label: 'نسبة الحل', hint: 'كام تذكرة من تذاكر الفترة اتحلت', calc: (c) => { const n = c.per.filter((t) => t.resolution && t.resolution.at).length; return { value: c.per.length ? Math.round(n / c.per.length * 100) + '%' : '—', note: n + ' من ' + c.per.length + ' تذكرة اتحلت' }; } },
+    { id: 'avg', group: 'في الفترة', label: 'متوسط وقت الحل', hint: 'من الإنشاء لـ «تم الحل»', calc: (c) => ({ value: String(c.sm.avgDays), unit: 'يوم', note: 'من ' + c.sm.resolvedCount + ' تذكرة اتحلت', details: () => ticketDetails('avg') }) },
+    { id: 'reopened', group: 'في الفترة', label: 'أُعيد فتحها هذا الأسبوع', hint: 'مشكلة رجعت بعد الإغلاق', calc: (c) => ({ value: String(c.sm.reopened), unit: 'تذكرة', compare: c.sm.reopened ? 'negative' : 'off', delta: c.sm.reopened ? { text: 'راجع السبب', caption: 'رجعت بعد الإغلاق' } : null, note: 'إعادة الفتح بتحتاج سبب', details: () => ticketDetails('reopened') }) },
+    { id: 'toprole', group: 'التوزيع', label: 'أكتر دور عليه تذاكر', hint: 'الدور المسؤول عن أكبر عدد في الفترة', calc: (c) => ({ value: c.rep.byRole[0] ? c.rep.byRole[0].label : '—', note: c.rep.byRole[0] ? c.rep.byRole[0].count + ' تذكرة' : 'مفيش تذاكر في الفترة' }) },
+    { id: 'toptype', group: 'التوزيع', label: 'أكتر نوع', hint: 'عميل / مبتكر / داخلي', calc: (c) => ({ value: c.rep.byType[0] ? c.rep.byType[0].label : '—', note: c.rep.byType[0] ? c.rep.byType[0].count + ' تذكرة في الفترة' : 'مفيش تذاكر في الفترة' }) },
+    { id: 'topreason', group: 'التوزيع', label: 'أكتر سبب', hint: 'السبب اللي بيتكرر أكتر', calc: (c) => { const m = {}; c.per.forEach((t) => { if (t.reason) m[t.reason] = (m[t.reason] || 0) + 1; }); const top = Object.entries(m).sort((a, b) => b[1] - a[1])[0]; return { value: top ? top[0] : '—', note: top ? top[1] + ' تذكرة في الفترة' : 'مفيش أسباب مسجلة' }; } },
+  ];
+  const tkKpiPicked = () => { const p = window.IBPrefs && window.IBPrefs.get(TK_KPI_PREF); const l = Array.isArray(p) ? p.filter((x) => TK_KPI.some((k) => k.id === x)) : []; return l.length ? l.slice(0, TK_KPI_MAX) : TK_KPI_DEF.slice(); };
+  const tkPeriod = () => { const rr = state.rrange; return tstore.all().filter((t) => { const d = cairoDayOf(t.createdAt); return d >= rr.from && d <= rr.to; }); };
+  const tkRepOf = (per) => R.ticketsReport(per.map((t) => ({ id: t.id, title: t.title, type: typeLabel(t.type), priority: TK.label(TK.PRIORITIES, t.priority), status: t.status, role: t.assigneeRole })));
+  function tkKpiCtx(rep, per) {
+    const all = tstore.all();
+    const tHead = ['التذكرة', 'العنوان', 'النوع', 'الأولوية', 'الحالة', 'المسؤول'];
+    const tRow = (t) => [num(t.id), t.title, typeLabel(t.type), U.PriorityTag(t.priority), U.TicketStatus(t.status), t.assigneeRole || '—'];
+    return { rr: state.rrange, all, per, rep, sm: TK.summary(all, TODAY), d: TK.summaryDetails(all, TODAY), tHead, tRow };
+  }
+  // the card picker (the v2's KpiPickerModal): up to 8, each choice beside its value now; saved per member
+  function tkKpiPicker(done) {
+    const per = tkPeriod(); const ctx = tkKpiCtx(tkRepOf(per), per); const pv = {}; TK_KPI.forEach((k) => { try { const v = k.calc(ctx); pv[k.id] = (v.value || '') + (v.unit ? ' ' + v.unit : ''); } catch (e) { /* no preview */ } });
+    const sel = tkKpiPicked(); let m = null;
+    const draw = () => { const full = sel.length >= TK_KPI_MAX; const groups = [...new Set(TK_KPI.map((k) => k.group))];
+      m.setBody(h('div', { class: 'kpi-pick', 'data-kpi-pick': 'tickets' },
+        h('p', { class: 't-small help', style: 'margin:0' }, 'اختار لحد ' + TK_KPI_MAX + ' كروت — بتتعرض على سطرين بالترتيب اللي بتختاره. ', h('b', { 'data-kpi-count': String(sel.length) }, 'مختار ' + sel.length + ' من ' + TK_KPI_MAX)),
+        groups.map((g) => h('fieldset', { class: 'blk' }, h('legend', null, g), h('div', { class: 'kpi-pick-grid' }, TK_KPI.filter((k) => k.group === g).map((k) => { const on = sel.includes(k.id); const dis = !on && full;
+          return h('button', { type: 'button', role: 'checkbox', class: 'kpi-opt' + (on ? ' on' : ''), 'aria-checked': String(on), 'data-kpi': k.id, disabled: dis || null, onClick: () => { const i = sel.indexOf(k.id); if (i > -1) sel.splice(i, 1); else if (sel.length < TK_KPI_MAX) sel.push(k.id); draw(); } },
+            h('span', { class: 'mchk', 'aria-hidden': 'true' }, on ? Icon('check', 'sm') : null), h('span', { class: 'kpi-opt-t' }, h('b', null, k.label, on ? h('small', { class: 'kpi-ord' }, ' #' + (sel.indexOf(k.id) + 1)) : null), h('span', { class: 't-small help' }, k.hint)), h('span', { class: 'kpi-opt-v' }, pv[k.id] || '')); }))))));
+    };
+    m = U.Modal({ title: 'تخصيص تقارير التذاكر', body: [], footer: [] }); m.el.classList.add('wide');
+    m.setFooter(Button({ type: 'text', label: 'رجوع للافتراضي', attrs: { 'data-kpi-reset': '' }, onClick: () => { sel.splice(0, sel.length, ...TK_KPI_DEF); draw(); } }), h('span', { class: 'grow' }), Button({ label: 'إلغاء', onClick: () => m.close() }),
+      Button({ type: 'primary', label: 'احفظ', attrs: { 'data-kpi-save': '' }, onClick: () => { if (!sel.length) { window.IBKit.toast('اختار كارت واحد على الأقل', 'error'); return; } if (window.IBPrefs) window.IBPrefs.set(TK_KPI_PREF, sel.slice()); m.close(); window.IBKit.toast('اتحفظ — ' + sel.length + ' كروت', 'success'); if (done) done(); } }));
+    draw();
+  }
+  function TicketsReportView() {
+    const T = TA(); if (T && T.state() !== 'ready' && !tstore.all().length) { rExport = null; return [U.InlineNote({ children: T.state() === 'error' ? 'مقدرناش نحمّل التذاكر — حدّث الصفحة.' : 'بنحمّل التذاكر…' })]; }
+    const per = tkPeriod(); const rep = tkRepOf(per); const byId = new Map(per.map((t) => [t.id, t]));
+    const rowsH = ['التذكرة', 'الموضوع', 'النوع', 'الأولوية', 'الحالة', 'الدور المسؤول'];
+    const rows = rep.rows.map((x) => [h('span', { dir: 'ltr', class: 't-small' }, x.id), x.title, x.type, U.PriorityTag((byId.get(x.id) || {}).priority), U.TicketStatus(x.status), x.role]);
+    rExport = { label: 'تذاكر مفتوحة', headers: rowsH, rows: rep.rows.map((x) => [x.id, x.title, x.type, x.priority, TK.label(TK.STATUSES, x.status), x.role]) };
+    const maxT = Math.max(1, ...rep.byType.map((x) => x.count)), maxR = Math.max(1, ...rep.byRole.map((x) => x.count));
+    const ctx = tkKpiCtx(rep, per); const picked = tkKpiPicked();
+    return [
+      h('div', { class: 'cards four', 'data-rgroup': 'kpis', 'data-tk-kpis': String(picked.length) }, picked.map((id) => { const k = TK_KPI.find((x) => x.id === id); let v = null; try { v = k && k.calc(ctx); } catch (e) { v = null; } return v ? U.KpiTile(Object.assign({ compare: 'off' }, v, { label: k.label })) : null; }).filter(Boolean)),
+      h('div', { class: 'charts', 'data-rgroup': 'charts' },
+        U.ChartCard({ title: 'التذاكر حسب النوع', subtitle: 'التذاكر اللي اتعملت في الفترة', footnote: 'عميل · مبتكر · داخلي', body: rep.byType.length ? h('div', { class: 'bars' }, rep.byType.map((x, i) => U.BarRow({ tone: i === 0 ? 'brand' : i === 1 ? 'gold' : 'neutral', label: x.label, value: String(x.count), pct: x.count / maxT }))) : U.EmptyState('مفيش تذاكر', 'مفيش تذاكر اتعملت في الفترة دي.') }),
+        U.ChartCard({ title: 'التذاكر حسب الدور', subtitle: 'الدور المسؤول', footnote: 'من «تذاكر الفريق»', body: rep.byRole.length ? h('div', { class: 'bars' }, rep.byRole.map((x, i) => U.BarRow({ tone: i === 0 ? 'brand' : i === 1 ? 'gold' : 'neutral', label: x.label, value: String(x.count), pct: x.count / maxR }))) : U.EmptyState('مفيش تذاكر', 'مفيش تذاكر اتعملت في الفترة دي.') })),
+      TableCard({ title: 'تذاكر مفتوحة', count: rep.rows.length + ' تذكرة · من تذاكر الفترة',
+        body: rep.rows.length ? tableOrList(() => U.Table({ cls: 'rp-tk', headers: rowsH, rows }), () => CardList({ headers: rowsH, titleIndex: 1, rows })) : U.EmptyState('مفيش تذاكر مفتوحة', 'كل تذاكر الفترة اتحلت أو اتقفلت.') }),
+      h('p', { class: 'source' }, 'المصدر: تذاكر الفريق في السيستم · «في الفترة» بتاريخ فتح التذكرة بتوقيت القاهرة · «الحالة دلوقتي» كل التذاكر اللي شايفها.')];
+  }
+  const RVIEWS = { orders: OrdersReportView, vendors: VendorsReportView, accounts: AccountsReportView, products: ProductsReportView, staff: StaffReportView, campaigns: CampaignsReportView, inventory: InventoryReportView, cs: CsReportView, tickets: TicketsReportView };
+  // the reports that show the moment (no range — owner 31 Oct: a date filter has to change what is shown)
+  const SNAP_TABS = { cs: 'أرقام المحادثات والعملاء دلوقتي — من غير فلتر تاريخ' };
+  // «الإجراءات» offers the sheets of the pages the member sees (the rows come under their RLS anyway)
+  const RSHEET_PERM = { orders: 'orders.view', vendors: 'vendors.view', expenses: 'accounts.view', transport: 'accounts.view' };
+  const reportSheets = () => window.IBDataActions.PAGES.reports.filter((id) => !RSHEET_PERM[id] || rperm(RSHEET_PERM[id]) !== 'N');
   function renderReports() {
     U.closePopover();
     const main = document.getElementById('reports'); if (!main) return; const sc = window.scrollY;
     const note = state.rnote; state.rnote = null;
-    const tabs = U.Tabs({ items: REPORT_TABS, active: state.rtab, onChange: (id, viaKey) => { state.rtab = id; try { history.replaceState(null, '', '#reports-' + id); } catch (e) { /* sandboxed */ } focusTab = !!viaKey; renderReports(); } });
+    const list = reportTabs();
+    if (!list.length) { rExport = null; main.replaceChildren(h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'التقارير'))), U.EmptyState('مش مسموحلك تشوف التقارير', 'اطلب صلاحية «التقارير» من الأدمن.')); return; }
+    if (!list.some((t) => t.id === state.rtab)) { state.rtab = list[0].id; try { history.replaceState(null, '', '#reports-' + state.rtab); } catch (e) { /* sandboxed */ } }
+    const tab = list.find((t) => t.id === state.rtab); const soon = !!tab.soon; const snap = SNAP_TABS[state.rtab];
+    const tabs = U.Tabs({ items: list.map((t) => ({ id: t.id, label: t.soon ? [t.label, ' ', h('span', { class: 'soon', 'data-soon': '' }, 'قريبًا')] : t.label })), active: state.rtab, onChange: (id, viaKey) => { state.rtab = id; try { history.replaceState(null, '', '#reports-' + id); } catch (e) { /* sandboxed */ } focusTab = !!viaKey; renderReports(); } });
     tabs.setAttribute('aria-label', 'أقسام التقارير');
     const body = RVIEWS[state.rtab]();
+    const exp = rCanExport();
     const noteEl = note ? U.InlineNote({ kind: note.kind, children: note.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => { noteEl.remove(); } }) }) : null;
+    const kpiCustom = state.rtab === 'tickets' ? () => tkKpiPicker(renderReports) : state.rtab === 'products' ? () => { const api = (window.IBPages.all().products || {}).api; if (rpProdCtx && api && api.kpiPicker) api.kpiPicker(rpProdCtx, renderReports); else window.IBKit.toast('استنى التقارير تتحسب الأول', 'error'); } : null;
     main.replaceChildren(...[
       h('div', { class: 'page-head row' },
         h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'التقارير'), U.FreshnessNote(freshness())),
-        h('div', { class: 'actions' }, DateRangeField('reports'), window.IBDataActions.Menu(window.IBDataActions.PAGES.reports, () => ({ vendors: 'vendors', accounts: 'expenses' }[state.rtab] || 'orders')),
-          Button({ type: state.rcompare ? 'primary' : 'default', label: 'مقارنة بالفترة السابقة', attrs: { 'aria-pressed': String(state.rcompare) }, onClick: () => { state.rcompare = !state.rcompare; renderReports(); } }),
-          Button({ label: 'نسخ CSV', icon: 'download', disabled: !rExport, onClick: () => rExport && csvCopy(rExport.headers, rExport.rows, rExport.label) }))),
+        h('div', { class: 'actions' }, soon ? null : snap ? h('span', { class: 't-small help', 'data-snapshot': '' }, snap) : DateRangeField('reports'),
+          exp && reportSheets().length ? window.IBDataActions.Menu(reportSheets(), () => ({ vendors: 'vendors', accounts: 'expenses' }[state.rtab] || 'orders')) : null,
+          soon || snap ? null : Button({ type: state.rcompare ? 'primary' : 'default', label: 'مقارنة بالفترة السابقة', attrs: { 'aria-pressed': String(state.rcompare) }, onClick: () => { state.rcompare = !state.rcompare; renderReports(); } }),
+          exp && !soon ? Button({ label: 'نسخ CSV', icon: 'download', disabled: !rExport, attrs: { 'data-rp-csv': '' }, onClick: () => rExport && csvCopy(rExport.headers, rExport.rows, rExport.label) }) : null,
+          kpiCustom ? Button({ label: 'تخصيص اللوحة', icon: 'sliders', attrs: { 'data-kpi-custom': state.rtab }, onClick: kpiCustom }) : null,
+          soon ? null : Button({ label: 'تخصيص التقارير', icon: 'sliders', attrs: { 'data-rp-custom': '' }, onClick: () => customizeReports() }))),
       tabs,
       noteEl,
       h('div', { id: 'rpanel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.rtab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, body)].filter(Boolean));
+    applyReportPrefs(main.querySelector('#rpanel'));
+    window.IBKit.sweepColumns(main);
     window.scrollTo(0, sc);
     if (focusTab) { const t = main.querySelector('[role=tab][aria-selected=true]'); if (t) t.focus(); focusTab = false; }
+  }
+
+  // ---------- «تخصيص التقارير» (the v2's — like «تخصيص اللوحة»): per tab, which reports show and their order. Decision 8: saved per
+  // member in user_prefs reports.prefs = { <tab>: { order: [titles], hidden: [titles] } } (never written at sign-in) ----------
+  const RP_PREF = 'reports.prefs';
+  const rpAll = () => { const p = window.IBPrefs && window.IBPrefs.get(RP_PREF); return p && typeof p === 'object' && !Array.isArray(p) ? p : {}; };
+  const rpPrefs = (tab) => { const x = rpAll()[tab]; return x && Array.isArray(x.order) && Array.isArray(x.hidden) ? x : { order: [], hidden: [] }; };
+  const rpSave = (tab, val) => { const all = Object.assign({}, rpAll()); if (val) all[tab] = val; else delete all[tab]; if (window.IBPrefs) window.IBPrefs.set(RP_PREF, all); };
+  function reportItems(panel) {
+    const out = [];
+    [...panel.children].forEach((blk) => {
+      if (blk.classList.contains('source') || blk.classList.contains('rp-allhidden') || blk.classList.contains('note')) return;
+      // the id carries the kind: a card and a table may share a title («تذاكر مفتوحة», «منتجات نفد مخزونها») — one must not move or hide the other
+      if (blk.classList.contains('cards') || blk.classList.contains('charts')) [...blk.children].forEach((c) => { const l = (c.querySelector('.kpi-label,.chart-head h2') || {}).textContent; const kind = c.classList.contains('kpi') ? 'رقم' : 'رسم'; if (l) out.push({ id: kind + ' · ' + l.trim(), label: l.trim(), kind, el: c, blk }); });
+      else { const l = (blk.querySelector('.table-title h2,.sec-h h2') || {}).textContent; if (l) out.push({ id: 'جدول · ' + l.trim().split(' — ')[0], label: l.trim(), kind: 'جدول', el: blk, blk }); }
+    });
+    return out;
+  }
+  function applyReportPrefs(panel) {
+    if (!panel) return; const p = rpPrefs(state.rtab); const items = reportItems(panel); if (!items.length) return;
+    const idx = (id) => { const i = p.order.indexOf(id); return i < 0 ? 1000 + items.findIndex((x) => x.id === id) : i; };
+    const blocks = [...new Set(items.map((x) => x.blk))];
+    blocks.forEach((b) => { items.filter((x) => x.blk === b && x.el !== b).sort((a, c) => idx(a.id) - idx(c.id)).forEach((x) => b.append(x.el)); });
+    const src = panel.querySelector(':scope > .source'); const minIdx = (b) => Math.min(...items.filter((x) => x.blk === b).map((x) => idx(x.id)));
+    blocks.sort((a, b) => minIdx(a) - minIdx(b)).forEach((b) => panel.append(b)); if (src) panel.append(src);
+    items.forEach((x) => { x.el.hidden = p.hidden.includes(x.id); });
+    blocks.forEach((b) => { const kids = items.filter((x) => x.blk === b && x.el !== b); if (kids.length) b.hidden = kids.every((x) => x.el.hidden); });
+    if (!items.some((x) => !x.el.hidden)) { const e = U.EmptyState('كل التقارير في التاب ده مخفية', 'افتح «تخصيص التقارير» واختار اللي يظهر.'); e.classList.add('rp-allhidden'); panel.prepend(e); }
+  }
+  function customizeReports() {
+    const tab = state.rtab; const panel = document.querySelector('#reports #rpanel'); if (!panel) return; const p = rpPrefs(tab);
+    const all = reportItems(panel); if (!all.length) { window.IBKit.toast('مفيش تقارير تتخصص في التاب ده لسه', 'error'); return; }
+    const idx = (id) => { const i = p.order.indexOf(id); return i < 0 ? 1000 + all.findIndex((x) => x.id === id) : i; };
+    const tabL = (REPORT_TABS.find((t) => t.id === tab) || {}).label;
+    const list = all.slice().sort((a, b) => idx(a.id) - idx(b.id)).map((x) => ({ id: x.id, label: x.label, kind: x.kind, hidden: p.hidden.includes(x.id) }));
+    const KK = window.IBKit;
+    KK.form({ title: 'تخصيص التقارير — ' + tabL, wide: true, values: { list },
+      note: U.InlineNote({ children: 'اختار التقارير اللي تظهر في «' + tabL + '» ورتّبها بالسحب من المسكة اللي جنب الاسم. التخصيص بيتحفظ ليك انت بس، ولكل تاب لوحده.' }),
+      fields: (f, e, set) => { const wrap = h('div', { class: 'dash-cust', role: 'list' }, f.list.map((c, i) => h('div', { class: 'dc-row', role: 'listitem', 'data-rp-item': c.id },
+        KK.Grip(c.label),
+        h('span', { class: 'dc-l' }, h('b', null, c.label), h('small', { class: 't-small help' }, c.kind)),
+        KK.Switch({ id: 'rpc-' + i, label: c.label, checked: !c.hidden, onChange: (v) => { c.hidden = !v; set('list', f.list.slice(), true); } }))));
+        setTimeout(() => KK.sortableRows(wrap, 'data-rp-item', (ids) => set('list', ids.map((id) => f.list.find((x) => x.id === id)).filter(Boolean), true)), 0);
+        return [wrap, e.list ? U.InlineNote({ kind: 'error', children: e.list }) : null]; },
+      validate: (f) => (f.list.some((c) => !c.hidden) ? {} : { list: 'سيب تقرير واحد على الأقل ظاهر' }),
+      extraFooter: (f, m) => h('span', { class: 'rp-del' }, Button({ type: 'text', label: 'رجوع للافتراضي', attrs: { 'data-rp-reset': '' }, onClick: () => { rpSave(tab, null); KK.toast('رجعت التقارير للافتراضي'); m.close(); renderReports(); } })),
+      submitLabel: 'حفظ', submit: (f) => { rpSave(tab, { order: f.list.map((c) => c.id), hidden: f.list.filter((c) => c.hidden).map((c) => c.id) }); KK.logEvent('reports.customize', tabL + ' · ' + f.list.filter((c) => !c.hidden).length + ' تقرير'); KK.toast('اتحفظ تخصيص التقارير', 'success'); renderReports(); } });
   }
 
   // ---------- Team tickets «تذاكر الفريق» (Figma page 180:4669: تذاكر الفريق — Desktop 1440; Modal / New ticket; Drawer / Ticket; Resolve; Reopen) ----------
@@ -2150,16 +2414,22 @@
   }
   // decision 5 (d): under the maker's name, the brands he holds whose name is not his (after a transfer) — a grey line, text only
   const brandLine = (v) => { const names = (v.brands || []).map((b) => b.name).filter((n) => VD.norm(n) !== VD.norm(v.name)); return names.length ? h('span', { class: 't-small brand-line', 'data-brands': '' }, names.join(' · ')) : null; };
-  function VendorsPageView() {
+  // the makers' numbers + their «التفاصيل» — shared by the makers page and the reports page's makers tab (phase 9: the v2's makerSummary);
+  // opts.inPlace: a row opens the maker's drawer where you are (the reports page) instead of on the makers page
+  function makerSummary(opts) {
     const all = vstore.all(); const stats = vendorStats(); const sum = VD.summary(all, stats);
     // «التفاصيل» on the 4 KPIs (owner, 22 Oct) — rows from VD.summaryDetails, a row opens the vendor file.
     const vdet = (kind) => { const d = VD.summaryDetails(all, stats); const money = (x) => D.formatMoney(x); const vstat = (v) => stats[v.id] || {};
-      const open = (list) => (i) => openVendor(list[i].id);
+      const open = (list) => (i) => openVendor(list[i].id, opts && opts.inPlace ? { inPlace: true } : undefined);
       if (kind === 'active') { const l = d.active.slice().sort((a, b) => (vstat(b).open || 0) - (vstat(a).open || 0)); return { title: 'المبتكرين النشطين — ' + l.length, sub: 'من ' + sum.total + ' مبتكر مسجّل · مرتبين بعدد الأوردرات المفتوحة · اضغط على أي صف يفتح ملفه', summary: [{ label: 'نشط', value: String(sum.active) }, { label: 'غير نشط', value: String(sum.total - sum.active) }, { label: 'أوردرات مفتوحة', value: String(l.reduce((x, v) => x + (vstat(v).open || 0), 0)) }], headers: ['المبتكر', 'الفئة', 'النسبة', 'أوردرات مفتوحة', 'قابلة للتأخير', 'مستحقاته', 'آخر أوردر'], rows: l.map((v) => [v.name, v.category || '—', v.rate == null ? '—' : v.rate + '%', String(vstat(v).open || 0), String(vstat(v).late || 0), money(vstat(v).balance || 0), ageLabel(vstat(v).lastAge)]), onRow: open(l), source: 'جدول المبتكرين + الأوردرات لايف' }; }
       if (kind === 'delay') { const l = d.delay; return { title: 'مبتكرين عندهم أوردرات قابلة للتأخير / متأخرة — ' + l.length, sub: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة · نفس مصدر إشعار «مبتكرين متأخرين»', summary: [{ label: 'مبتكرين', value: String(l.length) }, { label: 'قابل للتأخير', value: String(l.reduce((x, r) => x + r.risk, 0)) + ' أوردر' }, { label: 'متأخر', value: String(l.reduce((x, r) => x + r.late, 0)) + ' أوردر' }], headers: ['المبتكر', 'قابل للتأخير', 'متأخر', 'أوردرات مفتوحة', 'أقدم أوردر مفتوح', 'الموبايل'], rows: l.map((r) => { const v = all.find((x) => x.id === r.id); return [r.name, String(r.risk), String(r.late), String(r.open), r.oldest + ' يوم', v && v.phone || '—']; }), total: ['الإجمالي', String(l.reduce((x, r) => x + r.risk, 0)), String(l.reduce((x, r) => x + r.late, 0)), String(l.reduce((x, r) => x + r.open, 0)), '—', '—'], onRow: (i) => openVendorLate(l[i].name, 'all'), note: 'قابل للتأخير = عمر الأوردر 9–11 يوم · متأخر = أكتر من 11 يوم (مدة التسليم 12–15 يوم).', source: 'الأوردرات لايف' }; }
       if (kind === 'due') { const l = d.due; return { title: 'مستحقات المبتكرين — ' + money(sum.due) + ' ج.م', sub: l.length + ' مبتكر ليهم رصيد لصالحهم', summary: [{ label: 'الإجمالي', value: money(sum.due) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }, { label: 'أكبر رصيد', value: l.length ? l[0].name + ' — ' + money(l[0].balance) : '—' }], headers: ['المبتكر', 'الرصيد (له)', 'من الإجمالي'], rows: l.map((r) => [r.name, money(r.balance), (sum.due ? Math.round(r.balance / sum.due * 100) : 0) + '%']), total: ['الإجمالي', money(l.reduce((x, r) => x + r.balance, 0)), '100%'], onRow: open(l), source: 'الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر (الافتتاحي والعرابين من مرحلة الحسابات)' }; }
       const l = d.negative; return { title: 'مبتكرين عندهم رصيد سالب (عرابين / مواصلات) — ' + l.length, sub: 'عرابين اتدفعت لهم قبل ما الأوردرات تكتمل — بتتخصم من مستحقاتهم', summary: [{ label: 'إجمالي العرابين', value: money(sum.negativeTotal) + ' ج.م' }, { label: 'مبتكرين', value: String(l.length) }], headers: ['المبتكر', 'العربون', 'المواصلات', 'الرصيد (عليه)', 'أوردرات مفتوحة'], rows: l.map((r) => [r.name, money(r.deposits), money((vendorsNow().find((x) => x.name === r.name) || {}).transport || 0), money(r.balance), String((stats[r.id] || {}).open || 0)]), total: ['الإجمالي', money(l.reduce((x, r) => x + r.deposits, 0)), money(l.reduce((x, r) => x + ((vendorsNow().find((y) => y.name === r.name) || {}).transport || 0), 0)), money(l.reduce((x, r) => x + r.balance, 0)), String(l.reduce((x, r) => x + ((stats[r.id] || {}).open || 0), 0))], onRow: open(l), source: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات' };
     };
+    return { all, stats, sum, vdet };
+  }
+  function VendorsPageView() {
+    const { all, stats, sum, vdet } = makerSummary();
     const vPass = (f) => (v) => ['status', 'category', 'balance', 'contract', 'other'].every((k) => !(f[k] || []).length || f[k].some((val) => VD.filterVendors([v], stats, k === 'other' ? { status: 'all', [val]: true } : { status: 'all', [k]: val }, VTODAY()).length));
     const base0 = vfilter(all, stats, { status: 'all', q: state.vfilter.q });
     const list = VD.sortVendors(base0.filter(vPass(state.vf)), stats, state.vsort);

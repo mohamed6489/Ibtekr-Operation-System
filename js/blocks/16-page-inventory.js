@@ -501,6 +501,20 @@
       S.counts.unshift({ id: c.id, date: TODAY, zone: c.zone, by: K.member(K.ME).name, items: d.items, value: d.value, status: 'اتعتمد' }); S.count = null; K.logEvent('stock.count.approve', c.id); K.toast('اتعتمد ' + c.id, 'success'); R(); } });
   }
   function addRack() { K.form({ title: 'مكان تخزين جديد', values: {}, fields: (f, e, set) => [K.two(K.field.text('code', 'الكود', f, e, set, { required: true, placeholder: 'رف E' }), K.field.text('desc', 'الوصف', f, e, set, { required: true }))], validate: (f) => K.req(f, ['code', 'desc']), submitLabel: 'إضافة', submit: (f) => { if (live()) { saved(A().addLocation(f.code.replace(/^رف\s*/, ''), f.desc), 'اتضاف المكان').then((r) => { if (r.ok) reload(); }); return; } S.racks.push({ code: f.code, desc: f.desc, products: 0, pieces: 0 }); R(); } }); }
+  // phase 7 decision 10 (d) (owner, 4 Nov — «أيوه، بس بتأكيد»): the orders page shows «في المخزن» on a line whose SKU is held
+  // «متاح للبيع» with enough available, and its menu offers «اسحب من المخزن»: the team confirms → a reserve move on the lot for the
+  // order and the line is «مخزن ابتكر» (pulled — no maker notice). Never automatic.
+  const hubLot = (sku, qty) => { const k = String(sku || '').trim(); if (!k) return null; return K.stockNow().find((s) => s.sku === k && s.reason === 'متاح للبيع' && !s.closed && s.available >= (Number(qty) || 1)) || null; };
+  function pullPopup(info, ok) {
+    const it = hubLot(info.sku, info.qty); if (!it) { K.toast('مفيش قطعة متاحة من المنتج ده في المخزن دلوقتي', 'error'); return; }
+    if (!canEdit()) { K.toast('السحب من المخزن محتاج صلاحية المخزن', 'error'); return; }
+    const qty = Number(info.qty) || 1;
+    K.confirm({ title: 'اسحب من المخزن — IB-' + info.order, okLabel: 'اسحب من المخزن',
+      text: info.prod + ' × ' + qty + ' — متاح ' + it.available + ' في ' + (it.loc || 'المخزن') + (it.mode ? ' (' + it.mode + ')' : '') + '. القطعة هتتحجز للأوردر، والأوردر الفرعي #' + info.sid + ' هيتنفذ من مخزن ابتكر بدل ' + (info.vendor || 'المبتكر') + '.',
+      onOk: () => { move({ key: it.key, type: 'reserve', qty, label: 'حجز لأوردر', reason: 'متاح للبيع', ref: 'IB-' + info.order, note: 'سحب من المخزن · #' + info.sid });
+        const lot = S.stock.find((s) => s.key === it.key); if (lot && it.available - qty <= 0) { lot.status = 'محجوز لأوردر'; patchLot(it.key, { status: 'محجوز لأوردر' }, 'inventory.pull'); }
+        K.logEvent('stock.pull', info.sku + ' → IB-' + info.order); K.toast('اتسحب من المخزن لـ IB-' + info.order, 'success'); if (ok) ok(); rerender(); } });
+  }
   // auto-pull from «متاح للبيع» — called when a new order contains a stocked SKU
   function autoPull(sku, qty, order) {
     const it = K.stockNow().find((s) => s.sku === sku && s.reason === 'متاح للبيع'); if (!it || !O.canAutoPull(it, qty) || !S.invSettings.firstWarehouse) return false;
@@ -508,5 +522,5 @@
     if (S.invSettings.pullAlert) K.notify({ title: 'اتحجزت قطعة من المخزن: ' + it.name + ' لأوردر IB-' + order, link: '#inventory-now' }); K.logEvent('stock.autopull', sku + ' → IB-' + order); return true;
   }
 
-  window.IBPages.register('inventory', { title: 'المخزن', hash: (hs) => { const m = /^inventory(?:-(now|consolidate|returns|moves|count|reports|settings))?$/.exec(hs); if (!m) return false; st.tab = m[1] || 'now'; return true; }, defaultHash: () => 'inventory-' + st.tab, view, api: { autoPull, receive, arrival, shipAll, cancelCons, shipOut, lineCost } });
+  window.IBPages.register('inventory', { title: 'المخزن', hash: (hs) => { const m = /^inventory(?:-(now|consolidate|returns|moves|count|reports|settings))?$/.exec(hs); if (!m) return false; st.tab = m[1] || 'now'; return true; }, defaultHash: () => 'inventory-' + st.tab, view, api: { autoPull, receive, arrival, shipAll, cancelCons, shipOut, lineCost, hubLot, pullPopup } });
 })();

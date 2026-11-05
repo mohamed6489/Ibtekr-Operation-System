@@ -92,10 +92,15 @@
       submitLabel: 'احفظ التقييم وقفّل الأوردر', cancelLabel: 'ليس الآن',
       submit: (f) => { ok({ sat: f.sat, manners: f.manners, note: (f.note || '').trim() }); } });
   }
+  // the hub loaded or changed: the orders page redraws its «في المخزن» chips and consolidation bars (phase 7)
+  document.addEventListener('ib:inventory', () => { if (window.OrdersSetSub) window.OrdersSetSub('__redraw__', null); });
   window.IBOrdersOps = { cons, returnPopup, orderReturnPopup, orderReasonPopup, ratePopup, subChanged, arrivalPopup, consolidate: consPopup,
     shipall: (o) => { const c = cons(o.id); if (c) inv().shipAll(c); },
     uncons: (o) => { const c = cons(o.id); if (c) inv().cancelCons(c); },
     // phase 7 decision 9 (owner, 4 Nov): the order's status saved as «قيد الشحن» / «مكتمل» = it left — its gathered pieces leave the hub
-    orderShipped: (orderId, status) => inv().shipOut(orderId, status) };
+    orderShipped: (orderId, status) => inv().shipOut(orderId, status),
+    // phase 7 decision 10 (d): a «متاح للبيع» piece of this SKU in the hub, and taking it for a line (with the team's confirmation)
+    hubHas: (sku, qty) => !!(inv().hubLot && inv().hubLot(sku, qty)),
+    pullPopup: (info, ok) => inv().pullPopup(info, ok) };
 })();
 

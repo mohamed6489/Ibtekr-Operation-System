@@ -323,7 +323,68 @@
     };
   }
 
+  // ---- phase 5.5 decision 13 (owner 5 Nov): a maker's account over a period («كشف بالفترة») ----
+  // The opening is Dokan's own balance on the first day (the statement's opening row) less our moves dated before it, counted
+  // the way «الصافي» counts them (deriveVendors / deductTransport); in the period: what Dokan credited for orders («حقه من
+  // المكتمل»), its refunds and its withdrawals («اتحوّله») from the same statement, and our deposits / transport dated in it.
+  // closing = opening + earned − refunds − payouts − deposits − transport + other — on the last day, Dokan's balance less every
+  // move up to it. `statement`: { rows: [{ date, type, debit, credit, balance, ref }] } or null (no store: Dokan's part is 0);
+  // `moves`: the maker's moves ({ date, type, direction, amount }); `salesOf(ref)`: our lines' total for a Dokan order (null when
+  // the order is not in our mirror) — the sales and Ibtekr's share (sales − what Dokan credited) of the matched orders only.
+  const LEDGER_STATUS = Object.freeze({ owed: 'مستحق', onThem: 'عليه', settled: 'متصفّي' });
+  const ledgerStatus = (closing) => (closing > 0.004 ? 'owed' : closing < -0.004 ? 'onThem' : 'settled');
+  function makerLedger({ statement, moves, from, to, salesOf } = {}) {
+    const rows = statement && Array.isArray(statement.rows) ? statement.rows.filter((r) => r && typeof r === 'object') : [];
+    const num = (x) => { const n = Number(x); return isFinite(n) ? n : 0; };
+    const open = rows.find((r) => r.type === 'opening_balance');
+    const first = rows[0];
+    const dokanOpen = open ? num(open.balance) : first && first.balance != null ? num(first.balance) - num(first.debit) + num(first.credit) : 0;
+    let earned = 0, refunds = 0, payouts = 0, other = 0, sales = 0, share = 0, lines = 0, matched = 0; const refs = new Set();
+    for (const r of rows) {
+      if (r === open) continue;
+      const dr = num(r.debit), cr = num(r.credit);
+      if (r.type === 'dokan_orders') {
+        if (dr) {
+          earned += dr; lines += 1; refs.add(r.ref != null ? 'o' + r.ref : 'l' + lines);
+          const s = r.ref != null && salesOf ? salesOf(r.ref) : null;
+          if (s != null && isFinite(Number(s))) { sales += Number(s); share += Number(s) - dr; matched += 1; }
+        }
+        if (cr) refunds += cr;
+      } else if (r.type === 'dokan_refund') refunds += cr - dr;
+      else if (r.type === 'dokan_withdraw') payouts += cr - dr;
+      else other += dr - cr;
+    }
+    // our moves: «مواصلات» taken back = transport; a payout lowers the balance like Dokan's; every other move is a deposit
+    let prior = 0, deposits = 0, transport = 0;
+    for (const m of moves || []) {
+      const d = String((m && m.date) || '').slice(0, 10); if (!d || d > to) continue;
+      const a = num(m.amount); const isTransport = m.type === 'مواصلات' && m.direction === 'withdraw';
+      const effect = isTransport || m.direction === 'deposit' ? -a : a;
+      if (d < from) prior += effect;
+      else if (isTransport) transport += a;
+      else if (m.type === PAYOUT_TYPE) payouts -= effect;
+      else deposits -= effect;
+    }
+    const out = { from, to, dokanOpening: round2(dokanOpen), opening: round2(dokanOpen + prior),
+      completed: { orders: refs.size, lines, earned: round2(earned), sales: round2(sales), share: round2(share), matched },
+      refunds: round2(refunds), payouts: round2(payouts), deposits: round2(deposits), transport: round2(transport), other: round2(other) };
+    out.closing = round2(out.opening + out.completed.earned - out.refunds - out.payouts - out.deposits - out.transport + out.other);
+    out.status = ledgerStatus(out.closing);
+    return out;
+  }
+  function ledgerTotals(list) {
+    const t = { opening: 0, orders: 0, lines: 0, sales: 0, share: 0, earned: 0, refunds: 0, payouts: 0, deposits: 0, transport: 0, other: 0, closing: 0, owed: 0, owedCount: 0, onThem: 0, onThemCount: 0 };
+    for (const l of list || []) {
+      t.opening += l.opening; t.orders += l.completed.orders; t.lines += l.completed.lines; t.sales += l.completed.sales; t.share += l.completed.share; t.earned += l.completed.earned;
+      t.refunds += l.refunds; t.payouts += l.payouts; t.deposits += l.deposits; t.transport += l.transport; t.other += l.other; t.closing += l.closing;
+      if (l.status === 'owed') { t.owed += l.closing; t.owedCount += 1; } else if (l.status === 'onThem') { t.onThem += l.closing; t.onThemCount += 1; }
+    }
+    for (const k of Object.keys(t)) if (!/Count$|^orders$|^lines$/.test(k)) t[k] = round2(t[k]);
+    return t;
+  }
+
   return Object.freeze({
+    LEDGER_STATUS, makerLedger, ledgerTotals,
     deductTransport, PAYOUT_TYPE,
     SALES_GROUPS, liveSeed,
     CATEGORIES, VENDOR_TYPES, ACCOUNTS, OTHER, MAX_AMOUNT,

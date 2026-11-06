@@ -619,6 +619,8 @@
       U.KpiTile({ label: 'المشاهدات', value: K.n0(T.views), compare: 'off', note: 'كل المنصات' }),
       U.KpiTile({ label: 'التفاعل', value: K.n0(T.eng), compare: 'off', note: 'لايك + كومنت + شير + سيف' }),
       U.KpiTile({ label: 'نسبة التفاعل', value: W.pct(T.eng, T.views), compare: 'off', note: 'التفاعل ÷ المشاهدات' })),
+      // decision 41: the link and the switch here too — no campaign needed to re-link the page or turn the publishing on
+      connCard(null),
       h('div', { class: 'toolbar' }, h('label', { class: 'search search-field' }, Icon('search', 'sm'), sb), Button({ label: 'افتح الخطة الإعلانية', icon: 'calendar', onClick: () => go('marketing-calendar') })),
       Card('سجل النشر', 'كل اللي اترفع على السوشيال — من السيستم أو من المنصة مباشرة · المشاهدات والتفاعل بتتحدث من المنصة كل نص ساعة',
         list.length ? U.Table({ cls: 'dt pub-tbl', headers: ['العمل الفني', 'المنصة', 'اتنشر / هيتنشر', 'المصدر', 'الكامبين', 'الحالة', 'المشاهدات', 'التفاعل', 'نسبة التفاعل', ''], rows }) : K.Empty(all.length ? 'مفيش بوست بالاسم ده' : 'لسه مفيش بوستات', all.length ? 'جرّب كلمة تانية.' : 'جدول كامبين من «إنشاء» وهتلاقي بوستاتها هنا.'))];

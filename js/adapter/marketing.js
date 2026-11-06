@@ -417,6 +417,70 @@
     return problems.length ? { ok: false, problems, items: out, message: problems.map((x) => x.piece + ' · ' + x.platform + ': ' + x.why).join(' — ') } : { ok: true, items: out };
   }
 
+  // ---------- the ads numbers (9.5.3, decisions 43–46): Meta's own numbers (mkt-ads) next to WooCommerce's ad orders ----------
+  const ADS_MESSAGES = { not_configured: 'إعلانات ميتا لسه مش متربطة — مفتاح القراية وحساب الإعلانات بيتحطوا في أسرار السيرفر (الأدمن)',
+    token: 'مفتاح إعلانات ميتا انتهى أو اتلغى — الأدمن يعمل مفتاح جديد', permission: 'المفتاح مالوش صلاحية قراية حساب الإعلانات (ads_read)',
+    rate: 'ميتا بتقول استنى شوية — المزامنة الجاية هتكمّل', timeout: 'ميتا ماردتش في الوقت — المزامنة الجاية هتكمّل' };
+  const adsWhy = (code) => (code ? ADS_MESSAGES[code] || 'ميتا رفضت (' + String(code).slice(0, 40) + ')' : null);
+  let ads = null; let adsAt = 0; const adsCache = new Map(); const ADS_MS = 60000;
+  // the ads link (mkt-ads status): { configured, account: { name, currency, status }, syncedAt, checkedAt, error, why }
+  async function adsStatus(force) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!force && ads && Date.now() - adsAt < CONN_MS) return { ok: true, ads };
+    const r = await invoke('mkt-ads', { action: 'status' });
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'forbidden' ? MESSAGES.forbidden : 'تعذّر قراية حالة إعلانات ميتا — جرّب تاني' });
+    const b = r.body || {}; const a = b.account && typeof b.account === 'object' ? b.account : null;
+    ads = { configured: b.configured === true, account: a ? { name: typeof a.name === 'string' ? a.name : null, currency: typeof a.currency === 'string' ? a.currency : null, status: typeof a.status === 'string' ? a.status : null } : null,
+      syncedAt: typeof b.synced_at === 'string' ? b.synced_at : null, checkedAt: typeof b.checked_at === 'string' ? b.checked_at : null,
+      error: typeof b.error === 'string' ? b.error : null, why: adsWhy(typeof b.error === 'string' ? b.error : null) };
+    adsAt = Date.now(); emit(); return { ok: true, ads };
+  }
+  const adsNow = () => ads;
+  // «مزامنة دلوقتي» (the admin): the last 3 days (or `days`) read from Meta now
+  async function adsSync(days) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const r = await invoke('mkt-ads', Object.assign({ action: 'sync' }, days ? { days: Number(days) } : {}));
+    adsCache.clear(); await adsStatus(true);
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'not_configured' ? ADS_MESSAGES.not_configured : r.reason === 'forbidden' ? MESSAGES.forbidden : adsWhy(r.code) || MESSAGES.network });
+    const b = r.body || {}; return { ok: true, days: Number(b.days) || 0, campaigns: Number(b.campaigns) || 0, ads: Number(b.ads) || 0, stats: Number(b.stats) || 0 };
+  }
+  // every row of a read, a thousand at a time (the API's page)
+  async function allRows(make) {
+    const out = [];
+    for (let i = 0; i < 50; i += 1) {
+      const { data: d, error } = await make().range(i * 1000, i * 1000 + 999);
+      if (error) throw error;
+      const rows = Array.isArray(d) ? d : []; out.push(...rows); if (rows.length < 1000) break;
+    }
+    return out;
+  }
+  const n0x = (v) => (v == null || v === '' ? null : Number(v));
+  const OBJ_COLS = 'platform, kind, id, parent_id, name, status, thumb, meta, updated_at';
+  const STAT_COLS = 'level, object_id, campaign_id, day, spend, impressions, reach, clicks, link_clicks, frequency, purchases, purchase_value';
+  // a period's numbers + the 5 weeks before its end (the trend), at most 400 days: Meta's objects and daily numbers and the ad orders
+  async function adsData(range) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const day = /^\d{4}-\d{2}-\d{2}$/; const to = range && range.to; const f0 = range && range.from;
+    if (!day.test(String(to)) || !day.test(String(f0)) || f0 > to) return { ok: false, reason: 'invalid', message: MESSAGES.invalid };
+    const addD = W().addD; let from = [f0, addD(to, -34)].sort()[0]; if (from < addD(to, -400)) from = addD(to, -400);
+    const key = from + '|' + to; const hit = adsCache.get(key); if (hit && Date.now() - hit.at < ADS_MS) return hit.r;
+    try {
+      const [objects, stats, orders] = await Promise.all([
+        allRows(() => cl.from('mkt_ad_objects').select(OBJ_COLS).eq('platform', 'meta').order('id')),
+        allRows(() => cl.from('mkt_ad_stats').select(STAT_COLS).eq('platform', 'meta').gte('day', from).lte('day', to).order('day')),
+        allRows(() => cl.rpc('mkt_ads_orders', { p_from: from, p_to: to })),
+      ]);
+      const r = { ok: true, from, to,
+        objects: objects.map((o) => ({ kind: o.kind, id: String(o.id), parent_id: o.parent_id || null, name: o.name || null, status: o.status || null,
+          thumb: typeof o.thumb === 'string' && /^https:\/\//.test(o.thumb) ? o.thumb : null, meta: o.meta && typeof o.meta === 'object' ? o.meta : {}, updatedAt: o.updated_at || null })),
+        stats: stats.map((s) => ({ level: s.level, object_id: String(s.object_id), campaign_id: String(s.campaign_id), day: s.day, spend: n0x(s.spend) || 0, impressions: n0x(s.impressions) || 0,
+          reach: n0x(s.reach), clicks: n0x(s.clicks) || 0, link_clicks: n0x(s.link_clicks), frequency: n0x(s.frequency), purchases: n0x(s.purchases) || 0, purchase_value: n0x(s.purchase_value) || 0 })),
+        orders: orders.map((o) => ({ day: o.day, platform: o.platform, source: o.source || '', campaign: o.campaign || '', grp: o.grp, orders: n0x(o.orders) || 0, sales: n0x(o.sales) || 0, share: n0x(o.share) })) };
+      adsCache.set(key, { at: Date.now(), r }); return r;
+    } catch (e) { return fail(e); }
+  }
+
   // ---------- the templates (decision 17) ----------
   const tplRow = (f) => { const o = {}; const x = f || {};
     if (x.name !== undefined) o.name = clean(x.name, 80);
@@ -494,11 +558,12 @@
     if (lv && c()) { try { Promise.resolve(c().removeChannel(lv)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
   // the sign-out wipe
-  function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; conn = null; connAt = 0; st = 'idle'; }
+  function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; conn = null; connAt = 0; ads = null; adsAt = 0; adsCache.clear(); st = 'idle'; }
 
   window.IBMarketing = { load, ensure, clear, state: () => st, can, campaigns, posts, templates, getPost, wallet, credits, open, create, save, saveSoon, flush, archive,
     upload, uploadTemplate, url, cachedUrl, blob, product, checkFile, generate, edit, write, schedule, move, caption, published, remove,
     connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,
+    adsStatus, adsNow, adsSync, adsData, adsWhy,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
     _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage } };
 })();

@@ -1334,3 +1334,58 @@ passwords» (HaveIBeenPwned) — متاح في الـ Pro plan وفوق بس؛ �
 
 **القاعدة من دلوقتي (CLAUDE.md القاعدة 4):** أي view جديدة في `public` = `with (security_invoker = true)`، وأي دالة `security definer` جديدة =
 `revoke execute … from public, anon` + grant صريح، وأي دالة = `set search_path`؛ `rls_security_advisor` بيمسك أي حاجة برّه ده.
+
+#### 2.7.26 النشر التلقائي على فيسبوك وإنستجرام + أرقام البوستات (المرحلة 9.5.2، 6 نوفمبر)
+
+الخطة (قرارات 29–39) `docs/superpowers/plans/2026-11-06-phase-9-5-marketing.md`، والدفتر `.superpowers/sdd/2026-11-06-phase-9-5-marketing/progress.md`.
+
+**أ) الكود:** `0051_marketing_publish.sql` + `supabase/tests/rls_marketing_publish.sql` · Edge Function **`mkt-publish`** (`verify_jwt = false`) +
+`PUBLISH_SCOPES` في `_shared/cs-channel.js` (دالة `cs-channel` بتطلبهم في الـ dialog) · الواجهة: كارت «الربط بالمنصات» الحقيقي ومفتاح النشر
+(الأدمن) و«انشر / داونلود» لكل قطعة في خطوة النشر، و«سجل النشر» بالأرقام والمصدر، وبوب أب البوست («انشر دلوقتي» / «احذف البوست» / سبب
+الفشل)، وفلتر المصدر في «الخطة الإعلانية».
+
+**ب) على Supabase (المطوّر — بالترتيب):**
+1. `0051` (MCP `apply_migration` مرة واحدة؛ لو وقف أو سأل تأكيد = الـ SQL كله لصاحب المشروع في الـ SQL editor): أعمدة `mkt_posts` الجديدة،
+   `mkt_schedule` / `mkt_post_act` بقواعد النشر، `mkt_publish_claim` / `mkt_stats_put` / `mkt_autopublish` / `mkt_busy` لـ `service_role` بس،
+   والـ cron: `mkt-publish-due` كل دقيقة (بينادي الدالة بس لو المفتاح شغال وفيه بوست جه ميعاده) و`mkt-publish-stats` كل 30 دقيقة — بسر
+   `sync_secret` بتاع `0008` من Vault (مافيش سر جديد). **المفتاح متوقف** (مافيش صف `settings` «marketing» = متوقف).
+2. workflow «RLS live» بـ `files = rls_marketing_publish rls_marketing rls_security_advisor`.
+3. «Deploy functions»: `cs-channel` (الـ dialog بقى بيطلب صلاحيات النشر) ثم `mkt-publish`. الفحص:
+   `curl -s -X POST "$F/mkt-publish" -H 'Content-Type: application/json' -d '{"action":"due"}'` → 401 `{"error":"unauthorized"}`.
+4. الواجهة: push على `main`.
+
+**التحقق:**
+```sql
+select count(*) from information_schema.columns where table_schema = 'public' and table_name = 'mkt_posts'
+  and column_name in ('src','external_id','thumb','views','reach','likes','comments','shares','saves','eng','stats_at','error','attempts','claimed_at','work'); -- 15
+select has_function_privilege('authenticated', 'public.mkt_publish_claim(int, bigint)', 'execute') claim_open,
+       has_function_privilege('authenticated', 'public.mkt_stats_put(jsonb)', 'execute') stats_open; -- false false
+select public.mkt_autopublish(); -- false لحد ما الأدمن يشغّله
+select jobname, schedule, active from cron.job where jobname like 'mkt-publish-%'; -- * * * * * و */30 * * * *
+select id, platform, kind, status, how, error, external_id is not null live, views, eng, stats_at from public.mkt_posts order by id desc limit 20;
+select at, action, entity_id, new_value from public.activity_log where action in ('mkt.post.publish', 'mkt.post.delete_live', 'mkt.autopublish') order by at desc limit 20;
+```
+
+**ج) على Meta + السيستم (صاحب المشروع بنفسه):**
+1. **الصلاحيات الأربعة:** `pages_manage_posts` (النشر على الصفحة)، `instagram_content_publish` (النشر على انستجرام)، `read_insights` (مشاهدات ووصول
+   فيسبوك)، `instagram_manage_insights` (أرقام انستجرام). لو `META_LOGIN_CONFIG_ID` محطوط: developers.facebook.com › التطبيق › Facebook Login for
+   Business › Configurations › الـ configuration بتاعة الربط › Edit › علّم على الأربعة → Save (من غيره الـ dialog بيطلبهم بنفسه). وضع التطوير:
+   شغالين لأدمن الصفحة اللي ليه دور في التطبيق من غير App Review؛ الـ App Review (مع التحويل للحي) على الأربعة دول + العشرة بتوع §2.7.16.
+2. **الربط تاني (مرة واحدة، نفس الصفحة — الرسايل في خدمة العملاء مابتقفش):** «التسويق › كامبين › النشر والتحميل» › «اربط تاني» (بيظهر للأدمن
+   لما الربط ناقصه صلاحية النشر) أو «خدمة العملاء › القنوات» → دخول فيسبوك بأدمن الصفحة → وافق على الصلاحيات الجديدة (وعلى صفحة Ibtekr Club
+   وحساب @ibtekr.club). بعدها كارت «الربط بالمنصات» يقول «مربوط للنشر» على فيسبوك وانستجرام.
+3. **المفتاح:** الأدمن «شغّل النشر التلقائي» من نفس الكارت (بتأكيد). وهو متوقف مافيش أي نشر — لا الـ cron ولا «انشر دلوقتي».
+4. **أول بوست تجريبي (صاحب المشروع بيقرر — بيتنشر على الصفحة الحقيقية قدام الناس):** كامبين ببوست واحد، «انشر» على فيسبوك بس، وبعد التأكيد
+   «انشر دلوقتي» من «سجل النشر» → الحالة «اتنشر» واللينك «افتح على فيسبوك ↗»؛ بعدها انستجرام. «احذف البوست» بيشيله من المنصة لو حبيت.
+
+**إزاي بيشتغل:** الـ cron بيحجز البوستات اللي جه ميعادها (`for update skip locked`) → فيسبوك (صورة / صور مخفية + feed / ستوري الصفحة) أو انستجرام
+(كونتينر → FINISHED → `media_publish`؛ لسه بيتجهز = بيكمّل الدقيقة الجاية من غير رفع تاني) بلينكات موقّعة 15 دقيقة من bucket `marketing` →
+«اتنشر» + الـ id واللينك. الرفض = «فشل» + الكود (بالعربي في البوب أب)، ومافيش إعادة تلقائية («انشر دلوقتي» هي الإعادة). **ضد النشر مرتين:**
+`work.stage = publishing` قبل آخر نداء — تايم أوت فيه أو تشغيلة وقعت = «فشل» `uncertain` (بص على الصفحة الأول، وبعدها «انشر دلوقتي» أو «علّمه
+اتنشر»). كل 30 دقيقة: أرقام البوستات اللي اتنشرت آخر 30 يوم (الستوري 24 ساعة) وبوستات الصفحة والانستجرام اللي اتنشرت من برّه السيستم
+(«من المنصة مباشرة» — بوست أحدث من 15 دقيقة بيستنى التشغيلة الجاية عشان مايتحسبش مرتين)، وبوست اتشال من المنصة = «اتحذف».
+
+**الأمان:** التوكن = ربط خدمة العملاء نفسه في Vault (`cs_secret_get` «meta_pages» — `service_role` بس)، مافيش توكن ولا لينك صورة في أي log؛
+`activity_log` `mkt.post.publish` (الـ id والمنصة والنوع والنتيجة/الكود) و`mkt.post.delete_live` و`mkt.autopublish` (on/off) بس؛ «انشر دلوقتي» و
+«احذف البوست» بـ `marketing.publish = F` والمفتاح للأدمن؛ الـ cron بسر المزامنة بس ومابيعملش غير `due` و`stats`. **مافيش `WOO_PUSH_ENABLED` هنا**
+(مش WooCommerce) — المفتاح بتاع النشر هو `settings.marketing.autopublish`.

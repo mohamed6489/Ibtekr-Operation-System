@@ -50,6 +50,7 @@
     if (window.IBInventory) quiet(() => window.IBInventory.clear()); // phase 7
     if (window.IBTickets) quiet(() => window.IBTickets.clear()); // phase 8 (unsubscribes too)
     if (window.IBHR) quiet(() => window.IBHR.clear()); // phase 10 (unsubscribes too)
+    if (window.IBMarketing) quiet(() => window.IBMarketing.clear()); // phase 9.5 (loaded by the marketing page; unsubscribes too)
     if (A) { quiet(() => A.unsubscribe()); quiet(() => A.clear()); }
     if (L && L.clear) quiet(() => L.clear());
     if (Or) quiet(() => Or.clear()); // unsubscribes too

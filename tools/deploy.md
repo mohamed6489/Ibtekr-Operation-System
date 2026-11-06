@@ -1278,3 +1278,36 @@ select member_id, status, day, done_at is not null as done from public.hr_tasks 
 
 **الأمان:** القراية بـ RLS (`hr_can_see` / `hr_can_decide` / `hr_salaries`)، والكتابة الحساسة RPCs `security definer` بقواعدها (الساعة بوقت السيرفر و«عن بُعد» من الطلب المتوافق عليه؛ القرار للمدير المباشر أو `hr.approve`؛ الكشف والفلوس لـ `sensitive.salaries`)؛ `hr_team()` بالأسامي بس (مافيش إيميل/موبايل/صلاحيات للمدير)؛ المستندات في فولدر العضو ولينك موقّع 10 دقايق؛ الباسورد المؤقت في رد `team-admin` بس (مش متخزن ولا متسجل)؛ تغيير كلمة المرور بيتأكد من الحالية بعميل مؤقت مابيخزّنش جلسة؛ `activity_log` من غير مبالغ ولا نصوص.
 
+
+#### 2.7.24 التسويق (المرحلة 9.5.1، 6 نوفمبر)
+
+الخطة `docs/superpowers/plans/2026-11-06-phase-9-5-marketing.md`، ودفترها `.superpowers/sdd/2026-11-06-phase-9-5-marketing/progress.md`.
+
+**النشر (بالترتيب — الواجهة آخر حاجة):**
+1. `0049_marketing.sql` (Supabase MCP `apply_migration` أو SQL editor) — صلاحيات `marketing.view` / `create` / `publish` (الأدمن و`ops` F، الباقي N)، الجداول
+   `mkt_campaigns` / `mkt_templates` / `mkt_posts` بـ RLS والـ grants بقايمة أعمدة، الـ RPCs `mkt_schedule` / `mkt_post_act` / `mkt_template_used` /
+   `mkt_credits`، فحوص `ai_runs` الجديدة (`action = marketing`، `source = campaign / template / post`)، broadcast `marketing` / `changed`، وbucket
+   `marketing` المقفول (صور ≤ 15 ميجا) وسياساته. بعده `supabase/tests/rls_marketing.sql` على الحي (workflow «RLS live» بـ `files = rls_marketing`).
+2. Edge Functions `ai-images` و`ai-content` من workflow «Deploy functions» (`function = ai-images` ثم `function = ai-content`) — مافيش أسرار جديدة
+   (`MAGNIFIC_API_KEY` و`ANTHROPIC_API_KEY` الموجودين؛ الصور بالكريدت على نفس سقف «إعدادات الصور»، والكتابة على نفس سقف «إعدادات الـ AI»).
+3. الواجهة: push على `main`.
+
+**التحقق:**
+```sql
+select id, permissions ->> 'marketing.view' v, permissions ->> 'marketing.create' c, permissions ->> 'marketing.publish' p from public.roles order by sort;
+-- مافيش كتابة مباشرة على السجل — المفروض false false
+select has_table_privilege('authenticated', 'public.mkt_posts', 'insert') as ins, has_table_privilege('authenticated', 'public.mkt_posts', 'update') as upd;
+-- scheduled_at للسيرفر بس — المفروض false
+select has_column_privilege('authenticated', 'public.mkt_campaigns', 'scheduled_at', 'update') as sched_open;
+select id, public, file_size_limit, allowed_mime_types from storage.buckets where id = 'marketing';
+select proname from pg_proc where proname like 'mkt_%' order by 1;
+select id, name, step, scheduled_at is not null scheduled from public.mkt_campaigns where archived_at is null order by updated_at desc limit 10; -- بعد أول كامبين
+select at, action, entity_id, new_value from public.activity_log where action like 'mkt.%' order by at desc limit 20; -- أرقام وأنواع ومنصات بس
+select created_at, action, source, label, model, credits, status from public.ai_runs where source in ('campaign', 'template', 'post') order by id desc limit 10;
+```
+وفي الواجهة: «التسويق» من غير soon، «إنشاء» أول تاب و«نظرة عامة» / «مساعدين الذكاء الاصطناعي» / «التقارير» عليهم «قريبًا»؛ كامبين جديدة بتظهر في
+«آخر الشغل»؛ «توليد الصورة» بيسأل بالتكلفة الأول؛ «تأكيد النشر» بيحط البوستات في «سجل النشر» و«الخطة الإعلانية».
+
+**الأمان:** القراية بـ `marketing.view`، والكتابة بقايمة أعمدة (`create`) والسجل بالـ RPCs بس (`publish`، اليوم والساعة بتوقيت القاهرة، الصور من فولدر
+الكامبين بس)؛ السيرفر بيقرا القطعة من الكامبين المحفوظ ويبني البرومبت بنفسه (المرجعيات من فولدر الكامبين و`templates/` وصور منتجات الموقع من host
+الموقع بس)؛ `activity_log` `mkt.*` من غير فكرة ولا كابشن ولا برومبت. النشر لسه داونلود — مافيش أي كتابة على فيسبوك أو إنستجرام في 9.5.1.

@@ -278,9 +278,125 @@
     return { permalinks: [...new Set([].concat(both(base), both(dec), both(enc)))] };
   }
 
+  // ---------------------------------------------------------------- 9.5.3: the ads numbers (decisions 44–46) — Meta's own numbers
+  // (mkt_ad_stats) next to WooCommerce's orders from the same campaign (mkt_ads_orders, by utm_campaign = Meta's campaign id)
+
+  const ADS_RULES = Object.freeze({ stopSpend: 1500, stopDays: 5, maxCpa: 450, scaleMer: 4, scaleOrders: 5, trackRatio: 2, trackMin: 5 });
+  const AD_PLATFORM = Object.freeze({ meta: 'ميتا', google: 'جوجل', tiktok: 'تيك توك' });
+  const SOLD = Object.freeze(['completed', 'in_progress', 'pending']); // an ad order counts as a sale unless cancelled / returned / failed
+  const nz = (v) => Number(v) || 0;
+  const ratio = (a, b) => (b > 0 ? a / b : null);
+  const inRg = (d, rg) => !rg || (d >= rg.from && d <= rg.to);
+  // the ad orders (mkt_ads_orders rows) of a period → per platform and per campaign: orders / sales / share (sales only) + cancelled;
+  // share stays null when the caller has no accounts.view (the server sends null)
+  function adOrders(rows, rg) {
+    const out = { platforms: {}, campaigns: {}, shareKnown: false };
+    for (const r of Array.isArray(rows) ? rows : []) {
+      if (!r || !inRg(r.day, rg)) continue;
+      const pl = r.platform || 'meta'; const sold = SOLD.includes(r.grp);
+      if (r.share != null) out.shareKnown = true;
+      for (const [map, key] of [[out.platforms, pl], [out.campaigns, pl + '|' + (r.campaign || '')]]) {
+        const a = map[key] || (map[key] = { orders: 0, sales: 0, share: 0, cancelled: 0, sources: {} });
+        if (sold) { a.orders += nz(r.orders); a.sales += nz(r.sales); a.share += nz(r.share); a.sources[r.source || ''] = (a.sources[r.source || ''] || 0) + nz(r.orders); } else a.cancelled += nz(r.orders);
+      }
+    }
+    return out;
+  }
+  const dayStats = (stats, level, rg) => (Array.isArray(stats) ? stats : []).filter((s) => s && s.level === level && inRg(s.day, rg));
+  // the campaigns of a period: Meta's numbers + the Woo orders of the same campaign id; a campaign with orders but no spend in the
+  // period is listed too (its ads ran before); sorted by spend
+  function adCampaignRows(objects, stats, orderRows, rg) {
+    const names = {}; for (const o of Array.isArray(objects) ? objects : []) if (o && o.kind === 'campaign') names[o.id] = o;
+    const byId = {};
+    const row = (id) => byId[id] || (byId[id] = { id, name: (names[id] && names[id].name) || '#' + id, status: (names[id] && names[id].status) || null, platform: AD_PLATFORM.meta,
+      spend: 0, impressions: 0, clicks: 0, purchases: 0, value: 0, orders: 0, sales: 0, share: 0, cancelled: 0, sources: {}, days: {} });
+    for (const s of dayStats(stats, 'campaign', rg)) {
+      const r = row(s.object_id); r.spend += nz(s.spend); r.impressions += nz(s.impressions); r.clicks += nz(s.link_clicks != null ? s.link_clicks : s.clicks);
+      r.purchases += nz(s.purchases); r.value += nz(s.purchase_value);
+      const d = r.days[s.day] || (r.days[s.day] = { day: s.day, spend: 0, purchases: 0, orders: 0 }); d.spend += nz(s.spend); d.purchases += nz(s.purchases);
+    }
+    for (const o of Array.isArray(orderRows) ? orderRows : []) {
+      if (!o || o.platform !== 'meta' || !/^[0-9]{6,30}$/.test(String(o.campaign || '')) || !inRg(o.day, rg)) continue;
+      const r = row(o.campaign);
+      if (SOLD.includes(o.grp)) {
+        r.orders += nz(o.orders); r.sales += nz(o.sales); r.share += nz(o.share); r.sources[o.source || ''] = (r.sources[o.source || ''] || 0) + nz(o.orders);
+        const d = r.days[o.day] || (r.days[o.day] = { day: o.day, spend: 0, purchases: 0, orders: 0 }); d.orders += nz(o.orders);
+      } else r.cancelled += nz(o.orders);
+    }
+    return Object.values(byId).filter((r) => r.spend > 0 || r.orders > 0 || r.cancelled > 0).map((r) => Object.assign(r, {
+      spend: Math.round(r.spend * 100) / 100, mer: ratio(r.sales, r.spend), cpa: ratio(r.spend, r.orders), roas: ratio(r.value, r.spend),
+      days: Object.values(r.days).sort((a, b) => a.day.localeCompare(b.day)),
+    })).sort((a, b) => b.spend - a.spend || b.orders - a.orders);
+  }
+  // the overview's KPIs: Meta's spend and own numbers; the orders and sales from every ad platform (Google / TikTok have no spend
+  // until they are linked); the profit after ads = Ibtekr's share − the spend (null without accounts.view)
+  function adTotals(stats, orderRows, rg) {
+    const st = dayStats(stats, 'campaign', rg); const o = adOrders(orderRows, rg); const meta = o.platforms.meta || { orders: 0, sales: 0, share: 0, cancelled: 0, sources: {} };
+    const spend = Math.round(st.reduce((s, x) => s + nz(x.spend), 0) * 100) / 100; const purchases = st.reduce((s, x) => s + nz(x.purchases), 0); const value = st.reduce((s, x) => s + nz(x.purchase_value), 0);
+    const all = Object.values(o.platforms).reduce((a, p) => ({ orders: a.orders + p.orders, sales: a.sales + p.sales, share: a.share + p.share }), { orders: 0, sales: 0, share: 0 });
+    const platforms = Object.keys(AD_PLATFORM).map((k) => { const p = o.platforms[k] || { orders: 0, sales: 0, share: 0, cancelled: 0, sources: {} };
+      return { key: k, label: AD_PLATFORM[k], linked: k === 'meta', spend: k === 'meta' ? spend : null, purchases: k === 'meta' ? purchases : null, orders: p.orders, sales: p.sales, sources: p.sources,
+        mer: k === 'meta' ? ratio(p.sales, spend) : null, roas: k === 'meta' ? ratio(value, spend) : null }; });
+    return { spend, purchases, value, orders: all.orders, sales: all.sales, metaOrders: meta.orders, metaSales: meta.sales, cancelled: Object.values(o.platforms).reduce((s, p) => s + p.cancelled, 0),
+      mer: ratio(meta.sales, spend), cpa: ratio(spend, meta.orders), roas: ratio(value, spend), platformCpa: ratio(spend, purchases),
+      share: o.shareKnown ? Math.round(all.share * 100) / 100 : null, profit: o.shareKnown ? Math.round((meta.share - spend) * 100) / 100 : null, platforms };
+  }
+  // the real return of the last n weeks (7 days each, the last ending on `to`), the oldest first — Meta's spend vs its campaigns' sales
+  function merWeeks(stats, orderRows, to, n) {
+    const out = [];
+    for (let i = (n || 5) - 1; i >= 0; i -= 1) {
+      const end = addD(to, -7 * i); const rg = { from: addD(end, -6), to: end }; const t = adTotals(stats, orderRows, rg);
+      out.push({ from: rg.from, to: rg.to, spend: t.spend, sales: t.metaSales, mer: t.mer });
+    }
+    return out;
+  }
+  // the media buyer's alerts (decision 45) — rules only, no action: stop? (≥ stopSpend in the last stopDays without an order, an
+  // active campaign), the order's real cost over maxCpa, scale? (real return ≥ scaleMer with ≥ scaleOrders orders, active), check the
+  // tracking (Meta's purchases ≥ trackRatio × Woo's orders, ≥ trackMin)
+  const ALERT_RANK = { error: 0, orange: 1, info: 2, success: 3 };
+  function adAlerts(objects, stats, orderRows, rg, today, rules) {
+    const R = Object.assign({}, ADS_RULES, rules || {}); const out = [];
+    const fmt = (v) => Math.round(v).toLocaleString('en-US');
+    const recent = adCampaignRows(objects, stats, orderRows, { from: addD(today, -(R.stopDays - 1)), to: today });
+    for (const c of recent) {
+      if (c.status !== 'ACTIVE' || c.spend < R.stopSpend || c.orders > 0) continue;
+      out.push({ key: 'stop:' + c.id, tone: 'error', icon: 'alert', campaign: c.id, title: 'وقّف «' + c.name + '»؟', sub: 'صرفت ' + fmt(c.spend) + ' ج.م · ولا أوردر في ووكومرس من ' + R.stopDays + ' أيام',
+        why: 'ميتا بتحسب ' + fmt(c.purchases) + ' مشتريات، بس مفيش ولا أوردر في ووكومرس جاي من الحملة دي (utm_campaign) في آخر ' + R.stopDays + ' أيام.' });
+    }
+    for (const c of adCampaignRows(objects, stats, orderRows, rg)) {
+      if (c.orders > 0 && c.cpa > R.maxCpa) out.push({ key: 'cpa:' + c.id, tone: 'orange', icon: 'clock', campaign: c.id, title: 'تكلفة الأوردر عالية في «' + c.name + '»', sub: 'تكلفة الأوردر الحقيقية ' + fmt(c.cpa) + ' ج.م · الحد ' + fmt(R.maxCpa),
+        why: 'صرفت ' + fmt(c.spend) + ' ج.م وجابت ' + c.orders + ' أوردر في ووكومرس في الفترة.' });
+      if (c.purchases >= R.trackMin && c.purchases >= R.trackRatio * c.orders) out.push({ key: 'track:' + c.id, tone: 'info', icon: 'clock', campaign: c.id, title: 'راجع التتبع في «' + c.name + '»', sub: 'ميتا بتقول ' + fmt(c.purchases) + ' مشتريات · ووكومرس ' + c.orders + ' أوردر',
+        why: 'ممكن البكسل بيعد مرتين أو الـ UTM مش متحط على كل الإعلانات.' });
+      if (c.status === 'ACTIVE' && c.mer != null && c.mer >= R.scaleMer && c.orders >= R.scaleOrders) out.push({ key: 'scale:' + c.id, tone: 'success', icon: 'users', campaign: c.id, title: 'زوّد «' + c.name + '»؟', sub: 'العائد الحقيقي ' + c.mer.toFixed(2) + '× · ' + c.orders + ' أوردر في ووكومرس',
+        why: 'من أعلى عائد حقيقي في الحملات وتكلفة الأوردر ' + fmt(c.cpa) + ' ج.م.' });
+    }
+    return out.sort((a, b) => ALERT_RANK[a.tone] - ALERT_RANK[b.tone]);
+  }
+  // the creatives (one row per ad with spend in the period): Meta's numbers; the frequency weighted by impressions (a day's
+  // frequency is not additive); the real return per ad needs utm_content={{ad.id}} in the ads
+  function adCreatives(objects, stats, rg) {
+    const ads = {}, camps = {};
+    for (const o of Array.isArray(objects) ? objects : []) { if (!o) continue; if (o.kind === 'ad') ads[o.id] = o; else if (o.kind === 'campaign') camps[o.id] = o; }
+    const by = {};
+    for (const s of dayStats(stats, 'ad', rg)) {
+      const a = by[s.object_id] || (by[s.object_id] = { id: s.object_id, campaign: s.campaign_id, spend: 0, impressions: 0, clicks: 0, purchases: 0, value: 0, fw: 0 });
+      a.spend += nz(s.spend); a.impressions += nz(s.impressions); a.clicks += nz(s.link_clicks != null ? s.link_clicks : s.clicks); a.purchases += nz(s.purchases); a.value += nz(s.purchase_value);
+      a.fw += nz(s.frequency) * nz(s.impressions);
+    }
+    return Object.values(by).filter((a) => a.spend > 0).map((a) => {
+      const o = ads[a.id] || {}; const c = camps[a.campaign] || {};
+      return { id: a.id, name: o.name || '#' + a.id, campaign: c.name || '#' + a.campaign, status: o.status || null, thumb: typeof o.thumb === 'string' && /^https:\/\//.test(o.thumb) ? o.thumb : null,
+        spend: Math.round(a.spend * 100) / 100, impressions: a.impressions, clicks: a.clicks, purchases: a.purchases, value: a.value,
+        ctr: ratio(a.clicks, a.impressions), frequency: a.impressions ? a.fw / a.impressions : null, roas: ratio(a.value, a.spend) };
+    }).sort((x, y) => y.spend - x.spend);
+  }
+  const xr = (v) => (v == null ? '—' : Number(v).toFixed(2) + '×');
+
   const api = { PRICE_DEMO, VIDEO_SOON, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
     campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, moveCheck, safeName, zipPlan,
     PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,
-    DAYS, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys };
+    DAYS, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys,
+    ADS_RULES, AD_PLATFORM, SOLD, adOrders, adCampaignRows, adTotals, merWeeks, adAlerts, adCreatives, xr };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IbtekrCampWiz = api;
 })(typeof window !== 'undefined' ? window : globalThis);

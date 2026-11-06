@@ -75,3 +75,7 @@
   db:test كله ✓، adapter hr 26 ✓، e2e `profile-tasks` 6 ✓ + `hr-reports` 5 ✓، `npm test` 507 ✓، e2e كامل 328 ✓، CI على `6b8c456` ✓ (run 42177807920).
   **على الحي (6 نوفمبر):** `0048` (الـ MCP مالحقش الموافقة → صاحب المشروع لصقه في الـ SQL editor) + `rls_hr_tasks` حي ✓ (run 42179098359 —
   الاسم في الـ workflow من غير `.sql`)؛ `main` ← الـ commit ده (Deploy بيرفع الواجهة).
+- Security Advisor (6 نوفمبر — صورة صاحب المشروع: «Security Definer View — public.hr_requests_v» CRITICAL): `0050_security_advisor.sql` —
+  `hr_requests_v` بقت `security_invoker` فوق `hr_requests_list()` (`security definer` بنفس قاعدة `0046`)، والـ 19 دالة HR اتقفلت على `public`/`anon`،
+  و`shot_prompts_touch` خدت `search_path`. اختبار `rls_security_advisor` (جديد — بيفشل من غير `0050` بنفس اللي الـ Advisor شافه بالظبط) + db:test كله ✓.
+  الباقي في الـ Advisor بالقصد أو إعداد لوحة (leaked passwords — Pro) في `tools/deploy.md` §2.7.25.

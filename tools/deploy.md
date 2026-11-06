@@ -1311,3 +1311,26 @@ select created_at, action, source, label, model, credits, status from public.ai_
 **الأمان:** القراية بـ `marketing.view`، والكتابة بقايمة أعمدة (`create`) والسجل بالـ RPCs بس (`publish`، اليوم والساعة بتوقيت القاهرة، الصور من فولدر
 الكامبين بس)؛ السيرفر بيقرا القطعة من الكامبين المحفوظ ويبني البرومبت بنفسه (المرجعيات من فولدر الكامبين و`templates/` وصور منتجات الموقع من host
 الموقع بس)؛ `activity_log` `mkt.*` من غير فكرة ولا كابشن ولا برومبت. النشر لسه داونلود — مافيش أي كتابة على فيسبوك أو إنستجرام في 9.5.1.
+
+#### 2.7.25 Security Advisor (6 نوفمبر — صورة صاحب المشروع: «Security Definer View — public.hr_requests_v»)
+
+`0050_security_advisor.sql` + `supabase/tests/rls_security_advisor.sql` (مافيش تغيير في الواجهة):
+- **`hr_requests_v` (ERROR `security_definer_view`):** كانت view عادية فبتشتغل بصلاحيات صاحبها؛ بقت `security_invoker = true` فوق
+  `hr_requests_list()` (`security definer` بنفس قاعدة `0046` بالحرف: صفوف `hr_can_see` وقيمة السلفة لـ `sensitive.salaries` F أو صاحبها بس). الجدول
+  `hr_requests` فاضل مقفول على الأعضاء، والـ view بنفس الاسم والأعمدة (`IBHR` زي ما هو).
+- **دوال الموارد البشرية لـ anon (WARN `anon_security_definer_function_executable`):** الـ 19 دالة اللي `0046` منحها لـ `authenticated` من غير ما
+  يقفلها على `public`/`anon` اتقفلت (`revoke … from public, anon` + grant صريح لـ `authenticated`/`service_role`). ماكانش فيه حاجة مفتوحة فعليًا (كلها بتشيّك
+  `auth.uid()`/`has_perm`)، بس دلوقتي زي باقي الـ RPCs. `email_for_identifier` فاضلة لـ anon بالقصد (الدخول باسم المستخدم/الكود قبل تسجيل الدخول).
+- **`shot_prompts_touch` (WARN `function_search_path_mutable`):** `set search_path = public`.
+
+**النشر:** `0050` (MCP `apply_migration` أو SQL editor) ← workflow «RLS live» بـ `files = rls_security_advisor rls_hr` ← Security Advisor تاني
+(`get_advisors` security) — الـ ERROR والـ 19 والـ search_path يختفوا.
+
+**الباقي في الـ Advisor بالقصد:** `rls_enabled_no_policy` (INFO) على `cs_channel_events` / `cs_oauth_states` / `cs_wa_state` / `login_lookups` /
+`magnific_oauth_states` = جداول السيرفر بس (RLS من غير policy = مقفولة على الأعضاء)؛ `authenticated_security_definer_function_executable` (WARN) = الـ RPCs
+بتاعتنا (كل كتابة حساسة RPC بيشيّك الصلاحية جواه — القاعدة 3/4)، والدوال اللي الـ policies بتناديها (`has_perm`، `hr_can_see` …) لازم العضو ينفّذها.
+**`auth_leaked_password_protection` (WARN) = إعداد في لوحة Supabase مش في الكود:** Authentication › Sign In / Providers › Email › «Prevent use of leaked
+passwords» (HaveIBeenPwned) — متاح في الـ Pro plan وفوق بس؛ صاحب المشروع بيشغّله بنفسه لو الخطة تسمح.
+
+**القاعدة من دلوقتي (CLAUDE.md القاعدة 4):** أي view جديدة في `public` = `with (security_invoker = true)`، وأي دالة `security definer` جديدة =
+`revoke execute … from public, anon` + grant صريح، وأي دالة = `set search_path`؛ `rls_security_advisor` بيمسك أي حاجة برّه ده.

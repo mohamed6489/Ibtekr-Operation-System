@@ -45,16 +45,19 @@ async function openMarketing(page, email = ADMIN) {
 const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
 const pg = (page) => page.locator('#pg-marketing');
 
-test('«التسويق» is open: «إنشاء» first, the three soon tabs, «آخر الشغل» from the database with its status', async ({ page }) => {
+test('«التسويق» is open: «إنشاء» first, the assistants\' soon tab (overview and reports opened in 9.5.3 — marketing-ads.spec), «آخر الشغل» from the database with its status', async ({ page }) => {
   await openMarketing(page);
   await expect(page.locator('.sidebar .nav-item[data-page="marketing"]')).not.toHaveAttribute('data-soon', '');
   await expect(pg(page).locator('[role=tab][aria-selected=true]')).toContainText('إنشاء');
   await expect(pg(page).locator('[data-mk-start]')).toBeVisible();
   const row = pg(page).locator('tr', { hasText: 'كولكشن الشتا القديم' });
   await expect(row).toContainText('اتجدولت');
-  for (const [tab, text] of [['نظرة عامة', 'أرقام الإعلانات'], ['مساعدين الذكاء الاصطناعي', 'بعد ربط الإعلانات'], ['التقارير', 'النشر التلقائي']]) {
+  await expect(pg(page).locator('[role=tab] [data-soon]')).toHaveCount(1);
+  await pg(page).getByRole('tab', { name: /مساعدين الذكاء الاصطناعي/ }).click();
+  await expect(pg(page).locator('[data-mk-soon]')).toContainText('بعد ربط الإعلانات');
+  for (const tab of ['نظرة عامة', 'التقارير']) {
     await pg(page).getByRole('tab', { name: new RegExp(tab) }).click();
-    await expect(pg(page).locator('[data-mk-soon]')).toContainText(text);
+    await expect(pg(page).locator('[data-mk-soon]')).toHaveCount(0);
   }
 });
 

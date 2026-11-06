@@ -47,7 +47,7 @@ const top = (scope, key) => scope.locator('[data-staff="' + key + '"]');
 test('«تقارير الموظفين» is open on real data: the absences of the range, the first reply, the KPI scores; «المهام» from «ملفي › مهامي» (none open here — profile-tasks.spec counts them)', async ({ page }) => {
   await open(page, ADMIN, 'reports-staff');
   await expect(page.locator('#reports #tab-staff')).toHaveAttribute('aria-selected', 'true');
-  await expect(page.locator('#reports [role=tab] [data-soon]')).toHaveCount(1); // only «الحملات الإعلانية»
+  await expect(page.locator('#reports [role=tab] [data-soon]')).toHaveCount(0); // «الحملات الإعلانية» opened too (phase 9.5.3)
   await expect(kpi(page, 'أيام غياب')).toContainText(String(ABSENT));
   await expect(top(page.locator('#rpanel'), 'absence').locator('.st-row').first()).toContainText('محمد علي');
   await expect(top(page.locator('#rpanel'), 'absence').locator('.st-row').first()).toContainText(String(ABSENT));

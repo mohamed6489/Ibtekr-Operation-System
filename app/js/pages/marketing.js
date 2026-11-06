@@ -8,7 +8,10 @@
    9.5.2 (decisions 29–39): publishing to Facebook and Instagram through mkt-publish — the connection card with the master switch
    (the admin's), «انشر / داونلود» per piece and «انشر المحدد» (the JPEG copies made at «تأكيد النشر»), «انشر دلوقتي» and «احذف
    البوست» in the post's popup, the numbers (views, engagement, likes / comments / shares / saves), and the platform's own posts in
-   the log and the plan («من المنصة مباشرة», the source filter). A post can still be published by hand and marked «اتنشر». */
+   the log and the plan («من المنصة مباشرة», the source filter). A post can still be published by hand and marked «اتنشر».
+   9.5.3 (decisions 42–48): «نظرة عامة» and «التقارير» on Meta Ads' own numbers (mkt-ads, read-only) next to WooCommerce's orders
+   from the ads (the order's UTM), in the reports page's period — the KPIs, the media buyer's alerts (rules, no action), the real
+   return of 5 weeks, the campaigns day by day and the creatives; the reports page's «الحملات الإعلانية» draws the same blocks. */
 (function () {
   'use strict';
   const U = window.IBUI, K = window.IBKit, PD = window.IbtekrProducts, W = window.IbtekrCampWiz;
@@ -84,11 +87,10 @@
   const pubOf = (p, pl, cn) => W.publishable(W.postKind(p), W.pieceImages(p), pl, cn, pieceText(p));
 
   // ---------- the page's state ----------
-  const TABS = [['overview', 'نظرة عامة', true], ['create', 'إنشاء'], ['publog', 'سجل النشر'], ['calendar', 'الخطة الإعلانية'], ['templates', 'قوالب التصميم'], ['ai', 'مساعدين الذكاء الاصطناعي', true], ['reports', 'التقارير', true]];
-  const SOON = { // decision 5: the tabs that wait for the ads numbers (9.5.3) and the assistants
-    overview: ['قريبًا — مع أرقام الإعلانات', 'الصرف الإعلاني ومبيعات ووكومرس اللي جاية من الإعلانات (UTM) والعائد الحقيقي لكل منصة هيظهروا هنا لما نربط Meta Ads.'],
-    ai: ['قريبًا — بعد ربط الإعلانات', 'الميديا باير (اقتراحات بموافقتك على أرقامك الحقيقية) والديزاينر والمبرمج هيشتغلوا هنا بعد ربط أرقام الإعلانات.'],
-    reports: ['قريبًا — مع النشر التلقائي وأرقام الإعلانات', 'تقارير الحملات والأعمال الفنية بالمشاهدات والتفاعل والعائد هتظهر هنا مع النشر على فيسبوك وإنستجرام وأرقام Meta Ads.'] };
+  // 9.5.3: «نظرة عامة» and «التقارير» are on the ads numbers; the assistants stay «قريبًا»
+  const TABS = [['overview', 'نظرة عامة'], ['create', 'إنشاء'], ['publog', 'سجل النشر'], ['calendar', 'الخطة الإعلانية'], ['templates', 'قوالب التصميم'], ['ai', 'مساعدين الذكاء الاصطناعي', true], ['reports', 'التقارير']];
+  const SOON = { // decision 5: the tab that waits for the media buyer and the other assistants
+    ai: ['قريبًا — بعد ربط الإعلانات', 'الميديا باير (اقتراحات بموافقتك على أرقامك الحقيقية) والديزاينر والمبرمج هيشتغلوا هنا بعد ربط أرقام الإعلانات.'] };
   const CSTEPS = ['تفاصيل الكامبين', 'البناء', 'المراجعة', 'النشر والتحميل'];
   const st = { tab: 'create', view: 'hub', step: 1 };
   const blankCamp = () => ({ id: null, w: W.defaults(), pieces: [], sched: {}, rtab: 'post', tried1: false, pubSel: new Set(), busy: {} });
@@ -759,11 +761,202 @@
     if (fresh) setTimeout(() => { const el = document.querySelector('.modal [data-tpl-pick="' + fresh + '"]'); if (el) { el.scrollIntoView({ block: 'nearest' }); el.focus(); } }, 0);
   }
 
+  // ---------- 9.5.3 (decisions 44–47): «نظرة عامة» and «التقارير» — Meta Ads' own numbers (mkt-ads: read-only, every hour) next to
+  // WooCommerce's orders of the same campaign (utm_campaign = Meta's campaign id), in the reports page's period. No action on money:
+  // the media buyer's alerts say what the rules see, the change is made in Meta's Ads Manager. The reports page's «الحملات الإعلانية»
+  // draws the same blocks (reportBlocks — one source) ----------
+  const perm = (k) => (window.IBDirectory && window.IBDirectory.perm ? window.IBDirectory.perm(k) : 'N');
+  const moneyOk = () => isAdmin() || perm('accounts.view') !== 'N';
+  const n2 = (v) => Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const adRange = () => { const r = RB().rangeOf ? RB().rangeOf('reports') : null; return r && r.from && r.to ? r : { from: W.addD(TODAY(), -29), to: TODAY() }; };
+  const perLabel = (rg) => 'من ' + D2(rg.from) + ' لحد ' + D2(rg.to);
+  const AD = { key: null, r: null, at: 0, busy: false, gen: 0, syncing: false };
+  let adsAsk = 0;
+  // the period's numbers, loaded once per period and fresh for 5 minutes; a new period drops the old numbers, a reload keeps them meanwhile
+  function adsLoad(rg, redraw, force) {
+    const key = rg.from + '|' + rg.to;
+    if (AD.key === key && AD.busy) return;
+    if (!force && AD.key === key && AD.r && Date.now() - AD.at < 300000) return;
+    if (AD.key !== key) AD.r = null;
+    AD.key = key; AD.busy = true; const g = ++AD.gen;
+    Promise.resolve().then(() => MK().adsData(rg)).catch(() => ({ ok: false, reason: 'network', message: 'حصلت مشكلة في الاتصال — جرّب تاني' }))
+      .then((r) => { if (g !== AD.gen) return; AD.busy = false; AD.r = r; AD.at = Date.now(); if (redraw) redraw(); });
+  }
+  // the link's state (mkt-ads status, cached by the adapter): its answer emits ib:marketing, which redraws this page; `redraw` is the reports page's
+  function adsState(redraw) {
+    if (Date.now() - adsAsk > 60000) { adsAsk = Date.now(); MK().adsStatus().then((r) => { if (r && r.ok && redraw) redraw(); }); }
+    return MK().adsNow();
+  }
+  function redrawAds(tries) {
+    if (window.IBPages.current !== 'marketing' || st.view !== 'hub' || (st.tab !== 'overview' && st.tab !== 'reports')) return;
+    if (document.querySelector('.scrim')) { if ((tries || 0) < 30) setTimeout(() => redrawAds((tries || 0) + 1), 1000); return; }
+    R();
+  }
+  const atLabel = (iso) => { const t = Date.parse(iso || ''); if (!Number.isFinite(t)) return null; const p = Object.fromEntries(fmtC.formatToParts(new Date(t)).map((x) => [x.type, x.value])); const d = p.year + '-' + p.month + '-' + p.day; return (d === TODAY() ? 'النهارده' : D2(d).slice(0, 5)) + ' ' + p.hour + ':' + p.minute; };
+  const syncLine = (s) => (!s ? 'آخر مزامنة: بيتحمّل…' : !s.configured ? 'إعلانات ميتا مش مربوطة · ووكومرس لايف' : 'آخر مزامنة: ميتا ' + (atLabel(s.syncedAt) || 'لسه') + ' · ووكومرس لايف');
+  // Meta's statuses in words — a campaign (feminine) or an ad (masculine)
+  const AD_ST = { ACTIVE: ['شغالة', 'شغال', 'success'], PAUSED: ['متوقفة', 'متوقف', 'neutral'], CAMPAIGN_PAUSED: ['متوقفة', 'متوقف', 'neutral'], ADSET_PAUSED: ['متوقفة', 'متوقف', 'neutral'],
+    ARCHIVED: ['مقفولة', 'مقفول', 'neutral'], DELETED: ['اتمسحت', 'اتمسح', 'neutral'], IN_PROCESS: ['بتتجهز', 'بيتجهز', 'info'], PENDING_REVIEW: ['بتتراجع', 'بيتراجع', 'info'], PREAPPROVED: ['بتتراجع', 'بيتراجع', 'info'],
+    DISAPPROVED: ['اترفضت', 'اترفض', 'error'], WITH_ISSUES: ['فيها مشكلة', 'فيه مشكلة', 'orange'], PENDING_BILLING_INFO: ['مستنية الدفع', 'مستني الدفع', 'orange'] };
+  const stOf = (s, ad) => { const x = AD_ST[s]; return x ? [x[ad ? 1 : 0], x[2]] : [s || '—', 'neutral']; };
+  const SRC_NAME = { fb: 'فيسبوك', facebook: 'فيسبوك', ig: 'انستجرام', instagram: 'انستجرام', an: 'Audience Network', msg: 'ماسنجر', messenger: 'ماسنجر', th: 'ثريدز', threads: 'ثريدز', google: 'جوجل', tiktok: 'تيك توك' };
+  const srcText = (m) => Object.entries(m || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) => (SRC_NAME[k] || k || 'من غير مصدر') + ' ' + K.n0(n)).join(' · ');
+  const ALERT_SHORT = { stop: 'وقّف؟', cpa: 'تكلفة عالية', track: 'راجع التتبع', scale: 'زوّد؟' };
+  function adCalc(r, rg) {
+    const today = TODAY(); const end = rg.to < today ? rg.to : today;
+    const t = W.adTotals(r.stats, r.orders, rg, moneyOk()); const camps = W.adCampaignRows(r.objects, r.stats, r.orders, rg);
+    return { rg, t, camps, alerts: W.adAlerts(r.objects, r.stats, r.orders, rg, end), weeks: W.merWeeks(r.stats, r.orders, rg.to, 5), creatives: W.adCreatives(r.objects, r.stats, rg),
+      loose: Math.max(0, t.metaOrders - camps.reduce((n, x) => n + x.orders, 0)) };
+  }
+  function adsGate(rg, redraw) {
+    if (!AD.r) return [U.InlineNote({ children: 'بنحمّل أرقام الإعلانات…' })];
+    if (!AD.r.ok) return [K.Empty('مقدرناش نحمّل أرقام الإعلانات', AD.r.message || 'حصلت مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', attrs: { 'data-ads-retry': '' }, onClick: () => { AD.r = null; AD.at = 0; adsLoad(rg, redraw, true); if (redraw) redraw(); } }))];
+    return null;
+  }
+  const adsNote = (s) => (s && !s.configured ? U.InlineNote({ kind: 'warning', children: 'إعلانات ميتا لسه مش مربوطة — الصرف وأرقام ميتا هيظهروا لما الأدمن يحط مفتاح القراية وحساب الإعلانات في أسرار السيرفر. أوردرات ووكومرس اللي جاية من إعلانات ظاهرة من دلوقتي.' })
+    : s && s.error ? U.InlineNote({ kind: 'warning', children: s.why + (s.syncedAt ? ' — الأرقام دي من آخر مزامنة نجحت (' + atLabel(s.syncedAt) + ').' : '') }) : null);
+  const adsSource = () => h('p', { class: 'source t-small help mk-src' }, 'المصادر: Meta Ads (قراية بس — بتتحدث كل ساعة) + ووكومرس (مصدر الأوردر / UTM: utm_campaign = رقم الحملة على ميتا) · المبيعات من غير الملغي والمرتجع والفاشل' + (moneyOk() ? ' · نصيب إبتكر بنفس حساب «الحسابات»' : '') + '.');
+  async function adsSyncNow(redraw) {
+    if (AD.syncing) return; AD.syncing = true; if (redraw) redraw();
+    const r = await MK().adsSync();
+    AD.syncing = false;
+    K.toast(r.ok ? 'اتزامنت أرقام ميتا — ' + K.n0(r.campaigns) + ' حملة · ' + K.n0(r.ads) + ' إعلان' : r.message, r.ok ? 'success' : 'error');
+    AD.at = 0; adsLoad(adRange(), redraw, true); if (redraw) redraw();
+  }
+  function adsBar(s, redraw) {
+    return h('div', { class: 'toolbar ads-bar' }, RB().rangeField ? RB().rangeField('reports') : null, U.FreshnessNote(syncLine(s)), h('span', { class: 'grow' }),
+      isAdmin() ? Button({ size: 'sm', label: AD.syncing ? 'بيزامن…' : 'مزامنة دلوقتي', disabled: AD.syncing || !!(s && !s.configured), attrs: { 'data-ads-sync': '' }, onClick: () => adsSyncNow(redraw) }) : null);
+  }
+  function adKpis(c) {
+    const t = c.t; const det = (title, headers, rows, total) => () => ({ title: title + ' — ' + perLabel(c.rg), headers, rows, total });
+    const tiles = [
+      U.KpiTile({ label: 'الصرف الإعلاني', value: n2(t.spend), unit: 'ج.م', compare: 'off', note: 'ميتا · جوجل وتيك توك قريب', details: det('الصرف الإعلاني', ['المنصة', 'الصرف (ج.م)'], t.platforms.map((p) => [p.label, p.linked ? n2(p.spend) : 'قريبًا']), ['الإجمالي', n2(t.spend)]) }),
+      U.KpiTile({ label: 'مبيعات ووكومرس من الإعلانات', value: n2(t.sales), unit: 'ج.م', compare: 'off', note: U.num(K.n0(t.orders) + ' أوردر مصدرها إعلان (UTM)' + (t.cancelled ? ' · ' + K.n0(t.cancelled) + ' اتلغى' : '')),
+        details: det('مبيعات ووكومرس من الإعلانات', ['المنصة', 'الأوردرات', 'المبيعات (ج.م)', 'المصدر'], t.platforms.map((p) => [p.label, K.n0(p.orders), n2(p.sales), srcText(p.sources) || '—']), ['الإجمالي', K.n0(t.orders), n2(t.sales), '']) }),
+      U.KpiTile({ label: 'العائد الحقيقي (MER)', value: t.mer == null ? '—' : t.mer.toFixed(2), unit: t.mer == null ? undefined : '×', compare: 'off', note: U.num('مبيعات حملات ميتا ÷ صرفها · ميتا بتقول ' + W.xr(t.roas)) }),
+      U.KpiTile({ label: 'تكلفة الأوردر الحقيقية', value: t.cpa == null ? '—' : n2(t.cpa), unit: t.cpa == null ? undefined : 'ج.م', compare: 'off', note: U.num('ميتا بتقول ' + (t.platformCpa == null ? '—' : K.n0(t.platformCpa)) + ' · الحد المقبول ' + K.n0(W.ADS_RULES.maxCpa)) }),
+      t.profit == null ? null : U.KpiTile({ label: 'الربح بعد الإعلانات', value: n2(t.profit), unit: 'ج.م', compare: 'off', note: 'نصيب إبتكر من أوردرات ميتا − الصرف',
+        details: det('الربح بعد الإعلانات', ['البند', 'ج.م'], [['نصيب إبتكر من أوردرات إعلانات ميتا', n2(t.metaShare)], ['الصرف الإعلاني', '− ' + n2(t.spend)]], ['الربح', n2(t.profit)]) })].filter(Boolean);
+    return h('div', { class: 'cards ' + (tiles.length === 5 ? 'five' : 'four'), 'data-rgroup': 'kpis', 'data-ads-kpis': String(tiles.length) }, tiles);
+  }
+  function alertDetail(a, c) {
+    const camp = c.camps.find((x) => x.id === a.campaign);
+    const m = U.Modal({ title: a.title, body: [K.Kv([['الحملة', camp ? camp.name : '#' + a.campaign], ['الأرقام', a.sub], ['السبب', a.why]]),
+      U.InlineNote({ children: 'السيستم مابيغيّرش حاجة في الإعلانات — لو موافق، اعمل التغيير من مدير إعلانات ميتا. الميديا باير اللي بينفّذ بموافقتك مرحلة جاية.' })],
+      footer: [camp ? Button({ label: 'تفاصيل الحملة يوم بيوم', attrs: { 'data-ads-alert-camp': '' }, onClick: () => { m.close(); campDetail(camp); } }) : null, Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })].filter(Boolean) });
+    m.el.dataset.adsAlert = a.key; return m;
+  }
+  function alertsCard(c) {
+    const L = c.alerts; const X = W.ADS_RULES;
+    const item = (a) => h('button', { type: 'button', class: 'mk-item', 'data-ads-alert': a.key, onClick: () => alertDetail(a, c) }, h('span', { class: 'mk-ic tone-' + a.tone }, Icon(a.icon, 'sm')), h('span', { class: 'mk-txt' }, h('b', null, a.title), h('small', null, U.num(a.sub))), h('span', { class: 't-small help mk-tag' }, 'ميتا'));
+    return Card('تنبيهات الميديا باير', 'قواعد ثابتة على أرقامك الحقيقية — من غير تنفيذ: التغيير من مدير إعلانات ميتا', [L.length ? h('div', { class: 'mk-list', 'data-ads-alerts': String(L.length) }, L.map(item)) : K.Empty('مفيش تنبيهات', 'الحملات في الحدود في الفترة دي.'),
+      h('p', { class: 't-small help', style: 'margin:0' }, U.num('القواعد: وقّف؟ صرف ' + K.n0(X.stopSpend) + ' ج.م في آخر ' + X.stopDays + ' أيام من غير أوردر · تكلفة الأوردر فوق ' + K.n0(X.maxCpa) + ' ج.م · زوّد؟ عائد ' + X.scaleMer + '× و' + X.scaleOrders + ' أوردرات · راجع التتبع لو ميتا بتقول ضعف أوردرات ووكومرس'))]);
+  }
+  function adsConnCard(s, c) {
+    const meta = !s ? ['ميتا — بيتحمّل…', 'حالة الربط بتتقري', 'neutral', 'clock']
+      : !s.configured ? ['ميتا — مش مربوطة', 'مفتاح القراية وحساب الإعلانات بيتحطوا في أسرار السيرفر (الأدمن)', 'neutral', 'clock']
+      : s.error ? ['ميتا — آخر مزامنة ' + (atLabel(s.syncedAt) || 'لسه'), s.why, 'orange', 'alert']
+      : ['ميتا — متصلة', (s.account && s.account.name ? 'حساب ' + s.account.name + ' · ' : '') + 'آخر مزامنة ' + (atLabel(s.syncedAt) || 'لسه') + ' · كل ساعة', s.account && s.account.status && s.account.status !== 'ACTIVE' ? 'orange' : 'success', 'users'];
+    const rows = [meta, ['جوجل إعلانات', 'قريبًا — أوردراتها من ووكومرس (UTM) بتتحسب', 'neutral', 'clock'], ['تيك توك إعلانات', 'قريبًا — أوردراتها من ووكومرس (UTM) بتتحسب', 'neutral', 'clock'],
+      ['ووكومرس — لايف', 'مصدر الأوردر (UTM) شغال · ' + K.n0(c.t.orders) + ' أوردر من إعلانات في الفترة', 'success', 'users']];
+    const acct = s && s.account && s.account.status && s.account.status !== 'ACTIVE' ? U.InlineNote({ kind: 'warning', children: 'حساب الإعلانات حالته على ميتا: ' + s.account.status }) : null;
+    return Card('حالة الربط', 'الإعلانات قراية بس — مفيش أي تغيير على المنصات من هنا', [h('div', { class: 'mk-list', 'data-ads-conn': s ? (s.configured ? (s.error ? 'error' : 'ok') : 'off') : 'loading' }, rows.map(([t, sub, tone, ic]) => h('div', { class: 'mk-item' }, h('span', { class: 'mk-ic tone-' + tone }, Icon(ic, 'sm')), h('span', { class: 'mk-txt' }, h('b', null, t), h('small', null, sub))))), acct]);
+  }
+  function merChart(c) {
+    const w = c.weeks; const max = Math.max(0, ...w.map((x) => x.mer || 0)); const lab = (x) => D2(x.from).slice(0, 5) + '–' + D2(x.to).slice(0, 5);
+    return U.ChartCard({ title: 'العائد الحقيقي (MER) آخر 5 أسابيع', subtitle: 'مبيعات ووكومرس من حملات ميتا ÷ صرفها · لحد ' + D2(c.rg.to), footnote: 'الأحدث على اليسار · أعلى أسبوع باللون الأخضر · «—» = مفيش صرف في الأسبوع',
+      body: h('div', { class: 'cols', role: 'img', 'data-ads-mer': String(w.length), 'aria-label': w.map((x) => lab(x) + ': ' + W.xr(x.mer)).join('، ') }, w.map((x) => h('div', { class: 'col' + (max > 0 && x.mer === max ? ' hi' : '') },
+        h('span', { class: 't-label' }, U.num(W.xr(x.mer))), h('i', { style: 'height:' + (max > 0 && x.mer ? Math.max(4, Math.round(x.mer / max * 140)) : 4) + 'px' }), h('span', { class: 't-small' }, U.num(lab(x)))))) });
+  }
+  function spendChart(c) {
+    const t = c.t;
+    return U.ChartCard({ title: 'الصرف حسب المنصة', subtitle: 'المبيعات من كل منصة: ' + t.platforms.map((p) => p.label + ' ' + K.n0(p.sales)).join(' · ') + ' ج.م', footnote: 'جوجل وتيك توك: أوردراتهم من ووكومرس (UTM) بتتحسب، والصرف لما نربط حساباتهم الإعلانية',
+      body: h('div', { class: 'bars', 'data-ads-spend': '' }, t.platforms.map((p, i) => U.BarRow({ tone: p.linked ? ['brand', 'gold', 'goldlight'][i] : 'neutral', label: p.label, value: p.linked ? n2(p.spend) + ' ج.م' : 'قريبًا', pct: p.linked && t.spend ? p.spend / t.spend : 0 }))) });
+  }
+  function vsCard(c) {
+    const t = c.t; const diff = (p) => (p.linked && p.purchases ? Math.round((p.orders - p.purchases) / p.purchases * 100) + '%' : '—');
+    const rows = t.platforms.map((p) => [p.label, p.linked ? K.Num(n2(p.spend)) : soonTag(), K.Num(p.linked ? K.n0(p.purchases) : '—'), K.Num(K.n0(p.orders)), K.Num(diff(p)), K.Num(W.xr(p.roas)), K.Num(W.xr(p.mer))]);
+    return Card('المنصة بتقول × ووكومرس', 'المشتريات اللي المنصة بتحسبها قصاد الأوردرات الحقيقية من نفس المصدر (UTM) · ' + perLabel(c.rg), [
+      U.Table({ cls: 'dt ads-vs', headers: ['المنصة', 'الصرف (ج.م)', 'مشتريات المنصة', 'أوردرات ووكومرس', 'الفرق', 'عائد المنصة', 'العائد الحقيقي'], rows,
+        totalRow: ['الإجمالي', K.Num(n2(t.spend)), K.Num(K.n0(t.purchases)), K.Num(K.n0(t.orders)), '', K.Num(W.xr(t.roas)), K.Num(W.xr(t.mer))] }),
+      h('p', { class: 't-small help', style: 'margin:0' }, 'الفرق = (أوردرات ووكومرس − مشتريات المنصة) ÷ مشتريات المنصة · العائد الحقيقي = مبيعات ووكومرس من المنصة ÷ صرفها')]);
+  }
+  function asstCards() {
+    return h('div', { class: 'grid3', 'data-ads-assistants': '' }, [['الميديا باير', 'تقرير يومي واقتراحات على أرقامك الحقيقية — بموافقتك'], ['الديزاينر', 'بوستات وفيديوهات بالبراند على Magnific'], ['المبرمج', 'صفحات الموقع وتطوير السيستم — Staging الأول']]
+      .map(([t, s]) => Card(t, s, [h('p', { class: 't-small help', style: 'margin:0' }, 'من «مساعدين الذكاء الاصطناعي» — قريبًا.')], soonTag())));
+  }
+  function campDetail(x) {
+    U.DetailsModal({ title: x.name + ' — ميتا', sub: 'الحالة: ' + stOf(x.status)[0] + ' · ' + K.n0(x.days.length) + ' يوم فيه صرف أو أوردرات' + (srcText(x.sources) ? ' · الأوردرات: ' + srcText(x.sources) : ''),
+      summary: [{ label: 'الصرف', value: n2(x.spend) }, { label: 'مشتريات ميتا', value: K.n0(x.purchases) }, { label: 'أوردرات ووكومرس', value: K.n0(x.orders) }, { label: 'العائد الحقيقي', value: W.xr(x.mer) }],
+      headers: ['اليوم', 'الصرف (ج.م)', 'مشتريات ميتا', 'أوردرات ووكومرس'], rows: x.days.slice().reverse().map((d) => [W.DAYS[W.dayIdx(d.day)] + ' ' + D2(d.day).slice(0, 5), n2(d.spend), K.n0(d.purchases), K.n0(d.orders)]),
+      total: ['الإجمالي', n2(x.spend), K.n0(x.purchases), K.n0(x.orders)], source: 'Meta Ads (رقم الحملة ' + x.id + ') + أوردرات ووكومرس اللي الـ utm_campaign بتاعها نفس الرقم' });
+  }
+  const CAMP_H = ['الحملة', 'المنصة', 'الحالة', 'الصرف (ج.م)', 'مشتريات ميتا', 'أوردرات ووكومرس', 'العائد الحقيقي', 'تكلفة الأوردر', 'التنبيه'];
+  function campTable(c, list) {
+    const al = {}; c.alerts.forEach((a) => { (al[a.campaign] = al[a.campaign] || []).push(a); });
+    const tot = list.reduce((a, x) => ({ spend: a.spend + x.spend, purchases: a.purchases + x.purchases, orders: a.orders + x.orders, sales: a.sales + x.sales }), { spend: 0, purchases: 0, orders: 0, sales: 0 });
+    const rows = list.map((x) => { const [sl, tone] = stOf(x.status); const A = al[x.id] || [];
+      return [h('button', { type: 'button', class: 'link-btn', 'data-ads-camp': x.id, onClick: () => campDetail(x) }, x.name), x.platform, Tag(tone, sl), K.Num(n2(x.spend)), K.Num(K.n0(x.purchases)), U.num(K.n0(x.orders) + (x.cancelled ? ' (+' + K.n0(x.cancelled) + ' اتلغى)' : '')),
+        K.Num(W.xr(x.mer)), K.Num(x.cpa == null ? '—' : K.n0(x.cpa)), A.length ? h('button', { type: 'button', class: 'tg tg-' + A[0].tone + ' tg-btn', 'data-ads-camp-alert': A[0].key, onClick: () => alertDetail(A[0], c) }, ALERT_SHORT[A[0].key.split(':')[0]], A.length > 1 ? [' ', U.num('+' + (A.length - 1))] : null) : '—']; });
+    return Card('الحملات — ' + K.n0(list.length), 'أرقام ميتا جنب أوردرات ووكومرس الحقيقية من نفس الحملة (utm_campaign) · ' + perLabel(c.rg), [
+      list.length ? U.Table({ cls: 'dt ads-camps', headers: CAMP_H, rows, totalRow: ['الإجمالي', '', '', K.Num(n2(tot.spend)), K.Num(K.n0(tot.purchases)), K.Num(K.n0(tot.orders)), K.Num(W.xr(tot.spend ? tot.sales / tot.spend : null)), K.Num(tot.orders ? K.n0(tot.spend / tot.orders) : '—'), ''] })
+        : K.Empty(c.camps.length ? 'مفيش حملات بالفلاتر دي' : 'مفيش حملات في الفترة دي', c.camps.length ? 'غيّر الفلاتر أو امسحها.' : 'مفيش صرف ولا أوردرات من حملات ميتا ' + perLabel(c.rg) + ' — غيّر الفترة من فوق.'),
+      h('p', { class: 't-small help', style: 'margin:0' }, 'الضغط على حملة بيفتح أيامها (الصرف · مشتريات ميتا · الأوردرات الحقيقية) · التنبيه من قواعد الميديا باير ومن غير تنفيذ' + (c.loose ? ' · ' + K.n0(c.loose) + ' أوردر من إعلانات ميتا من غير رقم حملة في الـ UTM (محسوبين في «نظرة عامة» بس)' : ''))]);
+  }
+  function crDetail(x, c) {
+    const fq = x.frequency == null ? '—' : x.frequency.toFixed(2);
+    U.DetailsModal({ title: x.name, sub: 'حملة ' + x.campaign + ' · ' + perLabel(c.rg), summary: [{ label: 'الصرف', value: n2(x.spend) }, { label: 'الظهور', value: K.n0(x.impressions) }, { label: 'النقرات (CTR)', value: x.ctr == null ? '—' : (x.ctr * 100).toFixed(2) + '%' }, { label: 'عائد ميتا', value: W.xr(x.roas) }],
+      headers: ['المقياس', 'القيمة'], rows: [['النقرات على اللينك', K.n0(x.clicks)], ['التكرار', fq], ['مشتريات ميتا', K.n0(x.purchases)], ['قيمة مشتريات ميتا (ج.م)', n2(x.value)], ['الحالة', x.tired ? 'الناس زهقت منه' : stOf(x.status, true)[0]]],
+      note: x.tired ? 'التكرار ' + fq + ' — الناس شافوا الإعلان ده كتير؛ جرّب نسخة جديدة من «إنشاء».' : null, source: 'Meta Ads (رقم الإعلان ' + x.id + ')' });
+  }
+  const crTip = () => U.InlineNote({ children: 'العائد الحقيقي لكل إعلان (من ووكومرس) محتاج utm_content={{ad.id}} في لينكات الإعلانات على ميتا — لحد كده العائد هنا بتاع ميتا، والعائد الحقيقي في «الحملات».' }); // inside the card: a loose note floats to the top of the reports page
+  function crTable(c) {
+    const L = c.creatives; const tot = L.reduce((a, x) => ({ spend: a.spend + x.spend, imp: a.imp + x.impressions, clicks: a.clicks + x.clicks, purchases: a.purchases + x.purchases }), { spend: 0, imp: 0, clicks: 0, purchases: 0 });
+    const th = (x) => h('span', { class: 'cr-th' }, x.thumb ? h('span', { class: 'thumb fill' }, h('img', { src: x.thumb, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' })) : Img(null, 'fill'));
+    const rows = L.map((x) => { const [sl, tone] = x.tired ? ['الناس زهقت منه', 'orange'] : stOf(x.status, true);
+      return [h('button', { type: 'button', class: 'cr-cell link-btn', 'data-ads-ad': x.id, 'aria-label': 'تفاصيل ' + x.name, onClick: () => crDetail(x, c) }, th(x), h('span', { class: 'cr-tx' }, h('b', null, x.name), h('small', { class: 'help' }, x.campaign))),
+        Tag(tone, sl), K.Num(n2(x.spend)), K.Num(K.n0(x.impressions)), K.Num(x.ctr == null ? '—' : (x.ctr * 100).toFixed(2) + '%'), K.Num(x.frequency == null ? '—' : x.frequency.toFixed(2)), K.Num(K.n0(x.purchases)), K.Num(W.xr(x.roas)),
+        K.RowMenu([{ label: 'التفاصيل', icon: 'eye', run: () => crDetail(x, c) }])]; });
+    return Card('تفاصيل الأعمال الفنية', K.n0(L.length) + ' إعلان فيه صرف · ' + K.n0(tot.imp) + ' ظهور · ' + n2(tot.spend) + ' ج.م صرف · ' + perLabel(c.rg),
+      [crTip(), L.length ? U.Table({ cls: 'dt cr-tbl ads-cr', headers: ['الإعلان', 'الحالة', 'الصرف (ج.م)', 'الظهور', 'النقرات (CTR)', 'التكرار', 'مشتريات ميتا', 'عائد ميتا', ''], rows }) : K.Empty('مفيش إعلانات فيها صرف في الفترة دي', 'غيّر الفترة من فوق.')]);
+  }
+  function overviewTab() {
+    const rg = adRange(); const s = adsState(null); adsLoad(rg, redrawAds);
+    const gate = adsGate(rg, redrawAds); if (gate) return [adsBar(s, redrawAds)].concat(gate);
+    const c = adCalc(AD.r, rg);
+    return [adsBar(s, redrawAds), adsNote(s), adKpis(c), h('div', { class: 'mk-row' }, alertsCard(c), adsConnCard(s, c)), h('div', { class: 'charts', 'data-rgroup': 'charts' }, merChart(c), spendChart(c)), vsCard(c), asstCards(), adsSource()].filter(Boolean);
+  }
+  function reportsTab() {
+    const rg = adRange(); const s = adsState(null); adsLoad(rg, redrawAds);
+    const sub = M.rsub || 'campaigns'; const c = AD.r && AD.r.ok ? adCalc(AD.r, rg) : null;
+    const tabs = K.SubTabs({ label: 'تقارير التسويق', active: sub, onChange: (id) => { M.rsub = id; R(); }, items: [{ id: 'campaigns', label: 'الحملات', count: c ? c.camps.length : null }, { id: 'creative', label: 'الأعمال الفنية', count: c ? c.creatives.length : null }] });
+    const gate = adsGate(rg, redrawAds); if (gate) return [adsBar(s, redrawAds), tabs].concat(gate);
+    if (sub === 'creative') return [adsBar(s, redrawAds), tabs, adsNote(s), crTable(c), adsSource()].filter(Boolean);
+    const f = M.cf = M.cf || { status: '', q: '' }; const q = (f.q || '').trim().toLowerCase();
+    const sts = [...new Set(c.camps.map((x) => stOf(x.status)[0]))];
+    const list = c.camps.filter((x) => (!f.status || stOf(x.status)[0] === f.status) && (!q || x.name.toLowerCase().includes(q) || x.id.includes(q)));
+    const sb = h('input', { type: 'search', id: 'ads-q', placeholder: 'ابحث باسم الحملة أو رقمها', 'aria-label': 'ابحث في الحملات', value: f.q || '' });
+    sb.addEventListener('input', () => { f.q = sb.value; R(); setTimeout(() => { const x = document.getElementById('ads-q'); if (x) { x.focus(); x.setSelectionRange(x.value.length, x.value.length); } }, 0); });
+    const filt = h('div', { class: 'toolbar', 'data-ads-filters': '' }, U.Select({ id: 'ads-st', label: '', options: [{ value: '', label: 'الحالة: الكل' }].concat(sts.map((x) => ({ value: x, label: 'الحالة: ' + x }))), value: f.status, onChange: (v) => { f.status = v; R(); } }),
+      h('span', { class: 'grow' }), h('label', { class: 'search search-field' }, Icon('search', 'sm'), sb));
+    return [adsBar(s, redrawAds), tabs, adsNote(s), filt, campTable(c, list), adsSource()].filter(Boolean);
+  }
+  // the reports page's «الحملات الإعلانية» (decision 47): the same numbers and blocks, its redraw; CSV = the campaigns
+  function reportBlocks(redraw) {
+    if (!MK() || !can().view) return { blocks: [K.Empty('مش مسموحلك تشوف التسويق', 'اطلب صلاحية «التسويق» من الأدمن.')], exp: null };
+    const rg = adRange(); const s = adsState(redraw); adsLoad(rg, redraw);
+    const gate = adsGate(rg, redraw); if (gate) return { blocks: gate, exp: null };
+    const c = adCalc(AD.r, rg);
+    const exp = { label: 'الحملات الإعلانية', headers: ['الحملة', 'رقم الحملة', 'المنصة', 'الحالة', 'الصرف', 'مشتريات ميتا', 'أوردرات ووكومرس', 'مبيعات ووكومرس', 'العائد الحقيقي', 'تكلفة الأوردر'],
+      rows: c.camps.map((x) => [x.name, x.id, x.platform, stOf(x.status)[0], x.spend, x.purchases, x.orders, Math.round(x.sales * 100) / 100, x.mer == null ? '' : Math.round(x.mer * 100) / 100, x.cpa == null ? '' : Math.round(x.cpa)]) };
+    return { exp, blocks: [adsNote(s), adKpis(c), h('div', { class: 'charts', 'data-rgroup': 'charts' }, merChart(c), spendChart(c)), vsCard(c), campTable(c, c.camps), crTable(c), adsSource()].filter(Boolean) };
+  }
+
   // ---------- the page ----------
   const soonPanel = (tab) => { const [t, s] = SOON[tab]; const e = U.EmptyState(t, s); e.setAttribute('data-mk-soon', tab); return [h('div', { class: 'mk-soon-panel' }, e)]; };
   function headActs() {
     const tab = TABS.find(([id]) => id === st.tab) || [];
-    return tab[2] ? [] : [K.PanelButton('marketing:' + st.tab, 'التسويق — ' + tab[1], () => document.querySelector('#pg-marketing .panel'), R)];
+    return tab[2] || st.tab === 'reports' ? [] : [K.PanelButton('marketing:' + st.tab, 'التسويق — ' + tab[1], () => document.querySelector('#pg-marketing .panel'), R)];
   }
   function view() {
     if (!MK() || !can().view) return [K.PageHead('التسويق', null, []), K.Empty('مفيش صلاحية', 'صفحة التسويق محتاجة صلاحية «التسويق — عرض».')];
@@ -773,7 +966,7 @@
     const tabs = K.MainTabs({ items: TABS.map(([id, label, soon]) => ({ id, label: soon ? [label, ' ', soonTag()] : label })), active: st.tab, onChange: (id) => go('marketing-' + id), label: 'أقسام التسويق' });
     const soon = !!(TABS.find(([id]) => id === st.tab) || [])[2];
     const loading = MK().state() !== 'ready';
-    const body = soon ? soonPanel(st.tab) : loading ? [K.Empty('بيحمّل…', 'لحظة واحدة')] : ({ create: hub, publog: publogTab, calendar: calendarTab, templates: templatesTab })[st.tab]();
+    const body = soon ? soonPanel(st.tab) : loading ? [K.Empty('بيحمّل…', 'لحظة واحدة')] : ({ overview: overviewTab, create: hub, publog: publogTab, calendar: calendarTab, templates: templatesTab, reports: reportsTab })[st.tab]();
     const panel = h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...body);
     if (!soon && !loading) setTimeout(() => K.applyPanelPrefs('marketing:' + st.tab, panel), 0);
     return [K.PageHead('التسويق', null, headActs()), tabs, panel];
@@ -781,5 +974,5 @@
   // a change from elsewhere (the live line) redraws the tabs — never the open wizard or an open popup
   document.addEventListener('ib:marketing', () => { if (window.IBPages.current !== 'marketing' || st.view !== 'hub') return; if (document.querySelector('.scrim')) return; R(); });
 
-  window.IBPages.register('marketing', { title: 'التسويق', hash: (hs) => route(hs), defaultHash, view, api: { st, camp, go, openCampaign } });
+  window.IBPages.register('marketing', { title: 'التسويق', hash: (hs) => route(hs), defaultHash, view, api: { st, camp, go, openCampaign, reportBlocks } });
 })();

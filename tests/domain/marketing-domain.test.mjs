@@ -244,8 +244,12 @@ test('9.5.3 adTotals: the spend, the real return and cost, Meta says, the profit
   assert.equal(Math.round(t.mer * 1000) / 1000, 2.037); assert.equal(t.cpa, 450); assert.equal(t.platformCpa, 168.75);
   assert.equal(t.share, 890); assert.equal(t.profit, 800 - 2700);
   assert.deepEqual(t.platforms.map((p) => [p.key, p.linked, p.spend, p.orders]), [['meta', true, 2700, 6], ['google', false, null, 2], ['tiktok', false, null, 0]]);
+  assert.equal(t.metaShare, 800);
   const noMoney = W.adTotals(STATS, ORD.map((o) => ({ ...o, share: null })), RG);
   assert.equal(noMoney.share, null); assert.equal(noMoney.profit, null);
+  // the caller's permission decides when given: an admin with no ad order sees the spend as the loss; no accounts.view = no profit
+  assert.deepEqual([W.adTotals(STATS, [], RG, true).profit, W.adTotals(STATS, [], RG, true).metaShare], [-2700, 0]);
+  assert.equal(W.adTotals(STATS, ORD, RG, false).profit, null); assert.equal(W.adTotals(STATS, ORD, RG, false).share, null);
   assert.equal(W.adTotals([], [], RG).mer, null); // nothing spent: no ratio
 });
 
@@ -276,5 +280,8 @@ test('9.5.3 adCreatives: one row per ad with spend, CTR from link clicks, freque
   const m = c.find((x) => x.id === '1206');
   assert.equal(m.ctr, 90 / 3000); assert.equal(Math.round(m.frequency * 1000) / 1000, 1.5); assert.equal(m.roas, 7.6); assert.equal(m.thumb, 'https://scontent.example/t.jpg');
   assert.equal(c.find((x) => x.id === '1207').thumb, null);
+  // tired: the frequency at 4 or more (1207 is seen 3 times on average; a 2.5 limit flags it, never 1206 at 1.5)
+  assert.deepEqual(c.map((x) => x.tired), [false, false]);
+  const t2 = W.adCreatives(OBJ, STATS, RG, { tiredFreq: 2.5 }); assert.deepEqual([t2.find((x) => x.id === '1207').tired, t2.find((x) => x.id === '1206').tired], [true, false]);
   assert.equal(W.xr(5), '5.00×'); assert.equal(W.xr(null), '—');
 });

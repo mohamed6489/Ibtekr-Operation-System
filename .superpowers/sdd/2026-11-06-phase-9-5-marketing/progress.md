@@ -74,3 +74,8 @@
   التوكن في الهيدر بس) — Deno 5 ✓، وفي `deploy-functions.yml` و`config.toml` و`deno:check`.
 - T17 ✓ (6 نوفمبر) `IBMarketing.adsStatus` / `adsSync` / `adsData` / `adsWhy` (القراية 1000 صف في المرة، 60 ثانية كاش) + الـ mock
   (`mkt_ad_objects` / `mkt_ad_stats`، `mkt_ads_orders` من غير حصة لغير الحسابات، `mkt-ads` status/sync). adapter 19 ✓، `npm test` ✓، `marketing*.spec` 11 ✓.
+- T18 ✓ (6 نوفمبر) «نظرة عامة» (الكروت الخمسة — الربح بعد الإعلانات بـ `accounts.view` بس —، تنبيهات الميديا باير من غير تنفيذ، حالة الربط، العائد 5 أسابيع،
+  الصرف حسب المنصة، «المنصة بتقول × ووكومرس»، المساعدين قريبًا) و«التقارير» (الحملات بأيامها وفلتر الحالة، والأعمال الفنية بصورتها و«الناس زهقت منه»
+  ونصيحة `utm_content`) بفترة صفحة التقارير و«مزامنة دلوقتي» للأدمن؛ الكتلة 28: تاب «الحملات الإعلانية» بـ `marketing.view` على `reportBlocks`
+  (قرار 47) وفترة التقارير بترسم التسويق + lock. الدومين: `adTotals(…, money)` و`tiredFreq`. e2e `marketing-ads.spec` 6 ✓ + تعديل `reports` /
+  `hr-reports` / `marketing` (التاب مابقاش قريبًا)؛ `npm test` 570 ✓.

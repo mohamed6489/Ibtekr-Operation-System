@@ -331,10 +331,10 @@
   const hashTab = () => { const t = location.hash.slice(1); return TABS.some((x) => x.id === t) ? t : null; };
   state.tab = hashTab() || 'expenses';
   // phase 9 (docs/superpowers/plans/2026-11-05-phase-9-reports.md, decisions 4 / 6): the v2's nine tabs — a tab shows only with reports.view ≠ N
-  // and its page's view permission; «الحملات الإعلانية» is soon until its page (marketing) — «تقارير الموظفين» opened with HR (phase 10 T8). CSV and
+  // and its page's view permission; «الحملات الإعلانية» opened with the ads numbers (phase 9.5.3 decision 47: marketing.view) — «تقارير الموظفين» opened with HR (phase 10 T8). CSV and
   // «الإجراءات» need reports.export = F. The server stays the judge: every number is read under its table's RLS.
   const REPORT_TABS = [{ id: 'orders', label: 'تقارير الأوردرات', perm: 'orders.view' }, { id: 'vendors', label: 'تقارير المبتكرين', perm: 'vendors.view' }, { id: 'accounts', label: 'تقارير الحسابات', perm: 'accounts.view' }, { id: 'products', label: 'تقارير المنتجات', perm: 'products.view' },
-    { id: 'staff', label: 'تقارير الموظفين', perm: 'hr.view' }, { id: 'campaigns', label: 'الحملات الإعلانية', soon: 'التسويق' }, { id: 'inventory', label: 'تقارير المخزن', perm: 'inventory.view' }, { id: 'cs', label: 'تقارير خدمة العملاء', perm: 'cs.view' }, { id: 'tickets', label: 'تقارير التذاكر', perm: 'tickets.view' }];
+    { id: 'staff', label: 'تقارير الموظفين', perm: 'hr.view' }, { id: 'campaigns', label: 'الحملات الإعلانية', perm: 'marketing.view' }, { id: 'inventory', label: 'تقارير المخزن', perm: 'inventory.view' }, { id: 'cs', label: 'تقارير خدمة العملاء', perm: 'cs.view' }, { id: 'tickets', label: 'تقارير التذاكر', perm: 'tickets.view' }];
   const reportTabOf = (hash) => { const m = /^reports(?:-(orders|vendors|accounts|products|staff|campaigns|inventory|cs|tickets))?$/.exec(hash); return m ? (m[1] || 'orders') : null; };
   const rperm = (k) => (window.IBDirectory && window.IBDirectory.perm ? window.IBDirectory.perm(k) : 'N');
   const reportTabs = () => (rperm('reports.view') === 'N' ? [] : REPORT_TABS.filter((t) => !t.perm || rperm(t.perm) !== 'N'));
@@ -1016,7 +1016,7 @@
         err ? h('div', { class: 'err-msg', role: 'alert', style: 'padding:0 16px 8px' }, err) : null,
         h('div', { class: 'dp-foot' }, h('span', { class: 'tz' }, 'التواريخ بتوقيت القاهرة (GMT+3)'),
           Button({ label: 'إلغاء', onClick: close }),
-          Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err, onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset }; if (target === 'reports') { state.rrange = nr; close(); renderReports(); if (window.IBPages && (window.IBPages.current === 'products' || window.IBPages.current === 'hr')) window.IBPages.render(window.IBPages.current); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else if (target === 'plan') { state.prange = nr; close(); window.IBPages.render('marketing'); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
+          Button({ type: 'primary', label: 'تحديث', disabled: !draft.from || !draft.to || !!err, onClick: () => { const nr = { from: draft.from, to: draft.to, preset: draft.preset }; if (target === 'reports') { state.rrange = nr; close(); renderReports(); if (window.IBPages && (window.IBPages.current === 'products' || window.IBPages.current === 'hr' || window.IBPages.current === 'marketing')) window.IBPages.render(window.IBPages.current); } else if (target === 'dash') { state.drange = nr; close(); window.IBPages.render('dashboard'); } else if (target === 'mlog') { state.mrange = nr; close(); render(); } else if (target === 'plan') { state.prange = nr; close(); window.IBPages.render('marketing'); } else { state.range = nr; close(); render(); } } }))].filter(Boolean));
     }
     draw(); return dp;
   }
@@ -1936,8 +1936,6 @@
     if (!api || !api.reportBlocks) { rExport = null; rpProdCtx = null; return [U.EmptyState('تقارير المنتجات مش متاحة', 'صفحة المنتجات ماتحمّلتش — حدّث الصفحة.')]; }
     const b = api.reportBlocks(() => renderReports()); rExport = b.exp; rpProdCtx = b.ctx; return b.blocks;
   }
-  // decisions 1 / 2: «تقارير الموظفين» and «الحملات الإعلانية» come with their pages — until then the tab says so
-  const soonView = (page, what) => () => { rExport = null; const e = U.EmptyState('قريبًا — مع صفحة «' + page + '»', what); e.setAttribute('data-report-soon', ''); return [e]; };
   // «تقارير الموظفين» (phase 10 T8, decision 20): the v5 cards on IBHR — the team hr.view shows (IBHR.team()); absence in the range from the
   // attendance (a work day — not Friday / Saturday / a holiday — from the hire date with no attendance and no approved leave; today once the
   // shift is over), the first reply from the customer service conversations of the range (cs.view), the monthly KPI scores of the last
@@ -1985,7 +1983,14 @@
         card('أعلى 5 تقييم', 'تقييم الأداء الشهري (KPI) · آخر 3 شهور لحد آخر الفترة', rep.rating, (x) => x.score + '%', (x) => MON(x.month) + ' · متوسط ' + Math.round(x.avg) + '%', 'من «الموارد البشرية › الأداء والـ KPI»', 'good', 'rating')),
       h('p', { class: 'source' }, 'المصدر: مهام الفريق («ملفي › مهامي») + سجل الحضور والإجازات والتقييم (الموارد البشرية — ' + mem.length + ' عضو ظاهرين ليك) + محادثات خدمة العملاء لوقت الرد.')];
   }
-  const CampaignsReportView = soonView('التسويق', 'أرقام الحملات الإعلانية (Meta و Google و TikTok Ads) هتظهر هنا مع صفحة «التسويق».');
+  // «الحملات الإعلانية» (phase 9.5.3 decision 47): the marketing page's own blocks (marketing.js reportBlocks — Meta Ads' numbers in mkt_ad_stats
+  // + the ad orders of mkt_ads_orders) — one source; it draws again when its numbers come
+  function CampaignsReportView() {
+    const pg = window.IBPages && window.IBPages.all().marketing; const api = pg && pg.api;
+    if (!api || !api.reportBlocks) { rExport = null; return [U.EmptyState('تقارير الحملات مش متاحة', 'صفحة التسويق ماتحمّلتش — حدّث الصفحة.')]; }
+    const redraw = (n) => { if (state.page !== 'reports' || state.rtab !== 'campaigns') return; if (document.querySelector('.scrim')) { if (n < 30) setTimeout(() => redraw(n + 1), 1000); return; } renderReports(); }; // a popup open: draw once it closes
+    const b = api.reportBlocks(() => redraw(0)); rExport = b.exp; return b.blocks;
+  }
   // «تقارير المخزن»: IBInventory's hub in K.store (0044) — the same numbers as the stock page's own «التقارير» tab
   function InventoryReportView() {
     const KK = window.IBKit; const S2 = KK.store; const rr = state.rrange; const Inv = window.IBInventory;

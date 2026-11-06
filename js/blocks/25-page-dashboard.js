@@ -70,14 +70,18 @@
       case 'contracts': { const all = D.contracts(); const bad = all.filter((c) => c.status === 'expiring' || c.status === 'expired'); const miss = all.filter((c) => c.status === 'missing'); const lab = { expiring: 'بيخلص قريب', expired: 'خلص', missing: 'مش مرفوع', uploaded: 'سليم' };
         return { label: 'عقود محتاجة متابعة', value: String(bad.length), unit: 'عقد', compare: bad.length ? 'negative' : 'neutral', delta: { text: bad.length ? 'جدّد' : 'تمام', caption: 'بتخلص خلال 30 يوم أو خلصت' }, note: miss.length + ' مبتكر من غير عقد مرفوع', details: () => ({ title: 'عقود المبتكرين', headers: ['المبتكر', 'العقد', 'ينتهي'], rows: bad.concat(miss).map((c) => [c.name, lab[c.status], c.expires ? K.dlabel(c.expires) : '—']), onRow: (i) => D.openVendor(bad.concat(miss)[i].name) }) }; }
       case 'nextStatement': { const nx = nextStatement(); return { label: 'كشف الحساب الجاي', value: nx ? K.dlabel(nx) : '—', note: (M.cycle || 'كل أسبوعين') + (nx ? ' · فاضل ' + K.daysBetween(K.TODAY, nx) + ' يوم' : ''), details: () => ({ title: 'كشوف حساب المبتكرين', sub: 'الكشف الجاي ' + (nx ? K.dlabel(nx) : '—'), headers: ['المبتكر', 'الرصيد'], rows: M.vendors.filter((v) => v.balance).map((v) => [v.name, money(v.balance)]), onRow: (i) => D.openVendorStatement(M.vendors.filter((v) => v.balance)[i].name) }) }; }
-      case 'myTasks': { const l = myTasks(); return { label: 'مهامي', value: String(l.filter((t) => !t.done).length), unit: 'مهمة', note: l.filter((t) => t.done).length + ' خلصت النهارده' }; }
+      case 'myTasks': { const l = myTasks(); return { label: 'مهامي', value: String(l.filter((t) => !t.done).length + myAuto().length), unit: 'مهمة', note: l.filter((t) => t.done).length + ' خلصت النهارده' }; }
       case 'mentions': { const s = S.sections.find((x) => x.id === 'messages'); const n = s ? (s.tabs.find((t) => t[0] === 'mention') || [0, 0, []])[2].length : 0; return { label: 'منشن', value: String(n), unit: 'رسالة', note: 'من الرسايل والتذاكر' }; }
       case 'photo': { const l = K.stockNow().filter((x) => /تصوير/.test(x.reason + ' ' + x.status)); return { label: 'منتجات في التصوير', value: String(l.length), unit: 'منتج', note: 'في مخزن إبتكر' }; }
     }
     return null;
   }
   const nextStatement = () => { const a = K.store.accAlerts || {}; return a.cycle === 'monthDays' ? DD.nextMonthDay(K.TODAY, a.days || []) : null; };
-  const myTasks = () => (K.store.tasks || []).filter((t) => t.member === me().id);
+  // «مهامي» (phase 10 decision 25): the member's tasks on the server (IBHR — hr_tasks): today's after block 12's rollover on Cairo's day, the
+  // open ones first, then the ones done today; the automatic ones («تلقائية من السيستم», «ملفي»'s) count in the tile — mine only
+  const myTasks = () => { const H = window.IBHR; const O = window.IbtekrOps; if (!H || !H.tasksOf || !O || !me() || !me().id) return []; const t = H.today(); const r = O.rollover(H.tasksOf(me().id), t);
+    return r.today.map((x) => Object.assign({}, x, { done: false })).concat(r.done.filter((x) => x.doneDay === t).map((x) => Object.assign({}, x, { done: true }))); };
+  const myAuto = () => { const p = pages().profile; return !st.viewAs && p && p.api && p.api.autoTasks ? p.api.autoTasks() : []; };
 
   // ---------- cards ----------
   const card = (id, title, sub, body, foot, cls) => h('section', { class: 'card dash-card dc-' + id + (cls ? ' ' + cls : ''), 'aria-labelledby': 'dh-' + id, 'data-card': id },
@@ -92,7 +96,7 @@
     const tasks = myTasks();
     return card('daily', 'يومي', 'دوامي ومهامي', [
       h('div', { class: 'dash-shift' }, Icon('clock', 'sm'), h('span', null, hs ? K.Tag(hs[1], hs[0]) : null), !ro && m.id === K.ME ? Button({ size: 'sm', label: sh.state === 'in' ? 'إنهاء الدوام' : 'ابدأ الدوام', onClick: () => { if (sh.state === 'in') window.IBShell.endShift(); else window.IBShell.clockIn(); setTimeout(render, 50); } }) : null),
-      tasks.length ? h('div', { class: 'dash-tasks' }, tasks.slice(0, 5).map((t) => K.Checkbox({ label: t.title, checked: !!t.done, disabled: ro, onChange: (v) => { t.done = v; K.logEvent('task.' + (v ? 'done' : 'undo'), t.title); render(); } }))) : K.Empty('مفيش مهام النهارده', 'ضيف مهمة من «ملفي»')],
+      tasks.length ? h('div', { class: 'dash-tasks' }, tasks.slice(0, 5).map((t) => K.Checkbox({ label: t.title, checked: !!t.done, disabled: ro || !(window.IBHR.canTask && window.IBHR.canTask(t.member)), onChange: (v) => { const p = window.IBHR.taskSet(t.id, v ? 'خلصت' : 'لسه'); render(); p.then((x) => { if (!x.ok && x.reason !== 'stale') { K.toast(x.message || 'معرفناش نحفظ — جرّب تاني', 'error'); render(); } }); } }))) : K.Empty('مفيش مهام النهارده', 'ضيف مهمة من «ملفي»')],
       link('مهامي كلها في «ملفي»', () => go('profile-tasks')));
   }
   function need(S) {
@@ -219,6 +223,7 @@
   // server alerts changed (IBAlerts load / mark read / Realtime insert): redraw «محتاج منك دلوقتي», same guard
   document.addEventListener('ib:notify', () => { if (!document.querySelector('.scrim,.menu:not([hidden]),[role=dialog]:not([hidden])')) render(); });
   document.addEventListener('ib:accounts', () => { if (!document.querySelector('.scrim,.menu:not([hidden]),[role=dialog]:not([hidden])')) render(); }); // phase 5.5: the period's sales came in
+  document.addEventListener('ib:hr', () => { if (!document.querySelector('.scrim,.menu:not([hidden]),[role=dialog]:not([hidden])')) render(); }); // decision 25: the tasks (IBHR) came in or changed
   // auto refresh every 5 minutes while the dashboard is open; «آخر نشاط» re-reads the server log too (IBActivity.refresh, phase 2:
   // not awaited, a failed read keeps the rows it has, and its ib:activity redraws the card once the answer lands)
   setInterval(() => { if (window.IBPages.current === 'dashboard' && !document.querySelector('.scrim,.menu:not([hidden]),[role=dialog]:not([hidden])')) { st.updated = K.clockNow(); try { const p = window.IBActivity && window.IBActivity.refresh(); if (p && p.catch) p.catch(() => {}); } catch (e) { /* the redraw below still runs */ } render(); } }, 5 * 60 * 1000);

@@ -11,7 +11,7 @@
   const HR = () => window.IBPages.all().hr.api;
   const label = (id) => (isAdminView() ? { tasks: 'المهام', requests: 'الطلبات', performance: 'الأداء', achievements: 'الإنجازات', salary: 'المرتب' }[id] : null) || TABS.find((t) => t[0] === id)[1];
   // phase 10 T7: the HR tabs read IBHR (app/js/adapter/hr.js) — the server's rows under RLS (mine with hr.view N, my team's with P, all
-  // with F) and the money mine or sensitive.salaries'; the tasks, the alerts and the prefs stay as they were
+  // with F) and the money mine or sensitive.salaries'; the alerts and the prefs stay as they were; the tasks are IBHR's too (decision 25)
   const IH = () => window.IBHR;
   const HD = () => (IH() ? IH().data : K.store);
   const can = () => (IH() ? IH().can() : { view: 'N', edit: false, approve: false, salaries: false, admin: false });
@@ -90,7 +90,7 @@
   const lastScore = (id) => { const sc = HD().scores[id] || {}; const k = Object.keys(sc).filter((x) => sc[x] != null).sort().pop(); return k ? { k, v: sc[k] } : null; };
   const achievementsOf = (id) => (HD().achievements || []).filter((a) => a.member === id);
   function overview(m) {
-    const r = O.rollover(tasksOf(m.id), K.TODAY); const open = r.today.length + autoOf(m.id).length; const D = HD(); const mk = thisMonth();
+    const r = O.rollover(tasksOf(m.id), tdy()); const open = r.today.length + autoOf(m).length; const D = HD(); const mk = thisMonth();
     const myReq = D.requests.filter((x) => x.member === m.id); const need = isAdminView() ? 0 : needFromMe().length; const isP = HR().isPending;
     const days = D.attendance.filter((a) => a.member === m.id && a.date.startsWith(mk) && a.in != null).length;
     const sc = lastScore(m.id); const qs = HR().qScore(m.id); const money = seesMoney(m); const slip = money && m.salary > 0 ? slipsOf(m).list[0] : null;
@@ -114,42 +114,98 @@
     return h('div', { class: 'admin-cards' }, job, notes, quick, sec);
   }
 
-  // ---------- مهامي ----------
-  const tasksOf = (id) => S.tasks.filter((t) => !t.auto && t.member === id);
-  const autoOf = (id) => S.tasks.filter((t) => t.auto && t.member === id);
+  // ---------- مهامي (phase 10 decision 25: IBHR.data.tasks — hr_tasks on the server, 0048) ----------
+  // the member's own tasks, the v5's tab as it is: the add box, the six statuses, «النهارده» / «المؤجل» / «خلصت» with block 12's rollover on
+  // Cairo's today; another member's file shows «المهام» to who may write them (the direct manager, hr.edit F — the server decides again)
+  const TD = () => (IH() ? IH().data.tasks || [] : []);
+  const tasksOf = (id) => TD().filter((t) => t.member === id);
+  const canT = (id) => !!(IH() && IH().canTask && IH().canTask(id));
+  const perm = (k) => (window.IBDirectory && window.IBDirectory.perm ? window.IBDirectory.perm(k) : 'N');
   const T_TONE = { 'لسه': 'neutral', 'جاري': 'gold', 'متوقفة': 'orange', 'جاهزة للمراجعة': 'info', 'خلصت': 'success', 'اتأجلت': 'neutral' };
   const T_EN = { 'لسه': 'To do', 'جاري': 'In progress', 'متوقفة': 'Hold', 'جاهزة للمراجعة': 'Ready for review', 'خلصت': 'Complete', 'اتأجلت': 'Postponed' };
-  function tasks(m) {
-    const r = O.rollover(tasksOf(m.id), K.TODAY); const auto = autoOf(m.id);
-    const subs = [{ id: 'today', label: 'النهارده', count: r.today.length + auto.length }, { id: 'later', label: 'المؤجل', count: r.later.length + r.scheduled.length }, { id: 'done', label: 'خلصت', count: r.done.length }];
-    const add = h('input', { class: 'task-add', placeholder: 'ضيف مهمة واضغط Enter', 'aria-label': 'مهمة جديدة', value: st.newTask });
-    add.addEventListener('input', () => { st.newTask = add.value; });
-    add.addEventListener('keydown', (e) => { if (e.key === 'Enter' && add.value.trim()) { S.tasks.push({ id: Date.now(), title: add.value.trim(), status: 'لسه', day: K.TODAY, member: st.who }); st.newTask = ''; K.logEvent('task.create', add.value.trim()); rerender(); setTimeout(() => { const n = document.querySelector('.task-add'); if (n) n.focus(); }); } });
-    const list = st.taskSub === 'today' ? r.today : st.taskSub === 'later' ? r.later.concat(r.scheduled) : r.done;
-    return [K.SubTabs({ items: subs, active: st.taskSub, onChange: (id) => { st.taskSub = id; rerender(); }, label: 'المهام' }),
-      st.taskSub === 'today' ? K.Section('تلقائية من السيستم', auto.map((t) => h('div', { class: 'task auto' }, Icon('sparkle', 'sm'), h('a', { href: t.link }, t.title), h('span', { class: 't-small help' }, 'بتختفي لوحدها لما تتحل'))), null, { sub: auto.length + ' مهمة' }) : null,
-      K.Section(st.taskSub === 'today' ? 'مهامي النهارده' : st.taskSub === 'later' ? 'المؤجل' : 'خلصت', [st.taskSub === 'today' ? h('label', { class: 'task-add-wrap' }, Icon('plus', 'sm'), add) : null, list.length ? list.map(taskRow) : K.Empty(st.taskSub === 'later' ? 'مفيش مهام مؤجلة' : st.taskSub === 'done' ? 'لسه مفيش مهام خلصت' : 'مفيش مهام', st.taskSub === 'today' ? 'اكتب مهمة فوق واضغط Enter.' : '')], null, { sub: st.taskSub === 'today' ? 'اللي ما خلصش بينتقل لبكره «من امبارح»' : st.taskSub === 'later' ? 'تذكير أسبوعي لو المؤجل لأجل غير مسمى عدّى 30 يوم' : '' })];
+  // a count in Egyptian Arabic: 1 · 2 · 3–10 · 11+
+  const cnt = (n, one, two, few, many) => (n === 1 ? one : n === 2 ? two : n <= 10 ? n + ' ' + few : n + ' ' + many);
+  const CLOSED = ['مكتمل', 'ملغي', 'استرجاع', 'فشل']; const TK_OPEN = ['open', 'in_progress'];
+  // «تلقائية من السيستم»: what waits for the member right now, read from the live data — it goes by itself once it is handled. Mine: the
+  // reviews waiting for me (a click reviews), my team's requests / overtime waiting for my decision, my role's open tickets (each urgent one,
+  // then the count), the open orders not confirmed yet (orders.status F); another member's file: the reviews waiting for them
+  function autoOf(m) {
+    const out = []; const mine = m.id === K.ME;
+    TD().filter((t) => t.status === 'جاهزة للمراجعة' && t.reviewerUid && t.reviewerUid === m.uid)
+      .forEach((t) => out.push({ key: 'rv' + t.id, title: 'راجع: ' + t.title + ' — ' + (t.memberName || '—'), run: mine ? () => review(t) : null }));
+    if (!mine) return out;
+    const toReq = () => { st.tab = 'requests'; st.reqSub = 'need'; setHash(); rerender(); };
+    needFromMe().forEach((x) => out.push(x.kind === 'req' ? { key: 'rq' + x.r.id, title: 'مراجعة طلب ' + x.r.type + ' — ' + (HM(x.r.member).name || '—'), run: toReq }
+      : { key: 'ot' + x.o.id, title: 'تأكيد وقت إضافي — ' + (HM(x.o.member).name || '—'), run: toReq }));
+    const TA = window.IBTickets;
+    if (TA && TA.can && TA.can().view && TA.state && TA.state() === 'ready') {
+      const open = TA.all().filter((t) => TK_OPEN.includes(t.status) && TA.isMine(t)); const urgent = open.filter((t) => t.priority === 'urgent');
+      urgent.forEach((t) => out.push({ key: 'tk' + t.id, title: 'الرد على تذكرة ' + t.id + ' (عاجل)', href: '#tickets/' + t.id }));
+      const rest = open.length - urgent.length;
+      if (rest > 0) out.push({ key: 'tk', title: 'الرد على ' + cnt(rest, 'تذكرة مفتوحة', 'تذكرتين مفتوحين', 'تذاكر مفتوحة', 'تذكرة مفتوحة'), href: '#tickets' });
+    }
+    const DD = window.IBDashData;
+    if (DD && DD.rows && perm('orders.view') !== 'N' && perm('orders.status') === 'F') {
+      const n = DD.rows().filter((x) => x.confirm === 'غير مؤكد' && !CLOSED.includes(x.status)).length;
+      if (n) out.push({ key: 'or', title: 'تأكيد ' + cnt(n, 'أوردر غير مؤكد', 'أوردرين غير مؤكدين', 'أوردرات غير مؤكدة', 'أوردر غير مؤكد'), href: '#orders' });
+    }
+    return out;
   }
-  function taskRow(t) {
-    const real = S.tasks.find((x) => x.id === t.id);
+  const autoRow = (t) => h('div', { class: 'task auto', 'data-auto': t.key }, Icon('sparkle', 'sm'),
+    t.run ? h('a', { href: '#profile-tasks', role: 'button', onClick: (e) => { e.preventDefault(); t.run(); } }, t.title) : t.href ? h('a', { href: t.href }, t.title) : h('span', null, t.title),
+    h('span', { class: 't-small help' }, 'بتختفي لوحدها لما تتحل'));
+  const failed = (r) => { if (r && !r.ok && r.reason !== 'stale') { K.toast(r.message || 'معرفناش نحفظ — جرّب تاني', 'error'); if (window.IBPages.current === 'profile') rerender(); } };
+  function tasks(m) {
+    const r = O.rollover(tasksOf(m.id), tdy()); const auto = autoOf(m); const w = canT(m.id);
+    const subs = [{ id: 'today', label: 'النهارده', count: r.today.length + auto.length }, { id: 'later', label: 'المؤجل', count: r.later.length + r.scheduled.length }, { id: 'done', label: 'خلصت', count: r.done.length }];
+    const add = h('input', { class: 'task-add', placeholder: 'ضيف مهمة واضغط Enter', 'aria-label': 'مهمة جديدة', value: st.newTask, maxlength: '200' });
+    add.addEventListener('input', () => { st.newTask = add.value; });
+    add.addEventListener('keydown', (e) => { if (e.key === 'Enter' && add.value.trim()) { const p = IH().taskAdd(st.who, add.value.trim()); st.newTask = ''; rerender(); setTimeout(() => { const n = document.querySelector('.task-add'); if (n) n.focus(); }); p.then(failed); } });
+    const list = st.taskSub === 'today' ? r.today : st.taskSub === 'later' ? r.later.concat(r.scheduled) : r.done.slice().sort((a, b) => (String(a.doneAt || '') < String(b.doneAt || '') ? 1 : -1));
+    return [K.SubTabs({ items: subs, active: st.taskSub, onChange: (id) => { st.taskSub = id; rerender(); }, label: 'المهام' }),
+      st.taskSub === 'today' ? K.Section('تلقائية من السيستم', auto.length ? auto.map(autoRow) : isAdminView() ? K.Empty('مفيش مراجعات مستنياه', '') : K.Empty('مفيش حاجة مستنياك', 'المراجعات والطلبات والتذاكر والأوردرات اللي محتاجاك بتظهر هنا لوحدها.'), null, { sub: auto.length + ' مهمة' }) : null,
+      K.Section(st.taskSub === 'today' ? (isAdminView() ? 'مهامه النهارده' : 'مهامي النهارده') : st.taskSub === 'later' ? 'المؤجل' : 'خلصت', [st.taskSub === 'today' && w ? h('label', { class: 'task-add-wrap' }, Icon('plus', 'sm'), add) : null, list.length ? list.map((t) => taskRow(t, w)) : K.Empty(st.taskSub === 'later' ? 'مفيش مهام مؤجلة' : st.taskSub === 'done' ? 'لسه مفيش مهام خلصت' : 'مفيش مهام', st.taskSub === 'today' && w ? 'اكتب مهمة فوق واضغط Enter.' : '')], null, { sub: st.taskSub === 'today' ? 'اللي ما خلصش بينتقل لبكره «من امبارح»' : st.taskSub === 'later' ? 'تذكير أسبوعي لو المؤجل لأجل غير مسمى عدّى 30 يوم' : 'آخر 90 يوم' })];
+  }
+  function taskRow(t, w) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
-    const btn = h('button', { type: 'button', class: 'tstat-btn', 'aria-haspopup': 'listbox', 'aria-label': 'حالة المهمة: ' + t.status }, K.Tag(T_TONE[t.status], t.status), Icon('chevD', 'sm'));
-    const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: O.TASK_STATUSES.map((s) => ({ value: s, label: s + ' · ' + T_EN[s] })), value: t.status, onSelect: (v) => { close(); changeStatus(real, v); } }));
-    btn.addEventListener('click', pop.toggle); wrap.append(btn);
-    const meta = t.status === 'متوقفة' ? 'السبب: ' + t.reason : t.status === 'جاهزة للمراجعة' ? 'المراجع: ' + t.reviewer : t.status === 'اتأجلت' ? (t.until ? 'لـ ' + K.dshort(t.until) : 'لأجل غير مسمى') : '';
-    return h('div', { class: 'task' + (t.status === 'خلصت' ? ' done' : '') }, K.Checkbox({ label: '', checked: t.status === 'خلصت', onChange: (v) => changeStatus(real, v ? 'خلصت' : 'لسه') }), h('span', { class: 'grow' }, t.title, t.carried ? h('span', { class: 'carried' }, K.Tag('orange', 'من امبارح')) : null, meta ? h('small', { class: 't-small help' }, ' · ' + meta) : null), wrap,
-      K.RowMenu([{ label: 'حذف', icon: 'close', danger: true, run: () => { S.tasks = S.tasks.filter((x) => x !== real); K.logEvent('task.delete', t.title); rerender(); } }], 'إجراءات ' + t.title));
+    const btn = h('button', { type: 'button', class: 'tstat-btn', 'aria-haspopup': 'listbox', 'aria-label': 'حالة المهمة: ' + t.status, disabled: w ? false : '' }, K.Tag(T_TONE[t.status], t.status), w ? Icon('chevD', 'sm') : null);
+    if (w) { const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: O.TASK_STATUSES.map((s) => ({ value: s, label: s + ' · ' + T_EN[s] })), value: t.status, onSelect: (v) => { close(); changeStatus(t, v); } })); btn.addEventListener('click', pop.toggle); }
+    wrap.append(btn);
+    const meta = [t.status === 'متوقفة' && t.reason ? 'السبب: ' + t.reason : t.status === 'جاهزة للمراجعة' ? 'المراجع: ' + (t.reviewer || '—') : t.status === 'اتأجلت' ? (t.until ? 'لـ ' + K.dshort(t.until) : 'لأجل غير مسمى')
+      : t.status === 'جاري' && t.reviewNote ? 'رجعت من ' + (t.reviewer || 'المراجع') + ': ' + t.reviewNote : t.status === 'خلصت' && t.reviewer ? 'اتراجعت من ' + t.reviewer : '',
+    t.byUid && t.byUid !== t.memberUid && t.by ? 'من ' + t.by : ''].filter(Boolean).join(' · ');
+    const del = IH() && IH().canDeleteTask && IH().canDeleteTask(t);
+    return h('div', { class: 'task' + (t.status === 'خلصت' ? ' done' : ''), 'data-task': String(t.id) }, K.Checkbox({ label: '', checked: t.status === 'خلصت', disabled: !w, onChange: (v) => changeStatus(t, v ? 'خلصت' : 'لسه') }),
+      h('span', { class: 'grow' }, t.title, t.carried ? h('span', { class: 'carried' }, K.Tag('orange', 'من امبارح')) : null, meta ? h('small', { class: 't-small help' }, ' · ' + meta) : null), wrap,
+      del ? K.RowMenu([{ label: 'حذف', icon: 'close', danger: true, run: () => { IH().taskDelete(t.id).then(failed); rerender(); } }], 'إجراءات ' + t.title) : null);
+  }
+  // «مين هيراجع»: the active team (hr_task_people) but the task's own member; the member's direct manager first
+  function reviewers(t) {
+    const P = IH() ? IH().people() : []; const owner = HM(t.member) || {}; const mgr = owner.manager ? HM(owner.manager) : null;
+    const l = P.filter((p) => p.uid !== t.memberUid); const first = mgr && l.find((p) => p.code === mgr.id);
+    return { list: first ? [first].concat(l.filter((p) => p !== first)) : l, def: first ? first.uid : '' };
   }
   function changeStatus(t, s) {
     if (s === 'متوقفة' || s === 'جاهزة للمراجعة' || s === 'اتأجلت') {
-      return K.form({ title: s === 'متوقفة' ? 'وقّف المهمة' : s === 'جاهزة للمراجعة' ? 'جاهزة للمراجعة' : 'أجّل المهمة', values: { reviewer: K.member(K.member(K.ME).manager || 'M02').name, when: 'day', until: O.addDays(K.TODAY, 1) }, note: h('b', null, t.title),
-        fields: (f, e, set) => s === 'متوقفة' ? [K.field.area('reason', 'سبب التوقف', f, e, set, { required: true })] : s === 'جاهزة للمراجعة' ? [K.field.select('reviewer', 'مين هيراجع', K.team().map((m) => m.name), f, e, set, { required: true, help: 'هتظهر عنده مهمة تلقائية' })]
-          : [K.Radios({ label: 'لإمتى', value: f.when, onChange: (v) => set('when', v, true), options: [{ value: 'day', label: 'ليوم معين — تظهر تلقائي في اليوم ده' }, { value: 'never', label: 'لأجل غير مسمى — تتحط في «المؤجل»' }] }), f.when === 'day' ? K.field.date('until', 'اليوم', f, e, set, { required: true }) : null],
-        validate: (f) => { const err = O.validateTaskStatus(s, { reason: f.reason, reviewer: f.reviewer, until: f.when === 'day' ? f.until : null, indefinite: f.when === 'never' }); if (!err) return {}; return { [s === 'متوقفة' ? 'reason' : s === 'جاهزة للمراجعة' ? 'reviewer' : 'until']: err }; },
-        submitLabel: 'حفظ', submit: (f) => { t.status = s; if (s === 'متوقفة') t.reason = f.reason; if (s === 'جاهزة للمراجعة') t.reviewer = f.reviewer; if (s === 'اتأجلت') { t.until = f.when === 'day' ? f.until : null; } K.logEvent('task.status', t.title + ' → ' + s); K.toast('المهمة بقت «' + s + '»'); rerender(); } });
+      const R = s === 'جاهزة للمراجعة' ? reviewers(t) : { list: [], def: '' };
+      return K.form({ title: s === 'متوقفة' ? 'وقّف المهمة' : s === 'جاهزة للمراجعة' ? 'جاهزة للمراجعة' : 'أجّل المهمة', values: { reviewer: R.def, when: 'day', until: O.addDays(tdy(), 1) }, note: h('b', null, t.title),
+        fields: (f, e, set) => s === 'متوقفة' ? [K.field.area('reason', 'سبب التوقف', f, e, set, { required: true })] : s === 'جاهزة للمراجعة' ? [K.field.select('reviewer', 'مين هيراجع', R.list.map((p) => ({ value: p.uid, label: p.name })), f, e, set, { required: true, help: 'هتظهر عنده مهمة تلقائية' })]
+          : [K.Radios({ label: 'لإمتى', value: f.when, onChange: (v) => set('when', v, true), options: [{ value: 'day', label: 'ليوم معين — تظهر تلقائي في اليوم ده' }, { value: 'never', label: 'لأجل غير مسمى — تتحط في «المؤجل»' }] }), f.when === 'day' ? K.field.date('until', 'اليوم', f, e, set, { required: true, today: tdy() }) : null],
+        validate: (f) => { const err = O.validateTaskStatus(s, { reason: f.reason, reviewer: f.reviewer, until: f.when === 'day' ? f.until : null, indefinite: f.when === 'never' }) || (s === 'اتأجلت' && f.when === 'day' && f.until < tdy() ? 'اختار يوم من النهارده أو بعده' : null); if (!err) return {}; return { [s === 'متوقفة' ? 'reason' : s === 'جاهزة للمراجعة' ? 'reviewer' : 'until']: err }; },
+        submitLabel: 'حفظ', submit: (f) => { const p = IH().taskSet(t.id, s, { reason: f.reason, reviewer: f.reviewer, until: f.when === 'day' ? f.until : null, indefinite: f.when === 'never' }); K.toast('المهمة بقت «' + s + '»'); rerender(); p.then(failed); } });
     }
-    t.status = s; if (t.day < K.TODAY) t.day = K.TODAY; K.logEvent('task.status', t.title + ' → ' + s); rerender();
+    const p = IH().taskSet(t.id, s); rerender(); p.then(failed);
   }
+  // the reviewer: «تمام — خلصت» or «رجّعها» with a note the owner reads
+  function review(t) {
+    K.form({ title: 'مراجعة مهمة', note: h('div', null, h('b', null, t.title), h('div', { class: 't-small help' }, 'من ' + (t.memberName || '—'))), values: { decision: 'ok', note: '' },
+      fields: (f, e, set) => [K.Radios({ label: 'المراجعة', value: f.decision, onChange: (v) => set('decision', v, true), options: [{ value: 'ok', label: 'تمام — خلصت' }, { value: 'back', label: 'رجّعها — محتاجة تعديل' }] }),
+        f.decision === 'back' ? K.field.area('note', 'ملاحظتك', f, e, set, { required: true, help: 'هتظهر عند ' + (t.memberName || 'صاحب المهمة') }) : null],
+      validate: (f) => (f.decision === 'back' && !String(f.note || '').trim() ? { note: 'اكتب ملاحظتك' } : {}),
+      submitLabel: 'حفظ', submit: (f, mo) => { IH().taskReview(t.id, f.decision === 'ok', f.note).then((r) => { if (!r.ok) return failed(r); mo.close(); K.toast(f.decision === 'ok' ? 'المهمة خلصت' : 'رجعت لـ ' + (t.memberName || 'صاحبها'), 'success'); if (window.IBPages.current === 'profile') rerender(); }); return false; } });
+  }
+  // the auto tasks read the tickets and the orders too
+  ['ib:tickets', 'ib:orders-ready'].forEach((ev) => document.addEventListener(ev, () => { if (window.IBPages.current === 'profile' && (st.tab === 'tasks' || st.tab === 'overview') && !typing()) rerender(); }));
 
   // ---------- ساعات العمل (this month's days from the server's attendance) ----------
   function hours(m) {
@@ -371,6 +427,7 @@
   }
 
   window.IBPages.register('profile', { title: 'ملفي', hash: (hs) => { let m = /^profile(?:-([a-z]+))?$/.exec(hs); if (m) { st.who = K.ME; st.tab = m[1] && TABS.some((t) => t[0] === m[1]) ? m[1] : 'overview'; if (m[1] === 'requests' && K.member(K.ME).role === 'أدمن') st.reqSub = 'need'; return true; } m = /^member-(M\d{2,4})$/.exec(hs); if (m && (S.members.some((x) => x.id === m[1]) || (window.IBHR && window.IBHR.member(m[1])))) { if (st.who !== m[1]) st.tab = 'overview'; st.who = m[1] === K.ME ? K.ME : m[1]; return true; } return false; },
-    defaultHash: () => (isAdminView() ? 'member-' + st.who : 'profile' + (st.tab === 'overview' ? '' : '-' + st.tab)), view, navPage: () => (isAdminView() ? 'hr' : null) });
+    defaultHash: () => (isAdminView() ? 'member-' + st.who : 'profile' + (st.tab === 'overview' ? '' : '-' + st.tab)), view, navPage: () => (isAdminView() ? 'hr' : null),
+    api: { autoTasks: () => { const m = HM(K.ME); return m && m.id ? autoOf(m) : []; } } });
 })();
 

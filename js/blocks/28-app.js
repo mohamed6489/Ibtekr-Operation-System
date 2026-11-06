@@ -1936,7 +1936,8 @@
   // «تقارير الموظفين» (phase 10 T8, decision 20): the v5 cards on IBHR — the team hr.view shows (IBHR.team()); absence in the range from the
   // attendance (a work day — not Friday / Saturday / a holiday — from the hire date with no attendance and no approved leave; today once the
   // shift is over), the first reply from the customer service conversations of the range (cs.view), the monthly KPI scores of the last
-  // three months up to the range's end; «المهام» wait for the team's tasks on the server
+  // three months up to the range's end; «المهام» = the team's open tasks now (hr_tasks — decision 25; a task postponed to today or earlier
+  // is today's again, block 12's rollover)
   function staffData(rr) {
     const H = window.IBHR; const HD = H.data; const mem = H.team(); const t = H.today(); const hol = H.holidayDates();
     const loaded = H.addDays(t, -119); const from0 = rr.from < loaded ? loaded : rr.from; const to0 = rr.to < t ? rr.to : H.addDays(t, -1);
@@ -1953,7 +1954,9 @@
     }
     const end = rr.to.slice(0, 7); const keys = [0, 1, 2].map((n) => { const d = new Date(end + '-01T00:00:00Z'); d.setUTCMonth(d.getUTCMonth() - n); return d.toISOString().slice(0, 7); });
     const scores = {}; mem.forEach((m) => { const sc = HD.scores[m.id] || {}; const o = {}; keys.forEach((k) => { if (sc[k] != null) o[Number(k.replace('-', ''))] = sc[k]; }); scores[m.id] = o; });
-    return { mem, rep: R.staffReport({ members: mem, tasks: [], attendance: absent, todayAbsent, resp, scores, from: rr.from, to: rr.to }), clamped: rr.from < loaded, csOk };
+    const codes = new Set(mem.map((m) => m.id));
+    const tasks = (HD.tasks || []).filter((x) => codes.has(x.member)).map((x) => (x.status === 'اتأجلت' && x.until && x.until <= t ? Object.assign({}, x, { status: 'لسه' }) : x));
+    return { mem, rep: R.staffReport({ members: mem, tasks, attendance: absent, todayAbsent, resp, scores, from: rr.from, to: rr.to }), clamped: rr.from < loaded, csOk };
   }
   function StaffReportView() {
     const H = window.IBHR;
@@ -1961,21 +1964,21 @@
     const rr = state.rrange; const { mem, rep, clamped, csOk } = staffData(rr); const PER = D.formatDateNumeric(rr.from) + ' – ' + D.formatDateNumeric(rr.to);
     const MON = (n) => { const k = String(n); return (window.IBKit.AR_MON[Number(k.slice(4, 6)) - 1] || '') + ' ' + k.slice(0, 4); };
     const card = (title, sub, rows, val, unit, foot, tone, key, empty) => U.ChartCard({ title, subtitle: sub, footnote: foot, body: rows.length ? h('div', { class: 'staff-top', 'data-staff': key }, rows.map((x) => h('div', { class: 'st-row' }, h('span', { class: 'st-rank', 'aria-hidden': 'true' }, String(x.rank)), U.Avatar ? U.Avatar(x.name) : null, h('span', { class: 'st-who' }, h('b', null, x.name), h('small', { class: 't-small help' }, x.title || '')), h('span', { class: 'st-val ' + tone }, num(val(x)), h('small', { class: 't-small' }, ' ' + unit(x)))))) : U.EmptyState(empty ? empty[0] : 'مفيش بيانات', empty ? empty[1] : 'لسه مفيش تسجيلات في الفترة دي.') });
-    rExport = { label: 'تقرير الموظفين', headers: ['التقرير', '#', 'الموظف', 'القيمة'], rows: [].concat(rep.absence.map((x) => ['غياب (يوم)', x.rank, x.name, x.days]), rep.fastest.map((x) => ['أسرع رد (دقيقة)', x.rank, x.name, x.minutes]), rep.rating.map((x) => ['تقييم الأداء %', x.rank, x.name, x.score])) };
-    const SOON_TASKS = ['قريبًا — مع مهام الفريق', 'المهام المفتوحة لكل موظف هتظهر هنا لما «ملفي › مهامي» تبقى على السيرفر.'];
+    rExport = { label: 'تقرير الموظفين', headers: ['التقرير', '#', 'الموظف', 'القيمة'], rows: [].concat(rep.tasks.map((x) => ['مهام مفتوحة', x.rank, x.name, x.open]), rep.absence.map((x) => ['غياب (يوم)', x.rank, x.name, x.days]), rep.fastest.map((x) => ['أسرع رد (دقيقة)', x.rank, x.name, x.minutes]), rep.rating.map((x) => ['تقييم الأداء %', x.rank, x.name, x.score])) };
+    const NO_TASKS = ['مفيش مهام مفتوحة', 'كل مهام الفريق خلصت أو اتأجلت.'];
     return [
       h('div', { class: 'cards four', 'data-rgroup': 'kpis' },
-        U.KpiTile({ label: 'مهام مفتوحة', value: '—', compare: 'off', note: 'قريبًا — مع «مهامي» على السيرفر' }),
+        U.KpiTile({ label: 'مهام مفتوحة', value: String(rep.counts.openTasks), unit: 'مهمة', compare: 'off', note: 'على ' + mem.length + ' موظف · من «ملفي › مهامي»' }),
         U.KpiTile({ label: 'أيام غياب', value: String(rep.counts.absentDays), unit: 'يوم', compare: 'off', note: PER + ' · من غير إذن' + (clamped ? ' · آخر 120 يوم بس' : '') }),
         U.KpiTile({ label: 'أسرع رد', value: rep.fastest[0] ? String(rep.fastest[0].minutes) : '—', unit: 'دقيقة', compare: 'off', note: !csOk ? 'محتاج صلاحية خدمة العملاء' : rep.fastest[0] ? rep.fastest[0].name : 'مفيش ردود في الفترة' }),
         U.KpiTile({ label: 'أعلى تقييم أداء', value: rep.rating[0] ? rep.rating[0].score + '%' : '—', compare: 'off', note: rep.rating[0] ? rep.rating[0].name + ' · ' + MON(rep.rating[0].month) : 'لسه مفيش تقييم' })),
       h('div', { class: 'charts', 'data-rgroup': 'charts' },
-        card('أكتر 5 عندهم مهام', 'المهام المفتوحة (لسه · جاري · متوقفة · جاهزة للمراجعة)', rep.tasks, (x) => String(x.open), () => 'مهمة', 'من «ملفي › مهامي» لكل موظف', 'neutral', 'tasks', SOON_TASKS),
+        card('أكتر 5 عندهم مهام', 'المهام المفتوحة (لسه · جاري · متوقفة · جاهزة للمراجعة)', rep.tasks, (x) => String(x.open), () => 'مهمة', 'من «ملفي › مهامي» لكل موظف — دلوقتي', 'neutral', 'tasks', NO_TASKS),
         card('أكتر 5 غياب', PER, rep.absence, (x) => String(x.days), () => 'يوم', 'من سجل الحضور: يوم شغل من غير حضور ولا إجازة متوافق عليها + غايب النهارده', 'bad', 'absence')),
       h('div', { class: 'charts', 'data-rgroup': 'charts2' },
         card('أسرع 5 في الرد', 'متوسط أول رد · ' + PER, rep.fastest, (x) => String(x.minutes), () => 'دقيقة', 'محادثات خدمة العملاء اللي اتفتحت في الفترة', 'good', 'fastest', csOk ? null : ['محتاج صلاحية خدمة العملاء', 'وقت الرد بيتحسب من محادثات خدمة العملاء.']),
         card('أعلى 5 تقييم', 'تقييم الأداء الشهري (KPI) · آخر 3 شهور لحد آخر الفترة', rep.rating, (x) => x.score + '%', (x) => MON(x.month) + ' · متوسط ' + Math.round(x.avg) + '%', 'من «الموارد البشرية › الأداء والـ KPI»', 'good', 'rating')),
-      h('p', { class: 'source' }, 'المصدر: سجل الحضور والإجازات والتقييم (الموارد البشرية — ' + mem.length + ' عضو ظاهرين ليك) + محادثات خدمة العملاء لوقت الرد.')];
+      h('p', { class: 'source' }, 'المصدر: مهام الفريق («ملفي › مهامي») + سجل الحضور والإجازات والتقييم (الموارد البشرية — ' + mem.length + ' عضو ظاهرين ليك) + محادثات خدمة العملاء لوقت الرد.')];
   }
   const CampaignsReportView = soonView('التسويق', 'أرقام الحملات الإعلانية (Meta و Google و TikTok Ads) هتظهر هنا مع صفحة «التسويق».');
   // «تقارير المخزن»: IBInventory's hub in K.store (0044) — the same numbers as the stock page's own «التقارير» tab

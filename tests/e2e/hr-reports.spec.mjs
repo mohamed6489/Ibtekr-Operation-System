@@ -44,7 +44,7 @@ async function open(page, email, hash) {
 const kpi = (page, label) => page.locator('#rpanel .kpi[aria-label="' + label + '"]');
 const top = (scope, key) => scope.locator('[data-staff="' + key + '"]');
 
-test('«تقارير الموظفين» is open on real data: the absences of the range, the first reply, the KPI scores; «المهام» say «قريبًا»', async ({ page }) => {
+test('«تقارير الموظفين» is open on real data: the absences of the range, the first reply, the KPI scores; «المهام» from «ملفي › مهامي» (none open here — profile-tasks.spec counts them)', async ({ page }) => {
   await open(page, ADMIN, 'reports-staff');
   await expect(page.locator('#reports #tab-staff')).toHaveAttribute('aria-selected', 'true');
   await expect(page.locator('#reports [role=tab] [data-soon]')).toHaveCount(1); // only «الحملات الإعلانية»
@@ -57,8 +57,8 @@ test('«تقارير الموظفين» is open on real data: the absences of th
   await expect(rating).toHaveCount(2);
   await expect(rating.nth(0)).toContainText('سارة أحمد'); await expect(rating.nth(0)).toContainText('104%');
   await expect(rating.nth(1)).toContainText('منى حسن'); await expect(rating.nth(1)).toContainText('92%');
-  await expect(kpi(page, 'مهام مفتوحة')).toContainText('قريبًا');
-  await expect(page.locator('#rpanel')).toContainText('قريبًا — مع مهام الفريق');
+  await expect(kpi(page, 'مهام مفتوحة')).toContainText('0'); await expect(kpi(page, 'مهام مفتوحة')).not.toContainText('قريبًا');
+  await expect(page.locator('#rpanel')).toContainText('مفيش مهام مفتوحة');
 });
 
 test('the HR page\'s own «التقارير» shows the same staff report with the reports range', async ({ page }) => {

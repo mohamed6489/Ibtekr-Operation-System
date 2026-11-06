@@ -193,22 +193,7 @@
     bonusRules: [{ name: 'مكافأة تفوق', cond: 'سكور الربع ≥ 110%', amount: 500, on: true }, { name: 'مكافأة تفوق عالي', cond: 'سكور الربع ≥ 120%', amount: 1000, on: true }, { name: 'ربع بدون أوردر متأخر', cond: '0 متأخرات في مسؤوليته', amount: 300, on: true }, { name: 'أعلى تقييم خدمة عملاء', cond: 'أعلى CSAT في الربع ≥ 4.8', amount: 300, on: true }],
     hrSettings: { shiftEnd: true, presence: true, presenceEvery: 120, confirmBy: 'المدير المباشر', escalate: 24, countOT: true, lateGrace: 15, lateDeduct: false, autoMissing: true, probation: 3, salaryViewers: 'المالك + المحاسب', hideAmounts: true, holdbackDefault: 1000, bonusFloor: 70 },
     activity: [],
-    tasks: [
-      { id: 1, title: 'تأكيد 3 أوردرات غير مؤكدة', auto: true, member: 'M01', link: '#orders', day: '2026-10-21' },
-      { id: 2, title: 'الرد على تذكرة TKT-2043 (عاجل)', auto: true, member: 'M01', link: '#tickets/TKT-2043', day: '2026-10-21' },
-      { id: 3, title: 'مراجعة طلب إجازة منى حسن', auto: true, member: 'M01', link: '#profile-requests', day: '2026-10-21' },
-      { id: 11, title: 'تجهيز عرض الموردين الجدد', status: 'جاري', day: '2026-10-20', member: 'M01' },
-      { id: 12, title: 'مكالمة مع شركة الشحن بخصوص الأسعار', status: 'لسه', day: '2026-10-21', member: 'M01' },
-      { id: 13, title: 'مراجعة صور منتجات W&R', status: 'جاهزة للمراجعة', reviewer: 'سارة أحمد', day: '2026-10-21', member: 'M01' },
-      { id: 14, title: 'تحديث سياسة المرتجعات على الموقع', status: 'متوقفة', reason: 'مستني رد المحامي', day: '2026-10-21', member: 'M01' },
-      { id: 15, title: 'خطة محتوى نوفمبر', status: 'اتأجلت', until: null, day: '2026-10-18', member: 'M01' },
-      { id: 16, title: 'إرسال فواتير سبتمبر للموردين', status: 'خلصت', day: '2026-10-21', member: 'M01' },
-      { id: 17, title: 'اجتماع فريق المخزن', status: 'اتأجلت', until: '2026-10-21', day: '2026-10-19', member: 'M01' },
-      { id: 4, title: 'الرد على 5 تذاكر مفتوحة', auto: true, member: 'M03', link: '#tickets', day: '2026-10-21' },
-      { id: 21, title: 'متابعة عملاء الأوردرات غير المؤكدة', status: 'جاري', day: '2026-10-20', member: 'M03' },
-      { id: 22, title: 'تحديث ردود الواتساب الجاهزة', status: 'لسه', day: '2026-10-21', member: 'M03' },
-      { id: 23, title: 'تقرير شكاوى سبتمبر', status: 'خلصت', day: '2026-10-21', member: 'M03' },
-    ],
+    tasks: [], // «ملفي › مهامي» is on the server (IBHR.data.tasks — hr_tasks, phase 10 decision 25); the demo rows are gone
     // inventory hub (Figma 314:3387). Every lot: reason / status / next step / age. Quantities come from the ledger (key = lot).
     stock: [
       { key: 'L-PD-549', sku: 'IBTB0CJR7XWC9', name: 'Photo Display', vendor: 'Rufaida', reason: 'مرتجع', status: 'بانتظار الفحص', ref: '#180549', since: '2026-10-20', loc: 'R-01', cost: 450, mode: 'أمانة' },

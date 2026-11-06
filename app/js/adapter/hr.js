@@ -16,6 +16,10 @@
 //   extras [{ id, member, quarter, rule, amount, status }] · achievements [{ id, member, title, amount, date, month, status }]
 //   adjustments [{ id, member, month, label, amount, kind, note }] · meetings [{ id 'MT-01', dbId, member, reason, status, … }]
 //   sheet { month 'YYYY-MM', status } (this month's) · sheets { 'YYYY-MM': { status, total, paidAccount } }
+//   tasks [{ id, member, memberUid, memberName, title, status, day, reason, reviewer (a name), reviewerUid, until, reviewNote, doneAt,
+//     doneDay, by (who put it), byUid }] — «ملفي › مهامي» (decision 25, 0048): the open ones + the ones done in the last 90 days that
+//     the member sees (mine · my team with hr.view P · all with F · the ones waiting for my review); people [{ uid, code, name }] —
+//     the active team's names (hr_task_people) for «مين هيراجع»
 // Every write goes through the RPCs / the tables RLS lets the member write and returns a Promise of { ok, reason?, field?,
 // message? } that never throws (reason 'forbidden' 42501, 'invalid' 22xxx / 23xxx, 'notfound' P0002, 'exists', 'network'); each
 // one the server took is logged hr.<x> through IBActivity (codes, months and counts — never an amount, a score, a label, a request's
@@ -27,7 +31,9 @@
 (function () {
   'use strict';
   const BUCKET = 'hr-docs'; const MAX_BYTES = 10 * 1024 * 1024; const MIME = ['image/png', 'image/jpeg', 'image/webp', 'application/pdf'];
-  const DAYS_BACK = 120; const REQ_DAYS = 400; const POLL_MS = 60000;
+  const DAYS_BACK = 120; const REQ_DAYS = 400; const POLL_MS = 60000; const TASK_DONE_DAYS = 90;
+  const TASK_STATUSES = ['لسه', 'جاري', 'متوقفة', 'جاهزة للمراجعة', 'خلصت', 'اتأجلت'];
+  const TASK_COLS = 'id, member_id, title, status, day, reason, reviewer_id, until, review_note, done_at, created_by, created_at';
   const ACCOUNTS = ['حساب البنك', 'حساب بوسطة', 'حساب باي موب', 'محفظة إلكترونية'];
   const DOC_KINDS = ['عقد عمل', 'ملحق عقد', 'بطاقة رقم قومي', 'شهادة تخرج', 'أخرى'];
   const DEFAULTS = { shiftEnd: true, presence: true, presenceEvery: 120, confirmBy: 'المدير المباشر', escalate: 24, countOT: true, lateGrace: 15, lateDeduct: false,
@@ -47,7 +53,8 @@
     amount: 'اكتب المبلغ وعدد الأقساط', to: 'راجع التاريخ', type: 'النوع ده مش موجود', reason: 'اكتب السبب', minutes: 'راجع عدد الدقايق', weights: 'مجموع الأوزان لازم 100%',
     actual: 'اكتب الفعلي لكل مؤشر', month: 'الشهر ده لسه مجاش', status: 'الحالة دي مش متاحة', step: 'الخطوة دي مش متاحة للكشف دلوقتي', account: 'اختار الحساب',
     doc: 'ارفع المرفق المطلوب', note: 'الملاحظة طويلة', decision: 'القرار مش صحيح', email: 'الإيميل ده مستخدم', phone: 'رقم الموبايل ده مستخدم',
-    meeting: 'الوقت الإضافي اللي اترفض بيرجع بنتيجة الميتنج بتاعه بس' };
+    meeting: 'الوقت الإضافي اللي اترفض بيرجع بنتيجة الميتنج بتاعه بس', title: 'اكتب المهمة (لحد 200 حرف)', reviewer: 'اختار مين هيراجع (غير صاحب المهمة)',
+    until: 'اختار يوم من النهارده أو بعده', count: 'فيه 300 مهمة مفتوحة — خلّص أو امسح شوية الأول' };
   const fail = (err) => { const reason = reasonOf(err); const field = reason === 'invalid' ? fieldOf(err) : null; return { ok: false, reason, field, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] }; };
   const no = (reason, field) => ({ ok: false, reason, field: field || null, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] });
   const log = (action, detail, id) => { const L = window.IBActivity; if (L && L.log) quiet(() => L.log(action, detail, { entity: 'hr', entity_id: id || null })); };
@@ -100,7 +107,7 @@
 
   // ---------- the loaded rows ----------
   let st = 'idle'; let gen = 0;
-  const raw = { team: [], members: [], pay: [], att: [], ot: [], req: [], hol: [], lt: [], br: [], otp: [], kpis: [], scores: [], extras: [], meet: [], adj: [], payroll: [], docs: [], settings: {} };
+  const raw = { team: [], members: [], pay: [], att: [], ot: [], req: [], hol: [], lt: [], br: [], otp: [], kpis: [], scores: [], extras: [], meet: [], adj: [], payroll: [], docs: [], settings: {}, tasks: [], people: [] };
   const ids = { req: 'HR-', ot: 'OT-', meet: 'MT-' };
   const pad = (n, w) => String(n).padStart(w, '0');
   const reqId = (n) => ids.req + pad(n, 4); const otId = (n) => ids.ot + pad(n, 4); const mtId = (n) => ids.meet + pad(n, 2);
@@ -212,7 +219,7 @@
     const g = ++gen; st = 'loading';
     try {
       const t = today(); const since = addDays(t, -DAYS_BACK); const reqSince = addDays(t, -REQ_DAYS); const scoreSince = addDays(t.slice(0, 8) + '01', -730);
-      const [team, hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, set, notes] = await Promise.all([
+      const [team, hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, set, notes, tasks] = await Promise.all([
         cl.rpc('hr_team').then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []),
         rows(cl.from('hr_members').select('member_id, shift_start, shift_end, hire_date, leave_days')), // the notes column is closed (hr_member_notes)
         maybe(cl.from('hr_pay').select('member_id, salary, holdback, allowances')),
@@ -233,18 +240,19 @@
         cl.rpc('hr_settings').then((r) => (r && !r.error && r.data && typeof r.data === 'object' ? r.data : {}), () => ({})),
         // the internal notes (security review 5 Nov): hr.edit F only, never my own — the server decides again
         can().edit ? cl.rpc('hr_member_notes').then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []) : Promise.resolve([]),
+        taskRows(cl, t), // decision 25 (0048) — empty before the migration, the rest of HR still loads
       ]);
       if (g !== gen) return { ok: false, reason: 'stale' };
-      Object.assign(raw, { team, members: hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, settings: set, notes });
-      buildRoster(team); shape(); st = 'ready'; emit(); subscribe(); return { ok: true };
+      Object.assign(raw, { team, members: hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, settings: set, notes, tasks: tasks.rows, people: tasks.people });
+      tgen += 1; buildRoster(team); shape(); shapeTasks(); st = 'ready'; emit(); subscribe(); return { ok: true };
     } catch (e) { if (g === gen) st = 'error'; emit(); return fail(e); }
   }
   function empty() {
-    ['team', 'attendance', 'requests', 'overtime', 'restWork', 'adjustments', 'achievements', 'extras', 'meetings', 'otPeriods', 'bonusRules', 'holidays', 'leaveTypes', 'departments'].forEach((k) => { data[k] = []; });
+    ['team', 'attendance', 'requests', 'overtime', 'restWork', 'adjustments', 'achievements', 'extras', 'meetings', 'otPeriods', 'bonusRules', 'holidays', 'leaveTypes', 'departments', 'tasks', 'people'].forEach((k) => { data[k] = []; });
     Object.assign(data, { today: {}, kpis: {}, scores: {}, scoreRows: {}, sheets: {}, sheet: { month: monthKey(today()), status: 'مسودة', exists: false }, hrSettings: Object.assign({}, DEFAULTS) });
   }
   empty();
-  function clear() { gen += 1; unsubscribe(); Object.keys(raw).forEach((k) => { raw[k] = k === 'settings' ? {} : []; }); roster = []; st = 'idle'; empty(); }
+  function clear() { gen += 1; tgen += 1; unsubscribe(); Object.keys(raw).forEach((k) => { raw[k] = k === 'settings' ? {} : []; }); roster = []; pendingAdds.clear(); st = 'idle'; empty(); }
   const member = (code) => data.team.find((m) => m.id === code) || null;
   // the team the HR page lists: active, the ones hr.view lets me see (F all · P me + the members I manage · N me), without an admin
   // who has no pay row (the owner is not on the sheet)
@@ -504,6 +512,95 @@
     return after('hr.pay.update', (byUid(uid) || {}).id, uid);
   }
 
+  // ---------- «ملفي › مهامي» (decision 25, 0048): hr_tasks under RLS, written through hr_task_add / set / delete / review ----------
+  // Each write shows at once (the row changes here first) and the server's rows come back right after; a failed write puts the row
+  // back. A task added a moment ago has a temporary negative id until the server answers — a click on it waits for the real one.
+  let tgen = 0; let tmpSeq = 0; const pendingAdds = new Map();
+  const absent = (e) => /^(42P01|42883|PGRST20[25])$/.test(String((e && e.code) || '')); // the migration not applied yet
+  async function soft(q) { const { data: d, error } = await q; if (error) { if (absent(error)) return []; throw error; } return Array.isArray(d) ? d : []; }
+  async function taskRows(cl, t) {
+    const [open, done, people] = await Promise.all([
+      soft(cl.from('hr_tasks').select(TASK_COLS).neq('status', 'خلصت').order('id').limit(3000)),
+      soft(cl.from('hr_tasks').select(TASK_COLS).eq('status', 'خلصت').gte('done_at', addDays(t, -TASK_DONE_DAYS)).order('done_at', { ascending: false }).limit(2000)),
+      soft(cl.rpc('hr_task_people')),
+    ]);
+    return { rows: open.concat(done), people };
+  }
+  const personOf = (x) => { const s = String(x == null ? '' : x); if (!s) return null; return data.people.find((p) => p.uid === s || p.code === s || p.name === s) || null; };
+  function shapeTasks() {
+    const P = new Map((raw.people || []).map((p) => [p.id, p]));
+    const nm = (uid) => (!uid ? null : (P.get(uid) || {}).name || (byUid(uid) || {}).name || '—');
+    const cd = (uid) => (!uid ? null : (P.get(uid) || {}).member_code || codeOf(uid));
+    data.people = (raw.people || []).map((p) => ({ uid: p.id, code: p.member_code, name: p.name }));
+    data.tasks = (raw.tasks || []).map((r) => ({ id: Number(r.id), member: cd(r.member_id), memberUid: r.member_id, memberName: nm(r.member_id), title: r.title, status: r.status, day: r.day,
+      reason: r.reason || null, reviewer: r.reviewer_id ? nm(r.reviewer_id) : null, reviewerUid: r.reviewer_id || null, until: r.until || null, reviewNote: r.review_note || null,
+      doneAt: r.done_at || null, doneDay: r.done_at ? ((parts(r.done_at) || {}).day || null) : null, by: r.created_by ? nm(r.created_by) : null, byUid: r.created_by || null }))
+      .sort((a, b) => a.id - b.id);
+  }
+  async function loadTasks() {
+    const cl = c(); if (!cl || !myUid() || st !== 'ready') return { ok: false, reason: 'network' };
+    const g = ++tgen;
+    try { const r = await taskRows(cl, today()); if (g !== tgen) return { ok: false, reason: 'stale' }; raw.tasks = r.rows; raw.people = r.people; shapeTasks(); emit(); return { ok: true }; } catch (e) { return fail(e); }
+  }
+  // who writes a member's tasks (the server decides again): the member, their direct manager, hr.edit F on the members they see
+  function canTask(code) {
+    const mine = me() ? me().member_code : null; if (!code || !mine) return false; if (code === mine) return true;
+    const m = member(code); if (!m || m.status !== 'active') return false;
+    return m.manager === mine || can().edit;
+  }
+  // «حذف»: a member does not remove a task someone else put on them (the admin does)
+  const canDeleteTask = (t) => !!t && canTask(t.member) && !(t.memberUid === myUid() && t.byUid && t.byUid !== myUid() && !can().admin);
+  const tasksOf = (code) => data.tasks.filter((t) => t.member === code);
+  const reviewsFor = (uid) => data.tasks.filter((t) => t.status === 'جاهزة للمراجعة' && t.reviewerUid && t.reviewerUid === (uid || myUid()));
+  // the change shows before the call (no await first); a temporary id waits for the server's one
+  const later = (id, fn) => Promise.resolve(pendingAdds.has(id) ? pendingAdds.get(id) : null).then((k) => (k > 0 ? fn(k) : no('invalid')));
+  function taskAdd(code, title) {
+    const cl = c(); const uid = uidOf(code) || (personOf(code) || {}).uid || myUid(); const ti = clean(title, 200);
+    if (!cl || !uid) return Promise.resolve(no('network')); if (!ti) return Promise.resolve(no('invalid', 'title'));
+    const tmp = -(++tmpSeq); const mm = me(); const p = personOf(uid);
+    data.tasks.push({ id: tmp, member: codeOf(uid) || (p && p.code) || code, memberUid: uid, memberName: (p && p.name) || nameOf(uid), title: ti, status: 'لسه', day: today(), reason: null, reviewer: null, reviewerUid: null,
+      until: null, reviewNote: null, doneAt: null, doneDay: null, by: mm ? mm.name : null, byUid: myUid(), pending: true });
+    emit();
+    const run = rpc('hr_task_add', { p_member: uid, p_title: ti }).then(async ({ data: id, error }) => {
+      if (error) { data.tasks = data.tasks.filter((x) => x.id !== tmp); emit(); return { r: fail(error), id: null }; }
+      log('hr.task.add', (p && p.code) || codeOf(uid) || '', String(id)); await loadTasks(); return { r: { ok: true, id: Number(id) }, id: Number(id) };
+    });
+    pendingAdds.set(tmp, run.then((x) => x.id));
+    return run.then((x) => x.r);
+  }
+  // a status: { reason } for متوقفة, { reviewer: uid | code | name } for جاهزة للمراجعة, { until } or { indefinite: true } for اتأجلت
+  function taskSet(id, status, f) {
+    const k = Number(id); if (!(k > 0)) return k < 0 ? later(k, (r) => taskSet(r, status, f)) : Promise.resolve(no('invalid'));
+    if (!TASK_STATUSES.includes(status)) return Promise.resolve(no('invalid', 'status'));
+    const o = f || {}; const args = {}; const rv = status === 'جاهزة للمراجعة' ? personOf(o.reviewer) : null;
+    if (status === 'متوقفة') { args.reason = clean(o.reason, 300); if (!args.reason) return Promise.resolve(no('invalid', 'reason')); }
+    if (status === 'جاهزة للمراجعة') { if (!rv) return Promise.resolve(no('invalid', 'reviewer')); args.reviewer = rv.uid; }
+    if (status === 'اتأجلت') { if (o.indefinite) args.indefinite = true; else { if (!o.until) return Promise.resolve(no('invalid', 'until')); args.until = o.until; } }
+    const t = data.tasks.find((x) => x.id === k) || null; const before = t ? Object.assign({}, t) : null; const d = today();
+    if (t) { Object.assign(t, { status, day: t.day < d ? d : t.day, reason: args.reason || null, reviewerUid: rv ? rv.uid : null, reviewer: rv ? rv.name : null, until: args.until || null, reviewNote: null,
+      doneAt: status === 'خلصت' ? (t.doneAt || new Date().toISOString()) : null, doneDay: status === 'خلصت' ? (t.doneDay || d) : null }); emit(); }
+    return rpc('hr_task_set', { p_id: k, p_status: status, p_args: args }).then(async ({ error }) => {
+      if (error) { if (t && before) { Object.assign(t, before); emit(); } return fail(error); }
+      log('hr.task.status', status, String(k)); await loadTasks(); return { ok: true };
+    });
+  }
+  function taskDelete(id) {
+    const k = Number(id); if (!(k > 0)) return k < 0 ? later(k, taskDelete) : Promise.resolve(no('invalid'));
+    const t = data.tasks.find((x) => x.id === k) || null; const at = t ? data.tasks.indexOf(t) : -1; if (t) { data.tasks = data.tasks.filter((x) => x !== t); emit(); }
+    return rpc('hr_task_delete', { p_id: k }).then(async ({ error }) => {
+      if (error) { if (t && !data.tasks.some((x) => x.id === k)) { data.tasks.splice(Math.max(0, at), 0, t); emit(); } return fail(error); }
+      log('hr.task.delete', '', String(k)); await loadTasks(); return { ok: true };
+    });
+  }
+  // the reviewer: «تمام — خلصت» (ok) or «رجّعها» with a note
+  async function taskReview(id, ok, note) {
+    const k = Number(id); if (!(k > 0)) return no('invalid');
+    const n = clean(note, 300); if (!ok && !n) return no('invalid', 'note');
+    const { error } = await rpc('hr_task_review', { p_id: k, p_ok: !!ok, p_note: n || null });
+    if (error) return fail(error);
+    log('hr.task.review', ok ? 'ok' : 'back', String(k)); await loadTasks(); return { ok: true };
+  }
+
   // ---------- documents + a leave's report (the bucket «hr-docs») ----------
   const safeName = (n) => { const base = String(n || 'file').replace(/^.*[\\/]/, ''); const ext = (/\.([A-Za-z0-9]{1,5})$/.exec(base) || [])[1] || '';
     const stem = base.replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 60) || 'file'; return ext ? stem + '.' + ext.toLowerCase() : stem; };
@@ -536,19 +633,21 @@
     if (!live) {
       try {
         live = cl.channel('hr', { config: { private: true } }).on('broadcast', { event: 'changed' }, onLive) // 0046: active members receive, nobody sends
+          .on('broadcast', { event: 'tasks' }, onTasks) // 0048: a task changed — the tasks alone
           .subscribe((status) => { if (status === 'CHANNEL_ERROR' || status === 'TIMED_OUT' || status === 'CLOSED') { const dead = live; live = null; if (dead) quiet(() => Promise.resolve(cl.removeChannel(dead)).catch(() => {})); } });
       } catch (e) { live = null; }
     }
     if (!poll && typeof setInterval === 'function') poll = setInterval(() => { check(); }, POLL_MS);
   }
   function onLive() { if (timer) clearTimeout(timer); const wait = Math.max(250, lastLive + 1500 - Date.now()); timer = setTimeout(() => { timer = null; if (st === 'ready') { lastLive = Date.now(); load(); } }, wait); }
+  let ttimer = null; function onTasks() { if (ttimer) clearTimeout(ttimer); ttimer = setTimeout(() => { ttimer = null; if (st === 'ready') loadTasks(); }, 400); }
   // the safety net (and the day turning over): reload when the page is visible
   async function check() {
     if (st !== 'ready' || (typeof document !== 'undefined' && document.visibilityState === 'hidden')) return false;
     if (!live) subscribe(); await load(); return true;
   }
   function unsubscribe() {
-    const lv = live; live = null; if (timer) { clearTimeout(timer); timer = null; } if (poll) { clearInterval(poll); poll = null; }
+    const lv = live; live = null; if (timer) { clearTimeout(timer); timer = null; } if (ttimer) { clearTimeout(ttimer); ttimer = null; } if (poll) { clearInterval(poll); poll = null; }
     if (lv && c()) { try { Promise.resolve(c().removeChannel(lv)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
 
@@ -557,5 +656,6 @@
     payrollCalc, payrollLines, sheetLines, slips, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,
     memberCreate, memberPassword, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
-    _test: { parts, minOf, atLabel, meetingLabel, shape, raw, safeName, fail, uidOf } };
+    tasksOf, reviewsFor, canTask, canDeleteTask, taskAdd, taskSet, taskDelete, taskReview, loadTasks, people: () => data.people.slice(), TASK_STATUSES,
+    _test: { parts, minOf, atLabel, meetingLabel, shape, shapeTasks, raw, safeName, fail, uidOf } };
 })();

@@ -346,3 +346,105 @@ test('the internal notes (security review 5 Nov): read through hr_member_notes f
   const member = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'P', 'hr.edit': 'N', 'hr.approve': 'N', 'sensitive.salaries': 'N' } }); await member.H.load();
   eq(rpcs(member.stub).some((x) => x[0] === 'hr_member_notes'), false);
 });
+
+// ---------- «ملفي › مهامي» (decision 25, 0048) ----------
+const TASK = (x) => ({ id: 1, member_id: C, title: 'مهمة', status: 'لسه', day: '2026-11-05', reason: null, reviewer_id: null, until: null, review_note: null, done_at: null, created_by: C, created_at: '2026-11-05T08:00:00Z', ...x });
+const PEOPLE = () => ok([{ id: A, member_code: 'M01', name: 'صفوت كمال' }, { id: B, member_code: 'M02', name: 'سارة أحمد' }, { id: C, member_code: 'M03', name: 'محمد علي' },
+  { id: 'a0000000-0000-4000-8000-000000000009', member_code: 'M09', name: 'زميل برّه الفريق' }]);
+const TASKS = (open, done = []) => ({ hr_tasks: (q) => ok(q.some((c) => c.op === 'neq') ? open : q.some((c) => c.op === 'eq' && c.args[1] === 'خلصت') ? done : []), 'rpc:hr_task_people': PEOPLE() });
+
+test('tasks: the open ones and the ones done in the last 90 days, the names from hr_task_people (a reviewer outside my team too), the day a task was done in Cairo', async () => {
+  const { H, stub } = load({ responses: TASKS([TASK({ id: 3, status: 'جاهزة للمراجعة', reviewer_id: 'a0000000-0000-4000-8000-000000000009', created_by: B }), TASK({ id: 2, status: 'متوقفة', reason: 'مستني رد' })],
+    [TASK({ id: 4, status: 'خلصت', done_at: '2026-11-04T22:30:00Z' })]) });
+  eq((await H.load()).ok, true);
+  eq(H.data.tasks.map((t) => [t.id, t.member, t.memberName, t.status]), [[2, 'M03', 'محمد علي', 'متوقفة'], [3, 'M03', 'محمد علي', 'جاهزة للمراجعة'], [4, 'M03', 'محمد علي', 'خلصت']]);
+  const t3 = H.data.tasks.find((t) => t.id === 3); eq([t3.reviewer, t3.reviewerUid, t3.by, t3.byUid], ['زميل برّه الفريق', 'a0000000-0000-4000-8000-000000000009', 'سارة أحمد', B]);
+  eq(H.data.tasks.find((t) => t.id === 4).doneDay, '2026-11-05', '22:30 UTC = 00:30 Cairo the next day');
+  eq(H.data.tasks.find((t) => t.id === 2).reason, 'مستني رد');
+  eq(H.people().map((p) => p.code), ['M01', 'M02', 'M03', 'M09']);
+  const q = opsOf(stub.calls, 'hr_tasks'); const sels = q.filter((c) => c.op === 'select').map((c) => c.args[0]);
+  eq(sels.length, 2); eq(sels.every((x) => !/\*/.test(x) && !/deleted/.test(x)), true, 'named columns, never the delete marks');
+  eq(q.find((c) => c.op === 'neq').args, ['status', 'خلصت']); eq(q.find((c) => c.op === 'gte').args, ['done_at', '2026-08-07'], 'the last 90 days');
+  eq(H.tasksOf('M03').length, 3); eq(H.reviewsFor('a0000000-0000-4000-8000-000000000009').map((t) => t.id), [3]);
+});
+
+test('tasks: before 0048 is applied the table is missing — HR still loads with no tasks', async () => {
+  const { H } = load({ responses: { hr_tasks: { data: null, error: { code: 'PGRST205', message: 'Could not find the table' } }, 'rpc:hr_task_people': { data: null, error: { code: 'PGRST202', message: 'no function' } } } });
+  eq((await H.load()).ok, true); eq([H.data.tasks, H.people()], [[], []]); eq(H.member('M02').salary, 12000);
+  const down = load({ responses: { hr_tasks: { data: null, error: { code: '08006', message: 'connection' } } } });
+  eq((await down.H.load()).ok, false, 'any other failure is a failed load (the rows on screen stay)');
+});
+
+test('tasks: «ضيف مهمة» shows at once, then the server\'s row; the RPC gets the member and the cleaned title; the log has the member\'s code, never the title', async () => {
+  let rows = [];
+  const { H, stub, logs } = load({ meId: C, meCode: 'M03', role: 'cs', perms: { 'hr.view': 'N' }, responses: { hr_tasks: (q) => ok(q.some((c) => c.op === 'neq') ? rows : []), 'rpc:hr_task_people': PEOPLE(),
+    'rpc:hr_task_add': (a) => { rows = [TASK({ id: 77, title: a.p_title })]; return ok(77); } } });
+  await H.load();
+  const p = H.taskAdd('M03', '  مكالمة\u0007 شركة   الشحن <b>  ');
+  eq(H.data.tasks.map((t) => [t.id < 0, t.title, t.status, t.day, t.pending]), [[true, 'مكالمة شركة الشحن b', 'لسه', '2026-11-05', true]], 'the row shows before the server answers');
+  eq((await p), { ok: true, id: 77 });
+  eq(rpcs(stub).find((x) => x[0] === 'hr_task_add'), ['hr_task_add', { p_member: C, p_title: 'مكالمة شركة الشحن b' }]);
+  eq(H.data.tasks.map((t) => [t.id, t.title]), [[77, 'مكالمة شركة الشحن b']]);
+  eq(logs.find((l) => l[0] === 'hr.task.add'), ['hr.task.add', 'M03', { entity: 'hr', entity_id: '77' }]);
+  eq(JSON.stringify(logs).includes('مكالمة'), false);
+  eq((await H.taskAdd('M03', '   ')).field, 'title');
+  // a refusal takes the row back, in Arabic
+  const ref = load({ meId: C, meCode: 'M03', role: 'cs', perms: { 'hr.view': 'N' }, responses: { ...TASKS([]), 'rpc:hr_task_add': { data: null, error: { code: '22023', message: 'invalid: count' } } } }); await ref.H.load();
+  const r = await ref.H.taskAdd(null, 'زيادة'); eq([r.ok, r.field, r.message], [false, 'count', 'فيه 300 مهمة مفتوحة — خلّص أو امسح شوية الأول']); eq(ref.H.data.tasks, []);
+});
+
+test('tasks: a status with its fields — the reason, the reviewer by name → uid, a day or «لأجل غير مسمى»; the row changes at once and goes back on a refusal', async () => {
+  const { H, stub, logs } = load({ responses: { ...TASKS([TASK({ id: 5, day: '2026-11-02' })]), 'rpc:hr_task_set': (a) => (a.p_status === 'جاري' ? { data: null, error: { code: '42501', message: 'not allowed' } } : ok(a.p_status)) } });
+  await H.load();
+  const p = H.taskSet(5, 'متوقفة', { reason: '  مستني  المحامي ' });
+  eq((await p).ok, true);
+  eq(rpcs(stub).find((x) => x[0] === 'hr_task_set'), ['hr_task_set', { p_id: 5, p_status: 'متوقفة', p_args: { reason: 'مستني المحامي' } }]);
+  await H.taskSet(5, 'جاهزة للمراجعة', { reviewer: 'زميل برّه الفريق' });
+  eq(rpcs(stub).filter((x) => x[0] === 'hr_task_set').pop()[1].p_args, { reviewer: 'a0000000-0000-4000-8000-000000000009' });
+  await H.taskSet(5, 'اتأجلت', { until: '2026-11-09' }); eq(rpcs(stub).filter((x) => x[0] === 'hr_task_set').pop()[1].p_args, { until: '2026-11-09' });
+  await H.taskSet(5, 'اتأجلت', { indefinite: true }); eq(rpcs(stub).filter((x) => x[0] === 'hr_task_set').pop()[1].p_args, { indefinite: true });
+  eq([(await H.taskSet(5, 'متوقفة', {})).field, (await H.taskSet(5, 'جاهزة للمراجعة', { reviewer: 'مش موجود' })).field, (await H.taskSet(5, 'اتأجلت', {})).field, (await H.taskSet(5, 'مش حالة')).field],
+    ['reason', 'reviewer', 'until', 'status'], 'checked before any call');
+  eq(logs.filter((l) => l[0] === 'hr.task.status').map((l) => l[1]), ['متوقفة', 'جاهزة للمراجعة', 'اتأجلت', 'اتأجلت'], 'the status only');
+  // optimistic: the row is today's and «جاري» right away; the refusal puts it back
+  const t = H.data.tasks.find((x) => x.id === 5); const was = t.status;
+  const q = H.taskSet(5, 'جاري'); eq([H.data.tasks.find((x) => x.id === 5).status, H.data.tasks.find((x) => x.id === 5).day], ['جاري', '2026-11-05']);
+  const r = await q; eq([r.ok, r.reason, r.message], [false, 'forbidden', 'مفيش صلاحية للإجراء ده']); eq(H.data.tasks.find((x) => x.id === 5).status, was);
+});
+
+test('tasks: a click on a task added a moment ago waits for its real id; «حذف» and the review go through their RPCs', async () => {
+  let rows = [TASK({ id: 9, created_by: A, member_id: C })]; let release;
+  const gate = new Promise((r) => { release = r; });
+  const { H, stub, logs } = load({ responses: { hr_tasks: (q) => ok(q.some((c) => c.op === 'neq') ? rows : []), 'rpc:hr_task_people': PEOPLE(),
+    'rpc:hr_task_add': async () => { await gate; rows = rows.concat([TASK({ id: 10, title: 'جديدة', member_id: A, created_by: A })]); return ok(10); },
+    'rpc:hr_task_set': (a) => ok(a.p_status), 'rpc:hr_task_delete': ok(null), 'rpc:hr_task_review': (a) => ok(a.p_ok ? 'خلصت' : 'جاري') } });
+  await H.load();
+  const add = H.taskAdd('M01', 'جديدة'); const tmp = H.data.tasks.find((t) => t.pending).id;
+  const set = H.taskSet(tmp, 'خلصت'); release(); await add; eq((await set).ok, true);
+  eq(rpcs(stub).find((x) => x[0] === 'hr_task_set')[1].p_id, 10, 'the real id');
+  eq((await H.taskDelete(9)).ok, true); eq(rpcs(stub).find((x) => x[0] === 'hr_task_delete'), ['hr_task_delete', { p_id: 9 }]);
+  eq((await H.taskReview(9, false, '  ')).field, 'note', '«رجّعها» needs a note');
+  eq((await H.taskReview(9, false, 'ناقص صورة')).ok, true); eq(rpcs(stub).find((x) => x[0] === 'hr_task_review'), ['hr_task_review', { p_id: 9, p_ok: false, p_note: 'ناقص صورة' }]);
+  await H.taskReview(9, true); eq(rpcs(stub).filter((x) => x[0] === 'hr_task_review').pop(), ['hr_task_review', { p_id: 9, p_ok: true, p_note: null }]);
+  eq(logs.filter((l) => /^hr\.task\.(delete|review)$/.test(l[0])).map((l) => [l[0], l[1]]), [['hr.task.delete', ''], ['hr.task.review', 'back'], ['hr.task.review', 'ok']]);
+});
+
+test('tasks: who writes them (the member, the direct manager, hr.edit F) and who removes one (not the member, when someone else put it)', async () => {
+  const rows = [TASK({ id: 1, member_id: C, created_by: C }), TASK({ id: 2, member_id: C, created_by: B })];
+  const mgr = load({ meId: A, meCode: 'M01', role: 'ops', perms: { 'hr.view': 'P', 'hr.edit': 'N' }, responses: TASKS(rows) }); await mgr.H.load();
+  eq([mgr.H.canTask('M01'), mgr.H.canTask('M03'), mgr.H.canTask('M05')], [true, true, false], 'M03 reports to M01; M05 (hr_team) reports to M02');
+  const own = load({ meId: C, meCode: 'M03', role: 'cs', perms: { 'hr.view': 'N' }, responses: TASKS(rows) }); await own.H.load();
+  eq([own.H.canTask('M03'), own.H.canTask('M02')], [true, false]);
+  eq([own.H.canDeleteTask(own.H.data.tasks[0]), own.H.canDeleteTask(own.H.data.tasks[1])], [true, false], 'the one the manager put stays');
+  const adm = load({ responses: TASKS(rows) }); await adm.H.load();
+  eq([adm.H.canTask('M02'), adm.H.canTask('M05'), adm.H.canDeleteTask(adm.H.data.tasks[1])], [true, true, true], 'hr.edit F on the members they see');
+});
+
+test('tasks: the live line «hr» / «tasks» reloads the tasks alone — not the whole HR load', async () => {
+  const { H, stub } = load({ realtime: true, responses: TASKS([TASK({})]) }); await H.load();
+  const before = opsOf(stub.calls, 'hr_members').filter((c) => c.op === 'select').length; const tb = opsOf(stub.calls, 'hr_tasks').filter((c) => c.op === 'select').length;
+  await stub.emitBroadcast('tasks', { at: 'x' }); await new Promise((r) => setTimeout(r, 500));
+  eq(opsOf(stub.calls, 'hr_members').filter((c) => c.op === 'select').length, before);
+  eq(opsOf(stub.calls, 'hr_tasks').filter((c) => c.op === 'select').length, tb + 2);
+  H.clear(); eq([H.data.tasks, H.people()], [[], []]);
+});

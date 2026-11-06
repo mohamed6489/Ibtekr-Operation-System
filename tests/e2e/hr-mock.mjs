@@ -1,6 +1,6 @@
 // Phase 10 (0046): the HR tables, RPCs, the Edge Function team-admin and the bucket «hr-docs», emulated for supabase-mock.mjs (not a
 // test file itself). hrState(opts) seeds the rows as the database holds them (opts.hrMembers / hrPay / hrAttendance / hrOvertime /
-// hrRequests / hrHolidays / hrKpis / hrScores / hrExtras / hrMeetings / hrAdjustments / hrPayroll / hrPayrollLines / hrDocuments — the ids, dates and
+// hrRequests / hrHolidays / hrKpis / hrScores / hrExtras / hrMeetings / hrAdjustments / hrPayroll / hrPayrollLines / hrDocuments / hrTasks (0048) — the ids, dates and
 // the uuids of USERS); hrRoute(c) answers a request of those paths (or returns null): RLS as 0046 reads it (hr_can_see: me, hr.view F
 // everyone, P the members I manage; the pay / the money for sensitive.salaries F or one's own; the documents for hr.edit F or one's
 // own), the RPCs with the same rules (the server's clock, the overtime past 8 hours, the payroll lines, «مدفوع» into the accounts'
@@ -40,9 +40,10 @@ const COLS = {
   hr_payroll: ['month', 'status', 'opened_at', 'reviewed_by', 'reviewed_at', 'approved_by', 'approved_at', 'paid_by', 'paid_at', 'paid_account', 'total'],
   hr_payroll_lines: ['month', 'member_id', 'name', 'salary', 'holdback', 'paid', 'ot_minutes', 'ot_pay', 'rest_days', 'rest_pay', 'unpaid_days', 'unpaid_cut', 'allowances', 'deductions', 'advance', 'quarter_bonus', 'net'],
   hr_documents: ['id', 'member_id', 'kind', 'path', 'name', 'start_on', 'end_on', 'created_by', 'created_at', 'voided_by', 'voided_at'],
+  hr_tasks: ['id', 'member_id', 'title', 'status', 'day', 'reason', 'reviewer_id', 'until', 'review_note', 'done_at', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deleted_at', 'deleted_by'],
 };
 const KEY = { hr_attendance: 'attendance', hr_overtime: 'overtime', hr_requests_v: 'requests', hr_holidays: 'holidays', hr_leave_types: 'leave_types', hr_bonus_rules: 'bonus_rules', hr_ot_periods: 'ot_periods',
-  hr_kpis: 'kpis', hr_scores: 'scores', hr_extras: 'extras', hr_meetings: 'meetings', hr_adjustments: 'adjustments', hr_payroll: 'payroll', hr_payroll_lines: 'payroll_lines', hr_documents: 'documents', hr_members: 'members', hr_pay: 'pay' };
+  hr_kpis: 'kpis', hr_scores: 'scores', hr_extras: 'extras', hr_meetings: 'meetings', hr_adjustments: 'adjustments', hr_payroll: 'payroll', hr_payroll_lines: 'payroll_lines', hr_documents: 'documents', hr_members: 'members', hr_pay: 'pay', hr_tasks: 'tasks' };
 
 export function hrState(opts = {}) {
   const T = '2026-11-01T08:00:00Z'; const copy = (l) => (l || []).map((x) => JSON.parse(JSON.stringify(x)));
@@ -66,6 +67,8 @@ export function hrState(opts = {}) {
     adjustments: copy(opts.hrAdjustments).map((x, i) => ({ id: i + 1, note: null, kind: 'adjust', created_by: null, created_at: T, voided_by: null, voided_at: null, ...x })),
     payroll: copy(opts.hrPayroll).map((x) => ({ status: 'مسودة', opened_at: T, reviewed_by: null, reviewed_at: null, approved_by: null, approved_at: null, paid_by: null, paid_at: null, paid_account: null, total: null, ...x })),
     payroll_lines: copy(opts.hrPayrollLines), documents: copy(opts.hrDocuments).map((x, i) => ({ id: i + 1, start_on: null, end_on: null, created_by: null, created_at: T, voided_by: null, voided_at: null, ...x })),
+    // «ملفي › مهامي» (decision 25, 0048): no direct write — hr_task_add / set / delete / review below
+    tasks: copy(opts.hrTasks).map((x, i) => ({ id: i + 1, status: 'لسه', day: hrToday(), reason: null, reviewer_id: null, until: null, review_note: null, done_at: null, created_by: x.member_id, created_at: T, updated_by: null, updated_at: T, deleted_at: null, deleted_by: null, ...x })),
     objects: new Map(Object.entries(opts.hrObjects || {})), calls: [], writes: [], seq: 1000, down: false,
   };
 }
@@ -253,6 +256,41 @@ export function hrRoute(c) {
       if (total > 0) mock.acc.acc_account_moves.push({ id: nextId(), account: b.p_account, on_date: today, direction: 'withdraw', amount: total, note: 'مرتبات ' + label, created_by: u.id, created_at: now, updated_by: null, updated_at: null, voided_by: null, voided_at: null });
       Object.assign(p, { status: 'مدفوع', paid_by: u.id, paid_at: now, paid_account: b.p_account, total }); return json(200, total);
     }
+    // ---------- «ملفي › مهامي» (decision 25, 0048): the same rules as the SQL ----------
+    const TASK_ST = ['لسه', 'جاري', 'متوقفة', 'جاهزة للمراجعة', 'خلصت', 'اتأجلت'];
+    const writer = (id) => active && !!id && (id === u.id || manages(id) || (editor && sees(id)));
+    const tclean = (x) => String(x == null ? '' : x).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim();
+    const liveTask = (id) => H.tasks.find((r) => r.id === id && !r.deleted_at) || null;
+    if (f === 'hr_task_people') return json(200, active ? mock.profiles.filter((p) => p.status === 'active').map((p) => ({ id: p.id, member_code: p.member_code, name: p.name })).sort((x, y) => (x.member_code < y.member_code ? -1 : 1)) : []);
+    if (f === 'hr_task_add') {
+      const mem = b.p_member || u.id; if (!writer(mem)) return no(); const ti = tclean(b.p_title); if (!ti || ti.length > 200) return bad('title');
+      const pr = prof(mem); if (!pr || pr.status !== 'active') return nf();
+      if (H.tasks.filter((x) => x.member_id === mem && !x.deleted_at && x.status !== 'خلصت').length >= 300) return bad('count');
+      const id = nextId(); H.tasks.push({ id, member_id: mem, title: ti, status: 'لسه', day: today, reason: null, reviewer_id: null, until: null, review_note: null, done_at: null, created_by: u.id, created_at: now, updated_by: u.id, updated_at: now, deleted_at: null, deleted_by: null });
+      H.writes.push({ table: 'hr_tasks', op: 'add', id, member_id: mem }); return json(200, id);
+    }
+    if (f === 'hr_task_set') {
+      const a = b.p_args && typeof b.p_args === 'object' && !Array.isArray(b.p_args) ? b.p_args : null; if (!a) return bad('args');
+      const x = liveTask(b.p_id); if (!x || !sees(x.member_id)) return nf(); if (!writer(x.member_id)) return no();
+      const s = b.p_status; if (!TASK_ST.includes(s)) return bad('status'); const reason = tclean(a.reason);
+      if (s === 'متوقفة' && (!reason || reason.length > 300)) return bad('reason');
+      let rv = null; if (s === 'جاهزة للمراجعة') { rv = a.reviewer || null; const rp = rv && prof(rv); if (!rp || rv === x.member_id || rp.status !== 'active') return bad('reviewer'); }
+      let until = null; if (s === 'اتأجلت' && !a.indefinite) { until = a.until || null; if (!until || until < today) return bad('until'); }
+      Object.assign(x, { status: s, reason: s === 'متوقفة' ? reason : null, reviewer_id: rv, until, review_note: null, done_at: s === 'خلصت' ? (x.status === 'خلصت' && x.done_at ? x.done_at : now) : null,
+        day: x.day < today ? today : x.day, updated_by: u.id, updated_at: now });
+      H.writes.push({ table: 'hr_tasks', op: 'status', id: x.id, status: s }); return json(200, s);
+    }
+    if (f === 'hr_task_delete') {
+      const x = liveTask(b.p_id); if (!x || !sees(x.member_id)) return nf();
+      if (!writer(x.member_id) || (x.member_id === u.id && x.created_by !== u.id && !isAdmin(u))) return no();
+      Object.assign(x, { deleted_at: now, deleted_by: u.id, updated_by: u.id, updated_at: now }); H.writes.push({ table: 'hr_tasks', op: 'delete', id: x.id }); return json(200, null);
+    }
+    if (f === 'hr_task_review') {
+      if (!active) return no(); const x = H.tasks.find((r) => r.id === b.p_id && !r.deleted_at && r.status === 'جاهزة للمراجعة' && r.reviewer_id === u.id); if (!x) return nf();
+      if (typeof b.p_ok !== 'boolean') return bad('decision'); const note = tclean(b.p_note); if ((!b.p_ok && !note) || note.length > 300) return bad('note');
+      Object.assign(x, { status: b.p_ok ? 'خلصت' : 'جاري', done_at: b.p_ok ? now : null, review_note: b.p_ok ? null : note, day: x.day < today ? today : x.day, updated_by: u.id, updated_at: now });
+      H.writes.push({ table: 'hr_tasks', op: 'review', id: x.id, ok: b.p_ok }); return json(200, b.p_ok ? 'خلصت' : 'جاري');
+    }
     return null;
   }
 
@@ -260,7 +298,7 @@ export function hrRoute(c) {
   const t = rest[1]; const key = KEY[t];
   const single = /vnd\.pgrst\.object\+json/.test(hd.accept || '');
   const params = [...url.searchParams].filter(([k]) => !['select', 'order', 'limit', 'offset', 'on_conflict', 'columns'].includes(k));
-  const test = ([k, v]) => (v.startsWith('eq.') ? (r) => String(r[k]) === v.slice(3) : v.startsWith('gte.') ? (r) => r[k] != null && String(r[k]) >= v.slice(4) : v === 'is.null' ? (r) => r[k] == null
+  const test = ([k, v]) => (v.startsWith('eq.') ? (r) => String(r[k]) === v.slice(3) : v.startsWith('neq.') ? (r) => String(r[k]) !== v.slice(4) : v.startsWith('gte.') ? (r) => r[k] != null && String(r[k]) >= v.slice(4) : v === 'is.null' ? (r) => r[k] == null
     : /^in\.\(.*\)$/.test(v) ? ((set) => (r) => set.includes(String(r[k])))(v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1'))) : null);
   const fns = params.map(test); if (fns.some((x) => !x)) return refuse(400, 'PGRST100', 'mock: unsupported filter on ' + t + ': ' + params.map((p) => p.join('=')).join('&'));
   const match = (r) => fns.every((x) => x(r));
@@ -270,7 +308,8 @@ export function hrRoute(c) {
     if ((CLOSED[t] || []).some((x) => sel.includes(x) || sel.includes('*'))) return refuse(403, '42501', 'permission denied for table ' + t);
     if (!active) return json(200, []);
     const visible = t === 'hr_pay' || t === 'hr_extras' || t === 'hr_payroll_lines' ? (r) => salaries || own(r) : t === 'hr_adjustments' ? (r) => salaries || (own(r) && !r.voided_at)
-      : t === 'hr_payroll' ? () => salaries : t === 'hr_documents' ? (r) => editor || own(r) : ['hr_holidays', 'hr_leave_types', 'hr_bonus_rules', 'hr_ot_periods'].includes(t) ? () => true : (r) => sees(r.member_id);
+      : t === 'hr_payroll' ? () => salaries : t === 'hr_documents' ? (r) => editor || own(r) : ['hr_holidays', 'hr_leave_types', 'hr_bonus_rules', 'hr_ot_periods'].includes(t) ? () => true
+      : t === 'hr_tasks' ? (r) => !r.deleted_at && (sees(r.member_id) || (r.reviewer_id === u.id && r.status === 'جاهزة للمراجعة')) : (r) => sees(r.member_id);
     let list = H[key].map((r) => (t === 'hr_requests_v' ? { ...r, code: 'HR-' + String(r.id).padStart(4, '0'), amount: salaries || r.member_id === u.id ? r.amount : null } : r)).filter(visible).filter(match);
     const ord = url.searchParams.get('order'); if (ord) { const [col, dir] = ord.split('.'); list = list.slice().sort((a, b) => (a[col] < b[col] ? -1 : a[col] > b[col] ? 1 : 0) * (dir === 'desc' ? -1 : 1)); }
     const lim = Number(url.searchParams.get('limit')); if (lim > 0) list = list.slice(0, lim);

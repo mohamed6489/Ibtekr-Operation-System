@@ -1254,6 +1254,10 @@ select user_id, key, data from public.user_prefs where key in ('reports.prefs', 
    و`0047_profile_email.sql` (تريجر صغير على `auth.users`: الإيميل الجديد بعد التأكيد بيتنقل لـ `profiles.email` — «تعديل بياناتي») + `supabase/tests/rls_profile_email.sql`.
 3. الواجهة: push على `main` (الـ Deploy workflow بيرفع الموقع).
 4. (اختياري، مستحسن) في لوحة Supabase › Authentication › Settings: فعّل «Secure password change» عشان تغيير كلمة المرور من API برّه الصفحة يطلب إعادة دخول.
+5. **«ملفي › مهامي» (قرار 25، 6 نوفمبر):** `0048_hr_tasks.sql` (جدول `hr_tasks` بـ RLS، الكتابة بالـ RPCs `hr_task_add` / `hr_task_set` /
+   `hr_task_delete` / `hr_task_review`، الأسامي `hr_task_people`، وتريجر broadcast `hr` / `tasks`) **قبل** الواجهة، وبعده
+   `supabase/tests/rls_hr_tasks.sql` على الحي (workflow «RLS live» بـ `files = rls_hr_tasks.sql`). الواجهة من غير الجدول بتحمّل HR عادي
+   والمهام فاضية (مش بتقع).
 
 **التحقق:**
 ```sql
@@ -1265,6 +1269,10 @@ select jobname, schedule from cron.job where jobname like 'hr-%';
 select has_column_privilege('authenticated', 'public.hr_members', 'notes', 'select') as notes_open;
 select member_id, day, in_at, out_at, remote, source from public.hr_attendance order by in_at desc limit 10; -- بعد أول «ابدأ الدوام»
 select at, action, entity_id, new_value from public.activity_log where entity = 'hr' order by at desc limit 20; -- أكواد وشهور بس
+-- المهام (قرار 25): مافيش كتابة مباشرة للأعضاء — المفروض false false، والدوال موجودة
+select has_table_privilege('authenticated', 'public.hr_tasks', 'insert') as ins, has_table_privilege('authenticated', 'public.hr_tasks', 'update') as upd;
+select proname from pg_proc where proname like 'hr_task%' order by 1; -- hr_task_add · delete · people · review · set · writer
+select member_id, status, day, done_at is not null as done from public.hr_tasks where deleted_at is null order by id desc limit 10; -- بعد أول مهمة (من غير العناوين)
 ```
 وفي الواجهة: «الموارد البشرية» من غير soon؛ «ابدأ الدوام» من الهيدر وrefresh = نفس الدوام (المشكلة المعروفة 1 اتحلت)؛ «إضافة عضو» بيطلّع الباسورد المؤقت مرة واحدة؛ العضو بيغيّره من «ملفي › الحساب والأمان»؛ عضو من غير `sensitive.salaries` مابيشوفش أي مبلغ غير قسيمته.
 

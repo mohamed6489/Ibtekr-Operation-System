@@ -17,7 +17,8 @@ export const MKT_TPL = (n) => 'f1000000-0000-4000-8000-' + String(n).padStart(12
 const PNG_1PX = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
 const COLS = {
   mkt_campaigns: ['id', 'name', 'goal', 'step', 'state', 'scheduled_at', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at', 'archived_by'],
-  mkt_posts: ['id', 'campaign_id', 'piece', 'kind', 'name', 'caption', 'caption_orig', 'tags', 'images', 'platform', 'day', 'time', 'how', 'status', 'was_live', 'post_url', 'published_at', 'published_by', 'deleted_at', 'deleted_by', 'created_by', 'created_at', 'updated_by', 'updated_at'],
+  mkt_posts: ['id', 'campaign_id', 'piece', 'kind', 'name', 'caption', 'caption_orig', 'tags', 'images', 'platform', 'day', 'time', 'how', 'status', 'was_live', 'post_url', 'published_at', 'published_by', 'deleted_at', 'deleted_by', 'created_by', 'created_at', 'updated_by', 'updated_at',
+    'src', 'external_id', 'thumb', 'views', 'reach', 'likes', 'comments', 'shares', 'saves', 'eng', 'stats_at', 'error', 'attempts', 'claimed_at', 'work'],
   mkt_templates: ['id', 'name', 'kind', 'image', 'descr', 'used', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deleted_at', 'deleted_by'],
 };
 const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates' };
@@ -31,18 +32,24 @@ const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HM = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 const line = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
 const lines = (v) => String(v == null ? '' : v).replace(/\r\n?/g, '\n').replace(/[\u0001-\u0009\u000b-\u001f\u007f]/g, ' ').trim();
+// 0051's columns as a system row starts
+const POST_9_5_2 = { src: 'system', external_id: null, thumb: null, views: null, reach: null, likes: null, comments: null, shares: null, saves: null, eng: null, stats_at: null, error: null, attempts: 0, claimed_at: null, work: null };
 
 export function mktState(opts = {}) {
   const now = new Date().toISOString();
   return {
     campaigns: (opts.mktCampaigns || []).map((x) => ({ goal: null, step: 1, state: {}, scheduled_at: null, created_by: null, created_at: now, updated_by: null, updated_at: now, archived_at: null, archived_by: null, ...x })),
     posts: (opts.mktPosts || []).map((x, i) => ({ id: i + 1, campaign_id: null, piece: null, caption: '', caption_orig: x.caption || '', tags: '', images: [], how: 'download', status: 'مجدول', was_live: false, post_url: null,
-      published_at: null, published_by: null, deleted_at: null, deleted_by: null, created_by: null, created_at: now, updated_by: null, updated_at: now, ...x })),
+      published_at: null, published_by: null, deleted_at: null, deleted_by: null, created_by: null, created_at: now, updated_by: null, updated_at: now, ...POST_9_5_2, ...x })),
     templates: (opts.mktTemplates || []).map((x) => ({ image: null, descr: '', used: 0, created_by: null, created_at: now, updated_by: null, updated_at: now, deleted_at: null, deleted_by: null, ...x })),
     objects: new Map(Object.entries(opts.mktObjects || {})),
     cap: opts.mktCap === undefined ? 5000 : opts.mktCap, used: Number(opts.mktUsed) || 0,
     calls: [], writes: [], seq: 1000, ncamp: 100, ntpl: 100, signed: 0, down: false,
     imgFail: null, aiFail: null, aiAnswer: null, // a spec's knobs: imgFail / aiFail = 'ai_cap' | 'busy' | 'not_configured' | 'ai_error' | 'refused'
+    // 9.5.2: mkt-publish's status (opts.mktConn merges over a page linked for publishing with the switch off) and the knobs
+    // pubFail / delFail = a code of ours (token / permission / image …) the next publish_now / delete answers with
+    conn: { autopublish: false, facebook: { linked: true, name: 'Ibtekr Club', publish: true, insights: true }, instagram: { linked: true, name: '@ibtekr.club', publish: true, insights: true }, missing: [], valid: true, configured: true, ...(opts.mktConn || {}) },
+    pubFail: null, delFail: null,
   };
 }
 
@@ -50,10 +57,11 @@ export function mktRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock, route } = c; const H = mock.mkt; if (!H) return null;
   const rest = /^\/rest\/v1\/(mkt_[a-z]+)$/.exec(path); const rpc = /^\/rest\/v1\/rpc\/(mkt_[a-z_]+)$/.exec(path);
   const sto = /^\/storage\/v1\/object\/(sign\/)?marketing\/(.+)$/.exec(path);
-  const fn = method === 'POST' && (path === '/functions/v1/ai-images' || path === '/functions/v1/ai-content');
+  const fn = method === 'POST' && (path === '/functions/v1/ai-images' || path === '/functions/v1/ai-content' || path === '/functions/v1/mkt-publish');
   if (!(rest && COLS[rest[1]]) && !rpc && !sto && !fn) return null;
   // a signed URL opened with no key (an <img>): any token the mock signed opens the object
   if (sto && sto[1] && method === 'GET') { const obj = H.objects.get(decodeURIComponent(sto[2])); return obj ? route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': obj.type || 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
+  if (fn && path === '/functions/v1/mkt-publish') return mktPublish(c, c.body());
   if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !['campaign', 'campaign_edit'].includes(b.action) : b.action !== 'marketing') return null; return mktAi(c, b); }
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
   if (!u) return sto ? json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' }) : refuse(401, '42501', 'permission denied');
@@ -111,17 +119,24 @@ export function mktRoute(c) {
         if (!PLATFORMS.includes(it.platform)) return bad('platform');
         const d = String(it.day || ''); if (!/^\d{4}-\d{2}-\d{2}$/.test(d) || d < today || d > mktAddDays(today, 365)) return bad('day');
         if (!HM.test(String(it.time || '')) || (d === today && it.time <= hm)) return bad('time');
+        const how = it.how == null ? 'download' : it.how; if (!['download', 'publish'].includes(how)) return bad('how');
+        if (how === 'publish') { // 0051
+          if (!['انستجرام', 'فيسبوك'].includes(it.platform) || !['بوست', 'كاروسيل', 'ستوري'].includes(it.kind)) return bad('how');
+          if (!imgs.length || imgs.length > 10 || (it.kind === 'كاروسيل' ? imgs.length < 2 : imgs.length !== 1)) return bad('images');
+          if (it.platform === 'انستجرام' && imgs.some((x) => !/\.jpe?g$/i.test(x))) return bad('images');
+          if (it.platform === 'انستجرام' && it.kind !== 'ستوري' && cap.length + (tags ? tags.length + 2 : 0) > 2200) return bad('caption');
+        }
         const k = it.piece + '|' + it.platform; if (keys.includes(k)) return bad('items'); keys.push(k);
-        plan.push({ piece: it.piece, kind: it.kind, name: line(it.name, 200) || it.kind, caption: cap, tags, images: imgs.slice(), platform: it.platform, day: d, time: it.time });
+        plan.push({ piece: it.piece, kind: it.kind, name: line(it.name, 200) || it.kind, caption: cap, tags, images: imgs.slice(), platform: it.platform, day: d, time: it.time, how });
       }
       for (const p of plan) {
         const ex = H.posts.find((x) => x.campaign_id === camp.id && x.piece === p.piece && x.platform === p.platform && x.status !== 'اتحذف');
         if (ex) { if (['مجدول', 'فشل'].includes(ex.status)) Object.assign(ex, p, { caption_orig: p.caption, status: 'مجدول', updated_by: u.id, updated_at: now }); }
-        else { H.seq += 1; H.posts.push({ id: H.seq, campaign_id: camp.id, ...p, caption_orig: p.caption, how: 'download', status: 'مجدول', was_live: false, post_url: null, published_at: null, published_by: null, deleted_at: null, deleted_by: null, created_by: u.id, created_at: now, updated_by: u.id, updated_at: now }); }
+        else { H.seq += 1; H.posts.push({ id: H.seq, campaign_id: camp.id, ...POST_9_5_2, ...p, caption_orig: p.caption, status: 'مجدول', was_live: false, post_url: null, published_at: null, published_by: null, deleted_at: null, deleted_by: null, created_by: u.id, created_at: now, updated_by: u.id, updated_at: now }); }
       }
       H.posts.filter((x) => x.campaign_id === camp.id && ['مجدول', 'فشل'].includes(x.status) && !keys.includes(x.piece + '|' + x.platform)).forEach((x) => Object.assign(x, { status: 'اتحذف', deleted_at: now, deleted_by: u.id, updated_at: now }));
       Object.assign(camp, { scheduled_at: now, step: 4, updated_at: now, updated_by: u.id });
-      H.writes.push({ table: 'mkt_posts', op: 'schedule', campaign: camp.id, items: plan.length });
+      H.writes.push({ table: 'mkt_posts', op: 'schedule', campaign: camp.id, items: plan.length, publish: plan.filter((p) => p.how === 'publish').length, images: plan.filter((p) => p.how === 'publish').flatMap((p) => p.images) });
       return json(200, H.posts.filter((x) => x.campaign_id === camp.id && ['مجدول', 'فشل'].includes(x.status)).length);
     }
     if (name === 'mkt_post_act') {
@@ -249,4 +264,38 @@ function mktAi(c, b) {
   H.seq += 1; const path = campaignGenPath(camp.id, req.piece, req.slide, 'mk' + H.seq, 'png', edit);
   H.objects.set(path, { type: 'image/png', size: 68, by: u.id }); H.used += credits;
   return json(200, { result: 'ok', bucket: 'marketing', path, paths: [path], credits, model: req.model, run_id: H.seq });
+}
+
+// 9.5.2: mkt-publish as the page sees it — status (marketing.view), autopublish (the admin), publish_now (marketing.publish F, the
+// switch on, a waiting / failed system row → «اتنشر» with a platform id and link, its day and hour now; H.pubFail → 502 + «فشل»),
+// delete (a live row with its platform id → «اتحذف» was_live; H.delFail → 502, the row stays live)
+function mktPublish(c, b) {
+  const { u, hasPerm, isAdmin, json, mock } = c; const H = mock.mkt;
+  H.calls.push({ fn: 'mkt-publish', action: b.action || null, by: u ? u.id : null, id: b.id == null ? null : b.id, on: b.on == null ? null : b.on });
+  if (!u) return json(401, { error: 'unauthorized' });
+  const admin = isAdmin(u); const view = admin || hasPerm(u, 'marketing.view') !== 'N'; const publish = admin || hasPerm(u, 'marketing.publish') === 'F';
+  const now = new Date().toISOString(); const { day, hm } = cairo();
+  if (b.action === 'status') return view ? json(200, { result: 'ok', ...JSON.parse(JSON.stringify(H.conn)) }) : json(401, { error: 'unauthorized' });
+  if (b.action === 'autopublish') {
+    if (!admin) return json(401, { error: 'unauthorized' }); if (typeof b.on !== 'boolean') return json(400, { error: 'bad_request', field: 'on' });
+    H.conn.autopublish = b.on; H.writes.push({ table: 'settings', op: 'autopublish', on: b.on }); return json(200, { result: 'ok', autopublish: b.on });
+  }
+  if (!publish) return json(401, { error: 'unauthorized' });
+  const x = H.posts.find((p) => p.id === Number(b.id)); if (!x) return json(404, { error: 'not_found' });
+  if (b.action === 'publish_now') {
+    if (!H.conn.autopublish) return json(409, { error: 'off' });
+    if (x.src !== 'system' || !['مجدول', 'فشل'].includes(x.status)) return json(409, { error: 'status' });
+    if (H.pubFail) { Object.assign(x, { status: 'فشل', error: H.pubFail, day, time: hm, updated_at: now }); H.writes.push({ table: 'mkt_posts', op: 'publish_now', id: x.id, error: H.pubFail }); return json(502, { error: H.pubFail }); }
+    const ig = x.platform === 'انستجرام'; const ext = ig ? '1789' + x.id : '111_9' + x.id;
+    const link = ig ? 'https://www.instagram.com/p/mk' + x.id + '/' : 'https://www.facebook.com/111/posts/9' + x.id;
+    Object.assign(x, { status: 'اتنشر', how: 'publish', external_id: ext, post_url: link, published_at: now, error: null, claimed_at: null, day, time: hm, updated_at: now });
+    H.writes.push({ table: 'mkt_posts', op: 'publish_now', id: x.id }); return json(200, { result: 'ok', status: 'اتنشر', url: link });
+  }
+  if (b.action === 'delete') {
+    if (x.status !== 'اتنشر' || !x.external_id) return json(409, { error: 'status' });
+    if (H.delFail) return json(502, { error: H.delFail });
+    Object.assign(x, { status: 'اتحذف', was_live: true, deleted_at: now, deleted_by: u.id, updated_at: now });
+    H.writes.push({ table: 'mkt_posts', op: 'delete_live', id: x.id }); return json(200, { result: 'ok', status: 'اتحذف' });
+  }
+  return json(400, { error: 'unknown_action' });
 }

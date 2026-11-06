@@ -2,8 +2,9 @@
 // the campaigns (the list's columns — a campaign's whole state only when it is opened), the schedule / publishing log (mkt_posts),
 // the design templates and the wallet (mkt_credits), in the page's shapes (the v5's):
 //   campaigns() [{ id, name, goal, step, scheduledAt, createdAt, updatedAt }] — not archived, the newest change first
-//   posts()     [{ id, campaignId, piece, name, kind, pl, day, time, src: 'system', camp, status, caption, capOrig, tags, images, img,
-//                  wasLive, url, publishedAt, delAt }]
+//   posts()     [{ id, campaignId, piece, name, kind, pl, day, time, how, src: 'system' | 'platform', camp, status, caption, capOrig, tags,
+//                  images, img, thumb, externalId, wasLive, url, publishedAt, delAt, views, reach, likes, comments, shares, saves, eng,
+//                  statsAt, error, busy }]   (9.5.2: the platform's own posts, the numbers, a failure's code, a row being published)
 //   templates() [{ id, name, kind, img, desc, used, at }]
 //   wallet()    { cap, used, balance } | null (balance null = no cap)
 // Writes: the campaign row (create / save — saveSoon + flush, one after the other — / archive: name, goal, step, state), the files
@@ -14,11 +15,17 @@
 // never throws; activity_log mkt.* carries ids, counts, kinds, platforms and statuses only — never an idea, a caption, a prompt,
 // a note or a template's description (decision 19). Live: the private broadcast «marketing» / «changed» → one load() a moment
 // later, plus a check every minute while the page is open.
+// 9.5.2 (decisions 29–39): the publishing through the Edge Function mkt-publish — connection() (the link's state and the switch,
+// a minute's cache), setAutopublish(on) (the admin), publishNow(id), deleteLive(id) (its activity_log rows are the server's) — and
+// preparePublish(cid, items): the JPEG copies (<campaign>/pub-….jpg, Instagram's ratio with white margins) of the images of the
+// items to publish, made in the browser before «تأكيد النشر».
 (function () {
   'use strict';
   const CAMP_COLS = 'id, name, goal, step, scheduled_at, created_by, created_at, updated_at, archived_at';
   const OPEN_COLS = CAMP_COLS + ', state';
-  const POST_COLS = 'id, campaign_id, piece, kind, name, caption, caption_orig, tags, images, platform, day, time, how, status, was_live, post_url, published_at, published_by, deleted_at, created_at, updated_at';
+  const POST_COLS = 'id, campaign_id, piece, kind, name, caption, caption_orig, tags, images, platform, day, time, how, status, was_live, post_url, published_at, published_by, deleted_at, created_at, updated_at, '
+    + 'src, external_id, thumb, views, reach, likes, comments, shares, saves, eng, stats_at, error, claimed_at';
+  const BUSY_MS = 5 * 60 * 1000; // a row the server claimed in the last five minutes is being published (0051 mkt_busy)
   const TPL_COLS = 'id, name, kind, image, descr, used, created_at, updated_at, deleted_at';
   const LIMIT = 500; const POST_LIMIT = 3000;
   const BUCKET = 'marketing'; const MAX_BYTES = 15 * 1024 * 1024; const MIME = ['image/png', 'image/jpeg', 'image/webp'];
@@ -28,6 +35,7 @@
   const perm = (key) => (window.IBDirectory && window.IBDirectory.perm ? window.IBDirectory.perm(key) : 'N');
   const me = () => (window.IBDirectory && window.IBDirectory.me ? window.IBDirectory.me() : null);
   const myUid = () => { const m = me(); return (m && m.id) || null; };
+  const isAdmin = () => { const m = me(); return !!m && m.role_id === 'admin' && m.status === 'active'; };
   const can = () => ({ view: perm('marketing.view') !== 'N', create: perm('marketing.create') === 'F', publish: perm('marketing.publish') === 'F' });
   const reasonOf = (err) => { const code = String((err && err.code) || ''); return code === '42501' ? 'forbidden' : code === 'P0002' || code === 'PGRST116' ? 'notfound' : /^2[23]/.test(code) ? 'invalid' : 'network'; };
   const fieldOf = (err) => { const m = /invalid: (\w+)/.exec(String((err && err.message) || '')); return m ? m[1] : null; };
@@ -45,10 +53,14 @@
   // ---------- the shapes ----------
   const toCampaign = (r) => ({ id: r.id, name: r.name, goal: r.goal || null, step: Number(r.step) || 1, scheduledAt: r.scheduled_at || null, createdBy: r.created_by || null,
     createdAt: r.created_at, updatedAt: r.updated_at, archivedAt: r.archived_at || null });
+  const num = (v) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
   const toPost = (r, names) => ({ id: Number(r.id), campaignId: r.campaign_id || null, piece: r.piece || null, name: r.name, kind: r.kind, pl: r.platform, day: r.day, time: r.time, how: r.how,
-    src: 'system', camp: (r.campaign_id && names.get(r.campaign_id)) || '—', status: r.status, caption: r.caption || '', capOrig: r.caption_orig || '', tags: r.tags || '',
+    src: r.src === 'platform' ? 'platform' : 'system', camp: (r.campaign_id && names.get(r.campaign_id)) || '—', status: r.status, caption: r.caption || '', capOrig: r.caption_orig || '', tags: r.tags || '',
     images: Array.isArray(r.images) ? r.images.filter((p) => typeof p === 'string') : [], img: Array.isArray(r.images) && typeof r.images[0] === 'string' ? r.images[0] : null,
-    wasLive: !!r.was_live, url: r.post_url || null, publishedAt: r.published_at || null, delAt: cairoDay(r.deleted_at), updatedAt: r.updated_at });
+    thumb: typeof r.thumb === 'string' && /^https:\/\//.test(r.thumb) ? r.thumb : null, externalId: r.external_id || null,
+    wasLive: !!r.was_live, url: r.post_url || null, publishedAt: r.published_at || null, delAt: cairoDay(r.deleted_at), updatedAt: r.updated_at,
+    views: num(r.views), reach: num(r.reach), likes: num(r.likes), comments: num(r.comments), shares: num(r.shares), saves: num(r.saves), eng: num(r.eng),
+    statsAt: r.stats_at || null, error: r.error || null, busy: !!r.claimed_at && Date.now() - Date.parse(r.claimed_at) < BUSY_MS });
   const toTemplate = (r) => ({ id: r.id, name: r.name, kind: r.kind, img: r.image || null, desc: r.descr || '', used: Number(r.used) || 0, at: cairoDay(r.updated_at || r.created_at) || '', deleted: !!r.deleted_at });
 
   let st = 'idle'; let gen = 0;
@@ -229,8 +241,9 @@
       if (error || !d) {
         const s = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
-        const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'notfound' : s === 402 ? 'ai_cap' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : 'network';
-        return { ok: false, reason, field: b && b.field ? String(b.field) : null, status: b && Number.isInteger(b.status) ? b.status : null, configured: b && typeof b.configured === 'boolean' ? b.configured : null };
+        const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'notfound' : s === 402 ? 'ai_cap' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : s === 409 ? 'conflict' : 'network';
+        return { ok: false, reason, field: b && b.field ? String(b.field) : null, status: b && Number.isInteger(b.status) ? b.status : null, configured: b && typeof b.configured === 'boolean' ? b.configured : null,
+          code: b && typeof b.error === 'string' ? b.error.slice(0, 60) : null };
       }
       return { ok: true, body: d };
     } catch (e) { return { ok: false, reason: 'network' }; }
@@ -292,7 +305,8 @@
     try {
       const { data: n, error } = await cl.rpc('mkt_schedule', { p_campaign: cid, p_items: items }); if (error) return fail(error);
       const pls = [...new Set((items || []).map((x) => x.platform))].join(', ');
-      log('campaign.schedule', (items || []).length + ' posts · ' + pls, cid);
+      const pub = (items || []).filter((x) => x.how === 'publish').length;
+      log('campaign.schedule', (items || []).length + ' posts · ' + pls + (pub ? ' · ' + pub + ' publish' : ''), cid);
       await load(); return { ok: true, waiting: Number(n) || 0 };
     } catch (e) { return fail(e); }
   }
@@ -316,6 +330,92 @@
   const caption = (id, text) => postAct(id, 'caption', { text: String(text == null ? '' : text).slice(0, 2200) });
   const published = (id, link) => postAct(id, 'published', { url: link ? String(link).trim() : '' });
   const remove = (id) => { const p = getPost(id); return postAct(id, 'delete', {}, p ? p.status : ''); };
+
+  // ---------- publishing (9.5.2, decisions 29–39) ----------
+  let conn = null; let connAt = 0; const CONN_MS = 60000;
+  const plat = (x) => ({ linked: !!(x && x.linked), name: x && typeof x.name === 'string' ? x.name : null, publish: !!(x && x.publish), insights: !!(x && x.insights) });
+  // the link's state and the switch (mkt-publish status): { autopublish, facebook, instagram, missing, valid, configured }
+  async function connection(force) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!force && conn && Date.now() - connAt < CONN_MS) return { ok: true, conn };
+    const r = await invoke('mkt-publish', { action: 'status' });
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'forbidden' ? MESSAGES.forbidden : 'تعذّر قراية حالة الربط — جرّب تاني' });
+    const b = r.body || {};
+    conn = { autopublish: b.autopublish === true, facebook: plat(b.facebook), instagram: plat(b.instagram), missing: Array.isArray(b.missing) ? b.missing.filter((x) => typeof x === 'string') : null,
+      valid: typeof b.valid === 'boolean' ? b.valid : null, configured: b.configured !== false };
+    connAt = Date.now(); emit(); return { ok: true, conn };
+  }
+  const connNow = () => conn;
+  const W = () => window.IbtekrCampWiz || {};
+  const PUB_MESSAGES = { status: 'البوست ده مش مستني النشر', off: 'النشر التلقائي متوقف — الأدمن يشغّله من كارت الربط', busy: 'البوست بيتنشر دلوقتي — استنى دقيقة', not_linked: 'الصفحة مش مربوطة' };
+  function pubMessage(r) {
+    if (r.code && PUB_MESSAGES[r.code]) return PUB_MESSAGES[r.code];
+    if (r.code && W().pubError) return W().pubError(r.code);
+    return r.reason === 'forbidden' ? MESSAGES.forbidden : r.reason === 'notfound' ? MESSAGES.notfound : MESSAGES.network;
+  }
+  // the switch (decision 31): the admin
+  async function setAutopublish(on) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const r = await invoke('mkt-publish', { action: 'autopublish', on: !!on });
+    if (!r.ok) return Object.assign(r, { message: pubMessage(r) });
+    if (conn) conn.autopublish = !!on; emit(); return { ok: true, autopublish: !!on };
+  }
+  // «انشر دلوقتي» (decision 35): { ok, url } · { ok, pending } (Instagram still preparing) · { ok: false, code, message }
+  async function publishNow(id) {
+    if (!can().publish) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const r = await invoke('mkt-publish', { action: 'publish_now', id: Number(id) });
+    if (!r.ok) { await load(); return Object.assign(r, { message: pubMessage(r) }); }
+    const b = r.body || {};
+    await load();
+    return b.result === 'pending' ? { ok: true, pending: true } : { ok: true, url: typeof b.url === 'string' ? b.url : null };
+  }
+  // «احذف البوست» for a live post with its platform id: removed on the platform, then «اتحذف»
+  async function deleteLive(id) {
+    if (!can().publish) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const r = await invoke('mkt-publish', { action: 'delete', id: Number(id) });
+    if (!r.ok) return Object.assign(r, { message: pubMessage(r) });
+    const p = getPost(id); if (p) Object.assign(p, { status: 'اتحذف', wasLive: true, delAt: cairoDay(new Date().toISOString()) });
+    emit(); await load(); return { ok: true };
+  }
+  // the JPEG copies (decision 33): every image of an item to publish on Facebook / Instagram as <campaign>/pub-….jpg (0.92, the long
+  // side ≤ 2160; Instagram's feed ratio with white margins up to 10%) — one copy per image and margin; a JPEG that fits as it is stays
+  async function decode(b) {
+    if (typeof createImageBitmap === 'function') { try { return await createImageBitmap(b); } catch (e) { /* the <img> way */ } }
+    return new Promise((res) => { const u = URL.createObjectURL(b); const im = new Image(); im.onload = () => { URL.revokeObjectURL(u); res(im); }; im.onerror = () => { URL.revokeObjectURL(u); res(null); }; im.src = u; });
+  }
+  async function jpegOf(cid, path, img, pad) {
+    const w = img.width || img.naturalWidth, h = img.height || img.naturalHeight; const s = W().jpegSize(w, h, pad);
+    if (!pad && s.k === 1 && W().isJpeg(path)) return { ok: true, path };
+    const cv = document.createElement('canvas'); cv.width = s.w; cv.height = s.h;
+    const g = cv.getContext('2d'); g.fillStyle = '#ffffff'; g.fillRect(0, 0, s.w, s.h);
+    const dw = Math.round(w * s.k), dh = Math.round(h * s.k); g.drawImage(img, Math.round((s.w - dw) / 2), Math.round((s.h - dh) / 2), dw, dh);
+    const out = await new Promise((res) => { try { cv.toBlob(res, 'image/jpeg', 0.92); } catch (e) { res(null); } });
+    if (!out) return { ok: false, why: 'المتصفح ماقدرش يجهّز الصورة' };
+    const r = await put(cid + '/pub-' + rand() + '.jpg', new File([out], 'pub.jpg', { type: 'image/jpeg' }), 'pub.jpg');
+    return r.ok ? { ok: true, path: r.path } : { ok: false, why: r.message };
+  }
+  async function preparePublish(cid, items, onStep) {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden, items: items || [] };
+    const decoded = new Map(); const copies = new Map(); const problems = []; const out = [];
+    const total = (items || []).filter((it) => it.how === 'publish').reduce((s, it) => s + (it.images || []).length, 0); let n = 0;
+    for (const it of items || []) {
+      if (it.how !== 'publish') { out.push(it); continue; }
+      const ig = it.platform === 'انستجرام'; const imgs = [];
+      for (const p of it.images || []) {
+        if (!decoded.has(p)) { const b = await blob(p); decoded.set(p, b.ok ? await decode(b.blob) : null); }
+        const img = decoded.get(p); n += 1; if (onStep) quiet(() => onStep(n, total));
+        if (!img) { problems.push({ piece: it.piece, platform: it.platform, why: 'صورة القطعة مش موجودة أو مااتقريتش' }); break; }
+        const fit = ig ? W().igFit(img.width || img.naturalWidth, img.height || img.naturalHeight, it.kind) : { ok: true, pad: null };
+        if (!fit.ok) { problems.push({ piece: it.piece, platform: it.platform, why: fit.why }); break; }
+        const key = p + '|' + (fit.pad ? fit.pad.w + 'x' + fit.pad.h : '-');
+        if (!copies.has(key)) copies.set(key, await jpegOf(cid, p, img, fit.pad));
+        const c2 = copies.get(key); if (!c2.ok) { problems.push({ piece: it.piece, platform: it.platform, why: c2.why }); break; }
+        imgs.push(c2.path);
+      }
+      out.push(imgs.length === (it.images || []).length ? Object.assign({}, it, { images: imgs }) : it);
+    }
+    return problems.length ? { ok: false, problems, items: out, message: problems.map((x) => x.piece + ' · ' + x.platform + ': ' + x.why).join(' — ') } : { ok: true, items: out };
+  }
 
   // ---------- the templates (decision 17) ----------
   const tplRow = (f) => { const o = {}; const x = f || {};
@@ -394,10 +494,11 @@
     if (lv && c()) { try { Promise.resolve(c().removeChannel(lv)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
   // the sign-out wipe
-  function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; st = 'idle'; }
+  function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; conn = null; connAt = 0; st = 'idle'; }
 
   window.IBMarketing = { load, ensure, clear, state: () => st, can, campaigns, posts, templates, getPost, wallet, credits, open, create, save, saveSoon, flush, archive,
     upload, uploadTemplate, url, cachedUrl, blob, product, checkFile, generate, edit, write, schedule, move, caption, published, remove,
+    connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
-    _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow } };
+    _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage } };
 })();

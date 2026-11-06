@@ -35,3 +35,8 @@
   بوست/كاروسيل (صور مخفية + feed)/ستوري (صورة مخفية + photo_stories)، انستجرام كونتينر → FINISHED → `media_publish` (كونتينر لسه بيتجهز
   بيتحفظ والدقيقة الجاية بتكمّل من غير رفع تاني)، `work.stage = publishing` قبل آخر نداء وتايم أوت فيه = `uncertain`، الصور بلينكات موقّعة
   15 دقيقة. `config.toml` + workflow النشر (`mkt-publish`) + `deno:check`. الاختبارات: Deno 11 (كله 232 ✓)، Node 7 + `cs-channel` 8، `npm test` 554 ✓.
+- T11 ✓ (6 نوفمبر) `IBMarketing`: شكل البوست بالجديد (`src` / `thumb` https بس / `externalId` / الأرقام / `error` / `busy` = اتحجز آخر 5 دقايق)،
+  `connection()` (حالة الربط والمفتاح من `mkt-publish status`، كاش دقيقة) / `connNow`، `setAutopublish` (الأدمن)، `publishNow` (و`pending` لانستجرام
+  لسه بيتجهز) / `deleteLive` (رسايل الأكواد من `pubError` بالعربي)، و`preparePublish(cid, items)`: نسخ JPEG في المتصفح (0.92، ≤ 2160، هوامش بيضا
+  لنسبة انستجرام — نسخة لكل صورة وهامش؛ JPEG مظبوط بيفضل زي ما هو) لصور البنود اللي هتتنشر بس. الـ mock: الأعمدة الجديدة، `mkt_schedule` بقواعد
+  `how`، و`mkt-publish` (status / autopublish / publish_now / delete + `pubFail` / `delFail`). الاختبارات: adapter 17، `marketing.spec` 6 ✓، `npm test` ✓.

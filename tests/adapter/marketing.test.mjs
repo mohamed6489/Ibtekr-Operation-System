@@ -20,11 +20,11 @@ const POSTS = [
     time: '19:00', how: 'download', status: 'مجدول', was_live: false, post_url: null, published_at: null, published_by: null, deleted_at: null, created_at: '2026-11-01T08:00:00Z', updated_at: '2026-11-01T08:00:00Z' },
 ];
 const TPLS = [{ id: 't1', name: 'منتج على كريمي', kind: 'post', image: 'templates/a.png', descr: 'المنتج في النص', used: 3, created_at: '2026-10-20T08:00:00Z', updated_at: '2026-10-20T08:00:00Z', deleted_at: null }];
-function load({ responses = {}, perms = { 'marketing.view': 'F', 'marketing.create': 'F', 'marketing.publish': 'F' }, realtime = false } = {}) {
+function load({ responses = {}, perms = { 'marketing.view': 'F', 'marketing.create': 'F', 'marketing.publish': 'F' }, realtime = false, role = 'ops' } = {}) {
   const stub = stubClient({ responses: { mkt_campaigns: ok(CAMPS), mkt_posts: ok(POSTS), mkt_templates: ok(TPLS), 'rpc:mkt_credits': ok({ cap: 5000, used: 1200 }), ...responses } });
   const events = []; const logs = []; const timers = [];
   const window = { IBSupabase: { client: stub.client }, IB_CONFIG: { realtime },
-    IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: 'u1', name: 'منى', role_id: 'ops', status: 'active' }) },
+    IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: 'u1', name: 'منى', role_id: role, status: 'active' }) },
     IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
     crypto: { randomUUID: () => 'abcdef12-3456-4000-8000-000000000000' } };
   const ctx = { window, document: { dispatchEvent(e) { events.push(e.type); }, visibilityState: 'visible' }, CustomEvent: class { constructor(t) { this.type = t; } },
@@ -206,4 +206,53 @@ test('live: the private channel «marketing», a broadcast loads again a moment 
   await stub.emitBroadcast('changed', { at: 'x' }); await run();
   eq(stub.calls.filter((c) => c.table === 'mkt_posts' && c.op === 'from').length, before + 1);
   M.clear(); eq([M.campaigns().length, M.posts().length, M.wallet(), M.state()], [0, 0, null, 'idle']);
+});
+
+// ---------------------------------------------------------------- 9.5.2: publishing (decisions 29–39)
+
+const fnErr = (status, body) => ({ data: null, error: { context: { status, json: async () => body } } });
+test('9.5.2 the post shape: the platform\'s own rows (their https picture), the numbers, a failure\'s code, a row being published', async () => {
+  const live = { ...POSTS[0], id: 8, src: 'platform', campaign_id: null, piece: null, images: [], thumb: 'https://scontent.test/p.jpg', external_id: '111_9500', status: 'اتنشر',
+    views: 1200, reach: 900, likes: 40, comments: 5, shares: 3, saves: null, eng: 48, stats_at: '2026-11-06T10:00:00Z', error: null, claimed_at: null };
+  const failed = { ...POSTS[0], id: 9, status: 'فشل', error: 'token', claimed_at: new Date().toISOString(), thumb: 'http://bad' };
+  const { M } = load({ responses: { mkt_posts: ok([live, failed]) } });
+  await M.load();
+  const a = M.getPost(8), b = M.getPost(9);
+  eq([a.src, a.thumb, a.externalId, a.views, a.eng, a.saves, a.camp], ['platform', 'https://scontent.test/p.jpg', '111_9500', 1200, 48, null, '—']);
+  eq([b.src, b.error, b.busy, b.thumb], ['system', 'token', true, null]);
+});
+
+test('9.5.2 connection: mkt-publish status cached a minute; the switch is the admin\'s; «انشر دلوقتي» and «احذف البوست» with their reasons in words', async () => {
+  const status = { result: 'ok', autopublish: false, facebook: { linked: true, name: 'Ibtekr Club', publish: true, insights: true }, instagram: { linked: true, name: '@ibtekr.club', publish: false, insights: false }, missing: ['instagram_content_publish'], valid: true, configured: true };
+  const { M, stub } = load({ responses: { 'fn:mkt-publish': (o) => ok(o.body.action === 'status' ? status : o.body.action === 'publish_now' ? { result: 'ok', status: 'اتنشر', url: 'https://www.facebook.com/x' } : { result: 'ok', status: 'اتحذف' }) } });
+  await M.load();
+  const r = await M.connection();
+  eq([r.ok, r.conn.autopublish, r.conn.facebook.publish, r.conn.instagram.publish, r.conn.missing], [true, false, true, false, ['instagram_content_publish']]);
+  await M.connection(); eq(invokes(stub).filter((x) => x[1].body.action === 'status').length, 1, 'a minute\'s cache');
+  eq((await M.setAutopublish(true)).reason, 'forbidden'); // ops is not the admin
+  eq(await M.publishNow(7), { ok: true, url: 'https://www.facebook.com/x' });
+  eq(invokes(stub).find((x) => x[1].body.action === 'publish_now'), ['mkt-publish', { body: { action: 'publish_now', id: 7 } }]);
+  eq((await M.deleteLive(7)).ok, true);
+  const adm = load({ role: 'admin', responses: { 'fn:mkt-publish': (o) => ok(o.body.action === 'status' ? status : { result: 'ok', autopublish: o.body.on }) } });
+  await adm.M.load(); await adm.M.connection();
+  eq((await adm.M.setAutopublish(true)).autopublish, true); eq(adm.M.connNow().autopublish, true);
+  // the refusals: the server's code in words
+  const off = load({ responses: { 'fn:mkt-publish': fnErr(409, { error: 'off' }) } }); await off.M.load();
+  eq((await off.M.publishNow(7)).message, 'النشر التلقائي متوقف — الأدمن يشغّله من كارت الربط');
+  const tok = load({ responses: { 'fn:mkt-publish': fnErr(502, { error: 'token' }) } }); await tok.M.load();
+  const t = await tok.M.publishNow(7); eq([t.ok, t.code, t.message], [false, 'token', 'ربط الصفحة انتهى — الأدمن يربطها تاني']);
+  const pend = load({ responses: { 'fn:mkt-publish': ok({ result: 'pending' }) } }); await pend.M.load();
+  eq(await pend.M.publishNow(7), { ok: true, pending: true });
+  const view = load({ perms: { 'marketing.view': 'F' } }); await view.M.load();
+  eq((await view.M.publishNow(7)).reason, 'forbidden'); eq((await view.M.deleteLive(7)).reason, 'forbidden');
+});
+
+test('9.5.2 preparePublish: download items as they are, the publish items\' images as JPEG copies (one per image and margin); a missing image → the problem', async () => {
+  const { M } = load({ responses: { 'storage:download': ok(null) } });
+  await M.load();
+  const items = [{ piece: 'P2', platform: 'تيك توك', kind: 'بوست', images: [C1 + '/p.png'], how: 'download' }];
+  eq(await M.preparePublish(C1, items), { ok: true, items });
+  const r = await M.preparePublish(C1, [{ piece: 'P1', platform: 'انستجرام', kind: 'بوست', images: [C1 + '/gone.png'], how: 'publish' }]);
+  eq([r.ok, r.problems[0].piece, r.problems[0].why], [false, 'P1', 'صورة القطعة مش موجودة أو مااتقريتش']);
+  eq((await load({ perms: { 'marketing.view': 'F', 'marketing.publish': 'F' } }).M.preparePublish(C1, items)).reason, 'forbidden');
 });

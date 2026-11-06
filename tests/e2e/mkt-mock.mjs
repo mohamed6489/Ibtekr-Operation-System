@@ -20,8 +20,11 @@ const COLS = {
   mkt_posts: ['id', 'campaign_id', 'piece', 'kind', 'name', 'caption', 'caption_orig', 'tags', 'images', 'platform', 'day', 'time', 'how', 'status', 'was_live', 'post_url', 'published_at', 'published_by', 'deleted_at', 'deleted_by', 'created_by', 'created_at', 'updated_by', 'updated_at',
     'src', 'external_id', 'thumb', 'views', 'reach', 'likes', 'comments', 'shares', 'saves', 'eng', 'stats_at', 'error', 'attempts', 'claimed_at', 'work'],
   mkt_templates: ['id', 'name', 'kind', 'image', 'descr', 'used', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deleted_at', 'deleted_by'],
+  // 0052 (9.5.3): Meta's ad objects and daily numbers — read with marketing.view, written by mkt-ads only
+  mkt_ad_objects: ['platform', 'kind', 'id', 'parent_id', 'name', 'status', 'thumb', 'meta', 'updated_at'],
+  mkt_ad_stats: ['platform', 'level', 'object_id', 'campaign_id', 'day', 'spend', 'impressions', 'reach', 'clicks', 'link_clicks', 'frequency', 'purchases', 'purchase_value', 'updated_at'],
 };
-const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates' };
+const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats' };
 const GRANT = { mkt_campaigns: { insert: ['name', 'goal', 'step', 'state'], update: ['name', 'goal', 'step', 'state', 'archived_at'] },
   mkt_templates: { insert: ['name', 'kind', 'image', 'descr'], update: ['name', 'kind', 'image', 'descr', 'deleted_at'] } };
 const GOALS = ['منتج جديد', 'مجموعة جديدة', 'وعي بخدمة', 'عرض / خصم'];
@@ -50,18 +53,26 @@ export function mktState(opts = {}) {
     // pubFail / delFail = a code of ours (token / permission / image …) the next publish_now / delete answers with
     conn: { autopublish: false, facebook: { linked: true, name: 'Ibtekr Club', publish: true, insights: true }, instagram: { linked: true, name: '@ibtekr.club', publish: true, insights: true }, missing: [], valid: true, configured: true, ...(opts.mktConn || {}) },
     pubFail: null, delFail: null,
+    // 9.5.3: Meta's objects / daily numbers, the ad orders as mkt_ads_orders answers them (the share nulled without accounts.view),
+    // mkt-ads's status (opts.mktAds merges over a linked account) and the knob adsFail = our code the next sync answers with
+    adObjects: (opts.mktAdObjects || []).map((x) => ({ platform: 'meta', parent_id: null, name: null, status: null, thumb: null, meta: {}, updated_at: now, ...x })),
+    adStats: (opts.mktAdStats || []).map((x) => ({ platform: 'meta', impressions: 0, reach: null, clicks: 0, link_clicks: null, frequency: null, purchases: 0, purchase_value: 0, updated_at: now, ...x })),
+    adOrders: opts.mktAdOrders || [],
+    ads: { configured: true, account: { name: 'Ibtekr Club', currency: 'EGP', status: 'ACTIVE' }, synced_at: now, checked_at: now, error: null, ...(opts.mktAds || {}) },
+    adsFail: null,
   };
 }
 
 export function mktRoute(c) {
   const { method, path, url, hd, u, hasPerm, isAdmin, json, mock, route } = c; const H = mock.mkt; if (!H) return null;
-  const rest = /^\/rest\/v1\/(mkt_[a-z]+)$/.exec(path); const rpc = /^\/rest\/v1\/rpc\/(mkt_[a-z_]+)$/.exec(path);
+  const rest = /^\/rest\/v1\/(mkt_[a-z_]+)$/.exec(path); const rpc = /^\/rest\/v1\/rpc\/(mkt_[a-z_]+)$/.exec(path);
   const sto = /^\/storage\/v1\/object\/(sign\/)?marketing\/(.+)$/.exec(path);
-  const fn = method === 'POST' && (path === '/functions/v1/ai-images' || path === '/functions/v1/ai-content' || path === '/functions/v1/mkt-publish');
+  const fn = method === 'POST' && (path === '/functions/v1/ai-images' || path === '/functions/v1/ai-content' || path === '/functions/v1/mkt-publish' || path === '/functions/v1/mkt-ads');
   if (!(rest && COLS[rest[1]]) && !rpc && !sto && !fn) return null;
   // a signed URL opened with no key (an <img>): any token the mock signed opens the object
   if (sto && sto[1] && method === 'GET') { const obj = H.objects.get(decodeURIComponent(sto[2])); return obj ? route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': obj.type || 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
   if (fn && path === '/functions/v1/mkt-publish') return mktPublish(c, c.body());
+  if (fn && path === '/functions/v1/mkt-ads') return mktAds(c, c.body());
   if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !['campaign', 'campaign_edit'].includes(b.action) : b.action !== 'marketing') return null; return mktAi(c, b); }
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
   if (!u) return sto ? json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' }) : refuse(401, '42501', 'permission denied');
@@ -99,6 +110,12 @@ export function mktRoute(c) {
     const b = c.body(); const name = rpc[1]; H.calls.push({ rpc: name, by: u.id, ...b });
     const bad = (field) => refuse(400, '22023', 'invalid: ' + field);
     if (name === 'mkt_credits') return json(200, create ? { cap: H.cap, used: H.used } : null);
+    if (name === 'mkt_ads_orders') {
+      if (!view) return refuse(403, '42501', 'marketing.view is needed');
+      const a = c.body() || {}; if (!a.p_from || !a.p_to || a.p_to < a.p_from) return refuse(400, '22023', 'the range is from <= to, at most 400 days');
+      const money = isAdmin(u) || hasPerm(u, 'accounts.view') !== 'N';
+      return json(200, H.adOrders.filter((r) => r.day >= a.p_from && r.day <= a.p_to).map((r) => ({ ...r, share: money ? r.share : null })));
+    }
     if (name === 'mkt_template_used') {
       if (!create) return refuse(403, '42501', 'not allowed');
       const t = H.templates.find((x) => x.id === b.p_id && !x.deleted_at); if (!t) return refuse(404, 'P0002', 'not found');
@@ -173,7 +190,7 @@ export function mktRoute(c) {
   const t = rest[1]; const key = KEY[t];
   const single = /vnd\.pgrst\.object\+json/.test(hd.accept || '');
   const params = [...url.searchParams].filter(([k]) => !['select', 'order', 'limit', 'offset', 'on_conflict', 'columns'].includes(k));
-  const test = ([k, v]) => (v.startsWith('eq.') ? (r) => String(r[k]) === v.slice(3) : v === 'is.null' ? (r) => r[k] == null
+  const test = ([k, v]) => (v.startsWith('eq.') ? (r) => String(r[k]) === v.slice(3) : v.startsWith('gte.') ? (r) => String(r[k]) >= v.slice(4) : v.startsWith('lte.') ? (r) => String(r[k]) <= v.slice(4) : v === 'is.null' ? (r) => r[k] == null
     : /^in\.\(.*\)$/.test(v) ? ((set) => (r) => set.includes(String(r[k])))(v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1'))) : null);
   const fns = params.map(test); if (fns.some((x) => !x)) return refuse(400, 'PGRST100', 'mock: unsupported filter on ' + t + ': ' + params.map((p) => p.join('=')).join('&'));
   const match = (r) => fns.every((x) => x(r));
@@ -189,7 +206,7 @@ export function mktRoute(c) {
     return answer(list);
   }
   if (H.down) return json(503, { message: 'mock: marketing down' });
-  if (t === 'mkt_posts') return refuse(403, '42501', 'permission denied for table mkt_posts');
+  if (t === 'mkt_posts' || t === 'mkt_ad_objects' || t === 'mkt_ad_stats') return refuse(403, '42501', 'permission denied for table ' + t);
   const b = c.body(); const list = [].concat(b);
   const g = GRANT[t];
   if (method === 'POST') {
@@ -298,4 +315,20 @@ function mktPublish(c, b) {
     H.writes.push({ table: 'mkt_posts', op: 'delete_live', id: x.id }); return json(200, { result: 'ok', status: 'اتحذف' });
   }
   return json(400, { error: 'unknown_action' });
+}
+
+// 9.5.3: mkt-ads — status (marketing.view) and the admin's sync by hand; the knob adsFail answers a sync with our code (502)
+function mktAds(c, b) {
+  const { u, hasPerm, isAdmin, json, mock } = c; const H = mock.mkt;
+  H.calls.push({ fn: 'mkt-ads', action: b.action || null, by: u ? u.id : null, days: b.days == null ? null : b.days });
+  if (!u) return json(401, { error: 'unauthorized' });
+  const admin = isAdmin(u); const view = admin || hasPerm(u, 'marketing.view') !== 'N';
+  if (b.action === 'status') return view ? json(200, H.ads) : json(401, { error: 'unauthorized' });
+  if (b.action !== 'sync') return json(400, { error: 'unknown_action' });
+  if (!admin) return json(401, { error: 'unauthorized' });
+  if (!H.ads.configured) return json(503, { error: 'not_configured', configured: false });
+  const now = new Date().toISOString();
+  if (H.adsFail) { Object.assign(H.ads, { checked_at: now, error: H.adsFail }); return json(502, { error: H.adsFail }); }
+  Object.assign(H.ads, { synced_at: now, checked_at: now, error: null });
+  return json(200, { result: 'ok', days: Number(b.days) || 3, campaigns: H.adObjects.filter((o) => o.kind === 'campaign').length, ads: H.adObjects.filter((o) => o.kind === 'ad').length, stats: H.adStats.length });
 }

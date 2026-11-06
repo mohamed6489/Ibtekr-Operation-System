@@ -17,7 +17,7 @@
 // function of args; default { data: null, error: null }), for listFactors / enroll / challengeAndVerify / unenroll /
 // getAuthenticatorAssuranceLevel.
 const MFA = ['listFactors', 'enroll', 'challenge', 'verify', 'challengeAndVerify', 'unenroll', 'getAuthenticatorAssuranceLevel'];
-const OPS = ['select', 'eq', 'neq', 'in', 'is', 'gte', 'order', 'limit', 'range', 'upsert', 'insert', 'update', 'delete', 'match', 'single', 'maybeSingle', 'or', 'not'];
+const OPS = ['select', 'eq', 'neq', 'in', 'is', 'gte', 'lte', 'order', 'limit', 'range', 'upsert', 'insert', 'update', 'delete', 'match', 'single', 'maybeSingle', 'or', 'not'];
 const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 export function stubClient({ responses = {}, channelThrows = false } = {}) {
   const calls = []; let handler = null; let authHandler = null; const handlers = []; let statusCb = null;
@@ -39,7 +39,13 @@ export function stubClient({ responses = {}, channelThrows = false } = {}) {
       return ch;
     },
     removeChannel: () => { rec({ op: 'removeChannel' }); return Promise.resolve('ok'); },
-    rpc: (fn, args) => { rec({ op: 'rpc', args: [fn, args] }); return Promise.resolve().then(() => answer(responses['rpc:' + fn], plain(args)) || { data: null, error: null }); },
+    // a builder like supabase-js's (.range() / .limit() … on a set-returning function), awaited for the answer
+    rpc: (fn, args) => {
+      rec({ op: 'rpc', args: [fn, args] });
+      const q = { then: (ok, ko) => Promise.resolve().then(() => answer(responses['rpc:' + fn], plain(args)) || { data: null, error: null }).then(ok, ko) };
+      OPS.forEach((op) => { q[op] = () => q; });
+      return q;
+    },
     functions: {
       invoke: (name, opts) => { rec({ op: 'invoke', args: [name, opts] }); return Promise.resolve().then(() => answer(responses['fn:' + name], plain(opts)) || { data: null, error: null }); },
     },

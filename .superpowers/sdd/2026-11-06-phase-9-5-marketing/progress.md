@@ -65,3 +65,12 @@
 
 - T0 (9.5.3) ✓ (6 نوفمبر) الخطة: قرارات 42–48 + المهام T14–T19. الداتا: 102 من 105 أوردر عليهم Order Attribution، وإعلانات ميتا عليها
   `utm_source = fb | ig` / `utm_medium = paid` / `utm_campaign = رقم الحملة` (اتأكد بـ SQL على `orders.raw` — المصادر والأعداد بس).
+- T14 ✓ (6 نوفمبر) `0052_marketing_ads.sql`: مصدر الأوردر من `raw.meta_data` (`attr_type` / `utm_*` / `ad_platform`) بتريجر `orders_attribution`
+  + تعبئة re-runnable (CTE + LATERAL)؛ `mkt_ad_objects` / `mkt_ad_stats` (القراية `marketing.view`، الكتابة للسيرفر)؛ RPC `mkt_ads_orders`
+  (`marketing.view`، لحد 400 يوم، حصة إبتكر للأدمن أو `accounts.view ≠ N` بس)؛ cron `mkt-ads-sync` الدقيقة 23 كل ساعة. `rls_marketing_ads` ✓ محلي.
+- T15 ✓ (6 نوفمبر) `_shared/mkt-ads.js` (ردود Meta → الصفوف؛ الشرا = أول نوع موجود من غير جمع؛ صف الحساب بيحتفظ بآخر نجاح) + الدومين
+  (`ADS_RULES`، `adTotals` / `adCampaignRows` / `merWeeks` / `adAlerts` / `adCreatives`) — اختبارات 6 + 5.
+- T16 ✓ (6 نوفمبر) Edge Function `mkt-ads` (الـ cron بسر المزامنة؛ `status` بـ `marketing.view`؛ `sync` للأدمن 1–400 يوم و`mkt.ads.sync` أعداد بس؛
+  التوكن في الهيدر بس) — Deno 5 ✓، وفي `deploy-functions.yml` و`config.toml` و`deno:check`.
+- T17 ✓ (6 نوفمبر) `IBMarketing.adsStatus` / `adsSync` / `adsData` / `adsWhy` (القراية 1000 صف في المرة، 60 ثانية كاش) + الـ mock
+  (`mkt_ad_objects` / `mkt_ad_stats`، `mkt_ads_orders` من غير حصة لغير الحسابات، `mkt-ads` status/sync). adapter 19 ✓، `npm test` ✓، `marketing*.spec` 11 ✓.

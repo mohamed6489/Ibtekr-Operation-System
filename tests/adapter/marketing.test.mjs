@@ -256,3 +256,42 @@ test('9.5.2 preparePublish: download items as they are, the publish items\' imag
   eq([r.ok, r.problems[0].piece, r.problems[0].why], [false, 'P1', 'صورة القطعة مش موجودة أو مااتقريتش']);
   eq((await load({ perms: { 'marketing.view': 'F', 'marketing.publish': 'F' } }).M.preparePublish(C1, items)).reason, 'forbidden');
 });
+
+// ---------------------------------------------------------------- 9.5.3: the ads numbers
+const AD_OBJ = [{ platform: 'meta', kind: 'campaign', id: '120252323303340228', parent_id: '11', name: 'Macrame', status: 'ACTIVE', thumb: null, meta: {}, updated_at: '2026-11-06T10:00:00Z' },
+  { platform: 'meta', kind: 'ad', id: '1206', parent_id: '120252323303340228', name: 'carousel', status: 'ACTIVE', thumb: 'http://bad', meta: {}, updated_at: '2026-11-06T10:00:00Z' }];
+const AD_STATS = [{ level: 'campaign', object_id: '120252323303340228', campaign_id: '120252323303340228', day: '2026-11-02', spend: '800.50', impressions: '12000', reach: null, clicks: '300', link_clicks: '210', frequency: '1.333', purchases: '3', purchase_value: '4200' }];
+const AD_ORD = [{ day: '2026-11-02', platform: 'meta', source: 'fb', campaign: '120252323303340228', grp: 'completed', orders: 3, sales: '3000.00', share: null }];
+
+test('9.5.3 adsStatus: mkt-ads status cached a minute, the account and the last error in words; adsSync is the admin\'s', async () => {
+  const { M, stub } = load({ responses: { 'fn:mkt-ads': (o) => (o.body.action === 'status'
+    ? ok({ configured: true, account: { name: 'Ibtekr Club', currency: 'EGP', status: 'ACTIVE' }, synced_at: '2026-11-06T10:00:00Z', checked_at: '2026-11-06T11:00:00Z', error: 'token' })
+    : ok({ result: 'ok', days: 3, campaigns: 4, ads: 9, stats: 30 })) } });
+  const s = await M.adsStatus();
+  eq([s.ok, s.ads.configured, s.ads.account.name, s.ads.syncedAt, s.ads.error], [true, true, 'Ibtekr Club', '2026-11-06T10:00:00Z', 'token']);
+  assert.match(s.ads.why, /مفتاح إعلانات ميتا انتهى/);
+  await M.adsStatus(); eq(invokes(stub).length, 1); // cached
+  eq((await M.adsSync()).reason, 'forbidden'); // ops is not the admin
+  const adm = load({ role: 'admin', responses: { 'fn:mkt-ads': (o) => (o.body.action === 'sync' ? ok({ result: 'ok', days: 7, campaigns: 4, ads: 9, stats: 30 }) : ok({ configured: true, account: null })) } });
+  eq(await adm.M.adsSync(7), { ok: true, days: 7, campaigns: 4, ads: 9, stats: 30 });
+  eq(invokes(adm.stub)[0], ['mkt-ads', { body: { action: 'sync', days: 7 } }]);
+  const off = load({ role: 'admin', responses: { 'fn:mkt-ads': { data: null, error: { context: { status: 503, json: async () => ({ error: 'not_configured', configured: false }) } } } } });
+  assert.match((await off.M.adsSync()).message, /لسه مش متربطة/);
+  eq(M.adsWhy('rate').includes('استنى'), true); eq(M.adsWhy('graph_368'), 'ميتا رفضت (graph_368)'); eq(M.adsWhy(null), null);
+});
+
+test('9.5.3 adsData: the period + the 5 weeks before its end, Meta\'s objects and daily numbers as numbers, the ad orders; https pictures only; cached', async () => {
+  const { M, stub } = load({ responses: { mkt_ad_objects: ok(AD_OBJ), mkt_ad_stats: ok(AD_STATS), 'rpc:mkt_ads_orders': ok(AD_ORD) } });
+  const r = await M.adsData({ from: '2026-11-01', to: '2026-11-05' });
+  eq([r.ok, r.from, r.to], [true, '2026-10-02', '2026-11-05']);
+  eq(rpcs(stub), [['mkt_ads_orders', { p_from: '2026-10-02', p_to: '2026-11-05' }]]);
+  const stats = stub.calls.filter((c) => c.table === 'mkt_ad_stats' || (c.op === 'gte' || c.op === 'lte'));
+  assert.ok(stats.some((c) => c.op === 'gte' && c.args[0] === 'day' && c.args[1] === '2026-10-02') && stats.some((c) => c.op === 'lte' && c.args[1] === '2026-11-05'));
+  eq([r.stats[0].spend, r.stats[0].impressions, r.stats[0].reach, r.stats[0].frequency, r.stats[0].purchase_value], [800.5, 12000, null, 1.333, 4200]);
+  eq([r.orders[0].sales, r.orders[0].share], [3000, null]);
+  eq(r.objects.find((o) => o.kind === 'ad').thumb, null);
+  await M.adsData({ from: '2026-11-01', to: '2026-11-05' }); eq(rpcs(stub).length, 1); // cached
+  eq((await M.adsData({ from: '2026-11-05', to: '2026-11-01' })).reason, 'invalid');
+  eq((await M.adsData({ from: '2025-01-01', to: '2026-11-05' })).from, '2025-10-01'); // 400 days at most
+  const none = load({ perms: {} }); eq((await none.M.adsData({ from: '2026-11-01', to: '2026-11-05' })).reason, 'forbidden');
+});

@@ -83,3 +83,7 @@
   6 أعمدة على `orders`، 100 من 105 أوردر عليهم مصدر (`utm` 54 · `typein` 43 · `referral` 3)، **53 أوردر من إعلانات ميتا** (fb 33 · ig 20) على 6 حملات
   كلها برقم، ومافيش `order_events` من التعبئة؛ `order_attribution` مقفولة على `authenticated` و`mkt_ads_orders` مفتوحة له ومقفولة على anon؛
   cron `mkt-ads-sync` `23 * * * *` شغال. الوثائق: CLAUDE.md (ملحوظة 9.5.3 + سطر المراجع) و`tools/deploy.md` §2.7.27.
+- T19 ✓ (6 نوفمبر) «RLS live» (`rls_marketing_ads rls_security_advisor`) ✓ · «Deploy functions» `mkt-ads` ✓ → v1 ACTIVE (`verify_jwt = false`) · CI على
+  3635160 ✓ (e2e 346 محلي ✓) · الواجهة على `main`. **فاضل على صاحب المشروع:** مفتاح System User (`ads_read`، Never) + رقم حساب الإعلانات في أسرار
+  Supabase (`META_ADS_TOKEN` / `META_AD_ACCOUNT_ID` — §2.7.27 ج)، وبعدها «مزامنة دلوقتي» (أول تشغيلة 90 يوم)؛ لحد كده الدالة بترد `not_configured`
+  والصفحة بتقول «إعلانات ميتا لسه مش مربوطة» وأوردرات ووكومرس من الإعلانات (53) ظاهرة.

@@ -324,3 +324,10 @@ body.cal-dragging,body.cal-dragging * { cursor:grabbing !important;user-select:n
 .pp-capbox .field { margin:0 }
 .pp-cap span[data-pp-cap] { white-space:pre-line }
 .pp-cap { display:-webkit-box;-webkit-line-clamp:5;-webkit-box-orient:vertical;overflow:hidden }
+
+/* 9.5.2: the master switch row of «الربط بالمنصات» and the «انشر / داونلود» column of the publishing step */
+.mk-auto { display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-top:12px }
+.mk-auto .btn { margin-inline-start:auto }
+.cw-how { display:flex;flex-direction:column;gap:4px;align-items:flex-start }
+.cw-how .chip[aria-disabled="true"] { opacity:.55;cursor:not-allowed }
+@media (max-width: 640px) { .mk-auto .btn { margin-inline-start:0 } }

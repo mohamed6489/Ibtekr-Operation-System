@@ -103,14 +103,18 @@ test('a new campaign: the details (the row created) → the AI fills the piece �
   await pg(page).locator('[data-cw-ok="بوست 1"]').click();
   await expect(pg(page).locator('[data-cw-approved]')).toHaveAttribute('data-cw-approved', '1/1');
   await pg(page).locator('.cp-next').click();
-  // the schedule: «انشر» waits (soon), the platforms, the confirm
+  // the schedule (9.5.2: the page is linked, the switch is off → «انشر» can't be picked, every row a download), the platforms, the confirm
   await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('النشر والتحميل');
-  await expect(pg(page).locator('.conn-row')).toContainText('مش مربوط للنشر — داونلود بس');
+  await expect(pg(page).locator('[data-conn-pl="تيك توك"]')).toContainText('مش مربوط — داونلود بس');
+  await expect(pg(page).locator('[data-conn-pl="فيسبوك"]')).toContainText('مربوط للنشر');
+  await expect(pg(page).locator('[data-mk-auto]')).toHaveAttribute('data-mk-auto', 'off');
+  await expect(pg(page).locator('[data-cw-pub="P1"]')).toHaveAttribute('aria-disabled', 'true');
   await pg(page).locator('[data-cw-pl="P1"] .chip', { hasText: 'تيك توك' }).click();
   await pg(page).locator('.cp-next').click();
   await expect(pg(page).locator('[role=tab][aria-selected=true]')).toContainText('سجل النشر');
   const sch = mock.mkt.calls.find((c) => c.rpc === 'mkt_schedule');
   expect(sch.p_items.map((x) => x.platform).sort()).toEqual(['انستجرام', 'تيك توك', 'فيسبوك'].sort());
+  expect(sch.p_items.every((x) => x.how === 'download')).toBe(true);
   expect(sch.p_items[0].images[0]).toMatch(new RegExp('^' + made.id + '/gen-P1-'));
   await expect(pg(page).locator('.pub-tbl tbody tr')).toHaveCount(5);
   // nothing of the member's words reached activity_log

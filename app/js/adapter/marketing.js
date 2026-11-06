@@ -58,7 +58,7 @@
     src: r.src === 'platform' ? 'platform' : 'system', camp: (r.campaign_id && names.get(r.campaign_id)) || '—', status: r.status, caption: r.caption || '', capOrig: r.caption_orig || '', tags: r.tags || '',
     images: Array.isArray(r.images) ? r.images.filter((p) => typeof p === 'string') : [], img: Array.isArray(r.images) && typeof r.images[0] === 'string' ? r.images[0] : null,
     thumb: typeof r.thumb === 'string' && /^https:\/\//.test(r.thumb) ? r.thumb : null, externalId: r.external_id || null,
-    wasLive: !!r.was_live, url: r.post_url || null, publishedAt: r.published_at || null, delAt: cairoDay(r.deleted_at), updatedAt: r.updated_at,
+    wasLive: !!r.was_live, url: typeof r.post_url === 'string' && /^https:\/\//.test(r.post_url) ? r.post_url : null, publishedAt: r.published_at || null, delAt: cairoDay(r.deleted_at), updatedAt: r.updated_at,
     views: num(r.views), reach: num(r.reach), likes: num(r.likes), comments: num(r.comments), shares: num(r.shares), saves: num(r.saves), eng: num(r.eng),
     statsAt: r.stats_at || null, error: r.error || null, busy: !!r.claimed_at && Date.now() - Date.parse(r.claimed_at) < BUSY_MS });
   const toTemplate = (r) => ({ id: r.id, name: r.name, kind: r.kind, img: r.image || null, desc: r.descr || '', used: Number(r.used) || 0, at: cairoDay(r.updated_at || r.created_at) || '', deleted: !!r.deleted_at });

@@ -4,8 +4,11 @@
    9.5.1 (decisions 5, 8–18): «إنشاء» — the campaign card and «آخر الشغل» —, the campaign in four steps (the images with Magnific's
    credits through ai-images, the texts with Claude through ai-content, the review with pins on the image, the schedule and the ZIP
    download), «سجل النشر», «الخطة الإعلانية» and «قوالب التصميم». «نظرة عامة», «مساعدين الذكاء الاصطناعي» and «التقارير» are
-   «قريبًا» (the ads numbers of 9.5.3 and later), and so is the video. Publishing is a download until 9.5.2 (Facebook and
-   Instagram on Meta): a post is marked «اتنشر» by hand. */
+   «قريبًا» (the ads numbers of 9.5.3 and later), and so is the video.
+   9.5.2 (decisions 29–39): publishing to Facebook and Instagram through mkt-publish — the connection card with the master switch
+   (the admin's), «انشر / داونلود» per piece and «انشر المحدد» (the JPEG copies made at «تأكيد النشر»), «انشر دلوقتي» and «احذف
+   البوست» in the post's popup, the numbers (views, engagement, likes / comments / shares / saves), and the platform's own posts in
+   the log and the plan («من المنصة مباشرة», the source filter). A post can still be published by hand and marked «اتنشر». */
 (function () {
   'use strict';
   const U = window.IBUI, K = window.IBKit, PD = window.IbtekrProducts, W = window.IbtekrCampWiz;
@@ -35,6 +38,50 @@
   const SZ = () => PD.IMG_SIZES.map((x) => ({ value: x.id, label: x.label }));
   const szCls = (id) => (/1080x1080/.test(id) ? ' sq' : /1920/.test(id) ? ' story' : /1500/.test(id) ? ' pin' : /630|627|624|900|720/.test(id) ? ' wide' : '');
   const D2 = W.D2;
+  const isAdmin = () => { const D = window.IBDirectory; const m = D && D.me && D.me(); return !!m && m.role_id === 'admin'; };
+
+  // ---------- the connection (9.5.2, decisions 30–31): mkt-publish's status, loaded once and redrawn when it comes ----------
+  const conn = () => (MK() && MK().connNow ? MK().connNow() : null);
+  let connAsk = 0;
+  function needConn() {
+    const cn = conn(); if (cn || !MK() || !MK().connection) return cn;
+    if (Date.now() - connAsk > 15000) { connAsk = Date.now(); MK().connection().then((r) => { if (r && r.ok && window.IBPages.current === 'marketing' && !document.querySelector('.scrim')) R(); }); }
+    return null;
+  }
+  const PL_TAG = (pl, cn) => {
+    if (!W.PUBLISHABLE.includes(pl)) return Tag('neutral', 'مش مربوط — داونلود بس');
+    if (!cn) return Tag('neutral', 'بيتحمّل…');
+    const c2 = cn[W.PL_KEY[pl]];
+    if (!c2 || !c2.linked) return Tag('neutral', 'مش مربوط — داونلود بس');
+    if (!c2.publish) return Tag('orange', 'مربوط — محتاج صلاحية النشر');
+    return Tag('success', 'مربوط للنشر' + (c2.name ? ' · ' + c2.name : ''));
+  };
+  function toggleAuto(on) {
+    K.confirm({ title: on ? 'تشغّل النشر التلقائي؟' : 'توقّف النشر التلقائي؟',
+      text: on ? 'البوستات المجدولة اللي عليها «انشر» هتتنشر على صفحة الفيسبوك وحساب الانستجرام في مواعيدها، و«انشر دلوقتي» هيشتغل.' : 'مفيش بوست هيتنشر من السيستم لحد ما تشغّله تاني — المجدول بيفضل مستني في السجل.',
+      okLabel: on ? 'شغّل النشر' : 'وقّف النشر', okType: on ? 'primary' : 'danger',
+      onOk: async () => { const r = await MK().setAutopublish(on); K.toast(r.ok ? (on ? 'النشر التلقائي اشتغل' : 'النشر التلقائي وقف') : r.message, r.ok ? 'success' : 'error'); R(); } });
+  }
+  // «الربط بالمنصات» (the v5's card): each platform's state, the switch (the admin turns it), a link that misses the publishing permission
+  function connCard(acts) {
+    const cn = needConn();
+    const needs = cn && W.PUBLISHABLE.some((pl) => { const c2 = cn[W.PL_KEY[pl]]; return c2 && c2.linked && !c2.publish; });
+    return Card('الربط بالمنصات', 'فيسبوك وانستجرام من ربط الصفحة في «خدمة العملاء › القنوات» · تيك توك قريب', [
+      h('div', { class: 'conn-row', 'data-mk-conn': '' }, W.PLATFORMS.map((n) => h('div', { class: 'conn', 'data-conn-pl': n }, h('b', null, n), PL_TAG(n, cn)))),
+      cn ? h('div', { class: 'mk-auto', 'data-mk-auto': cn.autopublish ? 'on' : 'off' }, Tag(cn.autopublish ? 'success' : 'neutral', cn.autopublish ? 'النشر التلقائي شغّال' : 'النشر التلقائي متوقف'),
+        h('span', { class: 't-small help' }, cn.autopublish ? 'البوستات اللي عليها «انشر» بتتنشر لوحدها في ميعادها' : 'وهو متوقف مفيش بوست بيتنشر من السيستم — داونلود بس'),
+        isAdmin() ? Button({ size: 'sm', type: cn.autopublish ? 'default' : 'primary', label: cn.autopublish ? 'وقّف النشر التلقائي' : 'شغّل النشر التلقائي', attrs: { 'data-mk-auto-toggle': '' }, onClick: () => toggleAuto(!cn.autopublish) }) : null) : null,
+      needs ? U.InlineNote({ kind: 'warning', children: 'الربط محتاج صلاحية النشر والأرقام — الأدمن يربط نفس الصفحة تاني مرة واحدة ويوافق على الصلاحيات الجديدة (الرسايل في خدمة العملاء مابتقفش).',
+        action: isAdmin() ? Button({ type: 'text', size: 'sm', label: 'اربط تاني', attrs: { 'data-mk-relink': '' }, onClick: relink }) : null }) : null], acts);
+  }
+  // the same page linked again (cs-channel connect_start — the dialog asks for the publishing permissions too); the messages never stop meanwhile
+  async function relink() {
+    const r = window.IBCS ? await window.IBCS.connectStart('messenger') : { ok: false, reason: 'network' };
+    if (r.ok) { location.assign(r.url); return; }
+    K.toast(r.reason === 'not_configured' ? 'تطبيق Meta لسه مش متظبط على السيرفر (الأسرار ناقصة)' : r.reason === 'forbidden' ? 'الأدمن بس يقدر يربط الصفحة' : 'حصلت مشكلة في الاتصال — جرّب تاني', 'error');
+  }
+  const pieceText = (p) => ({ caption: p.caption || camp.w.idea, tags: p.tags || W.TAGS });
+  const pubOf = (p, pl, cn) => W.publishable(W.postKind(p), W.pieceImages(p), pl, cn, pieceText(p));
 
   // ---------- the page's state ----------
   const TABS = [['overview', 'نظرة عامة', true], ['create', 'إنشاء'], ['publog', 'سجل النشر'], ['calendar', 'الخطة الإعلانية'], ['templates', 'قوالب التصميم'], ['ai', 'مساعدين الذكاء الاصطناعي', true], ['reports', 'التقارير', true]];
@@ -379,52 +426,84 @@
   }
   const zipItem = (p) => ({ label: pieceLabel(p), images: W.pieceImages(p), caption: p.caption || camp.w.idea, tags: p.tags || W.TAGS });
   function c5() {
-    ensurePieces();
-    const sch = (p, i) => (camp.sched[p.id] = camp.sched[p.id] || Object.assign(W.suggest(i, TODAY()), { pl: ['انستجرام', 'فيسبوك'] }));
+    ensurePieces(); const cn = needConn();
+    const sch = (p, i) => (camp.sched[p.id] = camp.sched[p.id] || Object.assign(W.suggest(i, TODAY()), { pl: ['انستجرام', 'فيسبوك'], how: ['انشر'] }));
+    const canPub = (p, s) => (s.pl || []).some((pl) => pubOf(p, pl, cn).ok);
     const sel = camp.pubSel; const all = camp.pieces.length && camp.pieces.every((p) => sel.has(p.id));
     const rows = camp.pieces.map((p, i) => { const s = sch(p, i);
+      const pub = canPub(p, s); const on = pub && Array.isArray(s.how) && s.how.includes('انشر');
+      const why = pub ? null : ((s.pl || []).map((pl) => pubOf(p, pl, cn).why).find(Boolean) || 'اختار منصة الأول');
+      const auto = (s.pl || []).filter((pl) => pubOf(p, pl, cn).ok);
       return [cbx('حدد ' + pieceLabel(p), sel.has(p.id), (v) => { v ? sel.add(p.id) : sel.delete(p.id); R(); }), h('span', { class: 'prod' }, Img(p.img), h('span', null, h('b', null, pieceLabel(p)), h('small', null, W.hookOf(p)))),
         U.DateField({ id: 'sd-' + p.id, label: '', value: s.date, today: TODAY(), onChange: (v) => { s.date = v; persist(); R(); } }),
         U.Select({ id: 'st-' + p.id, label: '', options: W.timeOpts(s.time).map((x) => ({ value: x, label: x })), value: s.time, onChange: (v) => { s.time = v; persist(); R(); } }),
         h('div', { class: 'chips', 'data-cw-pl': p.id }, W.PLATFORMS.map((pl) => chip(pl, s.pl.includes(pl), () => { s.pl = s.pl.includes(pl) ? s.pl.filter((x) => x !== pl) : s.pl.concat(pl); persist(); R(); }))),
-        h('div', { class: 'chips' }, chip(['انشر', ' ', soonTag()], false, () => K.toast('النشر التلقائي على فيسبوك وإنستجرام في المرحلة الجاية — دلوقتي داونلود'), { 'aria-disabled': 'true' }), chip('داونلود', true, () => {}, { 'aria-disabled': 'true' })),
+        h('div', { class: 'cw-how' }, h('div', { class: 'chips', 'data-cw-how': p.id },
+          chip('انشر', on, () => { if (!pub) { K.toast(why, 'error'); return; } s.how = on ? ['داونلود'] : ['انشر']; persist(); R(); }, Object.assign({ 'data-cw-pub': p.id }, pub ? {} : { 'aria-disabled': 'true', title: why })),
+          chip('داونلود', true, () => {}, { 'aria-disabled': 'true' })),
+          on ? h('small', { class: 't-small help', 'data-cw-auto': p.id }, 'تلقائي: ' + auto.join(' · ')) : null),
         K.RowMenu([{ label: 'نزّل فولدر (الصور + التكست)', icon: 'download', run: () => downloadZip([zipItem(p)], pieceLabel(p)) },
           { label: 'انسخ الكابشن', icon: 'copy', run: () => { try { navigator.clipboard.writeText((p.caption || camp.w.idea) + '\n' + W.TAGS); } catch (e) { /* the clipboard is the browser's */ } K.toast('اتنسخ الكابشن'); } },
           { label: 'افتح القطعة', icon: 'edit', run: () => { camp.rtab = p.kind === 'كاروسيل' ? 'carousel' : 'post'; go('marketing-campaign-3'); } }])]; });
     const sp = [...sel].map((id) => camp.pieces.find((p) => p.id === id)).filter(Boolean);
-    const conn = Card('الربط بالمنصات', 'النشر التلقائي على فيسبوك وإنستجرام في المرحلة الجاية', h('div', { class: 'conn-row' }, W.PLATFORMS.map((n) => h('div', { class: 'conn' }, h('b', null, n), Tag('neutral', 'مش مربوط للنشر — داونلود بس')))),
-      Button({ label: 'نزّل الكل كفولدر (ZIP)', icon: 'download', attrs: { 'data-cw-zip': 'all' }, onClick: () => downloadZip(camp.pieces.map(zipItem), W.campaignName(camp.w.idea)) }));
+    const conn5 = connCard(Button({ label: 'نزّل الكل كفولدر (ZIP)', icon: 'download', attrs: { 'data-cw-zip': 'all' }, onClick: () => downloadZip(camp.pieces.map(zipItem), W.campaignName(camp.w.idea)) }));
+    const pubSel = () => { let n = 0; sp.forEach((p) => { const s = camp.sched[p.id]; if (s && canPub(p, s)) { s.how = ['انشر']; n += 1; } }); persist(); R(); K.toast(n ? 'اتعلّم «انشر» على ' + n + ' قطعة' : 'المحدد مايتنشرش من السيستم دلوقتي — داونلود بس', n ? 'success' : 'error'); };
     const confirm = async () => {
+      if (camp.busy.pub) return;
       const today = TODAY(), now = NOW();
       for (const p of camp.pieces) { const s = camp.sched[p.id]; if (!s || !s.pl.length) { K.toast('اختار منصة واحدة على الأقل لـ ' + pieceLabel(p), 'error'); return; }
         const e = W.moveCheck(null, s.date, s.time, today, now); if (e) { K.toast(pieceLabel(p) + ': ' + (e.day || e.time), 'error'); return; } }
       if (!(await ensureCampaign())) return;
-      persist(0); // the suggested times shown are the campaign's too (schedule() flushes it first)
-      const items = W.scheduleItems(camp.pieces, camp.sched, camp.w.idea);
-      const r = await MK().schedule(camp.id, items);
-      if (!r.ok) { K.toast(r.message, 'error'); return; }
-      K.toast('اتجدول ' + items.length + ' بوست — نزّلهم وانشرهم في مواعيدهم، وعلّمهم «اتنشر» من سجل النشر', 'success'); go('marketing-publog');
+      camp.busy.pub = true;
+      try {
+        persist(0); // the suggested times shown are the campaign's too (schedule() flushes it first)
+        let items = W.scheduleItems(camp.pieces, camp.sched, camp.w.idea, conn());
+        const pub = items.filter((x) => x.how === 'publish').length;
+        if (pub) { // decision 33: Instagram takes JPEG only — the copies are made here, in the browser
+          K.toast('بيجهّز الصور للنشر…');
+          const prep = await MK().preparePublish(camp.id, items);
+          if (!prep.ok) { K.toast(prep.message, 'error'); return; }
+          items = prep.items;
+        }
+        const r = await MK().schedule(camp.id, items);
+        if (!r.ok) { K.toast(r.message, 'error'); return; }
+        K.toast(pub ? 'اتجدول ' + items.length + ' بوست — ' + pub + ' هيتنشروا لوحدهم في مواعيدهم' : 'اتجدول ' + items.length + ' بوست — نزّلهم وانشرهم في مواعيدهم، وعلّمهم «اتنشر» من سجل النشر', 'success'); go('marketing-publog');
+      } finally { camp.busy.pub = false; }
     };
-    return [conn,
-      sp.length ? h('div', { class: 'bulk-bar' }, h('b', null, 'محدد ' + sp.length), h('span', { class: 'grow' }), Button({ size: 'sm', icon: 'download', label: 'نزّل المحدد', onClick: () => downloadZip(sp.map(zipItem), W.campaignName(camp.w.idea)) }), Button({ size: 'sm', type: 'text', label: 'إلغاء التحديد', onClick: () => { sel.clear(); R(); } })) : null,
+    const anyPub = camp.pieces.some((p) => { const s = camp.sched[p.id]; return s && Array.isArray(s.how) && s.how.includes('انشر') && canPub(p, s); });
+    return [conn5,
+      sp.length ? h('div', { class: 'bulk-bar' }, h('b', null, 'محدد ' + sp.length), h('span', { class: 'grow' }), Button({ type: 'primary', size: 'sm', icon: 'send', label: 'انشر المحدد', attrs: { 'data-cw-pub-sel': '' }, onClick: pubSel }), Button({ size: 'sm', icon: 'download', label: 'نزّل المحدد', onClick: () => downloadZip(sp.map(zipItem), W.campaignName(camp.w.idea)) }), Button({ size: 'sm', type: 'text', label: 'إلغاء التحديد', onClick: () => { sel.clear(); R(); } })) : null,
       h('section', { class: 'card sec cw-pub' }, h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, 'تفاصيل نشر الكامبين'), h('div', { class: 't-small sub' }, camp.pieces.length + ' عمل فني · اختار التاريخ والوقت والمنصات لكل واحد')), h('div', { class: 'acts' })),
-        h('div', { class: 'sec-b' }, U.Table({ cls: 'dt', headers: [cbx('حدد الكل', !!all, (v) => { camp.pieces.forEach((p) => (v ? sel.add(p.id) : sel.delete(p.id))); R(); }), 'العمل الفني', 'التاريخ', 'الوقت', 'المنصات', 'النشر', ''], rows }))),
-      U.InlineNote({ children: 'النشر في المرحلة دي داونلود: نزّل الفولدر وانشره بإيدك في ميعاده، وبعدها علّمه «اتنشر» من سجل النشر. المواعيد مقترحة على أوقات النشاط الأعلى.' }),
+        h('div', { class: 'sec-b' }, U.Table({ cls: 'dt', headers: [cbx('حدد الكل', !!all, (v) => { camp.pieces.forEach((p) => (v ? sel.add(p.id) : sel.delete(p.id))); R(); }), 'العمل الفني', 'التاريخ', 'الوقت', 'المنصات', 'الطريقة', ''], rows }))),
+      U.InlineNote({ children: anyPub ? 'اللي عليه «انشر» بيتنشر لوحده في ميعاده على فيسبوك وانستجرام (الصور بتتجهز JPEG مع التأكيد)، والباقي بيتنزل كفولدر وتنشره بإيدك وتعلّمه «اتنشر» من سجل النشر. المواعيد مقترحة على أوقات النشاط الأعلى.'
+        : 'النشر هنا داونلود: نزّل الفولدر وانشره بإيدك في ميعاده، وبعدها علّمه «اتنشر» من سجل النشر. المواعيد مقترحة على أوقات النشاط الأعلى.' }),
       can().publish ? null : U.InlineNote({ kind: 'warning', children: 'تأكيد النشر محتاج صلاحية «التسويق — النشر».' }),
       Foot(4, 4, cback, 'تأكيد النشر', confirm, !can().publish)];
   }
 
-  // ---------- سجل النشر (decision 15): the system's posts ----------
-  const srcTag = () => Tag('brand', 'من السيستم');
-  const stTag = (x) => Tag(x.status === 'اتنشر' ? 'success' : x.status === 'مجدول' ? 'gold' : x.status === 'اتحذف' ? 'neutral' : 'error', x.status);
+  // ---------- سجل النشر (decisions 15, 35–38): the system's posts and the platform's own, with their numbers ----------
+  const srcTag = (x) => (x.src === 'platform' ? Tag('neutral', W.SRC_LABEL.platform) : Tag('brand', W.SRC_LABEL.system));
+  const stTag = (x) => (x.busy && W.canMove(x) ? Tag('info', 'بيتنشر…') : Tag(x.status === 'اتنشر' ? 'success' : x.status === 'مجدول' ? 'gold' : x.status === 'اتحذف' ? 'neutral' : 'error', x.status));
   const PP_RATIO = { 'بوست': 'p45', 'كاروسيل': 'p11', 'ريل': 'p916', 'ستوري': 'p916' };
+  const n0 = (v) => (v == null ? '—' : K.n0(v));
+  // a log row's picture: the campaign's (the bucket) or the platform's own (https)
+  const PostImg = (x, cls, alt) => (x.src === 'platform'
+    ? (x.thumb ? h('span', { class: 'thumb ' + (cls || '') }, h('img', { src: x.thumb, alt: alt || '', loading: 'lazy', referrerpolicy: 'no-referrer' })) : Img(null, cls))
+    : Img(x.img, cls, alt));
   function postPreview(x) {
+    const many = x.kind === 'كاروسيل' && x.images.length > 1;
     return h('figure', { class: 'pp ' + (PP_RATIO[x.kind] || 'p45'), 'data-post-preview': x.kind },
       h('div', { class: 'pp-h' }, h('span', { class: 'pp-av', 'aria-hidden': 'true' }, window.IBLogo ? window.IBLogo.Logo({ tone: 'reversed', width: 16, mark: true }) : 'إ'), h('span', { class: 'pp-who' }, h('b', null, 'ibtekr.club'), h('small', null, x.pl + ' · ' + x.kind))),
-      h('div', { class: 'pp-img' }, x.img ? Img(x.img, 'fill', 'شكل ' + x.kind + ': ' + x.name) : h('span', { class: 'pp-none', role: 'img', 'aria-label': 'مفيش صورة' }, Icon('image')),
-        x.kind === 'كاروسيل' && x.images.length > 1 ? h('span', { class: 'pp-n' }, K.Num('1/' + x.images.length)) : null, x.kind === 'ستوري' ? h('span', { class: 'pp-bar', 'aria-hidden': 'true' }) : null),
-      x.kind === 'كاروسيل' && x.images.length > 1 ? h('div', { class: 'pp-dots', 'aria-hidden': 'true' }, x.images.slice(0, 10).map((_, k) => h('i', { class: k ? null : 'on' }))) : null,
+      h('div', { class: 'pp-img' }, x.img || x.thumb ? PostImg(x, 'fill', 'شكل ' + x.kind + ': ' + x.name) : h('span', { class: 'pp-none', role: 'img', 'aria-label': 'مفيش صورة' }, Icon('image')),
+        many ? h('span', { class: 'pp-n' }, K.Num('1/' + x.images.length)) : null, x.kind === 'ستوري' ? h('span', { class: 'pp-bar', 'aria-hidden': 'true' }) : null),
+      many ? h('div', { class: 'pp-dots', 'aria-hidden': 'true' }, x.images.slice(0, 10).map((_, k) => h('i', { class: k ? null : 'on' }))) : null,
       h('figcaption', { class: 'pp-cap' }, h('b', null, 'ibtekr.club '), h('span', { 'data-pp-cap': '' }, x.caption)));
+  }
+  // can the system publish this waiting post now: its platform ready (linked, permission, the switch), its images fit (Instagram: JPEG)
+  function canPublishNow(x) {
+    if (x.src !== 'system' || !W.canMove(x) || x.busy) return false;
+    if (!W.publishable(x.kind, x.images, x.pl, conn(), { caption: x.caption, tags: x.tags }).ok) return false;
+    return x.pl !== 'انستجرام' || x.images.every(W.isJpeg);
   }
   // the caption of a waiting post: saved as it is typed (≤ 2200), «إعادة كتابة بالـ AI», «رجّع الكابشن الأصلي»
   // its campaign as the AI's context while the campaign is open (an archived one: the caption alone)
@@ -436,7 +515,7 @@
     const reset = Button({ type: 'text', size: 'sm', icon: 'undo', label: 'رجّع الكابشن الأصلي', attrs: { 'data-cap-reset': '' }, onClick: () => { const t = root().querySelector('#pp-cap'); t.value = orig; t.dispatchEvent(new Event('input', { bubbles: true })); } });
     const upd = (v, saved) => { count.textContent = v.length + ' / ' + W.CAP_MAX; reset.hidden = v === orig; state.textContent = saved === true ? 'اتحفظ ✓' : saved === false ? 'بيتحفظ…' : '';
       const pv2 = root() && root().querySelector('[data-pp-cap]'); if (pv2) pv2.textContent = v; };
-    const fld = aiField(U.Textarea({ id: 'pp-cap', label: '', rows: 4, value: x.caption, maxlength: W.CAP_MAX, help: 'بيتحفظ أول بأول — ده الكلام اللي هتنشره', onInput: (v) => {
+    const fld = aiField(U.Textarea({ id: 'pp-cap', label: '', rows: 4, value: x.caption, maxlength: W.CAP_MAX, help: 'بيتحفظ أول بأول — ده الكلام اللي هيتنشر', onInput: (v) => {
       upd(v, false); clearTimeout(tm); tm = setTimeout(async () => { const r = await MK().caption(x.id, v); upd(v, r.ok ? true : null); if (!r.ok) K.toast(r.message, 'error'); }, 800); } }), 'caption', ctxOf(x));
     const box = h('div', { class: 'pp-capbox', 'data-cap-box': '' }, h('div', { class: 'pp-caph' }, h('label', { for: 'pp-cap', class: 't-label' }, 'الكابشن')), fld, h('div', { class: 'pp-capf' }, count, state, h('span', { class: 'grow' }), reset));
     upd(x.caption, undefined); return box;
@@ -448,13 +527,27 @@
       validate: (f) => (f.url && !/^https:\/\/[^\s<>"]+$/.test(f.url.trim()) ? { url: 'اللينك لازم يبدأ بـ https://' } : {}),
       submit: (f, m) => { if (m.busy) return false; m.busy = true; MK().published(x.id, f.url).then((r) => { m.busy = false; if (!r.ok) { K.toast(r.message, 'error'); return; } m.close(); K.toast('اتعلّم «اتنشر» على ' + x.pl, 'success'); R(); }); return false; } });
   }
+  // «انشر دلوقتي» (decision 35): the same publishing, now
+  let publishing = 0;
+  async function publishNow(x, m) {
+    if (publishing) return; publishing = x.id;
+    if (m) m.close(); K.toast('بيتنشر على ' + x.pl + '…');
+    try {
+      const r = await MK().publishNow(x.id);
+      if (!r.ok) { K.toast(r.message, 'error'); return; }
+      K.toast(r.pending ? 'انستجرام بيجهّز البوست — هيتنشر لوحده خلال دقيقة' : 'اتنشر على ' + x.pl + ' ✓', 'success');
+    } finally { publishing = 0; R(); }
+  }
   function askDelete(x, m) {
-    m.close(); const live = x.status === 'اتنشر';
-    const c = U.Modal({ title: live ? 'تشيل البوست من السجل؟' : 'تحذف البوست المجدول؟',
-      body: live ? [h('p', { class: 't-body', style: 'margin:0' }, '«' + x.name + '» هيتعلّم «اتحذف» في السجل.'), h('p', { class: 't-small help', style: 'margin:0' }, 'النشر في المرحلة دي بالإيد — لو لسه على ' + x.pl + ' احذفه من التطبيق.')]
-        : [h('p', { class: 't-body', style: 'margin:0' }, '«' + x.name + '» مش هيتنشر على ' + x.pl + ' يوم ' + dayLabel(x.day) + ' ' + x.time + '.'), h('p', { class: 't-small help', style: 'margin:0' }, 'لو عايز تنشره في يوم تاني استخدم «أجّل» بدل الحذف.')],
-      footer: [Button({ label: 'ارجع', attrs: { 'data-post-del-cancel': '' }, onClick: () => { c.close(); pubDetail(x); } }), Button({ type: 'danger', icon: 'trash', label: live ? 'شيله من السجل' : 'احذف من الجدول', attrs: { 'data-post-del-ok': '' }, onClick: async () => {
-        c.close(); const r = await MK().remove(x.id); K.toast(r.ok ? (live ? 'اتعلّم «اتحذف» في السجل' : 'اتشال من الجدول — مش هيتنشر') : r.message, r.ok ? 'success' : 'error'); R(); } })] });
+    m.close(); const live = x.status === 'اتنشر'; const onPlatform = live && !!x.externalId && W.PUBLISHABLE.includes(x.pl);
+    const p = (t) => h('p', { class: 't-body', style: 'margin:0' }, t); const small = (t) => h('p', { class: 't-small help', style: 'margin:0' }, t);
+    const c = U.Modal({ title: onPlatform ? 'تحذف البوست من ' + x.pl + '؟' : live ? 'تشيل البوست من السجل؟' : 'تحذف البوست المجدول؟',
+      body: onPlatform ? [p('«' + x.name + '» هيتشال من ' + x.pl + ' ومش هيرجع تاني.'), small('أرقامه لحد دلوقتي (المشاهدات والتفاعل) هتفضل في سجل النشر.')]
+        : live ? [p('«' + x.name + '» هيتعلّم «اتحذف» في السجل.'), small('البوست ده اتعلّم «اتنشر» بالإيد — لو لسه على ' + x.pl + ' احذفه من التطبيق.')]
+        : [p('«' + x.name + '» مش هيتنشر على ' + x.pl + ' يوم ' + dayLabel(x.day) + ' ' + x.time + '.'), small('لو عايز تنشره في يوم تاني استخدم «أجّل» بدل الحذف.')],
+      footer: [Button({ label: 'ارجع', attrs: { 'data-post-del-cancel': '' }, onClick: () => { c.close(); pubDetail(x); } }), Button({ type: 'danger', icon: 'trash', label: onPlatform ? 'احذف البوست' : live ? 'شيله من السجل' : 'احذف من الجدول', attrs: { 'data-post-del-ok': '' }, onClick: async () => {
+        c.close(); const r = onPlatform ? await MK().deleteLive(x.id) : await MK().remove(x.id);
+        K.toast(r.ok ? (onPlatform ? 'اتحذف من ' + x.pl : live ? 'اتعلّم «اتحذف» في السجل' : 'اتشال من الجدول — مش هيتنشر') : r.message, r.ok ? 'success' : 'error'); R(); } })] });
   }
   async function reschedule(x, day, time) {
     const from = dayLabel(x.day) + ' ' + x.time; const later = day + time > x.day + x.time;
@@ -464,53 +557,71 @@
   }
   function pubDetail(x0, mode, draft) {
     const x = MK().getPost(x0.id) || x0;
-    const live = x.status === 'اتنشر', gone = x.status === 'اتحذف', wait = !live && !gone; let m = null;
-    const moving = wait && mode === 'move' && can().publish;
+    const live = x.status === 'اتنشر', gone = x.status === 'اتحذف', wait = !live && !gone, had = W.seenSt(x); let m = null;
+    const sys = x.src === 'system'; const P = can().publish; const cn = conn();
+    const moving = wait && mode === 'move' && P && sys && !x.busy;
     const sub = h('p', { class: 't-small help', style: 'margin:0' }, K.Num(x.kind + ' · ' + (wait || (gone && !x.wasLive) ? 'ميعاده ' : 'اتنشر ') + D2(x.day) + ' ' + x.time), x.camp !== '—' ? ' · كامبين: ' + x.camp : '');
-    const chips = live ? [['اتنشر', x.publishedAt ? D2(String(x.publishedAt).slice(0, 10)) : D2(x.day)], ['اللينك', x.url ? 'موجود' : '—']]
+    const eng = W.engOf(x); const counted = x.statsAt || x.eng != null;
+    const chips = had ? [['المشاهدات', n0(x.views)], ['التفاعل', counted ? K.n0(eng) : '—'], ['نسبة التفاعل', x.views ? W.pct(eng, x.views) : '—']]
+      : x.status === 'فشل' ? [['كان ميعاده', dayLabel(x.day) + ' ' + x.time], ['اللي حصل', W.pubError(x.error)]]
       : gone ? [['كان ميعاده', dayLabel(x.day) + ' ' + x.time]] : [['الميعاد', dayLabel(x.day) + ' ' + x.time], ['فاضل', W.relDay(x.day, TODAY())]];
     const sum = h('div', { class: 'dt-sum' }, chips.map(([l, v]) => h('div', { class: 'dt-chip' }, h('span', { class: 't-small' }, l), h('b', null, K.Num(v)))));
-    const note = gone ? U.InlineNote({ children: x.wasLive ? 'اتشال من السجل يوم ' + D2(x.delAt || TODAY()) + ' بعد ما كان اتنشر.' : 'اتشال من الجدول يوم ' + D2(x.delAt || TODAY()) + ' قبل ما يتنشر.' })
-      : live ? U.InlineNote({ children: 'المشاهدات والتفاعل هيظهروا هنا مع النشر التلقائي في المرحلة الجاية.' })
-      : U.InlineNote({ children: 'النشر في المرحلة دي بالإيد: نزّل الفولدر وانشره على ' + x.pl + ' في ميعاده، وبعدها «علّمه اتنشر».' });
+    const table = had && counted ? h('div', { style: 'overflow-x:auto' }, h('table', { class: 'vlo-table dt-table', 'data-post-stats': '' }, h('thead', null, h('tr', null, h('th', { scope: 'col' }, 'المقياس'), h('th', { scope: 'col' }, 'العدد'))),
+      h('tbody', null, [['لايك', x.likes], ['كومنت', x.comments], ['شير', x.shares], ['سيف', x.saves]].map(([a, b]) => h('tr', null, h('td', null, a), h('td', { class: 'nw' }, K.Num(n0(b)))))))) : null;
+    const auto = wait && sys && x.how === 'publish';
+    const noteText = gone ? (x.wasLive ? 'اتحذف من ' + x.pl + ' يوم ' + D2(x.delAt || TODAY()) + ' — الأرقام دي آخر قراية قبل الحذف.' : 'اتشال من الجدول يوم ' + D2(x.delAt || TODAY()) + ' قبل ما يتنشر.')
+      : live ? (counted ? null : 'المشاهدات والتفاعل بتتحدث من المنصة كل نص ساعة.')
+      : x.busy ? 'البوست بيتنشر دلوقتي على ' + x.pl + '…'
+      : x.status === 'فشل' && !moving ? 'النشر فشل (' + W.pubError(x.error) + ') — «انشر دلوقتي» بيجرّب تاني على ' + x.pl + '، أو «أجّل» لميعاد جديد.'
+      : auto ? 'هيتنشر لوحده على ' + x.pl + ' ' + dayLabel(x.day) + ' الساعة ' + x.time + '.' + (cn && !cn.autopublish ? ' النشر التلقائي متوقف دلوقتي — الأدمن يشغّله من كارت «الربط بالمنصات».' : '')
+      : 'النشر بالإيد: نزّل الفولدر وانشره على ' + x.pl + ' في ميعاده، وبعدها «علّمه اتنشر».';
+    const note = noteText ? U.InlineNote({ kind: x.status === 'فشل' ? 'error' : '', children: noteText }) : null;
     const dr = draft || { day: x.day < TODAY() ? TODAY() : x.day, time: x.time, err: {} };
     const dayBox = h('div'), timeBox = h('div');
     const drawDay = () => dayBox.replaceChildren(U.DateField({ id: 'pp-day', label: 'اليوم', required: true, value: dr.day, today: TODAY(), error: dr.err.day, onChange: (v, err) => { dr.day = v; dr.err = { day: err || '' }; drawDay(); drawTime(); } }));
     const drawTime = () => timeBox.replaceChildren(U.Select({ id: 'pp-time', label: 'الساعة', required: true, options: W.timeOpts(dr.time).map((t) => ({ value: t, label: t })), value: dr.time, error: dr.err.time, onChange: (v) => { dr.time = v; dr.err = {}; drawDay(); drawTime(); } }));
     if (moving) { drawDay(); drawTime(); }
     const moveBox = moving ? h('div', { class: 'pp-move', 'data-post-move-form': '' }, h('b', null, 'الميعاد الجديد'), h('p', { class: 't-small help', style: 'margin:0' }, 'الحالي: ' + dayLabel(x.day) + ' ' + x.time), h('div', { class: 'pp-move-row' }, dayBox, timeBox)) : null;
-    const body = h('div', { class: 'pp-wrap' }, postPreview(x), h('div', { class: 'pp-info' }, h('div', { class: 'pp-st' }, stTag(x), srcTag()), sub, sum, wait && !moving && can().publish ? captionBox(x, () => m && m.el) : null, moveBox, note));
+    const body = h('div', { class: 'pp-wrap' }, postPreview(x), h('div', { class: 'pp-info' }, h('div', { class: 'pp-st' }, stTag(x), srcTag(x)), sub, sum, table, wait && !moving && P && sys && !x.busy ? captionBox(x, () => m && m.el) : null, moveBox, note));
     const close = Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() });
-    const dl = Button({ icon: 'download', label: 'نزّل', attrs: { 'data-post-dl': '' }, onClick: () => downloadZip([{ label: x.name, images: x.images, caption: x.caption, tags: x.tags }], x.name) });
-    const P = can().publish;
-    const del = (wait || live) && P ? Button({ type: 'danger', icon: 'trash', label: wait ? 'احذف' : 'شيله من السجل', attrs: { 'data-post-del': '' }, onClick: () => askDelete(x, m) }) : null;
+    const dl = sys ? Button({ icon: 'download', label: 'نزّل', attrs: { 'data-post-dl': '' }, onClick: () => downloadZip([{ label: x.name, images: x.images, caption: x.caption, tags: x.tags }], x.name) }) : null;
+    const open = x.url && (live || (gone && x.wasLive)) ? h('a', { class: 'btn btn-default', href: x.url, target: '_blank', rel: 'noopener noreferrer', 'data-post-open': '' }, 'افتح على ' + x.pl + ' ↗') : null;
+    const del = (wait || live) && P && !x.busy ? Button({ type: 'danger', icon: 'trash', label: wait ? 'احذف' : x.externalId && W.PUBLISHABLE.includes(x.pl) ? 'احذف البوست' : 'شيله من السجل', attrs: { 'data-post-del': '' }, onClick: () => askDelete(x, m) }) : null;
     if (del) del.classList.add('pp-del');
+    const nowBtn = wait && P && canPublishNow(x) ? Button({ type: 'primary', icon: 'send', label: 'انشر دلوقتي', attrs: { 'data-post-publish': '' }, onClick: () => publishNow(x, m) }) : null;
+    const markBtn = wait && P && sys && !x.busy ? Button({ type: nowBtn ? 'text' : 'primary', icon: nowBtn ? undefined : 'check', label: 'علّمه اتنشر', attrs: { 'data-post-published': '' }, onClick: () => { m.close(); markPublished(x); } }) : null;
     const foot = moving ? [Button({ type: 'primary', icon: 'check', label: 'احفظ الميعاد', attrs: { 'data-post-move-save': '' }, onClick: async () => { const e = W.moveCheck(x, dr.day, dr.time, TODAY(), NOW()); if (e) { dr.err = e; drawDay(); drawTime(); return; } m.close(); if (await reschedule(x, dr.day, dr.time)) { R(); pubDetail(x); } } }),
         Button({ label: 'ارجع', attrs: { 'data-post-move-cancel': '' }, onClick: () => { m.close(); pubDetail(x); } })]
-      : wait && P ? [Button({ type: 'primary', icon: 'check', label: 'علّمه اتنشر', attrs: { 'data-post-published': '' }, onClick: () => { m.close(); markPublished(x); } }), Button({ icon: 'calendar', label: 'أجّل', attrs: { 'data-post-move': '' }, onClick: () => { m.close(); pubDetail(x, 'move'); } }), dl, close, del]
-      : [dl, close, del].filter(Boolean);
+      : wait && P && sys && !x.busy ? [nowBtn, markBtn, Button({ icon: 'calendar', label: 'أجّل', attrs: { 'data-post-move': '' }, onClick: () => { m.close(); pubDetail(x, 'move'); } }), dl, close, del].filter(Boolean)
+      : [open, dl, close, del].filter(Boolean);
     m = U.Modal({ title: x.name + ' — ' + x.pl, body, footer: foot });
     m.el.classList.add('mid'); m.el.dataset.post = String(x.id);
     if (moving) setTimeout(() => { const f = document.getElementById('pp-day'); if (f) f.focus(); }, 0);
     return m;
   }
   function publogTab() {
+    needConn();
     const q = (M.plq || '').trim(); const all = MK().posts();
     const list = all.filter((x) => !q || (x.name + x.camp + x.pl + x.kind).includes(q)).slice().sort((a, b) => (b.day + b.time).localeCompare(a.day + a.time));
-    const cnt = (s) => list.filter((x) => x.status === s).length; const today = TODAY();
+    const cnt = (s) => list.filter((x) => x.status === s).length; const T = W.postTotals(list);
     const sb = h('input', { type: 'search', id: 'pl-q', placeholder: 'دوّر باسم البوست أو الكامبين', 'aria-label': 'بحث في سجل النشر', value: M.plq || '' });
     sb.addEventListener('input', () => { M.plq = sb.value; R(); setTimeout(() => { const s = document.getElementById('pl-q'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }, 0); });
-    const rows = list.map((x) => [h('button', { type: 'button', class: 'prod link-btn', onClick: () => pubDetail(x), 'aria-label': 'تفاصيل ' + x.name, 'data-post-row': String(x.id) }, Img(x.img), h('span', null, h('b', null, x.name), h('small', null, x.kind))),
-      x.pl, K.Num(D2(x.day) + ' ' + x.time), x.camp, stTag(x),
-      K.RowMenu([{ label: 'التفاصيل', icon: 'eye', run: () => pubDetail(x) }, { label: 'نزّل الفولدر', icon: 'download', run: () => downloadZip([{ label: x.name, images: x.images, caption: x.caption, tags: x.tags }], x.name) },
-        { label: 'انسخ الكابشن', icon: 'copy', run: () => { try { navigator.clipboard.writeText(x.caption + (x.tags ? '\n' + x.tags : '')); } catch (e) { /* the clipboard is the browser's */ } K.toast('اتنسخ الكابشن'); } }])]);
+    const seen = (x) => W.seenSt(x) && (x.statsAt || x.eng != null);
+    const rows = list.map((x) => [h('button', { type: 'button', class: 'prod link-btn', onClick: () => pubDetail(x), 'aria-label': 'تفاصيل ' + x.name, 'data-post-row': String(x.id) }, PostImg(x), h('span', null, h('b', null, x.name), h('small', null, x.kind))),
+      x.pl, K.Num(D2(x.day) + ' ' + x.time), srcTag(x), x.camp, stTag(x),
+      K.Num(W.seenSt(x) ? n0(x.views) : '—'), K.Num(seen(x) ? K.n0(W.engOf(x)) : '—'), K.Num(seen(x) && x.views ? W.pct(W.engOf(x), x.views) : '—'),
+      K.RowMenu([{ label: 'التفاصيل', icon: 'eye', run: () => pubDetail(x) },
+        x.src === 'system' ? { label: 'نزّل الفولدر', icon: 'download', run: () => downloadZip([{ label: x.name, images: x.images, caption: x.caption, tags: x.tags }], x.name) } : null,
+        x.url ? { label: 'افتح على ' + x.pl, icon: 'link', run: () => { try { window.open(x.url, '_blank', 'noopener'); } catch (e) { /* a blocked popup */ } } } : null,
+        { label: 'انسخ الكابشن', icon: 'copy', run: () => { try { navigator.clipboard.writeText(x.caption + (x.tags ? '\n' + x.tags : '')); } catch (e) { /* the clipboard is the browser's */ } K.toast('اتنسخ الكابشن'); } }].filter(Boolean))]);
     return [h('div', { class: 'cards four', 'data-publog-kpis': '' },
-      U.KpiTile({ label: 'اتنشر', value: String(cnt('اتنشر')), unit: 'بوست', compare: 'off', note: 'متعلّم بالإيد لحد النشر التلقائي' }),
-      U.KpiTile({ label: 'مجدول', value: String(cnt('مجدول')), unit: 'بوست', compare: 'off', note: list.filter((x) => x.status === 'مجدول' && x.day === today).length + ' النهارده' }),
-      U.KpiTile({ label: 'اتحذف', value: String(cnt('اتحذف')), unit: 'بوست', compare: 'off', note: 'من الجدول أو السجل' })),
+      U.KpiTile({ label: 'اتنشر', value: String(cnt('اتنشر')), unit: 'بوست', compare: 'off', note: cnt('مجدول') + ' مجدول · ' + cnt('فشل') + ' فشل' + (cnt('اتحذف') ? ' · ' + cnt('اتحذف') + ' اتحذف' : '') }),
+      U.KpiTile({ label: 'المشاهدات', value: K.n0(T.views), compare: 'off', note: 'كل المنصات' }),
+      U.KpiTile({ label: 'التفاعل', value: K.n0(T.eng), compare: 'off', note: 'لايك + كومنت + شير + سيف' }),
+      U.KpiTile({ label: 'نسبة التفاعل', value: W.pct(T.eng, T.views), compare: 'off', note: 'التفاعل ÷ المشاهدات' })),
       h('div', { class: 'toolbar' }, h('label', { class: 'search search-field' }, Icon('search', 'sm'), sb), Button({ label: 'افتح الخطة الإعلانية', icon: 'calendar', onClick: () => go('marketing-calendar') })),
-      Card('سجل النشر', 'البوستات اللي اتجدولت من السيستم — المشاهدات والتفاعل واللي اتنشر من المنصة مباشرة مع النشر التلقائي في المرحلة الجاية',
-        list.length ? U.Table({ cls: 'dt pub-tbl', headers: ['العمل الفني', 'المنصة', 'اتنشر / هيتنشر', 'الكامبين', 'الحالة', ''], rows }) : K.Empty(all.length ? 'مفيش بوست بالاسم ده' : 'لسه مفيش بوستات', all.length ? 'جرّب كلمة تانية.' : 'جدول كامبين من «إنشاء» وهتلاقي بوستاتها هنا.'))];
+      Card('سجل النشر', 'كل اللي اترفع على السوشيال — من السيستم أو من المنصة مباشرة · المشاهدات والتفاعل بتتحدث من المنصة كل نص ساعة',
+        list.length ? U.Table({ cls: 'dt pub-tbl', headers: ['العمل الفني', 'المنصة', 'اتنشر / هيتنشر', 'المصدر', 'الكامبين', 'الحالة', 'المشاهدات', 'التفاعل', 'نسبة التفاعل', ''], rows }) : K.Empty(all.length ? 'مفيش بوست بالاسم ده' : 'لسه مفيش بوستات', all.length ? 'جرّب كلمة تانية.' : 'جدول كامبين من «إنشاء» وهتلاقي بوستاتها هنا.'))];
   }
 
   // ---------- الخطة الإعلانية (decision 16): the weeks of the period, drag a waiting post to another day ----------
@@ -518,7 +629,7 @@
   const RB = () => window.IBReportBlocks || {};
   const planRange = () => (RB().rangeOf ? RB().rangeOf('plan') : W.planDefault(TODAY()));
   function calDrag(e, x) {
-    if (!W.canMove(x) || !can().publish || (e.pointerType === 'mouse' && e.button !== 0)) return;
+    if (!W.canMove(x) || x.src !== 'system' || x.busy || !can().publish || (e.pointerType === 'mouse' && e.button !== 0)) return;
     const el = e.currentTarget; const sx = e.clientX, sy = e.clientY, id = e.pointerId, touch = e.pointerType === 'touch';
     const g = { on: false, over: null, ghost: null, timer: 0 };
     const mark = (d) => { document.querySelectorAll('.cal-day.drop-ok, .cal-day.drop-no').forEach((n) => n.classList.remove('drop-ok', 'drop-no')); if (d && d.dataset.calDay !== x.day) d.classList.add(d.hasAttribute('data-cal-drop') ? 'drop-ok' : 'drop-no'); };
@@ -556,13 +667,14 @@
     m.el.dataset.move = String(x.id);
   }
   function calendarTab() {
-    const r = planRange(); const from = r.from, to = r.to; const posts = MK().posts();
+    const r = planRange(); const from = r.from, to = r.to; const srcF = M.calsrc || 'all'; const posts = MK().posts().filter((x) => srcF === 'all' || x.src === srcF);
+    const movable = (x) => W.canMove(x) && x.src === 'system' && !x.busy;
     const items = (d) => posts.filter((x) => x.day === d).sort((a, b) => a.time.localeCompare(b.time));
     const weeks = W.weeksOf(from, to); const inR = (d) => d >= from && d <= to; const today = TODAY();
     const total = weeks.flatMap((w) => Array.from({ length: 7 }, (_, i) => W.addD(w, i))).filter(inR).reduce((n, d) => n + items(d).length, 0);
-    const item = (x) => h('button', { type: 'button', class: 'cal-it system' + (x.status === 'فشل' ? ' fail' : x.status === 'مجدول' ? ' sched' : x.status === 'اتحذف' ? ' del' : '') + (W.canMove(x) ? ' mv' : ''), 'data-cal-it': String(x.id), 'data-cal-move': W.canMove(x) ? '' : null,
-      onClick: () => { if (Date.now() - dragAt < 400) return; pubDetail(x); }, onPointerdown: (e) => calDrag(e, x), onContextmenu: (e) => { if (W.canMove(x)) e.preventDefault(); },
-      'aria-label': x.time + ' ' + x.name + ' — ' + x.pl + ' — ' + x.status + (W.canMove(x) ? ' — افتحه ودوس «أجّل» أو اسحبه ليوم تاني' : '') },
+    const item = (x) => h('button', { type: 'button', class: 'cal-it ' + (x.src === 'platform' ? 'platform' : 'system') + (x.status === 'فشل' ? ' fail' : x.status === 'مجدول' ? ' sched' : x.status === 'اتحذف' ? ' del' : '') + (movable(x) ? ' mv' : ''), 'data-cal-it': String(x.id), 'data-cal-src': x.src, 'data-cal-move': movable(x) ? '' : null,
+      onClick: () => { if (Date.now() - dragAt < 400) return; pubDetail(x); }, onPointerdown: (e) => calDrag(e, x), onContextmenu: (e) => { if (movable(x)) e.preventDefault(); },
+      'aria-label': x.time + ' ' + x.name + ' — ' + x.pl + ' — ' + x.status + ' — ' + W.SRC_LABEL[x.src] + (movable(x) ? ' — افتحه ودوس «أجّل» أو اسحبه ليوم تاني' : '') },
       h('span', { class: 'cal-t' }, K.Num(x.time), h('span', { class: 'cal-pl' }, x.pl)), h('b', null, x.name), h('span', { class: 'cal-m' }, x.kind, ' · ', x.status));
     const cell = (d, i) => { const on = inR(d); const L = on ? items(d) : [];
       return h('div', { class: 'cal-day' + (on ? '' : ' off') + (d === today ? ' today' : '') + (on && d < today ? ' past' : ''), role: 'listitem', 'data-cal-day': d, 'aria-disabled': on ? null : 'true', 'data-cal-drop': on && d >= today ? '' : null, 'aria-label': W.DAYS[i] + ' ' + D2(d) + (on ? ' — ' + L.length + ' نشر' : ' — برّه الفترة') },
@@ -571,8 +683,10 @@
     const rows = weeks.map((w, k) => { const days = Array.from({ length: 7 }, (_, i) => W.addD(w, i)); const n = days.filter(inR).reduce((c, d) => c + items(d).length, 0);
       return h('section', { class: 'cal-row', 'data-cal-week': w, 'aria-label': 'الأسبوع ' + (k + 1) }, h('div', { class: 'cal-rh' }, h('b', null, 'الأسبوع ' + (k + 1)), h('span', { class: 't-small help' }, K.Num(D2(w) + ' – ' + D2(W.addD(w, 6)))), h('span', { class: 'grow' }), Tag(n ? 'brand' : 'neutral', n + ' نشر')),
         h('div', { class: 'cal-wk', role: 'list' }, days.map(cell))); });
-    const bar = h('div', { class: 'toolbar cal-bar' }, RB().rangeField ? RB().rangeField('plan') : null, h('span', { class: 't-small help', 'data-cal-count': String(total) }, K.Num(weeks.length + ' أسابيع · ' + total + ' نشر في الفترة')));
-    return [bar, h('div', { class: 'cal-legend t-small help' }, h('span', null, h('i', { class: 'lg system' }), 'من السيستم'), h('span', null, h('i', { class: 'lg sched' }), 'مجدول'), h('span', null, h('i', { class: 'lg off' }), 'برّه الفترة'),
+    const bar = h('div', { class: 'toolbar cal-bar' }, RB().rangeField ? RB().rangeField('plan') : null,
+      h('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'المصدر', 'data-cal-src-filter': '' }, [['all', 'الكل'], ['system', W.SRC_LABEL.system], ['platform', W.SRC_LABEL.platform]].map(([v, l]) => chip(l, srcF === v, () => { M.calsrc = v; R(); }, { role: 'radio', 'aria-checked': String(srcF === v), 'data-src': v }))),
+      h('span', { class: 't-small help', 'data-cal-count': String(total) }, K.Num(weeks.length + ' أسابيع · ' + total + ' نشر في الفترة')));
+    return [bar, h('div', { class: 'cal-legend t-small help' }, h('span', null, h('i', { class: 'lg system' }), W.SRC_LABEL.system), h('span', null, h('i', { class: 'lg platform' }), W.SRC_LABEL.platform), h('span', null, h('i', { class: 'lg sched' }), 'مجدول'), h('span', null, h('i', { class: 'lg off' }), 'برّه الفترة'),
       h('span', { class: 'cal-tip', 'data-cal-tip': '' }, can().publish ? 'اسحب البوست المجدول ليوم تاني عشان تغيّر ميعاده' : '')),
       h('div', { class: 'cal-head', 'aria-hidden': 'true' }, W.DAYS.map((d) => h('span', null, d))), h('div', { class: 'cal-rows' }, rows)];
   }

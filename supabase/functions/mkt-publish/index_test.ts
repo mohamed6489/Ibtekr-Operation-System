@@ -227,7 +227,8 @@ Deno.test('stats: the platform\'s own posts (old enough, not known), the numbers
       { id: '111_9500', message: 'بوست من الصفحة\nسطر تاني', created_time: '2026-10-23T08:00:00+0000', permalink_url: 'https://www.facebook.com/111/posts/9500', full_picture: 'https://scontent.test/p.jpg', attachments: { data: [{ media_type: 'album' }] } },
       { id: '111_9600', message: 'لسه طازة', created_time: '2026-10-25T11:55:00+0000' },
     ] } },
-    'GET 777/media': { body: { data: [{ id: '1890', caption: 'ريل', media_type: 'VIDEO', media_product_type: 'REELS', thumbnail_url: 'https://cdn.test/t.jpg', permalink: 'https://www.instagram.com/reel/x/', timestamp: '2026-10-22T09:00:00+0000' }] } },
+    'GET 777/media': { body: { data: [{ id: '1890', caption: 'ريل', media_type: 'VIDEO', media_product_type: 'REELS', thumbnail_url: 'https://cdn.test/t.jpg', permalink: 'https://www.instagram.com/reel/x/', timestamp: '2026-10-22T09:00:00+0000' },
+      { id: '1700', caption: 'قديم', media_type: 'IMAGE', media_url: 'https://cdn.test/old.jpg', timestamp: '2026-08-01T09:00:00+0000' }] } }, // older than 30 days: not taken
     'GET 111_9001': { body: { reactions: { summary: { total_count: 40 } }, comments: { summary: { total_count: 5 } }, shares: { count: 3 } } },
     'GET 111_9001/insights': { body: { data: [{ name: 'post_media_view', values: [{ value: 1200 }] }, { name: 'post_total_media_view_unique', values: [{ value: 900 }] }] } },
     'GET 1801': { body: { like_count: 10, comments_count: 2 } },

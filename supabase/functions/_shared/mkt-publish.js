@@ -160,6 +160,9 @@ export function platformRowOf(p, platform, nowMs) {
   const ig = platform === 'instagram';
   const at = when(ig ? p.timestamp : p.created_time); if (at == null) return null;
   if (nowMs - at < PULL_FRESH_MS) return null; // the system's own may still be saving its id — the next run takes it
+  // the last 30 days only (decision 37), as the numbers: Facebook asks with since=, Instagram's media edge answers its latest ones
+  // whatever their date — an older post would stay in the log without numbers
+  if (nowMs - at > STATS_DAYS * 86400_000) return null;
   const { day, time } = cairoParts(at);
   const text = cut(String((ig ? p.caption : p.message) ?? '').replace(/\r\n?/g, '\n').replace(/[\u0000-\u0008\u000b-\u001f\u007f]/g, ' '), 2200).trim();
   const kind = ig ? igKindOf(p) : fbKindOf(p);

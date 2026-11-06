@@ -76,6 +76,9 @@ test('the platform\'s own posts: the kind, the first line as the name, Cairo\'s 
   assert.equal(platformRowOf({ id: '1', media_type: 'IMAGE', media_url: 'http://x.jpg', timestamp: '2026-11-01T10:00:00+0000' }, 'instagram', now).thumb, null);
   assert.equal(platformRowOf({ id: '111_1', created_time: new Date(now - PULL_FRESH_MS + 60_000).toISOString() }, 'facebook', now), null);
   assert.equal(platformRowOf({ id: 'bad id', created_time: '2026-11-01T10:00:00+0000' }, 'facebook', now), null);
+  // the last 30 days only: Instagram's media edge answers its latest ones whatever their date
+  assert.equal(platformRowOf({ id: '1650', media_type: 'IMAGE', timestamp: '2026-09-15T10:00:00+0000' }, 'instagram', now), null);
+  assert.equal(platformRowOf({ id: '1651', media_type: 'IMAGE', timestamp: '2026-10-08T10:00:00+0000' }, 'instagram', now).external_id, '1651');
   assert.equal(platformRowsOf({ data: [{ id: '1', created_time: '2026-11-01T10:00:00+0000' }] }, { data: [{ id: '2', timestamp: '2026-11-01T10:00:00+0000', media_type: 'CAROUSEL_ALBUM' }] }, now).length, 2);
 });
 

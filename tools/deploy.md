@@ -1256,7 +1256,7 @@ select user_id, key, data from public.user_prefs where key in ('reports.prefs', 
 4. (اختياري، مستحسن) في لوحة Supabase › Authentication › Settings: فعّل «Secure password change» عشان تغيير كلمة المرور من API برّه الصفحة يطلب إعادة دخول.
 5. **«ملفي › مهامي» (قرار 25، 6 نوفمبر):** `0048_hr_tasks.sql` (جدول `hr_tasks` بـ RLS، الكتابة بالـ RPCs `hr_task_add` / `hr_task_set` /
    `hr_task_delete` / `hr_task_review`، الأسامي `hr_task_people`، وتريجر broadcast `hr` / `tasks`) **قبل** الواجهة، وبعده
-   `supabase/tests/rls_hr_tasks.sql` على الحي (workflow «RLS live» بـ `files = rls_hr_tasks.sql`). الواجهة من غير الجدول بتحمّل HR عادي
+   `supabase/tests/rls_hr_tasks.sql` على الحي (workflow «RLS live» بـ `files = rls_hr_tasks` — الاسم من غير `.sql`). الواجهة من غير الجدول بتحمّل HR عادي
    والمهام فاضية (مش بتقع).
 
 **التحقق:**

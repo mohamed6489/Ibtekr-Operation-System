@@ -6,10 +6,11 @@ import { handler } from './index.ts';
 import { ENV, NOW, fakeDb } from '../_test/fakes.ts';
 
 const KEY = 'anthropic-test-key-0000';
-const U = { admin: '00000000-0000-4000-8000-0000000000a1', add: '00000000-0000-4000-8000-0000000000a2', edit: '00000000-0000-4000-8000-0000000000a3', view: '00000000-0000-4000-8000-0000000000a4' };
+const U = { admin: '00000000-0000-4000-8000-0000000000a1', add: '00000000-0000-4000-8000-0000000000a2', edit: '00000000-0000-4000-8000-0000000000a3', view: '00000000-0000-4000-8000-0000000000a4', mkt: '00000000-0000-4000-8000-0000000000a5' };
 // member tokens → what has_perm / is_admin answer, and who they are
-const MEMBERS: Record<string, { uid: string; admin?: unknown; add?: unknown; edit?: unknown }> = {
+const MEMBERS: Record<string, { uid: string; admin?: unknown; add?: unknown; edit?: unknown; mkt?: unknown }> = {
   'jwt-admin': { uid: U.admin, admin: true }, 'jwt-add': { uid: U.add, add: 'F' }, 'jwt-edit': { uid: U.edit, edit: 'F' }, 'jwt-view': { uid: U.view, add: 'P', edit: 'P' },
+  'jwt-mkt': { uid: U.mkt, mkt: 'F' }, // phase 9.5.1: marketing.create F only
 };
 const SB = '0b6f2f5e-1d2c-4a8b-9e3f-1234567890ab';
 const OTHER = '11111111-2222-4333-8444-555555555555';
@@ -48,7 +49,7 @@ function setup({ seed = {}, env = {}, replies = [], monthCost = 0, startDown = f
   db = fakeDb(seed, { rpc: startDown ? {} : { ai_run_start: start }, storage, fail });
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'products.add' ? m.add ?? 'N' : key === 'products.edit' ? m.edit ?? 'N' : 'N'), is_admin: () => m.admin ?? false } : {} });
+    return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'products.add' ? m.add ?? 'N' : key === 'products.edit' ? m.edit ?? 'N' : key === 'marketing.create' ? m.mkt ?? 'N' : 'N'), is_admin: () => m.admin ?? false } : {} });
   };
   // during: the ai_runs rows (status, cost) as each Claude call starts — the reservation is made before the call
   const asked: any[] = []; const slept: number[] = []; const during: any[] = []; const queue = [...replies];
@@ -286,4 +287,40 @@ Deno.test('studio: a photo outside the batch is not read; no item, an archived b
   assertEquals((await call(g.deps, { action: 'studio', batch_id: SB, index: 5, want: ['desc'] })).res.status, 404);
   assertEquals((await call(g.deps, { action: 'studio', batch_id: SB, index: 0, want: ['price'] })).body, { error: 'bad_request', field: 'want' });
   assertEquals(g.asked.length, 0);
+});
+
+// ---------------------------------------------------------------- phase 9.5.1 «التسويق»: marketing (decision 10)
+
+const CMP = 'f0000000-0000-4000-8000-000000000001';
+const MKT_SEED = { mkt_campaigns: [{ id: CMP, name: 'كولكشن الشتا', archived_at: null, state: {
+  w: { goal: 'منتج جديد', idea: 'كولكشن الشتا من Art craft', media: { post: { notes: 'ألوان دافية' }, carousel: {} }, extra: {} },
+  pieces: [{ id: 'P1', kind: 'بوست', n: 1, size: '1080x1350', idea: '', caption: '' }, { id: 'C1', kind: 'كاروسيل', n: 1, size: '1080x1350', slides: [{ n: 1 }, { n: 2 }] }] } }] };
+
+Deno.test('marketing (9.5.1): marketing.create only; fill reads the piece from the saved campaign (never the body) and answers its fields (a carousel its slides); ai_runs action marketing, source campaign', async () => {
+  const { deps, asked, db } = setup({ seed: MKT_SEED, replies: [msg({ idea: 'المخدة جنب الشباك', caption: 'كولكشن الشتا وصل ✨', title: 'دفا الشتا', sub: 'مشغولة يدويًا', badge: 'جديد' }),
+    msg({ idea: 'تفاصيل', caption: 'كاروسيل', title: 'الغلاف', sub: '', badge: '', slides: [{ idea: 'الغرزة', title: 'خامة', sub: '' }] })] });
+  assertEquals((await call(deps, { action: 'marketing', task: 'fill', campaign_id: CMP, piece: 'P1' }, 'jwt-add')).res.status, 401, 'products.add is not marketing.create');
+  const r = await call(deps, { action: 'marketing', task: 'fill', campaign_id: CMP, piece: 'P1', idea: 'ignored' }, 'jwt-mkt');
+  assertEquals([r.res.status, r.body.result, r.body.fields.title, r.body.fields.caption], [200, 'ok', 'دفا الشتا', 'كولكشن الشتا وصل ✨']);
+  const sent = asked[0].messages[0].content[0].text;
+  assert(sent.includes('Campaign idea: كولكشن الشتا من Art craft') && sent.includes('Piece: بوست 1') && sent.includes('Instructions for this media: ألوان دافية'));
+  assert(asked[0].system[0].text.includes('Egyptian Arabic'));
+  const run = db.rows('ai_runs').at(-1); assertEquals([run.action, run.source, run.label, run.status], ['marketing', 'campaign', 'بوست 1', 'ok']);
+  const c = await call(deps, { action: 'marketing', task: 'fill', campaign_id: CMP, piece: 'C1' }, 'jwt-mkt');
+  assertEquals(c.body.fields.slides, [{ idea: 'الغرزة', title: 'خامة' }, {}]);
+  assertEquals((await call(deps, { action: 'marketing', task: 'fill', campaign_id: '00000000-0000-4000-8000-00000000ffff', piece: 'P1' }, 'jwt-mkt')).res.status, 404);
+  assertEquals((await call(deps, { action: 'marketing', task: 'fill', campaign_id: CMP, piece: 'P7' }, 'jwt-mkt')).body.field, 'piece');
+});
+
+Deno.test('marketing rewrite / describe: one field (the current text as material), a template image → text; the limits; source post / template', async () => {
+  const { deps, asked, db } = setup({ seed: MKT_SEED, replies: [msg({ text: 'خصم 20% على كل المخدات النهارده بس' }), msg({ text: 'المنتج في النص على خلفية كريمي' })] });
+  const r = await call(deps, { action: 'marketing', task: 'rewrite', kind: 'badge', text: 'جديد' }, 'jwt-mkt');
+  assertEquals([r.res.status, r.body.text.length <= 14], [200, true]);
+  assert(asked[0].messages[0].content[0].text.includes('<current_text>\nجديد\n</current_text>'));
+  assertEquals(db.rows('ai_runs').at(-1).source, 'post');
+  const b64 = btoa(String.fromCharCode(...new Uint8Array(150).fill(9)));
+  const d = await call(deps, { action: 'marketing', task: 'describe', image: { media_type: 'image/png', data: b64 } }, 'jwt-mkt');
+  assertEquals([d.res.status, d.body.text, asked[1].messages[0].content[0].type], [200, 'المنتج في النص على خلفية كريمي', 'image']);
+  assertEquals(db.rows('ai_runs').at(-1).source, 'template');
+  assertEquals((await call(deps, { action: 'marketing', task: 'rewrite', kind: 'voice' }, 'jwt-mkt')).body.field, 'kind');
 });

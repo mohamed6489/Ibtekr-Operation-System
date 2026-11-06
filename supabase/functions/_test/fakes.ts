@@ -65,6 +65,9 @@ const COLUMNS: Record<string, string[]> = {
   magnific_oauth_states: ['state', 'verifier', 'created_by', 'created_at', 'used_at'],
   // 0030 (phase 5.4 decision 12): the category prompts of the Magnific flows
   shot_prompts: ['id', 'category', 'shot', 'name', 'prompt', 'negative', 'model', 'aspect', 'resolution', 'source_node', 'updated_at', 'updated_by'],
+  // phase 9.5.1 (0049): the marketing campaigns and templates the AI actions read
+  mkt_campaigns: ['id', 'name', 'goal', 'step', 'state', 'scheduled_at', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at', 'archived_by'],
+  mkt_templates: ['id', 'name', 'kind', 'image', 'descr', 'used', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deleted_at', 'deleted_by'],
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
   // 0044 (phase 7): the inventory hub's lots and moves (woo-sync inventory_push reads them)
@@ -126,7 +129,7 @@ const CHECK: Record<string, Record<string, unknown[]>> = {
   vendors: { status: ['active', 'leave', 'inactive'] },
   woo_webhook_events: { status: ['ok', 'ignored', 'duplicate', 'error'] },
   woo_sync_log: { kind: ['webhook', 'sync', 'push', 'manual', 'cron'], direction: [null, 'in', 'out'], result: ['ok', 'error', 'conflict', 'skipped'] },
-  ai_runs: { action: ['write', 'studio', 'image'], source: [null, 'data', 'image', 'product', 'studio', 'tool', 'edit', 'import'], status: ['pending', 'ok', 'refused', 'error', 'cap'] }, // image: 0025, import: 0026 (phase 5.4)
+  ai_runs: { action: ['write', 'studio', 'image', 'marketing'], source: [null, 'data', 'image', 'product', 'studio', 'tool', 'edit', 'import', 'campaign', 'template', 'post'], status: ['pending', 'ok', 'refused', 'error', 'cap'] }, // image: 0025, import: 0026 (phase 5.4)
   image_imports: { source: ['magnific'], status: ['pending', 'ok', 'partial', 'error'], target: [null, 'tool', 'studio', 'batch'], batch_type: [null, 'Simple', 'Variable'] },
   image_shares: { status: ['pending', 'sent', 'error'] },
 };

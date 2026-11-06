@@ -7,7 +7,14 @@
 //            from the body); the page sends the product's current texts as `current`.
 //   'studio' (the studio; the admin or products.add = F) { batch_id, index, want } → { result: 'ok', fields, missing, model,
 //            cost_usd, run_id }: the item, its brand and photo (bucket studio), the site's categories and sku_colors read here.
-// Both only suggest: nothing is written to the site or the batch (the page saves through product_save / IBStudio.save).
+//   'marketing' (phase 9.5.1 «التسويق», decision 10; the admin or marketing.create = F) { task: fill | rewrite | describe, campaign_id?,
+//            piece?, slide?, kind?, text?, image? } → fill: { result: 'ok', fields } (a campaign piece's fields — and a carousel's
+//            slides — from its campaign read here, never from the body); rewrite: { result: 'ok', text } (one field again: the
+//            general idea, an image's idea, a caption, a headline, a subheadline, a badge, the media's notes); describe: { text } (a
+//            design template's description from its image). Egyptian Arabic; ai_runs action 'marketing' (source campaign /
+//            post / template) on the same monthly cap — no Magnific credits.
+// All only suggest: nothing is written to the site, the batch or the campaign (the page saves through product_save / IBStudio.save /
+// IBMarketing.save).
 // A request declined by the model's safety classifiers runs again on Anthropic's recommended model in the same call
 // (fallbacks: "default"); still declined → 200 { result: 'refused' }. Every call is reserved first (ai_run_start: the member's
 // throttle and the monthly cap in one locked step, a pending ai_runs row) and that row then holds its outcome (service role:
@@ -21,6 +28,7 @@
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanPrompts, cleanStudio, cleanWrite, costOf, line, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
+import { campaignTarget, cleanMarketing, marketingRequest, parseMarketing } from '../_shared/marketing.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -32,7 +40,7 @@ export type Deps = {
   claude: (params: Json) => Promise<Json>; sleep?: (ms: number) => Promise<void>;
 };
 
-const ACTIONS = ['write', 'studio', 'prompts'];
+const ACTIONS = ['write', 'studio', 'prompts', 'marketing'];
 const STUDIO_BUCKET = 'studio';
 const THROTTLE = 60; // calls of one member in THROTTLE_MINUTES (the studio fills a batch one item at a time)
 const THROTTLE_MINUTES = 10;
@@ -63,6 +71,7 @@ async function authorize(req: Request, deps: Deps, action: string): Promise<stri
   const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
   const ok = action === 'write' ? (await admin()) || (await perm('products.add')) || (await perm('products.edit'))
     : action === 'studio' || action === 'prompts' ? (await admin()) || (await perm('products.add'))
+    : action === 'marketing' ? (await admin()) || (await perm('marketing.create'))
     : await admin();
   return ok ? await deps.userId(jwt) : null;
 }
@@ -238,6 +247,24 @@ async function prompts(deps: Deps, uid: string, args: Json) {
   });
 }
 
+// ---------------------------------------------------------------- marketing (phase 9.5.1, decision 10)
+
+async function marketing(deps: Deps, uid: string, args: Json) {
+  const parsed = parseMarketing(args);
+  if ('error' in parsed) return json(400, parsed);
+  const req = parsed.req;
+  let target: Json | null = null;
+  if (req.campaignId) {
+    const { data: c } = await deps.db.from('mkt_campaigns').select('id, state, archived_at').eq('id', req.campaignId).maybeSingle();
+    if (!isObj(c) || c.archived_at) return json(404, { error: 'not_found' });
+    if (req.piece) { target = campaignTarget(c.state, req.piece, req.slide); if (!target) return json(400, { error: 'bad_request', field: 'piece' }); }
+    else target = campaignTarget({ ...(isObj(c.state) ? c.state : {}), pieces: [{ id: 'P0', kind: 'بوست', n: 0 }] }, 'P0', null);
+  }
+  const cfg = await configOf(deps);
+  const base = { created_by: uid, action: 'marketing', source: req.task === 'describe' ? 'template' : req.campaignId ? 'campaign' : 'post', label: line(target && req.piece ? target.label : req.task, 200) };
+  return await runAi(deps, base, cfg, marketingRequest(req, { model: cfg.model, effort: cfg.effort, target }), (answer) => cleanMarketing(answer, req, target));
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -251,7 +278,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!uid) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
-    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : await studio(deps, uid, args);
+    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : await studio(deps, uid, args);
   } catch (e) {
     console.error('ai-content failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });

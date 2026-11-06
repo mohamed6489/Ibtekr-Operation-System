@@ -9,9 +9,10 @@ import { ProviderError, aspectOf, magnific, shape } from './providers/magnific.t
 import { BridgeError, magnificMcp, sseMessages } from './providers/magnific-mcp.ts';
 
 const KEY = 'magnific-test-key-0000';
-const U = { admin: '00000000-0000-4000-8000-0000000000b1', add: '00000000-0000-4000-8000-0000000000b2', edit: '00000000-0000-4000-8000-0000000000b3', view: '00000000-0000-4000-8000-0000000000b4' };
-const MEMBERS: Record<string, { uid: string; admin?: unknown; add?: unknown; edit?: unknown }> = {
+const U = { admin: '00000000-0000-4000-8000-0000000000b1', add: '00000000-0000-4000-8000-0000000000b2', edit: '00000000-0000-4000-8000-0000000000b3', view: '00000000-0000-4000-8000-0000000000b4', mkt: '00000000-0000-4000-8000-0000000000b5' };
+const MEMBERS: Record<string, { uid: string; admin?: unknown; add?: unknown; edit?: unknown; mkt?: unknown }> = {
   'jwt-admin': { uid: U.admin, admin: true }, 'jwt-add': { uid: U.add, add: 'F' }, 'jwt-edit': { uid: U.edit, edit: 'F' }, 'jwt-view': { uid: U.view, add: 'P', edit: 'P' },
+  'jwt-mkt': { uid: U.mkt, mkt: 'F' }, // phase 9.5.1: marketing.create F only
 };
 const SB = '0b6f2f5e-1d2c-4a8b-9e3f-1234567890ab';
 const BRAND = '22222222-3333-4444-8555-666666666666';
@@ -49,7 +50,7 @@ function setup({ seed = SEED, env = {}, replies = [], startDown = false, storage
   db = fakeDb(seed, { rpc: startDown ? {} : { ai_image_run_start: start, ...vaultRpc }, storage, fail });
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'products.add' ? m.add ?? 'N' : key === 'products.edit' ? m.edit ?? 'N' : 'N'), is_admin: () => m.admin ?? false } : {} });
+    return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'products.add' ? m.add ?? 'N' : key === 'products.edit' ? m.edit ?? 'N' : key === 'marketing.create' ? m.mkt ?? 'N' : 'N'), is_admin: () => m.admin ?? false } : {} });
   };
   const asked: any[] = []; const queue = [...replies]; const during: any[] = [];
   const answer = async (kind: string, p: any) => {
@@ -792,4 +793,48 @@ Deno.test('bridge_fetch on a batch with a flow: the output lists read in order �
   const r3 = await call(deps, { action: 'bridge_fetch', batch_id: SB });
   assertEquals([r3.body.found, r3.body.placed, db.rows('image_imports').length], [1, 1, 2]);
   assert(/imp-.*-1\.png$/.test(db.rows('studio_batches')[0].state.items[1].slots[2]), 'the mug\'s shot 3 → slot 2');
+});
+
+// ---------------------------------------------------------------- phase 9.5.1 «التسويق»: campaign / campaign_edit (decisions 8–9)
+
+const CMP = 'f0000000-0000-4000-8000-000000000001'; const CMP_OLD = 'f0000000-0000-4000-8000-000000000002'; const TPL = 'f1000000-0000-4000-8000-000000000001';
+const cstate = () => ({
+  w: { goal: 'منتج جديد', idea: 'كولكشن الشتا', media: { post: { notes: 'ألوان دافية', use: [{ t: 'file', path: CMP + '/up-logo.png' }], ref: [{ t: 'tpl', tpl: TPL }] }, carousel: { use: [], ref: [] } }, extra: {} },
+  pieces: [{ id: 'P1', kind: 'بوست', n: 1, size: '1080x1350', idea: 'المخدة على كنبة', title: 'دفا الشتا', use: [{ t: 'product', id: 4001 }], ref: [], img: CMP + '/gen-P1-old.png' },
+    { id: 'C1', kind: 'كاروسيل', n: 1, size: '1080x1080', slides: [{ n: 1, idea: 'الغرزة' }], img: null }],
+});
+const MKT_SEED = { ...SEED, mkt_campaigns: [{ id: CMP, name: 'كولكشن الشتا', state: cstate(), archived_at: null }, { id: CMP_OLD, name: 'قديمة', state: cstate(), archived_at: '2026-11-01T00:00:00Z' }],
+  mkt_templates: [{ id: TPL, kind: 'post', image: 'templates/t1.png', descr: 'المنتج في النص', deleted_at: null }] };
+const MKT_FILES = { ...FILES, [`marketing/${CMP}/up-logo.png`]: PNG, ['marketing/templates/t1.png']: PNG, [`marketing/${CMP}/gen-P1-old.png`]: PNG };
+
+Deno.test('campaign (9.5.1): marketing.create only; the piece read from the saved state → its prompt with the Arabic text, the refs in order (the product, the upload, the template), the image in bucket marketing under the campaign; ai_runs source campaign', async () => {
+  const { deps, asked, storage, db, fetched } = setup({ seed: MKT_SEED, storage: { ...MKT_FILES }, replies: [{ images: [img()], credits: 60 }, { images: [img(new Uint8Array([255, 216, 255, 1]), 'image/jpeg')], credits: null }] });
+  assertEquals((await call(deps, { action: 'campaign', campaign_id: CMP, piece: 'P1' }, 'jwt-add')).res.status, 401, 'products.add is not marketing.create');
+  const r = await call(deps, { action: 'campaign', campaign_id: CMP, piece: 'P1', model: 'gpt-image-2' }, 'jwt-mkt');
+  assertEquals([r.res.status, r.body.result, r.body.bucket, r.body.credits], [200, 'ok', 'marketing', 60]);
+  assert(r.body.path.startsWith(CMP + '/gen-P1-') && r.body.path.endsWith('.png'), r.body.path);
+  assert(storage['marketing/' + r.body.path], 'stored under the campaign');
+  assertEquals([asked[0].width, asked[0].height, asked[0].refs.length, asked[0].model], [1080, 1350, 3, 'gpt-image-2']);
+  for (const bit of ['«دفا الشتا»', '«المنتج في النص»', 'The first 2 reference images', '«ألوان دافية»']) assert(asked[0].prompt.includes(bit), bit);
+  assert(fetched.some((u) => u.endsWith('/c.jpg')), 'the product photo fetched from the site');
+  const run = db.rows('ai_runs').at(-1); assertEquals([run.action, run.source, run.label, run.status, run.credits], ['image', 'campaign', 'بوست 1', 'ok', 60]);
+  // a carousel slide at the piece's size; a JPEG stays JPEG (Instagram takes no WebP)
+  const sl = await call(deps, { action: 'campaign', campaign_id: CMP, piece: 'C1', slide: 0 }, 'jwt-mkt');
+  assertEquals([sl.res.status, asked[1].width, asked[1].height], [200, 1080, 1080]);
+  assert(sl.body.path.includes('/gen-C1-s1-') && sl.body.path.endsWith('.jpg'), sl.body.path);
+  assertEquals((await call(deps, { action: 'campaign', campaign_id: CMP_OLD, piece: 'P1' }, 'jwt-mkt')).res.status, 404, 'an archived campaign');
+  assertEquals((await call(deps, { action: 'campaign', campaign_id: CMP, piece: 'P9' }, 'jwt-mkt')).body.field, 'piece');
+  assertEquals((await call(deps, { action: 'campaign', campaign_id: CMP, piece: 'C1', slide: 4 }, 'jwt-mkt')).body.field, 'piece', 'no such slide');
+  assertEquals((await call(deps, { action: 'campaign', campaign_id: 'nope', piece: 'P1' }, 'jwt-mkt')).body.field, 'campaign_id');
+});
+
+Deno.test('campaign_edit (decision 9): the piece\'s current image edited by the pins and the note → a new edit- path; no image yet → 400 image; nothing asked → 400 note', async () => {
+  const { deps, asked, db } = setup({ seed: MKT_SEED, storage: { ...MKT_FILES }, replies: [{ images: [img()], credits: 75 }] });
+  const r = await call(deps, { action: 'campaign_edit', campaign_id: CMP, piece: 'P1', note: 'أدفى', pins: [{ x: 10, y: 80, text: 'الخلفية فاتحة' }] }, 'jwt-mkt');
+  assertEquals([r.res.status, asked[0].kind, asked[0].op, asked[0].refs.length], [200, 'edit', 'instruction', 1]);
+  assert(r.body.path.startsWith(CMP + '/edit-P1-'), r.body.path);
+  assert(asked[0].prompt.includes('at about 10% from the left and 80% from the top: الخلفية فاتحة') && asked[0].prompt.includes('General change: أدفى.'));
+  assertEquals(db.rows('ai_runs').at(-1).label, 'بوست 1 · تعديل');
+  assertEquals((await call(deps, { action: 'campaign_edit', campaign_id: CMP, piece: 'C1', note: 'x' }, 'jwt-mkt')).body.field, 'image');
+  assertEquals((await call(deps, { action: 'campaign_edit', campaign_id: CMP, piece: 'P1' }, 'jwt-mkt')).body.field, 'note');
 });

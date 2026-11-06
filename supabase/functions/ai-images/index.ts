@@ -11,6 +11,15 @@
 //              path goes next to its batch, a product's image to bucket ai-images under the member → { result: 'ok', bucket, path, … }.
 //   'create'   (the images tool; the admin or products.add / products.edit = F) { source: text | image, prompt?, shape, size, count,
 //              model?, image? | product_id? } → 1–4 images in bucket ai-images under the member → { result: 'ok', bucket, paths, … }.
+//   'campaign' (phase 9.5.1 «التسويق», decision 8; the admin or marketing.create = F) { campaign_id, piece, slide: null | -1 (a
+//              carousel's cover) | 0..9, model?, size? } → one image of a campaign's piece, its prompt built here from the piece's
+//              fields in mkt_campaigns.state (the goal, the idea, the scene, the Arabic text written into the image, the media's
+//              notes, the templates' descriptions — _shared/marketing.js), its references the campaign's uploads, the site's product
+//              photos and the templates' images (bucket marketing, 4 at most) → saved in bucket marketing under the campaign as
+//              the provider made it (PNG / JPEG — Instagram takes no WebP) → { result: 'ok', bucket, path, credits, model, run_id }.
+//              The campaign itself is not written (the page puts the path in the piece and saves). ai_runs source 'campaign'.
+//   'campaign_edit' (decision 9; the same) { campaign_id, piece, slide, model?, note?, pins: [{ x, y, text }] } → the target's
+//              current image edited by the instruction (the pins at their places, the general change) → a new path, same way.
 //   'probe'    (the admin) → the shape (keys only) of the provider's account answer, for T2.
 //   'webp'     (decision 7: every result ends as WebP — the browser re-encodes it, this function's CPU budget being too small for
 //              a 2K image) { bucket: studio | ai-images, path, run_id?, image: { data: base64 WebP } } → the WebP stored under the
@@ -45,12 +54,13 @@
 // in 10 minutes), 503 not_configured, 502 ai_error (no usable image), 200 { result: 'refused' } when the provider refused the content.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import {
-  MODEL_IDS, PROVIDER, creditsFor, editPrompt, extOf, imageSettings, line, parseCreate, parseEdit, parseGenerate, shapePrompt, slotPrompt, studioEditPath,
+  MODEL_IDS, PROVIDER, creditsFor, editPrompt, extOf, imageSettings, line, parseCreate, parseEdit, parseGenerate, shapePrompt, sizeOf, slotPrompt, studioEditPath,
   renameInState, studioGenPath, studioPathOk, toolPath, usdOf,
 } from '../_shared/ai-images.js';
 import { magnific, ProviderError, shape, type Provider, type Ref } from './providers/magnific.ts';
 import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
 import { REF, creationsOf, familyOf, flowNodes, importShape, lastPageOf, lineageIds, listIdsOf, matchResults, nodeDataOf, nodesOf, templatePrompts, uploadedId, urlsById } from '../_shared/magnific-bridge.js';
+import { DEFAULT_SIZE, campaignGenPath, campaignPathOk, campaignPrompt, campaignRefs, campaignTarget, parseCampaign, parseCampaignEdit, pinsPrompt } from '../_shared/marketing.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -63,11 +73,12 @@ export type Deps = {
   bridge?: Bridge; // decision 11: the Magnific site's MCP (OAuth + tools) — the system's own client
 };
 
-const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow'];
+const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow', 'campaign', 'campaign_edit'];
 const SHARE_SECONDS = 7 * 24 * 3600; // a shared photo's link lives a week (the bridge uploads it to the site within that)
 const MAX_WEBP_B64 = 14_000_000; // ≈ 10 MB of WebP
 const STUDIO_BUCKET = 'studio';
 const TOOL_BUCKET = 'ai-images';
+const MKT_BUCKET = 'marketing'; // phase 9.5.1: the campaigns' images (0049)
 const THROTTLE = 60;
 const THROTTLE_MINUTES = 10;
 const MAX_REFS = 4;
@@ -80,7 +91,7 @@ const stamp = (deps: Deps) => deps.now().replace(/[^0-9]/g, '').slice(2, 14) + M
 
 // ---------------------------------------------------------------- auth
 
-type Who = { uid: string; admin: boolean; add: boolean; edit: boolean };
+type Who = { uid: string; admin: boolean; add: boolean; edit: boolean; mkt: boolean };
 async function whoIs(req: Request, deps: Deps): Promise<Who | null> {
   const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
   if (!jwt || !deps.userDb || !deps.userId) return null;
@@ -90,7 +101,7 @@ async function whoIs(req: Request, deps: Deps): Promise<Who | null> {
   const admin = !adminErr && adminData === true;
   const uid = await deps.userId(jwt);
   if (!uid) return null;
-  return { uid, admin, add: admin || (await perm('products.add')), edit: admin || (await perm('products.edit')) };
+  return { uid, admin, add: admin || (await perm('products.add')), edit: admin || (await perm('products.edit')), mkt: admin || (await perm('marketing.create')) };
 }
 
 // ---------------------------------------------------------------- settings, the cap, the run
@@ -299,6 +310,74 @@ async function create(deps: Deps, who: Who, args: Json) {
   return await runImages(deps, base, model, count,
     () => deps.provider.generate({ model, prompt: full, width: size.w, height: size.h, count, references: refs }),
     (img, n) => upload(deps.db, TOOL_BUCKET, toolPath(who.uid, st, n, extOf(img.mime)), img));
+}
+
+// ---------------------------------------------------------------- campaign / campaign_edit (phase 9.5.1, decisions 8–9)
+
+// the campaign (open, not archived) whose piece is asked — its state as the page saved it (the page flushes its edits first)
+async function readCampaign(deps: Deps, id: string) {
+  const { data } = await deps.db.from('mkt_campaigns').select('id, name, state, archived_at').eq('id', id).maybeSingle();
+  return isObj(data) && !data.archived_at ? data : null;
+}
+// the references the server can load, in their order: the photos to feature first (the campaign's uploads, the site's product
+// photos), then the examples (uploaded examples, the templates' images — and the templates' descriptions for the prompt)
+async function campaignInputs(deps: Deps, campaignId: string, t: Json) {
+  const r = campaignRefs(t, campaignId); const refs: Ref[] = []; const templates: Json[] = [];
+  let useCount = 0; let styleCount = 0;
+  for (const x of r.use) {
+    const ref = x.path ? await download(deps.db, MKT_BUCKET, x.path) : x.product ? await productPhoto(deps, x.product) : null;
+    if (ref && refs.length < MAX_REFS) { refs.push(ref); useCount += 1; }
+  }
+  for (const x of r.style) {
+    let ref: Ref | null = null;
+    if (x.path) ref = await download(deps.db, MKT_BUCKET, x.path);
+    else if (x.tpl) {
+      const { data: tp } = await deps.db.from('mkt_templates').select('id, kind, image, descr, deleted_at').eq('id', x.tpl).maybeSingle();
+      if (isObj(tp) && !tp.deleted_at) {
+        if (typeof tp.descr === 'string' && tp.descr.trim()) templates.push({ kind: tp.kind, descr: tp.descr });
+        if (typeof tp.image === 'string' && /^templates\/[A-Za-z0-9._-]{1,120}$/.test(tp.image)) ref = await download(deps.db, MKT_BUCKET, tp.image);
+      }
+    }
+    if (ref && refs.length < MAX_REFS) { refs.push(ref); styleCount += 1; }
+  }
+  return { refs, useCount, styleCount, templates };
+}
+async function campaignTargetOf(deps: Deps, req: Json): Promise<{ error: Response } | { t: Json }> {
+  const c = await readCampaign(deps, req.campaignId); if (!c) return { error: json(404, { error: 'not_found' }) };
+  const t = campaignTarget(c.state, req.piece, req.slide); if (!t) return { error: json(400, { error: 'bad_request', field: 'piece' }) };
+  return { t };
+}
+async function campaign(deps: Deps, who: Who, args: Json) {
+  if (!who.mkt) return json(401, { error: 'unauthorized' });
+  const parsed = parseCampaign(args);
+  if ('error' in parsed) return json(400, parsed);
+  const req = parsed.req; const got = await campaignTargetOf(deps, req); if ('error' in got) return got.error;
+  const t = got.t as Json;
+  const size = req.size ?? sizeOf(t.size ?? '') ?? sizeOf(DEFAULT_SIZE)!;
+  const inp = await campaignInputs(deps, req.campaignId, t);
+  const prompt = campaignPrompt(t, inp);
+  const base = { created_by: who.uid, action: 'image', source: 'campaign', label: t.label };
+  const st = stamp(deps);
+  return await runImages(deps, base, req.model, 1,
+    () => deps.provider.generate({ model: req.model, prompt, width: size.w, height: size.h, count: 1, references: inp.refs }),
+    (img) => upload(deps.db, MKT_BUCKET, campaignGenPath(req.campaignId, req.piece, req.slide, st, extOf(img.mime), false), img));
+}
+async function campaignEdit(deps: Deps, who: Who, args: Json) {
+  if (!who.mkt) return json(401, { error: 'unauthorized' });
+  const parsed = parseCampaignEdit(args);
+  if ('error' in parsed) return json(400, parsed);
+  const req = parsed.req; const got = await campaignTargetOf(deps, req); if ('error' in got) return got.error;
+  const t = got.t as Json;
+  const path = campaignPathOk(req.campaignId, t.target.img) ? t.target.img as string : null;
+  if (!path) return json(400, { error: 'bad_request', field: 'image' });
+  const image = await download(deps.db, MKT_BUCKET, path);
+  if (!image) return json(404, { error: 'not_found' });
+  const prompt = pinsPrompt(req.note, req.pins);
+  const base = { created_by: who.uid, action: 'image', source: 'campaign', label: line(t.label + ' · تعديل', 200) };
+  const st = stamp(deps);
+  return await runImages(deps, base, req.model, 1,
+    () => deps.provider.edit({ model: req.model, op: 'instruction', prompt, image, imageUrl: null, options: {} }),
+    (img) => upload(deps.db, MKT_BUCKET, campaignGenPath(req.campaignId, req.piece, req.slide, st, extOf(img.mime), true), img));
 }
 
 // ---------------------------------------------------------------- webp (the browser's re-encoding of a result)
@@ -923,6 +1002,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'bridge_fetch') return await bridgeFetch(deps, who, args);
     if (action === 'bridge_prompts_sync') return await bridgePromptsSync(deps, who, args);
     if (action === 'bridge_flow') return await bridgeFlow(deps, who, args);
+    if (action === 'campaign') return await campaign(deps, who, args);
+    if (action === 'campaign_edit') return await campaignEdit(deps, who, args);
     if (!who.admin) return json(401, { error: 'unauthorized' });
     // the probe's outcome is kept as an ai_runs row (label 'probe', 0 credits: configured = the key is set, status = the
     // provider's HTTP status, shape = keys and types only) so the T2 diagnosis can be read from the database — never the key

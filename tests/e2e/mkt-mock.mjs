@@ -6,6 +6,8 @@
 // rows only through mkt_schedule / mkt_post_act with marketing.publish F and the day / hour rules on Cairo's clock). The AI actions
 // (ai-images campaign / campaign_edit, ai-content marketing) are answered here too (mktAi). Every RPC / function call lands in
 // mkt.calls, every write the client sent in mkt.writes ({ table, op, ...columns }).
+import { campaignGenPath, campaignPathOk, campaignTarget, cleanMarketing, parseCampaign, parseCampaignEdit, parseMarketing } from '../../supabase/functions/_shared/marketing.js';
+import { creditsFor } from '../../supabase/functions/_shared/ai-images.js';
 const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const cairo = (d = new Date()) => { const p = Object.fromEntries(fmt.formatToParts(d).map((x) => [x.type, x.value])); return { day: p.year + '-' + p.month + '-' + p.day, hm: p.hour + ':' + p.minute }; };
 export const mktToday = () => cairo().day;
@@ -211,9 +213,40 @@ export function mktRoute(c) {
   return refuse(405, '42501', 'method not allowed');
 }
 
-// the AI actions of the marketing page (T4 fills the answers with the server's own checks)
+// the AI actions of the marketing page, with the server's own checks (_shared/marketing.js): ai-images campaign / campaign_edit
+// (marketing.create F or the admin; the piece read from the campaign as saved; the month's cap → 402; a 1×1 PNG in the bucket) and
+// ai-content marketing (fill from the saved piece, rewrite, describe — the answer H.aiAnswer(req, target) or the default below,
+// cleaned by the server's own cleanMarketing). H.imgFail / H.aiFail = 'ai_cap' | 'busy' | 'not_configured' | 'ai_error' | 'refused'.
 function mktAi(c, b) {
-  const { u, json, mock } = c; const H = mock.mkt;
-  H.calls.push({ fn: b.action === 'marketing' ? 'ai-content' : 'ai-images', action: b.action, task: b.task, by: u ? u.id : null, piece: b.piece, slide: b.slide, kind: b.kind });
-  return json(501, { error: 'not_implemented' });
+  const { u, json, hasPerm, isAdmin, mock } = c; const H = mock.mkt;
+  H.calls.push({ fn: b.action === 'marketing' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0 });
+  if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.create') === 'F')) return json(401, { error: 'unauthorized' });
+  const failWith = (k) => (k === 'refused' ? json(200, { result: 'refused', model: 'mock' }) : json(k === 'ai_cap' ? 402 : k === 'busy' ? 429 : k === 'not_configured' ? 503 : 502, { error: k, configured: k === 'not_configured' ? false : undefined }));
+  const campaign = (id) => H.campaigns.find((x) => x.id === id && !x.archived_at) || null;
+  if (b.action === 'marketing') {
+    const p = parseMarketing(b); if ('error' in p) return json(400, p);
+    let target = null;
+    if (p.req.campaignId) {
+      const camp = campaign(p.req.campaignId); if (!camp) return json(404, { error: 'not_found' });
+      if (p.req.piece) { target = campaignTarget(camp.state, p.req.piece, p.req.slide); if (!target) return json(400, { error: 'bad_request', field: 'piece' }); }
+    }
+    if (H.aiFail) return failWith(H.aiFail);
+    const answer = H.aiAnswer ? H.aiAnswer(p.req, target) : p.req.task === 'fill'
+      ? { idea: 'لقطة لـ ' + (target ? target.label : 'القطعة') + ' في قعدة دافية', caption: 'كولكشن جديد وصل إبتكر ✨ مشغول يدويًا في مصر', title: 'دفا الشتا', sub: 'مشغولة يدويًا', badge: 'جديد',
+        slides: Array.from({ length: target ? target.slides : 0 }, (_, i) => ({ idea: 'تفصيلة ' + (i + 1), title: 'شريحة ' + (i + 1), sub: '' })) }
+      : p.req.task === 'describe' ? { text: 'المنتج في النص على خلفية كريمي، والعنوان فوق بالأخضر، وبادج صغير في الركن.' }
+      : { text: ({ title: 'دفا الشتا بإيد مصرية', sub: 'كولكشن الشتا وصل', badge: 'جديد', caption: 'الدفا الحقيقي من إيد صانعة مصرية 🧶\nاطلب قطعتك من إبتكر' })[p.req.kind] || 'كلام جديد مكتوب بالـ AI' };
+    H.seq += 1; return json(200, { result: 'ok', ...cleanMarketing(answer, p.req, target), model: 'claude-opus-5-5', cost_usd: 0.004, run_id: H.seq });
+  }
+  const parsed = b.action === 'campaign' ? parseCampaign(b) : parseCampaignEdit(b); if ('error' in parsed) return json(400, parsed);
+  const req = parsed.req; const camp = campaign(req.campaignId); if (!camp) return json(404, { error: 'not_found' });
+  const t = campaignTarget(camp.state, req.piece, req.slide); if (!t) return json(400, { error: 'bad_request', field: 'piece' });
+  const edit = b.action === 'campaign_edit';
+  if (edit && !campaignPathOk(camp.id, t.target.img)) return json(400, { error: 'bad_request', field: 'image' });
+  const credits = creditsFor(req.model, 1);
+  if (H.cap != null && H.used + credits > H.cap) return json(402, { error: 'ai_cap' });
+  if (H.imgFail) return failWith(H.imgFail);
+  H.seq += 1; const path = campaignGenPath(camp.id, req.piece, req.slide, 'mk' + H.seq, 'png', edit);
+  H.objects.set(path, { type: 'image/png', size: 68, by: u.id }); H.used += credits;
+  return json(200, { result: 'ok', bucket: 'marketing', path, paths: [path], credits, model: req.model, run_id: H.seq });
 }

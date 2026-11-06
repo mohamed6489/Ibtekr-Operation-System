@@ -199,3 +199,82 @@ test('linkKeys: a product link of the site (as typed / decoded / trailing slash)
   assert.ok(k.permalinks.includes('https://ibtekr.club/product/مخدة'));
   assert.equal(W.linkKeys('javascript:alert(1)'), null); assert.equal(W.linkKeys(''), null); assert.equal(W.linkKeys('كلام عادي'), null);
 });
+
+// ---------------------------------------------------------------- 9.5.3: the ads numbers (decisions 44–46)
+const OBJ = [
+  { kind: 'campaign', id: '120252323303340228', name: 'Macrame — Retargeting', status: 'ACTIVE' },
+  { kind: 'campaign', id: '120251977233530228', name: 'Lamps — Broad', status: 'ACTIVE' },
+  { kind: 'campaign', id: '120251297405730228', name: 'Rug — Paused', status: 'PAUSED' },
+  { kind: 'ad', id: '1206', parent_id: '120252323303340228', name: 'Macrame carousel', status: 'ACTIVE', thumb: 'https://scontent.example/t.jpg' },
+  { kind: 'ad', id: '1207', parent_id: '120251977233530228', name: 'Lamps video', status: 'ACTIVE', thumb: 'http://bad' },
+];
+const C1 = '120252323303340228', C2 = '120251977233530228', C3 = '120251297405730228';
+const st = (level, id, camp, day, spend, extra = {}) => ({ level, object_id: id, campaign_id: camp, day, spend, impressions: 1000, clicks: 30, link_clicks: 20, purchases: 0, purchase_value: 0, frequency: 1.5, ...extra });
+const STATS = [
+  st('campaign', C1, C1, '2026-11-01', 400, { purchases: 3, purchase_value: 3600 }), st('campaign', C1, C1, '2026-11-02', 600, { purchases: 3, purchase_value: 4000 }),
+  st('campaign', C2, C2, '2026-11-02', 900, { purchases: 6, purchase_value: 5000 }), st('campaign', C2, C2, '2026-11-05', 800, { purchases: 4, purchase_value: 2000 }),
+  st('campaign', C3, C3, '2026-10-20', 300), // outside the period
+  st('ad', '1206', C1, '2026-11-01', 400, { impressions: 2000, link_clicks: 60, frequency: 1.2, purchases: 3, purchase_value: 3600 }),
+  st('ad', '1206', C1, '2026-11-02', 600, { impressions: 1000, link_clicks: 30, frequency: 2.1, purchases: 3, purchase_value: 4000 }),
+  st('ad', '1207', C2, '2026-11-02', 900, { impressions: 3000, link_clicks: 30, frequency: 3, purchases: 6, purchase_value: 5000 }),
+];
+const ORD = [
+  { day: '2026-11-01', platform: 'meta', source: 'fb', campaign: C1, grp: 'completed', orders: 3, sales: 3000, share: 450 },
+  { day: '2026-11-02', platform: 'meta', source: 'ig', campaign: C1, grp: 'in_progress', orders: 2, sales: 2000, share: 300 },
+  { day: '2026-11-02', platform: 'meta', source: 'fb', campaign: C1, grp: 'cancelled', orders: 1, sales: 700, share: 70 },
+  { day: '2026-11-03', platform: 'meta', source: 'fb', campaign: C3, grp: 'pending', orders: 1, sales: 500, share: 50 }, // a paused campaign's late order
+  { day: '2026-11-04', platform: 'google', source: 'google', campaign: 'winter', grp: 'completed', orders: 2, sales: 900, share: 90 },
+  { day: '2026-10-25', platform: 'meta', source: 'fb', campaign: C1, grp: 'completed', orders: 9, sales: 9000, share: 900 }, // before the period
+];
+const RG = { from: '2026-11-01', to: '2026-11-05' };
+
+test('9.5.3 adCampaignRows: Meta\'s numbers + Woo\'s orders of the same campaign id, the cancelled apart, a late order\'s campaign listed, by spend', () => {
+  const rows = W.adCampaignRows(OBJ, STATS, ORD, RG);
+  assert.deepEqual(rows.map((r) => [r.id, r.spend, r.orders, r.sales, r.cancelled, r.purchases]), [[C2, 1700, 0, 0, 0, 10], [C1, 1000, 5, 5000, 1, 6], [C3, 0, 1, 500, 0, 0]]);
+  const m = rows.find((r) => r.id === C1);
+  assert.equal(m.mer, 5); assert.equal(m.cpa, 200); assert.equal(m.roas, 7.6); assert.deepEqual(plain(m.sources), { fb: 3, ig: 2 });
+  assert.deepEqual(m.days.map((d) => [d.day, d.spend, d.orders]), [['2026-11-01', 400, 3], ['2026-11-02', 600, 2]]);
+  assert.equal(rows.find((r) => r.id === C2).mer, 0); assert.equal(rows.find((r) => r.id === C2).cpa, null);
+  assert.equal(W.adCampaignRows([], STATS, [], RG)[0].name, '#' + C2); // a campaign not synced yet keeps its id
+});
+
+test('9.5.3 adTotals: the spend, the real return and cost, Meta says, the profit after ads (null without the share), Google\'s orders without spend', () => {
+  const t = W.adTotals(STATS, ORD, RG);
+  assert.deepEqual([t.spend, t.purchases, t.value, t.metaOrders, t.metaSales, t.orders, t.sales, t.cancelled], [2700, 16, 14600, 6, 5500, 8, 6400, 1]);
+  assert.equal(Math.round(t.mer * 1000) / 1000, 2.037); assert.equal(t.cpa, 450); assert.equal(t.platformCpa, 168.75);
+  assert.equal(t.share, 890); assert.equal(t.profit, 800 - 2700);
+  assert.deepEqual(t.platforms.map((p) => [p.key, p.linked, p.spend, p.orders]), [['meta', true, 2700, 6], ['google', false, null, 2], ['tiktok', false, null, 0]]);
+  const noMoney = W.adTotals(STATS, ORD.map((o) => ({ ...o, share: null })), RG);
+  assert.equal(noMoney.share, null); assert.equal(noMoney.profit, null);
+  assert.equal(W.adTotals([], [], RG).mer, null); // nothing spent: no ratio
+});
+
+test('9.5.3 merWeeks: five 7-day weeks ending on the day, the oldest first, the real return of each', () => {
+  const w = W.merWeeks(STATS, ORD, '2026-11-05', 5);
+  assert.equal(w.length, 5); assert.deepEqual([w[0].from, w[4].from, w[4].to], ['2026-10-02', '2026-10-30', '2026-11-05']);
+  assert.deepEqual([w[2].from, w[2].spend, w[2].sales, w[2].mer], ['2026-10-16', 300, 0, 0]); // 16–22 Oct: the paused campaign's spend, no order
+  assert.deepEqual([w[3].spend, w[3].sales, w[3].mer], [0, 9000, null]); // 23–29 Oct: an old order, nothing spent → no ratio
+  assert.deepEqual([w[4].spend, w[4].sales], [2700, 5500]);
+  assert.equal(w[0].mer, null);
+});
+
+test('9.5.3 adAlerts: stop? (active, ≥ 1,500 in 5 days, no order), the cost over 450, check the tracking, scale? — no action, the worst first', () => {
+  const a = W.adAlerts(OBJ, STATS, ORD, RG, '2026-11-05');
+  assert.deepEqual(a.map((x) => x.key), ['stop:' + C2, 'track:' + C2, 'scale:' + C1]);
+  assert.match(a[0].title, /وقّف «Lamps — Broad»؟/); assert.match(a[0].sub, /1,700 ج\.م/);
+  assert.match(a[2].sub, /5\.00× · 5 أوردر/);
+  // the rules can move: a 150 cost limit flags Macrame; a paused campaign never gets stop / scale
+  const b = W.adAlerts(OBJ, STATS, ORD, RG, '2026-11-05', { maxCpa: 150 });
+  assert.ok(b.some((x) => x.key === 'cpa:' + C1));
+  const paused = W.adAlerts(OBJ.map((o) => ({ ...o, status: 'PAUSED' })), STATS, ORD, RG, '2026-11-05');
+  assert.ok(!paused.some((x) => /^(stop|scale):/.test(x.key)));
+});
+
+test('9.5.3 adCreatives: one row per ad with spend, CTR from link clicks, frequency weighted by impressions, Meta\'s return, https pictures only', () => {
+  const c = W.adCreatives(OBJ, STATS, RG);
+  assert.deepEqual(c.map((x) => [x.id, x.spend, x.campaign]), [['1207', 900, 'Lamps — Broad'], ['1206', 1000, 'Macrame — Retargeting']].sort((a, b) => b[1] - a[1]));
+  const m = c.find((x) => x.id === '1206');
+  assert.equal(m.ctr, 90 / 3000); assert.equal(Math.round(m.frequency * 1000) / 1000, 1.5); assert.equal(m.roas, 7.6); assert.equal(m.thumb, 'https://scontent.example/t.jpg');
+  assert.equal(c.find((x) => x.id === '1207').thumb, null);
+  assert.equal(W.xr(5), '5.00×'); assert.equal(W.xr(null), '—');
+});

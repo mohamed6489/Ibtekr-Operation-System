@@ -13,7 +13,7 @@ on:
       function:
         description: 'which function'
         type: choice
-        options: [woo-sync, woo-webhook, ai-content, ai-images, cs-channel, cs-wa, cs-whatsapp, team-admin, mkt-publish, all]
+        options: [woo-sync, woo-webhook, ai-content, ai-images, cs-channel, cs-wa, cs-whatsapp, team-admin, mkt-publish, mkt-ads, all]
         default: woo-sync
         required: true
 permissions:
@@ -31,7 +31,7 @@ jobs:
         run: |
           set -euo pipefail
           : "${SUPABASE_ACCESS_TOKEN:?the repository secret SUPABASE_ACCESS_TOKEN is not set (tools/deploy.md §2.7.1)}"
-          if [ "$FN" = all ]; then list="woo-sync woo-webhook ai-content ai-images cs-channel cs-wa cs-whatsapp team-admin mkt-publish"; else list="$FN"; fi
+          if [ "$FN" = all ]; then list="woo-sync woo-webhook ai-content ai-images cs-channel cs-wa cs-whatsapp team-admin mkt-publish mkt-ads"; else list="$FN"; fi
           for f in $list; do
             echo "::group::deploy $f"
             supabase functions deploy "$f" --project-ref fsynculhaupcktzkfkdd --yes

@@ -71,6 +71,9 @@ const COLUMNS: Record<string, string[]> = {
   // phase 9.5.2 (0049 + 0051): the publishing log mkt-publish reads and writes
   mkt_posts: ['id', 'campaign_id', 'piece', 'kind', 'name', 'caption', 'caption_orig', 'tags', 'images', 'platform', 'day', 'time', 'how', 'status', 'was_live', 'post_url', 'published_at', 'published_by',
     'deleted_at', 'deleted_by', 'created_by', 'created_at', 'updated_by', 'updated_at', 'src', 'external_id', 'thumb', 'views', 'reach', 'likes', 'comments', 'shares', 'saves', 'eng', 'stats_at', 'error', 'attempts', 'claimed_at', 'work'],
+  // 0052 (phase 9.5.3): Meta's ad objects and daily numbers (mkt-ads)
+  mkt_ad_objects: ['platform', 'kind', 'id', 'parent_id', 'name', 'status', 'thumb', 'meta', 'updated_at'],
+  mkt_ad_stats: ['platform', 'level', 'object_id', 'campaign_id', 'day', 'spend', 'impressions', 'reach', 'clicks', 'link_clicks', 'frequency', 'purchases', 'purchase_value', 'updated_at'],
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
   // 0044 (phase 7): the inventory hub's lots and moves (woo-sync inventory_push reads them)
@@ -114,7 +117,7 @@ const UNIQUE: Record<string, string[][]> = {
   vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']], image_imports: [['id']], image_shares: [['id']], magnific_oauth_states: [['state']], shot_prompts: [['id'], ['category', 'shot']],
   cs_customers: [['id'], ['phone']], cs_contacts: [['id'], ['platform', 'external_id']], cs_conversations: [['id'], ['channel', 'external_id']], cs_messages: [['id'], ['external_id']], cs_channels: [['id']],
   cs_oauth_states: [['state']], cs_channel_events: [['id']], cs_posts: [['id']], cs_wa_state: [['channel']], cs_campaigns: [['id']], cs_campaign_recipients: [['id'], ['campaign_id', 'customer_id']],
-  profiles: [['id'], ['email'], ['phone'], ['member_code']], roles: [['id']], hr_members: [['member_id']], mkt_posts: [['id'], ['platform', 'external_id']],
+  profiles: [['id'], ['email'], ['phone'], ['member_code']], roles: [['id']], hr_members: [['member_id']], mkt_posts: [['id'], ['platform', 'external_id']], mkt_ad_objects: [['platform', 'kind', 'id']], mkt_ad_stats: [['platform', 'level', 'object_id', 'day']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],

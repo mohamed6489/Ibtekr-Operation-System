@@ -26,3 +26,6 @@ verify_jwt = false
 
 [functions.mkt-publish]
 verify_jwt = false
+
+[functions.mkt-ads]
+verify_jwt = false

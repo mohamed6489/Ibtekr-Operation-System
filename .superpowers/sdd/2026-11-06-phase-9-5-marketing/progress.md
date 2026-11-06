@@ -46,3 +46,15 @@
   من المنصة)؛ بوب أب البوست (الأرقام وجدول لايك/كومنت/شير/سيف، سبب الفشل بالعربي، «انشر دلوقتي»، «احذف البوست» من المنصة، «افتح على …» ↗،
   «بيتنشر…» للصف المحجوز)؛ «الخطة الإعلانية» (فلتر المصدر، بوستات المنصة مابتتسحبش). CSS + موبايل (مافيش سكرول أفقي — اتشيّك 1280 و390).
   الاختبارات: `marketing-publish.spec.mjs` 5 + `marketing.spec.mjs` 6، `npm test` 557.
+- T13 ✓ (6 نوفمبر) التوثيق: CLAUDE.md (ملحوظة 9.5.2 + المرجع)، `tools/deploy.md` §2.7.26، قرار 40 في الخطة.
+  **على الحي:** `0051` بـ `apply_migration` من أول مرة (من غير سطور `drop constraint if exists` — الـ 7 قيود جداد ومش موجودين، اتأكد قبلها،
+  فالسطور دي no-op والـ MCP ماسألش تأكيد)؛ التحقق ✓ (15 عمود + 7 قيود + فهرسين، `mkt_publish_claim` / `mkt_stats_put` / `mkt_autopublish`
+  مقفولين على الأعضاء ومفتوحين لـ `service_role`، `mkt_schedule` لـ `authenticated` ومش `anon`، المفتاح false، الـ cron `mkt-publish-due` كل دقيقة
+  و`mkt-publish-stats` كل 30 دقيقة بـ `postgres` — نفس صاحب الدوال فبيقدر ينادي `mkt_autopublish()`)؛ «RLS live» ✓ (run 42224669060:
+  `rls_marketing_publish rls_marketing rls_security_advisor`)؛ «Deploy functions» `cs-channel` v21 ✓ (42224674104) و`mkt-publish` v1 ✓
+  (42224684542)؛ CI ✓ (42224391038 — semgrep جوّاه؛ من الجلسة `semgrep.dev` مقفول بالبروكسي)؛ `main` ← `ac29cdd` (Deploy ✓ 42226733681).
+  **أول تشغيلة أرقام (13:30):** `added 66, numbers 31, gone 0, errors []` — فيسبوك 16 بوست (آخر 30 يوم) وانستجرام 50؛ الـ `media` بتاع
+  انستجرام بيرجّع آخر 50 من غير فلتر تاريخ فدخل 35 بوست أقدم من 30 يوم (من غير أرقام) → `platformRowOf` بقى بيسيب أي بوست أقدم من
+  `STATS_DAYS` (commit 94a1082 + اختبار Node وDeno) و`mkt-publish` اتنشرت تاني، والـ 35 صف (اتعملوا في نفس التشغيلة، من غير أرقام ولا كامبين)
+  اتشالوا. **فاضل على صاحب المشروع:** الصلاحيات الأربعة في تطبيق Meta (والـ configuration لو `META_LOGIN_CONFIG_ID`)، «اربط تاني»، تشغيل
+  المفتاح، وأول بوست تجريبي بإيده (الصفحة الحقيقية).

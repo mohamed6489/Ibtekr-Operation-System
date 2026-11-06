@@ -23,3 +23,6 @@ verify_jwt = false
 
 [functions.team-admin]
 verify_jwt = false
+
+[functions.mkt-publish]
+verify_jwt = false

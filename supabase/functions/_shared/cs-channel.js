@@ -10,6 +10,9 @@ export const DIALOG = 'https://www.facebook.com/' + GRAPH_VERSION + '/dialog/oau
 // the permissions the page link asks for (decision 12; business_management: a page owned by a Business Portfolio): the pages list, messaging + metadata (webhooks) + engagement (comments) of
 // the page (pages_read_user_content: the visitors' comments on its posts), and the Instagram account's basics, messages and comments
 export const SCOPES = ['pages_show_list', 'pages_messaging', 'pages_manage_metadata', 'pages_read_engagement', 'pages_read_user_content', 'pages_manage_engagement', 'instagram_basic', 'instagram_manage_messages', 'instagram_manage_comments', 'business_management'];
+// marketing's (phase 9.5.2 decision 30): publishing posts on the page and the account, and their numbers — asked by the same link,
+// read by mkt-publish; customer service's «missing» stays SCOPES'
+export const PUBLISH_SCOPES = ['pages_manage_posts', 'instagram_content_publish', 'read_insights', 'instagram_manage_insights'];
 // the webhook fields the page is subscribed to at connect time
 export const SUBSCRIBED_FIELDS = ['messages', 'messaging_postbacks', 'message_deliveries', 'message_reads', 'message_echoes', 'feed'];
 export const MAX_TEXT = 4000;
@@ -34,7 +37,7 @@ const when = (v) => { const n = typeof v === 'number' ? v : typeof v === 'string
 /** @param {string} appId @param {string} redirectUri @param {string} state @param {string | null} [configId] */
 export function authUrl(appId, redirectUri, state, configId = null) {
   const q = new URLSearchParams({ client_id: appId, redirect_uri: redirectUri, state, response_type: 'code' });
-  if (configId) { q.set('config_id', configId); q.set('override_default_response_type', 'true'); } else q.set('scope', SCOPES.join(','));
+  if (configId) { q.set('config_id', configId); q.set('override_default_response_type', 'true'); } else q.set('scope', SCOPES.concat(PUBLISH_SCOPES).join(','));
   return DIALOG + '?' + q.toString();
 }
 

@@ -1,6 +1,6 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
-  SCOPES, SUBSCRIBED_FIELDS, authUrl, attachmentsOf, attachmentText, messageText, parseWebhook, commentThreadId, statusAfterIn, profileName, profileHandle, pagesOf, publicPages,
+  SCOPES, PUBLISH_SCOPES, SUBSCRIBED_FIELDS, authUrl, attachmentsOf, attachmentText, messageText, parseWebhook, commentThreadId, statusAfterIn, profileName, profileHandle, pagesOf, publicPages,
   graphErrorCode, graphPath, sendBody, privateReplyBody, hideBody, DEFAULT_NAME, permissionsOf, tokenlessCount, mergePages, businessIdsOf,
 } from '../../supabase/functions/_shared/cs-channel.js';
 // The Meta channel's pure part (phase 6.2): the dialog url, the attachments' labels, the webhook normalisation (messages, echoes,
@@ -12,7 +12,8 @@ test('authUrl: the Facebook dialog with the app, the redirect, the state and the
   const u = new URL(authUrl('123', REDIRECT, 'st_' + 'x'.repeat(40)));
   assert.equal(u.origin + u.pathname, 'https://www.facebook.com/v21.0/dialog/oauth');
   assert.equal(u.searchParams.get('client_id'), '123'); assert.equal(u.searchParams.get('redirect_uri'), REDIRECT); assert.equal(u.searchParams.get('state'), 'st_' + 'x'.repeat(40));
-  assert.deepEqual(u.searchParams.get('scope').split(','), SCOPES);
+  assert.deepEqual(u.searchParams.get('scope').split(','), SCOPES.concat(PUBLISH_SCOPES)); // 9.5.2: marketing's publishing and numbers too
+  assert.deepEqual(PUBLISH_SCOPES, ['pages_manage_posts', 'instagram_content_publish', 'read_insights', 'instagram_manage_insights']);
   assert.ok(SCOPES.includes('pages_messaging') && SCOPES.includes('pages_read_user_content') && SCOPES.length === 10 && SCOPES.includes('business_management') && SCOPES.includes('instagram_manage_messages') && SCOPES.includes('instagram_manage_comments') && SCOPES.includes('pages_manage_engagement'));
   const c = new URL(authUrl('123', REDIRECT, 's'.repeat(40), '987654321'));
   assert.equal(c.searchParams.get('config_id'), '987654321'); assert.equal(c.searchParams.get('override_default_response_type'), 'true');

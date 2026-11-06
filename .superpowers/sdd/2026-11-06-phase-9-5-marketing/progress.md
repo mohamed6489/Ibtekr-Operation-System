@@ -29,3 +29,9 @@
   `mkt_autopublish` للسيرفر بس؛ المفتاح = صف `settings` «marketing» (مافيش صف = متوقف — زي باقي الأقسام، `rls_system` بيعد صفوف البذرة)؛ الـ cron
   `mkt-publish-due` كل دقيقة (لو فيه بوست جه ميعاده والمفتاح شغال بس) و`mkt-publish-stats` كل 30 دقيقة. ملاحظتين اتصلحوا: `case` جوه شرط `if` في
   PL/pgSQL لازم بين قوسين، و`least()` بيتجاهل الـ NULL (العدد الناقص كان بيبقى أكبر رقم).
+- T10 ✓ (6 نوفمبر) السيرفر: `_shared/mkt-publish.js` (`planOf`، `ourCode`، الـ paths والـ bodies، `fbStatsOf` / `igStatsOf`، `platformRowOf` بتوقيت القاهرة
+  وبوست أحدث من 15 دقيقة بيستنى، `connectionOf`) + `PUBLISH_SCOPES` في `_shared/cs-channel.js` (الـ dialog بيطلبها، و«الناقص» بتاع خدمة العملاء
+  زي ما هو) + Edge Function **`mkt-publish`** (`due` / `stats` بسر المزامنة، `status` / `autopublish` / `publish_now` / `delete` بالـ JWT): فيسبوك
+  بوست/كاروسيل (صور مخفية + feed)/ستوري (صورة مخفية + photo_stories)، انستجرام كونتينر → FINISHED → `media_publish` (كونتينر لسه بيتجهز
+  بيتحفظ والدقيقة الجاية بتكمّل من غير رفع تاني)، `work.stage = publishing` قبل آخر نداء وتايم أوت فيه = `uncertain`، الصور بلينكات موقّعة
+  15 دقيقة. `config.toml` + workflow النشر (`mkt-publish`) + `deno:check`. الاختبارات: Deno 11 (كله 232 ✓)، Node 7 + `cs-channel` 8، `npm test` 554 ✓.

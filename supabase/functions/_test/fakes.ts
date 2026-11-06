@@ -68,6 +68,9 @@ const COLUMNS: Record<string, string[]> = {
   // phase 9.5.1 (0049): the marketing campaigns and templates the AI actions read
   mkt_campaigns: ['id', 'name', 'goal', 'step', 'state', 'scheduled_at', 'created_by', 'created_at', 'updated_by', 'updated_at', 'archived_at', 'archived_by'],
   mkt_templates: ['id', 'name', 'kind', 'image', 'descr', 'used', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deleted_at', 'deleted_by'],
+  // phase 9.5.2 (0049 + 0051): the publishing log mkt-publish reads and writes
+  mkt_posts: ['id', 'campaign_id', 'piece', 'kind', 'name', 'caption', 'caption_orig', 'tags', 'images', 'platform', 'day', 'time', 'how', 'status', 'was_live', 'post_url', 'published_at', 'published_by',
+    'deleted_at', 'deleted_by', 'created_by', 'created_at', 'updated_by', 'updated_at', 'src', 'external_id', 'thumb', 'views', 'reach', 'likes', 'comments', 'shares', 'saves', 'eng', 'stats_at', 'error', 'attempts', 'claimed_at', 'work'],
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
   // 0044 (phase 7): the inventory hub's lots and moves (woo-sync inventory_push reads them)
@@ -98,10 +101,11 @@ const DEFAULTS: Record<string, Row> = {
   cs_customers: { tags: [], consent: true, auto_consent: true, created_from: 'manual' }, cs_conversations: { status: 'جديدة', tags: [], unread: 0 }, cs_messages: { meta: {} },
   cs_channels: { status: 'disconnected', cap_per_day: 300, meta: {} }, cs_channel_events: { summary: {} },
   cs_wa_state: { status: 'offline' }, cs_campaigns: { status: 'مسودة', cap_per_day: 300, min_delay_s: 20, size: 0, stats: {} }, cs_campaign_recipients: { status: 'queued' },
+  mkt_posts: { src: 'system', how: 'download', status: 'مجدول', was_live: false, attempts: 0, images: [], caption: '', caption_orig: '', tags: '' },
 };
 const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
   vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', image_imports: 'int', image_shares: 'int', shot_prompts: 'int',
-  cs_customers: 'uuid', cs_contacts: 'int', cs_conversations: 'uuid', cs_messages: 'uuid', cs_channel_events: 'int', cs_campaigns: 'uuid', cs_campaign_recipients: 'int' };
+  cs_customers: 'uuid', cs_contacts: 'int', cs_conversations: 'uuid', cs_messages: 'uuid', cs_channel_events: 'int', cs_campaigns: 'uuid', cs_campaign_recipients: 'int', mkt_posts: 'int' };
 const UNIQUE: Record<string, string[][]> = {
   status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
@@ -110,7 +114,7 @@ const UNIQUE: Record<string, string[][]> = {
   vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']], image_imports: [['id']], image_shares: [['id']], magnific_oauth_states: [['state']], shot_prompts: [['id'], ['category', 'shot']],
   cs_customers: [['id'], ['phone']], cs_contacts: [['id'], ['platform', 'external_id']], cs_conversations: [['id'], ['channel', 'external_id']], cs_messages: [['id'], ['external_id']], cs_channels: [['id']],
   cs_oauth_states: [['state']], cs_channel_events: [['id']], cs_posts: [['id']], cs_wa_state: [['channel']], cs_campaigns: [['id']], cs_campaign_recipients: [['id'], ['campaign_id', 'customer_id']],
-  profiles: [['id'], ['email'], ['phone'], ['member_code']], roles: [['id']], hr_members: [['member_id']],
+  profiles: [['id'], ['email'], ['phone'], ['member_code']], roles: [['id']], hr_members: [['member_id']], mkt_posts: [['id'], ['platform', 'external_id']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],
@@ -120,6 +124,7 @@ const NOT_NULL: Record<string, string[]> = {
   vendor_rates: ['vendor_id', 'rate', 'since'], vendor_category_rates: ['vendor_id', 'woo_category_id', 'since'], woo_categories: ['name'], activity_log: ['action'],
   cs_customers: ['name', 'created_from'], cs_contacts: ['customer_id', 'platform', 'external_id'], cs_conversations: ['seg', 'platform', 'channel', 'status'], cs_messages: ['conversation_id', 'kind', 'text'],
   cs_channels: ['name', 'audience', 'kind', 'status'], cs_oauth_states: ['verifier', 'channel', 'created_by'], cs_channel_events: ['object', 'status'],
+  mkt_posts: ['kind', 'name', 'platform', 'day', 'time', 'how', 'status', 'src'],
 };
 const CHECK: Record<string, Record<string, unknown[]>> = {
   cs_customers: { created_from: ['orders', 'manual', 'import', 'channel'] }, cs_contacts: { platform: ['whatsapp', 'messenger', 'instagram', 'tiktok', 'facebook'] },
@@ -132,6 +137,7 @@ const CHECK: Record<string, Record<string, unknown[]>> = {
   ai_runs: { action: ['write', 'studio', 'image', 'marketing'], source: [null, 'data', 'image', 'product', 'studio', 'tool', 'edit', 'import', 'campaign', 'template', 'post'], status: ['pending', 'ok', 'refused', 'error', 'cap'] }, // image: 0025, import: 0026 (phase 5.4)
   image_imports: { source: ['magnific'], status: ['pending', 'ok', 'partial', 'error'], target: [null, 'tool', 'studio', 'batch'], batch_type: [null, 'Simple', 'Variable'] },
   image_shares: { status: ['pending', 'sent', 'error'] },
+  mkt_posts: { src: ['system', 'platform'], how: ['download', 'publish'], status: ['مجدول', 'اتنشر', 'فشل', 'اتحذف'], platform: ['انستجرام', 'فيسبوك', 'تيك توك'], kind: ['بوست', 'كاروسيل', 'ريل', 'ستوري'] },
 };
 // numeric checks of 0011 / 0014: rate 0–65, flat ≥ 0 (null passes)
 const RANGE: Record<string, Record<string, [number, number]>> = {

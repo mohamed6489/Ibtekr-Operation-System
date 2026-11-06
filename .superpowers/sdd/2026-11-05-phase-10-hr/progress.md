@@ -79,3 +79,6 @@
   `hr_requests_v` بقت `security_invoker` فوق `hr_requests_list()` (`security definer` بنفس قاعدة `0046`)، والـ 19 دالة HR اتقفلت على `public`/`anon`،
   و`shot_prompts_touch` خدت `search_path`. اختبار `rls_security_advisor` (جديد — بيفشل من غير `0050` بنفس اللي الـ Advisor شافه بالظبط) + db:test كله ✓.
   الباقي في الـ Advisor بالقصد أو إعداد لوحة (leaked passwords — Pro) في `tools/deploy.md` §2.7.25.
+  **على الحي (6 نوفمبر):** `0050` (الـ MCP مالحقش الموافقة تاني → صاحب المشروع لصقه في الـ SQL editor) — التحقق ✓ (`hr_requests_v`
+  `security_invoker=true`، `hr_requests_list()` موجودة، anon من غير `hr_clock_in` والعضو بيها، `shot_prompts_touch` بـ `search_path=public`)؛ `rls_security_advisor` + `rls_hr` حي ✓ (run 42206762834)؛ الـ
+  Advisor بعدها: الـ ERROR والـ search_path اتشالوا، وanon = `email_for_identifier` بس (بالقصد)؛ الباقي بالقصد أو إعداد اللوحة (leaked passwords).

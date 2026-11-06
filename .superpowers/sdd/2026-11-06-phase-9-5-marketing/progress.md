@@ -22,3 +22,10 @@
 - T8 ✓ (6 نوفمبر) الدومين: `scheduleItems(…, conn)` بـ `how` (انشر على القطعة + المنصة تقدر = publish)، `publishable` (المنصة، النوع، عدد الصور
   2–10 للكاروسيل وواحدة للبوست والستوري، 2200 حرف لانستجرام بالهاشتاجات، ثم الربط بالسبب)، `notReady`، `igFit` (4:5 … 1.91:1، هوامش بيضا لحد 10%،
   الستوري أي نسبة)، `jpegSize` (≤ 2160)، `pubText`، `PUB_ERRORS` / `pubError`، `seenSt` / `engOf` / `postTotals`، `SRC_LABEL`. الاختبارات 18 ✓.
+- T9 ✓ (6 نوفمبر) `0051_marketing_publish.sql` + `rls_marketing_publish.sql` (`db:test` كله ✓): أعمدة `mkt_posts` (`src` / `external_id` (فريد مع المنصة) /
+  `thumb` / الأرقام + `stats_at` / `error` / `attempts` / `claimed_at` / `work`)، صف المنصة من غير كامبين؛ `mkt_schedule` بـ `how` (النشر: فيسبوك /
+  انستجرام، بوست وستوري صورة وكاروسيل 2–10، انستجرام JPEG والكلام بالهاشتاجات ≤ 2200) والصف اللي بيتنشر مابيتلمسش؛ `mkt_post_act` بيرفض
+  `invalid: busy`؛ `mkt_publish_claim` (`for update skip locked`، الآخر خطوة اللي ماتت = «فشل» `uncertain`) و`mkt_stats_put` (statement واحد) و
+  `mkt_autopublish` للسيرفر بس؛ المفتاح = صف `settings` «marketing» (مافيش صف = متوقف — زي باقي الأقسام، `rls_system` بيعد صفوف البذرة)؛ الـ cron
+  `mkt-publish-due` كل دقيقة (لو فيه بوست جه ميعاده والمفتاح شغال بس) و`mkt-publish-stats` كل 30 دقيقة. ملاحظتين اتصلحوا: `case` جوه شرط `if` في
+  PL/pgSQL لازم بين قوسين، و`least()` بيتجاهل الـ NULL (العدد الناقص كان بيبقى أكبر رقم).

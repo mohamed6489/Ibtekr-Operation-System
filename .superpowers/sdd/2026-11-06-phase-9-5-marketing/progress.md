@@ -13,3 +13,9 @@
   التحقق ✓ (الصلاحيات أدمن/`ops` F والباقي N، `mkt_posts` من غير insert/update للأعضاء، `scheduled_at` للسيرفر، الـ bucket مقفول 15 ميجا، 10 دوال
   و10 policies، `ai_runs_action_check` فيها `marketing`)؛ `rls_marketing` حي ✓ (run 42204752682)؛ `ai-images` ✓ (run 42204757362) و`ai-content` ✓
   (run 42204761270) من «Deploy functions»؛ `main` ← `445ab2b` (Deploy بيرفع الواجهة — «التسويق» مفتوحة).
+
+## 9.5.2 — النشر التلقائي وأرقام البوستات
+
+- T8 ⏳ (6 نوفمبر) الخطة: قرارات 29–39 + المهام T8–T13 في الخطة. مصادر Meta (الـ docs نفسها مش متاحة من الجلسة — من نتايج البحث): انستجرام
+  JPEG بس و`image_url` عام (لينك موقّع من الـ bucket)، carousel ≤ 10، `STORIES`، الحذف `DELETE /<media>`؛ فيسبوك بوست متعدد الصور بـ
+  `published=false` + `attached_media`؛ `post_impressions` اتلغت (15 نوفمبر 2025) → `post_media_view`؛ انستجرام `impressions` اتلغت → `views`.

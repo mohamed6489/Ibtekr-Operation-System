@@ -392,8 +392,9 @@
     return h('nav', { class: 'bottom-nav', 'aria-label': 'القائمة السفلية' }, BN.map(([ic, lb, page]) => item(ic, lb, page)), wrap);
   }
   function TopHeader() {
-    // بحث عام (phase 5.5 decision 7, owner 1 Nov): أوردرات + مبتكرين + موظفين بالاسم أو الرقم أو الهاتف في قايمة نتايج؛ Enter = فلترة الأوردرات (العملاء لما خدمة العملاء تتبني)
-    const q = h('input', { id: 'gq', type: 'search', placeholder: 'ابحث برقم الأوردر أو الاسم أو الهاتف', 'aria-label': 'بحث عام: أوردرات، مبتكرين، موظفين', autocomplete: 'off', role: 'combobox', 'aria-expanded': 'false', 'aria-controls': 'gq-res', 'aria-autocomplete': 'list' });
+    // بحث عام (phase 5.5 decision 7, owner 1 Nov): أوردرات + عملاء + مبتكرين + موظفين بالاسم أو الرقم أو الهاتف في قايمة نتايج؛ Enter = فلترة الأوردرات
+    // («عملاء» — decision 14, 6 Nov: خدمة العملاء اتبنت — الـ v5 بالحرف: IBCS.data.customers عبر صفحة cs، والضغطة بتفتح ملف العميل)
+    const q = h('input', { id: 'gq', type: 'search', placeholder: 'ابحث برقم الأوردر أو الاسم أو الهاتف', 'aria-label': 'بحث عام: أوردرات، عملاء، مبتكرين، موظفين', autocomplete: 'off', role: 'combobox', 'aria-expanded': 'false', 'aria-controls': 'gq-res', 'aria-autocomplete': 'list' });
     const res = h('div', { id: 'gq-res', class: 'menu gq-res', 'aria-label': 'نتايج البحث', hidden: true }); // role=listbox only while open (a hidden listbox would still match the dropdown locators)
     const norm = (x) => String(x || '').toLowerCase().replace(/[\s\-+]/g, '').replace(/^ib-?/, '');
     const hit = (needle, ...fields) => fields.some((f) => norm(f).includes(needle));
@@ -403,6 +404,8 @@
       const n = norm(raw); if (n.length < 2) return [];
       const out = [];
       const OA = window.OrdersApp; if (OA && OA.query) { const r = OA.query({ q: raw.trim() }, 4); r.rows.forEach((o) => out.push({ g: 'أوردرات', t: 'IB-' + o.id + ' · ' + o.customer, s: o.status + ' · ' + D.formatMoney(o.total) + ' ج.م', run: () => { closeRes(); OA.details(o.id); } })); if (r.total > 4) out.push({ g: 'أوردرات', t: 'كل الأوردرات المطابقة (' + r.total + ')', s: 'فلترة صفحة الأوردرات', run: toOrders }); }
+      const cs = window.IBPages && window.IBPages.all().cs; const custs = cs && cs.api && cs.api.data && rperm('cs.view') !== 'N' ? cs.api.data.customers || [] : [];
+      custs.filter((c) => hit(n, c.name, c.phone, c.ig, (c.orderList || []).map((o) => o[0]).join(' '))).slice(0, 4).forEach((c) => out.push({ g: 'عملاء', t: c.name, s: [c.phone || c.ig || '', (c.orders || 0) + ' أوردر'].filter(Boolean).join(' · '), run: () => { closeRes(); cs.api.openCustomer(c.id); } }));
       vstore.all().filter((v) => hit(n, v.name, v.phone, v.altPhone, (v.aliases || []).join(' '), v.contactName)).slice(0, 4).forEach((v) => out.push({ g: 'مبتكرين', t: v.name, s: [v.phone, v.category].filter(Boolean).join(' · '), run: () => { closeRes(); location.hash = 'makers/' + v.id; } }));
       ((window.IBKit && window.IBKit.store.members) || []).filter((m) => m.status === 'active' && hit(n, m.name, m.phone, m.id, m.email)).slice(0, 4).forEach((m) => out.push({ g: 'موظفين', t: m.name, s: [m.title, m.phone].filter(Boolean).join(' · '), run: () => { closeRes(); location.hash = 'member-' + m.id; } }));
       return out;

@@ -703,3 +703,20 @@ test('5.5 (decision 7): the top search lists orders, makers and members as you t
   await q.fill('zzzz-nothing');
   await expect(res.locator('.gq-empty')).toContainText('مفيش نتايج');
 });
+
+test('5.5 (decision 14): the top search lists the customers too, like the v5 — a customer opens their file in «خدمة العملاء › العملاء»', async ({ page }) => {
+  await signIn(page, ADMIN);
+  const q = page.locator('#gq'); const res = page.locator('#gq-res');
+  await expect(q).toHaveAttribute('aria-label', 'بحث عام: أوردرات، عملاء، مبتكرين، موظفين');
+  await q.fill('يوسف');
+  await expect(res.locator('[data-gq-group="عملاء"]')).toHaveCount(1);
+  await expect(res.locator('[data-gq-group="عملاء"]')).toContainText('يوسف حامد');
+  await res.locator('[data-gq-group="عملاء"]').click();
+  await expect(page).toHaveURL(/#cs-customers$/);
+  await expect(page.locator('.drawer[aria-label="ملف العميل يوسف حامد"]')).toBeVisible();
+  // by the phone of an order's customer: the orders group and the customers group both answer
+  await page.keyboard.press('Escape');
+  await q.fill('01200007052');
+  await expect(res.locator('[data-gq-group="عملاء"]')).toContainText('سلوى زيتوني');
+  await expect(res.locator('[data-gq-group="أوردرات"]').first()).toContainText('IB-181668');
+});

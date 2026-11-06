@@ -281,7 +281,7 @@
   // ---------------------------------------------------------------- 9.5.3: the ads numbers (decisions 44–46) — Meta's own numbers
   // (mkt_ad_stats) next to WooCommerce's orders from the same campaign (mkt_ads_orders, by utm_campaign = Meta's campaign id)
 
-  const ADS_RULES = Object.freeze({ stopSpend: 1500, stopDays: 5, maxCpa: 450, scaleMer: 4, scaleOrders: 5, trackRatio: 2, trackMin: 5 });
+  const ADS_RULES = Object.freeze({ stopSpend: 1500, stopDays: 5, maxCpa: 450, scaleMer: 4, scaleOrders: 5, trackRatio: 2, trackMin: 5, tiredFreq: 4 });
   const AD_PLATFORM = Object.freeze({ meta: 'ميتا', google: 'جوجل', tiktok: 'تيك توك' });
   const SOLD = Object.freeze(['completed', 'in_progress', 'pending']); // an ad order counts as a sale unless cancelled / returned / failed
   const nz = (v) => Number(v) || 0;
@@ -329,9 +329,12 @@
     })).sort((a, b) => b.spend - a.spend || b.orders - a.orders);
   }
   // the overview's KPIs: Meta's spend and own numbers; the orders and sales from every ad platform (Google / TikTok have no spend
-  // until they are linked); the profit after ads = Ibtekr's share − the spend (null without accounts.view)
-  function adTotals(stats, orderRows, rg) {
+  // until they are linked); the profit after ads = Ibtekr's share of Meta's orders − the spend (null without accounts.view). `money`
+  // (the caller's admin / accounts.view) decides it when given — with no ad order the share is 0 and the profit is the spend's loss;
+  // without it the rows say (the server sends the share as null to a member without accounts.view)
+  function adTotals(stats, orderRows, rg, money) {
     const st = dayStats(stats, 'campaign', rg); const o = adOrders(orderRows, rg); const meta = o.platforms.meta || { orders: 0, sales: 0, share: 0, cancelled: 0, sources: {} };
+    const known = typeof money === 'boolean' ? money : o.shareKnown;
     const spend = Math.round(st.reduce((s, x) => s + nz(x.spend), 0) * 100) / 100; const purchases = st.reduce((s, x) => s + nz(x.purchases), 0); const value = st.reduce((s, x) => s + nz(x.purchase_value), 0);
     const all = Object.values(o.platforms).reduce((a, p) => ({ orders: a.orders + p.orders, sales: a.sales + p.sales, share: a.share + p.share }), { orders: 0, sales: 0, share: 0 });
     const platforms = Object.keys(AD_PLATFORM).map((k) => { const p = o.platforms[k] || { orders: 0, sales: 0, share: 0, cancelled: 0, sources: {} };
@@ -339,7 +342,7 @@
         mer: k === 'meta' ? ratio(p.sales, spend) : null, roas: k === 'meta' ? ratio(value, spend) : null }; });
     return { spend, purchases, value, orders: all.orders, sales: all.sales, metaOrders: meta.orders, metaSales: meta.sales, cancelled: Object.values(o.platforms).reduce((s, p) => s + p.cancelled, 0),
       mer: ratio(meta.sales, spend), cpa: ratio(spend, meta.orders), roas: ratio(value, spend), platformCpa: ratio(spend, purchases),
-      share: o.shareKnown ? Math.round(all.share * 100) / 100 : null, profit: o.shareKnown ? Math.round((meta.share - spend) * 100) / 100 : null, platforms };
+      share: known ? Math.round(all.share * 100) / 100 : null, metaShare: known ? Math.round(meta.share * 100) / 100 : null, profit: known ? Math.round((meta.share - spend) * 100) / 100 : null, platforms };
   }
   // the real return of the last n weeks (7 days each, the last ending on `to`), the oldest first — Meta's spend vs its campaigns' sales
   function merWeeks(stats, orderRows, to, n) {
@@ -374,8 +377,10 @@
     return out.sort((a, b) => ALERT_RANK[a.tone] - ALERT_RANK[b.tone]);
   }
   // the creatives (one row per ad with spend in the period): Meta's numbers; the frequency weighted by impressions (a day's
-  // frequency is not additive); the real return per ad needs utm_content={{ad.id}} in the ads
-  function adCreatives(objects, stats, rg) {
+  // frequency is not additive); tired = the frequency at tiredFreq or more (the people saw it too often); the real return per ad
+  // needs utm_content={{ad.id}} in the ads
+  function adCreatives(objects, stats, rg, rules) {
+    const R = Object.assign({}, ADS_RULES, rules || {});
     const ads = {}, camps = {};
     for (const o of Array.isArray(objects) ? objects : []) { if (!o) continue; if (o.kind === 'ad') ads[o.id] = o; else if (o.kind === 'campaign') camps[o.id] = o; }
     const by = {};
@@ -388,7 +393,8 @@
       const o = ads[a.id] || {}; const c = camps[a.campaign] || {};
       return { id: a.id, name: o.name || '#' + a.id, campaign: c.name || '#' + a.campaign, status: o.status || null, thumb: typeof o.thumb === 'string' && /^https:\/\//.test(o.thumb) ? o.thumb : null,
         spend: Math.round(a.spend * 100) / 100, impressions: a.impressions, clicks: a.clicks, purchases: a.purchases, value: a.value,
-        ctr: ratio(a.clicks, a.impressions), frequency: a.impressions ? a.fw / a.impressions : null, roas: ratio(a.value, a.spend) };
+        ctr: ratio(a.clicks, a.impressions), frequency: a.impressions ? a.fw / a.impressions : null, roas: ratio(a.value, a.spend),
+        tired: a.impressions > 0 && a.fw / a.impressions >= R.tiredFreq };
     }).sort((x, y) => y.spend - x.spend);
   }
   const xr = (v) => (v == null ? '—' : Number(v).toFixed(2) + '×');

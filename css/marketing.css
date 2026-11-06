@@ -331,3 +331,8 @@ body.cal-dragging,body.cal-dragging * { cursor:grabbing !important;user-select:n
 .cw-how { display:flex;flex-direction:column;gap:4px;align-items:flex-start }
 .cw-how .chip[aria-disabled="true"] { opacity:.55;cursor:not-allowed }
 @media (max-width: 640px) { .mk-auto .btn { margin-inline-start:0 } }
+
+/* 9.5.3: «نظرة عامة» / «التقارير» on the ads numbers — the period bar, and one chart per row on a phone (app.css's tablet rule comes later) */
+#pg-marketing .ads-bar { flex-wrap:wrap;gap:12px;align-items:center }
+#pg-marketing .ads-bar .fresh { margin:0 }
+@media (max-width:767px){ #pg-marketing .charts { grid-template-columns:1fr } }

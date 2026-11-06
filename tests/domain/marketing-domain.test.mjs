@@ -92,6 +92,75 @@ test('scheduleItems: a row per piece × platform, the images in order, the kind 
   assert.deepEqual(items[2].images, ['c/cover.png', 'c/s0.png', 'c/s1.png', 'c/s2.png', 'c/s3.png']);
   assert.equal(items[2].caption, 'الفكرة'); // no caption → the campaign's idea
   assert.equal(W.postKind({ kind: 'ملف إضافي' }), 'ستوري');
+  assert.ok(items.every((x) => x.how === 'download')); // 9.5.2: no «انشر» on the piece, no connection → a download
+});
+
+// ---------------------------------------------------------------- 9.5.2: publishing (decisions 30–38)
+
+const LIVE = { autopublish: true, facebook: { linked: true, publish: true }, instagram: { linked: true, publish: true } };
+
+test('9.5.2 scheduleItems: «انشر» on the piece → publish where the platform can take it, TikTok and the video stay a download', () => {
+  const c = W.defaults(); const ps = W.buildPieces(c, []);
+  ps[0].img = 'c/p1.jpg'; ps[2].img = 'c/cover.jpg'; ps[2].slides.forEach((s, k) => { s.img = 'c/s' + k + '.jpg'; });
+  const sched = { P1: { date: '2026-11-08', time: '19:00', pl: ['انستجرام', 'فيسبوك', 'تيك توك'], how: ['انشر'] }, C1: { date: '2026-11-09', time: '21:00', pl: ['فيسبوك'], how: ['داونلود'] } };
+  const items = W.scheduleItems(ps, sched, 'الفكرة', LIVE);
+  assert.deepEqual(items.map((x) => [x.piece, x.platform, x.how]), [['P1', 'انستجرام', 'publish'], ['P1', 'فيسبوك', 'publish'], ['P1', 'تيك توك', 'download'], ['C1', 'فيسبوك', 'download']]);
+  // the switch off (or no permission) → nothing is published
+  assert.ok(W.scheduleItems(ps, sched, 'x', { ...LIVE, autopublish: false }).every((x) => x.how === 'download'));
+  assert.ok(W.scheduleItems(ps, sched, 'x', null).every((x) => x.how === 'download'));
+});
+
+test('9.5.2 publishable: the platform, the kind, the image count, Instagram\'s 2200 characters, then the connection with its reason', () => {
+  assert.deepEqual(W.publishable('بوست', ['a.jpg'], 'فيسبوك', LIVE), { ok: true });
+  assert.equal(W.publishable('بوست', ['a.jpg'], 'تيك توك', LIVE).why, 'تيك توك مش مربوط — داونلود بس');
+  assert.equal(W.publishable('ريل', ['a.jpg'], 'انستجرام', LIVE).why, 'الفيديو لسه داونلود بس');
+  assert.equal(W.publishable('بوست', [], 'انستجرام', LIVE).why, 'مفيش صورة');
+  assert.equal(W.publishable('كاروسيل', ['a.jpg'], 'انستجرام', LIVE).why, 'الكاروسيل محتاج صورتين على الأقل');
+  assert.equal(W.publishable('بوست', ['a.jpg', 'b.jpg'], 'انستجرام', LIVE).why, 'البوست والستوري صورة واحدة');
+  assert.equal(W.publishable('كاروسيل', Array(11).fill('a.jpg'), 'فيسبوك', LIVE).why, 'أقصى عدد 10 صور في الكاروسيل');
+  assert.ok(W.publishable('كاروسيل', Array(10).fill('a.jpg'), 'انستجرام', LIVE).ok);
+  // Instagram's limit counts the caption + the tags (a story has none)
+  const long = { caption: 'ك'.repeat(2190), tags: '#إبتكر #هاندميد' };
+  assert.match(W.publishable('بوست', ['a.jpg'], 'انستجرام', LIVE, long).why, /2200/);
+  assert.ok(W.publishable('بوست', ['a.jpg'], 'فيسبوك', LIVE, long).ok);
+  assert.ok(W.publishable('ستوري', ['a.jpg'], 'انستجرام', LIVE, long).ok);
+  // the connection's reasons, in order
+  assert.equal(W.publishable('بوست', ['a.jpg'], 'فيسبوك', null).why, 'حالة الربط لسه بتتحمّل');
+  assert.equal(W.publishable('بوست', ['a.jpg'], 'انستجرام', { ...LIVE, instagram: { linked: false } }).why, 'مفيش حساب انستجرام مربوط بالصفحة');
+  assert.equal(W.publishable('بوست', ['a.jpg'], 'فيسبوك', { ...LIVE, facebook: { linked: false } }).why, 'الصفحة مش مربوطة');
+  assert.match(W.publishable('بوست', ['a.jpg'], 'فيسبوك', { ...LIVE, facebook: { linked: true, publish: false } }).why, /صلاحية النشر/);
+  assert.match(W.publishable('بوست', ['a.jpg'], 'فيسبوك', { ...LIVE, autopublish: false }).why, /متوقف/);
+});
+
+test('9.5.2 igFit / jpegSize: 4:5 … 1.91:1 as it is, white margins up to 10%, refused beyond; a story any ratio; the long side ≤ 2160', () => {
+  assert.deepEqual(W.igFit(1080, 1350, 'بوست'), { ok: true, pad: null });
+  assert.deepEqual(W.igFit(1080, 1080, 'كاروسيل'), { ok: true, pad: null });
+  assert.deepEqual(W.igFit(1080, 1440, 'بوست'), { ok: true, pad: { w: 1152, h: 1440 } }); // 3:4 → 4:5 with side margins
+  assert.ok(1152 / 1440 >= 0.8);
+  assert.deepEqual(W.igFit(1200, 627, 'بوست'), { ok: true, pad: { w: 1200, h: 629 } }); // just over 1.91 → top / bottom margins
+  assert.ok(1200 / 629 <= 1.91);
+  assert.equal(W.igFit(1080, 1920, 'بوست').ok, false); // 9:16: a story size
+  assert.match(W.igFit(1000, 1500, 'كاروسيل').why, /4:5/);
+  assert.deepEqual(W.igFit(1080, 1920, 'ستوري'), { ok: true, pad: null });
+  assert.equal(W.igFit(0, 100, 'بوست').ok, false);
+  assert.deepEqual(W.jpegSize(1080, 1350, null), { w: 1080, h: 1350, k: 1 });
+  const big = W.jpegSize(2048, 2560, null); assert.equal(Math.max(big.w, big.h), 2160);
+  assert.deepEqual(W.jpegSize(1080, 1440, { w: 1152, h: 1440 }), { w: 1152, h: 1440, k: 1 });
+  assert.ok(W.isJpeg('c/pub-ab.jpg') && W.isJpeg('c/x.JPEG') && !W.isJpeg('c/x.png'));
+});
+
+test('9.5.2 the text, the reasons, the numbers: caption + blank line + tags, every code in words, the totals of the seen posts', () => {
+  assert.equal(W.pubText(' كابشن ', '#a #b'), 'كابشن\n\n#a #b');
+  assert.equal(W.pubText('كابشن', ''), 'كابشن');
+  assert.equal(W.pubError('rate'), 'وصلنا لحد النشر على المنصة — جرّب بعد شوية');
+  assert.match(W.pubError('uncertain'), /انشر دلوقتي/);
+  assert.equal(W.pubError('graph_368'), 'ميتا رفضت (كود 368)');
+  assert.equal(W.pubError('weird'), 'النشر فشل');
+  const L = [{ status: 'اتنشر', views: 1000, likes: 40, comments: 5, shares: 3, saves: 2 }, { status: 'اتنشر', views: 500, eng: 20 },
+    { status: 'اتحذف', wasLive: true, views: 100, eng: 10 }, { status: 'اتحذف', wasLive: false, views: 900, eng: 90 }, { status: 'مجدول', views: 0 }];
+  assert.deepEqual(W.postTotals(L), { posts: 3, views: 1600, eng: 80 });
+  assert.equal(W.engOf({ likes: 1, comments: 2, shares: 3, saves: 4 }), 10);
+  assert.equal(W.SRC_LABEL.platform, 'من المنصة مباشرة');
 });
 
 test('moveCheck: a day, not past, not the same; isPast on Cairo today and now', () => {

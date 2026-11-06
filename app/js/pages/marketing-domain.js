@@ -119,7 +119,7 @@
   // ---------------------------------------------------------------- ours: the schedule (step 4) and the publishing log
 
   const PLATFORMS = Object.freeze(['انستجرام', 'فيسبوك', 'تيك توك']);
-  // decision 14: nothing is connected for posting in 9.5.1 (9.5.2 connects Facebook and Instagram) — every piece is a download
+  // decision 14: nothing connected by default (9.5.1); from 9.5.2 the live connection (mkt-publish status) decides — publishable / notReady
   const CONNECTED = Object.freeze({ 'انستجرام': false, 'فيسبوك': false, 'تيك توك': false });
   const POST_STATUSES = Object.freeze(['مجدول', 'اتنشر', 'فشل', 'اتحذف']);
   const CAP_MAX = 2200; // أقل حد بين المنصات (انستجرام)
@@ -141,16 +141,91 @@
   const addD = (iso, n) => new Date(Date.parse(iso + 'T00:00:00Z') + n * 864e5).toISOString().slice(0, 10);
   // the suggested time of the i-th piece (the v5: every other day from tomorrow, at the evening's busy hours)
   const suggest = (i, today) => ({ date: addD(today, 1 + 2 * (i % 6)), time: ['19:00', '21:00', '20:00'][i % 3] });
-  // step 4 → mkt_schedule's items: a row per piece × platform it goes to
-  function scheduleItems(pieces, sched, fallbackCaption) {
+  // step 4 → mkt_schedule's items: a row per piece × platform it goes to; `how` (9.5.2) = publish where the piece's «انشر» is on and
+  // that platform can take it now (publishable), else a download
+  function scheduleItems(pieces, sched, fallbackCaption, conn) {
     const out = [];
     (pieces || []).forEach((p) => {
       const s = (sched || {})[p.id]; if (!s || !Array.isArray(s.pl)) return;
       const caption = String(p.caption || fallbackCaption || '').slice(0, CAP_MAX);
-      s.pl.filter((x) => PLATFORMS.includes(x)).forEach((platform) => out.push({ piece: p.id, kind: postKind(p), name: hookOf(p), caption, tags: String(p.tags || TAGS).slice(0, 300), images: pieceImages(p), platform, day: s.date, time: s.time }));
+      const kind = postKind(p), images = pieceImages(p), tags = String(p.tags || TAGS).slice(0, 300);
+      const wants = Array.isArray(s.how) && s.how.includes('انشر');
+      s.pl.filter((x) => PLATFORMS.includes(x)).forEach((platform) => out.push({ piece: p.id, kind, name: hookOf(p), caption, tags, images, platform, day: s.date, time: s.time,
+        how: wants && publishable(kind, images, platform, conn, { caption, tags }).ok ? 'publish' : 'download' }));
     });
     return out;
   }
+
+  // ---------------------------------------------------------------- ours: publishing (9.5.2, decisions 30–38)
+
+  // the platforms the system publishes to (TikTok: a download — no API for it yet) and the kinds it publishes (ريل waits for the video)
+  const PUBLISHABLE = Object.freeze(['انستجرام', 'فيسبوك']);
+  const PUB_KINDS = Object.freeze(['بوست', 'كاروسيل', 'ستوري']);
+  const MAX_IMAGES = 10; // a carousel on both platforms
+  const PL_KEY = Object.freeze({ 'فيسبوك': 'facebook', 'انستجرام': 'instagram' });
+  // the published text: the caption, a blank line, the tags
+  const pubText = (caption, tags) => [String(caption || '').trim(), String(tags || '').trim()].filter(Boolean).join('\n\n');
+  const chars = (s) => Array.from(String(s || '')).length;
+  // the connection (mkt-publish status): { autopublish, facebook: { linked, publish }, instagram: { linked, publish } } → why a platform
+  // can't publish now (null = it can)
+  function notReady(conn, pl) {
+    const c = conn && PL_KEY[pl] ? conn[PL_KEY[pl]] : null;
+    if (!conn) return 'حالة الربط لسه بتتحمّل';
+    if (!c || !c.linked) return pl === 'انستجرام' ? 'مفيش حساب انستجرام مربوط بالصفحة' : 'الصفحة مش مربوطة';
+    if (!c.publish) return 'الربط محتاج صلاحية النشر — الأدمن يربط الصفحة تاني';
+    if (!conn.autopublish) return 'النشر التلقائي متوقف — الأدمن يشغّله من كارت الربط';
+    return null;
+  }
+  // a piece × platform can be published by the system now: the platform, the kind, the images, Instagram's text, the connection
+  function publishable(kind, images, pl, conn, text) {
+    if (!PUBLISHABLE.includes(pl)) return { ok: false, why: pl === 'تيك توك' ? 'تيك توك مش مربوط — داونلود بس' : 'المنصة دي داونلود بس' };
+    if (!PUB_KINDS.includes(kind)) return { ok: false, why: 'الفيديو لسه داونلود بس' };
+    const n = (images || []).length;
+    if (!n) return { ok: false, why: 'مفيش صورة' };
+    if (kind === 'كاروسيل' && n < 2) return { ok: false, why: 'الكاروسيل محتاج صورتين على الأقل' };
+    if (kind !== 'كاروسيل' && n > 1) return { ok: false, why: 'البوست والستوري صورة واحدة' };
+    if (n > MAX_IMAGES) return { ok: false, why: 'أقصى عدد ' + MAX_IMAGES + ' صور في الكاروسيل' };
+    if (pl === 'انستجرام' && text && kind !== 'ستوري' && chars(pubText(text.caption, text.tags)) > CAP_MAX) return { ok: false, why: 'الكابشن والهاشتاجات أطول من ' + CAP_MAX + ' حرف (حد انستجرام)' };
+    const why = notReady(conn, pl);
+    return why ? { ok: false, why } : { ok: true };
+  }
+  // Instagram's feed ratio (4:5 … 1.91:1): ok as it is, ok with white margins up to 10% to the nearest bound, or refused; a story any ratio.
+  // → { ok, pad: { w, h } | null, why }
+  const IG_MIN = 0.8, IG_MAX = 1.91, PAD_MAX = 0.10;
+  function igFit(w, h, kind) {
+    w = Math.round(Number(w)); h = Math.round(Number(h));
+    if (!(w > 0) || !(h > 0)) return { ok: false, pad: null, why: 'الصورة مااتقريتش' };
+    if (kind === 'ستوري') return { ok: true, pad: null };
+    const r = w / h;
+    if (r >= IG_MIN && r <= IG_MAX) return { ok: true, pad: null };
+    if (r < IG_MIN && IG_MIN / r - 1 <= PAD_MAX) return { ok: true, pad: { w: Math.ceil(h * IG_MIN), h } };
+    if (r > IG_MAX && r / IG_MAX - 1 <= PAD_MAX) return { ok: true, pad: { w, h: Math.ceil(w / IG_MAX) } };
+    return { ok: false, pad: null, why: 'انستجرام بياخد البوست من 4:5 لـ 1.91:1 — المقاس ده للستوري أو فيسبوك' };
+  }
+  // the JPEG copy's size (decision 33): the canvas (with the margins) scaled so its long side ≤ 2160
+  function jpegSize(w, h, pad) {
+    const W = pad ? pad.w : w, H = pad ? pad.h : h; const k = Math.min(1, 2160 / Math.max(W, H));
+    return { w: Math.max(1, Math.round(W * k)), h: Math.max(1, Math.round(H * k)), k };
+  }
+  const isJpeg = (path) => /\.jpe?g$/i.test(String(path || ''));
+  // a failed post's reason (the server's code) in words
+  const PUB_ERRORS = Object.freeze({
+    off: 'النشر التلقائي متوقف', not_linked: 'الصفحة مش مربوطة', no_instagram: 'مفيش حساب انستجرام مربوط بالصفحة',
+    permission: 'الربط محتاج صلاحية النشر — الأدمن يربط الصفحة تاني', token: 'ربط الصفحة انتهى — الأدمن يربطها تاني',
+    image: 'المنصة رفضت الصورة (المقاس أو النوع)', rate: 'وصلنا لحد النشر على المنصة — جرّب بعد شوية',
+    container: 'انستجرام ماقدرش يجهّز البوست', uncertain: 'مش متأكدين إنه اتنشر — بص على الصفحة، ولو مش موجود دوس «انشر دلوقتي»',
+    timeout: 'ميتا ماردتش — جرّب تاني', text: 'الكلام أطول من المسموح على المنصة', kind: 'النوع ده مابيتنشرش من السيستم',
+    gone: 'البوست مش موجود على المنصة', busy: 'البوست بيتنشر دلوقتي', images: 'صور البوست مش جاهزة للنشر',
+  });
+  const pubError = (code) => PUB_ERRORS[code] || (/^graph_\d/.test(String(code || '')) ? 'ميتا رفضت (كود ' + String(code).slice(6) + ')' : 'النشر فشل');
+  // the numbers (decision 36): a post counts when it was published (or deleted after it was); the engagement = likes + comments + shares + saves
+  const seenSt = (x) => !!x && (x.status === 'اتنشر' || (x.status === 'اتحذف' && !!x.wasLive));
+  const engOf = (x) => (x && x.eng != null ? Number(x.eng) || 0 : ['likes', 'comments', 'shares', 'saves'].reduce((s, k) => s + (Number(x && x[k]) || 0), 0));
+  function postTotals(list) {
+    const seen = (list || []).filter(seenSt);
+    return { posts: seen.length, views: seen.reduce((s, x) => s + (Number(x.views) || 0), 0), eng: seen.reduce((s, x) => s + engOf(x), 0) };
+  }
+  const SRC_LABEL = Object.freeze({ system: 'من السيستم', platform: 'من المنصة مباشرة' });
   const isPast = (day, time, today, now) => day < today || (day === today && time <= now);
   const canMove = (x) => x.status === 'مجدول' || x.status === 'فشل';
   // the v5's moveCheck: a day, not a past day or hour (Cairo's today / now), not the same time
@@ -205,6 +280,7 @@
 
   const api = { PRICE_DEMO, VIDEO_SOON, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
     campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, moveCheck, safeName, zipPlan,
+    PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,
     DAYS, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IbtekrCampWiz = api;
 })(typeof window !== 'undefined' ? window : globalThis);

@@ -1389,3 +1389,56 @@ select at, action, entity_id, new_value from public.activity_log where action in
 `activity_log` `mkt.post.publish` (الـ id والمنصة والنوع والنتيجة/الكود) و`mkt.post.delete_live` و`mkt.autopublish` (on/off) بس؛ «انشر دلوقتي» و
 «احذف البوست» بـ `marketing.publish = F` والمفتاح للأدمن؛ الـ cron بسر المزامنة بس ومابيعملش غير `due` و`stats`. **مافيش `WOO_PUSH_ENABLED` هنا**
 (مش WooCommerce) — المفتاح بتاع النشر هو `settings.marketing.autopublish`.
+
+#### 2.7.27 أرقام الإعلانات — Meta Ads جنب أوردرات ووكومرس (المرحلة 9.5.3، 6 نوفمبر)
+
+الخطة (قرارات 42–48) `docs/superpowers/plans/2026-11-06-phase-9-5-marketing.md`، والدفتر `.superpowers/sdd/2026-11-06-phase-9-5-marketing/progress.md`.
+
+**أ) الكود:** `0052_marketing_ads.sql` + `supabase/tests/rls_marketing_ads.sql` · Edge Function **`mkt-ads`** (`verify_jwt = false`) والجزء الصافي
+`_shared/mkt-ads.js` · الدومين (`adTotals` / `adCampaignRows` / `merWeeks` / `adAlerts` / `adCreatives` في `marketing-domain.js`) · `IBMarketing.adsStatus` /
+`adsSync` / `adsData` · الواجهة: «نظرة عامة» و«التقارير» (الحملات + الأعمال الفنية) في التسويق، وتاب «الحملات الإعلانية» في صفحة التقارير (الكتلة 28).
+**قراية بس — مافيش أي كتابة على ميتا.**
+
+**ب) على Supabase (المطوّر — بالترتيب):**
+1. `0052` (MCP `apply_migration` مرة واحدة؛ لو وقف أو سأل تأكيد = الـ SQL كله لصاحب المشروع في الـ SQL editor): أعمدة مصدر الأوردر على `orders`
+   (`attr_type` / `utm_source` / `utm_medium` / `utm_campaign` / `utm_content` / `ad_platform`) بتريجر `orders_attribution` من `raw.meta_data` + تعبئة
+   القديم في نفس الـ migration، `mkt_ad_objects` / `mkt_ad_stats` (القراية `marketing.view`، الكتابة للسيرفر)، RPC `mkt_ads_orders`، والـ cron
+   `mkt-ads-sync` الدقيقة 23 كل ساعة بسر `sync_secret` بتاع `0008` (مافيش سر جديد للـ cron).
+2. workflow «RLS live» بـ `files = rls_marketing_ads rls_security_advisor`.
+3. «Deploy functions»: `mkt-ads`. الفحص من غير الأسرار: أي نداء = 503 `not_configured` (والـ cron مابيعملش حاجة لحد ما الأسرار تتحط).
+4. الواجهة: push على `main`.
+
+**التحقق:**
+```sql
+select ad_platform, utm_source, count(*) from public.orders where ad_platform is not null group by 1, 2 order by 3 desc; -- meta / fb · ig …
+select count(*) filter (where attr_type is not null) attributed, count(*) total from public.orders;
+select has_function_privilege('authenticated', 'public.order_attribution(jsonb)', 'execute') parse_open,
+       has_function_privilege('authenticated', 'public.mkt_ads_orders(date, date)', 'execute') rpc_open; -- false true
+select jobname, schedule, active from cron.job where jobname = 'mkt-ads-sync'; -- 23 * * * *
+select kind, count(*) from public.mkt_ad_objects group by 1;  -- بعد أول مزامنة: account 1 · campaign … · ad …
+select level, min(day), max(day), count(*), sum(spend) from public.mkt_ad_stats group by 1;
+select at, action, new_value from public.activity_log where action = 'mkt.ads.sync' order by at desc limit 5; -- أعداد بس
+```
+
+**ج) مفتاح القراية (صاحب المشروع بنفسه — مرة واحدة):**
+1. **الـ Business Portfolio:** business.facebook.com › الإعدادات (Business settings) › **Users › System users** › «Add» → اسم زي «Ibtekr Ops» ودور
+   **Employee** (كفاية للقراية).
+2. **الحساب الإعلاني:** على نفس الـ system user › «Assign assets» › **Ad accounts** › حساب إعلانات Ibtekr › صلاحية **View performance** بس (من غير
+   Manage campaigns) → Save.
+3. **التطبيق:** لازم تطبيق Meta بتاعنا (نفس تطبيق الربط) يكون في الـ portfolio: Business settings › **Accounts › Apps** (لو مش موجود: Add → Connect
+   an app ID → رقم التطبيق). ولو الـ token مابيعرضش `ads_read`: developers.facebook.com › التطبيق › Use cases › زوّد **«Create & manage ads with
+   Marketing API»**.
+4. **التوكن:** System users › الـ user › **«Generate new token»** → التطبيق → Token expiration **Never** → صلاحية **`ads_read`** بس → Generate →
+   انسخه (بيظهر مرة واحدة). **ماتبعتهوش في الشات.**
+5. **رقم الحساب الإعلاني:** من Ads Manager — الرابط فيه `act=…` — أو Business settings › Accounts › Ad accounts (الرقم تحت الاسم).
+6. **الأسرار:** Supabase › Edge Functions › Secrets: `META_ADS_TOKEN` = التوكن، و`META_AD_ACCOUNT_ID` = الرقم (`act_…` أو الأرقام بس).
+7. أول مزامنة: «التسويق › نظرة عامة» › «مزامنة دلوقتي» (الأدمن) — أو استنى الـ cron (الدقيقة 23). أول مرة بتسحب آخر 90 يوم.
+
+**إزاي بيشتغل:** كل ساعة الدالة بتقرا (GET بس) الحساب والحملات والإعلانات (الاسم والحالة وصورة الكرييتيف) والـ insights يوم بيوم لكل حملة ولكل إعلان
+لآخر 3 أيام (ميتا بتعدّل أرقامها متأخر)؛ مشتريات ميتا = `omni_purchase` وإلا `purchase` وإلا بتاع البكسل (من غير جمع). أوردرات ووكومرس من الإعلانات
+= Order Attribution بتاع ووكومرس على الأوردر (`utm_source = fb | ig`، `utm_medium = paid`، `utm_campaign = رقم الحملة`) — المطابقة بالحملة بالظبط.
+فشل = آخر أرقام بتفضل + السبب على صف الحساب (التوكن / الصلاحية / استنى / وقت) والصفحة بتقوله بالعربي.
+
+**الأمان:** التوكن في أسرار الدالة بس (هيدر Authorization لميتا — مابيوصلش صف ولا log ولا رد)؛ `activity_log` `mkt.ads.sync` أعداد بس (أيام ·
+حملات · إعلانات · صفوف)؛ القراية `marketing.view` ونصيب إبتكر والربح بعد الإعلانات بـ `accounts.view ≠ N` (الـ RPC بيبعته null لغيرهم)؛ مافيش
+أي إجراء على فلوس — تنبيهات الميديا باير قواعد من غير زرار تنفيذ، والتغيير من مدير إعلانات ميتا.

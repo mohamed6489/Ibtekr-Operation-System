@@ -79,3 +79,7 @@
   ونصيحة `utm_content`) بفترة صفحة التقارير و«مزامنة دلوقتي» للأدمن؛ الكتلة 28: تاب «الحملات الإعلانية» بـ `marketing.view` على `reportBlocks`
   (قرار 47) وفترة التقارير بترسم التسويق + lock. الدومين: `adTotals(…, money)` و`tiredFreq`. e2e `marketing-ads.spec` 6 ✓ + تعديل `reports` /
   `hr-reports` / `marketing` (التاب مابقاش قريبًا)؛ `npm test` 570 ✓.
+- T19 (الحي — جاري، 6 نوفمبر) `0052` اتطبّق على الحي من أول مرة (MCP، من غير سطور `drop … if exists` التلاتة بعد ما اتأكدت إن الأهداف مش موجودة):
+  6 أعمدة على `orders`، 100 من 105 أوردر عليهم مصدر (`utm` 54 · `typein` 43 · `referral` 3)، **53 أوردر من إعلانات ميتا** (fb 33 · ig 20) على 6 حملات
+  كلها برقم، ومافيش `order_events` من التعبئة؛ `order_attribution` مقفولة على `authenticated` و`mkt_ads_orders` مفتوحة له ومقفولة على anon؛
+  cron `mkt-ads-sync` `23 * * * *` شغال. الوثائق: CLAUDE.md (ملحوظة 9.5.3 + سطر المراجع) و`tools/deploy.md` §2.7.27.

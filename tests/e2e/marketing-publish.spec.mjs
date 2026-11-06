@@ -69,12 +69,12 @@ test('9.5.2 the connection card: the platforms\' state, the switch the admin tur
   await expect(pg(page).locator('[data-cw-pub="P1"]')).toHaveAttribute('aria-pressed', 'true');
 });
 
-test('9.5.2 a link without the publishing permission: the card says it and the admin\'s «اربط تاني» opens Meta\'s dialog for the same page', async ({ page }) => {
-  await start(page, { mktConn: { autopublish: true, facebook: { linked: true, name: 'Ibtekr Club', publish: false, insights: false } } });
+test('9.5.2 a link without the publishing permission: in «سجل النشر» with no campaign at all (decision 41) the card says it and the admin\'s «اربط تاني» opens Meta\'s dialog for the same page', async ({ page }) => {
+  await start(page, { mktCampaigns: [], mktConn: { autopublish: false, facebook: { linked: true, name: 'Ibtekr Club', publish: false, insights: false } } });
   await page.route('https://www.facebook.com/**', (r) => r.fulfill({ status: 200, contentType: 'text/html', body: '<!doctype html><title>meta</title>' }));
-  await openMarketing(page);
-  await pg(page).locator('[data-mk-open="' + C1 + '"]').click();
+  await openMarketing(page, ADMIN, 'سجل النشر');
   await expect(pg(page).locator('[data-conn-pl="فيسبوك"]')).toContainText('مربوط — محتاج صلاحية النشر');
+  await expect(pg(page).locator('[data-mk-auto-toggle]')).toContainText('شغّل النشر التلقائي'); // the switch here too
   await pg(page).locator('[data-mk-relink]').click();
   await page.waitForURL(/^https:\/\/www\.facebook\.com\/v21\.0\/dialog\/oauth\?/);
   expect(mock.metaCalls.map((c) => c.action)).toEqual(['connect_start']); // no «فصل» first: the same page linked again

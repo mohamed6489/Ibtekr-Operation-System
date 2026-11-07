@@ -53,7 +53,7 @@ test.afterEach(() => {
   expect(mock.unhandled).toEqual([]);
 });
 async function signIn(page, email) {
-  if (!(await page.locator('#login').isVisible().catch(() => false))) await page.goto('/'); // after a sign-out the login is already there
+  if (!(await page.locator('#login').isVisible().catch(() => false))) await page.goto('/').catch(() => {}); // after a sign-out the login is already there (its own reload may interrupt this goto — the login lands either way)
   await expect(page.locator('#login')).toBeVisible();
   await page.waitForLoadState('load').catch(() => {});
   for (let i = 0; i < 3; i++) { // a click swallowed by the sign-out's reload is sent again

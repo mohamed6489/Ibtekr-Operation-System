@@ -298,7 +298,7 @@ const gRow = (q: string) => q.includes('FROM customer') ? [{ customer: { id: GG.
   : q.startsWith('SELECT campaign.id, segments.date') ? [{ campaign: { id: GC }, segments: { date: '2026-10-24' }, metrics: { costMicros: '80000000', impressions: '3000', clicks: '140', conversions: 1, conversionsValue: 900 } }]
   : [{ adGroupAd: { ad: { id: GA } }, campaign: { id: GC }, segments: { date: '2026-10-24' }, metrics: { costMicros: '12345678', impressions: '500', clicks: '20', conversions: 0, conversionsValue: 0 } }];
 const G_ROUTES: Record<string, Route> = {
-  'POST /token': { body: { access_token: 'ya29.access', expires_in: 3599, token_type: 'Bearer' } },
+  'POST /token': { body: { access_token: 'g-access-test-token', expires_in: 3599, token_type: 'Bearer' } },
   ['POST /v21/customers/' + GG.customer_id + '/googleAds:search']: (c) => ({ body: { results: gRow(String(c.body.query)) } }),
 };
 const vaultTT = { ads_tiktok: JSON.stringify(TT) }; const vaultG = { ads_google: JSON.stringify(GG) };
@@ -332,7 +332,7 @@ Deno.test('9.5.6 OAuth: link_start needs the app / client (the state kept, the p
   const { deps, db, secrets } = setup({ env: ENV, vault: { ads_tiktok: JSON.stringify({ app_id: TT.app_id, secret: TT.secret }), ads_google: JSON.stringify({ developer_token: GG.developer_token, client_id: GG.client_id, client_secret: GG.client_secret }) },
     routes: { 'POST /open_api/v1.3/oauth2/access_token/': ttOk({ access_token: TT.access_token, advertiser_ids: [TT.advertiser_id, '7000000000000000002'] }),
       'GET /open_api/v1.3/oauth2/advertiser/get/': ttOk({ list: [{ advertiser_id: TT.advertiser_id, advertiser_name: 'Ibtekr' }, { advertiser_id: '7000000000000000002', advertiser_name: 'Test' }] }),
-      'POST /token': { body: { access_token: 'ya29.access', refresh_token: GG.refresh_token } }, 'GET /v21/customers:listAccessibleCustomers': { body: { resourceNames: ['customers/' + GG.customer_id] } } } });
+      'POST /token': { body: { access_token: 'g-access-test-token', refresh_token: GG.refresh_token } }, 'GET /v21/customers:listAccessibleCustomers': { body: { resourceNames: ['customers/' + GG.customer_id] } } } });
   assertEquals((await call(deps, { action: 'link_start', platform: 'meta' })).res.status, 400);
   assertEquals((await call(deps, { action: 'link_start', platform: 'tiktok' }, 'jwt-view')).res.status, 401);
   const t = await call(deps, { action: 'link_start', platform: 'tiktok' });
@@ -363,7 +363,7 @@ Deno.test('9.5.6 OAuth: link_start needs the app / client (the state kept, the p
   const { calls } = setup(); void calls;
   assertFalse(JSON.stringify(db.rows('activity_log')).includes(GG.client_secret));
   // no refresh token (consent not renewed) → 502 no_refresh_token
-  const nr = setup({ env: ENV, vault: { ads_google: JSON.stringify({ developer_token: GG.developer_token, client_id: GG.client_id, client_secret: GG.client_secret }) }, routes: { 'POST /token': { body: { access_token: 'ya29.access' } } } });
+  const nr = setup({ env: ENV, vault: { ads_google: JSON.stringify({ developer_token: GG.developer_token, client_id: GG.client_id, client_secret: GG.client_secret }) }, routes: { 'POST /token': { body: { access_token: 'g-access-test-token' } } } });
   const st = (await call(nr.deps, { action: 'link_start', platform: 'google' })).body.url; const stateNr = new URL(st).searchParams.get('state')!;
   const bad = await call(nr.deps, { action: 'link_callback', code: '4/0AX-code', state: stateNr });
   assertEquals([bad.res.status, bad.body.error], [502, 'no_refresh_token']);
@@ -377,7 +377,7 @@ Deno.test('9.5.6 sync: every linked platform in one run — TikTok (Access-Token
   const tt = calls.filter((c) => c.host === 'business-api.tiktok.com');
   assert(tt.length >= 5 && tt.every((c) => c.headers['access-token'] === TT.access_token && !c.auth && !JSON.stringify(c.query).includes(TT.access_token)));
   const gg = calls.filter((c) => c.host === 'googleads.googleapis.com');
-  assert(gg.length === 5 && gg.every((c) => c.auth === 'Bearer ya29.access' && c.headers['developer-token'] === GG.developer_token && c.headers['login-customer-id'] === GG.login_customer_id));
+  assert(gg.length === 5 && gg.every((c) => c.auth === 'Bearer g-access-test-token' && c.headers['developer-token'] === GG.developer_token && c.headers['login-customer-id'] === GG.login_customer_id));
   const tok = calls.find((c) => c.host === 'oauth2.googleapis.com')!;
   assertEquals([tok.body.grant_type, tok.body.refresh_token, tok.body.client_secret], ['refresh_token', GG.refresh_token, GG.client_secret]);
   const objs = db.rows('mkt_ad_objects');

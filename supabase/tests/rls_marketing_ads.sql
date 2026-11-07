@@ -1,7 +1,8 @@
 -- RLS / permission tests for 0052_marketing_ads (phase 9.5.3: the order's source from WooCommerce's Order Attribution, Meta's
 -- ad objects and daily numbers, the ad-sourced orders with Ibtekr's share for accounts.view only). Depends on 0001 … 0052. One
 -- transaction rolled back; prints NOTICE 'rls_marketing_ads: ok' only if every case passed. Live-safe: its made-up members, role,
--- orders and rows are rolled back.
+-- orders and rows are rolled back, and its ad ids (952…) are ones the live sync never carries (a real Meta id met live made the
+-- old seed collide on the primary key — 7 Nov).
 
 begin;
 
@@ -34,16 +35,16 @@ $$;
 -- ================================================================ the source, from the raw (the trigger), the shapes met on the site
 
 insert into public.orders (id, number, customer_name, status, placed_at, raw) values
-  (95200001, '95200001', 'أ', 'مكتمل', '2026-11-02 10:00+02', pg_temp.raw_attr('utm', 'fb', 'paid', '120252323303340228')),
-  (95200002, '95200002', 'ب', 'جاري التنفيذ', '2026-11-02 12:00+02', pg_temp.raw_attr('utm', 'ig,ig', 'paid,paid', '120252323303340228https://stage.ibtekr.club/x', '120260000000000001')),
-  (95200003, '95200003', 'ج', 'ملغي', '2026-11-03 09:00+02', pg_temp.raw_attr('utm', 'fb', 'paid', '120251977233530228')),
+  (95200001, '95200001', 'أ', 'مكتمل', '2026-11-02 10:00+02', pg_temp.raw_attr('utm', 'fb', 'paid', '952000000000000001')),
+  (95200002, '95200002', 'ب', 'جاري التنفيذ', '2026-11-02 12:00+02', pg_temp.raw_attr('utm', 'ig,ig', 'paid,paid', '952000000000000001https://stage.ibtekr.club/x', '952100000000000001')),
+  (95200003, '95200003', 'ج', 'ملغي', '2026-11-03 09:00+02', pg_temp.raw_attr('utm', 'fb', 'paid', '952000000000000002')),
   (95200004, '95200004', 'د', 'مكتمل', '2026-11-03 11:00+02', pg_temp.raw_attr('typein', '(direct)', null, null)),
   (95200005, '95200005', 'ه', 'مكتمل', '2026-11-03 13:00+02', pg_temp.raw_attr('referral', 'm.facebook.com', 'referral', null)),
   (95200006, '95200006', 'و', 'قيد الانتظار', '2026-11-04 15:00+02', pg_temp.raw_attr('utm', 'google', 'cpc', 'winter-sale')),
   (95200007, '95200007', 'ز', 'مكتمل', '2026-11-04 16:00+02', pg_temp.raw_attr('utm', 'fb', 'social', 'free-post')),
   (95200008, '95200008', 'ح', 'مكتمل', '2026-11-04 17:00+02', pg_temp.raw_attr('utm', 'tiktok', 'paid', '1799999999')),
   (95200009, '95200009', 'ط', 'مكتمل', '2026-11-05 10:00+02', '{"id": 9}'::jsonb),
-  (95200010, '95200010', 'ي', 'مكتمل', '2026-11-05 11:00+02', pg_temp.raw_attr('utm', 'fb', 'paid', '120252323303340228'));
+  (95200010, '95200010', 'ي', 'مكتمل', '2026-11-05 11:00+02', pg_temp.raw_attr('utm', 'fb', 'paid', '952000000000000001'));
 insert into public.order_items (id, order_id, name, qty, total, commission_rate, commission_fee) values
   (95210001, 95200001, 'مخدة', 1, 1000, 10, 5),
   (95210002, 95200001, 'لمبة', 1, 500, 20, 0),
@@ -57,12 +58,12 @@ do $$
 declare r record;
 begin
   select attr_type, utm_source, utm_medium, utm_campaign, utm_content, ad_platform into r from public.orders where id = 95200001;
-  if (r.attr_type, r.utm_source, r.utm_medium, r.utm_campaign, r.ad_platform) is distinct from ('utm', 'fb', 'paid', '120252323303340228', 'meta') or r.utm_content is not null then
+  if (r.attr_type, r.utm_source, r.utm_medium, r.utm_campaign, r.ad_platform) is distinct from ('utm', 'fb', 'paid', '952000000000000001', 'meta') or r.utm_content is not null then
     raise exception 'case a Meta ad order failed: %', r;
   end if;
   -- the doubled parameters and a campaign glued to a link: the first part, the id
   select utm_source, utm_medium, utm_campaign, utm_content, ad_platform into r from public.orders where id = 95200002;
-  if (r.utm_source, r.utm_medium, r.utm_campaign, r.utm_content, r.ad_platform) is distinct from ('ig', 'paid', '120252323303340228', '120260000000000001', 'meta') then
+  if (r.utm_source, r.utm_medium, r.utm_campaign, r.utm_content, r.ad_platform) is distinct from ('ig', 'paid', '952000000000000001', '952100000000000001', 'meta') then
     raise exception 'case «ig,ig» / a campaign glued to a link failed: %', r;
   end if;
   -- not ads: a direct visit, a referral, an unpaid utm with a name, no attribution at all
@@ -77,8 +78,8 @@ begin
     raise exception 'case Google and TikTok ads failed';
   end if;
   -- the raw changes (the sync) → the source follows; another column's update leaves it
-  update public.orders set raw = pg_temp.raw_attr('utm', 'instagram', 'paid', '120251297405730228') where id = 95200007;
-  if (select (ad_platform, utm_campaign) from public.orders where id = 95200007) is distinct from ('meta'::text, '120251297405730228'::text) then
+  update public.orders set raw = pg_temp.raw_attr('utm', 'instagram', 'paid', '952000000000000003') where id = 95200007;
+  if (select (ad_platform, utm_campaign) from public.orders where id = 95200007) is distinct from ('meta'::text, '952000000000000003'::text) then
     raise exception 'case the source follows the raw failed';
   end if;
   update public.orders set note = 'ملاحظة' where id = 95200007;
@@ -90,12 +91,12 @@ end $$;
 
 -- the server writes the ad account's numbers
 insert into public.mkt_ad_objects (kind, id, parent_id, name, status, thumb) values
-  ('account', '1122334455', null, 'Ibtekr Club', 'ACTIVE', null),
-  ('campaign', '120252323303340228', '1122334455', 'Macrame — Retargeting', 'ACTIVE', null),
-  ('ad', '120260000000000001', '120252323303340228', 'Macrame — carousel', 'ACTIVE', 'https://scontent.example/t.jpg');
+  ('account', '952000000001', null, 'Ibtekr Club', 'ACTIVE', null),
+  ('campaign', '952000000000000001', '952000000001', 'Macrame — Retargeting', 'ACTIVE', null),
+  ('ad', '952100000000000001', '952000000000000001', 'Macrame — carousel', 'ACTIVE', 'https://scontent.example/t.jpg');
 insert into public.mkt_ad_stats (level, object_id, campaign_id, day, spend, impressions, reach, clicks, link_clicks, frequency, purchases, purchase_value) values
-  ('campaign', '120252323303340228', '120252323303340228', '2026-11-02', 800.50, 12000, 9000, 300, 210, 1.333, 3, 4200),
-  ('ad', '120260000000000001', '120252323303340228', '2026-11-02', 800.50, 12000, 9000, 300, 210, 1.333, 3, 4200);
+  ('campaign', '952000000000000001', '952000000000000001', '2026-11-02', 800.50, 12000, 9000, 300, 210, 1.333, 3, 4200),
+  ('ad', '952100000000000001', '952000000000000001', '2026-11-02', 800.50, 12000, 9000, 300, 210, 1.333, 3, 4200);
 
 set local role authenticated;
 -- ops (marketing F, accounts P): reads the numbers and the share (the line's own rate — no commission permission)
@@ -103,28 +104,28 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000
 do $$
 declare n int; s numeric; c numeric;
 begin
-  if (select count(*) from public.mkt_ad_objects) <> 3 or (select count(*) from public.mkt_ad_stats) <> 2 then raise exception 'case ops reads the ad numbers failed'; end if;
+  if (select count(*) from public.mkt_ad_objects where id like '952%') <> 3 or (select count(*) from public.mkt_ad_stats where object_id like '952%') <> 2 then raise exception 'case ops reads the ad numbers failed'; end if;
   begin insert into public.mkt_ad_stats (level, object_id, campaign_id, day) values ('campaign', '1', '1', '2026-11-01'); raise exception 'case a member writes numbers failed';
   exception when insufficient_privilege then null; end;
-  begin update public.mkt_ad_objects set name = 'x' where id = '1122334455'; raise exception 'case a member edits an ad object failed';
+  begin update public.mkt_ad_objects set name = 'x' where id = '952000000001'; raise exception 'case a member edits an ad object failed';
   exception when insufficient_privilege then null; end;
   begin perform utm_campaign from public.orders limit 1; raise exception 'case the source columns are not granted failed';
   exception when insufficient_privilege then null; end;
   begin perform public.order_attribution('{}'::jsonb); raise exception 'case order_attribution is the server''s failed';
   exception when insufficient_privilege then null; end;
   -- the ad orders of 2–4 November: Meta 1 (2 lines) + Meta 2 + Meta 3 (cancelled) + Google 6 (pending) + TikTok 8; not 4 / 5 / 7 / 9 / 10
-  select count(*), sum(orders) into n, s from public.mkt_ads_orders('2026-11-01', '2026-11-05');
+  select count(*), sum(orders) into n, s from public.mkt_ads_orders('2026-11-01', '2026-11-05') where campaign in ('952000000000000001', '952000000000000002', 'winter-sale', '1799999999'); -- ours only (live orders may carry ads)
   if n <> 5 or s <> 5 then raise exception 'case the ad orders of the period failed: % rows, % orders', n, s; end if;
-  select sales, share into s, c from public.mkt_ads_orders('2026-11-01', '2026-11-05') where campaign = '120252323303340228' and source = 'fb';
+  select sales, share into s, c from public.mkt_ads_orders('2026-11-01', '2026-11-05') where campaign = '952000000000000001' and source = 'fb';
   if s <> 1500 or c <> 205 then raise exception 'case Meta fb: the lines and the share (1000×10%%+5 + 500×20%%) failed: % / %', s, c; end if;
-  if (select grp from public.mkt_ads_orders('2026-11-01', '2026-11-05') where campaign = '120252323303340228' and source = 'ig') <> 'in_progress'
-     or (select grp from public.mkt_ads_orders('2026-11-01', '2026-11-05') where campaign = '120251977233530228') <> 'cancelled'
-     or (select grp from public.mkt_ads_orders('2026-11-01', '2026-11-05') where platform = 'google') <> 'pending' then
+  if (select grp from public.mkt_ads_orders('2026-11-01', '2026-11-05') where campaign = '952000000000000001' and source = 'ig') <> 'in_progress'
+     or (select grp from public.mkt_ads_orders('2026-11-01', '2026-11-05') where campaign = '952000000000000002') <> 'cancelled'
+     or (select grp from public.mkt_ads_orders('2026-11-01', '2026-11-05') where platform = 'google' and campaign = 'winter-sale') <> 'pending' then
     raise exception 'case the groups failed';
   end if;
-  if (select count(*) from public.mkt_ads_orders('2026-11-03', '2026-11-03')) <> 1 then raise exception 'case the day is Cairo''s failed'; end if;
+  if (select count(*) from public.mkt_ads_orders('2026-11-03', '2026-11-03') where campaign like '952%') <> 1 then raise exception 'case the day is Cairo''s failed'; end if;
   -- an order of TikTok without lines: counted, sales 0
-  if (select (orders, sales) from public.mkt_ads_orders('2026-11-04', '2026-11-04') where platform = 'tiktok') is distinct from (1::bigint, 0::numeric) then
+  if (select (orders, sales) from public.mkt_ads_orders('2026-11-04', '2026-11-04') where platform = 'tiktok' and campaign = '1799999999') is distinct from (1::bigint, 0::numeric) then
     raise exception 'case an order without lines failed';
   end if;
   begin perform public.mkt_ads_orders('2026-11-05', '2026-11-01'); raise exception 'case the range is checked failed';
@@ -137,8 +138,8 @@ end $$;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000052a4","role":"authenticated"}', true);
 do $$
 begin
-  if (select count(*) from public.mkt_ad_stats) <> 2 then raise exception 'case marketing reads the numbers failed'; end if;
-  if (select sum(sales) from public.mkt_ads_orders('2026-11-01', '2026-11-05')) <> 4500 then raise exception 'case marketing reads the sales failed'; end if;
+  if (select count(*) from public.mkt_ad_stats where object_id like '952%') <> 2 then raise exception 'case marketing reads the numbers failed'; end if;
+  if (select sum(sales) from public.mkt_ads_orders('2026-11-01', '2026-11-05') where campaign in ('952000000000000001', '952000000000000002', 'winter-sale', '1799999999')) <> 4500 then raise exception 'case marketing reads the sales failed'; end if;
   if exists (select 1 from public.mkt_ads_orders('2026-11-01', '2026-11-05') where share is not null) then raise exception 'case no share without accounts.view failed'; end if;
 end $$;
 
@@ -155,7 +156,7 @@ end $$;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000052a1","role":"authenticated"}', true);
 do $$
 begin
-  if (select share from public.mkt_ads_orders('2026-11-01', '2026-11-05') where campaign = '120252323303340228' and source = 'ig') <> 300 then
+  if (select share from public.mkt_ads_orders('2026-11-01', '2026-11-05') where campaign = '952000000000000001' and source = 'ig') <> 300 then
     raise exception 'case the admin''s share (2000×15%%) failed';
   end if;
 end $$;

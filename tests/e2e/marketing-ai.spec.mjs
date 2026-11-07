@@ -32,7 +32,7 @@ async function start(page, extra = {}) {
 }
 test.afterEach(() => { if (LIVE) return; expect(pageErrors).toEqual([]); expect(mock.unhandled).toEqual([]); });
 async function signIn(page, email) {
-  if (!(await page.locator('#login').isVisible().catch(() => false))) await page.goto('/'); // after a sign-out the login is already there
+  if (!(await page.locator('#login').isVisible().catch(() => false))) await page.goto('/').catch(() => {}); // after a sign-out the login is already there (its own reload may interrupt this goto — the login lands either way)
   await expect(page.locator('#login')).toBeVisible();
   await page.waitForLoadState('load').catch(() => {}); // the sign-out's own reload may still be landing on a slow runner
   for (let i = 0; i < 3; i++) { // a click swallowed by that reload is sent again
@@ -160,6 +160,7 @@ test('the chat: the question and the answer in the thread (ai-content buyer with
   await start(page);
   await openAi(page, ADMIN);
   const P = pg(page);
+  await expect(P.locator('[data-mk-pending]')).toBeVisible(); // the tab re-renders once the suggestions land — type after that
   await P.locator('#mk-ask').fill('أزوّد Macrame؟');
   await P.locator('[data-mk-ask]').click();
   await expect(P.locator('[data-mk-chat="2"] .mk-msg.ai')).toContainText('سؤالك: أزوّد Macrame؟');

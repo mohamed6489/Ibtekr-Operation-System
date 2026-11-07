@@ -1,0 +1,20 @@
+<!doctype html><html lang="ar" dir="rtl"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<title>ربط حساب الإعلانات — نظام إبتكر</title>
+<meta name="robots" content="noindex">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;900&display=swap">
+<link rel="stylesheet" href="css/base.css"><link rel="stylesheet" href="css/app.css">
+<style>
+  body { display: grid; place-items: center; min-height: 100vh; margin: 0; }
+  .cb-card { max-width: 460px; width: calc(100% - 32px); padding: 28px 24px; border-radius: 16px; background: var(--card, #fff); box-shadow: 0 10px 40px rgba(0,0,0,.08); text-align: center; }
+  .cb-card h1 { font-size: 20px; margin: 0 0 10px; }
+  .cb-card p { margin: 0 0 16px; color: var(--muted, #666); }
+  .cb-card a, .cb-card button.pick { display: inline-block; padding: 10px 18px; border-radius: 10px; background: var(--primary, #0b3b5c); color: #fff; text-decoration: none; border: 0; font: inherit; cursor: pointer; margin: 4px; }
+  .cb-card .err { color: #b3261e; }
+  .cb-card ul { list-style: none; padding: 0; margin: 0 0 12px; }
+</style>
+</head><body>
+<!-- phase 9.5.6 decision 68: the page TikTok's / Google's sign-in comes back to; js/pages/ads-callback.js hands the code to the server (mkt-ads) -->
+<div class="cb-card" dir="rtl" lang="ar"><h1 id="cb-title">بنربط حساب الإعلانات…</h1><p id="cb-text">لحظة واحدة.</p><ul id="cb-accounts" hidden></ul><a id="cb-back" href="index.html#marketing" hidden>ارجع للتسويق</a></div>
+<script src="config.js"></script><script src="js/vendor/supabase.js"></script><script src="js/adapter/supabase-client.js"></script>
+<script src="js/pages/ads-callback.js"></script>
+</body></html>

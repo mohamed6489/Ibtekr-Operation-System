@@ -61,7 +61,7 @@ test('a new campaign: the details (the row created) → the AI fills the piece �
   await openMarketing(page);
   await pg(page).locator('[data-mk-start]').click();
   await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('تفاصيل الكامبين');
-  await expect(pg(page).locator('[data-cw-media] ~ *, .subtab', { hasText: 'فيديو' }).first()).toContainText('قريبًا');
+  await expect(pg(page).locator('.subtab', { hasText: 'فيديو' })).not.toContainText('قريبًا'); // 9.5.5: the video is open
   // the idea is required
   await pg(page).locator('.cp-next').click();
   await expect(pg(page)).toContainText('اكتب الفكرة العامة');

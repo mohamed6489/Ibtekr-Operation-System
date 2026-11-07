@@ -273,10 +273,10 @@ Seedance 2.5 / 2.0، Kling 2.5، MiniMax H3 + فويس أوفر ElevenLabs + م�
 
 ## المهام — 9.5.5 (بالتوالي)
 
-- **T25** الخطة (القرارات 57–66) + الدفتر.
-- **T26** `0054_marketing_video.sql` (`mkt_video_jobs`، bucket MIME والحد، `ai_runs.source` «video») + `rls_marketing_video.sql`.
-- **T27** الجزء الصافي `_shared/mkt-video.js` + `campaignTarget` للفيديو + `ai-content` task `scenes` + اختبارات node/Deno.
-- **T28** `ai-images` actions `video_clip` / `video_voice` / `video_music` / `video_assemble` / `video_poll` + Deno (جسر وهمي).
-- **T29** `IBMarketing` (المهام، الأفعال، المشاهد، الملفات) + الـ mock + الصفحة (قطعة الفيديو في البناء والمراجعة، المشغّل، أداة «فيديو»، `VIDEO_SOON`
+- **T25** ✓ الخطة (القرارات 57–66) + الدفتر.
+- **T26** ✓ `0054_marketing_video.sql` (`mkt_video_jobs`، bucket MIME والحد، `ai_runs.source` «video») + `rls_marketing_video.sql`.
+- **T27** ✓ الجزء الصافي `_shared/mkt-video.js` + `campaignTarget` للفيديو + `ai-content` task `scenes` + اختبارات node/Deno.
+- **T28** ✓ `ai-images` actions `video_clip` / `video_voice` / `video_music` / `video_assemble` / `video_poll` + Deno (جسر وهمي).
+- **T29** ✓ `IBMarketing` (المهام، الأفعال، المشاهد، الملفات) + الـ mock + الصفحة (قطعة الفيديو في البناء والمراجعة، المشغّل، أداة «فيديو»، `VIDEO_SOON`
   = false) + CSS الـ v6 + e2e.
 - **T30** `mkt-publish` الريلز (فيسبوك + انستجرام) + Deno + الوثائق + الحي (0054، rls live، نشر `ai-images` و`ai-content` و`mkt-publish`، main).

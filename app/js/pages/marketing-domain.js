@@ -11,8 +11,13 @@
   const MEDIA = Object.freeze([['video', 'فيديو'], ['post', 'بوستات'], ['carousel', 'كاروسيل']]);
   // decision 11: the real model credits (IBImages.MODELS) — no demo prices
   const PRICE_DEMO = false;
-  // decision 12: the video waits (AI video after 9.5.1, the owner) — the media tab shows «قريبًا» and its count stays 0
-  const VIDEO_SOON = true;
+  // decision 12 (9.5.1): the video waited; 9.5.5 (decisions 57–66): it is open — through the Magnific bridge (the linked account pays)
+  const VIDEO_SOON = false;
+  // the video sizes (ratios) and the image size of a scene's key frame (the same ratio)
+  const VSIZES = Object.freeze([['9:16', '9:16 · ريلز وستوري'], ['1:1', '1:1 · مربع'], ['4:5', '4:5 · فيد'], ['16:9', '16:9 · عرضي']]);
+  const VIDEO_IMG_SIZE = Object.freeze({ '9:16': '1080x1920t', '1:1': '1080x1080', '4:5': '1080x1350', '16:9': '1600x900' });
+  const videoImgSize = (ratio) => VIDEO_IMG_SIZE[ratio] || VIDEO_IMG_SIZE['9:16'];
+  const videoMethod = (model, method) => (model === 'kling-2.5' ? 'separate' : method === 'chained' ? 'chained' : 'separate');
   // كريديت لكل ثانية فيديو (للمرحلة الجاية)
   const VIDEO_RATE = Object.freeze({ 'seedance-2.5': 5, 'seedance-2.0': 6, 'kling-2.5': 2, 'minimax-h3': 1 });
   // decision 10: «املأ بالـ AI» / «إعادة كتابة بالـ AI» are Claude calls on the monthly AI budget (USD) — no Magnific credit
@@ -46,7 +51,7 @@
     const out = []; const m = c.media;
     const keep = (id, mk) => out.push(old[id] && old[id].kind === mk().kind ? old[id] : Object.assign(mk(), { id }));
     const vids = VIDEO_SOON ? 0 : m.video.count;
-    for (let i = 1; i <= vids; i++) keep('V' + i, () => Object.assign(blank('فيديو'), { n: i, size: m.video.size, model: m.video.model, dur: m.video.dur, sceneCount: 3, scenes: [], method: 'separate', music: { src: 'library', track: '' }, voice: { mode: 'ai', text: '', file: '' }, clips: 0, assembled: false }));
+    for (let i = 1; i <= vids; i++) keep('V' + i, () => Object.assign(blank('فيديو'), { n: i, size: m.video.size, model: m.video.model, dur: m.video.dur, res: '1080p', sceneCount: 3, scenes: [], method: 'separate', music: { src: 'library', type: 'دافية هادية', file: '' }, voice: { mode: 'ai', voice: 'm-eg-1', text: '', file: '' }, clips: 0, assembled: false, video: null }));
     for (let i = 1; i <= m.post.count; i++) keep('P' + i, () => Object.assign(blank('بوست'), { n: i, size: m.post.size, model: m.post.model }));
     for (let i = 1; i <= m.carousel.count; i++) keep('C' + i, () => Object.assign(blank('كاروسيل'), { n: i, size: m.carousel.size, model: m.carousel.model, slides: Array.from({ length: m.carousel.slides }, (_, k) => Object.assign(blank('شريحة'), { n: k + 1 })) }));
     for (let i = 1; i <= c.extra.count; i++) keep('X' + i, () => Object.assign(blank('ملف إضافي'), { n: i, size: '1080x1080', model: c.extra.model }));
@@ -96,8 +101,10 @@
   function estimate(c, models) {
     const m = c.media; const img = (id) => imgRate(models, id);
     const vids = VIDEO_SOON ? 0 : m.video.count;
-    return m.post.count * img(m.post.model) + m.carousel.count * (1 + m.carousel.slides) * img(m.carousel.model) + vids * (videoRate(m.video.model) * m.video.dur + 3 * img(DEFAULT_MODEL)) + c.extra.count * img(c.extra.model);
+    return m.post.count * img(m.post.model) + m.carousel.count * (1 + m.carousel.slides) * img(m.carousel.model) + vids * 3 * img(DEFAULT_MODEL) + c.extra.count * img(c.extra.model);
   }
+  // 9.5.5: the video seconds are on the linked Magnific account (decision 57) — an estimate shown beside, never from the image wallet
+  const estimateVideo = (c) => (VIDEO_SOON ? 0 : c.media.video.count) * videoRate(c.media.video.model) * c.media.video.dur;
 
   // ---------------------------------------------------------------- ours: the campaign's status («آخر الشغل», decision 18)
 
@@ -399,7 +406,7 @@
   }
   const xr = (v) => (v == null ? '—' : Number(v).toFixed(2) + '×');
 
-  const api = { PRICE_DEMO, VIDEO_SOON, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
+  const api = { PRICE_DEMO, VIDEO_SOON, VSIZES, videoImgSize, videoMethod, estimateVideo, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
     campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, moveCheck, safeName, zipPlan,
     PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,
     DAYS, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys,

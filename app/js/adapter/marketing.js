@@ -288,14 +288,51 @@
     if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     const x = a || {}; if (cid) await flush(cid);
     const body = { action: 'marketing', task: x.task, campaign_id: cid || undefined, piece: x.piece || undefined, slide: x.slide == null ? undefined : Number(x.slide), kind: x.kind || undefined,
-      text: typeof x.text === 'string' ? x.text.slice(0, 3000) : undefined, image: x.image || undefined };
+      text: typeof x.text === 'string' ? x.text.slice(0, 3000) : undefined, image: x.image || undefined, voice: x.task === 'scenes' ? x.voice === true : undefined };
     const r = await invoke('ai-content', body);
     if (!r.ok) return Object.assign(r, { message: aiMessage(r, 'text') });
     const b = r.body || {};
     if (b.result === 'refused') return { ok: false, reason: 'refused', message: aiMessage({ reason: 'refused' }, 'text') };
     log('ai.' + (x.task || 'write'), x.kind || where(x), cid || null);
-    return { ok: true, fields: b.fields && typeof b.fields === 'object' ? b.fields : null, text: typeof b.text === 'string' ? b.text : null };
+    return { ok: true, fields: b.fields && typeof b.fields === 'object' ? b.fields : null, text: typeof b.text === 'string' ? b.text : null,
+      scenes: Array.isArray(b.scenes) ? b.scenes : null, voice: x.task === 'scenes' && typeof b.voice === 'string' ? b.voice : null };
   }
+
+  // ---------- the video (9.5.5, decisions 57–64): the bridge's jobs through ai-images; the page polls while a piece has open jobs ----------
+  const VIDEO_WHY = { not_linked: 'اربط حساب Magnific الأول من «إعدادات الصور» في المنتجات', busy_piece: 'فيه مهام لسه شغالة على الفيديو ده — استنى تخلص', clips: 'ولّد كل المشاهد الأول',
+    image: 'ولّد صورة المشهد الأول', scenes: 'وزّع المشاهد الأول', scene: 'المشهد ده مش موجود', piece: 'القطعة دي مش فيديو — احفظ وجرّب تاني', text: 'اكتب نص الفويس أوفر', voice: 'اختار الصوت', type: 'اختار نوع الموسيقى', path: 'الملف مش مرفوع', role: 'نوع الملف مش معروف' };
+  const videoMessage = (r) => (r.reason === 'not_configured' ? (r.code === 'not_linked' ? VIDEO_WHY.not_linked : 'الجسر لـ Magnific مش متوصّل') : r.reason === 'conflict' ? (VIDEO_WHY[r.code] || 'الفيديو مشغول دلوقتي — جرّب كمان شوية')
+    : r.reason === 'invalid' ? (VIDEO_WHY[r.field] || MESSAGES.invalid) : r.reason === 'busy' ? 'طلبات كتير في وقت قصير — استنى دقيقة وجرّب تاني' : r.reason === 'forbidden' ? MESSAGES.forbidden : r.reason === 'notfound' ? MESSAGES.notfound : r.reason === 'ai_error' ? 'Magnific ماردش — جرّب تاني' : MESSAGES.network);
+  const toJob = (j) => (j && typeof j === 'object' ? { id: Number(j.id), kind: String(j.kind || ''), scene: j.scene == null ? null : Number(j.scene), status: String(j.status || ''), ref: j.ref || null, path: typeof j.path === 'string' ? j.path : null, bytes: j.bytes == null ? null : Number(j.bytes), error: j.error || null, data: j.data && typeof j.data === 'object' ? j.data : {}, createdAt: j.createdAt || null, doneAt: j.doneAt || null } : null);
+  async function videoCall(action, cid, piece, extra, logAs) {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!cid) return { ok: false, reason: 'invalid', message: 'احفظ الكامبين الأول' };
+    await flush(cid);
+    const r = await invoke('ai-images', Object.assign({ action, campaign_id: cid, piece }, extra || {}));
+    if (!r.ok) { if (logAs) log('video.' + logAs, piece + ' · ' + (r.code || r.reason), cid); return Object.assign(r, { message: videoMessage(r) }); }
+    const b = r.body || {};
+    if (logAs) log('video.' + logAs, piece + (extra && extra.scene != null ? ' · s' + (extra.scene + 1) : '') + (b.job && b.job.kind ? ' · ' + b.job.kind : ''), cid);
+    return { ok: true, job: toJob(b.job), jobs: Array.isArray(b.jobs) ? b.jobs.map(toJob).filter(Boolean) : null, open: Number(b.open) || 0, final: toJob(b.final) };
+  }
+  const videoClip = (cid, piece, scene) => videoCall('video_clip', cid, piece, scene == null ? {} : { scene: Number(scene) }, 'clip');
+  const videoVoice = (cid, piece, a) => videoCall('video_voice', cid, piece, { voice: (a || {}).voice, text: clean((a || {}).text, 1500) }, 'voice');
+  const videoMusic = (cid, piece, type) => videoCall('video_music', cid, piece, { type }, 'music');
+  const videoAssemble = (cid, piece) => videoCall('video_assemble', cid, piece, {}, 'assemble');
+  const videoPoll = (cid, piece) => videoCall('video_poll', cid, piece, {}, null);
+  // a member's own audio (voice-over or music) into the campaign's folder, then onto Magnific as a done upload job
+  const AUDIO_MIME = { 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/x-m4a': 'm4a', 'audio/wav': 'wav', 'audio/x-wav': 'wav' };
+  const MAX_AUDIO = 50 * 1024 * 1024;
+  async function videoUpload(cid, piece, file, role) {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!cid) return { ok: false, reason: 'invalid', message: 'احفظ الكامبين الأول' };
+    if (!file || typeof file.size !== 'number' || !AUDIO_MIME[file.type]) return { ok: false, reason: 'invalid', field: 'type', message: 'ارفع ملف صوت (MP3 / M4A / WAV)' };
+    if (file.size > MAX_AUDIO) return { ok: false, reason: 'invalid', field: 'size', message: 'الملف أكبر من 50 ميجا' };
+    const put1 = await put(cid + '/vid-' + piece + '-up' + Math.floor(Math.random() * 90 + 10) + '-' + rand() + '.' + AUDIO_MIME[file.type], file, file.name);
+    if (!put1.ok) return put1;
+    return videoCall('video_upload', cid, piece, { path: put1.path, role }, 'upload');
+  }
+  // the scenes written by Claude (decision 59) — the campaign's own AI budget, no credit
+  async function videoScenes(cid, piece, voice) { const r = await write(cid, { task: 'scenes', piece, voice: voice === true }); return r.ok ? { ok: true, scenes: r.scenes || [], voice: r.voice || '' } : r; }
 
   // ---------- the schedule and the log (decisions 14–16) ----------
   async function schedule(cid, items) {
@@ -705,6 +742,7 @@
 
   window.IBMarketing = { load, ensure, clear, state: () => st, can, campaigns, posts, templates, getPost, wallet, credits, open, create, save, saveSoon, flush, archive,
     upload, uploadTemplate, url, cachedUrl, blob, product, checkFile, generate, edit, write, schedule, move, caption, published, remove,
+    videoClip, videoVoice, videoMusic, videoAssemble, videoPoll, videoUpload, videoScenes,
     connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,
     adsStatus, adsNow, adsSync, adsData, adsWhy,
     suggestions, suggNow, decide, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, editRequest, setRequestStatus, buyerChat,

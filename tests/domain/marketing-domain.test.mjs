@@ -12,19 +12,20 @@ test('defaults: posts and a carousel, no video (soon), an empty idea, the real d
   assert.equal(c.idea, ''); assert.equal(c.mediaTab, 'post');
   assert.equal(c.media.video.count, 0); assert.equal(c.media.post.count, 2); assert.equal(c.media.carousel.count, 1); assert.equal(c.extra.count, 0);
   assert.equal(c.media.post.model, 'seedream-5-pro');
-  assert.equal(W.PRICE_DEMO, false); assert.equal(W.VIDEO_SOON, true); assert.equal(W.TEXT_FILL, 0);
+  assert.equal(W.PRICE_DEMO, false); assert.equal(W.VIDEO_SOON, false); // 9.5.5 assert.equal(W.TEXT_FILL, 0);
 });
 
-test('buildPieces: P / C / X ids, the carousel slides, old pieces kept, no video while it is soon', () => {
+test('buildPieces: V / P / C / X ids (9.5.5: the video pieces with their scenes and tracks), the carousel slides, old pieces kept', () => {
   const c = W.defaults(); c.media.video.count = 2; c.extra.count = 1;
   const ps = W.buildPieces(c, []);
-  assert.deepEqual(ps.map((p) => p.id), ['P1', 'P2', 'C1', 'X1']);
+  assert.deepEqual(ps.map((p) => p.id), ['V1', 'V2', 'P1', 'P2', 'C1', 'X1']);
+  const v = ps[0]; assert.deepEqual([v.kind, v.size, v.model, v.dur, v.res, v.sceneCount, v.scenes, v.method, v.music.type, v.voice.voice, v.video], ['فيديو', '9:16', 'seedance-2.5', 15, '1080p', 3, [], 'separate', 'دافية هادية', 'm-eg-1', null]);
   const car = ps.find((p) => p.id === 'C1'); assert.equal(car.slides.length, 4); assert.equal(car.slides[0].kind, 'شريحة');
   ps[0].idea = 'لقطة'; ps[0].img = 'cid/gen-P1.png';
   c.media.carousel.slides = 2; const again = W.buildPieces(c, ps);
   assert.equal(again[0].idea, 'لقطة'); assert.equal(again[0].img, 'cid/gen-P1.png');
   assert.equal(again.find((p) => p.id === 'C1').slides.length, 2);
-  c.media.post.count = 1; assert.deepEqual(W.buildPieces(c, again).map((p) => p.id), ['P1', 'C1', 'X1']);
+  c.media.post.count = 1; assert.deepEqual(W.buildPieces(c, again).map((p) => p.id), ['V1', 'V2', 'P1', 'C1', 'X1']);
 });
 
 test('cost: the model credits per image, the carousel = cover + slides, the AI writing = 0 credits', () => {
@@ -34,18 +35,22 @@ test('cost: the model credits per image, the carousel = cover + slides, the AI w
   assert.equal(W.cost('image', { model: 'unknown' }, MODELS), 75); // an unknown model = the first one
 });
 
-test('estimate: posts + carousels (cover + slides) + extras, no video while it is soon', () => {
+test('estimate: posts + carousels (cover + slides) + extras + the videos\' scene images (3 a video); the video seconds beside, on the Magnific account (estimateVideo)', () => {
   const c = W.defaults(); c.media.video.count = 3; c.extra.count = 2; c.extra.model = 'gemini-2-5-flash';
-  // 2 × 75 + 1 × 5 × 75 + 2 × 20
-  assert.equal(W.estimate(c, MODELS), 150 + 375 + 40);
+  // 2 × 75 + 1 × 5 × 75 + 3 × 3 × 75 + 2 × 20
+  assert.equal(W.estimate(c, MODELS), 150 + 375 + 675 + 40);
+  assert.equal(W.estimateVideo(c), 3 * 5 * 15);
+  assert.equal(W.videoImgSize('9:16'), '1080x1920t'); assert.equal(W.videoImgSize('4:5'), '1080x1350'); assert.equal(W.videoImgSize('x'), '1080x1920t');
+  assert.equal(W.videoMethod('kling-2.5', 'chained'), 'separate'); assert.equal(W.videoMethod('seedance-2.5', 'chained'), 'chained');
 });
 
-test('validateDetails: the idea, the goal and one piece at least (the video does not count while soon)', () => {
+test('validateDetails: the idea, the goal and one piece at least (a video counts from 9.5.5)', () => {
   const c = W.defaults();
   assert.deepEqual(plain(W.validateDetails(c)), { idea: 'اكتب الفكرة العامة' });
-  c.idea = 'كولكشن الشتا'; c.media.post.count = 0; c.media.carousel.count = 0; c.media.video.count = 2;
+  c.idea = 'كولكشن الشتا'; c.media.post.count = 0; c.media.carousel.count = 0; c.media.video.count = 0;
   assert.deepEqual(plain(W.validateDetails(c)), { media: 'اختار قطعة واحدة على الأقل' });
-  c.extra.count = 1; assert.deepEqual(plain(W.validateDetails(c)), {});
+  c.media.video.count = 2; assert.deepEqual(plain(W.validateDetails(c)), {});
+  c.media.video.count = 0; c.extra.count = 1; assert.deepEqual(plain(W.validateDetails(c)), {});
 });
 
 test('built / approved / approveAll: a carousel needs its cover and every slide', () => {

@@ -8,6 +8,7 @@
 // mkt.calls, every write the client sent in mkt.writes ({ table, op, ...columns }).
 import { campaignGenPath, campaignPathOk, campaignTarget, cleanBuyer, cleanMarketing, parseBuyer, parseCampaign, parseCampaignEdit, parseMarketing } from '../../supabase/functions/_shared/marketing.js';
 import { BUYER_DEFAULTS, MAX_STEP, budgetPlan, rulesPatch } from '../../supabase/functions/_shared/mkt-ads.js';
+import { MAX_OPEN_JOBS, cleanScenes, jobView, mixPlan, nextMix, parseVideo, videoPath } from '../../supabase/functions/_shared/mkt-video.js';
 import { creditsFor } from '../../supabase/functions/_shared/ai-images.js';
 const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
 const cairo = (d = new Date()) => { const p = Object.fromEntries(fmt.formatToParts(d).map((x) => [x.type, x.value])); return { day: p.year + '-' + p.month + '-' + p.day, hm: p.hour + ':' + p.minute }; };
@@ -27,8 +28,10 @@ const COLS = {
   // 0053 (9.5.4): the buyer's suggestions (the server's rows, read with marketing.view) and the designer / developer requests
   mkt_suggestions: ['id', 'platform', 'kind', 'campaign_id', 'campaign_name', 'ad_id', 'title', 'sub', 'why', 'impact', 'pct', 'data', 'status', 'created_at', 'checked_at', 'decided_by', 'decided_at', 'value', 'note', 'result', 'error'],
   mkt_requests: ['id', 'kind', 'title', 'details', 'project', 'status', 'created_by', 'created_at', 'updated_by', 'updated_at', 'done_at'],
+  // 0054 (9.5.5): the video jobs — the server's rows, read without the Magnific link
+  mkt_video_jobs: ['id', 'campaign_id', 'piece', 'kind', 'scene', 'creation_ref', 'status', 'path', 'bytes', 'duration', 'error', 'data', 'created_by', 'created_at', 'updated_at', 'done_at'],
 };
-const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests' };
+const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests', mkt_video_jobs: 'videoJobs' };
 const GRANT = { mkt_campaigns: { insert: ['name', 'goal', 'step', 'state'], update: ['name', 'goal', 'step', 'state', 'archived_at'] },
   mkt_templates: { insert: ['name', 'kind', 'image', 'descr'], update: ['name', 'kind', 'image', 'descr', 'deleted_at'] },
   mkt_requests: { insert: ['kind', 'title', 'details', 'project'], update: ['title', 'details', 'project', 'status'] } };
@@ -36,7 +39,7 @@ const REQ_STATUS = ['جديد', 'بيتعمل', 'جاهز للمراجعة', 'خ
 const GOALS = ['منتج جديد', 'مجموعة جديدة', 'وعي بخدمة', 'عرض / خصم'];
 const KINDS = ['بوست', 'كاروسيل', 'ريل', 'ستوري'];
 const PLATFORMS = ['انستجرام', 'فيسبوك', 'تيك توك'];
-const MIME = ['image/png', 'image/jpeg', 'image/webp'];
+const MIME = ['image/png', 'image/jpeg', 'image/webp', 'video/mp4', 'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/wav']; // 0054: video and audio too
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 const HM = /^([01][0-9]|2[0-3]):[0-5][0-9]$/;
 const line = (v, max) => String(v == null ? '' : v).replace(/[\u0000-\u001f\u007f]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, max);
@@ -70,6 +73,9 @@ export function mktState(opts = {}) {
     suggestions: (opts.mktSuggestions || []).map((x, i) => ({ id: i + 1, platform: 'meta', campaign_name: null, ad_id: null, sub: null, why: null, impact: null, pct: null, data: {}, status: 'pending', created_at: now, checked_at: now, decided_by: null, decided_at: null, value: null, note: null, result: null, error: null, ...x })),
     requests: (opts.mktRequests || []).map((x, i) => ({ id: i + 1, details: null, project: null, status: 'جديد', created_by: null, created_at: now, updated_by: null, updated_at: now, done_at: null, ...x })),
     rules: { ...BUYER_DEFAULTS, ...(opts.mktRules || {}) }, accountDaily: opts.mktAccountDaily == null ? 1000 : Number(opts.mktAccountDaily),
+    // 9.5.5: the video jobs (the bridge's work, finished a poll later), the bridge linked (mktBridge false = not linked), videoDelay = polls a job takes
+    videoJobs: (opts.mktVideoJobs || []).map((x, i) => ({ id: i + 1, scene: null, creation_ref: null, status: 'queued', url: null, path: null, bytes: null, duration: null, error: null, data: {}, created_by: null, created_at: now, updated_at: now, done_at: null, polls: 0, ...x })),
+    bridge: opts.mktBridge !== false, videoDelay: opts.mktVideoDelay == null ? 1 : Number(opts.mktVideoDelay), videoFail: opts.mktVideoFail || null,
     adsFail: null,
   };
 }
@@ -84,7 +90,7 @@ export function mktRoute(c) {
   if (sto && sto[1] && method === 'GET') { const obj = H.objects.get(decodeURIComponent(sto[2])); return obj ? route.fulfill({ status: 200, headers: { 'access-control-allow-origin': '*', 'content-type': obj.type || 'image/png' }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
   if (fn && path === '/functions/v1/mkt-publish') return mktPublish(c, c.body());
   if (fn && path === '/functions/v1/mkt-ads') return mktAds(c, c.body());
-  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !['campaign', 'campaign_edit'].includes(b.action) : !['marketing', 'buyer'].includes(b.action)) return null; return mktAi(c, b); }
+  if (fn) { const b = c.body(); if (path === '/functions/v1/ai-images' ? !(['campaign', 'campaign_edit'].includes(b.action) || /^video_/.test(String(b.action))) : !['marketing', 'buyer'].includes(b.action)) return null; return mktAi(c, b); }
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
   if (!u) return sto ? json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' }) : refuse(401, '42501', 'permission denied');
   const view = hasPerm(u, 'marketing.view') !== 'N'; const create = hasPerm(u, 'marketing.create') === 'F'; const publish = hasPerm(u, 'marketing.publish') === 'F';
@@ -219,7 +225,7 @@ export function mktRoute(c) {
     return answer(list);
   }
   if (H.down) return json(503, { message: 'mock: marketing down' });
-  if (t === 'mkt_posts' || t === 'mkt_ad_objects' || t === 'mkt_ad_stats' || t === 'mkt_suggestions') return refuse(403, '42501', 'permission denied for table ' + t);
+  if (t === 'mkt_posts' || t === 'mkt_ad_objects' || t === 'mkt_ad_stats' || t === 'mkt_suggestions' || t === 'mkt_video_jobs') return refuse(403, '42501', 'permission denied for table ' + t);
   if (t === 'mkt_requests') return mktRequests(c, method, [].concat(c.body()), match, answer, refuse);
   const b = c.body(); const list = [].concat(b);
   const g = GRANT[t];
@@ -265,7 +271,7 @@ export function mktRoute(c) {
 // cleaned by the server's own cleanMarketing). H.imgFail / H.aiFail = 'ai_cap' | 'busy' | 'not_configured' | 'ai_error' | 'refused'.
 function mktAi(c, b) {
   const { u, json, hasPerm, isAdmin, mock } = c; const H = mock.mkt;
-  H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0 });
+  H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, scene: b.scene == null ? null : b.scene, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0 });
   if (b.action === 'buyer') { // the buyer's chat: marketing.view (P too); the numbers come from the server, the answer is text only
     if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.view') !== 'N')) return json(401, { error: 'unauthorized' });
     const p = parseBuyer(b); if ('error' in p) return json(400, p);
@@ -278,6 +284,15 @@ function mktAi(c, b) {
   const campaign = (id) => H.campaigns.find((x) => x.id === id && !x.archived_at) || null;
   if (b.action === 'marketing') {
     const p = parseMarketing(b); if ('error' in p) return json(400, p);
+    if (p.req.task === 'scenes') { // 9.5.5 decision 59: the video piece's scenes (the durations from the piece and its model) — before the image target (the function's order)
+      const camp = campaign(p.req.campaignId); if (!camp) return json(404, { error: 'not_found' });
+      const vp = (camp.state.pieces || []).find((x) => x && x.id === p.req.piece && x.kind === 'فيديو');
+      if (!vp) return json(400, { error: 'bad_request', field: 'piece' });
+      if (H.aiFail) return failWith(H.aiFail);
+      const n = Number.isInteger(vp.sceneCount) ? vp.sceneCount : 3;
+      const raw = H.scenesAnswer ? H.scenesAnswer(vp) : { scenes: Array.from({ length: n }, (_, i) => ({ idea: ['لقطة قريبة على نقشة المنتج', 'إيد الصانعة وهي بتشتغل', 'القعدة كاملة بنور العصاري', 'تفاصيل الخامة', 'اللوجو على خلفية كريم'][i % 5], text: ['دفا الشتا', 'مشغولة يدويًا', '', 'Art craft', 'ibtekr.club'][i % 5], cam: ['زوم بطيء', 'ثابتة', 'تحريك يمين', 'ماكرو', 'ثابتة'][i % 5] })), voice: p.req.voice ? 'الدفا الحقيقي من إيد صانعة مصرية — اطلب قطعتك من إبتكر.' : '' };
+      H.seq += 1; return json(200, { result: 'ok', ...cleanScenes(raw, { n, dur: Number(vp.dur) || 15, model: vp.model }), model: 'claude-opus-5-5', cost_usd: 0.004, run_id: H.seq });
+    }
     let target = null;
     if (p.req.campaignId) {
       const camp = campaign(p.req.campaignId); if (!camp) return json(404, { error: 'not_found' });
@@ -291,6 +306,7 @@ function mktAi(c, b) {
       : { text: ({ title: 'دفا الشتا بإيد مصرية', sub: 'كولكشن الشتا وصل', badge: 'جديد', caption: 'الدفا الحقيقي من إيد صانعة مصرية 🧶\nاطلب قطعتك من إبتكر' })[p.req.kind] || 'كلام جديد مكتوب بالـ AI' };
     H.seq += 1; return json(200, { result: 'ok', ...cleanMarketing(answer, p.req, target), model: 'claude-opus-5-5', cost_usd: 0.004, run_id: H.seq });
   }
+  if (/^video_/.test(String(b.action))) return mktVideo(c, b, campaign);
   const parsed = b.action === 'campaign' ? parseCampaign(b) : parseCampaignEdit(b); if ('error' in parsed) return json(400, parsed);
   const req = parsed.req; const camp = campaign(req.campaignId); if (!camp) return json(404, { error: 'not_found' });
   const t = campaignTarget(camp.state, req.piece, req.slide); if (!t) return json(400, { error: 'bad_request', field: 'piece' });
@@ -431,4 +447,66 @@ function mktDecide(c, b) {
   if ('error' in plan) { Object.assign(s, base, { status: 'failed', value: pct, error: plan.error, result: plan }); H.writes.push({ table: 'mkt_suggestions', op: 'decide', id: s.id, decision: b.decision, status: 'failed' }); return json(409, { error: plan.error, max: plan.max ?? null, cap: plan.cap ?? null, after: plan.after ?? null }); }
   const camp = H.adObjects.find((o) => o.kind === 'campaign' && o.id === s.campaign_id); if (camp) camp.meta = { ...camp.meta, daily_budget: plan.after };
   return done({ status: 'done', value: pct, result: plan }, { before: plan.before, after: plan.after, updates: plan.updates.length });
+}
+
+// 9.5.5: the video through the bridge as ai-images runs it (decisions 58–61) — a job a call, finished after videoDelay polls, the
+// results as objects in bucket marketing (vid-<piece>-<part>-mk<n>.mp4 / .mp3), the assembly chain (cut → voice → music) going on
+// by itself in video_poll; the link never reaches the page. Knobs: mktBridge false (not linked), mktVideoDelay, mktVideoFail (a kind
+// whose next job fails).
+function mktVideo(c, b, campaign) {
+  const { u, json, mock } = c; const H = mock.mkt; const now = new Date().toISOString();
+  const action = String(b.action).replace('video_', '');
+  const p = parseVideo(action, b); if ('error' in p) return json(400, p);
+  const camp = campaign(p.req.campaignId); if (!camp) return json(404, { error: 'not_found' });
+  const piece = (camp.state.pieces || []).find((x) => x && x.id === p.req.piece && x.kind === 'فيديو'); if (!piece) return json(400, { error: 'bad_request', field: 'piece' });
+  if (!H.bridge) return json(503, { error: 'not_linked', status: 401 });
+  const jobs = () => H.videoJobs.filter((j) => j.campaign_id === camp.id && j.piece === piece.id);
+  const open = () => jobs().filter((j) => j.status === 'queued' || j.status === 'running');
+  const add = (row) => { const j = { id: H.videoJobs.reduce((m, x) => Math.max(m, x.id), 0) + 1, campaign_id: camp.id, piece: piece.id, scene: null, creation_ref: null, status: 'running', url: null, path: null, bytes: null, duration: null, error: null, data: {}, created_by: u.id, created_at: now, updated_at: now, done_at: null, polls: 0, ...row }; H.videoJobs.push(j); H.writes.push({ table: 'mkt_video_jobs', op: 'insert', id: j.id, kind: j.kind, scene: j.scene }); return j; };
+  const ref = (k) => k + '-' + (++H.seq);
+  const view = (j) => jobView(j);
+  const scenes = Array.isArray(piece.scenes) ? piece.scenes : [];
+  if (action === 'clip') {
+    const chained = piece.method === 'chained' && piece.model !== 'kling-2.5';
+    if (!scenes.length) return json(400, { error: 'bad_request', field: 'scenes' });
+    if (!chained && (p.req.scene == null || !scenes[p.req.scene])) return json(400, { error: 'bad_request', field: 'scene' });
+    if (open().length >= MAX_OPEN_JOBS) return json(409, { error: 'busy_piece', open: open().length });
+    const frame = chained ? scenes[0] : scenes[p.req.scene]; if (!campaignPathOk(camp.id, frame.img)) return json(400, { error: 'bad_request', field: 'image' });
+    return json(200, { result: 'ok', job: view(add({ kind: 'clip', scene: chained ? null : p.req.scene, creation_ref: ref('clip'), data: { model: piece.model || 'seedance-2.5', duration: chained ? scenes.reduce((a, s) => a + (s.d || 0), 0) : frame.d, method: chained ? 'chained' : 'separate' } })) });
+  }
+  if (action === 'voice' || action === 'music') {
+    if (open().length >= MAX_OPEN_JOBS) return json(409, { error: 'busy_piece', open: open().length });
+    return json(200, { result: 'ok', job: view(add({ kind: action, creation_ref: ref(action === 'voice' ? 'vo' : 'mu'), data: action === 'voice' ? { voice: p.req.voice, chars: p.req.text.length } : { type: p.req.type } })) });
+  }
+  if (action === 'upload') {
+    if (!H.objects.has(p.req.path)) return json(400, { error: 'bad_request', field: 'path' });
+    return json(200, { result: 'ok', job: view(add({ kind: 'upload', creation_ref: ref('upl'), status: 'done', path: p.req.path, bytes: (H.objects.get(p.req.path) || {}).size || 0, done_at: now, data: { role: p.req.role } })) });
+  }
+  if (action === 'assemble') {
+    if (open().length) return json(409, { error: 'busy_piece', open: open().length });
+    const plan = mixPlan(jobs(), scenes, piece.method); if ('error' in plan) return json(409, { error: 'clips' });
+    const chain = plan.steps; const first = chain[0];
+    let j;
+    if (first === 'concat') j = add({ kind: 'assemble', creation_ref: ref('cut'), data: { chain, step: 0, plan, final: chain.length === 1 } });
+    else if (first) { const nx = nextMix(['cut', ...chain], 0, plan); j = add({ kind: 'mix', creation_ref: ref('mix'), data: { chain: ['cut', ...chain], step: 1, plan, role: nx.role, final: chain.length === 1 } }); }
+    else { const src = jobs().find((x) => x.creation_ref === plan.clips[0] && x.status === 'done'); j = add({ kind: 'mix', creation_ref: plan.clips[0], status: 'done', path: src ? src.path : null, bytes: src ? src.bytes : null, done_at: now, data: { chain: [], step: 0, plan, final: true } }); }
+    return json(200, { result: 'ok', job: view(j) });
+  }
+  // poll
+  const partOf = (j) => (j.kind === 'clip' ? (j.scene == null ? 'all' : 's' + (j.scene + 1)) : j.kind === 'voice' ? 'vo' : j.kind === 'music' ? 'mu' : j.kind === 'assemble' ? 'cut' : 'mix');
+  for (const j of open()) {
+    j.polls += 1; if (j.polls < H.videoDelay) continue;
+    if (H.videoFail && H.videoFail === j.kind) { Object.assign(j, { status: 'failed', error: 'failed', updated_at: now }); H.videoFail = null; continue; }
+    const ext = j.kind === 'voice' || j.kind === 'music' ? 'mp3' : 'mp4'; H.seq += 1;
+    const path = videoPath(camp.id, piece.id, partOf(j), 'mk' + H.seq, ext);
+    H.objects.set(path, { type: ext === 'mp4' ? 'video/mp4' : 'audio/mpeg', size: 4096, by: u.id });
+    Object.assign(j, { status: 'done', url: 'https://pikaso.cdnpk.net/v/' + j.creation_ref + '.' + ext, path, bytes: 4096, done_at: now, updated_at: now });
+    const d = j.data || {};
+    if ((j.kind === 'assemble' || j.kind === 'mix') && Array.isArray(d.chain) && d.plan) {
+      const nx = nextMix(d.chain, Number(d.step) || 0, d.plan);
+      if (nx) add({ kind: 'mix', creation_ref: ref('mix'), data: { chain: d.chain, step: nx.step, plan: d.plan, role: nx.role, final: nx.step === d.chain.length - 1 } });
+    }
+  }
+  const all = jobs(); const final = all.filter((j) => j.status === 'done' && (j.kind === 'mix' || j.kind === 'assemble') && j.data && j.data.final === true).pop() || null;
+  return json(200, { result: 'ok', jobs: all.map(view), open: open().length, final: final ? view(final) : null });
 }

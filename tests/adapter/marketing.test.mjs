@@ -396,3 +396,39 @@ test('9.5.4 buyerChat: marketing.view; the question (≤ 1000) and the last 6 tu
   const ref = load({ responses: { 'fn:ai-content': ok({ result: 'refused' }) } }); eq((await ref.M.buyerChat('x')).reason, 'refused');
   const none = load({ perms: {} }); eq((await none.M.buyerChat('x')).reason, 'forbidden');
 });
+
+// ---------------------------------------------------------------- 9.5.5: the video through ai-images (the bridge's jobs)
+test('9.5.5 video: clip / voice / music / assemble / poll to ai-images with the campaign and the piece (flushed first); the jobs in the page\'s shape; the refusals in words; the log carries the piece and the kind only', async () => {
+  const calls = [];
+  const fn = (o) => { const b = o.body; calls.push(b);
+    if (b.action === 'video_poll') return ok({ result: 'ok', jobs: [{ id: 1, kind: 'clip', scene: 0, status: 'done', ref: 'c1', path: C1 + '/vid-V1-s1-a.mp4', bytes: 10, error: null, data: {}, createdAt: 't', doneAt: 't' }], open: 0, final: { id: 1, kind: 'mix', scene: null, status: 'done', ref: 'm1', path: C1 + '/vid-V1-mix-a.mp4', bytes: 20, data: { final: true } } });
+    if (b.action === 'video_assemble') return { data: null, error: { context: { status: 409, json: async () => ({ error: 'clips' }) } } };
+    if (b.action === 'video_music') return { data: null, error: { context: { status: 503, json: async () => ({ error: 'not_linked' }) } } };
+    return ok({ result: 'ok', job: { id: 7, kind: b.action.replace('video_', ''), scene: b.scene == null ? null : b.scene, status: 'running', ref: 'x', path: null, bytes: null, error: null, data: { model: 'seedance-2.5' }, createdAt: 't', doneAt: null } }); };
+  const { M, logs } = load({ responses: { 'fn:ai-images': fn } });
+  const c = await M.videoClip(C1, 'V1', 1);
+  eq([c.ok, c.job.kind, c.job.scene, c.job.status, c.job.data.model], [true, 'clip', 1, 'running', 'seedance-5.2'.replace('5.2', '2.5')]);
+  eq(calls[0], { action: 'video_clip', campaign_id: C1, piece: 'V1', scene: 1 });
+  const v = await M.videoVoice(C1, 'V1', { voice: 'm-eg-1', text: ' الدفا الحقيقي ' }); eq([v.ok, calls[1].text, calls[1].voice], [true, 'الدفا الحقيقي', 'm-eg-1']);
+  assert.match((await M.videoMusic(C1, 'V1', 'مبهجة')).message, /اربط حساب Magnific/);
+  assert.match((await M.videoAssemble(C1, 'V1')).message, /ولّد كل المشاهد الأول/);
+  const p = await M.videoPoll(C1, 'V1'); eq([p.ok, p.jobs.length, p.open, p.final.path], [true, 1, 0, C1 + '/vid-V1-mix-a.mp4']);
+  eq(logs.map((l) => l[0] + ' ' + l[1]), ['mkt.video.clip V1 · s2 · clip', 'mkt.video.voice V1 · voice', 'mkt.video.music V1 · not_linked', 'mkt.video.assemble V1 · clips']);
+  assert.ok(!JSON.stringify(logs).includes('الدفا'));
+  eq((await M.videoClip(null, 'V1', 0)).reason, 'invalid');
+  const none = load({ perms: { 'marketing.view': 'F' } }); eq((await none.M.videoClip(C1, 'V1', 0)).reason, 'forbidden');
+});
+
+test('9.5.5 videoUpload: an audio file (MP3 / M4A / WAV, ≤ 50 MB) into the campaign\'s folder as vid-<piece>-up…, then video_upload with its role; videoScenes through ai-content scenes', async () => {
+  const seen = [];
+  const { M, stub } = load({ responses: { 'fn:ai-images': (o) => { seen.push(o.body); return ok({ result: 'ok', job: { id: 9, kind: 'upload', status: 'done', ref: 'u1', path: o.body.path, data: { role: o.body.role } } }); },
+    'fn:ai-content': (o) => { seen.push(o.body); return ok({ result: 'ok', scenes: [{ n: 1, d: 5, idea: 'أ', text: '', cam: 'ثابتة' }], voice: 'الدفا' }); } } });
+  eq((await M.videoUpload(C1, 'V1', { type: 'image/png', size: 10, name: 'a.png' }, 'voice')).field, 'type');
+  eq((await M.videoUpload(C1, 'V1', { type: 'audio/mpeg', size: 60 * 1024 * 1024, name: 'a.mp3' }, 'voice')).field, 'size');
+  const r = await M.videoUpload(C1, 'V1', { type: 'audio/mpeg', size: 1000, name: 'my voice.mp3' }, 'voice');
+  eq([r.ok, r.job.kind, r.job.data.role], [true, 'upload', 'voice']);
+  const up = stub.calls.find((c) => c.op === 'upload'); assert.match(up.args[0], new RegExp('^' + C1 + '/vid-V1-up[0-9]{2}-[0-9a-f]{12}\\.mp3$')); eq(up.args[2].contentType, 'audio/mpeg');
+  eq(seen[0].path, up.args[0]); eq(seen[0].role, 'voice');
+  const sc = await M.videoScenes(C1, 'V1', true);
+  eq([sc.ok, sc.scenes.length, sc.voice], [true, 1, 'الدفا']); eq([seen[1].task, seen[1].piece, seen[1].voice], ['scenes', 'V1', true]);
+});

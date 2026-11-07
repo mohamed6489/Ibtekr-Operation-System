@@ -144,3 +144,9 @@
   (`mixPlan`: concat ثم الفويس ثم الموسيقى واحدة بعد التانية) / `video_poll` (`creations_wait` على المفتوح، التنزيل لـ bucket `marketing` من host مسموح لحد 120 ميجا، الفاشل
   يتعلّم، وسلسلة المزج بتكمّل لوحدها؛ الرابط مابيوصلش الصفحة) — كلها `marketing.create` + الجسر مربوط، صف `ai_runs` source «video» بـ 0 كريدت، 6 مهام مفتوحة للقطعة.
   `queuedIds` / `waitOf` / `nextMix` في الجزء الصافي. Deno 248 (3 جديدة) / check ✓ / node 589.
+- T29 ✓ (7 نوفمبر) `VIDEO_SOON = false`: قطعة الفيديو في `blank` (المقاس 9:16/1:1/4:5/16:9، الموديل، الثواني، `sceneCount` 3، `method` منفصل/متسلسل، الموسيقى والفويس)
+  و`estimateVideo`؛ `IBMarketing.videoScenes` / `videoClip` / `videoVoice` / `videoMusic` / `videoUpload` (MP3/M4A/WAV ≤ 50 ميجا لفولدر الكامبين ثم `video_upload`) /
+  `videoAssemble` / `videoPoll` (اللوج `video.<kind>` بالقطعة والمشهد بس)؛ الصفحة: أداة «فيديو» في الهَب، إعدادات الفيديو في التفاصيل، «توليد المشاهد» بـ Claude
+  وكادر لكل مشهد من المحفظة في البناء، والمراجعة بتايملاين الـ v6 + الموسيقى والفويس (AI / رفع / من غير) + طريقة التوليد + المهام + «حدّث» (poll كل 15 ث وهي مفتوحة)
+  + التجميع + المشغّل + الموافقة، والريل داونلود في الجدولة لحد T30؛ الـ mock (`mktBridge` / `mktVideoDelay` / `mktVideoFail`، مهمة بتخلص مع كل poll) + CSS الـ v6.
+  e2e `marketing-video.spec.mjs` (2) + تعديل `marketing.spec.mjs`. node 591 / e2e 352 ✓ (node اتذبذب مرة 590/1 وعدّى 4 مرات بعدها).

@@ -142,6 +142,13 @@
     if (p.kind === 'فيديو') return (p.scenes || []).map((s) => s.img).filter(Boolean);
     return p.img ? [p.img] : [];
   }
+  // what a piece sends to the log / the platform (9.5.5, decision 63): a video piece = its assembled MP4 first, then its key frames (the
+  // log's thumbnail); a video not assembled yet sends its frames only (a download); the others their images
+  const isVideoPath = (p) => /\.mp4$/i.test(String(p || ''));
+  function pubImages(p) {
+    if (p && p.kind === 'فيديو') return (p.video ? [p.video] : []).concat(pieceImages(p));
+    return pieceImages(p);
+  }
   // the hook a log row shows (the v5's syncPub)
   const hookOf = (p) => String(p.title || p.idea || p.kind + ' ' + p.n).replace(/\s+/g, ' ').trim().slice(0, 200);
   // days in ISO (UTC arithmetic on dates only)
@@ -155,7 +162,7 @@
     (pieces || []).forEach((p) => {
       const s = (sched || {})[p.id]; if (!s || !Array.isArray(s.pl)) return;
       const caption = String(p.caption || fallbackCaption || '').slice(0, CAP_MAX);
-      const kind = postKind(p), images = pieceImages(p), tags = String(p.tags || TAGS).slice(0, 300);
+      const kind = postKind(p), images = pubImages(p), tags = String(p.tags || TAGS).slice(0, 300);
       const wants = Array.isArray(s.how) && s.how.includes('انشر');
       s.pl.filter((x) => PLATFORMS.includes(x)).forEach((platform) => out.push({ piece: p.id, kind, name: hookOf(p), caption, tags, images, platform, day: s.date, time: s.time,
         how: wants && publishable(kind, images, platform, conn, { caption, tags }).ok ? 'publish' : 'download' }));
@@ -165,9 +172,9 @@
 
   // ---------------------------------------------------------------- ours: publishing (9.5.2, decisions 30–38)
 
-  // the platforms the system publishes to (TikTok: a download — no API for it yet) and the kinds it publishes (ريل waits for the video)
+  // the platforms the system publishes to (TikTok: a download — no API for it yet) and the kinds it publishes (ريل from 9.5.5: its MP4)
   const PUBLISHABLE = Object.freeze(['انستجرام', 'فيسبوك']);
-  const PUB_KINDS = Object.freeze(['بوست', 'كاروسيل', 'ستوري']);
+  const PUB_KINDS = Object.freeze(['بوست', 'كاروسيل', 'ستوري', 'ريل']);
   const MAX_IMAGES = 10; // a carousel on both platforms
   const PL_KEY = Object.freeze({ 'فيسبوك': 'facebook', 'انستجرام': 'instagram' });
   // the published text: the caption, a blank line, the tags
@@ -186,8 +193,14 @@
   // a piece × platform can be published by the system now: the platform, the kind, the images, Instagram's text, the connection
   function publishable(kind, images, pl, conn, text) {
     if (!PUBLISHABLE.includes(pl)) return { ok: false, why: pl === 'تيك توك' ? 'تيك توك مش مربوط — داونلود بس' : 'المنصة دي داونلود بس' };
-    if (!PUB_KINDS.includes(kind)) return { ok: false, why: 'الفيديو لسه داونلود بس' };
+    if (!PUB_KINDS.includes(kind)) return { ok: false, why: 'النوع ده داونلود بس' };
     const n = (images || []).length;
+    if (kind === 'ريل') {
+      if (!n || !isVideoPath(images[0])) return { ok: false, why: 'الفيديو لسه ما اتجمّعش — جمّعه في المراجعة الأول' };
+      if (pl === 'انستجرام' && text && chars(pubText(text.caption, text.tags)) > CAP_MAX) return { ok: false, why: 'الكابشن والهاشتاجات أطول من ' + CAP_MAX + ' حرف (حد انستجرام)' };
+      const whyV = notReady(conn, pl);
+      return whyV ? { ok: false, why: whyV } : { ok: true };
+    }
     if (!n) return { ok: false, why: 'مفيش صورة' };
     if (kind === 'كاروسيل' && n < 2) return { ok: false, why: 'الكاروسيل محتاج صورتين على الأقل' };
     if (kind !== 'كاروسيل' && n > 1) return { ok: false, why: 'البوست والستوري صورة واحدة' };
@@ -408,7 +421,7 @@
 
   const api = { PRICE_DEMO, VIDEO_SOON, VSIZES, videoImgSize, videoMethod, estimateVideo, METHOD_RATE, GOALS, MEDIA, VIDEO_RATE, METHODS, MAX, TEXT_FILL, DEFAULT_MODEL, clamp, defaults, buildPieces, splitScenes, cost, spend, built, approvable, approved, approveAll, progress, canBuildNext, canReviewNext, validateDetails, estimate, imgRate, videoRate,
     campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, moveCheck, safeName, zipPlan,
-    PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,
+    PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, pubImages, isVideoPath, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,
     DAYS, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys,
     ADS_RULES, AD_PLATFORM, SOLD, adOrders, adCampaignRows, adTotals, merWeeks, adAlerts, adCreatives, xr };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IbtekrCampWiz = api;

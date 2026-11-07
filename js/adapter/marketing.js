@@ -56,7 +56,8 @@
   const num = (v) => (v == null || !Number.isFinite(Number(v)) ? null : Number(v));
   const toPost = (r, names) => ({ id: Number(r.id), campaignId: r.campaign_id || null, piece: r.piece || null, name: r.name, kind: r.kind, pl: r.platform, day: r.day, time: r.time, how: r.how,
     src: r.src === 'platform' ? 'platform' : 'system', camp: (r.campaign_id && names.get(r.campaign_id)) || '—', status: r.status, caption: r.caption || '', capOrig: r.caption_orig || '', tags: r.tags || '',
-    images: Array.isArray(r.images) ? r.images.filter((p) => typeof p === 'string') : [], img: Array.isArray(r.images) && typeof r.images[0] === 'string' ? r.images[0] : null,
+    images: Array.isArray(r.images) ? r.images.filter((p) => typeof p === 'string') : [], img: (Array.isArray(r.images) ? r.images : []).find((p) => typeof p === 'string' && !/\.mp4$/i.test(p)) || null,
+    video: (Array.isArray(r.images) ? r.images : []).find((p) => typeof p === 'string' && /\.mp4$/i.test(p)) || null, // 9.5.5: a reel's file
     thumb: typeof r.thumb === 'string' && /^https:\/\//.test(r.thumb) ? r.thumb : null, externalId: r.external_id || null,
     wasLive: !!r.was_live, url: typeof r.post_url === 'string' && /^https:\/\//.test(r.post_url) ? r.post_url : null, publishedAt: r.published_at || null, delAt: cairoDay(r.deleted_at), updatedAt: r.updated_at,
     views: num(r.views), reach: num(r.reach), likes: num(r.likes), comments: num(r.comments), shares: num(r.shares), saves: num(r.saves), eng: num(r.eng),
@@ -436,7 +437,7 @@
     const decoded = new Map(); const copies = new Map(); const problems = []; const out = [];
     const total = (items || []).filter((it) => it.how === 'publish').reduce((s, it) => s + (it.images || []).length, 0); let n = 0;
     for (const it of items || []) {
-      if (it.how !== 'publish') { out.push(it); continue; }
+      if (it.how !== 'publish' || it.kind === 'ريل') { out.push(it); continue; } // a reel goes as its MP4 (9.5.5) — no copies
       const ig = it.platform === 'انستجرام'; const imgs = [];
       for (const p of it.images || []) {
         if (!decoded.has(p)) { const b = await blob(p); decoded.set(p, b.ok ? await decode(b.blob) : null); }

@@ -84,7 +84,7 @@
     K.toast(r.reason === 'not_configured' ? 'تطبيق Meta لسه مش متظبط على السيرفر (الأسرار ناقصة)' : r.reason === 'forbidden' ? 'الأدمن بس يقدر يربط الصفحة' : 'حصلت مشكلة في الاتصال — جرّب تاني', 'error');
   }
   const pieceText = (p) => ({ caption: p.caption || camp.w.idea, tags: p.tags || W.TAGS });
-  const pubOf = (p, pl, cn) => W.publishable(W.postKind(p), W.pieceImages(p), pl, cn, pieceText(p));
+  const pubOf = (p, pl, cn) => W.publishable(W.postKind(p), W.pubImages(p), pl, cn, pieceText(p));
 
   // ---------- the page's state ----------
   // 9.5.3: «نظرة عامة» and «التقارير» are on the ads numbers; 9.5.4: the assistants (the media buyer, the designer, the developer) are open

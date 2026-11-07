@@ -1157,8 +1157,9 @@ async function videoClip(deps: Deps, who: Who, args: Json) {
       if (key) {
         const up = await client.callTool('media_upload', { file_name: 'scene-' + (req.scene + 1) + '.' + img.split('.').pop(), content_type: key.mime, type: 'image' });
         const putUrl = findKey(up, ['upload_url', 'uploadUrl', 'presigned_url', 'url']); const id = findKey(up, ['media_id', 'mediaId', 'id']);
-        if (typeof putUrl !== 'string' || !/^https:\/\//.test(putUrl) || typeof id !== 'string') throw new McpError('mcp_error', null, 'media_upload');
-        const r = await (deps.fetch ?? fetch)(putUrl, { method: 'PUT', headers: { 'Content-Type': key.mime }, body: key.bytes as BodyInit, signal: AbortSignal.timeout(60_000) });
+        let put: URL | null = null; try { put = typeof putUrl === 'string' ? new URL(putUrl) : null; } catch { put = null; }
+        if (!put || !mcpHostOk(deps, link.url, put) || typeof id !== 'string') throw new McpError('mcp_error', null, 'media_upload');
+        const r = await (deps.fetch ?? fetch)(put.href, { method: 'PUT', headers: { 'Content-Type': key.mime }, body: key.bytes as BodyInit, redirect: 'error', signal: AbortSignal.timeout(60_000) });
         if (!r.ok) throw new McpError('mcp_error', r.status, 'upload put');
         await client.callTool('media_confirm', { media_id: id });
         mediaId = id;
@@ -1253,12 +1254,25 @@ async function bridgeUploadBytes(deps: Deps, token: string, bytes: Uint8Array, m
 }
 // the page's video model ids → Higgsfield's MCP model ids
 const HF_MODEL: Record<string, string> = { 'seedance-2.5': 'seedance_2_5', 'seedance-2.0': 'seedance_2_5', 'kling-2.5': 'kling3_0', 'minimax-h3': 'minimax_h3' };
-// a finished video from a provider's https link (no redirects, within the size limit) → bytes
-async function fetchMedia(deps: Deps, url: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
+// the hosts a linked MCP server's links may point at (an upload PUT, a finished clip): the server's own registrable domain (its
+// sub-hosts included), the import hosts, and VIDEO_HOSTS — never any https host the answer names (security review: SSRF)
+function mcpHostOk(deps: Deps, linkUrl: string, url: URL): boolean {
+  let link: URL | null = null; try { link = new URL(linkUrl); } catch { link = null; }
+  const host = url.hostname.toLowerCase();
+  if (url.protocol !== 'https:' || url.username || url.password || !/^[a-z0-9.-]+$/.test(host)) return false;
+  const allowed = importHosts(deps.env);
+  for (const h of (deps.env.VIDEO_HOSTS ?? '').split(',')) { const x = h.trim().toLowerCase(); if (/^[a-z0-9.-]+$/.test(x)) allowed.add(x); }
+  if (allowed.has(host)) return true;
+  if (!link) return false;
+  const apex = link.hostname.toLowerCase().split('.').slice(-2).join('.');
+  return apex.includes('.') && (host === apex || host.endsWith('.' + apex));
+}
+// a finished video from a provider's https link (an allowed host, no redirects, within the size limit) → bytes
+async function fetchMedia(deps: Deps, linkUrl: string, url: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
   let u: URL | null = null; try { u = new URL(url); } catch { u = null; }
-  if (!u || u.protocol !== 'https:' || u.username || u.password) return null;
+  if (!u || !mcpHostOk(deps, linkUrl, u)) return null;
   try {
-    const r = await (deps.fetch ?? fetch)(u.href, { redirect: 'follow', signal: AbortSignal.timeout(180_000) });
+    const r = await (deps.fetch ?? fetch)(u.href, { redirect: 'error', signal: AbortSignal.timeout(180_000) });
     if (!r.ok) return null;
     const declared = Number(r.headers.get('content-length')); if (Number.isFinite(declared) && declared > MAX_VIDEO_BYTES) return null;
     const bytes = new Uint8Array(await r.arrayBuffer()); if (!bytes.length || bytes.length > MAX_VIDEO_BYTES) return null;
@@ -1351,7 +1365,7 @@ async function videoPoll(deps: Deps, who: Who, args: Json) {
           if (!/^(completed|succeeded|success|done|finished|failed|error|cancelled|canceled)$/.test(st)) continue;
           const url = findKey(it, ['result_url', 'video_url', 'url', 'output_url']);
           if (/fail|error|cancel/.test(st) || typeof url !== 'string' || !/^https:\/\//.test(url)) { await deps.db.from('mkt_video_jobs').update({ status: 'failed', error: /fail|error|cancel/.test(st) ? st : 'no video', updated_at: deps.now() }).eq('id', j.id); continue; }
-          const media = await fetchMedia(deps, url);
+          const media = await fetchMedia(deps, link.url, url);
           if (!media) { await deps.db.from('mkt_video_jobs').update({ status: 'failed', error: 'download', updated_at: deps.now() }).eq('id', j.id); continue; }
           const kept = await keepDirectMedia(deps, req.campaignId, req.piece, partOf(j), media, 'mp4');
           await deps.db.from('mkt_video_jobs').update({ status: 'done', creation_ref: kept.creation_ref, path: kept.path, bytes: kept.bytes, done_at: deps.now(), updated_at: deps.now() }).eq('id', j.id);

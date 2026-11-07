@@ -1002,7 +1002,7 @@ Deno.test('providers: video on Higgsfield (MCP) → media_upload / PUT / media_c
   (deps.db as any).rpc = ((orig) => async (name: string, args: any) => (name === 'app_secret_get' ? { data: vaultApp[args.p_name] ?? null, error: null } : orig(name, args)))((deps.db as any).rpc.bind(deps.db));
   const mcpCalls: any[] = []; const states: Record<string, any> = {};
   (deps as any).mcp = (url: string, token: string | null) => ({ listTools: async () => [], callTool: async (name: string, args: any) => { mcpCalls.push({ url, token, name, args });
-    if (name === 'media_upload') return { upload_url: 'https://put.higgsfield.test/u1', media_id: 'm-1' };
+    if (name === 'media_upload') return { upload_url: 'https://put.higgsfield.ai/u1', media_id: 'm-1' };
     if (name === 'media_confirm') return { ok: true };
     if (name === 'generate_video') return { jobs: [{ job_id: 'hfj-' + (mcpCalls.filter((c) => c.name === 'generate_video').length) }] };
     if (name === 'jobs_wait') return { jobs: args.jobs.map((j: any) => ({ job_id: j.job_id, ...(states[j.job_id] ?? { status: 'in_progress' }) })) };
@@ -1012,15 +1012,16 @@ Deno.test('providers: video on Higgsfield (MCP) → media_upload / PUT / media_c
   assertEquals(mcpCalls.map((x) => x.name), ['media_upload', 'media_confirm', 'generate_video']);
   assertEquals([mcpCalls[0].url, mcpCalls[0].token], ['https://mcp.higgsfield.ai/mcp', 'hf-tok']);
   assertEquals(mcpCalls[2].args.params.medias, [{ value: 'm-1', role: 'image' }]); assertEquals(mcpCalls[2].args.params.aspect_ratio, '9:16'); assertEquals(mcpCalls[2].args.params.duration, 5);
-  assertEquals(fetched.filter((u) => u === 'https://put.higgsfield.test/u1').length, 1, 'the key frame PUT');
+  assertEquals(fetched.filter((u) => u === 'https://put.higgsfield.ai/u1').length, 1, 'the key frame PUT');
   assertEquals(F.bridge.calls.filter((x: any) => x.name === 'video_generate').length, 0);
   await vcall(deps, 'video_clip', { scene: 1 });
   let p = await vcall(deps, 'video_poll'); assertEquals(p.body.open, 2);
   assertEquals(mcpCalls.at(-1).name, 'jobs_wait'); assertEquals(mcpCalls.at(-1).args.jobs.map((j: any) => j.job_id), ['hfj-1', 'hfj-2']);
-  states['hfj-1'] = { status: 'completed', result_url: 'https://cdn.higgsfield.test/v/1.mp4' }; states['hfj-2'] = { status: 'failed' };
+  states['hfj-1'] = { status: 'completed', result_url: 'https://cdn.higgsfield.ai/v/1.mp4' }; states['hfj-2'] = { status: 'completed', result_url: 'https://evil.example/v/2.mp4' }; // another host than the linked server's → not fetched
   p = await vcall(deps, 'video_poll');
   const J = db.rows('mkt_video_jobs').filter((j: any) => j.kind === 'clip');
-  assertEquals(J.map((j: any) => [j.scene, j.status, j.error]), [[0, 'done', null], [1, 'failed', 'failed']]);
+  assertEquals(J.map((j: any) => [j.scene, j.status, j.error]), [[0, 'done', null], [1, 'failed', 'download']]);
+  assertEquals(fetched.filter((u) => u.startsWith('https://evil.example/')).length, 0, 'a foreign host is never fetched');
   assert(/\/vid-V1-s1-[0-9a-z]+\.mp4$/.test(J[0].path), J[0].path); assertEquals(storage['marketing/' + J[0].path].length, 300); assertEquals(J[0].creation_ref, 'upl-1');
   assertEquals(p.body.open, 0);
   delete vaultApp.mcp_higgsfield;

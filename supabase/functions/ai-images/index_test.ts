@@ -838,3 +838,111 @@ Deno.test('campaign_edit (decision 9): the piece\'s current image edited by the 
   assertEquals((await call(deps, { action: 'campaign_edit', campaign_id: CMP, piece: 'C1', note: 'x' }, 'jwt-mkt')).body.field, 'image');
   assertEquals((await call(deps, { action: 'campaign_edit', campaign_id: CMP, piece: 'P1' }, 'jwt-mkt')).body.field, 'note');
 });
+
+// ---------------------------------------------------------------- phase 9.5.5: the video through the bridge (decisions 57–64)
+const VID_SEED = { ...SEED, mkt_campaigns: [{ id: CMP, name: 'فيديو الشتا', archived_at: null, state: { w: { goal: 'منتج جديد', idea: 'كولكشن الشتا', media: { video: { notes: 'نور عصاري', use: [], ref: [] } } },
+  pieces: [{ id: 'V1', kind: 'فيديو', n: 1, size: '9:16', model: 'seedance-2.5', dur: 10, method: 'separate', sceneCount: 2, idea: 'المخدة في القعدة',
+    scenes: [{ n: 1, d: 5, idea: 'لقطة قريبة', cam: 'زوم بطيء', img: CMP + '/gen-V1-s1-a.png' }, { n: 2, d: 5, idea: 'القعدة', cam: 'ثابتة', img: CMP + '/gen-V1-s2-a.png' }] }, { id: 'P1', kind: 'بوست', n: 1 }] } }], mkt_video_jobs: [] };
+const VID_FILES = { ['marketing/' + CMP + '/gen-V1-s1-a.png']: PNG, ['marketing/' + CMP + '/gen-V1-s2-a.png']: PNG, ['marketing/' + CMP + '/vid-V1-up1-x.mp3']: new Uint8Array([73, 68, 51, 4]) };
+function videoBridge(state: { done?: Set<string>; failed?: Set<string> } = {}) {
+  const done = state.done ?? new Set<string>(); const failed = state.failed ?? new Set<string>(); let n = 0;
+  const tools: Record<string, (a: any) => unknown> = {
+    creations_upload_image: (a) => ({ identifier: 'up-' + a.fileName.replace(/\W/g, '') }),
+    video_generate: () => ({ creations: [{ identifier: 'clip-' + (++n) }] }),
+    audio_tts: () => ({ identifier: 'vo-' + (++n) }),
+    audio_music_generate: () => ({ creation: { identifier: 'mu-' + (++n) } }),
+    creations_request_upload: () => ({ url: 'https://put.test/tmp/1', path: 'tmp/1' }),
+    creations_finalize_upload: () => ({ identifier: 'upl-' + (++n) }),
+    video_concatenate: () => ({ identifier: 'cut-' + (++n) }),
+    video_audio_mix: () => ({ identifier: 'mix-' + (++n) }),
+    creations_wait: (a) => ({ creations: a.identifiers.map((id: string) => ({ identifier: id, status: done.has(id) ? 'completed' : failed.has(id) ? 'failed' : 'in_progress', url: done.has(id) ? 'https://pikaso.cdnpk.net/v/' + id + (id.startsWith('vo') || id.startsWith('mu') ? '.mp3' : '.mp4') : null })) }),
+  };
+  const bridge = fakeBridge(tools); return { bridge, done, failed, tools };
+}
+const vcall = (deps: any, action: string, extra: any = {}) => call(deps, { action, campaign_id: CMP, piece: 'V1', ...extra }, 'jwt-mkt');
+
+Deno.test('video_clip (marketing.create, the bridge linked): the scene\'s key frame uploaded by a signed link, video_generate with the model\'s slug / ratio / seconds / ambient audio, a running job without credits; chained = one multi-shot call; the limits', async () => {
+  const F = videoBridge(); const { deps, db, storage } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed: structuredClone(VID_SEED), storage: { ...VID_FILES } });
+  assertEquals((await call(deps, { action: 'video_clip', campaign_id: CMP, piece: 'V1', scene: 0 }, 'jwt-add')).res.status, 401);
+  const r = await vcall(deps, 'video_clip', { scene: 1 });
+  assertEquals([r.res.status, r.body.result, r.body.job.kind, r.body.job.scene, r.body.job.status, r.body.job.ref], [200, 'ok', 'clip', 1, 'running', 'clip-1']);
+  const up = F.bridge.calls.find((c: any) => c.name === 'creations_upload_image'); assert(up.args.url.startsWith('https://signed.test/marketing/' + CMP + '/gen-V1-s2-a.png'));
+  const g = F.bridge.calls.find((c: any) => c.name === 'video_generate').args;
+  assertEquals([g.slug, g.duration, g.aspectRatio, g.resolution, g.withSoundEffects, g.noMusic, g.keyframes.start.url, g.folderReference], ['bytedance-seedance-pro-2.5', 5, '9:16', '1080p', true, true, 'up-scene2png', PROJECT]);
+  assert(g.prompt.includes('«القعدة»') && g.prompt.includes('«نور عصاري»') && g.prompt.includes('static camera'));
+  const run = db.rows('ai_runs').at(-1); assertEquals([run.action, run.source, run.label, run.status, Number(run.credits)], ['image', 'video', 'فيديو 1 · المشهد 2', 'ok', 0]);
+  assertEquals(db.rows('mkt_video_jobs')[0].data.frame, 'up-scene2png');
+  assertEquals((await vcall(deps, 'video_clip', { scene: 5 })).body.field, 'scene');
+  assertEquals((await vcall(deps, 'video_clip', { scene: 0, piece: 'P1' })).body.field, 'piece');
+  // chained: one call with the shots, the first frame a reference
+  const seed2: any = structuredClone(VID_SEED); seed2.mkt_campaigns[0].state.pieces[0].method = 'chained';
+  const F2 = videoBridge(); const d2 = setup({ vault: { ...LINKED }, bridge: F2.bridge, seed: seed2, storage: { ...VID_FILES } });
+  const c = await vcall(d2.deps, 'video_clip');
+  assertEquals([c.res.status, c.body.job.scene, c.body.job.data.method], [200, null, 'chained']);
+  const g2 = F2.bridge.calls.find((x: any) => x.name === 'video_generate').args;
+  assertEquals([g2.multi_prompt.length, g2.duration, g2.references[0].url, g2.prompt], [2, 10, 'up-scene1png', undefined]);
+  // no bridge linked → 503; a scene without an image → 400 image
+  const none = setup({ vault: {}, bridge: videoBridge().bridge, seed: structuredClone(VID_SEED), storage: { ...VID_FILES } });
+  assertEquals((await vcall(none.deps, 'video_clip', { scene: 0 })).res.status, 503);
+  const seed3: any = structuredClone(VID_SEED); delete seed3.mkt_campaigns[0].state.pieces[0].scenes[0].img;
+  assertEquals((await vcall(setup({ vault: { ...LINKED }, bridge: videoBridge().bridge, seed: seed3, storage: { ...VID_FILES } }).deps, 'video_clip', { scene: 0 })).body.field, 'image');
+  assert(!JSON.stringify(storage).includes('at-1'));
+});
+
+Deno.test('video_voice / video_music / video_upload: the catalog voice on ElevenLabs v3, Lyria 3 with the type, a member\'s audio file PUT then finalized as a done upload job; the open-jobs cap', async () => {
+  const F = videoBridge(); const { deps, db, fetchInits, fetched } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed: structuredClone(VID_SEED), storage: { ...VID_FILES } });
+  const v = await vcall(deps, 'video_voice', { voice: 'm-eg-1', text: 'الدفا الحقيقي من إيد صانعة مصرية' });
+  assertEquals([v.res.status, v.body.job.kind, v.body.job.ref, v.body.job.data], [200, 'voice', 'vo-1', { voice: 'm-eg-1', chars: 32 }]);
+  const t = F.bridge.calls.find((c: any) => c.name === 'audio_tts').args; assertEquals([t.voiceId, t.model, t.text], [1171, 'eleven_v3', 'الدفا الحقيقي من إيد صانعة مصرية']);
+  assertEquals((await vcall(deps, 'video_voice', { voice: 'x', text: 'y' })).body.field, 'voice');
+  const m = await vcall(deps, 'video_music', { type: 'شرقي حديث' });
+  assertEquals([m.res.status, m.body.job.kind, m.body.job.ref], [200, 'music', 'mu-2']);
+  assert(F.bridge.calls.find((c: any) => c.name === 'audio_music_generate').args.prompt.includes('oud'));
+  const u = await vcall(deps, 'video_upload', { path: CMP + '/vid-V1-up1-x.mp3', role: 'music' });
+  assertEquals([u.res.status, u.body.job.kind, u.body.job.status, u.body.job.ref, u.body.job.data.role, u.body.job.path], [200, 'upload', 'done', 'upl-3', 'music', CMP + '/vid-V1-up1-x.mp3']);
+  assertEquals(fetched.at(-1), 'https://put.test/tmp/1'); assertEquals(fetchInits.at(-1).method, 'PUT'); assertEquals(fetchInits.at(-1).headers['Content-Type'], 'audio/mpeg');
+  assertEquals(F.bridge.calls.find((c: any) => c.name === 'creations_finalize_upload').args.path, 'tmp/1');
+  assertEquals((await vcall(deps, 'video_upload', { path: CMP + '/gen-V1-s1-a.png', role: 'music' })).body.field, 'path');
+  // the cap: six open jobs a piece
+  for (let i = 0; i < 4; i++) await vcall(deps, 'video_music', { type: 'مبهجة' });
+  assertEquals(db.rows('mkt_video_jobs').filter((j: any) => j.status === 'running').length, 6);
+  assertEquals((await vcall(deps, 'video_clip', { scene: 0 })).res.status, 409);
+  assertEquals(db.rows('ai_runs').filter((r: any) => r.source === 'video').length, 7);
+});
+
+Deno.test('video_poll: the open jobs asked at once; a done one downloaded into bucket marketing (an allowed host, mp4 / mp3 by kind), a failed one marked; then video_assemble: the cut, the voice mix, the music mix one after the other as each finishes; the final', async () => {
+  const F = videoBridge(); const { deps, db, storage, fetched } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed: structuredClone(VID_SEED), storage: { ...VID_FILES } });
+  await vcall(deps, 'video_clip', { scene: 0 }); await vcall(deps, 'video_clip', { scene: 1 }); await vcall(deps, 'video_voice', { voice: 'f-ar-1', text: 'أهلًا' }); await vcall(deps, 'video_music', { type: 'سينمائي' });
+  assertEquals((await vcall(deps, 'video_assemble')).res.status, 409, 'open jobs still running');
+  let p = await vcall(deps, 'video_poll');
+  assertEquals([p.res.status, p.body.open, p.body.final], [200, 4, null]);
+  assertEquals(F.bridge.calls.filter((c: any) => c.name === 'creations_wait').at(-1).args.identifiers, ['clip-1', 'clip-2', 'vo-3', 'mu-4']);
+  F.done.add('clip-1'); F.done.add('vo-3'); F.failed.add('mu-4');
+  p = await vcall(deps, 'video_poll');
+  const J = db.rows('mkt_video_jobs');
+  assertEquals(J.map((j: any) => [j.creation_ref, j.status]), [['clip-1', 'done'], ['clip-2', 'running'], ['vo-3', 'done'], ['mu-4', 'failed']]);
+  assert(J[0].path.startsWith(CMP + '/vid-V1-s1-') && J[0].path.endsWith('.mp4') && storage['marketing/' + J[0].path], 'the clip stored');
+  assert(J[2].path.endsWith('.mp3') && J[0].url === 'https://pikaso.cdnpk.net/v/clip-1.mp4' && J[3].error === 'failed');
+  assert(fetched.includes('https://pikaso.cdnpk.net/v/clip-1.mp4'));
+  assertEquals(p.body.jobs.map((j: any) => j.url), [undefined, undefined, undefined, undefined], 'the link never reaches the page');
+  assertEquals((await vcall(deps, 'video_assemble')).res.status, 409, 'clip-2 still running');
+  F.done.add('clip-2'); await vcall(deps, 'video_poll');
+  // the assembly: two clips → concatenate first; the chain then voice (music failed → none)
+  const a = await vcall(deps, 'video_assemble');
+  assertEquals([a.res.status, a.body.job.kind, a.body.job.ref, a.body.job.data.chain, a.body.job.data.step, a.body.job.data.final], [200, 'assemble', 'cut-5', ['concat', 'voice'], 0, false]);
+  assertEquals(F.bridge.calls.find((c: any) => c.name === 'video_concatenate').args.creationIdentifiers, ['clip-1', 'clip-2']);
+  F.done.add('cut-5'); p = await vcall(deps, 'video_poll');
+  const mix = F.bridge.calls.find((c: any) => c.name === 'video_audio_mix').args;
+  assertEquals([mix.creationIdentifier, mix.audioCreationIdentifier, mix.audioVolume, mix.videoVolume], ['cut-5', 'vo-3', 100, 60]);
+  assertEquals([p.body.open, p.body.final], [1, null]);
+  const last = db.rows('mkt_video_jobs').at(-1); assertEquals([last.kind, last.creation_ref, last.data.role, last.data.final], ['mix', 'mix-6', 'voice', true]);
+  F.done.add('mix-6'); p = await vcall(deps, 'video_poll');
+  assertEquals([p.body.open, p.body.final.kind, p.body.final.ref, p.body.final.path.startsWith(CMP + '/vid-V1-mix-')], [0, 'mix', 'mix-6', true]);
+  // one clip and no audio: the clip is the video at once
+  const seed1: any = structuredClone(VID_SEED); seed1.mkt_campaigns[0].state.pieces[0].scenes.pop();
+  const G = videoBridge(); const one = setup({ vault: { ...LINKED }, bridge: G.bridge, seed: seed1, storage: { ...VID_FILES } });
+  await vcall(one.deps, 'video_clip', { scene: 0 }); G.done.add('clip-1'); await vcall(one.deps, 'video_poll');
+  const a1 = await vcall(one.deps, 'video_assemble');
+  assertEquals([a1.body.job.kind, a1.body.job.status, a1.body.job.ref, a1.body.job.data.final, !!a1.body.job.path], ['mix', 'done', 'clip-1', true, true]);
+  assertEquals((await vcall(one.deps, 'video_poll')).body.final.ref, 'clip-1');
+});

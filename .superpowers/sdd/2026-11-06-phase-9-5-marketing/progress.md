@@ -139,3 +139,8 @@
 - T27 ✓ (7 نوفمبر) `_shared/mkt-video.js` (الموديلات بالـ slugs والحدود، `splitScenes` / `fitScenes`، `scenePrompt` / `clipArgs` / `chainedArgs`، الأصوات و`ttsArgs`، `musicArgs`،
   `mixPlan`، `videoPath`، `parseVideo`، `jobView`، `scenesRequest` / `cleanScenes`) + 8 اختبارات node؛ `campaignTarget` / `campaignPrompt` بيقبلوا قطعة «فيديو» بـ `slide` =
   المشهد (الكادر الأول من غير نص)؛ `ai-content` `marketing` task `scenes` (`marketing.create`؛ المدد من الموديل) + Deno.
+- T28 ✓ (7 نوفمبر) `ai-images` actions `video_clip` (كادر المشهد بيترفع على Magnific برابط موقّع ثم `video_generate` بـ slug الموديل والمقاس والثواني وصوت بيئة؛ `chained` = multi_prompt
+  بمرجع أول كادر) / `video_voice` (`audio_tts` ElevenLabs v3) / `video_music` (Lyria 3) / `video_upload` (ملف العضو: request_upload → PUT → finalize) / `video_assemble`
+  (`mixPlan`: concat ثم الفويس ثم الموسيقى واحدة بعد التانية) / `video_poll` (`creations_wait` على المفتوح، التنزيل لـ bucket `marketing` من host مسموح لحد 120 ميجا، الفاشل
+  يتعلّم، وسلسلة المزج بتكمّل لوحدها؛ الرابط مابيوصلش الصفحة) — كلها `marketing.create` + الجسر مربوط، صف `ai_runs` source «video» بـ 0 كريدت، 6 مهام مفتوحة للقطعة.
+  `queuedIds` / `waitOf` / `nextMix` في الجزء الصافي. Deno 248 (3 جديدة) / check ✓ / node 589.

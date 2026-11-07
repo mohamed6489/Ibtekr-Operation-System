@@ -61,6 +61,7 @@ import { magnific, ProviderError, shape, type Provider, type Ref } from './provi
 import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
 import { REF, creationsOf, familyOf, flowNodes, importShape, lastPageOf, lineageIds, listIdsOf, matchResults, nodeDataOf, nodesOf, templatePrompts, uploadedId, urlsById } from '../_shared/magnific-bridge.js';
 import { DEFAULT_SIZE, campaignGenPath, campaignPathOk, campaignPrompt, campaignRefs, campaignTarget, parseCampaign, parseCampaignEdit, pinsPrompt } from '../_shared/marketing.js';
+import { MAX_OPEN_JOBS, MAX_VIDEO_BYTES, MEDIA_EXT, chainedArgs, clipArgs, jobView, mixPlan, modelOf as videoModelOf, musicArgs, nextMix, parseVideo, queuedIds, ttsArgs, videoPath, videoPathOk, waitOf } from '../_shared/mkt-video.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -73,7 +74,8 @@ export type Deps = {
   bridge?: Bridge; // decision 11: the Magnific site's MCP (OAuth + tools) — the system's own client
 };
 
-const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow', 'campaign', 'campaign_edit'];
+const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow', 'campaign', 'campaign_edit',
+  'video_clip', 'video_voice', 'video_music', 'video_upload', 'video_assemble', 'video_poll']; // 9.5.5 (decisions 57–64)
 const SHARE_SECONDS = 7 * 24 * 3600; // a shared photo's link lives a week (the bridge uploads it to the site within that)
 const MAX_WEBP_B64 = 14_000_000; // ≈ 10 MB of WebP
 const STUDIO_BUCKET = 'studio';
@@ -1004,6 +1006,12 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'bridge_flow') return await bridgeFlow(deps, who, args);
     if (action === 'campaign') return await campaign(deps, who, args);
     if (action === 'campaign_edit') return await campaignEdit(deps, who, args);
+    if (action === 'video_clip') return await videoClip(deps, who, args);
+    if (action === 'video_voice') return await videoVoice(deps, who, args);
+    if (action === 'video_music') return await videoMusic(deps, who, args);
+    if (action === 'video_upload') return await videoUpload(deps, who, args);
+    if (action === 'video_assemble') return await videoAssemble(deps, who, args);
+    if (action === 'video_poll') return await videoPoll(deps, who, args);
     if (!who.admin) return json(401, { error: 'unauthorized' });
     // the probe's outcome is kept as an ai_runs row (label 'probe', 0 credits: configured = the key is set, status = the
     // provider's HTTP status, shape = keys and types only) so the T2 diagnosis can be read from the database — never the key
@@ -1018,6 +1026,205 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     console.error('ai-images failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });
   }
+}
+
+// ---------------------------------------------------------------- the video (phase 9.5.5, decisions 57–64) — through the bridge, asynchronous
+// jobs in mkt_video_jobs: a clip a scene (or one multi-shot call), the voice-over, the music, an upload, the cut and the mixes; the
+// page polls (video_poll) and the finished results land in bucket marketing. The bridge account pays — credits 0 here.
+
+const VIDEO_WAIT_SECONDS = 20;
+const JOB_COLS = 'id, campaign_id, piece, kind, scene, creation_ref, status, url, path, bytes, duration, error, data, created_by, created_at, updated_at, done_at';
+const videoLabel = (p: Json, what: string) => line('فيديو ' + (p.n ?? '') + ' · ' + what, 200);
+async function videoPiece(deps: Deps, who: Who, action: string, args: Json): Promise<{ error: Response } | { req: Json; c: Json; p: Json; w: Json }> {
+  if (!who.mkt) return { error: json(401, { error: 'unauthorized' }) };
+  const parsed = parseVideo(action, args); if ('error' in parsed) return { error: json(400, parsed) };
+  const c = await readCampaign(deps, parsed.req.campaignId); if (!c) return { error: json(404, { error: 'not_found' }) };
+  const st = isObj(c.state) ? c.state : {}; const p = (Array.isArray(st.pieces) ? st.pieces : []).find((x: Json) => isObj(x) && x.id === parsed.req.piece && x.kind === 'فيديو');
+  if (!p) return { error: json(400, { error: 'bad_request', field: 'piece' }) };
+  return { req: parsed.req, c, p, w: isObj(st.w) ? st.w : {} };
+}
+async function videoJobs(deps: Deps, campaignId: string, piece: string): Promise<Json[]> {
+  const { data } = await deps.db.from('mkt_video_jobs').select(JOB_COLS).eq('campaign_id', campaignId).eq('piece', piece).order('created_at', { ascending: true }).limit(200);
+  return Array.isArray(data) ? data.filter(isObj) : [];
+}
+const openJobs = (jobs: Json[]) => jobs.filter((j) => j.status === 'queued' || j.status === 'running');
+async function newJob(deps: Deps, who: Who, req: Json, row: Json): Promise<Json | null> {
+  const { data, error } = await deps.db.from('mkt_video_jobs').insert({ campaign_id: req.campaignId, piece: req.piece, status: 'running', created_by: who.uid, created_at: deps.now(), updated_at: deps.now(), ...row }).select(JOB_COLS).single();
+  return error || !isObj(data) ? null : data;
+}
+// a run row a generation call (decision 64): the throttle applies, no credits
+async function videoRun(deps: Deps, who: Who, label: string, work: () => Promise<Json>): Promise<Response> {
+  const run = await startRun(deps, { created_by: who.uid, action: 'image', source: 'video', label }, 0, null);
+  if (run.result === 'busy') return json(429, { error: 'busy' });
+  if (run.result !== 'ok') return json(502, { error: 'ai_error' });
+  try {
+    const out = await work();
+    await finishRun(deps, run.id, { status: 'ok', credits: 0, cost_usd: 0, output: out });
+    return json(200, { result: 'ok', ...out });
+  } catch (e) {
+    if (e instanceof BridgeError) { await finishRun(deps, run.id, { status: 'error', error: e.kind, credits: 0, cost_usd: 0 }); return bridgeFail(e); }
+    await finishRun(deps, run.id, { status: 'error', error: 'failed', credits: 0, cost_usd: 0 }); throw e;
+  }
+}
+// a campaign image (a scene's key frame) onto Magnific by a signed link → its creation identifier
+async function keyframeRef(deps: Deps, token: string, campaignId: string, path: string, name: string): Promise<string | null> {
+  if (!campaignPathOk(campaignId, path)) return null;
+  const { data: sg } = await deps.db.storage.from(MKT_BUCKET).createSignedUrl(path, UPLOAD_LINK_SECONDS);
+  const url = typeof sg?.signedUrl === 'string' && /^https:\/\//.test(sg.signedUrl) ? sg.signedUrl : null; if (!url) return null;
+  return uploadedId(await deps.bridge!.callTool(token, 'creations_upload_image', { url, fileName: name, folderReference: projectRef(deps.env) }));
+}
+const firstId = (data: Json, what: string) => { const ids = queuedIds(data); if (!ids.length) throw new BridgeError('mcp_error', null, what + ': no identifier'); return ids[0]; };
+
+async function videoClip(deps: Deps, who: Who, args: Json) {
+  const got = await videoPiece(deps, who, 'clip', args); if ('error' in got) return got.error;
+  const { req, p, w } = got; const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const scenes: Json[] = Array.isArray(p.scenes) ? p.scenes.filter(isObj) : []; if (!scenes.length) return json(400, { error: 'bad_request', field: 'scenes' });
+  const model: Json = videoModelOf(typeof p.model === 'string' ? p.model : '') ?? {}; const chained = p.method === 'chained' && model.multishot === true;
+  if (!chained && (req.scene == null || !scenes[req.scene])) return json(400, { error: 'bad_request', field: 'scene' });
+  const jobs = await videoJobs(deps, req.campaignId, req.piece); if (openJobs(jobs).length >= MAX_OPEN_JOBS) return json(409, { error: 'busy_piece', open: openJobs(jobs).length });
+  const media = isObj(w.media) && isObj(w.media.video) ? w.media.video : {};
+  const frame = chained ? scenes[0] : scenes[req.scene]; const img = typeof frame.img === 'string' ? frame.img : null;
+  if (!img) return json(400, { error: 'bad_request', field: 'image' });
+  let token: string; try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+  return await videoRun(deps, who, videoLabel(p, chained ? 'المشاهد' : 'المشهد ' + (req.scene + 1)), async () => {
+    const ref = await keyframeRef(deps, token, req.campaignId, img, 'scene-' + (chained ? 1 : req.scene + 1) + '.' + img.split('.').pop());
+    if (!ref) throw new BridgeError('mcp_error', null, 'key frame upload');
+    const common = { model: model.id, size: p.size, res: p.res, piece: p, w, notes: media.notes, imageRef: ref, folder: projectRef(deps.env) };
+    const a: Json | null = chained ? chainedArgs({ ...common, scenes }) : clipArgs({ ...common, scene: scenes[req.scene] });
+    if (!a) throw new BridgeError('mcp_error', null, 'no shots');
+    const id = firstId((await bridge.callTool(token, 'video_generate', a)) as Json, 'video_generate');
+    const job = await newJob(deps, who, req, { kind: 'clip', scene: chained ? null : req.scene, creation_ref: ref === id ? null : id, data: { model: model.id, duration: a.duration, ratio: a.aspectRatio, resolution: a.resolution, method: chained ? 'chained' : 'separate', frame: ref } });
+    if (!job) throw new Error('db mkt_video_jobs');
+    return { job: jobView(job) };
+  });
+}
+async function videoVoice(deps: Deps, who: Who, args: Json) {
+  const got = await videoPiece(deps, who, 'voice', args); if ('error' in got) return got.error;
+  const { req, p } = got; const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const jobs = await videoJobs(deps, req.campaignId, req.piece); if (openJobs(jobs).length >= MAX_OPEN_JOBS) return json(409, { error: 'busy_piece', open: openJobs(jobs).length });
+  let token: string; try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+  return await videoRun(deps, who, videoLabel(p, 'الفويس أوفر'), async () => {
+    const id = firstId((await bridge.callTool(token, 'audio_tts', ttsArgs({ text: req.text, voice: req.voice, folder: projectRef(deps.env) }) as Json)) as Json, 'audio_tts');
+    const job = await newJob(deps, who, req, { kind: 'voice', creation_ref: id, data: { voice: req.voice, chars: req.text.length } });
+    if (!job) throw new Error('db mkt_video_jobs');
+    return { job: jobView(job) };
+  });
+}
+async function videoMusic(deps: Deps, who: Who, args: Json) {
+  const got = await videoPiece(deps, who, 'music', args); if ('error' in got) return got.error;
+  const { req, p } = got; const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const jobs = await videoJobs(deps, req.campaignId, req.piece); if (openJobs(jobs).length >= MAX_OPEN_JOBS) return json(409, { error: 'busy_piece', open: openJobs(jobs).length });
+  let token: string; try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+  return await videoRun(deps, who, videoLabel(p, 'الموسيقى'), async () => {
+    const id = firstId((await bridge.callTool(token, 'audio_music_generate', musicArgs({ type: req.type, folder: projectRef(deps.env) }))) as Json, 'audio_music_generate');
+    const job = await newJob(deps, who, req, { kind: 'music', creation_ref: id, data: { type: req.type } });
+    if (!job) throw new Error('db mkt_video_jobs');
+    return { job: jobView(job) };
+  });
+}
+// a member's own audio file (bucket marketing) onto Magnific: request_upload → PUT the bytes → finalize → a done job of kind upload
+async function videoUpload(deps: Deps, who: Who, args: Json) {
+  const got = await videoPiece(deps, who, 'upload', args); if ('error' in got) return got.error;
+  const { req, p } = got; const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const { data: file, error } = await deps.db.storage.from(MKT_BUCKET).download(req.path);
+  if (error || !file) return json(400, { error: 'bad_request', field: 'path' });
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const ext = req.path.split('.').pop()!.toLowerCase(); const mime = ext === 'mp3' ? 'audio/mpeg' : ext === 'wav' ? 'audio/wav' : ext === 'm4a' ? 'audio/mp4' : 'video/mp4';
+  if (!bytes.length || bytes.length > 50_000_000) return json(400, { error: 'bad_request', field: 'path' });
+  let token: string; try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+  return await videoRun(deps, who, videoLabel(p, req.role === 'voice' ? 'ملف الصوت' : 'ملف الموسيقى'), async () => {
+    const up = (await bridge.callTool(token, 'creations_request_upload', { mimeType: mime })) as Json;
+    const putUrl = isObj(up) ? (typeof up.url === 'string' ? up.url : typeof up.uploadUrl === 'string' ? up.uploadUrl : Array.isArray(up.uploads) && isObj(up.uploads[0]) ? up.uploads[0].url : null) : null;
+    const tmp = isObj(up) ? (typeof up.path === 'string' ? up.path : Array.isArray(up.uploads) && isObj(up.uploads[0]) ? up.uploads[0].path : null) : null;
+    if (typeof putUrl !== 'string' || !/^https:\/\//.test(putUrl) || typeof tmp !== 'string') throw new BridgeError('mcp_error', null, 'request_upload');
+    const r = await (deps.fetch ?? fetch)(putUrl, { method: 'PUT', headers: { 'Content-Type': mime }, body: bytes, signal: AbortSignal.timeout(60_000) });
+    if (!r.ok) throw new BridgeError('mcp_error', r.status, 'upload put');
+    const id = firstId((await bridge.callTool(token, 'creations_finalize_upload', { path: tmp, fileName: (req.role === 'voice' ? 'voice' : 'music') + '-' + req.piece + '.' + ext, folderReference: projectRef(deps.env), visible: false })) as Json, 'finalize_upload');
+    const job = await newJob(deps, who, req, { kind: 'upload', creation_ref: id, status: 'done', path: req.path, bytes: bytes.length, done_at: deps.now(), data: { role: req.role } });
+    if (!job) throw new Error('db mkt_video_jobs');
+    return { job: jobView(job) };
+  });
+}
+// the cut (several clips) then the mixes one after the other, each started when the one before is done (video_poll)
+async function videoAssemble(deps: Deps, who: Who, args: Json) {
+  const got = await videoPiece(deps, who, 'assemble', args); if ('error' in got) return got.error;
+  const { req, p } = got; const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const jobs = await videoJobs(deps, req.campaignId, req.piece);
+  if (openJobs(jobs).length) return json(409, { error: 'busy_piece', open: openJobs(jobs).length });
+  const plan = mixPlan(jobs, Array.isArray(p.scenes) ? p.scenes : [], p.method);
+  if ('error' in plan) return json(409, { error: 'clips' });
+  let token: string; try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+  return await videoRun(deps, who, videoLabel(p, 'التجميع'), async () => {
+    const chain = plan.steps; const first = chain[0];
+    let job: Json | null;
+    if (first === 'concat') {
+      const id = firstId((await bridge.callTool(token, 'video_concatenate', { creationIdentifiers: plan.clips, name: 'ibtekr-' + req.piece, folderReference: projectRef(deps.env) })) as Json, 'video_concatenate');
+      job = await newJob(deps, who, req, { kind: 'assemble', creation_ref: id, data: { chain, step: 0, plan, final: chain.length === 1 } });
+    } else if (first) {
+      const nx = nextMix(['cut', ...chain], 0, plan)!;
+      const id = firstId((await bridge.callTool(token, 'video_audio_mix', { creationIdentifier: plan.clips[0], audioCreationIdentifier: nx.audio, audioVolume: nx.audioVolume, videoVolume: nx.videoVolume, folderReference: projectRef(deps.env) })) as Json, 'video_audio_mix');
+      job = await newJob(deps, who, req, { kind: 'mix', creation_ref: id, data: { chain: ['cut', ...chain], step: 1, plan, role: nx.role, final: chain.length === 1 } });
+    } else { // one clip, no audio: it is the video
+      const src = jobs.find((j) => j.creation_ref === plan.clips[0] && j.status === 'done');
+      job = await newJob(deps, who, req, { kind: 'mix', creation_ref: plan.clips[0], status: 'done', path: src?.path ?? null, bytes: src?.bytes ?? null, done_at: deps.now(), data: { chain: [], step: 0, plan, final: true } });
+    }
+    if (!job) throw new Error('db mkt_video_jobs');
+    return { job: jobView(job) };
+  });
+}
+// a finished creation's media into bucket marketing (an allowed host, a size cap, mp4 / audio) → { path, bytes } | null (kept by its link)
+async function storeMedia(deps: Deps, url: string, path: string): Promise<{ path: string; bytes: number } | null> {
+  let u: URL | null = null; try { u = new URL(url); } catch { u = null; }
+  if (!u || u.protocol !== 'https:' || u.username || u.password || !importHosts(deps.env).has(u.hostname.toLowerCase())) return null;
+  try {
+    const r = await (deps.fetch ?? fetch)(u.href, { redirect: 'error', signal: AbortSignal.timeout(120_000) });
+    if (!r.ok) return null;
+    const declared = Number(r.headers.get('content-length')); if (Number.isFinite(declared) && declared > MAX_VIDEO_BYTES) return null;
+    const bytes = new Uint8Array(await r.arrayBuffer()); if (!bytes.length || bytes.length > MAX_VIDEO_BYTES) return null;
+    const ct = (r.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+    const ext = path.split('.').pop()!; const mime = (MEDIA_EXT as Record<string, string>)[ct] ? ct : ext === 'mp4' ? 'video/mp4' : 'audio/mpeg';
+    const { error } = await deps.db.storage.from(MKT_BUCKET).upload(path, bytes, { contentType: mime, upsert: false });
+    return error ? null : { path, bytes: bytes.length };
+  } catch { return null; }
+}
+const partOf = (j: Json) => (j.kind === 'clip' ? (j.scene == null ? 'all' : 's' + (Number(j.scene) + 1)) : j.kind === 'voice' ? 'vo' : j.kind === 'music' ? 'mu' : j.kind === 'assemble' ? 'cut' : 'mix');
+async function videoPoll(deps: Deps, who: Who, args: Json) {
+  const got = await videoPiece(deps, who, 'poll', args); if ('error' in got) return got.error;
+  const { req } = got; const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  let jobs = await videoJobs(deps, req.campaignId, req.piece);
+  const open = openJobs(jobs).filter((j) => typeof j.creation_ref === 'string').slice(0, 8);
+  if (open.length) {
+    let token: string; try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
+    let states: Json[] = [];
+    try { states = waitOf((await bridge.callTool(token, 'creations_wait', { identifiers: open.map((j) => j.creation_ref), timeoutSeconds: VIDEO_WAIT_SECONDS })) as Json); } catch (e) { return bridgeFail(e); }
+    const byId = new Map(states.map((s) => [s.id, s]));
+    for (const j of open) {
+      const s = byId.get(j.creation_ref); if (!s || s.status === 'running') continue;
+      if (s.status === 'failed') { await deps.db.from('mkt_video_jobs').update({ status: 'failed', error: s.error ?? 'failed', updated_at: deps.now() }).eq('id', j.id); continue; }
+      let url = s.url;
+      if (!url) { try { const got2 = (await bridge.callTool(token, 'creations_get', { creationIdentifier: j.creation_ref })) as Json; url = isObj(got2) ? (typeof got2.url === 'string' ? got2.url : null) : null; } catch { url = null; } }
+      const ext = j.kind === 'voice' || j.kind === 'music' ? 'mp3' : 'mp4';
+      const stored = url ? await storeMedia(deps, url, videoPath(req.campaignId, req.piece, partOf(j), stamp(deps), ext)) : null;
+      await deps.db.from('mkt_video_jobs').update({ status: 'done', url: url ?? null, path: stored?.path ?? null, bytes: stored?.bytes ?? null, done_at: deps.now(), updated_at: deps.now() }).eq('id', j.id);
+      // the assembly chain goes on: the next mix over this result
+      const d = isObj(j.data) ? j.data : {};
+      if ((j.kind === 'assemble' || j.kind === 'mix') && Array.isArray(d.chain) && isObj(d.plan)) {
+        const nx = nextMix(d.chain, Number(d.step) || 0, d.plan);
+        if (nx) {
+          try {
+            const id = firstId((await bridge.callTool(token, 'video_audio_mix', { creationIdentifier: j.creation_ref, audioCreationIdentifier: nx.audio, audioVolume: nx.audioVolume, videoVolume: nx.videoVolume, folderReference: projectRef(deps.env) })) as Json, 'video_audio_mix');
+            await newJob(deps, who, req, { kind: 'mix', creation_ref: id, data: { chain: d.chain, step: nx.step, plan: d.plan, role: nx.role, final: nx.step === d.chain.length - 1 } });
+          } catch (e) {
+            if (!(e instanceof BridgeError)) throw e;
+            await newJob(deps, who, req, { kind: 'mix', status: 'failed', error: e.kind, data: { chain: d.chain, step: nx.step, plan: d.plan, role: nx.role } });
+          }
+        }
+      }
+    }
+    jobs = await videoJobs(deps, req.campaignId, req.piece);
+  }
+  const final = jobs.filter((j) => j.status === 'done' && (j.kind === 'mix' || j.kind === 'assemble') && isObj(j.data) && j.data.final === true).pop() ?? null;
+  return json(200, { result: 'ok', jobs: jobs.map(jobView), open: openJobs(jobs).length, final: final ? jobView(final) : null });
 }
 
 // ---------------------------------------------------------------- runtime wiring

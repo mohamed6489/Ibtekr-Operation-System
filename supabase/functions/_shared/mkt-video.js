@@ -182,3 +182,37 @@ export function cleanScenes(json, { n, dur, model }) {
   const scenes = base.map((s, i) => { const x = isObj(L[i]) ? L[i] : {}; return { ...s, idea: line(x.idea, 300), text: line(x.text, 60), cam: CAMS.includes(x.cam) ? x.cam : 'ثابتة' }; });
   return { scenes, voice: paras(src.voice, MAX_VOICE_TEXT) };
 }
+
+// ---- what the site's tools answer, read as data (tolerant: the shapes differ a little a tool)
+const REF = /^[A-Za-z0-9_-]{1,80}$/;
+const listOf = (data) => { if (Array.isArray(data)) return data; if (!isObj(data)) return []; for (const k of ['creations', 'items', 'results', 'queued']) if (Array.isArray(data[k])) return data[k]; if (isObj(data.data)) return listOf(data.data); return []; };
+/** A generation tool's answer → the queued creation identifiers (video_generate, audio_tts, audio_music_generate, video_concatenate, video_audio_mix). */
+export function queuedIds(data) {
+  const out = [];
+  const take = (v) => { const s = typeof v === 'string' ? v.trim() : ''; if (REF.test(s) && !out.includes(s)) out.push(s); };
+  if (isObj(data)) { take(data.identifier); take(data.creationIdentifier); if (isObj(data.creation)) take(data.creation.identifier); if (Array.isArray(data.identifiers)) data.identifiers.forEach(take); }
+  for (const c of listOf(data)) { if (isObj(c)) { take(c.identifier); take(c.creationIdentifier); } else take(c); }
+  return out;
+}
+const DONE = ['completed', 'complete', 'done', 'succeeded', 'success', 'finished', 'ready'];
+const FAILED = ['failed', 'error', 'errored', 'cancelled', 'canceled', 'rejected', 'moderated'];
+const https = (v) => (typeof v === 'string' && /^https:\/\/[^\s]{1,1900}$/.test(v) ? v : null);
+/** A creation's media link as creations_get / creations_wait give it (the full video / audio first, never a preview image). */
+export const mediaUrlOf = (c) => (isObj(c) ? https(c.url) || https(c.videoUrl) || https(c.video_url) || https(c.audioUrl) || https(c.audio_url) || https(c.downloadUrl) || https(c.download_url) || null : null);
+/** creations_wait's answer → [{ id, status: done | failed | running, url }]. */
+export function waitOf(data) {
+  const out = [];
+  for (const c of listOf(data)) {
+    if (!isObj(c)) continue; const id = typeof c.identifier === 'string' ? c.identifier.trim() : ''; if (!REF.test(id)) continue;
+    const st = String(c.status ?? c.state ?? '').toLowerCase();
+    out.push({ id, status: DONE.includes(st) ? 'done' : FAILED.includes(st) ? 'failed' : 'running', url: mediaUrlOf(c), error: FAILED.includes(st) ? line(c.error ?? c.reason ?? c.message ?? st, 200) : null });
+  }
+  return out;
+}
+/** The next step of an assembly chain (decision 61): the job's step index in its chain → the mix to start, or null at the end. */
+export function nextMix(chain, step, plan) {
+  const next = Array.isArray(chain) ? chain[step + 1] : undefined;
+  if (next === 'voice' && plan.voice) return { step: step + 1, audio: plan.voice, audioVolume: MIX.voice, videoVolume: MIX.clips, role: 'voice' };
+  if (next === 'music' && plan.music) return { step: step + 1, audio: plan.music, audioVolume: MIX.music, videoVolume: 100, role: 'music' };
+  return null;
+}

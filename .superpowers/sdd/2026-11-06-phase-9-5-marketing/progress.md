@@ -134,3 +134,5 @@
   بـ `campaign`؛ `separate` clip لكل مشهد بصورته / `chained` = Seedance multi_prompt؛ الفويس بأصوات ElevenLabs المصرية والموسيقى Lyria؛ التجميع concatenate + mix؛
   أداة «فيديو» = كامبين بفيديو واحد؛ الريلز بتتنشر فعلًا على فيسبوك وانستجرام) والمهام T25–T30. الكتالوج اتقرا حي 7 نوفمبر (Seedance 2.5 `bytedance-seedance-pro-2.5`،
   Kling 2.5 `kling-25`، MiniMax H3 Max `minimax-video-3_0-max`؛ أصوات مصرية Bilal Khalil 1171 / Karim Zaidan 1334 / Yusuf Al-Mansour 227).
+- T26 ✓ (7 نوفمبر) `0054_marketing_video.sql`: `mkt_video_jobs` (صفوف السيرفر؛ القراية `marketing.view` بقايمة أعمدة من غير `url`؛ المشهد < 8؛ القطعة `V<n>`)، bucket
+  `marketing` بيقبل MP4 والصوت لحد 200 ميجا، `ai_runs.source` «video». `rls_marketing_video` ✓ محلي (+ `rls_marketing` و`rls_security_advisor`). الـ fakes فيها الجدول.

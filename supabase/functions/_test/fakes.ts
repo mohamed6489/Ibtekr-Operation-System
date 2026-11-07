@@ -78,6 +78,7 @@ const COLUMNS: Record<string, string[]> = {
   // 0053 (phase 9.5.4): the buyer's suggestions and the designer / developer requests; 0002's alerts (the daily report)
   mkt_suggestions: ['id', 'platform', 'kind', 'campaign_id', 'campaign_name', 'ad_id', 'title', 'sub', 'why', 'impact', 'pct', 'data', 'status', 'created_at', 'checked_at', 'decided_by', 'decided_at', 'value', 'note', 'result', 'error'],
   mkt_requests: ['id', 'kind', 'title', 'details', 'project', 'status', 'created_by', 'created_at', 'updated_by', 'updated_at', 'done_at'],
+  mkt_video_jobs: ['id', 'campaign_id', 'piece', 'kind', 'scene', 'creation_ref', 'status', 'url', 'path', 'bytes', 'duration', 'error', 'data', 'created_by', 'created_at', 'updated_at', 'done_at'], // 0054 (phase 9.5.5)
   alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at'],
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
@@ -110,11 +111,11 @@ const DEFAULTS: Record<string, Row> = {
   cs_channels: { status: 'disconnected', cap_per_day: 300, meta: {} }, cs_channel_events: { summary: {} },
   cs_wa_state: { status: 'offline' }, cs_campaigns: { status: 'مسودة', cap_per_day: 300, min_delay_s: 20, size: 0, stats: {} }, cs_campaign_recipients: { status: 'queued' },
   mkt_posts: { src: 'system', how: 'download', status: 'مجدول', was_live: false, attempts: 0, images: [], caption: '', caption_orig: '', tags: '' },
-  mkt_suggestions: { platform: 'meta', status: 'pending', data: {} }, mkt_requests: { status: 'جديد' },
+  mkt_suggestions: { platform: 'meta', status: 'pending', data: {} }, mkt_requests: { status: 'جديد' }, mkt_video_jobs: { status: 'queued', data: {} },
 };
 const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
   vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', image_imports: 'int', image_shares: 'int', shot_prompts: 'int',
-  cs_customers: 'uuid', cs_contacts: 'int', cs_conversations: 'uuid', cs_messages: 'uuid', cs_channel_events: 'int', cs_campaigns: 'uuid', cs_campaign_recipients: 'int', mkt_posts: 'int', mkt_suggestions: 'int', mkt_requests: 'int', alerts: 'int' };
+  cs_customers: 'uuid', cs_contacts: 'int', cs_conversations: 'uuid', cs_messages: 'uuid', cs_channel_events: 'int', cs_campaigns: 'uuid', cs_campaign_recipients: 'int', mkt_posts: 'int', mkt_suggestions: 'int', mkt_requests: 'int', mkt_video_jobs: 'int', alerts: 'int' };
 const UNIQUE: Record<string, string[][]> = {
   status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
@@ -124,7 +125,7 @@ const UNIQUE: Record<string, string[][]> = {
   cs_customers: [['id'], ['phone']], cs_contacts: [['id'], ['platform', 'external_id']], cs_conversations: [['id'], ['channel', 'external_id']], cs_messages: [['id'], ['external_id']], cs_channels: [['id']],
   cs_oauth_states: [['state']], cs_channel_events: [['id']], cs_posts: [['id']], cs_wa_state: [['channel']], cs_campaigns: [['id']], cs_campaign_recipients: [['id'], ['campaign_id', 'customer_id']],
   profiles: [['id'], ['email'], ['phone'], ['member_code']], roles: [['id']], hr_members: [['member_id']], mkt_posts: [['id'], ['platform', 'external_id']], mkt_ad_objects: [['platform', 'kind', 'id']], mkt_ad_stats: [['platform', 'level', 'object_id', 'day']],
-  mkt_suggestions: [['id']], mkt_requests: [['id']], alerts: [['id']],
+  mkt_suggestions: [['id']], mkt_requests: [['id']], mkt_video_jobs: [['id']], alerts: [['id']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],
@@ -134,7 +135,7 @@ const NOT_NULL: Record<string, string[]> = {
   vendor_rates: ['vendor_id', 'rate', 'since'], vendor_category_rates: ['vendor_id', 'woo_category_id', 'since'], woo_categories: ['name'], activity_log: ['action'],
   cs_customers: ['name', 'created_from'], cs_contacts: ['customer_id', 'platform', 'external_id'], cs_conversations: ['seg', 'platform', 'channel', 'status'], cs_messages: ['conversation_id', 'kind', 'text'],
   cs_channels: ['name', 'audience', 'kind', 'status'], cs_oauth_states: ['verifier', 'channel', 'created_by'], cs_channel_events: ['object', 'status'],
-  mkt_posts: ['kind', 'name', 'platform', 'day', 'time', 'how', 'status', 'src'], mkt_suggestions: ['kind', 'campaign_id', 'title'], mkt_requests: ['kind', 'title'], alerts: ['kind', 'title'],
+  mkt_posts: ['kind', 'name', 'platform', 'day', 'time', 'how', 'status', 'src'], mkt_suggestions: ['kind', 'campaign_id', 'title'], mkt_requests: ['kind', 'title'], mkt_video_jobs: ['campaign_id', 'piece', 'kind', 'created_by'], alerts: ['kind', 'title'],
 };
 const CHECK: Record<string, Record<string, unknown[]>> = {
   cs_customers: { created_from: ['orders', 'manual', 'import', 'channel'] }, cs_contacts: { platform: ['whatsapp', 'messenger', 'instagram', 'tiktok', 'facebook'] },

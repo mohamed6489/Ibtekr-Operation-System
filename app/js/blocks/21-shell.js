@@ -138,11 +138,15 @@
   const touch = () => { lastAct = now(); if (lastAct - lastWrite < 5000) return; lastWrite = lastAct; try { localStorage.setItem('ib.lastAct', String(lastAct)); } catch (e) { /* storage blocked */ } };
   const idleSec = () => { let shared = 0; try { shared = Number(localStorage.getItem('ib.lastAct')) || 0; } catch (e) { /* storage blocked */ } return (now() - Math.max(lastAct, shared)) / 1000; }; // activity in any tab counts
   ['mousedown', 'keydown', 'touchstart', 'scroll'].forEach((e) => document.addEventListener(e, () => { if (!warnOpen) touch(); }, { passive: true }));
-  setInterval(() => { if (loggedOut) return; const s = O.idleState(idleSec()); if (s === 'active' && warnOpen) warnOpen.close(); if (s === 'warn' && !warnOpen) sessionWarning(); if (s === 'expired') { if (warnOpen) warnOpen.close(); signOut('idle'); } }, 15000);
+  // phase 11 (decision 19): the company policy from settings_public().security — idle off, or the desktop / mobile limit by its label
+  const IDLE_MINS = { '4 ساعات': 240, '8 ساعات (تحذير قبلها بدقيقة)': 480, '12 ساعة': 720, '1 يوم': 1440, '7 أيام': 10080, '30 يوم': 43200 };
+  let idleMins = null;
+  function setIdle(sec) { const p = sec && typeof sec === 'object' ? sec : {}; if (p.idle === false) { idleMins = Infinity; return; } const mobile = window.matchMedia && window.matchMedia('(max-width: 767px)').matches; idleMins = IDLE_MINS[mobile ? p.idleMobile : p.idleDesktop] || IDLE_MINS[p.idleDesktop] || null; }
+  setInterval(() => { if (loggedOut) return; const s = O.idleState(idleSec(), idleMins); if (s === 'active' && warnOpen) warnOpen.close(); if (s === 'warn' && !warnOpen) sessionWarning(); if (s === 'expired') { if (warnOpen) warnOpen.close(); signOut('idle'); } }, 15000);
   function sessionWarning() {
     let left = 60; const c = h('b', { class: 'num' }, '1:00');
     const m = U.Modal({ title: 'الجلسة هتخلص', body: [h('p', { style: 'margin:0' }, 'مفيش نشاط من فترة. هنعمل تسجيل خروج تلقائي خلال:'), h('div', { class: 'countdown' }, Icon('clock', 'sm'), c)], footer: [Button({ label: 'اخرج', onClick: () => { m.close(); signOut(); } }), Button({ type: 'primary', label: 'كمّل', onClick: () => { touch(); m.close(); } })], onClose: () => { clearInterval(t); warnOpen = null; } });
-    warnOpen = m; const t = setInterval(() => { left--; c.textContent = '0:' + String(Math.max(0, left)).padStart(2, '0'); if (left <= 0) { clearInterval(t); m.close(); if (O.idleState(idleSec()) !== 'active') signOut('idle'); } }, 1000);
+    warnOpen = m; const t = setInterval(() => { left--; c.textContent = '0:' + String(Math.max(0, left)).padStart(2, '0'); if (left <= 0) { clearInterval(t); m.close(); if (O.idleState(idleSec(), idleMins) !== 'active') signOut('idle'); } }, 1000);
   }
 
   // ================= login (option B) =================
@@ -213,6 +217,6 @@
     ls.view = 'login'; ls.busy = true; drawLogin(); K.toast('اتحفظت كلمة المرور — سجّل دخول', 'success'); try { await logWithin('auth.password.set', 'reset'); await window.IBAuth.signOut('global').catch(() => {}); } finally { ls.busy = false; } }
   function routeLogin(hs) { const map = { login: 'login', 'login-2fa': '2fa', 'login-forgot': 'forgot', 'login-reset': 'reset', invite: 'invite', 'invite-expired': 'expiredInvite', 'login-suspended': 'suspended', 'login-locked': 'login' }; if (!(hs in map)) return false; if (hs === 'login-locked') auth = { fails: 0, left: 5, lockedUntil: now() + 15 * 60000 }; showLogin(map[hs]); return true; }
 
-  window.IBShell = { ClockWidget, AccountMenu, state, clockIn, endShift, sessionWarning, signOutAll, showLogin, routeLogin, isLoggedOut: () => loggedOut };
+  window.IBShell = { setIdle, idleMinutes: () => idleMins, ClockWidget, AccountMenu, state, clockIn, endShift, sessionWarning, signOutAll, showLogin, routeLogin, isLoggedOut: () => loggedOut };
 })();
 

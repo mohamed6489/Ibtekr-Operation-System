@@ -945,6 +945,62 @@ select created_at, action, source, label, model, status, error, credits, cost_us
 select public.ai_month_credits();   -- كريدت شهر القاهرة (من SQL editor = كل الأعضاء)
 ```
 
+#### 2.7.31 صفحة الإعدادات — المفاتيح والمزوّدين والتنبيهات والفريق (المرحلة 11، 7 نوفمبر)
+
+الخطة (قرارات 1–32) `docs/superpowers/plans/2026-11-07-phase-11-settings.md`، والدفتر `.superpowers/sdd/2026-11-07-phase-11-settings/progress.md`.
+
+**أ) الكود:** `0056_settings.sql` + `supabase/tests/rls_settings.sql` · `_shared/secrets.js` (Vault الأول ثم أسرار Supabase — `secretOf` / `vaultEnv`) ·
+`_shared/settings-link.js` (كروت الربط وخاناتها وفحصها والعرض الآمن — آخر 4 حروف) · Edge Function **`settings-admin`** (الأدمن بالـ JWT: `status` /
+`secret_set` / `secret_test` / `secret_unlink` / `woo_set` (تست ثم تأكيد) / `member_status`) · طبقة المزوّدين `_shared/ai-providers.js` +
+`ai-content` (`providers/{claude,openai,gemini}.ts`) و`ai-images` (`providers/{openai-image,gemini-image}.ts`، `voice/elevenlabs.ts`،
+`video/{higgsfield,veo}.ts` جنب Magnific) · محرك التنبيهات `_shared/notify.js` + Edge Function **`notify`** (cron `tick` بسر المزامنة؛ `status` /
+`tick { dry }` للأدمن) · `IBSettings` (`app/js/adapter/settings.js`) · الكتلة 17 (= الكتلة 20 بتاعة الـ v6 على `IBSettings`) + `IBQuick` في 14 +
+`IBLogo` صورة (13) + إلزام 2FA وانتهاء الجلسة (21/28) + `app/css/settings.css`. **مافيش سر جديد لازم في أسرار Supabase** — كل المفاتيح
+بتتكتب من «الإعدادات › الربط بالمنصات» وتتحفظ في Vault (`app_<name>`)، والأسرار الحالية فاضلة احتياطي.
+
+**ب) على Supabase (المطوّر — بالترتيب):**
+1. `0056` (MCP `apply_migration` مرة واحدة؛ لو وقف = الـ SQL كله لصاحب المشروع في الـ SQL editor): `app_secret_get/set/env` (service_role)،
+   أقسام `settings` الجديدة + `settings_public()`، `roles.hidden` + RPCs الفريق (`role_perms_set` / `role_create` / `role_update` /
+   `role_delete` / `member_role_set` / `member_perms_set` / `member_status_set`) و`my_sessions` / `my_session_revoke`، `company_docs` +
+   bucket `company-docs` (الأدمن) + bucket `settings` (الأدمن يكتب والأعضاء يقروا)، `alert_state` + `alerts.expires_at`، cron **`notify-tick`**
+   كل 15 دقيقة → `notify` بسر المزامنة.
+2. workflow «RLS live» بـ `files = rls_settings rls_security_advisor`.
+3. «Deploy functions»: `settings-admin` ثم `notify` ثم `ai-content` ثم `ai-images` ثم `woo-sync` ثم `woo-webhook` (الأخيرين عشان يقروا مفاتيح
+   الموقع من Vault لو اتكتبت من الصفحة) — واحدة واحدة.
+4. الواجهة: push على `main`.
+
+**ج) صاحب المشروع (من الصفحة — من غير ما يبعت أي مفتاح في الشات):**
+- **الموقع:** «الربط بالمنصات › WooCommerce»: الرابط و`ck_…`/`cs_…` (+ مستخدم ووردبريس وباسورد التطبيق للميديا) → «اختبر» (بيقرا
+  `system_status` و`users/me`) → «احفظ» بعد ما التست ينجح. تغيير الرابط بيمسح المفاتيح المحفوظة. «الكتابة على الموقع» = المفتاح من
+  الصفحة (بيعلو على `WOO_PUSH_ENABLED`).
+- **المزوّدين:** Claude / OpenAI / Gemini / ElevenLabs / Higgsfield / Magnific API كل واحد بمفتاحه + «اختبار»، والاختيار في «الذكاء
+  الاصطناعي › المزوّدين»: افتراضي لكل قسم (نص / صور / صوت / فيديو) + تبديل لكل أداة. المدفوع بالدولار بيتحسب على سقف المحتوى الشهري.
+- **الإيميل (Resend):** مفتاح `re_…` + دومين `ibtekr.club` متحقق في Resend، المرسل `alerts@ibtekr.club` (أو اللي يتكتب في خانة «من»).
+- **واتساب للتنبيهات:** قالب `ibtekr_alert` (متغير نص واحد) معتمد في WhatsApp Manager على رقم واتساب 1، واسمه في «التنبيهات › ساعات الهدوء».
+- **MCP:** «ربط أداة جديدة › MCP» بالرابط والتوكن (Higgsfield وغيره) — Vault `mcp_<slug>`.
+- **الفريق:** الأدوار والمصفوفة والتجاوز الفردي والإيقاف من «الفريق والصلاحيات» (إضافة عضو بالباسورد المؤقت زي المرحلة 10).
+
+**التحقق:**
+```sql
+select name from vault.secrets where name like 'app_%';                                                   -- الأسماء بس — القيم مشفّرة
+select has_function_privilege('authenticated', 'public.app_secret_get(text)', 'execute');                -- false
+select jobname, schedule, active from cron.job where jobname = 'notify-tick';
+select section, updated_at from public.settings where section in ('ai_rules','brand','quick','notif','integrations','security');
+select id, name, hidden, is_system from public.roles order by sort, id;
+select count(*) from public.alert_state;                                                                  -- بعد أول tick
+select at, action, entity_id, new_value from public.activity_log where action like 'settings.%' order by at desc limit 20; -- أسماء أقسام ومفاتيح ومنصات وأدوار بس
+```
+
+**إزاي بيشتغل:** الأدمن بيكتب المفتاح في بوب أب الكارت → `settings-admin` بيفحص الشكل ويجرّب نداء قراية على المزوّد ويحفظه في Vault (ومابيرجّعهوش
+— آخر 4 حروف على الكارت)؛ الدوال بتقرا Vault الأول وإلا أسرار Supabase. محرك التنبيهات كل 15 دقيقة بيقرا صف `notif` (أنواع التنبيهات
+والماتريكس بالدور والتصعيد وساعات الهدوء والتقارير) وبيحسب المصادر من بياناتنا ويكتب صفوف `alerts` لكل مستلم، وبيبعت الإيميل/واتساب برّه
+ساعات الهدوء لو القناة مربوطة (غير كده «مستنية الربط»). الإعدادات العامة (البراند والإجراءات السريعة وماتريكس الجرس وسياسة الأمان)
+بتتقرا مع الدخول لكل عضو (`settings_public`).
+
+**الأمان:** الأسرار في Vault بس (لا ردود ولا logs — آخر 4 حروف)؛ كل فحص مزوّد بيتسجل بالـ host؛ تغيير رابط الموقع بيمسح المفاتيح؛ أفعال
+الإعدادات للأدمن؛ `settings.*` في `activity_log` أسماء أقسام ومفاتيح ومنصات وأدوار بس؛ `channel_log` بتاع التنبيهات أعداد وأكواد من غير
+تليفون ولا إيميل ولا نص؛ إلزام 2FA بيحوّل العضو من غير 2FA لـ «ملفي › الحساب والأمان» ومايعدّيش.
+
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
 - الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.
 - السياسات على `storage.objects` (من الملف نفسه، بادئة `vendor_contracts_`): `select` و`insert` و`update` لـ `authenticated` بشرط `bucket_id = 'vendor-contracts'` و`has_perm('sensitive.vendor_bank') = 'F'` (الأدمن والحسابات في مصفوفة `0003`). مافيش سياسة `delete`: استبدال العقد = ملف جديد والقديم بيفضل (قرار 7)، ومافيش تنظيف للملفات القديمة (تكلفة صغيرة).

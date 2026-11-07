@@ -94,10 +94,10 @@ test('the links through settings-admin: status, a secret set (the fields cleaned
   const st = await S.links(); eq([st.ok, Object.keys(st.links), st.cards.length], [true, ['openai'], 1]);
   const set = await S.setSecret('openai', { key: ' ' + KEY + ' ', bad$: 'x', n: 5 }); eq([set.ok, set.link.fields.key, set.test.account], [true, '••••aaaa', '2 موديل']);
   eq(invokes(stub).at(-1), ['settings-admin', { body: { action: 'secret_set', name: 'openai', fields: { key: KEY } } }]);
-  eq(logs.at(-1), ['settings.integration.set', 'openai · key', { entity: 'settings', entity_id: 'openai' }]); assert.ok(!JSON.stringify(logs).includes(KEY), 'the key is never logged');
-  const w1 = await S.wooSet({ url: 'https://ibtekr.club', ck: 'ck_x', cs: 'cs_y' }); eq([w1.ok, w1.body.pending], [true, true]); eq(logs.filter((l) => l[1].startsWith('woo')).length, 0, 'a probe is not a save');
-  eq((await S.wooSet({ url: 'https://ibtekr.club' }, true)).ok, true); eq(invokes(stub).at(-1)[1].body.confirm, true); eq(logs.at(-1)[1], 'woo · url');
-  eq((await S.testSecret('openai')).test, { ok: false, error: 'probe_failed' }); eq(await S.unlink('openai'), { ok: true }); eq(logs.at(-1)[0], 'settings.integration.unlink');
+  eq(logs.filter((l) => l[0].startsWith('settings.integration')), [], 'the server logs the set itself'); assert.ok(!JSON.stringify(logs).includes(KEY), 'the key is never logged');
+  const w1 = await S.wooSet({ url: 'https://ibtekr.club', ck: 'ck_x', cs: 'cs_y' }); eq([w1.ok, w1.body.pending], [true, true]); 
+  eq((await S.wooSet({ url: 'https://ibtekr.club' }, true)).ok, true); eq(invokes(stub).at(-1)[1].body.confirm, true);
+  eq((await S.testSecret('openai')).test, { ok: false, error: 'probe_failed' }); eq(await S.unlink('openai'), { ok: true });
   const bad = load({ responses: { 'fn:settings-admin': (opts) => ok(opts.body.action === 'secret_set' ? { error: 'invalid', field: 'key' } : { error: 'no_vault' }) } }); await bad.S.load();
   eq(await bad.S.setSecret('openai', { key: 'short' }), { ok: false, reason: 'invalid', field: 'key', message: 'المفتاح مش بالشكل المتوقع', body: { error: 'invalid', field: 'key' } });
   eq((await bad.S.links()).message, 'الخزنة (Vault) مش متاحة في المشروع');

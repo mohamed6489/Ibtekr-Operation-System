@@ -45,19 +45,19 @@
   },
   "12-ops-domain.js": {
     "prototype": "61b358d0af069a9ee879baebcac093a7e606e7b8f38aec2a6ed69bca0ccffcc1",
-    "current": "66a1ab017c1a2e417d2c1bdddbc7ad3dfb20bc687981ed2e623c5fc7c100b9ea"
+    "current": "dfdc1df5b682262988ed93b1a879e7180416e87e6f37d8067df3129b8c8354f7"
   },
   "13-logo.js": {
     "prototype": "4f6a9cbb22ffb0a3e844e20feb6c41508ca1c46b4313d990d5414d67186f7c78",
-    "current": "4f6a9cbb22ffb0a3e844e20feb6c41508ca1c46b4313d990d5414d67186f7c78"
+    "current": "677a0c7b9936a04028d2ef9a98f14e8d42fc7955607836a0fb76da9f3d19e420"
   },
   "14-kit.js": {
     "prototype": "2a924af8c731555a02958f802f051efe4ef180be78d65a0f3340b342a064e432",
-    "current": "7bb90a5b3b3695b88bffe0d07dd01f697ca076b616731c16eaad467a76fc6b75"
+    "current": "70f49adc40da09458b25072c03dd25a20c833105965ac3113dde0fd4cd6d843f"
   },
   "15-page-hr.js": {
     "prototype": "ee600dbb6d1a699847ee0528e7454c3bc857f4801989b1cf85cdba72aa135d76",
-    "current": "c80daf056677432f44cba864059e41d873a195599fcdc86f7532fdb21e3e63be"
+    "current": "68d8faafab5e2080990a6f816eaa040d8d07c1f4f07b257014083dccad035bf9"
   },
   "16-page-inventory.js": {
     "prototype": "80101269ffc51399a6b19dad74375aa32575fa9e2e6071885c5c77885afee8f5",
@@ -65,7 +65,7 @@
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
-    "current": "49aca1f9a7af03372d9f44582fc4213afbaf7f1d12e81b1c9643e4ed243e0ab1"
+    "current": "ea556ca01b6bffcfb1b3287f1f158a5cff10e019b899e02c7f85f67e7b89f845"
   },
   "18-page-profile.js": {
     "prototype": "218eb74e001b3e909a563499cdd2d929b1893e93d86d81f9039603b34dbdaa8a",
@@ -81,7 +81,7 @@
   },
   "21-shell.js": {
     "prototype": "da3316ca93e76c490b7a58d4f817bdc7852887e007200bb438efa591045a05f9",
-    "current": "83aa91b55f809e7a7b79d2dd76558687461fed3062870b3d6aa1e90b859d39c5"
+    "current": "88d6dc17f44603284abbc83c64249f985ecb4196b6a5056feba804fc22e6967f"
   },
   "22-orders-ops.js": {
     "prototype": "840c4a2093e78030058acaac11c712410a8107419aa1d34bea7da2526ee80885",
@@ -109,7 +109,7 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "feec6e6ea17cac7d6fde8bc5cda7705ec372bdfe96216f884b609f1b9c4ba384"
+    "current": "0657a019029443807d3e3a6490fb538c837324c644fc3484d6a655a47c160d7e"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",

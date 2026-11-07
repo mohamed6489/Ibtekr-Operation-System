@@ -7,7 +7,7 @@
 (function () {
   'use strict';
   let meRow = null; let rolesById = {};
-  const toMember = (p, roleName, codeOf) => ({ id: p.member_code, uid: p.id, name: p.name, role: roleName[p.role_id] || '', title: p.title || '', dept: p.dept || '', manager: codeOf[p.manager_id] || '', phone: p.phone || '', email: p.email, status: p.status, twofa: !!p.twofa,
+  const toMember = (p, roleName, codeOf) => ({ id: p.member_code, uid: p.id, name: p.name, role: roleName[p.role_id] || '', title: p.title || '', dept: p.dept || '', manager: codeOf[p.manager_id] || '', customPerms: p.custom_perms && typeof p.custom_perms === 'object' ? p.custom_perms : {}, override: p.custom_perms && typeof p.custom_perms === 'object' && Object.keys(p.custom_perms).length ? Object.keys(p.custom_perms).length : null, phone: p.phone || '', email: p.email, status: p.status, twofa: !!p.twofa,
     salary: 0, holdback: 0, allow: 0, leave: 0, used: 0, shift: ['09:00', '17:00'] }); // the HR numbers: IBHR.member(code) (phase 10)
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
   // the members only (the first half of load(); «إضافة عضو» calls it): same array, same objects where the member is still there
@@ -31,7 +31,8 @@
     // only for an active member (K.ME is theirs now); a suspended or missing profile is signed out by the caller
     if (!meRow || meRow.status !== 'active') return;
     const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity, Or = window.IBOrders, V = window.IBVendors, Ac = window.IBAccounts, CS = window.IBCS;
-    await Promise.allSettled([P && P.load(), A && A.load(), L && L.refresh && L.refresh(), Or && Or.load(), V && V.load()]);
+    const St = window.IBSettings; // phase 11: the public settings every member needs (brand, quick actions, the bell's matrix, the security policy)
+    await Promise.allSettled([P && P.load(), A && A.load(), L && L.refresh && L.refresh(), Or && Or.load(), V && V.load(), St && St.loadPublic && St.loadPublic()]);
     const Inv = window.IBInventory, Tk = window.IBTickets, HR = window.IBHR;
     if (Ac || CS || Inv || Tk || HR) await Promise.allSettled([Ac && Ac.load(), CS && CS.load(), Inv && Inv.load(), Tk && Tk.load(), HR && HR.load()]); // phase 4 / 6 / 7 / 8 / 10: after the makers (the moves, the makers' chats and the lots carry their names)
     if (A) quiet(() => A.subscribe());

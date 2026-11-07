@@ -676,6 +676,122 @@
       h('div', { class: 'sp-row' }, g, h('span', { class: 't-small help sp-word', 'aria-live': 'polite' }, v ? v + ' من 5 · ' + words[v] : 'اختار من 1 لـ 5')),
       error ? h('div', { class: 'err-msg', role: 'alert', id: id + '-err' }, error) : help ? h('p', { class: 't-small help', style: 'margin:0' }, help) : null);
   }
-  window.IBKit = { Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, xlsxExport, saveFile, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, PanelButton, applyPanelPrefs, customizePanel, panelItems, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, TableSection, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+  // the customer-service channels a member works on (the v6 prototype's helpers; the settings page reads them — phase 11)
+  const chanAll = (m) => !!m && (m.id === 'M01' || m.role === 'أدمن');
+  const chanList = (m) => (m && Array.isArray(m.chans) ? m.chans : []);
+  const canChan = (m, id) => chanAll(m) || chanList(m).indexOf(id) > -1;
+  const chanMembers = (id) => store.members.filter((m) => m.status !== 'invited' && canChan(m, id) && !chanAll(m));
+  window.IBKit = { chanAll, chanList, canChan, chanMembers, Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, xlsxExport, saveFile, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, PanelButton, applyPanelPrefs, customizePanel, panelItems, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, TableSection, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+})();
+
+/* Quick actions (owner 27 Oct; phase 11 decision 23, from the v6 block 14): «إجراءات سريعة» = a named link to any page of the system,
+   optionally with its filters (#page?key=value&…). Pure helpers (IbtekrQuick) — tested in tests/domain/quick-domain.test.mjs. The list lives
+   in the settings row «quick» (the admin writes it, every member reads it with the sign-in — block 28 fills K.store.quickActions). */
+(function (root) {
+  'use strict';
+  const PAGES = ['dashboard', 'orders', 'makers', 'vendors', 'accounts', 'inventory', 'products', 'cs', 'tickets', 'reports', 'marketing', 'hr', 'settings', 'profile', 'notifications'];
+  // accepts a full URL, "#hash" or "hash" → { base, query } or null
+  function parseLink(link) {
+    let s = String(link || '').trim(); if (!s) return null;
+    const i = s.indexOf('#'); if (i >= 0) s = s.slice(i + 1); else if (/^https?:\/\//i.test(s)) return null;
+    s = s.replace(/^\/+/, ''); if (!s) return null;
+    const qi = s.indexOf('?'); const base = qi >= 0 ? s.slice(0, qi) : s; const qs = qi >= 0 ? s.slice(qi + 1) : '';
+    const page = base.split(/[-/]/)[0];
+    if (!PAGES.includes(page)) return null;
+    const query = {}; qs.split('&').filter(Boolean).forEach((kv) => { const [k, v = ''] = kv.split('='); if (k) query[decodeURIComponent(k)] = decodeURIComponent(v.replace(/\+/g, ' ')); });
+    return { base, page, query };
+  }
+  function buildLink(base, query) {
+    const q = Object.entries(query || {}).filter(([, v]) => v !== '' && v != null && v !== false).map(([k, v]) => encodeURIComponent(k) + '=' + encodeURIComponent(v === true ? '1' : String(v))).join('&');
+    return '#' + base + (q ? '?' + q : '');
+  }
+  function validate(item, others) {
+    const e = {}; const n = String(item.name || '').trim();
+    if (!n) e.name = 'اكتب اسم الإجراء'; else if ((others || []).some((x) => String(x.name).trim().toLowerCase() === n.toLowerCase())) e.name = 'فيه إجراء بنفس الاسم';
+    if (!String(item.link || '').trim()) e.link = 'حط لينك الصفحة'; else if (!parseLink(item.link)) e.link = 'اللينك ده مش لصفحة في السيستم — انسخ اللينك من شريط العنوان وانت فاتح الصفحة';
+    return e;
+  }
+  const DEFAULTS = [
+    { id: 'qa-prod', name: 'إضافة منتجات', link: '#products-add', icon: 'package' },
+    { id: 'qa-maker', name: 'إضافة مبتكر', link: '#makers/new', icon: 'users' },
+    { id: 'qa-late', name: 'تقرير الفيندورز المتأخرين', link: '#reports-vendors?details=' + 'مبتكرين عندهم أوردرات قابلة للتأخير', icon: 'truck' },
+    { id: 'qa-follow', name: 'عملاء تحتاج للمتابعة', link: '#cs-segments?seg=G2', icon: 'headset' },
+  ];
+  const api = { PAGES, parseLink, buildLink, validate, DEFAULTS };
+  if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IbtekrQuick = api;
+})(typeof window !== 'undefined' ? window : globalThis);
+
+/* «إجراءات سريعة» (owner 27 Oct): dropdown in the top bar with named links to any page + its filters.
+   Default: إضافة منتجات · إضافة مبتكر · تقرير الفيندورز المتأخرين · عملاء تحتاج للمتابعة. Managed in «الإعدادات › الإجراءات السريعة».
+   Links look like #page?key=value — the query is taken off the URL before routing and handed to the page that registered for it. */
+(function () {
+  'use strict';
+  const Q = window.IbtekrQuick; const U = window.IBUI, K = window.IBKit; const { h, Button, Icon } = U;
+  const list = () => (K.store.quickActions = K.store.quickActions || Q.DEFAULTS.map((x) => Object.assign({}, x)));
+  const handlers = []; let pending = null;
+  // the admin's edits go to the settings row «quick» (IBSettings); other members only read the list
+  function persistQuick() {
+    const S0 = window.IBSettings; const me = window.IBDirectory && window.IBDirectory.me ? window.IBDirectory.me() : null;
+    if (!S0 || !me || me.role_id !== 'admin') return;
+    S0.save('quick', { list: list().map((x) => ({ id: String(x.id), name: String(x.name), link: String(x.link), icon: x.icon || 'link' })) }, { merge: true }).then((r) => { if (!r.ok) K.toast(r.message || 'تعذّر حفظ الإجراءات السريعة', 'error'); });
+  }
+  function handle(prefix, get, set) { handlers.push({ prefix, get, set }); handlers.sort((a, b) => b.prefix.length - a.prefix.length); }
+  const handlerFor = (base) => handlers.find((x) => base === x.prefix || base.startsWith(x.prefix + '-') || base.startsWith(x.prefix + '/') || base.startsWith(x.prefix));
+  const curBase = () => location.hash.slice(1).split('?')[0];
+  function applyPending() {
+    if (!pending) return; const { base, query } = pending; if (curBase() !== base) return; pending = null;
+    const hd = handlerFor(base); const rest = Object.assign({}, query); const details = rest.details; delete rest.details;
+    if (hd && Object.keys(rest).length) { try { hd.set(rest); } catch (e) { /* page not ready */ } }
+    if (details) setTimeout(() => { const b = [...document.querySelectorAll('[data-details]')].find((x) => x.offsetParent && x.dataset.details === details); if (b) b.click(); }, 120);
+  }
+  // take the query off the hash before the app routes it (this listener is registered before app.js)
+  function strip() { const raw = location.hash.slice(1); const qi = raw.indexOf('?'); if (qi < 0) return; const p = Q.parseLink('#' + raw); pending = p ? { base: p.base, query: p.query } : null; try { history.replaceState(null, '', '#' + raw.slice(0, qi)); } catch (e) { /* sandbox */ } }
+  window.addEventListener('hashchange', () => { strip(); setTimeout(applyPending, 80); });
+  strip(); window.addEventListener('load', () => setTimeout(applyPending, 400));
+  function run(link) {
+    const p = Q.parseLink(link); if (!p) { K.toast('اللينك ده مش لصفحة في السيستم', 'error'); return; }
+    pending = { base: p.base, query: p.query };
+    if (curBase() === p.base) { applyPending(); window.dispatchEvent(new HashChangeEvent('hashchange')); setTimeout(applyPending, 80); } else location.hash = '#' + p.base;
+    K.logEvent('quick.run', link);
+  }
+  function currentLink() { const base = curBase(); const hd = handlerFor(base); let q = {}; try { q = hd ? hd.get() || {} : {}; } catch (e) { q = {}; } return Q.buildLink(base, q); }
+  function edit(item, onDone) {
+    const L = list(); const isNew = !item || !L.includes(item); const v = { name: item ? item.name : '', link: item ? item.link : '' };
+    K.form({ title: isNew ? 'إجراء سريع جديد' : 'تعديل «' + item.name + '»', values: v,
+      note: U.InlineNote({ children: 'افتح أي صفحة في السيستم بالفلاتر أو التقارير اللي انت عايزها، وانسخ اللينك من شريط العنوان، أو استخدم «ضيف الصفحة دي» من قايمة «إجراءات سريعة» وهي بتحفظ الفلاتر لوحدها.' }),
+      fields: (f, e, set) => [K.field.text('name', 'اسم الإجراء', f, e, set, { required: true, placeholder: 'مثلاً: أوردرات مكتملة النهارده' }), K.field.text('link', 'لينك الصفحة', f, e, set, { required: true, dir: 'ltr', placeholder: '#orders?st=مكتمل', help: 'بيتقبل اللينك كامل أو الجزء اللي بعد # · الفلاتر بتيجي بعد ?' })],
+      validate: (f) => Q.validate(f, L.filter((x) => x !== item)),
+      submitLabel: isNew ? 'ضيف' : 'احفظ',
+      submit: (f) => { const p = Q.parseLink(f.link); const rec = { name: f.name.trim(), link: Q.buildLink(p.base, p.query) }; if (isNew) L.push(Object.assign({ id: 'qa-' + Date.now().toString(36), icon: 'link' }, rec)); else Object.assign(item, rec); K.logEvent('quick.save', rec.name + ' · ' + rec.link); persistQuick(); K.toast(isNew ? 'اتضاف «' + rec.name + '» للإجراءات السريعة' : 'اتحفظ', 'success'); if (onDone) onDone(); } });
+  }
+  function Menu() {
+    const wrap = h('div', { class: 'pop-anchor qa-anchor', 'data-popover-root': '' });
+    const trig = Button({ label: h('span', { class: 'qa-lbl' }, 'إجراءات سريعة'), icon: 'zap', iconEnd: 'chevD', attrs: { 'aria-haspopup': 'menu', 'data-quick': '', 'aria-label': 'إجراءات سريعة', title: 'إجراءات سريعة' } });
+    const pop = U.popover(wrap, trig, (close) => { const L = list();
+      const opts = L.map((x) => ({ value: x.id, label: x.name, icon: x.icon || 'link' })).concat([{ value: '__add', label: '+ ضيف الصفحة دي', icon: 'plus' }, { value: '__manage', label: 'إدارة الإجراءات السريعة', icon: 'gear' }]);
+      return U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (v) => { close(); setTimeout(() => { if (v === '__add') edit({ name: (document.title || '').split(' — ')[0], link: currentLink() }); else if (v === '__manage') location.hash = '#settings-quick'; else { const it = L.find((x) => x.id === v); if (it) run(it.link); } }); } }); });
+    trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
+  }
+  // «الإعدادات › الإجراءات السريعة»
+  function manage(rerender) {
+    const L = list(); const R = rerender;
+    const rows = L.map((x, i) => [K.Grip(x.name),
+      h('span', { class: 'qa-name' }, Icon(x.icon || 'link', 'sm'), h('b', null, x.name)), h('code', { class: 'qa-link', dir: 'ltr' }, decodeURIComponent(x.link)),
+      h('span', { class: 'qa-acts' }, Button({ size: 'sm', type: 'text', label: 'جرّب', onClick: () => run(x.link) }), Button({ size: 'sm', type: 'text', label: 'تعديل', attrs: { 'data-qa-edit': x.id }, onClick: () => edit(x, R) }), Button({ size: 'sm', type: 'text', label: 'امسح', attrs: { 'data-qa-del': x.id }, onClick: () => K.confirm({ title: 'تمسح «' + x.name + '»؟', text: 'هيتشال من قايمة «إجراءات سريعة» بس — الصفحة نفسها مش هتتأثر.', okLabel: 'امسح', okType: 'danger', onOk: () => { L.splice(L.indexOf(x), 1); persistQuick(); R(); } }) }))]);
+    const tbl = L.length ? U.Table({ cls: 'dt qa-table', headers: ['الترتيب', 'الاسم', 'اللينك', ''], rows }) : null;
+    if (tbl) setTimeout(() => {
+      const trs = [...tbl.querySelectorAll('tbody tr')];
+      trs.forEach((tr, i) => tr.setAttribute('data-qa-item', L[i] ? L[i].id : String(i)));
+      const body = tbl.querySelector('tbody');
+      K.sortableRows(body, 'data-qa-item', (ids) => { const next = ids.map((id) => L.find((y) => String(y.id) === id)).filter(Boolean); if (next.length === L.length) { L.length = 0; next.forEach((y) => L.push(y)); K.logEvent('quick.reorder', next.map((y) => y.name).join(' · ')); persistQuick(); R(); } });
+    }, 0);
+    return K.Section('الإجراءات السريعة', [tbl || K.Empty('مفيش إجراءات سريعة', 'ضيف أول إجراء — أي صفحة بفلاترها.'),
+      U.InlineNote({ children: 'أي صفحة في السيستم ينفع تبقى إجراء سريع بفلاترها أو تقاريرها: افتح الصفحة واختار اللي عايزه، وبعدين من «إجراءات سريعة» فوق اختار «ضيف الصفحة دي» — أو الصق اللينك هنا وسمّيه اللي انت عايزه.' })],
+    [Button({ type: 'text', label: 'رجوع للافتراضي', onClick: () => K.confirm({ title: 'ترجّع الإجراءات السريعة للافتراضي؟', text: 'الإجراءات اللي ضفتها هتتشال.', okLabel: 'رجّع', onOk: () => { K.store.quickActions = Q.DEFAULTS.map((y) => Object.assign({}, y)); persistQuick(); R(); } }) }), Button({ type: 'primary', icon: 'plus', label: 'إجراء جديد', attrs: { 'data-qa-new': '' }, onClick: () => edit(null, R) })],
+    { sub: 'بتظهر في قايمة «إجراءات سريعة» فوق في كل الصفحات — بالترتيب ده. اسحب من المسكة عشان ترتّب.' });
+  }
+  // orders filters live inside the orders shadow app
+  handle('orders', () => (window.OrdersApp && window.OrdersApp.getFilters ? window.OrdersApp.getFilters() : {}), (q) => { if (window.OrdersApp && window.OrdersApp.setFilters) window.OrdersApp.setFilters(q); });
+  window.IBQuick = { Menu, manage, handle, run, edit, list, currentLink, persist: persistQuick };
 })();
 

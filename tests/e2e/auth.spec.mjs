@@ -39,28 +39,21 @@ test('signs in and lands on dashboard', async ({ page }) => {
   if (!LIVE) expect(mock.lookups).toEqual([]); // an email goes straight to GoTrue: no lookup RPC
 });
 
-test('the menu: the two new pages in place, every page not started yet closed with «soon» (phase 3.6, plan decision 5); «الحسابات» open since phase 4, «المنتجات» since phase 5, «خدمة العملاء» since phase 6, «المخزون» since phase 7, «تذاكر الفريق» since phase 8, «التقارير» since phase 9, «التسويق» since phase 9.5', async ({ page }) => {
+test('the menu: the two new pages in place, every page opened by its phase (phase 3.6, plan decision 5; «الإعدادات» the last, phase 11); «الحسابات» open since phase 4, «المنتجات» since phase 5, «خدمة العملاء» since phase 6, «المخزون» since phase 7, «تذاكر الفريق» since phase 8, «التقارير» since phase 9, «التسويق» since phase 9.5', async ({ page }) => {
   await signIn(page, ADMIN.id, ADMIN.pw);
   await expect(page.locator('#root')).toBeVisible();
   const items = page.locator('nav.sidebar .nav-item');
   expect(await items.locator('> span:not(.soon)').allTextContents()).toEqual(['لوحة التحكم', 'الأوردرات', 'المبتكرين', 'الحسابات', 'المخزون', 'المنتجات', 'خدمة العملاء', 'تذاكر الفريق', 'التقارير', 'التسويق', 'الموارد البشرية', 'الإعدادات']);
-  const soon = page.locator('nav.sidebar .nav-item[data-soon]');
-  expect(await soon.evaluateAll((l) => l.map((e) => e.dataset.page))).toEqual(['settings']); // «الموارد البشرية» open since phase 10, «التسويق» since phase 9.5
-  await expect(soon.locator('.soon')).toHaveText(Array(1).fill('soon')); // «المنتجات» open since phase 5, «خدمة العملاء» since phase 6, «المخزون» since phase 7, «تذاكر الفريق» since phase 8, «التقارير» since phase 9
-  await expect(soon.first()).toHaveAttribute('aria-disabled', 'true');
-  await expect(page.locator('nav.sidebar .nav-item:not([data-soon])')).toHaveCount(11);
-  // a closed page is not reached by its menu item, nor by a typed hash: the dashboard, with a note
-  await page.locator('nav.sidebar .nav-item[data-page="settings"]').click({ force: true }); // aria-disabled: a forced press
-  await expect(page.locator('#pg-dashboard')).toBeVisible();
-  for (const hs of ['settings-integrations', 'settings']) {
-    await page.evaluate((x) => { location.hash = x; }, hs);
-    await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
-    await expect(page.locator('#pg-dashboard')).toBeVisible();
-    await expect(page.locator('#main')).toBeHidden();
-  }
-  await page.goto('/#settings-integrations'); // a fresh load on a closed page
+  // phase 11: «الإعدادات» opened — nothing is closed with «soon» any more; a settings hash reaches the settings page (admin)
+  await expect(page.locator('nav.sidebar .nav-item[data-soon]')).toHaveCount(0);
+  await expect(page.locator('nav.sidebar .nav-item:not([data-soon])')).toHaveCount(12);
+  await page.locator('nav.sidebar .nav-item[data-page="settings"]').click();
+  await expect(page.locator('#pg-settings')).toBeVisible();
+  await page.evaluate(() => { location.hash = 'settings-integrations'; });
+  await expect(page.locator('#pg-settings .set-page')).toBeVisible();
+  await page.goto('/#settings-integrations'); // a fresh load on the page keeps its hash
   await expect(page.locator('#root')).toBeVisible();
-  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#dashboard');
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#settings-integrations');
   await page.locator('nav.sidebar .nav-item[data-page="orders"]').click(); // the open pages still open
   await expect(page.locator('#orders')).toBeVisible();
   await page.locator('nav.sidebar .nav-item[data-page="accounts"]').click(); // phase 4: الحسابات is open

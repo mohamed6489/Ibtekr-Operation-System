@@ -20,14 +20,22 @@
     ['m', 'M399.849 6.8H390.789V3.19C390.789 2.59 390.869 2.07 391.019 1.64C391.169 1.21 391.409 0.87 391.739 0.63C392.069 0.39 392.519 0.27 393.069 0.27C393.449 0.27 393.769 0.31 394.029 0.38C394.289 0.46 394.509 0.57 394.689 0.72C394.869 0.87 395.039 1.08 395.189 1.32C395.289 1.05 395.419 0.82 395.579 0.62C395.739 0.42 395.959 0.27 396.229 0.16C396.499 0.05 396.859 0 397.299 0C397.789 0 398.189 0.08 398.519 0.23C398.849 0.38 399.109 0.59 399.299 0.87C399.489 1.15 399.629 1.47 399.719 1.84C399.799 2.21 399.849 2.62 399.849 3.06V6.79V6.8ZM394.619 4.97V3.26C394.619 2.96 394.569 2.72 394.479 2.53C394.389 2.34 394.249 2.21 394.059 2.12C393.869 2.03 393.629 1.99 393.339 1.99C392.919 1.99 392.619 2.1 392.439 2.31C392.249 2.53 392.159 2.86 392.159 3.32V4.96H394.629L394.619 4.97ZM398.499 4.97V3.21C398.499 2.9 398.459 2.64 398.389 2.43C398.309 2.22 398.179 2.06 397.989 1.95C397.799 1.84 397.529 1.78 397.179 1.78C396.909 1.78 396.699 1.82 396.529 1.91C396.359 2 396.239 2.11 396.149 2.25C396.069 2.39 396.009 2.55 395.969 2.72C395.929 2.89 395.919 3.06 395.919 3.23V4.95H398.509L398.499 4.97Z'],
   ];
   // tone: 'reversed' (on green) | 'color' (on cream). mark: icon only.
+  // phase 11 (decision 21): a logo uploaded from «الإعدادات › الهوية البصرية» (bucket settings, a signed link the app sets at sign-in)
+  // is an <img> in place of the SVG; set(tone, url | null) redraws every logo on the page. In memory only — the settings row is the source.
+  const custom = {};
   function Logo({ tone = 'reversed', width = 160, mark = false } = {}) {
+    const cu = custom[mark ? 'mark' : tone];
+    if (cu) { const im = document.createElement('img'); im.src = cu; im.alt = 'إبتكر كلوب'; im.className = 'logo logo-img logo-' + tone; im.style.width = width + 'px'; im.style.height = 'auto'; im.style.maxHeight = Math.round(width * (mark ? 1 : 0.4)) + 'px'; im.style.objectFit = 'contain'; im.dataset.tone = tone; im.dataset.width = String(width); im.dataset.mark = mark ? '1' : ''; return im; }
     const s = document.createElementNS(NS, 'svg');
     const vb = mark ? '0 0 65 65' : '0 0 401 65';
     s.setAttribute('viewBox', vb); s.setAttribute('class', 'logo logo-' + tone); s.setAttribute('role', 'img'); s.setAttribute('aria-label', 'إبتكر كلوب');
+    s.dataset.tone = tone; s.dataset.width = String(width); s.dataset.mark = mark ? '1' : '';
     s.setAttribute('width', String(width)); s.setAttribute('height', String(Math.round(width * 65 / (mark ? 65 : 401))));
     (mark ? P.slice(0, 3) : P).forEach(([c, d]) => { const p = document.createElementNS(NS, 'path'); p.setAttribute('d', d); p.setAttribute('class', c); s.append(p); });
     return s;
   }
-  window.IBLogo = { Logo, TAGLINE: 'بيت لكل مبتكر' };
+  function set(tone, url) { if (!/^(color|reversed|mark)$/.test(tone)) return; if (url && /^(https:\/\/|blob:|data:image\/)/.test(String(url))) custom[tone] = String(url); else delete custom[tone]; refresh(); }
+  function refresh() { document.querySelectorAll('.logo[data-tone]').forEach((el) => { try { el.replaceWith(Logo({ tone: el.dataset.tone, width: Number(el.dataset.width) || 160, mark: el.dataset.mark === '1' })); } catch (e) { /* detached */ } }); }
+  window.IBLogo = { Logo, set, get: (tone) => custom[tone] || null, refresh, TAGLINE: 'بيت لكل مبتكر' };
 })();
 

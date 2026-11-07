@@ -147,22 +147,32 @@
     `settings`، الجرس على ماتريكس الإعدادات، البراند مع الدخول، إلزام 2FA وانتهاء الجلسة في 28/21، CSS الإعدادات من الـ v6 في `app/css/settings.css`.
     e2e لكل قسم (mock بأشكال الـ v6)، Deno لـ `settings-admin` و`notify` والمزوّدين، node للدومين (القاموس، الحارس، المحرك الصافي).
 
+27. **الكتلة 13 (`IBLogo`) بتتعدّل** (قرار تنفيذ، T7): اللوجو بقى صورة بتتبدل — `IBLogo.set(tone, url)` / `refresh()` / `get()`: لما صف `brand.logos`
+    فيه مسار في bucket `settings` بيترسم `<img class="logo logo-img">` مكان الـ SVG المرسوم (الفاتح والأخضر والأيقونة كل واحد لوحده)، وإلا
+    اللوجو المرسوم زي ما هو؛ الروابط `https:`/`blob:`/`data:` بس. والكتلة 12 (`idleState`) والكتلة 15 (`api.addMember`) والكتلة 21 (`setIdle`،
+    ساعات الخمول من صف `security`) والكتلة 14 (`IBQuick` + مساعدي القنوات) والكتلة 28 (`applyPublicSettings` على حدث `ib:settings`،
+    إلزام 2FA، `SOON = []`) بنفس القرار 26.
+28. **الإعدادات العامة بتتقرا مع الدخول من نفس المسار:** `IBSettings.loadPublic()` جوه `IBDirectory.load()` (بوابة التحميل وزرار الدخول
+    الاتنين) وبتعلن `ib:settings` → الكتلة 28 بتطبق البراند والإجراءات السريعة وماتريكس الجرس وسياسة الأمان، وبتحوّل العضو من غير 2FA
+    لـ «ملفي › الحساب والأمان» لو `force2fa`.
+29. **الـ e2e mock فيه دور `cs`** زي `0003` (كان ناقص — تغيير الدور لـ «خدمة العملاء» كان بيترفض على الـ mock بس).
+
 ## أجوبة الأسئلة المفتوحة (صاحب المشروع، 7 نوفمبر)
 
-27. **الإيميل = Resend:** مفتاح API في «الربط بالمنصات» (Vault `app_resend`) + دومين `ibtekr.club` متحقق عندهم؛ المرسل `alerts@ibtekr.club`.
+30. **الإيميل = Resend:** مفتاح API في «الربط بالمنصات» (Vault `app_resend`) + دومين `ibtekr.club` متحقق عندهم؛ المرسل `alerts@ibtekr.club`.
     الإرسال من `notify` بس (قوالب HTML بسيطة بالعربي RTL)، وكل إيميل صف في `alert_state.channel_log` بأعداد وأكواد من غير نص.
-28. **واتساب للتنبيهات = واتساب 1 على Meta بقالب معتمد:** صاحب المشروع بيعمل قالب `ibtekr_alert` (متغير نص واحد) في WhatsApp Manager ويكتب
+31. **واتساب للتنبيهات = واتساب 1 على Meta بقالب معتمد:** صاحب المشروع بيعمل قالب `ibtekr_alert` (متغير نص واحد) في WhatsApp Manager ويكتب
     اسمه في «التنبيهات › ساعات الهدوء والقنوات»؛ `notify` بيبعت بـ `cs-whatsapp` الحالية (توكن Vault `cs_meta_wa`) على رقم العضو/المبتكر؛
     لحد ما القالب يتعتمد القناة «مستنية».
-29. **الخطوط = Google Fonts بس:** الـ CSP بيسمح `fonts.googleapis.com` (style) و`fonts.gstatic.com` (font) — من غير أي مصدر تاني.
+32. **الخطوط = Google Fonts بس:** الـ CSP بيسمح `fonts.googleapis.com` (style) و`fonts.gstatic.com` (font) — من غير أي مصدر تاني.
 
 ## المهام
 
-- [ ] T1 الخطة + الدفتر (ده).
-- [ ] T2 `0056_settings.sql` (قرار 11) + `rls_settings` + `_shared/secrets.js` + تحديث الدوال اللي بتقرا الأسرار (Vault الأول).
-- [ ] T3 `settings-admin` (قرار 10) + Deno.
-- [ ] T4 طبقة المزوّدين (قرار 15) في `ai-content` / `ai-images` + التعليمات (قرار 14) + Deno/node.
-- [ ] T5 محرك التنبيهات `notify` (قرار 16) + الجرس على الماتريكس + Deno/node.
-- [ ] T6 `IBSettings` + mock + اختبارات الـ adapter.
-- [ ] T7 الكتلة 17 من الـ v6 على `IBSettings` (كل الأقسام) + `IBQuick` + البراند + الأمان + CSS + e2e + lock.
+- [x] T1 الخطة + الدفتر (ده).
+- [x] T2 `0056_settings.sql` (قرار 11) + `rls_settings` + `_shared/secrets.js` + تحديث الدوال اللي بتقرا الأسرار (Vault الأول).
+- [x] T3 `settings-admin` (قرار 10) + Deno.
+- [x] T4 طبقة المزوّدين (قرار 15) في `ai-content` / `ai-images` + التعليمات (قرار 14) + Deno/node.
+- [x] T5 محرك التنبيهات `notify` (قرار 16) + الجرس على الماتريكس + Deno/node.
+- [x] T6 `IBSettings` + mock + اختبارات الـ adapter.
+- [x] T7 الكتلة 17 من الـ v6 على `IBSettings` (كل الأقسام) + `IBQuick` + البراند + الأمان + CSS + e2e + lock.
 - [ ] T8 التوثيق (CLAUDE.md، `tools/deploy.md` §2.7.31) + الحي (0056، الدوال، RLS live، `main`) + التقرير.

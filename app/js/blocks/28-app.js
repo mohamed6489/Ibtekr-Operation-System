@@ -349,7 +349,7 @@
   // Phase 3.6 (plan decision 5): the pages not built on real data yet are closed — «soon» in the menus; any way in (a link, an
   // alert, a typed hash) lands on the dashboard with a note. Open: لوحة التحكم، الأوردرات، المبتكرين، and «ملفي» (account menu).
   // phase 5 (plan decision 2): «المنتجات» is open (app/js/pages/products.js) — the owner chose it before «المخزون»
-  const SOON = ['settings']; // phase 9.5.1: «التسويق» opened (marketing); phase 6: «خدمة العملاء» opened (cs); «الرد الآلي» stays postponed; phase 7: «المخزون» opened (inventory); phase 8: «تذاكر الفريق» opened (tickets); phase 9: «التقارير» opened (reports) phase 10: «الموارد البشرية» opened (hr).
+  const SOON = []; // phase 11: «الإعدادات» opened (settings) — the whole page on IBSettings; phase 9.5.1: «التسويق» opened (marketing); phase 6: «خدمة العملاء» opened (cs); «الرد الآلي» stays postponed; phase 7: «المخزون» opened (inventory); phase 8: «تذاكر الفريق» opened (tickets); phase 9: «التقارير» opened (reports) phase 10: «الموارد البشرية» opened (hr).
   const isSoon = (page) => SOON.includes(page);
   const soonNote = () => { if (window.IBKit && window.IBKit.toast) window.IBKit.toast('الصفحة دي لسه — soon'); };
   state.page = pageOfHash(location.hash.slice(1));
@@ -430,6 +430,7 @@
     return h('header', { class: 'topbar' },
       h('div', { class: 'gq-wrap' }, h('label', { class: 'search' }, Icon('search', 'sm'), q), res),
       AiButton(),
+      window.IBQuick ? window.IBQuick.Menu() : null, // phase 11 (decision 23): the quick actions from the settings row «quick»
       NotificationsMenu(),
       window.IBShell.ClockWidget(),
       window.IBShell.AccountMenu(go));
@@ -3292,12 +3293,39 @@
     if (focusTab) { const t = main.querySelector('[role=tab][aria-selected=true]'); if (t) t.focus(); focusTab = false; }
   }
 
+  // phase 11 (decisions 16 / 19 / 21 / 23): the public settings every member gets with the sign-in — the brand (colors, fonts, the
+  // uploaded logos), the quick actions, the bell's role matrix and this member's override, the security policy (idle, force 2FA)
+  let force2fa = false; let twofaToldAt = 0;
+  const needs2fa = () => { if (!force2fa) return false; const me = window.IBDirectory && window.IBDirectory.me ? window.IBDirectory.me() : null; return !!me && me.status === 'active' && !me.twofa; };
+  const twofaNote = () => { if (Date.now() - twofaToldAt < 4000) return; twofaToldAt = Date.now(); window.IBKit.toast('الشركة ملزمة التحقق بخطوتين — فعّله الأول من «ملفي › الحساب والأمان»', 'error'); };
+  function applyPublicSettings(pub) {
+    const S0 = window.IBSettings, K = window.IBKit; if (!S0 || !K) return;
+    if (!pub || typeof pub !== 'object') return;
+    const r = document.documentElement.style; const b = pub.brand && typeof pub.brand === 'object' ? pub.brand : {};
+    Object.entries(b.colors || {}).forEach(([k, v]) => { if (/^--color-[a-z0-9-]+$/.test(k) && /^#[0-9a-f]{6}$/i.test(String(v))) r.setProperty(k, String(v)); });
+    const fonts = b.fonts && typeof b.fonts === 'object' ? b.fonts : {};
+    const loadFont = (f) => { if (!f || f === 'Cairo' || !/^[A-Za-z ]{2,40}$/.test(f) || document.querySelector('link[data-font="' + f + '"]')) return; const l = document.createElement('link'); l.rel = 'stylesheet'; l.dataset.font = f; l.href = 'https://fonts.googleapis.com/css2?family=' + f.replace(/ /g, '+') + ':wght@400;500;600;700&display=swap'; document.head.append(l); };
+    if (typeof fonts.body === 'string' && fonts.body !== 'Cairo') { loadFont(fonts.body); r.setProperty('--font', "'" + fonts.body.replace(/[^A-Za-z ]/g, '') + "',system-ui,-apple-system,'Segoe UI',Tahoma,sans-serif"); }
+    if (typeof fonts.head === 'string') { loadFont(fonts.head); r.setProperty('--font-head', "'" + fonts.head.replace(/[^A-Za-z ]/g, '') + "',var(--font)"); }
+    const logos = b.logos && typeof b.logos === 'object' ? b.logos : {};
+    if (window.IBLogo && window.IBLogo.set) Object.keys(logos).forEach((t) => { S0.logoUrl(logos[t]).then((u) => { if (u) window.IBLogo.set(t, u); }); });
+    const q = pub.quick && typeof pub.quick === 'object' ? pub.quick : {};
+    if (Array.isArray(q.list)) K.store.quickActions = q.list.filter((x) => x && typeof x === 'object' && typeof x.name === 'string' && typeof x.link === 'string').map((x, i) => ({ id: String(x.id || 'qa-' + i), name: x.name.slice(0, 80), link: x.link.slice(0, 300), icon: typeof x.icon === 'string' ? x.icon : 'link' }));
+    const n = pub.notif && typeof pub.notif === 'object' ? pub.notif : {};
+    if (n.alertRoles && typeof n.alertRoles === 'object') { Object.keys(K.store.alertRoles).forEach((k) => delete K.store.alertRoles[k]); Object.assign(K.store.alertRoles, n.alertRoles); }
+    if (n.myOverride && typeof n.myOverride === 'object' && K.ME) K.store.alertOverrides[K.ME] = n.myOverride;
+    const sec = pub.security && typeof pub.security === 'object' ? pub.security : {};
+    if (window.IBShell && window.IBShell.setIdle) window.IBShell.setIdle(sec);
+    force2fa = sec.force2fa === true;
+  }
+  // IBSettings.loadPublic() runs inside IBDirectory.load() (the gate and the sign-in button alike) and announces ib:settings
+  document.addEventListener('ib:settings', () => { const S0 = window.IBSettings; if (!S0 || !S0.public()) return; applyPublicSettings(S0.public()); if (needs2fa() && !/^(profile|login)/.test(location.hash.slice(1))) { twofaNote(); location.hash = 'profile-security'; } });
   function boot() {
     const root = document.getElementById('root');
     root.className = 'app';
     root.replaceChildren(Sidebar(), h('div', { class: 'main' }, TopHeader(), h('main', { class: 'content', id: 'main' }), h('main', { class: 'content', id: 'reports' }), h('main', { class: 'content', id: 'tickets' }), h('main', { class: 'content', id: 'vendors' }), Object.keys(window.IBPages.all()).map((id) => h('main', { class: 'content mod', id: 'pg-' + id, hidden: true })), h('div', { id: 'orders' })), BottomNav());
     U.setModalRoot(document.body); document.body.append(AiPanel()); aiInitChat();
-    window.addEventListener('hashchange', () => { const hs = location.hash.slice(1); if (window.IBShell.routeLogin(hs)) return; if (isSoon(pageOfHash(hs))) { try { history.replaceState(null, '', '#dashboard'); } catch (e) { /* sandboxed */ } soonNote(); goNow('dashboard'); return; } const mp = modPage(hs); if (mp) { state.page = mp; showPage(); window.IBPages.render(mp, false); window.scrollTo(0, 0); return; } if (location.hash.slice(1) === 'orders') { if (state.page !== 'orders') go('orders'); return; } const rt = reportTabOf(location.hash.slice(1)); if (rt) { state.rtab = rt; if (state.page !== 'reports') { state.page = 'reports'; showPage(); } renderReports(); return; } const tk = ticketOf(location.hash.slice(1)); if (tk !== null) { if (state.page !== 'tickets') { state.page = 'tickets'; showPage(); } renderTickets(); if (tk) openTicket(tk); return; } const vd = vendorOf(location.hash.slice(1)); if (vd !== null) { if (state.page !== 'vendors') { state.page = 'vendors'; showPage(); } renderVendors(); if (vd) openVendor(vd); return; } const t = hashTab(); if (t) { state.tab = t; if (state.page !== 'accounts') { state.page = 'accounts'; showPage(); } render(); } });
+    window.addEventListener('hashchange', () => { const hs = location.hash.slice(1); if (window.IBShell.routeLogin(hs)) return; if (needs2fa() && !/^(profile|login)/.test(hs)) { twofaNote(); location.hash = 'profile-security'; return; } if (isSoon(pageOfHash(hs))) { try { history.replaceState(null, '', '#dashboard'); } catch (e) { /* sandboxed */ } soonNote(); goNow('dashboard'); return; } const mp = modPage(hs); if (mp) { state.page = mp; showPage(); window.IBPages.render(mp, false); window.scrollTo(0, 0); return; } if (location.hash.slice(1) === 'orders') { if (state.page !== 'orders') go('orders'); return; } const rt = reportTabOf(location.hash.slice(1)); if (rt) { state.rtab = rt; if (state.page !== 'reports') { state.page = 'reports'; showPage(); } renderReports(); return; } const tk = ticketOf(location.hash.slice(1)); if (tk !== null) { if (state.page !== 'tickets') { state.page = 'tickets'; showPage(); } renderTickets(); if (tk) openTicket(tk); return; } const vd = vendorOf(location.hash.slice(1)); if (vd !== null) { if (state.page !== 'vendors') { state.page = 'vendors'; showPage(); } renderVendors(); if (vd) openVendor(vd); return; } const t = hashTab(); if (t) { state.tab = t; if (state.page !== 'accounts') { state.page = 'accounts'; showPage(); } render(); } });
     showPage(); render(); if (state.page === 'reports') renderReports(); if (state.page === 'tickets') { renderTickets(); const tk = ticketOf(location.hash.slice(1)); if (tk) openTicket(tk); }
     if (window.IBPages.all()[state.page]) window.IBPages.render(state.page, false);
     if (window.IBShell.routeLogin(location.hash.slice(1))) { /* login screen over the app */ }
@@ -3378,7 +3406,7 @@
     if (view === null) {
       if (SH.isLoggedOut()) return; // routeLogin put a login view up (#login, #login-forgot, …)
       try { localStorage.setItem('ib.lastAct', String(Date.now())); } catch (e) { /* storage blocked */ }
-      root.hidden = false; window.dispatchEvent(new HashChangeEvent('hashchange')); return;
+      root.hidden = false; if (needs2fa() && !/^(profile|login)/.test(location.hash.slice(1))) { twofaNote(); location.hash = 'profile-security'; } window.dispatchEvent(new HashChangeEvent('hashchange')); return;
     }
     if (view === 'login' && SH.isLoggedOut()) return;
     SH.showLogin(view);

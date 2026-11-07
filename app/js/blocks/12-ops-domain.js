@@ -267,7 +267,8 @@
     if (p !== c) return 'كلمتين المرور مش زي بعض';
     return null;
   }
-  function idleState(sec) { const lim = AUTH.idleMinutes * 60; return sec >= lim ? 'expired' : sec > lim - AUTH.warnSeconds ? 'warn' : 'active'; }
+  // phase 11 (decision 19): the limit may come from the settings row «security» (minutes; Infinity = never)
+  function idleState(sec, mins) { const m = Number(mins) > 0 ? Number(mins) : AUTH.idleMinutes; if (m === Infinity) return 'active'; const lim = m * 60; return sec >= lim ? 'expired' : sec > lim - AUTH.warnSeconds ? 'warn' : 'active'; }
 
   const api = { HR, INV, AUTH, rates, overtimePay, monthlyPaid, rating, RATING_TONE, monthBonus, quarterBonus, quarterBad, leaveDays, addDays, payslip,
     shiftState, presenceDue, presenceOutcome, reviewOvertime, otReviewer, validateOtEnd,

@@ -2,7 +2,7 @@
 // (role_perms_set / role_create / role_update / role_delete / member_role_set / member_perms_set), my sessions, settings_public, the
 // Edge Functions settings-admin (the platform keys in a fake Vault: a secret never comes back, its tail only; the probes answer ok)
 // and notify (status / tick), company_docs + the bucket company-docs, the bucket settings (the logos), and activity_log with the
-// filters the page sends (eq / like / gte / lte, Range pages). settingsState(opts) seeds (opts.roles → the roles copy, opts.vault,
+// filters the page sends (eq / like / gte / lte, offset/limit or Range pages). settingsState(opts) seeds (opts.roles → the roles copy, opts.vault,
 // opts.companyDocs, opts.sessions); settingsRoute(c) answers a request of those paths or returns null. Every RPC / function call
 // lands in st.calls, every write in st.writes.
 import { CARDS, SECRET_NAMES, fieldsOf, nameOk, parseSecret, secretPublic } from '../../supabase/functions/_shared/settings-link.js';
@@ -31,7 +31,7 @@ export function settingsRoute(c) {
   const rpc = /^\/rest\/v1\/rpc\/(role_perms_set|role_create|role_update|role_delete|member_role_set|member_perms_set|member_status_set|my_sessions|my_session_revoke|settings_public)$/.exec(path);
   const fn = method === 'POST' && (path === '/functions/v1/settings-admin' || path === '/functions/v1/notify');
   const docs = path === '/rest/v1/company_docs'; const sto = /^\/storage\/v1\/object\/(sign\/)?(company-docs|settings)\/(.+)$/.exec(path);
-  const act = method === 'GET' && path === '/rest/v1/activity_log' && [...url.searchParams].some(([k, v]) => k === 'action' && v.startsWith('like.') || (k === 'at' && /^(lte|gte)\./.test(v))) || (method === 'GET' && path === '/rest/v1/activity_log' && hd.range);
+  const act = method === 'GET' && path === '/rest/v1/activity_log' && [...url.searchParams].some(([k, v]) => k === 'action' && v.startsWith('like.') || (k === 'at' && /^(lte|gte)\./.test(v))) || (method === 'GET' && path === '/rest/v1/activity_log' && (hd.range || url.searchParams.has('offset')));
   if (!rpc && !fn && !docs && !sto && !act) return null;
   const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
   const now = new Date().toISOString(); const body = c.body();
@@ -175,7 +175,8 @@ export function settingsRoute(c) {
       else return refuse(400, 'PGRST100', 'settings-mock: unsupported filter ' + k + '=' + v);
     }
     const [col, dir] = (url.searchParams.get('order') || 'at.desc').split('.'); rows.sort((a, b) => (a[col] < b[col] ? -1 : a[col] > b[col] ? 1 : 0) * (dir === 'desc' ? -1 : 1));
-    const m = /^(\d+)-(\d+)$/.exec(hd.range || ''); const page = m ? rows.slice(Number(m[1]), Number(m[2]) + 1) : rows.slice(0, 1000);
+    const m = /^(\d+)-(\d+)$/.exec(hd.range || ''); const off = Number(url.searchParams.get('offset') || 0), lim = Number(url.searchParams.get('limit') || 1000);
+    const page = m ? rows.slice(Number(m[1]), Number(m[2]) + 1) : rows.slice(off, off + lim);
     const cols = String(url.searchParams.get('select') || '*').split(',').map((x) => x.trim());
     return json(200, page.map((r) => (cols.includes('*') ? { ...r } : Object.fromEntries(cols.map((c) => [c, r[c] === undefined ? null : r[c]])))));
   }

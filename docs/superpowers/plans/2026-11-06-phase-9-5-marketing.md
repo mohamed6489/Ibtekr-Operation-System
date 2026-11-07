@@ -280,3 +280,56 @@ Seedance 2.5 / 2.0، Kling 2.5، MiniMax H3 + فويس أوفر ElevenLabs + م�
 - **T29** ✓ `IBMarketing` (المهام، الأفعال، المشاهد، الملفات) + الـ mock + الصفحة (قطعة الفيديو في البناء والمراجعة، المشغّل، أداة «فيديو»، `VIDEO_SOON`
   = false) + CSS الـ v6 + e2e.
 - **T30** ✓ `mkt-publish` الريلز (فيسبوك + انستجرام) + Deno + الوثائق + الحي (0054، rls live، نشر `ai-images` و`ai-content` و`mkt-publish`، main).
+
+---
+
+# 9.5.6 — تيك توك وجوجل: أرقام الإعلانات بالربط من السيستم (7 نوفمبر)
+
+صاحب المشروع: «كمل 9.5.6 تيك توك وجوجل … وخليها جاهزة إن أديك الـ API من خلال السيستم» — يعني بيانات الربط (المفاتيح والتوكنات) تتكتب **من شاشة في السيستم**
+مش في أسرار Supabase. نفس الفكرة بتتطبق على ميتا كمان (المفتاح من السيستم بيعلو على سر السيرفر)، وتيك توك وجوجل **قراية بس** زي ميتا في 9.5.3.
+
+## قرارات التنفيذ — 9.5.6
+
+67. **بيانات الربط من السيستم (الأدمن):** في «نظرة عامة › حالة الربط» لكل منصة زرار «اربط» / «عدّل البيانات» / «فصل» (الأدمن بس) بيفتح بوب أب بخانات
+    المنصة. السيرفر (`mkt-ads` action `link_set`) بيحفظها في **Vault** عبر RPC جديدة `mkt_secret_get` / `mkt_secret_set` (`service_role` بس — نفس نمط
+    `cs_secret_*`؛ الأسماء `ads_meta` / `ads_tiktok` / `ads_google` → `mkt_ads_<منصة>` في Vault)، وعمره ما يرجّعها: `status` بيقول «محفوظ» وآخر 4 حروف
+    بس من المفتاح. ميتا: `access_token` + `account_id` (من السيستم تعلو على `META_ADS_TOKEN` / `META_AD_ACCOUNT_ID`). تيك توك: `app_id` + `secret`
+    (تطبيق TikTok for Business) ثم «اربط بحساب تيك توك» بـ OAuth، أو `access_token` + `advertiser_id` بالإيد (المطوّر أخدهم من بوابة التطبيق). جوجل:
+    `developer_token` (Google Ads API Center) + `client_id` + `client_secret` (Google Cloud OAuth client) + `login_customer_id` اختياري (MCC) ثم «اربط
+    بحساب جوجل» بـ OAuth (`access_type=offline` → refresh token)، أو `refresh_token` + `customer_id` بالإيد. الحقول غير السرية (أرقام الحسابات،
+    الاسم، `linked_at`، إصدار Google Ads API) في صف `settings` قسم `marketing` مفتاح `ads` — السيرفر بيكتبها.
+68. **OAuth من السيستم:** `link_start { platform }` (الأدمن) بيحط state في `cs_oauth_states` (`channel` = `ads_tiktok` / `ads_google`، 10 دقايق) وبيرجّع
+    رابط المنصة؛ الرجوع على `app/ads-callback.html` (`js/pages/ads-callback.js` — زي `meta-callback`) → `link_callback { code, state }` يستبدل الكود:
+    تيك توك `POST /open_api/v1.3/oauth2/access_token/` (`app_id`, `secret`, `auth_code`) → توكن طويل + `advertiser_ids`؛ جوجل `POST oauth2.googleapis.com/token`
+    (`code`, `client_id`, `client_secret`, `redirect_uri`, `grant_type=authorization_code`) → `refresh_token` ثم `customers:listAccessibleCustomers`. حساب
+    واحد = يتربط؛ أكتر = `choose` والأدمن يختار (`link_pick { platform, account }`). الـ redirect ثابت من السيرفر (`ADS_REDIRECT_URL` وإلا
+    `https://operation-system.ibtekr.club/ads-callback.html`) — لازم يتسجّل في تطبيق تيك توك وفي OAuth client بتاع جوجل.
+69. **المزامنة على كل منصة مربوطة** بنفس الجداول: `mkt_ad_objects` / `mkt_ad_stats` / `mkt_suggestions` بـ `platform in ('meta','tiktok','google')` (`0055`).
+    الـ cron `mkt-ads-sync` بيلف على المنصات المربوطة، كل واحدة لوحدها (فشل واحدة مابيوقفش التانية)، وكل منصة ليها صف حساب بحالتها وآخر مزامنة وكودها.
+    `sync { platform? }` بالإيد للأدمن. **تيك توك** (Marketing API v1.3، هيدر `Access-Token`): `advertiser/info`، `campaign/get`، `ad/get`،
+    `report/integrated/get` (`BASIC`، `AUCTION_CAMPAIGN` / `AUCTION_AD` باليوم: `spend`, `impressions`, `reach`, `clicks`, `frequency`, `complete_payment`
+    = المشتريات، `total_complete_payment_rate` = قيمتها). **جوجل** (Google Ads API، `googleAds:search` بـ GAQL، هيدر `developer-token` + `login-customer-id`
+    الاختياري، الإصدار `v21` افتراضي ويتغيّر من `settings.marketing.ads.google.version`): `customer`، `campaign` (+ `campaign_budget.amount_micros`)،
+    `ad_group_ad`، والأرقام `segments.date` × `metrics.cost_micros / impressions / clicks / conversions / conversions_value` (مافيش reach ولا تكرار → null).
+    الأرقام كلها بعملة الحساب زي ميتا. الـ access token بتاع جوجل بيتجدد كل تشغيلة من الـ refresh token (مابيتخزنش).
+70. **الأوردرات والاقتراحات:** `mkt_ads_orders` زي ما هو (المنصة من `ad_platform` بتاع ووكومرس — `utm_campaign` = رقم الحملة على المنصة). الاقتراحات
+    (`suggestionsOf`) بتتحسب لكل منصة من صفوفها + أوردراتها؛ **التنفيذ (وقّف / الميزانية) على ميتا بس** — قرار على اقتراح تيك توك أو جوجل بيتسجل
+    `approved` / `edited` بـ `result.platform` والرسالة «التنفيذ على تيك توك وجوجل من مدير الإعلانات لسه»؛ الإيقاف التلقائي `auto` ميتا بس. التقرير
+    اليومي بيجمع الصرف من كل المنصات.
+71. **الواجهة:** كارت «حالة الربط» بثلاث منصات حقيقية (مربوطة / مش مربوطة / آخر مزامنة والكود بالعربي) وأزرار الأدمن، والـ KPIs و«الصرف حسب المنصة»
+    و«المنصة بتقول × ووكومرس» وتقرير الحملات (عمود المنصة) على أرقام كل منصة مربوطة (`adTotals` بـ `linked` من الحالة الحقيقية)؛ «قريبًا» بتتشال.
+    `IBMarketing.adsStatus` بيرجّع `platforms: { meta, tiktok, google }`، و`adsLink` / `adsLinkStart` / `adsLinkCallback` / `adsLinkPick` / `adsUnlink`.
+72. **الأمان:** المفاتيح في Vault بس ولا بتظهر في أي رد (آخر 4 حروف) ولا log؛ `cs_oauth_states` لـ `service_role`؛ الـ redirect من السيرفر؛ كل أفعال الربط
+    للأدمن؛ `activity_log` `mkt.ads.link` (المنصة والفعل بس) و`mkt.ads.sync` بالمنصة والأعداد. مافيش أي كتابة على تيك توك أو جوجل.
+73. **الاختبارات:** node للجزء الصافي (`_shared/mkt-ads-tiktok.js` / `mkt-ads-google.js`: المسارات، الصفوف، الأخطاء، فحص الخانات)؛ Deno لـ `mkt-ads`
+    (تيك توك وجوجل وهميين: الربط بالبيانات، OAuth، المزامنة، الفشل بكودنا، الحالة من غير أسرار)؛ e2e: الأدمن يربط تيك توك ببيانات → الحالة «مربوطة»،
+    أرقامها في «الصرف حسب المنصة» والحملات؛ عضو عادي مابيشوفش أزرار الربط. RLS: المنصات الجديدة في الجداول، `mkt_secret_*` للسيرفر بس.
+74. **الوثائق:** CLAUDE.md ملحوظة 9.5.6، `tools/deploy.md` §2.7.30 (وخطوات تطبيق تيك توك وGoogle Ads API للمطوّر)، الدفتر.
+
+## المهام — 9.5.6 (بالتوالي)
+
+- **T31** الخطة (القرارات 67–74) + `0055_marketing_ads_platforms.sql` (المنصات في الجداول، `mkt_secret_get/set`، `cs_oauth_states.channel`) + `rls_marketing_ads_platforms.sql`.
+- **T32** الجزء الصافي `_shared/mkt-ads-tiktok.js` و`_shared/mkt-ads-google.js` + `linkFields` (فحص خانات كل منصة) + node.
+- **T33** `mkt-ads`: الأسرار من Vault، `link_set` / `link_start` / `link_callback` / `link_pick` / `unlink`، المزامنة لكل منصة، `status` بالمنصات، القرار على غير ميتا؛ Deno؛ `ads-callback.html` + `js/pages/ads-callback.js`.
+- **T34** `IBMarketing` (الحالة بالمنصات، الربط) + الـ mock + الصفحة (كارت الربط ببوب أب الأدمن، الأرقام لكل منصة) + الدومين (`adTotals` بـ linked) + e2e.
+- **T35** الوثائق + الحي (0055، rls live، نشر `mkt-ads`، main).

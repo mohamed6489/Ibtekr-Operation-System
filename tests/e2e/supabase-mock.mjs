@@ -24,6 +24,7 @@ import { parseWrite, parseStudio, parsePrompts, cleanWrite, cleanStudio, cleanPr
 import { parseGenerate, parseEdit, parseCreate, imageSettings, creditsFor, usdOf, studioPathOk, studioGenPath, studioEditPath, toolPath, renameInState, MODEL_IDS } from '../../supabase/functions/_shared/ai-images.js';
 import { hrState, hrRoute } from './hr-mock.mjs'; // phase 10 (0046): the HR tables, RPCs, team-admin and the bucket hr-docs
 import { mktState, mktRoute } from './mkt-mock.mjs'; // phase 9.5.1 (0049): the marketing tables, RPCs, the bucket marketing and its AI actions
+import { settingsState, settingsRoute } from './settings-mock.mjs'; // phase 11 (0056): the team RPCs, settings-admin / notify, company_docs, the buckets company-docs / settings, activity_log filters
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
 export const LIVE = process.env.E2E_SUPABASE_LIVE === '1';
 const LIVE_URL = process.env.E2E_SUPABASE_URL || ''; const LIVE_KEY = process.env.E2E_SUPABASE_ANON_KEY || '';
@@ -64,7 +65,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   // 0009 (products.permalink), 0010 (orders_v.customer_state: the governorate's code on the website; woo_states: its names),
   // 0011 (order_items.commission_rate / fee; the team's vendors columns; vendor_rates; vendor_bank)
   profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'created_at'],
-  roles: ['id', 'name', 'description', 'is_system', 'permissions', 'sort'],
+  roles: ['id', 'name', 'description', 'is_system', 'permissions', 'sort', 'hidden'], // 0056: hidden
   user_prefs: ['user_id', 'key', 'data', 'updated_at'],
   activity_log: ['id', 'at', 'actor', 'action', 'entity', 'entity_id', 'old_value', 'new_value'],
   alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at'],
@@ -390,6 +391,8 @@ export async function installSupabaseMock(page, opts = {}) {
   mock.hr = hrState(opts);
   // phase 9.5.1 (0049): the marketing rows (mkt-mock.mjs mktState: opts.mktCampaigns / mktPosts / mktTemplates / mktObjects / mktCap / mktUsed), mkt.calls / mkt.writes
   mock.mkt = mktState(opts);
+  // phase 11 (0056): the settings page's server side (settings-mock.mjs settingsState: opts.vault / companyDocs / settingsObjects / sessions / probeOk), st.calls / st.writes; the roles copy of this install
+  mock.st = settingsState(opts, ROLES); mock.roles = mock.st.roles;
   mock.accWrites = []; mock.accountsDown = false; mock.statements = []; mock.statementRows = opts.statementRows || [];
   let accSeq = 0;
   // brands / brandOwners / brandRates: the 0013 tables (ordersSeed(opts): opts.transfer seeds the temporary transfer); brandWrites: each
@@ -459,6 +462,7 @@ export async function installSupabaseMock(page, opts = {}) {
     const aal = () => (issued.has(bearer) ? claims(bearer).aal : null);
     { const hr = hrRoute({ method, path, url, hd, body, u: path.startsWith('/rest/v1/') && bearer !== ANON_KEY && !issued.has(bearer) ? null : tokenUser(), hasPerm, isAdmin, json, mock, route }); if (hr) return hr; } // phase 10 (0046)
     { const mk = mktRoute({ method, path, url, hd, body, u: path.startsWith('/rest/v1/') && bearer !== ANON_KEY && !issued.has(bearer) ? null : tokenUser(), hasPerm, isAdmin, json, mock, route }); if (mk) return mk; } // phase 9.5.1 (0049)
+    { const st = settingsRoute({ method, path, url, hd, body, u: path.startsWith('/rest/v1/') && bearer !== ANON_KEY && !issued.has(bearer) ? null : tokenUser(), hasPerm, isAdmin, json, mock, route }); if (st) return st; } // phase 11 (0056)
 
     if (path.startsWith('/auth/v1/')) {
       if (method === 'POST' && path === '/auth/v1/token') {
@@ -1152,7 +1156,7 @@ export async function installSupabaseMock(page, opts = {}) {
         const bad = cols.find((c) => c !== '*' && !COLUMNS[table[1]].includes(c));
         if (bad) return json(400, { code: '42703', details: null, hint: null, message: `column ${table[1]}.${bad} does not exist` });
         // RLS profiles_select: own row, or every row with has_perm('settings.view') <> 'N'; roles: everyone signed in.
-        const rows = table[1] === 'roles' ? ROLES : viewPerm(u) !== 'N' ? mock.profiles : mock.profiles.filter((x) => x.id === u.id);
+        const rows = table[1] === 'roles' ? (mock.roles || ROLES) : viewPerm(u) !== 'N' ? mock.profiles : mock.profiles.filter((x) => x.id === u.id);
         return json(200, cols.includes('*') ? rows : rows.map((r) => Object.fromEntries(cols.map((c) => [c, r[c] ?? null]))));
       }
       // «ملفي › تعديل بياناتي» (phase 10): RLS profiles_update (one's own row, or the admin) + profiles_guard_update (a non-admin: name /

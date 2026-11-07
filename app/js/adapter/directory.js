@@ -51,6 +51,7 @@
     if (window.IBTickets) quiet(() => window.IBTickets.clear()); // phase 8 (unsubscribes too)
     if (window.IBHR) quiet(() => window.IBHR.clear()); // phase 10 (unsubscribes too)
     if (window.IBMarketing) quiet(() => window.IBMarketing.clear()); // phase 9.5 (loaded by the marketing page; unsubscribes too)
+    if (window.IBSettings) quiet(() => window.IBSettings.clear()); // phase 11 (loaded by the settings page; the public part with the sign-in)
     if (A) { quiet(() => A.unsubscribe()); quiet(() => A.clear()); }
     if (L && L.clear) quiet(() => L.clear());
     if (Or) quiet(() => Or.clear()); // unsubscribes too

@@ -1524,3 +1524,48 @@ select at, action, new_value from public.activity_log where action like 'mkt.vid
 **الأمان:** رابط Magnific (`url`) مش ممنوح للأعضاء؛ التنزيل من host مسموح بس؛ الأعضاء مابيكتبوش `mkt_video_jobs`؛ كل فعل `marketing.create` F + ربط الجسر؛
 `ai_runs` صف لكل نداء بـ 0 كريدت (الـ throttle بتاع الصور نفسه)؛ `activity_log` من غير برومبت ولا نص فويس ولا رابط؛ مافيش أي نشر من غير مفتاح
 `autopublish` و`how = publish` اللي العضو اختاره.
+
+#### 2.7.30 تيك توك وجوجل إعلانات — الربط من السيستم، قراية بس (المرحلة 9.5.6، 7 نوفمبر)
+
+الخطة (قرارات 67–74) `docs/superpowers/plans/2026-11-06-phase-9-5-marketing.md`، والدفتر `.superpowers/sdd/2026-11-06-phase-9-5-marketing/progress.md`.
+
+**أ) الكود:** `0055_marketing_ads_platforms.sql` + `supabase/tests/rls_marketing_ads_platforms.sql` · الجزء الصافي `_shared/mkt-ads-link.js` (الخانات وفحصها والعرض الآمن)
+و`_shared/mkt-ads-tiktok.js` و`_shared/mkt-ads-google.js` · `mkt-ads` (الأسرار من Vault، `link_set` / `link_start` / `link_callback` / `link_pick` / `unlink`، المزامنة لكل منصة،
+`status` بالمنصات) · `app/ads-callback.html` + `js/pages/ads-callback.js` · `IBMarketing.adsLinkSet` / `adsLinkStart` / `adsLinkPick` / `adsUnlink` و`adsStatus.platforms` ·
+الصفحة (كارت «حالة الربط» ببوب أب الأدمن، الأرقام لكل منصة). **مافيش سر جديد في أسرار Supabase** — بيانات الربط كلها بتتكتب من الصفحة وتتحفظ في Vault.
+
+**ب) على Supabase (المطوّر — بالترتيب):**
+1. `0055` (MCP `apply_migration` مرة واحدة؛ لو وقف = الـ SQL كله لصاحب المشروع في الـ SQL editor): المنصات `meta | tiktok | google` في `mkt_ad_objects` /
+   `mkt_ad_stats` / `mkt_suggestions`، `mkt_secret_get` / `mkt_secret_set` (`service_role`)، و`cs_oauth_states.channel` بياخد `ads_tiktok` / `ads_google`.
+2. workflow «RLS live» بـ `files = rls_marketing_ads_platforms rls_marketing_ads rls_security_advisor`.
+3. «Deploy functions»: `mkt-ads`.
+4. الواجهة: push على `main`.
+5. **(اختياري) `ADS_REDIRECT_URL`** في أسرار Supabase لو الموقع على دومين تاني؛ الافتراضي `https://operation-system.ibtekr.club/ads-callback.html`.
+
+**ج) صاحب المشروع — تيك توك:** في TikTok for Business › Developer (business-api.tiktok.com) اعمل تطبيق Marketing API، وفي الـ Redirect URL حط رابط الرجوع اللي
+فوق، وخد الـ App ID والـ Secret → في السيستم «نظرة عامة › حالة الربط › تيك توك › اربط»: اكتبهم و«احفظ» ثم «اربط بحساب تيك توك» وسجّل بحساب الإعلانات → لو
+الحساب بيدير أكتر من Advertiser اختار بتاع إبتكر. (بديل: لو معاك Access Token من بوابة التطبيق اكتبه مع الـ Advertiser ID بالإيد و«احفظ».) التطبيق في وضع
+Sandbox/Test بيشوف حسابات الاختبار بس — لازم يكون Approved عشان يقرا الحساب الحقيقي.
+
+**د) صاحب المشروع — جوجل:** (1) Google Ads › حساب المدير (MCC) › الأدوات › API Center → Developer token (Test account access بيقرا حسابات تجريبية بس؛ اطلب
+Basic access عشان الحساب الحقيقي). (2) Google Cloud › APIs & Services › Credentials → OAuth client (Web application) ورابط الرجوع اللي فوق في Authorized redirect URIs،
+وفعّل Google Ads API. (3) في السيستم «جوجل › اربط»: الـ developer token والـ Client ID والـ Secret (و Login customer ID = رقم الـ MCC لو الحساب تحته) و«احفظ» ثم
+«اربط بحساب جوجل» ووافق (offline) → لو أكتر من Customer اختار حساب الإعلانات. الـ refresh token بيتحفظ مرة واحدة؛ لو جوجل مارجّعتش refresh token شيل التطبيق
+من حساب جوجل (myaccount.google.com › الأمان) واربط تاني.
+
+**التحقق:**
+```sql
+select platform, kind, id, name, status, meta ->> 'synced_at' as synced, meta ->> 'error' as err from public.mkt_ad_objects where kind = 'account';
+select platform, count(*), sum(spend) from public.mkt_ad_stats group by 1;                                 -- بعد أول مزامنة
+select name from vault.secrets where name like 'mkt_ads_%';                                                 -- الأسماء بس — القيم مشفّرة
+select has_function_privilege('authenticated', 'public.mkt_secret_get(text)', 'execute');                 -- false
+select state is not null, channel, used_at from public.cs_oauth_states where channel like 'ads_%' order by created_at desc limit 5;
+select at, action, entity_id, new_value from public.activity_log where action in ('mkt.ads.link', 'mkt.ads.sync') order by at desc limit 10; -- المنصة والخانات والأعداد بس
+```
+
+**إزاي بيشتغل:** الأدمن بيكتب بيانات المنصة في البوب أب → السيرفر بيحفظها في Vault (ومابيرجّعهاش — بيعرض آخر 4 حروف)؛ زرار الربط بيوديه لصفحة المنصة ويرجع
+على `ads-callback.html` اللي بتسلّم الكود للسيرفر؛ من ساعتها الـ cron (الدقيقة 23 كل ساعة) بيسحب أرقام كل منصة مربوطة لوحدها (آخر 3 أيام؛ أول مرة 90 يوم)،
+وفشل منصة بيتكتب على صف حسابها من غير ما يوقف الباقي. الأوردرات بتتربط بالحملة من `utm_campaign` بتاع ووكومرس (رقم الحملة على المنصة) زي ميتا.
+
+**الأمان:** الأسرار في Vault بس (لا ردود ولا logs)؛ `cs_oauth_states` للسيرفر؛ الـ redirect من السيرفر مش من المتصفح؛ أفعال الربط للأدمن؛ مافيش أي كتابة على
+تيك توك أو جوجل، والقرار على اقتراحاتهم بيتسجل بس.

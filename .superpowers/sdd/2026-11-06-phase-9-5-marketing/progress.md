@@ -160,3 +160,10 @@
   `mkt_schedule` بقاعدة الريل، anon مالوش execute)؛ «RLS live» `rls_marketing_video rls_marketing rls_security_advisor` ✓؛ «Deploy functions» `ai-images` v28 و`mkt-publish` v4
   و`ai-content` (التشغيلة الأولى اتلغت بالتزامن واتعادت ✓)؛ CI خضرا على 1f38954 بعد تثبيت اختبار المساعدين (إعادة الدخول بعد الخروج كانت بتتذبذب على الـ runner)؛ main = الفرع.
   **مستني صاحب المشروع:** ربط Magnific (لو مش مربوط) وأول فيديو تجريبي، وأول ريل على الصفحة الحقيقية بإيده (المفتاح `autopublish`).
+- 9.5.6 T31–T34 ✓ (7 نوفمبر): `0055` (المنصات في الجداول، `mkt_secret_get/set`، `cs_oauth_states.channel` للإعلانات) + `rls_marketing_ads_platforms`؛ الجزء الصافي
+  `_shared/mkt-ads-link.js` (الخانات لكل منصة، الفحص، العرض بآخر 4 حروف، `linkReady` / `oauthReady`) و`mkt-ads-tiktok.js` (v1.3: المسارات، الغلاف `{code,…}`،
+  الصفوف، التقرير باليوم) و`mkt-ads-google.js` (GAQL، الـ micros، الأكواد) — node 6؛ `mkt-ads` (الروابط من Vault مع سر ميتا كاحتياطي، `link_set` / `link_start` /
+  `link_callback` / `link_pick` / `unlink`، `runPlatform` لكل منصة مربوطة والمجموع فوق، `status.platforms`، القرار على غير ميتا بيتسجل بس) — Deno +4 (253)؛
+  `ads-callback.html`؛ الدومين (`AD_LINK_FIELDS` = السيرفر، `adTotals(…, linked)`، الحملات بمنصتها) والـ adapter (`platforms`، `adsLinkSet` / `adsLinkStart` /
+  `adsLinkPick` / `adsUnlink`) والـ mock (`mktLinks`، الربط بأسماء الخانات بس) والصفحة (كارت «حالة الربط» ببوب أب الأدمن وزرار OAuth و«فصل»، الأرقام لكل منصة،
+  «مش مربوطة» بدل «قريبًا»). node 600 / e2e 355 (+2 في `marketing-ads.spec`).

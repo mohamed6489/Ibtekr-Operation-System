@@ -328,8 +328,8 @@ Seedance 2.5 / 2.0، Kling 2.5، MiniMax H3 + فويس أوفر ElevenLabs + م�
 
 ## المهام — 9.5.6 (بالتوالي)
 
-- **T31** الخطة (القرارات 67–74) + `0055_marketing_ads_platforms.sql` (المنصات في الجداول، `mkt_secret_get/set`، `cs_oauth_states.channel`) + `rls_marketing_ads_platforms.sql`.
-- **T32** الجزء الصافي `_shared/mkt-ads-tiktok.js` و`_shared/mkt-ads-google.js` + `linkFields` (فحص خانات كل منصة) + node.
-- **T33** `mkt-ads`: الأسرار من Vault، `link_set` / `link_start` / `link_callback` / `link_pick` / `unlink`، المزامنة لكل منصة، `status` بالمنصات، القرار على غير ميتا؛ Deno؛ `ads-callback.html` + `js/pages/ads-callback.js`.
-- **T34** `IBMarketing` (الحالة بالمنصات، الربط) + الـ mock + الصفحة (كارت الربط ببوب أب الأدمن، الأرقام لكل منصة) + الدومين (`adTotals` بـ linked) + e2e.
-- **T35** الوثائق + الحي (0055، rls live، نشر `mkt-ads`، main).
+- **T31** ✓ الخطة (القرارات 67–74) + `0055_marketing_ads_platforms.sql` (المنصات في الجداول، `mkt_secret_get/set`، `cs_oauth_states.channel`) + `rls_marketing_ads_platforms.sql`.
+- **T32** ✓ الجزء الصافي `_shared/mkt-ads-tiktok.js` و`_shared/mkt-ads-google.js` + `linkFields` (فحص خانات كل منصة) + node.
+- **T33** ✓ `mkt-ads`: الأسرار من Vault، `link_set` / `link_start` / `link_callback` / `link_pick` / `unlink`، المزامنة لكل منصة، `status` بالمنصات، القرار على غير ميتا؛ Deno؛ `ads-callback.html` + `js/pages/ads-callback.js`.
+- **T34** ✓ `IBMarketing` (الحالة بالمنصات، الربط) + الـ mock + الصفحة (كارت الربط ببوب أب الأدمن، الأرقام لكل منصة) + الدومين (`adTotals` بـ linked) + e2e.
+- **T35** ✓ الوثائق + الحي (0055، rls live، نشر `mkt-ads`، main).

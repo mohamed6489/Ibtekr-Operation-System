@@ -167,3 +167,10 @@
   `ads-callback.html`؛ الدومين (`AD_LINK_FIELDS` = السيرفر، `adTotals(…, linked)`، الحملات بمنصتها) والـ adapter (`platforms`، `adsLinkSet` / `adsLinkStart` /
   `adsLinkPick` / `adsUnlink`) والـ mock (`mktLinks`، الربط بأسماء الخانات بس) والصفحة (كارت «حالة الربط» ببوب أب الأدمن وزرار OAuth و«فصل»، الأرقام لكل منصة،
   «مش مربوطة» بدل «قريبًا»). node 600 / e2e 355 (+2 في `marketing-ads.spec`).
+- 9.5.6 حي ✓ (7 نوفمبر): `0055` اتطبّق بالـ MCP (أول محاولة وقعت على `cs_oauth_states_channel_check` لأن صفوف `wa1` موجودة حي — اتضاف `'wa1'` للقايمة واتأكد إن مفيش حاجة اتطبّقت
+  قبلها، وبعدها مرة واحدة ونجحت): الـ checks بالمنصات التلاتة على `mkt_ad_objects` / `mkt_ad_stats` / `mkt_suggestions`، و`mkt_secret_get/set` مش متاحة لـ anon/authenticated.
+  `mkt-ads` اتنشرت بالـ workflow (run 71). الـ CI وقع 3 مرات على حاجات برّه الكود: semgrep شاف `ya29.…` التجريبي في `index_test.ts` كتوكن جوجل (اتغيّر)، و`marketing-ads.spec` /
+  `marketing-ai.spec` على سباقات الـ runner (goto بيتقطع بريلود الخروج؛ خانة الشات بتتبدل لما الاقتراحات توصل — بنكتب بعدها)، و`rls_marketing_ads` القديم كان زارع رقم حملة ميتا
+  حقيقي بقى موجود حي (الـ ids بقت `952…` والمجاميع على صفوف الاختبار بس). بعدها CI 708 ✓ و«RLS live» 36 ✓ (`rls_marketing_ads` + `rls_marketing_ads_platforms` + `rls_security_advisor`)
+  على `5d9d0c9` → `main` اتعمل fast-forward عليه. **الباقي على صاحب المشروع** (`tools/deploy.md` §2.7.30): تطبيق تيك توك Marketing API بـ redirect
+  `https://operation-system.ibtekr.club/ads-callback.html` → App ID + Secret في «حالة الربط» → «اربط»؛ وجوجل: developer token + OAuth client بنفس الـ redirect → «اربط».

@@ -87,10 +87,8 @@
   const pubOf = (p, pl, cn) => W.publishable(W.postKind(p), W.pieceImages(p), pl, cn, pieceText(p));
 
   // ---------- the page's state ----------
-  // 9.5.3: «نظرة عامة» and «التقارير» are on the ads numbers; the assistants stay «قريبًا»
-  const TABS = [['overview', 'نظرة عامة'], ['create', 'إنشاء'], ['publog', 'سجل النشر'], ['calendar', 'الخطة الإعلانية'], ['templates', 'قوالب التصميم'], ['ai', 'مساعدين الذكاء الاصطناعي', true], ['reports', 'التقارير']];
-  const SOON = { // decision 5: the tab that waits for the media buyer and the other assistants
-    ai: ['قريبًا — بعد ربط الإعلانات', 'الميديا باير (اقتراحات بموافقتك على أرقامك الحقيقية) والديزاينر والمبرمج هيشتغلوا هنا بعد ربط أرقام الإعلانات.'] };
+  // 9.5.3: «نظرة عامة» and «التقارير» are on the ads numbers; 9.5.4: the assistants (the media buyer, the designer, the developer) are open
+  const TABS = [['overview', 'نظرة عامة'], ['create', 'إنشاء'], ['publog', 'سجل النشر'], ['calendar', 'الخطة الإعلانية'], ['templates', 'قوالب التصميم'], ['ai', 'مساعدين الذكاء الاصطناعي'], ['reports', 'التقارير']];
   const CSTEPS = ['تفاصيل الكامبين', 'البناء', 'المراجعة', 'النشر والتحميل'];
   const st = { tab: 'create', view: 'hub', step: 1 };
   const blankCamp = () => ({ id: null, w: W.defaults(), pieces: [], sched: {}, rtab: 'post', tried1: false, pubSel: new Set(), busy: {} });
@@ -801,7 +799,6 @@
   const stOf = (s, ad) => { const x = AD_ST[s]; return x ? [x[ad ? 1 : 0], x[2]] : [s || '—', 'neutral']; };
   const SRC_NAME = { fb: 'فيسبوك', facebook: 'فيسبوك', ig: 'انستجرام', instagram: 'انستجرام', an: 'Audience Network', msg: 'ماسنجر', messenger: 'ماسنجر', th: 'ثريدز', threads: 'ثريدز', google: 'جوجل', tiktok: 'تيك توك' };
   const srcText = (m) => Object.entries(m || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) => (SRC_NAME[k] || k || 'من غير مصدر') + ' ' + K.n0(n)).join(' · ');
-  const ALERT_SHORT = { stop: 'وقّف؟', cpa: 'تكلفة عالية', track: 'راجع التتبع', scale: 'زوّد؟' };
   function adCalc(r, rg) {
     const today = TODAY(); const end = rg.to < today ? rg.to : today;
     const t = W.adTotals(r.stats, r.orders, rg, moneyOk()); const camps = W.adCampaignRows(r.objects, r.stats, r.orders, rg);
@@ -839,19 +836,6 @@
         details: det('الربح بعد الإعلانات', ['البند', 'ج.م'], [['نصيب إبتكر من أوردرات إعلانات ميتا', n2(t.metaShare)], ['الصرف الإعلاني', '− ' + n2(t.spend)]], ['الربح', n2(t.profit)]) })].filter(Boolean);
     return h('div', { class: 'cards ' + (tiles.length === 5 ? 'five' : 'four'), 'data-rgroup': 'kpis', 'data-ads-kpis': String(tiles.length) }, tiles);
   }
-  function alertDetail(a, c) {
-    const camp = c.camps.find((x) => x.id === a.campaign);
-    const m = U.Modal({ title: a.title, body: [K.Kv([['الحملة', camp ? camp.name : '#' + a.campaign], ['الأرقام', a.sub], ['السبب', a.why]]),
-      U.InlineNote({ children: 'السيستم مابيغيّرش حاجة في الإعلانات — لو موافق، اعمل التغيير من مدير إعلانات ميتا. الميديا باير اللي بينفّذ بموافقتك مرحلة جاية.' })],
-      footer: [camp ? Button({ label: 'تفاصيل الحملة يوم بيوم', attrs: { 'data-ads-alert-camp': '' }, onClick: () => { m.close(); campDetail(camp); } }) : null, Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })].filter(Boolean) });
-    m.el.dataset.adsAlert = a.key; return m;
-  }
-  function alertsCard(c) {
-    const L = c.alerts; const X = W.ADS_RULES;
-    const item = (a) => h('button', { type: 'button', class: 'mk-item', 'data-ads-alert': a.key, onClick: () => alertDetail(a, c) }, h('span', { class: 'mk-ic tone-' + a.tone }, Icon(a.icon, 'sm')), h('span', { class: 'mk-txt' }, h('b', null, a.title), h('small', null, U.num(a.sub))), h('span', { class: 't-small help mk-tag' }, 'ميتا'));
-    return Card('تنبيهات الميديا باير', 'قواعد ثابتة على أرقامك الحقيقية — من غير تنفيذ: التغيير من مدير إعلانات ميتا', [L.length ? h('div', { class: 'mk-list', 'data-ads-alerts': String(L.length) }, L.map(item)) : K.Empty('مفيش تنبيهات', 'الحملات في الحدود في الفترة دي.'),
-      h('p', { class: 't-small help', style: 'margin:0' }, U.num('القواعد: وقّف؟ صرف ' + K.n0(X.stopSpend) + ' ج.م في آخر ' + X.stopDays + ' أيام من غير أوردر · تكلفة الأوردر فوق ' + K.n0(X.maxCpa) + ' ج.م · زوّد؟ عائد ' + X.scaleMer + '× و' + X.scaleOrders + ' أوردرات · راجع التتبع لو ميتا بتقول ضعف أوردرات ووكومرس'))]);
-  }
   function adsConnCard(s, c) {
     const meta = !s ? ['ميتا — بيتحمّل…', 'حالة الربط بتتقري', 'neutral', 'clock']
       : !s.configured ? ['ميتا — مش مربوطة', 'مفتاح القراية وحساب الإعلانات بيتحطوا في أسرار السيرفر (الأدمن)', 'neutral', 'clock']
@@ -882,8 +866,15 @@
       h('p', { class: 't-small help', style: 'margin:0' }, 'الفرق = (أوردرات ووكومرس − مشتريات المنصة) ÷ مشتريات المنصة · العائد الحقيقي = مبيعات ووكومرس من المنصة ÷ صرفها')]);
   }
   function asstCards() {
-    return h('div', { class: 'grid3', 'data-ads-assistants': '' }, [['الميديا باير', 'تقرير يومي واقتراحات على أرقامك الحقيقية — بموافقتك'], ['الديزاينر', 'بوستات وفيديوهات بالبراند على Magnific'], ['المبرمج', 'صفحات الموقع وتطوير السيستم — Staging الأول']]
-      .map(([t, s]) => Card(t, s, [h('p', { class: 't-small help', style: 'margin:0' }, 'من «مساعدين الذكاء الاصطناعي» — قريبًا.')], soonTag())));
+    byLoad(false); const pend = byPending(); const r = BY.rules; const reqs = BY.reqs || [];
+    const kinds = (L) => { const c = {}; L.forEach((x) => { c[x.kind] = (c[x.kind] || 0) + 1; }); return Object.entries(c).map(([k, n]) => K.n0(n) + ' ' + (SG_UI[k] || SG_UI.tracking)[2]).join(' · ') || 'مفيش حاجة مستنية'; };
+    const reqRows = (kind) => { const L = reqs.filter((q) => q.kind === kind && q.status !== 'خلص'); return L.length ? L.slice(0, 3).map((q) => [q.title, q.status + (q.project ? ' · ' + q.project : ''), 'طلب', REQ_ST[q.status] || 'neutral']) : [['مفيش طلبات مفتوحة', kind === 'designer' ? 'اطلب بوست أو فيديو' : 'اطلب صفحة أو تعديل', 'طلب', 'neutral']]; };
+    const asst = (title, sub, items, label, onClick) => Card(title, sub, [h('div', { class: 'mk-list' }, items.map(([t, x, tag, tone]) => h('div', { class: 'mk-item' }, h('span', { class: 'mk-ic tone-' + tone }, Icon(tone === 'success' ? 'users' : 'clock', 'sm')), h('span', { class: 'mk-txt' }, h('b', null, t), h('small', null, U.num(x))), h('span', { class: 't-small help mk-tag' }, tag))))], Button({ type: 'text', size: 'sm', label, onClick }));
+    return h('div', { class: 'grid3', 'data-ads-assistants': BY.sugg ? 'live' : 'loading' },
+      asst('الميديا باير', 'تقرير يومي · اقتراحات بموافقتك · حدود صرف', [[K.n0(pend.length) + ' اقتراح مستني موافقتك', kinds(pend), 'اقتراحات', pend.length ? 'orange' : 'success'], ['حد الصرف اليومي: ' + (r ? K.n0(r.dailyCap) + ' ج.م' : '…'), 'أي زيادة فوقه بتترفض', 'قاعدة', 'success'],
+        ['التنفيذ على ميتا: ' + (r ? (r.live ? 'شغّال' : 'متوقف') : '…'), r && r.live ? 'الموافقة بتتنفّذ فورًا' : 'الموافقة بتتسجل من غير تغيير', 'مفتاح', r && r.live ? 'success' : 'neutral']], 'افتح الميديا باير', () => { BY.aiTab = 'buyer'; go('marketing-ai'); }),
+      asst('الديزاينر', 'بوستات وفيديوهات بالبراند · Magnific', reqRows('designer'), can().create ? '+ طلب للديزاينر' : 'افتح الديزاينر', () => { if (can().create) reqForm('designer'); else { BY.aiTab = 'designer'; go('marketing-ai'); } }),
+      asst('المبرمج', 'صفحات الموقع وتطوير مشاريع إبتكر · Staging الأول', reqRows('dev'), can().create ? '+ طلب للمبرمج' : 'افتح المبرمج', () => { if (can().create) reqForm('dev'); else { BY.aiTab = 'dev'; go('marketing-ai'); } }));
   }
   function campDetail(x) {
     U.DetailsModal({ title: x.name + ' — ميتا', sub: 'الحالة: ' + stOf(x.status)[0] + ' · ' + K.n0(x.days.length) + ' يوم فيه صرف أو أوردرات' + (srcText(x.sources) ? ' · الأوردرات: ' + srcText(x.sources) : ''),
@@ -891,17 +882,17 @@
       headers: ['اليوم', 'الصرف (ج.م)', 'مشتريات ميتا', 'أوردرات ووكومرس'], rows: x.days.slice().reverse().map((d) => [W.DAYS[W.dayIdx(d.day)] + ' ' + D2(d.day).slice(0, 5), n2(d.spend), K.n0(d.purchases), K.n0(d.orders)]),
       total: ['الإجمالي', n2(x.spend), K.n0(x.purchases), K.n0(x.orders)], source: 'Meta Ads (رقم الحملة ' + x.id + ') + أوردرات ووكومرس اللي الـ utm_campaign بتاعها نفس الرقم' });
   }
-  const CAMP_H = ['الحملة', 'المنصة', 'الحالة', 'الصرف (ج.م)', 'مشتريات ميتا', 'أوردرات ووكومرس', 'العائد الحقيقي', 'تكلفة الأوردر', 'التنبيه'];
+  const CAMP_H = ['الحملة', 'المنصة', 'الحالة', 'الصرف (ج.م)', 'مشتريات ميتا', 'أوردرات ووكومرس', 'العائد الحقيقي', 'تكلفة الأوردر', 'القرار المقترح'];
   function campTable(c, list) {
-    const al = {}; c.alerts.forEach((a) => { (al[a.campaign] = al[a.campaign] || []).push(a); });
+    byLoad(false); const sg = {}; byPending().forEach((x) => { (sg[x.campaign_id] = sg[x.campaign_id] || []).push(x); });
     const tot = list.reduce((a, x) => ({ spend: a.spend + x.spend, purchases: a.purchases + x.purchases, orders: a.orders + x.orders, sales: a.sales + x.sales }), { spend: 0, purchases: 0, orders: 0, sales: 0 });
-    const rows = list.map((x) => { const [sl, tone] = stOf(x.status); const A = al[x.id] || [];
+    const rows = list.map((x) => { const [sl, tone] = stOf(x.status); const S = sg[x.id] || [];
       return [h('button', { type: 'button', class: 'link-btn', 'data-ads-camp': x.id, onClick: () => campDetail(x) }, x.name), x.platform, Tag(tone, sl), K.Num(n2(x.spend)), K.Num(K.n0(x.purchases)), U.num(K.n0(x.orders) + (x.cancelled ? ' (+' + K.n0(x.cancelled) + ' اتلغى)' : '')),
-        K.Num(W.xr(x.mer)), K.Num(x.cpa == null ? '—' : K.n0(x.cpa)), A.length ? h('button', { type: 'button', class: 'tg tg-' + A[0].tone + ' tg-btn', 'data-ads-camp-alert': A[0].key, onClick: () => alertDetail(A[0], c) }, ALERT_SHORT[A[0].key.split(':')[0]], A.length > 1 ? [' ', U.num('+' + (A.length - 1))] : null) : '—']; });
+        K.Num(W.xr(x.mer)), K.Num(x.cpa == null ? '—' : K.n0(x.cpa)), S.length ? h('button', { type: 'button', class: 'tg tg-' + (SG_UI[S[0].kind] || SG_UI.tracking)[1] + ' tg-btn', 'data-mk-camp-sugg': String(S[0].id), onClick: () => openSugg(S[0]) }, U.num(sgShort(S[0])), S.length > 1 ? [' ', U.num('+' + (S.length - 1))] : null) : '—']; });
     return Card('الحملات — ' + K.n0(list.length), 'أرقام ميتا جنب أوردرات ووكومرس الحقيقية من نفس الحملة (utm_campaign) · ' + perLabel(c.rg), [
       list.length ? U.Table({ cls: 'dt ads-camps', headers: CAMP_H, rows, totalRow: ['الإجمالي', '', '', K.Num(n2(tot.spend)), K.Num(K.n0(tot.purchases)), K.Num(K.n0(tot.orders)), K.Num(W.xr(tot.spend ? tot.sales / tot.spend : null)), K.Num(tot.orders ? K.n0(tot.spend / tot.orders) : '—'), ''] })
         : K.Empty(c.camps.length ? 'مفيش حملات بالفلاتر دي' : 'مفيش حملات في الفترة دي', c.camps.length ? 'غيّر الفلاتر أو امسحها.' : 'مفيش صرف ولا أوردرات من حملات ميتا ' + perLabel(c.rg) + ' — غيّر الفترة من فوق.'),
-      h('p', { class: 't-small help', style: 'margin:0' }, 'الضغط على حملة بيفتح أيامها (الصرف · مشتريات ميتا · الأوردرات الحقيقية) · التنبيه من قواعد الميديا باير ومن غير تنفيذ' + (c.loose ? ' · ' + K.n0(c.loose) + ' أوردر من إعلانات ميتا من غير رقم حملة في الـ UTM (محسوبين في «نظرة عامة» بس)' : ''))]);
+      h('p', { class: 't-small help', style: 'margin:0' }, 'الضغط على حملة بيفتح أيامها (الصرف · مشتريات ميتا · الأوردرات الحقيقية) · القرار المقترح من الميديا باير (بيتجدد مع كل مزامنة) ومحتاج موافقة الأدمن' + (c.loose ? ' · ' + K.n0(c.loose) + ' أوردر من إعلانات ميتا من غير رقم حملة في الـ UTM (محسوبين في «نظرة عامة» بس)' : ''))]);
   }
   function crDetail(x, c) {
     const fq = x.frequency == null ? '—' : x.frequency.toFixed(2);
@@ -924,7 +915,7 @@
     const rg = adRange(); const s = adsState(null); adsLoad(rg, redrawAds);
     const gate = adsGate(rg, redrawAds); if (gate) return [adsBar(s, redrawAds)].concat(gate);
     const c = adCalc(AD.r, rg);
-    return [adsBar(s, redrawAds), adsNote(s), adKpis(c), h('div', { class: 'mk-row' }, alertsCard(c), adsConnCard(s, c)), h('div', { class: 'charts', 'data-rgroup': 'charts' }, merChart(c), spendChart(c)), vsCard(c), asstCards(), adsSource()].filter(Boolean);
+    return [adsBar(s, redrawAds), adsNote(s), adKpis(c), h('div', { class: 'mk-row' }, suggCard(), adsConnCard(s, c)), h('div', { class: 'charts', 'data-rgroup': 'charts' }, merChart(c), spendChart(c)), vsCard(c), asstCards(), adsSource()].filter(Boolean);
   }
   function reportsTab() {
     const rg = adRange(); const s = adsState(null); adsLoad(rg, redrawAds);
@@ -952,23 +943,162 @@
     return { exp, blocks: [adsNote(s), adKpis(c), h('div', { class: 'charts', 'data-rgroup': 'charts' }, merChart(c), spendChart(c)), vsCard(c), campTable(c, c.camps), crTable(c), adsSource()].filter(Boolean) };
   }
 
+  // ---------- 9.5.4: the assistants — the media buyer with approved execution, the designer's and the developer's requests ----------
+  // the server writes the suggestions after each sync; the admin decides here (the switch off = the decision is recorded only);
+  // the chat is text only — nothing runs from it
+  const BY = { at: 0, busy: false, sugg: null, rules: null, reqs: null, chat: [], asking: false, aiTab: 'buyer' };
+  const BY_MS = 60000;
+  function byLoad(force) {
+    if (!MK() || !can().view || BY.busy || (!force && BY.at && Date.now() - BY.at < BY_MS)) return;
+    BY.busy = true;
+    Promise.all([MK().suggestions(force), MK().rules(force), MK().requests(force)]).then(([a, b, c]) => {
+      if (a.ok) BY.sugg = a.items; else if (!BY.sugg) BY.sugg = [];
+      if (b.ok) BY.rules = b.rules;
+      if (c.ok) BY.reqs = c.items; else if (!BY.reqs) BY.reqs = [];
+      BY.at = Date.now(); BY.busy = false;
+      if (window.IBPages.current === 'marketing' && st.view === 'hub' && !document.querySelector('.scrim')) R();
+    }).catch(() => { BY.busy = false; });
+  }
+  const byPending = () => (BY.sugg || []).filter((x) => x.status === 'pending');
+  const hm = () => { const d = new Date(); return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); };
+  const meName = () => { const D = window.IBDirectory; const m = D && D.me && D.me(); return (m && m.name) || 'أنا'; };
+  const SG_UI = { stop: ['alert', 'error', 'وقّف'], budget_down: ['clock', 'orange', 'قلّل'], budget_up: ['users', 'success', 'زوّد'], creative: ['clock', 'orange', 'نسخة جديدة'], tracking: ['clock', 'gold', 'راجع التتبع'] };
+  const SG_ST = { pending: ['مستني موافقتك', 'orange'], approved: ['اتوافق — من غير تنفيذ', 'gold'], edited: ['اتوافق بتعديل — من غير تنفيذ', 'gold'], rejected: ['اترفض', 'neutral'], done: ['اتنفّذ', 'success'], failed: ['فشل', 'error'], expired: ['مابقاش قائم', 'neutral'] };
+  const DECIDE_WHY = { step: 'الخطوة أكبر من 30%', cap: 'كان هيعدّي السقف اليومي', no_daily_budget: 'الحملة مالهاش ميزانية يومية', failed: 'ميتا ماردتش' };
+  const sgShort = (x) => { const u = SG_UI[x.kind] || SG_UI.tracking; return x.kind === 'budget_down' || x.kind === 'budget_up' ? u[2] + ' ' + Math.abs(x.pct || 0) + '%' : u[2]; };
+  const sgItem = (x, onClick) => { const u = SG_UI[x.kind] || SG_UI.tracking;
+    return h('button', { type: 'button', class: 'mk-item', 'data-mk-sugg': String(x.id), onClick }, h('span', { class: 'mk-ic tone-' + u[1] }, Icon(u[0], 'sm')), h('span', { class: 'mk-txt' }, h('b', null, x.title), h('small', null, U.num(x.sub || x.impact || ''))), h('span', { class: 't-small help mk-tag' }, 'ميتا')); };
+  const decidedLine = (x) => { const why = x.error ? (DECIDE_WHY[x.error] || (MK() && MK().adsWhy(x.error)) || x.error) : '';
+    return [x.decidedAt ? D2(String(x.decidedAt).slice(0, 10)) : '', x.value != null ? 'بنسبة ' + Math.abs(x.value) + '%' : '', x.note || '', why, x.result && x.result.after != null ? 'الميزانية بقت ' + K.n0(x.result.after) + ' ج.م/يوم' : '', x.result && x.result.request ? 'اتبعت للديزاينر' : ''].filter(Boolean).join(' · '); };
+  function openSugg(x) {
+    const live = !!(BY.rules && BY.rules.live); const money = x.kind === 'stop' || x.kind === 'budget_down' || x.kind === 'budget_up'; const budget = x.kind === 'budget_down' || x.kind === 'budget_up';
+    const [sl, tone] = SG_ST[x.status] || SG_ST.pending;
+    const rows = [['المنصة', 'ميتا'], ['الحملة', x.campaign_name || '#' + x.campaign_id], x.ad_id ? ['الإعلان', '#' + x.ad_id] : null, ['الأرقام', U.num(x.sub || '—')], ['السبب', U.num(x.why || '—')], ['الأثر المتوقع', U.num(x.impact || '—')],
+      ['الحالة', Tag(tone, sl)], x.status !== 'pending' ? ['القرار', U.num(decidedLine(x) || '—')] : null];
+    const note = x.status !== 'pending' ? null : !isAdmin() ? U.InlineNote({ children: 'القرار للأدمن — هو اللي بيوافق أو يرفض، وكل قرار بيتسجل في سجل النشاط.' })
+      : money && !live ? U.InlineNote({ kind: 'warning', children: 'مفتاح التنفيذ على ميتا مقفول: الموافقة بتتسجل من غير أي تغيير على الحملة. بتفتحه من «القواعد والحدود».' })
+      : U.InlineNote({ children: money ? (x.kind === 'stop' ? 'الموافقة بتوقف الحملة على ميتا فورًا' : 'الموافقة بتغيّر الميزانية اليومية على ميتا فورًا (الخطوة لحد 30% وجوه السقف اليومي)') + ' وبتتسجل في سجل النشاط.' : x.kind === 'creative' ? 'الموافقة بتفتح طلب للديزاينر بنسخة جديدة من الإعلان — مفيش تغيير على ميتا.' : 'الموافقة = اتراجع التتبع؛ مفيش تغيير على ميتا.' });
+    const m = U.Modal({ title: x.title, body: [K.Kv(rows), note], footer: [] }); m.el.dataset.mkSugg = String(x.id);
+    const run = async (decision, extra) => { const r = await MK().decide(x.id, decision, extra); K.toast(r.ok ? r.message : r.message || 'تعذّر — جرّب تاني', r.ok ? 'success' : 'error'); byLoad(true); R(); };
+    const foot = [Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })];
+    if (x.status === 'pending' && isAdmin()) {
+      foot.unshift(Button({ label: 'ارفض', attrs: { 'data-mk-reject': '' }, onClick: () => { m.close(); K.form({ title: 'رفض: ' + x.title, values: { note: '' }, fields: (f, e, set) => [K.field.area('note', 'السبب (اختياري)', f, e, set, { placeholder: 'مثال: الحملة لسه جديدة' })], submitLabel: 'ارفض الاقتراح', submitType: 'danger', submit: (f) => { run('reject', { note: f.note }); } }); } }));
+      if (budget) { const up = (x.pct || 0) > 0;
+        foot.unshift(Button({ label: 'عدّل', attrs: { 'data-mk-edit': '' }, onClick: () => { m.close(); K.form({ title: 'تعديل: ' + x.title, values: { v: String(Math.abs(x.pct || 0)), note: '' },
+          fields: (f, e, set) => [K.field.text('v', (up ? 'نسبة الزيادة' : 'نسبة التقليل') + ' % — لحد 30', f, e, set, { required: true, placeholder: 'مثال: 15' }), K.field.area('note', 'ملاحظة (اختياري)', f, e, set)],
+          validate: (f) => { const n = Number(f.v); return Number.isInteger(n) && n > 0 && n <= 30 ? {} : { v: 'رقم صحيح من 1 لـ 30' }; }, submitLabel: live ? 'وافق بالتعديل ونفّذ' : 'وافق بالتعديل', submit: (f) => { run('edit', { value: (up ? 1 : -1) * Number(f.v), note: f.note }); } }); } })); }
+      foot.unshift(Button({ type: 'primary', label: money ? (live ? 'وافق ونفّذ' : 'وافق') : x.kind === 'creative' ? 'وافق واطلب من الديزاينر' : 'اتراجع', attrs: { 'data-mk-approve': '' }, onClick: () => { m.close();
+        if (money && live) K.confirm({ title: 'تنفّذ على ميتا؟', text: U.num(x.title + ' — ' + (x.kind === 'stop' ? 'الحملة هتتوقف على ميتا دلوقتي.' : 'الميزانية اليومية هتتغيّر على ميتا دلوقتي بنسبة ' + Math.abs(x.pct || 0) + '%.')), okLabel: 'أيوه، نفّذ', okType: x.kind === 'stop' ? 'danger' : 'primary', onOk: () => run('approve') });
+        else run('approve'); } }));
+    }
+    m.setFooter(...foot); return m;
+  }
+  // the rules and limits (the v5 card): the admin edits a rule by pressing it; the execution switch beside them
+  function rulesCard() {
+    const r = BY.rules; if (!r) return Card('القواعد والحدود', 'بتتحمّل…', [K.Empty('لحظة واحدة', '')]);
+    const rows = [['حد الصرف اليومي', K.n0(r.dailyCap) + ' ج.م لكل الحساب · أي زيادة فوقه بتترفض', 'حد', 'dailyCap', 'success'], ['الحد المقبول لتكلفة الأوردر', K.n0(r.maxCpa) + ' ج.م (حقيقي من ووكومرس)', 'هدف', 'maxCpa', 'success'],
+      ['وقف تلقائي', 'حملة صرفت ' + K.n0(r.autoStop) + ' ج.م في 5 أيام من غير أوردر ← ' + (r.autoStopMode === 'auto' ? 'تتوقف لوحدها ويبلّغك' : 'اقتراح بموافقتك'), 'قاعدة', 'autoStop', 'orange'], ['تقرير يومي', 'الساعة ' + String(r.reportHour).padStart(2, '0') + ':00 بتوقيت القاهرة على الجرس', 'تقرير', 'reportHour', 'success']];
+    const items = rows.map(([t, sub, tag, key, tone]) => h(isAdmin() ? 'button' : 'div', Object.assign({ class: 'mk-item', 'data-mk-rule': key }, isAdmin() ? { type: 'button', onClick: () => editRule(key) } : {}),
+      h('span', { class: 'mk-ic tone-' + tone }, Icon(tone === 'orange' ? 'clock' : 'users', 'sm')), h('span', { class: 'mk-txt' }, h('b', null, t), h('small', null, U.num(sub))), h('span', { class: 't-small help mk-tag' }, tag)));
+    const sw = h('div', { class: 'mk-auto', 'data-mk-live': r.live ? 'on' : 'off' }, Tag(r.live ? 'success' : 'neutral', r.live ? 'التنفيذ على ميتا شغّال' : 'التنفيذ على ميتا متوقف'),
+      h('span', { class: 't-small help' }, r.live ? 'الموافقة على اقتراح بتتنفّذ على حساب الإعلانات فورًا — بموافقتك بس' : 'وهو متوقف الموافقة بتتسجل من غير أي تغيير على ميتا'),
+      isAdmin() ? Button({ size: 'sm', type: r.live ? 'default' : 'primary', label: r.live ? 'وقّف التنفيذ' : 'شغّل التنفيذ', attrs: { 'data-mk-live-toggle': '' }, onClick: () => toggleLive(!r.live) }) : null);
+    return Card('القواعد والحدود', 'الميديا باير مايعملش حاجة لوحده برّه القواعد دي' + (isAdmin() ? ' · اضغط على قاعدة تعدّلها' : ''), [h('div', { class: 'mk-list' }, items), sw]);
+  }
+  function toggleLive(on) {
+    K.confirm({ title: on ? 'تشغّل التنفيذ على ميتا؟' : 'توقّف التنفيذ على ميتا؟', okLabel: on ? 'شغّل التنفيذ' : 'وقّف التنفيذ', okType: on ? 'primary' : 'danger',
+      text: on ? 'لما توافق على اقتراح (وقف حملة أو تغيير ميزانية) هيتنفّذ على حساب الإعلانات فورًا. مفيش حاجة بتتنفّذ من غير موافقتك، والخطوة لحد 30% والسقف اليومي محفوظ.' : 'الموافقات هتتسجل من غير تنفيذ لحد ما تشغّله تاني.',
+      onOk: async () => { const r = await MK().setLive(on); K.toast(r.ok ? (on ? 'التنفيذ على ميتا اشتغل' : 'التنفيذ على ميتا وقف') : r.message, r.ok ? 'success' : 'error'); if (r.ok) BY.rules = r.rules; R(); } });
+  }
+  function editRule(key) {
+    const r = BY.rules; const min = key === 'maxCpa' ? 1 : 100;
+    const L = { dailyCap: ['حد الصرف اليومي (ج.م)', 'مجموع الميزانيات اليومية الشغالة في الحساب بعد أي زيادة مايعدّيش الرقم ده'], maxCpa: ['الحد المقبول لتكلفة الأوردر (ج.م)', 'أعلى منه = اقتراح بتقليل الميزانية 30%'], autoStop: ['وقف تلقائي بعد صرف (ج.م)', 'في 5 أيام من غير ولا أوردر في ووكومرس'], reportHour: ['ساعة التقرير اليومي', 'من 0 لـ 23 بتوقيت القاهرة'] }[key];
+    K.form({ title: 'تعديل: ' + L[0], values: { v: String(r[key]), mode: r.autoStopMode }, submitLabel: 'احفظ القاعدة',
+      fields: (f, e, set) => [K.field.text('v', L[0], f, e, set, { required: true, help: L[1] }), key === 'autoStop' ? K.field.select('mode', 'لما القاعدة تتحقق', [{ value: 'suggest', label: 'اقتراح بموافقتي' }, { value: 'auto', label: 'توقف لوحدها وتبلّغني (لما التنفيذ شغّال)' }], f, e, set) : null].filter(Boolean),
+      validate: (f) => { const n = Number(f.v); const ok = key === 'reportHour' ? Number.isInteger(n) && n >= 0 && n <= 23 : Number.isFinite(n) && n >= min; return ok ? {} : { v: key === 'reportHour' ? 'ساعة من 0 لـ 23' : 'رقم مش أقل من ' + min }; },
+      submit: (f) => { const patch = { [key]: Number(f.v) }; if (key === 'autoStop') patch.autoStopMode = f.mode; MK().rulesSet(patch).then((x) => { K.toast(x.ok ? 'اتحفظت القاعدة' : x.message, x.ok ? 'success' : 'error'); if (x.ok) BY.rules = x.rules; R(); }); } });
+  }
+  // the chat (session memory only): the question + the last 6 turns go to the server; nothing is executed from here
+  function buyerChat() {
+    const msgs = h('div', { class: 'mk-chat', 'data-mk-chat': String(BY.chat.length), 'aria-live': 'polite' },
+      BY.chat.length ? BY.chat.map((m) => h('div', { class: 'mk-msg ' + m.who }, h('p', null, m.text), h('small', { class: 'help' }, m.who === 'user' ? meName() + ' · ' + m.at : m.at)))
+        : h('div', { class: 'mk-msg ai' }, h('p', null, 'أنا الميديا باير. بقرا أرقام ميتا بتاعة آخر 7 أيام جنب أوردرات ووكومرس الحقيقية وبقترح — والتنفيذ بموافقتك من «مستني موافقتك». اسألني عن حملة أو العائد أو تكلفة الأوردر.'), h('small', { class: 'help' }, 'الأرقام من آخر مزامنة')),
+      BY.asking ? h('div', { class: 'mk-msg ai', 'data-mk-thinking': '' }, h('p', null, 'بيفكر…')) : null);
+    const send = async (txt) => { const q = String(txt || '').trim(); if (!q || BY.asking) return;
+      const hist = BY.chat.slice(-6).map((m) => ({ role: m.who === 'user' ? 'user' : 'assistant', text: m.text }));
+      BY.chat.push({ who: 'user', text: q, at: hm() }); BY.asking = true; R();
+      const r = await MK().buyerChat(q, hist); BY.asking = false;
+      if (r.ok) BY.chat.push({ who: 'ai', text: r.text, at: hm() }); else { BY.chat.pop(); K.toast(r.message, 'error'); }
+      if (window.IBPages.current === 'marketing') R(); };
+    const inp = h('input', { type: 'text', class: 'input grow', id: 'mk-ask', placeholder: 'اسأل الميديا باير عن أرقامك…', 'aria-label': 'رسالة للميديا باير', maxlength: '1000', onKeydown: (e) => { if (e.key === 'Enter') send(inp.value); } });
+    return Card('الميديا باير', 'بيقرا أرقام ميتا + أوردرات ووكومرس · بيقترح وانت توافق — مابينفّذش حاجة من الشات', [msgs,
+      h('div', { class: 'mk-ask' }, inp, Button({ type: 'primary', label: 'اسأل', attrs: { 'data-mk-ask': '' }, disabled: BY.asking, onClick: () => send(inp.value) })),
+      h('div', { class: 'chips' }, h('span', { class: 't-small help' }, 'اقتراحات سريعة:'), ['حلل آخر 7 أيام', 'إيه أحسن حملة؟', 'قارن ميتا بووكومرس', 'اعمل حملة لمنتج'].map((x) => h('button', { type: 'button', class: 'chip', onClick: () => (x === 'اعمل حملة لمنتج' ? go('marketing-campaign-1') : send(x)) }, x)))], null, 'mk-wide');
+  }
+  // the designer's and the developer's requests
+  const REQ_ST = { 'جديد': 'orange', 'بيتعمل': 'gold', 'جاهز للمراجعة': 'success', 'خلص': 'neutral' };
+  const reqItem = (q) => h('button', { type: 'button', class: 'mk-item', 'data-mk-req': String(q.id), onClick: () => openReq(q) }, h('span', { class: 'mk-ic tone-' + (REQ_ST[q.status] || 'neutral') }, Icon(q.status === 'جاهز للمراجعة' ? 'users' : 'clock', 'sm')),
+    h('span', { class: 'mk-txt' }, h('b', null, q.title), h('small', null, U.num([q.project, q.by, q.createdAt ? D2(String(q.createdAt).slice(0, 10)) : ''].filter(Boolean).join(' · ')))), Tag(REQ_ST[q.status] || 'neutral', q.status));
+  function openReq(q) {
+    const canEdit = isAdmin() || (q.mine && q.status === 'جديد' && can().create);
+    const m = U.Modal({ title: q.title, body: [K.Kv([['النوع', q.kind === 'dev' ? 'المبرمج' : 'الديزاينر'], ['المشروع', q.project || '—'], ['التفاصيل', q.details ? h('span', { style: 'white-space:pre-wrap' }, q.details) : '—'], ['الحالة', Tag(REQ_ST[q.status] || 'neutral', q.status)],
+      ['طلبها', (q.by || '—') + (q.createdAt ? ' · ' + D2(String(q.createdAt).slice(0, 10)) : '')], q.doneAt ? ['خلصت', D2(String(q.doneAt).slice(0, 10))] : null])], footer: [] }); m.el.dataset.mkReq = String(q.id);
+    const foot = [Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })];
+    if (isAdmin()) foot.unshift(U.Select({ id: 'mk-req-st', label: '', options: Object.keys(REQ_ST).map((x) => ({ value: x, label: 'الحالة: ' + x })), value: q.status, onChange: async (v) => { if (v === q.status) return; const r = await MK().setRequestStatus(q.id, v); K.toast(r.ok ? 'اتغيّرت الحالة' : r.message, r.ok ? 'success' : 'error'); m.close(); byLoad(true); R(); } }));
+    if (canEdit) foot.unshift(Button({ label: 'عدّل', attrs: { 'data-mk-req-edit': '' }, onClick: () => { m.close(); reqForm(q.kind, q); } }));
+    m.setFooter(...foot); return m;
+  }
+  function reqForm(kind, q) {
+    const isD = kind === 'designer';
+    K.form({ title: q ? 'تعديل: ' + q.title : isD ? 'طلب للديزاينر' : 'طلب للمبرمج', values: { t: q ? q.title : '', p: q ? q.project : (isD ? '' : 'موقع'), d: q ? q.details : '' }, validate: (f) => K.req(f, ['t']), submitLabel: q ? 'احفظ' : 'ابعت الطلب',
+      fields: (f, e, set) => [K.field.text('t', 'الطلب', f, e, set, { required: true, placeholder: isD ? 'مثال: 3 بوستات لعروض الشتا 1080×1350' : 'مثال: صفحة هبوط لعروض الشتا' }),
+        isD ? K.field.text('p', 'الكامبين / المشروع', f, e, set, { placeholder: 'اختياري' }) : K.field.select('p', 'المشروع', ['موقع', 'إبتكر سيستم'], f, e, set),
+        K.field.area('d', 'التفاصيل', f, e, set, { placeholder: isD ? 'المقاس · المدة · المنتجات · الستايل' : 'إيه المطلوب بالظبط' })],
+      submit: (f) => { (q ? MK().editRequest(q.id, { title: f.t, project: f.p, details: f.d }) : MK().addRequest({ kind, title: f.t, project: f.p, details: f.d })).then((r) => { K.toast(r.ok ? (q ? 'اتحفظ' : isD ? 'الطلب اتبعت للديزاينر' : 'الطلب اتبعت للمبرمج') : r.message, r.ok ? 'success' : 'error'); byLoad(true); R(); }); } });
+  }
+  function asstList(kind) {
+    const isD = kind === 'designer'; const L = (BY.reqs || []).filter((q) => q.kind === kind); const open = L.filter((q) => q.status !== 'خلص'); const done = L.filter((q) => q.status === 'خلص').slice(0, 10);
+    return [Card(isD ? 'الديزاينر' : 'المبرمج', isD ? 'بوستات وفيديوهات بالبراند عن طريق Magnific · الطلبات هنا والشغل من «إنشاء»' : 'صفحات الموقع وتطوير مشاريع إبتكر · بيشتغل على Staging الأول وانت توافق',
+      [BY.reqs ? (open.length ? h('div', { class: 'mk-list', 'data-mk-reqs': kind }, open.map(reqItem)) : K.Empty('مفيش طلبات مفتوحة', isD ? 'اطلب بوست أو فيديو أو نسخة جديدة لإعلان.' : 'اطلب صفحة أو تعديل على الموقع أو السيستم.')) : K.Empty('بيحمّل…', ''),
+        done.length ? h('details', { class: 'mk-done' }, h('summary', { class: 't-small help' }, 'اللي خلص (' + K.n0(done.length) + ')'), h('div', { class: 'mk-list' }, done.map(reqItem))) : null,
+        U.InlineNote({ children: isD ? 'اقتراح «نسخة جديدة» من الميديا باير لما يتوافق بيتحط هنا طلب لوحده.' : 'المبرمج مايقدرش ينشر على الموقع اللايف من غير موافقتك.' })],
+      can().create ? Button({ type: 'primary', size: 'sm', label: isD ? '+ طلب للديزاينر' : '+ طلب للمبرمج', attrs: { 'data-mk-req-add': kind }, onClick: () => reqForm(kind) }) : null)];
+  }
+  function aiTab() {
+    byLoad(false);
+    const cnt = (kind) => (BY.reqs || []).filter((q) => q.kind === kind && q.status !== 'خلص').length || null;
+    const sub = K.SubTabs({ items: [{ id: 'buyer', label: 'الميديا باير', count: byPending().length || null }, { id: 'designer', label: 'الديزاينر', count: cnt('designer') }, { id: 'dev', label: 'المبرمج', count: cnt('dev') }], active: BY.aiTab, onChange: (id) => { BY.aiTab = id; R(); }, label: 'المساعدين' });
+    if (BY.aiTab !== 'buyer') return [sub].concat(asstList(BY.aiTab));
+    const pend = byPending(); const past = (BY.sugg || []).filter((x) => x.status !== 'pending').slice(0, 8);
+    const side = h('div', { class: 'stack' },
+      Card('مستني موافقتك (' + K.n0(pend.length) + ')', 'وافق أو ارفض · كل إجراء بيتسجل في سجل النشاط', [BY.sugg ? (pend.length ? h('div', { class: 'mk-list', 'data-mk-pending': String(pend.length) }, pend.map((x) => sgItem(x, () => openSugg(x)))) : K.Empty('مفيش حاجة مستنية', 'الاقتراحات بتتجدد مع كل مزامنة لأرقام ميتا.')) : K.Empty('بيحمّل…', ''),
+        h('p', { class: 't-small help', style: 'margin:0' }, 'الضغط على اقتراح بيفتحه: الأرقام · السبب · «وافق» / «ارفض» / «عدّل»')]),
+      past.length ? Card('آخر القرارات', 'آخر 30 يوم', [h('div', { class: 'mk-list', 'data-mk-past': String(past.length) }, past.map((x) => h('button', { type: 'button', class: 'mk-item', 'data-mk-sugg': String(x.id), onClick: () => openSugg(x) }, h('span', { class: 'mk-txt' }, h('b', null, x.title), h('small', null, U.num(decidedLine(x)))), Tag((SG_ST[x.status] || SG_ST.pending)[1], (SG_ST[x.status] || SG_ST.pending)[0]))))]) : null,
+      rulesCard());
+    return [sub, h('div', { class: 'mk-row' }, buyerChat(), side)];
+  }
+  // the overview's card (the v5): the open suggestions, the whole list from the assistants' tab
+  function suggCard() {
+    byLoad(false); const pend = byPending(); const r = BY.rules;
+    return Card('اقتراحات الميديا باير', 'مستنية موافقتك · من قواعد ثابتة على أرقامك الحقيقية بعد كل مزامنة', [BY.sugg ? (pend.length ? h('div', { class: 'mk-list', 'data-mk-pending': String(pend.length) }, pend.slice(0, 5).map((x) => sgItem(x, () => openSugg(x)))) : K.Empty('مفيش اقتراحات مستنية', 'الميديا باير بيبعت اقتراحاته مع كل مزامنة، وتقرير يومي الساعة ' + (r ? String(r.reportHour).padStart(2, '0') + ':00' : '9:00') + ' على الجرس.')) : K.Empty('بيحمّل…', ''),
+      Button({ type: 'text', size: 'sm', label: 'عرض كل الاقتراحات (' + K.n0(pend.length) + ') · القواعد والحدود من «مساعدين الذكاء الاصطناعي»', attrs: { 'data-mk-all-sugg': '' }, onClick: () => { BY.aiTab = 'buyer'; go('marketing-ai'); } })], null, 'mk-wide');
+  }
+
   // ---------- the page ----------
-  const soonPanel = (tab) => { const [t, s] = SOON[tab]; const e = U.EmptyState(t, s); e.setAttribute('data-mk-soon', tab); return [h('div', { class: 'mk-soon-panel' }, e)]; };
   function headActs() {
     const tab = TABS.find(([id]) => id === st.tab) || [];
-    return tab[2] || st.tab === 'reports' ? [] : [K.PanelButton('marketing:' + st.tab, 'التسويق — ' + tab[1], () => document.querySelector('#pg-marketing .panel'), R)];
+    return st.tab === 'reports' ? [] : [K.PanelButton('marketing:' + st.tab, 'التسويق — ' + tab[1], () => document.querySelector('#pg-marketing .panel'), R)];
   }
   function view() {
     if (!MK() || !can().view) return [K.PageHead('التسويق', null, []), K.Empty('مفيش صلاحية', 'صفحة التسويق محتاجة صلاحية «التسويق — عرض».')];
     if (MK().state() === 'idle') { MK().ensure().then(() => { if (window.IBPages.current === 'marketing') R(); }); }
     if (st.view === 'campaign' && st.step > 1 && !camp.id) { st.view = 'hub'; st.tab = 'create'; }
     if (st.view === 'campaign') return campaign();
-    const tabs = K.MainTabs({ items: TABS.map(([id, label, soon]) => ({ id, label: soon ? [label, ' ', soonTag()] : label })), active: st.tab, onChange: (id) => go('marketing-' + id), label: 'أقسام التسويق' });
-    const soon = !!(TABS.find(([id]) => id === st.tab) || [])[2];
+    const tabs = K.MainTabs({ items: TABS.map(([id, label]) => ({ id, label })), active: st.tab, onChange: (id) => go('marketing-' + id), label: 'أقسام التسويق' });
     const loading = MK().state() !== 'ready';
-    const body = soon ? soonPanel(st.tab) : loading ? [K.Empty('بيحمّل…', 'لحظة واحدة')] : ({ overview: overviewTab, create: hub, publog: publogTab, calendar: calendarTab, templates: templatesTab, reports: reportsTab })[st.tab]();
+    const body = loading ? [K.Empty('بيحمّل…', 'لحظة واحدة')] : ({ overview: overviewTab, create: hub, publog: publogTab, calendar: calendarTab, templates: templatesTab, ai: aiTab, reports: reportsTab })[st.tab]();
     const panel = h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...body);
-    if (!soon && !loading) setTimeout(() => K.applyPanelPrefs('marketing:' + st.tab, panel), 0);
+    if (!loading) setTimeout(() => K.applyPanelPrefs('marketing:' + st.tab, panel), 0);
     return [K.PageHead('التسويق', null, headActs()), tabs, panel];
   }
   // a change from elsewhere (the live line) redraws the tabs — never the open wizard or an open popup

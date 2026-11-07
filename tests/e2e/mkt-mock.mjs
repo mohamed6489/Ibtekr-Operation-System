@@ -265,7 +265,7 @@ export function mktRoute(c) {
 // cleaned by the server's own cleanMarketing). H.imgFail / H.aiFail = 'ai_cap' | 'busy' | 'not_configured' | 'ai_error' | 'refused'.
 function mktAi(c, b) {
   const { u, json, hasPerm, isAdmin, mock } = c; const H = mock.mkt;
-  H.calls.push({ fn: b.action === 'marketing' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0 });
+  H.calls.push({ fn: b.action === 'marketing' || b.action === 'buyer' ? 'ai-content' : 'ai-images', action: b.action, task: b.task || null, by: u ? u.id : null, piece: b.piece || null, slide: b.slide == null ? null : b.slide, kind: b.kind || null, model: b.model || null, pins: Array.isArray(b.pins) ? b.pins.length : 0 });
   if (b.action === 'buyer') { // the buyer's chat: marketing.view (P too); the numbers come from the server, the answer is text only
     if (!u || !(isAdmin(u) || hasPerm(u, 'marketing.view') !== 'N')) return json(401, { error: 'unauthorized' });
     const p = parseBuyer(b); if ('error' in p) return json(400, p);

@@ -52,13 +52,9 @@ test('«التسويق» is open: «إنشاء» first, the assistants\' soon ta
   await expect(pg(page).locator('[data-mk-start]')).toBeVisible();
   const row = pg(page).locator('tr', { hasText: 'كولكشن الشتا القديم' });
   await expect(row).toContainText('اتجدولت');
-  await expect(pg(page).locator('[role=tab] [data-soon]')).toHaveCount(1);
+  await expect(pg(page).locator('[role=tab] [data-soon]')).toHaveCount(0); // 9.5.4: every tab is open
   await pg(page).getByRole('tab', { name: /مساعدين الذكاء الاصطناعي/ }).click();
-  await expect(pg(page).locator('[data-mk-soon]')).toContainText('بعد ربط الإعلانات');
-  for (const tab of ['نظرة عامة', 'التقارير']) {
-    await pg(page).getByRole('tab', { name: new RegExp(tab) }).click();
-    await expect(pg(page).locator('[data-mk-soon]')).toHaveCount(0);
-  }
+  await expect(pg(page).locator('[data-mk-chat]')).toBeVisible();
 });
 
 test('a new campaign: the details (the row created) → the AI fills the piece → its image with the cost first → the review → the schedule → the log', async ({ page }) => {

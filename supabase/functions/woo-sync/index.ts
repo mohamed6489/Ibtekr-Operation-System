@@ -91,6 +91,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from '../_shared/woo-core.js';
 import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
+import { vaultEnv } from '../_shared/secrets.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, toWoo, variationView } from '../_shared/woo-products.js';
 import { STUDIO_ATTRS, buildStudio, fetchSheetCsv, matchWooBrand } from '../_shared/woo-studio.js';
@@ -1284,9 +1285,10 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
 
 const NO_SESSION = { auth: { persistSession: false, autoRefreshToken: false } };
 let service: Db = null;
-function realDeps(): Deps {
-  const env = Deno.env.toObject();
-  service ??= createClient(env.SUPABASE_URL ?? '', env.SUPABASE_SERVICE_ROLE_KEY ?? '', NO_SESSION);
+async function realDeps(): Promise<Deps> {
+  const raw = Deno.env.toObject();
+  service ??= createClient(raw.SUPABASE_URL ?? '', raw.SUPABASE_SERVICE_ROLE_KEY ?? '', NO_SESSION);
+  const env = await vaultEnv(service, raw); // the keys written from the settings page win over the Supabase secrets (0056)
   return {
     env, fetch: globalThis.fetch, db: service, now: () => new Date().toISOString(),
     userDb: (jwt) => createClient(env.SUPABASE_URL ?? '', env.SUPABASE_ANON_KEY ?? '', { ...NO_SESSION, global: { headers: { Authorization: `Bearer ${jwt}` } } }),
@@ -1295,4 +1297,4 @@ function realDeps(): Deps {
 }
 
 // Serve only as the entry point (the Supabase Edge Runtime defines EdgeRuntime); importing the module (tests) does not.
-if (import.meta.main || 'EdgeRuntime' in globalThis) Deno.serve((req) => handler(req, realDeps()));
+if (import.meta.main || 'EdgeRuntime' in globalThis) Deno.serve(async (req) => handler(req, await realDeps()));

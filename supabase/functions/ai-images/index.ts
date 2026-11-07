@@ -58,6 +58,7 @@ import {
   renameInState, studioGenPath, studioPathOk, toolPath, usdOf,
 } from '../_shared/ai-images.js';
 import { magnific, ProviderError, shape, type Provider, type Ref } from './providers/magnific.ts';
+import { vaultEnv } from '../_shared/secrets.js';
 import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
 import { REF, creationsOf, familyOf, flowNodes, importShape, lastPageOf, lineageIds, listIdsOf, matchResults, nodeDataOf, nodesOf, templatePrompts, uploadedId, urlsById } from '../_shared/magnific-bridge.js';
 import { DEFAULT_SIZE, campaignGenPath, campaignPathOk, campaignPrompt, campaignRefs, campaignTarget, parseCampaign, parseCampaignEdit, pinsPrompt } from '../_shared/marketing.js';
@@ -1231,9 +1232,10 @@ async function videoPoll(deps: Deps, who: Who, args: Json) {
 
 const NO_SESSION = { auth: { persistSession: false, autoRefreshToken: false } };
 let service: Db = null;
-function realDeps(): Deps {
-  const env = Deno.env.toObject();
-  service ??= createClient(env.SUPABASE_URL ?? '', env.SUPABASE_SERVICE_ROLE_KEY ?? '', NO_SESSION);
+async function realDeps(): Promise<Deps> {
+  const raw = Deno.env.toObject();
+  service ??= createClient(raw.SUPABASE_URL ?? '', raw.SUPABASE_SERVICE_ROLE_KEY ?? '', NO_SESSION);
+  const env = await vaultEnv(service, raw); // the keys written from the settings page win over the Supabase secrets (0056)
   return {
     env, db: service, now: () => new Date().toISOString(),
     userDb: (jwt) => createClient(env.SUPABASE_URL ?? '', env.SUPABASE_ANON_KEY ?? '', { ...NO_SESSION, global: { headers: { Authorization: `Bearer ${jwt}` } } }),
@@ -1243,4 +1245,4 @@ function realDeps(): Deps {
   };
 }
 
-if (import.meta.main || 'EdgeRuntime' in globalThis) Deno.serve((req) => handler(req, realDeps()));
+if (import.meta.main || 'EdgeRuntime' in globalThis) Deno.serve(async (req) => handler(req, await realDeps()));

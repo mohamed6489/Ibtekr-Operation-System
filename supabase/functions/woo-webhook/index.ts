@@ -20,6 +20,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { isSubOrder, redactPII, verifySignature } from '../_shared/woo-core.js';
 import { logSync } from '../_shared/db.js';
+import { vaultEnv } from '../_shared/secrets.js';
 import { errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { wooId, writeContext, writeOrders, writeProducts, writeSubOrders } from '../_shared/woo-write.js';
 
@@ -159,11 +160,12 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
 // ---------------------------------------------------------------- runtime wiring
 
 let service: Db = null;
-function realDeps(): Deps {
-  const env = Deno.env.toObject();
-  service ??= createClient(env.SUPABASE_URL ?? '', env.SUPABASE_SERVICE_ROLE_KEY ?? '', { auth: { persistSession: false, autoRefreshToken: false } });
+async function realDeps(): Promise<Deps> {
+  const raw = Deno.env.toObject();
+  service ??= createClient(raw.SUPABASE_URL ?? '', raw.SUPABASE_SERVICE_ROLE_KEY ?? '', { auth: { persistSession: false, autoRefreshToken: false } });
+  const env = await vaultEnv(service, raw); // the keys written from the settings page win over the Supabase secrets (0056)
   return { env, fetch: globalThis.fetch, db: service, now: () => new Date().toISOString() };
 }
 
 // Serve only as the entry point (the Supabase Edge Runtime defines EdgeRuntime); importing the module (tests) does not.
-if (import.meta.main || 'EdgeRuntime' in globalThis) Deno.serve((req) => handler(req, realDeps()));
+if (import.meta.main || 'EdgeRuntime' in globalThis) Deno.serve(async (req) => handler(req, await realDeps()));

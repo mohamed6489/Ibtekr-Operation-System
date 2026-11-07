@@ -15,7 +15,7 @@ alter table public.mkt_suggestions drop constraint if exists mkt_suggestions_pla
 alter table public.mkt_suggestions add constraint mkt_suggestions_platform_check check (platform in ('meta', 'tiktok', 'google'));
 
 alter table public.cs_oauth_states drop constraint if exists cs_oauth_states_channel_check;
-alter table public.cs_oauth_states add constraint cs_oauth_states_channel_check check (channel in ('messenger', 'instagram', 'ads_tiktok', 'ads_google'));
+alter table public.cs_oauth_states add constraint cs_oauth_states_channel_check check (channel in ('messenger', 'instagram', 'wa1', 'ads_tiktok', 'ads_google')); -- wa1 from 0043 stays
 
 -- ---------------------------------------------------------------- the platform links in Vault (decision 67)
 

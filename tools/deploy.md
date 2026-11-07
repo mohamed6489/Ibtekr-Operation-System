@@ -1481,3 +1481,46 @@ select at, action, new_value from public.activity_log where action like 'mkt.buy
 
 **الأمان:** مفيش تنفيذ من غير قرار الأدمن على صف بعينه + المفتاح؛ `live` مابيتكتبش من `rules_set`؛ الأعضاء مابيكتبوش `mkt_suggestions` أبدًا؛ التوكن في أسرار
 الدالة بس؛ `activity_log` بالقرار والحالة ورقم الحملة بس — مافيش مبالغ ولا نص شات ولا تفاصيل طلب.
+
+#### 2.7.29 الفيديو بالـ AI — قطعة «فيديو» على جسر Magnific، والريلز على فيسبوك وانستجرام (المرحلة 9.5.5، 7 نوفمبر)
+
+الخطة (قرارات 57–66) `docs/superpowers/plans/2026-11-06-phase-9-5-marketing.md`، والدفتر `.superpowers/sdd/2026-11-06-phase-9-5-marketing/progress.md`.
+
+**أ) الكود:** `0054_marketing_video.sql` + `supabase/tests/rls_marketing_video.sql` · الجزء الصافي `_shared/mkt-video.js` (الموديلات والمقاسات والمدد، البرومبتات،
+`mixPlan` / `nextMix`، المسارات) · `ai-images` actions `video_clip` / `video_voice` / `video_music` / `video_upload` / `video_assemble` / `video_poll` على الجسر
+(`providers/magnific-mcp.ts` زي ما هو) · `ai-content` task `scenes` · `mkt-publish` الريل (`planOf` kind `reel`، `video_reels` + rupload، `REELS` container) ·
+`IBMarketing.videoScenes` / `videoClip` / `videoVoice` / `videoMusic` / `videoUpload` / `videoAssemble` / `videoPoll` · الصفحة (أداة «فيديو»، قطعة الفيديو في
+التفاصيل والبناء والمراجعة، المشغّل) + CSS الـ v6. **مافيش سر جديد ولا ربط جديد:** الجسر هو ربط Magnific بتاع الأدمن من «إعدادات الصور» (5.4 قرار 11)،
+والنشر بنفس ربط صفحة خدمة العملاء ومفتاح `autopublish` (9.5.2).
+
+**ب) على Supabase (المطوّر — بالترتيب):**
+1. `0054` (MCP `apply_migration` مرة واحدة؛ لو وقف أو سأل تأكيد = الـ SQL كله لصاحب المشروع في الـ SQL editor): `mkt_video_jobs` (القراية `marketing.view` من غير
+   عمود `url`، الكتابة للسيرفر)، `ai_runs.source` «video»، bucket `marketing` → 200 ميجا + `video/mp4` و`audio/*`، و`mkt_schedule` بيقبل الريل للنشر
+   (الـ MP4 أول ملف).
+2. workflow «RLS live» بـ `files = rls_marketing_video rls_marketing rls_security_advisor`.
+3. «Deploy functions»: `ai-images` ثم `ai-content` ثم `mkt-publish`.
+4. الواجهة: push على `main`.
+5. **صاحب المشروع:** الجسر لازم يكون مربوط (المنتجات › أداة الصور › «إعدادات الصور» › «اربط حساب Magnific»)؛ من غيره كل أزرار الفيديو بتقول «اربط حساب
+   Magnific الأول». الكريدت بتتخصم من حساب Magnific المربوط (مش من سقف الصور). أول فيديو تجريبي بإيده: كامبين من أداة «فيديو» → توليد المشاهد → صورة
+   لكل مشهد → في المراجعة «توليد المشاهد» (المقاطع) → الصوت والموسيقى → «تجميع المشاهد» → «شاهد الفيديو المجمّع» → موافقة → الجدولة («انشر» لو
+   الربط والمفتاح شغّالين، وإلا داونلود). **الريل على الصفحة الحقيقية بإيد صاحب المشروع بس** (المفتاح `autopublish` + أول ريل).
+
+**التحقق:**
+```sql
+select kind, status, scene, path is not null as stored, error from public.mkt_video_jobs order by id desc limit 12;   -- بعد أول فيديو
+select has_column_privilege('authenticated', 'public.mkt_video_jobs', 'url', 'select');                             -- false
+select file_size_limit, allowed_mime_types from storage.buckets where id = 'marketing';                              -- 209715200 + video/mp4
+select pg_get_constraintdef(oid) from pg_constraint where conname = 'ai_runs_source_check';                          -- فيها 'video'
+select piece, kind, platform, how, images[1] from public.mkt_posts where kind = 'ريل' order by id desc limit 5;         -- images[1] بـ .mp4
+select at, action, new_value from public.activity_log where action like 'mkt.video.%' order by at desc limit 10;     -- القطعة والمشهد والنوع بس
+```
+
+**إزاي بيشتغل:** الصفحة بتبعت كل خطوة كمهمة على الجسر وبتسأل `video_poll` كل 15 ثانية وهي مفتوحة على القطعة؛ السيرفر بيستنى `creations_wait` لحد 20 ثانية
+في النداء، وينزّل اللي خلص لـ bucket `marketing` (`vid-<القطعة>-s<n>|vo|mu|cut|mix-<stamp>.mp4|mp3`)، وسلسلة التجميع (القص ثم مزج الفويس ثم الموسيقى)
+بتكمّل لوحدها في الـ poll. الملف النهائي `vid-…-mix-….mp4` هو فيديو القطعة؛ بعد الموافقة الجدولة بتبعته أول ملف في صف `mkt_posts` (وبعده كوادر المشاهد
+لصورة السجل)، و`mkt-publish` بينشره: فيسبوك start → رفع برابط موقّع ساعة → finish؛ انستجرام كونتينر `REELS` بيتجهز دقايق (التشغيلة الجاية بتنشره). «الفيديو كبير»
+(> 120 ميجا) بيفضل على Magnific برابطه ومابيتجدولش للنشر.
+
+**الأمان:** رابط Magnific (`url`) مش ممنوح للأعضاء؛ التنزيل من host مسموح بس؛ الأعضاء مابيكتبوش `mkt_video_jobs`؛ كل فعل `marketing.create` F + ربط الجسر؛
+`ai_runs` صف لكل نداء بـ 0 كريدت (الـ throttle بتاع الصور نفسه)؛ `activity_log` من غير برومبت ولا نص فويس ولا رابط؛ مافيش أي نشر من غير مفتاح
+`autopublish` و`how = publish` اللي العضو اختاره.

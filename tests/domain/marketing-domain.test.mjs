@@ -118,7 +118,12 @@ test('9.5.2 scheduleItems: «انشر» on the piece → publish where the platf
 test('9.5.2 publishable: the platform, the kind, the image count, Instagram\'s 2200 characters, then the connection with its reason', () => {
   assert.deepEqual(W.publishable('بوست', ['a.jpg'], 'فيسبوك', LIVE), { ok: true });
   assert.equal(W.publishable('بوست', ['a.jpg'], 'تيك توك', LIVE).why, 'تيك توك مش مربوط — داونلود بس');
-  assert.equal(W.publishable('ريل', ['a.jpg'], 'انستجرام', LIVE).why, 'الفيديو لسه داونلود بس');
+  assert.equal(W.publishable('ريل', ['a.jpg'], 'انستجرام', LIVE).why, 'الفيديو لسه ما اتجمّعش — جمّعه في المراجعة الأول'); // 9.5.5: a reel needs its MP4 first
+  assert.deepEqual(W.publishable('ريل', ['c/vid-V1-mix-1.mp4', 'c/s1.png'], 'فيسبوك', LIVE), { ok: true });
+  assert.equal(W.publishable('ريل', ['c/vid-V1-mix-1.mp4'], 'تيك توك', LIVE).why, 'تيك توك مش مربوط — داونلود بس');
+  assert.equal(W.publishable('ريل', ['c/vid-V1-mix-1.mp4'], 'انستجرام', { ...LIVE, autopublish: false }).why, 'النشر التلقائي متوقف — الأدمن يشغّله من كارت الربط');
+  assert.deepEqual(W.pubImages({ kind: 'فيديو', video: 'c/v.mp4', scenes: [{ img: 'c/s1.png' }, { img: null }] }), ['c/v.mp4', 'c/s1.png']);
+  assert.deepEqual(W.pubImages({ kind: 'فيديو', video: null, scenes: [{ img: 'c/s1.png' }] }), ['c/s1.png']);
   assert.equal(W.publishable('بوست', [], 'انستجرام', LIVE).why, 'مفيش صورة');
   assert.equal(W.publishable('كاروسيل', ['a.jpg'], 'انستجرام', LIVE).why, 'الكاروسيل محتاج صورتين على الأقل');
   assert.equal(W.publishable('بوست', ['a.jpg', 'b.jpg'], 'انستجرام', LIVE).why, 'البوست والستوري صورة واحدة');

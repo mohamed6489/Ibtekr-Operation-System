@@ -156,9 +156,12 @@ export function mktRoute(c) {
         if (!HM.test(String(it.time || '')) || (d === today && it.time <= hm)) return bad('time');
         const how = it.how == null ? 'download' : it.how; if (!['download', 'publish'].includes(how)) return bad('how');
         if (how === 'publish') { // 0051
-          if (!['انستجرام', 'فيسبوك'].includes(it.platform) || !['بوست', 'كاروسيل', 'ستوري'].includes(it.kind)) return bad('how');
-          if (!imgs.length || imgs.length > 10 || (it.kind === 'كاروسيل' ? imgs.length < 2 : imgs.length !== 1)) return bad('images');
-          if (it.platform === 'انستجرام' && imgs.some((x) => !/\.jpe?g$/i.test(x))) return bad('images');
+          if (!['انستجرام', 'فيسبوك'].includes(it.platform) || !['بوست', 'كاروسيل', 'ستوري', 'ريل'].includes(it.kind)) return bad('how');
+          if (it.kind === 'ريل') { if (!imgs.length || !/\.mp4$/i.test(imgs[0])) return bad('images'); } // 9.5.5 (0054): the MP4 first
+          else {
+            if (!imgs.length || imgs.length > 10 || (it.kind === 'كاروسيل' ? imgs.length < 2 : imgs.length !== 1)) return bad('images');
+            if (it.platform === 'انستجرام' && imgs.some((x) => !/\.jpe?g$/i.test(x))) return bad('images');
+          }
           if (it.platform === 'انستجرام' && it.kind !== 'ستوري' && cap.length + (tags ? tags.length + 2 : 0) > 2200) return bad('caption');
         }
         const k = it.piece + '|' + it.platform; if (keys.includes(k)) return bad('items'); keys.push(k);

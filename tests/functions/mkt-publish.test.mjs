@@ -8,11 +8,23 @@ import {
 const CID = '00000000-0000-4000-8000-00000000c051';
 const row = (extra = {}) => ({ platform: 'فيسبوك', kind: 'بوست', images: [CID + '/pub-a.jpg'], caption: 'كابشن', tags: '#إبتكر', ...extra });
 
+test('9.5.5 planOf: a reel = its MP4 first (the key frames may follow), the text on both platforms, Instagram\'s 2200; no video → video', () => {
+  const r = planOf(row({ kind: 'ريل', images: [CID + '/vid-V1-mix-1.mp4', CID + '/gen-V1-s1-a.png'] }));
+  assert.deepEqual(r, { platform: 'facebook', kind: 'reel', images: [], video: CID + '/vid-V1-mix-1.mp4', text: 'كابشن\n\n#إبتكر' });
+  assert.equal(planOf(row({ kind: 'ريل', images: [CID + '/gen-V1-s1-a.png'] })).error, 'video');
+  assert.equal(planOf(row({ kind: 'ريل', images: [] })).error, 'video');
+  assert.equal(planOf(row({ kind: 'ريل', platform: 'انستجرام', images: [CID + '/v.mp4'], caption: 'x'.repeat(2201) })).error, 'text');
+  assert.equal(path.fbReels('111'), 'https://graph.facebook.com/v21.0/111/video_reels');
+  assert.equal(path.fbReelUpload('9500'), 'https://rupload.facebook.com/video-upload/v21.0/9500');
+  assert.deepEqual(body.fbReelFinish('9500', ''), { upload_phase: 'finish', video_id: '9500', video_state: 'PUBLISHED' });
+  assert.deepEqual(body.igReel('https://s/v.mp4', 'نص'), { media_type: 'REELS', video_url: 'https://s/v.mp4', share_to_feed: 'true', caption: 'نص' });
+});
+
 test('planOf: the platform, the kind, the images (1 or 2–10, Instagram JPEG) and Instagram\'s 2200 characters; a story has no text', () => {
   assert.deepEqual(planOf(row()), { platform: 'facebook', kind: 'post', images: [CID + '/pub-a.jpg'], text: 'كابشن\n\n#إبتكر' });
   assert.deepEqual(planOf(row({ platform: 'انستجرام', kind: 'ستوري' })).text, '');
   assert.equal(planOf(row({ platform: 'تيك توك' })).error, 'kind');
-  assert.equal(planOf(row({ kind: 'ريل' })).error, 'kind');
+  assert.equal(planOf(row({ kind: 'ريل' })).error, 'video'); // 9.5.5: a reel without its MP4
   assert.equal(planOf(row({ images: [] })).error, 'images');
   assert.equal(planOf(row({ kind: 'كاروسيل' })).error, 'images'); // one image is not a carousel
   assert.equal(planOf(row({ images: [CID + '/a.jpg', CID + '/b.jpg'] })).error, 'images'); // a post is one image

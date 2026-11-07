@@ -16,6 +16,7 @@ insert into public.profiles (id, name, email, phone, role_id, status) values
   ('00000000-0000-4000-8000-0000000054a3', 'خدمة عملاء', 'mv-cs.dev@ibtekr.local', '01000054a03', 'cs', 'active');
 
 create temporary table mv_ids (k text primary key, cid uuid) on commit drop;
+grant select on mv_ids to authenticated;
 with c as (insert into public.mkt_campaigns (name, goal, step, state, created_by) values ('فيديو الشتا', 'منتج جديد', 2, '{"pieces":[{"id":"V1","kind":"فيديو"}]}', '00000000-0000-4000-8000-0000000054a2') returning id)
 insert into mv_ids (k, cid) select 'c1', id from c;
 
@@ -33,6 +34,23 @@ do $$ begin
 end $$;
 
 set local role authenticated;
+-- ops (marketing.publish F): a reel is scheduled to publish with its MP4 first (decision 63); a reel without it is refused; a download rides any files
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000054a2","role":"authenticated"}', true);
+do $$
+declare c uuid := (select cid from mv_ids where k = 'c1'); d text := (public.hr_today() + 2)::text; n int;
+begin
+  n := public.mkt_schedule(c, jsonb_build_array(
+    jsonb_build_object('piece', 'V1', 'kind', 'ريل', 'name', 'ريل الشتا', 'caption', 'كولكشن الشتا', 'tags', '#إبتكر', 'images', jsonb_build_array(c::text || '/vid-V1-mix-1.mp4', c::text || '/gen-V1-s1-a.png'), 'platform', 'انستجرام', 'day', d, 'time', '19:00', 'how', 'publish'),
+    jsonb_build_object('piece', 'V1', 'kind', 'ريل', 'name', 'ريل الشتا', 'caption', 'كولكشن الشتا', 'images', jsonb_build_array(c::text || '/gen-V1-s1-a.png'), 'platform', 'تيك توك', 'day', d, 'time', '19:00')));
+  if n <> 2 then raise exception 'case a reel is scheduled failed: %', n; end if;
+  if (select how from public.mkt_posts where campaign_id = c and platform = 'انستجرام') <> 'publish' then raise exception 'case the reel publishes on Instagram failed'; end if;
+  begin perform public.mkt_schedule(c, jsonb_build_array(jsonb_build_object('piece', 'V1', 'kind', 'ريل', 'name', 'x', 'images', jsonb_build_array(c::text || '/gen-V1-s1-a.png'), 'platform', 'فيسبوك', 'day', d, 'time', '19:00', 'how', 'publish')));
+    raise exception 'case a reel without its MP4 is refused failed';
+  exception when invalid_parameter_value then null; end;
+  begin perform public.mkt_schedule(c, jsonb_build_array(jsonb_build_object('piece', 'P1', 'kind', 'بوست', 'name', 'x', 'images', jsonb_build_array(c::text || '/gen-P1-a.png'), 'platform', 'انستجرام', 'day', d, 'time', '19:00', 'how', 'publish')));
+    raise exception 'case an Instagram post still needs JPEG failed';
+  exception when invalid_parameter_value then null; end;
+end $$;
 -- ops (marketing.view F): reads the jobs without the link; never writes
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000054a2","role":"authenticated"}', true);
 do $$ begin

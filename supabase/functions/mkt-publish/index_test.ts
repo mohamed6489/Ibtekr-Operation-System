@@ -151,6 +151,33 @@ Deno.test('due: an Instagram carousel = its children, then the carousel with the
   assertEquals([media[3].media_type, media[3].caption], ['STORIES', undefined]);
 });
 
+Deno.test('9.5.5 due: a Facebook reel = start (video id), the MP4 by its signed link on rupload (OAuth), finish with the text; an Instagram reel = a REELS container with video_url then media_publish', async () => {
+  const reel = (extra: Record<string, any> = {}) => post({ kind: 'ريل', images: [CID + '/vid-V1-mix-1.mp4', CID + '/gen-V1-s1-a.png'], ...extra });
+  const stages: string[] = [];
+  const { deps, db, graph } = setup({ posts: [reel(), reel({ id: 5002, piece: 'V1', platform: 'انستجرام' })], storage: { [`marketing/${CID}/vid-V1-mix-1.mp4`]: new Uint8Array([1]), [`marketing/${CID}/gen-V1-s1-a.png`]: new Uint8Array([1]) }, routes: {
+    'POST 111/video_reels': (c) => { stages.push(db.row('mkt_posts', 5001).work?.stage ?? 'none'); return c.body.upload_phase === 'start' ? { body: { video_id: '9500', upload_url: 'https://rupload.facebook.com/video-upload/v21.0/9500' } } : { body: { success: true, post_id: '111_9500' } }; },
+    'POST /video-upload/v21.0/9500': { body: { success: true } }, // rupload keeps its own path (the fake strips graph's /v21.0/ prefix only)
+    'POST 777/media': { body: { id: '4500' } }, 'GET 4500': { body: { status_code: 'FINISHED' } }, 'POST 777/media_publish': { body: { id: '17900' } }, 'GET 17900': { body: { permalink: 'https://www.instagram.com/reel/abc/' } },
+  } });
+  const r = await cron(deps, 'due');
+  assertEquals(r.body, { result: 'ok', published: 2, failed: 0, waiting: 0 });
+  assertEquals(stages, ['none', 'publishing']); // start before any stage; finish is the publishing call (a timeout there = «uncertain»)
+  const up = graph.calls.find((c) => c.path === '/video-upload/v21.0/9500')!;
+  assertEquals(up.auth, 'OAuth ' + PAGE.token);
+  const fin = graph.calls.filter((c) => c.path === '111/video_reels')[1];
+  assertEquals(fin.body, { upload_phase: 'finish', video_id: '9500', video_state: 'PUBLISHED', description: 'كابشن\n\n#إبتكر' });
+  const fb = db.row('mkt_posts', 5001);
+  assertEquals([fb.status, fb.external_id, fb.post_url, fb.work], ['اتنشر', '111_9500', 'https://www.facebook.com/reel/9500', null]);
+  const ig = graph.calls.find((c) => c.path === '777/media')!;
+  assertEquals([ig.body.media_type, ig.body.share_to_feed, ig.body.caption], ['REELS', 'true', 'كابشن\n\n#إبتكر']);
+  assert(ig.body.video_url.startsWith('https://signed.test/marketing/' + CID + '/vid-V1-mix-1.mp4')); assertEquals(ig.body.image_url, undefined);
+  assertEquals([db.row('mkt_posts', 5002).status, db.row('mkt_posts', 5002).external_id], ['اتنشر', '17900']);
+  // a reel whose first file is not a video fails before any call
+  const s2 = setup({ posts: [reel({ images: [CID + '/gen-V1-s1-a.png'] })] });
+  await cron(s2.deps, 'due');
+  assertEquals([s2.db.row('mkt_posts', 5001).status, s2.db.row('mkt_posts', 5001).error], ['فشل', 'video']); assertEquals(s2.graph.calls.length, 0);
+});
+
 Deno.test('the failures: Meta\'s refusal as our code, the bad row before any call, the timed-out last call «uncertain», no page / no Instagram', async () => {
   const s1 = setup({ posts: [post()], routes: { 'POST 111/photos': { status: 400, body: { error: { code: 190, message: 'expired' } } } } });
   await cron(s1.deps, 'due');
@@ -160,7 +187,7 @@ Deno.test('the failures: Meta\'s refusal as our code, the bad row before any cal
   assertEquals(s2.db.row('mkt_posts', 5001).error, 'image');
   const s3 = setup({ posts: [post({ platform: 'انستجرام', images: [CID + '/p.png'] }), post({ id: 5002, piece: 'V1', kind: 'ريل' })] });
   await cron(s3.deps, 'due');
-  assertEquals([s3.db.row('mkt_posts', 5001).error, s3.db.row('mkt_posts', 5002).error], ['images', 'kind']);
+  assertEquals([s3.db.row('mkt_posts', 5001).error, s3.db.row('mkt_posts', 5002).error], ['images', 'video']); // 9.5.5: a reel without its MP4
   assertEquals(s3.graph.calls.length, 0, 'nothing reached Meta');
   const s4 = setup({ posts: [post()], routes: { 'POST 111/photos': () => timeout() } });
   await cron(s4.deps, 'due');

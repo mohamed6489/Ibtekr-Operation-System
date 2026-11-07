@@ -279,4 +279,4 @@ Seedance 2.5 / 2.0، Kling 2.5، MiniMax H3 + فويس أوفر ElevenLabs + م�
 - **T28** ✓ `ai-images` actions `video_clip` / `video_voice` / `video_music` / `video_assemble` / `video_poll` + Deno (جسر وهمي).
 - **T29** ✓ `IBMarketing` (المهام، الأفعال، المشاهد، الملفات) + الـ mock + الصفحة (قطعة الفيديو في البناء والمراجعة، المشغّل، أداة «فيديو»، `VIDEO_SOON`
   = false) + CSS الـ v6 + e2e.
-- **T30** `mkt-publish` الريلز (فيسبوك + انستجرام) + Deno + الوثائق + الحي (0054، rls live، نشر `ai-images` و`ai-content` و`mkt-publish`، main).
+- **T30** ✓ `mkt-publish` الريلز (فيسبوك + انستجرام) + Deno + الوثائق + الحي (0054، rls live، نشر `ai-images` و`ai-content` و`mkt-publish`، main).

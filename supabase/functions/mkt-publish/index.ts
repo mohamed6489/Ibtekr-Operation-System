@@ -17,7 +17,8 @@
 //                  Meta saying it is gone already counts as done; a refusal = 502 { error } and the row stays «اتنشر».
 //     due / stats  (the admin, by hand) as the crons.
 // Publishing (decisions 32–35): Facebook — a post = one photo published with its text; a carousel = hidden photos then one feed post
-// with them attached; a story = a hidden photo then a photo story. Instagram — a container (an image with its caption, a story, or the
+// with them attached; a story = a hidden photo then a photo story; a reel (9.5.5, decision 63) = video_reels start → the MP4 by its
+// signed link on rupload → finish with the text. Instagram — a container (an image with its caption, a story, a REELS video, or the
 // carousel's children then the carousel) waited for (FINISHED), then media_publish. The images reach Meta as signed links (15 minutes)
 // of the private bucket «marketing». Before the last call the row's work.stage = publishing: a run that dies there leaves the row to
 // mkt_publish_claim's «uncertain» (never published twice); a timeout on that call is «uncertain» too. A container still preparing is
@@ -42,6 +43,7 @@ export type Deps = {
 const ACTIONS = ['status', 'autopublish', 'publish_now', 'delete', 'due', 'stats'];
 const GRAPH_MS = 20_000;
 const SIGN_SECONDS = 900;
+const VIDEO_SIGN_SECONDS = 3600; // a reel's video (decision 63): Meta fetches it while it processes
 const POLL = { tries: 6, ms: 2_000 };
 const DUE_BATCH = 5;
 const STATS_BATCH = 40;
@@ -55,9 +57,9 @@ const quiet = (e: unknown) => String((e as Error)?.message ?? 'error').replace(/
 // ---------------------------------------------------------------- Graph
 
 class GraphError extends Error { constructor(public code: string, public status: number | null = null) { super(code); this.name = 'GraphError'; } }
-async function graph(deps: Deps, method: 'GET' | 'POST' | 'DELETE', url: string, opts: { token?: string | null; body?: Json; form?: Record<string, string> } = {}): Promise<Json> {
+async function graph(deps: Deps, method: 'GET' | 'POST' | 'DELETE', url: string, opts: { token?: string | null; body?: Json; form?: Record<string, string>; headers?: Record<string, string> } = {}): Promise<Json> {
   const f = deps.fetch ?? fetch; const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), GRAPH_MS);
-  const headers: Record<string, string> = { accept: 'application/json' };
+  const headers: Record<string, string> = { accept: 'application/json', ...(opts.headers ?? {}) };
   if (opts.token) headers.authorization = 'Bearer ' + opts.token;
   let b: string | undefined;
   if (opts.form) { headers['content-type'] = 'application/x-www-form-urlencoded'; b = new URLSearchParams(opts.form).toString(); }
@@ -111,10 +113,10 @@ async function syncAllowed(deps: Deps, secret: string) {
 // ---------------------------------------------------------------- publishing a row (decisions 32–35)
 
 const setRow = async (deps: Deps, id: number, patch: Json) => { const { error } = await deps.db.from('mkt_posts').update(patch).eq('id', id); return error ?? null; };
-async function signed(deps: Deps, paths: string[]): Promise<string[] | null> {
+async function signed(deps: Deps, paths: string[], seconds = SIGN_SECONDS): Promise<string[] | null> {
   const out: string[] = [];
   for (const p of paths) {
-    const { data, error } = await deps.db.storage.from('marketing').createSignedUrl(p, SIGN_SECONDS);
+    const { data, error } = await deps.db.storage.from('marketing').createSignedUrl(p, seconds);
     if (error || !data || typeof data.signedUrl !== 'string') return null;
     out.push(data.signedUrl);
   }
@@ -141,7 +143,21 @@ async function publishRow(deps: Deps, page: Page | null, row: Json, extra: Json 
   const token = page.token;
   try {
     let externalId: string | null = null; let url: string | null = null;
-    if (plan.platform === 'facebook') {
+    if (plan.platform === 'facebook' && plan.kind === 'reel') {
+      // 9.5.5 decision 63: start (a video id + its upload slot) → the file by its signed link (rupload, OAuth) → finish with the text
+      const urls = await signed(deps, [plan.video], VIDEO_SIGN_SECONDS); if (!urls) return await fail('video');
+      let videoId = typeof work.video === 'string' && idOf(work.video) ? work.video as string : null;
+      if (!videoId) {
+        videoId = idOf((await graph(deps, 'POST', path.fbReels(page.id), { token, form: body.fbReelStart() })).video_id);
+        if (!videoId) return await fail('video');
+        await save({ stage: 'upload', video: videoId });
+        const up = await graph(deps, 'POST', path.fbReelUpload(videoId), { headers: { authorization: 'OAuth ' + token, file_url: urls[0] } });
+        if (up.success !== true) return await fail('video');
+      }
+      await save({ stage: 'publishing', video: videoId });
+      const fin = await graph(deps, 'POST', path.fbReels(page.id), { token, form: body.fbReelFinish(videoId, plan.text) });
+      externalId = idOf(fin.post_id) ?? videoId; url = path.fbReelLink(videoId);
+    } else if (plan.platform === 'facebook') {
       const urls = await signed(deps, plan.images); if (!urls) return await fail('images');
       if (plan.kind === 'post') {
         await save({ stage: 'publishing' });
@@ -163,7 +179,12 @@ async function publishRow(deps: Deps, page: Page | null, row: Json, extra: Json 
     } else {
       const ig = page.ig!.id;
       let container = typeof work.container === 'string' && idOf(work.container) ? work.container as string : null;
-      if (!container) {
+      if (!container && plan.kind === 'reel') { // 9.5.5: the video by its signed link; the container takes its time (the next run publishes it)
+        const urls = await signed(deps, [plan.video], VIDEO_SIGN_SECONDS); if (!urls) return await fail('video');
+        container = idOf((await graph(deps, 'POST', path.igMedia(ig), { token, form: body.igReel(urls[0], plan.text) })).id);
+        if (!container) return await fail('container');
+        await save({ stage: 'container', container });
+      } else if (!container) {
         const urls = await signed(deps, plan.images); if (!urls) return await fail('images');
         if (plan.kind === 'carousel') {
           const kids: string[] = [];

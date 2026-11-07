@@ -1,7 +1,7 @@
 // The pure part of mkt-publish (phase 9.5.2, decisions 29–39 of docs/superpowers/plans/2026-11-06-phase-9-5-marketing.md): what a
 // post of the log becomes on Facebook / Instagram, the Graph paths, Meta's answers read back (the ids, the numbers, the platform's own
 // posts) and Meta's errors as our codes. No I/O here — the Edge Function and the node tests share it.
-import { GRAPH, graphErrorCode } from './cs-channel.js';
+import { GRAPH, GRAPH_VERSION, graphErrorCode } from './cs-channel.js';
 
 export { graphErrorCode };
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -11,7 +11,9 @@ const chars = (s) => Array.from(String(s ?? '')).length;
 
 export const PLATFORM = Object.freeze({ 'فيسبوك': 'facebook', 'انستجرام': 'instagram' });
 export const PLATFORM_AR = Object.freeze({ facebook: 'فيسبوك', instagram: 'انستجرام' });
-export const KIND = Object.freeze({ 'بوست': 'post', 'كاروسيل': 'carousel', 'ستوري': 'story' }); // ريل waits for the video
+export const KIND = Object.freeze({ 'بوست': 'post', 'كاروسيل': 'carousel', 'ستوري': 'story', 'ريل': 'reel' }); // ريل from 9.5.5 (decision 63)
+export const VIDEO_RE = /\.mp4$/i;
+export const RUPLOAD = 'https://rupload.facebook.com/video-upload/' + GRAPH_VERSION;
 export const IG_TEXT_MAX = 2200;
 export const MAX_IMAGES = 10;
 export const STATS_DAYS = 30; // the numbers of the posts published in the last 30 days (a story: its 24 hours)
@@ -22,11 +24,17 @@ export const ID_RE = /^[0-9_]{1,80}$/;
 export const pubText = (caption, tags) => [String(caption ?? '').trim(), String(tags ?? '').trim()].filter(Boolean).join('\n\n');
 
 // a row of mkt_posts → what to publish, or { error } (our code): the platform, the kind, 1 image (post / story) or 2–10 (carousel),
-// Instagram's images JPEG and its text ≤ 2200 (a story carries no text)
+// Instagram's images JPEG and its text ≤ 2200 (a story carries no text); a reel (9.5.5) = its MP4 first, the text on both platforms
 export function planOf(row) {
   const platform = PLATFORM[row?.platform]; if (!platform) return { error: 'kind' };
   const kind = KIND[row?.kind]; if (!kind) return { error: 'kind' };
   const images = Array.isArray(row.images) ? row.images.filter((p) => typeof p === 'string' && p) : [];
+  if (kind === 'reel') { // 9.5.5 decision 63: the video is the row's first file (the key frames may follow it — the log's thumbnail)
+    const video = images[0]; if (!video || !VIDEO_RE.test(video)) return { error: 'video' };
+    const text = pubText(row.caption, row.tags);
+    if (platform === 'instagram' && chars(text) > IG_TEXT_MAX) return { error: 'text' };
+    return { platform, kind, images: [], video, text };
+  }
   if (!images.length || images.length > MAX_IMAGES || (kind === 'carousel' ? images.length < 2 : images.length !== 1)) return { error: 'images' };
   if (platform === 'instagram' && images.some((p) => !/\.jpe?g$/i.test(p))) return { error: 'images' };
   const text = kind === 'story' ? '' : pubText(row.caption, row.tags);
@@ -56,6 +64,9 @@ export const path = {
   fbPhotos: (page) => GRAPH + '/' + page + '/photos',
   fbFeed: (page) => GRAPH + '/' + page + '/feed',
   fbStory: (page) => GRAPH + '/' + page + '/photo_stories',
+  fbReels: (page) => GRAPH + '/' + page + '/video_reels', // 9.5.5: start → upload (rupload, file_url) → finish
+  fbReelUpload: (videoId) => RUPLOAD + '/' + videoId,
+  fbReelLink: (videoId) => 'https://www.facebook.com/reel/' + videoId,
   igMedia: (ig) => GRAPH + '/' + ig + '/media',
   igPublish: (ig) => GRAPH + '/' + ig + '/media_publish',
   container: (id) => GRAPH + '/' + id + '?fields=status_code',
@@ -78,6 +89,9 @@ export const body = {
   fbStoryPhoto: (url) => ({ url, published: 'false' }),
   fbFeed: (text, photoIds) => ({ ...(text ? { message: text } : {}), attached_media: photoIds.map((id) => ({ media_fbid: id })) }),
   fbStory: (photoId) => ({ photo_id: photoId }),
+  fbReelStart: () => ({ upload_phase: 'start' }),
+  fbReelFinish: (videoId, text) => ({ upload_phase: 'finish', video_id: videoId, video_state: 'PUBLISHED', ...(text ? { description: text } : {}) }),
+  igReel: (url, text) => ({ media_type: 'REELS', video_url: url, share_to_feed: 'true', ...(text ? { caption: text } : {}) }),
   igImage: (url, text) => ({ image_url: url, ...(text ? { caption: text } : {}) }),
   igStory: (url) => ({ image_url: url, media_type: 'STORIES' }),
   igChild: (url) => ({ image_url: url, is_carousel_item: 'true' }),

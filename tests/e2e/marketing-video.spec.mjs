@@ -104,7 +104,7 @@ test('the «فيديو» tool: a campaign with one video; the details (9:16, See
   await expect(pg(page).locator('[role=tab][aria-selected=true]')).toContainText('سجل النشر');
   const sch = mock.mkt.calls.find((c) => c.rpc === 'mkt_schedule');
   expect(sch.p_items.map((x) => [x.kind, x.how])).toEqual([['ريل', 'download'], ['ريل', 'download']]);
-  expect(sch.p_items[0].images.length).toBe(3); // the scene key frames ride the row until T30 carries the video itself
+  expect(sch.p_items[0].images.length).toBe(4); expect(sch.p_items[0].images[0]).toMatch(/\.mp4$/); // the MP4 first, then the three key frames (decision 63)
   // the log: kinds and pieces, never the voice text or a link
   const logs = JSON.stringify(mock.activityRows.filter((r) => String(r.action).startsWith('mkt.video')));
   expect(logs).toContain('mkt.video.clip'); expect(logs).toContain('mkt.video.assemble');
@@ -135,4 +135,26 @@ test('the bridge not linked: the clips are refused with the way to link; a faile
   await expect(pg(page).locator('[data-cw-job="clip:failed"]')).toHaveCount(1);
   await expect(pg(page).locator('[data-cw-job="clip:done"]')).toHaveCount(1);
   await expect(pg(page).locator('[data-cw-vstep]')).toHaveAttribute('data-cw-vstep', '1');
+});
+
+test('9.5.5 decision 63: an assembled reel with the page linked and the switch on → «انشر» opens on Facebook / Instagram; the schedule sends its MP4 first (no JPEG copies), TikTok stays a download', async ({ page }) => {
+  const C = 'c0000000-0000-4000-8000-00000000000b'; const V = C + '/vid-V1-mix-9.mp4';
+  const state = { w: { goal: 'منتج جديد', idea: 'ريل المخدة', mediaTab: 'video', media: { video: { count: 1, size: '9:16', dur: 10, model: 'seedance-2.5', notes: '', use: [], ref: [] }, post: { count: 0, size: '1080x1350', model: 'seedream-5-pro', notes: '', use: [], ref: [] }, carousel: { count: 0, slides: 4, size: '1080x1350', model: 'seedream-5-pro', notes: '', use: [], ref: [] } }, extra: { count: 0, model: 'seedream-5-pro', notes: '', use: [], ref: [] } },
+    pieces: [{ id: 'V1', kind: 'فيديو', n: 1, size: '9:16', model: 'seedance-2.5', dur: 10, res: '1080p', sceneCount: 2, method: 'separate', idea: 'المخدة', caption: 'كابشن الريل', ref: [], use: [], gen: 2, approved: true, assembled: true, video: V, music: { src: 'none', type: '', file: '' }, voice: { mode: 'none', voice: 'm-eg-1', text: '', file: '' },
+      scenes: [{ n: 1, d: 5, idea: 'لقطة', text: '', cam: 'ثابتة', img: C + '/gen-V1-s1-a.png', ref: [], use: [] }, { n: 2, d: 5, idea: 'القعدة', text: '', cam: 'ثابتة', img: C + '/gen-V1-s2-a.png', ref: [], use: [] }] }], sched: {}, rtab: 'video' };
+  await start(page, { mktCampaigns: [{ id: C, name: 'ريل المخدة', goal: 'منتج جديد', step: 4, state }], mktObjects: { [V]: { type: 'video/mp4', size: 4096 }, [C + '/gen-V1-s1-a.png']: { type: 'image/png' }, [C + '/gen-V1-s2-a.png']: { type: 'image/png' } }, mktConn: { autopublish: true } });
+  await openMarketing(page);
+  await pg(page).locator('[data-mk-open="' + C + '"]').click();
+  await expect(pg(page).locator('.wstepper .stp-cur')).toContainText('النشر والتحميل');
+  const pub = pg(page).locator('[data-cw-pub="V1"]');
+  await expect(pub).not.toHaveAttribute('aria-disabled', 'true');
+  await expect(pub).toHaveAttribute('aria-pressed', 'true'); // «انشر» is the default where the platform can take it
+  await pg(page).locator('[data-cw-pl="V1"] .chip', { hasText: 'تيك توك' }).click();
+  await pg(page).locator('.cp-next').click();
+  await expect(pg(page).locator('[role=tab][aria-selected=true]')).toContainText('سجل النشر');
+  const sch = mock.mkt.calls.find((c) => c.rpc === 'mkt_schedule');
+  expect(sch.p_items.map((x) => [x.platform, x.kind, x.how, x.images[0]]).sort()).toEqual([['انستجرام', 'ريل', 'publish', V], ['تيك توك', 'ريل', 'download', V], ['فيسبوك', 'ريل', 'publish', V]].sort());
+  expect(sch.p_items.every((x) => x.images.length === 3)).toBe(true); // the MP4 then the two key frames
+  expect([...mock.mkt.objects.keys()].some((k) => /\/pub-/.test(k))).toBe(false); // no JPEG copies for a reel
+  await expect(pg(page).locator('.pub-tbl tbody tr')).toHaveCount(3);
 });

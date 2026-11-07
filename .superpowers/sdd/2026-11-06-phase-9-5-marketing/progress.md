@@ -150,3 +150,9 @@
   وكادر لكل مشهد من المحفظة في البناء، والمراجعة بتايملاين الـ v6 + الموسيقى والفويس (AI / رفع / من غير) + طريقة التوليد + المهام + «حدّث» (poll كل 15 ث وهي مفتوحة)
   + التجميع + المشغّل + الموافقة، والريل داونلود في الجدولة لحد T30؛ الـ mock (`mktBridge` / `mktVideoDelay` / `mktVideoFail`، مهمة بتخلص مع كل poll) + CSS الـ v6.
   e2e `marketing-video.spec.mjs` (2) + تعديل `marketing.spec.mjs`. node 591 / e2e 352 ✓ (node اتذبذب مرة 590/1 وعدّى 4 مرات بعدها).
+- T30 ✓ (7 نوفمبر) الريل بيتنشر (قرار 63): `planOf` kind `reel` (الـ MP4 أول ملف في `images`، وكوادر المشاهد بعده لصورة السجل؛ النص على المنصتين، انستجرام ≤ 2200)،
+  فيسبوك `video_reels` start → الـ MP4 برابط موقّع ساعة على `rupload` بهيدر `OAuth` → finish بالوصف (الرابط `facebook.com/reel/<id>`؛ المرحلة `publishing`
+  قبل finish)، انستجرام كونتينر `REELS` + `video_url` ثم `media_publish` (لسه بيتجهز = التشغيلة الجاية)؛ `0054` بيعيد تعريف `mkt_schedule` ليقبل
+  `how = publish` للريل بالشرط ده (مافيش شرط JPEG عليه)؛ الدومين `pubImages` / `publishable('ريل')` (فيديو لسه ما اتجمّعش = داونلود)، الـ adapter
+  `toPost.video` و`preparePublish` بيعدّي الريل من غير نسخ، الـ mock بنفس القاعدة. Deno 249 (+1) / node 592 (+1) / RLS (+ حالة الريل في
+  `rls_marketing_video`) / e2e التسويق 19 (+1 ريل متجمّع → «انشر» افتراضي والجدولة بالـ MP4). الوثائق: CLAUDE.md ملحوظة 9.5.5، `tools/deploy.md` §2.7.29.

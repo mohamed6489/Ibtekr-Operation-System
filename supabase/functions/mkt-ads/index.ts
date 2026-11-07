@@ -6,12 +6,19 @@
 //   POST { action, … } with a member's Authorization: Bearer <jwt>:
 //     status (marketing.view) → { configured, account: { name, currency, status } | null, synced_at, checked_at, error }.
 //     sync   (the admin) { days? } → the same run now (1–400 days) + activity_log mkt.ads.sync (the counts only).
+//   9.5.4 (decisions 49–52): after every sync the buyer's suggestions are recomputed (mkt_suggestions — one open a kind × campaign);
+//     rules (marketing.view) / rules_set + live (the admin, settings «marketing».buyer); decide { id, decision, value } (the admin —
+//     money): stop → the campaign PAUSED, budget_* → the daily budgets by the step (≤ 30%, the account's daily total ≤ the cap),
+//     creative → a designer request, tracking → reviewed; nothing is written on Meta while the switch `live` is off. The cron
+//     `report` (hourly) sends the day's report to the bell once, at the rule's hour. Every write on Meta is a POST to the object's own
+//     node with the token in the header.
 // Secrets (the owner's): META_ADS_TOKEN — a System User token of the Business Manager with ads_read (it never expires and never
 // reaches a row, a log or an answer) — and META_AD_ACCOUNT_ID («act_…» or the digits). Without them: 503 not_configured.
 // A failed run keeps the last numbers and the last success and says our code (token / permission / rate / timeout / graph_N) on
 // the account row; the page says it in words.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
-import { CHUNK_DAYS, FIRST_DAYS, MAX_DAYS, MAX_PAGES, SYNC_DAYS, accountOf, accountRowOf, nextOf, objectRowOf, path, statRowOf, windowChunks, windowOf } from '../_shared/mkt-ads.js';
+import { CHUNK_DAYS, FIRST_DAYS, MAX_DAYS, MAX_PAGES, SUGGEST_DAYS, SYNC_DAYS, accountDaily, accountOf, accountRowOf, budgetPlan, buyerRules, nextOf, objectRowOf, path, reportText, rulesPatch, statRowOf, suggestionKey, suggestionsOf, windowChunks, windowOf } from '../_shared/mkt-ads.js';
+import { cairoParts } from '../_shared/mkt-publish.js';
 import { graphErrorCode } from '../_shared/cs-channel.js';
 import { ourCode } from '../_shared/mkt-publish.js';
 
@@ -25,7 +32,8 @@ export type Deps = {
   fetch?: typeof fetch;
 };
 
-const ACTIONS = ['status', 'sync'];
+const ACTIONS = ['status', 'sync', 'rules', 'rules_set', 'live', 'decide'];
+const CRON_ACTIONS = ['sync', 'report'];
 const GRAPH_MS = 30_000;
 const CHUNK = 500;
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
@@ -46,6 +54,18 @@ async function get(deps: Deps, url: string, token: string): Promise<Json> {
   const f = deps.fetch ?? fetch; const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), GRAPH_MS);
   let res: Response;
   try { res = await f(url, { method: 'GET', headers: { accept: 'application/json', authorization: 'Bearer ' + token }, signal: ctl.signal, redirect: 'manual' }); }
+  catch (e) { throw new GraphError((e as Error)?.name === 'AbortError' ? 'graph_timeout' : 'graph_network'); }
+  finally { clearTimeout(timer); }
+  let out: unknown = null;
+  try { out = await res.json(); } catch { out = null; }
+  if (!res.ok) throw new GraphError(graphErrorCode(out), graphText(out));
+  return isObj(out) ? out : {};
+}
+// a write on an object's own node (a decision): form fields, the token in the header
+async function post(deps: Deps, url: string, token: string, form: Record<string, string>): Promise<Json> {
+  const f = deps.fetch ?? fetch; const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), GRAPH_MS);
+  let res: Response;
+  try { res = await f(url, { method: 'POST', headers: { accept: 'application/json', authorization: 'Bearer ' + token, 'content-type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams(form).toString(), signal: ctl.signal, redirect: 'manual' }); }
   catch (e) { throw new GraphError((e as Error)?.name === 'AbortError' ? 'graph_timeout' : 'graph_network'); }
   finally { clearTimeout(timer); }
   let out: unknown = null;
@@ -119,7 +139,9 @@ async function run(deps: Deps, daysArg: number | null): Promise<Response> {
     await upsertAll(deps, 'mkt_ad_objects', objects, 'platform,kind,id');
     await upsertAll(deps, 'mkt_ad_stats', stats, 'platform,level,object_id,day');
     await upsertAll(deps, 'mkt_ad_objects', [{ ...accountRowOf(cfg.account, acct, at, null, prev), updated_at: at }], 'platform,kind,id'); // last: the success mark
-    return json(200, { result: 'ok', days: w.days, since: w.since, until: w.until, campaigns: camps.length, ads: ads.length, stats: stats.length });
+    let suggestions = 0;
+    try { suggestions = await suggest(deps, cfg, at); } catch (e) { console.error('mkt-ads suggest: ' + quiet(e)); }
+    return json(200, { result: 'ok', days: w.days, since: w.since, until: w.until, campaigns: camps.length, ads: ads.length, stats: stats.length, suggestions });
   } catch (e) {
     if (!(e instanceof GraphError)) throw e;
     const code = ourCode(e.code);
@@ -127,6 +149,175 @@ async function run(deps: Deps, daysArg: number | null): Promise<Response> {
     await upsertAll(deps, 'mkt_ad_objects', [{ ...row, updated_at: at }], 'platform,kind,id');
     return json(502, { error: code, text: e.text });
   }
+}
+
+// ---------------------------------------------------------------- 9.5.4: the media buyer (decisions 49–52)
+
+// the rules as the server reads them: settings «marketing».buyer over the defaults
+async function rulesOf(deps: Deps) {
+  const { data } = await deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle();
+  return buyerRules(isObj(data) && isObj(data.data) ? data.data.buyer : null);
+}
+async function rulesWrite(deps: Deps, patch: Json, at: string) {
+  const { data } = await deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle();
+  const cur = isObj(data) && isObj(data.data) ? data.data : {}; const buyer = { ...(isObj(cur.buyer) ? cur.buyer : {}), ...patch };
+  const { error } = await deps.db.from('settings').upsert({ section: 'marketing', data: { ...cur, buyer }, updated_at: at }, { onConflict: 'section' });
+  if (error) throw new Error('db settings ' + (error.code ?? ''));
+  return buyerRules(buyer);
+}
+const log = async (deps: Deps, uid: string | null, action: string, entityId: string, value: string) => {
+  try { await deps.db.from('activity_log').insert({ at: deps.now(), actor: uid, action, entity: 'mkt_ads', entity_id: entityId, new_value: value.slice(0, 200) }); } catch { /* the log never blocks */ }
+};
+// the Woo ad orders of the last days for the rules: { day, campaign, sold, sales } (the order's own total — the lines are the report's)
+async function adOrdersSince(deps: Deps, sinceDay: string): Promise<Json[]> {
+  const { data } = await deps.db.from('orders').select('utm_campaign, placed_at, status, total, deleted_at').eq('ad_platform', 'meta').gte('placed_at', sinceDay + 'T00:00:00+02:00').limit(5000);
+  return (Array.isArray(data) ? data : []).filter((o: Json) => isObj(o) && !o.deleted_at && typeof o.utm_campaign === 'string').map((o: Json) => ({
+    day: cairoParts(Date.parse(o.placed_at)).day, campaign: o.utm_campaign, sold: !['ملغي', 'استرجاع', 'فشل'].includes(String(o.status)), sales: Number(o.total) || 0 }));
+}
+// after a sync: the suggestions of today — the open ones kept (their numbers refreshed) or expired, the new ones inserted; autoStop «auto» acts at once
+async function suggest(deps: Deps, cfg: { token: string; account: string }, at: string): Promise<number> {
+  const today = cairoParts(Date.parse(at)).day; const since = windowOf(Date.parse(at), SUGGEST_DAYS * 2).since;
+  const [{ data: objects }, { data: stats }, orders, rules, { data: open }] = await Promise.all([
+    deps.db.from('mkt_ad_objects').select('kind, id, name, status, meta').eq('platform', 'meta').limit(5000),
+    deps.db.from('mkt_ad_stats').select('level, object_id, campaign_id, day, spend, impressions, clicks, link_clicks, frequency, purchases, purchase_value').eq('platform', 'meta').gte('day', since).limit(20000),
+    adOrdersSince(deps, since), rulesOf(deps),
+    deps.db.from('mkt_suggestions').select('id, kind, campaign_id, ad_id').eq('status', 'pending').limit(1000),
+  ]);
+  const wanted = suggestionsOf({ objects: objects ?? [], stats: stats ?? [], orders, today, rules });
+  const have = new Map((Array.isArray(open) ? open : []).map((r: Json) => [suggestionKey(r), r]));
+  const fresh: Json[] = [];
+  for (const s of wanted) {
+    const row = have.get(suggestionKey(s));
+    if (row) { have.delete(suggestionKey(s)); await deps.db.from('mkt_suggestions').update({ sub: s.sub, why: s.why, impact: s.impact, pct: s.pct, data: s.data, campaign_name: s.campaign_name, checked_at: at }).eq('id', row.id); }
+    else fresh.push({ ...s, platform: 'meta', status: 'pending', created_at: at, checked_at: at });
+  }
+  if (have.size) await deps.db.from('mkt_suggestions').update({ status: 'expired', checked_at: at }).in('id', [...have.values()].map((r: Json) => r.id));
+  const { data: inserted, error } = fresh.length ? await deps.db.from('mkt_suggestions').insert(fresh).select('id, kind, campaign_id, campaign_name') : { data: [], error: null };
+  if (error) throw new Error('db mkt_suggestions ' + (error.code ?? ''));
+  // autoStop «auto» (the owner's own rule): a new stop is carried out now and the bell told — only with the switch on
+  if (rules.autoStopMode === 'auto' && rules.live) {
+    for (const s of (Array.isArray(inserted) ? inserted : []).filter((r: Json) => r.kind === 'stop')) {
+      try {
+        await post(deps, path.node(s.campaign_id), cfg.token, { status: 'PAUSED' });
+        await deps.db.from('mkt_suggestions').update({ status: 'done', decided_at: at, note: 'تلقائي', result: { status: 'PAUSED', auto: true } }).eq('id', s.id);
+        await deps.db.from('alerts').insert(['admin', 'ops'].map((role) => ({ at, kind: 'marketing', title: 'الميديا باير وقّف «' + (s.campaign_name ?? s.campaign_id) + '»', body: 'صرفت ' + rules.autoStop + ' ج.م أو أكتر من غير أوردر — اتوقفت تلقائي بقاعدتك. تقدر تشغّلها تاني من مدير إعلانات ميتا.', role_id: role, entity: 'marketing-ai', entity_id: String(s.id) })));
+        await log(deps, null, 'mkt.buyer.decide', String(s.id), 'stop · auto · ' + s.campaign_id + ' · ok');
+      } catch (e) {
+        const code = e instanceof GraphError ? ourCode(e.code) : 'failed';
+        await deps.db.from('mkt_suggestions').update({ status: 'failed', decided_at: at, note: 'تلقائي', error: code }).eq('id', s.id);
+        await log(deps, null, 'mkt.buyer.decide', String(s.id), 'stop · auto · ' + s.campaign_id + ' · ' + code);
+      }
+    }
+  }
+  return wanted.length;
+}
+async function rulesGet(deps: Deps, who: Who): Promise<Response> {
+  if (!who.view) return json(401, { error: 'unauthorized' });
+  return json(200, { rules: await rulesOf(deps) });
+}
+async function rulesSet(deps: Deps, who: Who, args: Json): Promise<Response> {
+  if (!who.admin) return json(401, { error: 'unauthorized' });
+  const p = rulesPatch(args.rules);
+  if ('error' in p) return json(400, { error: 'bad_request', field: p.error });
+  const rules = await rulesWrite(deps, p.patch, deps.now());
+  await log(deps, who.uid, 'mkt.buyer.rules', 'buyer', Object.keys(p.patch).join(', '));
+  return json(200, { rules });
+}
+async function liveSet(deps: Deps, who: Who, args: Json): Promise<Response> {
+  if (!who.admin) return json(401, { error: 'unauthorized' });
+  if (typeof args.on !== 'boolean') return json(400, { error: 'bad_request', field: 'on' });
+  const rules = await rulesWrite(deps, { live: args.on }, deps.now());
+  await log(deps, who.uid, 'mkt.buyer.live', 'buyer', args.on ? 'on' : 'off');
+  return json(200, { rules });
+}
+// the admin's decision on a suggestion (decision 50)
+async function decide(deps: Deps, who: Who, args: Json): Promise<Response> {
+  if (!who.admin) return json(401, { error: 'unauthorized' });
+  const id = Number(args.id); const decision = args.decision;
+  if (!Number.isInteger(id) || id <= 0) return json(400, { error: 'bad_request', field: 'id' });
+  if (!['approve', 'edit', 'reject'].includes(decision)) return json(400, { error: 'bad_request', field: 'decision' });
+  const { data: s } = await deps.db.from('mkt_suggestions').select('id, kind, campaign_id, campaign_name, ad_id, title, pct, data, status').eq('id', id).maybeSingle();
+  if (!isObj(s)) return json(404, { error: 'not_found' });
+  if (s.status !== 'pending') return json(409, { error: 'decided' });
+  const at = deps.now(); const note = typeof args.note === 'string' ? args.note.replace(/[\u0000-\u001f\u007f]/g, ' ').trim().slice(0, 300) || null : null;
+  const base = { decided_by: who.uid, decided_at: at, note };
+  if (decision === 'reject') {
+    await deps.db.from('mkt_suggestions').update({ ...base, status: 'rejected' }).eq('id', id);
+    await log(deps, who.uid, 'mkt.buyer.decide', String(id), s.kind + ' · reject · ' + s.campaign_id);
+    return json(200, { result: 'ok', status: 'rejected' });
+  }
+  let pct: number | null = null;
+  if (s.kind === 'budget_up' || s.kind === 'budget_down') {
+    pct = decision === 'edit' ? Number(args.value) : Number(s.pct);
+    if (!Number.isFinite(pct) || !Number.isInteger(pct) || pct === 0 || Math.sign(pct) !== Math.sign(Number(s.pct))) return json(400, { error: 'bad_request', field: 'value' });
+  } else if (decision === 'edit') return json(400, { error: 'bad_request', field: 'decision' });
+  const status = decision === 'edit' ? 'edited' : 'approved';
+  // the ones with no money: a designer request / reviewed
+  if (s.kind === 'creative') {
+    const { error } = await deps.db.from('mkt_requests').insert({ kind: 'designer', title: 'نسخة جديدة لإعلان «' + (s.title ?? '').replace(/^إعلان «|» الناس زهقت منه$/g, '') + '»', details: 'الميديا باير: ' + (s.title ?? '') + (note ? ' — ' + note : ''), project: s.campaign_name ?? null, status: 'جديد', created_by: who.uid, created_at: at, updated_by: who.uid, updated_at: at });
+    if (error) return json(500, { error: 'failed' });
+    await deps.db.from('mkt_suggestions').update({ ...base, status: 'done', result: { request: true } }).eq('id', id);
+    await log(deps, who.uid, 'mkt.buyer.decide', String(id), 'creative · approve · ' + s.campaign_id + ' · request');
+    return json(200, { result: 'ok', status: 'done', request: true });
+  }
+  if (s.kind === 'tracking') {
+    await deps.db.from('mkt_suggestions').update({ ...base, status: 'done', result: { reviewed: true } }).eq('id', id);
+    await log(deps, who.uid, 'mkt.buyer.decide', String(id), 'tracking · approve · ' + s.campaign_id);
+    return json(200, { result: 'ok', status: 'done' });
+  }
+  // money: stop / budget — the switch first
+  const rules = await rulesOf(deps); const cfg = configOf(deps.env);
+  if (!rules.live || !cfg) {
+    await deps.db.from('mkt_suggestions').update({ ...base, status, value: pct, result: { live: false } }).eq('id', id);
+    await log(deps, who.uid, 'mkt.buyer.decide', String(id), s.kind + ' · ' + decision + ' · ' + s.campaign_id + ' · live_off');
+    return json(200, { result: 'ok', status, live: false });
+  }
+  try {
+    let result: Json;
+    if (s.kind === 'stop') {
+      await post(deps, path.node(s.campaign_id), cfg.token, { status: 'PAUSED' });
+      result = { status: 'PAUSED' };
+    } else {
+      const [camp, adsets, allCamps, allAdsets] = await Promise.all([
+        get(deps, path.node(s.campaign_id) + '?fields=' + encodeURIComponent('id,daily_budget,lifetime_budget,effective_status'), cfg.token),
+        list(deps, path.campaignAdsets(s.campaign_id), cfg.token),
+        list(deps, path.campaigns(cfg.account), cfg.token), list(deps, path.accountAdsets(cfg.account), cfg.token)]);
+      const plan = budgetPlan({ campaign: camp, adsets }, pct, rules, accountDaily(allCamps, allAdsets, s.campaign_id));
+      if ('error' in plan) {
+        await deps.db.from('mkt_suggestions').update({ ...base, status: 'failed', value: pct, error: plan.error, result: plan }).eq('id', id);
+        await log(deps, who.uid, 'mkt.buyer.decide', String(id), s.kind + ' · ' + decision + ' · ' + s.campaign_id + ' · ' + plan.error);
+        return json(409, { error: plan.error, max: plan.max ?? null, cap: plan.cap ?? null, after: plan.after ?? null });
+      }
+      for (const u of plan.updates) await post(deps, path.node(u.id), cfg.token, { daily_budget: String(u.daily_budget) });
+      result = { pct, before: plan.before, after: plan.after, updates: plan.updates.length };
+    }
+    await deps.db.from('mkt_suggestions').update({ ...base, status: 'done', value: pct, result }).eq('id', id);
+    await log(deps, who.uid, 'mkt.buyer.decide', String(id), s.kind + ' · ' + decision + ' · ' + s.campaign_id + ' · ok');
+    return json(200, { ...result, result: 'ok', status: 'done' }); // the stored result (before / after / updates) beside ours
+  } catch (e) {
+    if (!(e instanceof GraphError)) throw e;
+    const code = ourCode(e.code);
+    await deps.db.from('mkt_suggestions').update({ ...base, status: 'failed', value: pct, error: code, result: { text: e.text } }).eq('id', id);
+    await log(deps, who.uid, 'mkt.buyer.decide', String(id), s.kind + ' · ' + decision + ' · ' + s.campaign_id + ' · ' + code);
+    return json(502, { error: code, text: e.text });
+  }
+}
+// the daily report (decision 52): once a day at the rule's Cairo hour, to the bell of the admin and ops roles
+async function report(deps: Deps): Promise<Response> {
+  const at = deps.now(); const nowMs = Date.parse(at); const p = cairoParts(nowMs); const rules = await rulesOf(deps);
+  if (Number(p.time.slice(0, 2)) !== rules.reportHour) return json(200, { result: 'skipped', reason: 'hour' });
+  const { data: sent } = await deps.db.from('alerts').select('id').eq('kind', 'marketing').eq('entity', 'marketing-ai').eq('entity_id', 'report:' + p.day).limit(1);
+  if (Array.isArray(sent) && sent.length) return json(200, { result: 'skipped', reason: 'sent' });
+  const y = cairoParts(nowMs - 86400_000).day;
+  const [{ data: st }, orders, { data: pending }] = await Promise.all([
+    deps.db.from('mkt_ad_stats').select('spend').eq('platform', 'meta').eq('level', 'campaign').eq('day', y).limit(5000),
+    adOrdersSince(deps, y), deps.db.from('mkt_suggestions').select('id').eq('status', 'pending').limit(1000)]);
+  const spend = (Array.isArray(st) ? st : []).reduce((s: number, r: Json) => s + (Number(r.spend) || 0), 0);
+  const sold = orders.filter((o) => o.day === y && o.sold);
+  const t = reportText({ day: y, spend, orders: sold.length, sales: sold.reduce((s, o) => s + o.sales, 0), pending: Array.isArray(pending) ? pending.length : 0 });
+  const { error } = await deps.db.from('alerts').insert(['admin', 'ops'].map((role) => ({ at, kind: 'marketing', title: t.title, body: t.body, role_id: role, entity: 'marketing-ai', entity_id: 'report:' + p.day })));
+  if (error) throw new Error('db alerts ' + (error.code ?? ''));
+  return json(200, { result: 'ok', day: y });
 }
 
 async function status(deps: Deps, who: Who): Promise<Response> {
@@ -157,14 +348,15 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   // the cron: the sync secret of 0008, `sync` only — never a member's action
   const syncSecret = req.headers.get('x-sync-secret');
   if (syncSecret && !req.headers.get('authorization')) {
-    if (action !== 'sync' || !(await syncAllowed(deps, syncSecret))) return json(401, { error: 'unauthorized' });
-    try { return await run(deps, null); } catch (e) { console.error('mkt-ads sync: ' + quiet(e)); return json(500, { error: 'failed' }); }
+    if (!CRON_ACTIONS.includes(action) || !(await syncAllowed(deps, syncSecret))) return json(401, { error: 'unauthorized' });
+    try { return action === 'report' ? await report(deps) : await run(deps, null); } catch (e) { console.error('mkt-ads ' + action + ': ' + quiet(e)); return json(500, { error: 'failed' }); }
   }
   const who = await whoIs(req, deps);
   if (!who) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
-    return action === 'status' ? await status(deps, who) : await syncByHand(deps, who, args);
+    return action === 'status' ? await status(deps, who) : action === 'rules' ? await rulesGet(deps, who) : action === 'rules_set' ? await rulesSet(deps, who, args)
+      : action === 'live' ? await liveSet(deps, who, args) : action === 'decide' ? await decide(deps, who, args) : await syncByHand(deps, who, args);
   } catch (e) {
     console.error('mkt-ads ' + action + ': ' + quiet(e));
     return json(500, { error: 'failed' });

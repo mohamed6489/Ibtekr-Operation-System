@@ -8,9 +8,10 @@ import { ENV, NOW, fakeDb } from '../_test/fakes.ts';
 const KEY = 'anthropic-test-key-0000';
 const U = { admin: '00000000-0000-4000-8000-0000000000a1', add: '00000000-0000-4000-8000-0000000000a2', edit: '00000000-0000-4000-8000-0000000000a3', view: '00000000-0000-4000-8000-0000000000a4', mkt: '00000000-0000-4000-8000-0000000000a5' };
 // member tokens → what has_perm / is_admin answer, and who they are
-const MEMBERS: Record<string, { uid: string; admin?: unknown; add?: unknown; edit?: unknown; mkt?: unknown }> = {
+const MEMBERS: Record<string, { uid: string; admin?: unknown; add?: unknown; edit?: unknown; mkt?: unknown; mview?: unknown }> = {
   'jwt-admin': { uid: U.admin, admin: true }, 'jwt-add': { uid: U.add, add: 'F' }, 'jwt-edit': { uid: U.edit, edit: 'F' }, 'jwt-view': { uid: U.view, add: 'P', edit: 'P' },
   'jwt-mkt': { uid: U.mkt, mkt: 'F' }, // phase 9.5.1: marketing.create F only
+  'jwt-mview': { uid: U.view, mview: 'P' }, // phase 9.5.4: marketing.view P only (the buyer's chat)
 };
 const SB = '0b6f2f5e-1d2c-4a8b-9e3f-1234567890ab';
 const OTHER = '11111111-2222-4333-8444-555555555555';
@@ -49,7 +50,7 @@ function setup({ seed = {}, env = {}, replies = [], monthCost = 0, startDown = f
   db = fakeDb(seed, { rpc: startDown ? {} : { ai_run_start: start }, storage, fail });
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'products.add' ? m.add ?? 'N' : key === 'products.edit' ? m.edit ?? 'N' : key === 'marketing.create' ? m.mkt ?? 'N' : 'N'), is_admin: () => m.admin ?? false } : {} });
+    return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'products.add' ? m.add ?? 'N' : key === 'products.edit' ? m.edit ?? 'N' : key === 'marketing.create' ? m.mkt ?? 'N' : key === 'marketing.view' ? m.mview ?? 'N' : 'N'), is_admin: () => m.admin ?? false } : {} });
   };
   // during: the ai_runs rows (status, cost) as each Claude call starts — the reservation is made before the call
   const asked: any[] = []; const slept: number[] = []; const during: any[] = []; const queue = [...replies];
@@ -323,4 +324,35 @@ Deno.test('marketing rewrite / describe: one field (the current text as material
   assertEquals([d.res.status, d.body.text, asked[1].messages[0].content[0].type], [200, 'المنتج في النص على خلفية كريمي', 'image']);
   assertEquals(db.rows('ai_runs').at(-1).source, 'template');
   assertEquals((await call(deps, { action: 'marketing', task: 'rewrite', kind: 'voice' }, 'jwt-mkt')).body.field, 'kind');
+});
+
+// ---------------------------------------------------------------- phase 9.5.4: the media buyer's chat (decision 53)
+
+const CAMP = '120252323303340228';
+const BUYER_SEED = {
+  mkt_ad_objects: [{ platform: 'meta', kind: 'campaign', id: CAMP, name: 'Macrame', status: 'ACTIVE', meta: { daily_budget: 300 } }, { platform: 'meta', kind: 'campaign', id: '2', name: 'Old', status: 'PAUSED', meta: {} }],
+  mkt_ad_stats: [{ platform: 'meta', level: 'campaign', object_id: CAMP, campaign_id: CAMP, day: '2026-10-24', spend: 500, impressions: 1, clicks: 0, purchases: 4, purchase_value: 0 },
+    { platform: 'meta', level: 'campaign', object_id: CAMP, campaign_id: CAMP, day: '2026-10-01', spend: 9999, impressions: 1, clicks: 0, purchases: 9, purchase_value: 0 }], // outside the week
+  status_map: [{ id: 1, system_status: 'مكتمل', woo_status: 'completed' }, { id: 2, system_status: 'ملغي', woo_status: 'cancelled' }],
+  orders: [{ id: 1, number: '1', customer_name: 'ع', status: 'مكتمل', confirm: 'غير مؤكد', deposit: 0, total: 700, placed_at: '2026-10-24T10:00:00+02:00', ad_platform: 'meta', utm_campaign: CAMP },
+    { id: 2, number: '2', customer_name: 'ع', status: 'مكتمل', confirm: 'غير مؤكد', deposit: 0, total: 300, placed_at: '2026-10-25T10:00:00+02:00', ad_platform: 'meta', utm_campaign: CAMP },
+    { id: 3, number: '3', customer_name: 'ع', status: 'ملغي', confirm: 'غير مؤكد', deposit: 0, total: 900, placed_at: '2026-10-25T10:00:00+02:00', ad_platform: 'meta', utm_campaign: CAMP }],
+  mkt_suggestions: [{ id: 1, platform: 'meta', kind: 'budget_up', campaign_id: CAMP, title: 'زوّد «Macrame» 20%', sub: 'العائد 2×', status: 'pending', created_at: NOW, checked_at: NOW, data: {} }],
+  settings: [{ section: 'marketing', data: { buyer: { maxCpa: 400 } } }],
+};
+
+Deno.test('buyer (9.5.4): marketing.view (P too); the week\'s numbers per campaign from our tables (never the body), the open suggestions and the rules in the request; text only; ai_runs marketing / buyer', async () => {
+  const { deps, asked, db } = setup({ seed: BUYER_SEED, replies: [msg({ text: 'Macrame جابت 2 أوردر بـ 1,000 ج.م على 500 صرف — عائد 2×. لو عايز تزوّدها، وافق على الاقتراح من الصفحة.' })] });
+  assertEquals((await call(deps, { action: 'buyer', question: 'إيه الوضع؟' }, 'jwt-add')).res.status, 401, 'products.add is not marketing.view');
+  assertEquals((await call(deps, { action: 'buyer', question: '' }, 'jwt-mview')).body.field, 'question');
+  assertEquals((await call(deps, { action: 'buyer', question: 'x', history: [{ role: 'system', text: 'y' }] }, 'jwt-mview')).body.field, 'history');
+  const r = await call(deps, { action: 'buyer', question: 'أزوّد Macrame؟', history: [{ role: 'user', text: 'أهلًا' }, { role: 'assistant', text: 'أهلًا بيك' }], campaigns: 'ignored' }, 'jwt-mview');
+  assertEquals([r.res.status, r.body.result, r.body.text.startsWith('Macrame جابت')], [200, 'ok', true]);
+  const sent = asked[0].messages.at(-1).content[0].text;
+  assert(sent.includes('Macrame | ACTIVE | spend 500 | meta purchases 4 | woo orders 2 | woo sales 1000 | MER 2.00 | cost/order 250 | daily budget 300'), sent);
+  assertFalse(sent.includes('9999') || sent.includes('Old |')); // the old week and a paused campaign without spend stay out; the cancelled order too
+  assert(sent.includes('max cost per order 400') && sent.includes('daily cap 5000') && sent.includes('execution switch off') && sent.includes('budget_up: زوّد «Macrame» 20% — العائد 2×') && sent.endsWith('أزوّد Macrame؟'));
+  assertEquals(asked[0].messages.map((m: any) => m.role), ['user', 'assistant', 'user']);
+  assert(asked[0].system[0].text.includes('never change anything yourself'));
+  const run = db.rows('ai_runs').at(-1); assertEquals([run.action, run.source, run.label, run.status], ['marketing', 'buyer', 'أزوّد Macrame؟', 'ok']);
 });

@@ -126,3 +126,143 @@ Deno.test('sync by hand: the admin only, 1–400 days, logged with counts only',
   assertEquals(log.map((l: any) => [l.action, l.actor, l.entity, l.new_value]), [['mkt.ads.sync', U.admin, 'mkt_ads', '7 · 1 · 1 · 4']]);
   assertEquals((await call(deps, { action: 'other' })).res.status, 400);
 });
+
+// ---------------------------------------------------------------- 9.5.4: the media buyer (decisions 49–52)
+const C2 = '120251977233530228';
+const dayN = (n: number) => new Date(Date.parse('2026-10-25T00:00:00Z') - n * 86400_000).toISOString().slice(0, 10);
+const campStat = (id: string, n: number, spend: number, purchases = 0) => ({ platform: 'meta', level: 'campaign', object_id: id, campaign_id: id, day: dayN(n), spend, impressions: 1000, clicks: 10, purchases, purchase_value: 0 });
+const BUYER_OBJECTS = [
+  { platform: 'meta', kind: 'account', id: '1122334455', name: 'Ibtekr Club', status: 'ACTIVE', meta: { currency: 'EGP' } },
+  { platform: 'meta', kind: 'campaign', id: C1, name: 'Macrame', status: 'ACTIVE', meta: { daily_budget: 300 } },
+  { platform: 'meta', kind: 'campaign', id: C2, name: 'Lamps', status: 'ACTIVE', meta: {} },
+];
+// Lamps: 2,000 in 5 days without an order → stop; Macrame: 5 orders of 700 on 700 spent → MER 5 → scale
+const BUYER_STATS = [...[0, 1, 2, 3, 4].map((n) => campStat(C2, n, 400, 2)), ...[0, 1, 2, 3, 4, 5, 6].map((n) => campStat(C1, n, 100, 1))];
+const BUYER_ORDERS = [0, 1, 2, 3, 4].map((n, i) => ({ id: 95300001 + i, number: String(95300001 + i), customer_name: 'ع', status: 'مكتمل', confirm: 'غير مؤكد', deposit: 0, total: 700, placed_at: dayN(n) + 'T10:00:00+02:00', ad_platform: 'meta', utm_campaign: C1 }));
+const STATUS_MAP = [{ id: 1, system_status: 'مكتمل', woo_status: 'completed' }];
+// the sync of these tests brings the two campaigns and no insights, so the seeded numbers are the numbers
+const BUYER_ROUTES: Record<string, Route> = { ...OK_ROUTES,
+  'GET act_1122334455/campaigns': { body: { data: [{ id: C1, name: 'Macrame', effective_status: 'ACTIVE', daily_budget: '30000' }, { id: C2, name: 'Lamps', effective_status: 'ACTIVE' }] } },
+  'GET act_1122334455/insights': { body: { data: [] } } };
+// the fake keeps rows the function inserted; seed the rest the same way
+async function seedBuyer(db: any, extra: { settings?: any[]; suggestions?: any[] } = {}) {
+  await db.from('status_map').insert(STATUS_MAP); // the orders' status is a foreign key of it
+  const { error } = await db.from('orders').insert(BUYER_ORDERS);
+  if (error) throw new Error('seed orders ' + JSON.stringify(error));
+  if (extra.settings?.length) await db.from('settings').insert(extra.settings);
+  if (extra.suggestions?.length) await db.from('mkt_suggestions').insert(extra.suggestions);
+}
+
+Deno.test('suggest (after a sync): stop for a campaign spending without orders, scale for a high real return; again → the open rows kept (no doubles), one gone expires', async () => {
+  const { deps, db } = setup({ routes: BUYER_ROUTES, objects: BUYER_OBJECTS, stats: BUYER_STATS });
+  await seedBuyer(db);
+  const r = await cron(deps);
+  assertEquals([r.res.status, r.body.suggestions], [200, 2]);
+  const rows = db.rows('mkt_suggestions');
+  assertEquals(rows.map((s: any) => [s.kind, s.campaign_id, s.status, s.pct]).sort(), [['budget_up', C1, 'pending', 20], ['stop', C2, 'pending', null]]);
+  assert(rows.find((s: any) => s.kind === 'stop').title.includes('Lamps') && rows.find((s: any) => s.kind === 'stop').data.orders5 === 0);
+  // the next sync: the same two, refreshed, not doubled
+  await cron(deps);
+  assertEquals(db.rows('mkt_suggestions').length, 2);
+  // Lamps paused on Meta (the sync writes the objects): its stop expires
+  const paused = setup({ objects: BUYER_OBJECTS, stats: BUYER_STATS, routes: { ...BUYER_ROUTES, 'GET act_1122334455/campaigns': { body: { data: [{ id: C1, name: 'Macrame', effective_status: 'ACTIVE', daily_budget: '30000' }, { id: C2, name: 'Lamps', effective_status: 'PAUSED' }] } } } });
+  await seedBuyer(paused.db, { suggestions: rows });
+  await cron(paused.deps);
+  assertEquals(paused.db.rows('mkt_suggestions').find((s: any) => s.kind === 'stop').status, 'expired');
+  // no token: the suggestions still come from the stored numbers? no — a sync needs the token; nothing is written
+  assertEquals((await cron(setup({ env: ENV }).deps)).res.status, 503);
+});
+
+Deno.test('rules: marketing.view reads the defaults; the admin sets the numbers (logged, never live through rules_set) and the switch (logged)', async () => {
+  const { deps, db } = setup();
+  const r = await call(deps, { action: 'rules' }, 'jwt-view');
+  assertEquals(r.body.rules, { dailyCap: 5000, maxCpa: 450, autoStop: 1500, autoStopMode: 'suggest', reportHour: 9, live: false });
+  assertEquals((await call(deps, { action: 'rules_set', rules: { dailyCap: 8000 } }, 'jwt-view')).res.status, 401);
+  const s = await call(deps, { action: 'rules_set', rules: { dailyCap: 8000, autoStopMode: 'auto', live: true } });
+  assertEquals([s.body.rules.dailyCap, s.body.rules.autoStopMode, s.body.rules.live], [8000, 'auto', false]);
+  assertEquals((await call(deps, { action: 'rules_set', rules: { maxCpa: 0 } })).body.field, 'maxCpa');
+  const on = await call(deps, { action: 'live', on: true });
+  assertEquals([on.body.rules.live, on.body.rules.dailyCap], [true, 8000]);
+  assertEquals(db.rows('settings')[0].data, { buyer: { dailyCap: 8000, autoStopMode: 'auto', live: true } });
+  assertEquals(db.rows('activity_log').map((l: any) => [l.action, l.new_value]), [['mkt.buyer.rules', 'dailyCap, autoStopMode'], ['mkt.buyer.live', 'on']]);
+  assertEquals((await call(deps, { action: 'live', on: 'yes' })).res.status, 400);
+});
+
+const SUGG = (id: number, kind: string, extra: any = {}) => ({ id, platform: 'meta', kind, campaign_id: C1, campaign_name: 'Macrame', title: kind === 'creative' ? 'إعلان «carousel» الناس زهقت منه' : 'زوّد «Macrame» 20%', pct: kind === 'budget_up' ? 20 : kind === 'budget_down' ? -30 : null, data: {}, status: 'pending', created_at: NOW, checked_at: NOW, ...extra });
+const ON = [{ section: 'marketing', data: { buyer: { live: true, dailyCap: 5000 } } }];
+
+Deno.test('decide: the admin only; reject; the switch off → the decision kept with no call; stop → PAUSED on the campaign\'s node; decided twice → 409', async () => {
+  const { deps, db, calls } = setup({ routes: { ...OK_ROUTES, ['POST ' + C1]: { body: { success: true } } } });
+  await seedBuyer(db, { suggestions: [SUGG(1, 'stop'), SUGG(2, 'stop', { id: 2 }), SUGG(3, 'stop', { id: 3 })] });
+  assertEquals((await call(deps, { action: 'decide', id: 1, decision: 'approve' }, 'jwt-view')).res.status, 401);
+  assertEquals((await call(deps, { action: 'decide', id: 1, decision: 'reject', note: 'سيبها' })).body.status, 'rejected');
+  assertEquals(db.rows('mkt_suggestions')[0].note, 'سيبها');
+  const off = await call(deps, { action: 'decide', id: 2, decision: 'approve' });
+  assertEquals([off.body.status, off.body.live, calls.filter((c) => c.method === 'POST').length], ['approved', false, 0]);
+  await db.from('settings').insert(ON);
+  const on = await call(deps, { action: 'decide', id: 3, decision: 'approve' });
+  assertEquals([on.res.status, on.body.status, on.body.status_], [200, 'done', undefined]);
+  const p = calls.find((c) => c.method === 'POST')!;
+  assertEquals([p.path, p.auth], [C1, 'Bearer ' + TOKEN]);
+  assertEquals(db.rows('mkt_suggestions')[2].result, { status: 'PAUSED' });
+  assertEquals((await call(deps, { action: 'decide', id: 3, decision: 'approve' })).res.status, 409);
+  assertEquals(db.rows('activity_log').map((l: any) => l.new_value), ['stop · reject · ' + C1, 'stop · approve · ' + C1 + ' · live_off', 'stop · approve · ' + C1 + ' · ok']);
+  assertFalse(JSON.stringify(db.rows('activity_log')).includes('300'));
+});
+
+Deno.test('decide a budget: the campaign\'s own daily budget (CBO) by the step, edited to another step, the cap and the 30% ceiling refused, the ad sets when the campaign has none', async () => {
+  const routes = { ...OK_ROUTES,
+    ['GET ' + C1]: { body: { id: C1, daily_budget: '30000', effective_status: 'ACTIVE' } },
+    ['GET ' + C1 + '/adsets']: { body: { data: [{ id: '700', daily_budget: '10000', effective_status: 'ACTIVE' }, { id: '701', daily_budget: '5000', effective_status: 'PAUSED' }] } },
+    'GET act_1122334455/adsets': { body: { data: [{ id: '900', campaign_id: '999', daily_budget: '100000', effective_status: 'ACTIVE' }] } },
+    ['POST ' + C1]: { body: { success: true } }, 'POST 700': { body: { success: true } } };
+  const { deps, db, calls } = setup({ routes });
+  await seedBuyer(db, { settings: ON, suggestions: [SUGG(1, 'budget_up'), SUGG(2, 'budget_up', { id: 2 }), SUGG(3, 'budget_up', { id: 3 }), SUGG(4, 'budget_down', { id: 4 })] });
+  const r = await call(deps, { action: 'decide', id: 1, decision: 'approve' });
+  assertEquals([r.res.status, r.body.status, r.body.before, r.body.after], [200, 'done', 300, 360]);
+  const posts = () => calls.filter((c) => c.method === 'POST');
+  assertEquals(posts().length, 1);
+  // the body carries the new budget in minor units
+  const e = await call(deps, { action: 'decide', id: 2, decision: 'edit', value: 10 });
+  assertEquals([e.body.status, e.body.after, db.rows('mkt_suggestions')[1].value], ['done', 330, 10]);
+  assertEquals((await call(deps, { action: 'decide', id: 3, decision: 'edit', value: -10 })).body.field, 'value'); // a raise edited into a cut
+  assertEquals((await call(deps, { action: 'decide', id: 3, decision: 'edit', value: 40 })).body.error, 'step');
+  assertEquals(db.rows('mkt_suggestions')[2].status, 'failed');
+  // the cap: the rest of the account spends 1,000 a day (the other ad set); a cap of 1,300 refuses 360
+  const capped = setup({ routes }); await seedBuyer(capped.db, { settings: [{ section: 'marketing', data: { buyer: { live: true, dailyCap: 1300 } } }], suggestions: [SUGG(5, 'budget_up', { id: 5 })] });
+  const c = await call(capped.deps, { action: 'decide', id: 5, decision: 'approve' });
+  assertEquals([c.res.status, c.body.error, c.body.cap], [409, 'cap', 1300]);
+  // no CBO: the active ad set's budget moves (−30%)
+  const noCbo = setup({ routes: { ...routes, ['GET ' + C1]: { body: { id: C1, effective_status: 'ACTIVE' } } } });
+  await seedBuyer(noCbo.db, { settings: ON, suggestions: [SUGG(6, 'budget_down', { id: 6 })] });
+  const d = await call(noCbo.deps, { action: 'decide', id: 6, decision: 'approve' });
+  assertEquals([d.body.status, d.body.before, d.body.after, d.body.updates], ['done', 100, 70, 1]);
+  assertEquals(noCbo.calls.filter((x) => x.method === 'POST').map((x) => x.path), ['700']);
+});
+
+Deno.test('decide creative → a designer request and done; tracking → reviewed; Meta refusing a write → failed with our code', async () => {
+  const { deps, db } = setup({ routes: { ...OK_ROUTES, ['POST ' + C1]: { status: 400, body: { error: { code: 190, message: 'expired' } } } } });
+  await seedBuyer(db, { settings: ON, suggestions: [SUGG(1, 'creative', { ad_id: '1206' }), SUGG(2, 'tracking', { id: 2, title: 'فرق كبير في أرقام «Macrame»' }), SUGG(3, 'stop', { id: 3 })] });
+  const c = await call(deps, { action: 'decide', id: 1, decision: 'approve', note: 'فيديو قصير' });
+  assertEquals([c.body.status, c.body.request], ['done', true]);
+  const rq = db.rows('mkt_requests')[0];
+  assertEquals([rq.kind, rq.title, rq.project, rq.status, rq.created_by], ['designer', 'نسخة جديدة لإعلان «carousel»', 'Macrame', 'جديد', U.admin]);
+  assertEquals((await call(deps, { action: 'decide', id: 2, decision: 'approve' })).body.status, 'done');
+  const f = await call(deps, { action: 'decide', id: 3, decision: 'approve' });
+  assertEquals([f.res.status, f.body.error, db.rows('mkt_suggestions')[2].status, db.rows('mkt_suggestions')[2].error], [502, 'token', 'failed', 'token']);
+  assertEquals((await call(deps, { action: 'decide', id: 2, decision: 'edit', value: 5 })).res.status, 409);
+});
+
+Deno.test('report (the cron): at the rule\'s Cairo hour only, once a day — yesterday\'s spend and orders and the open suggestions to the admin and ops bells', async () => {
+  const { deps, db } = setup({ stats: [campStat(C1, 1, 1234.5, 3), campStat(C2, 1, 100)] });
+  await seedBuyer(db, { suggestions: [SUGG(1, 'stop')], settings: [{ section: 'marketing', data: { buyer: { reportHour: 15 } } }] }); // NOW is 12:00Z = 15:00 Cairo (October: UTC+3)
+  const r = await handler(req({ action: 'report' }, { 'x-sync-secret': 'sync-secret-ok' }), deps);
+  assertEquals([r.status, (await r.json()).day], [200, dayN(1)]);
+  const a = db.rows('alerts');
+  assertEquals(a.map((x: any) => [x.role_id, x.kind, x.entity, x.entity_id]), [['admin', 'marketing', 'marketing-ai', 'report:2026-10-25'], ['ops', 'marketing', 'marketing-ai', 'report:2026-10-25']]);
+  assertEquals(a[0].body, 'الصرف إمبارح 1,335 ج.م · 1 أوردر من الإعلانات (700 ج.م) · العائد الحقيقي 0.52× · 1 اقتراح مستني موافقتك');
+  assertEquals((await (await handler(req({ action: 'report' }, { 'x-sync-secret': 'sync-secret-ok' }), deps)).json()).reason, 'sent');
+  const early = setup(); await seedBuyer(early.db);
+  assertEquals((await (await handler(req({ action: 'report' }, { 'x-sync-secret': 'sync-secret-ok' }), early.deps)).json()).reason, 'hour');
+  assertEquals((await handler(req({ action: 'report' }, { authorization: 'Bearer jwt-admin' }), deps)).status, 400); // a member's action it is not
+});

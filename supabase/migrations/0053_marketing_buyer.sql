@@ -8,6 +8,7 @@
 --   changed by the admin, the text by its author while it is «جديد».
 -- * mkt_buyer_rules() — the rules and limits as the server reads them (settings «marketing».buyer, the prototype's defaults);
 --   the execution switch is off until the admin turns it on (decision 50).
+-- * ai_runs.source «buyer» — the buyer's chat (ai-content action «buyer», marketing.view; text only, no execution — decision 53).
 -- * the cron mkt-ads-report (hourly; the function sends the day's report once when Cairo's hour is the rule's).
 -- Re-runnable; no drop / delete / truncate of data.
 
@@ -116,15 +117,26 @@ grant usage on sequence public.mkt_requests_id_seq to authenticated, service_rol
 
 -- ---------------------------------------------------------------- the rules (decision 51)
 
--- the rules and limits as the server reads them: settings «marketing».buyer over the prototype's defaults; live = the execution switch
+-- the rules and limits as the members read them (marketing.view — the settings row itself is the admin's): settings «marketing».buyer over
+-- the prototype's defaults; live = the execution switch. The server (service_role) reads the settings row directly.
 create or replace function public.mkt_buyer_rules() returns jsonb
-language sql stable security definer set search_path = public as $$
-  select jsonb_build_object('dailyCap', 5000, 'maxCpa', 450, 'autoStop', 1500, 'autoStopMode', 'suggest', 'reportHour', 9, 'live', false)
+language plpgsql stable security definer set search_path = public as $$
+begin
+  if coalesce(public.has_perm('marketing.view'), 'N') = 'N' then
+    raise exception 'marketing.view is needed' using errcode = '42501';
+  end if;
+  return jsonb_build_object('dailyCap', 5000, 'maxCpa', 450, 'autoStop', 1500, 'autoStopMode', 'suggest', 'reportHour', 9, 'live', false)
          || coalesce((select case when jsonb_typeof(s.data -> 'buyer') = 'object' then s.data -> 'buyer' else '{}'::jsonb end
-                        from public.settings s where s.section = 'marketing'), '{}'::jsonb)
-$$;
+                        from public.settings s where s.section = 'marketing'), '{}'::jsonb);
+end $$;
 revoke execute on function public.mkt_buyer_rules() from public, anon;
 grant execute on function public.mkt_buyer_rules() to authenticated, service_role;
+
+-- ---------------------------------------------------------------- ai_runs: the buyer's chat (decision 53) — action «marketing», source «buyer»
+
+alter table public.ai_runs drop constraint if exists ai_runs_source_check;
+alter table public.ai_runs add constraint ai_runs_source_check
+  check (source is null or source in ('data', 'image', 'product', 'studio', 'tool', 'edit', 'import', 'campaign', 'template', 'post', 'buyer'));
 
 -- ---------------------------------------------------------------- the cron (decision 52; guarded like 0040; the sync secret of 0008)
 

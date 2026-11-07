@@ -34,12 +34,15 @@ do $$ begin
   insert into public.mkt_suggestions (kind, campaign_id, title) values ('tracking', '120252323303340228', 'تاني');
 end $$;
 
--- the rules: the defaults, then the admin's settings row over them
+set local role authenticated;
+-- the rules (marketing.view): the defaults, then the admin's settings row over them
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000053a2","role":"authenticated"}', true);
 do $$ begin
   if (select public.mkt_buyer_rules()) <> '{"dailyCap": 5000, "maxCpa": 450, "autoStop": 1500, "autoStopMode": "suggest", "reportHour": 9, "live": false}'::jsonb then
     raise exception 'case the default rules failed: %', public.mkt_buyer_rules();
   end if;
 end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000053a1","role":"authenticated"}', true);
 insert into public.settings (section, data) values ('marketing', '{"autopublish": false, "buyer": {"dailyCap": 8000, "live": true}}')
   on conflict (section) do update set data = public.settings.data || excluded.data;
 do $$ begin
@@ -48,7 +51,6 @@ do $$ begin
   end if;
 end $$;
 
-set local role authenticated;
 -- ops (marketing F/F): reads the suggestions, never writes them; adds a designer request and edits its own text while new;
 -- cannot change a status; reads the rules
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000053a2","role":"authenticated"}', true);
@@ -99,6 +101,8 @@ end $$;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000053a3","role":"authenticated"}', true);
 do $$ begin
   if (select count(*) from public.mkt_suggestions) <> 0 or (select count(*) from public.mkt_requests) <> 0 then raise exception 'case cs sees nothing failed'; end if;
+  begin perform public.mkt_buyer_rules(); raise exception 'case cs reads the rules failed';
+  exception when insufficient_privilege then null; end;
 end $$;
 
 -- anon: nothing

@@ -1,7 +1,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   parseCampaign, parseCampaignEdit, campaignTarget, campaignRefs, campaignPrompt, pinsPrompt, campaignPathOk, campaignGenPath, parseMarketing, marketingSchema,
-  marketingRequest, cleanMarketing, MKT_LIM,
+  marketingRequest, cleanMarketing, MKT_LIM, parseBuyer, buyerRequest, cleanBuyer, BUYER_ANSWER_MAX, BUYER_HISTORY,
 } from '../../supabase/functions/_shared/marketing.js';
 // The marketing campaign's AI (phase 9.5.1, decisions 8–10): the request checks, the piece read from the state the page saved, its
 // references in order, the image prompt (the Arabic text written into the image), the pins' edit prompt, and the AI writing's
@@ -104,4 +104,31 @@ test('cleanMarketing: the limits, an Arabic idea and caption, the slides by coun
   assert.equal(cleanMarketing({ idea: 'English only idea', caption: 'Hi' }, { task: 'fill' }, campaignTarget(s, 'P1', null)).fields.idea, undefined);
   assert.ok(!('caption' in cleanMarketing({ caption: 'كابشن' }, { task: 'fill' }, campaignTarget(s, 'X1', null)).fields));
   assert.deepEqual(cleanMarketing({ text: '  خصم <b>20%</b>  ' }, { task: 'rewrite', kind: 'badge' }), { text: 'خصم 20%' });
+});
+
+// ---------------------------------------------------------------- the media buyer's chat (phase 9.5.4, decision 53)
+
+test('parseBuyer: the question is required (≤ 1000), the history user / assistant only and the last 6 turns; buyerRequest: the data block from the server, the numbers derived; cleanBuyer: the limit', () => {
+  assert.equal(parseBuyer({}).field, 'question');
+  assert.equal(parseBuyer({ question: 'x', history: 'y' }).field, 'history');
+  assert.equal(parseBuyer({ question: 'x', history: [{ role: 'tool', text: 'y' }] }).field, 'history');
+  const long = Array.from({ length: 10 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: 't' + i }));
+  const r = parseBuyer({ question: ' أزوّد؟ ', history: long }).req;
+  assert.equal(r.question, 'أزوّد؟');
+  assert.equal(r.history.length, BUYER_HISTORY);
+  assert.equal(r.history[0].text, 't4');
+  const q = buyerRequest(r, { model: 'm', effort: 'low', data: { today: '2026-10-25', rules: { dailyCap: 5000, maxCpa: 450, autoStop: 1500, autoStopMode: 'suggest', live: true },
+    campaigns: [{ name: 'Macrame', status: 'ACTIVE', spend: 500, purchases: 4, orders: 2, sales: 1000, daily_budget: 300 }, { name: 'Zero', status: 'ACTIVE', spend: 0, purchases: 0, orders: 0, sales: 0 }],
+    suggestions: [{ kind: 'stop', title: 'وقّف «Lamps»', sub: 'صرفت 2,000' }] } });
+  const last = q.messages.at(-1).content[0].text;
+  assert.ok(last.includes('Macrame | ACTIVE | spend 500 | meta purchases 4 | woo orders 2 | woo sales 1000 | MER 2.00 | cost/order 250 | daily budget 300'));
+  assert.ok(last.includes('Zero | ACTIVE | spend 0 | meta purchases 0 | woo orders 0 | woo sales 0 | MER — | cost/order —'));
+  assert.ok(last.includes('execution switch on') && last.includes('stop: وقّف «Lamps» — صرفت 2,000') && last.endsWith('أزوّد؟'));
+  assert.deepEqual(q.messages.map((m) => m.role), ['user', 'assistant', 'user', 'assistant', 'user', 'assistant', 'user']);
+  assert.equal(q.output_config.format.schema.required[0], 'text');
+  // a history ending with the user's turn: the question joins it; none: one user turn
+  assert.equal(buyerRequest({ question: 'q', history: [{ role: 'user', text: 'a' }] }, { model: 'm', effort: 'low', data: {} }).messages.length, 1);
+  assert.ok(buyerRequest({ question: 'q', history: [] }, { model: 'm', effort: 'low', data: {} }).messages[0].content[0].text.includes('(no campaign numbers yet'));
+  assert.equal(cleanBuyer({ text: 'x'.repeat(5000) }).text.length, BUYER_ANSWER_MAX);
+  assert.equal(cleanBuyer(null).text, '');
 });

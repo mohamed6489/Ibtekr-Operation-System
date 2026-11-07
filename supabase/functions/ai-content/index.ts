@@ -28,7 +28,9 @@
 import Anthropic from 'npm:@anthropic-ai/sdk@1.3.0';
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanPrompts, cleanStudio, cleanWrite, costOf, line, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
-import { campaignTarget, cleanMarketing, marketingRequest, parseMarketing } from '../_shared/marketing.js';
+import { buyerRequest, campaignTarget, cleanBuyer, cleanMarketing, marketingRequest, parseBuyer, parseMarketing } from '../_shared/marketing.js';
+import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
+import { cairoParts } from '../_shared/mkt-publish.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -40,7 +42,7 @@ export type Deps = {
   claude: (params: Json) => Promise<Json>; sleep?: (ms: number) => Promise<void>;
 };
 
-const ACTIONS = ['write', 'studio', 'prompts', 'marketing'];
+const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer'];
 const STUDIO_BUCKET = 'studio';
 const THROTTLE = 60; // calls of one member in THROTTLE_MINUTES (the studio fills a batch one item at a time)
 const THROTTLE_MINUTES = 10;
@@ -67,11 +69,12 @@ async function authorize(req: Request, deps: Deps, action: string): Promise<stri
   const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
   if (!jwt || !deps.userDb || !deps.userId) return null;
   const member = deps.userDb(jwt);
-  const perm = async (key: string) => { const { data, error } = await member.rpc('has_perm', { key }); return !error && data === 'F'; };
+  const perm = async (key: string, any = false) => { const { data, error } = await member.rpc('has_perm', { key }); return !error && (data === 'F' || (any && data === 'P')); };
   const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
   const ok = action === 'write' ? (await admin()) || (await perm('products.add')) || (await perm('products.edit'))
     : action === 'studio' || action === 'prompts' ? (await admin()) || (await perm('products.add'))
     : action === 'marketing' ? (await admin()) || (await perm('marketing.create'))
+    : action === 'buyer' ? (await admin()) || (await perm('marketing.view', true))
     : await admin();
   return ok ? await deps.userId(jwt) : null;
 }
@@ -265,6 +268,35 @@ async function marketing(deps: Deps, uid: string, args: Json) {
   return await runAi(deps, base, cfg, marketingRequest(req, { model: cfg.model, effort: cfg.effort, target }), (answer) => cleanMarketing(answer, req, target));
 }
 
+// ---------------------------------------------------------------- the media buyer's chat (phase 9.5.4, decision 53)
+
+// the last 7 days per campaign (Meta's numbers beside the orders that carry the campaign's UTM), the open suggestions and the rules —
+// read here, never from the body; the answer is text only: nothing is executed from the chat
+async function buyer(deps: Deps, uid: string, args: Json) {
+  const parsed = parseBuyer(args);
+  if ('error' in parsed) return json(400, parsed);
+  const at = deps.now(); const today = cairoParts(Date.parse(at)).day; const since = windowOf(Date.parse(at), SUGGEST_DAYS).since;
+  const [{ data: objects }, { data: stats }, { data: orders }, { data: sugg }, { data: set }] = await Promise.all([
+    deps.db.from('mkt_ad_objects').select('id, name, status, meta').eq('platform', 'meta').eq('kind', 'campaign').limit(2000),
+    deps.db.from('mkt_ad_stats').select('object_id, spend, purchases').eq('platform', 'meta').eq('level', 'campaign').gte('day', since).limit(20000),
+    deps.db.from('orders').select('utm_campaign, status, total, deleted_at').eq('ad_platform', 'meta').gte('placed_at', since + 'T00:00:00+02:00').limit(5000),
+    deps.db.from('mkt_suggestions').select('kind, title, sub').eq('status', 'pending').limit(50),
+    deps.db.from('settings').select('data').eq('section', 'marketing').maybeSingle(),
+  ]);
+  const camps: Record<string, Json> = {};
+  for (const o of Array.isArray(objects) ? objects : []) camps[o.id] = { name: o.name || '#' + o.id, status: o.status, spend: 0, purchases: 0, orders: 0, sales: 0, daily_budget: isObj(o.meta) ? o.meta.daily_budget ?? null : null };
+  for (const s of Array.isArray(stats) ? stats : []) { const c = camps[s.object_id]; if (c) { c.spend += Number(s.spend) || 0; c.purchases += Number(s.purchases) || 0; } }
+  for (const o of Array.isArray(orders) ? orders : []) {
+    const c = camps[o.utm_campaign]; if (!c || o.deleted_at || ['ملغي', 'استرجاع', 'فشل'].includes(String(o.status))) continue;
+    c.orders += 1; c.sales += Number(o.total) || 0;
+  }
+  const campaigns = Object.values(camps).filter((c) => c.spend > 0 || c.orders > 0 || c.status === 'ACTIVE').sort((a, b) => b.spend - a.spend);
+  const rules = buyerRules(isObj(set) && isObj(set.data) ? set.data.buyer : null);
+  const cfg = await configOf(deps);
+  const base = { created_by: uid, action: 'marketing', source: 'buyer', label: line(parsed.req.question, 200) };
+  return await runAi(deps, base, cfg, buyerRequest(parsed.req, { model: cfg.model, effort: cfg.effort, data: { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [] } }), cleanBuyer);
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -278,7 +310,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!uid) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
-    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : await studio(deps, uid, args);
+    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args) : await studio(deps, uid, args);
   } catch (e) {
     console.error('ai-content failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });

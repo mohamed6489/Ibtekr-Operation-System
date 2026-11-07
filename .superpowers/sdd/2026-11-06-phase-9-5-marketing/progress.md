@@ -99,3 +99,14 @@
 - T20 ✓ (7 نوفمبر) `0053_marketing_buyer.sql`: `mkt_suggestions` (صفوف السيرفر، اقتراح مفتوح واحد لكل نوع × حملة بـ unique partial index،
   القراية `marketing.view`)، `mkt_requests` (الإضافة `marketing.create`، الحالة للأدمن، صاحب الطلب يعدّل نصه وهو «جديد» — `mkt_requests_guard`)،
   `mkt_buyer_rules()` (الافتراضيات فوقها `settings.marketing.buyer`؛ `live` false)، cron `mkt-ads-report` :35 كل ساعة. `rls_marketing_buyer` ✓ محلي.
+- T21 ✓ (7 نوفمبر) الجزء الصافي في `_shared/mkt-ads.js`: `buyerRules` / `rulesPatch` (الأرقام والأوضاع بس — `live` عمره ما يتكتب من هنا)،
+  `suggestionsOf` (وقّف ≥ autoStop في 5 أيام من غير أوردر › قلّل −30% لما تكلفة الأوردر > maxCpa مع ≥ 3 أوردرات › زوّد +20% لما العائد الحقيقي ≥ 4× مع
+  ≥ 5 أوردرات؛ راجع التتبع لما مشتريات ميتا ≥ 5 و≥ 2× الأوردرات؛ نسخة جديدة لإعلان تكراره ≥ 4 أو نقراته نزلت 40%)، `budgetPlan` (الخطوة ≤ 30%، سقف
+  الحساب اليومي، ميزانية الحملة CBO وإلا مجموعات الإعلانات الشغالة)، `accountDaily`، `reportText`. `mkt-ads`: بعد كل مزامنة `suggest` (المفتوح
+  يتحدّث، اللي راح expired، الجديد يتضاف؛ autoStop «auto» + live = إيقاف فوري + جرس)، `rules` / `rules_set` / `live` (الأدمن، `activity_log`
+  `mkt.buyer.rules` بأسماء المفاتيح و`mkt.buyer.live` on/off)، `decide` (الأدمن: ارفض / وافق / عدّل بنسبة من نفس الإشارة؛ المفتاح مقفول = القرار بيتسجل
+  من غير نداء؛ شغال = POST `status=PAUSED` على عقدة الحملة أو `daily_budget` بعد GET الحملة ومجموعاتها وكل الحساب؛ الخطوة/السقف = 409 و`failed`؛ رفض
+  ميتا = 502 بكودنا؛ نسخة جديدة = صف `mkt_requests` للديزاينر؛ التتبع = done)، `report` (الـ cron بسر المزامنة، ساعة القاهرة = `reportHour`، مرة في اليوم
+  بـ `alerts.entity_id = report:<يوم>` للأدمن و`ops`). `ai-content` action `buyer` (`marketing.view` F أو P): أسبوع الحملات من جداولنا + الاقتراحات المفتوحة
+  + القواعد في `<ads_data>`، نص بس — من غير أي تنفيذ من الشات؛ `ai_runs` action marketing / source buyer (`0053`). اختبارات: Deno 244 (mkt-ads 11،
+  ai-content 18)، node 575، `rls_marketing_buyer` + `rls_security_advisor` ✓ محلي. semgrep محليًا مش واصل (proxy) — CI.

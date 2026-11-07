@@ -32,13 +32,15 @@ async function start(page, extra = {}) {
 }
 test.afterEach(() => { if (LIVE) return; expect(pageErrors).toEqual([]); expect(mock.unhandled).toEqual([]); });
 async function signIn(page, email) {
-  // after a sign-out the app reloads itself: let that reload land, then start from a fresh page (a goto cut by the reload is retried)
-  await page.waitForLoadState('load').catch(() => {});
-  await page.goto('/').catch(() => page.goto('/'));
+  if (!(await page.locator('#login').isVisible().catch(() => false))) await page.goto('/'); // after a sign-out the login is already there
   await expect(page.locator('#login')).toBeVisible();
-  await page.fill('#lg-id', email); await page.fill('#lg-pw', DEV_PW);
-  await page.getByRole('button', { name: 'دخول', exact: true }).click();
-  await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
+  await page.waitForLoadState('load').catch(() => {}); // the sign-out's own reload may still be landing on a slow runner
+  for (let i = 0; i < 3; i++) { // a click swallowed by that reload is sent again
+    await page.fill('#lg-id', email); await page.fill('#lg-pw', DEV_PW);
+    await page.getByRole('button', { name: 'دخول', exact: true }).click();
+    if (await page.locator('#root').waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false)) break;
+  }
+  await expect(page.locator('#root')).toBeVisible();
 }
 async function openAi(page, email, sub) {
   await signIn(page, email);
@@ -48,7 +50,7 @@ async function openAi(page, email, sub) {
   if (sub) await pg(page).getByRole('tab', { name: new RegExp(sub) }).click();
 }
 const pg = (page) => page.locator('#pg-marketing');
-async function signOut(page) { await page.locator('.user-btn').click(); await page.getByRole('menuitem', { name: 'تسجيل الخروج' }).click(); await expect(page.locator('#login')).toBeVisible(); }
+async function signOut(page) { await page.locator('.user-btn').click(); await page.getByRole('menuitem', { name: 'تسجيل الخروج' }).click(); await expect(page.locator('#login')).toBeVisible(); await expect(page.locator('#root')).toBeHidden(); await page.waitForLoadState('load').catch(() => {}); }
 const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
 const close = (m) => m.locator('button.btn-text', { hasText: 'إغلاق' }).click();
 const toast = (page) => page.locator('.toast.show');

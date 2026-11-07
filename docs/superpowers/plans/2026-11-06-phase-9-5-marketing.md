@@ -217,9 +217,9 @@ Seedance 2.5 / 2.0، Kling 2.5، MiniMax H3 + فويس أوفر ElevenLabs + م�
 
 ## المهام — 9.5.4 (بالتوالي)
 
-- **T20** `0053_marketing_buyer.sql` (`mkt_suggestions`، `mkt_requests`، الـ cron) + `rls_marketing_buyer.sql`.
-- **T21** الجزء الصافي: قواعد الاقتراحات + فحص الميزانية في `_shared/mkt-ads.js` + اختبارات؛ `mkt-ads` actions `suggest` / `decide` / `rules` / `report`
+- **T20** ✓ `0053_marketing_buyer.sql` (`mkt_suggestions`، `mkt_requests`، الـ cron) + `rls_marketing_buyer.sql`.
+- **T21** ✓ الجزء الصافي: قواعد الاقتراحات + فحص الميزانية في `_shared/mkt-ads.js` + اختبارات؛ `mkt-ads` actions `suggest` / `decide` / `rules` / `report`
   + Deno؛ `ai-content` action `buyer` + اختبار.
-- **T22** `IBMarketing` (الاقتراحات، القرار، القواعد، الطلبات، الشات) + الـ mock + الاختبارات.
-- **T23** الصفحة (تاب المساعدين، كارت الاقتراحات في نظرة عامة، عمود القرار في التقارير) + e2e.
+- **T22** ✓ `IBMarketing` (الاقتراحات، القرار، القواعد، الطلبات، الشات) + الـ mock + الاختبارات.
+- **T23** ✓ الصفحة (تاب المساعدين، كارت الاقتراحات في نظرة عامة، عمود القرار في التقارير) + e2e.
 - **T24** الوثائق + الحي (0053، rls live، نشر `mkt-ads` و`ai-content`، main).

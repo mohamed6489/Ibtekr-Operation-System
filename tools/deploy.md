@@ -1442,3 +1442,42 @@ select at, action, new_value from public.activity_log where action = 'mkt.ads.sy
 **الأمان:** التوكن في أسرار الدالة بس (هيدر Authorization لميتا — مابيوصلش صف ولا log ولا رد)؛ `activity_log` `mkt.ads.sync` أعداد بس (أيام ·
 حملات · إعلانات · صفوف)؛ القراية `marketing.view` ونصيب إبتكر والربح بعد الإعلانات بـ `accounts.view ≠ N` (الـ RPC بيبعته null لغيرهم)؛ مافيش
 أي إجراء على فلوس — تنبيهات الميديا باير قواعد من غير زرار تنفيذ، والتغيير من مدير إعلانات ميتا.
+
+#### 2.7.28 المساعدين — الميديا باير بالتنفيذ بموافقة الأدمن، الديزاينر والمبرمج (المرحلة 9.5.4، 7 نوفمبر)
+
+الخطة (قرارات 49–56) `docs/superpowers/plans/2026-11-06-phase-9-5-marketing.md`، والدفتر `.superpowers/sdd/2026-11-06-phase-9-5-marketing/progress.md`.
+
+**أ) الكود:** `0053_marketing_buyer.sql` + `supabase/tests/rls_marketing_buyer.sql` · `mkt-ads` (الاقتراحات بعد كل مزامنة، `rules` / `rules_set` / `live` / `decide`، والـ cron
+`report`) والجزء الصافي `_shared/mkt-ads.js` (`suggestionsOf` / `budgetPlan` / `accountDaily` / `reportText` / `buyerRules` / `rulesPatch`) · `ai-content` action `buyer`
+(`_shared/marketing.js`: `parseBuyer` / `buyerRequest` / `cleanBuyer`) · `IBMarketing.suggestions` / `decide` / `rules` / `rulesSet` / `setLive` / `requests` / `addRequest` /
+`editRequest` / `setRequestStatus` / `buyerChat` · الواجهة: تاب «مساعدين الذكاء الاصطناعي»، كارت «اقتراحات الميديا باير» وكروت المساعدين في «نظرة عامة»، عمود «القرار
+المقترح» في تقرير الحملات. **الكتابة الوحيدة على ميتا: إيقاف حملة أو تغيير ميزانيتها اليومية بعد موافقة الأدمن على اقتراح بعينه، والمفتاح شغّال.**
+
+**ب) على Supabase (المطوّر — بالترتيب):**
+1. `0053` (MCP `apply_migration` مرة واحدة؛ لو وقف أو سأل تأكيد = الـ SQL كله لصاحب المشروع في الـ SQL editor): `mkt_suggestions` (القراية `marketing.view`،
+   الكتابة للسيرفر، اقتراح مفتوح واحد لكل نوع × حملة)، `mkt_requests` (+ `mkt_requests_guard`)، `mkt_buyer_rules()` (`marketing.view`)، `ai_runs.source` «buyer»،
+   والـ cron `mkt-ads-report` :35 كل ساعة بسر `sync_secret` بتاع `0008` (مافيش سر جديد).
+2. workflow «RLS live» بـ `files = rls_marketing_buyer rls_security_advisor`.
+3. «Deploy functions»: `mkt-ads` ثم `ai-content`.
+4. الواجهة: push على `main`.
+5. **التوكن (صاحب المشروع):** عشان الإيقاف وتغيير الميزانية يشتغلوا لازم `META_ADS_TOKEN` يكون معاه `ads_management` (اللي اتعمل في §2.7.27 بـ `ads_read` +
+   `ads_management` كفاية؛ لو `ads_read` بس → القرار بيفشل بـ «مفيش صلاحية» ويتسجل `failed`). مافيش تغيير في الأسرار.
+
+**التحقق:**
+```sql
+select kind, status, count(*) from public.mkt_suggestions group by 1, 2 order by 1, 2;   -- بعد أول مزامنة بعد النشر
+select public.mkt_buyer_rules();                                                          -- كأدمن: الافتراضيات، live = false
+select data -> 'buyer' from public.settings where section = 'marketing';                 -- null لحد ما الأدمن يعدّل قاعدة أو يشغّل المفتاح
+select jobname, schedule, active from cron.job where jobname = 'mkt-ads-report';          -- 35 * * * *
+select has_function_privilege('anon', 'public.mkt_buyer_rules()', 'execute');             -- false
+select at, action, new_value from public.activity_log where action like 'mkt.buyer.%' or action like 'mkt.request.%' order by at desc limit 10;
+```
+
+**إزاي بيشتغل:** كل ساعة بعد المزامنة الدالة بتحسب اقتراحات النهارده من آخر 7 أيام (أرقام ميتا لكل حملة + أوردرات ووكومرس اللي شايلة `utm_campaign` بتاعها —
+الزيادة على الأوردرات المؤكدة/المكتملة بس) وبتحطها «مستني موافقتك»؛ الأدمن من «مساعدين الذكاء الاصطناعي» أو «نظرة عامة» بيفتح الاقتراح ويرفض أو يعدّل النسبة
+(نفس الاتجاه، لحد 30%) أو يوافق. **المفتاح «التنفيذ على ميتا» متوقف افتراضي** — وهو متوقف الموافقة بتتسجل بس؛ لما الأدمن يشغّله (بتأكيد) الموافقة بتوقف الحملة
+أو تغيّر ميزانيتها اليومية (الحملة نفسها لو CBO وإلا مجموعاتها الشغالة)، والسيرفر بيرفض لو الخطوة > 30% أو مجموع الحساب اليومي هيعدّي «حد الصرف اليومي». «وقف
+تلقائي» بوضع «توقف لوحدها» بيشتغل بس لما المفتاح شغّال. التقرير اليومي على الجرس للأدمن و`ops` في ساعة القاعدة. الشات بيقرا نفس الأرقام ومابينفّذش.
+
+**الأمان:** مفيش تنفيذ من غير قرار الأدمن على صف بعينه + المفتاح؛ `live` مابيتكتبش من `rules_set`؛ الأعضاء مابيكتبوش `mkt_suggestions` أبدًا؛ التوكن في أسرار
+الدالة بس؛ `activity_log` بالقرار والحالة ورقم الحملة بس — مافيش مبالغ ولا نص شات ولا تفاصيل طلب.

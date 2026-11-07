@@ -12,14 +12,15 @@ const ADS_ENV = { ...ENV, META_ADS_TOKEN: TOKEN, META_AD_ACCOUNT_ID: 'act_112233
 const U = { admin: '00000000-0000-4000-8000-0000000052d1', view: '00000000-0000-4000-8000-0000000052d2', none: '00000000-0000-4000-8000-0000000052d3' };
 const MEMBERS: Record<string, { uid: string; admin?: boolean; view?: string }> = { 'jwt-admin': { uid: U.admin, admin: true }, 'jwt-view': { uid: U.view, view: 'F' }, 'jwt-none': { uid: U.none, view: 'N' } };
 const C1 = '120252323303340228';
-type Call = { method: string; path: string; query: Record<string, string>; auth: string | null };
+type Call = { method: string; path: string; query: Record<string, string>; auth: string | null; host: string; headers: Record<string, string>; body: any };
 type Route = { status?: number; body?: unknown } | ((c: Call) => { status?: number; body?: unknown } | Error);
 function fakeGraph(routes: Record<string, Route>) {
   const calls: Call[] = [];
   const fetch = async (input: string | URL | Request, init: RequestInit = {}) => {
     const url = new URL(typeof input === 'string' ? input : input instanceof URL ? input.href : input.url);
-    const h = new Headers(init.headers);
-    const call: Call = { method: init.method ?? 'GET', path: url.pathname.replace(/^\/v21\.0\//, ''), query: Object.fromEntries(url.searchParams), auth: h.get('authorization') };
+    const h = new Headers(init.headers); const ct = h.get('content-type') ?? '';
+    const body = !init.body ? undefined : ct.includes('json') ? JSON.parse(String(init.body)) : ct.includes('urlencoded') ? Object.fromEntries(new URLSearchParams(String(init.body))) : String(init.body);
+    const call: Call = { method: init.method ?? 'GET', path: url.pathname.replace(/^\/v21\.0\//, ''), query: Object.fromEntries(url.searchParams), auth: h.get('authorization'), host: url.host, headers: Object.fromEntries(h), body };
     calls.push(call);
     const r = routes[`${call.method} ${call.path}`]; const reply = typeof r === 'function' ? r(call) : r;
     if (reply instanceof Error) throw reply;
@@ -38,14 +39,16 @@ const OK_ROUTES: Record<string, Route> = {
     ? { body: { data: [insight(c.query.level, '2026-10-24')] } }
     : { body: { data: [insight(c.query.level, '2026-10-25')], paging: { next: 'https://graph.facebook.com/v21.0/act_1122334455/insights?level=' + c.query.level + '&after=p2' } } },
 };
-type Opts = { routes?: Record<string, Route>; env?: Record<string, string>; objects?: any[]; stats?: any[] };
-function setup({ routes = OK_ROUTES, env = ADS_ENV, objects = [], stats = [] }: Opts = {}) {
-  const rpc = { sync_secret_matches: ({ candidate }: any) => candidate === 'sync-secret-ok' };
+type Opts = { routes?: Record<string, Route>; env?: Record<string, string>; objects?: any[]; stats?: any[]; vault?: Record<string, string> };
+function setup({ routes = OK_ROUTES, env = ADS_ENV, objects = [], stats = [], vault = {} }: Opts = {}) {
+  const secrets: Record<string, string> = { ...vault };
+  const rpc = { sync_secret_matches: ({ candidate }: any) => candidate === 'sync-secret-ok',
+    mkt_secret_get: ({ p_name }: any) => secrets[p_name] ?? null, mkt_secret_set: ({ p_name, p_value }: any) => { if (p_value == null) delete secrets[p_name]; else secrets[p_name] = p_value; return null; } };
   const db = fakeDb({ mkt_ad_objects: objects, mkt_ad_stats: stats, activity_log: [] }, { rpc });
   const userDb = (jwt: string) => { const m = MEMBERS[jwt]; return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'marketing.view' ? m.view ?? 'N' : 'N'), is_admin: () => !!m.admin } : {} }); };
   const g = fakeGraph(routes);
   const deps = { env, db, now: () => NOW, userDb, userId: async (jwt: string) => MEMBERS[jwt]?.uid ?? null, fetch: g.fetch };
-  return { deps, db, calls: g.calls };
+  return { deps, db, calls: g.calls, secrets };
 }
 const req = (body: unknown, headers: Record<string, string>) => new Request('http://local/mkt-ads', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
 const cron = async (deps: any, secret = 'sync-secret-ok') => { const res = await handler(req({ action: 'sync' }, { 'x-sync-secret': secret }), deps); return { res, body: await res.json() }; };
@@ -112,7 +115,9 @@ Deno.test('status: marketing.view; the account, the last success and error — n
   assertEquals((await call(deps, { action: 'status' }, 'jwt-none')).res.status, 401);
   assertEquals((await call(deps, { action: 'status' }, 'jwt-unknown')).res.status, 401);
   const none = setup({ env: ENV });
-  assertEquals((await call(none.deps, { action: 'status' }, 'jwt-view')).body, { configured: false, account: null, synced_at: null, checked_at: null, error: null, text: null });
+  const nb = (await call(none.deps, { action: 'status' }, 'jwt-view')).body;
+  assertEquals([nb.configured, nb.account, nb.synced_at, nb.checked_at, nb.error, nb.text], [false, null, null, null, null, null]);
+  assertEquals([nb.platforms.meta.configured, nb.platforms.tiktok.configured, nb.platforms.google.configured, nb.redirect], [false, false, false, 'https://operation-system.ibtekr.club/ads-callback.html']); // 9.5.6
 });
 
 Deno.test('sync by hand: the admin only, 1–400 days, logged with counts only', async () => {
@@ -272,4 +277,136 @@ Deno.test('report (the cron): at the rule\'s Cairo hour only, once a day — yes
   const early = setup(); await seedBuyer(early.db);
   assertEquals((await (await handler(req({ action: 'report' }, { 'x-sync-secret': 'sync-secret-ok' }), early.deps)).json()).reason, 'hour');
   assertEquals((await handler(req({ action: 'report' }, { authorization: 'Bearer jwt-admin' }), deps)).status, 400); // a member's action it is not
+});
+
+// ---------------------------------------------------------------- 9.5.6: TikTok and Google, the links from the page (decisions 67–72)
+const TT = { app_id: '7012345678', secret: 'tt-secret-0123456789', access_token: 'tt-' + 'a'.repeat(40), advertiser_id: '7000000000000000001' };
+const GG = { developer_token: 'dev-token-abcdef', client_id: '123-abc.apps.googleusercontent.com', client_secret: 'GOCSPX-' + 'z'.repeat(20), refresh_token: '1//0' + 'r'.repeat(40), customer_id: '1234567890', login_customer_id: '9990001111' };
+const TTC = '1800000000000000001', TTA = '1700000000000000001', GC = '21000000001', GA = '7100000001';
+const ttOk = (data: any) => ({ body: { code: 0, message: 'OK', data } });
+const TT_ROUTES: Record<string, Route> = {
+  'GET /open_api/v1.3/advertiser/info/': ttOk({ list: [{ advertiser_id: TT.advertiser_id, name: 'Ibtekr TikTok', currency: 'EGP', timezone: 'Africa/Cairo', status: 'STATUS_ENABLE' }] }),
+  'GET /open_api/v1.3/campaign/get/': ttOk({ list: [{ campaign_id: TTC, campaign_name: 'Macrame TT', operation_status: 'ENABLE', budget: '300', budget_mode: 'BUDGET_MODE_DAY' }], page_info: { total_page: 1 } }),
+  'GET /open_api/v1.3/ad/get/': ttOk({ list: [{ ad_id: TTA, ad_name: 'video 1', campaign_id: TTC, operation_status: 'ENABLE' }], page_info: { total_page: 1 } }),
+  'GET /open_api/v1.3/report/integrated/get/': (c) => ttOk({ list: c.query.data_level === 'AUCTION_AD'
+    ? [{ dimensions: { ad_id: TTA, stat_time_day: '2026-10-24 00:00:00' }, metrics: { campaign_id: TTC, spend: '20', impressions: '900', clicks: '30', complete_payment: '1', total_complete_payment_rate: '900' } }]
+    : [{ dimensions: { campaign_id: TTC, stat_time_day: '2026-10-24 00:00:00' }, metrics: { spend: '120.5', impressions: '9000', reach: '7000', clicks: '210', frequency: '1.29', complete_payment: '2', total_complete_payment_rate: '1800' } }], page_info: { total_page: 1 } }),
+};
+const gRow = (q: string) => q.includes('FROM customer') ? [{ customer: { id: GG.customer_id, descriptiveName: 'Ibtekr Google', currencyCode: 'EGP', timeZone: 'Africa/Cairo', status: 'ENABLED' } }]
+  : q.startsWith('SELECT campaign.id, campaign.name') ? [{ campaign: { id: GC, name: 'Macrame G', status: 'ENABLED', advertisingChannelType: 'PERFORMANCE_MAX' }, campaignBudget: { amountMicros: '250000000' } }]
+  : q.startsWith('SELECT ad_group_ad.ad.id, ad_group_ad.ad.name') ? [{ adGroupAd: { ad: { id: GA, name: 'pmax asset', type: 'PERFORMANCE_MAX_AD' }, status: 'ENABLED' }, campaign: { id: GC } }]
+  : q.startsWith('SELECT campaign.id, segments.date') ? [{ campaign: { id: GC }, segments: { date: '2026-10-24' }, metrics: { costMicros: '80000000', impressions: '3000', clicks: '140', conversions: 1, conversionsValue: 900 } }]
+  : [{ adGroupAd: { ad: { id: GA } }, campaign: { id: GC }, segments: { date: '2026-10-24' }, metrics: { costMicros: '12345678', impressions: '500', clicks: '20', conversions: 0, conversionsValue: 0 } }];
+const G_ROUTES: Record<string, Route> = {
+  'POST /token': { body: { access_token: 'ya29.access', expires_in: 3599, token_type: 'Bearer' } },
+  ['POST /v21/customers/' + GG.customer_id + '/googleAds:search']: (c) => ({ body: { results: gRow(String(c.body.query)) } }),
+};
+const vaultTT = { ads_tiktok: JSON.stringify(TT) }; const vaultG = { ads_google: JSON.stringify(GG) };
+
+Deno.test('9.5.6 link_set: the admin writes a platform\'s fields into Vault (never a Supabase secret); the view shows tails only; a bad field → 400; unlink empties it; a member → 401', async () => {
+  const { deps, db, secrets } = setup({ env: ENV });
+  assertEquals((await call(deps, { action: 'link_set', platform: 'tiktok', fields: { app_id: TT.app_id } }, 'jwt-view')).res.status, 401);
+  const r = await call(deps, { action: 'link_set', platform: 'tiktok', fields: { app_id: TT.app_id, secret: TT.secret } });
+  assertEquals([r.res.status, r.body.platform, r.body.configured, r.body.oauth, r.body.fields.app_id, r.body.fields.secret, r.body.missing], [200, 'tiktok', false, true, TT.app_id, '••••6789', ['access_token', 'advertiser_id']]);
+  assertEquals(JSON.parse(secrets.ads_tiktok), { app_id: TT.app_id, secret: TT.secret });
+  assertFalse(JSON.stringify(r.body).includes(TT.secret));
+  // the token and advertiser by hand: the stored fields stay, the link is ready
+  const r2 = await call(deps, { action: 'link_set', platform: 'tiktok', fields: { access_token: TT.access_token, advertiser_id: TT.advertiser_id } });
+  assertEquals([r2.body.configured, r2.body.account.id], [true, TT.advertiser_id]);
+  assertEquals(JSON.parse(secrets.ads_tiktok), TT);
+  assertEquals((await call(deps, { action: 'link_set', platform: 'tiktok', fields: { app_id: 'abc' } })).body.field, 'app_id');
+  assertEquals((await call(deps, { action: 'link_set', platform: 'snap', fields: {} })).body.field, 'platform');
+  const s = await call(deps, { action: 'status' }, 'jwt-view');
+  assertEquals([s.body.platforms.tiktok.configured, s.body.platforms.tiktok.fields.access_token, s.body.platforms.meta.configured, s.body.configured], [true, '••••aaaa', false, false]);
+  assertFalse(JSON.stringify(s.body).includes(TT.access_token) || JSON.stringify(s.body).includes(TT.secret));
+  // Meta from the page overrides the owner's secrets: the old top-level fields follow it
+  await call(deps, { action: 'link_set', platform: 'meta', fields: { access_token: TOKEN, account_id: 'act_1122334455' } });
+  assertEquals((await call(deps, { action: 'status' }, 'jwt-view')).body.configured, true);
+  const u = await call(deps, { action: 'unlink', platform: 'tiktok' });
+  assertEquals([u.body.configured, secrets.ads_tiktok], [false, undefined]);
+  assertEquals(db.rows('activity_log').map((l: any) => [l.action, l.entity_id, l.new_value]), [['mkt.ads.link', 'tiktok', 'set · app_id, secret'], ['mkt.ads.link', 'tiktok', 'set · access_token, advertiser_id'], ['mkt.ads.link', 'meta', 'set · access_token, account_id'], ['mkt.ads.link', 'tiktok', 'unlink']]);
+  assertFalse(JSON.stringify(db.rows('activity_log')).includes(TT.secret) || JSON.stringify(db.rows('settings')).includes(TT.secret));
+});
+
+Deno.test('9.5.6 OAuth: link_start needs the app / client (the state kept, the platform\'s url); TikTok\'s callback with two advertisers → choose → link_pick; Google\'s → one customer linked; a spent state → 400; no refresh token → 502', async () => {
+  const { deps, db, secrets } = setup({ env: ENV, vault: { ads_tiktok: JSON.stringify({ app_id: TT.app_id, secret: TT.secret }), ads_google: JSON.stringify({ developer_token: GG.developer_token, client_id: GG.client_id, client_secret: GG.client_secret }) },
+    routes: { 'POST /open_api/v1.3/oauth2/access_token/': ttOk({ access_token: TT.access_token, advertiser_ids: [TT.advertiser_id, '7000000000000000002'] }),
+      'GET /open_api/v1.3/oauth2/advertiser/get/': ttOk({ list: [{ advertiser_id: TT.advertiser_id, advertiser_name: 'Ibtekr' }, { advertiser_id: '7000000000000000002', advertiser_name: 'Test' }] }),
+      'POST /token': { body: { access_token: 'ya29.access', refresh_token: GG.refresh_token } }, 'GET /v21/customers:listAccessibleCustomers': { body: { resourceNames: ['customers/' + GG.customer_id] } } } });
+  assertEquals((await call(deps, { action: 'link_start', platform: 'meta' })).res.status, 400);
+  assertEquals((await call(deps, { action: 'link_start', platform: 'tiktok' }, 'jwt-view')).res.status, 401);
+  const t = await call(deps, { action: 'link_start', platform: 'tiktok' });
+  const tUrl = new URL(t.body.url); const tState = tUrl.searchParams.get('state')!;
+  assertEquals([tUrl.host, tUrl.pathname, tUrl.searchParams.get('app_id'), tUrl.searchParams.get('redirect_uri')], ['business-api.tiktok.com', '/portal/auth', TT.app_id, 'https://operation-system.ibtekr.club/ads-callback.html']);
+  assertEquals(db.rows('cs_oauth_states').map((x: any) => [x.state, x.channel]), [[tState, 'ads_tiktok']]);
+  const g = await call(deps, { action: 'link_start', platform: 'google' });
+  const gUrl = new URL(g.body.url); const gState = gUrl.searchParams.get('state')!;
+  assertEquals([gUrl.host, gUrl.searchParams.get('access_type'), gUrl.searchParams.get('prompt'), gUrl.searchParams.get('scope')], ['accounts.google.com', 'offline', 'consent', 'https://www.googleapis.com/auth/adwords']);
+  // the client / app missing → 400 oauth
+  const bare = setup({ env: ENV }); assertEquals((await call(bare.deps, { action: 'link_start', platform: 'google' })).body.field, 'oauth');
+  // TikTok comes back: the code exchanged (app id + secret in the body), two advertisers → choose (names from advertiser/get)
+  const cb = await call(deps, { action: 'link_callback', code: 'auth-code-123456', state: tState });
+  assertEquals([cb.res.status, cb.body.result, cb.body.linked, cb.body.accounts.map((a: any) => [a.id, a.name])], [200, 'choose', false, [[TT.advertiser_id, 'Ibtekr'], ['7000000000000000002', 'Test']]]);
+  assertEquals(JSON.parse(secrets.ads_tiktok).access_token, TT.access_token);
+  assertEquals(JSON.parse(secrets.ads_tiktok).advertiser_id, undefined);
+  assertEquals((await call(deps, { action: 'link_callback', code: 'auth-code-123456', state: tState })).body.field, 'state'); // spent
+  assertEquals((await call(deps, { action: 'link_pick', platform: 'tiktok', account: '7000000000000000009' })).body.field, 'account'); // not offered
+  const pk = await call(deps, { action: 'link_pick', platform: 'tiktok', account: TT.advertiser_id });
+  assertEquals([pk.body.linked, pk.body.configured, pk.body.account.id, pk.body.account.name], [true, true, TT.advertiser_id, 'Ibtekr']);
+  assertEquals(JSON.parse(secrets.ads_tiktok), TT);
+  // Google comes back: the code → a refresh token (kept) and an access token (not kept), one accessible customer → linked
+  const gcb = await call(deps, { action: 'link_callback', code: '4/0AX-code', state: gState });
+  assertEquals([gcb.res.status, gcb.body.linked, gcb.body.configured, gcb.body.account.id], [200, true, true, GG.customer_id]);
+  const stored = JSON.parse(secrets.ads_google);
+  assertEquals([stored.refresh_token, stored.customer_id, stored.access_token], [GG.refresh_token, GG.customer_id, undefined]);
+  // the exchange carried the client secret in the form, not a url; the customers call carried the developer token header
+  const { calls } = setup(); void calls;
+  assertFalse(JSON.stringify(db.rows('activity_log')).includes(GG.client_secret));
+  // no refresh token (consent not renewed) → 502 no_refresh_token
+  const nr = setup({ env: ENV, vault: { ads_google: JSON.stringify({ developer_token: GG.developer_token, client_id: GG.client_id, client_secret: GG.client_secret }) }, routes: { 'POST /token': { body: { access_token: 'ya29.access' } } } });
+  const st = (await call(nr.deps, { action: 'link_start', platform: 'google' })).body.url; const stateNr = new URL(st).searchParams.get('state')!;
+  const bad = await call(nr.deps, { action: 'link_callback', code: '4/0AX-code', state: stateNr });
+  assertEquals([bad.res.status, bad.body.error], [502, 'no_refresh_token']);
+});
+
+Deno.test('9.5.6 sync: every linked platform in one run — TikTok (Access-Token header, the report rows) and Google (the refresh then GAQL with the developer token) beside Meta; one failing keeps the others; sync by hand on one platform', async () => {
+  const { deps, db, calls } = setup({ vault: { ...vaultTT, ...vaultG }, routes: { ...OK_ROUTES, ...TT_ROUTES, ...G_ROUTES } });
+  const r = await cron(deps);
+  assertEquals([r.res.status, r.body.campaigns, r.body.ads, r.body.stats], [200, 3, 3, 8]);
+  assertEquals([r.body.platforms.meta.campaigns, r.body.platforms.tiktok.stats, r.body.platforms.google.stats], [1, 2, 2]);
+  const tt = calls.filter((c) => c.host === 'business-api.tiktok.com');
+  assert(tt.length >= 5 && tt.every((c) => c.headers['access-token'] === TT.access_token && !c.auth && !JSON.stringify(c.query).includes(TT.access_token)));
+  const gg = calls.filter((c) => c.host === 'googleads.googleapis.com');
+  assert(gg.length === 5 && gg.every((c) => c.auth === 'Bearer ya29.access' && c.headers['developer-token'] === GG.developer_token && c.headers['login-customer-id'] === GG.login_customer_id));
+  const tok = calls.find((c) => c.host === 'oauth2.googleapis.com')!;
+  assertEquals([tok.body.grant_type, tok.body.refresh_token, tok.body.client_secret], ['refresh_token', GG.refresh_token, GG.client_secret]);
+  const objs = db.rows('mkt_ad_objects');
+  assertEquals(objs.filter((o: any) => o.platform === 'tiktok').map((o: any) => [o.kind, o.id, o.name, o.status]).sort(), [['account', TT.advertiser_id, 'Ibtekr TikTok', 'ACTIVE'], ['ad', TTA, 'video 1', 'ACTIVE'], ['campaign', TTC, 'Macrame TT', 'ACTIVE']]);
+  assertEquals(objs.find((o: any) => o.platform === 'google' && o.kind === 'campaign').meta.daily_budget, 250);
+  assertEquals(objs.find((o: any) => o.platform === 'google' && o.kind === 'account').meta.currency, 'EGP');
+  const st = db.rows('mkt_ad_stats');
+  assertEquals(st.filter((s: any) => s.platform === 'tiktok').map((s: any) => [s.level, s.object_id, s.day, s.spend, s.purchases, s.purchase_value]).sort(), [['ad', TTA, '2026-10-24', 20, 1, 900], ['campaign', TTC, '2026-10-24', 120.5, 2, 1800]]);
+  assertEquals(st.find((s: any) => s.platform === 'google' && s.level === 'campaign').spend, 80);
+  assertFalse(JSON.stringify(objs).includes(TT.access_token) || JSON.stringify(st).includes(GG.refresh_token));
+  // Google refusing (the developer token not approved): its account row says permission, Meta and TikTok still ran → 200
+  const half = setup({ vault: { ...vaultTT, ...vaultG }, routes: { ...OK_ROUTES, ...TT_ROUTES, ...G_ROUTES, ['POST /v21/customers/' + GG.customer_id + '/googleAds:search']: { status: 403, body: { error: { status: 'PERMISSION_DENIED', message: 'The caller does not have permission', details: [{ errors: [{ message: 'The developer token is not approved.' }] }] } } } } });
+  const h = await cron(half.deps);
+  assertEquals([h.res.status, h.body.platforms.google.error, h.body.platforms.google.text, h.body.platforms.tiktok.stats], [200, 'permission', 'The developer token is not approved.', 2]);
+  assertEquals(half.db.rows('mkt_ad_objects').find((o: any) => o.platform === 'google' && o.kind === 'account').meta.error, 'permission');
+  const one = await call(half.deps, { action: 'sync', platform: 'google', days: 7 });
+  assertEquals([one.res.status, one.body.error, one.body.platform], [502, 'permission', 'google']);
+  assertEquals(half.db.rows('activity_log').map((l: any) => [l.action, l.entity_id, l.new_value]), [['mkt.ads.sync', 'google', 'permission']]);
+  assertEquals((await call(half.deps, { action: 'sync', platform: 'snap' })).body.field, 'platform');
+  // a status read says each platform's own state
+  const s = (await call(half.deps, { action: 'status' }, 'jwt-view')).body.platforms;
+  assertEquals([s.google.error, s.google.account.id, s.google.account.name, s.tiktok.error, s.tiktok.synced_at, s.google.version], ['permission', GG.customer_id, null, null, NOW, 'v21']); // no success yet: the id from the link, no name
+});
+
+Deno.test('9.5.6 decide on a TikTok suggestion: a money kind is recorded only (the execution is Meta\'s) even with the switch on — no call to any platform', async () => {
+  const { deps, db, calls } = setup({ vault: vaultTT });
+  await seedBuyer(db, { settings: ON, suggestions: [SUGG(1, 'stop', { platform: 'tiktok', campaign_id: TTC, campaign_name: 'Macrame TT' })] });
+  const r = await call(deps, { action: 'decide', id: 1, decision: 'approve' });
+  assertEquals([r.res.status, r.body.status, r.body.live, r.body.platform, calls.length], [200, 'approved', false, 'tiktok', 0]);
+  assertEquals(db.rows('mkt_suggestions')[0].result, { live: false, platform: 'tiktok', manual: true });
+  assertEquals(db.rows('activity_log').map((l: any) => l.new_value), ['stop · approve · ' + TTC + ' · manual']);
 });

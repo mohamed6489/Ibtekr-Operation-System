@@ -136,3 +136,6 @@
   Kling 2.5 `kling-25`، MiniMax H3 Max `minimax-video-3_0-max`؛ أصوات مصرية Bilal Khalil 1171 / Karim Zaidan 1334 / Yusuf Al-Mansour 227).
 - T26 ✓ (7 نوفمبر) `0054_marketing_video.sql`: `mkt_video_jobs` (صفوف السيرفر؛ القراية `marketing.view` بقايمة أعمدة من غير `url`؛ المشهد < 8؛ القطعة `V<n>`)، bucket
   `marketing` بيقبل MP4 والصوت لحد 200 ميجا، `ai_runs.source` «video». `rls_marketing_video` ✓ محلي (+ `rls_marketing` و`rls_security_advisor`). الـ fakes فيها الجدول.
+- T27 ✓ (7 نوفمبر) `_shared/mkt-video.js` (الموديلات بالـ slugs والحدود، `splitScenes` / `fitScenes`، `scenePrompt` / `clipArgs` / `chainedArgs`، الأصوات و`ttsArgs`، `musicArgs`،
+  `mixPlan`، `videoPath`، `parseVideo`، `jobView`، `scenesRequest` / `cleanScenes`) + 8 اختبارات node؛ `campaignTarget` / `campaignPrompt` بيقبلوا قطعة «فيديو» بـ `slide` =
+  المشهد (الكادر الأول من غير نص)؛ `ai-content` `marketing` task `scenes` (`marketing.create`؛ المدد من الموديل) + Deno.

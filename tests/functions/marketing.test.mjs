@@ -132,3 +132,15 @@ test('parseBuyer: the question is required (≤ 1000), the history user / assist
   assert.equal(cleanBuyer({ text: 'x'.repeat(5000) }).text.length, BUYER_ANSWER_MAX);
   assert.equal(cleanBuyer(null).text, '');
 });
+
+// ---------------------------------------------------------------- 9.5.5: a video piece's scenes are images of the campaign (decision 59)
+test('campaignTarget / campaignPrompt for a video scene: slide = the scene, the key-frame prompt without text; the piece itself is no image; parseMarketing scenes', () => {
+  const state = { w: { goal: 'منتج جديد', idea: 'الشتا', media: { video: { notes: 'بطيء', use: [], ref: [] } } }, pieces: [{ id: 'V1', kind: 'فيديو', n: 1, size: '9:16', idea: 'المخدة', scenes: [{ n: 1, d: 5, idea: 'لقطة قريبة', text: 'دفا' }, { n: 2, d: 5, idea: 'القعدة' }] }] };
+  const t = campaignTarget(state, 'V1', 1);
+  assert.equal(t.label, 'فيديو 1 · المشهد 2'); assert.equal(t.slides, 2); assert.equal(t.media.notes, 'بطيء'); assert.equal(t.target.idea, 'القعدة');
+  assert.equal(campaignTarget(state, 'V1', null), null); assert.equal(campaignTarget(state, 'V1', 2), null);
+  const pr = campaignPrompt(t, {});
+  assert.ok(pr.includes('key frame) of scene 2 of a 2-scene short vertical product video') && pr.includes('This scene (in Arabic): «القعدة»') && pr.includes('The video (in Arabic): «المخدة»') && pr.includes('No text on the image') && !pr.includes('دفا'));
+  assert.equal(parseMarketing({ task: 'scenes', campaign_id: 'f0000000-0000-4000-8000-000000000001', piece: 'P1' }).field, 'piece');
+  assert.deepEqual(parseMarketing({ task: 'scenes', campaign_id: 'f0000000-0000-4000-8000-000000000001', piece: 'V2', voice: true }).req, { task: 'scenes', campaignId: 'f0000000-0000-4000-8000-000000000001', piece: 'V2', slide: null, kind: null, text: '', image: null, voice: true });
+});

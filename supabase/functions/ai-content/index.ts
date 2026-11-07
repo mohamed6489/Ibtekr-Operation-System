@@ -30,6 +30,7 @@ import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { aiSettings, categoryLines, cleanPrompts, cleanStudio, cleanWrite, costOf, line, parsePrompts, parseStudio, parseWrite, promptsRequest, readAnswer, shotPromptRows, studioRequest, usageOf, writeRequest } from '../_shared/ai-content.js';
 import { buyerRequest, campaignTarget, cleanBuyer, cleanMarketing, marketingRequest, parseBuyer, parseMarketing } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
+import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
 import { cairoParts } from '../_shared/mkt-publish.js';
 
 // deno-lint-ignore no-explicit-any
@@ -260,6 +261,15 @@ async function marketing(deps: Deps, uid: string, args: Json) {
   if (req.campaignId) {
     const { data: c } = await deps.db.from('mkt_campaigns').select('id, state, archived_at').eq('id', req.campaignId).maybeSingle();
     if (!isObj(c) || c.archived_at) return json(404, { error: 'not_found' });
+    if (req.task === 'scenes') { // 9.5.5 decision 59: the video piece's scenes and voice-over, the durations fitted to its model
+      const st = isObj(c.state) ? c.state : {}; const p = (Array.isArray(st.pieces) ? st.pieces : []).find((x: Json) => isObj(x) && x.id === req.piece && x.kind === 'فيديو');
+      if (!p) return json(400, { error: 'bad_request', field: 'piece' });
+      const w = isObj(st.w) ? st.w : {}; const media = isObj(w.media) && isObj(w.media.video) ? w.media.video : {};
+      const n = Number.isInteger(p.sceneCount) ? p.sceneCount : 3; const dur = Number(p.dur) || Number(media.dur) || 15; const model = typeof p.model === 'string' ? p.model : 'seedance-2.5';
+      const cfg = await configOf(deps);
+      const base = { created_by: uid, action: 'marketing', source: 'campaign', label: line('فيديو ' + (p.n ?? '') + ' · المشاهد', 200) };
+      return await runAi(deps, base, cfg, scenesRequest({ model: cfg.model, effort: cfg.effort, w, piece: p, n, dur, notes: media.notes, voice: req.voice }), (answer) => cleanScenes(answer, { n, dur, model }));
+    }
     if (req.piece) { target = campaignTarget(c.state, req.piece, req.slide); if (!target) return json(400, { error: 'bad_request', field: 'piece' }); }
     else target = campaignTarget({ ...(isObj(c.state) ? c.state : {}), pieces: [{ id: 'P0', kind: 'بوست', n: 0 }] }, 'P0', null);
   }

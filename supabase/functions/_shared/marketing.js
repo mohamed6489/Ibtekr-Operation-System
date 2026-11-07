@@ -21,6 +21,7 @@ export const MAX_REFS = 4;
 export const DEFAULT_SIZE = '1080x1350';
 // the image pieces of 9.5.1 (the video waits — decision 12)
 export const IMAGE_KINDS = ['بوست', 'كاروسيل', 'ملف إضافي'];
+export const VIDEO_KIND = 'فيديو'; // 9.5.5: its scenes' key frames are images of the campaign (decision 59)
 const GOAL_EN = { 'منتج جديد': 'launching a new product', 'مجموعة جديدة': 'launching a new collection', 'وعي بخدمة': 'raising awareness of a service', 'عرض / خصم': 'an offer or a discount' };
 const modelArg = (v) => (v == null || v === '' ? DEFAULT_MODEL : MODEL_IDS.includes(v) ? v : null);
 
@@ -63,15 +64,16 @@ export function parseCampaignEdit(b) {
 export function campaignTarget(state, piece, slide) {
   const s = isObj(state) ? state : {}; const list = Array.isArray(s.pieces) ? s.pieces : [];
   const p = list.find((x) => isObj(x) && x.id === piece); if (!p) return null;
-  const kind = typeof p.kind === 'string' ? p.kind : ''; if (!IMAGE_KINDS.includes(kind)) return null;
-  const slides = kind === 'كاروسيل' && Array.isArray(p.slides) ? p.slides : [];
+  const kind = typeof p.kind === 'string' ? p.kind : ''; if (!IMAGE_KINDS.includes(kind) && kind !== VIDEO_KIND) return null;
+  const slides = kind === 'كاروسيل' && Array.isArray(p.slides) ? p.slides : kind === VIDEO_KIND && Array.isArray(p.scenes) ? p.scenes : [];
   let target = p; let slideIndex = null; let label = kind + ' ' + (posInt(p.n) || '');
   if (slide != null && slide >= 0) {
-    if (kind !== 'كاروسيل' || !isObj(slides[slide])) return null;
-    target = slides[slide]; slideIndex = slide; label += ' · صورة ' + (slide + 1);
+    if ((kind !== 'كاروسيل' && kind !== VIDEO_KIND) || !isObj(slides[slide])) return null;
+    target = slides[slide]; slideIndex = slide; label += kind === VIDEO_KIND ? ' · المشهد ' + (slide + 1) : ' · صورة ' + (slide + 1);
   } else if (kind === 'كاروسيل') label += ' · الغلاف';
+  else if (kind === VIDEO_KIND) return null; // a video piece has no image of its own: its scenes have (9.5.5)
   const w = isObj(s.w) ? s.w : {};
-  const key = kind === 'بوست' ? 'post' : kind === 'كاروسيل' ? 'carousel' : 'extra';
+  const key = kind === 'بوست' ? 'post' : kind === 'كاروسيل' ? 'carousel' : kind === VIDEO_KIND ? 'video' : 'extra';
   const media = key === 'extra' ? (isObj(w.extra) ? w.extra : {}) : (isObj(w.media) && isObj(w.media[key]) ? w.media[key] : {});
   return { piece: p, target, kind, media, w, label: imgLine(label, 80), size: typeof p.size === 'string' ? p.size : null, slides: slides.length, slideIndex };
 }
@@ -110,6 +112,7 @@ export function campaignPrompt(t, ctx = {}) {
   const n = Number.isInteger(t.slideIndex) ? t.slideIndex + 1 : null;
   const what = t.kind === 'كاروسيل'
     ? (n ? `Slide ${n} of a ${t.slides}-slide Instagram / Facebook carousel, in the same visual style as the carousel's cover` : `The cover image of a ${t.slides}-slide Instagram / Facebook carousel`)
+    : t.kind === VIDEO_KIND ? `The opening frame (key frame) of scene ${n} of a ${t.slides}-scene short vertical product video for Instagram reels — a realistic photographic still, the product in the frame, room for motion`
     : t.kind === 'بوست' ? 'A social media post image (Instagram / Facebook)' : 'A social media story or website banner image';
   const q = (v, max) => { const s = imgLine(v, max); return s ? '«' + s + '»' : ''; };
   const texts = [['headline', q(x.title, 40)], ['subheadline', q(x.sub, 60)], ['a small badge in a corner', q(x.badge, 14)]].filter(([, v]) => v);
@@ -117,8 +120,9 @@ export function campaignPrompt(t, ctx = {}) {
     what + ' for Ibtekr Club (ibtekr.club), an Egyptian online marketplace of handmade products by independent makers.',
     GOAL_EN[w.goal] ? 'The campaign is about ' + GOAL_EN[w.goal] + '.' : '',
     q(w.idea, 600) ? 'The campaign idea (in Arabic): ' + q(w.idea, 600) + '.' : '',
-    q(x.idea, 400) ? 'This image (in Arabic): ' + q(x.idea, 400) + '.' : (x !== p && q(p.idea, 400) ? 'The carousel (in Arabic): ' + q(p.idea, 400) + '.' : ''),
-    texts.length ? 'Write this Arabic text on the image exactly as given, right-to-left, clear and legible: ' + texts.map(([k, v]) => k + ' ' + v).join('; ') + '.' : 'No text on the image.',
+    q(x.idea, 400) ? 'This ' + (t.kind === VIDEO_KIND ? 'scene' : 'image') + ' (in Arabic): ' + q(x.idea, 400) + '.' : (x !== p && q(p.idea, 400) ? 'The ' + (t.kind === VIDEO_KIND ? 'video' : 'carousel') + ' (in Arabic): ' + q(p.idea, 400) + '.' : ''),
+    t.kind === VIDEO_KIND && x !== p && q(p.idea, 400) && q(x.idea, 400) ? 'The video (in Arabic): ' + q(p.idea, 400) + '.' : '',
+    t.kind === VIDEO_KIND ? 'No text on the image.' : texts.length ? 'Write this Arabic text on the image exactly as given, right-to-left, clear and legible: ' + texts.map(([k, v]) => k + ' ' + v).join('; ') + '.' : 'No text on the image.',
     q(t.media.notes, 400) ? 'Instructions (in Arabic): ' + q(t.media.notes, 400) + '.' : '',
     ctx.useCount ? `The first ${ctx.useCount} reference image${ctx.useCount > 1 ? 's show the products' : ' shows the product'} to feature: keep ${ctx.useCount > 1 ? 'them' : 'it'} exactly as ${ctx.useCount > 1 ? 'they are' : 'it is'} (shape, colors, material, pattern).` : '',
     ctx.styleCount ? `The ${ctx.useCount ? 'other ' : ''}${ctx.styleCount} reference image${ctx.styleCount > 1 ? 's are examples' : ' is an example'}: match the layout and the style, not the content.` : '',
@@ -137,7 +141,7 @@ export function pinsPrompt(note, pins) {
 
 // ---------------------------------------------------------------- the AI writing (ai-content, decision 10)
 
-export const TASKS = ['fill', 'rewrite', 'describe'];
+export const TASKS = ['fill', 'rewrite', 'describe', 'scenes']; // scenes (9.5.5 decision 59): a video piece's scenes and voice-over
 // the field kinds of «إعادة كتابة بالـ AI» and their limits (the v5's AI_TXT kinds; caption keeps its lines)
 export const MKT_LIM = { general: 1000, idea: 400, caption: 1000, title: 40, sub: 60, badge: 14, notes: 400, desc: 1000 };
 const KIND_WHAT = {
@@ -187,6 +191,7 @@ export function parseMarketing(b) {
   if (b.text != null && (typeof b.text !== 'string' || b.text.length > 3000)) return bad('text');
   const text = paras(typeof b.text === 'string' ? b.text : '', 3000);
   if (b.task === 'fill') { if (!campaignId) return bad('campaign_id'); if (!piece) return bad('piece'); return { req: { task: 'fill', campaignId, piece, slide: null, kind: null, text: '', image: null } }; }
+  if (b.task === 'scenes') { if (!campaignId) return bad('campaign_id'); if (!piece || !/^V/.test(piece)) return bad('piece'); return { req: { task: 'scenes', campaignId, piece, slide: null, kind: null, text: '', image: null, voice: b.voice === true } }; }
   if (b.task === 'describe') { const image = imageArg(b.image); if (!image) return bad('image'); return { req: { task: 'describe', campaignId: null, piece: null, slide: null, kind: 'desc', text, image } }; }
   if (!Object.prototype.hasOwnProperty.call(MKT_LIM, b.kind)) return bad('kind');
   return { req: { task: 'rewrite', campaignId, piece, slide, kind: b.kind, text, image: null } };

@@ -356,3 +356,19 @@ Deno.test('buyer (9.5.4): marketing.view (P too); the week\'s numbers per campai
   assert(asked[0].system[0].text.includes('never change anything yourself'));
   const run = db.rows('ai_runs').at(-1); assertEquals([run.action, run.source, run.label, run.status], ['marketing', 'buyer', 'أزوّد Macrame؟', 'ok']);
 });
+
+// ---------------------------------------------------------------- phase 9.5.5: the video piece's scenes (decision 59)
+
+Deno.test('marketing scenes: a video piece of the saved campaign → its scenes with the durations fitted to its model and the voice-over; a post piece refused', async () => {
+  const seed = { mkt_campaigns: [{ id: CMP, name: 'فيديو', archived_at: null, state: { w: { goal: 'منتج جديد', idea: 'كولكشن الشتا', media: { video: { notes: 'نور دافي', dur: 10 } } },
+    pieces: [{ id: 'V1', kind: 'فيديو', n: 1, idea: 'المخدة', dur: 10, model: 'kling-2.5', sceneCount: 2, scenes: [] }, { id: 'P1', kind: 'بوست', n: 1 }] } }] };
+  const { deps, asked, db } = setup({ seed, replies: [msg({ scenes: [{ idea: 'لقطة قريبة', text: 'دفا الشتا', cam: 'زوم بطيء' }, { idea: 'القعدة', text: '', cam: 'ثابتة' }], voice: 'الدفا الحقيقي من إيد مصرية' })] });
+  const r = await call(deps, { action: 'marketing', task: 'scenes', campaign_id: CMP, piece: 'V1', voice: true }, 'jwt-mkt');
+  assertEquals([r.res.status, r.body.result, r.body.voice], [200, 'ok', 'الدفا الحقيقي من إيد مصرية']);
+  assertEquals(r.body.scenes.map((s: any) => [s.n, s.d, s.idea, s.cam, s.text]), [[1, 5, 'لقطة قريبة', 'زوم بطيء', 'دفا الشتا'], [2, 5, 'القعدة', 'ثابتة', '']]);
+  const sent = asked[0].messages[0].content[0].text;
+  assert(sent.includes('Video idea: المخدة') && sent.includes('Scenes: 2') && sent.includes('Instructions: نور دافي') && sent.includes('10-second video'));
+  const run = db.rows('ai_runs').at(-1); assertEquals([run.action, run.source, run.label], ['marketing', 'campaign', 'فيديو 1 · المشاهد']);
+  assertEquals((await call(deps, { action: 'marketing', task: 'scenes', campaign_id: CMP, piece: 'P1' }, 'jwt-mkt')).res.status, 400);
+  assertEquals((await call(deps, { action: 'marketing', task: 'scenes', campaign_id: CMP, piece: 'V1' }, 'jwt-add')).res.status, 401);
+});

@@ -303,6 +303,30 @@
 
   const ADS_RULES = Object.freeze({ stopSpend: 1500, stopDays: 5, maxCpa: 450, scaleMer: 4, scaleOrders: 5, trackRatio: 2, trackMin: 5, tiredFreq: 4 });
   const AD_PLATFORM = Object.freeze({ meta: 'ميتا', google: 'جوجل', tiktok: 'تيك توك' });
+  // 9.5.6 (decision 67): the fields the admin writes for a platform's link — the same keys as the server's LINK_FIELDS (a test compares them);
+  // a secret never comes back (the server shows its last four), an id drops dashes / «act_», `optional` = not needed to read, `oauth` = the sign-in needs it
+  const AD_LINK_FIELDS = Object.freeze({
+    meta: [{ key: 'access_token', label: 'مفتاح القراية (System User token)', secret: true, help: 'من Business Portfolio › System Users — صلاحية ads_read (وads_management لو عايز الميديا باير ينفّذ)' }, { key: 'account_id', label: 'رقم حساب الإعلانات', placeholder: 'act_1234567890', help: 'من مدير الإعلانات — بالـ act_ أو الأرقام بس' }],
+    tiktok: [{ key: 'app_id', label: 'App ID', oauth: true, help: 'تطبيق TikTok for Business (business-api.tiktok.com › My Apps)' }, { key: 'secret', label: 'App Secret', secret: true, oauth: true },
+      { key: 'access_token', label: 'Access Token (اختياري — بدل زرار الربط)', secret: true, optional: true, help: 'لو معاك توكن جاهز من بوابة التطبيق' }, { key: 'advertiser_id', label: 'Advertiser ID (اختياري — بيتحدد مع الربط)', optional: true }],
+    google: [{ key: 'developer_token', label: 'Developer token', secret: true, oauth: true, help: 'من Google Ads › الأدوات › API Center (حساب المدير MCC)' }, { key: 'client_id', label: 'OAuth Client ID', oauth: true, help: 'من Google Cloud › Credentials (Web application) — سجّل فيه رابط الرجوع اللي تحت' },
+      { key: 'client_secret', label: 'OAuth Client secret', secret: true, oauth: true }, { key: 'login_customer_id', label: 'Login customer ID (MCC — اختياري)', optional: true, placeholder: '123-456-7890' },
+      { key: 'refresh_token', label: 'Refresh token (اختياري — بدل زرار الربط)', secret: true, optional: true }, { key: 'customer_id', label: 'Customer ID (اختياري — بيتحدد مع الربط)', optional: true, placeholder: '123-456-7890' },
+      { key: 'version', label: 'إصدار Google Ads API (اختياري)', optional: true, placeholder: 'v21' }],
+  });
+  const AD_OAUTH = Object.freeze({ tiktok: 'اربط بحساب تيك توك', google: 'اربط بحساب جوجل' });
+  // the admin's inputs → the fields to send: a secret input left empty keeps the stored one (left out); a plain field not touched keeps its
+  // stored value (sent back as it is), one emptied by hand is sent as '' (removed)
+  function linkFieldsBody(platform, values, stored) {
+    const out = {}; const st = stored || {}; const vals = values || {};
+    for (const f of AD_LINK_FIELDS[platform] || []) {
+      const typed = typeof vals[f.key] === 'string'; const v = typed ? vals[f.key].trim() : '';
+      if (v) out[f.key] = v;
+      else if (f.secret) { if (!st[f.key]) out[f.key] = ''; } // a stored secret stays unless typed over
+      else out[f.key] = !typed && st[f.key] ? String(st[f.key]) : '';
+    }
+    return out;
+  }
   const SOLD = Object.freeze(['completed', 'in_progress', 'pending']); // an ad order counts as a sale unless cancelled / returned / failed
   const nz = (v) => Number(v) || 0;
   const ratio = (a, b) => (b > 0 ? a / b : null);
@@ -328,16 +352,17 @@
   function adCampaignRows(objects, stats, orderRows, rg) {
     const names = {}; for (const o of Array.isArray(objects) ? objects : []) if (o && o.kind === 'campaign') names[o.id] = o;
     const byId = {};
-    const row = (id) => byId[id] || (byId[id] = { id, name: (names[id] && names[id].name) || '#' + id, status: (names[id] && names[id].status) || null, platform: AD_PLATFORM.meta,
+    const plOf = (k) => AD_PLATFORM[k] || AD_PLATFORM.meta;
+    const row = (id, pl) => byId[id] || (byId[id] = { id, name: (names[id] && names[id].name) || '#' + id, status: (names[id] && names[id].status) || null, platform: plOf((names[id] && names[id].platform) || pl), key: (names[id] && names[id].platform) || pl || 'meta',
       spend: 0, impressions: 0, clicks: 0, purchases: 0, value: 0, orders: 0, sales: 0, share: 0, cancelled: 0, sources: {}, days: {} });
     for (const s of dayStats(stats, 'campaign', rg)) {
-      const r = row(s.object_id); r.spend += nz(s.spend); r.impressions += nz(s.impressions); r.clicks += nz(s.link_clicks != null ? s.link_clicks : s.clicks);
+      const r = row(s.object_id, s.platform); r.spend += nz(s.spend); r.impressions += nz(s.impressions); r.clicks += nz(s.link_clicks != null ? s.link_clicks : s.clicks);
       r.purchases += nz(s.purchases); r.value += nz(s.purchase_value);
       const d = r.days[s.day] || (r.days[s.day] = { day: s.day, spend: 0, purchases: 0, orders: 0 }); d.spend += nz(s.spend); d.purchases += nz(s.purchases);
     }
     for (const o of Array.isArray(orderRows) ? orderRows : []) {
-      if (!o || o.platform !== 'meta' || !/^[0-9]{6,30}$/.test(String(o.campaign || '')) || !inRg(o.day, rg)) continue;
-      const r = row(o.campaign);
+      if (!o || !AD_PLATFORM[o.platform] || !/^[0-9]{6,30}$/.test(String(o.campaign || '')) || !inRg(o.day, rg)) continue;
+      const r = row(o.campaign, o.platform);
       if (SOLD.includes(o.grp)) {
         r.orders += nz(o.orders); r.sales += nz(o.sales); r.share += nz(o.share); r.sources[o.source || ''] = (r.sources[o.source || ''] || 0) + nz(o.orders);
         const d = r.days[o.day] || (r.days[o.day] = { day: o.day, spend: 0, purchases: 0, orders: 0 }); d.orders += nz(o.orders);
@@ -352,23 +377,29 @@
   // until they are linked); the profit after ads = Ibtekr's share of Meta's orders − the spend (null without accounts.view). `money`
   // (the caller's admin / accounts.view) decides it when given — with no ad order the share is 0 and the profit is the spend's loss;
   // without it the rows say (the server sends the share as null to a member without accounts.view)
-  function adTotals(stats, orderRows, rg, money) {
-    const st = dayStats(stats, 'campaign', rg); const o = adOrders(orderRows, rg); const meta = o.platforms.meta || { orders: 0, sales: 0, share: 0, cancelled: 0, sources: {} };
+  // `linked` (9.5.6): the platforms whose numbers the system reads (the link's state); default the ones with any numbers, else Meta
+  function adTotals(stats, orderRows, rg, money, linked) {
+    const st = dayStats(stats, 'campaign', rg); const o = adOrders(orderRows, rg);
+    const seen = new Set(st.map((x) => x.platform || 'meta')); const L = Array.isArray(linked) ? linked.filter((k) => AD_PLATFORM[k]) : [...seen];
+    const on = new Set(L.length ? L : ['meta']); seen.forEach((k) => on.add(k));
     const known = typeof money === 'boolean' ? money : o.shareKnown;
+    const by = {}; for (const x of st) { const k = x.platform || 'meta'; const b = by[k] || (by[k] = { spend: 0, purchases: 0, value: 0 }); b.spend += nz(x.spend); b.purchases += nz(x.purchases); b.value += nz(x.purchase_value); }
+    const empty = () => ({ orders: 0, sales: 0, share: 0, cancelled: 0, sources: {} });
+    const linkedOrders = [...on].reduce((a, k) => { const p = o.platforms[k] || empty(); return { orders: a.orders + p.orders, sales: a.sales + p.sales, share: a.share + p.share }; }, { orders: 0, sales: 0, share: 0 });
     const spend = Math.round(st.reduce((s, x) => s + nz(x.spend), 0) * 100) / 100; const purchases = st.reduce((s, x) => s + nz(x.purchases), 0); const value = st.reduce((s, x) => s + nz(x.purchase_value), 0);
     const all = Object.values(o.platforms).reduce((a, p) => ({ orders: a.orders + p.orders, sales: a.sales + p.sales, share: a.share + p.share }), { orders: 0, sales: 0, share: 0 });
-    const platforms = Object.keys(AD_PLATFORM).map((k) => { const p = o.platforms[k] || { orders: 0, sales: 0, share: 0, cancelled: 0, sources: {} };
-      return { key: k, label: AD_PLATFORM[k], linked: k === 'meta', spend: k === 'meta' ? spend : null, purchases: k === 'meta' ? purchases : null, orders: p.orders, sales: p.sales, sources: p.sources,
-        mer: k === 'meta' ? ratio(p.sales, spend) : null, roas: k === 'meta' ? ratio(value, spend) : null }; });
-    return { spend, purchases, value, orders: all.orders, sales: all.sales, metaOrders: meta.orders, metaSales: meta.sales, cancelled: Object.values(o.platforms).reduce((s, p) => s + p.cancelled, 0),
-      mer: ratio(meta.sales, spend), cpa: ratio(spend, meta.orders), roas: ratio(value, spend), platformCpa: ratio(spend, purchases),
-      share: known ? Math.round(all.share * 100) / 100 : null, metaShare: known ? Math.round(meta.share * 100) / 100 : null, profit: known ? Math.round((meta.share - spend) * 100) / 100 : null, platforms };
+    const platforms = Object.keys(AD_PLATFORM).map((k) => { const p = o.platforms[k] || empty(); const b = by[k] || { spend: 0, purchases: 0, value: 0 }; const lk = on.has(k);
+      return { key: k, label: AD_PLATFORM[k], linked: lk, spend: lk ? Math.round(b.spend * 100) / 100 : null, purchases: lk ? b.purchases : null, orders: p.orders, sales: p.sales, sources: p.sources,
+        mer: lk ? ratio(p.sales, b.spend) : null, roas: lk ? ratio(b.value, b.spend) : null }; });
+    return { spend, purchases, value, orders: all.orders, sales: all.sales, metaOrders: linkedOrders.orders, metaSales: linkedOrders.sales, linked: [...on], cancelled: Object.values(o.platforms).reduce((s, p) => s + p.cancelled, 0),
+      mer: ratio(linkedOrders.sales, spend), cpa: ratio(spend, linkedOrders.orders), roas: ratio(value, spend), platformCpa: ratio(spend, purchases),
+      share: known ? Math.round(all.share * 100) / 100 : null, metaShare: known ? Math.round(linkedOrders.share * 100) / 100 : null, profit: known ? Math.round((linkedOrders.share - spend) * 100) / 100 : null, platforms };
   }
   // the real return of the last n weeks (7 days each, the last ending on `to`), the oldest first — Meta's spend vs its campaigns' sales
-  function merWeeks(stats, orderRows, to, n) {
+  function merWeeks(stats, orderRows, to, n, linked) {
     const out = [];
     for (let i = (n || 5) - 1; i >= 0; i -= 1) {
-      const end = addD(to, -7 * i); const rg = { from: addD(end, -6), to: end }; const t = adTotals(stats, orderRows, rg);
+      const end = addD(to, -7 * i); const rg = { from: addD(end, -6), to: end }; const t = adTotals(stats, orderRows, rg, undefined, linked);
       out.push({ from: rg.from, to: rg.to, spend: t.spend, sales: t.metaSales, mer: t.mer });
     }
     return out;
@@ -423,6 +454,6 @@
     campaignStatus, campaignName, PLATFORMS, CONNECTED, POST_STATUSES, CAP_MAX, TAGS, TIMES, timeOpts, postKind, pieceImages, hookOf, addD, suggest, scheduleItems, isPast, canMove, moveCheck, safeName, zipPlan,
     PUBLISHABLE, PUB_KINDS, MAX_IMAGES, PL_KEY, pubText, notReady, publishable, pubImages, isVideoPath, igFit, jpegSize, isJpeg, PUB_ERRORS, pubError, seenSt, engOf, postTotals, SRC_LABEL,
     DAYS, dayIdx, wkStart, weeksOf, planDefault, D2, dayLabel, relDay, pct, linkKeys,
-    ADS_RULES, AD_PLATFORM, SOLD, adOrders, adCampaignRows, adTotals, merWeeks, adAlerts, adCreatives, xr };
+    ADS_RULES, AD_PLATFORM, AD_LINK_FIELDS, AD_OAUTH, linkFieldsBody, SOLD, adOrders, adCampaignRows, adTotals, merWeeks, adAlerts, adCreatives, xr };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IbtekrCampWiz = api;
 })(typeof window !== 'undefined' ? window : globalThis);

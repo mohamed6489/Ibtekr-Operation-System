@@ -456,32 +456,75 @@
   }
 
   // ---------- the ads numbers (9.5.3, decisions 43–46): Meta's own numbers (mkt-ads) next to WooCommerce's ad orders ----------
-  const ADS_MESSAGES = { not_configured: 'إعلانات ميتا لسه مش متربطة — مفتاح القراية وحساب الإعلانات بيتحطوا في أسرار السيرفر (الأدمن)',
-    token: 'مفتاح إعلانات ميتا انتهى أو اتلغى — الأدمن يعمل مفتاح جديد', permission: 'المفتاح مالوش صلاحية قراية حساب الإعلانات (ads_read)',
-    rate: 'ميتا بتقول استنى شوية — المزامنة الجاية هتكمّل', timeout: 'ميتا ماردتش في الوقت — المزامنة الجاية هتكمّل' };
-  // Meta's own words (the function sends them cleaned, 200 characters) are added for a code we have no message for
-  const adsWhy = (code, text) => (code ? (ADS_MESSAGES[code] || 'ميتا رفضت (' + String(code).slice(0, 40) + ')') + (!ADS_MESSAGES[code] && typeof text === 'string' && text ? ' — ' + text.slice(0, 200) : '') : null);
+  const AD_NAMES = { meta: 'ميتا', tiktok: 'تيك توك', google: 'جوجل' };
+  const ADS_PLATFORMS = ['meta', 'tiktok', 'google'];
+  // our codes in words, per platform (9.5.6: the platform's own words — the function sends them cleaned, 200 characters — are added for a code we have no message for)
+  const ADS_MESSAGES = (n) => ({ not_configured: 'مفيش منصة إعلانات مربوطة — الأدمن يربط الحسابات من «حالة الربط»',
+    token: 'مفتاح إعلانات ' + n + ' انتهى أو اتلغى — الأدمن يربط الحساب تاني من «حالة الربط»', permission: 'المفتاح مالوش صلاحية قراية حساب الإعلانات على ' + n,
+    rate: n + ' بتقول استنى شوية — المزامنة الجاية هتكمّل', timeout: n + ' ماردتش في الوقت — المزامنة الجاية هتكمّل', no_vault: 'الـ Vault مش متاح على السيرفر — مش هينفع نحفظ بيانات الربط',
+    no_refresh_token: 'جوجل ماادّاش مفتاح تجديد — شيل التطبيق من حساب جوجل واربط تاني', no_account: 'الحساب اللي سجّلت بيه مالوش حساب إعلانات', no_token: n + ' مارجّعتش توكن — جرّب الربط تاني' });
+  const adsWhy = (code, text, platform) => { const n = AD_NAMES[platform] || 'ميتا'; const M = ADS_MESSAGES(n); return code ? (M[code] || n + ' رفضت (' + String(code).slice(0, 40) + ')') + (!M[code] && typeof text === 'string' && text ? ' — ' + text.slice(0, 200) : '') : null; };
   let ads = null; let adsAt = 0; const adsCache = new Map(); const ADS_MS = 60000;
-  // the ads link (mkt-ads status): { configured, account: { name, currency, status }, syncedAt, checkedAt, error, why }
+  const str = (v) => (typeof v === 'string' ? v : null);
+  const toAccount = (a) => (a && typeof a === 'object' ? { id: a.id == null ? null : String(a.id), name: str(a.name), currency: str(a.currency), status: str(a.status) } : null);
+  // one platform of the status: never a secret (the server sends a tail); configured = a run can read it
+  const toPlatform = (k, p) => { const x = p && typeof p === 'object' ? p : {}; const fields = {}; if (x.fields && typeof x.fields === 'object') for (const [a, b] of Object.entries(x.fields)) if (typeof b === 'string') fields[a] = b;
+    return { key: k, name: AD_NAMES[k], configured: x.configured === true, oauth: x.oauth === true, fields, missing: Array.isArray(x.missing) ? x.missing.filter((m) => typeof m === 'string') : [], account: toAccount(x.account),
+      syncedAt: str(x.synced_at), checkedAt: str(x.checked_at), error: str(x.error), why: adsWhy(str(x.error), x.text, k), linkedAt: str(x.linked_at), version: str(x.version),
+      candidates: Array.isArray(x.candidates) ? x.candidates.filter((c) => c && typeof c === 'object' && c.id != null).map((c) => ({ id: String(c.id), name: str(c.name) })) : null }; };
+  // the ads links (mkt-ads status): Meta's old fields + platforms { meta, tiktok, google } (9.5.6) + the redirect the owner registers on the apps
   async function adsStatus(force) {
     if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     if (!force && ads && Date.now() - adsAt < CONN_MS) return { ok: true, ads };
     const r = await invoke('mkt-ads', { action: 'status' });
-    if (!r.ok) return Object.assign(r, { message: r.reason === 'forbidden' ? MESSAGES.forbidden : 'تعذّر قراية حالة إعلانات ميتا — جرّب تاني' });
-    const b = r.body || {}; const a = b.account && typeof b.account === 'object' ? b.account : null;
-    ads = { configured: b.configured === true, account: a ? { name: typeof a.name === 'string' ? a.name : null, currency: typeof a.currency === 'string' ? a.currency : null, status: typeof a.status === 'string' ? a.status : null } : null,
-      syncedAt: typeof b.synced_at === 'string' ? b.synced_at : null, checkedAt: typeof b.checked_at === 'string' ? b.checked_at : null,
-      error: typeof b.error === 'string' ? b.error : null, why: adsWhy(typeof b.error === 'string' ? b.error : null, b.text) };
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'forbidden' ? MESSAGES.forbidden : 'تعذّر قراية حالة الإعلانات — جرّب تاني' });
+    const b = r.body || {}; const P = b.platforms && typeof b.platforms === 'object' ? b.platforms : {};
+    const platforms = {}; for (const k of ADS_PLATFORMS) platforms[k] = toPlatform(k, P[k]);
+    const m = platforms.meta; const legacy = !P.meta; // a server before 9.5.6: Meta's fields at the top only
+    if (legacy) Object.assign(m, { configured: b.configured === true, account: toAccount(b.account), syncedAt: str(b.synced_at), checkedAt: str(b.checked_at), error: str(b.error), why: adsWhy(str(b.error), b.text, 'meta') });
+    const linked = ADS_PLATFORMS.filter((k) => platforms[k].configured);
+    ads = { configured: linked.length > 0, account: m.account, syncedAt: m.syncedAt, checkedAt: m.checkedAt, error: m.error, why: m.why, platforms, linked, redirect: str(b.redirect),
+      anyError: ADS_PLATFORMS.find((k) => platforms[k].configured && platforms[k].error) || null };
     adsAt = Date.now(); emit(); return { ok: true, ads };
   }
   const adsNow = () => ads;
-  // «مزامنة دلوقتي» (the admin): the last 3 days (or `days`) read from Meta now
-  async function adsSync(days) {
+  // «مزامنة دلوقتي» (the admin): the last 3 days (or `days`) read from every linked platform (or one) now
+  async function adsSync(days, platform) {
     if (!isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
-    const r = await invoke('mkt-ads', Object.assign({ action: 'sync' }, days ? { days: Number(days) } : {}));
+    const r = await invoke('mkt-ads', Object.assign({ action: 'sync' }, days ? { days: Number(days) } : {}, platform ? { platform } : {}));
     adsCache.clear(); await adsStatus(true);
-    if (!r.ok) return Object.assign(r, { message: r.reason === 'not_configured' ? ADS_MESSAGES.not_configured : r.reason === 'forbidden' ? MESSAGES.forbidden : adsWhy(r.code, r.text) || MESSAGES.network });
-    const b = r.body || {}; return { ok: true, days: Number(b.days) || 0, campaigns: Number(b.campaigns) || 0, ads: Number(b.ads) || 0, stats: Number(b.stats) || 0 };
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'not_configured' ? ADS_MESSAGES('').not_configured : r.reason === 'forbidden' ? MESSAGES.forbidden : adsWhy(r.code, r.text, (r.body && r.body.platform) || platform || 'meta') || MESSAGES.network });
+    const b = r.body || {}; return { ok: true, days: Number(b.days) || 0, campaigns: Number(b.campaigns) || 0, ads: Number(b.ads) || 0, stats: Number(b.stats) || 0, platforms: b.platforms && typeof b.platforms === 'object' ? b.platforms : {} };
+  }
+  // 9.5.6 (decisions 67 / 68): the admin's link of a platform — the fields into Vault, the OAuth start / pick, the unlink; the status is reread after each
+  const LINK_WHY = { platform: 'المنصة مش معروفة', oauth: 'بيانات التطبيق ناقصة — اكتب App ID والـ Secret (أو Client ID والـ Secret والـ developer token) الأول', fields: 'مفيش حاجة اتكتبت', account: 'الحساب ده مش من اللي المنصة عرضتهم', state: 'انتهت صلاحية الربط (10 دقايق) — جرّب تاني', code: 'الكود مش مظبوط' };
+  const linkFail = (r, platform) => Object.assign(r, { message: r.reason === 'forbidden' ? 'الأدمن بس يقدر يربط حسابات الإعلانات' : r.reason === 'invalid' ? (LINK_WHY[r.field] || 'الخانة «' + (r.field || '') + '» مش مظبوطة') : r.reason === 'not_configured' ? adsWhy(r.code || 'no_vault', null, platform) : adsWhy(r.code, r.text, platform) || MESSAGES.network });
+  async function adsLinkSet(platform, fields) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'الأدمن بس يقدر يربط حسابات الإعلانات' };
+    const r = await invoke('mkt-ads', { action: 'link_set', platform, fields: fields && typeof fields === 'object' ? fields : {} });
+    if (!r.ok) return linkFail(r, platform);
+    adsCache.clear(); await adsStatus(true); log('ads.link', platform + ' · set', null);
+    return { ok: true, platform: toPlatform(platform, r.body) };
+  }
+  async function adsLinkStart(platform) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'الأدمن بس يقدر يربط حسابات الإعلانات' };
+    const r = await invoke('mkt-ads', { action: 'link_start', platform });
+    if (!r.ok) return linkFail(r, platform);
+    const u = r.body && typeof r.body.url === 'string' && /^https:\/\//.test(r.body.url) ? r.body.url : null;
+    return u ? { ok: true, url: u } : { ok: false, reason: 'network', message: MESSAGES.network };
+  }
+  async function adsLinkPick(platform, account) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'الأدمن بس يقدر يربط حسابات الإعلانات' };
+    const r = await invoke('mkt-ads', { action: 'link_pick', platform, account: String(account || '') });
+    if (!r.ok) return linkFail(r, platform);
+    adsCache.clear(); await adsStatus(true); return { ok: true, platform: toPlatform(platform, r.body) };
+  }
+  async function adsUnlink(platform) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'الأدمن بس يقدر يربط حسابات الإعلانات' };
+    const r = await invoke('mkt-ads', { action: 'unlink', platform });
+    if (!r.ok) return linkFail(r, platform);
+    adsCache.clear(); await adsStatus(true); log('ads.link', platform + ' · unlink', null);
+    return { ok: true, platform: toPlatform(platform, r.body) };
   }
   // every row of a read, a thousand at a time (the API's page)
   async function allRows(make) {
@@ -506,14 +549,14 @@
     const key = from + '|' + to; const hit = adsCache.get(key); if (hit && Date.now() - hit.at < ADS_MS) return hit.r;
     try {
       const [objects, stats, orders] = await Promise.all([
-        allRows(() => cl.from('mkt_ad_objects').select(OBJ_COLS).eq('platform', 'meta').order('id')),
-        allRows(() => cl.from('mkt_ad_stats').select(STAT_COLS).eq('platform', 'meta').gte('day', from).lte('day', to).order('day')),
+        allRows(() => cl.from('mkt_ad_objects').select(OBJ_COLS).order('id')),
+        allRows(() => cl.from('mkt_ad_stats').select('platform, ' + STAT_COLS).gte('day', from).lte('day', to).order('day')),
         allRows(() => cl.rpc('mkt_ads_orders', { p_from: from, p_to: to })),
       ]);
       const r = { ok: true, from, to,
-        objects: objects.map((o) => ({ kind: o.kind, id: String(o.id), parent_id: o.parent_id || null, name: o.name || null, status: o.status || null,
+        objects: objects.map((o) => ({ platform: o.platform || 'meta', kind: o.kind, id: String(o.id), parent_id: o.parent_id || null, name: o.name || null, status: o.status || null,
           thumb: typeof o.thumb === 'string' && /^https:\/\//.test(o.thumb) ? o.thumb : null, meta: o.meta && typeof o.meta === 'object' ? o.meta : {}, updatedAt: o.updated_at || null })),
-        stats: stats.map((s) => ({ level: s.level, object_id: String(s.object_id), campaign_id: String(s.campaign_id), day: s.day, spend: n0x(s.spend) || 0, impressions: n0x(s.impressions) || 0,
+        stats: stats.map((s) => ({ platform: s.platform || 'meta', level: s.level, object_id: String(s.object_id), campaign_id: String(s.campaign_id), day: s.day, spend: n0x(s.spend) || 0, impressions: n0x(s.impressions) || 0,
           reach: n0x(s.reach), clicks: n0x(s.clicks) || 0, link_clicks: n0x(s.link_clicks), frequency: n0x(s.frequency), purchases: n0x(s.purchases) || 0, purchase_value: n0x(s.purchase_value) || 0 })),
         orders: orders.map((o) => ({ day: o.day, platform: o.platform, source: o.source || '', campaign: o.campaign || '', grp: o.grp, orders: n0x(o.orders) || 0, sales: n0x(o.sales) || 0, share: n0x(o.share) })) };
       adsCache.set(key, { at: Date.now(), r }); return r;
@@ -745,7 +788,7 @@
     upload, uploadTemplate, url, cachedUrl, blob, product, checkFile, generate, edit, write, schedule, move, caption, published, remove,
     videoClip, videoVoice, videoMusic, videoAssemble, videoPoll, videoUpload, videoScenes,
     connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,
-    adsStatus, adsNow, adsSync, adsData, adsWhy,
+    adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,
     suggestions, suggNow, decide, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, editRequest, setRequestStatus, buyerChat,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
     _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules } };

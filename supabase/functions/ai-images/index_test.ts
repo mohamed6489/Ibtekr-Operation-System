@@ -954,6 +954,10 @@ Deno.test('providers: voice on ElevenLabs direct → MP3 kept + uploaded to Magn
   const F = videoBridge();
   const seed: any = structuredClone(VID_SEED); seed.settings = [{ section: 'ai', data: { providers: { voice: { default: 'elevenlabs' }, video: { default: 'veo', models: { veo: 'veo-3.1-fast-generate-preview' } } } } }];
   const { deps, db, storage, fetched } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed, storage: { ...VID_FILES }, env: { ELEVENLABS_API_KEY: 'el-x', GEMINI_API_KEY: 'g-x' } });
+  // the direct providers reserve USD on the content cap (ai_run_start of 0024) — the fake answers ok and keeps the reserve on the row
+  const reserves: number[] = [];
+  const usdStart = (d: any) => ((orig) => async (name: string, args: any) => { if (name !== 'ai_run_start') return orig(name, args); reserves.push(args.p_reserve); const { data } = await d.from('ai_runs').insert({ created_at: NOW, ...args.p_row, status: 'pending', credits: 0, cost_usd: args.p_reserve }).select('id').single(); return { data: { result: 'ok', id: data.id }, error: null }; })(d.rpc.bind(d));
+  (deps.db as any).rpc = usdStart(deps.db);
   const tts: any[] = []; (deps as any).tts = async (r: any) => { tts.push(r); return { bytes: new Uint8Array(200).fill(7), mime: 'audio/mpeg' }; };
   const veo: any[] = []; const ops: Record<string, any> = {};
   (deps as any).veo = { start: async (r: any) => { veo.push({ model: r.model, prompt: r.prompt, image: r.image ? r.image.bytes.length : null, aspect: r.aspect, seconds: r.seconds }); const op = 'models/veo/operations/op' + (veo.length); ops[op] = { done: false }; return op; },
@@ -965,6 +969,7 @@ Deno.test('providers: voice on ElevenLabs direct → MP3 kept + uploaded to Magn
   assertEquals(F.bridge.calls.filter((c: any) => c.name === 'creations_finalize_upload').length, 1, 'onto Magnific for the assembly');
   assertEquals(F.bridge.calls.filter((c: any) => c.name === 'audio_tts').length, 0, 'the bridge\'s TTS not called');
   assertEquals(Number(db.rows('ai_runs').at(-1).cost_usd), 0.0039); // 13 characters × $0.30 / 1000
+  assertEquals(reserves, [0.0039], 'reserved on the content cap before the call');
   // a Veo clip: the scene's key frame, the aspect of the piece, the seconds nearest Veo's; a running job with the operation
   const c = await vcall(deps, 'video_clip', { scene: 1 });
   assertEquals([c.res.status, c.body.job.kind, c.body.job.status, c.body.job.ref, c.body.job.data.provider, c.body.job.data.duration], [200, 'clip', 'running', null, 'veo', 4], JSON.stringify(c.body));
@@ -981,10 +986,45 @@ Deno.test('providers: voice on ElevenLabs direct → MP3 kept + uploaded to Magn
   assert(/\/vid-V1-s2-[0-9a-z]+\.mp4$/.test(J[0].path), J[0].path); assertEquals(J[0].creation_ref, 'upl-2', 'the finished clip onto Magnific too'); assertEquals(J[0].bytes, 500);
   assertEquals(p.body.open, 0);
   // no keys → 503 naming the provider, no job
-  const nk = setup({ vault: { ...LINKED }, bridge: videoBridge().bridge, seed: structuredClone(seed), storage: { ...VID_FILES } }); (nk.deps as any).tts = async () => { throw new Error('no'); }; (nk.deps as any).veo = (deps as any).veo;
+  const nk = setup({ vault: { ...LINKED }, bridge: videoBridge().bridge, seed: structuredClone(seed), storage: { ...VID_FILES } }); (nk.deps as any).tts = async () => { throw new Error('no'); }; (nk.deps as any).veo = (deps as any).veo; (nk.deps.db as any).rpc = usdStart(nk.deps.db);
   assertEquals((await vcall(nk.deps, 'video_voice', { voice: 'm-eg-1', text: 'x' })).body, { error: 'not_configured', configured: false, provider: 'elevenlabs' });
   assertEquals((await vcall(nk.deps, 'video_clip', { scene: 0 })).body, { error: 'not_configured', configured: false, provider: 'veo' });
   assertEquals(nk.db.rows('mkt_video_jobs').length, 0);
+});
+
+// phase 11 (decision 4): Higgsfield through its MCP server linked from the settings (Vault mcp_higgsfield: url + token) — the key frame
+// uploaded (media_upload → PUT → media_confirm), generate_video, then jobs_wait in video_poll; the finished clip kept and put onto Magnific
+Deno.test('providers: video on Higgsfield (MCP) → media_upload / PUT / media_confirm / generate_video with the mapped model, a running job with the Higgsfield job id; video_poll reads jobs_wait, downloads the finished clip and keeps it; a failed one is marked; no link → 503', async () => {
+  const F = videoBridge();
+  const seed: any = structuredClone(VID_SEED); seed.settings = [{ section: 'ai', data: { providers: { video: { default: 'higgsfield' } } } }];
+  const { deps, db, storage, fetched } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed, storage: { ...VID_FILES }, photo: new Uint8Array(300).fill(2) });
+  const vaultApp: Record<string, string> = { mcp_higgsfield: JSON.stringify({ url: 'https://mcp.higgsfield.ai/mcp', token: 'hf-tok' }) };
+  (deps.db as any).rpc = ((orig) => async (name: string, args: any) => (name === 'app_secret_get' ? { data: vaultApp[args.p_name] ?? null, error: null } : orig(name, args)))((deps.db as any).rpc.bind(deps.db));
+  const mcpCalls: any[] = []; const states: Record<string, any> = {};
+  (deps as any).mcp = (url: string, token: string | null) => ({ listTools: async () => [], callTool: async (name: string, args: any) => { mcpCalls.push({ url, token, name, args });
+    if (name === 'media_upload') return { upload_url: 'https://put.higgsfield.test/u1', media_id: 'm-1' };
+    if (name === 'media_confirm') return { ok: true };
+    if (name === 'generate_video') return { jobs: [{ job_id: 'hfj-' + (mcpCalls.filter((c) => c.name === 'generate_video').length) }] };
+    if (name === 'jobs_wait') return { jobs: args.jobs.map((j: any) => ({ job_id: j.job_id, ...(states[j.job_id] ?? { status: 'in_progress' }) })) };
+    throw new Error('unknown ' + name); } });
+  const c = await vcall(deps, 'video_clip', { scene: 0 });
+  assertEquals([c.res.status, c.body.job.kind, c.body.job.status, c.body.job.data.provider, c.body.job.data.hf_job, c.body.job.data.model], [200, 'clip', 'running', 'higgsfield', 'hfj-1', 'seedance_2_5'], JSON.stringify(c.body));
+  assertEquals(mcpCalls.map((x) => x.name), ['media_upload', 'media_confirm', 'generate_video']);
+  assertEquals([mcpCalls[0].url, mcpCalls[0].token], ['https://mcp.higgsfield.ai/mcp', 'hf-tok']);
+  assertEquals(mcpCalls[2].args.params.medias, [{ value: 'm-1', role: 'image' }]); assertEquals(mcpCalls[2].args.params.aspect_ratio, '9:16'); assertEquals(mcpCalls[2].args.params.duration, 5);
+  assertEquals(fetched.filter((u) => u === 'https://put.higgsfield.test/u1').length, 1, 'the key frame PUT');
+  assertEquals(F.bridge.calls.filter((x: any) => x.name === 'video_generate').length, 0);
+  await vcall(deps, 'video_clip', { scene: 1 });
+  let p = await vcall(deps, 'video_poll'); assertEquals(p.body.open, 2);
+  assertEquals(mcpCalls.at(-1).name, 'jobs_wait'); assertEquals(mcpCalls.at(-1).args.jobs.map((j: any) => j.job_id), ['hfj-1', 'hfj-2']);
+  states['hfj-1'] = { status: 'completed', result_url: 'https://cdn.higgsfield.test/v/1.mp4' }; states['hfj-2'] = { status: 'failed' };
+  p = await vcall(deps, 'video_poll');
+  const J = db.rows('mkt_video_jobs').filter((j: any) => j.kind === 'clip');
+  assertEquals(J.map((j: any) => [j.scene, j.status, j.error]), [[0, 'done', null], [1, 'failed', 'failed']]);
+  assert(/\/vid-V1-s1-[0-9a-z]+\.mp4$/.test(J[0].path), J[0].path); assertEquals(storage['marketing/' + J[0].path].length, 300); assertEquals(J[0].creation_ref, 'upl-1');
+  assertEquals(p.body.open, 0);
+  delete vaultApp.mcp_higgsfield;
+  assertEquals((await vcall(deps, 'video_clip', { scene: 0 })).body, { error: 'not_configured', configured: false, provider: 'higgsfield' });
 });
 
 Deno.test('video_poll: the open jobs asked at once; a done one downloaded into bucket marketing (an allowed host, mp4 / mp3 by kind), a failed one marked; then video_assemble: the cut, the voice mix, the music mix one after the other as each finishes; the final', async () => {

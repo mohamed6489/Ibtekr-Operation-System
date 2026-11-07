@@ -17,6 +17,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { secretOf, secretSet } from '../_shared/secrets.js';
 import { CARDS, SECRET_NAMES, fieldsOf, nameOk, parseSecret, probeCode, probesOf, secretPublic } from '../_shared/settings-link.js';
+import { McpError, mcpClient, type McpClient } from '../_shared/mcp-client.ts';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -26,6 +27,7 @@ export type Deps = {
   env: Record<string, string | undefined>; db: Db; fetch: typeof fetch; now: () => string;
   userDb?: (jwt: string) => Db; userId?: (jwt: string) => Promise<string | null>;
   auth?: { ban: (id: string, on: boolean) => Promise<string | null> }; // null = ok
+  mcp?: (url: string, token: string | null) => McpClient; // decision 4: an MCP server's probe = initialize + tools/list
 };
 
 const ACTIONS = ['status', 'secret_set', 'woo_set', 'secret_test', 'secret_unlink', 'member_status'];
@@ -65,8 +67,9 @@ async function metaPut(deps: Deps, name: string, patch: Json | null) {
 }
 
 // the one cheap read (or two for WooCommerce) that proves a key works; never a write, never the URL with a key in an error
-type Probe = { ok: boolean; at: string; latency_ms: number; account?: string; error?: string; step?: string };
+type Probe = { ok: boolean; at: string; latency_ms: number; account?: string; error?: string; step?: string; tools?: string[] };
 async function runProbes(deps: Deps, name: string, link: Json): Promise<Probe | null> {
+  if (name.startsWith('mcp_')) return await mcpProbe(deps, link);
   const probes = probesOf(name, link) as Array<{ id: string; method: string; url: string; headers: Record<string, string>; ok: (s: number, b: unknown) => { account: string } | null }> | null;
   if (!probes) return null;
   const started = Date.now(); const accounts: string[] = [];
@@ -81,6 +84,19 @@ async function runProbes(deps: Deps, name: string, link: Json): Promise<Probe | 
     accounts.push(got.account);
   }
   return { ok: true, at: deps.now(), latency_ms: Date.now() - started, account: accounts.filter(Boolean).join(' · ') };
+}
+
+// an MCP server: initialize + tools/list → the tools it offers (their names kept in the test for the page's MCP section)
+async function mcpProbe(deps: Deps, link: Json): Promise<Probe> {
+  const started = Date.now();
+  if (!deps.mcp || typeof link.url !== 'string') return { ok: false, at: deps.now(), latency_ms: 0, error: 'untested' };
+  try {
+    const tools = await deps.mcp(link.url, typeof link.token === 'string' ? link.token : null).listTools();
+    return { ok: true, at: deps.now(), latency_ms: Date.now() - started, account: tools.length + ' أدوات', ...(tools.length ? { tools: tools.slice(0, 40).map((t) => t.name) } : {}) } as Probe;
+  } catch (e) {
+    const k = e instanceof McpError ? (e.kind === 'not_linked' ? 'unauthorized' : e.kind === 'busy' ? 'provider' : 'refused') : 'network';
+    return { ok: false, at: deps.now(), latency_ms: Date.now() - started, error: k, step: 'mcp' };
+  }
 }
 
 async function status(deps: Deps) {
@@ -203,6 +219,7 @@ function realDeps(): Deps {
     env, db: service, fetch: globalThis.fetch, now: () => new Date().toISOString(),
     userDb: (jwt) => createClient(env.SUPABASE_URL ?? '', env.SUPABASE_ANON_KEY ?? '', { ...NO_SESSION, global: { headers: { Authorization: `Bearer ${jwt}` } } }),
     userId: async (jwt) => { const { data, error } = await service.auth.getUser(jwt); return error ? null : data?.user?.id ?? null; },
+    mcp: (url, token) => mcpClient(url, token, globalThis.fetch),
     auth: { ban: async (id, on) => { const { error } = await service.auth.admin.updateUserById(id, { ban_duration: on ? '876000h' : 'none' }); return error ? 'failed' : null; } },
   };
 }

@@ -84,6 +84,20 @@ Deno.test('a probe that fails keeps the key and says why; a platform without a p
   assertEquals((await call(deps, { action: 'secret_test', name: 'gemini' })).res.status, 404);
 });
 
+Deno.test('an MCP server link (decision 4): saved to Vault, probed with initialize + tools/list, the tools kept in the test; a refused token says unauthorized', async () => {
+  const { deps, vault } = setup();
+  const mcp: any[] = [];
+  (deps as any).mcp = (url: string, token: string | null) => ({ listTools: async () => { mcp.push({ url, token }); if (token && token.startsWith('bad')) { const { McpError } = await import('../_shared/mcp-client.ts'); throw new McpError('not_linked', 401); } return [{ name: 'generate_video', description: '' }, { name: 'jobs_wait', description: '' }]; }, callTool: async () => ({}) });
+  const r = await call(deps, { action: 'secret_set', name: 'mcp_higgsfield', fields: { url: 'https://mcp.higgsfield.ai/mcp/', token: 'hf-token-12345', name: 'Higgsfield' } });
+  assertEquals([r.res.status, r.body.test.ok, r.body.test.account, r.body.test.tools], [200, true, '2 أدوات', ['generate_video', 'jobs_wait']], JSON.stringify(r.body));
+  assertEquals(mcp, [{ url: 'https://mcp.higgsfield.ai/mcp', token: 'hf-token-12345' }]);
+  assertEquals(JSON.parse(vault.mcp_higgsfield), { url: 'https://mcp.higgsfield.ai/mcp', token: 'hf-token-12345', name: 'Higgsfield' });
+  assertEquals(r.body.link.fields.token, '••••2345');
+  const bad = await call(deps, { action: 'secret_set', name: 'mcp_other', fields: { url: 'https://mcp.other.test', token: 'bad-token-0000' } });
+  assertEquals([bad.res.status, bad.body.test.ok, bad.body.test.error], [200, false, 'unauthorized']);
+  assertEquals((await call(deps, { action: 'status' })).body.links.mcp_higgsfield.test.tools.length, 2);
+});
+
 Deno.test('woo_set: the store and the media user probed first; without confirm nothing is saved; a failed probe saves nothing; confirm saves and logs the url only', async () => {
   const CK = 'ck_' + 'a'.repeat(40), CS = 'cs_' + 'b'.repeat(40);
   const routes = {

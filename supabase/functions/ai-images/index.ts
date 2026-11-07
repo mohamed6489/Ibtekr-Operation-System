@@ -63,6 +63,8 @@ import { geminiImage } from './providers/gemini-image.ts';
 import { IMAGE_PROVIDERS, IMAGE_USD, VEO_USD_PER_SECOND, VOICE_USD_PER_1K, imagePick, imageStyle, providersOf, videoPick, voicePick } from '../_shared/ai-providers.js';
 import { elevenTts } from './providers/elevenlabs.ts';
 import { veoAspect, veoDownload, veoPoll, veoSeconds, veoStart } from './providers/veo.ts';
+import { McpError, findKey, mcpClient, type McpClient } from '../_shared/mcp-client.ts';
+import { secretOf } from '../_shared/secrets.js';
 import { aiSettings } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
 import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
@@ -81,6 +83,7 @@ export type Deps = {
   bridge?: Bridge; // decision 11: the Magnific site's MCP (OAuth + tools) — the system's own client
   providers?: Record<string, Provider>; // phase 11: the direct image providers (openai / gemini) beside Magnific
   tts?: (req: { text: string; voiceId: string | null; model: string | null }) => Promise<{ bytes: Uint8Array; mime: string }>; // phase 11: ElevenLabs direct
+  mcp?: (url: string, token: string | null) => McpClient; // phase 11 (decision 4): a linked MCP server — Higgsfield's video tools
   veo?: { start: (req: { model: string; prompt: string; image: { bytes: Uint8Array; mime: string } | null; aspect: string; seconds: number }) => Promise<string>; poll: (op: string) => Promise<{ done: boolean; uri?: string; error?: string }>; download: (uri: string) => Promise<{ bytes: Uint8Array; mime: string }> }; // phase 11: Veo direct
 };
 
@@ -1088,8 +1091,11 @@ async function newJob(deps: Deps, who: Who, req: Json, row: Json): Promise<Json 
   return error || !isObj(data) ? null : data;
 }
 // a run row a generation call (decision 64): the throttle applies, no credits
-async function videoRun(deps: Deps, who: Who, label: string, work: () => Promise<Json>, usd = 0): Promise<Response> {
-  const run = await startRun(deps, { created_by: who.uid, action: 'image', source: 'video', label }, 0, null);
+// a direct provider's run (usd > 0) is reserved in USD against the content cap first (security review: no paid call outside the cap)
+async function videoRun(deps: Deps, who: Who, label: string, work: () => Promise<Json>, usd = 0, usdCap: number | null = null): Promise<Response> {
+  const row = { created_by: who.uid, action: 'image', source: 'video', label };
+  const run = usd > 0 ? await startRunUsd(deps, row, usd, usdCap) : await startRun(deps, row, 0, null);
+  if (run.result === 'cap') return json(402, { error: 'ai_cap' });
   if (run.result === 'busy') return json(429, { error: 'busy' });
   if (run.result !== 'ok') return json(502, { error: 'ai_error' });
   try {
@@ -1098,6 +1104,7 @@ async function videoRun(deps: Deps, who: Who, label: string, work: () => Promise
     return json(200, { result: 'ok', ...out });
   } catch (e) {
     if (e instanceof BridgeError) { await finishRun(deps, run.id, { status: 'error', error: e.kind, credits: 0, cost_usd: 0 }); return bridgeFail(e); }
+    if (e instanceof McpError) { await finishRun(deps, run.id, { status: 'error', error: e.kind, credits: 0, cost_usd: 0, output: { status: e.status, detail: e.detail } }); return json(e.kind === 'not_linked' ? 503 : e.kind === 'busy' ? 429 : 502, { error: e.kind, status: e.status, detail: e.detail, provider: 'higgsfield' }); }
     if (e instanceof ProviderError) { await finishRun(deps, run.id, { status: 'error', error: e.kind, credits: 0, cost_usd: 0, output: { status: e.status, detail: e.detail } }); return json(e.kind === 'not_configured' ? 503 : e.kind === 'busy' ? 429 : e.kind === 'refused' ? 200 : 502, e.kind === 'refused' ? { result: 'refused' } : { error: e.kind, status: e.status }); }
     await finishRun(deps, run.id, { status: 'error', error: 'failed', credits: 0, cost_usd: 0 }); throw e;
   }
@@ -1134,7 +1141,35 @@ async function videoClip(deps: Deps, who: Who, args: Json) {
       const job = await newJob(deps, who, req, { kind: 'clip', scene: req.scene, creation_ref: null, data: { model: vd.model, provider: 'veo', veo_op: op, duration: seconds, ratio: veoAspect(String(p.size ?? '9:16')) } });
       if (!job) throw new Error('db mkt_video_jobs');
       return { job: jobView(job) };
-    }, usd);
+    }, usd, cfg.usdCap);
+  }
+  if (vd.provider === 'higgsfield') { // phase 11 (decisions 4 / 15): Higgsfield's MCP server linked from the settings (mcp_higgsfield: url + token) — a scene at a time
+    const link = await secretOf(deps.db, 'mcp_higgsfield') as Json | null;
+    if (!deps.mcp || !link || typeof link.url !== 'string') return json(503, { error: 'not_configured', configured: false, provider: 'higgsfield' });
+    if (chained) return json(400, { error: 'bad_request', field: 'method' });
+    const sc = scenes[req.scene]; const seconds = Math.max(4, Math.min(15, Math.round(Number(sc.d) || 5)));
+    const hfModel = HF_MODEL[String(p.model)] ?? (vd.model as string);
+    const key = campaignPathOk(req.campaignId, img) ? await download(deps.db, MKT_BUCKET, img) : null;
+    const prompt = line([sc.idea, sc.cam ? 'camera: ' + sc.cam : '', sc.text ? 'on-screen text: ' + sc.text : '', media.notes].filter(Boolean).join('. '), 1500);
+    const client = deps.mcp(link.url, typeof link.token === 'string' ? link.token : null);
+    return await videoRun(deps, who, videoLabel(p, 'المشهد ' + (req.scene + 1)), async () => {
+      let mediaId: string | null = null;
+      if (key) {
+        const up = await client.callTool('media_upload', { file_name: 'scene-' + (req.scene + 1) + '.' + img.split('.').pop(), content_type: key.mime, type: 'image' });
+        const putUrl = findKey(up, ['upload_url', 'uploadUrl', 'presigned_url', 'url']); const id = findKey(up, ['media_id', 'mediaId', 'id']);
+        if (typeof putUrl !== 'string' || !/^https:\/\//.test(putUrl) || typeof id !== 'string') throw new McpError('mcp_error', null, 'media_upload');
+        const r = await (deps.fetch ?? fetch)(putUrl, { method: 'PUT', headers: { 'Content-Type': key.mime }, body: key.bytes as BodyInit, signal: AbortSignal.timeout(60_000) });
+        if (!r.ok) throw new McpError('mcp_error', r.status, 'upload put');
+        await client.callTool('media_confirm', { media_id: id });
+        mediaId = id;
+      }
+      const gen = await client.callTool('generate_video', { params: { model: hfModel, prompt, aspect_ratio: String(p.size === '4:5' ? '9:16' : p.size ?? '9:16'), duration: seconds, ...(mediaId ? { medias: [{ value: mediaId, role: 'image' }] } : {}) } });
+      const jobId = findKey(gen, ['job_id', 'jobId', 'id']);
+      if (typeof jobId !== 'string') throw new McpError('mcp_error', null, 'generate_video');
+      const job = await newJob(deps, who, req, { kind: 'clip', scene: req.scene, creation_ref: null, data: { model: hfModel, provider: 'higgsfield', hf_job: jobId, duration: seconds, ratio: String(p.size ?? '9:16') } });
+      if (!job) throw new Error('db mkt_video_jobs');
+      return { job: jobView(job) };
+    });
   }
   let token: string; try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
   return await videoRun(deps, who, videoLabel(p, chained ? 'المشاهد' : 'المشهد ' + (req.scene + 1)), async () => {
@@ -1165,7 +1200,7 @@ async function videoVoice(deps: Deps, who: Who, args: Json) {
       const job = await newJob(deps, who, req, { kind: 'voice', creation_ref: kept.creation_ref, status: 'done', path: kept.path, bytes: kept.bytes, done_at: deps.now(), data: { voice: req.voice, chars: req.text.length, provider: 'elevenlabs' } });
       if (!job) throw new Error('db mkt_video_jobs');
       return { job: jobView(job) };
-    }, usd);
+    }, usd, cfg.usdCap);
   }
   const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
   let token: string; try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
@@ -1215,6 +1250,21 @@ async function bridgeUploadBytes(deps: Deps, token: string, bytes: Uint8Array, m
   const r = await (deps.fetch ?? fetch)(putUrl, { method: 'PUT', headers: { 'Content-Type': mime }, body: bytes as BodyInit, signal: AbortSignal.timeout(60_000) });
   if (!r.ok) throw new BridgeError('mcp_error', r.status, 'upload put');
   return firstId((await bridge.callTool(token, 'creations_finalize_upload', { path: tmp, fileName, folderReference: projectRef(deps.env), visible: false })) as Json, 'finalize_upload');
+}
+// the page's video model ids → Higgsfield's MCP model ids
+const HF_MODEL: Record<string, string> = { 'seedance-2.5': 'seedance_2_5', 'seedance-2.0': 'seedance_2_5', 'kling-2.5': 'kling3_0', 'minimax-h3': 'minimax_h3' };
+// a finished video from a provider's https link (no redirects, within the size limit) → bytes
+async function fetchMedia(deps: Deps, url: string): Promise<{ bytes: Uint8Array; mime: string } | null> {
+  let u: URL | null = null; try { u = new URL(url); } catch { u = null; }
+  if (!u || u.protocol !== 'https:' || u.username || u.password) return null;
+  try {
+    const r = await (deps.fetch ?? fetch)(u.href, { redirect: 'follow', signal: AbortSignal.timeout(180_000) });
+    if (!r.ok) return null;
+    const declared = Number(r.headers.get('content-length')); if (Number.isFinite(declared) && declared > MAX_VIDEO_BYTES) return null;
+    const bytes = new Uint8Array(await r.arrayBuffer()); if (!bytes.length || bytes.length > MAX_VIDEO_BYTES) return null;
+    const ct = (r.headers.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+    return { bytes, mime: ct.startsWith('video/') ? ct : 'video/mp4' };
+  } catch { return null; }
 }
 // a direct provider's result into bucket marketing, and onto Magnific too when the account is linked (so the assembly can use it)
 async function keepDirectMedia(deps: Deps, campaignId: string, piece: string, part: string, media: { bytes: Uint8Array; mime: string }, ext: string): Promise<{ path: string | null; bytes: number; creation_ref: string | null }> {
@@ -1285,6 +1335,30 @@ async function videoPoll(deps: Deps, who: Who, args: Json) {
       if (e instanceof ProviderError && e.kind !== 'busy') await deps.db.from('mkt_video_jobs').update({ status: 'failed', error: e.kind, updated_at: deps.now() }).eq('id', j.id);
     }
   }
+  // the Higgsfield clips: jobs_wait (a snapshot) → a terminal job's url downloaded, kept here and put onto Magnific for the assembly
+  const hf = openJobs(jobs).filter((x) => isObj(x.data) && typeof x.data.hf_job === 'string').slice(0, 8);
+  if (hf.length && deps.mcp) {
+    const link = await secretOf(deps.db, 'mcp_higgsfield') as Json | null;
+    if (link && typeof link.url === 'string') {
+      try {
+        const client = deps.mcp(link.url, typeof link.token === 'string' ? link.token : null);
+        const out = await client.callTool('jobs_wait', { jobs: hf.map((j, i) => ({ index: i, job_id: j.data.hf_job })), timeout_seconds: 0 });
+        const items: Json[] = (Array.isArray(out) ? out : Array.isArray((out as Json)?.jobs) ? (out as Json).jobs : Array.isArray((out as Json)?.results) ? (out as Json).results : []).filter(isObj);
+        for (const j of hf) {
+          const it = items.find((x) => x.job_id === j.data.hf_job || x.jobId === j.data.hf_job || x.id === j.data.hf_job) ?? items[hf.indexOf(j)];
+          if (!it) continue;
+          const st = String(findKey(it, ['status', 'state']) ?? '').toLowerCase();
+          if (!/^(completed|succeeded|success|done|finished|failed|error|cancelled|canceled)$/.test(st)) continue;
+          const url = findKey(it, ['result_url', 'video_url', 'url', 'output_url']);
+          if (/fail|error|cancel/.test(st) || typeof url !== 'string' || !/^https:\/\//.test(url)) { await deps.db.from('mkt_video_jobs').update({ status: 'failed', error: /fail|error|cancel/.test(st) ? st : 'no video', updated_at: deps.now() }).eq('id', j.id); continue; }
+          const media = await fetchMedia(deps, url);
+          if (!media) { await deps.db.from('mkt_video_jobs').update({ status: 'failed', error: 'download', updated_at: deps.now() }).eq('id', j.id); continue; }
+          const kept = await keepDirectMedia(deps, req.campaignId, req.piece, partOf(j), media, 'mp4');
+          await deps.db.from('mkt_video_jobs').update({ status: 'done', creation_ref: kept.creation_ref, path: kept.path, bytes: kept.bytes, done_at: deps.now(), updated_at: deps.now() }).eq('id', j.id);
+        }
+      } catch (e) { if (!(e instanceof McpError)) throw e; /* the next poll asks again */ }
+    }
+  }
   jobs = await videoJobs(deps, req.campaignId, req.piece);
   const open = openJobs(jobs).filter((j) => typeof j.creation_ref === 'string').slice(0, 8);
   if (open.length) {
@@ -1336,6 +1410,7 @@ async function realDeps(): Promise<Deps> {
     provider: magnific(env),
     providers: { openai: openaiImage(env), gemini: geminiImage(env) },
     tts: (r) => elevenTts(env, r),
+    mcp: (url, token) => mcpClient(url, token, globalThis.fetch),
     veo: { start: (r) => veoStart(env, r), poll: (op) => veoPoll(env, op), download: (uri) => veoDownload(env, uri) },
     bridge: magnificMcp(env),
   };

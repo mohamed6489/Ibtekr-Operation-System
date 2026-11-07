@@ -137,10 +137,38 @@ Deno.test('decision 8: the settings row «ai» (model, effort, monthly cap) wins
   assertEquals([back.asked[0].model, back.asked[0].output_config.effort], ['claude-opus-5-5', 'low']);
 });
 
+// phase 11 (decisions 14 / 15): the tool's text provider from the settings row «ai» → deps.text answers instead of Claude, the
+// run row holds that model and its price; the house style of «ai_rules» is one more system block; a missing key names the provider
+Deno.test('providers: openai for the products tool → deps.text called with the Claude-shaped request + the house style block, the row priced on gpt-5.2; marketing stays on Claude; gemini for the buyer; no OPENAI_API_KEY → 503 with the provider', async () => {
+  const seed = { settings: [
+    { section: 'ai', data: { model: 'claude-sonnet-5-5', providers: { text: { default: 'claude', tools: { products: 'openai', buyer: 'gemini' } } } } },
+    { section: 'ai_rules', data: { voice: 'بنتكلم مع الناس كأننا صحابهم', words: ['الأرخص'] } }] };
+  const { deps, asked, db } = setup({ seed, replies: [msg(ANSWER, { model: 'claude-sonnet-5-5' })], env: { OPENAI_API_KEY: 'sk-x', GEMINI_API_KEY: 'g-x' } });
+  const texts: any[] = [];
+  (deps as any).text = async (provider: string, p: any) => { texts.push({ provider, model: p.model, system: p.system.map((b: any) => b.text), effort: p.output_config.effort }); return { ...msg(ANSWER), model: provider === 'openai' ? 'gpt-5.2' : 'gemini-3-pro' }; };
+  const { res, body } = await call(deps, WRITE);
+  assertEquals(res.status, 200, JSON.stringify(body));
+  assertEquals(texts.length, 1); assertEquals([texts[0].provider, texts[0].model], ['openai', 'gpt-5.2']);
+  assert(texts[0].system[texts[0].system.length - 1].startsWith('House style set by the team'), 'the style block is the last system block');
+  assert(texts[0].system[texts[0].system.length - 1].includes('الأرخص'));
+  assertEquals(asked.length, 0, 'Claude not called');
+  assertEquals([body.model, body.cost_usd], ['gpt-5.2', 0.02375]); // 3000 × 1.25 + 2000 × 10 per million
+  assertEquals(db.rows('ai_runs')[0].model, 'gpt-5.2');
+  // marketing (no tool override) → Claude with the row's model and the style block too
+  const m = await call(deps, { action: 'marketing', task: 'rewrite', kind: 'caption', text: 'نص' }, 'jwt-mkt');
+  assertEquals(m.res.status, 200, JSON.stringify(m.body)); assertEquals(asked.length, 1); assertEquals(asked[0].model, 'claude-sonnet-5-5');
+  assert(asked[0].system[asked[0].system.length - 1].text.startsWith('House style'));
+  // no key for the picked provider → 503 naming it, a row says so
+  const noKey = setup({ seed, env: { GEMINI_API_KEY: 'g-x' } }); (noKey.deps as any).text = async () => { throw new Error('must not be called'); };
+  const nk = await call(noKey.deps, WRITE);
+  assertEquals([nk.res.status, nk.body], [503, { error: 'not_configured', provider: 'openai' }]);
+  assertEquals(noKey.db.rows('ai_runs').map((r: any) => [r.status, r.error]), [['error', 'not_configured']]);
+});
+
 Deno.test('write: no ANTHROPIC_API_KEY → 503 not_configured, no call, a row says so', async () => {
   const { deps, asked, db } = setup({ env: { ANTHROPIC_API_KEY: ' ' } });
   const { res, body } = await call(deps, WRITE);
-  assertEquals([res.status, body], [503, { error: 'not_configured' }]);
+  assertEquals([res.status, body], [503, { error: 'not_configured', provider: 'claude' }]);
   assertEquals(asked.length, 0);
   assertEquals(db.rows('ai_runs').map((r: any) => [r.status, r.error, Number(r.cost_usd)]), [['error', 'not_configured', 0]]);
 });

@@ -25,6 +25,11 @@ test('parseSecret merges over the stored link: given replaces, empty removes, om
   assert.deepEqual(parseSecret('woo', { url: 'https://evil.example' }, woo), { error: 'missing', field: 'ck' });
   assert.equal(parseSecret('woo', { url: 'https://ibtekr.club' }, woo).link.ck, woo.ck, 'the same host keeps them');
   assert.equal(parseSecret('woo', { push: true }, woo).link.cs, woo.cs, 'no url in the save keeps them');
+  assert.deepEqual(parseSecret('woo', { url: ['https://ibtekr.club'] }, woo), { error: 'invalid', field: 'url' }, 'no array coerced into a url');
+  assert.deepEqual(parseSecret('woo', { url: { toString: () => 'https://ibtekr.club' } }, woo), { error: 'invalid', field: 'url' });
+  assert.deepEqual(parseSecret('woo', { url: 'https://ibtekr.club/shop/' }, woo).link.ck, woo.ck, 'the same origin with a path keeps them');
+  assert.deepEqual(parseSecret('woo', { url: '' }, woo), { error: 'missing', field: 'url' }, 'an emptied url drops the secrets too');
+  assert.deepEqual(parseSecret('openai', { key: 123 }, null), { error: 'invalid', field: 'key' });
   assert.deepEqual(parseSecret('custom_x', { name: 'Runway', conn: 'API', key: 'rk_12345678' }, null).link, { name: 'Runway', conn: 'API', key: 'rk_12345678' });
   assert.deepEqual(parseSecret('custom_x', { name: 'Runway', conn: 'FTP' }, null), { error: 'invalid', field: 'conn' });
 });

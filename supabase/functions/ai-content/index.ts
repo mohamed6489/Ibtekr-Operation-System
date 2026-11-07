@@ -32,6 +32,8 @@ import { vaultEnv } from '../_shared/secrets.js';
 import { buyerRequest, campaignTarget, cleanBuyer, cleanMarketing, marketingRequest, parseBuyer, parseMarketing } from '../_shared/marketing.js';
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
+import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
+import { completeText } from './providers/text.ts';
 import { cairoParts } from '../_shared/mkt-publish.js';
 
 // deno-lint-ignore no-explicit-any
@@ -42,6 +44,7 @@ export type Deps = {
   env: Record<string, string | undefined>; db: Db; now: () => string;
   userDb?: (jwt: string) => Db; userId?: (jwt: string) => Promise<string | null>;
   claude: (params: Json) => Promise<Json>; sleep?: (ms: number) => Promise<void>;
+  text?: (provider: string, params: Json) => Promise<Json>; // phase 11: OpenAI / Gemini (the Claude dep stays the Claude path)
 };
 
 const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer'];
@@ -57,11 +60,18 @@ const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
 const isObj = (v: unknown): v is Json => v !== null && typeof v === 'object' && !Array.isArray(v);
 const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
-type Cfg = { model: string; effort: string; cap: number | null };
-// the settings row «ai» over the secrets (decision 8); a row that cannot be read = the secrets alone
-async function configOf(deps: Deps): Promise<Cfg> {
-  const { data, error } = await deps.db.from('settings').select('data').eq('section', 'ai').maybeSingle();
-  return aiSettings(!error && isObj(data) && isObj(data.data) ? data.data : null, deps.env);
+type Cfg = { model: string; effort: string; cap: number | null; provider: string; style: string };
+// the settings row «ai» over the secrets (decision 8); a row that cannot be read = the secrets alone. Phase 11 (decisions 14 / 15):
+// the provider and model of the action's tool from the row's `providers`, and the house style of the row «ai_rules» as one more
+// system block (the products section, or the marketing «post» section for the marketing calls).
+async function configOf(deps: Deps, action = 'write'): Promise<Cfg> {
+  const { data, error } = await deps.db.from('settings').select('section, data').in('section', ['ai', 'ai_rules']);
+  const rows: Json[] = !error && Array.isArray(data) ? data : [];
+  const ai = rows.find((r) => r.section === 'ai')?.data; const rules = rows.find((r) => r.section === 'ai_rules')?.data;
+  const base = aiSettings(isObj(ai) ? ai : null, deps.env);
+  const pick = textPick(isObj(ai) ? ai : null, (TEXT_TOOL_OF as Record<string, string>)[action] ?? 'products');
+  const style = action === 'buyer' || action === 'prompts' ? '' : houseStyle(isObj(rules) ? rules : null, action === 'marketing' || action === 'scenes' ? 'post' : 'products');
+  return { ...base, provider: pick.provider, model: pick.provider === 'claude' ? base.model : pick.model, style };
 }
 const modelId = (v: unknown) => (typeof v === 'string' ? v.toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 60) : '') || null;
 
@@ -87,11 +97,12 @@ type Asked = { msg: Json } | { error: 'busy' | 'not_configured' | 'ai_error'; st
 const urlImage = (p: Json) => (p.messages?.[0]?.content ?? []).some((b: Json) => b?.type === 'image' && b.source?.type === 'url');
 const withoutUrlImage = (p: Json) => ({ ...p, messages: [{ ...p.messages[0], content: p.messages[0].content.filter((b: Json) => !(b?.type === 'image' && b.source?.type === 'url')) }] });
 
-async function ask(deps: Deps, params: Json): Promise<Asked> {
+async function ask(deps: Deps, params: Json, provider = 'claude'): Promise<Asked> {
   const started = Date.now();
   let p = params; let retried = false; let dropped = false;
   for (;;) {
     try {
+      if (provider !== 'claude') { if (!deps.text) return { error: 'not_configured', status: null }; return { msg: await deps.text(provider, p) }; }
       return { msg: await deps.claude(p) };
     } catch (e) {
       const status = typeof (e as Json)?.status === 'number' ? (e as Json).status as number : null;
@@ -126,12 +137,15 @@ async function finishRun(deps: Deps, id: number, row: Json) {
 // The common path of the actions: the reservation, the key, the call, the answer, the row; `save` (the prompts) writes the
 // cleaned answer where it lives and may refuse (false → 500 failed; the run row keeps the answer and its cost).
 async function runAi(deps: Deps, base: Json, cfg: Cfg, params: Json, clean: (answer: Json) => Json, save?: (out: Json) => Promise<boolean>): Promise<Response> {
-  const run = await startRun(deps, { ...base, model: cfg.model }, cfg.cap);
+  const run = await startRun(deps, { ...base, model: cfg.model }, cfg.cap); // the model id names the provider
   if (run.result === 'busy') return json(429, { error: 'busy' });
   if (run.result === 'cap') return json(402, { error: 'ai_cap' });
   if (run.result !== 'ok') return json(502, { error: 'ai_error' });
-  if (!deps.env.ANTHROPIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return json(503, { error: 'not_configured' }); }
-  const asked = await ask(deps, params);
+  const envKey = TEXT_PROVIDERS[cfg.provider as keyof typeof TEXT_PROVIDERS]?.env ?? 'ANTHROPIC_API_KEY';
+  if (!deps.env[envKey]?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return json(503, { error: 'not_configured', provider: cfg.provider }); }
+  if (cfg.style) params = { ...params, model: cfg.model, system: [...(Array.isArray(params.system) ? params.system : []), { type: 'text', text: cfg.style }] };
+  else if (params.model !== cfg.model) params = { ...params, model: cfg.model };
+  const asked = await ask(deps, params, cfg.provider);
   if ('error' in asked) {
     await finishRun(deps, run.id, { status: 'error', error: asked.error, cost_usd: asked.status === null ? RESERVE_USD : 0 });
     return json(asked.error === 'not_configured' ? 503 : asked.error === 'busy' ? 429 : 502, { error: asked.error });
@@ -181,7 +195,7 @@ async function write(deps: Deps, uid: string, args: Json) {
   const product = req.source === 'product' ? await readProduct(deps.db, req.productId) : null;
   if (req.source === 'product' && !product) return json(404, { error: 'not_found' });
   const label = line(product?.name || req.data.name || req.current.nameEn || req.current.nameAr || (req.source === 'image' ? 'صورة' : ''), 200) || null;
-  const cfg = await configOf(deps);
+  const cfg = await configOf(deps, 'write');
   const base = { created_by: uid, action: 'write', source: req.source, label, product_id: req.productId };
   return await runAi(deps, base, cfg, writeRequest(req, { model: cfg.model, effort: cfg.effort, product }),
     (answer) => cleanWrite(answer, req.outputs, req.langs));
@@ -221,7 +235,7 @@ async function studio(deps: Deps, uid: string, args: Json) {
   const cats = (await deps.db.from('woo_categories').select('id, name, parent_id').range(0, 4999)).data ?? [];
   const colors = (await deps.db.from('sku_colors').select('code, name_en, name_ar').range(0, 999)).data ?? [];
   const image = await itemPhoto(deps.db, batchId, item);
-  const cfg = await configOf(deps);
+  const cfg = await configOf(deps, 'studio');
   const label = line(item.nameEn || item.nameAr || '', 200) || '#' + (index + 1);
   const base = { created_by: uid, action: 'studio', source: 'studio', label, batch_id: batchId, item_index: index };
   const sets = { categoryIds: new Set(cats.map((c: Json) => Number(c.id))), colorCodes: new Set(colors.map((c: Json) => c.code)) };
@@ -240,7 +254,7 @@ async function prompts(deps: Deps, uid: string, args: Json) {
   const { category } = parsed.req;
   const { data: rows } = await deps.db.from('shot_prompts').select('shot, source_node').eq('category', category);
   if ((Array.isArray(rows) ? rows : []).some((r: Json) => typeof r.source_node === 'string' && r.source_node)) return json(409, { error: 'exists', category });
-  const cfg = await configOf(deps);
+  const cfg = await configOf(deps, 'prompts');
   const base = { created_by: uid, action: 'studio', source: 'studio', label: category };
   return await runAi(deps, base, cfg, promptsRequest(category, { model: cfg.model, effort: cfg.effort }), (answer) => cleanPrompts(answer), async (out) => {
     const list = Array.isArray(out.prompts) ? out.prompts : [];
@@ -267,14 +281,14 @@ async function marketing(deps: Deps, uid: string, args: Json) {
       if (!p) return json(400, { error: 'bad_request', field: 'piece' });
       const w = isObj(st.w) ? st.w : {}; const media = isObj(w.media) && isObj(w.media.video) ? w.media.video : {};
       const n = Number.isInteger(p.sceneCount) ? p.sceneCount : 3; const dur = Number(p.dur) || Number(media.dur) || 15; const model = typeof p.model === 'string' ? p.model : 'seedance-2.5';
-      const cfg = await configOf(deps);
+      const cfg = await configOf(deps, 'scenes');
       const base = { created_by: uid, action: 'marketing', source: 'campaign', label: line('فيديو ' + (p.n ?? '') + ' · المشاهد', 200) };
       return await runAi(deps, base, cfg, scenesRequest({ model: cfg.model, effort: cfg.effort, w, piece: p, n, dur, notes: media.notes, voice: req.voice }), (answer) => cleanScenes(answer, { n, dur, model }));
     }
     if (req.piece) { target = campaignTarget(c.state, req.piece, req.slide); if (!target) return json(400, { error: 'bad_request', field: 'piece' }); }
     else target = campaignTarget({ ...(isObj(c.state) ? c.state : {}), pieces: [{ id: 'P0', kind: 'بوست', n: 0 }] }, 'P0', null);
   }
-  const cfg = await configOf(deps);
+  const cfg = await configOf(deps, 'marketing');
   const base = { created_by: uid, action: 'marketing', source: req.task === 'describe' ? 'template' : req.campaignId ? 'campaign' : 'post', label: line(target && req.piece ? target.label : req.task, 200) };
   return await runAi(deps, base, cfg, marketingRequest(req, { model: cfg.model, effort: cfg.effort, target }), (answer) => cleanMarketing(answer, req, target));
 }
@@ -303,7 +317,7 @@ async function buyer(deps: Deps, uid: string, args: Json) {
   }
   const campaigns = Object.values(camps).filter((c) => c.spend > 0 || c.orders > 0 || c.status === 'ACTIVE').sort((a, b) => b.spend - a.spend);
   const rules = buyerRules(isObj(set) && isObj(set.data) ? set.data.buyer : null);
-  const cfg = await configOf(deps);
+  const cfg = await configOf(deps, 'buyer');
   const base = { created_by: uid, action: 'marketing', source: 'buyer', label: line(parsed.req.question, 200) };
   return await runAi(deps, base, cfg, buyerRequest(parsed.req, { model: cfg.model, effort: cfg.effort, data: { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [] } }), cleanBuyer);
 }
@@ -342,6 +356,7 @@ async function realDeps(): Promise<Deps> {
     env, db: service, now: () => new Date().toISOString(),
     userDb: (jwt) => createClient(env.SUPABASE_URL ?? '', env.SUPABASE_ANON_KEY ?? '', { ...NO_SESSION, global: { headers: { Authorization: `Bearer ${jwt}` } } }),
     userId: async (jwt) => { const { data, error } = await service.auth.getUser(jwt); return error ? null : data?.user?.id ?? null; },
+    text: (provider, params) => completeText(provider, env, params, globalThis.fetch),
     claude: async (params) => {
       const key = (env.ANTHROPIC_API_KEY ?? '').trim();
       if (!anthropic || anthropicKey !== key) { anthropic = new Anthropic({ apiKey: key, timeout: 120_000, maxRetries: 0 }); anthropicKey = key; }

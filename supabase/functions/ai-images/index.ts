@@ -58,6 +58,12 @@ import {
   renameInState, studioGenPath, studioPathOk, toolPath, usdOf,
 } from '../_shared/ai-images.js';
 import { magnific, ProviderError, shape, type Provider, type Ref } from './providers/magnific.ts';
+import { openaiImage } from './providers/openai-image.ts';
+import { geminiImage } from './providers/gemini-image.ts';
+import { IMAGE_PROVIDERS, IMAGE_USD, VEO_USD_PER_SECOND, VOICE_USD_PER_1K, imagePick, imageStyle, providersOf, videoPick, voicePick } from '../_shared/ai-providers.js';
+import { elevenTts } from './providers/elevenlabs.ts';
+import { veoAspect, veoDownload, veoPoll, veoSeconds, veoStart } from './providers/veo.ts';
+import { aiSettings } from '../_shared/ai-content.js';
 import { vaultEnv } from '../_shared/secrets.js';
 import { BridgeError, magnificMcp, randomText, type Bridge, type Tokens } from './providers/magnific-mcp.ts';
 import { REF, creationsOf, familyOf, flowNodes, importShape, lastPageOf, lineageIds, listIdsOf, matchResults, nodeDataOf, nodesOf, templatePrompts, uploadedId, urlsById } from '../_shared/magnific-bridge.js';
@@ -73,6 +79,9 @@ export type Deps = {
   userDb?: (jwt: string) => Db; userId?: (jwt: string) => Promise<string | null>;
   provider: Provider; fetch?: typeof fetch;
   bridge?: Bridge; // decision 11: the Magnific site's MCP (OAuth + tools) — the system's own client
+  providers?: Record<string, Provider>; // phase 11: the direct image providers (openai / gemini) beside Magnific
+  tts?: (req: { text: string; voiceId: string | null; model: string | null }) => Promise<{ bytes: Uint8Array; mime: string }>; // phase 11: ElevenLabs direct
+  veo?: { start: (req: { model: string; prompt: string; image: { bytes: Uint8Array; mime: string } | null; aspect: string; seconds: number }) => Promise<string>; poll: (op: string) => Promise<{ done: boolean; uri?: string; error?: string }>; download: (uri: string) => Promise<{ bytes: Uint8Array; mime: string }> }; // phase 11: Veo direct
 };
 
 const ACTIONS = ['generate', 'edit', 'create', 'probe', 'webp', 'import', 'share', 'bridge_status', 'bridge_link', 'bridge_callback', 'bridge_unlink', 'bridge_upload', 'bridge_fetch', 'bridge_prompts_sync', 'bridge_flow', 'campaign', 'campaign_edit',
@@ -109,10 +118,24 @@ async function whoIs(req: Request, deps: Deps): Promise<Who | null> {
 
 // ---------------------------------------------------------------- settings, the cap, the run
 
-async function settingsOf(deps: Deps) {
-  const { data, error } = await deps.db.from('settings').select('data').eq('section', 'ai').maybeSingle();
-  return imageSettings(!error && isObj(data) && isObj(data.data) ? data.data : null, deps.env);
+// the settings row «ai» (the image model and the credit cap of 5.4; the providers of phase 11) and «ai_rules» (the image style)
+type ImgCfg = { model: string; monthlyCredits: number | null; ai: Json | null; rules: Json | null; usdCap: number | null };
+async function settingsOf(deps: Deps): Promise<ImgCfg> {
+  const { data, error } = await deps.db.from('settings').select('section, data').in('section', ['ai', 'ai_rules']);
+  const rows: Json[] = !error && Array.isArray(data) ? data : [];
+  const ai = rows.find((r) => r.section === 'ai')?.data; const rules = rows.find((r) => r.section === 'ai_rules')?.data;
+  const aiRow = isObj(ai) ? ai : null;
+  return { ...imageSettings(aiRow, deps.env), ai: aiRow, rules: isObj(rules) ? rules : null, usdCap: aiSettings(aiRow, deps.env).cap };
 }
+// a direct provider's run (USD on the content cap, 0025's ai_run_start): the same locked reservation as ai-content
+async function startRunUsd(deps: Deps, row: Json, usd: number, cap: number | null) {
+  const { data, error } = await deps.db.rpc('ai_run_start', { p_row: row, p_cap: cap, p_reserve: usd, p_throttle: THROTTLE, p_window_minutes: THROTTLE_MINUTES });
+  if (error || !isObj(data)) return { result: 'error' as const };
+  const id = Number(data.id);
+  if (data.result === 'ok' && Number.isInteger(id)) return { result: 'ok' as const, id };
+  return { result: data.result === 'busy' ? 'busy' as const : data.result === 'cap' ? 'cap' as const : 'error' as const };
+}
+const styleOf = (rules: Json | null, section: string) => { const t = imageStyle(rules, section); return t ? ' ' + t : ''; };
 // the reservation (0025 ai_image_run_start): the throttle, the credit cap and the pending row in one locked step — the cap is never
 // checked here and reserved there, so two parallel calls cannot both pass it
 async function startRun(deps: Deps, row: Json, credits: number, capCredits: number | null) {
@@ -129,33 +152,44 @@ async function finishRun(deps: Deps, id: number, row: Json) {
 
 type Stored = { bucket: string; path: string }[];
 // The common path of the three actions: the cap, the reservation, the key, the provider, the files, the row.
-async function runImages(deps: Deps, base: Json, model: string, count: number, work: () => Promise<{ images: { bytes: Uint8Array; mime: string }[]; credits: number | null }>, store: (img: { bytes: Uint8Array; mime: string }, n: number) => Promise<{ bucket: string; path: string } | null>): Promise<Response> {
-  const planned = creditsFor(model, count);
+type Work = (prov: Provider, model: string, style: string) => Promise<{ images: { bytes: Uint8Array; mime: string }[]; credits: number | null }>;
+// The common path of the image actions: the cap, the reservation, the key, the provider, the files, the row. Phase 11 (decision 15):
+// the tool's provider from the settings — Magnific as before (credits), or a direct provider (openai / gemini) whose cost is USD on the
+// content cap; the image style of the settings (decision 14) is handed to the caller's prompt.
+async function runImages(deps: Deps, base: Json, model: string, count: number, work: Work, store: (img: { bytes: Uint8Array; mime: string }, n: number) => Promise<{ bucket: string; path: string } | null>, tool = 'studio', section = 'products'): Promise<Response> {
   const cfg = await settingsOf(deps);
-  // the planned credits are held on the pending row (the cap counts them while the call runs)
-  const run = await startRun(deps, { ...base, model }, planned, cfg.monthlyCredits);
+  const pick = imagePick(cfg.ai, tool);
+  const direct = pick.provider !== 'magnific';
+  const prov = direct ? deps.providers?.[pick.provider] : deps.provider;
+  if (direct) model = pick.model;
+  const style = styleOf(cfg.rules, section);
+  const planned = direct ? 0 : creditsFor(model, count);
+  const usd = direct ? Math.round(((IMAGE_USD as Record<string, number>)[model] ?? 0.2) * Math.max(1, count) * 1e6) / 1e6 : 0;
+  // the planned credits (or USD) are held on the pending row (the cap counts them while the call runs)
+  const run = direct ? await startRunUsd(deps, { ...base, model }, usd, cfg.usdCap) : await startRun(deps, { ...base, model }, planned, cfg.monthlyCredits);
   if (run.result === 'cap') return json(402, { error: 'ai_cap' });
   if (run.result === 'busy') return json(429, { error: 'busy' });
   if (run.result !== 'ok') return json(502, { error: 'ai_error' });
   // the two faces of not_configured, told apart for the admin: the secret is not set (configured false) / the provider refused the key (status)
-  if (!deps.env.MAGNIFIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', credits: 0, cost_usd: 0, output: { configured: false } }); return json(503, { error: 'not_configured', configured: false }); }
+  const envKey = (IMAGE_PROVIDERS as Record<string, { env: string }>)[pick.provider]?.env ?? 'MAGNIFIC_API_KEY';
+  if (!prov || !deps.env[envKey]?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', credits: 0, cost_usd: 0, output: { configured: false, provider: pick.provider } }); return json(503, { error: 'not_configured', configured: false, provider: pick.provider }); }
   let out: { images: { bytes: Uint8Array; mime: string }[]; credits: number | null };
-  try { out = await work(); } catch (e) {
+  try { out = await work(prov, model, style); } catch (e) {
     const kind = e instanceof ProviderError ? e.kind : 'ai_error';
     // a lost answer (busy after a timeout) keeps its planned credits; a refusal or a clear error costs nothing here
-    const credits = kind === 'busy' ? planned : 0;
+    const credits = kind === 'busy' ? planned : 0; const cost = kind === 'busy' && direct ? usd : usdOf(credits);
     const status = e instanceof ProviderError ? e.status : null;
     const detail = e instanceof ProviderError ? e.detail : e instanceof Error ? line(e.name + ': ' + e.message, 200) : null;
-    await finishRun(deps, run.id, { status: kind === 'refused' ? 'refused' : 'error', error: kind, credits, cost_usd: usdOf(credits), output: { configured: true, status, detail } });
-    if (kind === 'refused') return json(200, { result: 'refused', model, credits: 0, run_id: run.id });
-    return json(kind === 'not_configured' ? 503 : kind === 'busy' ? 429 : 502, { error: kind, configured: true, status });
+    await finishRun(deps, run.id, { status: kind === 'refused' ? 'refused' : 'error', error: kind, credits, cost_usd: cost, output: { configured: true, status, detail, provider: pick.provider } });
+    if (kind === 'refused') return json(200, { result: 'refused', model, credits: 0, run_id: run.id, provider: pick.provider });
+    return json(kind === 'not_configured' ? 503 : kind === 'busy' ? 429 : 502, { error: kind, configured: true, status, provider: pick.provider });
   }
   const stored: Stored = [];
   for (let n = 0; n < out.images.length && n < count; n++) { const s = await store(out.images[n], n + 1); if (s) stored.push(s); }
-  const credits = out.credits ?? planned;
-  if (!stored.length) { await finishRun(deps, run.id, { status: 'error', error: 'ai_error', credits, cost_usd: usdOf(credits) }); return json(502, { error: 'ai_error' }); }
-  await finishRun(deps, run.id, { status: 'ok', credits, cost_usd: usdOf(credits), output: { paths: stored.map((s) => s.path), bucket: stored[0].bucket } });
-  return json(200, { result: 'ok', bucket: stored[0].bucket, path: stored[0].path, paths: stored.map((s) => s.path), credits, model, run_id: run.id });
+  const credits = direct ? 0 : (out.credits ?? planned); const cost = direct ? usd : usdOf(credits);
+  if (!stored.length) { await finishRun(deps, run.id, { status: 'error', error: 'ai_error', credits, cost_usd: cost }); return json(502, { error: 'ai_error', provider: pick.provider }); }
+  await finishRun(deps, run.id, { status: 'ok', credits, cost_usd: cost, output: { paths: stored.map((s) => s.path), bucket: stored[0].bucket, provider: pick.provider } });
+  return json(200, { result: 'ok', bucket: stored[0].bucket, path: stored[0].path, paths: stored.map((s) => s.path), credits, cost_usd: cost, model, provider: pick.provider, run_id: run.id });
 }
 
 // ---------------------------------------------------------------- files
@@ -245,8 +279,8 @@ async function generate(deps: Deps, who: Who, args: Json) {
   const base = { created_by: who.uid, action: 'image', source: 'studio', label, batch_id: batchId, item_index: index };
   const st = stamp(deps);
   return await runImages(deps, base, model, 1,
-    () => deps.provider.generate({ model, prompt, width: size.w, height: size.h, count: 1, references: refs }),
-    (img) => upload(deps.db, STUDIO_BUCKET, studioGenPath(batchId, index, slot, st, extOf(img.mime)), img));
+    (prov, m, style) => prov.generate({ model: m, prompt: prompt + style, width: size.w, height: size.h, count: 1, references: refs }),
+    (img) => upload(deps.db, STUDIO_BUCKET, studioGenPath(batchId, index, slot, st, extOf(img.mime)), img), 'studio', 'products');
 }
 
 // ---------------------------------------------------------------- edit (a studio image or a product's image)
@@ -282,7 +316,7 @@ async function edit(deps: Deps, who: Who, args: Json) {
   if (!image) return json(404, { error: 'not_found' });
   const ref = image;
   return await runImages(deps, base, model, 1,
-    () => deps.provider.edit({ model, op, prompt: editPrompt(op, prompt, options), image: ref, imageUrl, options }),
+    (prov, m) => prov.edit({ model: m, op, prompt: editPrompt(op, prompt, options), image: ref, imageUrl, options }),
     (img, n) => where(img, n));
 }
 
@@ -311,8 +345,8 @@ async function create(deps: Deps, who: Who, args: Json) {
   const label = line((subject || prompt) + (shape === 'size' ? ' — المقاس' : ''), 200) || 'صورة';
   const base = { created_by: who.uid, action: 'image', source: 'tool', label, product_id: productId };
   return await runImages(deps, base, model, count,
-    () => deps.provider.generate({ model, prompt: full, width: size.w, height: size.h, count, references: refs }),
-    (img, n) => upload(deps.db, TOOL_BUCKET, toolPath(who.uid, st, n, extOf(img.mime)), img));
+    (prov, m, style) => prov.generate({ model: m, prompt: full + style, width: size.w, height: size.h, count, references: refs }),
+    (img, n) => upload(deps.db, TOOL_BUCKET, toolPath(who.uid, st, n, extOf(img.mime)), img), 'tool', 'products');
 }
 
 // ---------------------------------------------------------------- campaign / campaign_edit (phase 9.5.1, decisions 8–9)
@@ -362,8 +396,8 @@ async function campaign(deps: Deps, who: Who, args: Json) {
   const base = { created_by: who.uid, action: 'image', source: 'campaign', label: t.label };
   const st = stamp(deps);
   return await runImages(deps, base, req.model, 1,
-    () => deps.provider.generate({ model: req.model, prompt, width: size.w, height: size.h, count: 1, references: inp.refs }),
-    (img) => upload(deps.db, MKT_BUCKET, campaignGenPath(req.campaignId, req.piece, req.slide, st, extOf(img.mime), false), img));
+    (prov, m, style) => prov.generate({ model: m, prompt: prompt + style, width: size.w, height: size.h, count: 1, references: inp.refs }),
+    (img) => upload(deps.db, MKT_BUCKET, campaignGenPath(req.campaignId, req.piece, req.slide, st, extOf(img.mime), false), img), 'campaign', 'post');
 }
 async function campaignEdit(deps: Deps, who: Who, args: Json) {
   if (!who.mkt) return json(401, { error: 'unauthorized' });
@@ -379,8 +413,8 @@ async function campaignEdit(deps: Deps, who: Who, args: Json) {
   const base = { created_by: who.uid, action: 'image', source: 'campaign', label: line(t.label + ' · تعديل', 200) };
   const st = stamp(deps);
   return await runImages(deps, base, req.model, 1,
-    () => deps.provider.edit({ model: req.model, op: 'instruction', prompt, image, imageUrl: null, options: {} }),
-    (img) => upload(deps.db, MKT_BUCKET, campaignGenPath(req.campaignId, req.piece, req.slide, st, extOf(img.mime), true), img));
+    (prov, m) => prov.edit({ model: m, op: 'instruction', prompt, image, imageUrl: null, options: {} }),
+    (img) => upload(deps.db, MKT_BUCKET, campaignGenPath(req.campaignId, req.piece, req.slide, st, extOf(img.mime), true), img), 'campaign', 'post');
 }
 
 // ---------------------------------------------------------------- webp (the browser's re-encoding of a result)
@@ -1054,16 +1088,17 @@ async function newJob(deps: Deps, who: Who, req: Json, row: Json): Promise<Json 
   return error || !isObj(data) ? null : data;
 }
 // a run row a generation call (decision 64): the throttle applies, no credits
-async function videoRun(deps: Deps, who: Who, label: string, work: () => Promise<Json>): Promise<Response> {
+async function videoRun(deps: Deps, who: Who, label: string, work: () => Promise<Json>, usd = 0): Promise<Response> {
   const run = await startRun(deps, { created_by: who.uid, action: 'image', source: 'video', label }, 0, null);
   if (run.result === 'busy') return json(429, { error: 'busy' });
   if (run.result !== 'ok') return json(502, { error: 'ai_error' });
   try {
     const out = await work();
-    await finishRun(deps, run.id, { status: 'ok', credits: 0, cost_usd: 0, output: out });
+    await finishRun(deps, run.id, { status: 'ok', credits: 0, cost_usd: usd, output: out });
     return json(200, { result: 'ok', ...out });
   } catch (e) {
     if (e instanceof BridgeError) { await finishRun(deps, run.id, { status: 'error', error: e.kind, credits: 0, cost_usd: 0 }); return bridgeFail(e); }
+    if (e instanceof ProviderError) { await finishRun(deps, run.id, { status: 'error', error: e.kind, credits: 0, cost_usd: 0, output: { status: e.status, detail: e.detail } }); return json(e.kind === 'not_configured' ? 503 : e.kind === 'busy' ? 429 : e.kind === 'refused' ? 200 : 502, e.kind === 'refused' ? { result: 'refused' } : { error: e.kind, status: e.status }); }
     await finishRun(deps, run.id, { status: 'error', error: 'failed', credits: 0, cost_usd: 0 }); throw e;
   }
 }
@@ -1086,6 +1121,21 @@ async function videoClip(deps: Deps, who: Who, args: Json) {
   const media = isObj(w.media) && isObj(w.media.video) ? w.media.video : {};
   const frame = chained ? scenes[0] : scenes[req.scene]; const img = typeof frame.img === 'string' ? frame.img : null;
   if (!img) return json(400, { error: 'bad_request', field: 'image' });
+  const cfg = await settingsOf(deps); const vd = videoPick(cfg.ai);
+  if (vd.provider === 'veo') { // phase 11 (decision 15): Google Veo with the Gemini key — a scene at a time (no multi-shot), the operation kept on the job and finished by video_poll
+    if (!deps.veo || !deps.env.GEMINI_API_KEY?.trim()) return json(503, { error: 'not_configured', configured: false, provider: 'veo' });
+    if (chained) return json(400, { error: 'bad_request', field: 'method' });
+    const sc = scenes[req.scene]; const seconds = veoSeconds(Number(sc.d) || 5);
+    const usd = Math.round(((VEO_USD_PER_SECOND as Record<string, number>)[vd.model as string] ?? 0.4) * seconds * 1e6) / 1e6;
+    const key = campaignPathOk(req.campaignId, img) ? await download(deps.db, MKT_BUCKET, img) : null;
+    const prompt = line([sc.idea, sc.cam ? 'camera: ' + sc.cam : '', sc.text ? 'on-screen text: ' + sc.text : '', media.notes].filter(Boolean).join('. '), 1500);
+    return await videoRun(deps, who, videoLabel(p, 'المشهد ' + (req.scene + 1)), async () => {
+      const op = await deps.veo!.start({ model: vd.model as string, prompt, image: key ? { bytes: key.bytes, mime: key.mime } : null, aspect: String(p.size ?? '9:16'), seconds });
+      const job = await newJob(deps, who, req, { kind: 'clip', scene: req.scene, creation_ref: null, data: { model: vd.model, provider: 'veo', veo_op: op, duration: seconds, ratio: veoAspect(String(p.size ?? '9:16')) } });
+      if (!job) throw new Error('db mkt_video_jobs');
+      return { job: jobView(job) };
+    }, usd);
+  }
   let token: string; try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
   return await videoRun(deps, who, videoLabel(p, chained ? 'المشاهد' : 'المشهد ' + (req.scene + 1)), async () => {
     const ref = await keyframeRef(deps, token, req.campaignId, img, 'scene-' + (chained ? 1 : req.scene + 1) + '.' + img.split('.').pop());
@@ -1101,8 +1151,23 @@ async function videoClip(deps: Deps, who: Who, args: Json) {
 }
 async function videoVoice(deps: Deps, who: Who, args: Json) {
   const got = await videoPiece(deps, who, 'voice', args); if ('error' in got) return got.error;
-  const { req, p } = got; const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
+  const { req, p } = got;
   const jobs = await videoJobs(deps, req.campaignId, req.piece); if (openJobs(jobs).length >= MAX_OPEN_JOBS) return json(409, { error: 'busy_piece', open: openJobs(jobs).length });
+  const cfg = await settingsOf(deps); const vp = voicePick(cfg.ai);
+  if (vp.provider === 'elevenlabs') { // phase 11 (decision 15): the admin's own ElevenLabs key — the MP3 kept here and, when the bridge is linked, on Magnific for the assembly
+    if (!deps.tts || !deps.env.ELEVENLABS_API_KEY?.trim()) return json(503, { error: 'not_configured', configured: false, provider: 'elevenlabs' });
+    const P = providersOf(cfg.ai); const map = isObj(P.voice) && isObj((cfg.ai as Json)?.providers?.voice?.elevenVoices) ? (cfg.ai as Json).providers.voice.elevenVoices : {};
+    const voiceId = typeof map[req.voice] === 'string' ? map[req.voice] : null;
+    const usd = Math.round(req.text.length / 1000 * VOICE_USD_PER_1K * 1e6) / 1e6;
+    return await videoRun(deps, who, videoLabel(p, 'الفويس أوفر'), async () => {
+      const audio = await deps.tts!({ text: req.text, voiceId, model: vp.model });
+      const kept = await keepDirectMedia(deps, req.campaignId, req.piece, 'vo', audio, 'mp3');
+      const job = await newJob(deps, who, req, { kind: 'voice', creation_ref: kept.creation_ref, status: 'done', path: kept.path, bytes: kept.bytes, done_at: deps.now(), data: { voice: req.voice, chars: req.text.length, provider: 'elevenlabs' } });
+      if (!job) throw new Error('db mkt_video_jobs');
+      return { job: jobView(job) };
+    }, usd);
+  }
+  const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
   let token: string; try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
   return await videoRun(deps, who, videoLabel(p, 'الفويس أوفر'), async () => {
     const id = firstId((await bridge.callTool(token, 'audio_tts', ttsArgs({ text: req.text, voice: req.voice, folder: projectRef(deps.env) }) as Json)) as Json, 'audio_tts');
@@ -1134,17 +1199,30 @@ async function videoUpload(deps: Deps, who: Who, args: Json) {
   if (!bytes.length || bytes.length > 50_000_000) return json(400, { error: 'bad_request', field: 'path' });
   let token: string; try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
   return await videoRun(deps, who, videoLabel(p, req.role === 'voice' ? 'ملف الصوت' : 'ملف الموسيقى'), async () => {
-    const up = (await bridge.callTool(token, 'creations_request_upload', { mimeType: mime })) as Json;
-    const putUrl = isObj(up) ? (typeof up.url === 'string' ? up.url : typeof up.uploadUrl === 'string' ? up.uploadUrl : Array.isArray(up.uploads) && isObj(up.uploads[0]) ? up.uploads[0].url : null) : null;
-    const tmp = isObj(up) ? (typeof up.path === 'string' ? up.path : Array.isArray(up.uploads) && isObj(up.uploads[0]) ? up.uploads[0].path : null) : null;
-    if (typeof putUrl !== 'string' || !/^https:\/\//.test(putUrl) || typeof tmp !== 'string') throw new BridgeError('mcp_error', null, 'request_upload');
-    const r = await (deps.fetch ?? fetch)(putUrl, { method: 'PUT', headers: { 'Content-Type': mime }, body: bytes, signal: AbortSignal.timeout(60_000) });
-    if (!r.ok) throw new BridgeError('mcp_error', r.status, 'upload put');
-    const id = firstId((await bridge.callTool(token, 'creations_finalize_upload', { path: tmp, fileName: (req.role === 'voice' ? 'voice' : 'music') + '-' + req.piece + '.' + ext, folderReference: projectRef(deps.env), visible: false })) as Json, 'finalize_upload');
+    const id = await bridgeUploadBytes(deps, token, bytes, mime, (req.role === 'voice' ? 'voice' : 'music') + '-' + req.piece + '.' + ext);
     const job = await newJob(deps, who, req, { kind: 'upload', creation_ref: id, status: 'done', path: req.path, bytes: bytes.length, done_at: deps.now(), data: { role: req.role } });
     if (!job) throw new Error('db mkt_video_jobs');
     return { job: jobView(job) };
   });
+}
+// bytes onto Magnific as a creation (request_upload → PUT → finalize) → its identifier; the assembly (concatenate / mix) works on creations
+async function bridgeUploadBytes(deps: Deps, token: string, bytes: Uint8Array, mime: string, fileName: string): Promise<string> {
+  const bridge = deps.bridge!;
+  const up = (await bridge.callTool(token, 'creations_request_upload', { mimeType: mime })) as Json;
+  const putUrl = isObj(up) ? (typeof up.url === 'string' ? up.url : typeof up.uploadUrl === 'string' ? up.uploadUrl : Array.isArray(up.uploads) && isObj(up.uploads[0]) ? up.uploads[0].url : null) : null;
+  const tmp = isObj(up) ? (typeof up.path === 'string' ? up.path : Array.isArray(up.uploads) && isObj(up.uploads[0]) ? up.uploads[0].path : null) : null;
+  if (typeof putUrl !== 'string' || !/^https:\/\//.test(putUrl) || typeof tmp !== 'string') throw new BridgeError('mcp_error', null, 'request_upload');
+  const r = await (deps.fetch ?? fetch)(putUrl, { method: 'PUT', headers: { 'Content-Type': mime }, body: bytes as BodyInit, signal: AbortSignal.timeout(60_000) });
+  if (!r.ok) throw new BridgeError('mcp_error', r.status, 'upload put');
+  return firstId((await bridge.callTool(token, 'creations_finalize_upload', { path: tmp, fileName, folderReference: projectRef(deps.env), visible: false })) as Json, 'finalize_upload');
+}
+// a direct provider's result into bucket marketing, and onto Magnific too when the account is linked (so the assembly can use it)
+async function keepDirectMedia(deps: Deps, campaignId: string, piece: string, part: string, media: { bytes: Uint8Array; mime: string }, ext: string): Promise<{ path: string | null; bytes: number; creation_ref: string | null }> {
+  const path = videoPath(campaignId, piece, part, stamp(deps), ext);
+  const { error } = await deps.db.storage.from(MKT_BUCKET).upload(path, media.bytes, { contentType: media.mime, upsert: false });
+  let creation: string | null = null;
+  if (deps.bridge) { try { const token = await accessToken(deps); creation = await bridgeUploadBytes(deps, token, media.bytes, media.mime, part + '-' + piece + '.' + ext); } catch { creation = null; } }
+  return { path: error ? null : path, bytes: media.bytes.length, creation_ref: creation };
 }
 // the cut (several clips) then the mixes one after the other, each started when the one before is done (video_poll)
 async function videoAssemble(deps: Deps, who: Who, args: Json) {
@@ -1193,6 +1271,21 @@ async function videoPoll(deps: Deps, who: Who, args: Json) {
   const got = await videoPiece(deps, who, 'poll', args); if ('error' in got) return got.error;
   const { req } = got; const bridge = deps.bridge; if (!bridge) return json(503, { error: 'not_configured', configured: false });
   let jobs = await videoJobs(deps, req.campaignId, req.piece);
+  // phase 11: the Veo clips (no creation yet) — the operation polled, the finished video kept here and put onto Magnific for the assembly
+  for (const j of openJobs(jobs).filter((x) => isObj(x.data) && typeof x.data.veo_op === 'string').slice(0, 4)) {
+    if (!deps.veo) break;
+    try {
+      const st = await deps.veo.poll(j.data.veo_op);
+      if (!st.done) continue;
+      if (st.error || !st.uri) { await deps.db.from('mkt_video_jobs').update({ status: 'failed', error: st.error ?? 'failed', updated_at: deps.now() }).eq('id', j.id); continue; }
+      const media = await deps.veo.download(st.uri);
+      const kept = await keepDirectMedia(deps, req.campaignId, req.piece, partOf(j), media, 'mp4');
+      await deps.db.from('mkt_video_jobs').update({ status: 'done', creation_ref: kept.creation_ref, path: kept.path, bytes: kept.bytes, done_at: deps.now(), updated_at: deps.now() }).eq('id', j.id);
+    } catch (e) {
+      if (e instanceof ProviderError && e.kind !== 'busy') await deps.db.from('mkt_video_jobs').update({ status: 'failed', error: e.kind, updated_at: deps.now() }).eq('id', j.id);
+    }
+  }
+  jobs = await videoJobs(deps, req.campaignId, req.piece);
   const open = openJobs(jobs).filter((j) => typeof j.creation_ref === 'string').slice(0, 8);
   if (open.length) {
     let token: string; try { token = await accessToken(deps); } catch (e) { return bridgeFail(e); }
@@ -1241,6 +1334,9 @@ async function realDeps(): Promise<Deps> {
     userDb: (jwt) => createClient(env.SUPABASE_URL ?? '', env.SUPABASE_ANON_KEY ?? '', { ...NO_SESSION, global: { headers: { Authorization: `Bearer ${jwt}` } } }),
     userId: async (jwt) => { const { data, error } = await service.auth.getUser(jwt); return error ? null : data?.user?.id ?? null; },
     provider: magnific(env),
+    providers: { openai: openaiImage(env), gemini: geminiImage(env) },
+    tts: (r) => elevenTts(env, r),
+    veo: { start: (r) => veoStart(env, r), poll: (op) => veoPoll(env, op), download: (uri) => veoDownload(env, uri) },
     bridge: magnificMcp(env),
   };
 }

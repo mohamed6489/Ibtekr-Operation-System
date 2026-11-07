@@ -403,7 +403,9 @@ export function cleanStudio(json, want, { categoryIds, colorCodes }) {
 
 // USD per million tokens: [input, output, cache read]; a cache write is 1.25 × input (5-minute entries). The fallback models
 // (Claude Opus 5 / Opus 4.8) are listed too; an unknown model is priced as the dearest so the monthly cap never undercounts.
-export const PRICES = { 'claude-opus-5-5': [4, 20, 0.2], 'claude-sonnet-5-5': [2, 10, 0.2], 'claude-opus-5': [5, 25, 0.5], 'claude-opus-4-8': [5, 25, 0.5], 'claude-sonnet-5': [2, 10, 0.2] };
+export const PRICES = { 'claude-opus-5-5': [4, 20, 0.2], 'claude-sonnet-5-5': [2, 10, 0.2], 'claude-opus-5': [5, 25, 0.5], 'claude-opus-4-8': [5, 25, 0.5], 'claude-sonnet-5': [2, 10, 0.2],
+  // phase 11 (decision 15): the other text providers, priced from TEXT_PRICES of ai-providers.js (kept in step by a node test)
+  'gpt-5.2': [1.25, 10, 0.125], 'gpt-5.2-mini': [0.25, 2, 0.025], 'gemini-3-pro': [2, 12, 0.2], 'gemini-3-flash': [0.3, 2.5, 0.03] };
 const DEAREST = [5, 25, 0.5];
 const tokens = (v) => (Number.isInteger(v) && v > 0 ? v : 0);
 /** usage → { input, output, cacheRead, cacheWrite } (whole numbers ≥ 0). */

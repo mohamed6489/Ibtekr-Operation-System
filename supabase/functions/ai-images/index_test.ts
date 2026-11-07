@@ -112,9 +112,47 @@ Deno.test('generate: the item\'s reference photos of its batch only, the slot pr
   assert(asked[0].prompt.includes('Kilim Pouf, made of Cotton, Boho style by the handmade brand Art Craft') && asked[0].prompt.includes('studio background'), asked[0].prompt);
   assertEquals(during[0], [['pending', 75, 0.15]], 'the planned credits are held while the call runs');
   const run = db.rows('ai_runs')[0];
-  assertEquals([run.action, run.source, run.label, run.batch_id, run.item_index, run.model, run.status, run.credits, Number(run.cost_usd), run.output], ['image', 'studio', 'Kilim Pouf', SB, 0, 'seedream-5-pro', 'ok', 75, 0.15, { paths: [body.path], bucket: 'studio' }]);
+  assertEquals([run.action, run.source, run.label, run.batch_id, run.item_index, run.model, run.status, run.credits, Number(run.cost_usd), run.output], ['image', 'studio', 'Kilim Pouf', SB, 0, 'seedream-5-pro', 'ok', 75, 0.15, { paths: [body.path], bucket: 'studio', provider: 'magnific' }]);
   assertFalse(JSON.stringify(db.rows('ai_runs')).includes('studio background'), 'no prompt in the row');
   assertEquals(db.rows('studio_batches')[0].state, batch().state, 'the batch is not written');
+});
+
+// phase 11 (decisions 14 / 15): the tool's provider from the settings row «ai» — a direct provider (openai / gemini) answers instead
+// of Magnific, its cost in USD on the content cap (ai_run_start) at 0 credits; the image style of «ai_rules» rides the prompt
+Deno.test('providers: settings pick openai for the studio → deps.providers.openai answers, the run row holds USD at 0 credits (the content cap), the style suffix rides the prompt; gemini for the tool; Magnific stays for the campaign; a direct key missing → 503 with the provider', async () => {
+  const seed = { ...SEED, settings: [
+    { section: 'ai', data: { providers: { image: { default: 'magnific', tools: { studio: 'openai', tool: 'gemini' }, models: { gemini: 'gemini-2.5-flash-image' } } }, monthly_limit_usd: 0.5 } },
+    { section: 'ai_rules', data: { style: 'هاندميد دافي', imgNo: ['نصوص مكتوبة'] } }] };
+  const direct: any[] = [];
+  const mk = (name: string) => ({ generate: async (p: any) => { direct.push({ name, model: p.model, prompt: p.prompt, refs: p.references.length, w: p.width, h: p.height }); return { images: [img()], credits: null }; }, edit: async (p: any) => { direct.push({ name, edit: p.op }); return { images: [img()], credits: null }; }, probe: async () => ({}) });
+  const { deps, asked, db } = setup({ seed, replies: [{ images: [img()], credits: 75 }], env: { OPENAI_API_KEY: 'sk-x', GEMINI_API_KEY: 'g-x' } });
+  // ai_run_start of the content cap (0024): the reserve against the month's USD
+  let spent = 0;
+  (deps.db as any).rpc = ((orig) => async (name: string, args: any) => {
+    if (name !== 'ai_run_start') return orig(name, args);
+    if (args.p_cap != null && spent + args.p_reserve > args.p_cap) { const { data } = await db.from('ai_runs').insert({ created_at: NOW, ...args.p_row, status: 'cap', error: 'ai_cap', credits: 0, cost_usd: 0 }).select('id').single(); return { data: { result: 'cap', id: data.id }, error: null }; }
+    spent += args.p_reserve; const { data } = await db.from('ai_runs').insert({ created_at: NOW, ...args.p_row, status: 'pending', credits: 0, cost_usd: args.p_reserve }).select('id').single(); return { data: { result: 'ok', id: data.id }, error: null };
+  })((deps.db as any).rpc.bind(deps.db));
+  (deps as any).providers = { openai: mk('openai'), gemini: mk('gemini') };
+  const g = await call(deps, GEN);
+  assertEquals([g.res.status, g.body.provider, g.body.model, g.body.credits, g.body.cost_usd], [200, 'openai', 'gpt-image-2', 0, 0.17], JSON.stringify(g.body));
+  assertEquals(direct.length, 1); assertEquals([direct[0].name, direct[0].model, direct[0].refs, direct[0].w, direct[0].h], ['openai', 'gpt-image-2', 2, 700, 800]);
+  assert(direct[0].prompt.endsWith(' Style: هاندميد دافي. Never: نصوص مكتوبة'), direct[0].prompt.slice(-80));
+  assertEquals(asked.length, 0, 'Magnific not called');
+  const run = db.rows('ai_runs').find((r: any) => r.source === 'studio');
+  assertEquals([run.model, run.status, Number(run.credits), Number(run.cost_usd), run.output.provider], ['gpt-image-2', 'ok', 0, 0.17, 'openai']);
+  // the tool on gemini with the row's model
+  const t = await call(deps, { action: 'create', source: 'text', prompt: 'A kilim pouf', shape: 'studio', count: 1 }, 'jwt-add');
+  assertEquals([t.res.status, t.body.provider, t.body.model], [200, 'gemini', 'gemini-2.5-flash-image'], JSON.stringify(t.body));
+  assertEquals(direct[1].name, 'gemini');
+  // the USD cap of the content settings (0.5): 0.17 + 0.04 held, a third gpt-image call (0.17) still passes, then the cap refuses
+  const c3 = await call(deps, GEN); assertEquals(c3.res.status, 200);
+  const c4 = await call(deps, GEN); assertEquals([c4.res.status, c4.body], [402, { error: 'ai_cap' }]);
+  // a direct provider without its key → 503 with the provider named; Magnific (the campaign default) still answers
+  const noKey = setup({ seed, replies: [], env: { GEMINI_API_KEY: 'g-x' } }); (noKey.deps as any).providers = { openai: mk('openai'), gemini: mk('gemini') };
+  (noKey.deps.db as any).rpc = ((orig) => async (name: string, args: any) => (name === 'ai_run_start' ? { data: { result: 'ok', id: (await db.from('ai_runs').insert({ created_at: NOW, ...args.p_row, status: 'pending' }).select('id').single()).data.id }, error: null } : orig(name, args)))((noKey.deps.db as any).rpc.bind(noKey.deps.db));
+  const nk = await call(noKey.deps, GEN);
+  assertEquals([nk.res.status, nk.body], [503, { error: 'not_configured', configured: false, provider: 'openai' }]);
 });
 
 Deno.test('generate: a color slot adds the color\'s photo and name; the listed model and a social size; the provider\'s silence on credits = the estimate', async () => {
@@ -908,6 +946,45 @@ Deno.test('video_voice / video_music / video_upload: the catalog voice on Eleven
   assertEquals(db.rows('mkt_video_jobs').filter((j: any) => j.status === 'running').length, 6);
   assertEquals((await vcall(deps, 'video_clip', { scene: 0 })).res.status, 409);
   assertEquals(db.rows('ai_runs').filter((r: any) => r.source === 'video').length, 7);
+});
+
+// phase 11 (decision 15): the voice on ElevenLabs direct and the clips on Veo when the settings say so — the files kept in bucket marketing
+// and put onto Magnific (when linked) so the assembly still works; the USD cost on the run row; a missing key names the provider
+Deno.test('providers: voice on ElevenLabs direct → MP3 kept + uploaded to Magnific as a done voice job at its USD; a Veo clip → an operation on a running job, video_poll finishes it (download, keep, upload) or fails it; missing keys → 503 with the provider', async () => {
+  const F = videoBridge();
+  const seed: any = structuredClone(VID_SEED); seed.settings = [{ section: 'ai', data: { providers: { voice: { default: 'elevenlabs' }, video: { default: 'veo', models: { veo: 'veo-3.1-fast-generate-preview' } } } } }];
+  const { deps, db, storage, fetched } = setup({ vault: { ...LINKED }, bridge: F.bridge, seed, storage: { ...VID_FILES }, env: { ELEVENLABS_API_KEY: 'el-x', GEMINI_API_KEY: 'g-x' } });
+  const tts: any[] = []; (deps as any).tts = async (r: any) => { tts.push(r); return { bytes: new Uint8Array(200).fill(7), mime: 'audio/mpeg' }; };
+  const veo: any[] = []; const ops: Record<string, any> = {};
+  (deps as any).veo = { start: async (r: any) => { veo.push({ model: r.model, prompt: r.prompt, image: r.image ? r.image.bytes.length : null, aspect: r.aspect, seconds: r.seconds }); const op = 'models/veo/operations/op' + (veo.length); ops[op] = { done: false }; return op; },
+    poll: async (op: string) => ops[op] ?? { done: true, error: 'gone' }, download: async (uri: string) => { fetched.push(uri); return { bytes: new Uint8Array(500).fill(1), mime: 'video/mp4' }; } };
+  const v = await vcall(deps, 'video_voice', { voice: 'm-eg-1', text: 'الدفا الحقيقي' });
+  assertEquals([v.res.status, v.body.job.kind, v.body.job.status, v.body.job.ref, v.body.job.data.provider], [200, 'voice', 'done', 'upl-1', 'elevenlabs'], JSON.stringify(v.body));
+  assertEquals(tts, [{ text: 'الدفا الحقيقي', voiceId: null, model: 'eleven_v3' }]);
+  assert(/^.*\/vid-V1-vo-[0-9a-z]+\.mp3$/.test(v.body.job.path), v.body.job.path); assertEquals(storage['marketing/' + v.body.job.path].length, 200);
+  assertEquals(F.bridge.calls.filter((c: any) => c.name === 'creations_finalize_upload').length, 1, 'onto Magnific for the assembly');
+  assertEquals(F.bridge.calls.filter((c: any) => c.name === 'audio_tts').length, 0, 'the bridge\'s TTS not called');
+  assertEquals(Number(db.rows('ai_runs').at(-1).cost_usd), 0.0039); // 13 characters × $0.30 / 1000
+  // a Veo clip: the scene's key frame, the aspect of the piece, the seconds nearest Veo's; a running job with the operation
+  const c = await vcall(deps, 'video_clip', { scene: 1 });
+  assertEquals([c.res.status, c.body.job.kind, c.body.job.status, c.body.job.ref, c.body.job.data.provider, c.body.job.data.duration], [200, 'clip', 'running', null, 'veo', 4], JSON.stringify(c.body));
+  assertEquals([veo[0].model, veo[0].image, veo[0].aspect, veo[0].seconds], ['veo-3.1-fast-generate-preview', PNG.length, '9:16', 4]); assert(veo[0].prompt.includes('القعدة') && veo[0].prompt.includes('camera: ثابتة'));
+  assertEquals(F.bridge.calls.filter((c: any) => c.name === 'video_generate').length, 0);
+  assertEquals((await vcall(deps, 'video_clip', { scene: 0, piece: 'V1' })).res.status, 200);
+  let p = await vcall(deps, 'video_poll');
+  assertEquals([p.res.status, p.body.open], [200, 2], 'still running');
+  ops['models/veo/operations/op1'] = { done: true, uri: 'https://generativelanguage.googleapis.com/v1beta/files/abc:download?alt=media' };
+  ops['models/veo/operations/op2'] = { done: true, error: 'filtered' };
+  p = await vcall(deps, 'video_poll');
+  const J = db.rows('mkt_video_jobs').filter((j: any) => j.kind === 'clip');
+  assertEquals(J.map((j: any) => [j.scene, j.status, j.error]), [[1, 'done', null], [0, 'failed', 'filtered']]);
+  assert(/\/vid-V1-s2-[0-9a-z]+\.mp4$/.test(J[0].path), J[0].path); assertEquals(J[0].creation_ref, 'upl-2', 'the finished clip onto Magnific too'); assertEquals(J[0].bytes, 500);
+  assertEquals(p.body.open, 0);
+  // no keys → 503 naming the provider, no job
+  const nk = setup({ vault: { ...LINKED }, bridge: videoBridge().bridge, seed: structuredClone(seed), storage: { ...VID_FILES } }); (nk.deps as any).tts = async () => { throw new Error('no'); }; (nk.deps as any).veo = (deps as any).veo;
+  assertEquals((await vcall(nk.deps, 'video_voice', { voice: 'm-eg-1', text: 'x' })).body, { error: 'not_configured', configured: false, provider: 'elevenlabs' });
+  assertEquals((await vcall(nk.deps, 'video_clip', { scene: 0 })).body, { error: 'not_configured', configured: false, provider: 'veo' });
+  assertEquals(nk.db.rows('mkt_video_jobs').length, 0);
 });
 
 Deno.test('video_poll: the open jobs asked at once; a done one downloaded into bucket marketing (an allowed host, mp4 / mp3 by kind), a failed one marked; then video_assemble: the cut, the voice mix, the music mix one after the other as each finishes; the final', async () => {

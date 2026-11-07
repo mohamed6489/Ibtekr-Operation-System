@@ -54,19 +54,30 @@ export function parseSecret(name, body, current) {
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'invalid', field: 'fields' };
   for (const k of Object.keys(body)) if (!F[k]) return { error: 'invalid', field: k };
   const cur = current && typeof current === 'object' ? current : {};
-  // a new host never receives the stored secrets (security review, 7 Nov): when the url changes, every secret field must come
-  // with it in the same save — the stored ones are dropped, not merged
+  // every value is a string (a bool field takes a bool or its words) — no arrays or objects coerced into text (security review)
+  const norm = {};
+  for (const [k, f] of Object.entries(F)) {
+    if (!(k in body)) continue;
+    let v = body[k];
+    if (f.kind === 'bool') { if (v !== '' && v !== null && typeof v !== 'boolean' && typeof v !== 'string' && typeof v !== 'number') return { error: 'invalid', field: k }; norm[k] = v; continue; }
+    if (v === null) v = '';
+    if (typeof v !== 'string') return { error: 'invalid', field: k };
+    v = v.trim();
+    if (f.kind === 'url') v = v.replace(/\/+$/, '');
+    norm[k] = v;
+  }
+  // a new host never receives the stored secrets (security review, 7 Nov): when the url's origin changes (or is emptied), every
+  // secret field must come with it in the same save — the stored ones are dropped, not merged
   const urlField = Object.keys(F).find((k) => F[k].kind === 'url');
-  const newHost = urlField && typeof body[urlField] === 'string' && body[urlField].trim().replace(/\/+$/, '') !== String(cur[urlField] ?? '');
+  const originOf = (u) => { try { return new URL(String(u)).origin; } catch { return null; } };
+  const newHost = !!urlField && (urlField in norm) && originOf(norm[urlField]) !== originOf(cur[urlField]);
   const out = {};
   for (const [k, v] of Object.entries(cur)) if (F[k] && !(newHost && F[k].secret)) out[k] = v;
   for (const [k, f] of Object.entries(F)) {
-    if (!(k in body)) continue; // omitted → stays
-    let v = body[k];
+    if (!(k in norm)) continue; // omitted → stays
+    const v = norm[k];
     if (f.kind === 'bool') { const b = asBool(v); if (b === null && v !== '' && v !== null) return { error: 'invalid', field: k }; if (b === null) delete out[k]; else out[k] = b; continue; }
-    v = typeof v === 'string' ? v.trim() : v == null ? '' : String(v);
     if (v === '') { delete out[k]; continue; } // emptied → removed
-    if (f.kind === 'url') v = v.replace(/\/+$/, '');
     if (!fieldOk(f, v)) return { error: 'invalid', field: k };
     out[k] = v;
   }

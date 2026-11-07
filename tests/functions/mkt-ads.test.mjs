@@ -95,7 +95,7 @@ const STATS = [
   ...[0, 1, 2, 3, 4, 5, 6].map((n) => as('1207', CB, n, 1000, 8, 4.4)), ...[7, 8, 9, 10, 11, 12, 13].map((n) => as('1207', CB, n, 1000, 20, 1.2)), // tired (4.4) and CTR fell 60%
   ...[0, 1, 2].map((n) => as('1208', CB, n, 1000, 1, 9)), // paused ad: skipped
 ];
-const ORD = [...[0, 1, 2, 3, 4].map((n) => ({ day: day(n), campaign: CA, sold: true, sales: 700 })), { day: day(1), campaign: CA, sold: false, sales: 500 }, { day: day(10), campaign: CA, sold: true, sales: 9000 }];
+const ORD = [...[0, 1, 2, 3, 4].map((n) => ({ day: day(n), campaign: CA, sold: true, confirmed: true, sales: 700 })), { day: day(1), campaign: CA, sold: false, sales: 500 }, { day: day(10), campaign: CA, sold: true, confirmed: true, sales: 9000 }];
 
 test('suggestionsOf: stop (active, ≥ autoStop in 5 days, no order), scale (MER ≥ 4, ≥ 5 orders), tracking, a tired creative; the paused never; the keys', () => {
   const s = suggestionsOf({ objects: OBJ, stats: STATS, orders: ORD, today: T, rules: {} });
@@ -110,6 +110,10 @@ test('suggestionsOf: stop (active, ≥ autoStop in 5 days, no order), scale (MER
   // tracking: Macrame with 7 purchases and 5 orders is not twice; with 12 purchases it is
   const tr = suggestionsOf({ objects: OBJ, stats: STATS.map((x) => (x.level === 'campaign' && x.object_id === CA ? { ...x, purchases: 2 } : x)), orders: ORD, today: T, rules: {} });
   assert.ok(tr.some((x) => x.kind === 'tracking' && x.campaign_id === CA));
+  // a raise counts the confirmed orders only: the same five unconfirmed → no budget_up (the cost per order still counts them)
+  const loose = suggestionsOf({ objects: OBJ, stats: STATS, orders: ORD.map((o) => ({ ...o, confirmed: false })), today: T, rules: {} });
+  assert.ok(!loose.some((x) => x.kind === 'budget_up') && !loose.some((x) => x.kind === 'stop' && x.campaign_id === CA));
+  assert.equal(up.data.confirmed, 5);
   // the owner's rule: a 3,000 autoStop keeps Lamps running → a tracking row instead (10 ≥ 2 × 0)
   const soft = suggestionsOf({ objects: OBJ, stats: STATS, orders: ORD, today: T, rules: { autoStop: 3000 } });
   assert.ok(!soft.some((x) => x.kind === 'stop') && soft.some((x) => x.kind === 'tracking' && x.campaign_id === CB));

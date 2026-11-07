@@ -482,6 +482,148 @@
     } catch (e) { return fail(e); }
   }
 
+  // ---------- the media buyer (phase 9.5.4, decisions 49–56) ----------
+  // the suggestions the server wrote after each sync, the admin's decisions through mkt-ads (the switch off = recorded only),
+  // the rules and the execution switch, the designer / developer requests, and the buyer's chat (text only — nothing runs from it)
+  const SUGG_COLS = 'id, platform, kind, campaign_id, campaign_name, ad_id, title, sub, why, impact, pct, data, status, created_at, checked_at, decided_by, decided_at, value, note, result, error';
+  const SUGG_KINDS = ['stop', 'budget_down', 'budget_up', 'creative', 'tracking']; const SUGG_STATUS = ['pending', 'approved', 'edited', 'rejected', 'done', 'failed', 'expired'];
+  const SUGG_MS = 60000; let sugg = null; let suggAt = 0;
+  const toSuggestion = (r) => ({ id: Number(r.id), kind: SUGG_KINDS.includes(r.kind) ? r.kind : 'tracking', campaign_id: String(r.campaign_id || ''), campaign_name: r.campaign_name || null, ad_id: r.ad_id == null ? null : String(r.ad_id),
+    title: r.title || '', sub: r.sub || '', why: r.why || '', impact: r.impact || '', pct: r.pct == null ? null : Number(r.pct), data: r.data && typeof r.data === 'object' ? r.data : {},
+    status: SUGG_STATUS.includes(r.status) ? r.status : 'pending', createdAt: r.created_at || null, checkedAt: r.checked_at || null, decidedBy: r.decided_by || null, decidedAt: r.decided_at || null,
+    value: r.value == null ? null : Number(r.value), note: r.note || '', result: r.result && typeof r.result === 'object' ? r.result : null, error: r.error || null });
+  // the open suggestions + the decided ones of the last 30 days (newest first), cached a minute
+  async function suggestions(force) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!force && sugg && Date.now() - suggAt < SUGG_MS) return { ok: true, items: sugg };
+    try {
+      const since = new Date(Date.now() - 30 * 86400000).toISOString();
+      const { data: r, error } = await cl.from('mkt_suggestions').select(SUGG_COLS).or('status.eq.pending,created_at.gte.' + since).order('created_at', { ascending: false }).limit(500);
+      if (error) return fail(error);
+      sugg = (Array.isArray(r) ? r : []).map(toSuggestion); suggAt = Date.now(); return { ok: true, items: sugg };
+    } catch (e) { return fail(e); }
+  }
+  const suggNow = () => sugg || [];
+  const DECIDE_MESSAGES = { step: 'الخطوة أكبر من 30% — الحد الأقصى في المرة الواحدة', cap: 'التغيير ده هيعدّي السقف اليومي للحساب — زوّد السقف في «القواعد والحدود» أو قلّل النسبة', no_daily_budget: 'الحملة مالهاش ميزانية يومية (لا هي ولا مجموعاتها الشغالة) — غيّرها من مدير إعلانات ميتا',
+    decided: 'الاقتراح ده اتقرر فيه قبل كده', value: 'النسبة لازم تبقى بنفس اتجاه الاقتراح (زيادة أو تقليل) ومن غير ما تعدّي 30%' };
+  // ارفض / وافق ونفّذ / عدّل ونفّذ (the admin): value = the edited step, note = why
+  async function decide(id, decision, a) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const x = a || {}; const body = { action: 'decide', id: Number(id), decision: String(decision || '') };
+    if (x.value != null && x.value !== '') body.value = Number(x.value);
+    if (x.note) body.note = clean(x.note, 300);
+    const r = await invoke('mkt-ads', body);
+    sugg = null; suggAt = 0;
+    if (!r.ok) {
+      const code = r.code || null;
+      const message = r.reason === 'forbidden' ? MESSAGES.forbidden : r.reason === 'notfound' ? MESSAGES.notfound : r.reason === 'conflict' ? (DECIDE_MESSAGES[code] || DECIDE_MESSAGES.decided)
+        : r.reason === 'invalid' ? (r.field === 'value' ? DECIDE_MESSAGES.value : MESSAGES.invalid) : r.reason === 'not_configured' ? ADS_MESSAGES.not_configured : adsWhy(code, r.text) || MESSAGES.network;
+      log('buyer.decide', body.decision + ' · ' + (r.reason === 'conflict' ? code || 'conflict' : r.reason), id);
+      return Object.assign(r, { message });
+    }
+    const b = r.body || {}; const status = typeof b.status === 'string' ? b.status : 'done';
+    log('buyer.decide', body.decision + ' · ' + status + (b.live === false ? ' · live_off' : ''), id);
+    return { ok: true, status, live: b.live !== false, before: b.before == null ? null : Number(b.before), after: b.after == null ? null : Number(b.after), updates: b.updates == null ? null : Number(b.updates), request: b.request === true,
+      message: status === 'rejected' ? 'اترفض' : b.live === false ? 'اتسجلت الموافقة — مفتاح التنفيذ مقفول، فمفيش حاجة اتغيّرت على ميتا' : b.request ? 'اتبعت للديزاينر كطلب جديد' : b.after != null ? 'اتنفّذ على ميتا — الميزانية بقت ' + Number(b.after) + ' ج.م/يوم' : 'اتنفّذ على ميتا' };
+  }
+  // the rules and limits (marketing.view reads; the admin writes the numbers and the switch)
+  const RULE_KEYS = ['dailyCap', 'maxCpa', 'autoStop', 'autoStopMode', 'reportHour', 'live'];
+  const toRules = (r) => { const x = r && typeof r === 'object' ? r : {}; return { dailyCap: Number(x.dailyCap) || 0, maxCpa: Number(x.maxCpa) || 0, autoStop: Number(x.autoStop) || 0, autoStopMode: x.autoStopMode === 'auto' ? 'auto' : 'suggest', reportHour: Number.isInteger(x.reportHour) ? x.reportHour : 9, live: x.live === true }; };
+  let rulesCache = null; let rulesAt = 0;
+  async function rules(force) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!force && rulesCache && Date.now() - rulesAt < SUGG_MS) return { ok: true, rules: rulesCache };
+    try {
+      const { data: r, error } = await cl.rpc('mkt_buyer_rules'); if (error) return fail(error);
+      rulesCache = toRules(r); rulesAt = Date.now(); return { ok: true, rules: rulesCache };
+    } catch (e) { return fail(e); }
+  }
+  const rulesNow = () => rulesCache;
+  async function rulesSet(patch) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const x = patch && typeof patch === 'object' ? patch : {}; const body = {};
+    for (const k of RULE_KEYS) if (k !== 'live' && x[k] !== undefined) body[k] = k === 'autoStopMode' ? x[k] : Number(x[k]);
+    const r = await invoke('mkt-ads', { action: 'rules_set', rules: body });
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'forbidden' ? MESSAGES.forbidden : r.reason === 'invalid' ? 'القيمة مش مظبوطة' + (r.field ? ' (' + r.field + ')' : '') : MESSAGES.network });
+    rulesCache = toRules(r.body && r.body.rules); rulesAt = Date.now(); emit();
+    return { ok: true, rules: rulesCache };
+  }
+  async function setLive(on) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const r = await invoke('mkt-ads', { action: 'live', on: on === true });
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'forbidden' ? MESSAGES.forbidden : MESSAGES.network });
+    rulesCache = toRules(r.body && r.body.rules); rulesAt = Date.now(); emit();
+    return { ok: true, rules: rulesCache };
+  }
+  // the designer's and the developer's requests (marketing.create adds; the admin changes the status; the author edits a new one)
+  const REQ_COLS = 'id, kind, title, details, project, status, created_by, created_at, updated_by, updated_at, done_at';
+  const REQ_STATUS = ['جديد', 'بيتعمل', 'جاهز للمراجعة', 'خلص']; let reqs = null; let reqsAt = 0;
+  const nameOf = (uid) => { const D = window.IBDirectory; if (!uid || !D) return null; const m = D.member ? quiet(() => D.member(uid)) : (D.members ? quiet(() => (D.members() || []).find((x) => x.id === uid)) : null); return m && m.name ? m.name : null; };
+  const toRequest = (r) => ({ id: Number(r.id), kind: r.kind === 'dev' ? 'dev' : 'designer', title: r.title || '', details: r.details || '', project: r.project || '', status: REQ_STATUS.includes(r.status) ? r.status : 'جديد',
+    createdBy: r.created_by || null, by: nameOf(r.created_by), createdAt: r.created_at || null, updatedAt: r.updated_at || null, doneAt: r.done_at || null, mine: !!r.created_by && r.created_by === myUid() });
+  async function requests(force) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!force && reqs && Date.now() - reqsAt < SUGG_MS) return { ok: true, items: reqs };
+    try {
+      const { data: r, error } = await cl.from('mkt_requests').select(REQ_COLS).order('created_at', { ascending: false }).limit(500); if (error) return fail(error);
+      reqs = (Array.isArray(r) ? r : []).map(toRequest); reqsAt = Date.now(); return { ok: true, items: reqs };
+    } catch (e) { return fail(e); }
+  }
+  const reqsNow = () => reqs || [];
+  const reqRow = (f) => { const o = {}; const x = f || {};
+    if (x.title !== undefined) o.title = clean(x.title, 160);
+    if (x.details !== undefined) o.details = String(x.details == null ? '' : x.details).replace(/\r\n?/g, '\n').trim().slice(0, 2000) || null;
+    if (x.project !== undefined) o.project = clean(x.project, 60) || null;
+    return o; };
+  async function addRequest(f) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const x = f || {}; const row = Object.assign({ kind: x.kind === 'dev' ? 'dev' : 'designer' }, reqRow(x));
+    if (!row.title) return { ok: false, reason: 'invalid', field: 'title', message: 'اكتب عنوان الطلب' };
+    try {
+      const { data: r, error } = await cl.from('mkt_requests').insert(row).select(REQ_COLS).single(); if (error || !r) return fail(error);
+      const q = toRequest(r); reqs = [q].concat(reqsNow().filter((y) => y.id !== q.id)); reqsAt = Date.now(); emit();
+      log('request.add', q.kind, q.id); return { ok: true, request: q };
+    } catch (e) { return fail(e); }
+  }
+  async function editRequest(id, f) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    if (!can().create && !isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const row = reqRow(f); if (row.title === '') return { ok: false, reason: 'invalid', field: 'title', message: 'اكتب عنوان الطلب' };
+    try {
+      const { data: r, error } = await cl.from('mkt_requests').update(row).eq('id', id).select(REQ_COLS); if (error) return fail(error);
+      if (!Array.isArray(r) || !r.length) return { ok: false, reason: 'notfound', message: MESSAGES.notfound };
+      const q = toRequest(r[0]); reqs = reqsNow().map((y) => (y.id === q.id ? q : y)); emit();
+      log('request.edit', q.kind, id); return { ok: true, request: q };
+    } catch (e) { return fail(e); }
+  }
+  async function setRequestStatus(id, status) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!REQ_STATUS.includes(status)) return { ok: false, reason: 'invalid', field: 'status', message: MESSAGES.invalid };
+    try {
+      const { data: r, error } = await cl.from('mkt_requests').update({ status }).eq('id', id).select(REQ_COLS); if (error) return fail(error);
+      if (!Array.isArray(r) || !r.length) return { ok: false, reason: 'notfound', message: MESSAGES.notfound };
+      const q = toRequest(r[0]); reqs = reqsNow().map((y) => (y.id === q.id ? q : y)); emit();
+      log('request.status', q.kind + ' · ' + status, id); return { ok: true, request: q };
+    } catch (e) { return fail(e); }
+  }
+  // the buyer's chat: the question + the last turns → text; the server reads the numbers itself; nothing is executed here
+  async function buyerChat(question, history) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const q = String(question == null ? '' : question).trim().slice(0, 1000); if (!q) return { ok: false, reason: 'invalid', field: 'question', message: 'اكتب سؤالك الأول' };
+    const H = (Array.isArray(history) ? history : []).filter((h) => h && (h.role === 'user' || h.role === 'assistant') && String(h.text || '').trim()).slice(-6).map((h) => ({ role: h.role, text: String(h.text).trim().slice(0, 1000) }));
+    const r = await invoke('ai-content', { action: 'buyer', question: q, history: H });
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'invalid' ? 'اكتب سؤالك الأول' : aiMessage(r, 'text') });
+    const b = r.body || {};
+    if (b.result === 'refused') return { ok: false, reason: 'refused', message: aiMessage({ reason: 'refused' }, 'text') };
+    log('buyer.chat', '', null);
+    return { ok: true, text: typeof b.text === 'string' ? b.text : '' };
+  }
+
   // ---------- the templates (decision 17) ----------
   const tplRow = (f) => { const o = {}; const x = f || {};
     if (x.name !== undefined) o.name = clean(x.name, 80);
@@ -559,12 +701,13 @@
     if (lv && c()) { try { Promise.resolve(c().removeChannel(lv)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
   // the sign-out wipe
-  function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; conn = null; connAt = 0; ads = null; adsAt = 0; adsCache.clear(); st = 'idle'; }
+  function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; conn = null; connAt = 0; ads = null; adsAt = 0; adsCache.clear(); sugg = null; suggAt = 0; rulesCache = null; rulesAt = 0; reqs = null; reqsAt = 0; st = 'idle'; }
 
   window.IBMarketing = { load, ensure, clear, state: () => st, can, campaigns, posts, templates, getPost, wallet, credits, open, create, save, saveSoon, flush, archive,
     upload, uploadTemplate, url, cachedUrl, blob, product, checkFile, generate, edit, write, schedule, move, caption, published, remove,
     connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,
     adsStatus, adsNow, adsSync, adsData, adsWhy,
+    suggestions, suggNow, decide, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, editRequest, setRequestStatus, buyerChat,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
-    _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage } };
+    _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules } };
 })();

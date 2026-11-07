@@ -125,15 +125,16 @@ const fmt = (v) => Math.round(Number(v) || 0).toLocaleString('en-US');
 const addDays = (day, n) => new Date(Date.parse(day + 'T00:00:00Z') + n * 86400_000).toISOString().slice(0, 10);
 const inWin = (d, from, to) => d >= from && d <= to;
 // the buyer's suggestions of today (decision 49), from the stored rows: campaigns (mkt_ad_objects kind campaign / ad), the daily
-// numbers (mkt_ad_stats, both levels, the last 14 days), the Woo ad orders ({ day, campaign, sold } — sold false = cancelled);
+// numbers (mkt_ad_stats, both levels, the last 14 days), the Woo ad orders ({ day, campaign, sold, confirmed, sales } — sold false = cancelled;
+// confirmed = confirmed by the team or completed — the only orders a budget raise counts);
 // one row a (kind × campaign [× ad]) — the caller keeps one open at a time
 export function suggestionsOf({ objects, stats, orders, today, rules }) {
   const R = buyerRules(rules); const out = [];
   const camps = {}, ads = {};
   for (const o of Array.isArray(objects) ? objects : []) { if (!o) continue; if (o.kind === 'campaign') camps[o.id] = o; else if (o.kind === 'ad') ads[o.id] = o; }
   const from7 = addDays(today, -(SUGGEST_DAYS - 1)), from5 = addDays(today, -(STOP_DAYS - 1)), prevFrom = addDays(from7, -SUGGEST_DAYS), prevTo = addDays(from7, -1);
-  const c = {}; // campaign → { spend7, purchases7, spend5, orders7, orders5, budget }
-  const row = (id) => c[id] || (c[id] = { spend7: 0, purchases7: 0, spend5: 0, orders7: 0, orders5: 0 });
+  const c = {}; // campaign → { spend7, purchases7, spend5, orders7, orders5, sure7, sales7 } — sure7 / sales7 = the confirmed (or completed) orders only
+  const row = (id) => c[id] || (c[id] = { spend7: 0, purchases7: 0, spend5: 0, orders7: 0, orders5: 0, sure7: 0, sales7: 0 });
   for (const s of Array.isArray(stats) ? stats : []) {
     if (!s || s.level !== 'campaign') continue;
     if (inWin(s.day, from7, today)) { const r = row(s.object_id); r.spend7 += nz(s.spend); r.purchases7 += nz(s.purchases); }
@@ -141,7 +142,7 @@ export function suggestionsOf({ objects, stats, orders, today, rules }) {
   }
   for (const o of Array.isArray(orders) ? orders : []) {
     if (!o || !o.sold || !camps[o.campaign] && !c[o.campaign]) continue;
-    if (inWin(o.day, from7, today)) row(o.campaign).orders7 += 1;
+    if (inWin(o.day, from7, today)) { const r = row(o.campaign); r.orders7 += 1; if (o.confirmed) { r.sure7 += 1; r.sales7 += nz(o.sales); } }
     if (inWin(o.day, from5, today)) row(o.campaign).orders5 += 1;
   }
   const name = (id) => (camps[id] && camps[id].name) || '#' + id;
@@ -160,12 +161,12 @@ export function suggestionsOf({ objects, stats, orders, today, rules }) {
       out.push({ kind: 'budget_down', campaign_id: id, campaign_name: name(id), title: 'قلّل ميزانية «' + name(id) + '» 30%', sub: 'تكلفة الأوردر الحقيقية ' + fmt(cpa) + ' ج.م أعلى من الحد ' + fmt(R.maxCpa),
         why: 'صرفت ' + fmt(spend7) + ' ج.م وجابت ' + r.orders7 + ' أوردر في ووكومرس في 7 أيام — تكلفة الأوردر ' + fmt(cpa) + ' ج.م والحد المقبول ' + fmt(R.maxCpa) + '.',
         impact: budget ? 'توفير ~' + fmt(budget * 0.3) + ' ج.م/يوم' : 'توفير ~' + fmt(spend7 / SUGGEST_DAYS * 0.3) + ' ج.م/يوم', pct: -30, data });
-    } else if (active(id) && r.orders7 >= 5 && spend7 > 0) {
-      // the real return = Woo sales ÷ spend; the orders' sales come with them
-      const sales = (Array.isArray(orders) ? orders : []).filter((o) => o && o.sold && o.campaign === id && inWin(o.day, from7, today)).reduce((s, o) => s + nz(o.sales), 0);
-      const mer = sales / spend7;
-      if (mer >= 4) out.push({ kind: 'budget_up', campaign_id: id, campaign_name: name(id), title: 'زوّد «' + name(id) + '» 20%', sub: 'العائد الحقيقي ' + mer.toFixed(2) + '× · ' + r.orders7 + ' أوردر في ووكومرس',
-        why: 'من أعلى عائد حقيقي في الحملات (' + mer.toFixed(2) + '×) وتكلفة الأوردر ' + fmt(cpa) + ' ج.م.', impact: 'متوقع +' + Math.max(1, Math.round(r.orders7 * 0.2)) + ' أوردرات/أسبوع', pct: 20, data: { ...data, mer: Math.round(mer * 100) / 100 } });
+    } else if (active(id) && r.sure7 >= 5 && spend7 > 0) {
+      // a raise (money) counts the confirmed or completed orders only — an unconfirmed order anyone can place with the campaign's UTM
+      // never scales a budget; the real return = their Woo sales ÷ spend
+      const mer = r.sales7 / spend7;
+      if (mer >= 4) out.push({ kind: 'budget_up', campaign_id: id, campaign_name: name(id), title: 'زوّد «' + name(id) + '» 20%', sub: 'العائد الحقيقي ' + mer.toFixed(2) + '× · ' + r.sure7 + ' أوردر مؤكد في ووكومرس',
+        why: 'من أعلى عائد حقيقي في الحملات (' + mer.toFixed(2) + '× على الأوردرات المؤكدة) وتكلفة الأوردر ' + fmt(cpa) + ' ج.م.', impact: 'متوقع +' + Math.max(1, Math.round(r.sure7 * 0.2)) + ' أوردرات/أسبوع', pct: 20, data: { ...data, confirmed: r.sure7, mer: Math.round(mer * 100) / 100 } });
     }
     if (r.purchases7 >= 5 && r.purchases7 >= 2 * r.orders7) {
       out.push({ kind: 'tracking', campaign_id: id, campaign_name: name(id), title: 'فرق كبير في أرقام «' + name(id) + '»', sub: 'ميتا بتقول ' + fmt(r.purchases7) + ' مشتريات · ووكومرس ' + r.orders7 + ' أوردر',

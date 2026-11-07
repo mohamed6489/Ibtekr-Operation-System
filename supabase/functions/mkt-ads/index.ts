@@ -170,9 +170,13 @@ const log = async (deps: Deps, uid: string | null, action: string, entityId: str
 };
 // the Woo ad orders of the last days for the rules: { day, campaign, sold, sales } (the order's own total — the lines are the report's)
 async function adOrdersSince(deps: Deps, sinceDay: string): Promise<Json[]> {
-  const { data } = await deps.db.from('orders').select('utm_campaign, placed_at, status, total, deleted_at').eq('ad_platform', 'meta').gte('placed_at', sinceDay + 'T00:00:00+02:00').limit(5000);
-  return (Array.isArray(data) ? data : []).filter((o: Json) => isObj(o) && !o.deleted_at && typeof o.utm_campaign === 'string').map((o: Json) => ({
-    day: cairoParts(Date.parse(o.placed_at)).day, campaign: o.utm_campaign, sold: !['ملغي', 'استرجاع', 'فشل'].includes(String(o.status)), sales: Number(o.total) || 0 }));
+  const { data } = await deps.db.from('orders').select('utm_campaign, placed_at, status, confirm, total, deleted_at').eq('ad_platform', 'meta').gte('placed_at', sinceDay + 'T00:00:00+02:00').limit(5000);
+  return (Array.isArray(data) ? data : []).filter((o: Json) => isObj(o) && !o.deleted_at && typeof o.utm_campaign === 'string').map((o: Json) => {
+    const sold = !['ملغي', 'استرجاع', 'فشل'].includes(String(o.status));
+    // confirmed by the team (a deposit or not) or already completed — the orders a budget raise may count
+    const confirmed = sold && (String(o.confirm).startsWith('مؤكد') || o.status === 'مكتمل');
+    return { day: cairoParts(Date.parse(o.placed_at)).day, campaign: o.utm_campaign, sold, confirmed, sales: Number(o.total) || 0 };
+  });
 }
 // after a sync: the suggestions of today — the open ones kept (their numbers refreshed) or expired, the new ones inserted; autoStop «auto» acts at once
 async function suggest(deps: Deps, cfg: { token: string; account: string }, at: string): Promise<number> {

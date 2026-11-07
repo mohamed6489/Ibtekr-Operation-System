@@ -138,8 +138,9 @@ const BUYER_OBJECTS = [
 ];
 // Lamps: 2,000 in 5 days without an order → stop; Macrame: 5 orders of 700 on 700 spent → MER 5 → scale
 const BUYER_STATS = [...[0, 1, 2, 3, 4].map((n) => campStat(C2, n, 400, 2)), ...[0, 1, 2, 3, 4, 5, 6].map((n) => campStat(C1, n, 100, 1))];
-const BUYER_ORDERS = [0, 1, 2, 3, 4].map((n, i) => ({ id: 95300001 + i, number: String(95300001 + i), customer_name: 'ع', status: 'مكتمل', confirm: 'غير مؤكد', deposit: 0, total: 700, placed_at: dayN(n) + 'T10:00:00+02:00', ad_platform: 'meta', utm_campaign: C1 }));
-const STATUS_MAP = [{ id: 1, system_status: 'مكتمل', woo_status: 'completed' }];
+// four confirmed (one of them under way) + one completed: a raise counts them all; an unconfirmed one would not
+const BUYER_ORDERS = [0, 1, 2, 3, 4].map((n, i) => ({ id: 95300001 + i, number: String(95300001 + i), customer_name: 'ع', status: n ? 'جاري التنفيذ' : 'مكتمل', confirm: n ? 'مؤكد بعربون' : 'غير مؤكد', deposit: 0, total: 700, placed_at: dayN(n) + 'T10:00:00+02:00', ad_platform: 'meta', utm_campaign: C1 }));
+const STATUS_MAP = [{ id: 1, system_status: 'مكتمل', woo_status: 'completed' }, { id: 2, system_status: 'جاري التنفيذ', woo_status: 'processing' }];
 // the sync of these tests brings the two campaigns and no insights, so the seeded numbers are the numbers
 const BUYER_ROUTES: Record<string, Route> = { ...OK_ROUTES,
   'GET act_1122334455/campaigns': { body: { data: [{ id: C1, name: 'Macrame', effective_status: 'ACTIVE', daily_budget: '30000' }, { id: C2, name: 'Lamps', effective_status: 'ACTIVE' }] } },
@@ -161,6 +162,12 @@ Deno.test('suggest (after a sync): stop for a campaign spending without orders, 
   const rows = db.rows('mkt_suggestions');
   assertEquals(rows.map((s: any) => [s.kind, s.campaign_id, s.status, s.pct]).sort(), [['budget_up', C1, 'pending', 20], ['stop', C2, 'pending', null]]);
   assert(rows.find((s: any) => s.kind === 'stop').title.includes('Lamps') && rows.find((s: any) => s.kind === 'stop').data.orders5 === 0);
+  assertEquals(rows.find((s: any) => s.kind === 'budget_up').data.confirmed, 5);
+  // the same orders unconfirmed and not completed: no raise (anyone can place an order with the campaign's UTM)
+  const loose = setup({ routes: BUYER_ROUTES, objects: BUYER_OBJECTS, stats: BUYER_STATS });
+  await loose.db.from('status_map').insert(STATUS_MAP); await loose.db.from('orders').insert(BUYER_ORDERS.map((o) => ({ ...o, status: 'جاري التنفيذ', confirm: 'غير مؤكد' })));
+  await cron(loose.deps);
+  assertEquals(loose.db.rows('mkt_suggestions').map((s: any) => s.kind), ['stop']);
   // the next sync: the same two, refreshed, not doubled
   await cron(deps);
   assertEquals(db.rows('mkt_suggestions').length, 2);

@@ -18,7 +18,7 @@
 -- ---------------------------------------------------------------- the platform keys in Vault (decision 9)
 
 create or replace function public.app_secret_name_ok(p_name text) returns boolean
-language sql immutable as $$
+language sql immutable set search_path = public as $$
   select p_name in ('woo', 'anthropic', 'openai', 'gemini', 'elevenlabs', 'higgsfield', 'magnific_api', 'resend',
                     'airtable', 'sheets', 'paymob', 'bosta', 'n8n', 'github', 'figma')
       or p_name ~ '^(mcp|custom)_[a-z0-9][a-z0-9_]{0,39}$'
@@ -147,7 +147,7 @@ grant execute on function public.settings_public() to authenticated, service_rol
 alter table public.roles add column if not exists hidden boolean not null default false;
 
 create or replace function public.perms_ok(p_perms jsonb) returns boolean
-language sql immutable as $$
+language sql immutable set search_path = public as $$
   select p_perms is not null and jsonb_typeof(p_perms) = 'object'
      and not exists (select 1 from jsonb_each_text(p_perms) e where e.key !~ '^[a-z_]+\.[a-z_0-9]+$' or e.value not in ('F', 'P', 'N'))
 $$;

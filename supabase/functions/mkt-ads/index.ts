@@ -39,7 +39,9 @@ const configOf = (env: Deps['env']) => {
 
 // ---------------------------------------------------------------- Graph (GET only)
 
-class GraphError extends Error { constructor(public code: string) { super(code); this.name = 'GraphError'; } }
+// text: Meta's own words of the refusal (letters, digits and plain punctuation only, 200 characters) — never a token, shown to the admin
+class GraphError extends Error { constructor(public code: string, public text: string | null = null) { super(code); this.name = 'GraphError'; } }
+const graphText = (out: unknown) => { const m = isObj(out) && isObj(out.error) ? out.error.message : null; return typeof m === 'string' ? m.replace(/[^\w .,:;()#'-]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 200) || null : null; };
 async function get(deps: Deps, url: string, token: string): Promise<Json> {
   const f = deps.fetch ?? fetch; const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), GRAPH_MS);
   let res: Response;
@@ -48,7 +50,7 @@ async function get(deps: Deps, url: string, token: string): Promise<Json> {
   finally { clearTimeout(timer); }
   let out: unknown = null;
   try { out = await res.json(); } catch { out = null; }
-  if (!res.ok) throw new GraphError(graphErrorCode(out));
+  if (!res.ok) throw new GraphError(graphErrorCode(out), graphText(out));
   return isObj(out) ? out : {};
 }
 // a list with its pages (Meta's own next links), MAX_PAGES at most
@@ -115,8 +117,9 @@ async function run(deps: Deps, daysArg: number | null): Promise<Response> {
   } catch (e) {
     if (!(e instanceof GraphError)) throw e;
     const code = ourCode(e.code);
-    await upsertAll(deps, 'mkt_ad_objects', [{ ...accountRowOf(cfg.account, null, at, code, prev), updated_at: at }], 'platform,kind,id');
-    return json(502, { error: code });
+    const row: Json = accountRowOf(cfg.account, null, at, code, prev); row.meta = { ...row.meta, error_text: e.text };
+    await upsertAll(deps, 'mkt_ad_objects', [{ ...row, updated_at: at }], 'platform,kind,id');
+    return json(502, { error: code, text: e.text });
   }
 }
 
@@ -125,7 +128,7 @@ async function status(deps: Deps, who: Who): Promise<Response> {
   const cfg = configOf(deps.env);
   const row = cfg ? await accountRow(deps, cfg.account) : null; const m = row && isObj(row.meta) ? row.meta : {};
   return json(200, { configured: !!cfg, account: row ? { name: row.name ?? null, currency: m.currency ?? null, status: row.status ?? null } : null,
-    synced_at: m.synced_at ?? null, checked_at: m.checked_at ?? null, error: m.error ?? null });
+    synced_at: m.synced_at ?? null, checked_at: m.checked_at ?? null, error: m.error ?? null, text: m.error ? m.error_text ?? null : null });
 }
 async function syncByHand(deps: Deps, who: Who, args: Json): Promise<Response> {
   if (!who.admin) return json(401, { error: 'unauthorized' });

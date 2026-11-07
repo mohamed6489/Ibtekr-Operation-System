@@ -278,6 +278,11 @@ test('9.5.3 adsStatus: mkt-ads status cached a minute, the account and the last 
   const off = load({ role: 'admin', responses: { 'fn:mkt-ads': { data: null, error: { context: { status: 503, json: async () => ({ error: 'not_configured', configured: false }) } } } } });
   assert.match((await off.M.adsSync()).message, /لسه مش متربطة/);
   eq(M.adsWhy('rate').includes('استنى'), true); eq(M.adsWhy('graph_368'), 'ميتا رفضت (graph_368)'); eq(M.adsWhy(null), null);
+  // Meta's own words come after a code we have no message for (never after a known one)
+  eq(M.adsWhy('graph_1', 'An unknown error occurred'), 'ميتا رفضت (graph_1) — An unknown error occurred'); eq(M.adsWhy('token', 'expired').includes('expired'), false);
+  const bad = load({ role: 'admin', responses: { 'fn:mkt-ads': (o) => (o.body.action === 'sync' ? { data: null, error: { context: { status: 502, json: async () => ({ error: 'graph_1', text: 'Unsupported get request' }) } } } : ok({ configured: true, account: null, error: 'graph_1', text: 'Unsupported get request' })) } });
+  assert.match((await bad.M.adsSync()).message, /graph_1\) — Unsupported get request/);
+  assert.match((await bad.M.adsStatus()).ads.why, /Unsupported get request/);
 });
 
 test('9.5.3 adsData: the period + the 5 weeks before its end, Meta\'s objects and daily numbers as numbers, the ad orders; https pictures only; cached', async () => {

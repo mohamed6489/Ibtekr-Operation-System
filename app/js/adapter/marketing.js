@@ -243,7 +243,7 @@
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
         const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'notfound' : s === 402 ? 'ai_cap' : s === 429 ? 'busy' : s === 503 ? 'not_configured' : s === 502 ? 'ai_error' : s === 409 ? 'conflict' : 'network';
         return { ok: false, reason, field: b && b.field ? String(b.field) : null, status: b && Number.isInteger(b.status) ? b.status : null, configured: b && typeof b.configured === 'boolean' ? b.configured : null,
-          code: b && typeof b.error === 'string' ? b.error.slice(0, 60) : null };
+          code: b && typeof b.error === 'string' ? b.error.slice(0, 60) : null, text: b && typeof b.text === 'string' ? b.text.slice(0, 200) : null };
       }
       return { ok: true, body: d };
     } catch (e) { return { ok: false, reason: 'network' }; }
@@ -421,7 +421,8 @@
   const ADS_MESSAGES = { not_configured: 'إعلانات ميتا لسه مش متربطة — مفتاح القراية وحساب الإعلانات بيتحطوا في أسرار السيرفر (الأدمن)',
     token: 'مفتاح إعلانات ميتا انتهى أو اتلغى — الأدمن يعمل مفتاح جديد', permission: 'المفتاح مالوش صلاحية قراية حساب الإعلانات (ads_read)',
     rate: 'ميتا بتقول استنى شوية — المزامنة الجاية هتكمّل', timeout: 'ميتا ماردتش في الوقت — المزامنة الجاية هتكمّل' };
-  const adsWhy = (code) => (code ? ADS_MESSAGES[code] || 'ميتا رفضت (' + String(code).slice(0, 40) + ')' : null);
+  // Meta's own words (the function sends them cleaned, 200 characters) are added for a code we have no message for
+  const adsWhy = (code, text) => (code ? (ADS_MESSAGES[code] || 'ميتا رفضت (' + String(code).slice(0, 40) + ')') + (!ADS_MESSAGES[code] && typeof text === 'string' && text ? ' — ' + text.slice(0, 200) : '') : null);
   let ads = null; let adsAt = 0; const adsCache = new Map(); const ADS_MS = 60000;
   // the ads link (mkt-ads status): { configured, account: { name, currency, status }, syncedAt, checkedAt, error, why }
   async function adsStatus(force) {
@@ -432,7 +433,7 @@
     const b = r.body || {}; const a = b.account && typeof b.account === 'object' ? b.account : null;
     ads = { configured: b.configured === true, account: a ? { name: typeof a.name === 'string' ? a.name : null, currency: typeof a.currency === 'string' ? a.currency : null, status: typeof a.status === 'string' ? a.status : null } : null,
       syncedAt: typeof b.synced_at === 'string' ? b.synced_at : null, checkedAt: typeof b.checked_at === 'string' ? b.checked_at : null,
-      error: typeof b.error === 'string' ? b.error : null, why: adsWhy(typeof b.error === 'string' ? b.error : null) };
+      error: typeof b.error === 'string' ? b.error : null, why: adsWhy(typeof b.error === 'string' ? b.error : null, b.text) };
     adsAt = Date.now(); emit(); return { ok: true, ads };
   }
   const adsNow = () => ads;
@@ -441,7 +442,7 @@
     if (!isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     const r = await invoke('mkt-ads', Object.assign({ action: 'sync' }, days ? { days: Number(days) } : {}));
     adsCache.clear(); await adsStatus(true);
-    if (!r.ok) return Object.assign(r, { message: r.reason === 'not_configured' ? ADS_MESSAGES.not_configured : r.reason === 'forbidden' ? MESSAGES.forbidden : adsWhy(r.code) || MESSAGES.network });
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'not_configured' ? ADS_MESSAGES.not_configured : r.reason === 'forbidden' ? MESSAGES.forbidden : adsWhy(r.code, r.text) || MESSAGES.network });
     const b = r.body || {}; return { ok: true, days: Number(b.days) || 0, campaigns: Number(b.campaigns) || 0, ads: Number(b.ads) || 0, stats: Number(b.stats) || 0 };
   }
   // every row of a read, a thousand at a time (the API's page)

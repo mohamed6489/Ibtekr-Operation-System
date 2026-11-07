@@ -90,7 +90,9 @@ Deno.test('a failure: our code on the account row, the last success and the numb
   const r = await cron(deps);
   assertEquals([r.res.status, r.body.error], [502, 'token']);
   const acct = db.rows('mkt_ad_objects').find((o: any) => o.kind === 'account');
-  assertEquals([acct.name, acct.meta.synced_at, acct.meta.checked_at, acct.meta.error], ['Ibtekr Club', '2026-10-24T10:00:00.000Z', NOW, 'token']);
+  assertEquals([acct.name, acct.meta.synced_at, acct.meta.checked_at, acct.meta.error, acct.meta.error_text], ['Ibtekr Club', '2026-10-24T10:00:00.000Z', NOW, 'token', 'expired']);
+  assertEquals(r.body.text, 'expired'); // Meta's words reach the admin; a status read says them too
+  assertEquals((await call(deps, { action: 'status' }, 'jwt-view')).body.text, 'expired');
   assertEquals(db.rows('mkt_ad_stats').length, 1);
   const t = setup({ routes: { ...OK_ROUTES, 'GET act_1122334455': () => Object.assign(new Error('aborted'), { name: 'AbortError' }) } });
   assertEquals((await cron(t.deps)).body.error, 'timeout');
@@ -105,7 +107,7 @@ Deno.test('status: marketing.view; the account, the last success and error — n
   assertEquals((await call(deps, { action: 'status' }, 'jwt-none')).res.status, 401);
   assertEquals((await call(deps, { action: 'status' }, 'jwt-unknown')).res.status, 401);
   const none = setup({ env: ENV });
-  assertEquals((await call(none.deps, { action: 'status' }, 'jwt-view')).body, { configured: false, account: null, synced_at: null, checked_at: null, error: null });
+  assertEquals((await call(none.deps, { action: 'status' }, 'jwt-view')).body, { configured: false, account: null, synced_at: null, checked_at: null, error: null, text: null });
 });
 
 Deno.test('sync by hand: the admin only, 1–400 days, logged with counts only', async () => {

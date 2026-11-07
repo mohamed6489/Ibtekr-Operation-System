@@ -3295,6 +3295,8 @@
 
   // phase 11 (decisions 16 / 19 / 21 / 23): the public settings every member gets with the sign-in — the brand (colors, fonts, the
   // uploaded logos), the quick actions, the bell's role matrix and this member's override, the security policy (idle, force 2FA)
+  // the policy itself is enforced on the server (0056: has_perm / is_admin give nothing to a session that is not aal2 while
+  // force2fa is on) — the redirect here is the experience: the member lands where enrolling happens
   let force2fa = false; let twofaToldAt = 0;
   const needs2fa = () => { if (!force2fa) return false; const me = window.IBDirectory && window.IBDirectory.me ? window.IBDirectory.me() : null; return !!me && me.status === 'active' && !me.twofa; };
   const twofaNote = () => { if (Date.now() - twofaToldAt < 4000) return; twofaToldAt = Date.now(); window.IBKit.toast('الشركة ملزمة التحقق بخطوتين — فعّله الأول من «ملفي › الحساب والأمان»', 'error'); };

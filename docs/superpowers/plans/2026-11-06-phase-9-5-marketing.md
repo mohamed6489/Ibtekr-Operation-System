@@ -222,4 +222,61 @@ Seedance 2.5 / 2.0، Kling 2.5، MiniMax H3 + فويس أوفر ElevenLabs + م�
   + Deno؛ `ai-content` action `buyer` + اختبار.
 - **T22** ✓ `IBMarketing` (الاقتراحات، القرار، القواعد، الطلبات، الشات) + الـ mock + الاختبارات.
 - **T23** ✓ الصفحة (تاب المساعدين، كارت الاقتراحات في نظرة عامة، عمود القرار في التقارير) + e2e.
-- **T24** الوثائق + الحي (0053، rls live، نشر `mkt-ads` و`ai-content`، main).
+- **T24** ✓ الوثائق + الحي (0053، rls live، نشر `mkt-ads` و`ai-content`، main).
+
+
+# 9.5.5 — الفيديو بالـ AI (7 نوفمبر)
+
+صاحب المشروع: «كمل 9.5.5 الفيديو». الأساس: قطعة «فيديو» في الكامبين بتاعة الـ v6 (البناء: المشاهد وصورها · المراجعة: التايملاين والموسيقى
+والفويس أوفر و«توليد المشاهد» و«تجميع المشاهد» والمشغّل والموافقة) وأداة «فيديو» في «إنشاء» (3 خطوات)، والموديلات `PD.VIDEO_MODELS`.
+
+## قرارات التنفيذ — 9.5.5
+
+57. **المصدر = جسر Magnific (MCP بحساب صاحب المشروع — قرار 11 في 5.4)، مش الـ API:** مرجع الـ API مافيهوش فيديو ولا صوت. الأدوات: `video_generate`
+    (Seedance 2.5 `bytedance-seedance-pro-2.5` 4–30 ث بصوت أصلي وmulti_prompt · Seedance 2.0 `bytedance-seedance-pro-2.0` 4–15 ث 4K · Kling 2.5 `kling-25`
+    5/10 ث صامت · MiniMax H3 Max `minimax-video-3_0-max` 5–15 ث 768p)، `audio_tts` (ElevenLabs — أصوات عربي/مصري من الكتالوج)، `audio_music_generate`
+    (Google Lyria 3 — 30 ث)، `video_concatenate`، `video_audio_mix`، `creations_wait` / `creations_get`. الربط والتوكنات زي ما هم (`magnific_mcp_tokens`).
+    **الكريدت:** التوليد على حساب Magnific المربوط — مابيتخصمش من سقف كريدت الصور (`mkt_credits`)؛ التكلفة التقريبية بتتعرض «≈ N كريدت على حساب
+    Magnific» بأرقام `VIDEO_RATE` كتقدير بس.
+58. **التوليد غير متزامن (دقايق):** جدول `mkt_video_jobs` (`0054`): الكامبين، القطعة، النوع `clip | voice | music | assemble | mix`، رقم المشهد، `creation_ref`،
+    الحالة `queued | running | done | failed`، `url` (رابط Magnific — السيرفر بس)، `path` (الملف في bucket `marketing` بعد التنزيل)، `error`، `created_by`. الكتابة
+    للسيرفر بس، القراية `marketing.view`. `video_poll` (الصفحة كل 15 ثانية وهي مفتوحة على القطعة) بيسأل `creations_wait` على المفتوح ويحمّل اللي خلص
+    (`pikaso.cdnpk.net` بس — `IMPORT_HOSTS`) في `<الكامبين>/vid-<القطعة>[-s<n>|-vo|-mu|-cut|-mix]-<stamp>.mp4|mp3` — لحد 120 ميجا للملف (الأكبر بيفضل
+    برابطه و«نزّله من Magnific»). bucket `marketing` بيقبل `video/mp4` و`audio/mpeg` والحد 200 ميجا (`0054`).
+59. **المشاهد بالـ AI:** «توليد المشاهد» = `ai-content` `marketing` task `scenes` (`marketing.create`؛ Claude بيكتب لكل مشهد الفكرة والنص على الشاشة
+    وحركة الكاميرا ونص الفويس أوفر بالمصري من فكرة الكامبين والقطعة والمنتجات؛ مدد المشاهد من `splitScenes` ومتوافقة مع الموديل — Kling 5/10 بس).
+    صورة المشهد = `ai-images` `campaign` نفسه بـ `slide` = رقم المشهد (`campaignTarget` بيقبل «فيديو» وبيستهدف `scenes[k]`) — بالكريدت زي الصور.
+60. **طريقة التوليد (الـ v6):** `separate` = clip لكل مشهد من صورته (`keyframes.start` = صورة المشهد مرفوعة على Magnific بـ `creations_upload_image`
+    برابط موقّع — زي `bridge_upload`) بمدته؛ `chained` («متصلة») = نداء واحد Seedance بـ `multi_prompt` (لحد 6 لقطات بمددها) وصورة أول مشهد مرجعية
+    (`references[] image`) — حركة متصلة؛ على Kling/MiniMax بترجع `separate`. البرومبت إنجليزي من `scenePrompt` (`_shared/mkt-video.js`): المنتج زي ما هو،
+    الكاميرا، الإحساس، «من غير كلام مكتوب» (النص على الشاشة بيتكتب في المرحلة الجاية — مش في المرحلة دي)، والصوت الأصلي (Seedance) أصوات بيئة بس من
+    غير كلام (`noMusic` لما فيه موسيقى بتاعتنا).
+61. **الصوت:** الفويس أوفر = `audio_tts` بأصوات الكتالوج: «راجل — مصري» Bilal Khalil (1171) / Karim Zaidan (1334) / Yusuf Al-Mansour (227)، «ست — عربي»
+    Amina Al-Yasmin (352) / Hiba Al-Kayyali (784)؛ «ارفع صوتك» = ملف من الجهاز لـ bucket `marketing` ثم `creations_request_upload` + PUT من السيرفر +
+    `creations_finalize_upload`. الموسيقى = `audio_music_generate` (Lyria 3، برومبت من النوع: دافية هادية / شرقي حديث / مبهجة / سينمائي) أو «ارفع تراك» بنفس
+    المسار أو «من غير». **التجميع** = `video_concatenate` للمقاطع بالترتيب ثم `video_audio_mix` (الموسيقى 35 والفويس 100 وصوت المقاطع 60؛ من غير
+    موسيقى وفويس = المقاطع بصوتها) → الملف النهائي `vid-<القطعة>-mix-….mp4` هو `p.video` في الحالة، والمشغّل `<video>` برابط موقّع.
+62. **أداة «فيديو» في «إنشاء»** = كامبين جديد بفيديو واحد (`media.video.count = 1`، البوستات والكاروسيل صفر) بيفتح على البناء — نفس المسار والكود؛
+    مافيش دومين تاني للأداة (الـ v6 أداة لوحدها بـ 3 خطوات — القرار: مسار واحد).
+63. **النشر:** الريل بيتنشر فعلًا على فيسبوك (`/{page}/video_reels`: start → upload بـ `file_url` موقّع → finish بالوصف) وانستجرام (`media_type=REELS`
+    + `video_url` موقّع → الكونتينر بيتجهز → publish) عبر `mkt-publish` بنفس المفتاح (`autopublish`) و`how = publish`؛ تيك توك داونلود. الرابط الموقّع
+    ساعة. الفيديو غير المجمّع مابيتجدولش.
+64. **الصلاحيات والقيود:** كل التوليد `marketing.create` F (الأدمن كمان)، والجسر لازم يكون مربوط (غير كده 503 `not_linked` ورسالة «اربط حساب
+    Magnific من إعدادات الصور»)؛ فيديو واحد 8 مشاهد على الأكثر و30 ث؛ 6 مهام مفتوحة للقطعة على الأكثر. `ai_runs`: صف لكل نداء توليد بـ `action = 'image'`
+    و`source = 'video'` و`credits = 0` (`0054` بيسمح `video`)؛ `activity_log` `mkt.video.clip` / `voice` / `music` / `assemble` / `poll` بالقطعة والنوع والأعداد بس —
+    مافيش برومبت ولا نص فويس ولا رابط.
+65. **الاختبارات:** node لـ `_shared/mkt-video.js` (البرومبتات، تحويل المشاهد لـ multi_prompt، المقاسات/المدد لكل موديل، خطة المزج، أسماء الملفات) ولـ
+    `marketing-domain` (التكلفة والـ built/approvable للفيديو)؛ Deno لـ `ai-images` (جسر وهمي: clip/voice/music/assemble/poll بالحالات) و`ai-content`
+    (`scenes`) و`mkt-publish` (الريل على فيسبوك وانستجرام)؛ e2e: قطعة فيديو كاملة على الـ mock (المشاهد → الصور → المقاطع → التجميع → الموافقة →
+    الجدولة «انشر» → النشر).
+66. **الوثائق:** CLAUDE.md ملحوظة 9.5.5، `tools/deploy.md` §2.7.29، الدفتر.
+
+## المهام — 9.5.5 (بالتوالي)
+
+- **T25** الخطة (القرارات 57–66) + الدفتر.
+- **T26** `0054_marketing_video.sql` (`mkt_video_jobs`، bucket MIME والحد، `ai_runs.source` «video») + `rls_marketing_video.sql`.
+- **T27** الجزء الصافي `_shared/mkt-video.js` + `campaignTarget` للفيديو + `ai-content` task `scenes` + اختبارات node/Deno.
+- **T28** `ai-images` actions `video_clip` / `video_voice` / `video_music` / `video_assemble` / `video_poll` + Deno (جسر وهمي).
+- **T29** `IBMarketing` (المهام، الأفعال، المشاهد، الملفات) + الـ mock + الصفحة (قطعة الفيديو في البناء والمراجعة، المشغّل، أداة «فيديو»، `VIDEO_SOON`
+  = false) + CSS الـ v6 + e2e.
+- **T30** `mkt-publish` الريلز (فيسبوك + انستجرام) + Deno + الوثائق + الحي (0054، rls live، نشر `ai-images` و`ai-content` و`mkt-publish`، main).

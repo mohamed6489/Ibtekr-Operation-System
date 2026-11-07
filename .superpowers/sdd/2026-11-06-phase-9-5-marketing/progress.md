@@ -127,3 +127,10 @@
 - T24 ✓ (7 نوفمبر) الوثائق (CLAUDE.md ملحوظة 9.5.4، `tools/deploy.md` §2.7.28، الخطة) + الحي: `0053` اتطبّقت بالـ MCP (الجداول والسياسات والـ cron
   `mkt-ads-report` 35 * * * * و`ai_runs.source` «buyer» اتأكدوا)، «RLS live» `rls_marketing_buyer rls_security_advisor` ✓، «Deploy functions» `mkt-ads` (v5) ✓
   و`ai-content` ✓. المفتاح «التنفيذ على ميتا» متوقف على الحي لحد ما صاحب المشروع يشغّله.
+
+## 9.5.5 — الفيديو بالـ AI
+
+- T25 ✓ (7 نوفمبر) الخطة: قرارات 57–66 (المصدر جسر Magnific المربوط — الـ API مافيهوش فيديو؛ مهام غير متزامنة `mkt_video_jobs` + `video_poll`؛ المشاهد بـ Claude وصورها
+  بـ `campaign`؛ `separate` clip لكل مشهد بصورته / `chained` = Seedance multi_prompt؛ الفويس بأصوات ElevenLabs المصرية والموسيقى Lyria؛ التجميع concatenate + mix؛
+  أداة «فيديو» = كامبين بفيديو واحد؛ الريلز بتتنشر فعلًا على فيسبوك وانستجرام) والمهام T25–T30. الكتالوج اتقرا حي 7 نوفمبر (Seedance 2.5 `bytedance-seedance-pro-2.5`،
+  Kling 2.5 `kling-25`، MiniMax H3 Max `minimax-video-3_0-max`؛ أصوات مصرية Bilal Khalil 1171 / Karim Zaidan 1334 / Yusuf Al-Mansour 227).

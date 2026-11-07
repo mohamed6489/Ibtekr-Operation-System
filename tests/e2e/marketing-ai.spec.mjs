@@ -32,11 +32,13 @@ async function start(page, extra = {}) {
 }
 test.afterEach(() => { if (LIVE) return; expect(pageErrors).toEqual([]); expect(mock.unhandled).toEqual([]); });
 async function signIn(page, email) {
-  if (!(await page.locator('#login').isVisible().catch(() => false))) await page.goto('/'); // after a sign-out the login is already there
+  // after a sign-out the app reloads itself: let that reload land, then start from a fresh page (a goto cut by the reload is retried)
+  await page.waitForLoadState('load').catch(() => {});
+  await page.goto('/').catch(() => page.goto('/'));
   await expect(page.locator('#login')).toBeVisible();
   await page.fill('#lg-id', email); await page.fill('#lg-pw', DEV_PW);
   await page.getByRole('button', { name: 'دخول', exact: true }).click();
-  await expect(page.locator('#root')).toBeVisible();
+  await expect(page.locator('#root')).toBeVisible({ timeout: 15000 });
 }
 async function openAi(page, email, sub) {
   await signIn(page, email);

@@ -79,7 +79,19 @@ const COLUMNS: Record<string, string[]> = {
   mkt_suggestions: ['id', 'platform', 'kind', 'campaign_id', 'campaign_name', 'ad_id', 'title', 'sub', 'why', 'impact', 'pct', 'data', 'status', 'created_at', 'checked_at', 'decided_by', 'decided_at', 'value', 'note', 'result', 'error'],
   mkt_requests: ['id', 'kind', 'title', 'details', 'project', 'status', 'created_by', 'created_at', 'updated_by', 'updated_at', 'done_at'],
   mkt_video_jobs: ['id', 'campaign_id', 'piece', 'kind', 'scene', 'creation_ref', 'status', 'url', 'path', 'bytes', 'duration', 'error', 'data', 'created_by', 'created_at', 'updated_at', 'done_at'], // 0054 (phase 9.5.5)
-  alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at'],
+  alerts: ['id', 'at', 'kind', 'title', 'body', 'role_id', 'user_id', 'entity', 'entity_id', 'read_at', 'source_key', 'expires_at'], // 0056: source_key / expires_at
+  // 0006 + 0056 (phase 11): the read marks and the notifications engine's memory
+  alert_reads: ['alert_id', 'user_id', 'read_at'],
+  alert_state: ['source_key', 'entity_id', 'target', 'first_at', 'last_sent_at', 'sent_count', 'escalated_at', 'resolved_at', 'channel_log'],
+  // the tables the notify engine reads (0045 tickets, 0046 HR, 0044 inventory, 0019 accounts, 0056 company_docs)
+  tickets: ['id', 'type', 'title', 'description', 'priority', 'assignee_role', 'order_number', 'order_id', 'customer', 'cs_customer_id', 'cs_conversation_id', 'vendor_id', 'vendor', 'reason', 'follow_up', 'attachments', 'status', 'created_by', 'created_by_name', 'created_by_role', 'created_at', 'last_update', 'reopen_count', 'resolution_outcome'],
+  hr_requests: ['id', 'member_id', 'type', 'from_day', 'to_day', 'at_time', 'hours', 'amount', 'months', 'note', 'doc_path', 'status', 'decided_by', 'decided_at', 'reason', 'created_by', 'created_at'],
+  hr_overtime: ['id', 'member_id', 'day', 'start_at', 'end_at', 'minutes', 'kind', 'note', 'status', 'paid_minutes', 'decided_by', 'decided_at', 'reason', 'created_at', 'pay_month'],
+  hr_meetings: ['id', 'member_id', 'reason', 'status', 'day', 'time_text', 'place', 'outcome', 'plan', 'goals', 'support', 'review_on', 'progress', 'notes', 'ref', 'created_by', 'created_at', 'updated_at'],
+  hr_payroll: ['month', 'status', 'opened_at', 'reviewed_by', 'reviewed_at', 'approved_by', 'approved_at', 'paid_by', 'paid_at', 'paid_account', 'total'],
+  inv_consolidations: ['id', 'order_id', 'zone', 'status', 'carrier', 'since', 'created_by', 'created_at', 'closed_at', 'closed_by'],
+  acc_expenses: ['id', 'on_date', 'direction', 'category', 'beneficiary', 'beneficiary_other', 'amount', 'note', 'sub_name', 'sub_is_other', 'sub_ends', 'sub_alerts', 'sub_note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'voided_by', 'voided_at', 'details', 'staff_kind', 'reason'],
+  company_docs: ['id', 'name', 'type', 'doc_no', 'issued', 'expires', 'path', 'size', 'mime', 'notes', 'created_by', 'created_at', 'updated_at'],
   // 0002: the settings rows (ai-content reads the section «ai» — phase 5.3 decision 8)
   settings: ['section', 'data', 'updated_at', 'updated_by'],
   // 0044 (phase 7): the inventory hub's lots and moves (woo-sync inventory_push reads them)
@@ -112,10 +124,12 @@ const DEFAULTS: Record<string, Row> = {
   cs_wa_state: { status: 'offline' }, cs_campaigns: { status: 'مسودة', cap_per_day: 300, min_delay_s: 20, size: 0, stats: {} }, cs_campaign_recipients: { status: 'queued' },
   mkt_posts: { src: 'system', how: 'download', status: 'مجدول', was_live: false, attempts: 0, images: [], caption: '', caption_orig: '', tags: '' },
   mkt_suggestions: { platform: 'meta', status: 'pending', data: {} }, mkt_requests: { status: 'جديد' }, mkt_video_jobs: { status: 'queued', data: {} },
+  alert_state: { sent_count: 0, channel_log: [] }, tickets: { status: 'open', attachments: [], reopen_count: 0 }, hr_requests: { status: 'جديد' }, hr_overtime: { status: 'مستني', kind: 'hours', paid_minutes: 0 }, hr_meetings: { status: 'مطلوب', goals: [] },
+  hr_payroll: { status: 'مسودة' }, inv_consolidations: { status: 'open' }, acc_expenses: { direction: 'withdraw' },
 };
 const SERIAL: Record<string, 'int' | 'uuid'> = { status_map: 'int', vendors: 'uuid', sub_orders: 'int', woo_webhook_events: 'int', woo_sync_log: 'int',
   vendor_rates: 'int', vendor_category_rates: 'int', activity_log: 'int', ai_runs: 'int', image_imports: 'int', image_shares: 'int', shot_prompts: 'int',
-  cs_customers: 'uuid', cs_contacts: 'int', cs_conversations: 'uuid', cs_messages: 'uuid', cs_channel_events: 'int', cs_campaigns: 'uuid', cs_campaign_recipients: 'int', mkt_posts: 'int', mkt_suggestions: 'int', mkt_requests: 'int', mkt_video_jobs: 'int', alerts: 'int' };
+  cs_customers: 'uuid', cs_contacts: 'int', cs_conversations: 'uuid', cs_messages: 'uuid', cs_channel_events: 'int', tickets: 'int', hr_requests: 'int', hr_overtime: 'int', hr_meetings: 'int', inv_consolidations: 'uuid', acc_expenses: 'uuid', company_docs: 'uuid', cs_campaigns: 'uuid', cs_campaign_recipients: 'int', mkt_posts: 'int', mkt_suggestions: 'int', mkt_requests: 'int', mkt_video_jobs: 'int', alerts: 'int' };
 const UNIQUE: Record<string, string[][]> = {
   status_map: [['id'], ['system_status']], vendors: [['id'], ['woo_vendor_id']], products: [['id']], orders: [['id']],
   sub_orders: [['id'], ['woo_order_id'], ['order_id', 'vendor_id']], order_items: [['id']],
@@ -126,6 +140,7 @@ const UNIQUE: Record<string, string[][]> = {
   cs_oauth_states: [['state']], cs_channel_events: [['id']], cs_posts: [['id']], cs_wa_state: [['channel']], cs_campaigns: [['id']], cs_campaign_recipients: [['id'], ['campaign_id', 'customer_id']],
   profiles: [['id'], ['email'], ['phone'], ['member_code']], roles: [['id']], hr_members: [['member_id']], mkt_posts: [['id'], ['platform', 'external_id']], mkt_ad_objects: [['platform', 'kind', 'id']], mkt_ad_stats: [['platform', 'level', 'object_id', 'day']],
   mkt_suggestions: [['id']], mkt_requests: [['id']], mkt_video_jobs: [['id']], alerts: [['id']],
+  alert_reads: [['alert_id', 'user_id']], alert_state: [['source_key', 'entity_id', 'target']], tickets: [['id']], hr_requests: [['id']], hr_overtime: [['id']], hr_meetings: [['id']], hr_payroll: [['month']], inv_consolidations: [['id']], acc_expenses: [['id']], company_docs: [['id']],
 };
 const NOT_NULL: Record<string, string[]> = {
   status_map: ['system_status'], vendors: ['name', 'aliases', 'status'], products: ['name'],

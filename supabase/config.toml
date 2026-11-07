@@ -32,3 +32,6 @@ verify_jwt = false
 
 [functions.settings-admin]
 verify_jwt = false
+
+[functions.notify]
+verify_jwt = false

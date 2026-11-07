@@ -11,7 +11,7 @@
 // A failed run keeps the last numbers and the last success and says our code (token / permission / rate / timeout / graph_N) on
 // the account row; the page says it in words.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
-import { FIRST_DAYS, MAX_DAYS, MAX_PAGES, SYNC_DAYS, accountOf, accountRowOf, nextOf, objectRowOf, path, statRowOf, windowOf } from '../_shared/mkt-ads.js';
+import { CHUNK_DAYS, FIRST_DAYS, MAX_DAYS, MAX_PAGES, SYNC_DAYS, accountOf, accountRowOf, nextOf, objectRowOf, path, statRowOf, windowChunks, windowOf } from '../_shared/mkt-ads.js';
 import { graphErrorCode } from '../_shared/cs-channel.js';
 import { ourCode } from '../_shared/mkt-publish.js';
 
@@ -106,10 +106,16 @@ async function run(deps: Deps, daysArg: number | null): Promise<Response> {
     const acct = await get(deps, path.account(cfg.account), cfg.token);
     const camps = await list(deps, path.campaigns(cfg.account), cfg.token);
     const ads = await list(deps, path.ads(cfg.account), cfg.token);
-    const cStats = await list(deps, path.insights(cfg.account, 'campaign', w.since, w.until), cfg.token);
-    const aStats = await list(deps, path.insights(cfg.account, 'ad', w.since, w.until), cfg.token);
-    const objects = [...camps.map((c) => objectRowOf('campaign', c, cfg.account)), ...ads.map((a) => objectRowOf('ad', a, null))].filter(isObj).map((r) => ({ ...r, updated_at: at }));
-    const stats = [...cStats.map((x) => statRowOf(x, 'campaign')), ...aStats.map((x) => statRowOf(x, 'ad'))].filter(isObj).map((r) => ({ ...r, updated_at: at }));
+    // a week at a time (Meta refuses a long range over every ad as too much data)
+    const cStats: Json[] = []; const aStats: Json[] = [];
+    for (const ch of windowChunks(w.since, w.until, CHUNK_DAYS)) {
+      cStats.push(...await list(deps, path.insights(cfg.account, 'campaign', ch.since, ch.until), cfg.token));
+      aStats.push(...await list(deps, path.insights(cfg.account, 'ad', ch.since, ch.until), cfg.token));
+    }
+    // one row a key (a page or a chunk answering a row twice would make the upsert refuse the whole batch — 21000)
+    const unique = (rows: (Json | null)[], key: (r: Json) => string) => [...new Map(rows.filter(isObj).map((r) => [key(r), { ...r, updated_at: at }])).values()];
+    const objects = unique([...camps.map((c) => objectRowOf('campaign', c, cfg.account)), ...ads.map((a) => objectRowOf('ad', a, null))], (r) => r.platform + '|' + r.kind + '|' + r.id);
+    const stats = unique([...cStats.map((x) => statRowOf(x, 'campaign')), ...aStats.map((x) => statRowOf(x, 'ad'))], (r) => r.platform + '|' + r.level + '|' + r.object_id + '|' + r.day);
     await upsertAll(deps, 'mkt_ad_objects', objects, 'platform,kind,id');
     await upsertAll(deps, 'mkt_ad_stats', stats, 'platform,level,object_id,day');
     await upsertAll(deps, 'mkt_ad_objects', [{ ...accountRowOf(cfg.account, acct, at, null, prev), updated_at: at }], 'platform,kind,id'); // last: the success mark

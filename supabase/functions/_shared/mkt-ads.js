@@ -7,7 +7,8 @@ import { cairoParts } from './mkt-publish.js';
 export const SYNC_DAYS = 3; // an hourly run re-reads the last three days (Meta settles its numbers late)
 export const FIRST_DAYS = 90; // the first run, with no numbers yet
 export const MAX_DAYS = 400;
-export const MAX_PAGES = 25; // the pages followed per list (a page is up to 500 rows)
+export const MAX_PAGES = 25; // the pages followed per list (a page is up to 500 rows; insights 100)
+export const CHUNK_DAYS = 7; // the insights are asked a week at a time: 90 days × every ad in one query made Meta answer «reduce the amount of data» (the first live run, 7 Nov)
 export const PURCHASE_TYPES = Object.freeze(['omni_purchase', 'purchase', 'offsite_conversion.fb_pixel_purchase']);
 
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -32,7 +33,7 @@ export const path = {
   campaigns: (a) => GRAPH + '/act_' + a + '/campaigns?fields=' + enc('id,name,effective_status,objective') + '&limit=500',
   ads: (a) => GRAPH + '/act_' + a + '/ads?fields=' + enc('id,name,campaign_id,effective_status,creative{thumbnail_url}') + '&limit=500',
   insights: (a, level, since, until) => GRAPH + '/act_' + a + '/insights?level=' + level + '&time_increment=1&time_range=' + enc(JSON.stringify({ since, until }))
-    + '&fields=' + enc(INSIGHT_FIELDS[level]) + '&limit=500',
+    + '&fields=' + enc(INSIGHT_FIELDS[level]) + '&limit=100',
 };
 // the next page of a list — Meta's own link only (never a host from the answer)
 export function nextOf(json) {
@@ -44,6 +45,15 @@ export function windowOf(nowMs, days) {
   const n = Math.max(1, Math.min(MAX_DAYS, Math.round(Number(days) || SYNC_DAYS)));
   const until = cairoParts(nowMs).day; const since = cairoParts(nowMs - (n - 1) * 86400_000).day;
   return { since, until, days: n };
+}
+// a window cut into pieces of at most CHUNK_DAYS days, the oldest first: [{ since, until }]
+export function windowChunks(since, until, days) {
+  const n = Math.max(1, Math.round(Number(days) || CHUNK_DAYS)); const out = [];
+  const d = (s) => new Date(s + 'T00:00:00Z'); const iso = (t) => t.toISOString().slice(0, 10);
+  for (let a = d(since); a <= d(until); a = new Date(a.getTime() + n * 86400_000)) {
+    const b = new Date(Math.min(a.getTime() + (n - 1) * 86400_000, d(until).getTime())); out.push({ since: iso(a), until: iso(b) });
+  }
+  return out;
 }
 // Meta's purchases of a row: the first type present of omni_purchase › purchase › the pixel's (never summed — one purchase is
 // reported under several types), and its value from action_values of the same type

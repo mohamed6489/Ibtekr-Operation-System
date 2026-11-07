@@ -65,9 +65,14 @@ Deno.test('the first run: 90 days, the pages followed, the objects and the daily
   const { deps, db, calls } = setup();
   const r = await cron(deps);
   assertEquals([r.res.status, r.body.days, r.body.since, r.body.until, r.body.campaigns, r.body.ads, r.body.stats], [200, 90, '2026-07-28', '2026-10-25', 1, 1, 4]);
+  // the insights a week at a time (13 weeks for 90 days), each level, each page followed
   const ins = calls.filter((c) => c.path === 'act_1122334455/insights');
-  assertEquals(ins.map((c) => [c.query.level, c.query.after ?? null]), [['campaign', null], ['campaign', 'p2'], ['ad', null], ['ad', 'p2']]);
-  assertEquals(JSON.parse(ins[0].query.time_range), { since: '2026-07-28', until: '2026-10-25' });
+  assertEquals(ins.slice(0, 4).map((c) => [c.query.level, c.query.after ?? null]), [['campaign', null], ['campaign', 'p2'], ['ad', null], ['ad', 'p2']]);
+  assertEquals(ins.length, 13 * 4);
+  assertEquals(JSON.parse(ins[0].query.time_range), { since: '2026-07-28', until: '2026-08-03' });
+  const firsts = ins.filter((c) => !c.query.after); // a page's own link carries no time_range of ours
+  assertEquals(JSON.parse(firsts[firsts.length - 1].query.time_range), { since: '2026-10-20', until: '2026-10-25' });
+  assert(firsts.every((c) => c.query.limit === '100'));
   assert(calls.every((c) => c.auth === 'Bearer ' + TOKEN && !JSON.stringify(c.query).includes(TOKEN)));
   const stats = db.rows('mkt_ad_stats');
   assertEquals(stats.map((s: any) => [s.level, s.object_id, s.day, s.spend, s.purchases, s.purchase_value]).sort(), [

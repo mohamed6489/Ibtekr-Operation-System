@@ -1,6 +1,6 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
-  accountOf, path, nextOf, windowOf, purchasesOf, statRowOf, objectRowOf, accountRowOf, SYNC_DAYS, MAX_DAYS, PURCHASE_TYPES,
+  accountOf, path, nextOf, windowOf, windowChunks, CHUNK_DAYS, purchasesOf, statRowOf, objectRowOf, accountRowOf, SYNC_DAYS, MAX_DAYS, PURCHASE_TYPES,
 } from '../../supabase/functions/_shared/mkt-ads.js';
 // mkt-ads's pure part (phase 9.5.3, decisions 43 / 48): the Marketing API's answers → mkt_ad_objects / mkt_ad_stats rows, read-only.
 
@@ -17,6 +17,13 @@ test('the calls: the account, its campaigns and ads, the daily insights per leve
   assert.match(u, /fields=ad_id%2Cad_name%2Ccampaign_id/);
   assert.equal(nextOf({ paging: { next: 'https://graph.facebook.com/v21.0/act_11/insights?after=x' } }), 'https://graph.facebook.com/v21.0/act_11/insights?after=x');
   assert.equal(nextOf({ paging: { next: 'https://evil.example/x' } }), null); assert.equal(nextOf({}), null);
+});
+
+test('windowChunks: a window a week at a time, the oldest first, the last piece short; one day = one piece', () => {
+  assert.deepEqual(windowChunks('2026-10-01', '2026-10-17', 7), [{ since: '2026-10-01', until: '2026-10-07' }, { since: '2026-10-08', until: '2026-10-14' }, { since: '2026-10-15', until: '2026-10-17' }]);
+  assert.deepEqual(windowChunks('2026-10-05', '2026-10-05'), [{ since: '2026-10-05', until: '2026-10-05' }]);
+  assert.equal(windowChunks('2026-07-28', '2026-10-25', CHUNK_DAYS).length, 13);
+  assert.match(path.insights('1', 'ad', '2026-10-01', '2026-10-07'), /limit=100/);
 });
 
 test('windowOf: the last n days ending today in Cairo; 3 by default, 400 at most', () => {

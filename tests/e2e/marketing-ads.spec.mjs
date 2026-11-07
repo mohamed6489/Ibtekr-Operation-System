@@ -53,12 +53,17 @@ test.afterEach(() => {
   expect(mock.unhandled).toEqual([]);
 });
 async function signIn(page, email) {
-  await page.goto('/');
+  if (!(await page.locator('#login').isVisible().catch(() => false))) await page.goto('/'); // after a sign-out the login is already there
   await expect(page.locator('#login')).toBeVisible();
-  await page.fill('#lg-id', email); await page.fill('#lg-pw', DEV_PW);
-  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await page.waitForLoadState('load').catch(() => {});
+  for (let i = 0; i < 3; i++) { // a click swallowed by the sign-out's reload is sent again
+    await page.fill('#lg-id', email); await page.fill('#lg-pw', DEV_PW);
+    await page.getByRole('button', { name: 'دخول', exact: true }).click();
+    if (await page.locator('#root').waitFor({ state: 'visible', timeout: 8000 }).then(() => true, () => false)) break;
+  }
   await expect(page.locator('#root')).toBeVisible();
 }
+async function signOut(page) { await page.locator('.user-btn').click(); await page.getByRole('menuitem', { name: 'تسجيل الخروج' }).click(); await expect(page.locator('#login')).toBeVisible(); await expect(page.locator('#root')).toBeHidden(); await page.waitForLoadState('load').catch(() => {}); }
 async function openTab(page, email, tab) {
   await signIn(page, email);
   await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
@@ -83,7 +88,7 @@ test('«نظرة عامة»: the spend, the Woo sales from ads, the real return 
   await expect(kpi(P, 'العائد الحقيقي (MER)')).toContainText('2.04'); // 5,500 ÷ 2,700
   await expect(kpi(P, 'العائد الحقيقي (MER)')).toContainText('5.41×'); // Meta says 14,600 ÷ 2,700
   await expect(kpi(P, 'تكلفة الأوردر الحقيقية')).toContainText('450.00'); // 2,700 ÷ 6 Meta orders
-  await expect(kpi(P, 'تكلفة الأوردر الحقيقية')).toContainText('ميتا بتقول 169');
+  await expect(kpi(P, 'تكلفة الأوردر الحقيقية')).toContainText('المنصات بتقول 169'); // 9.5.6: the platforms' own count
   await expect(kpi(P, 'الربح بعد الإعلانات')).toContainText('-1,900.00'); // Ibtekr's 800 on Meta's orders − 2,700
   // the KPI's details: the sales by platform and their source
   await kpi(P, 'مبيعات ووكومرس من الإعلانات').locator('[data-details]').click();
@@ -104,13 +109,13 @@ test('«نظرة عامة»: the spend, the Woo sales from ads, the real return 
   await expect(conn).toContainText('8 أوردر من إعلانات في الفترة');
   await expect(P.locator('[data-ads-mer="5"] .col')).toHaveCount(5);
   await expect(P.locator('[data-ads-mer] .col').last()).toContainText('2.04×'); // the newest week on the left
-  await expect(P.locator('.ads-vs tbody tr', { hasText: 'جوجل' })).toContainText('قريبًا');
+  await expect(P.locator('.ads-vs tbody tr', { hasText: 'جوجل' })).toContainText('مش مربوطة'); // 9.5.6: not linked (no longer «soon»)
   await expect(P.locator('[data-ads-assistants="live"]')).toContainText('3 اقتراح مستني موافقتك');
   await expect(P.locator('[data-ads-assistants="live"]')).toContainText('التنفيذ على ميتا: متوقف');
   await expect(P.locator('.ads-bar .fresh')).toContainText('آخر مزامنة: ميتا');
   // «مزامنة دلوقتي» (the admin) — mkt-ads sync, then the numbers again
   await P.locator('[data-ads-sync]').click();
-  await expect(toast(page)).toContainText('اتزامنت أرقام ميتا');
+  await expect(toast(page)).toContainText('اتزامنت أرقام الإعلانات');
   expect(mock.mkt.calls.filter((x) => x.fn === 'mkt-ads' && x.action === 'sync').length).toBe(1);
   // the reports' period moves it: «اليوم» — nothing spent today
   await P.locator('.ads-bar .date-field').click();
@@ -182,13 +187,13 @@ test('Meta not linked yet: the note, the Woo orders from ads still counted, «م
   await start(page, { mktAdObjects: [], mktAdStats: [], mktAds: { configured: false, account: null, synced_at: null, checked_at: null } });
   await openTab(page, ADMIN, 'نظرة عامة');
   const P = pg(page);
-  await expect(P.locator('.note', { hasText: 'إعلانات ميتا لسه مش مربوطة' })).toBeVisible();
+  await expect(P.locator('.note', { hasText: 'مفيش منصة إعلانات مربوطة لسه' })).toBeVisible();
   await expect(P.locator('[data-ads-conn="off"]')).toContainText('ميتا — مش مربوطة');
   await expect(kpi(P, 'الصرف الإعلاني')).toContainText('0.00');
   await expect(kpi(P, 'مبيعات ووكومرس من الإعلانات')).toContainText('6,400.00');
   await expect(kpi(P, 'العائد الحقيقي (MER)')).toContainText('—');
   await expect(P.locator('[data-ads-sync]')).toBeDisabled();
-  await expect(P.locator('.ads-bar .fresh')).toContainText('إعلانات ميتا مش مربوطة');
+  await expect(P.locator('.ads-bar .fresh')).toContainText('مفيش منصة إعلانات مربوطة');
 });
 
 test('a token Meta refused: the last numbers stay with the reason; «مزامنة دلوقتي» answers it', async ({ page }) => {
@@ -219,4 +224,73 @@ test('the reports page\'s «الحملات الإعلانية» (decision 47): t
   await page.locator('.dp .presets [role=radio]', { hasText: /^اليوم$/ }).click();
   await page.locator('.dp').getByRole('button', { name: 'تحديث' }).click();
   await expect(kpi(R, 'الصرف الإعلاني')).toContainText('0.00');
+});
+
+// ---------------------------------------------------------------- 9.5.6: TikTok and Google linked from the system (decisions 67–71)
+const TTC = '1800000000000000001';
+const TT_OBJECTS = [{ platform: 'tiktok', kind: 'account', id: '7000000000000000001', name: 'Ibtekr TikTok', status: 'ACTIVE', meta: { currency: 'EGP', synced_at: new Date().toISOString() } },
+  { platform: 'tiktok', kind: 'campaign', id: TTC, name: 'Macrame TT', status: 'ACTIVE', meta: { daily_budget: 300 } }];
+const TT_STATS = [0, 1, 2].map((n) => ({ platform: 'tiktok', level: 'campaign', object_id: TTC, campaign_id: TTC, day: mktAddDays(mktToday(), -n), spend: 100, impressions: 3000, clicks: 90, purchases: 1, purchase_value: 700 }));
+const TT_LINK = { app_id: '7012345678', secret: 'tt-secret-0123456789', access_token: 'tt-' + 'a'.repeat(40), advertiser_id: '7000000000000000001' };
+
+test('9.5.6: the admin links TikTok from «حالة الربط» (the fields into Vault — the values never in a call record), the card turns «متصلة», the spend counts it; a member sees no link buttons', async ({ page }) => {
+  await start(page);
+  await openTab(page, ADMIN, 'نظرة عامة');
+  const P = pg(page);
+  await expect(P.locator('[data-ads-platform="tiktok"]')).toContainText('تيك توك — مش مربوطة');
+  await expect(P.locator('[data-ads-platform="google"]')).toContainText('جوجل — مش مربوطة');
+  await P.locator('[data-ads-link="tiktok"]').click();
+  const m = modal(page, 'ربط تيك توك إعلانات');
+  await expect(m).toContainText('ads-callback.html'); // the redirect the owner registers on the app
+  await m.locator('#ads-tiktok-app_id').fill(TT_LINK.app_id);
+  await m.locator('#ads-tiktok-secret').fill(TT_LINK.secret);
+  await m.locator('[data-ads-save="tiktok"]').click();
+  await expect(toast(page)).toContainText('اتحفظت البيانات — كمّل الربط');
+  expect(mock.mkt.links.tiktok).toEqual({ app_id: TT_LINK.app_id, secret: TT_LINK.secret });
+  // the token and the advertiser by hand (the owner has them from the app's portal): the stored secret stays when its input is left empty
+  await P.locator('[data-ads-link="tiktok"]').click();
+  const m2 = modal(page, 'ربط تيك توك إعلانات');
+  await expect(m2.locator('#ads-tiktok-secret')).toHaveAttribute('placeholder', /محفوظ ••••6789/);
+  await m2.locator('#ads-tiktok-access_token').fill(TT_LINK.access_token);
+  await m2.locator('#ads-tiktok-advertiser_id').fill(TT_LINK.advertiser_id);
+  await m2.locator('[data-ads-save="tiktok"]').click();
+  await expect(toast(page)).toContainText('اتحفظ الربط — المزامنة الجاية هتسحب أرقام تيك توك');
+  expect(mock.mkt.links.tiktok).toEqual(TT_LINK);
+  await expect(P.locator('[data-ads-platform="tiktok"]')).toContainText('تيك توك — متصلة');
+  await expect(P.locator('[data-ads-platform="tiktok"]')).toContainText('حساب 7000000000000000001');
+  // the calls and the writes carry the keys only — never a secret
+  const txt = JSON.stringify(mock.mkt.calls) + JSON.stringify(mock.mkt.writes) + JSON.stringify(mock.activityRows);
+  expect(txt).not.toContain(TT_LINK.secret); expect(txt).not.toContain(TT_LINK.access_token);
+  expect(mock.mkt.writes.filter((w) => w.table === 'vault').map((w) => w.keys)).toEqual([['app_id', 'secret', 'access_token', 'advertiser_id'], ['app_id', 'access_token', 'advertiser_id']]); // the second save left the stored secret out
+  // «مزامنة دلوقتي» runs Meta and TikTok
+  await P.locator('[data-ads-sync]').click();
+  await expect(toast(page)).toContainText('اتزامنت أرقام الإعلانات');
+  await expect(P.locator('.ads-bar .fresh')).toContainText('تيك توك');
+  // «فصل» asks, then the card is back to not linked
+  await P.locator('[data-ads-unlink="tiktok"]').click();
+  await page.getByRole('button', { name: 'افصل' }).click();
+  await expect(toast(page)).toContainText('اتفصلت تيك توك');
+  expect(mock.mkt.links.tiktok).toBeUndefined();
+  await expect(P.locator('[data-ads-platform="tiktok"]')).toContainText('تيك توك — مش مربوطة');
+});
+
+test('9.5.6: a linked TikTok account with numbers — the spend and the campaigns table carry it beside Meta; the Google row stays «مش مربوطة»', async ({ page }) => {
+  await start(page, { mktLinks: { tiktok: TT_LINK }, mktAdObjects: TT_OBJECTS.concat(OBJECTS), mktAdStats: TT_STATS.concat(STATS) });
+  await openTab(page, ADMIN, 'نظرة عامة');
+  const P = pg(page);
+  await expect(P.locator('[data-ads-platform="tiktok"]')).toContainText('تيك توك — متصلة');
+  await expect(kpi(P, 'الصرف الإعلاني')).toContainText('3,000.00'); // Meta 2,700 + TikTok 300
+  await expect(kpi(P, 'الصرف الإعلاني')).toContainText('ميتا · تيك توك');
+  await expect(P.locator('[data-ads-spend] .bar-row', { hasText: 'تيك توك' })).toContainText('300.00');
+  await expect(P.locator('[data-ads-spend] .bar-row', { hasText: 'جوجل' })).toContainText('مش مربوطة');
+  await expect(P.locator('.ads-vs tbody tr', { hasText: 'تيك توك' })).toContainText('300.00');
+  await pg(page).getByRole('tab', { name: /^التقارير/ }).click();
+  const row = P.locator('.ads-camps tbody tr', { hasText: 'Macrame TT' });
+  await expect(row).toContainText('تيك توك');
+  await expect(row).toContainText('300.00');
+  // a member with marketing.view sees the state but no link buttons
+  await signOut(page);
+  await openTab(page, OPS, 'نظرة عامة');
+  await expect(P.locator('[data-ads-platform="tiktok"]')).toContainText('تيك توك — متصلة');
+  await expect(P.locator('[data-ads-link]')).toHaveCount(0);
 });

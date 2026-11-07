@@ -295,3 +295,33 @@ test('9.5.3 adCreatives: one row per ad with spend, CTR from link clicks, freque
   const t2 = W.adCreatives(OBJ, STATS, RG, { tiredFreq: 2.5 }); assert.deepEqual([t2.find((x) => x.id === '1207').tired, t2.find((x) => x.id === '1206').tired], [true, false]);
   assert.equal(W.xr(5), '5.00×'); assert.equal(W.xr(null), '—');
 });
+
+// ---------------------------------------------------------------- 9.5.6: the platforms' links and numbers (decisions 67 / 71)
+import { LINK_FIELDS } from '../../supabase/functions/_shared/mkt-ads-link.js';
+test('9.5.6 AD_LINK_FIELDS: the page\'s fields are the server\'s (keys, secrets, optional); linkFieldsBody keeps a stored secret left empty and removes an emptied plain field', () => {
+  for (const k of Object.keys(LINK_FIELDS)) {
+    assert.deepEqual(W.AD_LINK_FIELDS[k].map((f) => f.key), Object.keys(LINK_FIELDS[k]), k);
+    for (const f of W.AD_LINK_FIELDS[k]) { assert.equal(!!f.secret, !!LINK_FIELDS[k][f.key].secret, k + '.' + f.key + ' secret'); assert.equal(!!f.optional, !!LINK_FIELDS[k][f.key].optional, k + '.' + f.key + ' optional'); }
+  }
+  assert.deepEqual(W.linkFieldsBody('tiktok', { app_id: ' 7012345678 ', secret: '' }, { app_id: '70', secret: '••••6789' }), { app_id: '7012345678', access_token: '', advertiser_id: '' }); // the stored secret stays (left out), the empty plain ones are sent as removed
+  assert.deepEqual(W.linkFieldsBody('tiktok', { secret: 'new-secret-12345' }, {}), { app_id: '', secret: 'new-secret-12345', access_token: '', advertiser_id: '' });
+  assert.deepEqual(W.linkFieldsBody('tiktok', { access_token: 'tt-token-0123456789' }, { app_id: '70', secret: '••••6789' }), { app_id: '70', access_token: 'tt-token-0123456789', advertiser_id: '' }); // untouched plain fields stay, the stored secret is left out
+  assert.deepEqual(W.linkFieldsBody('tiktok', { app_id: '' }, { app_id: '70' }), { app_id: '', secret: '', access_token: '', advertiser_id: '' }); // emptied by hand = removed
+  assert.equal(W.AD_OAUTH.tiktok, 'اربط بحساب تيك توك');
+});
+
+test('9.5.6 adTotals by the linked platforms: TikTok\'s spend counts when linked, its orders join the real return; an unlinked platform shows no spend; the rows carry their platform', () => {
+  const stats = [{ platform: 'meta', level: 'campaign', object_id: '120000000001', campaign_id: '120000000001', day: '2026-11-05', spend: 100, purchases: 2, purchase_value: 500 }, { platform: 'tiktok', level: 'campaign', object_id: '180000000002', campaign_id: '180000000002', day: '2026-11-05', spend: 50, purchases: 1, purchase_value: 200 }];
+  const orders = [{ day: '2026-11-05', platform: 'meta', source: 'fb', campaign: '120000000001', grp: 'completed', orders: 2, sales: 600, share: 60 }, { day: '2026-11-05', platform: 'tiktok', source: 'tiktok', campaign: '180000000002', grp: 'completed', orders: 1, sales: 300, share: 30 }, { day: '2026-11-05', platform: 'google', source: 'google', campaign: '210000000003', grp: 'completed', orders: 1, sales: 100, share: 10 }];
+  const rg = { from: '2026-11-01', to: '2026-11-07' };
+  const t = W.adTotals(stats, orders, rg, true, ['meta', 'tiktok']);
+  assert.equal(t.spend, 150); assert.equal(t.metaOrders, 3); assert.equal(t.metaSales, 900); assert.equal(t.mer, 6); assert.equal(t.cpa, 50); assert.equal(t.profit, 90 - 150); assert.deepEqual(t.linked.sort(), ['meta', 'tiktok']);
+  assert.deepEqual(t.platforms.map((p) => [p.key, p.linked, p.spend, p.orders]), [['meta', true, 100, 2], ['google', false, null, 1], ['tiktok', true, 50, 1]]);
+  // Meta only linked: TikTok's numbers still show (the stored rows are read), its orders are not in the return; Google unlinked
+  const m = W.adTotals(stats, orders, rg, true, ['meta']);
+  assert.equal(m.spend, 150); assert.deepEqual(m.linked.sort(), ['meta', 'tiktok']); // a platform with numbers is counted as linked
+  const none = W.adTotals(stats.slice(0, 1), orders, rg, true);
+  assert.deepEqual(none.linked, ['meta']); assert.equal(none.metaOrders, 2);
+  const rows = W.adCampaignRows([{ platform: 'tiktok', kind: 'campaign', id: '180000000002', name: 'TT', status: 'ACTIVE' }], stats, orders, rg);
+  assert.deepEqual(rows.map((r) => [r.id, r.platform, r.key, r.orders]), [['120000000001', 'ميتا', 'meta', 2], ['180000000002', 'تيك توك', 'tiktok', 1], ['210000000003', 'جوجل', 'google', 1]]); // an order with a campaign id makes a row even unlinked
+});

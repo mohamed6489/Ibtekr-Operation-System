@@ -8,6 +8,7 @@
 // mkt.calls, every write the client sent in mkt.writes ({ table, op, ...columns }).
 import { campaignGenPath, campaignPathOk, campaignTarget, cleanBuyer, cleanMarketing, parseBuyer, parseCampaign, parseCampaignEdit, parseMarketing } from '../../supabase/functions/_shared/marketing.js';
 import { BUYER_DEFAULTS, MAX_STEP, budgetPlan, rulesPatch } from '../../supabase/functions/_shared/mkt-ads.js';
+import { PLATFORMS as AD_PLATFORMS, linkAccount, linkPublic, linkReady, parseLink, platformOf } from '../../supabase/functions/_shared/mkt-ads-link.js';
 import { MAX_OPEN_JOBS, cleanScenes, jobView, mixPlan, nextMix, parseVideo, videoPath } from '../../supabase/functions/_shared/mkt-video.js';
 import { creditsFor } from '../../supabase/functions/_shared/ai-images.js';
 const fmt = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' });
@@ -68,6 +69,9 @@ export function mktState(opts = {}) {
     adStats: (opts.mktAdStats || []).map((x) => ({ platform: 'meta', impressions: 0, reach: null, clicks: 0, link_clicks: null, frequency: null, purchases: 0, purchase_value: 0, updated_at: now, ...x })),
     adOrders: opts.mktAdOrders || [],
     ads: { configured: true, account: { name: 'Ibtekr Club', currency: 'EGP', status: 'ACTIVE' }, synced_at: now, checked_at: now, error: null, ...(opts.mktAds || {}) },
+    // 9.5.6: the platforms' links as Vault would hold them (opts.mktLinks = { tiktok: { … fields … } }); Meta's link follows opts.mktAds; the
+    // non-secret side (names, candidates) in adsMeta; link writes are recorded by their keys only
+    links: Object.assign({}, opts.mktLinks || {}), adsMeta: Object.assign({}, opts.mktAdsMeta || {}),
     // 9.5.4: the buyer's suggestions and the requests as the database holds them, the rules (settings «marketing».buyer over the defaults),
     // the knobs decideFail = our code Meta's write answers with (502), buyerFail / buyerAnswer for the chat, accountDaily = the rest of the account's daily budgets
     suggestions: (opts.mktSuggestions || []).map((x, i) => ({ id: i + 1, platform: 'meta', campaign_name: null, ad_id: null, sub: null, why: null, impact: null, pct: null, data: {}, status: 'pending', created_at: now, checked_at: now, decided_by: null, decided_at: null, value: null, note: null, result: null, error: null, ...x })),
@@ -393,16 +397,60 @@ function mktRequests(c, method, list, match, answer, refuse) {
   return refuse(405, '42501', 'method not allowed');
 }
 
-// 9.5.3: mkt-ads — status (marketing.view) and the admin's sync by hand; the knob adsFail answers a sync with our code (502)
+// 9.5.3: mkt-ads — status (marketing.view) and the admin's sync by hand; the knob adsFail answers a sync with our code (502).
+// 9.5.6: the status carries platforms { meta, tiktok, google } (Meta's from H.ads, the others from H.links through the server's own
+// linkPublic), link_set / link_start / link_pick / unlink write H.links (the values never reach H.calls or H.writes), sync { platform }
+const ADS_REDIRECT = 'https://operation-system.ibtekr.club/ads-callback.html';
+function adsPlatformView(H, k) {
+  const link = H.links[k] || {}; const pub = linkPublic(k, link); const m = H.adsMeta[k] || {};
+  if (k === 'meta' && !pub.ready) { // Meta's old knob (opts.mktAds) stands for the owner's secrets
+    const a = H.ads; return { configured: a.configured === true, oauth: false, fields: a.configured ? { access_token: '••••EAAB', account_id: '1122334455' } : {}, missing: a.configured ? [] : ['access_token', 'account_id'],
+      account: a.account ? { id: '1122334455', ...a.account } : null, synced_at: a.synced_at || null, checked_at: a.checked_at || null, error: a.error || null, text: a.text || null, linked_at: null, candidates: null };
+  }
+  const acc = linkAccount(k, link); const rows = H.adObjects.filter((o) => o.platform === k && o.kind === 'account'); const row = rows.find((o) => o.id === acc) || null; const meta = row ? row.meta || {} : {};
+  return { configured: pub.ready, oauth: pub.oauth, fields: pub.fields, missing: pub.missing, account: row ? { id: acc, name: row.name, currency: meta.currency || null, status: row.status } : acc ? { id: acc, name: m.name || null, currency: null, status: null } : null,
+    synced_at: m.synced_at || meta.synced_at || null, checked_at: m.checked_at || null, error: m.error || meta.error || null, text: m.text || null, linked_at: m.linked_at || null, candidates: m.candidates || null, ...(k === 'google' ? { version: link.version || 'v21' } : {}) };
+}
+function adsStatusBody(H) {
+  const platforms = {}; for (const k of AD_PLATFORMS) platforms[k] = adsPlatformView(H, k);
+  const m = platforms.meta;
+  return { configured: m.configured, account: m.account, synced_at: m.synced_at, checked_at: m.checked_at, error: m.error, text: m.text, platforms, redirect: ADS_REDIRECT };
+}
 function mktAds(c, b) {
   const { u, hasPerm, isAdmin, json, mock } = c; const H = mock.mkt;
-  H.calls.push({ fn: 'mkt-ads', action: b.action || null, by: u ? u.id : null, days: b.days == null ? null : b.days });
+  H.calls.push({ fn: 'mkt-ads', action: b.action || null, by: u ? u.id : null, days: b.days == null ? null : b.days, platform: b.platform || null, keys: b.fields && typeof b.fields === 'object' ? Object.keys(b.fields) : null });
   if (!u) return json(401, { error: 'unauthorized' });
   const admin = isAdmin(u); const view = admin || hasPerm(u, 'marketing.view') !== 'N';
-  if (b.action === 'status') return view ? json(200, H.ads) : json(401, { error: 'unauthorized' });
+  if (b.action === 'status') return view ? json(200, adsStatusBody(H)) : json(401, { error: 'unauthorized' });
   if (b.action === 'rules') return view ? json(200, { result: 'ok', rules: { ...H.rules } }) : json(401, { error: 'unauthorized' });
-  if (!['sync', 'rules_set', 'live', 'decide'].includes(b.action)) return json(400, { error: 'unknown_action' });
+  if (!['sync', 'rules_set', 'live', 'decide', 'link_set', 'link_start', 'link_pick', 'unlink'].includes(b.action)) return json(400, { error: 'unknown_action' });
   if (!admin) return json(401, { error: 'unauthorized' });
+  const now0 = new Date().toISOString();
+  if (b.action === 'link_set') {
+    const k = platformOf(b.platform); if (!k) return json(400, { error: 'bad_request', field: 'platform' });
+    const p = parseLink(k, b.fields, H.links[k] || {}); if ('error' in p) return json(400, { error: 'bad_request', field: p.error });
+    if (Object.keys(p.link).length) H.links[k] = p.link; else delete H.links[k];
+    H.adsMeta[k] = { ...(H.adsMeta[k] || {}), linked_at: now0, candidates: null };
+    H.writes.push({ table: 'vault', op: 'link_set', platform: k, keys: Object.keys(b.fields || {}) });
+    return json(200, { result: 'ok', platform: k, ...adsPlatformView(H, k) });
+  }
+  if (b.action === 'unlink') {
+    const k = platformOf(b.platform); if (!k) return json(400, { error: 'bad_request', field: 'platform' });
+    delete H.links[k]; delete H.adsMeta[k]; H.writes.push({ table: 'vault', op: 'unlink', platform: k });
+    return json(200, { result: 'ok', platform: k, ...adsPlatformView(H, k) });
+  }
+  if (b.action === 'link_start') {
+    const k = platformOf(b.platform); if (!k || k === 'meta') return json(400, { error: 'bad_request', field: 'platform' });
+    const pub = linkPublic(k, H.links[k] || {}); if (!pub.oauth) return json(400, { error: 'bad_request', field: 'oauth' });
+    H.seq += 1; const state = 'st' + String(H.seq).padStart(30, '0');
+    return json(200, { result: 'ok', platform: k, url: (k === 'tiktok' ? 'https://business-api.tiktok.com/portal/auth?app_id=' + encodeURIComponent(H.links[k].app_id) : 'https://accounts.google.com/o/oauth2/v2/auth?client_id=' + encodeURIComponent(H.links[k].client_id)) + '&state=' + state + '&redirect_uri=' + encodeURIComponent(ADS_REDIRECT) });
+  }
+  if (b.action === 'link_pick') {
+    const k = platformOf(b.platform); if (!k || k === 'meta') return json(400, { error: 'bad_request', field: 'platform' });
+    const cand = ((H.adsMeta[k] || {}).candidates || []).find((x) => String(x.id) === String(b.account)); if (!cand) return json(400, { error: 'bad_request', field: 'account' });
+    H.links[k] = { ...(H.links[k] || {}), [k === 'tiktok' ? 'advertiser_id' : 'customer_id']: cand.id }; H.adsMeta[k] = { ...(H.adsMeta[k] || {}), name: cand.name || null, candidates: null, linked_at: now0 };
+    return json(200, { result: 'ok', linked: true, platform: k, ...adsPlatformView(H, k) });
+  }
   if (b.action === 'rules_set') { // the numbers and the modes only — never live
     const p = rulesPatch(b.rules); if ('error' in p) return json(400, p);
     Object.assign(H.rules, p.patch); H.writes.push({ table: 'settings', op: 'buyer_rules', keys: Object.keys(p.patch) }); return json(200, { result: 'ok', rules: { ...H.rules } });
@@ -412,11 +460,19 @@ function mktAds(c, b) {
     H.rules.live = b.on; H.writes.push({ table: 'settings', op: 'buyer_live', on: b.on }); return json(200, { result: 'ok', rules: { ...H.rules } });
   }
   if (b.action === 'decide') return mktDecide(c, b);
-  if (!H.ads.configured) return json(503, { error: 'not_configured', configured: false });
-  const now = new Date().toISOString();
-  if (H.adsFail) { Object.assign(H.ads, { checked_at: now, error: H.adsFail }); return json(502, { error: H.adsFail }); }
-  Object.assign(H.ads, { synced_at: now, checked_at: now, error: null });
-  return json(200, { result: 'ok', days: Number(b.days) || 3, campaigns: H.adObjects.filter((o) => o.kind === 'campaign').length, ads: H.adObjects.filter((o) => o.kind === 'ad').length, stats: H.adStats.length });
+  // sync: every linked platform (or the one asked); the knob adsFail fails Meta's run with our code
+  const only = b.platform == null ? null : platformOf(b.platform); if (b.platform != null && !only) return json(400, { error: 'bad_request', field: 'platform' });
+  const linked = AD_PLATFORMS.filter((k) => (!only || only === k) && adsPlatformView(H, k).configured);
+  if (!linked.length) return json(503, { error: 'not_configured', configured: false });
+  const now = new Date().toISOString(); const out = {}; let okAny = false;
+  for (const k of linked) {
+    if (k === 'meta' && H.adsFail) { Object.assign(H.ads, { checked_at: now, error: H.adsFail }); out[k] = { platform: k, error: H.adsFail }; continue; }
+    if (k === 'meta') Object.assign(H.ads, { synced_at: now, checked_at: now, error: null }); else H.adsMeta[k] = { ...(H.adsMeta[k] || {}), synced_at: now, checked_at: now, error: null };
+    okAny = true; out[k] = { platform: k, days: Number(b.days) || 3, campaigns: H.adObjects.filter((o) => o.platform === k && o.kind === 'campaign').length, ads: H.adObjects.filter((o) => o.platform === k && o.kind === 'ad').length, stats: H.adStats.filter((x) => x.platform === k).length };
+  }
+  if (!okAny) { const f = Object.values(out)[0]; return json(502, { error: f.error, platform: f.platform, platforms: out }); }
+  const sum = (key) => Object.values(out).reduce((n, r) => n + (Number(r[key]) || 0), 0);
+  return json(200, { result: 'ok', days: Number(b.days) || 3, campaigns: sum('campaigns'), ads: sum('ads'), stats: sum('stats'), platforms: out });
 }
 
 // 9.5.4: the admin's decision on a suggestion as mkt-ads makes it — reject; creative → a designer request; tracking → reviewed;

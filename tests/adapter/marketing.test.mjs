@@ -273,10 +273,10 @@ test('9.5.3 adsStatus: mkt-ads status cached a minute, the account and the last 
   await M.adsStatus(); eq(invokes(stub).length, 1); // cached
   eq((await M.adsSync()).reason, 'forbidden'); // ops is not the admin
   const adm = load({ role: 'admin', responses: { 'fn:mkt-ads': (o) => (o.body.action === 'sync' ? ok({ result: 'ok', days: 7, campaigns: 4, ads: 9, stats: 30 }) : ok({ configured: true, account: null })) } });
-  eq(await adm.M.adsSync(7), { ok: true, days: 7, campaigns: 4, ads: 9, stats: 30 });
+  eq(await adm.M.adsSync(7), { ok: true, days: 7, campaigns: 4, ads: 9, stats: 30, platforms: {} });
   eq(invokes(adm.stub)[0], ['mkt-ads', { body: { action: 'sync', days: 7 } }]);
   const off = load({ role: 'admin', responses: { 'fn:mkt-ads': { data: null, error: { context: { status: 503, json: async () => ({ error: 'not_configured', configured: false }) } } } } });
-  assert.match((await off.M.adsSync()).message, /لسه مش متربطة/);
+  assert.match((await off.M.adsSync()).message, /مفيش منصة إعلانات مربوطة/);
   eq(M.adsWhy('rate').includes('استنى'), true); eq(M.adsWhy('graph_368'), 'ميتا رفضت (graph_368)'); eq(M.adsWhy(null), null);
   // Meta's own words come after a code we have no message for (never after a known one)
   eq(M.adsWhy('graph_1', 'An unknown error occurred'), 'ميتا رفضت (graph_1) — An unknown error occurred'); eq(M.adsWhy('token', 'expired').includes('expired'), false);

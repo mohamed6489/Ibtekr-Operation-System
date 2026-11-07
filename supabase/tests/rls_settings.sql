@@ -18,6 +18,10 @@ insert into public.profiles (id, name, email, phone, role_id, status) values
   ('00000000-0000-4000-8000-0000000056a2', 'عمليات الإعدادات', 'st-ops.dev@ibtekr.local', '01000056a02', 'ops', 'active'),
   ('00000000-0000-4000-8000-0000000056a3', 'خدمة عملاء', 'st-cs.dev@ibtekr.local', '01000056a03', 'cs', 'active'),
   ('00000000-0000-4000-8000-0000000056a4', 'موقوف', 'st-off.dev@ibtekr.local', '01000056a04', 'ops', 'suspended');
+insert into auth.sessions (id, user_id, created_at, refreshed_at, user_agent, aal) values
+  ('00000000-0000-4000-8000-00000000560a', '00000000-0000-4000-8000-0000000056a1', now() - interval '2 days', now() - interval '1 hour', 'Mozilla/5.0 (Macintosh) Chrome/130', 'aal1'),
+  ('00000000-0000-4000-8000-00000000560b', '00000000-0000-4000-8000-0000000056a1', now() - interval '9 days', now() - interval '5 days', 'Mozilla/5.0 (iPhone) Safari', 'aal1'),
+  ('00000000-0000-4000-8000-00000000560c', '00000000-0000-4000-8000-0000000056a2', now(), now(), 'x', 'aal1');
 update public.settings set data = '{"company":"إبتكر كلوب","email":"hello@ibtekr.club","compact":true,"hidePhones":true}'::jsonb where section = 'general';
 update public.settings set data = '{"colors":{"--color-brand-default":"#005642"},"fonts":{"body":"Cairo","head":"Cairo"}}'::jsonb where section = 'brand';
 update public.settings set data = '{"alertRoles":{"customers.late":"RRRNSN"},"alertOverrides":{"00000000-0000-4000-8000-0000000056a2":{"customers.late":"S"},"00000000-0000-4000-8000-0000000056a3":{"customers.late":"N"}},"digests":[{"name":"x"}]}'::jsonb where section = 'notif';
@@ -55,6 +59,8 @@ begin
   begin perform public.member_role_set('00000000-0000-4000-8000-0000000056a3', 'ops'); raise exception 'case a member moves a member failed';
   exception when insufficient_privilege then null; end;
   begin perform public.member_perms_set('00000000-0000-4000-8000-0000000056a3', '{}'); raise exception 'case a member sets member perms failed';
+  exception when insufficient_privilege then null; end;
+  begin perform public.member_status_set('00000000-0000-4000-8000-0000000056a3', 'suspended', 'x'); raise exception 'case a member suspends a member failed';
   exception when insufficient_privilege then null; end;
   if (select count(*) from public.company_docs) <> 0 then raise exception 'case a member reads no docs failed'; end if;
   begin insert into public.company_docs (name, type, path) values ('x', 'رخصة', 'docs/x.pdf'); raise exception 'case a member adds a doc failed';
@@ -124,7 +130,24 @@ begin
   perform public.member_perms_set('00000000-0000-4000-8000-0000000056a2', '{"accounts.view":"F","sensitive.commission":"F"}');
   if (select custom_perms ->> 'accounts.view' from public.profiles where id = '00000000-0000-4000-8000-0000000056a2') <> 'F' then raise exception 'case member perms set failed'; end if;
   if not exists (select 1 from public.activity_log where action = 'settings.member.perms' and new_value = '["accounts.view","sensitive.commission"]'::jsonb) then raise exception 'case member perms logged by keys failed'; end if;
-  -- the docs: the admin's rows, stamped by the server
+    -- sessions: mine only, the current one marked and never revoked; a member suspended loses their sessions, never oneself / the last admin
+  perform set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000056a1","role":"authenticated","session_id":"00000000-0000-4000-8000-00000000560a"}', true);
+  if (select count(*) from public.my_sessions()) <> 2 or not (select current from public.my_sessions() where id = '00000000-0000-4000-8000-00000000560a') then raise exception 'case my sessions failed'; end if;
+  begin perform public.my_session_revoke('00000000-0000-4000-8000-00000000560a'); raise exception 'case the current session is not revoked here failed';
+  exception when sqlstate '22023' then null; end;
+  if public.my_session_revoke('00000000-0000-4000-8000-00000000560c') then raise exception 'case another member''s session is not mine failed'; end if;
+  if not public.my_session_revoke('00000000-0000-4000-8000-00000000560b') then raise exception 'case revoke mine failed'; end if;
+  if (select count(*) from public.my_sessions()) <> 1 then raise exception 'case revoke mine leaves one failed'; end if; -- a statement of its own: a stable function sees its statement's snapshot
+  begin perform public.member_status_set('00000000-0000-4000-8000-0000000056a1', 'suspended', 'x'); raise exception 'case never oneself failed';
+  exception when sqlstate '22023' then null; end;
+  begin perform public.member_status_set('00000000-0000-4000-8000-0000000056a2', 'suspended', ''); raise exception 'case a suspension needs a reason failed';
+  exception when sqlstate '22023' then null; end;
+  perform public.member_status_set('00000000-0000-4000-8000-0000000056a2', 'suspended', 'تأخير متكرر');
+  if (select status from public.profiles where id = '00000000-0000-4000-8000-0000000056a2') <> 'suspended' then raise exception 'case suspend failed'; end if;
+  perform public.member_status_set('00000000-0000-4000-8000-0000000056a2', 'active', null);
+  if (select status from public.profiles where id = '00000000-0000-4000-8000-0000000056a2') <> 'active' then raise exception 'case reactivate failed'; end if;
+  if not exists (select 1 from public.activity_log where action = 'settings.member.suspend' and new_value ->> 'reason' = 'تأخير متكرر') then raise exception 'case the suspension is logged failed'; end if;
+-- the docs: the admin's rows, stamped by the server
   insert into public.company_docs (name, type, doc_no, issued, expires, path, size, mime) values ('السجل التجاري', 'السجل التجاري', '123456', '2024-03-14', '2027-03-14', 'docs/cr-2024.pdf', 1200000, 'application/pdf');
   if (select created_by from public.company_docs where path = 'docs/cr-2024.pdf') <> '00000000-0000-4000-8000-0000000056a1' then raise exception 'case the doc is stamped failed'; end if;
   begin insert into public.company_docs (name, type, path, issued, expires) values ('x', 'رخصة', 'docs/x.pdf', '2026-01-01', '2025-01-01'); raise exception 'case expires before issued failed';
@@ -138,6 +161,7 @@ begin
   exception when insufficient_privilege then null; end;
 end $$;
 reset role;
+do $$ begin if exists (select 1 from auth.sessions where user_id = '00000000-0000-4000-8000-0000000056a2') then raise exception 'case suspend ends the sessions failed'; end if; end $$;
 
 -- the server: the Vault door answers (or says Vault is missing on the local stub); the engine's memory is its
 select set_config('request.jwt.claims', '{"role":"service_role"}', true);

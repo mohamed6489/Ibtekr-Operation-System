@@ -7,7 +7,7 @@
 -- * settings: the new sections (ai_rules, brand, quick, notif) and settings_public() — what every active member needs
 --   (the brand, the quick actions, the display prefs, the security policy, the bell matrix with their own override).
 -- * roles.hidden + the team RPCs (role_perms_set / role_create / role_update / role_delete / member_role_set /
---   member_perms_set): admin only, the admin role untouchable, never the last admin, a role deleted only after its
+--   member_perms_set / member_status_set) and the caller's own sessions (my_sessions / my_session_revoke): admin only, the admin role untouchable, never the last admin, a role deleted only after its
 --   members moved (a system role is hidden, not deleted); every change logged, a permission change alerts the admins.
 -- * company_docs + bucket company-docs (admin only) and bucket settings (the logos / the pattern / the brand references:
 --   the admin writes, members read).
@@ -302,6 +302,70 @@ grant execute on function public.role_update(text, text, text) to authenticated,
 grant execute on function public.role_delete(text, jsonb) to authenticated, service_role;
 grant execute on function public.member_role_set(uuid, text) to authenticated, service_role;
 grant execute on function public.member_perms_set(uuid, jsonb) to authenticated, service_role;
+
+-- ---------------------------------------------------------------- the sessions and a member's status (decision 19 / 12)
+
+-- the caller's own sessions (auth.sessions is not exposed to PostgREST; the definer reads it for auth.uid() only)
+create or replace function public.my_sessions()
+returns table (id uuid, created_at timestamptz, refreshed_at timestamptz, user_agent text, ip text, aal text, current boolean)
+language plpgsql stable security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_sid text := coalesce(current_setting('request.jwt.claims', true), '')::jsonb ->> 'session_id';
+begin
+  if v_uid is null then raise exception 'not allowed' using errcode = '42501'; end if;
+  return query select s.id, s.created_at, s.refreshed_at, left(coalesce(s.user_agent, ''), 200), host(s.ip), s.aal::text, (s.id::text = v_sid)
+    from auth.sessions s where s.user_id = v_uid order by s.refreshed_at desc nulls last, s.created_at desc;
+end
+$$;
+
+-- end one of the caller's own sessions (not the current one — «تسجيل الخروج» does that)
+create or replace function public.my_session_revoke(p_id uuid) returns boolean
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  v_uid uuid := auth.uid();
+  v_sid text := coalesce(current_setting('request.jwt.claims', true), '')::jsonb ->> 'session_id';
+  n int;
+begin
+  if v_uid is null then raise exception 'not allowed' using errcode = '42501'; end if;
+  if p_id::text = v_sid then raise exception 'invalid: current' using errcode = '22023'; end if;
+  delete from auth.sessions s where s.id = p_id and s.user_id = v_uid;
+  get diagnostics n = row_count;
+  if n > 0 then perform public.log_activity('settings.session.revoke', 'profile', v_uid::text, null, null); end if;
+  return n > 0;
+end
+$$;
+
+-- suspend / reactivate a member (the admin; never oneself, never the last active admin); a suspension ends every session of
+-- the member here — settings-admin bans the Auth user beside it. The reason is logged (an admin's note on a member, not PII).
+create or replace function public.member_status_set(p_member uuid, p_status text, p_reason text) returns void
+language plpgsql volatile security definer set search_path = public as $$
+declare
+  v_old record;
+begin
+  if not public.is_admin() then raise exception 'admin only' using errcode = '42501'; end if;
+  if p_status not in ('active', 'suspended') then raise exception 'invalid: status' using errcode = '22023'; end if;
+  if p_member = auth.uid() then raise exception 'invalid: self' using errcode = '22023'; end if;
+  select status, role_id, name into v_old from public.profiles where id = p_member for update;
+  if v_old.status is null then raise exception 'no such member' using errcode = 'P0002'; end if;
+  if v_old.status = p_status then return; end if;
+  if p_status = 'suspended' and coalesce(btrim(p_reason), '') = '' then raise exception 'invalid: reason' using errcode = '22023'; end if;
+  if p_status = 'suspended' and v_old.role_id = 'admin' and (select count(*) from public.profiles where role_id = 'admin' and status = 'active' and id <> p_member) = 0 then
+    raise exception 'last admin' using errcode = '22023';
+  end if;
+  update public.profiles set status = p_status where id = p_member;
+  if p_status = 'suspended' then delete from auth.sessions s where s.user_id = p_member; end if;
+  perform public.log_activity('settings.member.' || case when p_status = 'suspended' then 'suspend' else 'reactivate' end, 'profile', p_member::text,
+    to_jsonb(v_old.status), jsonb_strip_nulls(jsonb_build_object('status', p_status, 'reason', nullif(left(btrim(coalesce(p_reason, '')), 300), ''))));
+end
+$$;
+
+revoke execute on function public.my_sessions() from public, anon;
+revoke execute on function public.my_session_revoke(uuid) from public, anon;
+revoke execute on function public.member_status_set(uuid, text, text) from public, anon;
+grant execute on function public.my_sessions() to authenticated, service_role;
+grant execute on function public.my_session_revoke(uuid) to authenticated, service_role;
+grant execute on function public.member_status_set(uuid, text, text) to authenticated, service_role;
 
 -- ---------------------------------------------------------------- the company's official documents (decision 20)
 

@@ -48,6 +48,19 @@ create table auth.mfa_factors (
   updated_at timestamptz not null
 );
 
+-- Sessions (0056 my_sessions / my_session_revoke / member_status_set read and delete rows). Live has more columns.
+create table auth.sessions (
+  id uuid primary key,
+  user_id uuid not null references auth.users on delete cascade,
+  created_at timestamptz,
+  updated_at timestamptz,
+  refreshed_at timestamptz,
+  user_agent text,
+  ip inet,
+  aal text,
+  not_after timestamptz
+);
+
 create function auth.uid() returns uuid language sql stable as $$
   select coalesce(
     nullif(current_setting('request.jwt.claim.sub', true), ''),

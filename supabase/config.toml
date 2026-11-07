@@ -29,3 +29,6 @@ verify_jwt = false
 
 [functions.mkt-ads]
 verify_jwt = false
+
+[functions.settings-admin]
+verify_jwt = false

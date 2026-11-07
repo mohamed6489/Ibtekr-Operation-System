@@ -36,7 +36,7 @@ insert into public.notification_prefs (user_id, data) values
 
 -- ---- seeds (as the runner) ----
 do $$ begin
-  if not ((select count(*) from public.settings) = 10) then raise exception 'case seed: ten settings sections failed'; end if;
+  if not ((select count(*) from public.settings) = 14) then raise exception 'case seed: fourteen settings sections (the ten of 0002 + ai_rules / brand / quick / notif of 0056) failed'; end if;
   if not exists (select 1 from public.settings where section = 'general'
                  and data ->> 'company' = 'إبتكر كلوب' and data ->> 'numFmt' = '1,234.56'
                  and data ->> 'week' = 'السبت' and (data ->> 'compact')::boolean
@@ -90,7 +90,7 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000012","role":"authenticated"}';
 do $$ declare n int; begin
-  if not ((select count(*) from public.settings) = 10) then raise exception 'case ops reads all settings failed'; end if;
+  if not ((select count(*) from public.settings) = 14) then raise exception 'case ops reads all settings failed'; end if;
   if not exists (select 1 from public.settings where section = 'general' and data ->> 'company' = 'إبتكر') then
     raise exception 'case ops reads settings.general failed';
   end if;
@@ -114,7 +114,7 @@ do $$ declare n int; begin
   delete from public.status_map where id is not null;
   get diagnostics n = row_count;
   if not (n = 0) then raise exception 'case ops cannot delete status_map failed'; end if;
-  if not ((select count(*) from public.settings) = 10 and (select count(*) from public.status_map) = 9) then
+  if not ((select count(*) from public.settings) = 14 and (select count(*) from public.status_map) = 9) then
     raise exception 'case ops delete leaves settings/status_map intact failed';
   end if;
 end $$;

@@ -21,6 +21,10 @@ test('parseSecret merges over the stored link: given replaces, empty removes, om
   assert.deepEqual(parseSecret('woo', { push: 'maybe' }, woo), { error: 'invalid', field: 'push' });
   assert.equal(parseSecret('woo', { push: '' }, woo).link.push, undefined);
   assert.equal(linkReady('woo', woo), true); assert.equal(linkReady('woo', { url: woo.url }), false);
+  // a new host drops the stored secrets: the keys must come with the url (security review)
+  assert.deepEqual(parseSecret('woo', { url: 'https://evil.example' }, woo), { error: 'missing', field: 'ck' });
+  assert.equal(parseSecret('woo', { url: 'https://ibtekr.club' }, woo).link.ck, woo.ck, 'the same host keeps them');
+  assert.equal(parseSecret('woo', { push: true }, woo).link.cs, woo.cs, 'no url in the save keeps them');
   assert.deepEqual(parseSecret('custom_x', { name: 'Runway', conn: 'API', key: 'rk_12345678' }, null).link, { name: 'Runway', conn: 'API', key: 'rk_12345678' });
   assert.deepEqual(parseSecret('custom_x', { name: 'Runway', conn: 'FTP' }, null), { error: 'invalid', field: 'conn' });
 });

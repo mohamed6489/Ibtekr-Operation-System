@@ -53,7 +53,13 @@ export function parseSecret(name, body, current) {
   if (!nameOk(name) || !F) return { error: 'unknown_secret' };
   if (!body || typeof body !== 'object' || Array.isArray(body)) return { error: 'invalid', field: 'fields' };
   for (const k of Object.keys(body)) if (!F[k]) return { error: 'invalid', field: k };
-  const out = { ...(current && typeof current === 'object' ? current : {}) };
+  const cur = current && typeof current === 'object' ? current : {};
+  // a new host never receives the stored secrets (security review, 7 Nov): when the url changes, every secret field must come
+  // with it in the same save — the stored ones are dropped, not merged
+  const urlField = Object.keys(F).find((k) => F[k].kind === 'url');
+  const newHost = urlField && typeof body[urlField] === 'string' && body[urlField].trim().replace(/\/+$/, '') !== String(cur[urlField] ?? '');
+  const out = {};
+  for (const [k, v] of Object.entries(cur)) if (F[k] && !(newHost && F[k].secret)) out[k] = v;
   for (const [k, f] of Object.entries(F)) {
     if (!(k in body)) continue; // omitted → stays
     let v = body[k];

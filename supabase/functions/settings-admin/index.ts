@@ -122,6 +122,7 @@ async function wooSet(deps: Deps, admin: string, args: Json) {
     await log(deps, admin, 'settings.integration.woo', 'woo', { result: 'test_failed', error: test?.error ?? 'untested', step: test?.step ?? null });
     return json(502, { error: 'test_failed', step: test?.step ?? null, code: test?.error ?? 'untested' });
   }
+  await log(deps, admin, 'settings.integration.woo', 'woo', { result: args.confirm === true ? 'test_ok' : 'tested', url: link.url }); // every probe is logged with its host
   if (args.confirm !== true) return json(200, { result: 'tested', account: test.account, latency_ms: test.latency_ms, url: link.url });
   const saved = await secretSet(deps.db, 'woo', link);
   if (!saved.ok) return json(saved.error === 'no_vault' ? 503 : 500, { error: saved.error });

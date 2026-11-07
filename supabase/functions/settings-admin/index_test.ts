@@ -102,10 +102,13 @@ Deno.test('woo_set: the store and the media user probed first; without confirm n
   assertEquals([ok.res.status, ok.body.result, ok.body.link.ready, ok.body.link.fields.ck, ok.body.link.fields.push], [200, 'saved', true, '••••aaaa', true]);
   assertEquals(JSON.parse(vault.woo), { url: 'https://ibtekr.club', ck: CK, cs: CS, wp_user: 'ops', wp_app_password: 'abcd efgh ijkl mnop qrst', push: true });
   const logs = db.rows('activity_log').filter((r: any) => r.action === 'settings.integration.woo');
-  assertEquals(logs.map((r: any) => r.new_value.result), ['test_failed', 'saved']);
-  assertEquals(logs[1].new_value, { result: 'saved', url: 'https://ibtekr.club', keys: ['url', 'ck', 'cs', 'wp_user', 'wp_app_password', 'push'], push: true });
+  assertEquals(logs.map((r: any) => r.new_value.result), ['tested', 'test_failed', 'test_ok', 'saved']);
+  assertEquals(logs[3].new_value, { result: 'saved', url: 'https://ibtekr.club', keys: ['url', 'ck', 'cs', 'wp_user', 'wp_app_password', 'push'], push: true });
   assert(!JSON.stringify(db.rows('activity_log')).includes(CK) && !JSON.stringify(ok.body).includes(CS), 'no key anywhere');
   assertEquals((await call(deps, { action: 'woo_set', fields: { url: 'http://ibtekr.club', ck: CK, cs: CS } })).body, { error: 'invalid', field: 'url' });
+  // a new host with the stored keys only: refused before any probe (the keys never travel to a host the admin did not type them for)
+  const n0 = calls.length;
+  assertEquals((await call(deps, { action: 'woo_set', fields: { url: 'https://evil.example' } })).body, { error: 'missing', field: 'ck' }); assertEquals(calls.length, n0);
 });
 
 Deno.test('member_status: the RPC with the caller\'s JWT, then the ban; the RPC\'s refusals come back in words', async () => {

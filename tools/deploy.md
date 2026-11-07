@@ -999,7 +999,7 @@ select at, action, entity_id, new_value from public.activity_log where action li
 
 **الأمان:** الأسرار في Vault بس (لا ردود ولا logs — آخر 4 حروف)؛ كل فحص مزوّد بيتسجل بالـ host؛ تغيير رابط الموقع بيمسح المفاتيح؛ أفعال
 الإعدادات للأدمن؛ `settings.*` في `activity_log` أسماء أقسام ومفاتيح ومنصات وأدوار بس؛ `channel_log` بتاع التنبيهات أعداد وأكواد من غير
-تليفون ولا إيميل ولا نص؛ إلزام 2FA بيحوّل العضو من غير 2FA لـ «ملفي › الحساب والأمان» ومايعدّيش.
+تليفون ولا إيميل ولا نص؛ إلزام 2FA على السيرفر (`force2fa_on()` في `has_perm` / `is_admin`: جلسة مش `aal2` مالهاش صلاحيات وهو شغّال) والمتصفح بيحوّل العضو لـ «ملفي › الحساب والأمان» للتفعيل.
 
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
 - الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.

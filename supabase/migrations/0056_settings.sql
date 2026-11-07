@@ -473,3 +473,42 @@ begin
     )
   $cron$);
 end $$;
+
+-- ---------------------------------------------------------------- forced 2FA on the server (security review, 7 Nov)
+
+-- True while the admin's security policy says every member must use 2FA (settings «security».force2fa). While it is on,
+-- has_perm / is_admin give nothing to a session that is not aal2 — enrolled or not — so the client's redirect to
+-- «ملفي › الحساب والأمان» is for the experience only. What a member still has on aal1: their own profile row (the
+-- profiles policy's id = auth.uid()), settings_public() (it needs an active profile, not a permission) and the Auth MFA
+-- endpoints + mark_twofa_enrolled() (aal2 by then) — exactly what enrolling needs.
+create or replace function public.force2fa_on() returns boolean
+language sql stable security definer set search_path = public as $$
+  select coalesce((select (s.data -> 'force2fa') = 'true'::jsonb from public.settings s where s.section = 'security'), false)
+$$;
+revoke execute on function public.force2fa_on() from public, anon;
+grant execute on function public.force2fa_on() to authenticated, service_role;
+
+create or replace function public.is_admin() returns boolean
+language sql stable security definer set search_path = public as $$
+  select exists (
+    select 1 from public.profiles
+    where id = auth.uid() and role_id = 'admin' and status = 'active'
+      and not ((coalesce(twofa, false) or public.force2fa_on()) and coalesce(auth.jwt() ->> 'aal', 'aal1') <> 'aal2')
+  )
+$$;
+
+create or replace function public.has_perm(key text) returns text
+language sql stable security definer set search_path = public as $$
+  select coalesce((
+    select case
+      when p.status <> 'active' then 'N'
+      when (coalesce(p.twofa, false) or public.force2fa_on()) and coalesce(auth.jwt() ->> 'aal', 'aal1') <> 'aal2' then 'N'
+      when p.role_id = 'admin' then 'F'
+      when p.custom_perms ? key then p.custom_perms ->> key
+      else r.permissions ->> key
+    end
+    from public.profiles p
+    left join public.roles r on r.id = p.role_id
+    where p.id = auth.uid()
+  ), 'N')
+$$;

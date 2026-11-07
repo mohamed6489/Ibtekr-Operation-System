@@ -186,6 +186,35 @@ begin
   if (select sent_count from public.alert_state where source_key = 'customers.late') <> 0 then raise exception 'case engine memory failed'; end if;
 end $$;
 
+-- forced 2FA on the server: with «security».force2fa = true an aal1 session has no permission and is no admin (enrolled or not);
+-- the same session at aal2 is itself again; the member keeps their own profile row and settings_public() on aal1 (what enrolling needs)
+update public.settings set data = data || '{"force2fa":true}'::jsonb where section = 'security';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000056a1","role":"authenticated","aal":"aal1"}', true);
+do $$ begin
+  if public.is_admin() then raise exception 'case forced 2FA: admin on aal1 is still admin failed'; end if;
+  if public.has_perm('orders.view') <> 'N' then raise exception 'case forced 2FA: admin on aal1 has permissions failed'; end if;
+  if (select count(*) from public.profiles) <> 1 then raise exception 'case forced 2FA: own profile row only failed'; end if;
+  if public.settings_public() -> 'security' -> 'force2fa' is distinct from 'true'::jsonb then raise exception 'case forced 2FA: the public slice still tells the client failed'; end if;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000056a2","role":"authenticated","aal":"aal1"}', true);
+do $$ begin
+  if public.has_perm('orders.view') <> 'N' then raise exception 'case forced 2FA: a member on aal1 has permissions failed'; end if;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000056a1","role":"authenticated","aal":"aal2"}', true);
+do $$ begin
+  if not public.is_admin() then raise exception 'case forced 2FA: admin on aal2 failed'; end if;
+  if public.has_perm('orders.view') <> 'F' then raise exception 'case forced 2FA: admin on aal2 permissions failed'; end if;
+end $$;
+reset role;
+update public.settings set data = data - 'force2fa' where section = 'security';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000056a2","role":"authenticated","aal":"aal1"}', true);
+do $$ begin
+  if public.has_perm('orders.view') = 'N' then raise exception 'case forced 2FA off: a member on aal1 is normal again failed'; end if;
+end $$;
+reset role;
+
 -- anon: nothing
 set local role anon;
 do $$ begin

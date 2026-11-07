@@ -247,7 +247,9 @@ function ordersSeed(opts = {}) {
 }
 // `u` below is the caller: its profile row plus the token's aal (tokenUser). 0008: a profile enrolled in 2FA (twofa) on a token
 // that is not aal2 gets nothing from has_perm / is_admin.
-const aalGated = (u) => !!u.twofa && u.aal !== 'aal2';
+// 0056: while the security policy force2fa is on, every session that is not aal2 is gated (enrolled or not) — the mock's
+// security row is read through the tokenUser's `force2fa` flag.
+const aalGated = (u) => u.aal !== 'aal2' && (!!u.twofa || !!u.force2fa);
 // has_perm of 0001 + 0008: 'N' for a profile that is not active or aal-gated, 'F' for admin, else custom_perms, then the role's matrix
 const hasPerm = (u, key) => (u.status !== 'active' || aalGated(u) ? 'N' : u.role_id === 'admin' ? 'F' : (u.custom_perms || {})[key] || ROLES.find((r) => r.id === u.role_id).permissions[key] || 'N');
 const isAdmin = (u) => u.status === 'active' && u.role_id === 'admin' && !aalGated(u);
@@ -459,7 +461,8 @@ export async function installSupabaseMock(page, opts = {}) {
     if (hd.apikey !== ANON_KEY) return json(401, { message: 'No API key found in request' });
     const bearer = (hd.authorization || '').replace(/^Bearer /, '');
     // the caller: a snapshot of its profile row with the token's aal (writes go through profileOf)
-    const tokenUser = () => { const row = issued.has(bearer) ? profileOf(claims(bearer).sub) : null; return row ? { ...row, aal: claims(bearer).aal } : null; };
+    const force2fa = () => { const r = mock.settings.find((x) => x.section === 'security'); return !!(r && r.data && r.data.force2fa === true); };
+    const tokenUser = () => { const row = issued.has(bearer) ? profileOf(claims(bearer).sub) : null; return row ? { ...row, aal: claims(bearer).aal, force2fa: force2fa() } : null; };
     const aal = () => (issued.has(bearer) ? claims(bearer).aal : null);
     { const hr = hrRoute({ method, path, url, hd, body, u: path.startsWith('/rest/v1/') && bearer !== ANON_KEY && !issued.has(bearer) ? null : tokenUser(), hasPerm, isAdmin, json, mock, route }); if (hr) return hr; } // phase 10 (0046)
     { const mk = mktRoute({ method, path, url, hd, body, u: path.startsWith('/rest/v1/') && bearer !== ANON_KEY && !issued.has(bearer) ? null : tokenUser(), hasPerm, isAdmin, json, mock, route }); if (mk) return mk; } // phase 9.5.1 (0049)

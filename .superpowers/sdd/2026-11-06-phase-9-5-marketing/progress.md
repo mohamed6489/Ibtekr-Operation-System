@@ -156,3 +156,7 @@
   `how = publish` للريل بالشرط ده (مافيش شرط JPEG عليه)؛ الدومين `pubImages` / `publishable('ريل')` (فيديو لسه ما اتجمّعش = داونلود)، الـ adapter
   `toPost.video` و`preparePublish` بيعدّي الريل من غير نسخ، الـ mock بنفس القاعدة. Deno 249 (+1) / node 592 (+1) / RLS (+ حالة الريل في
   `rls_marketing_video`) / e2e التسويق 19 (+1 ريل متجمّع → «انشر» افتراضي والجدولة بالـ MP4). الوثائق: CLAUDE.md ملحوظة 9.5.5، `tools/deploy.md` §2.7.29.
+- 9.5.5 حي ✓ (7 نوفمبر): `0054` اتطبّق بالـ MCP من أول مرة واتأكد (`mkt_video_jobs` بسياسة واحدة و`url` مش مقري للأعضاء، `ai_runs.source` «video»، bucket 200 ميجا + MP4/صوت،
+  `mkt_schedule` بقاعدة الريل، anon مالوش execute)؛ «RLS live» `rls_marketing_video rls_marketing rls_security_advisor` ✓؛ «Deploy functions» `ai-images` v28 و`mkt-publish` v4
+  و`ai-content` (التشغيلة الأولى اتلغت بالتزامن واتعادت ✓)؛ CI خضرا على 1f38954 بعد تثبيت اختبار المساعدين (إعادة الدخول بعد الخروج كانت بتتذبذب على الـ runner)؛ main = الفرع.
+  **مستني صاحب المشروع:** ربط Magnific (لو مش مربوط) وأول فيديو تجريبي، وأول ريل على الصفحة الحقيقية بإيده (المفتاح `autopublish`).

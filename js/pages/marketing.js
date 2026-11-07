@@ -91,7 +91,7 @@
   const TABS = [['overview', 'نظرة عامة'], ['create', 'إنشاء'], ['publog', 'سجل النشر'], ['calendar', 'الخطة الإعلانية'], ['templates', 'قوالب التصميم'], ['ai', 'مساعدين الذكاء الاصطناعي'], ['reports', 'التقارير']];
   const CSTEPS = ['تفاصيل الكامبين', 'البناء', 'المراجعة', 'النشر والتحميل'];
   const st = { tab: 'create', view: 'hub', step: 1 };
-  const blankCamp = () => ({ id: null, w: W.defaults(), pieces: [], sched: {}, rtab: 'post', tried1: false, pubSel: new Set(), busy: {} });
+  const blankCamp = () => ({ id: null, w: W.defaults(), pieces: [], sched: {}, rtab: 'post', tried1: false, pubSel: new Set(), busy: {}, vjobs: {}, vurl: {} });
   const camp = blankCamp();
   const M = { plq: '', tplk: 'all', tplq: '' }; // the tabs' filters
 
@@ -123,6 +123,8 @@
     camp.id = r.id; return true;
   }
   function startCampaign() { Object.assign(camp, blankCamp()); go('marketing-campaign-1'); }
+  // 9.5.5 decision 62: the video tool is a campaign with one video and nothing else
+  function startVideo() { Object.assign(camp, blankCamp()); camp.w.mediaTab = 'video'; camp.w.media.video.count = 1; camp.w.media.post.count = 0; camp.w.media.carousel.count = 0; go('marketing-campaign-1'); }
   async function openCampaign(id) {
     const r = await MK().open(id); if (!r.ok) { K.toast(r.message, 'error'); return; }
     const s = r.campaign.state || {};
@@ -183,6 +185,11 @@
     return h('div', { class: 'counter' }, h('label', { class: 't-label', for: id }, label), h('div', { class: 'cnt-ctl' }, b('+', 1), inp, b('−', -1))); };
   const modelSel = (id, val, set) => U.Select({ id, label: 'الموديل', value: val, onChange: (v) => { set(v); persist(); R(); },
     options: IMGM().map((x) => ({ value: x.id, label: x.name + ' · ' + K.n0(x.credits) + ' كريديت/صورة' })), help: (IMGM().find((x) => x.id === val) || {}).note || '' });
+  // 9.5.5: the video models of the catalog (on the linked Magnific account — the seconds an estimate, not the image wallet)
+  const vmodelSel = (id, val, set) => U.Select({ id, label: 'الموديل', value: val, onChange: (v) => { set(v); persist(); R(); },
+    options: PD.VIDEO_MODELS.map((x) => ({ value: x.id, label: x.name + ' · ≈ ' + K.n0(W.videoRate(x.id)) + ' كريديت/ثانية' })), help: (PD.VIDEO_MODELS.find((x) => x.id === val) || {}).note || '' });
+  const VCAMS = ['ثابتة', 'زوم بطيء', 'تحريك يمين', 'تحريك شمال', 'ماكرو', 'من فوق', 'دوران'];
+  const vmdlName = (id) => ((PD.VIDEO_MODELS.find((x) => x.id === id) || { name: id }).name);
 
   // ---------- «إعادة كتابة بالـ AI» in a field (decision 10: Claude, no credit) + «تراجع» ----------
   const KINDS = ['general', 'idea', 'caption', 'title', 'sub', 'badge', 'notes', 'desc'];
@@ -216,7 +223,9 @@
       return [h('span', { class: 'prod' }, h('span', null, h('b', null, c.name), h('small', null, c.goal || 'كامبين'))), K.Num(D2(String(c.updatedAt || '').slice(0, 10))), Tag(tone, label),
         h('div', { class: 'acts-inline' }, C.create ? Button({ size: 'sm', label: 'افتح', attrs: { 'data-mk-open': c.id }, onClick: () => openCampaign(c.id) }) : null,
           C.create ? K.RowMenu([{ label: 'احذف الكامبين', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تحذف «' + c.name + '»؟', text: 'الكامبين هتختفي من «آخر الشغل». البوستات اللي اتجدولت منها بتفضل في سجل النشر.', okLabel: 'احذف', okType: 'danger', onOk: async () => { const r = await MK().archive(c.id); K.toast(r.ok ? 'اتحذفت الكامبين' : r.message, r.ok ? 'success' : 'error'); if (r.ok && camp.id === c.id) Object.assign(camp, blankCamp()); R(); } }) }]) : null)]; });
-    return [h('div', { class: 'tools-grid c1' }, tool),
+    const vtool = h('button', { type: 'button', class: 'card tool-card', 'data-mk-video': '', disabled: !C.create || null, onClick: startVideo, 'aria-label': 'فيديو — اعمل فيديو' }, h('span', { class: 'tool-ic' }, Icon('video')), h('span', { class: 't-h5 tc-t' }, 'فيديو'),
+      h('span', { class: 't-small tc-b' }, 'ريل من المشاهد: الصور بالـ AI، المقاطع والصوت والموسيقى على Magnific، والنشر.'), h('span', { class: 'tc-cta' }, 'اعمل فيديو', Icon('chevL', 'sm')));
+    return [h('div', { class: 'tools-grid c2' }, tool, vtool),
       Card('آخر الشغل', 'الكامبينات اللي اتعملت — بتتحفظ أول بأول وتقدر تكمّلها من مكان ما وقفت.', list.length ? U.Table({ cls: 'dt', headers: ['الكامبين', 'آخر تعديل', 'الحالة', ''], rows })
         : K.Empty('لسه مفيش كامبينات', 'ابدأ كامبين من الكارت اللي فوق.'))];
   }
@@ -236,20 +245,22 @@
     const idea = Card('الفكرة العامة', 'كل ما تحكي أكتر، الكونتنت يطلع أقرب لإبتكر — كل القطع ماشية عليها.', [aiField(U.Textarea({ id: 'cw-idea', label: 'الفكرة', required: true, rows: 3, value: c.idea, error: err.idea, onInput: (v) => { c.idea = v; persist(); } }), 'general', { campaignId: null })]);
     if (W.VIDEO_SOON && c.mediaTab === 'video') c.mediaTab = 'post';
     const Mx = c.media; const t = c.mediaTab; const m = Mx[t];
+    const vm = t === 'video' ? (PD.VIDEO_MODELS.find((x) => x.id === m.model) || PD.VIDEO_MODELS[0]) : null;
     const counts = h('div', { class: 'cw-row' }, num('cw-n-' + t, 'العدد', m.count, W.MAX.count, (v) => { m.count = v; }),
-      U.Select({ id: 'cw-sz-' + t, label: 'المقاس', value: m.size, onChange: (v) => { m.size = v; persist(); R(); }, options: SZ() }),
-      t === 'carousel' ? num('cw-slides', 'صور في كل كاروسيل', m.slides, W.MAX.slides, (v) => { m.slides = v; }, 2) : null);
+      U.Select({ id: 'cw-sz-' + t, label: 'المقاس', value: m.size, onChange: (v) => { m.size = v; persist(); R(); }, options: t === 'video' ? W.VSIZES.map(([v, l]) => ({ value: v, label: l })) : SZ() }),
+      t === 'carousel' ? num('cw-slides', 'صور في كل كاروسيل', m.slides, W.MAX.slides, (v) => { m.slides = v; }, 2) : null,
+      t === 'video' ? U.Select({ id: 'cw-dur', label: 'المدة', value: String(vm.durations.includes(m.dur) ? m.dur : vm.durations[0]), onChange: (v) => { m.dur = Number(v); persist(); R(); }, options: vm.durations.map((d) => ({ value: String(d), label: d + ' ثانية' })) }) : null);
     const tabItems = W.MEDIA.map(([id, l]) => ({ id, label: id === 'video' && W.VIDEO_SOON ? [l, ' ', soonTag()] : l, count: id === 'video' && W.VIDEO_SOON ? null : Mx[id].count }));
     const media = Card('الميديا', 'اختار نوع الميديا وظبط كل نوع لوحده.', [K.SubTabs({ label: 'نوع الميديا', active: t, onChange: (id) => { if (id === 'video' && W.VIDEO_SOON) { K.toast('الفيديو بالـ AI قريبًا — بعد المرحلة دي'); return; } c.mediaTab = id; persist(); R(); }, items: tabItems }),
-      h('div', { class: 'cw-media', 'data-cw-media': t }, counts, modelSel('cw-md-' + t, m.model, (v) => { m.model = v; }),
+      h('div', { class: 'cw-media', 'data-cw-media': t }, counts, t === 'video' ? vmodelSel('cw-md-video', m.model, (v) => { m.model = v; const mm = PD.VIDEO_MODELS.find((x) => x.id === v); if (mm && !mm.durations.includes(m.dur)) m.dur = mm.durations[0]; }) : modelSel('cw-md-' + t, m.model, (v) => { m.model = v; }),
         h('hr', { class: 'cw-hr' }), Files('cw-use-' + t, 'فايلز أو لينكات للاستخدام', m.use, 'صور المنتج، اللوجو، لقطات من الورشة — أو لينك منتج من الموقع'), Files('cw-ref-' + t, 'فايلز أو لينكات أمثلة للمطابقة', m.ref, 'الـ AI بيقلّد الستايل والترتيب', t === 'carousel' ? 'carousel' : 'post'),
         aiField(U.Textarea({ id: 'cw-notes-' + t, label: 'تعليمات', rows: 2, value: m.notes, placeholder: 'مثلًا: ألوان دافية، من غير ناس، الكلام قليل', onInput: (v) => { m.notes = v; persist(); } }), 'notes', { campaignId: null }))]);
     const X = c.extra;
     const extra = Card('ملفات إضافية', 'صور زيادة للستوري أو الموقع بنفس الستايل.', [h('div', { class: 'cw-row' }, num('cw-n-extra', 'العدد', X.count, W.MAX.count, (v) => { X.count = v; })),
       X.count ? [modelSel('cw-md-extra', X.model, (v) => { X.model = v; }), h('hr', { class: 'cw-hr' }), Files('cw-use-extra', 'فايلز أو لينكات للاستخدام', X.use), Files('cw-ref-extra', 'فايلز أو لينكات أمثلة للمطابقة', X.ref, null, 'post'),
         aiField(U.Textarea({ id: 'cw-notes-extra', label: 'تعليمات', rows: 2, value: X.notes, onInput: (v) => { X.notes = v; persist(); } }), 'notes', { campaignId: null })] : null]);
-    const est = W.estimate(c, IMGM()); const w = wallet();
-    const sum = U.InlineNote({ kind: w.balance != null && est > w.balance ? 'warning' : 'info', children: h('span', { 'data-cw-est': String(est) }, 'التكلفة المتوقعة لصور الكامبين كلها تقريبًا ' + K.n0(est) + ' كريديت · ' + (w.balance != null ? 'رصيدك ' + K.n0(w.balance) + ' كريديت' : 'اتصرف الشهر ده ' + K.n0(w.used) + ' كريديت') + '. التكلفة الفعلية بتظهر قبل كل توليد، والكتابة بالـ AI مابتصرفش كريدت.') });
+    const est = W.estimate(c, IMGM()); const w = wallet(); const estV = W.estimateVideo(c);
+    const sum = U.InlineNote({ kind: w.balance != null && est > w.balance ? 'warning' : 'info', children: h('span', { 'data-cw-est': String(est) }, 'التكلفة المتوقعة لصور الكامبين كلها تقريبًا ' + K.n0(est) + ' كريديت' + (estV ? ' · والفيديو ≈ ' + K.n0(estV) + ' كريديت على حساب Magnific المربوط (مش من رصيد الصور)' : '') + ' · ' + (w.balance != null ? 'رصيدك ' + K.n0(w.balance) + ' كريديت' : 'اتصرف الشهر ده ' + K.n0(w.used) + ' كريديت') + '. التكلفة الفعلية بتظهر قبل كل توليد، والكتابة بالـ AI مابتصرفش كريدت.') });
     return [goal, idea, media, extra, err.media ? U.InlineNote({ kind: 'error', children: err.media }) : null, sum,
       Foot(1, 4, cback, 'متابعة للبناء', async () => { camp.tried1 = true; if (Object.keys(W.validateDetails(c)).length) { R(); K.toast('كمّل البيانات الناقصة', 'error'); return; }
         camp.pieces = W.buildPieces(c, camp.pieces); if (!(await ensureCampaign())) return; go('marketing-campaign-2'); }, !can().create)];
@@ -266,11 +277,13 @@
     const key = busyKey(p, slide); if (camp.busy[key]) return false;
     if (!(await ensureCampaign())) return false;
     camp.busy[key] = true; persist(0); R();
-    const r = await MK().generate(camp.id, { piece: p.id, slide, model: p.model, size: p.size });
+    const vid = p.kind === 'فيديو';
+    const r = await MK().generate(camp.id, { piece: p.id, slide, model: vid ? W.DEFAULT_MODEL : p.model, size: vid ? W.videoImgSize(p.size) : p.size });
     delete camp.busy[key];
     if (!r.ok) { K.toast(r.message, 'error'); R(); return false; }
-    const t = slide == null || slide < 0 ? p : p.slides[slide];
+    const t = slide == null || slide < 0 ? p : vid ? p.scenes[slide] : p.slides[slide];
     t.img = r.path; t.gen = (t.gen || 0) + 1; t.approved = false; t.v = t.gen > 1 ? t.gen : t.v; if (t !== p) p.approved = false;
+    if (vid) { p.assembled = false; p.video = null; } // a new key frame: the clips and the cut are stale
     persist(0); R(); return true;
   }
   async function genCarousel(p) { if (!(await genImage(p, -1))) return false; for (let k = 0; k < p.slides.length; k++) if (!(await genImage(p, k))) return false; return true; }
@@ -292,13 +305,25 @@
       txt(id + '-b', 'بادج مخصص', t.badge, (v) => { t.badge = v; }, false, ctx),
       Files(id + '-ref', 'مثال للمطابقة', t.ref, null, p.kind === 'كاروسيل' ? 'carousel' : 'post'), Files(id + '-use', 'صور أو لينكات للاستخدام', t.use)];
   }
+  // the video scenes by Claude (decision 59): the ideas, the on-screen text, the camera, the voice-over — the images stay where the count did not change
+  async function planScenes(p) {
+    if (!(await ensureCampaign())) return false; persist(0);
+    const r = await MK().videoScenes(camp.id, p.id, p.voice && p.voice.mode === 'ai');
+    if (!r.ok) { K.toast(r.message, 'error'); return false; }
+    const old = p.scenes || [];
+    p.scenes = r.scenes.map((s, k) => Object.assign({ n: k + 1, d: s.d, idea: s.idea, text: s.text, cam: s.cam, ref: [], use: [] }, old.length === r.scenes.length && old[k] && old[k].img ? { img: old[k].img, gen: old[k].gen } : {}));
+    if (p.voice && !p.voice.text && r.voice) p.voice.text = r.voice;
+    p.assembled = false; p.video = null; p.approved = false; persist(0); return true;
+  }
+  const sceneCostAll = (p) => W.cost('scenes-img', Object.assign({}, p, { scenes: (p.scenes || []).length ? p.scenes.filter((x) => !x.img) : W.splitScenes(p.dur, p.sceneCount) }), IMGM());
   function pieceHead(p) {
-    const cost = p.kind === 'كاروسيل' ? W.cost('carousel', p, IMGM()) : W.cost('image', p, IMGM());
+    const cost = p.kind === 'كاروسيل' ? W.cost('carousel', p, IMGM()) : p.kind === 'فيديو' ? sceneCostAll(p) : W.cost('image', p, IMGM());
     return h('div', { class: 'cw-ph' }, h('b', { class: 't-h5' }, p.kind + ' ' + p.n), h('span', { class: 'cw-meta' }, h('span', null, 'المقاس: ', szName(p.size)), h('span', null, 'الموديل: ', mdlName(p.model)), h('span', null, 'هيصرف: ', K.Num(K.n0(cost) + ' كريديت'))),
       W.built(p) ? Tag('success', 'اتولد') : Tag('neutral', 'لسه'), h('span', { class: 'grow' }), aiBtn('املأ بالـ AI', async () => { if (await aiFill(p)) K.toast('اتملت الحقول الفاضية — راجعها', 'success'); }, { 'data-cw-fill': p.id }));
   }
   function buildCard(p) {
     const anchor = { id: 'cw-' + p.id, 'data-cw-piece': p.id, tabindex: '-1' };
+    if (p.kind === 'فيديو') return buildVideo(p, anchor);
     if (p.kind === 'كاروسيل') {
       const n = W.cost('carousel', p, IMGM()); const any = Object.keys(camp.busy).some((k) => k.startsWith(p.id + ':'));
       return h('section', Object.assign({ class: 'card cw-piece' }, anchor), pieceHead(p),
@@ -311,10 +336,27 @@
     return h('section', Object.assign({ class: 'card cw-piece' }, anchor), pieceHead(p), h('div', { class: 'cw-grid' }, pv(p.img, vcls(p), null, busy), h('div', { class: 'cw-fields' }, ...fieldsFor(p, 'b-', { caption: p.kind === 'بوست' }),
       h('div', { class: 'acts-inline start' }, costBtn(p.img ? 'ولّد تاني' : 'توليد الصورة', n, async () => { if (await genImage(p, null)) K.toast('اتولدت الصورة', 'success'); }, { 'data-cw-gen': p.id }, null, busy)))));
   }
+  // the video piece in the build step (the v6): the idea and the caption, the scenes count, «توليد المشاهد» by Claude, a key frame a scene
+  function buildVideo(p, anchor) {
+    const ctx = { piece: p.id, slide: null }; const sc = p.scenes || [];
+    const scene = (s, k) => h('div', { class: 'cw-scene', 'data-cw-scene': p.id + '-' + k }, h('div', { class: 'cw-grid' }, pv(s.img, vcls(p), 'المشهد ' + (k + 1), camp.busy[busyKey(p, k)]), h('div', { class: 'cw-fields' }, h('b', null, 'المشهد ' + (k + 1) + ' (المدة ' + K.n0(s.d) + ' ثواني)'),
+      txt('b-' + p.id + '-sc' + k, 'فكرة المشهد', s.idea, (v) => { s.idea = v; }, true, { piece: p.id, slide: k }),
+      K.two(U.Select({ id: 'b-' + p.id + '-cam' + k, label: 'الكاميرا', value: VCAMS.includes(s.cam) ? s.cam : 'ثابتة', options: VCAMS.map((x) => ({ value: x, label: x })), onChange: (v) => { s.cam = v; persist(); } }),
+        U.TextInput({ id: 'b-' + p.id + '-tx' + k, label: 'كلام على الشاشة', value: s.text || '', maxlength: 60, placeholder: '—', onInput: (v) => { s.text = v; persist(); } })),
+      h('div', { class: 'acts-inline start' }, costBtn(s.img ? 'ولّد صورة المشهد تاني' : 'توليد صورة المشهد', W.cost('scene', p, IMGM()), async () => { if (await genImage(p, k)) K.toast('اتولدت صورة المشهد ' + (k + 1), 'success'); }, { 'data-cw-scene-gen': p.id + '-' + k }, null, camp.busy[busyKey(p, k)])))));
+    const allN = sc.length ? W.cost('scenes-img', Object.assign({}, p, { scenes: sc.filter((x) => !x.img) }), IMGM()) : 0;
+    return h('section', Object.assign({ class: 'card cw-piece cw-vid' }, anchor), pieceHead(p),
+      h('div', { class: 'cw-grid' }, pv(sc[0] && sc[0].img, vcls(p), 'فيديو ' + K.n0(p.dur) + ' ث'), h('div', { class: 'cw-fields' }, txt('b-' + p.id + '-idea', 'فكرة الفيديو', p.idea, (v) => { p.idea = v; }, true, ctx), txt('b-' + p.id + '-cap', 'الكابشن المقترح', p.caption, (v) => { p.caption = v; }, true, ctx),
+        Files('b-' + p.id + '-ref', 'مثال للمطابقة', p.ref, null, 'video'), Files('b-' + p.id + '-use', 'صور أو لينكات للاستخدام', p.use),
+        h('div', { class: 'cw-row' }, num('b-' + p.id + '-n', 'عدد المشاهد', p.sceneCount, W.MAX.scenes, (v) => { p.sceneCount = v; }, 1)),
+        h('div', { class: 'acts-inline start' }, aiBtn(sc.length ? 'وزّع المشاهد تاني' : 'توليد المشاهد', async () => { if (await planScenes(p)) K.toast('اتقسم الفيديو ' + K.n0(p.scenes.length) + ' مشاهد — ولّد صورة كل مشهد', 'success'); }, { 'data-cw-plan': p.id })))),
+      sc.length ? [h('div', { class: 'grp-h cw-sub' }, h('h3', { class: 't-h6' }, 'المشاهد (' + K.n0(sc.length) + ')'), h('span', { class: 'grow' }), allN ? costBtn('ولّد صور كل المشاهد', allN, async () => { for (let k = 0; k < sc.length; k++) { if (!sc[k].img && !(await genImage(p, k))) return; } K.toast('اتولدت صور المشاهد', 'success'); }, { 'data-cw-scenes-all': p.id }) : null), h('div', { class: 'cw-scenes' }, sc.map(scene))] : null);
+  }
   // «ولّد الكل بالـ AI» (owner 2 Nov 00:25): every piece still missing — the empty texts first (no credit), then the images
   function genAllPlan() {
     const ps = camp.pieces || []; let cost = 0; const jobs = [];
     ps.forEach((p) => { if (W.built(p)) return;
+      if (p.kind === 'فيديو') { const sc = (p.scenes || []).length ? p.scenes : W.splitScenes(p.dur, p.sceneCount); if (!(p.scenes || []).length) jobs.push(() => planScenes(p)); sc.forEach((x, k) => { if (!x.img) { cost += W.cost('scene', p, IMGM()); jobs.push(() => genImage(p, k)); } }); return; }
       if (!p.idea) jobs.push(() => aiFill(p));
       if (p.kind === 'كاروسيل') { const miss = [p.img ? null : -1].concat(p.slides.map((s, k) => (s.img ? null : k))).filter((x) => x != null); cost += W.imgRate(IMGM(), p.model) * miss.length; miss.forEach((k) => jobs.push(() => genImage(p, k))); }
       else { cost += W.cost('image', p, IMGM()); jobs.push(() => genImage(p, null)); } });
@@ -331,7 +373,7 @@
     const jump = h('nav', { class: 'cw-jump', 'aria-label': 'القطع' }, ps.map((p) => h('a', { href: '#cw-' + p.id, class: 'chip' + (W.built(p) ? ' on' : ''), onClick: (e) => { e.preventDefault(); const el = document.getElementById('cw-' + p.id); if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'start' }); el.focus({ preventScroll: true }); } } }, W.built(p) ? Icon('check', 'sm') : null, p.kind + ' ' + p.n)));
     return [h('div', { class: 'cw-bar card' }, h('span', { 'data-cw-built': pr.done + '/' + pr.total }, 'اتولد ', K.Num(pr.done + ' من ' + pr.total)), h('span', { class: 'grow' }), jump), ...ps.map(buildCard),
       pr.done < pr.total ? U.InlineNote({ children: 'ولّد كل القطع عشان تكمّل للمراجعة.' }) : null,
-      Foot(2, 4, cback, 'متابعة للمراجعة', () => { camp.rtab = ps.some((p) => p.kind === 'بوست' || p.kind === 'ملف إضافي') ? 'post' : 'carousel'; go('marketing-campaign-3'); }, !W.canBuildNext(ps))];
+      Foot(2, 4, cback, 'متابعة للمراجعة', () => { camp.rtab = ps.some((p) => p.kind === 'بوست' || p.kind === 'ملف إضافي') ? 'post' : ps.some((p) => p.kind === 'كاروسيل') ? 'carousel' : 'video'; go('marketing-campaign-3'); }, !W.canBuildNext(ps))];
   }
 
   // ===== ٣. المراجعة =====
@@ -393,18 +435,90 @@
       done ? Tag('success', 'اتوافق على الكل') : Tag('orange', W.progress([{ approved: p.approved }].concat(p.slides), (x) => x.approved).done + ' من ' + (p.slides.length + 1))),
       txt('r-' + p.id + '-cap', 'الكابشن', p.caption, (v) => { p.caption = v; }, true, { piece: p.id, slide: null }), sub(-1), h('div', { class: 'cw-slides' }, p.slides.map((_, k) => sub(k))));
   }
+  // ----- the video in the review (9.5.5, decisions 58–61): the timeline, the tracks, the clips, the cut and the mixes, the player -----
+  const vjobsOf = (p) => camp.vjobs[p.id] || null;
+  const clipDone = (p, k) => { const J = vjobsOf(p); return !!J && J.jobs.some((j) => j.kind === 'clip' && j.status === 'done' && (p.method === 'chained' ? j.scene == null : j.scene === k)); };
+  const clipsReady = (p) => (p.method === 'chained' ? clipDone(p, null) : (p.scenes || []).length > 0 && p.scenes.every((_, k) => clipDone(p, k)));
+  // the poll (decision 58): every 15 s while the piece has open jobs and the review is on screen; the final video into the piece
+  const VPOLL_MS = 15000;
+  async function vpoll(p, force) {
+    if (!camp.id || !MK()) return; const key = 'poll:' + p.id; if (camp.busy[key] && !force) return; camp.busy[key] = true;
+    try {
+      const r = await MK().videoPoll(camp.id, p.id);
+      if (!r.ok) { camp.vjobs[p.id] = { jobs: [], open: 0, final: null, error: r.message, at: Date.now() }; return; }
+      camp.vjobs[p.id] = { jobs: r.jobs || [], open: r.open, final: r.final, at: Date.now() };
+      if (r.final && r.final.path && p.video !== r.final.path) { p.video = r.final.path; p.assembled = true; p.approved = false; persist(0); }
+      if (!r.final && p.assembled) { p.assembled = false; p.video = null; persist(0); }
+    } finally { delete camp.busy[key]; }
+    if (window.IBPages.current === 'marketing' && st.view === 'campaign' && st.step === 3) { R(); const J = camp.vjobs[p.id]; if (J && J.open) setTimeout(() => { if (st.view === 'campaign' && st.step === 3 && camp.pieces.includes(p)) vpoll(p); }, VPOLL_MS); }
+  }
+  const JOB_L = { clip: 'مقطع', voice: 'الفويس أوفر', music: 'الموسيقى', upload: 'ملف', assemble: 'التجميع', mix: 'المزج' };
+  const JOB_ST = { queued: ['في الطابور', 'neutral'], running: ['بيتعمل…', 'orange'], done: ['خلص', 'success'], failed: ['فشل', 'error'] };
+  async function vrun(p, fn, okMsg) { if (!(await ensureCampaign())) return; const r = await fn(); if (!r.ok) { K.toast(r.message, 'error'); return; } if (okMsg) K.toast(okMsg, 'success'); p.assembled = false; p.video = null; p.approved = false; persist(0); await vpoll(p, true); }
+  function videoPlayer(p) {
+    const box = h('div', { class: 'vid-big ' + (p.size === '9:16' ? 'tall' : p.size === '16:9' ? 'wide' : 'sq'), 'data-cw-player': p.id });
+    const m = U.Modal({ title: 'الفيديو المجمّع — فيديو ' + p.n, body: [box, h('p', { class: 't-small help', style: 'margin:0' }, K.n0(p.dur) + ' ث · ' + p.size + ' · ' + vmdlName(p.model))], footer: [Button({ label: 'اقفل', onClick: () => m.close() })].concat(!p.approved ? [Button({ type: 'primary', icon: 'check', label: 'موافقة على الفيديو', attrs: { 'data-vp-ok': '' }, onClick: () => { p.approved = true; persist(0); m.close(); K.toast('اتوافق على فيديو ' + p.n, 'success'); R(); } })] : []) });
+    MK().url(p.video).then((u) => { if (u) box.replaceChildren(h('video', { src: u, controls: true, playsinline: true, style: 'width:100%;height:100%;object-fit:contain;background:#000' })); else box.replaceChildren(h('p', { class: 't-small help' }, 'تعذّر فتح الفيديو')); });
+  }
+  function reviewVideo(p) {
+    const J = vjobsOf(p); if (!J && camp.id && !camp.busy['poll:' + p.id]) vpoll(p);
+    const sc = p.scenes || []; const total = sc.reduce((x, s) => x + (s.d || 0), 0) || p.dur; const ready = clipsReady(p); const mu = p.music; const v = p.voice;
+    const dirty = () => { p.assembled = false; p.video = null; p.approved = false; persist(0); };
+    const col = (s, k) => { const ta = h('textarea', { class: 'input cw-tl-tx', id: 'tl-' + p.id + '-' + k, rows: 2, maxlength: 60, placeholder: 'النص اللي يظهر على المشهد', 'aria-label': 'النص على الشاشة — المشهد ' + (k + 1) }, s.text || ''); ta.addEventListener('input', () => { s.text = ta.value; persist(); const o = ta.closest('.cw-tl-s').querySelector('.cw-tl-cap'); if (o) o.textContent = ta.value; });
+      const done = clipDone(p, k);
+      return h('div', { class: 'cw-tl-s', 'data-cw-tl': k, role: 'listitem', style: 'flex:' + (s.d || 1) + ' 1 0' },
+        h('div', { class: 'cw-tl-th' }, s.img ? Img(s.img, 'fill') : null, h('span', { class: 'cw-tl-n' }, String(k + 1)), h('span', { class: 'cw-dur' }, K.n0(s.d) + ' ث'), h('span', { class: 'cw-tl-cap' }, s.text || ''),
+          h('span', { class: 'cw-play' + (done ? ' on' : ''), 'aria-label': done ? 'المشهد ' + (k + 1) + ' اتولد' : 'المشهد ' + (k + 1) + ' لسه', title: done ? 'اتولد' : 'لسه ما اتولدش', 'data-cw-clip': p.id + '-' + k + ':' + (done ? 'done' : 'none') }, Icon(done ? 'check' : 'play'))),
+        h('div', { class: 'cw-tl-txw' }, ta), h('div', { class: 'cw-tl-f' }, h('b', null, 'المشهد ' + (k + 1)), h('span', { class: 'grow' }))); };
+    const tStep = total > 20 ? 5 : total > 10 ? 3 : 1; const ticks = []; for (let x = 0; x < total; x += tStep) ticks.push(x); if (ticks.length > 1 && total - ticks[ticks.length - 1] < tStep / 2) ticks.pop(); ticks.push(total);
+    const timeline = h('div', { class: 'cw-tl2', role: 'group', 'aria-label': 'تايملاين الفيديو ' + p.n },
+      h('div', { class: 'cw-ruler', 'aria-hidden': 'true' }, ticks.map((x) => h('span', { style: 'inset-inline-start:' + (x / total * 100) + '%' }, K.n0(x) + 'ث'))),
+      h('div', { class: 'cw-track', role: 'list', 'aria-label': 'مشاهد الفيديو ' + p.n }, sc.map(col)),
+      h('div', { class: 'cw-atrack mu' + (mu.src === 'none' ? ' off' : '') }, Icon('music', 'sm'), h('span', null, mu.src === 'none' ? 'من غير موسيقى' : mu.src === 'upload' ? (mu.file || 'ارفع التراك') : 'موسيقى ' + (mu.type || ''))),
+      h('div', { class: 'cw-atrack vo' + (v.mode === 'none' ? ' off' : '') }, Icon('mic', 'sm'), h('span', null, v.mode === 'none' ? 'من غير فويس أوفر' : v.mode === 'upload' ? (v.file || 'ارفع الصوت') : 'فويس أوفر بالـ AI')));
+    const audioInput = (role) => { const inp = h('input', { type: 'file', class: 'sr-file', id: 'cw-au-' + role + '-' + p.id, accept: 'audio/mpeg,audio/mp4,audio/x-m4a,audio/wav', onChange: async () => { const f = inp.files[0]; inp.value = ''; if (!f) return; await vrun(p, () => MK().videoUpload(camp.id, p.id, f, role), 'اترفع الملف'); if (role === 'voice') v.file = f.name; else mu.file = f.name; persist(0); R(); } });
+      return h('div', { class: 'cw-add' }, h('label', { class: 'btn btn-default sm', for: inp.id, tabindex: '0', role: 'button' }, Icon('upload', 'sm'), ' ارفع ملف (MP3 / M4A / WAV)'), inp); };
+    const last = (kind) => (J ? J.jobs.filter((j) => j.kind === kind || (j.kind === 'upload' && j.data && j.data.role === kind)).pop() : null);
+    const jobTag = (j) => (j ? Tag(JOB_ST[j.status] ? JOB_ST[j.status][1] : 'neutral', JOB_ST[j.status] ? JOB_ST[j.status][0] : j.status) : null);
+    const av = h('div', { class: 'cw-av' },
+      h('div', { class: 'cw-av-r', 'data-cw-music': p.id }, h('b', null, Icon('music', 'sm'), ' الموسيقى ', jobTag(last('music'))), h('div', { class: 'chips', role: 'radiogroup' }, [['library', 'بالنوع (AI)'], ['upload', 'ارفع'], ['none', 'من غير']].map(([id, l]) => chip(l, mu.src === id, () => { mu.src = id; dirty(); R(); }))),
+        mu.src === 'library' ? [U.Select({ id: 'mu-' + p.id, label: 'نوع الموسيقى', value: mu.type || 'دافية هادية', options: ['دافية هادية', 'شرقي حديث', 'مبهجة', 'سينمائي'].map((x) => ({ value: x, label: x })), onChange: (x) => { mu.type = x; dirty(); R(); } }),
+          h('div', { class: 'acts-inline start' }, Button({ size: 'sm', icon: 'sparkle', label: last('music') && last('music').status !== 'failed' ? 'ولّد الموسيقى تاني' : 'ولّد الموسيقى', disabled: !can().create, attrs: { 'data-cw-music-gen': p.id }, onClick: () => vrun(p, () => MK().videoMusic(camp.id, p.id, mu.type || 'دافية هادية'), 'الموسيقى بتتعمل على Magnific') }))]
+          : mu.src === 'upload' ? audioInput('music') : null),
+      h('div', { class: 'cw-av-r', 'data-cw-voice': p.id }, h('b', null, Icon('mic', 'sm'), ' الفويس أوفر ', jobTag(last('voice'))), h('div', { class: 'chips', role: 'radiogroup' }, [['ai', 'اكتب وولّد بالـ AI'], ['upload', 'ارفع'], ['none', 'من غير']].map(([id, l]) => chip(l, v.mode === id, () => { v.mode = id; dirty(); R(); }))),
+        v.mode === 'ai' ? [U.Textarea({ id: 'vo-' + p.id, label: 'نص الفويس أوفر', rows: 2, value: v.text, onInput: (x) => { v.text = x; persist(); } }),
+          U.Select({ id: 'vc-' + p.id, label: 'الصوت', value: v.voice || 'm-eg-1', options: [['m-eg-1', 'راجل — مصري (Bilal)'], ['m-eg-2', 'راجل — مصري (Karim)'], ['m-eg-3', 'راجل — مصري (Yusuf)'], ['f-ar-1', 'ست — عربي (Amina)'], ['f-ar-2', 'ست — عربي (Hiba)']].map(([a, b]) => ({ value: a, label: b })), onChange: (x) => { v.voice = x; persist(); } }),
+          h('div', { class: 'acts-inline start' }, Button({ size: 'sm', icon: 'sparkle', label: last('voice') && last('voice').status !== 'failed' ? 'ولّد الصوت تاني' : 'ولّد الصوت', disabled: !can().create, attrs: { 'data-cw-voice-gen': p.id }, onClick: () => { if (!String(v.text || '').trim()) { K.toast('اكتب نص الفويس أوفر الأول', 'error'); return; } vrun(p, () => MK().videoVoice(camp.id, p.id, { voice: v.voice || 'm-eg-1', text: v.text }), 'الصوت بيتعمل على Magnific'); } }))]
+          : v.mode === 'upload' ? audioInput('voice') : null));
+    const jobsList = J && J.jobs.length ? h('div', { class: 'cw-jobs t-small', 'data-cw-jobs': String(J.jobs.length) }, J.jobs.slice(-8).map((j) => h('span', { class: 'cw-job', 'data-cw-job': j.kind + ':' + j.status }, (JOB_L[j.kind] || j.kind) + (j.scene != null ? ' ' + (j.scene + 1) : ''), ' ', jobTag(j), j.error ? h('small', { class: 'help' }, ' · ' + j.error) : null))) : null;
+    const final = J && J.final; const step = p.video ? 3 : ready ? 2 : 1; const busy = !!(J && J.open);
+    const genClips = () => vrun(p, async () => { if (p.method === 'chained') return MK().videoClip(camp.id, p.id, null); for (let k = 0; k < sc.length; k++) { if (clipDone(p, k)) continue; const r = await MK().videoClip(camp.id, p.id, k); if (!r.ok) return r; } return { ok: true }; }, 'المشاهد بتتعمل على Magnific — استنى شوية');
+    const chainedOk = p.model !== 'kling-2.5';
+    return h('section', { class: 'card cw-piece cw-rev cw-vid' + (p.approved ? ' ok' : ''), 'data-cw-rev': p.id },
+      h('div', { class: 'cw-ph' }, h('b', { class: 't-h5' }, 'الفيديو رقم ' + p.n), h('span', { class: 'cw-meta' }, h('span', null, 'المدة: ', K.Num(K.n0(p.dur) + ' ث')), h('span', null, 'المقاس: ', p.size), h('span', null, 'الموديل: ', vmdlName(p.model)), h('span', null, 'التكلفة: ', K.Num('≈ ' + K.n0(W.cost('clips', p, IMGM())) + ' كريديت على Magnific'))),
+        p.approved ? Tag('success', 'اتوافق') : p.video ? Tag('orange', 'مستني موافقتك') : null, Button({ type: 'brand', size: 'sm', icon: 'play', label: 'شاهد الفيديو المجمّع', disabled: !p.video, attrs: { 'data-cw-watch': p.id, title: p.video ? '' : 'جمّع المشاهد الأول' }, onClick: () => videoPlayer(p) }), h('span', { class: 'grow' }),
+        h('div', { class: 'cw-method', role: 'radiogroup', 'aria-label': 'طريقة التوليد', 'data-cw-method': p.id }, h('span', { class: 't-small help' }, 'طريقة التوليد:'), W.METHODS.map(([id, l]) => { const on = (p.method || 'separate') === id; const n = W.cost('clips', Object.assign({}, p, { method: id }), IMGM()); return h('button', { type: 'button', role: 'radio', class: 'radio cw-rd', 'aria-checked': String(on), 'data-method': id, disabled: id === 'chained' && !chainedOk ? true : null, onClick: () => { if (on) return; p.method = id; dirty(); K.toast(l + ' — ≈ ' + K.n0(n) + ' كريديت'); R(); } }, h('i'), h('span', null, l, h('small', { class: 'help' }, ' · ≈ ' + K.n0(n)))); }))),
+      h('p', { class: 't-small help', style: 'margin:0' }, p.method === 'chained' ? 'نداء واحد بكل المشاهد (Seedance) — حركة متصلة من صورة أول مشهد.' : 'كل مشهد بيتولد لوحده من صورته، وبعدين بيتجمعوا.' + (chainedOk ? '' : ' Kling بيشتغل مشاهد منفصلة بس.')),
+      timeline, av, jobsList, J && J.error ? U.InlineNote({ kind: 'warning', children: J.error }) : null,
+      h('div', { class: 'cw-gen' }, h('div', { class: 'cw-prog', role: 'progressbar', 'aria-label': 'تقدّم الفيديو ' + p.n, 'aria-valuemin': '0', 'aria-valuemax': '3', 'aria-valuenow': String(step - 1) }, h('i', { style: 'width:' + Math.round((step - 1) / 2 * 100) + '%' })), h('span', { class: 't-small help', 'data-cw-vstep': String(step) }, busy ? 'شغّال على Magnific… (' + K.n0(J.open) + ')' : ['المشاهد لسه ما اتولدتش فيديو', 'المشاهد جاهزة — جمّعها', 'الفيديو جاهز'][step - 1]),
+        busy ? Button({ size: 'sm', label: 'حدّث', attrs: { 'data-cw-vpoll': p.id }, onClick: () => vpoll(p, true) })
+          : step === 1 ? Button({ type: 'primary', size: 'sm', icon: 'sparkle', label: 'توليد المشاهد', disabled: !can().create || !W.built(p), attrs: { 'data-cw-clips': p.id }, onClick: genClips })
+          : step === 2 ? Button({ type: 'primary', size: 'sm', label: 'تجميع المشاهد', disabled: !can().create, attrs: { 'data-cw-assemble': p.id }, onClick: () => vrun(p, () => MK().videoAssemble(camp.id, p.id), 'بيتجمّع بالموسيقى والصوت على Magnific') })
+          : h('div', { class: 'acts-inline' }, p.approved ? Button({ size: 'sm', label: 'رجّع للتعديل', onClick: () => { p.approved = false; persist(0); R(); } }) : Button({ type: 'primary', size: 'sm', icon: 'check', label: 'موافقة', attrs: { 'data-cw-ok': 'فيديو ' + p.n }, onClick: () => { p.approved = true; persist(0); R(); } }),
+            Button({ size: 'sm', label: 'ولّد المشاهد تاني', attrs: { 'data-cw-clips-again': p.id }, onClick: () => { p.assembled = false; p.video = null; p.approved = false; camp.vjobs[p.id] = null; persist(0); genClips(); } }), final && final.bytes == null ? h('small', { class: 'help' }, 'الفيديو كبير — موجود على Magnific بس') : null)));
+  }
   function w3() {
     ensurePieces(); const ps = camp.pieces;
-    const G = { post: ps.filter((p) => p.kind === 'بوست' || p.kind === 'ملف إضافي'), carousel: ps.filter((p) => p.kind === 'كاروسيل') };
-    const tabs = [['post', 'مراجعة البوستات'], ['carousel', 'مراجعة الكاروسيلز']].filter(([id]) => G[id].length);
+    const G = { post: ps.filter((p) => p.kind === 'بوست' || p.kind === 'ملف إضافي'), carousel: ps.filter((p) => p.kind === 'كاروسيل'), video: ps.filter((p) => p.kind === 'فيديو') };
+    const tabs = [['post', 'مراجعة البوستات'], ['carousel', 'مراجعة الكاروسيلز'], ['video', 'توليد الفيديوهات']].filter(([id]) => G[id].length);
     if (!tabs.some(([id]) => id === camp.rtab)) camp.rtab = tabs.length ? tabs[0][0] : 'post';
     const pr = W.progress(ps, W.approved); const ready = ps.filter((p) => W.approvable(p) && !W.approved(p)).length;
     const list = G[camp.rtab] || [];
     return [h('div', { class: 'cw-bar card' }, h('span', { 'data-cw-approved': pr.done + '/' + pr.total }, 'اتوافق على ', K.Num(pr.done + ' من ' + pr.total)), h('span', { class: 'grow' }),
       Button({ type: 'primary', size: 'sm', icon: 'check', label: 'وافق على كل الجاهز' + (ready ? ' (' + ready + ')' : ''), disabled: !ready, attrs: { 'data-cw-okall': '' }, onClick: () => { const n = W.approveAll(ps); persist(0); K.logEvent('mkt.campaign.approve_all', String(n)); K.toast('اتوافق على ' + n + ' قطع', 'success'); R(); } })),
       K.SubTabs({ label: 'المراجعة', active: camp.rtab, onChange: (id) => { camp.rtab = id; persist(); R(); }, items: tabs.map(([id, l]) => ({ id, label: l, count: G[id].filter(W.approved).length + '/' + G[id].length })) }),
-      ...list.map((p) => (p.kind === 'كاروسيل' ? reviewCarousel(p) : reviewPost(p))),
-      pr.done < pr.total ? U.InlineNote({ children: 'لازم توافق على كل القطع عشان تكمّل للنشر.' }) : null,
+      ...list.map((p) => (p.kind === 'كاروسيل' ? reviewCarousel(p) : p.kind === 'فيديو' ? reviewVideo(p) : reviewPost(p))),
+      pr.done < pr.total ? U.InlineNote({ children: 'لازم توافق على كل القطع عشان تكمّل للنشر' + (G.video.some((p) => !p.video) ? ' — الفيديو بيتوافق عليه بعد تجميع المشاهد.' : '.') }) : null,
       Foot(3, 4, cback, 'متابعة للنشر', () => go('marketing-campaign-4'), !W.canReviewNext(ps))];
   }
 
@@ -424,7 +538,8 @@
     K.logEvent('mkt.download', items.length + ' items' + (missing ? ' · ' + missing + ' missing' : ''));
     K.toast(missing ? 'اتنزل الفولدر — ' + missing + ' صورة مااتنزلتش' : 'اتنزل فولدر «' + name + '»', missing ? 'error' : 'success');
   }
-  const zipItem = (p) => ({ label: pieceLabel(p), images: W.pieceImages(p), caption: p.caption || camp.w.idea, tags: p.tags || W.TAGS });
+  const zipItem = (p) => ({ label: pieceLabel(p), images: p.kind === 'فيديو' && p.video ? [p.video] : W.pieceImages(p), caption: p.caption || camp.w.idea, tags: p.tags || W.TAGS });
+  const pieceImg = (p) => (p.img || (p.kind === 'فيديو' ? W.pieceImages(p)[0] : null));
   function c5() {
     ensurePieces(); const cn = needConn();
     const sch = (p, i) => (camp.sched[p.id] = camp.sched[p.id] || Object.assign(W.suggest(i, TODAY()), { pl: ['انستجرام', 'فيسبوك'], how: ['انشر'] }));
@@ -434,7 +549,7 @@
       const pub = canPub(p, s); const on = pub && Array.isArray(s.how) && s.how.includes('انشر');
       const why = pub ? null : ((s.pl || []).map((pl) => pubOf(p, pl, cn).why).find(Boolean) || 'اختار منصة الأول');
       const auto = (s.pl || []).filter((pl) => pubOf(p, pl, cn).ok);
-      return [cbx('حدد ' + pieceLabel(p), sel.has(p.id), (v) => { v ? sel.add(p.id) : sel.delete(p.id); R(); }), h('span', { class: 'prod' }, Img(p.img), h('span', null, h('b', null, pieceLabel(p)), h('small', null, W.hookOf(p)))),
+      return [cbx('حدد ' + pieceLabel(p), sel.has(p.id), (v) => { v ? sel.add(p.id) : sel.delete(p.id); R(); }), h('span', { class: 'prod' }, Img(pieceImg(p)), h('span', null, h('b', null, pieceLabel(p)), h('small', null, W.hookOf(p)))),
         U.DateField({ id: 'sd-' + p.id, label: '', value: s.date, today: TODAY(), onChange: (v) => { s.date = v; persist(); R(); } }),
         U.Select({ id: 'st-' + p.id, label: '', options: W.timeOpts(s.time).map((x) => ({ value: x, label: x })), value: s.time, onChange: (v) => { s.time = v; persist(); R(); } }),
         h('div', { class: 'chips', 'data-cw-pl': p.id }, W.PLATFORMS.map((pl) => chip(pl, s.pl.includes(pl), () => { s.pl = s.pl.includes(pl) ? s.pl.filter((x) => x !== pl) : s.pl.concat(pl); persist(); R(); }))),
@@ -444,7 +559,7 @@
           on ? h('small', { class: 't-small help', 'data-cw-auto': p.id }, 'تلقائي: ' + auto.join(' · ')) : null),
         K.RowMenu([{ label: 'نزّل فولدر (الصور + التكست)', icon: 'download', run: () => downloadZip([zipItem(p)], pieceLabel(p)) },
           { label: 'انسخ الكابشن', icon: 'copy', run: () => { try { navigator.clipboard.writeText((p.caption || camp.w.idea) + '\n' + W.TAGS); } catch (e) { /* the clipboard is the browser's */ } K.toast('اتنسخ الكابشن'); } },
-          { label: 'افتح القطعة', icon: 'edit', run: () => { camp.rtab = p.kind === 'كاروسيل' ? 'carousel' : 'post'; go('marketing-campaign-3'); } }])]; });
+          { label: 'افتح القطعة', icon: 'edit', run: () => { camp.rtab = p.kind === 'كاروسيل' ? 'carousel' : p.kind === 'فيديو' ? 'video' : 'post'; go('marketing-campaign-3'); } }])]; });
     const sp = [...sel].map((id) => camp.pieces.find((p) => p.id === id)).filter(Boolean);
     const conn5 = connCard(Button({ label: 'نزّل الكل كفولدر (ZIP)', icon: 'download', attrs: { 'data-cw-zip': 'all' }, onClick: () => downloadZip(camp.pieces.map(zipItem), W.campaignName(camp.w.idea)) }));
     const pubSel = () => { let n = 0; sp.forEach((p) => { const s = camp.sched[p.id]; if (s && canPub(p, s)) { s.how = ['انشر']; n += 1; } }); persist(); R(); K.toast(n ? 'اتعلّم «انشر» على ' + n + ' قطعة' : 'المحدد مايتنشرش من السيستم دلوقتي — داونلود بس', n ? 'success' : 'error'); };

@@ -92,3 +92,10 @@
   أسبوع أسبوع بصفحات 100 (`windowChunks` / `CHUNK_DAYS`) والصفوف unique قبل الـ upsert (de20bc1، 966452b؛ `mkt-ads` v3). التشغيلة التالتة ✓:
   `90 · 191 · 1153 · 1013` — حساب Ibtekr.club EGP ACTIVE، 191 حملة (2 شغالة) و1153 إعلان (9 شغالة)، أرقام من 10 أغسطس، والحملات الست بتوع
   أوردراتنا كلها اتطابقت بالرقم.
+
+## 9.5.4 — المساعدين (الميديا باير بالتنفيذ، الديزاينر، المبرمج)
+
+- T0 (9.5.4) ✓ (7 نوفمبر) الخطة: قرارات 49–56 + المهام T20–T24 (صاحب المشروع: «كمل بقية التسويق» و«عايزه زي البروتوتايب»).
+- T20 ✓ (7 نوفمبر) `0053_marketing_buyer.sql`: `mkt_suggestions` (صفوف السيرفر، اقتراح مفتوح واحد لكل نوع × حملة بـ unique partial index،
+  القراية `marketing.view`)، `mkt_requests` (الإضافة `marketing.create`، الحالة للأدمن، صاحب الطلب يعدّل نصه وهو «جديد» — `mkt_requests_guard`)،
+  `mkt_buyer_rules()` (الافتراضيات فوقها `settings.marketing.buyer`؛ `live` false)، cron `mkt-ads-report` :35 كل ساعة. `rls_marketing_buyer` ✓ محلي.

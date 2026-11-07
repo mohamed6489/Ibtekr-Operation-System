@@ -560,7 +560,7 @@
   // the designer's and the developer's requests (marketing.create adds; the admin changes the status; the author edits a new one)
   const REQ_COLS = 'id, kind, title, details, project, status, created_by, created_at, updated_by, updated_at, done_at';
   const REQ_STATUS = ['جديد', 'بيتعمل', 'جاهز للمراجعة', 'خلص']; let reqs = null; let reqsAt = 0;
-  const nameOf = (uid) => { const D = window.IBDirectory; if (!uid || !D) return null; const m = D.member ? quiet(() => D.member(uid)) : (D.members ? quiet(() => (D.members() || []).find((x) => x.id === uid)) : null); return m && m.name ? m.name : null; };
+  const nameOf = (uid) => { const D = window.IBDirectory; if (!uid || !D || !D.members) return null; const m = quiet(() => (D.members() || []).find((x) => x.id === uid)); return m && m.name ? m.name : null; };
   const toRequest = (r) => ({ id: Number(r.id), kind: r.kind === 'dev' ? 'dev' : 'designer', title: r.title || '', details: r.details || '', project: r.project || '', status: REQ_STATUS.includes(r.status) ? r.status : 'جديد',
     createdBy: r.created_by || null, by: nameOf(r.created_by), createdAt: r.created_at || null, updatedAt: r.updated_at || null, doneAt: r.done_at || null, mine: !!r.created_by && r.created_by === myUid() });
   async function requests(force) {

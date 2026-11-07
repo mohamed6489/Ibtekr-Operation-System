@@ -300,3 +300,99 @@ test('9.5.3 adsData: the period + the 5 weeks before its end, Meta\'s objects an
   eq((await M.adsData({ from: '2025-01-01', to: '2026-11-05' })).from, '2025-10-01'); // 400 days at most
   const none = load({ perms: {} }); eq((await none.M.adsData({ from: '2026-11-01', to: '2026-11-05' })).reason, 'forbidden');
 });
+
+// ---------------------------------------------------------------- 9.5.4: the media buyer
+const SUGG = [
+  { id: 1, platform: 'meta', kind: 'stop', campaign_id: '120251977233530228', campaign_name: 'Lamps', ad_id: null, title: 'وقّف «Lamps»', sub: 'صرفت 2,000 ج.م', why: 'ولا أوردر', impact: 'توفير ~400 ج.م/يوم', pct: null, data: { spend5: 2000 }, status: 'pending', created_at: '2026-11-06T10:00:00Z', checked_at: '2026-11-06T10:00:00Z', decided_by: null, decided_at: null, value: null, note: null, result: null, error: null },
+  { id: 2, platform: 'meta', kind: 'budget_up', campaign_id: '120252323303340228', campaign_name: 'Macrame', ad_id: null, title: 'زوّد «Macrame» 20%', sub: '', why: '', impact: '', pct: '20', data: { daily_budget: 300 }, status: 'done', created_at: '2026-11-05T10:00:00Z', checked_at: '2026-11-05T10:00:00Z', decided_by: 'u1', decided_at: '2026-11-05T11:00:00Z', value: 10, note: 'شوية', result: { before: 300, after: 330 }, error: null },
+  { id: 3, platform: 'meta', kind: 'weird', campaign_id: '1', campaign_name: null, ad_id: '1206', title: 'x', pct: null, data: null, status: 'nope', created_at: '2026-11-04T10:00:00Z' },
+];
+const REQS = [
+  { id: 1, kind: 'designer', title: 'فيديو للمخدة', details: '15 ثانية', project: 'الشتا', status: 'جديد', created_by: 'u1', created_at: '2026-11-06T09:00:00Z', updated_by: 'u1', updated_at: '2026-11-06T09:00:00Z', done_at: null },
+  { id: 2, kind: 'dev', title: 'صفحة هبوط', details: null, project: null, status: 'خلص', created_by: 'u2', created_at: '2026-11-05T09:00:00Z', updated_by: 'u1', updated_at: '2026-11-06T09:00:00Z', done_at: '2026-11-06T09:00:00Z' },
+];
+const RULES = { dailyCap: 5000, maxCpa: 450, autoStop: 1500, autoStopMode: 'suggest', reportHour: 9, live: false };
+
+test('9.5.4 suggestions: the open + the last 30 days in the page\'s shape (unknown kinds and statuses tamed), cached a minute; rules through the RPC; requests with the author\'s name', async () => {
+  const { M, stub } = load({ responses: { mkt_suggestions: ok(SUGG), 'rpc:mkt_buyer_rules': ok({ ...RULES, dailyCap: 8000, live: true }), mkt_requests: ok(REQS) } });
+  const r = await M.suggestions();
+  eq(r.items.map((s) => [s.id, s.kind, s.status, s.pct, s.value]), [[1, 'stop', 'pending', null, null], [2, 'budget_up', 'done', 20, 10], [3, 'tracking', 'pending', null, null]]);
+  eq([r.items[1].result.after, r.items[1].note, r.items[2].data, r.items[2].ad_id], [330, 'شوية', {}, '1206']);
+  const or = stub.calls.find((c) => c.op === 'or'); assert.match(or.args[0], /^status\.eq\.pending,created_at\.gte\.20/);
+  await M.suggestions(); eq(stub.calls.filter((c) => c.table === 'mkt_suggestions' && c.op === 'from').length, 1); // cached
+  eq(M.suggNow().length, 3);
+  const ru = await M.rules(); eq(ru.rules, { ...RULES, dailyCap: 8000, live: true }); eq(rpcs(stub).at(-1), ['mkt_buyer_rules', undefined]);
+  await M.rules(); eq(rpcs(stub).filter((x) => x[0] === 'mkt_buyer_rules').length, 1);
+  const q = await M.requests(); eq(q.items.map((x) => [x.id, x.kind, x.status, x.mine, x.doneAt]), [[1, 'designer', 'جديد', true, null], [2, 'dev', 'خلص', false, '2026-11-06T09:00:00Z']]);
+  const none = load({ perms: {} }); eq((await none.M.suggestions()).reason, 'forbidden'); eq((await none.M.rules()).reason, 'forbidden'); eq((await none.M.requests()).reason, 'forbidden');
+});
+
+test('9.5.4 decide: the admin only; reject / approve / edit through mkt-ads with the value and the note; the switch off = recorded; the refusals in words; the log carries the decision and the status only', async () => {
+  const seen = [];
+  const fn = (o) => { const b = o.body; seen.push(b); if (b.action !== 'decide') return ok({});
+    if (b.id === 1) return ok({ result: 'ok', status: 'rejected' });
+    if (b.id === 2) return ok({ result: 'ok', status: 'approved', live: false });
+    if (b.id === 3) return ok({ result: 'ok', status: 'done', before: 300, after: 330, updates: 1 });
+    if (b.id === 4) return ok({ result: 'ok', status: 'done', request: true });
+    if (b.id === 5) return { data: null, error: { context: { status: 409, json: async () => ({ error: 'cap', cap: 5000, after: 5060 }) } } };
+    if (b.id === 6) return { data: null, error: { context: { status: 400, json: async () => ({ error: 'bad_request', field: 'value' }) } } };
+    if (b.id === 7) return { data: null, error: { context: { status: 502, json: async () => ({ error: 'token' }) } } };
+    return { data: null, error: { context: { status: 409, json: async () => ({ error: 'decided' }) } } }; };
+  const { M, stub, logs } = load({ role: 'admin', responses: { 'fn:mkt-ads': fn } });
+  eq((await M.decide(1, 'reject', { note: ' سيبها ' })).message, 'اترفض'); eq(seen[0], { action: 'decide', id: 1, decision: 'reject', note: 'سيبها' });
+  const off = await M.decide(2, 'approve'); eq([off.ok, off.status, off.live], [true, 'approved', false]); assert.match(off.message, /مفتاح التنفيذ مقفول/);
+  const e = await M.decide(3, 'edit', { value: '10' }); eq([e.status, e.before, e.after, e.updates], ['done', 300, 330, 1]); assert.match(e.message, /330 ج\.م\/يوم/); eq(seen[2].value, 10);
+  assert.match((await M.decide(4, 'approve')).message, /للديزاينر/);
+  assert.match((await M.decide(5, 'approve')).message, /السقف اليومي/);
+  assert.match((await M.decide(6, 'edit', { value: 40 })).message, /30%/);
+  assert.match((await M.decide(7, 'approve')).message, /مفتاح إعلانات ميتا/);
+  assert.match((await M.decide(8, 'approve')).message, /اتقرر فيه قبل كده/);
+  eq(logs.map((l) => l[0] + ' ' + l[1]), ['mkt.buyer.decide reject · rejected', 'mkt.buyer.decide approve · approved · live_off', 'mkt.buyer.decide edit · done', 'mkt.buyer.decide approve · done',
+    'mkt.buyer.decide approve · cap', 'mkt.buyer.decide edit · invalid', 'mkt.buyer.decide approve · ai_error', 'mkt.buyer.decide approve · decided']);
+  assert.ok(!JSON.stringify(logs).includes('سيبها'));
+  const ops = load(); eq((await ops.M.decide(1, 'approve')).reason, 'forbidden'); eq(invokes(ops.stub).length, 0);
+});
+
+test('9.5.4 rulesSet / setLive: the admin only; the numbers and the modes go, never live; the switch by its own action; the cache follows', async () => {
+  const { M, stub, events } = load({ role: 'admin', responses: { 'fn:mkt-ads': (o) => ok({ result: 'ok', rules: { ...RULES, ...(o.body.rules || {}), live: o.body.action === 'live' ? o.body.on : false } }) } });
+  const r = await M.rulesSet({ dailyCap: '8000', autoStopMode: 'auto', live: true, junk: 1 });
+  eq(invokes(stub)[0], ['mkt-ads', { body: { action: 'rules_set', rules: { dailyCap: 8000, autoStopMode: 'auto' } } }]);
+  eq([r.rules.dailyCap, r.rules.autoStopMode, r.rules.live], [8000, 'auto', false]);
+  const on = await M.setLive(true); eq(invokes(stub)[1], ['mkt-ads', { body: { action: 'live', on: true } }]); eq(on.rules.live, true); eq(M.rulesNow().live, true);
+  eq(events.filter((e) => e === 'ib:marketing').length, 2);
+  const bad = load({ role: 'admin', responses: { 'fn:mkt-ads': { data: null, error: { context: { status: 400, json: async () => ({ error: 'bad_request', field: 'maxCpa' }) } } } } });
+  assert.match((await bad.M.rulesSet({ maxCpa: 0 })).message, /maxCpa/);
+  const ops = load(); eq((await ops.M.rulesSet({ dailyCap: 1 })).reason, 'forbidden'); eq((await ops.M.setLive(true)).reason, 'forbidden');
+});
+
+test('9.5.4 requests: add (marketing.create, the title required, the kind designer / dev), edit the text, the admin\'s status; logged with the kind and the status only', async () => {
+  const row = (x) => ({ id: 9, kind: 'designer', title: 'فيديو', details: null, project: null, status: 'جديد', created_by: 'u1', created_at: '2026-11-06T09:00:00Z', updated_by: 'u1', updated_at: '2026-11-06T09:00:00Z', done_at: null, ...x });
+  const { M, stub, logs } = load({ role: 'admin', responses: { mkt_requests: (calls) => { const ins = calls.find((c) => c.op === 'insert'); return ins ? ok(row({ kind: ins.args[0].kind, title: ins.args[0].title, details: ins.args[0].details, project: ins.args[0].project })) : ok([row({ title: 'فيديو 9:16', status: 'خلص', done_at: '2026-11-07T09:00:00Z' })]); } } });
+  eq((await M.addRequest({ kind: 'dev', title: '  ' })).field, 'title');
+  const a = await M.addRequest({ kind: 'video', title: ' فيديو ', details: 'الوصف سري\r\n9:16', project: 'الشتا' });
+  eq([a.ok, a.request.kind, a.request.title, a.request.details, a.request.project, a.request.mine], [true, 'designer', 'فيديو', 'الوصف سري\n9:16', 'الشتا', true]);
+  eq(stub.calls.find((c) => c.op === 'insert').args[0], { kind: 'designer', title: 'فيديو', details: 'الوصف سري\n9:16', project: 'الشتا' });
+  const e = await M.editRequest(9, { title: 'فيديو 9:16' }); eq(e.request.title, 'فيديو 9:16');
+  eq((await M.editRequest(9, { title: '' })).field, 'title');
+  const s = await M.setRequestStatus(9, 'خلص'); eq([s.request.status, s.request.doneAt], ['خلص', '2026-11-07T09:00:00Z']);
+  eq((await M.setRequestStatus(9, 'done')).reason, 'invalid');
+  eq(M.reqsNow().length, 1);
+  eq(logs.map((l) => l[0] + ' ' + l[1]), ['mkt.request.add designer', 'mkt.request.edit designer', 'mkt.request.status designer · خلص']);
+  assert.ok(!JSON.stringify(logs).includes('سري'));
+  const ops = load(); eq((await ops.M.setRequestStatus(9, 'خلص')).reason, 'forbidden');
+  const none = load({ perms: { 'marketing.view': 'F' } }); eq((await none.M.addRequest({ kind: 'dev', title: 'x' })).reason, 'forbidden');
+});
+
+test('9.5.4 buyerChat: marketing.view; the question (≤ 1000) and the last 6 turns go to ai-content buyer; text back; the refusals in words; the log carries no text', async () => {
+  const { M, stub, logs } = load({ perms: { 'marketing.view': 'P' }, responses: { 'fn:ai-content': ok({ result: 'ok', text: 'Macrame الأحسن — وافق على الاقتراح من الصفحة', model: 'm', cost_usd: 0.003 }) } });
+  eq((await M.buyerChat('  ')).field, 'question');
+  const hist = Array.from({ length: 9 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: 't' + i })).concat([{ role: 'system', text: 'x' }, { role: 'user', text: '  ' }]);
+  const r = await M.buyerChat(' أزوّد Macrame؟ ', hist);
+  eq([r.ok, r.text], [true, 'Macrame الأحسن — وافق على الاقتراح من الصفحة']);
+  const body = invokes(stub)[0][1].body; eq([body.action, body.question, body.history.length, body.history[0].text, body.history.at(-1).text], ['buyer', 'أزوّد Macrame؟', 6, 't3', 't8']);
+  eq(logs, [['mkt.buyer.chat', '', { entity: 'marketing', entity_id: null }]]);
+  const cap = load({ responses: { 'fn:ai-content': { data: null, error: { context: { status: 402, json: async () => ({ error: 'ai_cap' }) } } } } });
+  assert.match((await cap.M.buyerChat('x')).message, /سقف الـ AI الشهري/);
+  const ref = load({ responses: { 'fn:ai-content': ok({ result: 'refused' }) } }); eq((await ref.M.buyerChat('x')).reason, 'refused');
+  const none = load({ perms: {} }); eq((await none.M.buyerChat('x')).reason, 'forbidden');
+});

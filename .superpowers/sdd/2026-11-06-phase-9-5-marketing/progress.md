@@ -110,3 +110,11 @@
   بـ `alerts.entity_id = report:<يوم>` للأدمن و`ops`). `ai-content` action `buyer` (`marketing.view` F أو P): أسبوع الحملات من جداولنا + الاقتراحات المفتوحة
   + القواعد في `<ads_data>`، نص بس — من غير أي تنفيذ من الشات؛ `ai_runs` action marketing / source buyer (`0053`). اختبارات: Deno 244 (mkt-ads 11،
   ai-content 18)، node 575، `rls_marketing_buyer` + `rls_security_advisor` ✓ محلي. semgrep محليًا مش واصل (proxy) — CI.
+- T21 (إصلاح من المراجعة الأمنية) ✓ «زوّد الميزانية» بيتحسب على الأوردرات المؤكدة أو المكتملة بس (`confirmed` في `adOrdersSince` / `suggestionsOf`) — أوردر غير مؤكد
+  أي حد يعمله بـ UTM الحملة عمره ما يزوّد ميزانية؛ الإيقاف وتكلفة الأوردر زي ما هم.
+- T22 ✓ (7 نوفمبر) `IBMarketing`: `suggestions` (المفتوح + آخر 30 يوم، كاش دقيقة) / `suggNow` / `decide` (الأدمن؛ ارفض / وافق / عدّل بنسبة وملاحظة؛ المفتاح مقفول = «اتسجلت
+  الموافقة…»؛ step / cap / no_daily_budget / decided / value بالعربي) / `rules` (RPC `mkt_buyer_rules`) / `rulesSet` (الأرقام والأوضاع، `live` عمره ما يتبعت) / `setLive` /
+  `requests` + `addRequest` + `editRequest` + `setRequestStatus` (الديزاينر والمبرمج؛ `by` من `IBDirectory.members`) / `buyerChat` (`ai-content` `buyer`، آخر 6 أدوار).
+  `activity_log` `mkt.buyer.decide` (القرار والحالة بس) / `mkt.request.*` (النوع والحالة) / `mkt.buyer.chat` (فاضي). الـ mock: `mkt_suggestions` (قراية بس) و`mkt_requests`
+  (الحارس زي 0053) و`or=` و`mkt_buyer_rules` وactions `rules` / `rules_set` / `live` / `decide` (بـ `budgetPlan` نفسها، `mktAccountDaily`، `decideFail`) و`ai-content` `buyer`
+  (`buyerFail` / `buyerAnswer`). اختبارات الـ adapter 24 (5 جديدة)، npm test كله أخضر.

@@ -964,10 +964,11 @@ select public.ai_month_credits();   -- كريدت شهر القاهرة (من SQ
    `role_delete` / `member_role_set` / `member_perms_set` / `member_status_set`) و`my_sessions` / `my_session_revoke`، `company_docs` +
    bucket `company-docs` (الأدمن) + bucket `settings` (الأدمن يكتب والأعضاء يقروا)، `alert_state` + `alerts.expires_at`، cron **`notify-tick`**
    كل 15 دقيقة → `notify` بسر المزامنة.
-2. workflow «RLS live» بـ `files = rls_settings rls_security_advisor`.
-3. «Deploy functions»: `settings-admin` ثم `notify` ثم `ai-content` ثم `ai-images` ثم `woo-sync` ثم `woo-webhook` (الأخيرين عشان يقروا مفاتيح
+2. `0057_settings_sessions_fix.sql` (cast لأعمدة `auth.sessions` في `my_sessions()` — الحي `timestamp` من غير timezone).
+3. workflow «RLS live» بـ `files = rls_settings rls_security_advisor` (`rls_system` اختبار seed لقاعدة فاضية — مش للحي).
+4. «Deploy functions»: `settings-admin` ثم `notify` ثم `ai-content` ثم `ai-images` ثم `woo-sync` ثم `woo-webhook` (الأخيرين عشان يقروا مفاتيح
    الموقع من Vault لو اتكتبت من الصفحة) — واحدة واحدة.
-4. الواجهة: push على `main`.
+5. الواجهة: push على `main`.
 
 **ج) صاحب المشروع (من الصفحة — من غير ما يبعت أي مفتاح في الشات):**
 - **الموقع:** «الربط بالمنصات › WooCommerce»: الرابط و`ck_…`/`cs_…` (+ مستخدم ووردبريس وباسورد التطبيق للميديا) → «اختبر» (بيقرا

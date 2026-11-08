@@ -248,19 +248,19 @@ test('settings: the admin upserts the row «cs»; others are forbidden; warn bel
 
 test('subscribe: one channel on cs_conversations / cs_messages (INSERT + UPDATE); a change → one load() after a moment; clear() unsubscribes; a throwing channel is ignored', async () => {
   const { S, stub } = load();
-  await S.load(); const before = stub.calls.filter((c) => c.op === 'rpc').length;
+  await S.load(); const before = stub.calls.filter((c) => c.op === 'rpc' && c.args[0] === 'cs_customers_list').length;
   S.subscribe(); S.subscribe();
   eq(stub.calls.filter((c) => c.op === 'channel').map((c) => c.args[0]), ['cs', 'cs-inbox'], 'the postgres changes channel + the live broadcast line (0038), once each');
   eq(stub.calls.find((c) => c.op === 'channel' && c.args[0] === 'cs-inbox').args[1], { config: { private: true } }, '0039: a private channel');
   eq(stub.calls.filter((c) => c.op === 'on').map((c) => c.args[0] + ':' + (c.args[1].table || '') + ':' + c.args[1].event), ['postgres_changes:cs_conversations:INSERT', 'postgres_changes:cs_conversations:UPDATE', 'postgres_changes:cs_messages:INSERT', 'postgres_changes:cs_messages:UPDATE', 'broadcast::changed']);
   await stub.emitChange({ table: 'cs_messages', eventType: 'INSERT', new: { id: 'x' } }); await stub.emitChange({ table: 'cs_conversations', eventType: 'UPDATE', new: { id: K1 } });
   await new Promise((r) => setTimeout(r, 500));
-  assert.equal(stub.calls.filter((c) => c.op === 'rpc').length, before + 1, 'one load for the two changes');
+  assert.equal(stub.calls.filter((c) => c.op === 'rpc' && c.args[0] === 'cs_customers_list').length, before + 1, 'one load for the two changes');
   // the live line: a database broadcast «changed» → one load() a moment later (two quick ones → still one)
-  const mid = stub.calls.filter((c) => c.op === 'rpc').length;
+  const mid = stub.calls.filter((c) => c.op === 'rpc' && c.args[0] === 'cs_customers_list').length;
   await stub.emitBroadcast('changed', { at: 'x' }); await stub.emitBroadcast('changed', { at: 'y' });
   await new Promise((r) => setTimeout(r, 1700));
-  assert.equal(stub.calls.filter((c) => c.op === 'rpc').length, mid + 1, 'one load for the two broadcasts');
+  assert.equal(stub.calls.filter((c) => c.op === 'rpc' && c.args[0] === 'cs_customers_list').length, mid + 1, 'one load for the two broadcasts');
   S.clear(); assert.equal(stub.calls.filter((c) => c.op === 'removeChannel').length, 2, 'both channels closed'); eq(S.data.customers, []); assert.equal(S.state(), 'idle');
   const t = load({ channelThrows: true }); t.S.subscribe(); assert.equal(t.stub.calls.filter((c) => c.op === 'subscribe').length, 0);
 });
@@ -313,12 +313,12 @@ test('the safety net: check() reads the newest conversation; newer than what is 
   let newest = null;
   const { S, stub } = load({ responses: { cs_conversations: (q) => (q.some((c) => c.op === 'limit') ? ok(newest ? [{ updated_at: newest }] : []) : ok(CONVS)) } });
   assert.equal(await S.check(), false, 'not loaded yet');
-  await S.load(); const before = stub.calls.filter((c) => c.op === 'rpc').length;
+  await S.load(); const before = stub.calls.filter((c) => c.op === 'rpc' && c.args[0] === 'cs_customers_list').length;
   const mine = Math.max(...CONVS.map((r) => Date.parse(r.updated_at || r.created_at)));
   newest = new Date(mine).toISOString();
-  assert.equal(await S.check(), false, 'the same moment: nothing new'); assert.equal(stub.calls.filter((c) => c.op === 'rpc').length, before);
+  assert.equal(await S.check(), false, 'the same moment: nothing new'); assert.equal(stub.calls.filter((c) => c.op === 'rpc' && c.args[0] === 'cs_customers_list').length, before);
   newest = new Date(mine + 60000).toISOString();
-  assert.equal(await S.check(), true, 'a newer conversation: one reload'); assert.equal(stub.calls.filter((c) => c.op === 'rpc').length, before + 1);
+  assert.equal(await S.check(), true, 'a newer conversation: one reload'); assert.equal(stub.calls.filter((c) => c.op === 'rpc' && c.args[0] === 'cs_customers_list').length, before + 1);
   newest = null; assert.equal(await S.check(), false, 'no answer: nothing');
 });
 
@@ -328,4 +328,81 @@ test('decisions 23–24: settings «cs».live is read (hidden by default) and ke
   assert.equal(typeof S.scheduleCampaign, 'function'); assert.equal(typeof S.waStatus, 'function'); assert.equal(typeof S.waLogout, 'function');
   eq(await S.waLogout('wa9'), { ok: false, reason: 'invalid' });
   assert.equal((await S.scheduleCampaign('c0000000-0000-4000-8000-000000000001', [], null)).ok, false);
+});
+
+// ---------- phase 6.5 (0058): the auto-reply page's data — templates · quick replies · rules · the sending settings ----------
+const T1 = 'f1000000-0000-4000-8000-000000000001'; const R1 = 'f2000000-0000-4000-8000-000000000001'; const Q1 = 'f3000000-0000-4000-8000-000000000001';
+const TPL = { id: T1, lib: 'customers', name: 'تأكيد الأوردر', cat: 'حالة الأوردر', tone: 'brand', body: 'أهلاً {اسم_العميل} أوردرك {رقم_الأوردر} اتأكد.', trig_kind: 'auto', trig_on: ['جاري التنفيذ'], trig_when: 'فورًا', channels: 'كل القنوات', quick_key: '/تأكيد', wa_template: 'order_confirmed_v1', wa_vars: ['اسم_العميل', 'رقم_الأوردر'], used: 12, active: true, created_at: '2026-11-08T08:00:00Z', updated_at: null };
+const RULE = { id: R1, name: 'تأكيد الأوردر', grp: 'العملاء — حالة الأوردر', event: 'status', event_to: 'جاري التنفيذ', conds: [['القناة', '=', 'واتساب 1']], action: 'send', template_id: T1, role_id: null, tag: null, delay_min: 5, once: true, ticket_if_silent: true, enabled: true, runs: 3, last_run_at: iso(3600e3), created_at: '2026-11-08T08:00:00Z', updated_at: null };
+const QUICK = { id: Q1, key: '/شحن', label: 'مواعيد الشحن', text: 'الشحن 2–3 أيام.', created_at: '2026-11-08T08:00:00Z', updated_at: null };
+const AUTO_RESP = { cs_templates: ok([TPL]), cs_quick_replies: ok([QUICK]), cs_auto_rules: ok([RULE]), 'rpc:cs_auto_settings': ok({ live: true, hours: { from: 10, to: 23 }, delayMin: 20, delayMax: 60, daily: { wa1: 300, wa2: 150 }, afterHoursText: 'نرد بكرة', cart: { afterMin: 90 } }) };
+function loadAuto(extra = {}) { return load({ admin: true, responses: Object.assign({}, AUTO_RESP, extra.responses || {}), perms: extra.perms || BASE_PERMS }); }
+
+test('6.5 load: templates / quick replies / rules → the prototype shapes (trigger text, key, logic, stats), the sending settings from the rpc; a missing table leaves them empty', async () => {
+  const { S } = loadAuto(); await S.load();
+  const t = plain(S.data.templates[0]);
+  eq([t.id, t.lib, t.name, t.key, t.waTemplate, t.waVars, t.used, t.active, t.draft, t.trigKind, t.trigOn], [T1, 'customers', 'تأكيد الأوردر', '/تأكيد', 'order_confirmed_v1', ['اسم_العميل', 'رقم_الأوردر'], 12, true, false, 'auto', ['جاري التنفيذ']]);
+  eq(plain(S.data.quick), [{ id: Q1, key: '/شحن', label: 'مواعيد الشحن', text: 'الشحن 2–3 أيام.' }]);
+  const r = plain(S.data.rules[0]);
+  eq([r.id, r.group, r.event, r.to, r.conds, r.action, r.tpl, r.tplName, r.delayMin, r.once, r.ticket, r.on, r.runs], [R1, 'العملاء — حالة الأوردر', 'status', 'جاري التنفيذ', [['القناة', '=', 'واتساب 1']], 'send', T1, 'تأكيد الأوردر', 5, true, true, true, 3]);
+  assert.equal(r.logic, 'لما: الأوردر بقى «جاري التنفيذ» والقناة = واتساب 1 ← ابعت قالب «تأكيد الأوردر» · بعد 5 دقايق · مرة واحدة · مردّش 24 ساعة → تذكرة');
+  assert.match(r.stats, /^اتنفذت 3 مرة · آخر مرة /);
+  eq(plain(S.data.auto), { live: true, hours: { from: 10, to: 23 }, delayMin: 20, delayMax: 60, daily: { wa1: 300, wa2: 150 }, afterHoursText: 'نرد بكرة', cart: { afterMin: 90 } });
+  eq(plain(S.quickList()), [{ key: '/شحن', label: 'مواعيد الشحن', text: 'الشحن 2–3 أيام.', kind: 'quick' }, { key: '/تأكيد', label: 'تأكيد الأوردر', text: TPL.body, kind: 'template', id: T1 }]);
+  const bare = load({ responses: { cs_templates: { data: null, error: { code: '42P01' } }, 'rpc:cs_auto_settings': { data: null, error: { code: '42883' } } } }); await bare.S.load();
+  assert.equal(bare.S.state(), 'ready'); eq(bare.S.data.templates, []); eq(plain(bare.S.data.auto), plain(bare.S.DEFAULT_AUTO));
+});
+
+test('6.5 templates: the validation, the columns written, a taken key, delete refused while a rule sends it', async () => {
+  const { S, stub, logs } = loadAuto({ responses: { cs_templates: (q) => (q.some((c) => c.op === 'insert') ? ok([Object.assign({}, TPL, { id: 'f1000000-0000-4000-8000-000000000002', name: 'تم الشحن', quick_key: '/تتبع' })]) : ok([TPL])) } }); await S.load();
+  eq(await S.saveTemplate({ lib: 'customers', name: '', body: 'x' }), { ok: false, reason: 'invalid', errors: { name: 'اكتب اسم القالب' } });
+  eq((await S.saveTemplate({ lib: 'customers', name: 'x', body: 'y', trigKind: 'auto', trigOn: [], cat: 'متابعة' })).errors, { trigOn: 'اختار مشغّل واحد على الأقل' });
+  eq((await S.saveTemplate({ lib: 'customers', name: 'x', body: 'y', key: 'تتبع' })).errors, { key: 'الاختصار لازم يبدأ بـ / وبعده كلمة من غير مسافات' });
+  eq((await S.saveTemplate({ lib: 'customers', name: 'x', body: 'y', waTemplate: 'Order Shipped' })).errors, { waTemplate: 'اسم قالب Meta: حروف إنجليزي صغيرة وأرقام و_ بس' });
+  eq((await S.saveTemplate({ lib: 'customers', name: 'x', body: 'y {رقم_الأوردر}', waTemplate: 'shipped_v1', waVars: ['اسم_العميل'] })).errors, { waVars: 'المتغير {اسم_العميل} مش في النص' });
+  const r = await S.saveTemplate({ lib: 'customers', name: ' تم الشحن ', cat: 'حالة الأوردر', body: 'أوردرك {رقم_الأوردر} اتشحن {رابط_التتبع}', trigKind: 'auto', trigOn: ['قيد الشحن'], trigWhen: 'فورًا', key: '/تتبع', waTemplate: 'shipped_v1', waVars: ['رقم_الأوردر', 'رابط_التتبع'] });
+  assert.equal(r.ok, true); assert.equal(S.data.templates.length, 2);
+  eq(inserted(stub, 'cs_templates')[0], { lib: 'customers', name: 'تم الشحن', cat: 'حالة الأوردر', tone: 'brand', body: 'أوردرك {رقم_الأوردر} اتشحن {رابط_التتبع}', trig_kind: 'auto', trig_on: ['قيد الشحن'], trig_when: 'فورًا', channels: 'كل القنوات', quick_key: '/تتبع', wa_template: 'shipped_v1', wa_vars: ['رقم_الأوردر', 'رابط_التتبع'], active: true });
+  eq(logs.at(-1).slice(0, 2), ['cs.template.add', 'customers · تم الشحن']);
+  eq(await S.deleteTemplate(T1), { ok: false, reason: 'in_use' }, 'the rule sends it');
+  const dup = load({ admin: true, responses: Object.assign({}, AUTO_RESP, { cs_templates: (q) => (q.some((c) => c.op === 'insert') ? { data: null, error: { code: '23505' } } : ok([TPL])) }) }); await dup.S.load();
+  eq(await dup.S.saveTemplate({ lib: 'customers', name: 'x', body: 'y', key: '/تأكيد' }), { ok: false, reason: 'invalid', errors: { key: 'الاختصار ده مستخدم في قالب تاني' } });
+  const ops = load({ perms: Object.assign({}, BASE_PERMS, { 'cs.manage': 'N' }), responses: AUTO_RESP }); await ops.S.load();
+  eq(await ops.S.saveTemplate({ lib: 'customers', name: 'x', body: 'y' }), { ok: false, reason: 'forbidden' });
+});
+
+test('6.5 quick replies and rules: the validation, the columns, the toggle, the delete; a rule without a template only for after-hours', async () => {
+  const { S, stub, logs } = loadAuto({ responses: { cs_quick_replies: (q) => (q.some((c) => c.op === 'insert') ? ok([Object.assign({}, QUICK, { id: 'f3000000-0000-4000-8000-000000000002', key: '/دفع' })]) : ok([QUICK])),
+    cs_auto_rules: (q) => (q.some((c) => c.op === 'insert') ? ok([Object.assign({}, RULE, { id: 'f2000000-0000-4000-8000-000000000002', name: 'خارج المواعيد', grp: 'العملاء — المحادثات', event: 'afterhours', event_to: null, conds: [], template_id: null, delay_min: 0, ticket_if_silent: false, enabled: false, runs: 0, last_run_at: null })]) : q.some((c) => c.op === 'update') ? ok([Object.assign({}, RULE, { enabled: false })]) : ok([RULE])) } }); await S.load();
+  eq((await S.saveQuick({ key: 'دفع', label: '', text: '' })).errors, { key: 'الاختصار لازم يبدأ بـ / وبعده كلمة', label: 'اكتب الوصف', text: 'اكتب النص' });
+  assert.equal((await S.saveQuick({ key: '/دفع', label: 'طرق الدفع', text: 'كاش أو لينك دفع.' })).ok, true); eq(inserted(stub, 'cs_quick_replies')[0], { key: '/دفع', label: 'طرق الدفع', text: 'كاش أو لينك دفع.' });
+  eq((await S.saveRule({ name: '', event: 'status', to: '', action: 'send', tpl: '' })).errors, { name: 'اكتب اسم القاعدة', to: 'اختار الحالة', tpl: 'اختار القالب' });
+  eq((await S.saveRule({ name: 'x', event: 'first', action: 'assign' })).errors, { roleId: 'اختار الدور' });
+  eq((await S.saveRule({ name: 'x', event: 'first', action: 'ticket', conds: [['القناة', '=']] })).errors, { conds: 'كل شرط لازم يبقى حقل وعلاقة وقيمة' });
+  const r = await S.saveRule({ name: 'خارج المواعيد', group: 'العملاء — المحادثات', event: 'afterhours', action: 'send', tpl: '', conds: [], delayMin: 0, once: true, ticket: false, on: false });
+  assert.equal(r.ok, true, JSON.stringify(r));
+  eq(inserted(stub, 'cs_auto_rules')[0], { name: 'خارج المواعيد', grp: 'العملاء — المحادثات', event: 'afterhours', event_to: null, conds: [], action: 'send', template_id: null, role_id: null, tag: null, delay_min: 0, once: true, ticket_if_silent: false, enabled: false });
+  assert.equal(S.data.rules.length, 2); assert.equal(S.data.rules[1].logic, 'لما: رسالة خارج مواعيد العمل ← ابعت قالب «نص خارج المواعيد» · فوراً (في مواعيد الإرسال) · مرة واحدة'); assert.equal(S.data.rules[1].stats, 'متوقفة');
+  eq(logs.at(-1).slice(0, 2), ['cs.rule.add', 'afterhours → send · خارج المواعيد · متوقفة']);
+  const t = await S.setRuleOn(R1, false); assert.equal(t.ok, true); assert.equal(S.data.rules[0].on, false);
+  eq(opsOf(stub.calls, 'cs_auto_rules').filter((c) => c.op === 'update').at(-1).args[0], { enabled: false }); eq(logs.at(-1).slice(0, 2), ['cs.rule.toggle', 'تأكيد الأوردر · وقفت']);
+  assert.equal((await S.deleteRule(R1)).ok, true); assert.equal(S.data.rules.length, 1); assert.equal((await S.deleteQuick(Q1)).ok, true);
+});
+
+test('6.5 the sending settings: the admin merges «auto» into the row and keeps the other keys; live is its own switch; saveSettings keeps «auto»; the engine calls', async () => {
+  const member = load({ responses: AUTO_RESP }); await member.S.load();
+  eq(await member.S.saveAutoSettings({ delayMin: 30 }), { ok: false, reason: 'forbidden' }); eq(await member.S.setAutoLive(true), { ok: false, reason: 'forbidden' }); eq(await member.S.autoTick(), { ok: false, reason: 'forbidden' });
+  const { S, stub, logs } = loadAuto({ responses: { settings: ok({ data: { routing: 'manual', sla_warn: 5, sla_late: 20, auto: { live: false, daily: { wa1: 200, wa2: 150 } } } }), 'fn:cs-auto': (o) => ({ data: { result: o.body.dry ? 'dry' : 'ok', live: true, events: 2 }, error: null }) } }); await S.load();
+  eq(await S.saveAutoSettings({ delayMin: 10 }), { ok: false, reason: 'invalid', field: 'delayMin' });
+  const r = await S.saveAutoSettings({ hours: { from: 9, to: 21 }, daily: { wa1: 280, wa2: 100 }, afterHoursText: ' هنرد الصبح ' });
+  assert.equal(r.ok, true);
+  const up = opsOf(stub.calls, 'settings').filter((c) => c.op === 'upsert').at(-1);
+  eq(up.args[0].data.routing, 'manual'); eq(up.args[0].data.sla_warn, 5); eq(up.args[0].data.auto, { live: true, hours: { from: 9, to: 21 }, delayMin: 20, delayMax: 60, daily: { wa1: 280, wa2: 100 }, afterHoursText: 'هنرد الصبح', cart: { afterMin: 90 } }, 'live stays what the rpc said (true) — this form never flips it');
+  eq(logs.at(-1).slice(0, 2), ['cs.auto.settings', 'hours, daily, afterHoursText']);
+  eq(await S.setAutoLive(false), { ok: true, live: false }); assert.equal(S.data.auto.live, false); eq(logs.at(-1).slice(0, 2), ['cs.auto.live', 'off']);
+  const s = await S.saveSettings({ routing: 'auto', slaWarn: 8, slaLate: 12, hours: '10 ص – 10 م', autoCloseDays: 5 }); assert.equal(s.ok, true);
+  const up2 = opsOf(stub.calls, 'settings').filter((c) => c.op === 'upsert').at(-1); eq(up2.args[0].data.auto.live, false); eq(up2.args[0].data.auto.daily, { wa1: 280, wa2: 100 }, 'the other form keeps the auto-reply keys');
+  const st = await S.autoStatus(); eq([st.ok, st.live], [true, true]);
+  const run = await S.autoTick(true); eq([run.ok, run.result, run.events], [true, 'dry', 2]); eq(logs.at(-1).slice(0, 2), ['cs.auto.tick', 'dry']);
+  eq(stub.calls.filter((c) => c.op === 'invoke').map((c) => c.args), [['cs-auto', { body: { action: 'status' } }], ['cs-auto', { body: { action: 'tick', dry: true } }]]);
 });

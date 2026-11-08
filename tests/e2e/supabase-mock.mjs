@@ -375,6 +375,11 @@ export async function installSupabaseMock(page, opts = {}) {
     channels: [['wa1', 'واتساب 1 · العملاء', 'customers', 'meta', 300], ['wa2', 'واتساب 2 · المبتكرين', 'vendors', 'qr', 150], ['messenger', 'ماسنجر', 'customers', 'meta', 1000], ['instagram', 'إنستجرام', 'customers', 'meta', 1000], ['tiktok', 'تيك توك', 'customers', 'none', 0]]
       .map(([id, name, audience, kind, cap_per_day]) => ({ id, name, audience, kind, status: 'disconnected', number: null, cap_per_day, since: null, last_message_at: null, meta: {}, updated_at: null })),
   };
+  // 0058 (phase 6.5): one template with a quick key, one quick reply, one rule on it (off), an empty run log
+  mock.cs.templates = [{ id: CS_K(61), lib: 'customers', name: 'تأكيد الأوردر', cat: 'حالة الأوردر', tone: 'brand', body: 'أهلاً {اسم_العميل} 👋 أوردرك {رقم_الأوردر} اتأكد بإجمالي {الإجمالي}.', trig_kind: 'auto', trig_on: ['جاري التنفيذ'], trig_when: 'فورًا', channels: 'كل القنوات', quick_key: '/تأكيد', wa_template: 'order_confirmed_v1', wa_vars: ['اسم_العميل', 'رقم_الأوردر', 'الإجمالي'], used: 0, active: true, created_by: ADMIN, created_at: T0, updated_by: null, updated_at: T0 }];
+  mock.cs.quick = [{ id: CS_K(71), key: '/شحن', label: 'مواعيد ومصاريف الشحن', text: 'الشحن جوه القاهرة والجيزة 2–3 أيام بعد التصنيع (65 ج.م)، وباقي المحافظات 3–5 أيام (85 ج.م).', created_by: ADMIN, created_at: T0, updated_by: null, updated_at: T0 }];
+  mock.cs.rules = [{ id: CS_K(81), name: 'تأكيد الأوردر', grp: 'العملاء — حالة الأوردر', event: 'status', event_to: 'جاري التنفيذ', conds: [['القناة', '=', 'واتساب 1']], action: 'send', template_id: CS_K(61), role_id: null, tag: null, delay_min: 5, once: true, ticket_if_silent: false, enabled: false, runs: 0, last_run_at: null, created_by: ADMIN, created_at: T0, updated_by: null, updated_at: T0 }];
+  mock.cs.autoRuns = [];
   mock.csWrites = []; mock.csDown = false; let csSeq = 100;
   // phase 7 (0044): the inventory hub — places seeded like the migration; lots / moves from opts; every write in invWrites
   mock.inv = { inv_locations: [['T', 'منطقة التجميع', 'zone'], ['R', 'المرتجعات', 'zone'], ['P', 'التصوير', 'zone'], ['A', 'رف A', 'rack'], ['B', 'رف B', 'rack'], ['C', 'رف C', 'rack'], ['D', 'رف D', 'rack']].map(([code, label, kind]) => ({ code, label, kind, note: null })),
@@ -682,12 +687,12 @@ export async function installSupabaseMock(page, opts = {}) {
         Object.assign(c, { status: 'approved', approved_by: u.id, approved_at: now }); mock.invWrites.push({ table: 'inv_counts', op: 'approve', id: c.id, adjusted: n });
         return json(200, n);
       }
-      const csT = /^\/rest\/v1\/(cs_customers|cs_customer_notes|cs_rating_overrides|cs_team_ratings|cs_conversations|cs_messages|cs_segments|cs_campaigns|cs_channels|cs_contacts|cs_campaign_recipients|cs_posts)$/.exec(path);
+      const csT = /^\/rest\/v1\/(cs_customers|cs_customer_notes|cs_rating_overrides|cs_team_ratings|cs_conversations|cs_messages|cs_segments|cs_campaigns|cs_channels|cs_contacts|cs_campaign_recipients|cs_posts|cs_templates|cs_quick_replies|cs_auto_rules|cs_auto_runs)$/.exec(path);
       if (csT) {
         if (mock.csDown) return json(503, { message: 'mock: cs down' });
         const t = csT[1]; const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
         const view = hasPerm(u, 'cs.view'); const reply = hasPerm(u, 'cs.reply') === 'F'; const manage = hasPerm(u, 'cs.manage') === 'F';
-        const STORE = { cs_customers: 'customers', cs_customer_notes: 'notes', cs_rating_overrides: 'overrides', cs_team_ratings: 'teamRatings', cs_conversations: 'conversations', cs_messages: 'messages', cs_segments: 'segments', cs_campaigns: 'campaigns', cs_channels: 'channels', cs_contacts: 'contacts', cs_campaign_recipients: 'recipients', cs_posts: 'posts' };
+        const STORE = { cs_customers: 'customers', cs_customer_notes: 'notes', cs_rating_overrides: 'overrides', cs_team_ratings: 'teamRatings', cs_conversations: 'conversations', cs_messages: 'messages', cs_segments: 'segments', cs_campaigns: 'campaigns', cs_channels: 'channels', cs_contacts: 'contacts', cs_campaign_recipients: 'recipients', cs_posts: 'posts', cs_templates: 'templates', cs_quick_replies: 'quick', cs_auto_rules: 'rules', cs_auto_runs: 'autoRuns' };
         const rows = mock.cs[STORE[t]] || (mock.cs[STORE[t]] = []);
         const now = new Date().toISOString(); const single = /vnd\.pgrst\.object\+json/.test(hd.accept || '');
         const convVisible = (id) => view === 'F' || (view === 'P' && mock.cs.conversations.some((v) => v.id === id && v.assignee === u.id));
@@ -708,7 +713,8 @@ export async function installSupabaseMock(page, opts = {}) {
         if (!asked.includes('*') && asked.some((c) => (NO_READ[t] || []).includes(c))) return refuse(401, '42501', 'permission denied for table ' + t);
         const pick = (r) => (asked.includes('*') ? strip(r) : Object.fromEntries(asked.map((c) => [c, r[c] === undefined ? null : r[c]])));
         if (method === 'GET') { const out = pageOf(rows.filter(visible).filter(match), url.searchParams).map(pick); return json(200, single ? out[0] || null : out); }
-        if (['cs_channels', 'cs_contacts', 'cs_campaign_recipients'].includes(t)) return refuse(401, '42501', 'permission denied for table ' + t);
+        if (['cs_channels', 'cs_contacts', 'cs_campaign_recipients', 'cs_auto_runs'].includes(t)) return refuse(401, '42501', 'permission denied for table ' + t);
+        const AUTO_T = ['cs_templates', 'cs_quick_replies', 'cs_auto_rules']; // 0058: cs.manage writes; used / runs are the server's
         const b = body(); const rowIn = Array.isArray(b) ? b[0] : b;
         const deny = () => refuse(401, '42501', 'new row violates row-level security policy for table "' + t + '"');
         const returning = (list) => { const prefer = hd.prefer || ''; const out = list.filter(visible).map(pick); return /return=representation/.test(prefer) || url.searchParams.has('select') ? json(method === 'POST' ? 201 : 200, single ? out[0] || null : out) : empty(204); };
@@ -745,6 +751,17 @@ export async function installSupabaseMock(page, opts = {}) {
             const rec = { id: csSeq, ...rowIn, ...(t === 'cs_customer_notes' ? { author: u.id } : { by_user: u.id }), at: now };
             rows.push(rec); const { text, note, ...logged } = rowIn; mock.csWrites.push({ table: t, op: 'insert', ...logged }); return returning([rec]);
           }
+          if (AUTO_T.includes(t)) {
+            if (!manage) return deny();
+            if ('used' in rowIn || 'runs' in rowIn || 'last_run_at' in rowIn) return refuse(401, '42501', 'permission denied for table ' + t);
+            if (t === 'cs_templates' && rowIn.quick_key && rows.some((r) => r.quick_key === rowIn.quick_key)) return refuse(409, '23505', 'duplicate key value violates unique constraint "cs_templates_quick_key_idx"');
+            if (t === 'cs_quick_replies' && rows.some((r) => r.key === rowIn.key)) return refuse(409, '23505', 'duplicate key value violates unique constraint "cs_quick_replies_key_key"');
+            if (t === 'cs_auto_rules' && rowIn.action === 'send' && !rowIn.template_id && rowIn.event !== 'afterhours') return refuse(400, '23514', 'cs_auto_rules_action_target');
+            const defaults = t === 'cs_templates' ? { lib: 'customers', cat: 'متابعة', tone: 'brand', trig_kind: 'manual', trig_on: [], trig_when: 'فورًا', channels: 'كل القنوات', quick_key: null, wa_template: null, wa_vars: [], used: 0, active: true }
+              : t === 'cs_quick_replies' ? {} : { grp: null, event_to: null, conds: [], action: 'send', template_id: null, role_id: null, tag: null, delay_min: 0, once: true, ticket_if_silent: false, enabled: false, runs: 0, last_run_at: null };
+            const rec = Object.assign(defaults, rowIn, { id: 'c' + t.slice(3, 4) + '000000-0000-4000-8000-' + String(csSeq).padStart(12, '0'), created_by: u.id, created_at: now, updated_by: u.id, updated_at: now });
+            rows.push(rec); const { body: _b, text: _t, ...logged } = rowIn; mock.csWrites.push({ table: t, op: 'insert', ...logged }); return returning([rec]);
+          }
           if (t === 'cs_segments' || t === 'cs_campaigns') {
             if (!manage) return deny();
             if (t === 'cs_segments' && rows.some((r) => r.name.trim().toLowerCase() === String(rowIn.name || '').trim().toLowerCase())) return refuse(409, '23505', 'duplicate key value violates unique constraint "cs_segments_name_idx"');
@@ -769,14 +786,16 @@ export async function installSupabaseMock(page, opts = {}) {
               if (Object.keys(b).some((k) => !CONV_OK.includes(k))) return refuse(403, '42501', 'only the status, assignee, tags, outcome, snooze and read state of a conversation can be changed here');
               if (b.status === 'اتحلت' && r.status !== 'اتحلت') { b.closed_at = now; b.closed_by = u.id; } else if (b.status && b.status !== 'اتحلت') { b.closed_at = null; b.closed_by = null; }
             }
+            if (AUTO_T.includes(t) && ('used' in b || 'runs' in b || 'last_run_at' in b || 'created_by' in b)) return refuse(401, '42501', 'permission denied for table ' + t);
             if (t === 'cs_campaigns') { if (['شغالة', 'خلصت'].includes(r.status) && ['status', 'body', 'segment_id'].some((k) => k in b && b[k] !== r[k])) return refuse(403, '42501', 'a running or finished campaign is not edited'); if (b.status && !['مسودة', 'مجدولة', 'متوقفة'].includes(b.status)) return refuse(403, '42501', 'a member sets draft, scheduled or paused'); delete b.stats; }
             Object.assign(r, b, { updated_at: now }); const { phone, test_phone, ...logged } = b; mock.csWrites.push({ table: t, op: 'update', id: r.id, ...logged });
           }
           return returning(list);
         }
         if (method === 'DELETE') {
-          if (!['cs_segments', 'cs_campaigns'].includes(t)) return refuse(401, '42501', 'permission denied for table ' + t);
-          const list = rows.filter(visible).filter(match).filter(() => manage).filter((r) => t === 'cs_segments' || r.status === 'مسودة');
+          if (!['cs_segments', 'cs_campaigns', 'cs_templates', 'cs_quick_replies', 'cs_auto_rules'].includes(t)) return refuse(401, '42501', 'permission denied for table ' + t);
+          if (t === 'cs_templates' && manage) { const used = rows.filter(visible).filter(match).find((r) => mock.cs.rules.some((x) => x.template_id === r.id)); if (used) return refuse(409, '23503', 'update or delete on table "cs_templates" violates foreign key constraint "cs_auto_rules_template_id_fkey"'); }
+          const list = rows.filter(visible).filter(match).filter(() => manage).filter((r) => t !== 'cs_campaigns' || r.status === 'مسودة');
           list.forEach((r) => { rows.splice(rows.indexOf(r), 1); mock.csWrites.push({ table: t, op: 'delete', id: r.id }); if (t === 'cs_segments') mock.cs.campaigns.forEach((k) => { if (k.segment_id === r.id) k.segment_id = null; }); });
           return returning(list);
         }
@@ -819,6 +838,12 @@ export async function installSupabaseMock(page, opts = {}) {
         return json(200, n);
       }
       // cs_merge_customers (0034): cs.manage; two distinct unmerged customers; the other's conversations / notes / ratings move, tags join, empties fill
+      // cs_auto_settings (0058): the defaults over settings «cs».auto; cs.view N → 42501
+      if (method === 'POST' && path === '/rest/v1/rpc/cs_auto_settings') {
+        if (hasPerm(u, 'cs.view') === 'N') return json(403, { code: '42501', details: null, hint: null, message: 'cs.view is needed' });
+        const row = mock.settings.find((x) => x.section === 'cs'); const auto = row && row.data && row.data.auto && typeof row.data.auto === 'object' ? row.data.auto : {};
+        return json(200, Object.assign({ live: false, hours: { from: 9, to: 22 }, delayMin: 20, delayMax: 60, daily: { wa1: 250, wa2: 150 }, afterHoursText: 'شكرًا لرسالتك 🙏 مواعيد الرد من 9 ص لـ 10 م — هنرد عليك أول ما نفتح.', cart: { afterMin: 60 } }, auto));
+      }
       if (method === 'POST' && path === '/rest/v1/rpc/cs_merge_customers') {
         const b = body(); const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
         if (hasPerm(u, 'cs.manage') !== 'F') return refuse(403, '42501', 'cs.manage = F is required to merge customers');
@@ -1838,6 +1863,17 @@ export async function installSupabaseMock(page, opts = {}) {
         m.delivery = 'sent'; m.external_id = 'wamid.' + Math.random().toString(36).slice(2, 10); return json(200, { result: 'ok', delivery: 'sent', external_id: m.external_id });
       }
       return json(400, { error: 'unknown_action' });
+    }
+    if (method === 'POST' && path === '/functions/v1/cs-auto') {
+      // phase 6.5: the engine's member actions — status (cs.view), tick (the admin; dry = a preview, nothing written)
+      const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
+      if (!u) return json(401, { error: 'unauthorized' });
+      if (!['status', 'tick'].includes(action)) return json(400, { error: 'unknown_action' });
+      const row = mock.settings.find((x) => x.section === 'cs'); const live = !!(row && row.data && row.data.auto && row.data.auto.live === true);
+      if (action === 'status') { if (hasPerm(u, 'cs.view') === 'N') return json(401, { error: 'unauthorized' }); return json(200, { result: 'ok', live, hours: { from: 9, to: 22 }, daily: { wa1: 250, wa2: 150 }, last: null, rules: { total: mock.cs.rules.length, enabled: mock.cs.rules.filter((r) => r.enabled).length }, channels: { wa1: false, page: false } }); }
+      if (!isAdmin(u)) return json(401, { error: 'unauthorized' });
+      mock.csWrites.push({ table: 'cs-auto', op: b.dry ? 'dry' : 'tick' });
+      return json(200, { result: b.dry ? 'dry' : 'ok', at: new Date().toISOString(), live, events: 0, sent: 0, held: 0, skipped: 0, failed: 0, tickets: 0, assigned: 0, tagged: 0, due: 0, silent: 0, by: {}, ...(b.dry ? { preview: [] } : {}) });
     }
     if (method === 'POST' && path === '/functions/v1/cs-channel') {
       // phase 6.2: the Meta channel's member actions like the server answers them (the webhook side is the server's alone — no browser call).

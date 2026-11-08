@@ -1108,7 +1108,7 @@
   const uidToCode = (o) => { const out = {}; Object.keys(o || {}).forEach((uid) => { const m = memberByUid(uid); if (m) out[m.id] = o[uid]; }); return out; };
   function notifPayload() {
     return { notif: C.notif, escalations: C.escalations, quiet: C.quiet, alertRoles: K.store.alertRoles, alertOverrides: codeToUid(K.store.alertOverrides), digests: K.store.digests, roleDigests: K.store.roleDigests, roleDigestAt: K.store.roleDigestAt || {},
-      accAlerts: K.store.accAlerts, delivery: K.store.delivery, subsAlert: K.store.subsAlert || null, whatsappTemplate: C.whatsappTemplate || 'ibtekr_alert' };
+      accAlerts: K.store.accAlerts, delivery: K.store.delivery, subsAlert: K.store.subsAlert || null, whatsappTemplate: C.whatsappTemplate || 'ibtekr_alert', channels: channelsOut() };
   }
   function hydrateNotif(n) {
     if (!n || typeof n !== 'object') return;
@@ -1123,13 +1123,18 @@
     if (n.delivery && typeof n.delivery === 'object') Object.assign(K.store.delivery, n.delivery);
     if (n.subsAlert && typeof n.subsAlert === 'object') K.store.subsAlert = Object.assign(K.store.subsAlert || {}, n.subsAlert);
     if (typeof n.whatsappTemplate === 'string') C.whatsappTemplate = n.whatsappTemplate;
+    if (n.channels && typeof n.channels === 'object') C.channelsOut = { email: n.channels.email === true, whatsapp: n.channels.whatsapp === true };
   }
+  // the outbound channels as a whole (owner 8 Nov: the system's alerts only — both off until the admin turns one on here)
+  const channelsOut = () => (C.channelsOut = C.channelsOut || { email: false, whatsapp: false });
   function quietSec() {
     const q = C.quiet;
     const tpl = U.TextInput({ id: 'q-wa-tpl', label: 'قالب واتساب للتنبيهات', value: C.whatsappTemplate || 'ibtekr_alert', dir: 'ltr', help: 'اسم القالب المعتمد في WhatsApp Manager (متغير نص واحد) — بيتبعت عليه تنبيهات الفريق والمبتكرين من رقم واتساب 1', onInput: (v) => { const t = String(v || '').trim().toLowerCase(); if (/^[a-z0-9_]{1,120}$/.test(t)) C.whatsappTemplate = t; } });
     return K.Section('ساعات الهدوء والملخص اليومي', [K.two(pick(q, 'days', 'q-d', 'أيام الراحة', ['الجمعة', 'الجمعة والسبت', 'لا يوجد']), pick(q, 'hours', 'q-h', 'ساعات الهدوء', ['من 11:00 م إلى 9:00 ص', 'من 10:00 م إلى 8:00 ص'])),
       K.two(pick(q, 'waMax', 'q-w', 'الحد الأقصى لرسائل واتساب لكل عضو في اليوم', ['رسالة في اليوم', 'رسالتان في اليوم', '3 رسايل']), pick(q, 'digest', 'q-dg', 'الملخص اليومي الافتراضي', ['9:30 ص · إيميل', '9:00 ص · إيميل', '8:00 ص · إيميل'])),
       K.two(U.TextInput({ id: 'q-sig', label: 'توقيع الرسايل', value: q.signature || 'فريق إبتكر كلوب', onInput: (v) => { q.signature = String(v || '').slice(0, 80); } }), tpl),
+      h('div', { class: 'row cols2', 'data-out-channels': '' }, K.Switch({ id: 'q-ch-email', label: 'إرسال التنبيهات بالإيميل', help: 'مقفول = التنبيهات في الجرس بس · مفتوح = الأنواع اللي عليها «إيميل» بتتبعت عبر Resend', checked: channelsOut().email, onChange: (v) => { channelsOut().email = !!v; LOGV('settings.notif.channels', 'email · ' + (v ? 'مفعّل' : 'مقفول')); } }),
+        K.Switch({ id: 'q-ch-wa', label: 'إرسال التنبيهات بواتساب', help: 'مقفول = الجرس بس · مفتوح = الأنواع اللي عليها «واتساب» بتتبعت من واتساب 1 بالقالب المعتمد', checked: channelsOut().whatsapp, onChange: (v) => { channelsOut().whatsapp = !!v; LOGV('settings.notif.channels', 'whatsapp · ' + (v ? 'مفعّل' : 'مقفول')); } })),
       h('div', { class: 'acts-inline start' }, Button({ size: 'sm', label: 'حفظ', onClick: () => { persist('notifications'); } }), Button({ size: 'sm', type: 'text', label: 'شغّل المحرك دلوقتي (تجربة)', attrs: { 'data-notify-dry': '' }, onClick: async () => { const r = await SETT().notifyTick(true); if (!r.ok) return fail(r, 'التشغيل'); K.toast('لو اتشغّل دلوقتي: ' + (r.alerts || 0) + ' تنبيه · ' + (r.digests || 0) + ' ملخص · ' + (r.external || 0) + ' رسالة خارجية'); } }))],
       null, { sub: 'القنوات الخارجية (واتساب / إيميل) بتتأجل في ساعات الهدوء وأيام الراحة — الجرس بيظهر عادي · المحرك بيلف كل 15 دقيقة على السيرفر' });
   }

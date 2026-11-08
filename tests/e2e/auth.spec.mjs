@@ -33,7 +33,7 @@ const loginError = (page) => page.locator('#login .login-card');
 test('signs in and lands on dashboard', async ({ page }) => {
   await signIn(page, ADMIN.id, ADMIN.pw);
   await expect(page.locator('#root')).toBeVisible();
-  await expect(page.locator('nav.sidebar .nav-item')).toHaveCount(12);
+  await expect(page.locator('nav.sidebar .nav-item')).toHaveCount(13);
   await expect(page).not.toHaveTitle('تسجيل الدخول — نظام إبتكر');
   if (!LIVE) await expect.poll(() => mock.activity.map((a) => a.action)).toContain('auth.signin');
   if (!LIVE) expect(mock.lookups).toEqual([]); // an email goes straight to GoTrue: no lookup RPC
@@ -46,7 +46,7 @@ test('the menu: the two new pages in place, every page opened by its phase (phas
   expect(await items.locator('> span:not(.soon)').allTextContents()).toEqual(['لوحة التحكم', 'الأوردرات', 'المبتكرين', 'الحسابات', 'المخزون', 'المنتجات', 'خدمة العملاء', 'تذاكر الفريق', 'التقارير', 'التسويق', 'الموارد البشرية', 'الإعدادات']);
   // phase 11: «الإعدادات» opened — nothing is closed with «soon» any more; a settings hash reaches the settings page (admin)
   await expect(page.locator('nav.sidebar .nav-item[data-soon]')).toHaveCount(0);
-  await expect(page.locator('nav.sidebar .nav-item:not([data-soon])')).toHaveCount(12);
+  await expect(page.locator('nav.sidebar .nav-item:not([data-soon])')).toHaveCount(13);
   await page.locator('nav.sidebar .nav-item[data-page="settings"]').click();
   await expect(page.locator('#pg-settings')).toBeVisible();
   await page.evaluate(() => { location.hash = 'settings-integrations'; });
@@ -112,7 +112,7 @@ test('session survives a reload', async ({ page }) => {
   await expect(page.locator('#root')).toBeVisible();
   await page.reload();
   await expect(page.locator('#root')).toBeVisible();
-  await expect(page.locator('nav.sidebar .nav-item')).toHaveCount(12);
+  await expect(page.locator('nav.sidebar .nav-item')).toHaveCount(13);
   await expect(page.locator('#login')).toHaveCount(0);
 });
 

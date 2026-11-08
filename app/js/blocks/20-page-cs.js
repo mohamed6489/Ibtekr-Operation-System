@@ -3,7 +3,8 @@
    صندوق موحّد (العملاء · المبتكرين · التعليقات + تاب لكل منصة)، الشات والكومبوزر (رد / ملاحظة داخلية / نافذة 24 ساعة)،
    لوحة العميل والمبتكر، سجل العملاء (CRM) وملف العميل، شرايح العملاء، الحملات (مسودة / مجدولة في 6.1)، القنوات (كلها غير متصلة
    لحد 6.2 / 6.4)، الأداء والتقارير، ومجموعة «رسايل» في الجرس. القواعد في الكتلة 19 (IbtekrCS)، والداتا والكتابة كلها عبر IBCS
-   (app/js/adapter/cs.js). القوالب والردود السريعة والرد الآلي مؤجلين بقرار صاحب المشروع (أزرارهم بتقول «قريبًا»). */
+   (app/js/adapter/cs.js). المرحلة 6.5 (8 نوفمبر): صفحة «الرد الآلي» بتاعة الـ v6 (القوالب · الردود السريعة · قواعد الرد الآلي) على IBCS.data.templates /
+   quick / rules / auto، واقتراحات «/» وزرار «قالب» في الكومبوزر؛ الإرسال التلقائي نفسه على السيرفر (Edge Function cs-auto) ورا مفتاح الأدمن. */
 (function () {
   'use strict';
   const U = window.IBUI, K = window.IBKit, CS = window.IbtekrCS;
@@ -22,11 +23,11 @@
 
   // ======================= data: IBCS.data (live) + the parts the page keeps for itself =======================
   // S.customers / convs / segments / campaigns / channels are the adapter's arrays (same objects — a write through IBCS updates them
-  // and ib:cs re-renders); vendors are built from IBVendors + IBOrders; templates / quick / rules stay empty (postponed).
+  // and ib:cs re-renders); vendors are built from IBVendors + IBOrders; templates / quick / rules / auto are the adapter's too (phase 6.5).
   const CHAN_USE = { wa1: 'الاستخدام: الشات + الحملات · العملاء', wa2: 'الاستخدام: شات المبتكرين', messenger: 'الرسايل الخاصة + تعليقات بوستات فيسبوك', instagram: 'الـ DM + تعليقات البوستات والريلز', tiktok: 'الرسايل والتعليقات (حسب المتاح من تيك توك)' };
   const CHAN_WHO = { wa1: 'رقم واتساب البيزنس · ربط رسمي من Meta (والموبايل شغال عادي)', wa2: 'رقم المبتكرين · ربط QR (المرحلة الأخيرة)', messenger: 'صفحة Ibtekr Club · ربط رسمي من Meta', instagram: '@ibtekr.club · ربط رسمي من Meta', tiktok: '@ibtekr.club · مفيش API رسايل عام' };
   const EMPTY = { customers: [], convs: [], segments: [], campaigns: [], channels: {}, settings: {} };
-  const STATIC = { templates: [], quick: [], rules: [], recipients: [], blocked: [] };
+  const STATIC = { recipients: [], blocked: [] };
   const S = new Proxy(STATIC, {
     get(t, k) { const D = (A() && A().data) || EMPTY; if (k === 'vendors') return vendorsList(); if (k === 'routing') return routingRows(); if (k in D) return D[k]; return t[k]; },
     set(t, k, v) { const D = A() && A().data; if (D && k in D) { D[k] = v; return true; } t[k] = v; return true; },
@@ -78,9 +79,9 @@
     const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: opts, value: cur, onSelect: (v) => { close(); if (v !== cur) apply(v); } }));
     btn.addEventListener('click', (e) => { e.stopPropagation(); pop.toggle(e); }); wrap.append(btn); return wrap;
   }
-  const st = { meta: null, wa: null, panel: true, fTags: [], fState: ['open'], tab: 'inbox', seg: 'customers', plat: 'all', view: 'all-open', sort: 'oldest', q: '', fChannel: '', fAgent: '', sel: { customers: null, vendors: null, comments: null }, fPost: '', mode: 'reply', draft: '', mobileChat: false,
+  const st = { tpl: { sub: 'customers', cat: '', q: '' }, meta: null, wa: null, panel: true, fTags: [], fState: ['open'], tab: 'inbox', seg: 'customers', plat: 'all', view: 'all-open', sort: 'oldest', q: '', fChannel: '', fAgent: '', sel: { customers: null, vendors: null, comments: null }, fPost: '', mode: 'reply', draft: '', mobileChat: false,
     cust: { q: '', stage: '', tag: '', rating: '', prov: '', chan: '', problems: false, moods: [], provs: [], chans: [], sort: 'recent', seg: '', mode: 'filters', sheet: null, page: 1, picked: new Set() }, segs: { open: '', picked: new Set() }, wiz: null, campaign: null, campFilter: '', recFilter: '' };
-  const R = () => { if (window.IBPages.current === 'cs') window.IBPages.render('cs'); };
+  const R = () => { if (window.IBPages.current === 'cs' || window.IBPages.current === 'autoreply') window.IBPages.render(window.IBPages.current); };
   const conv = () => S.convs.find((c) => c.id === st.sel[st.seg]);
   const whoName = (c) => (c.who ? (c.seg === 'vendors' ? (V(c.who) || { name: 'مبتكر' }).name : (C(c.who) || { name: 'عميل' }).name) : c.handle || '—');
   const isWA = (c) => c.platform === 'whatsapp';
@@ -373,17 +374,21 @@
     const ta = h('textarea', { class: 'textarea', rows: 1, id: 'cs-ta', title: note ? 'Ctrl+Enter للحفظ' : 'Enter إرسال · Shift+Enter سطر جديد', 'aria-label': note ? 'ملاحظة داخلية' : 'الرد', placeholder: note ? 'اكتب ملاحظة للفريق… استخدم @ لذكر دور أو زميل' : c.seg === 'comments' ? 'رد عام — من غير بيانات شخصية' : 'اكتب ردك…', disabled: !reply });
     ta.value = st.draft;
     const grow = () => { ta.style.height = ''; if (ta.value) ta.style.height = Math.min(ta.scrollHeight + 2, 140) + 'px'; }; setTimeout(grow);
-    ta.addEventListener('input', () => { st.draft = ta.value; grow(); });
+    ta.addEventListener('input', () => { st.draft = ta.value; grow(); drawSlash(); });
     ta.addEventListener('keydown', (e) => { if (note ? (e.key === 'Enter' && e.ctrlKey) : (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); send(c, ta.value); } });
     const tool = (icon, label, run) => IconButton({ icon, label, attrs: { title: label, 'data-cmp-tool': label }, onClick: run });
+    // phase 6.5: «/» in the box lists the quick replies and the templates with a key (block 19 quickReplies); a pick fills the box with the variables filled
+    const slash = h('div', { class: 'cs-slash', id: 'cs-slash', role: 'listbox', 'aria-label': 'ردود سريعة', hidden: true });
+    const drawSlash = () => { const q = note ? '' : ta.value; const list = q[0] === '/' && !/\s/.test(q) ? CS.quickReplies(A().quickList ? A().quickList() : [], q).slice(0, 8) : []; slash.hidden = !list.length; slash.replaceChildren(...list.map((x) => h('button', { type: 'button', class: 'cs-slash-it', role: 'option', 'data-slash': x.key, onClick: () => { st.draft = fillFor(c, x.text); R(); focusComposer(); } }, h('b', null, x.key), h('span', { class: 't-small' }, x.label)))); };
+    setTimeout(drawSlash);
     const tabs = h('div', { class: 'cmp-tabs', role: 'tablist' }, h('button', { type: 'button', role: 'tab', class: 'cmp-tab', 'aria-selected': String(!note), onClick: () => { st.mode = 'reply'; R(); focusComposer(); } }, c.seg === 'comments' ? 'رد عام على التعليق' : c.seg === 'vendors' ? 'رد على المبتكر' : 'رد على العميل'), h('button', { type: 'button', role: 'tab', class: 'cmp-tab note', 'aria-selected': String(note), onClick: () => { st.mode = 'note'; R(); focusComposer(); } }, 'ملاحظة داخلية'));
     return h('div', { class: 'cmp' + (note ? ' is-note' : '') },
       h('div', { class: 'cmp-top' }, tabs, h('span', { class: 't-small from' }, 'هيتبعت من: ', PlatIcon(c.platform), h('b', null, chanLabel(c)))),
       !note && !live ? h('div', { class: 'cs-bar warn sm', role: 'status', 'data-chan-off': '' }, 'القناة مش متصلة — الرد مش هيوصل للعميل دلوقتي. الملاحظات الداخلية شغالة، و' + (c.channel === 'wa1' && chanOf(c) && chanOf(c).kind === 'meta' ? 'الأدمن بيربط واتساب 1 من تاب «القنوات».' : chanOf(c) && chanOf(c).kind === 'meta' ? 'الأدمن بيربط ماسنجر/إنستجرام من تاب «القنوات».' : 'الربط في مرحلة جاية.')) : null,
       closed && live ? h('div', { class: 'cs-bar warn sm', role: 'status' }, 'عدّى 24 ساعة من آخر رسالة للعميل. الرسالة الحرة ممكن متوصلش أو تعرّض الرقم للحظر — ابعت قالب متابعة بدلها.') : null,
-      h('div', { class: 'cmp-in' }, ta),
+      h('div', { class: 'cmp-in' }, ta, slash),
       h('div', { class: 'cmp-bar' }, note ? [tool('at', 'ذكر @', () => { ta.value += (ta.value && !ta.value.endsWith(' ') ? ' ' : '') + '@'; ta.focus(); })]
-        : [tool('file', 'قالب', () => SOON('القوالب')), tool('zap', 'ردود سريعة', () => SOON('الردود السريعة')), tool('attach', 'مرفق', () => SOON('المرفقات')), tool('mic', 'فويس', () => SOON('الرسايل الصوتية'))],
+        : [tool('file', 'قالب', () => pickTemplate(c)), tool('zap', 'ردود سريعة', () => pickQuick(c)), tool('attach', 'مرفق', () => SOON('المرفقات')), tool('mic', 'فويس', () => SOON('الرسايل الصوتية'))],
         h('span', { class: 'grow' }), h('span', { class: 't-small hint' }, note ? 'Ctrl+Enter للحفظ' : 'Enter إرسال'),
         Button({ type: note ? 'default' : 'primary', label: note ? 'حفظ الملاحظة' : 'إرسال', icon: note ? null : 'send', disabled: !reply || (!note && !live), attrs: { 'data-cmp-send': '' }, onClick: () => send(c, ta.value) })));
   }
@@ -392,6 +397,17 @@
     const cu = c.who && c.seg !== 'vendors' ? C(c.who) : null; const o = cu && cu.orderList[0];
     const vars = { 'اسم_العميل': cu ? cu.name.split(' ')[0] : '', 'رقم_الأوردر': o ? o[0] : '', 'الإجمالي': o ? (o[2].split(' · ')[0] || '') : '', 'رابط_التتبع': o ? 'bosta.co/t/' + o[0] : '', 'اسم_المبتكر': c.seg === 'vendors' ? whoName(c) : '' };
     return CS.fillTemplate(text, vars).text;
+  }
+  // phase 6.5: the templates of the conversation's library (makers → the makers' library) into the box, the variables filled
+  function pickTemplate(c, onPick) {
+    const lib = c && c.seg === 'vendors' ? 'vendors' : 'customers'; const list = S.templates.filter((t) => t.lib === lib && t.active);
+    if (!list.length) { K.toast('مفيش قوالب في مكتبة ' + (lib === 'vendors' ? 'المبتكرين' : 'العملاء') + ' — ضيفها من «الرد الآلي»'); return; }
+    const m = U.Modal({ title: 'اختار قالب', body: [h('div', { class: 'tgrid', 'data-tpl-pick': '' }, list.map((t) => TemplateCard(t, { onClick: () => { m.close(); if (onPick) onPick(t); else { st.draft = fillFor(c, t.body); R(); focusComposer(); } } })))], footer: [Button({ label: 'إلغاء', onClick: () => m.close() })] }); m.el.classList.add('wide');
+  }
+  function pickQuick(c) {
+    const list = A().quickList ? A().quickList() : [];
+    if (!list.length) { K.toast('مفيش ردود سريعة — ضيفها من «الرد الآلي › الردود السريعة»'); return; }
+    const m = U.Modal({ title: 'ردود سريعة', body: [h('div', { class: 'pick-list', 'data-quick-pick': '' }, list.map((x) => h('button', { type: 'button', class: 'pick-row cs-slash-it', onClick: () => { m.close(); st.draft = fillFor(c, x.text); R(); focusComposer(); } }, h('b', null, x.key), h('span', { class: 'grow t-small' }, x.label))))], footer: [Button({ label: 'إلغاء', onClick: () => m.close() })] });
   }
   async function send(c, text) {
     text = String(text || '').trim(); if (!text) { focusComposer(); return; }
@@ -545,7 +561,7 @@
       sec('أرقام المبتكر', null, h('div', { class: 'kvg' }, [['فرعي مفتوح', v.open], ['متأخر', v.late], ['مدة التصنيع', v.avg]].map(([k, x]) => h('div', { class: 'kvc' }, h('span', { class: 't-small' }, k), h('b', null, K.Num(String(x))))))),
       sec('الأوردرات الفرعية المفتوحة', v.open ? link('عرض الكل (' + v.open + ')', () => { location.hash = 'orders'; }) : null, v.subs.length ? v.subs.map((s) => h('div', { class: 'ord' }, h('div', { class: 'r' }, link(s[0], () => openOrder(s[3])), U.DelayBadge(s[2] === 'AtRisk' ? 'risk' : s[2] === 'Late' ? 'late' : 'ok')), h('div', { class: 't-small' }, s[1]))) : h('div', { class: 't-small' }, 'مفيش أوردرات فرعية مفتوحة')),
       TicketsSec(TKA() ? TKA().forVendor(v.id) : [], TKA() && TKA().can().manage ? link('+ تذكرة', () => ticketFrom(c, null)) : null),
-      sec('إجراءات سريعة', null, h('div', { class: 'qa' }, Button({ size: 'sm', label: 'تذكير بميعاد التسليم', onClick: () => SOON('القوالب') }), Button({ size: 'sm', label: 'تعديل ميعاد التسليم', onClick: () => K.form({ title: 'تعديل ميعاد التسليم', values: { d: today() }, fields: (f, e, set) => [K.field.date('d', 'ميعاد التسليم الجديد', f, e, set, { required: true })], submitLabel: 'حفظ', submit: async (f) => { const r = await A().event(c.id, 'ميعاد تسليم ' + (v.subs[0] ? v.subs[0][0] : '') + ' اتغير لـ ' + K.dlabel(f.d) + ' — ' + meName()); if (done(r)) R(); } }) }), Button({ size: 'sm', label: 'تحويل لتذكرة', onClick: () => SOON('تذاكر الفريق') }))));
+      sec('إجراءات سريعة', null, h('div', { class: 'qa' }, Button({ size: 'sm', label: 'تذكير بميعاد التسليم', onClick: () => pickTemplate(c) }), Button({ size: 'sm', label: 'تعديل ميعاد التسليم', onClick: () => K.form({ title: 'تعديل ميعاد التسليم', values: { d: today() }, fields: (f, e, set) => [K.field.date('d', 'ميعاد التسليم الجديد', f, e, set, { required: true })], submitLabel: 'حفظ', submit: async (f) => { const r = await A().event(c.id, 'ميعاد تسليم ' + (v.subs[0] ? v.subs[0][0] : '') + ' اتغير لـ ' + K.dlabel(f.d) + ' — ' + meName()); if (done(r)) R(); } }) }), Button({ size: 'sm', label: 'تحويل لتذكرة', onClick: () => SOON('تذاكر الفريق') }))));
   }
   // تعديل أوردر من الشات (owner 1 Nov): لو أكتر من أوردر بيختار الأول؛ بيفتح نفس شاشة تعديل صفحة الأوردرات
   function editCustOrder(cu, c) {
@@ -1015,7 +1031,7 @@
       form = [chanPicker(w),
         U.Textarea({ id: 'wz-text', label: 'نص الرسالة', required: true, value: w.text, error: w.errs.text, rows: 5, maxlength: 1024, help: w.text.length + ' / 1024 · «اكتب إيقاف» بيتضاف تلقائي لو مش موجود · المتغيرات: {اسم_العميل} {كود_الخصم}', onInput: (v) => { w.text = v; } }),
         CS.templateVars(w.text).includes('كود_الخصم') ? U.TextInput({ id: 'wz-code', label: 'قيمة {كود_الخصم}', required: true, value: w.code, error: w.errs.code, help: 'متغير مش موجود في بيانات العميل — لازم تحدد قيمته للحملة.', onInput: (v) => { w.code = v; } }) : null,
-        h('div', { class: 'row-f' }, Button({ label: 'قالب جاهز', icon: 'file', onClick: () => SOON('القوالب') }), Button({ label: 'ابعت رسالة تجربة', onClick: () => SOON('رسالة التجربة (مع ربط القناة)') }))];
+        h('div', { class: 'row-f' }, Button({ label: 'قالب جاهز', icon: 'file', onClick: () => pickTemplate({ seg: 'customers' }, (t) => { w.text = t.body; R(); }) }), Button({ label: 'ابعت رسالة تجربة', onClick: () => SOON('رسالة التجربة (مع ربط القناة)') }))];
       side = [preview(), sumRow('الشريحة', K.n0(n) + ' عميل')];
     } else if (w.step === 2) {
       const days = bt.length; const bl = bt.map((b, i) => b + (i === 0 ? ' أول يوم' : i === 1 ? ' تاني يوم' : ' يوم ' + (i + 1))).join(' · ');
@@ -1153,6 +1169,148 @@
       h('p', { class: 't-small src-note' }, 'المصدر: سجل المحادثات في السيستم (المفتوحة + آخر 90 يوم) · رضا العملاء من استبيان بعد قفل المحادثة لما القنوات تتربط')];
   }
   const last30 = () => { const to = today(); const d = new Date(Date.now() - 30 * 864e5); return { from: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'), to }; };
+
+  // ======================= الرد الآلي (phase 6.5 — the v6 page «autoreply» on IBCS: templates · quick replies · rules) =======================
+  const AR_TABS = [['templates', 'القوالب'], ['quick', 'الردود السريعة'], ['rules', 'قواعد الرد الآلي']];
+  const VARS = ['اسم_العميل', 'رقم_الأوردر', 'الإجمالي', 'رابط_التتبع', 'ميعاد_الشحن', 'اسم_المبتكر', 'رقم_الأوردر_الفرعي', 'المنتج', 'ميعاد_التسليم', 'المبلغ', 'رابط_السلة', 'لينك_الدفع', 'كود_الخصم'];
+  const CATS = { customers: ['حالة الأوردر', 'متابعة', 'شكاوى', 'تسويق'], vendors: ['أوردرات فرعية', 'تأخير', 'تحويلات', 'جودة'] };
+  const STATUS_TO = ['قيد التنفيذ', 'جاهز للشحن', 'تم الشحن', 'قابل للتأخير', 'متأخر', 'مكتمل', 'ملغي'];
+  const COND_FIELDS = ['القناة', 'الدفع', 'الحالة', 'الإجمالي', 'عمر_الأوردر', 'المبتكر', 'العميل', 'الأوردر'];
+  const COND_OPS = ['=', '!=', 'أكبر من أو يساوي', 'أكبر من', 'أقل من أو يساوي', 'أقل من', 'يحتوي', 'موافق على', 'فيه', 'مفيهوش'];
+  const reasonText = (r) => (r.reason === 'forbidden' ? 'مش مسموح — محتاج صلاحية إدارة خدمة العملاء' : r.reason === 'in_use' ? 'القالب مستخدم في قاعدة رد آلي — شيله منها الأول' : r.reason === 'notfound' ? 'مش موجود' : r.reason === 'invalid' ? (r.errors ? Object.values(r.errors)[0] : 'البيانات مش مظبوطة') : 'مشكلة في الاتصال — جرّب تاني');
+  function TemplateCard(t, o = {}) {
+    return h('button', { type: 'button', class: 'tcard card' + (o.selected ? ' sel' : ''), 'data-tpl': t.id, role: o.onClick ? 'option' : null, 'aria-selected': o.onClick ? String(!!o.selected) : null, onClick: o.onClick || (() => editTemplate(t)) },
+      h('span', { class: 'r' }, h('b', null, t.name), K.Tag(t.tone, t.cat), t.waTemplate ? K.Tag('success', 'قالب Meta') : null, t.key ? h('span', { class: 't-small' }, t.key) : null), h('span', { class: 't-small body' }, t.body),
+      h('span', { class: 'r t-small' }, h('span', null, Icon('zap', 'sm'), ' ', t.trigger), h('span', null, t.draft ? 'اتبعت ' + t.used + ' مرة · مسودة' : 'اتبعت ' + t.used + ' مرة')));
+  }
+  function SubNav() {
+    if (st.tpl.sub !== 'customers' && st.tpl.sub !== 'vendors') return null;
+    const items = [['customers', 'العملاء', S.templates.filter((t) => t.lib === 'customers').length], ['vendors', 'المبتكرين', S.templates.filter((t) => t.lib === 'vendors').length]];
+    return h('div', { class: 'seg ar-lib', role: 'group', 'aria-label': 'مكتبة القوالب', 'data-ar-lib': '' }, items.map(([id, l, c]) => h('button', { type: 'button', class: 'seg-b', 'data-lib': id, 'aria-pressed': String(st.tpl.sub === id), onClick: () => { st.tpl.sub = id; st.tpl.cat = ''; R(); } }, h('span', null, 'قوالب ' + l), h('span', { class: 'cnt' }, String(c)))));
+  }
+  function Templates() {
+    const manage = can().manage;
+    if (st.tpl.sub === 'quick') return [h('div', { class: 'ar-wrap' }, h('div', { class: 'tpl-main' }, K.Section('ردود سريعة', S.quick.length ? U.Table({ headers: ['الاختصار', 'الوصف', 'النص', ''], rows: S.quick.map((x) => [h('b', { 'data-quick': x.id }, x.key), x.label, h('span', { class: 't-small wrap' }, x.text), manage ? K.RowMenu([{ label: 'تعديل', run: () => editQuick(x) }, { label: 'حذف', danger: true, run: () => K.confirm({ title: 'حذف الرد السريع؟', text: x.key + ' — ' + x.label, okType: 'danger', okLabel: 'حذف', onOk: async () => { const r = await A().deleteQuick(x.id); if (!r.ok) K.toast(reasonText(r), 'error'); else K.toast('اتحذف'); R(); } }) }]) : '']) }) : K.Empty('مفيش ردود سريعة', 'اكتب / في الشات وكمّل الكلمة — الرد بيتحط في الصندوق بالمتغيرات متملية ويتعدل قبل الإرسال.'), null, { sub: 'اكتب / في الشات وكمّل الكلمة — الرد بيتحط في الصندوق بالمتغيرات متملية ويتعدل قبل الإرسال · القوالب اللي ليها اختصار بتظهر هنا كمان' })))];
+    const lib = st.tpl.sub; const all = S.templates.filter((t) => t.lib === lib); const cats = [...new Set(all.map((t) => t.cat))];
+    const q = h('input', { type: 'search', value: st.tpl.q, placeholder: 'ابحث في القوالب', 'aria-label': 'بحث في القوالب' }); q.addEventListener('change', () => { st.tpl.q = q.value; R(); });
+    const shown = all.filter((t) => (!st.tpl.cat || t.cat === st.tpl.cat) && (!st.tpl.q || (t.name + t.body).includes(st.tpl.q)));
+    return [h('div', { class: 'ar-wrap' }, SubNav(), h('div', { class: 'tpl-main' }, h('div', { class: 'toolbar' }, h('label', { class: 'search search-field' }, Icon('search', 'sm'), q), U.Select({ id: 'tp-cat', options: [{ value: '', label: 'التصنيف: الكل' }].concat(cats.map((x) => ({ value: x, label: 'التصنيف: ' + x }))), value: st.tpl.cat, onChange: (v) => { st.tpl.cat = v; R(); } }), h('span', { class: 't-small grow' }, lib === 'vendors' ? 'القوالب دي بتتبعت من واتساب 2 بس · المتغيرات بين { } بتتملي تلقائي' : 'القوالب دي بتتبعت من واتساب 1 والسوشيال · برّه نافذة الـ 24 ساعة واتساب بيبعت قالب Meta المعتمد · المتغيرات بين { } بتتملي تلقائي')),
+      shown.length ? h('div', { class: 'tgrid' }, shown.map((t) => TemplateCard(t))) : K.Empty('مفيش قوالب', all.length ? 'جرّب بحث تاني أو اعمل قالب جديد.' : 'اعمل أول قالب من زرار «قالب جديد».')))];
+  }
+  // امتى يتبعت القالب (owner 28 Oct): نوع الإرسال + مشغّلات التصنيف (اختيار من متعدد) + التوقيت
+  function trigFields(f, e, set) {
+    const T = CS.TRIGGERS[f.cat] || { label: 'يتبعت عند', opts: [] };
+    const on = Array.isArray(f.trigOn) ? f.trigOn : (f.trigOn = []);
+    const toggle = (o, v) => { const i = on.indexOf(o); if (v && i < 0) on.push(o); if (!v && i > -1) on.splice(i, 1); set('trigOn', on.slice(), true); };
+    return h('fieldset', { class: 'blk tp-trig', 'data-trig': '' }, h('legend', null, 'امتى يتبعت؟'),
+      K.Radios({ label: null, value: f.trigKind, error: e.trigKind, onChange: (v) => set('trigKind', v, true), options: [
+        { value: 'auto', label: 'تلقائي', hint: 'السيستم بيبعته لوحده لما يحصل المشغّل (القاعدة بتتعمل من «قواعد الرد الآلي»)' },
+        { value: 'manual', label: 'يدوي من الشات', hint: 'الموظف هو اللي يختاره' },
+        { value: 'campaign', label: 'حملات بس', hint: 'بيتبعت من حملة مجدولة' }] }),
+      f.trigKind === 'auto' ? h('div', { class: 'stack' },
+        h('div', { class: 't-label' }, T.label + ' (تقدر تختار أكتر من واحد)'),
+        h('div', { class: 'trig-opts', role: 'group', 'aria-label': T.label, 'data-trig-opts': '' },
+          T.opts.map((o) => K.Checkbox({ small: true, label: o, checked: on.indexOf(o) > -1, onChange: (v) => toggle(o, v) }))),
+        e.trigOn ? h('div', { class: 'err-msg', role: 'alert' }, e.trigOn) : null,
+        K.field.select('trigWhen', 'يتبعت بعد المشغّل بـ', CS.TRIG_WHEN, f, e, set),
+        on.length ? U.InlineNote({ children: CS.triggerText({ cat: f.cat, trigKind: 'auto', trigOn: on, trigWhen: f.trigWhen }) }) : null) : null);
+  }
+  const PREVIEW_VARS = { 'اسم_العميل': 'نهى', 'رقم_الأوردر': '178611', 'الإجمالي': '1,250 ج.م', 'رابط_التتبع': 'bosta.co/t/178611', 'ميعاد_الشحن': '23 أكتوبر', 'اسم_المبتكر': 'ورشة فخار الفيوم', 'رقم_الأوردر_الفرعي': '178611-2', 'المنتج': 'ترابيزة خشب', 'ميعاد_التسليم': '25 أكتوبر', 'المبلغ': '4,200 ج.م', 'رابط_السلة': 'ibtekr.club/checkout', 'لينك_الدفع': 'pay.ibtekr.club/178611', 'كود_الخصم': 'IBTEKR10' };
+  function editTemplate(t) {
+    if (!can().manage) { K.toast('مش مسموح — محتاج صلاحية إدارة خدمة العملاء', 'error'); return; }
+    const isNew = !t; const v = t ? { name: t.name, lib: t.lib, cat: t.cat, channels: t.channels, body: t.body, quick: !!t.key, key: t.key || '/', trigKind: t.trigKind || 'manual', trigOn: (t.trigOn || []).slice(), trigWhen: t.trigWhen || 'فورًا', waTemplate: t.waTemplate || '', waVars: (t.waVars || []).join(', '), active: t.active !== false }
+      : { name: '', lib: st.tpl.sub === 'vendors' ? 'vendors' : 'customers', cat: st.tpl.sub === 'vendors' ? 'أوردرات فرعية' : 'حالة الأوردر', channels: st.tpl.sub === 'vendors' ? 'واتساب 2' : 'كل القنوات', body: '', quick: false, key: '/', trigKind: 'manual', trigOn: [], trigWhen: 'فورًا', waTemplate: '', waVars: '', active: true };
+    K.form({ title: isNew ? 'قالب جديد' : 'تعديل قالب', wide: 'xl', values: v,
+      fields: (f, e, set) => { const prevOf = (b) => CS.fillTemplate(f.cat === 'تسويق' ? CS.withOptOut(b || '') : b || '', PREVIEW_VARS).text || '—';
+        const prevEl = h('div', { class: 'tx' }, prevOf(f.body));
+        const ta = U.Textarea({ id: 'tp-body', label: 'نص الرسالة', required: true, value: f.body, error: e.body, rows: 5, maxlength: 1024, help: (f.body || '').length + ' / 1024' + (f.cat === 'تسويق' ? ' · «اكتب إيقاف» بيتضاف تلقائي' : ''), onInput: (x) => { set('body', x); prevEl.textContent = prevOf(x); } });
+        return [h('div', { class: 'tp-edit' }, h('div', { class: 'stack' }, K.field.text('name', 'اسم القالب', f, e, set, { required: true, help: 'اسم داخلي للفريق — العميل مش بيشوفه.' }), K.Radios({ label: 'المكتبة', options: [{ value: 'customers', label: 'العملاء (واتساب 1 + السوشيال)' }, { value: 'vendors', label: 'المبتكرين (واتساب 2)' }], value: f.lib, onChange: (x) => { f.trigOn = []; f.cat = x === 'vendors' ? 'أوردرات فرعية' : 'حالة الأوردر'; f.channels = x === 'vendors' ? 'واتساب 2' : 'كل القنوات'; f.waTemplate = x === 'vendors' ? '' : f.waTemplate; set('lib', x, true); } }),
+          K.two(K.field.select('cat', 'التصنيف', CATS[f.lib] || CATS.customers, f, e, (k, x) => { f.trigOn = []; set(k, x, true); }, { required: true }), K.field.select('channels', 'القنوات', f.lib === 'vendors' ? ['واتساب 2'] : ['كل القنوات', 'واتساب 1', 'ماسنجر', 'إنستجرام'], f, e, set, { required: true })),
+          trigFields(f, e, set),
+          ta, h('div', { class: 'chips' }, h('span', { class: 't-small' }, 'إدراج متغير:'), VARS.map((k) => h('button', { type: 'button', class: 'chip-b', onClick: () => { set('body', (f.body || '') + '{' + k + '}', true); } }, '{' + k + '}'))),
+          f.lib === 'customers' ? h('fieldset', { class: 'blk' }, h('legend', null, 'قالب Meta المعتمد (برّه نافذة الـ 24 ساعة)'), K.two(K.field.text('waTemplate', 'اسم القالب على Meta', f, e, set, { placeholder: 'order_confirmed_v1', help: 'زي ما هو في WhatsApp Manager — حروف إنجليزي صغيرة وأرقام و_' }), K.field.text('waVars', 'ترتيب المتغيرات في القالب', f, e, set, { placeholder: 'اسم_العميل, رقم_الأوردر', help: 'أسماء المتغيرات بالترتيب بتاع {{1}} {{2}} … مفصولة بفاصلة' }))) : null,
+          K.Checkbox({ label: 'متاح كرد سريع في الشات', checked: f.quick, onChange: (x) => set('quick', x, true) }), f.quick ? K.field.text('key', 'الاختصار', f, e, set, { help: 'اكتب / في الشات وبعدها الاختصار.' }) : null,
+          K.Checkbox({ label: 'القالب شغّال (مش مسودة)', checked: f.active, onChange: (x) => set('active', x, true) })),
+          h('div', { class: 'tp-prev' }, h('div', { class: 't-label' }, 'معاينة بقيم تجريبية'), h('div', { class: 'brow out' }, h('div', { class: 'bub b-out' }, prevEl)), U.InlineNote({ children: 'قواعد الكتابة: ابدأ باسم العميل · جملة واحدة للمعلومة المهمة · من غير لينكات مختصرة غريبة (بتتعلّم سبام) · قوالب التسويق لازم فيها «اكتب إيقاف لو مش عايز رسايل».' })))]; },
+      validate: (f) => { const errs = A().validateTemplate ? A().validateTemplate(tplValues(f)) : {}; if (f.quick && (!f.key || f.key[0] !== '/' || f.key.length < 2)) errs.key = 'الاختصار لازم يبدأ بـ / وبعده كلمة'; return errs; },
+      submitLabel: 'حفظ القالب', submit: async (f) => {
+        const r = await A().saveTemplate(Object.assign(tplValues(f), t ? { id: t.id } : {}));
+        if (!r.ok) { K.toast(reasonText(r), 'error'); return; }
+        K.toast(isNew ? 'اتحفظ القالب' : 'اتحفظ', 'success'); R(); } });
+  }
+  const tplValues = (f) => ({ lib: f.lib, name: f.name, cat: f.cat, channels: f.channels, body: f.cat === 'تسويق' ? CS.withOptOut(f.body || '') : f.body, trigKind: f.trigKind, trigOn: (f.trigOn || []).slice(), trigWhen: f.trigWhen, key: f.quick ? f.key : '', waTemplate: f.lib === 'customers' ? f.waTemplate : '', waVars: String(f.waVars || '').split(/[,،]/).map((x) => x.trim()).filter(Boolean), active: f.active !== false });
+  function editQuick(x) {
+    if (!can().manage) { K.toast('مش مسموح — محتاج صلاحية إدارة خدمة العملاء', 'error'); return; }
+    K.form({ title: x ? 'تعديل رد سريع' : 'رد سريع جديد', values: x ? { key: x.key, label: x.label, text: x.text } : { key: '/', label: '', text: '' }, fields: (f, e, set) => [K.two(K.field.text('key', 'الاختصار', f, e, set, { required: true, help: 'يبدأ بـ / ومن غير مسافات' }), K.field.text('label', 'الوصف', f, e, set, { required: true })), K.field.area('text', 'النص', f, e, set, { required: true })],
+      validate: (f) => (A().validateQuick ? A().validateQuick(f) : {}), submit: async (f) => { const r = await A().saveQuick(Object.assign({ key: f.key, label: f.label, text: f.text }, x ? { id: x.id } : {})); if (!r.ok) { K.toast(reasonText(r), 'error'); return; } K.toast('اتحفظ', 'success'); R(); } });
+  }
+  const sendRows = () => { const a = S.auto || A().DEFAULT_AUTO; const hh = (n) => (n === 0 || n === 24 ? '12 ص' : n < 12 ? n + ' ص' : n === 12 ? '12 م' : (n - 12) + ' م'); return [['مواعيد الإرسال', hh(a.hours.from) + ' – ' + hh(a.hours.to) + ' (برّه الميعاد بيتأجل)'], ['فاصل بين الرسايل', 'عشوائي ' + a.delayMin + '–' + a.delayMax + ' ثانية'], ['حد أقصى يومي', 'واتساب 1: ' + a.daily.wa1 + ' · واتساب 2: ' + a.daily.wa2], ['السلة المتروكة', 'بعد ' + a.cart.afterMin + ' دقيقة من أوردر وقف عند الدفع'], ['خارج مواعيد العمل', a.afterHoursText]]; };
+  function Automation() {
+    const manage = can().manage; const admin = can().admin; const a = S.auto || A().DEFAULT_AUTO;
+    const groupOf = (r) => r.group || ((S.templates.find((t) => t.id === r.tpl) || {}).lib === 'vendors' ? 'المبتكرين (واتساب 2)' : 'العملاء'); const groups = [...new Set(S.rules.map(groupOf))];
+    const ruleRow = (r) => h('div', { class: 'rule', 'data-rule': r.id }, h('div', { class: 'rule-info' }, h('b', { id: 'rl-l-' + r.id }, r.name), h('div', { class: 't-small help' }, r.logic)), h('span', { class: 't-small stats' }, r.stats),
+      h('button', { type: 'button', role: 'switch', id: 'rl-' + r.id, class: 'sw', 'aria-checked': String(!!r.on), 'aria-labelledby': 'rl-l-' + r.id, disabled: !manage, 'data-rule-switch': r.id, onClick: async () => { const res = await A().setRuleOn(r.id, !r.on); if (!res.ok) { K.toast(reasonText(res), 'error'); return; } K.toast(r.name + (res.rule.on ? ' اشتغلت' : ' وقفت')); R(); } }, h('i')),
+      K.RowMenu([manage ? { label: 'تعديل', run: () => editRule(r) } : null, manage ? { label: 'نسخ', run: () => editRule(Object.assign({}, r, { id: null, name: r.name + ' (نسخة)', on: false })) } : null, { label: 'سجل التنفيذ', run: () => ruleLog(r) }, manage ? { label: 'حذف', danger: true, run: () => K.confirm({ title: 'حذف القاعدة؟', text: '«' + r.name + '» هتقف فوراً وتتشال.', okType: 'danger', okLabel: 'حذف', onOk: async () => { const res = await A().deleteRule(r.id); if (!res.ok) K.toast(reasonText(res), 'error'); else K.toast('اتحذفت'); R(); } }) } : null], 'إجراءات ' + r.name));
+    const liveSw = h('button', { type: 'button', role: 'switch', class: 'sw', 'aria-checked': String(!!a.live), 'aria-labelledby': 'ar-live-l', 'data-auto-live': '', disabled: !admin, onClick: () => { if (a.live) { K.confirm({ title: 'إيقاف الإرسال التلقائي؟', text: 'كل القواعد هتتسجل «متوقف» من غير ما تبعت حاجة لحد ما تشغّله تاني.', okLabel: 'وقّف', okType: 'danger', onOk: async () => { const r = await A().setAutoLive(false); if (!r.ok) K.toast(reasonText(r), 'error'); else K.toast('الإرسال التلقائي اتوقف'); R(); } }); return; }
+      K.confirm({ title: 'تشغيل الإرسال التلقائي؟', text: 'القواعد الشغالة هتبدأ تبعت رسايل حقيقية للعملاء والمبتكرين من القنوات المربوطة في مواعيد الإرسال وبالحد اليومي. راجع القواعد الأول.', okLabel: 'أيوه، شغّل', onOk: async () => { const r = await A().setAutoLive(true); if (!r.ok) K.toast(reasonText(r), 'error'); else K.toast('الإرسال التلقائي شغّال', 'success'); R(); } }); } }, h('i'));
+    return [h('div', { class: 'ar-wrap' }, h('div', { class: 'tpl-main' },
+      K.Section('الإرسال التلقائي', h('div', { class: 'sw-row', 'data-auto-live-row': '' }, h('div', { class: 'sw-txt' }, h('b', { id: 'ar-live-l' }, a.live ? 'شغّال — القواعد الشغالة بتبعت فعلًا' : 'متوقف — القواعد بتتسجل من غير إرسال'), h('span', { class: 't-small help' }, admin ? 'المفتاح الرئيسي: من غيره مفيش أي رسالة تلقائية بتطلع (الأدمن بس).' : 'المفتاح الرئيسي بيشغّله الأدمن.')), liveSw),
+        admin ? [Button({ size: 'sm', label: 'حالة المحرك', attrs: { 'data-auto-status': '' }, onClick: async () => { const s = await A().autoStatus(); if (!s.ok) { K.toast(reasonText(s), 'error'); return; } const l = s.last || {}; K.toast((s.live ? 'شغّال' : 'متوقف') + ' · قواعد شغالة ' + (s.rules ? s.rules.enabled + '/' + s.rules.total : '—') + ' · واتساب 1 ' + (s.channels && s.channels.wa1 ? 'مربوط' : 'مش مربوط') + (l.at ? ' · آخر تشغيلة: أحداث ' + (l.events || 0) + ' · اتبعت ' + (l.sent || 0) + ' · محجوز ' + (l.held || 0) : ' · لسه ما اشتغلش')); } }), Button({ size: 'sm', label: 'تجربة من غير إرسال', attrs: { 'data-auto-dry': '' }, onClick: async () => { const s = await A().autoTick(true); if (!s.ok) { K.toast(reasonText(s), 'error'); return; } K.toast('لو اشتغل دلوقتي: أحداث ' + (s.events || 0) + ' · هيبعت ' + (s.sent || 0) + ' · هيحجز ' + (s.held || 0) + ' · هيتخطى ' + (s.skipped || 0)); } })] : []),
+      K.Section('إعدادات الإرسال الآلي', h('div', { class: 'kvg four', 'data-send-settings': '' }, sendRows().map(([k, v]) => h('div', { class: 'kvc' }, h('span', { class: 't-small' }, k), h('b', null, v)))), admin ? [Button({ size: 'sm', label: 'تعديل', attrs: { 'data-send-edit': '' }, onClick: editSend })] : [], { sub: 'الحد اليومي لرقم واتساب 1 = حد Meta للمحادثات اللي الشركة بتبدأها (250 لرقم لسه ما اتحققش) — لما يوصل، الباقي بيتأجل لبكرة' }),
+      S.rules.length ? h('div', { class: 'rule-groups' }, groups.map((g) => K.Section(g, S.rules.filter((r) => groupOf(r) === g).map(ruleRow)))) : K.Empty('مفيش قواعد', 'اعمل أول قاعدة من زرار «قاعدة جديدة» — لما (الحدث) · لو (الشروط) · اعمل (الإجراء).'),
+      U.InlineNote({ children: 'توزيع المحادثات ومواعيد الرد من «خدمة العملاء › القنوات». القوالب للمبتكرين بتتبعت من واتساب 2 بس، وللعملاء من قناة المحادثة (واتساب 1 / ماسنجر / إنستجرام جوه نافذة الـ 24 ساعة، وبرّاها قالب Meta المعتمد على واتساب).' })))];
+  }
+  function editSend() {
+    const a = S.auto || A().DEFAULT_AUTO;
+    K.form({ title: 'إعدادات الإرسال الآلي', values: { from: String(a.hours.from), to: String(a.hours.to), delayMin: String(a.delayMin), delayMax: String(a.delayMax), daily1: String(a.daily.wa1), daily2: String(a.daily.wa2), cart: String(a.cart.afterMin), after: a.afterHoursText },
+      fields: (f, e, set) => [K.two(K.field.text('from', 'من الساعة (0–23)', f, e, set, { inputmode: 'numeric', required: true }), K.field.text('to', 'لحد الساعة (1–24)', f, e, set, { inputmode: 'numeric', required: true })),
+        K.two(K.field.text('delayMin', 'أقل فاصل بين الرسايل (ثانية)', f, e, set, { inputmode: 'numeric', help: 'أقل من 20 ثانية ممنوع' }), K.field.text('delayMax', 'أكبر فاصل (ثانية)', f, e, set, { inputmode: 'numeric' })),
+        K.two(K.field.text('daily1', 'حد يومي — واتساب 1', f, e, set, { inputmode: 'numeric' }), K.field.text('daily2', 'حد يومي — واتساب 2', f, e, set, { inputmode: 'numeric' })),
+        K.field.text('cart', 'السلة المتروكة بعد (دقيقة)', f, e, set, { inputmode: 'numeric', help: 'أوردر وقف عند الدفع على الموقع ومحدش كمّل بعده' }),
+        K.field.area('after', 'رد خارج مواعيد العمل', f, e, set, { required: true })],
+      validate: (f) => { const er = {}; const n = (k, lo, hi) => { const v = Number(f[k]); if (!Number.isFinite(v) || v < lo || v > hi) er[k] = 'رقم من ' + lo + ' لـ ' + hi; return v; }; const from = n('from', 0, 23); const to = n('to', 1, 24); if (!er.from && !er.to && from === to) er.to = 'لازم تختلف عن البداية'; const d = CS.validateDelay(Number(f.delayMin)); if (d) er.delayMin = d; const mx = n('delayMax', 20, 3600); if (!er.delayMax && mx < Number(f.delayMin)) er.delayMax = 'أكبر من أو يساوي الأقل'; n('daily1', 1, 100000); n('daily2', 1, 100000); n('cart', 5, 10080); if (!String(f.after || '').trim()) er.after = 'اكتب الرد'; return er; },
+      submit: async (f) => { const r = await A().saveAutoSettings({ hours: { from: Number(f.from), to: Number(f.to) }, delayMin: Number(f.delayMin), delayMax: Number(f.delayMax), daily: { wa1: Number(f.daily1), wa2: Number(f.daily2) }, cart: { afterMin: Number(f.cart) }, afterHoursText: f.after }); if (!r.ok) { K.toast(reasonText(r), 'error'); return; } K.toast('اتحفظت الإعدادات', 'success'); R(); } });
+  }
+  async function ruleLog(r) {
+    const runs = await A().ruleRuns(r.id, 30);
+    const RES = { sent: ['success', 'اتبعتت'], held: ['info', 'محجوزة'], skipped: ['neutral', 'اتخطّت'], failed: ['error', 'فشلت'], ticket: ['orange', 'تذكرة'], assigned: ['info', 'تعيين'], tagged: ['info', 'تاج'] };
+    const CODE = { off: 'الإرسال التلقائي متوقف', consent: 'العميل مش موافق', blocked: 'عميل محظور', merged: 'عميل مدموج', channel: 'القناة مش مناسبة للقالب', no_template: 'مفيش قالب', inactive: 'القالب مسودة', missing_var: 'متغير ناقص في البيانات', window: 'برّه نافذة الـ 24 ساعة ومفيش قالب Meta', cap: 'الحد اليومي', hours: 'مواعيد الإرسال', delay: 'التوقيت', pace: 'الدور', no_channel: 'مفيش قناة للعميل', not_linked: 'القناة مش مربوطة', no_phone: 'مفيش رقم', silent: 'مردّش في 24 ساعة', lost: 'الرسالة اتشالت' };
+    const m = U.Modal({ title: 'سجل التنفيذ — ' + r.name, body: [runs.length ? U.Table({ headers: ['الوقت', 'على', 'النتيجة', 'السبب / القناة'], rows: runs.map((x) => [whenLabel(x.at), x.entity, K.Tag(RES[x.result] ? RES[x.result][0] : 'neutral', RES[x.result] ? RES[x.result][1] : x.result), CODE[x.code] || x.code || '—']) }) : K.Empty('لسه ما اتنفذتش', 'أول تنفيذ هيظهر هنا بالوقت والنتيجة.')], footer: [Button({ label: 'إغلاق', onClick: () => m.close() })] }); m.el.classList.add('wide');
+  }
+  function editRule(r) {
+    if (!can().manage) { K.toast('مش مسموح — محتاج صلاحية إدارة خدمة العملاء', 'error'); return; }
+    const isNew = !r || !r.id; const EV = A().EVENTS.map((e) => ({ value: e, label: A().EVENT_LABEL[e] })); const ACT = A().ACTIONS.map((a) => ({ value: a, label: A().ACTION_LABEL[a] }));
+    const roles = ((window.IBDirectory && window.IBDirectory.roles && window.IBDirectory.roles()) || []).map((x) => ({ value: x.id, label: x.name }));
+    const v = r ? { name: r.name, group: r.group || '', event: r.event, to: r.to || 'قيد التنفيذ', conds: (r.conds || []).map((c) => c.slice()), action: r.action, tpl: r.tpl || '', roleId: r.roleId || '', tag: r.tag || '', delayMin: String(r.delayMin || 0), once: r.once !== false, ticket: !!r.ticket }
+      : { name: '', group: '', event: 'status', to: 'قيد التنفيذ', conds: [['القناة', '=', 'واتساب 1']], action: 'send', tpl: (S.templates.find((t) => t.lib === 'customers') || {}).id || '', roleId: '', tag: '', delayMin: '0', once: true, ticket: false };
+    const save = async (f, on) => { const res = await A().saveRule(Object.assign({ name: f.name, group: f.group, event: f.event, to: f.to, conds: f.conds, action: f.action, tpl: f.tpl, roleId: f.roleId, tag: f.tag, delayMin: Number(f.delayMin), once: f.once, ticket: f.ticket, on }, r && r.id ? { id: r.id } : {})); if (!res.ok) { K.toast(reasonText(res), 'error'); return false; } K.toast(on ? 'القاعدة اتحفظت واشتغلت' : 'اتحفظت كمسودة', 'success'); R(); return true; };
+    K.form({ title: isNew ? 'قاعدة رد آلي جديدة' : 'تعديل قاعدة — ' + r.name, wide: true, values: v, note: U.InlineNote({ children: 'بتشتغل لوحدها من غير ما حد يدوس — راجعها كويس قبل التفعيل. ومفيش رسالة بتطلع فعلًا إلا والمفتاح الرئيسي «الإرسال التلقائي» شغّال.' }),
+      fields: (f, e, set, draw) => { const tplOpts = S.templates.filter((t) => t.active).map((x) => ({ value: x.id, label: x.name + (x.lib === 'vendors' ? ' (مبتكرين)' : '') }));
+        return [K.two(K.field.text('name', 'اسم القاعدة', f, e, set, { required: true }), K.field.text('group', 'المجموعة (اختياري)', f, e, set, { placeholder: 'العملاء — حالة الأوردر' })),
+          h('fieldset', { class: 'blk' }, h('legend', null, Icon('zap', 'sm'), ' لما (الحدث)'), K.two(K.field.select('event', 'الحدث', EV, f, e, (k, x) => { if (x === 'afterhours') f.tpl = ''; set(k, x, true); }, { required: true }), f.event === 'status' ? K.field.select('to', 'إلى', STATUS_TO, f, e, set, { required: true }) : h('span')),
+            f.event === 'cart' ? U.InlineNote({ children: 'السلة المتروكة = أوردر وقف عند الدفع على الموقع (قيد الانتظار / فشل) من ' + (S.auto || A().DEFAULT_AUTO).cart.afterMin + ' دقيقة ومحدش كمّل بعده — وبيحتاج موافقة التسويق من العميل.' }) : f.event === 'afterhours' ? U.InlineNote({ children: 'من غير قالب بيتبعت «رد خارج مواعيد العمل» من إعدادات الإرسال — مرة واحدة في الليلة لكل محادثة.' }) : null),
+          h('fieldset', { class: 'blk' }, h('legend', null, Icon('filter', 'sm'), ' لو (الشروط) — اختياري'), f.conds.map((c, i) => h('div', { class: 'cond', 'data-cond': i }, U.Select({ id: 'cf-' + i, options: COND_FIELDS.map((x) => ({ value: x, label: x })), value: c[0], onChange: (x) => { c[0] = x; } }), U.Select({ id: 'co-' + i, options: COND_OPS.map((x) => ({ value: x, label: x })), value: c[1], onChange: (x) => { c[1] = x; } }), U.TextInput({ id: 'cv-' + i, label: null, value: c[2], placeholder: 'القيمة', onInput: (x) => { c[2] = x; } }), IconButton({ icon: 'close', label: 'حذف الشرط', onClick: () => { f.conds.splice(i, 1); draw(); } }))), e.conds ? h('div', { class: 'err-msg', role: 'alert' }, e.conds) : null,
+            Button({ type: 'text', size: 'sm', icon: 'plus', label: 'إضافة شرط (و)', onClick: () => { f.conds.push(['القناة', '=', 'واتساب 1']); draw(); } }), h('div', { class: 't-small help' }, 'القناة: واتساب 1 / ماسنجر / إنستجرام / واتساب 2 · الدفع: كاش / أونلاين · العميل موافق على: الرد الآلي / التسويق · الأوردر فيه / مفيهوش: تذكرة مفتوحة')),
+          h('fieldset', { class: 'blk' }, h('legend', null, Icon('send', 'sm'), ' اعمل (الإجراء)'), h('div', { class: 'row cols3' }, K.field.select('action', 'الإجراء', ACT, f, e, set, { required: true }),
+              f.action === 'send' ? K.field.select('tpl', 'القالب', (f.event === 'afterhours' ? [{ value: '', label: 'نص خارج المواعيد (من الإعدادات)' }] : []).concat(tplOpts), f, e, set, { required: f.event !== 'afterhours' }) : f.action === 'assign' ? K.field.select('roleId', 'الدور', roles, f, e, set, { required: true }) : f.action === 'tag' ? K.field.text('tag', 'التاج', f, e, set, { required: true }) : h('span'),
+              K.field.select('delayMin', 'التوقيت', A().DELAYS.map(([m, l]) => ({ value: String(m), label: l })), f, e, set, { required: true })),
+            K.Checkbox({ label: 'مرة واحدة بس لكل أوردر / محادثة', checked: f.once, onChange: (x) => set('once', x, true) }), f.action === 'send' ? K.Checkbox({ label: 'لو العميل مردّش خلال 24 ساعة افتح تذكرة لخدمة العملاء', checked: f.ticket, onChange: (x) => set('ticket', x, true) }) : null),
+          U.InlineNote({ children: 'ملخص: ' + A().ruleLogic({ event: f.event, to: f.to, conds: f.conds, action: f.action, roleId: f.roleId, tag: f.tag, delayMin: Number(f.delayMin), once: f.once, ticket: f.ticket }, (S.templates.find((x) => x.id === f.tpl) || {}).name || '') })]; },
+      validate: (f) => (A().validateRule ? A().validateRule({ name: f.name, event: f.event, to: f.to, action: f.action, tpl: f.tpl, roleId: f.roleId, tag: f.tag, conds: f.conds }) : {}), submitLabel: 'حفظ وتفعيل',
+      extraFooter: (f, m) => Button({ label: 'حفظ كمسودة', attrs: { 'data-rule-draft': '' }, onClick: async () => { if (!f.name) { K.toast('اكتب اسم القاعدة', 'error'); return; } if (await save(f, false)) m.close(); } }),
+      submit: (f) => save(f, true) });
+  }
+  const arTab = () => (st.tpl.sub === 'quick' ? 'quick' : st.tpl.sub === 'automation' ? 'rules' : 'templates');
+  function arView() {
+    if (can().view === 'N') return [K.PageHead('الرد الآلي', 'قوالب الرسايل والردود السريعة وقواعد الإرسال التلقائي'), K.Empty('مش مسموح', 'صفحة الرد الآلي محتاجة صلاحية «عرض خدمة العملاء».')];
+    const tab = arTab(); const manage = can().manage;
+    const actions = manage ? { templates: [Button({ type: 'brand', icon: 'plus', label: 'قالب جديد', onClick: () => editTemplate() })], quick: [Button({ type: 'brand', icon: 'plus', label: 'رد سريع جديد', onClick: () => editQuick() })], rules: [Button({ type: 'brand', icon: 'plus', label: 'قاعدة جديدة', onClick: () => editRule() })] }[tab] : [];
+    const body = tab === 'rules' ? Automation() : Templates();
+    return [K.PageHead('الرد الآلي', 'قوالب الرسايل والردود السريعة وقواعد الإرسال التلقائي للعملاء والمبتكرين', actions),
+      K.MainTabs({ items: AR_TABS.map(([id, label]) => ({ id, label })), active: tab, label: 'أقسام الرد الآلي', onChange: (id) => { st.tpl.sub = id === 'quick' ? 'quick' : id === 'rules' ? 'automation' : (st.tpl.sub === 'vendors' ? 'vendors' : 'customers'); try { history.replaceState(null, '', '#autoreply-' + id); } catch (e) { /* */ } R(); } }),
+      h('div', { class: 'cs-body ar-body ar-tab-' + tab, role: 'tabpanel' }, body)];
+  }
+  window.IBPages.register('autoreply', { title: 'الرد الآلي', hash: (hs) => { const m = /^autoreply(?:-(templates|quick|rules))?$/.exec(hs); if (!m) return false; const t = m[1] || 'templates'; st.tpl.sub = t === 'quick' ? 'quick' : t === 'rules' ? 'automation' : (st.tpl.sub === 'vendors' ? 'vendors' : 'customers'); return true; }, defaultHash: () => 'autoreply-' + arTab(), view: arView, api: { state: st, editTemplate, editRule, pickTemplate } });
 
   // ======================= page =======================
   const TABS = [['inbox', 'الرسايل'], ['customers', 'العملاء'], ['segments', 'شرايح العملاء'], ['campaigns', 'الحملات'], ['channels', 'القنوات'], ['performance', 'الأداء'], ['reports', 'التقارير']];

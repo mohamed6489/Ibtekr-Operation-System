@@ -40,7 +40,7 @@ import { buyerRequest, campaignTarget, cleanBuyer, cleanMarketing, marketingRequ
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
 import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
-import { MAX_TOOL_CALLS, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, ticketsData, toolResults, vendorsData } from '../_shared/ai-assistant.js';
+import { MAX_TOOL_CALLS, amountsIn, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, ticketsData, toolResults, vendorsData } from '../_shared/ai-assistant.js';
 import { completeText } from './providers/text.ts';
 import { cairoParts } from '../_shared/mkt-publish.js';
 
@@ -133,8 +133,8 @@ async function ask(deps: Deps, params: Json, provider = 'claude'): Promise<Asked
 // locked step on the server, and leaves a pending row at RESERVE_USD that the call's outcome then replaces. Parallel calls
 // cannot pass the cap or the throttle together; a reservation that cannot be made means no call (fail closed); a call whose
 // outcome is unknown (a timeout, the network) keeps its reserve, so the cap still counts it.
-async function startRun(deps: Deps, row: Json, cap: number | null) {
-  const { data, error } = await deps.db.rpc('ai_run_start', { p_row: row, p_cap: cap, p_reserve: RESERVE_USD, p_throttle: THROTTLE, p_window_minutes: THROTTLE_MINUTES });
+async function startRun(deps: Deps, row: Json, cap: number | null, reserve = RESERVE_USD) {
+  const { data, error } = await deps.db.rpc('ai_run_start', { p_row: row, p_cap: cap, p_reserve: reserve, p_throttle: THROTTLE, p_window_minutes: THROTTLE_MINUTES });
   if (error || !isObj(data)) return { result: 'error' as const };
   const id = Number(data.id);
   if (data.result === 'ok' && Number.isInteger(id)) return { result: 'ok' as const, id };
@@ -380,7 +380,10 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
   const role = isObj(roleRow) ? String(roleRow.name ?? '') : '';
   const cfg = await configOf(deps, 'assistant');
   const base = { created_by: uid, action: 'assistant', source: req.mode, label: line(req.question, 200) };
-  const run = await startRun(deps, { ...base, model: cfg.model }, cfg.cap);
+  // the reservation covers the whole loop (security review: one turn is up to MAX_TOOL_CALLS + 2 Claude calls), and the loop stops
+  // on the cap once the calls made have spent it
+  const reserve = req.mode === 'filter' ? RESERVE_USD : RESERVE_USD * (MAX_TOOL_CALLS + 2);
+  const run = await startRun(deps, { ...base, model: cfg.model }, cfg.cap, reserve);
   if (run.result === 'busy') return json(429, { error: 'busy' });
   if (run.result === 'cap') return json(402, { error: 'ai_cap' });
   if (run.result !== 'ok') return json(502, { error: 'ai_error' });
@@ -388,7 +391,9 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
   const params = assistantRequest(req, { model: cfg.model, effort: cfg.effort, today, actor, role });
   const spent = { model: cfg.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 };
   const actions: Json[] = []; const tools: string[] = []; let text = ''; let reads = 0;
+  const typedAmounts = amountsIn(req.question); // propose_entry only for an amount the member typed (never one read from data)
   for (let step = 0; step <= MAX_TOOL_CALLS + 1; step++) {
+    if (step > 0 && spent.cost_usd >= reserve) { await finishRun(deps, run.id, { ...spent, status: 'cap', error: 'ai_cap' }); return json(402, { error: 'ai_cap' }); }
     const asked = await ask(deps, params, 'claude');
     if ('error' in asked) {
       await finishRun(deps, run.id, { ...spent, status: 'error', error: asked.error, cost_usd: spent.cost_usd + (asked.status === null ? RESERVE_USD : 0) });
@@ -412,6 +417,7 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
         results.push({ id: use.id, content: await readData(member, uid, dq as DQ, today) });
       } else {
         const act = cleanAction(use.name, use.input);
+        if (act && use.name === 'propose_entry' && !typedAmounts.includes(Number((act.input as Json).amount))) { results.push({ id: use.id, content: 'refused: the amount is not in the user\'s own message — ask them for it', error: true }); continue; }
         if (act) { actions.push(act); results.push({ id: use.id, content: use.name === 'propose_entry' ? 'the confirm card will be shown to the user after your answer — not recorded yet' : 'will run on the user\'s screen after your answer' }); }
         else results.push({ id: use.id, content: 'invalid input for ' + line(use.name, 40), error: true });
       }

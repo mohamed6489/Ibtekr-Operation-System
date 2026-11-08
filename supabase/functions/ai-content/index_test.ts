@@ -446,7 +446,9 @@ Deno.test('assistant: any active member; the tool loop — get_data runs with th
   assertEquals(asked[0].messages, [{ role: 'user', content: [{ type: 'text', text: 'كام أوردر متأخر؟ افتحهم' }] }]);
   // the second request carries the assistant's tool_use message and the summary as the tool result
   assertEquals(asked[1].messages.length, 3); assertEquals(asked[1].messages[1].role, 'assistant');
-  const summary = JSON.parse(asked[1].messages[2].content[0].content);
+  const unwrap = (c: string) => JSON.parse(c.replace(/^<data>\n|\n<\/data>$/g, '')); // the untrusted block around every data result
+  assert(asked[1].messages[2].content[0].content.startsWith('<data>\n'), 'data results are wrapped');
+  const summary = unwrap(asked[1].messages[2].content[0].content);
   assertEquals(summary.orders.open, { 'جاري التنفيذ': 1, 'قيد الشحن': 1 }); assertEquals(summary.orders.delivery, { late: 1, ok: 1 });
   assertEquals(summary.tickets, { open: 1, byStatus: { open: 1 } }); assertEquals(summary.conversations, { open: 1 }); assertEquals(summary.myTasks, { open: 1, byStatus: { 'لسه': 1 } });
   assertEquals(summary.expenses, { forbidden: true }, 'RLS refused acc_expenses'); assertEquals(summary.sales, { 'مكتمل': { orders: 1, sales: 600, ibtekrShare: null } });
@@ -454,7 +456,7 @@ Deno.test('assistant: any active member; the tool loop — get_data runs with th
   // the third: the late orders + the two client tools answered (one invalid)
   const res3 = asked[2].messages.at(-1).content;
   assertEquals(res3.map((x: any) => [x.tool_use_id, x.is_error ?? false]), [['tu_2', false], ['tu_3', false], ['tu_4', true]]);
-  const late = JSON.parse(res3[0].content); assertEquals(late.rows.map((o: any) => [o.number, o.delivery, o.ageDays]), [['177701', 'late', 13]]); // whole days since the order's hour
+  const late = unwrap(res3[0].content); assertEquals(late.rows.map((o: any) => [o.number, o.delivery, o.ageDays]), [['177701', 'late', 13]]); // whole days since the order's hour
   assertFalse('customer_phone' in late.rows[0]);
   // one run row: action assistant, source chat, the question as label, the three calls' cost summed (3 × 3000 in + 2000 out on Opus 5.5)
   const runs = db.rows('ai_runs'); assertEquals(runs.length, 1);
@@ -462,6 +464,8 @@ Deno.test('assistant: any active member; the tool loop — get_data runs with th
   assertEquals(runs[0].output.actions, r.body.actions); assertEquals(r.body.cost_usd, 0.156);
   // the member's client did the reads — the service client never touched the data tables
   assertFalse(db.calls.some((c: any) => ['orders_v', 'tickets', 'hr_tasks', 'acc_expenses', 'cs_conversations'].includes(c.table)));
+  // the reservation covered the whole loop: RESERVE_USD × (MAX_TOOL_CALLS + 2) = 3.5 while the calls ran
+  assertEquals(db.calls.find((c: any) => c.op === 'rpc' && c.name === 'ai_run_start').args.p_reserve, 3.5);
 });
 
 Deno.test('assistant: propose_entry is an action with the confirm wording (nothing recorded); the data reads stop at MAX_TOOL_CALLS; a stopped member is 401; the filter mode forces set_filter and answers in one call', async () => {
@@ -476,6 +480,10 @@ Deno.test('assistant: propose_entry is an action with the confirm wording (nothi
   assertEquals(r.body.actions, [{ name: 'propose_entry', input: { kind: 'expense', direction: 'withdraw', amount: 5000, category: 'المرتبات' } }]);
   assert(asked[1].messages.at(-1).content[0].content.includes('not recorded yet'));
   assertEquals(db.rows('ai_runs').at(-1).output.tools, []);
+  // an amount the member did not type (one the model took from data, or made up) is refused — no action, an error result the model reads
+  const s0 = setup({ memberSeed: MEMBER_SEED, replies: [toolUse([{ id: 'tu_1', name: 'propose_entry', input: { kind: 'expense', direction: 'withdraw', amount: 1200, category: 'الإعلانات' } }]), msg('المبلغ كام؟', { stop_reason: 'end_turn', content: [{ type: 'text', text: 'المبلغ كام؟' }] })] });
+  const r0 = await call(s0.deps, ASSIST('سجل مصروف الإعلانات بتاع الشهر'), 'jwt-view');
+  assertEquals(r0.body.actions, []); assert(s0.asked[1].messages.at(-1).content[0].is_error === true && s0.asked[1].messages.at(-1).content[0].content.startsWith('refused'));
   // MAX_TOOL_CALLS: the sixth read is refused with an error result, the loop ends on the next text
   const many = Array.from({ length: 6 }, (_, i) => toolUse([{ id: 'r' + i, name: 'get_data', input: { kind: 'tickets' } }]));
   const s2 = setup({ memberSeed: MEMBER_SEED, replies: [...many, msg('خلاص', { stop_reason: 'end_turn', content: [{ type: 'text', text: 'خلاص' }] })] });
@@ -504,4 +512,8 @@ Deno.test('assistant: no key → 503 with an error row; a refusal → 200 refuse
   assertEquals((await call(s3.deps, ASSIST('x'), 'jwt-view')).res.status, 429);
   const s4 = setup({ memberSeed: MEMBER_SEED, env: { AI_MONTHLY_LIMIT_USD: '10' }, monthCost: 9.8, replies: [] });
   assertEquals((await call(s4.deps, ASSIST('x'), 'jwt-view')).res.status, 402); assertEquals(s4.asked.length, 0);
+  // the loop-wide reserve: 7 dollars left is not enough for a chat turn's 3.5 reserve? it is — 6.4 is not when the filter mode's 0.5 would pass
+  const s5 = setup({ memberSeed: MEMBER_SEED, env: { AI_MONTHLY_LIMIT_USD: '10' }, monthCost: 7, replies: [toolUse([{ id: 'f1', name: 'set_filter', input: { items: [{ f: 'st', op: 'eq', v: 'مكتمل' }] } }])] });
+  assertEquals((await call(s5.deps, ASSIST('x'), 'jwt-view')).res.status, 402, 'a chat turn reserves 3.5');
+  assertEquals((await call(s5.deps, { action: 'assistant', mode: 'filter', turns: [{ role: 'user', text: 'المكتمل' }] }, 'jwt-view')).res.status, 200, 'the filter mode reserves one call');
 });

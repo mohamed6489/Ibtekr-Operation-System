@@ -1,7 +1,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   parseAssistant, assistantRequest, readTurn, toolResults, cleanAction, dataQuery, ordersData, vendorsData, customersData, ticketsData, tasksData, expensesData, salesData, summaryData, cleanAnswer,
-  toolsOf, ASSISTANT_TURNS, Q_MAX, ANSWER_MAX, PAGES, deliveryOf, ageDays,
+  toolsOf, ASSISTANT_TURNS, Q_MAX, ANSWER_MAX, PAGES, deliveryOf, ageDays, amountsIn,
 } from '../../supabase/functions/_shared/ai-assistant.js';
 // The header's assistant (phase 12 T1, decision 8): the body checks, Claude's tools and request, reading a turn, the client
 // actions' cleaning and the data shaping with the member's rows — never a phone or an address.
@@ -51,8 +51,13 @@ test('readTurn: text, tool uses (ids kept for the results), a refusal, a cut-off
   assert.equal(readTurn({ stop_reason: 'max_tokens', content: [] }).stop, 'error');
   assert.equal(readTurn({ stop_reason: 'max_tokens', content: [{ type: 'text', text: 'نص' }] }).stop, 'end', 'a cut-off with text is still an answer');
   assert.equal(readTurn(null).stop, 'error');
+  // a data result travels inside the <data> block the system prompt marks as untrusted (security review: names and notes in our tables are not instructions)
   assert.deepEqual(toolResults([{ id: 'tu_1', content: { total: 3 } }, { id: 'tu_2', content: 'done', error: true }]),
-    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: '{"total":3}' }, { type: 'tool_result', tool_use_id: 'tu_2', content: 'done', is_error: true }] });
+    { role: 'user', content: [{ type: 'tool_result', tool_use_id: 'tu_1', content: '<data>\n{"total":3}\n</data>' }, { type: 'tool_result', tool_use_id: 'tu_2', content: 'done', is_error: true }] });
+  assert.match(assistantRequest(parseAssistant(body()).req, CTX).system[0].text, /<data>/);
+  // the amounts the member typed: Arabic digits and separators too; a propose_entry on another amount is refused by the server
+  assert.deepEqual(amountsIn('سجل سحب مرتبات ٥٬٠٠٠ وعربون 1,200.50 لأحمد'), [5000, 1200.5]);
+  assert.deepEqual(amountsIn('افتح الأوردرات'), []);
 });
 
 test('cleanAction: each client tool to what the page executes — unknown pages, bad sorts, non-positive amounts and unknown tools are null', () => {

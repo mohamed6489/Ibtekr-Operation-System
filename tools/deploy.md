@@ -979,6 +979,31 @@ select result, code, count(*) from public.cs_auto_runs group by 1, 2 order by 3 
 select has_table_privilege('authenticated', 'public.cs_auto_runs', 'insert');                                                          -- false
 ```
 
+#### 2.7.33 المساعد الحقيقي في الهيدر (المرحلة 12 T1، 8 نوفمبر)
+
+الخطة (قرارات 1 و8) `docs/superpowers/plans/2026-11-08-phase-12-followups.md`، والدفتر `.superpowers/sdd/2026-11-08-phase-12-followups/progress.md`.
+
+**أ) الكود:** `0059_ai_assistant.sql` (`ai_runs.action` بيقبل `assistant`، و`source` بيقبل `chat` / `filter`) + حالات جديدة في `supabase/tests/rls_ai.sql` ·
+`_shared/ai-assistant.js` (الصافي: الأدوات والطلب والتنضيف وتشكيل البيانات) · `ai-content` action **`assistant`** (أي عضو نشط بالـ JWT؛ حلقة أدوات
+على السيرفر: `get_data` بتقرا جداولنا **بعميل العضو نفسه** — الـ RLS و`has_perm` هما اللي بيحددوا اللي يشوفه، مش service_role؛ أدوات الشاشة
+بترجع `actions` للصفحة؛ لحد 5 قراءات في الرد؛ Claude بس) · `IBAI.assistant` · الكتلة 28 (المساعد على السيرفر، والأوامر الثابتة احتياطي لما الـ AI
+مش متظبط) · الـ mock والاختبارات. **مافيش سر جديد** — نفس `ANTHROPIC_API_KEY` (أو مفتاح Claude من صفحة الإعدادات) ونفس سقف المحتوى الشهري.
+
+**ب) على Supabase (المطوّر — بالترتيب):**
+1. `0059` (MCP `apply_migration` مرة واحدة؛ لو وقف = الـ SQL كله لصاحب المشروع في الـ SQL editor).
+2. workflow «RLS live» بـ `files = rls_ai`.
+3. «Deploy functions»: `ai-content`.
+4. الواجهة: push على `main`.
+
+**ج) صاحب المشروع:** زرار «AI» في الهيدر — اسأل («كام أوردر متأخر؟»، «مين أكتر مبتكر مبيعات الشهر ده؟») أو اطلب («افتح الحسابات»، «فلتر المتأخر
+بتاع Art Craft»، «سجل سحب مرتبات 5000» → كارت تأكيد). التليفونات والعناوين عمرها ما تطلع في الرد. الرسالة «الـ AI مش متظبط» = المفتاح ناقص.
+
+**التحقق:**
+```sql
+select created_at, source, label, status, cost_usd, output -> 'actions', output -> 'tools' from public.ai_runs where action = 'assistant' order by created_at desc limit 20;
+select action, new_value from public.activity_log where action like 'assistant.%' order by at desc limit 10;   -- أسماء أدوات بس
+```
+
 #### 2.7.31 صفحة الإعدادات — المفاتيح والمزوّدين والتنبيهات والفريق (المرحلة 11، 7 نوفمبر)
 
 الخطة (قرارات 1–32) `docs/superpowers/plans/2026-11-07-phase-11-settings.md`، والدفتر `.superpowers/sdd/2026-11-07-phase-11-settings/progress.md`.

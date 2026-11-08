@@ -34,8 +34,9 @@ const msg = (answer: unknown, extra: any = {}) => ({
 });
 const apiError = (status: number | null) => Object.assign(new Error('api'), status === null ? {} : { status });
 
-type Opts = { seed?: Record<string, any[]>; env?: Record<string, string>; replies?: unknown[]; monthCost?: number; startDown?: boolean; storage?: Record<string, Uint8Array>; fail?: (c: any) => any };
-function setup({ seed = {}, env = {}, replies = [], monthCost = 0, startDown = false, storage = {}, fail }: Opts = {}) {
+type Opts = { seed?: Record<string, any[]>; env?: Record<string, string>; replies?: unknown[]; monthCost?: number; startDown?: boolean; storage?: Record<string, Uint8Array>; fail?: (c: any) => any;
+  memberSeed?: Record<string, any[]>; memberRpc?: Record<string, (args: any) => unknown>; memberFail?: (c: any) => any }; // phase 12: what the member's own client sees (RLS already applied)
+function setup({ seed = {}, env = {}, replies = [], monthCost = 0, startDown = false, storage = {}, fail, memberSeed = {}, memberRpc = {}, memberFail }: Opts = {}) {
   // ai_run_start as 0024 defines it (rls_ai tests the SQL): the member's runs in the window, this month's cost (monthCost before
   // the test's rows, every row at its cost — pending ones at their reserve) + the reserve against the cap, else a pending row
   let db: any = null;
@@ -50,7 +51,7 @@ function setup({ seed = {}, env = {}, replies = [], monthCost = 0, startDown = f
   db = fakeDb(seed, { rpc: startDown ? {} : { ai_run_start: start }, storage, fail });
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'products.add' ? m.add ?? 'N' : key === 'products.edit' ? m.edit ?? 'N' : key === 'marketing.create' ? m.mkt ?? 'N' : key === 'marketing.view' ? m.mview ?? 'N' : 'N'), is_admin: () => m.admin ?? false } : {} });
+    return fakeDb(memberSeed, { fail: memberFail, rpc: m ? { has_perm: ({ key }: any) => (key === 'products.add' ? m.add ?? 'N' : key === 'products.edit' ? m.edit ?? 'N' : key === 'marketing.create' ? m.mkt ?? 'N' : key === 'marketing.view' ? m.mview ?? 'N' : 'N'), is_admin: () => m.admin ?? false, ...memberRpc } : {} });
   };
   // during: the ai_runs rows (status, cost) as each Claude call starts — the reservation is made before the call
   const asked: any[] = []; const slept: number[] = []; const during: any[] = []; const queue = [...replies];
@@ -399,4 +400,108 @@ Deno.test('marketing scenes: a video piece of the saved campaign → its scenes 
   const run = db.rows('ai_runs').at(-1); assertEquals([run.action, run.source, run.label], ['marketing', 'campaign', 'فيديو 1 · المشاهد']);
   assertEquals((await call(deps, { action: 'marketing', task: 'scenes', campaign_id: CMP, piece: 'P1' }, 'jwt-mkt')).res.status, 400);
   assertEquals((await call(deps, { action: 'marketing', task: 'scenes', campaign_id: CMP, piece: 'V1' }, 'jwt-add')).res.status, 401);
+});
+
+// ---------------------------------------------------------------- phase 12 T1: the header's assistant (decision 8)
+
+const toolUse = (uses: { id: string; name: string; input: unknown }[], text = '') => msg(text, { stop_reason: 'tool_use', content: [...(text ? [{ type: 'text', text }] : []), ...uses.map((u) => ({ type: 'tool_use', ...u }))] });
+const NOW_DAY = NOW.slice(0, 10);
+const MEMBER_SEED = {
+  profiles: [{ id: U.view, name: 'منى', role_id: 'cs', status: 'active' }], roles: [{ id: 'cs', name: 'خدمة العملاء', permissions: {} }],
+  orders_v: [
+    { id: 1, number: '177701', customer_name: 'منى سعيد', customer_phone: '0100****', customer_city: 'القاهرة', status: 'جاري التنفيذ', confirm: 'غير مؤكد', deposit: 0, total: 900, placed_at: '2026-10-11T10:00:00+02:00' }, // 14 days before NOW: late
+    { id: 2, number: '177702', customer_name: 'أحمد', customer_city: 'الجيزة', status: 'قيد الشحن', confirm: 'مؤكد بعربون', deposit: 200, total: 1500, placed_at: NOW_DAY + 'T08:00:00+02:00' },
+    { id: 3, number: '177703', customer_name: 'سارة', status: 'مكتمل', confirm: 'مؤكد بعربون', deposit: 100, total: 600, placed_at: '2026-10-20T10:00:00+02:00' }, // this month (NOW is 25 Oct): in the default period
+  ],
+  tickets: [{ id: 7, type: 'customer', title: 'تأخير', description: 'd', priority: 'high', assignee_role: 'اللوجستيك والشحن', status: 'open', order_number: '177701', created_by_name: 'x', created_by_role: 'y', created_at: '2026-10-21T10:00:00Z', last_update: '2026-10-22T10:00:00Z' }],
+  hr_tasks: [{ id: 1, member_id: U.view, title: 'تقرير اليوم', status: 'لسه', day: NOW_DAY }, { id: 2, member_id: U.admin, title: 'x', status: 'لسه', day: NOW_DAY }],
+  cs_conversations: [{ id: '0c000000-0000-4000-8000-000000000001', seg: 'customers', platform: 'whatsapp', channel: 'wa1', status: 'جديدة' }, { id: '0c000000-0000-4000-8000-000000000002', seg: 'customers', platform: 'whatsapp', channel: 'wa1', status: 'اتحلت' }],
+  acc_expenses: [{ id: 1, on_date: NOW_DAY, direction: 'withdraw', category: 'الإعلانات', amount: 1200 }],
+  vendors: [{ id: '0a000000-0000-4000-8000-000000000001', name: 'Art Craft', status: 'active' }],
+};
+const ASSIST = (text: string, extra: any = {}) => ({ action: 'assistant', turns: [{ role: 'user', text }], context: { page: 'dashboard' }, ...extra });
+
+Deno.test('assistant: any active member; the tool loop — get_data runs with the member\'s client (RLS: a refused table is forbidden, never the service role), the client tools come back as actions, the turn\'s calls summed into one ai_runs row', async () => {
+  const salesRows = [{ vendor_id: null, grp: 'مكتمل', orders: 1, sales: 600, share: null, is_total: true }];
+  const { deps, asked, db } = setup({
+    memberSeed: MEMBER_SEED, memberRpc: { accounts_sales: () => salesRows },
+    memberFail: (c: any) => (c.table === 'acc_expenses' ? { code: '42501', message: 'permission denied' } : null), // the member has no accounts.view
+    replies: [
+      toolUse([{ id: 'tu_1', name: 'get_data', input: { kind: 'summary' } }], 'ثواني'),
+      toolUse([{ id: 'tu_2', name: 'get_data', input: { kind: 'orders', delivery: 'late' } }, { id: 'tu_3', name: 'filter_orders', input: { deliv: 'late', clear: true } }, { id: 'tu_4', name: 'navigate', input: { page: 'nowhere' } }]),
+      msg('فيه أوردر واحد متأخر (177701 — منى سعيد، 14 يوم). فتحتلك الأوردرات عليه.', { stop_reason: 'end_turn', content: [{ type: 'text', text: 'فيه أوردر واحد متأخر (177701 — منى سعيد، 14 يوم). فتحتلك الأوردرات عليه.' }] }),
+    ],
+  });
+  assertEquals((await call(deps, ASSIST('x'), null)).res.status, 401, 'no token');
+  assertEquals((await call(deps, { action: 'assistant', turns: [] }, 'jwt-view')).body.field, 'turns');
+  const r = await call(deps, ASSIST('كام أوردر متأخر؟ افتحهم'), 'jwt-view');
+  assertEquals(r.res.status, 200, JSON.stringify(r.body));
+  assertEquals(r.body.result, 'ok'); assert(r.body.text.startsWith('فيه أوردر واحد متأخر'));
+  assertEquals(r.body.actions, [{ name: 'filter_orders', input: { clear: true, deliv: 'late' } }], 'the bad navigate is dropped');
+  assertEquals(r.body.tools, ['summary', 'orders']);
+  assertEquals(asked.length, 3);
+  // the first request: the cached base, the screen block (the member and the page), the six tools, the question
+  assertEquals(asked[0].tools.map((t: any) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'propose_entry']);
+  assert(asked[0].system[1].text.includes('المستخدم: منى (خدمة العملاء)') && asked[0].system[1].text.includes('الصفحة المفتوحة: لوحة التحكم'), asked[0].system[1].text);
+  assertEquals(asked[0].messages, [{ role: 'user', content: [{ type: 'text', text: 'كام أوردر متأخر؟ افتحهم' }] }]);
+  // the second request carries the assistant's tool_use message and the summary as the tool result
+  assertEquals(asked[1].messages.length, 3); assertEquals(asked[1].messages[1].role, 'assistant');
+  const summary = JSON.parse(asked[1].messages[2].content[0].content);
+  assertEquals(summary.orders.open, { 'جاري التنفيذ': 1, 'قيد الشحن': 1 }); assertEquals(summary.orders.delivery, { late: 1, ok: 1 });
+  assertEquals(summary.tickets, { open: 1, byStatus: { open: 1 } }); assertEquals(summary.conversations, { open: 1 }); assertEquals(summary.myTasks, { open: 1, byStatus: { 'لسه': 1 } });
+  assertEquals(summary.expenses, { forbidden: true }, 'RLS refused acc_expenses'); assertEquals(summary.sales, { 'مكتمل': { orders: 1, sales: 600, ibtekrShare: null } });
+  assertFalse(JSON.stringify(summary).includes('0100'), 'never a phone');
+  // the third: the late orders + the two client tools answered (one invalid)
+  const res3 = asked[2].messages.at(-1).content;
+  assertEquals(res3.map((x: any) => [x.tool_use_id, x.is_error ?? false]), [['tu_2', false], ['tu_3', false], ['tu_4', true]]);
+  const late = JSON.parse(res3[0].content); assertEquals(late.rows.map((o: any) => [o.number, o.delivery, o.ageDays]), [['177701', 'late', 13]]); // whole days since the order's hour
+  assertFalse('customer_phone' in late.rows[0]);
+  // one run row: action assistant, source chat, the question as label, the three calls' cost summed (3 × 3000 in + 2000 out on Opus 5.5)
+  const runs = db.rows('ai_runs'); assertEquals(runs.length, 1);
+  assertEquals([runs[0].action, runs[0].source, runs[0].label, runs[0].status, runs[0].input_tokens, runs[0].output_tokens, runs[0].cost_usd], ['assistant', 'chat', 'كام أوردر متأخر؟ افتحهم', 'ok', 9000, 6000, 0.156]);
+  assertEquals(runs[0].output.actions, r.body.actions); assertEquals(r.body.cost_usd, 0.156);
+  // the member's client did the reads — the service client never touched the data tables
+  assertFalse(db.calls.some((c: any) => ['orders_v', 'tickets', 'hr_tasks', 'acc_expenses', 'cs_conversations'].includes(c.table)));
+});
+
+Deno.test('assistant: propose_entry is an action with the confirm wording (nothing recorded); the data reads stop at MAX_TOOL_CALLS; a stopped member is 401; the filter mode forces set_filter and answers in one call', async () => {
+  const { deps, asked, db } = setup({
+    memberSeed: MEMBER_SEED,
+    replies: [
+      toolUse([{ id: 'tu_1', name: 'propose_entry', input: { kind: 'expense', direction: 'withdraw', amount: 5000, category: 'المرتبات' } }]),
+      msg('عرضتلك كارت التأكيد لسحب 5,000 ج.م مرتبات — أكّد عشان تتسجل.', { stop_reason: 'end_turn', content: [{ type: 'text', text: 'عرضتلك كارت التأكيد لسحب 5,000 ج.م مرتبات — أكّد عشان تتسجل.' }] }),
+    ],
+  });
+  const r = await call(deps, ASSIST('سجل سحب مرتبات 5000'), 'jwt-view');
+  assertEquals(r.body.actions, [{ name: 'propose_entry', input: { kind: 'expense', direction: 'withdraw', amount: 5000, category: 'المرتبات' } }]);
+  assert(asked[1].messages.at(-1).content[0].content.includes('not recorded yet'));
+  assertEquals(db.rows('ai_runs').at(-1).output.tools, []);
+  // MAX_TOOL_CALLS: the sixth read is refused with an error result, the loop ends on the next text
+  const many = Array.from({ length: 6 }, (_, i) => toolUse([{ id: 'r' + i, name: 'get_data', input: { kind: 'tickets' } }]));
+  const s2 = setup({ memberSeed: MEMBER_SEED, replies: [...many, msg('خلاص', { stop_reason: 'end_turn', content: [{ type: 'text', text: 'خلاص' }] })] });
+  const r2 = await call(s2.deps, ASSIST('لف'), 'jwt-view');
+  assertEquals([r2.res.status, r2.body.text, r2.body.tools], [200, 'خلاص', ['tickets']]);
+  assertEquals(s2.asked.length, 7);
+  assert(s2.asked[6].messages.at(-1).content[0].is_error === true && s2.asked[6].messages.at(-1).content[0].content.startsWith('limit'));
+  // a stopped member
+  const s3 = setup({ memberSeed: { ...MEMBER_SEED, profiles: [{ id: U.view, name: 'منى', role_id: 'cs', status: 'inactive' }] }, replies: [] });
+  assertEquals((await call(s3.deps, ASSIST('x'), 'jwt-view')).res.status, 401);
+  assertEquals(s3.db.rows('ai_runs').length, 0, 'no run reserved before the profile check');
+  // the filter mode
+  const s4 = setup({ memberSeed: MEMBER_SEED, replies: [toolUse([{ id: 'f1', name: 'set_filter', input: { op: 'and', items: [{ f: 'deliv', op: 'eq', v: 'متأخر' }, { f: 'vendor', op: 'eq', v: 'Art Craft' }] } }])] });
+  const r4 = await call(s4.deps, { action: 'assistant', mode: 'filter', turns: [{ role: 'user', text: 'المتأخر بتاع Art Craft' }], context: { vendors: ['Art Craft'] } }, 'jwt-view');
+  assertEquals(r4.body.actions, [{ name: 'set_filter', input: { op: 'and', items: [{ f: 'deliv', op: 'eq', v: 'متأخر' }, { f: 'vendor', op: 'eq', v: 'Art Craft' }] } }]);
+  assertEquals(s4.asked.length, 1); assertEquals(s4.asked[0].tool_choice, { type: 'tool', name: 'set_filter' }); assertEquals(s4.asked[0].tools.map((t: any) => t.name), ['set_filter']);
+  assertEquals(s4.db.rows('ai_runs').at(-1).source, 'filter');
+});
+
+Deno.test('assistant: no key → 503 with an error row; a refusal → 200 refused; Claude busy twice → 429; the monthly cap → 402 before any call', async () => {
+  const s1 = setup({ memberSeed: MEMBER_SEED, env: { ANTHROPIC_API_KEY: '' }, replies: [] });
+  assertEquals((await call(s1.deps, ASSIST('x'), 'jwt-view')).res.status, 503); assertEquals(s1.db.rows('ai_runs').at(-1).error, 'not_configured');
+  const s2 = setup({ memberSeed: MEMBER_SEED, replies: [msg('', { stop_reason: 'refusal', content: [] })] });
+  const r2 = await call(s2.deps, ASSIST('x'), 'jwt-view'); assertEquals([r2.res.status, r2.body.result], [200, 'refused']);
+  const s3 = setup({ memberSeed: MEMBER_SEED, replies: [apiError(529), apiError(529)] });
+  assertEquals((await call(s3.deps, ASSIST('x'), 'jwt-view')).res.status, 429);
+  const s4 = setup({ memberSeed: MEMBER_SEED, env: { AI_MONTHLY_LIMIT_USD: '10' }, monthCost: 9.8, replies: [] });
+  assertEquals((await call(s4.deps, ASSIST('x'), 'jwt-view')).res.status, 402); assertEquals(s4.asked.length, 0);
 });

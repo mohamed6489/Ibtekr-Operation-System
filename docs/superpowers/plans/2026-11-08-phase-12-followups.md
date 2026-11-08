@@ -21,8 +21,8 @@
 8. **المساعد (قرار 1):** `ai-content` action **`assistant`** `{ turns, context }` لأي عضو بحساب (البيانات بتتقري بـ **JWT العضو** فالـ RLS هي
    اللي بتحدد اللي يشوفه). حلقة أدوات على السيرفر (لحد 5 نداءات): أداة سيرفر `get_data { kind: summary | orders | vendors | customers | tickets |
    tasks, … }` بتتنفذ على السيرفر، وأدوات العميل (`navigate` / `filter_orders` / `set_period` / `sort_vendors` / `propose_entry`) بترجع للمتصفح
-   كـ `actions` وبتتنفذ بنفس دوال الـ prototype (`aiTools()` في الكتلة 28 — الكتابة بكارت تأكيد ثم `IBAccounts`). الرد `{ text, actions, cost_usd,
-   run_id }`؛ `ai_runs.action = 'assistant'` (`0059`)، على سقف المحتوى. مفيش تليفونات في الرد (الـ view بتطمسها أصلًا). الجزء الصافي
+   كـ `actions` وبتتنفذ بنفس دوال الـ prototype (`aiTools()` في الكتلة 28 — الكتابة بكارت تأكيد ثم `IBAccounts`). الرد `{ text, actions, tools, cost_usd,
+   run_id }`؛ `ai_runs.action = 'assistant'` بـ `source` `chat` / `filter` (`0059`)، على سقف المحتوى؛ العضو لازم يكون نشط (بروفايله بيتقرا بعميله). مفيش تليفونات في الرد (الـ view بتطمسها أصلًا). الجزء الصافي
    `_shared/ai-assistant.js`. وضع الأوامر الثابتة (الكتلة 27) بيفضل احتياطي لو الـ AI مش متظبط. `window.claude` (sample) اتشال.
 9. **التكرار (قرار 2):** woo-sync action `product_duplicate { id }` (`products.add = F`، `WOO_PUSH_ENABLED`): GET المنتج وترجمته وتركيباته من
    الموقع → POST منتج مسودة بنفس الحقول المسموحة (`woo-products.js`) والصور بالـ `src`، SKU جديد من `sku_serial_take` بكود البراند واللون،
@@ -36,16 +36,16 @@
     بيرجّع الـ uids الموجودين → «الفريق دلوقتي» (25)، توزيع المحادثات على الأونلاين (`IBCS.agents` + الـ adapter)، وشارة في الجرس.
 13. **السلة (قرار 7):** snippet يسجّل route `ibtekr/v1/carts` (GET، يقبل مفاتيح WooCommerce — `permission_callback` بيتحقق من `wc_api_hash`
     زي WC) بيرجّع من جدول `wp_cartflows_ca_cart_abandonment` الصفوف `normal` آخر 48 ساعة: الإيميل/الرقم/الاسم/الإجمالي/وقت التحديث/الـ checkout
-    URL. woo-sync جزء `carts` (cron كل 10 دقايق) → جدول `cs_carts` (`0059`، الرقم مطبّع، `service_role` يكتب، `cs.view` يقرا بطمس الرقم) →
+    URL. woo-sync جزء `carts` (cron كل 10 دقايق) → جدول `cs_carts` (migration لوحدها، الرقم مطبّع، `service_role` يكتب، `cs.view` يقرا بطمس الرقم) →
     `cs-auto` حدث `cart` بيقرا منه كمان (entity `cart:c<id>`).
 
 ## المهام (بالتوالي)
 
-- [ ] T1 المساعد: `0059` + `_shared/ai-assistant.js` + `ai-content` `assistant` + `IBAI.assistant` + الكتلة 28 + mock + اختبارات + lock.
+- [x] T1 المساعد: `0059` + `_shared/ai-assistant.js` + `ai-content` `assistant` + `IBAI.assistant` + الكتلة 28 + mock + اختبارات + lock. (النشر `tools/deploy.md` §2.7.33)
 - [ ] T2 تكرار المنتج: woo-sync `product_duplicate` + `IBProducts.duplicate` + الصفحة + اختبارات.
 - [ ] T3 القوائم: `status_rename` + صف `lists` + الكتلة 17 (+ الصفحات اللي بتقرا الأسباب) + اختبارات.
 - [ ] T4 التصدير: `settings-admin` `export` + الكتلة 17 + اختبارات.
-- [ ] T5 الحضور: `0059` سياسة `presence` + `IBDirectory.online` + 25/20 + اختبارات.
+- [ ] T5 الحضور: migration لوحدها (`0060`) سياسة `presence` + `IBDirectory.online` + 25/20 + اختبارات.
 - [ ] T6 التسويق: النصوص والتعليقات.
 - [ ] T7 السلة: الـ snippet (في `tools/`) + woo-sync `carts` + `cs_carts` + `cs-auto` + تعليمات صاحب المشروع.
 - [ ] T8 التوثيق + الحي + `main` + التقرير.

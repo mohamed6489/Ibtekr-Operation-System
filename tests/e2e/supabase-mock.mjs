@@ -1942,6 +1942,25 @@ export async function installSupabaseMock(page, opts = {}) {
     }
     if (method === 'POST' && path === '/functions/v1/ai-content') {
       const u = tokenUser(); const b = body(); const action = typeof b.action === 'string' ? b.action : '';
+      // phase 12 T1: the header's assistant — any active member; the answer is mock.aiAnswer('assistant', req) → { text, actions } (else a
+      // stock line with no action); mock.aiFail applies; one ai_runs row (action assistant, source = the mode)
+      if (action === 'assistant') {
+        if (!u || u.status !== 'active') return json(401, { error: 'unauthorized' });
+        const turns = Array.isArray(b.turns) ? b.turns : []; const last = turns[turns.length - 1];
+        if (!turns.length || !last || last.role !== 'user' || typeof last.text !== 'string' || !last.text.trim()) return json(400, { error: 'bad_request', field: 'turns' });
+        const mode = b.mode === 'filter' ? 'filter' : 'chat';
+        const req = { mode, turns, question: last.text.trim(), context: b.context && typeof b.context === 'object' ? b.context : {} };
+        mock.aiCalls.push({ action, by: u.email, ...b });
+        const base = { id: mock.aiRuns.length + 1, created_at: new Date().toISOString(), created_by: u.id, action: 'assistant', source: mode, label: req.question.slice(0, 200), model: 'claude-opus-5-5', cost_usd: 0, output: null };
+        const fail = mock.aiFail;
+        if (fail === 'not_configured' || fail === 'busy' || fail === 'ai_error') { mock.aiRuns.push({ ...base, status: 'error', error: fail }); return json(fail === 'not_configured' ? 503 : fail === 'busy' ? 429 : 502, { error: fail }); }
+        if (fail === 'ai_cap') { mock.aiRuns.push({ ...base, status: 'cap', error: 'ai_cap' }); return json(402, { error: 'ai_cap' }); }
+        const a = typeof mock.aiAnswer === 'function' ? mock.aiAnswer('assistant', req) : null;
+        const out = { text: a && typeof a.text === 'string' ? a.text : (mode === 'filter' ? '' : 'تمام.'), actions: a && Array.isArray(a.actions) ? a.actions : [], tools: a && Array.isArray(a.tools) ? a.tools : [] };
+        const run = { ...base, status: 'ok', error: null, input_tokens: 3000, output_tokens: 400, cost_usd: 0.02, output: out };
+        mock.aiRuns.push(run);
+        return json(200, { result: 'ok', ...out, model: 'claude-opus-5-5', cost_usd: 0.02, run_id: run.id });
+      }
       const may = u && (action === 'write' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' || hasPerm(u, 'products.edit') === 'F' : action === 'studio' || action === 'prompts' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' : isAdmin(u));
       if (!may) return json(401, { error: 'unauthorized' });
       if (!['write', 'studio', 'prompts'].includes(action)) return json(400, { error: 'unknown_action' });

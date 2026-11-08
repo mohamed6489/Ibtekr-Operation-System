@@ -84,6 +84,9 @@ const COLUMNS: Record<string, string[]> = {
   alert_reads: ['alert_id', 'user_id', 'read_at'],
   alert_state: ['source_key', 'entity_id', 'target', 'first_at', 'last_sent_at', 'sent_count', 'escalated_at', 'resolved_at', 'channel_log'],
   // the tables the notify engine reads (0045 tickets, 0046 HR, 0044 inventory, 0019 accounts, 0056 company_docs)
+  // phase 12 T1 (the assistant reads with the member's client): orders_v (0033 — the columns a member reads) and hr_tasks (0048)
+  orders_v: ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'payment_method', 'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note', 'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'synced_at', 'created_at', 'updated_at', 'customer_state'],
+  hr_tasks: ['id', 'member_id', 'title', 'status', 'day', 'reason', 'reviewer_id', 'until', 'review_note', 'done_at', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deleted_at', 'deleted_by'],
   tickets: ['id', 'type', 'title', 'description', 'priority', 'assignee_role', 'order_number', 'order_id', 'customer', 'cs_customer_id', 'cs_conversation_id', 'vendor_id', 'vendor', 'reason', 'follow_up', 'attachments', 'status', 'created_by', 'created_by_name', 'created_by_role', 'created_at', 'last_update', 'reopen_count', 'resolution_outcome'],
   hr_requests: ['id', 'member_id', 'type', 'from_day', 'to_day', 'at_time', 'hours', 'amount', 'months', 'note', 'doc_path', 'status', 'decided_by', 'decided_at', 'reason', 'created_by', 'created_at'],
   hr_overtime: ['id', 'member_id', 'day', 'start_at', 'end_at', 'minutes', 'kind', 'note', 'status', 'paid_minutes', 'decided_by', 'decided_at', 'reason', 'created_at', 'pay_month'],
@@ -171,7 +174,7 @@ const CHECK: Record<string, Record<string, unknown[]>> = {
   vendors: { status: ['active', 'leave', 'inactive'] },
   woo_webhook_events: { status: ['ok', 'ignored', 'duplicate', 'error'] },
   woo_sync_log: { kind: ['webhook', 'sync', 'push', 'manual', 'cron'], direction: [null, 'in', 'out'], result: ['ok', 'error', 'conflict', 'skipped'] },
-  ai_runs: { action: ['write', 'studio', 'image', 'marketing'], source: [null, 'data', 'image', 'product', 'studio', 'tool', 'edit', 'import', 'campaign', 'template', 'post', 'buyer', 'video'], status: ['pending', 'ok', 'refused', 'error', 'cap'] }, // image: 0025, import: 0026 (phase 5.4), buyer: 0053, video: 0054
+  ai_runs: { action: ['write', 'studio', 'image', 'marketing', 'assistant'], source: [null, 'data', 'image', 'product', 'studio', 'tool', 'edit', 'import', 'campaign', 'template', 'post', 'buyer', 'video', 'chat', 'filter'], status: ['pending', 'ok', 'refused', 'error', 'cap'] }, // image: 0025, import: 0026 (phase 5.4), buyer: 0053, video: 0054, assistant / chat / filter: 0059 (phase 12)
   image_imports: { source: ['magnific'], status: ['pending', 'ok', 'partial', 'error'], target: [null, 'tool', 'studio', 'batch'], batch_type: [null, 'Simple', 'Variable'] },
   image_shares: { status: ['pending', 'sent', 'error'] },
   mkt_posts: { src: ['system', 'platform'], how: ['download', 'publish'], status: ['مجدول', 'اتنشر', 'فشل', 'اتحذف'], platform: ['انستجرام', 'فيسبوك', 'تيك توك'], kind: ['بوست', 'كاروسيل', 'ريل', 'ستوري'] },

@@ -39,6 +39,12 @@ do $$ declare m timestamptz := date_trunc('month', now() at time zone 'Africa/Ca
   insert into public.ai_runs (created_at, created_by, action, source, model, cost_usd, status) values
     (m + interval '30 minutes', '00000000-0000-4000-8000-000000000081', 'write', 'image', 'claude-opus-5-5', 0.010, 'ok'),
     (m - interval '1 hour', '00000000-0000-4000-8000-000000000081', 'write', 'data', 'claude-opus-5-5', 1.000, 'ok');
+  -- 0059 (phase 12): the header's assistant rows (action assistant, source chat / filter) — the service role writes them like any run
+  insert into public.ai_runs (created_by, action, source, label, model, cost_usd, status, output) values
+    ('00000000-0000-4000-8000-000000000081', 'assistant', 'chat', 'كام أوردر متأخر؟', 'claude-opus-5-5', 0.156, 'ok', '{"text":"فيه 3","actions":[{"name":"navigate","input":{"page":"orders"}}],"tools":["orders"]}'),
+    ('00000000-0000-4000-8000-000000000081', 'assistant', 'filter', 'المتأخر', 'claude-opus-5-5', 0.02, 'ok', '{"text":"","actions":[],"tools":[]}');
+  begin insert into public.ai_runs (created_by, action, status) values ('00000000-0000-4000-8000-000000000081', 'chat', 'ok'); raise exception 'case a bad action failed';
+  exception when check_violation then null; end;
   insert into public.ai_runs (created_by, action, status, error) values
     ('00000000-0000-4000-8000-000000000081', 'studio', 'error', 'not_configured');
   begin
@@ -65,10 +71,10 @@ set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000081","role":"authenticated"}';
 do $$ declare n int; c numeric; begin
   select count(*) into n from public.ai_runs;
-  if n <> 4 then raise exception 'case a member reads their own runs only failed (% rows)', n; end if;
+  if n <> 6 then raise exception 'case a member reads their own runs only failed (% rows)', n; end if; -- 4 content runs + the 2 assistant runs (0059)
   if exists (select 1 from public.ai_runs where label = 'Desk Lamp') then raise exception 'case a member does not read another''s run failed'; end if;
   c := public.ai_month_cost();
-  if c <> 0.062 then raise exception 'case ai_month_cost sums this Cairo month of their own rows failed (%)', c; end if;
+  if c <> 0.238 then raise exception 'case ai_month_cost sums this Cairo month of their own rows failed (%)', c; end if; -- 0.062 content + 0.176 assistant (0059)
   begin
     insert into public.ai_runs (created_by, action, status) values ('00000000-0000-4000-8000-000000000081', 'write', 'ok');
     raise exception 'case a member may not add a run failed';
@@ -104,7 +110,7 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000083","role":"authenticated"}';
 do $$ begin
-  if (select count(*) from public.ai_runs where created_by in ('00000000-0000-4000-8000-000000000081', '00000000-0000-4000-8000-000000000082')) <> 5 then
+  if (select count(*) from public.ai_runs where created_by in ('00000000-0000-4000-8000-000000000081', '00000000-0000-4000-8000-000000000082')) <> 7 then -- + the 2 assistant runs (0059)
     raise exception 'case the admin reads every run failed';
   end if;
   if public.ai_month_cost() < 0.102 then raise exception 'case the admin''s month cost covers every member failed'; end if;

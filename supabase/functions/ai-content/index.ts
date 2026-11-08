@@ -13,6 +13,13 @@
 //            general idea, an image's idea, a caption, a headline, a subheadline, a badge, the media's notes); describe: { text } (a
 //            design template's description from its image). Egyptian Arabic; ai_runs action 'marketing' (source campaign /
 //            post / template) on the same monthly cap — no Magnific credits.
+//   'assistant' (phase 12 T1, decision 8; any signed-in member) { mode: chat | filter, turns, context } → { result: 'ok', text,
+//            actions, tools, model, cost_usd, run_id }: the header's assistant. Claude runs a tool loop on the server: `get_data`
+//            reads our tables with the member's own JWT client (RLS and has_perm decide what they see — never the service role),
+//            the client tools (navigate / filter_orders / set_period / sort_vendors / propose_entry, set_filter in the filter
+//            mode) come back as `actions` for the page to execute with its own functions (a money entry is only a confirm card
+//            there). At most MAX_TOOL_CALLS data reads a turn; the turn's calls are summed into one ai_runs row (action
+//            'assistant', source chat / filter, label = the question). Claude only (tool use), the «buyer» text tool's model.
 // All only suggest: nothing is written to the site, the batch or the campaign (the page saves through product_save / IBStudio.save /
 // IBMarketing.save).
 // A request declined by the model's safety classifiers runs again on Anthropic's recommended model in the same call
@@ -33,6 +40,7 @@ import { buyerRequest, campaignTarget, cleanBuyer, cleanMarketing, marketingRequ
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
 import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
+import { MAX_TOOL_CALLS, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, ticketsData, toolResults, vendorsData } from '../_shared/ai-assistant.js';
 import { completeText } from './providers/text.ts';
 import { cairoParts } from '../_shared/mkt-publish.js';
 
@@ -47,7 +55,7 @@ export type Deps = {
   text?: (provider: string, params: Json) => Promise<Json>; // phase 11: OpenAI / Gemini (the Claude dep stays the Claude path)
 };
 
-const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer'];
+const ACTIONS = ['write', 'studio', 'prompts', 'marketing', 'buyer', 'assistant'];
 const STUDIO_BUCKET = 'studio';
 const THROTTLE = 60; // calls of one member in THROTTLE_MINUTES (the studio fills a batch one item at a time)
 const THROTTLE_MINUTES = 10;
@@ -70,15 +78,17 @@ async function configOf(deps: Deps, action = 'write'): Promise<Cfg> {
   const ai = rows.find((r) => r.section === 'ai')?.data; const rules = rows.find((r) => r.section === 'ai_rules')?.data;
   const base = aiSettings(isObj(ai) ? ai : null, deps.env);
   const pick = textPick(isObj(ai) ? ai : null, (TEXT_TOOL_OF as Record<string, string>)[action] ?? 'products');
-  const style = action === 'buyer' || action === 'prompts' ? '' : houseStyle(isObj(rules) ? rules : null, action === 'marketing' || action === 'scenes' ? 'post' : 'products');
+  const style = action === 'buyer' || action === 'prompts' || action === 'assistant' ? '' : houseStyle(isObj(rules) ? rules : null, action === 'marketing' || action === 'scenes' ? 'post' : 'products');
+  if (action === 'assistant') return { ...base, provider: 'claude', style }; // the tool loop is Claude's (the other text providers answer text only)
   return { ...base, provider: pick.provider, model: pick.provider === 'claude' ? base.model : pick.model, style };
 }
 const modelId = (v: unknown) => (typeof v === 'string' ? v.toLowerCase().replace(/[^a-z0-9.-]/g, '').slice(0, 60) : '') || null;
 
 // ---------------------------------------------------------------- auth
 
+const jwtOf = (req: Request) => /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? '';
 async function authorize(req: Request, deps: Deps, action: string): Promise<string | null> {
-  const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
+  const jwt = jwtOf(req);
   if (!jwt || !deps.userDb || !deps.userId) return null;
   const member = deps.userDb(jwt);
   const perm = async (key: string, any = false) => { const { data, error } = await member.rpc('has_perm', { key }); return !error && (data === 'F' || (any && data === 'P')); };
@@ -87,6 +97,7 @@ async function authorize(req: Request, deps: Deps, action: string): Promise<stri
     : action === 'studio' || action === 'prompts' ? (await admin()) || (await perm('products.add'))
     : action === 'marketing' ? (await admin()) || (await perm('marketing.create'))
     : action === 'buyer' ? (await admin()) || (await perm('marketing.view', true))
+    : action === 'assistant' ? true // any signed-in member: the data they read is theirs by RLS, the actions run on their screen
     : await admin();
   return ok ? await deps.userId(jwt) : null;
 }
@@ -322,6 +333,98 @@ async function buyer(deps: Deps, uid: string, args: Json) {
   return await runAi(deps, base, cfg, buyerRequest(parsed.req, { model: cfg.model, effort: cfg.effort, data: { today, rules, campaigns, suggestions: Array.isArray(sugg) ? sugg : [] } }), cleanBuyer);
 }
 
+// ---------------------------------------------------------------- the header's assistant (phase 12 T1, decision 8)
+
+type DQ = ReturnType<typeof dataQuery> & { kind: string; q: string; status: string; from: string; to: string; limit: number; all: boolean };
+const ORDER_COLS = 'id, number, customer_name, customer_city, status, confirm, deposit, total, placed_at';
+const FORBIDDEN = { forbidden: true };
+// One get_data read with the member's client: a refused table or RPC (RLS, has_perm) is { forbidden: true } for the model, never a throw.
+async function readData(member: Db, uid: string, dq: DQ, today: string): Promise<Json> {
+  const rows = async (q: Promise<{ data: unknown; error: unknown }>) => { const { data, error } = await q; return error ? null : (Array.isArray(data) ? data : []); };
+  const orders = async () => { const r = await rows(member.from('orders_v').select(ORDER_COLS).gte('placed_at', dq.from + 'T00:00:00+02:00').order('placed_at', { ascending: false }).limit(2000)); return r ? ordersData(r, dq, today) : FORBIDDEN; };
+  const tickets = async () => { const r = await rows(member.from('tickets').select('id, type, title, priority, assignee_role, status, order_number, vendor, customer, reason, follow_up, created_at, last_update').order('last_update', { ascending: false }).limit(500)); return r ? ticketsData(r, dq) : FORBIDDEN; };
+  const tasks = async () => { const r = await rows(member.from('hr_tasks').select('id, member_id, title, status, day, until, deleted_at').is('deleted_at', null).limit(500)); return r ? tasksData(r, dq, uid) : FORBIDDEN; };
+  const expenses = async () => { const r = await rows(member.from('acc_expenses').select('id, on_date, direction, category, beneficiary, amount, sub_name, voided_at').is('voided_at', null).gte('on_date', dq.from).limit(2000)); return r ? expensesData(r, dq) : FORBIDDEN; };
+  const sales = async () => {
+    const r = await rows(member.rpc('accounts_sales', { p_from: dq.from, p_to: dq.to })); if (!r) return FORBIDDEN;
+    const ids = [...new Set(r.map((x: Json) => x.vendor_id).filter(Boolean))].slice(0, 200);
+    const vs = ids.length ? await rows(member.from('vendors').select('id, name').in('id', ids)) : [];
+    return salesData(r, Object.fromEntries((vs ?? []).map((v: Json) => [v.id, v.name])), dq);
+  };
+  switch (dq.kind) {
+    case 'orders': return await orders();
+    case 'vendors': { const r = await rows(member.from('vendors').select('id, name, status, category, lead_days, joined_at').limit(1000)); return r ? vendorsData(r, dq) : FORBIDDEN; }
+    case 'customers': { const r = await rows(member.rpc('cs_customers_list')); return r ? customersData(r, dq) : FORBIDDEN; }
+    case 'tickets': return await tickets();
+    case 'tasks': return await tasks();
+    case 'expenses': return await expenses();
+    case 'sales': return await sales();
+    default: {
+      const conv = await rows(member.from('cs_conversations').select('id, status').neq('status', 'اتحلت').limit(2000));
+      const [o, t, k, e, s] = await Promise.all([orders(), tickets(), tasks(), expenses(), sales()]);
+      return summaryData({ orders: o, tickets: t, tasks: k, expenses: e, sales: s, conversations: conv ? { open: conv.length } : FORBIDDEN }, dq);
+    }
+  }
+}
+
+async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
+  const parsed = parseAssistant(args);
+  if ('error' in parsed) return json(400, parsed);
+  const req = parsed.req;
+  if (!deps.userDb) return json(401, { error: 'unauthorized' });
+  const member = deps.userDb(jwt);
+  const today = cairoParts(Date.parse(deps.now())).day;
+  const { data: me } = await member.from('profiles').select('name, role_id, status').eq('id', uid).maybeSingle();
+  if (!isObj(me) || me.status !== 'active') return json(401, { error: 'unauthorized' }); // a stopped member (or one 2FA still gates) sees no profile
+  const actor = String(me.name ?? ''); const roleRow = me.role_id ? (await member.from('roles').select('name').eq('id', me.role_id).maybeSingle()).data : null;
+  const role = isObj(roleRow) ? String(roleRow.name ?? '') : '';
+  const cfg = await configOf(deps, 'assistant');
+  const base = { created_by: uid, action: 'assistant', source: req.mode, label: line(req.question, 200) };
+  const run = await startRun(deps, { ...base, model: cfg.model }, cfg.cap);
+  if (run.result === 'busy') return json(429, { error: 'busy' });
+  if (run.result === 'cap') return json(402, { error: 'ai_cap' });
+  if (run.result !== 'ok') return json(502, { error: 'ai_error' });
+  if (!deps.env.ANTHROPIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return json(503, { error: 'not_configured', provider: 'claude' }); }
+  const params = assistantRequest(req, { model: cfg.model, effort: cfg.effort, today, actor, role });
+  const spent = { model: cfg.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 };
+  const actions: Json[] = []; const tools: string[] = []; let text = ''; let reads = 0;
+  for (let step = 0; step <= MAX_TOOL_CALLS + 1; step++) {
+    const asked = await ask(deps, params, 'claude');
+    if ('error' in asked) {
+      await finishRun(deps, run.id, { ...spent, status: 'error', error: asked.error, cost_usd: spent.cost_usd + (asked.status === null ? RESERVE_USD : 0) });
+      return json(asked.error === 'not_configured' ? 503 : asked.error === 'busy' ? 429 : 502, { error: asked.error });
+    }
+    const msg = asked.msg; const u = usageOf(msg.usage);
+    spent.model = modelId(msg.model) ?? cfg.model; spent.input_tokens += u.input; spent.output_tokens += u.output; spent.cache_read_tokens += u.cacheRead; spent.cache_write_tokens += u.cacheWrite;
+    spent.cost_usd = Math.round((spent.cost_usd + costOf(spent.model, msg.usage)) * 1e6) / 1e6;
+    const turn = readTurn(msg);
+    if (turn.stop === 'refused') { await finishRun(deps, run.id, { ...spent, status: 'refused', error: 'refused' }); return json(200, { result: 'refused', model: spent.model, cost_usd: spent.cost_usd }); }
+    if (turn.stop === 'error') { await finishRun(deps, run.id, { ...spent, status: 'error', error: 'ai_error' }); return json(502, { error: 'ai_error' }); }
+    if (turn.text) text = turn.text;
+    if (turn.stop === 'end') break;
+    const results: Json[] = [];
+    for (const use of turn.uses) {
+      if (use.name === 'get_data') {
+        if (reads >= MAX_TOOL_CALLS) { results.push({ id: use.id, content: 'limit: no more data reads this turn — answer with what you have', error: true }); continue; }
+        const dq = dataQuery(use.input, { today, period: req.context.period });
+        if ('error' in dq) { results.push({ id: use.id, content: dq.error, error: true }); continue; }
+        reads++; tools.push(dq.kind);
+        results.push({ id: use.id, content: await readData(member, uid, dq as DQ, today) });
+      } else {
+        const act = cleanAction(use.name, use.input);
+        if (act) { actions.push(act); results.push({ id: use.id, content: use.name === 'propose_entry' ? 'the confirm card will be shown to the user after your answer — not recorded yet' : 'will run on the user\'s screen after your answer' }); }
+        else results.push({ id: use.id, content: 'invalid input for ' + line(use.name, 40), error: true });
+      }
+    }
+    params.messages = [...params.messages, assistantMessage(msg), toolResults(results)];
+    if (req.mode === 'filter') break; // one tool call is the whole answer
+    if (step === MAX_TOOL_CALLS + 1 && !text) text = 'وصلت لحد القراءات في الرد ده — اسألني تاني بسؤال أضيق.';
+  }
+  const out = cleanAnswer(text, actions, tools);
+  await finishRun(deps, run.id, { ...spent, status: 'ok', output: out });
+  return json(200, { result: 'ok', ...out, model: spent.model, cost_usd: spent.cost_usd, run_id: run.id });
+}
+
 // ---------------------------------------------------------------- handler
 
 export async function handler(req: Request, deps: Deps): Promise<Response> {
@@ -335,7 +438,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (!uid) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
-    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args) : await studio(deps, uid, args);
+    return action === 'write' ? await write(deps, uid, args) : action === 'prompts' ? await prompts(deps, uid, args) : action === 'marketing' ? await marketing(deps, uid, args) : action === 'buyer' ? await buyer(deps, uid, args)
+      : action === 'assistant' ? await assistant(deps, uid, args, jwtOf(req)) : await studio(deps, uid, args);
   } catch (e) {
     console.error('ai-content failed', e instanceof Error ? e.name : typeof e);
     return json(500, { error: 'failed' });

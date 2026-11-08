@@ -796,12 +796,15 @@
     }
   }
 
-  // ---------- AI assistant (header button + panel). Parsing is pure (commands.js); every write is confirmed, validated and goes through the adapter. ----------
+  // ---------- AI assistant (header button + panel). Phase 12 T1 (decision 8): a Claude conversation on the server (ai-content `assistant` via IBAI —
+  // the data read with the member's own JWT, the client tools come back as actions executed here with the page functions below); the fixed-command
+  // parser (commands.js) stays the fallback when the AI is not configured. Every write is confirmed, validated and goes through the adapter. ----------
   const C = window.IbtekrCommands;
   const AI_ACTOR = 'AI (بأمر ' + ACTOR + ')';
   const AI_EXAMPLES = ['افتح حسابات المبتكرين', 'اعرض الأوردرات المتأخرة', 'سجل سحب مرتبات 5000', 'رتب المبتكرين بالعربون'];
   const AI_HELP = 'مش فاهم الأمر ده. أقدر أفتح صفحة، أفلتر الأوردرات، أغيّر الفترة، أرتّب المبتكرين، أو أسجّل حركة مصروفات / مبتكر / حساب. جرّب واحد من الأمثلة.';
-  const ai = { msgs: [{ role: 'ai', text: 'أهلاً يا صفوت. اكتب الأمر وأنا أنفذه. أي تسجيل بيتأكد منك الأول.' }], pending: null, busy: false, turns: [] };
+  const aiWelcome = () => { const me = window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me(); return 'أهلاً يا ' + String((me && me.name) || ACTOR).split(' ')[0] + '. اسألني عن الأوردرات أو المبتكرين أو الأرقام، أو اطلب أفتح صفحة أو أسجّل حركة — أي تسجيل بيتأكد منك الأول.'; };
+  const ai = { msgs: [{ role: 'ai', text: '', welcome: true }], pending: null, busy: false, turns: [] };
   let aiPanel = null, aiBtn = null, aiList = null, aiInput = null;
   const aiCtx = () => {
     const names = SEED.vendors.map((v) => v.name); const seen = new Set(names.map((n) => n.toLowerCase()));
@@ -838,7 +841,7 @@
     adapter.add(b.kind, b.res.value, AI_ACTOR);
     state.tab = TAB_OF[b.kind]; setNote({ kind: 'success', text: 'اتسجّلت الحركة بواسطة AI.' }); go('accounts');
     aiSay('اتسجّلت وفتحتلك التاب. ' + (b.kind === 'expenses' && !inRange(b.res.value.date) ? 'التاريخ خارج الفترة المعروضة — غيّر الفترة عشان تشوفها. ' : '') + 'الحركة متسجلة في سجل الأحداث باسم AI بأمرك.');
-    if (aiSample) ai.turns.push({ role: 'user', content: '[النظام: المستخدم أكّد وتم تسجيل الحركة الأخيرة.]' }, { role: 'assistant', content: 'تمام، اتسجّلت.' });
+    if (aiServer !== false) ai.turns.push({ role: 'user', text: '[النظام: المستخدم أكّد وتم تسجيل الحركة الأخيرة.]' }, { role: 'assistant', text: 'تمام، اتسجّلت.' });
   }
   function aiExec(cmd) {
     switch (cmd.type) {
@@ -857,73 +860,71 @@
       default: aiSay(AI_HELP);
     }
   }
-  // ---- open conversation: Claude (viewer's account) drives the app through these page functions. Writes still need the viewer's confirm click. ----
-  let aiSample = null, aiCtl = null, aiNoteEl = null, aiSendBtn = null, aiStopBtn = null;
-  const FALLBACK_CODES = ['not_granted', 'sampling_disabled', 'not_declared', 'capability_disabled', 'capability_removed', 'tools_unavailable'];
-  const aiRules = () => 'أنت "مساعد AI" جوه نظام إبتكر للأوبريشن (إبتكر كلوب — ماركت بليس هاند ميد). المستخدم صفوت كمال، المؤسس. اتكلم مصري مختصر ومباشر. النهارده ' + TODAY + '.\n'
-    + 'تنفّذ طلبات المستخدم بالأدوات المتاحة: تفتح صفحات، تفلتر الأوردرات، تغيّر الفترة، ترتّب المبتكرين، وتجيب أرقام. لأي سؤال عن أرقام أو أوردرات استخدم get_summary أو get_orders ومتخترعش أرقام أبداً.\n'
-    + 'التسجيل المالي (مصروفات / حركة مبتكر / حركة حساب) بيتم بأداة propose_entry بس. هي بتعرض كارت تأكيد للمستخدم وما بتسجّلش لوحدها، فمتقولش إن الحاجة اتسجّلت — قول إنك عرضت الكارت ومستني تأكيده. لو ناقص مبلغ أو نوع أو مبتكر اسأل الأول. التاريخ دايماً النهارده.\n'
-    + 'قيم مسموحة. أنواع المصروفات: ' + D.CATEGORIES.join('، ') + '. أنواع الحساب: ' + D.ACCOUNTS.join('، ') + '. أنواع حركة المبتكر: ' + D.VENDOR_TYPES.join('، ') + '. حالات الأوردر: قيد الانتظار، جاري التنفيذ، جاهز للشحن، قيد الشحن، مكتمل، معلّق، استرجاع، ملغي، فشل. حالة التأكيد: مؤكد بعربون، مؤكد بدون عربون، غير مؤكد. التسليم: late = متأخر، risk = قابل للتأخير، ok = غير متأخر.\n'
-    + 'إيداع للمبتكر = مدفوع للمبتكر (العربون يزيد والرصيد ينقص). متعرضش أرقام تليفونات العملاء. لو الطلب برة قدرات الأدوات قول كده بصراحة. رد قصير، من غير مقدمات.';
+  // ---- the server conversation (phase 12 T1): IBAI.assistant → { text, actions }; the actions run here through the page functions in aiTools().
+  // aiServer: null = not tried yet, true = Claude answers, false = the AI is not configured (not_configured / forbidden) → the fixed commands. ----
+  let aiServer = null, aiCtl = null, aiNoteEl = null, aiSendBtn = null, aiStopBtn = null;
   function aiVendorName(n) { const l = String(n || '').trim().toLowerCase(); const hit = SEED.vendors.find((v) => v.name.toLowerCase() === l); return hit ? hit.name : ''; }
   const syncGq = (v) => { const gq = document.getElementById('gq'); if (gq) gq.value = v || ''; };
+  const PAGE_IDS = NAV.map((n) => n[2]);
+  // the client tools the server's Claude may call (their schemas live in supabase/functions/_shared/ai-assistant.js): name → execute(input)
   function aiTools() {
-    const OA = window.OrdersApp; const str = { type: 'string' };
-    const ordFilter = { q: { ...str, description: 'بحث برقم الأوردر أو اسم العميل' }, st: str, conf: str, vendor: str, deliv: { type: 'string', enum: ['late', 'risk', 'ok'] } };
+    const OA = window.OrdersApp;
     const pick = (i) => { const f = {}; for (const k of ['q', 'st', 'conf', 'vendor', 'deliv']) if (i[k]) f[k] = String(i[k]); return f; };
-    return [
-      { name: 'navigate', description: 'افتح صفحة. page = orders أو accounts. لو accounts ممكن تحدد tab: expenses (المصروفات) / sales (المبيعات) / vendors (حسابات المبتكرين) / actual (الحساب الفعلي).', inputSchema: { type: 'object', properties: { page: { type: 'string', enum: ['orders', 'accounts'] }, tab: { type: 'string', enum: ['expenses', 'sales', 'vendors', 'actual'] } }, required: ['page'] },
-        execute: (i) => { if (i.tab && TABS.some((t) => t.id === i.tab)) state.tab = i.tab; go(i.page === 'orders' ? 'orders' : 'accounts'); return 'opened ' + state.page + (state.page === 'accounts' ? '/' + state.tab : ''); } },
-      { name: 'filter_orders', description: 'افتح الأوردرات وطبّق فلاتر على الشاشة (بتتجمع فوق الفلاتر الحالية إلا لو clear=true). بيرجّع عدد الأوردرات المطابقة.', inputSchema: { type: 'object', properties: { clear: { type: 'boolean' }, ...ordFilter } },
-        execute: (i) => { if (state.page !== 'orders') go('orders'); if (i.clear) OA.clear(); const f = pick(i); if (f.vendor) { const hit = OA.vendors().find((v) => v.toLowerCase() === f.vendor.toLowerCase()); if (!hit) throw new Error('unknown vendor'); f.vendor = hit; } const n = OA.apply(f); syncGq(f.q !== undefined ? f.q : (i.clear ? '' : document.getElementById('gq') && document.getElementById('gq').value)); return { matching: n }; } },
-      { name: 'get_orders', description: 'اقرا الأوردرات المطابقة للفلاتر من غير ما تغيّر الشاشة. بيرجّع total وتوزيع الحالات وحالات التسليم وأول limit أوردر (id, customer, status, confirm, ageDays, total, delivery, vendors).', inputSchema: { type: 'object', properties: { ...ordFilter, limit: { type: 'number' } } },
-        execute: (i) => OA.query(pick(i), Math.min(Number(i.limit) || 10, 20)) },
-      { name: 'set_period', description: 'غيّر الفترة في صفحة الحسابات. إمّا preset (today, yesterday, todayYesterday, last7, last14, last28, last30, thisWeek, lastWeek, thisMonth, lastMonth) أو from و to بصيغة YYYY-MM-DD.', inputSchema: { type: 'object', properties: { preset: str, from: str, to: str } },
-        execute: (i) => { let r; if (i.preset) { r = D.presetRange(String(i.preset), TODAY); if (!r) throw new Error('unknown preset'); } else if (/^\d{4}-\d{2}-\d{2}$/.test(i.from || '') && /^\d{4}-\d{2}-\d{2}$/.test(i.to || '') && i.from <= i.to) r = { from: i.from, to: i.to }; else throw new Error('need preset or valid from<=to'); state.range = { from: r.from, to: r.to, preset: i.preset || 'custom' }; if (state.page !== 'accounts') go('accounts'); else render(); return D.rangeLabel(r.from, r.to); } },
-      { name: 'sort_vendors', description: 'رتّب حسابات المبتكرين. sort = balance:desc | balance:asc | deposits:desc | deposits:asc.', inputSchema: { type: 'object', properties: { sort: { type: 'string', enum: SORTS.map((x) => x.value) } }, required: ['sort'] },
-        execute: (i) => { if (!SORTS.some((x) => x.value === i.sort)) throw new Error('bad sort'); state.sort = i.sort; state.tab = 'vendors'; go('accounts'); return 'sorted ' + i.sort; } },
-      { name: 'get_summary', description: 'اقرا أرقام النظام الحالية: الفترة المعروضة، المصروفات حسب النوع، أرصدة الحسابات، ملخص المبتكرين وأعلى 5 أرصدة، وأعداد الأوردرات والتنبيهات. استخدمها قبل أي إجابة فيها أرقام.', inputSchema: { type: 'object', properties: {} },
-        execute: () => {
-          const tot = D.categoryTotals(SEED.expenseSeed, store.expenses, state.range.from, state.range.to); const accs = D.deriveAccounts(SEED.accounts, store.accountMoves).balances; const vs = vendorsNow(); const o = OA.query({}, 0); const al = OA.alerts();
-          return { today: TODAY, page: state.page, tab: state.tab, period: D.rangeLabel(state.range.from, state.range.to), expenseTotal: tot.total, expensesByCategory: Object.fromEntries(D.CATEGORIES.map((c) => [c, tot.byCategory[c].amount])), accounts: accs, vendors: D.vendorSummary(vs), topVendorsByBalance: [...vs].sort((a, b) => b.balance - a.balance).slice(0, 5).map((v) => ({ name: v.name, balance: v.balance, deposits: v.deposits })), orders: { total: o.total, byStatus: o.byStatus, delivery: o.delivery }, alerts: { followUp: al.follow.length, unconfirmed: al.unconfirmed.length, lateVendors: al.lateVendors.length } };
-        } },
-      { name: 'propose_entry', description: 'جهّز حركة مالية وورّي المستخدم كارت تأكيد. ما بتسجّلش لوحدها — لازم المستخدم يضغط تأكيد. kind: expense (مصروفات: category مطلوب، beneficiary اسم مبتكر أو "آخر" + otherName) | vendor (حركة مبتكر: vendor و vendorType) | account (حركة حساب: account). direction: withdraw أو deposit. amount رقم موجب.', inputSchema: { type: 'object', properties: { kind: { type: 'string', enum: ['expense', 'vendor', 'account'] }, direction: { type: 'string', enum: ['withdraw', 'deposit'] }, amount: { type: 'number' }, category: { type: 'string', enum: [...D.CATEGORIES] }, beneficiary: str, otherName: str, vendor: str, vendorType: { type: 'string', enum: [...D.VENDOR_TYPES] }, account: { type: 'string', enum: [...D.ACCOUNTS] } }, required: ['kind', 'direction', 'amount'] },
-        execute: (i) => {
-          const base = { direction: i.direction, amount: String(i.amount) };
-          let cmd;
-          if (i.kind === 'expense') { let ben = '', other = ''; if (i.beneficiary) { const v = aiVendorName(i.beneficiary); if (v) ben = v; else { ben = D.OTHER; other = String(i.otherName || i.beneficiary); } } cmd = { type: 'addExpense', ...base, category: i.category || '', beneficiary: ben, otherName: other }; }
-          else if (i.kind === 'vendor') { const v = aiVendorName(i.vendor); if (!v) throw new Error('unknown vendor; known: ' + SEED.vendors.map((x) => x.name).join(', ')); cmd = { type: 'addVendorMove', ...base, vendor: v, vendorType: i.vendorType || 'عربون', otherName: '' }; }
-          else cmd = { type: 'addAccountMove', ...base, account: i.account || '' };
-          const b = aiBuild(cmd); if (b.error) throw new Error(b.error);
-          ai.msgs.push({ role: 'ai', text: 'راجع الحركة دي وأكّد:', confirm: cmd }); aiDraw();
-          return 'تم عرض كارت التأكيد للمستخدم. لسه ما اتسجّلتش — مستني ضغطة تأكيد منه.';
-        } },
-    ];
+    return {
+      navigate: (i) => { const page = PAGE_IDS.includes(i.page) ? i.page : 'dashboard'; if (page === 'accounts' && i.tab && TABS.some((t) => t.id === i.tab)) state.tab = i.tab; go(page); return 'opened ' + page; },
+      filter_orders: (i) => { if (state.page !== 'orders') go('orders'); if (!OA) throw new Error('orders not ready'); if (i.clear) OA.clear(); const f = pick(i); if (f.vendor) { const hit = OA.vendors().find((v) => v.toLowerCase() === f.vendor.toLowerCase()); if (!hit) throw new Error('unknown vendor'); f.vendor = hit; } const n = OA.apply(f); syncGq(f.q !== undefined ? f.q : (i.clear ? '' : document.getElementById('gq') && document.getElementById('gq').value)); return { matching: n }; },
+      set_period: (i) => { let r; if (i.preset) { r = D.presetRange(String(i.preset), TODAY); if (!r) throw new Error('unknown preset'); } else if (/^\d{4}-\d{2}-\d{2}$/.test(i.from || '') && /^\d{4}-\d{2}-\d{2}$/.test(i.to || '') && i.from <= i.to) r = { from: i.from, to: i.to }; else throw new Error('need preset or valid from<=to'); state.range = { from: r.from, to: r.to, preset: i.preset || 'custom' }; if (state.page !== 'accounts') go('accounts'); else render(); return D.rangeLabel(r.from, r.to); },
+      sort_vendors: (i) => { if (!SORTS.some((x) => x.value === i.sort)) throw new Error('bad sort'); state.sort = i.sort; state.tab = 'vendors'; go('accounts'); return 'sorted ' + i.sort; },
+      propose_entry: (i) => {
+        const base = { direction: i.direction, amount: String(i.amount) };
+        let cmd;
+        if (i.kind === 'expense') { let ben = '', other = ''; if (i.beneficiary) { const v = aiVendorName(i.beneficiary); if (v) ben = v; else { ben = D.OTHER; other = String(i.otherName || i.beneficiary); } } cmd = { type: 'addExpense', ...base, category: i.category || '', beneficiary: ben, otherName: other }; }
+        else if (i.kind === 'vendor') { const v = aiVendorName(i.vendor); if (!v) throw new Error('unknown vendor'); cmd = { type: 'addVendorMove', ...base, vendor: v, vendorType: i.vendorType || 'عربون', otherName: '' }; }
+        else cmd = { type: 'addAccountMove', ...base, account: i.account || '' };
+        const b = aiBuild(cmd); if (b.error) throw new Error(b.error);
+        ai.msgs.push({ role: 'ai', text: 'راجع الحركة دي وأكّد:', confirm: cmd }); aiDraw();
+        return 'confirm card shown';
+      },
+    };
+  }
+  // the server's actions in order; a failing one is said in the panel (the model already answered)
+  function aiExecActions(actions) {
+    const tools = aiTools(); const failed = [];
+    for (const a of actions || []) { const fn = tools[a.name]; if (!fn) continue; try { fn(a.input || {}); } catch (e) { failed.push(a.name === 'propose_entry' ? 'ما قدرتش أجهّز الحركة: ' + (e && e.message ? e.message : '') : 'ما قدرتش أنفّذ ' + a.name + '.'); } }
+    for (const f of failed) aiSay(f);
   }
   function aiBusy(b) { ai.busy = b; if (aiInput) aiInput.disabled = b; if (aiSendBtn) aiSendBtn.hidden = b; if (aiStopBtn) aiStopBtn.hidden = !b; if (!b && aiInput && aiPanel && !aiPanel.hidden) aiInput.focus(); }
-  function aiModeNote() { if (aiNoteEl) aiNoteEl.textContent = aiSample ? 'محادثة مفتوحة مع Claude بحسابك. أي تسجيل بيطلب تأكيدك الأول.' : 'نموذج تجريبي: بيفهم صيغ أوامر محددة، مش محادثة حرة.'; }
-  async function aiInitChat() {
-    try { const s = window.claude && window.claude.use ? await window.claude.use('sample') : null; if (!s) return; const lim = await s.limits(); if (lim && lim.tools) { aiSample = s; aiModeNote(); } } catch (e) { /* stays on fixed commands */ }
-  }
+  function aiModeNote() { if (aiNoteEl) aiNoteEl.textContent = aiServer === false ? 'الـ AI مش متظبط دلوقتي — بفهم صيغ أوامر محددة بس (افتح، اعرض، سجل، رتب).' : 'محادثة مع Claude على بياناتك بصلاحياتك. أي تسجيل بيطلب تأكيدك الأول.'; }
+  const aiContext = () => ({ page: state.page, tab: state.page === 'accounts' ? state.tab : '', period: state.page === 'accounts' ? { from: state.range.from, to: state.range.to } : null });
   async function aiChat(text) {
-    ai.turns.push({ role: 'user', content: text }); ai.turns = ai.turns.slice(-12);
+    ai.turns.push({ role: 'user', text }); ai.turns = ai.turns.slice(-12);
     const m = { role: 'ai', text: '', live: true }; ai.msgs.push(m); aiBusy(true); aiDraw();
     aiCtl = new AbortController();
-    try {
-      const r = await aiSample([{ role: 'user', content: aiRules() }, ...ai.turns], { tools: aiTools(), modelTier: 'quick', signal: aiCtl.signal, onText: ({ text: t }) => { m.text = t; aiDraw(); } });
-      m.text = r.text; ai.turns.push({ role: 'assistant', content: r.text });
-    } catch (e) {
-      const code = e && e.code;
-      if (code === 'cancelled') m.text = (e.text || '') || 'وقفت.';
-      else if (FALLBACK_CODES.includes(code)) { aiSample = null; aiModeNote(); ai.msgs = ai.msgs.filter((x) => x !== m); aiSay('المحادثة المفتوحة مش متاحة دلوقتي، فهشتغل بالأوامر المحددة. ' + AI_HELP); ai.turns.pop(); aiBusy(false); aiCtl = null; return; }
-      else if (code === 'rate_limited') m.text = (e.text ? e.text + '\n' : '') + 'الاستخدام كتير دلوقتي، جرّب بعد شوية.';
-      else m.text = (e && e.text ? e.text + '\n' : '') + 'حصلت مشكلة في الاتصال، جرّب تاني.';
-    } finally { m.live = false; ai.msgs = ai.msgs.filter((x) => x !== m); ai.msgs.push(m); aiBusy(false); aiCtl = null; aiDraw(); }
+    const r = window.IBAI && window.IBAI.assistant ? await window.IBAI.assistant({ mode: 'chat', turns: ai.turns, context: aiContext(), signal: aiCtl.signal }) : { ok: false, reason: 'not_configured' };
+    aiCtl = null; m.live = false;
+    if (!r.ok) {
+      ai.msgs = ai.msgs.filter((x) => x !== m); ai.turns.pop();
+      if (r.reason === 'cancelled') aiSay('وقفت.');
+      else if (r.reason === 'not_configured' || r.reason === 'forbidden') { aiServer = false; aiModeNote(); aiSay('المحادثة مع الـ AI مش متاحة دلوقتي (مفتاح الـ AI مش متظبط)، فهشتغل بالأوامر المحددة.'); aiBusy(false); aiLocal(text); return; }
+      else if (r.reason === 'ai_cap') aiSay('سقف الـ AI الشهري خلص — الأدمن يزوّده من إعدادات الـ AI.');
+      else if (r.reason === 'busy') aiSay('الاستخدام كتير دلوقتي، جرّب بعد شوية.');
+      else aiSay('حصلت مشكلة في الاتصال، جرّب تاني.');
+      aiBusy(false); return;
+    }
+    aiServer = true; aiModeNote();
+    m.text = r.result === 'refused' ? 'مش هقدر أرد على ده.' : (r.text || (r.actions.length ? 'تمام.' : 'مفيش رد.'));
+    ai.turns.push({ role: 'assistant', text: m.text });
+    aiBusy(false); aiDraw();
+    aiExecActions(r.actions);
   }
   function aiRun(text) {
     const t = text.trim(); if (!t || ai.busy) return;
     ai.msgs.push({ role: 'user', text: t });
-    if (aiSample) { aiChat(t); return; }
+    if (aiServer !== false) { aiChat(t); return; }
+    aiLocal(t);
+  }
+  // the fixed commands (commands.js) — the fallback without the AI
+  function aiLocal(t) {
     if (ai.pending) {
       if (/^(الغي|إلغاء|الغاء|لا|cancel)/i.test(C.norm(t))) { ai.pending = null; aiSay('تمام، لغيت الأمر.'); return; }
       const filled = C.fillMissing(ai.pending, t, aiCtx());
@@ -937,7 +938,7 @@
   function aiDraw() {
     if (!aiList) return;
     aiList.replaceChildren(...ai.msgs.map((m) => {
-      const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.text)];
+      const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.welcome ? aiWelcome() : m.text)];
       if (m.confirm) {
         kids.push(h('dl', { class: 'kv' }, aiSummary(m.confirm).map(([k, v]) => [h('dt', null, k), h('dd', null, v)])));
         kids.push(m.done ? h('p', { class: 'ai-done t-small' }, 'تمت المعالجة.') : h('div', { class: 'ai-actions' },
@@ -969,7 +970,7 @@
       aiList,
       h('div', { class: 'ai-chips' }, AI_EXAMPLES.map((x) => Button({ size: 'sm', label: x, onClick: () => aiRun(x) }))),
       form,
-      (aiNoteEl = h('p', { class: 'ai-note t-small' }, 'نموذج تجريبي: بيفهم صيغ أوامر محددة، مش محادثة حرة.')));
+      (aiNoteEl = h('p', { class: 'ai-note t-small' }, 'محادثة مع Claude على بياناتك بصلاحياتك. أي تسجيل بيطلب تأكيدك الأول.')));
     aiPanel.hidden = true;
     aiPanel.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.stopPropagation(); aiToggle(false); } });
     return aiPanel;
@@ -3326,7 +3327,7 @@
     const root = document.getElementById('root');
     root.className = 'app';
     root.replaceChildren(Sidebar(), h('div', { class: 'main' }, TopHeader(), h('main', { class: 'content', id: 'main' }), h('main', { class: 'content', id: 'reports' }), h('main', { class: 'content', id: 'tickets' }), h('main', { class: 'content', id: 'vendors' }), Object.keys(window.IBPages.all()).map((id) => h('main', { class: 'content mod', id: 'pg-' + id, hidden: true })), h('div', { id: 'orders' })), BottomNav());
-    U.setModalRoot(document.body); document.body.append(AiPanel()); aiInitChat();
+    U.setModalRoot(document.body); document.body.append(AiPanel());
     window.addEventListener('hashchange', () => { const hs = location.hash.slice(1); if (window.IBShell.routeLogin(hs)) return; if (needs2fa() && !/^(profile|login)/.test(hs)) { twofaNote(); location.hash = 'profile-security'; return; } if (isSoon(pageOfHash(hs))) { try { history.replaceState(null, '', '#dashboard'); } catch (e) { /* sandboxed */ } soonNote(); goNow('dashboard'); return; } const mp = modPage(hs); if (mp) { state.page = mp; showPage(); window.IBPages.render(mp, false); window.scrollTo(0, 0); return; } if (location.hash.slice(1) === 'orders') { if (state.page !== 'orders') go('orders'); return; } const rt = reportTabOf(location.hash.slice(1)); if (rt) { state.rtab = rt; if (state.page !== 'reports') { state.page = 'reports'; showPage(); } renderReports(); return; } const tk = ticketOf(location.hash.slice(1)); if (tk !== null) { if (state.page !== 'tickets') { state.page = 'tickets'; showPage(); } renderTickets(); if (tk) openTicket(tk); return; } const vd = vendorOf(location.hash.slice(1)); if (vd !== null) { if (state.page !== 'vendors') { state.page = 'vendors'; showPage(); } renderVendors(); if (vd) openVendor(vd); return; } const t = hashTab(); if (t) { state.tab = t; if (state.page !== 'accounts') { state.page = 'accounts'; showPage(); } render(); } });
     showPage(); render(); if (state.page === 'reports') renderReports(); if (state.page === 'tickets') { renderTickets(); const tk = ticketOf(location.hash.slice(1)); if (tk) openTicket(tk); }
     if (window.IBPages.all()[state.page]) window.IBPages.render(state.page, false);
@@ -3340,16 +3341,13 @@
   const FILTER_FIELDS = ['id', 'name', 'phone', 'st', 'cf', 'deliv', 'vendor', 'tot', 'dep', 'age', 'date', 'note'];
   const FILTER_OPS = ['has', 'not', 'eq', 'ne', 'empty', 'gt', 'lt', 'between', 'before', 'after'];
   async function aiFilter(text) {
-    const ctx = { vendors: (window.OrdersApp && window.OrdersApp.vendors) ? window.OrdersApp.vendors() : [] };
+    const ctx = { vendors: (window.OrdersApp && window.OrdersApp.vendors) ? window.OrdersApp.vendors() : [], statuses: window.OrdersApp ? window.OrdersApp.statuses() : [] };
     const local = C.parseFilter(text, ctx);
-    if (!aiSample) return { filter: local, mode: 'local' };
-    let out = null;
-    const tool = { name: 'set_filter', description: 'حوّل وصف المستخدم إلى شروط فلتر للأوردرات. الحقول: id رقم الأوردر، name اسم العميل، phone، st حالة الأوردر، cf حالة التأكيد (مؤكد بعربون/مؤكد بدون عربون/غير مؤكد/في انتظار الرد)، deliv حالة التسليم (متأخر/قابل للتأخير/غير متأخر)، vendor المبتكر، tot إجمالي القيمة، dep العربون، age عمر الأوردر بالأيام، date تاريخ الأوردر، note التعليق. العمليات: has يحتوي، not لا يحتوي، eq يساوي، ne لا يساوي، empty فاضي، gt أكبر من، lt أقل من، before قبل، after بعد. op = and أو or بين الشروط.',
-      inputSchema: { type: 'object', properties: { op: { type: 'string', enum: ['and', 'or'] }, items: { type: 'array', items: { type: 'object', properties: { f: { type: 'string', enum: FILTER_FIELDS }, op: { type: 'string', enum: FILTER_OPS }, v: { type: 'string' } }, required: ['f', 'op'] } } }, required: ['items'] },
-      execute: (i) => { out = { op: i.op === 'or' ? 'or' : 'and', items: (i.items || []).filter((x) => FILTER_FIELDS.includes(x.f) && FILTER_OPS.includes(x.op)).map((x) => ({ f: x.f, op: x.op, v: x.v == null ? '' : String(x.v) })) }; return 'ok'; } };
-    try {
-      await aiSample([{ role: 'user', content: 'المبتكرين المتاحين: ' + ctx.vendors.join('، ') + '\nحالات الأوردر: ' + (window.OrdersApp ? window.OrdersApp.statuses().join('، ') : '') + '\nاستخدم أداة set_filter مرة واحدة ورد بجملة قصيرة.\n\nالوصف: ' + text }], { tools: [tool], modelTier: 'quick' });
-    } catch (e) { out = null; }
+    if (aiServer === false || !window.IBAI || !window.IBAI.assistant) return { filter: local, mode: 'local' };
+    const r = await window.IBAI.assistant({ mode: 'filter', turns: [{ role: 'user', text }], context: ctx });
+    if (!r.ok) { if (r.reason === 'not_configured' || r.reason === 'forbidden') { aiServer = false; aiModeNote(); } return { filter: local, mode: 'local' }; }
+    const a = (r.actions || []).find((x) => x.name === 'set_filter');
+    const out = a ? { op: a.input.op === 'or' ? 'or' : 'and', items: (a.input.items || []).filter((x) => FILTER_FIELDS.includes(x.f) && FILTER_OPS.includes(x.op)).map((x) => ({ f: x.f, op: x.op, v: x.v == null ? '' : String(x.v) })) } : null;
     return out && out.items.length ? { filter: out, mode: 'ai' } : { filter: local, mode: 'local' };
   }
   // owner 22 Oct: dashboard (لوحة التحكم) reads everything through this — Figma 526:35690

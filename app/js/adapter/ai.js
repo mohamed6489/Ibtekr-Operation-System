@@ -26,10 +26,10 @@
   let last = null; // the last settings read (estCost before any read = the default model)
   const estCost = (model) => (MODELS.find((m) => m.id === (model || (last && last.model))) || MODELS[0]).cost;
 
-  async function invoke(body) {
+  async function invoke(body, signal) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     try {
-      const { data, error } = await cl.functions.invoke('ai-content', { body });
+      const { data, error } = await cl.functions.invoke('ai-content', signal ? { body, signal } : { body });
       if (error || !data) {
         const s = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
@@ -37,7 +37,7 @@
         return { ok: false, reason, field: b && b.field ? String(b.field) : null };
       }
       return { ok: true, body: data };
-    } catch (e) { return { ok: false, reason: 'network' }; }
+    } catch (e) { return { ok: false, reason: e && e.name === 'AbortError' ? 'cancelled' : 'network' }; }
   }
   const log = (action, detail, entity, id) => quiet(() => window.IBActivity && window.IBActivity.log && window.IBActivity.log(action, detail, { entity, entity_id: id == null ? null : String(id) }));
   const answer = (b) => ({ ok: true, result: b.result === 'refused' ? 'refused' : 'ok', missing: Array.isArray(b.missing) ? b.missing : [], model: typeof b.model === 'string' ? b.model : '', cost: Number(b.cost_usd) || 0, runId: b.run_id || null });
@@ -72,6 +72,30 @@
     if (!r.ok) return r;
     const out = Object.assign(answer(r.body), { category: typeof r.body.category === 'string' ? r.body.category : String(category || '').trim(), rows: Number(r.body.rows) || 0, prompts: Array.isArray(r.body.prompts) ? r.body.prompts : [] });
     log('product.ai.prompts', [out.category, out.rows + ' prompts'].concat(out.result === 'refused' ? ['refused'] : []).join(' · '), 'shot_prompts', null);
+    return out;
+  }
+
+  // phase 12 T1 (decision 8): the header's assistant — one turn: { mode: 'chat' | 'filter', turns: [{ role, text }] (the last one the
+  // member's), context: { page, tab, period, vendors, statuses }, signal? } → { ok, result: 'ok' | 'refused', text, actions: [{ name,
+  // input }] (the page executes them with its own functions — a money entry is a confirm card there), tools (the data kinds read),
+  // model, cost, runId }. The server reads our tables with the member's own JWT (RLS), so any signed-in member may ask.
+  // Logged as assistant.chat / assistant.filter — the action names and the data kinds only, never the question or the answer.
+  async function assistant(req) {
+    const r0 = req || {};
+    const turns = (Array.isArray(r0.turns) ? r0.turns : []).filter((t) => t && (t.role === 'user' || t.role === 'assistant') && typeof t.text === 'string' && t.text.trim()).slice(-12).map((t) => ({ role: t.role, text: t.text.slice(0, 1000) }));
+    if (!turns.length || turns[turns.length - 1].role !== 'user') return { ok: false, reason: 'invalid', field: 'turns' };
+    const mode = r0.mode === 'filter' ? 'filter' : 'chat';
+    const c0 = r0.context && typeof r0.context === 'object' ? r0.context : {};
+    const context = {};
+    if (typeof c0.page === 'string') context.page = c0.page;
+    if (typeof c0.tab === 'string') context.tab = c0.tab;
+    if (c0.period && typeof c0.period.from === 'string' && typeof c0.period.to === 'string') context.period = { from: c0.period.from, to: c0.period.to };
+    if (Array.isArray(c0.vendors)) context.vendors = c0.vendors.filter((x) => typeof x === 'string').slice(0, 300);
+    if (Array.isArray(c0.statuses)) context.statuses = c0.statuses.filter((x) => typeof x === 'string').slice(0, 30);
+    const r = await invoke({ action: 'assistant', mode, turns, context }, r0.signal);
+    if (!r.ok) return r;
+    const out = Object.assign(answer(r.body), { text: typeof r.body.text === 'string' ? r.body.text : '', actions: (Array.isArray(r.body.actions) ? r.body.actions : []).filter((a) => a && typeof a.name === 'string' && a.input && typeof a.input === 'object'), tools: Array.isArray(r.body.tools) ? r.body.tools.filter((t) => typeof t === 'string') : [] });
+    log('assistant.' + mode, [out.actions.map((a) => a.name).join(', ') || 'no action', out.tools.length ? 'data: ' + out.tools.join(', ') : 'no data'].concat(out.result === 'refused' ? ['refused'] : []).join(' · '), 'ai_runs', out.runId);
     return out;
   }
 
@@ -161,5 +185,5 @@
     });
   }
 
-  window.IBAI = { can, write, studio, shotPrompts, history, photoOf, settings, saveSettings, monthSpend, estCost, MODELS, EFFORTS, EST_COST };
+  window.IBAI = { can, write, studio, shotPrompts, assistant, history, photoOf, settings, saveSettings, monthSpend, estCost, MODELS, EFFORTS, EST_COST };
 })();

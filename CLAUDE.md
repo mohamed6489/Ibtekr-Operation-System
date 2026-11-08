@@ -16,6 +16,7 @@
 - المرحلة 6 (خدمة العملاء): الخطة `docs/superpowers/plans/2026-11-02-phase-6-customer-service.md`، ودفترها `.superpowers/sdd/2026-11-02-phase-6-customer-service/progress.md`. النشر `tools/deploy.md` §2.7.15، وقناة Meta (6.2) §2.7.16، وواتساب 1 على Meta §2.7.18.
 - المرحلة 10 (الموارد البشرية): الخطة `docs/superpowers/plans/2026-11-05-phase-10-hr.md`، ودفترها `.superpowers/sdd/2026-11-05-phase-10-hr/progress.md`. النشر `tools/deploy.md` §2.7.23 (و«مهامي» `0048` الخطوة 5).
 - المرحلة 9.5 (التسويق): الخطة `docs/superpowers/plans/2026-11-06-phase-9-5-marketing.md`، ودفترها `.superpowers/sdd/2026-11-06-phase-9-5-marketing/progress.md`. النشر `tools/deploy.md` §2.7.24، والنشر التلقائي (9.5.2) §2.7.26، وأرقام الإعلانات (9.5.3) §2.7.27، والمساعدين — الميديا باير بالتنفيذ (9.5.4) §2.7.28، والفيديو بالـ AI (9.5.5) §2.7.29، وتيك توك وجوجل بالربط من السيستم (9.5.6) §2.7.30.
+- المرحلة 6.5 (الرد الآلي): الخطة `docs/superpowers/plans/2026-11-08-phase-6-5-autoreply.md`، ودفترها `.superpowers/sdd/2026-11-08-phase-6-5-autoreply/progress.md`.
 - المرحلة 11 (الإعدادات): الخطة `docs/superpowers/plans/2026-11-07-phase-11-settings.md`، ودفترها `.superpowers/sdd/2026-11-07-phase-11-settings/progress.md`. النشر `tools/deploy.md` §2.7.31.
 - مشاكل معروفة مستنية مرحلتها (اللي فيها لحد دلوقتي اتحلت في المرحلة 10): `docs/superpowers/known-issues.md` — اقراه قبل ما تبدأ مرحلة.
 - مشروع Supabase: `fsynculhaupcktzkfkdd` (eu-central-1). `app/config.js` فيه مفتاح الـ anon العام بس.

@@ -348,8 +348,28 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
     }],
     [['media_route'], async () => { try { return [argsOf((await get('wp/v2/media', 'OPTIONS', true)).data)]; } catch (e) { return [failOf(e)]; } }],
   ];
+  // PROBE=cart (phase 6.5, the auto-reply page's «سلة متروكة» event): where the site could give abandoned carts — the REST
+  // namespaces and the routes whose path says cart / abandon / recover, and the active plugins' names + versions (plugin names
+  // only: no settings, no cart rows, no customer). GET only.
+  const CARTISH = /cart|abandon|recover|wcar|cartflows|klaviyo|retainful|checkout/i;
+  const cartSteps = [
+    [['namespaces', 'cart_routes'], async () => {
+      const { data } = await wpGet('');
+      const ns = Array.isArray(data?.namespaces) ? data.namespaces.map(String).sort() : [];
+      const routes = keysOf(data?.routes);
+      return [{ count: ns.length, items: ns.slice(0, 80) }, { scanned: routes.length, items: routes.filter((r) => CARTISH.test(r)).slice(0, 60).sort() }];
+    }],
+    [['active_plugins'], async () => {
+      const { data } = await get('wc/v3/system_status?_fields=active_plugins,environment.version,environment.wp_version');
+      const plugins = Array.isArray(data?.active_plugins) ? data.active_plugins : [];
+      const name = (p) => String(p?.name ?? p?.plugin ?? '').replace(/<[^>]*>/g, '').trim().slice(0, 60);
+      return [{ count: plugins.length, wp: data?.environment?.wp_version ?? null, wc: data?.environment?.version ?? null,
+        cart_like: plugins.filter((p) => CARTISH.test(name(p) + ' ' + String(p?.plugin ?? ''))).map((p) => ({ name: name(p), version: String(p?.version ?? '').slice(0, 20) })),
+        names: plugins.map(name).filter(Boolean).slice(0, 80).sort() }];
+    }],
+  ];
   const mode = String(env.PROBE ?? '').trim();
-  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : mode === 'earning' ? earningSteps : mode === 'studio' ? studioSteps : mode === 'studio2' ? studio2Steps : steps;
+  const chosen = mode === 'products' ? productSteps : mode === 'commission' ? commissionSteps : mode === 'earning' ? earningSteps : mode === 'studio' ? studioSteps : mode === 'studio2' ? studio2Steps : mode === 'cart' ? cartSteps : steps;
 
   const print = (section, obj) => out(section + ' ' + JSON.stringify(redact(obj)));
   let failed = false;

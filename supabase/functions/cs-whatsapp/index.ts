@@ -30,6 +30,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { EXTRAS, STATE_PREFIX, WA_GRAPH_VERSION, graphErrorCode, parseWaWebhook, phoneOfWaId, phonesOf, sentIdOf, syncBody, textBody, waAuthUrl, waIdOfPhone, wabaIdsOf, waPath } from '../_shared/cs-whatsapp.js';
 import { isOptOut } from '../_shared/cs-wa.js';
+import { inboundSafe } from '../_shared/cs-auto-run.ts';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -178,6 +179,7 @@ async function onIn(deps: Deps, ev: Json, s: Summary) {
   if (!(await put(deps, { conversation_id: conv.id, kind: 'in', text: ev.text, author: null, external_id: ev.id, delivery: null, meta: { kind: ev.kind, reply_to: ev.replyTo, at: ev.at }, created_at: iso(ev.at, deps) }))) { bump(s, 'duplicates'); return; }
   const next = conv.fresh ? 'جديدة' : 'مستنية ردنا';
   if (next !== conv.status) await setStatus(deps, conv.id, next);
+  await inboundSafe(deps, { conversationId: conv.id, customerId, channel: 'wa1', fresh: conv.fresh }); // phase 6.5: the first-message / after-hours rules
   if (isOptOut(ev.text)) { // «إيقاف»: no more campaigns for this customer
     await deps.db.from('cs_customers').update({ consent: false }).eq('id', customerId);
     await deps.db.from('cs_campaign_recipients').update({ status: 'opted_out', at: deps.now() }).eq('customer_id', customerId).eq('status', 'queued');
@@ -195,7 +197,7 @@ async function onEcho(deps: Deps, ev: Json, s: Summary) {
 }
 const RANK: Record<string, number> = { queued: 0, sent: 1, delivered: 2, read: 3 };
 async function onStatus(deps: Deps, ev: Json, s: Summary) {
-  const { data: m } = await deps.db.from('cs_messages').select('id, delivery, meta').eq('external_id', ev.id).eq('kind', 'out').maybeSingle();
+  const { data: m } = await deps.db.from('cs_messages').select('id, delivery, meta').eq('external_id', ev.id).in('kind', ['out', 'auto']).maybeSingle();
   if (!isObj(m)) { bump(s, 'ignored:status'); return; }
   if (ev.status === 'failed') { if (m.delivery !== 'read') await deps.db.from('cs_messages').update({ delivery: 'failed', meta: { ...(isObj(m.meta) ? m.meta : {}), error: ev.error ?? 'wa_failed' } }).eq('id', m.id); bump(s, 'failed'); return; }
   if ((RANK[ev.status] ?? -1) > (RANK[String(m.delivery)] ?? -1) && m.delivery !== 'failed') await deps.db.from('cs_messages').update({ delivery: ev.status }).eq('id', m.id);

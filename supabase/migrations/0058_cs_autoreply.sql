@@ -7,8 +7,8 @@
 -- * cs_quick_replies — the composer's «/» answers (key · label · text).
 -- * cs_auto_rules — «لما (الحدث) · لو (الشروط) · اعمل (الإجراء)» as the prototype's editor shapes them: event status | sub | first |
 --   afterhours | cart | transfer, the status it fires on, the conditions as [[field, op, value]], the action send | ticket | assign | tag
---   with its template / role / tag, the delay in minutes, once-per-entity, «open a ticket when the customer stays silent 24 hours»,
---   enabled. `runs` / `last_run_at` are the server's.
+--   with its template / role / tag (an after-hours send without a template uses the settings' after-hours text), the delay in minutes,
+--   once-per-entity, «open a ticket when the customer stays silent 24 hours», enabled. `runs` / `last_run_at` are the server's.
 -- * cs_auto_runs — the engine's log, one row a (rule × entity): sent | held | skipped | failed | ticket | assigned | tagged + a code; the
 --   members read it, only the server writes it; a non-failed row a (rule × entity) is unique = «مرة واحدة» and «مردّش في 24 ساعة».
 -- * cs_auto_settings() — the sending settings as the members read them (cs.view): the defaults over settings «cs».auto; `live` (the
@@ -91,7 +91,7 @@ create table if not exists public.cs_auto_rules (
   updated_at timestamptz not null default now(),
   constraint cs_auto_rules_status_to check (event <> 'status' or event_to is not null),
   constraint cs_auto_rules_action_target check (
-    (action = 'send' and template_id is not null) or (action = 'ticket') or (action = 'assign' and role_id is not null) or (action = 'tag' and tag is not null))
+    (action = 'send' and (template_id is not null or event = 'afterhours')) or (action = 'ticket') or (action = 'assign' and role_id is not null) or (action = 'tag' and tag is not null))
 );
 create index if not exists cs_auto_rules_event_idx on public.cs_auto_rules (event, enabled);
 
@@ -209,3 +209,22 @@ begin
 end $$;
 revoke execute on function public.cs_auto_settings() from public, anon;
 grant execute on function public.cs_auto_settings() to authenticated, service_role;
+
+-- ---------------------------------------------------------------- cs-auto-tick: every 5 minutes → the cs-auto function, with the sync secret of 0008
+do $$
+begin
+  if to_regnamespace('cron') is null or to_regnamespace('net') is null or to_regclass('vault.decrypted_secrets') is null then
+    raise notice '0058: pg_cron / pg_net / Vault not here — cs-auto-tick is not scheduled';
+    return;
+  end if;
+  if exists (select 1 from cron.job where jobname = 'cs-auto-tick') then perform cron.unschedule('cs-auto-tick'); end if;
+  perform cron.schedule('cs-auto-tick', '*/5 * * * *', $cron$
+    select net.http_post(
+      url := 'https://fsynculhaupcktzkfkdd.supabase.co/functions/v1/cs-auto',
+      headers := jsonb_build_object('Content-Type', 'application/json',
+                                    'X-Sync-Secret', (select decrypted_secret from vault.decrypted_secrets where name = 'sync_secret')),
+      body := '{"action":"tick"}'::jsonb,
+      timeout_milliseconds := 120000
+    )
+  $cron$);
+end $$;

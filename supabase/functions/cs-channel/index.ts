@@ -37,6 +37,7 @@ import {
   DEFAULT_NAME, SUBSCRIBED_FIELDS, authUrl, businessIdsOf, subscribedFieldsOf, mergePages, permissionsOf, tokenlessCount, commentThreadId, graphErrorCode, graphPath, hideBody, pagesOf, parseWebhook, privateReplyBody, profileHandle, profileName, publicPages,
   sendBody, statusAfterIn, tokenScopesOf, commentsProbeOf, waProbeOf, pulledComments, PULL_WINDOW_MS, postsOf, postOf,
 } from '../_shared/cs-channel.js';
+import { inboundSafe } from '../_shared/cs-auto-run.ts';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -204,6 +205,7 @@ async function onMessage(deps: Deps, page: Page | null, ev: Json, s: Summary) {
   if (!put) { bump(s, 'duplicates'); return; }
   const next = statusAfterIn(conv.fresh ? null : conv.status);
   if (next !== conv.status) await setStatus(deps, conv.id, next);
+  await inboundSafe(deps, { conversationId: conv.id, customerId: cu.id, channel: platform, fresh: conv.fresh }); // phase 6.5: the first-message / after-hours rules
   bump(s, 'messages');
 }
 async function onReceipt(deps: Deps, ev: Json, s: Summary) {
@@ -211,7 +213,7 @@ async function onReceipt(deps: Deps, ev: Json, s: Summary) {
   const { data: found } = await deps.db.from('cs_conversations').select('id').eq('channel', platform).eq('external_id', ev.userId).maybeSingle();
   if (!isObj(found) || !found.id || ev.watermark == null) { bump(s, 'ignored'); return; }
   const to = ev.type === 'read' ? 'read' : 'delivered'; const from = ev.type === 'read' ? ['sent', 'delivered'] : ['sent'];
-  const { error } = await deps.db.from('cs_messages').update({ delivery: to }).eq('conversation_id', found.id).eq('kind', 'out').in('delivery', from).lte('created_at', isoOf(ev.watermark, deps));
+  const { error } = await deps.db.from('cs_messages').update({ delivery: to }).eq('conversation_id', found.id).in('kind', ['out', 'auto']).in('delivery', from).lte('created_at', isoOf(ev.watermark, deps));
   if (error) throw new Error('cs_messages: ' + (error.code ?? 'update'));
   bump(s, ev.type === 'read' ? 'reads' : 'deliveries');
 }

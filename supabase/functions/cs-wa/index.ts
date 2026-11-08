@@ -150,7 +150,7 @@ async function onOutbox(deps: Deps, b: Json) {
   const byId = new Map((Array.isArray(convs) ? convs : []).map((c: Json) => [String(c.id), c]));
   if (!byId.size) return json(200, { result: 'ok', items: [] });
   const stale = iso(ms(deps.now())! - CLAIM_MS);
-  const { data: rows } = await deps.db.from('cs_messages').select('id, conversation_id, text, claimed_at').eq('kind', 'out').eq('delivery', 'queued').in('conversation_id', [...byId.keys()]).order('created_at').limit(20);
+  const { data: rows } = await deps.db.from('cs_messages').select('id, conversation_id, text, claimed_at').in('kind', ['out', 'auto']).eq('delivery', 'queued').in('conversation_id', [...byId.keys()]).order('created_at').limit(20);
   const items: Json[] = [];
   for (const m of Array.isArray(rows) ? rows : []) {
     if (m.claimed_at && String(m.claimed_at) > stale) continue;
@@ -166,7 +166,7 @@ async function onSent(deps: Deps, b: Json) {
   if (typeof b.id !== 'string' || !UUID.test(b.id)) return json(400, { error: 'bad_request' });
   const waId = typeof b.wa_id === 'string' && /^[A-Za-z0-9_.:-]{4,200}$/.test(b.wa_id) ? b.wa_id : null;
   const patch: Json = b.ok === true ? { delivery: 'sent', external_id: waId } : { delivery: 'failed', meta: { error: String(b.error ?? 'send_failed').replace(/[^\w:.-]/g, '').slice(0, 60) } };
-  const { error } = await deps.db.from('cs_messages').update(patch).eq('id', b.id).eq('kind', 'out');
+  const { error } = await deps.db.from('cs_messages').update(patch).eq('id', b.id).in('kind', ['out', 'auto']);
   if (error && error.code !== '23505') fail('cs_messages', error);
   return json(200, { result: 'ok' });
 }

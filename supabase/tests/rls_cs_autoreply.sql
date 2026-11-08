@@ -68,6 +68,7 @@ begin
   begin insert into public.cs_auto_rules (name, event, action, conds) values ('x', 'first', 'ticket', '{"a":1}'); raise exception 'case conditions not an array failed';
   exception when check_violation then null; end;
   insert into public.cs_auto_rules (name, event, action, role_id) values ('تعيين للمتابعة', 'first', 'assign', 'cs');
+  insert into public.cs_auto_rules (name, event, action) values ('خارج المواعيد', 'afterhours', 'send'); -- the settings' after-hours text, no template needed
   -- a template a rule sends cannot be deleted (the page says so)
   begin delete from public.cs_templates where id = tid; raise exception 'case deleting a used template failed';
   exception when foreign_key_violation then null; end;

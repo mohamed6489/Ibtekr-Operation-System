@@ -70,9 +70,12 @@ Deno.test('secret_set: the key to Vault, the probe, the tail in the answer, the 
 });
 
 Deno.test('a probe that fails keeps the key and says why; a platform without a probe is saved untested; a stored secret left empty stays', async () => {
-  const { deps, vault } = setup({ routes: { 'https://api.resend.com/domains': { status: 401, body: { message: 'bad key' } } } });
+  // Resend's probe is one real test email to the admin (a Sending-access key cannot list the domains): POST /emails from the stored sender
+  const sent: Array<{ from: string; to: string[] }> = [];
+  const { deps, vault } = setup({ routes: { 'https://api.resend.com/emails': (init: RequestInit) => { const b = JSON.parse(String(init.body)); sent.push({ from: b.from, to: b.to }); return { status: 401, body: { message: 'bad key' } }; } } });
   const r1 = await call(deps, { action: 'secret_set', name: 'resend', fields: { key: 're_' + 'k'.repeat(20), from: 'alerts@ibtekr.club' } });
-  assertEquals([r1.res.status, r1.body.test.ok, r1.body.test.error], [200, false, 'unauthorized']); assertEquals(JSON.parse(vault.resend).from, 'alerts@ibtekr.club');
+  assertEquals([r1.res.status, r1.body.test.ok, r1.body.test.error, r1.body.test.step], [200, false, 'unauthorized', 'send']); assertEquals(JSON.parse(vault.resend).from, 'alerts@ibtekr.club');
+  assertEquals(sent, [{ from: 'نظام إبتكر <alerts@ibtekr.club>', to: ['a@x.test'] }], 'the test email goes to the caller from the stored sender');
   const r2 = await call(deps, { action: 'secret_set', name: 'resend', fields: { key: '', from: 'x@ibtekr.club' } });
   assertEquals(r2.body, { error: 'missing', field: 'key' }, 'emptying the key empties a required field'); assertEquals(JSON.parse(vault.resend).from, 'alerts@ibtekr.club', 'nothing changed');
   const r3 = await call(deps, { action: 'secret_set', name: 'resend', fields: { from: 'x@ibtekr.club' } });

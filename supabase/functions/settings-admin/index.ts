@@ -68,15 +68,18 @@ async function metaPut(deps: Deps, name: string, patch: Json | null) {
 
 // the one cheap read (or two for WooCommerce) that proves a key works; never a write, never the URL with a key in an error
 type Probe = { ok: boolean; at: string; latency_ms: number; account?: string; error?: string; step?: string; tools?: string[] };
-async function runProbes(deps: Deps, name: string, link: Json): Promise<Probe | null> {
+async function callerEmail(deps: Deps, id: string): Promise<string | null> {
+  try { const { data } = await deps.db.from('profiles').select('email').eq('id', id).maybeSingle(); return typeof data?.email === 'string' ? data.email : null; } catch { return null; }
+}
+async function runProbes(deps: Deps, name: string, link: Json, ctx: { email?: string | null } = {}): Promise<Probe | null> {
   if (name.startsWith('mcp_')) return await mcpProbe(deps, link);
-  const probes = probesOf(name, link) as Array<{ id: string; method: string; url: string; headers: Record<string, string>; ok: (s: number, b: unknown) => { account: string } | null }> | null;
+  const probes = probesOf(name, link, ctx) as Array<{ id: string; method: string; url: string; headers: Record<string, string>; body?: unknown; ok: (s: number, b: unknown) => { account: string } | null }> | null;
   if (!probes) return null;
   const started = Date.now(); const accounts: string[] = [];
   for (const p of probes) {
     const ctl = new AbortController(); const t = setTimeout(() => ctl.abort(), PROBE_MS);
     let res: Response;
-    try { res = await deps.fetch(p.url, { method: p.method, headers: p.headers, signal: ctl.signal }); } catch (e) { clearTimeout(t); return { ok: false, at: deps.now(), latency_ms: Date.now() - started, error: (e as Error)?.name === 'AbortError' ? 'timeout' : 'network', step: p.id }; }
+    try { res = await deps.fetch(p.url, { method: p.method, headers: p.headers, signal: ctl.signal, ...(p.body !== undefined ? { body: JSON.stringify(p.body) } : {}) }); } catch (e) { clearTimeout(t); return { ok: false, at: deps.now(), latency_ms: Date.now() - started, error: (e as Error)?.name === 'AbortError' ? 'timeout' : 'network', step: p.id }; }
     clearTimeout(t);
     let body: unknown = null; try { body = await res.json(); } catch { body = null; }
     const got = p.ok(res.status, body);
@@ -121,7 +124,7 @@ async function secretSetAction(deps: Deps, admin: string, args: Json) {
   const link = parsed.link as Json;
   const saved = await secretSet(deps.db, name, link);
   if (!saved.ok) return json(saved.error === 'no_vault' ? 503 : 500, { error: saved.error });
-  const test = await runProbes(deps, name, link);
+  const test = await runProbes(deps, name, link, { email: await callerEmail(deps, admin) });
   await metaPut(deps, name, { linked_at: deps.now(), linked_by: admin, ...(test ? { test } : {}) });
   await log(deps, admin, 'settings.integration.set', name, { keys: Object.keys(isObj(args.fields) ? args.fields : {}), test: test ? (test.ok ? 'ok' : test.error) : 'untested' });
   const meta = await metaAll(deps);
@@ -153,7 +156,7 @@ async function secretTest(deps: Deps, admin: string, args: Json) {
   if (!nameOk(name) || !fieldsOf(name)) return json(400, { error: 'unknown_secret' });
   const stored = await secretOf(deps.db, name);
   if (!stored) return json(404, { error: 'not_linked' });
-  const test = await runProbes(deps, name, stored);
+  const test = await runProbes(deps, name, stored, { email: await callerEmail(deps, admin) });
   if (test) await metaPut(deps, name, { test });
   await log(deps, admin, 'settings.integration.test', name, { result: test ? (test.ok ? 'ok' : test.error) : 'untested' });
   return json(200, { test });

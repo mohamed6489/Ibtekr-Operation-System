@@ -97,8 +97,9 @@ export function secretPublic(name, stored, meta) {
 // The one read that proves a key works, as { method, url, headers, ok(status, body) → { account } | null } — or null for a platform
 // with no safe probe (it is saved untested). Never a write. WooCommerce has two: the store (WC keys) and the media user (the app
 // password) when it is set.
-export function probesOf(name, link) {
-  const L = link ?? {};
+// ctx.email: the caller's address — Resend's probe sends one test email there (a Sending-access key cannot read the domains)
+export function probesOf(name, link, ctx) {
+  const L = link ?? {}; const C = ctx ?? {};
   const bearer = (k) => ({ Authorization: 'Bearer ' + L[k] });
   const basic = (u, p) => ({ Authorization: 'Basic ' + btoa(u + ':' + p) });
   const acct = (f) => (status, body) => (status >= 200 && status < 300 ? { account: safeText(f(body)) } : null);
@@ -115,13 +116,23 @@ export function probesOf(name, link) {
     case 'gemini': return [{ id: 'models', method: 'GET', url: 'https://generativelanguage.googleapis.com/v1beta/models?pageSize=1', headers: { 'x-goog-api-key': L.key }, ok: acct((b) => (Array.isArray(b?.models) ? 'ok' : 'ok')) }];
     case 'elevenlabs': return [{ id: 'user', method: 'GET', url: 'https://api.elevenlabs.io/v1/user/subscription', headers: { 'xi-api-key': L.key }, ok: acct((b) => [b?.tier, b?.character_limit != null ? b.character_limit + ' حرف' : ''].filter(Boolean).join(' · ')) }];
     case 'magnific_api': return [{ id: 'tasks', method: 'GET', url: 'https://api.magnific.com/v1/ai/text-to-image/seedream-v5-pro', headers: { 'x-magnific-api-key': L.key }, ok: acct(() => 'ok') }];
-    case 'resend': return [{ id: 'domains', method: 'GET', url: 'https://api.resend.com/domains', headers: bearer('key'), ok: acct((b) => (Array.isArray(b?.data) ? b.data.map((d) => d?.name + (d?.status === 'verified' ? ' ✓' : ' (' + d?.status + ')')).join(' · ') : 'ok')) }];
+    case 'resend': {
+      const from = typeof L.from === 'string' && L.from ? L.from : RESEND_FROM_DEFAULT;
+      if (typeof C.email === 'string' && /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(C.email)) {
+        // a real send to the admin: proves the key, the verified domain and the sender in one go (and works with a Sending-access key)
+        return [{ id: 'send', method: 'POST', url: 'https://api.resend.com/emails', headers: { ...bearer('key'), 'Content-Type': 'application/json' },
+          body: { from: 'نظام إبتكر <' + from + '>', to: [C.email], subject: 'اختبار ربط Resend — نظام إبتكر', text: 'الربط شغال: الإيميل ده اتبعت من صفحة الإعدادات عشان يتأكد إن مفتاح Resend والدومين والمرسل ' + from + ' تمام.' },
+          ok: acct(() => 'اتبعت رسالة اختبار لـ ' + C.email) }];
+      }
+      return [{ id: 'domains', method: 'GET', url: 'https://api.resend.com/domains', headers: bearer('key'), ok: acct((b) => (Array.isArray(b?.data) ? b.data.map((d) => d?.name + (d?.status === 'verified' ? ' ✓' : ' (' + d?.status + ')')).join(' · ') : 'ok')) }];
+    }
     case 'airtable': return [{ id: 'whoami', method: 'GET', url: 'https://api.airtable.com/v0/meta/whoami', headers: bearer('key'), ok: acct((b) => b?.email ?? b?.id) }];
     case 'github': return [{ id: 'user', method: 'GET', url: 'https://api.github.com/user', headers: { ...bearer('key'), 'User-Agent': 'ibtekr-ops' }, ok: acct((b) => b?.login) }];
     case 'figma': return [{ id: 'me', method: 'GET', url: 'https://api.figma.com/v1/me', headers: { 'X-Figma-Token': L.key }, ok: acct((b) => b?.email ?? b?.handle) }];
     default: return null; // higgsfield / sheets / paymob / bosta / n8n / mcp_* / custom_*: saved untested
   }
 }
+export const RESEND_FROM_DEFAULT = 'alerts@ibtekr.club';
 const safeText = (v) => String(v ?? '').replace(/[\u0000-\u001f<>]/g, ' ').replace(/\s+/g, ' ').trim().slice(0, 120) || 'ok';
 
 // a probe's HTTP status → our code

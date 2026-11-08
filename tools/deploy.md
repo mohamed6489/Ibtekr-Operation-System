@@ -945,6 +945,40 @@ select created_at, action, source, label, model, status, error, credits, cost_us
 select public.ai_month_credits();   -- كريدت شهر القاهرة (من SQL editor = كل الأعضاء)
 ```
 
+#### 2.7.32 الرد الآلي — القوالب والردود السريعة وقواعد الإرسال التلقائي (المرحلة 6.5، 8 نوفمبر)
+
+الخطة (قرارات 1–13) `docs/superpowers/plans/2026-11-08-phase-6-5-autoreply.md`، والدفتر `.superpowers/sdd/2026-11-08-phase-6-5-autoreply/progress.md`.
+
+**أ) الكود:** `0058_cs_autoreply.sql` + `supabase/tests/rls_cs_autoreply.sql` · `_shared/cs-auto.js` (الصافي) + `_shared/cs-auto-run.ts` (قاعدة البيانات
+والإرسال، مشترك) · Edge Function **`cs-auto`** (`tick` بسر المزامنة من cron `cs-auto-tick` كل 5 دقايق؛ `status` بـ `cs.view`؛ `tick { dry }` للأدمن) ·
+`cs-channel` و`cs-whatsapp` بينادوا `inboundSafe` بعد رسالة العميل (أول رسالة / خارج المواعيد)، و`cs-wa` (الجسر) والإيصالات بيشوفوا صفوف `auto` ·
+`IBCS` (`app/js/adapter/cs.js`) · الكتلة 20 (صفحة `autoreply` + الكومبوزر) و28 (المنيو) + `app/css/cs.css`. **مافيش سر جديد** — الإرسال بنفس توكنات
+واتساب 1 (Vault `meta_wa`) والصفحة (Vault `meta_pages`) وجسر واتساب 2.
+
+**ب) على Supabase (المطوّر — بالترتيب):**
+1. `0058` (MCP `apply_migration` مرة واحدة؛ لو وقف = الـ SQL كله لصاحب المشروع في الـ SQL editor): الجداول الأربعة + الحارس + `cs_conds_ok` +
+   `cs_auto_settings()` + cron **`cs-auto-tick`** (`*/5 * * * *` → `cs-auto` بسر المزامنة).
+2. workflow «RLS live» بـ `files = rls_cs_autoreply`.
+3. «Deploy functions»: `cs-auto` ثم `cs-channel` ثم `cs-whatsapp` ثم `cs-wa` — واحدة واحدة (أو `all`).
+4. الواجهة: push على `main`.
+
+**ج) صاحب المشروع (من الصفحة):**
+- «الرد الآلي › القوالب»: القوالب للعملاء (واتساب 1 + السوشيال) والمبتكرين (واتساب 2)؛ لقالب هيتبعت برّه نافذة الـ 24 ساعة على واتساب: اعمل القالب
+  في WhatsApp Manager واعتمده، واكتب اسمه + ترتيب متغيراته في القالب عندنا.
+- «قواعد الرد الآلي»: القاعدة = لما (الحدث) · لو (الشروط) · اعمل (الإجراء)؛ «حفظ كمسودة» ولا «حفظ وتفعيل». **المفتاح الرئيسي «الإرسال
+  التلقائي» متوقف** — القواعد الشغالة بتتسجل في «سجل التنفيذ» `اتخطّت · الإرسال التلقائي متوقف` لحد ما يشغّله (بتأكيد). «تجربة من غير إرسال»
+  بتقول هيحصل إيه لو اشتغل دلوقتي. «إعدادات الإرسال الآلي»: المواعيد، الفاصل، الحد اليومي (250 لواتساب 1 = حد Meta لرقم لسه ما اتحققش؛ بعد
+  التحقق 1,000)، السلة المتروكة بعد N دقيقة، رد خارج المواعيد.
+- في الشات: «/» بيطلّع الردود السريعة والقوالب اللي ليها اختصار، وزرار «قالب» بيفتح المكتبة.
+
+**التحقق:**
+```sql
+select jobname, schedule, active from cron.job where jobname = 'cs-auto-tick';
+select key, value ->> 'at', value ->> 'events', value ->> 'sent', value ->> 'skipped' from public.sync_state where key = 'cs-auto';   -- بعد أول تشغيلة
+select result, code, count(*) from public.cs_auto_runs group by 1, 2 order by 3 desc;                                                 -- أكواد بس
+select has_table_privilege('authenticated', 'public.cs_auto_runs', 'insert');                                                          -- false
+```
+
 #### 2.7.31 صفحة الإعدادات — المفاتيح والمزوّدين والتنبيهات والفريق (المرحلة 11، 7 نوفمبر)
 
 الخطة (قرارات 1–32) `docs/superpowers/plans/2026-11-07-phase-11-settings.md`، والدفتر `.superpowers/sdd/2026-11-07-phase-11-settings/progress.md`.

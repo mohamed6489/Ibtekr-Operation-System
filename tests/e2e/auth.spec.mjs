@@ -43,7 +43,7 @@ test('the menu: the two new pages in place, every page opened by its phase (phas
   await signIn(page, ADMIN.id, ADMIN.pw);
   await expect(page.locator('#root')).toBeVisible();
   const items = page.locator('nav.sidebar .nav-item');
-  expect(await items.locator('> span:not(.soon)').allTextContents()).toEqual(['لوحة التحكم', 'الأوردرات', 'المبتكرين', 'الحسابات', 'المخزون', 'المنتجات', 'خدمة العملاء', 'تذاكر الفريق', 'التقارير', 'التسويق', 'الموارد البشرية', 'الإعدادات']);
+  expect(await items.locator('> span:not(.soon)').allTextContents()).toEqual(['لوحة التحكم', 'الأوردرات', 'المبتكرين', 'الحسابات', 'المخزون', 'المنتجات', 'خدمة العملاء', 'الرد الآلي', 'تذاكر الفريق', 'التقارير', 'التسويق', 'الموارد البشرية', 'الإعدادات']);
   // phase 11: «الإعدادات» opened — nothing is closed with «soon» any more; a settings hash reaches the settings page (admin)
   await expect(page.locator('nav.sidebar .nav-item[data-soon]')).toHaveCount(0);
   await expect(page.locator('nav.sidebar .nav-item:not([data-soon])')).toHaveCount(13);

@@ -27,7 +27,7 @@ const SEED = () => ({
   tickets: [{ id: 5, type: 'customer', title: 'شكوى تأخير', description: 'x', priority: 'urgent', assignee_role: 'خدمة العملاء', status: 'open', created_by_name: 'أدمن', created_by_role: 'admin', created_at: NOW, last_update: NOW }],
   hr_requests: [{ id: 9, member_id: OPS, type: 'إجازة', from_day: '2026-11-12', to_day: '2026-11-13', status: 'جديد' }],
   acc_expenses: [{ id: '00000000-0000-4000-8000-0000000000e1', on_date: '2026-10-01', direction: 'withdraw', category: 'الاشتراكات', amount: 100, sub_name: 'Canva', sub_ends: '2026-11-05' }],
-  settings: [{ section: 'notif', data: { quiet: { days: 'الجمعة', hours: 'من 11:00 م إلى 9:00 ص', waMax: 'رسالتان في اليوم' }, whatsappTemplate: 'ibtekr_alert', accAlerts: { payDay: 25, lead: 3 } } }],
+  settings: [{ section: 'notif', data: { channels: { email: true, whatsapp: true }, quiet: { days: 'الجمعة', hours: 'من 11:00 م إلى 9:00 ص', waMax: 'رسالتان في اليوم' }, whatsappTemplate: 'ibtekr_alert', accAlerts: { payDay: 25, lead: 3 } } }],
 });
 function setup(opts: { seed?: any; now?: string; wa?: boolean; resend?: boolean; graphStatus?: number } = {}) {
   const graph: any[] = []; const mails: any[] = [];

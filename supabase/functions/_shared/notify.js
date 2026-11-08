@@ -187,8 +187,14 @@ const logPush = (log, entry) => { const l = Array.isArray(log) ? log.slice(-49) 
  *  in: { now (ISO), cairo { day, time }, notif, roles [{ id, name, permissions, sort }], members [{ id, role_id, manager_id, status, email, phone }],
  *       items [{ key, entityId, title, body, own?: { manager?, member? }, vendorPhone? }], state [alert_state rows], acted: Set('key|entity') }
  *  out: { alerts: [rows], state: [upserts], external: [{ ch: 'email'|'whatsapp', to: { member? , vendor? , contact }, title, body, key, entityId, target }], resolved: [{ source_key, entity_id }] } */
+// The outbound channels as a whole (owner, 8 Nov: «التنبيهات بتاعة السيستم بس»): the e-mail and WhatsApp sends — the types'
+// own «إيميل / واتساب» words, the vendor WhatsApp, the escalations and the digests — go out only while notif.channels.<ch> is
+// true (the two switches in «ساعات الهدوء»); missing = off. The bell rows are never affected.
+export const outboundOn = (notif) => { const c = notif && notif.channels && typeof notif.channels === 'object' ? notif.channels : {}; return { email: c.email === true, whatsapp: c.whatsapp === true }; };
+
 export function plan(input) {
   const { now, cairo, notif = {}, roles = [], members = [], items = [], state = [], acted = new Set() } = input;
+  const outb = outboundOn(notif);
   const nowMs = Date.parse(now); const quiet = quietNow(notif.quiet, cairo); const cap = waCap(notif.quiet && notif.quiet.waMax);
   const stMap = new Map(state.map((s) => [key3(s.source_key, s.entity_id, s.target), s]));
   const seen = new Set(); const alerts = []; const upserts = new Map(); const external = []; const resolved = [];
@@ -197,6 +203,7 @@ export function plan(input) {
   const stateOf = (k, e, t) => upserts.get(key3(k, e, t)) || stMap.get(key3(k, e, t)) || null;
   const touch = (k, e, t, patch) => { const cur = stateOf(k, e, t) || { source_key: k, entity_id: e, target: t, first_at: now, last_sent_at: null, sent_count: 0, escalated_at: null, resolved_at: null, channel_log: [] }; const next = { ...cur, ...patch }; upserts.set(key3(k, e, t), next); return next; };
   const sendOut = (ch, to, it, target, k, e, extra) => { // one external send, or its hold / cap, into the state's log
+    if (!outb[ch]) return; // the channel is off as a whole: nothing goes out, nothing is logged
     const contact = ch === 'email' ? to.email : to.phone; const label = to.member ? 'm:' + to.member : to.vendor ? 'v:' + to.vendor : target;
     const log = (status) => touch(k, e, target, { channel_log: logPush((stateOf(k, e, target) || {}).channel_log, { at: now, ch, to: label, status }) });
     if (!contact) { log('no_contact'); return; }
@@ -275,6 +282,7 @@ export function digestPlan(input) {
       out.push(row);
     }
   }
+  const outb = outboundOn(notif); for (const r of out) { if (!outb.email) r.email = false; if (!outb.whatsapp) r.whatsapp = false; }
   return out;
 }
 

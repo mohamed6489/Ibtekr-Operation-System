@@ -2,7 +2,7 @@
 // first send at once, repeats by the cadence at the Cairo clock time, the calendar cadences on their day; the quiet hours
 // hold the external channels only; the WhatsApp cap; the escalation after the time with no action; resolution; digests.
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { SOURCES, accessOf, calendarDue, digestPlan, escalationFor, parseAt, parseRule, plan, quietNow, receivers, roleIndex, ruleFor, sendDue, typeRules, waCap } from '../../supabase/functions/_shared/notify.js';
+import { SOURCES, accessOf, outboundOn, calendarDue, digestPlan, escalationFor, parseAt, parseRule, plan, quietNow, receivers, roleIndex, ruleFor, sendDue, typeRules, waCap } from '../../supabase/functions/_shared/notify.js';
 
 const ROLES = [
   { id: 'admin', name: 'أدمن', permissions: {}, sort: 1 },
@@ -20,7 +20,7 @@ const MEMBERS = [
 ];
 // Cairo = UTC+2 in November: 2026-11-08 is a Sunday; 10:00 Cairo = 08:00Z
 const NOW = '2026-11-08T08:00:00.000Z'; const CAIRO = { day: '2026-11-08', time: '10:00' };
-const NOTIF = { notif: [['عملاء', [['أوردر متأخر — محتاج متابعة مع العميل', 'حتى الإغلاق', 'داخل السيستم + واتساب', 'خدمة العملاء', true, 'لحد ما يتحل', 'كل 24 ساعة'], ['غير مؤكد من العميل', '3 أيام', 'داخل السيستم', 'خدمة العملاء', true]]],
+const NOTIF = { channels: { email: true, whatsapp: true }, notif: [['عملاء', [['أوردر متأخر — محتاج متابعة مع العميل', 'حتى الإغلاق', 'داخل السيستم + واتساب', 'خدمة العملاء', true, 'لحد ما يتحل', 'كل 24 ساعة'], ['غير مؤكد من العميل', '3 أيام', 'داخل السيستم', 'خدمة العملاء', true]]],
   ['المبتكرين', [['التقرير الأسبوعي للمبتكر', '7 أيام', 'داخل السيستم + واتساب', 'متابعة المبتكرين + المبتكر (واتساب)', true, 'مرة واحدة', 'أسبوعيًا', '10:00 ص', null, 'الأحد']]],
   ['مهام', [['تذكرة عاجلة / عالية', 'حتى الحل', 'داخل السيستم + واتساب', 'المسؤول عن التذكرة', true, 'لحد ما يتحل', 'كل 4 ساعات']]]],
   escalations: [{ type: 'غير مؤكد من العميل', after: '24 ساعة', to: ['مدير خدمة العملاء'], ch: 'داخل السيستم', on: true }, { type: 'تذكرة عاجلة بدون رد', after: '4 ساعات', to: ['دور أدمن'], ch: 'واتساب', on: true }],
@@ -161,4 +161,16 @@ test('digests: the role summary at its hour once a day with the sources it recei
   const weekly = { ...notif, digests: [{ id: 'w', name: 'أسبوعي', keys: ['customers.late'], to: ['أدمن'], every: 'أسبوعيًا', weekday: 'الأحد', at: '10:00 ص', ch: 'داخل السيستم' }] };
   assert.equal(digestPlan({ now: NOW, notif: weekly, roles: ROLES, members: MEMBERS, cairo: CAIRO, items, sentToday: new Set() }).filter((a) => a.source_key === 'digest:w').length, 1, 'Sunday');
   assert.equal(digestPlan({ now: NOW, notif: weekly, roles: ROLES, members: MEMBERS, cairo: { day: '2026-11-09', time: '10:00' }, items, sentToday: new Set() }).filter((a) => a.source_key === 'digest:w').length, 0, 'Monday');
+});
+
+test('the outbound channels are off as a whole unless the switches say so (owner, 8 Nov): no external send, no vendor WhatsApp, digests in the bell only', () => {
+  assert.deepEqual(outboundOn({}), { email: false, whatsapp: false }); assert.deepEqual(outboundOn({ channels: { email: true } }), { email: true, whatsapp: false });
+  const { channels: _c, ...off } = NOTIF;
+  const items = [{ key: 'customers.late', entityId: '1001', title: 'IB-1001' }, { key: 'vendors.weekly', entityId: 'v-1', title: 'تقرير', vendorId: 'v-1', vendorPhone: '01099999999' }];
+  const out = plan({ now: NOW, cairo: CAIRO, notif: off, roles: ROLES, members: MEMBERS, items, state: [], acted: new Set() });
+  assert.equal(out.alerts.length > 0, true, 'the bell rows go out'); assert.equal(out.external.length, 0); assert.equal(out.state.flatMap((s) => s.channel_log).length, 0, 'nothing logged either');
+  const onlyMail = plan({ now: NOW, cairo: CAIRO, notif: { ...off, channels: { email: true } }, roles: ROLES, members: MEMBERS, items, state: [], acted: new Set() });
+  assert.equal(onlyMail.external.some((x) => x.ch === 'whatsapp'), false, 'WhatsApp still off');
+  const dg = digestPlan({ now: NOW, notif: { ...off, roleDigests: {} }, roles: ROLES, members: MEMBERS, cairo: CAIRO, items, sentToday: new Set() });
+  assert.equal(dg.length > 0 && dg.every((r) => r.email === false && !r.whatsapp), true, 'the role digests stay in the bell');
 });

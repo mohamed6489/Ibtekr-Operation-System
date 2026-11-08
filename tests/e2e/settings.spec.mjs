@@ -128,6 +128,7 @@ test('the notifications row: toggling a type and the WhatsApp template save the 
   const n1 = settingsRow('notif').data;
   expect(n1.notif[0][1][0][4]).toBe(false);
   expect(n1.quiet.days).toBe('الجمعة'); expect(n1.whatsappTemplate).toBe('ibtekr_alert'); expect(n1.alertRoles).toEqual({});
+  expect(n1.channels).toEqual({ email: false, whatsapp: false }); // the outbound channels are off as a whole until the admin turns one on
   await page.getByRole('tab', { name: 'ساعات الهدوء' }).click();
   await page.locator('#q-wa-tpl').fill('ibtekr_alerts_v2');
   await page.getByRole('button', { name: 'حفظ', exact: true }).last().click();

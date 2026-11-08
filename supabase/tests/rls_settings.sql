@@ -183,7 +183,7 @@ begin
   begin perform public.app_secret_set('sync_secret', 'x'); raise exception 'case an unknown name is refused failed';
   exception when sqlstate '22023' then null; when sqlstate '0A000' then null; end;
   insert into public.alert_state (source_key, entity_id, target) values ('customers.late', '1', 'cs');
-  if (select sent_count from public.alert_state where source_key = 'customers.late') <> 0 then raise exception 'case engine memory failed'; end if;
+  if (select sent_count from public.alert_state where source_key = 'customers.late' and entity_id = '1' and target = 'cs') <> 0 then raise exception 'case engine memory failed'; end if; -- the test's own row: live already holds the engine's rows
 end $$;
 
 -- forced 2FA on the server: with «security».force2fa = true an aal1 session has no permission and is no admin (enrolled or not);

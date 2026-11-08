@@ -421,3 +421,33 @@ test('5.5: the records card header has the closed filter, the sort menu and the 
   await expect(page.locator('#pg-products .kpi').filter({ hasText: 'مسودات' })).toContainText('1'); // Macrame Feathers
   await expect.poll(() => mock.requests.filter((r) => /user_prefs/.test(r) && /POST/.test(r)).length).toBeGreaterThan(0);
 });
+
+// ---------------------------------------------------------------- phase 12 T2: «تكرار كمنتج جديد»
+
+test('duplicate (phase 12): the row menu → a confirm → one product_duplicate call; the copy (a draft, «(نسخة)», a new SKU) lands in the records and its edit page opens; ops (no products.add) is told', async ({ page }) => {
+  await openProducts(page);
+  await rowOf(page, 'Cushion').getByRole('button', { name: 'إجراءات Cushion' }).click();
+  await page.getByRole('menuitem', { name: 'تكرار كمنتج جديد' }).click();
+  await expect(page.locator('.modal')).toContainText('بـ SKU جديد من مسلسل الاستوديو');
+  await page.locator('.modal').getByRole('button', { name: 'اعمل النسخة' }).click();
+  await expect.poll(() => mock.products.some((p) => p.name === 'Cushion (نسخة)')).toBe(true);
+  const copy = mock.products.find((p) => p.name === 'Cushion (نسخة)'); // a new id after every mirror row (the Arabic rows included)
+  await expect(page).toHaveURL(new RegExp('#products-edit-' + copy.id + '$'));
+  expect(mock.productWrites.filter((w) => w.action === 'product_duplicate')).toEqual([expect.objectContaining({ id: 9001, by: ADMIN })]);
+  expect(mock.serialTakes).toEqual([1]);
+  expect([copy.status, copy.sku, copy.translation_ids]).toEqual(['draft', 'IBTA4040PAHC000013-0999', { en: copy.id, ar: copy.id + 1 }]);
+  await expect(page.locator('#pg-products')).toContainText('Cushion (نسخة)');
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'product.duplicate').map((a) => a.new_value)).toEqual(['#9001 #' + copy.id + ' · IBTA4040PAHC000013-0999']);
+  // back to the records: the copy is a draft row
+  await page.evaluate(() => { location.hash = '#products-records'; });
+  await expect(page.locator('#pg-products .pr-table')).toBeVisible();
+  await expect(rowOf(page, 'Cushion \\(نسخة\\)')).toContainText('مسودة');
+});
+
+test('duplicate (phase 12): a member without products.add (accounts) is told and nothing is sent', async ({ page }) => {
+  await openProducts(page, ACCOUNTS);
+  await rowOf(page, 'Cushion').getByRole('button', { name: 'إجراءات Cushion' }).click();
+  await page.getByRole('menuitem', { name: 'تكرار كمنتج جديد' }).click();
+  await expect(page.locator('.toast, [role=status]').filter({ hasText: 'إضافة منتجات' }).first()).toBeVisible();
+  expect((mock.productWrites || []).filter((w) => w.action === 'product_duplicate')).toEqual([]);
+});

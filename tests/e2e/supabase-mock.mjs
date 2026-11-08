@@ -2012,7 +2012,7 @@ export async function installSupabaseMock(page, opts = {}) {
         && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'order_trash' ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
-          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
+          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
       // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
       // mock.studioArFail = { [index]: true } refuses its Arabic translation only (arNote / arError on the result);
@@ -2094,6 +2094,21 @@ export async function installSupabaseMock(page, opts = {}) {
         const media = paths.map((_, i) => 9000 + (mock.productWrites.length * 10) + i);
         p.image_count = (p.image_count || 0) + paths.length; if (b.first === true && !p.image_url) p.image_url = 'https://ibtekr.stage.test/wp-content/uploads/ai.webp';
         return json(200, { action, result: 'ok', media, count: media.length, images: p.image_count });
+      }
+      // phase 12 T2: product_duplicate — a draft copy row (and its Arabic row) in the mirror under a new SKU from the serial; the gate
+      if (action === 'product_duplicate') {
+        mock.productWrites = mock.productWrites || []; mock.productWrites.push({ action, by: u.email, id: b.id });
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        const src = mock.products.find((x) => x.id === Number(b.id)); if (!src || mock.wooDown) return json(502, { error: 'woo_error' });
+        const serial = mock.skuSerial; mock.skuSerial += 1; mock.serialTakes.push(1);
+        const m = /^IBT([A-Z]{2})([A-Z]{2})?(\d{4,})(-\d+)?$/.exec(src.sku || ''); const sku = m ? 'IBT' + m[1] + (m[2] || '') + String(serial).padStart(4, '0') + (m[4] || '') : (src.sku ? src.sku + '-' + String(serial).padStart(4, '0') : null);
+        const nid = Math.max(...mock.products.map((x) => Number(x.id))) + 1;
+        const arSrc = src.translation_ids && src.translation_ids.ar ? mock.products.find((x) => x.id === src.translation_ids.ar) : null;
+        const arId = arSrc ? nid + 1 : null;
+        const copy = { ...src, id: nid, sku, name: src.name + ' (نسخة)', status: 'draft', permalink: null, total_sales: 0, translation_ids: arId ? { en: nid, ar: arId } : { en: nid }, raw: { id: nid }, updated_at: new Date().toISOString() };
+        mock.products.push(copy);
+        if (arSrc) mock.products.push({ ...arSrc, id: arId, sku, name: arSrc.name + ' (نسخة)', status: 'draft', permalink: null, total_sales: 0, translation_ids: { en: nid, ar: arId }, raw: { id: arId } });
+        return json(200, { action, result: 'ok', id: nid, sku, variations: src.type === 'variable' ? { done: 2, failed: 0 } : null, ar: arId, ar_code: null, author: 'ok' });
       }
       if (action === 'product_save' || action === 'products_batch' || action === 'products_vendor' || action === 'products_trash' || action === 'products_restore') {
         mock.productWrites = mock.productWrites || [];

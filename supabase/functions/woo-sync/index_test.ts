@@ -36,7 +36,7 @@ function setup({ seed = {}, routes = {}, env = {}, secretAnswer = (ok) => ok, fa
   const members: any[] = [];
   const userDb = (jwt: string) => {
     const m = MEMBERS[jwt];
-    const client = fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'orders.view' ? m.view ?? (m.perm === 'F' || m.perm === 'P' ? 'F' : 'N') : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : key === 'products.add' ? m.padd ?? 'N' : key === 'inventory.edit' ? m.iedit ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
+    const client = fakeDb({}, { rpc: m ? { sku_serial_take: () => 1234, has_perm: ({ key }: any) => (key === 'orders.status' ? m.perm : key === 'orders.view' ? m.view ?? (m.perm === 'F' || m.perm === 'P' ? 'F' : 'N') : key === 'vendors.edit' ? m.edit ?? 'N' : key === 'sensitive.commission' ? m.commission ?? 'N' : key === 'sensitive.vendor_bank' ? m.bank ?? 'N' : key === 'accounts.view' ? m.accounts ?? 'N' : key === 'accounts.approve' ? m.approve ?? 'N' : key === 'products.view' ? m.pview ?? 'N' : key === 'products.edit' ? m.pedit ?? 'N' : key === 'products.bulk' ? m.pbulk ?? 'N' : key === 'products.trash' ? m.ptrash ?? 'N' : key === 'products.add' ? m.padd ?? 'N' : key === 'inventory.edit' ? m.iedit ?? 'N' : 'N'), is_admin: () => m.admin } : {} });
     members.push({ jwt, client });
     return client;
   };
@@ -733,6 +733,75 @@ Deno.test('products_trash / products_restore: DELETE with no query at all (never
   const { woo: w2, deps: d2 } = setup({ seed: prodSeed, routes });
   assertEquals((await call(d2, { action: 'products_trash', ids: [501] }, { jwt: 'jwt-ptrash' })).body.reason, 'push_disabled');
   assertEquals(w2.calls.length, 0);
+});
+
+// ---------------------------------------------------------------- product_duplicate (phase 12 T2, decision 9)
+
+Deno.test('product_duplicate: products.add only; the copy posted as a draft with the source\'s data, media ids, categories, brands and attributes under a new studio SKU (the serial from the member\'s sku_serial_take); the maker before the variations; the variations under their SKUs; the Arabic translation linked; the mirror; the gate', async () => {
+  const src = wooProduct(501, 44, { sku: 'IBTAR0999', type: 'variable', lang: 'en', translations: { en: 501, ar: 601 }, description: '<p>d</p>', short_description: 's', regular_price: '', sale_price: '', manage_stock: false, stock_status: 'instock',
+    categories: [{ id: 20, name: 'Lamps' }], brands: [{ id: 7, name: 'Art Craft' }], tags: [], attributes: [{ id: 12, name: 'Color', position: 0, visible: true, variation: true, options: ['Beige', 'Black'] }], weight: '1', dimensions: { length: '10', width: '', height: '' } });
+  const posts: any[] = []; const puts: any[] = [];
+  const routes = {
+    'GET wc/v3/products/501': { body: src },
+    'GET wc/v3/products/501/variations': { body: [{ id: 5011, sku: 'IBTARBE0999', regular_price: '150', sale_price: '120', manage_stock: true, stock_quantity: 3, attributes: [{ id: 12, name: 'Color', option: 'Beige' }], image: { id: 2, src: 'x' } }, { id: 5012, sku: 'IBTARBK0999', regular_price: '150', sale_price: '120', manage_stock: false, stock_status: 'onbackorder', attributes: [{ id: 12, name: 'Color', option: 'Black' }] }] },
+    'GET wc/v3/products/601': { body: wooProduct(601, 44, { lang: 'ar', name: 'لمبة بوهو', sku: 'IBTAR0999', description: '<p>وصف</p>', attributes: [{ id: 12, name: 'اللون', position: 0, visible: true, variation: true, options: ['بيج', 'أسود'] }], translations: { en: 501, ar: 601 } }) },
+    'POST wc/v3/products': (c: any) => { posts.push(c.body); return c.body.wpml_language === 'ar' ? { body: { id: 901, lang: 'ar', translations: { en: 900, ar: 901 } } } : { body: wooProduct(900, 44, { sku: c.body.sku, type: 'variable', status: 'draft' }) }; },
+    'PUT dokan/v1/products/900': (c: any) => { puts.push([900, c.body]); return { body: { id: 900, post_author: String(c.body.post_author) } }; },
+    'PUT dokan/v1/products/901': (c: any) => { puts.push([901, c.body]); return { body: { id: 901, post_author: c.body.post_author } }; },
+    'POST wc/v3/products/900/variations/batch': (c: any) => ({ body: { create: c.body.create.map((_: any, i: number) => ({ id: 9100 + i })) } }),
+    'GET wc/v3/products/900': { body: wooProduct(900, 44, { sku: 'IBTAR1234', type: 'variable', status: 'draft', lang: 'en', translations: { en: 900, ar: 901 } }) },
+    'GET wc/v3/products/901': { body: wooProduct(901, 44, { sku: 'IBTAR1234', type: 'variable', status: 'draft', lang: 'ar', translations: { en: 900, ar: 901 } }) },
+  };
+  const { db, woo, members, deps } = setup({ seed: prodSeed, routes, env: WP_ENV });
+  assertEquals((await call(deps, { action: 'product_duplicate', id: 501 }, { jwt: 'jwt-pedit' })).res.status, 401, 'products.edit is not products.add');
+  assertEquals((await call(deps, { action: 'product_duplicate', id: 501 })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { action: 'product_duplicate', id: 'x' }, { jwt: 'jwt-padd' })).body.field, 'id');
+  const { res, body } = await call(deps, { action: 'product_duplicate', id: 501 }, { jwt: 'jwt-padd' });
+  assertEquals([res.status, body.result, body.id, body.sku, body.variations, body.ar, body.author], [200, 'ok', 900, 'IBTAR1234', { done: 2, failed: 0 }, 901, 'ok'], JSON.stringify(body));
+  // the serial came from the member's own client (the RPC checks products.add), one number
+  const padd = members.filter((m) => m.jwt === 'jwt-padd').at(-1).client;
+  assertEquals(padd.calls.filter((c: any) => c.op === 'rpc' && c.name === 'sku_serial_take').map((c: any) => c.args), [{ n: 1 }]);
+  // the copy: a draft with the source's data and the same media, under the new SKU; nothing of its identity
+  assertEquals(posts[0], { name: 'منتج 501 (نسخة)', type: 'variable', status: 'draft', description: '<p>d</p>', short_description: 's', manage_stock: false, stock_status: 'instock', weight: '1', categories: [{ id: 20 }], tags: [], images: [{ id: 1 }, { id: 2 }],
+    attributes: [{ id: 12, name: 'Color', position: 0, visible: true, variation: true, options: ['Beige', 'Black'] }], lang: 'en', wpml_language: 'en', brands: [{ id: 7 }], dimensions: { length: '10' }, sku: 'IBTAR1234' });
+  // the Arabic copy linked to the new product, no SKU of its own
+  assertEquals(posts[1], { name: 'لمبة بوهو (نسخة)', description: '<p>وصف</p>', short_description: '', attributes: [{ id: 12, name: 'اللون', position: 0, visible: true, variation: true, options: ['بيج', 'أسود'] }], type: 'variable', status: 'draft', lang: 'ar', wpml_language: 'ar', translation_of: 900 });
+  const vars = woo.calls.find((c) => c.path === 'wc/v3/products/900/variations/batch')!.body.create;
+  assertEquals(vars.map((v: any) => [v.sku, v.image?.id ?? null, v.manage_stock, v.stock_quantity ?? null, v.attributes]), [['IBTARBE1234', 2, true, 3, [{ id: 12, name: 'Color', option: 'Beige' }]], ['IBTARBK1234', null, false, null, [{ id: 12, name: 'Color', option: 'Black' }]]]);
+  assertEquals(puts, [[900, { post_author: 44 }], [901, { post_author: 44 }]]);
+  const order = woo.calls.filter((c) => c.method !== 'GET').map((c) => `${c.method} ${c.path}`);
+  assertEquals(order, ['POST wc/v3/products', 'PUT dokan/v1/products/900', 'POST wc/v3/products/900/variations/batch', 'POST wc/v3/products', 'PUT dokan/v1/products/901'], 'the maker before the variations');
+  assert(db.rows('products').some((p: any) => p.id === 900) && db.rows('products').some((p: any) => p.id === 901), 'the mirror takes both rows');
+  const log = db.rows('woo_sync_log').at(-1);
+  assertEquals([log.action, log.result, log.entity_id, log.detail.source, log.detail.sku, log.detail.variations, log.detail.ar], ['product_duplicate', 'ok', '900', 501, 'IBTAR1234', { done: 2, failed: 0 }, 901]);
+  assertFalse(woo.calls.some((c) => c.method === 'DELETE'));
+  // the gate
+  const off = setup({ seed: prodSeed, routes });
+  const sk = await call(off.deps, { action: 'product_duplicate', id: 501 }, { jwt: 'jwt-padd' });
+  assertEquals([sk.body.result, sk.body.reason, off.woo.calls.length], ['skipped', 'push_disabled', 0]);
+});
+
+Deno.test('product_duplicate: the Arabic row sent → copied from its English product; an unlinked Arabic answer is trashed (never force) and said; a simple product has no variations call; a refused product is 502 with a log row', async () => {
+  const posts: any[] = [];
+  const routes = {
+    'GET wc/v3/products/601': { body: wooProduct(601, 44, { lang: 'ar', name: 'كوباية', sku: 'MUG-1', type: 'simple', translations: { en: 501, ar: 601 } }) },
+    'GET wc/v3/products/501': { body: wooProduct(501, 44, { lang: 'en', name: 'Mug', sku: 'MUG-1', type: 'simple', regular_price: '100', sale_price: '80', manage_stock: true, stock_quantity: 5, translations: { en: 501, ar: 601 } }) },
+    'POST wc/v3/products': (c: any) => { posts.push(c.body); return c.body.wpml_language === 'ar' ? { body: { id: 901, lang: 'ar', translations: { ar: 901 } } } : { body: wooProduct(900, 44, { sku: c.body.sku, type: 'simple', status: 'draft' }) }; },
+    'PUT dokan/v1/products/900': (c: any) => ({ body: { id: 900, post_author: String(c.body.post_author) } }),
+    'DELETE wc/v3/products/901': { body: { id: 901, status: 'trash' } },
+    'GET wc/v3/products/900': { body: wooProduct(900, 44, { sku: 'MUG-1-1234', type: 'simple', status: 'draft', lang: 'en' }) },
+  };
+  const { woo, deps } = setup({ seed: prodSeed, routes, env: WP_ENV });
+  const { res, body } = await call(deps, { action: 'product_duplicate', id: 601 }, { jwt: 'jwt-padd' });
+  assertEquals([res.status, body.id, body.sku, body.variations, body.ar, body.ar_code, body.author], [200, 900, 'MUG-1-1234', null, null, 'not_linked', 'ok']);
+  assertEquals([posts[0].name, posts[0].sku, posts[0].regular_price, posts[0].stock_quantity, posts[1].translation_of], ['Mug (نسخة)', 'MUG-1-1234', '100', 5, 900]);
+  const del = woo.calls.filter((c) => c.method === 'DELETE'); assertEquals(del.map((c) => [c.path, c.query]), [['wc/v3/products/901', {}]], 'the orphan translation to the trash, never force');
+  assertFalse(woo.calls.some((c) => c.path.endsWith('/variations')));
+  // a refused product
+  const r2 = setup({ seed: prodSeed, routes: { 'GET wc/v3/products/501': routes['GET wc/v3/products/501'], 'POST wc/v3/products': { status: 400, body: { code: 'product_invalid_sku', message: 'x' } } }, env: WP_ENV });
+  const bad = await call(r2.deps, { action: 'product_duplicate', id: 501 }, { jwt: 'jwt-padd' });
+  assertEquals([bad.res.status, bad.body.result, bad.body.error], [502, 'error', 'product_invalid_sku']);
+  assertEquals(r2.db.rows('woo_sync_log').at(-1).result, 'error');
 });
 
 // ---------------------------------------------------------------- states (the site's governorate names)

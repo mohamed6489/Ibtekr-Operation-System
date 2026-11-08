@@ -97,7 +97,7 @@ test('batch / trash / restore: 25 a request one after the other with progress, f
 
 test('can + rateOf: products.edit / bulk / trash = F only; the maker rate when the rates are visible', async () => {
   const { P } = load({ perms: { 'products.view': 'P', 'products.edit': 'P', 'products.bulk': 'F', 'products.trash': 'F', 'sensitive.commission': 'F' } });
-  assert.deepEqual(plain(P.can()), { view: true, edit: false, bulk: true, trash: true, commission: true });
+  assert.deepEqual(plain(P.can()), { view: true, edit: false, bulk: true, trash: true, add: false, commission: true }); // add: phase 12 T2
   assert.equal(P.rateOf(V1), 25);
   assert.equal(P.rateOf('other'), null);
 });
@@ -122,4 +122,24 @@ test('commission (the owner\'s «Commission» column): the product\'s own Dokan 
   assert.equal(s2.calls.filter((c) => c.table === 'product_commissions').length, 0);
   assert.equal(P2.commissionOf(P2.get(501)), null);
   assert.equal(P2.commissionParams(P2.get(501)), null);
+});
+
+// ---------------------------------------------------------------- phase 12 T2: «تكرار كمنتج جديد»
+
+test('duplicate: woo-sync product_duplicate, the new rows read again, logged with the two ids and the SKU only; skipped / refused / forbidden answered; can().add = products.add', async () => {
+  const { P, stub, logs } = load({ perms: { 'products.view': 'F', 'products.add': 'F' }, responses: { 'fn:woo-sync': { data: { action: 'product_duplicate', result: 'ok', id: 900, sku: 'IBTAR1234', variations: { done: 2, failed: 0 }, ar: 901, ar_code: null, author: 'ok' }, error: null } } });
+  await P.load();
+  assert.equal(P.can().add, true);
+  const r = await P.duplicate(501);
+  assert.deepEqual(plain(r), { ok: true, result: 'ok', id: 900, sku: 'IBTAR1234', ar: 901, arCode: null, variations: { done: 2, failed: 0 }, author: 'ok' });
+  assert.deepEqual(stub.calls.filter((c) => c.op === 'invoke').at(-1).args, ['woo-sync', { body: { action: 'product_duplicate', id: 501 } }]);
+  assert.deepEqual(logs.at(-1).slice(0, 2), ['product.duplicate', '#501 #900 · IBTAR1234']);
+  assert.deepEqual(opsOf(stub.calls, 'products').filter((c) => c.op === 'in').at(-1).args, ['id', [900, 901]], 'the copy and its translation read into the mirror');
+  const sk = load({ responses: { 'fn:woo-sync': { data: { action: 'product_duplicate', result: 'skipped', reason: 'push_disabled' }, error: null } } });
+  assert.deepEqual(plain(await sk.P.duplicate(501)), { ok: true, result: 'skipped', reason: 'push_disabled' });
+  const fail = (status, body) => ({ data: null, error: { context: { status, json: async () => body } } });
+  assert.equal((await load({ responses: { 'fn:woo-sync': fail(502, { error: 'product_invalid_sku' }) } }).P.duplicate(501)).reason, 'refused');
+  assert.equal((await load({ responses: { 'fn:woo-sync': fail(502, { error: 'woo_error' }) } }).P.duplicate(501)).reason, 'woo_down');
+  assert.equal((await load({ responses: { 'fn:woo-sync': fail(401, {}) } }).P.duplicate(501)).reason, 'forbidden');
+  assert.equal(load().P.can().add, false);
 });

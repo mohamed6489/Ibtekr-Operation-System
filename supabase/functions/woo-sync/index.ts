@@ -95,6 +95,7 @@ import { vaultEnv } from '../_shared/secrets.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, toWoo, variationView } from '../_shared/woo-products.js';
 import { STUDIO_ATTRS, buildStudio, fetchSheetCsv, matchWooBrand } from '../_shared/woo-studio.js';
+import { duplicateAr, duplicatePayload, duplicateSku, duplicateVariation, variationSku } from '../_shared/woo-duplicate.js';
 import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
@@ -107,10 +108,10 @@ type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals', 'order_trash',
-  'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push'];
+  'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product
-const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push'];
+const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate'];
 const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
@@ -158,6 +159,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
   // phase 5.2 (decisions 7 / 8 / 13): the studio's upload, a new category and reading a sheet link need products.add = F
   if (action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet') return (await admin()) || (await perm('products.add')) ? 'member' : null;
+  // phase 12 T2 (decision 9): a copy of a product is a new product — products.add = F, like the studio
+  if (action === 'product_duplicate') return (await admin()) || (await perm('products.add')) ? 'member' : null;
   // phase 7 (decision 1 c): the site quantity from the hub — the admin, or inventory.edit = F AND products.edit = F (a person, never the
   // sync secret): a lot's mode and SKU are the member's own input, so pushing needs the right that already sets a product's stock
   if (action === 'inventory_push') return (await admin()) || ((await perm('inventory.edit')) && (await perm('products.edit'))) ? 'member' : null;
@@ -895,6 +898,78 @@ async function inventoryPush(run: Run, args: Json) {
   return json(200, { action: 'inventory_push', result: 'ok', counts, missing, failed });
 }
 
+// product_duplicate { id } (phase 12 T2, decision 9; the admin or products.add = F; WOO_PUSH_ENABLED): «تكرار كمنتج جديد» — a draft copy on
+// the site of the product as it is now: its texts, prices, stock, categories, brands, attributes and the same media (the ids), under a
+// new SKU from the studio's serial (sku_serial_take with the member's own client: the RPC checks products.add), then its variations
+// (each under its SKU on the new serial), then the Arabic translation (WPML, linked with translation_of — one that came back unlinked
+// is trashed, never force), then the maker (Dokan's post_author = the source's store) on both, like the studio. The mirror takes the
+// new rows. Names and counts in the log only.
+async function productDuplicate(run: Run, args: Json, member: Db | null) {
+  const srcId = wooId(args.id);
+  if (srcId === null) return json(400, { error: 'bad_request', field: 'id' });
+  if (!member) return json(401, { error: 'unauthorized' });
+  if (!pushEnabled(run.env)) return await pushSkip(run, 'product_duplicate', srcId, { source: srcId });
+  const ctx = await run.ctx();
+  let src = (await ctx.woo.get(`wc/v3/products/${srcId}`)).data as Json;
+  if (!isObj(src)) return json(502, { error: 'woo_error' });
+  // the Arabic row was sent: copy from its English product (the translation follows)
+  const en = isObj(src.translations) ? wooId(src.translations.en) : null;
+  if (src.lang === 'ar' && en !== null && en !== srcId) { const e = (await ctx.woo.get(`wc/v3/products/${en}`)).data; if (isObj(e)) src = e; }
+  const id = wooId(src.id) ?? srcId;
+  const arId = isObj(src.translations) ? wooId(src.translations.ar) : null;
+  const { data: serialRaw, error: serialErr } = await member.rpc('sku_serial_take', { n: 1 });
+  const serial = serialErr ? null : Number(serialRaw);
+  if (serial === null || !Number.isInteger(serial)) return json(serialErr?.code === '42501' ? 401 : 502, { error: serialErr?.code === '42501' ? 'unauthorized' : 'serial_failed' });
+  const sku = duplicateSku(src.sku, serial);
+  const entry = productEntry(null, 'product_duplicate');
+  const res: Json = { source: id, sku, product: null, ar: null, variations: null, author: null, error: null };
+  try {
+    const created = (await ctx.woo.post('wc/v3/products', duplicatePayload(src, { sku }))).data;
+    const newId = wooId(isObj(created) ? created.id : null);
+    if (newId === null) { res.error = 'product_refused'; }
+    else {
+      res.product = newId;
+      // the maker before the variations (a new variation takes its product's author — 5.2 decision 9); the answer checked, never trusted
+      const owner = wooId(isObj(src.store) ? src.store.id : null);
+      const authorOf = async (pid: number) => { try { return wooId(((await ctx.woo.put(`dokan/v1/products/${pid}`, { post_author: owner })).data as Json)?.post_author) === owner; } catch (e) { if (!(e instanceof WooError || e instanceof ConfigError)) throw e; return false; } };
+      let authored = owner === null ? true : await authorOf(newId);
+      if (src.type === 'variable') {
+        const vars = ((await ctx.woo.get(`wc/v3/products/${id}/variations`, { per_page: 100, page: 1 })).data ?? []) as Json[];
+        const create = vars.filter(isObj).map((v, i) => duplicateVariation(v, variationSku(v.sku, { serial, oldParent: src.sku, newParent: sku, n: i + 1 }))).filter(isObj);
+        if (create.length) {
+          const r = (await ctx.woo.post(`wc/v3/products/${newId}/variations/batch`, { create })).data;
+          const made = isObj(r) && Array.isArray(r.create) ? r.create : [];
+          const failed = made.filter((x: Json) => !isObj(x) || isObj(x.error) || wooId(x.id) === null).length + Math.max(0, create.length - made.length);
+          res.variations = { done: create.length - failed, failed };
+        } else res.variations = { done: 0, failed: 0 };
+      }
+      if (arId !== null && arId !== id) {
+        try {
+          const ar = (await ctx.woo.get(`wc/v3/products/${arId}`)).data;
+          if (isObj(ar)) {
+            const a = (await ctx.woo.post('wc/v3/products', duplicateAr(ar, { type: src.type, translationOf: newId }))).data;
+            const newAr = wooId(isObj(a) ? a.id : null);
+            const linked = isObj(a) && isObj(a.translations) && wooId(a.translations.en) === newId;
+            if (newAr !== null && !linked) { await ctx.woo.del(`wc/v3/products/${newAr}`); res.ar_code = 'not_linked'; }
+            else if (newAr !== null) { res.ar = newAr; if (owner !== null && !(await authorOf(newAr))) authored = false; }
+            else res.ar_code = 'refused';
+          }
+        } catch (e) { if (!(e instanceof WooError)) throw e; res.ar_code = wooCode(e); }
+      }
+      res.author = owner === null ? 'no_store' : authored ? 'ok' : 'failed';
+      const fresh = [(await ctx.woo.get(`wc/v3/products/${newId}`)).data];
+      if (res.ar) { try { fresh.push((await ctx.woo.get(`wc/v3/products/${res.ar}`)).data); } catch (e) { if (!(e instanceof WooError)) throw e; } }
+      await writeProducts(ctx, fresh.filter(isObj));
+    }
+  } catch (e) {
+    if (!(e instanceof WooError || e instanceof ConfigError)) throw e;
+    res.error = wooCode(e);
+  }
+  await logSync(run.db, { ...entry, entity_id: res.product == null ? String(id) : String(res.product), result: res.error ? 'error' : 'ok', detail: res });
+  if (res.error) return json(502, { action: 'product_duplicate', result: 'error', error: res.error, source: id });
+  return json(200, { action: 'product_duplicate', result: 'ok', id: res.product, sku, variations: res.variations, ar: res.ar, ar_code: res.ar_code ?? null, author: res.author });
+}
+
 async function productsTrash(run: Run, args: Json, restore: boolean) {
   const action = restore ? 'products_restore' : 'products_trash';
   const ids = idList(args.ids, PRODUCT_BATCH_MAX);
@@ -1238,6 +1313,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'category_create') return await categoryCreate(run, args);
     if (action === 'studio_sheet') return await studioSheet(args, deps.fetch);
     if (action === 'inventory_push') return await inventoryPush(run, args);
+    if (action === 'product_duplicate') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await productDuplicate(run, args, deps.userDb && jwt ? deps.userDb(jwt) : null); }
     if (action === 'product_images_add') {
       // who sends: the member's id (the paths must be of their folder) and whether they are the admin
       const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? '';

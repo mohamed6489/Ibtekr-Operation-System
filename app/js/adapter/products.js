@@ -127,7 +127,7 @@
       if (error || !data) {
         const s = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
-        const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 409 ? 'no_translation' : s === 502 ? 'woo_down' : 'network';
+        const reason = s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 409 ? 'no_translation' : s === 502 ? (b && b.error && b.error !== 'woo_error' ? 'refused' : 'woo_down') : 'network';
         return { ok: false, reason, field: b && b.field ? String(b.field) : null, error: b && b.error ? String(b.error) : null };
       }
       return { ok: true, body: data };
@@ -208,8 +208,21 @@
     return out;
   }
 
+  // phase 12 T2 (decision 9): «تكرار كمنتج جديد» — woo-sync product_duplicate (products.add = F, WOO_PUSH_ENABLED): a draft copy on the site with
+  // the source's data, media, categories, brands, attributes, variations and Arabic translation under a new studio SKU; the mirror takes
+  // the new rows → { ok, result: 'ok' | 'skipped', id, sku, ar, variations, author } · logged as product.duplicate (the two ids and the SKU)
+  async function duplicate(id) {
+    const r = await invoke({ action: 'product_duplicate', id: Number(id) });
+    if (!r.ok) return r;
+    if (r.body.result === 'skipped') return { ok: true, result: 'skipped', reason: r.body.reason };
+    const newId = Number(r.body.id) || null;
+    logged('product.duplicate', [Number(id)].concat(newId ? [newId] : []), [String(r.body.sku || '')]);
+    await refresh([newId, Number(r.body.ar) || null].filter(Boolean));
+    return { ok: true, result: 'ok', id: newId, sku: r.body.sku || '', ar: Number(r.body.ar) || null, arCode: r.body.ar_code || null, variations: r.body.variations || null, author: r.body.author || null };
+  }
+
   // ---------- who may ----------
-  const can = () => ({ view: perm('products.view') !== 'N', edit: perm('products.edit') === 'F', bulk: perm('products.bulk') === 'F', trash: perm('products.trash') === 'F', commission: perm('sensitive.commission') === 'F' });
+  const can = () => ({ view: perm('products.view') !== 'N', edit: perm('products.edit') === 'F', bulk: perm('products.bulk') === 'F', trash: perm('products.trash') === 'F', add: perm('products.add') === 'F', commission: perm('sensitive.commission') === 'F' });
   // Dokan's admin commission on a product (decision 12, the owner's «Commission» column): the product's own commission when set,
   // else its store's — for a category_based store the nearest category (or ancestor) with a figure, else the store's default —
   // percentage of the sale price + the flat fee. → { amount, rate, fee, source } or null (no price / no visible rate).
@@ -280,6 +293,6 @@
     brands: () => [...brands.values()].map((x) => ({ id: Number(x.id), name: x.name })),
     // phase 5.2: a category the studio just made on the site (category_create) shows at once
     addCategory: (row) => { cats.set(Number(row.id), { id: Number(row.id), name: row.name, parent_id: row.parent_id || null }); emit({ categories: true }); },
-    fetchLive, save, batch, trashIds: (ids, onProgress) => moveTrash(ids, false, onProgress), restore: (ids, onProgress) => moveTrash(ids, true, onProgress),
+    fetchLive, save, batch, duplicate, trashIds: (ids, onProgress) => moveTrash(ids, false, onProgress), restore: (ids, onProgress) => moveTrash(ids, true, onProgress),
   };
 })();

@@ -1004,6 +1004,24 @@ select created_at, source, label, status, cost_usd, output -> 'actions', output 
 select action, new_value from public.activity_log where action like 'assistant.%' order by at desc limit 10;   -- أسماء أدوات بس
 ```
 
+#### 2.7.34 تكرار كمنتج جديد (المرحلة 12 T2، 9 نوفمبر)
+
+الخطة (قراران 2 و9) `docs/superpowers/plans/2026-11-08-phase-12-followups.md`. **مافيش migration ولا سر جديد.**
+
+**أ) الكود:** `_shared/woo-duplicate.js` (الصافي: الـ SKU الجديد بنفس قاعدة الاستوديو `IBT` + البراند + اللون + المسلسل الجديد + المقاس؛ SKU مش من
+الاستوديو بياخد `-المسلسل`؛ الـ payload بالبيانات والصور (نفس الـ media ids) والأقسام والبراندات والخصائص؛ التركيبات؛ الترجمة العربي) · woo-sync action
+**`product_duplicate { id }`** (الأدمن أو `products.add = F`، `WOO_PUSH_ENABLED`): GET المنتج (الصف العربي بيتنسخ من الإنجليزي بتاعه) → المسلسل
+بـ `sku_serial_take(1)` **بعميل العضو نفسه** → POST مسودة → المبتكر `post_author` من متجر المصدر (قبل التركيبات) → التركيبات بالـ batch →
+الترجمة العربي بـ `translation_of` (اللي رجعت مش مربوطة بتتحط في المهملات من غير `force`) → المرآة. `IBProducts.duplicate` + «تكرار كمنتج جديد» في
+قايمة الصف وصفحة المنتج (تأكيد ثم فتح صفحة النسخة). `activity_log` `product.duplicate` بالرقمين والـ SKU بس.
+
+**ب) على Supabase:** «Deploy functions»: `woo-sync`. الواجهة: push على `main`.
+
+**التحقق:**
+```sql
+select at, entity_id, result, detail from public.woo_sync_log where action = 'product_duplicate' order by at desc limit 10;
+```
+
 #### 2.7.31 صفحة الإعدادات — المفاتيح والمزوّدين والتنبيهات والفريق (المرحلة 11، 7 نوفمبر)
 
 الخطة (قرارات 1–32) `docs/superpowers/plans/2026-11-07-phase-11-settings.md`، والدفتر `.superpowers/sdd/2026-11-07-phase-11-settings/progress.md`.

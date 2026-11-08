@@ -180,7 +180,7 @@
         h('span', { class: 'sales-cell', 'data-sales': String(p.sales), title: 'اتباع ' + p.sales + ' مرة' }, p.sales ? K.Num(K.n0(p.sales)) : h('span', { class: 'help' }, '—')),
         Tag(STATUS_TONE[p.status] || 'neutral', p.status),
         K.RowMenu([{ label: 'تعديل', icon: 'sliders', run: () => go('products-edit-' + p.id) }, p.permalink ? { label: 'افتح على الموقع', icon: 'link', run: () => openSite(p.permalink) } : null,
-          { label: 'تكرار كمنتج جديد', icon: 'copy', run: () => K.toast('التكرار مع استوديو المنتجات — soon') },
+          { label: 'تكرار كمنتج جديد', icon: 'copy', run: () => duplicate(p) },
           C.edit ? { label: 'نقل لبراند تاني', icon: 'tag', run: () => moveBrand([p]) } : null,
           C.bulk ? { label: 'نقل لمبتكر تاني', icon: 'users', run: () => moveVendor([p]) } : null,
           C.edit ? (p.wooStatus === 'publish' ? { label: 'تحويل لمسودة', icon: 'eyeoff', run: () => toDraft([p]) } : { label: 'نشر', icon: 'eye', run: () => publish([p]) }) : null,
@@ -239,6 +239,16 @@
       onOk: () => write((pg) => PR().trashIds(l.map((p) => p.id), pg), 'اتنقلوا للمهملات', null, l.length) });
   }
   function restore(l) { write((pg) => PR().restore(l.map((p) => p.id), pg), 'رجعوا كمسودة', null, l.length); }
+  // phase 12 T2 (decision 2): «تكرار كمنتج جديد» — a draft copy on the site (woo-sync product_duplicate, products.add) under a new studio SKU, then its edit page
+  function duplicate(p) {
+    if (!can().add) { K.toast('مش مسموحلك تضيف منتجات — اطلب صلاحية «إضافة منتجات»', 'error'); return; }
+    K.confirm({ title: 'تكرار «' + nameOf(p) + '» كمنتج جديد؟', text: 'هتتعمل نسخة مسودة على الموقع بنفس البيانات والصور والأقسام والتركيبات والترجمة العربي، بـ SKU جديد من مسلسل الاستوديو، وعلى نفس المبتكر. الاسم هيبقى «' + nameOf(p) + ' (نسخة)» لحد ما تغيّره.', okLabel: 'اعمل النسخة',
+      onOk: async () => {
+        let made = null;
+        const ok = await write(async () => { const r = await PR().duplicate(p.id); if (r.ok && r.result === 'ok') made = r; return Object.assign({ failedIds: [] }, r); }, 'اتعملت النسخة كمسودة', null, 1);
+        if (ok && made && made.id) { if (made.arCode) K.toast('الترجمة العربي ماتعملتش للنسخة (' + made.arCode + ') — ضيفها من صفحة المنتج.', 'error'); go('products-edit-' + made.id); }
+      } });
+  }
   function moveBrand(l) {
     const brands = PR().brands().slice().sort((a, b) => a.name.localeCompare(b.name));
     K.form({ title: 'نقل ' + (l.length === 1 ? 'منتج' : l.length + ' منتجات') + ' لبراند تاني', values: { brand: '' }, submitLabel: 'انقل المنتجات',
@@ -489,7 +499,7 @@
     const meta = h('div', { class: 'meta' }, h('span', { dir: 'ltr', class: 't-small' }, p.sku || '—'), h('span', { class: 't-small help' }, '· ' + ((rec && rec.vendor) || (p.store && p.store.shop_name) || '—')), Tag(STATUS_TONE[status] || 'neutral', status),
       p.modified ? h('span', { class: 't-small help' }, 'آخر تعديل على الموقع ' + K.dshort(p.modified.slice(0, 10))) : null);
     const acts = [p.permalink ? Button({ label: 'افتح على الموقع', icon: 'link', onClick: () => openSite(p.permalink) }) : null,
-      rec ? K.RowMenu([{ label: 'تكرار كمنتج جديد', icon: 'copy', run: () => K.toast('التكرار مع استوديو المنتجات — soon') }, C.edit ? { label: 'نقل لبراند تاني', icon: 'tag', run: () => moveBrand([rec]) } : null,
+      rec ? K.RowMenu([{ label: 'تكرار كمنتج جديد', icon: 'copy', run: () => duplicate(rec) }, C.edit ? { label: 'نقل لبراند تاني', icon: 'tag', run: () => moveBrand([rec]) } : null,
         C.edit ? (p.status === 'publish' ? { label: 'تحويل لمسودة', icon: 'eyeoff', run: () => toDraft([rec]) } : { label: 'نشر', icon: 'eye', run: () => publish([rec]) }) : null,
         C.trash ? { label: 'مسح', icon: 'trash', danger: true, run: () => toTrash([rec]) } : null], 'إجراءات المنتج') : null,
       C.edit ? Button({ type: 'primary', label: st.saving ? 'بنحفظ…' : 'احفظ على الموقع', disabled: st.saving, attrs: { 'data-psave': '' }, onClick: save }) : null];

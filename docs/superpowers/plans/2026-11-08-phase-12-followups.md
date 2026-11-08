@@ -42,7 +42,7 @@
 ## المهام (بالتوالي)
 
 - [x] T1 المساعد: `0059` + `_shared/ai-assistant.js` + `ai-content` `assistant` + `IBAI.assistant` + الكتلة 28 + mock + اختبارات + lock. (النشر `tools/deploy.md` §2.7.33)
-- [ ] T2 تكرار المنتج: woo-sync `product_duplicate` + `IBProducts.duplicate` + الصفحة + اختبارات.
+- [x] T2 تكرار المنتج: woo-sync `product_duplicate` + `IBProducts.duplicate` + الصفحة + اختبارات. (النشر `tools/deploy.md` §2.7.34)
 - [ ] T3 القوائم: `status_rename` + صف `lists` + الكتلة 17 (+ الصفحات اللي بتقرا الأسباب) + اختبارات.
 - [ ] T4 التصدير: `settings-admin` `export` + الكتلة 17 + اختبارات.
 - [ ] T5 الحضور: migration لوحدها (`0060`) سياسة `presence` + `IBDirectory.online` + 25/20 + اختبارات.

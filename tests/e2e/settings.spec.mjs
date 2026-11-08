@@ -212,3 +212,30 @@ test('force 2FA (the row «security»): a member without 2FA is sent to «ملف
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('#profile-security');
   expect(await page.evaluate(() => window.IBShell.idleMinutes())).toBe(240);
 });
+
+// ---------------------------------------------------------------- phase 12 T3: the saved reason lists (decision 10)
+
+test('lists (phase 12): the statuses stay a view; the cancel reasons are saved to the row «lists» (add / remove, «أخرى» pinned last) and the orders page\'s cancel popup offers them', async ({ page }) => {
+  await signIn(page, ADMIN); await openSettings(page, 'lists');
+  await expect(page.locator('#pg-settings')).toContainText('مربوطة بالموقع (status_map)');
+  await page.getByRole('tab', { name: 'أسباب الإلغاء والمسح' }).click();
+  await expect(page.locator('#pg-settings [data-reason="العميل لغى الطلب"]')).toBeVisible(); // block 12's default before anything is saved
+  await page.locator('[data-reason-add="cancel"]').click();
+  await page.fill('.modal input', 'العميل عايز يعدل الأوردر');
+  await page.locator('.modal').getByRole('button', { name: 'إضافة' }).click();
+  await expect.poll(() => (settingsRow('lists') || {}).data).toEqual({ cancel: ['العميل لغى الطلب', 'العميل مش بيرد / مش متاح', 'المبتكر مش هيقدر ينفذ', 'المنتج خلص / مش متاح', 'مصاريف الشحن عالية', 'أوردر مكرر', 'العميل عايز يعدل الأوردر'], returns: ['العميل رفض الاستلام', 'العميل غيّر رأيه', 'فيه عيب', 'مقاس/لون غلط', 'وصل متأخر', 'اتكسر في الشحن'] });
+  await expect(page.locator('#pg-settings [data-reason="العميل عايز يعدل الأوردر"]')).toBeVisible();
+  // remove a default one
+  const row = page.locator('#pg-settings tr').filter({ has: page.locator('[data-reason="أوردر مكرر"]') });
+  await row.locator('button[aria-haspopup=menu]').click();
+  await page.getByRole('menuitem', { name: 'حذف' }).click();
+  await page.locator('.modal').getByRole('button', { name: 'حذف', exact: true }).click();
+  await expect.poll(() => (settingsRow('lists') || {}).data.cancel).not.toContain('أوردر مكرر');
+  await expect.poll(() => page.evaluate(() => window.IBSettings.section('lists').cancel)).not.toContain('أوردر مكرر'); // the adapter's own state follows the answer
+  await expect(page.locator('#pg-settings [data-reason="أخرى"]')).toBeVisible();
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'settings.lists.save').length).toBeGreaterThan(0);
+  expect(JSON.stringify(mock.activity.filter((a) => a.action === 'settings.lists.save'))).not.toContain('العميل');
+  // the orders page reads the saved list (the public slice after a fresh sign-in)
+  const lists = await page.evaluate(() => window.IBSettings.lists());
+  expect(lists.cancel.at(-1)).toBe('أخرى'); expect(lists.cancel).toContain('العميل عايز يعدل الأوردر'); expect(lists.cancel).not.toContain('أوردر مكرر');
+});

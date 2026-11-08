@@ -17,14 +17,16 @@
   const reload = () => { if (live()) A().load().then(rerenderInv); };
   const told = (p, okMsg) => Promise.resolve(p).then((r) => { if (r && r.ok) { if (okMsg) K.toast(okMsg, 'success'); } else K.toast(r && r.reason === 'forbidden' ? 'المخزن ماتحدّثش — الصلاحية دي مش عندك' : 'المخزن ماتحدّثش — جرّب تاني', 'error'); reload(); return r || { ok: false }; });
 
+  // phase 12 T3 (decision 10): the reasons of the settings page («القوائم والحالات») when saved, else block 12's defaults
+  const reasonsOf = (k) => { const S0 = window.IBSettings; const L = S0 && S0.lists ? S0.lists() : null; return L && Array.isArray(L[k]) && L[k].length ? L[k] : (k === 'cancel' ? O.CANCEL_REASONS : O.RETURN_REASONS); };
   function returnPopup(info, ok) {
-    const toStock = info.status === 'مرتجع للمخزن';
+    const toStock = info.status === 'مرتجع للمخزن'; const RR = reasonsOf('returns');
     K.form({ title: info.status + ' — فرعي #' + info.sid, values: { date: K.TODAY },
       note: U.InlineNote({ children: info.prod + ' · ' + info.vendor + ' · IB-' + info.order + ' · ' + K.money(info.tot) + ' ج.م' }),
-      fields: (f, e, set) => [K.field.select('reason', 'سبب المرتجع', O.RETURN_REASONS, f, e, set, { required: true }), f.reason === 'أخرى' ? K.field.area('other', 'اكتب السبب', f, e, set, { required: true }) : null, K.field.date('date', 'تاريخ المرتجع', f, e, set, { required: true }),
+      fields: (f, e, set) => [K.field.select('reason', 'سبب المرتجع', RR, f, e, set, { required: true }), f.reason === 'أخرى' ? K.field.area('other', 'اكتب السبب', f, e, set, { required: true }) : null, K.field.date('date', 'تاريخ المرتجع', f, e, set, { required: true }),
         U.InlineNote({ kind: 'warning', children: toStock ? 'الأثر: القطعة هتتسجل في المخزن «مرتجع — بانتظار الفحص»' + (S.invSettings.returnsInspect ? ' (لازم تتفحص خلال ' + S.invSettings.returnsInspect + ' ساعة)' : '') + ' وقيمتها تتشال من مبيعات الأوردر لحد قرار الفحص.' : 'الأثر: حصة المبتكر في الفرعي ده بس هتتلغي (' + K.money(info.tot) + ' ج.م) والقطعة هترجع للمبتكر مباشرة — باقي الأوردر زي ما هو.' }),
         K.field.area('note', 'ملاحظة', f, e, set, { placeholder: 'اختياري' })],
-      validate: (f) => { const err = O.validateReturn({ reason: f.reason, other: f.other }); const e = {}; if (err) e[err === 'اكتب السبب' ? 'other' : 'reason'] = err; if (!f.date) e.date = 'اختار التاريخ'; return e; },
+      validate: (f) => { const err = O.validateReturn({ reason: f.reason, other: f.other }, RR); const e = {}; if (err) e[err === 'اكتب السبب' ? 'other' : 'reason'] = err; if (!f.date) e.date = 'اختار التاريخ'; return e; },
       submitType: toStock ? 'primary' : 'danger', submitLabel: 'تسجيل ' + info.status,
       submit: (f) => {
         const reason = f.reason === 'أخرى' ? 'أخرى: ' + f.other.trim() : f.reason;
@@ -41,13 +43,13 @@
   // Main order → «استرجاع» or «ملغي» (owner 22 Oct): reason popup (reason + date + note), «تأكيد» / «ليس الآن».
   // The reasons feed the «أوردرات ملغية» report.
   function orderReasonPopup(info, ok) {
-    const cancel = info.kind === 'ملغي'; const word = cancel ? 'الإلغاء' : 'الاسترجاع';
+    const cancel = info.kind === 'ملغي'; const word = cancel ? 'الإلغاء' : 'الاسترجاع'; const RS = reasonsOf(cancel ? 'cancel' : 'returns');
     K.form({ title: (cancel ? 'إلغاء' : 'استرجاع') + ' — IB-' + info.order, values: { date: K.TODAY },
       note: U.InlineNote({ children: info.name + ' · IB-' + info.order + ' · ' + K.money(info.tot) + ' ج.م · ' + info.subs + ' أوردر فرعي · الحالة الحالية «' + (info.from || '—') + '»' }),
-      fields: (f, e, set) => [K.field.select('reason', 'سبب ' + word, cancel ? O.CANCEL_REASONS : O.RETURN_REASONS, f, e, set, { required: true }), f.reason === 'أخرى' ? K.field.area('other', 'اكتب السبب', f, e, set, { required: true }) : null, K.field.date('date', 'تاريخ ' + word, f, e, set, { required: true }),
+      fields: (f, e, set) => [K.field.select('reason', 'سبب ' + word, RS, f, e, set, { required: true }), f.reason === 'أخرى' ? K.field.area('other', 'اكتب السبب', f, e, set, { required: true }) : null, K.field.date('date', 'تاريخ ' + word, f, e, set, { required: true }),
         U.InlineNote({ kind: 'warning', children: cancel ? 'الأثر: الأوردر هيتقفل كـ «ملغي» وقيمته (' + K.money(info.tot) + ' ج.م) مش هتتحسب في المبيعات. السبب بيظهر في تقارير الأوردرات › أوردرات ملغية.' : 'الأثر: الأوردر هيتقفل كـ «استرجاع» وقيمته (' + K.money(info.tot) + ' ج.م) تتشال من المبيعات. الأوردرات الفرعية اللي هترجع للمخزن أو للمبتكر تتسجل من حالة كل فرعي.' }),
         K.field.area('note', 'ملاحظة', f, e, set, { placeholder: 'اختياري' })],
-      validate: (f) => { const err = cancel ? O.validateCancel({ reason: f.reason, other: f.other }) : O.validateReturn({ reason: f.reason, other: f.other }); const e = {}; if (err) e[err === 'اكتب السبب' ? 'other' : 'reason'] = err === 'اختار سبب المرتجع' ? 'اختار سبب الاسترجاع' : err; if (!f.date) e.date = 'اختار التاريخ'; return e; },
+      validate: (f) => { const err = cancel ? O.validateCancel({ reason: f.reason, other: f.other }, RS) : O.validateReturn({ reason: f.reason, other: f.other }, RS); const e = {}; if (err) e[err === 'اكتب السبب' ? 'other' : 'reason'] = err === 'اختار سبب المرتجع' ? 'اختار سبب الاسترجاع' : err; if (!f.date) e.date = 'اختار التاريخ'; return e; },
       submitType: 'danger', submitLabel: 'تأكيد', cancelLabel: 'ليس الآن',
       submit: (f) => { const reason = f.reason === 'أخرى' ? 'أخرى: ' + f.other.trim() : f.reason; K.logEvent(cancel ? 'order.cancel' : 'order.refund', 'IB-' + info.order + ' · ' + reason); ok({ reason, date: f.date, note: f.note || '' }); K.toast('IB-' + info.order + (cancel ? ' اتلغى — ' : ' اتسجل استرجاع — ') + reason, 'success'); document.dispatchEvent(new CustomEvent('ib:notify')); } });
   }

@@ -1022,6 +1022,23 @@ select action, new_value from public.activity_log where action like 'assistant.%
 select at, entity_id, result, detail from public.woo_sync_log where action = 'product_duplicate' order by at desc limit 10;
 ```
 
+#### 2.7.35 قوائم الإعدادات — أسباب الإلغاء والمرتجع المحفوظة (المرحلة 12 T3، 9 نوفمبر)
+
+الخطة (قراران 3 و10 — معدّل) `docs/superpowers/plans/2026-11-08-phase-12-followups.md`.
+
+**أ) الكود:** `0060_settings_lists.sql` (`settings_public()` بيرجّع `lists` من صف `settings` قسم «lists» — `cancel` / `returns` بس) + حالة في
+`supabase/tests/rls_settings.sql` · `IBSettings.lists()` / `saveLists()` (الأدمن؛ 1–30 سبب، 60 حرف، من غير تكرار؛ «أخرى» دايمًا آخر عنصر) · الكتلة 17
+(تاب «أسباب الإلغاء والمسح» و«أسباب المرتجع» قابلين للتعديل — إضافة / تعديل / ترتيب / حذف؛ **حالات الأوردر فضلت عرض بس** لأن `accounts_sales` و
+`products_report` و`order_delete` والرد الآلي والتقارير بيقروها بالاسم؛ و«اللغة والمنطقة» بقت ثوابت معروضة بدل اختيارات وهمية) · الكتلة 22 (بوب أب
+الإلغاء / الاسترجاع / المرتجع بيقرا القايمة المحفوظة) · الكتلة 12 (`validateCancel` / `validateReturn` بتقبل القايمة). **مافيش سر جديد.**
+
+**ب) على Supabase:** `0060` (MCP `apply_migration` مرة واحدة؛ لو وقف = الـ SQL كله لصاحب المشروع) → «RLS live» بـ `files = rls_settings` → الواجهة على `main`.
+
+**التحقق:**
+```sql
+select data from public.settings where section = 'lists';
+```
+
 #### 2.7.31 صفحة الإعدادات — المفاتيح والمزوّدين والتنبيهات والفريق (المرحلة 11، 7 نوفمبر)
 
 الخطة (قرارات 1–32) `docs/superpowers/plans/2026-11-07-phase-11-settings.md`، والدفتر `.superpowers/sdd/2026-11-07-phase-11-settings/progress.md`.

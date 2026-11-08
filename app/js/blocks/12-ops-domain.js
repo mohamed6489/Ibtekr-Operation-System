@@ -227,8 +227,9 @@
     return { groups, total: groups.reduce((t, g) => t + g.count, 0) };
   }
   const CANCEL_REASONS = Object.freeze(['العميل لغى الطلب', 'العميل مش بيرد / مش متاح', 'المبتكر مش هيقدر ينفذ', 'المنتج خلص / مش متاح', 'مصاريف الشحن عالية', 'أوردر مكرر', 'أخرى']);
-  function validateCancel({ reason, other }) { if (!reason) return 'اختار سبب الإلغاء'; if (reason === 'أخرى' && !String(other || '').trim()) return 'اكتب السبب'; return null; }
-  function validateReturn({ reason, other }) { if (!reason) return 'اختار سبب المرتجع'; if (reason === 'أخرى' && !String(other || '').trim()) return 'اكتب السبب'; return null; }
+  // phase 12 T3: the reasons may come from the settings' saved list (IBSettings.lists) — a reason outside the list given is refused like none
+  function validateCancel({ reason, other }, list) { if (!reason || (Array.isArray(list) && !list.includes(reason))) return 'اختار سبب الإلغاء'; if (reason === 'أخرى' && !String(other || '').trim()) return 'اكتب السبب'; return null; }
+  function validateReturn({ reason, other }, list) { if (!reason || (Array.isArray(list) && !list.includes(reason))) return 'اختار سبب المرتجع'; if (reason === 'أخرى' && !String(other || '').trim()) return 'اكتب السبب'; return null; }
 
   // ---------- tasks ----------
   const TASK_STATUSES = ['لسه', 'جاري', 'متوقفة', 'جاهزة للمراجعة', 'خلصت', 'اتأجلت'];

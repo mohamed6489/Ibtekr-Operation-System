@@ -239,3 +239,19 @@ test('lists (phase 12): the statuses stay a view; the cancel reasons are saved t
   const lists = await page.evaluate(() => window.IBSettings.lists());
   expect(lists.cancel.at(-1)).toBe('أخرى'); expect(lists.cancel).toContain('العميل عايز يعدل الأوردر'); expect(lists.cancel).not.toContain('أوردر مكرر');
 });
+
+// ---------------------------------------------------------------- phase 12 T4: the full export replaces the demo «حذف بيانات الشركة»
+
+test('data (phase 12): no «حذف بيانات الشركة» any more; «تصدير نسخة كاملة» confirms, writes one workbook and logs the sheets with their counts only', async ({ page }) => {
+  await signIn(page, ADMIN); await openSettings(page, 'data');
+  await expect(page.locator('#pg-settings')).not.toContainText('حذف بيانات الشركة');
+  await expect(page.locator('#pg-settings')).not.toContainText('منطقة الخطر');
+  const dl = page.waitForEvent('download');
+  await page.locator('[data-full-export]').click();
+  await expect(page.locator('.modal')).toContainText('من غير البيانات الحساسة');
+  await page.locator('.modal').getByRole('button', { name: 'صدّر الملف' }).click();
+  const file = await dl; expect(file.suggestedFilename()).toMatch(/^ibtekr-full-\d{4}-\d{2}-\d{2}\.xlsx$/);
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'settings.export.full').length).toBe(1);
+  const detail = mock.activity.find((a) => a.action === 'settings.export.full').new_value;
+  expect(detail).toMatch(/orders:\d+/); expect(detail).not.toMatch(/01[0-9]{9}/);
+});

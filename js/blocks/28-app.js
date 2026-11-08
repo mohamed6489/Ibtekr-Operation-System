@@ -882,7 +882,7 @@
         else if (i.kind === 'vendor') { const v = aiVendorName(i.vendor); if (!v) throw new Error('unknown vendor'); cmd = { type: 'addVendorMove', ...base, vendor: v, vendorType: i.vendorType || 'عربون', otherName: '' }; }
         else cmd = { type: 'addAccountMove', ...base, account: i.account || '' };
         const b = aiBuild(cmd); if (b.error) throw new Error(b.error);
-        ai.msgs.push({ role: 'ai', text: 'راجع الحركة دي وأكّد:', confirm: cmd }); aiDraw();
+        ai.msgs.push({ role: 'ai', text: 'الـ AI جهّز الحركة دي من كلامك — راجعها وأكّد (مفيش حاجة اتسجلت لسه):', confirm: cmd }); aiDraw();
         return 'confirm card shown';
       },
     };

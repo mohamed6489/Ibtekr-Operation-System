@@ -15,6 +15,9 @@
 //   campaigns  { id, name, segId, seg (the segment's name), channel, from (the channel's name), body, imagePath, discountCode,
 //                scheduledAt, capPerDay, minDelayS, status, size, stats, sent, delivered, read, replies, orders, revenue, sub }
 //   channels   { wa1: { id, name, aud, kind, status, number, cap, since, last }, … }   settings { routing, slaWarn, slaLate, hours, autoCloseDays }
+//   templates  { id, lib, name, cat, tone, body, trigger (text), used, channels, key ('/…' or ''), trigKind, trigOn, trigWhen, waTemplate, waVars, active, draft }
+//   quick      { id, key, label, text }   rules { id, name, group, event, to, conds [[field, op, value]], action, tpl, roleId, tag, delayMin, once, ticket, on, runs, lastRunAt, logic, stats }
+//   auto       the sending settings of the auto-reply engine (rpc cs_auto_settings — phase 6.5, 0058): { live, hours, delayMin, delayMax, daily, afterHoursText, cart }
 // load() runs with the sign-in (IBDirectory.load) and after a Realtime change; state() 'idle' | 'loading' | 'ready' | 'error'; every
 // change dispatches ib:cs. Writes return a Promise of { ok, reason?, … } and never throw: reason 'forbidden' (42501), 'invalid'
 // (22xxx / 23xxx), 'notfound', 'network'. Each write the server took is logged through IBActivity.log as cs.<x> with ids, names and
@@ -49,7 +52,9 @@
   const fail = (err) => ({ ok: false, reason: reasonOf(err) });
 
   let st = 'idle'; let gen = 0; let channel = null; let live = null; let timer = null; let poll = null;
-  const data = { customers: [], convs: [], segments: [], campaigns: [], channels: {}, settings: Object.assign({}, DEFAULT_SETTINGS) };
+  const DEFAULT_AUTO = { live: false, hours: { from: 9, to: 22 }, delayMin: 20, delayMax: 60, daily: { wa1: 250, wa2: 150 }, afterHoursText: 'شكرًا لرسالتك 🙏 مواعيد الرد من 9 ص لـ 10 م — هنرد عليك أول ما نفتح.', cart: { afterMin: 60 } };
+  const data = { customers: [], convs: [], segments: [], campaigns: [], channels: {}, settings: Object.assign({}, DEFAULT_SETTINGS), templates: [], quick: [], rules: [], auto: Object.assign({}, DEFAULT_AUTO) };
+  let rawCs = {}; // the settings row «cs» as read — the two forms that write it keep each other's keys
   const emit = (detail) => quiet(() => document.dispatchEvent(new CustomEvent('ib:cs', { detail: detail || {} })));
 
   // ---------- names ----------
@@ -187,7 +192,7 @@
     st = 'loading'; emit();
     try {
       const sinceIso = new Date(Date.now() - DAYS_BACK * 864e5).toISOString();
-      const [cu, convRows, segRows, campRows, chanRows, notes, ratings, settingsRow] = await Promise.all([
+      const [cu, convRows, segRows, campRows, chanRows, notes, ratings, settingsRow, tplRows, quickRows, ruleRows, autoRow] = await Promise.all([
         cl.rpc('cs_customers_list'),
         pages(() => cl.from('cs_conversations').select(CONV_COLS).or('status.neq.اتحلت,updated_at.gte.' + sinceIso).order('updated_at', { ascending: false }), g),
         cl.from('cs_segments').select(SEG_COLS).order('name'),
@@ -196,6 +201,7 @@
         pages(() => cl.from('cs_customer_notes').select(NOTE_COLS).order('at', { ascending: false }), g),
         pages(() => cl.from('cs_team_ratings').select(RATING_COLS).order('at', { ascending: false }), g),
         cl.from('settings').select('data').eq('section', 'cs').maybeSingle(),
+        cl.from('cs_templates').select(TPL_COLS).order('name'), cl.from('cs_quick_replies').select(QUICK_COLS).order('key'), cl.from('cs_auto_rules').select(RULE_COLS).order('created_at'), cl.rpc('cs_auto_settings'),
       ]);
       const bad = [cu, segRows, campRows, chanRows].find((r) => r.error); if (bad) throw bad.error;
       stale(g);
@@ -211,12 +217,18 @@
       const channels = {}; (chanRows.data || []).forEach((r) => { channels[r.id] = toChannel(r, now); });
       data.customers = customers; data.convs = convs; data.segments = segments; data.channels = channels;
       data.campaigns = (campRows.data || []).map((r) => toCampaign(r, segments, channels, now));
-      data.settings = toSettings(settingsRow && !settingsRow.error && settingsRow.data ? settingsRow.data.data : null);
+      rawCs = (settingsRow && !settingsRow.error && settingsRow.data && settingsRow.data.data && typeof settingsRow.data.data === 'object') ? settingsRow.data.data : {};
+      data.settings = toSettings(rawCs);
+      // the auto-reply tables (0058) — an error (not applied yet) leaves them empty, the page keeps working
+      data.templates = (tplRows && !tplRows.error && tplRows.data ? tplRows.data : []).map(toTemplate);
+      data.quick = (quickRows && !quickRows.error && quickRows.data ? quickRows.data : []).map(toQuick);
+      data.rules = (ruleRows && !ruleRows.error && ruleRows.data ? ruleRows.data : []).map((r) => toRule(r, data.templates));
+      data.auto = toAuto(autoRow && !autoRow.error ? autoRow.data : null);
       st = 'ready';
     } catch (e) { if (e && e.message === 'stale') return; st = 'error'; }
     emit();
   }
-  function clear() { gen += 1; unsubscribe(); posts.clear(); data.customers = []; data.convs = []; data.segments = []; data.campaigns = []; data.channels = {}; data.settings = Object.assign({}, DEFAULT_SETTINGS); st = 'idle'; }
+  function clear() { gen += 1; unsubscribe(); posts.clear(); data.customers = []; data.convs = []; data.segments = []; data.campaigns = []; data.channels = {}; data.settings = Object.assign({}, DEFAULT_SETTINGS); data.templates = []; data.quick = []; data.rules = []; data.auto = Object.assign({}, DEFAULT_AUTO); rawCs = {}; st = 'idle'; }
 
   // ---------- lookups ----------
   const customer = (id) => data.customers.find((x) => x.id === id) || null;
@@ -476,9 +488,10 @@
     if (s.slaWarn >= s.slaLate) return { ok: false, reason: 'invalid', field: 'slaLate' };
     try {
       const live = (data.settings && data.settings.live) || { wa: false, campaigns: false }; // kept: this form never opens or closes them
-      const { error } = await cl.from('settings').upsert({ section: 'cs', data: { routing: s.routing, sla_warn: s.slaWarn, sla_late: s.slaLate, hours: s.hours, auto_close_days: s.autoCloseDays, live } }, { onConflict: 'section' });
+      const row = Object.assign({}, rawCs, { routing: s.routing, sla_warn: s.slaWarn, sla_late: s.slaLate, hours: s.hours, auto_close_days: s.autoCloseDays, live }); // the auto-reply keys (auto) stay
+      const { error } = await cl.from('settings').upsert({ section: 'cs', data: row }, { onConflict: 'section' });
       if (error) return fail(error);
-      s.live = live; data.settings = s; log('cs.settings', [s.routing, s.slaWarn + '/' + s.slaLate, s.autoCloseDays].join(' · '), 'settings', 'cs'); emit({ settings: true }); return { ok: true, settings: s };
+      rawCs = row; s.live = live; data.settings = s; log('cs.settings', [s.routing, s.slaWarn + '/' + s.slaLate, s.autoCloseDays].join(' · '), 'settings', 'cs'); emit({ settings: true }); return { ok: true, settings: s };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
 
@@ -670,10 +683,209 @@
     [ch, lv].forEach((x) => { if (x && c()) { try { Promise.resolve(c().removeChannel(x)).catch(() => {}); } catch (e) { /* already closed */ } } });
   }
 
+
+  // ---------- the auto-reply page (phase 6.5, 0058): templates · quick replies · rules · the sending settings ----------
+  const TPL_COLS = 'id, lib, name, cat, tone, body, trig_kind, trig_on, trig_when, channels, quick_key, wa_template, wa_vars, used, active, created_at, updated_at';
+  const QUICK_COLS = 'id, key, label, text, created_at, updated_at';
+  const RULE_COLS = 'id, name, grp, event, event_to, conds, action, template_id, role_id, tag, delay_min, once, ticket_if_silent, enabled, runs, last_run_at, created_at, updated_at';
+  const RUN_COLS = 'id, rule_id, entity, result, code, due_at, at';
+  const TONE_OF = { 'حالة الأوردر': 'brand', 'متابعة': 'orange', 'شكاوى': 'error', 'تسويق': 'gold', 'أوردرات فرعية': 'brand', 'تأخير': 'error', 'تحويلات': 'success', 'جودة': 'info' };
+  const LIBS = ['customers', 'vendors']; const TRIG_KINDS = ['auto', 'manual', 'campaign'];
+  const EVENTS = ['status', 'sub', 'first', 'afterhours', 'cart', 'transfer']; const ACTIONS = ['send', 'ticket', 'assign', 'tag'];
+  const EVENT_LABEL = { status: 'حالة الأوردر اتغيرت', sub: 'أوردر فرعي اتعمل', first: 'أول رسالة من رقم جديد', afterhours: 'رسالة خارج مواعيد العمل', cart: 'سلة متروكة', transfer: 'تحويل اتسجل' };
+  const ACTION_LABEL = { send: 'ابعت قالب', ticket: 'افتح تذكرة', assign: 'عيّن لدور', tag: 'ضيف تاج' };
+  const DELAYS = [[0, 'فوراً (في مواعيد الإرسال)'], [5, 'بعد 5 دقايق'], [60, 'بعد ساعة'], [1440, 'بعد يوم']];
+  const delayLabel = (m) => { const d = DELAYS.find((x) => x[0] === Number(m)); return d ? d[1] : 'بعد ' + Number(m) + ' دقيقة'; };
+  const QUICK_KEY = /^\/\S{1,39}$/; const WA_TPL = /^[a-z0-9_]{1,120}$/;
+  const D = () => window.IbtekrCS || {};
+  const roleName = (id) => { const R = window.IBDirectory && window.IBDirectory.roles ? quiet(() => window.IBDirectory.roles()) : null; const r = Array.isArray(R) ? R.find((x) => x.id === id) : null; return r ? r.name : id || ''; };
+  function toTemplate(r) {
+    const trig = { cat: r.cat, trigKind: r.trig_kind || 'manual', trigOn: Array.isArray(r.trig_on) ? r.trig_on : [], trigWhen: r.trig_when || 'فورًا' };
+    return { id: r.id, lib: r.lib || 'customers', name: r.name || '', cat: r.cat || 'متابعة', tone: r.tone || TONE_OF[r.cat] || 'brand', body: r.body || '', trigger: D().triggerText ? D().triggerText(trig) : '', used: num(r.used), channels: r.channels || 'كل القنوات',
+      key: r.quick_key || '', trigKind: trig.trigKind, trigOn: trig.trigOn.slice(), trigWhen: trig.trigWhen, waTemplate: r.wa_template || '', waVars: Array.isArray(r.wa_vars) ? r.wa_vars.slice() : [], active: r.active !== false, draft: r.active === false, createdAt: r.created_at || '', updatedAt: r.updated_at || '' };
+  }
+  function tplColumns(t) {
+    return { lib: t.lib, name: String(t.name || '').trim(), cat: t.cat, tone: t.tone || TONE_OF[t.cat] || 'brand', body: String(t.body || '').trim(), trig_kind: t.trigKind || 'manual', trig_on: t.trigKind === 'auto' && Array.isArray(t.trigOn) ? t.trigOn.slice(0, 10) : [], trig_when: t.trigWhen || 'فورًا',
+      channels: t.channels || (t.lib === 'vendors' ? 'واتساب 2' : 'كل القنوات'), quick_key: t.key ? String(t.key).trim() : null, wa_template: t.waTemplate ? String(t.waTemplate).trim() : null, wa_vars: Array.isArray(t.waVars) ? t.waVars.slice(0, 10) : [], active: t.active !== false };
+  }
+  function validateTemplate(t) {
+    const e = {}; const name = String(t.name || '').trim(); const body = String(t.body || '').trim();
+    if (!name) e.name = 'اكتب اسم القالب'; else if (name.length > 120) e.name = 'الاسم طويل (120 حرف)';
+    if (!body) e.body = 'اكتب نص الرسالة'; else if (body.length > 1024) e.body = 'النص طويل (1024 حرف)';
+    if (!LIBS.includes(t.lib)) e.lib = 'اختار المكتبة';
+    if (!TRIG_KINDS.includes(t.trigKind || 'manual')) e.trigKind = 'اختار نوع الإرسال';
+    if ((t.trigKind || 'manual') === 'auto' && !(Array.isArray(t.trigOn) && t.trigOn.length)) e.trigOn = 'اختار مشغّل واحد على الأقل';
+    else if (D().validateTrigger) Object.assign(e, D().validateTrigger({ cat: t.cat, trigKind: t.trigKind || 'manual', trigOn: t.trigOn || [] }));
+    if (t.key && !QUICK_KEY.test(String(t.key).trim())) e.key = 'الاختصار لازم يبدأ بـ / وبعده كلمة من غير مسافات';
+    if (t.waTemplate && !WA_TPL.test(String(t.waTemplate).trim())) e.waTemplate = 'اسم قالب Meta: حروف إنجليزي صغيرة وأرقام و_ بس';
+    if (t.waTemplate && Array.isArray(t.waVars)) { const vars = []; body.replace(/\{([^{}]+)\}/g, (m, k) => { if (!vars.includes(k)) vars.push(k); return m; }); const bad = t.waVars.find((k) => !vars.includes(k)); if (bad) e.waVars = 'المتغير {' + bad + '} مش في النص'; }
+    return e;
+  }
+  const toQuick = (r) => ({ id: r.id, key: r.key || '', label: r.label || '', text: r.text || '' });
+  function validateQuick(q) { const e = {}; if (!QUICK_KEY.test(String(q.key || '').trim())) e.key = 'الاختصار لازم يبدأ بـ / وبعده كلمة'; if (!String(q.label || '').trim()) e.label = 'اكتب الوصف'; if (!String(q.text || '').trim()) e.text = 'اكتب النص'; else if (String(q.text).trim().length > 1024) e.text = 'النص طويل (1024 حرف)'; return e; }
+  function ruleLogic(r, tplName) {
+    const when = r.event === 'status' ? 'الأوردر بقى «' + (r.to || '') + '»' : EVENT_LABEL[r.event] || r.event;
+    const conds = (r.conds || []).length ? ' و' + r.conds.map((c) => c.join(' ')).join(' و') : '';
+    const target = r.action === 'send' ? (tplName ? ' «' + tplName + '»' : r.event === 'afterhours' ? ' «نص خارج المواعيد»' : '') : r.action === 'assign' ? ' «' + roleName(r.roleId) + '»' : r.action === 'tag' ? ' «' + (r.tag || '') + '»' : '';
+    return 'لما: ' + when + conds + ' ← ' + (ACTION_LABEL[r.action] || r.action) + target + ' · ' + delayLabel(r.delayMin) + (r.once ? ' · مرة واحدة' : '') + (r.ticket ? ' · مردّش 24 ساعة → تذكرة' : '');
+  }
+  const ruleStats = (r) => (!r.on ? (r.runs ? 'متوقفة · اتنفذت ' + r.runs + ' مرة' : 'متوقفة') : r.runs ? 'اتنفذت ' + r.runs + ' مرة' + (r.lastRunAt ? ' · آخر مرة ' + timeLabel(ms(r.lastRunAt), Date.now()) : '') : 'شغالة — لسه ما اتنفذتش');
+  function toRule(r, templates) {
+    const tpl = (templates || []).find((t) => t.id === r.template_id);
+    const v = { id: r.id, name: r.name || '', group: r.grp || '', event: r.event, to: r.event_to || '', conds: Array.isArray(r.conds) ? r.conds.map((c) => (Array.isArray(c) ? c.slice(0, 3).map(String) : [])).filter((c) => c.length === 3) : [], action: r.action || 'send', tpl: r.template_id || '', tplName: tpl ? tpl.name : '',
+      roleId: r.role_id || '', tag: r.tag || '', delayMin: num(r.delay_min), once: r.once !== false, ticket: !!r.ticket_if_silent, on: !!r.enabled, runs: num(r.runs), lastRunAt: r.last_run_at || null, createdAt: r.created_at || '' };
+    v.logic = ruleLogic(v, v.tplName); v.stats = ruleStats(v); return v;
+  }
+  function ruleColumns(v) {
+    return { name: String(v.name || '').trim(), grp: v.group ? String(v.group).trim().slice(0, 80) : null, event: v.event, event_to: v.event === 'status' ? String(v.to || '').trim() || null : null, conds: (v.conds || []).map((c) => c.slice(0, 3).map((x) => String(x))), action: v.action,
+      template_id: v.action === 'send' && v.tpl ? v.tpl : null, role_id: v.action === 'assign' ? v.roleId || null : null, tag: v.action === 'tag' ? String(v.tag || '').trim() || null : null, delay_min: Math.max(0, Math.min(10080, num(v.delayMin))), once: v.once !== false, ticket_if_silent: !!v.ticket, enabled: !!v.on };
+  }
+  function validateRule(v) {
+    const e = {}; if (!String(v.name || '').trim()) e.name = 'اكتب اسم القاعدة'; else if (String(v.name).trim().length > 120) e.name = 'الاسم طويل (120 حرف)';
+    if (!EVENTS.includes(v.event)) e.event = 'اختار الحدث'; if (v.event === 'status' && !String(v.to || '').trim()) e.to = 'اختار الحالة';
+    if (!ACTIONS.includes(v.action)) e.action = 'اختار الإجراء';
+    if (v.action === 'send' && !v.tpl && v.event !== 'afterhours') e.tpl = 'اختار القالب';
+    if (v.action === 'assign' && !v.roleId) e.roleId = 'اختار الدور'; if (v.action === 'tag' && !String(v.tag || '').trim()) e.tag = 'اكتب التاج';
+    if ((v.conds || []).some((c) => !Array.isArray(c) || c.length !== 3 || c.some((x) => !String(x || '').trim()))) e.conds = 'كل شرط لازم يبقى حقل وعلاقة وقيمة';
+    if ((v.conds || []).length > 20) e.conds = 'لحد 20 شرط';
+    return e;
+  }
+  function toAuto(j) {
+    const x = j && typeof j === 'object' ? j : {}; const n = (v, def, lo, hi) => (Number.isFinite(Number(v)) && Number(v) >= lo && Number(v) <= hi ? Math.round(Number(v)) : def);
+    const h = x.hours && typeof x.hours === 'object' ? x.hours : {}; const d = x.daily && typeof x.daily === 'object' ? x.daily : {}; const cart = x.cart && typeof x.cart === 'object' ? x.cart : {};
+    const delayMin = n(x.delayMin, 20, 20, 600);
+    return { live: x.live === true, hours: { from: n(h.from, 9, 0, 23), to: n(h.to, 22, 0, 24) }, delayMin, delayMax: Math.max(delayMin, n(x.delayMax, 60, 20, 3600)), daily: { wa1: n(d.wa1, 250, 1, 100000), wa2: n(d.wa2, 150, 1, 100000) },
+      afterHoursText: typeof x.afterHoursText === 'string' && x.afterHoursText.trim() ? x.afterHoursText.trim().slice(0, 1024) : DEFAULT_AUTO.afterHoursText, cart: { afterMin: n(cart.afterMin, 60, 5, 10080) } };
+  }
+  async function saveTemplate(t) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().manage) return { ok: false, reason: 'forbidden' };
+    const errs = validateTemplate(t); if (Object.keys(errs).length) return { ok: false, reason: 'invalid', errors: errs };
+    const cols = tplColumns(t);
+    try {
+      const q = t.id ? cl.from('cs_templates').update(cols).eq('id', t.id) : cl.from('cs_templates').insert(cols);
+      const { data: rows, error } = await q.select(TPL_COLS);
+      if (error) return error.code === '23505' ? { ok: false, reason: 'invalid', errors: { key: 'الاختصار ده مستخدم في قالب تاني' } } : fail(error);
+      if (!rows || !rows.length) return { ok: false, reason: 'forbidden' };
+      const x = toTemplate(rows[0]); const i = data.templates.findIndex((y) => y.id === x.id); if (i >= 0) data.templates[i] = x; else data.templates.push(x);
+      data.templates.sort((a, b) => a.name.localeCompare(b.name, 'ar'));
+      data.rules.forEach((r) => { if (r.tpl === x.id) { r.tplName = x.name; r.logic = ruleLogic(r, x.name); } });
+      log(t.id ? 'cs.template.edit' : 'cs.template.add', x.lib + ' · ' + x.name, 'cs_template', x.id); emit({ template: x.id }); return { ok: true, template: x };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  async function deleteTemplate(id) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    const t = data.templates.find((x) => x.id === id);
+    if (data.rules.some((r) => r.tpl === id)) return { ok: false, reason: 'in_use' };
+    try {
+      const { data: rows, error } = await cl.from('cs_templates').delete().eq('id', id).select('id');
+      if (error) return error.code === '23503' ? { ok: false, reason: 'in_use' } : fail(error);
+      if (!rows || !rows.length) return { ok: false, reason: 'forbidden' };
+      data.templates = data.templates.filter((x) => x.id !== id); log('cs.template.delete', t ? t.name : '', 'cs_template', id); emit({ template: id }); return { ok: true };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  async function saveQuick(q) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().manage) return { ok: false, reason: 'forbidden' };
+    const errs = validateQuick(q); if (Object.keys(errs).length) return { ok: false, reason: 'invalid', errors: errs };
+    const cols = { key: String(q.key).trim(), label: String(q.label).trim(), text: String(q.text).trim() };
+    try {
+      const qq = q.id ? cl.from('cs_quick_replies').update(cols).eq('id', q.id) : cl.from('cs_quick_replies').insert(cols);
+      const { data: rows, error } = await qq.select(QUICK_COLS);
+      if (error) return error.code === '23505' ? { ok: false, reason: 'invalid', errors: { key: 'الاختصار ده موجود' } } : fail(error);
+      if (!rows || !rows.length) return { ok: false, reason: 'forbidden' };
+      const x = toQuick(rows[0]); const i = data.quick.findIndex((y) => y.id === x.id); if (i >= 0) data.quick[i] = x; else data.quick.push(x);
+      data.quick.sort((a, b) => a.key.localeCompare(b.key, 'ar'));
+      log(q.id ? 'cs.quick.edit' : 'cs.quick.add', x.key, 'cs_quick_reply', x.id); emit({ quick: x.id }); return { ok: true, quick: x };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  async function deleteQuick(id) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    const q = data.quick.find((x) => x.id === id);
+    try {
+      const { data: rows, error } = await cl.from('cs_quick_replies').delete().eq('id', id).select('id');
+      if (error) return fail(error);
+      if (!rows || !rows.length) return { ok: false, reason: 'forbidden' };
+      data.quick = data.quick.filter((x) => x.id !== id); log('cs.quick.delete', q ? q.key : '', 'cs_quick_reply', id); emit({ quick: id }); return { ok: true };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  async function saveRule(v) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().manage) return { ok: false, reason: 'forbidden' };
+    const errs = validateRule(v); if (Object.keys(errs).length) return { ok: false, reason: 'invalid', errors: errs };
+    const cols = ruleColumns(v);
+    try {
+      const q = v.id ? cl.from('cs_auto_rules').update(cols).eq('id', v.id) : cl.from('cs_auto_rules').insert(cols);
+      const { data: rows, error } = await q.select(RULE_COLS);
+      if (error) return fail(error);
+      if (!rows || !rows.length) return { ok: false, reason: 'forbidden' };
+      const x = toRule(rows[0], data.templates); const i = data.rules.findIndex((y) => y.id === x.id); if (i >= 0) data.rules[i] = x; else data.rules.push(x);
+      log(v.id ? 'cs.rule.edit' : 'cs.rule.add', x.event + ' → ' + x.action + ' · ' + x.name + (x.on ? ' · شغالة' : ' · متوقفة'), 'cs_auto_rule', x.id); emit({ rule: x.id }); return { ok: true, rule: x };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  async function setRuleOn(id, on) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().manage) return { ok: false, reason: 'forbidden' };
+    const r = data.rules.find((x) => x.id === id); if (!r) return { ok: false, reason: 'notfound' };
+    try {
+      const { data: rows, error } = await cl.from('cs_auto_rules').update({ enabled: !!on }).eq('id', id).select(RULE_COLS);
+      if (error) return fail(error);
+      if (!rows || !rows.length) return { ok: false, reason: 'forbidden' };
+      const x = toRule(rows[0], data.templates); const i = data.rules.findIndex((y) => y.id === x.id); if (i >= 0) data.rules[i] = x;
+      log('cs.rule.toggle', x.name + (x.on ? ' · شغالة' : ' · وقفت'), 'cs_auto_rule', x.id); emit({ rule: x.id }); return { ok: true, rule: x };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  async function deleteRule(id) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    const r = data.rules.find((x) => x.id === id);
+    try {
+      const { data: rows, error } = await cl.from('cs_auto_rules').delete().eq('id', id).select('id');
+      if (error) return fail(error);
+      if (!rows || !rows.length) return { ok: false, reason: 'forbidden' };
+      data.rules = data.rules.filter((x) => x.id !== id); log('cs.rule.delete', r ? r.name : '', 'cs_auto_rule', id); emit({ rule: id }); return { ok: true };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // the engine's log of a rule (cs.view): [{ at, entity, result, code, dueAt }] — ids and codes, never a text
+  async function ruleRuns(id, limit) {
+    const cl = c(); if (!cl) return [];
+    try { const { data: rows, error } = await cl.from('cs_auto_runs').select(RUN_COLS).eq('rule_id', id).order('at', { ascending: false }).limit(limit || 30); if (error) return []; return (rows || []).map((r) => ({ id: r.id, at: r.at, entity: r.entity, result: r.result, code: r.code || '', dueAt: r.due_at || null })); } catch (e) { return []; }
+  }
+  // the sending settings (settings «cs».auto — the admin): the other keys of the row stay; live is a separate switch (setAutoLive)
+  async function saveAutoSettings(v) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().admin) return { ok: false, reason: 'forbidden' };
+    const cur = data.auto || DEFAULT_AUTO; const next = toAuto(Object.assign({}, cur, v, { live: cur.live }));
+    if (next.hours.from === next.hours.to) return { ok: false, reason: 'invalid', field: 'hours' };
+    if (Number(v.delayMin) < 20) return { ok: false, reason: 'invalid', field: 'delayMin' };
+    try {
+      const row = Object.assign({}, rawCs, { auto: next });
+      const { error } = await cl.from('settings').upsert({ section: 'cs', data: row }, { onConflict: 'section' });
+      if (error) return fail(error);
+      rawCs = row; data.auto = next; log('cs.auto.settings', ['hours', 'delay', 'daily', 'afterHoursText', 'cart'].filter((k) => k in v).join(', '), 'settings', 'cs'); emit({ auto: true }); return { ok: true, auto: next };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  async function setAutoLive(on) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().admin) return { ok: false, reason: 'forbidden' };
+    try {
+      const next = Object.assign({}, data.auto || DEFAULT_AUTO, { live: !!on }); const row = Object.assign({}, rawCs, { auto: next });
+      const { error } = await cl.from('settings').upsert({ section: 'cs', data: row }, { onConflict: 'section' });
+      if (error) return fail(error);
+      rawCs = row; data.auto = next; log('cs.auto.live', on ? 'on' : 'off', 'settings', 'cs'); emit({ auto: true }); return { ok: true, live: !!on };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // the engine's function: status (cs.view) and a run by hand (the admin; dry = a preview)
+  async function autoStatus() { const cl = c(); if (!cl) return { ok: false, reason: 'network' }; try { const { data: d, error } = await cl.functions.invoke('cs-auto', { body: { action: 'status' } }); if (error) return { ok: false, reason: 'network' }; return Object.assign({ ok: d && d.result === 'ok' }, d || {}); } catch (e) { return { ok: false, reason: 'network' }; } }
+  async function autoTick(dry) { const cl = c(); if (!cl) return { ok: false, reason: 'network' }; if (!can().admin) return { ok: false, reason: 'forbidden' }; try { const { data: d, error } = await cl.functions.invoke('cs-auto', { body: { action: 'tick', dry: !!dry } }); if (error) return { ok: false, reason: 'network' }; log('cs.auto.tick', dry ? 'dry' : 'run', 'settings', 'cs'); return Object.assign({ ok: !!(d && (d.result === 'ok' || d.result === 'dry')) }, d || {}); } catch (e) { return { ok: false, reason: 'network' }; } }
+  // the composer's «/» answers: the quick replies + the templates with a key (block 19's quickReplies over them)
+  const quickList = () => data.quick.map((q) => ({ key: q.key, label: q.label, text: q.text, kind: 'quick' })).concat(data.templates.filter((t) => t.key).map((t) => ({ key: t.key, label: t.name, text: t.body, kind: 'template', id: t.id })));
+
   window.IBCS = { load, clear, subscribe, unsubscribe, check, state: () => st, data, can, agents, customer, conv, withDays, timeLabel, clock,
     send, note, event, setStatus, assign, setConvTags, snooze, setUnread, close, open, refreshConv,
     addCustomer, importCustomers, updateCustomer, setMood, setTags, block, addNote, setOverride, rateCustomer, merge,
     saveSegment, deleteSegment, saveCampaign, setCampaignStatus, deleteCampaign, saveSettings,
+    saveTemplate, deleteTemplate, saveQuick, deleteQuick, saveRule, setRuleOn, deleteRule, ruleRuns, saveAutoSettings, setAutoLive, autoStatus, autoTick, quickList,
+    toTemplate, toQuick, toRule, toAuto, tplColumns, ruleColumns, validateTemplate, validateQuick, validateRule, ruleLogic, EVENTS, ACTIONS, EVENT_LABEL, ACTION_LABEL, DELAYS, DEFAULT_AUTO,
     channelStatus, connectStart, connectCallback, connectPick, disconnect, waCloudStatus, waSync, commentPrivate, commentHide, metaChannel, metaConnected, waStatus, waLogout, scheduleCampaign,
     toCustomer, toConv, toMessage, toSegment, toCampaign, toChannel, toSettings, segColumns, campColumns, STATUSES, MOODS, UNASSIGNED, DEFAULT_SETTINGS };
 })();

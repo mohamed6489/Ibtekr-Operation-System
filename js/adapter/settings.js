@@ -287,7 +287,31 @@
     try { const { data: s, error } = await cl.storage.from(LOGO_BUCKET).createSignedUrl(path, 7 * 86400); if (error || !s || !s.signedUrl) return null; logoCache.set(path, { url: s.signedUrl, until: Date.now() + 6 * 86400 * 1000 }); return s.signedUrl; } catch (e) { return null; }
   }
 
-  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS,
+  // ---------- the saved lists (phase 12 T3, decision 10): the cancel / return reasons the admin keeps in the row «lists» ----------
+  // lists() → { cancel: [...], returns: [...] }: the public slice first (every member gets it with the sign-in), then the row itself
+  // (the admin's page), else the defaults of block 12 (IbtekrOps.CANCEL_REASONS / RETURN_REASONS). «أخرى» is always the last item.
+  const LIST_KEYS = ['cancel', 'returns']; const LIST_MAX = 30; const ITEM_MAX = 60; const OTHER = 'أخرى';
+  const defaults = () => { const O = window.IbtekrOps || {}; return { cancel: Array.isArray(O.CANCEL_REASONS) ? O.CANCEL_REASONS.slice() : [OTHER], returns: Array.isArray(O.RETURN_REASONS) ? O.RETURN_REASONS.slice() : [OTHER] }; };
+  const withOther = (arr) => { const list = arr.filter((x) => x !== OTHER); list.push(OTHER); return list; };
+  const cleanList = (v) => { if (!Array.isArray(v)) return null; const out = []; for (const x of v) { const t = typeof x === 'string' ? x.replace(/\s+/g, ' ').trim() : ''; if (!t || t.length > ITEM_MAX || t === OTHER || out.includes(t)) { if (t === OTHER) continue; return null; } out.push(t); } return out.length > LIST_MAX ? null : out; };
+  function lists() {
+    const src = (data.public && data.public.lists && typeof data.public.lists === 'object' ? data.public.lists : null) || section('lists');
+    const d = defaults(); const out = {};
+    for (const k of LIST_KEYS) { const c = cleanList(src && src[k]); out[k] = withOther(c && c.length ? c : d[k].filter((x) => x !== OTHER)); }
+    return out;
+  }
+  // the admin saves both lists (each 1–30 reasons of at most 60 characters, no repeats; «أخرى» is added last by the reader) → { ok } · logged as settings.lists.save (counts only)
+  async function saveLists(next) {
+    if (!can().admin) return no('forbidden');
+    const row = {};
+    for (const k of LIST_KEYS) { const c = cleanList(next && next[k]); if (!c || !c.length) return { ok: false, reason: 'invalid', field: k }; row[k] = c; }
+    const r = await save('lists', row, { merge: false });
+    if (!r.ok) return r;
+    if (data.public && typeof data.public === 'object') data.public.lists = row;
+    return { ok: true, lists: lists() };
+  }
+
+  window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists,
     save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS };
 })();

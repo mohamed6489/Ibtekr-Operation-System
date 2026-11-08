@@ -218,8 +218,10 @@
         K.two(U.TextInput({ id: 'g-co', label: 'اسم الشركة', required: true, value: g.company, onInput: ed('company') }), U.TextInput({ id: 'g-lg', label: 'الاسم القانوني', value: g.legal, onInput: ed('legal') })),
         K.two(U.TextInput({ id: 'g-em', label: 'إيميل التواصل', required: true, value: g.email, onInput: ed('email') }), U.TextInput({ id: 'g-site', label: 'الموقع الإلكتروني', value: g.site, onInput: ed('site') })),
         K.two(U.TextInput({ id: 'g-ad', label: 'العنوان', value: g.address, onInput: ed('address') }), U.TextInput({ id: 'g-ph', label: 'هاتف الشركة', value: g.phone, onInput: ed('phone') }))], null, { sub: 'بتظهر في الفواتير وإيميلات الفريق وملفات التصدير · الشعار: بيت لكل مبتكر' }),
-      K.Section('اللغة والمنطقة', [K.two(sel('tz', 'g-tz', 'المنطقة الزمنية', ['(GMT+3) القاهرة', '(GMT+4) دبي']), sel('lang', 'g-lang', 'اللغة الافتراضية', ['العربية'], 'الإنجليزية قريبًا — الواجهة RTL بالكامل')),
-        K.two(sel('dateFmt', 'g-df', 'تنسيق التاريخ', ['20 أكتوبر 2026'], 'في الجداول: 20/10/2026'), sel('currency', 'g-cur', 'العملة', ['ج.م — الجنيه المصري'])), K.two(sel('numFmt', 'g-nf', 'تنسيق الأرقام', ['1,234.56'], 'الأرقام والهواتف وSKU تظل LTR'), sel('week', 'g-wk', 'بداية الأسبوع', ['السبت', 'الأحد'], 'بتأثر على تقارير «أسبوعيًا»'))], null, { sub: 'بتأثر على كل التواريخ والأرقام والعملة في النظام والتقارير' }),
+      // phase 12 T3 (decision 3): no pretend choices — the system runs on Cairo time, Arabic RTL and the pound; these are facts, not settings
+      K.Section('اللغة والمنطقة', [vrow('المنطقة الزمنية', 'كل التواريخ والأيام في السيستم والتقارير بتوقيت القاهرة', K.Tag('neutral', '(GMT+2/+3) القاهرة')), vrow('اللغة', 'الواجهة عربي RTL باللهجة المصرية — مفيش نسخة إنجليزية', K.Tag('neutral', 'العربية')),
+        vrow('العملة', 'الجنيه المصري في كل الأرقام', K.Tag('neutral', 'ج.م')), vrow('تنسيق التاريخ والأرقام', 'التواريخ «20 أكتوبر 2026» وفي الجداول 20/10/2026 · الأرقام 1,234.56 · الهواتف وSKU LTR', K.Tag('neutral', 'ثابت')),
+        vrow('بداية الأسبوع', 'تقارير «أسبوعيًا» والخطة الإعلانية على أسبوع يبدأ السبت', K.Tag('neutral', 'السبت'))], null, { sub: 'ثوابت السيستم — مش اختيارات' }),
       K.Section('تفضيلات العرض', [row('الوضع المضغوط للجداول', 'صفوف 48px بدل 56px وخطوط أصغر في الجداول الكثيفة', g.compact, ed('compact')), row('إظهار صور المنتجات في الأوردرات', 'صورة مصغّرة 40px في صف الأوردر الفرعي', g.thumbs, ed('thumbs')), row('تذكّر آخر فلاتر لكل صفحة', 'الأوردرات والتقارير بتفتح على آخر فلتر استخدمته', g.rememberFilters, ed('rememberFilters')), row('إخفاء أرقام هواتف العملاء في القوائم', 'تظهر كاملة عند الفتح فقط لمن يملك الصلاحية', g.hidePhones, ed('hidePhones'))], null, { sub: 'إعدادات واجهة على مستوى الشركة — كل عضو يقدر يغيّرها لنفسه من ملفه' })];
   }
 
@@ -1164,6 +1166,7 @@
     if (sec.security) Object.assign(C.security, sec.security); if (sec.data && sec.data.backup) Object.assign(C.backup, sec.data.backup);
     if (sec.brand) { brand.colors = Object.assign({}, sec.brand.colors || {}); brand.fonts = Object.assign({}, FONT_DEF, sec.brand.fonts || {}); applyBrand(); saveBrand(); }
     if (sec.ai_rules && Object.keys(sec.ai_rules).length) S.aiRules = Object.assign(AI_DEF(), sec.ai_rules);
+    if (S0.lists) { const L = S0.lists(); C.cancelReasons.splice(0, C.cancelReasons.length, ...L.cancel.map((x) => [x, 'إلغاء', 0, true])); C.otherLists.returns = L.returns.slice(); } // phase 12 T3: the v6 arrays mirror the saved lists
     hydrateNotif(sec.notif); hydrateRoles(); hydrated = true;
   }
   document.addEventListener('ib:settings', () => { if (SETT() && SETT().data.loaded) { hydrateAll(); if (window.IBPages.current === 'settings') R(); } });
@@ -1386,14 +1389,28 @@
   }
   function aiSec() { return [providersSec()].concat(aiSecV6()); }
 
-  // ---------- the lists are a view (decision 8) ----------
+  // ---------- the lists (decision 8; phase 12 T3 decision 10): the statuses are the system's (a view); the cancel / return reasons are saved ----------
+  // The statuses stay read-only on purpose: accounts_sales, products_report, order_delete, the auto-reply engine and the reports read them
+  // by name — a rename from the page would break those quietly. The reasons live in the settings row «lists» (IBSettings.saveLists) and the
+  // orders page's cancel / return popups read them (block 22); «أخرى» is always last and cannot go.
+  const REASON_LISTS = { cancel: 'أسباب الإلغاء والمسح', returns: 'أسباب المرتجع' };
+  function reasonsSec(k) {
+    const S0 = SETT(); const L = S0 && S0.lists ? S0.lists() : { cancel: [], returns: [] }; const items = L[k] || [];
+    const saveWith = async (next) => { const r = await S0.saveLists(Object.assign({}, L, { [k]: next })); if (!r.ok) return fail(r, 'حفظ الأسباب'); LOGV('settings.lists.save', k + ' = ' + next.length); K.toast('اتحفظت الأسباب', 'success'); R(); };
+    const rows = items.map((x, i) => [h('span', { 'data-reason': x }, x), x === 'أخرى' ? K.Tag('neutral', 'ثابت — بيفتح خانة نص') : K.RowMenu([
+      { label: 'تعديل', icon: 'sliders', run: () => K.form({ title: 'تعديل السبب', values: { v: x }, fields: (f, e, set) => [K.field.text('v', 'السبب', f, e, set, { required: true, maxlength: 60 })], validate: (f) => K.req(f, ['v']), submitLabel: 'حفظ', submit: (f) => { const next = items.filter((y) => y !== 'أخرى'); next[i] = f.v.trim(); saveWith(next); } }) },
+      i > 0 ? { label: 'تحريك لفوق', icon: 'chevD', run: () => { const next = items.filter((y) => y !== 'أخرى'); [next[i - 1], next[i]] = [next[i], next[i - 1]]; saveWith(next); } } : null,
+      { label: 'حذف', icon: 'close', danger: true, run: () => K.confirm({ title: 'حذف «' + x + '»', text: 'السبب مش هيظهر في بوب أب الأوردرات الجديدة؛ الأوردرات اللي اتسجلت بيه بتفضل زي ما هي.', okType: 'danger', okLabel: 'حذف', onOk: () => saveWith(items.filter((y, j) => j !== i && y !== 'أخرى')) }) }].filter(Boolean))]);
+    return K.Section(REASON_LISTS[k], U.Table({ headers: ['السبب', ''], rows }), isAdminMe() ? [Button({ label: '+ سبب', attrs: { 'data-reason-add': k }, onClick: () => K.form({ title: 'سبب جديد', values: { v: '' }, fields: (f, e, set) => [K.field.text('v', 'السبب', f, e, set, { required: true, maxlength: 60 })], validate: (f) => K.req(f, ['v']), submitLabel: 'إضافة', submit: (f) => { saveWith(items.filter((y) => y !== 'أخرى').concat([f.v.trim()])); } }) })] : null,
+      { sub: k === 'cancel' ? 'بتظهر في بوب أب «إلغاء» الأوردر (الملغي بيتسجل بسببه في تقرير «أوردرات ملغية») — «أخرى» بتفتح خانة نص إجبارية' : 'بتظهر في بوب أب «استرجاع» الأوردر و«مرتجع للمخزن / للمبتكر» للفرعي — «أخرى» بتفتح خانة نص إجبارية' });
+  }
   function lists() {
     const L = C.otherLists; const tabs = [{ id: 'order', label: 'حالات الأوردر' }, { id: 'confirm', label: 'حالات التأكيد' }, { id: 'sub', label: 'حالات الأوردر الفرعي' }, { id: 'cancel', label: 'أسباب الإلغاء والمسح' }, { id: 'returns', label: 'أسباب المرتجع' }, { id: 'expenses', label: 'أنواع المصروفات' }, { id: 'categories', label: 'فئات المبتكرين' }, { id: 'stop', label: 'أسباب إيقاف المبتكر' }, { id: 'priorities', label: 'الأولويات' }];
     const out = [K.SubTabs({ items: tabs, active: tabs.some((t) => t.id === st.list) ? st.list : 'order', onChange: (id) => { st.list = id; R(); }, label: 'القوائم' })]; const cur = tabs.some((t) => t.id === st.list) ? st.list : 'order';
-    if (cur === 'order') out.push(K.Section('حالات الأوردر', U.Table({ headers: ['الاسم في السيستم', 'المعاينة', 'مقابل WooCommerce', 'النوع'], rows: C.orderStatuses.map((s) => [s[0], K.Tag(s[1], s[0]), h('code', { dir: 'ltr' }, s[2]), s[4]]) })));
-    else if (cur === 'cancel') out.push(K.Section('أسباب الإلغاء والمسح', U.Table({ headers: ['السبب', 'يُستخدم في'], rows: C.cancelReasons.map((r) => [r[0], r[1]]) })));
+    if (cur === 'order') out.push(K.Section('حالات الأوردر', U.Table({ headers: ['الاسم في السيستم', 'المعاينة', 'مقابل WooCommerce', 'النوع'], rows: C.orderStatuses.map((s) => [s[0], K.Tag(s[1], s[0]), h('code', { dir: 'ltr' }, s[2]), s[4]]) }), null, { sub: 'مربوطة بالموقع (status_map) وبقواعد الحسابات والتقارير والرد الآلي بالاسم — عرض بس' }));
+    else if (cur === 'cancel' || cur === 'returns') out.push(reasonsSec(cur));
     else { const titles = Object.fromEntries(tabs.map((t) => [t.id, t.label])); const items = L[cur] || []; out.push(K.Section(titles[cur], U.Table({ headers: ['الاسم'], rows: items.map((x) => [x]) }))); }
-    out.push(U.InlineNote({ children: 'القوايم دي ثابتة في السيستم (الحالات مربوطة بالموقع والتقارير) — عرض بس. تعديلها قرار بيتاخد في التطوير.' }));
+    if (cur !== 'cancel' && cur !== 'returns') out.push(U.InlineNote({ children: 'القوايم دي ثابتة في السيستم (الحالات مربوطة بالموقع والتقارير، وأنواع المصروفات بقيود قاعدة البيانات) — عرض بس. أسباب الإلغاء والمرتجع هي اللي بتتعدل من هنا.' }));
     return out;
   }
   // ---------- the makers' defaults (decision 17): the row «makers» + the real rules of the makers ----------

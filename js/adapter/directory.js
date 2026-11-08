@@ -82,5 +82,5 @@
     try { await refresh(); } catch (e) { /* the number is saved; the copy catches up on the next load */ }
     return { ok: true };
   }
-  window.IBDirectory = { load, refresh, clear, perm, updatePhone, me: () => meRow, members: () => window.IBKit.store.members };
+  window.IBDirectory = { load, refresh, clear, perm, updatePhone, me: () => meRow, members: () => window.IBKit.store.members, roles: () => Object.values(rolesById) }; // roles(): the role rows the member may read (phase 6.5: the rule editor's «عيّن لدور»)
 })();

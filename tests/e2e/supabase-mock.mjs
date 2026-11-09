@@ -1862,6 +1862,16 @@ export async function installSupabaseMock(page, opts = {}) {
         if (String(m.text).includes('ارفض')) { m.delivery = 'failed'; m.meta = { ...(m.meta || {}), error: 'graph_131047' }; return json(502, { error: 'graph_131047', status: 400, delivery: 'failed' }); }
         m.delivery = 'sent'; m.external_id = 'wamid.' + Math.random().toString(36).slice(2, 10); return json(200, { result: 'ok', delivery: 'sent', external_id: m.external_id });
       }
+      // phase 13 T1: the approved Meta template to one number (cs.manage); the tick by hand (the admin)
+      if (action === 'campaign_test') {
+        if (!(isAdmin(u) || hasPerm(u, 'cs.manage') === 'F')) return json(401, { error: 'unauthorized' });
+        const t = mock.cs.templates.find((x) => x.id === b.template_id && x.wa_template && x.active !== false); if (!t) return json(400, { error: 'bad_request', field: 'template_id' });
+        if (String(b.phone || '').replace(/\D/g, '').length < 10) return json(400, { error: 'bad_request', field: 'phone' });
+        if (!W.linked) return json(503, { error: 'not_linked' });
+        W.last = { test: { template: t.wa_template, phone_len: String(b.phone).replace(/\D/g, '').length, code: b.code || null } };
+        return json(200, { result: 'ok', external_id: 'wamid.test', template: t.wa_template });
+      }
+      if (action === 'campaign_tick') { if (!isAdmin(u)) return json(401, { error: 'unauthorized' }); return json(200, { result: 'ok', skipped: 'off' }); }
       return json(400, { error: 'unknown_action' });
     }
     if (method === 'POST' && path === '/functions/v1/cs-auto') {

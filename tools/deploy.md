@@ -1776,3 +1776,29 @@ select at, action, entity_id, new_value from public.activity_log where action in
 
 **الأمان:** الأسرار في Vault بس (لا ردود ولا logs)؛ `cs_oauth_states` للسيرفر؛ الـ redirect من السيرفر مش من المتصفح؛ أفعال الربط للأدمن؛ مافيش أي كتابة على
 تيك توك أو جوجل، والقرار على اقتراحاتهم بيتسجل بس.
+
+#### 2.7.38 الحملات على واتساب 1 بقوالب Meta — `cs-whatsapp` `campaign_tick` (المرحلة 13 T1، 9 نوفمبر)
+
+الخطة `docs/superpowers/plans/2026-11-09-phase-13-leftovers.md` (قرارات 1–4). الحملة على واتساب 1 وهو على Meta Cloud API = **قالب Marketing معتمد** من
+`cs_templates` (اللي ليه `wa_template`)، والمرسل `cs-whatsapp` بـ cron كل دقيقة؛ أرقام الـ QR فاضلة على الجسر (`cs-wa`).
+
+**الملفات:** `0063_campaigns_meta.sql` (`cs_campaigns.template_id` + الحارس + cron **`cs-campaign-tick`** كل دقيقة بسر المزامنة) + `rls_cs_campaign_meta` ·
+`_shared/cs-campaign.js` (الصافي) · `cs-whatsapp` (actions `campaign_tick` / `campaign_test`، إيصالات Meta بتحدّث المستلم، رد العميل في 3 أيام = `replied`) ·
+`IBCS.campaignTest` / `setLive` · الكتلة 20 (القالب في الويزارد، «ابعت رسالة تجربة»، مفاتيح الإرسال في «القنوات»).
+
+**الخطوات:** `0063` على الحي (MCP أو SQL editor) → «RLS live» بـ `files = rls_cs_campaign_meta` → «Deploy functions» `cs-whatsapp` → الواجهة على `main`.
+
+**التشغيل (صاحب المشروع):** (1) في Meta Business › WhatsApp Manager › Message templates: قالب Marketing بالعربي بمتغيرين على الأكتر
+({{1}} الاسم، {{2}} الكود) واستنى الاعتماد؛ (2) في «الرد الآلي › القوالب» اكتب نفس النص واسم القالب في «قالب Meta» ورتّب المتغيرات `{اسم_العميل}` ثم
+`{كود_الخصم}` زي ترتيب {{1}} {{2}}؛ (3) من «خدمة العملاء › القنوات › مفاتيح الإرسال» شغّل «إرسال الحملات» (متوقف افتراضي)؛ (4) حملة جديدة → القالب →
+«ابعت رسالة تجربة» على رقمك → جدولة. **كل رسالة قالب ليها تكلفة عند Meta** (محادثة تسويقية) — الحد اليومي `cap_per_day` بيحكم.
+
+```sql
+select jobname, schedule, active from cron.job where jobname = 'cs-campaign-tick';
+select id, name, status, template_id, stats from public.cs_campaigns where channel = 'wa1' order by created_at desc limit 5;
+select status, count(*) from public.cs_campaign_recipients group by 1;
+select received_at, status, summary from public.cs_channel_events where summary ? 'campaign_tick' order by received_at desc limit 5; -- أعداد بس
+```
+
+**الأمان:** الإرسال بسر المزامنة (الـ cron) أو الأدمن بس، ورسالة التجربة بـ `cs.manage`؛ الموافقة/الحظر/الدمج بتتفحص وقت الإرسال؛ مافيش رقم ولا نص في
+`activity_log` (`cs.campaign.test` باسم القالب) ولا في `cs_channel_events` (أعداد)؛ المفتاح `live.campaigns` متوقف افتراضي والأدمن بيشغّله بتأكيد.

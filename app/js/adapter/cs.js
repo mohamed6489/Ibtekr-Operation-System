@@ -27,7 +27,7 @@
   const CONV_COLS = 'id, seg, platform, channel, customer_id, vendor_id, handle, external_id, status, assignee, outcome, tags, last_in_at, last_out_at, waiting_since, unread, snoozed_until, closed_at, closed_by, created_by, created_at, updated_at';
   const MSG_COLS = 'id, conversation_id, kind, text, author, delivery, meta, created_at';
   const SEG_COLS = 'id, name, min_total, min_orders, moods, last_kind, last_from, last_to, ranges, include_unrated, add_ids, remove_ids, created_by, created_at, updated_at';
-  const CAMP_COLS = 'id, name, segment_id, channel, body, image_path, discount_code, scheduled_at, cap_per_day, min_delay_s, status, size, stats, created_by, created_at, updated_at';
+  const CAMP_COLS = 'id, name, segment_id, channel, body, image_path, discount_code, scheduled_at, cap_per_day, min_delay_s, status, size, stats, created_by, created_at, updated_at, template_id'; // template_id: 0063 (phase 13 T1 — the Meta template a wa1 campaign sends)
   const CHAN_COLS = 'id, name, audience, kind, status, number, cap_per_day, since, last_message_at, updated_at';
   const NOTE_COLS = 'id, customer_id, text, author, at';
   const RATING_COLS = 'id, customer_id, conversation_id, sat, manners, note, by_user, at';
@@ -139,12 +139,12 @@
     const stats = r.stats && typeof r.stats === 'object' ? r.stats : {}; const seg = (segs || []).find((s) => s.id === r.segment_id); const ch = chans && chans[r.channel];
     const when = ms(r.scheduled_at);
     const sub = r.status === 'مسودة' ? 'مسودة' + (r.updated_at ? ' — آخر تعديل ' + timeLabel(ms(r.updated_at), now) : '') : r.status === 'مجدولة' && when != null ? 'مجدولة ' + new Date(when).getDate() + ' ' + AR_MON[new Date(when).getMonth()] + ' ' + clock(when) : r.status;
-    return { id: r.id, name: r.name || '', segId: r.segment_id || null, seg: seg ? seg.name : '', channel: r.channel, from: ch ? ch.name : r.channel, body: r.body || '', imagePath: r.image_path || null, discountCode: r.discount_code || '',
+    return { id: r.id, name: r.name || '', segId: r.segment_id || null, seg: seg ? seg.name : '', channel: r.channel, from: ch ? ch.name : r.channel, body: r.body || '', imagePath: r.image_path || null, discountCode: r.discount_code || '', templateId: r.template_id || null,
       scheduledAt: r.scheduled_at || null, capPerDay: num(r.cap_per_day) || 300, minDelayS: num(r.min_delay_s) || 20, status: r.status, size: num(r.size), stats,
       sent: num(stats.sent), delivered: num(stats.delivered), read: num(stats.read), replies: num(stats.replies), orders: num(stats.orders), revenue: num(stats.revenue), sub, createdAt: r.created_at || '', updatedAt: r.updated_at || '' };
   }
   const campColumns = (k) => ({ name: String(k.name || '').trim(), segment_id: k.segId || null, channel: k.channel || 'wa1', body: k.body ? String(k.body) : null, image_path: k.imagePath || null, discount_code: k.discountCode ? String(k.discountCode).trim() : null,
-    scheduled_at: k.scheduledAt || null, cap_per_day: num(k.capPerDay) || 300, min_delay_s: num(k.minDelayS) || 20, status: k.status === 'مجدولة' ? 'مجدولة' : k.status === 'متوقفة' ? 'متوقفة' : 'مسودة', size: num(k.size) });
+    scheduled_at: k.scheduledAt || null, cap_per_day: num(k.capPerDay) || 300, min_delay_s: num(k.minDelayS) || 20, status: k.status === 'مجدولة' ? 'مجدولة' : k.status === 'متوقفة' ? 'متوقفة' : 'مسودة', size: num(k.size), template_id: k.templateId && /^[0-9a-f-]{36}$/i.test(String(k.templateId)) ? k.templateId : null });
   const toChannel = (r, now) => ({ id: r.id, name: r.name || r.id, aud: r.audience || 'customers', kind: r.kind || 'none', status: r.status || 'disconnected', number: r.number || '', cap: num(r.cap_per_day), since: r.since || null,
     last: r.last_message_at ? 'آخر رسالة: ' + timeLabel(ms(r.last_message_at), now) : r.status === 'connected' ? '' : 'مش مربوط', updatedAt: r.updated_at || null });
   function toSettings(d) {
@@ -547,6 +547,27 @@
     const r = await invoke({ action: 'wa_logout', channel }, 'cs-wa'); if (!r.ok) return r;
     log('cs.wa.logout', channel, 'cs_channel', channel); return { ok: true };
   }
+  // phase 13 T1: the approved Meta template to one number with sample values (cs-whatsapp campaign_test — cs.manage; the channel linked)
+  async function campaignTest({ templateId, phone, code } = {}) {
+    if (!can().manage) return { ok: false, reason: 'forbidden' };
+    if (!templateId || !/^[0-9a-f-]{36}$/i.test(String(templateId))) return { ok: false, reason: 'invalid', field: 'templateId' };
+    const digits = String(phone || '').replace(/[^\d+]/g, ''); if (digits.replace(/\D/g, '').length < 10) return { ok: false, reason: 'invalid', field: 'phone' };
+    const r = await invoke({ action: 'campaign_test', template_id: templateId, phone: digits, code: code ? String(code).trim().slice(0, 40) : undefined }, 'cs-whatsapp'); if (!r.ok) return r;
+    log('cs.campaign.test', String((r.body && r.body.template) || ''), 'cs_template', String(templateId)); return { ok: true, template: (r.body && r.body.template) || '' };
+  }
+  // phase 13 decision 3: the live switches (WhatsApp by QR / the campaigns' sending) — the admin, from the channels tab; the other keys of the row stay
+  async function setLive(patch) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().admin) return { ok: false, reason: 'forbidden' };
+    const cur = (data.settings && data.settings.live) || { wa: false, campaigns: false }; const p = patch && typeof patch === 'object' ? patch : {};
+    const live = { wa: 'wa' in p ? p.wa === true : cur.wa, campaigns: 'campaigns' in p ? p.campaigns === true : cur.campaigns };
+    try {
+      const row = Object.assign({}, rawCs, { live });
+      const { error } = await cl.from('settings').upsert({ section: 'cs', data: row }, { onConflict: 'section' });
+      if (error) return fail(error);
+      rawCs = row; data.settings = Object.assign({}, data.settings, { live }); log('cs.settings.live', Object.keys(p).map((k) => k + '=' + (live[k] ? 'on' : 'off')).join(' · '), 'settings', 'cs'); emit({ settings: true }); return { ok: true, live };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
   // a campaign's audience frozen and the campaign scheduled (cs_campaign_schedule — the phones and the consent are read on the server)
   async function scheduleCampaign(id, customerIds, atIso) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
@@ -885,7 +906,7 @@
   window.IBCS = { load, clear, subscribe, unsubscribe, check, state: () => st, data, can, agents, customer, conv, withDays, timeLabel, clock,
     send, note, event, setStatus, assign, setConvTags, snooze, setUnread, close, open, refreshConv,
     addCustomer, importCustomers, updateCustomer, setMood, setTags, block, addNote, setOverride, rateCustomer, merge,
-    saveSegment, deleteSegment, saveCampaign, setCampaignStatus, deleteCampaign, saveSettings,
+    saveSegment, deleteSegment, saveCampaign, setCampaignStatus, deleteCampaign, saveSettings, campaignTest, setLive,
     saveTemplate, deleteTemplate, saveQuick, deleteQuick, saveRule, setRuleOn, deleteRule, ruleRuns, saveAutoSettings, setAutoLive, autoStatus, autoTick, quickList,
     toTemplate, toQuick, toRule, toAuto, tplColumns, ruleColumns, validateTemplate, validateQuick, validateRule, ruleLogic, EVENTS, ACTIONS, EVENT_LABEL, ACTION_LABEL, DELAYS, DEFAULT_AUTO,
     channelStatus, connectStart, connectCallback, connectPick, disconnect, waCloudStatus, waSync, commentPrivate, commentHide, metaChannel, metaConnected, waStatus, waLogout, scheduleCampaign,

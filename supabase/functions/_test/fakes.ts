@@ -112,7 +112,7 @@ const COLUMNS: Record<string, string[]> = {
   cs_posts: ['id', 'platform', 'caption', 'permalink', 'thumb', 'kind', 'posted_at', 'seen_at'],
   // 0042 (phase 6.3 + 6.4): WhatsApp by QR and the campaigns' sending
   cs_wa_state: ['channel', 'status', 'qr_svg', 'phone', 'command', 'updated_at'],
-  cs_campaigns: ['id', 'name', 'segment_id', 'channel', 'body', 'image_path', 'discount_code', 'scheduled_at', 'cap_per_day', 'min_delay_s', 'test_phone', 'status', 'size', 'stats', 'created_by', 'created_at', 'updated_at'],
+  cs_campaigns: ['id', 'name', 'segment_id', 'channel', 'body', 'image_path', 'discount_code', 'scheduled_at', 'cap_per_day', 'min_delay_s', 'test_phone', 'status', 'size', 'stats', 'created_by', 'created_at', 'updated_at', 'template_id'],
   cs_campaign_recipients: ['id', 'campaign_id', 'customer_id', 'phone', 'status', 'at', 'reply', 'wa_id', 'error', 'claimed_at'],
   // 0058 (phase 6.5): the auto-reply page's tables and the engine's run log; 0045 ticket_events (the engine opens tickets as the server)
   cs_templates: ['id', 'lib', 'name', 'cat', 'tone', 'body', 'trig_kind', 'trig_on', 'trig_when', 'channels', 'quick_key', 'wa_template', 'wa_vars', 'used', 'active', 'created_by', 'created_at', 'updated_by', 'updated_at'],

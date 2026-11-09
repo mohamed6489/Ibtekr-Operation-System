@@ -29,8 +29,9 @@ function fakeGraph(routes: Record<string, Route> = {}) {
   };
   return { fetch: fetch as typeof globalThis.fetch, calls };
 }
-function setup({ seed = {}, env = WA_ENV, vault = {} as Record<string, string | null>, routes = {} as Record<string, Route> } = {}) {
+function setup({ seed = {}, env = WA_ENV, vault = {} as Record<string, string | null>, routes = {} as Record<string, Route>, rpc: extraRpc = {} as Record<string, (args: any) => unknown> } = {}) {
   const rpc = {
+    ...extraRpc,
     cs_secret_get: ({ p_name }: any) => { if (p_name !== 'meta_wa') throw new Error('unknown secret'); return vault.meta_wa ?? null; },
     cs_secret_set: ({ p_name, p_value }: any) => { if (p_name !== 'meta_wa') throw new Error('unknown secret'); if (p_value === null) delete vault.meta_wa; else vault.meta_wa = p_value; return null; },
   };
@@ -204,4 +205,95 @@ Deno.test('connect_token (the admin, the App Review test number): the token chec
   assertEquals([db.row('cs_channels', 'wa1').status, db.row('cs_channels', 'wa1').meta.manual], ['connected', true]);
   assertEquals(graph.calls.filter((c: any) => c.path.endsWith('/smb_app_data')).length, 0, 'no sync for a test number');
   assert(!JSON.stringify(ok.body).includes(TOKEN) && !JSON.stringify(db.rows('activity_log')).includes(TOKEN));
+});
+
+// ---------------------------------------------------------------- the campaigns on wa1 through Meta (phase 13 T1, decisions 1–4)
+const TPL = { id: '00000000-0000-4000-8000-00000000c0a1', lib: 'customers', name: 'عرض الجمعة', cat: 'عروض', body: 'أهلاً {اسم_العميل} 👋 خصم بكود {كود_الخصم}.', trig_kind: 'campaign', wa_template: 'ibtekr_offer_v1', wa_vars: ['اسم_العميل', 'كود_الخصم'], active: true };
+const CUST = [
+  { id: '00000000-0000-4000-8000-00000000c0b1', name: 'نهى عبد الرحمن', phone: '01012345678', consent: true },
+  { id: '00000000-0000-4000-8000-00000000c0b2', name: 'كريم', phone: '01098765432', consent: true },
+  { id: '00000000-0000-4000-8000-00000000c0b3', name: 'سامح', phone: '01055555555', consent: false },
+];
+const CAMP = { id: '00000000-0000-4000-8000-00000000c0c1', name: 'حملة الجمعة', channel: 'wa1', body: TPL.body, discount_code: 'FRI10', template_id: TPL.id, scheduled_at: '2026-11-05T10:00:00.000Z', cap_per_day: 300, min_delay_s: 20, status: 'مجدولة', size: 3, stats: {} };
+const RECIP = CUST.map((c, i) => ({ id: i + 1, campaign_id: CAMP.id, customer_id: c.id, phone: c.phone, status: 'queued' }));
+const DAY_NOW = '2026-11-09T12:00:00.000Z'; // 14:00 Cairo — inside the 9–22 hours
+function campaignSetup(extra: { live?: boolean; now?: string; routes?: Record<string, Route>; seed?: Record<string, any[]> } = {}) {
+  let n = 0;
+  const routes: Record<string, Route> = { ['POST ' + PHONE_ID + '/messages']: () => ({ body: { messages: [{ id: 'wamid.C' + (++n) }] } }), ...(extra.routes ?? {}) };
+  const s = setup({ vault: linked(), routes, rpc: { sync_secret_matches: ({ candidate }: any) => candidate === 'sync-secret-ok' }, seed: { cs_channels: CHANNELS.map((c) => (c.id === 'wa1' ? { ...c, status: 'connected' } : c)), settings: [{ section: 'cs', data: { live: { wa: false, campaigns: extra.live !== false }, auto: { hours: { from: 9, to: 22 } } } }], cs_templates: [TPL], cs_customers: CUST, cs_campaigns: [CAMP], cs_campaign_recipients: RECIP, ...(extra.seed ?? {}) } });
+  const sleeps: number[] = [];
+  const deps = { ...s.deps, now: () => extra.now ?? DAY_NOW, sleep: async (ms: number) => { sleeps.push(ms); } };
+  return { ...s, deps, sleeps, graph: s.graph };
+}
+async function tick(deps: any, secret: string | null = 'sync-secret-ok') {
+  const res = await handler(new Request('http://x/cs-whatsapp', { method: 'POST', headers: { 'content-type': 'application/json', ...(secret ? { 'x-sync-secret': secret } : {}) }, body: JSON.stringify({ action: 'campaign_tick' }) }), deps);
+  return { res, body: await res.json() };
+}
+
+Deno.test('campaign_tick (the cron): off → nothing; on → the due campaign runs, up to three approved templates a tick spaced by min_delay_s, each an out row in the customer\'s wa1 conversation; the opted-out customer never gets it', async () => {
+  const off = campaignSetup({ live: false });
+  assertEquals((await tick(off.deps)).body, { result: 'ok', skipped: 'off' });
+  assertEquals(off.db.row('cs_campaigns', CAMP.id).status, 'مجدولة');
+  const on = campaignSetup();
+  assertEquals((await tick(on.deps, 'wrong')).res.status, 401, 'the sync secret is checked');
+  const r = await tick(on.deps);
+  assertEquals([r.res.status, r.body.sent, r.body.opted_out], [200, 2, 1]);
+  const sends = on.graph.calls.filter((c: any) => c.path === PHONE_ID + '/messages');
+  assertEquals(sends.length, 2);
+  assertEquals(sends[0].body.type, 'template');
+  assertEquals([sends[0].body.to, sends[0].body.template.name, sends[0].body.template.language.code], ['201012345678', 'ibtekr_offer_v1', 'ar']);
+  assertEquals(sends[0].body.template.components[0].parameters.map((p: any) => p.text), ['نهى', 'FRI10']);
+  assertEquals(sends[1].body.template.components[0].parameters.map((p: any) => p.text), ['كريم', 'FRI10']);
+  assertEquals(on.sleeps, [20000], 'one pause between the two sends');
+  const recips = on.db.rows('cs_campaign_recipients');
+  assertEquals(recips.map((x: any) => [x.status, x.wa_id ?? null]), [['sent', 'wamid.C1'], ['sent', 'wamid.C2'], ['opted_out', null]]);
+  const msgs = on.db.rows('cs_messages');
+  assertEquals(msgs.length, 2);
+  assertEquals([msgs[0].kind, msgs[0].author, msgs[0].delivery, msgs[0].external_id, msgs[0].text, msgs[0].meta.recipient_id, msgs[0].meta.tpl], ['out', null, 'sent', 'wamid.C1', 'أهلاً نهى 👋 خصم بكود FRI10.', 1, 'ibtekr_offer_v1']);
+  const convs = on.db.rows('cs_conversations');
+  assertEquals(convs.map((c: any) => [c.channel, c.external_id, c.status, c.customer_id]), [['wa1', '01012345678', 'مستنية العميل', CUST[0].id], ['wa1', '01098765432', 'مستنية العميل', CUST[1].id]]);
+  const k = on.db.row('cs_campaigns', CAMP.id);
+  assertEquals([k.status, k.stats.sent, k.stats.opted_out, k.stats.queued], ['خلصت', 2, 1, 0], 'the queue emptied → finished');
+  assertEquals((await tick(on.deps)).body.sent, undefined, 'nothing more to send');
+});
+
+Deno.test('campaign_tick: outside the hours it waits (the due campaign still becomes running); a template-less campaign pauses with no_template; the day cap holds; a refusal fails the recipient with the code; the admin may tick by hand, a member may not', async () => {
+  const night = campaignSetup({ now: '2026-11-09T22:30:00.000Z' }); // 00:30 Cairo
+  assertEquals((await tick(night.deps)).body, { result: 'ok', skipped: 'hours' });
+  assertEquals(night.db.row('cs_campaigns', CAMP.id).status, 'شغالة');
+  const noTpl = campaignSetup({ seed: { cs_campaigns: [{ ...CAMP, template_id: null }] } });
+  assertEquals((await tick(noTpl.deps)).body.no_template, 1);
+  assertEquals([noTpl.db.row('cs_campaigns', CAMP.id).status, noTpl.db.row('cs_campaigns', CAMP.id).stats.error], ['متوقفة', 'no_template']);
+  const capped = campaignSetup({ seed: { cs_campaigns: [{ ...CAMP, cap_per_day: 1 }], cs_campaign_recipients: [...RECIP, { id: 9, campaign_id: CAMP.id, customer_id: CUST[1].id, phone: CUST[1].phone, status: 'sent', at: '2026-11-09T08:00:00.000Z' }] } });
+  assertEquals((await tick(capped.deps)).body.cap, 1, 'one already sent today against a cap of one');
+  const refused = campaignSetup({ routes: { ['POST ' + PHONE_ID + '/messages']: { status: 400, body: { error: { code: 132000, message: 'param mismatch' } } } } });
+  const r = await tick(refused.deps);
+  assertEquals([r.body.failed, r.body.opted_out], [2, 1]);
+  assertEquals(refused.db.rows('cs_campaign_recipients').map((x: any) => [x.status, x.error ?? null]), [['failed', 'graph_132000'], ['failed', 'graph_132000'], ['opted_out', null]]);
+  assertEquals(refused.db.rows('cs_messages').map((m: any) => [m.delivery, m.meta.error]), [['failed', 'graph_132000'], ['failed', 'graph_132000']]);
+  const byHand = campaignSetup();
+  assertEquals((await call(byHand.deps, { action: 'campaign_tick' }, 'jwt-reply')).res.status, 401);
+  assertEquals((await call(byHand.deps, { action: 'campaign_tick' }, 'jwt-admin')).body.sent, 2);
+});
+
+Deno.test('a receipt on a campaign message moves the recipient and the campaign\'s figures; a customer\'s message within three days is the campaign\'s reply; campaign_test sends the template to one number for cs.manage only', async () => {
+  const s = campaignSetup();
+  await tick(s.deps);
+  await deliver(s.deps, wa('messages', { statuses: [{ id: 'wamid.C1', status: 'delivered', timestamp: '1762690000', recipient_id: '201012345678' }] }));
+  await deliver(s.deps, wa('messages', { statuses: [{ id: 'wamid.C2', status: 'read', timestamp: '1762690000', recipient_id: '201098765432' }] }));
+  assertEquals(s.db.rows('cs_campaign_recipients').map((x: any) => x.status), ['delivered', 'read', 'opted_out']);
+  assertEquals(s.db.row('cs_campaigns', CAMP.id).stats.delivered, 2);
+  await deliver(s.deps, wa('messages', { contacts: [{ wa_id: '201012345678', profile: { name: 'Noha' } }], messages: [msg('201012345678', 'wamid.IN1', 'عايزة الكود ده 😍', '1762692000')] }));
+  const r1 = s.db.row('cs_campaign_recipients', 1);
+  assertEquals([r1.status, r1.reply], ['replied', 'عايزة الكود ده 😍']);
+  assertEquals(s.db.row('cs_campaigns', CAMP.id).stats.replies, 1, 'the figures follow the reply too');
+  // the test send
+  const t = await call(s.deps, { action: 'campaign_test', template_id: TPL.id, phone: '01011112222', code: 'TRY5' }, 'jwt-admin');
+  assertEquals([t.res.status, t.body.template], [200, 'ibtekr_offer_v1']);
+  const sent = s.graph.calls.filter((c: any) => c.path === PHONE_ID + '/messages').at(-1);
+  assertEquals([sent.body.to, sent.body.template.components[0].parameters.map((p: any) => p.text)], ['201011112222', ['نهى', 'TRY5']]);
+  assertEquals(s.db.rows('activity_log').at(-1).action, 'cs.campaign.test');
+  assertEquals((await call(s.deps, { action: 'campaign_test', template_id: TPL.id, phone: '01011112222' }, 'jwt-reply')).res.status, 401, 'cs.reply without cs.manage');
+  assertEquals((await call(s.deps, { action: 'campaign_test', template_id: TPL.id, phone: '12' }, 'jwt-admin')).body.field, 'phone');
+  assertEquals((await call(s.deps, { action: 'campaign_test', template_id: '00000000-0000-4000-8000-00000000c0ff', phone: '01011112222' }, 'jwt-admin')).body.field, 'template_id');
 });

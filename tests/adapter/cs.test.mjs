@@ -225,7 +225,7 @@ test('campaigns: a draft / a schedule (never another status from here), setCampa
   await S.load();
   const r = await S.saveCampaign({ name: ' الجمعة البيضاء ', segId: G1, channel: 'wa1', body: 'خصم', discountCode: ' BF ', scheduledAt: '2026-11-20T17:00:00Z', capPerDay: 200, minDelayS: 30, status: 'مجدولة', size: 1930 });
   assert.equal(r.ok, true); assert.equal(r.campaign.id, 'k2'); assert.equal(r.campaign.seg, 'VIP راضيين'); assert.match(r.campaign.sub, /^مجدولة 20 نوفمبر /);
-  eq(inserted(stub, 'cs_campaigns')[0], { name: 'الجمعة البيضاء', segment_id: G1, channel: 'wa1', body: 'خصم', image_path: null, discount_code: 'BF', scheduled_at: '2026-11-20T17:00:00Z', cap_per_day: 200, min_delay_s: 30, status: 'مجدولة', size: 1930 });
+  eq(inserted(stub, 'cs_campaigns')[0], { name: 'الجمعة البيضاء', segment_id: G1, channel: 'wa1', body: 'خصم', image_path: null, discount_code: 'BF', scheduled_at: '2026-11-20T17:00:00Z', cap_per_day: 200, min_delay_s: 30, status: 'مجدولة', size: 1930, template_id: null }); // template_id: 0063 (phase 13 T1)
   eq(logs.at(-1).slice(0, 2), ['cs.campaign.add', 'الجمعة البيضاء · مجدولة · 1930']); assert.ok(!JSON.stringify(logs).includes('خصم'));
   const run = await S.saveCampaign({ name: 'x', channel: 'wa1', status: 'شغالة' }); assert.equal(inserted(stub, 'cs_campaigns').at(-1).status, 'مسودة'); assert.equal(run.ok, true);
   await S.setCampaignStatus(CAMP.id, 'متوقفة'); eq(opsOf(stub.calls, 'cs_campaigns').filter((c) => c.op === 'update').at(-1).args[0].status, 'متوقفة');

@@ -130,7 +130,7 @@ test('6.3 hidden (decision 24): without settings «cs».live the last wizard ste
   await P.getByRole('button', { name: 'حملة جديدة' }).click();
   await P.locator('#wz-name').fill('حملة مخفية');
   await page.evaluate(() => { const S = window.IBPages.all().cs.api.state; S.wiz.src = 'filters'; S.wiz.picked = window.IBCS.data.customers.filter((c) => c.name === 'هدير عميل').map((c) => c.id); S.wiz.pickDesc = 'اختيار يدوي'; window.IBPages.render('cs'); });
-  await P.locator('[data-wz-next]').click(); await P.locator('#wz-text').fill('x'); await P.locator('[data-wz-next]').click(); await P.locator('[data-wz-next]').click();
+  await P.locator('[data-wz-next]').click(); await P.locator('[data-wz-pick-template]').click(); await page.locator('.modal [data-tpl-pick] [data-tpl]').first().click(); await P.locator('[data-wz-next]').click(); await P.locator('[data-wz-next]').click(); // phase 13 T1: wa1 on Meta → a Meta template
   await expect(P.locator('[data-wz-next][data-soon]')).toBeDisabled();
   await expect(P.locator('[data-wz-next] .soon')).toHaveText('soon');
   await P.getByRole('tab', { name: 'القنوات' }).click();
@@ -163,7 +163,8 @@ test('campaigns: the wizard saves a draft, then a scheduled campaign with a segm
   await page.evaluate(() => { const S = window.IBPages.all().cs.api.state; S.wiz.src = 'filters'; S.wiz.picked = window.IBCS.data.customers.filter((c) => ['هدير عميل', 'أوردر قديم'].includes(c.name)).map((c) => c.id); S.wiz.pickDesc = 'اختيار يدوي'; window.IBPages.render('cs'); });
   await P.locator('[data-wz-next]').click();
   await expect(P.locator('#wz-text')).toBeVisible();
-  await P.locator('#wz-text').fill('خصم 10% على كل حاجة');
+  await expect(P.locator('#wz-text')).toBeDisabled(); // phase 13 T1: wa1 on Meta — the text is the approved template's
+  await P.locator('[data-wz-pick-template]').click(); await page.locator('.modal [data-tpl-pick] [data-tpl]').first().click();
   await P.locator('[data-wz-next]').click();
   await P.locator('[data-wz-next]').click(); // schedule step with defaults (3 days ahead, 7 pm)
   await P.getByRole('checkbox', { name: /راجعت النص/ }).click();
@@ -172,7 +173,7 @@ test('campaigns: the wizard saves a draft, then a scheduled campaign with a segm
   await expect(P.locator('.stepper')).toHaveCount(0); // back to the list once saved
   await expect(P.locator('.who-cell', { hasText: 'الجمعة البيضاء' })).toBeVisible();
   const k = mock.cs.campaigns.find((x) => x.name === 'الجمعة البيضاء');
-  expect(k).toMatchObject({ status: 'مجدولة', channel: 'wa1', body: 'خصم 10% على كل حاجة' });
+  expect(k).toMatchObject({ status: 'مجدولة', channel: 'wa1', body: mock.cs.templates[0].body, template_id: mock.cs.templates[0].id });
   expect(k.scheduled_at).toMatch(/^\d{4}-/);
   const made = mock.cs.segments.find((g) => g.name === 'الجمعة البيضاء'); expect(made).toBeTruthy(); expect(made.add_ids.length).toBe(2); expect(k.segment_id).toBe(made.id); expect(k.size).toBe(2);
   // decision 23: the audience frozen on the server (cs_campaign_schedule) — one queued recipient per picked customer
@@ -380,4 +381,47 @@ test('decision 26 (App Review): the admin links the test number by hand on wa-co
   await expect(page.locator('#wc-token')).toHaveValue('');
   expect(mock.waCloud.last).toMatchObject({ manual: true, waba_id: '772702332337903', phone_id: '883530021516888', token_len: 64 });
   expect(mock.cs.channels.find((c) => c.id === 'wa1').status).toBe('connected');
+});
+
+test('phase 13 T1: a campaign on WhatsApp 1 (on Meta) is an approved Meta template — picked from the library, the text locked, a test send, the template kept on the scheduled row; the admin flips the sending switch from the channels tab', async ({ page }) => {
+  mock.waCloud = { configured: true, configId: true, linked: true, number: '+20 100 000 0001', calls: [] };
+  await signIn(page, ADMIN, '#cs-channels');
+  const P = pg(page);
+  // the switch: off by default (decision 24) → the admin turns the campaigns on with a confirmation
+  await expect(P.locator('[data-live-switch="campaigns"]')).toHaveAttribute('aria-pressed', 'false');
+  await P.locator('[data-live-switch="campaigns"]').click();
+  await page.locator('.modal').getByRole('button', { name: 'تشغيل' }).click();
+  await expect(P.locator('[data-live-switch="campaigns"]')).toHaveAttribute('aria-pressed', 'true');
+  expect(mock.settings.find((s) => s.section === 'cs').data.live).toMatchObject({ campaigns: true, wa: false });
+  await expect(P.locator('[data-chan-connect="wa2"][data-soon]')).toBeDisabled(); // the QR switch stays off
+  // the wizard on wa1 (kind meta in the mock)
+  await go(page, 'campaigns');
+  await P.getByRole('button', { name: 'حملة جديدة' }).click();
+  await P.locator('#wz-name').fill('حملة بقالب');
+  await page.evaluate(() => { const S = window.IBPages.all().cs.api.state; S.wiz.src = 'filters'; S.wiz.picked = window.IBCS.data.customers.filter((c) => c.name === 'هدير عميل').map((c) => c.id); S.wiz.pickDesc = 'اختيار يدوي'; window.IBPages.render('cs'); });
+  await P.locator('[data-wz-next]').click();
+  await expect(P.locator('[data-wz-template]')).toContainText('بقالب معتمد');
+  await expect(P.locator('#wz-text')).toBeDisabled();
+  await P.locator('[data-wz-next]').click(); // without a template: refused
+  await expect(P.locator('[data-wz-template] .err-msg')).toContainText('قالب Meta معتمد');
+  await P.locator('[data-wz-pick-template]').click();
+  await page.locator('.modal [data-tpl-pick] [data-tpl]').first().click();
+  await expect(P.locator('[data-wz-template]')).toContainText('order_confirmed_v1');
+  await expect(P.locator('#wz-text')).toHaveValue(/أوردرك/);
+  // the test send → cs-whatsapp campaign_test with the template and the number
+  await P.locator('[data-wz-test]').click();
+  await page.locator('.modal #phone').fill('01011112222');
+  await page.locator('.modal').getByRole('button', { name: 'ابعت التجربة' }).click();
+  await expect(page.locator('.modal')).toHaveCount(0);
+  expect(mock.waCloud.calls).toContain('campaign_test');
+  expect(mock.waCloud.last.test).toMatchObject({ template: 'order_confirmed_v1', phone_len: 11 });
+  await P.locator('[data-wz-next]').click();
+  await P.locator('[data-wz-next]').click();
+  await P.getByRole('checkbox', { name: /راجعت النص/ }).click();
+  await P.locator('[data-wz-next]').click();
+  await page.locator('.modal').getByRole('button', { name: 'تأكيد وجدولة' }).click();
+  await expect(P.locator('.stepper')).toHaveCount(0);
+  const k = mock.cs.campaigns.find((x) => x.name === 'حملة بقالب');
+  expect(k).toMatchObject({ status: 'مجدولة', channel: 'wa1' });
+  expect(k.template_id).toBe(mock.cs.templates[0].id);
 });

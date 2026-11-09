@@ -25,11 +25,20 @@
 //     disconnect       (the admin) → the subscription removed (best effort), the secret removed, wa1 disconnected.
 //     send             (cs.reply, on a wa1 conversation the member sees, their own queued row unless the admin) { message_id } →
 //                      POST /{phone}/messages (text) → sent + the wamid; a refusal (e.g. 131047: past the 24 hours) → failed + code, 502.
+//     campaign_test    (cs.manage) { template_id, phone, code? } → the approved Meta template to one number with sample values.
+//     campaign_tick    (the admin; or the cron with X-Sync-Secret, every minute — 0063) → the campaigns on wa1 (phase 13 T1, decisions
+//                      1–3 of docs/superpowers/plans/2026-11-09-phase-13-leftovers.md): nothing while settings «cs».live.campaigns is
+//                      off or outside the auto-reply hours; a due «مجدولة» becomes «شغالة»; each running campaign sends up to
+//                      perTick(min_delay_s) approved templates (cap_per_day by the Cairo day; the consent / block / merge re-checked at
+//                      send time) as `out` rows without an author in the customer's wa1 conversation (meta.campaign_id / recipient_id;
+//                      the receipts update the row and the recipient); failures over 2% after 20 pause it; an emptied queue ends it.
 // Secrets: META_APP_ID, META_APP_SECRET, META_VERIFY_TOKEN (shared with cs-channel), META_WA_CONFIG_ID (the Embedded Signup
 // configuration); the owner sets them. Nothing here logs a token, a phone or a message's text.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { EXTRAS, STATE_PREFIX, WA_GRAPH_VERSION, graphErrorCode, parseWaWebhook, phoneOfWaId, phonesOf, sentIdOf, syncBody, textBody, waAuthUrl, waIdOfPhone, wabaIdsOf, waPath } from '../_shared/cs-whatsapp.js';
-import { isOptOut } from '../_shared/cs-wa.js';
+import { cairoDayStart, isOptOut } from '../_shared/cs-wa.js';
+import { DAY, inHours, settingsOf, templateBody } from '../_shared/cs-auto.js';
+import { DONE_STATUSES, REPLY_WINDOW_DAYS, SAMPLE_VARS, TICK_BUDGET_MS, campaignParams, campaignPreview, campaignStats, nextStatus, perTick, recipientAfter, templateOk } from '../_shared/cs-campaign.js';
 import { inboundSafe } from '../_shared/cs-auto-run.ts';
 
 // deno-lint-ignore no-explicit-any
@@ -40,9 +49,10 @@ export type Deps = {
   env: Record<string, string | undefined>; db: Db; now: () => string;
   userDb?: (jwt: string) => Db; userId?: (jwt: string) => Promise<string | null>;
   fetch?: typeof fetch;
+  sleep?: (ms: number) => Promise<void>; // the pause between two campaign sends (the tests pass a no-op)
 };
 
-const ACTIONS = ['status', 'connect_start', 'connect_callback', 'connect_token', 'sync', 'disconnect', 'send'];
+const ACTIONS = ['status', 'connect_start', 'connect_callback', 'connect_token', 'sync', 'disconnect', 'send', 'campaign_test', 'campaign_tick'];
 const REDIRECT_DEFAULT = 'https://operation-system.ibtekr.club/meta-callback.html';
 const STATE_MINUTES = 10;
 const GRAPH_MS = 15_000;
@@ -106,7 +116,7 @@ async function linkSet(deps: Deps, v: Link | null) {
 }
 
 // ---------------------------------------------------------------- auth of a member
-type Who = { uid: string; admin: boolean; view: boolean; viewAll: boolean; reply: boolean };
+type Who = { uid: string; admin: boolean; view: boolean; viewAll: boolean; reply: boolean; manage: boolean };
 async function whoIs(req: Request, deps: Deps): Promise<Who | null> {
   const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1];
   if (!jwt || !deps.userDb || !deps.userId) return null;
@@ -117,7 +127,15 @@ async function whoIs(req: Request, deps: Deps): Promise<Who | null> {
   const uid = await deps.userId(jwt);
   if (!uid) return null;
   const view = admin ? 'F' : await perm('cs.view');
-  return { uid, admin, view: view !== 'N', viewAll: view === 'F', reply: admin || (await perm('cs.reply')) === 'F' };
+  return { uid, admin, view: view !== 'N', viewAll: view === 'F', reply: admin || (await perm('cs.reply')) === 'F', manage: admin || (await perm('cs.manage')) === 'F' };
+}
+// the cron's door (0063): the sync secret of 0008, compared on the server
+async function syncAllowed(deps: Deps, secret: string) { const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret }); return !error && data === true; }
+// settings «cs»: the live switches (decision 24 of phase 6) and the auto-reply sending settings (the hours the campaigns keep too)
+async function csSettings(deps: Deps) {
+  const { data } = await deps.db.from('settings').select('data').eq('section', 'cs').maybeSingle();
+  const d = isObj(data) && isObj(data.data) ? data.data : {}; const l = isObj(d.live) ? d.live : {};
+  return { live: { wa: l.wa === true, campaigns: l.campaigns === true }, auto: settingsOf(d.auto) };
 }
 const canSee = (who: Who, conv: Json) => who.viewAll || (who.view && conv.assignee === who.uid);
 async function logActivity(deps: Deps, who: Who, action: string, entityId: string, value: string | null) {
@@ -184,6 +202,10 @@ async function onIn(deps: Deps, ev: Json, s: Summary) {
     await deps.db.from('cs_customers').update({ consent: false }).eq('id', customerId);
     await deps.db.from('cs_campaign_recipients').update({ status: 'opted_out', at: deps.now() }).eq('customer_id', customerId).eq('status', 'queued');
     await deps.db.from('cs_messages').insert({ conversation_id: conv.id, kind: 'event', text: 'العميل طلب إيقاف رسايل العروض — اتشال من الحملات', author: null, delivery: null, meta: { opt_out: true }, created_at: deps.now() });
+  } else { // a message within three days of a campaign send is its reply (phase 13 T1 — as the bridge counts it)
+    const since = new Date(Date.parse(deps.now()) - REPLY_WINDOW_DAYS * DAY).toISOString();
+    const { data: hit } = await deps.db.from('cs_campaign_recipients').update({ status: 'replied', reply: String(ev.text).slice(0, 500) }).eq('customer_id', customerId).in('status', ['sent', 'delivered', 'read']).gte('at', since).select('campaign_id');
+    for (const cid of new Set((Array.isArray(hit) ? hit : []).map((x: Json) => String(x.campaign_id)))) await campaignFigures(deps, cid);
   }
   bump(s, 'messages');
 }
@@ -199,9 +221,28 @@ const RANK: Record<string, number> = { queued: 0, sent: 1, delivered: 2, read: 3
 async function onStatus(deps: Deps, ev: Json, s: Summary) {
   const { data: m } = await deps.db.from('cs_messages').select('id, delivery, meta').eq('external_id', ev.id).in('kind', ['out', 'auto']).maybeSingle();
   if (!isObj(m)) { bump(s, 'ignored:status'); return; }
-  if (ev.status === 'failed') { if (m.delivery !== 'read') await deps.db.from('cs_messages').update({ delivery: 'failed', meta: { ...(isObj(m.meta) ? m.meta : {}), error: ev.error ?? 'wa_failed' } }).eq('id', m.id); bump(s, 'failed'); return; }
+  if (ev.status === 'failed') { if (m.delivery !== 'read') await deps.db.from('cs_messages').update({ delivery: 'failed', meta: { ...(isObj(m.meta) ? m.meta : {}), error: ev.error ?? 'wa_failed' } }).eq('id', m.id); await recipientStatus(deps, m, 'failed', ev.error); bump(s, 'failed'); return; }
   if ((RANK[ev.status] ?? -1) > (RANK[String(m.delivery)] ?? -1) && m.delivery !== 'failed') await deps.db.from('cs_messages').update({ delivery: ev.status }).eq('id', m.id);
+  await recipientStatus(deps, m, String(ev.status), null);
   bump(s, ev.status === 'read' ? 'reads' : ev.status === 'delivered' ? 'deliveries' : 'sent');
+}
+// a receipt on a campaign message (meta.recipient_id) moves its recipient along too, never backwards; the campaign's figures follow
+async function recipientStatus(deps: Deps, m: Json, delivery: string, error: unknown) {
+  const meta = isObj(m.meta) ? m.meta : {}; const rid = Number(meta.recipient_id);
+  if (!Number.isInteger(rid) || rid <= 0) return;
+  const { data: r } = await deps.db.from('cs_campaign_recipients').select('id, campaign_id, status').eq('id', rid).maybeSingle();
+  if (!isObj(r)) return;
+  const next = recipientAfter(String(r.status), delivery); if (!next) return;
+  await deps.db.from('cs_campaign_recipients').update(next === 'failed' ? { status: 'failed', error: String(error ?? 'wa_failed').replace(/[^\w:.-]/g, '').slice(0, 60) } : { status: next }).eq('id', rid);
+  await campaignFigures(deps, String(r.campaign_id));
+}
+// the figures follow every change (a finished campaign keeps counting its deliveries and replies); the status moves only while running
+async function campaignFigures(deps: Deps, campaignId: string) {
+  const { data: all } = await deps.db.from('cs_campaign_recipients').select('status').eq('campaign_id', campaignId);
+  const stats = campaignStats((Array.isArray(all) ? all : []).map((x: Json) => String(x.status)));
+  await deps.db.from('cs_campaigns').update({ stats }).eq('id', campaignId);
+  const next = nextStatus(stats); if (next) await deps.db.from('cs_campaigns').update({ status: next }).eq('id', campaignId).eq('status', 'شغالة');
+  return stats;
 }
 async function onContact(deps: Deps, ev: Json, s: Summary) {
   const phone = phoneOfWaId(ev.waId);
@@ -431,6 +472,96 @@ async function send(deps: Deps, who: Who, args: Json) {
   }
 }
 
+// ---------------------------------------------------------------- the campaigns on wa1 (phase 13 T1)
+const campaignTemplate = async (deps: Deps, id: unknown) => { if (typeof id !== 'string' || !UUID.test(id)) return null; const { data } = await deps.db.from('cs_templates').select('id, name, body, wa_template, wa_vars, active').eq('id', id).maybeSingle(); return templateOk(data) ? data as Json : null; };
+// one template send: the row in the customer's wa1 conversation first (queued, no author), then Graph; the row and the recipient follow
+type Target = { cu: Json; phone: string; waId: string; params: string[] };
+// who gets this recipient's send, re-checked at send time (decision 24 of phase 6): a customer who opted out, was blocked or merged
+// since the scheduling never gets it; no phone / a variable without a value → the recipient fails without a Graph call
+async function campaignTarget(deps: Deps, k: Json, tpl: Json, r: Json): Promise<Target | 'opted_out' | 'failed'> {
+  const now = deps.now();
+  const { data: cu } = r.customer_id ? await deps.db.from('cs_customers').select('id, name, phone, consent, blocked_at, merged_into').eq('id', r.customer_id).maybeSingle() : { data: null };
+  if (!isObj(cu) || cu.consent === false || cu.blocked_at || cu.merged_into) { await deps.db.from('cs_campaign_recipients').update({ status: 'opted_out', at: now, claimed_at: null }).eq('id', r.id); return 'opted_out'; }
+  const phone = String(r.phone || cu.phone || ''); const waId = phone ? waIdOfPhone(phone) : null;
+  const fail = async (code: string) => { await deps.db.from('cs_campaign_recipients').update({ status: 'failed', error: code, at: now, claimed_at: null }).eq('id', r.id); return 'failed' as const; };
+  if (!waId) return fail('no_phone');
+  const { params, missing } = campaignParams(tpl, { name: cu.name, code: k.discount_code });
+  if (missing.length) return fail('missing_var');
+  return { cu, phone, waId, params };
+}
+async function sendCampaignOne(deps: Deps, link: Link, k: Json, tpl: Json, r: Json, lang: string, t: Target): Promise<'sent' | 'failed'> {
+  const now = deps.now(); const { cu, phone, waId, params } = t;
+  const fail = async (code: string) => { await deps.db.from('cs_campaign_recipients').update({ status: 'failed', error: code, at: now, claimed_at: null }).eq('id', r.id); return 'failed' as const; };
+  const conv = await conversationOf(deps, phone, String(cu.id), { status: 'مستنية العميل' });
+  const { data: made, error } = await deps.db.from('cs_messages').insert({ conversation_id: conv.id, kind: 'out', text: campaignPreview(tpl, { name: cu.name, code: k.discount_code }), author: null, delivery: 'queued', meta: { campaign_id: k.id, recipient_id: r.id, tpl: tpl.wa_template }, created_at: now }).select('id').single();
+  if (error || !isObj(made)) throw new Error('cs_messages: ' + (error?.code ?? 'insert'));
+  try {
+    const wamid = sentIdOf(await graph(deps, 'POST', waPath.send(link.phone_id), { token: link.token, body: templateBody(waId, tpl.wa_template, lang, params) }));
+    await deps.db.from('cs_messages').update({ delivery: 'sent', external_id: wamid }).eq('id', made.id);
+    await deps.db.from('cs_campaign_recipients').update({ status: 'sent', wa_id: wamid, at: now, claimed_at: null }).eq('id', r.id);
+    return 'sent';
+  } catch (e) {
+    if (!(e instanceof GraphError)) throw e;
+    await deps.db.from('cs_messages').update({ delivery: 'failed', meta: { campaign_id: k.id, recipient_id: r.id, tpl: tpl.wa_template, error: e.code } }).eq('id', made.id);
+    return fail(e.code);
+  }
+}
+export async function campaignTick(deps: Deps): Promise<Json> {
+  const startMs = Date.parse(deps.now()); const s: Summary = {};
+  const cfg = await csSettings(deps);
+  if (!cfg.live.campaigns) return { result: 'ok', skipped: 'off' };
+  const { data: ch } = await deps.db.from('cs_channels').select('kind, status').eq('id', 'wa1').maybeSingle();
+  if (!isObj(ch) || ch.kind !== 'meta') return { result: 'ok', skipped: 'bridge' }; // a QR number: cs-wa's campaign_next sends
+  if (ch.status !== 'connected') return { result: 'ok', skipped: 'disconnected' };
+  const link = await linkOf(deps); if (!link) return { result: 'ok', skipped: 'not_linked' };
+  const now = deps.now(); const nowMs = Date.parse(now);
+  await deps.db.from('cs_campaigns').update({ status: 'شغالة' }).eq('channel', 'wa1').eq('status', 'مجدولة').lte('scheduled_at', now);
+  if (!inHours(cfg.auto, nowMs)) return { result: 'ok', skipped: 'hours' };
+  const { data: running } = await deps.db.from('cs_campaigns').select('id, template_id, discount_code, cap_per_day, min_delay_s').eq('channel', 'wa1').eq('status', 'شغالة').order('scheduled_at');
+  const dayStart = cairoDayStart(now); const sleep = deps.sleep ?? ((ms: number) => new Promise<void>((ok) => setTimeout(ok, ms)));
+  for (const k of Array.isArray(running) ? running : []) {
+    const tpl = await campaignTemplate(deps, k.template_id);
+    if (!tpl) { await deps.db.from('cs_campaigns').update({ status: 'متوقفة', stats: { ...(await campaignFigures(deps, String(k.id))), error: 'no_template' } }).eq('id', k.id); bump(s, 'no_template'); continue; }
+    const { data: done } = await deps.db.from('cs_campaign_recipients').select('id').eq('campaign_id', k.id).in('status', DONE_STATUSES).gte('at', dayStart);
+    const room = Math.min(perTick(k.min_delay_s), (Number(k.cap_per_day) || 300) - (Array.isArray(done) ? done.length : 0));
+    if (room <= 0) { bump(s, 'cap'); continue; }
+    const { data: queued } = await deps.db.from('cs_campaign_recipients').select('id, customer_id, phone, claimed_at').eq('campaign_id', k.id).eq('status', 'queued').order('id').limit(room);
+    const list = Array.isArray(queued) ? queued : [];
+    if (!list.length) { await campaignFigures(deps, String(k.id)); bump(s, 'finished'); continue; }
+    let calls = 0;
+    for (const r of list) {
+      if (Date.parse(deps.now()) - startMs > TICK_BUDGET_MS) { bump(s, 'budget'); break; }
+      await deps.db.from('cs_campaign_recipients').update({ claimed_at: deps.now() }).eq('id', r.id);
+      const t = await campaignTarget(deps, k, tpl, r);
+      if (typeof t === 'string') { bump(s, t); continue; } // skipped without a Graph call: no pause
+      if (calls > 0) await sleep((Number(k.min_delay_s) || 20) * 1000);
+      bump(s, await sendCampaignOne(deps, link, k, tpl, r, cfg.auto.waLang, t)); calls += 1;
+    }
+    await campaignFigures(deps, String(k.id));
+  }
+  await logEvent(deps, { object: 'whatsapp', status: 'ok', summary: { campaign_tick: 1, ...s } });
+  return { result: 'ok', ...s };
+}
+async function campaignTest(deps: Deps, who: Who, args: Json) {
+  if (!who.manage) return json(401, { error: 'unauthorized' });
+  const tpl = await campaignTemplate(deps, args.template_id); if (!tpl) return json(400, { error: 'bad_request', field: 'template_id' });
+  const waId = typeof args.phone === 'string' ? waIdOfPhone(args.phone) : null; if (!waId) return json(400, { error: 'bad_request', field: 'phone' });
+  const code = typeof args.code === 'string' && args.code.trim() ? args.code.trim().slice(0, 40) : SAMPLE_VARS['كود_الخصم'];
+  const link = await linkOf(deps); if (!link) return json(503, { error: 'not_linked' });
+  const { params, missing } = campaignParams(tpl, { name: SAMPLE_VARS['اسم_العميل'], code });
+  if (missing.length) return json(400, { error: 'bad_request', field: 'wa_vars' });
+  const cfg = await csSettings(deps);
+  try {
+    const wamid = sentIdOf(await graph(deps, 'POST', waPath.send(link.phone_id), { token: link.token, body: templateBody(waId, tpl.wa_template, cfg.auto.waLang, params) }));
+    await logActivity(deps, who, 'cs.campaign.test', String(tpl.id), tpl.wa_template);
+    return json(200, { result: 'ok', external_id: wamid, template: tpl.wa_template });
+  } catch (e) {
+    if (!(e instanceof GraphError)) throw e;
+    await logActivity(deps, who, 'cs.campaign.test_failed', String(tpl.id), e.code);
+    return json(502, { error: e.code, status: e.status });
+  }
+}
+
 // ---------------------------------------------------------------- entry
 export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
@@ -447,11 +578,18 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   try { body = await req.json(); } catch { return json(400, { error: 'bad_json' }); }
   const args: Json = isObj(body) ? body : {};
   const action = typeof args.action === 'string' ? args.action : '';
+  const syncSecret = req.headers.get('x-sync-secret');
+  if (syncSecret && !req.headers.get('authorization')) { // the cron (0063): campaign_tick only
+    if (action !== 'campaign_tick' || !(await syncAllowed(deps, syncSecret))) return json(401, { error: 'unauthorized' });
+    try { return json(200, await campaignTick(deps)); } catch (e) { console.error('cs-whatsapp campaign_tick: ' + errText(e)); return json(500, { error: 'failed' }); }
+  }
   const who = await whoIs(req, deps);
   if (!who) return json(401, { error: 'unauthorized' });
   if (!ACTIONS.includes(action)) return json(400, { error: 'unknown_action' });
   try {
     if (action === 'status') return await status(deps, who);
+    if (action === 'campaign_test') return await campaignTest(deps, who, args);
+    if (action === 'campaign_tick') return who.admin ? json(200, await campaignTick(deps)) : json(401, { error: 'unauthorized' });
     if (action === 'connect_start') return await connectStart(deps, who);
     if (action === 'connect_callback') return await connectCallback(deps, who, args);
     if (action === 'connect_token') return await connectToken(deps, who, args);

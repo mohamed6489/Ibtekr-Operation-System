@@ -108,3 +108,12 @@
 .cs-slash-it{display:flex;align-items:center;gap:10px;padding:8px 12px;border:0;background:transparent;font:inherit;color:inherit;text-align:start;cursor:pointer}
 .cs-slash-it:hover,.cs-slash-it:focus{background:var(--color-bg-tint)}
 @media (max-width:720px){.rule{flex-wrap:wrap}.rule-info{flex-basis:100%}.rule .stats{white-space:normal;flex:1}}
+
+/* phase 13 T3: attachments in the bubble, the order picker */
+.bub-img{display:block;max-width:240px;max-height:240px;border-radius:8px;margin-bottom:4px;cursor:zoom-in;background:var(--color-bg-subtle,#f3f4f6)}
+.bub .bub-file{display:inline-flex;align-items:center;gap:6px;margin-bottom:4px}
+.bub-atts{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:4px}
+.co-items{display:flex;flex-direction:column;gap:6px;margin:6px 0}
+.co-item{display:flex;align-items:center;gap:8px;padding:6px 8px;border:1px solid var(--color-border,#e5e7eb);border-radius:8px}
+.co-item b{flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.co-qty{width:64px}

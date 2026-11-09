@@ -306,10 +306,17 @@
     if (m.t === 'event') return h('div', { class: 'evt' }, U.TimelineEvent({ text: m.text, time: m.time }));
     const side = m.t === 'in' ? 'in' : 'out'; const kind = m.t;
     const body = h('div', { class: 'tx' }, m.text);
+    // phase 13 T3 (decision 6): our attachment (a thumbnail / a file chip by a signed link), a customer's WhatsApp media (fetched on demand), Messenger attachments
+    const openUrl = (u) => { if (u) window.open(u, '_blank', 'noopener'); else K.toast('المرفق مش متاح دلوقتي', 'error'); };
+    const att = m.media ? (/^image\//.test(m.media.type) ? (() => { const img = h('img', { class: 'bub-img', alt: m.media.name || 'صورة', loading: 'lazy', 'data-media': m.media.path }); A().mediaUrl(m.media.path).then((u) => { if (u) img.src = u; }); img.addEventListener('click', async () => openUrl(await A().mediaUrl(m.media.path))); return img; })()
+        : Button({ size: 'sm', icon: 'attach', label: m.media.name || 'ملف', attrs: { class: 'btn sm bub-file', 'data-media': m.media.path }, onClick: async () => openUrl(await A().mediaUrl(m.media.path)) }))
+      : m.mediaId ? Button({ size: 'sm', icon: 'attach', label: 'تحميل المرفق', attrs: { class: 'btn sm bub-file', 'data-media-in': m.id }, onClick: async () => { const r = await A().inboundMediaUrl(m.id); if (r.ok) openUrl(r.url); else K.toast(r.reason === 'not_linked' ? 'واتساب 1 مش مربوط — مش هنقدر نجيب المرفق' : 'مقدرناش نجيب المرفق من Meta', 'error'); } })
+      : m.attachments && m.attachments.length ? h('div', { class: 'bub-atts' }, m.attachments.map((a, i) => (a.url ? h('a', { class: 'bub-file', href: a.url, target: '_blank', rel: 'noopener' }, Icon('attach', 'sm'), (a.type === 'image' ? 'صورة' : a.type === 'video' ? 'فيديو' : a.type === 'audio' ? 'صوت' : 'مرفق') + (m.attachments.length > 1 ? ' ' + (i + 1) : '')) : null))) : null;
+    const hideText = !!(m.media && /^📎/.test(m.text || ''));
     const dl = m.delivery === 'read' ? ['✓✓ اتقرت', 'ok'] : m.delivery === 'delivered' ? ['✓✓ اتسلمت', ''] : m.delivery === 'sent' ? ['✓ اتبعتت', ''] : m.delivery === 'queued' ? ['في الطابور — هتتبعت لما القناة تتربط', ''] : m.delivery === 'failed' ? ['فشل الإرسال', 'err'] : null;
     return h('div', { class: 'brow ' + side }, h('div', { class: 'bub b-' + kind },
       m.t === 'note' ? h('div', { class: 'bh t-small' }, 'ملاحظة داخلية · مش بتوصل للعميل') : m.t === 'auto' ? h('div', { class: 'bh t-small' }, Icon('bot', 'sm'), 'رد آلي' + (m.tpl ? ' · قالب «' + m.tpl + '»' : '')) : null,
-      body, h('div', { class: 'meta t-small' }, m.author ? h('span', null, m.author) : null, h('span', null, m.time), dl ? h('span', { class: dl[1] }, dl[0]) : null)));
+      att, hideText ? null : body, h('div', { class: 'meta t-small' }, m.author ? h('span', null, m.author) : null, h('span', null, m.time), dl ? h('span', { class: dl[1] }, dl[0]) : null)));
   }
   const agents = () => (A() ? A().agents() : []);
   function ChatCol(c) {
@@ -377,6 +384,11 @@
     ta.addEventListener('input', () => { st.draft = ta.value; grow(); drawSlash(); });
     ta.addEventListener('keydown', (e) => { if (note ? (e.key === 'Enter' && e.ctrlKey) : (e.key === 'Enter' && !e.shiftKey)) { e.preventDefault(); send(c, ta.value); } });
     const tool = (icon, label, run) => IconButton({ icon, label, attrs: { title: label, 'data-cmp-tool': label }, onClick: run });
+    // phase 13 T3 (decision 6): an image / PDF ≤ 10 MB goes out as an attachment with the box's text as its caption; the voice note waits for a
+    // server that can transcode (the browser records WebM, Meta takes AAC / OGG-Opus) — no button for it
+    const fileIn = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp,image/gif,application/pdf', hidden: true, 'data-cmp-file': '', 'aria-label': 'مرفق' });
+    fileIn.addEventListener('change', async () => { const f = fileIn.files && fileIn.files[0]; fileIn.value = ''; if (!f) return; if (!connected(c)) { K.toast('القناة مش متصلة — المرفق مش هيوصل.', 'error'); return; } const r = await A().sendMedia(c.id, f, ta.value); if (!done(r, 'اتبعت المرفق')) return; const next = CS.nextStatus(c.status, 'out'); if (next !== c.status) await A().setStatus(c.id, next); st.draft = ''; R(); focusComposer(); });
+    const pickMedia = () => { if (!reply) return; if (!connected(c)) { K.toast('القناة مش متصلة — المرفق مش هيوصل. استنى ربط القناة.', 'error'); return; } fileIn.click(); };
     // phase 6.5: «/» in the box lists the quick replies and the templates with a key (block 19 quickReplies); a pick fills the box with the variables filled
     const slash = h('div', { class: 'cs-slash', id: 'cs-slash', role: 'listbox', 'aria-label': 'ردود سريعة', hidden: true });
     const drawSlash = () => { const q = note ? '' : ta.value; const list = q[0] === '/' && !/\s/.test(q) ? CS.quickReplies(A().quickList ? A().quickList() : [], q).slice(0, 8) : []; slash.hidden = !list.length; slash.replaceChildren(...list.map((x) => h('button', { type: 'button', class: 'cs-slash-it', role: 'option', 'data-slash': x.key, onClick: () => { st.draft = fillFor(c, x.text); R(); focusComposer(); } }, h('b', null, x.key), h('span', { class: 't-small' }, x.label)))); };
@@ -388,7 +400,7 @@
       closed && live ? h('div', { class: 'cs-bar warn sm', role: 'status' }, 'عدّى 24 ساعة من آخر رسالة للعميل. الرسالة الحرة ممكن متوصلش أو تعرّض الرقم للحظر — ابعت قالب متابعة بدلها.') : null,
       h('div', { class: 'cmp-in' }, ta, slash),
       h('div', { class: 'cmp-bar' }, note ? [tool('at', 'ذكر @', () => { ta.value += (ta.value && !ta.value.endsWith(' ') ? ' ' : '') + '@'; ta.focus(); })]
-        : [tool('file', 'قالب', () => pickTemplate(c)), tool('zap', 'ردود سريعة', () => pickQuick(c)), tool('attach', 'مرفق', () => SOON('المرفقات')), tool('mic', 'فويس', () => SOON('الرسايل الصوتية'))],
+        : [tool('file', 'قالب', () => pickTemplate(c)), tool('zap', 'ردود سريعة', () => pickQuick(c)), tool('attach', 'مرفق', pickMedia), fileIn],
         h('span', { class: 'grow' }), h('span', { class: 't-small hint' }, note ? 'Ctrl+Enter للحفظ' : 'Enter إرسال'),
         Button({ type: note ? 'default' : 'primary', label: note ? 'حفظ الملاحظة' : 'إرسال', icon: note ? null : 'send', disabled: !reply || (!note && !live), attrs: { 'data-cmp-send': '' }, onClick: () => send(c, ta.value) })));
   }
@@ -526,6 +538,35 @@
   // customer, the conversation and its open order (else the latest), «مشكلة مبتكر» for a maker's chat, «تعليق داخلي» for a comment;
   // the tickets of the customer / the conversation / the maker in the side panel (what IBTickets lets the member see)
   const TKA = () => window.IBTickets || null; const APP = () => window.IbtekrApp || null;
+  // phase 13 T3 (decision 8): a channel thread whose user is not a customer yet → an existing customer (RPC cs_link_contact)
+  function linkPopup(c) {
+    let q = ''; const list = () => S.customers.filter((cu) => !cu.merged && (!q || cu.name.toLowerCase().includes(q.toLowerCase()) || String(cu.phone || '').includes(q))).slice(0, 30);
+    const rows = h('div', { class: 'pick-list', 'data-link-pick': '' });
+    const draw = () => rows.replaceChildren(...(list().length ? list().map((cu) => h('button', { type: 'button', class: 'pick-row', onClick: async () => { m.close(); const r = await A().linkContact(c.id, cu.id); if (done(r, 'اتربطت المحادثة بـ «' + cu.name + '»')) R(); } }, h('b', null, cu.name), h('span', { class: 'grow t-small' }, (cu.phone || '') + (cu.orders ? ' · ' + cu.orders + ' أوردر' : '')))) : [h('div', { class: 't-small help' }, 'مفيش عميل بالاسم ده — ضيفه من تاب «العملاء» الأول.')]));
+    const m = U.Modal({ title: 'ربط المحادثة بعميل موجود', body: [h('div', { class: 't-small help' }, (c.handle || 'الحساب ده') + ' هيتربط بالعميل اللي تختاره: الرسايل الجاية منه هتظهر على ملفه.'), U.TextInput({ id: 'lk-q', label: 'ابحث بالاسم أو الرقم', value: '', onInput: (v) => { q = v; draw(); } }), rows], footer: [Button({ label: 'إلغاء', onClick: () => m.close() })] });
+    draw(); setTimeout(() => { const f = document.getElementById('lk-q'); if (f) f.focus(); });
+  }
+  // phase 13 T3 (decision 7): the pay link of one of the customer's orders that still waits for its payment (read live from the shop)
+  function payLinkPopup(cu, c) {
+    const open = cu.orderList.filter((o) => o[1] === 'Processing');
+    if (!open.length) { K.toast('مفيش أوردر مفتوح للعميل ده — اعمل أوردر الأول وهيطلع لينكه لوحده.'); return; }
+    const m = U.Modal({ title: 'إرسال لينك دفع', body: [h('div', { class: 't-small help' }, 'اختار الأوردر — اللينك بيتجاب من الموقع وبيتحط في خانة الرد. الأوردر لازم يكون مستني الدفع (قيد الانتظار / فشل / معلّق).'),
+      h('div', { class: 'pick-list', 'data-pay-pick': '' }, open.map((o) => h('button', { type: 'button', class: 'pick-row', onClick: async () => { m.close(); const r = await A().payLink(String(o[0]).replace(/^IB-/, ''), cu.id); if (!r.ok) { K.toast(r.message || (r.reason === 'forbidden' ? 'لينك الدفع محتاج صلاحية تغيير حالة الأوردر' : 'مقدرناش نجيب لينك الدفع — جرّب تاني'), 'error'); return; } st.draft = 'ادفع أوردرك #' + r.number + ' من هنا: ' + r.url; st.mode = 'reply'; R(); focusComposer(); } }, h('b', null, '#' + o[0]), h('span', { class: 'grow t-small' }, o[2]))))], footer: [Button({ label: 'إلغاء', onClick: () => m.close() })] });
+  }
+  // phase 13 T3 (decision 7): an order on WooCommerce from the chat — pending and unpaid; its pay link lands in the composer
+  function createOrderPopup(cu, c) {
+    const st2 = { q: '', found: [], items: [], note: '', busy: false };
+    const results = h('div', { class: 'pick-list', 'data-order-found': '' }); const chosen = h('div', { class: 'co-items', 'data-order-items': '' }); let total = h('div', { class: 't-small' });
+    const money = (n) => (n == null ? '—' : K.n0(n) + ' ج.م');
+    const drawItems = () => { chosen.replaceChildren(...(st2.items.length ? st2.items.map((it, i) => h('div', { class: 'co-item', 'data-order-item': String(it.productId) }, h('b', null, it.name), h('span', { class: 't-small' }, it.sku || ''), h('input', { type: 'number', min: '1', max: '50', value: String(it.qty), 'aria-label': 'الكمية', class: 'input co-qty', onInput: (e) => { it.qty = Math.max(1, Math.min(50, Number(e.target.value) || 1)); drawTotal(); } }), h('span', { class: 't-small' }, money(it.price)), IconButton({ icon: 'close', label: 'شيل', onClick: () => { st2.items.splice(i, 1); drawItems(); } }))) : [h('div', { class: 't-small help' }, 'لسه مفيش منتجات — ابحث فوق واختار.')])); drawTotal(); };
+    const drawTotal = () => { const sum = st2.items.reduce((a, it) => a + (it.price || 0) * it.qty, 0); total.textContent = st2.items.length ? 'الإجمالي التقريبي: ' + money(sum) + ' (الموقع بيحسب الشحن والخصومات)' : ''; };
+    const search = async () => { const r = await A().productSearch(st2.q); st2.found = r.ok ? r.items : []; results.replaceChildren(...(st2.found.length ? st2.found.map((p) => h('button', { type: 'button', class: 'pick-row', onClick: () => { const had = st2.items.find((x) => x.productId === p.id); if (had) had.qty = Math.min(50, had.qty + 1); else st2.items.push({ productId: p.id, name: p.name, sku: p.sku, price: p.price, qty: 1 }); drawItems(); } }, h('b', null, p.name), h('span', { class: 'grow t-small' }, (p.sku ? p.sku + ' · ' : '') + money(p.price) + (p.type === 'variable' ? ' · متعدد المقاسات' : '')))) : [h('div', { class: 't-small help' }, r.ok ? (r.total ? 'مفيش منتج بالاسم ده' : 'مفيش منتجات في المرآة — أو صلاحية عرض المنتجات ناقصة') : 'مقدرناش نقرا المنتجات')])); };
+    const m = U.Modal({ title: 'إنشاء أوردر — ' + cu.name, body: [h('div', { class: 't-small help' }, 'الأوردر بيتعمل على الموقع «قيد الانتظار» (مش مدفوع) ببيانات العميل من ملفه، ولينك الدفع بيتحط في خانة الرد.'),
+      U.TextInput({ id: 'co-q', label: 'ابحث عن منتج بالاسم أو الـ SKU', value: '', onInput: (v) => { st2.q = v; search(); } }), results, h('div', { class: 't-label' }, 'المنتجات المختارة'), chosen, total,
+      U.Textarea({ id: 'co-note', label: 'ملاحظة للأوردر (اختياري)', value: '', rows: 2, maxlength: 500, onInput: (v) => { st2.note = v; } })],
+      footer: [Button({ label: 'إلغاء', onClick: () => m.close() }), Button({ type: 'primary', label: 'اعمل الأوردر', attrs: { 'data-order-submit': '' }, onClick: async () => { if (st2.busy) return; if (!st2.items.length) { K.toast('اختار منتج واحد على الأقل', 'error'); return; } st2.busy = true; const r = await A().createOrder({ customerId: cu.id, items: st2.items, note: st2.note, conversationId: c ? c.id : null }); st2.busy = false; if (!r.ok) { K.toast(r.message || (r.reason === 'forbidden' ? 'إنشاء الأوردر محتاج صلاحية تغيير حالة الأوردر' : r.reason === 'notfound' ? 'العميل مش موجود' : 'مقدرناش نعمل الأوردر على الموقع — جرّب تاني'), 'error'); return; } m.close(); K.toast('اتعمل الأوردر #' + r.number + ' على الموقع', 'success'); if (c) { st.draft = 'أوردرك #' + r.number + ' اتعمل ✅' + (r.url ? ' ادفع من هنا: ' + r.url : ''); st.mode = 'reply'; R(); focusComposer(); } } })] });
+    m.el.classList.add('wide'); search(); drawItems(); setTimeout(() => { const f = document.getElementById('co-q'); if (f) f.focus(); });
+  }
   function ticketFrom(c, cu) {
     const app = APP(); if (!app || !app.newTicket || !TKA() || !TKA().can().manage) { K.toast('مفيش صلاحية تفتح تذاكر', 'error'); return; }
     if (c.seg === 'vendors') { const v = V(c.who); app.newTicket({ type: 'vendor', vendor: v ? v.name : '', vendorId: v ? v.id : null, csConversationId: c.id }); return; }
@@ -549,7 +590,7 @@
       sec('بيانات التواصل', can().manage ? link('تعديل', () => editContact(cu)) : null, [cu.phone ? U.InfoRow({ label: 'واتساب', value: cu.phone, copy: can().phone, onCopy: (v) => copy(v, 'الرقم') }) : null, cu.ig ? U.InfoRow({ label: 'إنستجرام', value: cu.ig, copy: true, onCopy: (v) => copy(v, 'الحساب') }) : null, cu.address ? U.InfoRow({ label: 'العنوان', value: cu.address }) : null]),
       sec('أرقام الشراء', null, h('div', { class: 'kvg' }, [['الأوردرات', cu.orders], ['إجمالي الشراء', K.n0(cu.total) + ' ج.م'], ['متوسط الأوردر', cu.orders ? K.n0(cu.total / cu.orders) + ' ج.م' : '—'], ['آخر أوردر', cu.lastOrderDays != null ? 'من ' + cu.lastOrderDays + ' يوم' : '—'], ['رفض استلام', cu.refused], ['مرتجع', cu.returned]].map(([k, v]) => h('div', { class: 'kvc' }, h('span', { class: 't-small' }, k), h('b', null, K.Num(String(v))))))),
       sec('الأوردرات', cu.orderList.length ? link('عرض الكل (' + cu.orders + ')', () => profile(cu, 'orders')) : null, cu.orderList.length ? cu.orderList.map(OrderRow) : h('div', { class: 't-small' }, can().orders ? 'لسه مفيش أوردرات' : 'الأوردرات محتاجة صلاحية عرضها')),
-      sec('إجراءات سريعة', null, h('div', { class: 'qa' }, Button({ size: 'sm', label: 'إرسال رابط التتبع', disabled: !cu.orderList.length, onClick: () => { st.draft = fillFor(c, 'تابعي شحنتك من هنا: {رابط_التتبع}'); st.mode = 'reply'; R(); focusComposer(); } }), Button({ size: 'sm', label: 'إرسال لينك دفع', onClick: () => SOON('لينكات الدفع') }), Button({ size: 'sm', label: 'إنشاء أوردر', onClick: () => SOON('إنشاء أوردر من الشات') }), Button({ size: 'sm', label: 'تعديل أوردر', disabled: !cu.orderList.length, attrs: { 'data-edit-order': '', title: cu.orderList.length ? '' : 'مفيش أوردرات للعميل ده' }, onClick: () => editCustOrder(cu, c) }), Button({ size: 'sm', label: 'تحويل لتذكرة', onClick: () => SOON('تذاكر الفريق') }))),
+      sec('إجراءات سريعة', null, h('div', { class: 'qa' }, Button({ size: 'sm', label: 'إرسال رابط التتبع', disabled: !cu.orderList.length, onClick: () => { st.draft = fillFor(c, 'تابعي شحنتك من هنا: {رابط_التتبع}'); st.mode = 'reply'; R(); focusComposer(); } }), Button({ size: 'sm', label: 'إرسال لينك دفع', attrs: { 'data-pay-link': '' }, onClick: () => payLinkPopup(cu, c) }), Button({ size: 'sm', label: 'إنشاء أوردر', attrs: { 'data-new-order': '' }, onClick: () => createOrderPopup(cu, c) }), Button({ size: 'sm', label: 'تعديل أوردر', disabled: !cu.orderList.length, attrs: { 'data-edit-order': '', title: cu.orderList.length ? '' : 'مفيش أوردرات للعميل ده' }, onClick: () => editCustOrder(cu, c) }), Button({ size: 'sm', label: 'تحويل لتذكرة', onClick: () => ticketFrom(c, cu) }))),
       TicketsSec(ticketsOf(cu, c), TKA() && TKA().can().manage ? link('+ تذكرة', () => ticketFrom(c, cu)) : null),
       cu.source ? sec('جه منين', null, h('div', { class: 'r t-small' }, Icon('megaphone', 'sm'), cu.source)) : null);
   }
@@ -561,7 +602,7 @@
       sec('أرقام المبتكر', null, h('div', { class: 'kvg' }, [['فرعي مفتوح', v.open], ['متأخر', v.late], ['مدة التصنيع', v.avg]].map(([k, x]) => h('div', { class: 'kvc' }, h('span', { class: 't-small' }, k), h('b', null, K.Num(String(x))))))),
       sec('الأوردرات الفرعية المفتوحة', v.open ? link('عرض الكل (' + v.open + ')', () => { location.hash = 'orders'; }) : null, v.subs.length ? v.subs.map((s) => h('div', { class: 'ord' }, h('div', { class: 'r' }, link(s[0], () => openOrder(s[3])), U.DelayBadge(s[2] === 'AtRisk' ? 'risk' : s[2] === 'Late' ? 'late' : 'ok')), h('div', { class: 't-small' }, s[1]))) : h('div', { class: 't-small' }, 'مفيش أوردرات فرعية مفتوحة')),
       TicketsSec(TKA() ? TKA().forVendor(v.id) : [], TKA() && TKA().can().manage ? link('+ تذكرة', () => ticketFrom(c, null)) : null),
-      sec('إجراءات سريعة', null, h('div', { class: 'qa' }, Button({ size: 'sm', label: 'تذكير بميعاد التسليم', onClick: () => pickTemplate(c) }), Button({ size: 'sm', label: 'تعديل ميعاد التسليم', onClick: () => K.form({ title: 'تعديل ميعاد التسليم', values: { d: today() }, fields: (f, e, set) => [K.field.date('d', 'ميعاد التسليم الجديد', f, e, set, { required: true })], submitLabel: 'حفظ', submit: async (f) => { const r = await A().event(c.id, 'ميعاد تسليم ' + (v.subs[0] ? v.subs[0][0] : '') + ' اتغير لـ ' + K.dlabel(f.d) + ' — ' + meName()); if (done(r)) R(); } }) }), Button({ size: 'sm', label: 'تحويل لتذكرة', onClick: () => SOON('تذاكر الفريق') }))));
+      sec('إجراءات سريعة', null, h('div', { class: 'qa' }, Button({ size: 'sm', label: 'تذكير بميعاد التسليم', onClick: () => pickTemplate(c) }), Button({ size: 'sm', label: 'تعديل ميعاد التسليم', onClick: () => K.form({ title: 'تعديل ميعاد التسليم', values: { d: today() }, fields: (f, e, set) => [K.field.date('d', 'ميعاد التسليم الجديد', f, e, set, { required: true })], submitLabel: 'حفظ', submit: async (f) => { const r = await A().event(c.id, 'ميعاد تسليم ' + (v.subs[0] ? v.subs[0][0] : '') + ' اتغير لـ ' + K.dlabel(f.d) + ' — ' + meName()); if (done(r)) R(); } }) }), Button({ size: 'sm', label: 'تحويل لتذكرة', onClick: () => ticketFrom(c, null) }))));
   }
   // تعديل أوردر من الشات (owner 1 Nov): لو أكتر من أوردر بيختار الأول؛ بيفتح نفس شاشة تعديل صفحة الأوردرات
   function editCustOrder(cu, c) {
@@ -580,7 +621,7 @@
   function Inbox() {
     const c = conv() || filtered()[0]; if (c && !conv()) st.sel[st.seg] = c.id;
     const open = st.panel !== false;
-    const panel = !c ? null : c.seg === 'vendors' ? VendorPanel(V(c.who), c) : c.who && C(c.who) ? CustomerPanel(C(c.who), c) : h('aside', { class: 'cs-panel' }, sec('الحساب', null, h('div', { class: 't-small' }, (c.handle || '—') + ' — مش مربوط بعميل'), Button({ size: 'sm', label: 'ربط بعميل موجود', onClick: () => SOON('ربط الحساب بعميل') })));
+    const panel = !c ? null : c.seg === 'vendors' ? VendorPanel(V(c.who), c) : c.who && C(c.who) ? CustomerPanel(C(c.who), c) : h('aside', { class: 'cs-panel' }, sec('الحساب', null, h('div', { class: 't-small' }, (c.handle || '—') + ' — مش مربوط بعميل'), can().reply ? Button({ size: 'sm', label: 'ربط بعميل موجود', attrs: { 'data-link-customer': '' }, onClick: () => linkPopup(c) }) : null));
     return h('div', { class: 'cs-inbox' + (st.mobileChat ? ' show-chat' : '') + (open ? '' : ' no-panel'), 'data-panel': open ? 'open' : 'closed' }, ListCol(), ChatCol(c), open ? panel : null);
   }
 

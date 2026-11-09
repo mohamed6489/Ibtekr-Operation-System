@@ -46,8 +46,10 @@
   function host() { if (!el) { el = h('div', { id: 'portal', dir: 'rtl', lang: 'ar' }); document.body.append(el); } return el; }
   const setHash = (hs) => { try { history.replaceState(null, '', '#' + hs); } catch (e) { /* sandbox */ } };
   const go = (view, hs) => { ps.view = view; ps.err = ''; ps.errKey = ''; if (hs) setHash(hs); draw(); };
-  const WHY = { wrong: 'اسم المستخدم أو الباسورد غلط', locked: 'الحساب اتقفل 15 دقيقة بعد 5 محاولات غلط. استرجع الباسورد من «نسيت الباسورد؟» أو كلّم إبتكر يفكّه.', disabled: 'حساب الدخول ده موقوف. كلّم فريق إبتكر.',
-    nopw: 'لسه مفيش باسورد للحساب ده — اطلب الباسورد المؤقت من فريق إبتكر.', not_configured: 'البوابة لسه مش جاهزة على السيرفر — كلّم فريق إبتكر.', network: 'مفيش اتصال — جرّب تاني.', failed: 'حصلت مشكلة — جرّب تاني.', must_change: 'لازم تعمل باسورد جديد الأول.', unauthorized: 'انتهت الجلسة — سجّل دخول تاني.' };
+  // the server answers «wrong» for an unknown user, a wrong password, a disabled login and a login without a password alike (no account
+  // enumeration); only the lock is named
+  const WHY = { wrong: 'اسم المستخدم أو الباسورد غلط — لو لسه ما استلمتش باسورد مؤقت أو حسابك موقوف، كلّم فريق إبتكر.', locked: 'الحساب اتقفل 15 دقيقة بعد 5 محاولات غلط. استرجع الباسورد من «نسيت الباسورد؟» أو كلّم إبتكر يفكّه.',
+    use_change_password: 'غيّر الباسورد من «بياناتي».', not_configured: 'البوابة لسه مش جاهزة على السيرفر — كلّم فريق إبتكر.', network: 'مفيش اتصال — جرّب تاني.', failed: 'حصلت مشكلة — جرّب تاني.', must_change: 'لازم تعمل باسورد جديد الأول.', unauthorized: 'انتهت الجلسة — سجّل دخول تاني.' };
   const why = (r) => WHY[r.error] || WHY.failed; // the server never says how many tries are left (an unknown user and a wrong password look the same)
 
   // ---------- auth screens (same shell as the team login) ----------

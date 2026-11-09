@@ -494,29 +494,46 @@ async function graphBytes(deps: Deps, url: string, token: string): Promise<{ byt
   catch (e) { throw new GraphError((e as Error)?.name === 'AbortError' ? 'graph_timeout' : 'graph_network'); }
   finally { clearTimeout(timer); }
   if (!res.ok) throw new GraphError('graph_media_' + res.status, res.status);
-  const buf = new Uint8Array(await res.arrayBuffer());
-  if (buf.length > MEDIA_MAX) throw new GraphError('media_too_large');
+  // the size is checked before anything is read (Content-Length), then while streaming — a body past MEDIA_MAX is dropped mid-way
+  const declared = Number(res.headers.get('content-length') ?? 0);
+  if (declared > MEDIA_MAX) { try { await res.body?.cancel(); } catch { /* nothing to free */ } throw new GraphError('media_too_large'); }
+  const buf = await readCapped(res, MEDIA_MAX);
   return { bytes: buf, type: (res.headers.get('content-type') ?? '').split(';')[0].trim() };
+}
+async function readCapped(res: Response, max: number): Promise<Uint8Array> {
+  if (!res.body) return new Uint8Array(await res.arrayBuffer());
+  const reader = res.body.getReader(); const parts: Uint8Array[] = []; let total = 0;
+  for (;;) {
+    const { value, done } = await reader.read(); if (done) break;
+    total += value.byteLength; if (total > max) { try { await reader.cancel(); } catch { /* already closed */ } throw new GraphError('media_too_large'); }
+    parts.push(value);
+  }
+  const out = new Uint8Array(total); let at = 0; for (const p of parts) { out.set(p, at); at += p.byteLength; } return out;
 }
 const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'application/pdf': 'pdf', 'video/mp4': 'mp4', 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/amr': 'amr' };
 async function mediaUrl(deps: Deps, who: Who, args: Json) {
   if (!who.view) return json(401, { error: 'unauthorized' });
   const id = typeof args.message_id === 'string' && UUID.test(args.message_id) ? args.message_id : null;
   if (!id) return json(400, { error: 'bad_request', field: 'message_id' });
-  const { data: m } = await deps.db.from('cs_messages').select('id, conversation_id, kind, meta').eq('id', id).maybeSingle();
+  const { data: m } = await deps.db.from('cs_messages').select('id, conversation_id, kind, author, meta').eq('id', id).maybeSingle();
   if (!isObj(m)) return json(404, { error: 'not_found' });
   const { data: v } = await deps.db.from('cs_conversations').select('id, channel, assignee').eq('id', m.conversation_id).maybeSingle();
   if (!isObj(v) || !canSee(who, v)) return json(404, { error: 'not_found' });
   const meta = isObj(m.meta) ? m.meta : {};
   const sign = async (path: string) => { const { data: sg } = await deps.db.storage.from(MEDIA_BUCKET).createSignedUrl(path, MEDIA_SIGN_SECONDS); return sg?.signedUrl ? json(200, { result: 'ok', url: sg.signedUrl, type: meta.mime ?? null }) : json(409, { error: 'no_media' }); };
-  if (typeof meta.media_path === 'string') return await sign(meta.media_path);
-  if (isObj(meta.media) && typeof meta.media.path === 'string') return await sign(meta.media.path);
-  const mediaId = typeof meta.media_id === 'string' && /^\d{5,40}$/.test(meta.media_id) ? meta.media_id : null;
+  // only a path tied to this row is ever signed (security review): the server's own inbound/<id>.<ext> on a customer's message, or the
+  // author's own folder on a member's message — a meta that points anywhere else is treated as no media
+  const inboundPath = typeof meta.media_path === 'string' && m.kind === 'in' && meta.media_path.startsWith('inbound/' + id + '.') && /^inbound\/[0-9a-f-]{36}\.[a-z0-9]{1,5}$/.test(meta.media_path) ? meta.media_path : null;
+  if (inboundPath) return await sign(inboundPath);
+  const ownPath = isObj(meta.media) && typeof meta.media.path === 'string' && m.kind === 'out' && typeof m.author === 'string' && m.author && meta.media.path.startsWith(m.author + '/') && !meta.media.path.includes('..') ? meta.media.path : null;
+  if (ownPath) return await sign(ownPath);
+  const mediaId = m.kind === 'in' && typeof meta.media_id === 'string' && /^\d{5,40}$/.test(meta.media_id) ? meta.media_id : null;
   if (!mediaId) return json(409, { error: 'no_media' });
   const link = await linkOf(deps); if (!link) return json(503, { error: 'not_linked' });
   try {
     const info = await graph(deps, 'GET', WA_GRAPH + '/' + mediaId, { token: link.token });
     const url = typeof info.url === 'string' && /^https:\/\//.test(info.url) ? info.url : null; if (!url) throw new GraphError('graph_no_media');
+    if (Number(info.file_size ?? 0) > MEDIA_MAX) throw new GraphError('media_too_large'); // Meta's own size before any download
     const got = await graphBytes(deps, url, link.token);
     const type = typeof info.mime_type === 'string' && info.mime_type ? String(info.mime_type).split(';')[0] : got.type || String(meta.mime ?? 'application/octet-stream');
     const path = 'inbound/' + id + '.' + (EXT[type] ?? 'bin');

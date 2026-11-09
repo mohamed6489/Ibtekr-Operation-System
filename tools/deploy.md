@@ -1841,7 +1841,7 @@ select id, number, status, created_via, customer_note from public.orders where r
 select at, action, entity_id from public.activity_log where action in ('cs.conv.link', 'cs.order.create', 'cs.order.paylink', 'cs.media.send') order by at desc limit 10;
 ```
 
-**الأمان:** المرفق بيتبعت من فولدر العضو نفسه بس (الأدمن مستثنى)، اللينك الموقّع ساعة، وميديا العميل بتتجاب من Graph بتوكن السيرفر بس؛ `order_create` /
+**الأمان:** المرفق بيتبعت من فولدر العضو نفسه بس (الأدمن مستثنى)، اللينك الموقّع ساعة، وميديا العميل بتتجاب من Graph بتوكن السيرفر بس (الحجم بيتفحص من `file_size` و`Content-Length` قبل التنزيل وأثناءه — 10 ميجا)؛ `media_url` بيوقّع بس مسار مربوط بالصف نفسه (`inbound/<id>.<ext>` لرسالة العميل أو فولدر كاتب الرسالة) — meta بيشاور على مكان تاني = «مفيش مرفق»؛ قراية الـ bucket بـ `cs_media_visible`: `cs.view` F الكل، P فولدره وميديا المحادثات اللي شايفها بس؛ `order_create` /
 `order_pay_link` للأدمن أو `orders.status = F` بالـ JWT (سر المزامنة مرفوض)، ولينك الدفع بس لأوردر رقمه على رقم العميل نفسه وحالته مستنية الدفع
 (`PAY_STATUSES`)؛ `cs_link_contact` بـ `cs.reply = F` على محادثة العضو شايفها وفي شريحة العملاء بس (المبتكرين 22023)، وحارس 0034 فاضل بيمنع كتابة
 `customer_id` مباشرة؛ `activity_log` بالـ ids والأعداد بس — مافيش تليفون ولا نص ولا لينك دفع.

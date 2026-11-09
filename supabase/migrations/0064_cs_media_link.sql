@@ -3,12 +3,34 @@
 -- * Storage bucket «cs-media» (private, 10 MB, images + PDF): a member with cs.reply = F uploads into their own folder (<uid>/…) and the
 --   row of cs_messages carries meta.media { path, type, name, size }; the server sends it to Meta through a signed link (one hour) and
 --   keeps a customer's incoming WhatsApp media under inbound/<message id> when a member asks to download it (media_url). Any member
---   with cs.view reads (signed links from the client are made with their own session). Nothing public.
+--   with cs.view F reads; cs.view P reads their own folder and the media of conversations they see (cs_media_visible). Nothing public.
 -- * cs_link_contact(p_conversation, p_customer): a channel conversation whose user is not a customer yet (or is the wrong one) is tied
 --   to an existing customer — the conversation's customer_id, the contact row of (platform, external_id), an event line; the guard of
 --   0034 keeps members from writing customer_id directly, so this definer function is the only way (cs.reply = F, and the member must
 --   see the conversation). Nothing is deleted; the old link, if any, is written in the event.
 -- Every function: security definer + set search_path + revoke from public / anon + explicit grants (rule 4). Re-runnable.
+
+-- who may read an object of cs-media (the select policy below): cs.view F = everything; otherwise the member's own folder, a customer's
+-- media the server kept (inbound/<message id>.<ext>) when that message's conversation is visible to them (cs_conv_visible), or another
+-- member's attachment that sits on a message of a visible conversation. Security definer so the lookup in cs_messages is not itself
+-- filtered; the visibility rule is cs_conv_visible's (0034).
+create or replace function public.cs_media_visible(p_name text) returns boolean
+language plpgsql stable security definer set search_path = public as $$
+declare v_view text := public.has_perm('cs.view'); v_folder text := split_part(coalesce(p_name, ''), '/', 1);
+begin
+  if v_view = 'N' or p_name is null or p_name = '' then return false; end if;
+  if v_view = 'F' then return true; end if;
+  if v_folder = (select auth.uid())::text then return true; end if;
+  if v_folder = 'inbound' then
+    return exists (select 1 from public.cs_messages m
+                   where m.id::text = split_part(split_part(p_name, '/', 2), '.', 1) and public.cs_conv_visible(m.conversation_id));
+  end if;
+  return exists (select 1 from public.cs_messages m where m.meta->'media'->>'path' = p_name and public.cs_conv_visible(m.conversation_id));
+end
+$$;
+revoke execute on function public.cs_media_visible(text) from public, anon;
+grant execute on function public.cs_media_visible(text) to authenticated, service_role;
+create index if not exists cs_messages_media_path_idx on public.cs_messages ((meta->'media'->>'path')) where meta->'media'->>'path' is not null;
 
 do $storage$
 begin
@@ -18,7 +40,7 @@ begin
                on conflict (id) do update set public = false, file_size_limit = excluded.file_size_limit, allowed_mime_types = excluded.allowed_mime_types$s$;
     execute $s$drop policy if exists cs_media_select on storage.objects$s$;
     execute $s$create policy cs_media_select on storage.objects for select to authenticated
-               using (bucket_id = 'cs-media' and (select public.has_perm('cs.view')) <> 'N')$s$;
+               using (bucket_id = 'cs-media' and public.cs_media_visible(name))$s$;
     execute $s$drop policy if exists cs_media_insert on storage.objects$s$;
     execute $s$create policy cs_media_insert on storage.objects for insert to authenticated
                with check (bucket_id = 'cs-media' and (storage.foldername(name))[1] = (select auth.uid())::text and (select public.has_perm('cs.reply')) = 'F')$s$;

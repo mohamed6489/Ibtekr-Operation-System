@@ -317,7 +317,11 @@ Deno.test('send with meta.media: the member\'s file in cs-media goes out as an i
     'GET 5550001234': { body: { url: 'https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=5550001234', mime_type: 'image/jpeg' } },
     'GET /whatsapp_business/attachments/': { body: { bytes: 'jpeg' } },
   };
-  const base = setup({ vault: linked(), routes, seed: { cs_conversations: [conv], cs_messages: [img, pdf, theirs, inMedia] } });
+  // the three rows of the security-review cases (below): a member row pointing at inbound/, an inbound row with a foreign media_path, media_id on a member row
+  const badOut = { id: '00000000-0000-4000-8000-00000000e0f7', conversation_id: conv.id, kind: 'out', text: 'x', author: U.reply, delivery: 'sent', meta: { media: { path: 'inbound/' + '00000000-0000-4000-8000-00000000e0f5' + '.jpg', type: 'image/jpeg' } } };
+  const badIn = { id: '00000000-0000-4000-8000-00000000e0f8', conversation_id: conv.id, kind: 'in', text: '', author: null, delivery: null, meta: { media_path: U.admin + '/secret.pdf', mime: 'application/pdf' } };
+  const idOut = { id: '00000000-0000-4000-8000-00000000e0f9', conversation_id: conv.id, kind: 'out', text: 'x', author: U.reply, delivery: 'sent', meta: { media_id: '5550001234' } };
+  const base = setup({ vault: linked(), routes, seed: { cs_conversations: [conv], cs_messages: [img, pdf, theirs, inMedia, badOut, badIn, idOut] } });
   (base.db as any).storage = fakeDb({}, { storage }).storage; // the bucket's files
   const deps = base.deps;
   const r1 = await call(deps, { action: 'send', message_id: img.id });
@@ -338,4 +342,10 @@ Deno.test('send with meta.media: the member\'s file in cs-media goes out as an i
   assertEquals((await call(deps, { action: 'media_url', message_id: inMedia.id }, 'jwt-view')).res.status, 404, 'cs.view P without the assignment');
   assertEquals((await call(deps, { action: 'media_url', message_id: img.id })).res.status, 200, 'our own attachment is signed too');
   assertEquals((await call(deps, { action: 'media_url', message_id: '00000000-0000-4000-8000-00000000e0ff' })).res.status, 404);
+  // security review: only a path tied to the row is signed — a member's row whose meta points at another folder or at inbound/, or an
+  // inbound row whose media_path is not the server's own inbound/<id>.<ext>, is «no media» (409); media_id is honoured on 'in' rows only
+  assertEquals((await call(deps, { action: 'media_url', message_id: '00000000-0000-4000-8000-00000000e0f7' })).res.status, 409, 'a member row pointing at inbound/ is not signed');
+  assertEquals((await call(deps, { action: 'media_url', message_id: '00000000-0000-4000-8000-00000000e0f8' })).res.status, 409, 'an inbound row with a foreign media_path is not signed');
+  assertEquals((await call(deps, { action: 'media_url', message_id: '00000000-0000-4000-8000-00000000e0f9' })).res.status, 409, 'media_id on a member row is ignored');
+  assertEquals(base.db.row('cs_messages', '00000000-0000-4000-8000-00000000e0f8').meta.media_path, U.admin + '/secret.pdf', 'nothing rewritten');
 });

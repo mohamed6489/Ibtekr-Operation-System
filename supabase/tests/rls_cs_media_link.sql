@@ -1,4 +1,4 @@
--- RLS / permission tests for 0064_cs_media_link (phase 13 T3: cs_link_contact ties a channel conversation to an existing customer — cs.reply
+-- RLS / permission tests for 0064_cs_media_link (phase 13 T3: cs_media_visible scopes the bucket's reads; cs_link_contact ties a channel conversation to an existing customer — cs.reply
 -- on a conversation the member sees; the contact row follows; an event line is written; the bucket cs-media exists private). Depends on
 -- 0001 … 0064. One transaction rolled back; prints NOTICE 'rls_cs_media_link: ok' only if every case passed. Live-safe (own rows only).
 
@@ -47,6 +47,35 @@ do $$ begin
   -- a member never writes customer_id straight (0034's guard)
   begin update public.cs_conversations set customer_id = '00000000-0000-4000-8000-0000000064c1' where id = '00000000-0000-4000-8000-0000000064d1'; raise exception 'case a direct customer_id write failed';
   exception when insufficient_privilege then null; end;
+end $$;
+
+-- cs_media_visible (the bucket's select policy): cs (F) sees everything; the viewer (P, not assigned) sees their own folder only — not the
+-- cs member's attachment, not the customer's inbound media of a conversation they do not see; accounts (N) nothing
+do $$ begin
+  if not public.cs_media_visible('00000000-0000-4000-8000-0000000064a1/any.jpg') then raise exception 'case cs.view F reads failed'; end if;
+  if not public.cs_media_visible('inbound/00000000-0000-4000-8000-0000000064e1.jpg') then raise exception 'case cs.view F reads inbound failed'; end if;
+end $$;
+insert into public.cs_messages (id, conversation_id, kind, text, author, delivery, meta) values
+  ('00000000-0000-4000-8000-0000000064e2', '00000000-0000-4000-8000-0000000064d1', 'out', 'شوفي', '00000000-0000-4000-8000-0000000064a2', 'sent', '{"media":{"path":"00000000-0000-4000-8000-0000000064a2/pic.jpg","type":"image/jpeg"}}');
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000064a3","role":"authenticated"}', true);
+do $$ begin
+  if not public.cs_media_visible('00000000-0000-4000-8000-0000000064a3/mine.pdf') then raise exception 'case the viewer reads their own folder failed'; end if;
+  if public.cs_media_visible('00000000-0000-4000-8000-0000000064a2/pic.jpg') then raise exception 'case the viewer reads an attachment of a conversation not theirs failed'; end if;
+  if public.cs_media_visible('inbound/00000000-0000-4000-8000-0000000064e2.jpg') then raise exception 'case the viewer reads inbound media of a conversation not theirs failed'; end if;
+  if public.cs_media_visible('inbound/not-a-message.jpg') then raise exception 'case an inbound path of no message failed'; end if;
+end $$;
+-- the conversation assigned to the viewer: the attachment and the inbound media become readable
+reset role;
+update public.cs_conversations set assignee = '00000000-0000-4000-8000-0000000064a3' where id = '00000000-0000-4000-8000-0000000064d1';
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000064a3","role":"authenticated"}', true);
+do $$ begin
+  if not public.cs_media_visible('00000000-0000-4000-8000-0000000064a2/pic.jpg') then raise exception 'case the viewer reads an attachment of their conversation failed'; end if;
+  if not public.cs_media_visible('inbound/00000000-0000-4000-8000-0000000064e2.jpg') then raise exception 'case the viewer reads inbound media of their conversation failed'; end if;
+end $$;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000064a4","role":"authenticated"}', true);
+do $$ begin
+  if public.cs_media_visible('00000000-0000-4000-8000-0000000064a4/mine.pdf') then raise exception 'case accounts reads failed'; end if;
 end $$;
 
 -- the viewer (cs.view P, cs.reply N): refused; accounts (cs.view N): refused before anything is read

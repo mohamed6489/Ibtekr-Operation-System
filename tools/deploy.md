@@ -1039,6 +1039,23 @@ select at, entity_id, result, detail from public.woo_sync_log where action = 'pr
 select data from public.settings where section = 'lists';
 ```
 
+#### 2.7.36 مين أونلاين — قناة الحضور (المرحلة 12 T5، 9 نوفمبر)
+
+الخطة (قراران 5 و12) `docs/superpowers/plans/2026-11-08-phase-12-followups.md`.
+
+**أ) الكود:** `0061_presence.sql` (سياستا `presence_receive` / `presence_send` على `realtime.messages` للعضو النشط على topic «presence» بامتداد presence
+بس — محروسة زي 0039) + `supabase/tests/rls_presence.sql` · `app/js/adapter/presence.js` (`IBPresence`: `join` مع الدخول من `IBDirectory.load`، `leave` مع
+الخروج، `track { uid, at }` بس، `online()` / `isOnline()` / `ready()` / `count()`، حدث `ib:presence`) · الكتلة 25 (نقطة خضرا جنب الأفاتار في «الفريق دلوقتي» +
+«N أونلاين دلوقتي») · `IBCS.agents` («متاح» والتوزيع بالدور من الحضور الحقيقي لما القناة شغالة). **مافيش سر جديد ولا دالة.**
+
+**ب) على Supabase:** `0061` (MCP `apply_migration` مرة واحدة؛ لو وقف = الـ SQL كله لصاحب المشروع في الـ SQL editor) → «RLS live» بـ
+`files = rls_presence` → الواجهة على `main`.
+
+**التحقق:**
+```sql
+select policyname, cmd from pg_policies where schemaname = 'realtime' and tablename = 'messages' and policyname like 'presence_%';   -- صفّين
+```
+
 #### 2.7.31 صفحة الإعدادات — المفاتيح والمزوّدين والتنبيهات والفريق (المرحلة 11، 7 نوفمبر)
 
 الخطة (قرارات 1–32) `docs/superpowers/plans/2026-11-07-phase-11-settings.md`، والدفتر `.superpowers/sdd/2026-11-07-phase-11-settings/progress.md`.

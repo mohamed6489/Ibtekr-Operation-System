@@ -1616,3 +1616,6 @@ tbody tr:nth-child(even) td{background:var(--color-bg-tint)}
 .staff-top .st-who{display:flex;flex-direction:column;min-width:0}.staff-top .st-who b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .staff-top .st-val{font-weight:700;white-space:nowrap}.staff-top .st-val.good{color:var(--color-success-text,var(--color-brand-default))}.staff-top .st-val.bad{color:var(--color-error-text,var(--color-error-base))}
 @media (max-width:767px){.staff-top .st-row{grid-template-columns:24px 32px minmax(0,1fr)}.staff-top .st-row .st-val{grid-column:3;justify-self:start;white-space:normal;min-width:0}}
+
+/* phase 12 T5: the online dot on «الفريق دلوقتي» */
+.dt-av{position:relative;display:inline-flex}.dt-on{position:absolute;bottom:-1px;inset-inline-end:-1px;width:10px;height:10px;border-radius:50%;background:var(--color-border-subtle);border:2px solid var(--color-bg-base)}.dt-on.is-on{background:var(--color-success-default,#1f9d55)}

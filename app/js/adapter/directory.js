@@ -38,11 +38,13 @@
     if (A) quiet(() => A.subscribe());
     if (Or) quiet(() => Or.subscribe());
     if (CS) quiet(() => CS.subscribe());
+    if (window.IBPresence) quiet(() => window.IBPresence.join()); // phase 12 T5: who is online (0061)
   }
   // sign-out: the members (same array, emptied), the signed-in row and every session store hanging off them
   function clear() {
     const K = window.IBKit; if (K && K.store && K.store.members) K.store.members.length = 0;
     meRow = null; rolesById = {};
+    if (window.IBPresence) quiet(() => window.IBPresence.leave()); // phase 12 T5
     const P = window.IBPrefs, A = window.IBAlerts, L = window.IBActivity, Or = window.IBOrders, V = window.IBVendors, Ac = window.IBAccounts;
     if (P) quiet(() => P.clear());
     if (Ac) quiet(() => Ac.clear());

@@ -70,7 +70,8 @@ test('load: the customers through the rpc only (merged rows dropped), the conver
   const v = plain(S.conv(K1));
   assert.equal(v.who, C1); assert.equal(v.assignee, 'سارة أحمد'); assert.equal(v.assigneeUid, SARA); assert.equal(v.waiting, 18); assert.equal(v.unread, 2); eq(v.tags, ['شكوى']);
   eq(v.msgs.map((m) => [m.t, m.author, m.tpl, m.delivery]), [['in', '', null, null], ['auto', '', 'تنبيه تأخير مسبق', 'sent'], ['note', 'سارة أحمد', null, null]]);
-  assert.match(v.msgs[0].time, /^\d{1,2}:\d{2} [صم]$/); assert.match(v.time, /^\d{1,2}:\d{2} [صم]$/);
+  // m1 is 3 hours old and m3 18 minutes: a clock when they fell today, «أمس» when the run sits just after midnight (the label follows the real clock)
+  assert.match(v.msgs[0].time, /^(\d{1,2}:\d{2} [صم]|أمس)$/); assert.match(v.time, /^(\d{1,2}:\d{2} [صم]|أمس)$/);
   const v2 = S.conv(K2); assert.equal(v2.who, V1); assert.equal(v2.assignee, 'غير معيّنة'); assert.equal(v2.waiting, 0); assert.equal(v2.time, 'أمس');
   eq(plain(S.data.segments[0]), { id: G1, name: 'VIP راضيين', minTotal: 5000, minOrders: '', moods: ['سعيد'], last: 'in90', lastFrom: '', lastTo: '', ranges: { sat: [4, 5] }, includeUnrated: false, add: [C2], remove: [] });
   const k = S.data.campaigns[0]; assert.equal(k.seg, 'VIP راضيين'); assert.equal(k.from, 'واتساب 1 · العملاء'); assert.equal(k.sent, 3); assert.equal(k.read, 1); assert.equal(k.status, 'مسودة'); assert.match(k.sub, /^مسودة — آخر تعديل أمس$/);

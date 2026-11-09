@@ -61,9 +61,11 @@
   const members = () => (window.IBDirectory && window.IBDirectory.members ? window.IBDirectory.members() : []) || [];
   const nameOf = (uid) => { if (!uid) return ''; const m = members().find((x) => x.uid === uid); return m ? m.name : '—'; };
   const vendorName = (id) => { const V = window.IBVendors; const v = V && V.store && V.store.get ? quiet(() => V.store.get(id)) : null; return v ? v.name : ''; };
-  // the agents of the inbox: the active members of the customer-service roles (online is not known before the HR phase — every active member counts)
+  // the agents of the inbox: the active members of the customer-service roles; online = the member has the system open now (phase 12 T5:
+  // IBPresence, the Realtime presence channel) — before the channel is live, or without a socket, every active member counts
   const AGENT_ROLES = ['أدمن', 'خدمة العملاء', 'عمليات', 'متابعة المبتكرين', 'متابعة الموردين']; // the role's seeded name is still «الموردين» (0003)
-  const agents = () => members().filter((m) => m.status === 'active' && AGENT_ROLES.includes(m.role)).map((m) => ({ id: m.uid, code: m.id, name: m.name, role: m.role, online: true }));
+  const onlineOf = (uid) => { const P = window.IBPresence; return !(P && P.ready && P.ready()) || P.isOnline(uid); };
+  const agents = () => members().filter((m) => m.status === 'active' && AGENT_ROLES.includes(m.role)).map((m) => ({ id: m.uid, code: m.id, name: m.name, role: m.role, online: onlineOf(m.uid) }));
 
   // ---------- labels (the page shows them as the prototype did) ----------
   const pad = (n) => String(n).padStart(2, '0');

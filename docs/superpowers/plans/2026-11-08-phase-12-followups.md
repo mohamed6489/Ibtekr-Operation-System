@@ -37,8 +37,10 @@
     بس: مفيش تليفونات ولا حسابات بنكية) في ملف Excel واحد بشيت لكل مجموعة، من البيانات اللي جلسة الأدمن قرتها (الـ RLS بتاعته هي اللي بتحكم) —
     من غير `service_role` ولا Edge Function جديدة؛ `activity_log` `settings.export.full` بأسماء المجموعات وأعداد الصفوف بس. «منطقة الخطر» و«حذف
     بيانات الشركة» (نموذج وهمي) اتشالوا — مفيش حذف لبيانات الشركة من السيستم.
-12. **الحضور (قرار 5):** قناة Realtime **private** `presence` (`presence_receive` لأي عضو)؛ كل تاب بيعمل `track({ uid, at })`؛ `IBDirectory.online()`
-    بيرجّع الـ uids الموجودين → «الفريق دلوقتي» (25)، توزيع المحادثات على الأونلاين (`IBCS.agents` + الـ adapter)، وشارة في الجرس.
+12. **الحضور (قرار 5):** قناة Realtime **private** `presence` (`0061`: `presence_receive` + `presence_send` للعضو النشط على الـ topic ده بامتداد presence
+    بس)؛ كل تاب بيعمل `track({ uid, at })` مع الدخول (`IBPresence.join` من `IBDirectory.load`) ويسيب مع الخروج؛ `IBPresence.online()` / `isOnline()` →
+    النقطة الخضرا و«N أونلاين دلوقتي» في «الفريق دلوقتي» (25)، و«متاح» والتوزيع بالدور في خدمة العملاء (`IBCS.agents`) من الحضور الحقيقي لما القناة
+    شغالة (قبلها كل عضو نشط بيتحسب متاح زي قبل). شارة الجرس اتشالت من النطاق (مفيش حاجة في الجرس محتاجاها).
 13. **السلة (قرار 7):** snippet يسجّل route `ibtekr/v1/carts` (GET، يقبل مفاتيح WooCommerce — `permission_callback` بيتحقق من `wc_api_hash`
     زي WC) بيرجّع من جدول `wp_cartflows_ca_cart_abandonment` الصفوف `normal` آخر 48 ساعة: الإيميل/الرقم/الاسم/الإجمالي/وقت التحديث/الـ checkout
     URL. woo-sync جزء `carts` (cron كل 10 دقايق) → جدول `cs_carts` (migration لوحدها، الرقم مطبّع، `service_role` يكتب، `cs.view` يقرا بطمس الرقم) →
@@ -50,7 +52,7 @@
 - [x] T2 تكرار المنتج: woo-sync `product_duplicate` + `IBProducts.duplicate` + الصفحة + اختبارات. (النشر `tools/deploy.md` §2.7.34)
 - [x] T3 القوائم: صف `lists` + `0060` + الكتلة 17 + الكتلتين 12 و22 + اختبارات (من غير `status_rename` — قرار 10 المعدّل). (النشر `tools/deploy.md` §2.7.35)
 - [x] T4 التصدير: الكتلة 17 (`fullExportSec` من المتصفح — قرار 11 المعدّل) + اختبار e2e.
-- [ ] T5 الحضور: migration لوحدها (`0060`) سياسة `presence` + `IBDirectory.online` + 25/20 + اختبارات.
+- [x] T5 الحضور: `0061` + `rls_presence` + `IBPresence` (adapter جديد) + 25 + `IBCS.agents` + اختبارات (adapter + e2e). (النشر `tools/deploy.md` §2.7.36)
 - [ ] T6 التسويق: النصوص والتعليقات.
 - [ ] T7 السلة: الـ snippet (في `tools/`) + woo-sync `carts` + `cs_carts` + `cs-auto` + تعليمات صاحب المشروع.
 - [ ] T8 التوثيق + الحي + `main` + التقرير.

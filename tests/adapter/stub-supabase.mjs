@@ -35,7 +35,9 @@ export function stubClient({ responses = {}, channelThrows = false } = {}) {
     channel: (name, opts) => {
       rec({ op: 'channel', args: opts === undefined ? [name] : [name, opts] });
       if (channelThrows) throw new Error('realtime unavailable');
-      const ch = { on: (type, filter, cb) => { rec({ op: 'on', args: [type, filter] }); handler = cb; handlers.push({ type, filter, cb }); return ch; }, subscribe: (cb) => { rec({ op: 'subscribe' }); statusCb = typeof cb === 'function' ? cb : null; return ch; } };
+      const ch = { on: (type, filter, cb) => { rec({ op: 'on', args: [type, filter] }); handler = cb; handlers.push({ type, filter, cb }); return ch; }, subscribe: (cb) => { rec({ op: 'subscribe' }); statusCb = typeof cb === 'function' ? cb : null; return ch; },
+        // presence (phase 12 T5): track / untrack record; presenceState answers responses['presence:' + name] (a value or a function)
+        track: (p) => { rec({ op: 'track', args: [p] }); return Promise.resolve('ok'); }, untrack: () => { rec({ op: 'untrack', args: [] }); return Promise.resolve('ok'); }, presenceState: () => answer(responses['presence:' + name], {}) || {} };
       return ch;
     },
     removeChannel: () => { rec({ op: 'removeChannel' }); return Promise.resolve('ok'); },

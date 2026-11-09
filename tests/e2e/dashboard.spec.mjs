@@ -557,3 +557,17 @@ test('5.5: the money KPIs follow the dashboard period (sales / net / expenses fr
   const want = order0.slice(); [want[i], want[i + 1]] = [want[i + 1], want[i]];
   await expect.poll(() => mock.prefs.filter((p) => p.key === 'dashboard').map((p) => p.data.order)).toEqual([want]);
 });
+
+// ---------------------------------------------------------------- phase 12 T5: who is online («الفريق دلوقتي»)
+
+test('phase 12: every row of «الفريق دلوقتي» carries the online dot; with no Realtime socket (the mock) nobody but me is online, so no dot is lit and the card says nothing of a count', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(card(page, 'team')).toBeVisible();
+  const rows = card(page, 'team').locator('.dt-row'); await expect.poll(() => rows.count()).toBeGreaterThan(0);
+  await expect(card(page, 'team').locator('.dt-on')).toHaveCount(await rows.count());
+  await expect(card(page, 'team').locator('.dt-on.is-on')).toHaveCount(0);
+  await expect(card(page, 'team')).not.toContainText('أونلاين دلوقتي');
+  const me = await page.evaluate(() => ({ online: window.IBPresence.online(), ready: window.IBPresence.ready() }));
+  expect(me).toEqual({ online: [ADMIN_ID], ready: false });
+});

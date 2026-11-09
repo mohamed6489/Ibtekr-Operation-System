@@ -5,8 +5,9 @@
 -- for the «سلة متروكة» event next to the orders that stopped at payment (6.5 decision 12).
 -- * cs_carts — one row a site cart (the site's id is the key): e-mail, phone, name, total, item count, the plugin's status (normal =
 --   abandoned · completed · lost), the plugin's recovery link, the site's last change, our sync stamps. The server writes it (service_role);
---   the members read it through cs_carts_v with the phone masked unless sensitive.customer_phone = F (like orders_v) — the table itself
---   grants the members no phone column. Nothing here holds the cart's contents.
+--   the members read it through cs_carts_v with the phone and the e-mail masked unless sensitive.customer_phone = F (like orders_v) —
+--   the table itself grants the members no phone / e-mail column, and the recovery link (a per-session token) never leaves the server:
+--   only the auto-reply engine uses it. Nothing here holds the cart's contents.
 -- Every table: RLS + explicit grants (rule 4); the view security_invoker; re-runnable; no drop / delete of data.
 
 create table if not exists public.cs_carts (
@@ -30,8 +31,8 @@ alter table public.cs_carts enable row level security;
 drop policy if exists cs_carts_select on public.cs_carts;
 create policy cs_carts_select on public.cs_carts for select to authenticated using ((select public.has_perm('cs.view')) <> 'N');
 revoke all on public.cs_carts from anon, authenticated;
--- the members: every column but the phone (the view below masks it)
-grant select (cart_id, email, name, total, items, status, unsubscribed, url, site_updated_at, first_seen_at, synced_at) on public.cs_carts to authenticated;
+-- the members: neither the phone nor the e-mail (the view below masks them) nor the recovery link (the server's alone)
+grant select (cart_id, name, total, items, status, unsubscribed, site_updated_at, first_seen_at, synced_at) on public.cs_carts to authenticated;
 grant all on public.cs_carts to service_role;
 
 -- the phone of one cart as the caller may see it (definer: authenticated has no select on the column; the row already passed RLS)
@@ -48,8 +49,24 @@ $$;
 revoke execute on function public.cs_cart_phone(bigint) from public, anon;
 grant execute on function public.cs_cart_phone(bigint) to authenticated, service_role;
 
+-- the e-mail the same way: 'n••••@example.test' unless sensitive.customer_phone = F
+create or replace function public.cs_cart_email(p_cart_id bigint) returns text
+language plpgsql stable security definer set search_path = public as $$
+declare v_full boolean; v_email text; v_at int;
+begin
+  if public.has_perm('cs.view') = 'N' then return null; end if;
+  v_full := public.has_perm('sensitive.customer_phone') = 'F';
+  select c.email into v_email from public.cs_carts c where c.cart_id = p_cart_id;
+  if v_email is null or v_email = '' or v_full then return v_email; end if;
+  v_at := position('@' in v_email);
+  return case when v_at > 1 then left(v_email, 1) || '••••' || substr(v_email, v_at) else '••••' end;
+end
+$$;
+revoke execute on function public.cs_cart_email(bigint) from public, anon;
+grant execute on function public.cs_cart_email(bigint) to authenticated, service_role;
+
 create or replace view public.cs_carts_v with (security_invoker = true) as
-  select c.cart_id, c.email, public.cs_cart_phone(c.cart_id) as phone, c.name, c.total, c.items, c.status, c.unsubscribed, c.url, c.site_updated_at, c.first_seen_at, c.synced_at
+  select c.cart_id, public.cs_cart_email(c.cart_id) as email, public.cs_cart_phone(c.cart_id) as phone, c.name, c.total, c.items, c.status, c.unsubscribed, c.site_updated_at, c.first_seen_at, c.synced_at
   from public.cs_carts c;
 revoke all on public.cs_carts_v from anon;
 grant select on public.cs_carts_v to authenticated, service_role;

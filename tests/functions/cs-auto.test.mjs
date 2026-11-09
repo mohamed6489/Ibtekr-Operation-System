@@ -66,10 +66,11 @@ test('guestCartEvents (phase 12 T7): a normal, not unsubscribed cart with a phon
     { cart_id: 10, phone: '', email: 'x@y.test', status: 'normal', unsubscribed: false, site_updated_at: '2026-11-08T06:00:00Z' }, // no phone: nothing to send to
     { cart_id: 11, phone: '01044444444', status: 'completed', unsubscribed: false, site_updated_at: '2026-11-08T06:00:00Z' },
     { cart_id: 12, phone: '01033333333', status: 'normal', unsubscribed: true, site_updated_at: '2026-11-08T06:00:00Z' },
+    { cart_id: 6, phone: '0101 234 5678', name: 'نهى', total: 400, status: 'normal', unsubscribed: false, site_updated_at: '2026-11-08T05:00:00Z' }, // the same number's older cart: one event, the latest cart
   ];
   const orders = [{ id: 1, status: 'جاري التنفيذ', customer_phone: '+20 109 999 9999', placed_at: '2026-11-08T07:00:00Z' }];
   const ev = guestCartEvents(carts, orders, { nowMs: NOW, afterMin: 60 });
-  assert.deepEqual(ev.map((e) => [e.type, e.entity, e.phone]), [['cart', 'cart:c7', '01012345678']]);
+  assert.deepEqual(ev.map((e) => [e.type, e.entity, e.phone]), [['cart', 'cart:c7', '01012345678']], 'one event a number — the latest cart');
   assert.deepEqual(guestCartEvents(carts, orders, { nowMs: NOW, afterMin: 20 }).map((e) => e.entity), ['cart:c7', 'cart:c9']);
   const vars = varsFor(ev[0], { cartUrl: ev[0].cart.url });
   assert.deepEqual([vars['اسم_العميل'], vars['الإجمالي'], vars['رابط_السلة'], vars['رقم_الأوردر']], ['نهى', '1,250 ج.م', 'https://staging.ibtekr.club/checkout/?wcf_ac_token=a', '']);

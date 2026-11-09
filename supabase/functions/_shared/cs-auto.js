@@ -90,16 +90,18 @@ export function cartEvents(orders, { nowMs, afterMin = 60 } = {}) {
 export function guestCartEvents(carts, orders, { nowMs, afterMin = 60 } = {}) {
   const laterBy = new Map(); // phone digits → latest placed_at of any order
   for (const o of Array.isArray(orders) ? orders : []) { if (!isObj(o) || o.deleted_at) continue; const k = digits(o.customer_phone); if (!k) continue; const t = Date.parse(o.placed_at); if (Number.isFinite(t) && t > (laterBy.get(k) ?? -1)) laterBy.set(k, t); }
-  const out = [];
+  const byPhone = new Map(); // one event a number — the latest cart (a visitor leaving five carts is one message, not five)
   for (const c of Array.isArray(carts) ? carts : []) {
     if (!isObj(c) || c.status !== 'normal' || c.unsubscribed === true) continue;
     const k = digits(c.phone); if (!k) continue;
     const t = Date.parse(c.site_updated_at); if (!Number.isFinite(t) || nowMs - t < afterMin * MIN) continue;
     if ((laterBy.get(k) ?? -1) > t) continue;
-    out.push({ type: 'cart', entity: 'cart:c' + c.cart_id, cart: c, phone: k });
+    const prev = byPhone.get(k); if (prev && Date.parse(prev.cart.site_updated_at) >= t) continue;
+    byPhone.set(k, { type: 'cart', entity: 'cart:c' + c.cart_id, cart: c, phone: k });
   }
-  return out;
+  return [...byPhone.values()];
 }
+export const CART_REPEAT_DAYS = 7; // a number gets one guest-cart message a week, whatever the cart ids
 export const subEvents = (subs, sinceIso) => (Array.isArray(subs) ? subs : []).filter((s) => isObj(s) && s.vendor_id && after(s.updated_at, sinceIso)).map((s) => ({ type: 'sub', entity: 'sub:' + s.id, sub: s, vendorId: String(s.vendor_id) }));
 export const transferEvents = (ws, sinceIso) => (Array.isArray(ws) ? ws : []).filter((w) => isObj(w) && w.vendor_id && w.status === 'approved' && after(w.synced_at, sinceIso)).map((w) => ({ type: 'transfer', entity: 'transfer:' + w.id, withdrawal: w, vendorId: String(w.vendor_id) }));
 

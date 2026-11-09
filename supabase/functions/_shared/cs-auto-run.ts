@@ -9,7 +9,7 @@
 //   a hold (hours / delay / the daily cap / the per-tick pace) keeps the row with no delivery and meta.due_at until its time;
 //   «ticket» opens a ticket for خدمة العملاء as the server; «assign» / «tag» touch the conversation; the run log (cs_auto_runs,
 //   one live row a rule × entity) is what makes a rule fire once. Nothing here logs a phone, a token or a message's text.
-import { CART_STATUSES, CHANNEL_LABEL, STATUS_CODES, VIRTUAL_STATUS, afterHoursEntity, cairoClock, cartEvents, decide, digits, entityFor, failCode, firstEntity, guestCartEvents, inHours, orderEvents, paceGap, ruleFires, sendMode, settingsOf, silentFollowups, statusTo, subEvents, templateBody, transferEvents, varsFor, DAY, HOUR } from './cs-auto.js';
+import { CART_STATUSES, CHANNEL_LABEL, STATUS_CODES, VIRTUAL_STATUS, CART_REPEAT_DAYS, afterHoursEntity, cairoClock, cartEvents, decide, digits, entityFor, failCode, firstEntity, guestCartEvents, inHours, orderEvents, paceGap, ruleFires, sendMode, settingsOf, silentFollowups, statusTo, subEvents, templateBody, transferEvents, varsFor, DAY, HOUR } from './cs-auto.js';
 import { sentIdOf, textBody, waIdOfPhone, waPath, graphErrorCode } from './cs-whatsapp.js';
 import { graphPath, sendBody } from './cs-channel.js';
 
@@ -203,7 +203,22 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Ti
   for (const ev of events) for (const rule of rules) if (rule.event === ev.type) pairs.push({ rule, ev, entity: entityFor(rule, ev) });
   const entities = [...new Set(pairs.map((p) => p.entity))]; const live = new Set<string>();
   for (let i = 0; i < entities.length; i += 200) for (const r of rows(await deps.db.from('cs_auto_runs').select('rule_id, entity, result').in('entity', entities.slice(i, i + 200)).limit(5000))) if (r.result !== 'failed') live.add(r.rule_id + '|' + r.entity);
-  const todo = pairs.filter((p) => !live.has(p.rule.id + '|' + p.entity));
+  let todo = pairs.filter((p) => !live.has(p.rule.id + '|' + p.entity));
+  // a guest cart (phase 12 T7): the number is unverified input from the site's checkout form, so one cart message a number in
+  // CART_REPEAT_DAYS whatever the cart ids — a number that got one (any cart rule) is skipped with code «recent»
+  const guest = todo.filter((p) => isObj(p.ev.cart));
+  if (guest.length) {
+    const phones = [...new Set(guest.map((p) => String(p.ev.phone)))];
+    const recentCust = new Set<string>();
+    const custByPhone = await customersByPhone(deps, phones);
+    const ids = [...new Set([...custByPhone.values()].map((c) => String(c.id)))];
+    for (let i = 0; i < ids.length; i += 200) for (const r of rows(await deps.db.from('cs_auto_runs').select('customer_id, entity').in('customer_id', ids.slice(i, i + 200)).in('result', ['sent', 'held']).gte('at', new Date(nowMs - CART_REPEAT_DAYS * DAY).toISOString()).limit(5000))) if (String(r.entity).startsWith('cart:c')) recentCust.add(String(r.customer_id));
+    const drop = new Set(guest.filter((p) => { const c = custByPhone.get(String(p.ev.phone)); return c && recentCust.has(String(c.id)); }));
+    if (drop.size) {
+      if (!opts.dry) for (const p of drop) { const c = custByPhone.get(String(p.ev.phone)); await runRow(deps, { rule_id: p.rule.id, entity: p.entity, customer_id: c ? c.id : null, conversation_id: null, result: 'skipped', code: 'recent' }); n.skipped++; }
+      todo = todo.filter((p) => !drop.has(p));
+    }
+  }
   // the context: customers, lines, open tickets, makers
   const orderIds = [...new Set(todo.map((p) => p.ev.order?.id).filter((x) => x != null))];
   const customers = await customersByPhone(deps, todo.map((p) => p.ev.order?.customer_phone ?? p.ev.phone).filter(Boolean));

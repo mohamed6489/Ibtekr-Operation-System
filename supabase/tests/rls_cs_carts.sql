@@ -1,5 +1,6 @@
 -- RLS / permission tests for 0062_cs_carts (phase 12 T7: the visitor's abandoned carts mirror — the server writes, cs.view reads
--- through cs_carts_v with the phone masked unless sensitive.customer_phone = F, the table grants no phone column). Depends on 0001 … 0062.
+-- through cs_carts_v with the phone and e-mail masked unless sensitive.customer_phone = F, the table grants no phone / e-mail / url
+-- column and the view carries no recovery link). Depends on 0001 … 0062.
 -- One transaction rolled back; prints NOTICE 'rls_cs_carts: ok' only if every case passed. Live-safe (own rows only).
 
 begin;
@@ -32,8 +33,14 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000
 do $$ begin
   if (select phone from public.cs_carts_v where cart_id = 962000001) <> '+20 101 234 5678' then raise exception 'case cs reads the phone in full failed'; end if;
   if (select (name, total, items, status) from public.cs_carts_v where cart_id = 962000001) is distinct from ('نهى'::text, 1250::numeric(12, 2), 2, 'normal'::text) then raise exception 'case cs reads the cart failed'; end if;
+  if (select email from public.cs_carts_v where cart_id = 962000001) <> 'noha@example.test' then raise exception 'case cs reads the e-mail in full failed'; end if;
   begin perform phone from public.cs_carts where cart_id = 962000001; raise exception 'case the table phone column failed';
   exception when insufficient_privilege then null; end;
+  begin perform email from public.cs_carts where cart_id = 962000001; raise exception 'case the table email column failed';
+  exception when insufficient_privilege then null; end;
+  begin perform url from public.cs_carts where cart_id = 962000001; raise exception 'case the table url column failed';
+  exception when insufficient_privilege then null; end;
+  if exists (select 1 from information_schema.columns where table_schema = 'public' and table_name = 'cs_carts_v' and column_name = 'url') then raise exception 'case the view carries the recovery link failed'; end if;
   begin insert into public.cs_carts (cart_id, site_updated_at) values (962000003, now()); raise exception 'case a member writes a cart failed';
   exception when insufficient_privilege then null; end;
   begin update public.cs_carts set status = 'lost' where cart_id = 962000001; raise exception 'case a member updates a cart failed';
@@ -46,7 +53,7 @@ end $$;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000062a3","role":"authenticated"}', true);
 do $$ begin
   if (select count(*) from public.cs_carts_v where cart_id = 962000001) <> 0 then raise exception 'case accounts reads a cart failed'; end if;
-  if public.cs_cart_phone(962000001) is not null then raise exception 'case the phone function without cs.view failed'; end if;
+  if public.cs_cart_phone(962000001) is not null or public.cs_cart_email(962000001) is not null then raise exception 'case the phone / e-mail functions without cs.view failed'; end if;
 end $$;
 
 -- the admin without sensitive.customer_phone = F? the admin has every permission: full. A member with cs.view and the phone masked is
@@ -54,6 +61,7 @@ end $$;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000062a1","role":"authenticated"}', true);
 do $$ begin
   if (select phone from public.cs_carts_v where cart_id = 962000001) <> '+20 101 234 5678' then raise exception 'case the admin reads the phone failed'; end if;
+  -- the masked shapes (mask_phone on the normalised number; the e-mail's first letter and domain)
   if public.mask_phone(public.norm_phone('+20 101 234 5678')) <> '010••••5678' then raise exception 'case the mask of a normalised phone failed: %', public.mask_phone(public.norm_phone('+20 101 234 5678')); end if;
 end $$;
 

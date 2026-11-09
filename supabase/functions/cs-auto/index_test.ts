@@ -99,6 +99,7 @@ Deno.test('phase 12 T7 — the visitor\'s cart (cs_carts): a cart rule sends the
     { cart_id: 9, phone: '01055555555', name: 'x', total: 50, items: 1, status: 'normal', site_updated_at: '2026-11-08T07:45:00Z' }, // 15 min
     { cart_id: 10, phone: '', email: 'g@x.test', name: 'g', total: 90, items: 1, status: 'normal', site_updated_at: '2026-11-08T06:00:00Z' },
     { cart_id: 11, phone: '01044444444', name: 'c', total: 90, items: 1, status: 'completed', site_updated_at: '2026-11-08T06:00:00Z' },
+    { cart_id: 6, phone: '01012345678', name: 'نهى', total: 400, items: 1, status: 'normal', site_updated_at: '2026-11-08T05:00:00Z' }, // the same number's older cart
   ];
   const { db, deps, graph } = setup({ seed });
   const { res, body } = await cron(deps);
@@ -108,6 +109,11 @@ Deno.test('phase 12 T7 — the visitor\'s cart (cs_carts): a cart rule sends the
   assertEquals(graph[0].body.text.body, 'نهى، سلتك بـ 1,250 ج.م مستنياك: https://staging.ibtekr.club/checkout/?wcf_ac_token=a\n\nاكتب «إيقاف» لو مش عايز رسايل عروض.');
   const R = db.rows('cs_auto_runs'); assertEquals(R.map((r: any) => [r.rule_id, r.entity, r.result, r.customer_id, r.conversation_id]), [[CART_RULE, 'cart:c7', 'sent', CUST, CONV]]);
   const again = await cron(deps); assertEquals([again.body.events, again.body.sent], [0, 0]); assertEquals(graph.length, 1);
+  // a new cart from the same number two days later: one guest-cart message a number a week → skipped «recent», no send
+  await db.from('cs_carts').insert({ cart_id: 20, phone: '01012345678', name: 'نهى', total: 999, items: 3, status: 'normal', unsubscribed: false, url: '', site_updated_at: '2026-11-10T06:00:00Z', first_seen_at: NOW, synced_at: NOW });
+  const later = await cron({ ...deps, now: () => '2026-11-10T08:00:00.000Z' });
+  assertEquals([later.body.sent, later.body.skipped], [0, 1], JSON.stringify(later.body)); assertEquals(graph.length, 1);
+  assertEquals(db.rows('cs_auto_runs').map((r: any) => [r.entity, r.result, r.code]).at(-1), ['cart:c20', 'skipped', 'recent']);
 });
 
 Deno.test('outside the 24-hour window: the approved Meta template with the variables in order; a Graph refusal → failed + code, the row failed', async () => {

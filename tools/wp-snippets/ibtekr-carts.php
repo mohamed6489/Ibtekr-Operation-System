@@ -13,7 +13,8 @@
  *
  * Authentication: the same WooCommerce REST API keys woo-sync already uses (HTTP Basic over HTTPS, or ?consumer_key=&consumer_secret=
  * like WooCommerce accepts), checked the way WooCommerce checks them: the key's wc_api_hash() against {prefix}woocommerce_api_keys,
- * the secret with hash_equals, the key's permissions must allow reading, and the key's user must still exist. Nothing else may read
+ * the secret with hash_equals, the key's permissions must allow reading, and the key's user must exist and be able to manage
+ * WooCommerce (manage_woocommerce — the system's key is the admin's; a vendor's key is refused). Nothing else may read
  * the route — a signed-in WordPress user without the keys gets 401, and the route never writes.
  *
  * Nothing is sent anywhere from the site: the system pulls. Remove the snippet and the route is gone.
@@ -76,8 +77,9 @@ function ibtekr_ops_carts_permission( $request ) {
 		return new WP_Error( 'ibtekr_forbidden', 'The key cannot read.', array( 'status' => 403 ) );
 	}
 	$user = get_user_by( 'id', (int) $row->user_id );
-	if ( ! $user ) {
-		return new WP_Error( 'ibtekr_forbidden', 'The key has no user.', array( 'status' => 403 ) );
+	if ( ! $user || ! user_can( $user, 'manage_woocommerce' ) ) {
+		// the system's key belongs to a shop manager / admin; a key of a lesser user (a vendor's, say) cannot read the carts
+		return new WP_Error( 'ibtekr_forbidden', 'The key\'s user cannot manage the shop.', array( 'status' => 403 ) );
 	}
 	return true;
 }

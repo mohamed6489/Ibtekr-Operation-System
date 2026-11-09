@@ -2,7 +2,8 @@
 -- vendor_logins with its column-list grants, its three policies and the column guard vendor_logins_guard, the two
 -- Vault RPCs vendor_login_set_password / vendor_login_reveal and the activity_log rows they write).
 -- Depends on 0001_identity … 0012_vendor_logins.
--- Runs in one transaction and rolls back; prints NOTICE 'rls_vendor_logins: ok' only if every case passed.
+-- Runs in one transaction and rolls back; prints NOTICE 'rls_vendor_logins: ok' only if every case passed. Every count is scoped to the
+-- test's own makers (…d1 / …d2 / …d3): since phase 13 the live table holds real logins.
 -- Each case switches role explicitly: the runner (postgres) owns the tables, bypasses RLS and plays the trusted server
 -- (service_role) — the guard applies to anon / authenticated only.
 -- With Vault (the live project) the two functions are exercised end to end (set, reveal, replace, the activity rows,
@@ -248,7 +249,8 @@ do $$ declare n int; begin
   values ('00000000-0000-4000-8000-0000000000d1', 'nour.login', 'nour-login.dev@ibtekr.local', 'link', 'أدمن الدخول');
   -- read by column list (what the adapter selects): the two rows, nothing hidden but secret_id
   if not ((select count(*) from (select vendor_id, username, email, pw_mode, status, must_change, invite_sent_at, password_set_at,
-                                        created_by, created_at, updated_at from public.vendor_logins) l) = 2
+                                        created_by, created_at, updated_at from public.vendor_logins
+                                 where vendor_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2')) l) = 2 -- the test's own two rows (the live table holds real logins since phase 13)
           and (select username || '/' || email || '/' || pw_mode || '/' || status || '/' || must_change::text || '/'
                       || coalesce(invite_sent_at::text, '∅') || '/' || coalesce(password_set_at::text, '∅') || '/' || created_by
                from public.vendor_logins where vendor_id = '00000000-0000-4000-8000-0000000000d1')
@@ -422,7 +424,7 @@ end $$;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000052","role":"authenticated"}';
 do $$ declare n int; begin
-  if not ((select count(*) from public.vendor_logins) = 2) then
+  if not ((select count(*) from public.vendor_logins where vendor_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = 2) then
     raise exception 'case vendors follow-up (vendors.view F) reads the two login rows failed';
   end if;
   -- the username of another maker (23505, the row stays)
@@ -435,14 +437,14 @@ do $$ declare n int; begin
       raise exception 'case a duplicate username: expected 23505, got % (%)', sqlstate, sqlerrm;
     end if;
   end;
-  if not ((select count(*) from public.vendor_logins) = 2
+  if not ((select count(*) from public.vendor_logins where vendor_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = 2
           and (select vendor_id from public.vendor_logins where username = 'nour.store') = '00000000-0000-4000-8000-0000000000d1') then
     raise exception 'case the duplicate left the existing row as it was failed';
   end if;
   insert into public.vendor_logins (vendor_id, username, email, created_by)
   values ('00000000-0000-4000-8000-0000000000d3', 'tikrar.store', 'tikrar.dev@ibtekr.local', 'متابعة الدخول');
   get diagnostics n = row_count;
-  if not (n = 1 and (select count(*) from public.vendor_logins) = 3) then
+  if not (n = 1 and (select count(*) from public.vendor_logins where vendor_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = 3) then
     raise exception 'case vendors follow-up (vendors.edit F) inserts a login row failed';
   end if;
   -- a change by the client bumps updated_at (the server wrote the row with 2020-01-01)
@@ -506,7 +508,7 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000053","role":"authenticated"}';
 do $$ begin
-  if not ((select count(*) from public.vendor_logins) = 3
+  if not ((select count(*) from public.vendor_logins where vendor_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = 3
           and (select username || '/' || status from public.vendor_logins where vendor_id = '00000000-0000-4000-8000-0000000000d1') = 'nour.store/invited') then
     raise exception 'case ops (vendors.view F) reads the login rows failed';
   end if;
@@ -543,7 +545,7 @@ set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000054","r
 do $$
 declare stmt text; needle text;
 begin
-  if not ((select count(*) from public.vendor_logins) = 3) then
+  if not ((select count(*) from public.vendor_logins where vendor_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = 3) then
     raise exception 'case accounts (vendors.view F) reads the login rows failed';
   end if;
   for stmt, needle in select * from (values
@@ -571,7 +573,7 @@ set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000056","r
 do $$
 declare stmt text;
 begin
-  if not ((select count(*) from public.vendor_logins) = 3
+  if not ((select count(*) from public.vendor_logins where vendor_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = 3
           and (select username from public.vendor_logins where vendor_id = '00000000-0000-4000-8000-0000000000d3') = 'tikrar.store') then
     raise exception 'case cs (vendors.view P) reads the login rows failed';
   end if;
@@ -597,7 +599,7 @@ reset role;
 set local role authenticated;
 set local request.jwt.claims = '{"sub":"00000000-0000-4000-8000-000000000055","role":"authenticated"}';
 do $$ declare n int; stmt text; begin
-  if not ((select count(*) from public.vendor_logins) = 0) then
+  if not ((select count(*) from public.vendor_logins where vendor_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = 0) then
     raise exception 'case suspended viewer reads zero login rows failed';
   end if;
   update public.vendor_logins set username = 'susp.store' where vendor_id = '00000000-0000-4000-8000-0000000000d1';
@@ -654,7 +656,7 @@ reset role;
 set local request.jwt.claims = '';
 do $$ declare has_vault boolean := current_setting('rls_vendor_logins.has_vault') = 'true'; begin
   if not ((select count(*) from public.vendors where id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = 3
-          and (select count(*) from public.vendor_logins) = 3) then
+          and (select count(*) from public.vendor_logins where vendor_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = 3) then
     raise exception 'case the refused delete removed nothing failed';
   end if;
   if not ((select string_agg(l.vendor_id::text || '=' || l.username || '/' || l.status || '/' || l.pw_mode || '/' || coalesce(l.created_by, '∅') || '/' || v.status, ',' order by l.vendor_id)

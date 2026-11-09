@@ -11,7 +11,7 @@
  *   • WoodMart's built-in «Abandoned cart» (Theme Settings → Shop → Abandoned cart; WoodMart 8.1+) — its table under the WP prefix
  *     whose name contains «abandoned» (woodmart_abandoned_carts on the versions we know), or
  *   • the free «Cart Abandonment Recovery for WooCommerce» (CartFlows) — {prefix}cartflows_ca_cart_abandonment.
- * Each row answers with: id, email, phone, name, total, item count, status (normal = still abandoned · completed · lost), unsubscribed,
+ * Each row answers with: id + source (woodmart | cartflows — the system keys a cart by both), email, phone, name, total, item count, status (normal = still abandoned · completed · lost), unsubscribed,
  * when the row last changed, and the plugin's recovery link when the plugin has one the system knows (CartFlows' wcf_ac_token).
  * Columns are mapped by name (see ibtekr_ops_carts_map); a column the table lacks answers empty. WoodMart's «open» carts (a visitor
  * still shopping) are not carts yet and are left out; only its «abandoned» ones count. No cart contents, no addresses, no coupons leave
@@ -174,6 +174,28 @@ function ibtekr_ops_carts_status( $s ) {
 }
 
 /**
+ * A serialized / JSON column → an array, with no object ever built (unserialize with allowed_classes false; the rows come from a
+ * table found at runtime, so nothing in them is trusted).
+ *
+ * @param mixed $raw The column value.
+ * @return array
+ */
+function ibtekr_ops_carts_decode( $raw ) {
+	if ( is_array( $raw ) ) {
+		return $raw;
+	}
+	if ( ! is_string( $raw ) || '' === $raw ) {
+		return array();
+	}
+	if ( is_serialized( $raw ) ) {
+		$data = @unserialize( $raw, array( 'allowed_classes' => false ) ); // phpcs:ignore WordPress.PHP.DiscouragedPHPFunctions.serialize_unserialize,WordPress.PHP.NoSilencedErrors.Discouraged
+		return is_array( $data ) ? $data : array();
+	}
+	$json = json_decode( $raw, true );
+	return is_array( $json ) ? $json : array();
+}
+
+/**
  * A value of a (possibly serialized / JSON) fields column, by the keys we know.
  *
  * @param mixed    $raw  The column value.
@@ -181,14 +203,7 @@ function ibtekr_ops_carts_status( $s ) {
  * @return string
  */
 function ibtekr_ops_carts_field( $raw, $keys ) {
-	$data = maybe_unserialize( $raw );
-	if ( is_string( $data ) ) {
-		$json = json_decode( $data, true );
-		$data = is_array( $json ) ? $json : array();
-	}
-	if ( ! is_array( $data ) ) {
-		return '';
-	}
+	$data = ibtekr_ops_carts_decode( $raw );
 	foreach ( $keys as $k ) {
 		if ( isset( $data[ $k ] ) && is_scalar( $data[ $k ] ) ) {
 			return (string) $data[ $k ];
@@ -204,15 +219,8 @@ function ibtekr_ops_carts_field( $raw, $keys ) {
  * @return int
  */
 function ibtekr_ops_carts_items( $raw ) {
-	$cart = maybe_unserialize( $raw );
-	if ( is_string( $cart ) ) {
-		$json = json_decode( $cart, true );
-		$cart = is_array( $json ) ? $json : array();
-	}
-	if ( ! is_array( $cart ) ) {
-		return 0;
-	}
-	$n = 0;
+	$cart = ibtekr_ops_carts_decode( $raw );
+	$n    = 0;
 	foreach ( $cart as $line ) {
 		$n += is_array( $line ) && isset( $line['quantity'] ) ? max( 0, (int) $line['quantity'] ) : 1;
 	}

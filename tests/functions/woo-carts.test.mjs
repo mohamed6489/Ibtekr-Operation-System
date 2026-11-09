@@ -1,5 +1,5 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
-import { CART_PATH, cartRow, cartRows } from '../../supabase/functions/_shared/woo-carts.js';
+import { CART_PATH, SOURCE_BASE, cartKey, cartRow, cartRows } from '../../supabase/functions/_shared/woo-carts.js';
 // the visitor's abandoned carts (phase 12 T7): the snippet's rows → cs_carts rows, nothing else
 
 const SITE = 'https://staging.ibtekr.club';
@@ -14,6 +14,10 @@ test('cartRow: the fields we keep, the phone digits only, the link https on the 
   assert.equal(cartRow({ id: 43, updated_at: '2026-11-09T08:00:00Z', url: SITE + '/checkout/?wcf_ac_token=abc' }, { now: NOW }).url, '', 'no site url known → no link (fails closed)');
   assert.equal(cartRow({ id: 0, updated_at: '2026-11-09T08:00:00Z' }), null); assert.equal(cartRow({ id: 5, updated_at: 'x' }), null); assert.equal(cartRow('x'), null);
   assert.equal(CART_PATH, 'ibtekr/v1/carts');
+  // the key carries the source: a WoodMart cart 41 and a CartFlows cart 41 are two rows
+  assert.equal(cartRow({ id: 41, source: 'cartflows', updated_at: '2026-11-09T08:00:00Z' }, { now: NOW }).cart_id, 41 + SOURCE_BASE.cartflows);
+  assert.equal(cartRow({ id: 41, source: 'woodmart', updated_at: '2026-11-09T08:00:00Z' }, { now: NOW }).cart_id, 41); assert.equal(cartKey(7, 'x'), 7);
+  assert.equal(cartRow({ id: 2_000_000_001, updated_at: '2026-11-09T08:00:00Z' }), null, 'an id past the offset is refused');
 });
 
 test('cartRows: bad rows counted, the same id keeps the latest change', () => {

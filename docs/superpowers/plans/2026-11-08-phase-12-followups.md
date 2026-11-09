@@ -68,6 +68,8 @@
     (`woodmart` | `cartflows`)، سلة WoodMart «open» (الزائر لسه بيتسوق) مابتترجعش و«abandoned» = `normal`؛ لينك الاسترجاع بتاع CartFlows بس (WoodMart
     شكله مش معروف → الرسالة بتاخد لينك الـ checkout العام). و`?probe=1` بيرجّع الجداول والأعمدة والـ mapping وأعداد الصفوف من غير صفوف — woo-sync
     `carts { probe: true }` للأدمن بس (مش الـ cron) عشان نشوف شكل الجدول الحقيقي قبل ما نثق في الـ mapping.
+    **مراجعة أمنية:** الأعمدة المتسلسلة بتتفك بـ `unserialize(..., allowed_classes=false)` (مافيش object injection من جدول اتلقى وقت التشغيل)، ومفتاح
+    `cs_carts.cart_id` = رقم الموقع + إزاحة بالمصدر (`SOURCE_BASE`: WoodMart 0، CartFlows 2,000,000,000) عشان سلة 41 من الاتنين ماتتخبطش.
 
 ## المهام (بالتوالي)
 

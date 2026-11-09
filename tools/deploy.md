@@ -1049,7 +1049,8 @@ select data from public.settings where section = 'lists';
 `installed: false` و`skipped`) · `0062_cs_carts.sql` (`cs_carts` + `cs_carts_v` + `cs_cart_phone()` + cron **`woo-sync-carts`** كل 10 دقايق) + `rls_cs_carts` ·
 `_shared/cs-auto.js` `guestCartEvents` + `cs-auto-run.ts` بيقرا `cs_carts` لما فيه قاعدة `cart` · الكتلة 20 (ملحوظة الحدث). **مافيش سر جديد** — نفس مفاتيح Woo.
 
-**ب) على الموقع (صاحب المشروع — الـ staging الأول):**
+**ب) على الموقع (صاحب المشروع — الـ staging الأول) — موقوفة 9 نوفمبر: صاحب المشروع مش عايز snippet على الموقع، وWoodMart مابيعرضش السلل على REST
+(الـ probe run 10)، فالخطوات دي بتتعمل بس لو قرر يركّب الـ snippet؛ غير كده `cs_carts` فاضي والـ cron ساكت.**
 1. **المصدر = «Abandoned cart» بتاعة ثيم WoodMart** (Theme Settings › Shop › Abandoned cart — شغّالة عند صاحب المشروع، 9 نوفمبر): الـ snippet بيلاقي جدولها لوحده
    (أي جدول تحت بادئة WP اسمه فيه «abandoned») وبيقرا أعمدته بالاسم؛ سلة «open» (الزائر لسه بيتسوق) مابتتحسبش، «abandoned» بس. مافيش إضافة تانية مطلوبة.
    (لو اتركّبت CartFlows «Cart Abandonment Recovery» بعدين الـ snippet بيقراها هي كمان بنفس الـ route.) **ملحوظة:** WoodMart بيحفظ سلة الزائر بعد ما يكتب

@@ -1370,7 +1370,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
       try {
         if (args.probe === true) { if (mode !== 'member') return json(401, { error: 'unauthorized' }); return json(200, { action, result: 'ok', ...(await probeCarts(run)) }); } // the admin's diagnostic, never the cron's
         const counts = await pullCarts(run);
-        await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'cs_carts', action: 'sync', result: counts.installed ? 'ok' : 'skipped', detail: counts });
+        // the snippet not on the site = nothing to say every 10 minutes (the owner declined it, 9 Nov): no log row, the cron stays quiet
+        if (counts.installed) await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'cs_carts', action: 'sync', result: 'ok', detail: counts });
         return json(200, { action, result: 'ok', counts });
       } catch (e) {
         await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'cs_carts', action: 'sync', result: 'error', detail: { error: errorText(e, makeScrubber(run.env)) } });

@@ -1922,7 +1922,7 @@ const invSeed = {
 
 // ---------------------------------------------------------------- carts (phase 12 T7, decisions 7 / 13)
 
-Deno.test('carts: the site snippet\'s rows → cs_carts on cart_id (phone, name, total, items, status, the recovery link on the site only — no contents); the snippet missing (404) → installed false and a skipped log row; the cron or the admin only', async () => {
+Deno.test('carts: the site snippet\'s rows → cs_carts on cart_id (phone, name, total, items, status, the recovery link on the site only — no contents); the snippet missing (404) → installed false and no log row; the cron or the admin only', async () => {
   const feed = [
     { id: 41, email: 'noha@example.test', phone: '+20 101 234 5678', name: 'نهى عبد الرحمن', total: 1250.5, items: 2, status: 'normal', unsubscribed: false, updated_at: '2026-10-25T08:00:00+00:00', url: 'https://woo.test/checkout/?wcf_ac_token=abc', cart_contents: 'never read' },
     { id: 42, email: '', phone: '01099999999', name: '', total: 300, items: 1, status: 'completed', unsubscribed: true, updated_at: '2026-10-25T07:00:00+00:00', url: 'https://evil.test/checkout/' },
@@ -1949,7 +1949,7 @@ Deno.test('carts: the site snippet\'s rows → cs_carts on cart_id (phone, name,
   const none = setup();
   const r2 = await call(none.deps, { action: 'carts' });
   assertEquals([r2.res.status, r2.body.counts], [200, { installed: false, carts: 0, bad: 0, failed_rows: 0 }]);
-  assertEquals(none.db.rows('woo_sync_log').at(-1).result, 'skipped'); assertEquals(none.db.rows('cs_carts').length, 0);
+  assertEquals(none.db.rows('woo_sync_log').filter((r: any) => r.entity === 'cs_carts').length, 0, 'no log row while the snippet is not on the site'); assertEquals(none.db.rows('cs_carts').length, 0);
 });
 
 Deno.test('inventory_push: the owned SKUs\' available pieces onto the product and its translation (manage_stock + stock_quantity), the mirror follows; a «أمانة» SKU untouched; a SKU not on the site counted missing; inventory.edit + products.edit; never the sync secret', async () => {

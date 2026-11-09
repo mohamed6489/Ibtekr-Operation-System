@@ -659,14 +659,17 @@ do $$ declare has_vault boolean := current_setting('rls_vendor_logins.has_vault'
           and (select count(*) from public.vendor_logins where vendor_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3')) = 3) then
     raise exception 'case the refused delete removed nothing failed';
   end if;
+  -- scoped to this file's makers: the live table holds real logins since phase 13
   if not ((select string_agg(l.vendor_id::text || '=' || l.username || '/' || l.status || '/' || l.pw_mode || '/' || coalesce(l.created_by, '∅') || '/' || v.status, ',' order by l.vendor_id)
-           from public.vendor_logins l join public.vendors v on v.id = l.vendor_id)
+           from public.vendor_logins l join public.vendors v on v.id = l.vendor_id
+           where l.vendor_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3'))
           = '00000000-0000-4000-8000-0000000000d1=nour.store/invited/' || case when has_vault then 'temp' else 'link' end || '/أدمن الدخول/leave,'
             || '00000000-0000-4000-8000-0000000000d2=qamar.store/disabled/link/السيرفر/leave,'
             || '00000000-0000-4000-8000-0000000000d3=tikrar.store/invited/' || case when has_vault then 'temp' else 'link' end || '/متابعة الدخول/active') then
     raise exception 'case the final rows match the accepted writes only failed: %',
       (select string_agg(l.vendor_id::text || '=' || l.username || '/' || l.status || '/' || l.pw_mode || '/' || coalesce(l.created_by, '∅') || '/' || v.status, ',' order by l.vendor_id)
-       from public.vendor_logins l join public.vendors v on v.id = l.vendor_id);
+       from public.vendor_logins l join public.vendors v on v.id = l.vendor_id
+           where l.vendor_id in ('00000000-0000-4000-8000-0000000000d1', '00000000-0000-4000-8000-0000000000d2', '00000000-0000-4000-8000-0000000000d3'));
   end if;
   -- the activity rows of this file (scoped to its makers: a live re-run finds real vendor.login.* rows of other makers):
   -- with Vault 2 + 3 by the admin and 1 + 1 by vendors follow-up, else none

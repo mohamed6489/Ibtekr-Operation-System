@@ -16,6 +16,9 @@ test.afterEach(() => { if (LIVE) return; expect(pageErrors).toEqual([]); expect(
 
 const card = (page) => page.locator('#portal .login-card');
 async function portalLogin(page, user, pw) {
+  // the previous try may still be in flight: the page redraws its inputs when the answer lands (a password typed meanwhile is
+  // lost), so wait for the button to be enabled again (busy = disabled) before typing
+  await expect(page.locator('[data-pt-login]')).toBeEnabled();
   await page.fill('#pt-user', user); await page.fill('#pt-pw', pw);
   await page.locator('[data-pt-login]').click();
 }
@@ -97,7 +100,7 @@ test('the sign-in: a wrong password, an unknown user and an inactive maker all r
 
 test('the lock: the fifth wrong try locks the login 15 minutes, a right password while locked is refused too', async ({ page }) => {
   await page.goto('/portal.html');
-  for (let i = 0; i < 4; i++) { await portalLogin(page, 'antikiano', 'Wrong1234'); await expect(card(page).locator('.note.error')).toContainText('اسم المستخدم أو الباسورد غلط'); await expect.poll(() => mock.vendorLogins.find((l) => l.vendor_id === V2).fails).toBe(i + 1); }
+  for (let i = 0; i < 4; i++) { await portalLogin(page, 'antikiano', 'Wrong1234'); await expect.poll(() => mock.vendorLogins.find((l) => l.vendor_id === V2).fails).toBe(i + 1); await expect(card(page).locator('.note.error')).toContainText('اسم المستخدم أو الباسورد غلط'); }
   await portalLogin(page, 'antikiano', 'Wrong1234');
   await expect(card(page).locator('.note.error')).toContainText('الحساب اتقفل 15 دقيقة');
   await portalLogin(page, 'antikiano', TEST_PW);

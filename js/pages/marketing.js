@@ -4,7 +4,7 @@
    9.5.1 (decisions 5, 8–18): «إنشاء» — the campaign card and «آخر الشغل» —, the campaign in four steps (the images with Magnific's
    credits through ai-images, the texts with Claude through ai-content, the review with pins on the image, the schedule and the ZIP
    download), «سجل النشر», «الخطة الإعلانية» and «قوالب التصميم». «نظرة عامة», «مساعدين الذكاء الاصطناعي» and «التقارير» are
-   «قريبًا» (the ads numbers of 9.5.3 and later), and so is the video.
+   «قريبًا» at first (opened in 9.5.3 / 9.5.4), and so was the video (9.5.5).
    9.5.2 (decisions 29–39): publishing to Facebook and Instagram through mkt-publish — the connection card with the master switch
    (the admin's), «انشر / داونلود» per piece and «انشر المحدد» (the JPEG copies made at «تأكيد النشر»), «انشر دلوقتي» and «احذف
    البوست» in the post's popup, the numbers (views, engagement, likes / comments / shares / saves), and the platform's own posts in
@@ -69,7 +69,7 @@
   function connCard(acts) {
     const cn = needConn();
     const needs = cn && W.PUBLISHABLE.some((pl) => { const c2 = cn[W.PL_KEY[pl]]; return c2 && c2.linked && !c2.publish; });
-    return Card('الربط بالمنصات', 'فيسبوك وانستجرام من ربط الصفحة في «خدمة العملاء › القنوات» · تيك توك قريب', [
+    return Card('الربط بالمنصات', 'فيسبوك وانستجرام من ربط الصفحة في «خدمة العملاء › القنوات» · تيك توك مالوش API نشر — داونلود بس (أرقام إعلاناته من «نظرة عامة › حالة الربط»)', [
       h('div', { class: 'conn-row', 'data-mk-conn': '' }, W.PLATFORMS.map((n) => h('div', { class: 'conn', 'data-conn-pl': n }, h('b', null, n), PL_TAG(n, cn)))),
       cn ? h('div', { class: 'mk-auto', 'data-mk-auto': cn.autopublish ? 'on' : 'off' }, Tag(cn.autopublish ? 'success' : 'neutral', cn.autopublish ? 'النشر التلقائي شغّال' : 'النشر التلقائي متوقف'),
         h('span', { class: 't-small help' }, cn.autopublish ? 'البوستات اللي عليها «انشر» بتتنشر لوحدها في ميعادها' : 'وهو متوقف مفيش بوست بيتنشر من السيستم — داونلود بس'),
@@ -187,7 +187,7 @@
     options: IMGM().map((x) => ({ value: x.id, label: x.name + ' · ' + K.n0(x.credits) + ' كريديت/صورة' })), help: (IMGM().find((x) => x.id === val) || {}).note || '' });
   // 9.5.5: the video models of the catalog (on the linked Magnific account — the seconds an estimate, not the image wallet)
   const vmodelSel = (id, val, set) => U.Select({ id, label: 'الموديل', value: val, onChange: (v) => { set(v); persist(); R(); },
-    options: PD.VIDEO_MODELS.map((x) => ({ value: x.id, label: x.name + ' · ≈ ' + K.n0(W.videoRate(x.id)) + ' كريديت/ثانية' })), help: (PD.VIDEO_MODELS.find((x) => x.id === val) || {}).note || '' });
+    options: PD.VIDEO_MODELS.map((x) => ({ value: x.id, label: x.name + ' · ≈ ' + K.n0(W.videoRate(x.id)) + ' كريديت/ثانية (تقدير)' })), help: ((PD.VIDEO_MODELS.find((x) => x.id === val) || {}).note || '') + ' الكريدت تقدير تقريبي — الصرف الفعلي على حساب Magnific المربوط.' });
   const VCAMS = ['ثابتة', 'زوم بطيء', 'تحريك يمين', 'تحريك شمال', 'ماكرو', 'من فوق', 'دوران'];
   const vmdlName = (id) => ((PD.VIDEO_MODELS.find((x) => x.id === id) || { name: id }).name);
 

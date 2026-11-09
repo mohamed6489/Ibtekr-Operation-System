@@ -666,13 +666,13 @@
   const sPerms = () => { const st = window.IBPages.all().settings; return st && st.api && st.api.perms ? st.api.perms() : []; };
   function viewer() { const K = window.IBKit; return K ? K.member(ntfState.viewer || K.ME) : null; }
   function roleIdx(m) { const st = window.IBPages.all().settings; if (st && st.api && st.api.roleIndex) return st.api.roleIndex(m && m.role); const i = NRM().ROLES.indexOf(m && m.role); return i < 0 ? NRM().ROLES.length - 1 : i; }
-  // phase 8: until the settings page (phase 10) owns the role matrix, «تذاكر الفريق — عرض» for the signed-in member is their real
-  // tickets.view (0045 decision 4) — the prototype's matrix said N for «حسابات», so its tasks never reached the bell
+  // phase 8: «تذاكر الفريق — عرض» for the signed-in member is their real tickets.view (0045 decision 4) — the prototype's matrix said N
+  // for «حسابات», so its tasks never reached the bell; the settings page (phase 11) owns the roles' permissions, this column stays the live one
   function tkPerms(perms, ci, m) {
     const D = window.IBDirectory; const me = D && D.me ? D.me() : null; if (!D || !me || !m || (m.uid || m.id) !== me.id && m.email !== me.email) return perms;
     const v = D.perm('tickets.view'); const col = (str) => String(str || '').padEnd(ci + 1, 'N').slice(0, ci) + v + String(str || '').slice(ci + 1);
     const list = (perms || []).map(([g, rows]) => (g !== 'تذاكر الفريق' ? [g, rows] : [g, rows.map((r) => (r[0] === 'عرض' ? [r[0], col(r[1])].concat(r.slice(2)) : r))]));
-    if (!list.some(([g]) => g === 'تذاكر الفريق')) list.push(['تذاكر الفريق', [['عرض', col('')]]]); // the settings page (soon) carries no matrix yet
+    if (!list.some(([g]) => g === 'تذاكر الفريق')) list.push(['تذاكر الفريق', [['عرض', col('')]]]); // a matrix without the group: add it
     return list;
   }
   function accFor(m) {

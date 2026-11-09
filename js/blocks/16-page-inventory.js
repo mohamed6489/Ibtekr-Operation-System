@@ -292,7 +292,7 @@
 
   // ---------- التقارير (decision 6) ----------
   // the v2 reports page's inventory view (its InventoryReportView + IbtekrReports.inventoryReport) here, on the hub's real data:
-  // the pieces / value / returns now, the moves in the reports period (IBReportBlocks.range — the reports page is still soon)
+  // the pieces / value / returns now, the moves in the reports period (IBReportBlocks.range — the reports page's «المخزن» tab shows the same blocks since phase 9)
   function inventoryReport(stock, returns, ledger) {
     const S2 = stock || []; const byReason = {}; const byStatus = {};
     S2.forEach((x) => { byReason[x.reason || '—'] = (byReason[x.reason || '—'] || 0) + 1; byStatus[x.status || '—'] = (byStatus[x.status || '—'] || 0) + 1; });

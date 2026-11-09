@@ -2,8 +2,8 @@
 // not a Supabase Auth user: this function (service_role) checks the sign-in through the 0065 definer functions, signs its own HS256
 // token (12 hours, the Vault secret app_portal_jwt) and answers the maker's own view — every query filtered by the token's vendor id,
 // never a customer's phone, never another maker. Deployed with verify_jwt false; the token travels in the header x-portal-token.
-//   POST { action: 'login', user, password }            → { ok, token, must_change, name } | 401 { error: wrong | locked | disabled | nopw, until? } (no tries-left: an unknown user looks like a wrong password)
-//   POST { action: 'set_password', password }           (token, first sign-in or a later change through «first») → { ok, token }
+//   POST { action: 'login', user, password }            → { ok, token, must_change, name } | 401 { error: wrong | locked, until? } (unknown / disabled / no-password all read wrong)
+//   POST { action: 'set_password', password }           (a «first» token: the first sign-in only) → { ok, token }
 //   POST { action: 'change_password', current, password } (token) → { ok, token } | 401 { error: wrong | locked }
 //   POST { action: 'reset_request', user }              → { ok, mode: 'email' | 'team' } whatever the user (nothing says whether it exists)
 //   POST { action: 'reset', token, password }           → { ok, token, name } | 404 { error: 'reset_invalid' }
@@ -67,8 +67,11 @@ async function whoOf(req: Request, deps: Deps): Promise<Who | null> {
   const c = await verifyToken(secret, tok, nowSec(deps)); if (!c) return null;
   const vendor = String(c.sub).toLowerCase();
   // the login row on every call: a disabled login or a password changed after the token was made ends the session (security review)
-  const { data: l } = await deps.db.from('vendor_logins').select('vendor_id, status, password_set_at').eq('vendor_id', vendor).maybeSingle();
-  if (!isObj(l) || l.status === 'disabled') return null;
+  const [{ data: l }, { data: v }] = await Promise.all([
+    deps.db.from('vendor_logins').select('vendor_id, status, password_set_at').eq('vendor_id', vendor).maybeSingle(),
+    deps.db.from('vendors').select('id, status').eq('id', vendor).maybeSingle(),
+  ]);
+  if (!isObj(l) || l.status === 'disabled' || !isObj(v) || v.status === 'inactive') return null; // a disabled login or a maker taken off the site: no session
   const setAt = Date.parse(String(l.password_set_at ?? '')); const iat = typeof c.iat === 'number' ? c.iat * 1000 : 0;
   if (Number.isFinite(setAt) && setAt - iat > 5000) return null; // a token from before the last password change (5 s of slack for the one made right after it)
   return { vendor, scope: c.scope === 'first' ? 'first' : 'full' };
@@ -90,9 +93,12 @@ async function login(deps: Deps, args: Json) {
   const { data, error } = await deps.db.rpc('vendor_login_check', { p_user: inp.user, p_password: inp.password });
   if (error) return json(rpcCode(error) === '0A000' ? 503 : 500, { error: rpcCode(error) === '0A000' ? 'not_configured' : 'failed' });
   if (!isObj(data) || data.ok !== true) {
-    const reason = isObj(data) && typeof data.reason === 'string' ? data.reason : 'wrong';
-    // no «tries left» in the answer (security review): an unknown user and a wrong password must look the same; the lock still comes
-    return json(401, { error: reason, ...(data?.until ? { until: String(data.until) } : {}) });
+    const raw = isObj(data) && typeof data.reason === 'string' ? data.reason : 'wrong';
+    // security review: an unknown user, a wrong password, a disabled login and a login without a password all read «wrong» — nothing
+    // in the answer says whether the account exists; only the lock (after five wrong tries on a real login) is named, so the maker
+    // knows to wait or reset
+    const reason = raw === 'locked' ? 'locked' : 'wrong';
+    return json(401, { error: reason, ...(reason === 'locked' && data?.until ? { until: String(data.until) } : {}) });
   }
   const vendor = String(data.vendor_id).toLowerCase(); const must = data.must_change === true;
   const token = await tokenFor(deps, vendor, must ? 'first' : 'full'); if (!token) return json(503, { error: 'not_configured' });
@@ -235,7 +241,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'reset') return await reset(deps, args);
     const who = await whoOf(req, deps);
     if (!who) return json(401, { error: 'unauthorized' });
-    if (action === 'set_password') return await setPassword(deps, who, args);
+    // set_password belongs to the first sign-in only (a «first» token); a signed-in maker changes it through change_password with the current one
+    if (action === 'set_password') return who.scope === 'first' ? await setPassword(deps, who, args) : json(401, { error: 'use_change_password' });
     if (who.scope !== 'full') return json(401, { error: 'must_change' }); // the first sign-in: the password first, everything else after
     if (action === 'change_password') return await changePassword(deps, who, args);
     if (action === 'me') return await me(deps, who);

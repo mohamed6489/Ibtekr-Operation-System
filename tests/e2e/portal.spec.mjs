@@ -20,15 +20,15 @@ async function portalLogin(page, user, pw) {
   await page.locator('[data-pt-login]').click();
 }
 
-test('the sign-in: a wrong password and an unknown user read the same, an inactive maker is shut out; the first sign-in forces a new password (the rules live), then the maker sees his own view — KPIs, his lines with the delay rule, his account, his data with the bank masked; the bank request opens one ticket for the accounts; logout', async ({ page }) => {
+test('the sign-in: a wrong password, an unknown user and an inactive maker all read the same; the first sign-in forces a new password (the rules live), then the maker sees his own view — KPIs, his lines with the delay rule, his account, his data with the bank masked; the bank request opens one ticket for the accounts; logout', async ({ page }) => {
   await page.goto('/portal.html');
   await expect(card(page)).toContainText('دخول المبتكر');
   await portalLogin(page, 'antikiano', 'Wrong1234');
-  await expect(card(page).locator('.note.error')).toHaveText('اسم المستخدم أو الباسورد غلط'); // no tries-left: an unknown user reads the same
+  await expect(card(page).locator('.note.error')).toContainText('اسم المستخدم أو الباسورد غلط'); // no tries-left: an unknown user reads the same
   await portalLogin(page, 'nobody', 'Whatever1');
-  await expect(card(page).locator('.note.error')).toHaveText('اسم المستخدم أو الباسورد غلط');
-  await portalLogin(page, 'bian.eg', 'Whatever1'); // Bian eg is inactive in the seed: the login is shut whatever the password
-  await expect(card(page).locator('.note.error')).toContainText('حساب الدخول ده موقوف');
+  await expect(card(page).locator('.note.error')).toContainText('اسم المستخدم أو الباسورد غلط');
+  await portalLogin(page, 'bian.eg', 'Whatever1'); // Bian eg is inactive in the seed: shut out, and it reads like a wrong password (no enumeration)
+  await expect(card(page).locator('.note.error')).toContainText('اسم المستخدم أو الباسورد غلط');
   await portalLogin(page, 'Antikiano', TEST_PW);
   await expect(card(page)).toContainText('اعمل الباسورد بتاعك');
   await expect(page).toHaveURL(/#portal-first$/);
@@ -97,7 +97,7 @@ test('the sign-in: a wrong password and an unknown user read the same, an inacti
 
 test('the lock: the fifth wrong try locks the login 15 minutes, a right password while locked is refused too', async ({ page }) => {
   await page.goto('/portal.html');
-  for (let i = 0; i < 4; i++) { await portalLogin(page, 'antikiano', 'Wrong1234'); await expect(card(page).locator('.note.error')).toHaveText('اسم المستخدم أو الباسورد غلط'); await expect.poll(() => mock.vendorLogins.find((l) => l.vendor_id === V2).fails).toBe(i + 1); }
+  for (let i = 0; i < 4; i++) { await portalLogin(page, 'antikiano', 'Wrong1234'); await expect(card(page).locator('.note.error')).toContainText('اسم المستخدم أو الباسورد غلط'); await expect.poll(() => mock.vendorLogins.find((l) => l.vendor_id === V2).fails).toBe(i + 1); }
   await portalLogin(page, 'antikiano', 'Wrong1234');
   await expect(card(page).locator('.note.error')).toContainText('الحساب اتقفل 15 دقيقة');
   await portalLogin(page, 'antikiano', TEST_PW);

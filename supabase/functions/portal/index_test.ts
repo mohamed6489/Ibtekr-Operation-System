@@ -18,12 +18,18 @@ function setup(opts: { resend?: boolean; mailFail?: boolean } = {}) {
   const LOGINS = loginRows();
   const pw: Record<string, string> = { [V1]: 'Bian2026', [V2]: 'Other999' }; const locked: Record<string, boolean> = {}; const fails: Record<string, number> = {};
   const resets: { vendor: string; token: string; used: boolean }[] = []; const rpcLog: any[] = []; const mails: any[] = [];
+  // deno-lint-ignore prefer-const
+  let db: any;
   const rpc = {
     portal_jwt_secret: () => SECRET,
     vendor_login_check: ({ p_user, p_password }: any) => {
       rpcLog.push(['check', p_user]);
       const row = LOGINS.find((l) => l.username === p_user || l.email === p_user); if (!row) return { ok: false, reason: 'wrong' };
+      // the status and the secret as the fake database now holds them (a test may disable the login or drop its secret)
+      const live = db.rows('vendor_logins').find((l: any) => l.vendor_id === row.vendor_id) ?? row;
+      if (live.status === 'disabled') return { ok: false, reason: 'disabled' };
       if (locked[row.vendor_id]) return { ok: false, reason: 'locked', until: '2026-10-25T12:15:00.000Z' };
+      if (!live.secret_id) return { ok: false, reason: 'nopw' };
       if (pw[row.vendor_id] !== p_password) { fails[row.vendor_id] = (fails[row.vendor_id] ?? 0) + 1; if (fails[row.vendor_id] >= 5) { locked[row.vendor_id] = true; return { ok: false, reason: 'locked', until: '2026-10-25T12:15:00.000Z' }; } return { ok: false, reason: 'wrong', left: 5 - fails[row.vendor_id] }; }
       return { ok: true, vendor_id: row.vendor_id, must_change: row.must_change, own_password: row.own_password };
     },
@@ -31,7 +37,7 @@ function setup(opts: { resend?: boolean; mailFail?: boolean } = {}) {
     vendor_login_reset_create: ({ p_user }: any) => { rpcLog.push(['reset_create', p_user]); const row = LOGINS.find((l) => l.username === p_user || l.email === p_user); if (!row) return null; const token = 'ab'.repeat(32); resets.push({ vendor: row.vendor_id, token, used: false }); return { vendor_id: row.vendor_id, email: row.email, name: 'بيان', token }; },
     vendor_login_reset_use: ({ p_token, p_password }: any) => { const r = resets.find((x) => x.token === p_token && !x.used); if (!r) throw Object.assign(new Error('bad'), { code: 'P0002' }); r.used = true; pw[r.vendor] = p_password; return r.vendor; },
   };
-  const db = fakeDb({
+  db = fakeDb({
     vendors: [vendorRow(11, { name: 'بيان إيجيبت', phone: '01000000011', email: 'bian@x.test' }), vendorRow(12, { name: 'الآخر', phone: '01000000012' })],
     vendor_logins: LOGINS.map((l) => ({ ...l })),
     vendor_bank: [{ vendor_id: V1, method: 'bank', holder: 'Bian Egypt', bank_name: 'NBE', iban: 'EG380019000500000000263180002', wallet: '01000000011' }],
@@ -79,6 +85,15 @@ Deno.test('login: wrong → 401 with the tries left, the fifth locks; a right pa
   r = await call(deps, { action: 'login', user: 'bian.eg', password: 'nope1234' });
   assertEquals([r.res.status, r.body.error, typeof r.body.until], [401, 'locked', 'string']);
   assertEquals((await call(deps, { action: 'login', user: 'nobody', password: 'x1234567' })).body, { error: 'wrong' }, 'an unknown user looks like a wrong password');
+  // a disabled login and a login without a password read «wrong» too (no account enumeration); a maker taken off the site has no session
+  const { deps: d3, db: db3 } = setup();
+  await db3.from('vendor_logins').update({ status: 'disabled' }).eq('vendor_id', V2);
+  assertEquals((await call(d3, { action: 'login', user: 'other', password: 'Other999' })).body, { error: 'wrong' }, 'disabled reads wrong');
+  await db3.from('vendor_logins').update({ status: 'active', secret_id: null }).eq('vendor_id', V2);
+  assertEquals((await call(d3, { action: 'login', user: 'other', password: 'Other999' })).body, { error: 'wrong' }, 'no password reads wrong');
+  await db3.from('vendors').update({ status: 'inactive' }).eq('id', V1);
+  const tokV1 = await signToken(SECRET, { sub: V1, scope: 'full', iat: NOW_SEC, exp: NOW_SEC + 3600 });
+  assertEquals((await call(d3, { action: 'me' }, tokV1)).res.status, 401, 'an inactive maker has no session');
   assertEquals((await call(deps, { action: 'login', user: '', password: 'x' })).res.status, 400);
   // the other maker signs in straight (own password, nothing to change)
   const { deps: d2 } = setup();
@@ -90,6 +105,7 @@ Deno.test('login: wrong → 401 with the tries left, the fifth locks; a right pa
   r = await call(d2, { action: 'set_password', password: 'MyOwn2026' }, first);
   assertEquals([r.res.status, r.body.ok], [200, true]); const full = r.body.token;
   assertEquals((await call(d2, { action: 'me' }, full)).res.status, 200);
+  assertEquals((await call(d2, { action: 'set_password', password: 'Again2026' }, full)).body, { error: 'use_change_password' }, 'a signed-in maker changes the password with the current one only');
   assertEquals((await call(d2, { action: 'me' })).res.status, 401, 'no token');
   assertEquals((await call(d2, { action: 'me' }, 'garbage')).res.status, 401);
   // a token made before the password change is dead; a disabled login ends the session too

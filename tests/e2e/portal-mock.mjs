@@ -22,7 +22,7 @@ export function portalRoute(c) {
   const findLogin = (user) => { const u = String(user || '').trim().toLowerCase(); return u ? mock.vendorLogins.find((l) => l.username.toLowerCase() === u || String(l.email || '').toLowerCase() === u) || null : null; };
   const vendorOf = (id) => mock.vendors.find((v) => v.id === id) || null;
   const tokenOf = (scope, vendor) => 'pt.' + scope + '.' + vendor;
-  const who = () => { const m = /^pt\.(first|full)\.([0-9a-f-]{36})$/.exec(String(hd['x-portal-token'] || '')); return m && vendorOf(m[2]) ? { scope: m[1], vendor: m[2] } : null; };
+  const who = () => { const m = /^pt\.(first|full)\.([0-9a-f-]{36})$/.exec(String(hd['x-portal-token'] || '')); const v = m && vendorOf(m[2]); const l = m && mock.vendorLogins.find((x) => x.vendor_id === m[2]); return v && l && v.status !== 'inactive' && l.status !== 'disabled' ? { scope: m[1], vendor: m[2] } : null; };
   const check = (login, password) => {
     if (!login) return { ok: false, reason: 'wrong' };
     const v = vendorOf(login.vendor_id);
@@ -43,7 +43,7 @@ export function portalRoute(c) {
     const user = String(b.user || '').trim().toLowerCase(); rec.user = user;
     if (!user || typeof b.password !== 'string' || !b.password) return fail(400, 'bad_request');
     const login = findLogin(user); const r = check(login, b.password);
-    if (!r.ok) return fail(401, r.reason, { until: r.until }); // no tries-left in the answer (like the server)
+    if (!r.ok) return fail(401, r.reason === 'locked' ? 'locked' : 'wrong', r.reason === 'locked' ? { until: r.until } : {}); // like the server: unknown / disabled / no-password all read «wrong»; the lock is named
     rec.vendor = login.vendor_id; const v = vendorOf(login.vendor_id);
     return json(200, { ok: true, token: tokenOf(login.must_change ? 'first' : 'full', login.vendor_id), must_change: !!login.must_change, name: v ? v.name : '' });
   }
@@ -66,6 +66,7 @@ export function portalRoute(c) {
   const me = who(); if (!me) return fail(401, 'unauthorized');
   rec.vendor = me.vendor; const login = mock.vendorLogins.find((l) => l.vendor_id === me.vendor); const v = vendorOf(me.vendor);
   if (action === 'set_password') {
+    if (me.scope !== 'first') return fail(401, 'use_change_password');
     const iss = passwordIssues(b.password); if (iss.length) return fail(400, 'weak_password', { issues: iss });
     if (!login) return fail(404, 'not_found'); setOwn(login, b.password);
     return json(200, { ok: true, token: tokenOf('full', me.vendor) });

@@ -382,7 +382,8 @@ test('PROBE=cart (phase 6.5): the REST namespaces, the cart-like routes and the 
   const fetch = async (url, init) => {
     calls.push(init.method);
     const u = new URL(url); const path = u.pathname.slice(u.pathname.indexOf('/wp-json/') + 9);
-    if (path === '') return json({ namespaces: ['wp/v2', 'wc/v3', 'dokan/v1', 'wcar/v1'], routes: { '/wc/v3/orders': {}, '/wcar/v1/carts': {}, '/wcar/v1/carts/(?P<id>\\d+)': {}, '/wp/v2/posts': {} } });
+    if (path === '') return json({ namespaces: ['wp/v2', 'wc/v3', 'dokan/v1', 'wcar/v1'], routes: { '/wc/v3/orders': {}, '/wcar/v1/carts': {}, '/wcar/v1/carts/(?P<id>\\d+)': {}, '/wp/v2/posts': {}, '/woodmart/v1/abandoned-carts': {} } });
+    if (path === 'wp/v2/types') return json({ post: {}, product: {}, wd_abandoned_cart: {} });
     if (path === 'wc/v3/system_status') return json({ environment: { version: '9.4.1', wp_version: '6.7' }, active_plugins: [{ plugin: 'woocommerce/woocommerce.php', name: 'WooCommerce', version: '9.4.1', author_name: 'Automattic' }, { plugin: 'woo-cart-abandonment-recovery/cart-abandonment-recovery.php', name: 'WooCommerce Cart Abandonment Recovery', version: '1.3.2' }, { plugin: 'dokan-lite/dokan.php', name: 'Dokan', version: '3.14' }] });
     return json({ code: 'rest_no_route' }, { status: 404 });
   };
@@ -390,9 +391,10 @@ test('PROBE=cart (phase 6.5): the REST namespaces, the cart-like routes and the 
   const code = await run({ env: { ...ENV, PROBE: 'cart' }, fetch, out: (s) => out.push(s), err: () => {} });
   const by = Object.fromEntries(out.map((l) => [l.slice(0, l.indexOf(' ')), JSON.parse(l.slice(l.indexOf(' ') + 1))]));
   assert.equal(code, 0);
-  assert.deepEqual(Object.keys(by), ['namespaces', 'cart_routes', 'active_plugins']);
+  assert.deepEqual(Object.keys(by), ['namespaces', 'cart_routes', 'theme_routes', 'post_types', 'active_plugins']);
+  assert.deepEqual(by.theme_routes.items, ['/woodmart/v1/abandoned-carts']); assert.deepEqual(by.post_types.cart_like, ['wd_abandoned_cart']);
   assert.deepEqual(by.namespaces.items, ['dokan/v1', 'wc/v3', 'wcar/v1', 'wp/v2']);
-  assert.deepEqual(by.cart_routes.items, ['/wcar/v1/carts', '/wcar/v1/carts/(?P<id>\\d+)']);
+  assert.deepEqual(by.cart_routes.items, ['/wcar/v1/carts', '/wcar/v1/carts/(?P<id>\\d+)', '/woodmart/v1/abandoned-carts']);
   assert.deepEqual(by.active_plugins.cart_like, [{ name: 'WooCommerce Cart Abandonment Recovery', version: '1.3.2' }]);
   assert.deepEqual(by.active_plugins.names, ['Dokan', 'WooCommerce', 'WooCommerce Cart Abandonment Recovery']);
   assert.ok(!out.join('\n').includes('Automattic'), 'authors are not printed');

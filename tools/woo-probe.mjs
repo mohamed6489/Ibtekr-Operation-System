@@ -359,6 +359,16 @@ export async function run({ env = process.env, fetch = globalThis.fetch, out = c
       const routes = keysOf(data?.routes);
       return [{ count: ns.length, items: ns.slice(0, 80) }, { scanned: routes.length, items: routes.filter((r) => CARTISH.test(r)).slice(0, 60).sort() }];
     }],
+    // phase 12 T7 (the owner, 9 Nov: WoodMart's own «Abandoned cart», no snippet): every route of the theme's namespaces (woodmart / xts / wd)
+    // and the REST-exposed post types — does the theme hand the abandoned carts out on REST at all? Route names only.
+    [['theme_routes', 'post_types'], async () => {
+      const { data } = await wpGet('');
+      const routes = keysOf(data?.routes);
+      const theme = routes.filter((r) => /^\/(woodmart|xts|wd)[\/-]/i.test(r)).slice(0, 80).sort();
+      const { data: types } = await wpGet('wp/v2/types');
+      const names = types && typeof types === 'object' ? Object.keys(types).sort() : [];
+      return [{ count: theme.length, items: theme }, { count: names.length, items: names.slice(0, 80), cart_like: names.filter((n) => CARTISH.test(n)) }];
+    }],
     [['active_plugins'], async () => {
       const { data } = await get('wc/v3/system_status?_fields=active_plugins,environment.version,environment.wp_version');
       const plugins = Array.isArray(data?.active_plugins) ? data.active_plugins : [];

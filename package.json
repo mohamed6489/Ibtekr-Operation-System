@@ -12,7 +12,7 @@
     "serve": "npx http-server app -p 4173 -c-1",
     "e2e": "npx playwright test -c tests/playwright.config.mjs",
     "db:test": "bash tools/db-test.sh --stub",
-    "deno:check": "deno check --node-modules-dir=none --no-lock supabase/functions/woo-webhook/index.ts supabase/functions/woo-sync/index.ts supabase/functions/ai-content/index.ts supabase/functions/ai-images/index.ts supabase/functions/cs-channel/index.ts supabase/functions/cs-wa/index.ts supabase/functions/cs-whatsapp/index.ts supabase/functions/team-admin/index.ts supabase/functions/mkt-publish/index.ts supabase/functions/mkt-ads/index.ts supabase/functions/settings-admin/index.ts supabase/functions/notify/index.ts supabase/functions/cs-auto/index.ts",
+    "deno:check": "deno check --node-modules-dir=none --no-lock supabase/functions/woo-webhook/index.ts supabase/functions/woo-sync/index.ts supabase/functions/ai-content/index.ts supabase/functions/ai-images/index.ts supabase/functions/cs-channel/index.ts supabase/functions/cs-wa/index.ts supabase/functions/cs-whatsapp/index.ts supabase/functions/team-admin/index.ts supabase/functions/mkt-publish/index.ts supabase/functions/mkt-ads/index.ts supabase/functions/settings-admin/index.ts supabase/functions/notify/index.ts supabase/functions/cs-auto/index.ts supabase/functions/portal/index.ts",
     "deno:test": "deno test --allow-env --allow-net=127.0.0.1 --node-modules-dir=none --no-lock supabase/functions",
     "semgrep": "semgrep scan --metrics=off --config p/javascript --config p/secrets --severity ERROR --error --exclude app/js/blocks --exclude app/js/vendor ."
   },

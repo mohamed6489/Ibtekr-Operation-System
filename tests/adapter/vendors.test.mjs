@@ -90,7 +90,7 @@ test('load names every column (no *, no commission_pct), reads the rates and the
   assert.equal(V.state(), 'ready');
   assert.deepEqual(events.map((e) => e.detail.state), ['loading', 'ready']);
   for (const t of ['vendors', 'vendor_rates', 'vendor_bank', 'vendor_logins']) for (const s of selectOf(calls, t)) { assert.doesNotMatch(s, /\*/, t); assert.doesNotMatch(s, /commission_pct/, t); assert.doesNotMatch(s, /secret_id/, t); }
-  assert.match(selectOf(calls, 'vendor_logins')[0], /^vendor_id, username, email, pw_mode, status, must_change, invite_sent_at, password_set_at, created_by, created_at, updated_at$/);
+  assert.match(selectOf(calls, 'vendor_logins')[0], /^vendor_id, username, email, pw_mode, status, must_change, invite_sent_at, password_set_at, created_by, created_at, updated_at, own_password, last_login_at, locked_until$/); // + the 0065 columns (phase 13 T4)
   assert.match(selectOf(calls, 'vendors')[0], /\bcontract\b.*\bopening_balance\b/);
   assert.deepEqual(opsOf(calls, 'vendors').filter((c) => c.op === 'range'), [{ op: 'range', args: [0, 999] }]);
   assert.deepEqual(plain(S.get(V1)), { id: V1, siteRemovedAt: null, name: 'Art Craft', legalName: null, category: 'فنون ولوحات', aliases: ['ArtCraft', 'آرت كرافت'], status: 'active', phone: '01000000003', altPhone: null, email: null, address: null, instagram: null, storeUrl: null,
@@ -108,7 +108,7 @@ test('load names every column (no *, no commission_pct), reads the rates and the
   assert.equal(selectOf(calls, 'brand_rates')[0], undefined); // plan 3.4 decision 5: the brand's special rate is retired, never read
   const a = S.get(V2);
   assert.deepEqual(plain([a.rate, a.rateSince, a.rateHistory.map((x) => x.rate)]), [45, '2026-10-01', [40, 45, 50]]); // the effective one today; a future row waits
-  assert.deepEqual(plain(a.login), { username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pwMode: 'temp', status: 'invited', mustChange: true, passwordSetAt: T0, inviteSentAt: null, hasPassword: true });
+  assert.deepEqual(plain(a.login), { username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pwMode: 'temp', status: 'invited', mustChange: true, passwordSetAt: T0, inviteSentAt: null, hasPassword: true, ownPassword: false, lastLoginAt: null, lockedUntil: null });
   assert.deepEqual(plain([S.get(V3).login.status, S.get(V3).login.hasPassword, S.get(V3).login.pwMode]), ['disabled', false, 'link']);
   assert.deepEqual(plain(a.contract), { fileName: 'antikiano.pdf', size: 980000, expires: '2026-11-15', uploadedBy: 'منى حسن', uploadedAt: T0, path: CONTRACT.path });
   assert.equal(a.joinedAt, '2026-10-20'); // no joined_at: the created_at date
@@ -453,7 +453,7 @@ test('vendor_logins refused or empty → login null, state ready; a leave row re
   assert.equal(V.toVendor({ id: 'x', name: 'A', status: 'leave' }, [], null, { ratesVisible: true, today: '2026-10-25' }).status, 'leave');
   assert.equal(V.toVendor({ id: 'x', name: 'A', status: 'inactive' }, [], null, {}).status, 'inactive');
   assert.equal(V.toVendor({ id: 'x', name: 'A', status: 'vacation' }, [], null, {}).status, 'active');
-  assert.deepEqual(plain(V.toVendor({ id: 'x', name: 'A' }, [], null, { login: { vendor_id: 'x', username: 'a.b', email: null, pw_mode: 'weird', status: 'nonsense', must_change: false, password_set_at: null } }).login), { username: 'a.b', email: null, pwMode: 'link', status: 'invited', mustChange: false, passwordSetAt: null, inviteSentAt: null, hasPassword: false });
+  assert.deepEqual(plain(V.toVendor({ id: 'x', name: 'A' }, [], null, { login: { vendor_id: 'x', username: 'a.b', email: null, pw_mode: 'weird', status: 'nonsense', must_change: false, password_set_at: null } }).login), { username: 'a.b', email: null, pwMode: 'link', status: 'invited', mustChange: false, passwordSetAt: null, inviteSentAt: null, hasPassword: false, ownPassword: false, lastLoginAt: null, lockedUntil: null });
   // «في إجازة» is a status change like any other: one PATCH, logged vendor.status (the admin may toggle)
   const a = load(); await a.V.load(); a.calls.length = 0;
   a.S.update(V1, { status: 'leave' }, a.S.actor()); await settle();
@@ -475,7 +475,7 @@ test('create with a login and a bank: vendors → vendor_rates → vendor_logins
   const b = opsOf(calls, 'vendor_bank').find((c) => c.op === 'insert').args[0];
   assert.deepEqual({ ...b, updated_at: 'x' }, { vendor_id: NEW, method: 'bank', bank_name: 'بنك مصر', holder: 'Zaan', iban: 'EG380003000100000000000004821', wallet: null, account_number: null, account_type: null, bank_address: null, routing_number: null, swift: null, updated_by: 'صفوت كمال', updated_at: 'x' }); // the IBAN upper-cased
   assert.deepEqual(logs.map((l) => l[0]), ['vendor.create', 'vendor.rate', 'vendor.login', 'vendor.bank']);
-  assert.deepEqual(plain(out.vendor.login), { username: 'zaan', email: 'zaan.dev@ibtekr.local', pwMode: 'temp', status: 'invited', mustChange: true, passwordSetAt: T0, inviteSentAt: null, hasPassword: true });
+  assert.deepEqual(plain(out.vendor.login), { username: 'zaan', email: 'zaan.dev@ibtekr.local', pwMode: 'temp', status: 'invited', mustChange: true, passwordSetAt: T0, inviteSentAt: null, hasPassword: true, ownPassword: false, lastLoginAt: null, lockedUntil: null });
   // a login without a password is refused before any write (no invite link since 26 Oct)
   calls.length = 0;
   await assert.rejects(() => S.create({ ...BASE, login: { username: 'zaan', pwMode: 'link', password: '' } }, S.actor()), /invalid login: password/);
@@ -548,7 +548,7 @@ test('addLogin (the drawer, a maker without a row): the insert (vendor_id, usern
   responses.vendor_logins = (ops) => (ops.some((c) => c.op === 'insert') ? ok([]) : ok(LOGINS.concat([newLogin])));
   responses['rpc:vendor_login_set_password'] = ok(T0);
   const out = await S.addLogin(V1, { username: ' Art.Craft ', email: ' art.dev@ibtekr.local ', password: TEST_PW }, S.actor());
-  assert.deepEqual(plain([out.missing, out.reasons, out.vendor.login]), [[], {}, { username: 'art.craft', email: 'art.dev@ibtekr.local', pwMode: 'temp', status: 'invited', mustChange: true, passwordSetAt: T0, inviteSentAt: null, hasPassword: true }]);
+  assert.deepEqual(plain([out.missing, out.reasons, out.vendor.login]), [[], {}, { username: 'art.craft', email: 'art.dev@ibtekr.local', pwMode: 'temp', status: 'invited', mustChange: true, passwordSetAt: T0, inviteSentAt: null, hasPassword: true, ownPassword: false, lastLoginAt: null, lockedUntil: null }]);
   assert.deepEqual(calls.filter((c) => ['insert', 'rpc'].includes(c.op)).map((c) => (c.op === 'rpc' ? c.args : c.args[0])), [{ vendor_id: V1, username: 'art.craft', email: 'art.dev@ibtekr.local', pw_mode: 'temp', created_by: 'سارة أحمد' }, ['vendor_login_set_password', { p_vendor: V1, p_password: TEST_PW }]]);
   assert.deepEqual(logs, [['vendor.login', 'username, email', { entity: 'vendor', entity_id: V1 }]]);
   assert.ok(!JSON.stringify([logs, events.map((e) => e.detail)]).includes(TEST_PW));

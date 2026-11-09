@@ -1845,3 +1845,35 @@ select at, action, entity_id from public.activity_log where action in ('cs.conv.
 `order_pay_link` للأدمن أو `orders.status = F` بالـ JWT (سر المزامنة مرفوض)، ولينك الدفع بس لأوردر رقمه على رقم العميل نفسه وحالته مستنية الدفع
 (`PAY_STATUSES`)؛ `cs_link_contact` بـ `cs.reply = F` على محادثة العضو شايفها وفي شريحة العملاء بس (المبتكرين 22023)، وحارس 0034 فاضل بيمنع كتابة
 `customer_id` مباشرة؛ `activity_log` بالـ ids والأعداد بس — مافيش تليفون ولا نص ولا لينك دفع.
+
+#### 2.7.41 بوابة المبتكر — `portal.html` + Edge Function `portal` (المرحلة 13 T4، 9 نوفمبر)
+
+الخطة `docs/superpowers/plans/2026-11-09-phase-13-leftovers.md` (قرار 10). المبتكر **مش** عضو Supabase Auth: بيدخل باسم المستخدم (أو الإيميل) والباسورد من
+`vendor_logins`، والدالة `portal` هي الباب الوحيد — بتتحقق عبر دوال 0065 وتوقّع توكن HS256 بتاعها (12 ساعة، في `sessionStorage` بس، الهيدر `x-portal-token`).
+
+**الملفات:** `0065_portal.sql` (`vendor_logins.fails` / `locked_until` / `own_password` / `last_login_at`، جدول `vendor_login_resets` للسيرفر، RPCs `vendor_login_check` /
+`vendor_login_set_own` / `vendor_login_reset_create` / `vendor_login_reset_use` / `portal_jwt_secret` لـ `service_role` بس، و`vendor_login_reveal` بيرجّع null بعد ما المبتكر
+يعمل باسورده) + `rls_portal` · `_shared/portal.js` (الصافي) · Edge Function **`portal`** (`verify_jwt = false`: `login` / `set_password` / `change_password` /
+`reset_request` / `reset` / `me` / `orders` / `account` / `bank_request`) · `app/portal.html` + `app/js/pages/portal.js` + `app/css/portal.css` (الكتلة 32 بتاعة الـ v6 على
+`IBPortalAPI`) · الكتلة 28 (لينك البوابة في «بيانات الدخول» + نص «المبتكر عامل باسورده بنفسه») · `IBVendors` (`ownPassword` / `lastLoginAt`).
+
+**الخطوات:** `0065` على الحي (MCP أو SQL editor) → «RLS live» بـ `files = rls_portal rls_vendor_logins` → «Deploy functions» `portal` → الواجهة على `main` (الـ deploy بينشر
+`app/` كلها فـ `portal.html` بتطلع مع الباقي). **الأسرار:** مافيش جديد — سر التوقيع `app_portal_jwt` بيتعمل لوحده في Vault أول نداء؛ إيميل «نسيت الباسورد» بمفتاح Resend بتاع
+الإعدادات (Vault `app_resend`، من `alerts@ibtekr.club`) لو موجود، وإلا الشاشة بتقول «كلّم فريق إبتكر»؛ `PORTAL_URL` (اختياري في أسرار Supabase) لو لينك البوابة مش
+`https://operation-system.ibtekr.club/portal.html`.
+
+**التشغيل (الفريق):** من درج المبتكر › «بيانات الدخول» → «انسخ بيانات الدخول للمبتكر» (اللينك + اسم المستخدم + الباسورد المؤقت) وابعتها له؛ أول دخول بيجبره يعمل باسورد
+جديد، وبعدها «إظهار» مابيرجّعش حاجة للفريق («اعمل باسورد مؤقت جديد» من «تعديل» لو نسيه ومفيش إيميل). 5 محاولات غلط = قفل 15 دقيقة (`locked_until`؛ تفكّه من SQL لو لازم).
+
+```sql
+select vendor_id, username, status, must_change, own_password, fails, locked_until, last_login_at from public.vendor_logins order by last_login_at desc nulls last limit 10;
+select count(*) filter (where used_at is null and expires_at > now()) as live_resets from public.vendor_login_resets;
+select at, action, entity_id from public.activity_log where action like 'portal.%' order by at desc limit 10; -- uuid المبتكر بس
+select id, title, status from public.tickets where created_by_role = 'بوابة المبتكر' order by created_at desc limit 5;
+update public.vendor_logins set locked_until = null, fails = 0 where username = '<user>'; -- فك قفل بالإيد
+```
+
+**الأمان:** مقارنة الباسورد بالـ digest (نفس الشغل مهما كان الفرق)، القفل بعد 5 محاولات، «مستخدم مش موجود» و«باسورد غلط» نفس الرد، التوكن 12 ساعة وبيتحقق بسر Vault،
+كل استعلام بـ `vendor_id` من التوكن بس (مافيش تليفون عميل ولا بيانات مبتكر تاني في أي رد، والحساب البنكي مطموس)، الـ reset بالـ hash بس وتوكن لمرة واحدة 30 دقيقة،
+الإيميل من غير اسم مستخدم ولا باسورد، `activity_log` `portal.*` بالـ uuid بس؛ طلب البنك = تذكرة لـ «الحسابات» باسم «بوابة المبتكر» (واحدة مفتوحة في المرة) — مافيش كتابة
+على الحساب البنكي من البوابة.

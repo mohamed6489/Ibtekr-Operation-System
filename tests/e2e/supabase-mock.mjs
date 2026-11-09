@@ -24,7 +24,9 @@ import { parseWrite, parseStudio, parsePrompts, cleanWrite, cleanStudio, cleanPr
 import { parseGenerate, parseEdit, parseCreate, imageSettings, creditsFor, usdOf, studioPathOk, studioGenPath, studioEditPath, toolPath, renameInState, MODEL_IDS } from '../../supabase/functions/_shared/ai-images.js';
 import { hrState, hrRoute } from './hr-mock.mjs'; // phase 10 (0046): the HR tables, RPCs, team-admin and the bucket hr-docs
 import { mktState, mktRoute } from './mkt-mock.mjs'; // phase 9.5.1 (0049): the marketing tables, RPCs, the bucket marketing and its AI actions
-import { settingsState, settingsRoute } from './settings-mock.mjs'; // phase 11 (0056): the team RPCs, settings-admin / notify, company_docs, the buckets company-docs / settings, activity_log filters
+import { settingsState, settingsRoute } from './settings-mock.mjs';
+// phase 11 (0056): the team RPCs, settings-admin / notify, company_docs, the buckets company-docs / settings, activity_log filters
+import { portalState, portalRoute } from './portal-mock.mjs'; // phase 13 T4 (0065): the maker portal's Edge Function on the mock's rows
 export const SUPABASE_URL = 'https://fsynculhaupcktzkfkdd.supabase.co';
 export const LIVE = process.env.E2E_SUPABASE_LIVE === '1';
 const LIVE_URL = process.env.E2E_SUPABASE_URL || ''; const LIVE_KEY = process.env.E2E_SUPABASE_ANON_KEY || '';
@@ -80,7 +82,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'], // 0014: sensitive.commission, add-only
   woo_categories: ['id', 'name', 'slug', 'parent_id', 'updated_at'], // 0014: the sync's, vendors.view
   vendor_bank: ['vendor_id', 'method', 'bank_name', 'holder', 'iban', 'wallet', 'updated_by', 'updated_at', 'account_number', 'account_type', 'bank_address', 'routing_number', 'swift'], // 0017: + Dokan's bank fields
-  vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'status', 'must_change', 'invite_sent_at', 'password_set_at', 'secret_id', 'created_by', 'created_at', 'updated_at'], // 0012 (plan 3.1): secret_id is never granted to the client; created_by is the member's name
+  vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'status', 'must_change', 'invite_sent_at', 'password_set_at', 'secret_id', 'created_by', 'created_at', 'updated_at', 'fails', 'locked_until', 'own_password', 'last_login_at'], // 0065 (phase 13 T4): the portal's four columns, readable // 0012 (plan 3.1): secret_id is never granted to the client; created_by is the member's name
   products: ['id', 'sku', 'name', 'image_url', 'permalink', 'vendor_id', 'price', 'status', 'raw', 'updated_at',
     'lang', 'translation_ids', 'type', 'regular_price', 'sale_price', 'stock_quantity', 'stock_status', 'manage_stock', 'backorders', 'low_stock_amount',
     'total_sales', 'category_ids', 'brand_ids', 'image_count', 'weight', 'featured', 'desc_filled', 'short_desc_filled', 'woo_modified_at', 'trashed_at'], // 0021 (phase 5)
@@ -207,8 +209,8 @@ function ordersSeed(opts = {}) {
     syncActivity: [{ id: 1, at: T0, actor: null, action: 'vendor.sync', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'phone, address_parts' }, { id: 2, at: T0, actor: null, action: 'vendor.sync.conflict', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'name' }, { id: 3, at: T0, actor: null, action: 'vendor.sync.refused', entity: 'vendor', entity_id: VND(1), old_value: null, new_value: 'social' }],
     vendorBank: [{ vendor_id: VND(3), method: 'bank', bank_name: 'البنك الأهلي المصري', holder: 'Bian Egypt', iban: IBAN, wallet: '01000000000', updated_by: 'منى حسن', updated_at: T0 }],
     // 0012 (plan 3.1): Antikiano with a temporary password in the vault (secret_id → the vault entry), Bian eg with a row but no password yet
-    vendorLogins: [{ vendor_id: VND(2), username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: T0, secret_id: SECRET_ID, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 },
-      { vendor_id: VND(3), username: 'bian.eg', email: 'bian.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: 'صفوت كمال', created_at: T0, updated_at: T0 }], // bian.eg: a row whose password step was refused (no password yet)
+    vendorLogins: [{ vendor_id: VND(2), username: 'antikiano', email: 'antikiano.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: T0, secret_id: SECRET_ID, created_by: 'صفوت كمال', created_at: T0, updated_at: T0, fails: 0, locked_until: null, own_password: false, last_login_at: null },
+      { vendor_id: VND(3), username: 'bian.eg', email: 'bian.dev@ibtekr.local', pw_mode: 'temp', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: 'صفوت كمال', created_at: T0, updated_at: T0, fails: 0, locked_until: null, own_password: false, last_login_at: null }], // bian.eg: a row whose password step was refused (no password yet)
     vault: new Map([[SECRET_ID, TEST_PW]]), // vault.secrets: id → the decrypted secret (never read by the client)
     objects: new Map([[CONTRACT_PATH, { type: 'application/pdf', bytes: CONTRACT_BYTES }]]), // the bucket vendor-contracts
     products: [product(9001, 'IBTA4040PAHC000013', 'Cushion', IMG.cushion, 1, 'cushion', { translation_ids: { en: 9001, ar: 9101 }, total_sales: 40, sizes: ['50×50 cm'] }), // sizes: the site's pa_size values (product_get → editView.sizes, decision 15)
@@ -401,6 +403,7 @@ export async function installSupabaseMock(page, opts = {}) {
   mock.mkt = mktState(opts);
   // phase 11 (0056): the settings page's server side (settings-mock.mjs settingsState: opts.vault / companyDocs / settingsObjects / sessions / probeOk), st.calls / st.writes; the roles copy of this install
   mock.st = settingsState(opts, ROLES); mock.roles = mock.st.roles;
+  mock.portal = portalState(); // phase 13 T4
   mock.accWrites = []; mock.accountsDown = false; mock.statements = []; mock.statementRows = opts.statementRows || [];
   let accSeq = 0;
   // brands / brandOwners / brandRates: the 0013 tables (ordersSeed(opts): opts.transfer seeds the temporary transfer); brandWrites: each
@@ -475,6 +478,7 @@ export async function installSupabaseMock(page, opts = {}) {
     { const hr = hrRoute({ method, path, url, hd, body, u: path.startsWith('/rest/v1/') && bearer !== ANON_KEY && !issued.has(bearer) ? null : tokenUser(), hasPerm, isAdmin, json, mock, route }); if (hr) return hr; } // phase 10 (0046)
     { const mk = mktRoute({ method, path, url, hd, body, u: path.startsWith('/rest/v1/') && bearer !== ANON_KEY && !issued.has(bearer) ? null : tokenUser(), hasPerm, isAdmin, json, mock, route }); if (mk) return mk; } // phase 9.5.1 (0049)
     { const st = settingsRoute({ method, path, url, hd, body, u: path.startsWith('/rest/v1/') && bearer !== ANON_KEY && !issued.has(bearer) ? null : tokenUser(), hasPerm, isAdmin, json, mock, route }); if (st) return st; } // phase 11 (0056)
+    { const pt = portalRoute({ method, path, url, hd, body, u: null, hasPerm, isAdmin, json, mock, route }); if (pt) return pt; } // phase 13 T4: the maker portal (no member token — its own x-portal-token)
 
     if (path.startsWith('/auth/v1/')) {
       if (method === 'POST' && path === '/auth/v1/token') {
@@ -1314,7 +1318,7 @@ export async function installSupabaseMock(page, opts = {}) {
             if (t === 'vendors') { vendorSeq += 1; const row = { ...VENDOR_DEFAULTS(), ...r, id: 'b0000000-0000-4000-8000-' + String(vendorSeq).padStart(12, '0'), created_at: now, updated_at: now }; mock.vendors.push(row); autoBrand(row, now); out.push({ id: row.id }); }
             else if (t === 'vendor_rates') { rateSeq += 1; const row = { id: rateSeq, vendor_id: r.vendor_id, rate: Number(r.rate), flat: r.flat == null ? null : Number(r.flat), since: r.since, set_by: r.set_by ?? null, created_at: now }; mock.vendorRates.push(row); effectiveRate(r.vendor_id); out.push({ id: row.id }); }
             else if (t === 'vendor_category_rates') { catRateSeq += 1; const row = { id: catRateSeq, vendor_id: r.vendor_id, woo_category_id: Number(r.woo_category_id), rate: r.rate == null ? null : Number(r.rate), flat: r.flat == null ? null : Number(r.flat), since: r.since, set_by: r.set_by ?? null, created_at: now }; mock.vendorCategoryRates.push(row); out.push({ id: row.id }); }
-            else if (t === 'vendor_logins') { mock.vendorLogins.push({ vendor_id: r.vendor_id, username: r.username, email: r.email ?? null, pw_mode: r.pw_mode ?? 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: r.created_by ?? u.name, created_at: now, updated_at: now }); out.push({ vendor_id: r.vendor_id }); } // created_by: the member's name (0012, like set_by / updated_by)
+            else if (t === 'vendor_logins') { mock.vendorLogins.push({ fails: 0, locked_until: null, own_password: false, last_login_at: null, vendor_id: r.vendor_id, username: r.username, email: r.email ?? null, pw_mode: r.pw_mode ?? 'link', status: 'invited', must_change: true, invite_sent_at: null, password_set_at: null, secret_id: null, created_by: r.created_by ?? u.name, created_at: now, updated_at: now }); out.push({ vendor_id: r.vendor_id }); } // created_by: the member's name (0012, like set_by / updated_by)
             else { mock.vendorBank.push({ method: 'bank', bank_name: null, holder: null, iban: null, wallet: null, updated_by: null, updated_at: now, ...r }); out.push({ vendor_id: r.vendor_id }); }
             mock.vendorWrites.push({ table: t, op: 'insert', ...r });
           }

@@ -69,21 +69,21 @@ do $$ begin
     raise exception 'case vendors_status_check is the one status check and lists active / leave / inactive failed: %',
       coalesce((select pg_get_constraintdef(c.oid) from pg_constraint c where c.conrelid = 'public.vendors'::regclass and c.conname = 'vendors_status_check'), '<missing>');
   end if;
-  -- vendor_logins: the 12 columns of decision 3 with their types, nullability and defaults
+  -- vendor_logins: the 12 columns of decision 3 with their types, nullability and defaults (+ the four of 0065: fails / locked_until / own_password / last_login_at)
   if not ((select string_agg(column_name || ':' || data_type || ':' || is_nullable || ':' || coalesce(column_default, '∅'), ',' order by ordinal_position)
            from information_schema.columns where table_schema = 'public' and table_name = 'vendor_logins')
           = 'vendor_id:uuid:NO:∅,username:text:NO:∅,email:text:NO:∅,pw_mode:text:NO:''link''::text,status:text:NO:''invited''::text,'
             || 'must_change:boolean:NO:true,invite_sent_at:timestamp with time zone:YES:∅,password_set_at:timestamp with time zone:YES:∅,'
-            || 'secret_id:uuid:YES:∅,created_by:text:YES:∅,created_at:timestamp with time zone:NO:now(),updated_at:timestamp with time zone:NO:now()') then
+            || 'secret_id:uuid:YES:∅,created_by:text:YES:∅,created_at:timestamp with time zone:NO:now(),updated_at:timestamp with time zone:NO:now(),fails:integer:NO:0,locked_until:timestamp with time zone:YES:∅,own_password:boolean:NO:false,last_login_at:timestamp with time zone:YES:∅') then
     raise exception 'case vendor_logins has the 12 columns of decision 3 (types, nullability, defaults) failed: %',
       (select string_agg(column_name || ':' || data_type || ':' || is_nullable || ':' || coalesce(column_default, '∅'), ',' order by ordinal_position)
        from information_schema.columns where table_schema = 'public' and table_name = 'vendor_logins');
   end if;
-  -- keys: pk vendor_id, fk vendors on delete cascade ('c'), the four checks (username / email / pw_mode / status)
+  -- keys: pk vendor_id, fk vendors on delete cascade ('c'), the four checks (username / email / pw_mode / status) + fails (0065)
   if not ((select string_agg(c.conname || ':' || c.contype::text || ':' || coalesce((select relname::text from pg_class where oid = c.confrelid), '∅')
                              || ':' || coalesce(nullif(c.confdeltype::text, ' '), '∅'), ',' order by c.conname)
            from pg_constraint c where c.conrelid = 'public.vendor_logins'::regclass)
-          = 'vendor_logins_email_check:c:∅:∅,vendor_logins_pkey:p:∅:∅,vendor_logins_pw_mode_check:c:∅:∅,vendor_logins_status_check:c:∅:∅,'
+          = 'vendor_logins_email_check:c:∅:∅,vendor_logins_fails_check:c:∅:∅,vendor_logins_pkey:p:∅:∅,vendor_logins_pw_mode_check:c:∅:∅,vendor_logins_status_check:c:∅:∅,'
             || 'vendor_logins_username_check:c:∅:∅,vendor_logins_vendor_id_fkey:f:vendors:c') then
     raise exception 'case vendor_logins keys (pk vendor_id, fk vendors on delete cascade, the four checks) failed: %',
       (select string_agg(c.conname || ':' || c.contype::text || ':' || coalesce(nullif(c.confdeltype::text, ' '), '∅'), ',' order by c.conname)
@@ -135,8 +135,8 @@ do $$ begin
     raise exception 'case authenticated selects vendor_logins by column list, never secret_id failed';
   end if;
   if not ((select count(*) from information_schema.column_privileges
-           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'vendor_logins' and privilege_type = 'SELECT') = 11) then
-    raise exception 'case authenticated selects exactly 11 vendor_logins columns failed';
+           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'vendor_logins' and privilege_type = 'SELECT') = 15) then
+    raise exception 'case authenticated selects exactly 15 vendor_logins columns (11 of 0012 + fails / locked_until / own_password / last_login_at of 0065) failed';
   end if;
   if not ((select string_agg(column_name, ',' order by column_name) from information_schema.column_privileges
            where grantee = 'authenticated' and table_schema = 'public' and table_name = 'vendor_logins' and privilege_type = 'INSERT')

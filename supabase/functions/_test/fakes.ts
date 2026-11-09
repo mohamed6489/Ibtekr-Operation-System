@@ -52,7 +52,10 @@ const COLUMNS: Record<string, string[]> = {
   dokan_withdrawals: ['id', 'woo_vendor_id', 'vendor_id', 'amount', 'charge', 'receivable', 'status', 'method', 'requested_at', 'synced_at'],
   dokan_balances: ['vendor_id', 'woo_vendor_id', 'balance', 'earning', 'sales', 'orders', 'synced_at'],
   // 0013 brands (the name only here) and 0023 (phase 5.2, the studio)
-  brands: ['id', 'name', 'code', 'aliases'],
+  brands: ['id', 'name', 'code', 'aliases', 'store_vendor_id', 'origin_vendor_id'],
+  brand_owners: ['id', 'brand_id', 'vendor_id', 'since', 'return_on', 'reason', 'set_by', 'created_at'], // 0013 (the portal reads the maker's brands)
+  vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'status', 'must_change', 'invite_sent_at', 'password_set_at', 'secret_id', 'created_by', 'created_at', 'updated_at', 'fails', 'locked_until', 'own_password', 'last_login_at'], // 0012 + 0065
+  acc_vendor_moves: ['id', 'vendor_id', 'on_date', 'direction', 'kind', 'kind_name', 'amount', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'voided_by', 'voided_at'], // 0019
   sku_colors: ['id', 'name_en', 'name_ar', 'code', 'hex'],
   studio_batches: ['id', 'title', 'brand_id', 'vendor_id', 'type', 'state', 'step', 'status', 'result', 'created_by', 'updated_at', 'archived_at'],
   // 0024 (phase 5.3): one row per AI call
@@ -339,7 +342,8 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
     calls.push(call);
     const fn = opts.rpc?.[name];
     if (!fn) { call.error = err('PGRST202', `Could not find the function public.${name}`); return { data: null, error: call.error }; }
-    return { data: await fn(args), error: null };
+    // a fake that throws an Error carrying a SQLSTATE `code` plays a database error (raise exception … using errcode); anything else is a test bug
+    try { return { data: await fn(args), error: null }; } catch (e) { const code = (e as { code?: unknown })?.code; if (typeof code !== 'string') throw e; call.error = err(code, String((e as Error).message ?? code)); return { data: null, error: call.error }; }
   }
 
   for (const [t, rows] of Object.entries(seed)) tables[t] = rows.map((r) => complete(t, r));

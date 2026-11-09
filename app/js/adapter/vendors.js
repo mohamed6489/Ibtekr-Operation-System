@@ -70,7 +70,7 @@
     catRate: 'id, vendor_id, woo_category_id, rate, flat, since, set_by, created_at', // 0014 (phase 3.3): sensitive.commission
     category: 'id, name, slug, parent_id, updated_at', // 0014: woo_categories (vendors.view)
     bank: 'vendor_id, method, bank_name, holder, iban, wallet, updated_by, updated_at, account_number, account_type, bank_address, routing_number, swift', // 0017: Dokan's bank fields
-    login: 'vendor_id, username, email, pw_mode, status, must_change, invite_sent_at, password_set_at, created_by, created_at, updated_at', // never secret_id (server only)
+    login: 'vendor_id, username, email, pw_mode, status, must_change, invite_sent_at, password_set_at, created_by, created_at, updated_at, own_password, last_login_at, locked_until', // never secret_id (server only); own_password / last_login_at / locked_until of 0065 (phase 13 T4)
     event: 'id, at, action, new_value, actor:profiles(name)',
     brand: 'id, name, code, aliases, store_vendor_id, origin_vendor_id, created_by, created_at, updated_at', // 0013 (store_vendor_id: the server's)
     owner: 'id, brand_id, vendor_id, since, return_on, reason, set_by, created_at',
@@ -156,7 +156,7 @@
   // a vendors row + its vendor_rates rows + its vendor_bank row (or null) → the prototype's vendor; opts.ratesVisible says
   // whether the caller may see the rates (rate / rateSince / rateHistory stay null / [] otherwise); opts.today for the effective rate
   // a vendor_logins row (without secret_id) → the login shape; hasPassword = a temporary password was set on the server
-  const toLogin = (l) => (l ? { username: text(l.username), email: l.email || null, pwMode: l.pw_mode === 'temp' ? 'temp' : 'link', status: LOGIN_STATUSES.includes(l.status) ? l.status : 'invited', mustChange: !!l.must_change, passwordSetAt: l.password_set_at || null, inviteSentAt: l.invite_sent_at || null, hasPassword: !!l.password_set_at } : null);
+  const toLogin = (l) => (l ? { username: text(l.username), email: l.email || null, pwMode: l.pw_mode === 'temp' ? 'temp' : 'link', status: LOGIN_STATUSES.includes(l.status) ? l.status : 'invited', mustChange: !!l.must_change, passwordSetAt: l.password_set_at || null, inviteSentAt: l.invite_sent_at || null, hasPassword: !!l.password_set_at, ownPassword: l.own_password === true, lastLoginAt: l.last_login_at || null, lockedUntil: l.locked_until || null } : null); // ownPassword (0065): the maker set their own in the portal — the team's reveal answers null from then on
   function toVendor(r, rates, bank, opts = {}) {
     const T = (opts && opts.today) || today(); const visible = !!(opts && opts.ratesVisible);
     const hist = (rates || []).filter((x) => x.vendor_id == null || String(x.vendor_id) === String(r.id)).map((x) => ({ rate: Number(x.rate), flat: x.flat == null ? null : num(x.flat), since: localDate(x.since), by: text(x.set_by), type: x.commission_type === 'category_based' ? 'category_based' : 'fixed' })).filter((x) => Number.isFinite(x.rate) && x.since).sort((a, b) => (a.since < b.since ? -1 : a.since > b.since ? 1 : 0));

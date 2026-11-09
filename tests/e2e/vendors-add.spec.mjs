@@ -108,7 +108,7 @@ test('the admin adds a complete maker (basics + login with its temporary passwor
   await expect(ls.locator('[data-login-status]')).toHaveText('مستني التفعيل');
   await expect(info(ls, page, 'الباسورد')).toContainText('••••••••');
   await expect(ls.getByRole('button', { name: 'إظهار' })).toHaveCount(1);
-  await expect(ls).not.toContainText('لينك');
+  await expect(ls).not.toContainText('لينك التفعيل'); // no invite link (26 Oct); the portal link itself is shown since phase 13 T4
   await expect(page.locator('body')).not.toContainText(pw);
   expect(mock.vendorLogins.find((l) => l.vendor_id === NEW1)).toMatchObject({ status: 'invited', must_change: true, invite_sent_at: null, pw_mode: 'temp' });
   expect(mock.vendorLogins.find((l) => l.vendor_id === NEW1).password_set_at).not.toBeNull();
@@ -222,7 +222,7 @@ test('ops (vendors.edit = P) and accounts: the login writes and the RPCs refused
   // ops copies the login of a temp-mode maker without the key: no password and no promise of a link (review B, I1)
   await captureClipboard(page);
   await ls.locator('[data-copy-login]').click();
-  await expect.poll(() => page.evaluate(() => window.__copied)).toEqual(['اسم المستخدم: antikiano\nالإيميل: antikiano.dev@ibtekr.local\nالباسورد المؤقت: اطلبه من الأدمن أو متابعة المبتكرين']);
+  await expect.poll(() => page.evaluate(() => window.__copied)).toEqual(['بوابة مبتكرين إبتكر: http://localhost:4173/portal.html\nاسم المستخدم: antikiano\nالإيميل: antikiano.dev@ibtekr.local\nالباسورد المؤقت: اطلبه من الأدمن أو متابعة المبتكرين']); // phase 13 T4: the portal link first
   expect(mock.rpcs).toEqual([]); // nothing asked of the server
   // straight at the server (what a tampered page could send): the two RPCs, an insert and secret_id are refused
   const codes = await page.evaluate(async (id) => {
@@ -269,7 +269,7 @@ test('«متابعة الموردين» (vendors.edit = F): reveals the temporar
   // «انسخ بيانات الدخول للمبتكر»: the password fetched at copy time (a third reveal); nothing says it was sent
   await captureClipboard(page);
   await ls.locator('[data-copy-login]').click();
-  await expect.poll(() => page.evaluate(() => window.__copied)).toEqual(['اسم المستخدم: antikiano\nالإيميل: antikiano.dev@ibtekr.local\nالباسورد المؤقت: ' + TEST_PW]);
+  await expect.poll(() => page.evaluate(() => window.__copied)).toEqual(['بوابة مبتكرين إبتكر: http://localhost:4173/portal.html\nاسم المستخدم: antikiano\nالإيميل: antikiano.dev@ibtekr.local\nالباسورد المؤقت: ' + TEST_PW + ' (هيتطلب منك تغيّره أول ما تدخل)']);
   await expect.poll(() => serverActs('vendor.login.reveal').length).toBe(3);
   await expect(note(page)).toContainText('اتنسخ بيانات الدخول');
   // disable / enable: one PATCH each, logged by the client as vendor.login.status
@@ -343,7 +343,7 @@ test('«ناقص» in the drawer header (the admin sees the three pieces); the l
   await expect(drawer(page).locator('[data-missing]')).toHaveText('ناقص: الحساب البنكي');
   await expect(loginSec(page).locator('[data-login-status]')).toHaveText('مستني التفعيل');
   await expect(info(loginSec(page), page, 'الباسورد')).toContainText('باسورد مؤقت — لسه ماتعملش');
-  await expect(loginSec(page)).not.toContainText('لينك');
+  await expect(loginSec(page)).not.toContainText('لينك التفعيل'); // phase 13 T4: the portal link is shown
   await expect.poll(() => acts('vendor.login')).toEqual([{ action: 'vendor.login', entity: 'vendor', entity_id: V1, new_value: 'username, email' }]);
   await expect(section(page, 'سجل النشاط')).toContainText('صفوت كمال عدّل بيانات الدخول (username, email)');
   // «تعديل» on the row: username + e-mail, the password behind «اعمل باسورد مؤقت جديد» — with Vault back the RPC alone
@@ -412,7 +412,7 @@ test('a username and an e-mail with html (seeded past the checks) render as text
   await expect(info(ls, page, 'الإيميل')).toHaveText(EVIL + '@x.y');
   await captureClipboard(page);
   await ls.locator('[data-copy-login]').click();
-  await expect.poll(() => page.evaluate(() => window.__copied)).toEqual(['اسم المستخدم: ' + EVIL + '\nالإيميل: ' + EVIL + '@x.y\nالباسورد المؤقت: ' + TEST_PW]);
+  await expect.poll(() => page.evaluate(() => window.__copied)).toEqual(['بوابة مبتكرين إبتكر: http://localhost:4173/portal.html\nاسم المستخدم: ' + EVIL + '\nالإيميل: ' + EVIL + '@x.y\nالباسورد المؤقت: ' + TEST_PW + ' (هيتطلب منك تغيّره أول ما تدخل)']);
   await ls.getByRole('button', { name: 'تعديل بيانات الدخول' }).click();
   await expect(modal(page).locator('#l-login-user')).toHaveValue(EVIL);
   await expect(modal(page).locator('#l-login-email')).toHaveValue(EVIL + '@x.y');

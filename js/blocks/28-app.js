@@ -3149,16 +3149,21 @@
         const loginSection = () => {
           const L0 = v.login && v.login.username ? v.login : null; const ls = L0 ? L0.status : 'none'; const email = (L0 && L0.email) || v.email || '';
           const LTONE = { none: 'neutral', invited: 'gold', active: 'success', disabled: 'error' };
-          const pwCell = !L0 ? null : !L0.hasPassword ? h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, 'باسورد مؤقت — لسه ماتعملش')
+          // phase 13 T4 (0065): once the maker set their own password in the portal the team is told so — no reveal (the server answers null anyway)
+          const portalLink = location.origin + location.pathname.replace(/[^/]*$/, '') + 'portal.html';
+          const pwCell = !L0 ? null : L0.ownPassword ? h('span', { class: 't-small', style: 'color:var(--color-text-secondary)', 'data-own-password': '' }, 'المبتكر عامل باسورده بنفسه — لو نسيه يستخدم «نسيت الباسورد؟» في البوابة، أو اعمله باسورد مؤقت جديد من «تعديل».')
+            : !L0.hasPassword ? h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, 'باسورد مؤقت — لسه ماتعملش')
             : h('span', { class: 'pw-cell' }, h('span', { dir: 'ltr', class: 'pw-val' }, pwShown != null ? pwShown : '••••••••'),
               canLogin ? Button({ type: 'text', size: 'sm', label: pwShown != null ? 'إخفاء' : 'إظهار', attrs: { 'data-pw-reveal': '', 'aria-pressed': String(pwShown != null) }, onClick: () => { if (pwShown != null) { pwShown = null; draw(); return; } vstore.revealPassword(id, vstore.actor()).then((p) => { pwShown = p == null ? '—' : p; draw(); }, (e) => vnotify('error', e.message)); } }) : null);
-          const copyLogin = () => { const lines = ['اسم المستخدم: ' + L0.username, 'الإيميل: ' + (email || '—')]; const done = (pw) => copyText(lines.concat([pw ? 'الباسورد المؤقت: ' + pw : L0.hasPassword ? 'الباسورد المؤقت: اطلبه من الأدمن أو متابعة المبتكرين' : 'الباسورد المؤقت: لسه ماتعملش']).join('\n'), 'بيانات الدخول');
-            if (canLogin && L0.hasPassword) vstore.revealPassword(id, vstore.actor()).then(done, (e) => vnotify('error', e.message)); else done(null); };
+          const copyLogin = () => { const lines = ['بوابة مبتكرين إبتكر: ' + portalLink, 'اسم المستخدم: ' + L0.username, 'الإيميل: ' + (email || '—')]; const done = (pw) => copyText(lines.concat([pw ? 'الباسورد المؤقت: ' + pw + ' (هيتطلب منك تغيّره أول ما تدخل)' : L0.ownPassword ? 'الباسورد: انت عامله بنفسك — لو نسيته دوس «نسيت الباسورد؟»' : L0.hasPassword ? 'الباسورد المؤقت: اطلبه من الأدمن أو متابعة المبتكرين' : 'الباسورد المؤقت: لسه ماتعملش']).join('\n'), 'بيانات الدخول');
+            if (canLogin && L0.hasPassword && !L0.ownPassword) vstore.revealPassword(id, vstore.actor()).then(done, (e) => vnotify('error', e.message)); else done(null); };
           return section('بيانات الدخول', canLogin ? Button({ type: 'text', size: 'sm', label: L0 ? 'تعديل' : 'إضافة', attrs: { 'aria-label': (L0 ? 'تعديل' : 'إضافة') + ' بيانات الدخول', 'data-edit': 'login' }, onClick: () => loginForm(v) }) : null,
             U.InfoRow({ label: 'اسم المستخدم', value: L0 ? h('span', { dir: 'ltr' }, L0.username) : null, copy: !!L0, onCopy: () => copy(L0.username, 'اسم المستخدم') }),
             U.InfoRow({ label: 'الإيميل', value: email ? h('span', { dir: 'ltr' }, email) : null, copy: !!email, onCopy: () => copy(email, 'الإيميل') }),
             U.InfoRow({ label: 'حالة الحساب', value: h('span', { class: 'tg tg-' + (LTONE[ls] || 'neutral'), 'data-login-status': ls }, VD.label(VD.LOGIN_STATUS, ls)) }),
             U.InfoRow({ label: 'الباسورد', value: pwCell }),
+            L0 ? U.InfoRow({ label: 'لينك البوابة', value: h('a', { href: portalLink, target: '_blank', rel: 'noopener', dir: 'ltr', 'data-portal-link': '' }, portalLink), copy: true, onCopy: () => copy(portalLink, 'لينك البوابة') }) : null,
+            L0 && L0.lastLoginAt ? U.InfoRow({ label: 'آخر دخول', value: U.num(String(L0.lastLoginAt).slice(0, 10).split('-').reverse().join('/')) }) : null,
             L0 ? h('div', { class: 'acts-inline' }, Button({ size: 'sm', icon: 'copy', label: 'انسخ بيانات الدخول للمبتكر', attrs: { 'data-copy-login': '' }, onClick: copyLogin }),
               canLogin ? Button({ type: 'text', size: 'sm', label: ls === 'disabled' ? 'شغّل حساب الدخول' : 'وقف حساب الدخول', attrs: { 'data-login-toggle': '' }, onClick: () => act(() => vstore.setLoginStatus(id, ls === 'disabled' ? 'invited' : 'disabled', vstore.actor()), ls === 'disabled' ? 'اتشغّل حساب الدخول.' : 'اتوقف حساب الدخول.') }) : null) : null,
             U.InlineNote({ children: canLogin ? 'إظهار الباسورد ونسخه بيتسجلوا في السجل باسمك.' : 'بيانات الدخول بيديرها الأدمن ومتابعة المبتكرين.' }));

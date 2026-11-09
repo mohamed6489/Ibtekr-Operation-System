@@ -86,4 +86,4 @@
 - [x] T5 الحضور: `0061` + `rls_presence` + `IBPresence` (adapter جديد) + 25 + `IBCS.agents` + اختبارات (adapter + e2e). (النشر `tools/deploy.md` §2.7.36)
 - [x] T6 التسويق: «تيك توك مالوش API نشر — داونلود بس» في كارت الربط، كريدت الفيديو «(تقدير)» في اختيار الموديل، وتنضيف تعليقات قديمة في 16 و28 (تعليقات بس — القرار 14).
 - [x] T7 السلة: `tools/wp-snippets/ibtekr-carts.php` + `woo-carts.js` + woo-sync `carts` + `0062` (`cs_carts` + cron) + `rls_cs_carts` + `cs-auto` `guestCartEvents` + الكتلة 20 (الملحوظة) + اختبارات node / Deno / RLS + `tools/deploy.md` §2.7.37.
-- [ ] T8 التوثيق + الحي + `main` + التقرير.
+- [x] T8 التوثيق + الحي + `main` + التقرير (9 نوفمبر: `0059`–`0062` على الحي، الدوال منشورة، RLS live 41–43، `main` = `40916f3`؛ السلة T7 موقوفة بقرار صاحب المشروع).

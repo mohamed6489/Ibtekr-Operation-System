@@ -1978,3 +1978,31 @@ Deno.test('inventory_push is off by default (wooSync not set) and gated by WOO_P
   assertEquals((await call(gate.deps, { action: 'inventory_push' }, { jwt: 'jwt-admin' })).body, { action: 'inventory_push', result: 'skipped', reason: 'push_disabled' });
   assertEquals([...off.woo.calls, ...gate.woo.calls].length, 0);
 });
+
+// ---------------------------------------------------------------- an order from the chat (phase 13 T3, decision 7)
+Deno.test('order_create: orders.status = F (a person, never the sync secret); the customer from our row, the lines from the mirror; POST wc/v3/orders pending / unpaid; mirrored at once; the pay link; a trashed product → 400; order_pay_link for a pending order of that customer only', async () => {
+  const CUST = '00000000-0000-4000-8000-00000000c0b1';
+  const posts: any[] = [];
+  const woo = { id: 7001, number: '7001', status: 'pending', total: '1500.00', order_key: 'wc_order_AbC123xyz', payment_url: 'https://shop.test/checkout/order-pay/7001/?pay_for_order=true&key=wc_order_AbC123xyz', date_created_gmt: '2026-11-09T12:00:00', date_modified_gmt: '2026-11-09T12:00:00', created_via: 'ibtekr-ops', billing: { first_name: 'نهى', last_name: 'ع', phone: '01012345678', city: 'القاهرة', address_1: 'شارع 9' }, shipping: {}, meta_data: [], line_items: [{ id: 70010, product_id: 9001, name: 'Cushion', quantity: 2, total: '1500', meta_data: [] }] };
+  const { db, deps } = setup({ env: { WOO_PUSH_ENABLED: '1', WOO_URL: 'https://shop.test' }, seed: { cs_customers: [{ id: CUST, name: 'نهى عبد الرحمن', phone: '01012345678', city: 'القاهرة', address: 'شارع 9' }], products: [{ id: 9001, sku: 'S1', name: 'Cushion', vendor_id: vendorId(44) }, { id: 9002, sku: 'S2', name: 'Gone', vendor_id: vendorId(44), trashed_at: NOW }] },
+    routes: { 'POST wc/v3/orders': (c: any) => { posts.push(c.body); return { body: woo }; }, 'GET wc/v3/orders': (c: any) => (c.query.parent ? { body: [] } : undefined), 'GET wc/v3/orders/7001': { body: woo } } });
+  assertEquals((await call(deps, { action: 'order_create', customer_id: CUST, items: [{ product_id: 9001, qty: 2 }] })).res.status, 401, 'the sync secret never makes an order');
+  assertEquals((await call(deps, { action: 'order_create', customer_id: CUST, items: [{ product_id: 9001, qty: 2 }] }, { jwt: 'jwt-acct' })).res.status, 401, 'orders.status P');
+  assertEquals((await call(deps, { action: 'order_create', customer_id: CUST, items: [{ product_id: 9002 }] }, { jwt: 'jwt-ops' })).body, { error: 'bad_request', field: 'product', product_id: 9002 });
+  const r = await call(deps, { action: 'order_create', customer_id: CUST, items: [{ product_id: 9001, qty: 2 }], note: 'بعد 5 م', conversation_id: '00000000-0000-4000-8000-00000000d0d1' }, { jwt: 'jwt-ops' });
+  assertEquals(r.body, { action: 'order_create', result: 'ok', id: 7001, number: '7001', payment_url: 'https://shop.test/checkout/order-pay/7001/?pay_for_order=true&key=wc_order_AbC123xyz' });
+  assertEquals([posts[0].status, posts[0].set_paid, posts[0].billing.phone, posts[0].billing.first_name, posts[0].line_items, posts[0].customer_note], ['pending', false, '01012345678', 'نهى', [{ product_id: 9001, quantity: 2 }], 'بعد 5 م']);
+  assertEquals(db.row('orders', 7001)?.status, 'قيد الانتظار', 'mirrored at once');
+  assertFalse(JSON.stringify(db.row('orders', 7001).raw).includes('wc_order_'), 'the order key never sits in the mirror');
+  assertEquals(db.rows('woo_sync_log').filter((l: any) => l.action === 'create').map((l: any) => [l.result, l.detail.lines]), [['ok', 1]]);
+  // the pay link of that order for that customer; another customer / a completed order / the sync secret: no
+  const p = await call(deps, { action: 'order_pay_link', order_id: 7001, customer_id: CUST }, { jwt: 'jwt-ops' });
+  assertEquals(p.body, { action: 'order_pay_link', result: 'ok', id: 7001, number: '7001', url: 'https://shop.test/checkout/order-pay/7001/?pay_for_order=true&key=wc_order_AbC123xyz' });
+  assertEquals((await call(deps, { action: 'order_pay_link', order_id: 7001, customer_id: '00000000-0000-4000-8000-00000000c0b9' }, { jwt: 'jwt-ops' })).res.status, 404);
+  await db.from('orders').update({ status: 'مكتمل' }).eq('id', 7001);
+  assertEquals((await call(deps, { action: 'order_pay_link', order_id: 7001 }, { jwt: 'jwt-ops' })).body.error, 'not_payable');
+  assertEquals((await call(deps, { action: 'order_pay_link', order_id: 7001 })).res.status, 401);
+  // the gate off: nothing posted
+  const off = setup({ env: { WOO_URL: 'https://shop.test' }, seed: { cs_customers: [{ id: CUST, name: 'نهى', phone: '01012345678' }], products: [{ id: 9001, sku: 'S1', name: 'C', vendor_id: vendorId(44) }] } });
+  assertEquals((await call(off.deps, { action: 'order_create', customer_id: CUST, items: [{ product_id: 9001 }] }, { jwt: 'jwt-ops' })).body.reason, 'push_disabled');
+});

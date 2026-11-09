@@ -51,7 +51,7 @@ test('the webhook: a customer\'s message with the profile name, a status of ours
   const m = parseWaWebhook(env('messages', { contacts: [{ wa_id: '201012345678', profile: { name: 'منى' } }], messages: [{ from: '201012345678', id: 'wamid.AAA', timestamp: '1762250000', type: 'text', text: { body: 'السلام عليكم' }, context: { id: 'wamid.ZZZ' } }, { from: '201012345678', id: 'wamid.R', type: 'reaction', reaction: {} }], statuses: [{ id: 'wamid.OUT', status: 'failed', timestamp: '1762250001', recipient_id: '201012345678', errors: [{ code: 131047 }] }, { id: 'wamid.OUT2', status: 'deleted' }] }));
   assert.equal(m.entries[0].id, WABA); assert.equal(m.entries[0].phoneId, PHONE);
   const [inn, react, st] = m.entries[0].events;
-  assert.deepEqual(inn, { type: 'in', waId: '201012345678', name: 'منى', id: 'wamid.AAA', at: 1762250000000, text: 'السلام عليكم', kind: 'text', replyTo: 'wamid.ZZZ' });
+  assert.deepEqual(inn, { type: 'in', waId: '201012345678', name: 'منى', id: 'wamid.AAA', at: 1762250000000, text: 'السلام عليكم', kind: 'text', replyTo: 'wamid.ZZZ', media: null });
   assert.deepEqual(react, { type: 'other', field: 'messages_reaction' });
   assert.deepEqual(st, { type: 'status', id: 'wamid.OUT', status: 'failed', at: 1762250001000, waId: '201012345678', error: 'wa_131047' });
   assert.equal(m.entries[0].events.length, 3, 'an unknown status is dropped');
@@ -82,4 +82,15 @@ test('the send body and its answer; the sync bodies', () => {
   assert.equal(sentIdOf({}), null);
   assert.deepEqual(syncBody('history'), { messaging_product: 'whatsapp', sync_type: 'history' });
   assert.deepEqual(syncBody('contacts'), { messaging_product: 'whatsapp', sync_type: 'smb_app_state_sync' });
+});
+
+// phase 13 T3 (decision 6): our attachment by a signed link; the media id of a customer's media message
+import { MEDIA_MIME, mediaBody, mediaOf } from '../../supabase/functions/_shared/cs-whatsapp.js';
+test('mediaBody: an image with its caption, a PDF as a document with its filename; mediaOf keeps the id and mime of an incoming media', () => {
+  assert.deepEqual(mediaBody('201012345678', { type: 'image/jpeg', name: 'a.jpg' }, 'https://s.test/x?token=1', 'شوفي دي'), { messaging_product: 'whatsapp', recipient_type: 'individual', to: '201012345678', type: 'image', image: { link: 'https://s.test/x?token=1', caption: 'شوفي دي' } });
+  assert.deepEqual(mediaBody('201012345678', { type: 'application/pdf', name: 'فاتورة.pdf' }, 'https://s.test/y', ''), { messaging_product: 'whatsapp', recipient_type: 'individual', to: '201012345678', type: 'document', document: { link: 'https://s.test/y', filename: 'فاتورة.pdf' } });
+  assert.equal(Object.keys(MEDIA_MIME).length, 5);
+  assert.deepEqual(mediaOf({ type: 'image', image: { id: '1234567890', mime_type: 'image/jpeg', sha256: 'x' } }), { media_id: '1234567890', mime: 'image/jpeg', kind: 'image' });
+  assert.deepEqual(mediaOf({ type: 'document', document: { id: '99999', mime_type: 'application/pdf', filename: 'a.pdf' } }), { media_id: '99999', mime: 'application/pdf', kind: 'document' });
+  assert.equal(mediaOf({ type: 'text', text: { body: 'x' } }), null); assert.equal(mediaOf({ type: 'image', image: { id: 'bad id' } }), null);
 });

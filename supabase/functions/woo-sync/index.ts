@@ -96,6 +96,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from '../_shared/woo-core.js';
 import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
+import { PAY_STATUSES, orderCreateInput, orderPayable, payUrl, wooOrderBody } from '../_shared/woo-order-create.js';
 import { vaultEnv } from '../_shared/secrets.js';
 import { ConfigError, WooError, errorText, makeScrubber, wooApi } from '../_shared/woo-api.js';
 import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, editView, sharedOf, toWoo, variationView } from '../_shared/woo-products.js';
@@ -103,7 +104,7 @@ import { STUDIO_ATTRS, buildStudio, fetchSheetCsv, matchWooBrand } from '../_sha
 import { duplicateAr, duplicatePayload, duplicateSku, duplicateVariation, variationSku } from '../_shared/woo-duplicate.js';
 import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { CART_HOURS, CART_PATH, cartRows } from '../_shared/woo-carts.js';
-import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
+import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, writeContext, writeOrderPage, writeOrders, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -113,7 +114,7 @@ export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetc
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
-const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals', 'order_trash',
+const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals', 'order_trash', 'order_create', 'order_pay_link',
   'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product
@@ -143,6 +144,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (secret) {
     if (action === 'withdraw_approve') return null; // a person approves, never the cron / sync secret (phase 4.1)
     if (action === 'order_trash') return null; // a person deletes an order, never the cron / sync secret (phase 5.5 decision 10)
+    if (action === 'order_create' || action === 'order_pay_link') return null; // a person makes an order from the chat (phase 13 T3)
     if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
     const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
     return !error && data === true ? 'system' : null;
@@ -155,6 +157,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'push_status') return (await perm('orders.status')) ? 'member' : null;
   // phase 5.5 decision 10: the site trash needs the same two permissions RPC order_delete checks — orders.status = F and orders.view <> N
   if (action === 'order_trash') { if (!(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  // phase 13 T3 (decision 7): an order from the customer-service chat and its pay link — the admin or orders.status = F
+  if (action === 'order_create' || action === 'order_pay_link') return (await admin()) || (await perm('orders.status')) ? 'member' : null;
   if (action === 'statement' || action === 'withdrawals') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // phase 4.1 (decision 1): approving a Dokan withdraw request — the admin or accounts.approve = F (has_perm carries aal2)
   if (action === 'withdraw_approve') return (await admin()) || (await perm('accounts.approve')) ? 'member' : null;
@@ -356,6 +360,55 @@ async function pushStatus(run: Run, args: Json) {
 }
 
 // ---------------------------------------------------------------- order_trash (phase 5.5 decision 10)
+
+// ---------------------------------------------------------------- an order from the chat (phase 13 T3, decision 7)
+// POST wc/v3/orders: pending and unpaid, the customer's name / phone / address from our row (the browser sends the customer id only),
+// the lines by product id from the mirror (a trashed or unknown product is refused), then the order mirrored at once; the answer is the
+// pay link (WooCommerce's payment_url, else built from the order key). Nothing is paid or shipped here.
+async function orderCreate(run: Run, args: Json) {
+  const inp = orderCreateInput(args);
+  if ('error' in inp) return json(400, inp);
+  if (!pushEnabled(run.env)) { await logSync(run.db, { kind: 'push', direction: 'out', entity: 'order', entity_id: '', action: 'create', result: 'skipped', detail: { reason: 'push_disabled' } }); return json(200, { action: 'order_create', result: 'skipped', reason: 'push_disabled' }); }
+  const { data: cu } = await run.db.from('cs_customers').select('id, name, phone, city, province, address, address2, merged_into, blocked_at').eq('id', inp.customer_id).maybeSingle();
+  if (!isObj(cu) || cu.merged_into) return json(404, { error: 'customer_not_found' });
+  if (!cu.phone) return json(409, { error: 'no_phone' });
+  const ids = [...new Set(inp.items.flatMap((it) => [it.product_id, it.variation_id]).filter((x): x is number => x !== null))];
+  const { data: prods } = await run.db.from('products').select('id, trashed_at').in('id', ids);
+  const known = new Map((Array.isArray(prods) ? prods : []).map((p: Json) => [Number(p.id), p]));
+  for (const id of ids) { const p = known.get(id); if (!p || p.trashed_at) return json(400, { error: 'bad_request', field: 'product', product_id: id }); }
+  const ctx = await run.ctx();
+  let order: Json;
+  try { order = (await ctx.woo.post('wc/v3/orders', wooOrderBody({ customer: cu, items: inp.items, note: inp.note, conversationId: inp.conversation_id }))).data as Json; }
+  catch (e) {
+    await logSync(run.db, { kind: 'push', direction: 'out', entity: 'order', entity_id: '', action: 'create', result: 'error', detail: { error: errorText(e, ctx.woo.scrub) } });
+    if (e instanceof WooError) return json(502, { error: 'woo_error', status: e.status });
+    throw e;
+  }
+  const id = wooId(order?.id); if (id === null) return json(502, { error: 'woo_error' });
+  const w = await writeOrders(ctx, [order]); // mirrored now (the webhook will say the same again)
+  const url = payUrl(run.env.WOO_URL ?? '', order);
+  await logSync(run.db, { kind: 'push', direction: 'out', entity: 'order', entity_id: String(id), action: 'create', result: 'ok', detail: { lines: inp.items.length, mirrored: w.written.includes(id), conversation: inp.conversation_id } });
+  return json(200, { action: 'order_create', result: 'ok', id, number: typeof order.number === 'string' || typeof order.number === 'number' ? String(order.number) : String(id), payment_url: url });
+}
+// the pay link of an order of this customer that still waits for its payment — read live from WooCommerce (the order key never sits
+// in our mirror: phase 2's privacy rule on raw), so the link is as fresh as the shop's
+async function orderPayLink(run: Run, args: Json) {
+  const id = wooId(args.order_id); if (id === null) return json(400, { error: 'bad_request', field: 'order_id' });
+  const customerId = typeof args.customer_id === 'string' && UUID.test(args.customer_id) ? args.customer_id : null;
+  const { data: o } = await run.db.from('orders').select('id, number, status, customer_phone, deleted_at').eq('id', id).maybeSingle();
+  if (!isObj(o) || o.deleted_at) return json(404, { error: 'order_not_found' });
+  if (customerId) { // the order must be this customer's (the same normalised phone)
+    const { data: cu } = await run.db.from('cs_customers').select('phone').eq('id', customerId).maybeSingle();
+    const norm = (v: unknown) => String(v ?? '').replace(/\D/g, '').replace(/^0020/, '').replace(/^20(?=\d{10}$)/, '0');
+    if (!isObj(cu) || !cu.phone || norm(cu.phone) !== norm(o.customer_phone)) return json(404, { error: 'order_not_found' });
+  }
+  if (!orderPayable(o.status)) return json(409, { error: 'not_payable', status: o.status, payable: PAY_STATUSES });
+  let live: Json;
+  try { live = (await run.woo().get(`wc/v3/orders/${id}`)).data as Json; } catch (e) { if (e instanceof WooError) return json(502, { error: 'woo_error', status: e.status }); throw e; }
+  const url = payUrl(run.env.WOO_URL ?? '', { id, order_key: isObj(live) ? live.order_key : null, payment_url: isObj(live) ? live.payment_url : null });
+  if (!url) return json(409, { error: 'no_key' });
+  return json(200, { action: 'order_pay_link', result: 'ok', id, number: String(o.number ?? id), url });
+}
 
 async function orderTrash(run: Run, args: Json) {
   const id = wooId(args.order_id);
@@ -1330,6 +1383,8 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   try {
     if (action === 'push_status') return await pushStatus(run, args);
     if (action === 'order_trash') return await orderTrash(run, args);
+    if (action === 'order_create') return await orderCreate(run, args);
+    if (action === 'order_pay_link') return await orderPayLink(run, args);
     if (action === 'push_vendor') return await pushVendor(run, args);
     if (action === 'register_webhooks') return await registerWebhooks(run, args);
     if (action === 'probe_store') return await probeStore(run, args);

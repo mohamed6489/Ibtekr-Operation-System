@@ -291,5 +291,9 @@ export function waProbeOf(numberJson, convJson) {
 }
 // the body of a Send API call: a DM answer (RESPONSE: within the 24-hour window) or a private reply to a comment
 export const sendBody = (userId, text) => ({ recipient: { id: userId }, messaging_type: 'RESPONSE', message: { text } });
+// phase 13 T3 (decision 6): an attachment of ours by a signed link — Messenger takes images and files, Instagram images only
+export const ATT_MIME = { 'image/png': 'image', 'image/jpeg': 'image', 'image/webp': 'image', 'image/gif': 'image', 'application/pdf': 'file' };
+export const attachmentKind = (mime) => ATT_MIME[String(mime ?? '')] ?? null;
+export const attachmentBody = (userId, kind, url) => ({ recipient: { id: userId }, messaging_type: 'RESPONSE', message: { attachment: { type: kind, payload: { url, is_reusable: false } } } });
 export const privateReplyBody = (commentId, text) => ({ recipient: { comment_id: commentId }, message: { text } });
 export const hideBody = (platform) => (platform === 'instagram' ? { hide: true } : { is_hidden: true });

@@ -109,7 +109,10 @@
   const toRating = (r) => ({ id: r.id, customerId: r.customer_id, chat: r.conversation_id || null, order: '', at: (r.at || '').slice(0, 10), by: nameOf(r.by_user), sat: num(r.sat), manners: num(r.manners), note: r.note || '' });
   function toMessage(r) {
     const meta = r.meta && typeof r.meta === 'object' ? r.meta : {}; const t = ms(r.created_at);
-    return { id: r.id, convId: r.conversation_id, t: r.kind, text: r.text || '', time: clock(t == null ? Date.now() : t), at: r.created_at || '', author: r.kind === 'in' ? '' : nameOf(r.author), delivery: r.delivery || null, tpl: meta.tpl || null };
+    return { id: r.id, convId: r.conversation_id, t: r.kind, text: r.text || '', time: clock(t == null ? Date.now() : t), at: r.created_at || '', author: r.kind === 'in' ? '' : nameOf(r.author), delivery: r.delivery || null, tpl: meta.tpl || null,
+      // phase 13 T3: our attachment (meta.media), a customer's media on WhatsApp (meta.media_id → media_url), Messenger / Instagram attachments (meta.attachments)
+      media: meta.media && typeof meta.media === 'object' && typeof meta.media.path === 'string' ? { path: meta.media.path, type: String(meta.media.type || ''), name: String(meta.media.name || ''), size: num(meta.media.size) } : null,
+      mediaId: typeof meta.media_id === 'string' ? meta.media_id : null, attachments: Array.isArray(meta.attachments) ? meta.attachments.filter((a) => a && typeof a === 'object').map((a) => ({ type: String(a.type || 'file'), url: typeof a.url === 'string' && /^https:\/\//.test(a.url) ? a.url : null })) : [] };
   }
   // decision 19: the posts of the comments conversations (cs_posts), kept across reloads; a comments conversation's external_id is
   // «<post id>:<commenter>», so its post is the prefix
@@ -568,6 +571,77 @@
       rawCs = row; data.settings = Object.assign({}, data.settings, { live }); log('cs.settings.live', Object.keys(p).map((k) => k + '=' + (live[k] ? 'on' : 'off')).join(' · '), 'settings', 'cs'); emit({ settings: true }); return { ok: true, live };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
+  // ---------- phase 13 T3 (decisions 6–8): attachments, a customer's media, «ربط بعميل موجود», an order and its pay link from the chat ----------
+  const MEDIA_BUCKET = 'cs-media'; const MEDIA_MIME = ['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf']; const MEDIA_MAX = 10 * 1024 * 1024;
+  const safeName = (n) => { const base = String(n || 'file').replace(/^.*[\\/]/, ''); const ext = (/\.([A-Za-z0-9]{1,5})$/.exec(base) || [])[1] || '';
+    const stem = base.replace(/\.[^.]*$/, '').replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^[-.]+|[-.]+$/g, '').slice(0, 60) || 'file'; return ext ? stem + '.' + ext.toLowerCase() : stem; };
+  const rand = () => (window.crypto && window.crypto.randomUUID ? window.crypto.randomUUID().slice(0, 8) : Math.random().toString(16).slice(2, 10));
+  // the member's file → the private bucket (their own folder) → an out row with meta.media → the channel sends it by a signed link
+  async function sendMedia(convId, file, caption) {
+    const cl = c(); const uid = me() && me().id; if (!cl || !uid) return { ok: false, reason: 'network' };
+    if (!can().reply) return { ok: false, reason: 'forbidden' };
+    if (!file || typeof file.size !== 'number' || !MEDIA_MIME.includes(file.type)) return { ok: false, reason: 'invalid', field: 'type', message: 'المرفقات صور (PNG / JPG / WebP / GIF) أو PDF بس' };
+    if (file.size > MEDIA_MAX) return { ok: false, reason: 'invalid', field: 'size', message: 'الملف أكبر من 10 ميجا' };
+    const path = uid + '/' + rand() + '-' + safeName(file.name);
+    try { const { error } = await cl.storage.from(MEDIA_BUCKET).upload(path, file, { contentType: file.type, upsert: false }); if (error) return { ok: false, reason: 'network', message: 'تعذّر رفع الملف — جرّب تاني' }; }
+    catch (e) { return { ok: false, reason: 'network', message: 'تعذّر رفع الملف — جرّب تاني' }; }
+    const media = { path, type: file.type, name: String(file.name || path.replace(/^.*\//, '')).slice(0, 120), size: file.size };
+    const text = String(caption == null ? '' : caption).trim() || ('📎 ' + media.name);
+    const r = await addMessage(convId, 'out', text, { media }); if (!r.ok) return r;
+    const v = conv(convId); if (!v || !metaChannel(v) || !metaConnected(v)) return r;
+    return deliverMeta(r.msg, 'send');
+  }
+  const mediaUrls = new Map(); // path → { url, until } (signed for ten minutes with the member's own session)
+  async function mediaUrl(path) {
+    const cl = c(); if (!cl || typeof path !== 'string' || !path) return null;
+    const hit = mediaUrls.get(path); if (hit && hit.until > Date.now()) return hit.url;
+    try { const { data: d, error } = await cl.storage.from(MEDIA_BUCKET).createSignedUrl(path, 600); if (error || !d || !d.signedUrl) return null; mediaUrls.set(path, { url: d.signedUrl, until: Date.now() + 540000 }); return d.signedUrl; } catch (e) { return null; }
+  }
+  // a customer's WhatsApp media: the server fetches it from Meta once and signs it (cs-whatsapp media_url)
+  async function inboundMediaUrl(messageId) {
+    const r = await invoke({ action: 'media_url', message_id: messageId }, WA_FN); if (!r.ok) return r;
+    return { ok: true, url: r.body.url, type: r.body.type || null };
+  }
+  // a channel thread without a customer (or on the wrong one) tied to an existing customer — RPC cs_link_contact (0064)
+  async function linkContact(convId, customerId) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!can().reply) return { ok: false, reason: 'forbidden' };
+    try {
+      const { error } = await cl.rpc('cs_link_contact', { p_conversation: convId, p_customer: customerId });
+      if (error) return fail(error);
+      const v = conv(convId); if (v) { v.who = customerId; v.seg = v.seg === 'comments' ? v.seg : 'customers'; }
+      log('cs.conv.link', String(customerId), 'cs_conversation', convId); emit({ conv: convId }); await refreshConv(convId); return { ok: true };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // the products a member may read from the mirror (products.view), cached briefly; the chat's order picker searches them by name / SKU
+  let prodCache = null;
+  async function productSearch(q) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', items: [] };
+    try {
+      if (!prodCache || prodCache.until < Date.now()) {
+        const { data, error } = await cl.from('products').select('id, name, sku, price, sale_price, regular_price, type, lang, trashed_at').or('lang.is.null,lang.neq.ar').limit(500);
+        if (error) return fail(error);
+        prodCache = { until: Date.now() + 300000, items: (data || []).filter((r) => r.type !== 'variation' && r.trashed_at == null).map((r) => ({ id: r.id, name: r.name || '', sku: r.sku || '', price: numOrNull(r.sale_price) != null ? numOrNull(r.sale_price) : numOrNull(r.price), type: r.type || 'simple' })) };
+      }
+      const t = String(q || '').trim().toLowerCase();
+      const items = t ? prodCache.items.filter((p) => p.name.toLowerCase().includes(t) || p.sku.toLowerCase().includes(t)) : prodCache.items;
+      return { ok: true, items: items.slice(0, 20), total: prodCache.items.length };
+    } catch (e) { return { ok: false, reason: 'network', items: [] }; }
+  }
+  // an order made on WooCommerce from the chat (woo-sync order_create — orders.status = F; pending, unpaid) → { id, number, url }
+  async function createOrder({ customerId, items, note, conversationId } = {}) {
+    const list = Array.isArray(items) ? items.filter((x) => x && Number(x.productId) > 0).map((x) => ({ product_id: Number(x.productId), variation_id: Number(x.variationId) > 0 ? Number(x.variationId) : null, qty: Math.max(1, Math.min(50, Number(x.qty) || 1)) })) : [];
+    if (!customerId || !list.length) return { ok: false, reason: 'invalid', field: 'items' };
+    const r = await invoke({ action: 'order_create', customer_id: customerId, items: list, note: note ? String(note).slice(0, 500) : undefined, conversation_id: conversationId || undefined }, 'woo-sync'); if (!r.ok) return r;
+    if (r.body.result === 'skipped') return { ok: false, reason: 'invalid', message: 'الكتابة على الموقع متوقفة (WOO_PUSH_ENABLED) — الأوردر ماتعملش' };
+    log('cs.order.create', String(r.body.number || r.body.id) + ' · ' + list.length, 'order', String(r.body.id)); return { ok: true, id: r.body.id, number: String(r.body.number || r.body.id), url: r.body.payment_url || null };
+  }
+  // the pay link of a pending order of this customer (woo-sync order_pay_link — read live from WooCommerce)
+  async function payLink(orderId, customerId) {
+    const r = await invoke({ action: 'order_pay_link', order_id: Number(orderId), customer_id: customerId || undefined }, 'woo-sync');
+    if (!r.ok) return r.code === 'not_payable' ? { ok: false, reason: 'invalid', code: 'not_payable', message: 'الأوردر ده مش مستني دفع' } : r;
+    log('cs.order.paylink', String(r.body.number || orderId), 'order', String(orderId)); return { ok: true, url: r.body.url, number: String(r.body.number || orderId) };
+  }
   // a campaign's audience frozen and the campaign scheduled (cs_campaign_schedule — the phones and the consent are read on the server)
   async function scheduleCampaign(id, customerIds, atIso) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
@@ -904,7 +978,7 @@
   const quickList = () => data.quick.map((q) => ({ key: q.key, label: q.label, text: q.text, kind: 'quick' })).concat(data.templates.filter((t) => t.key).map((t) => ({ key: t.key, label: t.name, text: t.body, kind: 'template', id: t.id })));
 
   window.IBCS = { load, clear, subscribe, unsubscribe, check, state: () => st, data, can, agents, customer, conv, withDays, timeLabel, clock,
-    send, note, event, setStatus, assign, setConvTags, snooze, setUnread, close, open, refreshConv,
+    send, note, event, setStatus, assign, setConvTags, snooze, setUnread, close, open, refreshConv, sendMedia, mediaUrl, inboundMediaUrl, linkContact, productSearch, createOrder, payLink,
     addCustomer, importCustomers, updateCustomer, setMood, setTags, block, addNote, setOverride, rateCustomer, merge,
     saveSegment, deleteSegment, saveCampaign, setCampaignStatus, deleteCampaign, saveSettings, campaignTest, setLive,
     saveTemplate, deleteTemplate, saveQuick, deleteQuick, saveRule, setRuleOn, deleteRule, ruleRuns, saveAutoSettings, setAutoLive, autoStatus, autoTick, quickList,

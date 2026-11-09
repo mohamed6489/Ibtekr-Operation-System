@@ -324,7 +324,7 @@ export async function installSupabaseMock(page, opts = {}) {
     shotPrompts: [['كرسي', 1, 'كرسي 1 — تركيز على المنتج', 'CHAIR FOCUS PROMPT'], ['كرسي', 2, 'كرسي 2 — المنتج في بيئة محيطة', 'CHAIR ENV PROMPT'], ['كرسي', 3, 'كرسي 3 — Closeup للتفاصيل', 'CHAIR DETAIL PROMPT'], ['مرآة', 1, 'مرآة 1 — تركيز على المنتج', 'MIRROR FOCUS PROMPT']].map(([category, shot, name, prompt], i) => ({ id: i + 1, category, shot, name, prompt, negative: null, model: 'imagen-nano-banana-2', aspect: '3:4', resolution: '1k', updated_at: new Date().toISOString() })), imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
     profiles, profileWrites: [], factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
-    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [], deletes: [], trashes: [] };
+    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [], deletes: [], trashes: [], csMedia: new Map(), orderCreates: [] }; // phase 13 T3: cs-media objects, the orders made from the chat
   // phase 3.3: vendorCategoryRates / wooCategories: the 0014 tables (ordersSeed()); vendorPushes: each woo-sync push_vendor as { vendor_id, fields, by, result, reason? }
   // (the body names the fields only — the mock reads the row like the server); pushEnabled: WOO_PUSH_ENABLED on the server (false → skipped/push_disabled,
   // the fields added to push_pending); wooDown → 502 pending:true with the fields in push_pending; wooRefuses → 502 pending:false, nothing
@@ -453,6 +453,9 @@ export async function installSupabaseMock(page, opts = {}) {
     const sgi = /^\/storage\/v1\/object\/sign\/ai-images\/(.+)$/.exec(path);
     if (method === 'GET' && sgi) { const obj = mock.imgObjects.get(decodeURIComponent(sgi[1])); return obj ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': ctOf(sgi[1]) }, body: PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
     // phase 8: a signed URL of the bucket tickets (an attachment's thumbnail / link) — any token the mock signed opens the object
+    // phase 13 T3: a signed URL of the bucket cs-media (a bubble's image / file) — any token the mock signed opens the object
+    const sgm = /^\/storage\/v1\/object\/sign\/cs-media\/(.+)$/.exec(path);
+    if (method === 'GET' && sgm) { const obj = mock.csMedia.get(decodeURIComponent(sgm[1])); return obj ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': obj.type || 'image/png' }, body: obj.type === 'application/pdf' ? Buffer.from('%PDF-1.4\n%mock\n') : PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
     const sgt = /^\/storage\/v1\/object\/sign\/tickets\/(.+)$/.exec(path);
     if (method === 'GET' && sgt) { const obj = mock.ticketObjects.get(decodeURIComponent(sgt[1])); return obj ? route.fulfill({ status: 200, headers: { ...cors, 'content-type': obj.type || 'image/png' }, body: obj.type === 'application/pdf' ? Buffer.from('%PDF-1.4\n%mock\n') : PNG_1PX }) : json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); }
     // a signed URL of vendor-contracts is opened with no api key (a new tab, an <a>): its token alone opens the object
@@ -843,6 +846,21 @@ export async function installSupabaseMock(page, opts = {}) {
         if (hasPerm(u, 'cs.view') === 'N') return json(403, { code: '42501', details: null, hint: null, message: 'cs.view is needed' });
         const row = mock.settings.find((x) => x.section === 'cs'); const auto = row && row.data && row.data.auto && typeof row.data.auto === 'object' ? row.data.auto : {};
         return json(200, Object.assign({ live: false, hours: { from: 9, to: 22 }, delayMin: 20, delayMax: 60, daily: { wa1: 250, wa2: 150 }, afterHoursText: 'شكرًا لرسالتك 🙏 مواعيد الرد من 9 ص لـ 10 م — هنرد عليك أول ما نفتح.', cart: { afterMin: 60 } }, auto));
+      }
+      // cs_link_contact (0064, phase 13 T3): cs.reply on a conversation the member sees → the customer, the contact row, an event line
+      if (method === 'POST' && path === '/rest/v1/rpc/cs_link_contact') {
+        const b = body(); const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        if (!(isAdmin(u) || hasPerm(u, 'cs.reply') === 'F')) return refuse(403, '42501', 'cs.reply = F is required to link a conversation to a customer');
+        const view = isAdmin(u) ? 'F' : hasPerm(u, 'cs.view'); const v = mock.cs.conversations.find((x) => x.id === b.p_conversation && (view === 'F' || (view === 'P' && x.assignee === u.id)));
+        if (!v) return refuse(400, 'P0002', 'conversation not found'); if (v.seg === 'vendors') return refuse(400, '22023', 'invalid: conversation');
+        const cu = mock.cs.customers.find((x) => x.id === b.p_customer && !x.merged_into); if (!cu) return refuse(400, 'P0002', 'customer not found');
+        if (v.customer_id !== cu.id) {
+          const old = mock.cs.customers.find((x) => x.id === v.customer_id); v.customer_id = cu.id; v.updated_at = new Date().toISOString();
+          if (v.external_id && v.seg === 'customers') { const ct = mock.cs.contacts.find((x) => x.platform === v.platform && x.external_id === v.external_id); if (ct) ct.customer_id = cu.id; else mock.cs.contacts.push({ id: mock.cs.contacts.length + 1, customer_id: cu.id, platform: v.platform, external_id: v.external_id, handle: v.handle || null, created_at: new Date().toISOString() }); }
+          csSeq += 1; mock.cs.messages.push({ id: 'd1000000-0000-4000-8000-' + String(csSeq).padStart(12, '0'), conversation_id: v.id, kind: 'event', text: 'المحادثة اتربطت بالعميل «' + cu.name + '»' + (old ? ' (كانت على «' + old.name + '»)' : ''), author: u.id, external_id: null, delivery: null, meta: { link: cu.id }, created_at: new Date().toISOString() });
+          mock.csWrites.push({ table: 'cs_conversations', op: 'link', id: v.id, customer_id: cu.id });
+        }
+        return json(200, cu.id);
       }
       if (method === 'POST' && path === '/rest/v1/rpc/cs_merge_customers') {
         const b = body(); const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
@@ -1487,6 +1505,21 @@ export async function installSupabaseMock(page, opts = {}) {
     }
     // Storage, bucket ai-images (0025, phase 5.4): private; a member with products.add or products.edit = F reads (a signed URL, a
     // download) and deletes their own folder (<uid>/…) only; members never write (the server does — the ai-images handler below)
+    // Storage, bucket cs-media (0064, phase 13 T3): private; cs.reply = F uploads into their own folder; cs.view reads (a signed URL)
+    const stm = /^\/storage\/v1\/object\/(sign\/)?cs-media\/(.+)$/.exec(path);
+    if (stm && method === 'POST') {
+      const u = tokenUser(); if (!u) return json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' });
+      const key = decodeURIComponent(stm[2]);
+      if (stm[1]) { if (hasPerm(u, 'cs.view') === 'N' || !mock.csMedia.has(key)) return json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); n += 1; return json(200, { signedURL: '/object/sign/cs-media/' + key + '?token=cm-' + n }); }
+      if (!key.startsWith(u.id + '/') || !(isAdmin(u) || hasPerm(u, 'cs.reply') === 'F')) return json(403, { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' });
+      let type = hd['content-type'] || ''; let bytes = req.postDataBuffer() || Buffer.alloc(0);
+      if (/^multipart\/form-data/.test(type)) { const raw = bytes.toString('latin1'); const m = /Content-Type:\s*([^\r\n]+)\r\n\r\n/i.exec(raw); type = m ? m[1].trim() : ''; if (m) { const start = m.index + m[0].length; const end = raw.indexOf('\r\n--', start); bytes = bytes.subarray(start, end < 0 ? undefined : end); } }
+      if (!['image/png', 'image/jpeg', 'image/webp', 'image/gif', 'application/pdf'].includes(type)) return json(415, { statusCode: '415', error: 'invalid_mime_type', message: 'mime type ' + type + ' is not supported' });
+      if (bytes.length > 10485760) return json(413, { statusCode: '413', error: 'Payload too large', message: 'The object exceeded the maximum allowed size' });
+      if (mock.csMedia.has(key)) return json(409, { statusCode: '409', error: 'Duplicate', message: 'The resource already exists' });
+      mock.csMedia.set(key, { type, size: bytes.length, by: u.id });
+      return json(200, { Key: 'cs-media/' + key, Id: 'obj-cm-' + mock.csMedia.size });
+    }
     const sti = /^\/storage\/v1\/object\/(sign\/)?ai-images(?:\/(.+))?$/.exec(path);
     if (sti && (method === 'POST' || method === 'DELETE' || method === 'GET')) {
       const u = tokenUser(); if (!u) return json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' });
@@ -1854,6 +1887,15 @@ export async function installSupabaseMock(page, opts = {}) {
       }
       if (action === 'sync') { if (!W.linked) return json(503, { error: 'not_linked' }); return json(200, { result: 'ok', type: b.type }); }
       if (action === 'disconnect') { W.linked = false; W.number = null; Object.assign(c1, { status: 'disconnected', number: null, since: null, meta: {}, updated_at: now }); return json(200, { result: 'ok', linked: false, channel: chan() }); }
+      // phase 13 T3: a customer's WhatsApp media fetched from Meta once (the mock: signed at once), or our own attachment signed
+      if (action === 'media_url') {
+        if (!canView) return json(401, { error: 'unauthorized' });
+        const m = mock.cs.messages.find((x) => x.id === b.message_id); if (!m) return json(404, { error: 'not_found' });
+        const meta = m.meta || {}; if (meta.media && meta.media.path) { n += 1; return json(200, { result: 'ok', url: '/object/sign/cs-media/' + meta.media.path + '?token=cm-' + n, type: meta.media.type }); }
+        if (!meta.media_id) return json(409, { error: 'no_media' }); if (!W.linked) return json(503, { error: 'not_linked' });
+        const key = 'inbound/' + m.id + '.jpg'; mock.csMedia.set(key, { type: 'image/jpeg', size: 1, by: null }); m.meta = { ...meta, media_path: key }; n += 1;
+        return json(200, { result: 'ok', url: '/object/sign/cs-media/' + key + '?token=cm-' + n, type: meta.mime || 'image/jpeg' });
+      }
       if (action === 'send') {
         if (!canReply) return json(401, { error: 'unauthorized' });
         const m = mock.cs.messages.find((x) => x.id === b.message_id); if (!m) return json(404, { error: 'not_found' });
@@ -2020,7 +2062,7 @@ export async function installSupabaseMock(page, opts = {}) {
       const mayPushVendor = () => isAdmin(u) || ((!bankAsked() || hasPerm(u, 'sensitive.vendor_bank') === 'F')
         && (storeAsked().length === 0 ? bankAsked() : (hasPerm(u, 'vendors.edit') === 'F' || (hasPerm(u, 'vendors.edit') === 'P' && storeAsked().every((f) => CONTACT_PUSH.includes(f)))))
         && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'order_trash' ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'order_trash' ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
@@ -2201,6 +2243,24 @@ export async function installSupabaseMock(page, opts = {}) {
       if (mock.wooDown) return json(502, { error: 'woo_error' });
       // 0033 / phase 5.5 decision 10: order_trash — the cancelled order and its Dokan sub-orders to the site's trash (no force); not
       // «ملغي» → skipped/not_cancelled; pushEnabled off → skipped/push_disabled; wooDown → 502. Recorded in trashes.
+      // phase 13 T3 (decision 7): an order from the chat (pending, unpaid) and the pay link of a pending order of that customer
+      if (action === 'order_create') {
+        const cu = mock.cs.customers.find((x) => x.id === b.customer_id && !x.merged_into); if (!cu) return json(404, { error: 'customer_not_found' });
+        if (!Array.isArray(b.items) || !b.items.length) return json(400, { error: 'bad_request', field: 'items' });
+        for (const it of b.items) { const p = mock.products.find((x) => x.id === Number(it.product_id) && !x.trashed_at); if (!p) return json(400, { error: 'bad_request', field: 'product', product_id: it.product_id }); }
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        const id = 190000 + mock.orderCreates.length + 1; const total = b.items.reduce((a, it) => { const p = mock.products.find((x) => x.id === Number(it.product_id)); return a + (p.sale_price != null ? p.sale_price : p.price || 0) * (Number(it.qty) || 1); }, 0);
+        const now = new Date().toISOString(); // the same shape as ordersSeed's order() — pending and unpaid, the customer's row as the address
+        const row = { id, number: String(id), customer_name: cu.name, customer_phone: cu.phone, customer_state: null, customer_city: cu.city || null, customer_address: cu.address || null, status: 'قيد الانتظار', woo_status: 'pending', payment_method: 'cod', payment_title: 'الدفع عند الاستلام', confirm: 'غير مؤكد', confirm_at: null, confirm_note: null, deposit: 0, currency: 'EGP', total, note: null, customer_note: b.note || null, cancel: null, ret: null, raw: { id }, placed_at: now, woo_updated_at: now, synced_at: now, created_at: now, updated_at: now };
+        mock.orders.push(row); mock.orderCreates.push({ id, customer_id: cu.id, items: b.items, note: b.note || null, conversation_id: b.conversation_id || null, by: u.email });
+        return json(200, { action, result: 'ok', id, number: String(id), payment_url: SITE + '/checkout/order-pay/' + id + '/?pay_for_order=true&key=wc_order_mock' + id });
+      }
+      if (action === 'order_pay_link') {
+        const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at); if (!o) return json(404, { error: 'order_not_found' });
+        if (b.customer_id) { const cu = mock.cs.customers.find((x) => x.id === b.customer_id); if (!cu || normPhone(cu.phone) !== normPhone(o.customer_phone)) return json(404, { error: 'order_not_found' }); }
+        if (!['قيد الانتظار', 'فشل', 'معلّق'].includes(o.status)) return json(409, { error: 'not_payable', status: o.status });
+        return json(200, { action, result: 'ok', id: o.id, number: String(o.number || o.id), url: SITE + '/checkout/order-pay/' + o.id + '/?pay_for_order=true&key=wc_order_mock' + o.id });
+      }
       if (action === 'order_trash') {
         const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at);
         if (!o) return json(404, { error: 'order_not_found' });

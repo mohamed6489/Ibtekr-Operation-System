@@ -468,3 +468,25 @@ Deno.test('decision 19: a webhook comment on a post not kept yet reads the post 
   await deliver(deps, feed({ item: 'comment', verb: 'add', comment_id: '600_1', post_id: '111_600', parent_id: '111_600', from: { id: '42', name: 'Noha H' }, message: 'تمام', created_time: 1762000007 }));
   assertEquals([db.rows('cs_messages').length, db.rows('cs_posts').length], [3, 1]);
 });
+
+// ---------------------------------------------------------------- attachments (phase 13 T3, decision 6)
+Deno.test('send with meta.media: the member\'s file goes to Messenger as an image / file attachment by a signed link, the caption as a second text; Instagram takes images only; another member\'s folder → 401', async () => {
+  const MI = 'd1000000-0000-4000-8000-000000000031'; const MF = 'd1000000-0000-4000-8000-000000000032'; const MO = 'd1000000-0000-4000-8000-000000000033'; const IG = 'd1000000-0000-4000-8000-000000000003'; const MIG = 'd1000000-0000-4000-8000-000000000034';
+  const seed = { ...CONV_SEED, cs_conversations: [...CONV_SEED.cs_conversations, { id: IG, seg: 'customers', platform: 'instagram', channel: 'instagram', external_id: '901', status: 'مستنية ردنا' }],
+    cs_messages: [...CONV_SEED.cs_messages,
+      { id: MI, conversation_id: V, kind: 'out', text: 'شوف الصورة دي', author: U.reply, delivery: 'queued', meta: { media: { path: U.reply + '/a1-photo.png', type: 'image/png', name: 'photo.png', size: 10 } }, created_at: NOW },
+      { id: MF, conversation_id: V, kind: 'out', text: '📎 فاتورة.pdf', author: U.reply, delivery: 'queued', meta: { media: { path: U.reply + '/b2-invoice.pdf', type: 'application/pdf', name: 'فاتورة.pdf', size: 10 } }, created_at: NOW },
+      { id: MO, conversation_id: V, kind: 'out', text: 'x', author: U.reply, delivery: 'queued', meta: { media: { path: U.admin + '/zz.png', type: 'image/png', name: 'zz.png', size: 1 } }, created_at: NOW },
+      { id: MIG, conversation_id: IG, kind: 'out', text: '📎 فاتورة.pdf', author: U.reply, delivery: 'queued', meta: { media: { path: U.reply + '/b2-invoice.pdf', type: 'application/pdf', name: 'فاتورة.pdf', size: 10 } }, created_at: NOW }] };
+  const sends: any[] = [];
+  const { deps, db } = setup({ seed, vault: linked(), routes: { 'POST me/messages': (c) => { sends.push(c.body); return { body: { recipient_id: '900', message_id: 'm_att' + sends.length } }; } } });
+  (db as any).storage = fakeDb({}, { storage: { ['cs-media/' + U.reply + '/a1-photo.png']: new Uint8Array([1]), ['cs-media/' + U.reply + '/b2-invoice.pdf']: new Uint8Array([2]) } }).storage;
+  const r = await call(deps, { action: 'send', message_id: MI });
+  assertEquals([r.res.status, r.body.media, r.body.external_id], [200, true, 'm_att1']);
+  assertEquals([sends[0].message.attachment.type, /^https:\/\/signed\.test\/cs-media\//.test(sends[0].message.attachment.payload.url), sends[1].message.text], ['image', true, 'شوف الصورة دي']);
+  assertEquals(db.row('cs_messages', MI).delivery, 'sent');
+  const f = await call(deps, { action: 'send', message_id: MF });
+  assertEquals([f.res.status, sends[2].message.attachment.type, sends.length], [200, 'file', 3], 'the placeholder text is no second message');
+  assertEquals((await call(deps, { action: 'send', message_id: MO })).res.status, 401);
+  assertEquals((await call(deps, { action: 'send', message_id: MIG })).body, { error: 'ig_file' });
+});

@@ -35,8 +35,7 @@
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import {
   DEFAULT_NAME, SUBSCRIBED_FIELDS, authUrl, businessIdsOf, subscribedFieldsOf, mergePages, permissionsOf, tokenlessCount, commentThreadId, graphErrorCode, graphPath, hideBody, pagesOf, parseWebhook, privateReplyBody, profileHandle, profileName, publicPages,
-  sendBody, statusAfterIn, tokenScopesOf, commentsProbeOf, waProbeOf, pulledComments, PULL_WINDOW_MS, postsOf, postOf,
-} from '../_shared/cs-channel.js';
+  sendBody, statusAfterIn, tokenScopesOf, commentsProbeOf, waProbeOf, pulledComments, PULL_WINDOW_MS, postsOf, postOf, attachmentBody, attachmentKind } from '../_shared/cs-channel.js';
 import { inboundSafe } from '../_shared/cs-auto-run.ts';
 
 // deno-lint-ignore no-explicit-any
@@ -487,6 +486,21 @@ async function deliver(deps: Deps, who: Who, args: Json, mode: 'send' | 'private
     }
     if (mode === 'private') return json(400, { error: 'bad_request', field: 'conversation' });
     if (!conv.external_id) return json(409, { error: 'no_thread' });
+    // phase 13 T3 (decision 6): the member's attachment (cs-media/<their uid>/…) by a signed link — Messenger images and files, Instagram
+    // images only; a caption that is not the placeholder follows as a second text message
+    if (isObj(meta.media) && typeof meta.media.path === 'string') {
+      if (!meta.media.path.startsWith((msg.author ?? '') + '/') && !who.admin) return json(401, { error: 'unauthorized' });
+      const kind = attachmentKind(meta.media.type); if (!kind) return json(400, { error: 'bad_request', field: 'media' });
+      if (conv.platform === 'instagram' && kind !== 'image') return json(400, { error: 'ig_file' });
+      const { data: sg } = await deps.db.storage.from('cs-media').createSignedUrl(meta.media.path, 3600);
+      if (!sg?.signedUrl) return json(409, { error: 'no_media' });
+      out = await graph(deps, 'POST', graphPath.send(), { token: page.token, body: attachmentBody(String(conv.external_id), kind, sg.signedUrl) });
+      const mid = typeof out.message_id === 'string' ? out.message_id : null;
+      const caption = String(msg.text ?? ''); if (caption && !caption.startsWith('📎')) { try { await graph(deps, 'POST', graphPath.send(), { token: page.token, body: sendBody(String(conv.external_id), caption) }); } catch { /* the attachment went; the caption is best effort */ } }
+      await settle(deps, msg, { delivery: 'sent', external_id: mid });
+      await logActivity(deps, who, 'cs.channel.send', conv.id, conv.platform + ' · media');
+      return json(200, { result: 'ok', delivery: 'sent', external_id: mid, media: true });
+    }
     out = await graph(deps, 'POST', graphPath.send(), { token: page.token, body: sendBody(String(conv.external_id), msg.text) });
     const id = typeof out.message_id === 'string' ? out.message_id : null;
     await settle(deps, msg, { delivery: 'sent', external_id: id });

@@ -45,6 +45,19 @@ export const waPath = {
 };
 export const syncBody = (type) => ({ messaging_product: 'whatsapp', sync_type: type === 'history' ? 'history' : 'smb_app_state_sync' });
 export const textBody = (waId, text) => ({ messaging_product: 'whatsapp', recipient_type: 'individual', to: waId, type: 'text', text: { preview_url: false, body: text } });
+// phase 13 T3 (decision 6): an attachment of ours by a signed link — an image with its caption, anything else a document with its filename
+export const MEDIA_MIME = { 'image/png': 'image', 'image/jpeg': 'image', 'image/webp': 'image', 'image/gif': 'image', 'application/pdf': 'document' };
+export function mediaBody(waId, media, link, caption) {
+  const m = isObj(media) ? media : {}; const kind = MEDIA_MIME[String(m.type ?? '')] ?? 'document'; const cap = clean(caption ?? '', 1024);
+  const base = { messaging_product: 'whatsapp', recipient_type: 'individual', to: waId, type: kind };
+  return kind === 'image' ? { ...base, image: { link, ...(cap ? { caption: cap } : {}) } } : { ...base, document: { link, filename: clean(m.name ?? 'file', 240) || 'file', ...(cap ? { caption: cap } : {}) } };
+}
+// the id and mime Meta gave an incoming media message (downloaded later through media_url); null for a text
+export function mediaOf(m) {
+  if (!isObj(m)) return null; const t = str(m.type); if (!MEDIA[t]) return null;
+  const o = isObj(m[t]) ? m[t] : {}; const id = /^\d{5,40}$/.test(str(o.id)) ? str(o.id) : null;
+  return id ? { media_id: id, mime: clean(o.mime_type ?? '', 80) || null, kind: t } : null;
+}
 export const sentIdOf = (json) => (isObj(json) && Array.isArray(json.messages) && isObj(json.messages[0]) ? msgId(json.messages[0].id) : null);
 
 // the WhatsApp accounts the business token reaches: debug_token's granular scopes (whatsapp_business_management → the WABA ids)
@@ -102,7 +115,7 @@ export function parseWaWebhook(body) {
           const waId = digits(m.from); const mid = msgId(m.id); const text = textOf(m);
           if (!waId || !mid) { events.push({ type: 'other', field: 'bad_message' }); continue; }
           if (text === null) { events.push({ type: 'other', field: 'messages_' + kindOf(m) }); continue; }
-          events.push({ type: 'in', waId, name: names.get(waId) ?? null, id: mid, at: when(m.timestamp), text, kind: kindOf(m), replyTo: isObj(m.context) ? msgId(m.context.id) : null });
+          events.push({ type: 'in', waId, name: names.get(waId) ?? null, id: mid, at: when(m.timestamp), text, kind: kindOf(m), replyTo: isObj(m.context) ? msgId(m.context.id) : null, media: mediaOf(m) });
         }
         for (const s of Array.isArray(v.statuses) ? v.statuses : []) {
           if (!isObj(s) || !msgId(s.id)) continue;

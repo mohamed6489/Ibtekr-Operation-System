@@ -425,3 +425,52 @@ test('phase 13 T1: a campaign on WhatsApp 1 (on Meta) is an approved Meta templa
   expect(k).toMatchObject({ status: 'مجدولة', channel: 'wa1' });
   expect(k.template_id).toBe(mock.cs.templates[0].id);
 });
+
+test('phase 13 T3: an attachment goes out on WhatsApp 1 through the channel (the bubble shows it); the pay link of a pending order; an order made from the chat lands as a pay link in the composer; a channel thread without a customer is linked to one', async ({ page }) => {
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  mock.waCloud = { configured: true, configId: true, linked: true, number: '+20 100 000 0001', calls: [] };
+  Object.assign(mock.cs.channels.find((c) => c.id === 'wa1'), { kind: 'meta', status: 'connected', number: '+20 100 000 0001', since: new Date().toISOString() });
+  const conv = mock.cs.conversations.find((c) => c.channel === 'wa1'); conv.external_id = '01200007052'; conv.last_in_at = new Date().toISOString();
+  const salwa = mock.cs.customers.find((c) => c.name === 'سلوى زيتوني'); const youssef = mock.cs.customers.find((c) => c.name === 'يوسف حامد');
+  await signIn(page, ADMIN);
+  const P = pg(page);
+  await expect(P.locator('.cs-ch .who b')).toHaveText('سلوى زيتوني');
+  // the attachment: the box's text is its caption; the row carries meta.media; the channel sent it; the bubble shows the image
+  await P.locator('#cs-ta').fill('شوفي الصورة دي');
+  await P.locator('[data-cmp-file]').setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: PNG });
+  await expect(P.locator('.cs-msgs .bub img.bub-img')).toBeVisible();
+  const m = mock.cs.messages.find((x) => x.meta && x.meta.media);
+  expect([m.kind, m.text, m.delivery, m.meta.media.type]).toEqual(['out', 'شوفي الصورة دي', 'sent', 'image/png']);
+  expect([...mock.csMedia.keys()].every((k) => k.endsWith('-photo.png'))).toBe(true);
+  expect(mock.waCloud.calls).toContain('send');
+  await expect(P.locator('#cs-ta')).toHaveValue('');
+  // the pay link: her open order is «جاري التنفيذ» — not waiting for a payment
+  await P.locator('[data-pay-link]').click();
+  await page.locator('.modal [data-pay-pick] .pick-row').first().click();
+  await expect(page.locator('.toast.show')).toContainText('مش مستني دفع');
+  // an order from the chat: a product from the mirror, pending on the shop, the pay link in the composer
+  await P.locator('[data-new-order]').click();
+  await page.locator('.modal #co-q').fill('Cushion');
+  await page.locator('.modal [data-order-found] .pick-row').first().click();
+  await expect(page.locator('.modal [data-order-item]')).toHaveCount(1);
+  await page.locator('.modal [data-order-submit]').click();
+  await expect(page.locator('.modal')).toHaveCount(0);
+  expect(mock.orderCreates[0]).toMatchObject({ customer_id: salwa.id, items: [{ product_id: 9001, qty: 1 }], conversation_id: conv.id });
+  expect(mock.orders.find((o) => o.id === 190001)).toMatchObject({ status: 'قيد الانتظار', customer_name: 'سلوى زيتوني' });
+  await expect(P.locator('#cs-ta')).toHaveValue(/أوردرك #190001 اتعمل ✅ ادفع من هنا: https:\/\/ibtekr\.stage\.test\/checkout\/order-pay\/190001\//);
+  // the pending order's pay link, for its customer only
+  const pl = await page.evaluate((cid) => window.IBCS.payLink(190001, cid), salwa.id);
+  expect([pl.ok, /order-pay\/190001\//.test(pl.url)]).toEqual([true, true]);
+  const other = await page.evaluate((cid) => window.IBCS.payLink(190001, cid), youssef.id);
+  expect(other.ok).toBe(false);
+  // the comments thread of «Noha H» has no customer: linked to an existing one from the panel
+  await page.evaluate(() => { const S = window.IBPages.all().cs.api.state; S.seg = 'comments'; window.IBPages.render('cs'); });
+  await P.locator('.cs-list .cv', { hasText: 'Noha H' }).click();
+  await expect(P.locator('[data-link-customer]')).toBeVisible();
+  await P.locator('[data-link-customer]').click();
+  await page.locator('.modal #lk-q').fill('يوسف');
+  await page.locator('.modal [data-link-pick] .pick-row').first().click();
+  await expect(page.locator('.toast.show')).toContainText('اتربطت المحادثة');
+  expect(mock.cs.conversations.find((c) => c.handle === 'Noha H').customer_id).toBe(youssef.id);
+  expect(mock.csWrites.some((w) => w.op === 'link' && w.customer_id === youssef.id)).toBe(true);
+});

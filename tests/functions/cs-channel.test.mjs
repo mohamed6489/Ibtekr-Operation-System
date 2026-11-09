@@ -126,3 +126,10 @@ test('decision 19: a caption cut at 300 never splits an emoji (a lone half makes
   assert.equal(m.cut('🪑🪑🪑', 2), '🪑🪑');
   assert.equal(p.posted_at, '2026-11-04T05:41:05.000Z');
 });
+
+// phase 13 T3 (decision 6): our attachment through the Send API
+import { attachmentBody, attachmentKind } from '../../supabase/functions/_shared/cs-channel.js';
+test('attachmentKind / attachmentBody: images and PDF files by a signed link, anything else refused', () => {
+  assert.equal(attachmentKind('image/png'), 'image'); assert.equal(attachmentKind('application/pdf'), 'file'); assert.equal(attachmentKind('audio/webm'), null);
+  assert.deepEqual(attachmentBody('900', 'image', 'https://s.test/a?token=1'), { recipient: { id: '900' }, messaging_type: 'RESPONSE', message: { attachment: { type: 'image', payload: { url: 'https://s.test/a?token=1', is_reusable: false } } } });
+});

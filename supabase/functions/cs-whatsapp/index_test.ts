@@ -303,3 +303,39 @@ Deno.test('a receipt on a campaign message moves the recipient and the campaign\
   assertEquals((await call(s.deps, { action: 'campaign_test', template_id: TPL.id, phone: '12' }, 'jwt-admin')).body.field, 'phone');
   assertEquals((await call(s.deps, { action: 'campaign_test', template_id: '00000000-0000-4000-8000-00000000c0ff', phone: '01011112222' }, 'jwt-admin')).body.field, 'template_id');
 });
+
+// ---------------------------------------------------------------- attachments (phase 13 T3, decision 6)
+Deno.test('send with meta.media: the member\'s file in cs-media goes out as an image / document by a signed link (the caption unless the placeholder); another member\'s folder → 401; a customer\'s media is kept once and signed (media_url), for members who see the thread', async () => {
+  const conv = { id: '00000000-0000-4000-8000-00000000e0f1', seg: 'customers', platform: 'whatsapp', channel: 'wa1', external_id: '01012345678', status: 'مستنية ردنا' };
+  const img = { id: '00000000-0000-4000-8000-00000000e0f2', conversation_id: conv.id, kind: 'out', text: 'شوفي دي', author: U.reply, delivery: 'queued', meta: { media: { path: U.reply + '/ab12-photo.jpg', type: 'image/jpeg', name: 'photo.jpg', size: 1200 } } };
+  const pdf = { id: '00000000-0000-4000-8000-00000000e0f3', conversation_id: conv.id, kind: 'out', text: '📎 فاتورة.pdf', author: U.reply, delivery: 'queued', meta: { media: { path: U.reply + '/cd34-invoice.pdf', type: 'application/pdf', name: 'فاتورة.pdf', size: 5000 } } };
+  const theirs = { id: '00000000-0000-4000-8000-00000000e0f4', conversation_id: conv.id, kind: 'out', text: 'x', author: U.reply, delivery: 'queued', meta: { media: { path: U.admin + '/zz-other.jpg', type: 'image/jpeg', name: 'o.jpg', size: 1 } } };
+  const inMedia = { id: '00000000-0000-4000-8000-00000000e0f5', conversation_id: conv.id, kind: 'in', text: '[صورة]', author: null, external_id: 'wamid.IN9', delivery: null, meta: { kind: 'image', media_id: '5550001234', mime: 'image/jpeg' } };
+  const storage: Record<string, Uint8Array> = { ['cs-media/' + U.reply + '/ab12-photo.jpg']: new Uint8Array([1]), ['cs-media/' + U.reply + '/cd34-invoice.pdf']: new Uint8Array([2]) };
+  const routes: Record<string, Route> = {
+    ['POST ' + PHONE_ID + '/messages']: (() => { let k = 0; return () => ({ body: { messages: [{ id: 'wamid.MEDIA' + (++k) }] } }); })(),
+    'GET 5550001234': { body: { url: 'https://lookaside.fbsbx.com/whatsapp_business/attachments/?mid=5550001234', mime_type: 'image/jpeg' } },
+    'GET /whatsapp_business/attachments/': { body: { bytes: 'jpeg' } },
+  };
+  const base = setup({ vault: linked(), routes, seed: { cs_conversations: [conv], cs_messages: [img, pdf, theirs, inMedia] } });
+  (base.db as any).storage = fakeDb({}, { storage }).storage; // the bucket's files
+  const deps = base.deps;
+  const r1 = await call(deps, { action: 'send', message_id: img.id });
+  assertEquals([r1.res.status, r1.body.external_id], [200, 'wamid.MEDIA1']);
+  const sent = base.graph.calls.filter((c: any) => c.path === PHONE_ID + '/messages');
+  assertEquals([sent[0].body.type, sent[0].body.image.caption, /^https:\/\/signed\.test\/cs-media\//.test(sent[0].body.image.link)], ['image', 'شوفي دي', true]);
+  const r2 = await call(deps, { action: 'send', message_id: pdf.id });
+  assertEquals(r2.res.status, 200);
+  assertEquals([sent[1]?.body.type ?? base.graph.calls.at(-1).body.type, base.graph.calls.at(-1).body.document.filename, base.graph.calls.at(-1).body.document.caption], ['document', 'فاتورة.pdf', undefined], 'the placeholder is no caption');
+  assertEquals((await call(deps, { action: 'send', message_id: theirs.id })).res.status, 401, 'a file of another member\'s folder');
+  // the customer's media: fetched from Meta once into inbound/<message id>, then signed; the viewer of the thread may ask
+  const m1 = await call(deps, { action: 'media_url', message_id: inMedia.id });
+  assertEquals([m1.res.status, m1.body.type, /cs-media\/inbound\/00000000-0000-4000-8000-00000000e0f5\.jpg/.test(m1.body.url)], [200, 'image/jpeg', true]);
+  assertEquals(base.db.row('cs_messages', inMedia.id).meta.media_path, 'inbound/' + inMedia.id + '.jpg');
+  const fetched = base.graph.calls.filter((c: any) => c.path === '5550001234' || c.path === '/whatsapp_business/attachments/').length;
+  await call(deps, { action: 'media_url', message_id: inMedia.id });
+  assertEquals(base.graph.calls.filter((c: any) => c.path === '5550001234' || c.path === '/whatsapp_business/attachments/').length, fetched, 'the second ask signs the kept file');
+  assertEquals((await call(deps, { action: 'media_url', message_id: inMedia.id }, 'jwt-view')).res.status, 404, 'cs.view P without the assignment');
+  assertEquals((await call(deps, { action: 'media_url', message_id: img.id })).res.status, 200, 'our own attachment is signed too');
+  assertEquals((await call(deps, { action: 'media_url', message_id: '00000000-0000-4000-8000-00000000e0ff' })).res.status, 404);
+});

@@ -1818,3 +1818,30 @@ select data->'firstWarehouse', data->'pullAlert' from public.settings where sect
 select at, lot_id, qty, ref, note from public.inv_moves where type = 'reserve' and "by" is null order by at desc limit 10;
 select at, entity_id, result, detail from public.woo_sync_log where action = 'autopull' order by at desc limit 10;
 ```
+
+#### 2.7.40 خدمة العملاء — المرفقات، الأوردر ولينك الدفع من الشات، «ربط بعميل» (المرحلة 13 T3، 9 نوفمبر)
+
+الخطة `docs/superpowers/plans/2026-11-09-phase-13-leftovers.md` (قرارات 6–8). الأزرار اللي كانت «قريبًا» في الكومبوزر والمحادثة بقت شغالة؛ الفويس اتشال.
+
+**الملفات:** `0064_cs_media_link.sql` (bucket **`cs-media`** مقفول 10 ميجا صور + PDF — الرفع لفولدر العضو `<uid>/…` بـ `cs.reply = F`، القراية `cs.view`؛ RPC
+**`cs_link_contact(p_conversation, p_customer)`** `security definer`) + `rls_cs_media_link` · `cs-whatsapp` (`send` بمرفق = رسالة `image`/`document` بلينك موقّع ساعة؛
+`media_url` = لينك موقّع لمرفقنا أو تنزيل ميديا العميل من Graph مرة واحدة لـ `inbound/<message id>`) · `cs-channel` (`send` بمرفق على ماسنجر/إنستجرام — إنستجرام صور بس) ·
+`woo-sync` (`order_create`: أوردر **pending** غير مدفوع على الموقع من سطور بالـ id وبيانات العميل من صفنا، `created_via = ibtekr-ops`، ثم `writeOrders` → `payment_url`؛
+`order_pay_link`: لينك دفع أوردر مستني الدفع بيتقرا حي من WooCommerce — `order_key` مابيتخزنش عندنا) · `_shared/woo-order-create.js` (الصافي) · `IBCS`
+(`sendMedia` / `mediaUrl` / `inboundMediaUrl` / `linkContact` / `productSearch` / `createOrder` / `payLink`) · الكتلة 20 (مشبك في الكومبوزر، فقاعة الصورة/الملف،
+«تنزيل» لميديا العميل، «لينك دفع»، «أوردر جديد» ببحث المنتجات، «ربط بعميل موجود» على محادثة قناة من غير عميل).
+
+**الخطوات:** `0064` على الحي (MCP أو SQL editor) → «RLS live» بـ `files = rls_cs_media_link` → «Deploy functions» `cs-whatsapp` و`cs-channel` و`woo-sync` و`woo-webhook`
+(الأخيرة فيها فك الحجز التلقائي من §2.7.39) → الواجهة على `main`. **مافيش أسرار جديدة.** الأوردر من الشات مشروط بـ `WOO_PUSH_ENABLED = 1` زي أي كتابة على الموقع.
+
+```sql
+select id, public, file_size_limit, allowed_mime_types from storage.buckets where id = 'cs-media';
+select count(*) from storage.objects where bucket_id = 'cs-media';
+select id, number, status, created_via, customer_note from public.orders where raw->>'created_via' = 'ibtekr-ops' order by created_at desc limit 5;
+select at, action, entity_id from public.activity_log where action in ('cs.conv.link', 'cs.order.create', 'cs.order.paylink', 'cs.media.send') order by at desc limit 10;
+```
+
+**الأمان:** المرفق بيتبعت من فولدر العضو نفسه بس (الأدمن مستثنى)، اللينك الموقّع ساعة، وميديا العميل بتتجاب من Graph بتوكن السيرفر بس؛ `order_create` /
+`order_pay_link` للأدمن أو `orders.status = F` بالـ JWT (سر المزامنة مرفوض)، ولينك الدفع بس لأوردر رقمه على رقم العميل نفسه وحالته مستنية الدفع
+(`PAY_STATUSES`)؛ `cs_link_contact` بـ `cs.reply = F` على محادثة العضو شايفها وفي شريحة العملاء بس (المبتكرين 22023)، وحارس 0034 فاضل بيمنع كتابة
+`customer_id` مباشرة؛ `activity_log` بالـ ids والأعداد بس — مافيش تليفون ولا نص ولا لينك دفع.

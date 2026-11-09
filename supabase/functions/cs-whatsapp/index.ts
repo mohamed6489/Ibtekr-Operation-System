@@ -25,6 +25,9 @@
 //     disconnect       (the admin) → the subscription removed (best effort), the secret removed, wa1 disconnected.
 //     send             (cs.reply, on a wa1 conversation the member sees, their own queued row unless the admin) { message_id } →
 //                      POST /{phone}/messages (text) → sent + the wamid; a refusal (e.g. 131047: past the 24 hours) → failed + code, 502.
+//     media_url        (cs.view, on a conversation the member sees) { message_id } → a customer's media (meta.media_id) fetched from Meta
+//                      once into the private bucket cs-media (inbound/<message id>), then a signed link (one hour) — phase 13 T3.
+//     send with meta.media (phase 13 T3): the member's attachment in cs-media goes out as an image / document by a signed link.
 //     campaign_test    (cs.manage) { template_id, phone, code? } → the approved Meta template to one number with sample values.
 //     campaign_tick    (the admin; or the cron with X-Sync-Secret, every minute — 0063) → the campaigns on wa1 (phase 13 T1, decisions
 //                      1–3 of docs/superpowers/plans/2026-11-09-phase-13-leftovers.md): nothing while settings «cs».live.campaigns is
@@ -35,7 +38,7 @@
 // Secrets: META_APP_ID, META_APP_SECRET, META_VERIFY_TOKEN (shared with cs-channel), META_WA_CONFIG_ID (the Embedded Signup
 // configuration); the owner sets them. Nothing here logs a token, a phone or a message's text.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
-import { EXTRAS, STATE_PREFIX, WA_GRAPH_VERSION, graphErrorCode, parseWaWebhook, phoneOfWaId, phonesOf, sentIdOf, syncBody, textBody, waAuthUrl, waIdOfPhone, wabaIdsOf, waPath } from '../_shared/cs-whatsapp.js';
+import { EXTRAS, STATE_PREFIX, WA_GRAPH, WA_GRAPH_VERSION, graphErrorCode, mediaBody, parseWaWebhook, phoneOfWaId, phonesOf, sentIdOf, syncBody, textBody, waAuthUrl, waIdOfPhone, wabaIdsOf, waPath } from '../_shared/cs-whatsapp.js';
 import { CLAIM_MS, cairoDayStart, isOptOut } from '../_shared/cs-wa.js';
 import { DAY, inHours, settingsOf, templateBody } from '../_shared/cs-auto.js';
 import { DONE_STATUSES, REPLY_WINDOW_DAYS, SAMPLE_VARS, TICK_BUDGET_MS, campaignParams, campaignPreview, campaignStats, nextStatus, perTick, recipientAfter, templateOk } from '../_shared/cs-campaign.js';
@@ -52,7 +55,8 @@ export type Deps = {
   sleep?: (ms: number) => Promise<void>; // the pause between two campaign sends (the tests pass a no-op)
 };
 
-const ACTIONS = ['status', 'connect_start', 'connect_callback', 'connect_token', 'sync', 'disconnect', 'send', 'campaign_test', 'campaign_tick'];
+const ACTIONS = ['status', 'connect_start', 'connect_callback', 'connect_token', 'sync', 'disconnect', 'send', 'campaign_test', 'campaign_tick', 'media_url'];
+const MEDIA_BUCKET = 'cs-media'; const MEDIA_SIGN_SECONDS = 3600; const MEDIA_MAX = 10 * 1024 * 1024;
 const REDIRECT_DEFAULT = 'https://operation-system.ibtekr.club/meta-callback.html';
 const STATE_MINUTES = 10;
 const GRAPH_MS = 15_000;
@@ -194,7 +198,7 @@ async function onIn(deps: Deps, ev: Json, s: Summary) {
   const phone = phoneOfWaId(ev.waId); if (!phone) { bump(s, 'ignored:bad_phone'); return; }
   const customerId = await customerOf(deps, phone, ev.name);
   const conv = await conversationOf(deps, phone, customerId);
-  if (!(await put(deps, { conversation_id: conv.id, kind: 'in', text: ev.text, author: null, external_id: ev.id, delivery: null, meta: { kind: ev.kind, reply_to: ev.replyTo, at: ev.at }, created_at: iso(ev.at, deps) }))) { bump(s, 'duplicates'); return; }
+  if (!(await put(deps, { conversation_id: conv.id, kind: 'in', text: ev.text, author: null, external_id: ev.id, delivery: null, meta: { kind: ev.kind, reply_to: ev.replyTo, at: ev.at, ...(isObj(ev.media) ? { media_id: ev.media.media_id, mime: ev.media.mime } : {}) }, created_at: iso(ev.at, deps) }))) { bump(s, 'duplicates'); return; }
   const next = conv.fresh ? 'جديدة' : 'مستنية ردنا';
   if (next !== conv.status) await setStatus(deps, conv.id, next);
   await inboundSafe(deps, { conversationId: conv.id, customerId, channel: 'wa1', fresh: conv.fresh }); // phase 6.5: the first-message / after-hours rules
@@ -458,8 +462,16 @@ async function send(deps: Deps, who: Who, args: Json) {
   if (!waId) return json(409, { error: 'no_phone' });
   const link = await linkOf(deps); if (!link) return json(503, { error: 'not_linked' });
   const meta = isObj(m.meta) ? m.meta : {};
+  // phase 13 T3: an attachment of the member (cs-media/<their uid>/…) goes out by a signed link; the caption is the row's text unless it is the placeholder
+  let body: Json = textBody(waId, String(m.text));
+  if (isObj(meta.media) && typeof meta.media.path === 'string') {
+    if (!meta.media.path.startsWith((m.author ?? '') + '/') && !who.admin) return json(401, { error: 'unauthorized' });
+    const { data: sg } = await deps.db.storage.from(MEDIA_BUCKET).createSignedUrl(meta.media.path, MEDIA_SIGN_SECONDS);
+    if (!sg?.signedUrl) return json(409, { error: 'no_media' });
+    body = mediaBody(waId, meta.media, sg.signedUrl, String(m.text).startsWith('📎') ? '' : String(m.text));
+  }
   try {
-    const wamid = sentIdOf(await graph(deps, 'POST', waPath.send(link.phone_id), { token: link.token, body: textBody(waId, String(m.text)) }));
+    const wamid = sentIdOf(await graph(deps, 'POST', waPath.send(link.phone_id), { token: link.token, body }));
     const { error } = await deps.db.from('cs_messages').update({ delivery: 'sent', external_id: wamid }).eq('id', m.id);
     if (error) throw new Error('cs_messages: ' + (error.code ?? 'update'));
     await logActivity(deps, who, 'cs.channel.send', String(v.id), 'whatsapp');
@@ -470,6 +482,49 @@ async function send(deps: Deps, who: Who, args: Json) {
     await logActivity(deps, who, 'cs.channel.failed', String(v.id), e.code);
     return json(502, { error: e.code, status: e.status, delivery: 'failed' });
   }
+}
+
+// ---------------------------------------------------------------- a customer's media (phase 13 T3, decision 6)
+// Meta's media links need the token, so the browser cannot open them: the function fetches the bytes once (≤ 10 MB) into the private
+// bucket under inbound/<message id> and answers a signed link; a second ask signs the kept file. Nothing about the file is logged.
+async function graphBytes(deps: Deps, url: string, token: string): Promise<{ bytes: Uint8Array; type: string }> {
+  const f = deps.fetch ?? fetch; const ctl = new AbortController(); const timer = setTimeout(() => ctl.abort(), GRAPH_MS * 2);
+  let res: Response;
+  try { res = await f(url, { headers: { authorization: 'Bearer ' + token }, signal: ctl.signal, redirect: 'follow' }); }
+  catch (e) { throw new GraphError((e as Error)?.name === 'AbortError' ? 'graph_timeout' : 'graph_network'); }
+  finally { clearTimeout(timer); }
+  if (!res.ok) throw new GraphError('graph_media_' + res.status, res.status);
+  const buf = new Uint8Array(await res.arrayBuffer());
+  if (buf.length > MEDIA_MAX) throw new GraphError('media_too_large');
+  return { bytes: buf, type: (res.headers.get('content-type') ?? '').split(';')[0].trim() };
+}
+const EXT: Record<string, string> = { 'image/jpeg': 'jpg', 'image/png': 'png', 'image/webp': 'webp', 'image/gif': 'gif', 'application/pdf': 'pdf', 'video/mp4': 'mp4', 'audio/ogg': 'ogg', 'audio/mpeg': 'mp3', 'audio/mp4': 'm4a', 'audio/aac': 'aac', 'audio/amr': 'amr' };
+async function mediaUrl(deps: Deps, who: Who, args: Json) {
+  if (!who.view) return json(401, { error: 'unauthorized' });
+  const id = typeof args.message_id === 'string' && UUID.test(args.message_id) ? args.message_id : null;
+  if (!id) return json(400, { error: 'bad_request', field: 'message_id' });
+  const { data: m } = await deps.db.from('cs_messages').select('id, conversation_id, kind, meta').eq('id', id).maybeSingle();
+  if (!isObj(m)) return json(404, { error: 'not_found' });
+  const { data: v } = await deps.db.from('cs_conversations').select('id, channel, assignee').eq('id', m.conversation_id).maybeSingle();
+  if (!isObj(v) || !canSee(who, v)) return json(404, { error: 'not_found' });
+  const meta = isObj(m.meta) ? m.meta : {};
+  const sign = async (path: string) => { const { data: sg } = await deps.db.storage.from(MEDIA_BUCKET).createSignedUrl(path, MEDIA_SIGN_SECONDS); return sg?.signedUrl ? json(200, { result: 'ok', url: sg.signedUrl, type: meta.mime ?? null }) : json(409, { error: 'no_media' }); };
+  if (typeof meta.media_path === 'string') return await sign(meta.media_path);
+  if (isObj(meta.media) && typeof meta.media.path === 'string') return await sign(meta.media.path);
+  const mediaId = typeof meta.media_id === 'string' && /^\d{5,40}$/.test(meta.media_id) ? meta.media_id : null;
+  if (!mediaId) return json(409, { error: 'no_media' });
+  const link = await linkOf(deps); if (!link) return json(503, { error: 'not_linked' });
+  try {
+    const info = await graph(deps, 'GET', WA_GRAPH + '/' + mediaId, { token: link.token });
+    const url = typeof info.url === 'string' && /^https:\/\//.test(info.url) ? info.url : null; if (!url) throw new GraphError('graph_no_media');
+    const got = await graphBytes(deps, url, link.token);
+    const type = typeof info.mime_type === 'string' && info.mime_type ? String(info.mime_type).split(';')[0] : got.type || String(meta.mime ?? 'application/octet-stream');
+    const path = 'inbound/' + id + '.' + (EXT[type] ?? 'bin');
+    const up = await deps.db.storage.from(MEDIA_BUCKET).upload(path, got.bytes, { contentType: type, upsert: true });
+    if (up.error) return json(500, { error: 'failed' });
+    await deps.db.from('cs_messages').update({ meta: { ...meta, media_path: path, mime: type } }).eq('id', id);
+    return await sign(path);
+  } catch (e) { return graphFail(e); }
 }
 
 // ---------------------------------------------------------------- the campaigns on wa1 (phase 13 T1)
@@ -597,6 +652,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   try {
     if (action === 'status') return await status(deps, who);
     if (action === 'campaign_test') return await campaignTest(deps, who, args);
+    if (action === 'media_url') return await mediaUrl(deps, who, args);
     if (action === 'campaign_tick') return who.admin ? json(200, await campaignTick(deps)) : json(401, { error: 'unauthorized' });
     if (action === 'connect_start') return await connectStart(deps, who);
     if (action === 'connect_callback') return await connectCallback(deps, who, args);

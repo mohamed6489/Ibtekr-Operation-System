@@ -7,14 +7,15 @@ export const CART_PATH = 'ibtekr/v1/carts';
 export const CART_HOURS = 48;
 export const CART_STATUS = ['normal', 'completed', 'lost'];
 
-/** A site row → a cs_carts row, or null when it is not a cart (no positive id, no time, or a link off the site). */
+/** A site row → a cs_carts row, or null when it is not a cart (no positive id or no time); a link off the site, or with no site known, is dropped. */
 export function cartRow(r, { siteUrl, now } = {}) {
   if (!isObj(r)) return null;
   const id = Number(r.id); if (!Number.isInteger(id) || id <= 0) return null;
   const t = Date.parse(String(r.updated_at ?? '')); if (!Number.isFinite(t)) return null;
   const host = (() => { try { return new URL(String(siteUrl ?? '')).host; } catch { return ''; } })();
+  // the recovery link is kept only when it is https on the shop's own host; no known host (WOO_URL unset) = no link (fails closed)
   let url = str(r.url, 500);
-  try { const u = new URL(url); if (u.protocol !== 'https:' || (host && u.host !== host)) url = ''; } catch { url = ''; }
+  try { const u = new URL(url); if (u.protocol !== 'https:' || !host || u.host !== host) url = ''; } catch { url = ''; }
   const total = Number(r.total); const items = Number(r.items);
   return {
     cart_id: id, email: str(r.email, 254), phone: str(r.phone, 32).replace(/[^\d+]/g, ''), name: str(r.name, 120),

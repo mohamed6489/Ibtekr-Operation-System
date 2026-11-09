@@ -11,6 +11,7 @@ test('cartRow: the fields we keep, the phone digits only, the link https on the 
   assert.equal(cartRow({ id: 42, updated_at: '2026-11-09T08:00:00Z', url: 'https://evil.test/x', status: 'paid', total: -5, items: 5000 }, { siteUrl: SITE, now: NOW }).url, '', 'a link off the site is dropped');
   const b = cartRow({ id: 42, updated_at: '2026-11-09T08:00:00Z', url: 'http://staging.ibtekr.club/checkout/', status: 'paid', total: -5, items: 5000 }, { siteUrl: SITE, now: NOW });
   assert.deepEqual([b.url, b.status, b.total, b.items, b.email, b.phone], ['', 'normal', 0, 1000, '', '']);
+  assert.equal(cartRow({ id: 43, updated_at: '2026-11-09T08:00:00Z', url: SITE + '/checkout/?wcf_ac_token=abc' }, { now: NOW }).url, '', 'no site url known → no link (fails closed)');
   assert.equal(cartRow({ id: 0, updated_at: '2026-11-09T08:00:00Z' }), null); assert.equal(cartRow({ id: 5, updated_at: 'x' }), null); assert.equal(cartRow('x'), null);
   assert.equal(CART_PATH, 'ibtekr/v1/carts');
 });

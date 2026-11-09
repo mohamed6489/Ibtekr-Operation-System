@@ -544,3 +544,27 @@ Deno.test('a database error never puts PostgREST details (the failing row, a pho
   assertEquals(db.rows('woo_sync_log').map((r: any) => [r.kind, r.entity, r.entity_id, r.action, r.result]), [['webhook', 'order', '1001', 'order.updated', 'error']]);
   assertFalse(writtenText(db).includes(PHONE));
 });
+
+// ---------------------------------------------------------------- the automatic pull (phase 13 T2, decision 5)
+Deno.test('a new order whose line SKU sits «متاح للبيع» in the hub is reserved on arrival when the admin turned «المخزن الأول» on: a reserve move without a member, the line pulled, the lot «محجوز لأوردر» once empty, a bell row for ops; off (the default) → nothing; an existing order → nothing', async () => {
+  const LOT = { id: '00000000-0000-4000-8000-00000000a0c1', reason: 'متاح للبيع', status: 'متاح', sku: 'IBT-SH-0999', name: 'شمعة', mode: 'ملك ابتكر', closed_at: null };
+  const order = (id: number) => wooOrder({ id, number: String(id), line_items: [{ id: id * 10, product_id: 9, sku: 'IBT-SH-0999', name: 'شمعة', quantity: 1, total: '120', meta_data: [] }, { id: id * 10 + 1, product_id: 10, sku: 'IBT-XX-1000', name: 'تانية', quantity: 1, total: '80', meta_data: [] }] });
+  const on = setup({ seed: { settings: [{ section: 'inventory', data: { firstWarehouse: true, pullAlert: true } }], inv_lots: [LOT], inv_moves: [{ id: 1, lot_id: LOT.id, type: 'in', qty: 1 }] }, routes: subsRoute([]) });
+  const { res } = await deliver(on.deps, order(3001));
+  assertEquals(res.status, 200);
+  const moves = on.db.rows('inv_moves').filter((m: any) => m.type === 'reserve');
+  assertEquals(moves.map((m: any) => [m.lot_id, m.qty, m.label, m.ref, m.by ?? null]), [[LOT.id, 1, 'حجز لأوردر', 'IB-3001', null]]);
+  assertEquals(on.db.rows('order_items').map((i: any) => [i.id, i.pulled]), [[30010, true], [30011, false]]);
+  assertEquals(on.db.row('inv_lots', LOT.id).status, 'محجوز لأوردر', 'the only piece is booked');
+  const bell = on.db.rows('alerts');
+  assertEquals([bell.length, bell[0].kind, bell[0].role_id, bell[0].entity_id], [1, 'inventory', 'ops', 'lot:' + LOT.id]);
+  assertStringIncludes(bell[0].title, 'IB-3001');
+  assertEquals(on.db.rows('woo_sync_log').filter((l: any) => l.action === 'autopull').map((l: any) => [l.result, l.detail.lines]), [['ok', 1]]);
+  // the same order again (an update): no second reserve
+  await deliver(on.deps, order(3001), { id: 'd-2' });
+  assertEquals(on.db.rows('inv_moves').filter((m: any) => m.type === 'reserve').length, 1);
+  // the setting off: nothing moves
+  const off = setup({ seed: { inv_lots: [LOT], inv_moves: [{ id: 1, lot_id: LOT.id, type: 'in', qty: 1 }] }, routes: subsRoute([]) });
+  await deliver(off.deps, order(3002));
+  assertEquals([off.db.rows('inv_moves').length, off.db.rows('alerts').length, off.db.row('order_items', 30020).pulled], [1, 0, false]);
+});

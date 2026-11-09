@@ -33,3 +33,35 @@ export function skuList(v, max = INVENTORY_PUSH_MAX) {
   const l = [...new Set(v.filter((s) => typeof s === 'string').map((s) => s.trim()).filter((s) => s && s.length <= 80))];
   return l.length && l.length <= max ? l : null;
 }
+
+// ---------------------------------------------------------------- the automatic pull («المخزن الأول» — phase 13 T2, decision 5)
+// A new order's lines whose SKU sits «متاح للبيع» in the hub with enough available pieces are reserved on arrival (the sync, not
+// the browser): one lot a line (the one with the most available pieces), a running count so two lines of one SKU never book
+// the same piece, the lot flagged `exhausted` when nothing stays available. Lines without a SKU or quantity are left alone.
+// → [{ itemId, orderId, orderNumber, lotId, sku, name, qty, exhausted }]
+export const AUTOPULL_LABEL = 'حجز لأوردر';
+export const AUTOPULL_NOTE = 'سحب تلقائي';
+export const RESERVED_STATUS = 'محجوز لأوردر';
+export function lotAvailability(lots, moves) {
+  const open = new Map((Array.isArray(lots) ? lots : []).filter((l) => l && l.reason === FOR_SALE && !l.closed_at && typeof l.sku === 'string' && l.sku.trim()).map((l) => [String(l.id), { lot: l, hand: 0, held: 0 }]));
+  for (const m of Array.isArray(moves) ? moves : []) {
+    const e = open.get(m && String(m.lot_id)); if (!e) continue;
+    const q = Math.trunc(Number(m.qty)) || 0;
+    if (SIGN[m.type]) e.hand += SIGN[m.type] * q;
+    if (RES[m.type]) e.held += RES[m.type] * q;
+  }
+  return [...open.values()].map((e) => ({ lot: e.lot, available: Math.max(0, e.hand - Math.max(0, e.held)) }));
+}
+export function autoPullPlan({ items, lots, moves }) {
+  const avail = lotAvailability(lots, moves).filter((a) => a.available > 0);
+  const out = [];
+  for (const it of Array.isArray(items) ? items : []) {
+    const sku = typeof it?.sku === 'string' ? it.sku.trim() : ''; const qty = Math.trunc(Number(it?.qty)) || 0;
+    if (!sku || qty <= 0 || it.id == null) continue;
+    const pick = avail.filter((a) => a.lot.sku.trim() === sku && a.available >= qty).sort((a, b) => b.available - a.available)[0];
+    if (!pick) continue;
+    pick.available -= qty;
+    out.push({ itemId: it.id, orderId: it.order_id, orderNumber: it.order_number ?? null, lotId: pick.lot.id, sku, name: String(pick.lot.name ?? it.name ?? sku), qty, exhausted: pick.available <= 0 });
+  }
+  return out;
+}

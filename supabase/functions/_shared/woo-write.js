@@ -54,6 +54,7 @@
 import { BANK_KEYS, SYNC_FIELDS, addressText, bankDigest, canonicalCategories, categoryTree, commissionType, diffStore, explicitCategories, isSubOrder, mapOrder, mapStore, mapSubOrder, redactPII, sameField, storeSnapshot, toDokanStore } from './woo-core.js';
 import { DbError, logSync, selectIn, upsertRows } from './db.js';
 import { WooError, errorText } from './woo-api.js';
+import { AUTOPULL_LABEL, AUTOPULL_NOTE, FOR_SALE, RESERVED_STATUS, autoPullPlan } from './woo-inventory.js';
 
 export const ORDER_COLUMNS = ['id', 'number', 'customer_name', 'customer_phone', 'customer_city', 'customer_address', 'customer_state',
   'payment_method', 'payment_title', 'status', 'woo_status', 'total', 'currency', 'customer_note', 'note', 'placed_at', 'woo_updated_at',
@@ -489,13 +490,49 @@ export async function writeOrders(ctx, wooOrders) {
   const known = await save(ctx, 'order_items', items.filter((i) => i.vendor_id !== null).map((i) => pick(i, ITEM_COLUMNS)), 'id');
   const unknown = await save(ctx, 'order_items', items.filter((i) => i.vendor_id === null).map((i) => pick(i, ITEM_COLUMNS_NO_VENDOR)), 'id');
   await flagRemovedLines(ctx, written);
+  const pulled = await autoPullNewOrders(ctx, written.filter(isNew).map(({ m }) => m));
 
   const conflicts = written.filter(({ m }) => m.statusResult === 'conflict');
   for (const { m } of conflicts) {
     await log(ctx, { entity: 'order', entity_id: String(m.order.id), action: 'status', result: 'conflict', detail: { woo_status: m.order.woo_status, status: m.order.status } });
   }
   return { written: written.map(({ m }) => m.order.id), skipped: parents.length - kept.length, conflicts: conflicts.length,
-    failed: added.bad.size + updated.bad.size + known.bad.size + unknown.bad.size };
+    failed: added.bad.size + updated.bad.size + known.bad.size + unknown.bad.size, pulled };
+}
+
+// ---------------------------------------------------------------- the automatic pull (phase 13 T2, decision 5 — «المخزن الأول»)
+// A NEW order's lines whose SKU is held «متاح للبيع» with enough available pieces are reserved on arrival, when the admin turned the
+// setting on (settings «inventory».firstWarehouse — off by default): a reserve move on the lot (no member: `by` null), the line
+// pulled, the lot «محجوز لأوردر» once nothing stays available, and a bell row for ops (pullAlert). Never fails the order write.
+async function autoPullNewOrders(ctx, mappedNew) {
+  const items = mappedNew.flatMap((m) => m.items.filter((i) => i.id !== null && typeof i.sku === 'string' && i.sku.trim()).map((i) => ({ ...i, order_number: m.order.number ?? null })));
+  if (!items.length) return 0;
+  try {
+    const { data: row } = await ctx.db.from('settings').select('data').eq('section', 'inventory').maybeSingle();
+    const cfg = isObj(row) && isObj(row.data) ? row.data : {};
+    if (cfg.firstWarehouse !== true) return 0;
+    const skus = [...new Set(items.map((i) => i.sku.trim()))];
+    const lots = await selectIn(ctx.db, 'inv_lots', 'id, sku, name, reason, status, closed_at', 'sku', skus);
+    const open = lots.filter((l) => l.reason === FOR_SALE && !l.closed_at);
+    if (!open.length) return 0;
+    const moves = await selectIn(ctx.db, 'inv_moves', 'lot_id, type, qty', 'lot_id', open.map((l) => l.id));
+    const plan = autoPullPlan({ items, lots: open, moves });
+    const now = ctx.now(); let n = 0;
+    for (const p of plan) {
+      const ref = 'IB-' + (p.orderNumber ?? p.orderId);
+      const mv = await ctx.db.from('inv_moves').insert({ lot_id: p.lotId, type: 'reserve', qty: p.qty, label: AUTOPULL_LABEL, reason: FOR_SALE, ref, note: AUTOPULL_NOTE + ' · سطر #' + p.itemId, by: null, at: now });
+      if (mv.error) { await log(ctx, { entity: 'order', entity_id: String(p.orderId), action: 'autopull', result: 'error', detail: { item: p.itemId, error: errorText(mv.error, ctx.woo.scrub) } }); continue; }
+      await ctx.db.from('order_items').update({ pulled: true }).eq('id', p.itemId);
+      if (p.exhausted) await ctx.db.from('inv_lots').update({ status: RESERVED_STATUS }).eq('id', p.lotId);
+      if (cfg.pullAlert !== false) await ctx.db.from('alerts').insert({ at: now, kind: 'inventory', title: 'اتحجزت قطعة من المخزن: ' + String(p.name).slice(0, 120) + ' لأوردر ' + ref, body: 'سحب تلقائي («المخزن الأول») — السطر اتعلّم «مخزن ابتكر» بدل المبتكر.', role_id: 'ops', entity: 'inventory', entity_id: 'lot:' + p.lotId });
+      n += 1;
+    }
+    if (n) await log(ctx, { entity: 'order', entity_id: mappedNew.map((m) => m.order.id).join(','), action: 'autopull', result: 'ok', detail: { lines: n } });
+    return n;
+  } catch (e) {
+    await log(ctx, { entity: 'order', entity_id: mappedNew.map((m) => m.order.id).join(','), action: 'autopull', result: 'error', detail: { error: errorText(e, ctx.woo.scrub) } });
+    return 0;
+  }
 }
 
 // ---------------------------------------------------------------- sub-orders

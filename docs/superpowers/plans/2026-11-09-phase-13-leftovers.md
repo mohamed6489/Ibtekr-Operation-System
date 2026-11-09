@@ -36,7 +36,7 @@
 ## المهام (بالتوالي)
 
 - [x] T1 الحملات على واتساب 1 بقوالب Meta + رسالة التجربة + مفتاح الحملات في القنوات (`0063`، `cs-whatsapp`، `_shared/cs-campaign.js`، الكتلة 20، اختبارات node/Deno/RLS/e2e؛ النشر `tools/deploy.md` §2.7.38). ملحوظة تنفيذ: الفويس اتشال من الكومبوزر في T3 مش هنا؛ حارس 0034 مابيسمحش للعضو يوقف حملة «شغالة» (السيرفر بس) — زي ما هو.
-- [ ] T2 السحب التلقائي على السيرفر (`_shared/woo-inventory.js`، `woo-write.js`، تنبيه `alerts`، اختبارات).
+- [x] T2 السحب التلقائي على السيرفر (`_shared/woo-inventory.js` `autoPullPlan`، `woo-write.js` `autoPullNewOrders`، تنبيه `alerts` لـ `ops`، اختبارات node + Deno؛ النشر `tools/deploy.md` §2.7.39 — من غير migration).
 - [ ] T3 خدمة العملاء: المرفقات (bucket + إرسال + وارد) · إنشاء أوردر ولينك الدفع (`woo-sync`) · ربط بعميل (`cs_link_contact`) · شيل الفويس و«إعدادات القناة» (الكتلة 20، `IBCS`، اختبارات).
 - [ ] T4 بوابة المبتكر (`0064`، Edge Function `portal`، `app/portal.html`، الصفحة، الدرج، اختبارات).
 - [ ] T5 التوثيق (CLAUDE.md بالتنضيف، deploy §2.7.38–40) + الحي + `main` + التقرير؛ النسخة React مستنية الريبو.

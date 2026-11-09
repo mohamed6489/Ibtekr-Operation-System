@@ -23,3 +23,21 @@ test('the SKUs asked for', () => {
   assert.equal(skuList('A'), null);
   assert.equal(skuList(Array.from({ length: INVENTORY_PUSH_MAX + 1 }, (_, i) => 'S' + i)), null);
 });
+
+// phase 13 T2 (decision 5): the automatic pull of a new order's lines from «متاح للبيع»
+import { autoPullPlan, lotAvailability, RESERVED_STATUS } from '../../supabase/functions/_shared/woo-inventory.js';
+test('autoPullPlan: a line whose SKU is for sale with enough pieces takes the fullest lot; two lines of one SKU never book the same piece; no SKU / no stock / a closed lot → left alone', () => {
+  const lots = [lot('a', 'S1', { name: 'شمعة' }), lot('b', 'S1', { name: 'شمعة' }), lot('c', 'S2', { reason: 'تصوير' }), lot('d', 'S3', { closed_at: '2026-11-01' }), lot('e', 'S4')];
+  const moves = [mv('a', 'in', 1), mv('b', 'in', 3), mv('b', 'reserve', 1), mv('c', 'in', 5), mv('d', 'in', 5), mv('e', 'in', 2), mv('e', 'reserve', 2)];
+  assert.deepEqual(lotAvailability(lots, moves).map((a) => [a.lot.id, a.available]), [['a', 1], ['b', 2], ['e', 0]]);
+  const items = [{ id: 11, order_id: 1001, order_number: '1001', sku: 'S1', qty: 1, name: 'x' }, { id: 12, order_id: 1001, order_number: '1001', sku: ' S1 ', qty: 1 }, { id: 13, order_id: 1001, sku: 'S1', qty: 1 },
+    { id: 14, order_id: 1001, sku: 'S2', qty: 1 }, { id: 15, order_id: 1001, sku: 'S3', qty: 1 }, { id: 16, order_id: 1001, sku: 'S4', qty: 1 }, { id: 17, order_id: 1001, sku: null, qty: 1 }, { id: 18, order_id: 1001, sku: 'S1', qty: 0 }];
+  const plan = autoPullPlan({ items, lots, moves });
+  assert.deepEqual(plan, [
+    { itemId: 11, orderId: 1001, orderNumber: '1001', lotId: 'b', sku: 'S1', name: 'شمعة', qty: 1, exhausted: false },
+    { itemId: 12, orderId: 1001, orderNumber: '1001', lotId: 'a', sku: 'S1', name: 'شمعة', qty: 1, exhausted: true }, // a tie (1 and 1) keeps the lots' order
+    { itemId: 13, orderId: 1001, orderNumber: null, lotId: 'b', sku: 'S1', name: 'شمعة', qty: 1, exhausted: true },
+  ]);
+  assert.deepEqual(autoPullPlan({ items: [{ id: 1, order_id: 1, sku: 'S1', qty: 4 }], lots, moves }), [], 'a quantity no single lot covers is not split');
+  assert.equal(RESERVED_STATUS, 'محجوز لأوردر');
+});

@@ -1802,3 +1802,19 @@ select received_at, status, summary from public.cs_channel_events where summary 
 
 **الأمان:** الإرسال بسر المزامنة (الـ cron) أو الأدمن بس، ورسالة التجربة بـ `cs.manage`؛ الموافقة/الحظر/الدمج بتتفحص وقت الإرسال؛ مافيش رقم ولا نص في
 `activity_log` (`cs.campaign.test` باسم القالب) ولا في `cs_channel_events` (أعداد)؛ المفتاح `live.campaigns` متوقف افتراضي والأدمن بيشغّله بتأكيد.
+
+#### 2.7.39 السحب التلقائي من المخزن «المخزن الأول» على السيرفر (المرحلة 13 T2، 9 نوفمبر)
+
+الخطة `docs/superpowers/plans/2026-11-09-phase-13-leftovers.md` (قرار 5). **مافيش migration.** لما أوردر **جديد** يدخل من الموقع (webhook أو مزامنة) والمفتاح
+`settings` «inventory» `firstWarehouse = true`: كل سطر الـ SKU بتاعه على lot «متاح للبيع» مفتوح وكميته المتاحة تكفي → حركة `reserve` على الـ lot
+(`by` فاضي، `label` «حجز لأوردر»، `ref` `IB-<رقم>`، `note` «سحب تلقائي · سطر #<id>») + السطر `pulled = true` + الـ lot «محجوز لأوردر» لو المتاح خلص +
+صف جرس `alerts` لدور `ops` (`pullAlert`). الصافي `_shared/woo-inventory.js` (`autoPullPlan`)، والتنفيذ في `_shared/woo-write.js` (`autoPullNewOrders`) —
+أوردر موجود مابيتلمسش، وأي فشل بيتسجل `woo_sync_log` `autopull` من غير ما يوقف كتابة الأوردر.
+
+**الخطوات:** «Deploy functions» `woo-webhook` ثم `woo-sync`. **التشغيل:** المخزن › الإعدادات › «المخزن الأول» (متوقف افتراضي؛ `pullAlert` شغّال).
+
+```sql
+select data->'firstWarehouse', data->'pullAlert' from public.settings where section = 'inventory';
+select at, lot_id, qty, ref, note from public.inv_moves where type = 'reserve' and "by" is null order by at desc limit 10;
+select at, entity_id, result, detail from public.woo_sync_log where action = 'autopull' order by at desc limit 10;
+```

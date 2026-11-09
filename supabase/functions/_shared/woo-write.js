@@ -491,6 +491,7 @@ export async function writeOrders(ctx, wooOrders) {
   const unknown = await save(ctx, 'order_items', items.filter((i) => i.vendor_id === null).map((i) => pick(i, ITEM_COLUMNS_NO_VENDOR)), 'id');
   await flagRemovedLines(ctx, written);
   const pulled = await autoPullNewOrders(ctx, written.filter(isNew).map(({ m }) => m));
+  await autoReleaseClosed(ctx, written.filter((k) => !isNew(k)).map(({ m }) => m));
 
   const conflicts = written.filter(({ m }) => m.statusResult === 'conflict');
   for (const { m } of conflicts) {
@@ -504,8 +505,12 @@ export async function writeOrders(ctx, wooOrders) {
 // A NEW order's lines whose SKU is held «متاح للبيع» with enough available pieces are reserved on arrival, when the admin turned the
 // setting on (settings «inventory».firstWarehouse — off by default): a reserve move on the lot (no member: `by` null), the line
 // pulled, the lot «محجوز لأوردر» once nothing stays available, and a bell row for ops (pullAlert). Never fails the order write.
+// an order whose status is one of these is active enough to hold a piece (security review: an unpaid / failed / cancelled order never
+// locks stock); a reservation is released again when the order closes without shipping (autoReleaseClosed)
+export const AUTOPULL_STATUSES = ['جاري التنفيذ', 'جاهز للشحن'];
+export const RELEASE_STATUSES = ['ملغي', 'فشل', 'استرجاع'];
 async function autoPullNewOrders(ctx, mappedNew) {
-  const items = mappedNew.flatMap((m) => m.items.filter((i) => i.id !== null && typeof i.sku === 'string' && i.sku.trim()).map((i) => ({ ...i, order_number: m.order.number ?? null })));
+  const items = mappedNew.filter((m) => AUTOPULL_STATUSES.includes(m.order.status)).flatMap((m) => m.items.filter((i) => i.id !== null && typeof i.sku === 'string' && i.sku.trim()).map((i) => ({ ...i, order_number: m.order.number ?? null })));
   if (!items.length) return 0;
   try {
     const { data: row } = await ctx.db.from('settings').select('data').eq('section', 'inventory').maybeSingle();
@@ -520,9 +525,12 @@ async function autoPullNewOrders(ctx, mappedNew) {
     const now = ctx.now(); let n = 0;
     for (const p of plan) {
       const ref = 'IB-' + (p.orderNumber ?? p.orderId);
+      // the line is taken first, conditionally (security review): a second writer of the same new order (the webhook and the sync
+      // racing) finds it pulled and books nothing
+      const { data: took } = await ctx.db.from('order_items').update({ pulled: true }).eq('id', p.itemId).eq('pulled', false).select('id');
+      if (!Array.isArray(took) || !took.length) continue;
       const mv = await ctx.db.from('inv_moves').insert({ lot_id: p.lotId, type: 'reserve', qty: p.qty, label: AUTOPULL_LABEL, reason: FOR_SALE, ref, note: AUTOPULL_NOTE + ' · سطر #' + p.itemId, by: null, at: now });
-      if (mv.error) { await log(ctx, { entity: 'order', entity_id: String(p.orderId), action: 'autopull', result: 'error', detail: { item: p.itemId, error: errorText(mv.error, ctx.woo.scrub) } }); continue; }
-      await ctx.db.from('order_items').update({ pulled: true }).eq('id', p.itemId);
+      if (mv.error) { await ctx.db.from('order_items').update({ pulled: false }).eq('id', p.itemId); await log(ctx, { entity: 'order', entity_id: String(p.orderId), action: 'autopull', result: 'error', detail: { item: p.itemId, error: errorText(mv.error, ctx.woo.scrub) } }); continue; }
       if (p.exhausted) await ctx.db.from('inv_lots').update({ status: RESERVED_STATUS }).eq('id', p.lotId);
       if (cfg.pullAlert !== false) await ctx.db.from('alerts').insert({ at: now, kind: 'inventory', title: 'اتحجزت قطعة من المخزن: ' + String(p.name).slice(0, 120) + ' لأوردر ' + ref, body: 'سحب تلقائي («المخزن الأول») — السطر اتعلّم «مخزن ابتكر» بدل المبتكر.', role_id: 'ops', entity: 'inventory', entity_id: 'lot:' + p.lotId });
       n += 1;
@@ -531,6 +539,39 @@ async function autoPullNewOrders(ctx, mappedNew) {
     return n;
   } catch (e) {
     await log(ctx, { entity: 'order', entity_id: mappedNew.map((m) => m.order.id).join(','), action: 'autopull', result: 'error', detail: { error: errorText(e, ctx.woo.scrub) } });
+    return 0;
+  }
+}
+
+// an order that closed without shipping (cancelled / failed / refunded) gives its automatic reservations back (settings
+// «inventory».autoRelease, on by default): a release move per automatic reserve not released yet, the line un-pulled, the lot «متاح»
+async function autoReleaseClosed(ctx, mappedUpdated) {
+  const closed = mappedUpdated.filter((m) => RELEASE_STATUSES.includes(m.order.status));
+  if (!closed.length) return 0;
+  try {
+    const { data: row } = await ctx.db.from('settings').select('data').eq('section', 'inventory').maybeSingle();
+    const cfg = isObj(row) && isObj(row.data) ? row.data : {};
+    if (cfg.firstWarehouse !== true || cfg.autoRelease === false) return 0;
+    const refs = closed.map((m) => 'IB-' + (m.order.number ?? m.order.id));
+    const moves = await selectIn(ctx.db, 'inv_moves', 'id, lot_id, type, qty, ref, note', 'ref', refs);
+    const now = ctx.now(); let n = 0;
+    for (const ref of refs) {
+      const mine = moves.filter((m) => m.ref === ref && typeof m.note === 'string' && m.note.startsWith(AUTOPULL_NOTE));
+      const reserved = mine.filter((m) => m.type === 'reserve'); const released = mine.filter((m) => m.type === 'release');
+      for (const r of reserved) {
+        const item = /سطر #(\d+)/.exec(String(r.note))?.[1] ?? null;
+        if (released.some((x) => x.lot_id === r.lot_id && String(x.note) === String(r.note))) continue;
+        const mv = await ctx.db.from('inv_moves').insert({ lot_id: r.lot_id, type: 'release', qty: r.qty, label: 'فك حجز', reason: FOR_SALE, ref, note: r.note, by: null, at: now });
+        if (mv.error) continue;
+        if (item) await ctx.db.from('order_items').update({ pulled: false }).eq('id', Number(item));
+        await ctx.db.from('inv_lots').update({ status: 'متاح' }).eq('id', r.lot_id).eq('status', RESERVED_STATUS);
+        n += 1;
+      }
+    }
+    if (n) await log(ctx, { entity: 'order', entity_id: closed.map((m) => m.order.id).join(','), action: 'autorelease', result: 'ok', detail: { lines: n } });
+    return n;
+  } catch (e) {
+    await log(ctx, { entity: 'order', entity_id: closed.map((m) => m.order.id).join(','), action: 'autorelease', result: 'error', detail: { error: errorText(e, ctx.woo.scrub) } });
     return 0;
   }
 }

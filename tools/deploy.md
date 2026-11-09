@@ -1809,7 +1809,7 @@ select received_at, status, summary from public.cs_channel_events where summary 
 `settings` «inventory» `firstWarehouse = true`: كل سطر الـ SKU بتاعه على lot «متاح للبيع» مفتوح وكميته المتاحة تكفي → حركة `reserve` على الـ lot
 (`by` فاضي، `label` «حجز لأوردر»، `ref` `IB-<رقم>`، `note` «سحب تلقائي · سطر #<id>») + السطر `pulled = true` + الـ lot «محجوز لأوردر» لو المتاح خلص +
 صف جرس `alerts` لدور `ops` (`pullAlert`). الصافي `_shared/woo-inventory.js` (`autoPullPlan`)، والتنفيذ في `_shared/woo-write.js` (`autoPullNewOrders`) —
-أوردر موجود مابيتلمسش، وأي فشل بيتسجل `woo_sync_log` `autopull` من غير ما يوقف كتابة الأوردر.
+أوردر موجود مابيتلمسش، وأي فشل بيتسجل `woo_sync_log` `autopull` من غير ما يوقف كتابة الأوردر. **مراجعة أمنية:** الحجز لأوردر حالته «جاري التنفيذ»/«جاهز للشحن» بس (أوردر «قيد الانتظار»/«فشل» مابيحجزش)، السطر بيتاخد أولًا بشرط `pulled = false` (webhook والمزامنة مابيحجزوش مرتين)، ولما الأوردر يبقى «ملغي»/«فشل»/«استرجاع» الحجز التلقائي بيتفك (`release` + السطر + الـ lot «متاح») لو `autoRelease` شغّال (الافتراضي).
 
 **الخطوات:** «Deploy functions» `woo-webhook` ثم `woo-sync`. **التشغيل:** المخزن › الإعدادات › «المخزن الأول» (متوقف افتراضي؛ `pullAlert` شغّال).
 

@@ -36,7 +36,7 @@
 // configuration); the owner sets them. Nothing here logs a token, a phone or a message's text.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { EXTRAS, STATE_PREFIX, WA_GRAPH_VERSION, graphErrorCode, parseWaWebhook, phoneOfWaId, phonesOf, sentIdOf, syncBody, textBody, waAuthUrl, waIdOfPhone, wabaIdsOf, waPath } from '../_shared/cs-whatsapp.js';
-import { cairoDayStart, isOptOut } from '../_shared/cs-wa.js';
+import { CLAIM_MS, cairoDayStart, isOptOut } from '../_shared/cs-wa.js';
 import { DAY, inHours, settingsOf, templateBody } from '../_shared/cs-auto.js';
 import { DONE_STATUSES, REPLY_WINDOW_DAYS, SAMPLE_VARS, TICK_BUDGET_MS, campaignParams, campaignPreview, campaignStats, nextStatus, perTick, recipientAfter, templateOk } from '../_shared/cs-campaign.js';
 import { inboundSafe } from '../_shared/cs-auto-run.ts';
@@ -523,15 +523,23 @@ export async function campaignTick(deps: Deps): Promise<Json> {
     const tpl = await campaignTemplate(deps, k.template_id);
     if (!tpl) { await deps.db.from('cs_campaigns').update({ status: 'متوقفة', stats: { ...(await campaignFigures(deps, String(k.id))), error: 'no_template' } }).eq('id', k.id); bump(s, 'no_template'); continue; }
     const { data: done } = await deps.db.from('cs_campaign_recipients').select('id').eq('campaign_id', k.id).in('status', DONE_STATUSES).gte('at', dayStart);
-    const room = Math.min(perTick(k.min_delay_s), (Number(k.cap_per_day) || 300) - (Array.isArray(done) ? done.length : 0));
+    // a tick may still be sending when the next minute's fires: a row claimed within CLAIM_MS is another tick's (counted against the
+    // cap as in flight), and the claim itself is conditional — a row somebody claimed first is skipped, never sent twice (paid sends)
+    const stale = new Date(nowMs - CLAIM_MS).toISOString();
+    const { data: queuedAll } = await deps.db.from('cs_campaign_recipients').select('id, customer_id, phone, claimed_at').eq('campaign_id', k.id).eq('status', 'queued').order('id');
+    const all = Array.isArray(queuedAll) ? queuedAll : [];
+    const inFlight = all.filter((r: Json) => r.claimed_at && String(r.claimed_at) >= stale).length;
+    const room = Math.min(perTick(k.min_delay_s), (Number(k.cap_per_day) || 300) - (Array.isArray(done) ? done.length : 0) - inFlight);
+    if (!all.length) { await campaignFigures(deps, String(k.id)); bump(s, 'finished'); continue; }
     if (room <= 0) { bump(s, 'cap'); continue; }
-    const { data: queued } = await deps.db.from('cs_campaign_recipients').select('id, customer_id, phone, claimed_at').eq('campaign_id', k.id).eq('status', 'queued').order('id').limit(room);
-    const list = Array.isArray(queued) ? queued : [];
-    if (!list.length) { await campaignFigures(deps, String(k.id)); bump(s, 'finished'); continue; }
+    const list = all.filter((r: Json) => !r.claimed_at || String(r.claimed_at) < stale).slice(0, room);
     let calls = 0;
     for (const r of list) {
       if (Date.parse(deps.now()) - startMs > TICK_BUDGET_MS) { bump(s, 'budget'); break; }
-      await deps.db.from('cs_campaign_recipients').update({ claimed_at: deps.now() }).eq('id', r.id);
+      let claim = deps.db.from('cs_campaign_recipients').update({ claimed_at: deps.now() }).eq('id', r.id).eq('status', 'queued');
+      claim = r.claimed_at ? claim.eq('claimed_at', r.claimed_at) : claim.is('claimed_at', null);
+      const { data: got } = await claim.select('id');
+      if (!Array.isArray(got) || !got.length) { bump(s, 'raced'); continue; } // another tick took it
       const t = await campaignTarget(deps, k, tpl, r);
       if (typeof t === 'string') { bump(s, t); continue; } // skipped without a Graph call: no pause
       if (calls > 0) await sleep((Number(k.min_delay_s) || 20) * 1000);

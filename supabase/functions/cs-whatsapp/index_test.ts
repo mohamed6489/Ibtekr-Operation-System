@@ -274,6 +274,12 @@ Deno.test('campaign_tick: outside the hours it waits (the due campaign still bec
   const byHand = campaignSetup();
   assertEquals((await call(byHand.deps, { action: 'campaign_tick' }, 'jwt-reply')).res.status, 401);
   assertEquals((await call(byHand.deps, { action: 'campaign_tick' }, 'jwt-admin')).body.sent, 2);
+  // overlapping ticks (security review): a row claimed 30 s ago is another tick's — skipped and counted against the cap; a claim
+  // gone stale (3 minutes) is taken again; the claim is conditional, so a row claimed in between is never sent twice
+  const racing = campaignSetup({ seed: { cs_campaign_recipients: [{ ...RECIP[0], claimed_at: '2026-11-09T11:59:30.000Z' }, { ...RECIP[1], claimed_at: '2026-11-09T11:57:00.000Z' }] } });
+  const r2 = await tick(racing.deps);
+  assertEquals([r2.body.sent, racing.graph.calls.filter((c: any) => c.path === PHONE_ID + '/messages').length], [1, 1]);
+  assertEquals(racing.db.rows('cs_campaign_recipients').map((x: any) => x.status), ['queued', 'sent']);
 });
 
 Deno.test('a receipt on a campaign message moves the recipient and the campaign\'s figures; a customer\'s message within three days is the campaign\'s reply; campaign_test sends the template to one number for cs.manage only', async () => {

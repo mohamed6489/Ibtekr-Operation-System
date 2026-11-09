@@ -38,3 +38,6 @@ verify_jwt = false
 
 [functions.cs-auto]
 verify_jwt = false
+
+[functions.portal]
+verify_jwt = false

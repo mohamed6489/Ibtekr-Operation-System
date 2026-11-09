@@ -93,6 +93,7 @@ export function wooApi(env, fetchFn) {
   const WP_PATH = /^wp\/v2\/media$/;
   function authFor(path) {
     if (path.startsWith('wc/')) return wcAuth;
+    if (path === 'ibtekr/v1/carts') return wcAuth; // phase 12 T7: our own read-only route on the site (the snippet checks the WC keys itself)
     if (path.startsWith('dokan/')) return dokanAuth;
     if (WP_PATH.test(path)) { if (!dokanAuth) throw new ConfigError('WOO_WP_USER / WOO_WP_APP_PASSWORD are not set'); return dokanAuth; }
     throw new ConfigError(`refused REST path ${path.split('/')[0]}/`);

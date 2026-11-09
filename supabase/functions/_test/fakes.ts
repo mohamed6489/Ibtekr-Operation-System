@@ -119,6 +119,7 @@ const COLUMNS: Record<string, string[]> = {
   cs_quick_replies: ['id', 'key', 'label', 'text', 'created_by', 'created_at', 'updated_by', 'updated_at'],
   cs_auto_rules: ['id', 'name', 'grp', 'event', 'event_to', 'conds', 'action', 'template_id', 'role_id', 'tag', 'delay_min', 'once', 'ticket_if_silent', 'enabled', 'runs', 'last_run_at', 'created_by', 'created_at', 'updated_by', 'updated_at'],
   cs_auto_runs: ['id', 'rule_id', 'entity', 'customer_id', 'conversation_id', 'message_id', 'result', 'code', 'due_at', 'at'],
+  cs_carts: ['cart_id', 'email', 'phone', 'name', 'total', 'items', 'status', 'unsubscribed', 'url', 'site_updated_at', 'first_seen_at', 'synced_at'], // 0062 (phase 12 T7)
   ticket_events: ['id', 'ticket_id', 'kind', 'at', 'actor', 'actor_name', 'actor_role', 'text', 'old_value', 'new_value', 'attachments'],
 };
 const DEFAULTS: Record<string, Row> = {
@@ -131,7 +132,7 @@ const DEFAULTS: Record<string, Row> = {
   cs_customers: { tags: [], consent: true, auto_consent: true, created_from: 'manual' }, cs_conversations: { status: 'جديدة', tags: [], unread: 0 }, cs_messages: { meta: {} },
   cs_channels: { status: 'disconnected', cap_per_day: 300, meta: {} }, cs_channel_events: { summary: {} },
   cs_templates: { lib: 'customers', cat: 'متابعة', tone: 'brand', trig_kind: 'manual', trig_on: [], trig_when: 'فورًا', channels: 'كل القنوات', wa_vars: [], used: 0, active: true }, cs_quick_replies: {},
-  cs_auto_rules: { conds: [], action: 'send', delay_min: 0, once: true, ticket_if_silent: false, enabled: false, runs: 0 }, cs_auto_runs: {}, ticket_events: { kind: 'event', attachments: [] },
+  cs_auto_rules: { conds: [], action: 'send', delay_min: 0, once: true, ticket_if_silent: false, enabled: false, runs: 0 }, cs_auto_runs: {}, cs_carts: { email: '', phone: '', name: '', total: 0, items: 0, status: 'normal', unsubscribed: false, url: '' }, ticket_events: { kind: 'event', attachments: [] },
   cs_wa_state: { status: 'offline' }, cs_campaigns: { status: 'مسودة', cap_per_day: 300, min_delay_s: 20, size: 0, stats: {} }, cs_campaign_recipients: { status: 'queued' },
   mkt_posts: { src: 'system', how: 'download', status: 'مجدول', was_live: false, attempts: 0, images: [], caption: '', caption_orig: '', tags: '' },
   mkt_suggestions: { platform: 'meta', status: 'pending', data: {} }, mkt_requests: { status: 'جديد' }, mkt_video_jobs: { status: 'queued', data: {} },
@@ -149,7 +150,7 @@ const UNIQUE: Record<string, string[][]> = {
   vendor_bank: [['vendor_id']], ai_runs: [['id']], settings: [['section']], image_imports: [['id']], image_shares: [['id']], magnific_oauth_states: [['state']], shot_prompts: [['id'], ['category', 'shot']],
   cs_customers: [['id'], ['phone']], cs_contacts: [['id'], ['platform', 'external_id']], cs_conversations: [['id'], ['channel', 'external_id']], cs_messages: [['id'], ['external_id']], cs_channels: [['id']],
   cs_oauth_states: [['state']], cs_channel_events: [['id']], cs_posts: [['id']], cs_wa_state: [['channel']], cs_campaigns: [['id']], cs_campaign_recipients: [['id'], ['campaign_id', 'customer_id']],
-  cs_templates: [['id'], ['quick_key']], cs_quick_replies: [['id'], ['key']], cs_auto_rules: [['id']], cs_auto_runs: [['id'], ['rule_id', 'entity']], ticket_events: [['id']], // the live index on (rule_id, entity) is partial (result <> failed): the fake is stricter
+  cs_templates: [['id'], ['quick_key']], cs_quick_replies: [['id'], ['key']], cs_auto_rules: [['id']], cs_auto_runs: [['id'], ['rule_id', 'entity']], cs_carts: [['cart_id']], ticket_events: [['id']], // the live index on (rule_id, entity) is partial (result <> failed): the fake is stricter
   profiles: [['id'], ['email'], ['phone'], ['member_code']], roles: [['id']], hr_members: [['member_id']], mkt_posts: [['id'], ['platform', 'external_id']], mkt_ad_objects: [['platform', 'kind', 'id']], mkt_ad_stats: [['platform', 'level', 'object_id', 'day']],
   mkt_suggestions: [['id']], mkt_requests: [['id']], mkt_video_jobs: [['id']], alerts: [['id']],
   alert_reads: [['alert_id', 'user_id']], alert_state: [['source_key', 'entity_id', 'target']], tickets: [['id']], hr_requests: [['id']], hr_overtime: [['id']], hr_meetings: [['id']], hr_payroll: [['month']], inv_consolidations: [['id']], acc_expenses: [['id']], company_docs: [['id']],
@@ -162,14 +163,14 @@ const NOT_NULL: Record<string, string[]> = {
   vendor_rates: ['vendor_id', 'rate', 'since'], vendor_category_rates: ['vendor_id', 'woo_category_id', 'since'], woo_categories: ['name'], activity_log: ['action'],
   cs_customers: ['name', 'created_from'], cs_contacts: ['customer_id', 'platform', 'external_id'], cs_conversations: ['seg', 'platform', 'channel', 'status'], cs_messages: ['conversation_id', 'kind', 'text'],
   cs_channels: ['name', 'audience', 'kind', 'status'], cs_oauth_states: ['verifier', 'channel', 'created_by'], cs_channel_events: ['object', 'status'],
-  cs_templates: ['name', 'body'], cs_quick_replies: ['key', 'label', 'text'], cs_auto_rules: ['name', 'event', 'action'], cs_auto_runs: ['rule_id', 'entity', 'result'], ticket_events: ['ticket_id', 'kind', 'actor_name', 'actor_role', 'text'],
+  cs_templates: ['name', 'body'], cs_quick_replies: ['key', 'label', 'text'], cs_auto_rules: ['name', 'event', 'action'], cs_auto_runs: ['rule_id', 'entity', 'result'], cs_carts: ['cart_id', 'site_updated_at'], ticket_events: ['ticket_id', 'kind', 'actor_name', 'actor_role', 'text'],
   mkt_posts: ['kind', 'name', 'platform', 'day', 'time', 'how', 'status', 'src'], mkt_suggestions: ['kind', 'campaign_id', 'title'], mkt_requests: ['kind', 'title'], mkt_video_jobs: ['campaign_id', 'piece', 'kind', 'created_by'], alerts: ['kind', 'title'],
 };
 const CHECK: Record<string, Record<string, unknown[]>> = {
   cs_customers: { created_from: ['orders', 'manual', 'import', 'channel'] }, cs_contacts: { platform: ['whatsapp', 'messenger', 'instagram', 'tiktok', 'facebook'] },
   cs_conversations: { seg: ['customers', 'vendors', 'comments'], platform: ['whatsapp', 'messenger', 'instagram', 'tiktok', 'facebook'], channel: ['wa1', 'wa2', 'messenger', 'instagram', 'tiktok', 'facebook'], status: ['جديدة', 'مستنية ردنا', 'مستنية العميل', 'مؤجلة', 'اتحلت'] },
   cs_messages: { kind: ['in', 'out', 'note', 'auto', 'event'], delivery: [null, 'queued', 'sent', 'delivered', 'read', 'failed'] }, // external_id ≤ 1000 (0037)
-  cs_auto_runs: { result: ['sent', 'held', 'skipped', 'failed', 'ticket', 'assigned', 'tagged'] }, cs_auto_rules: { event: ['status', 'sub', 'first', 'afterhours', 'cart', 'transfer'], action: ['send', 'ticket', 'assign', 'tag'] },
+  cs_auto_runs: { result: ['sent', 'held', 'skipped', 'failed', 'ticket', 'assigned', 'tagged'] }, cs_carts: { status: ['normal', 'completed', 'lost'] }, cs_auto_rules: { event: ['status', 'sub', 'first', 'afterhours', 'cart', 'transfer'], action: ['send', 'ticket', 'assign', 'tag'] },
   cs_channels: { status: ['disconnected', 'connected', 'error'] }, cs_oauth_states: { channel: ['messenger', 'instagram', 'wa1', 'ads_tiktok', 'ads_google'] }, cs_channel_events: { status: ['ok', 'ignored', 'error'] },
   vendors: { status: ['active', 'leave', 'inactive'] },
   woo_webhook_events: { status: ['ok', 'ignored', 'duplicate', 'error'] },

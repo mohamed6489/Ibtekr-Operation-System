@@ -9,7 +9,7 @@
 //   a hold (hours / delay / the daily cap / the per-tick pace) keeps the row with no delivery and meta.due_at until its time;
 //   «ticket» opens a ticket for خدمة العملاء as the server; «assign» / «tag» touch the conversation; the run log (cs_auto_runs,
 //   one live row a rule × entity) is what makes a rule fire once. Nothing here logs a phone, a token or a message's text.
-import { CART_STATUSES, CHANNEL_LABEL, STATUS_CODES, VIRTUAL_STATUS, afterHoursEntity, cairoClock, cartEvents, decide, digits, entityFor, failCode, firstEntity, inHours, orderEvents, paceGap, ruleFires, sendMode, settingsOf, silentFollowups, statusTo, subEvents, templateBody, transferEvents, varsFor, DAY, HOUR } from './cs-auto.js';
+import { CART_STATUSES, CHANNEL_LABEL, STATUS_CODES, VIRTUAL_STATUS, afterHoursEntity, cairoClock, cartEvents, decide, digits, entityFor, failCode, firstEntity, guestCartEvents, inHours, orderEvents, paceGap, ruleFires, sendMode, settingsOf, silentFollowups, statusTo, subEvents, templateBody, transferEvents, varsFor, DAY, HOUR } from './cs-auto.js';
 import { sentIdOf, textBody, waIdOfPhone, waPath, graphErrorCode } from './cs-whatsapp.js';
 import { graphPath, sendBody } from './cs-channel.js';
 
@@ -188,7 +188,13 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Ti
     if (has('status')) add(rows(await deps.db.from('orders').select(ORDER_COLS).gte('updated_at', since).is('deleted_at', null).limit(LIMIT)));
     if (rules.some((r) => r.event === 'status' && VIRTUAL_STATUS.includes(statusTo(r.event_to)))) add(rows(await deps.db.from('orders').select(ORDER_COLS).eq('status', 'جاري التنفيذ').is('deleted_at', null).limit(LIMIT)));
     if (has('status')) events.push(...orderEvents([...byId.values()], { sinceIso: since, today, riskFrom, lateFrom } as any));
-    if (has('cart')) { const recent = rows(await deps.db.from('orders').select(ORDER_COLS).gte('placed_at', new Date(nowMs - 7 * DAY).toISOString()).is('deleted_at', null).limit(LIMIT)); events.push(...cartEvents(recent, { nowMs, afterMin: settings.cart.afterMin } as any)); }
+    if (has('cart')) {
+      const recent = rows(await deps.db.from('orders').select(ORDER_COLS).gte('placed_at', new Date(nowMs - 7 * DAY).toISOString()).is('deleted_at', null).limit(LIMIT));
+      events.push(...cartEvents(recent, { nowMs, afterMin: settings.cart.afterMin } as any));
+      // phase 12 T7: the visitor's cart from the site's snippet (cs_carts, the last 48 hours the sync keeps) — a phone is needed to reach them
+      const carts = rows(await deps.db.from('cs_carts').select('cart_id, phone, name, total, items, status, unsubscribed, url, site_updated_at').eq('status', 'normal').eq('unsubscribed', false).neq('phone', '').gte('site_updated_at', new Date(nowMs - 2 * DAY).toISOString()).limit(LIMIT));
+      events.push(...guestCartEvents(carts, recent, { nowMs, afterMin: settings.cart.afterMin } as any));
+    }
   }
   if (has('sub')) events.push(...subEvents(rows(await deps.db.from('sub_orders').select('id, order_id, vendor_id, woo_order_id, woo_status, total, updated_at').gte('updated_at', since).limit(LIMIT)), since));
   if (has('transfer')) events.push(...transferEvents(rows(await deps.db.from('dokan_withdrawals').select('id, vendor_id, amount, status, synced_at').eq('status', 'approved').gte('synced_at', since).limit(LIMIT)), since));
@@ -200,7 +206,7 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Ti
   const todo = pairs.filter((p) => !live.has(p.rule.id + '|' + p.entity));
   // the context: customers, lines, open tickets, makers
   const orderIds = [...new Set(todo.map((p) => p.ev.order?.id).filter((x) => x != null))];
-  const customers = await customersByPhone(deps, todo.map((p) => p.ev.order?.customer_phone).filter(Boolean));
+  const customers = await customersByPhone(deps, todo.map((p) => p.ev.order?.customer_phone ?? p.ev.phone).filter(Boolean));
   const items = new Map<string, Json[]>(); for (let i = 0; i < orderIds.length; i += 200) for (const it of rows(await deps.db.from('order_items').select('id, order_id, vendor_id, name, status, expected_at, waybill').in('order_id', orderIds.slice(i, i + 200)).eq('removed', false).limit(10_000))) { const k = String(it.order_id); items.set(k, [...(items.get(k) ?? []), it]); }
   const openTickets = new Set<string>(); for (let i = 0; i < orderIds.length; i += 200) for (const t of rows(await deps.db.from('tickets').select('order_id').in('order_id', orderIds.slice(i, i + 200)).in('status', ['open', 'in_progress', 'waiting']).limit(5000))) openTickets.add(String(t.order_id));
   const vendorIds = [...new Set([...todo.map((p) => p.ev.vendorId), ...[...items.values()].flat().map((it) => it.vendor_id)].filter(Boolean).map(String))];
@@ -212,18 +218,20 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Ti
   for (const { rule, ev, entity } of todo) {
     const o = isObj(ev.order) ? ev.order : null; const lines = o ? items.get(String(o.id)) ?? [] : [];
     const vendor = ev.vendorId ? vendors.get(String(ev.vendorId)) ?? null : lines[0]?.vendor_id ? vendors.get(String(lines[0].vendor_id)) ?? null : null;
-    const customer = o ? customers.get(digits(o.customer_phone)) ?? null : null;
-    const target = ev.type === 'sub' || ev.type === 'transfer' ? (vendor ? await vendorTarget(deps, vendor, false) : null) : await customerTarget(deps, customer, o ? digits(o.customer_phone) || null : null, false);
-    const condCtx: Json = { 'القناة': target ? CHANNEL_LABEL[target.channel as keyof typeof CHANNEL_LABEL] ?? target.channel : 'واتساب 1', 'الدفع': o ? payLabel(o) : '', 'الحالة': ev.to ?? '', 'الإجمالي': o ? Number(o.total) || 0 : 0,
+    const g = isObj(ev.cart) ? ev.cart : null; const evPhone = o ? digits(o.customer_phone) || null : g ? (ev.phone as string) ?? null : null;
+    const customer = evPhone ? customers.get(evPhone) ?? null : null;
+    const target = ev.type === 'sub' || ev.type === 'transfer' ? (vendor ? await vendorTarget(deps, vendor, false) : null) : await customerTarget(deps, customer, evPhone, false);
+    const condCtx: Json = { 'القناة': target ? CHANNEL_LABEL[target.channel as keyof typeof CHANNEL_LABEL] ?? target.channel : 'واتساب 1', 'الدفع': o ? payLabel(o) : '', 'الحالة': ev.to ?? '', 'الإجمالي': o ? Number(o.total) || 0 : g ? Number(g.total) || 0 : 0,
       'عمر_الأوردر': ev.age ?? 0, 'المبتكر': vendor?.name ?? '', consents: customer ? [...(customer.auto_consent !== false ? ['auto'] : []), ...(customer.consent !== false ? ['marketing'] : [])] : ['auto', 'marketing'], has: o && openTickets.has(String(o.id)) ? ['تذكرة مفتوحة'] : [] };
     if (!ruleFires(rule, ev, condCtx)) continue;
     n.events++; n.by[ev.type] = (n.by[ev.type] || 0) + 1;
     const template = rule.template_id ? templates.get(String(rule.template_id)) ?? null : null;
     const expected = lines.map((it) => it.expected_at).filter(Boolean).sort()[0] ?? null;
     const shipDate = expected ? arDay(expected) : o && vendor ? arDay(new Date(Date.parse(o.placed_at) + (Number(vendor.lead_days) || 7) * DAY).toISOString()) : '';
-    const vars = varsFor(ev, { customerName: customer?.name ?? o?.customer_name, trackingUrl: trackingOf(lines), shipDate, vendorName: vendor?.name ?? '', productName: lines[0]?.name ?? '', deliveryDate: shipDate,
-      orderNumbers: o?.number ? String(o.number) : '', cartUrl: (deps.env.WOO_URL ?? '').replace(/\/$/, '') ? (deps.env.WOO_URL ?? '').replace(/\/$/, '') + '/checkout/' : '' });
-    const ctx = { channel: target?.channel ?? (customer?.phone || o?.customer_phone ? 'wa1' : null), lastInAt: target?.lastInAt ?? null, customer: custCtx(customer), vars, sentToday: today$[target?.channel ?? 'wa1'] ?? 0, cap: capOf(settings, target?.channel ?? 'wa1') };
+    const siteUrl = (deps.env.WOO_URL ?? '').replace(/\/$/, '');
+    const vars = varsFor(ev, { customerName: customer?.name ?? o?.customer_name ?? g?.name, trackingUrl: trackingOf(lines), shipDate, vendorName: vendor?.name ?? '', productName: lines[0]?.name ?? '', deliveryDate: shipDate,
+      orderNumbers: o?.number ? String(o.number) : '', cartUrl: g && g.url ? String(g.url) : siteUrl ? siteUrl + '/checkout/' : '' });
+    const ctx = { channel: target?.channel ?? (customer?.phone || evPhone ? 'wa1' : null), lastInAt: target?.lastInAt ?? null, customer: custCtx(customer), vars, sentToday: today$[target?.channel ?? 'wa1'] ?? 0, cap: capOf(settings, target?.channel ?? 'wa1') };
     let d: any = decide({ rule, template, ev, ctx, settings, nowMs });
     if (d.result === 'sent' && sendsLeft <= 0) d = { ...d, result: 'held', code: 'pace', dueAt: now };
     const base: Json = { rule_id: rule.id, entity, customer_id: customer?.id ?? null, conversation_id: target?.convId ?? null };
@@ -242,7 +250,7 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Ti
       ruleRuns[rule.id] = (ruleRuns[rule.id] || 0) + 1; continue;
     }
     // a send (now or held): the conversation is made when the customer / maker has a number and none exists yet
-    const t = target ?? (ev.type === 'sub' || ev.type === 'transfer' ? (vendor ? await vendorTarget(deps, vendor, true) : null) : await customerTarget(deps, customer, o ? digits(o.customer_phone) || null : null, true));
+    const t = target ?? (ev.type === 'sub' || ev.type === 'transfer' ? (vendor ? await vendorTarget(deps, vendor, true) : null) : await customerTarget(deps, customer, evPhone, true));
     if (!t) { await runRow(deps, { ...base, result: 'skipped', code: 'no_channel' }); n.skipped++; continue; }
     const plan = { text: d.text as string, mode: d.mode as string, params: (d as any).params ?? [], template, ruleId: String(rule.id), dueAt: d.result === 'held' ? d.dueAt : null };
     const r = await sendAuto(deps, links, t, plan, settings);

@@ -1039,6 +1039,39 @@ select at, entity_id, result, detail from public.woo_sync_log where action = 'pr
 select data from public.settings where section = 'lists';
 ```
 
+#### 2.7.37 سلة الزائر قبل الـ checkout — CartFlows + snippet + `cs_carts` (المرحلة 12 T7، 9 نوفمبر)
+
+الخطة (قراران 7 و13) `docs/superpowers/plans/2026-11-08-phase-12-followups.md`. المصدر التاني لحدث «سلة متروكة» في الرد الآلي (الأول من 6.5: أوردرات الموقع
+اللي وقفت عند الدفع).
+
+**أ) الكود:** `tools/wp-snippets/ibtekr-carts.php` (snippet WPCode: route قراية بس `GET /wp-json/ibtekr/v1/carts?hours=48` بمفاتيح WooCommerce — بيتحقق منها
+زي WooCommerce بـ `wc_api_hash` + `hash_equals` + صلاحية القراءة) · `_shared/woo-carts.js` (الصافي) · woo-sync action **`carts`** (الـ cron أو الأدمن؛ 404 =
+`installed: false` و`skipped`) · `0062_cs_carts.sql` (`cs_carts` + `cs_carts_v` + `cs_cart_phone()` + cron **`woo-sync-carts`** كل 10 دقايق) + `rls_cs_carts` ·
+`_shared/cs-auto.js` `guestCartEvents` + `cs-auto-run.ts` بيقرا `cs_carts` لما فيه قاعدة `cart` · الكتلة 20 (ملحوظة الحدث). **مافيش سر جديد** — نفس مفاتيح Woo.
+
+**ب) على الموقع (صاحب المشروع — الـ staging الأول):**
+1. ركّب الإضافة المجانية **«Cart Abandonment Recovery for WooCommerce»** (من CartFlows، slug `woo-cart-abandonment-recovery`) وفعّلها؛ في إعداداتها سيب
+   «Enable Tracking» شغال (هي اللي بتحفظ الإيميل/الرقم/الاسم أول ما الزائر يكتبهم في الـ checkout) — رسايلها الإيميلية ممكن تتقفل، إحنا بنبعت من السيستم.
+2. في **WPCode › Code Snippets › Add New › PHP Snippet**: الصق محتوى `tools/wp-snippets/ibtekr-carts.php` (من غير سطر `<?php` الأول لو WPCode بيضيفه
+   لوحده)، الاسم «Ibtekr carts feed»، **Insert Method = Auto Insert · Location = Run Everywhere**، فعّله.
+3. جرّب من المتصفح وأنت مسجّل دخول في WordPress: `https://staging.ibtekr.club/wp-json/ibtekr/v1/carts` لازم يرجّع **401** (مافيش مفاتيح) — ده الصح؛ ومن
+   woo-sync (الخطوة ج) يرجّع صفوف.
+
+**ج) على Supabase (المطوّر):** `0062` (MCP `apply_migration` مرة واحدة؛ لو وقف = الـ SQL كله لصاحب المشروع في الـ SQL editor) → «RLS live» بـ
+`files = rls_cs_carts` → «Deploy functions» `woo-sync` ثم `cs-auto` → الواجهة على `main` → تشغيلة بالإيد: `woo-sync` `{ "action": "carts" }` بالأدمن
+(أو استنى الـ cron 10 دقايق).
+
+**د) من الصفحة:** «الرد الآلي › قواعد الرد الآلي»: قاعدة بحدث «سلة متروكة» بقالب فيه `{اسم_العميل}` و`{الإجمالي}` و`{رابط_السلة}` (لينك الاسترجاع بتاع
+الإضافة بيرجّع الزائر لسلته) — بتبعت بس لرقم **موجود في العملاء** وموافق على التسويق، وبعد `cart.afterMin` دقيقة (إعدادات الإرسال الآلي)، والمفتاح الرئيسي
+شغال.
+
+**التحقق:**
+```sql
+select jobname, schedule, active from cron.job where jobname = 'woo-sync-carts';
+select entity, result, detail from public.woo_sync_log where entity = 'cs_carts' order by at desc limit 3;   -- installed: true/false وعدد الصفوف
+select status, count(*) from public.cs_carts group by 1;                                                       -- أعداد بس
+```
+
 #### 2.7.36 مين أونلاين — قناة الحضور (المرحلة 12 T5، 9 نوفمبر)
 
 الخطة (قراران 5 و12) `docs/superpowers/plans/2026-11-08-phase-12-followups.md`.

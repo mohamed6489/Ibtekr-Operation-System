@@ -84,6 +84,22 @@ export function cartEvents(orders, { nowMs, afterMin = 60 } = {}) {
   }
   return out;
 }
+// the visitor's cart left before the checkout (phase 12 T7, decision 13): a cs_carts row the site still counts abandoned (normal), older
+// than afterMin, not unsubscribed, with a phone, and no order from the same number after the cart changed (an order that stopped at
+// payment is the order event above, so a cart whose number ordered — any status — is not a guest cart any more)
+export function guestCartEvents(carts, orders, { nowMs, afterMin = 60 } = {}) {
+  const laterBy = new Map(); // phone digits → latest placed_at of any order
+  for (const o of Array.isArray(orders) ? orders : []) { if (!isObj(o) || o.deleted_at) continue; const k = digits(o.customer_phone); if (!k) continue; const t = Date.parse(o.placed_at); if (Number.isFinite(t) && t > (laterBy.get(k) ?? -1)) laterBy.set(k, t); }
+  const out = [];
+  for (const c of Array.isArray(carts) ? carts : []) {
+    if (!isObj(c) || c.status !== 'normal' || c.unsubscribed === true) continue;
+    const k = digits(c.phone); if (!k) continue;
+    const t = Date.parse(c.site_updated_at); if (!Number.isFinite(t) || nowMs - t < afterMin * MIN) continue;
+    if ((laterBy.get(k) ?? -1) > t) continue;
+    out.push({ type: 'cart', entity: 'cart:c' + c.cart_id, cart: c, phone: k });
+  }
+  return out;
+}
 export const subEvents = (subs, sinceIso) => (Array.isArray(subs) ? subs : []).filter((s) => isObj(s) && s.vendor_id && after(s.updated_at, sinceIso)).map((s) => ({ type: 'sub', entity: 'sub:' + s.id, sub: s, vendorId: String(s.vendor_id) }));
 export const transferEvents = (ws, sinceIso) => (Array.isArray(ws) ? ws : []).filter((w) => isObj(w) && w.vendor_id && w.status === 'approved' && after(w.synced_at, sinceIso)).map((w) => ({ type: 'transfer', entity: 'transfer:' + w.id, withdrawal: w, vendorId: String(w.vendor_id) }));
 
@@ -129,10 +145,10 @@ export const money = (n) => (Number.isFinite(Number(n)) ? Math.round(Number(n)).
 export const arDate = (iso) => { const t = Date.parse(iso); return Number.isFinite(t) ? new Intl.DateTimeFormat('ar-EG', { timeZone: 'Africa/Cairo', day: 'numeric', month: 'long' }).format(new Date(t)) : ''; };
 // the variables of an event out of what the function loaded (decision 10): a missing one leaves the text unsent
 export function varsFor(ev, ctx = {}) {
-  const o = isObj(ev.order) ? ev.order : {}; const s = isObj(ev.sub) ? ev.sub : {}; const w = isObj(ev.withdrawal) ? ev.withdrawal : {};
+  const o = isObj(ev.order) ? ev.order : {}; const s = isObj(ev.sub) ? ev.sub : {}; const w = isObj(ev.withdrawal) ? ev.withdrawal : {}; const g = isObj(ev.cart) ? ev.cart : null;
   const first = (name) => String(name ?? '').trim().split(/\s+/)[0] || '';
   return {
-    'اسم_العميل': first(ctx.customerName ?? o.customer_name), 'رقم_الأوردر': o.number ? String(o.number) : '', 'الإجمالي': money(o.total),
+    'اسم_العميل': first(ctx.customerName ?? (g ? g.name : o.customer_name)), 'رقم_الأوردر': o.number ? String(o.number) : '', 'الإجمالي': money(g ? g.total : o.total),
     'رابط_التتبع': ctx.trackingUrl ?? '', 'ميعاد_الشحن': ctx.shipDate ?? '', 'اسم_المبتكر': ctx.vendorName ?? '',
     'رقم_الأوردر_الفرعي': s.woo_order_id ? String(s.woo_order_id) : '', 'المنتج': ctx.productName ?? '', 'ميعاد_التسليم': ctx.deliveryDate ?? '',
     'المبلغ': money(w.amount), 'أرقام_الأوردرات': ctx.orderNumbers ?? '', 'رابط_السلة': ctx.cartUrl ?? '', 'كود_الخصم': '', 'لينك_الدفع': '',

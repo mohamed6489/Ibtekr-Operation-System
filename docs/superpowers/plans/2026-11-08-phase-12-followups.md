@@ -51,6 +51,13 @@
     زي WC) بيرجّع من جدول `wp_cartflows_ca_cart_abandonment` الصفوف `normal` آخر 48 ساعة: الإيميل/الرقم/الاسم/الإجمالي/وقت التحديث/الـ checkout
     URL. woo-sync جزء `carts` (cron كل 10 دقايق) → جدول `cs_carts` (migration لوحدها، الرقم مطبّع، `service_role` يكتب، `cs.view` يقرا بطمس الرقم) →
     `cs-auto` حدث `cart` بيقرا منه كمان (entity `cart:c<id>`).
+    **وقت التنفيذ (9 نوفمبر، `0062`):** الـ snippet `tools/wp-snippets/ibtekr-carts.php` بيرجّع كل حالات الإضافة في آخر 48 ساعة (`normal` /
+    `completed` / `lost`) + `unsubscribed` عشان السلة اللي اتكمّلت أو اتقفلت تتعلّم عندنا، ومن غير محتويات السلة ولا عنوان (عدد القطع بس)؛
+    `woo-api` بيسمح بالمسار `ibtekr/v1/carts` بس بمفاتيح WooCommerce؛ الـ snippet مش متركّب (404) = التشغيلة `skipped` من غير صف خطأ؛ الجدول
+    `cs_carts` (`cart_id` = رقم الموقع، التليفون للسيرفر — الأعضاء بيقروا `cs_carts_v` بـ `cs_cart_phone()` مطموس من غير `sensitive.customer_phone`)؛
+    المحرك: `guestCartEvents` — سلة `normal` مش `unsubscribed` ليها رقم وعدّى عليها `cart.afterMin` ومافيش أوردر من نفس الرقم بعدها (أي حالة)،
+    والمتغيرات `اسم_العميل` / `الإجمالي` / `رابط_السلة` (لينك الاسترجاع بتاع الإضافة) من صف السلة؛ العميل مش في `cs_customers` = `skipped/no_channel`
+    (المحرك مابيعملش عميل من سلة — الزائر بيدخل العملاء لما يعمل أوردر أو يكلمنا). الكتلة 20: ملحوظة حدث «سلة متروكة» بتذكر سلة الزائر.
 
 ## المهام (بالتوالي)
 
@@ -60,5 +67,5 @@
 - [x] T4 التصدير: الكتلة 17 (`fullExportSec` من المتصفح — قرار 11 المعدّل) + اختبار e2e.
 - [x] T5 الحضور: `0061` + `rls_presence` + `IBPresence` (adapter جديد) + 25 + `IBCS.agents` + اختبارات (adapter + e2e). (النشر `tools/deploy.md` §2.7.36)
 - [x] T6 التسويق: «تيك توك مالوش API نشر — داونلود بس» في كارت الربط، كريدت الفيديو «(تقدير)» في اختيار الموديل، وتنضيف تعليقات قديمة في 16 و28 (تعليقات بس — القرار 14).
-- [ ] T7 السلة: الـ snippet (في `tools/`) + woo-sync `carts` + `cs_carts` + `cs-auto` + تعليمات صاحب المشروع.
+- [x] T7 السلة: `tools/wp-snippets/ibtekr-carts.php` + `woo-carts.js` + woo-sync `carts` + `0062` (`cs_carts` + cron) + `rls_cs_carts` + `cs-auto` `guestCartEvents` + الكتلة 20 (الملحوظة) + اختبارات node / Deno / RLS + `tools/deploy.md` §2.7.37.
 - [ ] T8 التوثيق + الحي + `main` + التقرير.

@@ -1920,6 +1920,34 @@ const invSeed = {
   settings: [{ section: 'inventory', data: { wooSync: true } }],
 };
 
+// ---------------------------------------------------------------- carts (phase 12 T7, decisions 7 / 13)
+
+Deno.test('carts: the site snippet\'s rows → cs_carts on cart_id (phone, name, total, items, status, the recovery link on the site only — no contents); the snippet missing (404) → installed false and a skipped log row; the cron or the admin only', async () => {
+  const feed = [
+    { id: 41, email: 'noha@example.test', phone: '+20 101 234 5678', name: 'نهى عبد الرحمن', total: 1250.5, items: 2, status: 'normal', unsubscribed: false, updated_at: '2026-10-25T08:00:00+00:00', url: 'https://woo.test/checkout/?wcf_ac_token=abc', cart_contents: 'never read' },
+    { id: 42, email: '', phone: '01099999999', name: '', total: 300, items: 1, status: 'completed', unsubscribed: true, updated_at: '2026-10-25T07:00:00+00:00', url: 'https://evil.test/checkout/' },
+    { id: 'x' },
+  ];
+  const { db, woo, deps } = setup({ routes: { 'GET ibtekr/v1/carts': (c: any) => (c.query.hours === '48' ? { body: feed } : { status: 400, body: {} }) } });
+  const { res, body } = await call(deps, { action: 'carts' });
+  assertEquals(res.status, 200, JSON.stringify(body));
+  assertEquals(body.counts, { installed: true, carts: 2, bad: 1, failed_rows: 0 });
+  assertEquals(db.rows('cs_carts').map((r: any) => [r.cart_id, r.email, r.phone, r.name, r.total, r.items, r.status, r.unsubscribed, r.url, r.site_updated_at]),
+    [[41, 'noha@example.test', '+201012345678', 'نهى عبد الرحمن', 1250.5, 2, 'normal', false, 'https://woo.test/checkout/?wcf_ac_token=abc', '2026-10-25T08:00:00.000Z'],
+     [42, '', '01099999999', '', 300, 1, 'completed', true, '', '2026-10-25T07:00:00.000Z']]);
+  assertFalse(JSON.stringify(db.rows('cs_carts')).includes('never read'), 'the cart contents never land');
+  assert(woo.calls.every((c) => c.method === 'GET' && c.path === 'ibtekr/v1/carts'), 'one read-only route');
+  assertEquals(woo.calls[0].headers.authorization, WC_AUTH, 'the WooCommerce keys');
+  assertEquals([db.rows('woo_sync_log').at(-1).entity, db.rows('woo_sync_log').at(-1).result], ['cs_carts', 'ok']);
+  // the admin by hand; a member who is not admin cannot; the snippet missing = skipped, not an error
+  assertEquals((await call(deps, { action: 'carts' }, { jwt: 'jwt-admin' })).res.status, 200);
+  assertEquals((await call(deps, { action: 'carts' }, { jwt: 'jwt-ops' })).res.status, 401);
+  const none = setup();
+  const r2 = await call(none.deps, { action: 'carts' });
+  assertEquals([r2.res.status, r2.body.counts], [200, { installed: false, carts: 0, bad: 0, failed_rows: 0 }]);
+  assertEquals(none.db.rows('woo_sync_log').at(-1).result, 'skipped'); assertEquals(none.db.rows('cs_carts').length, 0);
+});
+
 Deno.test('inventory_push: the owned SKUs\' available pieces onto the product and its translation (manage_stock + stock_quantity), the mirror follows; a «أمانة» SKU untouched; a SKU not on the site counted missing; inventory.edit + products.edit; never the sync secret', async () => {
   const puts: [string, unknown][] = [];
   const routes = { 'PUT wc/v3/products/501': (c: any) => { puts.push(['501', c.body]); return { body: { id: 501 } }; }, 'PUT wc/v3/products/601': (c: any) => { puts.push(['601', c.body]); return { body: { id: 601 } }; } };

@@ -63,6 +63,11 @@
 //   'withdrawals' (phase 4.1, decision 12: «تحديث من Dokan»)  the withdraw-request half of 'accounts' on demand: dokan/v1/withdraw
 //              ?status=all → dokan_withdrawals (the same allow-list), read-only on Dokan; no balances. A member needs
 //              accounts.view <> N (like 'statement').
+//   'carts'  (phase 12 T7, decisions 7 / 13)  the visitor's abandoned carts from the site's snippet (tools/wp-snippets/ibtekr-carts.php
+//              over CartFlows' table) — GET ibtekr/v1/carts?hours=48 with the WC keys → cs_carts on cart_id (the phone and e-mail
+//              the visitor typed, the total, the item count, the plugin's status and recovery link; never the contents). The snippet
+//              not installed (404) = ok with installed: false, no error row. The cron woo-sync-carts (0062) runs it every 10 minutes;
+//              by hand the admin.
 //   'products' { full: true }  (phase 5, decision 4) every product of both languages by id, page by page from
 //              sync_state['products_full'] (the products the delta cursor missed); the delta 'products' pull itself reads
 //              the default language, then lang=ar, then status=trash, each with its own cursor.
@@ -97,6 +102,7 @@ import { AR_FIELDS, BATCH_FIELDS, EDIT_FIELDS, VARIATION_FIELDS, cleanFields, ed
 import { STUDIO_ATTRS, buildStudio, fetchSheetCsv, matchWooBrand } from '../_shared/woo-studio.js';
 import { duplicateAr, duplicatePayload, duplicateSku, duplicateVariation, variationSku } from '../_shared/woo-duplicate.js';
 import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
+import { CART_HOURS, CART_PATH, cartRows } from '../_shared/woo-carts.js';
 import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, writeContext, writeOrderPage, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
@@ -108,7 +114,7 @@ type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals', 'order_trash',
-  'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate'];
+  'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate'];
@@ -633,6 +639,22 @@ async function pullAccounts(run: Run) {
   const next = offset + batch.length >= makers.length ? 0 : offset + batch.length;
   await setState(run.db, 'accounts', { offset: next, last_run: now, makers: makers.length }, now);
   return { withdrawals: w.withdrawals, skipped: w.skipped, pages: w.pages, done: w.done, balances, missing, failed, failed_rows: failedRows, offset, next };
+}
+
+// phase 12 T7: the visitor's abandoned carts — the site's snippet over CartFlows' table, mirrored on cart_id (no contents, no address)
+async function pullCarts(run: Run) {
+  const woo = run.woo();
+  let data: Json[] = [];
+  try {
+    const res = await woo.get(CART_PATH, { hours: CART_HOURS });
+    data = Array.isArray(res.data) ? res.data : [];
+  } catch (e) {
+    if (e instanceof WooError && e.status === 404) return { installed: false, carts: 0, bad: 0, failed_rows: 0 }; // the snippet or the plugin is not on the site
+    throw e;
+  }
+  const { rows, bad } = cartRows(data, { siteUrl: run.env.WOO_URL, now: run.now() });
+  const { bad: failed } = rows.length ? await upsertRows(run.db, 'cs_carts', rows, 'cart_id') : { bad: [] };
+  return { installed: true, carts: rows.length - failed.length, bad, failed_rows: failed.length };
 }
 
 async function statement(run: Run, args: Json) {
@@ -1329,6 +1351,17 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
         return json(200, { action, result: 'ok', counts });
       } catch (e) {
         await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'dokan_withdrawals', action: 'refresh', result: 'error', detail: { error: errorText(e, makeScrubber(run.env)) } });
+        if (e instanceof ConfigError) return json(500, { error: 'not_configured' });
+        return json(e instanceof WooError ? 502 : 500, { error: 'sync_failed', action });
+      }
+    }
+    if (action === 'carts') {
+      try {
+        const counts = await pullCarts(run);
+        await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'cs_carts', action: 'sync', result: counts.installed ? 'ok' : 'skipped', detail: counts });
+        return json(200, { action, result: 'ok', counts });
+      } catch (e) {
+        await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'cs_carts', action: 'sync', result: 'error', detail: { error: errorText(e, makeScrubber(run.env)) } });
         if (e instanceof ConfigError) return json(500, { error: 'not_configured' });
         return json(e instanceof WooError ? 502 : 500, { error: 'sync_failed', action });
       }

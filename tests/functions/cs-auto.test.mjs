@@ -2,7 +2,7 @@
 // conditions and the rules, the variables, the text-or-template choice by the 24-hour window, what to do with a fired rule,
 // the silent follow-ups. No I/O.
 import test from 'node:test'; import assert from 'node:assert/strict';
-import { DEFAULTS, STATUS_CODES, afterHoursEntity, cairoClock, cartEvents, condOk, decide, dueAfter, entityFor, failCode, fill, inHours, nextOpenAt, orderEvents, paceGap, ruleFires, sendMode, settingsOf, silentFollowups, statusTo, subEvents, templateBody, templateVars, transferEvents, varsFor, windowOpen, withOptOut } from '../../supabase/functions/_shared/cs-auto.js';
+import { DEFAULTS, STATUS_CODES, afterHoursEntity, cairoClock, cartEvents, condOk, decide, dueAfter, entityFor, failCode, fill, guestCartEvents, inHours, nextOpenAt, orderEvents, paceGap, ruleFires, sendMode, settingsOf, silentFollowups, statusTo, subEvents, templateBody, templateVars, transferEvents, varsFor, windowOpen, withOptOut } from '../../supabase/functions/_shared/cs-auto.js';
 
 // Sunday 8 Nov 2026 — Cairo is UTC+2 in November: 08:00Z = 10:00 Cairo
 const NOW = Date.parse('2026-11-08T08:00:00Z');
@@ -56,6 +56,24 @@ test('cartEvents: pending / failed older than afterMin, unless the same number o
   ];
   assert.deepEqual(cartEvents(orders, { nowMs: NOW, afterMin: 60 }).map((e) => e.entity), ['cart:10']);
   assert.deepEqual(cartEvents(orders, { nowMs: NOW, afterMin: 20 }).map((e) => e.entity), ['cart:10', 'cart:13']);
+});
+
+test('guestCartEvents (phase 12 T7): a normal, not unsubscribed cart with a phone, older than afterMin, and no order from that number after it; the variables take the cart\'s name, total and recovery link', () => {
+  const carts = [
+    { cart_id: 7, phone: '+201012345678', name: 'نهى عبد الرحمن', total: 1250, status: 'normal', unsubscribed: false, url: 'https://staging.ibtekr.club/checkout/?wcf_ac_token=a', site_updated_at: '2026-11-08T06:00:00Z' }, // 2 h → cart
+    { cart_id: 8, phone: '01099999999', status: 'normal', unsubscribed: false, site_updated_at: '2026-11-08T06:00:00Z' }, // ordered after → not a guest cart
+    { cart_id: 9, phone: '01055555555', status: 'normal', unsubscribed: false, site_updated_at: '2026-11-08T07:30:00Z' }, // 30 min → not yet
+    { cart_id: 10, phone: '', email: 'x@y.test', status: 'normal', unsubscribed: false, site_updated_at: '2026-11-08T06:00:00Z' }, // no phone: nothing to send to
+    { cart_id: 11, phone: '01044444444', status: 'completed', unsubscribed: false, site_updated_at: '2026-11-08T06:00:00Z' },
+    { cart_id: 12, phone: '01033333333', status: 'normal', unsubscribed: true, site_updated_at: '2026-11-08T06:00:00Z' },
+  ];
+  const orders = [{ id: 1, status: 'جاري التنفيذ', customer_phone: '+20 109 999 9999', placed_at: '2026-11-08T07:00:00Z' }];
+  const ev = guestCartEvents(carts, orders, { nowMs: NOW, afterMin: 60 });
+  assert.deepEqual(ev.map((e) => [e.type, e.entity, e.phone]), [['cart', 'cart:c7', '01012345678']]);
+  assert.deepEqual(guestCartEvents(carts, orders, { nowMs: NOW, afterMin: 20 }).map((e) => e.entity), ['cart:c7', 'cart:c9']);
+  const vars = varsFor(ev[0], { cartUrl: ev[0].cart.url });
+  assert.deepEqual([vars['اسم_العميل'], vars['الإجمالي'], vars['رابط_السلة'], vars['رقم_الأوردر']], ['نهى', '1,250 ج.م', 'https://staging.ibtekr.club/checkout/?wcf_ac_token=a', '']);
+  assert.deepEqual(guestCartEvents(null, null, { nowMs: NOW }), []);
 });
 
 test('subEvents / transferEvents: since the tick, approved only, with the maker', () => {

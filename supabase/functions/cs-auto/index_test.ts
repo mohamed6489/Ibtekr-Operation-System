@@ -87,6 +87,29 @@ Deno.test('live on, inside the window: the status rule sends the template text t
   const again = await cron(deps); assertEquals([again.body.events, again.body.sent], [0, 0]); assertEquals(graph.length, 1);
 });
 
+Deno.test('phase 12 T7 — the visitor\'s cart (cs_carts): a cart rule sends the template with the cart\'s name, total and recovery link + the opt-out line to a known number; a cart whose number ordered after, a completed one, one without a phone and one too young are left; once', async () => {
+  const CART_TPL = '00000000-0000-4000-8000-0000000000e2'; const CART_RULE = '00000000-0000-4000-8000-0000000000f2';
+  const seed = SEED();
+  seed.cs_templates.push({ id: CART_TPL, lib: 'customers', name: 'سلة متروكة', body: '{اسم_العميل}، سلتك بـ {الإجمالي} مستنياك: {رابط_السلة}', active: true });
+  seed.cs_auto_rules = [{ id: CART_RULE, name: 'سلة متروكة', event: 'cart', conds: [], action: 'send', template_id: CART_TPL, delay_min: 0, once: true, ticket_if_silent: false, enabled: true, runs: 0 }];
+  seed.orders = [{ id: 177703, number: '177703', customer_name: 'هدى', customer_phone: '01099999999', status: 'جاري التنفيذ', payment_method: 'cod', total: 300, placed_at: '2026-11-08T07:40:00Z', updated_at: '2026-11-08T07:50:00Z' }];
+  seed.cs_carts = [
+    { cart_id: 7, phone: '+201012345678', name: 'نهى عبد الرحمن', total: 1250, items: 2, status: 'normal', url: 'https://staging.ibtekr.club/checkout/?wcf_ac_token=a', site_updated_at: '2026-11-08T06:00:00Z' },
+    { cart_id: 8, phone: '01099999999', name: 'هدى', total: 300, items: 1, status: 'normal', site_updated_at: '2026-11-08T06:00:00Z' }, // ordered at 07:40 → not abandoned
+    { cart_id: 9, phone: '01055555555', name: 'x', total: 50, items: 1, status: 'normal', site_updated_at: '2026-11-08T07:45:00Z' }, // 15 min
+    { cart_id: 10, phone: '', email: 'g@x.test', name: 'g', total: 90, items: 1, status: 'normal', site_updated_at: '2026-11-08T06:00:00Z' },
+    { cart_id: 11, phone: '01044444444', name: 'c', total: 90, items: 1, status: 'completed', site_updated_at: '2026-11-08T06:00:00Z' },
+  ];
+  const { db, deps, graph } = setup({ seed });
+  const { res, body } = await cron(deps);
+  assertEquals(res.status, 200, JSON.stringify(body));
+  assertEquals([body.events, body.sent, body.skipped, body.by], [1, 1, 0, { cart: 1 }], JSON.stringify(body));
+  assertEquals(graph.length, 1); assertEquals(graph[0].body.to, '201012345678');
+  assertEquals(graph[0].body.text.body, 'نهى، سلتك بـ 1,250 ج.م مستنياك: https://staging.ibtekr.club/checkout/?wcf_ac_token=a\n\nاكتب «إيقاف» لو مش عايز رسايل عروض.');
+  const R = db.rows('cs_auto_runs'); assertEquals(R.map((r: any) => [r.rule_id, r.entity, r.result, r.customer_id, r.conversation_id]), [[CART_RULE, 'cart:c7', 'sent', CUST, CONV]]);
+  const again = await cron(deps); assertEquals([again.body.events, again.body.sent], [0, 0]); assertEquals(graph.length, 1);
+});
+
 Deno.test('outside the 24-hour window: the approved Meta template with the variables in order; a Graph refusal → failed + code, the row failed', async () => {
   const a = setup({ seed: SEED({ lastIn: '2026-11-06T07:00:00.000Z' }) });
   const { body } = await cron(a.deps);

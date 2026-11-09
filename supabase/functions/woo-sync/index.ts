@@ -642,6 +642,17 @@ async function pullAccounts(run: Run) {
 }
 
 // phase 12 T7: the visitor's abandoned carts — the site's snippet over CartFlows' table, mirrored on cart_id (no contents, no address)
+// the probe (the admin): what the site keeps abandoned carts in — the tables found, their columns, the name-mapping, row counts; no rows
+async function probeCarts(run: Run) {
+  const woo = run.woo();
+  try {
+    const res = await woo.get(CART_PATH, { probe: 1 });
+    return { installed: true, probe: isObj(res.data) ? res.data : {} };
+  } catch (e) {
+    if (e instanceof WooError && e.status === 404) return { installed: false, probe: null };
+    throw e;
+  }
+}
 async function pullCarts(run: Run) {
   const woo = run.woo();
   let data: Json[] = [];
@@ -1357,6 +1368,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     }
     if (action === 'carts') {
       try {
+        if (args.probe === true) { if (mode !== 'member') return json(401, { error: 'unauthorized' }); return json(200, { action, result: 'ok', ...(await probeCarts(run)) }); } // the admin's diagnostic, never the cron's
         const counts = await pullCarts(run);
         await logSync(run.db, { kind: run.kind, direction: 'in', entity: 'cs_carts', action: 'sync', result: counts.installed ? 'ok' : 'skipped', detail: counts });
         return json(200, { action, result: 'ok', counts });

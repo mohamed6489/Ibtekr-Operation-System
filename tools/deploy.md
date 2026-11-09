@@ -1050,16 +1050,19 @@ select data from public.settings where section = 'lists';
 `_shared/cs-auto.js` `guestCartEvents` + `cs-auto-run.ts` بيقرا `cs_carts` لما فيه قاعدة `cart` · الكتلة 20 (ملحوظة الحدث). **مافيش سر جديد** — نفس مفاتيح Woo.
 
 **ب) على الموقع (صاحب المشروع — الـ staging الأول):**
-1. ركّب الإضافة المجانية **«Cart Abandonment Recovery for WooCommerce»** (من CartFlows، slug `woo-cart-abandonment-recovery`) وفعّلها؛ في إعداداتها سيب
-   «Enable Tracking» شغال (هي اللي بتحفظ الإيميل/الرقم/الاسم أول ما الزائر يكتبهم في الـ checkout) — رسايلها الإيميلية ممكن تتقفل، إحنا بنبعت من السيستم.
+1. **المصدر = «Abandoned cart» بتاعة ثيم WoodMart** (Theme Settings › Shop › Abandoned cart — شغّالة عند صاحب المشروع، 9 نوفمبر): الـ snippet بيلاقي جدولها لوحده
+   (أي جدول تحت بادئة WP اسمه فيه «abandoned») وبيقرا أعمدته بالاسم؛ سلة «open» (الزائر لسه بيتسوق) مابتتحسبش، «abandoned» بس. مافيش إضافة تانية مطلوبة.
+   (لو اتركّبت CartFlows «Cart Abandonment Recovery» بعدين الـ snippet بيقراها هي كمان بنفس الـ route.) **ملحوظة:** WoodMart بيحفظ سلة الزائر بعد ما يكتب
+   الإيميل في الـ checkout — لو جدوله مافيهوش رقم تليفون، السلل دي هتتسجل عندنا من غير رقم ومش هتتبعتلها رسالة واتساب (الـ probe في الخطوة ج بيقول).
 2. في **WPCode › Code Snippets › Add New › PHP Snippet**: الصق محتوى `tools/wp-snippets/ibtekr-carts.php` (من غير سطر `<?php` الأول لو WPCode بيضيفه
    لوحده)، الاسم «Ibtekr carts feed»، **Insert Method = Auto Insert · Location = Run Everywhere**، فعّله.
 3. جرّب من المتصفح وأنت مسجّل دخول في WordPress: `https://staging.ibtekr.club/wp-json/ibtekr/v1/carts` لازم يرجّع **401** (مافيش مفاتيح) — ده الصح؛ ومن
    woo-sync (الخطوة ج) يرجّع صفوف.
 
 **ج) على Supabase (المطوّر):** `0062` (MCP `apply_migration` مرة واحدة؛ لو وقف = الـ SQL كله لصاحب المشروع في الـ SQL editor) → «RLS live» بـ
-`files = rls_cs_carts` → «Deploy functions» `woo-sync` ثم `cs-auto` → الواجهة على `main` → تشغيلة بالإيد: `woo-sync` `{ "action": "carts" }` بالأدمن
-(أو استنى الـ cron 10 دقايق).
+`files = rls_cs_carts` → «Deploy functions» `woo-sync` ثم `cs-auto` → الواجهة على `main` → **الـ probe الأول**: `woo-sync` `{ "action": "carts", "probe": true }` بالأدمن
+(الجداول اللي الـ snippet لقاها وأعمدتها والـ mapping وعدد الصفوف — من غير أي صف؛ لو عمود الرقم/الحالة/الوقت مش متعرّف نزوّد اسمه في `ibtekr_ops_carts_map`)
+→ تشغيلة بالإيد: `{ "action": "carts" }` بالأدمن (أو استنى الـ cron 10 دقايق).
 
 **د) من الصفحة:** «الرد الآلي › قواعد الرد الآلي»: قاعدة بحدث «سلة متروكة» بقالب فيه `{اسم_العميل}` و`{الإجمالي}` و`{رابط_السلة}` (لينك الاسترجاع بتاع
 الإضافة بيرجّع الزائر لسلته) — بتبعت بس لرقم **موجود في العملاء** وموافق على التسويق، وبعد `cart.afterMin` دقيقة (إعدادات الإرسال الآلي)، والمفتاح الرئيسي

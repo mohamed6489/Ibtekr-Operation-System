@@ -63,6 +63,11 @@
     الـ snippet بيشترط إن مستخدم المفتاح يقدر يدير المتجر (`manage_woocommerce`) مش بس مفتاح قراءة؛ والأعضاء مابيشوفوش من `cs_carts` لا الرقم ولا
     الإيميل غير مطموسين (`cs_cart_phone` / `cs_cart_email` بـ `sensitive.customer_phone`) ولا لينك الاسترجاع خالص (توكن جلسة — للسيرفر بس)؛ واللينك
     نفسه بيتحفظ بس لو على host الموقع المعروف (`WOO_URL`) — من غير host معروف بيتشال.
+    **المصدر WoodMart (صاحب المشروع، 9 نوفمبر: «Abandoned cart متفعلة من إعدادات WoodMart»):** مافيش CartFlows — الـ snippet بقى بيكتشف جدول السلة
+    لوحده (`SHOW TABLES LIKE '{prefix}%abandon%'` + أعمدته بالاسم عبر `ibtekr_ops_carts_map`؛ WoodMart 8.1+ والـ CartFlows الاتنين)، بيرجّع `source`
+    (`woodmart` | `cartflows`)، سلة WoodMart «open» (الزائر لسه بيتسوق) مابتترجعش و«abandoned» = `normal`؛ لينك الاسترجاع بتاع CartFlows بس (WoodMart
+    شكله مش معروف → الرسالة بتاخد لينك الـ checkout العام). و`?probe=1` بيرجّع الجداول والأعمدة والـ mapping وأعداد الصفوف من غير صفوف — woo-sync
+    `carts { probe: true }` للأدمن بس (مش الـ cron) عشان نشوف شكل الجدول الحقيقي قبل ما نثق في الـ mapping.
 
 ## المهام (بالتوالي)
 

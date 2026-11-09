@@ -1928,7 +1928,7 @@ Deno.test('carts: the site snippet\'s rows → cs_carts on cart_id (phone, name,
     { id: 42, email: '', phone: '01099999999', name: '', total: 300, items: 1, status: 'completed', unsubscribed: true, updated_at: '2026-10-25T07:00:00+00:00', url: 'https://evil.test/checkout/' },
     { id: 'x' },
   ];
-  const { db, woo, deps } = setup({ routes: { 'GET ibtekr/v1/carts': (c: any) => (c.query.hours === '48' ? { body: feed } : { status: 400, body: {} }) } });
+  const { db, woo, deps } = setup({ routes: { 'GET ibtekr/v1/carts': (c: any) => (c.query.probe === '1' ? { body: { tables: [{ table: 'wp_woodmart_abandoned_carts', columns: ['ID', 'email'], rows: 3 }], woodmart: true } } : c.query.hours === '48' ? { body: feed } : { status: 400, body: {} }) } });
   const { res, body } = await call(deps, { action: 'carts' });
   assertEquals(res.status, 200, JSON.stringify(body));
   assertEquals(body.counts, { installed: true, carts: 2, bad: 1, failed_rows: 0 });
@@ -1942,6 +1942,10 @@ Deno.test('carts: the site snippet\'s rows → cs_carts on cart_id (phone, name,
   // the admin by hand; a member who is not admin cannot; the snippet missing = skipped, not an error
   assertEquals((await call(deps, { action: 'carts' }, { jwt: 'jwt-admin' })).res.status, 200);
   assertEquals((await call(deps, { action: 'carts' }, { jwt: 'jwt-ops' })).res.status, 401);
+  // the probe: the admin reads what the site has (tables + columns, no rows); the cron cannot
+  const pr = await call(deps, { action: 'carts', probe: true }, { jwt: 'jwt-admin' });
+  assertEquals([pr.res.status, pr.body.installed], [200, true]); assertEquals(woo.calls.at(-1)!.query.probe, '1');
+  assertEquals((await call(deps, { action: 'carts', probe: true })).res.status, 401, 'the sync secret cannot probe');
   const none = setup();
   const r2 = await call(none.deps, { action: 'carts' });
   assertEquals([r2.res.status, r2.body.counts], [200, { installed: false, carts: 0, bad: 0, failed_rows: 0 }]);

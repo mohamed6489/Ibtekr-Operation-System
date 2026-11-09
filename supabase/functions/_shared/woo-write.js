@@ -560,10 +560,12 @@ async function autoReleaseClosed(ctx, mappedUpdated) {
       const reserved = mine.filter((m) => m.type === 'reserve'); const released = mine.filter((m) => m.type === 'release');
       for (const r of reserved) {
         const item = /سطر #(\d+)/.exec(String(r.note))?.[1] ?? null;
-        if (released.some((x) => x.lot_id === r.lot_id && String(x.note) === String(r.note))) continue;
+        if (!item || released.some((x) => x.lot_id === r.lot_id && String(x.note) === String(r.note))) continue;
+        // the line is given back first, conditionally (security review): two writers of the same closed order release it once
+        const { data: took } = await ctx.db.from('order_items').update({ pulled: false }).eq('id', Number(item)).eq('pulled', true).select('id');
+        if (!Array.isArray(took) || !took.length) continue;
         const mv = await ctx.db.from('inv_moves').insert({ lot_id: r.lot_id, type: 'release', qty: r.qty, label: 'فك حجز', reason: FOR_SALE, ref, note: r.note, by: null, at: now });
-        if (mv.error) continue;
-        if (item) await ctx.db.from('order_items').update({ pulled: false }).eq('id', Number(item));
+        if (mv.error) { await ctx.db.from('order_items').update({ pulled: true }).eq('id', Number(item)); continue; }
         await ctx.db.from('inv_lots').update({ status: 'متاح' }).eq('id', r.lot_id).eq('status', RESERVED_STATUS);
         n += 1;
       }

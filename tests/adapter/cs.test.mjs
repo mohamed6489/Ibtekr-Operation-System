@@ -302,7 +302,7 @@ test('6.2 — send on a connected Meta channel: the queued row then cs-channel s
   assert.equal(cs.ok, true); assert.match(cs.url, /^https:\/\/www\.facebook\.com\//); eq(calls.at(-1), { action: 'connect_start', channel: 'instagram' });
   const st = await S.channelStatus();
   eq([st.linked, st.configured, st.verifyConfigured, st.page.name], [true, true, false, 'Ibtekr Club']);
-  assert.equal(S.data.channels.messenger.last, 'آخر رسالة: ' + S.clock(Date.now() - 60e3));
+  assert.equal(S.data.channels.messenger.last, 'آخر رسالة: ' + S.clock(NOW - 60e3)); // the seeded instant itself, not a fresh Date.now() (a minute boundary between the two failed CI once)
   assert.ok(!JSON.stringify(logs).includes('في الطريق'), 'no text in the log');
   const member = load({ admin: false, responses: { 'fn:cs-channel': () => ({ data: { result: 'ok', url: 'https://www.facebook.com/x' }, error: null }) } });
   await member.S.load();

@@ -14,7 +14,11 @@
   const uidOk = (v) => typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v);
   function sync() {
     const st = channel && typeof channel.presenceState === 'function' ? quiet(() => channel.presenceState()) : null;
-    const next = new Set(Object.keys(st && typeof st === 'object' ? st : {}).filter(uidOk));
+    // a key counts only when every payload tracked under it names the same uid (a tab tracking { uid } under another member's key
+    // is dropped); the key itself is the client's choice, so the set is a hint for the dot and the inbox's suggestion — an
+    // assignment is still the member's to change, and nothing here grants anything
+    const obj = st && typeof st === 'object' ? st : {};
+    const next = new Set(Object.keys(obj).filter((k) => uidOk(k) && Array.isArray(obj[k]) && obj[k].length > 0 && obj[k].every((p) => p && p.uid === k)));
     const me = myUid(); if (me) next.add(me);
     set = next; emit();
   }

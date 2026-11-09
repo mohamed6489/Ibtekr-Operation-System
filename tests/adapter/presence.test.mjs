@@ -17,7 +17,8 @@ const chan = (stub) => stub.calls.find((c) => c.op === 'channel');
 const plain = (v) => JSON.parse(JSON.stringify(v)); // the adapter's arrays come from another realm
 
 test('join: the private channel «presence» keyed by my uid, sync handler, subscribe; SUBSCRIBED → track { uid, at } and ready; the state gives online() (me always in); leave untracks and removes', async () => {
-  const state = { [OTHER]: [{ uid: OTHER }], 'not-a-uid': [{}] };
+  const SPOOF = 'c0000000-0000-4000-8000-000000000099'; const GONE = 'c0000000-0000-4000-8000-000000000098';
+  const state = { [OTHER]: [{ uid: OTHER }, { uid: OTHER, at: 'x' }], 'not-a-uid': [{}], [SPOOF]: [{ uid: OTHER }], [GONE]: [] };
   const { P, stub, events } = load({ responses: { 'presence:presence': () => state } });
   assert.deepEqual(plain(P.online()), []); assert.equal(P.ready(), false);
   P.join();
@@ -27,7 +28,7 @@ test('join: the private channel «presence» keyed by my uid, sync handler, subs
   stub.emitStatus('SUBSCRIBED'); await Promise.resolve();
   assert.equal(P.ready(), true);
   const tr = stub.calls.find((c) => c.op === 'track'); assert.equal(tr.args[0].uid, ME); assert.match(tr.args[0].at, /^\d{4}-\d{2}-\d{2}T/);
-  assert.deepEqual(plain(P.online().sort()), [ME, OTHER].sort(), 'the state\'s keys that are uids, plus me'); assert.equal(P.isOnline(OTHER), true); assert.equal(P.isOnline('x'), false); assert.equal(P.count(), 2);
+  assert.deepEqual(plain(P.online().sort()), [ME, OTHER].sort(), 'the state\'s keys that are uids and whose every payload names that uid, plus me — a key tracked under another member\'s uid or with nothing under it is dropped'); assert.equal(P.isOnline(SPOOF), false); assert.equal(P.isOnline(OTHER), true); assert.equal(P.isOnline('x'), false); assert.equal(P.count(), 2);
   assert.ok(events.some((e) => Array.isArray(e) && e.includes(OTHER)), 'ib:presence carried the list');
   P.join(); assert.equal(stub.calls.filter((c) => c.op === 'channel').length, 1, 'a second join reuses the channel');
   P.leave();
@@ -36,7 +37,7 @@ test('join: the private channel «presence» keyed by my uid, sync handler, subs
 });
 
 test('a dropped channel (CHANNEL_ERROR) forgets the others and is rejoined on the next join; no socket (IB_CONFIG.realtime false) → me alone, no channel; no session → nothing', () => {
-  const { P, stub } = load({ responses: { 'presence:presence': () => ({ [OTHER]: [{}] }) } });
+  const { P, stub } = load({ responses: { 'presence:presence': () => ({ [OTHER]: [{ uid: OTHER }] }) } });
   P.join(); stub.emitStatus('SUBSCRIBED'); assert.equal(P.isOnline(OTHER), true);
   stub.emitStatus('CHANNEL_ERROR'); assert.deepEqual(plain(P.online()), [ME]); assert.equal(P.ready(), false);
   P.join(); assert.equal(stub.calls.filter((c) => c.op === 'channel').length, 2, 'rejoined');

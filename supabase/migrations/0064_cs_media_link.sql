@@ -25,11 +25,33 @@ begin
     return exists (select 1 from public.cs_messages m
                    where m.id::text = split_part(split_part(p_name, '/', 2), '.', 1) and public.cs_conv_visible(m.conversation_id));
   end if;
-  return exists (select 1 from public.cs_messages m where m.meta->'media'->>'path' = p_name and public.cs_conv_visible(m.conversation_id));
+  -- another member's attachment: the path must sit in that member's own folder (a row cannot lend a foreign folder)
+  return exists (select 1 from public.cs_messages m
+                 where m.meta->'media'->>'path' = p_name and m.kind = 'out' and m.author is not null and v_folder = m.author::text
+                   and public.cs_conv_visible(m.conversation_id));
 end
 $$;
 revoke execute on function public.cs_media_visible(text) from public, anon;
 grant execute on function public.cs_media_visible(text) to authenticated, service_role;
+-- a member's attachment lives in their own folder only (<uid>/…, no «..»); media_path / media_id are the server's — a member's row
+-- never carries them (security review: a meta pointing at another folder or at inbound/ is refused at the write)
+create or replace function public.cs_messages_media_guard() returns trigger
+language plpgsql set search_path = public as $$
+declare v_path text;
+begin
+  if current_user in ('anon', 'authenticated') then
+    if new.meta is null or jsonb_typeof(new.meta) <> 'object' then return new; end if;
+    new.meta := new.meta - 'media_path' - 'media_id';
+    v_path := new.meta->'media'->>'path';
+    if v_path is not null and (position('..' in v_path) > 0 or v_path not like (select auth.uid())::text || '/%') then
+      raise exception 'an attachment must sit in your own folder' using errcode = '42501';
+    end if;
+  end if;
+  return new;
+end $$;
+drop trigger if exists cs_messages_media_guard on public.cs_messages;
+create trigger cs_messages_media_guard before insert or update on public.cs_messages
+  for each row execute function public.cs_messages_media_guard();
 create index if not exists cs_messages_media_path_idx on public.cs_messages ((meta->'media'->>'path')) where meta->'media'->>'path' is not null;
 
 do $storage$

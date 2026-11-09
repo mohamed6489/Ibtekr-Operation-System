@@ -77,6 +77,28 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000
 do $$ begin
   if public.cs_media_visible('00000000-0000-4000-8000-0000000064a4/mine.pdf') then raise exception 'case accounts reads failed'; end if;
 end $$;
+-- the write guard: a member's row cannot point at another folder, at inbound/, or carry the server's media_path / media_id; a row that
+-- does slip in (the server's own) never lends a foreign folder to cs_media_visible
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000064a2","role":"authenticated"}', true);
+do $$ begin
+  begin insert into public.cs_messages (conversation_id, kind, text, meta) values ('00000000-0000-4000-8000-0000000064d1', 'out', 'x', '{"media":{"path":"00000000-0000-4000-8000-0000000064a1/other.jpg","type":"image/jpeg"}}'); raise exception 'case a foreign folder failed';
+  exception when insufficient_privilege then null; end;
+  begin insert into public.cs_messages (conversation_id, kind, text, meta) values ('00000000-0000-4000-8000-0000000064d1', 'out', 'x', '{"media":{"path":"inbound/00000000-0000-4000-8000-0000000064e2.jpg","type":"image/jpeg"}}'); raise exception 'case the inbound folder failed';
+  exception when insufficient_privilege then null; end;
+  begin insert into public.cs_messages (conversation_id, kind, text, meta) values ('00000000-0000-4000-8000-0000000064d1', 'out', 'x', '{"media":{"path":"00000000-0000-4000-8000-0000000064a2/../x.jpg","type":"image/jpeg"}}'); raise exception 'case a dotted path failed';
+  exception when insufficient_privilege then null; end;
+  insert into public.cs_messages (id, conversation_id, kind, text, meta) values ('00000000-0000-4000-8000-0000000064e3', '00000000-0000-4000-8000-0000000064d1', 'out', 'x', '{"media":{"path":"00000000-0000-4000-8000-0000000064a2/ok.jpg","type":"image/jpeg"},"media_path":"inbound/zz.jpg","media_id":"123"}');
+  if (select meta ? 'media_path' or meta ? 'media_id' from public.cs_messages where id = '00000000-0000-4000-8000-0000000064e3') then raise exception 'case the server keys on a member row failed'; end if;
+end $$;
+reset role;
+-- a server-written row pointing at a member's folder from another author: the viewer (assigned) still cannot read it through that row
+insert into public.cs_messages (id, conversation_id, kind, text, author, delivery, meta) values
+  ('00000000-0000-4000-8000-0000000064e4', '00000000-0000-4000-8000-0000000064d1', 'out', 'x', '00000000-0000-4000-8000-0000000064a3', 'sent', '{"media":{"path":"00000000-0000-4000-8000-0000000064a1/admin-only.jpg","type":"image/jpeg"}}');
+set local role authenticated;
+select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000064a3","role":"authenticated"}', true);
+do $$ begin
+  if public.cs_media_visible('00000000-0000-4000-8000-0000000064a1/admin-only.jpg') then raise exception 'case a row lending a foreign folder failed'; end if;
+end $$;
 
 -- the viewer (cs.view P, cs.reply N): refused; accounts (cs.view N): refused before anything is read
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000064a3","role":"authenticated"}', true);

@@ -9,6 +9,9 @@
 -- * hr_bank_reveal(member) — the full number: my own, or anyone's for an admin / sensitive.salaries; every call logged
 --   'hr.bank.reveal' with the member's id only (never the number).
 -- * member_delete (0067) — hr_bank is a personal setup row: it goes with the member (added to the allowlist).
+-- * Security review: a stolen password alone never reads or moves where the salary goes — the three RPCs need an aal2 session when the
+--   caller is enrolled in 2FA or the company forces it (hr_bank_session; the readers' path is aal2-gated by is_admin / has_perm already,
+--   0008 / 0056), else 42501 'aal2_required'; and a change rings the member and the admins (kind 'hr.bank', no number in it).
 
 create table if not exists public.hr_bank (
   member_id uuid primary key references public.profiles on delete cascade,
@@ -22,6 +25,13 @@ alter table public.hr_bank enable row level security;
 revoke all on public.hr_bank from public, anon, authenticated;
 grant select, insert, update, delete on public.hr_bank to service_role;
 
+-- the session may touch a bank account: aal2 when the caller is enrolled in 2FA or the company forces 2FA (security review)
+create or replace function public.hr_bank_session() returns boolean
+language sql stable security definer set search_path = public as $$
+  select auth.uid() is not null and not ((coalesce((select p.twofa from public.profiles p where p.id = auth.uid()), false) or public.force2fa_on())
+    and coalesce(auth.jwt() ->> 'aal', 'aal1') <> 'aal2')
+$$;
+
 -- who may read another member's bank account: an admin or the payroll's people (sensitive.salaries F)
 create or replace function public.hr_bank_reader() returns boolean
 language sql stable security definer set search_path = public as $$
@@ -33,6 +43,7 @@ language plpgsql stable security definer set search_path = public as $$
 declare v_m uuid := coalesce(p_member, auth.uid()); v_b public.hr_bank;
 begin
   if not public.hr_active() then raise exception 'not allowed' using errcode = '42501'; end if;
+  if not public.hr_bank_session() then raise exception 'aal2_required' using errcode = '42501'; end if;
   if v_m is distinct from auth.uid() and not public.hr_bank_reader() then raise exception 'not allowed' using errcode = '42501'; end if;
   select * into v_b from public.hr_bank where member_id = v_m;
   if not found then return null; end if;
@@ -49,6 +60,7 @@ declare
   v_iban text := nullif(upper(regexp_replace(coalesce(p_input ->> 'iban', ''), '[\s-]', '', 'g')), '');
 begin
   if not public.hr_active() then raise exception 'not allowed' using errcode = '42501'; end if;
+  if not public.hr_bank_session() then raise exception 'aal2_required' using errcode = '42501'; end if;
   if char_length(v_bank) not between 1 and 80 then raise exception 'invalid: bank' using errcode = '22023'; end if;
   if char_length(v_holder) not between 1 and 120 then raise exception 'invalid: holder' using errcode = '22023'; end if;
   if v_num !~ '^[0-9]{6,30}$' then raise exception 'invalid: number' using errcode = '22023'; end if;
@@ -58,6 +70,13 @@ begin
   on conflict (member_id) do update set bank_name = excluded.bank_name, holder = excluded.holder, account_number = excluded.account_number,
     iban = excluded.iban, updated_at = excluded.updated_at;
   insert into public.activity_log (action, entity, entity_id) values ('hr.bank.set', 'hr_bank', auth.uid()::text);
+  -- the member and the admins hear of every change (a takeover is seen at once); the name only, never a number
+  insert into public.alerts (kind, title, body, user_id, entity, entity_id)
+  values ('hr.bank', 'اتغيّر حسابك البنكي', 'لو مش إنت اللي غيّرته كلّم الأدمن فورًا', auth.uid(), 'profile-security', 'bank:' || auth.uid() || ':' || extract(epoch from now())::bigint);
+  insert into public.alerts (kind, title, body, role_id, entity, entity_id)
+  select 'hr.bank', left(coalesce(p.name, 'عضو'), 60) || ' غيّر حسابه البنكي', 'المرتب الجاي بيتحوّل على الحساب الجديد', 'admin',
+    coalesce('member-' || p.member_code, 'hr-team'), 'bank:' || auth.uid() || ':' || extract(epoch from now())::bigint
+  from public.profiles p where p.id = auth.uid();
   return public.hr_bank_get(auth.uid());
 end $$;
 
@@ -66,6 +85,7 @@ language plpgsql security definer set search_path = public as $$
 declare v_m uuid := coalesce(p_member, auth.uid()); v_b public.hr_bank;
 begin
   if not public.hr_active() then raise exception 'not allowed' using errcode = '42501'; end if;
+  if not public.hr_bank_session() then raise exception 'aal2_required' using errcode = '42501'; end if;
   if v_m is distinct from auth.uid() and not public.hr_bank_reader() then raise exception 'not allowed' using errcode = '42501'; end if;
   select * into v_b from public.hr_bank where member_id = v_m;
   if not found then raise exception 'not found' using errcode = 'P0002'; end if;
@@ -73,8 +93,8 @@ begin
   return jsonb_build_object('bank_name', v_b.bank_name, 'holder', v_b.holder, 'account_number', v_b.account_number, 'iban', v_b.iban);
 end $$;
 
-revoke execute on function public.hr_bank_reader(), public.hr_bank_get(uuid), public.hr_bank_set(jsonb), public.hr_bank_reveal(uuid) from public, anon;
-grant execute on function public.hr_bank_reader(), public.hr_bank_get(uuid), public.hr_bank_set(jsonb), public.hr_bank_reveal(uuid) to authenticated, service_role;
+revoke execute on function public.hr_bank_session(), public.hr_bank_reader(), public.hr_bank_get(uuid), public.hr_bank_set(jsonb), public.hr_bank_reveal(uuid) from public, anon;
+grant execute on function public.hr_bank_session(), public.hr_bank_reader(), public.hr_bank_get(uuid), public.hr_bank_set(jsonb), public.hr_bank_reveal(uuid) to authenticated, service_role;
 
 -- 0067 + hr_bank in the personal setup rows that go with the member
 create or replace function public.member_delete(p_member uuid, p_actor uuid) returns jsonb

@@ -50,6 +50,36 @@ begin
   exception when insufficient_privilege then null; end;
 end $$;
 
+-- ================================================================ security review: enrolled in 2FA (or 2FA forced) = an aal2 session only
+
+reset role;
+update public.profiles set twofa = true where id = '00000000-0000-4000-8000-0000000072a3';
+select pg_temp.as_member('00000000-0000-4000-8000-0000000072a3');
+do $$ begin
+  begin perform public.hr_bank_set(jsonb_build_object('bank_name', 'بنك الحرامي', 'holder', 'حد', 'account_number', '99999999'));
+    raise exception 'case an aal1 session of an enrolled member does not change the account failed';
+  exception when insufficient_privilege then if sqlerrm <> 'aal2_required' then raise; end if; end;
+  begin perform public.hr_bank_reveal(null); raise exception 'case an aal1 session does not reveal it failed';
+  exception when insufficient_privilege then null; end;
+  begin perform public.hr_bank_get(); raise exception 'case an aal1 session does not read it failed';
+  exception when insufficient_privilege then null; end;
+end $$;
+select set_config('request.jwt.claims', json_build_object('sub', '00000000-0000-4000-8000-0000000072a3', 'role', 'authenticated', 'aal', 'aal2')::text, true);
+do $$ begin
+  if public.hr_bank_get() ->> 'bank_name' <> 'بنك مصر' then raise exception 'case an aal2 session reads it failed'; end if;
+end $$;
+reset role;
+update public.profiles set twofa = false where id = '00000000-0000-4000-8000-0000000072a3';
+do $$ begin
+  if (select bank_name from public.hr_bank where member_id = '00000000-0000-4000-8000-0000000072a3') <> 'بنك مصر' then raise exception 'case the refused change wrote nothing failed'; end if;
+  -- a change rings the member and the admins, with no number
+  if not exists (select 1 from public.alerts where kind = 'hr.bank' and user_id = '00000000-0000-4000-8000-0000000072a3')
+     or not exists (select 1 from public.alerts where kind = 'hr.bank' and role_id = 'admin' and title like 'عضو البنك%')
+     or exists (select 1 from public.alerts where kind = 'hr.bank' and (coalesce(title, '') || coalesce(body, '')) ~ '[0-9]{4}') then
+    raise exception 'case a change rings the member and the admins without a number failed';
+  end if;
+end $$;
+
 -- ================================================================ the direct manager does not see it; an admin sees it masked and reveals it
 
 select pg_temp.as_member('00000000-0000-4000-8000-0000000072a2');
@@ -97,6 +127,7 @@ end $$;
 do $$ begin
   if has_table_privilege('authenticated', 'public.hr_bank', 'select') or has_table_privilege('anon', 'public.hr_bank', 'select')
      or has_function_privilege('anon', 'public.hr_bank_reveal(uuid)', 'execute') or has_function_privilege('anon', 'public.hr_bank_get(uuid)', 'execute')
+     or has_function_privilege('anon', 'public.hr_bank_session()', 'execute')
      or not has_function_privilege('authenticated', 'public.hr_bank_set(jsonb)', 'execute') then
     raise exception 'case the grants of 0072 failed';
   end if;

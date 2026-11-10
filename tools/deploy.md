@@ -1197,7 +1197,7 @@ select at, action, entity_id, new_value from public.activity_log where action li
 
 #### 2.7.49 «بيانات الحساب» والحساب البنكي للموظف (المرحلة 13 قرار 39، 10 نوفمبر)
 
-- **الكود:** `0072_hr_bank.sql` (`hr_bank` مقفول على الأعضاء — RLS من غير سياسات ومن غير grant لـ `authenticated`؛ `hr_bank_get` مطموس / `hr_bank_set` لصاحبه بس / `hr_bank_reveal` لصاحبه أو الأدمن أو `sensitive.salaries` وبيتسجل `hr.bank.reveal` بالـ uuid بس؛ `member_delete` من جديد بـ `hr_bank` في صفوف الإعداد الشخصية)، `IBHR.bank` / `bankSet` / `bankReveal`، الكتلة 18 (+ نص «ملفي › بيانات الحساب» في 15 و17 و28).
+- **الكود:** `0072_hr_bank.sql` (`hr_bank` مقفول على الأعضاء — RLS من غير سياسات ومن غير grant لـ `authenticated`؛ `hr_bank_get` مطموس / `hr_bank_set` لصاحبه بس / `hr_bank_reveal` لصاحبه أو الأدمن أو `sensitive.salaries` وبيتسجل `hr.bank.reveal` بالـ uuid بس؛ التلاتة محتاجين جلسة aal2 لو العضو مفعّل التحقق بخطوتين أو الشركة ملزماه (`hr_bank_session` — مراجعة أمنية: باسورد مسروق لوحده مايغيّرش حساب المرتب)، وأي تغيير بيرن للعضو نفسه وللأدمن (`alerts` `hr.bank` من غير رقم)؛ `member_delete` من جديد بـ `hr_bank` في صفوف الإعداد الشخصية)، `IBHR.bank` / `bankSet` / `bankReveal`، الكتلة 18 (+ نص «ملفي › بيانات الحساب» في 15 و17 و28).
 - **النشر بالترتيب:** `0072` **قبل** الواجهة → RLS live `rls_hr_bank` + `rls_member_delete` → الواجهة على `main`. مافيش Edge Function.
 - **التحقق:** «ملفي» → التاب التاني «بيانات الحساب» (البيانات الشخصية · الرقم السري · رقم الحساب البنكي · مستندات وعقود) → «إضافة الحساب البنكي» → الرقم بيظهر «•••• 1234» → «إظهار» بيكشفه ويتسجل؛ الأدمن من ملف العضو بيشوفه مطموس و«إظهار» بيتسجل؛ أي حد تاني `42501`.
 

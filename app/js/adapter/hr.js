@@ -414,19 +414,21 @@
   }
   // «ملفي › بيانات الحساب» (phase 13 decision 39, 0072): the bank account — the member types their own; it comes back masked
   // («•••• 1234»); the full number only through bankReveal (mine, or an admin / sensitive.salaries — the server logs every reveal)
+  // security review (0072): enrolled in 2FA (or 2FA forced) = an aal2 session only — the server says 'aal2_required'
+  const bankFail = (e) => (/aal2_required/.test(String((e && e.message) || '')) ? { ok: false, reason: 'aal1', field: null, message: 'ادخل بالتحقق بخطوتين الأول — اخرج وادخل تاني بالكود' } : fail(e));
   const bankShape = (d) => (d ? { bankName: d.bank_name || '', holder: d.holder || '', account: d.account || '', iban: d.iban || '', at: d.updated_at || null } : null);
   async function bank(member) {
     const uid = member ? uidOf(member) : myUid(); if (!uid) return no('network');
-    const { data: d, error } = await rpc('hr_bank_get', { p_member: uid }); if (error) return fail(error); return { ok: true, bank: bankShape(d) };
+    const { data: d, error } = await rpc('hr_bank_get', { p_member: uid }); if (error) return bankFail(error); return { ok: true, bank: bankShape(d) };
   }
   async function bankSet(input) {
     const v = input || {};
     const { data: d, error } = await rpc('hr_bank_set', { p_input: { bank_name: String(v.bankName || '').trim(), holder: String(v.holder || '').trim(), account_number: String(v.number || '').trim(), iban: String(v.iban || '').trim() } });
-    if (error) return fail(error); return { ok: true, bank: bankShape(d) };
+    if (error) return bankFail(error); return { ok: true, bank: bankShape(d) };
   }
   async function bankReveal(member) {
     const uid = member ? uidOf(member) : myUid(); if (!uid) return no('network');
-    const { data: d, error } = await rpc('hr_bank_reveal', { p_member: uid }); if (error) return fail(error);
+    const { data: d, error } = await rpc('hr_bank_reveal', { p_member: uid }); if (error) return bankFail(error);
     return { ok: true, bank: { bankName: d.bank_name || '', holder: d.holder || '', number: d.account_number || '', iban: d.iban || '' } };
   }
   async function payrollOpen(month) { const { error } = await rpc('hr_payroll_open', { p_month: monthArg(month) }); if (error) return fail(error); await load(); return { ok: true }; }

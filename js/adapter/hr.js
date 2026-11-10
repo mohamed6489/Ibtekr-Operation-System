@@ -256,10 +256,14 @@
   const member = (code) => data.team.find((m) => m.id === code) || null;
   // the team the HR page lists: active, the ones hr.view lets me see (F all · P me + the members I manage · N me), without an admin
   // who has no pay row (the owner is not on the sheet)
-  function team() {
+  const visible = (m, p, mine) => p === 'F' || m.id === mine || (p === 'P' && m.manager === mine);
+  function team() { // the staff: active, and an admin only with a salary (the prototype's rule — the sheets and the attendance tiles)
     const p = perm('hr.view'); const mine = me() ? me().member_code : null;
-    return data.team.filter((m) => m.status === 'active' && (p === 'F' || m.id === mine || (p === 'P' && m.manager === mine)) && !(m.role === 'أدمن' && !(m.salary > 0)));
+    return data.team.filter((m) => m.status === 'active' && visible(m, p, mine) && !(m.role === 'أدمن' && !(m.salary > 0)));
   }
+  // decision 15 (the owner, 10 Nov: «مش ظاهر غير عضو واحد»): the team table lists everyone I may see — the suspended and the
+  // salary-less admins too (tagged) — so they can be managed (file, password mail, suspend, delete)
+  function everyone() { const p = perm('hr.view'); const mine = me() ? me().member_code : null; return data.team.filter((m) => visible(m, p, mine)); }
   const after = async (action, detail, id) => { log(action, detail, id); await load(); return { ok: true }; };
   async function rpc(name, args) { const cl = c(); if (!cl) return { error: { code: 'net' } }; try { return await cl.rpc(name, args); } catch (e) { return { error: { code: 'net' } }; } }
   async function write(q) { try { const r = await q; return r && r.error ? r : { data: r ? r.data : null }; } catch (e) { return { error: { code: 'net' } }; } }
@@ -666,7 +670,7 @@
     if (lv && c()) { try { Promise.resolve(c().removeChannel(lv)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
 
-  window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, can, settings, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
+  window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, settings, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
     shiftNow, myShift, clockIn, clockOut, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, slips, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,

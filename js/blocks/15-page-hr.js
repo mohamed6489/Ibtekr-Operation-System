@@ -65,6 +65,7 @@
 
   // today status: حاضر · أنهى الدوام · عن بُعد · متأخر · انصراف ناقص · إجازة · عطلة رسمية · راحة · غائب
   function status(m) {
+    if (m.status === 'suspended') return ['موقوف', 'danger']; // decision 15: the roster shows the suspended too
     const t = S.today[m.id];
     if (!t) return ['مسجلش حضور', 'neutral'];
     if (t.kind === 'leave') return [t.leaveType || 'إجازة', 'gold'];
@@ -112,7 +113,8 @@
     return out;
   }
   function teamTable(tm) {
-    const list = tm.filter((m) => (!st.q || m.name.includes(st.q) || (m.title || '').includes(st.q)) && (!st.dept || m.dept === st.dept));
+    const everyone = H() && H().everyone ? H().everyone() : tm; // decision 15: the table lists everyone I may see (the suspended and the salary-less admins too); the tiles stay on the staff
+    const list = everyone.filter((m) => (!st.q || m.name.includes(st.q) || (m.title || '').includes(st.q)) && (!st.dept || m.dept === st.dept));
     const q = h('input', { type: 'search', placeholder: 'ابحث بالاسم', 'aria-label': 'بحث في الفريق', value: st.q });
     q.addEventListener('input', () => { st.q = q.value; const p = q.selectionStart; R(); const n = document.querySelector('#pg-hr input[type=search]'); if (n) { n.focus(); n.setSelectionRange(p, p); } });
     const c = can();

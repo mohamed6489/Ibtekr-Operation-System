@@ -1808,6 +1808,40 @@ Deno.test('woo-api (phase 5.2): of WordPress only wp/v2/media, with the Applicat
 
 // ---------------------------------------------------------------- product_images_add (phase 5.4 T8)
 
+Deno.test('vendor_photo (phase 13 decision 51): the uploaded photo is recorded on the maker; with a store and the switch on it goes to wp/v2/media and becomes the Dokan store photo (gravatar_id), logo_url follows; no store / switch off → recorded only; vendors.edit F, never the secret; a path outside the maker\'s folder → 400', async () => {
+  const PNG = new Uint8Array([137, 80, 78, 71, 13, 10, 26, 10, 0, 0, 0, 13, 9, 9]);
+  const V = vendorId(44); const path = `${V}/1700-logo.png`;
+  const routes = {
+    'POST wp/v2/media': () => ({ body: { id: 777, source_url: 'https://woo.test/up/logo.png' } }),
+    'PUT dokan/v1/stores/44': (c: any) => ({ body: { ...wooStoreFull(44), gravatar: c.body.gravatar_id === 777 ? 'https://woo.test/up/logo-150.png' : null } }),
+  };
+  const { db, woo, deps } = setup({ seed: { vendors: [{ ...PUSH_ROW }] }, routes, env: WP_ENV, storage: { [`vendor-photos/${path}`]: PNG } });
+  assertEquals((await call(deps, { action: 'vendor_photo', vendor_id: V, path })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { action: 'vendor_photo', vendor_id: V, path }, { jwt: 'jwt-bank' })).res.status, 401, 'vendors.edit N');
+  assertEquals((await call(deps, { action: 'vendor_photo', vendor_id: V, path: `${vendorId(45)}/x.png` }, { jwt: 'jwt-vf' })).body.field, 'path');
+  assertEquals((await call(deps, { action: 'vendor_photo', vendor_id: V, path: `${V}/x.gif` }, { jwt: 'jwt-vf' })).body.field, 'path');
+  const miss = await call(deps, { action: 'vendor_photo', vendor_id: V, path: `${V}/gone.png` }, { jwt: 'jwt-vf' });
+  assertEquals([miss.res.status, woo.calls.length], [404, 0]);
+  const { res, body } = await call(deps, { action: 'vendor_photo', vendor_id: V, path }, { jwt: 'jwt-vf' });
+  assertEquals([res.status, body.result, body.site, body.media], [200, 'ok', 'ok', 777]);
+  assertEquals(woo.calls.filter((c: any) => c.method === 'PUT').map((c: any) => [c.path, c.body]), [['dokan/v1/stores/44', { gravatar_id: 777 }]]);
+  const row = db.rows('vendors').find((v: any) => v.id === V);
+  assertEquals([row.photo_path, row.logo_url], [path, 'https://woo.test/up/logo-150.png']);
+  // the switch off: recorded, nothing sent
+  const off = setup({ seed: { vendors: [{ ...PUSH_ROW }] }, routes, env: {}, storage: { [`vendor-photos/${path}`]: PNG } });
+  const r2 = await call(off.deps, { action: 'vendor_photo', vendor_id: V, path }, { jwt: 'jwt-vf' });
+  assertEquals([r2.body.result, r2.body.site, r2.body.reason, off.woo.calls.length], ['ok', 'skipped', 'push_disabled', 0]);
+  assertEquals(off.db.rows('vendors').find((v: any) => v.id === V).photo_path, path);
+  // no store on the site: recorded only
+  const ns = setup({ seed: { vendors: [{ ...PUSH_ROW, woo_vendor_id: null }] }, routes, env: WP_ENV, storage: { [`vendor-photos/${path}`]: PNG } });
+  const r3 = await call(ns.deps, { action: 'vendor_photo', vendor_id: V, path }, { jwt: 'jwt-vf' });
+  assertEquals([r3.body.site, r3.body.reason, ns.woo.calls.length], ['skipped', 'no_store', 0]);
+  // the bytes decide, not the name or the declared type: a non-image named .png → 400, nothing kept, nothing sent
+  const fake = setup({ seed: { vendors: [{ ...PUSH_ROW }] }, routes, env: WP_ENV, storage: { [`vendor-photos/${path}`]: new TextEncoder().encode('<svg onload=alert(1)></svg>') } });
+  const r4 = await call(fake.deps, { action: 'vendor_photo', vendor_id: V, path }, { jwt: 'jwt-vf' });
+  assertEquals([r4.res.status, r4.body.error, fake.woo.calls.length, fake.db.rows('vendors')[0].photo_path ?? null], [400, 'bad_type', 0, null]);
+});
+
 Deno.test('product_images_add: the member\'s own ai-images paths onto a product — each to wp/v2/media, one PUT with the current images + the new ones (first → ahead); products.edit = F, never the secret; another member\'s folder → 401; a missing object → 404 before any upload; push disabled → skipped; the log counts only', async () => {
   const UID = '00000000-0000-4000-8000-0000000000e1', OTHER = '00000000-0000-4000-8000-0000000000e2';
   const PNG = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);

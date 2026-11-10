@@ -88,9 +88,9 @@ test('the admin adds a complete maker (basics + login with its temporary passwor
   await expect(m.locator('[data-pwmode]')).toHaveCount(0); // no «ابعتله لينك يعمل الباسورد بنفسه» (owner, 26 Oct): the temporary password is the only way
   await expect(m).not.toContainText('لينك');
   await expect(m.locator('#v-login-pw')).toHaveAttribute('type', 'password');
-  await m.getByRole('button', { name: 'إضافة المبتكر' }).click(); // the password and the bank are required
+  await m.getByRole('button', { name: 'إضافة المبتكر' }).click(); // the password is required; the bank is optional (phase 13 decision 51)
   await expect(m.locator('#v-login-pw-err')).toContainText('الباسورد لازم');
-  await expect(m).toContainText('اختار طريقة التحويل');
+  await expect(m).not.toContainText('اختار طريقة التحويل');
   expect(writes()).toEqual([]); expect(mock.rpcs).toEqual([]);
   await m.locator('[data-genpw]').click();
   const pw = await m.locator('#v-login-pw').inputValue(); expect(pw).toMatch(PW_RE);
@@ -123,6 +123,44 @@ test('the admin adds a complete maker (basics + login with its temporary passwor
   await expect(page.locator('body')).not.toContainText(pw);
   expect(mock.vendorLogins.find((l) => l.vendor_id === NEW1)).toMatchObject({ status: 'invited', must_change: true, invite_sent_at: null, pw_mode: 'temp' });
   expect(mock.vendorLogins.find((l) => l.vendor_id === NEW1).password_set_at).not.toBeNull();
+});
+
+test('phase 13 decision 51: the bank is optional, the photo and the contract are picked in «إضافة مبتكر»; after the save the photo goes to vendor-photos and woo-sync vendor_photo (no store → kept in the system only), the contract to vendor-contracts; the drawer shows the photo', async ({ page }) => {
+  await openVendors(page);
+  const m = await openAdd(page);
+  await expect(m.locator('#v-bank-method')).not.toHaveAttribute('aria-required', 'true');
+  await m.locator('#v-name').fill('Clay Home');
+  await pickOption(page, 'v-cat', 'ديكور منزلي');
+  await m.locator('#v-phone').fill('01000000019');
+  await m.locator('#v-login-email').fill('clay.dev@ibtekr.local');
+  await m.locator('[data-genpw]').click();
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  await m.locator('[data-v-photo]').setInputFiles({ name: 'clay.png', mimeType: 'image/png', buffer: png });
+  await expect(m.locator('[data-v-photo-prev] img')).toHaveCount(1); // the preview
+  await expect(m.locator('[data-v-photo-pick]')).toHaveText('غيّر الصورة');
+  await m.locator('[data-v-contract]').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%mock\n') });
+  await m.getByRole('button', { name: 'إضافة المبتكر' }).click(); // no bank: it still saves
+  await expect(drawer(page)).toBeVisible();
+  const ins = writes().filter((w) => w.op === 'insert');
+  expect(ins.map((w) => w.table)).toEqual(['vendors', 'vendor_rates', 'vendor_logins']); // no vendor_bank row
+  await expect.poll(() => mock.photoCalls.length).toBe(1);
+  expect(mock.photoCalls[0]).toMatchObject({ vendor_id: NEW1, site: 'skipped', by: ADMIN });
+  expect(mock.photoCalls[0].path).toMatch(new RegExp('^' + NEW1 + '/\\d{13}\\.png$'));
+  expect([...mock.vendorPhotos.keys()]).toEqual([mock.photoCalls[0].path]);
+  await expect.poll(() => mock.uploads.filter((u) => u.ok === 'ok' && u.path.startsWith(NEW1 + '/')).length).toBe(1); // the contract
+  await expect(page.locator('.toast.show')).toContainText('الصورة اتحفظت هنا (مالوش متجر على الموقع)');
+  await expect(drawer(page).locator('[data-v-photo-img] img')).toHaveCount(1);
+  await expect.poll(() => acts('vendor.photo').map((a) => a.new_value)).toEqual(['PNG · 0.0 ميجا · الموقع skipped']);
+  await expect(drawer(page).locator('[data-missing]')).toContainText('الحساب البنكي'); // the bank shows as missing until added
+});
+
+test('phase 13 decision 51: a photo of the wrong type is refused in the popup before any request; a member without vendors.edit F sees no photo button', async ({ page }) => {
+  await openVendors(page);
+  const m = await openAdd(page);
+  await m.locator('[data-v-photo]').setInputFiles({ name: 'x.gif', mimeType: 'image/gif', buffer: Buffer.from('GIF89a') });
+  await expect(page.locator('.toast.show')).toContainText('PNG أو JPG أو WebP');
+  await expect(m.locator('[data-v-photo-prev]')).toHaveCount(0);
+  expect(mock.vendorPhotos.size).toBe(0);
 });
 
 test('a temporary password from the generator passes the rules and reaches the RPC alone: in no write, no client log, nowhere on the page after; the server logs vendor.login.password; the note says it is ready to send', async ({ page }) => {

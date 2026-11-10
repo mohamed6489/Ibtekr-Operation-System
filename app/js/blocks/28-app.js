@@ -2917,9 +2917,9 @@
       opts.noPassword ? null : pwBox(),
       opts.noPassword ? null : U.InlineNote({ children: 'الباسورد المؤقت بيتحفظ مشفّر عشان الدعم: الأدمن ومتابعة المبتكرين يقدروا يظهروه من ملف المبتكر (وكل إظهار بيتسجل). لما المبتكر يغيّره بنفسه مش بيتحفظ.' })].flat().filter(Boolean);
   }
-  function bankFields(f, errs, redraw, px) {
+  function bankFields(f, errs, redraw, px, optional) { // optional (phase 13 decision 51): «إضافة مبتكر» — the bank can wait
     const m = f.method; const t = (id, label, key, o = {}) => U.TextInput(Object.assign({ id: px + '-' + id, label, value: f[key], error: errs[key], onInput: (x) => { f[key] = x; } }, o));
-    return [U.Select({ id: px + '-method', label: 'طريقة التحويل', required: true, options: VD.PAY_METHODS.map(([k, l]) => ({ value: k, label: l })), value: m, error: errs.method, placeholder: 'اختار الطريقة', onChange: (x) => { f.method = x; redraw(); } }),
+    return [U.Select({ id: px + '-method', label: 'طريقة التحويل', required: !optional, options: (optional ? [{ value: '', label: 'من غير حساب دلوقتي' }] : []).concat(VD.PAY_METHODS.map(([k, l]) => ({ value: k, label: l }))), value: m, error: errs.method, placeholder: optional ? 'اختياري — تقدر تضيفه بعدين' : 'اختار الطريقة', help: optional ? 'اختياري — لو سيبته هيظهر «ناقص» في ملف المبتكر لحد ما يتكمّل' : undefined, onChange: (x) => { f.method = x; redraw(); } }),
       m && m !== 'cash' ? t('holder', 'اسم صاحب الحساب', 'holder', { required: true, help: 'زي ما هو مكتوب في البنك / المحفظة بالظبط' }) : null,
       // phase 3.5 (plan decision 6): every field of Dokan's «Payment Options» — the account number and the IBAN apart
       m === 'bank' ? h('div', { class: 'row cols2' }, t('bank', 'البنك', 'bankName', { required: true, placeholder: 'البنك الأهلي المصري' }), U.Select({ id: px + '-actype', label: 'نوع الحساب', options: VD.BANK_ACCOUNT_TYPES.concat(f.accountType && !VD.BANK_ACCOUNT_TYPES.some((x) => x[0] === f.accountType) ? [[f.accountType, f.accountType]] : []).map(([k, l]) => ({ value: k, label: l })), value: f.accountType || '', placeholder: 'اختار النوع', onChange: (x) => { f.accountType = x; } })) : null,
@@ -2940,7 +2940,37 @@
     const f = existing ? { name: existing.name, legalName: existing.legalName || '', category: existing.category, phone: existing.phone, altPhone: existing.altPhone || '', email: existing.email || '', address: existing.address || '', instagram: existing.instagram || '', storeUrl: existing.storeUrl || '', rate: String(existing.rate), leadDays: String(existing.leadDays), status: existing.status, aliases: existing.aliases.join('، '), depositPolicy: existing.depositPolicy || '', notes: existing.notes || '' }
       : { name: '', legalName: '', category: '', phone: '', altPhone: '', email: '', address: '', instagram: '', storeUrl: '', rate: '40', leadDays: '7', status: 'active', aliases: '', depositPolicy: '', notes: '', username: '', pwMode: 'temp', password: '', method: '', bankName: '', holder: '', iban: '', wallet: '', accountNumber: '', accountType: '', bankAddress: '', routingNumber: '', swift: '' };
     if (!existing && pre && typeof pre === 'object') ['name', 'legalName', 'category', 'phone', 'altPhone', 'email', 'address', 'instagram', 'storeUrl', 'notes'].forEach((k) => { if (pre[k] != null && String(pre[k]).trim()) f[k] = String(pre[k]).trim().slice(0, 300); });
-    const canBank = vstore.canBank(); const bankReq = true;
+    const canBank = vstore.canBank(); const bankReq = false; // phase 13 decision 51 (owner 10 Nov — «خلي الحساب البنكي إختياري»): validated only when a method is chosen
+    // the photo (decision 51 — «System + Dokan store») and the contract (canBank, like the drawer's) picked here; uploaded after the save
+    const canPhoto = !!(vstore.setPhoto && vstore.canPhoto && vstore.canPhoto()); let photo = null; let photoPrev = null; let contract = null; let cExp = '';
+    const photoBox = () => {
+      const inp = h('input', { type: 'file', accept: '.png,.jpg,.jpeg,.webp,image/png,image/jpeg,image/webp', hidden: true, 'data-v-photo': '', 'aria-label': 'صورة المبتكر' });
+      inp.addEventListener('change', () => { const file = inp.files && inp.files[0]; if (!file) return; const e = String(file.name).split('.').pop().toLowerCase();
+        if (!['png', 'jpg', 'jpeg', 'webp'].includes(e) || file.size > 5 * 1048576) { window.IBKit.toast('الصورة PNG أو JPG أو WebP ولحد 5 ميجا.', 'error'); return; }
+        photo = file; try { if (photoPrev) URL.revokeObjectURL(photoPrev); photoPrev = URL.createObjectURL(file); } catch (x) { photoPrev = null; } draw(); });
+      const cur = photoPrev || (existing && existing.logoUrl && /^https:\/\//.test(existing.logoUrl) ? existing.logoUrl : null);
+      const pic = cur ? h('span', { class: 'vlogo vlogo-lg vlogo-img', 'data-v-photo-prev': '' }, h('img', { src: cur, alt: 'صورة المبتكر', referrerpolicy: 'no-referrer' })) : U.VendorLogo({ letter: f.name || '؟', size: 'lg' });
+      return h('div', { style: 'flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px' }, pic,
+        canPhoto ? [inp, Button({ type: 'text', size: 'sm', label: photo || (existing && existing.photoPath) ? 'غيّر الصورة' : 'ارفع صورة', attrs: { 'data-v-photo-pick': '' }, onClick: () => inp.click() }),
+          h('span', { class: 't-small', style: 'color:var(--color-text-secondary);text-align:center;max-width:140px' }, photo ? photo.name : 'بتتحفظ هنا وبتبقى صورة متجره على الموقع')]
+          : h('span', { class: 't-small', style: 'color:var(--color-text-secondary);text-align:center' }, 'الصورة بتيجي من متجره على الموقع'));
+    };
+    const contractBox = () => {
+      const inp = h('input', { type: 'file', accept: '.pdf,.png,.jpg,.jpeg', 'aria-label': 'ملف العقد', 'data-v-contract': '' });
+      inp.addEventListener('change', () => { const file = inp.files && inp.files[0]; contract = file ? { fileName: file.name, size: file.size, file } : null; });
+      return [fsec('العقد', 'اختياري — تقدر ترفعه بعدين من ملف المبتكر'), U.FieldShell({ id: 'v-contract', label: 'ملف العقد (PDF أو صورة، حتى 10 ميجا)' }, inp),
+        U.DateField({ id: 'v-contract-exp', label: 'تاريخ انتهاء العقد', value: cExp || null, today: VTODAY(), help: 'هيوصلك تنبيه قبل الانتهاء بـ 30 يوم', onChange: (iso, e) => { if (!e) cExp = iso || ''; } })];
+    };
+    // after the maker is saved: the photo (system + store) and the contract — each told apart in the toast, never blocking the save
+    const afterSave = async (id) => {
+      const notes = [];
+      if (photo && canPhoto) { const r = await vstore.setPhoto(id, { file: photo, name: photo.name, size: photo.size }).catch(() => ({ ok: false }));
+        notes.push(!r.ok ? 'الصورة ماترفعتش' + (r.message ? ' (' + r.message + ')' : '') : r.site === 'ok' ? 'الصورة اتحفظت وبقت صورة متجره على الموقع' : r.site === 'failed' ? 'الصورة اتحفظت هنا بس — الموقع رفضها' : 'الصورة اتحفظت هنا' + (r.reason === 'no_store' ? ' (مالوش متجر على الموقع)' : r.reason === 'push_disabled' ? ' (الكتابة على الموقع مقفولة)' : '')); }
+      if (contract && canBank) { try { vstore.setContract(id, Object.assign({}, contract, { expires: cExp || null }), vstore.actor()); notes.push('العقد بيترفع'); } catch (e) { notes.push('العقد ماترفعش (' + e.message + ')'); } }
+      // a toast: the page note is consumed by the next render, and the uploads re-render the page as they land
+      if (notes.length) window.IBKit.toast(notes.join(' · ') + '.', notes.some((x) => /ماترفع|رفضها/.test(x)) ? 'error' : 'success');
+      return notes.length > 0;
+    };
     let errs = {}; let modal = null; let dup = null;
     const txt = (id, label, key, opts = {}) => U.TextInput(Object.assign({ id, label, value: f[key], error: errs[key], onInput: (v) => { f[key] = v; } }, opts));
     const two = (a, b) => h('div', { class: 'row cols2' }, a, b);
@@ -2948,12 +2978,13 @@
     function draw() {
       const fields = [
         h('div', { class: 'row cols2' }, h('div', { style: 'flex:1;display:flex;flex-direction:column;gap:16px;min-width:0' }, txt('v-name', 'اسم المبتكر (المعروض)', 'name', { required: true, maxlength: 80, onInput: (v) => { f.name = v; if (!existing && !f.userTouched) { f.username = VD.suggestUsername(v, (u) => vstore.usernameTaken(u)); const el = document.getElementById('v-login-user'); if (el) el.value = f.username; } } }), U.Select({ id: 'v-cat', label: 'الفئة الأساسية', required: true, options: CATS.map((c) => ({ value: c, label: c })), value: f.category, error: errs.category, placeholder: 'اختار الفئة', onChange: (v) => { f.category = v; draw(); } })),
-          h('div', { style: 'flex:0 0 auto;display:flex;flex-direction:column;align-items:center;gap:8px' }, U.VendorLogo({ letter: f.name || '؟', size: 'lg' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary);text-align:center' }, 'الصورة بتيجي من متجره على الموقع'))), // phase 3.3 (decision 1): the logo is the site's gravatar, read-only — no upload here
+          photoBox()), // phase 3.3 (decision 1): the logo was the site's gravatar only; phase 13 decision 51: a photo uploaded here becomes it
         two(txt('v-phone', 'الهاتف (واتساب)', 'phone', { required: true, inputmode: 'tel', placeholder: '01xxxxxxxxx' }), existing ? txt('v-alt', 'هاتف بديل', 'altPhone', { inputmode: 'tel' }) : txt('v-rate', 'نسبة إبتكر', 'rate', { required: true, inputmode: 'decimal', suffix: '%', help: 'تنطبق على الأوردرات الجديدة من تاريخ الإضافة' })),
         two(txt('v-lead', 'مدة التجهيز (أيام)', 'leadDays', { required: true, inputmode: 'numeric', help: 'بتغذي قاعدة التأخير بدل الرقم الثابت' }), U.Select({ id: 'v-status', label: 'الحالة', required: true, options: statusOpts, value: f.status, error: errs.status, onChange: (v) => { f.status = v; draw(); } })),
         txt('v-aliases', 'أسماء بديلة', 'aliases', { placeholder: 'W&R، WOOD & ROPE', help: 'لتوحيد الأسماء من الأوردرات والشيت — افصل بفاصلة' }),
         existing ? null : [fsec('بيانات الدخول', 'المبتكر بيدخل بيها على بوابته يتابع أوردراته وحسابه'), ...loginFields(f, errs, draw, 'v-login')],
-        existing ? null : [fsec('الحساب البنكي', 'عشان نحوّل له مستحقاته'), ...(canBank ? bankFields(f, errs, draw, 'v-bank') : [U.InlineNote({ children: 'البيانات البنكية بيكمّلها قسم الحسابات بس — هتظهر «ناقص» في ملف المبتكر لحد ما تتكمّل.' })])],
+        existing ? null : [fsec('الحساب البنكي', 'اختياري — عشان نحوّل له مستحقاته'), ...(canBank ? bankFields(f, errs, draw, 'v-bank', true) : [U.InlineNote({ children: 'البيانات البنكية بيكمّلها قسم الحسابات بس — هتظهر «ناقص» في ملف المبتكر لحد ما تتكمّل.' })])],
+        existing || !canBank ? null : contractBox(),
         existing ? two(txt('v-legal', 'الاسم التجاري / القانوني', 'legalName'), txt('v-email', 'الإيميل', 'email', { inputmode: 'email' })) : null,
         existing ? two(txt('v-addr', 'العنوان (الاستلام)', 'address'), txt('v-ig', 'إنستجرام', 'instagram', { placeholder: '@name' })) : null,
         existing ? two(txt('v-url', 'صفحة المتجر', 'storeUrl'), txt('v-dep', 'سياسة العربون', 'depositPolicy')) : null,
@@ -2970,7 +3001,7 @@
         if (!errs.name) { dup = vstore.findByName(f.name) || VD.parseAliases(f.aliases).map((a) => vstore.findByName(a)).find(Boolean) || null; if (dup) errs.name = 'المبتكر ده موجود (' + dup.name + ') — افتح ملفه'; }
       }
       if (Object.keys(errs).length) { errs._form = dup ? 'المبتكر ده موجود — افتح ملفه' : 'راجع الحقول المعلّمة بالأحمر'; draw(); const bad = modal.el.querySelector('[aria-invalid=true]'); if (bad) bad.focus(); return; }
-      if (existing) { try { vstore.update(existing.id, f, vstore.actor()); log.append({ action: 'vendor.update', actor: ME.name, newValue: existing.id }); modal.close(); vnotify('success', 'اتحفظت بيانات ' + f.name + '.'); if (vdrawer) openVendor(existing.id); } catch (e) { errs._form = e.message; draw(); } return; }
+      if (existing) { try { vstore.update(existing.id, f, vstore.actor()); log.append({ action: 'vendor.update', actor: ME.name, newValue: existing.id }); modal.close(); vnotify('success', 'اتحفظت بيانات ' + f.name + '.'); if (vdrawer) openVendor(existing.id); afterSave(existing.id).then((did) => { if (did && vredraw) vredraw(); }); } catch (e) { errs._form = e.message; draw(); } return; }
       // decision 10: the store's create runs the sequence (vendor → rate → login → password → bank); a step refused after the vendor's
       // insert leaves the vendor and is named here — the password travels inside `login` only and is dropped once the call is done
       const input = { name: f.name, legalName: f.legalName, category: f.category, phone: f.phone, altPhone: f.altPhone, email: f.email, address: f.address, instagram: f.instagram, storeUrl: f.storeUrl, rate: f.rate, leadDays: f.leadDays, status: f.status, aliases: f.aliases, depositPolicy: f.depositPolicy, notes: f.notes,
@@ -2982,6 +3013,7 @@
         log.append({ action: 'vendor.create', actor: ME.name, newValue: v.id }); modal.close(); state.vfilter.q = '';
         vnotify(miss.length ? 'warning' : 'success', 'اتضاف المبتكر ' + v.name + (miss.length ? ' — ناقص: ' + miss.join('، ') + '. كمّله من ملفه.' : ' · الباسورد المؤقت جاهز تبعته له.'));
         openVendor(v.id);
+        afterSave(v.id).then((did) => { if (did && vredraw) vredraw(); });
       }, (e) => { errs._form = e.message; draw(); });
     }
     modal = U.Modal({ title: existing ? 'تعديل بيانات ' + existing.name : 'إضافة مبتكر', body: [], footer: [] }); draw(); const first = modal.el.querySelector('#v-name'); if (first) first.focus();
@@ -3332,7 +3364,11 @@
     // is made only from a value starting with https:// (the adapter keeps the links and the logo https:// or empty — checked here again).
     const HTTPS = /^https:\/\//;
     // the drawer header's picture: the site's logo when the maker has one, else the letter
-    const vendorLogo = (v) => (v.logoUrl && HTTPS.test(v.logoUrl) ? h('span', { class: 'vlogo vlogo-lg vlogo-img' }, h('img', { src: v.logoUrl, alt: 'لوجو ' + v.name, loading: 'lazy', referrerpolicy: 'no-referrer' })) : U.VendorLogo({ letter: v.logoLetter, size: 'lg' }));
+    // phase 13 decision 51: no store image yet → the photo saved in the system (vendor-photos, a signed URL) replaces the letter
+    const vendorLogo = (v) => { if (v.logoUrl && HTTPS.test(v.logoUrl)) return h('span', { class: 'vlogo vlogo-lg vlogo-img' }, h('img', { src: v.logoUrl, alt: 'لوجو ' + v.name, loading: 'lazy', referrerpolicy: 'no-referrer' }));
+      const el = U.VendorLogo({ letter: v.logoLetter, size: 'lg' }); const V = window.IBVendors;
+      if (v.photoPath && V && V.photoUrl) V.photoUrl(v.id).then((url) => { if (url && el.isConnected) el.replaceWith(h('span', { class: 'vlogo vlogo-lg vlogo-img', 'data-v-photo-img': '' }, h('img', { src: url, alt: 'صورة ' + v.name }))); }).catch(() => undefined);
+      return el; };
     // (d) «موقوف على الموقع»: the maker is inactive here and has a store there (the sync mirrors enabled: false ↔ inactive)
     // 0031 (the owner, 2 Nov): a store gone from the site — the sync marks the maker (site_removed_at, inactive), never deletes it
     const siteOffTag = (v) => (v.siteRemovedAt ? h('span', { class: 'tg tg-error', 'data-site-removed': '' }, 'اتحذف من الموقع') : v.status === 'inactive' && v.wooVendorId ? h('span', { class: 'tg tg-error', 'data-site-off': '' }, 'موقوف على الموقع') : null);

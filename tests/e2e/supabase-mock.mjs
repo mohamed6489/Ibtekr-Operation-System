@@ -77,7 +77,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'updated_at', 'commission_rate', 'commission_fee'],
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'updated_at'],
   vendors: ['id', 'woo_vendor_id', 'site_removed_at', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at', 'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance',
-    'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at'], // 0014 (phase 3.3): woo_snapshot is service_role only (a select naming it → 42501, like commission_pct)
+    'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at', 'photo_path'], // 0075 photo_path; 0014 (phase 3.3): woo_snapshot is service_role only (a select naming it → 42501, like commission_pct)
   vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at', 'commission_type'], // 0014: flat; 0016: commission_type
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'], // 0014: sensitive.commission, add-only
   woo_categories: ['id', 'name', 'slug', 'parent_id', 'updated_at'], // 0014: the sync's, vendors.view
@@ -182,7 +182,7 @@ function ordersSeed(opts = {}) {
   const ago = (d) => { const t = new Date(Date.now() - d * 864e5); t.setUTCHours(10, 0, 0, 0); return t.toISOString(); };
   const vendor = (n, woo, name, status = 'active', more = {}) => ({ id: VND(n), woo_vendor_id: woo, name, aliases: [], phone: null, email: null, status, commission_pct: null, raw: { id: woo, shop_url: SITE + '/store/' + name.toLowerCase().replace(/\s+/g, '-') + '/' }, created_at: T0, updated_at: T0,
     legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: '2026-03-01', contract: null, opening_balance: 0,
-    contact_name: null, address_parts: null, social: null, logo_url: null, banner_url: null, woo_payment_methods: null, woo_snapshot: null, push_pending: null, woo_synced_at: null, ...more }); // 0014 (phase 3.3)
+    contact_name: null, address_parts: null, social: null, logo_url: null, banner_url: null, woo_payment_methods: null, woo_snapshot: null, push_pending: null, woo_synced_at: null, photo_path: null, ...more }); // 0014 (phase 3.3)
   // 0021 (phase 5): the mirror columns — English rows (lang en) by default; extra: a translation, a trash row, another status
   const product = (id, sku, name, image_url, v, slug, extra = {}) => ({ id, sku, name, image_url, permalink: SITE + '/product/' + slug + '/', vendor_id: VND(v), price: null, status: 'publish', raw: { id }, updated_at: T0,
     lang: 'en', translation_ids: { en: id }, type: 'simple', regular_price: 1500, sale_price: 1200, stock_quantity: 8, stock_status: 'instock', manage_stock: true, backorders: 'no', low_stock_amount: 2,
@@ -288,7 +288,7 @@ const USERNAME_RE = /^[a-z0-9][a-z0-9._]{2,29}$/; const EMAIL_RE = /^[^\s@]+@[^\
 const canLogin = (u) => isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F'; // 0012: vendor_logins insert / update and the two RPCs
 const VENDOR_CATEGORIES = ['ديكور منزلي', 'إكسسوارات ومجوهرات', 'ملابس ومنسوجات', 'فنون ولوحات', 'هدايا', 'مستلزمات حرف', 'أطعمة وحلويات'];
 const VENDOR_DEFAULTS = () => ({ woo_vendor_id: null, site_removed_at: null, aliases: [], phone: null, email: null, status: 'active', commission_pct: null, raw: null, legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: null, contract: null, opening_balance: 0,
-  contact_name: null, address_parts: null, social: null, logo_url: null, banner_url: null, woo_payment_methods: null, woo_snapshot: null, push_pending: null, woo_synced_at: null });
+  contact_name: null, address_parts: null, social: null, logo_url: null, banner_url: null, woo_payment_methods: null, woo_snapshot: null, push_pending: null, woo_synced_at: null, photo_path: null });
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const authUser = (u, factors) => ({ id: u.id, aud: 'authenticated', role: 'authenticated', email: u.email, phone: '', app_metadata: { provider: 'email', providers: ['email'] }, user_metadata: {}, identities: [], factors, created_at: T0 });
 const claims = (token) => { try { return JSON.parse(Buffer.from(token.split('.')[1], 'base64url').toString()); } catch { return null; } };
@@ -326,7 +326,7 @@ export async function installSupabaseMock(page, opts = {}) {
     shotPrompts: [['كرسي', 1, 'كرسي 1 — تركيز على المنتج', 'CHAIR FOCUS PROMPT'], ['كرسي', 2, 'كرسي 2 — المنتج في بيئة محيطة', 'CHAIR ENV PROMPT'], ['كرسي', 3, 'كرسي 3 — Closeup للتفاصيل', 'CHAIR DETAIL PROMPT'], ['مرآة', 1, 'مرآة 1 — تركيز على المنتج', 'MIRROR FOCUS PROMPT']].map(([category, shot, name, prompt], i) => ({ id: i + 1, category, shot, name, prompt, negative: null, model: 'imagen-nano-banana-2', aspect: '3:4', resolution: '1k', updated_at: new Date().toISOString() })), imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
     profiles, profileWrites: [], factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
-    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [], deletes: [], trashes: [], csMedia: new Map(), orderCreates: [] }; // phase 13 T3: cs-media objects, the orders made from the chat
+    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [], deletes: [], trashes: [], csMedia: new Map(), orderCreates: [], vendorPhotos: new Map(), photoCalls: [] }; // phase 13 decision 51: vendor-photos objects and the vendor_photo calls; phase 13 T3: cs-media objects, the orders made from the chat
   // phase 3.3: vendorCategoryRates / wooCategories: the 0014 tables (ordersSeed()); vendorPushes: each woo-sync push_vendor as { vendor_id, fields, by, result, reason? }
   // (the body names the fields only — the mock reads the row like the server); pushEnabled: WOO_PUSH_ENABLED on the server (false → skipped/push_disabled,
   // the fields added to push_pending); wooDown → 502 pending:true with the fields in push_pending; wooRefuses → 502 pending:false, nothing
@@ -1547,6 +1547,22 @@ export async function installSupabaseMock(page, opts = {}) {
       const bytes = req.postDataBuffer() || Buffer.alloc(0); mock.studioObjects.set(sst[2], { type: hd['content-type'] || '', size: bytes.length });
       return json(200, { Key: 'studio/' + sst[2], Id: 'obj-st-' + mock.studioObjects.size });
     }
+    // phase 13 decision 51 — Storage, bucket vendor-photos (0075): private, 5 MB, PNG / JPEG / WebP; insert = the admin or vendors.edit F
+    // into an existing maker's folder (<vendor uuid>/<name>.png|jpg|webp); a signed URL for vendors.view <> N; GET of the signed URL → a pixel
+    const vp = /^\/storage\/v1\/object\/(sign\/)?vendor-photos\/(.+)$/.exec(path);
+    if (method === 'POST' && vp) {
+      const u = tokenUser(); const key = decodeURIComponent(vp[2]);
+      if (!u) return json(401, { statusCode: '401', error: 'Unauthorized', message: 'invalid JWT' });
+      if (vp[1]) { if (hasPerm(u, 'vendors.view') === 'N' || !mock.vendorPhotos.has(key)) return json(400, { statusCode: '400', error: 'not_found', message: 'Object not found' }); return json(200, { signedURL: '/object/sign/vendor-photos/' + key + '?token=vp' }); }
+      const bytes = req.postDataBuffer() || Buffer.alloc(0); const type = hd['content-type'] || '';
+      if (!(isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F')) return json(403, { statusCode: '403', error: 'Unauthorized', message: 'new row violates row-level security policy' });
+      const m = /^([0-9a-f-]{36})\/[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.(png|jpe?g|webp)$/.exec(key);
+      if (!m || !mock.vendors.some((v) => v.id === m[1])) return json(400, { statusCode: '400', error: 'InvalidKey', message: 'Invalid key: ' + key });
+      if (!['image/png', 'image/jpeg', 'image/webp'].includes(type)) return json(415, { statusCode: '415', error: 'invalid_mime_type', message: 'mime' });
+      if (bytes.length > 5242880) return json(413, { statusCode: '413', error: 'Payload too large', message: 'too large' });
+      mock.vendorPhotos.set(key, { type, bytes }); return json(200, { Key: 'vendor-photos/' + key, Id: 'obj-vp-' + mock.vendorPhotos.size });
+    }
+    if (method === 'GET' && /^\/storage\/v1\/object\/sign\/vendor-photos\//.test(path)) return route.fulfill({ status: 200, headers: { ...cors, 'content-type': 'image/png' }, body: PNG_1PX });
     // Storage, bucket vendor-contracts (0011): private, 10 MB, PDF / PNG / JPEG; select / insert for sensitive.vendor_bank = F,
     // no delete. The mock also holds the bucket's layout (<vendor uuid>/<unix ms>-<safe name>, a known maker) and answers like
     // the Storage API: 403 without the permission, 400 on a bad key, 415 / 413 on the mime / size, 409 on an existing object.
@@ -2067,6 +2083,18 @@ export async function installSupabaseMock(page, opts = {}) {
       const mayPushVendor = () => isAdmin(u) || ((!bankAsked() || hasPerm(u, 'sensitive.vendor_bank') === 'F')
         && (storeAsked().length === 0 ? bankAsked() : (hasPerm(u, 'vendors.edit') === 'F' || (hasPerm(u, 'vendors.edit') === 'P' && storeAsked().every((f) => CONTACT_PUSH.includes(f)))))
         && (!rateAsked() || hasPerm(u, 'sensitive.commission') === 'F'));
+      // phase 13 decision 51: vendor_photo — the admin or vendors.edit F; the object in vendor-photos under the maker's folder; recorded on the
+      // maker; a store + WOO_PUSH_ENABLED → site ok (the store photo), else skipped with the reason; mock.photoSiteFails → 502 saved
+      if (action === 'vendor_photo') {
+        if (!u || !(isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F')) return json(401, { error: 'unauthorized' });
+        const v = mock.vendors.find((x) => x.id === String(b.vendor_id || '').toLowerCase()); const key = String(b.path || '');
+        if (!v || key.split('/')[0] !== v.id) return json(400, { error: 'bad_request', field: 'path' });
+        if (!mock.vendorPhotos.has(key)) return json(404, { error: 'not_found', field: 'path' });
+        v.photo_path = key; const rec = { vendor_id: v.id, path: key, by: u.email }; mock.photoCalls.push(rec);
+        if (!v.woo_vendor_id || !mock.pushEnabled) { rec.site = 'skipped'; return json(200, { action, result: 'ok', site: 'skipped', reason: v.woo_vendor_id ? 'push_disabled' : 'no_store' }); }
+        if (mock.photoSiteFails) { rec.site = 'failed'; return json(502, { error: 'woo_error', action, saved: true }); }
+        rec.site = 'ok'; return json(200, { action, result: 'ok', site: 'ok', media: 900 + mock.photoCalls.length });
+      }
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : action === 'order_trash' ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });

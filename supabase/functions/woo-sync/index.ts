@@ -115,7 +115,7 @@ type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals', 'order_trash', 'order_create', 'order_pay_link',
-  'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts'];
+  'vendor_photo', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product
 const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate'];
@@ -145,6 +145,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
     if (action === 'withdraw_approve') return null; // a person approves, never the cron / sync secret (phase 4.1)
     if (action === 'order_trash') return null; // a person deletes an order, never the cron / sync secret (phase 5.5 decision 10)
     if (action === 'order_create' || action === 'order_pay_link') return null; // a person makes an order from the chat (phase 13 T3)
+    if (action === 'vendor_photo') return null; // a person sets a maker's photo (phase 13 decision 51)
     if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
     const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
     return !error && data === true ? 'system' : null;
@@ -174,6 +175,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   // phase 7 (decision 1 c): the site quantity from the hub — the admin, or inventory.edit = F AND products.edit = F (a person, never the
   // sync secret): a lot's mode and SKU are the member's own input, so pushing needs the right that already sets a product's stock
   if (action === 'inventory_push') return (await admin()) || ((await perm('inventory.edit')) && (await perm('products.edit'))) ? 'member' : null;
+  // phase 13 decision 51: the maker's photo (recorded, then set as the Dokan store's photo) — the admin or vendors.edit = F
+  if (action === 'vendor_photo') return (await admin()) || (await perm('vendors.edit')) ? 'member' : null;
   if (action === 'push_vendor') {
     if (await admin()) return 'member';
     const fields = Array.isArray(args.fields) ? args.fields : [];
@@ -481,6 +484,62 @@ async function pushVendor(run: Run, args: Json) {
   await applyPushResult(ctx, row, r, run.now());
   await logSync(run.db, { ...entry, result: 'ok', detail: { vendor_id: vendorId, fields: r.sent, accepted: r.accepted, refused: r.refused, dropped: r.dropped } });
   return json(200, { action: 'push_vendor', result: 'ok', fields: r.sent, accepted: r.accepted, refused: r.refused, dropped: r.dropped, held: r.held, counts: { pushed: 1 } });
+}
+
+// ---------------------------------------------------------------- vendor_photo (phase 13 decision 51)
+
+// vendor_photo { vendor_id, path }: the photo the member uploaded into vendor-photos/<vendor id>/… (the bucket's policy checked the
+// right) is recorded on the maker (vendors.photo_path — the server's column); when the maker has a store on the site and
+// WOO_PUSH_ENABLED = 1 it goes to wp/v2/media and becomes the store's photo (Dokan `gravatar_id`), the mirror logo_url follows the
+// media's URL. Without a store / with the switch off the photo stays in the system (result ok, site skipped). The log holds ids only.
+const PHOTO_BUCKET = 'vendor-photos';
+// PNG (89 50 4E 47), JPEG (FF D8 FF), WebP (RIFF....WEBP)
+function isPhotoBytes(b: Uint8Array): boolean {
+  if (b.length < 12) return false;
+  if (b[0] === 0x89 && b[1] === 0x50 && b[2] === 0x4e && b[3] === 0x47) return true;
+  if (b[0] === 0xff && b[1] === 0xd8 && b[2] === 0xff) return true;
+  return b[0] === 0x52 && b[1] === 0x49 && b[2] === 0x46 && b[3] === 0x46 && b[8] === 0x57 && b[9] === 0x45 && b[10] === 0x42 && b[11] === 0x50;
+}
+const PHOTO_PATH = /^([0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})\/[A-Za-z0-9][A-Za-z0-9._-]{0,120}\.(png|jpe?g|webp)$/i;
+async function vendorPhoto(run: Run, args: Json) {
+  const vendorId = typeof args.vendor_id === 'string' && UUID.test(args.vendor_id) ? args.vendor_id.toLowerCase() : null;
+  const path = typeof args.path === 'string' ? args.path : '';
+  const m = PHOTO_PATH.exec(path);
+  if (vendorId === null || !m || m[1].toLowerCase() !== vendorId) return json(400, { error: 'bad_request', field: 'path' });
+  const { data: row, error } = await run.db.from('vendors').select('id, woo_vendor_id').eq('id', vendorId).maybeSingle();
+  if (error) throw new Error(`vendors: ${error.message}`);
+  if (!row) return json(404, { error: 'vendor_not_found' });
+  const { data: blob, error: dlErr } = await run.db.storage.from(PHOTO_BUCKET).download(path);
+  if (dlErr || !blob) return json(404, { error: 'not_found', field: 'path' });
+  // the bucket trusts the uploader's content-type: the bytes themselves must be a PNG / JPEG / WebP before anything is kept or sent
+  const bytes = new Uint8Array(await blob.arrayBuffer());
+  if (!isPhotoBytes(bytes) || bytes.length > 5 * 1048576) return json(400, { error: 'bad_type', field: 'path' });
+  const { error: upErr } = await run.db.from('vendors').update({ photo_path: path }).eq('id', vendorId);
+  if (upErr) throw new Error(`vendors photo: ${upErr.message}`);
+  const storeId = wooId(row.woo_vendor_id);
+  const entry = { kind: 'push', direction: 'out', entity: 'vendor', entity_id: storeId === null ? vendorId : String(storeId), action: 'vendor_photo' };
+  if (storeId === null || !pushEnabled(run.env)) {
+    const reason = storeId === null ? 'no_store' : 'push_disabled';
+    await logSync(run.db, { ...entry, result: 'skipped', detail: { vendor_id: vendorId, reason } });
+    return json(200, { action: 'vendor_photo', result: 'ok', site: 'skipped', reason });
+  }
+  const ext = m[2].toLowerCase() === 'jpeg' ? 'jpg' : m[2].toLowerCase();
+  const ctx = await run.ctx();
+  try {
+    const media = (await ctx.woo.upload('wp/v2/media', bytes, `maker-${storeId}-${run.now().replace(/[^0-9]/g, '').slice(2, 12)}.${ext}`, MIME[ext] ?? 'image/png')).data;
+    const mid = wooId(isObj(media) ? media.id : null);
+    if (mid === null) { await logSync(run.db, { ...entry, result: 'error', detail: { vendor_id: vendorId, error: 'media_refused' } }); return json(502, { error: 'media_refused' }); }
+    const store = (await ctx.woo.put(`dokan/v1/stores/${storeId}`, { gravatar_id: mid })).data;
+    const url = isObj(store) && typeof store.gravatar === 'string' && /^https:\/\//.test(store.gravatar) ? store.gravatar
+      : isObj(media) && typeof media.source_url === 'string' && /^https:\/\//.test(media.source_url) ? media.source_url : null;
+    if (url) await run.db.from('vendors').update({ logo_url: url }).eq('id', vendorId);
+    await logSync(run.db, { ...entry, result: 'ok', detail: { vendor_id: vendorId, media: mid } });
+    return json(200, { action: 'vendor_photo', result: 'ok', site: 'ok', media: mid });
+  } catch (e) {
+    if (!(e instanceof WooError)) throw e;
+    await logSync(run.db, { ...entry, result: 'error', detail: { vendor_id: vendorId, error: errorText(e, ctx.woo.scrub) } });
+    return json(502, { error: 'woo_error', action: 'vendor_photo', saved: true });
+  }
 }
 
 // ---------------------------------------------------------------- register_webhooks
@@ -1386,6 +1445,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'order_create') return await orderCreate(run, args);
     if (action === 'order_pay_link') return await orderPayLink(run, args);
     if (action === 'push_vendor') return await pushVendor(run, args);
+    if (action === 'vendor_photo') return await vendorPhoto(run, args);
     if (action === 'register_webhooks') return await registerWebhooks(run, args);
     if (action === 'probe_store') return await probeStore(run, args);
     if (action === 'probe_dokan') return await probeDokan(run, args);

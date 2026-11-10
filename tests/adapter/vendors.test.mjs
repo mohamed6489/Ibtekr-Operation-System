@@ -94,10 +94,10 @@ test('load names every column (no *, no commission_pct), reads the rates and the
   assert.match(selectOf(calls, 'vendors')[0], /\bcontract\b.*\bopening_balance\b/);
   assert.deepEqual(opsOf(calls, 'vendors').filter((c) => c.op === 'range'), [{ op: 'range', args: [0, 999] }]);
   assert.deepEqual(plain(S.get(V1)), { id: V1, siteRemovedAt: null, name: 'Art Craft', legalName: null, category: 'فنون ولوحات', aliases: ['ArtCraft', 'آرت كرافت'], status: 'active', phone: '01000000003', altPhone: null, email: null, address: null, instagram: null, storeUrl: null,
-    contactName: null, addressParts: EMPTY_PARTS, social: EMPTY_SOCIAL, logoUrl: null, bannerUrl: null, wooPaymentMethods: [], wooSyncedAt: null, pushPending: [], categoryRates: [], rateFlat: null, // phase 3.3: no synced data on this row
+    contactName: null, addressParts: EMPTY_PARTS, social: EMPTY_SOCIAL, logoUrl: null, photoPath: null, bannerUrl: null, wooPaymentMethods: [], wooSyncedAt: null, pushPending: [], categoryRates: [], rateFlat: null, // phase 3.3: no synced data on this row
     rate: 35, rateSince: '2026-03-01', rateHistory: [{ rate: 35, flat: null, since: '2026-03-01', by: 'صفوت كمال', type: 'fixed' }], ratesVisible: true, commissionType: 'fixed', leadDays: 7, depositPolicy: null, notes: 'الشحن على المبتكر', logoLetter: 'A', joinedAt: '2026-03-01',
     contract: null, bank: null, login: null, openingBalance: 0, wooVendorId: 2376, shopUrl: 'https://ibtekr.club/store/art-craft/', createdAt: T0, lastUpdate: T0, brands: [B1_SHAPE, B4_SHAPE], brandsEver: [] });
-  assert.match(selectOf(calls, 'vendors')[0], /\bcontact_name, address_parts, social, logo_url, banner_url, woo_payment_methods, push_pending, woo_synced_at$/); // 0014: by name, never woo_snapshot
+  assert.match(selectOf(calls, 'vendors')[0], /\bcontact_name, address_parts, social, logo_url, banner_url, woo_payment_methods, push_pending, woo_synced_at, photo_path$/); // 0014: by name, never woo_snapshot; 0075 photo_path
   assert.doesNotMatch(selectOf(calls, 'vendors')[0], /woo_snapshot/);
   assert.equal(selectOf(calls, 'vendor_rates')[0], 'id, vendor_id, rate, flat, since, set_by, created_at, commission_type');
   assert.equal(selectOf(calls, 'vendor_category_rates')[0], 'id, vendor_id, woo_category_id, rate, flat, since, set_by, created_at');

@@ -377,10 +377,11 @@ test('«مزامنة دلوقتي» (plan 3.4 decision 10): the admin pulls the 
   await expect(page.locator('#vendors [data-sync-now]')).toHaveCount(0);
 });
 
-test('«إضافة مبتكر» has no logo upload any more (the picture is the site\'s)', async ({ page }) => {
+test('«إضافة مبتكر»: the old «رفع لوجو» is gone; since phase 13 decision 51 the photo is picked here and becomes the store photo on the site', async ({ page }) => {
   await openVendors(page);
   await page.getByRole('button', { name: 'إضافة مبتكر' }).click();
   await expect(modal(page)).toBeVisible();
   await expect(modal(page).getByRole('button', { name: 'رفع لوجو' })).toHaveCount(0);
-  await expect(modal(page)).toContainText('الصورة بتيجي من متجره على الموقع');
+  await expect(modal(page).locator('[data-v-photo-pick]')).toHaveText('ارفع صورة');
+  await expect(modal(page)).toContainText('بتتحفظ هنا وبتبقى صورة متجره على الموقع');
 });

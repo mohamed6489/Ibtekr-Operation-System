@@ -65,7 +65,7 @@
   'use strict';
   const PAGE = 1000; // PostgREST max_rows
   const COLS = {
-    vendor: 'id, woo_vendor_id, site_removed_at, name, aliases, phone, email, status, raw, created_at, updated_at, legal_name, category, alt_phone, address, instagram, store_url, lead_days, deposit_policy, notes, joined_at, contract, opening_balance, contact_name, address_parts, social, logo_url, banner_url, woo_payment_methods, push_pending, woo_synced_at', // 0014: never woo_snapshot (service_role only)
+    vendor: 'id, woo_vendor_id, site_removed_at, name, aliases, phone, email, status, raw, created_at, updated_at, legal_name, category, alt_phone, address, instagram, store_url, lead_days, deposit_policy, notes, joined_at, contract, opening_balance, contact_name, address_parts, social, logo_url, banner_url, woo_payment_methods, push_pending, woo_synced_at, photo_path', // 0075 photo_path; 0014: never woo_snapshot (service_role only)
     rate: 'id, vendor_id, rate, flat, since, set_by, created_at, commission_type', // 0016: commission_type
     catRate: 'id, vendor_id, woo_category_id, rate, flat, since, set_by, created_at', // 0014 (phase 3.3): sensitive.commission
     category: 'id, name, slug, parent_id, updated_at', // 0014: woo_categories (vendors.view)
@@ -76,7 +76,7 @@
     owner: 'id, brand_id, vendor_id, since, return_on, reason, set_by, created_at',
     brandRate: 'id, brand_id, rate, since, set_by, created_at',
   };
-  const BUCKET = 'vendor-contracts'; const SIGN_SECONDS = 60; const EVENTS = 50;
+  const BUCKET = 'vendor-contracts'; const PHOTO_BUCKET = 'vendor-photos'; const SIGN_SECONDS = 60; const EVENTS = 50;
   const CONTRACT_MIME = { pdf: 'application/pdf', png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg' };
   const CONTRACT_MAX = 10 * 1024 * 1024;
   const PAY_METHODS = ['bank', 'instapay', 'wallet', 'cash'];
@@ -174,7 +174,7 @@
     const cats = visible ? effectiveCategoryRates(opts.categoryRates || [], T) : [];
     return { id: String(r.id), name, legalName: r.legal_name || null, category: r.category || null, aliases: parseAliases(r.aliases || []), status: r.status === 'inactive' || r.status === 'leave' ? r.status : 'active',
       phone: r.phone || null, altPhone: r.alt_phone || null, email: r.email || null, address: r.address || null, instagram: r.instagram || null, storeUrl: r.store_url || null,
-      contactName: text(r.contact_name) || null, addressParts: parts, social, logoUrl: httpsOrNull(r.logo_url), bannerUrl: httpsOrNull(r.banner_url), wooPaymentMethods: Array.isArray(r.woo_payment_methods) ? r.woo_payment_methods.map(text).filter(Boolean) : [],
+      contactName: text(r.contact_name) || null, addressParts: parts, social, logoUrl: httpsOrNull(r.logo_url), photoPath: text(r.photo_path) || null, bannerUrl: httpsOrNull(r.banner_url), wooPaymentMethods: Array.isArray(r.woo_payment_methods) ? r.woo_payment_methods.map(text).filter(Boolean) : [],
       wooSyncedAt: text(r.woo_synced_at) || null, pushPending: pending, categoryRates: cats, rateFlat: visible && cur ? cur.flat : null,
       rate: visible && cur ? cur.rate : null, rateSince: visible && cur ? cur.since : null, rateHistory: visible ? hist : [], ratesVisible: visible,
       commissionType: visible && cur ? cur.type : 'fixed', // plan 3.4: fixed | category_based (the rate is then the default of a category with no figure)
@@ -568,6 +568,42 @@
     const r = await call((cl) => cl.storage.from(BUCKET).createSignedUrl(path, SIGN_SECONDS));
     return r.ok && r.data && r.data.signedUrl ? { ok: true, url: r.data.signedUrl } : fail(r.ok ? 'network' : r.reason);
   }
+  // phase 13 decision 51 (owner 10 Nov — «إمكانية لإضافة صورة المبتكر من البوب أب» · «System + Dokan store»): the photo goes to the
+  // private bucket vendor-photos at <vendor uuid>/<unix ms>.<ext> (0075: the admin or vendors.edit F, an existing maker's folder), then
+  // woo-sync vendor_photo records it on the maker and — with a store on the site and WOO_PUSH_ENABLED — sends it to wp/v2/media and makes
+  // it the Dokan store photo. → { ok, site: 'ok' | 'skipped', reason? } | { ok:false, reason }. Logged with the type and size only.
+  const PHOTO_MIME = { png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', webp: 'image/webp' }; const PHOTO_MAX = 5 * 1048576;
+  const canPhoto = () => isAdmin() || perm('vendors.edit') === 'F';
+  async function setPhoto(id, file) {
+    const v = vendors.get(String(id)); if (!v) return fail('not_found');
+    if (!canPhoto()) return fail('forbidden');
+    const f = file || {}; const e = ext(f.name || f.fileName); const blob = f.file || (typeof Blob !== 'undefined' && f instanceof Blob ? f : null);
+    const size = Number(f.size || (blob && blob.size) || 0);
+    if (!blob || !PHOTO_MIME[e] || !(size > 0 && size <= PHOTO_MAX)) return { ok: false, reason: 'invalid', message: 'الصورة PNG أو JPG أو WebP ولحد 5 ميجا' };
+    const path = id + '/' + Date.now() + '.' + (e === 'jpeg' ? 'jpg' : e);
+    const up = await call(async (cl) => cl.storage.from(PHOTO_BUCKET).upload(path, await blob.arrayBuffer(), { contentType: PHOTO_MIME[e], upsert: false }));
+    if (!up.ok) return up;
+    // the server records the photo before it talks to the site: a 502 (the site refused) still kept it here → site 'failed'
+    let site = 'failed'; let reason = 'woo_down';
+    try {
+      const { data: d, error } = await c().functions.invoke('woo-sync', { body: { action: 'vendor_photo', vendor_id: String(id), path } });
+      if (error) { const st = error.context && error.context.status; if (st !== 502) return fail(st === 401 || st === 403 ? 'forbidden' : st === 404 ? 'not_found' : 'network'); }
+      else { site = (d && d.site) || 'skipped'; reason = d && d.reason; }
+    } catch (x) { return fail('network'); }
+    v.photoPath = path; photoCache.delete(String(id)); emit({ id, changed: ['photo'] });
+    logEvent('vendor.photo', e.toUpperCase() + ' · ' + (size / 1048576).toFixed(1) + ' ميجا · الموقع ' + site, id);
+    return { ok: true, site, reason };
+  }
+  // the photo for the drawer: a signed URL (10 min), kept for the session
+  const photoCache = new Map();
+  async function photoUrl(id) {
+    const v = vendors.get(String(id)); const path = v && v.photoPath; if (!path) return null;
+    const hit = photoCache.get(String(id)); if (hit && hit.path === path && hit.until > Date.now()) return hit.url;
+    const r = await call((cl) => cl.storage.from(PHOTO_BUCKET).createSignedUrl(path, 600));
+    const url = r.ok && r.data && r.data.signedUrl ? r.data.signedUrl : null;
+    if (url) photoCache.set(String(id), { path, url, until: Date.now() + 540000 });
+    return url;
+  }
   // admin only (the policy); refused by the server while order lines point at the vendor (23503 → 'in_use')
   function remove(id, actor) {
     const v = must(id); if (!isAdmin()) throw noPerm();
@@ -868,6 +904,7 @@
   const store = { get, all, events, update, setRate, setBank, reveal, setContract, findByName, remove, restoreMoney, create, addLogin, setLogin, setLoginStatus, setLoginPassword, revealPassword, usernameTaken, missing, canEdit, canBank, canToggle, canRate, canLogin, canBrands, canRemove: () => isAdmin(), actor,
     brand, allBrands, brandByName, namesOf, ownerAt, storeOwnerAt, rateFor, addBrand, updateBrand, transferBrand, returnBrand,
     setCategoryRate, setCommission, categories, canPush, pushVendor, // phase 3.3
-    canSyncNow, syncing, syncNow }; // plan 3.4 decision 10
-  window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, setContract, contractUrl, stats, toVendor, toBrand, lineShare, rateAt, rateFor, storeOwnerAt, safeName, norm, today, MESSAGES, BUCKET, SYNC_FIELDS, toEvent, categories };
+    canSyncNow, syncing, syncNow, // plan 3.4 decision 10
+    setPhoto, photoUrl, canPhoto }; // phase 13 decision 51
+  window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, setContract, contractUrl, setPhoto, photoUrl, PHOTO_BUCKET, stats, toVendor, toBrand, lineShare, rateAt, rateFor, storeOwnerAt, safeName, norm, today, MESSAGES, BUCKET, SYNC_FIELDS, toEvent, categories };
 })();

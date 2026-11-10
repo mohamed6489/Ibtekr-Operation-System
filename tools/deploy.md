@@ -1216,6 +1216,14 @@ select count(*) from public.hr_bank;
 select id, member_id, day, minutes, kind, status, ticket_id from public.hr_overtime order by created_at desc limit 5;
 ```
 
+#### 2.7.51 صورة المبتكر من «إضافة مبتكر» (المرحلة 13 قرار 51، 10 نوفمبر)
+
+1. طبّق `supabase/migrations/0075_vendor_photo.sql` (عمود `vendors.photo_path` + `vendor_photo_writer` + bucket `vendor-photos` المقفول وسياستيه) — re-runnable.
+2. RLS live: «RLS live tests» بـ `files = rls_vendor_photo,rls_vendors`.
+3. انشر woo-sync («Deploy functions»، `function=woo-sync`) — action `vendor_photo`.
+4. ادمج على `main` (الواجهة بتطلب `photo_path` في قايمة أعمدة `vendors`، فـ 0075 لازم يكون متطبّق قبل الواجهة).
+5. التجربة: «إضافة مبتكر» بصورة → توست «اتحفظت هنا (مالوش متجر…)»؛ لمبتكر له متجر والكتابة شغالة الصورة بتبقى صورة المتجر على الموقع.
+
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
 - الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.
 - السياسات على `storage.objects` (من الملف نفسه، بادئة `vendor_contracts_`): `select` و`insert` و`update` لـ `authenticated` بشرط `bucket_id = 'vendor-contracts'` و`has_perm('sensitive.vendor_bank') = 'F'` (الأدمن والحسابات في مصفوفة `0003`). مافيش سياسة `delete`: استبدال العقد = ملف جديد والقديم بيفضل (قرار 7)، ومافيش تنظيف للملفات القديمة (تكلفة صغيرة).

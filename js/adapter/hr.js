@@ -298,7 +298,7 @@
   // decision 44 (0073): «طلب وقت إضافي» from the account menu — a day in the last 31, Cairo times, what was worked on; a «مستني» row with
   // its request ticket (the approvers decide it like the clock's)
   const OT_REQ_MSG = { day: 'اختار يوم من آخر 31 يوم لحد النهارده', from: 'اكتب وقت البداية', to: 'وقت النهاية لازم يكون عدّى', minutes: 'المدة من ربع ساعة لـ 12 ساعة',
-    note: 'اكتب اشتغلت على إيه (لحد 300 حرف)', overlap: 'فيه طلب وقت إضافي تاني على نفس الوقت ده' };
+    note: 'اكتب اشتغلت على إيه (لحد 300 حرف)', overlap: 'فيه طلب وقت إضافي تاني على نفس الوقت ده', open_shift: 'إنت لسه على الدوام — اقفل الدوام الأول وبعدين ابعت الطلب (وقت الدوام المفتوح بيتحسب لوحده)' };
   async function overtimeRequest({ day, from, to, note } = {}) {
     const { data, error } = await rpc('hr_overtime_request', { p_day: day || null, p_from: String(from || ''), p_to: String(to || ''), p_note: clean(note, 300) });
     if (error) { const r = fail(error); if (r.field && OT_REQ_MSG[r.field]) r.message = OT_REQ_MSG[r.field]; return r; }

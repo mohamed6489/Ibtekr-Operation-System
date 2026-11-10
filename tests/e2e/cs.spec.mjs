@@ -439,8 +439,9 @@ test('phase 13 T3: an attachment goes out on WhatsApp 1 through the channel (the
   await P.locator('#cs-ta').fill('شوفي الصورة دي');
   await P.locator('[data-cmp-file]').setInputFiles({ name: 'photo.png', mimeType: 'image/png', buffer: PNG });
   await expect(P.locator('.cs-msgs .bub img.bub-img')).toBeVisible();
-  const m = mock.cs.messages.find((x) => x.meta && x.meta.media);
-  expect([m.kind, m.text, m.delivery, m.meta.media.type]).toEqual(['out', 'شوفي الصورة دي', 'sent', 'image/png']);
+  // the bubble shows as soon as the row is queued; the channel's answer («sent») lands a moment later — wait for it, not race it
+  await expect.poll(() => { const x = mock.cs.messages.find((y) => y.meta && y.meta.media); return x ? [x.kind, x.text, x.delivery, x.meta.media.type] : null; })
+    .toEqual(['out', 'شوفي الصورة دي', 'sent', 'image/png']);
   expect([...mock.csMedia.keys()].every((k) => k.endsWith('-photo.png'))).toBe(true);
   expect(mock.waCloud.calls).toContain('send');
   await expect(P.locator('#cs-ta')).toHaveValue('');

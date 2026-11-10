@@ -1668,3 +1668,16 @@ tbody tr:nth-child(even) td{background:var(--color-bg-tint)}
 .card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only) h2,.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only) .sub,
 .card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only) .btn-text{color:var(--color-text-on-brand)}
 .card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only) .sub{opacity:.85}
+/* decision 46 (owner 10 Nov, «كل الأقسام اللي شكلها تايتل وتحتيه معلومات يبقى الهيدر أخضر»): the same green band with beige text on the
+   other cards of that shape — the dashboard cards, the chart / report cards and the settings cards — full width, flush with the card's top */
+.chart-card{--hd-t:16px;--hd-i:16px}.dash-card{--hd-t:var(--space-md);--hd-i:20px}.set-card{--hd-t:16px;--hd-i:20px}
+@media (max-width:1300px){.chart-card{--hd-t:12px;--hd-i:12px}} /* the .card padding of that width (line ~421) */
+@media (max-width:1023px){.dash-card{--hd-t:var(--space-sm);--hd-i:var(--space-md)}.chart-card{--hd-t:10px;--hd-i:10px}}
+.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h{background:var(--color-brand-default);margin:calc(-1*var(--hd-t)) calc(-1*var(--hd-i)) 0;padding:12px var(--hd-i);align-self:stretch;border-radius:var(--radius-md) var(--radius-md) 0 0}
+.chart-card>.chart-head :is(h2,h3,.t-small,.sub,a,.btn-text,.link),.dash-card:not(.tbl-v2)>.dash-h :is(h2,h3,.t-small,.sub,a,.btn-text,.link),.set-card>.set-card-h :is(h2,h3,.t-small,.sub,a){color:var(--color-text-on-brand)}
+.chart-card>.chart-head .t-small,.dash-card:not(.tbl-v2)>.dash-h .t-small{opacity:.85}
+/* decision 46 (owner 10 Nov, «كل الزراير اللي على خلفية خضرا لونها بيج زي زرار رفع المستندات»): a button on a green header is the default
+   beige button, whatever its type (primary / brand / the green «+»); the text buttons stay beige text */
+:is(.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only),.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h) .btn:not(.btn-text){background:var(--color-bg-container);border-color:var(--color-border-default);color:var(--color-text-primary)}
+:is(.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only),.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h) .btn:not(.btn-text):hover{border-color:var(--color-action-default);color:var(--color-text-primary)}
+:is(.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only),.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h) .btn-text{color:var(--color-text-on-brand)}

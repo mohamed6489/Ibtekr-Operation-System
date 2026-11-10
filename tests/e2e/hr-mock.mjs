@@ -226,7 +226,7 @@ export function hrRoute(c) {
       const since = a.ot_from ? Math.max(0, minutes(Date.parse(a.ot_from) > Date.parse(a.in_at) ? a.ot_from : a.in_at, out)) : 0;
       const part = Math.min(worked, Math.max(total - 480, 0, since)); let tid = null;
       let otId = null; if (note && part > 0) { otId = nextId(); tid = a.ot_ticket || otTicket(u.id, a.day, false); H.overtime.push({ id: otId, member_id: u.id, day: a.day, start_at: new Date(Date.parse(out) - part * 60000).toISOString(), end_at: out, minutes: part, kind: 'hours', note, status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now, ticket_id: tid });
-        otEvent(tid, 'الوقت الإضافي (' + part + ' دقيقة) · اشتغل على: ' + note + ' — مستني موافقة المدير المباشر'); }
+        otEvent(tid, 'الوقت الإضافي: ' + part + ' دقيقة — مستني موافقة المدير المباشر (التفاصيل في «الموارد البشرية › الطلبات»)'); }
       else if (a.ot_ticket) { otEvent(a.ot_ticket, 'الدوام خلص من غير وقت إضافي يتسجل'); otClose(a.ot_ticket, 'مش مشكلة', 'مافيش وقت إضافي اتسجل'); }
       return json(200, { worked, day_total: total, overtime_id: otId, overtime: otId ? part : 0, ticket: tid });
     }
@@ -289,7 +289,7 @@ export function hrRoute(c) {
         return json(200, 'اتضاف'); }
       if (b.p_decision === 'reject') { if (!reason) return bad('reason'); Object.assign(o, { status: 'اترفض', paid_minutes: 0, pay_month: null, decided_by: u.id, decided_at: now, reason });
         H.meetings.push({ id: nextId(), member_id: o.member_id, reason: 'وقت إضافي اترفض — نعرف كان بيعمل إيه', status: 'مطلوب', day: null, time_text: null, place: null, outcome: null, plan: null, goals: [], support: null, review_on: null, progress: null, notes: null, ref: 'OT-' + o.id, created_by: u.id, created_at: now, updated_at: now });
-        if (o.ticket_id) { otEvent(o.ticket_id, 'اترفض الوقت الإضافي — السبب: ' + reason); otClose(o.ticket_id, 'مش مشكلة', 'اترفض: ' + reason); }
+        if (o.ticket_id) { otEvent(o.ticket_id, 'اترفض الوقت الإضافي (السبب في «الموارد البشرية › الطلبات»)'); otClose(o.ticket_id, 'مش مشكلة', 'اترفض'); }
         return json(200, 'اترفض'); }
       return bad('decision');
     }

@@ -7,10 +7,13 @@
 -- * hr_overtime_begin(): the member, on their open session — sets ot_from (once) and opens the ticket: «تذاكر الفريق», internal, assigned
 --   to the direct manager's role (else «مدير النظام»), opened by the member; a bell alert to the admins and to the direct manager.
 -- * hr_clock_out: the overtime of a session = the larger of (its minutes since ot_from) and (its part past 8 hours of the day), never more
---   than the session; written with the ticket (a missing one is opened then) and an event on it with the times and what was worked on;
+--   than the session; written with the ticket (a missing one is opened then) and an event on it with its minutes only;
 --   an overtime started but ended with none closes its ticket. A rest day: the ×2 row carries the ticket, each session adds an event.
 -- * hr_overtime_decide: as 0046 (the direct manager, hr.approve F or the admin) — and the linked ticket gets the decision and is closed.
 --   Nothing is counted for the member before that (as it always was: paid_minutes / pay_month only on «اتضاف»).
+-- * Privacy (security review of this change): the ticket is seen by the manager's whole role, so it carries no HR detail — no note of
+--   what was worked on, no times, no refusal reason; those stay in hr_overtime under the HR rules (hr_can_see), where the ticket card
+--   reads them only for those allowed.
 
 alter table public.hr_attendance add column if not exists ot_from timestamptz;
 alter table public.hr_attendance add column if not exists ot_ticket bigint references public.tickets on delete set null;
@@ -131,8 +134,7 @@ begin
       elsif v_row.ot_ticket is not null and v_row.ot_ticket <> v_t then
         perform public.hr_ot_ticket_close(v_row.ot_ticket, 'مكرر', 'الطلب في التذكرة TKT-' || lpad(v_t::text, 4, '0'));
       end if;
-      perform public.hr_ot_event(v_t, 'جلسة يوم راحة/عطلة: ' || to_char(v_row.in_at at time zone 'Africa/Cairo', 'HH24:MI') || '–'
-        || to_char(v_out at time zone 'Africa/Cairo', 'HH24:MI') || ' (' || v_worked || ' دقيقة)' || coalesce(' · اشتغل على: ' || v_note, ''));
+      perform public.hr_ot_event(v_t, 'جلسة يوم راحة/عطلة: ' || v_worked || ' دقيقة');
     end if;
     return jsonb_build_object('worked', v_worked, 'day_total', v_total, 'overtime_id', v_ot, 'overtime', 0, 'rest_day', true, 'ticket', v_t);
   end if;
@@ -143,8 +145,7 @@ begin
     insert into public.hr_overtime (member_id, day, start_at, end_at, minutes, note, ticket_id)
     values (auth.uid(), v_row.day, v_out - make_interval(mins => v_part), v_out, v_part, v_note, v_t)
     returning id into v_ot;
-    perform public.hr_ot_event(v_t, 'الوقت الإضافي: ' || to_char((v_out - make_interval(mins => v_part)) at time zone 'Africa/Cairo', 'HH24:MI') || '–'
-      || to_char(v_out at time zone 'Africa/Cairo', 'HH24:MI') || ' (' || v_part || ' دقيقة) · اشتغل على: ' || v_note || ' — مستني موافقة المدير المباشر');
+    perform public.hr_ot_event(v_t, 'الوقت الإضافي: ' || v_part || ' دقيقة — مستني موافقة المدير المباشر (التفاصيل في «الموارد البشرية › الطلبات»)');
   elsif v_row.ot_ticket is not null then
     perform public.hr_ot_event(v_row.ot_ticket, 'الدوام خلص من غير وقت إضافي يتسجل');
     perform public.hr_ot_ticket_close(v_row.ot_ticket, 'مش مشكلة', 'مافيش وقت إضافي اتسجل');
@@ -184,8 +185,8 @@ begin
     if v_reason is null then raise exception 'invalid: reason' using errcode = '22023'; end if;
     update public.hr_overtime set status = 'اترفض', paid_minutes = 0, pay_month = null, decided_by = auth.uid(), decided_at = now(), reason = v_reason where id = p_id;
     insert into public.hr_meetings (member_id, reason, ref, created_by) values (v_o.member_id, 'وقت إضافي اترفض — نعرف كان بيعمل إيه', 'OT-' || p_id, auth.uid());
-    perform public.hr_ot_event(v_o.ticket_id, 'اترفض الوقت الإضافي — السبب: ' || v_reason);
-    perform public.hr_ot_ticket_close(v_o.ticket_id, 'مش مشكلة', 'اترفض: ' || v_reason);
+    perform public.hr_ot_event(v_o.ticket_id, 'اترفض الوقت الإضافي (السبب في «الموارد البشرية › الطلبات»)');
+    perform public.hr_ot_ticket_close(v_o.ticket_id, 'مش مشكلة', 'اترفض');
     return 'اترفض';
   end if;
   raise exception 'invalid: decision' using errcode = '22023';

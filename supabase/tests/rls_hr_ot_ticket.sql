@@ -78,8 +78,12 @@ begin
   select * into o from public.hr_overtime where id = (r ->> 'overtime_id')::bigint;
   if o.ticket_id::text <> (select v from ot where k = 't1') or o.status <> 'مستني' or o.paid_minutes <> 0 then raise exception 'case nothing is paid before the decision failed'; end if;
   insert into ot values ('o1', o.id::text);
-  if not exists (select 1 from public.ticket_events e where e.ticket_id = o.ticket_id and e.text like 'الوقت الإضافي:%60 دقيقة%' or e.ticket_id = o.ticket_id and e.text like 'الوقت الإضافي:%59 دقيقة%' or e.ticket_id = o.ticket_id and e.text like 'الوقت الإضافي:%61 دقيقة%') then
-    raise exception 'case the ticket gets the times and the work failed';
+  if not exists (select 1 from public.ticket_events e where e.ticket_id = o.ticket_id and e.text like 'الوقت الإضافي:%دقيقة%') then
+    raise exception 'case the ticket gets the minutes failed';
+  end if;
+  -- the security review: the ticket is seen by the manager's whole role — no note, no times, no reason in it
+  if exists (select 1 from public.ticket_events e where e.ticket_id = o.ticket_id and e.text like '%تقفيل شحنة المسا%') then
+    raise exception 'case no HR detail in the ticket failed';
   end if;
   begin perform public.hr_overtime_decide(o.id, 'add'); raise exception 'case a member does not decide their own overtime failed'; exception when insufficient_privilege then null; end;
 end $$;
@@ -137,6 +141,10 @@ do $$ begin
   perform public.hr_overtime_decide((select v::bigint from ot where k = 'o3'), 'reject', null, 'مش متفق عليه');
   if (select status || '/' || resolution_outcome from public.tickets where id = (select v::bigint from ot where k = 't3')) <> 'closed/مش مشكلة' then
     raise exception 'case a refusal closes the ticket failed';
+  end if;
+  if exists (select 1 from public.ticket_events where ticket_id = (select v::bigint from ot where k = 't3') and text like '%مش متفق عليه%')
+     or (select resolution_note from public.tickets where id = (select v::bigint from ot where k = 't3')) like '%مش متفق عليه%' then
+    raise exception 'case the refusal reason stays out of the ticket failed';
   end if;
 end $$;
 

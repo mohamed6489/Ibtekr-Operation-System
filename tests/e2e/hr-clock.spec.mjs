@@ -169,7 +169,7 @@ test('decision 25: «إضافة وقت إضافي» in «ملفي › ساعات
   await f.getByRole('button', { name: 'إنهاء الدوام وإرسال للتأكيد' }).click();
   await expect.poll(() => calls('hr_clock_out').length).toBe(1);
   const ot = mock.hr.overtime.filter((o) => o.kind === 'hours');
-  if (ot.length) { expect(ot[0]).toMatchObject({ status: 'مستني', paid_minutes: 0, ticket_id: tk.id }); expect(mock.ticketEvents.some((e) => e.ticket_id === tk.id && e.text.includes('تقفيل شحنة المسا'))).toBe(true); }
+  if (ot.length) { expect(ot[0]).toMatchObject({ status: 'مستني', paid_minutes: 0, ticket_id: tk.id }); expect(mock.ticketEvents.some((e) => e.ticket_id === tk.id && e.text.startsWith('الوقت الإضافي:'))).toBe(true); expect(mock.ticketEvents.some((e) => e.text.includes('تقفيل شحنة المسا'))).toBe(false); } // no HR detail in a ticket the whole role sees
   else expect(mock.tickets.find((t) => t.id === tk.id).status).toBe('closed'); // under a minute of overtime: nothing to record, the request closed
 });
 

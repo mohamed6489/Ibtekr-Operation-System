@@ -2,7 +2,7 @@ import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   parseAssistant, assistantRequest, readTurn, toolResults, cleanAction, dataQuery, ordersData, vendorsData, customersData, ticketsData, tasksData, expensesData, salesData, summaryData, cleanAnswer,
   toolsOf, reportOf, REPORT_MAX, ASSISTANT_TURNS, Q_MAX, ANSWER_MAX, PAGES, deliveryOf, ageDays, amountsIn,
-  FORMS, AI_ORDER_STATUSES,
+  FORMS, AI_ORDER_STATUSES, vendorData, filesData, pickVendor, fileRefOk, DATA_KINDS,
 } from '../../supabase/functions/_shared/ai-assistant.js';
 // The header's assistant (phase 12 T1, decision 8): the body checks, Claude's tools and request, reading a turn, the client
 // actions' cleaning and the data shaping with the member's rows — never a phone or an address.
@@ -35,13 +35,13 @@ test('assistantRequest: the cached base + the screen block, the turns as message
   assert.deepEqual(p.system[0].cache_control, { type: 'ephemeral' }); assert.match(p.system[0].text, /get_data/); assert.match(p.system[0].text, /expense_add/); assert.match(p.system[0].text, /إيداع ولا سحب/); assert.match(p.system[0].text, /حط المعلومات هنا/); // decision 41 assert.doesNotMatch(p.system[0].text, /propose_entry/); assert.match(p.system[0].text, /متعرضش أرقام تليفونات/);
   assert.equal(p.system[1].text, 'النهارده (القاهرة): 2026-11-08\nالمستخدم: منى (خدمة العملاء)\nالصفحة المفتوحة: الحسابات / expenses\nالفترة المعروضة: 2026-11-01 → 2026-11-08');
   assert.deepEqual(p.messages.map((m) => [m.role, m.content[0].text]), [['user', 'أهلًا'], ['assistant', 'أهلًا بيك'], ['user', 'افتح الأوردرات']]);
-  assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'open_form']); // decision 40: the money entries are open_form popups
+  assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'offer_file', 'open_form']); // decision 40 / 42: the money entries are open_form popups
   assert.equal(p.tool_choice, undefined);
   assert.deepEqual(p.tools[1].input_schema.properties.page.enum, PAGES);
   const f = assistantRequest(parseAssistant({ mode: 'filter', turns: [{ role: 'user', text: 'المتأخر بتاع Art Craft' }], context: { vendors: ['Art Craft'], statuses: ['مكتمل', 'ملغي'] } }).req, CTX);
   assert.deepEqual(f.tools.map((t) => t.name), ['set_filter']); assert.deepEqual(f.tool_choice, { type: 'tool', name: 'set_filter' });
   assert.equal(f.system[1].text, 'المبتكرين المتاحين: Art Craft\nحالات الأوردر: مكتمل، ملغي');
-  assert.deepEqual(toolsOf('chat').length, 6); // + open_form (decision 36), − propose_entry (decision 40: the money entries are popups)
+  assert.deepEqual(toolsOf('chat').length, 7); // + open_form (decision 36), − propose_entry (decision 40: the money entries are popups), + offer_file (decision 42)
 });
 
 test('readTurn: text, tool uses (ids kept for the results), a refusal, a cut-off without text; toolResults shapes the next user message', () => {
@@ -188,4 +188,66 @@ test('open_form: the known forms and their fields only; dates, amounts and numbe
   for (const st of ['ملغي', 'استرجاع', 'فشل']) { assert.ok(!AI_ORDER_STATUSES.includes(st)); assert.equal(cleanAction('open_form', { form: 'order_update', values: { order: '1', status: st } }), null); }
   assert.deepEqual(Object.keys(FORMS).sort(), ['account_move', 'customer_add', 'expense_add', 'hr_advance', 'hr_leave', 'hr_remote', 'member_add', 'order_update', 'task_add', 'ticket_new', 'vendor_add', 'vendor_move']);
   assert.ok(toolsOf('chat').some((t) => t.name === 'open_form')); assert.ok(!toolsOf('filter').some((t) => t.name === 'open_form'));
+});
+
+// ---------------------------------------------------------------- decision 42: questions answered in the chat, files to download
+const U1 = '11111111-1111-4111-8111-111111111111'; const U2 = '22222222-2222-4222-8222-222222222222';
+test('decision 42: a question stays in the chat — the prompt forbids changing the page unless asked; vendor needs a name', () => {
+  const p = assistantRequest(parseAssistant(body({ turns: [{ role: 'user', text: 'كام أوردر ملغي لبيت الخزف؟' }] })).req, CTX);
+  assert.match(p.system[0].text, /متغيّرش الصفحة/); assert.match(p.system[0].text, /offer_file/); assert.match(p.system[0].text, /تنزيل Excel/);
+  assert.ok(DATA_KINDS.includes('vendor') && DATA_KINDS.includes('files'));
+  assert.ok('error' in dataQuery({ kind: 'vendor' }, { today: '2026-11-10' }));
+  assert.equal(dataQuery({ kind: 'vendor', q: 'بيت الخزف' }, { today: '2026-11-10' }).q, 'بيت الخزف');
+});
+test('decision 42: vendorData — orders by status in the period, cancelled / late, sales, «الصافي» like the accounts page', () => {
+  const dq = { kind: 'vendor', q: 'خزف', from: '2026-11-01', to: '2026-11-10', limit: 10 };
+  const vendors = [{ id: 'v2', name: 'خزف مصر', status: 'active' }, { id: 'v1', name: 'خزف', status: 'active' }];
+  assert.equal(pickVendor(vendors, 'خزف').id, 'v1', 'the exact name first'); assert.equal(pickVendor(vendors, 'مش موجود'), null);
+  const items = [{ order_id: 1, status: 'جاهز', total: 300 }, { order_id: 1, status: 'جاهز', total: 200 }, { order_id: 2, total: 100 }, { order_id: 3, total: 50 }, { order_id: 4, total: 70, removed: true }, { order_id: 9, total: 10 }];
+  const orders = [
+    { id: 1, number: 5001, status: 'جاري التنفيذ', placed_at: '2026-10-25T10:00:00Z' }, // before the period
+    { id: 2, number: 5002, status: 'ملغي', placed_at: '2026-11-02T10:00:00Z' },
+    { id: 3, number: 5003, status: 'جاري التنفيذ', placed_at: '2026-11-01T10:00:00Z' },
+    { id: 4, number: 5004, status: 'مكتمل', placed_at: '2026-11-03T10:00:00Z' }, // the maker's line was removed
+    { id: 7, number: 5007, status: 'مكتمل', placed_at: '2026-11-03T10:00:00Z' }, // another maker's order
+  ];
+  const moves = [{ on_date: '2026-11-05', direction: 'deposit', kind: 'عربون', amount: 500 }, { on_date: '2026-10-01', direction: 'withdraw', kind: 'مواصلات', amount: 60 },
+    { on_date: '2026-11-06', direction: 'withdraw', kind: 'عربون', amount: 100 }, { on_date: '2026-11-07', direction: 'deposit', kind: 'أخرى', amount: 40 }, { on_date: '2026-11-07', direction: 'deposit', kind: 'عربون', amount: 999, voided_at: '2026-11-08' }];
+  const sales = [{ vendor_id: 'v1', grp: 'مكتمل', orders: 2, sales: 1000, share: 200, is_total: false }, { vendor_id: 'v2', grp: 'مكتمل', orders: 9, sales: 9, share: 1, is_total: false }, { grp: 'مكتمل', orders: 11, sales: 1009, is_total: true }];
+  const r = vendorData({ vendors, items, orders, sales, balance: { balance: 2000, synced_at: '2026-11-10T08:00:00Z' }, moves, withdrawal: { amount: 700, status: 'pending', requested_at: '2026-11-09T12:00:00Z' } }, dq, '2026-11-11');
+  assert.equal(r.vendor, 'خزف'); assert.deepEqual(r.otherMatches, ['خزف مصر']);
+  assert.equal(r.orders.total, 2); assert.deepEqual(r.orders.byStatus, { 'ملغي': 1, 'جاري التنفيذ': 1 }); assert.equal(r.orders.cancelled, 1); assert.equal(r.orders.totalEgp, 150);
+  assert.equal(r.orders.late, 0); assert.equal(r.orders.risk, 1, '9 days old on the 11th = قابل للتأخير');
+  assert.deepEqual(r.sales, { 'مكتمل': { orders: 2, sales: 1000, ibtekrShare: 200 } });
+  // 2000 − عربون (500 − 100) − مواصلات 60 − أخرى 40 = 1500; the voided move is out
+  assert.deepEqual([r.account.dokanBalance, r.account.deposits, r.account.transport, r.account.otherMoves, r.account.net], [2000, 400, 60, 40, 1500]);
+  assert.deepEqual(r.account.movesInPeriod, { 'عربون': 400, 'أخرى': 40 });
+  assert.deepEqual(r.lastWithdrawal, { amount: 700, status: 'pending', date: '2026-11-09' });
+  // a refused part is { forbidden } and the rest still answers; no maker = found false
+  const f = vendorData({ vendors, items: null, orders: null, sales: null, balance: null, balanceForbidden: true, moves: null }, dq, '2026-11-10');
+  assert.deepEqual([f.orders, f.sales, f.account], [{ forbidden: true }, { forbidden: true }, { forbidden: true }]);
+  assert.equal(vendorData({ vendors: [] }, dq, '2026-11-10').found, false);
+  const nb = vendorData({ vendors, items: [], orders: [], sales: [], balance: null, moves }, dq, '2026-11-10');
+  assert.equal(nb.account.dokanBalance, null); assert.equal(nb.account.net, -500); assert.match(nb.account.note, /Dokan/);
+});
+test('decision 42: filesData lists what the member may open; offer_file keeps a well-shaped ref only', () => {
+  const p = {
+    company: [{ id: U1, name: 'السجل التجاري', type: 'سجل', created_at: '2026-11-01T00:00:00Z' }],
+    contracts: [{ id: U2, name: 'خزف', contract: { fileName: 'عقد خزف.pdf', path: U2 + '/1-a.pdf', uploadedAt: '2026-10-01T00:00:00Z' } }, { id: U1, name: 'بلا عقد', contract: { fileName: 'x' } }],
+    hr: [{ member_id: U1, kind: 'بطاقة رقم قومي', path: U1 + '/r-id.pdf', name: 'بطاقة', created_at: '2026-11-05T00:00:00Z' }, { member_id: U1, kind: 'أخرى', path: '../etc/passwd', name: 'bad' }],
+    tickets: [{ id: 7, title: 'كسر في الشحنة', attachments: [{ path: U2 + '/p1.jpg', name: 'صورة الكسر.jpg' }], created_at: '2026-11-08T00:00:00Z' }],
+    events: [{ ticket_id: 7, attachments: [{ path: U2 + '/p1.jpg' }, { path: U2 + '/p2.pdf', name: 'فاتورة.pdf' }], at: '2026-11-09T00:00:00Z' }],
+    names: { [U1]: 'منى' },
+  };
+  const r = filesData(p, { q: '', limit: 20 });
+  assert.equal(r.total, 5, 'the bad path, the contract with no file and the duplicate are out');
+  assert.deepEqual(r.rows.map((f) => f.source), ['ticket', 'ticket', 'hr', 'company', 'contract']);
+  assert.equal(r.rows.find((f) => f.source === 'hr').owner, 'منى'); assert.match(r.rows[0].owner, /^TKT-0007 — كسر/);
+  assert.deepEqual(filesData(p, { q: 'عقد', limit: 20 }).rows.map((f) => f.name), ['عقد خزف.pdf']);
+  assert.deepEqual(cleanAction('offer_file', { source: 'hr', ref: U1 + '/r-id.pdf', name: 'بطاقة' }), { name: 'offer_file', input: { source: 'hr', ref: U1 + '/r-id.pdf', name: 'بطاقة' } });
+  assert.equal(cleanAction('offer_file', { source: 'hr', ref: '../etc/passwd' }), null);
+  assert.equal(cleanAction('offer_file', { source: 'company', ref: 'not-a-uuid' }), null);
+  assert.equal(cleanAction('offer_file', { source: 'bucket', ref: U1 }), null);
+  assert.equal(cleanAction('offer_file', { source: 'ticket', ref: U2 + '/p2.pdf' }).input.name, 'p2.pdf');
+  assert.ok(fileRefOk('contract', U2) && !fileRefOk('ticket', U2 + '/../x'));
 });

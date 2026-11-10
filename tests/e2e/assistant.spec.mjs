@@ -209,3 +209,41 @@ test('decision 36: open_form order_update asks once in a popup, then writes the 
   await dlg.getByRole('button', { name: 'أكّد وسجّل' }).click();
   await expect.poll(() => page.evaluate(() => window.OrdersApp.query({ q: '181668' }, 1).rows[0].confirm)).toBe('مؤكد بدون عربون');
 });
+
+test('decision 42: a maker question is answered in the chat without changing the page; «تنزيل Excel» exports the read data; a file found comes as a download link; my words are green with beige text', async ({ page }) => {
+  const OPS_ID = '00000000-0000-4000-8000-000000000002'; const FILE = OPS_ID + '/abc-photo.jpg';
+  mock.ticketObjects.set(FILE, { type: 'image/jpeg', size: 1000 });
+  const report = [{ kind: 'vendor', data: { vendor: 'Art Craft', status: 'active', period: { from: '2026-11-01', to: '2026-11-10' },
+    orders: { total: 3, totalEgp: 2100, byStatus: { 'ملغي': 1, 'جاري التنفيذ': 2 }, cancelled: 1, late: 1, rows: [{ number: 180672, status: 'ملغي', total: 700 }] },
+    account: { dokanBalance: 3000, deposits: 500, transport: 50, otherMoves: 0, net: 2450 } } },
+  { kind: 'files', data: { total: 1, rows: [{ source: 'ticket', ref: FILE, name: 'صورة الكسر.jpg', label: 'مرفق تذكرة', owner: 'TKT-0007' }] } }];
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'Art Craft عنده 3 أوردرات، واحد ملغي، والصافي 2,450 ج.م. نزّل الصورة من هنا.', tools: ['vendor', 'files'], report,
+    actions: [{ name: 'offer_file', input: { source: 'ticket', ref: FILE, name: 'صورة الكسر.jpg' } }] } : null);
+  await signIn(page, OPS);
+  await page.evaluate(() => { window.__opened = []; window.open = (u) => { window.__opened.push(String(u)); return null; }; });
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await ask(page, 'حساب Art Craft وعدد الأوردرات الملغية');
+  const P = panel(page);
+  await expect(P.locator('.ai-msg.ai').last()).toContainText('الصافي 2,450');
+  // my bubble: the brand green with the beige text
+  const mine = P.locator('.ai-msg.user').last();
+  expect(await mine.evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el).color])).toEqual(['rgb(0, 86, 66)', 'rgb(255, 247, 239)']);
+  // the page did not move
+  await expect(page.locator('.sidebar .nav-item[data-page="dashboard"]')).toHaveAttribute('aria-current', 'page');
+  // «تنزيل Excel»: one sheet with the question, the answer and the read data
+  await P.locator('[data-ai-excel]').last().click();
+  await expect.poll(() => page.evaluate(() => window.__lastExport && window.__lastExport.filename)).toMatch(/^ibtekr-assistant-\d{4}-\d{2}-\d{2}\.xlsx$/);
+  expect(await page.evaluate(() => window.__lastExport.rows)).toBeGreaterThan(10);
+  // the file: a download link signed by the tickets adapter on the click
+  const link = P.locator('[data-ai-file="ticket"]');
+  await expect(link).toHaveText(/تنزيل «صورة الكسر.jpg»/);
+  await link.click();
+  await expect.poll(() => page.evaluate(() => window.__opened.length)).toBe(1);
+  expect(await page.evaluate(() => window.__opened[0])).toContain('/object/sign/tickets/' + FILE);
+  // a file the member cannot open: a note, nothing opened
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'نزّله من هنا.', tools: ['files'], actions: [{ name: 'offer_file', input: { source: 'ticket', ref: '00000000-0000-4000-8000-000000000009/x.pdf', name: 'x.pdf' } }] } : null);
+  await ask(page, 'هات x.pdf');
+  await P.locator('[data-ai-file="ticket"]').last().click();
+  await expect(P.locator('.ai-msg.ai').last()).toContainText('ما قدرتش أجيب الملف');
+  expect(await page.evaluate(() => window.__opened.length)).toBe(1);
+});

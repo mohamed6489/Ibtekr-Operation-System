@@ -40,7 +40,7 @@ import { buyerRequest, campaignTarget, cleanBuyer, cleanMarketing, marketingRequ
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
 import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
-import { MAX_TOOL_CALLS, amountsIn, reportOf, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, ticketsData, toolResults, vendorsData } from '../_shared/ai-assistant.js';
+import { MAX_TOOL_CALLS, amountsIn, reportOf, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, filesData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, pickVendor, ticketsData, toolResults, vendorData, vendorsData } from '../_shared/ai-assistant.js';
 import { completeText } from './providers/text.ts';
 import { cairoParts } from '../_shared/mkt-publish.js';
 
@@ -351,7 +351,40 @@ async function readData(member: Db, uid: string, dq: DQ, today: string): Promise
     const vs = ids.length ? await rows(member.from('vendors').select('id, name').in('id', ids)) : [];
     return salesData(r, Object.fromEntries((vs ?? []).map((v: Json) => [v.id, v.name])), dq);
   };
+  // decision 42: one maker's account — every part with the member's own client (a refused part is { forbidden } in the answer)
+  const vendor = async () => {
+    const vs = await rows(member.from('vendors').select('id, name, status').ilike('name', '%' + dq.q.replace(/[%_\\,()]/g, ' ') + '%').limit(20));
+    if (!vs) return FORBIDDEN;
+    const v = pickVendor(vs, dq.q); if (!v) return vendorData({ vendors: vs }, dq, today);
+    const id = v.id;
+    const [items, ords, sales, bal, moves, wd] = await Promise.all([
+      rows(member.from('order_items').select('order_id, status, total, removed').eq('vendor_id', id).limit(5000)),
+      rows(member.from('orders_v').select(ORDER_COLS).gte('placed_at', dq.from + 'T00:00:00+02:00').order('placed_at', { ascending: false }).limit(2000)),
+      rows(member.rpc('accounts_sales', { p_from: dq.from, p_to: dq.to })),
+      rows(member.from('dokan_balances').select('vendor_id, balance, synced_at').eq('vendor_id', id).limit(1)),
+      rows(member.from('acc_vendor_moves').select('on_date, direction, kind, amount, voided_at').eq('vendor_id', id).is('voided_at', null).limit(5000)),
+      rows(member.from('dokan_withdrawals').select('amount, status, requested_at').eq('vendor_id', id).order('requested_at', { ascending: false }).limit(1)),
+    ]);
+    return vendorData({ vendors: vs, items, orders: ords, sales, balance: bal ? bal[0] ?? null : null, balanceForbidden: bal == null, moves, withdrawal: wd ? wd[0] ?? null : null }, dq, today);
+  };
+  // decision 42: the uploaded files the member can open — company papers (RLS: admin), makers' contracts (only with the key that opens
+  // them), HR documents (hr_can_see), ticket attachments (the tickets I see); paths only, signed by the page's own adapter on a click
+  const files = async () => {
+    const key = (await member.rpc('has_perm', { key: 'sensitive.vendor_bank' })).data;
+    const [company, contracts, hr, tks, evs] = await Promise.all([
+      rows(member.from('company_docs').select('id, name, type, created_at').order('created_at', { ascending: false }).limit(200)),
+      key === 'F' ? rows(member.from('vendors').select('id, name, contract').not('contract', 'is', null).limit(1000)) : Promise.resolve([]),
+      rows(member.from('hr_documents').select('member_id, kind, path, name, created_at, voided_at').is('voided_at', null).limit(500)),
+      rows(member.from('tickets').select('id, title, attachments, created_at').order('last_update', { ascending: false }).limit(300)),
+      rows(member.from('ticket_events').select('ticket_id, attachments, at').neq('attachments', '[]').order('at', { ascending: false }).limit(500)),
+    ]);
+    const ids = [...new Set((hr ?? []).map((d: Json) => d.member_id))].slice(0, 200);
+    const ppl = ids.length ? await rows(member.from('profiles').select('id, name').in('id', ids)) : [];
+    return filesData({ company: company ?? [], contracts: contracts ?? [], hr: hr ?? [], tickets: tks ?? [], events: evs ?? [], names: Object.fromEntries((ppl ?? []).map((x: Json) => [x.id, x.name])) }, dq);
+  };
   switch (dq.kind) {
+    case 'vendor': return await vendor();
+    case 'files': return await files();
     case 'orders': return await orders();
     case 'vendors': { const r = await rows(member.from('vendors').select('id, name, status, category, lead_days, joined_at').limit(1000)); return r ? vendorsData(r, dq) : FORBIDDEN; }
     case 'customers': { const r = await rows(member.rpc('cs_customers_list')); return r ? customersData(r, dq) : FORBIDDEN; }
@@ -422,7 +455,7 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
         const act = cleanAction(use.name, use.input);
         if (act && use.name === 'propose_entry' && !typedAmounts.includes(Number((act.input as Json).amount))) { results.push({ id: use.id, content: 'refused: the amount is not in the user\'s own message — ask them for it', error: true }); continue; }
         if (act && use.name === 'open_form') { const vals = (act.input as Json).values as Json; if (vals.amount != null && !typedAll.includes(Number(vals.amount))) delete vals.amount; }
-        if (act) { actions.push(act); results.push({ id: use.id, content: use.name === 'propose_entry' ? 'the confirm card will be shown to the user after your answer — not recorded yet' : use.name === 'open_form' ? 'a link «افتح البوب أب» is shown under your answer; the popup opens when the user clicks it, filled with these values — nothing is saved until they press its button' : 'will run on the user\'s screen after your answer' }); }
+        if (act) { actions.push(act); results.push({ id: use.id, content: use.name === 'propose_entry' ? 'the confirm card will be shown to the user after your answer — not recorded yet' : use.name === 'open_form' ? 'a link «افتح البوب أب» is shown under your answer; the popup opens when the user clicks it, filled with these values — nothing is saved until they press its button' : use.name === 'offer_file' ? 'a download link is shown under your answer' : 'will run on the user\'s screen after your answer' }); }
         else results.push({ id: use.id, content: 'invalid input for ' + line(use.name, 40), error: true });
       }
     }

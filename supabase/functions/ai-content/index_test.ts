@@ -440,8 +440,8 @@ Deno.test('assistant: any active member; the tool loop — get_data runs with th
   assertEquals(r.body.actions, [{ name: 'filter_orders', input: { clear: true, deliv: 'late' } }], 'the bad navigate is dropped');
   assertEquals(r.body.tools, ['summary', 'orders']);
   assertEquals(asked.length, 3);
-  // the first request: the cached base, the screen block (the member and the page), the six tools (decision 40: no propose_entry), the question
-  assertEquals(asked[0].tools.map((t: any) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'open_form']);
+  // the first request: the cached base, the screen block (the member and the page), the seven tools (decision 40: no propose_entry; decision 42: offer_file), the question
+  assertEquals(asked[0].tools.map((t: any) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'offer_file', 'open_form']);
   assert(asked[0].system[1].text.includes('المستخدم: منى (خدمة العملاء)') && asked[0].system[1].text.includes('الصفحة المفتوحة: لوحة التحكم'), asked[0].system[1].text);
   assertEquals(asked[0].messages, [{ role: 'user', content: [{ type: 'text', text: 'كام أوردر متأخر؟ افتحهم' }] }]);
   // the second request carries the assistant's tool_use message and the summary as the tool result
@@ -507,6 +507,35 @@ Deno.test('assistant: propose_entry is an action with the confirm wording (nothi
   assertEquals(s4.db.rows('ai_runs').at(-1).source, 'filter');
 });
 
+Deno.test('assistant decision 42: a maker\'s account and a file answered in the chat — every read with the member\'s client, a contract only with the key, the file as a download link', async () => {
+  const AC = '0a000000-0000-4000-8000-000000000001'; const FILE = U.view + '/abc-photo.jpg';
+  const seed = { ...MEMBER_SEED,
+    vendors: [{ id: AC, name: 'Art Craft', status: 'active', contract: { fileName: 'عقد.pdf', path: AC + '/1-c.pdf' } }],
+    order_items: [{ order_id: 1, vendor_id: AC, status: 'جاهز', total: 400 }, { order_id: 3, vendor_id: AC, total: 600 }, { order_id: 2, vendor_id: 'other', total: 1500 }],
+    dokan_balances: [{ vendor_id: AC, balance: 3000, synced_at: NOW }],
+    acc_vendor_moves: [{ vendor_id: AC, on_date: NOW_DAY, direction: 'deposit', kind: 'عربون', amount: 500 }, { vendor_id: AC, on_date: NOW_DAY, direction: 'withdraw', kind: 'مواصلات', amount: 50 }],
+    dokan_withdrawals: [{ vendor_id: AC, amount: 900, status: 'pending', requested_at: NOW }],
+    hr_documents: [], company_docs: [], ticket_events: [],
+    tickets: [{ ...MEMBER_SEED.tickets[0], attachments: [{ path: FILE, name: 'صورة الكسر.jpg' }] }],
+  };
+  const { deps, asked } = setup({ memberSeed: seed, memberRpc: { accounts_sales: () => [{ vendor_id: AC, grp: 'مكتمل', orders: 1, sales: 600, share: 120, is_total: false }] },
+    replies: [
+      toolUse([{ id: 'tu_1', name: 'get_data', input: { kind: 'vendor', q: 'art craft', from: '2026-10-01', to: '2026-10-25' } }, { id: 'tu_2', name: 'get_data', input: { kind: 'files', q: 'الكسر' } }]),
+      toolUse([{ id: 'tu_3', name: 'offer_file', input: { source: 'ticket', ref: FILE, name: 'صورة الكسر.jpg' } }, { id: 'tu_4', name: 'offer_file', input: { source: 'hr', ref: '../x' } }]),
+      msg('Art Craft: أوردرين، الصافي 2,450 ج.م. نزّل الصورة من هنا.'),
+    ] });
+  const r = await call(deps, ASSIST('حساب Art Craft وصورة الكسر'), 'jwt-view');
+  assertEquals(r.res.status, 200, JSON.stringify(r.body));
+  assertEquals(r.body.tools, ['vendor', 'files']);
+  assertEquals(r.body.actions, [{ name: 'offer_file', input: { source: 'ticket', ref: FILE, name: 'صورة الكسر.jpg' } }], 'the bad ref is dropped');
+  const v = r.body.report[0].data;
+  assertEquals([v.vendor, v.orders.total, v.orders.late, v.account.net, v.account.dokanBalance, v.lastWithdrawal.amount], ['Art Craft', 2, 1, 2450, 3000, 900]);
+  assertEquals(v.sales, { 'مكتمل': { orders: 1, sales: 600, ibtekrShare: 120 } });
+  const f = r.body.report[1].data; assertEquals(f.rows.map((x: any) => [x.source, x.ref]), [['ticket', FILE]]);
+  // no sensitive.vendor_bank here: the contract was never listed
+  assertFalse(JSON.stringify(f).includes('1-c.pdf'));
+  const res2 = asked[2].messages.at(-1).content; assertEquals(res2.map((x: any) => x.is_error ?? false), [false, true]);
+});
 Deno.test('assistant: no key → 503 with an error row; a refusal → 200 refused; Claude busy twice → 429; the monthly cap → 402 before any call', async () => {
   const s1 = setup({ memberSeed: MEMBER_SEED, env: { ANTHROPIC_API_KEY: '' }, replies: [] });
   assertEquals((await call(s1.deps, ASSIST('x'), 'jwt-view')).res.status, 503); assertEquals(s1.db.rows('ai_runs').at(-1).error, 'not_configured');

@@ -258,7 +258,7 @@ tr.total td{background:var(--color-bg-tint)!important;font-weight:600}
 .ai-list{flex:1;overflow:auto;padding:12px 16px;display:flex;flex-direction:column;gap:8px}
 .ai-msg{max-width:92%;padding:8px 12px;border-radius:var(--radius-md);font-size:14px;line-height:22px}
 .ai-msg.ai{background:var(--color-bg-container);align-self:flex-start}
-.ai-msg.user{background:var(--color-brand-subtle-bg);color:var(--color-brand-default);align-self:flex-end}
+.ai-msg.user{background:var(--color-brand-default);color:var(--color-text-on-brand);align-self:flex-end} /* owner 10 Nov (decision 43): my words green with beige text */
 .ai-text{margin:0}
 .ai-msg .kv{margin:8px 0;grid-template-columns:96px 1fr}
 .ai-actions{display:flex;gap:8px}

@@ -987,14 +987,38 @@
     ai.turns.push({ role: 'assistant', text: m.text });
     // decision 41 (owner 10 Nov — «يقولي حط المعلومات هنا ويديني لينك أفتح منه البوب أب… خلّي كل الأكشنز نفس الكلام»): an open_form is
     // a link under the answer, the popup opens when the member clicks it; the other actions run as before
-    const acts = r.actions || []; m.forms = acts.filter((a) => a.name === 'open_form');
+    const acts = r.actions || []; m.forms = acts.filter((a) => a.name === 'open_form'); m.files = acts.filter((a) => a.name === 'offer_file').slice(0, 5);
     aiBusy(false); aiDraw();
-    aiExecActions(acts.filter((a) => a.name !== 'open_form'));
+    aiExecActions(acts.filter((a) => a.name !== 'open_form' && a.name !== 'offer_file'));
   }
   const AI_FORM_LABEL = { vendor_add: 'إضافة مبتكر', member_add: 'إضافة عضو', customer_add: 'إضافة عميل', ticket_new: 'تذكرة جديدة', hr_leave: 'طلب إجازة', hr_advance: 'طلب سُلفة', hr_remote: 'شغل عن بُعد',
     task_add: 'إضافة مهمة', order_update: 'تحديث الأوردر', expense_add: 'المصروفات', account_move: 'الحساب الفعلي', vendor_move: 'حركة المبتكر' };
   const aiFormLabel = (a) => { const v = (a.input && a.input.values) || {}; const dir = v.direction === 'deposit' ? 'إيداع — ' : v.direction === 'withdraw' ? 'سحب — ' : ''; return dir + (AI_FORM_LABEL[a.input && a.input.form] || 'البوب أب'); };
   function aiOpenLink(a) { try { aiTools().open_form(a.input || {}); } catch (e) { aiSay('ما قدرتش أفتح البوب أب: ' + (e && e.message ? e.message : '')); } }
+  // ---- phase 13 decision 42: a file the assistant found → a download link; the page's own adapter signs it (the Storage policies decide)
+  async function aiFile(a) {
+    const i = a.input || {}; let url = null; let why = '';
+    try {
+      if (i.source === 'company' && window.IBSettings) { const r = await window.IBSettings.docUrl(i.ref); url = r && r.ok ? r.url : null; why = r && r.reason; }
+      else if (i.source === 'contract' && window.IBVendors) { const r = await window.IBVendors.contractUrl(i.ref); url = r && r.ok ? r.url : null; why = r && r.reason; }
+      else if (i.source === 'hr' && window.IBHR) url = await window.IBHR.fileUrl(i.ref);
+      else if (i.source === 'ticket' && window.IBTickets) url = await window.IBTickets.fileUrl(i.ref);
+    } catch (e) { url = null; }
+    if (url && /^https:\/\//.test(url)) { window.open(url, '_blank', 'noopener'); return; }
+    aiSay(why === 'forbidden' ? 'مالكش صلاحية تفتح الملف ده.' : 'ما قدرتش أجيب الملف — جرّب تاني.');
+  }
+  // ---- phase 13 decision 42: «تنزيل Excel» — the data the answer read (the same parts «تفاصيل» shows), one sheet, numbers as numbers
+  function aiExcel(m) {
+    const parts = (m.report || []).map((r) => airParts(r.data, AIR_KIND[r.kind] || r.kind));
+    const cell = (c) => { const t = String(c); return /^-?\d[\d,]*(\.\d+)?$/.test(t) ? Number(t.replace(/,/g, '')) : t; };
+    const aoa = [['السؤال', m.question || ''], ['الرد', m.text || ''], []];
+    const walk = (p) => { aoa.push([p.title + (p.sub ? ' — ' + p.sub : '')]); if (p.note) aoa.push([p.note]);
+      p.chips.forEach(([a, b]) => aoa.push([a, cell(b)]));
+      p.tables.forEach((t) => { aoa.push([], [t.title], t.headers); t.rows.forEach((r) => aoa.push(r.map(cell))); });
+      aoa.push([]); p.subs.forEach(walk); };
+    parts.forEach(walk);
+    window.IBKit.xlsxExport('ibtekr-assistant-' + TODAY + '.xlsx', 'مساعد AI', aoa);
+  }
   function aiRun(text) {
     const t = text.trim(); if (!t || ai.busy) return;
     ai.msgs.push({ role: 'user', text: t });
@@ -1019,7 +1043,10 @@
       const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.welcome ? aiWelcome() : m.text)];
       if (m.forms && m.forms.length && !m.live) kids.push(h('div', { class: 'ai-actions ai-forms' }, m.forms.map((a) => h('a', { href: '#', class: 'ai-form-link', 'data-ai-open': (a.input && a.input.form) || '',
         onClick: (e) => { e.preventDefault(); aiOpenLink(a); } }, Icon('plus', 'sm'), 'افتح بوب أب «' + aiFormLabel(a) + '» ↗'))));
-      if (m.report && m.report.length && !m.live) kids.push(h('div', { class: 'ai-actions' }, Button({ size: 'sm', icon: 'file', label: 'تفاصيل', attrs: { 'data-ai-details': '' }, onClick: () => aiReport(m) })));
+      if (m.files && m.files.length && !m.live) kids.push(h('div', { class: 'ai-actions ai-forms' }, m.files.map((a) => h('a', { href: '#', class: 'ai-form-link', 'data-ai-file': (a.input && a.input.source) || '',
+        onClick: (e) => { e.preventDefault(); aiFile(a); } }, Icon('download', 'sm'), 'تنزيل «' + String((a.input && a.input.name) || 'الملف') + '»'))));
+      if (m.report && m.report.length && !m.live) kids.push(h('div', { class: 'ai-actions' }, Button({ size: 'sm', icon: 'file', label: 'تفاصيل', attrs: { 'data-ai-details': '' }, onClick: () => aiReport(m) }),
+        Button({ size: 'sm', icon: 'download', label: 'تنزيل Excel', attrs: { 'data-ai-excel': '' }, onClick: () => aiExcel(m) })));
       if (m.confirm) {
         kids.push(h('dl', { class: 'kv' }, aiSummary(m.confirm).map(([k, v]) => [h('dt', null, k), h('dd', null, v)])));
         kids.push(m.done ? h('p', { class: 'ai-done t-small' }, 'تمت المعالجة.') : h('div', { class: 'ai-actions' },
@@ -1031,13 +1058,15 @@
   }
   // ---- phase 13 decision 23 (owner 10 Nov): the answer is a short summary in the chat; «تفاصيل» opens the data the assistant read as a report
   // in a popup — chips for the totals, a table for each list — with «مشاركة» (WhatsApp / email: the report as text, nothing sent by us).
-  const AIR_KIND = { summary: 'ملخص', orders: 'الأوردرات', vendors: 'المبتكرين', customers: 'العملاء', tickets: 'التذاكر', tasks: 'المهام', expenses: 'المصروفات', sales: 'المبيعات' };
+  const AIR_KIND = { summary: 'ملخص', orders: 'الأوردرات', vendors: 'المبتكرين', customers: 'العملاء', tickets: 'التذاكر', tasks: 'المهام', expenses: 'المصروفات', sales: 'المبيعات', vendor: 'حساب المبتكر', files: 'الملفات' };
   const AIR_KEY = { total: 'العدد', totalEgp: 'الإجمالي (ج.م)', count: 'العدد', number: 'رقم الأوردر', customer: 'العميل', city: 'المدينة', status: 'الحالة', confirm: 'التأكيد', deposit: 'العربون', placed_at: 'التاريخ', ageDays: 'العمر (يوم)', delivery: 'التسليم',
     name: 'الاسم', category: 'الفئة', lead_days: 'مدة التجهيز', joined_at: 'الانضمام', withdrawn: 'المسحوب (ج.م)', deposited: 'المودع (ج.م)', byStatus: 'حسب الحالة', byRole: 'حسب الدور', byConfirm: 'حسب التأكيد', byCategory: 'حسب النوع', byGroup: 'حسب المجموعة',
     delivery_: 'التسليم', topMakers: 'أعلى المبتكرين', orders: 'الأوردرات', sales: 'المبيعات (ج.م)', ibtekrShare: 'حصة إبتكر (ج.م)', vendor: 'المبتكر', date: 'التاريخ', direction: 'الاتجاه', beneficiary: 'المستفيد', amount: 'المبلغ (ج.م)', subscription: 'الاشتراك',
     title: 'العنوان', type: 'النوع', priority: 'الأولوية', role: 'الدور', reason: 'السبب', follow_up: 'المتابعة', created_at: 'اتفتحت', last_update: 'آخر تحديث', order_number: 'رقم الأوردر', open: 'مفتوح', unconfirmed: 'غير مؤكد', waiting: 'في انتظار الرد',
-    inPeriod: 'في الفترة', inPeriodEgp: 'قيمة الفترة (ج.م)', myTasks: 'مهامي', tickets: 'التذاكر', conversations: 'المحادثات', expenses: 'المصروفات', day: 'اليوم', until: 'لحد', mood: 'المزاج', tags: 'التاجز', rows: 'التفاصيل', forbidden: 'الصلاحية' };
-  const AIR_VAL = { late: 'متأخر', risk: 'قابل للتأخير', ok: 'في الميعاد', withdraw: 'سحب', deposit: 'إيداع', urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض', open: 'مفتوحة', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلقة', active: 'نشط', inactive: 'غير نشط', leave: 'في إجازة' };
+    inPeriod: 'في الفترة', inPeriodEgp: 'قيمة الفترة (ج.م)', dokanBalance: 'رصيد Dokan (ج.م)', deposits: 'العرابين (ج.م)', transport: 'المواصلات (ج.م)', otherMoves: 'حركات تانية (ج.م)', net: 'الصافي (ج.م)',
+    dokanSynced: 'آخر مزامنة Dokan', movesInPeriod: 'حركات الفترة', lastWithdrawal: 'آخر طلب سحب', cancelled: 'ملغي', returned: 'استرجاع', late: 'متأخر', risk: 'قابل للتأخير', lines: 'السطور', lineStatus: 'حالة السطور',
+    otherMatches: 'أسماء قريبة', account: 'الحساب', bySource: 'حسب المصدر', label: 'النوع', owner: 'صاحب الملف', source: 'المصدر', note: 'ملحوظة', found: 'لقيته', q: 'البحث', movesForbidden: 'حركاتنا', requested_at: 'التاريخ', myTasks: 'مهامي', tickets: 'التذاكر', conversations: 'المحادثات', expenses: 'المصروفات', day: 'اليوم', until: 'لحد', mood: 'المزاج', tags: 'التاجز', rows: 'التفاصيل', forbidden: 'الصلاحية' };
+  const AIR_VAL = { late: 'متأخر', risk: 'قابل للتأخير', ok: 'في الميعاد', withdraw: 'سحب', deposit: 'إيداع', urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض', open: 'مفتوحة', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلقة', active: 'نشط', inactive: 'غير نشط', leave: 'في إجازة', company: 'ورق الشركة', contract: 'عقد مبتكر', hr: 'مستند موظف', ticket: 'مرفق تذكرة', pending: 'مستني', approved: 'اتوافق', cancelled: 'اتلغى' };
   const airKey = (k) => AIR_KEY[k] || k;
   const AIR_COL = { total: 'القيمة (ج.م)', count: 'العدد' }; // a list row's «total» is its amount, not a count
   const AIR_RAW = new Set(['number', 'order_number', 'customer_id', 'vendor_id']); // numbers shown as they are (an order number has no thousands comma)
@@ -1053,7 +1082,7 @@
       if (k === 'period' && v && v.from) { out.sub = 'الفترة: ' + D.formatDateNumeric(v.from) + ' – ' + D.formatDateNumeric(v.to || v.from); continue; }
       if (isPlain(v)) { out.chips.push([airKey(k), airVal(v)]); continue; }
       if (Array.isArray(v)) { const objs = v.filter((x) => x && typeof x === 'object'); if (!objs.length) continue;
-        const keys = [...new Set(objs.flatMap((x) => Object.keys(x)))].filter((c) => c !== 'id' && objs.some((x) => isPlain(x[c]))).slice(0, 10);
+        const keys = [...new Set(objs.flatMap((x) => Object.keys(x)))].filter((c) => c !== 'id' && c !== 'ref' && objs.some((x) => isPlain(x[c]))).slice(0, 10);
         out.tables.push({ title: airKey(k), headers: keys.map((c) => AIR_COL[c] || airKey(c)), rows: objs.map((x) => keys.map((c) => airVal(x[c], c))) }); continue; }
       const vals = Object.values(v);
       if (vals.every(isPlain)) { if (vals.length) out.tables.push({ title: airKey(k), headers: ['البند', 'القيمة'], rows: Object.entries(v).map(([a, b]) => [AIR_VAL[a] || airKey(a), airVal(b)]) }); continue; }
@@ -1079,7 +1108,7 @@
       p.subs.map(sec));
     const body = h('div', { class: 'air-body', 'data-ai-report': '' }, h('p', { class: 'air-answer' }, m.text || ''), parts.map(sec));
     const title = 'تقرير: ' + (m.question || 'مساعد AI').slice(0, 60);
-    const md = U.Modal({ title, body: [body], share: false, footer: [U.ShareButton({ get: () => ({ title, text: airText(m, parts) }) }), Button({ type: 'text', label: 'إغلاق', onClick: () => md.close() })] });
+    const md = U.Modal({ title, body: [body], share: false, footer: [U.ShareButton({ get: () => ({ title, text: airText(m, parts) }) }), Button({ icon: 'download', label: 'تنزيل Excel', onClick: () => aiExcel(m) }), Button({ type: 'text', label: 'إغلاق', onClick: () => md.close() })] });
     md.el.classList.add('wide'); md.el.dataset.aiReport = '1';
   }
   // ---- phase 13 decision 23: the panel moves by its header and resizes from its corner; every open from the AI button puts it back to the

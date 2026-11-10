@@ -1634,3 +1634,18 @@ tbody tr:nth-child(even) td{background:var(--color-bg-tint)}
 /* phone: the field opens across the whole top bar (12px from each side — «.topbar .search:focus-within»), so the wrapper stops being its
    frame and the list sits right under it at the same 12px */
 @media (max-width:767px){.gq-wrap{position:static}.menu.gq-res{position:absolute;top:calc(100% + 2px);inset-inline:12px}}
+
+/* phase 13 decision 23 (owner 10 Nov): the AI assistant moves by its header and resizes from its corner (the script puts it back to the
+   medium size under the AI button on every open); the «تفاصيل» report popup. A phone keeps its full-width sheet. */
+@media (min-width:768px){
+  .ai-panel{resize:both;overflow:hidden;min-width:300px;min-height:320px;max-width:calc(100vw - 16px);max-height:calc(100vh - 16px)}
+  .ai-panel .ai-head{cursor:move;user-select:none;touch-action:none}
+  .ai-panel .ai-head button{cursor:pointer}
+  .ai-panel.dragging{opacity:.96;box-shadow:0 16px 40px rgba(46,42,27,.28)}
+  .ai-panel .ai-list{min-height:0}
+}
+.air-body{display:flex;flex-direction:column;gap:16px}
+.air-answer{margin:0;padding:10px 12px;border-radius:var(--radius-md);background:var(--color-bg-container);line-height:24px;white-space:pre-wrap}
+.air-sec{display:flex;flex-direction:column;gap:8px}.air-sec h3{margin:0;color:var(--color-brand-default)}
+.air-sec .air-sec{padding-inline-start:12px;border-inline-start:2px solid var(--color-border-subtle)}
+.air-tbl{display:flex;flex-direction:column;gap:4px}

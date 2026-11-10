@@ -94,7 +94,7 @@
     if (Array.isArray(c0.statuses)) context.statuses = c0.statuses.filter((x) => typeof x === 'string').slice(0, 30);
     const r = await invoke({ action: 'assistant', mode, turns, context }, r0.signal);
     if (!r.ok) return r;
-    const out = Object.assign(answer(r.body), { text: typeof r.body.text === 'string' ? r.body.text : '', actions: (Array.isArray(r.body.actions) ? r.body.actions : []).filter((a) => a && typeof a.name === 'string' && a.input && typeof a.input === 'object'), tools: Array.isArray(r.body.tools) ? r.body.tools.filter((t) => typeof t === 'string') : [] });
+    const out = Object.assign(answer(r.body), { text: typeof r.body.text === 'string' ? r.body.text : '', actions: (Array.isArray(r.body.actions) ? r.body.actions : []).filter((a) => a && typeof a.name === 'string' && a.input && typeof a.input === 'object'), tools: Array.isArray(r.body.tools) ? r.body.tools.filter((t) => typeof t === 'string') : [] , report: Array.isArray(r.body.report) ? r.body.report.filter((x) => x && typeof x.kind === 'string' && x.data && typeof x.data === 'object') : [] /* decision 23: the «تفاصيل» report */ });
     log('assistant.' + mode, [out.actions.map((a) => a.name).join(', ') || 'no action', out.tools.length ? 'data: ' + out.tools.join(', ') : 'no data'].concat(out.result === 'refused' ? ['refused'] : []).join(' · '), 'ai_runs', out.runId);
     return out;
   }

@@ -937,6 +937,7 @@
     }
     aiServer = true; aiModeNote();
     m.text = r.result === 'refused' ? 'مش هقدر أرد على ده.' : (r.text || (r.actions.length ? 'تمام.' : 'مفيش رد.'));
+    m.report = r.result === 'refused' ? [] : (r.report || []); m.question = text; // decision 23: the reads behind the answer → «تفاصيل»
     ai.turns.push({ role: 'assistant', text: m.text });
     aiBusy(false); aiDraw();
     aiExecActions(r.actions);
@@ -963,6 +964,7 @@
     if (!aiList) return;
     aiList.replaceChildren(...ai.msgs.map((m) => {
       const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.welcome ? aiWelcome() : m.text)];
+      if (m.report && m.report.length && !m.live) kids.push(h('div', { class: 'ai-actions' }, Button({ size: 'sm', icon: 'file', label: 'تفاصيل', attrs: { 'data-ai-details': '' }, onClick: () => aiReport(m) })));
       if (m.confirm) {
         kids.push(h('dl', { class: 'kv' }, aiSummary(m.confirm).map(([k, v]) => [h('dt', null, k), h('dd', null, v)])));
         kids.push(m.done ? h('p', { class: 'ai-done t-small' }, 'تمت المعالجة.') : h('div', { class: 'ai-actions' },
@@ -972,8 +974,82 @@
     }));
     aiList.scrollTop = aiList.scrollHeight;
   }
+  // ---- phase 13 decision 23 (owner 10 Nov): the answer is a short summary in the chat; «تفاصيل» opens the data the assistant read as a report
+  // in a popup — chips for the totals, a table for each list — with «مشاركة» (WhatsApp / email: the report as text, nothing sent by us).
+  const AIR_KIND = { summary: 'ملخص', orders: 'الأوردرات', vendors: 'المبتكرين', customers: 'العملاء', tickets: 'التذاكر', tasks: 'المهام', expenses: 'المصروفات', sales: 'المبيعات' };
+  const AIR_KEY = { total: 'العدد', totalEgp: 'الإجمالي (ج.م)', count: 'العدد', number: 'رقم الأوردر', customer: 'العميل', city: 'المدينة', status: 'الحالة', confirm: 'التأكيد', deposit: 'العربون', placed_at: 'التاريخ', ageDays: 'العمر (يوم)', delivery: 'التسليم',
+    name: 'الاسم', category: 'الفئة', lead_days: 'مدة التجهيز', joined_at: 'الانضمام', withdrawn: 'المسحوب (ج.م)', deposited: 'المودع (ج.م)', byStatus: 'حسب الحالة', byRole: 'حسب الدور', byConfirm: 'حسب التأكيد', byCategory: 'حسب النوع', byGroup: 'حسب المجموعة',
+    delivery_: 'التسليم', topMakers: 'أعلى المبتكرين', orders: 'الأوردرات', sales: 'المبيعات (ج.م)', ibtekrShare: 'حصة إبتكر (ج.م)', vendor: 'المبتكر', date: 'التاريخ', direction: 'الاتجاه', beneficiary: 'المستفيد', amount: 'المبلغ (ج.م)', subscription: 'الاشتراك',
+    title: 'العنوان', type: 'النوع', priority: 'الأولوية', role: 'الدور', reason: 'السبب', follow_up: 'المتابعة', created_at: 'اتفتحت', last_update: 'آخر تحديث', order_number: 'رقم الأوردر', open: 'مفتوح', unconfirmed: 'غير مؤكد', waiting: 'في انتظار الرد',
+    inPeriod: 'في الفترة', inPeriodEgp: 'قيمة الفترة (ج.م)', myTasks: 'مهامي', tickets: 'التذاكر', conversations: 'المحادثات', expenses: 'المصروفات', day: 'اليوم', until: 'لحد', mood: 'المزاج', tags: 'التاجز', rows: 'التفاصيل', forbidden: 'الصلاحية' };
+  const AIR_VAL = { late: 'متأخر', risk: 'قابل للتأخير', ok: 'في الميعاد', withdraw: 'سحب', deposit: 'إيداع', urgent: 'عاجل', high: 'عالي', normal: 'عادي', low: 'منخفض', open: 'مفتوحة', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلقة', active: 'نشط', inactive: 'غير نشط', leave: 'في إجازة' };
+  const airKey = (k) => AIR_KEY[k] || k;
+  const AIR_COL = { total: 'القيمة (ج.م)', count: 'العدد' }; // a list row's «total» is its amount, not a count
+  const AIR_RAW = new Set(['number', 'order_number', 'customer_id', 'vendor_id']); // numbers shown as they are (an order number has no thousands comma)
+  const airVal = (v, k) => (v == null || v === '' ? '—' : typeof v === 'boolean' ? (v ? 'أيوه' : 'لأ') : typeof v === 'number' ? (AIR_RAW.has(k) ? String(v) : D.formatMoney(v).replace(/\.00$/, '')) : Array.isArray(v) ? v.join('، ') : typeof v === 'object' ? '…' : (AIR_VAL[v] || String(v)));
+  const isPlain = (v) => v == null || typeof v !== 'object' || (Array.isArray(v) && v.every((x) => x == null || typeof x !== 'object'));
+  // one read → its parts: { chips: [[label, value]], tables: [{ title, headers, rows }], note, sub } — generic over the get_data shapes
+  function airParts(data, title, depth = 0) {
+    const out = { chips: [], tables: [], subs: [], sub: '' };
+    if (!data || typeof data !== 'object') return out;
+    if (data.forbidden) { out.note = 'مالكش صلاحية على البيانات دي.'; return out; }
+    for (const [k, v] of Object.entries(data)) {
+      if (k === 'id') continue;
+      if (k === 'period' && v && v.from) { out.sub = 'الفترة: ' + D.formatDateNumeric(v.from) + ' – ' + D.formatDateNumeric(v.to || v.from); continue; }
+      if (isPlain(v)) { out.chips.push([airKey(k), airVal(v)]); continue; }
+      if (Array.isArray(v)) { const objs = v.filter((x) => x && typeof x === 'object'); if (!objs.length) continue;
+        const keys = [...new Set(objs.flatMap((x) => Object.keys(x)))].filter((c) => c !== 'id' && objs.some((x) => isPlain(x[c]))).slice(0, 10);
+        out.tables.push({ title: airKey(k), headers: keys.map((c) => AIR_COL[c] || airKey(c)), rows: objs.map((x) => keys.map((c) => airVal(x[c], c))) }); continue; }
+      const vals = Object.values(v);
+      if (vals.every(isPlain)) { if (vals.length) out.tables.push({ title: airKey(k), headers: ['البند', 'القيمة'], rows: Object.entries(v).map(([a, b]) => [AIR_VAL[a] || airKey(a), airVal(b)]) }); continue; }
+      if (depth < 1) out.subs.push(airParts(v, airKey(k), depth + 1)); // the summary's sections (orders / tickets / …)
+    }
+    out.title = title; return out;
+  }
+  function airText(m, parts) {
+    const lines = ['تقرير مساعد AI — ' + (m.question || ''), '', String(m.text || '')];
+    const walk = (p) => { lines.push('', '— ' + p.title + (p.sub ? ' (' + p.sub + ')' : '')); if (p.note) lines.push(p.note);
+      p.chips.forEach(([a, b]) => lines.push(a + ': ' + b));
+      p.tables.forEach((t) => { lines.push(t.title + ':'); t.rows.slice(0, 30).forEach((r) => lines.push('• ' + r.map((c, i) => (t.headers.length > 2 ? t.headers[i] + ' ' : '') + c).join(' · '))); });
+      p.subs.forEach(walk); };
+    parts.forEach(walk); return lines.join('\n');
+  }
+  function aiReport(m) {
+    const parts = (m.report || []).map((r) => airParts(r.data, AIR_KIND[r.kind] || r.kind));
+    const sec = (p) => h('section', { class: 'air-sec' }, h('h3', { class: 't-h5' }, p.title), p.sub ? h('p', { class: 't-small help', style: 'margin:0' }, p.sub) : null,
+      p.note ? h('p', { class: 't-small' }, p.note) : null,
+      p.chips.length ? h('div', { class: 'dt-sum' }, p.chips.map(([a, b]) => h('div', { class: 'dt-chip' }, h('span', { class: 't-small' }, a), h('b', null, num(String(b)))))) : null,
+      p.tables.map((t) => h('div', { class: 'air-tbl' }, h('div', { class: 't-label' }, t.title), h('div', { style: 'overflow-x:auto' }, h('table', { class: 'vlo-table dt-table' },
+        h('thead', null, h('tr', null, t.headers.map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, t.rows.map((r) => h('tr', null, r.map((c, j) => h('td', { 'data-l': t.headers[j] || '' }, num(String(c))))))))))),
+      p.subs.map(sec));
+    const body = h('div', { class: 'air-body', 'data-ai-report': '' }, h('p', { class: 'air-answer' }, m.text || ''), parts.map(sec));
+    const title = 'تقرير: ' + (m.question || 'مساعد AI').slice(0, 60);
+    const md = U.Modal({ title, body: [body], share: false, footer: [U.ShareButton({ get: () => ({ title, text: airText(m, parts) }) }), Button({ type: 'text', label: 'إغلاق', onClick: () => md.close() })] });
+    md.el.classList.add('wide'); md.el.dataset.aiReport = '1';
+  }
+  // ---- phase 13 decision 23: the panel moves by its header and resizes from its corner; every open from the AI button puts it back to the
+  // medium size right under the button (a phone keeps the full-width sheet of the CSS).
+  const AIP_W = 420, AIP_H = 560;
+  function aiPlace() {
+    if (!aiPanel || !aiBtn) return;
+    if (window.innerWidth <= 767) { aiPanel.style.cssText = ''; return; }
+    const r = aiBtn.getBoundingClientRect(); const w = Math.min(AIP_W, window.innerWidth - 32); const hgt = Math.min(AIP_H, window.innerHeight - r.bottom - 24);
+    const left = Math.max(16, Math.min(window.innerWidth - w - 16, r.left + r.width / 2 - w / 2));
+    Object.assign(aiPanel.style, { left: left + 'px', top: (r.bottom + 8) + 'px', right: 'auto', width: w + 'px', height: Math.max(320, hgt) + 'px' });
+  }
+  function aiDrag(head) {
+    head.addEventListener('pointerdown', (e) => {
+      if (e.button !== 0 || e.target.closest('button') || window.innerWidth <= 767) return;
+      const b = aiPanel.getBoundingClientRect(); const dx = e.clientX - b.left; const dy = e.clientY - b.top;
+      head.setPointerCapture(e.pointerId); aiPanel.classList.add('dragging');
+      const move = (ev) => { const x = Math.max(0, Math.min(window.innerWidth - 80, ev.clientX - dx)); const y = Math.max(0, Math.min(window.innerHeight - 48, ev.clientY - dy)); aiPanel.style.left = x + 'px'; aiPanel.style.top = y + 'px'; aiPanel.style.right = 'auto'; };
+      const up = () => { aiPanel.classList.remove('dragging'); head.removeEventListener('pointermove', move); head.removeEventListener('pointerup', up); head.removeEventListener('pointercancel', up); };
+      head.addEventListener('pointermove', move); head.addEventListener('pointerup', up); head.addEventListener('pointercancel', up);
+    });
+  }
   function aiToggle(open) {
     const show = open === undefined ? aiPanel.hidden : open;
+    if (show && aiPanel.hidden) aiPlace(); // opened again → the medium size under the button
     aiPanel.hidden = !show; aiBtn.setAttribute('aria-expanded', String(show));
     if (show) { aiDraw(); aiInput.focus(); } else aiBtn.focus();
   }
@@ -982,6 +1058,7 @@
     aiBtn.addEventListener('click', () => aiToggle());
     return aiBtn;
   }
+  function aiDragHead() { const head = h('div', { class: 'ai-head', title: 'اسحب من هنا عشان تحرّك المساعد — وكبّره أو صغّره من الركن' }, Icon('sparkle'), h('h2', { class: 't-h5' }, 'مساعد AI'), h('span', { class: 'grow' }), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => aiToggle(false) })); aiDrag(head); return head; }
   function AiPanel() {
     aiList = h('div', { class: 'ai-list', role: 'log', 'aria-live': 'polite' });
     aiInput = h('input', { class: 'ai-input', type: 'text', placeholder: 'اكتب أمرك… مثال: افتح الأوردرات', 'aria-label': 'أمر للمساعد', autocomplete: 'off', maxlength: '200' });
@@ -990,7 +1067,7 @@
     const form = h('form', { class: 'ai-form' }, aiInput, aiSendBtn, aiStopBtn);
     form.addEventListener('submit', (e) => { e.preventDefault(); const v = aiInput.value; aiInput.value = ''; aiRun(v); aiInput.focus(); });
     aiPanel = h('section', { class: 'ai-panel', role: 'dialog', 'aria-label': 'مساعد AI' },
-      h('div', { class: 'ai-head' }, Icon('sparkle'), h('h2', { class: 't-h5' }, 'مساعد AI'), h('span', { class: 'grow' }), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => aiToggle(false) })),
+      aiDragHead(),
       aiList,
       h('div', { class: 'ai-chips' }, AI_EXAMPLES.map((x) => Button({ size: 'sm', label: x, onClick: () => aiRun(x) }))),
       form,

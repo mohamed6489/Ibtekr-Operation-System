@@ -665,7 +665,7 @@
     const late = a.lateVendors.map((v) => ({ own: { role: 'متابعة الموردين' }, key: 'v:' + v.vendor, title: v.vendor, sub: v.count + ' أوردر متأخر عن مدة التصنيع', meta: '', tone: 'error', icon: 'truck', run: () => openVendorLate(v.vendor, 'late') }));
     const dy = vendorDailies().map((x) => ({ own: { role: 'متابعة الموردين' }, key: 'vd:' + x.name, title: 'المتابعة اليومية — ' + x.name, sub: 'متأخرة ' + x.r.late.length + ' · قابلة للتأخير ' + x.r.risk.length + ' · اتأكدت ' + x.r.confirmed.length, meta: 'يوميًا 10:00 ص', tone: x.r.late.length ? 'error' : x.r.risk.length ? 'orange' : 'neutral', icon: 'truck', run: () => openVendorDaily(x.name) }));
     const wk = vendorWeeklies().map((x) => ({ own: { role: 'متابعة الموردين' }, key: 'vw:' + x.name, title: 'التقرير الأسبوعي — ' + x.name, sub: 'متأخرة ' + x.r.late.length + ' · قيد التنفيذ ' + x.r.progress.length + ' · مكتملة ' + x.r.completed.length + ' · الحساب الفعلي ' + D.formatMoney(x.r.net) + ' ج.م', meta: 'كل ' + weeklyCfg().weekday, tone: x.r.late.length ? 'error' : 'neutral', icon: 'file', run: () => openVendorWeekly(x.name) }));
-    const risk = a.riskVendors.map((v) => ({ own: { role: 'متابعة الموردين' }, key: 'r:' + v.vendor, title: v.vendor, sub: v.count + ' أوردر قابل للتأخير (9–11 يوم)', meta: '', tone: 'orange', icon: 'clockc', run: () => openVendorLate(v.vendor, 'risk') }));
+    const risk = a.riskVendors.map((v) => ({ own: { role: 'متابعة الموردين' }, key: 'r:' + v.vendor, title: v.vendor, sub: v.count + ' أوردر قابل للتأخير (آخر 3 أيام من مدة التصنيع)', meta: '', tone: 'orange', icon: 'clockc', run: () => openVendorLate(v.vendor, 'risk') }));
     // phase 8 decision 9: the live tickets of the member (new for their role, replies / changes by others) first, then the v2's tasks
     const tkMe = TA() ? TA().actor().name : null;
     const tasks = (TA() ? TA().bell() : []).map((b) => ({ own: { member: tkMe }, key: 'tn:' + b.id + ':' + b.at, title: b.title, sub: b.sub, meta: b.kind === 'new' ? 'جديدة' : (b.count > 1 ? b.count + ' تحديث' : 'تحديث'), tone: b.kind === 'new' ? 'brand' : 'neutral', icon: 'ticket', prio: b.prio, run: () => { showTickets(); openTicket(b.id); } }))
@@ -2012,7 +2012,7 @@
           rep.weekly.map((w) => h('div', { class: 'col' + (w.count === maxW ? ' hi' : '') }, h('span', { class: 't-label' }, num(String(w.count))), h('i', { style: 'height:' + Math.max(6, Math.round(w.count / maxW * 140)) + 'px' }), h('span', { class: 't-small' }, num(w.label))))) }),
         U.ChartCard({ title: 'توزيع حالات الأوردرات', subtitle: 'الفترة المحددة · ' + n + ' أوردر', footnote: 'حسب حالة الأوردر الرئيسي · الشريط نسبي لأكبر حالة', body: barList(rep.byStatus.map(([l, c]) => [l, c, c + ' (' + pctText(c, n) + ')']), { fmt: String, tones: ['brand', 'gold', 'goldlight', 'neutral', 'neutral', 'neutral'] }) }),
         U.ChartCard({ title: 'حالة التأكيد', subtitle: 'كل أوردرات الفترة', footnote: 'غير المؤكد يظهر أيضًا في إشعار «عملاء لم تؤكد»', body: barList(rep.byConfirm.map(([l, c]) => [l, c, c + ' (' + pctText(c, n) + ')']), { fmt: String, tones: ['brand', 'gold', 'neutral'] }) }),
-        U.ChartCard({ title: 'حالة التسليم', subtitle: 'الأوردرات المفتوحة · قاعدة 9 / 11 يوم', footnote: 'الحالة تُحسب من عمر الأوردر، لا تُكتب يدويًا', body: ['ok', 'risk', 'late'].map((k) => h('div', { class: 'deliv-row' }, U.DelayBadge(k), h('span', { class: 't-label' }, num(rep.byDelivery[k] + ' أوردر (' + pctText(rep.byDelivery[k], n) + ')')))) })),
+        U.ChartCard({ title: 'حالة التسليم', subtitle: 'الأوردرات المفتوحة · من تاريخ التأكيد: 9 / 12 يوم', footnote: 'الحالة تُحسب من تاريخ تأكيد الأوردر (غير المؤكد مالوش تأخير)، لا تُكتب يدويًا', body: ['ok', 'risk', 'late'].map((k) => h('div', { class: 'deliv-row' }, U.DelayBadge(k), h('span', { class: 't-label' }, num(rep.byDelivery[k] + ' أوردر (' + pctText(rep.byDelivery[k], n) + ')')))) })),
       TableCard({ title: 'أوردرات تحتاج تدخّل — قابلة للتأخير أو غير مؤكدة', count: rep.actionRows.length + ' أوردر', action: Button({ type: 'text', size: 'sm', label: 'فتح في الأوردرات', onClick: () => showOrders({ deliv: 'risk' }) }),
         body: rep.actionRows.length === 0 ? U.EmptyState('كله تمام', 'مفيش أوردرات مفتوحة قابلة للتأخير أو غير مؤكدة في الفترة دي.') : tableOrList(
           () => U.Table({ headers, rows: rep.actionRows.map((r) => [num(r.id), r.customer, r.status, cfText(r.confirm), U.DelayBadge(r.delivery), num(String(r.ageDays)), num(money(r.total))]) }),
@@ -3235,7 +3235,7 @@
       const rows = VD.ordersByKind(all, kind).slice().sort((a, b) => (delay || kind === 'inProgress' ? b.ageDays - a.ageDays : a.ageDays - b.ageDays));
       const tot = rows.reduce((x, o) => x + o.total, 0); const hisShare = rows.reduce((x, o) => x + (o.share || 0), 0); let m = null; // decision 4: his share per line
       const title = ({ risk: 'أوردرات قابلة للتأخير', late: 'أوردرات متأخرة', onTime: 'أوردرات غير متأخرة' }[kind] || VD.ORDER_KINDS[kind]) + ' — ' + v.name;
-      const sub = h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, num(rows.length + ' أوردر · بقيمة ' + D.formatMoney(tot) + ' ج.م · حصته ' + D.formatMoney(hisShare) + ' ج.م' + (rows.length && (delay || kind === 'inProgress') ? ' · أقدمها ' + Math.max(...rows.map((o) => o.ageDays)) + ' يوم' : '') + (delay ? ' · قابل للتأخير 9–11 يوم، متأخر بعد 11 يوم (مدة التسليم 12–15)' : '')));
+      const sub = h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, num(rows.length + ' أوردر · بقيمة ' + D.formatMoney(tot) + ' ج.م · حصته ' + D.formatMoney(hisShare) + ' ج.م' + (rows.length && (delay || kind === 'inProgress') ? ' · أقدمها ' + Math.max(...rows.map((o) => o.ageDays)) + ' يوم' : '') + (delay ? ' · بيتحسب من تاريخ تبليغ المبتكر على مدة التصنيع: قابل للتأخير في آخر 3 أيام، متأخر بعدها' : '')));
       const open = (o) => !(o.status === 'مكتمل' || ['ملغي', 'مرتجع', 'مسترد', 'ملغي / مرتجع'].includes(o.status));
       const table = h('table', { class: 'vlo-table' },
         h('thead', null, h('tr', null, ['رقم الأوردر', 'العميل', 'التاريخ', 'الحالة', 'حالة التأخير', 'عمر الأوردر', 'الإجمالي', 'حصته'].map((x) => h('th', { scope: 'col' }, x)))),
@@ -3478,9 +3478,9 @@
         const orders = st.orders.slice().sort((a, b) => a.ageDays - b.ageDays).slice(0, 8);
         const vtone = pf.verdict === 'محتاج متابعة' ? 'warning' : '';
         body = h('div', { class: 'drawer-b' },
-          section('حالات التأخير — الأوردرات قيد التنفيذ', h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, 'قاعدة 9 / 11 يوم'),
+          section('حالات التأخير — الأوردرات قيد التنفيذ', h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, 'من تبليغ المبتكر · مدة التصنيع'),
             h('div', { class: 'cards delay-cards' },
-              tileOpen(U.KpiTile({ label: 'قابل للتأخير', value: String(dc.risk), unit: 'أوردر', compare: 'off', note: [U.DelayBadge('risk'), ' عمره 9–11 يوم'] }), v, 'risk', st.orders),
+              tileOpen(U.KpiTile({ label: 'قابل للتأخير', value: String(dc.risk), unit: 'أوردر', compare: 'off', note: [U.DelayBadge('risk'), ' آخر 3 أيام من مدة التصنيع'] }), v, 'risk', st.orders),
               tileOpen(U.KpiTile({ label: 'متأخر', value: String(dc.late), unit: 'أوردر', compare: 'off', note: [U.DelayBadge('late'), ' عدّى 11 يوم'] }), v, 'late', st.orders),
               tileOpen(U.KpiTile({ label: 'غير متأخر', value: String(dc.onTime), unit: 'أوردر', compare: 'off', note: [U.DelayBadge('ok'), ' في الموعد'] }), v, 'onTime', st.orders))),
           h('div', { class: 'cards', style: 'grid-template-columns:repeat(2,minmax(0,1fr))' },

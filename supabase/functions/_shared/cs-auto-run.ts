@@ -181,7 +181,7 @@ export async function tick(deps: Deps, opts: { dry?: boolean } = {}): Promise<Ti
   const links = settings.live && !opts.dry ? await linksOf(deps) : { wa: null, page: null };
   // the events
   const events: Ev[] = []; const today = cairoClock(nowMs).day;
-  const ORDER_COLS = 'id, number, customer_name, customer_phone, status, payment_method, payment_title, total, placed_at, updated_at, deleted_at';
+  const ORDER_COLS = 'id, number, customer_name, customer_phone, status, confirm, confirm_at, payment_method, payment_title, total, placed_at, updated_at, deleted_at';
   if (has('status') || has('cart')) {
     const byId = new Map<string, Json>();
     const add = (list: Json[]) => { for (const o of list) byId.set(String(o.id), o); };

@@ -56,7 +56,7 @@ test('load names every column (no *, removed included) and asks for the last 12 
   assert.match(COLS.item, /\bremoved\b/);
   assert.match(COLS.item, /\bproduct_id\b/); // the ?p= fallback of a line without a known permalink
   assert.deepEqual(selectOf(calls, 'sub_orders'), [COLS.sub]);
-  assert.deepEqual(selectOf(calls, 'vendors'), ['id, name']);
+  assert.deepEqual(selectOf(calls, 'vendors'), ['id, name, lead_days']); // phase 13 decision 52: the maker's making days
   assert.deepEqual(selectOf(calls, 'products'), ['sku, image_url, permalink, lang']);
   assert.deepEqual(selectOf(calls, 'status_map'), ['system_status, woo_status, direction, sort']);
   assert.match(COLS.order, /\bcustomer_state\b/); // the governorate's code (0010)
@@ -82,8 +82,8 @@ test('load builds the screen shape: multi-maker sid/raw from the Dokan sub-order
   assert.deepEqual(d.orders.map((o) => o.id), ['181668', '180686']);
   assert.deepEqual(d.orders[0], { id: '181668', name: 'سلوى زيتوني', phone: '012••••7052', pay: 'الدفع عند الاستلام', date: '2026-10-19', st: 'جاري التنفيذ', cf: 'غير مؤكد', dep: 0, tot: 3541, age: 6, note: '', cnote: 'اتصلوا قبل التوصيل\nالدور التالت', cdate: '', confAt: '', state: 'EG-01', stateName: 'القاهرة', city: 'القاهرة', addr: 'مدينة نصر', cancel: null, ret: null,
     subs: [
-      { n: 5001, itemId: '5001', sid: '181669', oid: '181668', prod: 'Cushion', qty: 2, tot: 1002, raw: 'processing', vendor: 'Art Craft', vendorId: V1, cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', link: SITE + '/product/cushion/', readyAt: '', waybill: null, pulled: false, ret: null, store: null, rate: 35, fee: 0 }, // the website's commission on the line (phase 3)
-      { n: 5002, itemId: '5002', sid: '181670', oid: '181668', prod: 'Macrame Curtain', qty: 1, tot: 2539, raw: 'on-hold', vendor: 'Antikiano', vendorId: V2, cm: 'تم تبليغ المورد', ss: 'مؤكد', exp: '2026-10-20', sku: 'IBTAMCTOWM200X10014', link: SITE + '/?p=9002', readyAt: '', waybill: null, pulled: false, ret: null, store: null, rate: 40, fee: 10 }, // no permalink: the site's ?p=
+      { n: 5001, itemId: '5001', sid: '181669', oid: '181668', prod: 'Cushion', qty: 2, tot: 1002, raw: 'processing', vendor: 'Art Craft', vendorId: V1, cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', link: SITE + '/product/cushion/', readyAt: '', waybill: null, pulled: false, ret: null, store: null, rate: 35, fee: 0, pid: '9001', lead: 7, leadSrc: 'default' }, // the website's commission on the line (phase 3)
+      { n: 5002, itemId: '5002', sid: '181670', oid: '181668', prod: 'Macrame Curtain', qty: 1, tot: 2539, raw: 'on-hold', vendor: 'Antikiano', vendorId: V2, cm: 'تم تبليغ المورد', ss: 'مؤكد', exp: '2026-10-20', sku: 'IBTAMCTOWM200X10014', link: SITE + '/?p=9002', readyAt: '', waybill: null, pulled: false, ret: null, store: null, rate: 40, fee: 10, pid: '9002', lead: 7, leadSrc: 'default' }, // no permalink: the site's ?p=
     ] });
   assert.deepEqual(d.images, { IBTA4040PAHC000013: 'https://stage.ibtekr.club/cushion.jpg' }); // no image_url → no entry
   assert.deepEqual(d.links, { IBTA4040PAHC000013: SITE + '/product/cushion/' }); // no permalink → no entry
@@ -95,12 +95,19 @@ test('load builds the screen shape: multi-maker sid/raw from the Dokan sub-order
   assert.ok(events.includes('ib:notify'));
 });
 
+test('phase 13 decision 52: a line\'s making days — the product\'s own (opts.leads by product id) over the maker\'s lead_days, else 7', async () => {
+  const { O } = load();
+  const vs = [{ id: V1, name: 'Art Craft', lead_days: 10 }, { id: V2, name: 'Antikiano', lead_days: null }];
+  const [o] = plain(O.toScreen([O1], ITEMS, SUBS, vs, { today: '2026-10-25', leads: new Map([['9002', 15]]) }));
+  const by = Object.fromEntries(o.subs.map((x) => [x.pid, [x.lead, x.leadSrc]]));
+  assert.deepEqual(by, { 9001: [10, 'maker'], 9002: [15, 'product'] });
+});
 test('toScreen, single maker without a sub-order: sid = the parent order id (the website\'s number, as the n8n → Airtable automation sends it), raw = orders.woo_status; removed lines are skipped', async () => {
   const { O } = load();
   const [o] = plain(O.toScreen([O2], ITEMS, SUBS, VENDORS, { today: '2026-10-25' }));
   assert.equal(o.age, 8);
   assert.deepEqual({ pay: o.pay, dep: o.dep, tot: o.tot, note: o.note, cnote: o.cnote, cdate: o.cdate, confAt: o.confAt, state: o.state, stateName: o.stateName, city: o.city, addr: o.addr, ret: o.ret }, { pay: 'cod', dep: 300, tot: 1002, note: 'تبع اوردر 180668', cnote: '', cdate: '2026-10-18', confAt: '2026-10-18', state: '', stateName: '', city: '', addr: '', ret: { reason: 'x' } });
-  assert.deepEqual(o.subs, [{ n: 5003, itemId: '5003', sid: '180686', oid: '180686', prod: 'Cushion', qty: 2, tot: 1002, raw: 'on-hold', vendor: '', vendorId: null, cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', link: '', readyAt: '', waybill: null, pulled: false, ret: null, store: null, rate: null, fee: null }]); // no opts.links: no link; no commission: null
+  assert.deepEqual(o.subs, [{ n: 5003, itemId: '5003', sid: '180686', oid: '180686', prod: 'Cushion', qty: 2, tot: 1002, raw: 'on-hold', vendor: '', vendorId: null, cm: '', ss: '', exp: '', sku: 'IBTA4040PAHC000013', link: '', readyAt: '', waybill: null, pulled: false, ret: null, store: null, rate: null, fee: null, pid: '9001', lead: 7, leadSrc: 'default' }]); // no opts.links: no link; no commission: null
 });
 
 test('toScreen links: the sku\'s permalink (https only), else <origin>/?p=<product_id> (a positive integer) with the origin of any known permalink, else none', async () => {

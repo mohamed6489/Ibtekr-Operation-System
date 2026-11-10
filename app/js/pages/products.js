@@ -333,6 +333,27 @@
   // the owner (2 Nov): the maker on the product page itself — a select of the makers with a store; a change moves the product
   // (and its Arabic translation) on the site at once through products_vendor (products.bulk), after a confirmation; it is not
   // part of «احفظ على الموقع» (another permission, another write), so unsaved edits are saved first
+  // phase 13 decision 52 (owner 10 Nov — «Maker + product override»): the product's own making days for the sub-order delay; empty =
+  // the maker's «مدة التجهيز». Saved on its own when the field is left (IBProducts.setLeadDays), not with «احفظ على الموقع» — the
+  // site does not hold it.
+  const leadSt = { id: null, v: undefined, busy: false };
+  function leadField(id, rec, C) {
+    const V = window.IBVendors; const mk = rec && rec.vendorId && V && V.store && V.store.get ? V.store.get(rec.vendorId) : null; const makerDays = mk && mk.leadDays ? mk.leadDays : 7;
+    if (leadSt.id !== String(id)) { leadSt.id = String(id); leadSt.v = undefined; PR().leadDays(id).then((v) => { if (leadSt.id === String(id)) { leadSt.v = v; R(); } }); }
+    let typed = leadSt.v == null ? '' : String(leadSt.v);
+    const el = U.TextInput({ id: 'e-lead', label: 'مدة التصنيع (يوم)', value: typed, inputmode: 'numeric', placeholder: 'مدة المبتكر: ' + makerDays, disabled: !C.edit || leadSt.busy || leadSt.v === undefined,
+      help: C.edit ? 'للتأخير في الأوردرات: لو فاضية بتتحسب مدة المبتكر (' + makerDays + ' يوم). بتتحفظ لوحدها أول ما تسيب الخانة' : 'تعديلها محتاج صلاحية تعديل المنتجات', onInput: (v) => { typed = v; } });
+    const input = el.querySelector('input');
+    if (input) input.addEventListener('change', async () => {
+      const raw = String(typed).trim(); const next = raw === '' ? null : Number(raw.replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)));
+      if ((next === null && leadSt.v == null) || next === leadSt.v) return;
+      leadSt.busy = true; const r = await PR().setLeadDays(id, next); leadSt.busy = false;
+      if (r.ok) { leadSt.v = r.days; K.toast(r.days == null ? 'رجعت لمدة المبتكر (' + makerDays + ' يوم)' : 'اتحفظت مدة التصنيع: ' + r.days + ' يوم', 'success'); }
+      else K.toast(r.message || (r.reason === 'forbidden' ? 'مفيش صلاحية' : 'ماتحفظتش — جرّب تاني'), 'error');
+      R();
+    });
+    return el;
+  }
   function makerField(id, p, rec, C) {
     const V = window.IBVendors; const makers = (V && V.store && V.store.all ? V.store.all() : []).filter((v) => v.wooVendorId).sort((a, b) => a.name.localeCompare(b.name));
     const byStore = p.store && p.store.id != null ? makers.find((v) => Number(v.wooVendorId) === Number(p.store.id)) : null;
@@ -511,7 +532,7 @@
       K.two(inp('sku', 'SKU', 'sku', { help: 'تغيير الـ SKU بيغيّر الباركود واللينكات القديمة.' }), inp('w', 'الوزن (كجم)', 'weight', { inputmode: 'decimal' })),
       K.two(U.Select({ id: 'e-brand', label: 'البراند', options: [{ value: '', label: '—' }].concat(PR().brands().map((b) => ({ value: String(b.id), label: b.name }))), value: d.brands[0] != null ? String(d.brands[0]) : '', disabled: dis, help: 'براند WooCommerce الظاهر على المنتج', onChange: (v) => { d.brands = v ? [Number(v)] : []; R(); } }),
         makerField(id, p, rec, C)),
-      K.two(U.TextInput({ id: 'e-type', label: 'النوع', value: p.type === 'variable' ? 'Variable' : p.type === 'simple' ? 'Simple' : p.type, disabled: true, onInput: () => {}, help: 'النوع بيتغير من الاستوديو بس' }), h('div'))], null, 'grow'),
+      K.two(U.TextInput({ id: 'e-type', label: 'النوع', value: p.type === 'variable' ? 'Variable' : p.type === 'simple' ? 'Simple' : p.type, disabled: true, onInput: () => {}, help: 'النوع بيتغير من الاستوديو بس' }), leadField(id, rec, C))], null, 'grow'),
       h('div', { class: 'stack side-card' }, Card('الحالة والظهور', null, [U.Select({ id: 'e-status', label: 'الحالة', options: [{ value: 'publish', label: 'منشور' }, { value: 'draft', label: 'مسودة' }, { value: 'pending', label: 'قيد المراجعة' }].concat(['publish', 'draft', 'pending'].includes(p.status) ? [] : [{ value: p.status, label: status }]), value: d.status, disabled: dis, onChange: (v) => { d.status = v; R(); } }),
         K.Switch({ id: 'e-feat', label: 'منتج مميز', checked: d.featured, disabled: dis, onChange: (v) => { d.featured = v; R(); } }),
         arStatusNote(p, dis)]), priceCard(p, inp, dis, rec)));

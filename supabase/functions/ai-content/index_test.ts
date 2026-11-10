@@ -409,7 +409,7 @@ const NOW_DAY = NOW.slice(0, 10);
 const MEMBER_SEED = {
   profiles: [{ id: U.view, name: 'منى', role_id: 'cs', status: 'active' }], roles: [{ id: 'cs', name: 'خدمة العملاء', permissions: {} }],
   orders_v: [
-    { id: 1, number: '177701', customer_name: 'منى سعيد', customer_phone: '0100****', customer_city: 'القاهرة', status: 'جاري التنفيذ', confirm: 'غير مؤكد', deposit: 0, total: 900, placed_at: '2026-10-11T10:00:00+02:00' }, // 14 days before NOW: late
+    { id: 1, number: '177701', customer_name: 'منى سعيد', customer_phone: '0100****', customer_city: 'القاهرة', status: 'جاري التنفيذ', confirm: 'مؤكد بدون عربون', deposit: 0, total: 900, placed_at: '2026-10-11T10:00:00+02:00' }, // 14 days before NOW: late
     { id: 2, number: '177702', customer_name: 'أحمد', customer_city: 'الجيزة', status: 'قيد الشحن', confirm: 'مؤكد بعربون', deposit: 200, total: 1500, placed_at: NOW_DAY + 'T08:00:00+02:00' },
     { id: 3, number: '177703', customer_name: 'سارة', status: 'مكتمل', confirm: 'مؤكد بعربون', deposit: 100, total: 600, placed_at: '2026-10-20T10:00:00+02:00' }, // this month (NOW is 25 Oct): in the default period
   ],
@@ -456,7 +456,7 @@ Deno.test('assistant: any active member; the tool loop — get_data runs with th
   // the third: the late orders + the two client tools answered (one invalid)
   const res3 = asked[2].messages.at(-1).content;
   assertEquals(res3.map((x: any) => [x.tool_use_id, x.is_error ?? false]), [['tu_2', false], ['tu_3', false], ['tu_4', true]]);
-  const late = unwrap(res3[0].content); assertEquals(late.rows.map((o: any) => [o.number, o.delivery, o.ageDays]), [['177701', 'late', 13]]); // whole days since the order's hour
+  const late = unwrap(res3[0].content); assertEquals(late.rows.map((o: any) => [o.number, o.delivery, o.ageDays]), [['177701', 'late', 13]]); // decision 52: confirmed without a date → the days since the order
   assertFalse('customer_phone' in late.rows[0]);
   // one run row: action assistant, source chat, the question as label, the three calls' cost summed (3 × 3000 in + 2000 out on Opus 5.5)
   const runs = db.rows('ai_runs'); assertEquals(runs.length, 1);

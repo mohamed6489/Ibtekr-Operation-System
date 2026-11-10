@@ -19,6 +19,7 @@ import { vaultEnv } from '../_shared/secrets.js';
 import { WA_GRAPH, graphErrorCode } from '../_shared/cs-whatsapp.js';
 import { cairoParts } from '../_shared/mkt-publish.js';
 import { SOURCES, digestPlan, emailHtml, plan, waText } from '../_shared/notify.js';
+import { confirmAge, leadOf, orderDelay, subDelay, subElapsed } from '../_shared/delay.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -70,23 +71,32 @@ export async function collect(deps: Deps, ctx: Ctx): Promise<Item[]> {
   const slaLate = Number((ctx.settings.cs ?? {}).sla_late_min) || 60;
   // orders (open, not removed) with their lines and makers
   const [orders, vendors] = await Promise.all([
-    deps.db.from('orders').select('id, number, customer_name, status, confirm, placed_at').in('status', OPEN_ORDER).is('deleted_at', null).limit(LIMIT),
+    deps.db.from('orders').select('id, number, customer_name, status, confirm, confirm_at, placed_at').in('status', OPEN_ORDER).is('deleted_at', null).limit(LIMIT),
     deps.db.from('vendors').select('id, name, phone, status, contract, lead_days').limit(LIMIT),
   ]);
   const O = rows(orders); const V = new Map(rows(vendors).map((v) => [String(v.id), v]));
-  const items = O.length ? rows(await deps.db.from('order_items').select('id, order_id, vendor_id, name, status, ready_at, waybill').in('order_id', O.map((o) => o.id)).eq('removed', false).limit(10_000)) : [];
+  const items = O.length ? rows(await deps.db.from('order_items').select('id, order_id, vendor_id, product_id, name, status, ready_at, waybill, expected_at').in('order_id', O.map((o) => o.id)).eq('removed', false).limit(10_000)) : [];
+  // phase 13 decision 52: the products' own making days over the makers' (product_lead_days; none / refused = the makers')
+  const pids = [...new Set(items.map((it) => it.product_id).filter((x) => x != null))];
+  const PL = new Map<string, number>(); for (let i = 0; i < pids.length; i += 500) { const r = await deps.db.from('product_lead_days').select('product_id, days').in('product_id', pids.slice(i, i + 500)); for (const x of rows(r)) PL.set(String(x.product_id), Number(x.days)); }
   const perVendor = new Map<string, { late: Set<number>; risk: Set<number>; open: Set<number> }>();
   for (const o of O) {
     const age = orderAge(o.placed_at, today); const label = 'IB-' + (o.number ?? o.id) + ' · ' + String(o.customer_name ?? '').trim();
+    // phase 13 decision 52: the order's delay from its confirmation date — an order not confirmed is never late
+    const cage = confirmAge({ confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }, today);
     if (o.status === 'معلّق') out.push({ key: 'customers.follow', entityId: String(o.id), title: label, body: 'أوردر معلّق · محتاج متابعة · عمره ' + age + ' يوم', entity: 'orders' });
-    if (age >= lateFrom && o.status === 'جاري التنفيذ') out.push({ key: 'customers.late', entityId: String(o.id), title: label, body: 'أوردر متأخر · محتاج متابعة مع العميل · عمره ' + age + ' يوم', entity: 'orders' });
+    if (orderDelay(cage, { riskFrom, lateFrom }) === 'late' && o.status === 'جاري التنفيذ') out.push({ key: 'customers.late', entityId: String(o.id), title: label, body: 'أوردر متأخر · محتاج متابعة مع العميل · ' + cage + ' يوم من التأكيد', entity: 'orders' });
     if (o.confirm === 'غير مؤكد' && age >= 1) out.push({ key: 'customers.unconf', entityId: String(o.id), title: label, body: 'غير مؤكد · لسه ما اتأكدش من العميل · عمره ' + age + ' يوم', entity: 'orders' });
     if (o.confirm === 'في انتظار الرد') out.push({ key: 'customers.waiting', entityId: String(o.id), title: label, body: 'في انتظار رد العميل', entity: 'orders' });
     const lines = items.filter((it) => String(it.order_id) === String(o.id));
     for (const it of lines) {
       if (!it.vendor_id || ITEM_DONE.includes(String(it.status))) continue;
       const vid = String(it.vendor_id); const pv = perVendor.get(vid) ?? { late: new Set(), risk: new Set(), open: new Set() }; perVendor.set(vid, pv);
-      if (o.status === 'جاري التنفيذ') { pv.open.add(o.id); if (age >= lateFrom) pv.late.add(o.id); else if (age >= riskFrom) pv.risk.add(o.id); }
+      if (o.status === 'جاري التنفيذ') { // the maker's line: from his notify date against the making days (product, else maker)
+        pv.open.add(o.id); const v0 = V.get(vid);
+        const d = subDelay(subElapsed({ notifiedAt: it.expected_at, confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }, today), leadOf(it.product_id != null ? PL.get(String(it.product_id)) : null, v0 ? v0.lead_days : null));
+        if (d === 'late') pv.late.add(o.id); else if (d === 'risk') pv.risk.add(o.id);
+      }
       // delivery: a ready line without a waybill; late after 24 hours
       if (SHIP_READY.includes(String(it.status)) && !it.waybill) {
         const waited = it.ready_at ? Math.round((nowMs - Date.parse(it.ready_at)) / H) : 0; const v = V.get(vid);
@@ -101,7 +111,7 @@ export async function collect(deps: Deps, ctx: Ctx): Promise<Item[]> {
   for (const [vid, pv] of perVendor) {
     const v = V.get(vid); const name = v ? String(v.name) : 'مبتكر'; const phone = v && typeof v.phone === 'string' ? v.phone : null;
     if (pv.late.size) out.push({ key: 'vendors.late', entityId: vid, title: name, body: pv.late.size + ' أوردر متأخر عن مدة التصنيع', entity: 'orders', vendorId: vid, vendorPhone: phone });
-    if (pv.risk.size) out.push({ key: 'vendors.risk', entityId: vid, title: name, body: pv.risk.size + ' أوردر قابل للتأخير (' + riskFrom + '–' + (lateFrom - 1) + ' يوم)', entity: 'orders', vendorId: vid, vendorPhone: phone });
+    if (pv.risk.size) out.push({ key: 'vendors.risk', entityId: vid, title: name, body: pv.risk.size + ' أوردر قابل للتأخير (آخر 3 أيام من مدة التصنيع)', entity: 'orders', vendorId: vid, vendorPhone: phone });
     if (pv.open.size) {
       out.push({ key: 'vendors.daily', entityId: vid, title: 'المتابعة اليومية — ' + name, body: 'متأخرة ' + pv.late.size + ' · قابلة للتأخير ' + pv.risk.size + ' · قيد التنفيذ ' + pv.open.size, entity: 'vendors', vendorId: vid, vendorPhone: phone });
       out.push({ key: 'vendors.weekly', entityId: vid, title: 'التقرير الأسبوعي — ' + name, body: 'قيد التنفيذ ' + pv.open.size + ' · متأخرة ' + pv.late.size, entity: 'vendors', vendorId: vid, vendorPhone: phone });

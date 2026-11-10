@@ -451,3 +451,20 @@ test('duplicate (phase 12): a member without products.add (accounts) is told and
   await expect(page.locator('.toast, [role=status]').filter({ hasText: 'إضافة منتجات' }).first()).toBeVisible();
   expect((mock.productWrites || []).filter((w) => w.action === 'product_duplicate')).toEqual([]);
 });
+
+// phase 13 decision 52: the product's own making days — empty = the maker's; saved on its own when the field is left; the orders follow
+test('decision 52: «مدة التصنيع (يوم)» on the product page writes product_lead_days (empty = back to the maker\'s days)', async ({ page }) => {
+  await openProducts(page);
+  await page.locator('[data-pedit="9001"]').click();
+  await expect(page.locator('#e-lead')).toBeEnabled();
+  await expect(page.locator('#e-lead')).toHaveAttribute('placeholder', /مدة المبتكر: 7/);
+  await page.fill('#e-lead', '10'); await page.locator('#e-lead').blur();
+  await expect.poll(() => mock.leadWrites.at(-1)).toMatchObject({ op: 'upsert', product_id: '9001', days: 10 });
+  await expect(page.locator('.toast.show')).toContainText('اتحفظت مدة التصنيع: 10 يوم');
+  expect((mock.productWrites || []).filter((w) => w.action === 'product_save')).toEqual([]); // not a site write
+  await page.fill('#e-lead', '200'); await page.locator('#e-lead').blur();
+  await expect(page.locator('.toast.show')).toContainText('من 1 لـ 90');
+  await page.fill('#e-lead', ''); await page.locator('#e-lead').blur();
+  await expect.poll(() => mock.leadWrites.at(-1)).toMatchObject({ op: 'delete', product_id: '9001' });
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'product.lead').length).toBe(2);
+});

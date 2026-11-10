@@ -87,7 +87,8 @@ export function portalRoute(c) {
     const subs = mock.subOrders.filter((s) => s.vendor_id === me.vendor); const items = mock.orderItems.filter((i) => i.vendor_id === me.vendor);
     const since = new Date(Date.now() - 90 * 86400000).toISOString();
     const ids = new Set([...subs, ...items].map((r) => r.order_id)); const orders = mock.orders.filter((o) => ids.has(o.id) && !o.deleted_at && o.placed_at >= since);
-    return json(200, { result: 'ok', rows: makerLines({ items, orders, subs, now }), since: since.slice(0, 10) });
+    const lead = (mock.productLeads || []).reduce((m, x) => m.set(String(x.product_id), Number(x.days)), new Map()); // decision 52
+    return json(200, { result: 'ok', rows: makerLines({ items, orders, subs, now, leads: lead, makerLead: v.lead_days }), since: since.slice(0, 10) });
   }
   if (action === 'account') {
     const bal = (mock.acc.dokan_balances || []).find((x) => x.vendor_id === me.vendor) || null; const moves = (mock.acc.acc_vendor_moves || []).filter((m) => m.vendor_id === me.vendor && !m.voided_at);

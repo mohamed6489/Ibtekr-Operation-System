@@ -988,3 +988,20 @@ test('decision 48: every order starts closed; the fold button opens one and leav
   await expect(cards(page).nth(1).locator('[data-tg]').first()).toHaveAttribute('aria-label', 'طي');
   await expect(cards(page).nth(0).locator('[data-tg]').first()).toHaveAttribute('aria-label', 'فتح');
 });
+
+// phase 13 decision 52 (owner 10 Nov): the order's delay from its confirmation date (none while not confirmed); a sub-order's from the
+// maker's notify date (else the confirmation) against the making days — the product's own over the maker's «مدة التجهيز»
+test('decision 52: an unconfirmed order is never late; a sub-order counts against its making days (the product\'s own, else the maker\'s)', async ({ page }) => {
+  mock.orders.find((o) => o.id === 180656).placed_at = new Date(Date.now() - 30 * 864e5).toISOString(); // old, but not confirmed
+  await openOrders(page);
+  await expect(card(page, '180656').locator('.badge').filter({ hasText: /^\s*(متأخر|قابل للتأخير)\s*$/ })).toHaveCount(0);
+  await expect(card(page, '180656').locator('.badge', { hasText: 'غير متأخر' }).first()).toBeVisible();
+  // 180686: confirmed 5 days ago, no notify date, Art Craft's 7 days → the last 3 = «قابل للتأخير»
+  const sub = card(page, '180686').locator('.row').filter({ hasText: 'Cushion' }).first();
+  await expect(sub.locator('[data-lead]')).toHaveText('مدة التصنيع: 7 يوم (المبتكر)');
+  await expect(sub).toContainText('5/7'); await expect(sub).toContainText('قابل للتأخير');
+  // the product's own 10 days (set on the products page) → not late, and the page follows without a reload
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent('ib:product-lead', { detail: { productId: '9001', days: 10 } })));
+  await expect(sub.locator('[data-lead]')).toHaveText('مدة التصنيع: 10 يوم (المنتج)');
+  await expect(sub).toContainText('5/10'); await expect(sub).toContainText('غير متأخر');
+});

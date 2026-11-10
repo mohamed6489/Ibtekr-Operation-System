@@ -49,7 +49,7 @@ function setup(opts: { resend?: boolean; mailFail?: boolean } = {}) {
       { id: 150001, number: '150001', status: 'مكتمل', placed_at: '2026-06-01T10:00:00Z', customer_name: 'قديم', customer_phone: '01000000000' },
     ],
     sub_orders: [{ id: 1, order_id: 181668, vendor_id: V1, woo_order_id: 181669, woo_status: 'processing' }, { id: 2, order_id: 181668, vendor_id: V2, woo_order_id: 181670, woo_status: 'processing' }, { id: 3, order_id: 180686, vendor_id: V1, woo_order_id: 180687, woo_status: 'completed' }, { id: 4, order_id: 150001, vendor_id: V1, woo_order_id: 150002, woo_status: 'completed' }],
-    order_items: [{ id: 11, order_id: 181668, sub_order_id: 1, vendor_id: V1, name: 'Cushion', qty: 2, total: 700, status: 'قيد التنفيذ', expected_at: '2026-10-26' }, { id: 12, order_id: 181668, sub_order_id: 2, vendor_id: V2, name: 'Other thing', qty: 1, total: 100, status: '' },
+    order_items: [{ id: 11, order_id: 181668, sub_order_id: 1, vendor_id: V1, name: 'Cushion', qty: 2, total: 700, status: 'قيد التنفيذ', expected_at: '2026-10-15' }, { id: 12, order_id: 181668, sub_order_id: 2, vendor_id: V2, name: 'Other thing', qty: 1, total: 100, status: '' },
       { id: 13, order_id: 180686, sub_order_id: 3, vendor_id: V1, name: 'Vase', qty: 1, total: 300, status: 'تم الشحن للعميل' }, { id: 14, order_id: 150001, sub_order_id: 4, vendor_id: V1, name: 'Ancient', qty: 1, total: 50, status: 'تم الشحن للعميل' }],
     dokan_balances: [{ vendor_id: V1, woo_vendor_id: 11, balance: 5000, synced_at: NOW }],
     acc_vendor_moves: [{ id: 1, vendor_id: V1, on_date: '2026-10-01', direction: 'withdraw', kind: 'عربون', amount: 1000 }, { id: 2, vendor_id: V1, on_date: '2026-10-02', direction: 'withdraw', kind: 'مواصلات', amount: 150 }, { id: 3, vendor_id: V2, on_date: '2026-10-02', direction: 'withdraw', kind: 'عربون', amount: 9999 }],
@@ -135,7 +135,7 @@ Deno.test('me / orders / account: the maker\'s own rows only — his brands (sto
   assertEquals(r.body.bank, { method: 'bank', holder: 'Bian Egypt', bankName: 'NBE', iban: '•••• •••• •••• 0002', account: null, wallet: '•••• •••• •••• 0011' });
   assert(!JSON.stringify(r.body).includes('EG380019000500000000263180002'), 'no IBAN in clear');
   r = await call(deps, { action: 'orders' }, tokenV1);
-  assertEquals(r.body.rows.map((x: any) => [x.order, x.n, x.prod, x.open, x.delivery, x.age]), [['181668', '181669', 'Cushion', true, 'late', 12], ['180686', '180687', 'Vase', false, 'ok', 24]], 'his two lines of the last 90 days; the June one is out, the other maker\'s line is out');
+  assertEquals(r.body.rows.map((x: any) => [x.order, x.n, x.prod, x.open, x.delivery, x.age]), [['181668', '181669', 'Cushion', true, 'late', 12], ['180686', '180687', 'Vase', false, 'ok', 24]], 'his two lines of the last 90 days (decision 52: notified 10 days ago, past the 7 making days = late); the June one is out, the other maker\'s line is out');
   assert(!JSON.stringify(r.body).includes('سلوى') && !JSON.stringify(r.body).includes('0120000') && !JSON.stringify(r.body).includes('Other thing'));
   r = await call(deps, { action: 'account' }, tokenV1);
   assertEquals(r.body.ledger, { dokan: 5000, deposits: 1000, transport: 150, other: 0, net: 3850, status: 'ليك' });

@@ -1224,6 +1224,13 @@ select id, member_id, day, minutes, kind, status, ticket_id from public.hr_overt
 4. ادمج على `main` (الواجهة بتطلب `photo_path` في قايمة أعمدة `vendors`، فـ 0075 لازم يكون متطبّق قبل الواجهة).
 5. التجربة: «إضافة مبتكر» بصورة → توست «اتحفظت هنا (مالوش متجر…)»؛ لمبتكر له متجر والكتابة شغالة الصورة بتبقى صورة المتجر على الموقع.
 
+#### 2.7.52 التأخير من تاريخ التأكيد ومدة التصنيع لكل منتج (المرحلة 13 قرار 52، 11 نوفمبر)
+
+1. طبّق `supabase/migrations/0076_product_lead_days.sql` (جدول `product_lead_days` بـ RLS والتريجر) — re-runnable.
+2. RLS live: «RLS live tests» بـ `files = rls_product_lead_days`.
+3. انشر الدوال اللي بتقرا القاعدة: `notify` و`cs-auto` و`ai-content` و`portal` («Deploy functions» واحدة واحدة).
+4. ادمج على `main` (الواجهة بتقرا `product_lead_days` و`vendors.lead_days`؛ من غير 0076 الجدول بيرجّع رفض والصفحة بتاخد مدة المبتكر).
+
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
 - الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.
 - السياسات على `storage.objects` (من الملف نفسه، بادئة `vendor_contracts_`): `select` و`insert` و`update` لـ `authenticated` بشرط `bucket_id = 'vendor-contracts'` و`has_perm('sensitive.vendor_bank') = 'F'` (الأدمن والحسابات في مصفوفة `0003`). مافيش سياسة `delete`: استبدال العقد = ملف جديد والقديم بيفضل (قرار 7)، ومافيش تنظيف للملفات القديمة (تكلفة صغيرة).

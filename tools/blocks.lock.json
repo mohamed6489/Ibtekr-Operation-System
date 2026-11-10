@@ -21,7 +21,7 @@
   },
   "06-vendors-domain.js": {
     "prototype": "eee7f82bb5af1440fc5a7454dcad65932f5253b0af6e583a6f2eaf969e7c2bfa",
-    "current": "0a48e5bc9cb86851be7035211b2fe7a86c6f67ef41d387e8b2aa51bb778af03d"
+    "current": "c2578704f927bed0838ee53cb72c00acab3115d6a5c6ba158701cbbadbae2fe2"
   },
   "07-seed-transport.js": {
     "prototype": "84d9d31ca645b87c12872fee47293ed68b8a1ce9e6c1b50df1d1668eab278789",
@@ -45,7 +45,7 @@
   },
   "12-ops-domain.js": {
     "prototype": "61b358d0af069a9ee879baebcac093a7e606e7b8f38aec2a6ed69bca0ccffcc1",
-    "current": "2b00ce5cd51322ee3c3b89454e06666d02190f03738eef1c769d890743050142"
+    "current": "048981df3b5ab850327160e13b388bc43a1b44a04d4e432827526c0944e97486"
   },
   "13-logo.js": {
     "prototype": "4f6a9cbb22ffb0a3e844e20feb6c41508ca1c46b4313d990d5414d67186f7c78",
@@ -65,7 +65,7 @@
   },
   "17-page-settings.js": {
     "prototype": "89d9c49b0d0f466a618479a6b68c237edb4e90a12b0b233e7d05f7916c8e8dde",
-    "current": "032b1c1aaa99cefcf390c5932d38611ebd9e4bfb1be6f5795f9150d8f5397ea3"
+    "current": "b974e0a60fb49b2df5ddfe5cbd1ce537c82f4eef86b940b3d5545c46858c8241"
   },
   "18-page-profile.js": {
     "prototype": "218eb74e001b3e909a563499cdd2d929b1893e93d86d81f9039603b34dbdaa8a",
@@ -73,7 +73,7 @@
   },
   "19-cs-domain.js": {
     "prototype": "5316d08c265ce14e7ed3340ddd6547f4f665dddc07dd3d76bf3868c8ad1f5192",
-    "current": "3669e573a61622696a783c860ed12193a36e88cadf913f53abd6f8db4b00bda1"
+    "current": "009409e05de84a7a2412efc838cd297461bc1ff7e120e15779899d295b67354c"
   },
   "20-page-cs.js": {
     "prototype": "07edfb71ffed3920bba96b1602645c9224249cc9a0ce63e07b4d4fe58295118b",
@@ -97,7 +97,7 @@
   },
   "25-page-dashboard.js": {
     "prototype": "f0ac7e16f52f393457bde9d1617eab227f9d9a3d36da857ec81c7b7684e3bb84",
-    "current": "79f03ea7dbae4e0478ad037871b8ff62229c032b94317165aa004365536eb878"
+    "current": "e7a21407f183d8bce6759af869c4ec1fe0e9c95efd508d11177f4920a060e209"
   },
   "26-data-actions.js": {
     "prototype": "fafccd1bfeb257fa467d090d00589b9d01bcfe738dbf77d17cc8c26c4c0da6f4",
@@ -109,10 +109,10 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "090d211b43f9a2602b3787f4fc5f506e056cebfe611b0938ba6b9a9c7775a537"
+    "current": "229c822a30406b72dc1a45f04debc974107ddb3278f168c1a8c6ec00803e05b7"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",
-    "current": "be7ce2449cbafbb216a87dde95fac1d504f55cd78860772c30ade6a620849d83"
+    "current": "d039b267357018481dcb7f882c6f3a70f8304730d1589a39e33f7d193c0f1414"
   }
 }

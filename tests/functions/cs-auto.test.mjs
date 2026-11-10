@@ -32,18 +32,19 @@ test('the 24-hour window', () => {
   assert.equal(windowOpen(null, NOW), false);
 });
 
-test('orderEvents: a changed status since the tick, the at-risk and late orders by age, deleted and cart orders left out', () => {
+test('orderEvents: a changed status since the tick, the at-risk and late orders by their days since the confirmation (none while not confirmed), deleted and cart orders left out', () => {
   const orders = [
     { id: 1, status: 'جاهز للشحن', updated_at: '2026-11-08T07:50:00Z', placed_at: '2026-11-05T10:00:00Z' },
-    { id: 2, status: 'جاري التنفيذ', updated_at: '2026-11-01T07:50:00Z', placed_at: '2026-10-29T10:00:00Z' }, // 10 days → at risk
-    { id: 3, status: 'جاري التنفيذ', updated_at: '2026-11-01T07:50:00Z', placed_at: '2026-10-20T10:00:00Z' }, // 19 days → late
+    { id: 2, status: 'جاري التنفيذ', confirm: 'مؤكد بعربون', confirm_at: '2026-10-29', updated_at: '2026-11-01T07:50:00Z', placed_at: '2026-10-20T10:00:00Z' }, // 10 days from the confirmation → at risk (decision 52)
+    { id: 3, status: 'جاري التنفيذ', confirm: 'مؤكد بدون عربون', confirm_at: null, updated_at: '2026-11-01T07:50:00Z', placed_at: '2026-10-20T10:00:00Z' }, // confirmed, no date: 19 days from the order → late
+    { id: 6, status: 'جاري التنفيذ', confirm: 'غير مؤكد', updated_at: '2026-11-01T07:50:00Z', placed_at: '2026-09-01T10:00:00Z' }, // not confirmed: never late
     { id: 4, status: 'مكتمل', updated_at: '2026-11-08T07:55:00Z', placed_at: '2026-10-20T10:00:00Z', deleted_at: '2026-11-08T07:56:00Z' },
     { id: 5, status: 'قيد الانتظار', updated_at: '2026-11-08T07:55:00Z', placed_at: '2026-11-08T06:00:00Z' },
   ];
   const ev = orderEvents(orders, { sinceIso: '2026-11-08T07:45:00Z', today: '2026-11-08' });
   assert.deepEqual(ev.map((e) => [e.entity, e.to, e.suffix]), [['order:1', 'جاهز للشحن', 's2'], ['order:2', 'قابل للتأخير', 'risk'], ['order:3', 'متأخر', 'late']]);
   assert.equal(STATUS_CODES[2], 'جاهز للشحن');
-  assert.equal(orderEvents(orders, { sinceIso: null, today: '2026-11-08' }).length, 5, 'no since = every non-cart order changes');
+  assert.equal(orderEvents(orders, { sinceIso: null, today: '2026-11-08' }).length, 6, 'no since = every non-cart order changes (the unconfirmed one: its status only)');
 });
 
 test('cartEvents: pending / failed older than afterMin, unless the same number ordered again after', () => {

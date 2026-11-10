@@ -4,6 +4,7 @@
 // each (send now / hold for the hours or the cap / skip with a code), the template variables, the WhatsApp text-or-template
 // choice by the 24-hour window, and the «no answer in 24 hours → a ticket» follow-ups. No I/O, no logging; the function
 // (cs-auto/index.ts) reads the tables and writes the rows. Nothing here ever holds a phone number for longer than a call.
+import { confirmAge } from './delay.js';
 import { normPhone } from './cs-wa.js';
 const isObj = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 const num = (v, def, min, max) => { const n = Number(v); return Number.isFinite(n) && n >= min && n <= max ? Math.round(n) : def; };
@@ -61,8 +62,9 @@ export function orderEvents(orders, { sinceIso, today, riskFrom = 9, lateFrom = 
     if (!isObj(o) || o.deleted_at) continue;
     const st = String(o.status ?? '');
     if (after(o.updated_at, sinceIso) && st && !CART_STATUSES.includes(st)) out.push({ type: 'status', to: st, entity: 'order:' + o.id, suffix: statusCode(st), order: o });
-    if (st === 'جاري التنفيذ' && today && o.placed_at) {
-      const age = daysBetween(dayOf(o.placed_at), today);
+    // phase 13 decision 52: the delay counts from the confirmation date; an order not confirmed is never «قابل للتأخير» / «متأخر»
+    const age = st === 'جاري التنفيذ' && today ? confirmAge({ confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }, today) : null;
+    if (age != null) {
       if (age >= lateFrom) out.push({ type: 'status', to: 'متأخر', entity: 'order:' + o.id, suffix: 'late', order: o, age });
       else if (age >= riskFrom) out.push({ type: 'status', to: 'قابل للتأخير', entity: 'order:' + o.id, suffix: 'risk', order: o, age });
     }

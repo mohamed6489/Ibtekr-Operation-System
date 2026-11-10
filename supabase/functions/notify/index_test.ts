@@ -75,7 +75,7 @@ Deno.test('tick: the live tables → alerts per receiving role (and the manager)
   assertEquals(by('accounts.subs_expired'), ['accounts', 'admin']); assertEquals(by('vendors.contract'), ['admin']);
   assertEquals(by('accounts.vendors'), [], 'the statements go out on their days of the month only (16 / last)');
   const late = A.find((a: any) => a.source_key === 'customers.late' && a.role_id === 'cs');
-  assertEquals([late.kind, late.title, late.entity, late.entity_id], ['customers', 'IB-1001 · منى', 'orders', '1001']); assert(/عمره 14 يوم/.test(late.body));
+  assertEquals([late.kind, late.title, late.entity, late.entity_id], ['customers', 'IB-1001 · منى', 'orders', '1001']); assert(/14 يوم من التأكيد/.test(late.body)); // decision 52: confirmed without a date = from the order date
   assertEquals(A.every((a: any) => a.at === NOW && a.source_key), true);
   // the memory: a row per (source × entity × target), count 1
   const S = db.rows('alert_state'); assertEquals(S.length, A.filter((a: any) => !String(a.source_key).startsWith('digest:')).length, 'a state row per alert (the digests keep none)'); assertEquals(S.every((s: any) => s.sent_count === 1 && s.last_sent_at === NOW), true);

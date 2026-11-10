@@ -336,7 +336,7 @@ async function buyer(deps: Deps, uid: string, args: Json) {
 // ---------------------------------------------------------------- the header's assistant (phase 12 T1, decision 8)
 
 type DQ = ReturnType<typeof dataQuery> & { kind: string; q: string; status: string; from: string; to: string; limit: number; all: boolean };
-const ORDER_COLS = 'id, number, customer_name, customer_city, status, confirm, deposit, total, placed_at';
+const ORDER_COLS = 'id, number, customer_name, customer_city, status, confirm, confirm_at, deposit, total, placed_at';
 const FORBIDDEN = { forbidden: true };
 // One get_data read with the member's client: a refused table or RPC (RLS, has_perm) is { forbidden: true } for the model, never a throw.
 async function readData(member: Db, uid: string, dq: DQ, today: string): Promise<Json> {

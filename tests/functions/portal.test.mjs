@@ -39,17 +39,20 @@ test('makerLines: his lines with their order and sub-order — open while the or
   ];
   const subs = [{ id: 1, order_id: 181668, woo_order_id: 181669, woo_status: 'processing' }, { id: 2, order_id: 180686, woo_order_id: 180687, woo_status: 'completed' }];
   const items = [
-    { id: 11, order_id: 181668, sub_order_id: 1, name: 'Cushion', qty: 2, total: 700, status: 'قيد التنفيذ', expected_at: '2026-11-12' },
+    { id: 11, order_id: 181668, sub_order_id: 1, product_id: 901, name: 'Cushion', qty: 2, total: 700, status: 'قيد التنفيذ', expected_at: '2026-11-01' },
     { id: 12, order_id: 181668, sub_order_id: 1, name: 'Removed', qty: 1, total: 100, status: '', removed: true },
     { id: 13, order_id: 180686, sub_order_id: 2, name: 'Vase', qty: 1, total: 300, status: 'تم الشحن للعميل' },
     { id: 14, order_id: 170000, sub_order_id: null, name: 'Gone', qty: 1, total: 50, status: '' },
     { id: 15, order_id: 999999, sub_order_id: null, name: 'Orphan', qty: 1, total: 50, status: '' },
   ];
-  const rows = makerLines({ items, orders, subs, now: NOW });
+  // decision 52: from the notify date (8 days) against the making days — the maker's 10 → at risk (the last 3); the product's 7 → late
+  const rows = makerLines({ items, orders, subs, now: NOW, makerLead: 10 });
   assert.deepEqual(rows, [
-    { order: '181668', n: '181669', prod: 'Cushion', qty: 2, total: 700, ss: 'قيد التنفيذ', exp: '2026-11-12', open: true, status: 'جاري التنفيذ', delivery: 'late', age: 12, placed: '2026-10-28' },
-    { order: '180686', n: '180687', prod: 'Vase', qty: 1, total: 300, ss: 'تم الشحن للعميل', exp: null, open: false, status: 'مكتمل', delivery: 'ok', age: 20, placed: '2026-10-20' },
+    { order: '181668', n: '181669', prod: 'Cushion', qty: 2, total: 700, ss: 'قيد التنفيذ', exp: '2026-11-01', open: true, status: 'جاري التنفيذ', delivery: 'risk', age: 12, days: 8, lead: 10, placed: '2026-10-28' },
+    { order: '180686', n: '180687', prod: 'Vase', qty: 1, total: 300, ss: 'تم الشحن للعميل', exp: null, open: false, status: 'مكتمل', delivery: 'ok', age: 20, days: null, lead: 10, placed: '2026-10-20' },
   ]);
+  assert.equal(makerLines({ items, orders, subs, now: NOW, makerLead: 10, leads: new Map([['901', 7]]) })[0].delivery, 'late', 'the product\'s own days win');
+  assert.equal(makerLines({ items: [{ id: 1, order_id: 5, name: 'x' }], orders: [{ id: 5, status: 'جاري التنفيذ', confirm: 'غير مؤكد', placed_at: '2026-09-01T10:00:00Z' }], subs: [], now: NOW })[0].delivery, 'ok', 'no notify date, not confirmed: no delay');
   assert.ok(!JSON.stringify(rows).includes('سلوى') && !JSON.stringify(rows).includes('0120'), 'no customer data');
   assert.equal(makerLines({ items: [{ id: 1, order_id: 5, name: 'x' }], orders: [{ id: 5, status: 'جاري التنفيذ', placed_at: '2026-11-08T10:00:00Z' }], subs: [], now: NOW })[0].open, true, 'no sub-order: open while the order runs');
 });

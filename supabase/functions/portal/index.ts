@@ -185,14 +185,19 @@ async function me(deps: Deps, who: Who) {
 async function orders(deps: Deps, who: Who) {
   const since = new Date(Date.parse(deps.now()) - ORDERS_DAYS_MS).toISOString();
   const { data: subs } = await deps.db.from('sub_orders').select('id, order_id, vendor_id, woo_order_id, woo_status').eq('vendor_id', who.vendor);
-  const { data: items } = await deps.db.from('order_items').select('id, order_id, sub_order_id, name, qty, total, status, expected_at, removed').eq('vendor_id', who.vendor);
+  const { data: items } = await deps.db.from('order_items').select('id, order_id, sub_order_id, product_id, name, qty, total, status, expected_at, removed').eq('vendor_id', who.vendor);
   const orderIds = [...new Set([...(Array.isArray(subs) ? subs : []), ...(Array.isArray(items) ? items : [])].map((r: Json) => r.order_id).filter((x) => x != null))];
   const ords: Json[] = [];
   for (let i = 0; i < orderIds.length; i += 100) {
-    const { data } = await deps.db.from('orders').select('id, number, status, placed_at, deleted_at').in('id', orderIds.slice(i, i + 100)).gte('placed_at', since);
+    const { data } = await deps.db.from('orders').select('id, number, status, confirm, confirm_at, placed_at, deleted_at').in('id', orderIds.slice(i, i + 100)).gte('placed_at', since);
     for (const o of Array.isArray(data) ? data : []) ords.push(o);
   }
-  const rows = makerLines({ items: Array.isArray(items) ? items : [], orders: ords.filter((o: Json) => !o.deleted_at), subs: Array.isArray(subs) ? subs : [], now: deps.now() });
+  // phase 13 decision 52: the making days — the products' own over the maker's «مدة التجهيز»
+  const pids = [...new Set((Array.isArray(items) ? items : []).map((it: Json) => it.product_id).filter((x) => x != null))];
+  const leads = new Map<string, number>();
+  for (let i = 0; i < pids.length; i += 200) { const { data } = await deps.db.from('product_lead_days').select('product_id, days').in('product_id', pids.slice(i, i + 200)); for (const x of Array.isArray(data) ? data : []) leads.set(String(x.product_id), Number(x.days)); }
+  const { data: me } = await deps.db.from('vendors').select('lead_days').eq('id', who.vendor).maybeSingle();
+  const rows = makerLines({ items: Array.isArray(items) ? items : [], orders: ords.filter((o: Json) => !o.deleted_at), subs: Array.isArray(subs) ? subs : [], now: deps.now(), leads, makerLead: me ? me.lead_days : null });
   return json(200, { result: 'ok', rows, since: since.slice(0, 10) });
 }
 

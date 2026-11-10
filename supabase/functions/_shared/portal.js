@@ -1,3 +1,4 @@
+import { leadOf, subDelay, subElapsed } from './delay.js';
 // The maker portal (phase 13 T4, docs/superpowers/plans/2026-11-09-phase-13-leftovers.md decision 10): the pure part of the Edge
 // Function `portal` — the request shapes, the password rules (the server's copy of block 06's passwordIssues), the maker's order
 // lines with the delay rule of block 29 (late after 11 days, at risk from 9 to 11) on the order's age, the account figures («الصافي»:
@@ -54,8 +55,10 @@ export function deliveryState(age, open) {
   return 'ok';
 }
 
-/** the maker's lines: his order_items joined to their order and sub-order — no customer field is read or passed on */
-export function makerLines({ items, orders, subs, now }) {
+/** the maker's lines: his order_items joined to their order and sub-order — no customer field is read or passed on. Phase 13 decision
+ * 52: a line's delay counts from his notify date (expected_at; else the order's confirmation, nothing while not confirmed) against
+ * the making days (leads: product id → days, else makerLead, else 7) — «قابل للتأخير» in the last 3, «متأخر» after */
+export function makerLines({ items, orders, subs, now, leads, makerLead }) {
   const byOrder = new Map((orders ?? []).filter(isObj).map((o) => [String(o.id), o]));
   const bySub = new Map((subs ?? []).filter(isObj).map((s) => [String(s.id), s]));
   const out = [];
@@ -65,9 +68,11 @@ export function makerLines({ items, orders, subs, now }) {
     const s = it.sub_order_id != null ? bySub.get(String(it.sub_order_id)) : null;
     const done = DONE_STATUSES.includes(String(o.status ?? ''));
     const open = !done && (s ? OPEN_SUB.includes(String(s.woo_status ?? '')) : true);
-    const age = ageDays(o.placed_at, now);
+    const age = ageDays(o.placed_at, now); const today = String(now ?? '').slice(0, 10);
+    const lead = leadOf(it.product_id != null && leads && typeof leads.get === 'function' ? leads.get(String(it.product_id)) : null, makerLead);
+    const elapsed = subElapsed({ notifiedAt: it.expected_at, confirm: o.confirm, confirmAt: o.confirm_at, placedAt: o.placed_at }, today);
     out.push({ order: String(o.number ?? o.id), n: s && s.woo_order_id != null ? String(s.woo_order_id) : null, prod: String(it.name ?? ''), qty: num(it.qty) || 1, total: round2(num(it.total)),
-      ss: String(it.status ?? ''), exp: it.expected_at ? String(it.expected_at).slice(0, 10) : null, open, status: String(o.status ?? ''), delivery: deliveryState(age, open), age, placed: String(o.placed_at ?? '').slice(0, 10) });
+      ss: String(it.status ?? ''), exp: it.expected_at ? String(it.expected_at).slice(0, 10) : null, open, status: String(o.status ?? ''), delivery: subDelay(elapsed, lead, open), age, days: elapsed, lead, placed: String(o.placed_at ?? '').slice(0, 10) });
   }
   return out.sort((a, b) => (a.placed < b.placed ? 1 : a.placed > b.placed ? -1 : 0));
 }

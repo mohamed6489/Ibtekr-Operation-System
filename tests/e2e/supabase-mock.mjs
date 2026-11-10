@@ -326,7 +326,7 @@ export async function installSupabaseMock(page, opts = {}) {
     shotPrompts: [['كرسي', 1, 'كرسي 1 — تركيز على المنتج', 'CHAIR FOCUS PROMPT'], ['كرسي', 2, 'كرسي 2 — المنتج في بيئة محيطة', 'CHAIR ENV PROMPT'], ['كرسي', 3, 'كرسي 3 — Closeup للتفاصيل', 'CHAIR DETAIL PROMPT'], ['مرآة', 1, 'مرآة 1 — تركيز على المنتج', 'MIRROR FOCUS PROMPT']].map(([category, shot, name, prompt], i) => ({ id: i + 1, category, shot, name, prompt, negative: null, model: 'imagen-nano-banana-2', aspect: '3:4', resolution: '1k', updated_at: new Date().toISOString() })), imgObjects: new Map(), imgSeq: 0, settings: [], studioBatches: [], studioSeq: 0, studioWrites: [], studioObjects: new Map(), studioUploads: [], serialTakes: [], skuSerial: 999, categoriesCreated: [], sheetLinks: {}, sheetReads: [],
     skuColors: [['Beige', 'بيج', 'BE', '#d9c3a0'], ['Black', 'أسود', 'BK', '#1d1d1b'], ['White', 'أبيض', 'WH', '#ffffff'], ['Multicolor', 'ملون', 'MC', null]].map(([name_en, name_ar, code, hex], i) => ({ id: i + 1, name_en, name_ar, code, hex })),
     profiles, profileWrites: [], factors, enrolls: [], unenrolls: [], twofaCalls: [], twofaRefused: false, rateLimited: false, logouts: 0, logoutScopes: [], afterLogout: 0, activityDelayMs: 0, activity: [], activityRows: [], prefs: [], prefsDown: false, alerts: ALERTS(), alertReads: [], userUpdates: [], recovers: [], lookups: [], requests: [], unhandled: [],
-    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [], deletes: [], trashes: [], csMedia: new Map(), orderCreates: [], vendorPhotos: new Map(), photoCalls: [] }; // phase 13 decision 51: vendor-photos objects and the vendor_photo calls; phase 13 T3: cs-media objects, the orders made from the chat
+    ...ordersSeed(opts), patches: [], ordersDown: false, pushes: [], syncs: [], wooDown: false, wooRefuses: false, functionsDown: false, vendorWrites: [], vendorsDown: false, uploads: [], signs: [], signed: new Map(), rpcs: [], vaultDown: false, brandWrites: [], vendorPushes: [], pushEnabled: true, ratings: [], deletes: [], trashes: [], csMedia: new Map(), orderCreates: [], vendorPhotos: new Map(), photoCalls: [], productLeads: (opts && opts.productLeads) || [], leadWrites: [] }; // phase 13 decision 51: vendor-photos objects and the vendor_photo calls; phase 13 T3: cs-media objects, the orders made from the chat
   // phase 3.3: vendorCategoryRates / wooCategories: the 0014 tables (ordersSeed()); vendorPushes: each woo-sync push_vendor as { vendor_id, fields, by, result, reason? }
   // (the body names the fields only — the mock reads the row like the server); pushEnabled: WOO_PUSH_ENABLED on the server (false → skipped/push_disabled,
   // the fields added to push_pending); wooDown → 502 pending:true with the fields in push_pending; wooRefuses → 502 pending:false, nothing
@@ -1438,6 +1438,21 @@ export async function installSupabaseMock(page, opts = {}) {
         }
         for (const r of target) { Object.assign(r, b, { updated_at: now }); mock.brandWrites.push({ table: 'brands', op: 'update', id: r.id, ...b }); }
         return empty(204);
+      }
+      // phase 13 decision 52 — product_lead_days (0076): read with orders / products / vendors view; written by the admin or products.edit F
+      if (path === '/rest/v1/product_lead_days') {
+        const pf = url.searchParams.get('product_id') || ''; const m = /^(eq|in)\.\(?([0-9,]*)\)?$/.exec(pf); const ids = m ? m[2].split(',').filter(Boolean) : null;
+        const pick = (r) => (ids ? ids.includes(String(r.product_id)) : true);
+        if (method === 'GET') {
+          const vis = hasPerm(u, 'orders.view') !== 'N' || hasPerm(u, 'products.view') !== 'N' || hasPerm(u, 'vendors.view') !== 'N';
+          const rows = vis ? mock.productLeads.filter(pick) : []; const sel = (url.searchParams.get('select') || '').split(',').map((x) => x.trim());
+          const out = rows.map((r) => Object.fromEntries(sel.map((k) => [k, r[k]])));
+          return /vnd\.pgrst\.object/.test(hd.accept || '') ? (out.length ? json(200, out[0]) : json(406, { code: 'PGRST116', details: null, hint: null, message: 'no rows' })) : json(200, out);
+        }
+        if (!(isAdmin(u) || hasPerm(u, 'products.edit') === 'F')) return json(403, { code: '42501', details: null, hint: null, message: 'new row violates row-level security policy for table "product_lead_days"' });
+        if (method === 'POST') { const b = body(); const row = Array.isArray(b) ? b[0] : b; const d = Number(row.days); if (!(d >= 1 && d <= 90)) return json(400, { code: '23514', details: null, hint: null, message: 'check' });
+          const ex = mock.productLeads.find((x) => String(x.product_id) === String(row.product_id)); if (ex) ex.days = d; else mock.productLeads.push({ product_id: Number(row.product_id), days: d }); mock.leadWrites.push({ op: 'upsert', product_id: String(row.product_id), days: d, by: u.email }); return empty(201); }
+        if (method === 'DELETE') { mock.productLeads = mock.productLeads.filter((x) => !pick(x)); mock.leadWrites.push({ op: 'delete', product_id: ids && ids[0], by: u.email }); return empty(204); }
       }
       const ot = /^\/rest\/v1\/(orders|orders_v|order_items|sub_orders|products|status_map|woo_states|woo_brands|product_commissions)$/.exec(path);
       const OT_METHODS = { orders: ['PATCH'], orders_v: ['GET'], order_items: ['GET', 'PATCH'], sub_orders: ['GET'], products: ['GET'], status_map: ['GET'], woo_states: ['GET'], woo_brands: ['GET'], product_commissions: ['GET'] };

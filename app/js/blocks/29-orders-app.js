@@ -74,7 +74,7 @@ function webNote(o){return'<div class="note web"><div class="nh"><b>ملاحظة
 var O=[],OM={},V=[],HYD=false; // the orders of the last 12 months (IBOrders: hydrate / applyOrder); HYD: hydrated at least once
 function byV(a,b){return a.toLowerCase()<b.toLowerCase()?-1:1}
 function hydrate(d){if(!d)return;O=(d.orders||[]).slice();OM={};O.forEach(function(o){OM[o.id]=o});V=(d.vendors||[]).filter(function(v,i,a){return v&&a.indexOf(v)===i}).sort(byV);IMG=d.images||{};
- if(!HYD){HYD=true;S.open={};sorted(O).slice(0,2).forEach(function(o){S.open[o.id]=1});draw();try{document.dispatchEvent(new Event('ib:orders-ready'))}catch(e){}return}full()} // الأوردرات جاهزة (1 Nov): الصفحات اللي اتعرضت قبل ما الأوردرات تتحمّل (تقارير/حسابات) تتحدّث // a reload (retry, «مزامنة», Realtime back): not over a field in use
+ if(!HYD){HYD=true;S.open={};/* phase 13 decision 48 (owner 10 Nov): every order starts closed — the member opens the one to look at */draw();try{document.dispatchEvent(new Event('ib:orders-ready'))}catch(e){}return}full()} // الأوردرات جاهزة (1 Nov): الصفحات اللي اتعرضت قبل ما الأوردرات تتحمّل (تقارير/حسابات) تتحدّث // a reload (retry, «مزامنة», Realtime back): not over a field in use
 // one order from Realtime: replaced in place (or added first), the sort / filters / page stay. A new order, or one that comes into /
 // leaves the filters or moves in the sort, redraws the whole list (full); any other change redraws its own card only.
 function skey(o){return S.sort==='val'?String(o.tot):S.sort==='late'?(late(o)?1:0)+':'+o.age:o.date} // what its place in the sort hangs on

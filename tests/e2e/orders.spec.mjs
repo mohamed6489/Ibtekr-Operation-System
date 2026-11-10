@@ -33,8 +33,13 @@ async function openOrders(page, email = ADMIN) {
   await page.evaluate(() => { location.hash = 'orders'; });
   await expect(page.locator('#orders')).toBeVisible();
   await expect(cards(page)).toHaveCount(3);
+  await openFirst(page);
 }
 const cards = (page) => page.locator('#orders #list .card');
+// decision 48: every order starts closed — the tests open the first two the way a member does (the fold button)
+async function openFirst(page, n = 2) {
+  for (let i = 0; i < n; i++) { const b = cards(page).nth(i).locator('[data-tg]').first(); if ((await b.getAttribute('aria-label')) === 'فتح') await b.click(); await expect(cards(page).nth(i).locator('[data-tg]').first()).toHaveAttribute('aria-label', 'طي'); }
+}
 const card = (page, id) => page.locator(`#orders .card[data-o="${id}"]`);
 // A viewport change makes the block redraw the list once its mode changes (desktop / tablet <= 1023 / mobile <= 767) — on the
 // resize event, after setViewportSize resolves — so a locator read right after can hit a card about to be replaced (CI run 146:
@@ -972,4 +977,14 @@ test('decision 47: the status chips and the chosen filters stay in view under th
   await page.mouse.move(640, 400); await page.mouse.wheel(0, 1200);
   await expect.poll(async () => (await bar()).top).toBe(b0.head); // stuck right under the top bar
   await expect(page.locator('#orders #chips .sc').first()).toBeInViewport();
+});
+
+test('decision 48: every order starts closed; the fold button opens one and leaves the others closed', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.evaluate(() => { location.hash = 'orders'; });
+  await expect(cards(page)).toHaveCount(3);
+  for (let i = 0; i < 3; i++) await expect(cards(page).nth(i).locator('[data-tg]').first()).toHaveAttribute('aria-label', 'فتح');
+  await cards(page).nth(1).locator('[data-tg]').first().click();
+  await expect(cards(page).nth(1).locator('[data-tg]').first()).toHaveAttribute('aria-label', 'طي');
+  await expect(cards(page).nth(0).locator('[data-tg]').first()).toHaveAttribute('aria-label', 'فتح');
 });

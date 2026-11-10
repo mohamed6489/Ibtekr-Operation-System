@@ -139,6 +139,16 @@ async function openOrders(page) {
   await signIn(page, ADMIN);
   await page.evaluate(() => { location.hash = 'orders'; });
   await expect(page.locator('#orders .card[data-o="181668"]')).toBeVisible();
+  await unfoldAll(page);
+}
+// decision 48: the orders start closed — open each one the way a member does (its fold button)
+async function unfoldAll(page) {
+  await expect(page.locator('#orders #list .card').first()).toBeVisible();
+  for (const id of await page.locator('#orders #list .card').evaluateAll((cs) => cs.map((c) => c.dataset.o))) {
+    const b = page.locator(`#orders .card[data-o="${id}"] [data-tg]`).first();
+    if ((await b.getAttribute('aria-label')) === 'فتح') await b.click();
+    await expect(page.locator(`#orders .card[data-o="${id}"] [data-tg]`).first()).toHaveAttribute('aria-label', 'طي');
+  }
 }
 test('«تجميع في المخزن» from the orders page writes the consolidation of the picked lines (order_items ids)', async ({ page }) => {
   await openOrders(page);
@@ -335,6 +345,7 @@ test('a line whose SKU is «متاح للبيع» in the hub shows «في الم
   mock.inv.inv_moves.push({ id: 99, lot_id: LH, type: 'in', qty: 3, label: 'دخول — للبيع', reason: 'متاح للبيع', ref: null, note: null, by: null, at: '2026-11-01T10:00:00Z' });
   await signIn(page, ADMIN);
   await page.evaluate(() => { location.hash = 'orders'; });
+  await unfoldAll(page);
   const row = (n) => page.locator('#orders .row', { has: page.locator(`[data-ss="${n}"]`) });
   await expect(row(5001).locator('[data-hub-has]').first()).toBeVisible();
   await expect(row(5002).locator('[data-hub-has]')).toHaveCount(0);

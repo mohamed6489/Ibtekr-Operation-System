@@ -65,6 +65,17 @@ async function openAdd(page) { await page.getByRole('button', { name: 'إضاف�
 // what the page copies (the clipboard is not readable in the test browser)
 async function captureClipboard(page) { await page.evaluate(() => { window.__copied = []; navigator.clipboard.writeText = (t) => { window.__copied.push(t); return Promise.resolve(); }; }); }
 
+test('phase 13 decision 16: the quick action «إضافة مبتكر» (#makers/new) opens the makers page with the add popup, and the hash settles on #makers', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.evaluate(() => { location.hash = 'makers/new'; });
+  await expect(page.locator('#vendors')).toBeVisible();
+  const f = page.getByRole('dialog').filter({ hasText: 'إضافة مبتكر' });
+  await expect(f).toBeVisible();
+  await expect.poll(() => page.evaluate(() => location.hash)).toBe('#makers');
+  await f.getByRole('button', { name: 'إلغاء' }).click();
+  await expect(f).toBeHidden();
+});
+
 test('the admin adds a complete maker (basics + login with its temporary password + bank): no link option, the password required, the inserts in order and the RPC after the login insert, the drawer opens with the login and no «ناقص»; nothing says anything was sent', async ({ page }) => {
   await openVendors(page);
   const m = await openAdd(page);

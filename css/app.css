@@ -1685,3 +1685,12 @@ tbody tr:nth-child(even) td{background:var(--color-bg-tint)}
 .menu .opt.opt-general{color:var(--color-brand-default);font-weight:600}.menu .opt.opt-general svg{color:var(--color-brand-default)}
 /* phase 13 decision 50: the fixed first column keeps the grip's place in the columns popup */
 .dash-cust .dc-row .dc-grip-sp{order:-1;flex:none;width:28px}
+/* phase 13 decision 55: the settings reasons lists are ordered by the same six-dot grip as «تخصيص اللوحة» */
+.reason-cell{display:flex;align-items:center;justify-content:flex-start;gap:var(--space-xs,6px)}
+.reason-cell .dc-grip-sp{flex:none;width:28px}
+table:has(.reason-cell) :is(th,td):first-child{text-align:start}
+.reason-cell .dc-grip{flex:none;width:28px;height:28px;display:grid;place-items:center;border:0;background:transparent;border-radius:var(--radius-xs,4px);color:var(--color-text-secondary);cursor:grab;touch-action:none}
+.reason-cell .dc-grip:hover{background:var(--color-bg-tint);color:var(--color-text-primary)}
+.reason-cell .dc-grip:active{cursor:grabbing}
+.reason-cell .dc-grip:focus-visible{outline:2px solid var(--color-action-default);outline-offset:1px}
+tr.dragging{background:var(--color-bg-tint)}

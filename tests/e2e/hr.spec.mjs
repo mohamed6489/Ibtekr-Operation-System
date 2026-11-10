@@ -165,7 +165,8 @@ test('«إضافة عضو»: team-admin makes the login, the pay is written, the
   await f.locator('#email').fill('karim.dev@ibtekr.local'); await f.locator('#phone').fill('01012345678');
   await date(f, 'hire', T);
   await f.locator('#salary').fill('9000'); await f.locator('#holdback').fill('1000');
-  await f.getByRole('button', { name: 'إضافة وعمل الحساب' }).dblclick(); // phase 13 decision 13: the second click of a double click is ignored (one request)
+  await f.getByRole('button', { name: 'إضافة وعمل الحساب' }).click();
+  await expect(f).toBeHidden(); // phase 13 decision 13 (the owner): the popup closes on the click; the password modal follows the answer
   const pw = modal(page, 'الباسورد المؤقت');
   await expect(pw).toContainText('بيظهر مرة واحدة بس');
   await expect(pw.locator('[data-temp-password]')).toHaveText('mock-temp-1');

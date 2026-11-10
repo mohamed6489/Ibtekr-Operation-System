@@ -146,6 +146,21 @@ test('the columns (phase 4.1, every table): hiding one is saved for the member i
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
   await expect(main(page).locator('table.vendors-table thead th', { hasText: 'رصيد Dokan' })).toBeHidden();
   await expect.poll(() => { const p = mock.prefs.find((x) => x.key === 'table.cols'); return p ? Object.entries(p.data).map(([k, v]) => [k, v.hidden]) : null; }).toEqual([['tbl:حسابات المبتكرين', ['رصيد Dokan']]]);
+  // decision 50: the order by the six-dot grip (drag) — no arrows; the first column has no grip
+  await main(page).locator('[data-cols^="tbl:حسابات المبتكرين"]').click();
+  await expect(modal(page).getByRole('button', { name: /^لفوق|^لتحت/ })).toHaveCount(0);
+  await expect(modal(page).locator('[data-col-item="المبتكر"] [data-grip]')).toHaveCount(0);
+  const ids = () => modal(page).locator('[data-col-item]').evaluateAll((rs) => rs.map((r) => r.dataset.colItem));
+  const before = await ids();
+  const moving = before[3]; const target = before[1];
+  const g = await modal(page).locator(`[data-col-item="${moving}"] [data-grip]`).boundingBox();
+  const t = await modal(page).locator(`[data-col-item="${target}"]`).boundingBox();
+  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2); await page.mouse.down();
+  await page.mouse.move(g.x + g.width / 2, t.y + 4, { steps: 12 }); await page.mouse.up();
+  await expect.poll(async () => (await ids()).indexOf(moving)).toBe(1);
+  expect((await ids())[0]).toBe('المبتكر');
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect.poll(() => { const p = mock.prefs.find((x) => x.key === 'table.cols'); return p ? p.data['tbl:حسابات المبتكرين'].order.indexOf(moving) : -1; }).toBe(1);
   // another tab's table has its own button
   await tab(page, 'المصروفات').click();
   await expect(main(page).locator('[data-cols="tbl:تفاصيل المصروفات"]')).toBeVisible();

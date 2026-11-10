@@ -69,3 +69,24 @@ test('decision 29: the header search sits on the right and every other header it
   expect(search.x + search.width).toBeGreaterThan(bar.x + bar.width - 40); // the search against the right edge
   expect(user.x).toBeLessThan(bar.x + 60);                                  // the last item against the left edge
 });
+
+// decision 30 (owner 10 Nov — «في حالة الضغط على زرار ملفي بيظهر بيانات المستخدم ومعلوماته مش معلومات الأدمن، وخلي الاسم والإيميل يبقوا رايت»):
+// a page opened on #profile before the sign-in kept the default M01 as «me», so another member saw M01's file as an admin view
+test('decision 30: «ملفي» is the signed-in member, even when #profile was the hash before the sign-in; the menu head sits on the right', async ({ page }) => {
+  await page.goto('/#profile');
+  await page.fill('#lg-id', 'ops.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(page.locator('#root')).toBeVisible();
+  await page.getByRole('button', { name: /^حسابي/ }).click();
+  const head = page.locator('.acct-h');
+  await expect(head).toContainText('سارة أحمد'); await expect(head).toContainText('ops.dev@ibtekr.local');
+  for (const sel of ['b', 'small']) expect(await head.locator(sel).evaluate((n) => getComputedStyle(n).textAlign)).toBe('right');
+  // the e-mail's right edge lines up with the name's (both on the right of the menu)
+  const [b, s] = await Promise.all([head.locator('b').boundingBox(), head.locator('small').boundingBox()]);
+  const hb = await head.boundingBox();
+  expect(Math.abs((b.x + b.width) - (s.x + s.width))).toBeLessThan(40); expect(hb.x + hb.width - (b.x + b.width)).toBeLessThan(30);
+  await page.getByRole('menuitem', { name: 'ملفي' }).click();
+  await expect(P(page).locator('.prof-head h1')).toHaveText('سارة أحمد');
+  await expect(P(page)).not.toContainText('بتشوف ملف');
+  await expect(page).toHaveURL(/#profile$/);
+});

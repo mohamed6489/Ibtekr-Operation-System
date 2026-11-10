@@ -917,6 +917,8 @@ button.pm:disabled{opacity:.7;cursor:not-allowed}
 .user-btn{display:flex;align-items:center;gap:8px;border:0;background:transparent;padding:4px 6px;border-radius:var(--radius-sm);color:var(--color-text-primary)}
 .user-btn:hover{background:var(--color-bg-container)}
 .menu.acct{width:240px}.acct-h{padding:8px 12px 10px;border-bottom:1px solid var(--color-border-subtle);margin-bottom:4px;display:flex;flex-direction:column}.acct-h small{color:var(--color-text-secondary)}
+/* decision 30: the name and the e-mail sit on the right (the e-mail is ltr text in an rtl menu) */
+.acct-h{align-items:stretch;text-align:right}.acct-h small{text-align:right}
 @media (max-width:767px){.user-btn .nm,.user-btn>.ic{display:none}.clock .lbl{display:none}}
 
 /* Login (option B) */

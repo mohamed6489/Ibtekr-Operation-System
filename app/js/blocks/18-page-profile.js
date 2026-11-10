@@ -5,9 +5,11 @@
   const U = window.IBUI, O = window.IbtekrOps, K = window.IBKit;
   const { h, Icon, Button } = U; const S = K.store;
   const TABS = [['overview', 'نظرة عامة'], ['tasks', 'مهامي'], ['hours', 'ساعات العمل'], ['requests', 'طلباتي'], ['performance', 'أدائي'], ['achievements', 'إنجازاتي'], ['salary', 'مرتبي'], ['docs', 'العقود والمستندات'], ['security', 'الحساب والأمان'], ['alerts', 'تنبيهاتي'], ['prefs', 'التفضيلات']];
-  const st = { tab: 'overview', who: K.ME, taskSub: 'today', reqSub: 'mine', showPay: false, newTask: '', prefs: { landing: 'الأوردرات', sound: true, digest: true, whatsapp: false, density: 'مضغوط' }, notes: {}, perfQ: null, slips: {} };
+  const st = { tab: 'overview', who: null, taskSub: 'today', reqSub: 'mine', showPay: false, newTask: '', prefs: { landing: 'الأوردرات', sound: true, digest: true, whatsapp: false, density: 'مضغوط' }, notes: {}, perfQ: null, slips: {} };
   const rerender = () => window.IBPages.render('profile');
-  const isAdminView = () => st.who !== K.ME;
+  // decision 30: «me» is null — never K.ME captured before the sign-in (an earlier hash ran with the default M01, so an admin saw M01)
+  const whoId = () => st.who || K.ME;
+  const isAdminView = () => !!st.who && st.who !== K.ME;
   const HR = () => window.IBPages.all().hr.api;
   const label = (id) => (isAdminView() ? { tasks: 'المهام', requests: 'الطلبات', performance: 'الأداء', achievements: 'الإنجازات', salary: 'المرتب' }[id] : null) || TABS.find((t) => t[0] === id)[1];
   // phase 10 T7: the HR tabs read IBHR (app/js/adapter/hr.js) — the server's rows under RLS (mine with hr.view N, my team's with P, all
@@ -40,7 +42,7 @@
   document.addEventListener('ib:hr', () => { slipGen += 1; if (window.IBPages.current === 'profile' && !typing()) rerender(); });
 
   function view() {
-    const m = HM(st.who); const ad = isAdminView();
+    const m = HM(whoId()); const ad = isAdminView();
     if (!m.id) return [K.Section('', K.Empty('الملف ده مش ظاهر ليك', 'افتح ملفات الفريق من «الموارد البشرية › الفريق».'))];
     const sh = window.IBShell ? window.IBShell.state() : { state: 'out' };
     const sub = [m.title, m.dept].filter(Boolean).join(' · ') + (m.manager ? ' · المدير المباشر: ' + HM(m.manager).name : '');
@@ -178,7 +180,7 @@
     const subs = [{ id: 'today', label: 'النهارده', count: r.today.length + auto.length }, { id: 'later', label: 'المؤجل', count: r.later.length + r.scheduled.length }, { id: 'done', label: 'خلصت', count: r.done.length }];
     const add = h('input', { class: 'task-add', placeholder: 'ضيف مهمة واضغط Enter', 'aria-label': 'مهمة جديدة', value: st.newTask, maxlength: '200' });
     add.addEventListener('input', () => { st.newTask = add.value; });
-    add.addEventListener('keydown', (e) => { if (e.key === 'Enter' && add.value.trim()) { const p = IH().taskAdd(st.who, add.value.trim()); st.newTask = ''; rerender(); setTimeout(() => { const n = document.querySelector('.task-add'); if (n) n.focus(); }); p.then(failed); } });
+    add.addEventListener('keydown', (e) => { if (e.key === 'Enter' && add.value.trim()) { const p = IH().taskAdd(whoId(), add.value.trim()); st.newTask = ''; rerender(); setTimeout(() => { const n = document.querySelector('.task-add'); if (n) n.focus(); }); p.then(failed); } });
     const list = st.taskSub === 'today' ? r.today : st.taskSub === 'later' ? r.later.concat(r.scheduled) : r.done.slice().sort((a, b) => (String(a.doneAt || '') < String(b.doneAt || '') ? 1 : -1));
     return [K.SubTabs({ items: subs, active: st.taskSub, onChange: (id) => { st.taskSub = id; rerender(); }, label: 'المهام' }),
       st.taskSub === 'today' ? K.Section('تلقائية من السيستم', auto.length ? auto.map(autoRow) : isAdminView() ? K.Empty('مفيش مراجعات مستنياه', '') : K.Empty('مفيش حاجة مستنياك', 'المراجعات والطلبات والتذاكر والأوردرات اللي محتاجاك بتظهر هنا لوحدها.'), null, { sub: auto.length + ' مهمة' }) : null,
@@ -479,7 +481,7 @@
     K.toast('اتوقف التحقق بخطوتين', 'success'); rerender();
   }
 
-  window.IBPages.register('profile', { title: 'ملفي', hash: (hs) => { let m = /^profile(?:-([a-z]+))?$/.exec(hs); if (m) { st.who = K.ME; st.tab = m[1] && TABS.some((t) => t[0] === m[1]) ? m[1] : 'overview'; if (m[1] === 'requests' && K.member(K.ME).role === 'أدمن') st.reqSub = 'need'; return true; } m = /^member-(M\d{2,4})$/.exec(hs); if (m && (S.members.some((x) => x.id === m[1]) || (window.IBHR && window.IBHR.member(m[1])))) { if (st.who !== m[1]) st.tab = 'overview'; st.who = m[1] === K.ME ? K.ME : m[1]; return true; } return false; },
+  window.IBPages.register('profile', { title: 'ملفي', hash: (hs) => { let m = /^profile(?:-([a-z]+))?$/.exec(hs); if (m) { st.who = null; st.tab = m[1] && TABS.some((t) => t[0] === m[1]) ? m[1] : 'overview'; if (m[1] === 'requests' && K.member(K.ME).role === 'أدمن') st.reqSub = 'need'; return true; } m = /^member-(M\d{2,4})$/.exec(hs); if (m && (S.members.some((x) => x.id === m[1]) || (window.IBHR && window.IBHR.member(m[1])))) { if (whoId() !== m[1]) st.tab = 'overview'; st.who = m[1] === K.ME ? null : m[1]; return true; } return false; },
     defaultHash: () => (isAdminView() ? 'member-' + st.who : 'profile' + (st.tab === 'overview' ? '' : '-' + st.tab)), view, navPage: () => (isAdminView() ? 'hr' : null),
     api: { autoTasks: () => { const m = HM(K.ME); return m && m.id ? autoOf(m) : []; } } });
 })();

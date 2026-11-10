@@ -53,14 +53,14 @@ begin
   if t.type <> 'internal' or t.assignee_role <> 'اللوجستيك والشحن' or t.created_by <> '00000000-0000-4000-8000-0000000071a3' or t.status <> 'open' or t.title not like 'طلب إجازة — عضو الطلبات · %' then
     raise exception 'case a leave is a ticket «طلب إجازة» to the direct manager''s role failed (%, %)', t.assignee_role, t.title;
   end if;
-  if (select title from public.tickets where id = (select v::bigint from rq where k = 'ta')) not like 'طلب سُلفة — %'
+  if (select title from public.tickets where id = (select v::bigint from rq where k = 'ta')) not like 'طلب موارد بشرية — %' -- an advance is not named (security review)
      or (select title from public.tickets where id = (select v::bigint from rq where k = 'tw')) not like 'طلب شغل عن بُعد — %' then
     raise exception 'case the family in the title failed';
   end if;
   -- nothing of the request's detail in any of the three tickets or their events
   select string_agg(coalesce(x.title, '') || ' ' || coalesce(x.description, ''), ' ') into v_txt from public.tickets x where x.id in (select v::bigint from rq where k like 't_');
   v_txt := v_txt || ' ' || coalesce((select string_agg(e.text, ' ') from public.ticket_events e where e.ticket_id in (select v::bigint from rq where k like 't_')), '');
-  if v_txt like '%عارضة%' or v_txt like '%فرح%' or v_txt like '%4321%' or v_txt like '%4,321%' or v_txt like '%علاج%' or v_txt like '%01/12%' or v_txt like '%2026-12%' then
+  if v_txt like '%عارضة%' or v_txt like '%فرح%' or v_txt like '%4321%' or v_txt like '%4,321%' or v_txt like '%علاج%' or v_txt like '%سُلفة%' or v_txt like '%سلفة%' or v_txt like '%01/12%' or v_txt like '%2026-12%' then
     raise exception 'case the ticket carries no HR detail failed (%)', v_txt;
   end if;
   if (select count(*) from public.alerts where kind = 'hr.request' and entity_id = 'rq:' || (select v from rq where k = 'tl') and role_id = 'admin') <> 1

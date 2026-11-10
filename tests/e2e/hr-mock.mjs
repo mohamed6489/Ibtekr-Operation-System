@@ -113,7 +113,7 @@ export function hrRoute(c) {
     return id;
   };
   // 0071 (decision 33): a request's team ticket — the family only, to the direct manager's role, the bell to the admins and the manager
-  const reqFamily = (type) => (H.leave_types.some((t) => t.name === type) ? 'طلب إجازة' : type === 'سُلفة' ? 'طلب سُلفة' : ['شغل عن بُعد', 'إذن انصراف مبكر', 'تصحيح انصراف'].includes(type) ? 'طلب ' + type : 'طلب موارد بشرية');
+  const reqFamily = (type) => (H.leave_types.some((t) => t.name === type) ? 'طلب إجازة' : ['شغل عن بُعد', 'إذن انصراف مبكر', 'تصحيح انصراف'].includes(type) ? 'طلب ' + type : 'طلب موارد بشرية');
   const reqTicket = (r) => {
     const p = mock.profiles.find((x) => x.id === r.member_id) || {}; const mgr = p.manager_id ? mock.profiles.find((x) => x.id === p.manager_id && x.status === 'active') : null;
     const id = mock.tickets.reduce((m, t) => Math.max(m, t.id), 0) + 1; const name = String(p.name || 'عضو').slice(0, 60); const fam = reqFamily(r.type); const when = now.slice(8, 10) + '/' + now.slice(5, 7);

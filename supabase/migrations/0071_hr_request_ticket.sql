@@ -3,7 +3,8 @@
 -- * hr_requests.ticket_id — every request filed opens an internal ticket (hr_req_ticket, the server's): to the direct manager's role
 --   (else «مدير النظام»), opened in the member's name, a bell to the admins and to the direct manager (kind 'hr.request').
 -- * The ticket carries NO HR detail (the security rule of 0069): the title is the request's family only — «طلب إجازة» for every leave type
---   (not «مرضية»), «طلب سُلفة» (no amount), «شغل عن بُعد», «إذن انصراف مبكر», «تصحيح انصراف» — the member's name and the date it was
+--   (not «مرضية»), «شغل عن بُعد», «إذن انصراف مبكر», «تصحيح انصراف» — and an advance is only «طلب موارد بشرية» (security review: that a
+--   member asked for money is not the role's business) — the member's name and the date it was
 --   filed; never the dates asked, the note, the amount or a refusal reason. Those stay in hr_requests under the HR rules (hr_can_see);
 --   the ticket's request card reads them for whoever may.
 -- * hr_request_decide (0068 + an event and the ticket closed: موافق → «اتحلت المشكلة», مرفوض → «مش مشكلة»; «قيد المراجعة» = an event)
@@ -17,7 +18,6 @@ create index if not exists hr_requests_ticket_idx on public.hr_requests (ticket_
 create or replace function public.hr_req_family(p_type text) returns text
 language sql stable security definer set search_path = public as $$
   select case when exists (select 1 from public.hr_leave_types t where t.name = p_type) then 'طلب إجازة'
-              when p_type = 'سُلفة' then 'طلب سُلفة'
               when p_type in ('شغل عن بُعد', 'إذن انصراف مبكر', 'تصحيح انصراف') then 'طلب ' || p_type
               else 'طلب موارد بشرية' end
 $$;

@@ -11,10 +11,10 @@ const T = hrToday(); const dow = (iso) => new Date(iso + 'T00:00:00Z').getUTCDay
 const cairoDay = (ms) => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date(ms));
 const restOf = (iso) => dow(iso) === 5 || dow(iso) === 6;
 // a shift that began 8 hours ago is yesterday's between 00:00 and 08:10 Cairo: once it ends, today has none and the clock offers
-// «ابدأ الدوام» again (the shift's day is the Cairo day of its start); otherwise it shows «خلص الدوام»
-async function endedFor(page, day) {
-  if (day === hrToday()) await expect(clock(page).locator('[data-shift-ended]')).toBeVisible();
-  else await expect(clock(page).getByRole('button', { name: 'ابدأ الدوام' })).toBeVisible();
+// «ابدأ الدوام» again; decision 37: the header shows «ابدأ الدوام» alone after an end (no «خلص الدوام»)
+async function endedFor(page) {
+  await expect(clock(page).getByRole('button', { name: 'ابدأ الدوام' })).toBeVisible();
+  await expect(clock(page).locator('[data-shift-ended]')).toHaveCount(0);
 }
 let mock = null; let pageErrors = [];
 async function start(page, seed = {}) {
@@ -45,7 +45,7 @@ test('«ابدأ الدوام» writes the shift on the server; a reload shows t
   await clock(page).locator('.clock').click();
   await page.locator('.clock-pop').getByRole('button', { name: 'إنهاء الدوام' }).click();
   await modal(page, 'إنهاء الدوام').getByRole('button', { name: 'إنهاء الدوام' }).click();
-  await expect(clock(page).locator('[data-shift-ended]')).toContainText('خلص الدوام');
+  await endedFor(page); // decision 37: «ابدأ الدوام» alone
   expect(calls('hr_clock_out').map((c) => c.p_ot_note)).toEqual([null]);
   expect(mock.hr.attendance[0].out_at).not.toBeNull();
   expect(mock.hr.overtime).toEqual([]);
@@ -104,8 +104,7 @@ test('decision 24: «ابدأ الدوام» again after «إنهاء الدوا
   const inAt = Date.now() - 125 * 60000; const outAt = Date.now() - 65 * 60000; const day = cairoDay(inAt);
   test.skip(day !== T, 'the first session must be today in Cairo (the run is within an hour of midnight)');
   await start(page, { hrAttendance: [{ member_id: OPS_ID, day, in_at: new Date(inAt).toISOString(), out_at: new Date(outAt).toISOString(), source: 'clock' }] });
-  const ended = clock(page).locator('[data-shift-ended]');
-  await expect(ended).toContainText('خلص الدوام'); await expect(ended).toContainText('1:00');
+  await endedFor(page); // decision 37: no «خلص الدوام · 1:00» in the header — only «ابدأ الدوام»
   await clock(page).getByRole('button', { name: 'ابدأ الدوام' }).click();
   await expect(page.locator('.toast', { hasText: restDay ? 'يوم راحة' : 'رجعت للدوام' })).toBeVisible();
   await expect(clock(page).locator('.clock')).toContainText('على الدوام');
@@ -115,8 +114,7 @@ test('decision 24: «ابدأ الدوام» again after «إنهاء الدوا
   await expect(page.locator('.clock-pop')).toContainText('جلسة تانية');
   await page.locator('.clock-pop').getByRole('button', { name: 'إنهاء الدوام' }).click();
   await modal(page, 'إنهاء الدوام').getByRole('button', { name: 'إنهاء الدوام' }).click();
-  await expect(ended).toContainText('1:0'); // 1 hour + the few seconds of the second session
-  await expect(clock(page).getByRole('button', { name: 'ابدأ الدوام' })).toBeVisible();
+  await endedFor(page); // decision 37: «ابدأ الدوام» alone in the header after the second end
   expect(mock.hr.attendance.filter((a) => a.member_id === OPS_ID && a.out_at).length).toBe(2);
   expect(calls('hr_clock_in').length).toBe(1);
 });

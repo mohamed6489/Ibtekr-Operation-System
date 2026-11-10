@@ -38,9 +38,9 @@
   const isoDay = (iso) => new Date(iso + 'T00:00:00Z').getUTCDay();
   const offDay = (d) => isoDay(d) === 5 || isoDay(d) === 6;
   // a write: the modal stays open (and refuses a second click) until the server answers; the error comes back as a toast
-  function busy(m, promise, ok) {
+  function busy(m, promise, ok) { // phase 13 decision 13: `promise` may be a function — it runs only once the guard passed, so a second click never sends a second request
     if (m && m._busy) return false; if (m) m._busy = true;
-    Promise.resolve(promise).then((r) => { if (m) m._busy = false; if (r && r.ok) { if (m) m.close(); if (ok) ok(r); } else K.toast((r && r.message) || 'حصلت مشكلة — جرّب تاني', 'error'); });
+    Promise.resolve(typeof promise === 'function' ? promise() : promise).then((r) => { if (m) m._busy = false; if (r && r.ok) { if (m) m.close(); if (ok) ok(r); } else K.toast((r && r.message) || 'حصلت مشكلة — جرّب تاني', 'error'); });
     return false;
   }
   const after = (promise, okText) => Promise.resolve(promise).then((r) => { if (r && r.ok) { if (okText) K.toast(okText, 'success'); } else K.toast((r && r.message) || 'حصلت مشكلة — جرّب تاني', 'error'); return r; });
@@ -412,7 +412,7 @@
         f.salary && Number(f.salary) > 0 ? U.InlineNote({ children: 'سعر اليوم ' + K.money(O.rates(Number(f.salary)).daily) + ' ج · سعر الساعة ' + K.money(O.rates(Number(f.salary)).hourly) + ' ج · المصروف شهريًا ' + K.money(O.monthlyPaid(Number(f.salary), Number(f.holdback) || 0)) + ' ج' }) : null,
         note('هيتعمل له حساب دخول بالإيميل وباسورد مؤقت بيظهر لك مرة واحدة بس — ابعته له بنفسك، وهو بيغيّره من «ملفي › الحساب والأمان».')],
       validate: (f) => { const e = K.req(f, ['name', 'title', 'email', 'salary', 'hire']); if (f.email && O.identifierKind(f.email) !== 'email') e.email = 'اكتب إيميل صحيح'; else if (H().data.team.some((m) => (m.email || '').toLowerCase() === String(f.email).trim().toLowerCase())) e.email = 'الإيميل ده موجود بالفعل'; if (f.phone && O.identifierKind(f.phone) !== 'phone') e.phone = 'اكتب رقم موبايل مصري صحيح (11 رقم)'; if (f.salary && !(Number(f.salary) > 0)) e.salary = 'اكتب مبلغ أكبر من صفر'; else if (Number(f.holdback) >= Number(f.salary)) e.holdback = 'الحافز المحجوز لازم أقل من المرتب'; if (f.leave !== '' && !(Number(f.leave) >= 0 && Number(f.leave) <= 365)) e.leave = 'من 0 لـ 365'; return e; },
-      submitLabel: 'إضافة وعمل الحساب', submit: (f, m) => busy(m, H().memberCreate({ name: f.name.trim(), title: f.title, email: f.email.trim(), phone: f.phone ? O.toLatin(f.phone) : '', dept: f.dept, role: (ROLES.find((r) => r[0] === f.role) || ROLES[1])[1], manager: f.manager, hire: f.hire, shiftStart: f.shiftStart, shiftEnd: plus8(f.shiftStart), salary: Number(f.salary), holdback: Number(f.holdback) || 0, allow: Number(f.allow) || 0, leave: f.leave }),
+      submitLabel: 'إضافة وعمل الحساب', submit: (f, m) => busy(m, () => H().memberCreate({ name: f.name.trim(), title: f.title, email: f.email.trim(), phone: f.phone ? O.toLatin(f.phone) : '', dept: f.dept, role: (ROLES.find((r) => r[0] === f.role) || ROLES[1])[1], manager: f.manager, hire: f.hire, shiftStart: f.shiftStart, shiftEnd: plus8(f.shiftStart), salary: Number(f.salary), holdback: Number(f.holdback) || 0, allow: Number(f.allow) || 0, leave: f.leave }),
         (r) => showPassword(f.name.trim(), r.code, r.password, r.payOk === false ? 'الحساب اتعمل بس المرتب ماتسجلش — سجّله من ملف العضو.' : '')) });
   }
   // the temporary password, once (decision 6): never stored, never logged — the modal is its only place

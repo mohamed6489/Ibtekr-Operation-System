@@ -98,6 +98,7 @@
       m.setFooter(...[extraFooter ? extraFooter(f, m) : null, Button({ label: cancelLabel, onClick: () => m.close() }), Button({ type: submitType, label: typeof submitLabel === 'function' ? submitLabel(f) : submitLabel, onClick: go })].filter(Boolean));
     }
     function go() {
+      if (m._busy) return; // phase 13 decision 13: a second click (or Enter) while the page's busy() awaits the first submit is ignored
       errs = validate ? (validate(f) || {}) : {};
       if (Object.keys(errs).length) { draw(); const first = m.el.querySelector('[aria-invalid=true],.err'); if (first && first.focus) first.focus(); return; }
       const r = submit(f, m); if (r !== false) m.close();

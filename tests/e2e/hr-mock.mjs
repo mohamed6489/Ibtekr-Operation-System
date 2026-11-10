@@ -225,8 +225,9 @@ export function hrRoute(c) {
       if (!note || note.length > 300) return bad('note');
       const at = (t) => new Date(Date.parse(d + 'T' + t + ':00+02:00')).toISOString(); const st = at(b.p_from); const en = at(b.p_to); const min = minutes(st, en);
       if (min < 15 || min > 720) return bad('minutes'); if (Date.parse(en) > Date.now()) return bad('to');
+      if (H.attendance.some((x) => x.member_id === u.id && x.out_at == null && Date.parse(x.in_at) < Date.parse(en))) return bad('open_shift'); // 0074
       const rest = restDay(H, d);
-      if (H.overtime.some((o) => o.member_id === u.id && o.status !== 'اترفض' && Date.parse(o.start_at) < Date.parse(en) && Date.parse(o.end_at) > Date.parse(st)) || (rest && H.overtime.some((o) => o.member_id === u.id && o.day === d && o.kind === 'rest_day'))) return bad('overlap');
+      if (H.overtime.some((o) => o.member_id === u.id && Date.parse(o.start_at) < Date.parse(en) && Date.parse(o.end_at) > Date.parse(st)) || (rest && H.overtime.some((o) => o.member_id === u.id && o.day === d && o.kind === 'rest_day'))) return bad('overlap');
       const tid = otTicket(u.id, d, rest); const id = nextId();
       H.overtime.push({ id, member_id: u.id, day: d, start_at: st, end_at: en, minutes: min, kind: rest ? 'rest_day' : 'hours', note, status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now, ticket_id: tid });
       otEvent(tid, 'طلب وقت إضافي: ' + min + ' دقيقة — مستني الموافقة (التفاصيل في «الموارد البشرية › الطلبات»)');

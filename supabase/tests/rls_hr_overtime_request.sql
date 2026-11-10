@@ -1,6 +1,6 @@
 -- Tests for 0073_hr_overtime_request (phase 13 decision 44 — «طلب وقت إضافي» from the account menu: the member asks for overtime they
 -- worked; a «مستني» hr_overtime row with its request ticket; the admins, the direct manager and the hr.approve F people hear of it; never
--- twice for the same time; a rest day / holiday is the admins' only). Depends on 0001_identity … 0073. Runs in one transaction and rolls
+-- twice for the same time; a rest day / holiday is the admins' only). Depends on 0001_identity … 0074 (the security review: a refused time and an open shift are refused too). Runs in one transaction and rolls
 -- back; prints NOTICE 'rls_hr_overtime_request: ok' only if every case passed. Live-safe: its made-up members and rows are rolled back.
 
 begin;
@@ -118,6 +118,31 @@ select pg_temp.as_member('00000000-0000-4000-8000-0000000073a4');
 do $$ begin
   begin perform public.hr_overtime_decide((select v::bigint from orq where k = 'rot'), 'add'); raise exception 'case only an admin decides a rest day failed';
   exception when insufficient_privilege then null; end;
+end $$;
+reset role;
+
+-- ================================================================ 0074 (security review): never twice for the same time — a refused one included; never on an open shift
+
+reset role;
+update public.hr_overtime set status = 'اترفض', reason = 'اختبار' where id = (select v::bigint from orq where k = 'ot');
+select pg_temp.as_member('00000000-0000-4000-8000-0000000073a3');
+do $$ begin
+  begin perform public.hr_overtime_request((select v::date from orq where k = 'W'), '18:30', '19:30', 'تاني'); raise exception 'case a refused time asked again failed';
+  exception when sqlstate '22023' then if sqlerrm <> 'invalid: overlap' then raise; end if; end;
+  perform public.hr_clock_in();
+end $$;
+reset role;
+-- the open shift moved to 3 hours ago: a request ending after its start is refused (its clock-out writes that time)
+update public.hr_attendance set in_at = now() - interval '3 hours' where member_id = '00000000-0000-4000-8000-0000000073a3' and out_at is null;
+select pg_temp.as_member('00000000-0000-4000-8000-0000000073a3');
+do $$
+declare d date := public.hr_today(); h int := extract(hour from (now() at time zone 'Africa/Cairo'))::int;
+begin
+  if h >= 2 then -- a window inside the open shift (2 hours ago → 1 hour ago), when it lies within today
+    begin perform public.hr_overtime_request(d, lpad((h - 2)::text, 2, '0') || ':00', lpad((h - 1)::text, 2, '0') || ':00', 'تست');
+      raise exception 'case a request on an open shift failed';
+    exception when sqlstate '22023' then if sqlerrm <> 'invalid: open_shift' then raise; end if; end;
+  end if;
 end $$;
 reset role;
 

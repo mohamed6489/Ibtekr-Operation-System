@@ -13,12 +13,14 @@
   // (the server records it past 8 hours for the direct manager); «لسه شغال؟» unanswered ends the shift at the moment it was shown.
   // What the member chose for this shift (the 8-hour question, the presence prompts) stays in sessionStorage by the shift's id.
   const HR = () => window.IBHR;
-  const sh = { state: 'out', start: 0, id: null, otStart: null, prompted: 0, endAsked: false, presence: null, note: '', ended: false, endedMin: 0, busy: false };
+  // phase 13 decision 24 (0068 — «مع المرونة مفيش تأخير»): flexible hours — «ابدأ الدوام» shows again after «إنهاء الدوام», each start is a
+  // session of the day, and the day's hours are its sessions summed: `base` = the day's other closed sessions, `worked()` the day's total
+  const sh = { state: 'out', start: 0, base: 0, id: null, otStart: null, prompted: 0, endAsked: false, presence: null, note: '', ended: false, endedMin: 0, busy: false };
   const now = () => Date.now();
-  const worked = () => (sh.state === 'out' ? 0 : Math.max(0, (now() - sh.start) / 60000));
+  const worked = () => (sh.state === 'out' ? 0 : sh.base + Math.max(0, (now() - sh.start) / 60000));
   const otMin = () => (sh.otStart == null ? 0 : worked() - sh.otStart);
   const clockLabel = (ms) => { const d = new Date(ms); try { return new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).format(d); } catch (e) { return String(d.getHours()).padStart(2, '0') + ':' + String(d.getMinutes()).padStart(2, '0'); } };
-  const realOf = (min) => sh.start + min * 60000; // wall-clock time when `min` worked minutes were reached
+  const realOf = (min) => sh.start + Math.max(0, min - sh.base) * 60000; // wall-clock time when the day reached `min` worked minutes (in this session)
   const settings = () => (HR() ? HR().data.hrSettings : S.hrSettings);
   const SKEY = (id) => 'ib.shift.' + id;
   const remember = () => { if (sh.id == null) return; try { sessionStorage.setItem(SKEY(sh.id), JSON.stringify({ endAsked: sh.endAsked, ot: sh.otStart != null, prompted: sh.prompted })); } catch (e) { /* storage blocked: asked again after a refresh */ } };
@@ -28,24 +30,28 @@
   // the clock from the server's rows (IBHR.myShift): on every load and the live line
   function sync() {
     const s = HR() && HR().myShift ? HR().myShift() : null;
-    if (!s) { if (sh.state !== 'out' || sh.ended) { closePresence(); Object.assign(sh, { state: 'out', id: null, start: 0, otStart: null, ended: false, endedMin: 0 }); } paint(); return; }
-    if (s.out_at) { closePresence(); Object.assign(sh, { state: 'out', id: s.id, start: Date.parse(s.in_at), otStart: null, ended: s.day === (HR().today ? HR().today() : ''), endedMin: Math.max(0, Math.round((Date.parse(s.out_at) - Date.parse(s.in_at)) / 60000)) }); paint(); return; }
+    if (!s) { if (sh.state !== 'out' || sh.ended) { closePresence(); Object.assign(sh, { state: 'out', id: null, start: 0, base: 0, otStart: null, ended: false, endedMin: 0 }); } paint(); return; }
+    const base = Math.max(0, Number(s.done) || 0);
+    if (s.out_at) { closePresence(); Object.assign(sh, { state: 'out', id: s.id, start: Date.parse(s.in_at), base: 0, otStart: null, ended: s.day === (HR().today ? HR().today() : ''), endedMin: base + Math.max(0, Math.round((Date.parse(s.out_at) - Date.parse(s.in_at)) / 60000)) }); paint(); return; }
     if (sh.id !== s.id) {
-      let saved = {}; try { saved = JSON.parse(sessionStorage.getItem(SKEY(s.id)) || '{}') || {}; } catch (e) { saved = {}; }
+      let saved = null; try { saved = JSON.parse(sessionStorage.getItem(SKEY(s.id)) || 'null'); } catch (e) { saved = null; }
+      // a session that starts with the day past 8 hours is overtime from its start (the 8-hour question was the earlier session's)
+      if (!saved && base >= 480) saved = { endAsked: true, ot: true, prompted: 0 };
+      saved = saved || {};
       Object.assign(sh, { id: s.id, endAsked: !!saved.endAsked, prompted: Number(saved.prompted) || 0, otStart: saved.ot ? 480 : null });
     }
-    sh.start = Date.parse(s.in_at); sh.ended = false; sh.state = sh.otStart != null ? 'overtime' : 'in';
+    sh.start = Date.parse(s.in_at); sh.base = base; sh.ended = false; sh.state = sh.otStart != null ? 'overtime' : 'in';
     paint();
   }
   document.addEventListener('ib:hr', sync);
   async function clockIn() {
     if (sh.busy || !HR()) return; sh.busy = true; paint();
-    const t = HR().today();
+    const t = HR().today(); const again = sh.ended;
     const r = await HR().clockIn(); sh.busy = false; // «عن بُعد» comes from the server (an approved «شغل عن بُعد» covering today)
     if (!r.ok) { K.toast(r.message || 'تعذّر بدء الدوام — جرّب تاني', 'error'); paint(); return; }
     const remote = !!(r.shift && r.shift.remote);
     const off = [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay()) || HR().holidayDates().includes(t);
-    K.toast(off ? 'بدأ الدوام — يوم راحة: بيتحسب بيومين بعد تأكيد مديرك' : remote ? 'بدأ الدوام عن بُعد — بالتوفيق' : 'بدأ الدوام — بالتوفيق', 'success'); sync();
+    K.toast(off ? 'بدأ الدوام — يوم راحة: بيتحسب بيومين بعد تأكيد مديرك' : remote ? 'بدأ الدوام عن بُعد — بالتوفيق' : again ? 'رجعت للدوام — الساعات بتتجمع على النهارده' : 'بدأ الدوام — بالتوفيق', 'success'); sync();
   }
   async function finish(endMinWorked, note, auto) {
     if (sh.busy || !HR()) return; sh.busy = true;
@@ -53,13 +59,13 @@
     if (!r.ok) { K.toast(r.message || 'تعذّر إنهاء الدوام — جرّب تاني', 'error'); paint(); return; }
     const res = r.result || {}; const ot = Number(res.overtime) || 0;
     forget(id); sh.otStart = null; closePresence(); sync();
-    K.toast(res.rest_day ? 'انتهى الدوام — يوم الراحة اتبعت لمديرك يأكده' : auto ? 'الدوام خلص تلقائي من وقت ظهور «لسه شغال؟»' + (ot ? ' — الوقت الإضافي اتبعت للتأكيد' : '') : ot ? 'انتهى الدوام — اتبعت ' + K.hrs(ot) + ' وقت إضافي لمديرك للتأكيد' : 'انتهى الدوام', auto ? '' : 'success');
+    K.toast(res.rest_day ? 'انتهى الدوام — يوم الراحة اتبعت لمديرك يأكده' : auto ? 'الدوام خلص تلقائي من وقت ظهور «لسه شغال؟»' + (ot ? ' — الوقت الإضافي اتبعت للتأكيد' : '') : ot ? 'انتهى الدوام — اتبعت ' + K.hrs(ot) + ' وقت إضافي لمديرك للتأكيد' : 'انتهى الدوام — تقدر تبدأ تاني في أي وقت', auto ? '' : 'success');
   }
   // «إنهاء الدوام»: plain confirm while in; overtime needs the note of what was worked on
   function endShift(after) {
     if (sh.state === 'out') { if (after) after(); return; }
     if (sh.state === 'overtime') return endOvertime(after);
-    K.confirm({ title: 'إنهاء الدوام', text: 'اشتغلت ' + K.hrs(worked()) + ' النهارده. هينتهي الدوام دلوقتي.', okLabel: 'إنهاء الدوام', onOk: async () => { await finish(worked(), '', false); if (after) after(); } });
+    K.confirm({ title: 'إنهاء الدوام', text: 'اشتغلت ' + K.hrs(worked()) + ' النهارده. هينتهي الدوام دلوقتي — وتقدر تبدأ تاني بعدين والساعات بتتجمع.', okLabel: 'إنهاء الدوام', onOk: async () => { await finish(worked(), '', false); if (after) after(); } });
   }
   function endOvertime(after) {
     const end = worked();
@@ -97,14 +103,16 @@
   function clockInner() {
     if (sh.state === 'out') {
       timerEl = null;
-      if (sh.ended) return [Button({ type: 'text', size: 'sm', label: 'خلص الدوام · ' + K.hm(sh.endedMin), icon: 'check', attrs: { 'data-shift-ended': '' }, onClick: () => K.toast('الدوام اتقفل النهارده — لو فيه غلط قدّم «تصحيح انصراف» من «ملفي › طلباتي»') })];
-      return [Button({ type: 'primary', size: 'sm', label: sh.busy ? 'بيبدأ…' : 'ابدأ الدوام', icon: 'clock', disabled: sh.busy || !HR() || HR().state() !== 'ready', attrs: { 'aria-label': 'ابدأ الدوام' }, onClick: clockIn })];
+      const startBtn = Button({ type: 'primary', size: 'sm', label: sh.busy ? 'بيبدأ…' : 'ابدأ الدوام', icon: 'clock', disabled: sh.busy || !HR() || HR().state() !== 'ready', attrs: { 'aria-label': 'ابدأ الدوام' }, onClick: clockIn });
+      // decision 24: after «إنهاء الدوام» the day's hours so far, and «ابدأ الدوام» again for another session
+      if (sh.ended) return [h('span', { class: 'clock-done t-small', 'data-shift-ended': '', title: 'ساعات النهارده لحد دلوقتي' }, Icon('check', 'sm'), ' خلص الدوام · ', h('b', { class: 'num' }, K.hm(sh.endedMin))), startBtn];
+      return [startBtn];
     }
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
     timerEl = h('span', { class: 'num' });
     const trig = h('button', { type: 'button', class: 'clock clock-' + sh.state, 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': sh.state === 'overtime' ? 'وقت إضافي — تفاصيل الدوام' : 'على الدوام — تفاصيل الدوام' }, h('i', { class: 'dot' }), h('span', { class: 'lbl' }, sh.state === 'overtime' ? 'وقت إضافي' : 'على الدوام'), timerEl);
     const pop = U.popover(wrap, trig, (close) => h('div', { class: 'menu end clock-pop', role: 'dialog', 'aria-label': 'الدوام', 'data-popover-root': '' },
-      K.Kv([['بدأت', clockLabel(sh.start)], ['اشتغلت', K.hrs(worked())], ['الشيفت', '8 ساعات'], sh.state === 'overtime' ? ['وقت إضافي', K.hrs(otMin())] : ['فاضل', K.hrs(Math.max(0, 480 - worked()))]]),
+      K.Kv([['بدأت', clockLabel(sh.start) + (sh.base ? ' (جلسة تانية)' : '')], ['اشتغلت النهارده', K.hrs(worked())], ['الشيفت', '8 ساعات — مرن'], sh.state === 'overtime' ? ['وقت إضافي', K.hrs(otMin())] : ['فاضل', K.hrs(Math.max(0, 480 - worked()))]]),
       Button({ type: 'primary', label: sh.state === 'overtime' ? 'إنهاء الوقت الإضافي' : 'إنهاء الدوام', onClick: () => { close(); endShift(); } })));
     trig.addEventListener('click', pop.toggle); wrap.append(trig); paintTimer(); return [wrap];
   }

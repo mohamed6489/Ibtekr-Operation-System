@@ -905,6 +905,8 @@ button.pm:disabled{opacity:.7;cursor:not-allowed}
 
 /* Header: clock widget + account menu (Figma Clock widget 360:2538) */
 .clock-widget{order:2;display:flex}
+/* phase 13 decision 24: after «إنهاء الدوام» the day's hours beside «ابدأ الدوام» again */
+.clock-widget{align-items:center;gap:8px}.clock-done{display:inline-flex;align-items:center;gap:4px;color:var(--color-text-secondary,inherit);white-space:nowrap}
 .clock{display:inline-flex;align-items:center;gap:8px;height:32px;padding:0 12px;border-radius:999px;border:1px solid var(--color-success-border);background:var(--color-success-bg);color:var(--color-success-text);font-weight:600}
 .clock .dot{width:8px;height:8px;border-radius:50%;background:var(--color-success-base)}
 .clock-overtime{border-color:var(--color-orange-border);background:var(--color-orange-bg);color:var(--color-orange-text)}.clock-overtime .dot{background:var(--color-orange-base)}
@@ -1468,6 +1470,7 @@ tr.af-hide{display:none!important}
 
 @media (max-width:767px){
   .topbar{gap:4px;padding:0 8px}
+  .topbar .clock-done{font-size:0;gap:2px}.topbar .clock-done b{font-size:12px}
   .topbar .clock-widget .btn{width:44px;padding:0;gap:0;font-size:0}.topbar .clock-widget .btn svg{width:20px;height:20px}
   .clock .lbl{display:none}
 }

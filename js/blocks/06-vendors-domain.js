@@ -389,9 +389,9 @@
     const DONE = ['مكتمل'], OUT = ['ملغي', 'استرجاع'];
     for (const o of orders || []) for (const s of o.subs || []) {
       if (!keys.includes(norm(s.vendor))) continue;
-      const row = { oid: String(o.id), sid: String(s.sid), prod: s.prod, sku: s.sku || '', tot: Number(s.tot) || 0, status: o.st, date: o.date, age: o.age || 0, delivery: o.delivery || 'ok', ss: s.ss || '' };
+      const row = { oid: String(o.id), sid: String(s.sid), prod: s.prod, sku: s.sku || '', tot: Number(s.tot) || 0, status: o.st, date: o.date, age: o.age || 0, delivery: s.delivery || o.delivery || 'ok', ss: s.ss || '' }; // phase 13 decision 52: the line's own delay
       if (DONE.includes(o.st)) { if (o.date >= range.from && o.date <= range.to) { completed.push(row); const rate = v ? rateAt(v, o.date) : 0; share += row.tot * (1 - rate / 100); } }
-      else if (!OUT.includes(o.st) && s.open) (o.delivery === 'late' ? late : progress).push(row);
+      else if (!OUT.includes(o.st) && s.open) (row.delivery === 'late' ? late : progress).push(row);
     }
     late.sort((a, b) => b.age - a.age); progress.sort((a, b) => (a.delivery === 'risk' ? 0 : 1) - (b.delivery === 'risk' ? 0 : 1) || b.age - a.age);
     completed.sort((a, b) => Number(b.oid) - Number(a.oid) || Number(a.sid) - Number(b.sid));
@@ -411,10 +411,10 @@
     const keys = (names || []).map(norm); const late = [], risk = [], confirmed = []; const OUT = ['مكتمل', 'ملغي', 'استرجاع'];
     for (const o of orders || []) { if (OUT.includes(o.st)) continue;
       for (const s of o.subs || []) { if (!keys.includes(norm(s.vendor)) || !s.open) continue;
-        const row = { oid: String(o.id), sid: String(s.sid), prod: s.prod, sku: s.sku || '', tot: Number(s.tot) || 0, age: o.age || 0, delivery: o.delivery || 'ok', ss: s.ss || '' };
-        if (o.delivery === 'late') late.push(row); else if (o.delivery === 'risk') risk.push(row);
+        const row = { oid: String(o.id), sid: String(s.sid), prod: s.prod, sku: s.sku || '', tot: Number(s.tot) || 0, age: o.age || 0, delivery: s.delivery || o.delivery || 'ok', ss: s.ss || '' };
+        if (row.delivery === 'late') late.push(row); else if (row.delivery === 'risk') risk.push(row);
         const when = o.confAt || o.cdate || o.date;
-        if (/^مؤكد/.test(o.cf || '') && when >= range.from && when <= range.to && o.delivery === 'ok') confirmed.push(row); } }
+        if (/^مؤكد/.test(o.cf || '') && when >= range.from && when <= range.to && row.delivery === 'ok') confirmed.push(row); } }
     late.sort((a, b) => b.age - a.age); risk.sort((a, b) => b.age - a.age); confirmed.sort((a, b) => Number(b.oid) - Number(a.oid));
     return { late, risk, confirmed };
   }

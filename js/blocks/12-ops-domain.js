@@ -177,6 +177,29 @@
     const a = isConfirmed(oldCf), b = isConfirmed(newCf); if (a === b) return [];
     return (subs || []).filter((s) => (b ? ['', 'غير مؤكد'].includes(s.ss || '') : s.ss === 'مؤكد')).map((s) => ({ sid: String(s.sid), from: s.ss || '', to: b ? 'مؤكد' : 'غير مؤكد' }));
   }
+  // Phase 13 decision 52 (owner 10 Nov): the delay — the same rule as supabase/functions/_shared/delay.js (tests/functions/delay.test.mjs).
+  // The order counts from its confirmation date (a confirmed order without one: its own date); not confirmed = no delay; risk from 9,
+  // late from 12. A sub-order counts from «تاريخ تبليغ المبتكر» (else the order's confirmation) against the making days — the
+  // product's own, else the maker's «مدة التجهيز», else 7: «قابل للتأخير» in the last 3 days, «متأخر» once they are past.
+  const DELAY = { riskFrom: 9, lateFrom: 12, lead: 7, window: 3 };
+  const DAY_RE = /^\d{4}-\d{2}-\d{2}/;
+  function daysFrom(from, to) {
+    if (!DAY_RE.test(String(from || '')) || !DAY_RE.test(String(to || ''))) return null;
+    const a = Date.parse(String(from).slice(0, 10) + 'T00:00:00Z'), b = Date.parse(String(to).slice(0, 10) + 'T00:00:00Z');
+    return Number.isFinite(a) && Number.isFinite(b) ? Math.max(0, Math.round((b - a) / 864e5)) : null;
+  }
+  const confirmAge = (o, today) => (isConfirmed(o && o.confirm) ? daysFrom((o.confirmAt || o.placedAt), today) : null);
+  const orderDelay = (age) => (age == null || !Number.isFinite(age) ? 'ok' : age >= DELAY.lateFrom ? 'late' : age >= DELAY.riskFrom ? 'risk' : 'ok');
+  function leadOf(productDays, makerDays) {
+    const p = Number(productDays); if (Number.isInteger(p) && p >= 1 && p <= 90) return p;
+    const m = Number(makerDays); if (Number.isInteger(m) && m >= 1 && m <= 90) return m;
+    return DELAY.lead;
+  }
+  const subElapsed = (o, today) => (DAY_RE.test(String((o && o.notifiedAt) || '')) ? daysFrom(o.notifiedAt, today) : confirmAge(o, today));
+  function subDelay(elapsed, lead, open) {
+    if (open === false || elapsed == null || !Number.isFinite(elapsed)) return 'ok';
+    const n = leadOf(lead, null); return elapsed > n ? 'late' : elapsed >= n - (DELAY.window - 1) ? 'risk' : 'ok';
+  }
   // Owner (22 Oct): alert-types table — short readable cells; add / edit / delete types.
   function notifRepeatShort(count, every, at, days, weekday) {
     const t = at || NOTIF_DEFAULT_AT; const e = every || 'كل 24 ساعة'; const once = isOnce(count); const tillFix = count === 'لحد ما يتحل';
@@ -273,7 +296,7 @@
 
   const api = { HR, INV, AUTH, rates, overtimePay, monthlyPaid, rating, RATING_TONE, monthBonus, quarterBonus, quarterBad, leaveDays, addDays, payslip,
     shiftState, presenceDue, presenceOutcome, reviewOvertime, otReviewer, validateOtEnd,
-    REASONS, STATUS_BY_REASON, stockFromLedger, canAutoPull, validateReceive, CANCEL_REASONS, validateCancel, NOTIF_COUNTS, NOTIF_EVERY, notifRepeat, notifSchedule, NOTIF_DEFAULT_AT, NOTIF_TIMES, isDaily, SHIP_READY, isShipReady, shipRoute, waybillFor, waybillText, deliveryDigestText, isConfirmed, subsOnConfirm, notifRepeatShort, channelsShort, listShort, validateNotifType, ESC_AFTER, ESC_CHANNELS, ESC_MANAGER, escalationTargets, validateEscalation, joinChannels, splitChannels, WEEKDAYS, weeklyPeriod, MONTH_DAYS, monthDaysLabel, monthDaysPeriod, NOTIF_TEAMS, payrollDue, digest, VENDOR_RECIPIENT, recipientChannels, splitRecipients, joinRecipients, RETURN_CONDITIONS, inspectDefault, arrivalReason, arrivalStock, consolidationLate, photoOverdue, consolidation, countDiff,
+    REASONS, STATUS_BY_REASON, stockFromLedger, canAutoPull, validateReceive, CANCEL_REASONS, validateCancel, NOTIF_COUNTS, NOTIF_EVERY, notifRepeat, notifSchedule, NOTIF_DEFAULT_AT, NOTIF_TIMES, isDaily, SHIP_READY, isShipReady, shipRoute, waybillFor, waybillText, deliveryDigestText, isConfirmed, subsOnConfirm, DELAY, daysFrom, confirmAge, orderDelay, leadOf, subElapsed, subDelay, notifRepeatShort, channelsShort, listShort, validateNotifType, ESC_AFTER, ESC_CHANNELS, ESC_MANAGER, escalationTargets, validateEscalation, joinChannels, splitChannels, WEEKDAYS, weeklyPeriod, MONTH_DAYS, monthDaysLabel, monthDaysPeriod, NOTIF_TEAMS, payrollDue, digest, VENDOR_RECIPIENT, recipientChannels, splitRecipients, joinRecipients, RETURN_CONDITIONS, inspectDefault, arrivalReason, arrivalStock, consolidationLate, photoOverdue, consolidation, countDiff,
     RETURN_REASONS, validateReturn, TASK_STATUSES, rollover, validateTaskStatus,
     loginInit, loginFail, isLocked, identifierKind, toLatin, validatePassword, idleState };
   if (typeof module !== 'undefined' && module.exports) module.exports = api; else root.IbtekrOps = api;

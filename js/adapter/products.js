@@ -285,7 +285,30 @@
   const reportFailed = (from, to) => repCache.get(from + '|' + to) === 'error';
   const reportRetry = (from, to) => { repCache.delete(from + '|' + to); return report(from, to); };
 
-  function clear() { gen++; st = 'idle'; rows = new Map(); cats = new Map(); brands = new Map(); comm = new Map(); repCache = new Map(); }
+  // phase 13 decision 52: a product's own making days (product_lead_days, 1–90) over its maker's «مدة التجهيز» — read by anyone who
+  // sees products, written by products.edit = F (the RLS). null = back to the maker's days. The orders page follows (ib:product-lead).
+  const leadCache = new Map();
+  async function leadDays(id) {
+    const k = String(id); if (leadCache.has(k)) return leadCache.get(k);
+    const cl = c(); if (!cl || !/^[1-9]\d{0,15}$/.test(k)) return null;
+    try { const { data, error } = await cl.from('product_lead_days').select('days').eq('product_id', k).maybeSingle(); if (error) return null; const v = data ? Number(data.days) : null; leadCache.set(k, v); return v; } catch (e) { return null; }
+  }
+  async function setLeadDays(id, days) {
+    const k = String(id); const cl = c();
+    if (!can().edit) return { ok: false, reason: 'forbidden' };
+    if (!cl || !/^[1-9]\d{0,15}$/.test(k)) return { ok: false, reason: 'invalid' };
+    const n = days == null || days === '' ? null : Number(days);
+    if (n !== null && !(Number.isInteger(n) && n >= 1 && n <= 90)) return { ok: false, reason: 'invalid', message: 'مدة التصنيع من 1 لـ 90 يوم' };
+    try {
+      const { error } = n === null ? await cl.from('product_lead_days').delete().eq('product_id', k) : await cl.from('product_lead_days').upsert({ product_id: Number(k), days: n }, { onConflict: 'product_id' });
+      if (error) return { ok: false, reason: error.code === '42501' ? 'forbidden' : 'network' };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+    leadCache.set(k, n); logged('product.lead', [k], [n === null ? 'مدة المبتكر' : n + ' يوم']);
+    try { document.dispatchEvent(new CustomEvent('ib:product-lead', { detail: { productId: k, days: n } })); } catch (e) { /* no DOM */ }
+    return { ok: true, days: n };
+  }
+
+  function clear() { gen++; leadCache.clear(); st = 'idle'; rows = new Map(); cats = new Map(); brands = new Map(); comm = new Map(); repCache = new Map(); }
 
   window.IBProducts = {
     load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry, addImages, moveVendor,
@@ -293,6 +316,7 @@
     brands: () => [...brands.values()].map((x) => ({ id: Number(x.id), name: x.name })),
     // phase 5.2: a category the studio just made on the site (category_create) shows at once
     addCategory: (row) => { cats.set(Number(row.id), { id: Number(row.id), name: row.name, parent_id: row.parent_id || null }); emit({ categories: true }); },
-    fetchLive, save, batch, duplicate, trashIds: (ids, onProgress) => moveTrash(ids, false, onProgress), restore: (ids, onProgress) => moveTrash(ids, true, onProgress),
+    fetchLive, save, batch, duplicate, leadDays, setLeadDays, // phase 13 decision 52
+    trashIds: (ids, onProgress) => moveTrash(ids, false, onProgress), restore: (ids, onProgress) => moveTrash(ids, true, onProgress),
   };
 })();

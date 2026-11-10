@@ -864,7 +864,10 @@
         if (!lines.length && (o || !(r.vendors || []).includes(v.name))) continue;
         let sales = 0, share = 0; for (const s of lines) { const x = lineShare(s, v, o.date); sales += Number(s.tot) || 0; share += x.share; if (x.noRate) noRate += 1; }
         const k = kindOf(r.status); by[k].n += 1; by[k].sales += sales; by[k].earned += share;
-        mine.push(Object.assign({}, r, { sales: r2(sales), share: r2(share) }));
+        // phase 13 decision 52: a maker's order is as late as his own lines (the sub-order rule: notify date + making days), not the order
+        const ld = new Map((r.lines || []).map((x) => [Number(x.n), x.delivery])); const dl = lines.map((s) => ld.get(Number(s.n))).filter(Boolean);
+        const delivery = dl.length ? (dl.includes('late') ? 'late' : dl.includes('risk') ? 'risk' : 'ok') : r.delivery;
+        mine.push(Object.assign({}, r, { sales: r2(sales), share: r2(share), delivery }));
       }
       const open = mine.filter((r) => kindOf(r.status) === 'p');
       const earned = r2(by.c.earned);

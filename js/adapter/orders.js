@@ -38,7 +38,7 @@
     item: 'id, order_id, sub_order_id, product_id, sku, name, qty, total, vendor_id, status, expected_at, comment, ready_at, waybill, pulled, ret, store, removed, commission_rate, commission_fee',
     sub: 'id, order_id, vendor_id, woo_order_id, woo_status',
   };
-  let orders = null; let vendorRows = []; let images = {}; let links = {}; let states = new Map(); let statuses = []; let names = []; let channel = null; let gen = 0; let st = 'idle';
+  let orders = null; let vendorRows = []; let leads = new Map(); let images = {}; let links = {}; let states = new Map(); let statuses = []; let names = []; let channel = null; let gen = 0; let st = 'idle';
   const asked = new Set(); // skus already asked of products
   const busy = new Map(); // order id → its running Realtime refetch
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
@@ -90,6 +90,14 @@
       raw: (so && so.woo_status) || o.woo_status || '', vendor: (vid && vname.get(String(vid))) || '', vendorId: vid ? String(vid) : null, cm: it.comment || '', ss: it.status || '', exp: it.expected_at || '', sku: it.sku || '', link: linkOf(it, lk, origin),
       readyAt: localStamp(it.ready_at), waybill: it.waybill || null, pulled: !!it.pulled, ret: it.ret || null, store: it.store || null, rate: numOrNull(it.commission_rate), fee: numOrNull(it.commission_fee) };
   }
+  // phase 13 decision 52: a line's making days — the product's own (product_lead_days by product_id), else the maker's «مدة التجهيز»
+  // (vendors.lead_days), else 7 (IbtekrOps.leadOf); leadSrc says which. pid = the WooCommerce product of the line.
+  function withLead(s, it, vlead, pl) {
+    const pid = it.product_id == null ? null : String(it.product_id); const own = pid && pl.has(pid) ? pl.get(pid) : null;
+    const maker = s.vendorId && vlead.has(s.vendorId) ? vlead.get(s.vendorId) : null; const ops = window.IbtekrOps;
+    s.pid = pid; s.lead = ops && ops.leadOf ? ops.leadOf(own, maker) : (own || maker || 7); s.leadSrc = own ? 'product' : maker ? 'maker' : 'default';
+    return s;
+  }
   const text = (v) => (v == null ? '' : String(v).trim());
   // woo_states rows ({ code, name }) → Map code → name (a row without a code or a name is skipped)
   const stateMap = (rows) => new Map((Array.isArray(rows) ? rows : []).map((r) => [text(r && r.code), text(r && r.name)]).filter(([k, v]) => k && v));
@@ -101,6 +109,8 @@
     const lk = (opts && opts.links) || {}; const origin = originOf(lk);
     const sn = opts && opts.states && typeof opts.states.get === 'function' ? opts.states : stateMap(opts && opts.states);
     const vname = new Map((vendors || []).map((v) => [String(v.id), v.name || '']));
+    const vlead = new Map((vendors || []).map((v) => [String(v.id), v.lead_days == null ? null : Number(v.lead_days)]));
+    const pl = opts && opts.leads && typeof opts.leads.get === 'function' ? opts.leads : new Map();
     const subById = new Map((subs || []).map((s) => [String(s.id), s]));
     const lines = new Map();
     (items || []).filter((it) => !it.removed).sort((a, b) => Number(a.id) - Number(b.id)).forEach((it) => { const k = String(it.order_id); if (!lines.has(k)) lines.set(k, []); lines.get(k).push(it); });
@@ -108,7 +118,7 @@
       const id = String(r.id); const date = localDate(r.placed_at); const state = text(r.customer_state); const stateName = (state && text(sn.get(state))) || state;
       return { id, name: r.customer_name || '', phone: r.customer_phone || '', pay: r.payment_title || r.payment_method || '', date, st: r.status, cf: r.confirm, dep: Number(r.deposit) || 0, tot: Number(r.total) || 0,
         age: days(date, T), note: r.note || '', cnote: r.customer_note || '', cdate: r.confirm_at || '', confAt: r.confirm_at || '', state, stateName, city: r.customer_city || '', addr: r.customer_address || '', cancel: r.cancel || null, ret: r.ret || null,
-        subs: (lines.get(id) || []).map((it) => sub(it, r, subById, vname, lk, origin)) };
+        subs: (lines.get(id) || []).map((it) => withLead(sub(it, r, subById, vname, lk, origin), it, vlead, pl)) };
     });
   }
   const vendorNames = (list) => [...new Set(list.flatMap((o) => o.subs.map((s) => s.vendor)).filter(Boolean))].sort(byName);
@@ -137,6 +147,31 @@
     const parts = []; for (let i = 0; i < list.length; i += size) parts.push(list.slice(i, i + size));
     return Promise.all(parts.map((p) => pages(() => cl.from(table).select(cols).in(col, p).order('id', { ascending: true }), g))).then((r) => r.flat());
   }
+  // phase 13 decision 52: the products' own making days (product_lead_days) for the lines' product ids not asked yet; a refusal
+  // or a project without 0076 leaves the maker's days
+  async function loadLeads(cl, items, g) {
+    const pids = [...new Set((items || []).map((it) => (it.product_id == null ? '' : String(it.product_id))).filter((x) => /^[1-9]\d{0,15}$/.test(x) && !leadAsked.has(x)))];
+    if (!pids.length) return;
+    try {
+      for (let i = 0; i < pids.length; i += IDS) {
+        const part = pids.slice(i, i + IDS);
+        const r = await cl.from('product_lead_days').select('product_id, days').in('product_id', part);
+        stale(g); if (r.error) return;
+        part.forEach((x) => leadAsked.add(x)); (r.data || []).forEach((x) => leads.set(String(x.product_id), Number(x.days)));
+      }
+    } catch (e) { if (e && e.message === 'stale') throw e; }
+  }
+  const leadAsked = new Set();
+  // a product's days changed on the products page (IBProducts.setLeadDays → ib:product-lead): the open lines follow
+  function onLead(ev) {
+    const d = (ev && ev.detail) || {}; const pid = d.productId == null ? '' : String(d.productId); if (!pid || !orders) return;
+    if (d.days == null) leads.delete(pid); else leads.set(pid, Number(d.days)); leadAsked.add(pid);
+    const vlead = new Map(vendorRows.map((v) => [String(v.id), v.lead_days == null ? null : Number(v.lead_days)]));
+    const app = window.OrdersApp;
+    orders.forEach((o) => { let hit = false; o.subs.forEach((x) => { if (x.pid === pid) { withLead(x, { product_id: pid }, vlead, leads); hit = true; } }); if (hit && app && app.applyOrder) report(() => app.applyOrder(o)); });
+    notifySoon();
+  }
+  if (typeof document !== 'undefined' && document.addEventListener) document.addEventListener('ib:product-lead', onLead);
   async function load() {
     const cl = c();
     if (!cl || !uid()) return;
@@ -145,7 +180,7 @@
     try {
       const [found, vs, sm, ws] = await Promise.all([
         pages(() => cl.from('orders_v').select(COLS.order).gte('placed_at', windowStart().toISOString()).order('placed_at', { ascending: false }).order('id', { ascending: false }), g, CAP),
-        pages(() => cl.from('vendors').select('id, name').order('id', { ascending: true }), g),
+        pages(() => cl.from('vendors').select('id, name, lead_days').order('id', { ascending: true }), g),
         cl.from('status_map').select('system_status, woo_status, direction, sort').order('sort', { ascending: true }),
         cl.from('woo_states').select('code, name').order('code', { ascending: true }), // small: the website's list
       ]);
@@ -158,10 +193,11 @@
       const skus = [...new Set(items.filter((it) => !it.removed && it.sku).map((it) => it.sku))];
       const ps = await within(cl, 'products', 'sku, image_url, permalink, lang', 'sku', skus, SKUS, g);
       stale(g);
+      leads = new Map(); leadAsked.clear(); await loadLeads(cl, items, g);
       vendorRows = vs; statuses = sm.data || []; images = {}; links = {}; asked.clear();
       if (ws && !ws.error) states = stateMap(ws.data); // refused (no grant yet) or down: the last list stays, the codes show without one
       skus.forEach((s) => asked.add(s)); keepAll(ps);
-      orders = toScreen(rows, items, subs, vendorRows, { links, states }); names = vendorNames(orders);
+      orders = toScreen(rows, items, subs, vendorRows, { links, states, leads }); names = vendorNames(orders);
       setState('ready');
       const app = window.OrdersApp; if (app && app.hydrate) report(() => app.hydrate(data()));
       notify(); // the bell and the dashboard read the orders
@@ -302,10 +338,11 @@
     const vids = [...new Set(items.concat(subs).map((x) => x.vendor_id).filter((v) => v && !known.has(String(v))))];
     const skus = [...new Set(items.filter((x) => !x.removed && x.sku && !asked.has(x.sku)).map((x) => x.sku))];
     const none = { data: [], error: null };
-    const [v, p] = await Promise.all([vids.length ? cl.from('vendors').select('id, name').in('id', vids) : none, skus.length ? cl.from('products').select('sku, image_url, permalink, lang').in('sku', skus) : none]);
+    const [v, p] = await Promise.all([vids.length ? cl.from('vendors').select('id, name, lead_days').in('id', vids) : none, skus.length ? cl.from('products').select('sku, image_url, permalink, lang').in('sku', skus) : none]);
     stale(g);
     if (!v.error) vendorRows = vendorRows.concat(v.data || []);
     if (!p.error) { skus.forEach((s) => asked.add(s)); keepAll(p.data || []); }
+    await loadLeads(cl, items, g);
   }
   async function refresh(id) {
     const cl = c(); const g = gen;
@@ -322,7 +359,7 @@
       if (!known && !(Date.parse(o.data[0].placed_at) >= windowStart().getTime())) return; // older than the screen's 12 months
       await fill(cl, it.data || [], so.data || [], g);
       if (!orders) return;
-      const next = toScreen(o.data.slice(0, 1), it.data || [], so.data || [], vendorRows, { links, states })[0];
+      const next = toScreen(o.data.slice(0, 1), it.data || [], so.data || [], vendorRows, { links, states, leads })[0];
       const i = orders.findIndex((x) => x.id === next.id);
       if (i >= 0) orders[i] = next; else orders.unshift(next);
       names = vendorNames(orders);
@@ -364,7 +401,7 @@
     const ch = channel; channel = null;
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
-  function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; vendorRows = []; images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
+  function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
   window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

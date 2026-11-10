@@ -114,7 +114,7 @@
   function homeTab(D) {
     const open = D.subs.filter((s) => s.open); const late = open.filter((s) => s.delivery === 'late'), risk = open.filter((s) => s.delivery === 'risk');
     const bal = D.led ? D.led.net : 0; const pos = bal > 0 ? 'ليك' : bal < 0 ? 'عليك' : 'متصفّي';
-    return [h('div', { class: 'pt-kpis' }, kpi('قطع مفتوحة', U.num(String(open.length))), kpi('متأخر', U.num(String(late.length)), late.length ? 'bad' : null, 'بعد 11 يوم'), kpi('قابل للتأخير', U.num(String(risk.length)), risk.length ? 'warn' : null, 'من 9 لـ 11 يوم'), kpi('رصيدك', U.num(money(Math.abs(bal)) + ' ج.م'), bal < 0 ? 'bad' : null, D.led ? pos : 'لسه مش متزامن')),
+    return [h('div', { class: 'pt-kpis' }, kpi('قطع مفتوحة', U.num(String(open.length))), kpi('متأخر', U.num(String(late.length)), late.length ? 'bad' : null, 'عدّى مدة التصنيع'), kpi('قابل للتأخير', U.num(String(risk.length)), risk.length ? 'warn' : null, 'آخر 3 أيام من مدة التصنيع'), kpi('رصيدك', U.num(money(Math.abs(bal)) + ' ج.م'), bal < 0 ? 'bad' : null, D.led ? pos : 'لسه مش متزامن')),
       late.length || risk.length ? h('section', { class: 'card sec' }, h('div', { class: 'sec-h' }, h('h2', { class: 't-h5' }, 'محتاجين يخلصوا الأول')), h('div', { class: 'sec-b' }, subsTable(late.concat(risk))))
         : U.InlineNote({ kind: 'success', children: 'مفيش قطع متأخرة — شغل ممتاز 👏' }),
       U.InlineNote({ children: 'أي استفسار على أوردر أو تحويل كلّم فريق متابعة المبتكرين على واتساب إبتكر.' })];
@@ -128,7 +128,7 @@
     const rows = D.subs.filter(F[ps.of]);
     return [h('div', { class: 'chips', role: 'radiogroup', 'aria-label': 'فلتر القطع' }, [['open', 'مفتوحة'], ['late', 'متأخرة وقابلة للتأخير'], ['done', 'خلصت'], ['all', 'الكل']].map(([k, l]) => h('button', { type: 'button', class: 'chip', role: 'radio', 'aria-checked': String(ps.of === k), 'aria-pressed': String(ps.of === k), onClick: () => { ps.of = k; draw(); } }, l + ' (' + D.subs.filter(F[k]).length + ')'))),
       h('section', { class: 'card sec' }, h('div', { class: 'sec-b' }, D.ordersOk ? subsTable(rows) : U.InlineNote({ kind: 'warning', children: 'مقدرناش نقرا الأوردرات دلوقتي — جرّب تاني.' }))),
-      h('p', { class: 't-small help', style: 'margin:0' }, 'أوردرات آخر 90 يوم. التأخير بيتحسب من يوم الأوردر: قابل للتأخير من 9 لـ 11 يوم، ومتأخر بعد 11 يوم.')];
+      h('p', { class: 't-small help', style: 'margin:0' }, 'أوردرات آخر 90 يوم. التأخير بيتحسب من تاريخ تبليغك بالقطعة على مدة التصنيع: قابل للتأخير في آخر 3 أيام، ومتأخر بعدها.')];
   }
   function accountTab(D) {
     const l = D.led; const row = (k, v, cls) => h('div', { class: 'pt-row' + (cls ? ' ' + cls : '') }, h('span', null, k), h('b', null, U.num(money(v) + ' ج.م')));

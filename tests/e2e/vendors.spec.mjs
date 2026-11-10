@@ -688,6 +688,11 @@ test('5.5 (decision 7): the top search lists orders, makers and members as you t
   const q = page.locator('#gq'); const res = page.locator('#gq-res');
   await q.fill('art c');
   await expect(res).toBeVisible();
+  // decision 20: the list is as wide as the search field, and each group heading is a green pill with beige text
+  const [fieldW, listW] = await page.evaluate(() => [document.querySelector('.gq-wrap > .search').getBoundingClientRect().width, document.getElementById('gq-res').getBoundingClientRect().width]);
+  expect(Math.abs(fieldW - listW)).toBeLessThanOrEqual(1);
+  const tag = await res.locator('.opt-group').first().evaluate((el) => { const c = getComputedStyle(el); return [c.backgroundColor, c.color]; });
+  expect(tag).toEqual(['rgb(0, 86, 66)', 'rgb(255, 247, 239)']);
   await expect(res.locator('[data-gq-group="مبتكرين"]')).toHaveCount(1);
   await expect(res.locator('[data-gq-group="مبتكرين"]')).toContainText('Art Craft');
   // phase 13 decision 18: a result opens in a popup over the current page — the page and the address stay

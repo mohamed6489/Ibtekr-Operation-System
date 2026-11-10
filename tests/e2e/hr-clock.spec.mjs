@@ -152,6 +152,8 @@ test('decision 25: «إضافة وقت إضافي» in «ملفي › ساعات
   await page.evaluate(() => { location.hash = 'profile-hours'; });
   const P = page.locator('#pg-profile');
   await expect(P.locator('.quick-acts')).toContainText('إجراءات سريعة');
+  // decision 31 («امسح زرار إنهاء الدوام»): «إضافة وقت إضافي» is the only quick action — the shift ends from the header clock
+  await expect(P.locator('.quick-acts').getByRole('button')).toHaveText(['إضافة وقت إضافي']);
   await P.locator('[data-ot-start]').click();
   await modal(page, 'إضافة وقت إضافي').getByRole('button', { name: 'ابدأ وقت إضافي' }).click();
   await expect(clock(page).locator('.clock')).toContainText('وقت إضافي');

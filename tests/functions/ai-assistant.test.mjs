@@ -2,6 +2,7 @@ import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   parseAssistant, assistantRequest, readTurn, toolResults, cleanAction, dataQuery, ordersData, vendorsData, customersData, ticketsData, tasksData, expensesData, salesData, summaryData, cleanAnswer,
   toolsOf, reportOf, REPORT_MAX, ASSISTANT_TURNS, Q_MAX, ANSWER_MAX, PAGES, deliveryOf, ageDays, amountsIn,
+  FORMS, AI_ORDER_STATUSES,
 } from '../../supabase/functions/_shared/ai-assistant.js';
 // The header's assistant (phase 12 T1, decision 8): the body checks, Claude's tools and request, reading a turn, the client
 // actions' cleaning and the data shaping with the member's rows — never a phone or an address.
@@ -34,13 +35,13 @@ test('assistantRequest: the cached base + the screen block, the turns as message
   assert.deepEqual(p.system[0].cache_control, { type: 'ephemeral' }); assert.match(p.system[0].text, /get_data/); assert.match(p.system[0].text, /propose_entry/); assert.match(p.system[0].text, /متعرضش أرقام تليفونات/);
   assert.equal(p.system[1].text, 'النهارده (القاهرة): 2026-11-08\nالمستخدم: منى (خدمة العملاء)\nالصفحة المفتوحة: الحسابات / expenses\nالفترة المعروضة: 2026-11-01 → 2026-11-08');
   assert.deepEqual(p.messages.map((m) => [m.role, m.content[0].text]), [['user', 'أهلًا'], ['assistant', 'أهلًا بيك'], ['user', 'افتح الأوردرات']]);
-  assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'propose_entry']);
+  assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'propose_entry', 'open_form']);
   assert.equal(p.tool_choice, undefined);
   assert.deepEqual(p.tools[1].input_schema.properties.page.enum, PAGES);
   const f = assistantRequest(parseAssistant({ mode: 'filter', turns: [{ role: 'user', text: 'المتأخر بتاع Art Craft' }], context: { vendors: ['Art Craft'], statuses: ['مكتمل', 'ملغي'] } }).req, CTX);
   assert.deepEqual(f.tools.map((t) => t.name), ['set_filter']); assert.deepEqual(f.tool_choice, { type: 'tool', name: 'set_filter' });
   assert.equal(f.system[1].text, 'المبتكرين المتاحين: Art Craft\nحالات الأوردر: مكتمل، ملغي');
-  assert.deepEqual(toolsOf('chat').length, 6);
+  assert.deepEqual(toolsOf('chat').length, 7); // + open_form (phase 13 decision 36)
 });
 
 test('readTurn: text, tool uses (ids kept for the results), a refusal, a cut-off without text; toolResults shapes the next user message', () => {
@@ -161,4 +162,21 @@ test('reportOf: forbidden and malformed reads out, strings ≤ 200 and lists ≤
   const big = Array.from({ length: 5 }, (_, i) => ({ kind: 'k' + i, data: { rows: Array.from({ length: 50 }, () => ({ t: 'y'.repeat(200), u: 'z'.repeat(200), v: 'w'.repeat(200) })) } })); // ≈ 150 KB before the cap
   const b = reportOf(big); assert.ok(b.length < 5 && b.length > 0); assert.ok(JSON.stringify(b).length <= REPORT_MAX);
   assert.deepEqual(reportOf(undefined), []);
+});
+
+
+// phase 13 decision 36 (owner 10 Nov — «يقدر يضيف مبتكر أو موظف أو عميل… يفتحلي بيها بوب أب أملاها وبعد كده ياخد الأكشن»): open_form opens
+// one of the system's own popups with the values the member said; unknown forms / fields are dropped; never a dangerous order status
+test('open_form: the known forms and their fields only; dates, amounts and numbers checked; no cancel / return / fail for an order', () => {
+  assert.deepEqual(cleanAction('open_form', { form: 'vendor_add', values: { name: ' خزف أسوان ', phone: '01012345678', bogus: 'x', storeUrl: 'https://x' } }),
+    { name: 'open_form', input: { form: 'vendor_add', values: { name: 'خزف أسوان', phone: '01012345678', storeUrl: 'https://x' } } });
+  assert.equal(cleanAction('open_form', { form: 'vendor_delete', values: { name: 'x' } }), null);
+  assert.deepEqual(cleanAction('open_form', { form: 'member_add', values: { name: 'منى', hire: '2026-13-40', email: 'm@ibtekr.club' } }).input.values, { name: 'منى', email: 'm@ibtekr.club' });
+  assert.deepEqual(cleanAction('open_form', { form: 'hr_advance', values: { amount: '3,000', months: '30' } }).input.values, { amount: '3000' }); // months > 24 dropped
+  assert.deepEqual(cleanAction('open_form', { form: 'hr_leave', values: { kind: 'إجازة سنوية', from: '2026-12-01', to: 'بكرة' } }).input.values, { kind: 'إجازة سنوية', from: '2026-12-01' });
+  assert.deepEqual(cleanAction('open_form', { form: 'ticket_new', values: { type: 'boss', priority: 'high', orderId: 'IB-181668', title: 'تأخير' } }).input.values, { priority: 'high', orderId: '181668', title: 'تأخير' });
+  assert.deepEqual(cleanAction('open_form', { form: 'order_update', values: { order: 'IB-181668', status: 'جاهز للشحن' } }).input.values, { order: '181668', status: 'جاهز للشحن' });
+  for (const st of ['ملغي', 'استرجاع', 'فشل']) { assert.ok(!AI_ORDER_STATUSES.includes(st)); assert.equal(cleanAction('open_form', { form: 'order_update', values: { order: '1', status: st } }), null); }
+  assert.deepEqual(Object.keys(FORMS).sort(), ['customer_add', 'hr_advance', 'hr_leave', 'hr_remote', 'member_add', 'order_update', 'task_add', 'ticket_new', 'vendor_add']);
+  assert.ok(toolsOf('chat').some((t) => t.name === 'open_form')); assert.ok(!toolsOf('filter').some((t) => t.name === 'open_form'));
 });

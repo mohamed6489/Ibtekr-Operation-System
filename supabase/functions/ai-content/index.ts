@@ -392,6 +392,8 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
   const spent = { model: cfg.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 };
   const actions: Json[] = []; const tools: string[] = []; let text = ''; let reads = 0; const got: Json[] = []; // got: the reads for the «تفاصيل» report (decision 23)
   const typedAmounts = amountsIn(req.question); // propose_entry only for an amount the member typed (never one read from data)
+  // decision 36: an advance's amount in a popup only when the member typed it in one of their turns (the popup asks otherwise)
+  const typedAll = amountsIn(req.turns.filter((t: Json) => t.role === 'user').map((t: Json) => String(t.text)).join(' '));
   for (let step = 0; step <= MAX_TOOL_CALLS + 1; step++) {
     if (step > 0 && spent.cost_usd >= reserve) { await finishRun(deps, run.id, { ...spent, status: 'cap', error: 'ai_cap' }); return json(402, { error: 'ai_cap' }); }
     const asked = await ask(deps, params, 'claude');
@@ -419,7 +421,8 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
       } else {
         const act = cleanAction(use.name, use.input);
         if (act && use.name === 'propose_entry' && !typedAmounts.includes(Number((act.input as Json).amount))) { results.push({ id: use.id, content: 'refused: the amount is not in the user\'s own message — ask them for it', error: true }); continue; }
-        if (act) { actions.push(act); results.push({ id: use.id, content: use.name === 'propose_entry' ? 'the confirm card will be shown to the user after your answer — not recorded yet' : 'will run on the user\'s screen after your answer' }); }
+        if (act && use.name === 'open_form') { const vals = (act.input as Json).values as Json; if (vals.amount != null && !typedAll.includes(Number(vals.amount))) delete vals.amount; }
+        if (act) { actions.push(act); results.push({ id: use.id, content: use.name === 'propose_entry' ? 'the confirm card will be shown to the user after your answer — not recorded yet' : use.name === 'open_form' ? 'the popup opens on the user\'s screen after your answer, filled with these values — nothing is saved until they press its button' : 'will run on the user\'s screen after your answer' }); }
         else results.push({ id: use.id, content: 'invalid input for ' + line(use.name, 40), error: true });
       }
     }

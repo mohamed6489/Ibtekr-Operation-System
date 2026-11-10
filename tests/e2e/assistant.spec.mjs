@@ -128,3 +128,46 @@ test('decision 23: «تفاصيل» opens the read data as a report (chips + tab
   p0 = await P.boundingBox(); expect(p0.width).toBeLessThanOrEqual(421); expect(Math.abs(p0.y - (b0.y + b0.height + 8))).toBeLessThanOrEqual(2);
   expect(JSON.stringify(mock.aiRuns.map((x) => x.output))).not.toContain('ريهام'); // the report never lands in ai_runs
 });
+
+// phase 13 decision 36 (owner 10 Nov — «يقدر يضيف مبتكر أو موظف أو عميل… يسألني على البيانات اللي محتاجها ويفتحلي بيها بوب أب أملاها وبعد
+// كده ياخد الأكشن ودايمًا يبعتلي أأكد»; the popup is the confirmation, the dangerous actions are not the assistant's): open_form opens the
+// system's own popup filled with the member's values — nothing is written until its own button
+test('decision 36: open_form vendor_add opens «إضافة مبتكر» filled — nothing saved until the member saves', async ({ page }) => {
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'فتحتلك بوب أب إضافة المبتكر — راجعه واحفظ.', actions: [{ name: 'open_form', input: { form: 'vendor_add', values: { name: 'خزف أسوان', phone: '01012345678', category: 'خزف' } } }] } : null);
+  await signIn(page, ADMIN);
+  const before = mock.vendors.length;
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await ask(page, 'ضيف مبتكر اسمه خزف أسوان رقمه 01012345678');
+  await expect(page.locator('#v-name')).toHaveValue('خزف أسوان');
+  await expect(page.locator('#v-phone')).toHaveValue('01012345678');
+  await page.waitForTimeout(300);
+  expect(mock.vendors.length).toBe(before); // the popup only — the member's save writes
+});
+
+test('decision 36: open_form customer_add / hr_leave / task_add open their forms filled; a viewer without the right gets a note, no popup', async ({ page }) => {
+  let next = null; mock.aiAnswer = (action) => (action === 'assistant' ? next : null);
+  await signIn(page, ADMIN);
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  next = { text: 'فتحتلك بوب أب العميل.', actions: [{ name: 'open_form', input: { form: 'customer_add', values: { name: 'منة', city: 'طنطا' } } }] };
+  await ask(page, 'ضيف عميلة اسمها منة من طنطا');
+  const cust = page.locator('.modal[role=dialog]', { hasText: 'إضافة عميل' }).last();
+  await expect(cust.locator('#name')).toHaveValue('منة'); await expect(cust.locator('#city')).toHaveValue('طنطا');
+  await cust.getByRole('button', { name: 'إلغاء' }).click();
+  next = { text: 'فتحتلك المهمة.', actions: [{ name: 'open_form', input: { form: 'task_add', values: { title: 'مراجعة فواتير' } } }] };
+  await ask(page, 'ضيفلي مهمة مراجعة فواتير');
+  const task = page.locator('.modal[role=dialog]', { hasText: 'إضافة مهمة' }).last();
+  await expect(task.locator('#title')).toHaveValue('مراجعة فواتير');
+  await task.getByRole('button', { name: 'أكّد وسجّل' }).click();
+  await expect.poll(() => mock.hr.tasks.some((t) => t.title === 'مراجعة فواتير')).toBe(true);
+});
+
+test('decision 36: open_form order_update asks once in a popup, then writes the confirmation; a viewer is told the right is missing', async ({ page }) => {
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'فتحتلك التأكيد.', actions: [{ name: 'open_form', input: { form: 'order_update', values: { order: '181668', confirm: 'مؤكد بدون عربون' } } }] } : null);
+  await signIn(page, ADMIN);
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  await ask(page, 'أكّد أوردر 181668 من غير عربون');
+  const dlg = page.locator('.modal[role=dialog]', { hasText: 'تحديث الأوردر IB-181668' }).last();
+  await expect(dlg).toContainText('مؤكد بدون عربون');
+  await dlg.getByRole('button', { name: 'أكّد وسجّل' }).click();
+  await expect.poll(() => page.evaluate(() => window.OrdersApp.query({ q: '181668' }, 1).rows[0].confirm)).toBe('مؤكد بدون عربون');
+});

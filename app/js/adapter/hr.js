@@ -36,7 +36,7 @@
   const TASK_COLS = 'id, member_id, title, status, day, reason, reviewer_id, until, review_note, done_at, created_by, created_at';
   const ACCOUNTS = ['حساب البنك', 'حساب بوسطة', 'حساب باي موب', 'محفظة إلكترونية'];
   const DOC_KINDS = ['عقد عمل', 'ملحق عقد', 'بطاقة رقم قومي', 'شهادة تخرج', 'أخرى'];
-  const DEFAULTS = { shiftEnd: true, presence: true, presenceEvery: 120, confirmBy: 'المدير المباشر', escalate: 24, countOT: true, lateGrace: 15, lateDeduct: false,
+  const DEFAULTS = { shiftEnd: true, presence: true, presenceEvery: 120, confirmBy: 'المدير المباشر', escalate: 24, countOT: true,
     autoMissing: true, probation: 3, salaryViewers: 'المالك بس', hideAmounts: true, holdbackDefault: 1000, bonusFloor: 70 };
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
@@ -49,7 +49,7 @@
   const reasonOf = (err) => { const code = String((err && err.code) || ''); return code === '42501' ? 'forbidden' : code === 'P0002' ? 'notfound' : code === '23505' ? 'exists' : /^2[23]/.test(code) ? 'invalid' : 'network'; };
   const fieldOf = (err) => { const m = /invalid: (\w+)/.exec(String((err && err.message) || '')); return m ? m[1] : null; };
   const MESSAGES = { forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'مش موجود أو مش متاح ليك', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'راجع البيانات', exists: 'موجود بالفعل' };
-  const FIELD_MESSAGES = { ended: 'الدوام النهارده اتقفل — التصحيح بيبقى بطلب «تصحيح انصراف»', shift: 'مفيش دوام مفتوح', day: 'اليوم ده مش متاح', time: 'اكتب الوقت',
+  const FIELD_MESSAGES = { at: 'راجع وقت الانصراف', shift: 'مفيش دوام مفتوح', day: 'اليوم ده مش متاح', time: 'اكتب الوقت',
     amount: 'اكتب المبلغ وعدد الأقساط', to: 'راجع التاريخ', type: 'النوع ده مش موجود', reason: 'اكتب السبب', minutes: 'راجع عدد الدقايق', weights: 'مجموع الأوزان لازم 100%',
     actual: 'اكتب الفعلي لكل مؤشر', month: 'الشهر ده لسه مجاش', status: 'الحالة دي مش متاحة', step: 'الخطوة دي مش متاحة للكشف دلوقتي', account: 'اختار الحساب',
     doc: 'ارفع المرفق المطلوب', note: 'الملاحظة طويلة', decision: 'القرار مش صحيح', email: 'الإيميل ده مستخدم', phone: 'رقم الموبايل ده مستخدم',
@@ -140,15 +140,23 @@
         waitedHours: o.status === 'مستني' ? Math.max(0, Math.floor((Date.now() - Date.parse(o.created_at)) / 3600000)) : 0 }; }).filter((o) => o.member);
     s.overtime = otRows;
     s.restWork = otRows.filter((o) => o.kind === 'rest_day' && o.status === 'اتضاف').map((o) => ({ member: o.member, date: o.date, note: o.note, dbId: o.dbId }));
-    // attendance (the real days; the log adds leave / absence / rest days by itself)
+    // attendance (the real days; the log adds leave / absence / rest days by itself). Decision 24 (0068): a row is a session — the day is
+    // its sessions together: «in» the first start, «out» the last end (none while one is open), «mins» the closed sessions summed, «openId» /
+    // «openIn» the open one; no lateness (flexible hours)
     const okOt = new Map(); otRows.filter((o) => o.kind === 'hours' && o.status === 'اتضاف').forEach((o) => { const k = o.member + '|' + o.date; okOt.set(k, (okOt.get(k) || 0) + o.paid); });
-    s.attendance = raw.att.map((a) => {
-      const code = codeOf(a.member_id); const m = hm.get(a.member_id); const start = toMin(m ? m.shift_start : '09:00') || 540;
-      const i = minOf(a.in_at, a.day); const o = a.out_at ? minOf(a.out_at, a.day) : null; const off = offDay(a.day, hol);
-      const lateBy = off ? 0 : Math.max(0, i - start); const late = lateBy > num(set.lateGrace) ? lateBy : 0; const ot = okOt.get(code + '|' + a.day) || 0;
-      const status = o == null ? (a.day === t ? 'حاضر' : 'انصراف ناقص') : off ? 'شغل يوم راحة' : ot ? 'وقت إضافي اتضاف' : late ? 'متأخر ' + late + ' د' : 'منتظم';
-      const src = a.source === 'clock' ? (a.remote ? 'تسجيل من السيستم · عن بُعد' : 'تسجيل من السيستم') : (a.source === 'fix' ? 'تصحيح' : 'تسجيل يدوي') + ' — ' + nameOf(a.by_id) + (a.note ? ' · ' + a.note : '');
-      return { id: Number(a.id), member: code, memberUid: a.member_id, date: a.day, type: hol.includes(a.day) ? 'عطلة رسمية' : off ? 'راحة أسبوعية' : 'يوم عمل', in: i, out: o, ot, late, status, src, remote: !!a.remote, source: a.source };
+    const byDay = new Map(); raw.att.forEach((a) => { const k = a.member_id + '|' + a.day; if (!byDay.has(k)) byDay.set(k, []); byDay.get(k).push(a); });
+    const srcOf = (a) => (a.source === 'clock' ? (a.remote ? 'تسجيل من السيستم · عن بُعد' : 'تسجيل من السيستم') : (a.source === 'fix' ? 'تصحيح' : 'تسجيل يدوي') + ' — ' + nameOf(a.by_id) + (a.note ? ' · ' + a.note : ''));
+    s.attendance = [...byDay.values()].map((l) => {
+      l.sort((x, y) => (x.in_at < y.in_at ? -1 : x.in_at > y.in_at ? 1 : 0));
+      const a = l[0]; const code = codeOf(a.member_id); const off = offDay(a.day, hol);
+      const open = l.filter((x) => !x.out_at).pop() || null; const last = l[l.length - 1];
+      const sessions = l.map((x) => ({ id: Number(x.id), in: minOf(x.in_at, x.day), out: x.out_at ? minOf(x.out_at, x.day) : null, source: x.source, remote: !!x.remote }));
+      const i = sessions[0].in; const o = open ? null : Math.max(...sessions.map((x) => x.out));
+      const mins = sessions.reduce((n, x) => n + (x.out != null ? Math.max(0, x.out - x.in) : 0), 0); const ot = okOt.get(code + '|' + a.day) || 0;
+      const status = o == null ? (a.day === t ? 'حاضر' : 'انصراف ناقص') : off ? 'شغل يوم راحة' : ot ? 'وقت إضافي اتضاف' : 'منتظم';
+      const src = [...new Set(l.map(srcOf))].join(' · ') + (l.length > 1 ? ' · ' + l.length + ' جلسات' : '');
+      return { id: Number((open || last).id), member: code, memberUid: a.member_id, date: a.day, type: hol.includes(a.day) ? 'عطلة رسمية' : off ? 'راحة أسبوعية' : 'يوم عمل', in: i, out: o, mins,
+        openId: open ? Number(open.id) : null, openIn: open ? minOf(open.in_at, open.day) : null, sessions, ot, late: 0, status, src, remote: l.some((x) => !!x.remote), source: (open || last).source };
     }).filter((a) => a.member);
     // today
     const tdy = {};
@@ -157,7 +165,7 @@
       const row = mine.find((a) => a.date === t); const before = mine.find((a) => a.date < t);
       const missing = !!before && before.out == null;
       const r = hm.get(m.uid); const end = toMin(r ? r.shift_end : '17:00') || 1020;
-      if (row) { tdy[m.id] = { in: row.in, out: row.out, remote: row.remote, missingYesterday: missing }; return; }
+      if (row) { tdy[m.id] = { in: row.in, out: row.out, mins: row.mins, openIn: row.openIn, sessions: row.sessions.length, remote: row.remote, missingYesterday: missing }; return; }
       const leave = s.requests.find((q) => q.member === m.id && isLeave(q.type) && q.status === 'موافق' && q.from <= t && q.to >= t);
       if (hol.includes(t)) tdy[m.id] = { kind: 'holiday', missingYesterday: missing };
       else if (offDay(t, hol)) tdy[m.id] = { kind: 'off', missingYesterday: missing };
@@ -269,13 +277,16 @@
   async function write(q) { try { const r = await q; return r && r.error ? r : { data: r ? r.data : null }; } catch (e) { return { error: { code: 'net' } }; } }
 
   // ---------- the clock (decision 10; block 21) ----------
-  // my shift as the server has it (hr_shift_now's rule on the loaded rows): the open one within 20 hours, else today's — or null
+  // my session as the server has it (hr_shift_now's rule on the loaded rows): the open one within 20 hours, else today's latest — or null;
+  // `done` = the minutes of that day's other closed sessions (decision 24: the day's hours are its sessions summed)
   function myShift() {
     const uid = myUid(); if (!uid) return null; const t = today(); const since = Date.now() - 20 * 3600000;
-    const mine = raw.att.filter((a) => a.member_id === uid);
-    const open = mine.filter((a) => !a.out_at && Date.parse(a.in_at) > since).sort((a, b) => (a.in_at < b.in_at ? 1 : -1))[0];
-    const row = open || mine.find((a) => a.day === t) || null;
-    return row ? { id: Number(row.id), day: row.day, in_at: row.in_at, out_at: row.out_at || null, remote: !!row.remote } : null;
+    const mine = raw.att.filter((a) => a.member_id === uid).sort((a, b) => (a.in_at < b.in_at ? 1 : -1));
+    const row = mine.find((a) => !a.out_at && Date.parse(a.in_at) > since) || mine.find((a) => a.day === t) || null;
+    if (!row) return null;
+    const same = mine.filter((a) => a.day === row.day);
+    const done = same.filter((a) => a.out_at && a.id !== row.id).reduce((n, a) => n + Math.max(0, Math.floor((Date.parse(a.out_at) - Date.parse(a.in_at)) / 60000)), 0);
+    return { id: Number(row.id), day: row.day, in_at: row.in_at, out_at: row.out_at || null, remote: !!row.remote, done, sessions: same.length };
   }
   async function shiftNow() { const { data, error } = await rpc('hr_shift_now', {}); if (error) return fail(error); return { ok: true, shift: data || null }; }
   async function clockIn() { const { data, error } = await rpc('hr_clock_in', {}); if (error) return fail(error); log('hr.shift.start', data && data.remote ? 'عن بُعد' : ''); await load(); return { ok: true, shift: data }; } /* «عن بُعد» is the server's: an approved «شغل عن بُعد» covering today */
@@ -290,16 +301,21 @@
     const { error } = await rpc('hr_attendance_set', { p_member: uid, p_day: day, p_in: inT, p_out: outT || null, p_remote: !!(opts && opts.remote), p_note: opts && opts.note ? clean(opts.note, 300) : null });
     if (error) return fail(error); return after('hr.attendance.manual', (byUid(uid) || {}).id + ' ' + day, uid);
   }
-  // «إنهاء الدوام» for another member (hr.edit F): their open day closed at now
-  async function endShiftFor(member) {
-    const uid = uidOf(member); const a = data.attendance.find((x) => x.memberUid === uid && x.out == null && x.date >= addDays(today(), -1));
-    if (!a) return no('invalid', 'shift');
-    const out = Math.min(nowMin() + 1440 * dayDiff(a.date, today()), 1439 + 1440);
-    return setAttendance(uid, a.date, hhmm(a.in), hhmm(out), { remote: a.remote, note: 'إنهاء الدوام — ' + nameOf(myUid()) });
+  // one session's end (hr.edit F; 0068 hr_attendance_close): 'HH:MM' Cairo on its day, or null = now (an open session only)
+  async function closeSession(id, outT, note, member) {
+    const { error } = await rpc('hr_attendance_close', { p_id: id, p_out: outT || null, p_note: note ? clean(note, 300) : null });
+    if (error) return fail(error); return after('hr.attendance.close', (byUid(member) || {}).id || '', member || null);
   }
-  // «تصحيح انصراف ناقص»: the request (if any) approved first, then the time typed
+  // «إنهاء الدوام» for another member (hr.edit F): their open session closed at now — the day's other sessions stay
+  async function endShiftFor(member) {
+    const uid = uidOf(member); const a = data.attendance.find((x) => x.memberUid === uid && x.openId && x.date >= addDays(today(), -1));
+    if (!a) return no('invalid', 'shift');
+    return closeSession(a.openId, null, 'إنهاء الدوام — ' + nameOf(myUid()), uid);
+  }
+  // «تصحيح انصراف ناقص»: the request (if any) approved first (it closes the open session at its time), then the time typed on that session
   async function fixOut(a, outT, reason, reqDbId) {
     if (reqDbId) { const r = await decide(reqDbId, 'موافق'); if (!r.ok) return r; }
+    if (a.openId) return closeSession(a.openId, outT, reason, a.memberUid || uidOf(a.member));
     return setAttendance(a.memberUid || a.member, a.date, hhmm(a.in), outT, { remote: a.remote, note: reason });
   }
 

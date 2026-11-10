@@ -100,8 +100,10 @@ begin
   v_ot := (r ->> 'overtime_id')::bigint;
   if v_ot is null or (r ->> 'overtime')::int not between 59 and 61 then raise exception 'case the overtime past 8 hours is recorded failed (%)', r; end if;
   insert into hr_ids values ('ot', v_ot::text);
+  -- 0068 (decision 24): another session the same day is fine — a new row, closed again here (rls_hr_flex covers the sums)
   if (select v::date from hr_ids where k = 'day') = public.hr_today() then
-    begin perform public.hr_clock_in(); raise exception 'case one shift a day failed'; exception when invalid_parameter_value then null; end;
+    if (public.hr_clock_in() ->> 'id') = (select v from hr_ids where k = 'shift') then raise exception 'case a second session the same day is a new row failed'; end if;
+    perform public.hr_clock_out();
   end if;
   begin perform public.hr_overtime_decide(v_ot, 'add'); raise exception 'case a member does not decide their own overtime failed'; exception when insufficient_privilege then null; end;
   begin perform public.hr_attendance_set('00000000-0000-4000-8000-0000000046a3', public.hr_today(), '08:00'); raise exception 'case only hr.edit sets attendance by hand failed';
@@ -149,7 +151,9 @@ begin
   begin perform public.hr_request_decide((select v::bigint from hr_ids where k = 'leave'), 'مرفوض'); raise exception 'case a refusal needs a reason failed'; exception when invalid_parameter_value then null; end;
   if public.hr_request_decide((select v::bigint from hr_ids where k = 'leave'), 'موافق') <> 'موافق' then raise exception 'case the manager approves the leave failed'; end if;
   perform public.hr_request_decide((select v::bigint from hr_ids where k = 'fix'), 'موافق');
-  if (select source from public.hr_attendance where id = (select v::bigint from hr_ids where k = 'shift')) <> 'fix' then raise exception 'case an approved «تصحيح انصراف» closes the day failed'; end if;
+  -- 0068: the day's latest session takes the fix (a second session today is the latest one)
+  if (select a.source from public.hr_attendance a where a.member_id = '00000000-0000-4000-8000-0000000046a3' and a.day = (select v::date from hr_ids where k = 'day')
+      order by a.in_at desc limit 1) <> 'fix' then raise exception 'case an approved «تصحيح انصراف» closes the day failed'; end if;
 end $$;
 
 -- ================================================================ the admin: ratings, rejected overtime → meeting, the payroll into the accounts

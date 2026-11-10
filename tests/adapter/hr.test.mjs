@@ -90,12 +90,12 @@ test('load: the members in place (the pay, the shift, the leave used this year, 
 
 test('load: today (minutes since 00:00 Cairo, the missing end of yesterday, absent after the shift) and the attendance statuses', async () => {
   const { H, store } = load(); await H.load();
-  eq(H.data.today.M02, { in: 542, out: null, remote: false, missingYesterday: false });
+  eq(H.data.today.M02, { in: 542, out: null, mins: 0, openIn: 542, sessions: 1, remote: false, missingYesterday: false });
   eq(H.data.today.M03, { missingYesterday: true }, 'no row today, 4 Nov has no end, the shift (10–18) is not over');
   eq(H.data.today.M01, undefined, 'the admin has no row and the shift (09–17) not over yet at 14:00');
   const st = Object.fromEntries(H.data.attendance.map((a) => [a.id, [a.status, a.type, a.late, a.ot]]));
   eq(st[1], ['حاضر', 'يوم عمل', 0, 0]);
-  eq(st[2], ['متأخر 40 د', 'يوم عمل', 40, 0], 'past the 30 minutes of grace in the settings row');
+  eq(st[2], ['منتظم', 'يوم عمل', 0, 0], 'decision 24: flexible hours — a 09:40 start is not late');
   eq(st[3], ['وقت إضافي اتضاف', 'يوم عمل', 0, 60]);
   eq(st[4], ['انصراف ناقص', 'يوم عمل', 0, 0]);
   eq(st[5], ['شغل يوم راحة', 'راحة أسبوعية', 0, 0], 'a Saturday');
@@ -151,7 +151,7 @@ test('the roster: a member only hr_team() shows (a manager\'s team the profiles 
 
 test('myShift: my open shift within 20 hours, else today\'s, else null (the clock after a refresh or on another device)', async () => {
   const { H } = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'P' } }); await H.load();
-  eq(H.myShift(), { id: 1, day: '2026-11-05', in_at: cairo('2026-11-05', '09:02'), out_at: null, remote: false });
+  eq(H.myShift(), { id: 1, day: '2026-11-05', in_at: cairo('2026-11-05', '09:02'), out_at: null, remote: false, done: 0, sessions: 1 });
   const done = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'P' }, responses: { hr_attendance: ok([{ id: 9, member_id: B, day: '2026-11-05', in_at: cairo('2026-11-05', '08:00'), out_at: cairo('2026-11-05', '13:00'), remote: true, source: 'clock', note: null, by_id: B }]) } });
   await done.H.load(); eq(done.H.myShift().out_at, cairo('2026-11-05', '13:00'));
   const none = load({ meId: A }); await none.H.load(); eq(none.H.myShift(), null);
@@ -167,8 +167,8 @@ test('the clock: hr_clock_in / hr_clock_out (the note only when there is one) an
   eq(rpcs(stub).find((x) => x[0] === 'hr_clock_out'), ['hr_clock_out', { p_ot_note: 'جهزت الشحن', p_at: null }]);
   eq(logs.map((l) => l[0]), ['hr.shift.start', 'hr.shift.end']);
   assert(!JSON.stringify(logs).includes('جهزت'), 'the note never in the log');
-  const ended = load({ responses: { 'rpc:hr_clock_in': { data: null, error: { code: '22023', message: 'invalid: ended' } } } });
-  eq(await ended.H.clockIn(false), { ok: false, reason: 'invalid', field: 'ended', message: 'الدوام النهارده اتقفل — التصحيح بيبقى بطلب «تصحيح انصراف»' });
+  const bad = load({ responses: { 'rpc:hr_clock_out': { data: null, error: { code: '22023', message: 'invalid: at' } } } });
+  eq(await bad.H.clockOut(null, Date.now()), { ok: false, reason: 'invalid', field: 'at', message: 'راجع وقت الانصراف' });
 });
 
 test('requests: hr_request_create (another member by uid, mine without), decide / cancel by number; the refusals in Arabic; no note in the log', async () => {
@@ -265,11 +265,12 @@ test('adjustments / achievements / extras / meetings through the tables RLS lets
 
 test('the settings row «hr» (the admin): merged over what is there; a member is refused; a department added once', async () => {
   const { H, stub } = load(); await H.load();
-  eq((await H.saveSettings({ lateGrace: 10, nope: 1 })).ok, true);
-  eq(opsOf(stub.calls, 'settings').find((c) => c.op === 'upsert').args[0], { section: 'hr', data: { lateGrace: 10, departments: ['العمليات', 'الإدارة', 'الميديا'] } });
+  eq((await H.saveSettings({ escalate: 12, nope: 1 })).ok, true);
+  eq(opsOf(stub.calls, 'settings').find((c) => c.op === 'upsert').args[0].data.escalate, 12);
+  eq(opsOf(stub.calls, 'settings').find((c) => c.op === 'upsert').args[0].data.nope, undefined);
   eq((await H.addDepartment('العمليات')).reason, 'exists');
   const mem = load({ role: 'ops', perms: { 'hr.view': 'P' } }); await mem.H.load();
-  eq((await mem.H.saveSettings({ lateGrace: 5 })).reason, 'forbidden');
+  eq((await mem.H.saveSettings({ escalate: 5 })).reason, 'forbidden');
 });
 
 test('«إضافة عضو»: team-admin (the login, the code, the password once) then the pay; a taken email in Arabic; a member is refused; no password in the log', async () => {
@@ -304,13 +305,13 @@ test('files: images / PDF ≤ 10 MB into the member\'s own folder of «hr-docs»
   eq(stub.calls.filter((c) => c.op === 'createSignedUrl').length, 1);
 });
 
-test('the attendance by hand (hr.edit F): the day in Cairo times; «إنهاء الدوام» for another member closes their open day at now', async () => {
-  const { H, stub } = load({ responses: { 'rpc:hr_attendance_set': ok(1) } });
+test('the attendance by hand (hr.edit F): the day in Cairo times; «إنهاء الدوام» for another member closes their open session at now', async () => {
+  const { H, stub } = load({ responses: { 'rpc:hr_attendance_set': ok(1), 'rpc:hr_attendance_close': ok(1) } });
   await H.load();
   await H.setAttendance('M03', '2026-11-04', '10:00', '18:15', { note: 'نسي' });
   eq(rpcs(stub).find((x) => x[0] === 'hr_attendance_set'), ['hr_attendance_set', { p_member: C, p_day: '2026-11-04', p_in: '10:00', p_out: '18:15', p_remote: false, p_note: 'نسي' }]);
   await H.endShiftFor('M02');
-  eq(rpcs(stub).filter((x) => x[0] === 'hr_attendance_set')[1][1], { p_member: B, p_day: '2026-11-05', p_in: '09:02', p_out: '14:00', p_remote: false, p_note: 'إنهاء الدوام — صفوت كمال' });
+  eq(rpcs(stub).find((x) => x[0] === 'hr_attendance_close'), ['hr_attendance_close', { p_id: 1, p_out: null, p_note: 'إنهاء الدوام — صفوت كمال' }], 'decision 24: that session only, not the whole day');
   eq((await H.endShiftFor('M01')).field, 'shift', 'no open day');
 });
 
@@ -447,4 +448,33 @@ test('tasks: the live line «hr» / «tasks» reloads the tasks alone — not th
   eq(opsOf(stub.calls, 'hr_members').filter((c) => c.op === 'select').length, before);
   eq(opsOf(stub.calls, 'hr_tasks').filter((c) => c.op === 'select').length, tb + 2);
   H.clear(); eq([H.data.tasks, H.people()], [[], []]);
+});
+
+// phase 13 decision 24 (0068): several sessions a day — the day is their sum, no lateness; my session carries the day's other closed minutes;
+// «تصحيح انصراف ناقص» sets the end of the open session only (after the request, if any, was approved)
+test('flexible hours: a day of several sessions is one day (first in, last out, the minutes summed); myShift adds the closed ones; fixOut on the open session', async () => {
+  const day = [
+    { id: 21, member_id: B, day: '2026-11-05', in_at: cairo('2026-11-05', '07:00'), out_at: cairo('2026-11-05', '09:30'), remote: false, source: 'clock', note: null, by_id: B },
+    { id: 22, member_id: B, day: '2026-11-05', in_at: cairo('2026-11-05', '11:00'), out_at: cairo('2026-11-05', '12:30'), remote: false, source: 'clock', note: null, by_id: B },
+    { id: 23, member_id: B, day: '2026-11-05', in_at: cairo('2026-11-05', '13:00'), out_at: null, remote: false, source: 'clock', note: null, by_id: B },
+    { id: 31, member_id: C, day: '2026-11-04', in_at: cairo('2026-11-04', '12:00'), out_at: cairo('2026-11-04', '14:00'), remote: false, source: 'clock', note: null, by_id: C },
+    { id: 32, member_id: C, day: '2026-11-04', in_at: cairo('2026-11-04', '16:00'), out_at: null, remote: false, source: 'clock', note: null, by_id: C },
+  ];
+  const { H, stub } = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'F', 'hr.edit': 'F' }, responses: { hr_attendance: ok(day), 'rpc:hr_attendance_close': ok(32) } });
+  await H.load();
+  const b = H.data.attendance.find((a) => a.member === 'M02');
+  eq([b.in, b.out, b.mins, b.openId, b.openIn, b.sessions.length, b.status, b.late], [420, null, 240, 23, 780, 3, 'حاضر', 0]);
+  eq(H.data.attendance.filter((a) => a.member === 'M02').length, 1, 'one day, not three');
+  eq(H.data.today.M02, { in: 420, out: null, mins: 240, openIn: 780, sessions: 3, remote: false, missingYesterday: false });
+  eq(H.myShift(), { id: 23, day: '2026-11-05', in_at: cairo('2026-11-05', '13:00'), out_at: null, remote: false, done: 240, sessions: 3 });
+  const c = H.data.attendance.find((a) => a.member === 'M03');
+  eq([c.status, c.mins, c.openId], ['انصراف ناقص', 120, 32]);
+  eq((await H.fixOut(c, '18:00', 'نسي')).ok, true);
+  eq(rpcs(stub).find((x) => x[0] === 'hr_attendance_close'), ['hr_attendance_close', { p_id: 32, p_out: '18:00', p_note: 'نسي' }]);
+  eq(rpcs(stub).filter((x) => x[0] === 'hr_attendance_set').length, 0, 'the other session of that day stays');
+  // all closed: the last end, the sum
+  const closed = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'F' }, responses: { hr_attendance: ok(day.slice(0, 2)) } }); await closed.H.load();
+  const d = closed.H.data.attendance.find((a) => a.member === 'M02');
+  eq([d.in, d.out, d.mins, d.openId, d.status], [420, 750, 240, null, 'منتظم']);
+  eq(closed.H.myShift(), { id: 22, day: '2026-11-05', in_at: cairo('2026-11-05', '11:00'), out_at: cairo('2026-11-05', '12:30'), remote: false, done: 150, sessions: 2 });
 });

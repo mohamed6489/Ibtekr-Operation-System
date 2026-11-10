@@ -156,10 +156,11 @@ export function hrRoute(c) {
     const f = rpc[1]; const b = c.body(); H.calls.push({ fn: f, ...JSON.parse(JSON.stringify(b)), by: u.id });
     if (H.down) return json(503, { message: 'mock: hr down' });
     const bad = (field) => refuse(400, '22023', 'invalid: ' + field); const no = () => refuse(403, '42501', 'not allowed'); const nf = () => refuse(404, 'P0002', 'not found');
-    // hr_shift_now: the open one first (within 20 hours), else today's
+    // hr_shift_now: the open one first (within 20 hours), else today's latest; 0068 (decision 24): + the day's other closed minutes and its sessions
+    const dayDone = (member, day, except) => H.attendance.filter((x) => x.member_id === member && x.day === day && x.out_at && x.id !== except).reduce((n, x) => n + minutes(x.in_at, x.out_at), 0);
     const shift = () => { const l = H.attendance.filter((x) => x.member_id === u.id && ((x.out_at == null && Date.parse(x.in_at) > Date.now() - 20 * 3600000) || x.day === today));
       l.sort((x, y) => ((y.out_at == null) - (x.out_at == null)) || (x.in_at < y.in_at ? 1 : -1)); const a = l[0];
-      return a ? { id: a.id, day: a.day, in_at: a.in_at, out_at: a.out_at, remote: a.remote } : null; };
+      return a ? { id: a.id, day: a.day, in_at: a.in_at, out_at: a.out_at, remote: a.remote, done: dayDone(u.id, a.day, a.id), sessions: H.attendance.filter((x) => x.member_id === u.id && x.day === a.day).length } : null; };
     if (f === 'hr_settings') return json(200, active ? ((mock.settings.find((s) => s.section === 'hr') || {}).data || {}) : null);
     // the internal notes (security review 5 Nov): hr.edit F, on the members they see, never their own row
     if (f === 'hr_member_notes') return json(200, editor ? H.members.filter((r) => r.notes != null && r.member_id !== u.id && sees(r.member_id)).map((r) => ({ member_id: r.member_id, notes: r.notes })) : []);
@@ -175,7 +176,7 @@ export function hrRoute(c) {
     if (f === 'hr_clock_in') {
       if (!active) return no();
       const open = H.attendance.find((x) => x.member_id === u.id && x.out_at == null && Date.parse(x.in_at) > Date.now() - 20 * 3600000); if (open) return json(200, shift());
-      if (H.attendance.some((x) => x.member_id === u.id && x.day === today)) return bad('ended');
+      // 0068 (decision 24): another session the same day is fine — no «ended»
       const remote = H.requests.some((x) => x.member_id === u.id && x.type === 'شغل عن بُعد' && x.status === 'موافق' && x.from_day <= today && x.to_day >= today); // 0046: the server's, never the caller's
       if ('p_remote' in b) return json(404, { code: 'PGRST202', message: 'Could not find the function public.hr_clock_in(p_remote) in the schema cache' });
       H.attendance.push({ id: nextId(), member_id: u.id, day: today, in_at: now, out_at: null, remote, source: 'clock', note: null, by_id: u.id, updated_at: now });
@@ -186,22 +187,38 @@ export function hrRoute(c) {
       const a = H.attendance.filter((x) => x.member_id === u.id && x.out_at == null && Date.parse(x.in_at) > Date.now() - 20 * 3600000).sort((x, y) => (x.in_at < y.in_at ? 1 : -1))[0];
       if (!a) return bad('no open shift');
       const out = b.p_at && Date.parse(b.p_at) < Date.now() ? new Date(Date.parse(b.p_at)).toISOString() : now; a.out_at = out; a.updated_at = now;
-      const worked = minutes(a.in_at, out); const note = String(b.p_ot_note || '').trim();
+      const worked = minutes(a.in_at, out); const note = String(b.p_ot_note || '').trim(); const total = dayDone(u.id, a.day, a.id) + worked; // 0068: the DAY past 8 hours
       if (restDay(H, a.day)) {
-        let otId = null; if (worked > 0 && !H.overtime.some((o) => o.member_id === u.id && o.day === a.day && o.kind === 'rest_day')) { otId = nextId(); H.overtime.push({ id: otId, member_id: u.id, day: a.day, start_at: a.in_at, end_at: out, minutes: Math.min(worked, 1440), kind: 'rest_day', note: note || 'شغل يوم راحة / عطلة', status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now }); }
-        return json(200, { worked, overtime_id: otId, overtime: 0, rest_day: true });
+        let otId = null; const ex = H.overtime.find((o) => o.member_id === u.id && o.day === a.day && o.kind === 'rest_day');
+        if (worked > 0 && !ex) { otId = nextId(); H.overtime.push({ id: otId, member_id: u.id, day: a.day, start_at: a.in_at, end_at: out, minutes: Math.min(worked, 1440), kind: 'rest_day', note: note || 'شغل يوم راحة / عطلة', status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now }); }
+        else if (worked > 0 && ex.status === 'مستني') { ex.minutes = Math.min(ex.minutes + worked, 1440); ex.end_at = out; otId = ex.id; }
+        return json(200, { worked, day_total: total, overtime_id: otId, overtime: 0, rest_day: true });
       }
-      let otId = null; if (note && worked > 480) { otId = nextId(); H.overtime.push({ id: otId, member_id: u.id, day: a.day, start_at: new Date(Date.parse(a.in_at) + 480 * 60000).toISOString(), end_at: out, minutes: worked - 480, kind: 'hours', note, status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now }); }
-      return json(200, { worked, overtime_id: otId, overtime: otId ? worked - 480 : 0 });
+      const part = Math.min(worked, Math.max(total - 480, 0));
+      let otId = null; if (note && part > 0) { otId = nextId(); H.overtime.push({ id: otId, member_id: u.id, day: a.day, start_at: new Date(Date.parse(out) - part * 60000).toISOString(), end_at: out, minutes: part, kind: 'hours', note, status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now }); }
+      return json(200, { worked, day_total: total, overtime_id: otId, overtime: otId ? part : 0 });
     }
     if (f === 'hr_attendance_set') {
       if (!editor) return no(); if (!b.p_member || !b.p_day || !b.p_in || b.p_day > today) return bad('day'); if (!prof(b.p_member)) return nf();
       const inAt = hrAt(b.p_day, b.p_in); const outAt = b.p_out ? hrAt(b.p_out < b.p_in ? addDays(b.p_day, 1) : b.p_day, b.p_out) : null;
-      let a = H.attendance.find((x) => x.member_id === b.p_member && x.day === b.p_day);
+      const same = H.attendance.filter((x) => x.member_id === b.p_member && x.day === b.p_day).sort((x, y) => (x.in_at < y.in_at ? -1 : 1));
+      let a = same[0]; if (a) H.attendance = H.attendance.filter((x) => !(x.member_id === b.p_member && x.day === b.p_day) || x === a); // 0068: the hand entry replaces the day
       if (a) Object.assign(a, { in_at: inAt, out_at: outAt, remote: !!b.p_remote, source: a.source === 'clock' && a.out_at == null ? 'fix' : 'manual', note: b.p_note || null, by_id: u.id, updated_at: now });
       else { a = { id: nextId(), member_id: b.p_member, day: b.p_day, in_at: inAt, out_at: outAt, remote: !!b.p_remote, source: 'manual', note: b.p_note || null, by_id: u.id, updated_at: now }; H.attendance.push(a); }
       if (outAt && restDay(H, b.p_day) && !H.overtime.some((o) => o.member_id === b.p_member && o.day === b.p_day && o.kind === 'rest_day'))
         H.overtime.push({ id: nextId(), member_id: b.p_member, day: b.p_day, start_at: inAt, end_at: outAt, minutes: Math.min(minutes(inAt, outAt), 1440), kind: 'rest_day', note: 'شغل يوم راحة / عطلة (يدوي)', status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now });
+      return json(200, a.id);
+    }
+    // 0068 (decision 24): one session's end — hr.edit F; empty = now (an open session only); past midnight = the next day
+    if (f === 'hr_attendance_close') {
+      if (!editor) return no(); const a = H.attendance.find((x) => x.id === Number(b.p_id)); if (!a || !sees(a.member_id)) return nf();
+      if (a.out_at && !b.p_out) return bad('at');
+      let out = b.p_out ? hrAt(a.day, b.p_out) : now; if (Date.parse(out) < Date.parse(a.in_at)) out = hrAt(addDays(a.day, 1), b.p_out);
+      if (Date.parse(out) < Date.parse(a.in_at) || Date.parse(out) > Date.now() + 60000) return bad('at');
+      const wasOpen = !a.out_at; Object.assign(a, { out_at: out, source: 'fix', note: b.p_note || a.note, by_id: u.id, updated_at: now });
+      if (wasOpen && restDay(H, a.day)) { const ex = H.overtime.find((o) => o.member_id === a.member_id && o.day === a.day && o.kind === 'rest_day'); const w = minutes(a.in_at, out);
+        if (!ex) H.overtime.push({ id: nextId(), member_id: a.member_id, day: a.day, start_at: a.in_at, end_at: out, minutes: Math.min(w, 1440), kind: 'rest_day', note: 'شغل يوم راحة / عطلة (يدوي)', status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now });
+        else if (ex.status === 'مستني') ex.minutes = Math.min(ex.minutes + w, 1440); }
       return json(200, a.id);
     }
     if (f === 'hr_request_create') {
@@ -224,7 +241,7 @@ export function hrRoute(c) {
       if (!['جديد', 'قيد المراجعة'].includes(r.status)) return bad('status'); if (!['موافق', 'مرفوض', 'قيد المراجعة'].includes(b.p_decision)) return bad('decision');
       const reason = String(b.p_reason || '').trim() || null; if (b.p_decision === 'مرفوض' && !reason) return bad('reason');
       Object.assign(r, { status: b.p_decision, reason, decided_by: b.p_decision === 'قيد المراجعة' ? null : u.id, decided_at: b.p_decision === 'قيد المراجعة' ? null : now });
-      if (b.p_decision === 'موافق' && r.type === 'تصحيح انصراف') { const a = H.attendance.find((x) => x.member_id === r.member_id && x.day === r.from_day); if (a) Object.assign(a, { out_at: hrAt(r.from_day, r.at_time), source: 'fix', updated_at: now }); }
+      if (b.p_decision === 'موافق' && r.type === 'تصحيح انصراف') { const a = H.attendance.filter((x) => x.member_id === r.member_id && x.day === r.from_day).sort((x, y) => ((y.out_at == null) - (x.out_at == null)) || (x.in_at < y.in_at ? 1 : -1))[0]; if (a) /* 0068: the open session, else the latest */ Object.assign(a, { out_at: hrAt(r.from_day, r.at_time), source: 'fix', updated_at: now }); }
       return json(200, b.p_decision);
     }
     if (f === 'hr_request_cancel') { const r = H.requests.find((x) => x.id === Number(b.p_id) && x.member_id === u.id && ['جديد', 'قيد المراجعة'].includes(x.status)); if (!active) return no(); if (!r) return nf(); r.status = 'اتلغى'; return json(200, 'اتلغى'); }

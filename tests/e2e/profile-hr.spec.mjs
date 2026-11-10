@@ -57,7 +57,7 @@ test('«ملفي» from the server: my hours and overtime, a request cancelled, 
   await tab(page, 'ساعات العمل');
   const row = P(page).locator('tbody tr').first();
   await expect(row).toContainText('9:40'); await expect(row).toContainText('17:30');
-  if (!restDay) await expect(row).toContainText('متأخر 40 د');
+  await expect(row).toContainText('7:50'); await expect(row).not.toContainText('متأخر'); // decision 24: the sessions summed, no lateness
   await expect(P(page)).toContainText('تصوير الكتالوج');
   await tab(page, 'طلباتي');
   const req = P(page).locator('tbody tr', { hasText: 'إجازة سنوية' });

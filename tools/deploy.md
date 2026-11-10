@@ -1171,6 +1171,12 @@ select at, action, entity_id, new_value from public.activity_log where action li
 2. الواجهة مع `main`: «تفاصيل» تحت الرد، والـ popup بالمشاركة (واتساب / إيميل بيفتحوا عند العضو، السيستم مابيبعتش حاجة)، والمساعد بيتسحب ويتكبّر على الديسكتوب.
 3. من غير نشر الدالة: الشات شغال زي ما هو ومافيش زرار «تفاصيل» (الرد مافيهوش `report`).
 
+#### 2.7.45 الدوام المرن — أكتر من جلسة في اليوم (المرحلة 13 قرار 24، 10 نوفمبر)
+
+- **الكود:** `0068_hr_flex.sql` (شيل `unique (member_id, day)` من `hr_attendance` — الصف بقى جلسة؛ `hr_clock_in` من غير «ended»؛ `hr_shift_now` بـ `done` و`sessions`؛ `hr_clock_out` الوقت الإضافي = اللي فوق 8 ساعات **اليوم** من الجلسة دي بس، وصف «يوم راحة × 2» بيكبر مع كل جلسة وهو مستني؛ `hr_attendance_set` اليدوي = اليوم جلسة واحدة؛ `hr_attendance_close` الجديدة (hr.edit F) لنهاية جلسة واحدة؛ «تصحيح انصراف» المتوافق عليه على الجلسة المفتوحة بس)، `IBHR` (اليوم = جلساته مجمّعة، مافيش تأخير)، الكتل 15 و18 و21.
+- **النشر بالترتيب:** `0068` (Supabase MCP `apply_migration` أو SQL editor) → RLS live `rls_hr_flex` + `rls_hr` → الواجهة على `main`. مافيش Edge Function.
+- **التحقق:** «ابدأ الدوام» ← «إنهاء الدوام» ← الساعة بتقول «خلص الدوام · س:د» وجنبها «ابدأ الدوام» تاني ← جلسة تانية ← «ملفي › ساعات العمل» اليوم بمجموع الجلستين و«جلسات الدوام» = 2؛ ومافيش «متأخر» في أي حتة. `activity_log` `hr.shift.start` / `hr.shift.end` زي ما هم، و`hr.attendance.close` بكود العضو بس.
+
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
 - الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.
 - السياسات على `storage.objects` (من الملف نفسه، بادئة `vendor_contracts_`): `select` و`insert` و`update` لـ `authenticated` بشرط `bucket_id = 'vendor-contracts'` و`has_perm('sensitive.vendor_bank') = 'F'` (الأدمن والحسابات في مصفوفة `0003`). مافيش سياسة `delete`: استبدال العقد = ملف جديد والقديم بيفضل (قرار 7)، ومافيش تنظيف للملفات القديمة (تكلفة صغيرة).

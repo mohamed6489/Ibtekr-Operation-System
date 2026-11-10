@@ -97,3 +97,47 @@ test('«عن بُعد» from the server: an approved «شغل عن بُعد» co
   expect('p_remote' in calls('hr_clock_in')[0]).toBe(false);
   expect(mock.hr.attendance.map((a) => [a.member_id, a.remote])).toEqual([[OPS_ID, true]]);
 });
+
+// phase 13 decision 24 (0068 — «يطلع زرار بدء الدوام من الأول … وكل مرة يتحسب عدد ساعات العمل» + «مع المرونة مفيش تأخير»): after «إنهاء الدوام»
+// the clock shows the day's hours AND «ابدأ الدوام» again; a second start is another session of the day, and the hours are summed
+test('decision 24: «ابدأ الدوام» again after «إنهاء الدوام» — a second session the same day, the hours summed', async ({ page }) => {
+  const inAt = Date.now() - 125 * 60000; const outAt = Date.now() - 65 * 60000; const day = cairoDay(inAt);
+  test.skip(day !== T, 'the first session must be today in Cairo (the run is within an hour of midnight)');
+  await start(page, { hrAttendance: [{ member_id: OPS_ID, day, in_at: new Date(inAt).toISOString(), out_at: new Date(outAt).toISOString(), source: 'clock' }] });
+  const ended = clock(page).locator('[data-shift-ended]');
+  await expect(ended).toContainText('خلص الدوام'); await expect(ended).toContainText('1:00');
+  await clock(page).getByRole('button', { name: 'ابدأ الدوام' }).click();
+  await expect(page.locator('.toast', { hasText: restDay ? 'يوم راحة' : 'رجعت للدوام' })).toBeVisible();
+  await expect(clock(page).locator('.clock')).toContainText('على الدوام');
+  await expect(clock(page).locator('.clock .num')).toHaveText(/^1:0\d$/); // the day so far: the hour before + this session
+  expect(mock.hr.attendance.filter((a) => a.member_id === OPS_ID && a.day === T).length).toBe(2);
+  await clock(page).locator('.clock').click();
+  await expect(page.locator('.clock-pop')).toContainText('جلسة تانية');
+  await page.locator('.clock-pop').getByRole('button', { name: 'إنهاء الدوام' }).click();
+  await modal(page, 'إنهاء الدوام').getByRole('button', { name: 'إنهاء الدوام' }).click();
+  await expect(ended).toContainText('1:0'); // 1 hour + the few seconds of the second session
+  await expect(clock(page).getByRole('button', { name: 'ابدأ الدوام' })).toBeVisible();
+  expect(mock.hr.attendance.filter((a) => a.member_id === OPS_ID && a.out_at).length).toBe(2);
+  expect(calls('hr_clock_in').length).toBe(1);
+});
+
+test('decision 24: a second session that brings the day past 8 hours asks the 8-hour question; the overtime is only the part past 8 hours of the day', async ({ page }) => {
+  const day = cairoDay(Date.now() - 9 * 3600000);
+  const first = { member_id: OPS_ID, day, in_at: new Date(Date.now() - 9 * 3600000).toISOString(), out_at: new Date(Date.now() - 4 * 3600000).toISOString(), source: 'clock' }; // 5 hours
+  const second = { member_id: OPS_ID, day, in_at: new Date(Date.now() - 190 * 60000).toISOString(), out_at: null, source: 'clock' }; // 3:10 → the day at 8:10
+  await start(page, { hrAttendance: [first, second] });
+  const ask = modal(page, 'ساعات العمل خلصت');
+  await expect(ask).toBeVisible();
+  await ask.getByRole('button', { name: 'لسه — وقت إضافي' }).click();
+  await clock(page).locator('.clock').click();
+  await page.locator('.clock-pop').getByRole('button', { name: 'إنهاء الوقت الإضافي' }).click();
+  const f = modal(page, 'إنهاء الوقت الإضافي');
+  await f.locator('#note').fill('تقفيل شحنة المسا');
+  await f.getByRole('button', { name: 'إنهاء الدوام وإرسال للتأكيد' }).click();
+  await expect.poll(() => calls('hr_clock_out').length).toBe(1);
+  if (!restOf(day)) {
+    const ot = mock.hr.overtime.filter((o) => o.kind === 'hours');
+    expect(ot.length).toBe(1);
+    expect(ot[0].minutes).toBeGreaterThanOrEqual(9); expect(ot[0].minutes).toBeLessThanOrEqual(12); // ≈ 10 minutes past 8 hours of the DAY, not 3:10 − 8:00
+  }
+});

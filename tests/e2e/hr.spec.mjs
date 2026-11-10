@@ -67,7 +67,7 @@ test('«الموارد البشرية» is open: the team from the server (the t
   await expect(P(page).locator('.cards')).toContainText('طلبات مستنية');
 });
 
-test('the attendance log: the month day by day, a missing end fixed by hand (hr_attendance_set) and the day closed', async ({ page }) => {
+test('the attendance log: the month day by day, a missing end fixed by hand on that session (hr_attendance_close — decision 24) and the day closed', async ({ page }) => {
   await openHr(page);
   await P(page).getByRole('tab', { name: 'سجل الحضور' }).click();
   await pick(page, P(page), 'log-m', 'العضو: منى حسن');
@@ -80,7 +80,9 @@ test('the attendance log: the month day by day, a missing end fixed by hand (hr_
   await expect(f.locator('#out')).toHaveValue('17:30'); await expect(f.locator('#reason')).toHaveValue('نسيت أسجل');
   await f.getByRole('button', { name: 'حفظ التصحيح' }).click();
   await expect(f).toBeHidden();
-  expect(calls('hr_attendance_set').map((c) => [c.p_member, c.p_day, c.p_in, c.p_out, c.p_note])).toEqual([[ACC_ID, W1, '09:00', '17:30', 'نسيت أسجل']]);
+  const open = mock.hr.attendance.find((a) => a.member_id === ACC_ID && a.day === W1);
+  expect(calls('hr_attendance_close').map((c) => [c.p_id, c.p_out, c.p_note])).toEqual([[open.id, '17:30', 'نسيت أسجل']]);
+  expect(calls('hr_attendance_set')).toEqual([]); // the day's other sessions stay
   await expect(P(page).locator('tbody tr', { hasText: 'تصحيح' }).first()).toContainText('17:30');
 });
 
@@ -237,10 +239,12 @@ test('the KPIs by hand: «قيّم الشهر» with the actuals → hr_rate_mon
   await expect(P(page).locator('tbody tr', { hasText: 'منى حسن' }).first()).toContainText('102%');
 });
 
-test('the settings row «hr» (the admin): the late grace saved; a holiday added', async ({ page }) => {
+test('the settings row «hr» (the admin): the presence interval saved, no late grace (decision 24 — flexible hours); a holiday added', async ({ page }) => {
   await openHr(page, ADMIN, 'hr-settings');
-  await pick(page, P(page), 'hs-grace', '30 دقيقة');
-  await expect.poll(() => ((mock.settings.find((s) => s.section === 'hr') || {}).data || {}).lateGrace).toBe(30);
+  await expect(P(page).locator('#hs-grace')).toHaveCount(0);
+  await expect(P(page)).toContainText('مرنة');
+  await pick(page, P(page), 'hs-every', 'كل ساعة');
+  await expect.poll(() => ((mock.settings.find((s) => s.section === 'hr') || {}).data || {}).presenceEvery).toBe(60);
   await P(page).getByRole('button', { name: '+ عطلة' }).click();
   const f = modal(page, 'إضافة عطلة');
   await f.locator('#name').fill('عيد تجريبي'); await date(f, 'date', NEXT);

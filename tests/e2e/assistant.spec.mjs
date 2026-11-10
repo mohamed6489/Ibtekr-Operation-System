@@ -80,3 +80,51 @@ test('the AI not configured → the fixed commands take over (the note says so) 
   await ask(page, 'كام أوردر؟');
   await expect(panel(page).locator('.ai-msg.ai').last()).toContainText('سقف الـ AI الشهري خلص');
 });
+
+// phase 13 decision 23 (owner 10 Nov): the chat keeps a short summary; «تفاصيل» opens the data the assistant read as a report popup with
+// «مشاركة» on WhatsApp / email; the panel is dragged by its header and resized from its corner, and every open from the AI button puts it
+// back to the medium size right under the button.
+test('decision 23: «تفاصيل» opens the read data as a report (chips + tables) shared on WhatsApp or email; the panel drags, resizes and reopens at the medium size under the button', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 800 });
+  const report = [{ kind: 'orders', data: { period: { from: '2026-11-01', to: '2026-11-10' }, total: 2, totalEgp: 1450, byStatus: { 'جاري التنفيذ': 1, 'قيد الشحن': 1 },
+    rows: [{ id: 'x1', number: 180672, customer: 'ريهام صفوت', status: 'جاري التنفيذ', total: 757, delivery: 'late' }, { id: 'x2', number: 181668, customer: 'سلوى زيتوني', status: 'قيد الشحن', total: 693, delivery: 'ok' }] } }];
+  mock.aiAnswer = (action) => (action === 'assistant' ? { text: 'عندك أوردرين في الفترة، واحد منهم متأخر.', actions: [], tools: ['orders'], report } : null);
+  await signIn(page, OPS);
+  const btn = page.getByRole('button', { name: 'مساعد AI' });
+  await btn.click();
+  const P = panel(page);
+  // opened under the AI button at the medium size, resizable from the corner
+  const b0 = await btn.boundingBox(); let p0 = await P.boundingBox();
+  expect(Math.abs(p0.y - (b0.y + b0.height + 8))).toBeLessThanOrEqual(2); expect(p0.width).toBeGreaterThan(380); expect(p0.width).toBeLessThanOrEqual(421);
+  expect(await P.evaluate((el) => getComputedStyle(el).resize)).toBe('both');
+  await ask(page, 'فيه أوردرات متأخرة؟');
+  await expect(P.locator('.ai-msg.ai').last()).toContainText('عندك أوردرين في الفترة');
+  await P.locator('[data-ai-details]').last().click();
+  const r = page.locator('.modal[data-ai-report]');
+  await expect(r).toBeVisible();
+  await expect(r.locator('.modal-h')).toContainText('تقرير: فيه أوردرات متأخرة؟');
+  await expect(r).toContainText('الفترة: 01/11/2026 – 10/11/2026');
+  await expect(r.locator('.dt-chip', { hasText: 'العدد' })).toContainText('2');
+  await expect(r.locator('th', { hasText: 'رقم الأوردر' })).toBeVisible();
+  await expect(r.locator('td', { hasText: 'ريهام صفوت' })).toBeVisible();
+  await expect(r.locator('td', { hasText: 'متأخر' })).toBeVisible(); // late → متأخر
+  await expect(r.locator('td', { hasText: '180672' })).toBeVisible(); // an order number has no thousands comma
+  await expect(r.locator('th', { hasText: 'القيمة (ج.م)' })).toBeVisible(); // a row's total is its amount
+  await expect(r.locator('th', { hasText: /^id$/ })).toHaveCount(0);
+  await r.getByRole('button', { name: 'مشاركة' }).click();
+  await page.locator('[data-via="whatsapp"]').click();
+  const shared = await page.evaluate(() => window.__lastShare);
+  expect(shared.via).toBe('whatsapp'); expect(shared.href.startsWith('https://wa.me/')).toBe(true);
+  expect(shared.text).toContain('فيه أوردرات متأخرة؟'); expect(shared.text).toContain('ريهام صفوت');
+  await r.locator('.modal-f').getByRole('button', { name: 'إغلاق' }).click(); await expect(r).toBeHidden();
+  // drag by the header: the panel moves with the pointer
+  const head = P.locator('.ai-head'); const hb = await head.boundingBox();
+  await page.mouse.move(hb.x + 120, hb.y + hb.height / 2); await page.mouse.down(); await page.mouse.move(hb.x - 200, hb.y + 200, { steps: 6 }); await page.mouse.up();
+  const p1 = await P.boundingBox(); expect(Math.round(p1.y - p0.y)).toBeGreaterThan(150); expect(Math.round(p0.x - p1.x)).toBeGreaterThan(250);
+  // a resize (as the corner handle would) then close and reopen from the button → back to the medium size under the button
+  await P.evaluate((el) => { el.style.width = '640px'; el.style.height = '700px'; });
+  await P.locator('.ai-head').getByRole('button', { name: 'إغلاق' }).click(); await expect(P).toBeHidden();
+  await btn.click(); await expect(P).toBeVisible();
+  p0 = await P.boundingBox(); expect(p0.width).toBeLessThanOrEqual(421); expect(Math.abs(p0.y - (b0.y + b0.height + 8))).toBeLessThanOrEqual(2);
+  expect(JSON.stringify(mock.aiRuns.map((x) => x.output))).not.toContain('ريهام'); // the report never lands in ai_runs
+});

@@ -2013,9 +2013,10 @@ export async function installSupabaseMock(page, opts = {}) {
         if (fail === 'ai_cap') { mock.aiRuns.push({ ...base, status: 'cap', error: 'ai_cap' }); return json(402, { error: 'ai_cap' }); }
         const a = typeof mock.aiAnswer === 'function' ? mock.aiAnswer('assistant', req) : null;
         const out = { text: a && typeof a.text === 'string' ? a.text : (mode === 'filter' ? '' : 'تمام.'), actions: a && Array.isArray(a.actions) ? a.actions : [], tools: a && Array.isArray(a.tools) ? a.tools : [] };
+        const report = a && Array.isArray(a.report) ? a.report : []; // decision 23: the reads for «تفاصيل» — never in ai_runs
         const run = { ...base, status: 'ok', error: null, input_tokens: 3000, output_tokens: 400, cost_usd: 0.02, output: out };
         mock.aiRuns.push(run);
-        return json(200, { result: 'ok', ...out, model: 'claude-opus-5-5', cost_usd: 0.02, run_id: run.id });
+        return json(200, { result: 'ok', ...out, report, model: 'claude-opus-5-5', cost_usd: 0.02, run_id: run.id });
       }
       const may = u && (action === 'write' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' || hasPerm(u, 'products.edit') === 'F' : action === 'studio' || action === 'prompts' ? isAdmin(u) || hasPerm(u, 'products.add') === 'F' : isAdmin(u));
       if (!may) return json(401, { error: 'unauthorized' });

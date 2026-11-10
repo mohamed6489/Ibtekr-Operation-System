@@ -40,7 +40,7 @@ import { buyerRequest, campaignTarget, cleanBuyer, cleanMarketing, marketingRequ
 import { SUGGEST_DAYS, buyerRules, windowOf } from '../_shared/mkt-ads.js';
 import { cleanScenes, scenesRequest } from '../_shared/mkt-video.js';
 import { TEXT_PROVIDERS, TEXT_TOOL_OF, houseStyle, textPick } from '../_shared/ai-providers.js';
-import { MAX_TOOL_CALLS, amountsIn, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, ticketsData, toolResults, vendorsData } from '../_shared/ai-assistant.js';
+import { MAX_TOOL_CALLS, amountsIn, reportOf, assistantMessage, assistantRequest, cleanAction, cleanAnswer, customersData, dataQuery, expensesData, ordersData, parseAssistant, readTurn, salesData, summaryData, tasksData, ticketsData, toolResults, vendorsData } from '../_shared/ai-assistant.js';
 import { completeText } from './providers/text.ts';
 import { cairoParts } from '../_shared/mkt-publish.js';
 
@@ -390,7 +390,7 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
   if (!deps.env.ANTHROPIC_API_KEY?.trim()) { await finishRun(deps, run.id, { status: 'error', error: 'not_configured', cost_usd: 0 }); return json(503, { error: 'not_configured', provider: 'claude' }); }
   const params = assistantRequest(req, { model: cfg.model, effort: cfg.effort, today, actor, role });
   const spent = { model: cfg.model, input_tokens: 0, output_tokens: 0, cache_read_tokens: 0, cache_write_tokens: 0, cost_usd: 0 };
-  const actions: Json[] = []; const tools: string[] = []; let text = ''; let reads = 0;
+  const actions: Json[] = []; const tools: string[] = []; let text = ''; let reads = 0; const got: Json[] = []; // got: the reads for the «تفاصيل» report (decision 23)
   const typedAmounts = amountsIn(req.question); // propose_entry only for an amount the member typed (never one read from data)
   for (let step = 0; step <= MAX_TOOL_CALLS + 1; step++) {
     if (step > 0 && spent.cost_usd >= reserve) { await finishRun(deps, run.id, { ...spent, status: 'cap', error: 'ai_cap' }); return json(402, { error: 'ai_cap' }); }
@@ -414,7 +414,8 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
         const dq = dataQuery(use.input, { today, period: req.context.period });
         if ('error' in dq) { results.push({ id: use.id, content: dq.error, error: true }); continue; }
         reads++; tools.push(dq.kind);
-        results.push({ id: use.id, content: await readData(member, uid, dq as DQ, today) });
+        const data = await readData(member, uid, dq as DQ, today); got.push({ kind: dq.kind, data });
+        results.push({ id: use.id, content: data });
       } else {
         const act = cleanAction(use.name, use.input);
         if (act && use.name === 'propose_entry' && !typedAmounts.includes(Number((act.input as Json).amount))) { results.push({ id: use.id, content: 'refused: the amount is not in the user\'s own message — ask them for it', error: true }); continue; }
@@ -427,8 +428,8 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
     if (step === MAX_TOOL_CALLS + 1 && !text) text = 'وصلت لحد القراءات في الرد ده — اسألني تاني بسؤال أضيق.';
   }
   const out = cleanAnswer(text, actions, tools);
-  await finishRun(deps, run.id, { ...spent, status: 'ok', output: out });
-  return json(200, { result: 'ok', ...out, model: spent.model, cost_usd: spent.cost_usd, run_id: run.id });
+  await finishRun(deps, run.id, { ...spent, status: 'ok', output: out }); // the report is not stored — the page only
+  return json(200, { result: 'ok', ...out, report: reportOf(got), model: spent.model, cost_usd: spent.cost_usd, run_id: run.id });
 }
 
 // ---------------------------------------------------------------- handler

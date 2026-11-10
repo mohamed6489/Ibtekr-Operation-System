@@ -1165,6 +1165,12 @@ select at, action, entity_id, new_value from public.activity_log where action li
 - **النشر بالترتيب:** `0066` ثم `0067` (Supabase MCP `apply_migration` أو SQL editor) → RLS live `rls_member_delete` → workflow «Deploy functions» بـ `function = team-admin` → الواجهة على `main`.
 - **التحقق:** عضو تجريبي جديد (ماسجّلش دخول) → قايمة العضو › «حذف العضو نهائي» → اتمسح من `auth.users` و`profiles` و`hr_members`؛ عضو له سجل → رسالة «له سجل في «…»» ومافيش أي مسح. `activity_log` `hr.member.delete` بالاسم بس.
 
+#### 2.7.44 مساعد AI — تقرير «تفاصيل» والسحب والتكبير (المرحلة 13 قرار 23، 10 نوفمبر)
+
+1. انشر `ai-content` (Actions › «Deploy functions» › `function = ai-content`): رد `assistant` بقى فيه `report` — البيانات اللي `get_data` قراها بعميل العضو نفسه (مقصوصة: نص ≤ 200، قوايم ≤ 50، عمق ≤ 4، الكل ≤ 60 ألف بايت) — وده مابيتحفظش في `ai_runs`.
+2. الواجهة مع `main`: «تفاصيل» تحت الرد، والـ popup بالمشاركة (واتساب / إيميل بيفتحوا عند العضو، السيستم مابيبعتش حاجة)، والمساعد بيتسحب ويتكبّر على الديسكتوب.
+3. من غير نشر الدالة: الشات شغال زي ما هو ومافيش زرار «تفاصيل» (الرد مافيهوش `report`).
+
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
 - الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.
 - السياسات على `storage.objects` (من الملف نفسه، بادئة `vendor_contracts_`): `select` و`insert` و`update` لـ `authenticated` بشرط `bucket_id = 'vendor-contracts'` و`has_perm('sensitive.vendor_bank') = 'F'` (الأدمن والحسابات في مصفوفة `0003`). مافيش سياسة `delete`: استبدال العقد = ملف جديد والقديم بيفضل (قرار 7)، ومافيش تنظيف للملفات القديمة (تكلفة صغيرة).

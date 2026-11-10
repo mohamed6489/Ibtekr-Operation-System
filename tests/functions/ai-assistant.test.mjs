@@ -1,7 +1,7 @@
 import { test } from 'node:test'; import assert from 'node:assert/strict';
 import {
   parseAssistant, assistantRequest, readTurn, toolResults, cleanAction, dataQuery, ordersData, vendorsData, customersData, ticketsData, tasksData, expensesData, salesData, summaryData, cleanAnswer,
-  toolsOf, ASSISTANT_TURNS, Q_MAX, ANSWER_MAX, PAGES, deliveryOf, ageDays, amountsIn,
+  toolsOf, reportOf, REPORT_MAX, ASSISTANT_TURNS, Q_MAX, ANSWER_MAX, PAGES, deliveryOf, ageDays, amountsIn,
 } from '../../supabase/functions/_shared/ai-assistant.js';
 // The header's assistant (phase 12 T1, decision 8): the body checks, Claude's tools and request, reading a turn, the client
 // actions' cleaning and the data shaping with the member's rows — never a phone or an address.
@@ -148,4 +148,17 @@ test('cleanAnswer: plain text to ANSWER_MAX, the actions in order (at most 10), 
   const a = cleanAnswer('<b>فيه</b> 3 أوردرات\n\n\nمتأخرة', [{ name: 'navigate', input: { page: 'orders' } }, null], ['orders', 'orders', 'summary']);
   assert.deepEqual(a, { text: 'فيه 3 أوردرات\n\nمتأخرة', actions: [{ name: 'navigate', input: { page: 'orders' } }], tools: ['orders', 'summary'] });
   assert.equal(cleanAnswer('x'.repeat(ANSWER_MAX + 10), [], []).text.length, ANSWER_MAX);
+});
+
+
+// phase 13 decision 23: the reads as the page's «تفاصيل» report — forbidden reads out, strings / lists / depth clamped, the whole bounded
+test('reportOf: forbidden and malformed reads out, strings ≤ 200 and lists ≤ 50 and depth ≤ 4, the last reads dropped past REPORT_MAX', () => {
+  const rows = Array.from({ length: 80 }, (_, i) => ({ number: 1000 + i, customer: 'x'.repeat(300), deep: { a: { b: { c: { d: 1 } } } } }));
+  const r = reportOf([{ kind: 'orders', data: { total: 80, rows } }, { kind: 'tickets', data: { forbidden: true } }, { kind: 3, data: {} }, null]);
+  assert.equal(r.length, 1); assert.equal(r[0].kind, 'orders'); assert.equal(r[0].data.total, 80);
+  assert.equal(r[0].data.rows.length, 50); assert.equal(r[0].data.rows[0].customer.length, 200);
+  assert.deepEqual(r[0].data.rows[0].deep, { a: null }); // the report at depth 0, rows 1, a row 2, deep 3 — deeper is null
+  const big = Array.from({ length: 5 }, (_, i) => ({ kind: 'k' + i, data: { rows: Array.from({ length: 50 }, () => ({ t: 'y'.repeat(200), u: 'z'.repeat(200), v: 'w'.repeat(200) })) } })); // ≈ 150 KB before the cap
+  const b = reportOf(big); assert.ok(b.length < 5 && b.length > 0); assert.ok(JSON.stringify(b).length <= REPORT_MAX);
+  assert.deepEqual(reportOf(undefined), []);
 });

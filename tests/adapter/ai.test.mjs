@@ -115,7 +115,7 @@ test('assistant: the body (mode, the last 12 turns, the screen context), the ans
   const { A, stub, logs } = load({ perms: {}, responses: { 'fn:ai-content': { data: reply, error: null } } });
   const turns = Array.from({ length: 15 }, (_, i) => ({ role: i % 2 ? 'assistant' : 'user', text: 't' + i })).concat([{ role: 'user', text: ' كام أوردر متأخر؟ ' }]);
   const r = await A.assistant({ turns, context: { page: 'dashboard', tab: 7, period: { from: '2026-11-01', to: '2026-11-08' }, vendors: ['Art Craft', 5], statuses: ['مكتمل'] } });
-  assert.deepEqual(plain(r), { ok: true, result: 'ok', missing: [], model: 'claude-opus-5-5', cost: 0.09, runId: 12, text: 'فيه 3 أوردرات متأخرة. فتحتلك الأوردرات عليهم.', actions: [{ name: 'filter_orders', input: { deliv: 'late' } }], tools: ['summary', 'orders'] });
+  assert.deepEqual(plain(r), { ok: true, result: 'ok', missing: [], model: 'claude-opus-5-5', cost: 0.09, runId: 12, text: 'فيه 3 أوردرات متأخرة. فتحتلك الأوردرات عليهم.', actions: [{ name: 'filter_orders', input: { deliv: 'late' } }], tools: ['summary', 'orders'], report: [] });
   const body = stub.calls.filter((c) => c.op === 'invoke').at(-1).args[1].body;
   assert.equal(body.action, 'assistant'); assert.equal(body.mode, 'chat'); assert.equal(body.turns.length, 12); assert.deepEqual(body.turns.at(-1), { role: 'user', text: ' كام أوردر متأخر؟ ' });
   assert.deepEqual(body.context, { page: 'dashboard', period: { from: '2026-11-01', to: '2026-11-08' }, vendors: ['Art Craft'], statuses: ['مكتمل'] });
@@ -138,4 +138,14 @@ test('assistant: the refusals by status (not_configured → the page falls back 
   }
   const { A } = load({ perms: {}, responses: { 'fn:ai-content': () => { throw Object.assign(new Error('aborted'), { name: 'AbortError' }); } } });
   assert.equal((await A.assistant({ turns: [{ role: 'user', text: 'x' }] })).reason, 'cancelled');
+});
+
+
+// phase 13 decision 23: the reads behind the answer pass through as the «تفاصيل» report — malformed entries dropped, nothing logged
+test('assistant: the report passes through (a malformed entry dropped), never in the activity log', async () => {
+  const reply = { result: 'ok', text: 'أوردرين.', actions: [], tools: ['orders'], report: [{ kind: 'orders', data: { total: 2, rows: [{ number: 1, customer: 'ريهام' }] } }, { kind: 5, data: {} }, { kind: 'x' }], model: 'claude-opus-5-5', cost_usd: 0.01, run_id: 3 };
+  const { A, logs } = load({ perms: {}, responses: { 'fn:ai-content': { data: reply, error: null } } });
+  const r = await A.assistant({ turns: [{ role: 'user', text: 'كام أوردر؟' }], context: { page: 'dashboard' } });
+  assert.deepEqual(plain(r.report), [{ kind: 'orders', data: { total: 2, rows: [{ number: 1, customer: 'ريهام' }] } }]);
+  assert.ok(!JSON.stringify(logs).includes('ريهام'));
 });

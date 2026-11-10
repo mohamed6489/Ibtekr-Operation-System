@@ -462,6 +462,10 @@ Deno.test('assistant: any active member; the tool loop — get_data runs with th
   const runs = db.rows('ai_runs'); assertEquals(runs.length, 1);
   assertEquals([runs[0].action, runs[0].source, runs[0].label, runs[0].status, runs[0].input_tokens, runs[0].output_tokens, runs[0].cost_usd], ['assistant', 'chat', 'كام أوردر متأخر؟ افتحهم', 'ok', 9000, 6000, 0.156]);
   assertEquals(runs[0].output.actions, r.body.actions); assertEquals(r.body.cost_usd, 0.156);
+  // decision 23: the reads come back as the «تفاصيل» report (summary + orders), never stored in ai_runs
+  assertEquals(r.body.report.map((x: any) => x.kind), ['summary', 'orders']);
+  assert(Array.isArray(r.body.report[1].data.rows));
+  assertEquals(runs[0].output.report, undefined);
   // the member's client did the reads — the service client never touched the data tables
   assertFalse(db.calls.some((c: any) => ['orders_v', 'tickets', 'hr_tasks', 'acc_expenses', 'cs_conversations'].includes(c.table)));
   // the reservation covered the whole loop: RESERVE_USD × (MAX_TOOL_CALLS + 2) = 3.5 while the calls ran

@@ -53,12 +53,13 @@ async function pick(page, scope, id, label) { await scope.locator('#' + id).clic
 async function date(scope, id, iso) { await scope.locator('#' + id).fill(dmy(iso)); await scope.locator('#' + id).press('Tab'); }
 const calls = (fn) => mock.hr.calls.filter((c) => c.fn === fn);
 
-test('«الموارد البشرية» is open: the team from the server (the admin without pay left out), today\'s state, the requests count on the tab', async ({ page }) => {
+test('«الموارد البشرية» is open: the team from the server (the table lists everyone the admin sees — the salary-less admin too; the tiles count the staff), today\'s state, the requests count on the tab', async ({ page }) => {
   await openHr(page);
   const table = P(page).locator('.hr-table');
-  await expect(table.locator('tbody tr')).toHaveCount(4);
-  for (const n of ['سارة أحمد', 'محمد علي', 'منى حسن', 'هدى سمير']) await expect(table).toContainText(n);
-  await expect(table).not.toContainText('صفوت كمال');
+  await expect(table.locator('tbody tr')).toHaveCount(6); // decision 15: everyone the admin sees — the salary-less admin and the suspended viewer too; the tiles stay on the staff (4)
+  for (const n of ['سارة أحمد', 'محمد علي', 'منى حسن', 'هدى سمير', 'صفوت كمال', 'مشاهد تجريبي']) await expect(table).toContainText(n);
+  await expect(table.locator('tbody tr', { hasText: 'مشاهد تجريبي' })).toContainText('موقوف');
+  await expect(P(page).locator('.cards')).toContainText('من 4');
   const offToday = dow(T) === 5 || dow(T) === 6; const after17 = cairoMin() > 17 * 60; // no day of hers today: absent once her shift is over
   await expect(table.locator('tbody tr', { hasText: 'منى حسن' })).toContainText(offToday ? 'راحة أسبوعية' : after17 ? 'غائب' : 'انصراف ناقص أمس');
   await expect(table.locator('tbody tr', { hasText: 'هدى سمير' })).toContainText('10:00–18:00');

@@ -162,7 +162,13 @@ test('«تعديل بياناتي»: the mobile saved on my profile (a taken one
   await open(page, OPS, 'profile-security');
   await P(page).locator('.prof-head').getByRole('button', { name: 'تعديل بياناتي' }).click(); // the header's (the security tab has one too)
   const f = modal(page, 'تعديل بياناتي');
-  await expect(f.locator('#phone')).toBeFocused();
+  await expect(f.locator('#name')).toBeFocused();
+  // decision 22: the job title, department, role and status are shown read-only — no field for them
+  await expect(f.locator('[data-info-readonly]')).toContainText('مديرة العمليات');
+  await expect(f.locator('[data-info-readonly]')).toContainText('العمليات');
+  await expect(f.locator('[data-info-readonly]')).toContainText('نشط');
+  await expect(f.locator('input#title, input#role, input#status, input#dept')).toHaveCount(0);
+  await expect(f.locator('#cur')).toHaveAttribute('type', 'password');
   await f.locator('#phone').fill('01000000003'); // محمد علي's
   await f.getByRole('button', { name: 'حفظ' }).click();
   await expect(page.locator('.toast', { hasText: 'الرقم ده مسجّل لعضو تاني' })).toBeVisible();
@@ -177,4 +183,23 @@ test('«تعديل بياناتي»: the mobile saved on my profile (a taken one
   await expect(P(page).locator('.kv', { hasText: 'الموبايل' }).first()).toContainText('01223334445');
   await expect.poll(() => mock.activity.map((a) => a.action)).toContain('profile.edit');
   const logged = JSON.stringify(mock.activity); expect(logged.includes('01223334445')).toBe(false); expect(logged.includes('sara.new')).toBe(false);
+});
+
+test('decision 22: «تعديل بياناتي» renames me and changes my password in the same popup — a half-filled password section is refused first', async ({ page }) => {
+  await open(page, OPS, 'profile');
+  await P(page).locator('.prof-head').getByRole('button', { name: 'تعديل بياناتي' }).click();
+  const f = modal(page, 'تعديل بياناتي');
+  await f.locator('#name').fill('  سارة   أحمد  علي ');
+  await f.locator('#p1').fill('NewPass-2026'); await f.locator('#p2').fill('NewPass-2026');
+  await f.getByRole('button', { name: 'حفظ' }).click();
+  await expect(f.getByText('اكتب كلمة المرور الحالية')).toBeVisible(); // nothing sent yet
+  expect(mock.profileWrites).toEqual([]); expect(mock.userUpdates).toEqual([]);
+  await f.locator('#cur').fill(DEV_PW);
+  await f.getByRole('button', { name: 'حفظ' }).click();
+  await expect(f).toBeHidden();
+  await expect(page.locator('.toast', { hasText: 'اتحفظ الاسم وكلمة المرور' })).toBeVisible();
+  expect(mock.profileWrites).toEqual([{ by: OPS_ID, name: 'سارة أحمد علي' }]);
+  expect(mock.userUpdates.map((u) => u.password)).toEqual(['NewPass-2026']);
+  await expect(page.locator('.topbar .user-btn')).toContainText('سارة أحمد علي');
+  const logged = JSON.stringify(mock.activity); expect(logged.includes('NewPass')).toBe(false);
 });

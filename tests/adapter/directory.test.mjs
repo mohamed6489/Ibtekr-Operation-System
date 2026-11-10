@@ -74,3 +74,22 @@ test('updatePhone: my row only, Arabic digits read, an invalid number refused be
   stub.responses.profiles = { data: null, error: { code: '23505', message: 'duplicate key' } };
   assert.deepEqual({ ...(await D.updatePhone('01112223334')) }, { ok: false, reason: 'taken' });
 });
+
+// phase 13 decision 22: my own name on profiles — 2..80 characters, spaces collapsed, «<>» dropped, the same one sends nothing
+test('updateName: my row only, spaces collapsed and <> dropped, too short / too long refused before any request, the same one → nothing sent', async () => {
+  const stub = stubClient({ responses: { profiles: (q) => (q.some((x) => x.op === 'update') ? { data: [{ id: 'u1' }], error: null } : { data: [profile()], error: null }), roles: { data: ROLES, error: null } } });
+  const window = { IBSupabase: { client: stub.client }, IBAuth: { session: () => ({ user: { id: 'u1' } }) }, IbtekrOps: { toLatin: (x) => String(x) }, IBKit: { store: { members: [] }, setMe() {} } };
+  runInNewContext(src, { window, document: { dispatchEvent() {} }, Event });
+  const D = window.IBDirectory; await D.refresh();
+  const me = D.me().name;
+  assert.deepEqual({ ...(await D.updateName(' a ')) }, { ok: false, reason: 'invalid' });
+  assert.deepEqual({ ...(await D.updateName('x'.repeat(81))) }, { ok: false, reason: 'invalid' });
+  assert.deepEqual({ ...(await D.updateName('  ' + me + ' ')) }, { ok: true, same: true });
+  assert.equal(opsOf(stub.calls, 'profiles').filter((c) => c.op === 'update').length, 0, 'nothing sent before a valid, new name');
+  assert.deepEqual({ ...(await D.updateName('  سارة   <b>أحمد</b> ')) }, { ok: true });
+  const up = opsOf(stub.calls, 'profiles');
+  assert.deepEqual(up.find((c) => c.op === 'update').args, [{ name: 'سارة bأحمد/b' }]);
+  assert.deepEqual(up.find((c) => c.op === 'eq').args, ['id', 'u1']);
+  stub.responses.profiles = { data: null, error: { code: '42501', message: 'only an admin can change this profile field' } };
+  assert.deepEqual({ ...(await D.updateName('اسم تاني')) }, { ok: false, reason: 'forbidden' });
+});

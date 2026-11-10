@@ -469,7 +469,7 @@
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
         const code = b && typeof b.error === 'string' ? b.error : ''; const field = b && b.field ? String(b.field) : null;
         const reason = code === 'exists' || s === 409 ? 'exists' : s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'notfound' : 'network';
-        return { ok: false, reason, field, code, status: s, message: (field && reason === 'exists' && FIELD_MESSAGES[field]) || (field === 'role' ? 'الدور مش موجود' : field === 'manager_id' ? 'المدير مش موجود' : null) || MESSAGES[reason] };
+        return { ok: false, reason, field, code, status: s, raw: b, message: (field && reason === 'exists' && FIELD_MESSAGES[field]) || (field === 'role' ? 'الدور مش موجود' : field === 'manager_id' ? 'المدير مش موجود' : null) || MESSAGES[reason] };
       }
       return { ok: true, body: out };
     } catch (e) { return no('network'); }
@@ -496,6 +496,15 @@
   async function memberInvite(member) { if (!can().admin) return no('forbidden'); const uid = uidOf(member); if (!uid) return no('invalid'); const r = await invoke({ action: 'member_invite', member_id: uid });
     if (r.ok) return { ok: true, mailed: true };
     const code = r.code || ''; return code === 'not_configured' || r.status === 503 ? { ok: false, reason: 'invalid', message: 'الإيميل مش متظبط — اربط Resend من الإعدادات › الربط والمفاتيح، أو اعمل باسورد مؤقت' } : code === 'inactive' ? { ok: false, reason: 'invalid', message: 'العضو موقوف — فعّله الأول' } : code === 'mail_failed' ? { ok: false, reason: 'network', message: 'الإيميل ماتبعتش — جرّب تاني أو اعمل باسورد مؤقت' } : r; }
+  // decision 15: a member deleted for good (the admin; not me) — team-admin → member_delete (0066): a trace anywhere refuses it
+  const TABLE_AR = { activity_log: 'سجل النشاط', profiles: 'الفريق (بيدير أعضاء)', orders: 'الأوردرات', order_events: 'الأوردرات', tickets: 'التذاكر', ticket_events: 'التذاكر', cs_messages: 'خدمة العملاء', cs_conversations: 'خدمة العملاء', hr_attendance: 'الحضور', hr_requests: 'طلبات الموارد البشرية', hr_payroll_lines: 'كشوف المرتبات' };
+  async function memberDelete(member) { if (!can().admin) return no('forbidden'); const uid = uidOf(member); if (!uid) return no('invalid'); const r = await invoke({ action: 'member_delete', member_id: uid });
+    if (r.ok) { const D = window.IBDirectory; if (D && D.refresh) { try { await D.refresh(); } catch (e) { /* the next load */ } } await load(); return { ok: true, name: r.body.name || '' }; }
+    const code = r.code || '';
+    if (code === 'has_records') { const table = (r.raw && r.raw.table) || ''; return { ok: false, reason: 'exists', message: 'العضو له سجل' + (table ? ' في «' + (TABLE_AR[table] || table) + '»' : '') + ' — اوقفه بدل ما تمسحه' }; }
+    if (code === 'last_admin') return { ok: false, reason: 'invalid', message: 'ده آخر أدمن نشط — اعمل أدمن تاني الأول' };
+    if (r.reason === 'notfound') return { ok: false, reason: 'notfound', message: 'العضو مش موجود (اتمسح قبل كده؟)' };
+    return r; }
   async function memberPassword(member) { if (!can().admin) return no('forbidden'); const uid = uidOf(member); if (!uid) return no('invalid'); const r = await invoke({ action: 'member_password', member_id: uid }); return r.ok ? { ok: true, password: r.body.password } : r; }
   // the member's HR data (hr.edit F) and pay (sensitive.salaries F)
   async function memberUpdate(member, f) {
@@ -660,7 +669,7 @@
     shiftNow, myShift, clockIn, clockOut, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, slips, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,
-    memberCreate, memberPassword, memberInvite, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
+    memberCreate, memberPassword, memberInvite, memberDelete, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
     tasksOf, reviewsFor, canTask, canDeleteTask, taskAdd, taskSet, taskDelete, taskReview, loadTasks, people: () => data.people.slice(), TASK_STATUSES,
     _test: { parts, minOf, atLabel, meetingLabel, shape, shapeTasks, raw, safeName, fail, uidOf } };
 })();

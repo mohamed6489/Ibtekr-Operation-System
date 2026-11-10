@@ -440,8 +440,8 @@ Deno.test('assistant: any active member; the tool loop — get_data runs with th
   assertEquals(r.body.actions, [{ name: 'filter_orders', input: { clear: true, deliv: 'late' } }], 'the bad navigate is dropped');
   assertEquals(r.body.tools, ['summary', 'orders']);
   assertEquals(asked.length, 3);
-  // the first request: the cached base, the screen block (the member and the page), the six tools, the question
-  assertEquals(asked[0].tools.map((t: any) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'propose_entry']);
+  // the first request: the cached base, the screen block (the member and the page), the seven tools, the question
+  assertEquals(asked[0].tools.map((t: any) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'propose_entry', 'open_form']);
   assert(asked[0].system[1].text.includes('المستخدم: منى (خدمة العملاء)') && asked[0].system[1].text.includes('الصفحة المفتوحة: لوحة التحكم'), asked[0].system[1].text);
   assertEquals(asked[0].messages, [{ role: 'user', content: [{ type: 'text', text: 'كام أوردر متأخر؟ افتحهم' }] }]);
   // the second request carries the assistant's tool_use message and the summary as the tool result

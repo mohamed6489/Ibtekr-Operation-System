@@ -247,6 +247,16 @@ test('lists (phase 12): the statuses stay a view; the cancel reasons are saved t
   await expect.poll(() => (settingsRow('lists') || {}).data.cancel).not.toContain('أوردر مكرر');
   await expect.poll(() => page.evaluate(() => window.IBSettings.section('lists').cancel)).not.toContain('أوردر مكرر'); // the adapter's own state follows the answer
   await expect(page.locator('#pg-settings [data-reason="أخرى"]')).toBeVisible();
+  // decision 55: the order by dragging the six-dot grip — no «تحريك لفوق»; «أخرى» has no grip
+  await expect(page.locator('#pg-settings tr[data-reason-row="أخرى"] [data-grip]')).toHaveCount(0);
+  const g = await page.locator('#pg-settings tr[data-reason-row="العميل عايز يعدل الأوردر"] [data-grip]').boundingBox();
+  const t = await page.locator('#pg-settings tr[data-reason-row="العميل لغى الطلب"]').boundingBox();
+  await page.mouse.move(g.x + g.width / 2, g.y + g.height / 2); await page.mouse.down();
+  await page.mouse.move(g.x + g.width / 2, t.y + 4, { steps: 12 }); await page.mouse.up();
+  await expect.poll(() => (settingsRow('lists') || {}).data.cancel[0]).toBe('العميل عايز يعدل الأوردر');
+  await page.locator('#pg-settings tr').filter({ has: page.locator('[data-reason="العميل لغى الطلب"]') }).locator('button[aria-haspopup=menu]').click();
+  await expect(page.getByRole('menuitem', { name: 'تحريك لفوق' })).toHaveCount(0);
+  await page.keyboard.press('Escape');
   await expect.poll(() => mock.activity.filter((a) => a.action === 'settings.lists.save').length).toBeGreaterThan(0);
   expect(JSON.stringify(mock.activity.filter((a) => a.action === 'settings.lists.save'))).not.toContain('العميل');
   // the orders page reads the saved list (the public slice after a fresh sign-in)

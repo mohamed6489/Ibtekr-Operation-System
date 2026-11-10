@@ -1417,11 +1417,18 @@
   function reasonsSec(k) {
     const S0 = SETT(); const L = S0 && S0.lists ? S0.lists() : { cancel: [], returns: [] }; const items = L[k] || [];
     const saveWith = async (next) => { const r = await S0.saveLists(Object.assign({}, L, { [k]: next })); if (!r.ok) return fail(r, 'حفظ الأسباب'); LOGV('settings.lists.save', k + ' = ' + next.length); K.toast('اتحفظت الأسباب', 'success'); R(); };
-    const rows = items.map((x, i) => [h('span', { 'data-reason': x }, x), x === 'أخرى' ? K.Tag('neutral', 'ثابت — بيفتح خانة نص') : K.RowMenu([
+    // phase 13 decision 55 (owner 11 Nov — «خلي ترتيب الأعمدة زي ما قلتلك»): the order by dragging the six-dot grip like «تخصيص اللوحة»
+    // (no «تحريك لفوق»); «أخرى» has no grip and stays last
+    const admin = isAdminMe();
+    const rows = items.map((x, i) => [h('span', { class: 'reason-cell' }, admin ? (x !== 'أخرى' ? K.Grip(x) : h('span', { class: 'dc-grip-sp', 'aria-hidden': 'true' })) : null, h('span', { 'data-reason': x }, x)), x === 'أخرى' ? K.Tag('neutral', 'ثابت — بيفتح خانة نص') : K.RowMenu([
       { label: 'تعديل', icon: 'sliders', run: () => K.form({ title: 'تعديل السبب', values: { v: x }, fields: (f, e, set) => [K.field.text('v', 'السبب', f, e, set, { required: true, maxlength: 60 })], validate: (f) => K.req(f, ['v']), submitLabel: 'حفظ', submit: (f) => { const next = items.filter((y) => y !== 'أخرى'); next[i] = f.v.trim(); saveWith(next); } }) },
-      i > 0 ? { label: 'تحريك لفوق', icon: 'chevD', run: () => { const next = items.filter((y) => y !== 'أخرى'); [next[i - 1], next[i]] = [next[i], next[i - 1]]; saveWith(next); } } : null,
       { label: 'حذف', icon: 'close', danger: true, run: () => K.confirm({ title: 'حذف «' + x + '»', text: 'السبب مش هيظهر في بوب أب الأوردرات الجديدة؛ الأوردرات اللي اتسجلت بيه بتفضل زي ما هي.', okType: 'danger', okLabel: 'حذف', onOk: () => saveWith(items.filter((y, j) => j !== i && y !== 'أخرى')) }) }].filter(Boolean))]);
-    return K.Section(REASON_LISTS[k], U.Table({ headers: ['السبب', ''], rows }), isAdminMe() ? [Button({ label: '+ سبب', attrs: { 'data-reason-add': k }, onClick: () => K.form({ title: 'سبب جديد', values: { v: '' }, fields: (f, e, set) => [K.field.text('v', 'السبب', f, e, set, { required: true, maxlength: 60 })], validate: (f) => K.req(f, ['v']), submitLabel: 'إضافة', submit: (f) => { saveWith(items.filter((y) => y !== 'أخرى').concat([f.v.trim()])); } }) })] : null,
+    const table = U.Table({ headers: ['السبب', ''], rows });
+    if (admin) {
+      table.querySelectorAll('[data-reason]').forEach((el) => { const tr = el.closest('tr'); if (!tr) return; tr.setAttribute('data-reason-row', el.getAttribute('data-reason')); if (el.getAttribute('data-reason') === 'أخرى') tr.dataset.fixed = '1'; });
+      K.sortableRows(table, 'data-reason-row', (ids) => { const next = ids.filter((y) => y !== 'أخرى'); if (next.join('\n') !== items.filter((y) => y !== 'أخرى').join('\n')) saveWith(next); });
+    }
+    return K.Section(REASON_LISTS[k], table, isAdminMe() ? [Button({ label: '+ سبب', attrs: { 'data-reason-add': k }, onClick: () => K.form({ title: 'سبب جديد', values: { v: '' }, fields: (f, e, set) => [K.field.text('v', 'السبب', f, e, set, { required: true, maxlength: 60 })], validate: (f) => K.req(f, ['v']), submitLabel: 'إضافة', submit: (f) => { saveWith(items.filter((y) => y !== 'أخرى').concat([f.v.trim()])); } }) })] : null,
       { sub: k === 'cancel' ? 'بتظهر في بوب أب «إلغاء» الأوردر (الملغي بيتسجل بسببه في تقرير «أوردرات ملغية») — «أخرى» بتفتح خانة نص إجبارية' : 'بتظهر في بوب أب «استرجاع» الأوردر و«مرتجع للمخزن / للمبتكر» للفرعي — «أخرى» بتفتح خانة نص إجبارية' });
   }
   function lists() {

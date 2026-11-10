@@ -317,24 +317,49 @@
   // through Supabase's confirmation link (IBAuth.changeEmail; the profile follows once it is confirmed — 0047). Neither is logged.
   const INFO_MSG = { taken: 'الرقم ده مسجّل لعضو تاني', invalid: 'رقم موبايل مصري صحيح', forbidden: 'مش مسموح تغيّر الرقم ده', network: 'مشكلة في الاتصال — جرّب تاني', server: 'معرفناش نحفظ الموبايل — جرّب تاني' };
   const MAIL_MSG = { taken: 'الإيميل ده مستخدم لحساب تاني', invalid: 'إيميل صحيح', same: 'ده نفس إيميلك', rate_limited: 'محاولات كتير — استنى شوية وجرّب تاني', network: 'مشكلة في الاتصال — جرّب تاني', server: 'معرفناش نبعت لينك التأكيد — جرّب تاني' };
+  // phase 13 decision 22 (owner 10 Nov — «البوب أب في تعديل البيانات محتاج يكون فيه كل بيانات المستخدم الأساسية … الدور والحالة قراءة
+  // فقط والتحكم فيهم من طرف الأدمن فقط»; «الاسم والموبايل والإيميل والباسورد، والمسمى الوظيفي قراءة والدور قراءة»): the name (IBDirectory.updateName
+  // — profiles_guard_update lets a member write name / phone on their own row), the mobile, the email (confirmation link), and an optional new
+  // password (IBAuth.changePassword checks the current one first); the job title, the department, the role and the status read-only.
+  const ST_AR = { active: 'نشط', suspended: 'موقوف', invited: 'مدعو' };
+  const NAME_MSG = { invalid: 'اكتب اسمك (من 2 لـ 80 حرف)', forbidden: 'مش مسموح تغيّر الاسم', network: 'مشكلة في الاتصال — جرّب تاني', server: 'معرفناش نحفظ الاسم — جرّب تاني' };
   function editInfo(m) {
-    K.form({ title: 'تعديل بياناتي', values: { phone: m.phone, email: m.email }, fields: (f, e, set) => [K.field.text('phone', 'الموبايل', f, e, set, { required: true, inputmode: 'tel' }), K.field.text('email', 'الإيميل', f, e, set, { required: true, help: 'تغيير الإيميل محتاج تأكيد من اللينك اللي هيوصلك' })],
-      validate: (f) => { const e = {}; if (O.identifierKind(f.phone) !== 'phone') e.phone = 'رقم موبايل مصري صحيح'; if (O.identifierKind(f.email) !== 'email') e.email = 'إيميل صحيح'; return e; },
+    const ro = [['المسمى الوظيفي', m.title], ['القسم', m.dept], ['الدور', m.role], ['الحالة', ST_AR[m.status] || 'نشط']].map(([k, v]) => [k, v || '—']);
+    K.form({ title: 'تعديل بياناتي', values: { name: m.name, phone: m.phone, email: m.email, cur: '', p1: '', p2: '' },
+      fields: (f, e, set) => [K.field.text('name', 'الاسم', f, e, set, { required: true }), K.field.text('phone', 'الموبايل', f, e, set, { required: true, inputmode: 'tel' }),
+        K.field.text('email', 'الإيميل', f, e, set, { required: true, help: 'تغيير الإيميل محتاج تأكيد من اللينك اللي هيوصلك' }),
+        h('div', { class: 't-label', style: 'margin-top:4px' }, 'تغيير كلمة المرور (اختياري)'),
+        K.field.text('cur', 'كلمة المرور الحالية', f, e, set, {}), K.two(K.field.text('p1', 'كلمة المرور الجديدة', f, e, set, { help: '8 حروف على الأقل فيها حرف ورقم' }), K.field.text('p2', 'أكّد كلمة المرور', f, e, set, {})),
+        h('div', { class: 't-label', style: 'margin-top:4px' }, 'بيانات الأدمن بيحددها'),
+        h('dl', { class: 'kv', 'data-info-readonly': '' }, ro.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, String(v))])),
+        h('p', { class: 't-small help', style: 'margin:0' }, 'المسمى الوظيفي والقسم والدور والحالة بيتغيّروا من الأدمن بس (الموارد البشرية أو الإعدادات › الفريق).')],
+      validate: (f) => { const e = {}; const nm = String(f.name || '').trim().replace(/\s+/g, ' ');
+        if (nm.length < 2 || nm.length > 80) e.name = 'اكتب اسمك (من 2 لـ 80 حرف)';
+        if (O.identifierKind(f.phone) !== 'phone') e.phone = 'رقم موبايل مصري صحيح'; if (O.identifierKind(f.email) !== 'email') e.email = 'إيميل صحيح';
+        if (f.p1 || f.p2 || f.cur) { if (!f.cur) e.cur = 'اكتب كلمة المرور الحالية'; const p = O.validatePassword(f.p1 || '', f.p2 || ''); if (p) e[p.includes('مش زي') ? 'p2' : 'p1'] = p; }
+        return e; },
       submitLabel: 'حفظ', submit: (f, md) => {
         if (md._busy) return false; md._busy = true;
         (async () => {
-          const out = { phone: false, email: '' }; const phone = O.toLatin(String(f.phone || '')).trim(); const email = String(f.email || '').trim().toLowerCase();
+          const out = { name: false, phone: false, email: '', pw: false }; const name = String(f.name || '').trim().replace(/\s+/g, ' ');
+          const phone = O.toLatin(String(f.phone || '')).trim(); const email = String(f.email || '').trim().toLowerCase();
+          if (name !== String(m.name || '')) { const r = await window.IBDirectory.updateName(name); if (!r.ok) return { ok: false, message: NAME_MSG[r.reason], out }; out.name = !r.same; }
           if (phone !== String(m.phone || '')) { const r = await window.IBDirectory.updatePhone(phone); if (!r.ok) return { ok: false, message: INFO_MSG[r.reason], out }; out.phone = !r.same; }
           if (email !== String(m.email || '').toLowerCase()) { const r = await window.IBAuth.changeEmail(email); if (!r.ok) return { ok: false, message: MAIL_MSG[r.reason], out }; out.email = email; }
+          if (f.p1) { const r = await window.IBAuth.changePassword(f.cur, f.p1); if (!r.ok) return { ok: false, message: PW_MSG[r.reason] || 'معرفناش نغيّر كلمة المرور — جرّب تاني', out }; out.pw = true; }
           return { ok: true, out };
         })().then((r) => {
           md._busy = false; const o = r.out;
-          if (o.phone || o.email) K.logEvent('profile.edit', m.name);
-          if (!r.ok) { K.toast((o.phone ? 'اتحفظ الموبايل · ' : '') + (r.message || 'حصلت مشكلة — جرّب تاني'), 'error'); if (o.phone) rerender(); return; }
-          md.close(); K.toast(o.email ? 'اتبعت لينك تأكيد على ' + o.email + ' — الإيميل بيتغيّر بعد ما تضغطه' + (o.phone ? ' · واتحفظ الموبايل' : '') : o.phone ? 'اتحفظ الموبايل' : 'مفيش حاجة اتغيّرت', o.phone || o.email ? 'success' : undefined); rerender();
+          if (o.name || o.phone || o.email) K.logEvent('profile.edit', m.name);
+          if (o.pw) K.logEvent('profile.password', m.name);
+          const done = [o.name ? 'الاسم' : '', o.phone ? 'الموبايل' : '', o.pw ? 'كلمة المرور' : ''].filter(Boolean);
+          if (!r.ok) { K.toast((done.length ? 'اتحفظ ' + done.join(' و') + ' · ' : '') + (r.message || 'حصلت مشكلة — جرّب تاني'), 'error'); if (done.length) rerender(); return; }
+          md.close(); if (done.length) rerender();
+          K.toast(o.email ? 'اتبعت لينك تأكيد على ' + o.email + ' — الإيميل بيتغيّر بعد ما تضغطه' + (done.length ? ' · واتحفظ ' + done.join(' و') : '') : done.length ? 'اتحفظ ' + done.join(' و') + (o.pw ? ' — الأجهزة التانية هتخرج' : '') : 'مفيش حاجة اتغيّرت', o.name || o.phone || o.email || o.pw ? 'success' : undefined);
         });
         return false;
       } });
+    setTimeout(() => document.querySelectorAll('.modal-b input#cur, .modal-b input#p1, .modal-b input#p2').forEach((i) => { i.type = 'password'; i.autocomplete = i.id === 'cur' ? 'current-password' : 'new-password'; }));
   }
   // the job and the pay (phase 10 T7): the shift, the hire date and the leave days through IBHR.memberUpdate (hr.edit F), the pay through
   // IBHR.payUpdate (sensitive.salaries F) — each part only for who may write it; the title and the role stay the settings page's

@@ -84,5 +84,18 @@
     try { await refresh(); } catch (e) { /* the number is saved; the copy catches up on the next load */ }
     return { ok: true };
   }
-  window.IBDirectory = { load, refresh, clear, perm, updatePhone, me: () => meRow, members: () => window.IBKit.store.members, roles: () => Object.values(rolesById) }; // roles(): the role rows the member may read (phase 6.5: the rule editor's «عيّن لدور»)
+  // phase 13 decision 22: the member's own name (profiles_guard_update lets a member write name / phone on their own row) — 2..80
+  // characters, spaces collapsed; the directory reloads so the header and the menus show it.
+  async function updateName(name) {
+    const c = window.IBSupabase.client; if (!c || !meRow) return { ok: false, reason: 'network' };
+    const n = String(name == null ? '' : name).replace(/[<>]/g, '').trim().replace(/\s+/g, ' ');
+    if (n.length < 2 || n.length > 80) return { ok: false, reason: 'invalid' };
+    if (n === meRow.name) return { ok: true, same: true };
+    let r; try { r = await c.from('profiles').update({ name: n }).eq('id', meRow.id).select('id'); } catch (e) { return { ok: false, reason: 'network' }; }
+    if (r.error) return { ok: false, reason: r.error.code === '42501' ? 'forbidden' : 'server' };
+    if (!r.data || !r.data.length) return { ok: false, reason: 'forbidden' };
+    try { await refresh(); } catch (e) { /* saved; the copy catches up on the next load */ }
+    return { ok: true };
+  }
+  window.IBDirectory = { load, refresh, clear, perm, updatePhone, updateName, me: () => meRow, members: () => window.IBKit.store.members, roles: () => Object.values(rolesById) }; // roles(): the role rows the member may read (phase 6.5: the rule editor's «عيّن لدور»)
 })();

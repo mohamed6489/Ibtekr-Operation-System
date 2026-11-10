@@ -40,6 +40,8 @@
       saved = saved || {};
       Object.assign(sh, { id: s.id, endAsked: !!saved.endAsked, prompted: Number(saved.prompted) || 0, otStart: saved.ot ? 480 : null });
     }
+    // decision 25 (0069): an overtime started on the server (this device or another) — from its start, or the 8-hour mark if later
+    if (s.ot_from) { sh.otStart = Math.min(480, base + Math.max(0, (Date.parse(s.ot_from) - Date.parse(s.in_at)) / 60000)); sh.endAsked = true; }
     sh.start = Date.parse(s.in_at); sh.base = base; sh.ended = false; sh.state = sh.otStart != null ? 'overtime' : 'in';
     paint();
   }
@@ -69,14 +71,23 @@
   }
   function endOvertime(after) {
     const end = worked();
-    K.form({ title: 'إنهاء الوقت الإضافي', values: {}, note: U.InlineNote({ children: 'اشتغلت ' + K.hrs(end - sh.otStart) + ' وقت إضافي (من ' + clockLabel(realOf(sh.otStart)) + '). هيتبعت لمديرك المباشر يأكده — ولو عدّى ' + (settings().escalate || 24) + ' ساعة بيروح للأدمن.' }),
+    K.form({ title: 'إنهاء الوقت الإضافي', values: {}, note: U.InlineNote({ children: 'اشتغلت ' + K.hrs(end - sh.otStart) + ' وقت إضافي (من ' + clockLabel(realOf(sh.otStart)) + '). هيتسجل في تذكرة الطلب ويتبعت لمديرك المباشر يأكده — ولو عدّى ' + (settings().escalate || 24) + ' ساعة بيروح للأدمن.' }),
       fields: (f, e, set) => [K.field.area('note', 'اشتغلت على إيه في الوقت ده؟', f, e, set, { required: true, placeholder: 'مثلاً: جهزت 14 أوردر لشحنة أرامكس' })],
       validate: (f) => { const err = O.validateOtEnd(f.note); return err ? { note: err } : {}; }, submitLabel: 'إنهاء الدوام وإرسال للتأكيد', submit: (f) => { finish(end, f.note.trim(), false).then(() => { if (after) after(); }); } });
   }
+  // decision 25 (0069 — «اكتمال ساعات العمل»): the day past 8 hours asks; «ابدأ وقت إضافي» (here or from «ملفي › ساعات العمل», even before
+  // 8 hours) opens a request ticket in «تذاكر الفريق» for the direct manager with a bell to the admins — nothing counts before the approval
+  async function startOvertime(atMark) {
+    if (sh.state !== 'in' || sh.busy || !HR() || !HR().overtimeBegin) return;
+    sh.busy = true; const r = await HR().overtimeBegin(); sh.busy = false;
+    if (!r.ok) { K.toast(r.message || 'تعذّر بدء الوقت الإضافي — جرّب تاني', 'error'); paint(); return; }
+    sh.state = 'overtime'; sh.otStart = atMark ? 480 : worked(); sh.endAsked = true; sh.prompted = 0; remember(); sync();
+    K.toast('بدأ الوقت الإضافي — اتبعت طلب لمديرك المباشر' + (r.ticket ? ' (' + r.ticket + ')' : '') + '، ومابيتحسبش غير بعد موافقته', 'success'); paint();
+  }
   function shiftOver() {
     sh.endAsked = true; remember();
-    const m = U.Modal({ title: 'ساعات العمل خلصت', body: [h('p', { style: 'margin:0' }, 'كمّلت 8 ساعات النهارده (من ' + clockLabel(sh.start) + '). تحب تنهي الدوام ولا لسه شغال وقت إضافي؟'), (() => { const t = U.Textarea({ id: 'ot-note', label: 'ملاحظة (اختياري)', value: sh.note, placeholder: 'هتشتغل على إيه؟', onInput: (v) => { sh.note = v; } }); return t; })(), h('p', { class: 't-small help', style: 'margin:0' }, 'الوقت الإضافي بيتسجل لما تنهيه وبيستنى تأكيد مديرك المباشر.')],
-      footer: [Button({ label: 'لسه — وقت إضافي', onClick: () => { m.close(); sh.state = 'overtime'; sh.otStart = 480; sh.prompted = 0; remember(); K.toast('بدأ الوقت الإضافي'); paint(); } }), Button({ type: 'primary', label: 'إنهاء الدوام', onClick: () => { m.close(); finish(Math.min(worked(), 480), '', false); } })] });
+    const m = U.Modal({ title: 'اكتمال ساعات العمل', body: [h('p', { style: 'margin:0' }, 'كمّلت 8 ساعات النهارده (من أول ' + clockLabel(sh.start) + '). تنهي الدوام ولا تبدأ وقت إضافي؟'), h('p', { class: 't-small help', style: 'margin:0' }, 'الوقت الإضافي بيتبعت طلب في «تذاكر الفريق» لمديرك المباشر ومابيتحسبش غير بعد موافقته.')],
+      footer: [Button({ label: 'ابدأ وقت إضافي', onClick: () => { m.close(); startOvertime(true); } }), Button({ type: 'primary', label: 'إنهاء الدوام', onClick: () => { m.close(); finish(Math.min(worked(), 480), '', false); } })] });
   }
   function closePresence() { if (sh.presence) { clearInterval(sh.presence.t); sh.presence.modal.close(); sh.presence = null; } }
   function presencePrompt() {
@@ -225,6 +236,6 @@
     ls.view = 'login'; ls.busy = true; drawLogin(); K.toast('اتحفظت كلمة المرور — سجّل دخول', 'success'); try { await logWithin('auth.password.set', 'reset'); await window.IBAuth.signOut('global').catch(() => {}); } finally { ls.busy = false; } }
   function routeLogin(hs) { const map = { login: 'login', 'login-2fa': '2fa', 'login-forgot': 'forgot', 'login-reset': 'reset', invite: 'invite', 'invite-expired': 'expiredInvite', 'login-suspended': 'suspended', 'login-locked': 'login' }; if (!(hs in map)) return false; if (hs === 'login-locked') auth = { fails: 0, left: 5, lockedUntil: now() + 15 * 60000 }; showLogin(map[hs]); return true; }
 
-  window.IBShell = { setIdle, idleMinutes: () => idleMins, ClockWidget, AccountMenu, state, clockIn, endShift, sessionWarning, signOutAll, showLogin, routeLogin, isLoggedOut: () => loggedOut };
+  window.IBShell = { setIdle, idleMinutes: () => idleMins, ClockWidget, AccountMenu, state, clockIn, endShift, startOvertime: () => startOvertime(false), sessionWarning, signOutAll, showLogin, routeLogin, isLoggedOut: () => loggedOut };
 })();
 

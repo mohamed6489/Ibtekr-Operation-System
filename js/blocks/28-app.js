@@ -369,7 +369,7 @@
   const setNote = (n) => { state.note = n; };
 
   // ---------- shell ----------
-  const NAV = [['home', 'لوحة التحكم', 'dashboard'], ['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['tag', 'المخزون', 'inventory'], ['package', 'المنتجات', 'products'], ['headset', 'خدمة العملاء', 'cs'], ['bot', 'الرد الآلي', 'autoreply'], ['ticket', 'تذاكر الفريق', 'tickets'], ['chart', 'التقارير', 'reports'], ['megaphone', 'التسويق', 'marketing'], ['briefcase', 'الموارد البشرية', 'hr'], ['gear', 'الإعدادات', 'settings']];
+  const NAV = [['home', 'لوحة التحكم', 'dashboard'], ['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['tag', 'المخزون', 'inventory'], ['package', 'المنتجات', 'products'], ['headset', 'خدمة العملاء', 'cs'], ['bot', 'الرد الآلي', 'autoreply'], ['ticket', 'طلبات الفريق', 'tickets'], ['chart', 'التقارير', 'reports'], ['megaphone', 'التسويق', 'marketing'], ['briefcase', 'الموارد البشرية', 'hr'], ['gear', 'الإعدادات', 'settings']];
   const soonTag = () => h('span', { class: 'soon' }, 'soon');
   function Sidebar() {
     return h('nav', { class: 'sidebar', 'aria-label': 'القائمة الرئيسية' },
@@ -378,7 +378,7 @@
         : h('button', { type: 'button', class: 'nav-item', 'data-page': page || false, 'aria-disabled': page ? false : 'true', title: page ? lb : lb + ' — غير متاح في النموذج', onClick: page ? () => goHome(page) : null }, Icon(ic), h('span', null, lb))));
   }
   // Bottom nav (mobile <=767) — Figma: Bottom nav 266:478 / Bottom nav item 266:476. 5 items; «المزيد» opens a sheet with the rest of the menu.
-  const BN = [['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['ticket', 'تذاكر الفريق', 'tickets']];
+  const BN = [['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['ticket', 'طلبات الفريق', 'tickets']];
   function BottomNav() {
     const item = (ic, lb, page, extra) => isSoon(page) ? h('button', { type: 'button', class: 'bn-item', 'data-page': page, 'data-soon': '', 'aria-disabled': 'true', title: lb + ' — soon', onClick: soonNote }, h('span', { class: 'pill' }, Icon(ic)), h('span', { class: 'bn-lbl' }, lb), soonTag())
       : h('button', Object.assign({ type: 'button', class: 'bn-item', 'data-page': page || false, onClick: page ? () => goHome(page) : null }, extra || {}), h('span', { class: 'pill' }, Icon(ic)), h('span', { class: 'bn-lbl' }, lb));
@@ -678,7 +678,7 @@
       { id: 'vendors', label: 'المبتكرين', icon: 'truck', unit: 'تنبيه', all: () => showOrders({ deliv: 'late' }), allLabel: 'عرض الكل في الأوردرات', empty: 'مفيش مبتكرين متأخرين.',
         tabs: [['all', 'الكل', late.concat(risk, dy, wk)], ['late', 'متأخر', late], ['risk', 'قابل للتأخير', risk], ['daily', 'المتابعة اليومية', dy], ['weekly', 'التقرير الأسبوعي', wk]] },
       accountsSection(), deliverySection(),
-      { id: 'tasks', label: 'مهام', icon: 'checkCircle', unit: 'مهمة', all: () => showTickets(), allLabel: 'عرض الكل في تذاكر الفريق', empty: 'مفيش مهام مستنياك.',
+      { id: 'tasks', label: 'مهام', icon: 'checkCircle', unit: 'مهمة', all: () => showTickets(), allLabel: 'عرض الكل في طلبات الفريق', empty: 'مفيش مهام مستنياك.',
         tabs: [['all', 'الكل', tasks.slice().sort((x, y) => P.indexOf(x.prio) - P.indexOf(y.prio))]].concat(P.map((p) => [p, U.PRIORITY[p], tasks.filter((t) => t.prio === p)])) },
     ].concat(csSection(), opsSections());
   }
@@ -2497,9 +2497,9 @@
       Array.from({ length: pages }, (_, i) => Button({ type: i + 1 === state.tpage ? 'primary' : 'text', size: 'sm', label: String(i + 1), attrs: { 'aria-current': i + 1 === state.tpage ? 'page' : false }, onClick: () => { state.tpage = i + 1; renderTickets(); } })),
       Button({ type: 'text', size: 'sm', label: 'التالي', disabled: state.tpage >= pages, onClick: () => { state.tpage++; renderTickets(); } })), h('span', { class: 't-small' }, num(list.length ? 'عرض ' + ((state.tpage - 1) * TPAGE + 1) + '–' + Math.min(list.length, state.tpage * TPAGE) + ' من ' + list.length : '')));
     const K2 = window.IBKit;
-    const tkHead = h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'تذاكر الفريق'), h('p', { class: 't-small' }, 'تذاكر الفريق: مشاكل العملاء، مشاكل المبتكرين، والتعليقات الداخلية — كل تحديث بيتسجل في السجل')),
+    const tkHead = h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'طلبات الفريق'), h('p', { class: 't-small' }, 'طلبات الفريق: مشاكل العملاء، مشاكل المبتكرين، والتعليقات الداخلية — كل تحديث بيتسجل في السجل')),
       h('div', { class: 'actions' }, state.tsub === 'log' && K2.PanelButton ? K2.PanelButton('tickets', 'تذاكر الفريق', () => document.getElementById('tickets'), renderTickets) : null, window.IBDataActions.Menu(window.IBDataActions.PAGES.tickets),
-        hrReqButton(), tCanManage() ? Button({ type: 'brand', icon: 'plus', label: 'إنشاء تذكرة', onClick: () => openNewTicket() }) : null));
+        hrReqButton(), tCanManage() ? Button({ type: 'brand', icon: 'plus', label: 'فتح طلب', onClick: () => openNewTicket() }) : null)); // decision 45
     const tkTabs = K2.SubTabs({ items: [{ id: 'log', label: 'السجل', count: all.filter((t) => TK.OPEN.has(t.status)).length }, { id: 'reports', label: 'التقارير' }], active: state.tsub, onChange: (id) => { state.tsub = id; renderTickets(); }, label: 'أقسام التذاكر' });
     if (state.tsub === 'reports') return [tkHead, tkTabs].concat(TicketsReport());
     const TFG = [{ key: 'status', label: 'الحالة', options: [['open_any', 'مفتوحة (كل الحالات المفتوحة)']].concat(TK.STATUSES) }, { key: 'type', label: 'النوع', options: TK.TYPES }, { key: 'priority', label: 'الأولوية', options: TK.PRIORITIES.map((x) => [x[0], x[1]]) }, { key: 'role', label: 'المسؤول', options: TK.ROLES.map((r) => [r, r]) }, { key: 'mine', label: 'تذاكري', options: [['mine', 'تذاكر دوري بس']] }];

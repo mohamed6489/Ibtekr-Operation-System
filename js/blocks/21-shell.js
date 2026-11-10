@@ -136,9 +136,35 @@
     const me = K.member(K.ME);
     const wrap = h('div', { class: 'pop-anchor user', 'data-popover-root': '' });
     const trig = h('button', { type: 'button', class: 'user-btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'حسابي — ' + me.name }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, me.name.charAt(0)), h('span', { class: 't-label nm' }, me.name), Icon('chevD', 'sm'));
-    const items = [['users', 'ملفي', () => go('profile')], ['send', 'طلباتي', () => { location.hash = 'tickets'; }] /* decision 33: my requests are team tickets */, ['clock', 'ساعات العمل', () => { location.hash = 'profile-hours'; }], me.role === 'أدمن' ? ['gear', 'الإعدادات', () => go('settings')] : null, ['external', 'تسجيل الخروج', logout, true]].filter(Boolean);
+    const items = [['users', 'ملفي', () => go('profile')], ['send', 'طلباتي', () => { location.hash = 'tickets'; }] /* decision 33: my requests are team tickets */, ['clock', 'ساعات العمل', () => { location.hash = 'profile-hours'; }], HR() && HR().overtimeRequest ? ['plus', 'طلب وقت إضافي', otRequest] : null /* decision 44 */, me.role === 'أدمن' ? ['gear', 'الإعدادات', () => go('settings')] : null, ['external', 'تسجيل الخروج', logout, true]].filter(Boolean);
     const pop = U.popover(wrap, trig, (close) => { const menu = h('div', { class: 'menu end acct', role: 'menu', 'data-popover-root': '' }, h('div', { class: 'acct-h' }, h('b', null, me.name), h('small', { dir: 'ltr' }, me.email)), items.map(([ic, lb, run, danger]) => h('button', { type: 'button', role: 'menuitem', class: 'opt' + (danger ? ' danger' : ''), onClick: () => { close(); run(); } }, Icon(ic, 'sm'), lb))); return menu; });
     trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
+  }
+  // ---- decision 44 (owner 10 Nov): «طلب وقت إضافي» — a day in the last 31, from / to (Cairo), what was worked on → a request the admins,
+  // the direct manager and the hr.approve F people decide (hr_overtime_request, 0073); nothing counts before the approval
+  function otRequest() {
+    const T = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); const back = (n) => { const d = new Date(T + 'T00:00:00Z'); d.setUTCDate(d.getUTCDate() - n); return d.toISOString().slice(0, 10); };
+    const mins = (f) => { const a = /^(\d{2}):(\d{2})$/.exec(f.from || ''); const b = /^(\d{2}):(\d{2})$/.exec(f.to || ''); return a && b ? (+b[1] * 60 + +b[2]) - (+a[1] * 60 + +a[2]) : 0; };
+    let busy = false;
+    K.form({ title: 'طلب وقت إضافي', submitLabel: 'ابعت الطلب', values: { day: T, from: '', to: '', note: '' },
+      note: (f) => h('p', { class: 't-small help', style: 'margin:0 0 8px' }, 'الطلب بيوصل للأدمن ومديرك المباشر واللي ليهم صلاحية الموافقة، ومابيتحسبش في المرتب غير بعد الموافقة.' + (mins(f) > 0 ? ' المدة: ' + K.hrs(mins(f)) + '.' : '')),
+      fields: (f, e, set) => [U.DateField({ id: 'day', label: 'اليوم', required: true, value: f.day, error: e.day, today: T, onChange: (v, err) => { set('day', v); if (err) e.day = err; } }),
+        K.two(U.TextInput({ id: 'from', label: 'من', type: 'time', required: true, value: f.from, error: e.from, onInput: (v) => set('from', v) }),
+          U.TextInput({ id: 'to', label: 'لحد', type: 'time', required: true, value: f.to, error: e.to, onInput: (v) => set('to', v) })),
+        K.field.area('note', 'اشتغلت على إيه', f, e, set, { required: true, maxlength: 300 })],
+      validate: (f) => { const er = K.req(f, ['day', 'from', 'to', 'note']);
+        if (f.day && (f.day > T || f.day < back(31))) er.day = 'اختار يوم من آخر 31 يوم لحد النهارده';
+        if (!er.from && !er.to && (mins(f) < 15 || mins(f) > 720)) er.to = 'المدة من ربع ساعة لـ 12 ساعة';
+        if (f.note && f.note.trim().length > 300) er.note = 'لحد 300 حرف'; return er; },
+      submit: (f, m) => {
+        if (busy) return false; busy = true;
+        HR().overtimeRequest({ day: f.day, from: f.from, to: f.to, note: f.note.trim() }).then((r) => {
+          busy = false;
+          if (!r || !r.ok) { K.toast((r && r.message) || 'تعذّر إرسال الطلب — جرّب تاني', 'error'); return; }
+          m.close(); K.toast('اتبعت طلب الوقت الإضافي' + (r.ticket ? ' — ' + r.ticket : '') + ' — مستني الموافقة', 'success');
+        });
+        return false;
+      } });
   }
   function logout() {
     if (sh.state === 'out') return signOut();
@@ -238,6 +264,6 @@
     ls.view = 'login'; ls.busy = true; drawLogin(); K.toast('اتحفظت كلمة المرور — سجّل دخول', 'success'); try { await logWithin('auth.password.set', 'reset'); await window.IBAuth.signOut('global').catch(() => {}); } finally { ls.busy = false; } }
   function routeLogin(hs) { const map = { login: 'login', 'login-2fa': '2fa', 'login-forgot': 'forgot', 'login-reset': 'reset', invite: 'invite', 'invite-expired': 'expiredInvite', 'login-suspended': 'suspended', 'login-locked': 'login' }; if (!(hs in map)) return false; if (hs === 'login-locked') auth = { fails: 0, left: 5, lockedUntil: now() + 15 * 60000 }; showLogin(map[hs]); return true; }
 
-  window.IBShell = { setIdle, idleMinutes: () => idleMins, ClockWidget, AccountMenu, state, clockIn, endShift, startOvertime: () => startOvertime(false), sessionWarning, signOutAll, showLogin, routeLogin, isLoggedOut: () => loggedOut };
+  window.IBShell = { setIdle, idleMinutes: () => idleMins, ClockWidget, AccountMenu, state, clockIn, endShift, startOvertime: () => startOvertime(false), otRequest, sessionWarning, signOutAll, showLogin, routeLogin, isLoggedOut: () => loggedOut };
 })();
 

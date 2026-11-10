@@ -261,7 +261,7 @@
   }
   // ---------- طلباتي ----------
   // what waits for me: the pending requests and overtime of others that RLS shows me (my team; the server decides who may decide)
-  function needFromMe() { const D = HD(); const isP = HR().isPending; return D.requests.filter((r) => r.member !== K.ME && isP(r)).map((r) => ({ kind: 'req', r })).concat(D.overtime.filter((o) => o.member !== K.ME && o.status === 'مستني').map((o) => ({ kind: 'ot', o }))); }
+  function needFromMe() { const D = HD(); const isP = HR().isPending; return D.requests.filter((r) => r.member !== K.ME && isP(r)).map((r) => ({ kind: 'req', r })).concat(D.overtime.filter((o) => o.member !== K.ME && o.status === 'مستني' && (!IH() || IH().decidesOt(o))).map((o) => ({ kind: 'ot', o }))); }
   function requests(m) {
     const D = HD(); const own = !isAdminView(); const isP = HR().isPending;
     const need = own ? needFromMe() : []; const canApprove = own && (need.length > 0 || can().edit || D.team.some((x) => x.manager === K.ME));

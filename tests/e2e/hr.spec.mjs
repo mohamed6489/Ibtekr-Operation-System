@@ -182,6 +182,21 @@ test('«إضافة عضو» (decision 14): team-admin makes the login and mails 
   await modal(page, 'ابعت إيميل الباسورد تاني').getByRole('button', { name: 'ابعت' }).click();
   await expect(page.locator('.toast.show')).toContainText('اتبعت الإيميل لـ كريم سامي');
   expect(mock.hr.mails.length).toBe(2); expect(calls('team-admin').map((c) => c.action)).toEqual(['member_create', 'member_invite']);
+  // decision 15: «حذف العضو نهائي» — the new member left no trace, so the row goes; a member with a trace is refused with the table
+  await P(page).locator('.hr-table tbody tr', { hasText: 'كريم سامي' }).getByRole('button', { name: 'إجراءات كريم سامي' }).click();
+  await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'حذف العضو نهائي' }).first().click();
+  const del = modal(page, 'حذف كريم سامي نهائي؟'); await expect(del).toContainText('مافيش رجوع');
+  await del.getByRole('button', { name: 'احذف نهائي' }).click();
+  await expect(page.locator('.toast.show')).toContainText('اتحذف كريم سامي نهائي');
+  await expect(P(page).locator('.hr-table')).not.toContainText('كريم سامي');
+  expect(mock.profiles.some((p) => p.email === 'karim.dev@ibtekr.local')).toBe(false);
+  expect(mock.activityRows.filter((r) => r.action === 'hr.member.delete').map((r) => r.new_value)).toEqual(['كريم سامي']);
+  mock.activityRows.push({ id: 900, at: new Date().toISOString(), actor: OPS_ID, action: 'auth.login', entity: 'profile', entity_id: OPS_ID, new_value: null });
+  await P(page).locator('.hr-table tbody tr', { hasText: 'سارة أحمد' }).getByRole('button', { name: 'إجراءات سارة أحمد' }).click();
+  await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'حذف العضو نهائي' }).first().click();
+  await modal(page, 'حذف سارة أحمد نهائي؟').getByRole('button', { name: 'احذف نهائي' }).click();
+  await expect(page.locator('.toast.show')).toContainText('العضو له سجل في «سجل النشاط» — اوقفه بدل ما تمسحه');
+  await expect(P(page).locator('.hr-table')).toContainText('سارة أحمد');
 });
 
 test('«إضافة عضو» without Resend: the temporary password shows once (not in any log)', async ({ page }) => {

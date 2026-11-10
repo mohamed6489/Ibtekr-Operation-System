@@ -12,8 +12,12 @@
 //   Auth OTP expiry) and answers { ok, id, member_code, mailed: true, email } with no password; without Resend, or when the mail
 //   fails, the temporary password comes back as before (mailed: false). POST { action: 'member_invite', member_id } sends that
 //   link again (the admin; not the caller's own) → { ok, mailed }. The link itself is never stored or logged.
-// activity_log: hr.member.create / hr.member.password / hr.member.invite with the member id and name only (no password, no email, no phone,
-// no link).
+//   Phase 13 decision 15 (the owner, 10 Nov — «زودلي زرار لمسح الـ user نهائي»): POST { action: 'member_delete', member_id } → the RPC
+//   member_delete of 0066 (service_role; never the caller's own account): a member with any trace in a non-cascading table is
+//   refused 409 { error: 'has_records', table }, the last active admin 409 { error: 'last_admin' }; a traceless one goes from
+//   auth.users (profiles and the member's own rows cascade) → { ok, id, name }.
+// activity_log: hr.member.create / hr.member.password / hr.member.invite / hr.member.delete with the member id and name only (no password,
+// no email, no phone, no link).
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
 import { withVault } from '../_shared/secrets.js';
 import { emailHtml } from '../_shared/notify.js';
@@ -31,7 +35,7 @@ export type AuthAdmin = {
 export type Deps = { env: Record<string, string | undefined>; db: Db; now: () => string; userDb?: (jwt: string) => Db; userId?: (jwt: string) => Promise<string | null>; auth?: AuthAdmin;
   fetch?: typeof fetch };
 
-const ACTIONS = ['member_create', 'member_password', 'member_invite'];
+const ACTIONS = ['member_create', 'member_password', 'member_invite', 'member_delete'];
 export const DEFAULT_APP_URL = 'https://operation-system.ibtekr.club/';
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type', 'Access-Control-Allow-Methods': 'POST, OPTIONS' };
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status, headers: { ...CORS, 'Content-Type': 'application/json' } });
@@ -168,6 +172,21 @@ async function memberPassword(deps: Deps, admin: string, args: Json) {
   return json(200, { ok: true, id, password });
 }
 
+async function memberDelete(deps: Deps, admin: string, args: Json) {
+  const id = typeof args.member_id === 'string' && UUID.test(args.member_id) ? args.member_id.toLowerCase() : null;
+  if (!id) return json(400, { error: 'invalid', field: 'member_id' });
+  if (id === admin) return json(400, { error: 'invalid', field: 'member_id' });
+  const { data, error } = await deps.db.rpc('member_delete', { p_member: id, p_actor: admin });
+  if (error) {
+    const code = String(error.code ?? ''); const msg = String(error.message ?? '');
+    if (code === 'P0002') return json(404, { error: 'not_found' });
+    if (code === '23503') return json(409, { error: 'has_records', table: String(error.hint ?? '').replace(/[^a-z0-9_]/gi, '').slice(0, 60) || null });
+    if (code === '22023') return json(409, { error: msg === 'last_admin' ? 'last_admin' : 'invalid' });
+    return json(500, { error: 'failed' });
+  }
+  return json(200, { ok: true, id, name: typeof data?.name === 'string' ? data.name : '' }); // the RPC wrote hr.member.delete itself
+}
+
 export async function handler(req: Request, deps: Deps): Promise<Response> {
   if (req.method === 'OPTIONS') return new Response('ok', { headers: CORS });
   if (req.method !== 'POST') return json(405, { error: 'method' });
@@ -181,6 +200,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   try {
     if (action === 'member_create') return await memberCreate(deps, admin, args);
     if (action === 'member_invite') return await memberInvite(deps, admin, args);
+    if (action === 'member_delete') return await memberDelete(deps, admin, args);
     return await memberPassword(deps, admin, args);
   } catch (e) {
     console.error('team-admin ' + action + ': ' + errText(e));

@@ -105,6 +105,21 @@ Deno.test('decision 14 — member_invite: the link mailed again to an active mem
   assertEquals(inviteEmail('  ', 'https://l').subject, 'حسابك على نظام إبتكر — اعمل الباسورد بتاعك'); assert(inviteEmail('x', 'https://l').body.includes('https://l'));
 });
 
+Deno.test('decision 15 — member_delete: the RPC\'s answer mapped (deleted / has_records with the table / last_admin / unknown), never one\'s own', async () => {
+  const deleted: any[] = [];
+  const mk = (behave: (a: any) => any) => { const { deps } = setup(); (deps as any).db = fakeDb({ roles: ROLES, profiles: PROFILES.map((p) => ({ ...p })) }, { rpc: { member_delete: (a: any) => { deleted.push(a); return behave(a); } } }); return deps; };
+  const ok = await call(mk((a) => ({ ok: true, id: a.p_member, name: 'سارة أحمد' })), { action: 'member_delete', member_id: PROFILES[1].id });
+  assertEquals([ok.res.status, ok.body], [200, { ok: true, id: PROFILES[1].id, name: 'سارة أحمد' }]); assertEquals(deleted[0], { p_member: PROFILES[1].id, p_actor: ADMIN });
+  const traced = await call(mk(() => { throw Object.assign(new Error('has_records'), { code: '23503', hint: 'activity_log' }); }), { action: 'member_delete', member_id: PROFILES[1].id });
+  assertEquals([traced.res.status, traced.body], [409, { error: 'has_records', table: 'activity_log' }]);
+  const last = await call(mk(() => { throw Object.assign(new Error('last_admin'), { code: '22023' }); }), { action: 'member_delete', member_id: PROFILES[1].id });
+  assertEquals([last.res.status, last.body], [409, { error: 'last_admin' }]);
+  const gone = await call(mk(() => { throw Object.assign(new Error('no such member'), { code: 'P0002' }); }), { action: 'member_delete', member_id: PROFILES[1].id });
+  assertEquals(gone.res.status, 404);
+  assertEquals((await call(mk(() => ({ ok: true })), { action: 'member_delete', member_id: ADMIN })).res.status, 400, 'never one\'s own');
+  assertEquals((await call(mk(() => ({ ok: true })), { action: 'member_delete', member_id: 'nope' })).res.status, 400);
+});
+
 Deno.test('member_password: a new temporary password for a member (not one\'s own), logged without it', async () => {
   const { db, deps, passwords } = setup();
   const { res, body } = await call(deps, { action: 'member_password', member_id: PROFILES[1].id });

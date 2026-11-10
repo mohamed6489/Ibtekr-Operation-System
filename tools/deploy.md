@@ -1159,6 +1159,12 @@ select at, action, entity_id, new_value from public.activity_log where action li
 - **الشرط:** مفتاح Resend في الإعدادات › الربط والمفاتيح (Vault `app_resend`) — الدالة بتقراه بـ `withVault` قبل كل نداء؛ وعنوان الموقع لازم يبقى في Redirect URLs بتاعة Supabase Auth (هو نفسه اللي «نسيت الباسورد» بيستخدمه، فموجود). مدة اللينك = «Email OTP expiry» في إعدادات Auth (ساعة افتراضيًا) ومرة واحدة.
 - **التحقق:** أضف عضو تجريبي بإيميلك → popup «اتبعت الإيميل» → الإيميل يوصل → اللينك يفتح «كلمة مرور جديدة» → بعد الحفظ دخول بالإيميل والباسورد الجديد. `activity_log`: `hr.member.create` ثم `hr.member.invite` بالاسم بس.
 
+#### 2.7.43 حذف عضو نهائي (المرحلة 13 قرار 15، 10 نوفمبر)
+
+- **الكود:** `0066_member_delete.sql` (RPC `member_delete` لـ `service_role`)، `team-admin` action `member_delete`، الزرار في الموارد البشرية (الكتلة 15).
+- **النشر بالترتيب:** `0066` (Supabase MCP `apply_migration` أو SQL editor) → RLS live `rls_member_delete` → workflow «Deploy functions» بـ `function = team-admin` → الواجهة على `main`.
+- **التحقق:** عضو تجريبي جديد (ماسجّلش دخول) → قايمة العضو › «حذف العضو نهائي» → اتمسح من `auth.users` و`profiles` و`hr_members`؛ عضو له سجل → رسالة «له سجل في «…»» ومافيش أي مسح. `activity_log` `hr.member.delete` بالاسم بس.
+
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
 - الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.
 - السياسات على `storage.objects` (من الملف نفسه، بادئة `vendor_contracts_`): `select` و`insert` و`update` لـ `authenticated` بشرط `bucket_id = 'vendor-contracts'` و`has_perm('sensitive.vendor_bank') = 'F'` (الأدمن والحسابات في مصفوفة `0003`). مافيش سياسة `delete`: استبدال العقد = ملف جديد والقديم بيفضل (قرار 7)، ومافيش تنظيف للملفات القديمة (تكلفة صغيرة).

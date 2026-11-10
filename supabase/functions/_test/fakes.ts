@@ -343,7 +343,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
     const fn = opts.rpc?.[name];
     if (!fn) { call.error = err('PGRST202', `Could not find the function public.${name}`); return { data: null, error: call.error }; }
     // a fake that throws an Error carrying a SQLSTATE `code` plays a database error (raise exception … using errcode); anything else is a test bug
-    try { return { data: await fn(args), error: null }; } catch (e) { const code = (e as { code?: unknown })?.code; if (typeof code !== 'string') throw e; call.error = err(code, String((e as Error).message ?? code)); return { data: null, error: call.error }; }
+    try { return { data: await fn(args), error: null }; } catch (e) { const code = (e as { code?: unknown })?.code; if (typeof code !== 'string') throw e; const hint = (e as { hint?: unknown })?.hint; call.error = { ...err(code, String((e as Error).message ?? code)), ...(typeof hint === 'string' ? { hint } : {}) }; return { data: null, error: call.error }; }
   }
 
   for (const [t, rows] of Object.entries(seed)) tables[t] = rows.map((r) => complete(t, r));

@@ -115,6 +115,15 @@ export function hrRoute(c) {
       if (H.resend !== false) { H.mails.push({ to: email, kind: 'invite' }); return json(200, { ok: true, id, member_code: code, mailed: true, email }); } // decision 14: Resend set → the set-your-password mail, no password
       return json(200, { ok: true, id, member_code: code, mailed: false, password: MOCK_TEMP });
     }
+    if (b.action === 'member_delete') { // decision 15: a trace (an activity_log row as actor, or staff managed) refuses; else the rows go
+      const p = prof(b.member_id); if (!p) return json(404, { error: 'not_found' }); if (b.member_id === u.id) return json(400, { error: 'invalid', field: 'member_id' });
+      if ((mock.activityRows || []).some((r) => r.actor === p.id)) return json(409, { error: 'has_records', table: 'activity_log' });
+      if (mock.profiles.some((x) => x.manager_id === p.id)) return json(409, { error: 'has_records', table: 'profiles' });
+      if (p.role_id === 'admin' && !mock.profiles.some((x) => x.id !== p.id && x.role_id === 'admin' && x.status === 'active')) return json(409, { error: 'last_admin' });
+      mock.profiles.splice(mock.profiles.indexOf(p), 1); H.members = H.members.filter((x) => x.member_id !== p.id); H.pay = H.pay.filter((x) => x.member_id !== p.id);
+      mock.activityRows.push({ id: mock.activityRows.length + 1, at: now, actor: null, action: 'hr.member.delete', entity: 'profile', entity_id: p.id, new_value: p.name });
+      return json(200, { ok: true, id: p.id, name: p.name });
+    }
     if (b.action === 'member_invite') { // decision 14
       const p = prof(b.member_id); if (!p) return json(404, { error: 'not_found' }); if (b.member_id === u.id) return json(400, { error: 'invalid', field: 'member_id' });
       if (p.status !== 'active') return json(409, { error: 'inactive' }); if (H.resend === false) return json(503, { error: 'not_configured' });

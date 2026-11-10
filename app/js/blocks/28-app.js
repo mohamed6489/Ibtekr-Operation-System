@@ -937,6 +937,23 @@
           submit: (f, md) => window.IBHR.taskAdd(K.ME, f.title.trim()).then((r) => { if (r && r.ok) { md.close(); K.toast('اتضافت المهمة', 'success'); } else K.toast((r && r.message) || 'ما اتضافتش — جرّب تاني', 'error'); }) });
         return 'form task_add'; }
       case 'order_update': { const OA = window.OrdersApp; if (!OA || !OA.aiUpdate) throw new Error('الأوردرات مش جاهزة'); if (can('orders.status') !== 'F' && !admin()) no(); const r = OA.aiUpdate({ id: String(v.order || '').replace(/\D/g, ''), status: v.status || '', confirm: v.confirm || '' }); if (r === 'missing') throw new Error('الأوردر ده مش ظاهر عندي'); if (r === 'nothing') throw new Error('مفيش تغيير — الحالة دي مش من اللي المساعد يقدر يغيّرها أو هي نفسها'); return 'form order_update'; }
+      // decision 40 (owner 10 Nov — «لما أسأل المساعد على إضافة مصروفات أو حسابات عامة يفتحلي بوب أب أحط فيه بياناتي بعد ما أحددله
+      // إيداع ولا سحب»): the accounts page's own «سحب / إيداع» popup (openForm) filled with what was said; «حفظ» in it is the confirmation
+      case 'expense_add': case 'account_move': case 'vendor_move': {
+        if (!canAdd()) no();
+        const dir = v.direction === 'deposit' || v.direction === 'withdraw' ? v.direction : null; if (!dir) throw new Error('قولّي إيداع ولا سحب الأول');
+        const kind = { expense_add: 'expenses', account_move: 'accountMoves', vendor_move: 'vendorMoves' }[form]; const pre = {};
+        const amt = Number(String(v.amount || '').replace(/[,٬]/g, '')); if (Number.isFinite(amt) && amt > 0) pre.amount = String(amt);
+        if (kind === 'expenses') {
+          if (D.CATEGORIES.includes(v.category)) pre.category = v.category;
+          if (v.beneficiary) { const n = aiVendorName(v.beneficiary); if (n) pre.beneficiary = n; else { pre.beneficiary = D.OTHER; pre.otherName = String(v.beneficiary).slice(0, 80); } }
+          for (const k of ['details', 'note', 'source']) if (v[k]) pre[k] = String(v[k]).slice(0, k === 'source' ? 80 : 500);
+        } else if (kind === 'accountMoves') { if (D.ACCOUNTS.includes(v.account)) pre.account = v.account; }
+        else { if (v.vendor) { const n = aiVendorName(v.vendor); if (n) pre.vendor = n; } if (D.VENDOR_TYPES.includes(v.type)) pre.type = v.type; }
+        state.tab = kind === 'expenses' ? 'expenses' : kind === 'accountMoves' ? 'actual' : 'vendors';
+        if (state.page !== 'accounts') go('accounts'); else render();
+        setTimeout(() => openForm(kind, dir, null, false, pre), 60); return 'form ' + form;
+      }
       default: throw new Error('النوع ده مش من الإجراءات المتاحة');
     }
   }

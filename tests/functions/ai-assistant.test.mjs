@@ -32,16 +32,16 @@ test('assistantRequest: the cached base + the screen block, the turns as message
   const req = parseAssistant(body({ turns: [{ role: 'user', text: 'أهلًا' }, { role: 'assistant', text: 'أهلًا بيك' }, { role: 'user', text: 'افتح الأوردرات' }], context: { page: 'accounts', tab: 'expenses', period: { from: '2026-11-01', to: '2026-11-08' } } })).req;
   const p = assistantRequest(req, CTX);
   assert.equal(p.model, 'claude-opus-5-5'); assert.equal(p.fallbacks, 'default'); assert.deepEqual(p.output_config, { effort: 'medium' });
-  assert.deepEqual(p.system[0].cache_control, { type: 'ephemeral' }); assert.match(p.system[0].text, /get_data/); assert.match(p.system[0].text, /propose_entry/); assert.match(p.system[0].text, /متعرضش أرقام تليفونات/);
+  assert.deepEqual(p.system[0].cache_control, { type: 'ephemeral' }); assert.match(p.system[0].text, /get_data/); assert.match(p.system[0].text, /expense_add/); assert.match(p.system[0].text, /إيداع ولا سحب/); assert.doesNotMatch(p.system[0].text, /propose_entry/); assert.match(p.system[0].text, /متعرضش أرقام تليفونات/);
   assert.equal(p.system[1].text, 'النهارده (القاهرة): 2026-11-08\nالمستخدم: منى (خدمة العملاء)\nالصفحة المفتوحة: الحسابات / expenses\nالفترة المعروضة: 2026-11-01 → 2026-11-08');
   assert.deepEqual(p.messages.map((m) => [m.role, m.content[0].text]), [['user', 'أهلًا'], ['assistant', 'أهلًا بيك'], ['user', 'افتح الأوردرات']]);
-  assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'propose_entry', 'open_form']);
+  assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'open_form']); // decision 40: the money entries are open_form popups
   assert.equal(p.tool_choice, undefined);
   assert.deepEqual(p.tools[1].input_schema.properties.page.enum, PAGES);
   const f = assistantRequest(parseAssistant({ mode: 'filter', turns: [{ role: 'user', text: 'المتأخر بتاع Art Craft' }], context: { vendors: ['Art Craft'], statuses: ['مكتمل', 'ملغي'] } }).req, CTX);
   assert.deepEqual(f.tools.map((t) => t.name), ['set_filter']); assert.deepEqual(f.tool_choice, { type: 'tool', name: 'set_filter' });
   assert.equal(f.system[1].text, 'المبتكرين المتاحين: Art Craft\nحالات الأوردر: مكتمل، ملغي');
-  assert.deepEqual(toolsOf('chat').length, 7); // + open_form (phase 13 decision 36)
+  assert.deepEqual(toolsOf('chat').length, 6); // + open_form (decision 36), − propose_entry (decision 40: the money entries are popups)
 });
 
 test('readTurn: text, tool uses (ids kept for the results), a refusal, a cut-off without text; toolResults shapes the next user message', () => {
@@ -176,7 +176,16 @@ test('open_form: the known forms and their fields only; dates, amounts and numbe
   assert.deepEqual(cleanAction('open_form', { form: 'hr_leave', values: { kind: 'إجازة سنوية', from: '2026-12-01', to: 'بكرة' } }).input.values, { kind: 'إجازة سنوية', from: '2026-12-01' });
   assert.deepEqual(cleanAction('open_form', { form: 'ticket_new', values: { type: 'boss', priority: 'high', orderId: 'IB-181668', title: 'تأخير' } }).input.values, { priority: 'high', orderId: '181668', title: 'تأخير' });
   assert.deepEqual(cleanAction('open_form', { form: 'order_update', values: { order: 'IB-181668', status: 'جاهز للشحن' } }).input.values, { order: '181668', status: 'جاهز للشحن' });
+  // decision 40: the accounts popups — «إيداع ولا سحب» first (no direction = nothing opens), the lists checked
+  assert.equal(cleanAction('open_form', { form: 'expense_add', values: { amount: '500', category: 'المصروفات' } }), null);
+  assert.deepEqual(cleanAction('open_form', { form: 'expense_add', values: { direction: 'withdraw', amount: '1,500', category: 'المصروفات', beneficiary: 'شركة الشحن', bogus: 'x' } }).input.values,
+    { direction: 'withdraw', amount: '1500', category: 'المصروفات', beneficiary: 'شركة الشحن' });
+  assert.deepEqual(cleanAction('open_form', { form: 'expense_add', values: { direction: 'deposit', category: 'هدايا' } }).input.values, { direction: 'deposit' });
+  assert.deepEqual(cleanAction('open_form', { form: 'account_move', values: { direction: 'deposit', amount: '2000', account: 'حساب البنك' } }).input.values, { direction: 'deposit', amount: '2000', account: 'حساب البنك' });
+  assert.deepEqual(cleanAction('open_form', { form: 'account_move', values: { direction: 'sideways', account: 'خزنة' } }), null);
+  assert.deepEqual(cleanAction('open_form', { form: 'vendor_move', values: { direction: 'deposit', vendor: 'Art Craft', type: 'عربون' } }).input.values, { direction: 'deposit', vendor: 'Art Craft', type: 'عربون' });
+  assert.deepEqual(cleanAction('open_form', { form: 'vendor_move', values: { direction: 'withdraw', type: 'customer' } }).input.values, { direction: 'withdraw' });
   for (const st of ['ملغي', 'استرجاع', 'فشل']) { assert.ok(!AI_ORDER_STATUSES.includes(st)); assert.equal(cleanAction('open_form', { form: 'order_update', values: { order: '1', status: st } }), null); }
-  assert.deepEqual(Object.keys(FORMS).sort(), ['customer_add', 'hr_advance', 'hr_leave', 'hr_remote', 'member_add', 'order_update', 'task_add', 'ticket_new', 'vendor_add']);
+  assert.deepEqual(Object.keys(FORMS).sort(), ['account_move', 'customer_add', 'expense_add', 'hr_advance', 'hr_leave', 'hr_remote', 'member_add', 'order_update', 'task_add', 'ticket_new', 'vendor_add', 'vendor_move']);
   assert.ok(toolsOf('chat').some((t) => t.name === 'open_form')); assert.ok(!toolsOf('filter').some((t) => t.name === 'open_form'));
 });

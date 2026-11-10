@@ -62,6 +62,34 @@ test('propose_entry: the confirm card from the server\'s action; nothing is writ
   await expect(page.locator('.sidebar .nav-item[data-page="accounts"]')).toHaveAttribute('aria-current', 'page');
 });
 
+test('decision 40: an expense / an account move opens the accounts page\'s own «سحب / إيداع» popup filled — nothing written until «حفظ»', async ({ page }) => {
+  let next = null; mock.aiAnswer = (action) => (action === 'assistant' ? next : null);
+  await signIn(page, ADMIN);
+  await page.getByRole('button', { name: 'مساعد AI' }).click();
+  // an expense withdrawal: the popup «سحب مصروفات» with the amount and the type the member said
+  next = { text: 'فتحتلك بوب أب سحب المصروفات — كمّل واحفظ.', actions: [{ name: 'open_form', input: { form: 'expense_add', values: { direction: 'withdraw', amount: '1500', category: 'المصروفات' } } }] };
+  await ask(page, 'سحب مصروفات 1500');
+  const ex = page.locator('.modal[role=dialog]', { hasText: 'سحب مصروفات' }).last();
+  await expect(ex.locator('#f-amount')).toHaveValue('1500');
+  await expect(ex).toContainText('المصروفات');
+  await ex.getByRole('button', { name: 'إلغاء' }).click();
+  expect(mock.accWrites.length).toBe(0);
+  // a deposit on the actual account: «إيداع في الحساب» filled; «حفظ» writes it through IBAccounts
+  next = { text: 'فتحتلك بوب أب الإيداع.', actions: [{ name: 'open_form', input: { form: 'account_move', values: { direction: 'deposit', amount: '2000', account: 'حساب البنك' } } }] };
+  await ask(page, 'إيداع 2000 في حساب البنك');
+  const dep = page.locator('.modal[role=dialog]', { hasText: 'إيداع في الحساب' }).last();
+  await expect(dep.locator('#f-amount')).toHaveValue('2000');
+  expect(mock.accWrites.length).toBe(0);
+  await dep.getByRole('button', { name: 'حفظ' }).click();
+  await expect.poll(() => mock.accWrites.length).toBe(1);
+  expect(mock.accWrites[0]).toMatchObject({ table: 'acc_account_moves', op: 'insert', direction: 'deposit', account: 'حساب البنك', amount: 2000 });
+  await expect(page.locator('.sidebar .nav-item[data-page="accounts"]')).toHaveAttribute('aria-current', 'page');
+  // no direction → nothing opens, the panel says to pick one
+  next = { text: 'تمام.', actions: [{ name: 'open_form', input: { form: 'vendor_move', values: { amount: '300' } } }] };
+  await ask(page, 'حركة مبتكر 300');
+  await expect(panel(page).locator('.ai-msg.ai').last()).toContainText('إيداع ولا سحب');
+});
+
 test('the AI not configured → the fixed commands take over (the note says so) and still open pages; the monthly cap is said', async ({ page }) => {
   mock.aiFail = 'not_configured';
   await signIn(page, OPS);

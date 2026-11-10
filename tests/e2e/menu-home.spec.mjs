@@ -88,3 +88,13 @@ test('the mobile bottom nav and its «المزيد» sheet reset the page the sa
   await page.locator('.bottom-nav .bn-more button').first().click();
   await page.locator('.bn-sheet .bn-opt[data-page="hr"]').click(); await url(page, 'hr-team');
 });
+
+test('decision 21: «ملفي» in the account menu always opens «نظرة عامة», from any tab and from another page', async ({ page }) => {
+  await signIn(page);
+  const openMine = async () => { await page.locator('.topbar .user-btn').click(); await page.getByRole('menuitem', { name: 'ملفي' }).click(); };
+  await at(page, 'profile-security'); await url(page, 'profile-security');
+  await openMine(); await url(page, 'profile');
+  await at(page, 'profile-hours'); await url(page, 'profile-hours');
+  await menu(page, 'dashboard').click(); await url(page, 'dashboard');
+  await openMine(); await url(page, 'profile'); await expect(page.locator('#pg-profile')).toBeVisible();
+});

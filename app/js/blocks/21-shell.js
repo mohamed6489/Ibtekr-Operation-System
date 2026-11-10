@@ -53,7 +53,7 @@
     if (!r.ok) { K.toast(r.message || 'تعذّر بدء الدوام — جرّب تاني', 'error'); paint(); return; }
     const remote = !!(r.shift && r.shift.remote);
     const off = [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay()) || HR().holidayDates().includes(t);
-    K.toast(off ? 'بدأ الدوام — يوم راحة: بيتحسب بيومين بعد تأكيد مديرك' : remote ? 'بدأ الدوام عن بُعد — بالتوفيق' : again ? 'رجعت للدوام — الساعات بتتجمع على النهارده' : 'بدأ الدوام — بالتوفيق', 'success'); sync();
+    K.toast(off ? 'بدأ الدوام — يوم راحة/عطلة: بيتحسب بيومين بعد موافقة الأدمن' : remote ? 'بدأ الدوام عن بُعد — بالتوفيق' : again ? 'رجعت للدوام — الساعات بتتجمع على النهارده' : 'بدأ الدوام — بالتوفيق', 'success'); sync();
   }
   async function finish(endMinWorked, note, auto) {
     if (sh.busy || !HR()) return; sh.busy = true;
@@ -82,7 +82,9 @@
     sh.busy = true; const r = await HR().overtimeBegin(); sh.busy = false;
     if (!r.ok) { K.toast(r.message || 'تعذّر بدء الوقت الإضافي — جرّب تاني', 'error'); paint(); return; }
     sh.state = 'overtime'; sh.otStart = atMark ? 480 : worked(); sh.endAsked = true; sh.prompted = 0; remember(); sync();
-    K.toast('بدأ الوقت الإضافي — اتبعت طلب لمديرك المباشر' + (r.ticket ? ' (' + r.ticket + ')' : '') + '، ومابيتحسبش غير بعد موافقته', 'success'); paint();
+    // decision 32 (0070): a rest day / holiday worked is the admins' to approve
+    const t = HR().today(); const off = [5, 6].includes(new Date(t + 'T00:00:00Z').getUTCDay()) || HR().holidayDates().includes(t);
+    K.toast('بدأ الوقت الإضافي — اتبعت طلب ' + (off ? 'للأدمن' : 'لمديرك المباشر') + (r.ticket ? ' (' + r.ticket + ')' : '') + '، ومابيتحسبش غير بعد موافقته', 'success'); paint();
   }
   function shiftOver() {
     sh.endAsked = true; remember();

@@ -198,3 +198,37 @@ test('decision 25: the direct manager / admin decides inside the ticket — «و
   expect(mock.tickets.find((t) => t.id === 7)).toMatchObject({ resolution_outcome: 'اتحلت المشكلة', resolution_note: 'اتضاف 45 دقيقة' });
   await expect(page.locator('[data-ot-request] [data-ot-approve]')).toHaveCount(0);
 });
+
+// phase 13 decision 32 (0070 — «في حالة العمل في الإجازات الرسمية أو العطلة بيتحسب كوقت إضافي يحتاج لموافقة من الأدمن»): a rest day /
+// holiday worked is decided by an admin only — the direct manager sees the request without the buttons, the admin approves it in the ticket
+test('decision 32: a rest day worked — the direct manager cannot approve it, the admin can (in the ticket)', async ({ page }) => {
+  const day = cairoDay(Date.now() - 4 * 86400000); const at = new Date(Date.now() - 4 * 86400000).toISOString();
+  const tickets = [{ id: 8, type: 'internal', title: 'يوم راحة/عطلة — منى حسن · ' + day.slice(8, 10) + '/' + day.slice(5, 7), description: 'طلب إضافة يوم راحة/عطلة اشتغله لـ منى حسن', priority: 'normal',
+    assignee_role: 'مدير النظام', created_by: '00000000-0000-4000-8000-000000000004', created_by_name: 'منى حسن', created_by_role: 'الحسابات' }];
+  pageErrors = []; page.on('pageerror', (e) => pageErrors.push(e.message));
+  mock = await installSupabaseMock(page, { tickets, hrOvertime: [{ member_id: '00000000-0000-4000-8000-000000000004', day, kind: 'rest_day', start_at: at, end_at: new Date(Date.parse(at) + 300 * 60000).toISOString(), minutes: 300, note: 'جرد', ticket_id: 8, created_at: at }] });
+  mock.profiles.find((p) => p.member_code === 'M04').manager_id = OPS_ID; // سارة is منى's direct manager
+  await page.goto('/');
+  await page.fill('#lg-id', OPS); await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(page.locator('#root')).toBeVisible();
+  await page.evaluate(() => { location.hash = 'tickets/TKT-0008'; });
+  const card = page.locator('[data-ot-request]');
+  await expect(card).toContainText('يوم راحة/عطلة');
+  await expect(card).toContainText('مستني موافقة الأدمن');
+  await expect(card.locator('[data-ot-approve]')).toHaveCount(0);
+  // the server refuses the manager too
+  const r = await page.evaluate(() => window.IBHR.overtimeDecide(window.IBHR.data.overtime[0].id, 'add'));
+  expect(r.ok).toBe(false);
+  expect(mock.hr.overtime[0].status).toBe('مستني');
+  // the admin approves it
+  await page.evaluate(() => window.IBAuth.signOut('local')); await page.goto('/');
+  await page.fill('#lg-id', 'admin.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(page.locator('#root')).toBeVisible();
+  await page.evaluate(() => { location.hash = 'tickets/TKT-0008'; });
+  await page.locator('[data-ot-request] [data-ot-approve]').click();
+  await modal(page, 'موافقة على يوم الراحة/العطلة').getByRole('button', { name: 'وافق' }).click();
+  await expect.poll(() => mock.hr.overtime[0].status).toBe('اتضاف');
+  await expect.poll(() => mock.tickets.find((t) => t.id === 8).status).toBe('closed');
+});

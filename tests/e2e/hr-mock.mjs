@@ -103,13 +103,13 @@ export function hrRoute(c) {
     const p = mock.profiles.find((x) => x.id === member) || {}; const mgr = p.manager_id ? mock.profiles.find((x) => x.id === p.manager_id && x.status === 'active') : null;
     const id = mock.tickets.reduce((m, t) => Math.max(m, t.id), 0) + 1; const name = String(p.name || 'عضو').slice(0, 60); const when = day.slice(8, 10) + '/' + day.slice(5, 7);
     mock.tickets.push({ id, type: 'internal', title: ((rest ? 'يوم راحة/عطلة — ' : 'وقت إضافي — ') + name + ' · ' + when).slice(0, 80), description: 'طلب إضافة وقت إضافي لـ ' + name, priority: 'normal',
-      assignee_role: (mgr && ROLE_LABEL[mgr.role_id]) || 'مدير النظام', order_number: null, order_id: null, customer: null, cs_customer_id: null, cs_conversation_id: null, vendor_id: null, vendor: null, reason: null, follow_up: null,
+      assignee_role: rest ? 'مدير النظام' : (mgr && ROLE_LABEL[mgr.role_id]) || 'مدير النظام', // 0070: a rest day is the admins' order_number: null, order_id: null, customer: null, cs_customer_id: null, cs_conversation_id: null, vendor_id: null, vendor: null, reason: null, follow_up: null,
       attachments: [], status: 'open', created_by: member, created_by_name: p.name || 'عضو', created_by_role: ROLE_LABEL[p.role_id] || 'عضو', created_at: now, last_update: now, reopen_count: 0,
       resolution_outcome: null, resolution_note: null, resolved_by: null, resolved_by_name: null, resolved_at: null, closed_by: null, closed_by_name: null, closed_at: null });
     otEvent(id, 'فتح التذكرة');
     const title = name + (rest ? ' بيشتغل يوم راحة/عطلة' : ' بدأ وقت إضافي');
-    mock.alerts.push({ id: 9000 + id, at: now, kind: 'hr.overtime', title, body: 'مستني موافقة المدير المباشر', role_id: 'admin', user_id: null, entity: 'tickets/' + tkNum(id), entity_id: 'ot:' + id, read_at: null });
-    if (mgr && mgr.role_id !== 'admin') mock.alerts.push({ id: 9500 + id, at: now, kind: 'hr.overtime', title, body: 'محتاج موافقتك', role_id: null, user_id: mgr.id, entity: 'tickets/' + tkNum(id), entity_id: 'ot:' + id, read_at: null });
+    mock.alerts.push({ id: 9000 + id, at: now, kind: 'hr.overtime', title, body: rest ? 'مستني موافقة الأدمن' : 'مستني موافقة المدير المباشر', role_id: 'admin', user_id: null, entity: 'tickets/' + tkNum(id), entity_id: 'ot:' + id, read_at: null });
+    if (!rest && mgr && mgr.role_id !== 'admin') mock.alerts.push({ id: 9500 + id, at: now, kind: 'hr.overtime', title, body: 'محتاج موافقتك', role_id: null, user_id: mgr.id, entity: 'tickets/' + tkNum(id), entity_id: 'ot:' + id, read_at: null });
     return id;
   };
   const otClose = (tid, outcome, note) => { const t = mock.tickets.find((x) => x.id === tid); if (!t || t.status === 'closed') return; const who = mock.profiles.find((p) => p.id === u.id) || {};
@@ -278,7 +278,7 @@ export function hrRoute(c) {
     }
     if (f === 'hr_request_cancel') { const r = H.requests.find((x) => x.id === Number(b.p_id) && x.member_id === u.id && ['جديد', 'قيد المراجعة'].includes(x.status)); if (!active) return no(); if (!r) return nf(); r.status = 'اتلغى'; return json(200, 'اتلغى'); }
     if (f === 'hr_overtime_decide') {
-      const o = H.overtime.find((x) => x.id === Number(b.p_id)); if (!o || !sees(o.member_id)) return nf(); if (!decides(o.member_id)) return no();
+      const o = H.overtime.find((x) => x.id === Number(b.p_id)); if (!o || !sees(o.member_id)) return nf(); if (!decides(o.member_id)) return no(); if (o.kind === 'rest_day' && !isAdmin(u)) return no(); // 0070
       if (!(o.status === 'مستني' || (o.status === 'اترفض' && b.p_decision === 'add'))) return bad('status'); const reason = String(b.p_reason || '').trim() || null;
       if (o.status === 'اترفض') { if (!editor) return no(); const mt = H.meetings.find((x) => x.member_id === o.member_id && x.ref === 'OT-' + o.id && x.status !== 'اتقفلت'); if (!mt) return bad('meeting');
         Object.assign(mt, { status: 'اتقفلت', outcome: 'اتضاف الوقت', updated_at: now }); } // the meeting's result (the security review)

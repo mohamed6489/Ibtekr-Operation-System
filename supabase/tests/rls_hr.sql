@@ -231,12 +231,15 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000
 do $$
 begin
   if (select count(*) from public.hr_payroll_lines) <> 0 then raise exception 'case the manager does not see their report''s payslip failed'; end if;
-  if public.hr_overtime_decide((select v::bigint from hr_ids where k = 'rest'), 'add', 5) <> 'اتضاف' then raise exception 'case the manager approves the rest day failed'; end if;
+  -- 0070 (decision 32): a rest day / holiday worked is the admins' decision, not the direct manager's
+  begin perform public.hr_overtime_decide((select v::bigint from hr_ids where k = 'rest'), 'add', 5); raise exception 'case the manager does not approve a rest day (0070) failed';
+  exception when insufficient_privilege then null; end;
 end $$;
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a1","role":"authenticated"}', true);
 do $$
 declare c record;
 begin
+  if public.hr_overtime_decide((select v::bigint from hr_ids where k = 'rest'), 'add', 5) <> 'اتضاف' then raise exception 'case the admin approves the rest day failed'; end if;
   -- approved after its month's sheet was paid: it rides the next sheet still open (decision 16), whole (the 5 minutes ignored):
   -- one day ×2 = 9600 ÷ 24 × 2
   select * into c from public.hr_payroll_calc((date_trunc('month', (select v::date from hr_ids where k = 'fri')) + interval '1 month')::date) where member_id = '00000000-0000-4000-8000-0000000046a3';

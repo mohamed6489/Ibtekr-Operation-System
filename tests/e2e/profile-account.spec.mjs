@@ -30,6 +30,8 @@ test('decision 39: «بيانات الحساب» second, its four sections; the 
   for (const t of ['الحساب والأمان', 'العقود والمستندات']) await expect(P(page).getByRole('tab', { name: t, exact: true })).toHaveCount(0);
   await tabs.nth(1).click();
   for (const t of ['البيانات الشخصية', 'الرقم السري', 'رقم الحساب البنكي', 'مستندات وعقود']) await expect(P(page).locator('h2', { hasText: t })).toBeVisible();
+  // decision 46: a section's header is green with beige text
+  expect(await sec(page, 'الرقم السري').locator('.sec-h').evaluate((el) => [getComputedStyle(el).backgroundColor, getComputedStyle(el.querySelector('h2')).color])).toEqual(['rgb(0, 86, 66)', 'rgb(255, 247, 239)']);
   await expect(sec(page, 'البيانات الشخصية')).toContainText('سارة أحمد'); await expect(sec(page, 'البيانات الشخصية')).toContainText('مديرة العمليات');
   await expect(sec(page, 'الرقم السري').getByRole('button', { name: 'تغيير كلمة المرور' })).toBeVisible();
   // no bank account yet → add one; a number with letters is refused in the form

@@ -61,7 +61,7 @@ test('«تذاكر الفريق» is open: the open tickets from the database (t
 
 test('admin opens a ticket: ticket_create with the form, the drawer on the new ticket with the server\'s timeline, an activity row without the text', async ({ page }) => {
   await openTickets(page);
-  await page.getByRole('button', { name: 'إنشاء تذكرة' }).click();
+  await page.getByRole('button', { name: 'فتح طلب' }).click();
   const m = modal(page, 'تذكرة جديدة');
   await m.locator('#t-title').fill('الطابعة واقفة');
   await pick(page, m, 't-type', 'تعليق داخلي');
@@ -80,7 +80,7 @@ test('admin opens a ticket: ticket_create with the form, the drawer on the new t
 
 test('a customer ticket needs the order number and a reason (the v2 validation, before any call)', async ({ page }) => {
   await openTickets(page);
-  await page.getByRole('button', { name: 'إنشاء تذكرة' }).click();
+  await page.getByRole('button', { name: 'فتح طلب' }).click();
   const m = modal(page, 'تذكرة جديدة');
   await m.locator('#t-title').fill('x');
   await m.getByRole('button', { name: 'إنشاء التذكرة' }).click();
@@ -164,7 +164,7 @@ test('the reports tab: open / overdue / average from the loaded tickets, by role
 
 test('attachments: an image uploaded into tickets/<my uid>/, carried by the new ticket, shown in the drawer; an HTML file refused', async ({ page }) => {
   await openTickets(page);
-  await page.getByRole('button', { name: 'إنشاء تذكرة' }).click();
+  await page.getByRole('button', { name: 'فتح طلب' }).click();
   const m = modal(page, 'تذكرة جديدة');
   await m.locator('#t-title').fill('صورة الكسر');
   await pick(page, m, 't-type', 'تعليق داخلي');
@@ -281,7 +281,7 @@ test('decision 19: «رقم الأوردر» lists the matching orders as it is 
   await page.locator('.sidebar .nav-item[data-page="orders"]').click(); // the orders are loaded
   await expect(page.locator('#orders [data-more="o:180686"]').first()).toBeVisible();
   await page.locator('.sidebar .nav-item[data-page="tickets"]').click();
-  await page.getByRole('button', { name: 'إنشاء تذكرة' }).click();
+  await page.getByRole('button', { name: 'فتح طلب' }).click();
   const m = modal(page, 'تذكرة جديدة');
   await m.locator('#t-order').fill('هدير');
   const opt = m.locator('[data-tk-pick="180686"]');

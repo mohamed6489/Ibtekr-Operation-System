@@ -43,6 +43,17 @@
   }
   document.addEventListener('ib:hr', () => { slipGen += 1; st.bank = {}; if (window.IBPages.current === 'profile' && !typing()) rerender(); });
 
+  // decision 45 (owner 10 Nov — «غيّر زرار تعديل البيانات لدروب داون فيها + وقت إضافي، تعديل البيانات، فتح طلب»): the header's button is a
+  // menu — the overtime request (decision 44, IBShell.otRequest), «تعديل بياناتي», and a new request on «طلبات الفريق» (IbtekrApp.newTicket)
+  function myMenu(m) {
+    const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
+    const btn = Button({ label: 'تعديل بياناتي', iconEnd: 'chevD', attrs: { 'aria-haspopup': 'menu', 'data-my-menu': '' } });
+    const opts = [window.IBShell && window.IBShell.otRequest ? { value: 'ot', label: '+ وقت إضافي', icon: 'clock' } : null, { value: 'edit', label: 'تعديل البيانات', icon: 'edit' },
+      window.IbtekrApp && window.IbtekrApp.newTicket ? { value: 'req', label: 'فتح طلب', icon: 'send' } : null].filter(Boolean);
+    const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: opts, role: 'menu', end: true, onSelect: (v) => { close();
+      if (v === 'ot') window.IBShell.otRequest(); else if (v === 'edit') editInfo(m); else if (v === 'req') window.IbtekrApp.newTicket(); } }));
+    btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
+  }
   function view() {
     const m = HM(whoId()); const ad = isAdminView();
     if (!m.id) return [K.Section('', K.Empty('الملف ده مش ظاهر ليك', 'افتح ملفات الفريق من «الموارد البشرية › الفريق».'))];
@@ -50,7 +61,7 @@
     const sub = [m.title, m.dept].filter(Boolean).join(' · ') + (m.manager ? ' · المدير المباشر: ' + HM(m.manager).name : '');
     const head = h('div', { class: 'card prof-head' }, h('span', { class: 'avatar xl', 'aria-hidden': 'true' }, m.name.charAt(0)),
       h('div', { class: 'grow' }, h('h1', { class: 't-h3' }, m.name), h('div', { class: 't-small help' }, sub || '—'), h('div', { class: 'acts-inline' }, m.role ? K.Tag('brand', m.role) : null, m.status === 'suspended' ? K.Tag('error', 'موقوف') : K.Tag('success', 'نشط'), !ad ? K.Tag(sh.state === 'out' ? 'neutral' : sh.state === 'overtime' ? 'orange' : 'success', sh.state === 'out' ? (sh.ended ? 'خلص الدوام' : 'خارج الدوام') : sh.state === 'overtime' ? 'وقت إضافي' : 'على الدوام') : K.Tag(HR().status(m)[1], HR().status(m)[0]))),
-      h('div', { class: 'acts-inline' }, ad ? Button({ label: 'رجوع للفريق', onClick: () => { location.hash = 'hr-team'; } }) : Button({ label: 'تعديل بياناتي', onClick: () => editInfo(m) })));
+      h('div', { class: 'acts-inline' }, ad ? Button({ label: 'رجوع للفريق', onClick: () => { location.hash = 'hr-team'; } }) : myMenu(m)));
     const tabs = K.MainTabs({ items: TABS.map(([id]) => ({ id, label: label(id) })), active: st.tab, onChange: (id) => { st.tab = id; setHash(); rerender(); }, label: 'أقسام الملف' });
     const body = h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...tab(m));
     if (st.tab === 'overview' && !ad && m.id === K.ME) setTimeout(() => K.applyPanelPrefs('profile:overview', body), 0); // decision 27

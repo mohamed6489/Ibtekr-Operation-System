@@ -295,6 +295,17 @@
   async function shiftNow() { const { data, error } = await rpc('hr_shift_now', {}); if (error) return fail(error); return { ok: true, shift: data || null }; }
   async function clockIn() { const { data, error } = await rpc('hr_clock_in', {}); if (error) return fail(error); log('hr.shift.start', data && data.remote ? 'عن بُعد' : ''); await load(); return { ok: true, shift: data }; } /* «عن بُعد» is the server's: an approved «شغل عن بُعد» covering today */
   // decision 25 (0069): overtime starts now (before 8 hours too) — the request ticket for the direct manager and the bell to the admins
+  // decision 44 (0073): «طلب وقت إضافي» from the account menu — a day in the last 31, Cairo times, what was worked on; a «مستني» row with
+  // its request ticket (the approvers decide it like the clock's)
+  const OT_REQ_MSG = { day: 'اختار يوم من آخر 31 يوم لحد النهارده', from: 'اكتب وقت البداية', to: 'وقت النهاية لازم يكون عدّى', minutes: 'المدة من ربع ساعة لـ 12 ساعة',
+    note: 'اكتب اشتغلت على إيه (لحد 300 حرف)', overlap: 'فيه طلب وقت إضافي تاني على نفس الوقت ده' };
+  async function overtimeRequest({ day, from, to, note } = {}) {
+    const { data, error } = await rpc('hr_overtime_request', { p_day: day || null, p_from: String(from || ''), p_to: String(to || ''), p_note: clean(note, 300) });
+    if (error) { const r = fail(error); if (r.field && OT_REQ_MSG[r.field]) r.message = OT_REQ_MSG[r.field]; return r; }
+    const t = data && data.ticket ? 'TKT-' + String(data.ticket).padStart(4, '0') : null; log('hr.overtime.request', (data && data.minutes) + ' دقيقة', t); await load();
+    if (window.IBTickets && window.IBTickets.load) quiet(() => window.IBTickets.load());
+    return { ok: true, ticket: t, minutes: (data && data.minutes) || 0, restDay: !!(data && data.rest_day) };
+  }
   async function overtimeBegin() {
     const { data, error } = await rpc('hr_overtime_begin', {}); if (error) return fail(error);
     const t = data && data.ticket ? 'TKT-' + String(data.ticket).padStart(4, '0') : null; log('hr.overtime.begin', t || '', t); await load();
@@ -723,7 +734,7 @@
   }
 
   window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, decidesOt, settings, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
-    shiftNow, myShift, clockIn, clockOut, overtimeBegin, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
+    shiftNow, myShift, clockIn, clockOut, overtimeBegin, overtimeRequest, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, slips, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,
     memberCreate, memberPassword, memberInvite, memberDelete, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,

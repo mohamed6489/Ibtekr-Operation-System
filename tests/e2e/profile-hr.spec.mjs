@@ -153,7 +153,7 @@ test('ops (hr.view P, no sensitive.salaries) on another member\'s file: no money
 
 test('«تعديل بياناتي»: the mobile saved on my profile (a taken one refused), a new email through Supabase\'s confirmation link — neither logged', async ({ page }) => {
   await open(page, OPS, 'profile-security');
-  await P(page).locator('.prof-head').getByRole('button', { name: 'تعديل بياناتي' }).click(); // the header's (the security tab has one too)
+  await P(page).locator('.prof-head').getByRole('button', { name: 'تعديل بياناتي' }).click(); await page.getByRole('menuitem', { name: 'تعديل البيانات' }).click(); // decision 45: the header's button is a menu
   const f = modal(page, 'تعديل بياناتي');
   await expect(f.locator('#name')).toBeFocused();
   // decision 22: the job title, department, role and status are shown read-only — no field for them
@@ -180,7 +180,7 @@ test('«تعديل بياناتي»: the mobile saved on my profile (a taken one
 
 test('decision 22: «تعديل بياناتي» renames me and changes my password in the same popup — a half-filled password section is refused first', async ({ page }) => {
   await open(page, OPS, 'profile');
-  await P(page).locator('.prof-head').getByRole('button', { name: 'تعديل بياناتي' }).click();
+  await P(page).locator('.prof-head').getByRole('button', { name: 'تعديل بياناتي' }).click(); await page.getByRole('menuitem', { name: 'تعديل البيانات' }).click();
   const f = modal(page, 'تعديل بياناتي');
   await f.locator('#name').fill('  سارة   أحمد  علي ');
   await f.locator('#p1').fill('NewPass-2026'); await f.locator('#p2').fill('NewPass-2026');

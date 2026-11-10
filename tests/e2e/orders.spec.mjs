@@ -961,3 +961,15 @@ test('decision 35: the filter builder selects keep their text in the middle (the
   expect(await look('select.conj')).toBe(want);
   expect(want).toBe('block row center');
 });
+
+test('decision 47: the status chips and the chosen filters stay in view under the top bar while scrolling; with no filter the space above and below the chips is the same', async ({ page }) => {
+  await page.setViewportSize({ width: 1280, height: 600 });
+  await openOrders(page);
+  const bar = () => page.evaluate(() => { const R = document.querySelector('#orders').shadowRoot; const t = R.querySelector('.toolbar').getBoundingClientRect(); const c = R.querySelector('#chips').getBoundingClientRect(); const top = document.querySelector('.topbar').getBoundingClientRect();
+    return { top: Math.round(t.top), head: Math.round(top.bottom), above: Math.round(c.top - t.top), below: Math.round(t.bottom - c.bottom) }; });
+  const b0 = await bar();
+  expect(Math.abs(b0.above - b0.below)).toBeLessThanOrEqual(1);
+  await page.mouse.move(640, 400); await page.mouse.wheel(0, 1200);
+  await expect.poll(async () => (await bar()).top).toBe(b0.head); // stuck right under the top bar
+  await expect(page.locator('#orders #chips .sc').first()).toBeInViewport();
+});

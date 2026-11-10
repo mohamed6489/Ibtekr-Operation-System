@@ -1662,3 +1662,9 @@ tbody tr:nth-child(even) td{background:var(--color-bg-tint)}
    header item together at the end (left) — the wrapper of the search takes the free space after it (its .search's own auto margin sits
    inside the wrapper since 5.5 and pushed nothing) */
 .topbar>.gq-wrap{margin-inline-end:auto}
+/* owner 10 Nov (decision 46): the header of every section card is a green band with beige text, so the information splits clearly —
+   the table cards (tbl-v2: their own green header row) and the settings admin cards keep their look; a header with the columns button only stays plain */
+.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only){background:var(--color-brand-default);border-bottom-color:var(--color-brand-default)}
+.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only) h2,.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only) .sub,
+.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only) .btn-text{color:var(--color-text-on-brand)}
+.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only) .sub{opacity:.85}

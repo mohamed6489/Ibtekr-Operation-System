@@ -217,6 +217,21 @@ export function hrRoute(c) {
       H.attendance.push({ id: nextId(), member_id: u.id, day: today, in_at: now, out_at: null, remote, source: 'clock', note: null, by_id: u.id, updated_at: now });
       return json(200, shift());
     }
+    if (f === 'hr_overtime_request') { // 0073 (decision 44): a day in the last 31, Cairo times, never twice for the same time
+      if (!active) return no();
+      const d = String(b.p_day || ''); const tm = /^([01]\d|2[0-3]):[0-5]\d$/; const note = String(b.p_note || '').trim();
+      if (!d || d > today || d < addDays(today, -31)) return bad('day');
+      if (!tm.test(b.p_from || '')) return bad('from'); if (!tm.test(b.p_to || '')) return bad('to');
+      if (!note || note.length > 300) return bad('note');
+      const at = (t) => new Date(Date.parse(d + 'T' + t + ':00+02:00')).toISOString(); const st = at(b.p_from); const en = at(b.p_to); const min = minutes(st, en);
+      if (min < 15 || min > 720) return bad('minutes'); if (Date.parse(en) > Date.now()) return bad('to');
+      const rest = restDay(H, d);
+      if (H.overtime.some((o) => o.member_id === u.id && o.status !== 'اترفض' && Date.parse(o.start_at) < Date.parse(en) && Date.parse(o.end_at) > Date.parse(st)) || (rest && H.overtime.some((o) => o.member_id === u.id && o.day === d && o.kind === 'rest_day'))) return bad('overlap');
+      const tid = otTicket(u.id, d, rest); const id = nextId();
+      H.overtime.push({ id, member_id: u.id, day: d, start_at: st, end_at: en, minutes: min, kind: rest ? 'rest_day' : 'hours', note, status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now, ticket_id: tid });
+      otEvent(tid, 'طلب وقت إضافي: ' + min + ' دقيقة — مستني الموافقة (التفاصيل في «الموارد البشرية › الطلبات»)');
+      return json(200, { id, ticket: tid, minutes: min, rest_day: rest });
+    }
     if (f === 'hr_overtime_begin') {
       if (!active) return no();
       const a = H.attendance.filter((x) => x.member_id === u.id && x.out_at == null && Date.parse(x.in_at) > Date.now() - 20 * 3600000).sort((x, y) => (x.in_at < y.in_at ? 1 : -1))[0];

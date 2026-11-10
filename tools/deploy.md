@@ -1206,6 +1206,16 @@ select at, actor, action, entity_id from public.activity_log where action like '
 select count(*) from public.hr_bank;
 ```
 
+#### 2.7.50 «طلب وقت إضافي» من قايمة الحساب و«ملفي» (المرحلة 13 قرارات 44–47، 10 نوفمبر)
+
+- **الكود:** `0073_hr_overtime_request.sql` (`hr_overtime_request(day, from, to, note)` `security definer`: يوم من آخر 31 لحد النهارده، أوقات القاهرة، النهاية عدّت، من ربع ساعة لـ 12 ساعة، «اشتغلت على إيه» 1–300؛ صف `hr_overtime` «مستني» + تذكرة الطلب بـ `hr_ot_ticket` (للمدير المباشر وإلا «مدير النظام»؛ يوم الراحة/العطلة للأدمن بس)؛ نفس الوقت مرتين = `invalid: overlap`؛ الجرس للأدمن والمدير المباشر وأي عضو `hr.approve` و`hr.view` F — من غير الملاحظة ولا الأوقات)، `IBHR.overtimeRequest`، الكتلة 21 («طلب وقت إضافي» في قايمة الحساب + `IBShell.otRequest`)، الكتلة 18 (زرار «تعديل بياناتي» بقى قايمة: «+ وقت إضافي» / «تعديل البيانات» / «فتح طلب»)، الكتلة 28 («طلبات الفريق» في القايمة الجانبية وعنوان الصفحة، و«فتح طلب» بدل «إنشاء تذكرة»)، و`app.css` (هيدر كروت الأقسام أخضر بنص بيج)، والكتلة 29 (شريط الحالات والفلاتر sticky).
+- **النشر بالترتيب:** `0073` **قبل** الواجهة → RLS live `rls_hr_overtime_request` → الواجهة على `main`. مافيش Edge Function.
+- **التحقق:** قايمة الاسم → «طلب وقت إضافي» → يوم + من/لحد + اشتغلت على إيه → «ابعت الطلب» → تذكرة في «طلبات الفريق» وصف «مستني» في «الموارد البشرية › الطلبات»؛ نفس الوقت تاني بيترفض.
+
+```sql
+select id, member_id, day, minutes, kind, status, ticket_id from public.hr_overtime order by created_at desc limit 5;
+```
+
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
 - الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.
 - السياسات على `storage.objects` (من الملف نفسه، بادئة `vendor_contracts_`): `select` و`insert` و`update` لـ `authenticated` بشرط `bucket_id = 'vendor-contracts'` و`has_perm('sensitive.vendor_bank') = 'F'` (الأدمن والحسابات في مصفوفة `0003`). مافيش سياسة `delete`: استبدال العقد = ملف جديد والقديم بيفضل (قرار 7)، ومافيش تنظيف للملفات القديمة (تكلفة صغيرة).

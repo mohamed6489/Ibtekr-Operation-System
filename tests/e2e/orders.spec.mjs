@@ -830,13 +830,16 @@ test('decision 10: the in-page search and the four dropdowns are hidden; the top
   const sr = (sel) => page.locator('#orders ' + sel);
   await expect(sr('.sq')).toBeHidden(); await expect(sr('.legacy-sel')).toBeHidden();
   for (const id of ['fv', 'fc', 'fd', 'fn']) await expect(sr('#' + id)).toBeHidden();
-  await expect(sr('#fbtn')).toBeVisible(); await expect(sr('#clr')).toBeVisible();
+  await expect(sr('#fbtn')).toBeVisible(); await expect(sr('#clr')).toBeHidden(); // decision 34: no filters, no «مسح الفلاتر»
   expect((await sr('#fv option').allTextContents()).some((t) => t.includes('Antikiano'))).toBe(true); // the hidden dropdowns keep their options: the filter state lives there
   const q = page.locator('#gq');
   await q.fill('181668'); await q.press('Enter');
   await expect(sr('#cn')).toHaveText('1');
   await expect(cards(page)).toHaveCount(1);
   await expect(sr('#oq')).toHaveValue('181668'); // the hidden field carries the query (clear / setQuery)
+  // decision 34: with a filter on, «مسح الفلاتر» sits after the chips and their count
+  await expect(sr('#clr')).toBeVisible();
+  expect(await page.locator('#orders #afcr').evaluate((r) => [...r.children].map((c) => c.id))).toEqual(['afc', 'afcn', 'clr']);
   await sr('#clr').click();
   await expect(sr('#cn')).toHaveText('3');
   await expect(sr('#oq')).toHaveValue('');
@@ -944,4 +947,17 @@ test('decision 10: without orders.status = F the server refuses «مسح» (401 
   expect(mock.deletes).toEqual([]); expect(mock.trashes).toEqual([]);
   await expect(card(page, '180656')).toHaveCount(1);
   await expect(cards(page)).toHaveCount(3);
+});
+
+// phase 13 decision 35 (owner 10 Nov — «التأكد من إن التكست سنتر جوه الزرار»): the filter's field select shares .fld with the order cards
+// (a flex column that put «رقم الأوردر» at the top); every select of the filter lays its text out like the others, in the middle
+test('decision 35: the filter builder selects keep their text in the middle (the field select is not the cards\' .fld column)', async ({ page }) => {
+  await openOrders(page);
+  await page.locator('#orders #fbtn').click();
+  await page.locator('#fbpop [data-fbadd]').first().click(); await page.locator('#fbpop [data-fbadd]').first().click();
+  const look = (sel) => page.locator('#fbpop ' + sel).first().evaluate((e) => { const c = getComputedStyle(e); return [c.display, c.flexDirection, c.alignItems].join(' '); });
+  const want = await look('select.opr');
+  expect(await look('select.fld')).toBe(want);
+  expect(await look('select.conj')).toBe(want);
+  expect(want).toBe('block row center');
 });

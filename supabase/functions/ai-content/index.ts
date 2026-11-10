@@ -422,7 +422,7 @@ async function assistant(deps: Deps, uid: string, args: Json, jwt: string) {
         const act = cleanAction(use.name, use.input);
         if (act && use.name === 'propose_entry' && !typedAmounts.includes(Number((act.input as Json).amount))) { results.push({ id: use.id, content: 'refused: the amount is not in the user\'s own message — ask them for it', error: true }); continue; }
         if (act && use.name === 'open_form') { const vals = (act.input as Json).values as Json; if (vals.amount != null && !typedAll.includes(Number(vals.amount))) delete vals.amount; }
-        if (act) { actions.push(act); results.push({ id: use.id, content: use.name === 'propose_entry' ? 'the confirm card will be shown to the user after your answer — not recorded yet' : use.name === 'open_form' ? 'the popup opens on the user\'s screen after your answer, filled with these values — nothing is saved until they press its button' : 'will run on the user\'s screen after your answer' }); }
+        if (act) { actions.push(act); results.push({ id: use.id, content: use.name === 'propose_entry' ? 'the confirm card will be shown to the user after your answer — not recorded yet' : use.name === 'open_form' ? 'a link «افتح البوب أب» is shown under your answer; the popup opens when the user clicks it, filled with these values — nothing is saved until they press its button' : 'will run on the user\'s screen after your answer' }); }
         else results.push({ id: use.id, content: 'invalid input for ' + line(use.name, 40), error: true });
       }
     }

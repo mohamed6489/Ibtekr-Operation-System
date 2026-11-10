@@ -32,7 +32,7 @@ test('assistantRequest: the cached base + the screen block, the turns as message
   const req = parseAssistant(body({ turns: [{ role: 'user', text: 'أهلًا' }, { role: 'assistant', text: 'أهلًا بيك' }, { role: 'user', text: 'افتح الأوردرات' }], context: { page: 'accounts', tab: 'expenses', period: { from: '2026-11-01', to: '2026-11-08' } } })).req;
   const p = assistantRequest(req, CTX);
   assert.equal(p.model, 'claude-opus-5-5'); assert.equal(p.fallbacks, 'default'); assert.deepEqual(p.output_config, { effort: 'medium' });
-  assert.deepEqual(p.system[0].cache_control, { type: 'ephemeral' }); assert.match(p.system[0].text, /get_data/); assert.match(p.system[0].text, /expense_add/); assert.match(p.system[0].text, /إيداع ولا سحب/); assert.doesNotMatch(p.system[0].text, /propose_entry/); assert.match(p.system[0].text, /متعرضش أرقام تليفونات/);
+  assert.deepEqual(p.system[0].cache_control, { type: 'ephemeral' }); assert.match(p.system[0].text, /get_data/); assert.match(p.system[0].text, /expense_add/); assert.match(p.system[0].text, /إيداع ولا سحب/); assert.match(p.system[0].text, /حط المعلومات هنا/); // decision 41 assert.doesNotMatch(p.system[0].text, /propose_entry/); assert.match(p.system[0].text, /متعرضش أرقام تليفونات/);
   assert.equal(p.system[1].text, 'النهارده (القاهرة): 2026-11-08\nالمستخدم: منى (خدمة العملاء)\nالصفحة المفتوحة: الحسابات / expenses\nالفترة المعروضة: 2026-11-01 → 2026-11-08');
   assert.deepEqual(p.messages.map((m) => [m.role, m.content[0].text]), [['user', 'أهلًا'], ['assistant', 'أهلًا بيك'], ['user', 'افتح الأوردرات']]);
   assert.deepEqual(p.tools.map((t) => t.name), ['get_data', 'navigate', 'filter_orders', 'set_period', 'sort_vendors', 'open_form']); // decision 40: the money entries are open_form popups

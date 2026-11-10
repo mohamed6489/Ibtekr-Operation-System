@@ -22,6 +22,7 @@ async function signIn(page, id) {
   await page.waitForFunction(() => window.OrdersApp && typeof window.OrdersApp.apply === 'function');
 }
 const panel = (page) => page.locator('.ai-panel');
+const openLink = (page) => panel(page).locator('.ai-form-link').last().click();
 async function ask(page, text) { await page.fill('.ai-input', text); await page.locator('.ai-form').press('Enter'); }
 
 test('a question: one assistant call with the turns and the screen; the answer shown, its navigate + filter actions run on the orders page; logged without the text', async ({ page }) => {
@@ -69,6 +70,8 @@ test('decision 40: an expense / an account move opens the accounts page\'s own �
   // an expense withdrawal: the popup «سحب مصروفات» with the amount and the type the member said
   next = { text: 'فتحتلك بوب أب سحب المصروفات — كمّل واحفظ.', actions: [{ name: 'open_form', input: { form: 'expense_add', values: { direction: 'withdraw', amount: '1500', category: 'المصروفات' } } }] };
   await ask(page, 'سحب مصروفات 1500');
+  await expect(panel(page).locator('.ai-form-link').last()).toContainText('سحب — المصروفات');
+  await openLink(page); // decision 41: the popup opens from the link under the answer
   const ex = page.locator('.modal[role=dialog]', { hasText: 'سحب مصروفات' }).last();
   await expect(ex.locator('#f-amount')).toHaveValue('1500');
   await expect(ex).toContainText('المصروفات');
@@ -77,6 +80,7 @@ test('decision 40: an expense / an account move opens the accounts page\'s own �
   // a deposit on the actual account: «إيداع في الحساب» filled; «حفظ» writes it through IBAccounts
   next = { text: 'فتحتلك بوب أب الإيداع.', actions: [{ name: 'open_form', input: { form: 'account_move', values: { direction: 'deposit', amount: '2000', account: 'حساب البنك' } } }] };
   await ask(page, 'إيداع 2000 في حساب البنك');
+  await openLink(page); // decision 41: the popup opens from the link under the answer
   const dep = page.locator('.modal[role=dialog]', { hasText: 'إيداع في الحساب' }).last();
   await expect(dep.locator('#f-amount')).toHaveValue('2000');
   expect(mock.accWrites.length).toBe(0);
@@ -87,6 +91,7 @@ test('decision 40: an expense / an account move opens the accounts page\'s own �
   // no direction → nothing opens, the panel says to pick one
   next = { text: 'تمام.', actions: [{ name: 'open_form', input: { form: 'vendor_move', values: { amount: '300' } } }] };
   await ask(page, 'حركة مبتكر 300');
+  await openLink(page); // decision 41: the popup opens from the link under the answer
   await expect(panel(page).locator('.ai-msg.ai').last()).toContainText('إيداع ولا سحب');
 });
 
@@ -166,6 +171,8 @@ test('decision 36: open_form vendor_add opens «إضافة مبتكر» filled �
   const before = mock.vendors.length;
   await page.getByRole('button', { name: 'مساعد AI' }).click();
   await ask(page, 'ضيف مبتكر اسمه خزف أسوان رقمه 01012345678');
+  await expect(panel(page).locator('.ai-form-link')).toContainText('إضافة مبتكر'); await expect(page.locator('#v-name')).toHaveCount(0); // decision 41: a link, nothing opens by itself
+  await openLink(page); // decision 41: the popup opens from the link under the answer
   await expect(page.locator('#v-name')).toHaveValue('خزف أسوان');
   await expect(page.locator('#v-phone')).toHaveValue('01012345678');
   await page.waitForTimeout(300);
@@ -178,11 +185,13 @@ test('decision 36: open_form customer_add / hr_leave / task_add open their forms
   await page.getByRole('button', { name: 'مساعد AI' }).click();
   next = { text: 'فتحتلك بوب أب العميل.', actions: [{ name: 'open_form', input: { form: 'customer_add', values: { name: 'منة', city: 'طنطا' } } }] };
   await ask(page, 'ضيف عميلة اسمها منة من طنطا');
+  await openLink(page); // decision 41: the popup opens from the link under the answer
   const cust = page.locator('.modal[role=dialog]', { hasText: 'إضافة عميل' }).last();
   await expect(cust.locator('#name')).toHaveValue('منة'); await expect(cust.locator('#city')).toHaveValue('طنطا');
   await cust.getByRole('button', { name: 'إلغاء' }).click();
   next = { text: 'فتحتلك المهمة.', actions: [{ name: 'open_form', input: { form: 'task_add', values: { title: 'مراجعة فواتير' } } }] };
   await ask(page, 'ضيفلي مهمة مراجعة فواتير');
+  await openLink(page); // decision 41: the popup opens from the link under the answer
   const task = page.locator('.modal[role=dialog]', { hasText: 'إضافة مهمة' }).last();
   await expect(task.locator('#title')).toHaveValue('مراجعة فواتير');
   await task.getByRole('button', { name: 'أكّد وسجّل' }).click();
@@ -194,6 +203,7 @@ test('decision 36: open_form order_update asks once in a popup, then writes the 
   await signIn(page, ADMIN);
   await page.getByRole('button', { name: 'مساعد AI' }).click();
   await ask(page, 'أكّد أوردر 181668 من غير عربون');
+  await openLink(page); // decision 41: the popup opens from the link under the answer
   const dlg = page.locator('.modal[role=dialog]', { hasText: 'تحديث الأوردر IB-181668' }).last();
   await expect(dlg).toContainText('مؤكد بدون عربون');
   await dlg.getByRole('button', { name: 'أكّد وسجّل' }).click();

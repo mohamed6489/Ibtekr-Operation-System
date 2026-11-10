@@ -391,6 +391,14 @@
     more.addEventListener('click', () => pop.toggle()); wrap.append(more);
     return h('nav', { class: 'bottom-nav', 'aria-label': 'القائمة السفلية' }, BN.map(([ic, lb, page]) => item(ic, lb, page)), wrap);
   }
+  // phase 13 decision 18 (owner 10 Nov — «لو اخترت حاجة من المقترحات يفتحلي النتيجة في popup من غير ما ينقلني»): a team member from the header
+  // search in a popup over the current page — what the search row already shows plus the role, department and manager; «افتح الملف» goes to the full profile.
+  function memberPeek(m) {
+    const MB = (window.IBKit && window.IBKit.store.members) || []; const mgr = m.manager ? MB.find((x) => x.id === m.manager || x.uid === m.manager) : null;
+    const rows = [['الكود', m.id], ['الدور', m.role], ['الوظيفة', m.title], ['القسم', m.dept], ['الموبايل', m.phone], ['الإيميل', m.email], ['المدير المباشر', mgr && mgr.name]].filter(([, v]) => v);
+    const md = U.Modal({ title: m.name, body: [h('dl', { class: 'kv', 'data-member-peek': m.id }, rows.flatMap(([k, v]) => [h('dt', null, k), h('dd', null, String(v))]))],
+      footer: [Button({ label: 'إغلاق', onClick: () => md.close() }), Button({ type: 'primary', icon: 'users', label: 'افتح الملف', attrs: { 'data-member-open': '' }, onClick: () => { md.close(); location.hash = 'member-' + m.id; } })] });
+  }
   function TopHeader() {
     // بحث عام (phase 5.5 decision 7, owner 1 Nov): أوردرات + عملاء + مبتكرين + موظفين بالاسم أو الرقم أو الهاتف في قايمة نتايج؛ Enter = فلترة الأوردرات
     // («عملاء» — decision 14, 6 Nov: خدمة العملاء اتبنت — الـ v5 بالحرف: IBCS.data.customers عبر صفحة cs، والضغطة بتفتح ملف العميل)
@@ -403,11 +411,11 @@
     const search = (raw) => {
       const n = norm(raw); if (n.length < 2) return [];
       const out = [];
-      const OA = window.OrdersApp; if (OA && OA.query) { const r = OA.query({ q: raw.trim() }, 4); r.rows.forEach((o) => out.push({ g: 'أوردرات', t: 'IB-' + o.id + ' · ' + o.customer, s: o.status + ' · ' + D.formatMoney(o.total) + ' ج.م', run: () => { closeRes(); OA.details(o.id); } })); if (r.total > 4) out.push({ g: 'أوردرات', t: 'كل الأوردرات المطابقة (' + r.total + ')', s: 'فلترة صفحة الأوردرات', run: toOrders }); }
+      const OA = window.OrdersApp; if (OA && OA.query) { const r = OA.query({ q: raw.trim() }, 4); r.rows.forEach((o) => out.push({ g: 'أوردرات', t: 'IB-' + o.id + ' · ' + o.customer, s: o.status + ' · ' + D.formatMoney(o.total) + ' ج.م', run: () => { closeRes(); if (!(OA.peek && OA.peek(o.id))) OA.details(o.id); } })); if (r.total > 4) out.push({ g: 'أوردرات', t: 'كل الأوردرات المطابقة (' + r.total + ')', s: 'فلترة صفحة الأوردرات', run: toOrders }); }
       const cs = window.IBPages && window.IBPages.all().cs; const custs = cs && cs.api && cs.api.data && rperm('cs.view') !== 'N' ? cs.api.data.customers || [] : [];
-      custs.filter((c) => hit(n, c.name, c.phone, c.ig, (c.orderList || []).map((o) => o[0]).join(' '))).slice(0, 4).forEach((c) => out.push({ g: 'عملاء', t: c.name, s: [c.phone || c.ig || '', (c.orders || 0) + ' أوردر'].filter(Boolean).join(' · '), run: () => { closeRes(); cs.api.openCustomer(c.id); } }));
-      vstore.all().filter((v) => hit(n, v.name, v.phone, v.altPhone, (v.aliases || []).join(' '), v.contactName)).slice(0, 4).forEach((v) => out.push({ g: 'مبتكرين', t: v.name, s: [v.phone, v.category].filter(Boolean).join(' · '), run: () => { closeRes(); location.hash = 'makers/' + v.id; } }));
-      ((window.IBKit && window.IBKit.store.members) || []).filter((m) => m.status === 'active' && hit(n, m.name, m.phone, m.id, m.email)).slice(0, 4).forEach((m) => out.push({ g: 'موظفين', t: m.name, s: [m.title, m.phone].filter(Boolean).join(' · '), run: () => { closeRes(); location.hash = 'member-' + m.id; } }));
+      custs.filter((c) => hit(n, c.name, c.phone, c.ig, (c.orderList || []).map((o) => o[0]).join(' '))).slice(0, 4).forEach((c) => out.push({ g: 'عملاء', t: c.name, s: [c.phone || c.ig || '', (c.orders || 0) + ' أوردر'].filter(Boolean).join(' · '), run: () => { closeRes(); if (!(cs.api.peekCustomer && cs.api.peekCustomer(c.id))) cs.api.openCustomer(c.id); } }));
+      vstore.all().filter((v) => hit(n, v.name, v.phone, v.altPhone, (v.aliases || []).join(' '), v.contactName)).slice(0, 4).forEach((v) => out.push({ g: 'مبتكرين', t: v.name, s: [v.phone, v.category].filter(Boolean).join(' · '), run: () => { closeRes(); if (state.page === 'vendors') openVendor(v.id); else openVendor(v.id, { inPlace: true }); } }));
+      ((window.IBKit && window.IBKit.store.members) || []).filter((m) => m.status === 'active' && hit(n, m.name, m.phone, m.id, m.email)).slice(0, 4).forEach((m) => out.push({ g: 'موظفين', t: m.name, s: [m.title, m.phone].filter(Boolean).join(' · '), run: () => { closeRes(); memberPeek(m); } }));
       return out;
     };
     let items = []; let act = -1;
@@ -437,7 +445,7 @@
   }
   function showPage() {
     document.getElementById('main').hidden = state.page !== 'accounts';
-    document.getElementById('orders').hidden = state.page !== 'orders';
+    const ordersHost = document.getElementById('orders'); if (state.page === 'orders') ordersHost.classList.remove('peek'); ordersHost.hidden = state.page !== 'orders' && !ordersHost.classList.contains('peek'); // decision 18: an order opened from the search keeps its popup
     document.getElementById('reports').hidden = state.page !== 'reports';
     document.getElementById('tickets').hidden = state.page !== 'tickets';
     document.getElementById('vendors').hidden = state.page !== 'vendors';
@@ -2783,7 +2791,7 @@
     if (vdrawer) vdrawer.close(); shown.clear(); pwShown = null;
     if (!inPlace) { try { history.replaceState(null, '', '#makers/' + id); } catch (e) { /* sandboxed */ } }
     vdrawer = U.Drawer({ label: 'ملف المبتكر ' + v0.name, onClose: () => { vdrawer = null; vredraw = null; pwShown = null;
-      if (inPlace) { render(); return; }
+      if (inPlace) { if (state.page === 'accounts') render(); return; } // decision 18: opened from the header search on any page
       try { history.replaceState(null, '', '#makers'); } catch (e) { /* sandboxed */ } renderVendors(); } });
     const act = (fn, ok) => { try { fn(); log.append({ action: 'vendor.update', actor: ME.name, newValue: id }); if (ok) vnotify('success', ok); draw(); } catch (e) { vnotify('error', e.message); draw(); } };
     const section = (title, action, ...kids) => h('section', { class: 'vsection' }, h('div', { class: 'head' }, h('h3', { class: 't-label' }, title), action || null), kids);
@@ -3396,6 +3404,7 @@
   // phase 5.1 (decision 20 in the phase 5 plan): the products page's «التقارير» tab shares the reports page's range (state.rrange)
   window.IBReportBlocks = { range: () => DateRangeField('reports'), get: () => state.rrange, staff: () => StaffReportView(), rangeField: (t) => DateRangeField(t), rangeOf: (t) => rangeOf(t) }; // rangeField / rangeOf: the v5's (phase 9.5.1 — the marketing plan's «plan») // staff: the HR page's own «التقارير» (phase 10 T8)
   window.IBShowOrders = () => { if (state.page !== 'orders') go('orders'); };
+  window.IBOrdersHidden = () => state.page !== 'orders';
   // phase 8: «تذاكر الفريق» from the other pages — a new ticket with its context, the open tickets of an order (the search), one ticket
   const ticketsFor = (q) => { state.tfilter.q = String(q || ''); state.tf = Object.assign({}, state.tf, { status: ['open_any'] }); state.tpage = 1; state.tsub = 'log'; if (state.page !== 'tickets') go('tickets'); else renderTickets(); };
   window.IbtekrApp = Object.freeze({ eventLog: () => log.all(), aiRun, aiFilter, newTicket: (pre) => { showTickets(); openNewTicket(pre); }, ticketsFor, openTicket: (id) => { showTickets(); openTicket(id); }, logEvent: (ev) => log.append(Object.assign({ actor: ACTOR }, ev)) });

@@ -683,20 +683,43 @@ test('5.5: the drawer\'s «المنتجات» tab lists his products from the mi
   await expect(page.locator('#pg-products .pr-table tbody tr')).toHaveCount(2);
 });
 
-test('5.5 (decision 7): the top search lists orders, makers and members as you type; a maker opens his file, Enter filters the orders page', async ({ page }) => {
+test('5.5 (decision 7): the top search lists orders, makers and members as you type; a result opens in a popup over the current page (decision 18), Enter filters the orders page', async ({ page }) => {
   await signIn(page, ADMIN);
   const q = page.locator('#gq'); const res = page.locator('#gq-res');
   await q.fill('art c');
   await expect(res).toBeVisible();
   await expect(res.locator('[data-gq-group="مبتكرين"]')).toHaveCount(1);
   await expect(res.locator('[data-gq-group="مبتكرين"]')).toContainText('Art Craft');
+  // phase 13 decision 18: a result opens in a popup over the current page — the page and the address stay
+  const before = await page.evaluate(() => location.hash);
   await res.locator('[data-gq-group="مبتكرين"]').click();
   await expect(drawer(page)).toBeVisible();
-  await expect(page).toHaveURL(new RegExp('#makers/' + V1 + '$'));
+  expect(await page.evaluate(() => location.hash)).toBe(before);
+  await expect(page.locator('#vendors')).toBeHidden();
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   await expect(drawer(page)).toHaveCount(0);
+  expect(await page.evaluate(() => location.hash)).toBe(before);
+  // an order: its details popup over the dashboard (the orders list stays hidden); closing it leaves the page as it was
   await q.fill('181668');
   await expect(res.locator('[data-gq-group="أوردرات"]').first()).toContainText('IB-181668');
+  await res.locator('[data-gq-group="أوردرات"]').first().click();
+  await expect(page.locator('#orders #cdlg')).toBeVisible();
+  await expect(page.locator('#orders #cdlg')).toContainText('IB-181668');
+  await expect(page.locator('#orders #oroot')).toBeHidden();
+  await expect(page.locator('#pg-dashboard')).toBeVisible();
+  expect(await page.evaluate(() => location.hash)).toBe(before);
+  await page.locator('#orders #cdlg [data-cc]').first().click();
+  await expect(page.locator('#orders #cdlg')).toHaveCount(0);
+  await expect(page.locator('#orders')).toBeHidden();
+  // a team member: a small card with «افتح الملف»
+  await q.fill('سارة');
+  await res.locator('[data-gq-group="موظفين"]').first().click();
+  await expect(page.locator('[data-member-peek="M02"]')).toContainText('مديرة العمليات');
+  expect(await page.evaluate(() => location.hash)).toBe(before);
+  await page.locator('[data-member-open]').click();
+  await expect(page).toHaveURL(/#member-M02$/);
+  // the full list (Enter) still goes to the orders page, filtered
+  await q.fill('181668');
   await q.press('Enter');
   await expect(page.locator('#orders')).toBeVisible();
   await expect(page.locator('#orders #cn')).toHaveText('1');
@@ -704,16 +727,18 @@ test('5.5 (decision 7): the top search lists orders, makers and members as you t
   await expect(res.locator('.gq-empty')).toContainText('مفيش نتايج');
 });
 
-test('5.5 (decision 14): the top search lists the customers too, like the v5 — a customer opens their file in «خدمة العملاء › العملاء»', async ({ page }) => {
+test('5.5 (decision 14): the top search lists the customers too, like the v5 — a customer opens their file over the current page (decision 18)', async ({ page }) => {
   await signIn(page, ADMIN);
   const q = page.locator('#gq'); const res = page.locator('#gq-res');
   await expect(q).toHaveAttribute('aria-label', 'بحث عام: أوردرات، عملاء، مبتكرين، موظفين');
   await q.fill('يوسف');
   await expect(res.locator('[data-gq-group="عملاء"]')).toHaveCount(1);
   await expect(res.locator('[data-gq-group="عملاء"]')).toContainText('يوسف حامد');
+  const before = await page.evaluate(() => location.hash);
   await res.locator('[data-gq-group="عملاء"]').click();
-  await expect(page).toHaveURL(/#cs-customers$/);
-  await expect(page.locator('.drawer[aria-label="ملف العميل يوسف حامد"]')).toBeVisible();
+  await expect(page.locator('.drawer[aria-label="ملف العميل يوسف حامد"]')).toBeVisible(); // decision 18: over the current page
+  expect(await page.evaluate(() => location.hash)).toBe(before);
+  await expect(page.locator('#pg-cs')).toBeHidden();
   // by the phone of an order's customer: the orders group and the customers group both answer
   await page.keyboard.press('Escape');
   await q.fill('01200007052');

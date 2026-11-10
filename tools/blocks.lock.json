@@ -77,7 +77,7 @@
   },
   "20-page-cs.js": {
     "prototype": "07edfb71ffed3920bba96b1602645c9224249cc9a0ce63e07b4d4fe58295118b",
-    "current": "349aeacf7127c7a2a6aa7d152df2f2396eaf79528215d77e23a7d3d78271b26e"
+    "current": "1922caccbdbc05bdb77b8d40ff4fb1f13e627b623a2d5d7aedae9ad3df11435e"
   },
   "21-shell.js": {
     "prototype": "da3316ca93e76c490b7a58d4f817bdc7852887e007200bb438efa591045a05f9",
@@ -109,10 +109,10 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "30c0579cc6a86eecad64b16ee669898062b0beca1b32421d0d6971f7e023aa08"
+    "current": "808e6e885d470965bb05845f4027827b4f3c8ec1bf8bf7d88f16300738cd57ea"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",
-    "current": "60b1a51c8623c62ed66c68b2a1ab924c21fd2c5574a84a4c782f29f02ed07ddc"
+    "current": "efabb55d2a3bd29b5828a806a2687bfc89b725c6b9fcb83195682e7120fbede3"
   }
 }

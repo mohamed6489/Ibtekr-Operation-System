@@ -83,6 +83,15 @@ test('the team: the matrix from the roles\' real permissions; a cell toggles rol
   expect(mock.st.calls.find((c) => c.fn === 'settings-admin' && c.action === 'member_status')).toBeTruthy();
   expect(mock.profiles.find((p) => p.id === OPS_ID).status).toBe('suspended');
   expect(mock.activityRows.find((r) => r.action === 'settings.member.suspend').new_value).toEqual({ status: 'suspended', reason: 'إجازة طويلة' });
+  // phase 13 decision 15: «حذف العضو نهائي» from the same menu → team-admin member_delete; the row goes
+  await row.getByRole('button', { name: /إجراءات/ }).click();
+  await page.getByRole('menuitem', { name: 'حذف العضو نهائي' }).click();
+  const del = page.getByRole('dialog'); await expect(del).toContainText('مافيش رجوع');
+  await del.getByRole('button', { name: 'احذف نهائي' }).click();
+  await expect(page.locator('.toast.show')).toContainText('اتحذف سارة أحمد نهائي');
+  await expect(page.locator('#pg-settings table tbody tr', { hasText: 'سارة أحمد' })).toHaveCount(0);
+  expect(mock.profiles.some((p) => p.id === OPS_ID)).toBe(false);
+  expect(mock.hr.calls.find((c) => c.action === 'member_delete')).toBeTruthy();
 });
 
 test('the links: the cards from the server; OpenAI connected with a key → Vault only (the tail on the card, the key names in the log); the site\'s keys tested then saved on confirm', async ({ page }) => {

@@ -151,7 +151,7 @@ test('the roster: a member only hr_team() shows (a manager\'s team the profiles 
 
 test('myShift: my open shift within 20 hours, else today\'s, else null (the clock after a refresh or on another device)', async () => {
   const { H } = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'P' } }); await H.load();
-  eq(H.myShift(), { id: 1, day: '2026-11-05', in_at: cairo('2026-11-05', '09:02'), out_at: null, remote: false, done: 0, sessions: 1 });
+  eq(H.myShift(), { id: 1, day: '2026-11-05', in_at: cairo('2026-11-05', '09:02'), out_at: null, remote: false, done: 0, sessions: 1, ot_from: null, ot_ticket: null });
   const done = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'P' }, responses: { hr_attendance: ok([{ id: 9, member_id: B, day: '2026-11-05', in_at: cairo('2026-11-05', '08:00'), out_at: cairo('2026-11-05', '13:00'), remote: true, source: 'clock', note: null, by_id: B }]) } });
   await done.H.load(); eq(done.H.myShift().out_at, cairo('2026-11-05', '13:00'));
   const none = load({ meId: A }); await none.H.load(); eq(none.H.myShift(), null);
@@ -466,7 +466,7 @@ test('flexible hours: a day of several sessions is one day (first in, last out, 
   eq([b.in, b.out, b.mins, b.openId, b.openIn, b.sessions.length, b.status, b.late], [420, null, 240, 23, 780, 3, 'حاضر', 0]);
   eq(H.data.attendance.filter((a) => a.member === 'M02').length, 1, 'one day, not three');
   eq(H.data.today.M02, { in: 420, out: null, mins: 240, openIn: 780, sessions: 3, remote: false, missingYesterday: false });
-  eq(H.myShift(), { id: 23, day: '2026-11-05', in_at: cairo('2026-11-05', '13:00'), out_at: null, remote: false, done: 240, sessions: 3 });
+  eq(H.myShift(), { id: 23, day: '2026-11-05', in_at: cairo('2026-11-05', '13:00'), out_at: null, remote: false, done: 240, sessions: 3, ot_from: null, ot_ticket: null });
   const c = H.data.attendance.find((a) => a.member === 'M03');
   eq([c.status, c.mins, c.openId], ['انصراف ناقص', 120, 32]);
   eq((await H.fixOut(c, '18:00', 'نسي')).ok, true);
@@ -476,5 +476,20 @@ test('flexible hours: a day of several sessions is one day (first in, last out, 
   const closed = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'F' }, responses: { hr_attendance: ok(day.slice(0, 2)) } }); await closed.H.load();
   const d = closed.H.data.attendance.find((a) => a.member === 'M02');
   eq([d.in, d.out, d.mins, d.openId, d.status], [420, 750, 240, null, 'منتظم']);
-  eq(closed.H.myShift(), { id: 22, day: '2026-11-05', in_at: cairo('2026-11-05', '11:00'), out_at: cairo('2026-11-05', '12:30'), remote: false, done: 150, sessions: 2 });
+  eq(closed.H.myShift(), { id: 22, day: '2026-11-05', in_at: cairo('2026-11-05', '11:00'), out_at: cairo('2026-11-05', '12:30'), remote: false, done: 150, sessions: 2, ot_from: null, ot_ticket: null });
+});
+
+// phase 13 decision 25 (0069): «ابدأ وقت إضافي» → hr_overtime_begin (no arguments — the server picks my open session), the ticket number back;
+// the overtime rows carry their request ticket
+test('overtime by ticket: overtimeBegin calls hr_overtime_begin with nothing, returns the ticket as TKT-…; an overtime row shows its ticket', async () => {
+  const { H, stub, logs } = load({ meId: B, meCode: 'M02', role: 'ops', perms: { 'hr.view': 'P' }, responses: { 'rpc:hr_overtime_begin': ok({ ticket: 12, ot_from: '2026-11-05T12:00:00Z' }),
+    hr_overtime: ok([{ id: 41, member_id: B, day: '2026-11-04', start_at: cairo('2026-11-04', '18:00'), end_at: cairo('2026-11-04', '19:00'), minutes: 60, kind: 'hours', note: 'شحن', status: 'مستني', paid_minutes: 0, pay_month: null, decided_by: null, decided_at: null, reason: null, created_at: '2026-11-04T17:00:00Z', ticket_id: 12 }]) } });
+  await H.load();
+  const r = await H.overtimeBegin();
+  eq([r.ok, r.ticket, r.otFrom], [true, 'TKT-0012', '2026-11-05T12:00:00Z']);
+  eq(rpcs(stub).find((x) => x[0] === 'hr_overtime_begin'), ['hr_overtime_begin', {}]);
+  eq(logs.find((l) => l[0] === 'hr.overtime.begin').slice(0, 2), ['hr.overtime.begin', 'TKT-0012']);
+  eq(H.data.overtime.find((o) => o.dbId === 41).ticket, 'TKT-0012');
+  const bad = load({ responses: { 'rpc:hr_overtime_begin': { data: null, error: { code: '22023', message: 'invalid: shift' } } } });
+  eq((await bad.H.overtimeBegin()).message, 'مفيش دوام مفتوح');
 });

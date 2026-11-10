@@ -137,7 +137,8 @@
     const otRows = raw.ot.map((o) => { const p0 = parts(o.start_at); const p1 = parts(o.end_at);
       return { id: otId(o.id), dbId: Number(o.id), kind: o.kind, member: codeOf(o.member_id), memberUid: o.member_id, date: o.day, start: p0 ? hhmm(p0.min) : '', end: p1 ? hhmm(p1.min) : '', minutes: Number(o.minutes),
         note: o.note, status: o.status === 'اترفض' ? 'وقت إضافي اترفض' : o.status, paid: Number(o.paid_minutes) || 0, payMonth: o.pay_month ? monthKey(o.pay_month) : null, by: o.decided_by ? nameOf(o.decided_by) : null, reason: o.reason || null,
-        waitedHours: o.status === 'مستني' ? Math.max(0, Math.floor((Date.now() - Date.parse(o.created_at)) / 3600000)) : 0 }; }).filter((o) => o.member);
+        waitedHours: o.status === 'مستني' ? Math.max(0, Math.floor((Date.now() - Date.parse(o.created_at)) / 3600000)) : 0,
+        ticket: o.ticket_id ? 'TKT-' + String(o.ticket_id).padStart(4, '0') : null }; }).filter((o) => o.member); // decision 25: the request ticket
     s.overtime = otRows;
     s.restWork = otRows.filter((o) => o.kind === 'rest_day' && o.status === 'اتضاف').map((o) => ({ member: o.member, date: o.date, note: o.note, dbId: o.dbId }));
     // attendance (the real days; the log adds leave / absence / rest days by itself). Decision 24 (0068): a row is a session — the day is
@@ -231,8 +232,8 @@
         cl.rpc('hr_team').then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []),
         rows(cl.from('hr_members').select('member_id, shift_start, shift_end, hire_date, leave_days')), // the notes column is closed (hr_member_notes)
         maybe(cl.from('hr_pay').select('member_id, salary, holdback, allowances')),
-        rows(cl.from('hr_attendance').select('id, member_id, day, in_at, out_at, remote, source, note, by_id').gte('day', since).order('day', { ascending: false }).limit(5000)),
-        rows(cl.from('hr_overtime').select('id, member_id, day, start_at, end_at, minutes, kind, note, status, paid_minutes, pay_month, decided_by, decided_at, reason, created_at').gte('day', since).order('created_at', { ascending: false }).limit(3000)),
+        rows(cl.from('hr_attendance').select('id, member_id, day, in_at, out_at, remote, source, note, by_id, ot_from, ot_ticket').gte('day', since).order('day', { ascending: false }).limit(5000)),
+        rows(cl.from('hr_overtime').select('id, member_id, day, start_at, end_at, minutes, kind, note, status, paid_minutes, pay_month, decided_by, decided_at, reason, created_at, ticket_id').gte('day', since).order('created_at', { ascending: false }).limit(3000)),
         rows(cl.from('hr_requests_v').select('id, member_id, type, from_day, to_day, at_time, hours, amount, months, note, status, decided_by, decided_at, reason, created_by, created_at, doc_path').gte('created_at', reqSince).order('created_at', { ascending: false }).limit(3000)),
         rows(cl.from('hr_holidays').select('id, name, day, days, kind, status')),
         rows(cl.from('hr_leave_types').select('name, days, paid, doc, carry, approval, deducts, unpaid, sort')),
@@ -286,10 +287,17 @@
     if (!row) return null;
     const same = mine.filter((a) => a.day === row.day);
     const done = same.filter((a) => a.out_at && a.id !== row.id).reduce((n, a) => n + Math.max(0, Math.floor((Date.parse(a.out_at) - Date.parse(a.in_at)) / 60000)), 0);
-    return { id: Number(row.id), day: row.day, in_at: row.in_at, out_at: row.out_at || null, remote: !!row.remote, done, sessions: same.length };
+    return { id: Number(row.id), day: row.day, in_at: row.in_at, out_at: row.out_at || null, remote: !!row.remote, done, sessions: same.length, ot_from: row.ot_from || null, ot_ticket: row.ot_ticket == null ? null : Number(row.ot_ticket) };
   }
   async function shiftNow() { const { data, error } = await rpc('hr_shift_now', {}); if (error) return fail(error); return { ok: true, shift: data || null }; }
   async function clockIn() { const { data, error } = await rpc('hr_clock_in', {}); if (error) return fail(error); log('hr.shift.start', data && data.remote ? 'عن بُعد' : ''); await load(); return { ok: true, shift: data }; } /* «عن بُعد» is the server's: an approved «شغل عن بُعد» covering today */
+  // decision 25 (0069): overtime starts now (before 8 hours too) — the request ticket for the direct manager and the bell to the admins
+  async function overtimeBegin() {
+    const { data, error } = await rpc('hr_overtime_begin', {}); if (error) return fail(error);
+    const t = data && data.ticket ? 'TKT-' + String(data.ticket).padStart(4, '0') : null; log('hr.overtime.begin', t || '', t); await load();
+    if (window.IBTickets && window.IBTickets.load) quiet(() => window.IBTickets.load());
+    return { ok: true, ticket: t, otFrom: (data && data.ot_from) || null };
+  }
   async function clockOut(note, at) {
     const args = { p_ot_note: note ? clean(note, 300) : null, p_at: at ? new Date(at).toISOString() : null };
     const { data, error } = await rpc('hr_clock_out', args); if (error) return fail(error);
@@ -338,7 +346,10 @@
   async function overtimeDecide(id, decision, minutes, reason) {
     const k = dbOf(id, ids.ot); if (k == null) return no('invalid');
     const { error } = await rpc('hr_overtime_decide', { p_id: k, p_decision: decision, p_minutes: minutes == null ? null : Math.round(Number(minutes)), p_reason: reason ? clean(reason, 300) : null });
-    if (error) return fail(error); return after(decision === 'add' ? 'hr.overtime.add' : 'hr.overtime.reject', otId(k) + (decision === 'add' && minutes ? ' ' + Math.round(Number(minutes)) + 'د' : ''), otId(k));
+    if (error) return fail(error);
+    const r = await after(decision === 'add' ? 'hr.overtime.add' : 'hr.overtime.reject', otId(k) + (decision === 'add' && minutes ? ' ' + Math.round(Number(minutes)) + 'د' : ''), otId(k));
+    if (window.IBTickets && window.IBTickets.load) quiet(() => window.IBTickets.load()); // decision 25: the request ticket closed with the decision
+    return r;
   }
 
   // ---------- performance (decision 4: by hand) ----------
@@ -687,7 +698,7 @@
   }
 
   window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, settings, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
-    shiftNow, myShift, clockIn, clockOut, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
+    shiftNow, myShift, clockIn, clockOut, overtimeBegin, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, slips, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,
     memberCreate, memberPassword, memberInvite, memberDelete, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,

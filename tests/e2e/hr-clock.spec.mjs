@@ -4,7 +4,7 @@ import { hrToday } from './hr-mock.mjs';
 
 // The header clock on the server (phase 10 T6, decision 10 — known issue 1): «ابدأ الدوام» = hr_clock_in, the timer counts from the
 // server's start, so a reload (or another device) shows the same open shift; «إنهاء الدوام» = hr_clock_out; at 8 hours the member
-// picks «إنهاء الدوام» (the end at the 8-hour mark) or «لسه — وقت إضافي», and ending overtime asks what was worked on (the server
+// picks «إنهاء الدوام» (the end at the 8-hour mark) or «ابدأ وقت إضافي», and ending overtime asks what was worked on (the server
 // records it past 8 hours for the direct manager). Mock only.
 const OPS = 'ops.dev@ibtekr.local'; const OPS_ID = '00000000-0000-4000-8000-000000000002';
 const T = hrToday(); const dow = (iso) => new Date(iso + 'T00:00:00Z').getUTCDay(); const restDay = dow(T) === 5 || dow(T) === 6;
@@ -51,16 +51,16 @@ test('«ابدأ الدوام» writes the shift on the server; a reload shows t
   expect(mock.hr.overtime).toEqual([]);
 });
 
-test('at 8 hours: «لسه — وقت إضافي», then ending it asks what was worked on → hr_clock_out with the note, the overtime recorded for the manager', async ({ page }) => {
+test('at 8 hours: «ابدأ وقت إضافي», then ending it asks what was worked on → hr_clock_out with the note, the overtime recorded for the manager', async ({ page }) => {
   const inAt = Date.now() - 485 * 60000;
   await start(page, { hrAttendance: [{ member_id: OPS_ID, day: cairoDay(inAt), in_at: new Date(inAt).toISOString(), out_at: null, source: 'clock' }] });
-  const ask = modal(page, 'ساعات العمل خلصت');
+  const ask = modal(page, 'اكتمال ساعات العمل');
   await expect(ask).toBeVisible();
-  await ask.getByRole('button', { name: 'لسه — وقت إضافي' }).click();
+  await ask.getByRole('button', { name: 'ابدأ وقت إضافي' }).click();
   await expect(clock(page).locator('.clock')).toContainText('وقت إضافي');
   await page.reload(); // the choice holds for this shift
   await expect(clock(page).locator('.clock')).toContainText('وقت إضافي');
-  await expect(modal(page, 'ساعات العمل خلصت')).toHaveCount(0);
+  await expect(modal(page, 'اكتمال ساعات العمل')).toHaveCount(0);
   await clock(page).locator('.clock').click();
   await page.locator('.clock-pop').getByRole('button', { name: 'إنهاء الوقت الإضافي' }).click();
   const f = modal(page, 'إنهاء الوقت الإضافي');
@@ -80,7 +80,7 @@ test('at 8 hours: «لسه — وقت إضافي», then ending it asks what was
 test('at 8 hours: «إنهاء الدوام» ends the shift at the 8-hour mark (no overtime)', async ({ page }) => {
   const inAt = Date.now() - 490 * 60000;
   await start(page, { hrAttendance: [{ member_id: OPS_ID, day: cairoDay(inAt), in_at: new Date(inAt).toISOString(), out_at: null, source: 'clock' }] });
-  const ask = modal(page, 'ساعات العمل خلصت');
+  const ask = modal(page, 'اكتمال ساعات العمل');
   await ask.getByRole('button', { name: 'إنهاء الدوام' }).click();
   await endedFor(page, cairoDay(inAt));
   const c = calls('hr_clock_out')[0];
@@ -126,9 +126,9 @@ test('decision 24: a second session that brings the day past 8 hours asks the 8-
   const first = { member_id: OPS_ID, day, in_at: new Date(Date.now() - 9 * 3600000).toISOString(), out_at: new Date(Date.now() - 4 * 3600000).toISOString(), source: 'clock' }; // 5 hours
   const second = { member_id: OPS_ID, day, in_at: new Date(Date.now() - 190 * 60000).toISOString(), out_at: null, source: 'clock' }; // 3:10 → the day at 8:10
   await start(page, { hrAttendance: [first, second] });
-  const ask = modal(page, 'ساعات العمل خلصت');
+  const ask = modal(page, 'اكتمال ساعات العمل');
   await expect(ask).toBeVisible();
-  await ask.getByRole('button', { name: 'لسه — وقت إضافي' }).click();
+  await ask.getByRole('button', { name: 'ابدأ وقت إضافي' }).click();
   await clock(page).locator('.clock').click();
   await page.locator('.clock-pop').getByRole('button', { name: 'إنهاء الوقت الإضافي' }).click();
   const f = modal(page, 'إنهاء الوقت الإضافي');
@@ -140,4 +140,59 @@ test('decision 24: a second session that brings the day past 8 hours asks the 8-
     expect(ot.length).toBe(1);
     expect(ot[0].minutes).toBeGreaterThanOrEqual(9); expect(ot[0].minutes).toBeLessThanOrEqual(12); // ≈ 10 minutes past 8 hours of the DAY, not 3:10 − 8:00
   }
+});
+
+// phase 13 decision 25 (0069 — «في حالة اختياره لوقت إضافي يتبعت للأدمن تنبيه ويجيله في تذاكر الفريق طلب بإضافة وقت إضافي ومايتضافش إلا بعد
+// الموافقة», «الموافقة للمدير المباشر», «إضافة وقت إضافي» = start overtime now): the request ticket in «تذاكر الفريق», the admins' bell,
+// nothing paid before the decision, and the decision inside the ticket closes it
+test('decision 25: «إضافة وقت إضافي» in «ملفي › ساعات العمل» opens the request ticket + the admins\' bell; the overtime goes in the ticket, unpaid', async ({ page }) => {
+  const inAt = Date.now() - 125 * 60000; const day = cairoDay(inAt);
+  test.skip(day !== T || restDay, 'a working day that began today in Cairo');
+  await start(page, { hrAttendance: [{ member_id: OPS_ID, day, in_at: new Date(inAt).toISOString(), out_at: null, source: 'clock' }] });
+  await page.evaluate(() => { location.hash = 'profile-hours'; });
+  const P = page.locator('#pg-profile');
+  await expect(P.locator('.quick-acts')).toContainText('إجراءات سريعة');
+  await P.locator('[data-ot-start]').click();
+  await modal(page, 'إضافة وقت إضافي').getByRole('button', { name: 'ابدأ وقت إضافي' }).click();
+  await expect(clock(page).locator('.clock')).toContainText('وقت إضافي');
+  await expect(page.locator('.toast', { hasText: 'اتبعت طلب لمديرك المباشر' })).toBeVisible();
+  expect(calls('hr_overtime_begin').length).toBe(1);
+  const tk = mock.tickets.find((t) => t.created_by === OPS_ID && t.title.startsWith('وقت إضافي — '));
+  expect(tk).toMatchObject({ type: 'internal', status: 'open', assignee_role: 'مدير النظام' }); // no direct manager → «مدير النظام»
+  expect(mock.alerts.filter((a) => a.kind === 'hr.overtime' && a.role_id === 'admin').map((a) => a.entity)).toEqual(['tickets/TKT-' + String(tk.id).padStart(4, '0')]);
+  // a few seconds of overtime, then its end with what was worked on
+  await page.evaluate(() => { const a = window.IBHR; return a; });
+  await clock(page).locator('.clock').click();
+  await page.locator('.clock-pop').getByRole('button', { name: 'إنهاء الوقت الإضافي' }).click();
+  const f = modal(page, 'إنهاء الوقت الإضافي');
+  await f.locator('#note').fill('تقفيل شحنة المسا');
+  await f.getByRole('button', { name: 'إنهاء الدوام وإرسال للتأكيد' }).click();
+  await expect.poll(() => calls('hr_clock_out').length).toBe(1);
+  const ot = mock.hr.overtime.filter((o) => o.kind === 'hours');
+  if (ot.length) { expect(ot[0]).toMatchObject({ status: 'مستني', paid_minutes: 0, ticket_id: tk.id }); expect(mock.ticketEvents.some((e) => e.ticket_id === tk.id && e.text.includes('تقفيل شحنة المسا'))).toBe(true); }
+  else expect(mock.tickets.find((t) => t.id === tk.id).status).toBe('closed'); // under a minute of overtime: nothing to record, the request closed
+});
+
+test('decision 25: the direct manager / admin decides inside the ticket — «وافق على الوقت الإضافي» with fewer minutes adds it and closes the ticket', async ({ page }) => {
+  const day = cairoDay(Date.now() - 3 * 86400000);
+  const tickets = [{ id: 7, type: 'internal', title: 'وقت إضافي — سارة أحمد · ' + day.slice(8, 10) + '/' + day.slice(5, 7), description: 'طلب إضافة وقت إضافي لـ سارة أحمد', priority: 'normal',
+    assignee_role: 'مدير النظام', created_by: OPS_ID, created_by_name: 'سارة أحمد', created_by_role: 'اللوجستيك والشحن' }];
+  pageErrors = []; page.on('pageerror', (e) => pageErrors.push(e.message));
+  mock = await installSupabaseMock(page, { tickets, hrOvertime: [{ member_id: OPS_ID, day, start_at: new Date(Date.now() - 3 * 86400000).toISOString(), end_at: new Date(Date.now() - 3 * 86400000 + 90 * 60000).toISOString(), minutes: 90, note: 'تقفيل شحنة', ticket_id: 7, created_at: new Date(Date.now() - 3 * 86400000).toISOString() }] });
+  await page.goto('/');
+  await page.fill('#lg-id', 'admin.dev@ibtekr.local'); await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await expect(page.locator('#root')).toBeVisible();
+  await page.evaluate(() => { location.hash = 'tickets/TKT-0007'; });
+  const card = page.locator('[data-ot-request]');
+  await expect(card).toContainText('طلب وقت إضافي');
+  await card.locator('[data-ot-approve]').click();
+  const f = modal(page, 'موافقة على الوقت الإضافي');
+  await f.locator('#min').fill('45');
+  await f.getByRole('button', { name: 'وافق' }).click();
+  await expect.poll(() => mock.hr.overtime[0].status).toBe('اتضاف');
+  expect(mock.hr.overtime[0].paid_minutes).toBe(45);
+  await expect.poll(() => mock.tickets.find((t) => t.id === 7).status).toBe('closed');
+  expect(mock.tickets.find((t) => t.id === 7)).toMatchObject({ resolution_outcome: 'اتحلت المشكلة', resolution_note: 'اتضاف 45 دقيقة' });
+  await expect(page.locator('[data-ot-request] [data-ot-approve]')).toHaveCount(0);
 });

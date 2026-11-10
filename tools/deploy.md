@@ -1177,6 +1177,12 @@ select at, action, entity_id, new_value from public.activity_log where action li
 - **النشر بالترتيب:** `0068` (Supabase MCP `apply_migration` أو SQL editor) → RLS live `rls_hr_flex` + `rls_hr` → الواجهة على `main`. مافيش Edge Function.
 - **التحقق:** «ابدأ الدوام» ← «إنهاء الدوام» ← الساعة بتقول «خلص الدوام · س:د» وجنبها «ابدأ الدوام» تاني ← جلسة تانية ← «ملفي › ساعات العمل» اليوم بمجموع الجلستين و«جلسات الدوام» = 2؛ ومافيش «متأخر» في أي حتة. `activity_log` `hr.shift.start` / `hr.shift.end` زي ما هم، و`hr.attendance.close` بكود العضو بس.
 
+#### 2.7.46 الوقت الإضافي بتذكرة (المرحلة 13 قرار 25، 10 نوفمبر)
+
+- **الكود:** `0069_hr_overtime_ticket.sql` (`hr_attendance.ot_from` / `ot_ticket`، `hr_overtime.ticket_id`، `hr_overtime_begin()` للعضو، `hr_ot_ticket` / `hr_ot_event` / `hr_ot_ticket_close` للسيرفر بس، و`hr_shift_now` / `hr_clock_out` / `hr_overtime_decide` من جديد)، `IBHR.overtimeBegin`، الكتل 18 و21 و28.
+- **النشر بالترتيب:** `0069` (Supabase MCP `apply_migration` أو SQL editor) → RLS live `rls_hr_ot_ticket` → الواجهة على `main`. مافيش Edge Function.
+- **التحقق:** «إضافة وقت إضافي» (أو «ابدأ وقت إضافي» من popup «اكتمال ساعات العمل») → تذكرة «وقت إضافي — <الاسم>» في «تذاكر الفريق» + جرس للأدمن والمدير المباشر → «إنهاء الوقت الإضافي» باللي اشتغلت عليه → حدث في التذكرة والطلب «مستني» → المدير يوافق من التذكرة → «اتضاف» والتذكرة «مغلق». `activity_log` `hr.overtime.begin` برقم التذكرة بس.
+
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
 - الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.
 - السياسات على `storage.objects` (من الملف نفسه، بادئة `vendor_contracts_`): `select` و`insert` و`update` لـ `authenticated` بشرط `bucket_id = 'vendor-contracts'` و`has_perm('sensitive.vendor_bank') = 'F'` (الأدمن والحسابات في مصفوفة `0003`). مافيش سياسة `delete`: استبدال العقد = ملف جديد والقديم بيفضل (قرار 7)، ومافيش تنظيف للملفات القديمة (تكلفة صغيرة).

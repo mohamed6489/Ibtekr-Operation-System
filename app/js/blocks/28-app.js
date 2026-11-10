@@ -2556,7 +2556,7 @@
       m = U.Modal({ title: 'إعادة فتح التذكرة', body: body(), footer: [Button({ type: 'brand', label: 'إعادة الفتح', onClick: () => { if (!f.reason.trim()) { err = 'اكتب سبب إعادة الفتح'; m.setBody(...body()); return; } m.close(); act(() => TA().reopen(id, f), 'التذكرة اتفتحت تاني ورجعت لدور «' + t.assigneeRole + '».'); } }), Button({ label: 'إلغاء', onClick: () => m.close() })] });
     }
     function draw() {
-      if (!drawerApi) return;
+      if (!drawerApi) return; let otCard = null;
       const t = tstore.get(id); if (!t) { drawerApi.close(); notify('error', 'التذكرة ' + id + ' مابقتش متاحة ليك.'); return; }
       const closed = t.status === 'closed'; const ctx = orderCtx(t.orderId);
       const canWork = tCanWork(t), canClose = tCanClose(t);
@@ -2585,6 +2585,22 @@
         items.map((e) => e.kind === 'message' ? h('div', { class: 'tk-msg' }, U.TimelineMessage({ author: e.author.name, role: e.author.role, time: fmtTime(e.at), text: e.text }), Thumbs(e.attachments)) : U.TimelineEvent({ text: e.text, time: fmtTime(e.at) })));
       const own = t.attachments && t.attachments.length ? h('div', { class: 'tk-own' }, h('div', { class: 't-label', style: 'color:var(--color-text-secondary)' }, 'مرفقات التذكرة'), Thumbs(t.attachments)) : null;
       const body = h('div', { class: 'drawer-b' }, closed ? U.InlineNote({ kind: 'warning', children: 'مغلق بواسطة ' + (t.closedBy || '—') + (t.closedAt ? ' · ' + D.formatDateLong(dayOf(t.closedAt)) : '') + (t.resolution ? ' · «' + t.resolution.outcome + '»' : '') + ' — لو المشكلة رجعت اضغط «إعادة فتح».' }) : null, ctxCard, own, tl);
+      // phase 13 decision 25 (0069): an overtime request ticket — its waiting overtime decided here by whoever may (the direct manager,
+      // hr.approve or the admin; the server checks), the same as «الموارد البشرية › الطلبات»; the decision closes the ticket
+      const HRa = window.IBHR; const KK = window.IBKit; const OO = window.IbtekrOps; const otReq = HRa && HRa.data && (HRa.data.overtime || []).find((o) => o.ticket === t.id);
+      if (otReq) {
+        const mine = otReq.member === KK.ME; const waiting = otReq.status === 'مستني';
+        const decideOt = (dec, minutes, reason) => act(() => HRa.overtimeDecide(otReq.id, dec, minutes, reason).then((r) => { if (r && r.ok && TA() && TA().load) return Promise.resolve(TA().load()).then(() => r); return r; }), dec === 'add' ? 'اتضاف الوقت الإضافي واتقفلت التذكرة' : 'اترفض الوقت الإضافي واتقفلت التذكرة');
+        const okBtn = Button({ type: 'primary', size: 'sm', label: otReq.kind === 'rest_day' ? 'وافق على يوم الراحة' : 'وافق على الوقت الإضافي', attrs: { 'data-ot-approve': '' }, onClick: () => {
+          if (otReq.kind === 'rest_day') return KK.confirm({ title: 'موافقة على يوم الراحة/العطلة', text: 'اليوم هيتحسب بيومين في المرتب.', okLabel: 'وافق', onOk: () => decideOt('add') });
+          KK.form({ title: 'موافقة على الوقت الإضافي', values: { min: String(otReq.minutes) }, fields: (f, e, set) => [KK.field.text('min', 'الدقايق اللي هتتحسب (لحد ' + otReq.minutes + ')', f, e, set, { required: true })],
+            validate: (f) => { const n = Number(OO.toLatin ? OO.toLatin(f.min) : f.min); return n > 0 && n <= otReq.minutes && Number.isInteger(n) ? {} : { min: 'رقم من 1 لحد ' + otReq.minutes }; },
+            submitLabel: 'وافق', submit: (f) => decideOt('add', Number(OO.toLatin ? OO.toLatin(f.min) : f.min)) }); } });
+        const noBtn = Button({ size: 'sm', label: 'ارفض', attrs: { 'data-ot-reject': '' }, onClick: () => KK.form({ title: 'رفض الوقت الإضافي', values: {}, fields: (f, e, set) => [KK.field.area('reason', 'السبب', f, e, set, { required: true })], validate: (f) => KK.req(f, ['reason']), submitLabel: 'ارفض', submit: (f) => decideOt('reject', null, f.reason.trim()) }) });
+        otCard = h('div', { class: 'ctx-card tk-ot', 'data-ot-request': '' }, h('div', { class: 'head' }, h('span', { class: 't-label' }, otReq.kind === 'rest_day' ? 'طلب يوم راحة/عطلة اشتغله — اليوم بيومين' : 'طلب وقت إضافي — ' + KK.hrs(otReq.minutes)), KK.Tag(waiting ? 'orange' : otReq.status === 'اتضاف' ? 'success' : 'error', otReq.status)),
+          h('div', { class: 'facts t-small' }, h('span', null, KK.dshort(otReq.date) + (otReq.start ? ' · ' + otReq.start + '–' + otReq.end : '') + (otReq.note ? ' · ' + otReq.note : ''))),
+          waiting && !mine ? h('div', { class: 'links' }, okBtn, noBtn) : waiting ? h('p', { class: 't-small help', style: 'margin:0' }, 'مستني موافقة مديرك المباشر.') : null);
+      }
       let reply = null;
       if (!closed && tCanManage()) {
         const pick = AttachPicker(replyFiles, (m) => { replyMsg = m; draw(); }); pick.msg.textContent = replyMsg;
@@ -2594,6 +2610,7 @@
         reply = h('div', { class: 'tk-reply' }, pick.el, box);
       }
       const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('.tk-reply textarea'); // a live redraw keeps the reply's focus (as decision 16 did for the inbox)
+      if (otCard) body.prepend(otCard);
       drawerApi.set(header, body, reply);
       const b = drawerApi.el.querySelector('.drawer-b'); if (b) b.scrollTop = b.scrollHeight;
       if (typing) { const ta2 = drawerApi.el.querySelector('.tk-reply textarea'); if (ta2) { ta2.focus(); ta2.setSelectionRange(ta2.value.length, ta2.value.length); } }

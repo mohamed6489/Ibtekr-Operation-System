@@ -25,8 +25,8 @@ const CLOSED = { hr_members: ['notes'] };
 const COLS = {
   hr_members: ['member_id', 'shift_start', 'shift_end', 'hire_date', 'leave_days', 'notes', 'updated_by', 'updated_at'],
   hr_pay: ['member_id', 'salary', 'holdback', 'allowances', 'updated_by', 'updated_at'],
-  hr_attendance: ['id', 'member_id', 'day', 'in_at', 'out_at', 'remote', 'source', 'note', 'by_id', 'updated_at'],
-  hr_overtime: ['id', 'member_id', 'day', 'start_at', 'end_at', 'minutes', 'kind', 'note', 'status', 'paid_minutes', 'pay_month', 'decided_by', 'decided_at', 'reason', 'created_at'],
+  hr_attendance: ['id', 'member_id', 'day', 'in_at', 'out_at', 'remote', 'source', 'note', 'by_id', 'updated_at', 'ot_from', 'ot_ticket'],
+  hr_overtime: ['id', 'member_id', 'day', 'start_at', 'end_at', 'minutes', 'kind', 'note', 'status', 'paid_minutes', 'pay_month', 'decided_by', 'decided_at', 'reason', 'created_at', 'ticket_id'],
   hr_requests_v: ['id', 'code', 'member_id', 'type', 'from_day', 'to_day', 'at_time', 'hours', 'amount', 'months', 'note', 'status', 'decided_by', 'decided_at', 'reason', 'created_by', 'created_at', 'doc_path'],
   hr_holidays: ['id', 'name', 'day', 'days', 'kind', 'status', 'created_by', 'created_at'],
   hr_leave_types: ['name', 'days', 'paid', 'doc', 'carry', 'approval', 'deducts', 'unpaid', 'sort', 'created_at'],
@@ -93,6 +93,27 @@ export function hrRoute(c) {
   const salaries = active && hasPerm(u, 'sensitive.salaries') === 'F'; const editor = active && hasPerm(u, 'hr.edit') === 'F';
   const own = (r) => r.member_id === u.id && active;
   const nextId = () => { H.seq += 1; return H.seq; };
+  // 0069 (phase 13 decision 25): the overtime request ticket — internal, to the direct manager's role, opened in the member's name, with the
+  // bell to the admins and the manager; an event per session / decision; the decision closes it
+  const ROLE_LABEL = { admin: 'مدير النظام', cs: 'خدمة العملاء', vendors_followup: 'متابعة المبتكرين', accounts: 'الحسابات', ops: 'اللوجستيك والشحن' };
+  const tkNum = (id) => 'TKT-' + String(id).padStart(4, '0');
+  const otEvent = (tid, text) => { if (!tid) return; const who = mock.profiles.find((p) => p.id === u.id) || {}; mock.ticketEvents.push({ id: mock.ticketEvents.length + 1, ticket_id: tid, kind: 'event', at: now, actor: u.id, actor_name: who.name || 'السيستم', actor_role: ROLE_LABEL[who.role_id] || 'عضو', text, old_value: null, new_value: null, attachments: [] });
+    const t = mock.tickets.find((x) => x.id === tid); if (t) t.last_update = now; };
+  const otTicket = (member, day, rest) => {
+    const p = mock.profiles.find((x) => x.id === member) || {}; const mgr = p.manager_id ? mock.profiles.find((x) => x.id === p.manager_id && x.status === 'active') : null;
+    const id = mock.tickets.reduce((m, t) => Math.max(m, t.id), 0) + 1; const name = String(p.name || 'عضو').slice(0, 60); const when = day.slice(8, 10) + '/' + day.slice(5, 7);
+    mock.tickets.push({ id, type: 'internal', title: ((rest ? 'يوم راحة/عطلة — ' : 'وقت إضافي — ') + name + ' · ' + when).slice(0, 80), description: 'طلب إضافة وقت إضافي لـ ' + name, priority: 'normal',
+      assignee_role: (mgr && ROLE_LABEL[mgr.role_id]) || 'مدير النظام', order_number: null, order_id: null, customer: null, cs_customer_id: null, cs_conversation_id: null, vendor_id: null, vendor: null, reason: null, follow_up: null,
+      attachments: [], status: 'open', created_by: member, created_by_name: p.name || 'عضو', created_by_role: ROLE_LABEL[p.role_id] || 'عضو', created_at: now, last_update: now, reopen_count: 0,
+      resolution_outcome: null, resolution_note: null, resolved_by: null, resolved_by_name: null, resolved_at: null, closed_by: null, closed_by_name: null, closed_at: null });
+    otEvent(id, 'فتح التذكرة');
+    const title = name + (rest ? ' بيشتغل يوم راحة/عطلة' : ' بدأ وقت إضافي');
+    mock.alerts.push({ id: 9000 + id, at: now, kind: 'hr.overtime', title, body: 'مستني موافقة المدير المباشر', role_id: 'admin', user_id: null, entity: 'tickets/' + tkNum(id), entity_id: 'ot:' + id, read_at: null });
+    if (mgr && mgr.role_id !== 'admin') mock.alerts.push({ id: 9500 + id, at: now, kind: 'hr.overtime', title, body: 'محتاج موافقتك', role_id: null, user_id: mgr.id, entity: 'tickets/' + tkNum(id), entity_id: 'ot:' + id, read_at: null });
+    return id;
+  };
+  const otClose = (tid, outcome, note) => { const t = mock.tickets.find((x) => x.id === tid); if (!t || t.status === 'closed') return; const who = mock.profiles.find((p) => p.id === u.id) || {};
+    Object.assign(t, { status: 'closed', resolution_outcome: outcome, resolution_note: note, resolved_by: u.id, resolved_by_name: who.name, resolved_at: now, closed_by: u.id, closed_by_name: who.name, closed_at: now, last_update: now }); };
   const minutes = (a, b) => Math.floor((Date.parse(b) - Date.parse(a)) / 60000);
 
   // ---------- the Edge Function team-admin (decisions 5 / 6 / 13) ----------
@@ -160,7 +181,7 @@ export function hrRoute(c) {
     const dayDone = (member, day, except) => H.attendance.filter((x) => x.member_id === member && x.day === day && x.out_at && x.id !== except).reduce((n, x) => n + minutes(x.in_at, x.out_at), 0);
     const shift = () => { const l = H.attendance.filter((x) => x.member_id === u.id && ((x.out_at == null && Date.parse(x.in_at) > Date.now() - 20 * 3600000) || x.day === today));
       l.sort((x, y) => ((y.out_at == null) - (x.out_at == null)) || (x.in_at < y.in_at ? 1 : -1)); const a = l[0];
-      return a ? { id: a.id, day: a.day, in_at: a.in_at, out_at: a.out_at, remote: a.remote, done: dayDone(u.id, a.day, a.id), sessions: H.attendance.filter((x) => x.member_id === u.id && x.day === a.day).length } : null; };
+      return a ? { id: a.id, day: a.day, in_at: a.in_at, out_at: a.out_at, remote: a.remote, done: dayDone(u.id, a.day, a.id), sessions: H.attendance.filter((x) => x.member_id === u.id && x.day === a.day).length, ot_from: a.ot_from || null, ot_ticket: a.ot_ticket || null } : null; };
     if (f === 'hr_settings') return json(200, active ? ((mock.settings.find((s) => s.section === 'hr') || {}).data || {}) : null);
     // the internal notes (security review 5 Nov): hr.edit F, on the members they see, never their own row
     if (f === 'hr_member_notes') return json(200, editor ? H.members.filter((r) => r.notes != null && r.member_id !== u.id && sees(r.member_id)).map((r) => ({ member_id: r.member_id, notes: r.notes })) : []);
@@ -182,6 +203,13 @@ export function hrRoute(c) {
       H.attendance.push({ id: nextId(), member_id: u.id, day: today, in_at: now, out_at: null, remote, source: 'clock', note: null, by_id: u.id, updated_at: now });
       return json(200, shift());
     }
+    if (f === 'hr_overtime_begin') {
+      if (!active) return no();
+      const a = H.attendance.filter((x) => x.member_id === u.id && x.out_at == null && Date.parse(x.in_at) > Date.now() - 20 * 3600000).sort((x, y) => (x.in_at < y.in_at ? 1 : -1))[0];
+      if (!a) return bad('shift');
+      if (!a.ot_ticket) a.ot_ticket = otTicket(u.id, a.day, restDay(H, a.day)); if (!a.ot_from) a.ot_from = now;
+      return json(200, { ticket: a.ot_ticket, ot_from: a.ot_from });
+    }
     if (f === 'hr_clock_out') {
       if (!active) return no();
       const a = H.attendance.filter((x) => x.member_id === u.id && x.out_at == null && Date.parse(x.in_at) > Date.now() - 20 * 3600000).sort((x, y) => (x.in_at < y.in_at ? 1 : -1))[0];
@@ -189,14 +217,18 @@ export function hrRoute(c) {
       const out = b.p_at && Date.parse(b.p_at) < Date.now() ? new Date(Date.parse(b.p_at)).toISOString() : now; a.out_at = out; a.updated_at = now;
       const worked = minutes(a.in_at, out); const note = String(b.p_ot_note || '').trim(); const total = dayDone(u.id, a.day, a.id) + worked; // 0068: the DAY past 8 hours
       if (restDay(H, a.day)) {
-        let otId = null; const ex = H.overtime.find((o) => o.member_id === u.id && o.day === a.day && o.kind === 'rest_day');
-        if (worked > 0 && !ex) { otId = nextId(); H.overtime.push({ id: otId, member_id: u.id, day: a.day, start_at: a.in_at, end_at: out, minutes: Math.min(worked, 1440), kind: 'rest_day', note: note || 'شغل يوم راحة / عطلة', status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now }); }
-        else if (worked > 0 && ex.status === 'مستني') { ex.minutes = Math.min(ex.minutes + worked, 1440); ex.end_at = out; otId = ex.id; }
-        return json(200, { worked, day_total: total, overtime_id: otId, overtime: 0, rest_day: true });
+        let otId = null; const ex = H.overtime.find((o) => o.member_id === u.id && o.day === a.day && o.kind === 'rest_day'); let tid = null;
+        if (worked > 0 && !ex) { otId = nextId(); tid = a.ot_ticket || otTicket(u.id, a.day, true); H.overtime.push({ id: otId, member_id: u.id, day: a.day, start_at: a.in_at, end_at: out, minutes: Math.min(worked, 1440), kind: 'rest_day', note: note || 'شغل يوم راحة / عطلة', status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now, ticket_id: tid }); }
+        else if (worked > 0 && ex.status === 'مستني') { ex.minutes = Math.min(ex.minutes + worked, 1440); ex.end_at = out; otId = ex.id; tid = ex.ticket_id || null; }
+        if (tid) otEvent(tid, 'جلسة يوم راحة/عطلة (' + worked + ' دقيقة)');
+        return json(200, { worked, day_total: total, overtime_id: otId, overtime: 0, rest_day: true, ticket: tid });
       }
-      const part = Math.min(worked, Math.max(total - 480, 0));
-      let otId = null; if (note && part > 0) { otId = nextId(); H.overtime.push({ id: otId, member_id: u.id, day: a.day, start_at: new Date(Date.parse(out) - part * 60000).toISOString(), end_at: out, minutes: part, kind: 'hours', note, status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now }); }
-      return json(200, { worked, day_total: total, overtime_id: otId, overtime: otId ? part : 0 });
+      const since = a.ot_from ? Math.max(0, minutes(Date.parse(a.ot_from) > Date.parse(a.in_at) ? a.ot_from : a.in_at, out)) : 0;
+      const part = Math.min(worked, Math.max(total - 480, 0, since)); let tid = null;
+      let otId = null; if (note && part > 0) { otId = nextId(); tid = a.ot_ticket || otTicket(u.id, a.day, false); H.overtime.push({ id: otId, member_id: u.id, day: a.day, start_at: new Date(Date.parse(out) - part * 60000).toISOString(), end_at: out, minutes: part, kind: 'hours', note, status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now, ticket_id: tid });
+        otEvent(tid, 'الوقت الإضافي (' + part + ' دقيقة) · اشتغل على: ' + note + ' — مستني موافقة المدير المباشر'); }
+      else if (a.ot_ticket) { otEvent(a.ot_ticket, 'الدوام خلص من غير وقت إضافي يتسجل'); otClose(a.ot_ticket, 'مش مشكلة', 'مافيش وقت إضافي اتسجل'); }
+      return json(200, { worked, day_total: total, overtime_id: otId, overtime: otId ? part : 0, ticket: tid });
     }
     if (f === 'hr_attendance_set') {
       if (!editor) return no(); if (!b.p_member || !b.p_day || !b.p_in || b.p_day > today) return bad('day'); if (!prof(b.p_member)) return nf();
@@ -252,9 +284,12 @@ export function hrRoute(c) {
         Object.assign(mt, { status: 'اتقفلت', outcome: 'اتضاف الوقت', updated_at: now }); } // the meeting's result (the security review)
       if (b.p_decision === 'add') { const m = o.kind === 'rest_day' ? o.minutes : b.p_minutes == null ? o.minutes : Number(b.p_minutes); if (!(m > 0) || m > o.minutes) return bad('minutes');
         let pm = monthOf(o.day); while (H.payroll.some((p) => p.month === pm && ['معتمد', 'مدفوع'].includes(p.status))) pm = nextMonth(pm); // a late approval rides the next open sheet
-        Object.assign(o, { status: 'اتضاف', paid_minutes: m, pay_month: pm, decided_by: u.id, decided_at: now, reason }); return json(200, 'اتضاف'); }
+        Object.assign(o, { status: 'اتضاف', paid_minutes: m, pay_month: pm, decided_by: u.id, decided_at: now, reason });
+        if (o.ticket_id) { otEvent(o.ticket_id, o.kind === 'rest_day' ? 'اتوافق على يوم الراحة/العطلة (اليوم بيومين)' : 'اتضاف الوقت الإضافي: ' + m + ' دقيقة'); otClose(o.ticket_id, 'اتحلت المشكلة', o.kind === 'rest_day' ? 'اتوافق — اليوم بيومين' : 'اتضاف ' + m + ' دقيقة'); }
+        return json(200, 'اتضاف'); }
       if (b.p_decision === 'reject') { if (!reason) return bad('reason'); Object.assign(o, { status: 'اترفض', paid_minutes: 0, pay_month: null, decided_by: u.id, decided_at: now, reason });
         H.meetings.push({ id: nextId(), member_id: o.member_id, reason: 'وقت إضافي اترفض — نعرف كان بيعمل إيه', status: 'مطلوب', day: null, time_text: null, place: null, outcome: null, plan: null, goals: [], support: null, review_on: null, progress: null, notes: null, ref: 'OT-' + o.id, created_by: u.id, created_at: now, updated_at: now });
+        if (o.ticket_id) { otEvent(o.ticket_id, 'اترفض الوقت الإضافي — السبب: ' + reason); otClose(o.ticket_id, 'مش مشكلة', 'اترفض: ' + reason); }
         return json(200, 'اترفض'); }
       return bad('decision');
     }

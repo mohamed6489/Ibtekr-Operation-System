@@ -900,6 +900,10 @@
       filter_orders: (i) => { if (state.page !== 'orders') go('orders'); if (!OA) throw new Error('orders not ready'); if (i.clear) OA.clear(); const f = pick(i); if (f.vendor) { const hit = OA.vendors().find((v) => v.toLowerCase() === f.vendor.toLowerCase()); if (!hit) throw new Error('unknown vendor'); f.vendor = hit; } const n = OA.apply(f); syncGq(f.q !== undefined ? f.q : (i.clear ? '' : document.getElementById('gq') && document.getElementById('gq').value)); return { matching: n }; },
       set_period: (i) => { let r; if (i.preset) { r = D.presetRange(String(i.preset), TODAY); if (!r) throw new Error('unknown preset'); } else if (/^\d{4}-\d{2}-\d{2}$/.test(i.from || '') && /^\d{4}-\d{2}-\d{2}$/.test(i.to || '') && i.from <= i.to) r = { from: i.from, to: i.to }; else throw new Error('need preset or valid from<=to'); state.range = { from: r.from, to: r.to, preset: i.preset || 'custom' }; if (state.page !== 'accounts') go('accounts'); else render(); return D.rangeLabel(r.from, r.to); },
       sort_vendors: (i) => { if (!SORTS.some((x) => x.value === i.sort)) throw new Error('bad sort'); state.sort = i.sort; state.tab = 'vendors'; go('accounts'); return 'sorted ' + i.sort; },
+      // phase 13 decision 36 (owner 10 Nov — «يقدر يضيف مبتكر أو موظف أو عميل… يسألني على البيانات اللي محتاجها ويفتحلي بيها بوب أب
+      // أملاها وبعد كده ياخد الأكشن»): the system's own popup opens with the values the member gave; nothing is written until the member
+      // presses the popup's own button (the confirmation) — through the same adapter and the same server checks as by hand
+      open_form: (i) => aiOpenForm(String(i.form || ''), i.values && typeof i.values === 'object' ? i.values : {}),
       propose_entry: (i) => {
         const base = { direction: i.direction, amount: String(i.amount) };
         let cmd;
@@ -912,10 +916,34 @@
       },
     };
   }
+  // decision 36: open_form → the popup; a missing permission or a page not ready is said in the panel
+  function aiOpenForm(form, v) {
+    const K = window.IBKit; const P = () => window.IBPages.all(); const can = (k) => (window.IBDirectory && window.IBDirectory.perm ? window.IBDirectory.perm(k) : 'N');
+    const admin = () => K.member(K.ME).role === 'أدمن';
+    const no = () => { throw new Error('الصلاحية دي مش معاك'); };
+    const hrApi = () => { const a = P().hr && P().hr.api; if (!a || !window.IBHR) throw new Error('الموارد البشرية مش جاهزة'); return a; };
+    switch (form) {
+      case 'vendor_add': if (!admin() && can('vendors.edit') !== 'F') no(); if (state.page !== 'vendors') go('vendors'); setTimeout(() => openAddVendor(null, v), 60); return 'form vendor_add';
+      case 'member_add': if (!admin()) no(); hrApi().addMember(Object.fromEntries(['name', 'title', 'email', 'phone', 'dept', 'hire'].filter((k) => v[k] != null && String(v[k]).trim()).map((k) => [k, String(v[k]).trim().slice(0, 200)]))); return 'form member_add';
+      case 'customer_add': { const a = P().cs && P().cs.api; if (!a || !a.addCustomer || !a.addCustomer(v)) no(); return 'form customer_add'; }
+      case 'ticket_new': { if (!tCanManage()) no(); const pre = {}; for (const k of ['title', 'description', 'reason']) if (v[k]) pre[k] = String(v[k]).slice(0, 1000); if (['customer', 'vendor', 'internal'].includes(v.type)) pre.type = v.type;
+        if (['low', 'normal', 'high', 'urgent'].includes(v.priority)) pre.priority = v.priority; if (v.orderId) pre.orderId = String(v.orderId).replace(/\D/g, '').slice(0, 12); if (v.vendor) { const n = aiVendorName(v.vendor); if (n) pre.vendor = n; }
+        if (state.page !== 'tickets') go('tickets'); setTimeout(() => openNewTicket(pre), 60); return 'form ticket_new'; }
+      case 'hr_leave': hrApi().leaveRequest(null, v); return 'form hr_leave';
+      case 'hr_advance': hrApi().advanceRequest(null, v); return 'form hr_advance';
+      case 'hr_remote': hrApi().remoteRequest(null, v); return 'form hr_remote';
+      case 'task_add': { if (!window.IBHR || !window.IBHR.taskAdd) throw new Error('المهام مش جاهزة');
+        K.form({ title: 'إضافة مهمة', values: { title: String(v.title || '').slice(0, 200) }, fields: (f, e, set) => [K.field.text('title', 'المهمة', f, e, set, { required: true })], validate: (f) => K.req(f, ['title']), submitLabel: 'أكّد وسجّل',
+          submit: (f, md) => window.IBHR.taskAdd(K.ME, f.title.trim()).then((r) => { if (r && r.ok) { md.close(); K.toast('اتضافت المهمة', 'success'); } else K.toast((r && r.message) || 'ما اتضافتش — جرّب تاني', 'error'); }) });
+        return 'form task_add'; }
+      case 'order_update': { const OA = window.OrdersApp; if (!OA || !OA.aiUpdate) throw new Error('الأوردرات مش جاهزة'); if (can('orders.status') !== 'F' && !admin()) no(); const r = OA.aiUpdate({ id: String(v.order || '').replace(/\D/g, ''), status: v.status || '', confirm: v.confirm || '' }); if (r === 'missing') throw new Error('الأوردر ده مش ظاهر عندي'); if (r === 'nothing') throw new Error('مفيش تغيير — الحالة دي مش من اللي المساعد يقدر يغيّرها أو هي نفسها'); return 'form order_update'; }
+      default: throw new Error('النوع ده مش من الإجراءات المتاحة');
+    }
+  }
   // the server's actions in order; a failing one is said in the panel (the model already answered)
   function aiExecActions(actions) {
     const tools = aiTools(); const failed = [];
-    for (const a of actions || []) { const fn = tools[a.name]; if (!fn) continue; try { fn(a.input || {}); } catch (e) { failed.push(a.name === 'propose_entry' ? 'ما قدرتش أجهّز الحركة: ' + (e && e.message ? e.message : '') : 'ما قدرتش أنفّذ ' + a.name + '.'); } }
+    for (const a of actions || []) { const fn = tools[a.name]; if (!fn) continue; try { fn(a.input || {}); } catch (e) { failed.push(a.name === 'propose_entry' ? 'ما قدرتش أجهّز الحركة: ' + (e && e.message ? e.message : '') : a.name === 'open_form' ? 'ما قدرتش أفتح البوب أب: ' + (e && e.message ? e.message : '') : 'ما قدرتش أنفّذ ' + a.name + '.'); } }
     for (const f of failed) aiSay(f);
   }
   function aiBusy(b) { ai.busy = b; if (aiInput) aiInput.disabled = b; if (aiSendBtn) aiSendBtn.hidden = b; if (aiStopBtn) aiStopBtn.hidden = !b; if (!b && aiInput && aiPanel && !aiPanel.hidden) aiInput.focus(); }
@@ -2853,9 +2881,10 @@
   // link was withdrawn by the owner on 26 Oct) and «الحساب البنكي» (when the caller sees bank rows; required when it shows — no IBMakerDefaults).
   // The edit popup of an existing maker (openAddVendor(existing)) is unchanged. A name or alias already in the registry is refused
   // (decision 2: every Dokan store is already here) and the file is one click away.
-  function openAddVendor(existing) {
+  function openAddVendor(existing, pre) { // pre (phase 13 decision 36): the AI assistant's values for a new maker — the member reviews and saves
     const f = existing ? { name: existing.name, legalName: existing.legalName || '', category: existing.category, phone: existing.phone, altPhone: existing.altPhone || '', email: existing.email || '', address: existing.address || '', instagram: existing.instagram || '', storeUrl: existing.storeUrl || '', rate: String(existing.rate), leadDays: String(existing.leadDays), status: existing.status, aliases: existing.aliases.join('، '), depositPolicy: existing.depositPolicy || '', notes: existing.notes || '' }
       : { name: '', legalName: '', category: '', phone: '', altPhone: '', email: '', address: '', instagram: '', storeUrl: '', rate: '40', leadDays: '7', status: 'active', aliases: '', depositPolicy: '', notes: '', username: '', pwMode: 'temp', password: '', method: '', bankName: '', holder: '', iban: '', wallet: '', accountNumber: '', accountType: '', bankAddress: '', routingNumber: '', swift: '' };
+    if (!existing && pre && typeof pre === 'object') ['name', 'legalName', 'category', 'phone', 'altPhone', 'email', 'address', 'instagram', 'storeUrl', 'notes'].forEach((k) => { if (pre[k] != null && String(pre[k]).trim()) f[k] = String(pre[k]).trim().slice(0, 300); });
     const canBank = vstore.canBank(); const bankReq = true;
     let errs = {}; let modal = null; let dup = null;
     const txt = (id, label, key, opts = {}) => U.TextInput(Object.assign({ id, label, value: f[key], error: errs[key], onInput: (v) => { f[key] = v; } }, opts));

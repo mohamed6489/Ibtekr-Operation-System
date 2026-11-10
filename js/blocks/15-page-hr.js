@@ -471,10 +471,13 @@
       validate: (f) => { const e = K.req(f, ['type', 'hrfile'], { hrfile: 'اختار الملف' }); const bad = picked.hrfile ? H().checkFile(picked.hrfile) : null; if (bad === 'type') e.hrfile = 'صورة (PNG / JPG / WebP) أو PDF بس'; if (bad === 'size') e.hrfile = 'الملف أكبر من 10 ميجا'; if (f.start && f.end && f.end < f.start) e.end = 'النهاية بعد البداية'; return e; },
       submitLabel: 'رفع', submit: (f, md) => busy(md, H().upload(picked.hrfile, m.id).then((u) => (u.ok ? H().addDocument(m.id, { kind: f.type, path: u.path, name: u.name, start: f.start, end: f.end }) : u)), () => K.toast('اترفع ' + f.type, 'success')) });
   }
-  function leaveRequest(m) {
+  // phase 13 decision 36: pre = the AI assistant's values (the member reviews and submits the form — it is the confirmation)
+  const preOf = (pre, keys) => { const o = {}; if (pre && typeof pre === 'object') keys.forEach((k) => { if (pre[k] != null && String(pre[k]).trim()) o[k] = String(pre[k]).trim().slice(0, 300); }); return o; };
+  function leaveRequest(m, pre) {
     const me = (window.IBDirectory.me() || {}).member_code;
     const others = can().edit; const who = others ? members() : members().filter((x) => x.value === me);
-    K.form({ title: 'طلب إجازة', values: { member: m ? m.id : me || (who[0] || {}).value, kind: (S.leaveTypes[0] || {}).name || 'إجازة سنوية' },
+    const p = preOf(pre, ['kind', 'from', 'to', 'note']); if (p.kind && !S.leaveTypes.some((x) => x.name === p.kind)) delete p.kind;
+    K.form({ title: 'طلب إجازة', values: Object.assign({ member: m ? m.id : me || (who[0] || {}).value, kind: (S.leaveTypes[0] || {}).name || 'إجازة سنوية' }, p),
       fields: (f, e, set) => { const mm = M(f.member); const days = f.from && f.to && f.to >= f.from ? H().leaveDays(f.from, f.to, holidayDates()) : null; const lt = S.leaveTypes.find((x) => x.name === f.kind) || {}; const needDoc = !!lt.doc && !['', '—', '-'].includes(String(lt.doc).trim());
         return [who.length > 1 ? K.field.select('member', 'العضو', who, f, e, set, { required: true }) : null, K.field.select('kind', 'نوع الإجازة', S.leaveTypes.map((x) => x.name), f, e, set, { required: true }), K.two(K.field.date('from', 'من', f, e, set, { required: true }), K.field.date('to', 'لحد', f, e, set, { required: true })),
           days != null ? U.InlineNote({ kind: days > leaveLeft(mm) && lt.deducts ? 'warning' : '', children: 'عدد الأيام: ' + days + ' يوم شغل (من غير الجمعة والسبت والعطلات)' + (lt.deducts ? ' · الرصيد ' + leaveLeft(mm) + ' ← ' + (leaveLeft(mm) - days) : lt.unpaid ? ' · بدون أجر: اليوم بيتخصم من المرتب (÷ 24)' : '') }) : null,
@@ -485,18 +488,18 @@
         const send = (doc) => H().request({ member: f.member, type: f.kind, from: f.from, to: f.to, note: f.note || '', doc });
         return busy(md, needDoc ? H().upload(picked.leavedoc, f.member).then((u) => (u.ok ? send(u.path) : u)) : send(null), (r) => K.toast(filedMsg(r), 'success')); } });
   }
-  function advanceRequest(m) { // m: «ملفي» of another member (hr.edit F files for them)
+  function advanceRequest(m, pre) { // m: «ملفي» of another member (hr.edit F files for them)
     const me = (window.IBDirectory.me() || {}).member_code; const who = can().edit ? members() : members().filter((x) => x.value === me);
-    K.form({ title: 'طلب سُلفة', values: { member: (m && who.some((x) => x.value === m.id) ? m.id : null) || me || (who[0] || {}).value, months: '3' }, fields: (f, e, set) => [who.length > 1 ? K.field.select('member', 'العضو', who, f, e, set, { required: true }) : null, K.two(K.field.text('amount', 'المبلغ', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }), K.field.select('months', 'عدد الأقساط', ['1', '2', '3', '6'].map((x) => ({ value: x, label: x + ' شهور' })), f, e, set)),
+    K.form({ title: 'طلب سُلفة', values: Object.assign({ member: (m && who.some((x) => x.value === m.id) ? m.id : null) || me || (who[0] || {}).value, months: '3' }, preOf(pre, ['amount', 'months', 'note'])), fields: (f, e, set) => [who.length > 1 ? K.field.select('member', 'العضو', who, f, e, set, { required: true }) : null, K.two(K.field.text('amount', 'المبلغ', f, e, set, { required: true, inputmode: 'decimal', suffix: 'ج.م' }), K.field.select('months', 'عدد الأقساط', ['1', '2', '3', '6'].map((x) => ({ value: x, label: x + ' شهور' })), f, e, set)),
       Number(f.amount) > 0 ? U.InlineNote({ children: 'هيتخصم ' + K.money(Number(f.amount) / Number(f.months)) + ' ج كل شهر من الشهر اللي بعد الموافقة' }) : null, K.field.area('note', 'السبب', f, e, set)],
       validate: (f) => { const e = K.req(f, ['member', 'amount']); const m = M(f.member); if (f.amount && !(Number(f.amount) > 0)) e.amount = 'اكتب مبلغ صحيح'; else if (m.salary && Number(f.amount) > m.salary) e.amount = 'السُلفة متزيدش عن مرتب شهر (' + K.money(m.salary) + ')'; return e; },
       submitLabel: 'تقديم الطلب', submit: (f, md) => busy(md, H().request({ member: f.member, type: 'سُلفة', amount: Number(f.amount), months: Number(f.months), note: f.note || '' }), (r) => K.toast(filedMsg(r), 'success')) });
   }
   // phase 13 decision 33 (0071): every request opens its team ticket — the toast says which
   const filedMsg = (r) => 'اتقدم الطلب ' + r.id + (r.ticket ? ' — في «تذاكر الفريق» ' + r.ticket : '');
-  function remoteRequest(m) { // «شغل عن بُعد» (from the tickets page, decision 33)
+  function remoteRequest(m, pre) { // «شغل عن بُعد» (from the tickets page, decision 33)
     const me = (window.IBDirectory.me() || {}).member_code; const who = can().edit ? members() : members().filter((x) => x.value === me);
-    K.form({ title: 'طلب شغل عن بُعد', values: { member: (m && who.some((x) => x.value === m.id) ? m.id : null) || me || (who[0] || {}).value, from: today(), to: today() },
+    K.form({ title: 'طلب شغل عن بُعد', values: Object.assign({ member: (m && who.some((x) => x.value === m.id) ? m.id : null) || me || (who[0] || {}).value, from: today(), to: today() }, preOf(pre, ['from', 'to', 'note'])),
       fields: (f, e, set) => [who.length > 1 ? K.field.select('member', 'العضو', who, f, e, set, { required: true }) : null, K.two(K.field.date('from', 'من', f, e, set, { required: true }), K.field.date('to', 'لحد', f, e, set, { required: true })), K.field.area('note', 'ملاحظة', f, e, set, { placeholder: 'اختياري' })],
       validate: (f) => { const e = K.req(f, ['member', 'from', 'to']); if (f.from && f.to && f.to < f.from) e.to = 'تاريخ النهاية لازم بعد البداية'; return e; },
       submitLabel: 'تقديم الطلب', submit: (f, md) => busy(md, H().request({ member: f.member, type: 'شغل عن بُعد', from: f.from, to: f.to, note: f.note || '' }), (r) => K.toast(filedMsg(r), 'success')) });

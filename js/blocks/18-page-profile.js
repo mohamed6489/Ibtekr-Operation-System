@@ -49,6 +49,7 @@
       h('div', { class: 'acts-inline' }, ad ? Button({ label: 'رجوع للفريق', onClick: () => { location.hash = 'hr-team'; } }) : Button({ label: 'تعديل بياناتي', onClick: () => editInfo(m) })));
     const tabs = K.MainTabs({ items: TABS.map(([id]) => ({ id, label: label(id) })), active: st.tab, onChange: (id) => { st.tab = id; setHash(); rerender(); }, label: 'أقسام الملف' });
     const body = h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...tab(m));
+    if (st.tab === 'overview' && !ad && m.id === K.ME) setTimeout(() => K.applyPanelPrefs('profile:overview', body), 0); // decision 27
     return [ad ? U.InlineNote({ kind: 'warning', children: 'بتشوف ملف ' + m.name + (can().admin ? ' كأدمن' : '') + ' — الكروت البيج ظاهرة ليك بس.' }) : null, head, tabs, body];
   }
   const setHash = () => { try { history.replaceState(null, '', isAdminView() ? '#member-' + st.who : '#profile' + (st.tab === 'overview' ? '' : '-' + st.tab)); } catch (e) { /* */ } };
@@ -74,13 +75,24 @@
   function alertsTab(m) {
     const NR = window.IbtekrNotifRoles, NRV = window.IBNotifRoles; if (!NR || !NRV) return [];
     const P = (S.notifPrefs[m.id] = S.notifPrefs[m.id] || { mute: [], ch: 'زي إعدادات الشركة', quiet: 'زي إعدادات الشركة', digestAt: '' });
-    const ci = NRV.roleIdx(m); const perms = window.IBPages.all().settings.api.perms(); const ov = S.alertOverrides[m.id] || {};
-    const rows = NR.SOURCES.map((src) => ({ src, base: NR.access(S.alertRoles, perms, src.key, ci, ov[src.key]) })).filter((x) => x.base !== 'N');
     const save = (msg) => { K.logEvent('profile.alerts', m.name + ': ' + msg); K.toast('اتحفظ'); rerender(); document.dispatchEvent(new Event('ib:notify')); };
     const sel = (id, label, val, opts, on, help) => h('div', null, U.Select({ id, label, options: opts.map((x) => ({ value: x, label: x })), value: val, onChange: (v) => { on(v); save(label + ' = ' + v); } }), help ? h('div', { class: 't-small help' }, help) : null);
-    return [K.Section('اللي بستلمه', [K.Kv ? null : null,
-      rows.length ? U.Table({ cls: 'mini-table', headers: ['التنبيه', 'القسم', 'الحالة', 'كتم'], rows: rows.map(({ src, base }) => { const muted = P.mute.includes(src.key);
-        return [src.label, src.section, K.Tag(base === 'R' && !muted ? 'success' : 'neutral', base === 'R' ? (muted ? 'مكتوم (للعلم)' : 'بستلمه') : 'للعلم'), base === 'R' ? h('button', { type: 'button', role: 'switch', class: 'sw', 'aria-checked': String(muted), 'aria-label': 'كتم ' + src.label, onClick: () => { P.mute = muted ? P.mute.filter((k) => k !== src.key) : P.mute.concat(src.key); save((muted ? 'إلغاء كتم ' : 'كتم ') + src.label); } }, h('i')) : h('span', { class: 't-small help' }, '—')]; }) }) : K.Empty('مفيش تنبيهات لدورك', 'الأدمن يقدر يضيفلك من الإعدادات › التنبيهات حسب الدور')], null, { sub: rows.filter((x) => x.base === 'R' && !P.mute.includes(x.src.key)).length + ' بستلمه · ' + rows.filter((x) => x.base === 'S' || P.mute.includes(x.src.key)).length + ' للعلم — حسب دورك «' + m.role + '»' + (Object.keys(ov).length ? ' + ' + Object.keys(ov).length + ' تجاوز من الأدمن' : '') + '. الكتم بيخلّي التنبيه يظهرلك باهت «للعلم» من غير رقم ولا إشعار.' }),
+    // decision 26 (the owner, 10 Nov — «عايز تنبيهات اللي هي إشعارات وتبقى متقسمة تابات حسب النوع»; the mute table removed): my notifications
+    // themselves — the bell's sections (IBNotifRoles.viewSections: the server's alerts + each type) as tabs, each item opens its place
+    const secs = (m.id === K.ME && NRV.viewSections ? NRV.viewSections(true) : []).filter((x) => x && x.tabs && x.tabs.length);
+    const cnt = (x) => (x.received != null ? x.received : x.tabs[0][2].length);
+    const all = [].concat(...secs.map((x) => x.tabs[0][2].map((it) => Object.assign({ sec: x.label }, it))));
+    const cur = st.ntfSec === 'all' || !secs.some((x) => x.id === st.ntfSec) ? null : secs.find((x) => x.id === st.ntfSec);
+    const sub = cur ? (cur.tabs.find((t) => t[0] === st.ntfTab) || cur.tabs[0]) : null;
+    const items = cur ? sub[2] : all;
+    const item = (it) => h('button', { type: 'button', class: 'ntf-item' + (it.muted ? ' muted' : ''), role: 'listitem', 'data-ntf-item': '', onClick: () => { if (it.run) it.run(); } },
+      h('span', { class: 'av ' + (it.tone || 'neutral'), 'aria-hidden': 'true' }, Icon(it.icon || 'bell', 'sm')), h('span', { class: 'txt' }, h('b', null, it.title, it.muted ? h('span', { class: 'ntf-fyi' }, 'للعلم') : null), h('small', null, it.sub || '')),
+      !cur && it.sec ? h('span', { class: 'chip' }, it.sec) : null, it.meta ? h('span', { class: 'meta' }, it.meta) : null);
+    const list = m.id !== K.ME ? U.InlineNote({ children: 'التنبيهات بتظهر لصاحبها بس — من الجرس تقدر تختار «عرض تنبيهات» عضو تاني.' })
+      : h('div', { class: 'ntf-list my-ntf', role: 'list' }, items.length ? items.map(item) : U.EmptyState('كله تمام هنا', cur ? cur.empty || 'مفيش تنبيهات في القسم ده.' : 'مفيش تنبيهات دلوقتي.'));
+    return [K.Section('تنبيهاتي', [m.id === K.ME ? K.SubTabs({ items: [{ id: 'all', label: 'الكل', count: all.length }].concat(secs.map((x) => ({ id: x.id, label: x.label, count: cnt(x) }))), active: cur ? cur.id : 'all', onChange: (id) => { st.ntfSec = id; st.ntfTab = 'all'; rerender(); }, label: 'أنواع التنبيهات' }) : null,
+      cur && cur.tabs.length > 1 ? K.SubTabs({ items: cur.tabs.map((t) => ({ id: t[0], label: t[1], count: t[2].length })), active: sub[0], onChange: (id) => { st.ntfTab = id; rerender(); }, label: 'تابات ' + cur.label }) : null,
+      list], null, { sub: 'نفس الجرس — اضغط على أي تنبيه يفتح مكانه' }),
       K.Section('طريقة الإرسال ليّا', [K.two(sel('np-ch', 'القنوات', P.ch, ['زي إعدادات الشركة', 'داخل السيستم بس', 'داخل السيستم + واتساب', 'داخل السيستم + إيميل', 'داخل السيستم + واتساب + إيميل'], (v) => { P.ch = v; }, 'داخل السيستم دايمًا شغال · واتساب/إيميل بس لو التنبيه نفسه مسموح له بيهم'),
         sel('np-q', 'ساعات الهدوء بتاعتي', P.quiet, ['زي إعدادات الشركة', 'من 10:00 م إلى 8:00 ص', 'من 11:00 م إلى 9:00 ص', 'من 12:00 ص إلى 10:00 ص', 'مفيش'], (v) => { P.quiet = v; }, 'التنبيهات العاجلة (تصعيد / عاجل) بتوصل حتى في الهدوء')),
         sel('np-dg', 'ميعاد ملخصي اليومي', P.digestAt || 'زي ميعاد الدور', ['زي ميعاد الدور'].concat(O.NOTIF_TIMES), (v) => { P.digestAt = v === 'زي ميعاد الدور' ? '' : v; }, 'الملخص اليومي لدور «' + m.role + '» من الإعدادات › تقارير المهام')], null, { sub: 'في حدود اللي الأدمن سامح بيه' })];
@@ -96,9 +108,15 @@
     const sc = lastScore(m.id); const qs = HR().qScore(m.id); const money = seesMoney(m); const slip = money && m.salary > 0 ? slipsOf(m).list[0] : null;
     const year = tdy().slice(0, 4);
     const tile = (t, v, sub, go) => h('button', { type: 'button', class: 'card sum-tile', onClick: () => { st.tab = go; setHash(); rerender(); } }, h('span', { class: 'kpi-label t-label' }, t), h('span', { class: 't-h3' }, K.Num(String(v))), h('span', { class: 't-small help' }, sub), h('span', { class: 'more t-small' }, 'التفاصيل ', Icon('chevL', 'sm')));
-    return [h('div', { class: 'cards' }, tile('مهام النهارده', open, r.today.filter((t) => t.carried).length + ' من امبارح', 'tasks'), tile('ساعات ' + monName(mk), K.hm(m.monthMin || 0), days + ' يوم حضور', 'hours'), tile('رصيد الإجازات', (m.leave || 0) - (m.used || 0), 'من ' + (m.leave || 0) + ' يوم', 'requests'), isAdminView() || need === 0 ? tile(isAdminView() ? 'طلباته' : 'طلباتي', myReq.filter(isP).length, 'مستنية قرار', 'requests') : tile('محتاجة منك', need, 'طلبات فريقك', 'requests')),
+    const own = !isAdminView() && m.id === K.ME; const NRV = window.IBNotifRoles;
+    const ntfCount = own && NRV && NRV.viewSections ? NRV.viewSections(true).reduce((n, x) => n + (x.received != null ? x.received : ((x.tabs || [])[0] || [0, 0, []])[2].length), 0) : 0;
+    return [own ? h('div', { class: 'toolbar pn-bar' }, h('span', { class: 'grow' }), K.PanelButton('profile:overview', 'ملفي — نظرة عامة', () => document.querySelector('#pg-profile .panel'), rerender)) : null,
+      h('div', { class: 'cards' }, tile('مهام النهارده', open, r.today.filter((t) => t.carried).length + ' من امبارح', 'tasks'), tile('ساعات ' + monName(mk), K.hm(m.monthMin || 0), days + ' يوم حضور', 'hours'), tile('رصيد الإجازات', (m.leave || 0) - (m.used || 0), 'من ' + (m.leave || 0) + ' يوم', 'requests'), isAdminView() || need === 0 ? tile(isAdminView() ? 'طلباته' : 'طلباتي', myReq.filter(isP).length, 'مستنية قرار', 'requests') : tile('محتاجة منك', need, 'طلبات فريقك', 'requests')),
       h('div', { class: 'cards' }, tile(sc ? 'أداء ' + monName(sc.k) : 'الأداء', sc ? sc.v + '%' : '—', sc ? O.rating(sc.v) + (qs != null ? ' · الربع ' + qs + '%' : '') : 'لسه مفيش تقييم', 'performance'), tile('إنجازات', achievementsOf(m.id).filter((a) => a.month.slice(0, 4) === year).length, 'مكافآت السنة دي', 'achievements'),
         tile('آخر مرتب', slip ? K.money(slip.net) : '—', !money ? 'المرتبات للأدمن بس' : !(m.salary > 0) ? 'مفيش مرتب مسجل' : slip ? 'صافي ' + monName(slip.month) : 'القسيمة بتظهر بعد اعتماد الكشف', 'salary'), tile('المستندات', m.contract === 'missing' ? 'ناقص' : 'تمام', m.contract === 'expiring' ? 'العقد بيخلص قريب' : 'العقد والمستندات', 'docs')),
+      // decision 27 (the owner, 10 Nov — «إضافة زرار تخصيص اللوحة… وإمكانية إظهار عدد التنبيهات أو الطلبات»): my alerts and my open requests,
+      // and «تخصيص اللوحة» to hide / order every card (user_prefs panel.prefs «profile:overview»)
+      own ? h('div', { class: 'cards' }, tile('التنبيهات', ntfCount, ntfCount ? 'من الجرس — اضغط تشوفها' : 'مفيش تنبيهات دلوقتي', 'alerts'), tile('طلباتي المفتوحة', myReq.filter(isP).length, 'من ' + myReq.length + ' طلب', 'requests')) : null,
       isAdminView() ? adminCards(m) : null];
   }
   // the beige cards when another member's file is open: each by what the viewer may do (the server decides again)
@@ -206,6 +224,8 @@
   }
   // the auto tasks read the tickets and the orders too
   ['ib:tickets', 'ib:orders-ready'].forEach((ev) => document.addEventListener(ev, () => { if (window.IBPages.current === 'profile' && (st.tab === 'tasks' || st.tab === 'overview') && !typing()) rerender(); }));
+  // decision 26: «تنبيهاتي» follows the bell (new alerts, the tickets, the orders, the team's requests)
+  ['ib:notify', 'ib:tickets', 'ib:orders-ready', 'ib:hr', 'ib:cs'].forEach((ev) => document.addEventListener(ev, () => { if (window.IBPages.current === 'profile' && (st.tab === 'alerts' || st.tab === 'overview') && !typing()) rerender(); }));
 
   // ---------- ساعات العمل (this month's days from the server's attendance) ----------
   function hours(m) {

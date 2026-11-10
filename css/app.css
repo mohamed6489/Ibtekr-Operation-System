@@ -1652,3 +1652,10 @@ tbody tr:nth-child(even) td{background:var(--color-bg-tint)}
 .air-sec{display:flex;flex-direction:column;gap:8px}.air-sec h3{margin:0;color:var(--color-brand-default)}
 .air-sec .air-sec{padding-inline-start:12px;border-inline-start:2px solid var(--color-border-subtle)}
 .air-tbl{display:flex;flex-direction:column;gap:4px}
+
+/* phase 13 decision 26: «ملفي › تنبيهاتي» = the bell's list in the page */
+.ntf-list.my-ntf{overflow:visible;padding:0;margin-top:8px}.my-ntf .ntf-item{border-bottom:1px solid var(--color-border-subtle,#e7e0d2);border-radius:0;padding:10px 4px}.my-ntf .ntf-item .chip{flex:none}
+/* phase 13 decision 29 (the owner, 10 Nov — «خلي السيرش align right والباقي align left»): the search at the start (right), every other
+   header item together at the end (left) — the wrapper of the search takes the free space after it (its .search's own auto margin sits
+   inside the wrapper since 5.5 and pushed nothing) */
+.topbar>.gq-wrap{margin-inline-end:auto}

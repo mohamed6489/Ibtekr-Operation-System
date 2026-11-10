@@ -334,13 +334,15 @@
     const list = heads.map((lb, i) => ({ id: lb, label: lb || '—', hidden: i !== 0 && p.hidden.includes(lb), fixed: i === 0 && !!lb, r: i === 0 ? -1 : rank(lb, i), i }))
       .sort((a, b) => a.r - b.r || a.i - b.i);
     form({ title: 'أعمدة الجدول — ' + label, wide: true, values: { list },
-      note: U.InlineNote({ children: 'اختار الأعمدة اللي تظهر ورتّبها بالأسهم. التخصيص بيتحفظ ليك انت بس ولكل جدول لوحده. العمود الأول ثابت: مينفعش يتخفي ولا يتحرك من أوله.' }),
-      fields: (f, e, set) => [h('div', { class: 'dash-cust cols-cust', role: 'list' }, f.list.map((c, i) => h('div', { class: 'dc-row', role: 'listitem', 'data-col-item': c.id },
-        h('span', { class: 'dc-ord' }, Button({ type: 'text', size: 'sm', label: '↑', disabled: i === 0 || !!(f.list[i - 1] && f.list[i - 1].fixed), attrs: { 'aria-label': 'لفوق — ' + c.label }, onClick: () => { const l = f.list.slice(); [l[i - 1], l[i]] = [l[i], l[i - 1]]; set('list', l, true); } }),
-          Button({ type: 'text', size: 'sm', label: '↓', disabled: i === f.list.length - 1 || !!c.fixed, attrs: { 'aria-label': 'لتحت — ' + c.label }, onClick: () => { const l = f.list.slice(); [l[i + 1], l[i]] = [l[i], l[i + 1]]; set('list', l, true); } })),
+      note: U.InlineNote({ children: 'اختار الأعمدة اللي تظهر ورتّبها بالسحب من المسكة اللي جنب الاسم. التخصيص بيتحفظ ليك انت بس ولكل جدول لوحده. العمود الأول ثابت: مينفعش يتخفي ولا يتحرك من أوله.' }),
+      // phase 13 decision 50 (owner 10 Nov): the order by dragging the six-dot grip (like «تخصيص اللوحة»), no up / down arrows; the first
+      // column stays fixed (no grip, it never moves); the grip's arrow keys still move a row for the keyboard
+      fields: (f, e, set) => { const wrap = h('div', { class: 'dash-cust cols-cust', role: 'list' }, f.list.map((c, i) => h('div', { class: 'dc-row', role: 'listitem', 'data-col-item': c.id, 'data-fixed': c.fixed ? '1' : null },
+        c.fixed ? h('span', { class: 'dc-grip-sp', 'aria-hidden': 'true' }) : Grip(c.label),
         h('span', { class: 'dc-l' }, h('b', null, c.label), c.fixed ? h('small', { class: 't-small help' }, 'ثابت') : null),
-        Switch({ id: 'colc-' + i, label: c.label, checked: !c.hidden, disabled: c.fixed, onChange: (v) => { c.hidden = !v; set('list', f.list.slice(), true); } })))),
-        e.list ? U.InlineNote({ kind: 'error', children: e.list }) : null],
+        Switch({ id: 'colc-' + i, label: c.label, checked: !c.hidden, disabled: c.fixed, onChange: (v) => { c.hidden = !v; set('list', f.list.slice(), true); } }))));
+        sortableRows(wrap, 'data-col-item', (ids) => set('list', ids.map((id) => f.list.find((x) => x.id === id)).filter(Boolean), true));
+        return [wrap, e.list ? U.InlineNote({ kind: 'error', children: e.list }) : null]; },
       validate: (f) => (f.list.some((c) => !c.hidden) ? {} : { list: 'سيب عمود واحد على الأقل ظاهر' }),
       extraFooter: (f, m) => h('span', { class: 'rp-del' }, Button({ type: 'text', label: 'رجوع للافتراضي', attrs: { 'data-col-reset': '' }, onClick: () => { colWrite(key, null); toast('رجعت الأعمدة للافتراضي'); m.close(); if (done) done(); } })),
       submitLabel: 'حفظ', submit: (f) => { colWrite(key, { order: f.list.map((c) => c.id), hidden: f.list.filter((c) => c.hidden).map((c) => c.id) });

@@ -423,7 +423,7 @@
   }
   // the temporary password, once (decision 6): never stored, never logged — the modal is its only place
   function showPassword(name, code, password, warn) {
-    const md = U.Modal({ title: 'الباسورد المؤقت — ' + name, body: [U.InlineNote({ kind: 'warning', children: 'الباسورد ده بيظهر مرة واحدة بس ومش متخزن في أي مكان. ابعته لـ ' + name + ' بنفسك، وهو هيغيّره من «ملفي › الحساب والأمان».' }), warn ? U.InlineNote({ kind: 'error', children: warn }) : null,
+    const md = U.Modal({ title: 'الباسورد المؤقت — ' + name, body: [U.InlineNote({ kind: 'warning', children: 'الباسورد ده بيظهر مرة واحدة بس ومش متخزن في أي مكان. ابعته لـ ' + name + ' بنفسك، وهو هيغيّره من «ملفي › بيانات الحساب».' }), warn ? U.InlineNote({ kind: 'error', children: warn }) : null,
       K.Kv([['العضو', name + (code ? ' (' + code + ')' : '')], ['الباسورد المؤقت', h('code', { class: 'num', 'data-temp-password': '', dir: 'ltr' }, password)]])],
       footer: [Button({ label: 'نسخ الباسورد', icon: 'copy', onClick: () => { try { navigator.clipboard.writeText(password).then(() => K.toast('اتنسخ', 'success'), () => K.toast('انسخه بالإيد', 'error')); } catch (e) { K.toast('انسخه بالإيد', 'error'); } } }), Button({ type: 'primary', label: 'تمام', onClick: () => md.close() })] });
   }

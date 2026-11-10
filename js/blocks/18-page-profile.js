@@ -4,8 +4,10 @@
   'use strict';
   const U = window.IBUI, O = window.IbtekrOps, K = window.IBKit;
   const { h, Icon, Button } = U; const S = K.store;
-  const TABS = [['overview', 'نظرة عامة'], ['tasks', 'مهامي'], ['hours', 'ساعات العمل'], ['performance', 'أدائي'], ['salary', 'مرتبي'], ['docs', 'العقود والمستندات'], ['security', 'الحساب والأمان'], ['alerts', 'تنبيهاتي']]; // decision 38: «الإنجازات» and «التفضيلات» removed
-  const st = { tab: 'overview', who: null, taskSub: 'today', reqSub: 'mine', showPay: false, newTask: '', notes: {}, perfQ: null, slips: {} };
+  // decision 38: «الإنجازات» and «التفضيلات» removed; decision 39: «بيانات الحساب» (the old «الحساب والأمان», id kept for #profile-security)
+  // right after «نظرة عامة», with the documents («مستندات وعقود») inside it
+  const TABS = [['overview', 'نظرة عامة'], ['security', 'بيانات الحساب'], ['tasks', 'مهامي'], ['hours', 'ساعات العمل'], ['performance', 'أدائي'], ['salary', 'مرتبي'], ['alerts', 'تنبيهاتي']];
+  const st = { tab: 'overview', who: null, taskSub: 'today', reqSub: 'mine', showPay: false, newTask: '', notes: {}, bank: {}, bankShown: {}, perfQ: null, slips: {} };
   const rerender = () => window.IBPages.render('profile');
   // decision 30: «me» is null — never K.ME captured before the sign-in (an earlier hash ran with the default M01, so an admin saw M01)
   const whoId = () => st.who || K.ME;
@@ -39,7 +41,7 @@
     IH().slips(m.id).then((r) => { if (slipGen !== gen) return; st.slips[m.id] = { gen, status: r.ok ? 'ok' : 'error', list: r.ok ? r.list : [] }; if (window.IBPages.current === 'profile' && !typing()) rerender(); });
     return st.slips[m.id];
   }
-  document.addEventListener('ib:hr', () => { slipGen += 1; if (window.IBPages.current === 'profile' && !typing()) rerender(); });
+  document.addEventListener('ib:hr', () => { slipGen += 1; st.bank = {}; if (window.IBPages.current === 'profile' && !typing()) rerender(); });
 
   function view() {
     const m = HM(whoId()); const ad = isAdminView();
@@ -63,7 +65,6 @@
       case 'hours': return hours(m);
       case 'performance': return performance(m);
       case 'salary': return salary(m);
-      case 'docs': return docs(m);
       case 'security': return security(m);
       case 'alerts': return alertsTab(m);
       default: return overview(m);
@@ -114,7 +115,7 @@
     return [own ? h('div', { class: 'toolbar pn-bar' }, h('span', { class: 'grow' }), K.PanelButton('profile:overview', 'ملفي — نظرة عامة', () => document.querySelector('#pg-profile .panel'), rerender)) : null,
       h('div', { class: 'cards' }, tile('مهام النهارده', open, r.today.filter((t) => t.carried).length + ' من امبارح', 'tasks'), tile('ساعات ' + monName(mk), K.hm(m.monthMin || 0), days + ' يوم حضور', 'hours'), tile('رصيد الإجازات', (m.leave || 0) - (m.used || 0), 'من ' + (m.leave || 0) + ' يوم', reqGo), isAdminView() || need === 0 ? tile(isAdminView() ? 'طلباته' : 'طلباتي', myReq.filter(isP).length, 'مستنية قرار', reqGo) : tile('محتاجة منك', need, 'طلبات فريقك', reqGo)),
       h('div', { class: 'cards' }, tile(sc ? 'أداء ' + monName(sc.k) : 'الأداء', sc ? sc.v + '%' : '—', sc ? O.rating(sc.v) + (qs != null ? ' · الربع ' + qs + '%' : '') : 'لسه مفيش تقييم', 'performance'), tile(isAdminView() ? 'إنجازاته' : 'إنجازاتي', done.length, 'مهمة خلصت · ' + doneMonth + ' الشهر ده', 'tasks', () => { st.taskSub = 'done'; }),
-        tile('آخر مرتب', slip ? K.money(slip.net) : '—', !money ? 'المرتبات للأدمن بس' : !(m.salary > 0) ? 'مفيش مرتب مسجل' : slip ? 'صافي ' + monName(slip.month) : 'القسيمة بتظهر بعد اعتماد الكشف', 'salary'), tile('المستندات', m.contract === 'missing' ? 'ناقص' : 'تمام', m.contract === 'expiring' ? 'العقد بيخلص قريب' : 'العقد والمستندات', 'docs')),
+        tile('آخر مرتب', slip ? K.money(slip.net) : '—', !money ? 'المرتبات للأدمن بس' : !(m.salary > 0) ? 'مفيش مرتب مسجل' : slip ? 'صافي ' + monName(slip.month) : 'القسيمة بتظهر بعد اعتماد الكشف', 'salary'), tile('المستندات', m.contract === 'missing' ? 'ناقص' : 'تمام', m.contract === 'expiring' ? 'العقد بيخلص قريب' : 'العقد والمستندات', 'security')),
       // decision 27 (the owner, 10 Nov — «إضافة زرار تخصيص اللوحة… وإمكانية إظهار عدد التنبيهات أو الطلبات»): my alerts and my open requests,
       // and «تخصيص اللوحة» to hide / order every card (user_prefs panel.prefs «profile:overview»)
       own ? h('div', { class: 'cards' }, tile('التنبيهات', ntfCount, ntfCount ? 'من الجرس — اضغط تشوفها' : 'مفيش تنبيهات دلوقتي', 'alerts'), tile('طلباتي المفتوحة', myReq.filter(isP).length, 'من ' + myReq.length + ' طلب', reqGo)) : null,
@@ -304,21 +305,64 @@
       C.status === 'error' ? U.InlineNote({ kind: 'error', children: 'معرفناش نجيب القسايم — جرّب تاني كمان شوية.' }) : null,
       K.Section('القسايم', rows.length || open.length ? U.Table({ headers: ['الشهر', 'الصافي', 'الحالة', ''], rows: open.concat(rows) }) : K.Empty(C.status === 'loading' ? 'بيحمّل القسايم…' : 'لسه مفيش قسايم', 'القسيمة بتظهر هنا بعد ما كشف الشهر يتعتمد.'))];
   }
-  // ---------- العقود والمستندات (the member's documents in «hr-docs»: hr.edit F uploads, the member reads their own) ----------
+  // ---------- مستندات وعقود (inside «بيانات الحساب», decision 39 — the member's documents in «hr-docs»: hr.edit F uploads, the member reads their own) ----------
   function docs(m) {
     const edit = can().edit; const list = (m.docs || []).slice().sort((a, b) => (a.at < b.at ? 1 : -1)); const contract = list.find((d) => d.kind === 'عقد عمل') || null;
     const openDoc = (d) => { if (!d) return; IH().fileUrl(d.path).then((u) => { if (!u) { K.toast('معرفناش نفتح الملف — جرّب تاني', 'error'); return; } window.open(u, '_blank', 'noopener'); }); };
     const sub = !contract ? 'لسه ما اترفعش' : m.contractEnd ? (m.contract === 'expiring' ? 'بيخلص ' : 'ساري لحد ') + K.dlabel(m.contractEnd) : 'اترفع ' + K.dlabel(String(contract.at || '').slice(0, 10));
     const others = list.filter((d) => d !== contract);
-    return [K.Section('العقود والمستندات', [U.ContractCard({ status: m.contract || 'missing', title: 'عقد العمل', sub, canManage: edit, onView: () => openDoc(contract), onDownload: () => openDoc(contract), onUpload: () => HR().uploadContract(m), onTemplate: () => K.toast('قالب العقد لسه مااترفعش — اطلبه من الأدمن', 'info') }),
+    return [K.Section('مستندات وعقود', [U.ContractCard({ status: m.contract || 'missing', title: 'عقد العمل', sub, canManage: edit, onView: () => openDoc(contract), onDownload: () => openDoc(contract), onUpload: () => HR().uploadContract(m), onTemplate: () => K.toast('قالب العقد لسه مااترفعش — اطلبه من الأدمن', 'info') }),
       others.length ? U.Table({ headers: ['المستند', 'الملف', 'من', 'لحد', ''], rows: others.map((d) => [d.kind, h('span', { class: 'wrap' }, d.name), d.start ? K.dshort(d.start) : '—', d.end ? K.dshort(d.end) : '—', Button({ type: 'text', size: 'sm', label: 'عرض', onClick: () => openDoc(d) })]) }) : h('div', { class: 't-small help' }, 'مفيش مستندات تانية.')], edit ? [Button({ label: 'رفع مستند', icon: 'attach', onClick: () => HR().uploadContract(m) })] : null)];
   }
-  // ---------- الحساب والأمان ----------
+  // ---------- بيانات الحساب (decision 39): البيانات الشخصية · الرقم السري · رقم الحساب البنكي · مستندات وعقود ----------
   function security(m) {
     const ad = isAdminView();
-    return [K.Section('بيانات الدخول', K.Kv([['الإيميل', m.email || '—'], ['الموبايل', m.phone ? h('span', { dir: 'ltr' }, m.phone) : '—']]), ad ? null : [Button({ label: 'تعديل بياناتي', onClick: () => editInfo(m) }), Button({ type: 'primary', label: 'تغيير كلمة المرور', onClick: () => changePassword() })]),
-      K.Section('التحقق بخطوتين', [h('div', { class: 'set-row' }, h('div', null, h('b', null, m.twofa ? 'مفعّل — تطبيق Authenticator' : 'مش مفعّل'), h('div', { class: 't-small help' }, ad ? 'العضو بيفعّله أو يوقفه من ملفه' : 'اختياري للكل · تطبيق Authenticator (واتساب وإيميل ' + SOON_2FA + ')')), ad ? null : m.twofa ? Button({ label: 'إيقاف', onClick: () => K.confirm({ title: 'إيقاف التحقق بخطوتين', text: 'حسابك هيبقى محمي بكلمة المرور بس.', okType: 'danger', okLabel: 'إيقاف', onOk: disable2fa }) }) : Button({ type: 'primary', label: 'تفعيل', onClick: () => enable2fa(m) }))]),
-      ad ? null : K.Section('الأجهزة', h('p', { class: 't-small help', style: 'margin:0' }, 'لو حاسس إن حد تاني داخل بحسابك: غيّر كلمة المرور أو اعمل خروج من كل الأجهزة — الجهاز ده بيفضل داخل.'), [Button({ label: 'خروج من كل الأجهزة', onClick: () => window.IBShell.signOutAll() })])];
+    const personal = K.Section('البيانات الشخصية', K.Kv([['الاسم', m.name || '—'], ['الإيميل', m.email || '—'], ['الموبايل', m.phone ? h('span', { dir: 'ltr' }, m.phone) : '—'],
+      ['المسمى الوظيفي', m.title || '—'], ['القسم', m.dept || '—'], ['المدير المباشر', m.manager ? HM(m.manager).name : '—']]), ad ? null : [Button({ label: 'تعديل بياناتي', onClick: () => editInfo(m) })]);
+    const pass = K.Section('الرقم السري', [ad ? null : h('div', { class: 'set-row' }, h('div', null, h('b', null, 'كلمة المرور'), h('div', { class: 't-small help' }, '8 حروف على الأقل فيها حرف ورقم')), Button({ type: 'primary', label: 'تغيير كلمة المرور', onClick: () => changePassword() })),
+      h('div', { class: 'set-row' }, h('div', null, h('h3', { class: 't-label', style: 'margin:0' }, 'التحقق بخطوتين'), h('b', null, m.twofa ? 'مفعّل — تطبيق Authenticator' : 'مش مفعّل'), h('div', { class: 't-small help' }, ad ? 'العضو بيفعّله أو يوقفه من ملفه' : 'اختياري للكل · تطبيق Authenticator (واتساب وإيميل ' + SOON_2FA + ')')), ad ? null : m.twofa ? Button({ label: 'إيقاف', onClick: () => K.confirm({ title: 'إيقاف التحقق بخطوتين', text: 'حسابك هيبقى محمي بكلمة المرور بس.', okType: 'danger', okLabel: 'إيقاف', onOk: disable2fa }) }) : Button({ type: 'primary', label: 'تفعيل', onClick: () => enable2fa(m) })),
+      ad ? null : h('div', { class: 'set-row' }, h('div', null, h('b', null, 'الأجهزة'), h('div', { class: 't-small help' }, 'لو حاسس إن حد تاني داخل بحسابك: غيّر كلمة المرور أو اعمل خروج من كل الأجهزة — الجهاز ده بيفضل داخل.')), Button({ label: 'خروج من كل الأجهزة', onClick: () => window.IBShell.signOutAll() }))]);
+    return [personal, pass, bankSection(m)].concat(docs(m));
+  }
+  // رقم الحساب البنكي (0072): the member types their own; it shows masked; «إظهار» = the full number from the server (mine, or an admin /
+  // sensitive.salaries on a member's file — every reveal logged on the server, never the number)
+  function bankOf(m) {
+    if (st.bankMe !== K.ME) { st.bank = {}; st.bankShown = {}; st.bankMe = K.ME; } // another sign-in on this tab never inherits a revealed number
+    const c = st.bank[m.id]; if (c) return c;
+    st.bank[m.id] = { status: 'loading', bank: null };
+    IH().bank(m.id).then((r) => { st.bank[m.id] = { status: r.ok ? 'ok' : 'error', bank: r.ok ? r.bank : null }; if (window.IBPages.current === 'profile' && !typing()) rerender(); });
+    return st.bank[m.id];
+  }
+  function bankSection(m) {
+    const own = !isAdminView() && m.id === K.ME; const reader = can().admin || can().salaries;
+    if (!IH() || (!own && !reader)) return null;
+    const C = bankOf(m); const b = C.bank; const shown = st.bankShown[m.id] || null;
+    const reveal = () => { if (shown) { delete st.bankShown[m.id]; rerender(); return; } IH().bankReveal(m.id).then((r) => { if (!r.ok) { K.toast(r.message || 'معرفناش نكشف الرقم — جرّب تاني', 'error'); return; } st.bankShown[m.id] = r.bank; rerender(); }); };
+    const body = C.status === 'loading' ? h('div', { class: 't-small help' }, 'بيحمّل…') : C.status === 'error' ? U.InlineNote({ kind: 'error', children: 'معرفناش نجيب الحساب البنكي — جرّب تاني كمان شوية.' })
+      : !b ? K.Empty(own ? 'لسه ماضفتش حسابك البنكي' : 'لسه ماضافش حسابه البنكي', own ? 'المرتب بيتحوّل عليه — ضيفه من «إضافة الحساب البنكي».' : 'العضو بيضيفه من «ملفي › بيانات الحساب».')
+      : h('div', { 'data-bank': '' }, K.Kv([['البنك', b.bankName], ['اسم صاحب الحساب', b.holder], ['رقم الحساب', h('span', { dir: 'ltr', 'data-bank-number': '' }, shown ? shown.number : b.account)], ['IBAN', b.iban ? h('span', { dir: 'ltr' }, shown ? shown.iban : b.iban) : '—']]),
+        h('div', { class: 't-small help' }, 'رقم الحساب مطموس — «إظهار» بيتسجل في سجل النشاط' + (b.at ? ' · آخر تعديل ' + K.dlabel(String(b.at).slice(0, 10)) : '')));
+    const acts = [b ? Button({ label: shown ? 'إخفاء' : 'إظهار', attrs: { 'aria-pressed': String(!!shown), 'data-bank-reveal': '' }, onClick: reveal }) : null,
+      own ? Button({ type: b ? 'secondary' : 'primary', label: b ? 'تعديل الحساب البنكي' : 'إضافة الحساب البنكي', attrs: { 'data-bank-edit': '' }, onClick: () => editBank(m, b) }) : null];
+    return K.Section('رقم الحساب البنكي', body, acts, { sub: own ? 'اللي المرتب بيتحوّل عليه' : 'للأدمن والمرتبات بس' });
+  }
+  function editBank(m, b) {
+    // the full number is never prefilled: editing means typing it again (the masked one is all the page holds)
+    K.form({ title: b ? 'تعديل الحساب البنكي' : 'إضافة الحساب البنكي', values: { bankName: b ? b.bankName : '', holder: b ? b.holder : m.name || '', number: '', iban: '' },
+      fields: (f, e, set) => [K.field.text('bankName', 'اسم البنك', f, e, set, { required: true }), K.field.text('holder', 'اسم صاحب الحساب', f, e, set, { required: true }),
+        K.field.text('number', 'رقم الحساب', f, e, set, { required: true, inputmode: 'numeric', help: b ? 'اكتب الرقم كامل تاني (الحالي ' + b.account + ')' : 'أرقام بس' }),
+        K.field.text('iban', 'IBAN (اختياري)', f, e, set, { help: 'زي EG38 0019 …' })],
+      validate: (f) => { const e = {}; if (!String(f.bankName || '').trim()) e.bankName = 'اكتب اسم البنك'; if (!String(f.holder || '').trim()) e.holder = 'اكتب اسم صاحب الحساب';
+        if (!/^[0-9]{6,30}$/.test(O.toLatin(String(f.number || '')).replace(/[\s-]/g, ''))) e.number = 'رقم الحساب أرقام بس (من 6 لـ 30 رقم)';
+        const ib = String(f.iban || '').replace(/[\s-]/g, '').toUpperCase(); if (ib && !/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(ib)) e.iban = 'الـ IBAN مش صحيح'; return e; },
+      submitLabel: 'حفظ', submit: (f, md) => {
+        if (md._busy) return false; md._busy = true;
+        IH().bankSet({ bankName: f.bankName, holder: f.holder, number: O.toLatin(String(f.number || '')), iban: f.iban }).then((r) => {
+          md._busy = false; if (!r.ok) { K.toast(r.message || 'معرفناش نحفظ — جرّب تاني', 'error'); return; }
+          st.bank[m.id] = { status: 'ok', bank: r.bank }; delete st.bankShown[m.id]; md.close(); K.toast('اتحفظ الحساب البنكي', 'success'); rerender();
+        });
+        return false;
+      } });
   }
 
   // ---------- popups ----------

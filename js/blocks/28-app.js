@@ -3480,7 +3480,7 @@
   // force2fa is on) — the redirect here is the experience: the member lands where enrolling happens
   let force2fa = false; let twofaToldAt = 0;
   const needs2fa = () => { if (!force2fa) return false; const me = window.IBDirectory && window.IBDirectory.me ? window.IBDirectory.me() : null; return !!me && me.status === 'active' && !me.twofa; };
-  const twofaNote = () => { if (Date.now() - twofaToldAt < 4000) return; twofaToldAt = Date.now(); window.IBKit.toast('الشركة ملزمة التحقق بخطوتين — فعّله الأول من «ملفي › الحساب والأمان»', 'error'); };
+  const twofaNote = () => { if (Date.now() - twofaToldAt < 4000) return; twofaToldAt = Date.now(); window.IBKit.toast('الشركة ملزمة التحقق بخطوتين — فعّله الأول من «ملفي › بيانات الحساب»', 'error'); };
   function applyPublicSettings(pub) {
     const S0 = window.IBSettings, K = window.IBKit; if (!S0 || !K) return;
     if (!pub || typeof pub !== 'object') return;

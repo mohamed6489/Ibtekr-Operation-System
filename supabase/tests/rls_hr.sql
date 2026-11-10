@@ -201,10 +201,12 @@ begin
   begin insert into public.hr_adjustments (member_id, month, amount, label) values ('00000000-0000-4000-8000-0000000046a3', v_month, 50, 'بدل'); raise exception 'case an approved sheet is locked failed';
   exception when invalid_parameter_value then null; end;
   begin perform public.hr_payroll_pay(v_month, 'حساب وهمي'); raise exception 'case the account is one of the four failed'; exception when invalid_parameter_value then null; end;
-  if public.hr_payroll_pay(v_month, 'حساب البنك') <> v_net then raise exception 'case the payroll total paid failed'; end if;
+  -- the total is the month's lines (live-safe: the staging may have other members on this month's sheet)
+  if public.hr_payroll_pay(v_month, 'حساب البنك') <> (select coalesce(sum(net), 0) from public.hr_payroll_lines where month = v_month and net > 0) then raise exception 'case the payroll total paid failed'; end if;
   select count(*) into v_exp from public.acc_expenses where category = 'المرتبات' and beneficiary = 'عضو تحت المدير' and amount = v_net and note like 'مرتب %';
   if v_exp <> 1 then raise exception 'case «مدفوع» writes the member''s «المرتبات» expense failed'; end if;
-  if not exists (select 1 from public.acc_account_moves where account = 'حساب البنك' and direction = 'withdraw' and amount = v_net and note like 'مرتبات %') then
+  if not exists (select 1 from public.acc_account_moves where account = 'حساب البنك' and direction = 'withdraw' and note like 'مرتبات %'
+      and amount = (select coalesce(sum(net), 0) from public.hr_payroll_lines where month = v_month and net > 0)) then
     raise exception 'case «مدفوع» writes one withdrawal from the account picked failed';
   end if;
   if (select status from public.hr_payroll where month = v_month) <> 'مدفوع' then raise exception 'case the sheet is paid failed'; end if;

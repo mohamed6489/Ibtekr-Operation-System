@@ -211,6 +211,11 @@ test('the company papers: upload (the file into bucket company-docs, then the ro
   await expect.poll(() => page.evaluate(() => document.documentElement.style.getPropertyValue('--color-brand-default').trim())).toBe('#114433');
   await page.locator('[data-quick]').click();
   await expect(page.getByRole('menuitem', { name: 'أوردرات النهارده' })).toBeVisible();
+  // decision 49: the two general actions are green (the brand color of the moment), the saved ones are not
+  const colorOf = (n) => page.getByRole('menuitem', { name: n }).evaluate((el) => getComputedStyle(el).color);
+  const brand = await page.evaluate(() => { const p = document.createElement('i'); p.style.color = 'var(--color-brand-default)'; document.body.append(p); const v = getComputedStyle(p).color; p.remove(); return v; });
+  expect(await colorOf('+ ضيف الصفحة دي')).toBe(brand); expect(await colorOf('إدارة الإجراءات السريعة')).toBe(brand);
+  expect(await colorOf('أوردرات النهارده')).not.toBe(brand);
 });
 
 test('force 2FA (the row «security»): a member without 2FA is sent to «ملفي › بيانات الحساب» and cannot leave it; the admin with the row off is not', async ({ page }) => {

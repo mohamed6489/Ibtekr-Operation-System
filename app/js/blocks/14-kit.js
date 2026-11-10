@@ -770,7 +770,10 @@
     const trig = Button({ label: h('span', { class: 'qa-lbl' }, 'إجراءات سريعة'), icon: 'zap', iconEnd: 'chevD', attrs: { 'aria-haspopup': 'menu', 'data-quick': '', 'aria-label': 'إجراءات سريعة', title: 'إجراءات سريعة' } });
     const pop = U.popover(wrap, trig, (close) => { const L = list();
       const opts = L.map((x) => ({ value: x.id, label: x.name, icon: x.icon || 'link' })).concat([{ value: '__add', label: '+ ضيف الصفحة دي', icon: 'plus' }, { value: '__manage', label: 'إدارة الإجراءات السريعة', icon: 'gear' }]);
-      return U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (v) => { close(); setTimeout(() => { if (v === '__add') edit({ name: (document.title || '').split(' — ')[0], link: currentLink() }); else if (v === '__manage') location.hash = '#settings-quick'; else { const it = L.find((x) => x.id === v); if (it) run(it.link); } }); } }); });
+      const menu = U.DropdownMenu({ role: 'menu', end: true, options: opts, onSelect: (v) => { close(); setTimeout(() => { if (v === '__add') edit({ name: (document.title || '').split(' — ')[0], link: currentLink() }); else if (v === '__manage') location.hash = '#settings-quick'; else { const it = L.find((x) => x.id === v); if (it) run(it.link); } }); } });
+      // phase 13 decision 49 (owner 10 Nov): the two general actions («+ ضيف الصفحة دي» / «إدارة الإجراءات السريعة») in green
+      [...menu.querySelectorAll('.opt')].slice(-2).forEach((b) => b.classList.add('opt-general'));
+      return menu; });
     trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
   }
   // «الإعدادات › الإجراءات السريعة»

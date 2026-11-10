@@ -1681,3 +1681,5 @@ tbody tr:nth-child(even) td{background:var(--color-bg-tint)}
 :is(.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only),.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h) .btn:not(.btn-text){background:var(--color-bg-container);border-color:var(--color-border-default);color:var(--color-text-primary)}
 :is(.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only),.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h) .btn:not(.btn-text):hover{border-color:var(--color-action-default);color:var(--color-text-primary)}
 :is(.card.sec:not(.tbl-v2):not(.admin)>.sec-h:not(.cols-only),.chart-card>.chart-head,.dash-card:not(.tbl-v2)>.dash-h,.set-card>.set-card-h) .btn-text{color:var(--color-text-on-brand)}
+/* phase 13 decision 49 (owner 10 Nov): the general actions of the quick-actions menu in green */
+.menu .opt.opt-general{color:var(--color-brand-default);font-weight:600}.menu .opt.opt-general svg{color:var(--color-brand-default)}

@@ -716,7 +716,7 @@
     const K = window.IBKit, O = window.IbtekrOps; if (!K) return []; const S = K.store; const goHash = (hs) => () => { location.hash = hs; };
     // phase 10: the team's requests / overtime / meetings from IBHR (the server's rows the member sees), the member's own ones left out
     const HRA = window.IBPages.all().hr.api; const HR = window.IBHR; const HD = HR ? HR.data : S; const Mm = (id) => (HR && HR.member(id)) || K.member(id); const meCode = K.ME;
-    const reqs = HD.requests.filter((r) => HRA.isPending(r) && r.member !== meCode).map((r) => ({ own: { manager: Mm(r.member).manager }, key: 'rq:' + r.id, title: r.type + ' — ' + Mm(r.member).name, sub: HRA.reqPeriod(r), meta: r.at, tone: 'warning', icon: 'briefcase', run: goHash('hr-requests') }));
+    const reqs = HD.requests.filter((r) => HRA.isPending(r) && r.member !== meCode).map((r) => ({ own: { manager: Mm(r.member).manager }, key: 'rq:' + r.id, title: r.type + ' — ' + Mm(r.member).name, sub: HRA.reqPeriod(r), meta: r.at, tone: 'warning', icon: 'briefcase', run: goHash(r.ticket ? 'tickets/' + r.ticket : 'hr-requests') })); // decision 33: the request's ticket
     const esc = HR ? Number(HD.hrSettings.escalate) || 24 : 24;
     const ot = HD.overtime.filter((o) => o.status === 'مستني' && o.member !== meCode && (!HR || !HR.decidesOt || HR.decidesOt(o))).map((o) => ({ own: o.kind === 'rest_day' ? { role: 'أدمن' } : { manager: Mm(o.member).manager }, // decision 32: a rest day is the admins'
  key: 'ot:' + o.id, title: (o.kind === 'rest_day' ? 'شغل يوم راحة — ' : 'وقت إضافي ' + K.hrs(o.minutes) + ' — ') + Mm(o.member).name, sub: o.note + (o.waitedHours >= esc ? ' · اتصعّد للأدمن' : ' · ضيفه أو متضيفهوش'), meta: K.dshort(o.date), tone: o.waitedHours >= esc ? 'error' : 'warning', icon: 'clock', run: goHash('hr-requests') }));
@@ -2416,7 +2416,7 @@
     const K2 = window.IBKit;
     const tkHead = h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'تذاكر الفريق'), h('p', { class: 't-small' }, 'تذاكر الفريق: مشاكل العملاء، مشاكل المبتكرين، والتعليقات الداخلية — كل تحديث بيتسجل في السجل')),
       h('div', { class: 'actions' }, state.tsub === 'log' && K2.PanelButton ? K2.PanelButton('tickets', 'تذاكر الفريق', () => document.getElementById('tickets'), renderTickets) : null, window.IBDataActions.Menu(window.IBDataActions.PAGES.tickets),
-        tCanManage() ? Button({ type: 'brand', icon: 'plus', label: 'إنشاء تذكرة', onClick: () => openNewTicket() }) : null));
+        hrReqButton(), tCanManage() ? Button({ type: 'brand', icon: 'plus', label: 'إنشاء تذكرة', onClick: () => openNewTicket() }) : null));
     const tkTabs = K2.SubTabs({ items: [{ id: 'log', label: 'السجل', count: all.filter((t) => TK.OPEN.has(t.status)).length }, { id: 'reports', label: 'التقارير' }], active: state.tsub, onChange: (id) => { state.tsub = id; renderTickets(); }, label: 'أقسام التذاكر' });
     if (state.tsub === 'reports') return [tkHead, tkTabs].concat(TicketsReport());
     const TFG = [{ key: 'status', label: 'الحالة', options: [['open_any', 'مفتوحة (كل الحالات المفتوحة)']].concat(TK.STATUSES) }, { key: 'type', label: 'النوع', options: TK.TYPES }, { key: 'priority', label: 'الأولوية', options: TK.PRIORITIES.map((x) => [x[0], x[1]]) }, { key: 'role', label: 'المسؤول', options: TK.ROLES.map((r) => [r, r]) }, { key: 'mine', label: 'تذاكري', options: [['mine', 'تذاكر دوري بس']] }];
@@ -2446,6 +2446,16 @@
   }
 
   // ----- new ticket modal (Figma: Modal / New ticket) — pre: { type, orderId, customer, vendor, vendorId, csConversationId, csCustomerId, title, description } -----
+  // phase 13 decision 33 (owner 10 Nov — «تحويل طلباتي إلى تذاكر الفريق»): any member files an HR request from here (the HR page's own
+  // forms) and it opens its team ticket (0071); the «طلباتي» tab in «ملفي» is gone
+  function hrReqButton() {
+    const HP = window.IBHR && window.IBPages.all().hr && window.IBPages.all().hr.api; if (!HP || !HP.leaveRequest) return null;
+    return Button({ label: 'طلب موارد بشرية', icon: 'briefcase', attrs: { 'data-hr-req-new': '' }, onClick: () => {
+      const pick = (run) => () => { md.close(); run(); };
+      const md = U.Modal({ title: 'طلب موارد بشرية', body: [h('p', { class: 't-small help', style: 'margin:0 0 8px' }, 'الطلب بيتفتح تذكرة هنا لمديرك المباشر، والقرار بيتاخد منها.'),
+        h('div', { class: 'links', style: 'display:flex;gap:8px;flex-wrap:wrap' }, Button({ type: 'primary', label: 'طلب إجازة', onClick: pick(() => HP.leaveRequest(null)) }), Button({ label: 'طلب سُلفة', onClick: pick(() => HP.advanceRequest(null)) }), Button({ label: 'شغل عن بُعد', onClick: pick(() => HP.remoteRequest(null)) }))], footer: [] });
+    } });
+  }
   function openNewTicket(pre) {
     if (!tCanManage()) { notify('error', 'مفيش صلاحية تفتح تذاكر.'); return; }
     const f = Object.assign({ type: 'customer', title: '', description: '', priority: 'normal', assigneeRole: '', orderId: '', vendor: '', reason: '', followUp: '', attachments: [] }, pre || {});
@@ -2603,6 +2613,21 @@
           // decision 32 (0070): a rest day / holiday worked waits for an admin, an ordinary overtime for the direct manager
           waiting && !mine && HRa.decidesOt(otReq) ? h('div', { class: 'links' }, okBtn, noBtn) : waiting ? h('p', { class: 't-small help', style: 'margin:0' }, otReq.kind === 'rest_day' ? 'مستني موافقة الأدمن — يوم الراحة/العطلة موافقته للأدمن بس.' : mine ? 'مستني موافقة مديرك المباشر.' : 'مستني موافقة المدير المباشر.') : null);
       }
+      // phase 13 decision 33 (0071): an HR request's ticket — the request itself (its type, dates, amount, note) is read under the HR rules
+      // (IBHR.data.requests: RLS hr_can_see; the ticket carries the family only) and decided here by whoever may (the server checks)
+      const rqReq = HRa && HRa.data && (HRa.data.requests || []).find((r) => r.ticket === t.id); let rqCard = null;
+      if (rqReq) {
+        const HRP = window.IBPages.all().hr.api; const mineRq = rqReq.member === KK.ME; const pendingRq = HRP.isPending(rqReq);
+        const reload = (p) => Promise.resolve(p).then(() => { if (TA() && TA().load) return TA().load(); }).then(() => draw());
+        rqCard = h('div', { class: 'ctx-card tk-ot', 'data-hr-request': '' }, h('div', { class: 'head' }, h('span', { class: 't-label' }, rqReq.type + ' — ' + rqReq.id), KK.Tag(pendingRq ? 'orange' : rqReq.status === 'موافق' ? 'success' : rqReq.status === 'اتلغى' ? 'neutral' : 'error', rqReq.status)),
+          h('div', { class: 'facts t-small' }, h('span', null, HRP.reqPeriod(rqReq) + (rqReq.type === 'سُلفة' && rqReq.amount != null ? ' · ' + KK.money(rqReq.amount) + ' ج على ' + rqReq.months + ' شهور' : '') + (rqReq.note ? ' · ' + rqReq.note : ''))),
+          h('div', { class: 'links' },
+            pendingRq && !mineRq ? Button({ type: 'primary', size: 'sm', label: 'موافقة', attrs: { 'data-rq-approve': '' }, onClick: () => reload(HRP.decide(rqReq, 'موافق')) }) : null,
+            pendingRq && !mineRq ? Button({ size: 'sm', label: 'رفض', attrs: { 'data-rq-reject': '' }, onClick: () => HRP.rejectReq(rqReq) }) : null,
+            pendingRq && mineRq ? Button({ size: 'sm', label: 'إلغاء الطلب', attrs: { 'data-rq-cancel': '' }, onClick: () => HRP.cancelReq(rqReq) }) : null,
+            Button({ type: 'text', size: 'sm', label: 'التفاصيل', onClick: () => HRP.reqDetails(rqReq) })),
+          pendingRq && mineRq ? h('p', { class: 't-small help', style: 'margin:0' }, 'مستني قرار مديرك المباشر.') : null);
+      }
       let reply = null;
       if (!closed && tCanManage()) {
         const pick = AttachPicker(replyFiles, (m) => { replyMsg = m; draw(); }); pick.msg.textContent = replyMsg;
@@ -2613,6 +2638,7 @@
       }
       const typing = document.activeElement && document.activeElement.closest && document.activeElement.closest('.tk-reply textarea'); // a live redraw keeps the reply's focus (as decision 16 did for the inbox)
       if (otCard) body.prepend(otCard);
+      if (rqCard) body.prepend(rqCard);
       drawerApi.set(header, body, reply);
       const b = drawerApi.el.querySelector('.drawer-b'); if (b) b.scrollTop = b.scrollHeight;
       if (typing) { const ta2 = drawerApi.el.querySelector('.tk-reply textarea'); if (ta2) { ta2.focus(); ta2.setSelectionRange(ta2.value.length, ta2.value.length); } }

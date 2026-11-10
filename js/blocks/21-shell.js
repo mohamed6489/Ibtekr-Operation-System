@@ -136,7 +136,7 @@
     const me = K.member(K.ME);
     const wrap = h('div', { class: 'pop-anchor user', 'data-popover-root': '' });
     const trig = h('button', { type: 'button', class: 'user-btn', 'aria-haspopup': 'menu', 'aria-expanded': 'false', 'aria-label': 'حسابي — ' + me.name }, h('span', { class: 'avatar', 'aria-hidden': 'true' }, me.name.charAt(0)), h('span', { class: 't-label nm' }, me.name), Icon('chevD', 'sm'));
-    const items = [['users', 'ملفي', () => go('profile')], ['send', 'طلباتي', () => { location.hash = 'profile-requests'; }], ['clock', 'ساعات العمل', () => { location.hash = 'profile-hours'; }], me.role === 'أدمن' ? ['gear', 'الإعدادات', () => go('settings')] : null, ['external', 'تسجيل الخروج', logout, true]].filter(Boolean);
+    const items = [['users', 'ملفي', () => go('profile')], ['send', 'طلباتي', () => { location.hash = 'tickets'; }] /* decision 33: my requests are team tickets */, ['clock', 'ساعات العمل', () => { location.hash = 'profile-hours'; }], me.role === 'أدمن' ? ['gear', 'الإعدادات', () => go('settings')] : null, ['external', 'تسجيل الخروج', logout, true]].filter(Boolean);
     const pop = U.popover(wrap, trig, (close) => { const menu = h('div', { class: 'menu end acct', role: 'menu', 'data-popover-root': '' }, h('div', { class: 'acct-h' }, h('b', null, me.name), h('small', { dir: 'ltr' }, me.email)), items.map(([ic, lb, run, danger]) => h('button', { type: 'button', role: 'menuitem', class: 'opt' + (danger ? ' danger' : ''), onClick: () => { close(); run(); } }, Icon(ic, 'sm'), lb))); return menu; });
     trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
   }

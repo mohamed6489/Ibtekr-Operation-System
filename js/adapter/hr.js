@@ -497,12 +497,13 @@
     if (r.ok) return { ok: true, mailed: true };
     const code = r.code || ''; return code === 'not_configured' || r.status === 503 ? { ok: false, reason: 'invalid', message: 'الإيميل مش متظبط — اربط Resend من الإعدادات › الربط والمفاتيح، أو اعمل باسورد مؤقت' } : code === 'inactive' ? { ok: false, reason: 'invalid', message: 'العضو موقوف — فعّله الأول' } : code === 'mail_failed' ? { ok: false, reason: 'network', message: 'الإيميل ماتبعتش — جرّب تاني أو اعمل باسورد مؤقت' } : r; }
   // decision 15: a member deleted for good (the admin; not me) — team-admin → member_delete (0066): a trace anywhere refuses it
-  const TABLE_AR = { activity_log: 'سجل النشاط', profiles: 'الفريق (بيدير أعضاء)', orders: 'الأوردرات', order_events: 'الأوردرات', tickets: 'التذاكر', ticket_events: 'التذاكر', cs_messages: 'خدمة العملاء', cs_conversations: 'خدمة العملاء', hr_attendance: 'الحضور', hr_requests: 'طلبات الموارد البشرية', hr_payroll_lines: 'كشوف المرتبات' };
+  const TABLE_AR = { activity_log: 'سجل النشاط', profiles: 'الفريق (بيدير أعضاء)', orders: 'الأوردرات', order_events: 'الأوردرات', tickets: 'التذاكر', ticket_events: 'التذاكر', cs_messages: 'خدمة العملاء', cs_conversations: 'خدمة العملاء', hr_attendance: 'الحضور', hr_overtime: 'الوقت الإضافي', hr_requests: 'طلبات الموارد البشرية', hr_adjustments: 'تسويات المرتب', hr_extras: 'المكافآت', hr_scores: 'التقييمات', hr_meetings: 'الميتنجات', hr_documents: 'المستندات', hr_tasks: 'المهام', hr_payroll_lines: 'كشوف المرتبات' };
   async function memberDelete(member) { if (!can().admin) return no('forbidden'); const uid = uidOf(member); if (!uid) return no('invalid'); const r = await invoke({ action: 'member_delete', member_id: uid });
     if (r.ok) { const D = window.IBDirectory; if (D && D.refresh) { try { await D.refresh(); } catch (e) { /* the next load */ } } await load(); return { ok: true, name: r.body.name || '' }; }
     const code = r.code || '';
     if (code === 'has_records') { const table = (r.raw && r.raw.table) || ''; return { ok: false, reason: 'exists', message: 'العضو له سجل' + (table ? ' في «' + (TABLE_AR[table] || table) + '»' : '') + ' — اوقفه بدل ما تمسحه' }; }
     if (code === 'last_admin') return { ok: false, reason: 'invalid', message: 'ده آخر أدمن نشط — اعمل أدمن تاني الأول' };
+    if (code === 'owner') return { ok: false, reason: 'forbidden', message: 'حساب صاحب السيستم مابيتمسحش' };
     if (r.reason === 'notfound') return { ok: false, reason: 'notfound', message: 'العضو مش موجود (اتمسح قبل كده؟)' };
     return r; }
   async function memberPassword(member) { if (!can().admin) return no('forbidden'); const uid = uidOf(member); if (!uid) return no('invalid'); const r = await invoke({ action: 'member_password', member_id: uid }); return r.ok ? { ok: true, password: r.body.password } : r; }

@@ -133,7 +133,7 @@
     // the requests
     s.requests = raw.req.map((r) => ({ id: reqId(r.id), dbId: Number(r.id), type: r.type, member: codeOf(r.member_id), memberUid: r.member_id, from: r.from_day, to: r.to_day,
       time: r.at_time ? String(r.at_time).slice(0, 5) : null, hours: r.hours == null ? null : Number(r.hours), amount: r.amount == null ? null : Number(r.amount), months: r.months == null ? null : Number(r.months),
-      note: r.note || '', status: r.status, at: atLabel(r.created_at), atIso: r.created_at, by: r.decided_by ? nameOf(r.decided_by) : null, reason: r.reason || null, doc: r.doc_path || null,
+      note: r.note || '', status: r.status, at: atLabel(r.created_at), atIso: r.created_at, by: r.decided_by ? nameOf(r.decided_by) : null, reason: r.reason || null, doc: r.doc_path || null, ticket: r.ticket_id ? 'TKT-' + String(r.ticket_id).padStart(4, '0') : null, // decision 33: the request's team ticket
       startMonth: r.type === 'سُلفة' && r.decided_at && r.status === 'موافق' ? (Number(monthKey(parts(r.decided_at).day).slice(5)) % 12) + 1 : null })).filter((r) => r.member);
     // overtime + the rest days worked
     const otRows = raw.ot.map((o) => { const p0 = parts(o.start_at); const p1 = parts(o.end_at);
@@ -236,7 +236,7 @@
         maybe(cl.from('hr_pay').select('member_id, salary, holdback, allowances')),
         rows(cl.from('hr_attendance').select('id, member_id, day, in_at, out_at, remote, source, note, by_id, ot_from, ot_ticket').gte('day', since).order('day', { ascending: false }).limit(5000)),
         rows(cl.from('hr_overtime').select('id, member_id, day, start_at, end_at, minutes, kind, note, status, paid_minutes, pay_month, decided_by, decided_at, reason, created_at, ticket_id').gte('day', since).order('created_at', { ascending: false }).limit(3000)),
-        rows(cl.from('hr_requests_v').select('id, member_id, type, from_day, to_day, at_time, hours, amount, months, note, status, decided_by, decided_at, reason, created_by, created_at, doc_path').gte('created_at', reqSince).order('created_at', { ascending: false }).limit(3000)),
+        rows(cl.from('hr_requests_v').select('id, member_id, type, from_day, to_day, at_time, hours, amount, months, note, status, decided_by, decided_at, reason, created_by, created_at, doc_path, ticket_id').gte('created_at', reqSince).order('created_at', { ascending: false }).limit(3000)),
         rows(cl.from('hr_holidays').select('id, name, day, days, kind, status')),
         rows(cl.from('hr_leave_types').select('name, days, paid, doc, carry, approval, deducts, unpaid, sort')),
         rows(cl.from('hr_bonus_rules').select('id, name, cond, amount, active').order('id')),
@@ -335,14 +335,17 @@
       months: f.months == null ? null : String(f.months), note: f.note ? clean(f.note, 500) : null, doc: f.doc || null };
     const uid = f.member ? uidOf(f.member) : null; if (uid && uid !== myUid()) input.member = uid;
     const { data, error } = await rpc('hr_request_create', { p_input: input }); if (error) return fail(error);
-    const id = reqId(data); log('hr.request.create', id, id); /* no type: a sick leave is health information */ await load(); return { ok: true, id };
+    const id = reqId(data); log('hr.request.create', id, id); /* no type: a sick leave is health information */ await load();
+    if (window.IBTickets && window.IBTickets.load) quiet(() => window.IBTickets.load()); // decision 33: the request opened its team ticket
+    const row = (window.IBHR.data.requests || []).find((x) => x.id === id); return { ok: true, id, ticket: row ? row.ticket : null }; // (data here is the RPC's answer)
   }
   async function decide(id, decision, reason) {
     const k = dbOf(id, ids.req); if (k == null) return no('invalid');
     const { error } = await rpc('hr_request_decide', { p_id: k, p_decision: decision, p_reason: reason ? clean(reason, 300) : null }); if (error) return fail(error);
+    if (window.IBTickets && window.IBTickets.load) quiet(() => window.IBTickets.load()); // decision 33: the ticket closed with the decision
     return after(decision === 'موافق' ? 'hr.request.approve' : decision === 'مرفوض' ? 'hr.request.reject' : 'hr.request.review', reqId(k), reqId(k));
   }
-  async function cancel(id) { const k = dbOf(id, ids.req); if (k == null) return no('invalid'); const { error } = await rpc('hr_request_cancel', { p_id: k }); if (error) return fail(error); return after('hr.request.cancel', reqId(k), reqId(k)); }
+  async function cancel(id) { const k = dbOf(id, ids.req); if (k == null) return no('invalid'); const { error } = await rpc('hr_request_cancel', { p_id: k }); if (error) return fail(error); if (window.IBTickets && window.IBTickets.load) quiet(() => window.IBTickets.load()); return after('hr.request.cancel', reqId(k), reqId(k)); }
 
   // ---------- overtime (decision 9) ----------
   async function overtimeDecide(id, decision, minutes, reason) {

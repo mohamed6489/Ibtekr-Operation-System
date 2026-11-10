@@ -1189,6 +1189,12 @@ select at, action, entity_id, new_value from public.activity_log where action li
 - **النشر بالترتيب:** `0070` → RLS live `rls_hr_rest_admin` + `rls_hr` → الواجهة على `main`. مافيش Edge Function.
 - **التحقق:** وقت إضافي في يوم جمعة/سبت أو عطلة رسمية → تذكرة «يوم راحة/عطلة — <الاسم>» على «مدير النظام» + جرس للأدمن بس («مستني موافقة الأدمن») → المدير المباشر بيشوف «مستني موافقة الأدمن» من غير زراير (والسيرفر بيرفض 42501) → الأدمن يوافق من التذكرة → «اتضاف» (اليوم بيومين) والتذكرة «مغلق». الوقت الإضافي العادي فاضل للمدير المباشر.
 
+#### 2.7.48 طلبات الموارد البشرية = تذاكر الفريق (المرحلة 13 قرار 33، 10 نوفمبر)
+
+- **الكود:** `0071_hr_request_ticket.sql` (`hr_requests.ticket_id`، `hr_req_family` / `hr_req_ticket` للسيرفر بس، `hr_request_create` / `hr_request_decide` / `hr_request_cancel` من جديد، `hr_requests_list()` + `hr_requests_v` بـ `ticket_id` — drop/create بنفس grants `0050`، وتذاكر للطلبات المفتوحة)، `IBHR` (`ticket` على الطلب)، الكتل 15 و18 و21 و28.
+- **النشر بالترتيب:** `0071` **قبل** الواجهة (الـ adapter بيطلب `ticket_id` من `hr_requests_v`) → RLS live `rls_hr_req_ticket` + `rls_hr` → الواجهة على `main`. مافيش Edge Function.
+- **التحقق:** «تذاكر الفريق» → «طلب موارد بشرية» → «طلب إجازة» → توست «في «تذاكر الفريق» TKT-…» → التذكرة «طلب إجازة — <الاسم> · <اليوم>» من غير نوع الإجازة ولا التواريخ ولا الملاحظة + جرس للأدمن والمدير المباشر → كارت الطلب فيها (التفاصيل للي يقدر يشوفها) → المدير يوافق → التذكرة «مغلق». «ملفي» مافيهوش «طلباتي».
+
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
 - الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.
 - السياسات على `storage.objects` (من الملف نفسه، بادئة `vendor_contracts_`): `select` و`insert` و`update` لـ `authenticated` بشرط `bucket_id = 'vendor-contracts'` و`has_perm('sensitive.vendor_bank') = 'F'` (الأدمن والحسابات في مصفوفة `0003`). مافيش سياسة `delete`: استبدال العقد = ملف جديد والقديم بيفضل (قرار 7)، ومافيش تنظيف للملفات القديمة (تكلفة صغيرة).

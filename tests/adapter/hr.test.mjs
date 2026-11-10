@@ -174,7 +174,7 @@ test('the clock: hr_clock_in / hr_clock_out (the note only when there is one) an
 test('requests: hr_request_create (another member by uid, mine without), decide / cancel by number; the refusals in Arabic; no note in the log', async () => {
   const { H, stub, logs, store } = load({ responses: { 'rpc:hr_request_create': ok(57), 'rpc:hr_request_decide': (a) => (a.p_decision === 'مرفوض' && !a.p_reason ? { data: null, error: { code: '22023', message: 'invalid: reason' } } : ok(a.p_decision)) } });
   await H.load();
-  eq(await H.request({ type: 'إجازة سنوية', from: '2026-12-06', to: '2026-12-07', note: 'فرح أخويا سر' }), { ok: true, id: 'HR-0057' });
+  eq(await H.request({ type: 'إجازة سنوية', from: '2026-12-06', to: '2026-12-07', note: 'فرح أخويا سر' }), { ok: true, id: 'HR-0057', ticket: null }); // decision 33: the request's ticket (the fake list has none)
   eq(rpcs(stub).find((x) => x[0] === 'hr_request_create')[1].p_input, { type: 'إجازة سنوية', from: '2026-12-06', to: '2026-12-07', time: null, hours: null, amount: null, months: null, note: 'فرح أخويا سر', doc: null });
   await H.request({ member: 'M03', type: 'سُلفة', amount: 1500, months: 3 });
   eq(rpcs(stub).filter((x) => x[0] === 'hr_request_create')[1][1].p_input.member, C);

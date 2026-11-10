@@ -27,7 +27,7 @@ const COLS = {
   hr_pay: ['member_id', 'salary', 'holdback', 'allowances', 'updated_by', 'updated_at'],
   hr_attendance: ['id', 'member_id', 'day', 'in_at', 'out_at', 'remote', 'source', 'note', 'by_id', 'updated_at', 'ot_from', 'ot_ticket'],
   hr_overtime: ['id', 'member_id', 'day', 'start_at', 'end_at', 'minutes', 'kind', 'note', 'status', 'paid_minutes', 'pay_month', 'decided_by', 'decided_at', 'reason', 'created_at', 'ticket_id'],
-  hr_requests_v: ['id', 'code', 'member_id', 'type', 'from_day', 'to_day', 'at_time', 'hours', 'amount', 'months', 'note', 'status', 'decided_by', 'decided_at', 'reason', 'created_by', 'created_at', 'doc_path'],
+  hr_requests_v: ['id', 'code', 'member_id', 'type', 'from_day', 'to_day', 'at_time', 'hours', 'amount', 'months', 'note', 'status', 'decided_by', 'decided_at', 'reason', 'created_by', 'created_at', 'doc_path', 'ticket_id'],
   hr_holidays: ['id', 'name', 'day', 'days', 'kind', 'status', 'created_by', 'created_at'],
   hr_leave_types: ['name', 'days', 'paid', 'doc', 'carry', 'approval', 'deducts', 'unpaid', 'sort', 'created_at'],
   hr_bonus_rules: ['id', 'name', 'cond', 'amount', 'active', 'created_at'],
@@ -111,6 +111,19 @@ export function hrRoute(c) {
     mock.alerts.push({ id: 9000 + id, at: now, kind: 'hr.overtime', title, body: rest ? 'مستني موافقة الأدمن' : 'مستني موافقة المدير المباشر', role_id: 'admin', user_id: null, entity: 'tickets/' + tkNum(id), entity_id: 'ot:' + id, read_at: null });
     if (!rest && mgr && mgr.role_id !== 'admin') mock.alerts.push({ id: 9500 + id, at: now, kind: 'hr.overtime', title, body: 'محتاج موافقتك', role_id: null, user_id: mgr.id, entity: 'tickets/' + tkNum(id), entity_id: 'ot:' + id, read_at: null });
     return id;
+  };
+  // 0071 (decision 33): a request's team ticket — the family only, to the direct manager's role, the bell to the admins and the manager
+  const reqFamily = (type) => (H.leave_types.some((t) => t.name === type) ? 'طلب إجازة' : type === 'سُلفة' ? 'طلب سُلفة' : ['شغل عن بُعد', 'إذن انصراف مبكر', 'تصحيح انصراف'].includes(type) ? 'طلب ' + type : 'طلب موارد بشرية');
+  const reqTicket = (r) => {
+    const p = mock.profiles.find((x) => x.id === r.member_id) || {}; const mgr = p.manager_id ? mock.profiles.find((x) => x.id === p.manager_id && x.status === 'active') : null;
+    const id = mock.tickets.reduce((m, t) => Math.max(m, t.id), 0) + 1; const name = String(p.name || 'عضو').slice(0, 60); const fam = reqFamily(r.type); const when = now.slice(8, 10) + '/' + now.slice(5, 7);
+    mock.tickets.push({ id, type: 'internal', title: (fam + ' — ' + name + ' · ' + when).slice(0, 80), description: fam + ' من ' + name + ' (HR-' + String(r.id).padStart(4, '0') + ').', priority: 'normal',
+      assignee_role: (mgr && ROLE_LABEL[mgr.role_id]) || 'مدير النظام', order_number: null, order_id: null, customer: null, cs_customer_id: null, cs_conversation_id: null, vendor_id: null, vendor: null, reason: null, follow_up: null,
+      attachments: [], status: 'open', created_by: r.member_id, created_by_name: p.name || 'عضو', created_by_role: ROLE_LABEL[p.role_id] || 'عضو', created_at: now, last_update: now, reopen_count: 0,
+      resolution_outcome: null, resolution_note: null, resolved_by: null, resolved_by_name: null, resolved_at: null, closed_by: null, closed_by_name: null, closed_at: null });
+    otEvent(id, 'فتح التذكرة'); r.ticket_id = id;
+    mock.alerts.push({ id: 7000 + id, at: now, kind: 'hr.request', title: fam + ' — ' + name, body: 'مستني قرار المدير المباشر', role_id: 'admin', user_id: null, entity: 'tickets/' + tkNum(id), entity_id: 'rq:' + id, read_at: null });
+    if (mgr && mgr.role_id !== 'admin') mock.alerts.push({ id: 7500 + id, at: now, kind: 'hr.request', title: fam + ' — ' + name, body: 'محتاج قرارك', role_id: null, user_id: mgr.id, entity: 'tickets/' + tkNum(id), entity_id: 'rq:' + id, read_at: null });
   };
   const otClose = (tid, outcome, note) => { const t = mock.tickets.find((x) => x.id === tid); if (!t || t.status === 'closed') return; const who = mock.profiles.find((p) => p.id === u.id) || {};
     Object.assign(t, { status: 'closed', resolution_outcome: outcome, resolution_note: note, resolved_by: u.id, resolved_by_name: who.name, resolved_at: now, closed_by: u.id, closed_by_name: who.name, closed_at: now, last_update: now }); };
@@ -265,7 +278,8 @@ export function hrRoute(c) {
       else { at = null; hours = null; amount = null; months = null; }
       const lt = H.leave_types.find((t) => t.name === type); let doc = lt ? (i.doc || null) : null;
       if (doc && !String(doc).startsWith(member + '/')) return bad('doc'); if (lt && !doc && !['', '—', '-'].includes(String(lt.doc).trim())) return bad('doc');
-      const id = nextId(); H.requests.push({ id, member_id: member, type, from_day: from, to_day: to, at_time: at, hours, amount, months, note: i.note || null, status: 'جديد', decided_by: null, decided_at: null, reason: null, created_by: u.id, created_at: now, doc_path: doc });
+      const id = nextId(); H.requests.push({ id, member_id: member, type, from_day: from, to_day: to, at_time: at, hours, amount, months, note: i.note || null, status: 'جديد', decided_by: null, decided_at: null, reason: null, created_by: u.id, created_at: now, doc_path: doc, ticket_id: null });
+      reqTicket(H.requests[H.requests.length - 1]); // 0071
       return json(200, id);
     }
     if (f === 'hr_request_decide') {
@@ -273,10 +287,11 @@ export function hrRoute(c) {
       if (!['جديد', 'قيد المراجعة'].includes(r.status)) return bad('status'); if (!['موافق', 'مرفوض', 'قيد المراجعة'].includes(b.p_decision)) return bad('decision');
       const reason = String(b.p_reason || '').trim() || null; if (b.p_decision === 'مرفوض' && !reason) return bad('reason');
       Object.assign(r, { status: b.p_decision, reason, decided_by: b.p_decision === 'قيد المراجعة' ? null : u.id, decided_at: b.p_decision === 'قيد المراجعة' ? null : now });
+      if (r.ticket_id) { if (b.p_decision === 'قيد المراجعة') otEvent(r.ticket_id, 'الطلب قيد المراجعة'); else { otEvent(r.ticket_id, b.p_decision === 'موافق' ? 'اتوافق على الطلب' : 'اترفض الطلب (السبب في «الموارد البشرية › الطلبات»)'); otClose(r.ticket_id, b.p_decision === 'موافق' ? 'اتحلت المشكلة' : 'مش مشكلة', b.p_decision === 'موافق' ? 'اتوافق' : 'اترفض'); } } // 0071
       if (b.p_decision === 'موافق' && r.type === 'تصحيح انصراف') { const a = H.attendance.filter((x) => x.member_id === r.member_id && x.day === r.from_day).sort((x, y) => ((y.out_at == null) - (x.out_at == null)) || (x.in_at < y.in_at ? 1 : -1))[0]; if (a) /* 0068: the open session, else the latest */ Object.assign(a, { out_at: hrAt(r.from_day, r.at_time), source: 'fix', updated_at: now }); }
       return json(200, b.p_decision);
     }
-    if (f === 'hr_request_cancel') { const r = H.requests.find((x) => x.id === Number(b.p_id) && x.member_id === u.id && ['جديد', 'قيد المراجعة'].includes(x.status)); if (!active) return no(); if (!r) return nf(); r.status = 'اتلغى'; return json(200, 'اتلغى'); }
+    if (f === 'hr_request_cancel') { const r = H.requests.find((x) => x.id === Number(b.p_id) && x.member_id === u.id && ['جديد', 'قيد المراجعة'].includes(x.status)); if (!active) return no(); if (!r) return nf(); r.status = 'اتلغى'; if (r.ticket_id) { otEvent(r.ticket_id, 'صاحب الطلب لغاه'); otClose(r.ticket_id, 'مش مشكلة', 'اتلغى من صاحبه'); } return json(200, 'اتلغى'); }
     if (f === 'hr_overtime_decide') {
       const o = H.overtime.find((x) => x.id === Number(b.p_id)); if (!o || !sees(o.member_id)) return nf(); if (!decides(o.member_id)) return no(); if (o.kind === 'rest_day' && !isAdmin(u)) return no(); // 0070
       if (!(o.status === 'مستني' || (o.status === 'اترفض' && b.p_decision === 'add'))) return bad('status'); const reason = String(b.p_reason || '').trim() || null;

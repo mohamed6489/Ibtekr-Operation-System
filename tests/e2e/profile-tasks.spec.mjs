@@ -125,10 +125,9 @@ test('«تلقائية من السيستم» from the live data: my team\'s requ
   await expect(P(page).locator('[data-auto="tkTKT-0001"] a')).toHaveAttribute('href', '#tickets/TKT-0001');
   await expect(P(page).locator('[data-auto="tkTKT-0001"]')).toContainText('الرد على تذكرة TKT-0001 (عاجل)');
   await expect(P(page).locator('[data-auto="tk"]')).toContainText('الرد على تذكرة مفتوحة');
-  // the request opens «طلباتي › محتاجة مني»
+  // decision 33: the request is decided in «تذاكر الفريق» (a seeded request without its ticket opens the list)
   await box.filter({ hasText: 'مراجعة طلب إجازة سنوية' }).getByRole('button').click();
-  await expect(P(page).getByRole('tab', { name: 'طلباتي', exact: true })).toHaveAttribute('aria-selected', 'true');
-  await expect(P(page).locator('.subtab[aria-selected=true]')).toContainText('محتاجة منك');
+  await expect(page).toHaveURL(/#tickets$/);
 });
 
 test('the dashboard\'s «يومي — دوامي ومهامي»: today\'s tasks from the server, the checkbox writes «خلصت»', async ({ page }) => {

@@ -58,7 +58,7 @@ test('decision 27: «نظرة عامة» shows my alerts and my open requests, a
   await expect(tile('طلباتي المفتوحة')).toBeVisible();
   await expect.poll(() => { const p = mock.prefs.find((x) => x.key === 'panel.prefs' && x.user_id === ADMIN_ID); return p && p.data['profile:overview'] && p.data['profile:overview'].hidden; }).toEqual(['التنبيهات']);
   await tile('طلباتي المفتوحة').click();
-  await expect(page).toHaveURL(/#profile-requests$/);
+  await expect(page).toHaveURL(/#tickets$/); // decision 33: my requests are team tickets
 });
 
 test('decision 29: the header search sits on the right and every other header item together on the left', async ({ page }) => {

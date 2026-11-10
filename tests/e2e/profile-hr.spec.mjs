@@ -59,13 +59,7 @@ test('«ملفي» from the server: my hours and overtime, a request cancelled, 
   await expect(row).toContainText('9:40'); await expect(row).toContainText('17:30');
   await expect(row).toContainText('7:50'); await expect(row).not.toContainText('متأخر'); // decision 24: the sessions summed, no lateness
   await expect(P(page)).toContainText('تصوير الكتالوج');
-  await tab(page, 'طلباتي');
-  const req = P(page).locator('tbody tr', { hasText: 'إجازة سنوية' });
-  await expect(req).toContainText('HR-0001');
-  await req.getByRole('button', { name: 'إلغاء الطلب' }).click();
-  await modal(page, 'إلغاء الطلب HR-0001').getByRole('button', { name: 'إلغاء الطلب' }).click();
-  await expect.poll(() => calls('hr_request_cancel').length).toBe(1);
-  await expect(P(page).locator('tbody tr', { hasText: 'إجازة سنوية' })).toContainText('اتلغى');
+  await expect(P(page).getByRole('tab', { name: 'طلباتي' })).toHaveCount(0); // decision 33: my requests are team tickets
   await tab(page, 'أدائي');
   await expect(P(page)).toContainText('104%'); await expect(P(page)).toContainText('شحن في الميعاد');
   await tab(page, 'إنجازاتي');

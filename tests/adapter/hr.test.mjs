@@ -277,13 +277,13 @@ test('«إضافة عضو»: team-admin (the login, the code, the password once)
   const { H, stub, logs, store } = load({ responses: { 'fn:team-admin': fn } });
   await H.load();
   const r = await H.memberCreate({ name: 'كريم', email: 'karim@ibtekr.club', phone: '01012345678', role: 'cs', manager: 'M02', shiftStart: '10:00', shiftEnd: '18:00', hire: '2026-11-01', salary: 8000, holdback: 1000, allow: 300 });
-  eq([r.ok, r.code, r.password, r.payOk], [true, 'M04', 'Xy7kP2mQ9wRt', true]);
+  eq([r.ok, r.code, r.password, r.payOk, r.mailed], [true, 'M04', 'Xy7kP2mQ9wRt', true, false]);
   const inv = stub.calls.find((c) => c.op === 'invoke'); eq(inv.args[0], 'team-admin');
   eq(inv.args[1].body, { action: 'member_create', name: 'كريم', email: 'karim@ibtekr.club', phone: '01012345678', role: 'cs', title: '', dept: '', manager_id: B, shift_start: '10:00', shift_end: '18:00', hire_date: '2026-11-01' });
   eq(opsOf(stub.calls, 'hr_pay').find((c) => c.op === 'upsert').args[0], { member_id: 'a0000000-0000-4000-8000-000000000004', salary: 8000, holdback: 1000, allowances: 300 });
   assert(store.members.some((m) => m.id === 'M04'), 'the directory refreshed');
   assert(!JSON.stringify(logs).includes('Xy7kP2mQ9wRt'), 'the password never logged');
-  eq(await H.memberCreate({ name: 'x', email: 'taken@ibtekr.club', role: 'cs' }), { ok: false, reason: 'exists', field: 'email', message: 'الإيميل ده مستخدم' });
+  eq(await H.memberCreate({ name: 'x', email: 'taken@ibtekr.club', role: 'cs' }), { ok: false, reason: 'exists', field: 'email', code: 'exists', status: 409, message: 'الإيميل ده مستخدم' });
   const mem = load({ role: 'ops', perms: { 'hr.view': 'P' } }); await mem.H.load();
   eq((await mem.H.memberCreate({ name: 'x', email: 'x@y.co', role: 'cs' })).reason, 'forbidden');
   eq(mem.stub.calls.filter((c) => c.op === 'invoke').length, 0);

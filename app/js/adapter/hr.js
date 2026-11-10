@@ -469,7 +469,7 @@
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
         const code = b && typeof b.error === 'string' ? b.error : ''; const field = b && b.field ? String(b.field) : null;
         const reason = code === 'exists' || s === 409 ? 'exists' : s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'notfound' : 'network';
-        return { ok: false, reason, field, message: (field && reason === 'exists' && FIELD_MESSAGES[field]) || (field === 'role' ? 'الدور مش موجود' : field === 'manager_id' ? 'المدير مش موجود' : null) || MESSAGES[reason] };
+        return { ok: false, reason, field, code, status: s, message: (field && reason === 'exists' && FIELD_MESSAGES[field]) || (field === 'role' ? 'الدور مش موجود' : field === 'manager_id' ? 'المدير مش موجود' : null) || MESSAGES[reason] };
       }
       return { ok: true, body: out };
     } catch (e) { return no('network'); }
@@ -480,7 +480,8 @@
     const r = await invoke({ action: 'member_create', name: f.name, email: f.email, phone: f.phone || '', role: f.role, title: f.title || '', dept: f.dept || '', manager_id: uidOf(f.manager) || '',
       shift_start: f.shiftStart || '09:00', shift_end: f.shiftEnd || '17:00', hire_date: f.hire || '' });
     if (!r.ok) return r;
-    const id = r.body.id; const out = { ok: true, uid: id, code: r.body.member_code, password: r.body.password, payOk: true };
+    // decision 14: mailed = the set-your-password link went to the member (no password in the answer); else the temporary password as before
+    const id = r.body.id; const out = { ok: true, uid: id, code: r.body.member_code, mailed: r.body.mailed === true, email: r.body.email || null, password: r.body.password || null, payOk: true };
     const cl = c();
     if (cl && (Number(f.salary) > 0 || Number(f.allow) > 0)) {
       const p = await write(cl.from('hr_pay').upsert({ member_id: id, salary: Number(f.salary) || 0, holdback: Number(f.holdback) || 0, allowances: Number(f.allow) || 0 }, { onConflict: 'member_id' }));
@@ -491,6 +492,10 @@
     await load(); // team-admin wrote hr.member.create itself (the id and the name)
     return out;
   }
+  // decision 14: the set-your-password mail again (the admin; an active member who is not me)
+  async function memberInvite(member) { if (!can().admin) return no('forbidden'); const uid = uidOf(member); if (!uid) return no('invalid'); const r = await invoke({ action: 'member_invite', member_id: uid });
+    if (r.ok) return { ok: true, mailed: true };
+    const code = r.code || ''; return code === 'not_configured' || r.status === 503 ? { ok: false, reason: 'invalid', message: 'الإيميل مش متظبط — اربط Resend من الإعدادات › الربط والمفاتيح، أو اعمل باسورد مؤقت' } : code === 'inactive' ? { ok: false, reason: 'invalid', message: 'العضو موقوف — فعّله الأول' } : code === 'mail_failed' ? { ok: false, reason: 'network', message: 'الإيميل ماتبعتش — جرّب تاني أو اعمل باسورد مؤقت' } : r; }
   async function memberPassword(member) { if (!can().admin) return no('forbidden'); const uid = uidOf(member); if (!uid) return no('invalid'); const r = await invoke({ action: 'member_password', member_id: uid }); return r.ok ? { ok: true, password: r.body.password } : r; }
   // the member's HR data (hr.edit F) and pay (sensitive.salaries F)
   async function memberUpdate(member, f) {
@@ -655,7 +660,7 @@
     shiftNow, myShift, clockIn, clockOut, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, slips, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,
-    memberCreate, memberPassword, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
+    memberCreate, memberPassword, memberInvite, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
     tasksOf, reviewsFor, canTask, canDeleteTask, taskAdd, taskSet, taskDelete, taskReview, loadTasks, people: () => data.people.slice(), TASK_STATUSES,
     _test: { parts, minOf, atLabel, meetingLabel, shape, shapeTasks, raw, safeName, fail, uidOf } };
 })();

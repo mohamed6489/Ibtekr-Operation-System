@@ -48,6 +48,7 @@ const KEY = { hr_attendance: 'attendance', hr_overtime: 'overtime', hr_requests_
 export function hrState(opts = {}) {
   const T = '2026-11-01T08:00:00Z'; const copy = (l) => (l || []).map((x) => JSON.parse(JSON.stringify(x)));
   return {
+    resend: opts.hrResend !== undefined ? opts.hrResend : true, mails: [], // decision 14: team-admin mails the set-your-password link when Resend is set (the default here); hrResend: false = the password
     members: copy(opts.hrMembers).map((x) => ({ shift_start: '09:00', shift_end: '17:00', hire_date: null, leave_days: 21, notes: null, ...x })),
     pay: copy(opts.hrPay).map((x) => ({ holdback: 0, allowances: 0, ...x })),
     attendance: copy(opts.hrAttendance).map((x, i) => ({ id: i + 1, out_at: null, remote: false, source: 'clock', note: null, by_id: x.member_id, ...x })),
@@ -111,7 +112,13 @@ export function hrRoute(c) {
       mock.profiles.push({ id, member_code: code, name: String(b.name).trim().replace(/\s+/g, ' '), email, phone: phone || null, role_id: b.role, title: b.title || null, dept: b.dept || null,
         manager_id: b.manager_id || null, status: 'active', twofa: false, custom_perms: {}, created_at: now });
       H.members.push({ member_id: id, shift_start: b.shift_start || '09:00', shift_end: b.shift_end || '17:00', hire_date: b.hire_date || null, leave_days: 21, notes: null });
-      return json(200, { ok: true, id, member_code: code, password: MOCK_TEMP });
+      if (H.resend !== false) { H.mails.push({ to: email, kind: 'invite' }); return json(200, { ok: true, id, member_code: code, mailed: true, email }); } // decision 14: Resend set → the set-your-password mail, no password
+      return json(200, { ok: true, id, member_code: code, mailed: false, password: MOCK_TEMP });
+    }
+    if (b.action === 'member_invite') { // decision 14
+      const p = prof(b.member_id); if (!p) return json(404, { error: 'not_found' }); if (b.member_id === u.id) return json(400, { error: 'invalid', field: 'member_id' });
+      if (p.status !== 'active') return json(409, { error: 'inactive' }); if (H.resend === false) return json(503, { error: 'not_configured' });
+      H.mails.push({ to: p.email, kind: 'invite' }); return json(200, { ok: true, id: p.id, mailed: true });
     }
     if (b.action === 'member_password') {
       if (!prof(b.member_id)) return json(404, { error: 'not_found' }); if (b.member_id === u.id) return json(400, { error: 'invalid', field: 'member_id' });

@@ -157,7 +157,35 @@ test('the monthly sheet: the server\'s lines, مسودة → مراجعة → م
   expect(calls('hr_payroll_step').map((c) => c.p_step)).toEqual(['مراجعة', 'معتمد']);
 });
 
-test('«إضافة عضو»: team-admin makes the login, the pay is written, the temporary password shows once (not in any log)', async ({ page }) => {
+test('«إضافة عضو» (decision 14): team-admin makes the login and mails the set-your-password link — the modal says so, no password anywhere; «ابعت إيميل الباسورد تاني» from the row menu', async ({ page }) => {
+  await openHr(page);
+  await P(page).getByRole('button', { name: 'إضافة عضو' }).click();
+  const f = modal(page, 'إضافة عضو');
+  await expect(f).toContainText('هيوصله إيميل بلينك يعمل منه الباسورد');
+  await f.locator('#name').fill('كريم سامي'); await f.locator('#title').fill('مصوّر منتجات');
+  await f.locator('#email').fill('karim.dev@ibtekr.local'); await f.locator('#phone').fill('01012345678');
+  await date(f, 'hire', T);
+  await f.locator('#salary').fill('9000'); await f.locator('#holdback').fill('1000');
+  await f.getByRole('button', { name: 'إضافة وعمل الحساب' }).click();
+  await expect(f).toBeHidden();
+  const ok = modal(page, 'اتبعت الإيميل');
+  await expect(ok).toContainText('لينك يعمل منه الباسورد'); await expect(ok.locator('[data-mailed-to]')).toHaveText('karim.dev@ibtekr.local');
+  await expect(ok.locator('[data-temp-password]')).toHaveCount(0);
+  expect(mock.hr.mails).toEqual([{ to: 'karim.dev@ibtekr.local', kind: 'invite' }]);
+  expect(calls('team-admin').map((c) => c.action)).toEqual(['member_create']);
+  expect(mock.hr.writes.filter((w) => w.table === 'hr_pay').map((w) => [w.salary, w.holdback])).toEqual([[9000, 1000]]);
+  await ok.getByRole('button', { name: 'تمام' }).click();
+  await expect(P(page).locator('.hr-table')).toContainText('كريم سامي');
+  // the mail again from the row menu (an active member who is not me)
+  await P(page).locator('.hr-table tbody tr', { hasText: 'كريم سامي' }).getByRole('button', { name: 'إجراءات كريم سامي' }).click();
+  await page.locator('[role=menu] .opt, [role=menu] [role=menuitem]', { hasText: 'ابعت إيميل الباسورد تاني' }).first().click();
+  await modal(page, 'ابعت إيميل الباسورد تاني').getByRole('button', { name: 'ابعت' }).click();
+  await expect(page.locator('.toast.show')).toContainText('اتبعت الإيميل لـ كريم سامي');
+  expect(mock.hr.mails.length).toBe(2); expect(calls('team-admin').map((c) => c.action)).toEqual(['member_create', 'member_invite']);
+});
+
+test('«إضافة عضو» without Resend: the temporary password shows once (not in any log)', async ({ page }) => {
+  mock = await installSupabaseMock(page, { ...SEED, hrResend: false });
   await openHr(page);
   await P(page).getByRole('button', { name: 'إضافة عضو' }).click();
   const f = modal(page, 'إضافة عضو');

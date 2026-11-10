@@ -117,8 +117,8 @@
     if (sh.state === 'out') {
       timerEl = null;
       const startBtn = Button({ type: 'primary', size: 'sm', label: sh.busy ? 'بيبدأ…' : 'ابدأ الدوام', icon: 'clock', disabled: sh.busy || !HR() || HR().state() !== 'ready', attrs: { 'aria-label': 'ابدأ الدوام' }, onClick: clockIn });
-      // decision 24: after «إنهاء الدوام» the day's hours so far, and «ابدأ الدوام» again for another session
-      if (sh.ended) return [h('span', { class: 'clock-done t-small', 'data-shift-ended': '', title: 'ساعات النهارده لحد دلوقتي' }, Icon('check', 'sm'), ' خلص الدوام · ', h('b', { class: 'num' }, K.hm(sh.endedMin))), startBtn];
+      // decision 24: «ابدأ الدوام» again after «إنهاء الدوام» (another session); decision 37 (owner 10 Nov — «مش محتاجين خلص الدوام يبان في
+      // الهيدر، هو إما يكون شغال وبيعد أو ابدأ الدوام»): no «خلص الدوام» label — the day's hours are in «ملفي › ساعات العمل»
       return [startBtn];
     }
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });

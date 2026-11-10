@@ -375,19 +375,19 @@
     return h('nav', { class: 'sidebar', 'aria-label': 'القائمة الرئيسية' },
       h('a', { class: 'brand', href: '#dashboard', 'aria-label': 'إبتكر كلوب — بيت لكل مبتكر' }, window.IBLogo.Logo({ tone: 'reversed', width: 150 }), h('small', { class: 'tagline' }, window.IBLogo.TAGLINE)),
       NAV.map(([ic, lb, page]) => isSoon(page) ? h('button', { type: 'button', class: 'nav-item', 'data-page': page, 'data-soon': '', 'aria-disabled': 'true', title: lb + ' — soon', onClick: soonNote }, Icon(ic), h('span', null, lb), soonTag())
-        : h('button', { type: 'button', class: 'nav-item', 'data-page': page || false, 'aria-disabled': page ? false : 'true', title: page ? lb : lb + ' — غير متاح في النموذج', onClick: page ? () => go(page) : null }, Icon(ic), h('span', null, lb))));
+        : h('button', { type: 'button', class: 'nav-item', 'data-page': page || false, 'aria-disabled': page ? false : 'true', title: page ? lb : lb + ' — غير متاح في النموذج', onClick: page ? () => goHome(page) : null }, Icon(ic), h('span', null, lb))));
   }
   // Bottom nav (mobile <=767) — Figma: Bottom nav 266:478 / Bottom nav item 266:476. 5 items; «المزيد» opens a sheet with the rest of the menu.
   const BN = [['box', 'الأوردرات', 'orders'], ['users', 'المبتكرين', 'vendors'], ['wallet', 'الحسابات', 'accounts'], ['ticket', 'تذاكر الفريق', 'tickets']];
   function BottomNav() {
     const item = (ic, lb, page, extra) => isSoon(page) ? h('button', { type: 'button', class: 'bn-item', 'data-page': page, 'data-soon': '', 'aria-disabled': 'true', title: lb + ' — soon', onClick: soonNote }, h('span', { class: 'pill' }, Icon(ic)), h('span', { class: 'bn-lbl' }, lb), soonTag())
-      : h('button', Object.assign({ type: 'button', class: 'bn-item', 'data-page': page || false, onClick: page ? () => go(page) : null }, extra || {}), h('span', { class: 'pill' }, Icon(ic)), h('span', { class: 'bn-lbl' }, lb));
+      : h('button', Object.assign({ type: 'button', class: 'bn-item', 'data-page': page || false, onClick: page ? () => goHome(page) : null }, extra || {}), h('span', { class: 'pill' }, Icon(ic)), h('span', { class: 'bn-lbl' }, lb));
     const wrap = h('div', { class: 'pop-anchor bn-more', 'data-popover-root': '' });
     const more = item('more', 'المزيد', null, { 'aria-haspopup': 'dialog', 'aria-expanded': 'false' });
     const pop = U.popover(wrap, more, (close) => h('div', { class: 'menu bn-sheet', role: 'dialog', 'aria-label': 'القائمة', 'data-popover-root': '' },
       h('div', { class: 't-label bn-sheet-h' }, 'القائمة'),
       NAV.map(([ic, lb, page]) => isSoon(page) ? h('button', { type: 'button', role: 'menuitem', class: 'opt bn-opt', 'data-page': page, 'data-soon': '', 'aria-disabled': 'true', onClick: soonNote }, Icon(ic), h('span', null, lb), h('small', null, 'soon'))
-        : h('button', { type: 'button', role: 'menuitem', class: 'opt bn-opt', 'data-page': page || false, 'aria-disabled': page ? false : 'true', 'aria-current': page && page === state.page ? 'page' : false, onClick: page ? () => { close(); go(page); } : null }, Icon(ic), h('span', null, lb), page ? null : h('small', null, 'غير متاح في النموذج')))));
+        : h('button', { type: 'button', role: 'menuitem', class: 'opt bn-opt', 'data-page': page || false, 'aria-disabled': page ? false : 'true', 'aria-current': page && page === state.page ? 'page' : false, onClick: page ? () => { close(); goHome(page); } : null }, Icon(ic), h('span', null, lb), page ? null : h('small', null, 'غير متاح في النموذج')))));
     more.addEventListener('click', () => pop.toggle()); wrap.append(more);
     return h('nav', { class: 'bottom-nav', 'aria-label': 'القائمة السفلية' }, BN.map(([ic, lb, page]) => item(ic, lb, page)), wrap);
   }
@@ -452,6 +452,22 @@
     const mods = window.IBPages.all(); const cur = mods[state.page];
     if (cur && cur.canLeave && page !== state.page) { let ok = false; cur.canLeave(() => { ok = true; goNow(page); }); return; }
     goNow(page);
+  }
+  // phase 13 decision 17 (owner 10 Nov — «لما ادوس علي اي صفحة يجيبلي الصفحة الرئيسية ليها»): a menu click always opens the page's main view.
+  // Every page keeps where it was (a tab, a product being edited, a campaign step, another member's profile) and defaultHash() repeats it,
+  // so the menu resets that state to the page's root hash first — the modular pages through their own hash parser, the block pages here.
+  // The unsaved-changes guard runs even on the same page (a product edit, the settings draft). Internal callers that set a tab and
+  // then go() (the bell, the search, the quick actions, the assistant, direct links) keep go().
+  function goHome(page) {
+    if (isSoon(page)) { goNow(page); return; }
+    const mods = window.IBPages.all(); const cur = mods[state.page];
+    const proceed = () => {
+      const def = mods[page];
+      if (def) def.hash(page); else if (page === 'accounts') state.tab = 'expenses'; else if (page === 'reports') state.rtab = 'orders';
+      goNow(page);
+    };
+    if (cur && cur.canLeave) { cur.canLeave(proceed); return; }
+    proceed();
   }
   function goNow(page) {
     if (isSoon(page)) { soonNote(); if (isSoon(state.page)) goNow('dashboard'); return; } // phase 3.6: closed pages

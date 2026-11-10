@@ -1195,6 +1195,17 @@ select at, action, entity_id, new_value from public.activity_log where action li
 - **النشر بالترتيب:** `0071` **قبل** الواجهة (الـ adapter بيطلب `ticket_id` من `hr_requests_v`) → RLS live `rls_hr_req_ticket` + `rls_hr` → الواجهة على `main`. مافيش Edge Function.
 - **التحقق:** «تذاكر الفريق» → «طلب موارد بشرية» → «طلب إجازة» → توست «في «تذاكر الفريق» TKT-…» → التذكرة «طلب إجازة — <الاسم> · <اليوم>» من غير نوع الإجازة ولا التواريخ ولا الملاحظة + جرس للأدمن والمدير المباشر → كارت الطلب فيها (التفاصيل للي يقدر يشوفها) → المدير يوافق → التذكرة «مغلق». «ملفي» مافيهوش «طلباتي».
 
+#### 2.7.49 «بيانات الحساب» والحساب البنكي للموظف (المرحلة 13 قرار 39، 10 نوفمبر)
+
+- **الكود:** `0072_hr_bank.sql` (`hr_bank` مقفول على الأعضاء — RLS من غير سياسات ومن غير grant لـ `authenticated`؛ `hr_bank_get` مطموس / `hr_bank_set` لصاحبه بس / `hr_bank_reveal` لصاحبه أو الأدمن أو `sensitive.salaries` وبيتسجل `hr.bank.reveal` بالـ uuid بس؛ `member_delete` من جديد بـ `hr_bank` في صفوف الإعداد الشخصية)، `IBHR.bank` / `bankSet` / `bankReveal`، الكتلة 18 (+ نص «ملفي › بيانات الحساب» في 15 و17 و28).
+- **النشر بالترتيب:** `0072` **قبل** الواجهة → RLS live `rls_hr_bank` + `rls_member_delete` → الواجهة على `main`. مافيش Edge Function.
+- **التحقق:** «ملفي» → التاب التاني «بيانات الحساب» (البيانات الشخصية · الرقم السري · رقم الحساب البنكي · مستندات وعقود) → «إضافة الحساب البنكي» → الرقم بيظهر «•••• 1234» → «إظهار» بيكشفه ويتسجل؛ الأدمن من ملف العضو بيشوفه مطموس و«إظهار» بيتسجل؛ أي حد تاني `42501`.
+
+```sql
+select at, actor, action, entity_id from public.activity_log where action like 'hr.bank.%' order by at desc limit 10; -- مافيش رقم
+select count(*) from public.hr_bank;
+```
+
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)
 - الـ bucket `vendor-contracts` بيتعمل من `0011` نفسها (`insert into storage.buckets … on conflict (id) do nothing`): خاص (`public = false`)، 10 ميجا (`file_size_limit = 10485760`)، أنواع `application/pdf` و`image/png` و`image/jpeg` بس (Storage نفسه بيرفض الأكبر والأنواع التانية قبل السياسات). مافيش خطوة يدوية في اللوحة.
 - السياسات على `storage.objects` (من الملف نفسه، بادئة `vendor_contracts_`): `select` و`insert` و`update` لـ `authenticated` بشرط `bucket_id = 'vendor-contracts'` و`has_perm('sensitive.vendor_bank') = 'F'` (الأدمن والحسابات في مصفوفة `0003`). مافيش سياسة `delete`: استبدال العقد = ملف جديد والقديم بيفضل (قرار 7)، ومافيش تنظيف للملفات القديمة (تكلفة صغيرة).

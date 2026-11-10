@@ -70,6 +70,7 @@ export function hrState(opts = {}) {
     payroll_lines: copy(opts.hrPayrollLines), documents: copy(opts.hrDocuments).map((x, i) => ({ id: i + 1, start_on: null, end_on: null, created_by: null, created_at: T, voided_by: null, voided_at: null, ...x })),
     // «ملفي › مهامي» (decision 25, 0048): no direct write — hr_task_add / set / delete / review below
     tasks: copy(opts.hrTasks).map((x, i) => ({ id: i + 1, status: 'لسه', day: hrToday(), reason: null, reviewer_id: null, until: null, review_note: null, done_at: null, created_by: x.member_id, created_at: T, updated_by: null, updated_at: T, deleted_at: null, deleted_by: null, ...x })),
+    bank: copy(opts.hrBank), // decision 39 (0072): closed — hr_bank_get / set / reveal below
     objects: new Map(Object.entries(opts.hrObjects || {})), calls: [], writes: [], seq: 1000, down: false,
   };
 }
@@ -318,6 +319,26 @@ export function hrRoute(c) {
       return json(200, score);
     }
     if (f === 'hr_payroll_calc') { if (!salaries) return no(); return json(200, calc(H, mock, monthOf(b.p_month))); }
+    // «ملفي › بيانات الحساب» (decision 39, 0072): my bank account, masked; an admin / sensitive.salaries reads anyone's; every reveal logged (no number)
+    if (/^hr_bank_(get|set|reveal)$/.test(f)) {
+      if (!active) return no();
+      const mask = (r) => (r ? { bank_name: r.bank_name, holder: r.holder, account: '•••• ' + r.account_number.slice(-4), iban: r.iban ? r.iban.slice(0, 2) + ' •••• ' + r.iban.slice(-4) : null, updated_at: r.updated_at } : null);
+      const of = (m) => H.bank.find((x) => x.member_id === m);
+      if (f === 'hr_bank_set') {
+        const p = b.p_input || {}; const bank = String(p.bank_name || '').trim(); const holder = String(p.holder || '').trim();
+        const num = String(p.account_number || '').replace(/[\s-]/g, ''); const iban = String(p.iban || '').replace(/[\s-]/g, '').toUpperCase() || null;
+        if (!bank || bank.length > 80) return bad('bank'); if (!holder || holder.length > 120) return bad('holder');
+        if (!/^[0-9]{6,30}$/.test(num)) return bad('number'); if (iban && !/^[A-Z]{2}[0-9]{2}[A-Z0-9]{11,30}$/.test(iban)) return bad('iban');
+        const row = { member_id: u.id, bank_name: bank, holder, account_number: num, iban, updated_at: now }; const ex = of(u.id);
+        if (ex) Object.assign(ex, row); else H.bank.push(row);
+        mock.activity.push({ action: 'hr.bank.set', entity: 'hr_bank', entity_id: u.id, actor: u.id }); return json(200, mask(of(u.id)));
+      }
+      const m = b.p_member || u.id; if (m !== u.id && !(isAdmin(u) || salaries)) return no();
+      if (f === 'hr_bank_get') return json(200, mask(of(m)));
+      const r = of(m); if (!r) return nf();
+      mock.activity.push({ action: 'hr.bank.reveal', entity: 'hr_bank', entity_id: m, actor: u.id });
+      return json(200, { bank_name: r.bank_name, holder: r.holder, account_number: r.account_number, iban: r.iban });
+    }
     if (f === 'hr_my_slips') { // «ملفي › مرتبي» (T7): my approved / paid lines with the sheet's status, never its total
       if (!active) return json(200, []);
       const st = (m) => H.payroll.find((p) => p.month === m);

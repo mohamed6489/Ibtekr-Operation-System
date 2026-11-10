@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { installSupabaseMock, LIVE, DEV_PW, TOTP_CODE, TOTP_SECRET } from './supabase-mock.mjs';
-// Two-step verification from «ملفي» › الحساب والأمان (phase 2 Task 7): the Authenticator app is the only live channel (WhatsApp /
+// Two-step verification from «ملفي» › بيانات الحساب (the old «الحساب والأمان», decision 39) (phase 2 Task 7): the Authenticator app is the only live channel (WhatsApp /
 // email wait for the WhatsApp bridge); enrolment = Supabase MFA enroll → QR + key → 6-digit code → mark_twofa_enrolled
 // (profiles.twofa from the server, aal2 only); the next sign-in asks for the code; «إيقاف» needs an aal2 session.
 // Mock only: the cases assert what the mock recorded (factors, profiles.twofa, the RPC calls); E2E_SUPABASE_LIVE=1 skips them.
@@ -230,7 +230,7 @@ test('disable at aal2 clears twofa and removes the factor', async ({ page }) => 
 test('an admin on a member\'s security tab sees the state, not the buttons (they act on the signed-in account)', async ({ page }) => {
   await signIn(page, 'admin.dev@ibtekr.local');
   await page.evaluate(() => { location.hash = 'member-M03'; });
-  await page.getByRole('tab', { name: 'الحساب والأمان' }).click();
+  await page.getByRole('tab', { name: 'بيانات الحساب' }).click();
   await expect(heading(page)).toBeVisible();
   await expect(section(page)).toContainText('مفعّل — تطبيق Authenticator');
   await expect(section(page).getByRole('button', { name: 'إيقاف', exact: true })).toHaveCount(0);

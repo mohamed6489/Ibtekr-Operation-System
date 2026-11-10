@@ -56,7 +56,8 @@
     actual: 'اكتب الفعلي لكل مؤشر', month: 'الشهر ده لسه مجاش', status: 'الحالة دي مش متاحة', step: 'الخطوة دي مش متاحة للكشف دلوقتي', account: 'اختار الحساب',
     doc: 'ارفع المرفق المطلوب', note: 'الملاحظة طويلة', decision: 'القرار مش صحيح', email: 'الإيميل ده مستخدم', phone: 'رقم الموبايل ده مستخدم',
     meeting: 'الوقت الإضافي اللي اترفض بيرجع بنتيجة الميتنج بتاعه بس', title: 'اكتب المهمة (لحد 200 حرف)', reviewer: 'اختار مين هيراجع (غير صاحب المهمة)',
-    until: 'اختار يوم من النهارده أو بعده', count: 'فيه 300 مهمة مفتوحة — خلّص أو امسح شوية الأول' };
+    until: 'اختار يوم من النهارده أو بعده', count: 'فيه 300 مهمة مفتوحة — خلّص أو امسح شوية الأول',
+    bank: 'اكتب اسم البنك', holder: 'اكتب اسم صاحب الحساب', number: 'رقم الحساب أرقام بس (من 6 لـ 30 رقم)', iban: 'الـ IBAN مش صحيح (زي EG38…)' };
   const fail = (err) => { const reason = reasonOf(err); const field = reason === 'invalid' ? fieldOf(err) : null; return { ok: false, reason, field, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] }; };
   const no = (reason, field) => ({ ok: false, reason, field: field || null, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] });
   const log = (action, detail, id) => { const L = window.IBActivity; if (L && L.log) quiet(() => L.log(action, detail, { entity: 'hr', entity_id: id || null })); };
@@ -411,6 +412,23 @@
       return { ok: true, list: list.map((r) => Object.assign(line(r), { month: monthKey(r.month), status: (data.sheets[monthKey(r.month)] || {}).status || 'معتمد', paidAt: null })) };
     } catch (e) { return fail(e); }
   }
+  // «ملفي › بيانات الحساب» (phase 13 decision 39, 0072): the bank account — the member types their own; it comes back masked
+  // («•••• 1234»); the full number only through bankReveal (mine, or an admin / sensitive.salaries — the server logs every reveal)
+  const bankShape = (d) => (d ? { bankName: d.bank_name || '', holder: d.holder || '', account: d.account || '', iban: d.iban || '', at: d.updated_at || null } : null);
+  async function bank(member) {
+    const uid = member ? uidOf(member) : myUid(); if (!uid) return no('network');
+    const { data: d, error } = await rpc('hr_bank_get', { p_member: uid }); if (error) return fail(error); return { ok: true, bank: bankShape(d) };
+  }
+  async function bankSet(input) {
+    const v = input || {};
+    const { data: d, error } = await rpc('hr_bank_set', { p_input: { bank_name: String(v.bankName || '').trim(), holder: String(v.holder || '').trim(), account_number: String(v.number || '').trim(), iban: String(v.iban || '').trim() } });
+    if (error) return fail(error); return { ok: true, bank: bankShape(d) };
+  }
+  async function bankReveal(member) {
+    const uid = member ? uidOf(member) : myUid(); if (!uid) return no('network');
+    const { data: d, error } = await rpc('hr_bank_reveal', { p_member: uid }); if (error) return fail(error);
+    return { ok: true, bank: { bankName: d.bank_name || '', holder: d.holder || '', number: d.account_number || '', iban: d.iban || '' } };
+  }
   async function payrollOpen(month) { const { error } = await rpc('hr_payroll_open', { p_month: monthArg(month) }); if (error) return fail(error); await load(); return { ok: true }; }
   async function payrollStep(month, step) { const { error } = await rpc('hr_payroll_step', { p_month: monthArg(month), p_step: step }); if (error) return fail(error); return after(step === 'معتمد' ? 'hr.payroll.approve' : 'hr.payroll.review', monthKey(month) + ' → ' + step); }
   async function payrollPay(month, account) {
@@ -704,7 +722,7 @@
 
   window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, decidesOt, settings, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
     shiftNow, myShift, clockIn, clockOut, overtimeBegin, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
-    payrollCalc, payrollLines, sheetLines, slips, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
+    payrollCalc, payrollLines, sheetLines, slips, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,
     memberCreate, memberPassword, memberInvite, memberDelete, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
     tasksOf, reviewsFor, canTask, canDeleteTask, taskAdd, taskSet, taskDelete, taskReview, loadTasks, people: () => data.people.slice(), TASK_STATUSES,

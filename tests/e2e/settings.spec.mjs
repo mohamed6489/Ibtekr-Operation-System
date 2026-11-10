@@ -213,7 +213,7 @@ test('the company papers: upload (the file into bucket company-docs, then the ro
   await expect(page.getByRole('menuitem', { name: 'أوردرات النهارده' })).toBeVisible();
 });
 
-test('force 2FA (the row «security»): a member without 2FA is sent to «ملفي › الحساب والأمان» and cannot leave it; the admin with the row off is not', async ({ page }) => {
+test('force 2FA (the row «security»): a member without 2FA is sent to «ملفي › بيانات الحساب» and cannot leave it; the admin with the row off is not', async ({ page }) => {
   mock.settings.push({ section: 'security', data: { force2fa: true, idle: true, idleDesktop: '4 ساعات' }, updated_at: new Date().toISOString(), updated_by: null });
   await signIn(page, ACC);
   await expect.poll(() => page.evaluate(() => location.hash)).toBe('#profile-security');

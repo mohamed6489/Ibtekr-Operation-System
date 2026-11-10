@@ -76,7 +76,7 @@ test('«ملفي» from the server: my hours and overtime, a request cancelled, 
   expect(calls('hr_my_slips').length).toBeGreaterThan(0);
   expect(calls('hr_payroll_calc')).toEqual([]); // a member never computes the sheet
   await expect(P(page)).not.toContainText('40,000'); // the sheet's total stays the admin's
-  await tab(page, 'العقود والمستندات');
+  await tab(page, 'بيانات الحساب'); // decision 39: the documents are inside it
   await page.evaluate(() => { window.__opened = []; window.open = (u, t, f) => { window.__opened.push([u, t, f]); return null; }; });
   await P(page).locator('.contract').getByRole('button', { name: 'عرض' }).click();
   await expect.poll(() => page.evaluate(() => window.__opened.length)).toBe(1);

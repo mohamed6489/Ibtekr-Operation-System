@@ -1619,3 +1619,18 @@ tbody tr:nth-child(even) td{background:var(--color-bg-tint)}
 
 /* phase 12 T5: the online dot on «الفريق دلوقتي» */
 .dt-av{position:relative;display:inline-flex}.dt-on{position:absolute;bottom:-1px;inset-inline-end:-1px;width:10px;height:10px;border-radius:50%;background:var(--color-border-subtle);border:2px solid var(--color-bg-base)}.dt-on.is-on{background:var(--color-success-default,#1f9d55)}
+
+/* phase 13 decision 19 (owner 10 Nov — «اعملي للبوب أب maximum height يبقى 80% بحيث يسيب 10% و10% تحت»): every popup is at most 80% of the
+   screen's height and sits in the middle (10% above, 10% below) on every screen size — the body scrolls inside, the header and footer stay. */
+.scrim{place-items:center;align-items:center}
+.modal,.modal.wide,.modal.mid,.modal.xl{max-height:80vh;max-height:80dvh}
+.modal-b{min-height:0}
+@media (max-width:767px){.scrim{padding:0 8px;align-items:center}.modal{max-height:80vh;max-height:80dvh;border-radius:var(--radius-md)}}
+
+/* phase 13 decision 20 (owner 10 Nov — «خلي البوب أب بتاع نتيجة البحث يبقى نفس عرض خانة البحث، وأقسام النتايج تاجز بخلفية خضرا مكتوب جواها بالبيج»):
+   the results list takes the search field's width exactly (on every size), and each group heading is a green pill with beige text. */
+.menu.gq-res{width:auto;min-width:0;max-width:none;inset-inline:0}
+.menu.gq-res .opt-group{display:inline-block;width:fit-content;margin:8px 12px 4px;padding:2px 12px;border-radius:999px;background:var(--color-brand-default);color:var(--color-text-on-brand);font-weight:600;line-height:20px}
+/* phone: the field opens across the whole top bar (12px from each side — «.topbar .search:focus-within»), so the wrapper stops being its
+   frame and the list sits right under it at the same 12px */
+@media (max-width:767px){.gq-wrap{position:static}.menu.gq-res{position:absolute;top:calc(100% + 2px);inset-inline:12px}}

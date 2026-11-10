@@ -985,9 +985,16 @@
     m.text = r.result === 'refused' ? 'مش هقدر أرد على ده.' : (r.text || (r.actions.length ? 'تمام.' : 'مفيش رد.'));
     m.report = r.result === 'refused' ? [] : (r.report || []); m.question = text; // decision 23: the reads behind the answer → «تفاصيل»
     ai.turns.push({ role: 'assistant', text: m.text });
+    // decision 41 (owner 10 Nov — «يقولي حط المعلومات هنا ويديني لينك أفتح منه البوب أب… خلّي كل الأكشنز نفس الكلام»): an open_form is
+    // a link under the answer, the popup opens when the member clicks it; the other actions run as before
+    const acts = r.actions || []; m.forms = acts.filter((a) => a.name === 'open_form');
     aiBusy(false); aiDraw();
-    aiExecActions(r.actions);
+    aiExecActions(acts.filter((a) => a.name !== 'open_form'));
   }
+  const AI_FORM_LABEL = { vendor_add: 'إضافة مبتكر', member_add: 'إضافة عضو', customer_add: 'إضافة عميل', ticket_new: 'تذكرة جديدة', hr_leave: 'طلب إجازة', hr_advance: 'طلب سُلفة', hr_remote: 'شغل عن بُعد',
+    task_add: 'إضافة مهمة', order_update: 'تحديث الأوردر', expense_add: 'المصروفات', account_move: 'الحساب الفعلي', vendor_move: 'حركة المبتكر' };
+  const aiFormLabel = (a) => { const v = (a.input && a.input.values) || {}; const dir = v.direction === 'deposit' ? 'إيداع — ' : v.direction === 'withdraw' ? 'سحب — ' : ''; return dir + (AI_FORM_LABEL[a.input && a.input.form] || 'البوب أب'); };
+  function aiOpenLink(a) { try { aiTools().open_form(a.input || {}); } catch (e) { aiSay('ما قدرتش أفتح البوب أب: ' + (e && e.message ? e.message : '')); } }
   function aiRun(text) {
     const t = text.trim(); if (!t || ai.busy) return;
     ai.msgs.push({ role: 'user', text: t });
@@ -1010,6 +1017,8 @@
     if (!aiList) return;
     aiList.replaceChildren(...ai.msgs.map((m) => {
       const kids = [h('p', { class: 'ai-text' }, m.live && !m.text ? 'بفكّر…' : m.welcome ? aiWelcome() : m.text)];
+      if (m.forms && m.forms.length && !m.live) kids.push(h('div', { class: 'ai-actions ai-forms' }, m.forms.map((a) => h('a', { href: '#', class: 'ai-form-link', 'data-ai-open': (a.input && a.input.form) || '',
+        onClick: (e) => { e.preventDefault(); aiOpenLink(a); } }, Icon('plus', 'sm'), 'افتح بوب أب «' + aiFormLabel(a) + '» ↗'))));
       if (m.report && m.report.length && !m.live) kids.push(h('div', { class: 'ai-actions' }, Button({ size: 'sm', icon: 'file', label: 'تفاصيل', attrs: { 'data-ai-details': '' }, onClick: () => aiReport(m) })));
       if (m.confirm) {
         kids.push(h('dl', { class: 'kv' }, aiSummary(m.confirm).map(([k, v]) => [h('dt', null, k), h('dd', null, v)])));

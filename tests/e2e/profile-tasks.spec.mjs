@@ -75,6 +75,12 @@ test('the member: today with «من امبارح» and the admin\'s task, «ضي
   await expect.poll(() => [task(1).status, task(1).day, !!task(1).done_at]).toEqual(['خلصت', T, true]);
   await sub(page, 'خلصت').click();
   await expect(row(page, 'تجهيز عرض المبتكرين الجدد')).toBeVisible(); await expect(row(page, 'إرسال فواتير سبتمبر')).toBeVisible();
+  // decision 38: «إنجازاتي» on the overview = the tasks done (5 and now 1); it opens «مهامي › خلصت»
+  await P(page).getByRole('tab', { name: 'نظرة عامة' }).click();
+  const ach = P(page).locator('.sum-tile', { hasText: 'إنجازاتي' });
+  await expect(ach.locator('.t-h3')).toHaveText('2'); await expect(ach).toContainText('مهمة خلصت');
+  await ach.click();
+  await expect(sub(page, 'خلصت')).toHaveAttribute('aria-selected', 'true'); await expect(row(page, 'إرسال فواتير سبتمبر')).toBeVisible();
   // «حذف» on my own task (marked on the server, gone from the list)
   await sub(page, 'النهارده').click();
   await row(page, 'متابعة شحنة أسوان').getByRole('button', { name: 'إجراءات متابعة شحنة أسوان' }).click(); await page.getByRole('menuitem', { name: 'حذف' }).click();

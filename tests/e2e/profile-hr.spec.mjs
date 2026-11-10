@@ -50,10 +50,11 @@ const tab = (page, name) => P(page).getByRole('tab', { name, exact: true }).clic
 const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
 const calls = (fn) => mock.hr.calls.filter((c) => c.fn === fn);
 
-test('«ملفي» from the server: my hours and overtime, a request cancelled, the performance, the achievement, my paid payslip (no sheet total), my contract', async ({ page }) => {
+test('«ملفي» from the server: my hours and overtime, a request cancelled, the performance, my paid payslip (no sheet total), my contract', async ({ page }) => {
   await open(page, OPS, 'profile');
   await expect(P(page).locator('.sum-tile', { hasText: 'آخر مرتب' })).toContainText('11,000');
-  await expect(P(page).locator('.sum-tile', { hasText: 'إنجازات' })).toContainText('1');
+  await expect(P(page).locator('.sum-tile', { hasText: 'إنجازاتي' })).toContainText('مهمة خلصت'); // decision 38: the tasks done, not the bonuses
+  for (const t of ['إنجازاتي', 'التفضيلات']) await expect(P(page).getByRole('tab', { name: t })).toHaveCount(0);
   await tab(page, 'ساعات العمل');
   const row = P(page).locator('tbody tr').first();
   await expect(row).toContainText('9:40'); await expect(row).toContainText('17:30');
@@ -62,8 +63,6 @@ test('«ملفي» from the server: my hours and overtime, a request cancelled, 
   await expect(P(page).getByRole('tab', { name: 'طلباتي' })).toHaveCount(0); // decision 33: my requests are team tickets
   await tab(page, 'أدائي');
   await expect(P(page)).toContainText('104%'); await expect(P(page)).toContainText('شحن في الميعاد');
-  await tab(page, 'إنجازاتي');
-  await expect(P(page).locator('tbody tr', { hasText: 'تصوير 120 منتج' })).toContainText('750');
   await tab(page, 'مرتبي');
   const slip = P(page).locator('tbody tr', { hasText: monLabel(PM) });
   await expect(slip).toContainText('••••'); await expect(slip).toContainText('اتصرف');

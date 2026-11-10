@@ -1,17 +1,17 @@
 
-/* Profile «ملفي» — Figma page 382:12596. 10 tabs. Admin opening a member (#member-Mxx) sees the SAME page + admin-only beige cards. */
+/* Profile «ملفي» — Figma page 382:12596. the tabs in TABS (decision 38: no «الإنجازات» / «التفضيلات»). Admin opening a member (#member-Mxx) sees the SAME page + admin-only beige cards. */
 (function () {
   'use strict';
   const U = window.IBUI, O = window.IbtekrOps, K = window.IBKit;
   const { h, Icon, Button } = U; const S = K.store;
-  const TABS = [['overview', 'نظرة عامة'], ['tasks', 'مهامي'], ['hours', 'ساعات العمل'], ['performance', 'أدائي'], ['achievements', 'إنجازاتي'], ['salary', 'مرتبي'], ['docs', 'العقود والمستندات'], ['security', 'الحساب والأمان'], ['alerts', 'تنبيهاتي'], ['prefs', 'التفضيلات']];
-  const st = { tab: 'overview', who: null, taskSub: 'today', reqSub: 'mine', showPay: false, newTask: '', prefs: { landing: 'الأوردرات', sound: true, digest: true, whatsapp: false, density: 'مضغوط' }, notes: {}, perfQ: null, slips: {} };
+  const TABS = [['overview', 'نظرة عامة'], ['tasks', 'مهامي'], ['hours', 'ساعات العمل'], ['performance', 'أدائي'], ['salary', 'مرتبي'], ['docs', 'العقود والمستندات'], ['security', 'الحساب والأمان'], ['alerts', 'تنبيهاتي']]; // decision 38: «الإنجازات» and «التفضيلات» removed
+  const st = { tab: 'overview', who: null, taskSub: 'today', reqSub: 'mine', showPay: false, newTask: '', notes: {}, perfQ: null, slips: {} };
   const rerender = () => window.IBPages.render('profile');
   // decision 30: «me» is null — never K.ME captured before the sign-in (an earlier hash ran with the default M01, so an admin saw M01)
   const whoId = () => st.who || K.ME;
   const isAdminView = () => !!st.who && st.who !== K.ME;
   const HR = () => window.IBPages.all().hr.api;
-  const label = (id) => (isAdminView() ? { tasks: 'المهام', requests: 'الطلبات', performance: 'الأداء', achievements: 'الإنجازات', salary: 'المرتب' }[id] : null) || TABS.find((t) => t[0] === id)[1];
+  const label = (id) => (isAdminView() ? { tasks: 'المهام', requests: 'الطلبات', performance: 'الأداء', salary: 'المرتب' }[id] : null) || TABS.find((t) => t[0] === id)[1];
   // phase 10 T7: the HR tabs read IBHR (app/js/adapter/hr.js) — the server's rows under RLS (mine with hr.view N, my team's with P, all
   // with F) and the money mine or sensitive.salaries'; the alerts and the prefs stay as they were; the tasks are IBHR's too (decision 25)
   const IH = () => window.IBHR;
@@ -62,12 +62,11 @@
       case 'tasks': return tasks(m);
       case 'hours': return hours(m);
       case 'performance': return performance(m);
-      case 'achievements': return achievements(m);
       case 'salary': return salary(m);
       case 'docs': return docs(m);
       case 'security': return security(m);
       case 'alerts': return alertsTab(m);
-      default: return prefs(m);
+      default: return overview(m);
     }
   }
 
@@ -101,20 +100,20 @@
 
   // ---------- نظرة عامة: simple summary ----------
   const lastScore = (id) => { const sc = HD().scores[id] || {}; const k = Object.keys(sc).filter((x) => sc[x] != null).sort().pop(); return k ? { k, v: sc[k] } : null; };
-  const achievementsOf = (id) => (HD().achievements || []).filter((a) => a.member === id);
   function overview(m) {
     const r = O.rollover(tasksOf(m.id), tdy()); const open = r.today.length + autoOf(m).length; const D = HD(); const mk = thisMonth();
     const myReq = D.requests.filter((x) => x.member === m.id); const need = isAdminView() ? 0 : needFromMe().length; const isP = HR().isPending;
     const days = D.attendance.filter((a) => a.member === m.id && a.date.startsWith(mk) && a.in != null).length;
     const sc = lastScore(m.id); const qs = HR().qScore(m.id); const money = seesMoney(m); const slip = money && m.salary > 0 ? slipsOf(m).list[0] : null;
-    const year = tdy().slice(0, 4);
-    const tile = (t, v, sub, go) => h('button', { type: 'button', class: 'card sum-tile', onClick: () => { if (go.charAt(0) === '#') { location.hash = go.slice(1); return; } st.tab = go; setHash(); rerender(); } }, h('span', { class: 'kpi-label t-label' }, t), h('span', { class: 't-h3' }, K.Num(String(v))), h('span', { class: 't-small help' }, sub), h('span', { class: 'more t-small' }, 'التفاصيل ', Icon('chevL', 'sm')));
+    // decision 38 (the owner, 10 Nov — «الإنجازات تكون عدد المهام اللي الموظف أنجزها»): the tasks done, all time and this month
+    const done = tasksOf(m.id).filter((t) => t.status === 'خلصت'); const doneMonth = done.filter((t) => String(t.doneAt || '').slice(0, 7) === mk).length;
+    const tile = (t, v, sub, go, pre) => h('button', { type: 'button', class: 'card sum-tile', onClick: () => { if (go.charAt(0) === '#') { location.hash = go.slice(1); return; } if (pre) pre(); st.tab = go; setHash(); rerender(); } }, h('span', { class: 'kpi-label t-label' }, t), h('span', { class: 't-h3' }, K.Num(String(v))), h('span', { class: 't-small help' }, sub), h('span', { class: 'more t-small' }, 'التفاصيل ', Icon('chevL', 'sm')));
     const own = !isAdminView() && m.id === K.ME; const NRV = window.IBNotifRoles;
     const reqGo = isAdminView() ? '#hr-requests' : '#tickets'; // decision 33: my requests are team tickets
     const ntfCount = own && NRV && NRV.viewSections ? NRV.viewSections(true).reduce((n, x) => n + (x.received != null ? x.received : ((x.tabs || [])[0] || [0, 0, []])[2].length), 0) : 0;
     return [own ? h('div', { class: 'toolbar pn-bar' }, h('span', { class: 'grow' }), K.PanelButton('profile:overview', 'ملفي — نظرة عامة', () => document.querySelector('#pg-profile .panel'), rerender)) : null,
       h('div', { class: 'cards' }, tile('مهام النهارده', open, r.today.filter((t) => t.carried).length + ' من امبارح', 'tasks'), tile('ساعات ' + monName(mk), K.hm(m.monthMin || 0), days + ' يوم حضور', 'hours'), tile('رصيد الإجازات', (m.leave || 0) - (m.used || 0), 'من ' + (m.leave || 0) + ' يوم', reqGo), isAdminView() || need === 0 ? tile(isAdminView() ? 'طلباته' : 'طلباتي', myReq.filter(isP).length, 'مستنية قرار', reqGo) : tile('محتاجة منك', need, 'طلبات فريقك', reqGo)),
-      h('div', { class: 'cards' }, tile(sc ? 'أداء ' + monName(sc.k) : 'الأداء', sc ? sc.v + '%' : '—', sc ? O.rating(sc.v) + (qs != null ? ' · الربع ' + qs + '%' : '') : 'لسه مفيش تقييم', 'performance'), tile('إنجازات', achievementsOf(m.id).filter((a) => a.month.slice(0, 4) === year).length, 'مكافآت السنة دي', 'achievements'),
+      h('div', { class: 'cards' }, tile(sc ? 'أداء ' + monName(sc.k) : 'الأداء', sc ? sc.v + '%' : '—', sc ? O.rating(sc.v) + (qs != null ? ' · الربع ' + qs + '%' : '') : 'لسه مفيش تقييم', 'performance'), tile(isAdminView() ? 'إنجازاته' : 'إنجازاتي', done.length, 'مهمة خلصت · ' + doneMonth + ' الشهر ده', 'tasks', () => { st.taskSub = 'done'; }),
         tile('آخر مرتب', slip ? K.money(slip.net) : '—', !money ? 'المرتبات للأدمن بس' : !(m.salary > 0) ? 'مفيش مرتب مسجل' : slip ? 'صافي ' + monName(slip.month) : 'القسيمة بتظهر بعد اعتماد الكشف', 'salary'), tile('المستندات', m.contract === 'missing' ? 'ناقص' : 'تمام', m.contract === 'expiring' ? 'العقد بيخلص قريب' : 'العقد والمستندات', 'docs')),
       // decision 27 (the owner, 10 Nov — «إضافة زرار تخصيص اللوحة… وإمكانية إظهار عدد التنبيهات أو الطلبات»): my alerts and my open requests,
       // and «تخصيص اللوحة» to hide / order every card (user_prefs panel.prefs «profile:overview»)
@@ -284,7 +283,6 @@
       K.Section('التقييم الشهري — ' + qLabel(q), h('div', { class: 'cols' }, months.map((k) => h('div', { class: 'col' + (k === last ? ' hi' : '') }, h('span', { class: 't-label' }, sc[k] != null ? sc[k] + '%' : '—'), h('i', { style: 'height:' + (sc[k] != null ? Math.round(Math.min(sc[k], 120) * 1.4) : 4) + 'px' }), sc[k] != null ? K.Tag(O.RATING_TONE[O.rating(sc[k])], O.rating(sc[k])) : K.Tag('neutral', 'لسه'), h('span', { class: 't-small' }, monName(k))))), null, { sub: 'ممتاز ≥ 100% · جيد 85–99% · محتاج تحسين 70–84% · إنذار < 70% (حافز الشهر = 0)' }),
       K.Section('المؤشرات', kpis.length ? U.Table({ headers: ['المؤشر', 'المصدر', 'الوزن', 'الهدف'], rows: kpis.map((k) => [k.name, k.src || 'يدوي', k.weight + '%', K.Num(String(k.target)) + (k.inverse ? ' (الأقل أحسن)' : '')]) }) : K.Empty('لسه مفيش مؤشرات', 'بتتحط من «الموارد البشرية › الأداء والـ KPI».'), null, { sub: 'المدير بيقيّم كل شهر بالفعلي' })];
   }
-  function achievements(m) { const a = achievementsOf(m.id).slice().sort((x, y) => (x.month < y.month ? 1 : -1)); const money = seesMoney(m); return [K.Section('الإنجازات والمكافآت', a.length ? U.Table({ headers: ['الإنجاز', 'المكافأة', 'الشهر', 'الحالة'], rows: a.map((x) => [x.title, money ? K.Num(K.money(x.amount) + ' ج.م') : '••••', monLabel(x.month), K.Tag(x.status === 'اتصرفت' ? 'success' : 'info', x.status)]) }) : K.Empty('لسه مفيش إنجازات مسجلة', 'المكافأة بتتضاف لما الأدمن يسجل إنجاز.'))]; }
   // ---------- مرتبي (decision 2: my own payslips once the sheet is approved; another member's for sensitive.salaries) ----------
   function salary(m) {
     if (!seesMoney(m)) return [K.Section('', K.Empty('المرتبات للأدمن بس', 'كل عضو بيشوف قسيمته هو بس في «ملفي».'))];
@@ -321,11 +319,6 @@
     return [K.Section('بيانات الدخول', K.Kv([['الإيميل', m.email || '—'], ['الموبايل', m.phone ? h('span', { dir: 'ltr' }, m.phone) : '—']]), ad ? null : [Button({ label: 'تعديل بياناتي', onClick: () => editInfo(m) }), Button({ type: 'primary', label: 'تغيير كلمة المرور', onClick: () => changePassword() })]),
       K.Section('التحقق بخطوتين', [h('div', { class: 'set-row' }, h('div', null, h('b', null, m.twofa ? 'مفعّل — تطبيق Authenticator' : 'مش مفعّل'), h('div', { class: 't-small help' }, ad ? 'العضو بيفعّله أو يوقفه من ملفه' : 'اختياري للكل · تطبيق Authenticator (واتساب وإيميل ' + SOON_2FA + ')')), ad ? null : m.twofa ? Button({ label: 'إيقاف', onClick: () => K.confirm({ title: 'إيقاف التحقق بخطوتين', text: 'حسابك هيبقى محمي بكلمة المرور بس.', okType: 'danger', okLabel: 'إيقاف', onOk: disable2fa }) }) : Button({ type: 'primary', label: 'تفعيل', onClick: () => enable2fa(m) }))]),
       ad ? null : K.Section('الأجهزة', h('p', { class: 't-small help', style: 'margin:0' }, 'لو حاسس إن حد تاني داخل بحسابك: غيّر كلمة المرور أو اعمل خروج من كل الأجهزة — الجهاز ده بيفضل داخل.'), [Button({ label: 'خروج من كل الأجهزة', onClick: () => window.IBShell.signOutAll() })])];
-  }
-  function prefs() {
-    const p = st.prefs; const save = (k) => (v) => { p[k] = v; K.toast('اتحفظ'); rerender(); };
-    return [K.Section('التفضيلات', [U.Select({ id: 'pf-land', label: 'الصفحة اللي تفتح أول ما أدخل', options: ['الأوردرات', 'ملفي', 'خدمة العملاء', 'تذاكر الفريق', 'المخزن'].map((x) => ({ value: x, label: x })), value: p.landing, onChange: save('landing') }), U.Select({ id: 'pf-den', label: 'كثافة الجداول', options: ['مضغوط', 'مريح'].map((x) => ({ value: x, label: x })), value: p.density, onChange: save('density') }),
-      K.Switch({ id: 'pf-sound', label: 'صوت للتنبيهات العاجلة', checked: p.sound, onChange: save('sound') }), K.Switch({ id: 'pf-dig', label: 'ملخص يومي على الإيميل', help: 'الساعة 9 الصبح', checked: p.digest, onChange: save('digest') }), K.Switch({ id: 'pf-wa', label: 'تنبيهات واتساب', help: 'للعاجل بس', checked: p.whatsapp, onChange: save('whatsapp') })])];
   }
 
   // ---------- popups ----------

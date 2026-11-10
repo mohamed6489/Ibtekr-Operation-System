@@ -441,7 +441,7 @@
       window.IBQuick ? window.IBQuick.Menu() : null, // phase 11 (decision 23): the quick actions from the settings row «quick»
       NotificationsMenu(),
       window.IBShell.ClockWidget(),
-      window.IBShell.AccountMenu(go));
+      window.IBShell.AccountMenu(goHome)); // decision 21: «ملفي» / «الإعدادات» open their main view
   }
   function showPage() {
     document.getElementById('main').hidden = state.page !== 'accounts';
@@ -3415,7 +3415,7 @@
   // login); no active profile → sign out, login. A typed #type=recovery is not a recovery: the stored session goes through every check.
   (async () => {
     const A = window.IBAuth, SH = window.IBShell, root = document.getElementById('root');
-    document.addEventListener('ib:directory', () => { const old = root.querySelector('.topbar .user'); if (old) old.replaceWith(SH.AccountMenu(go)); }); // header shows the signed-in member
+    document.addEventListener('ib:directory', () => { const old = root.querySelector('.topbar .user'); if (old) old.replaceWith(SH.AccountMenu(goHome)); }); // header shows the signed-in member
     if (!SH.isLoggedOut()) root.hidden = true;
     let gated = false;
     // a SIGNED_OUT this tab did not start (another tab signed out, or the server ended the session) must wipe memory too: reload as 21-shell.js signOut does

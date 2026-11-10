@@ -14,7 +14,8 @@
 //   link again (the admin; not the caller's own) → { ok, mailed }. The link itself is never stored or logged.
 //   Phase 13 decision 15 (the owner, 10 Nov — «زودلي زرار لمسح الـ user نهائي»): POST { action: 'member_delete', member_id } → the RPC
 //   member_delete of 0066 (service_role; never the caller's own account): a member with any trace in a non-cascading table is
-//   refused 409 { error: 'has_records', table }, the last active admin 409 { error: 'last_admin' }; a traceless one goes from
+//   refused 409 { error: 'has_records', table } (0067: HR history that cascades counts too — only personal setup rows go with the
+//   member), the last active admin 409 { error: 'last_admin' }, the owner M01 409 { error: 'owner' }; a traceless one goes from
 //   auth.users (profiles and the member's own rows cascade) → { ok, id, name }.
 // activity_log: hr.member.create / hr.member.password / hr.member.invite / hr.member.delete with the member id and name only (no password,
 // no email, no phone, no link).
@@ -181,7 +182,7 @@ async function memberDelete(deps: Deps, admin: string, args: Json) {
     const code = String(error.code ?? ''); const msg = String(error.message ?? '');
     if (code === 'P0002') return json(404, { error: 'not_found' });
     if (code === '23503') return json(409, { error: 'has_records', table: String(error.hint ?? '').replace(/[^a-z0-9_]/gi, '').slice(0, 60) || null });
-    if (code === '22023') return json(409, { error: msg === 'last_admin' ? 'last_admin' : 'invalid' });
+    if (code === '22023') return json(409, { error: msg === 'last_admin' ? 'last_admin' : msg === 'owner' ? 'owner' : 'invalid' }); // 0067: the owner (M01) is never deleted
     return json(500, { error: 'failed' });
   }
   return json(200, { ok: true, id, name: typeof data?.name === 'string' ? data.name : '' }); // the RPC wrote hr.member.delete itself

@@ -1,7 +1,7 @@
 -- RLS / permission tests for 0066_member_delete (phase 13 decision 15: a team member deleted for good from team-admin only —
 -- member_delete is service_role only; a member with any trace in a non-cascading table is refused with the table named; the last
 -- active admin and one's own account are refused; a traceless member goes from auth.users with the cascade and one activity_log row).
--- Depends on 0001 … 0066. One transaction rolled back; prints NOTICE 'rls_member_delete: ok' only if every case passed. Live-safe
+-- Depends on 0001 … 0067 (the owner M01 and the HR-history refusals of 0067 included). One transaction rolled back; prints NOTICE 'rls_member_delete: ok' only if every case passed. Live-safe
 -- (its own rows only; every count scoped to them).
 
 begin;
@@ -11,7 +11,9 @@ insert into auth.users (id, email, phone) values
   ('00000000-0000-4000-8000-0000000066a2', 'md-clean.dev@ibtekr.local', '01000066a02'),
   ('00000000-0000-4000-8000-0000000066a3', 'md-traced.dev@ibtekr.local', '01000066a03'),
   ('00000000-0000-4000-8000-0000000066a4', 'md-mgr.dev@ibtekr.local', '01000066a04'),
-  ('00000000-0000-4000-8000-0000000066a5', 'md-staff.dev@ibtekr.local', '01000066a05');
+  ('00000000-0000-4000-8000-0000000066a5', 'md-staff.dev@ibtekr.local', '01000066a05'),
+  ('00000000-0000-4000-8000-0000000066a6', 'md-hist.dev@ibtekr.local', '01000066a06'),
+  ('00000000-0000-4000-8000-0000000066a7', 'md-owner.dev@ibtekr.local', '01000066a07');
 insert into auth.identities (user_id, provider, provider_id, identity_data)
 select u.id, 'email', u.id::text, jsonb_build_object('sub', u.id::text, 'email', u.email) from auth.users u where u.email like 'md-%.dev@ibtekr.local';
 insert into public.profiles (id, name, email, phone, role_id, status) values
@@ -19,7 +21,13 @@ insert into public.profiles (id, name, email, phone, role_id, status) values
   ('00000000-0000-4000-8000-0000000066a2', 'عضو من غير أثر', 'md-clean.dev@ibtekr.local', '01000066a02', 'cs', 'active'),
   ('00000000-0000-4000-8000-0000000066a3', 'عضو له أثر', 'md-traced.dev@ibtekr.local', '01000066a03', 'ops', 'active'),
   ('00000000-0000-4000-8000-0000000066a4', 'مدير', 'md-mgr.dev@ibtekr.local', '01000066a04', 'ops', 'active'),
-  ('00000000-0000-4000-8000-0000000066a5', 'موظف تحت المدير', 'md-staff.dev@ibtekr.local', '01000066a05', 'viewer', 'active');
+  ('00000000-0000-4000-8000-0000000066a5', 'موظف تحت المدير', 'md-staff.dev@ibtekr.local', '01000066a05', 'viewer', 'active'),
+  ('00000000-0000-4000-8000-0000000066a6', 'عضو له حضور', 'md-hist.dev@ibtekr.local', '01000066a06', 'cs', 'active');
+-- 0067: HR history cascades from profiles yet counts as a trace (here one attendance row, by nobody)
+insert into public.hr_attendance (member_id, day, in_at, source, by_id) values ('00000000-0000-4000-8000-0000000066a6', '2026-11-01', '2026-11-01 07:00+00', 'clock', null);
+-- 0067: the owner M01 — the real one on a seeded database, else a test one
+insert into public.profiles (id, name, email, phone, role_id, status, member_code)
+select '00000000-0000-4000-8000-0000000066a7', 'أونر الاختبار', 'md-owner.dev@ibtekr.local', '01000066a07', 'admin', 'active', 'M01' where not exists (select 1 from public.profiles where member_code = 'M01');
 update public.profiles set manager_id = '00000000-0000-4000-8000-0000000066a4' where id = '00000000-0000-4000-8000-0000000066a5';
 -- the clean member's own rows (they cascade); the traced member's trace (activity_log.actor does not cascade)
 insert into public.hr_members (member_id, shift_start, shift_end) values ('00000000-0000-4000-8000-0000000066a2', '09:00', '17:00');
@@ -62,7 +70,13 @@ begin
   -- the people a member manages are a trace too (profiles.manager_id)
   begin perform public.member_delete('00000000-0000-4000-8000-0000000066a4', '00000000-0000-4000-8000-0000000066a1'); raise exception 'case a manager with staff failed';
   exception when foreign_key_violation then get stacked diagnostics v_hint = pg_exception_hint; if v_hint <> 'profiles' then raise exception 'case a manager with staff (hint) failed: %', v_hint; end if; end;
-  if (select count(*) from public.profiles where id in ('00000000-0000-4000-8000-0000000066a3', '00000000-0000-4000-8000-0000000066a4')) <> 2 then raise exception 'case a refused delete removed nothing failed'; end if;
+  -- 0067: a member with HR history (an attendance row, cascading) is refused with that table
+  begin perform public.member_delete('00000000-0000-4000-8000-0000000066a6', '00000000-0000-4000-8000-0000000066a1'); raise exception 'case a member with HR history failed';
+  exception when foreign_key_violation then get stacked diagnostics v_hint = pg_exception_hint; if v_hint <> 'hr_attendance' then raise exception 'case a member with HR history (hint) failed: %', v_hint; end if; end;
+  -- 0067: the owner M01 is never deleted
+  begin perform public.member_delete((select id from public.profiles where member_code = 'M01' limit 1), '00000000-0000-4000-8000-0000000066a1'); raise exception 'case the owner failed';
+  exception when invalid_parameter_value then if sqlerrm <> 'owner' then raise exception 'case the owner (message) failed: %', sqlerrm; end if; end;
+  if (select count(*) from public.profiles where id in ('00000000-0000-4000-8000-0000000066a3', '00000000-0000-4000-8000-0000000066a4', '00000000-0000-4000-8000-0000000066a6')) <> 3 or not exists (select 1 from public.profiles where member_code = 'M01') then raise exception 'case a refused delete removed nothing failed'; end if;
   -- the clean member goes: auth.users, profiles and the own rows by cascade; one activity_log row with the name only
   r := public.member_delete('00000000-0000-4000-8000-0000000066a2', '00000000-0000-4000-8000-0000000066a1');
   if r ->> 'ok' <> 'true' or r ->> 'name' <> 'عضو من غير أثر' then raise exception 'case the clean member deleted (answer) failed: %', r; end if;
@@ -80,7 +94,7 @@ end $$;
 reset role;
 do $$ begin
   if exists (select 1 from auth.users where id = '00000000-0000-4000-8000-0000000066a2') then raise exception 'case the clean member deleted from auth.users failed'; end if;
-  if (select count(*) from auth.users where email like 'md-%.dev@ibtekr.local') <> 4 then raise exception 'case the other test users untouched failed'; end if;
+  if (select count(*) from auth.users where email like 'md-%.dev@ibtekr.local') <> 6 then raise exception 'case the other test users untouched failed'; end if;
 end $$;
 do $$ begin raise notice 'rls_member_delete: ok'; end $$;
 rollback;

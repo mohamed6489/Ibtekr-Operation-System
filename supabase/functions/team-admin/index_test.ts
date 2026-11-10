@@ -114,6 +114,8 @@ Deno.test('decision 15 — member_delete: the RPC\'s answer mapped (deleted / ha
   assertEquals([traced.res.status, traced.body], [409, { error: 'has_records', table: 'activity_log' }]);
   const last = await call(mk(() => { throw Object.assign(new Error('last_admin'), { code: '22023' }); }), { action: 'member_delete', member_id: PROFILES[1].id });
   assertEquals([last.res.status, last.body], [409, { error: 'last_admin' }]);
+  const owner = await call(mk(() => { throw Object.assign(new Error('owner'), { code: '22023' }); }), { action: 'member_delete', member_id: PROFILES[1].id });
+  assertEquals([owner.res.status, owner.body], [409, { error: 'owner' }]);
   const gone = await call(mk(() => { throw Object.assign(new Error('no such member'), { code: 'P0002' }); }), { action: 'member_delete', member_id: PROFILES[1].id });
   assertEquals(gone.res.status, 404);
   assertEquals((await call(mk(() => ({ ok: true })), { action: 'member_delete', member_id: ADMIN })).res.status, 400, 'never one\'s own');

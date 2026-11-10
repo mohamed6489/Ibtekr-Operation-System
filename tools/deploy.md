@@ -1161,8 +1161,8 @@ select at, action, entity_id, new_value from public.activity_log where action li
 
 #### 2.7.43 حذف عضو نهائي (المرحلة 13 قرار 15، 10 نوفمبر)
 
-- **الكود:** `0066_member_delete.sql` (RPC `member_delete` لـ `service_role`)، `team-admin` action `member_delete`، الزرار في الموارد البشرية (الكتلة 15).
-- **النشر بالترتيب:** `0066` (Supabase MCP `apply_migration` أو SQL editor) → RLS live `rls_member_delete` → workflow «Deploy functions» بـ `function = team-admin` → الواجهة على `main`.
+- **الكود:** `0066_member_delete.sql` + `0067_member_delete_guard.sql` (RPC `member_delete` لـ `service_role` — الأونر M01 مابيتمسحش، وسجل HR أثر)، `team-admin` action `member_delete`، الزرار في الموارد البشرية (الكتلة 15).
+- **النشر بالترتيب:** `0066` ثم `0067` (Supabase MCP `apply_migration` أو SQL editor) → RLS live `rls_member_delete` → workflow «Deploy functions» بـ `function = team-admin` → الواجهة على `main`.
 - **التحقق:** عضو تجريبي جديد (ماسجّلش دخول) → قايمة العضو › «حذف العضو نهائي» → اتمسح من `auth.users` و`profiles` و`hr_members`؛ عضو له سجل → رسالة «له سجل في «…»» ومافيش أي مسح. `activity_log` `hr.member.delete` بالاسم بس.
 
 ### 2.8 Storage: bucket عقود المبتكرين (المرحلة 3)

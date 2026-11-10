@@ -117,7 +117,9 @@ export function hrRoute(c) {
     }
     if (b.action === 'member_delete') { // decision 15: a trace (an activity_log row as actor, or staff managed) refuses; else the rows go
       const p = prof(b.member_id); if (!p) return json(404, { error: 'not_found' }); if (b.member_id === u.id) return json(400, { error: 'invalid', field: 'member_id' });
+      if (p.member_code === 'M01') return json(409, { error: 'owner' }); // 0067
       if ((mock.activityRows || []).some((r) => r.actor === p.id)) return json(409, { error: 'has_records', table: 'activity_log' });
+      const hist = ['attendance', 'overtime', 'requests'].find((k) => (H[k] || []).some((x) => x.member_id === p.id)); if (hist) return json(409, { error: 'has_records', table: 'hr_' + hist }); // 0067: HR history is a trace
       if (mock.profiles.some((x) => x.manager_id === p.id)) return json(409, { error: 'has_records', table: 'profiles' });
       if (p.role_id === 'admin' && !mock.profiles.some((x) => x.id !== p.id && x.role_id === 'admin' && x.status === 'active')) return json(409, { error: 'last_admin' });
       mock.profiles.splice(mock.profiles.indexOf(p), 1); H.members = H.members.filter((x) => x.member_id !== p.id); H.pay = H.pay.filter((x) => x.member_id !== p.id);

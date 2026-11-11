@@ -339,7 +339,7 @@ function rv(t,b,keys){var a=keys.map(function(k){return t[k]});return function()
 function snapO(o){return{st:o.st,rating:o.rating,cancel:o.cancel,ret:o.ret,cf:o.cf,cdate:o.cdate,confAt:o.confAt,note:o.note,city:o.city,addr:o.addr,dep:o.dep}}
 // what changed on order o since snapshot b → setOrderStatus (pushed to the site by the adapter) / setConfirm / patchOrder
 function ordW(o,b){var ws=WS();if(!ws||!o)return;var same=function(k){return(o[k]==null?'':o[k])===(b[k]==null?'':b[k])};
- if(!same('st')){var x={};if(o.cancel&&o.cancel!==b.cancel)x.cancel=o.cancel;if(o.ret&&o.ret!==b.ret)x.ret=o.ret;if(o.st==='مكتمل'&&o.rating&&o.rating!==b.rating)x.rating=o.rating;wt(ws.setOrderStatus(o.id,o.st,x),rv(o,b,['st','cancel','ret','rating']),function(r){if(r.push==='error')toast('اتحفظت هنا، بس ماوصلتش لـ WooCommerce — المزامنة هتحاول تاني');if((o.st==='قيد الشحن'||o.st==='مكتمل')&&window.IBOrdersOps&&window.IBOrdersOps.orderShipped)window.IBOrdersOps.orderShipped(o.id,o.st)})} // phase 7 decision 9: the order left — its gathered pieces leave the hub // skipped (no slug): silent
+ if(!same('st')){var x={};if(o.cancel&&o.cancel!==b.cancel)x.cancel=o.cancel;if(o.ret&&o.ret!==b.ret)x.ret=o.ret;if(o.st==='مكتمل'&&o.rating&&o.rating!==b.rating)x.rating=o.rating;wt(ws.setOrderStatus(o.id,o.st,x),rv(o,b,['st','cancel','ret','rating']),function(r){if(r.push==='error')toast('اتحفظت هنا، بس ماوصلتش لـ WooCommerce — المزامنة هتحاول تاني');else if(r.subs&&r.subs.length)draw(1); /* the owner 11 Nov: the sub-orders' «حالة الموقع» the push set (an order of several makers) */if((o.st==='قيد الشحن'||o.st==='مكتمل')&&window.IBOrdersOps&&window.IBOrdersOps.orderShipped)window.IBOrdersOps.orderShipped(o.id,o.st)})} // phase 7 decision 9: the order left — its gathered pieces leave the hub // skipped (no slug): silent
  var cp={};if(!same('cdate'))cp.confAt=o.cdate||null;else if(!same('confAt')&&!o.cdate)cp.confAt=o.confAt||null; // one column: confirm_at
  if(!same('cf')||'confAt' in cp)wt(ws.setConfirm(o.id,same('cf')?null:o.cf,cp),rv(o,b,['cf','cdate','confAt']));
  var pp={};['note','city','addr'].forEach(function(k){if(!same(k))pp[k]=o[k]||''});if(Number(o.dep)!==Number(b.dep))pp.dep=Number(String(o.dep).replace(/[^\d.]/g,''))||0; // cleared → 0
@@ -412,18 +412,20 @@ function siteChange(t){var s=allSub(t.dataset.wst);if(!s)return;var o=OM[s.oid],
   if(r&&r.ok){o.subs.forEach(function(x){if(String(x.sid)===String(s.sid))x.raw=r.status});draw(1);toast('الأوردر الفرعي #'+s.sid+' بقى «'+siteLbl(r.status)+'» على الموقع');return}
   draw(1);toast(r&&r.reason==='forbidden'?'مش مسموح لك تغيّر حالة الأوردرات':r&&r.reason==='push_disabled'?'الكتابة على الموقع متقفلة — الحالة ماتغيّرتش':r&&r.reason==='missing'?'الأوردر الفرعي مش موجود على الموقع':r&&r.reason==='site'?'الموقع ماقبلش الحالة دي — ماتغيّرتش':'مافيش اتصال — الحالة ماتغيّرتش')},
   function(){draw(1);toast('مافيش اتصال — الحالة ماتغيّرتش')})}
-/* the owner 11 Nov («امسح منتج بعينه من الاوردر»): «مسح المنتج» — the product off its maker's sub-order and off the order on the site
-   (woo-sync line_trash); the last product of a sub-order → «مسح الأوردر الفرعي», the last of the order → «مسح» the order */
+/* the owner 11 Nov («امسح منتج بعينه من الاوردر»): «مسح المنتج» — the product off its maker's sub-order on the site (woo-sync
+   line_trash); the order on the site is written only when it has one maker — with sub-orders it keeps the product and its total (the
+   owner 11 Nov, «زي الـ automation»: Dokan recreates the sub-orders of an order edited through the API); the last product of a
+   sub-order → «مسح الأوردر الفرعي», the last of the order → «مسح» the order */
 function confirmLineDelete(n){var s=allSub(n);if(!s)return;var o=OM[s.oid];if(!o||o.st==='مكتمل'||o.st==='استرجاع')return;
  if(o.subs.length===1){toast('ده المنتج الوحيد في الأوردر — هيتمسح الأوردر كله');confirmDelete(o.id);return}
  var mine=o.subs.filter(function(x){return String(x.sid)===String(s.sid)});
  if(String(s.sid)!==String(o.id)&&mine.length===1){toast('ده المنتج الوحيد في الأوردر الفرعي #'+s.sid+' — هيتمسح الأوردر الفرعي كله');confirmSubDelete(n);return}
- var t=Number(s.tot)||0;
- var note='<div class="nt"><b data-line-del>'+esc(s.prod)+' × '+(Number(s.qty)||1)+' · '+esc(fmt(t))+' ج.م · '+esc(s.vendor||'')+'</b><br>المنتج هيتشال من الأوردر الفرعي #'+esc(s.sid)+' ومن الأوردر الأصلي IB-'+esc(o.id)+' على الموقع (إجماليه هيقل '+esc(fmt(t))+' ج.م)، وهيختفي من الأوردرات والحسابات والتقارير، وأي حجز ليه في المخزن هيتفك.</div>';
+ var t=Number(s.tot)||0,multi=String(s.sid)!==String(o.id);
+ var note='<div class="nt"><b data-line-del>'+esc(s.prod)+' × '+(Number(s.qty)||1)+' · '+esc(fmt(t))+' ج.م · '+esc(s.vendor||'')+'</b><br>'+(multi?'المنتج هيتشال من الأوردر الفرعي #'+esc(s.sid)+' على الموقع، والأوردر الأصلي IB-'+esc(o.id)+' على الموقع هيفضل زي ما هو بإجماليه':'المنتج هيتشال من الأوردر IB-'+esc(o.id)+' على الموقع (إجماليه هيقل '+esc(fmt(t))+' ج.م)')+'، وهيختفي من الأوردرات والحسابات والتقارير هنا، وأي حجز ليه في المخزن هيتفك.</div>';
  delDialog('مسح المنتج من IB-'+o.id+'؟',note,'مسح المنتج',function(reason,ok,close){var ws=WS();
   if(!ws||!ws.deleteLine){close();o.subs=o.subs.filter(function(x){return x!==s});o.tot=Math.max(0,(Number(o.tot)||0)-t);draw(1);toast('اتمسح المنتج من IB-'+o.id);return}
   ws.deleteLine(o.id,s.itemId,reason).then(function(r){
-   if(r&&r.ok){close();o.subs=o.subs.filter(function(x){return x!==s});o.tot=r.total!=null?r.total:Math.max(0,(Number(o.tot)||0)-t);draw(1);toast('اتمسح المنتج — إجمالي IB-'+o.id+' بقى '+fmt(Number(o.tot)||0)+' ج.م');return}
+   if(r&&r.ok){close();o.subs=o.subs.filter(function(x){return x!==s});if(r.total!=null)o.tot=r.total;draw(1);toast(r.total!=null?'اتمسح المنتج — إجمالي IB-'+o.id+' بقى '+fmt(Number(o.tot)||0)+' ج.م':'اتمسح المنتج من الأوردر الفرعي #'+s.sid+' — الأوردر الأصلي على الموقع زي ما هو');return}
    if(r&&r.reason==='only_in_sub'){close();confirmSubDelete(n);return}
    if(r&&r.reason==='only_line'){close();confirmDelete(o.id);return}
    busy(ok,0);toast(r&&r.reason==='forbidden'?'مش مسموح لك تمسح من الأوردرات':r&&r.reason==='push_disabled'?'الكتابة على الموقع متقفلة — المنتج ماتمسحش':r&&r.reason==='closed'?'الأوردر مكتمل أو مسترجع — مايتمسحش منه':r&&r.reason==='sub_line'?'مش لاقيين المنتج ده بالظبط في الأوردر الفرعي على الموقع — ماتمسحش':r&&r.reason==='missing'?'المنتج مش موجود — يمكن اتمسح قبل كده':r&&r.reason==='site'?'الموقع ماردش — المنتج ماتمسحش':'مافيش اتصال — المنتج ماتمسحش')},
@@ -461,19 +463,19 @@ function confirmDelete(id){var o=OM[id];if(!o||o.st==='مكتمل'||o.st==='اس
   if(!ws||!ws.deleteOrder){close();removeOrder(id);toast('اتمسح الأوردر IB-'+id);return}
   ws.deleteOrder(id,reason,{cancel:cancelFirst}).then(function(r){if(r&&r.ok){close();removeOrder(id);toast('اتمسح الأوردر IB-'+id+(r.site==='ok'?' واتحط في مهملات الموقع':r.site==='push_disabled'?' — الموقع ماتلمسش (الدفع متقفل)':''));return}busy(ok,0);toast(delFail(r))},function(){busy(ok,0);toast('مافيش اتصال — الأوردر ماتمسحش')})})}
 /* decision 54 (owner 10 Nov — «مسح الأوردر الفرعي»): the sub-order's lines (one Dokan sub-order may hold several) in a popup with one
-   reason; the sub-order goes to the site's trash, its lines leave the parent order (WooCommerce recalculates the total) and every
-   screen (the orders, the accounts, the reports — the lines are flagged removed), the hub's holds on them are released. The order's only
-   sub-order → the order's own «مسح». */
+   reason; the sub-order goes to the site's trash, its lines leave every screen here (the orders, the accounts, the reports — flagged
+   removed), the hub's holds on them are released. The parent order on the site keeps them and its total (the owner 11 Nov, «زي الـ
+   automation»: Dokan recreates the sub-orders of an order edited through the API). The order's only sub-order → the order's own «مسح». */
 function confirmSubDelete(n){var s=allSub(n);if(!s)return;var o=OM[s.oid];if(!o||o.st==='مكتمل'||o.st==='استرجاع')return;
  var mine=o.subs.filter(function(x){return String(x.sid)===String(s.sid)}),rest=o.subs.filter(function(x){return String(x.sid)!==String(s.sid)});
  if(!rest.length){toast('ده الأوردر الفرعي الوحيد — هيتمسح الأوردر كله');confirmDelete(o.id);return}
  var sum=mine.reduce(function(a,x){return a+(Number(x.tot)||0)},0);
  var note='<div class="nt"><b data-sub-count>'+mine.length+(mine.length>2&&mine.length<11?' سطور':' سطر')+' · '+esc(s.vendor||'')+'</b><ul class="dlist">'+mine.map(function(x){return'<li>'+esc(x.prod)+' × '+(Number(x.qty)||1)+' · '+esc(fmt(Number(x.tot)||0))+' ج.م</li>'}).join('')+'</ul>'
-  +'الأوردر الفرعي هيتحط في سلة مهملات الموقع، وسطوره هتتشال من الأوردر الأصلي IB-'+esc(o.id)+' (إجماليه هيقل '+esc(fmt(sum))+' ج.م)، وهيختفي من الأوردرات والحسابات والتقارير، وأي حجز ليه في المخزن هيتفك.</div>';
+  +'الأوردر الفرعي هيتحط في سلة مهملات الموقع، والأوردر الأصلي IB-'+esc(o.id)+' على الموقع هيفضل زي ما هو بمنتجاته وإجماليه. سطوره هتختفي من الأوردرات والحسابات والتقارير هنا، وأي حجز ليه في المخزن هيتفك.</div>';
  delDialog('مسح الأوردر الفرعي #'+s.sid+'؟',note,'مسح الأوردر الفرعي',function(reason,ok,close){var ws=WS();
   if(!ws||!ws.deleteSub){close();o.subs=rest;o.tot=Math.max(0,(Number(o.tot)||0)-sum);draw(1);toast('اتمسح الأوردر الفرعي #'+s.sid);return}
   ws.deleteSub(o.id,s.sid,reason).then(function(r){
-   if(r&&r.ok){close();o.subs=rest;o.tot=r.total!=null?r.total:Math.max(0,(Number(o.tot)||0)-sum);draw(1);toast('اتمسح الأوردر الفرعي #'+s.sid+' — إجمالي IB-'+o.id+' بقى '+fmt(Number(o.tot)||0)+' ج.م');return}
+   if(r&&r.ok){close();o.subs=rest;if(r.total!=null)o.tot=r.total;draw(1);toast('اتمسح الأوردر الفرعي #'+s.sid+(r.total!=null?' — إجمالي IB-'+o.id+' بقى '+fmt(Number(o.tot)||0)+' ج.م':' — الأوردر الأصلي على الموقع زي ما هو'));return}
    if(r&&r.reason==='only'){close();confirmDelete(o.id);return}
    busy(ok,0);toast(r&&r.reason==='forbidden'?'مش مسموح لك تمسح أوردرات':r&&r.reason==='push_disabled'?'الكتابة على الموقع متقفلة — الأوردر الفرعي ماتمسحش':r&&r.reason==='closed'?'الأوردر مكتمل أو مسترجع — مايتمسحش منه':r&&r.reason==='missing'?'الأوردر الفرعي مش موجود — يمكن اتمسح قبل كده':r&&r.reason==='site'?'الموقع ماردش — الأوردر الفرعي ماتمسحش':'مافيش اتصال — الأوردر الفرعي ماتمسحش')},
    function(){busy(ok,0);toast('مافيش اتصال — الأوردر الفرعي ماتمسحش')})})}

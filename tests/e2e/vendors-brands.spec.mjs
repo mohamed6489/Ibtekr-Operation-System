@@ -72,10 +72,10 @@ async function typeDate(page, inputId, iso) { const el = modal(page).locator('#'
 const cancel = (page) => modal(page).getByRole('button', { name: 'إلغاء' }).click(); // Escape would close the drawer under the modal too
 // phase 5.5 (decision 3): the kit's closed multi-value filter — clear the ticked statuses, tick the wanted one, apply
 async function statusFilter(page, label) {
-  await page.locator('#vendors [data-fm-btn="vendors"]').click();
-  await page.locator('[data-fm-menu="vendors"] [data-fm-clear]').click();
-  if (label !== 'الكل') await page.locator('[data-fm-menu="vendors"] [data-fm^="status:"]', { hasText: label }).click(); // «الكل» = no status ticked
-  await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click'); // the menu's foot may sit below the viewport
+  await page.locator('#vendors [data-fm-row="vendors"] [data-fm-key="status"] [data-mp-btn]').click(); // B5: the «الحالة» dropdown of the filter row
+  await page.locator('[data-mp-menu] [data-mp-clear]').click();
+  if (label !== 'الكل') await page.locator('[data-mp-menu] [data-mp-opt]', { hasText: label }).click(); // «الكل» = no status ticked
+  await page.locator('[data-mp-menu] [data-mp-apply]').dispatchEvent('click'); // the menu's foot may sit below the viewport
 }
 // a hand-added brand of Art Craft in the seed (no store), for the search and the grey line
 const seedWoodRope = (m, name = 'Wood & Rope') => { m.brands.push({ id: 'd0000000-0000-4000-8000-000000000009', name, code: 'W', aliases: ['W&R'], store_vendor_id: null, origin_vendor_id: V1, created_by: 'صفوت كمال', created_at: '2026-10-22T00:00:00Z', updated_at: '2026-10-22T00:00:00Z' }); m.brandOwners.push({ id: 99, brand_id: 'd0000000-0000-4000-8000-000000000009', vendor_id: V1, since: '2026-09-01', return_on: null, reason: null, set_by: 'صفوت كمال', created_at: '2026-10-22T00:00:00Z' }); };

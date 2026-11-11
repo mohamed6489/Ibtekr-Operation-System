@@ -339,9 +339,9 @@ test('the refresh needs accounts.view; ops (view P) may refresh, Dokan down → 
 test('5.5: the moves log has its own period (wide by default) and a bulk export; the expenses details take a closed filter + sort with chips', async ({ page }) => {
   await openAccounts(page);
   // expenses details: the filter next to the columns button
-  await main(page).locator('[data-fm-btn="exp"]').click();
-  await page.locator('[data-fm-menu="exp"] [data-fm="cat:المرتبات"]').click();
-  await page.locator('[data-fm-menu="exp"] [data-fm-apply]').dispatchEvent('click');
+  await main(page).locator('[data-fm-row="exp"] [data-fm-key="cat"] [data-mp-btn]').click(); // B5: the filter row's «البند» dropdown
+  await page.locator('[data-mp-menu] [data-mp-opt="المرتبات"]').click();
+  await page.locator('[data-mp-menu] [data-mp-apply]').dispatchEvent('click');
   const details = main(page).locator('.table-card', { hasText: 'تفاصيل المصروفات' });
   await expect(details.locator('.af-row .af-chip')).toHaveCount(1);
   await expect(details.locator('tbody tr')).toHaveCount(1);

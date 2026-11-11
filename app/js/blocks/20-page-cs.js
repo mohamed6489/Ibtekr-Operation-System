@@ -658,29 +658,18 @@
     if (f.problems) ch('problems', 'عندهم مشكلة', { problems: true }, () => { f.problems = false; });
     return K.ActiveFilters({ id: 'customers', chips, total: rows.length, noun: 'عميل', onClear: () => { Object.assign(f, { q: '', stage: '', tag: '', rating: '', prov: '', chan: '', problems: false, moods: [], provs: [], chans: [] }); f.page = 1; R(); } });
   }
+  // B5 (the owner, 11 Nov): the filter is a row of dropdowns (search + ticks) — الحالة · التقييم · المحافظة · القناة · أخرى; the rating keeps
+  // one threshold (two ticked = the lower), «عندهم مشكلة بس» a single tick
   function custFilterMenu(f, onApply) {
-    const wrap = h('div', { class: 'pop-anchor cfm', 'data-popover-root': '' });
-    const n0 = custFilterCount(f);
-    const btn = h('button', { type: 'button', class: 'select sm' + (n0 ? ' has-val' : ''), 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': 'فلتر العملاء', 'data-cust-filter-btn': '' }, Icon('chevD', 'sm'), h('span', { class: 'val' }, Icon('filter', 'sm'), ' فلتر' + (n0 ? ' (' + n0 + ')' : '')));
-    const pop = U.popover(wrap, btn, (close) => {
-      const d = { moods: [...(f.moods || [])], rating: f.rating || '', provs: [...(f.provs || [])], chans: [...(f.chans || [])], problems: !!f.problems };
-      const cnt = h('span', null); const upd = () => { const n = matchFilters(Object.assign({}, f, d)).length; cnt.textContent = 'اعرض ' + n + ' عميل'; };
-      const box = (on) => h('span', { class: 'mchk', 'aria-hidden': 'true' }, on ? Icon('check', 'sm') : null);
-      const opt = (label, content, isOn, toggle, attrs, radio) => { const b = h('button', Object.assign({ type: 'button', class: 'opt multi', role: radio ? 'menuitemradio' : 'menuitemcheckbox', 'aria-checked': String(isOn()), 'aria-label': label }, attrs || {}), box(isOn()), content || label);
-        b.addEventListener('click', (e) => { e.stopPropagation(); toggle(); m.querySelectorAll('.opt.multi').forEach((x) => { const on = x._on(); x.setAttribute('aria-checked', String(on)); x.querySelector('.mchk').replaceChildren(...(on ? [Icon('check', 'sm')] : [])); }); upd(); }); b._on = isOn; return b; };
-      const arr = (key, v) => () => { const a = d[key]; const i = a.indexOf(v); if (i > -1) a.splice(i, 1); else a.push(v); };
-      const provs = [...new Set(S.customers.map((x) => x.province).filter((x) => x && x !== '—'))];
-      const grp = (t) => h('div', { class: 'opt-group t-small', role: 'presentation' }, t);
-      const m = h('div', { class: 'menu view-menu cust-filter-menu', role: 'menu', 'aria-label': 'فلتر العملاء', 'data-cust-filter-menu': '' },
-        grp('الحالة'), MOODS.map(([t, tone]) => opt(t, K.Tag(tone, t), () => d.moods.includes(t), arr('moods', t), { 'data-cf': 'mood:' + t })),
-        grp('التقييم'), [['4', '4 نجوم وأكتر'], ['3', '3 نجوم وأكتر']].map(([v, l]) => opt(l, null, () => d.rating === v, () => { d.rating = d.rating === v ? '' : v; }, { 'data-cf': 'rating:' + v }, true)),
-        provs.length ? [grp('المحافظة'), provs.map((p) => opt(p, null, () => d.provs.includes(p), arr('provs', p), { 'data-cf': 'prov:' + p }))] : null,
-        grp('القناة'), [['whatsapp', 'واتساب'], ['messenger', 'ماسنجر'], ['instagram', 'إنستجرام'], ['tiktok', 'تيك توك']].map(([v, l]) => opt(l, h('span', { class: 'row-f' }, PlatIcon(v), l), () => d.chans.includes(v), arr('chans', v), { 'data-cf': 'chan:' + v })),
-        grp('أخرى'), opt('عندهم مشكلة بس', null, () => d.problems, () => { d.problems = !d.problems; }, { 'data-cf': 'problems' }),
-        h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-cf-clear': '' }, onClick: () => { d.moods = []; d.rating = ''; d.provs = []; d.chans = []; d.problems = false; m.querySelectorAll('.opt.multi').forEach((x) => { x.setAttribute('aria-checked', 'false'); x.querySelector('.mchk').replaceChildren(); }); upd(); } }),
-          Button({ size: 'sm', type: 'primary', label: cnt, attrs: { 'data-cf-apply': '' }, onClick: () => { Object.assign(f, d); f.page = 1; if (f.picked) f.picked.clear(); close(); if (onApply) onApply(); else R(); } })));
-      menuKeysLite(m); upd(); return m; });
-    btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
+    const toF = (d) => ({ moods: d.moods.slice(), rating: d.rating.length ? String(Math.min(...d.rating.map(Number))) : '', provs: d.provs.slice(), chans: d.chans.slice(), problems: d.problems.length > 0 });
+    const provs = [...new Set(S.customers.map((x) => x.province).filter((x) => x && x !== '—'))];
+    const groups = [{ key: 'moods', label: 'الحالة', options: MOODS.map(([t]) => [t, t]) }, { key: 'rating', label: 'التقييم', options: [['4', '4 نجوم وأكتر'], ['3', '3 نجوم وأكتر']] }]
+      .concat(provs.length ? [{ key: 'provs', label: 'المحافظة', options: provs.map((p) => [p, p]) }] : [])
+      .concat([{ key: 'chans', label: 'القناة', options: [['whatsapp', 'واتساب'], ['messenger', 'ماسنجر'], ['instagram', 'إنستجرام'], ['tiktok', 'تيك توك']] }, { key: 'problems', label: 'أخرى', options: [['1', 'عندهم مشكلة بس']] }]);
+    const el = K.FilterMenu({ id: 'cust', label: 'فلتر العملاء', noun: 'عميل', groups, value: { moods: f.moods || [], rating: f.rating ? [f.rating] : [], provs: f.provs || [], chans: f.chans || [], problems: f.problems ? ['1'] : [] },
+      count: (d) => matchFilters(Object.assign({}, f, toF(d))).length,
+      onApply: (d) => { Object.assign(f, toF(d)); f.page = 1; if (f.picked) f.picked.clear(); if (onApply) onApply(); else R(); } });
+    el.classList.add('cfm'); return el;
   }
   let csTimer = null;
   function custSearch(f) {
@@ -688,7 +677,6 @@
     q.addEventListener('input', () => { clearTimeout(csTimer); csTimer = setTimeout(() => { const pos = q.selectionStart; f.q = q.value; f.page = 1; R(); const n = document.getElementById('cust-q'); if (n) { n.focus(); try { n.setSelectionRange(pos, pos); } catch (e) { /* */ } } }, 250); });
     return h('label', { class: 'search search-field', 'data-cust-search': '' }, Icon('search', 'sm'), q);
   }
-  function menuKeysLite(menu) { menu.addEventListener('keydown', (e) => { const items = [...menu.querySelectorAll('.opt.multi')]; const i = items.indexOf(document.activeElement); if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); } if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); } }); }
   // ======================= KPI «التفاصيل» (owner, 22 Oct) — on the real lists =======================
   const pctS = (a, b) => (b ? Math.round((a / b) * 100) : 0) + '%';
   const custRow = (cu) => { const r = ratingOf(cu); return [cu.name, moodOf(cu), String(cu.orders), K.n0(cu.total) + ' ج.م', cu.lastOrderDays == null ? '—' : 'من ' + cu.lastOrderDays + ' يوم', r ? String(r.value) : '—']; };

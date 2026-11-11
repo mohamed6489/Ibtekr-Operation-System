@@ -625,7 +625,7 @@ test('decision 62: the tabs are نظرة عامة · إضافة · سجل الم
   await expect(pg.locator('.kpi[aria-label="خلص ستوكه ولسه منشور"]')).toHaveCount(0); // B3: the stock tile and table are gone
   await expect(pg.locator('section', { hasText: 'خلص ستوكه ولسه منشور' })).toHaveCount(0);
   await expect(pg.locator('[data-ov-two] > section')).toHaveCount(2); // the two tables side by side
-  await expect(pg.locator('[data-ov-two] [data-cols], [data-ov-two] [data-fm-btn], [data-ov-two] [data-sm-btn]')).toHaveCount(0); // top-10 lists: no columns / filter / sort buttons
+  await expect(pg.locator('[data-ov-two] [data-cols], [data-ov-two] [data-fm-btn], [data-ov-two] [data-fm-row], [data-ov-two] [data-sm-btn]')).toHaveCount(0); // top-10 lists: no columns / filter / sort buttons
   await expect(pg.locator('[data-ov-two]')).toContainText('المنتجات الأكثر مبيعًا — أعلى 10');
   await expect(pg.locator('[data-ov-two]')).toContainText('الأقسام الأكثر مبيعًا — أعلى 10');
   // a product action, then the log

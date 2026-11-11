@@ -181,7 +181,7 @@ test('bulk: priority for the selected tickets, one RPC each', async ({ page }) =
   await openTickets(page);
   await page.locator('#tickets [data-bulk-box="TKT-0001"]').click();
   await page.locator('#tickets [data-bulk-box="TKT-0002"]').click();
-  await page.getByRole('button', { name: 'الأولوية' }).click();
+  await page.locator('#tickets .bulk-bar').getByRole('button', { name: 'الأولوية' }).click(); // B5: the filter row has a «الأولوية» dropdown too
   const m = modal(page, 'تغيير الأولوية');
   await pick(page, m, 'v', 'عاجل');
   await m.getByRole('button', { name: 'طبّق' }).click();

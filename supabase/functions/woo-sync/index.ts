@@ -793,8 +793,9 @@ async function storePhoto(run: Run, ctx: Ctx, vendorId: string, storeId: number,
 // Then our row takes the store (only while it still has none): woo_vendor_id, the snapshot of the site's answer, the mirrors, no
 // push pending; the maker's own brand (the automatic one) is tied to the store as a synced store's is; a photo kept before the store
 // existed becomes the store's photo. The site's login or e-mail already taken → the Dokan store with that e-mail is linked when no
-// maker of ours has it and it is ours to link: an earlier try for this maker that failed on the way (maybe made), or the admin's
-// call (a store made by hand on the site) — anyone else → 409 store_unlinked; a maker of ours has it → 409 exists_store. A maker
+// maker of ours has it and it is ours to link: an earlier try for this maker and this account that failed on the way (maybe made),
+// the store registered around it, or the admin's call (a store made by hand on the site) — anyone else → 409 store_unlinked; a
+// maker of ours has it → 409 exists_store. A maker
 // with a store, without a login, or with no name → 409. Gated by WOO_PUSH_ENABLED; a person only (never the sync secret).
 const SHOP_URL = /^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/;
 const shopOf = (s: string) => s.toLowerCase().replace(/[._]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
@@ -825,6 +826,8 @@ async function vendorStore(run: Run, args: Json, member: ReturnType<NonNullable<
     await logSync(run.db, { ...entry, result: 'skipped', detail: { vendor_id: vendorId, reason: 'push_disabled' } });
     return json(200, { action: 'vendor_store', result: 'skipped', reason: 'push_disabled' });
   }
+  // the account this call asks for, as a digest (no e-mail in the log): a failed try is bound to it — see the linking below
+  const attempt = Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256', new TextEncoder().encode(`${email}\n${username}\n${shop}`)))).map((b) => b.toString(16).padStart(2, '0')).join('');
   // what the member may send: the commission and the bank follow their own rules (as push_vendor's)
   const isAdmin = member ? (await member.rpc('is_admin')).data === true : false;
   const may = async (key: string) => { if (!member) return false; if (isAdmin) return true; const { data, error: e } = await member.rpc('has_perm', { key }); return !e && data === 'F'; };
@@ -852,11 +855,16 @@ async function vendorStore(run: Run, args: Json, member: ReturnType<NonNullable<
       if (found) {
         const { data: other } = await run.db.from('vendors').select('id, name').eq('woo_vendor_id', wooId(found.id)).maybeSingle();
         if (other) { await logSync(run.db, { ...entry, result: 'skipped', detail: { vendor_id: vendorId, reason: 'exists_store', store: wooId(found.id) } }); return json(409, { error: 'exists_store', name: String(other.name ?? '') }); }
-        // (security review) a store is linked by its e-mail only when it is ours — an earlier vendor_store call for this very maker that
-        // failed on the way (a 5xx, a timeout, an answer without the store: maybe made) — or by the admin (a store made by hand on the
-        // site); anyone else cannot claim one of the site's stores by typing its e-mail
-        const { data: tries } = await run.db.from('woo_sync_log').select('id').eq('entity', 'vendor').eq('entity_id', vendorId).eq('action', 'vendor_store').eq('result', 'error').limit(1);
-        if (!isAdmin && !(Array.isArray(tries) && tries.length)) {
+        // (security review) a store is linked by its e-mail only when it is ours — an earlier vendor_store call for this very maker and
+        // this very account (e-mail, username, shop URL: the digest) that failed on the way (a 5xx, a timeout, an answer without the
+        // store: maybe made), the store registered on the site around that try (WordPress keeps user_registered in GMT; ±15 min) — or
+        // by the admin (a store made by hand on the site). Anyone else cannot claim a store of the site by typing its e-mail, nor by
+        // changing the login's e-mail after a failed try.
+        const regRaw = typeof found.registered === 'string' ? found.registered.trim() : '';
+        const reg = regRaw ? Date.parse(regRaw.replace(' ', 'T') + (/(?:[zZ]|[+-]\d\d:?\d\d)$/.test(regRaw) ? '' : 'Z')) : NaN;
+        const { data: tries } = await run.db.from('woo_sync_log').select('at, detail').eq('entity', 'vendor').eq('entity_id', vendorId).eq('action', 'vendor_store').eq('result', 'error').order('at', { ascending: false }).limit(20);
+        const ours = Number.isFinite(reg) && (Array.isArray(tries) ? tries : []).some((t: Json) => isObj(t) && isObj(t.detail) && t.detail.attempt === attempt && Math.abs(Date.parse(String(t.at)) - reg) <= 15 * 60000);
+        if (!isAdmin && !ours) {
           await logSync(run.db, { ...entry, result: 'skipped', detail: { vendor_id: vendorId, reason: 'store_unlinked', store: wooId(found.id) } });
           return json(409, { error: 'store_unlinked' });
         }
@@ -872,11 +880,11 @@ async function vendorStore(run: Run, args: Json, member: ReturnType<NonNullable<
       // another refusal (4xx: the site's answer, nothing made) or a failure on the way (5xx / timeout: maybe made — a retry links it)
       const final = e.status >= 400 && e.status < 500 && ![401, 403, 408, 429].includes(e.status);
       const scrub = (s: string) => ctx.woo.scrub(s).split(password).join('***'); // an answer that echoes the request never logs the password
-      await logSync(run.db, { ...entry, result: final ? 'skipped' : 'error', detail: { vendor_id: vendorId, ...(final ? { reason: 'refused' } : {}), error: errorText(e, scrub) } });
+      await logSync(run.db, { ...entry, ...(final ? {} : { at: run.now() }), result: final ? 'skipped' : 'error', detail: { vendor_id: vendorId, ...(final ? { reason: 'refused' } : { attempt }), error: errorText(e, scrub) } });
       return json(final ? 409 : 502, final ? { error: 'refused', code } : { error: 'woo_error', action: 'vendor_store' });
     }
   }
-  if (store === null) { await logSync(run.db, { ...entry, result: 'error', detail: { vendor_id: vendorId, error: 'no_store_in_answer' } }); return json(502, { error: 'woo_error', action: 'vendor_store' }); }
+  if (store === null) { await logSync(run.db, { ...entry, at: run.now(), result: 'error', detail: { vendor_id: vendorId, attempt, error: 'no_store_in_answer' } }); return json(502, { error: 'woo_error', action: 'vendor_store' }); }
   const storeId = wooId(store.id) as number;
   const mapped = mapStore(store) as Json; mapped.bank_digest = await bankDigest(mapped.bank);
   const now = run.now();

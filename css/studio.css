@@ -192,3 +192,10 @@ i.sw-0{background:var(--color-chart-2)}i.sw-1{background:var(--color-chart-3)}i.
 .ver{padding:0;border:2px solid transparent;border-radius:var(--radius-sm);background:none;cursor:pointer}
 .ver:hover,.ver:focus-visible{border-color:var(--color-brand-default);outline:0}
 @media (max-width:767px){.img-modal{grid-template-columns:1fr}.img-view .thumb.big{width:100%;height:auto;aspect-ratio:7/8}}
+/* B4 (the owner, 11 Nov): the picker in the categories tab's look — a main category on a green row (beige text), the subs beige with
+   «-» / «--» / «---» */
+.cat-pick .cat-row.cat-pk-main{background:var(--color-brand-default);color:var(--color-text-on-brand);border-bottom-color:rgba(255,247,239,.25)}
+.cat-pick .cat-row.cat-pk-main .cb span{color:inherit}
+.cat-pick .cat-row.cat-pk-main .cat-toggle{border-color:rgba(255,247,239,.45);color:var(--color-text-on-brand)}
+.cat-pick .cat-row.cat-pk-sub{background:var(--color-bg-container);grid-template-columns:auto 28px minmax(0,1fr)}
+.cat-pick .cat-pk-main.cat-hit .cb span,.cat-pick .cat-pk-main .cat-hit span{color:var(--color-text-gold)}

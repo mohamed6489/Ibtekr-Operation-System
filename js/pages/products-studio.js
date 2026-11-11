@@ -799,7 +799,9 @@
   const catPath = (id) => { const c = catsAll().find((x) => x.id === Number(id)); return c ? c.path : '#' + id; };
   // the picker (decision 14, the owner 29 Oct): the site's tree with + / − like the commission tree (main categories first), the search
   // opening the branches it finds, the chosen ones as chips on top; ticking a sub-category ticks the ones above it (PD.catToggle)
-  function catsPicker(title, cur, onDone) {
+  // B4 (the owner, 11 Nov): the categories tab's look — a main category on a green row, its subs on beige rows with «-» / «--» / «---» —
+  // and opts.noNew drops «+ قسم جديد» (the records' «تغيير القسم» and the categories tab's bulk bar pick from what is there)
+  function catsPicker(title, cur, onDone, opts = {}) {
     const tree = PD.catTree(catsAll().filter((c) => !/^uncategori[sz]ed$/i.test(c.name)));
     let sel = { chosen: new Set(cur || []), auto: new Set() }; let found = null;
     const open = new Set([...sel.chosen].flatMap((id) => PD.catAncestors(tree, Number(id)))); const shut = new Set();
@@ -825,7 +827,7 @@
           onClick: () => { if (isOpen) { open.delete(c.id); shut.add(c.id); } else { open.add(c.id); shut.delete(c.id); } drawList(); refocus('[data-cat-toggle="' + c.id + '"]'); } }, isOpen ? '−' : '+') : h('span', { class: 'cat-toggle-sp' });
         const cb = K.Checkbox({ label: c.name, checked: sel.chosen.has(c.id), onChange: (v) => set(c.id, v) });
         cb.setAttribute('data-cat-pick', String(c.id)); if (found && found.hits.has(c.id)) cb.classList.add('cat-hit');
-        out.push(h('div', { class: 'cat-row', style: '--d:' + depth }, tog, cb));
+        out.push(h('div', { class: 'cat-row ' + (depth ? 'cat-pk-sub' : 'cat-pk-main'), style: '--d:' + depth }, depth ? h('span', { class: 'cat-dash', 'aria-hidden': 'true' }, '-'.repeat(Math.min(depth, 3))) : null, tog, cb));
         if (isOpen) out.push(...rows(kids, depth + 1, all || (!!found && found.hits.has(c.id))));
       }
       return out;
@@ -837,7 +839,7 @@
     function set(id, on) { sel = PD.catToggle(tree, sel, Number(id), on); drawChips(); drawList(); refocus('[data-cat-pick="' + Number(id) + '"]'); }
     inp.addEventListener('input', () => { found = PD.catSearch(tree, inp.value); shut.clear(); drawList(); });
     drawChips(); drawList();
-    m.setBody(inp, chips, list, Button({ size: 'sm', type: 'text', label: '+ قسم جديد', onClick: () => { m.close(); newCategory(); } }));
+    m.setBody(...[inp, chips, list, opts.noNew ? null : Button({ size: 'sm', type: 'text', label: '+ قسم جديد', onClick: () => { m.close(); newCategory(); } })].filter(Boolean));
     m.setFooter(Button({ label: 'إلغاء', onClick: () => m.close() }), Button({ type: 'primary', label: 'تمام', onClick: () => { m.close(); onDone([...sel.chosen]); } }));
   }
   function newCategory() {

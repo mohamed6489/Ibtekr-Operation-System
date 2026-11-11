@@ -18,7 +18,7 @@
     withdraw_create: 'بنعمل طلب السحب على Dokan…', product_get: 'بنجيب المنتج من الموقع…', product_save: 'بنحفظ المنتج على الموقع…',
     products_batch: 'بنحدّث المنتجات على الموقع…', products_trash: 'بننقل المنتجات للمهملات على الموقع…', products_restore: 'بنرجّع المنتجات من المهملات…',
     products_vendor: 'بننقل المنتجات لمبتكر تاني…', product_images_add: 'بنحط الصور على المنتج…', product_duplicate: 'بنعمل نسخة من المنتج على الموقع…',
-    category_create: 'بنعمل القسم على الموقع…', studio_upload: 'بنرفع المنتج على الموقع…', studio_sheet: 'بنقرا الشيت…', inventory_push: 'بنحدّث الكمية على الموقع…',
+    category_create: 'بنعمل القسم على الموقع…', category_get: 'بنجيب القسم من الموقع…', category_update: 'بنعدّل القسم على الموقع…', category_delete: 'بنحذف القسم من الموقع…', studio_upload: 'بنرفع المنتج على الموقع…', studio_sheet: 'بنقرا الشيت…', inventory_push: 'بنحدّث الكمية على الموقع…',
     vendors: 'بنزامن المبتكرين مع الموقع…', orders: 'بنزامن الأوردرات مع الموقع…', products: 'بنزامن المنتجات مع الموقع…', all: 'بنزامن كل حاجة مع الموقع…',
     accounts: 'بنحدّث حسابات Dokan…', categories: 'بنزامن الأقسام مع الموقع…', states: 'بنزامن المحافظات…', register_webhooks: 'بنسجّل الـ webhooks على الموقع…',
     carts: 'بنجيب السلل المتروكة…', probe_store: 'بنفحص الموقع…', probe_dokan: 'بنفحص Dokan…', probe_products: 'بنفحص المنتجات على الموقع…',

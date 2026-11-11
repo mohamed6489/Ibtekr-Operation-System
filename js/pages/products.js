@@ -198,58 +198,208 @@
     return [statusChips(), filters, bulk, h('section', { class: 'card sec own-filter' }, h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, 'سجل المنتجات'), h('div', { class: 't-small sub' }, K.n0(list.length) + ' منتج معروض')), h('div', { class: 'acts' }, prSortMenu())), h('div', { class: 'sec-b' }, prChips(list), table, pager))];
   }
   /* phase 13 decision 56 (owner 11 Nov — «تاب للأقسام جوه المنتجات يبان فيها كل قسم والأقسام الفرعية اللي تحتيه مع إمكانية إضافة قسم جديد أو
-     أقسام فرعية»): the site's category tree (the mirror woo_categories) with +/− per branch, the products in each (its own + under it), a
-     search that opens the branches it hits, «افتح في السجل» (the records filtered on it), and — products.add / the admin — «+ قسم رئيسي» and
-     «+ فرعي» on any row: woo-sync category_create (the English category + its Arabic translation under the parent's). */
+     أقسام فرعية»), its look by B4 (the owner, 11 Nov): the site's tree (the mirror woo_categories) — a main category is a green card
+     (its name, its sub-categories' count, the products in it and under it on a button that opens them, an arrow that opens / closes
+     it, ⋮), its sub-categories beige rows under it with «-» / «--» / «---» by depth, each with its own arrow and ⋮ (افتح في السجل ·
+     تعديل · إضافة قسم فرعي · حذف). A search opens the branches it hits. products.add / the admin: «قسم رئيسي جديد» / «قسم فرعي
+     جديد» (EN + AR, a square image) through woo-sync category_create, «تعديل» reads the category live (category_get) and writes what
+     changed (category_update), «حذف» — for good: WooCommerce has no trash for a category — refused while products or sub-categories
+     use it (category_delete checks again on the server). The count opens the category's products with a bulk bar. */
   st.catOpen = st.catOpen || new Set(); st.catQ = st.catQ || '';
-  function catsView() {
-    const C = can(); const L = PR().categories(); const byId = new Map(L.map((c) => [c.id, c]));
+  const catName = (s) => String(s == null ? '' : s).replace(/&amp;/g, '&').replace(/&#0?39;|&#x27;/g, '\'').replace(/&quot;/g, '"').replace(/&#8211;|&ndash;/g, '–');
+  function catModel() {
+    const L = PR().categories(); const byId = new Map(L.map((c) => [c.id, c]));
     const kids = new Map(); L.forEach((c) => { const k = c.parentId && byId.has(c.parentId) ? c.parentId : 0; if (!kids.has(k)) kids.set(k, []); kids.get(k).push(c); });
     kids.forEach((l) => l.sort((a, b) => a.name.localeCompare(b.name)));
     const own = new Map(); all().forEach((p) => (p.categoryIds || []).forEach((id) => { if (!own.has(id)) own.set(id, new Set()); own.get(id).add(p.id); }));
-    const under = new Map(); const sum = (id) => { if (under.has(id)) return under.get(id); const set = new Set(own.get(id) || []); (kids.get(id) || []).forEach((k) => sum(k.id).forEach((x) => set.add(x))); under.set(id, set); return set; };
+    const under = new Map();
+    const sum = (id, seen = new Set()) => { if (under.has(id)) return under.get(id); if (seen.has(id)) return new Set(); seen.add(id); const set = new Set(own.get(id) || []); (kids.get(id) || []).forEach((k) => sum(k.id, seen).forEach((x) => set.add(x))); under.set(id, set); return set; };
+    const subtree = (id, seen = new Set()) => { if (seen.has(id)) return []; seen.add(id); return [id].concat(...(kids.get(id) || []).map((k) => subtree(k.id, seen))); };
+    return { L, byId, kids, sum, subtree };
+  }
+  const subsLabel = (n) => K.n0(n) + (n > 2 && n < 11 ? ' أقسام فرعية' : ' قسم فرعي');
+  function catsView() {
+    const C = can(); const M = catModel(); const { L, byId, kids } = M;
     const q = st.catQ.trim().toLowerCase(); const hit = (c) => !q || c.name.toLowerCase().includes(q);
-    const shown = new Set(); if (q) L.forEach((c) => { if (hit(c)) { let x = c; while (x) { shown.add(x.id); x = x.parentId ? byId.get(x.parentId) : null; } } });
-    const rows = [];
-    const walk = (list, depth) => list.forEach((c) => {
-      if (q && !shown.has(c.id)) return;
-      const ch = kids.get(c.id) || []; const open = q ? true : st.catOpen.has(c.id); const n = sum(c.id).size; const mine = (own.get(c.id) || new Set()).size;
-      rows.push(h('div', { class: 'cat-row' + (depth ? ' sub' : ''), 'data-cat': String(c.id), style: 'padding-inline-start:' + (8 + depth * 22) + 'px' },
-        ch.length ? h('button', { type: 'button', class: 'cat-tog', 'aria-expanded': String(open), 'aria-label': (open ? 'اقفل ' : 'افتح ') + c.name, onClick: () => { if (st.catOpen.has(c.id)) st.catOpen.delete(c.id); else st.catOpen.add(c.id); R(); } }, open ? '−' : '+') : h('span', { class: 'cat-tog sp', 'aria-hidden': 'true' }),
-        h('b', { class: hit(c) && q ? 'cat-hit' : null }, c.name),
-        ch.length ? h('span', { class: 't-small help' }, K.n0(ch.length) + (ch.length > 2 && ch.length < 11 ? ' أقسام فرعية' : ' قسم فرعي')) : null,
-        h('span', { class: 'grow' }),
-        Tag(n ? 'brand' : 'neutral', K.n0(n) + ' منتج' + (ch.length && mine !== n ? ' (' + K.n0(mine) + ' فيه مباشرة)' : '')),
-        n ? Button({ type: 'text', size: 'sm', label: 'افتح في السجل', attrs: { 'data-cat-open': String(c.id) }, onClick: () => { clearFilters(); st.f.category = [c.path]; st.status = 'all'; go('products-records'); } }) : null,
-        C.add ? Button({ size: 'sm', icon: 'plus', label: 'فرعي', attrs: { 'data-cat-sub': String(c.id), 'aria-label': 'قسم فرعي تحت ' + c.name }, onClick: () => newCat(c.id) }) : null));
-      if (open) walk(ch, depth + 1);
+    const shown = new Set(); if (q) L.forEach((c) => { if (hit(c)) { let x = c; const seen = new Set(); while (x && !seen.has(x.id)) { seen.add(x.id); shown.add(x.id); x = x.parentId ? byId.get(x.parentId) : null; } } });
+    const openRec = (c) => { clearFilters(); st.f.category = [c.path]; st.status = 'all'; go('products-records'); };
+    const menuOf = (c) => { const items = [M.sum(c.id).size ? { label: 'افتح في السجل', icon: 'eye', run: () => openRec(c) } : null,
+      C.add ? { label: 'تعديل', icon: 'edit', run: () => editCat(c) } : null, C.add ? { label: 'إضافة قسم فرعي', icon: 'plus', run: () => newCat(c.id) } : null,
+      C.add ? { label: 'حذف', icon: 'trash', danger: true, run: () => delCat(c) } : null].filter(Boolean);
+      return items.length ? h('span', { class: 'cat-menu', 'data-cat-menu': String(c.id) }, K.RowMenu(items, 'إجراءات القسم ' + c.name)) : null; };
+    const tog = (c, open) => h('button', { type: 'button', class: 'cat-tog', 'aria-expanded': String(open), 'aria-label': (open ? 'اقفل ' : 'افتح ') + c.name, 'data-cat-tog': String(c.id),
+      onClick: () => { if (st.catOpen.has(c.id)) st.catOpen.delete(c.id); else st.catOpen.add(c.id); R(); } }, h('span', { class: 'chev', 'aria-hidden': 'true' }, '▾'));
+    const count = (c) => { const n = M.sum(c.id).size;
+      return h('button', { type: 'button', class: 'cat-count', 'data-cat-prods': String(c.id), disabled: n ? null : '', 'aria-label': K.n0(n) + ' منتج في ' + c.name + (n ? ' — اعرضهم' : ''), onClick: () => catProducts(c) }, K.n0(n) + ' منتج'); };
+    const name = (c, cls) => h('b', { class: cls + (q && hit(c) ? ' cat-hit' : '') }, c.name);
+    const subRows = (list, depth) => list.flatMap((c) => {
+      if (q && !shown.has(c.id)) return [];
+      const ch = kids.get(c.id) || []; const open = q ? true : st.catOpen.has(c.id);
+      const row = h('div', { class: 'cat-sub', 'data-cat': String(c.id), role: 'listitem', style: '--d:' + Math.min(depth, 4) },
+        h('span', { class: 'cat-dash', 'aria-hidden': 'true' }, '-'.repeat(Math.min(depth, 3))),
+        ch.length ? tog(c, open) : h('span', { class: 'cat-tog sp', 'aria-hidden': 'true' }), name(c, 'cat-name'),
+        ch.length ? h('span', { class: 't-small help cat-n' }, subsLabel(ch.length)) : null, h('span', { class: 'grow' }), count(c), menuOf(c));
+      return [row].concat(open && ch.length ? subRows(ch, depth + 1) : []);
     });
-    walk(kids.get(0) || [], 0);
+    const mains = (kids.get(0) || []).filter((c) => !q || shown.has(c.id)).map((c) => {
+      const ch = kids.get(c.id) || []; const open = q ? true : st.catOpen.has(c.id);
+      return h('section', { class: 'cat-main' + (open && ch.length ? ' open' : ''), 'data-cat': String(c.id) },
+        h('div', { class: 'cat-main-h' }, ch.length ? tog(c, open) : h('span', { class: 'cat-tog sp', 'aria-hidden': 'true' }), name(c, 'cat-name'),
+          ch.length ? h('span', { class: 'cat-n' }, subsLabel(ch.length)) : null, h('span', { class: 'grow' }), count(c), menuOf(c)),
+        open && ch.length ? h('div', { class: 'cat-subs', role: 'list', 'aria-label': 'الأقسام الفرعية في ' + c.name }, subRows(ch, 1)) : null);
+    });
     const search = h('input', { type: 'search', class: 'input', placeholder: 'دوّر على قسم…', 'aria-label': 'دوّر على قسم', value: st.catQ, onInput: (e) => { st.catQ = e.target.value; R(); setTimeout(() => { const i = document.querySelector('[data-cat-q]'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, 'data-cat-q': '' });
     const tops = (kids.get(0) || []).length;
     return [
       h('div', { class: 'cat-bar' }, search, h('span', { class: 'grow' }),
         Button({ type: 'text', size: 'sm', label: 'افتح الكل', onClick: () => { L.forEach((c) => { if ((kids.get(c.id) || []).length) st.catOpen.add(c.id); }); R(); } }),
         Button({ type: 'text', size: 'sm', label: 'اقفل الكل', onClick: () => { st.catOpen.clear(); R(); } }),
-        C.add ? Button({ type: 'primary', size: 'sm', icon: 'plus', label: 'قسم رئيسي', attrs: { 'data-cat-new': '' }, onClick: () => newCat(null) }) : null),
-      h('section', { class: 'card sec cat-tree' }, h('div', { class: 'sec-h' }, h('h2', null, 'أقسام الموقع · ' + K.n0(L.length)), h('span', { class: 't-small' }, K.n0(tops) + ' قسم رئيسي')),
-        h('div', { class: 'sec-b', role: 'list' }, rows.length ? rows : K.Empty(q ? 'مفيش قسم بالاسم ده' : 'مفيش أقسام لسه', q ? 'جرّب كلمة تانية.' : 'الأقسام بتيجي من الموقع مع المزامنة.'))),
-      C.add ? null : h('p', { class: 't-small help' }, 'إضافة الأقسام لصلاحية «إضافة منتجات».')];
+        C.add ? Button({ type: 'primary', size: 'sm', icon: 'plus', label: 'قسم رئيسي جديد', attrs: { 'data-cat-new': '' }, onClick: () => newCat(null) }) : null),
+      h('p', { class: 't-small help cat-sum' }, 'أقسام الموقع · ' + K.n0(L.length) + ' — ' + K.n0(tops) + ' قسم رئيسي'),
+      mains.length ? h('div', { class: 'cat-mains' }, mains) : K.Empty(q ? 'مفيش قسم بالاسم ده' : 'مفيش أقسام لسه', q ? 'جرّب كلمة تانية.' : 'الأقسام بتيجي من الموقع مع المزامنة.'),
+      C.add ? null : h('p', { class: 't-small help' }, 'إضافة الأقسام وتعديلها لصلاحية «إضافة منتجات».')];
   }
+  // B4: a category's image — cut square from the middle, at most 800 px a side, WebP (JPEG where the browser cannot write WebP); the
+  // Blob goes to woo-sync (base64, IBStudio), the blob: URL is the popup's preview
+  const CAT_IMG_SIDE = 800;
+  function squareImage(file) {
+    return new Promise((resolve) => {
+      if (!file || !/^image\/(png|jpe?g|webp)$/i.test(file.type || '') || file.size > 15 * 1048576) { resolve(null); return; }
+      let url = null; try { url = URL.createObjectURL(file); } catch (e) { resolve(null); return; }
+      const im = new Image();
+      im.onload = () => {
+        try {
+          const w = im.naturalWidth || im.width, ht = im.naturalHeight || im.height; const s = Math.min(w, ht);
+          URL.revokeObjectURL(url); if (!s) { resolve(null); return; }
+          const side = Math.min(CAT_IMG_SIDE, s); const cv = document.createElement('canvas'); cv.width = side; cv.height = side;
+          const cx = cv.getContext('2d'); cx.imageSmoothingEnabled = true; cx.imageSmoothingQuality = 'high';
+          cx.drawImage(im, Math.round((w - s) / 2), Math.round((ht - s) / 2), s, s, 0, 0, side, side);
+          const out = (b) => resolve(b ? { blob: b, url: URL.createObjectURL(b) } : null);
+          cv.toBlob((b) => (b && b.type === 'image/webp' ? out(b) : cv.toBlob((j) => out(j), 'image/jpeg', 0.88)), 'image/webp', 0.86);
+        } catch (e) { resolve(null); }
+      };
+      im.onerror = () => { URL.revokeObjectURL(url); resolve(null); };
+      im.src = url;
+    });
+  }
+  // the popup's image: the current one on the site (تعديل) or the square crop picked here; img() / setImg(v) keep the pick
+  function catImageField(img, setImg, cur) {
+    const input = h('input', { type: 'file', accept: 'image/png,image/jpeg,image/webp', class: 'sr-only', tabindex: '-1', 'aria-hidden': 'true', 'data-cat-img': '',
+      onChange: async (e) => { const file = e.target.files && e.target.files[0]; e.target.value = ''; if (!file) return;
+        const sq = await squareImage(file); if (!sq) { K.toast('الصورة لازم تكون PNG أو JPG أو WebP (لحد 15 ميجا)', 'error'); return; }
+        const old = img(); if (old) URL.revokeObjectURL(old.url); setImg(sq); } });
+    const now = img(); const src = now ? now.url : safeSrc(cur || '');
+    return U.FieldShell({ id: 'cat-img', label: 'صورة القسم (مربعة)', help: 'بتتقص مربعة من النص وبتتحط على القسم في الموقع وعلى ترجمته العربي.' },
+      h('div', { class: 'cat-img' }, src ? h('img', { src, alt: '', class: 'cat-img-prev', 'data-cat-img-prev': now ? 'new' : 'site' }) : h('span', { class: 'cat-img-none' }, 'من غير صورة'),
+        input, Button({ size: 'sm', label: src ? 'غيّر الصورة' : 'اختار صورة', attrs: { 'data-cat-img-pick': '' }, onClick: () => input.click() }),
+        now ? Button({ type: 'text', size: 'sm', label: 'شيل الصورة الجديدة', onClick: () => { URL.revokeObjectURL(now.url); setImg(null); } }) : null));
+  }
+  const catNameErr = (v, need) => (!String(v || '').trim() ? (need ? 'اكتب الاسم' : null) : /[<>%]/.test(v) ? 'من غير < > %' : String(v).trim().length > 80 ? 'لحد 80 حرف' : null);
+  const catFail = (r) => (r.reason === 'push_disabled' ? 'الكتابة على الموقع متقفلة' : r.reason === 'forbidden' ? 'الصلاحية دي مش عندك' : r.reason === 'media_refused' ? 'الموقع مارضيش ياخد الصورة' : r.reason === 'missing' ? 'القسم ده مش موجود على الموقع' : MSG.network);
   function newCat(parentId) {
-    const L = PR().categories();
-    K.form({ title: parentId ? 'قسم فرعي جديد على الموقع' : 'قسم رئيسي جديد على الموقع', submitLabel: 'اعمل القسم', values: { en: '', ar: '', p: parentId ? String(parentId) : '' },
-      note: U.InlineNote({ kind: 'warning', children: 'القسم بيتعمل على ووكومرس نفسه (بالإنجليزي + ترجمته العربي تحت ترجمة القسم الأب).' }),
-      fields: (f, e, set) => [K.two(K.field.text('en', 'اسم القسم (EN)', f, e, set, { required: true }), K.field.text('ar', 'اسم القسم (AR)', f, e, set)),
-        K.field.select('p', 'تحت', [{ value: '', label: '— قسم رئيسي —' }].concat(L.map((c) => ({ value: String(c.id), label: c.path }))), f, e, set)],
-      validate: (f) => { const e = {}; if (!String(f.en).trim() || /[<>%]/.test(f.en)) e.en = 'اكتب الاسم من غير < > %'; if (/[<>%]/.test(f.ar)) e.ar = 'من غير < > %';
-        const dup = L.find((c) => String(c.parentId || '') === String(f.p || '') && c.name.trim().toLowerCase() === String(f.en).trim().toLowerCase()); if (dup) e.en = 'في قسم بنفس الاسم هنا'; return e; },
+    const L = PR().categories(); const parent = parentId ? L.find((c) => c.id === Number(parentId)) || null : null;
+    let img = null;
+    K.form({ title: parent ? 'قسم فرعي جديد' : 'قسم رئيسي جديد', submitLabel: 'اعمل القسم', values: { en: '', ar: '' },
+      onClose: () => { if (img) URL.revokeObjectURL(img.url); },
+      note: U.InlineNote({ kind: 'warning', children: 'القسم بيتعمل على ووكومرس نفسه بالإنجليزي وترجمته العربي' + (parent ? ' تحت ترجمة القسم الأب' : '') + '.' }),
+      fields: (f, e, set, draw) => [parent ? h('p', { class: 't-small cat-parent', 'data-cat-parent': '' }, 'تحت: ', h('b', null, parent.path)) : null,
+        K.two(K.field.text('en', 'اسم القسم بالإنجليزي', f, e, set, { required: true }), K.field.text('ar', 'اسم القسم بالعربي', f, e, set, { required: true })),
+        catImageField(() => img, (v) => { img = v; draw(); }, null)],
+      validate: (f) => { const e = {}; const en = catNameErr(f.en, true); const ar = catNameErr(f.ar, true); if (en) e.en = en; if (ar) e.ar = ar;
+        const dup = L.find((c) => String(c.parentId || '') === String(parentId || '') && c.name.trim().toLowerCase() === String(f.en).trim().toLowerCase()); if (!e.en && dup) e.en = 'في قسم بنفس الاسم هنا'; return e; },
       submit: (f, m) => { const S0 = window.IBStudio; if (!S0 || !S0.createCategory) { K.toast(MSG.network, 'error'); return false; }
         m._busy = true;
-        S0.createCategory({ name_en: f.en.trim(), name_ar: f.ar.trim(), parent: f.p ? Number(f.p) : 0 }).then((r) => { m._busy = false;
-          if (r.ok) { m.close(); if (f.p) st.catOpen.add(Number(f.p)); K.toast('اتعمل القسم «' + f.en.trim() + '» على الموقع', 'success'); R(); }
-          else K.toast('القسم ماتعملش — ' + (r.reason === 'push_disabled' ? 'الكتابة على الموقع متقفلة' : r.reason === 'forbidden' ? 'الصلاحية دي مش عندك' : MSG.network), 'error'); });
+        S0.createCategory({ name_en: f.en.trim(), name_ar: f.ar.trim(), parent: parentId ? Number(parentId) : 0, image: img ? img.blob : null }).then((r) => { m._busy = false;
+          if (r.ok) { m.close(); if (parentId) st.catOpen.add(Number(parentId)); K.toast('اتعمل القسم «' + f.en.trim() + '» على الموقع' + (r.arId ? '' : ' — من غير الترجمة العربي (ضيفها من «تعديل»)'), r.arId ? 'success' : 'error'); R(); }
+          else K.toast('القسم ماتعملش — ' + catFail(r), 'error'); });
         return false; } });
+  }
+  async function editCat(c) {
+    const S0 = window.IBStudio; if (!S0 || !S0.categoryGet) { K.toast(MSG.network, 'error'); return; }
+    if (st.busy) { K.toast(MSG.busy, 'error'); return; }
+    st.busy = true; let r; try { r = await S0.categoryGet(c.id); } finally { st.busy = false; }
+    if (!r.ok) { K.toast(r.reason === 'missing' ? 'القسم ده مش موجود على الموقع — هيتشال مع المزامنة الجاية' : 'ماقدرناش نجيب القسم — ' + catFail(r), 'error'); return; }
+    const cur = r.category || {}; const ar = r.ar || null; const en0 = catName(cur.name || c.name); const ar0 = ar ? catName(ar.name) : '';
+    const siblings = PR().categories().filter((x) => x.id !== c.id && String(x.parentId || '') === String(c.parentId || ''));
+    let img = null;
+    K.form({ title: 'تعديل القسم «' + c.name + '»', submitLabel: 'احفظ على الموقع', values: { en: en0, ar: ar0 },
+      onClose: () => { if (img) URL.revokeObjectURL(img.url); },
+      note: U.InlineNote({ kind: 'warning', children: 'التعديل بيتكتب على ووكومرس نفسه — القسم وترجمته العربي.' + (ar ? '' : ' القسم ده مالوش ترجمة عربي لسه: اكتب الاسم العربي وهتتعمل.') }),
+      fields: (f, e, set, draw) => [K.two(K.field.text('en', 'اسم القسم بالإنجليزي', f, e, set, { required: true }), K.field.text('ar', 'اسم القسم بالعربي', f, e, set, { required: !!ar })),
+        catImageField(() => img, (v) => { img = v; draw(); }, cur.image || null),
+        cur.count != null ? h('p', { class: 't-small help', style: 'margin:0' }, 'على الموقع: ' + K.n0(cur.count) + ' منتج منشور في القسم ده.') : null],
+      validate: (f) => { const e = {}; const en = catNameErr(f.en, true); const a = catNameErr(f.ar, !!ar); if (en) e.en = en; if (a) e.ar = a;
+        if (!e.en && siblings.some((x) => x.name.trim().toLowerCase() === String(f.en).trim().toLowerCase())) e.en = 'في قسم بنفس الاسم هنا'; return e; },
+      submit: (f, m) => {
+        const nameEn = f.en.trim() !== en0 ? f.en.trim() : null; const nameAr = f.ar.trim() && f.ar.trim() !== ar0 ? f.ar.trim() : null;
+        if (!nameEn && !nameAr && !img) { K.toast('مفيش حاجة اتغيرت', ''); return true; }
+        m._busy = true;
+        S0.categoryUpdate({ id: c.id, name_en: nameEn, name_ar: nameAr, image: img ? img.blob : null }).then((u) => { m._busy = false;
+          if (!u.ok) { K.toast('القسم ماتعدّلش — ' + catFail(u), 'error'); return; }
+          m.close();
+          const arWhy = { not_linked: 'مش مربوطة بالقسم ده على الموقع', mismatch: 'الموقع رد بالقسم الإنجليزي — رجّعنا اسمه زي ما كان', none: 'مالوش ترجمة' };
+          const arNote = (nameAr || img) && u.ar !== 'ok' && u.ar !== 'made' ? ' — الترجمة العربي ماتعدّلتش (' + (arWhy[u.ar] || u.ar) + ')' : '';
+          K.toast('اتعدّل القسم على الموقع' + arNote, arNote ? 'error' : 'success'); R(); });
+        return false; } });
+  }
+  function catBlocked(title, text, action) {
+    const m = U.Modal({ title, body: [h('p', { class: 't-body', style: 'margin:0' }, text)], footer: [action ? Button({ label: action.label, onClick: () => { m.close(); action.run(); } }) : null, Button({ type: 'primary', label: 'تمام', onClick: () => m.close() })].filter(Boolean) });
+    m.el.setAttribute('data-cat-blocked', ''); return m;
+  }
+  function delCat(c) {
+    const M = catModel(); const n = M.sum(c.id).size; const ch = (M.kids.get(c.id) || []).length;
+    if (n) { catBlocked('القسم «' + c.name + '» مايتحذفش دلوقتي', 'فيه ' + K.n0(n) + ' منتج (فيه أو في الأقسام اللي تحته) — انقلهم لقسم تاني الأول، وبعدين احذفه.', { label: 'اعرض المنتجات', run: () => catProducts(c) }); return; }
+    if (ch) { catBlocked('القسم «' + c.name + '» مايتحذفش دلوقتي', 'تحته ' + subsLabel(ch) + ' — احذفهم الأول، وبعدين احذفه.'); return; }
+    K.confirm({ title: 'حذف القسم «' + c.name + '» نهائي؟', text: 'القسم هيتحذف من الموقع هو وترجمته العربي. ووكومرس مالوش سلة للأقسام — مش هيرجع.', okLabel: 'احذف القسم', okType: 'danger',
+      onOk: async () => {
+        const S0 = window.IBStudio; if (!S0 || !S0.categoryDelete) { K.toast(MSG.network, 'error'); return; }
+        if (st.busy) { K.toast(MSG.busy, 'error'); return; }
+        st.busy = true; let r; try { r = await S0.categoryDelete(c.id, c.name); } finally { st.busy = false; }
+        if (r.ok) { st.catOpen.delete(c.id); K.toast('اتحذف القسم «' + c.name + '» من الموقع', 'success'); R(); return; }
+        if (r.reason === 'conflict') {
+          const k = r.count != null ? K.n0(r.count) + ' ' : '';
+          catBlocked('القسم «' + c.name + '» ماتحذفش', r.error === 'has_children' ? 'تحته ' + k + 'قسم فرعي على الموقع — احذفهم الأول.' : r.error === 'has_makers' ? 'القسم ده «فئة أساسية» لـ ' + k + 'مبتكر — شيله من بياناتهم الأول.' : 'فيه ' + k + 'منتج على الموقع (ممكن مسودات أو في المهملات) — انقلهم لقسم تاني الأول.');
+          return;
+        }
+        K.toast('القسم ماتحذفش — ' + catFail(r), 'error');
+      } });
+  }
+  // the category's products (in it and under it) with a bulk bar: نقل لقسم تاني (this category's branch swapped for the picked ones) ·
+  // إضافة لقسم · إزالة من القسم (its branch taken off; a product left with no category is refused) · مسودة · نشر — products.bulk
+  function catProducts(c) {
+    const M = catModel(); const ids = M.sum(c.id); const branch = new Set(M.subtree(c.id));
+    const list = all().filter((p) => ids.has(p.id)).sort((a, b) => nameOf(a).localeCompare(nameOf(b)));
+    if (!list.length) { K.toast('مفيش منتجات في القسم ده', ''); return; }
+    const C = can(); const sel = new Set();
+    const m = U.Modal({ title: 'منتجات «' + c.name + '» · ' + K.n0(list.length), body: [], footer: [] }); m.el.classList.add('wide'); m.el.setAttribute('data-cat-prods-pop', String(c.id));
+    const inBranch = (p) => (p.categoryIds || []).filter((x) => branch.has(x)).map((x) => (M.byId.get(x) || {}).name).filter(Boolean);
+    const draw = () => {
+      const chosen = list.filter((p) => sel.has(p.id)); const allOn = list.every((p) => sel.has(p.id));
+      const bar = chosen.length ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد', 'data-cat-bulk': '' }, h('b', null, 'محدد ' + K.n0(chosen.length)), h('span', { class: 'grow' }),
+        Button({ size: 'sm', label: 'نقل لقسم تاني', onClick: () => catBulk(chosen, c, branch, 'move', m) }), Button({ size: 'sm', label: 'إضافة لقسم', onClick: () => catBulk(chosen, c, branch, 'add', m) }),
+        Button({ size: 'sm', label: 'إزالة من القسم', onClick: () => catBulk(chosen, c, branch, 'remove', m) }),
+        Button({ size: 'sm', label: 'تحويل لمسودة', onClick: () => { m.close(); toDraft(chosen); } }), Button({ size: 'sm', label: 'نشر', onClick: () => { m.close(); publish(chosen); } }),
+        Button({ size: 'sm', label: 'إلغاء التحديد', onClick: () => { sel.clear(); draw(); } })) : null;
+      const rows = list.map((p) => [C.bulk ? K.Checkbox({ label: '', checked: sel.has(p.id), onChange: (v) => { if (v) sel.add(p.id); else sel.delete(p.id); draw(); } }) : '',
+        h('span', { class: 'prod' }, Thumb(p.img), h('b', null, nameOf(p))), h('span', { dir: 'ltr', class: 't-small' }, p.sku || '—'), h('span', { class: 't-small' }, inBranch(p).join('، ') || '—'), Tag(STATUS_TONE[p.status] || 'neutral', p.status)]);
+      const head = C.bulk ? K.Checkbox({ label: '', checked: allOn, onChange: (v) => { list.forEach((p) => (v ? sel.add(p.id) : sel.delete(p.id))); draw(); } }) : '';
+      m.setBody(...[bar, C.bulk ? null : h('p', { class: 't-small help', style: 'margin:0 0 8px' }, 'التعديل الجماعي محتاج صلاحية «تعديل جماعي».'), U.Table({ cls: 'dt cat-prods', headers: [head, 'المنتج', 'SKU', 'القسم', 'الحالة'], rows })].filter(Boolean));
+    };
+    m.setFooter(Button({ type: 'text', label: 'افتح في السجل', onClick: () => { m.close(); clearFilters(); st.f.category = [c.path]; st.status = 'all'; go('products-records'); } }), Button({ label: 'قفل', onClick: () => m.close() }));
+    draw();
+  }
+  function catBulk(l, c, branch, mode, m) {
+    const plan = (p, targets) => { const cur = p.categoryIds || []; const kept = mode === 'add' ? cur : cur.filter((x) => !branch.has(x)); return mode === 'remove' ? kept : [...new Set(kept.concat(targets))]; };
+    const run = (targets) => {
+      const empty = l.filter((p) => !plan(p, targets).length);
+      if (empty.length) { K.toast(names(empty) + ' ' + (empty.length === 1 ? 'مالوش' : 'مالهمش') + ' قسم غيره — استخدم «نقل لقسم تاني»', 'error'); return; }
+      m.close();
+      write((pg) => batch(l, (p) => { const nx = plan(p, targets); return nx.join() !== (p.categoryIds || []).join() ? { categories: nx } : {}; }, pg),
+        mode === 'move' ? 'اتنقلوا للقسم الجديد' : mode === 'add' ? 'اتضافوا للقسم' : 'اتشالوا من «' + c.name + '»', null, l.length);
+    };
+    if (mode === 'remove') { K.confirm({ title: 'إزالة ' + (l.length === 1 ? 'منتج' : l.length + ' منتجات') + ' من «' + c.name + '»؟', text: names(l) + ' مش هيظهروا في القسم ده ولا في الأقسام اللي تحته على الموقع.', okLabel: 'شيلهم من القسم', onOk: () => run([]) }); return; }
+    const PK = window.IBCatsPicker; if (!PK) { K.toast(MSG.network, 'error'); return; }
+    PK(mode === 'move' ? 'نقل ' + (l.length === 1 ? 'منتج' : l.length + ' منتجات') + ' لقسم تاني' : 'إضافة ' + (l.length === 1 ? 'منتج' : l.length + ' منتجات') + ' لقسم', [], (picked) => { const t = picked.map(Number).filter((x) => !(mode === 'move' && branch.has(x))); if (!t.length) { K.toast('اختار قسم على الأقل' + (mode === 'move' ? ' برّه «' + c.name + '»' : ''), 'error'); return; } run(t); }, { noNew: true });
   }
   function trashView() {
     const C = can(); const T = trashRows();
@@ -434,7 +584,7 @@
     K.form({ title: 'تغيير قسم ' + (l.length === 1 ? 'منتج' : l.length + ' منتجات'), values: { mode: 'add' }, submitLabel: 'غيّر القسم', wide: true,
       fields: (f, e, set, draw) => [U.FieldShell({ id: 'cc-cats', label: 'الأقسام', required: true, error: e.cats, help: 'اكتب اسم القسم في البحث وهيظهر مع شجرته — علّم اللي عايزه، والفرعي بيعلّم اللي فوقه لوحده.' },
           h('div', { class: 'chips', 'data-cc-chosen': '' }, chosen.map((id) => h('span', { class: 'chip', title: pathOf(id) }, pathOf(id))),
-            Button({ size: 'sm', label: chosen.length ? 'عدّل الأقسام' : 'اختار الأقسام من الشجرة', attrs: { 'data-cc-pick': '' }, onClick: () => { const PK = window.IBCatsPicker; if (!PK) { K.toast(MSG.network, 'error'); return; } PK('أقسام ' + (l.length === 1 ? nameOf(l[0]) : l.length + ' منتجات'), chosen, (ids) => { chosen = ids.map(Number); delete e.cats; draw(); }); } }))),
+            Button({ size: 'sm', label: chosen.length ? 'عدّل الأقسام' : 'اختار الأقسام من الشجرة', attrs: { 'data-cc-pick': '' }, onClick: () => { const PK = window.IBCatsPicker; if (!PK) { K.toast(MSG.network, 'error'); return; } PK('أقسام ' + (l.length === 1 ? nameOf(l[0]) : l.length + ' منتجات'), chosen, (ids) => { chosen = ids.map(Number); delete e.cats; draw(); }, { noNew: true }); } }))), // B4: no «+ قسم جديد» here
         K.Radios({ value: f.mode, onChange: (v) => { f.mode = v; draw(); }, options: [{ value: 'add', label: 'ضيفها جنب الأقسام الحالية', hint: 'المنتج هيظهر في كلهم' }, { value: 'replace', label: 'بدّل الأقسام الحالية بيها' }, { value: 'remove', label: 'شيلها من المنتجات' }] })],
       validate: () => (chosen.length ? {} : { cats: 'اختار قسم على الأقل' }),
       submit: (f, m) => { const ids = chosen.slice();
@@ -785,7 +935,7 @@
   }
   // decision 62: «سجل الحركة» — who changed which product: edits, bulk edits, trash / restore, duplicates, new products from the studio,
   // images, making days, new categories (IBProducts.loadLog — activity_log under its RLS)
-  const LOG_LABEL = { 'product.save': 'تعديل منتج', 'product.bulk': 'تعديل جماعي', 'product.trash': 'نقل للمهملات', 'product.restore': 'رجوع من المهملات', 'product.duplicate': 'تكرار كمنتج جديد', 'product.create': 'منتج جديد (الاستوديو)', 'product.images.add': 'إضافة صور', 'product.lead': 'مدة التصنيع', 'product.category.create': 'قسم جديد' };
+  const LOG_LABEL = { 'product.save': 'تعديل منتج', 'product.bulk': 'تعديل جماعي', 'product.trash': 'نقل للمهملات', 'product.restore': 'رجوع من المهملات', 'product.duplicate': 'تكرار كمنتج جديد', 'product.create': 'منتج جديد (الاستوديو)', 'product.images.add': 'إضافة صور', 'product.lead': 'مدة التصنيع', 'product.category.create': 'قسم جديد', 'product.category.update': 'تعديل قسم', 'product.category.delete': 'حذف قسم' };
   // B3 (the owner, 11 Nov — «سجل الحركة … ال ui مش مظبوط»): the card like the other tables — its title and count, a dropdown per filter
   // (the move · by whom, several picks each, «اعرض N حركة») and «تحديث» in its header, the table under it
   let logAsked = false; st.logF = st.logF || { kind: [], by: [] };

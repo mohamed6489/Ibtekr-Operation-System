@@ -24,7 +24,7 @@ async function signIn(page, id, hash = '#autoreply') {
 const P = (page) => page.locator('#pg-autoreply');
 
 test('the page is in the menu; templates: the seeded template card, a new template saved through the adapter', async ({ page }) => {
-  await signIn(page, ADMIN);
+  await signIn(page, ADMIN, '#autoreply-templates'); // decision 65: #autoreply opens «نظرة عامة»
   await expect(page.locator('nav.sidebar .nav-item[data-page="autoreply"]')).toHaveText(/الرد الآلي/);
   await expect(P(page)).toBeVisible();
   await expect(P(page).locator('[data-ar-lib] [data-lib="customers"] .cnt')).toHaveText('1');
@@ -106,4 +106,19 @@ test('a member without cs.manage reads the page and cannot write; the engine swi
   await expect(P(page).locator('[data-auto-live]')).toBeDisabled();
   await expect(page.getByRole('button', { name: 'قاعدة جديدة' })).toHaveCount(0);
   await expect(P(page).locator('[data-send-edit]')).toHaveCount(0);
+});
+
+// phase 13 decision 65: «نظرة عامة» first and «التقارير» last
+test('decision 65: the tabs are نظرة عامة · القوالب · الردود السريعة · قواعد الرد الآلي · التقارير; the overview and the reports from the rules, templates and automatic messages', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await expect(P(page).locator('[role=tab]')).toHaveText(['نظرة عامة', 'القوالب', 'الردود السريعة', 'قواعد الرد الآلي', 'التقارير']);
+  await expect(P(page).locator('[role=tab]').first()).toHaveAttribute('aria-selected', 'true');
+  await expect(P(page).locator('.kpi[aria-label="الرد الآلي"]')).toContainText('متوقف'); // live off by default
+  await expect(P(page).locator('.kpi[aria-label="القوالب والردود السريعة"]')).toContainText('1 قالب Meta معتمد');
+  await expect(P(page)).toContainText('أكتر القواعد تنفيذًا');
+  await expect(P(page)).toContainText('إعدادات الإرسال');
+  await P(page).locator('[role=tab]', { hasText: 'التقارير' }).click();
+  await expect(page).toHaveURL(/#autoreply-reports$/);
+  await expect(P(page).locator('.kpi[aria-label="رسايل آلية"]')).toBeVisible();
+  await expect(P(page)).toContainText('حالة الإرسال');
 });

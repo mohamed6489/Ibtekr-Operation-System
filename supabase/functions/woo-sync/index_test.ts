@@ -2025,6 +2025,83 @@ Deno.test('suborder_trash: the trash fails → 502, nothing else; the site keeps
   assertEquals(k.db.rows('order_items').filter((i: any) => i.removed).length, 0);
 });
 
+// ---------------------------------------------------------------- line_trash / suborder_status (the owner 11 Nov)
+const lineSeed = () => { const b = subSeed();
+  return { ...b, status_map: [{ system_status: 'جاري التنفيذ', woo_status: 'processing', direction: 'both', sort: 2 }, { system_status: 'جاهز للشحن', woo_status: 'ready-shipping', direction: 'both', sort: 4 }, { system_status: 'تم RTC', woo_status: null, direction: 'from_system', sort: 6 }],
+    order_items: b.order_items.map((i: any) => ({ ...i, product_id: i.id === 30010 ? 77 : i.id === 30011 ? 78 : 79 })) }; };
+const subOrder3002 = { id: 3002, status: 'processing', line_items: [{ id: 9001, product_id: 77, variation_id: 0, quantity: 1, total: '100' }, { id: 9002, product_id: 78, variation_id: 0, quantity: 1, total: '50' }] };
+const parentWithout30010 = wooOrder({ id: 3001, number: '3001', status: 'processing', total: '200.00', date_modified_gmt: '2026-11-11T10:00:00', meta_data: [],
+  line_items: [{ id: 30011, product_id: 78, name: 'b', quantity: 1, total: '50', meta_data: [{ key: '_dokan_vendor_id', value: '44' }] }, { id: 30020, product_id: 79, name: 'c', quantity: 1, total: '150', meta_data: [{ key: '_dokan_vendor_id', value: '2376' }] }] });
+
+Deno.test('line_trash: orders.status = F only, never the sync secret; bad input → 400; closed → 409; the last line of its sub-order → 409 only_in_sub; the order\'s last line → 409 only_line; push off → skipped', async () => {
+  const { woo, deps } = setup({ seed: lineSeed(), env: PUSH_ON });
+  const a = { action: 'line_trash', order_id: 3001, item_id: 30010, reason: 'العميل لغى المنتج' };
+  assertEquals((await call(deps, a, { jwt: 'jwt-acct' })).res.status, 401);
+  assertEquals((await call(deps, a)).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { ...a, reason: '' }, { jwt: 'jwt-ops' })).res.status, 400);
+  assertEquals((await call(deps, { ...a, item_id: 99999 }, { jwt: 'jwt-ops' })).res.status, 404);
+  const cl = await call(deps, { ...a, order_id: 3101, item_id: 31010 }, { jwt: 'jwt-ops' });
+  assertEquals([cl.res.status, cl.body.error], [409, 'closed']);
+  const sub = await call(deps, { ...a, item_id: 30020 }, { jwt: 'jwt-ops' });
+  assertEquals([sub.res.status, sub.body.error, sub.body.sub], [409, 'only_in_sub', 3003]);
+  const one = setup({ seed: { ...lineSeed(), order_items: lineSeed().order_items.filter((i: any) => i.id === 30010 || i.id === 31010) }, env: PUSH_ON });
+  const only = await call(one.deps, a, { jwt: 'jwt-ops' });
+  assertEquals([only.res.status, only.body.error], [409, 'only_line']);
+  const off = setup({ seed: lineSeed() });
+  const r = await call(off.deps, a, { jwt: 'jwt-ops' });
+  assertEquals([r.body.result, r.body.reason], ['skipped', 'push_disabled']);
+  assertEquals(woo.calls.length + one.woo.calls.length + off.woo.calls.length, 0);
+});
+
+Deno.test('line_trash: the line off the maker\'s sub-order (found by product), then off the parent, mirrored (removed, total), the hub hold released; an unclear sub-order line → 409 sub_line and nothing written', async () => {
+  const puts: any[] = [];
+  const routes = { 'GET wc/v3/orders/3002': { body: subOrder3002 }, 'PUT wc/v3/orders/3002': (c: any) => { puts.push(['sub', c.body]); return { body: { ...subOrder3002, line_items: [subOrder3002.line_items[1]] } }; },
+    'PUT wc/v3/orders/3001': (c: any) => { puts.push(['parent', c.body]); return { body: parentWithout30010 }; } };
+  const { db, woo, deps } = setup({ seed: lineSeed(), routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'line_trash', order_id: 3001, item_id: 30010, reason: 'العميل لغى المنتج' }, { jwt: 'jwt-ops' });
+  assertEquals(res.status, 200);
+  assertEquals([body.result, body.sub, body.released, body.total], ['ok', 3002, 1, '200.00']);
+  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['GET', 'wc/v3/orders/3002'], ['PUT', 'wc/v3/orders/3002'], ['PUT', 'wc/v3/orders/3001']]);
+  assertEquals(puts, [['sub', { line_items: [{ id: 9001, product_id: null }] }], ['parent', { line_items: [{ id: 30010, product_id: null }] }]]);
+  const items = new Map(db.rows('order_items').map((i: any) => [i.id, i]));
+  assertEquals([items.get(30010).removed, items.get(30011).removed, items.get(30020).removed], [true, false, false]);
+  assertEquals(Number(db.rows('orders').find((o: any) => o.id === 3001).total), 200);
+  assertEquals(db.rows('inv_moves').filter((m: any) => m.type === 'release').map((m: any) => m.note), ['سحب تلقائي · سطر #30010']);
+  // two lines of the same product on the sub-order, neither matching the quantity and total → refused, nothing written
+  const twin = { ...subOrder3002, line_items: [{ id: 9001, product_id: 77, quantity: 2, total: '200' }, { id: 9003, product_id: 77, quantity: 3, total: '300' }, subOrder3002.line_items[1]] };
+  const t = setup({ seed: lineSeed(), routes: { 'GET wc/v3/orders/3002': { body: twin } }, env: PUSH_ON });
+  const r = await call(t.deps, { action: 'line_trash', order_id: 3001, item_id: 30010, reason: 'x' }, { jwt: 'jwt-ops' });
+  assertEquals([r.res.status, r.body.error, r.body.matches], [409, 'sub_line', 0]);
+  assertEquals(t.woo.calls.map((c) => c.method), ['GET']);
+  assertEquals(t.db.rows('order_items').filter((i: any) => i.removed).length, 0);
+});
+
+Deno.test('suborder_status: the site status of a sub-order (a status_map slug), kept from WooCommerce\'s answer; unknown slug / the order itself / no sub → 400 / 404; push off → skipped; the site keeps another status → 502', async () => {
+  const puts: any[] = [];
+  const routes = { 'PUT wc/v3/orders/3002': (c: any) => { puts.push(c.body); return { body: { id: 3002, status: c.body.status } }; } };
+  const { db, woo, deps } = setup({ seed: lineSeed(), routes, env: PUSH_ON });
+  const a = { action: 'suborder_status', order_id: 3001, sub_id: 3002, status: 'ready-shipping' };
+  assertEquals((await call(deps, a, { jwt: 'jwt-acct' })).res.status, 401);
+  assertEquals((await call(deps, a)).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { ...a, status: 'trash' }, { jwt: 'jwt-ops' })).body.error, 'bad_status', 'only what status_map knows');
+  assertEquals((await call(deps, { ...a, status: 'Bad Slug' }, { jwt: 'jwt-ops' })).res.status, 400);
+  assertEquals((await call(deps, { ...a, sub_id: 3001 }, { jwt: 'jwt-ops' })).res.status, 400, 'the order itself is not a sub-order');
+  assertEquals((await call(deps, { ...a, sub_id: 9999 }, { jwt: 'jwt-ops' })).res.status, 404);
+  const { res, body } = await call(deps, a, { jwt: 'jwt-ops' });
+  assertEquals([res.status, body.result, body.status], [200, 'ok', 'ready-shipping']);
+  assertEquals(puts, [{ status: 'ready-shipping' }]);
+  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['PUT', 'wc/v3/orders/3002']]);
+  assertEquals(db.rows('sub_orders').find((x: any) => x.woo_order_id === 3002).woo_status, 'ready-shipping');
+  assertEquals(db.rows('order_items').find((i: any) => i.id === 30010).status || '', '', 'the team\'s line status is untouched');
+  const off = setup({ seed: lineSeed() });
+  assertEquals((await call(off.deps, a, { jwt: 'jwt-ops' })).body.reason, 'push_disabled');
+  assertEquals(off.woo.calls.length, 0);
+  const kept = setup({ seed: lineSeed(), routes: { 'PUT wc/v3/orders/3002': { body: { id: 3002, status: 'processing' } } }, env: PUSH_ON });
+  const k = await call(kept.deps, a, { jwt: 'jwt-ops' });
+  assertEquals([k.res.status, k.body.error], [502, 'woo_kept_status']);
+  assertEquals(kept.db.rows('sub_orders').find((x: any) => x.woo_order_id === 3002).woo_status ?? null, null);
+});
+
 // ---------------------------------------------------------------- phase 7 (decision 1 c): the site quantity from the hub
 const invLot = (id: string, sku: string, o: Record<string, unknown> = {}) => ({ id, sku, name: sku, reason: 'متاح للبيع', status: 'متاح', mode: 'ملك ابتكر', cost: 0, since: '2026-11-01', closed_at: null, ...o });
 const invSeed = {

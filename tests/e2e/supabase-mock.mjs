@@ -2110,7 +2110,7 @@ export async function installSupabaseMock(page, opts = {}) {
         if (mock.photoSiteFails) { rec.site = 'failed'; return json(502, { error: 'woo_error', action, saved: true }); }
         rec.site = 'ok'; return json(200, { action, result: 'ok', site: 'ok', media: 900 + mock.photoCalls.length });
       }
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
@@ -2323,6 +2323,32 @@ export async function installSupabaseMock(page, opts = {}) {
         so.woo_status = 'trash'; mine.forEach((i) => { i.removed = true; i.pulled = false; }); o.total = Number(o.total) - mine.reduce((a, i) => a + Number(i.total || 0), 0);
         (mock.subTrashes = mock.subTrashes || []).push({ order_id: o.id, sub_id: so.woo_order_id, lines: mine.map((i) => i.id), reason, by: u.email });
         return json(200, { action, result: 'ok', lines: mine.length, already: false, released: 0, total: o.total.toFixed(2) });
+      }
+      // the owner 11 Nov: line_trash — one product off the order (its sub-order's last → only_in_sub, the order's last → only_line), the
+      // line flagged removed, the total less it (recorded in lineTrashes); suborder_status — a status_map slug on the sub-order
+      if (action === 'line_trash') {
+        const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at); if (!o) return json(404, { error: 'order_not_found' });
+        const reason = typeof b.reason === 'string' ? b.reason.trim() : ''; if (!reason || reason.length > 120) return json(400, { error: 'bad_request' });
+        if (['مكتمل', 'استرجاع'].includes(o.status)) return json(409, { error: 'closed', status: o.status });
+        const lines = mock.orderItems.filter((i) => i.order_id === o.id && !i.removed); const it = lines.find((i) => i.id === Number(b.item_id));
+        if (!it) return json(404, { error: 'line_not_found' }); if (lines.length === 1) return json(409, { error: 'only_line' });
+        const so = mock.subOrders.find((x) => x.id === it.sub_order_id);
+        if (so && so.woo_order_id !== o.id && lines.filter((i) => i.sub_order_id === so.id).length === 1) return json(409, { error: 'only_in_sub', sub: so.woo_order_id });
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        if (mock.wooDown) return json(502, { error: 'woo_error', step: 'lines' });
+        it.removed = true; it.pulled = false; o.total = Number(o.total) - Number(it.total || 0);
+        (mock.lineTrashes = mock.lineTrashes || []).push({ order_id: o.id, item_id: it.id, reason, by: u.email });
+        return json(200, { action, result: 'ok', sub: so ? so.woo_order_id : null, released: 0, total: o.total.toFixed(2) });
+      }
+      if (action === 'suborder_status') {
+        const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at); if (!o) return json(404, { error: 'order_not_found' });
+        if (Number(b.sub_id) === o.id) return json(400, { error: 'bad_request' });
+        const so = mock.subOrders.find((x) => x.order_id === o.id && x.woo_order_id === Number(b.sub_id)); if (!so) return json(404, { error: 'sub_not_found' });
+        if (!mock.statusMap.some((r) => r.woo_status && r.woo_status === b.status)) return json(400, { error: 'bad_status' });
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        if (mock.wooDown) return json(502, { error: 'woo_error' });
+        so.woo_status = b.status; (mock.subStatuses = mock.subStatuses || []).push({ order_id: o.id, sub_id: so.woo_order_id, status: b.status, by: u.email });
+        return json(200, { action, result: 'ok', sub: so.woo_order_id, status: b.status });
       }
       if (action === 'order_trash') {
         const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at);

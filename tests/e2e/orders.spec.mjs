@@ -886,6 +886,48 @@ test('decision 54: «مسح الأوردر الفرعي» lists its lines, takes
   await expect(dlg.locator('[data-cok]')).toHaveText('إلغاء ومسح الأوردر');
 });
 
+test('the owner 11 Nov: «حالة الموقع» of a Dokan sub-order (the site\'s own status, the whole sub-order) and «مسح المنتج» — one product off the order on the site; the last product of a sub-order goes to «مسح الأوردر الفرعي»', async ({ page }) => {
+  // a second product in sub-order 181669 (the same maker)
+  const base = mock.orderItems.find((i) => i.id === 5001);
+  mock.orderItems.push({ ...base, id: 5099, product_id: 9003, sku: 'IBTA4040PAHC000099', name: 'Pouf', qty: 1, total: 500, status: '', comment: null });
+  mock.orders.find((o) => o.id === 181668).total = 4041;
+  await openOrders(page);
+  const sr = (sel) => page.locator('#orders ' + sel); const menu = sr('#mpop'); const dlg = sr('#cdlg');
+  const c = card(page, '181668');
+  // the site status under the sub-order number, from status_map's labels
+  await expect(c.locator('[data-sws="5001"]')).toHaveText('على الموقع: جاري التنفيذ');
+  await expect(c.locator('[data-sws="5099"]')).toHaveText('على الموقع: جاري التنفيذ');
+  await c.locator('[data-more="s:5001"]').click();
+  await menu.locator('[data-ma="sitest"]').click();
+  await expect(dlg.locator('#cdt')).toHaveText('حالة الأوردر الفرعي #181669 على الموقع');
+  await expect(dlg.locator('[data-sub-count]')).toContainText('2 منتج');
+  await dlg.locator('#cwst').selectOption({ label: 'جاهز للشحن' });
+  await dlg.locator('[data-cok]').click();
+  await expect(dlg).toHaveCount(0);
+  await expect(toast(page)).toHaveText('الأوردر الفرعي #181669 بقى «جاهز للشحن» على الموقع');
+  expect(mock.subStatuses).toEqual([{ order_id: 181668, sub_id: 181669, status: 'ready-shipping', by: ADMIN }]);
+  await expect(c.locator('[data-sws="5099"]')).toHaveText('على الموقع: جاهز للشحن'); // the whole sub-order
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'suborder.site_status').map((a) => a.new_value)).toEqual(['#181669 (IB-181668) · ready-shipping']);
+  // «مسح المنتج»: Pouf off sub-order 181669 and the order
+  await c.locator('[data-more="s:5099"]').click();
+  await expect(menu.locator('[data-ma="linedel"]')).toHaveText('مسح المنتج');
+  await menu.locator('[data-ma="linedel"]').click();
+  await expect(dlg.locator('#cdt')).toHaveText('مسح المنتج من IB-181668؟');
+  await expect(dlg.locator('[data-line-del]')).toContainText('Pouf × 1 · 500 ج.م');
+  await dlg.locator('#creason').selectOption('تعديل من العميل');
+  await dlg.locator('[data-cok]').click();
+  await expect(dlg).toHaveCount(0);
+  await expect(toast(page)).toHaveText('اتمسح المنتج — إجمالي IB-181668 بقى 3,541 ج.م');
+  expect(mock.lineTrashes).toEqual([{ order_id: 181668, item_id: 5099, reason: 'تعديل من العميل', by: ADMIN }]);
+  await expect(c.locator('[data-more="s:5099"]')).toHaveCount(0);
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'order.line_delete').map((a) => a.new_value)).toEqual(['IB-181668 · سطر #5099 · تعديل من العميل']);
+  // the last product of sub-order 181670 → «مسح الأوردر الفرعي»
+  await c.locator('[data-more="s:5002"]').click();
+  await menu.locator('[data-ma="linedel"]').click();
+  await expect(toast(page)).toHaveText('ده المنتج الوحيد في الأوردر الفرعي #181670 — هيتمسح الأوردر الفرعي كله');
+  await expect(dlg.locator('#cdt')).toHaveText('مسح الأوردر الفرعي #181670؟');
+});
+
 test('the status chips sit in a carousel; the chosen filters show as chips with their counts and a ✕ that removes one', async ({ page }) => {
   await openOrders(page);
   const sr = (sel) => page.locator('#orders ' + sel);

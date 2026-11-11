@@ -133,7 +133,9 @@ test('permissions and settings: accounts sees «محتاج صلاحية» and an
   await expect(page.locator('[data-tool="images"]')).toContainText('محتاج صلاحية');
   await page.goto('/#products-tool-images');
   await expect(page.locator('#pg-products')).toContainText('مش مسموحلك تستخدم أداة الصور');
-  await page.evaluate(() => window.IBAuth && window.IBAuth.signOut ? window.IBAuth.signOut() : null).catch(() => {});
+  // a sign-out this page did not start through the shell makes block 28 reload the page (the SIGNED_OUT listener): wait for that reload
+  // before the next page.goto — racing it fails with «interrupted by another navigation» (CI, 11 Nov)
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => window.IBAuth && window.IBAuth.signOut ? window.IBAuth.signOut() : null).catch(() => {})]);
   await openProducts(page, ADMIN);
   await openTool(page);
   await page.locator('[data-img-settings]').click();

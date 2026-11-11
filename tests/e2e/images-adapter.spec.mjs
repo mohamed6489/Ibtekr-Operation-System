@@ -73,7 +73,9 @@ test('permissions: a member without products.add / products.edit is refused by t
   expect([r.ok, r.reason]).toEqual([false, 'forbidden']);
   expect(mock.imgCalls).toEqual([]); expect(mock.aiRuns).toEqual([]);
   expect(await page.evaluate(() => window.IBImages.probe().then((x) => x.reason))).toBe('forbidden');
-  await page.evaluate(() => window.IBAuth && window.IBAuth.signOut ? window.IBAuth.signOut() : null).catch(() => {});
+  // a sign-out this page did not start through the shell makes block 28 reload the page (the SIGNED_OUT listener): wait for that reload
+  // before the next page.goto — racing it fails with «interrupted by another navigation» (CI, 11 Nov)
+  await Promise.all([page.waitForEvent('load'), page.evaluate(() => window.IBAuth && window.IBAuth.signOut ? window.IBAuth.signOut() : null).catch(() => {})]);
   await signIn(page, ADMIN);
   expect(await page.evaluate(() => window.IBImages.probe())).toEqual({ ok: true, provider: 'magnific', shape: { credits: 'number', plan: { name: 'string' } }, models: ['seedream-5-pro', 'seedream-5-lite', 'gemini-2-5-flash', 'gpt-image-2'] });
   mock.imgFail = 'not_configured';

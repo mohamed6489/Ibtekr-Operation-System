@@ -481,3 +481,15 @@ test('phase 13 T3: an attachment goes out on WhatsApp 1 through the channel (the
   expect(mock.cs.conversations.find((c) => c.handle === 'Noha H').customer_id).toBe(youssef.id);
   expect(mock.csWrites.some((w) => w.op === 'link' && w.customer_id === youssef.id)).toBe(true);
 });
+
+// phase 13 decision 64: the customers table's mood picker and channel buttons are styled (no browser button box)
+test('decision 64: the mood picker is a tag + chevron with no grey box, the channel button a 32px bordered icon', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.evaluate(() => { location.hash = 'cs-customers'; });
+  const mood = page.locator('#pg-cs [data-mood-pick]').first(); await expect(mood).toBeVisible();
+  const m = await mood.evaluate((b) => { const c = getComputedStyle(b); return [c.backgroundColor, c.borderTopColor, Math.round(b.getBoundingClientRect().height)]; });
+  expect(m[0]).toBe('rgba(0, 0, 0, 0)'); expect(m[1]).toBe('rgba(0, 0, 0, 0)'); expect(m[2]).toBe(32);
+  const ch = page.locator('#pg-cs .chan-btn').first(); await expect(ch).toBeVisible();
+  const c = await ch.evaluate((b) => { const r = b.getBoundingClientRect(); return [Math.round(r.width), Math.round(r.height), getComputedStyle(b).backgroundColor]; });
+  expect(c.slice(0, 2)).toEqual([32, 32]); expect(c[2]).not.toBe('rgb(239, 239, 239)'); // not the browser's grey
+});

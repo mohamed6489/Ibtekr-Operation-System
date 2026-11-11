@@ -2525,7 +2525,7 @@
     const K2 = window.IBKit;
     const tkHead = h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'طلبات الفريق'), h('p', { class: 't-small' }, 'طلبات الفريق: مشاكل العملاء، مشاكل المبتكرين، والتعليقات الداخلية — كل تحديث بيتسجل في السجل')),
       h('div', { class: 'actions' }, state.tsub === 'log' && K2.PanelButton ? K2.PanelButton('tickets', 'تذاكر الفريق', () => document.getElementById('tickets'), renderTickets) : null, window.IBDataActions.Menu(window.IBDataActions.PAGES.tickets),
-        hrReqButton(), tCanManage() ? Button({ type: 'brand', icon: 'plus', label: 'فتح طلب', onClick: () => openNewTicket() }) : null)); // decision 45
+        tCanManage() || hrCanFile() ? Button({ type: 'brand', icon: 'plus', label: 'فتح طلب', attrs: { 'data-req-new': '' }, onClick: () => openNewTicket() }) : null)); // decision 45
     const tkTabs = K2.SubTabs({ items: [{ id: 'log', label: 'السجل', count: all.filter((t) => TK.OPEN.has(t.status)).length }, { id: 'reports', label: 'التقارير' }], active: state.tsub, onChange: (id) => { state.tsub = id; renderTickets(); }, label: 'أقسام التذاكر' });
     if (state.tsub === 'reports') return [tkHead, tkTabs].concat(TicketsReport());
     const TFG = [{ key: 'status', label: 'الحالة', options: [['open_any', 'مفتوحة (كل الحالات المفتوحة)']].concat(TK.STATUSES) }, { key: 'type', label: 'النوع', options: TK.TYPES }, { key: 'priority', label: 'الأولوية', options: TK.PRIORITIES.map((x) => [x[0], x[1]]) }, { key: 'role', label: 'المسؤول', options: TK.ROLES.map((r) => [r, r]) }, { key: 'mine', label: 'تذاكري', options: [['mine', 'تذاكر دوري بس']] }];
@@ -2557,17 +2557,19 @@
   // ----- new ticket modal (Figma: Modal / New ticket) — pre: { type, orderId, customer, vendor, vendorId, csConversationId, csCustomerId, title, description } -----
   // phase 13 decision 33 (owner 10 Nov — «تحويل طلباتي إلى تذاكر الفريق»): any member files an HR request from here (the HR page's own
   // forms) and it opens its team ticket (0071); the «طلباتي» tab in «ملفي» is gone
-  function hrReqButton() {
-    const HP = window.IBHR && window.IBPages.all().hr && window.IBPages.all().hr.api; if (!HP || !HP.leaveRequest) return null;
-    return Button({ label: 'طلب موارد بشرية', icon: 'briefcase', attrs: { 'data-hr-req-new': '' }, onClick: () => {
-      const pick = (run) => () => { md.close(); run(); };
-      const md = U.Modal({ title: 'طلب موارد بشرية', body: [h('p', { class: 't-small help', style: 'margin:0 0 8px' }, 'الطلب بيتفتح تذكرة هنا لمديرك المباشر، والقرار بيتاخد منها.'),
-        h('div', { class: 'links', style: 'display:flex;gap:8px;flex-wrap:wrap' }, Button({ type: 'primary', label: 'طلب إجازة', onClick: pick(() => HP.leaveRequest(null)) }), Button({ label: 'طلب سُلفة', onClick: pick(() => HP.advanceRequest(null)) }), Button({ label: 'شغل عن بُعد', onClick: pick(() => HP.remoteRequest(null)) }))], footer: [] });
-    } });
-  }
+  /* phase 13 decision 66 (owner 11 Nov — «حوّل تذكرة جديدة إلى طلب جديد، وبدل إنشاء تذكرة إنشاء طلب، وأنواع الطلبات: مشكلة عميل، مشكلة
+     مبتكر، طلب إجازة، طلب سلفة، طلب فترة راحة، طلب خاص — والجهات والخانات حسب النوع: الإجازة تاريخ بداية ونهاية، وفترة الراحة تاريخ
+     وعدد ساعات ووقت بداية ونهاية»): one popup; the problems and «طلب خاص» (the old internal note) are team tickets as before; the leave,
+     the advance and the rest period are HR requests (IBHR.request → hr_request_create) that open their team ticket to the direct manager
+     (decision 33) — their own fields, no title / role / priority. */
+  const hrCanFile = () => !!(window.IBHR && window.IBHR.request && window.IBDirectory && window.IBDirectory.me && window.IBDirectory.me());
+  const REQ_TYPES = [['customer', 'مشكلة عميل'], ['vendor', 'مشكلة مبتكر'], ['leave', 'طلب إجازة'], ['advance', 'طلب سلفة'], ['rest', 'طلب فترة راحة'], ['internal', 'طلب خاص']];
+  const HR_REQ = ['leave', 'advance', 'rest'];
+  const minsOf = (t) => { const m = /^(\d{1,2}):(\d{2})$/.exec(String(t || '')); return m ? Number(m[1]) * 60 + Number(m[2]) : null; };
   function openNewTicket(pre) {
-    if (!tCanManage()) { notify('error', 'مفيش صلاحية تفتح تذاكر.'); return; }
-    const f = Object.assign({ type: 'customer', title: '', description: '', priority: 'normal', assigneeRole: '', orderId: '', vendor: '', reason: '', followUp: '', attachments: [] }, pre || {});
+    const canT = tCanManage(), canH = hrCanFile();
+    if (!canT && !canH) { notify('error', 'مفيش صلاحية تفتح طلبات.'); return; }
+    const f = Object.assign({ type: canT ? 'customer' : 'leave', leaveKind: '', from: TODAY, to: TODAY, amount: '', months: '3', startAt: '', endAt: '', note: '', leaveDoc: null, title: '', description: '', priority: 'normal', assigneeRole: '', orderId: '', vendor: '', reason: '', followUp: '', attachments: [] }, pre || {});
     f.attachments = (f.attachments || []).slice();
     let errs = {}; let modal = null; let sending = false; let fileMsg = '';
     const vendorOpts = (typeof vstore !== 'undefined' && vstore.all ? vstore.all() : []).filter((v) => !v.siteRemoved).map((v) => ({ value: v.name, label: v.name }));
@@ -2595,14 +2597,61 @@
       const ctx0 = f.orderId ? orderCtx(String(f.orderId).trim()) : null;
       return U.FieldShell({ id: 't-order', label: 'رقم الأوردر', required, error: errs.orderId, help: ctx0 ? null : 'اكتب الرقم أو اسم العميل واختار من القايمة — بيجيب العميل والمبتكر تلقائي' }, h('div', { class: 'tk-order' }, inp, list));
     }
+    const typeOpts = REQ_TYPES.filter(([v]) => (HR_REQ.includes(v) ? canH : canT)).map(([v, l]) => ({ value: v, label: l }));
+    const leaveTypes = () => ((window.IBHR && window.IBHR.data && window.IBHR.data.leaveTypes) || []);
+    function hrFields() {
+      const t = U.Select({ id: 't-type', label: 'النوع', required: true, options: typeOpts, value: f.type, error: errs.type, onChange: (v) => { f.type = v; errs = {}; draw(); } });
+      const note = U.InlineNote({ children: 'الطلب بيروح لمديرك المباشر (وإلا مدير النظام) كطلب في «طلبات الفريق»، والقرار بيتاخد منه. التفاصيل بتفضل في «الموارد البشرية».' });
+      if (f.type === 'leave') {
+        const LT = leaveTypes(); if (!f.leaveKind && LT[0]) f.leaveKind = LT[0].name; const lt = LT.find((x) => x.name === f.leaveKind) || {}; const needDoc = !!lt.doc && !['', '—', '-'].includes(String(lt.doc).trim());
+        const doc = h('input', { type: 'file', id: 't-ldoc', accept: 'image/*,application/pdf', onChange: (e) => { f.leaveDoc = e.target.files && e.target.files[0] ? e.target.files[0] : null; } });
+        return [h('div', { class: 'row cols2' }, t, U.Select({ id: 't-lkind', label: 'نوع الإجازة', required: true, options: LT.map((x) => ({ value: x.name, label: x.name })), value: f.leaveKind, error: errs.leaveKind, onChange: (v) => { f.leaveKind = v; draw(); } })),
+          h('div', { class: 'row cols2' }, U.DateField({ id: 't-from', label: 'تاريخ البداية', required: true, value: f.from || null, error: errs.from, today: TODAY, onChange: (iso) => { f.from = iso || ''; draw(); } }), U.DateField({ id: 't-to', label: 'تاريخ النهاية', required: true, value: f.to || null, error: errs.to, today: TODAY, onChange: (iso) => { f.to = iso || ''; draw(); } })),
+          needDoc ? U.FieldShell({ id: 't-ldoc', label: lt.doc + ' (صورة أو PDF)', required: true, error: errs.leaveDoc }, doc) : null,
+          U.Textarea({ id: 't-note', label: 'ملاحظة', value: f.note, placeholder: 'اختياري', onInput: (v) => { f.note = v; } }), note];
+      }
+      if (f.type === 'advance') return [h('div', { class: 'row cols2' }, t, U.TextInput({ id: 't-amount', label: 'المبلغ (ج.م)', required: true, inputmode: 'decimal', value: f.amount, error: errs.amount, onInput: (v) => { f.amount = v; } })),
+        U.Select({ id: 't-months', label: 'التقسيط على', required: true, options: [1, 2, 3, 4, 6, 9, 12].map((n) => ({ value: String(n), label: n + (n === 1 ? ' شهر' : n === 2 ? ' شهرين' : ' شهور') })), value: f.months, onChange: (v) => { f.months = v; draw(); } }),
+        U.Textarea({ id: 't-note', label: 'السبب', value: f.note, placeholder: 'اختياري', onInput: (v) => { f.note = v; } }), note];
+      // rest: the day, the start and the end time — the hours from them
+      const a = minsOf(f.startAt), b = minsOf(f.endAt); const hrs = a != null && b != null && b > a ? Math.round((b - a) / 30) / 2 : null;
+      const tm = (id, label, key) => U.FieldShell({ id, label, required: true, error: errs[key] }, h('input', { id, type: 'time', class: 'input' + (errs[key] ? ' err' : ''), value: f[key] || '', step: 900, onChange: (e) => { f[key] = e.target.value; errs[key] = undefined; draw(); } }));
+      return [h('div', { class: 'row cols2' }, t, U.DateField({ id: 't-from', label: 'التاريخ', required: true, value: f.from || null, error: errs.from, today: TODAY, onChange: (iso) => { f.from = iso || ''; draw(); } })),
+        h('div', { class: 'row cols2' }, tm('t-start', 'من الساعة', 'startAt'), tm('t-end', 'لحد الساعة', 'endAt')),
+        h('div', { class: 't-small', 'data-rest-hours': hrs == null ? '' : String(hrs) }, 'عدد الساعات: ' + (hrs == null ? '—' : num(String(hrs)) + (hrs === 1 ? ' ساعة' : hrs === 2 ? ' ساعتين' : ' ساعات'))),
+        U.Textarea({ id: 't-note', label: 'السبب', value: f.note, placeholder: 'اختياري', onInput: (v) => { f.note = v; } }), note];
+    }
+    function hrValidate() {
+      const e = {};
+      if (f.type === 'leave') { const lt = leaveTypes().find((x) => x.name === f.leaveKind) || {}; const needDoc = !!lt.doc && !['', '—', '-'].includes(String(lt.doc).trim());
+        if (!f.leaveKind) e.leaveKind = 'اختار نوع الإجازة'; if (!f.from) e.from = 'اختار البداية'; if (!f.to) e.to = 'اختار النهاية'; else if (f.from && f.to < f.from) e.to = 'النهاية لازم بعد البداية'; if (needDoc && !f.leaveDoc) e.leaveDoc = 'ارفع ' + lt.doc; }
+      if (f.type === 'advance') { const n = Number(String(f.amount).replace(/[,٬]/g, '')); if (!(n > 0)) e.amount = 'اكتب مبلغ صحيح'; }
+      if (f.type === 'rest') { const a = minsOf(f.startAt), b = minsOf(f.endAt); if (!f.from) e.from = 'اختار التاريخ'; if (a == null) e.startAt = 'اختار وقت البداية'; if (b == null) e.endAt = 'اختار وقت النهاية'; else if (a != null && b <= a) e.endAt = 'النهاية لازم بعد البداية'; else if (a != null && (b - a) / 60 > 12) e.endAt = 'فترة الراحة لحد 12 ساعة'; else if (a != null && (b - a) < 30) e.endAt = 'نص ساعة على الأقل'; }
+      return e;
+    }
+    async function hrSubmit() {
+      const H = window.IBHR; const me = window.IBDirectory.me() || {};
+      let doc = null;
+      if (f.type === 'leave' && f.leaveDoc) { const u = await H.upload(f.leaveDoc, me.member_code); if (!u.ok) return u; doc = u.path; }
+      const a = minsOf(f.startAt), b = minsOf(f.endAt);
+      const input = f.type === 'leave' ? { type: f.leaveKind, from: f.from, to: f.to, note: f.note || '', doc }
+        : f.type === 'advance' ? { type: 'سُلفة', amount: Number(String(f.amount).replace(/[,٬]/g, '')), months: Number(f.months), note: f.note || '' }
+          : { type: 'فترة راحة', from: f.from, to: f.from, time: f.startAt, hours: Math.round((b - a) / 30) / 2, note: f.note || '' };
+      return H.request(input);
+    }
     function draw() {
+      if (HR_REQ.includes(f.type)) {
+        modal.setBody(...hrFields().concat(errs._form ? [U.InlineNote({ kind: 'error', children: errs._form })] : []).filter(Boolean));
+        modal.setFooter(Button({ type: 'primary', label: sending ? 'بيتبعت…' : 'إنشاء الطلب', disabled: sending, attrs: { 'data-req-submit': '' }, onClick: submit }), Button({ label: 'إلغاء', onClick: modal.close }));
+        return;
+      }
       const ctx = f.type === 'customer' && f.orderId ? orderCtx(String(f.orderId).trim()) : null;
       const pick = AttachPicker(f.attachments, (m) => { fileMsg = m; draw(); }); pick.msg.textContent = fileMsg;
       const linked = f.csConversationId ? U.InlineNote({ children: 'التذكرة هتتربط بمحادثة خدمة العملاء' + (f.customer ? ' مع ' + f.customer : '') + '.' }) : null;
       const fields = [
         linked,
-        h('div', { class: 'row cols2' }, U.TextInput({ id: 't-title', label: 'العنوان', required: true, value: f.title, error: errs.title, placeholder: 'سطر واحد يلخّص المشكلة', maxlength: TK.TITLE_MAX, onInput: (v) => { f.title = v; } }),
-          U.Select({ id: 't-type', label: 'النوع', required: true, options: TK.TYPES.map(([v, l]) => ({ value: v, label: l })), value: f.type, error: errs.type, onChange: (v) => { f.type = v; f.reason = ''; errs = {}; draw(); } })),
+        h('div', { class: 'row cols2' }, U.TextInput({ id: 't-title', label: 'العنوان', required: true, value: f.title, error: errs.title, placeholder: f.type === 'internal' ? 'سطر واحد يلخّص الطلب' : 'سطر واحد يلخّص المشكلة', maxlength: TK.TITLE_MAX, onInput: (v) => { f.title = v; } }),
+          U.Select({ id: 't-type', label: 'النوع', required: true, options: typeOpts, value: f.type, error: errs.type, onChange: (v) => { f.type = v; f.reason = ''; errs = {}; draw(); } })),
         f.type === 'customer' ? orderPicker(true) : null,
         ctx ? h('div', { class: 'ctx-card', style: 'padding:8px 12px' }, h('div', { class: 'facts' }, U.DelayBadge(ctx.delivery), h('span', { class: 't-small' }, num(ctx.customer + ' · ' + (ctx.vendors || []).join('، ') + ' · ' + ctx.status + ' · ' + ctx.ageDays + ' يوم · ' + D.formatMoney(ctx.total) + ' ج.م')))) : null,
         f.type === 'customer' ? U.Select({ id: 't-reason', label: 'سبب المشكلة', required: true, options: TK.CUSTOMER_REASONS.map((r) => ({ value: r, label: r })), value: f.reason, error: errs.reason, onChange: (v) => { f.reason = v; draw(); } }) : null,
@@ -2616,19 +2665,25 @@
           U.FieldShell({ id: 't-att', label: 'مرفقات (صور أو PDF — لحد 10 ملفات، 10 ميجا للملف)' }, pick.el)),
         errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: 'هتتسجل باسمك (' + ME.name + ' · ' + ME.role + ') وتاريخ النهارده، والحالة هتبدأ «مفتوح».' })].filter(Boolean);
       modal.setBody(...fields);
-      modal.setFooter(Button({ type: 'primary', label: sending ? 'بيتبعت…' : 'إنشاء التذكرة', disabled: sending, onClick: submit }), Button({ label: 'إلغاء', onClick: modal.close }));
+      modal.setFooter(Button({ type: 'primary', label: sending ? 'بيتبعت…' : 'إنشاء الطلب', disabled: sending, attrs: { 'data-req-submit': '' }, onClick: submit }), Button({ label: 'إلغاء', onClick: modal.close }));
     }
     async function submit() {
       if (sending) return;
+      if (HR_REQ.includes(f.type)) {
+        errs = hrValidate(); if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; draw(); return; }
+        sending = true; draw(); const r = await hrSubmit().catch(() => ({ ok: false, message: 'مافيش اتصال — جرّب تاني' })); sending = false;
+        if (!r || !r.ok) { errs = r && r.field && ['from', 'to', 'amount'].includes(r.field) ? { [r.field]: r.message } : {}; errs._form = (r && r.message) || 'تعذّر إنشاء الطلب'; draw(); return; }
+        modal.close(); notify('success', 'اتقدم الطلب ' + r.id + (r.ticket ? ' — وصل لمديرك في ' + r.ticket : '') + '.'); if (r.ticket && tstore.get(r.ticket)) openTicket(r.ticket); return;
+      }
       errs = TK.validateTicket(f); if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; draw(); return; }
       const c0 = f.type === 'customer' ? orderCtx(String(f.orderId).trim()) : null; if (c0 && !f.customer) f.customer = c0.customer;
       sending = true; draw();
       const r = await TA().create(f).catch(() => offline); sending = false;
-      if (!r.ok) { errs = r.field && ['title', 'orderId', 'vendor', 'reason', 'followUp', 'description', 'priority', 'assigneeRole'].includes(r.field) ? { [r.field]: r.message } : {}; errs._form = r.message || 'تعذّر إنشاء التذكرة'; draw(); return; }
-      modal.close(); state.tf = Object.assign({}, state.tf, { status: ['open_any'] }); state.tpage = 1; notify('success', 'اتعملت التذكرة ' + r.id + ' ووصلت لدور «' + f.assigneeRole + '».'); openTicket(r.id);
+      if (!r.ok) { errs = r.field && ['title', 'orderId', 'vendor', 'reason', 'followUp', 'description', 'priority', 'assigneeRole'].includes(r.field) ? { [r.field]: r.message } : {}; errs._form = r.message || 'تعذّر إنشاء الطلب'; draw(); return; }
+      modal.close(); state.tf = Object.assign({}, state.tf, { status: ['open_any'] }); state.tpage = 1; notify('success', 'اتعمل الطلب ' + r.id + ' ووصل لدور «' + f.assigneeRole + '».'); openTicket(r.id);
     }
-    modal = U.Modal({ title: 'تذكرة جديدة', body: [], footer: [] }); draw();
-    const first = modal.el.querySelector('#t-title'); if (first) first.focus();
+    modal = U.Modal({ title: 'طلب جديد', body: [], footer: [] }); draw();
+    const first = modal.el.querySelector('#t-title') || modal.el.querySelector('#t-type'); if (first) first.focus();
   }
 
   // ----- ticket drawer (Figma: Drawer / Ticket) -----
@@ -3570,7 +3625,7 @@
             U.InfoRow({ label: 'تذاكر مفتوحة عليه', value: num(String(st.tickets.length)) }),
             U.InlineNote({ kind: vtone, children: pf.verdict === 'ممتاز' ? 'ملتزم بالمواعيد ومفيش تأخير ولا إلغاء ملحوظ.' : pf.verdict === 'جيد' ? 'أداء كويس — تابع الأوردرات القابلة للتأخير قبل ما تتأخر.' : pf.verdict === 'محتاج متابعة' ? 'نسبة الإلغاء أو التأخير عالية — اتواصل معاه وافتح تذكرة لو محتاج.' : 'هيظهر الملخص أول ما يبقى عنده أوردرات.' })),
           section('أوردرات المبتكر', Button({ type: 'text', size: 'sm', label: 'فتح في الأوردرات', onClick: () => { vdrawer.close(); showOrders({ vendor: v.name }); } }), orders.length ? U.Table({ cls: 'mini-table', headers: ['رقم الأوردر', 'العميل', 'الحالة', 'التسليم', 'الإجمالي', 'حصته'], rows: orders.map((o) => [num(o.id), o.customer, o.status, U.DelayBadge(o.delivery), num(D.formatMoney(o.total)), num(D.formatMoney(o.share || 0))]) }) : U.EmptyState('مفيش أوردرات', 'المبتكر ده ما عندوش أوردرات في الأوردرات الحالية.')),
-          section('التذاكر المفتوحة على المبتكر', Button({ type: 'text', size: 'sm', label: 'إنشاء تذكرة', onClick: () => { vdrawer.close(); showTickets(); openNewTicket({ type: 'vendor', vendor: v.name, vendorId: v.id }); } }), st.tickets.length ? st.tickets.map((t) => { const b = h('button', { type: 'button', class: 'opt', style: 'display:flex;justify-content:space-between;gap:8px;width:100%', onClick: () => { vdrawer.close(); showTickets(); openTicket(t.id); } }, h('span', null, num(t.id), ' — ' + t.title), h('span', { style: 'display:flex;gap:8px' }, U.TicketStatus(t.status), U.PriorityTag(t.priority))); return b; }) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'مفيش تذاكر مفتوحة على المبتكر ده.')));
+          section('التذاكر المفتوحة على المبتكر', Button({ type: 'text', size: 'sm', label: 'إنشاء طلب', onClick: () => { vdrawer.close(); showTickets(); openNewTicket({ type: 'vendor', vendor: v.name, vendorId: v.id }); } }), st.tickets.length ? st.tickets.map((t) => { const b = h('button', { type: 'button', class: 'opt', style: 'display:flex;justify-content:space-between;gap:8px;width:100%', onClick: () => { vdrawer.close(); showTickets(); openTicket(t.id); } }, h('span', null, num(t.id), ' — ' + t.title), h('span', { style: 'display:flex;gap:8px' }, U.TicketStatus(t.status), U.PriorityTag(t.priority))); return b; }) : h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'مفيش تذاكر مفتوحة على المبتكر ده.')));
       } else {
         // decision 5: this phase's numbers — his shares of the completed orders (decision 4) over the opening balance (0 until the
         // phase-4 import); deposits, transport and the money moves come with the accounts phase; the agreement (Ibtekr's share)

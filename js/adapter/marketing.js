@@ -610,7 +610,8 @@
   }
   // the rules and limits (marketing.view reads; the admin writes the numbers and the switch)
   const RULE_KEYS = ['dailyCap', 'maxCpa', 'autoStop', 'autoStopMode', 'reportHour', 'live'];
-  const toRules = (r) => { const x = r && typeof r === 'object' ? r : {}; return { dailyCap: Number(x.dailyCap) || 0, maxCpa: Number(x.maxCpa) || 0, autoStop: Number(x.autoStop) || 0, autoStopMode: x.autoStopMode === 'auto' ? 'auto' : 'suggest', reportHour: Number.isInteger(x.reportHour) ? x.reportHour : 9, live: x.live === true }; };
+  const toRules = (r) => { const x = r && typeof r === 'object' ? r : {}; return { dailyCap: Number(x.dailyCap) || 0, maxCpa: Number(x.maxCpa) || 0, autoStop: Number(x.autoStop) || 0, autoStopMode: x.autoStopMode === 'auto' ? 'auto' : 'suggest', reportHour: Number.isInteger(x.reportHour) ? x.reportHour : 9, live: x.live === true,
+    notes: (Array.isArray(x.notes) ? x.notes : []).filter((n) => n && typeof n.title === 'string' && typeof n.details === 'string').map((n) => ({ title: n.title, details: n.details, kind: n.kind || 'قاعدة' })) }; }; // the admin's written rules (the v6 prototype)
   let rulesCache = null; let rulesAt = 0;
   async function rules(force) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
@@ -626,6 +627,7 @@
     if (!isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
     const x = patch && typeof patch === 'object' ? patch : {}; const body = {};
     for (const k of RULE_KEYS) if (k !== 'live' && x[k] !== undefined) body[k] = k === 'autoStopMode' ? x[k] : Number(x[k]);
+    if (Array.isArray(x.notes)) body.notes = x.notes.slice(0, 20).map((n) => ({ title: String((n && n.title) || ''), details: String((n && n.details) || ''), kind: String((n && n.kind) || '') })); // the written rules — the whole list
     const r = await invoke('mkt-ads', { action: 'rules_set', rules: body });
     if (!r.ok) return Object.assign(r, { message: r.reason === 'forbidden' ? MESSAGES.forbidden : r.reason === 'invalid' ? 'القيمة مش مظبوطة' + (r.field ? ' (' + r.field + ')' : '') : MESSAGES.network });
     rulesCache = toRules(r.body && r.body.rules); rulesAt = Date.now(); emit();

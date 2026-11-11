@@ -1211,7 +1211,21 @@
     const sw = h('div', { class: 'mk-auto', 'data-mk-live': r.live ? 'on' : 'off' }, Tag(r.live ? 'success' : 'neutral', r.live ? 'التنفيذ على ميتا شغّال' : 'التنفيذ على ميتا متوقف'),
       h('span', { class: 't-small help' }, r.live ? 'الموافقة على اقتراح بتتنفّذ على حساب الإعلانات فورًا — بموافقتك بس' : 'وهو متوقف الموافقة بتتسجل من غير أي تغيير على ميتا'),
       isAdmin() ? Button({ size: 'sm', type: r.live ? 'default' : 'primary', label: r.live ? 'وقّف التنفيذ' : 'شغّل التنفيذ', attrs: { 'data-mk-live-toggle': '' }, onClick: () => toggleLive(!r.live) }) : null);
-    return Card('القواعد والحدود', 'الميديا باير مايعملش حاجة لوحده برّه القواعد دي' + (isAdmin() ? ' · اضغط على قاعدة تعدّلها' : ''), [h('div', { class: 'mk-list' }, items), sw]);
+    // the admin's written rules (the v6 prototype's «+ قاعدة جديدة»): guidance the buyer's chat reads — nothing runs from them
+    const notes = (r.notes || []).map((n, i) => h(isAdmin() ? 'button' : 'div', Object.assign({ class: 'mk-item', 'data-mk-note': String(i) }, isAdmin() ? { type: 'button', onClick: () => editNote(i) } : {}),
+      h('span', { class: 'mk-ic tone-gold' }, Icon('file', 'sm')), h('span', { class: 'mk-txt' }, h('b', null, n.title), h('small', null, U.num(n.details))), h('span', { class: 't-small help mk-tag' }, n.kind)));
+    return Card('القواعد والحدود', 'الميديا باير مايعملش حاجة لوحده برّه القواعد دي' + (isAdmin() ? ' · اضغط على قاعدة تعدّلها' : ''), [h('div', { class: 'mk-list' }, items.concat(notes)),
+      notes.length ? h('p', { class: 't-small help', style: 'margin:0' }, 'القواعد المكتوبة بيقراها الميديا باير في الشات ويمشي عليها في نصايحه — مابتنفّذش حاجة لوحدها.') : null,
+      isAdmin() && (r.notes || []).length < 20 ? Button({ type: 'text', size: 'sm', label: '+ قاعدة جديدة', attrs: { 'data-mk-note-add': '' }, onClick: () => editNote(-1) }) : null, sw]);
+  }
+  function editNote(i) {
+    const L = (BY.rules && BY.rules.notes) || []; const cur = L[i] || { title: '', details: '', kind: 'قاعدة' };
+    const save = (next, msg) => MK().rulesSet({ notes: next }).then((x) => { K.toast(x.ok ? msg : x.message, x.ok ? 'success' : 'error'); if (x.ok) BY.rules = x.rules; R(); });
+    K.form({ title: i < 0 ? 'قاعدة جديدة' : 'تعديل: ' + cur.title, values: { t: cur.title, s: cur.details, k: cur.kind }, submitLabel: 'احفظ القاعدة',
+      fields: (f, e, set) => [K.field.text('t', 'القاعدة', f, e, set, { required: true, placeholder: 'مثال: إعلان نقراته قليلة' }), K.field.area('s', 'التفاصيل', f, e, set, { required: true, placeholder: 'مثال: إعلان CTR أقل من 0.8% ← بلّغني' }), K.field.select('k', 'النوع', ['حد', 'هدف', 'قاعدة', 'تقرير'], f, e, set)],
+      validate: (f) => { const e = K.req(f, ['t', 's']); if (!e.t && f.t.trim().length > 80) e.t = 'لحد 80 حرف'; if (!e.s && f.s.trim().length > 300) e.s = 'لحد 300 حرف'; if (/[<>]/.test(f.t + f.s)) e.s = 'من غير < أو >'; return e; },
+      submit: (f) => { const n = { title: f.t.trim(), details: f.s.trim(), kind: f.k }; const next = L.slice(); if (i < 0) next.push(n); else next[i] = n; save(next, 'اتحفظت القاعدة'); },
+      extraFooter: i < 0 ? null : (f, m) => h('span', { class: 'rp-del' }, Button({ type: 'text', label: 'امسح القاعدة', attrs: { 'data-mk-note-del': '' }, onClick: () => { m.close(); save(L.filter((_, j) => j !== i), 'اتمسحت القاعدة'); } })) });
   }
   function toggleLive(on) {
     K.confirm({ title: on ? 'تشغّل التنفيذ على ميتا؟' : 'توقّف التنفيذ على ميتا؟', okLabel: on ? 'شغّل التنفيذ' : 'وقّف التنفيذ', okType: on ? 'primary' : 'danger',

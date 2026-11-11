@@ -77,7 +77,7 @@ function baseUrl(raw) {
 }
 
 /**
- * { get(path, query), put(path, body), post(path, body), del(path), upload(path, bytes, filename, mime), eachPage(path, query, onPage, { maxPages, startPage }), scrub }.
+ * { get(path, query), put(path, body, query), post(path, body), del(path), delCategory(id, lang), upload(path, bytes, filename, mime), eachPage(path, query, onPage, { maxPages, startPage }), scrub }.
  * get/put/post → { data, total, pages } (X-WP-Total / X-WP-TotalPages as numbers or null).
  */
 export function wooApi(env, fetchFn) {
@@ -133,10 +133,17 @@ export function wooApi(env, fetchFn) {
 
   return {
     get: (path, query) => request('GET', path, { query }),
-    put: (path, body) => request('PUT', path, { body }),
+    put: (path, body, query) => request('PUT', path, { body, query }), // query: a translation's `lang` (B4 — a category's Arabic term)
     post: (path, body) => request('POST', path, { body }),
     // DELETE with no query at all: a product goes to the trash (never `force`, which deletes it for good; phase 5)
     del: (path) => request('DELETE', path),
+    // B4 (the owner, 11 Nov): a product category has no trash on WooCommerce — its DELETE needs force=true. Only a category's own
+    // route takes it (never a product's: `del` above stays without a query); `lang` reaches a category's Arabic term (WPML).
+    delCategory: (id, lang) => {
+      const n = Number(id);
+      if (!Number.isInteger(n) || n <= 0) throw new ConfigError('a category id is required');
+      return request('DELETE', `wc/v3/products/categories/${n}`, { query: { force: true, ...(lang === 'ar' ? { lang: 'ar' } : {}) } });
+    },
     options: (path) => request('OPTIONS', path), // a route's schema, read-only (probe_dokan options, phase 5)
     // a file to the media library (phase 5.2): the bytes as they are, the file name ASCII-safe in Content-Disposition
     upload: (path, bytes, filename, mime) => request('POST', path, { raw: { bytes, headers: { 'Content-Type': mime,

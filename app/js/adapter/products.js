@@ -310,7 +310,7 @@
 
   // phase 13 decision 62 (owner 11 Nov — «سجل الحركة» في المنتجات): the products' activity_log rows (what the RLS lets this member read —
   // the admin all of them, a member his own), newest 200: { id, at, action, text (the ids and field names as logged), actor, productId }
-  const LOG_ACTIONS = ['product.save', 'product.bulk', 'product.trash', 'product.restore', 'product.duplicate', 'product.create', 'product.images.add', 'product.lead', 'product.category.create'];
+  const LOG_ACTIONS = ['product.save', 'product.bulk', 'product.trash', 'product.restore', 'product.duplicate', 'product.create', 'product.images.add', 'product.lead', 'product.category.create', 'product.category.update', 'product.category.delete']; // B4: the categories tab's edits
   let prodLog = null;
   async function loadLog() {
     const cl = c(); if (!cl) return prodLog;
@@ -329,6 +329,9 @@
     brands: () => [...brands.values()].map((x) => ({ id: Number(x.id), name: x.name })),
     // phase 5.2: a category the studio just made on the site (category_create) shows at once
     addCategory: (row) => { cats.set(Number(row.id), { id: Number(row.id), name: row.name, parent_id: row.parent_id || null }); emit({ categories: true }); },
+    // B4 (11 Nov): the categories tab — a new name and a deleted category show at once (the mirror follows on the server)
+    renameCategory: (id, name) => { const x = cats.get(Number(id)); if (x) { cats.set(Number(id), Object.assign({}, x, { name })); emit({ categories: true }); } },
+    removeCategory: (id) => { if (cats.delete(Number(id))) emit({ categories: true }); },
     fetchLive, save, batch, duplicate, leadDays, setLeadDays, // phase 13 decision 52
     loadLog, log: () => prodLog, LOG_ACTIONS, // phase 13 decision 62
     trashIds: (ids, onProgress) => moveTrash(ids, false, onProgress), restore: (ids, onProgress) => moveTrash(ids, true, onProgress),

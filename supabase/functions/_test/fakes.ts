@@ -18,7 +18,7 @@ const COLUMNS: Record<string, string[]> = {
   status_map: ['id', 'system_status', 'woo_status', 'direction', 'sort'],
   vendors: ['id', 'woo_vendor_id', 'site_removed_at', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at',
     'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance',
-    'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at', 'photo_path'],
+    'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at', 'photo_path', 'main_categories'],
   vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at', 'commission_type'], // 0016: commission_type
   // 0001 + 0046 (phase 10, team-admin): the team's profiles, the roles, the members' HR data
   profiles: ['id', 'member_code', 'name', 'email', 'phone', 'role_id', 'title', 'dept', 'manager_id', 'status', 'twofa', 'custom_perms', 'created_at'],
@@ -256,6 +256,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       if (kind === 'lte') return row[col] != null && String(row[col]) <= String(value);
       if (kind === 'neq') return !same(row[col], value);
       if (kind === 'not.null') return row[col] !== null && row[col] !== undefined;
+      if (kind === 'contains') return Array.isArray(row[col]) && (value as unknown[]).every((v) => (row[col] as unknown[]).some((x) => same(x, v))); // B4: an array column holds every value
       if (kind === 'ilike') return row[col] != null && new RegExp('^' + String(value).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').replace(/%/g, '.*').replace(/_/g, '.') + '$', 'is').test(String(row[col]));
       throw new Error(`fakeDb: unsupported filter ${kind}`);
     });
@@ -300,6 +301,8 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
     } else if (q.op === 'update') {
       touched = next[table].filter((r) => matches(r, q.filters));
       for (const r of touched) Object.assign(r, clone(q.patch));
+    } else if (q.op === 'delete') {
+      next[table] = next[table].filter((r) => !matches(r, q.filters));
     }
     const bad = validate(table, touched, next);
     if (bad) return done(null, bad);
@@ -321,7 +324,8 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       insert(rows: Row | Row[]) { q.op = 'insert'; q.rows = Array.isArray(rows) ? rows : [rows]; return b; },
       upsert(rows: Row | Row[], o: { onConflict?: string } = {}) { q.op = 'upsert'; q.rows = Array.isArray(rows) ? rows : [rows]; q.onConflict = o.onConflict ?? 'id'; return b; },
       update(patch: Row) { q.op = 'update'; q.patch = patch; return b; },
-      delete() { throw new Error('fakeDb: the functions must never delete'); },
+      // B4: the one delete a function makes — a category gone from the site leaves the mirror (woo-sync category_delete)
+      delete() { if (table !== 'woo_categories') throw new Error('fakeDb: the functions must never delete'); q.op = 'delete'; return b; },
       eq(col: string, v: unknown) { q.filters.push(['eq', col, v]); return b; },
       in(col: string, v: unknown[]) { q.filters.push(['in', col, v]); return b; },
       is(col: string, v: unknown) { q.filters.push(['is', col, v]); return b; },
@@ -329,6 +333,7 @@ export function fakeDb(seed: Record<string, Row[]> = {}, opts: { rpc?: Record<st
       lte(col: string, v: unknown) { q.filters.push(['lte', col, v]); return b; },
       neq(col: string, v: unknown) { q.filters.push(['neq', col, v]); return b; },
       ilike(col: string, v: unknown) { q.filters.push(['ilike', col, v]); return b; },
+      contains(col: string, v: unknown[]) { q.filters.push(['contains', col, v]); return b; },
       limit(n: number) { q.range = [0, n - 1]; return b; },
       not(col: string, op: string, v: unknown) { if (op === 'is' && v === null) { q.filters.push(['not.null', col, null]); return b; } if (op !== 'in') throw new Error(`fakeDb: unsupported not.${op}`); q.filters.push(['not.in', col, v]); return b; },
       range(a: number, z: number) { q.range = [a, z]; return b; },

@@ -142,10 +142,12 @@ type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'suborder_status', 'order_create', 'order_pay_link',
-  'vendor_photo', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts'];
+  'vendor_photo', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
+  'category_get', 'category_update', 'category_delete'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
-// phase 5.4: the images tool's results onto a product
-const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate'];
+// phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
+const PRODUCT_ACTIONS = ['product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate',
+  'category_get', 'category_update', 'category_delete'];
 const PRODUCT_BATCH_MAX = 100;
 const ACCOUNTS_BATCH = 50; // stats requests per run (one per maker; the hourly cron goes round the list)
 const STATEMENT_MAX_DAYS = 400;
@@ -199,6 +201,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'products_trash' || action === 'products_restore') return (await admin()) || (await perm('products.trash')) ? 'member' : null;
   // phase 5.2 (decisions 7 / 8 / 13): the studio's upload, a new category and reading a sheet link need products.add = F
   if (action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet') return (await admin()) || (await perm('products.add')) ? 'member' : null;
+  // B4 (the owner, 11 Nov): the categories tab — reading one for «تعديل», editing and deleting it — the same people who add one
+  if (action === 'category_get' || action === 'category_update' || action === 'category_delete') return (await admin()) || (await perm('products.add')) ? 'member' : null;
   // phase 12 T2 (decision 9): a copy of a product is a new product — products.add = F, like the studio
   if (action === 'product_duplicate') return (await admin()) || (await perm('products.add')) ? 'member' : null;
   // phase 7 (decision 1 c): the site quantity from the hub — the admin, or inventory.edit = F AND products.edit = F (a person, never the
@@ -1644,34 +1648,196 @@ async function studioSheet(args: Json, fetchFn: typeof fetch) {
   return json(200, { action: 'studio_sheet', result: 'ok', csv: r.csv });
 }
 
-// category_create { name_en, name_ar?, parent? }: a new WooCommerce category in English and its Arabic translation
-// (best effort, like studio_upload's), then into woo_categories.
+// category_create { name_en, name_ar?, parent?, image? }: a new WooCommerce category in English and its Arabic translation
+// (best effort, like studio_upload's), then into woo_categories — the English term only: the mirror is the default language's list
+// (what the pull reads), so a translation there would show as a second category (B4).
 const plainName = (v: unknown) => (typeof v === 'string' && v.trim().length >= 1 && v.trim().length <= 80 && !/[<>%]/.test(v) ? v.trim() : null);
+// B4 (the owner, 11 Nov — «قسم رئيسي جديد … بصورة مربعة»): a category's image comes in the request as { data: base64 } — the page's
+// square crop (catImage in products.js) — a PNG / JPEG / WebP of 2 MB at most, checked by its own bytes (never the stated type);
+// it goes to the media library (wp/v2/media) and the category and its translation take it as `image: { id }`. undefined / null =
+// no image; anything else that is not such an image = false (400).
+const CAT_IMAGE_MAX = 2 * 1048576;
+function catImageBytes(v: unknown): Uint8Array | null | false {
+  if (v === undefined || v === null) return null;
+  if (!isObj(v) || typeof v.data !== 'string' || v.data.length > Math.ceil(CAT_IMAGE_MAX / 3) * 4 || !/^[A-Za-z0-9+/]+={0,2}$/.test(v.data)) return false;
+  let bytes: Uint8Array;
+  try { bytes = Uint8Array.from(atob(v.data), (ch) => ch.charCodeAt(0)); } catch { return false; }
+  return isPhotoBytes(bytes) && bytes.length <= CAT_IMAGE_MAX ? bytes : false;
+}
+async function catMedia(run: Run, ctx: Ctx, bytes: Uint8Array, name: string): Promise<number | null> {
+  const ext = bytes[0] === 0x89 ? 'png' : bytes[0] === 0xff ? 'jpg' : 'webp';
+  const media = (await ctx.woo.upload('wp/v2/media', bytes, `category-${name}-${run.now().replace(/[^0-9]/g, '').slice(2, 12)}.${ext}`, MIME[ext])).data;
+  return wooId(isObj(media) ? media.id : null);
+}
+// a category as the page needs it: names, the parent, the site's count and the image's https URL (nothing else of the answer)
+const catView = (c: unknown) => (isObj(c) ? { id: wooId(c.id), name: typeof c.name === 'string' ? c.name : '', parent: wooId(c.parent) ?? 0, count: Number.isInteger(Number(c.count)) ? Number(c.count) : 0,
+  image: isObj(c.image) && typeof c.image.src === 'string' && /^https:\/\//.test(c.image.src) ? c.image.src.slice(0, 600) : null } : null);
+// a category's Arabic translation read in Arabic (WPML's `lang`), taken only when it is that term and linked to the English one
+async function catArabic(ctx: Ctx, id: number, en: Json): Promise<Json | null> {
+  const arId = wooId(isObj(en.translations) ? en.translations.ar : null);
+  if (arId === null || arId === id) return null;
+  const a = (await ctx.woo.get(`${CATEGORIES_PATH}/${arId}`, { lang: 'ar' })).data;
+  const linked = isObj(a) && wooId(a.id) === arId && (!isObj(a.translations) || wooId(a.translations.en) === id);
+  return linked ? a : null;
+}
 async function categoryCreate(run: Run, args: Json) {
   const name = plainName(args.name_en); const nameAr = args.name_ar == null || args.name_ar === '' ? null : plainName(args.name_ar);
   const parent = args.parent == null || args.parent === 0 ? 0 : wooId(args.parent);
-  if (!name || (args.name_ar && !nameAr) || parent === null) return json(400, { error: 'bad_request' });
+  const img = catImageBytes(args.image);
+  if (!name || (args.name_ar && !nameAr) || parent === null || img === false) return json(400, { error: 'bad_request', ...(img === false ? { field: 'image' } : {}) });
   const entry = { kind: 'push', direction: 'out', entity: 'woo_categories', entity_id: null, action: 'category_create' };
   if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled' } }); return json(200, { action: 'category_create', result: 'skipped', reason: 'push_disabled' }); }
   const ctx = await run.ctx();
+  let mediaId: number | null = null;
+  if (img) {
+    try { mediaId = await catMedia(run, ctx, img, name); } catch (e) { if (!(e instanceof WooError || e instanceof ConfigError)) throw e; await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e), step: 'image' } }); return json(200, { action: 'category_create', result: 'error', reason: 'media_refused' }); }
+    if (mediaId === null) { await logSync(run.db, { ...entry, result: 'error', detail: { error: 'media_refused' } }); return json(200, { action: 'category_create', result: 'error', reason: 'media_refused' }); }
+  }
+  const image = mediaId === null ? {} : { image: { id: mediaId } };
   let c: Json;
-  try { c = (await ctx.woo.post(CATEGORIES_PATH, { name, parent, lang: 'en', wpml_language: 'en' })).data; }
+  try { c = (await ctx.woo.post(CATEGORIES_PATH, { name, parent, lang: 'en', wpml_language: 'en', ...image })).data; }
   catch (e) { if (!(e instanceof WooError)) throw e; await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e) } }); return json(200, { action: 'category_create', result: 'error', reason: wooCode(e) }); }
   const id = wooId(isObj(c) ? c.id : null);
   if (id === null) return json(502, { error: 'woo_error' });
-  const rows: Json[] = [c];
   let arId: number | null = null;
   if (nameAr) {
     // phase 13 decision 56: a sub-category's Arabic translation sits under the parent's Arabic translation (WPML's `translations` on the
     // parent, when the site answers it; else WPML keeps it where it puts it)
     let parentAr: number | null = null;
     if (parent) { try { const pc = (await ctx.woo.get(`${CATEGORIES_PATH}/${parent}`)).data; parentAr = wooId(isObj(pc) && isObj(pc.translations) ? pc.translations.ar : null); } catch (e) { if (!(e instanceof WooError)) throw e; } }
-    try { const a = (await ctx.woo.post(CATEGORIES_PATH, { name: nameAr, lang: 'ar', wpml_language: 'ar', translation_of: id, ...(parentAr ? { parent: parentAr } : {}) })).data; arId = wooId(isObj(a) ? a.id : null); if (isObj(a)) rows.push(a); }
+    try { const a = (await ctx.woo.post(CATEGORIES_PATH, { name: nameAr, lang: 'ar', wpml_language: 'ar', translation_of: id, ...(parentAr ? { parent: parentAr } : {}), ...image })).data; arId = wooId(isObj(a) ? a.id : null); }
     catch (e) { if (!(e instanceof WooError)) throw e; }
   }
-  await writeCategories(ctx, rows);
-  await logSync(run.db, { ...entry, entity_id: String(id), result: 'ok', detail: { ar: arId } });
-  return json(200, { action: 'category_create', result: 'ok', id, ar_id: arId });
+  await writeCategories(ctx, [c]);
+  await logSync(run.db, { ...entry, entity_id: String(id), result: 'ok', detail: { ar: arId, image: mediaId !== null } });
+  return json(200, { action: 'category_create', result: 'ok', id, ar_id: arId, image: catView(c)?.image ?? null });
+}
+
+// ---------------------------------------------------------------- the categories tab (B4, the owner 11 Nov)
+
+// category_get { id }: the category live from the site for «تعديل» — its name, image and count, and its Arabic translation's
+// (read with lang=ar, kept only when linked). A read: nothing written, nothing logged.
+async function categoryGet(run: Run, args: Json) {
+  const id = wooId(args.id);
+  if (id === null) return json(400, { error: 'bad_request' });
+  const ctx = await run.ctx();
+  let c: Json;
+  try { c = (await ctx.woo.get(`${CATEGORIES_PATH}/${id}`)).data; }
+  catch (e) { if (!(e instanceof WooError)) throw e; if (e.status === 404) return json(404, { error: 'not_found' }); return json(200, { action: 'category_get', result: 'error', reason: wooCode(e) }); }
+  if (!isObj(c) || wooId(c.id) !== id) return json(502, { error: 'woo_error' });
+  let ar: Json | null = null;
+  try { ar = await catArabic(ctx, id, c); } catch (e) { if (!(e instanceof WooError)) throw e; }
+  return json(200, { action: 'category_get', result: 'ok', category: catView(c), ar: ar ? catView(ar) : null });
+}
+
+// category_update { id, name_en?, name_ar?, image? }: a category's English name and image (PUT on the term), then its Arabic
+// translation's name and the same image — read first in Arabic and written (lang=ar) only when it is this category's translation;
+// a category without one gets it made like category_create's. Only what changed is sent; the English term goes back to the mirror.
+async function categoryUpdate(run: Run, args: Json) {
+  const id = wooId(args.id);
+  const name = args.name_en == null || args.name_en === '' ? null : plainName(args.name_en);
+  const nameAr = args.name_ar == null || args.name_ar === '' ? null : plainName(args.name_ar);
+  const img = catImageBytes(args.image);
+  if (id === null || (args.name_en && !name) || (args.name_ar && !nameAr) || img === false) return json(400, { error: 'bad_request', ...(img === false ? { field: 'image' } : {}) });
+  if (!name && !nameAr && !img) return json(400, { error: 'bad_request', field: 'nothing' });
+  const entry = { kind: 'push', direction: 'out', entity: 'woo_categories', entity_id: String(id), action: 'category_update' };
+  if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled' } }); return json(200, { action: 'category_update', result: 'skipped', reason: 'push_disabled' }); }
+  const ctx = await run.ctx();
+  let cur: Json;
+  try { cur = (await ctx.woo.get(`${CATEGORIES_PATH}/${id}`)).data; }
+  catch (e) { if (!(e instanceof WooError)) throw e; if (e.status === 404) return json(404, { error: 'not_found' }); await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e) } }); return json(200, { action: 'category_update', result: 'error', reason: wooCode(e) }); }
+  if (!isObj(cur) || wooId(cur.id) !== id) return json(502, { error: 'woo_error' });
+  let mediaId: number | null = null;
+  if (img) {
+    try { mediaId = await catMedia(run, ctx, img, name ?? (typeof cur.slug === 'string' ? cur.slug : String(id))); } catch (e) { if (!(e instanceof WooError || e instanceof ConfigError)) throw e; await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e), step: 'image' } }); return json(200, { action: 'category_update', result: 'error', reason: 'media_refused' }); }
+    if (mediaId === null) { await logSync(run.db, { ...entry, result: 'error', detail: { error: 'media_refused' } }); return json(200, { action: 'category_update', result: 'error', reason: 'media_refused' }); }
+  }
+  const image = mediaId === null ? {} : { image: { id: mediaId } };
+  const enBody = { ...(name && name !== cur.name ? { name } : {}), ...image };
+  let c: Json = cur;
+  if (Object.keys(enBody).length) {
+    try { c = (await ctx.woo.put(`${CATEGORIES_PATH}/${id}`, enBody)).data; }
+    catch (e) { if (!(e instanceof WooError)) throw e; await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e) } }); return json(200, { action: 'category_update', result: 'error', reason: wooCode(e) }); }
+  }
+  // the translation: soft — a failure there is said in the answer (ar), never undoes the English term
+  let ar = 'none';
+  if (nameAr || mediaId !== null) {
+    try {
+      const a = await catArabic(ctx, id, cur);
+      const arId = isObj(a) ? wooId(a.id) : null;
+      if (a && arId !== null) {
+        const b = { ...(nameAr && nameAr !== a.name ? { name: nameAr } : {}), ...image };
+        ar = 'ok';
+        if (Object.keys(b).length) {
+          const put = (await ctx.woo.put(`${CATEGORIES_PATH}/${arId}`, b, { lang: 'ar' })).data;
+          // WPML answering another term than the translation (it can map an id to the request's language): that term just took the
+          // Arabic name — the English name goes straight back on it, and the answer says so
+          if (!isObj(put) || wooId(put.id) !== arId) {
+            const enName = isObj(c) && typeof c.name === 'string' ? c.name : typeof cur.name === 'string' ? cur.name : null;
+            if (wooId(isObj(put) ? put.id : null) === id && 'name' in b && enName) await ctx.woo.put(`${CATEGORIES_PATH}/${id}`, { name: enName });
+            ar = 'mismatch';
+          }
+        }
+      } else if (wooId(isObj(cur.translations) ? cur.translations.ar : null) !== null) ar = 'not_linked';
+      else if (nameAr) {
+        const parent = wooId(cur.parent) ?? 0;
+        let parentAr: number | null = null;
+        if (parent) { const pc = (await ctx.woo.get(`${CATEGORIES_PATH}/${parent}`)).data; parentAr = wooId(isObj(pc) && isObj(pc.translations) ? pc.translations.ar : null); }
+        await ctx.woo.post(CATEGORIES_PATH, { name: nameAr, lang: 'ar', wpml_language: 'ar', translation_of: id, ...(parentAr ? { parent: parentAr } : {}), ...image });
+        ar = 'made';
+      }
+    } catch (e) { if (!(e instanceof WooError)) throw e; ar = wooCode(e); }
+  }
+  if (isObj(c) && wooId(c.id) === id) await writeCategories(ctx, [c]);
+  await logSync(run.db, { ...entry, result: 'ok', detail: { name: 'name' in enBody, image: mediaId !== null, ar } });
+  return json(200, { action: 'category_update', result: 'ok', id, ar, image: catView(c)?.image ?? null });
+}
+
+// category_delete { id }: WooCommerce has no trash for a category, so it goes for good — refused first (409, nothing on the site)
+// while anything still uses it: a product in the mirror (any status, the trash too — the site would take the category off it), a
+// sub-category (ours or the site's), a maker's «الفئة الأساسية» (0080), or the site's own count. Then DELETE force=true on the
+// English term and on its Arabic translation (404 / 410 = already gone), and the rows leave the mirror.
+async function categoryDelete(run: Run, args: Json) {
+  const id = wooId(args.id);
+  if (id === null) return json(400, { error: 'bad_request' });
+  const entry = { kind: 'push', direction: 'out', entity: 'woo_categories', entity_id: String(id), action: 'category_delete' };
+  const refuse = async (reason: string, count: number) => { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason, count } }); return json(409, { error: reason, count }); };
+  const q = async (p: PromiseLike<{ data: unknown; error: { message: string } | null }>, what: string) => { const { data, error } = await p; if (error) throw new Error(`${what}: ${error.message}`); return Array.isArray(data) ? data.length : 0; };
+  const prods = await q(run.db.from('products').select('id').contains('category_ids', [id]).limit(1000), 'products');
+  if (prods) return await refuse('has_products', prods);
+  const kids = await q(run.db.from('woo_categories').select('id').eq('parent_id', id).limit(1000), 'woo_categories');
+  if (kids) return await refuse('has_children', kids);
+  const makers = await q(run.db.from('vendors').select('id').contains('main_categories', [id]).limit(1000), 'vendors');
+  if (makers) return await refuse('has_makers', makers);
+  if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled' } }); return json(200, { action: 'category_delete', result: 'skipped', reason: 'push_disabled' }); }
+  const ctx = await run.ctx();
+  let cur: Json;
+  try { cur = (await ctx.woo.get(`${CATEGORIES_PATH}/${id}`)).data; }
+  catch (e) {
+    if (!(e instanceof WooError)) throw e;
+    if (e.status === 404 || e.status === 410) { await run.db.from('woo_categories').delete().eq('id', id); await logSync(run.db, { ...entry, result: 'ok', detail: { gone: true } }); return json(200, { action: 'category_delete', result: 'ok', id, gone: true }); }
+    await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e) } }); return json(200, { action: 'category_delete', result: 'error', reason: wooCode(e) });
+  }
+  if (!isObj(cur) || wooId(cur.id) !== id) return json(502, { error: 'woo_error' });
+  const siteCount = Number(cur.count) || 0;
+  if (siteCount > 0) return await refuse('has_products', siteCount);
+  let siteKids: unknown = [];
+  try { siteKids = (await ctx.woo.get(CATEGORIES_PATH, { parent: id, per_page: 1 })).data; } catch (e) { if (!(e instanceof WooError)) throw e; await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e) } }); return json(200, { action: 'category_delete', result: 'error', reason: wooCode(e) }); }
+  if (Array.isArray(siteKids) && siteKids.length) return await refuse('has_children', siteKids.length);
+  // the translation must be read before anything goes: a failed read stops here (nothing deleted, never an orphaned Arabic term)
+  let a: Json | null = null;
+  try { a = await catArabic(ctx, id, cur); }
+  catch (e) { if (!(e instanceof WooError)) throw e; if (e.status !== 404 && e.status !== 410) { await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e), step: 'ar' } }); return json(200, { action: 'category_delete', result: 'error', reason: wooCode(e) }); } }
+  if (a && (Number(a.count) || 0) > 0) return await refuse('has_products', Number(a.count));
+  try { await ctx.woo.delCategory(id); }
+  catch (e) { if (!(e instanceof WooError)) throw e; if (e.status !== 404 && e.status !== 410) { await logSync(run.db, { ...entry, result: 'error', detail: { error: wooCode(e) } }); return json(200, { action: 'category_delete', result: 'error', reason: wooCode(e) }); } }
+  const arId = a ? wooId(a.id) : null;
+  let ar = arId === null ? 'none' : 'ok';
+  if (arId !== null) { try { await ctx.woo.delCategory(arId, 'ar'); } catch (e) { if (!(e instanceof WooError)) throw e; ar = e.status === 404 || e.status === 410 ? 'ok' : wooCode(e); } }
+  const { error: delErr } = await run.db.from('woo_categories').delete().in('id', arId === null ? [id] : [id, arId]);
+  if (delErr) throw new Error(`woo_categories: ${delErr.message}`);
+  await logSync(run.db, { ...entry, result: 'ok', detail: { ar } });
+  return json(200, { action: 'category_delete', result: 'ok', id, ar });
 }
 
 // ---------------------------------------------------------------- product_images_add (phase 5.4 T8)
@@ -1761,6 +1927,9 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'products' && args.full === true) return await fullProducts(run);
     if (action === 'studio_upload') return await studioUpload(run, args);
     if (action === 'category_create') return await categoryCreate(run, args);
+    if (action === 'category_get') return await categoryGet(run, args);
+    if (action === 'category_update') return await categoryUpdate(run, args);
+    if (action === 'category_delete') return await categoryDelete(run, args);
     if (action === 'studio_sheet') return await studioSheet(args, deps.fetch);
     if (action === 'inventory_push') return await inventoryPush(run, args);
     if (action === 'product_duplicate') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await productDuplicate(run, args, deps.userDb && jwt ? deps.userDb(jwt) : null); }

@@ -2132,7 +2132,7 @@ export async function installSupabaseMock(page, opts = {}) {
       }
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
-          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
+          : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
       // (draft, the mirror row) per item, the result on the batch; mock.studioFail = { [index]: 'product_invalid_sku' } refuses one;
       // mock.studioArFail = { [index]: true } refuses its Arabic translation only (arNote / arError on the result);
@@ -2178,10 +2178,43 @@ export async function installSupabaseMock(page, opts = {}) {
         row.result = { items }; row.status = row.state.items.every((_, i) => items[i] && items[i].productId && !items[i].error) ? 'done' : 'uploading';
         return json(200, { action, result: res.error ? 'error' : 'ok', item: res });
       }
+      // B4: an image comes as { data: base64 } and the server checks its bytes (PNG / JPEG / WebP); categoriesCreated records image: true
+      // (never the bytes); mock.catSite[id] = { ar, image, count } is what the site answers for a category (category_get / _update /
+      // _delete — the Arabic name defaults to «<name> AR»); categoryWrites records each update / delete as the server would send them
+      const catImage = (v) => { if (v === undefined || v === null) return null; if (!v || typeof v.data !== 'string' || !/^[A-Za-z0-9+/]+={0,2}$/.test(v.data)) return false;
+        let bin = ''; try { bin = atob(v.data); } catch (e) { return false; } const c = (i) => bin.charCodeAt(i);
+        return (c(0) === 0x89 && c(1) === 0x50) || (c(0) === 0xff && c(1) === 0xd8) || (bin.slice(0, 4) === 'RIFF' && bin.slice(8, 12) === 'WEBP') ? true : false; };
       if (action === 'category_create') {
+        const img = catImage(b.image); if (img === false) return json(400, { error: 'bad_request', field: 'image' });
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
-        const id = 9500 + mock.wooCategories.length; mock.wooCategories.push({ id, name: b.name_en, slug: 'c-' + id, parent_id: b.parent || null, updated_at: T0 }); mock.categoriesCreated.push({ ...b, by: u.email });
-        return json(200, { action, result: 'ok', id, ar_id: b.name_ar ? id + 1 : null });
+        const id = 9500 + mock.wooCategories.length; mock.wooCategories.push({ id, name: b.name_en, slug: 'c-' + id, parent_id: b.parent || null, updated_at: T0 });
+        const rec = { ...b, by: u.email }; delete rec.image; if (img) rec.image = true; mock.categoriesCreated.push(rec);
+        (mock.catSite = mock.catSite || {})[id] = { ar: b.name_ar || null, image: img ? 'https://woo.test/cat-' + id + '.webp' : null, count: 0 };
+        return json(200, { action, result: 'ok', id, ar_id: b.name_ar ? id + 1 : null, image: img ? 'https://woo.test/cat-' + id + '.webp' : null });
+      }
+      if (action === 'category_get' || action === 'category_update' || action === 'category_delete') {
+        const cat = mock.wooCategories.find((x) => x.id === Number(b.id)); if (!cat) return json(404, { error: 'not_found' });
+        const site = Object.assign({ ar: cat.name + ' AR', image: null, count: 0 }, (mock.catSite || {})[cat.id] || {});
+        mock.categoryWrites = mock.categoryWrites || [];
+        if (action === 'category_get') return json(200, { action, result: 'ok', category: { id: cat.id, name: cat.name, parent: cat.parent_id || 0, count: site.count, image: site.image }, ar: site.ar ? { id: cat.id + 1, name: site.ar, parent: 0, count: site.count, image: site.image } : null });
+        if (action === 'category_update') {
+          const img = catImage(b.image); const bad = (v) => v != null && v !== '' && (typeof v !== 'string' || !v.trim() || v.length > 80 || /[<>%]/.test(v));
+          if (img === false || bad(b.name_en) || bad(b.name_ar) || (!b.name_en && !b.name_ar && !img)) return json(400, { error: 'bad_request' });
+          if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+          if (b.name_en) cat.name = b.name_en; const had = !!site.ar; if (b.name_ar) site.ar = b.name_ar; if (img) site.image = 'https://woo.test/cat-' + cat.id + '-v2.webp';
+          (mock.catSite = mock.catSite || {})[cat.id] = site;
+          mock.categoryWrites.push({ action, id: cat.id, name_en: b.name_en || null, name_ar: b.name_ar || null, image: !!img, by: u.email });
+          return json(200, { action, result: 'ok', id: cat.id, ar: b.name_ar || img ? (had ? 'ok' : 'made') : 'none', image: site.image });
+        }
+        const uses = mock.products.filter((p) => (p.category_ids || []).includes(cat.id)).length; const kids = mock.wooCategories.filter((x) => x.parent_id === cat.id).length;
+        const makers = mock.vendors.filter((v) => (v.main_categories || []).includes(cat.id)).length;
+        if (uses) return json(409, { error: 'has_products', count: uses });
+        if (kids) return json(409, { error: 'has_children', count: kids });
+        if (makers) return json(409, { error: 'has_makers', count: makers });
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        if (site.count) return json(409, { error: 'has_products', count: site.count });
+        mock.wooCategories.splice(mock.wooCategories.indexOf(cat), 1); mock.categoryWrites.push({ action, id: cat.id, by: u.email });
+        return json(200, { action, result: 'ok', id: cat.id, ar: site.ar ? 'ok' : 'none' });
       }
       // phase 5: the product actions — productWrites records each write call ({ action, by, ...body }); mock.pushEnabled gates them;
       // the mirror rows follow what was written (prices as numbers, the trash / draft status)

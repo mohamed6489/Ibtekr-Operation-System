@@ -147,6 +147,8 @@
       if (error || !data) {
         const s = error && error.context && error.context.status;
         let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
+        // B4: a category still in use answers 409 { error: has_products | has_children | has_makers, count } — said as it is
+        if (s === 409) return { ok: false, reason: 'conflict', error: b && typeof b.error === 'string' ? b.error : 'conflict', count: b && Number.isInteger(b.count) ? b.count : null };
         return { ok: false, reason: s === 401 || s === 403 ? 'forbidden' : s === 400 ? 'invalid' : s === 404 ? 'missing' : 'network', field: b && b.field ? String(b.field) : null };
       }
       return { ok: true, body: data };
@@ -162,13 +164,42 @@
     if (item.productId && window.IBProducts && window.IBProducts.refresh) quiet(() => window.IBProducts.refresh([item.productId].concat(item.arId ? [item.arId] : [])));
     return { ok: true, result: r.body.result, item };
   }
+  // B4 (the owner, 11 Nov): a category's image (the page's square crop, a Blob) goes to woo-sync as base64 — the server checks the bytes
+  const base64Of = async (blob) => { const b = new Uint8Array(await blob.arrayBuffer()); let s = ''; for (let i = 0; i < b.length; i += 0x8000) s += String.fromCharCode.apply(null, b.subarray(i, i + 0x8000)); return btoa(s); };
+  const imageOf = async (blob) => (blob && typeof blob.arrayBuffer === 'function' ? { data: await base64Of(blob) } : undefined);
   async function createCategory(row) {
-    const r = await invoke({ action: 'category_create', name_en: row.name_en, name_ar: row.name_ar || null, parent: row.parent || 0 });
+    const r = await invoke({ action: 'category_create', name_en: row.name_en, name_ar: row.name_ar || null, parent: row.parent || 0, image: await imageOf(row.image) });
     if (!r.ok) return r;
     if (r.body.result !== 'ok') return { ok: false, reason: r.body.reason || r.body.result };
     quiet(() => window.IBProducts && window.IBProducts.addCategory && window.IBProducts.addCategory({ id: r.body.id, name: row.name_en, parent_id: row.parent || null }));
     quiet(() => window.IBActivity && window.IBActivity.log('product.category.create', '#' + r.body.id + ' · ' + row.name_en, { entity: 'woo_categories', entity_id: String(r.body.id) }));
-    return { ok: true, id: r.body.id };
+    return { ok: true, id: r.body.id, arId: r.body.ar_id || null };
+  }
+  // B4: the categories tab — a category live from the site for «تعديل» → { ok, category: { id, name, parent, count, image }, ar: {…} | null }
+  async function categoryGet(id) {
+    const r = await invoke({ action: 'category_get', id: Number(id) });
+    if (!r.ok) return r;
+    if (r.body.result !== 'ok') return { ok: false, reason: r.body.reason || 'network' };
+    return { ok: true, category: r.body.category || null, ar: r.body.ar || null };
+  }
+  // what changed only ({ id, name_en?, name_ar?, image? }) → { ok, ar: 'ok' | 'made' | 'none' | 'not_linked' | code }
+  async function categoryUpdate(row) {
+    const r = await invoke({ action: 'category_update', id: Number(row.id), name_en: row.name_en || undefined, name_ar: row.name_ar || undefined, image: await imageOf(row.image) });
+    if (!r.ok) return r;
+    if (r.body.result !== 'ok') return { ok: false, reason: r.body.reason || r.body.result };
+    if (row.name_en) quiet(() => window.IBProducts && window.IBProducts.renameCategory && window.IBProducts.renameCategory(Number(row.id), row.name_en));
+    const what = [row.name_en ? 'name' : null, row.name_ar ? 'name_ar' : null, row.image ? 'image' : null].filter(Boolean).join(', ');
+    quiet(() => window.IBActivity && window.IBActivity.log('product.category.update', '#' + row.id + ' · ' + what, { entity: 'woo_categories', entity_id: String(row.id) }));
+    return { ok: true, ar: r.body.ar || 'none', image: r.body.image || null };
+  }
+  // for good (no trash for a category on WooCommerce) → { ok } | { ok: false, reason: 'conflict', error: has_products | has_children | has_makers, count }
+  async function categoryDelete(id, name) {
+    const r = await invoke({ action: 'category_delete', id: Number(id) });
+    if (!r.ok) return r;
+    if (r.body.result !== 'ok') return { ok: false, reason: r.body.reason || r.body.result };
+    quiet(() => window.IBProducts && window.IBProducts.removeCategory && window.IBProducts.removeCategory(Number(id)));
+    quiet(() => window.IBActivity && window.IBActivity.log('product.category.delete', '#' + id + (name ? ' · ' + name : ''), { entity: 'woo_categories', entity_id: String(id) }));
+    return { ok: true, ar: r.body.ar || 'none' };
   }
 
   // a Google Sheets link (decision 13: published to the web, or shared with anyone) → { ok, csv }: read by woo-sync, never by
@@ -186,5 +217,6 @@
     load, ensure, clear, state: () => st, can, BUCKET,
     batches: () => batches.slice(), colors: () => colors.slice(), nextSerial: () => nextSerial,
     open, create, save, archive, addColor, takeSerials, toWebp, uploadImage, removeImage, imageUrl, upload, createCategory, readSheetLink,
+    categoryGet, categoryUpdate, categoryDelete, // B4 (11 Nov): the categories tab
   };
 })();

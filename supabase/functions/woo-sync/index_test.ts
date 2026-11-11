@@ -1813,7 +1813,7 @@ Deno.test('category_create (phase 5.2): products.add; the English category then 
   const { body } = await call(deps, { action: 'category_create', name_en: 'Lamps', name_ar: 'أباجورات', parent: 15 }, { jwt: 'jwt-padd' });
   assertEquals([body.result, body.id, body.ar_id], ['ok', 80, 81]);
   assertEquals(woo.calls.filter((c) => c.method === 'POST').map((c) => c.body), [{ name: 'Lamps', parent: 15, lang: 'en', wpml_language: 'en' }, { name: 'أباجورات', lang: 'ar', wpml_language: 'ar', translation_of: 80 }]); // the parent says no translation: WPML places it
-  assertEquals(db.rows('woo_categories').map((c) => c.id).sort(), [80, 81]);
+  assertEquals(db.rows('woo_categories').map((c) => c.id), [80], 'B4: the English term only — the mirror is the default language\'s list');
   // decision 56: a sub-category's Arabic translation goes under the parent's Arabic translation
   const sub = setup({ routes: { ...routes, 'GET wc/v3/products/categories/15': { body: { id: 15, name: 'Home', parent: 0, translations: { en: 15, ar: 16 } } } }, env: PUSH_ON });
   await call(sub.deps, { action: 'category_create', name_en: 'Lamps', name_ar: 'أباجورات', parent: 15 }, { jwt: 'jwt-padd' });
@@ -1823,6 +1823,137 @@ Deno.test('category_create (phase 5.2): products.add; the English category then 
   const top = setup({ routes, env: PUSH_ON });
   await call(top.deps, { action: 'category_create', name_en: 'Gifts', name_ar: 'هدايا' }, { jwt: 'jwt-padd' });
   assertEquals(top.woo.calls.map((c) => c.method), ['POST', 'POST']);
+});
+
+// ---------------------------------------------------------------- B4: the categories tab (the owner, 11 Nov)
+
+// a WebP's first bytes (RIFF....WEBP) and anything else, as the page sends them (base64)
+const b64 = (bytes: number[]) => btoa(String.fromCharCode(...bytes));
+const WEBP = b64([0x52, 0x49, 0x46, 0x46, 0x10, 0, 0, 0, 0x57, 0x45, 0x42, 0x50, 0x56, 0x50, 0x38, 0x20, 1, 2, 3, 4]);
+const NOT_IMAGE = b64([...new TextEncoder().encode('<svg onload=alert(1)>')]);
+const catEn = (extra: any = {}) => ({ id: 80, name: 'Lamps', slug: 'lamps', parent: 15, count: 0, image: null, translations: { en: 80, ar: 81 }, ...extra });
+const catAr = (extra: any = {}) => ({ id: 81, name: 'أباجورات', slug: 'ar-81', parent: 16, count: 0, image: null, translations: { en: 80, ar: 81 }, ...extra });
+// WPML answers the Arabic term only when asked in Arabic (else it hands the English one back — never written on then)
+const arRoute = (ar: any) => (c: any) => ({ body: c.query.lang === 'ar' ? ar : catEn() });
+const wooWrites = (woo: any) => woo.calls.filter((c: any) => c.method !== 'GET').map((c: any) => `${c.method} ${c.path}${Object.keys(c.query).length ? '?' + new URLSearchParams(c.query) : ''}`);
+
+Deno.test('B4 category_create: a square image (base64, checked by its bytes) → wp/v2/media → `image: { id }` on the English term and its translation; not an image → 400 before any call; no Application Password → media_refused, no category', async () => {
+  const routes = { 'POST wp/v2/media': { body: { id: 700, source_url: 'https://woo.test/cat.webp' } },
+    'POST wc/v3/products/categories': (c: any) => ({ body: c.body.wpml_language === 'ar' ? { id: 81, name: c.body.name, parent: 0 } : { id: 80, name: c.body.name, slug: 'decor', parent: 0, image: { id: 700, src: 'https://woo.test/cat.webp' } } }) };
+  const bad = setup({ routes, env: WP_ENV });
+  const r400 = await call(bad.deps, { action: 'category_create', name_en: 'Decor', image: { data: NOT_IMAGE } }, { jwt: 'jwt-padd' });
+  assertEquals([r400.res.status, r400.body.field, bad.woo.calls.length], [400, 'image', 0]);
+  assertEquals((await call(bad.deps, { action: 'category_create', name_en: 'Decor', image: 'x' }, { jwt: 'jwt-padd' })).res.status, 400);
+  const { woo, db, deps } = setup({ routes, env: WP_ENV });
+  const { body } = await call(deps, { action: 'category_create', name_en: 'Decor', name_ar: 'ديكور', image: { data: WEBP } }, { jwt: 'jwt-padd' });
+  assertEquals([body.result, body.id, body.ar_id, body.image], ['ok', 80, 81, 'https://woo.test/cat.webp']);
+  assertEquals(woo.calls.map((c) => `${c.method} ${c.path}`), ['POST wp/v2/media', 'POST wc/v3/products/categories', 'POST wc/v3/products/categories']);
+  assertEquals([woo.calls[0].body, woo.calls[0].headers['content-type'], /^attachment; filename="category-Decor-\d+\.webp"$/.test(woo.calls[0].headers['content-disposition'])], [{ bytes: 20 }, 'image/webp', true]);
+  assertEquals([woo.calls[1].body.image, woo.calls[2].body.image], [{ id: 700 }, { id: 700 }]);
+  assertEquals(db.rows('woo_categories').map((c) => c.id), [80]);
+  assertEquals(db.rows('woo_sync_log').at(-1).detail, { ar: 81, image: true });
+  const noPass = setup({ routes, env: PUSH_ON });
+  const np = await call(noPass.deps, { action: 'category_create', name_en: 'Decor', image: { data: WEBP } }, { jwt: 'jwt-padd' });
+  assertEquals([np.body.result, np.body.reason, noPass.woo.calls.length, noPass.db.rows('woo_categories').length], ['error', 'media_refused', 0, 0]);
+});
+
+Deno.test('B4 category_get: products.add (never products.edit or the sync secret); the English term and its Arabic translation read with lang=ar — names, parent, count, the https image only; a translation that is not linked → ar null; 404 → not_found; nothing written', async () => {
+  const routes = { 'GET wc/v3/products/categories/80': { body: catEn({ count: 3, image: { id: 700, src: 'https://woo.test/lamps.webp', name: 'x' }, description: 'kept out' }) }, 'GET wc/v3/products/categories/81': arRoute(catAr({ image: { src: 'http://woo.test/plain.webp' } })) };
+  const { woo, db, deps } = setup({ routes });
+  assertEquals((await call(deps, { action: 'category_get', id: 80 }, { jwt: 'jwt-pedit' })).res.status, 401);
+  assertEquals((await call(deps, { action: 'category_get', id: 80 })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { action: 'category_get', id: 'x' }, { jwt: 'jwt-padd' })).res.status, 400);
+  const { body } = await call(deps, { action: 'category_get', id: 80 }, { jwt: 'jwt-padd' });
+  assertEquals(body, { action: 'category_get', result: 'ok', category: { id: 80, name: 'Lamps', parent: 15, count: 3, image: 'https://woo.test/lamps.webp' }, ar: { id: 81, name: 'أباجورات', parent: 16, count: 0, image: null } });
+  assertEquals(woo.calls.map((c) => [c.path, c.query]), [['wc/v3/products/categories/80', {}], ['wc/v3/products/categories/81', { lang: 'ar' }]]);
+  const loose = setup({ routes: { ...routes, 'GET wc/v3/products/categories/81': { body: catEn() } } });
+  assertEquals((await call(loose.deps, { action: 'category_get', id: 80 }, { jwt: 'jwt-padd' })).body.ar, null, 'WPML handed the English term back: no translation');
+  const gone = setup({ routes: {} });
+  assertEquals((await call(gone.deps, { action: 'category_get', id: 80 }, { jwt: 'jwt-padd' })).res.status, 404);
+  assertEquals([db.writes().length, db.rows('woo_sync_log').length], [0, 0]);
+});
+
+Deno.test('B4 category_update: the English name and image, then the linked Arabic translation (lang=ar) — only what changed; a translation not linked is never written; none yet → made under the parent\'s translation; the switch off → skipped with no call', async () => {
+  const seed = { woo_categories: [{ id: 80, name: 'Lamps', slug: 'lamps', parent_id: 15 }] };
+  const routes = { 'GET wc/v3/products/categories/80': { body: catEn() }, 'GET wc/v3/products/categories/81': arRoute(catAr()),
+    'POST wp/v2/media': { body: { id: 701 } },
+    'PUT wc/v3/products/categories/80': (c: any) => ({ body: catEn({ ...c.body, image: c.body.image ? { id: 701, src: 'https://woo.test/n.webp' } : null }) }),
+    'PUT wc/v3/products/categories/81': (c: any) => ({ body: catAr(c.body) }) };
+  const off = setup({ seed, routes });
+  assertEquals([(await call(off.deps, { action: 'category_update', id: 80, name_en: 'Lights' }, { jwt: 'jwt-padd' })).body.reason, off.woo.calls.length], ['push_disabled', 0]);
+  const { woo, db, deps } = setup({ seed, routes, env: WP_ENV });
+  assertEquals((await call(deps, { action: 'category_update', id: 80 }, { jwt: 'jwt-padd' })).body.field, 'nothing');
+  assertEquals((await call(deps, { action: 'category_update', id: 80, name_en: 'a<b' }, { jwt: 'jwt-padd' })).res.status, 400);
+  assertEquals((await call(deps, { action: 'category_update', id: 80, image: { data: NOT_IMAGE } }, { jwt: 'jwt-padd' })).body.field, 'image');
+  assertEquals((await call(deps, { action: 'category_update', id: 80, name_en: 'Lights' }, { jwt: 'jwt-pedit' })).res.status, 401);
+  assertEquals(woo.calls.length, 0);
+  const { body } = await call(deps, { action: 'category_update', id: 80, name_en: 'Lights', name_ar: 'إضاءة', image: { data: WEBP } }, { jwt: 'jwt-padd' });
+  assertEquals([body.result, body.ar, body.image], ['ok', 'ok', 'https://woo.test/n.webp']);
+  assertEquals(wooWrites(woo), ['POST wp/v2/media', 'PUT wc/v3/products/categories/80', 'PUT wc/v3/products/categories/81?lang=ar']);
+  assertEquals([woo.calls.find((c) => c.path.endsWith('/80') && c.method === 'PUT')!.body, woo.calls.find((c) => c.path.endsWith('/81') && c.method === 'PUT')!.body], [{ name: 'Lights', image: { id: 701 } }, { name: 'إضاءة', image: { id: 701 } }]);
+  assertEquals(db.rows('woo_categories').map((c) => [c.id, c.name]), [[80, 'Lights']]);
+  assertEquals(db.rows('woo_sync_log').at(-1).detail, { name: true, image: true, ar: 'ok' });
+  // the same names: nothing sent but the reads
+  const same = setup({ seed, routes, env: PUSH_ON });
+  assertEquals([(await call(same.deps, { action: 'category_update', id: 80, name_en: 'Lamps', name_ar: 'أباجورات' }, { jwt: 'jwt-padd' })).body.ar, wooWrites(same.woo)], ['ok', []]);
+  // WPML hands the English term back for the Arabic id: the translation is left alone
+  const loose = setup({ seed, routes: { ...routes, 'GET wc/v3/products/categories/81': { body: catEn() } }, env: PUSH_ON });
+  assertEquals([(await call(loose.deps, { action: 'category_update', id: 80, name_ar: 'إضاءة' }, { jwt: 'jwt-padd' })).body.ar, wooWrites(loose.woo)], ['not_linked', []]);
+  // no translation yet: made like category_create's, under the parent's Arabic term
+  const none = setup({ seed, routes: { ...routes, 'GET wc/v3/products/categories/80': { body: catEn({ translations: { en: 80 } }) }, 'GET wc/v3/products/categories/15': { body: { id: 15, name: 'Home', parent: 0, translations: { en: 15, ar: 16 } } }, 'POST wc/v3/products/categories': { body: catAr({ id: 82 }) } }, env: PUSH_ON });
+  assertEquals((await call(none.deps, { action: 'category_update', id: 80, name_ar: 'إضاءة' }, { jwt: 'jwt-padd' })).body.ar, 'made');
+  assertEquals(none.woo.calls.find((c) => c.method === 'POST')!.body, { name: 'إضاءة', lang: 'ar', wpml_language: 'ar', translation_of: 80, parent: 16 });
+  // the Arabic PUT answered by the English term (WPML mapped the id): its English name goes straight back, the answer says so
+  const mapped = setup({ seed, routes: { ...routes, 'PUT wc/v3/products/categories/81': (c: any) => ({ body: catEn(c.body) }) }, env: PUSH_ON });
+  assertEquals((await call(mapped.deps, { action: 'category_update', id: 80, name_ar: 'إضاءة' }, { jwt: 'jwt-padd' })).body.ar, 'mismatch');
+  assertEquals(mapped.woo.calls.filter((c) => c.method === 'PUT').map((c) => [c.path, c.body]), [['wc/v3/products/categories/81', { name: 'إضاءة' }], ['wc/v3/products/categories/80', { name: 'Lamps' }]]);
+  // a category the site no longer has
+  const gone = setup({ seed, routes: {}, env: PUSH_ON });
+  assertEquals((await call(gone.deps, { action: 'category_update', id: 80, name_en: 'Lights' }, { jwt: 'jwt-padd' })).res.status, 404);
+});
+
+Deno.test('B4 category_delete: refused (409, nothing on the site) while a product (any status), a sub-category, a maker\'s main category or the site\'s count uses it; then DELETE force=true on the term and its Arabic translation, and both leave the mirror', async () => {
+  const mirror = [{ id: 80, name: 'Lamps', slug: 'lamps', parent_id: 15 }, { id: 15, name: 'Home', slug: 'home', parent_id: null }];
+  const routes = { 'GET wc/v3/products/categories/80': { body: catEn() }, 'GET wc/v3/products/categories/81': arRoute(catAr()), [CATS]: page([]),
+    'DELETE wc/v3/products/categories/80': { body: { deleted: true } }, 'DELETE wc/v3/products/categories/81': { body: { deleted: true } } };
+  const used = async (seed: any, routeOver: any = {}) => { const s = setup({ seed: { woo_categories: mirror, ...seed }, routes: { ...routes, ...routeOver }, env: PUSH_ON }); const r = await call(s.deps, { action: 'category_delete', id: 80 }, { jwt: 'jwt-padd' }); return [r.res.status, r.body.error, r.body.count, wooWrites(s.woo).length, s.db.rows('woo_categories').length]; };
+  assertEquals(await used({ products: [{ id: 9, name: 'Desk lamp', status: 'draft', category_ids: [15, 80] }] }), [409, 'has_products', 1, 0, 2]);
+  assertEquals(await used({ products: [{ id: 9, name: 'Desk lamp', status: 'trash', category_ids: [80], trashed_at: NOW }] }), [409, 'has_products', 1, 0, 2], 'the trash too');
+  assertEquals(await used({ woo_categories: [...mirror, { id: 90, name: 'Desk', slug: 'desk', parent_id: 80 }] }), [409, 'has_children', 1, 0, 3]);
+  assertEquals(await used({ vendors: [{ ...vendorRow(44), main_categories: [80] }] }), [409, 'has_makers', 1, 0, 2]);
+  assertEquals(await used({}, { 'GET wc/v3/products/categories/80': { body: catEn({ count: 4 }) } }), [409, 'has_products', 4, 0, 2], 'the site counts products we do not mirror');
+  assertEquals(await used({}, { [CATS]: (c: any) => (c.query.parent === '80' ? page([{ id: 91, name: 'Shades', parent: 80 }]) : page([])) }), [409, 'has_children', 1, 0, 2]);
+  assertEquals(await used({}, { 'GET wc/v3/products/categories/81': arRoute(catAr({ count: 2 })) }), [409, 'has_products', 2, 0, 2]);
+  assertEquals((await call(setup({ routes }).deps, { action: 'category_delete', id: 80 }, { jwt: 'jwt-pedit' })).res.status, 401);
+  const off = setup({ seed: { woo_categories: mirror }, routes });
+  assertEquals([(await call(off.deps, { action: 'category_delete', id: 80 }, { jwt: 'jwt-padd' })).body.reason, off.woo.calls.length], ['push_disabled', 0]);
+  const { woo, db, deps } = setup({ seed: { woo_categories: mirror, products: [{ id: 9, name: 'Desk lamp', status: 'publish', category_ids: [15] }] }, routes, env: PUSH_ON });
+  const { body } = await call(deps, { action: 'category_delete', id: 80 }, { jwt: 'jwt-padd' });
+  assertEquals([body.result, body.ar], ['ok', 'ok']);
+  assertEquals(wooWrites(woo), ['DELETE wc/v3/products/categories/80?force=true', 'DELETE wc/v3/products/categories/81?force=true&lang=ar']);
+  assertEquals(woo.calls.find((c) => c.path === CATS.slice(4))!.query, { parent: '80', per_page: '1' });
+  assertEquals(db.rows('woo_categories').map((c) => c.id), [15]);
+  assertEquals(db.rows('woo_sync_log').at(-1).detail, { ar: 'ok' });
+  // gone from the site already: it leaves the mirror, nothing deleted there
+  const gone = setup({ seed: { woo_categories: mirror }, routes: {}, env: PUSH_ON });
+  assertEquals([(await call(gone.deps, { action: 'category_delete', id: 80 }, { jwt: 'jwt-padd' })).body.gone, gone.db.rows('woo_categories').map((c) => c.id)], [true, [15]]);
+  // the translation could not be read (the site errs): nothing deleted anywhere
+  const arDown = setup({ seed: { woo_categories: mirror }, routes: { ...routes, 'GET wc/v3/products/categories/81': { status: 500, body: { code: 'internal_server_error' } } }, env: PUSH_ON });
+  const ad = await call(arDown.deps, { action: 'category_delete', id: 80 }, { jwt: 'jwt-padd' });
+  assertEquals([ad.body.result, wooWrites(arDown.woo), arDown.db.rows('woo_categories').length], ['error', [], 2]);
+  // the site refuses the delete: the mirror keeps it
+  const refused = setup({ seed: { woo_categories: mirror }, routes: { ...routes, 'DELETE wc/v3/products/categories/80': { status: 500, body: { code: 'term_delete_failed', message: 'x' } } }, env: PUSH_ON });
+  const rr = await call(refused.deps, { action: 'category_delete', id: 80 }, { jwt: 'jwt-padd' });
+  assertEquals([rr.body.result, rr.body.reason, refused.db.rows('woo_categories').length, wooWrites(refused.woo)], ['error', 'term_delete_failed', 2, ['DELETE wc/v3/products/categories/80?force=true']]);
+});
+
+Deno.test('B4 woo-api: delCategory sends force=true on a category\'s own route only (and lang=ar for its translation); del stays without a query; put carries a query', async () => {
+  const woo = fakeWoo({ 'DELETE wc/v3/products/categories/5': { body: {} }, 'DELETE wc/v3/products/7': { body: {} }, 'PUT wc/v3/products/categories/6': { body: {} } });
+  const api = wooApi(ENV, woo.fetch);
+  await api.delCategory(5); await api.delCategory('5', 'ar'); await api.del('wc/v3/products/7'); await api.put('wc/v3/products/categories/6', { name: 'x' }, { lang: 'ar' });
+  assertEquals(woo.calls.map((c) => [c.method, c.path, c.query]), [['DELETE', 'wc/v3/products/categories/5', { force: 'true' }], ['DELETE', 'wc/v3/products/categories/5', { force: 'true', lang: 'ar' }], ['DELETE', 'wc/v3/products/7', {}], ['PUT', 'wc/v3/products/categories/6', { lang: 'ar' }]]);
+  for (const bad of ['x', 0, -1, 1.5, '5/../products/9']) { let err: unknown = null; try { await api.delCategory(bad); } catch (e) { err = e; } assert(err instanceof ConfigError, String(bad)); }
+  assertEquals(woo.calls.length, 4);
 });
 
 Deno.test('studio_sheet (decision 13): products.add only, never the sync secret; the CSV of a published Google Sheet through its redirect, built from the link\'s id; a link that is not a sheet → 400 before any call; a sheet that is not published → not_published; nothing written', async () => {

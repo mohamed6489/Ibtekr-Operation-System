@@ -126,6 +126,7 @@ test('bulk (the owner, 1 Nov): «نقل لمبتكر تاني» moves the produc
   await box('Boho mirror').click();
   await page.locator('.bulk-bar').getByRole('button', { name: 'تغيير القسم' }).click();
   await page.locator('[data-cc-pick]').click();
+  await expect(page.locator('.modal').last().getByRole('button', { name: '+ قسم جديد' })).toHaveCount(0); // B4: picked from what is there
   await page.locator('.modal input[type=search]').last().fill('أباجور');
   await expect(page.locator('[data-cat-pick]')).toHaveCount(3); // ديكور › إضاءة › أباجورات shown, هدايا hidden
   await page.locator('[data-cat-pick="152"]').click();
@@ -494,52 +495,120 @@ test('decision 52: «مدة التصنيع (يوم)» on the product page writes
 });
 
 // phase 13 decision 56: «الأقسام» — the site's category tree, the products under each, a new category / sub-category on the site
-test('decision 56: «الأقسام» shows the tree with +/−, the products in each (its own + under it), search, «افتح في السجل», and makes a sub-category / a main one on the site', async ({ page }) => {
+// B4 (the owner, 11 Nov): the categories tab — a main category a green card, its subs beige rows with «-» / «--» by depth, ⋮ per
+// category (افتح في السجل · تعديل · إضافة قسم فرعي · حذف), a square image in the popups, the count opens the category's products
+const PNG_4X2 = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAQAAAACCAYAAAB/qH1jAAAAEklEQVR4nGM4ISf3HxkzoAsAAA81EBmbqAf0AAAAAElFTkSuQmCC', 'base64');
+test('B4: «الأقسام» — green main cards, beige sub rows with «-» / «--», the arrow, the search, a sub-category and a main one on the site with a square image', async ({ page }) => {
   await openProducts(page);
   const pg = page.locator('#pg-products');
   await page.getByRole('tab', { name: /^الأقسام · 4$/ }).click();
   await expect(page).toHaveURL(/#products-cats$/);
-  const row = (id) => pg.locator(`.cat-row[data-cat="${id}"]`);
-  await expect(pg.locator('.cat-row')).toHaveCount(2); // the two main categories, closed
-  await expect(row(15)).toContainText('ديكور'); await expect(row(15)).toContainText('3 منتج (0 فيه مباشرة)'); await expect(row(15)).toContainText('1 قسم فرعي');
-  await expect(row(22)).toContainText('1 منتج');
-  await row(15).getByRole('button', { name: 'افتح ديكور' }).click();
-  await expect(row(151)).toContainText('إضاءة'); await expect(row(151)).toContainText('3 منتج');
-  await row(151).getByRole('button', { name: 'افتح إضاءة' }).click();
-  await expect(row(152)).toContainText('0 منتج');
-  await expect(row(152).locator('[data-cat-open]')).toHaveCount(0); // nothing to open in the records
-  // search opens the branches it hits
+  const main = (id) => pg.locator(`.cat-main[data-cat="${id}"]`); const sub = (id) => pg.locator(`.cat-sub[data-cat="${id}"]`);
+  await expect(pg.locator('.cat-main')).toHaveCount(2); // the two main categories, closed
+  await expect(pg.locator('.cat-sub')).toHaveCount(0);
+  await expect(main(15).locator('.cat-main-h')).toContainText('ديكور'); await expect(main(15).locator('.cat-main-h')).toContainText('1 قسم فرعي');
+  await expect(main(15).locator('[data-cat-prods="15"]')).toHaveText('3 منتج');
+  await expect(main(22).locator('[data-cat-prods="22"]')).toHaveText('1 منتج');
+  expect(await main(15).locator('.cat-main-h').evaluate((x) => { const c = getComputedStyle(x); return [c.backgroundColor, c.color]; })).toEqual(['rgb(0, 86, 66)', 'rgb(255, 247, 239)']);
+  await main(15).locator('[data-cat-tog="15"]').click();
+  await expect(sub(151)).toBeVisible();
+  await expect(sub(151).locator('.cat-dash')).toHaveText('-');
+  await expect(sub(151).locator('[data-cat-prods="151"]')).toHaveText('3 منتج');
+  expect(await sub(151).evaluate((x) => getComputedStyle(x).backgroundColor)).toBe('rgb(245, 237, 220)');
+  await sub(151).locator('[data-cat-tog="151"]').click();
+  await expect(sub(152).locator('.cat-dash')).toHaveText('--');
+  await expect(sub(152).locator('[data-cat-prods="152"]')).toBeDisabled(); // nothing in it
+  // the search opens the branches it hits
   await pg.getByRole('button', { name: 'اقفل الكل' }).click();
-  await expect(pg.locator('.cat-row')).toHaveCount(2);
+  await expect(pg.locator('.cat-sub')).toHaveCount(0);
   await pg.locator('[data-cat-q]').fill('أباج');
-  await expect(pg.locator('.cat-row')).toHaveCount(3);
-  await expect(row(152).locator('.cat-hit')).toHaveText('أباجورات');
+  await expect(pg.locator('.cat-main')).toHaveCount(1);
+  await expect(sub(152).locator('.cat-hit')).toHaveText('أباجورات');
   await pg.locator('[data-cat-q]').fill('');
-  // a sub-category on the site, under «إضاءة»
+  // ⋮ on «إضاءة» → «إضافة قسم فرعي»: the parent said, both names required, a square image from a 4×2 picture
   await pg.getByRole('button', { name: 'افتح الكل' }).click();
-  await row(151).locator('[data-cat-sub]').click();
-  const dlg = page.getByRole('dialog', { name: 'قسم فرعي جديد على الموقع' });
-  await expect(dlg.locator('#p')).toContainText('ديكور › إضاءة');
+  await sub(151).getByRole('button', { name: 'إجراءات القسم إضاءة' }).click();
+  await page.getByRole('menuitem', { name: 'إضافة قسم فرعي' }).click();
+  const dlg = page.getByRole('dialog', { name: 'قسم فرعي جديد' });
+  await expect(dlg.locator('[data-cat-parent]')).toContainText('ديكور › إضاءة');
+  await expect(dlg.locator('select, #p')).toHaveCount(0); // no «القسم الأب» field
   await dlg.getByRole('button', { name: 'اعمل القسم' }).click();
-  await expect(dlg.getByText('اكتب الاسم من غير < > %')).toBeVisible();
+  await expect(dlg.getByText('اكتب الاسم')).toHaveCount(2);
   await dlg.locator('#en').fill('Desk lamps'); await dlg.locator('#ar').fill('أباجورات مكتب');
+  await dlg.locator('[data-cat-img]').setInputFiles({ name: 'lamp.png', mimeType: 'image/png', buffer: PNG_4X2 });
+  const prev = dlg.locator('[data-cat-img-prev="new"]');
+  await expect(prev).toBeVisible();
+  await expect.poll(() => prev.evaluate((i) => [i.naturalWidth, i.naturalHeight])).toEqual([2, 2]); // cut square from the middle
   await dlg.getByRole('button', { name: 'اعمل القسم' }).click();
   await expect(dlg).toHaveCount(0);
   await expect(page.locator('.toast.show')).toContainText('اتعمل القسم «Desk lamps» على الموقع');
-  expect(mock.categoriesCreated).toEqual([{ action: 'category_create', name_en: 'Desk lamps', name_ar: 'أباجورات مكتب', parent: 151, by: ADMIN }]);
-  await expect(pg.locator('.cat-row').filter({ hasText: 'Desk lamps' })).toHaveCount(1);
-  // a main category with a name already there → refused before any call
+  expect(mock.categoriesCreated).toEqual([{ action: 'category_create', name_en: 'Desk lamps', name_ar: 'أباجورات مكتب', parent: 151, image: true, by: ADMIN }]);
+  await expect(pg.locator('.cat-sub').filter({ hasText: 'Desk lamps' }).locator('.cat-dash')).toHaveText('--');
+  // «قسم رئيسي جديد»: no parent field; a name already there → refused before any call
   await pg.locator('[data-cat-new]').click();
-  const top = page.getByRole('dialog', { name: 'قسم رئيسي جديد على الموقع' });
-  await top.locator('#en').fill('هدايا');
+  const top = page.getByRole('dialog', { name: 'قسم رئيسي جديد' });
+  await expect(top.locator('[data-cat-parent]')).toHaveCount(0);
+  await top.locator('#en').fill('هدايا'); await top.locator('#ar').fill('هدايا');
   await top.getByRole('button', { name: 'اعمل القسم' }).click();
   await expect(top.getByText('في قسم بنفس الاسم هنا')).toBeVisible();
   expect(mock.categoriesCreated).toHaveLength(1);
   await top.getByRole('button', { name: 'إلغاء' }).click();
-  // «افتح في السجل»: the records filtered on that category
-  await row(151).locator('[data-cat-open]').click();
+  // ⋮ «افتح في السجل»: the records filtered on that category
+  await sub(151).getByRole('button', { name: 'إجراءات القسم إضاءة' }).click();
+  await page.getByRole('menuitem', { name: 'افتح في السجل' }).click();
   await expect(page).toHaveURL(/#products-records$/);
   await expect(pg.locator('.pr-table tbody tr')).toHaveCount(3);
+});
+
+test('B4: «تعديل» reads the category live and writes what changed; «حذف» is refused while products or sub-categories use it, else confirmed and gone; the count opens the products and moves them to another category', async ({ page }) => {
+  await openProducts(page);
+  const pg = page.locator('#pg-products');
+  await page.getByRole('tab', { name: /^الأقسام/ }).click();
+  const main = (id) => pg.locator(`.cat-main[data-cat="${id}"]`); const sub = (id) => pg.locator(`.cat-sub[data-cat="${id}"]`);
+  // تعديل: the names from the site (the Arabic one too), a new English name only → only it is sent
+  await main(22).getByRole('button', { name: 'إجراءات القسم هدايا' }).click();
+  await page.getByRole('menuitem', { name: 'تعديل' }).click();
+  const ed = page.getByRole('dialog', { name: 'تعديل القسم «هدايا»' });
+  await expect(ed.locator('#en')).toHaveValue('هدايا'); await expect(ed.locator('#ar')).toHaveValue('هدايا AR');
+  await ed.locator('#en').fill('Gifts');
+  await ed.getByRole('button', { name: 'احفظ على الموقع' }).click();
+  await expect(ed).toHaveCount(0);
+  await expect(page.locator('.toast.show')).toContainText('اتعدّل القسم على الموقع');
+  expect(mock.categoryWrites).toEqual([{ action: 'category_update', id: 22, name_en: 'Gifts', name_ar: null, image: false, by: ADMIN }]);
+  await expect(main(22).locator('.cat-main-h')).toContainText('Gifts');
+  // حذف: «إضاءة» has products → refused here with a way to them, nothing sent
+  await main(15).locator('[data-cat-tog="15"]').click(); await sub(151).locator('[data-cat-tog="151"]').click();
+  await sub(151).getByRole('button', { name: 'إجراءات القسم إضاءة' }).click();
+  await page.getByRole('menuitem', { name: 'حذف' }).click();
+  const blocked = page.locator('[data-cat-blocked]');
+  await expect(blocked).toContainText('فيه 3 منتج');
+  await blocked.getByRole('button', { name: 'تمام' }).click();
+  // «أباجورات» is empty → confirmed, deleted for good on the site, gone from the tab
+  await sub(152).getByRole('button', { name: 'إجراءات القسم أباجورات' }).click();
+  await page.getByRole('menuitem', { name: 'حذف' }).click();
+  const conf = page.getByRole('dialog', { name: 'حذف القسم «أباجورات» نهائي؟' });
+  await expect(conf).toContainText('مالوش سلة للأقسام');
+  await conf.getByRole('button', { name: 'احذف القسم' }).click();
+  await expect(page.locator('.toast.show')).toContainText('اتحذف القسم «أباجورات» من الموقع');
+  expect(mock.categoryWrites.at(-1)).toEqual({ action: 'category_delete', id: 152, by: ADMIN });
+  await expect(sub(152)).toHaveCount(0);
+  // the count → the category's products; two of them moved to «Gifts»: this branch swapped for the pick (products_batch)
+  await sub(151).locator('[data-cat-prods="151"]').click();
+  const pop = page.locator('[data-cat-prods-pop="151"]');
+  await expect(pop.locator('tbody tr')).toHaveCount(3);
+  await expect(pop).not.toContainText('null'); // no empty node shows as text
+  await pop.locator('tbody tr').filter({ hasText: 'Cushion' }).locator('[role=checkbox]').click();
+  await pop.locator('tbody tr').filter({ hasText: 'Boho mirror' }).locator('[role=checkbox]').click();
+  await pop.locator('[data-cat-bulk]').getByRole('button', { name: 'نقل لقسم تاني' }).click();
+  const pick = page.getByRole('dialog', { name: 'نقل 2 منتجات لقسم تاني' });
+  await expect(pick.getByRole('button', { name: '+ قسم جديد' })).toHaveCount(0); // B4: no new category from here
+  await expect(pick).not.toContainText('null');
+  await expect(pick.locator('.cat-row.cat-pk-main')).toHaveCount(2);
+  await pick.locator('[data-cat-pick="22"]').click();
+  await pick.getByRole('button', { name: 'تمام' }).click();
+  await expect(page.locator('.toast.show')).toContainText('اتنقلوا للقسم الجديد');
+  const w = mock.productWrites.at(-1);
+  expect([w.action, w.update.map((u) => [u.id, u.categories])]).toEqual(['products_batch', [[9004, [22]], [9001, [22]]]]); // in the popup's order (by name)
 });
 
 // phase 13 decision 62: the products tabs and «نظرة عامة» / «سجل الحركة»

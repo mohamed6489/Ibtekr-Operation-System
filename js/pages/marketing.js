@@ -1089,13 +1089,28 @@
       note: x.tired ? 'التكرار ' + fq + ' — الناس شافوا الإعلان ده كتير؛ جرّب نسخة جديدة من «إنشاء».' : null, source: 'Meta Ads (رقم الإعلان ' + x.id + ')' });
   }
   const crTip = () => U.InlineNote({ children: 'العائد الحقيقي لكل إعلان (من ووكومرس) محتاج utm_content={{ad.id}} في لينكات الإعلانات على ميتا — لحد كده العائد هنا بتاع ميتا، والعائد الحقيقي في «الحملات».' }); // inside the card: a loose note floats to the top of the reports page
+  // the v6 prototype's «اعمل نسخ زيه» (a new campaign on the same idea) / «اطلب نسخة جديدة» (a request to the designer — the tired ones)
+  function likeIt(idea) { if (!can().create) return; Object.assign(camp, blankCamp()); camp.w.idea = String(idea || '').slice(0, 500); go('marketing-campaign-1'); }
+  const crActs = (name, tired) => (can().create ? [{ label: 'اعمل نسخ زيه', icon: 'sparkle', run: () => likeIt(name) }, tired ? { label: 'اطلب نسخة جديدة', icon: 'plus', run: () => reqForm('designer', null, { t: 'نسخة جديدة من «' + name + '»', d: 'الناس شافوا الإعلان كتير — نفس الفكرة بشكل جديد' }) } : null].filter(Boolean) : []);
+  // the published posts of the period with their own numbers (the v6 prototype's organic columns): views, engagement, likes, the rate
+  const PL_OF = { meta: ['فيسبوك', 'انستجرام'], tiktok: ['تيك توك'], google: [] };
+  function organicCard(rg, plat) {
+    const L = MK().posts().filter((x) => x.status === 'اتنشر' && x.day >= rg.from && x.day <= rg.to && (plat === 'all' || (PL_OF[plat] || []).includes(x.pl)))
+      .sort((a, b) => (Number(b.views) || 0) - (Number(a.views) || 0));
+    const T = W.postTotals(L);
+    const rows = L.map((x) => [h('button', { type: 'button', class: 'cr-cell link-btn', 'data-org-post': String(x.id), 'aria-label': 'تفاصيل ' + x.name, onClick: () => pubDetail(x) }, h('span', { class: 'cr-th' }, PostImg(x, 'fill', '')), h('span', { class: 'cr-tx' }, h('b', null, x.name), h('small', { class: 'help' }, x.kind + ' · ' + W.SRC_LABEL[x.src]))),
+      x.pl, K.Num(D2(x.day)), K.Num(n0(x.views)), K.Num(K.n0(W.engOf(x))), K.Num(x.likes == null ? '—' : K.n0(x.likes)), K.Num(x.views ? W.pct(W.engOf(x), x.views) : '—'),
+      K.RowMenu([{ label: 'التفاصيل', icon: 'eye', run: () => pubDetail(x) }].concat(crActs(x.caption || x.name, false)))]);
+    return Card('البوستات المنشورة', K.n0(L.length) + ' بوست · ' + K.n0(T.views) + ' مشاهدة · ' + K.n0(T.eng) + ' تفاعل · ' + perLabel(rg) + ' — الأرقام من المنصة كل نص ساعة',
+      [L.length ? U.Table({ cls: 'dt cr-tbl org-tbl', headers: ['العمل الفني', 'المنصة', 'تاريخ النشر', 'المشاهدات', 'التفاعل', 'اللايكات', 'نسبة التفاعل', ''], rows }) : K.Empty('مفيش بوستات اتنشرت في الفترة دي', 'غيّر الفترة من فوق أو انشر من «إنشاء».')]);
+  }
   function crTable(c) {
     const L = c.creatives; const tot = L.reduce((a, x) => ({ spend: a.spend + x.spend, imp: a.imp + x.impressions, clicks: a.clicks + x.clicks, purchases: a.purchases + x.purchases }), { spend: 0, imp: 0, clicks: 0, purchases: 0 });
     const th = (x) => h('span', { class: 'cr-th' }, x.thumb ? h('span', { class: 'thumb fill' }, h('img', { src: x.thumb, alt: '', loading: 'lazy', referrerpolicy: 'no-referrer' })) : Img(null, 'fill'));
     const rows = L.map((x) => { const [sl, tone] = x.tired ? ['الناس زهقت منه', 'orange'] : stOf(x.status, true);
       return [h('button', { type: 'button', class: 'cr-cell link-btn', 'data-ads-ad': x.id, 'aria-label': 'تفاصيل ' + x.name, onClick: () => crDetail(x, c) }, th(x), h('span', { class: 'cr-tx' }, h('b', null, x.name), h('small', { class: 'help' }, x.campaign))),
         Tag(tone, sl), K.Num(n2(x.spend)), K.Num(K.n0(x.impressions)), K.Num(x.ctr == null ? '—' : (x.ctr * 100).toFixed(2) + '%'), K.Num(x.frequency == null ? '—' : x.frequency.toFixed(2)), K.Num(K.n0(x.purchases)), K.Num(W.xr(x.roas)),
-        K.RowMenu([{ label: 'التفاصيل', icon: 'eye', run: () => crDetail(x, c) }])]; });
+        K.RowMenu([{ label: 'التفاصيل', icon: 'eye', run: () => crDetail(x, c) }].concat(crActs(x.name, x.tired)))]; });
     return Card('تفاصيل الأعمال الفنية', K.n0(L.length) + ' إعلان فيه صرف · ' + K.n0(tot.imp) + ' ظهور · ' + n2(tot.spend) + ' ج.م صرف · ' + perLabel(c.rg),
       [crTip(), L.length ? U.Table({ cls: 'dt cr-tbl ads-cr', headers: ['الإعلان', 'الحالة', 'الصرف (ج.م)', 'الظهور', 'النقرات (CTR)', 'التكرار', 'مشتريات ميتا', 'عائد ميتا', ''], rows }) : K.Empty('مفيش إعلانات فيها صرف في الفترة دي', 'غيّر الفترة من فوق.')]);
   }
@@ -1110,7 +1125,7 @@
     const sub = M.rsub || 'campaigns'; const c = AD.r && AD.r.ok ? adCalc(AD.r, rg, s) : null;
     const tabs = K.SubTabs({ label: 'تقارير التسويق', active: sub, onChange: (id) => { M.rsub = id; R(); }, items: [{ id: 'campaigns', label: 'الحملات', count: c ? c.camps.length : null }, { id: 'creative', label: 'الأعمال الفنية', count: c ? c.creatives.length : null }] });
     const gate = adsGate(loadRange(rg), redrawAds); if (gate) return [adsBar(s, redrawAds), tabs].concat(gate);
-    if (sub === 'creative') return [adsBar(s, redrawAds), tabs, adsNote(s), crTable(c), adsSource()].filter(Boolean);
+    if (sub === 'creative') return [adsBar(s, redrawAds), tabs, adsNote(s), crTable(c), organicCard(rg, M.plat), adsSource()].filter(Boolean);
     const f = M.cf = M.cf || { status: '', q: '', decision: '' }; const q = (f.q || '').trim().toLowerCase();
     const sts = [...new Set(c.camps.map((x) => stOf(x.status)[0]))];
     // «القرار» (the v6 prototype): the kind of the campaign's open suggestions, or none
@@ -1241,9 +1256,9 @@
     if (canEdit) foot.unshift(Button({ label: 'عدّل', attrs: { 'data-mk-req-edit': '' }, onClick: () => { m.close(); reqForm(q.kind, q); } }));
     m.setFooter(...foot); return m;
   }
-  function reqForm(kind, q) {
+  function reqForm(kind, q, pre) {
     const isD = kind === 'designer';
-    K.form({ title: q ? 'تعديل: ' + q.title : isD ? 'طلب للديزاينر' : 'طلب للمبرمج', values: { t: q ? q.title : '', p: q ? q.project : (isD ? '' : 'موقع'), d: q ? q.details : '' }, validate: (f) => K.req(f, ['t']), submitLabel: q ? 'احفظ' : 'ابعت الطلب',
+    K.form({ title: q ? 'تعديل: ' + q.title : isD ? 'طلب للديزاينر' : 'طلب للمبرمج', values: { t: q ? q.title : (pre && pre.t) || '', p: q ? q.project : (isD ? '' : 'موقع'), d: q ? q.details : (pre && pre.d) || '' }, validate: (f) => K.req(f, ['t']), submitLabel: q ? 'احفظ' : 'ابعت الطلب',
       fields: (f, e, set) => [K.field.text('t', 'الطلب', f, e, set, { required: true, placeholder: isD ? 'مثال: 3 بوستات لعروض الشتا 1080×1350' : 'مثال: صفحة هبوط لعروض الشتا' }),
         isD ? K.field.text('p', 'الكامبين / المشروع', f, e, set, { placeholder: 'اختياري' }) : K.field.select('p', 'المشروع', ['موقع', 'إبتكر سيستم'], f, e, set),
         K.field.area('d', 'التفاصيل', f, e, set, { placeholder: isD ? 'المقاس · المدة · المنتجات · الستايل' : 'إيه المطلوب بالظبط' })],

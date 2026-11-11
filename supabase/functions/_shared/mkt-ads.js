@@ -101,7 +101,18 @@ export function accountRowOf(accountId, json, at, error, prev) {
 // ---------------------------------------------------------------- 9.5.4: the media buyer (decisions 49–52)
 
 // the prototype's rules and limits; settings «marketing».buyer (the admin's) over them — mkt_buyer_rules() does the same on the server
-export const BUYER_DEFAULTS = Object.freeze({ dailyCap: 5000, maxCpa: 450, autoStop: 1500, autoStopMode: 'suggest', reportHour: 9, live: false });
+export const BUYER_DEFAULTS = Object.freeze({ dailyCap: 5000, maxCpa: 450, autoStop: 1500, autoStopMode: 'suggest', reportHour: 9, live: false, notes: Object.freeze([]) });
+// the admin's written rules (the v6 prototype's «+ قاعدة جديدة», owner 11 Nov): text the buyer's chat reads as guidance — nothing runs
+// from them; at most 20, a title (1–80) + details (1–300) + a kind; no control characters and no angle brackets (they go into a prompt)
+export const NOTE_KINDS = Object.freeze(['حد', 'هدف', 'قاعدة', 'تقرير']);
+export const NOTES_MAX = 20;
+const noteText = (v, max) => (typeof v === 'string' ? v.replace(/[\u0000-\u001f\u007f<>]/g, ' ').replace(/\s+/g, ' ').trim() : '');
+function noteOf(x) {
+  if (!isObj(x)) return null; const title = noteText(x.title, 81); const details = noteText(x.details, 301);
+  if (!title || title.length > 80 || !details || details.length > 300 || !NOTE_KINDS.includes(x.kind)) return null;
+  return { title, details, kind: x.kind };
+}
+const notesOf = (v) => (Array.isArray(v) ? v.slice(0, NOTES_MAX).map(noteOf).filter(Boolean) : []);
 export const MAX_STEP = 30; // a budget step at most 30% at a time
 export const SUGGEST_DAYS = 7; // the window the suggestions look at
 export const STOP_DAYS = 5;
@@ -111,7 +122,7 @@ export function buyerRules(json) {
   const j = isObj(json) ? json : {};
   return { dailyCap: Math.max(100, money(j.dailyCap, BUYER_DEFAULTS.dailyCap)), maxCpa: Math.max(1, money(j.maxCpa, BUYER_DEFAULTS.maxCpa)),
     autoStop: Math.max(100, money(j.autoStop, BUYER_DEFAULTS.autoStop)), autoStopMode: j.autoStopMode === 'auto' ? 'auto' : 'suggest',
-    reportHour: Number.isInteger(j.reportHour) && j.reportHour >= 0 && j.reportHour <= 23 ? j.reportHour : BUYER_DEFAULTS.reportHour, live: j.live === true };
+    reportHour: Number.isInteger(j.reportHour) && j.reportHour >= 0 && j.reportHour <= 23 ? j.reportHour : BUYER_DEFAULTS.reportHour, live: j.live === true, notes: notesOf(j.notes) };
 }
 // the rules a member may set (the admin): the numbers and the modes only — never `live` (its own action)
 export function rulesPatch(body) {
@@ -119,6 +130,10 @@ export function rulesPatch(body) {
   for (const k of ['dailyCap', 'maxCpa', 'autoStop']) if (b[k] !== undefined) { const n = Number(b[k]); if (!Number.isFinite(n) || n < (k === 'maxCpa' ? 1 : 100) || n > 10_000_000) return { error: k }; out[k] = Math.round(n); }
   if (b.autoStopMode !== undefined) { if (b.autoStopMode !== 'auto' && b.autoStopMode !== 'suggest') return { error: 'autoStopMode' }; out.autoStopMode = b.autoStopMode; }
   if (b.reportHour !== undefined) { const n = Number(b.reportHour); if (!Number.isInteger(n) || n < 0 || n > 23) return { error: 'reportHour' }; out.reportHour = n; }
+  if (b.notes !== undefined) { // the whole list each time (add / edit / delete on the page)
+    if (!Array.isArray(b.notes) || b.notes.length > NOTES_MAX) return { error: 'notes' };
+    const L = b.notes.map(noteOf); if (L.some((x) => !x)) return { error: 'notes' }; out.notes = L;
+  }
   return { patch: out };
 }
 const fmt = (v) => Math.round(Number(v) || 0).toLocaleString('en-US');

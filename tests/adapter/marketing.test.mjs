@@ -311,7 +311,7 @@ const REQS = [
   { id: 1, kind: 'designer', title: 'فيديو للمخدة', details: '15 ثانية', project: 'الشتا', status: 'جديد', created_by: 'u1', created_at: '2026-11-06T09:00:00Z', updated_by: 'u1', updated_at: '2026-11-06T09:00:00Z', done_at: null },
   { id: 2, kind: 'dev', title: 'صفحة هبوط', details: null, project: null, status: 'خلص', created_by: 'u2', created_at: '2026-11-05T09:00:00Z', updated_by: 'u1', updated_at: '2026-11-06T09:00:00Z', done_at: '2026-11-06T09:00:00Z' },
 ];
-const RULES = { dailyCap: 5000, maxCpa: 450, autoStop: 1500, autoStopMode: 'suggest', reportHour: 9, live: false };
+const RULES = { dailyCap: 5000, maxCpa: 450, autoStop: 1500, autoStopMode: 'suggest', reportHour: 9, live: false, notes: [] }; // notes: the admin's written rules (the v6 prototype)
 
 test('9.5.4 suggestions: the open + the last 30 days in the page\'s shape (unknown kinds and statuses tamed), cached a minute; rules through the RPC; requests with the author\'s name', async () => {
   const { M, stub } = load({ responses: { mkt_suggestions: ok(SUGG), 'rpc:mkt_buyer_rules': ok({ ...RULES, dailyCap: 8000, live: true }), mkt_requests: ok(REQS) } });
@@ -322,6 +322,8 @@ test('9.5.4 suggestions: the open + the last 30 days in the page\'s shape (unkno
   await M.suggestions(); eq(stub.calls.filter((c) => c.table === 'mkt_suggestions' && c.op === 'from').length, 1); // cached
   eq(M.suggNow().length, 3);
   const ru = await M.rules(); eq(ru.rules, { ...RULES, dailyCap: 8000, live: true }); eq(rpcs(stub).at(-1), ['mkt_buyer_rules', undefined]);
+  // a stored written rule comes through; a malformed one is dropped
+  { const L2 = load({ responses: { 'rpc:mkt_buyer_rules': ok({ ...RULES, notes: [{ title: 'CTR', details: 'أقل من 0.8%', kind: 'قاعدة' }, { title: 3 }] }) } }); eq((await L2.M.rules()).rules.notes, [{ title: 'CTR', details: 'أقل من 0.8%', kind: 'قاعدة' }]); }
   await M.rules(); eq(rpcs(stub).filter((x) => x[0] === 'mkt_buyer_rules').length, 1);
   const q = await M.requests(); eq(q.items.map((x) => [x.id, x.kind, x.status, x.mine, x.doneAt]), [[1, 'designer', 'جديد', true, null], [2, 'dev', 'خلص', false, '2026-11-06T09:00:00Z']]);
   const none = load({ perms: {} }); eq((await none.M.suggestions()).reason, 'forbidden'); eq((await none.M.rules()).reason, 'forbidden'); eq((await none.M.requests()).reason, 'forbidden');

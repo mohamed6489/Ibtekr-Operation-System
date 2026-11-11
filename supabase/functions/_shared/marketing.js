@@ -295,6 +295,7 @@ export function buyerRequest(req, ctx) {
   const sugg = (Array.isArray(d.suggestions) ? d.suggestions : []).slice(0, 20).map((s) => line(s.kind, 20) + ': ' + line(s.title, 120) + (s.sub ? ' — ' + line(s.sub, 200) : ''));
   const block = '<ads_data>\n' + 'Today (Cairo): ' + line(d.today, 10) + '\nCurrency: EGP\n'
     + 'Rules: daily cap ' + n0(R.dailyCap) + ' · max cost per order ' + n0(R.maxCpa) + ' · auto-stop after ' + n0(R.autoStop) + ' spent without an order (' + line(R.autoStopMode, 10) + ') · execution switch ' + (R.live ? 'on' : 'off') + '\n'
+    + "The owner's written rules (guidance for your advice only — nothing runs from them):\n" + ((Array.isArray(R.notes) ? R.notes : []).slice(0, 20).map((x) => '- [' + line(x && x.kind, 10) + '] ' + line(x && x.title, 80) + ': ' + line(x && x.details, 300)).join('\n') || '(none)') + '\n'
     + 'Last 7 days per campaign (name | status | spend | meta purchases | woo orders | woo sales | MER | cost/order | daily budget):\n' + (camps.length ? camps.join('\n') : '(no campaign numbers yet — the sync has not run)') + '\n'
     + 'Open suggestions waiting for the admin:\n' + (sugg.length ? sugg.join('\n') : '(none)') + '\n</ads_data>';
   const messages = [];

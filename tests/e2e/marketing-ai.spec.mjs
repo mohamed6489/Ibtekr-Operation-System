@@ -156,6 +156,40 @@ test('the switch on (the admin, confirmed): a stop pauses the campaign on Meta; 
   expect(mock.mkt.requests.find((q) => q.title.includes('Lamps video'))).toMatchObject({ kind: 'designer', status: 'جديد', project: 'Lamps — Broad' });
 });
 
+test('the v6 «+ قاعدة جديدة»: the admin writes a rule in words (kept on the server with the rules — guidance only), edits it, deletes it; a member sees them without buttons', async ({ page }) => {
+  await start(page);
+  await openAi(page, ADMIN);
+  const P = pg(page);
+  await P.locator('[data-mk-note-add]').click();
+  const f = modal(page, 'قاعدة جديدة');
+  await f.locator('input').first().fill('CTR قليل');
+  await f.locator('textarea').first().fill('إعلان CTR أقل من 0.8% ← بلّغني');
+  await f.getByRole('button', { name: 'احفظ القاعدة' }).click();
+  await expect(toast(page)).toContainText('اتحفظت القاعدة');
+  await expect(P.locator('[data-mk-note="0"]')).toContainText('CTR قليل');
+  await expect(P.locator('[data-mk-note="0"]')).toContainText('قاعدة');
+  expect(mock.mkt.rules.notes).toEqual([{ title: 'CTR قليل', details: 'إعلان CTR أقل من 0.8% ← بلّغني', kind: 'قاعدة' }]);
+  expect(mock.mkt.rules.live).toBe(false); // a rule never touches the switch
+  // edit, then delete
+  await P.locator('[data-mk-note="0"]').click();
+  const e = modal(page, 'تعديل: CTR قليل');
+  await e.locator('input').first().fill('CTR واطي');
+  await e.getByRole('button', { name: 'احفظ القاعدة' }).click();
+  await expect(P.locator('[data-mk-note="0"]')).toContainText('CTR واطي');
+  await P.locator('[data-mk-note="0"]').click();
+  await modal(page, 'تعديل: CTR واطي').locator('[data-mk-note-del]').click();
+  await expect(toast(page)).toContainText('اتمسحت القاعدة');
+  await expect(P.locator('[data-mk-note]')).toHaveCount(0);
+  expect(mock.mkt.rules.notes).toEqual([]);
+  // a member reads the rules without buttons
+  mock.mkt.rules.notes = [{ title: 'تقرير الجمعة', details: 'ملخص أسبوعي يوم الجمعة', kind: 'تقرير' }];
+  await signOut(page);
+  await openAi(page, OPS);
+  await expect(pg(page).locator('[data-mk-note="0"]')).toContainText('تقرير الجمعة');
+  await expect(pg(page).locator('div[data-mk-note="0"]')).toHaveCount(1); // not a button
+  await expect(pg(page).locator('[data-mk-note-add]')).toHaveCount(0);
+});
+
 test('the chat: the question and the answer in the thread (ai-content buyer with the history), the quick chips; the refusal in words', async ({ page }) => {
   await start(page);
   await openAi(page, ADMIN);

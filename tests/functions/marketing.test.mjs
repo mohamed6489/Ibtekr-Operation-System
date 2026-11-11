@@ -129,6 +129,10 @@ test('parseBuyer: the question is required (≤ 1000), the history user / assist
   // a history ending with the user's turn: the question joins it; none: one user turn
   assert.equal(buyerRequest({ question: 'q', history: [{ role: 'user', text: 'a' }] }, { model: 'm', effort: 'low', data: {} }).messages.length, 1);
   assert.ok(buyerRequest({ question: 'q', history: [] }, { model: 'm', effort: 'low', data: {} }).messages[0].content[0].text.includes('(no campaign numbers yet'));
+  // the admin's written rules (the v6 prototype's «+ قاعدة جديدة»): in the data block as guidance; none = «(none)»
+  const wr = buyerRequest({ question: 'q', history: [] }, { model: 'm', effort: 'low', data: { rules: { notes: [{ title: 'CTR قليل', details: 'إعلان CTR أقل من 0.8% ← بلّغني', kind: 'قاعدة' }] } } }).messages[0].content[0].text;
+  assert.ok(wr.includes("The owner's written rules (guidance for your advice only — nothing runs from them):\n- [قاعدة] CTR قليل: إعلان CTR أقل من 0.8% ← بلّغني"));
+  assert.ok(buyerRequest({ question: 'q', history: [] }, { model: 'm', effort: 'low', data: {} }).messages[0].content[0].text.includes('nothing runs from them):\n(none)'));
   assert.equal(cleanBuyer({ text: 'x'.repeat(5000) }).text.length, BUYER_ANSWER_MAX);
   assert.equal(cleanBuyer(null).text, '');
 });

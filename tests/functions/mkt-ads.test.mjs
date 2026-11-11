@@ -78,6 +78,12 @@ test('buyerRules: the prototype\'s defaults, the admin\'s row over them, bad val
   assert.deepEqual(buyerRules({ dailyCap: 8000, live: true, maxCpa: -3, autoStopMode: 'auto', reportHour: 25 }), { ...BUYER_DEFAULTS, dailyCap: 8000, live: true, autoStopMode: 'auto' });
   assert.deepEqual(rulesPatch({ dailyCap: '6000', maxCpa: 500, autoStopMode: 'auto', reportHour: 8, live: true, junk: 1 }), { patch: { dailyCap: 6000, maxCpa: 500, autoStopMode: 'auto', reportHour: 8 } });
   assert.deepEqual(rulesPatch({ dailyCap: 50 }), { error: 'dailyCap' }); assert.deepEqual(rulesPatch({ autoStopMode: 'always' }), { error: 'autoStopMode' }); assert.deepEqual(rulesPatch({ reportHour: 24 }), { error: 'reportHour' });
+  // the written rules (the v6 prototype): the whole list each time, ≤ 20, a title ≤ 80 + details ≤ 300 + a known kind; no control chars or <>
+  const note = { title: 'CTR قليل', details: 'إعلان CTR أقل من 0.8% <b>بلّغني</b>', kind: 'قاعدة' };
+  assert.deepEqual(rulesPatch({ notes: [note] }), { patch: { notes: [{ title: 'CTR قليل', details: 'إعلان CTR أقل من 0.8% b بلّغني /b', kind: 'قاعدة' }] } });
+  assert.deepEqual(rulesPatch({ notes: [] }), { patch: { notes: [] } });
+  for (const bad of [[{ ...note, kind: 'أمر' }], [{ ...note, title: '' }], [{ ...note, details: 'x'.repeat(301) }], [{ ...note, title: 'x'.repeat(81) }], Array(21).fill(note), 'x', [null]]) assert.deepEqual(rulesPatch({ notes: bad }), { error: 'notes' });
+  assert.deepEqual(buyerRules({ notes: [note, { title: 'a', details: 'b', kind: 'x' }] }).notes, [{ title: 'CTR قليل', details: 'إعلان CTR أقل من 0.8% b بلّغني /b', kind: 'قاعدة' }]); // a bad stored row is dropped
 });
 
 const T = '2026-11-07';

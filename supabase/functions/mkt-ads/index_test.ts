@@ -188,7 +188,7 @@ Deno.test('suggest (after a sync): stop for a campaign spending without orders, 
 Deno.test('rules: marketing.view reads the defaults; the admin sets the numbers (logged, never live through rules_set) and the switch (logged)', async () => {
   const { deps, db } = setup();
   const r = await call(deps, { action: 'rules' }, 'jwt-view');
-  assertEquals(r.body.rules, { dailyCap: 5000, maxCpa: 450, autoStop: 1500, autoStopMode: 'suggest', reportHour: 9, live: false });
+  assertEquals(r.body.rules, { dailyCap: 5000, maxCpa: 450, autoStop: 1500, autoStopMode: 'suggest', reportHour: 9, live: false, notes: [] });
   assertEquals((await call(deps, { action: 'rules_set', rules: { dailyCap: 8000 } }, 'jwt-view')).res.status, 401);
   const s = await call(deps, { action: 'rules_set', rules: { dailyCap: 8000, autoStopMode: 'auto', live: true } });
   assertEquals([s.body.rules.dailyCap, s.body.rules.autoStopMode, s.body.rules.live], [8000, 'auto', false]);
@@ -198,6 +198,11 @@ Deno.test('rules: marketing.view reads the defaults; the admin sets the numbers 
   assertEquals(db.rows('settings')[0].data, { buyer: { dailyCap: 8000, autoStopMode: 'auto', live: true } });
   assertEquals(db.rows('activity_log').map((l: any) => [l.action, l.new_value]), [['mkt.buyer.rules', 'dailyCap, autoStopMode'], ['mkt.buyer.live', 'on']]);
   assertEquals((await call(deps, { action: 'live', on: 'yes' })).res.status, 400);
+  // the written rules (the v6 prototype): stored with the rules, logged by name only — never the text; a bad list refused
+  const nt = await call(deps, { action: 'rules_set', rules: { notes: [{ title: 'CTR', details: 'أقل من 0.8%', kind: 'قاعدة' }] } });
+  assertEquals(nt.body.rules.notes, [{ title: 'CTR', details: 'أقل من 0.8%', kind: 'قاعدة' }]);
+  assertEquals(db.rows('activity_log').at(-1).new_value, 'notes');
+  assertEquals((await call(deps, { action: 'rules_set', rules: { notes: [{ title: 'x', details: 'y', kind: 'أمر' }] } })).body.field, 'notes');
 });
 
 const SUGG = (id: number, kind: string, extra: any = {}) => ({ id, platform: 'meta', kind, campaign_id: C1, campaign_name: 'Macrame', title: kind === 'creative' ? 'إعلان «carousel» الناس زهقت منه' : 'زوّد «Macrame» 20%', pct: kind === 'budget_up' ? 20 : kind === 'budget_down' ? -30 : null, data: {}, status: 'pending', created_at: NOW, checked_at: NOW, ...extra });

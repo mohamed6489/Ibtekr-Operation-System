@@ -915,7 +915,16 @@ test('the owner 11 Nov: «حالة الموقع» of a Dokan sub-order (the site
   await expect(dlg.locator('#cdt')).toHaveText('مسح المنتج من IB-181668؟');
   await expect(dlg.locator('[data-line-del]')).toContainText('Pouf × 1 · 500 ج.م');
   await dlg.locator('#creason').selectOption('تعديل من العميل');
+  // the owner 11 Nov («يظهرلي loading … عشان اعرف انه بيتمسح مش معلق»): the site call held → the button spins, the dialog's buttons locked
+  let release; const held = new Promise((r) => { release = r; });
+  await page.route('**/functions/v1/woo-sync', async (route) => { await held; await route.fallback(); });
   await dlg.locator('[data-cok]').click();
+  await expect(dlg.locator('[data-cok]')).toHaveAttribute('aria-busy', 'true');
+  await expect(dlg.locator('[data-cok]')).toHaveText('بيتمسح…');
+  await expect(dlg.locator('[data-cok] .spin')).toBeVisible();
+  await expect(dlg.locator('[data-cok]')).toBeDisabled();
+  await expect(dlg.locator('.cf [data-cc]')).toBeDisabled();
+  release(); await page.unroute('**/functions/v1/woo-sync');
   await expect(dlg).toHaveCount(0);
   await expect(toast(page)).toHaveText('اتمسح المنتج — إجمالي IB-181668 بقى 3,541 ج.م');
   expect(mock.lineTrashes).toEqual([{ order_id: 181668, item_id: 5099, reason: 'تعديل من العميل', by: ADMIN }]);

@@ -111,3 +111,10 @@
 .cat-tog{width:28px;height:28px;flex:none;display:grid;place-items:center;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm,6px);background:var(--color-bg-container);color:var(--color-brand-default);font-weight:700;cursor:pointer}
 .cat-tog.sp{border:0;background:transparent;cursor:default}
 .cat-tog:focus-visible{outline:2px solid var(--color-action-default);outline-offset:1px}
+/* B3 (the owner, 11 Nov — «صغر ال width … جدولين جمب بعض»): the overview's two tables side by side on a wide screen */
+#pg-products .pr-ov-two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;align-items:start}
+#pg-products .pr-ov-two>.sec{margin:0;min-width:0}
+@media (max-width:1100px){#pg-products .pr-ov-two{grid-template-columns:1fr}}
+/* the records' filters: a multi-select per filter (no «البراند:» before the values) */
+#pg-products .pr-filters .mp .select{min-width:120px}
+#pg-products .pr-ov-two table{min-width:0}

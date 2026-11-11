@@ -166,6 +166,19 @@
   // ---------- تقارير المنتجات (قرار 20 في خطة المرحلة 5) ----------
   // records (IBProducts.list) → اللي نفد مخزونه: مش «حسب الطلب»، وحالته على ووكومرس outofstock أو مخزونه المتتبع 0 أو أقل؛ الأكتر مبيعًا الأول.
   // التركيبات مش في المرآة: منتج Variable بيبان هنا لما ووكومرس يعلّمه نفد (كل تركيباته خلصت).
+  // B3 (the owner, 11 Nov — «الاقسام … الرئيسي … - و -- و ---»): the site's categories ({ id, name, parentId, path }) as filter options —
+  // a main category, then its subs by name (depth-first), each [path, name, depth]; a category whose parent is not in the list stands as a
+  // main one; a loop of parents comes out once each
+  function catOptions(cats) {
+    const list = Array.isArray(cats) ? cats.filter((c) => c && c.id != null) : [];
+    const ids = new Set(list.map((c) => String(c.id))); const byName = (a, b) => String(a.name).localeCompare(String(b.name));
+    const kids = new Map(); list.forEach((c) => { const p = c.parentId != null && String(c.parentId) !== '0' && ids.has(String(c.parentId)) ? String(c.parentId) : ''; if (!kids.has(p)) kids.set(p, []); kids.get(p).push(c); });
+    const out = []; const seen = new Set();
+    const walk = (pid, d) => (kids.get(pid) || []).slice().sort(byName).forEach((c) => { if (seen.has(String(c.id))) return; seen.add(String(c.id)); out.push([c.path || c.name, c.name, d]); walk(String(c.id), d + 1); });
+    walk('', 0);
+    list.slice().sort(byName).forEach((c) => { if (seen.has(String(c.id))) return; seen.add(String(c.id)); out.push([c.path || c.name, c.name, 0]); walk(String(c.id), 1); });
+    return out;
+  }
   function outOfStock(records) {
     return (records || []).filter((p) => !p.onDemand && (p.stockStatus === 'outofstock' || (p.manageStock && p.stock != null && p.stock <= 0)))
       .sort((a, b) => (b.sales || 0) - (a.sales || 0));
@@ -549,6 +562,6 @@
     }
     return marked;
   }
-  return { aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, slotPrompt, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
+  return { aiDisplay, paraHtml, aiSaveChange, aiApply, brandCode, serialText, sizeDigits, studioSku, suggestColorCode, parseCsv, parseXlsx, mapColumns, rowsToItems, photoName, catFromPath, itemIssues, STUDIO_FIELDS, catTree, catAncestors, catToggle, catSearch, catOptions, outOfStock, categoriesRank, priceFromVendor, randomMarkup, ceil10, MARKUP_MIN, MARKUP_MAX, crc32, zip, xlsx, xlsxFiles, backupPlan, SLOT_DIRS, safeName, IMG_SIZES, customSize, IMG_MODELS, imgCredits, designCode, designBase, variantSku, SLOTS, SLOT_HINT, slotPrompt, credits, catsOf, inCategory, bulkPrice, buildSku, skuParts, serialStart, serials, sizeCode, price, DISCOUNTS, rotatingDiscount, imageName, imagePath, combos, stockState, completeness, trashDaysLeft, trashSoon, TRASH_DAYS, moveVendor, bumpPrice, validateCode, groupImages, VIDEO_MODELS, scenesTotal, scenesFit, campaignPieces };
 });
 

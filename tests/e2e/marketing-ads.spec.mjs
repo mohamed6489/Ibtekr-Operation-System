@@ -110,6 +110,12 @@ test('«نظرة عامة»: the spend, the Woo sales from ads, the real return 
   await expect(P.locator('[data-ads-mer="5"] .col')).toHaveCount(5);
   await expect(P.locator('[data-ads-mer] .col').last()).toContainText('2.04×'); // the newest week on the left
   await expect(P.locator('.ads-vs tbody tr', { hasText: 'جوجل' })).toContainText('مش مربوطة'); // 9.5.6: not linked (no longer «soon»)
+  // the suggested decision per platform (the v6 prototype): Meta's weightiest open suggestion first, none on Google
+  await expect(P.locator('[data-ads-vs-sugg="meta"]')).toHaveText('وقّف +2');
+  await expect(P.locator('.ads-vs tbody tr', { hasText: 'جوجل' })).not.toContainText('وقّف');
+  await P.locator('[data-ads-vs-sugg="meta"]').click();
+  await expect(page.locator('.modal[data-mk-sugg]')).toContainText('وقّف «Lamps — Broad»');
+  await close(page.locator('.modal[data-mk-sugg]'));
   await expect(P.locator('[data-ads-assistants="live"]')).toContainText('3 اقتراح مستني موافقتك');
   await expect(P.locator('[data-ads-assistants="live"]')).toContainText('التنفيذ على ميتا: متوقف');
   await expect(P.locator('.ads-bar .fresh')).toContainText('آخر مزامنة: ميتا');
@@ -177,6 +183,13 @@ test('«التقارير»: the campaigns (Meta next to Woo, the suggested decis
   await P.locator('#ads-st').click(); await page.getByRole('option', { name: 'الحالة: متوقفة' }).click();
   await expect(rows).toHaveCount(1);
   await P.locator('#ads-st').click(); await page.getByRole('option', { name: 'الحالة: الكل' }).click();
+  await expect(rows).toHaveCount(3);
+  // «القرار» (the v6 prototype): the campaigns with an open «زوّد» suggestion, then the ones without any
+  await P.locator('#ads-dec').click(); await page.getByRole('option', { name: 'القرار: زوّد' }).click();
+  await expect(rows).toHaveCount(1); await expect(rows.nth(0)).toContainText('Macrame — Retargeting');
+  await P.locator('#ads-dec').click(); await page.getByRole('option', { name: 'القرار: من غير قرار' }).click();
+  await expect(rows).toHaveCount(1); await expect(rows.nth(0)).toContainText('Rug — Paused');
+  await P.locator('#ads-dec').click(); await page.getByRole('option', { name: 'القرار: الكل' }).click();
   await expect(rows).toHaveCount(3);
   await P.locator('[data-ads-camp="' + CA + '"]').click();
   const d = modal(page, 'Macrame — Retargeting — ميتا');

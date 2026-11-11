@@ -569,7 +569,7 @@
   const SUGG_COLS = 'id, platform, kind, campaign_id, campaign_name, ad_id, title, sub, why, impact, pct, data, status, created_at, checked_at, decided_by, decided_at, value, note, result, error';
   const SUGG_KINDS = ['stop', 'budget_down', 'budget_up', 'creative', 'tracking']; const SUGG_STATUS = ['pending', 'approved', 'edited', 'rejected', 'done', 'failed', 'expired'];
   const SUGG_MS = 60000; let sugg = null; let suggAt = 0;
-  const toSuggestion = (r) => ({ id: Number(r.id), kind: SUGG_KINDS.includes(r.kind) ? r.kind : 'tracking', campaign_id: String(r.campaign_id || ''), campaign_name: r.campaign_name || null, ad_id: r.ad_id == null ? null : String(r.ad_id),
+  const toSuggestion = (r) => ({ id: Number(r.id), platform: ['meta', 'tiktok', 'google'].includes(r.platform) ? r.platform : 'meta', kind: SUGG_KINDS.includes(r.kind) ? r.kind : 'tracking', campaign_id: String(r.campaign_id || ''), campaign_name: r.campaign_name || null, ad_id: r.ad_id == null ? null : String(r.ad_id),
     title: r.title || '', sub: r.sub || '', why: r.why || '', impact: r.impact || '', pct: r.pct == null ? null : Number(r.pct), data: r.data && typeof r.data === 'object' ? r.data : {},
     status: SUGG_STATUS.includes(r.status) ? r.status : 'pending', createdAt: r.created_at || null, checkedAt: r.checked_at || null, decidedBy: r.decided_by || null, decidedAt: r.decided_at || null,
     value: r.value == null ? null : Number(r.value), note: r.note || '', result: r.result && typeof r.result === 'object' ? r.result : null, error: r.error || null });

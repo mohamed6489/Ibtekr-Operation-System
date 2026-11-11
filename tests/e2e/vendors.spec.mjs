@@ -539,7 +539,7 @@ test('«إضافة مبتكر» (phase 3.1: basics + login + bank) creates the m
   await modal(page).getByRole('button', { name: 'إضافة المبتكر' }).click();
   await expect(drawer(page)).toBeVisible();
   await expect(drawer(page).locator('.drawer-h h2')).toHaveText('zaan');
-  await expect(drawer(page).locator('.drawer-h')).toContainText('بدون متجر على الموقع');
+  await expect(drawer(page).locator('.drawer-h')).toContainText('متجر #901'); // the owner, 11 Nov: «إضافة مبتكر» makes his store on the site too (vendor_store)
   await expect(page).toHaveURL(/#makers\/b0000000-0000-4000-8000-000000000001$/);
   const ins = writes().filter((w) => w.op === 'insert');
   expect(ins.map((w) => w.table)).toEqual(['vendors', 'vendor_rates', 'vendor_logins', 'vendor_bank']);

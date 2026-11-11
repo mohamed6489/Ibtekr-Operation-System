@@ -61,6 +61,13 @@
 //              for this action only) a Dokan sub-order's own status on the site: a WooCommerce slug status_map knows, PUT
 //              wc/v3/orders/{sub} { status }, the answer's status kept in sub_orders.woo_status (another answer → 502). The team's
 //              own line status (order_items.status) is untouched. Same permissions; never the sync secret; WOO_PUSH_ENABLED.
+//   'vendor_store' { vendor_id, password, shop_url?, notify?, trusted?, featured? }  (the owner 11 Nov — «إضافة مبتكر» on the site)
+//              a maker of ours without a store gets Dokan's «Add New Vendor»: POST dokan/v1/stores with his portal login, the
+//              password the member typed (never stored nor logged), the shop URL, the row's store fields, the commission (admin
+//              / sensitive.commission = F) and the bank (admin / sensitive.vendor_bank = F); then the row is linked to the new
+//              store (woo_vendor_id, snapshot, mirrors) and his automatic brand tied to it. A taken login / e-mail links the
+//              store with that e-mail when no maker of ours has it. The admin or vendors.edit = F; never the sync secret;
+//              WOO_PUSH_ENABLED.
 //   'push_vendor' { vendor_id, fields[] }  (phase 3.3, decision 4 b) fields ⊆ SYNC_FIELDS of woo-core (name, phone,
 //              email, contact_name, address_parts, social, status, rate, category_rates, bank; anything else → 400). The
 //              row is read from the database (never the body); a maker without woo_vendor_id → skipped/no_store; the
@@ -121,7 +128,7 @@
 //              {SUPABASE_URL}/functions/v1/woo-webhook; any other webhook on the site (n8n's) is never touched.
 // Answer: 200 { action, result, counts, … } or 4xx / 5xx { error }. CORS for the browser's functions.invoke.
 import { createClient } from 'npm:@supabase/supabase-js@2.118.0';
-import { START_DATE, SYNC_FIELDS, mapStore, nextCursor, outgoingWooStatus } from '../_shared/woo-core.js';
+import { START_DATE, SYNC_FIELDS, bankDigest, mapStore, nextCursor, outgoingWooStatus, storeSnapshot, toDokanStore } from '../_shared/woo-core.js';
 import { getState, logSync, setState, upsertRows } from '../_shared/db.js';
 import { PAY_STATUSES, orderCreateInput, orderPayable, payUrl, wooOrderBody } from '../_shared/woo-order-create.js';
 import { vaultEnv } from '../_shared/secrets.js';
@@ -131,7 +138,7 @@ import { STUDIO_ATTRS, buildStudio, fetchSheetCsv, matchWooBrand } from '../_sha
 import { duplicateAr, duplicatePayload, duplicateSku, duplicateVariation, variationSku } from '../_shared/woo-duplicate.js';
 import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { CART_HOURS, CART_PATH, cartRows } from '../_shared/woo-carts.js';
-import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, releaseLines, writeContext, writeOrderPage, writeOrders, writeProducts, writeStates } from '../_shared/woo-write.js';
+import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, loadTree, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, releaseLines, writeContext, writeOrderPage, writeOrders, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -142,7 +149,7 @@ type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
 const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdraw_create', 'withdrawals', 'order_trash', 'suborder_trash', 'line_trash', 'suborder_status', 'order_create', 'order_pay_link',
-  'vendor_photo', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
+  'vendor_photo', 'vendor_store', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts',
   'category_get', 'category_update', 'category_delete'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product; B4 (11 Nov): the categories tab's read, edit and delete
@@ -174,7 +181,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
     if (action === 'withdraw_approve' || action === 'withdraw_create') return null; // a person approves / asks, never the cron / sync secret (phase 4.1; 0078)
     if (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'suborder_status') return null; // a person deletes an order / a sub-order, never the cron / sync secret (phase 5.5 decision 10, phase 13 decision 54)
     if (action === 'order_create' || action === 'order_pay_link') return null; // a person makes an order from the chat (phase 13 T3)
-    if (action === 'vendor_photo') return null; // a person sets a maker's photo (phase 13 decision 51)
+    if (action === 'vendor_photo' || action === 'vendor_store') return null; // a person sets a maker's photo / makes his store (phase 13 decision 51; 11 Nov)
     if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
     const { data, error } = await deps.db.rpc('sync_secret_matches', { candidate: secret });
     return !error && data === true ? 'system' : null;
@@ -210,6 +217,8 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   if (action === 'inventory_push') return (await admin()) || ((await perm('inventory.edit')) && (await perm('products.edit'))) ? 'member' : null;
   // phase 13 decision 51: the maker's photo (recorded, then set as the Dokan store's photo) — the admin or vendors.edit = F
   if (action === 'vendor_photo') return (await admin()) || (await perm('vendors.edit')) ? 'member' : null;
+  // the owner, 11 Nov: a maker's store on the site — the people who add a maker (the commission and the bank follow their own rules inside)
+  if (action === 'vendor_store') return (await admin()) || (await perm('vendors.edit')) ? 'member' : null;
   if (action === 'push_vendor') {
     if (await admin()) return 'member';
     const fields = Array.isArray(args.fields) ? args.fields : [];
@@ -747,13 +756,8 @@ async function vendorPhoto(run: Run, args: Json) {
   const ext = m[2].toLowerCase() === 'jpeg' ? 'jpg' : m[2].toLowerCase();
   const ctx = await run.ctx();
   try {
-    const media = (await ctx.woo.upload('wp/v2/media', bytes, `maker-${storeId}-${run.now().replace(/[^0-9]/g, '').slice(2, 12)}.${ext}`, MIME[ext] ?? 'image/png')).data;
-    const mid = wooId(isObj(media) ? media.id : null);
+    const mid = await storePhoto(run, ctx, vendorId, storeId, bytes, ext);
     if (mid === null) { await logSync(run.db, { ...entry, result: 'error', detail: { vendor_id: vendorId, error: 'media_refused' } }); return json(502, { error: 'media_refused' }); }
-    const store = (await ctx.woo.put(`dokan/v1/stores/${storeId}`, { gravatar_id: mid })).data;
-    const url = isObj(store) && typeof store.gravatar === 'string' && /^https:\/\//.test(store.gravatar) ? store.gravatar
-      : isObj(media) && typeof media.source_url === 'string' && /^https:\/\//.test(media.source_url) ? media.source_url : null;
-    if (url) await run.db.from('vendors').update({ logo_url: url }).eq('id', vendorId);
     await logSync(run.db, { ...entry, result: 'ok', detail: { vendor_id: vendorId, media: mid } });
     return json(200, { action: 'vendor_photo', result: 'ok', site: 'ok', media: mid });
   } catch (e) {
@@ -761,6 +765,141 @@ async function vendorPhoto(run: Run, args: Json) {
     await logSync(run.db, { ...entry, result: 'error', detail: { vendor_id: vendorId, error: errorText(e, ctx.woo.scrub) } });
     return json(502, { error: 'woo_error', action: 'vendor_photo', saved: true });
   }
+}
+// The photo's bytes → wp/v2/media → the store's photo (Dokan gravatar_id); the mirror logo_url follows. → the media id, or null when
+// the site did not take the file. WooError passes to the caller.
+async function storePhoto(run: Run, ctx: Ctx, vendorId: string, storeId: number, bytes: Uint8Array, ext: string): Promise<number | null> {
+  const media = (await ctx.woo.upload('wp/v2/media', bytes, `maker-${storeId}-${run.now().replace(/[^0-9]/g, '').slice(2, 12)}.${ext}`, MIME[ext] ?? 'image/png')).data;
+  const mid = wooId(isObj(media) ? media.id : null);
+  if (mid === null) return null;
+  const store = (await ctx.woo.put(`dokan/v1/stores/${storeId}`, { gravatar_id: mid })).data;
+  const url = isObj(store) && typeof store.gravatar === 'string' && /^https:\/\//.test(store.gravatar) ? store.gravatar
+    : isObj(media) && typeof media.source_url === 'string' && /^https:\/\//.test(media.source_url) ? media.source_url : null;
+  if (url) await run.db.from('vendors').update({ logo_url: url }).eq('id', vendorId);
+  return mid;
+}
+
+// ---------------------------------------------------------------- vendor_store (the owner, 11 Nov — «إضافة مبتكر» on the site)
+
+// vendor_store { vendor_id, password, shop_url?, notify?, trusted?, featured? }: a maker of ours without a store gets one on the site,
+// Dokan's «Add New Vendor» in one call — POST dokan/v1/stores = a WordPress user with Dokan's seller role + the store:
+// - the login is the maker's portal login (vendor_logins username, its e-mail — else the maker's), the password the one the member
+//   typed (the portal's temporary one, the owner's choice): sent to Dokan once, never stored, logged nor returned here;
+// - user_nicename = the shop URL given, else the username's (a-z 0-9 -); Dokan refuses one another store has (shop-url-error);
+// - the store's fields come from the row (toDokanStore: name, phone, owner's name, address, social, enabled = not inactive), the
+//   commission only for the admin or sensitive.commission = F (else none: the site's global one applies), the bank only for the
+//   admin or sensitive.vendor_bank = F; trusted («نشر المنتجات مباشرة») / featured («مبتكر مميز») off unless asked; notify_vendor =
+//   Dokan's «Send an email to vendor about account» (on unless asked off).
+// Then our row takes the store (only while it still has none): woo_vendor_id, the snapshot of the site's answer, the mirrors, no
+// push pending; the maker's own brand (the automatic one) is tied to the store as a synced store's is; a photo kept before the store
+// existed becomes the store's photo. The site's login or e-mail already taken → the Dokan store with that e-mail (a try that timed
+// out, or one made by hand on the site) is linked when no maker of ours has it, else 409 with the reason. A maker with a store,
+// without a login, or with no name → 409. Gated by WOO_PUSH_ENABLED; a person only (never the sync secret).
+const SHOP_URL = /^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/;
+const shopOf = (s: string) => s.toLowerCase().replace(/[._]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
+const STORE_TOGGLES = ['notify', 'trusted', 'featured'];
+async function vendorStore(run: Run, args: Json, member: ReturnType<NonNullable<Deps['userDb']>> | null) {
+  const vendorId = typeof args.vendor_id === 'string' && UUID.test(args.vendor_id) ? args.vendor_id.toLowerCase() : null;
+  const password = typeof args.password === 'string' ? args.password : '';
+  if (vendorId === null) return json(400, { error: 'bad_request', field: 'vendor_id' });
+  // the portal's rule (8–64, no spaces / control characters, a letter and a digit)
+  if (password.length < 8 || password.length > 64 || /[\s\u0000-\u001f\u007f]/.test(password) || !/[A-Za-z]/.test(password) || !/[0-9]/.test(password)) return json(400, { error: 'bad_request', field: 'password' });
+  if (STORE_TOGGLES.some((k) => args[k] !== undefined && typeof args[k] !== 'boolean')) return json(400, { error: 'bad_request', field: 'toggles' });
+  const asked = typeof args.shop_url === 'string' ? args.shop_url.trim().toLowerCase() : '';
+  if (asked && !SHOP_URL.test(asked)) return json(400, { error: 'bad_request', field: 'shop_url' });
+  const { data: row, error } = await run.db.from('vendors').select(VENDOR_SYNC_COLUMNS + ', photo_path').eq('id', vendorId).maybeSingle();
+  if (error) throw new Error(`vendors: ${error.message}`);
+  if (!row) return json(404, { error: 'vendor_not_found' });
+  if (wooId(row.woo_vendor_id) !== null) return json(409, { error: 'has_store' });
+  const { data: login, error: lErr } = await run.db.from('vendor_logins').select('username, email').eq('vendor_id', vendorId).maybeSingle();
+  if (lErr) throw new Error(`vendor_logins: ${lErr.message}`);
+  const username = isObj(login) && typeof login.username === 'string' ? login.username.trim() : '';
+  const email = (isObj(login) && typeof login.email === 'string' && login.email.trim() ? login.email : typeof row.email === 'string' ? row.email : '').trim().toLowerCase();
+  if (!username || !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(email)) return json(409, { error: 'no_login' });
+  if (!String(row.name ?? '').trim() || String(row.name).startsWith('#')) return json(409, { error: 'no_name' });
+  const shop = asked || shopOf(username);
+  if (!SHOP_URL.test(shop)) return json(400, { error: 'bad_request', field: 'shop_url' });
+  const entry = { kind: 'push', direction: 'out', entity: 'vendor', entity_id: vendorId, action: 'vendor_store' };
+  if (!pushEnabled(run.env)) {
+    await logSync(run.db, { ...entry, result: 'skipped', detail: { vendor_id: vendorId, reason: 'push_disabled' } });
+    return json(200, { action: 'vendor_store', result: 'skipped', reason: 'push_disabled' });
+  }
+  // what the member may send: the commission and the bank follow their own rules (as push_vendor's)
+  const may = async (key: string) => { if (!member) return false; const { data: adm } = await member.rpc('is_admin'); if (adm === true) return true; const { data, error: e } = await member.rpc('has_perm', { key }); return !e && data === 'F'; };
+  const withRates = await may('sensitive.commission');
+  const withBank = await may('sensitive.vendor_bank');
+  const ctx = await run.ctx();
+  const rates = withRates ? (await effectiveRates(ctx, [vendorId], run.now())).get(vendorId) : undefined;
+  const bank = withBank ? (await loadBanks(ctx, [vendorId])).get(vendorId) ?? null : null;
+  const tree = withRates ? await loadTree(ctx) : null;
+  const fields = ['name', 'phone', 'contact_name', 'address_parts', 'social', 'status', ...(withRates ? ['rate', 'category_rates'] : []), ...(bank ? ['bank'] : [])];
+  const toStore = toDokanStore as unknown as (r: Json, f: string[], rt: Json | null, b: Json | null) => { body: Json | null; sent: string[] }; // a .js export: its defaults type the arguments as null
+  const { body, sent } = toStore(row, fields, rates ? { type: rates.rate?.type ?? 'fixed', rate: rates.rate?.rate ?? null, flat: rates.rate?.flat ?? null, categoryRates: rates.category_rates ?? [], tree } : null, bank);
+  const post = { ...(body ?? {}), user_login: username, email, user_pass: password, user_nicename: shop,
+    notify_vendor: args.notify !== false, trusted: args.trusted === true, featured: args.featured === true };
+  let store: Json | null = null; let adopted = false;
+  try {
+    const { data } = await ctx.woo.post('dokan/v1/stores', post);
+    if (isObj(data) && wooId(data.id) !== null) store = data;
+  } catch (e) {
+    if (!(e instanceof WooError)) throw e;
+    const code = /"code":"([a-z0-9_-]{1,60})"/.exec(e.message)?.[1] ?? wooCode(e); // Dokan's own codes carry hyphens (shop-url-error)
+    if (e.status === 400 && (code === 'existing_user_login' || code === 'existing_user_email')) {
+      // a former try that timed out after Dokan made the store, or a store made by hand on the site: the store with this e-mail
+      const found = await storeByEmail(ctx, email);
+      if (found) {
+        const { data: other } = await run.db.from('vendors').select('id, name').eq('woo_vendor_id', wooId(found.id)).maybeSingle();
+        if (other) { await logSync(run.db, { ...entry, result: 'skipped', detail: { vendor_id: vendorId, reason: 'exists_store', store: wooId(found.id) } }); return json(409, { error: 'exists_store', name: String(other.name ?? '') }); }
+        store = found; adopted = true;
+      } else {
+        await logSync(run.db, { ...entry, result: 'skipped', detail: { vendor_id: vendorId, reason: code } });
+        return json(409, { error: code === 'existing_user_login' ? 'login_taken' : 'email_taken' });
+      }
+    } else if (e.status === 400 && code === 'shop-url-error') {
+      await logSync(run.db, { ...entry, result: 'skipped', detail: { vendor_id: vendorId, reason: 'shop_url' } });
+      return json(409, { error: 'shop_url_taken' });
+    } else {
+      // another refusal (4xx: the site's answer, nothing made) or a failure on the way (5xx / timeout: maybe made — a retry links it)
+      const final = e.status >= 400 && e.status < 500 && ![401, 403, 408, 429].includes(e.status);
+      const scrub = (s: string) => ctx.woo.scrub(s).split(password).join('***'); // an answer that echoes the request never logs the password
+      await logSync(run.db, { ...entry, result: final ? 'skipped' : 'error', detail: { vendor_id: vendorId, ...(final ? { reason: 'refused' } : {}), error: errorText(e, scrub) } });
+      return json(final ? 409 : 502, final ? { error: 'refused', code } : { error: 'woo_error', action: 'vendor_store' });
+    }
+  }
+  if (store === null) { await logSync(run.db, { ...entry, result: 'error', detail: { vendor_id: vendorId, error: 'no_store_in_answer' } }); return json(502, { error: 'woo_error', action: 'vendor_store' }); }
+  const storeId = wooId(store.id) as number;
+  const mapped = mapStore(store) as Json; mapped.bank_digest = await bankDigest(mapped.bank);
+  const now = run.now();
+  const patch = { woo_vendor_id: storeId, woo_snapshot: storeSnapshot(mapped), woo_synced_at: now, push_pending: null, raw: mapped.raw, logo_url: mapped.logo_url, banner_url: mapped.banner_url, woo_payment_methods: mapped.woo_payment_methods };
+  const { data: linked, error: upErr } = await run.db.from('vendors').update(patch).eq('id', vendorId).is('woo_vendor_id', null).select('id');
+  if (upErr) {
+    // the store sync took the new store first (unique woo_vendor_id): it is a maker of its own now — said, not merged
+    await logSync(run.db, { ...entry, entity_id: String(storeId), result: 'error', detail: { vendor_id: vendorId, store: storeId, error: String(upErr.code ?? 'db') } });
+    return json(409, { error: 'linked_elsewhere', store: storeId });
+  }
+  if (!Array.isArray(linked) || !linked.length) return json(409, { error: 'has_store' }); // another call linked one meanwhile
+  // the maker's automatic brand (made with the row) becomes the store's brand, as a synced store's is (0013)
+  const { data: brand } = await run.db.from('brands').select('id').eq('origin_vendor_id', vendorId).eq('created_by', 'system').is('store_vendor_id', null).limit(1).maybeSingle();
+  if (isObj(brand) && brand.id) await run.db.from('brands').update({ store_vendor_id: vendorId }).eq('id', brand.id);
+  // a photo kept before the store existed becomes the store's photo (best effort: the store stands either way)
+  let photo = 'none';
+  const pm = typeof row.photo_path === 'string' ? PHOTO_PATH.exec(row.photo_path) : null;
+  if (pm && pm[1].toLowerCase() === vendorId && !adopted) {
+    try {
+      const { data: blob } = await run.db.storage.from(PHOTO_BUCKET).download(row.photo_path);
+      const bytes = blob ? new Uint8Array(await blob.arrayBuffer()) : null;
+      photo = bytes && isPhotoBytes(bytes) && bytes.length <= 5 * 1048576 && (await storePhoto(run, ctx, vendorId, storeId, bytes, pm[2].toLowerCase() === 'jpeg' ? 'jpg' : pm[2].toLowerCase())) !== null ? 'ok' : 'failed';
+    } catch (e) { if (!(e instanceof WooError)) throw e; photo = 'failed'; }
+  }
+  await logSync(run.db, { ...entry, entity_id: String(storeId), result: 'ok', detail: { vendor_id: vendorId, store: storeId, adopted, fields: adopted ? [] : sent, photo } });
+  await logActivity(ctx, adopted ? 'vendor.store.link' : 'vendor.store.create', vendorId, ['#' + storeId]);
+  return json(200, { action: 'vendor_store', result: 'ok', store: storeId, adopted, commission: !adopted && sent.includes('rate'), bank: !adopted && sent.includes('bank'), photo, shop_url: typeof store.shop_url === 'string' && /^https:\/\//.test(store.shop_url) ? store.shop_url : null });
+}
+// The Dokan store whose WordPress e-mail is exactly `email` (the store search covers user_email), or null.
+async function storeByEmail(ctx: Ctx, email: string): Promise<Json | null> {
+  const { data } = await ctx.woo.get('dokan/v1/stores', { search: email, per_page: 10, page: 1 });
+  const hits = (Array.isArray(data) ? data : []).filter((s: unknown): s is Json => isObj(s) && wooId(s.id) !== null && typeof s.email === 'string' && s.email.trim().toLowerCase() === email);
+  return hits.length === 1 ? hits[0] : null;
 }
 
 // ---------------------------------------------------------------- register_webhooks
@@ -1913,6 +2052,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     if (action === 'order_pay_link') return await orderPayLink(run, args);
     if (action === 'push_vendor') return await pushVendor(run, args);
     if (action === 'vendor_photo') return await vendorPhoto(run, args);
+    if (action === 'vendor_store') { const jwt = /^Bearer\s+(\S+)$/i.exec(req.headers.get('authorization') ?? '')?.[1] ?? ''; return await vendorStore(run, args, deps.userDb && jwt ? deps.userDb(jwt) : null); }
     if (action === 'register_webhooks') return await registerWebhooks(run, args);
     if (action === 'probe_store') return await probeStore(run, args);
     if (action === 'probe_dokan') return await probeDokan(run, args);

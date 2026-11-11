@@ -2130,6 +2130,29 @@ export async function installSupabaseMock(page, opts = {}) {
         if (mock.photoSiteFails) { rec.site = 'failed'; return json(502, { error: 'woo_error', action, saved: true }); }
         rec.site = 'ok'; return json(200, { action, result: 'ok', site: 'ok', media: 900 + mock.photoCalls.length });
       }
+      // the owner, 11 Nov: vendor_store — a maker without a store gets one on the site (Dokan «Add New Vendor»): the admin or vendors.edit F;
+      // his portal login (username / e-mail), the typed password (checked, never kept: only its length is recorded), the shop URL, the
+      // commission for the admin / sensitive.commission F, the bank for the admin / sensitive.vendor_bank F; the row is linked to the new
+      // store id (mock.nextStore, 900+). mock.storeRefuse = 'login_taken' | 'email_taken' | 'shop_url_taken' → 409; wooDown → 502.
+      if (action === 'vendor_store') {
+        if (!u || !(isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F')) return json(401, { error: 'unauthorized' });
+        const v = mock.vendors.find((x) => x.id === String(b.vendor_id || '').toLowerCase()); if (!v) return json(404, { error: 'vendor_not_found' });
+        const pw = typeof b.password === 'string' ? b.password : '';
+        if (pw.length < 8 || pw.length > 64 || /\s/.test(pw) || !/[A-Za-z]/.test(pw) || !/[0-9]/.test(pw)) return json(400, { error: 'bad_request', field: 'password' });
+        if (b.shop_url !== undefined && !/^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/.test(String(b.shop_url))) return json(400, { error: 'bad_request', field: 'shop_url' });
+        if (v.woo_vendor_id != null) return json(409, { error: 'has_store' });
+        const login = (mock.vendorLogins || []).find((l) => l.vendor_id === v.id);
+        if (!login || !login.username) return json(409, { error: 'no_login' });
+        if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
+        if (mock.wooDown) return json(502, { error: 'woo_error', action });
+        if (mock.storeRefuse) return json(409, { error: mock.storeRefuse });
+        const commission = isAdmin(u) || hasPerm(u, 'sensitive.commission') === 'F'; const bank = (isAdmin(u) || hasPerm(u, 'sensitive.vendor_bank') === 'F') && (mock.vendorBank || []).some((x) => x.vendor_id === v.id);
+        mock.nextStore = (mock.nextStore || 900) + 1; const store = mock.nextStore;
+        const shop = String(b.shop_url || String(login.username).replace(/[._]+/g, '-'));
+        (mock.storeCalls = mock.storeCalls || []).push({ vendor_id: v.id, by: u.email, username: login.username, email: login.email || v.email, pwLength: pw.length, shop_url: shop, notify: b.notify !== false, trusted: b.trusted === true, featured: b.featured === true, commission, bank, store });
+        v.woo_vendor_id = store; v.woo_synced_at = new Date().toISOString(); v.push_pending = null;
+        return json(200, { action, result: 'ok', store, adopted: false, commission, bank, photo: 'none', shop_url: 'https://woo.test/store/' + shop + '/' });
+      }
       if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' || action === 'category_get' || action === 'category_update' || action === 'category_delete' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });

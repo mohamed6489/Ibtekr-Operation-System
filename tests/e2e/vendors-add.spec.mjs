@@ -143,6 +143,7 @@ test('phase 13 decision 51: the bank is optional, the photo and the contract are
   await expect(m.locator('[data-v-photo-prev] img')).toHaveCount(1); // the preview
   await expect(m.locator('[data-v-photo-pick]')).toHaveText('غيّر الصورة');
   await m.locator('[data-v-contract]').setInputFiles({ name: 'contract.pdf', mimeType: 'application/pdf', buffer: Buffer.from('%PDF-1.4\n%mock\n') });
+  await m.getByRole('switch', { name: 'اعمل له متجر على الموقع' }).click(); // the owner, 11 Nov: here without the store (the photo stays in the system)
   await m.getByRole('button', { name: 'إضافة المبتكر' }).click(); // no bank: it still saves
   await expect(drawer(page)).toBeVisible();
   const ins = writes().filter((w) => w.op === 'insert');
@@ -156,6 +157,107 @@ test('phase 13 decision 51: the bank is optional, the photo and the contract are
   await expect(drawer(page).locator('[data-v-photo-img] img')).toHaveCount(1);
   await expect.poll(() => acts('vendor.photo').map((a) => a.new_value)).toEqual(['PNG · 0.0 ميجا · الموقع skipped']);
   await expect(drawer(page).locator('[data-missing]')).toContainText('الحساب البنكي'); // the bank shows as missing until added
+});
+
+test('the owner, 11 Nov: «المتجر على الموقع» — the admin adds a maker with his store: the whole commission first (type + flat → vendor_commission_set), then woo-sync vendor_store with his login, the typed password (never kept), the shop URL and the toggles; the maker is linked and the note says so', async ({ page }) => {
+  await openVendors(page);
+  const m = await openAdd(page);
+  await m.locator('#v-name').fill('Wood & Rope');
+  await pickCats(page, 'v-cat', ['ديكور']);
+  await m.locator('#v-phone').fill('01000000009');
+  await m.locator('#v-login-email').fill('wood.dev@ibtekr.local');
+  await m.locator('[data-genpw]').click();
+  const pw = await m.locator('#v-login-pw').inputValue();
+  await expect(m.getByRole('switch', { name: 'اعمل له متجر على الموقع' })).toHaveAttribute('aria-checked', 'true'); // on by default
+  await expect(m.locator('#v-shop')).toHaveValue('wood-rope'); // from the username
+  await expect(m.getByRole('switch', { name: 'نشر المنتجات مباشرة' })).toHaveAttribute('aria-checked', 'false');
+  await expect(m.getByRole('switch', { name: 'ابعت إيميل للمبتكر بحسابه' })).toHaveAttribute('aria-checked', 'true');
+  await m.locator('#v-flat').fill('5');
+  await m.locator('#v-first').fill('سلمى'); await m.locator('#v-last').fill('علي');
+  await m.locator('#v-city').fill('الجيزة');
+  await m.getByRole('switch', { name: 'نشر المنتجات مباشرة' }).click();
+  // a shop URL with spaces is refused on the page, nothing written
+  await m.locator('#v-shop').fill('wood rope');
+  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await expect(m.locator('#v-shop-err')).toContainText('حروف إنجليزي صغيرة');
+  expect(writes()).toEqual([]);
+  await m.locator('#v-shop').fill('wood-and-rope');
+  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await expect(drawer(page)).toBeVisible();
+  await expect.poll(() => (mock.storeCalls || []).length).toBe(1);
+  expect(mock.storeCalls[0]).toMatchObject({ vendor_id: NEW1, by: ADMIN, username: 'wood.rope', email: 'wood.dev@ibtekr.local', pwLength: pw.length, shop_url: 'wood-and-rope', notify: true, trusted: true, featured: false, commission: true, store: 901 });
+  // the commission whole (the flat fee → vendor_commission_set, no plain vendor_rates insert), before the store was asked
+  expect(mock.vendorRates.filter((r) => r.vendor_id === NEW1).map((r) => [r.rate, r.flat, r.commission_type])).toEqual([[40, 5, 'fixed']]);
+  expect(writes().filter((w) => w.op === 'insert').map((w) => w.table)).toEqual(['vendors', 'vendor_logins']);
+  expect(writes().find((w) => w.table === 'vendors' && w.op === 'insert')).toMatchObject({ contact_name: 'سلمى علي', address_parts: { city: 'الجيزة', country: 'EG' } });
+  await expect(note(page)).toContainText('اتضاف المبتكر Wood & Rope');
+  await expect(note(page)).toContainText('واتعمل متجره على الموقع (#901) بالعمولة');
+  await expect(drawer(page)).toContainText('متجر #901');
+  await expect(drawer(page).locator('[data-make-store]')).toHaveCount(0);
+  expect(JSON.stringify([mock.vendorWrites, mock.activity, mock.activityRows, mock.storeCalls])).not.toContain(pw);
+  await expect(page.locator('body')).not.toContainText(pw);
+});
+
+test('the owner, 11 Nov: the store refused by the site (the username taken there) → the maker is added here and the note says why; his file offers «اعمل متجر على الموقع» — a strong password, then the store; without the switch nothing is asked of the site', async ({ page }) => {
+  mock.storeRefuse = 'login_taken';
+  await openVendors(page);
+  const m = await openAdd(page);
+  await m.locator('#v-name').fill('Clay Home');
+  await pickCats(page, 'v-cat', ['ديكور']);
+  await m.locator('#v-phone').fill('01000000019');
+  await m.locator('#v-login-email').fill('clay.dev@ibtekr.local');
+  await m.locator('[data-genpw]').click();
+  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await expect(drawer(page)).toBeVisible();
+  await expect(note(page)).toContainText('اتضاف المبتكر Clay Home');
+  await expect(note(page)).toContainText('المتجر على الموقع ماتعملش: اسم المستخدم ده عليه حساب على الموقع');
+  expect(mock.vendors.find((v) => v.id === NEW1).woo_vendor_id).toBeNull();
+  // from his file, once the site takes it
+  mock.storeRefuse = null;
+  const btn = drawer(page).locator('[data-make-store]');
+  await expect(btn).toBeVisible();
+  await btn.click();
+  const sm = page.locator('.modal[role=dialog]', { hasText: 'متجر على الموقع — Clay Home' });
+  await expect(sm).toContainText('clay.home');
+  await expect(sm.locator('#st-shop')).toHaveValue('clay-home');
+  await sm.locator('[data-st-save]').click();
+  await expect(sm.locator('#st-pw-err')).toContainText('الباسورد لازم');
+  await sm.locator('[data-st-gen]').click();
+  await sm.locator('[data-st-save]').click();
+  await expect(sm).toHaveCount(0);
+  await expect.poll(() => mock.storeCalls.length).toBe(1);
+  expect(mock.storeCalls[0]).toMatchObject({ vendor_id: NEW1, username: 'clay.home', shop_url: 'clay-home', notify: true, trusted: false, featured: false });
+  await expect(note(page)).toContainText('اتعمل متجر Clay Home على الموقع');
+  await expect(drawer(page).locator('[data-make-store]')).toHaveCount(0);
+  // a maker added with the switch off: nothing asked of the site
+  await drawer(page).getByRole('button', { name: 'إغلاق' }).click();
+  const m2 = await openAdd(page);
+  await m2.locator('#v-name').fill('Glass Art');
+  await pickCats(page, 'v-cat', ['ديكور']);
+  await m2.locator('#v-phone').fill('01000000029');
+  await m2.locator('#v-login-email').fill('glass.dev@ibtekr.local');
+  await m2.locator('[data-genpw]').click();
+  await m2.getByRole('switch', { name: 'اعمل له متجر على الموقع' }).click();
+  await expect(m2.locator('#v-shop')).toHaveCount(0);
+  await m2.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await expect(drawer(page)).toBeVisible();
+  await expect(note(page)).toContainText('اتضاف المبتكر Glass Art');
+  expect(mock.storeCalls.length).toBe(1);
+  await expect(drawer(page).locator('[data-make-store]')).toBeVisible();
+});
+
+test('the owner, 11 Nov: a member without vendors.edit F sees no store section and no «اعمل متجر على الموقع»; a commission by category shows its tree in «إضافة مبتكر»', async ({ page }) => {
+  await openVendors(page);
+  const m = await openAdd(page);
+  await pickOption(page, 'v-ctype', 'حسب الفئة (Category based)');
+  await expect(m.locator('[data-cat-tree]')).toBeVisible();
+  await expect(m.locator('#v-rate')).toBeVisible();
+  await expect(m).toContainText('نسبة الفئات اللي مالهاش رقم');
+  await m.getByRole('button', { name: 'إلغاء' }).click();
+  await signOut(page);
+  await openVendors(page, OPS); // vendors.edit = P
+  await openDrawer(page, V1);
+  await expect(drawer(page).locator('[data-make-store]')).toHaveCount(0);
 });
 
 test('phase 13 decision 51: a photo of the wrong type is refused in the popup before any request; a member without vendors.edit F sees no photo button', async ({ page }) => {

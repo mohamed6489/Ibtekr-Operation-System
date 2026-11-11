@@ -2029,6 +2029,97 @@ Deno.test('vendor_photo (phase 13 decision 51): the uploaded photo is recorded o
   assertEquals([r4.res.status, r4.body.error, fake.woo.calls.length, fake.db.rows('vendors')[0].photo_path ?? null], [400, 'bad_type', 0, null]);
 });
 
+// ---------------------------------------------------------------- vendor_store (the owner, 11 Nov — «إضافة مبتكر» on the site)
+
+const NEW_V = vendorId(901);
+const NEW_ROW = { id: NEW_V, woo_vendor_id: null, name: 'ورشة جديدة', phone: '01011112222', email: 'new@maker.test', contact_name: 'سلمى علي', status: 'active', woo_snapshot: null, push_pending: null, photo_path: null,
+  address_parts: { street_1: 'شارع 9', street_2: '', city: 'الجيزة', state: 'EG-21', zip: '', country: 'EG' }, social: { fb: 'https://fb.test/new', instagram: '', twitter: '', youtube: '', linkedin: '', pinterest: '', threads: '', flickr: '' } };
+const NEW_SEED = () => ({ vendors: [{ ...NEW_ROW }], vendor_logins: [{ vendor_id: NEW_V, username: 'warsha.new', email: 'new@maker.test' }],
+  vendor_rates: [{ id: 1, vendor_id: NEW_V, rate: 25, flat: 5, since: '2026-10-01', commission_type: 'fixed' }], vendor_bank: [{ vendor_id: NEW_V, holder: 'سلمى علي', account_number: '1234567890', iban: '', bank_name: 'NBE' }],
+  brands: [{ id: 'b1', name: 'ورشة جديدة', origin_vendor_id: NEW_V, created_by: 'system', store_vendor_id: null }, { id: 'b2', name: 'براند تاني', origin_vendor_id: NEW_V, created_by: 'سارة', store_vendor_id: null }] });
+const PW = 'Temp1234pw';
+const storeRoutes = (posted: any[], extra: Record<string, any> = {}) => ({
+  'POST dokan/v1/stores': (c: any) => { posted.push(c.body); return { body: wooStoreFull(901, { store_name: c.body.store_name, email: c.body.email, phone: c.body.phone, admin_commission: c.body.admin_commission ?? '', admin_additional_fee: c.body.admin_additional_fee ?? '', shop_url: `https://woo.test/store/${c.body.user_nicename}/`, payment: { bank: c.body.payment?.bank ?? {} } }) }; },
+  ...extra,
+});
+
+Deno.test('vendor_store: a maker without a store → one POST dokan/v1/stores (his portal login, the typed password, the shop URL, the row\'s store fields); the row is linked (woo_vendor_id, snapshot, nothing pending), his automatic brand tied; the password never kept nor logged; vendors.edit F, never the secret', async () => {
+  const posted: any[] = [];
+  const { db, woo, deps } = setup({ seed: NEW_SEED(), routes: storeRoutes(posted), env: WP_ENV });
+  assertEquals((await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW })).res.status, 401, 'never the sync secret');
+  assertEquals((await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-bank' })).res.status, 401, 'vendors.edit N');
+  for (const pw of ['short1', 'no digits here', 'with space 12', 'x'.repeat(64) + '1', 12345678]) assertEquals((await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: pw }, { jwt: 'jwt-vf' })).body.field, 'password', String(pw));
+  assertEquals((await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW, shop_url: 'Bad URL!' }, { jwt: 'jwt-vf' })).body.field, 'shop_url');
+  assertEquals((await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW, trusted: 'yes' }, { jwt: 'jwt-vf' })).body.field, 'toggles');
+  assertEquals(woo.calls.length, 0);
+  // vendors.edit F without sensitive.commission / vendor_bank: the store without the commission and the bank
+  const { res, body } = await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW, trusted: true }, { jwt: 'jwt-vf' });
+  assertEquals([res.status, body.result, body.store, body.adopted, body.commission, body.bank, body.shop_url], [200, 'ok', 901, false, false, false, 'https://woo.test/store/warsha-new/']);
+  const p = posted[0];
+  assertEquals([p.user_login, p.email, p.user_pass, p.user_nicename, p.store_name, p.phone, p.first_name, p.last_name, p.enabled, p.notify_vendor, p.trusted, p.featured],
+    ['warsha.new', 'new@maker.test', PW, 'warsha-new', 'ورشة جديدة', '01011112222', 'سلمى', 'علي', true, true, true, false]);
+  assertEquals([p.address.city, p.address.state, p.social.fb, 'admin_commission' in p, 'payment' in p], ['الجيزة', 'EG-21', 'https://fb.test/new', false, false]);
+  const linked = db.rows('vendors').find((v: any) => v.id === NEW_V);
+  assertEquals([linked.woo_vendor_id, linked.push_pending, linked.woo_snapshot.name, linked.woo_snapshot.phone, linked.woo_synced_at, linked.raw.id], [901, null, 'ورشة جديدة', '01011112222', NOW, 901]);
+  assertEquals(db.rows('brands').map((b: any) => [b.id, b.store_vendor_id]), [['b1', NEW_V], ['b2', null]], 'the automatic brand only');
+  assertEquals(db.rows('activity_log').map((a: any) => [a.action, a.entity_id, a.new_value]), [['vendor.store.create', NEW_V, '#901']]);
+  const logs = db.rows('woo_sync_log').filter((l: any) => l.action === 'vendor_store');
+  assertEquals(logs.at(-1).result, 'ok');
+  const kept = writtenText(db) + JSON.stringify(db.rows('activity_log')) + JSON.stringify(db.rows('vendors'));
+  assert(!kept.includes(PW), 'the password is never kept or logged');
+  // a second call: the maker has a store now — nothing sent
+  const again = await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' });
+  assertEquals([again.res.status, again.body.error, posted.length], [409, 'has_store', 1]);
+});
+
+Deno.test('vendor_store: the admin\'s store carries the commission and the bank (Dokan keys); notify off and the shop URL as asked; switch off → skipped, nothing sent; no login → 409', async () => {
+  const posted: any[] = [];
+  const { db, deps } = setup({ seed: NEW_SEED(), routes: storeRoutes(posted), env: WP_ENV });
+  const r = await call(deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW, notify: false, shop_url: 'my-shop', featured: true }, { jwt: 'jwt-admin' });
+  assertEquals([r.body.result, r.body.commission, r.body.bank], ['ok', true, true]);
+  const p = posted[0];
+  assertEquals([p.admin_commission_type, p.admin_commission, p.admin_additional_fee, p.payment.bank.ac_number, p.payment.bank.bank_name, p.notify_vendor, p.user_nicename, p.featured, p.trusted],
+    ['fixed', '25', '5', '1234567890', 'NBE', false, 'my-shop', true, false]);
+  const snap = db.rows('vendors').find((v: any) => v.id === NEW_V).woo_snapshot;
+  assertEquals([snap.rate.rate, snap.rate.flat, snap.bank.length], [25, 5, 64], 'the bank as its digest only');
+  assert(!JSON.stringify(db.rows('vendors')).includes('1234567890') && !writtenText(db).includes('1234567890'), 'no account number kept outside vendor_bank');
+  // the switch off: skipped, nothing sent, the maker as he was
+  const off = setup({ seed: NEW_SEED(), routes: storeRoutes([]), env: {} });
+  const r2 = await call(off.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-admin' });
+  assertEquals([r2.body.result, r2.body.reason, off.woo.calls.length, off.db.rows('vendors')[0].woo_vendor_id], ['skipped', 'push_disabled', 0, null]);
+  // no portal login (and no e-mail of his own) → 409, nothing sent
+  const nl = setup({ seed: { ...NEW_SEED(), vendor_logins: [], vendors: [{ ...NEW_ROW, email: null }] }, routes: storeRoutes([]), env: WP_ENV });
+  const r3 = await call(nl.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-admin' });
+  assertEquals([r3.res.status, r3.body.error, nl.woo.calls.length], [409, 'no_login', 0]);
+});
+
+Deno.test('vendor_store: the site\'s login / e-mail taken → the Dokan store with that e-mail is linked when no maker of ours has it (adopted, nothing written on the site), else 409; a taken shop URL → 409; a failure on the way → 502 and the maker stays without a store', async () => {
+  const taken = (code: string) => ({ status: 400, body: { code, message: 'Sorry, that username already exists!', data: null } });
+  // a former try that timed out: the store exists on Dokan with his e-mail, unknown here → linked
+  const a = setup({ seed: NEW_SEED(), env: WP_ENV, routes: { 'POST dokan/v1/stores': () => taken('existing_user_login'), 'GET dokan/v1/stores': (c: any) => ({ body: c.query.search === 'new@maker.test' ? [wooStoreFull(901, { email: 'NEW@maker.test' }), wooStoreFull(902, { email: 'other@maker.test' })] : [] }) } });
+  const r = await call(a.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' });
+  assertEquals([r.body.result, r.body.store, r.body.adopted, r.body.commission], ['ok', 901, true, false]);
+  assertEquals(a.woo.calls.filter((c: any) => c.method !== 'GET').map((c: any) => c.method + ' ' + c.path), ['POST dokan/v1/stores'], 'nothing else written on the site');
+  assertEquals([a.db.rows('vendors').find((v: any) => v.id === NEW_V).woo_vendor_id, a.db.rows('activity_log').map((x: any) => x.action)], [901, ['vendor.store.link']]);
+  // the store with that e-mail is already one of our makers → 409 with its name
+  const b = setup({ seed: { ...NEW_SEED(), vendors: [{ ...NEW_ROW }, { id: vendorId(950), woo_vendor_id: 901, name: 'مبتكر قديم' }] }, env: WP_ENV, routes: { 'POST dokan/v1/stores': () => taken('existing_user_email'), 'GET dokan/v1/stores': () => ({ body: [wooStoreFull(901, { email: 'new@maker.test' })] }) } });
+  const r2 = await call(b.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' });
+  assertEquals([r2.res.status, r2.body.error, r2.body.name, b.db.rows('vendors').find((v: any) => v.id === NEW_V).woo_vendor_id], [409, 'exists_store', 'مبتكر قديم', null]);
+  // no store with that e-mail (a customer's WordPress account) → 409 email_taken
+  const c = setup({ seed: NEW_SEED(), env: WP_ENV, routes: { 'POST dokan/v1/stores': () => taken('existing_user_email'), 'GET dokan/v1/stores': () => ({ body: [] }) } });
+  assertEquals((await call(c.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' })).body.error, 'email_taken');
+  // a shop URL another store has
+  const d = setup({ seed: NEW_SEED(), env: WP_ENV, routes: { 'POST dokan/v1/stores': () => ({ status: 400, body: { code: 'shop-url-error', message: 'Shop URL is not available' } }) } });
+  const r4 = await call(d.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' });
+  assertEquals([r4.res.status, r4.body.error], [409, 'shop_url_taken']);
+  // a 500 on the way: maybe made — 502, the maker stays without a store (a retry links it); an answer that echoes the request
+  // (a proxy's error page) never puts the password in the log
+  const e = setup({ seed: NEW_SEED(), env: WP_ENV, routes: { 'POST dokan/v1/stores': () => ({ status: 500, text: `<html><body>Bad gateway — the request was: warsha.new ${PW}</body></html>` }) } });
+  const r5 = await call(e.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' });
+  assertEquals([r5.res.status, r5.body.error, e.db.rows('vendors')[0].woo_vendor_id], [502, 'woo_error', null]);
+  for (const w of [a, b, c, d, e]) assert(!writtenText(w.db).includes(PW), 'never the password in a log');
+});
+
 Deno.test('product_images_add: the member\'s own ai-images paths onto a product — each to wp/v2/media, one PUT with the current images + the new ones (first → ahead); products.edit = F, never the secret; another member\'s folder → 401; a missing object → 404 before any upload; push disabled → skipped; the log counts only', async () => {
   const UID = '00000000-0000-4000-8000-0000000000e1', OTHER = '00000000-0000-4000-8000-0000000000e2';
   const PNG = new Uint8Array([137, 80, 78, 71, 1, 2, 3]);

@@ -445,6 +445,57 @@ test('create: one insert of the granted columns with .select(\'id\'), the first 
   assert.deepEqual(opsOf(vf.calls, 'vendor_rates').filter((c) => c.op === 'insert'), []); // no sensitive.commission: the rate is not sent
 });
 
+test('the owner, 11 Nov: create with the whole commission — a type, a flat fee or categories go through vendor_commission_set (awaited, no vendor_rates insert); a plain fixed rate keeps the insert; a bad flat fee throws before any write', async () => {
+  const { V, S, calls, responses } = load();
+  await V.load(); calls.length = 0;
+  const NEW = 'a0000000-0000-4000-8000-000000000009';
+  responses.vendors = (ops) => (ops.some((c) => c.op === 'insert') ? ok({ id: NEW }) : ok(VENDORS.concat([row({ id: NEW, name: 'zaan', phone: '01000000009' })])));
+  responses['rpc:vendor_commission_set'] = ok(null);
+  const input = { ...BASE, commission: { type: 'category_based', flat: '٥', categories: [{ id: 22, rate: '30', flat: '2' }, { id: 15, rate: '', flat: '' }, { id: 'x', rate: '10' }] } };
+  await S.create(input, S.actor());
+  assert.deepEqual(plain(rpcCalls(calls, 'vendor_commission_set')), [{ p_vendor: NEW, p_type: 'category_based', p_rate: 40, p_flat: 5, p_categories: [{ id: 22, rate: 30, flat: 2 }] }]);
+  assert.deepEqual(opsOf(calls, 'vendor_rates').filter((c) => c.op === 'insert'), []);
+  calls.length = 0;
+  await S.create({ ...BASE, commission: { type: 'fixed', flat: '', categories: [] } }, S.actor());
+  assert.deepEqual([rpcCalls(calls, 'vendor_commission_set').length, opsOf(calls, 'vendor_rates').filter((c) => c.op === 'insert').length], [0, 1], 'a plain rate: the insert as before');
+  calls.length = 0;
+  await assert.rejects(() => S.create({ ...BASE, commission: { type: 'fixed', flat: '-3' } }, S.actor()), /flat out of range/);
+  assert.deepEqual(writesOf(calls, 'vendors'), [], 'nothing written for a bad flat fee');
+});
+
+test('the owner, 11 Nov: createStore — woo-sync vendor_store with the vendor, the password, the shop URL and the toggles; the admin or vendors.edit F; a maker with a store or a refusal → the reason in Arabic; the password is in the call only', async () => {
+  const PW = 'Store1234pw'; const target = 'a0000000-0000-4000-8000-000000000004'; // a maker of ours without a store
+  const { V, S, calls, responses, logs } = load();
+  responses.vendors = ok(VENDORS.concat([row({ id: target, name: 'Clay Home', phone: '01000000019' })]));
+  await V.load(); calls.length = 0;
+  // a maker with a store: refused before any request
+  const withStore = VENDORS.find((v) => v.woo_vendor_id != null);
+  assert.deepEqual(plain(await S.createStore(withStore.id, { password: PW })), { ok: false, reason: 'has_store', message: V.store.STORE_MSG.has_store });
+  assert.deepEqual(invokes(calls), []);
+  {
+    responses['fn:woo-sync'] = (opts) => ({ data: { action: 'vendor_store', result: 'ok', store: 777, adopted: false, commission: true, bank: false, photo: 'none', shop_url: 'https://woo.test/store/x/' }, error: null });
+    const r = await S.createStore(target, { password: PW, shopUrl: ' My-Shop ', notify: false, trusted: true, featured: 'yes' });
+    assert.deepEqual(plain(r), { ok: true, store: 777, adopted: false, commission: true, bank: false, photo: 'none', shopUrl: 'https://woo.test/store/x/' });
+    assert.deepEqual(plain(invokes(calls)[0]), ['woo-sync', { body: { action: 'vendor_store', vendor_id: target, password: PW, shop_url: 'my-shop', notify: false, trusted: true } }], 'featured not boolean → not sent');
+    assert(!JSON.stringify(logs).includes(PW), 'never logged here');
+    // the refusals, in Arabic
+    for (const [status, body, reason, re] of [[409, { error: 'login_taken' }, 'login_taken', /اسم المستخدم ده عليه حساب/], [409, { error: 'exists_store', name: 'مبتكر قديم' }, 'exists_store', /مبتكر قديم/], [409, { error: 'refused', code: 'x_y' }, 'refused', /x_y/], [502, { error: 'woo_error' }, 'woo_down', /الموقع ماردش/], [400, { error: 'bad_request', field: 'password' }, 'invalid', /8 حروف/]]) {
+      responses['fn:woo-sync'] = () => ({ data: null, error: { context: { status, json: async () => body } } });
+      const e = await S.createStore(target, { password: PW });
+      assert.equal(e.ok, false); assert.equal(e.reason, reason); assert.match(e.message, re);
+    }
+    responses['fn:woo-sync'] = () => ({ data: { action: 'vendor_store', result: 'skipped', reason: 'push_disabled' }, error: null });
+    assert.match((await S.createStore(target, { password: PW })).message, /الكتابة على الموقع مقفولة/);
+  }
+  // vendors.edit P: refused before any request
+  const ops = load({ admin: false }); ops.responses.vendors = ok(VENDORS.concat([row({ id: target, name: 'Clay Home', phone: '01000000019' })])); await ops.V.load(); ops.calls.length = 0;
+  assert.equal((await ops.S.createStore(target, { password: PW })).reason, 'forbidden');
+  assert.deepEqual(invokes(ops.calls), []);
+  assert.equal(ops.S.canStore(), false);
+  const vf = load({ admin: false, perms: { ...OPS, 'vendors.edit': 'F' } });
+  assert.equal(vf.S.canStore(), true);
+});
+
 test('loadEvents / events: that vendor\'s activity_log (entity vendor, newest 50) kept oldest first, with the actor\'s text', async () => {
   const rows = [{ id: 2, at: '2026-10-21T10:00:00+00:00', action: 'vendor.reveal', new_value: 'IBAN', actor: { name: 'منى حسن' } }, { id: 1, at: '2026-10-20T10:00:00+00:00', action: 'vendor.update', new_value: 'phone', actor: { name: 'سارة أحمد' } }];
   const { V, S, calls } = load({ responses: { ...seed(), activity_log: ok(rows) } });

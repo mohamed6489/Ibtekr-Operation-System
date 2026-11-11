@@ -3225,6 +3225,44 @@
       m === 'cash' ? U.InlineNote({ children: 'التحويل نقدي عند التسليم — مفيش بيانات بنكية مطلوبة.' }) : null].filter(Boolean);
   }
 
+  // plan 3.4 (decision 6) — shared by «الاتفاق التجاري» and «إضافة مبتكر» (the owner, 11 Nov): the category tree of the commission on
+  // f.rate / f.flat / f.cat ({ id: { rate, flat } } as typed), the open branches in `openCats`. → { editor, refresh }
+  function catTreeKit(f, openCats) {
+    const ctree = VD.categoryTree(vstore.categories ? vstore.categories() : []); let catWrap = null;
+    const arN = (x) => String(x == null ? '' : x).trim().replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660));
+    const handSet = () => Object.fromEntries(Object.entries(f.cat).filter(([, c]) => arN(c.rate) !== '').map(([k, c]) => [k, { rate: arN(c.rate), flat: arN(c.flat) }]));
+    function refreshCats() {
+      if (!catWrap) return;
+      const fig = VD.categoryFigures(ctree, handSet(), { rate: arN(f.rate) === '' ? null : Number(arN(f.rate)), flat: arN(f.flat) === '' ? null : Number(arN(f.flat)) });
+      catWrap.querySelectorAll('[data-cat]').forEach((row) => { const g2 = fig[row.getAttribute('data-cat')]; if (!g2) return; const [ri, fi] = row.querySelectorAll('input');
+        ri.placeholder = g2.rate == null ? '' : String(g2.rate); fi.placeholder = g2.flat == null ? '' : String(g2.flat); row.classList.toggle('is-own', !g2.inherited); });
+    }
+    function setCat(cid, key, val) { const c = Object.assign({ rate: '', flat: '' }, f.cat[cid], { [key]: val }); if (arN(c.rate) === '' && arN(c.flat) === '') delete f.cat[cid]; else f.cat[cid] = c; refreshCats(); }
+    function catRows(nodes, depth) {
+      const out = [];
+      for (const n of nodes) {
+        const own = f.cat[n.id] || {}; const open = openCats.has(n.id);
+        const ri = h('input', { id: 'cr-' + n.id, inputmode: 'decimal', dir: 'ltr', value: own.rate || '', 'aria-label': 'نسبة ' + n.name });
+        const fi = h('input', { id: 'cf-' + n.id, inputmode: 'decimal', dir: 'ltr', value: own.flat || '', 'aria-label': 'رسوم ثابتة ' + n.name });
+        ri.addEventListener('input', () => setCat(n.id, 'rate', ri.value)); fi.addEventListener('input', () => setCat(n.id, 'flat', fi.value));
+        const tog = n.children.length ? h('button', { type: 'button', class: 'cat-toggle', 'aria-expanded': open ? 'true' : 'false', 'aria-label': (open ? 'اقفل' : 'افتح') + ' فئات ' + n.name, 'data-cat-toggle': n.id,
+          onClick: () => { if (open) openCats.delete(n.id); else openCats.add(n.id); drawCats(); const t = catWrap.querySelector('[data-cat-toggle="' + n.id + '"]'); if (t) t.focus(); } }, open ? '−' : '+') : h('span', { class: 'cat-toggle-sp' });
+        out.push(h('div', { class: 'cat-row', 'data-cat': n.id, style: '--d:' + depth }, tog, h('span', { class: 'cat-name' }, n.name),
+          h('div', { class: 'input cat-in' }, h('span', { class: 'help' }, '%'), ri), h('div', { class: 'input cat-in' }, h('span', { class: 'help' }, 'ج.م'), fi)));
+        if (open) out.push(...catRows(n.children, depth + 1));
+      }
+      return out;
+    }
+    function drawCats() { catWrap.replaceChildren(...catRows(ctree, 0)); refreshCats(); }
+    function catEditor() {
+      catWrap = h('div', { class: 'cat-tree', 'data-cat-tree': '' });
+      if (!ctree.length) { catWrap.append(h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'فئات الموقع لسه ماتزامنتش — بتتجاب كل ربع ساعة.')); return catWrap; }
+      drawCats();
+      return h('div', null, h('div', { class: 'cat-head t-small' }, h('span', null, 'الفئة'), h('span', null, 'النسبة'), h('span', null, 'رسوم ثابتة')), catWrap,
+        U.InlineNote({ children: 'الرقم اللي تكتبه في فئة بيتحط لكل الفئات اللي تحتها، إلا اللي ليها رقم خاص. الخانة الفاضية بتاخد رقم اللي فوقها (الرقم الرمادي).' }));
+    }
+    return { editor: catEditor, refresh: refreshCats };
+  }
   // ----- add vendor modal (Figma: Modal / Add vendor; the owner's prototype of 26 Oct — phase 3.1 decision 9) -----
   // Three sections for a new maker: the basics, «بيانات الدخول» (username, e-mail and the temporary password — required; the invite
   // link was withdrawn by the owner on 26 Oct) and «الحساب البنكي» (when the caller sees bank rows; required when it shows — no IBMakerDefaults).
@@ -3232,10 +3270,40 @@
   // (decision 2: every Dokan store is already here) and the file is one click away.
   function openAddVendor(existing, pre) { // pre (phase 13 decision 36): the AI assistant's values for a new maker — the member reviews and saves
     const f = existing ? { name: existing.name, legalName: existing.legalName || '', categories: (existing.categories || []).slice(), phone: existing.phone, altPhone: existing.altPhone || '', email: existing.email || '', address: existing.address || '', instagram: existing.instagram || '', storeUrl: existing.storeUrl || '', rate: String(existing.rate), leadDays: String(existing.leadDays), status: existing.status, aliases: existing.aliases.join('، '), depositPolicy: existing.depositPolicy || '', notes: existing.notes || '' }
-      : { name: '', legalName: '', categories: [], phone: '', altPhone: '', email: '', address: '', instagram: '', storeUrl: '', rate: '40', leadDays: '7', status: 'active', aliases: '', depositPolicy: '', notes: '', username: '', pwMode: 'temp', password: '', method: '', bankName: '', holder: '', iban: '', wallet: '', accountNumber: '', accountType: '', bankAddress: '', routingNumber: '', swift: '' };
+      : { name: '', legalName: '', categories: [], phone: '', altPhone: '', email: '', address: '', instagram: '', storeUrl: '', rate: '40', leadDays: '7', status: 'active', aliases: '', depositPolicy: '', notes: '', username: '', pwMode: 'temp', password: '', method: '', bankName: '', holder: '', iban: '', wallet: '', accountNumber: '', accountType: '', bankAddress: '', routingNumber: '', swift: '',
+        // the owner, 11 Nov: the commission as on Dokan («Commission» tab) and the store on the site («General» tab)
+        ctype: 'fixed', flat: '', cat: {}, mkStore: !!(vstore.canStore && vstore.canStore()), shopUrl: '', shopTouched: false, first: '', last: '', trusted: false, featured: false, notify: true, showSocial: false,
+        addressParts: { street_1: '', street_2: '', city: '', state: '', zip: '', country: 'EG' }, social: Object.fromEntries(VD.SOCIAL_KEYS.map(([k]) => [k, ''])) };
     if (!existing && pre && typeof pre === 'object') ['name', 'legalName', 'phone', 'altPhone', 'email', 'address', 'instagram', 'storeUrl', 'notes'].forEach((k) => { if (pre[k] != null && String(pre[k]).trim()) f[k] = String(pre[k]).trim().slice(0, 300); });
     if (!existing && pre && pre.category && vstore.mainCategoryIds) f.categories = vstore.mainCategoryIds(pre.category); // the assistant's words → the main categories that match by name
     const canBank = vstore.canBank(); const bankReq = false; // phase 13 decision 51 (owner 10 Nov — «خلي الحساب البنكي إختياري»): validated only when a method is chosen
+    const canStoreMk = !existing && !!(vstore.canStore && vstore.canStore()); // the owner, 11 Nov: the store on the site with the maker
+    const ctk = existing ? null : catTreeKit(f, new Set());
+    const shopOf = (u) => String(u || '').toLowerCase().replace(/[._]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
+    const storeSection = () => {
+      const KK = window.IBKit; const sub = (fid, label, obj, key, o = {}) => U.TextInput(Object.assign({ id: fid, label, value: f[obj][key] || '', error: errs[obj] && errs[obj][key], onInput: (x) => { f[obj][key] = x; } }, o));
+      const shop = f.shopUrl || shopOf(f.username);
+      return [fsec('المتجر على الموقع (Dokan)', 'زي «Add New Vendor» في Dokan — حسابه على الموقع بنفس اسم المستخدم والإيميل والباسورد المؤقت اللي فوق'),
+        KK.Switch({ id: 'v-mkstore', label: 'اعمل له متجر على الموقع', help: f.mkStore ? 'المتجر بيتعمل على الموقع أول ما تضغط «إضافة المبتكر»' : 'هيتسجل هنا بس — تقدر تعمل متجره بعدين من ملفه', checked: f.mkStore, onChange: (x) => { f.mkStore = x; draw(); } }),
+        f.mkStore ? [
+          U.TextInput({ id: 'v-shop', label: 'رابط المتجر', dir: 'ltr', value: shop, error: errs.shopUrl, help: 'ibtekr.club/store/' + (shop || '…') + ' — حروف إنجليزي صغيرة وأرقام و -', onInput: (x) => { f.shopUrl = x.trim().toLowerCase(); f.shopTouched = true; } }),
+          two(txt('v-first', 'الاسم الأول', 'first', { maxlength: 60 }), txt('v-last', 'الاسم الأخير', 'last', { maxlength: 60 })),
+          h('div', { class: 't-label', style: 'color:var(--color-text-secondary)' }, 'العنوان'),
+          two(sub('v-street1', VD.label(VD.ADDRESS_LABELS, 'street_1'), 'addressParts', 'street_1', { maxlength: 120 }), sub('v-street2', VD.label(VD.ADDRESS_LABELS, 'street_2'), 'addressParts', 'street_2', { maxlength: 120 })),
+          two(sub('v-city', VD.label(VD.ADDRESS_LABELS, 'city'), 'addressParts', 'city', { maxlength: 80 }), sub('v-state', VD.label(VD.ADDRESS_LABELS, 'state'), 'addressParts', 'state', { maxlength: 80 })),
+          two(sub('v-zip', VD.label(VD.ADDRESS_LABELS, 'zip'), 'addressParts', 'zip', { maxlength: 20, dir: 'ltr' }), sub('v-country', VD.label(VD.ADDRESS_LABELS, 'country'), 'addressParts', 'country', { maxlength: 2, dir: 'ltr', placeholder: 'EG' })),
+          f.showSocial ? [h('div', { class: 't-label', style: 'color:var(--color-text-secondary)' }, 'سوشيال (روابط تبدأ بـ https://)'),
+            ...VD.SOCIAL_KEYS.reduce((rows, [k, label], i, all) => (i % 2 ? rows : rows.concat([two(sub('v-s-' + k, label, 'social', k, { dir: 'ltr', inputmode: 'url', placeholder: 'https://…' }), all[i + 1] ? sub('v-s-' + all[i + 1][0], all[i + 1][1], 'social', all[i + 1][0], { dir: 'ltr', inputmode: 'url', placeholder: 'https://…' }) : h('span'))])), [])]
+            : Button({ type: 'text', size: 'sm', icon: 'plus', label: 'السوشيال (اختياري)', attrs: { 'data-v-social': '' }, onClick: () => { f.showSocial = true; draw(); } }),
+          KK.Switch({ id: 'v-enabled', label: 'تفعيل البيع', help: 'بيتبع «الحالة» — غير نشط = البيع مقفول', checked: f.status !== 'inactive', onChange: (x) => { f.status = x ? 'active' : 'inactive'; draw(); } }),
+          KK.Switch({ id: 'v-trusted', label: 'نشر المنتجات مباشرة', help: 'من غير مراجعة — مقفول = المنتجات بتستنى الموافقة', checked: f.trusted, onChange: (x) => { f.trusted = x; draw(); } }),
+          KK.Switch({ id: 'v-featured', label: 'مبتكر مميز', checked: f.featured, onChange: (x) => { f.featured = x; draw(); } }),
+          KK.Switch({ id: 'v-notify', label: 'ابعت إيميل للمبتكر بحسابه', help: 'إيميل الموقع نفسه (Dokan) ببيانات حسابه', checked: f.notify, onChange: (x) => { f.notify = x; draw(); } })] : null].flat().filter(Boolean);
+    };
+    // the commission as on Dokan's «Commission» tab: the type, the rate, the flat fee and — by category — the tree (plan 3.4)
+    const commissionFields = () => (existing || !vstore.canRate() ? [] : [two(U.Select({ id: 'v-ctype', label: 'نوع العمولة', options: [{ value: 'fixed', label: 'نسبة ثابتة (Fixed)' }, { value: 'category_based', label: 'حسب الفئة (Category based)' }], value: f.ctype, onChange: (x) => { f.ctype = x; draw(); } }),
+        txt('v-flat', 'رسوم ثابتة على كل أوردر (ج.م)', 'flat', { inputmode: 'decimal', error: errs.flat, help: 'اختياري — زي ما هي على الموقع', onInput: (x) => { f.flat = x; if (ctk) ctk.refresh(); } })),
+      f.ctype === 'category_based' && ctk ? ctk.editor() : null].filter(Boolean));
     // the photo (decision 51 — «System + Dokan store») and the contract (canBank, like the drawer's) picked here; uploaded after the save
     const canPhoto = !!(vstore.setPhoto && vstore.canPhoto && vstore.canPhoto()); let photo = null; let photoPrev = null; let contract = null; let cExp = '';
     const photoBox = () => {
@@ -3274,10 +3342,12 @@
       const fields = [
         h('div', { class: 'row cols2' }, h('div', { style: 'flex:1;display:flex;flex-direction:column;gap:16px;min-width:0' }, txt('v-name', 'اسم المبتكر (المعروض)', 'name', { required: true, maxlength: 80, onInput: (v) => { f.name = v; if (!existing && !f.userTouched) { f.username = VD.suggestUsername(v, (u) => vstore.usernameTaken(u)); const el = document.getElementById('v-login-user'); if (el) el.value = f.username; } } }), catPick('v-cat', f, errs)),
           photoBox()), // phase 3.3 (decision 1): the logo was the site's gravatar only; phase 13 decision 51: a photo uploaded here becomes it
-        two(txt('v-phone', 'الهاتف (واتساب)', 'phone', { required: true, inputmode: 'tel', placeholder: '01xxxxxxxxx' }), existing ? txt('v-alt', 'هاتف بديل', 'altPhone', { inputmode: 'tel' }) : txt('v-rate', 'نسبة إبتكر', 'rate', { required: true, inputmode: 'decimal', suffix: '%', help: 'تنطبق على الأوردرات الجديدة من تاريخ الإضافة' })),
+        two(txt('v-phone', 'الهاتف (واتساب)', 'phone', { required: true, inputmode: 'tel', placeholder: '01xxxxxxxxx' }), existing ? txt('v-alt', 'هاتف بديل', 'altPhone', { inputmode: 'tel' }) : txt('v-rate', f.ctype === 'category_based' ? 'نسبة الفئات اللي مالهاش رقم' : 'نسبة إبتكر', 'rate', { required: true, inputmode: 'decimal', suffix: '%', help: 'تنطبق على الأوردرات الجديدة من تاريخ الإضافة', onInput: (x) => { f.rate = x; if (ctk) ctk.refresh(); } })),
+        ...commissionFields(),
         two(txt('v-lead', 'مدة التجهيز (أيام)', 'leadDays', { required: true, inputmode: 'numeric', help: 'بتغذي قاعدة التأخير بدل الرقم الثابت' }), U.Select({ id: 'v-status', label: 'الحالة', required: true, options: statusOpts, value: f.status, error: errs.status, onChange: (v) => { f.status = v; draw(); } })),
         txt('v-aliases', 'أسماء بديلة', 'aliases', { placeholder: 'W&R، WOOD & ROPE', help: 'لتوحيد الأسماء من الأوردرات والشيت — افصل بفاصلة' }),
         existing ? null : [fsec('بيانات الدخول', 'المبتكر بيدخل بيها على بوابته يتابع أوردراته وحسابه'), ...loginFields(f, errs, draw, 'v-login')],
+        canStoreMk ? storeSection() : null,
         existing ? null : [fsec('الحساب البنكي', 'اختياري — عشان نحوّل له مستحقاته'), ...(canBank ? bankFields(f, errs, draw, 'v-bank', true) : [U.InlineNote({ children: 'البيانات البنكية بيكمّلها قسم الحسابات بس — هتظهر «ناقص» في ملف المبتكر لحد ما تتكمّل.' })])],
         existing || !canBank ? null : contractBox(),
         existing ? two(txt('v-legal', 'الاسم التجاري / القانوني', 'legalName'), txt('v-email', 'الإيميل', 'email', { inputmode: 'email' })) : null,
@@ -3293,20 +3363,39 @@
         Object.assign(errs, VD.validateLogin(f));
         if (!errs.username && vstore.usernameTaken(f.username)) errs.username = 'اسم المستخدم ده مستخدم قبل كده — جرّب ' + VD.suggestUsername(f.username, (u) => vstore.usernameTaken(u));
         if (canBank && (bankReq || f.method)) Object.assign(errs, VD.validateBank(f));
+        // the owner, 11 Nov: the commission's flat fee and figures, and the shop URL of the store on the site
+        const arN = (x) => String(x == null ? '' : x).trim().replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660));
+        if (vstore.canRate() && arN(f.flat) !== '' && !(Number(arN(f.flat)) >= 0)) errs.flat = 'الرسوم الثابتة رقم من 0 أو أكتر';
+        if (vstore.canRate() && f.ctype === 'category_based' && Object.values(f.cat).some((c) => (arN(c.rate) !== '' && !(Number(arN(c.rate)) >= 0 && Number(arN(c.rate)) <= 65)) || (arN(c.flat) !== '' && !(Number(arN(c.flat)) >= 0)))) errs._cats = 'نسبة أي فئة لازم من 0% لـ 65%، والرسوم من 0 أو أكتر';
+        if (canStoreMk && f.mkStore) { const shop = f.shopUrl || shopOf(f.username); if (!/^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/.test(shop)) errs.shopUrl = 'حروف إنجليزي صغيرة وأرقام و - بس (من غير - في الأول والآخر)'; }
         if (!errs.name) { dup = vstore.findByName(f.name) || VD.parseAliases(f.aliases).map((a) => vstore.findByName(a)).find(Boolean) || null; if (dup) errs.name = 'المبتكر ده موجود (' + dup.name + ') — افتح ملفه'; }
       }
-      if (Object.keys(errs).length) { errs._form = dup ? 'المبتكر ده موجود — افتح ملفه' : 'راجع الحقول المعلّمة بالأحمر'; draw(); const bad = modal.el.querySelector('[aria-invalid=true]'); if (bad) bad.focus(); return; }
+      if (Object.keys(errs).length) { errs._form = dup ? 'المبتكر ده موجود — افتح ملفه' : errs._cats || 'راجع الحقول المعلّمة بالأحمر'; draw(); const bad = modal.el.querySelector('[aria-invalid=true]'); if (bad) bad.focus(); return; }
       if (existing) { try { vstore.update(existing.id, f, vstore.actor()); log.append({ action: 'vendor.update', actor: ME.name, newValue: existing.id }); modal.close(); vnotify('success', 'اتحفظت بيانات ' + f.name + '.'); if (vdrawer) openVendor(existing.id); afterSave(existing.id).then((did) => { if (did && vredraw) vredraw(); }); } catch (e) { errs._form = e.message; draw(); } return; }
       // decision 10: the store's create runs the sequence (vendor → rate → login → password → bank); a step refused after the vendor's
       // insert leaves the vendor and is named here — the password travels inside `login` only and is dropped once the call is done
       const input = { name: f.name, legalName: f.legalName, categories: f.categories, phone: f.phone, altPhone: f.altPhone, email: f.email, address: f.address, instagram: f.instagram, storeUrl: f.storeUrl, rate: f.rate, leadDays: f.leadDays, status: f.status, aliases: f.aliases, depositPolicy: f.depositPolicy, notes: f.notes,
-        login: { username: f.username, password: f.password }, bank: canBank && f.method ? { method: f.method, bankName: f.bankName, holder: f.holder, iban: f.iban, wallet: f.wallet, accountNumber: f.accountNumber, accountType: f.accountType, bankAddress: f.bankAddress, routingNumber: f.routingNumber, swift: f.swift } : null };
+        login: { username: f.username, password: f.password }, bank: canBank && f.method ? { method: f.method, bankName: f.bankName, holder: f.holder, iban: f.iban, wallet: f.wallet, accountNumber: f.accountNumber, accountType: f.accountType, bankAddress: f.bankAddress, routingNumber: f.routingNumber, swift: f.swift } : null,
+        // the owner, 11 Nov: the commission as on Dokan, and the store's fields (sent to the site with the store)
+        commission: vstore.canRate() ? { type: f.ctype, flat: f.flat, categories: f.ctype === 'category_based' ? Object.entries(f.cat).map(([id, c]) => ({ id: Number(id), rate: c.rate, flat: c.flat })) : [] } : null,
+        ...(canStoreMk && f.mkStore ? { contactName: [f.first, f.last].map((x) => String(x || '').trim()).filter(Boolean).join(' '),
+          ...(Object.entries(f.addressParts).some(([k, x]) => k !== 'country' && String(x || '').trim()) ? { addressParts: Object.assign({}, f.addressParts) } : {}), // typed only (the country alone is the default)
+          ...(Object.values(f.social).some((x) => String(x || '').trim()) ? { social: Object.assign({}, f.social) } : {}) } : {}) };
+      const storeOpts = canStoreMk && f.mkStore ? { password: f.password, shopUrl: f.shopUrl || shopOf(f.username), notify: f.notify, trusted: f.trusted, featured: f.featured } : null;
       const STEP = { categories: 'الفئة الأساسية', rate: 'النسبة', login: 'بيانات الدخول', password: 'الباسورد المؤقت', bank: 'الحساب البنكي' };
-      Promise.resolve().then(() => vstore.create(input, vstore.actor())).then((res) => {
+      Promise.resolve().then(() => vstore.create(input, vstore.actor())).then(async (res) => {
         const v = res.vendor; const miss = (res.missing || []).map((k) => STEP[k] + (res.reasons && VMSG[res.reasons[k]] ? ' (' + VMSG[res.reasons[k]] + ')' : ''));
         input.login.password = ''; f.password = '';
         log.append({ action: 'vendor.create', actor: ME.name, newValue: v.id }); modal.close(); state.vfilter.q = '';
-        vnotify(miss.length ? 'warning' : 'success', 'اتضاف المبتكر ' + v.name + (miss.length ? ' — ناقص: ' + miss.join('، ') + '. كمّله من ملفه.' : ' · الباسورد المؤقت جاهز تبعته له.'));
+        // the owner, 11 Nov: the store on the site right after the maker (its login saved first); the password travels in this call only
+        let storeNote = '';
+        if (storeOpts && !(res.missing || []).some((k) => k === 'login' || k === 'password')) {
+          const sr = await vstore.createStore(v.id, storeOpts).catch(() => ({ ok: false, message: 'الموقع ماردش.' }));
+          storeOpts.password = '';
+          storeNote = sr.ok ? (sr.adopted ? ' · اتربط بمتجره اللي على الموقع (#' + sr.store + ') — باسورد حسابه على الموقع زي ما كان.' : ' · واتعمل متجره على الموقع (#' + sr.store + ')' + (sr.commission ? ' بالعمولة' : '') + '.') : ' · المتجر على الموقع ماتعملش: ' + (sr.message || VMSG[sr.reason] || 'جرّب تاني') + ' — تقدر تعمله بعدين من ملفه.';
+          if (!sr.ok) miss.push('المتجر على الموقع');
+        } else if (storeOpts) { storeOpts.password = ''; storeNote = ' · المتجر على الموقع مستني بيانات الدخول — اعمله من ملفه بعد ما تكمّلها.'; }
+        vnotify(miss.length ? 'warning' : 'success', 'اتضاف المبتكر ' + v.name + (miss.filter((x) => x !== 'المتجر على الموقع').length ? ' — ناقص: ' + miss.filter((x) => x !== 'المتجر على الموقع').join('، ') + '. كمّله من ملفه.' : ' · الباسورد المؤقت جاهز تبعته له.') + storeNote);
         openVendor(v.id);
         afterSave(v.id).then((did) => { if (did && vredraw) vredraw(); });
       }, (e) => { errs._form = e.message; draw(); });
@@ -3343,6 +3432,36 @@
           onOk: () => act(() => vstore.remove(id, vstore.actor()), 'اتحذف المبتكر من السيستم.') }); } }));
       trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
     }
+    // the owner, 11 Nov: a maker without a store gets one on the site from his file — Dokan's «Add New Vendor» with his portal login (woo-sync
+    // vendor_store); the store's fields, the commission and the bank come from the file on the server. The password is typed (or the
+    // portal's temporary one, revealed — that reveal is logged) and sent once; it is cleared here after the call.
+    function storePopup(v) {
+      const L0 = v.login && v.login.username ? v.login : null; const KK = window.IBKit;
+      const f = { password: '', shopUrl: String(L0 ? L0.username : '').toLowerCase().replace(/[._]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '').slice(0, 50), notify: true, trusted: false, featured: false, show: false };
+      let m = null; let errs = {}; let busy = false;
+      const redraw = () => m.setBody(...body());
+      const body = () => (!L0 ? [U.InlineNote({ kind: 'warning', children: 'لازم «بيانات الدخول» الأول (اسم مستخدم وإيميل) — حسابه على الموقع بيتعمل بيها.' })] : [
+        U.InfoRow({ label: 'اسم المستخدم', value: L0.username }), U.InfoRow({ label: 'الإيميل', value: L0.email || v.email || '—' }),
+        U.TextInput({ id: 'st-pw', label: 'باسورد حساب الموقع', required: true, type: f.show ? 'text' : 'password', dir: 'ltr', autocomplete: 'new-password', value: f.password, error: errs.password, help: 'نفس الباسورد المؤقت بتاع البوابة لو لسه ماغيّرهوش', onInput: (x) => { f.password = x; } }),
+        h('div', { class: 'acts-inline' }, Button({ size: 'sm', icon: 'sparkle', label: 'اقترح باسورد قوي', attrs: { 'data-st-gen': '' }, onClick: () => { f.password = VD.genPassword(); f.show = true; redraw(); } }),
+          L0.hasPassword && vstore.canLogin() ? Button({ size: 'sm', label: 'استخدم الباسورد المؤقت', attrs: { 'data-st-temp': '' }, onClick: async () => { const pw = await vstore.revealPassword(v.id, vstore.actor()).catch(() => null); if (pw) { f.password = pw; f.show = false; redraw(); } else vnotify('error', 'مفيش باسورد مؤقت متسجل — اكتب باسورد جديد.'); } }) : null),
+        U.TextInput({ id: 'st-shop', label: 'رابط المتجر', dir: 'ltr', value: f.shopUrl, error: errs.shopUrl, help: 'ibtekr.club/store/… — حروف إنجليزي صغيرة وأرقام و -', onInput: (x) => { f.shopUrl = x.trim().toLowerCase(); } }),
+        KK.Switch({ id: 'st-trusted', label: 'نشر المنتجات مباشرة', checked: f.trusted, onChange: (x) => { f.trusted = x; redraw(); } }),
+        KK.Switch({ id: 'st-featured', label: 'مبتكر مميز', checked: f.featured, onChange: (x) => { f.featured = x; redraw(); } }),
+        KK.Switch({ id: 'st-notify', label: 'ابعت إيميل للمبتكر بحسابه', checked: f.notify, onChange: (x) => { f.notify = x; redraw(); } }),
+        U.InlineNote({ children: 'اسم المتجر والتليفون واسم صاحب المتجر والعنوان والسوشيال والحالة بيتبعتوا من ملفه، والعمولة والحساب البنكي لو ليك صلاحيتهم.' }),
+        errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : null]).filter(Boolean);
+      async function save() {
+        if (busy) return; errs = {};
+        const iss = VD.passwordIssues(f.password); if (iss.length) errs.password = 'الباسورد لازم: ' + iss.join('، ');
+        if (!/^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/.test(f.shopUrl)) errs.shopUrl = 'حروف إنجليزي صغيرة وأرقام و - بس';
+        if (Object.keys(errs).length) { redraw(); return; }
+        busy = true; const r = await vstore.createStore(v.id, { password: f.password, shopUrl: f.shopUrl, notify: f.notify, trusted: f.trusted, featured: f.featured }).catch(() => ({ ok: false })); busy = false; f.password = '';
+        if (!r.ok) { errs._form = r.message || VMSG[r.reason] || 'ماتعملش — جرّب تاني.'; redraw(); return; }
+        m.close(); vnotify('success', r.adopted ? 'اتربط ' + v.name + ' بمتجره اللي على الموقع (#' + r.store + ') — باسورد حسابه على الموقع زي ما كان.' : 'اتعمل متجر ' + v.name + ' على الموقع (#' + r.store + ')' + (r.commission ? ' بالعمولة' : '') + '.'); draw();
+      }
+      m = U.Modal({ title: 'متجر على الموقع — ' + v.name, body: body(), footer: L0 ? [Button({ type: 'primary', label: 'اعمل المتجر', attrs: { 'data-st-save': '' }, onClick: save }), Button({ label: 'إلغاء', onClick: () => m.close() })] : [Button({ label: 'إغلاق', onClick: () => m.close() })] });
+    }
     // Per-section edit (owner, 21 Oct): every data group has its own «تعديل» that opens a popup with that group's fields only (Figma: Modal / Vendor edit — Identity | Contact | Terms).
     // Phase 3.3 (decision 6 a / b): the contact popup carries the store owner's name, the six address parts and the eight social links
     // (instagram is social.instagram) — the synced fields go to the site right after the save; the terms popup takes the flat fee next to
@@ -3360,39 +3479,7 @@
       // plan 3.4 (decision 6): the category tree — the site's top-level categories, «+» opens a category's children (every level);
       // each row a % and a ج.م box: empty = inherited (the placeholder shows the figure it takes), typed = set by hand. A figure typed
       // on a parent flows at once to its children that have none of their own; a child's own figure stays (owner, 27 Oct).
-      const ctree = VD.categoryTree(vstore.categories ? vstore.categories() : []); let catWrap = null;
-      const arN = (x) => String(x == null ? '' : x).trim().replace(/[٠-٩]/g, (c) => String(c.charCodeAt(0) - 0x660));
-      const handSet = () => Object.fromEntries(Object.entries(f.cat).filter(([, c]) => arN(c.rate) !== '').map(([k, c]) => [k, { rate: arN(c.rate), flat: arN(c.flat) }]));
-      function refreshCats() {
-        if (!catWrap) return;
-        const fig = VD.categoryFigures(ctree, handSet(), { rate: arN(f.rate) === '' ? null : Number(arN(f.rate)), flat: arN(f.flat) === '' ? null : Number(arN(f.flat)) });
-        catWrap.querySelectorAll('[data-cat]').forEach((row) => { const g2 = fig[row.getAttribute('data-cat')]; if (!g2) return; const [ri, fi] = row.querySelectorAll('input');
-          ri.placeholder = g2.rate == null ? '' : String(g2.rate); fi.placeholder = g2.flat == null ? '' : String(g2.flat); row.classList.toggle('is-own', !g2.inherited); });
-      }
-      function setCat(cid, key, val) { const c = Object.assign({ rate: '', flat: '' }, f.cat[cid], { [key]: val }); if (arN(c.rate) === '' && arN(c.flat) === '') delete f.cat[cid]; else f.cat[cid] = c; refreshCats(); }
-      function catRows(nodes, depth) {
-        const out = [];
-        for (const n of nodes) {
-          const own = f.cat[n.id] || {}; const open = openCats.has(n.id);
-          const ri = h('input', { id: 'cr-' + n.id, inputmode: 'decimal', dir: 'ltr', value: own.rate || '', 'aria-label': 'نسبة ' + n.name });
-          const fi = h('input', { id: 'cf-' + n.id, inputmode: 'decimal', dir: 'ltr', value: own.flat || '', 'aria-label': 'رسوم ثابتة ' + n.name });
-          ri.addEventListener('input', () => setCat(n.id, 'rate', ri.value)); fi.addEventListener('input', () => setCat(n.id, 'flat', fi.value));
-          const tog = n.children.length ? h('button', { type: 'button', class: 'cat-toggle', 'aria-expanded': open ? 'true' : 'false', 'aria-label': (open ? 'اقفل' : 'افتح') + ' فئات ' + n.name, 'data-cat-toggle': n.id,
-            onClick: () => { if (open) openCats.delete(n.id); else openCats.add(n.id); drawCats(); const t = catWrap.querySelector('[data-cat-toggle="' + n.id + '"]'); if (t) t.focus(); } }, open ? '−' : '+') : h('span', { class: 'cat-toggle-sp' });
-          out.push(h('div', { class: 'cat-row', 'data-cat': n.id, style: '--d:' + depth }, tog, h('span', { class: 'cat-name' }, n.name),
-            h('div', { class: 'input cat-in' }, h('span', { class: 'help' }, '%'), ri), h('div', { class: 'input cat-in' }, h('span', { class: 'help' }, 'ج.م'), fi)));
-          if (open) out.push(...catRows(n.children, depth + 1));
-        }
-        return out;
-      }
-      function drawCats() { catWrap.replaceChildren(...catRows(ctree, 0)); refreshCats(); }
-      function catEditor() {
-        catWrap = h('div', { class: 'cat-tree', 'data-cat-tree': '' });
-        if (!ctree.length) { catWrap.append(h('p', { class: 't-small', style: 'margin:0;color:var(--color-text-secondary)' }, 'فئات الموقع لسه ماتزامنتش — بتتجاب كل ربع ساعة.')); return catWrap; }
-        drawCats();
-        return h('div', null, h('div', { class: 'cat-head t-small' }, h('span', null, 'الفئة'), h('span', null, 'النسبة'), h('span', null, 'رسوم ثابتة')), catWrap,
-          U.InlineNote({ children: 'الرقم اللي تكتبه في فئة بيتحط لكل الفئات اللي تحتها، إلا اللي ليها رقم خاص. الخانة الفاضية بتاخد رقم اللي فوقها (الرقم الرمادي).' }));
-      }
+      const ctk = catTreeKit(f, openCats); const refreshCats = ctk.refresh; const catEditor = ctk.editor;
       const groups = {
         identity: () => [two(txt('g-name', 'اسم المبتكر (المعروض)', 'name', { required: true, maxlength: 80 }), txt('g-legal', 'الاسم التجاري / القانوني', 'legalName')),
           two(catPick('g-cat', f, errs), U.Select({ id: 'g-status', label: 'الحالة', required: true, options: VD.STATUSES.map(([value, label]) => ({ value, label })), value: f.status, error: errs.status, onChange: (x) => { f.status = x; m.setBody(...body()); } })),
@@ -3698,7 +3785,7 @@
       const missingTag = () => { const miss = vstore.missing ? vstore.missing(id) : []; return miss.length ? h('span', { class: 'tg tg-orange', 'data-missing': '' }, 'ناقص: ' + miss.join(' / ')) : null; };
       const header = h('div', { class: 'drawer-h' },
         h('div', { class: 'row1' }, h('div', { class: 'vdrawer-id' }, vendorLogo(v), h('div', { class: 'names' }, h('div', { class: 'name-row' }, h('h2', { class: 't-h4' }, v.name), U.VendorStatus(v.status), siteOffTag(v)), h('span', { class: 't-small' }, num((v.category || 'بدون فئة') + ' · نسبة إبتكر ' + (canRate && v.rate != null ? v.rate + '%' : '—') + ' · مبتكر من ' + D.formatDateLong(v.joinedAt) + (v.wooVendorId ? ' · متجر #' + v.wooVendorId : ' · بدون متجر على الموقع'))), missingTag())),
-          h('div', { class: 'actions' }, moreMenu(v), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => vdrawer.close() }))),
+          h('div', { class: 'actions' }, !v.wooVendorId && vstore.canStore && vstore.canStore() ? Button({ type: 'brand', size: 'sm', icon: 'plus', label: 'اعمل متجر على الموقع', attrs: { 'data-make-store': '' }, onClick: () => storePopup(v) }) : null, moreMenu(v), IconButton({ icon: 'close', label: 'إغلاق', onClick: () => vdrawer.close() }))),
         U.Tabs({ items: [{ id: 'info', label: 'معلومات المبتكر' }, { id: 'products', label: 'المنتجات' }, { id: 'orders', label: 'الأوردرات' }, { id: 'accounts', label: 'الحسابات' }], active: vtab, onChange: (t) => { vtab = t; if (t === 'products') { vpQ = ''; const a = PAPI(); if (a) a.ensure(); } draw(); } }));
       let body;
         const copy = (val, label) => copyText(val, label);

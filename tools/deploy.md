@@ -1996,5 +1996,11 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 3. نضّف الصف الحي مرة واحدة (Supabase MCP `execute_sql`) — عشان `inventory_push` يقفل من غير ما حد يحفظ: `update settings set data = jsonb_build_object('firstWarehouse', coalesce((data->>'firstWarehouse')::boolean, false), 'consolidationAlert', 5, 'photoMax', 14, 'returnWait', 7, 'returnDefault', 'يرجع للمبتكر') where section = 'inventory';`
 4. التجربة: الإعدادات › «المخزن» (الأدمن) → غيّر يوم واحفظ → المخزن › «المرتجعات» بيعد المستني بالأيام الجديدة؛ و`#inventory-settings` القديم بيفتح القسم ده.
 
+#### 2.7.62 «إضافة مبتكر» بيعمل متجره على الموقع (صاحب المشروع 11 نوفمبر — `docs/superpowers/plans/2026-11-11-maker-store.md`)
+مافيش migration. woo-sync فيه action جديدة **`vendor_store`** (الأدمن أو `vendors.edit = F`، أبدًا بسر المزامنة، `WOO_PUSH_ENABLED = 1`): `POST dokan/v1/stores` بحساب البوابة (اسم المستخدم والإيميل من `vendor_logins`) والباسورد اللي العضو كتبه (مابيتخزنش ولا بيتسجل) ورابط المتجر وبيانات الصف، والعمولة لـ `sensitive.commission = F` والبنك لـ `sensitive.vendor_bank = F`؛ بعدها الصف بيترابط بالمتجر (`woo_vendor_id` + اللقطة) والبراند التلقائي بيتربط بيه. اسم مستخدم / إيميل عليه حساب على الموقع = بيدوّر على متجر Dokan بنفس الإيميل ويربطه لو مش مبتكر عندنا (من غير أي كتابة على الموقع — باسورد حسابه هناك زي ما كان). رد فيه الباسورد (صفحة خطأ بتكرر الطلب) بيتشال منه قبل `woo_sync_log`.
+1. انشر woo-sync من «Deploy functions» (`function = woo-sync`).
+2. ادمج على `main`.
+3. التجربة على الـ staging: «إضافة مبتكر» بإيميل جديد ونسبة ورسوم ثابتة → اتأكد على الموقع (Dokan › Vendors) إن المتجر اتعمل باسمه وعمولته ورابطه، وإن ملفه عندنا بقى «متجر #…»؛ ومبتكر اتعمل بالمفتاح مقفول → «اعمل متجر على الموقع» من ملفه.
+
 #### 2.7.66 «طلب جديد» وطلب فترة راحة (المرحلة 13 قرار 66، 11 نوفمبر)
 `0077_hr_rest_period.sql` على المشروع (Supabase MCP `apply_migration` بموافقة صاحب المشروع) ثم `rls_hr_rest_period` live (workflow «RLS live»، `files = rls_hr_rest_period`) ثم الواجهة على `main`. مافيش Edge Function.

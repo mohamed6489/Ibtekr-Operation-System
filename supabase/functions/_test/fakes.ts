@@ -52,7 +52,7 @@ const COLUMNS: Record<string, string[]> = {
   dokan_withdrawals: ['id', 'woo_vendor_id', 'vendor_id', 'amount', 'charge', 'receivable', 'status', 'method', 'requested_at', 'synced_at'],
   dokan_balances: ['vendor_id', 'woo_vendor_id', 'balance', 'earning', 'sales', 'orders', 'synced_at'],
   // 0013 brands (the name only here) and 0023 (phase 5.2, the studio)
-  brands: ['id', 'name', 'code', 'aliases', 'store_vendor_id', 'origin_vendor_id'],
+  brands: ['id', 'name', 'code', 'aliases', 'store_vendor_id', 'origin_vendor_id', 'created_by'], // 0013 (created_by: 'system' on the automatic brand — vendor_store ties that one to the new store)
   brand_owners: ['id', 'brand_id', 'vendor_id', 'since', 'return_on', 'reason', 'set_by', 'created_at'], // 0013 (the portal reads the maker's brands)
   vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'status', 'must_change', 'invite_sent_at', 'password_set_at', 'secret_id', 'created_by', 'created_at', 'updated_at', 'fails', 'locked_until', 'own_password', 'last_login_at'], // 0012 + 0065
   acc_vendor_moves: ['id', 'vendor_id', 'on_date', 'direction', 'kind', 'kind_name', 'amount', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'voided_by', 'voided_at', 'settled_by', 'settled_at'], // 0019 + 0078

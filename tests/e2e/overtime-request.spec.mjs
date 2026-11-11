@@ -61,7 +61,7 @@ test('decision 45: «ملفي»\'s header button is a menu — «+ وقت إضا
   const m = page.locator('.modal[role=dialog]', { hasText: 'طلب وقت إضافي' }).last(); await expect(m).toBeVisible();
   await m.getByRole('button', { name: 'إلغاء' }).click(); await expect(m).toBeHidden();
   await menuBtn.click(); await page.getByRole('menuitem', { name: 'فتح طلب' }).click();
-  await expect(page.locator('.modal[role=dialog]', { hasText: 'تذكرة جديدة' }).last()).toBeVisible();
+  await expect(page.locator('.modal[role=dialog]', { hasText: 'طلب جديد' }).last()).toBeVisible();
   await expect(page.locator('#tickets h1')).toHaveText('طلبات الفريق');
   await expect(page.getByRole('button', { name: 'فتح طلب' })).toBeVisible();
 });

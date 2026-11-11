@@ -62,12 +62,12 @@ test('«تذاكر الفريق» is open: the open tickets from the database (t
 test('admin opens a ticket: ticket_create with the form, the drawer on the new ticket with the server\'s timeline, an activity row without the text', async ({ page }) => {
   await openTickets(page);
   await page.getByRole('button', { name: 'فتح طلب' }).click();
-  const m = modal(page, 'تذكرة جديدة');
+  const m = modal(page, 'طلب جديد');
   await m.locator('#t-title').fill('الطابعة واقفة');
-  await pick(page, m, 't-type', 'تعليق داخلي');
+  await pick(page, m, 't-type', 'طلب خاص');
   await m.locator('#t-desc').fill('سر الوصف — محتاجين حبر');
   await pick(page, m, 't-role', 'اللوجستيك والشحن');
-  await m.getByRole('button', { name: 'إنشاء التذكرة' }).click();
+  await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
   await expect(drawer(page)).toContainText('الطابعة واقفة');
   await expect(drawer(page)).toContainText('أنشأ التذكرة وعيّنها لدور «اللوجستيك والشحن»');
   await expect(drawer(page)).toContainText('سر الوصف — محتاجين حبر');
@@ -81,9 +81,9 @@ test('admin opens a ticket: ticket_create with the form, the drawer on the new t
 test('a customer ticket needs the order number and a reason (the v2 validation, before any call)', async ({ page }) => {
   await openTickets(page);
   await page.getByRole('button', { name: 'فتح طلب' }).click();
-  const m = modal(page, 'تذكرة جديدة');
+  const m = modal(page, 'طلب جديد');
   await m.locator('#t-title').fill('x');
-  await m.getByRole('button', { name: 'إنشاء التذكرة' }).click();
+  await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
   await expect(m).toContainText('اكتب رقم الأوردر');
   await expect(m).toContainText('اختار سبب المشكلة');
   expect(mock.ticketWrites).toEqual([]);
@@ -165,9 +165,9 @@ test('the reports tab: open / overdue / average from the loaded tickets, by role
 test('attachments: an image uploaded into tickets/<my uid>/, carried by the new ticket, shown in the drawer; an HTML file refused', async ({ page }) => {
   await openTickets(page);
   await page.getByRole('button', { name: 'فتح طلب' }).click();
-  const m = modal(page, 'تذكرة جديدة');
+  const m = modal(page, 'طلب جديد');
   await m.locator('#t-title').fill('صورة الكسر');
-  await pick(page, m, 't-type', 'تعليق داخلي');
+  await pick(page, m, 't-type', 'طلب خاص');
   await m.locator('#t-desc').fill('الصورة مرفقة');
   await pick(page, m, 't-role', 'الحسابات');
   const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
@@ -175,7 +175,7 @@ test('attachments: an image uploaded into tickets/<my uid>/, carried by the new 
   await expect(m.locator('.tk-file', { hasText: 'break.png' })).toBeVisible();
   await expect(m).toContainText('page.html');
   await expect(m).toContainText('أو PDF بس');
-  await m.getByRole('button', { name: 'إنشاء التذكرة' }).click();
+  await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
   await expect(drawer(page)).toContainText('مرفقات التذكرة');
   const w = mock.ticketWrites.find((x) => x.fn === 'ticket_create');
   expect(w.attachments.length).toBe(1);
@@ -200,13 +200,13 @@ test('orders: the open-ticket chip on the order opens its tickets; «افتح ت
   await page.locator('.sidebar .nav-item[data-page="orders"]').click();
   await page.locator('#orders [data-more="o:180686"]').first().click();
   await page.getByRole('menuitem', { name: 'افتح تذكرة' }).click();
-  const m = modal(page, 'تذكرة جديدة');
+  const m = modal(page, 'طلب جديد');
   await expect(m.locator('#t-order')).toHaveValue('180686');
   await m.locator('#t-title').fill('العميلة عايزة تغيّر المقاس');
   await m.locator('#t-desc').fill('اتصلت النهارده');
   await pick(page, m, 't-reason', 'أخرى');
   await pick(page, m, 't-role', 'خدمة العملاء');
-  await m.getByRole('button', { name: 'إنشاء التذكرة' }).click();
+  await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
   await expect(drawer(page)).toContainText('العميلة عايزة تغيّر المقاس');
   expect(mock.tickets.at(-1)).toMatchObject({ type: 'customer', order_number: '180686', order_id: 180686, customer: 'هدير عميل' });
 });
@@ -219,14 +219,14 @@ test('makers: «إنشاء تذكرة» from the maker drawer is a maker ticket 
   await expect(vd).toContainText('Art Craft');
   await vd.getByRole('tab', { name: /الأوردرات|البيانات|المعلومات/ }).first().click().catch(() => {});
   await expect(vd).toContainText('TKT-0003');
-  await vd.getByRole('button', { name: 'إنشاء تذكرة' }).first().click();
-  const m = modal(page, 'تذكرة جديدة');
+  await vd.getByRole('button', { name: 'إنشاء طلب' }).first().click(); // decision 66
+  const m = modal(page, 'طلب جديد');
   await expect(m.locator('#t-vendor')).toContainText('Art Craft');
   await m.locator('#t-title').fill('الشحنة متأخرة');
   await m.locator('#t-desc').fill('بقالها أسبوع');
   await pick(page, m, 't-reason', 'تأخير تسليم');
   await pick(page, m, 't-role', 'متابعة المبتكرين');
-  await m.getByRole('button', { name: 'إنشاء التذكرة' }).click();
+  await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
   await expect(drawer(page)).toContainText('الشحنة متأخرة');
   expect(mock.tickets.at(-1)).toMatchObject({ type: 'vendor', vendor_id: V1, vendor: 'Art Craft', reason: 'تأخير تسليم' });
 });
@@ -240,13 +240,13 @@ test('customer service: «تحويل لتذكرة» from the conversation links 
   await expect(P.locator('.cs-panel')).toContainText('التذاكر');
   await P.locator('.cs-ch').getByRole('button', { name: 'المزيد' }).click();
   await page.getByRole('menuitem', { name: 'تحويل لتذكرة' }).click();
-  const m = modal(page, 'تذكرة جديدة');
+  const m = modal(page, 'طلب جديد');
   await expect(m).toContainText('هتتربط بمحادثة خدمة العملاء مع سلوى زيتوني');
   await m.locator('#t-title').fill('سؤال عن ميعاد التسليم');
   await m.locator('#t-desc').fill('العميلة سألت على الشات');
   await pick(page, m, 't-reason', 'تأخير في التسليم');
   await pick(page, m, 't-role', 'متابعة المبتكرين');
-  await m.getByRole('button', { name: 'إنشاء التذكرة' }).click();
+  await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
   await expect(drawer(page)).toContainText('سؤال عن ميعاد التسليم');
   const t = mock.tickets.at(-1);
   expect([t.cs_conversation_id, t.order_number, t.customer]).toEqual([mock.cs.conversations[0].id, '181668', 'سلوى زيتوني']);
@@ -282,7 +282,7 @@ test('decision 19: «رقم الأوردر» lists the matching orders as it is 
   await expect(page.locator('#orders [data-more="o:180686"]').first()).toBeVisible();
   await page.locator('.sidebar .nav-item[data-page="tickets"]').click();
   await page.getByRole('button', { name: 'فتح طلب' }).click();
-  const m = modal(page, 'تذكرة جديدة');
+  const m = modal(page, 'طلب جديد');
   await m.locator('#t-order').fill('هدير');
   const opt = m.locator('[data-tk-pick="180686"]');
   await expect(opt).toContainText('هدير عميل');
@@ -298,7 +298,7 @@ test('decision 19: «رقم الأوردر» lists the matching orders as it is 
   await m.locator('#t-desc').fill('x');
   await pick(page, m, 't-reason', 'أخرى');
   await pick(page, m, 't-role', 'الحسابات');
-  await m.getByRole('button', { name: 'إنشاء التذكرة' }).click();
+  await m.getByRole('button', { name: 'إنشاء الطلب' }).click();
   await expect(drawer(page)).toContainText('اختيار من القايمة');
   expect(mock.ticketWrites.find((x) => x.fn === 'ticket_create')).toMatchObject({ orderId: '181668', customer: 'سلوى زيتوني' });
 });

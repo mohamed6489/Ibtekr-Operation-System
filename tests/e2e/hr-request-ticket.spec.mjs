@@ -23,7 +23,7 @@ const addDays = (iso, n) => { const d = new Date(iso + 'T00:00:00Z'); d.setUTCDa
 const nextSunday = () => { let d = addDays(hrToday(), 7); while (new Date(d + 'T00:00:00Z').getUTCDay() !== 0) d = addDays(d, 1); return d; };
 const dmy = (iso) => iso.slice(8, 10) + '/' + iso.slice(5, 7) + '/' + iso.slice(0, 4); // the date fields take dd/mm/yyyy
 // a date field commits on blur and the form redraws between the two: one at a time, each checked
-async function setDates(f, day) { for (const id of ['from', 'to']) { await f.locator('#' + id).fill(dmy(day)); await f.locator('#' + id).press('Tab'); await expect(f.locator('#' + id)).toHaveValue(dmy(day)); } }
+async function setDates(f, day, ids = ['#from', '#to']) { for (const id of ids) { await f.locator(id).fill(dmy(day)); await f.locator(id).press('Tab'); await expect(f.locator(id)).toHaveValue(dmy(day)); } }
 const seen = (page, id) => expect.poll(() => page.evaluate((k) => !!window.IBTickets.get(k), 'TKT-' + String(id).padStart(4, '0'))).toBe(true);
 
 test('decision 33: a leave filed from «تذاكر الفريق» opens its ticket with no HR detail; the admin approves it in the ticket and it closes', async ({ page }) => {
@@ -35,15 +35,20 @@ test('decision 33: a leave filed from «تذاكر الفريق» opens its tick
   await expect(page.locator('#pg-profile .prof-head')).toBeVisible();
   await expect(page.locator('#pg-profile').getByRole('tab', { name: 'طلباتي' })).toHaveCount(0);
   await page.evaluate(() => { location.hash = 'tickets'; });
-  await page.locator('[data-hr-req-new]').click();
-  await modal(page, 'طلب موارد بشرية').getByRole('button', { name: 'طلب إجازة' }).click();
-  const f = modal(page, 'طلب إجازة');
+  // decision 66: one «طلب جديد» popup — the type picks the fields
+  await page.locator('[data-req-new]').click();
+  const f = modal(page, 'طلب جديد');
   const day = nextSunday();
-  await f.locator('#kind').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'إجازة عارضة' }).first().click();
-  await setDates(f, day);
-  await f.locator('#note').fill('فرح أختي');
-  await f.getByRole('button', { name: 'تقديم الطلب' }).click();
-  await expect(page.locator('.toast', { hasText: 'في «تذاكر الفريق» TKT-' })).toBeVisible();
+  await f.locator('#t-type').click();
+  await expect(page.locator('[role=listbox] [role=option]')).toHaveText(['مشكلة عميل', 'مشكلة مبتكر', 'طلب إجازة', 'طلب سلفة', 'طلب فترة راحة', 'طلب خاص']);
+  await page.locator('[role=listbox] [role=option]', { hasText: 'طلب إجازة' }).first().click();
+  await expect(f.locator('#t-title')).toHaveCount(0); await expect(f.locator('#t-role')).toHaveCount(0); // no title / role / priority for an HR request
+  await f.locator('#t-lkind').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'إجازة عارضة' }).first().click();
+  await setDates(f, day, ['#t-from', '#t-to']);
+  await f.locator('#t-note').fill('فرح أختي');
+  await f.locator('[data-req-submit]').click();
+  await expect(f).toHaveCount(0); // filed: the popup closed
+  await expect.poll(() => (mock.hr.requests.find((r) => r.member_id === OPS_ID && r.type === 'إجازة عارضة') || {}).ticket_id).toBeTruthy();
   const req = mock.hr.requests.find((r) => r.member_id === OPS_ID && r.type === 'إجازة عارضة');
   expect(req.ticket_id).toBeTruthy();
   const tk = mock.tickets.find((t) => t.id === req.ticket_id);
@@ -67,20 +72,25 @@ test('decision 33: a leave filed from «تذاكر الفريق» opens its tick
   expect(mock.tickets.find((t) => t.id === tk.id).resolution_outcome).toBe('اتحلت المشكلة');
 });
 
-test('decision 33: «شغل عن بُعد» from the tickets page, then cancelled from its ticket card — the ticket closes', async ({ page }) => {
+test('decision 66: «طلب فترة راحة» from «طلب جديد» (the day, from / to times → the hours), then cancelled from its ticket card — the ticket closes', async ({ page }) => {
   pageErrors = []; page.on('pageerror', (e) => pageErrors.push(e.message));
   mock = await installSupabaseMock(page, {});
   await signIn(page, OPS);
   await page.evaluate(() => { location.hash = 'tickets'; });
-  await page.locator('[data-hr-req-new]').click();
-  await modal(page, 'طلب موارد بشرية').getByRole('button', { name: 'شغل عن بُعد' }).click();
-  const f = modal(page, 'طلب شغل عن بُعد'); const day = nextSunday();
-  await setDates(f, day);
-  await f.getByRole('button', { name: 'تقديم الطلب' }).click();
-  await expect.poll(() => (mock.hr.requests.find((r) => r.member_id === OPS_ID && r.type === 'شغل عن بُعد') || {}).ticket_id).toBeTruthy();
-  const req = mock.hr.requests.find((r) => r.member_id === OPS_ID && r.type === 'شغل عن بُعد');
-  expect(mock.tickets.find((t) => t.id === req.ticket_id).title.startsWith('طلب شغل عن بُعد — ')).toBe(true);
-  expect(req.from_day).toBe(day);
+  await page.locator('[data-req-new]').click();
+  const f = modal(page, 'طلب جديد'); const day = nextSunday();
+  await f.locator('#t-type').click(); await page.locator('[role=listbox] [role=option]', { hasText: 'طلب فترة راحة' }).first().click();
+  await setDates(f, day, ['#t-from']);
+  await f.locator('#t-start').fill('13:00'); await f.locator('#t-end').fill('12:00');
+  await f.locator('[data-req-submit]').click();
+  await expect(f).toContainText('النهاية لازم بعد البداية'); // refused on the page
+  await f.locator('#t-end').fill('14:30');
+  await expect(f.locator('[data-rest-hours]')).toHaveAttribute('data-rest-hours', '1.5');
+  await f.locator('[data-req-submit]').click();
+  await expect.poll(() => (mock.hr.requests.find((r) => r.member_id === OPS_ID && r.type === 'فترة راحة') || {}).ticket_id).toBeTruthy();
+  const req = mock.hr.requests.find((r) => r.member_id === OPS_ID && r.type === 'فترة راحة');
+  expect(mock.tickets.find((t) => t.id === req.ticket_id).title.startsWith('طلب فترة راحة — ')).toBe(true);
+  expect([req.from_day, req.at_time, req.hours]).toEqual([day, '13:00', 1.5]);
   await seen(page, req.ticket_id);
   await page.evaluate((id) => { location.hash = 'tickets/TKT-' + String(id).padStart(4, '0'); }, req.ticket_id);
   await page.locator('[data-hr-request] [data-rq-cancel]').click();

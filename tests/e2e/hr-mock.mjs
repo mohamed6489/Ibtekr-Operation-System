@@ -114,7 +114,7 @@ export function hrRoute(c) {
     return id;
   };
   // 0071 (decision 33): a request's team ticket — the family only, to the direct manager's role, the bell to the admins and the manager
-  const reqFamily = (type) => (H.leave_types.some((t) => t.name === type) ? 'طلب إجازة' : ['شغل عن بُعد', 'إذن انصراف مبكر', 'تصحيح انصراف'].includes(type) ? 'طلب ' + type : 'طلب موارد بشرية');
+  const reqFamily = (type) => (H.leave_types.some((t) => t.name === type) ? 'طلب إجازة' : ['شغل عن بُعد', 'إذن انصراف مبكر', 'تصحيح انصراف', 'فترة راحة'].includes(type) ? 'طلب ' + type : 'طلب موارد بشرية'); // 0077: فترة راحة
   const reqTicket = (r) => {
     const p = mock.profiles.find((x) => x.id === r.member_id) || {}; const mgr = p.manager_id ? mock.profiles.find((x) => x.id === p.manager_id && x.status === 'active') : null;
     const id = mock.tickets.reduce((m, t) => Math.max(m, t.id), 0) + 1; const name = String(p.name || 'عضو').slice(0, 60); const fam = reqFamily(r.type); const when = now.slice(8, 10) + '/' + now.slice(5, 7);
@@ -286,10 +286,11 @@ export function hrRoute(c) {
     if (f === 'hr_request_create') {
       const i = b.p_input || {}; const member = i.member || u.id; const type = String(i.type || '').trim();
       if (!active || (member !== u.id && !editor)) return no(); if (!prof(member)) return nf();
-      const types = H.leave_types.map((t) => t.name).concat(['شغل عن بُعد', 'إذن انصراف مبكر', 'تصحيح انصراف', 'سُلفة']); if (!types.includes(type)) return bad('type');
+      const types = H.leave_types.map((t) => t.name).concat(['شغل عن بُعد', 'إذن انصراف مبكر', 'تصحيح انصراف', 'سُلفة', 'فترة راحة']); if (!types.includes(type)) return bad('type');
       let from = i.from || today; let to = i.to || from; let at = i.time || null; let hours = i.hours == null ? null : Number(i.hours); let amount = i.amount == null ? null : Number(i.amount); let months = i.months == null ? null : Number(i.months);
       if (to < from) return bad('to');
       if (type === 'سُلفة') { if (!(amount > 0) || !(months >= 1 && months <= 24)) return bad('amount'); from = today; to = today; at = null; hours = null; }
+      else if (type === 'فترة راحة') { if (!at) return bad('time'); const [hh, mm] = String(at).split(':').map(Number); if (!(hours >= 0.5 && hours <= 12) || hh * 60 + mm + hours * 60 > 24 * 60) return bad('hours'); to = from; amount = null; months = null; } // 0077
       else if (type === 'إذن انصراف مبكر' || type === 'تصحيح انصراف') { if (!at) return bad('time'); to = from; amount = null; months = null;
         if (type === 'تصحيح انصراف' && (from > today || !H.attendance.some((x) => x.member_id === member && x.day === from))) return bad('day'); if (type === 'إذن انصراف مبكر' && !(hours > 0 && hours <= 12)) hours = 2; }
       else { at = null; hours = null; amount = null; months = null; }

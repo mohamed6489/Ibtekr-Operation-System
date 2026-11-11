@@ -1962,3 +1962,6 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 
 #### 2.7.56 تاب «الأقسام» في المنتجات (المرحلة 13 قرار 56، 11 نوفمبر)
 مافيش migration. `woo-sync` (الترجمة العربي للقسم الفرعي تحت ترجمة الأب) ثم الواجهة على `main`. التجربة: المنتجات › الأقسام › «+ فرعي» على قسم → القسم على الموقع بالإنجليزي وترجمته العربي تحت ترجمة الأب (من غير `WOO_PUSH_ENABLED = 1` = «الكتابة على الموقع متقفلة»).
+
+#### 2.7.66 «طلب جديد» وطلب فترة راحة (المرحلة 13 قرار 66، 11 نوفمبر)
+`0077_hr_rest_period.sql` على المشروع (Supabase MCP `apply_migration` بموافقة صاحب المشروع) ثم `rls_hr_rest_period` live (workflow «RLS live»، `files = rls_hr_rest_period`) ثم الواجهة على `main`. مافيش Edge Function.

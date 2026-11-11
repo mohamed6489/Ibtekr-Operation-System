@@ -1694,3 +1694,8 @@ table:has(.reason-cell) :is(th,td):first-child{text-align:start}
 .reason-cell .dc-grip:active{cursor:grabbing}
 .reason-cell .dc-grip:focus-visible{outline:2px solid var(--color-action-default);outline-offset:1px}
 tr.dragging{background:var(--color-bg-tint)}
+/* Phase 13 decision 59 (owner 11 Nov — «خلي زرار التعديل زرار فرعي بخلفية خضرا و كلام لونه بيج»): the action of a drawer section's
+   header (تعديل / إضافة … / فتح في الأوردرات …) is a small secondary button, green with beige text. */
+.vsection .head>.btn-text{background:var(--color-brand-default);color:var(--color-text-on-brand);height:var(--ctl-sm,32px);padding:0 12px;border-radius:var(--radius-sm,6px)}
+.vsection .head>.btn-text:hover{background:var(--color-brand-hover);color:var(--color-text-on-brand)}
+.vsection .head>.btn-text svg{color:inherit}

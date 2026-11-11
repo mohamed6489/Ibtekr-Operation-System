@@ -21,7 +21,9 @@ jobs:
           cache: npm
       - run: npm ci
       - run: npm test
-      - run: npx playwright install --with-deps chromium
+      # 11 Nov 2026: the runners could not resolve the Ubuntu archive («Temporary failure resolving archive.ubuntu.com») — the
+      # system packages come from apt; when apt is down the browser alone is fetched (the runner image carries Chrome's libraries)
+      - run: npx playwright install --with-deps chromium || npx playwright install chromium
       - name: e2e (mocked Supabase)
         run: npm run e2e
       # Against the staging project in the E2E_SUPABASE_* secrets (injected as window.IB_CONFIG), never app/config.js.
@@ -59,7 +61,16 @@ jobs:
           --health-retries 10
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      # psql: the runner's own, else apt's; when the Ubuntu archive is down (11 Nov 2026) the postgres:17 image the service
+      # already pulled runs it (host network, the checkout mounted at the same path, PGOPTIONS passed through)
+      - name: psql
+        run: |
+          if command -v psql >/dev/null; then psql --version; exit 0; fi
+          if timeout 300 sudo apt-get update && timeout 300 sudo apt-get install -y postgresql-client; then exit 0; fi
+          mkdir -p "$HOME/bin"
+          printf '%s\n' '#!/usr/bin/env bash' 'exec docker run --rm --network host -e PGOPTIONS -v "$PWD:$PWD" -w "$PWD" postgres:17 psql "$@"' > "$HOME/bin/psql"
+          chmod +x "$HOME/bin/psql"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
       - name: migrations + RLS tests
         run: npm run db:test
         env:

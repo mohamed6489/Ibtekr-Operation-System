@@ -698,6 +698,48 @@
       h('button', { type: 'button', class: 'af-clr', 'data-af-clear': '', onClick: onClear }, h('span', null, 'مسح الكل')));
   }
 
+  // ---------- اختيار متعدد ببحث (owner 11 Nov — «الفئة الأساسية» في «إضافة مبتكر»، وبعدها فلاتر المنتجات والجداول) ----------
+  // options: [{ value, label, depth }] أو [[value, label, depth]] · value: [...] · onChange(values) مع كل علامة
+  // field: true → خانة فورم (العنوان فوق، الأسامي المختارة في الزرار، الخطأ تحت) · وإلا زرار فلتر صغير «<label> (N)»
+  // depth: الفرعي بـ «-» و«--» و«---» قبل اسمه · البحث بيظهر لو الاختيارات أكتر من 6 (أو search: true)
+  const foldAr = (s) => String(s == null ? '' : s).toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ').trim();
+  function MultiPick({ id, label, options, value, onChange, field, required, error, help, placeholder, search }) {
+    const opts = (options || []).map((o) => (Array.isArray(o) ? { value: String(o[0]), label: String(o[1]), depth: Number(o[2]) || 0 } : { value: String(o.value), label: String(o.label), depth: Number(o.depth) || 0 }));
+    const known = new Set(opts.map((o) => o.value)); let sel = (value || []).map(String).filter((v) => known.has(v));
+    const nameOf = (v) => (opts.find((o) => o.value === v) || {}).label || v;
+    const txt = () => (field ? (sel.length ? sel.map(nameOf).join('، ') : placeholder || 'اختار') : label + (sel.length ? ' (' + sel.length + ')' : ''));
+    const val = h('span', { class: 'val' + (field && !sel.length ? ' ph' : '') }, txt());
+    const btn = h('button', { type: 'button', id, class: 'select' + (field ? '' : ' sm') + (!field && sel.length ? ' has-val' : '') + (error ? ' err' : ''), 'aria-haspopup': 'true', 'aria-expanded': 'false', 'data-mp-btn': id, 'aria-invalid': error ? 'true' : false, 'aria-describedby': error ? id + '-err' : false }, Icon('chevD', 'sm'), val);
+    const named = () => { if (!field) btn.setAttribute('aria-label', label + (sel.length ? ' — ' + sel.map(nameOf).join('، ') : '')); }; named();
+    const sync = () => { val.textContent = txt(); val.classList.toggle('ph', !!field && !sel.length); if (!field) btn.classList.toggle('has-val', sel.length > 0); named(); };
+    const wrap = h('div', { class: 'pop-anchor mp', 'data-popover-root': '', 'data-mp': id, style: field ? 'display:block' : null });
+    const pop = U.popover(wrap, btn, (close) => {
+      let q = ''; const items = [];
+      const list = h('div', { class: 'mp-list', role: 'group', 'aria-label': label });
+      const mark = (b, on) => { b.setAttribute('aria-checked', String(on)); b.querySelector('.mchk').replaceChildren(...(on ? [Icon('check', 'sm')] : [])); };
+      const draw = () => { const nq = foldAr(q); items.length = 0; const shown = opts.filter((o) => !nq || foldAr(o.label).includes(nq));
+        list.replaceChildren(...(shown.length ? shown.map((o) => { const on = sel.includes(o.value);
+          const b = h('button', { type: 'button', class: 'opt multi' + (o.depth ? ' mp-sub' : ''), role: 'menuitemcheckbox', 'aria-checked': String(on), 'data-mp-opt': o.value },
+            h('span', { class: 'mchk', 'aria-hidden': 'true' }, on ? Icon('check', 'sm') : null), h('span', { class: 'mp-l', dir: 'auto' }, (o.depth ? '-'.repeat(o.depth) + ' ' : '') + o.label));
+          b.addEventListener('click', (e) => { e.stopPropagation(); const i = sel.indexOf(o.value); if (i > -1) sel.splice(i, 1); else sel.push(o.value); mark(b, sel.includes(o.value)); sync(); onChange(sel.slice()); });
+          items.push(b); return b; }) : [h('p', { class: 't-small mp-empty' }, 'مفيش نتايج')])); };
+      const s = search === true || (search !== false && opts.length > 6) ? h('input', { type: 'search', class: 'input mp-q', placeholder: 'دوّر…', 'aria-label': 'دوّر في ' + label, 'data-mp-q': id, autocomplete: 'off' }) : null;
+      if (s) { s.addEventListener('input', () => { q = s.value; draw(); }); s.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown' && items[0]) { e.preventDefault(); items[0].focus(); } }); }
+      draw();
+      const m = h('div', { class: 'menu view-menu mp-menu', role: 'menu', 'aria-label': label, 'data-mp-menu': id, 'data-focus': 'no' }, s ? h('div', { class: 'mp-qw' }, s) : null, list,
+        h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-mp-clear': '' }, onClick: () => { sel = []; draw(); sync(); onChange([]); } }),
+          Button({ size: 'sm', type: 'primary', label: 'تم', attrs: { 'data-mp-done': '' }, onClick: () => close() })));
+      m.addEventListener('keydown', (e) => { const i = items.indexOf(document.activeElement); if (i < 0) return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
+        if (e.key === 'ArrowUp') { e.preventDefault(); if (i === 0 && s) s.focus(); else items[(i - 1 + items.length) % items.length].focus(); } });
+      setTimeout(() => { const f = s || items[0]; if (f) f.focus(); }, 0);
+      return m; });
+    btn.addEventListener('click', pop.toggle); wrap.append(btn);
+    if (!field) return wrap;
+    return h('div', { class: 'field mp-field' }, h('label', { for: id }, label, required ? h('span', { class: 'req', 'aria-hidden': 'true' }, ' *') : null), wrap,
+      help && !error ? h('div', { class: 'help' }, help) : null, error ? h('div', { class: 'err-msg', id: id + '-err', role: 'alert' }, error) : null);
+  }
+
   // ---------- StarPicker: نجوم 1–5 (radiogroup — WAI-ARIA APG radio: الأسهم بتغيّر، Home/End، رقم 1–5) ----------
   function StarPicker({ id, label, value, onChange, error, required, help }) {
     const v = Number(value) || 0; const words = ['', 'وحش جداً', 'وحش', 'مقبول', 'كويس', 'ممتاز'];
@@ -717,7 +759,7 @@
   const chanList = (m) => (m && Array.isArray(m.chans) ? m.chans : []);
   const canChan = (m, id) => chanAll(m) || chanList(m).indexOf(id) > -1;
   const chanMembers = (id) => store.members.filter((m) => m.status !== 'invited' && canChan(m, id) && !chanAll(m));
-  window.IBKit = { chanAll, chanList, canChan, chanMembers, Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, xlsxExport, saveFile, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, PanelButton, applyPanelPrefs, customizePanel, panelItems, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, TableSection, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, busy, busyCount, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+  window.IBKit = { chanAll, chanList, canChan, chanMembers, Bulk, FilterMenu, SortMenu, ActiveFilters, MultiPick, foldAr, autoFilter, xlsxExport, saveFile, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, PanelButton, applyPanelPrefs, customizePanel, panelItems, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, TableSection, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, busy, busyCount, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
 })();
 
 /* Quick actions (owner 27 Oct; phase 11 decision 23, from the v6 block 14): «إجراءات سريعة» = a named link to any page of the system,

@@ -1418,7 +1418,11 @@ async function categoryCreate(run: Run, args: Json) {
   const rows: Json[] = [c];
   let arId: number | null = null;
   if (nameAr) {
-    try { const a = (await ctx.woo.post(CATEGORIES_PATH, { name: nameAr, lang: 'ar', wpml_language: 'ar', translation_of: id })).data; arId = wooId(isObj(a) ? a.id : null); if (isObj(a)) rows.push(a); }
+    // phase 13 decision 56: a sub-category's Arabic translation sits under the parent's Arabic translation (WPML's `translations` on the
+    // parent, when the site answers it; else WPML keeps it where it puts it)
+    let parentAr: number | null = null;
+    if (parent) { try { const pc = (await ctx.woo.get(`${CATEGORIES_PATH}/${parent}`)).data; parentAr = wooId(isObj(pc) && isObj(pc.translations) ? pc.translations.ar : null); } catch (e) { if (!(e instanceof WooError)) throw e; } }
+    try { const a = (await ctx.woo.post(CATEGORIES_PATH, { name: nameAr, lang: 'ar', wpml_language: 'ar', translation_of: id, ...(parentAr ? { parent: parentAr } : {}) })).data; arId = wooId(isObj(a) ? a.id : null); if (isObj(a)) rows.push(a); }
     catch (e) { if (!(e instanceof WooError)) throw e; }
   }
   await writeCategories(ctx, rows);

@@ -204,7 +204,7 @@ test('a sub-order status is written to its line only, never pushed', async ({ pa
   expect(mock.patches).toEqual([{ table: 'order_items', id: 5001, status: 'مؤكد' }]);
   expect(mock.pushes).toEqual([]);
   expect(mock.requests.filter((r) => r.includes('/functions/'))).toEqual([]);
-  await expect(card(page, '181668').locator('.row', { has: page.locator('[data-ss="5001"]') }).locator('.sdd')).toContainText('مؤكد');
+  await expect(card(page, '181668').locator('.row', { has: page.locator('[data-ss="5001"]') }).locator('.c4 .sdd')).toContainText('مؤكد');
 });
 
 test('the product image comes from products', async ({ page }) => {
@@ -894,19 +894,31 @@ test('the owner 11 Nov: «حالة الموقع» of a Dokan sub-order (the site
   await openOrders(page);
   const sr = (sel) => page.locator('#orders ' + sel); const menu = sr('#mpop'); const dlg = sr('#cdlg');
   const c = card(page, '181668');
-  // the site status under the sub-order number, from status_map's labels
-  await expect(c.locator('[data-sws="5001"]')).toHaveText('على الموقع: جاري التنفيذ');
-  await expect(c.locator('[data-sws="5099"]')).toHaveText('على الموقع: جاري التنفيذ');
+  // the owner 11 Nov («عمود بعد الأوردر الفرعي علطول زي الحالة»): the site status is its own column right after the sub-order number,
+  // a dropdown with status_map's labels; the old tag under the number and the ⋮ item are gone
+  const heads = c.locator('.st .row.h .c');
+  await expect(heads.nth(0)).toHaveText('الأوردر الفرعي');
+  await expect(heads.nth(1)).toHaveText('حالة الموقع');
+  const ws = (n) => c.locator('select[data-wst="' + n + '"]');
+  await expect(ws(5001)).toHaveValue('جاري التنفيذ');
+  await expect(ws(5099)).toHaveValue('جاري التنفيذ');
+  // a single-maker order has no sub-order on the site (the sub-order = the order) → «—», no dropdown
+  await expect(card(page, '180686').locator('.st .row:not(.h) .cw').first()).toHaveText('—');
+  await expect(card(page, '180686').locator('select[data-wst]')).toHaveCount(0);
+  await expect(ws(5001)).toHaveAttribute('aria-label', 'حالة الأوردر الفرعي #181669 على الموقع');
   await c.locator('[data-more="s:5001"]').click();
-  await menu.locator('[data-ma="sitest"]').click();
-  await expect(dlg.locator('#cdt')).toHaveText('حالة الأوردر الفرعي #181669 على الموقع');
-  await expect(dlg.locator('[data-sub-count]')).toContainText('2 منتج');
-  await dlg.locator('#cwst').selectOption({ label: 'جاهز للشحن' });
-  await dlg.locator('[data-cok]').click();
-  await expect(dlg).toHaveCount(0);
+  await expect(menu.locator('[data-ma="sitest"]')).toHaveCount(0);
+  await page.keyboard.press('Escape');
+  // the change writes to the site right away — a spinner while the call runs
+  let rel; const hold = new Promise((r) => { rel = r; });
+  await page.route('**/functions/v1/woo-sync', async (route) => { await hold; await route.fallback(); });
+  await ws(5001).selectOption({ label: 'جاهز للشحن' });
+  await expect(c.locator('.cw .sdd[aria-busy="true"] .spin')).toBeVisible();
+  await expect(ws(5001)).toBeDisabled();
+  rel(); await page.unroute('**/functions/v1/woo-sync');
   await expect(toast(page)).toHaveText('الأوردر الفرعي #181669 بقى «جاهز للشحن» على الموقع');
   expect(mock.subStatuses).toEqual([{ order_id: 181668, sub_id: 181669, status: 'ready-shipping', by: ADMIN }]);
-  await expect(c.locator('[data-sws="5099"]')).toHaveText('على الموقع: جاهز للشحن'); // the whole sub-order
+  await expect(ws(5099)).toHaveValue('جاهز للشحن'); // the whole sub-order
   await expect.poll(() => mock.activity.filter((a) => a.action === 'suborder.site_status').map((a) => a.new_value)).toEqual(['#181669 (IB-181668) · ready-shipping']);
   // «مسح المنتج»: Pouf off sub-order 181669 and the order
   await c.locator('[data-more="s:5099"]').click();

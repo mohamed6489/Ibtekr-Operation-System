@@ -770,7 +770,7 @@ test('the orders page says «المبتكر», never «المورد» (plan deci
 });
 
 // المرحلة 5.5 (prototype v2, owner 31 Oct / 1 Nov): bulk selection, the status carousel, the active-filter chips, ib:orders-ready
-test('bulk select: the bar changes the status of the selected orders one by one (saved and pushed), the confirmation too, copies the numbers; «مكتمل» is not offered', async ({ page }) => {
+test('bulk select: the bar changes the status of the selected orders one by one (saved and pushed), the confirmation too, copies the numbers; every status is offered (decision 53)', async ({ page }) => {
   await page.addInitScript(() => { document.addEventListener('ib:orders-ready', () => { window.__ordersReady = (window.__ordersReady || 0) + 1; }); });
   await openOrders(page);
   expect(await page.evaluate(() => window.__ordersReady)).toBe(1); // dispatched once the orders are first drawn
@@ -782,9 +782,12 @@ test('bulk select: the bar changes the status of the selected orders one by one 
   await expect(sr('#obulk b')).toHaveText('محدد 2 أوردر');
   await expect(sr('[data-osel="180656"]')).toHaveAttribute('aria-checked', 'true');
   const opts = await sr('select[data-obulk-st] option').allTextContents();
-  expect(opts).not.toContain('مكتمل'); expect(opts).not.toContain('ملغي'); expect(opts).not.toContain('استرجاع');
+  expect(opts.slice(1)).toEqual(['معلّق', 'قيد الانتظار', 'جاري التنفيذ', 'جاهز للشحن', 'قيد الشحن', 'مكتمل', 'استرجاع', 'ملغي', 'فشل']); // decision 53
+  // decision 53: the word on the right, the arrow on the left
+  const lay = await page.evaluate(() => { const l = document.getElementById('orders').shadowRoot.querySelector('#obulk .bsel'); const t = l.querySelector('span').getBoundingClientRect(), a = l.querySelector('svg').getBoundingClientRect(); return t.left > a.left; });
+  expect(lay).toBe(true);
   await sr('select[data-obulk-st]').selectOption('قيد الشحن');
-  await expect(toast(page)).toHaveText('اتغيرت حالة 2 أوردر');
+  await expect(toast(page)).toHaveText('اتغيرت حالة 2 أوردر لـ «قيد الشحن»');
   await expect.poll(() => mock.pushes.length).toBe(2);
   expect(mock.patches).toContainEqual({ table: 'orders', id: 180656, status: 'قيد الشحن' });
   expect(mock.patches).toContainEqual({ table: 'orders', id: 181668, status: 'قيد الشحن' });
@@ -804,6 +807,55 @@ test('bulk select: the bar changes the status of the selected orders one by one 
   await sr('[data-obulk-csv]').click();
   expect((await page.evaluate(() => window.__lastCopy)).split('\n')).toHaveLength(4); // header + 3
   await sr('[data-obulk-clear]').click();
+  await expect(sr('#obulk')).toBeHidden();
+});
+
+test('decision 53: bulk «مكتمل» asks the rating order by order — the rated one closes, «ليس الآن» leaves the next as it was', async ({ page }) => {
+  await openOrders(page);
+  const sr = (sel) => page.locator('#orders ' + sel);
+  await sr('[data-osel="180656"]').click(); await sr('[data-osel="181668"]').click();
+  await sr('select[data-obulk-st]').selectOption('مكتمل');
+  const first = page.getByRole('dialog', { name: /قيّم العميل — IB-(180656|181668)/ });
+  await expect(first).toHaveCount(1);
+  const id1 = (await first.locator('h2').textContent()).match(/\d+/)[0];
+  await first.locator('#rt-sat [data-star="5"]').click(); await first.locator('#rt-manners [data-star="4"]').click();
+  await first.getByRole('button', { name: 'احفظ التقييم وقفّل الأوردر' }).click();
+  const id2 = id1 === '180656' ? '181668' : '180656';
+  const second = page.getByRole('dialog', { name: new RegExp('قيّم العميل — IB-' + id2) });
+  await expect(second).toBeVisible(); // the next order's own popup
+  await second.getByRole('button', { name: 'ليس الآن' }).click();
+  await expect(second).toHaveCount(0);
+  await expect(toast(page)).toHaveText('اتغيرت حالة 1 من 2 أوردر لـ «مكتمل»');
+  await expect.poll(() => mock.ratings.map((r) => r.order_id)).toEqual([Number(id1)]);
+  await expect(card(page, id1).locator('select[data-st]')).toHaveValue('مكتمل');
+  await expect(card(page, id2).locator('select[data-st]')).not.toHaveValue('مكتمل');
+});
+
+test('decision 53: «مسح المحدد» lists the orders with their sub-order counts, one reason for all, each deleted like its own «مسح»; a completed one is left out', async ({ page }) => {
+  mock.orders.find((o) => o.id === 180686).status = 'مكتمل';
+  mock.orders.find((o) => o.id === 180656).status = 'ملغي';
+  await openOrders(page);
+  const sr = (sel) => page.locator('#orders ' + sel); const dlg = sr('#cdlg');
+  await sr('[data-osel="180686"]').click(); await sr('[data-osel-page]').click();
+  await expect(sr('#obulk b')).toHaveText('محدد 3 أوردر');
+  await sr('[data-obulk-del]').click();
+  await expect(dlg.locator('#cdt')).toHaveText('مسح 2 أوردر؟');
+  await expect(dlg.locator('[data-del-count]')).toHaveText('2 أوردر · 3 أوردر فرعي');
+  await expect(dlg.locator('[data-del-row="181668"]')).toContainText('2 أوردر فرعي · هيتلغي الأول');
+  await expect(dlg.locator('[data-del-row="180656"]')).toContainText('1 أوردر فرعي');
+  await expect(dlg.locator('[data-del-row="180686"]')).toHaveCount(0);
+  await expect(dlg.locator('[data-del-skip]')).toHaveText('1 مكتمل/استرجاع في المحدد مش هيتمسحوا.');
+  await dlg.locator('[data-cok]').click(); // no reason yet
+  await expect(dlg.locator('#cerr')).toBeVisible(); expect(mock.deletes).toEqual([]);
+  await dlg.locator('#creason').selectOption('أوردر مكرر');
+  await dlg.locator('[data-cok]').click();
+  await expect(dlg).toHaveCount(0);
+  await expect(toast(page)).toHaveText('اتمسح 2 من 2 أوردر');
+  await expect(cards(page)).toHaveCount(1);
+  await expect(card(page, '180686')).toHaveCount(1);
+  expect(mock.deletes.map((d) => [d.order_id, d.reason]).sort()).toEqual([[180656, 'أوردر مكرر'], [181668, 'أوردر مكرر']]);
+  expect(mock.trashes.map((t) => t.order_id).sort()).toEqual([180656, 181668]);
+  expect(mock.patches).toEqual([{ table: 'orders', id: 181668, status: 'ملغي', cancel: { reason: 'أوردر مكرر' } }]); // the open one cancelled first
   await expect(sr('#obulk')).toBeHidden();
 });
 

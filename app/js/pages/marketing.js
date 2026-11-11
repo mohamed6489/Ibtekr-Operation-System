@@ -93,7 +93,7 @@
   const st = { tab: 'overview', view: 'hub', step: 1 }; // the v6 prototype (owner 11 Nov): the page opens on «نظرة عامة»
   const blankCamp = () => ({ id: null, w: W.defaults(), pieces: [], sched: {}, rtab: 'post', tried1: false, pubSel: new Set(), busy: {}, vjobs: {}, vurl: {} });
   const camp = blankCamp();
-  const M = { plq: '', tplk: 'all', tplq: '' }; // the tabs' filters
+  const M = { plq: '', tplk: 'all', tplq: '', plat: 'all' }; // the tabs' filters; plat = the header's ad platform (the v6 prototype)
 
   function route(hs) {
     let m;
@@ -883,6 +883,27 @@
   const n2 = (v) => Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const adRange = () => { const r = RB().rangeOf ? RB().rangeOf('reports') : null; return r && r.from && r.to ? r : { from: W.addD(TODAY(), -29), to: TODAY() }; };
   const perLabel = (rg) => 'من ' + D2(rg.from) + ' لحد ' + D2(rg.to);
+  // the v6 header (owner 11 Nov): a quick period on the reports' period (today / this week from Saturday / this month) compared with the
+  // period before it of the same length, and the ad platform (all / Meta / TikTok / Google) — the overview and the reports
+  const PERIODS = [['today', 'اليوم · مقارنة بأمس', 'today', 'أمس'], ['week', 'الأسبوع ده · مقارنة باللي فات', 'thisWeek', 'نفس الأيام من الأسبوع اللي فات'], ['month', 'الشهر ده · مقارنة باللي فات', 'thisMonth', 'نفس الأيام من الشهر اللي فات']];
+  const periodRange = (k, t) => (k === 'today' ? { from: t, to: t } : k === 'week' ? { from: W.wkStart(t), to: t } : { from: t.slice(0, 8) + '01', to: t });
+  const periodOf = (rg) => { const t = TODAY(); const p = PERIODS.find(([k]) => { const r = periodRange(k, t); return r.from === rg.from && r.to === rg.to; }); return p ? p[0] : 'custom'; };
+  const spanOf = (rg) => Math.round((Date.parse(rg.to + 'T00:00:00Z') - Date.parse(rg.from + 'T00:00:00Z')) / 864e5) + 1;
+  const prevOf = (rg) => { const n = spanOf(rg); return { from: W.addD(rg.from, -n), to: W.addD(rg.from, -1) }; };
+  const COMPARE_MAX = 92; // a period up to 3 months is compared with the one before it (its days load with it)
+  const loadRange = (rg) => (spanOf(rg) <= COMPARE_MAX ? { from: prevOf(rg).from, to: rg.to } : rg);
+  function setPeriod(k) {
+    const cur = RB().rangeOf ? RB().rangeOf('reports') : null; const p = PERIODS.find((x) => x[0] === k); if (!cur || !p) return;
+    Object.assign(cur, periodRange(k, TODAY()), { preset: p[2] }); // the reports page's own period object — its picker shows the same preset
+    R();
+  }
+  const PLATS = [['all', 'الكل'], ['meta', 'ميتا'], ['tiktok', 'تيك توك'], ['google', 'جوجل']];
+  // the rows of the chosen platform only (the stats, the ads and campaigns, the Woo ad orders)
+  function byPlat(r, k) {
+    if (!r || k === 'all') return r;
+    const on = (x) => (x && (x.platform || 'meta')) === k;
+    return Object.assign({}, r, { stats: (r.stats || []).filter(on), objects: (r.objects || []).filter(on), orders: (r.orders || []).filter((o) => o && o.platform === k) });
+  }
   const AD = { key: null, r: null, at: 0, busy: false, gen: 0, syncing: false };
   let adsAsk = 0;
   // the period's numbers, loaded once per period and fresh for 5 minutes; a new period drops the old numbers, a reload keeps them meanwhile
@@ -893,7 +914,7 @@
     if (AD.key !== key) AD.r = null;
     AD.key = key; AD.busy = true; const g = ++AD.gen;
     Promise.resolve().then(() => MK().adsData(rg)).catch(() => ({ ok: false, reason: 'network', message: 'حصلت مشكلة في الاتصال — جرّب تاني' }))
-      .then((r) => { if (g !== AD.gen) return; AD.busy = false; AD.r = r; AD.at = Date.now(); if (redraw) redraw(); });
+      .then((r) => { if (g !== AD.gen) return; AD.busy = false; AD.r = r; if (r && r.ok) r.rg = rg; AD.at = Date.now(); if (redraw) redraw(); });
   }
   // the link's state (mkt-ads status, cached by the adapter): its answer emits ib:marketing, which redraws this page; `redraw` is the reports page's
   function adsState(redraw) {
@@ -917,10 +938,14 @@
   const srcText = (m) => Object.entries(m || {}).filter(([, n]) => n > 0).sort((a, b) => b[1] - a[1]).map(([k, n]) => (SRC_NAME[k] || k || 'من غير مصدر') + ' ' + K.n0(n)).join(' · ');
   // 9.5.6: the linked platforms (the status) decide whose spend counts; before the status lands, the platforms with numbers
   const linkedOf = (s) => (s && Array.isArray(s.linked) && s.linked.length ? s.linked : undefined);
-  function adCalc(r, rg, s) {
-    const today = TODAY(); const end = rg.to < today ? rg.to : today; const linked = linkedOf(s);
-    const t = W.adTotals(r.stats, r.orders, rg, moneyOk(), linked); const camps = W.adCampaignRows(r.objects, r.stats, r.orders, rg);
-    return { rg, t, camps, alerts: W.adAlerts(r.objects, r.stats, r.orders, rg, end), weeks: W.merWeeks(r.stats, r.orders, rg.to, 5, linked), creatives: W.adCreatives(r.objects, r.stats, rg),
+  function adCalc(r0, rg, s, plat) {
+    const pl = plat || M.plat; const today = TODAY(); const end = rg.to < today ? rg.to : today; const r = byPlat(r0, pl);
+    const linked = pl === 'all' ? linkedOf(s) : (linkedOf(s) || []).filter((k) => k === pl);
+    const show = (t) => (pl === 'all' ? t : Object.assign(t, { platforms: t.platforms.filter((p) => p.key === pl) }));
+    const t = show(W.adTotals(r.stats, r.orders, rg, moneyOk(), linked)); const camps = W.adCampaignRows(r.objects, r.stats, r.orders, rg);
+    // the period before, of the same length — only when its days were loaded with this one (loadRange)
+    const pv = prevOf(rg); const lr = r0.rg || null; const prev = lr && lr.from <= pv.from && lr.to >= rg.to ? show(W.adTotals(r.stats, r.orders, pv, moneyOk(), linked)) : null;
+    return { rg, t, prev, pv, camps, alerts: W.adAlerts(r.objects, r.stats, r.orders, rg, end), weeks: W.merWeeks(r.stats, r.orders, rg.to, 5, linked), creatives: W.adCreatives(r.objects, r.stats, rg),
       loose: Math.max(0, t.metaOrders - camps.reduce((n, x) => n + x.orders, 0)) };
   }
   const AD_NAME = W.AD_PLATFORM; const AD_KEYS = ['meta', 'tiktok', 'google'];
@@ -938,7 +963,7 @@
     const r = await MK().adsSync();
     AD.syncing = false;
     K.toast(r.ok ? 'اتزامنت أرقام الإعلانات — ' + K.n0(r.campaigns) + ' حملة · ' + K.n0(r.ads) + ' إعلان' : r.message, r.ok ? 'success' : 'error');
-    AD.at = 0; adsLoad(adRange(), redraw, true); if (redraw) redraw();
+    AD.at = 0; adsLoad(loadRange(adRange()), redraw, true); if (redraw) redraw();
   }
   function adsBar(s, redraw) {
     return h('div', { class: 'toolbar ads-bar' }, RB().rangeField ? RB().rangeField('reports') : null, U.FreshnessNote(syncLine(s)), h('span', { class: 'grow' }),
@@ -946,12 +971,17 @@
   }
   function adKpis(c) {
     const t = c.t; const det = (title, headers, rows, total) => () => ({ title: title + ' — ' + perLabel(c.rg), headers, rows, total });
+    // the comparison with the period before (the v6 header): the change in %, its tone by what is good (sales up, the order's cost down)
+    const cap = (PERIODS.find((x) => x[0] === periodOf(c.rg)) || [, , , 'الفترة اللي قبلها (' + perLabel(c.pv) + ')'])[3];
+    const cmp = (now, was, goodUp) => { if (!c.prev || now == null || was == null || !(was > 0)) return { compare: 'off' };
+      const d = Math.round((now - was) / was * 100); return { compare: d === 0 || goodUp == null ? 'neutral' : (d > 0) === goodUp ? 'positive' : 'negative', delta: { text: (d > 0 ? '+' : '') + d + '%', caption: 'عن ' + cap } }; };
+    const P = c.prev || {};
     const tiles = [
-      U.KpiTile({ label: 'الصرف الإعلاني', value: n2(t.spend), unit: 'ج.م', compare: 'off', note: linkedNames(t) ? linkedNames(t) + (t.platforms.some((p) => !p.linked) ? ' · الباقي مش مربوط' : '') : 'مفيش منصة مربوطة', details: det('الصرف الإعلاني', ['المنصة', 'الصرف (ج.م)'], t.platforms.map((p) => [p.label, p.linked ? n2(p.spend) : 'مش مربوطة']), ['الإجمالي', n2(t.spend)]) }),
-      U.KpiTile({ label: 'مبيعات ووكومرس من الإعلانات', value: n2(t.sales), unit: 'ج.م', compare: 'off', note: U.num(K.n0(t.orders) + ' أوردر مصدرها إعلان (UTM)' + (t.cancelled ? ' · ' + K.n0(t.cancelled) + ' اتلغى' : '')),
-        details: det('مبيعات ووكومرس من الإعلانات', ['المنصة', 'الأوردرات', 'المبيعات (ج.م)', 'المصدر'], t.platforms.map((p) => [p.label, K.n0(p.orders), n2(p.sales), srcText(p.sources) || '—']), ['الإجمالي', K.n0(t.orders), n2(t.sales), '']) }),
-      U.KpiTile({ label: 'العائد الحقيقي (MER)', value: t.mer == null ? '—' : t.mer.toFixed(2), unit: t.mer == null ? undefined : '×', compare: 'off', note: U.num('مبيعات حملات المنصات المربوطة ÷ صرفها · المنصات بتقول ' + W.xr(t.roas)) }),
-      U.KpiTile({ label: 'تكلفة الأوردر الحقيقية', value: t.cpa == null ? '—' : n2(t.cpa), unit: t.cpa == null ? undefined : 'ج.م', compare: 'off', note: U.num('المنصات بتقول ' + (t.platformCpa == null ? '—' : K.n0(t.platformCpa)) + ' · الحد المقبول ' + K.n0(W.ADS_RULES.maxCpa)) }),
+      U.KpiTile(Object.assign({ label: 'الصرف الإعلاني', value: n2(t.spend), unit: 'ج.م', compare: 'off', note: linkedNames(t) ? linkedNames(t) + (t.platforms.some((p) => !p.linked) ? ' · الباقي مش مربوط' : '') : 'مفيش منصة مربوطة', details: det('الصرف الإعلاني', ['المنصة', 'الصرف (ج.م)'], t.platforms.map((p) => [p.label, p.linked ? n2(p.spend) : 'مش مربوطة']), ['الإجمالي', n2(t.spend)]) }, cmp(t.spend, P.spend, null))),
+      U.KpiTile(Object.assign({ label: 'مبيعات ووكومرس من الإعلانات', value: n2(t.sales), unit: 'ج.م', compare: 'off', note: U.num(K.n0(t.orders) + ' أوردر مصدرها إعلان (UTM)' + (t.cancelled ? ' · ' + K.n0(t.cancelled) + ' اتلغى' : '')),
+        details: det('مبيعات ووكومرس من الإعلانات', ['المنصة', 'الأوردرات', 'المبيعات (ج.م)', 'المصدر'], t.platforms.map((p) => [p.label, K.n0(p.orders), n2(p.sales), srcText(p.sources) || '—']), ['الإجمالي', K.n0(t.orders), n2(t.sales), '']) }, cmp(t.sales, P.sales, true))),
+      U.KpiTile(Object.assign({ label: 'العائد الحقيقي (MER)', value: t.mer == null ? '—' : t.mer.toFixed(2), unit: t.mer == null ? undefined : '×', compare: 'off', note: U.num('مبيعات حملات المنصات المربوطة ÷ صرفها · المنصات بتقول ' + W.xr(t.roas)) }, cmp(t.mer, P.mer, true))),
+      U.KpiTile(Object.assign({ label: 'تكلفة الأوردر الحقيقية', value: t.cpa == null ? '—' : n2(t.cpa), unit: t.cpa == null ? undefined : 'ج.م', compare: 'off', note: U.num('المنصات بتقول ' + (t.platformCpa == null ? '—' : K.n0(t.platformCpa)) + ' · الحد المقبول ' + K.n0(W.ADS_RULES.maxCpa)) }, cmp(t.cpa, P.cpa, false))),
       t.profit == null ? null : U.KpiTile({ label: 'الربح بعد الإعلانات', value: n2(t.profit), unit: 'ج.م', compare: 'off', note: 'نصيب إبتكر من أوردرات الإعلانات − الصرف',
         details: det('الربح بعد الإعلانات', ['البند', 'ج.م'], [['نصيب إبتكر من أوردرات الإعلانات (المنصات المربوطة)', n2(t.metaShare)], ['الصرف الإعلاني', '− ' + n2(t.spend)]], ['الربح', n2(t.profit)]) })].filter(Boolean);
     return h('div', { class: 'cards ' + (tiles.length === 5 ? 'five' : 'four'), 'data-rgroup': 'kpis', 'data-ads-kpis': String(tiles.length) }, tiles);
@@ -1063,16 +1093,16 @@
       [crTip(), L.length ? U.Table({ cls: 'dt cr-tbl ads-cr', headers: ['الإعلان', 'الحالة', 'الصرف (ج.م)', 'الظهور', 'النقرات (CTR)', 'التكرار', 'مشتريات ميتا', 'عائد ميتا', ''], rows }) : K.Empty('مفيش إعلانات فيها صرف في الفترة دي', 'غيّر الفترة من فوق.')]);
   }
   function overviewTab() {
-    const rg = adRange(); const s = adsState(null); adsLoad(rg, redrawAds);
-    const gate = adsGate(rg, redrawAds); if (gate) return [adsBar(s, redrawAds)].concat(gate);
+    const rg = adRange(); const s = adsState(null); adsLoad(loadRange(rg), redrawAds);
+    const gate = adsGate(loadRange(rg), redrawAds); if (gate) return [adsBar(s, redrawAds)].concat(gate);
     const c = adCalc(AD.r, rg, s);
     return [adsBar(s, redrawAds), adsNote(s), adKpis(c), h('div', { class: 'mk-row' }, suggCard(), adsConnCard(s, c)), h('div', { class: 'charts', 'data-rgroup': 'charts' }, merChart(c), spendChart(c)), vsCard(c), asstCards(), adsSource()].filter(Boolean);
   }
   function reportsTab() {
-    const rg = adRange(); const s = adsState(null); adsLoad(rg, redrawAds);
+    const rg = adRange(); const s = adsState(null); adsLoad(loadRange(rg), redrawAds);
     const sub = M.rsub || 'campaigns'; const c = AD.r && AD.r.ok ? adCalc(AD.r, rg, s) : null;
     const tabs = K.SubTabs({ label: 'تقارير التسويق', active: sub, onChange: (id) => { M.rsub = id; R(); }, items: [{ id: 'campaigns', label: 'الحملات', count: c ? c.camps.length : null }, { id: 'creative', label: 'الأعمال الفنية', count: c ? c.creatives.length : null }] });
-    const gate = adsGate(rg, redrawAds); if (gate) return [adsBar(s, redrawAds), tabs].concat(gate);
+    const gate = adsGate(loadRange(rg), redrawAds); if (gate) return [adsBar(s, redrawAds), tabs].concat(gate);
     if (sub === 'creative') return [adsBar(s, redrawAds), tabs, adsNote(s), crTable(c), adsSource()].filter(Boolean);
     const f = M.cf = M.cf || { status: '', q: '' }; const q = (f.q || '').trim().toLowerCase();
     const sts = [...new Set(c.camps.map((x) => stOf(x.status)[0]))];
@@ -1086,9 +1116,9 @@
   // the reports page's «الحملات الإعلانية» (decision 47): the same numbers and blocks, its redraw; CSV = the campaigns
   function reportBlocks(redraw) {
     if (!MK() || !can().view) return { blocks: [K.Empty('مش مسموحلك تشوف التسويق', 'اطلب صلاحية «التسويق» من الأدمن.')], exp: null };
-    const rg = adRange(); const s = adsState(redraw); adsLoad(rg, redraw);
-    const gate = adsGate(rg, redraw); if (gate) return { blocks: gate, exp: null };
-    const c = adCalc(AD.r, rg, s);
+    const rg = adRange(); const s = adsState(redraw); adsLoad(loadRange(rg), redraw);
+    const gate = adsGate(loadRange(rg), redraw); if (gate) return { blocks: gate, exp: null };
+    const c = adCalc(AD.r, rg, s, 'all'); // the reports page has no platform filter
     const exp = { label: 'الحملات الإعلانية', headers: ['الحملة', 'رقم الحملة', 'المنصة', 'الحالة', 'الصرف', 'مشتريات ميتا', 'أوردرات ووكومرس', 'مبيعات ووكومرس', 'العائد الحقيقي', 'تكلفة الأوردر'],
       rows: c.camps.map((x) => [x.name, x.id, x.platform, stOf(x.status)[0], x.spend, x.purchases, x.orders, Math.round(x.sales * 100) / 100, x.mer == null ? '' : Math.round(x.mer * 100) / 100, x.cpa == null ? '' : Math.round(x.cpa)]) };
     return { exp, blocks: [adsNote(s), adKpis(c), h('div', { class: 'charts', 'data-rgroup': 'charts' }, merChart(c), spendChart(c)), vsCard(c), campTable(c, c.camps), crTable(c), adsSource()].filter(Boolean) };
@@ -1238,7 +1268,11 @@
   // ---------- the page ----------
   function headActs() {
     const tab = TABS.find(([id]) => id === st.tab) || [];
-    return st.tab === 'reports' ? [] : [K.PanelButton('marketing:' + st.tab, 'التسويق — ' + tab[1], () => document.querySelector('#pg-marketing .panel'), R)];
+    const ads = st.tab === 'overview' || st.tab === 'reports';
+    const per = st.tab === 'overview' ? U.Select({ id: 'mk-period', label: '', value: periodOf(adRange()),
+      options: PERIODS.map(([k, l]) => ({ value: k, label: 'الفترة: ' + l })).concat(periodOf(adRange()) === 'custom' ? [{ value: 'custom', label: 'الفترة: ' + perLabel(adRange()) }] : []), onChange: (v) => { if (v !== 'custom') setPeriod(v); } }) : null;
+    const plat = ads ? U.Select({ id: 'mk-plat', label: '', value: M.plat, options: PLATS.map(([k, l]) => ({ value: k, label: 'المنصة: ' + l })), onChange: (v) => { M.plat = v; R(); } }) : null;
+    return [st.tab === 'reports' ? null : K.PanelButton('marketing:' + st.tab, 'التسويق — ' + tab[1], () => document.querySelector('#pg-marketing .panel'), R), per, plat].filter(Boolean);
   }
   function view() {
     if (!MK() || !can().view) return [K.PageHead('التسويق', null, []), K.Empty('مفيش صلاحية', 'صفحة التسويق محتاجة صلاحية «التسويق — عرض».')];

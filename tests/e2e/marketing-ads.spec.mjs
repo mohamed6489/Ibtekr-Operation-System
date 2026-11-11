@@ -125,6 +125,32 @@ test('«نظرة عامة»: the spend, the Woo sales from ads, the real return 
   await expect(P.locator('[data-mk-pending="3"]')).toBeVisible(); // the suggestions are the server's — the period does not move them
 });
 
+test('the v6 header: the quick period on the reports\' period compared with the one before («اليوم» vs yesterday), and the platform filter (Google = its UTM orders only)', async ({ page }) => {
+  await start(page);
+  await openTab(page, ADMIN, 'نظرة عامة');
+  const P = pg(page);
+  await expect(kpi(P, 'الصرف الإعلاني')).toContainText('2,700.00');
+  // the period: «اليوم» — no spend today, 1,400 yesterday → −100% «عن أمس»; the reports' own period field shows today too
+  await P.locator('#mk-period').click(); await page.getByRole('option', { name: /اليوم · مقارنة بأمس/ }).click();
+  await expect(kpi(P, 'الصرف الإعلاني')).toContainText('0.00');
+  await expect(kpi(P, 'الصرف الإعلاني').locator('.kpi-delta')).toContainText('-100%');
+  await expect(kpi(P, 'الصرف الإعلاني').locator('.kpi-delta')).toContainText('عن أمس');
+  await expect(P.locator('#mk-period')).toContainText('اليوم · مقارنة بأمس');
+  // back to the last 30 days from the reports' period (a custom period shows its dates in the header select)
+  await page.evaluate((from) => { const r = window.IBReportBlocks.rangeOf('reports'); r.from = from; r.preset = 'custom'; }, D(-29));
+  await P.locator('#mk-plat').click(); await page.getByRole('option', { name: 'المنصة: جوجل' }).click();
+  await expect(kpi(P, 'مبيعات ووكومرس من الإعلانات')).toContainText('900.00');
+  await expect(kpi(P, 'مبيعات ووكومرس من الإعلانات')).toContainText('2 أوردر');
+  await expect(P.locator('.ads-vs tbody tr')).toHaveCount(1);
+  await expect(P.locator('.ads-vs tbody tr').first()).toContainText('جوجل');
+  // the reports tab keeps the platform: Google has no campaign with spend → the Meta campaigns are gone
+  await pg(page).getByRole('tab', { name: /التقارير/ }).click();
+  await expect(P.locator('#mk-plat')).toContainText('جوجل');
+  await expect(P.locator('[data-ads-camp]')).toHaveCount(0);
+  await P.locator('#mk-plat').click(); await page.getByRole('option', { name: 'المنصة: الكل' }).click();
+  await expect(P.locator('[data-ads-camp]').first()).toBeVisible();
+});
+
 test('«التقارير»: the campaigns (Meta next to Woo, the suggested decision, the status filter, the days) and the creatives (the picture, tired, the utm_content tip)', async ({ page }) => {
   await start(page);
   await openTab(page, ADMIN, 'التقارير');

@@ -250,7 +250,9 @@
     if (lv && c()) { try { Promise.resolve(c().removeChannel(lv)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
 
-  window.IBTickets = { load, clear, loadEvents, subscribe, unsubscribe, check, state: () => st, can, myRoles, actor, canWork, canClose, canReopen: canClose, isMine,
+  // the ticket roles of a member's role (the owner 11 Nov — «مين اكتر حد عنده شغل» on the overview)
+  const rolesOf = (roleId) => (ROLE_LABELS[roleId] || []).slice();
+  window.IBTickets = { load, clear, loadEvents, subscribe, unsubscribe, check, state: () => st, can, myRoles, rolesOf, actor, canWork, canClose, canReopen: canClose, isMine,
     all, get, events, bell, markSeen, forOrder, forVendor, forCustomer, forConversation, create, setStatus, resolve, close, reopen, update, reply, upload, fileUrl, checkFile,
     MAX_FILES, MAX_BYTES, MIME, tid, dbIdOf, _test: { toTicket, toEvent, safeName, files, fail } };
 })();

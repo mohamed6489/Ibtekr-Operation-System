@@ -55,6 +55,7 @@ test('the roles: canWork = the admin or a member of the assigned role (ops holds
   eq([acc.T.canWork(acc.T.get('TKT-0001')), acc.T.canClose(acc.T.get('TKT-0001')), acc.T.canWork(acc.T.get('TKT-0002')), acc.T.canClose(acc.T.get('TKT-0002'))], [true, false, false, true]);
   const ops = load({ role: 'ops' }); await ops.T.load();
   eq(ops.T.myRoles(), ['اللوجستيك والشحن', 'المحتوى والتصوير']);
+  eq([ops.T.rolesOf('ops'), ops.T.rolesOf('cs'), ops.T.rolesOf('viewer'), ops.T.rolesOf('')], [['اللوجستيك والشحن', 'المحتوى والتصوير'], ['خدمة العملاء'], [], []]); // «مين عنده شغل» (the owner 11 Nov)
   eq([ops.T.canWork(ops.T.get('TKT-0002')), ops.T.isMine(ops.T.get('TKT-0002'))], [true, true]);
   const adm = load({ role: 'admin' }); await adm.T.load();
   eq([adm.T.canWork(adm.T.get('TKT-0001')), adm.T.canClose(adm.T.get('TKT-0001')), adm.T.actor().role], [true, true, 'مدير النظام']);

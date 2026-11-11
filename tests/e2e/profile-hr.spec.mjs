@@ -60,7 +60,7 @@ test('«ملفي» from the server: my hours and overtime, a request cancelled, 
   await expect(row).toContainText('9:40'); await expect(row).toContainText('17:30');
   await expect(row).toContainText('7:50'); await expect(row).not.toContainText('متأخر'); // decision 24: the sessions summed, no lateness
   await expect(P(page)).toContainText('تصوير الكتالوج');
-  await expect(P(page).getByRole('tab', { name: 'طلباتي' })).toHaveCount(0); // decision 33: my requests are team tickets
+  await expect(P(page).getByRole('tab', { name: 'طلباتي' })).toHaveCount(1); // the owner 11 Nov: my team requests, right after «مهامي»
   await tab(page, 'أدائي');
   await expect(P(page)).toContainText('104%'); await expect(P(page)).toContainText('شحن في الميعاد');
   await tab(page, 'مرتبي');
@@ -153,7 +153,7 @@ test('ops (hr.view P, no sensitive.salaries) on another member\'s file: no money
 
 test('«تعديل بياناتي»: the mobile saved on my profile (a taken one refused), a new email through Supabase\'s confirmation link — neither logged', async ({ page }) => {
   await open(page, OPS, 'profile-security');
-  await P(page).locator('.prof-head').getByRole('button', { name: 'تعديل بياناتي' }).click(); await page.getByRole('menuitem', { name: 'تعديل البيانات' }).click(); // decision 45: the header's button is a menu
+  await P(page).locator('.prof-head').getByRole('button', { name: 'إجراءات سريعة' }).click(); await page.getByRole('menuitem', { name: 'تعديل البيانات' }).click(); // decision 45: the header's button is a menu
   const f = modal(page, 'تعديل بياناتي');
   await expect(f.locator('#name')).toBeFocused();
   // decision 22: the job title, department, role and status are shown read-only — no field for them
@@ -180,7 +180,7 @@ test('«تعديل بياناتي»: the mobile saved on my profile (a taken one
 
 test('decision 22: «تعديل بياناتي» renames me and changes my password in the same popup — a half-filled password section is refused first', async ({ page }) => {
   await open(page, OPS, 'profile');
-  await P(page).locator('.prof-head').getByRole('button', { name: 'تعديل بياناتي' }).click(); await page.getByRole('menuitem', { name: 'تعديل البيانات' }).click();
+  await P(page).locator('.prof-head').getByRole('button', { name: 'إجراءات سريعة' }).click(); await page.getByRole('menuitem', { name: 'تعديل البيانات' }).click();
   const f = modal(page, 'تعديل بياناتي');
   await f.locator('#name').fill('  سارة   أحمد  علي ');
   await f.locator('#p1').fill('NewPass-2026'); await f.locator('#p2').fill('NewPass-2026');

@@ -6,8 +6,9 @@
   const { h, Icon, Button } = U; const S = K.store;
   // decision 38: «الإنجازات» and «التفضيلات» removed; decision 39: «بيانات الحساب» (the old «الحساب والأمان», id kept for #profile-security)
   // right after «نظرة عامة», with the documents («مستندات وعقود») inside it
-  const TABS = [['overview', 'نظرة عامة'], ['security', 'بيانات الحساب'], ['tasks', 'مهامي'], ['hours', 'ساعات العمل'], ['performance', 'أدائي'], ['salary', 'مرتبي'], ['alerts', 'تنبيهاتي']];
-  const st = { tab: 'overview', who: null, taskSub: 'today', reqSub: 'mine', showPay: false, newTask: '', notes: {}, bank: {}, bankShown: {}, perfQ: null, slips: {} };
+  // the owner 11 Nov: «طلباتي» (the team requests I opened) right after «مهامي»
+  const TABS = [['overview', 'نظرة عامة'], ['security', 'بيانات الحساب'], ['tasks', 'مهامي'], ['requests', 'طلباتي'], ['hours', 'ساعات العمل'], ['performance', 'أدائي'], ['salary', 'مرتبي'], ['alerts', 'تنبيهاتي']];
+  const st = { tab: 'overview', who: null, taskSub: 'today', reqSub: 'open', showPay: false, newTask: '', notes: {}, bank: {}, bankShown: {}, perfQ: null, slips: {} };
   const rerender = () => window.IBPages.render('profile');
   // decision 30: «me» is null — never K.ME captured before the sign-in (an earlier hash ran with the default M01, so an admin saw M01)
   const whoId = () => st.who || K.ME;
@@ -47,7 +48,7 @@
   // menu — the overtime request (decision 44, IBShell.otRequest), «تعديل بياناتي», and a new request on «طلبات الفريق» (IbtekrApp.newTicket)
   function myMenu(m) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
-    const btn = Button({ label: 'تعديل بياناتي', iconEnd: 'chevD', attrs: { 'aria-haspopup': 'menu', 'data-my-menu': '' } });
+    const btn = Button({ label: 'إجراءات سريعة', iconEnd: 'chevD', attrs: { 'aria-haspopup': 'menu', 'data-my-menu': '' } }); // the owner 11 Nov (was «تعديل بياناتي»)
     const opts = [window.IBShell && window.IBShell.otRequest ? { value: 'ot', label: '+ وقت إضافي', icon: 'clock' } : null, { value: 'edit', label: 'تعديل البيانات', icon: 'edit' },
       window.IbtekrApp && window.IbtekrApp.newTicket ? { value: 'req', label: 'فتح طلب', icon: 'send' } : null].filter(Boolean);
     const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: opts, role: 'menu', end: true, onSelect: (v) => { close();
@@ -73,6 +74,7 @@
     switch (st.tab) {
       case 'overview': return overview(m);
       case 'tasks': return tasks(m);
+      case 'requests': return requestsTab(m);
       case 'hours': return hours(m);
       case 'performance': return performance(m);
       case 'salary': return salary(m);
@@ -114,22 +116,24 @@
   const lastScore = (id) => { const sc = HD().scores[id] || {}; const k = Object.keys(sc).filter((x) => sc[x] != null).sort().pop(); return k ? { k, v: sc[k] } : null; };
   function overview(m) {
     const r = O.rollover(tasksOf(m.id), tdy()); const open = r.today.length + autoOf(m).length; const D = HD(); const mk = thisMonth();
-    const myReq = D.requests.filter((x) => x.member === m.id); const need = isAdminView() ? 0 : needFromMe().length; const isP = HR().isPending;
+    const need = isAdminView() ? 0 : needFromMe().length;
     const days = D.attendance.filter((a) => a.member === m.id && a.date.startsWith(mk) && a.in != null).length;
     const sc = lastScore(m.id); const qs = HR().qScore(m.id); const money = seesMoney(m); const slip = money && m.salary > 0 ? slipsOf(m).list[0] : null;
     // decision 38 (the owner, 10 Nov — «الإنجازات تكون عدد المهام اللي الموظف أنجزها»): the tasks done, all time and this month
     const done = tasksOf(m.id).filter((t) => t.status === 'خلصت'); const doneMonth = done.filter((t) => String(t.doneAt || '').slice(0, 7) === mk).length;
     const tile = (t, v, sub, go, pre) => h('button', { type: 'button', class: 'card sum-tile', onClick: () => { if (go.charAt(0) === '#') { location.hash = go.slice(1); return; } if (pre) pre(); st.tab = go; setHash(); rerender(); } }, h('span', { class: 'kpi-label t-label' }, t), h('span', { class: 't-h3' }, K.Num(String(v))), h('span', { class: 't-small help' }, sub), h('span', { class: 'more t-small' }, 'التفاصيل ', Icon('chevL', 'sm')));
     const own = !isAdminView() && m.id === K.ME; const NRV = window.IBNotifRoles;
-    const reqGo = isAdminView() ? '#hr-requests' : '#tickets'; // decision 33: my requests are team tickets
+    const reqGo = 'requests'; // the owner 11 Nov: «طلباتي» in this file (the team requests the member opened — decision 33)
+    const TKA = window.IBTickets; const tkMine = TKA && TKA.state && TKA.state() === 'ready' ? TKA.all().filter((t) => t.createdBy && t.createdBy.uid && t.createdBy.uid === m.uid) : [];
+    const tkOpen = tkMine.filter((t) => ['open', 'in_progress', 'waiting'].includes(t.status)).length;
     const ntfCount = own && NRV && NRV.viewSections ? NRV.viewSections(true).reduce((n, x) => n + (x.received != null ? x.received : ((x.tabs || [])[0] || [0, 0, []])[2].length), 0) : 0;
     return [own ? h('div', { class: 'toolbar pn-bar' }, h('span', { class: 'grow' }), K.PanelButton('profile:overview', 'ملفي — نظرة عامة', () => document.querySelector('#pg-profile .panel'), rerender)) : null,
-      h('div', { class: 'cards' }, tile('مهام النهارده', open, r.today.filter((t) => t.carried).length + ' من امبارح', 'tasks'), tile('ساعات ' + monName(mk), K.hm(m.monthMin || 0), days + ' يوم حضور', 'hours'), tile('رصيد الإجازات', (m.leave || 0) - (m.used || 0), 'من ' + (m.leave || 0) + ' يوم', reqGo), isAdminView() || need === 0 ? tile(isAdminView() ? 'طلباته' : 'طلباتي', myReq.filter(isP).length, 'مستنية قرار', reqGo) : tile('محتاجة منك', need, 'طلبات فريقك', reqGo)),
+      h('div', { class: 'cards' }, tile(isAdminView() ? 'مهامه المفتوحة' : 'مهامي المفتوحة', open, autoOf(m).length + ' منها تلقائية من السيستم', 'tasks', () => { st.taskSub = 'today'; }), tile('ساعات ' + monName(mk), K.hm(m.monthMin || 0), days + ' يوم حضور', 'hours'), tile('رصيد الإجازات', (m.leave || 0) - (m.used || 0), 'من ' + (m.leave || 0) + ' يوم', reqGo), isAdminView() || need === 0 ? tile(isAdminView() ? 'طلباته' : 'طلباتي', tkOpen, 'مفتوحة على «طلبات الفريق»', reqGo, () => { st.reqSub = 'open'; }) : tile('محتاجة منك', need, 'طلبات فريقك', '#tickets')),
       h('div', { class: 'cards' }, tile(sc ? 'أداء ' + monName(sc.k) : 'الأداء', sc ? sc.v + '%' : '—', sc ? O.rating(sc.v) + (qs != null ? ' · الربع ' + qs + '%' : '') : 'لسه مفيش تقييم', 'performance'), tile(isAdminView() ? 'إنجازاته' : 'إنجازاتي', done.length, 'مهمة خلصت · ' + doneMonth + ' الشهر ده', 'tasks', () => { st.taskSub = 'done'; }),
         tile('آخر مرتب', slip ? K.money(slip.net) : '—', !money ? 'المرتبات للأدمن بس' : !(m.salary > 0) ? 'مفيش مرتب مسجل' : slip ? 'صافي ' + monName(slip.month) : 'القسيمة بتظهر بعد اعتماد الكشف', 'salary'), tile('المستندات', m.contract === 'missing' ? 'ناقص' : 'تمام', m.contract === 'expiring' ? 'العقد بيخلص قريب' : 'العقد والمستندات', 'security')),
       // decision 27 (the owner, 10 Nov — «إضافة زرار تخصيص اللوحة… وإمكانية إظهار عدد التنبيهات أو الطلبات»): my alerts and my open requests,
       // and «تخصيص اللوحة» to hide / order every card (user_prefs panel.prefs «profile:overview»)
-      own ? h('div', { class: 'cards' }, tile('التنبيهات', ntfCount, ntfCount ? 'من الجرس — اضغط تشوفها' : 'مفيش تنبيهات دلوقتي', 'alerts'), tile('طلباتي المفتوحة', myReq.filter(isP).length, 'من ' + myReq.length + ' طلب', reqGo)) : null,
+      own ? h('div', { class: 'cards' }, tile('التنبيهات', ntfCount, ntfCount ? 'من الجرس — اضغط تشوفها' : 'مفيش تنبيهات دلوقتي', 'alerts'), tile('طلباتي المفتوحة', tkOpen, 'من ' + tkMine.length + ' طلب', reqGo, () => { st.reqSub = 'open'; })) : null,
       isAdminView() ? adminCards(m) : null];
   }
   // the beige cards when another member's file is open: each by what the viewer may do (the server decides again)
@@ -188,14 +192,14 @@
   const failed = (r) => { if (r && !r.ok && r.reason !== 'stale') { K.toast(r.message || 'معرفناش نحفظ — جرّب تاني', 'error'); if (window.IBPages.current === 'profile') rerender(); } };
   function tasks(m) {
     const r = O.rollover(tasksOf(m.id), tdy()); const auto = autoOf(m); const w = canT(m.id);
-    const subs = [{ id: 'today', label: 'النهارده', count: r.today.length + auto.length }, { id: 'later', label: 'المؤجل', count: r.later.length + r.scheduled.length }, { id: 'done', label: 'خلصت', count: r.done.length }];
+    const subs = [{ id: 'today', label: 'المفتوحة', count: r.today.length + auto.length } /* the owner 11 Nov: no «النهارده» — the open tasks */, { id: 'later', label: 'المؤجل', count: r.later.length + r.scheduled.length }, { id: 'done', label: 'خلصت', count: r.done.length }];
     const add = h('input', { class: 'task-add', placeholder: 'ضيف مهمة واضغط Enter', 'aria-label': 'مهمة جديدة', value: st.newTask, maxlength: '200' });
     add.addEventListener('input', () => { st.newTask = add.value; });
     add.addEventListener('keydown', (e) => { if (e.key === 'Enter' && add.value.trim()) { const p = IH().taskAdd(whoId(), add.value.trim()); st.newTask = ''; rerender(); setTimeout(() => { const n = document.querySelector('.task-add'); if (n) n.focus(); }); p.then(failed); } });
     const list = st.taskSub === 'today' ? r.today : st.taskSub === 'later' ? r.later.concat(r.scheduled) : r.done.slice().sort((a, b) => (String(a.doneAt || '') < String(b.doneAt || '') ? 1 : -1));
     return [K.SubTabs({ items: subs, active: st.taskSub, onChange: (id) => { st.taskSub = id; rerender(); }, label: 'المهام' }),
       st.taskSub === 'today' ? K.Section('تلقائية من السيستم', auto.length ? auto.map(autoRow) : isAdminView() ? K.Empty('مفيش مراجعات مستنياه', '') : K.Empty('مفيش حاجة مستنياك', 'المراجعات والطلبات والتذاكر والأوردرات اللي محتاجاك بتظهر هنا لوحدها.'), null, { sub: auto.length + ' مهمة' }) : null,
-      K.Section(st.taskSub === 'today' ? (isAdminView() ? 'مهامه النهارده' : 'مهامي النهارده') : st.taskSub === 'later' ? 'المؤجل' : 'خلصت', [st.taskSub === 'today' && w ? h('label', { class: 'task-add-wrap' }, Icon('plus', 'sm'), add) : null, list.length ? list.map((t) => taskRow(t, w)) : K.Empty(st.taskSub === 'later' ? 'مفيش مهام مؤجلة' : st.taskSub === 'done' ? 'لسه مفيش مهام خلصت' : 'مفيش مهام', st.taskSub === 'today' && w ? 'اكتب مهمة فوق واضغط Enter.' : '')], null, { sub: st.taskSub === 'today' ? 'اللي ما خلصش بينتقل لبكره «من امبارح»' : st.taskSub === 'later' ? 'تذكير أسبوعي لو المؤجل لأجل غير مسمى عدّى 30 يوم' : 'آخر 90 يوم' })];
+      K.Section(st.taskSub === 'today' ? (isAdminView() ? 'مهامه المفتوحة' : 'مهامي المفتوحة') : st.taskSub === 'later' ? 'المؤجل' : 'خلصت', [st.taskSub === 'today' && w ? h('label', { class: 'task-add-wrap' }, Icon('plus', 'sm'), add) : null, list.length ? list.map((t) => taskRow(t, w)) : K.Empty(st.taskSub === 'later' ? 'مفيش مهام مؤجلة' : st.taskSub === 'done' ? 'لسه مفيش مهام خلصت' : 'مفيش مهام', st.taskSub === 'today' && w ? 'اكتب مهمة فوق واضغط Enter.' : '')], null, { sub: st.taskSub === 'today' ? 'كل اللي لسه ما خلصش' : st.taskSub === 'later' ? 'تذكير أسبوعي لو المؤجل لأجل غير مسمى عدّى 30 يوم' : 'آخر 90 يوم' })];
   }
   function taskRow(t, w) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
@@ -207,9 +211,32 @@
     t.byUid && t.byUid !== t.memberUid && t.by ? 'من ' + t.by : ''].filter(Boolean).join(' · ');
     const del = IH() && IH().canDeleteTask && IH().canDeleteTask(t);
     return h('div', { class: 'task' + (t.status === 'خلصت' ? ' done' : ''), 'data-task': String(t.id) }, K.Checkbox({ label: '', checked: t.status === 'خلصت', disabled: !w, onChange: (v) => changeStatus(t, v ? 'خلصت' : 'لسه') }),
-      h('span', { class: 'grow' }, t.title, t.carried ? h('span', { class: 'carried' }, K.Tag('orange', 'من امبارح')) : null, meta ? h('small', { class: 't-small help' }, ' · ' + meta) : null), wrap,
+      h('span', { class: 'grow' }, t.title, meta ? h('small', { class: 't-small help' }, ' · ' + meta) : null), wrap,
       del ? K.RowMenu([{ label: 'حذف', icon: 'close', danger: true, run: () => { IH().taskDelete(t.id).then(failed); rerender(); } }], 'إجراءات ' + t.title) : null);
   }
+  // ---------- طلباتي (the owner 11 Nov — «هنضيف هنا طلباتي بعد مهامي»): the team requests («طلبات الفريق», IBTickets) this member opened,
+  // every type (a customer / maker problem, the HR requests of decision 33, a special request); open first, a click opens the request ----------
+  const REQ_ST = { open: 'مفتوح', in_progress: 'جاري العمل', waiting: 'بانتظار الرد', resolved: 'تم الحل', closed: 'مغلق' };
+  function requestsTab(m) {
+    const TA = window.IBTickets; const TK = window.IbtekrTickets;
+    if (!TA || !TA.can || !TA.can().view) return [K.Section(label('requests'), K.Empty('الطلبات مش متاحة ليك', 'طلبات الفريق محتاجة صلاحية «طلبات الفريق».'))];
+    const ready = TA.state && TA.state() === 'ready';
+    const mine = (ready ? TA.all() : []).filter((t) => t.createdBy && t.createdBy.uid && t.createdBy.uid === m.uid).sort((a, b) => (String(a.lastUpdate || a.createdAt) < String(b.lastUpdate || b.createdAt) ? 1 : -1));
+    const open = mine.filter((t) => ['open', 'in_progress', 'waiting'].includes(t.status));
+    const list = st.reqSub === 'all' ? mine : open;
+    const typeOf = (t) => (TK ? TK.label(TK.TYPES, t.type) : t.type);
+    const go = (t) => { location.hash = 'tickets/' + t.id; };
+    const row = (t) => { const tr = h('tr', { 'data-my-req': t.id, tabindex: '0', role: 'button', 'aria-label': 'افتح الطلب ' + t.id },
+      [K.Num(t.id), t.title, typeOf(t), U.TicketStatus ? U.TicketStatus(t.status) : (REQ_ST[t.status] || t.status), t.assigneeRole || '—', K.Num(String(t.lastUpdate || t.createdAt || '').slice(0, 10))].map((c) => h('td', null, c)));
+      tr.addEventListener('click', () => go(t)); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); go(t); } }); return tr; };
+    const fresh = window.IbtekrApp && window.IbtekrApp.newTicket && !isAdminView() ? Button({ type: 'brand', size: 'sm', icon: 'plus', label: 'فتح طلب', onClick: () => window.IbtekrApp.newTicket() }) : null;
+    return [K.SubTabs({ items: [{ id: 'open', label: 'المفتوحة', count: open.length }, { id: 'all', label: 'الكل', count: mine.length }], active: st.reqSub === 'all' ? 'all' : 'open', onChange: (id) => { st.reqSub = id; rerender(); }, label: 'طلباتي' }),
+      K.TableSection({ title: isAdminView() ? 'طلباته' : 'طلباتي', sub: 'اللي اتفتح على «طلبات الفريق» — اضغط على أي طلب يفتحه', actions: fresh,
+        body: !ready ? K.Empty('بنجيب الطلبات…', 'لحظة.') : list.length ? h('div', { class: 'scroll-x' }, h('table', null, h('thead', null, h('tr', null, ['الرقم', 'العنوان', 'النوع', 'الحالة', 'المسؤول', 'آخر تحديث'].map((x) => h('th', { scope: 'col' }, x)))), h('tbody', null, list.map(row))))
+          : K.Empty(st.reqSub === 'all' ? 'لسه مفيش طلبات' : 'مفيش طلبات مفتوحة', st.reqSub === 'all' ? 'الطلبات اللي بتفتحها على «طلبات الفريق» بتظهر هنا.' : 'كل طلباتك اتحلت أو اتقفلت.') })];
+  }
+  document.addEventListener('ib:tickets', () => { if (window.IBPages.current === 'profile' && st.tab === 'requests' && !typing()) rerender(); });
+
   // «مين هيراجع»: the active team (hr_task_people) but the task's own member; the member's direct manager first
   function reviewers(t) {
     const P = IH() ? IH().people() : []; const owner = HM(t.member) || {}; const mgr = owner.manager ? HM(owner.manager) : null;

@@ -23,6 +23,7 @@ test('load asks roles.permissions and my profile\'s custom_perms, then loads the
   assert.deepEqual(opsOf(queries, 'roles'), [{ op: 'select', args: ['id, name, permissions'] }]);
   assert.match(opsOf(queries, 'profiles')[0].args[0], /\bcustom_perms\b/);
   assert.deepEqual(calls, [['setMe', 'M02'], ['vendors.load']]);
+  assert.deepEqual([D.members()[0].role, D.members()[0].roleId], ['عمليات', 'ops']); // the role's name and its id («مين عنده شغل» on the team requests' overview)
 });
 
 test('perm: the role\'s matrix, a custom_perms entry first (even N), unknown keys N; nothing before a load; admin F everywhere', async () => {

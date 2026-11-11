@@ -112,6 +112,7 @@ test('a page with one block hides the button; the reports tabs, the inbox and th
   await expect(page.locator('#pg-products .panel')).toBeVisible();
   await expect(page.locator('[data-pn-custom="products:records"]')).toBeHidden();
   await go(page, 'tickets');
+  await page.locator('#tickets [role=tab]', { hasText: 'السجل' }).click(); // the owner 11 Nov: «نظرة عامة» comes first
   await expect(page.locator('#tickets .table-card')).toBeVisible();
   await expect(page.locator('[data-pn-custom="tickets"]')).toBeHidden();
   await go(page, 'hr-reports');

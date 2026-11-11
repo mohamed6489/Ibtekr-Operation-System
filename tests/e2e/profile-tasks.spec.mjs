@@ -50,13 +50,14 @@ const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: tex
 const calls = (fn) => mock.hr.calls.filter((c) => c.fn === fn);
 const task = (id) => mock.hr.tasks.find((t) => t.id === id);
 
-test('the member: today with «من امبارح» and the admin\'s task, «ضيف مهمة» with Enter, «متوقفة» with its reason, the checkbox, «حذف», the postponed and the done', async ({ page }) => {
+test('the member: the open tasks (no «النهارده» — the owner 11 Nov) and the admin\'s task, «ضيف مهمة» with Enter, «متوقفة» with its reason, the checkbox, «حذف», the postponed and the done', async ({ page }) => {
   await open(page, OPS, 'profile-tasks');
-  await expect(row(page, 'تجهيز عرض المبتكرين الجدد')).toContainText('من امبارح');
+  await expect(row(page, 'تجهيز عرض المبتكرين الجدد')).toBeVisible(); // a task carried from yesterday stays open
+  await expect(row(page, 'تجهيز عرض المبتكرين الجدد')).not.toContainText('من امبارح'); // the owner 11 Nov: no «today» in «مهامي»
   await expect(row(page, 'مراجعة صور منتجات W&R')).toContainText('من صفوت كمال');
   await expect(row(page, 'مراجعة صور منتجات W&R').getByRole('button', { name: /^إجراءات/ })).toHaveCount(0); // the admin put it: no «حذف» for the member
   await expect(P(page).locator('.task.auto').first()).toBeVisible(); // the open orders not confirmed yet (ops has orders.status F)
-  await expect(sub(page, 'النهارده').locator('.cnt')).toHaveText(String(3 + await P(page).locator('.task.auto').count())); // the three of today + the automatic ones
+  await expect(sub(page, 'المفتوحة').locator('.cnt')).toHaveText(String(3 + await P(page).locator('.task.auto').count())); // the three of today + the automatic ones
   // «ضيف مهمة واضغط Enter»: it shows at once, the field stays focused and empty
   const add = P(page).locator('.task-add'); await add.fill('متابعة شحنة أسوان'); await add.press('Enter');
   await expect(row(page, 'متابعة شحنة أسوان')).toBeVisible(); await expect(add).toBeFocused(); await expect(add).toHaveValue('');
@@ -82,7 +83,7 @@ test('the member: today with «من امبارح» and the admin\'s task, «ضي
   await ach.click();
   await expect(sub(page, 'خلصت')).toHaveAttribute('aria-selected', 'true'); await expect(row(page, 'إرسال فواتير سبتمبر')).toBeVisible();
   // «حذف» on my own task (marked on the server, gone from the list)
-  await sub(page, 'النهارده').click();
+  await sub(page, 'المفتوحة').click();
   await row(page, 'متابعة شحنة أسوان').getByRole('button', { name: 'إجراءات متابعة شحنة أسوان' }).click(); await page.getByRole('menuitem', { name: 'حذف' }).click();
   await expect(row(page, 'متابعة شحنة أسوان')).toHaveCount(0);
   await expect.poll(() => calls('hr_task_delete').length).toBe(1);

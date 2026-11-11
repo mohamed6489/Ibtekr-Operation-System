@@ -44,10 +44,46 @@ async function openTickets(page, email = ADMIN) {
   await signIn(page, email);
   await page.locator('.sidebar .nav-item[data-page="tickets"]').click();
   await expect(page.locator('#tickets')).toBeVisible();
+  await page.locator('#tickets [role=tab]', { hasText: 'السجل' }).click(); // the owner 11 Nov: «نظرة عامة» comes first
 }
 const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
 const drawer = (page) => page.locator('.drawer');
 async function pick(page, scope, id, label) { await scope.locator('#' + id).click(); await page.locator('[role=listbox] [role=option]', { hasText: label }).first().click(); }
+
+// the owner 11 Nov: «نظرة عامة» is the first tab — the counts, the requests by kind, and who carries the work (the open requests on each
+// member's role, the busiest first); «طلباتي» in «ملفي» lists the team requests the member opened, from the account menu too
+test('the owner 11 Nov: «نظرة عامة» first — the counts, the kinds, and who has the most work', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.locator('.sidebar .nav-item[data-page="tickets"]').click();
+  await expect(page.locator('#tickets [role=tab][aria-selected="true"]')).toHaveText('نظرة عامة');
+  const ov = page.locator('#tickets [data-tk-ov]');
+  await expect(ov.locator('.kpi', { hasText: 'طلبات مفتوحة' })).toContainText('2');
+  await expect(ov.locator('.kpi', { hasText: 'كل الطلبات' })).toContainText('3');
+  const kinds = page.locator('#tickets .sec', { hasText: 'الطلبات حسب النوع' });
+  await expect(kinds.locator('.bar-row-label')).toHaveText(['طلب خاص', 'مشكلة عميل', 'مشكلة مبتكر']); // the open ones first, then by name
+  const people = page.locator('#tickets .tk-people .bar-row-label');
+  await expect(people).toHaveText(['سارة أحمد', 'محمد علي', 'منى حسن', 'صفوت كمال', 'هدى سمير']); // one open each on their role, then by what they solved
+  await expect(page.locator('#tickets .tk-people .bar-row', { hasText: 'منى حسن' })).toContainText('1 مفتوح لدوره');
+  await expect(page.locator('#tickets .tk-people')).not.toContainText('مشاهد تجريبي'); // a suspended member is not in the queue
+  await page.locator('#tickets [role=tab]', { hasText: 'السجل' }).click();
+  await expect(page.locator('#tickets tbody tr[data-id]')).toHaveCount(2);
+});
+
+test('the owner 11 Nov: «طلباتي» — the team requests I opened, from the account menu, a click opens the request', async ({ page }) => {
+  await signIn(page, OPS);
+  await page.locator('.topbar .user-btn').click();
+  await page.getByRole('menuitem', { name: 'طلباتي' }).click();
+  await expect(page).toHaveURL(/#profile-requests$/);
+  const P = page.locator('#pg-profile');
+  await expect(P.getByRole('tab', { name: 'طلباتي' })).toHaveAttribute('aria-selected', 'true');
+  await expect(P.locator('tr[data-my-req]')).toHaveCount(1); // ticket 2 was not opened by her
+  await expect(P.locator('tr[data-my-req="TKT-0001"]')).toContainText('العميلة مستنية الأوردر');
+  await P.locator('.subtab', { hasText: 'الكل' }).click();
+  await expect(P.locator('tr[data-my-req]')).toHaveCount(1);
+  await P.locator('tr[data-my-req="TKT-0001"]').click();
+  await expect(page).toHaveURL(/#tickets\/TKT-0001$/);
+  await expect(page.locator('.drawer')).toContainText('العميلة مستنية الأوردر');
+});
 
 test('«تذاكر الفريق» is open: the open tickets from the database (the resolved one behind the filter), the v2 columns', async ({ page }) => {
   await openTickets(page);

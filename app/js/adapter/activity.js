@@ -16,7 +16,7 @@
 (function () {
   'use strict';
   const LOGGED_PREFIXES = ['auth.', 'dashboard.', 'profile.2fa.', 'vendor.', 'accounts.', 'product.', 'cs.', 'inventory.', 'ticket.', 'hr.', 'mkt.', 'settings.', 'assistant.']; // accounts.: phase 4 (accounts.js); product.: phase 5 (products.js); cs.: phase 6 (cs.js); inventory.: phase 7 (inventory.js); ticket.: phase 8 (tickets.js); hr.: phase 10 (hr.js — the HR page on IBHR); mkt.: phase 9.5.1 (marketing.js); settings.: phase 11 (settings.js); assistant.: phase 12 (ai.js — the header's assistant: action names and data kinds, never a text)
-  const LOGGED_ACTIONS = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating', 'order.delete', 'profile.password', 'profile.edit']; // orders.js; «ملفي» › تغيير كلمة المرور / تعديل بياناتي (phase 10: the member's name only)
+  const LOGGED_ACTIONS = ['order.status', 'order.confirm', 'order.patch', 'suborder.status', 'suborder.waybill', 'suborder.pulled', 'order.rating', 'order.delete', 'suborder.delete', 'profile.password', 'profile.edit']; // orders.js; «ملفي» › تغيير كلمة المرور / تعديل بياناتي (phase 10: the member's name only)
   let rows = null;
   const forwarded = (action) => { const a = String(action || ''); return LOGGED_ACTIONS.includes(a) || LOGGED_PREFIXES.some((p) => a.startsWith(p)); };
   const client = () => (window.IBSupabase && window.IBSupabase.client) || null;

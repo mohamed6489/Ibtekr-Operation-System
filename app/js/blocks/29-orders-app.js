@@ -375,6 +375,8 @@ function mpOpen(btn){var key=btn.dataset.more;if(MP&&MP.key===key){mpClose(1);re
   // phase 7 decision 10 (d): a line whose SKU is held «متاح للبيع» in the hub — «اسحب من المخزن» (the team confirms; never automatic)
   var ls=key.charAt(0)==='s'?allSub(key.slice(2)):null;if(ls&&!ls.pulled&&OX&&OX.hubHas&&OX.hubHas(ls.sku,ls.qty)&&['تم الشحن للعميل','مكتمل','ملغي','مرتجع للمخزن','مرتجع للمبتكر'].indexOf(ls.ss)<0)extra+='<button type="button" role="menuitem" data-ma="pull">'+ic('box')+'<span>اسحب من المخزن</span></button>';
   var oo=key.charAt(0)==='o'?OM[key.slice(2)]:null,del=oo&&oo.st!=='مكتمل'&&oo.st!=='استرجاع'?'<button type="button" role="menuitem" class="danger" data-ma="del">'+ic('xx')+'<span>مسح</span></button>':''; // 5.5 decision 10: not a completed / returned order; an open one is cancelled first (the server checks too)
+  // phase 13 decision 54: «مسح الأوردر الفرعي» — a Dokan sub-order (its own number) of an order that is not completed / returned
+  var po=ls?OM[ls.oid]:null;if(ls&&po&&String(ls.sid)!==String(po.id)&&po.st!=='مكتمل'&&po.st!=='استرجاع')del='<button type="button" role="menuitem" class="danger" data-ma="subdel">'+ic('xx')+'<span>مسح الأوردر الفرعي</span></button>';
   var tk=window.IbtekrApp&&window.IbtekrApp.newTicket&&window.IBTickets&&window.IBTickets.can().manage?'<button type="button" role="menuitem" data-ma="ticket">'+ic('edit')+'<span>افتح تذكرة</span></button>':''; // phase 8 decision 3
   w.innerHTML='<button type="button" role="menuitem" data-ma="edit">'+ic('edit')+'<span>تعديل</span></button>'+tk+extra+del;
  R.appendChild(w);var r=btn.getBoundingClientRect();
@@ -387,7 +389,8 @@ function mpAct(a){var k=MP.key.split(':'),kind=k[0],id=k[1];mpClose(0);
   return}
  if(a==='pull'&&kind==='s'){var ps=allSub(id);if(ps&&window.IBOrdersOps&&window.IBOrdersOps.pullPopup)window.IBOrdersOps.pullPopup({order:ps.oid,sid:ps.sid,itemId:ps.itemId,sku:ps.sku,prod:ps.prod,qty:ps.qty,vendor:ps.vendor},function(){var b=snapS(ps);ps.pulled=true;draw(1);subW(ps,b)});return}
  if(a==='cons'||a==='shipall'||a==='uncons'){if(window.IBOrdersOps)window.IBOrdersOps[a==='cons'?'consolidate':a](orderSnap(OM[id]));return}
- if(a==='del'&&kind==='o')confirmDelete(id)}
+ if(a==='del'&&kind==='o')confirmDelete(id);
+ if(a==='subdel'&&kind==='s')confirmSubDelete(id)}
 /* ---- «مسح» (5.5 decision 10, owner 2 Nov): an order leaves the list with a reason — one that is not «ملغي» is cancelled first with that reason,
    then the order and its sub-orders go to the site's trash (woo-sync order_trash), then the row is marked deleted (order_delete; it stays in the
    database) and the reason goes to the activity log. Completed / returned orders have no «مسح». ---- */
@@ -416,6 +419,23 @@ function confirmDelete(id){var o=OM[id];if(!o||o.st==='مكتمل'||o.st==='اس
  delDialog('مسح الأوردر IB-'+id+'؟','<div class="nt">'+(cancelFirst?'الأوردر لسه «'+esc(o.st)+'» — هيتلغي الأول بالسبب ده (وبيتبعت للموقع زي أي إلغاء) وبعدين يتمسح. ':'')+'الأوردر هيتحط في سلة مهملات الموقع هو وأوردراته الفرعية، وهيختفي من القائمة هنا وهيفضل في سجل النشاط (مين / إمتى / السبب) للمراجعة.</div>',cancelFirst?'إلغاء ومسح الأوردر':'مسح الأوردر',function(reason,ok,close){var ws=WS();
   if(!ws||!ws.deleteOrder){close();removeOrder(id);toast('اتمسح الأوردر IB-'+id);return}
   ws.deleteOrder(id,reason,{cancel:cancelFirst}).then(function(r){if(r&&r.ok){close();removeOrder(id);toast('اتمسح الأوردر IB-'+id+(r.site==='ok'?' واتحط في مهملات الموقع':r.site==='push_disabled'?' — الموقع ماتلمسش (الدفع متقفل)':''));return}ok.disabled=false;toast(delFail(r))},function(){ok.disabled=false;toast('مافيش اتصال — الأوردر ماتمسحش')})})}
+/* decision 54 (owner 10 Nov — «مسح الأوردر الفرعي»): the sub-order's lines (one Dokan sub-order may hold several) in a popup with one
+   reason; the sub-order goes to the site's trash, its lines leave the parent order (WooCommerce recalculates the total) and every
+   screen (the orders, the accounts, the reports — the lines are flagged removed), the hub's holds on them are released. The order's only
+   sub-order → the order's own «مسح». */
+function confirmSubDelete(n){var s=allSub(n);if(!s)return;var o=OM[s.oid];if(!o||o.st==='مكتمل'||o.st==='استرجاع')return;
+ var mine=o.subs.filter(function(x){return String(x.sid)===String(s.sid)}),rest=o.subs.filter(function(x){return String(x.sid)!==String(s.sid)});
+ if(!rest.length){toast('ده الأوردر الفرعي الوحيد — هيتمسح الأوردر كله');confirmDelete(o.id);return}
+ var sum=mine.reduce(function(a,x){return a+(Number(x.tot)||0)},0);
+ var note='<div class="nt"><b data-sub-count>'+mine.length+(mine.length>2&&mine.length<11?' سطور':' سطر')+' · '+esc(s.vendor||'')+'</b><ul class="dlist">'+mine.map(function(x){return'<li>'+esc(x.prod)+' × '+(Number(x.qty)||1)+' · '+esc(fmt(Number(x.tot)||0))+' ج.م</li>'}).join('')+'</ul>'
+  +'الأوردر الفرعي هيتحط في سلة مهملات الموقع، وسطوره هتتشال من الأوردر الأصلي IB-'+esc(o.id)+' (إجماليه هيقل '+esc(fmt(sum))+' ج.م)، وهيختفي من الأوردرات والحسابات والتقارير، وأي حجز ليه في المخزن هيتفك.</div>';
+ delDialog('مسح الأوردر الفرعي #'+s.sid+'؟',note,'مسح الأوردر الفرعي',function(reason,ok,close){var ws=WS();
+  if(!ws||!ws.deleteSub){close();o.subs=rest;o.tot=Math.max(0,(Number(o.tot)||0)-sum);draw(1);toast('اتمسح الأوردر الفرعي #'+s.sid);return}
+  ws.deleteSub(o.id,s.sid,reason).then(function(r){
+   if(r&&r.ok){close();o.subs=rest;o.tot=r.total!=null?r.total:Math.max(0,(Number(o.tot)||0)-sum);draw(1);toast('اتمسح الأوردر الفرعي #'+s.sid+' — إجمالي IB-'+o.id+' بقى '+fmt(Number(o.tot)||0)+' ج.م');return}
+   if(r&&r.reason==='only'){close();confirmDelete(o.id);return}
+   ok.disabled=false;toast(r&&r.reason==='forbidden'?'مش مسموح لك تمسح أوردرات':r&&r.reason==='push_disabled'?'الكتابة على الموقع متقفلة — الأوردر الفرعي ماتمسحش':r&&r.reason==='closed'?'الأوردر مكتمل أو مسترجع — مايتمسحش منه':r&&r.reason==='missing'?'الأوردر الفرعي مش موجود — يمكن اتمسح قبل كده':r&&r.reason==='site'?'الموقع ماردش — الأوردر الفرعي ماتمسحش':'مافيش اتصال — الأوردر الفرعي ماتمسحش')},
+   function(){ok.disabled=false;toast('مافيش اتصال — الأوردر الفرعي ماتمسحش')})})}
 /* decision 53 (owner 10 Nov — «مسح جماعي … popup فيه عدد الأوردرات وعدد الأوردرات الفرعية في كل واحد … سبب واحد للكل»): the selection's
    «مسح المحدد» — the popup lists every order with its sub-order count (a completed / returned order is left out and said so), one reason
    for all, then each order goes exactly like its own «مسح» (cancelled first when open, the site's trash, order_delete), one after the

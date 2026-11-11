@@ -578,6 +578,26 @@ async function autoReleaseClosed(ctx, mappedUpdated) {
   }
 }
 
+// decision 54 (owner 10 Nov — «مسح الأوردر الفرعي … ويتفك حجز المخزن»): the reservations of the lines a deleted sub-order took away —
+// the automatic ones («سحب تلقائي · سطر #<line>») and the team's «اسحب من المخزن» («سحب من المخزن · #<sub>») on the order's ref — are
+// given back once: a release move each (no member: `by` null), the line un-pulled, the lot «متاح» again when it was held. → the count.
+export async function releaseLines(ctx, { ref, itemIds, sid }) {
+  const items = new Set((itemIds || []).map(Number));
+  const moves = await selectIn(ctx.db, 'inv_moves', 'id, lot_id, type, qty, ref, note', 'ref', [ref]);
+  const ours = (m) => typeof m.note === 'string' && ((/سطر #(\d+)/.exec(m.note) && items.has(Number(/سطر #(\d+)/.exec(m.note)[1]))) || (sid != null && m.note.endsWith('· #' + sid)));
+  const reserved = moves.filter((m) => m.type === 'reserve' && ours(m)); const released = moves.filter((m) => m.type === 'release' && ours(m));
+  const now = ctx.now(); let n = 0;
+  for (const r of reserved) {
+    if (released.some((x) => x.lot_id === r.lot_id && String(x.note) === String(r.note))) continue;
+    const mv = await ctx.db.from('inv_moves').insert({ lot_id: r.lot_id, type: 'release', qty: r.qty, label: 'فك حجز', reason: FOR_SALE, ref, note: r.note, by: null, at: now });
+    if (mv.error) throw new DbError('inv_moves', mv.error);
+    await ctx.db.from('inv_lots').update({ status: 'متاح' }).eq('id', r.lot_id).eq('status', RESERVED_STATUS);
+    n += 1;
+  }
+  if (items.size) await ctx.db.from('order_items').update({ pulled: false }).in('id', [...items]).eq('pulled', true);
+  return n;
+}
+
 // ---------------------------------------------------------------- sub-orders
 
 // → { written } | { missing } (404, or a payload writeOrders skips) | { error } (any other Woo failure: scrubbed text;

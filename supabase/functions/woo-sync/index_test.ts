@@ -1944,6 +1944,78 @@ Deno.test('order_trash: a Woo failure (500) → 502 woo_error, an error row, the
   assertEquals([log.kind, log.entity, log.entity_id, log.action, log.result], ['push', 'order', '1001', 'order_trash', 'error']);
 });
 
+// ---------------------------------------------------------------- suborder_trash (phase 13 decision 54)
+const subSeed = () => ({
+  orders: [{ id: 3001, number: '3001', customer_name: 'x', status: 'جاري التنفيذ', woo_status: 'processing', total: 300, placed_at: '2026-10-20T10:00:00Z', woo_updated_at: '2026-10-20T11:00:00Z' },
+    { id: 3101, number: '3101', customer_name: 'y', status: 'مكتمل', woo_status: 'completed', placed_at: '2026-10-20T10:00:00Z', woo_updated_at: '2026-10-20T11:00:00Z' }],
+  sub_orders: [{ id: 11, order_id: 3001, vendor_id: vendorId(44), woo_order_id: 3002 }, { id: 12, order_id: 3001, vendor_id: vendorId(2376), woo_order_id: 3003 },
+    { id: 13, order_id: 3101, vendor_id: vendorId(44), woo_order_id: 3102 }],
+  order_items: [{ id: 30010, order_id: 3001, sub_order_id: 11, name: 'a', qty: 1, total: 100, removed: false, pulled: true, sku: 'IBT-A' },
+    { id: 30011, order_id: 3001, sub_order_id: 11, name: 'b', qty: 1, total: 50, removed: false, pulled: false },
+    { id: 30020, order_id: 3001, sub_order_id: 12, name: 'c', qty: 1, total: 150, removed: false, pulled: false },
+    { id: 31010, order_id: 3101, sub_order_id: 13, name: 'd', qty: 1, total: 10, removed: false, pulled: false }],
+  inv_lots: [{ id: 'lt1', sku: 'IBT-A', name: 'a', reason: 'متاح للبيع', status: 'محجوز لأوردر', closed_at: null }],
+  inv_moves: [{ id: 1, lot_id: 'lt1', type: 'in', qty: 1, ref: null, note: null }, { id: 2, lot_id: 'lt1', type: 'reserve', qty: 1, ref: 'IB-3001', note: 'سحب تلقائي · سطر #30010' }],
+});
+const parentAfter = wooOrder({ id: 3001, number: '3001', status: 'processing', total: '150.00', date_modified_gmt: '2026-11-10T10:00:00', meta_data: [],
+  line_items: [{ id: 30020, product_id: 9, name: 'c', quantity: 1, total: '150', meta_data: [{ key: '_dokan_vendor_id', value: '2376' }] }] });
+
+Deno.test('suborder_trash: orders.status = F only, never the sync secret; bad input → 400; a completed order → 409 closed; the only sub-order → 409 only_sub; push off → skipped, no Woo call', async () => {
+  const { woo, deps } = setup({ seed: subSeed(), env: PUSH_ON });
+  const a = { action: 'suborder_trash', order_id: 3001, sub_id: 3002, reason: 'أوردر مكرر' };
+  assertEquals((await call(deps, a, { jwt: 'jwt-acct' })).res.status, 401, 'orders.status P');
+  assertEquals((await call(deps, a)).res.status, 401, 'the sync secret never deletes');
+  assertEquals((await call(deps, { ...a, reason: ' ' }, { jwt: 'jwt-ops' })).res.status, 400, 'a reason is required');
+  assertEquals((await call(deps, { ...a, sub_id: 'x' }, { jwt: 'jwt-ops' })).res.status, 400);
+  assertEquals((await call(deps, { ...a, sub_id: 9999 }, { jwt: 'jwt-ops' })).res.status, 404, 'not a sub-order of this order');
+  const closed = await call(deps, { ...a, order_id: 3101, sub_id: 3102 }, { jwt: 'jwt-ops' });
+  assertEquals([closed.res.status, closed.body.error], [409, 'closed']);
+  const one = setup({ seed: { ...subSeed(), order_items: subSeed().order_items.filter((i) => i.sub_order_id !== 12) }, env: PUSH_ON });
+  const only = await call(one.deps, a, { jwt: 'jwt-ops' });
+  assertEquals([only.res.status, only.body.error], [409, 'only_sub']);
+  const off = setup({ seed: subSeed() });
+  const r = await call(off.deps, a, { jwt: 'jwt-ops' });
+  assertEquals([r.body.result, r.body.reason], ['skipped', 'push_disabled']);
+  assertEquals(woo.calls.length + one.woo.calls.length + off.woo.calls.length, 0);
+  assertEquals(off.db.rows('order_items').filter((i: any) => i.removed).length, 0, 'nothing changes here either');
+});
+
+Deno.test('suborder_trash: DELETE the sub-order (never force), PUT the parent without its lines (product_id null), mirror the answer (lines removed, total), release the hub reservation', async () => {
+  const puts: any[] = [];
+  const routes = { 'DELETE wc/v3/orders/3002': { body: { id: 3002, status: 'trash' } }, 'PUT wc/v3/orders/3001': (c: any) => { puts.push(c.body); return { body: parentAfter }; } };
+  const { db, woo, deps } = setup({ seed: subSeed(), routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'suborder_trash', order_id: 3001, sub_id: 3002, reason: 'أوردر مكرر' }, { jwt: 'jwt-ops' });
+  assertEquals(res.status, 200);
+  assertEquals([body.result, body.lines, body.already, body.released, body.total], ['ok', 2, false, 1, '150.00']);
+  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['DELETE', 'wc/v3/orders/3002'], ['PUT', 'wc/v3/orders/3001']]);
+  assert(woo.calls.every((c) => !JSON.stringify(c.query ?? null).includes('force')), 'never force');
+  assertEquals(puts, [{ line_items: [{ id: 30010, product_id: null }, { id: 30011, product_id: null }] }]);
+  const items = new Map(db.rows('order_items').map((i: any) => [i.id, i]));
+  assertEquals([items.get(30010).removed, items.get(30011).removed, items.get(30020).removed], [true, true, false]);
+  assertEquals(items.get(30010).pulled, false);
+  assertEquals(Number(db.rows('orders').find((o: any) => o.id === 3001).total), 150);
+  const rel = db.rows('inv_moves').filter((m: any) => m.type === 'release');
+  assertEquals(rel.map((m: any) => [m.lot_id, m.qty, m.ref, m.note, m.by]), [['lt1', 1, 'IB-3001', 'سحب تلقائي · سطر #30010', null]]);
+  assertEquals(db.rows('inv_lots')[0].status, 'متاح');
+  const log = db.rows('woo_sync_log').find((x: any) => x.action === 'suborder_trash');
+  assertEquals([log.result, log.detail], ['ok', { sub: 3002, lines: 2, already: false, released: 1 }]);
+  // again (a retry after a failure): the sub-order already trashed (410) is done, the lines are gone → 404
+  const again = await call(deps, { action: 'suborder_trash', order_id: 3001, sub_id: 3002, reason: 'أوردر مكرر' }, { jwt: 'jwt-ops' });
+  assertEquals(again.res.status, 404);
+});
+
+Deno.test('suborder_trash: the trash fails → 502, nothing else; the site keeps the lines → 502 woo_kept_lines and nothing flagged', async () => {
+  const bad = setup({ seed: subSeed(), routes: { 'DELETE wc/v3/orders/3002': { status: 500, body: { code: 'x' } } }, env: PUSH_ON });
+  const r = await call(bad.deps, { action: 'suborder_trash', order_id: 3001, sub_id: 3002, reason: 'x' }, { jwt: 'jwt-ops' });
+  assertEquals([r.res.status, r.body], [502, { error: 'woo_error', step: 'trash' }]);
+  assertEquals(bad.woo.calls.map((c) => c.method), ['DELETE']);
+  const kept = wooOrder({ ...parentAfter, line_items: [...parentAfter.line_items, { id: 30010, product_id: 9, name: 'a', quantity: 1, total: '100', meta_data: [] }] });
+  const k = setup({ seed: subSeed(), routes: { 'DELETE wc/v3/orders/3002': { status: 410, body: { code: 'woocommerce_rest_already_trashed' } }, 'PUT wc/v3/orders/3001': { body: kept } }, env: PUSH_ON });
+  const r2 = await call(k.deps, { action: 'suborder_trash', order_id: 3001, sub_id: 3002, reason: 'x' }, { jwt: 'jwt-ops' });
+  assertEquals([r2.res.status, r2.body.error], [502, 'woo_kept_lines']);
+  assertEquals(k.db.rows('order_items').filter((i: any) => i.removed).length, 0);
+});
+
 // ---------------------------------------------------------------- phase 7 (decision 1 c): the site quantity from the hub
 const invLot = (id: string, sku: string, o: Record<string, unknown> = {}) => ({ id, sku, name: sku, reason: 'متاح للبيع', status: 'متاح', mode: 'ملك ابتكر', cost: 0, since: '2026-11-01', closed_at: null, ...o });
 const invSeed = {

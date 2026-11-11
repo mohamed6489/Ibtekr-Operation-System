@@ -34,6 +34,14 @@
 //              must be «ملغي» in our database (else skipped/not_cancelled, no Woo call); WOO_PUSH_ENABLED gates it
 //              (skipped/push_disabled). A member with has_perm('orders.status') = 'F' only — never the sync secret. The adapter
 //              marks the order deleted (RPC order_delete) after this answers ok / skipped.
+//   'suborder_trash' { order_id, sub_id, reason }  (phase 13 decision 54, the owner 10 Nov: «مسح الأوردر الفرعي … يتحذف من
+//              الموقع ويتشال من الأوردر الأصلي») one Dokan sub-order (sub_orders.woo_order_id) of an order that is not «مكتمل» /
+//              «استرجاع» goes to the site's trash (DELETE wc/v3/orders/{sub}, never `force`; 404 / 410 = done), then its lines leave
+//              the parent (PUT wc/v3/orders/{id} line_items [{ id, product_id: null }] — WooCommerce recalculates the total) and the
+//              answer is mirrored at once (writeOrders: the lines flagged removed, the total), the hub's reservations of those lines
+//              released (releaseLines). The order's only sub-order → 409 only_sub (the page deletes the order instead). The same
+//              two permissions as order_trash; never the sync secret; WOO_PUSH_ENABLED gates it (skipped/push_disabled — nothing
+//              changes here either: the lines would come back with the next sync).
 //   'push_vendor' { vendor_id, fields[] }  (phase 3.3, decision 4 b) fields ⊆ SYNC_FIELDS of woo-core (name, phone,
 //              email, contact_name, address_parts, social, status, rate, category_rates, bank; anything else → 400). The
 //              row is read from the database (never the body); a maker without woo_vendor_id → skipped/no_store; the
@@ -104,7 +112,7 @@ import { STUDIO_ATTRS, buildStudio, fetchSheetCsv, matchWooBrand } from '../_sha
 import { duplicateAr, duplicatePayload, duplicateSku, duplicateVariation, variationSku } from '../_shared/woo-duplicate.js';
 import { OWNED, siteQuantities, skuList } from '../_shared/woo-inventory.js';
 import { CART_HOURS, CART_PATH, cartRows } from '../_shared/woo-carts.js';
-import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, writeContext, writeOrderPage, writeOrders, writeProducts, writeStates } from '../_shared/woo-write.js';
+import { VENDOR_SYNC_COLUMNS, applyPushResult, effectiveRates, gmtIso, loadBanks, logActivity, markPushPending, pushStoreFields, retryablePush, saveVendors, wooId, writeBrands, writeCategories, releaseLines, writeContext, writeOrderPage, writeOrders, writeProducts, writeStates } from '../_shared/woo-write.js';
 
 // deno-lint-ignore no-explicit-any
 type Db = any;
@@ -114,7 +122,7 @@ export type Deps = { env: Record<string, string | undefined>; fetch: typeof fetc
 type Ctx = Awaited<ReturnType<typeof writeContext>>;
 type Run = { db: Db; env: Deps['env']; woo: () => ReturnType<typeof wooApi>; ctx: () => Promise<Ctx>; kind: 'cron' | 'manual'; now: () => string };
 
-const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals', 'order_trash', 'order_create', 'order_pay_link',
+const ACTIONS = ['states', 'categories', 'orders', 'vendors', 'products', 'all', 'push_status', 'push_vendor', 'register_webhooks', 'probe_store', 'probe_dokan', 'accounts', 'statement', 'withdraw_approve', 'withdrawals', 'order_trash', 'suborder_trash', 'order_create', 'order_pay_link',
   'vendor_photo', 'product_get', 'product_save', 'products_batch', 'products_vendor', 'products_trash', 'products_restore', 'studio_upload', 'category_create', 'studio_sheet', 'product_images_add', 'inventory_push', 'product_duplicate', 'carts'];
 // phase 5: the product actions a person runs (never the sync secret); phase 5.2: the studio's upload, a new category, a sheet link;
 // phase 5.4: the images tool's results onto a product
@@ -143,7 +151,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   const secret = req.headers.get('x-sync-secret');
   if (secret) {
     if (action === 'withdraw_approve') return null; // a person approves, never the cron / sync secret (phase 4.1)
-    if (action === 'order_trash') return null; // a person deletes an order, never the cron / sync secret (phase 5.5 decision 10)
+    if (action === 'order_trash' || action === 'suborder_trash') return null; // a person deletes an order / a sub-order, never the cron / sync secret (phase 5.5 decision 10, phase 13 decision 54)
     if (action === 'order_create' || action === 'order_pay_link') return null; // a person makes an order from the chat (phase 13 T3)
     if (action === 'vendor_photo') return null; // a person sets a maker's photo (phase 13 decision 51)
     if (PRODUCT_ACTIONS.includes(action)) return null; // a person edits products, never the cron / sync secret (phase 5)
@@ -157,7 +165,7 @@ async function authorize(req: Request, deps: Deps, action: string, args: Json): 
   const admin = async () => { const { data, error } = await member.rpc('is_admin'); return !error && data === true; };
   if (action === 'push_status') return (await perm('orders.status')) ? 'member' : null;
   // phase 5.5 decision 10: the site trash needs the same two permissions RPC order_delete checks — orders.status = F and orders.view <> N
-  if (action === 'order_trash') { if (!(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
+  if (action === 'order_trash' || action === 'suborder_trash') { if (!(await perm('orders.status'))) return null; const { data, error } = await member.rpc('has_perm', { key: 'orders.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
   // phase 13 T3 (decision 7): an order from the customer-service chat and its pay link — the admin or orders.status = F
   if (action === 'order_create' || action === 'order_pay_link') return (await admin()) || (await perm('orders.status')) ? 'member' : null;
   if (action === 'statement' || action === 'withdrawals') { const { data, error } = await member.rpc('has_perm', { key: 'accounts.view' }); return !error && (data === 'F' || data === 'P') ? 'member' : null; }
@@ -439,6 +447,48 @@ async function orderTrash(run: Run, args: Json) {
   }
   await logSync(run.db, { ...entry, result: 'ok', detail: { trashed, already, sub_orders: subIds.length } });
   return json(200, { action: 'order_trash', result: 'ok', counts: { trashed, already } });
+}
+
+// ---------------------------------------------------------------- suborder_trash (phase 13 decision 54)
+const CLOSED_ORDER = ['مكتمل', 'استرجاع'];
+async function suborderTrash(run: Run, args: Json) {
+  const id = wooId(args.order_id), sid = wooId(args.sub_id);
+  const reason = typeof args.reason === 'string' ? args.reason.trim() : '';
+  if (id === null || sid === null || sid === id || !reason || reason.length > 120) return json(400, { error: 'bad_request' });
+  const { data: order, error } = await run.db.from('orders').select('id, number, status').eq('id', id).is('deleted_at', null).maybeSingle();
+  if (error) throw new Error(`orders: ${error.message}`);
+  if (!order) return json(404, { error: 'order_not_found' });
+  const entry = { kind: 'push', direction: 'out', entity: 'order', entity_id: String(id), action: 'suborder_trash' };
+  if (CLOSED_ORDER.includes(String(order.status))) return json(409, { error: 'closed', status: order.status });
+  const { data: sub } = await run.db.from('sub_orders').select('id, woo_order_id').eq('order_id', id).eq('woo_order_id', sid).maybeSingle();
+  if (!isObj(sub)) return json(404, { error: 'sub_not_found' });
+  const { data: lines, error: lineErr } = await run.db.from('order_items').select('id, sub_order_id').eq('order_id', id).eq('removed', false);
+  if (lineErr) throw new Error(`order_items: ${lineErr.message}`);
+  const all = (lines ?? []) as Json[];
+  const mine = all.filter((l) => Number(l.sub_order_id) === Number(sub.id)).map((l) => Number(l.id));
+  if (!mine.length) return json(404, { error: 'sub_not_found' });
+  if (mine.length === all.length) return json(409, { error: 'only_sub' });
+  if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled', sub: sid } }); return json(200, { action: 'suborder_trash', result: 'skipped', reason: 'push_disabled' }); }
+  const woo = run.woo();
+  let already = false;
+  try { await woo.del(`wc/v3/orders/${sid}`); } catch (e) {
+    if (e instanceof WooError && (e.status === 404 || e.status === 410)) already = true;
+    else { await logSync(run.db, { ...entry, result: 'error', detail: { step: 'trash', sub: sid, error: errorText(e, woo.scrub) } }); if (e instanceof WooError) return json(502, { error: 'woo_error', step: 'trash' }); throw e; }
+  }
+  let parent: Json;
+  try { parent = (await woo.put(`wc/v3/orders/${id}`, { line_items: mine.map((x) => ({ id: x, product_id: null })) })).data as Json; } catch (e) {
+    await logSync(run.db, { ...entry, result: 'error', detail: { step: 'lines', sub: sid, error: errorText(e, woo.scrub) } });
+    if (e instanceof WooError) return json(502, { error: 'woo_error', step: 'lines' });
+    throw e;
+  }
+  const kept = isObj(parent) && Array.isArray(parent.line_items) ? parent.line_items.map((li: Json) => wooId(li?.id)).filter((x: number | null) => x !== null && mine.includes(x)) : mine;
+  if (kept.length) { await logSync(run.db, { ...entry, result: 'error', detail: { step: 'lines', sub: sid, kept: kept.length } }); return json(502, { error: 'woo_kept_lines' }); }
+  const ctx = await run.ctx();
+  await writeOrders(ctx, [parent]); // mirrored now: the lines flagged removed, the total from WooCommerce
+  let released = 0;
+  try { released = await releaseLines(ctx, { ref: 'IB-' + (order.number ?? id), itemIds: mine, sid }); } catch (e) { await logSync(run.db, { ...entry, result: 'error', detail: { step: 'release', error: errorText(e, woo.scrub) } }); }
+  await logSync(run.db, { ...entry, result: 'ok', detail: { sub: sid, lines: mine.length, already, released } });
+  return json(200, { action: 'suborder_trash', result: 'ok', lines: mine.length, already, released, total: isObj(parent) ? parent.total ?? null : null });
 }
 
 // ---------------------------------------------------------------- push_vendor (phase 3.3)
@@ -1442,6 +1492,7 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
   try {
     if (action === 'push_status') return await pushStatus(run, args);
     if (action === 'order_trash') return await orderTrash(run, args);
+    if (action === 'suborder_trash') return await suborderTrash(run, args);
     if (action === 'order_create') return await orderCreate(run, args);
     if (action === 'order_pay_link') return await orderPayLink(run, args);
     if (action === 'push_vendor') return await pushVendor(run, args);
@@ -1507,10 +1558,10 @@ export async function handler(req: Request, deps: Deps): Promise<Response> {
     }
     return await pull(run, action);
   } catch (e) {
-    const isPush = action === 'push_status' || action === 'order_trash' || action === 'push_vendor' || action === 'withdraw_approve' || PRODUCT_ACTIONS.includes(action);
-    const entity = action === 'push_status' || action === 'order_trash' ? 'order' : action === 'push_vendor' ? 'vendor' : action === 'withdraw_approve' ? 'dokan_withdrawals'
+    const isPush = action === 'push_status' || action === 'order_trash' || action === 'suborder_trash' || action === 'push_vendor' || action === 'withdraw_approve' || PRODUCT_ACTIONS.includes(action);
+    const entity = action === 'push_status' || action === 'order_trash' || action === 'suborder_trash' ? 'order' : action === 'push_vendor' ? 'vendor' : action === 'withdraw_approve' ? 'dokan_withdrawals'
       : PRODUCT_ACTIONS.includes(action) || action === 'products' ? 'products' : 'webhooks';
-    const entityId = action === 'push_status' || action === 'order_trash' ? wooId(args.order_id)?.toString() ?? null : action === 'push_vendor' && typeof args.vendor_id === 'string' ? args.vendor_id.slice(0, 36)
+    const entityId = action === 'push_status' || action === 'order_trash' || action === 'suborder_trash' ? wooId(args.order_id)?.toString() ?? null : action === 'push_vendor' && typeof args.vendor_id === 'string' ? args.vendor_id.slice(0, 36)
       : action === 'withdraw_approve' || action === 'product_get' || action === 'product_save' || action === 'product_images_add' ? wooId(args.id)?.toString() ?? null : null;
     await logSync(deps.db, { kind: isPush ? 'push' : run.kind, direction: 'out', entity, entity_id: entityId, action, result: 'error', detail: { error: errorText(e, makeScrubber(deps.env)) } });
     if (e instanceof ConfigError) return json(500, { error: 'not_configured' });

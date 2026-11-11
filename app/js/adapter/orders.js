@@ -263,6 +263,27 @@
     log('order.delete', 'IB-' + id + ' · ' + why + ' · الموقع: ' + site);
     return { ok: true, site };
   }
+  // phase 13 decision 54: «مسح الأوردر الفرعي» — woo-sync suborder_trash (the Dokan sub-order to the site's trash, its lines off the
+  // parent, mirrored at once, the hub's holds released); the answer's status → 'forbidden' (401/403) / 'only' (409 only_sub: the page
+  // deletes the order instead) / 'closed' (409) / 'missing' (404) / 'site' (502, or skipped) / 'push_disabled'; ok → the lines leave the
+  // order here too and the total is the site's. Logged as suborder.delete with the sub-order number and the reason.
+  async function deleteSub(orderId, sid, reason) {
+    const cl = c();
+    if (!cl || !uid()) return fail('network');
+    const why = typeof reason === 'string' ? reason.trim() : '';
+    if (!why || why.length > 120) return fail('invalid');
+    let d = null; let status = 0; let code = '';
+    try {
+      const r = await cl.functions.invoke('woo-sync', { body: { action: 'suborder_trash', order_id: Number(orderId), sub_id: Number(sid), reason: why } });
+      d = r.data; if (r.error) { status = (r.error.context && r.error.context.status) || 0; try { const j = r.error.context && r.error.context.json ? await r.error.context.json() : null; code = (j && j.error) || ''; } catch (e) { code = ''; } }
+    } catch (e) { return fail('network'); }
+    if (status) return fail(status === 401 || status === 403 ? 'forbidden' : status === 409 ? (code === 'closed' ? 'closed' : 'only') : status === 404 ? 'missing' : status === 502 ? 'site' : 'network');
+    if (!d || d.result !== 'ok') return fail(d && d.reason === 'push_disabled' ? 'push_disabled' : 'site');
+    const total = d.total != null && Number.isFinite(Number(d.total)) ? Number(d.total) : null;
+    if (orders) { const o = orders.find((x) => x.id === String(orderId)); if (o) { o.subs = o.subs.filter((s) => String(s.sid) !== String(sid)); if (total !== null) o.tot = total; names = vendorNames(orders); notifySoon(); } }
+    log('suborder.delete', '#' + sid + ' (IB-' + orderId + ') · ' + why);
+    return { ok: true, lines: d.lines || 0, total };
+  }
   async function setOrderStatus(id, status, extra) {
     if (status === 'مكتمل' && extra && extra.rating) {
       const r = await completeOrder(id, extra.rating);
@@ -402,6 +423,6 @@
     if (ch && c()) { try { Promise.resolve(c().removeChannel(ch)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
   function clear() { gen += 1; unsubscribe(); cancelNotify(); orders = null; vendorRows = []; leads = new Map(); leadAsked.clear(); images = {}; links = {}; states = new Map(); statuses = []; names = []; asked.clear(); busy.clear(); setState('idle'); }
-  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
+  window.IBOrders = { load, data, state: () => st, today, setOrderStatus, setConfirm, patchOrder, deleteOrder, deleteSub, setItemStatus, setWaybill, setPulled, syncNow, registerWebhooks, subscribe, unsubscribe, clear, toScreen };
   window.IBOrdersStore = window.IBOrders; // the name block 29's write hooks call
 })();

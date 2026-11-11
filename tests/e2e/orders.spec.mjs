@@ -859,6 +859,33 @@ test('decision 53: «مسح المحدد» lists the orders with their sub-order
   await expect(sr('#obulk')).toBeHidden();
 });
 
+test('decision 54: «مسح الأوردر الفرعي» lists its lines, takes one reason, trashes it on the site and drops its lines and their value from the order; the only one deletes the whole order', async ({ page }) => {
+  await openOrders(page);
+  const sr = (sel) => page.locator('#orders ' + sel); const menu = sr('#mpop'); const dlg = sr('#cdlg');
+  const c = card(page, '181668');
+  await c.locator('[data-more="s:5002"]').click();
+  await expect(menu.locator('[data-ma="subdel"]')).toHaveText('مسح الأوردر الفرعي');
+  await menu.locator('[data-ma="subdel"]').click();
+  await expect(dlg.locator('#cdt')).toHaveText('مسح الأوردر الفرعي #181670؟');
+  await expect(dlg.locator('[data-sub-count]')).toContainText('1 سطر');
+  await expect(dlg).toContainText('Macrame Curtain × 1 · 2,539 ج.م');
+  await expect(dlg).toContainText('إجماليه هيقل 2,539 ج.م');
+  await dlg.locator('#creason').selectOption('تعديل من العميل');
+  await dlg.locator('[data-cok]').click();
+  await expect(dlg).toHaveCount(0);
+  await expect(toast(page)).toHaveText('اتمسح الأوردر الفرعي #181670 — إجمالي IB-181668 بقى 1,002 ج.م');
+  expect(mock.subTrashes).toEqual([{ order_id: 181668, sub_id: 181670, lines: [5002], reason: 'تعديل من العميل', by: ADMIN }]);
+  await expect(c.locator('[data-more="s:5002"]')).toHaveCount(0);
+  await expect(c.locator('[data-more="s:5001"]')).toHaveCount(1);
+  await expect.poll(() => mock.activity.filter((a) => a.action === 'suborder.delete').map((a) => a.new_value)).toEqual(['#181670 (IB-181668) · تعديل من العميل']);
+  // the last one left: the order's own «مسح» (cancel first + the site's trash)
+  await c.locator('[data-more="s:5001"]').click();
+  await menu.locator('[data-ma="subdel"]').click();
+  await expect(toast(page)).toHaveText('ده الأوردر الفرعي الوحيد — هيتمسح الأوردر كله');
+  await expect(dlg.locator('#cdt')).toHaveText('مسح الأوردر IB-181668؟');
+  await expect(dlg.locator('[data-cok]')).toHaveText('إلغاء ومسح الأوردر');
+});
+
 test('the status chips sit in a carousel; the chosen filters show as chips with their counts and a ✕ that removes one', async ({ page }) => {
   await openOrders(page);
   const sr = (sel) => page.locator('#orders ' + sel);

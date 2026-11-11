@@ -90,7 +90,7 @@
   }
 
   // ---------- form modal: keeps values on error, validates inline, focuses first error ----------
-  function form({ title, values, fields, validate, submit, submitLabel = 'حفظ', submitType = 'primary', cancelLabel = 'إلغاء', wide, extraFooter, note }) {
+  function form({ title, values, fields, validate, submit, submitLabel = 'حفظ', submitType = 'primary', cancelLabel = 'إلغاء', wide, extraFooter, note, onClose }) {
     const f = Object.assign({}, values || {}); let errs = {}; let m = null;
     const set = (k, v, redraw) => { f[k] = v; if (errs[k]) { delete errs[k]; redraw = true; } if (redraw) draw(); };
     function draw() {
@@ -103,7 +103,7 @@
       if (Object.keys(errs).length) { draw(); const first = m.el.querySelector('[aria-invalid=true],.err'); if (first && first.focus) first.focus(); return; }
       const r = submit(f, m); if (r !== false) m.close();
     }
-    m = U.Modal({ title, body: [], footer: [] }); if (wide) m.el.classList.add(wide === true ? 'wide' : wide); draw();
+    m = U.Modal({ title, body: [], footer: [], onClose }); if (wide) m.el.classList.add(wide === true ? 'wide' : wide); draw();
     // phase 10 decision 18 (b): the first field a tick after the form opens — unless a field inside it already has the focus (on a busy page
     // the tick came late and took the focus mid-typing, so the text landed in the first field)
     setTimeout(() => { const b = m.el.querySelector('.modal-b'); const a = document.activeElement; if (b && a && a !== b && b.contains(a)) return; const i = m.el.querySelector('.modal-b input,.modal-b textarea,.modal-b button'); if (i) i.focus(); });

@@ -42,9 +42,9 @@
   }
   // Main order → «استرجاع» or «ملغي» (owner 22 Oct): reason popup (reason + date + note), «تأكيد» / «ليس الآن».
   // The reasons feed the «أوردرات ملغية» report.
-  function orderReasonPopup(info, ok) {
+  function orderReasonPopup(info, ok, closed) {
     const cancel = info.kind === 'ملغي'; const word = cancel ? 'الإلغاء' : 'الاسترجاع'; const RS = reasonsOf(cancel ? 'cancel' : 'returns');
-    K.form({ title: (cancel ? 'إلغاء' : 'استرجاع') + ' — IB-' + info.order, values: { date: K.TODAY },
+    K.form({ title: (cancel ? 'إلغاء' : 'استرجاع') + ' — IB-' + info.order, values: { date: K.TODAY }, onClose: closed,
       note: U.InlineNote({ children: info.name + ' · IB-' + info.order + ' · ' + K.money(info.tot) + ' ج.م · ' + info.subs + ' أوردر فرعي · الحالة الحالية «' + (info.from || '—') + '»' }),
       fields: (f, e, set) => [K.field.select('reason', 'سبب ' + word, RS, f, e, set, { required: true }), f.reason === 'أخرى' ? K.field.area('other', 'اكتب السبب', f, e, set, { required: true }) : null, K.field.date('date', 'تاريخ ' + word, f, e, set, { required: true }),
         U.InlineNote({ kind: 'warning', children: cancel ? 'الأثر: الأوردر هيتقفل كـ «ملغي» وقيمته (' + K.money(info.tot) + ' ج.م) مش هتتحسب في المبيعات. السبب بيظهر في تقارير الأوردرات › أوردرات ملغية.' : 'الأثر: الأوردر هيتقفل كـ «استرجاع» وقيمته (' + K.money(info.tot) + ' ج.م) تتشال من المبيعات. الأوردرات الفرعية اللي هترجع للمخزن أو للمبتكر تتسجل من حالة كل فرعي.' }),
@@ -53,7 +53,7 @@
       submitType: 'danger', submitLabel: 'تأكيد', cancelLabel: 'ليس الآن',
       submit: (f) => { const reason = f.reason === 'أخرى' ? 'أخرى: ' + f.other.trim() : f.reason; K.logEvent(cancel ? 'order.cancel' : 'order.refund', 'IB-' + info.order + ' · ' + reason); ok({ reason, date: f.date, note: f.note || '' }); K.toast('IB-' + info.order + (cancel ? ' اتلغى — ' : ' اتسجل استرجاع — ') + reason, 'success'); document.dispatchEvent(new CustomEvent('ib:notify')); } });
   }
-  const orderReturnPopup = (info, ok) => orderReasonPopup(Object.assign({ kind: 'استرجاع' }, info), ok);
+  const orderReturnPopup = (info, ok, closed) => orderReasonPopup(Object.assign({ kind: 'استرجاع' }, info), ok, closed);
   function subChanged(orderId, sid, v, sub, opts) {
     const c = cons(orderId); if (!c) { rerenderInv(); return; }
     const row = c.subs.find((x) => String(x[0]) === String(sid)); if (!row) return;
@@ -83,9 +83,9 @@
   // Main order → «مكتمل» (owner 27 Oct — phase 3.6, decision 4): الموظف يقيّم العميل — رضا · أخلاق (نجوم 1–5) + ملاحظة.
   // ok({ sat, manners, note }) — block 29 writes it with the status (IBOrders.setOrderStatus → order_complete: التقييم و«مكتمل» مع بعض).
   // «ليس الآن» = الحالة ما تتغيرش.
-  function ratePopup(info, ok) {
+  function ratePopup(info, ok, closed) { // closed(): the popup went away, saved or «ليس الآن» (decision 53 — the bulk «مكتمل» asks order by order)
     const CS = window.IbtekrCS; const KEYS = CS.RATE_KEYS;
-    K.form({ title: 'قيّم العميل — IB-' + info.order, values: { sat: 0, manners: 0, note: '' },
+    K.form({ title: 'قيّم العميل — IB-' + info.order, values: { sat: 0, manners: 0, note: '' }, onClose: closed,
       note: U.InlineNote({ children: info.name + (info.phone ? ' · ' + info.phone : '') + ' · IB-' + info.order + ' · ' + K.money(info.tot) + ' ج.م · الأوردر هيتقفل «مكتمل» بعد التقييم.' }),
       fields: (f, e, set) => KEYS.map(([k, l]) => K.StarPicker({ id: 'rt-' + k, label: l, required: true, value: f[k], error: e[k], onChange: (n) => set(k, n, true) }))
         .concat([K.field.area('note', 'ملاحظة على العميل', f, e, set, { placeholder: 'اختياري — مثلاً: ذوق جداً، أو كان متعصب من التأخير' }),

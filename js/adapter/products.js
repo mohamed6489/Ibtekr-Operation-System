@@ -308,7 +308,20 @@
     return { ok: true, days: n };
   }
 
-  function clear() { gen++; leadCache.clear(); st = 'idle'; rows = new Map(); cats = new Map(); brands = new Map(); comm = new Map(); repCache = new Map(); }
+  // phase 13 decision 62 (owner 11 Nov — «سجل الحركة» في المنتجات): the products' activity_log rows (what the RLS lets this member read —
+  // the admin all of them, a member his own), newest 200: { id, at, action, text (the ids and field names as logged), actor, productId }
+  const LOG_ACTIONS = ['product.save', 'product.bulk', 'product.trash', 'product.restore', 'product.duplicate', 'product.create', 'product.images.add', 'product.lead', 'product.category.create'];
+  let prodLog = null;
+  async function loadLog() {
+    const cl = c(); if (!cl) return prodLog;
+    try {
+      const { data, error } = await cl.from('activity_log').select('id, at, action, new_value, entity_id, actor:profiles(name)').in('action', LOG_ACTIONS).order('at', { ascending: false }).limit(200);
+      if (error) return prodLog;
+      prodLog = (data || []).map((r) => ({ id: r.id, at: r.at, action: r.action, text: typeof r.new_value === 'string' ? r.new_value : '', actor: (r.actor && r.actor.name) || '—', productId: r.entity_id && /^\d+$/.test(String(r.entity_id)) ? Number(r.entity_id) : null }));
+    } catch (e) { /* keep what we had */ }
+    return prodLog;
+  }
+  function clear() { prodLog = null; gen++; leadCache.clear(); st = 'idle'; rows = new Map(); cats = new Map(); brands = new Map(); comm = new Map(); repCache = new Map(); }
 
   window.IBProducts = {
     load, ensure, refresh, clear, state: () => st, list, trash, get, toRecord, can, rateOf, commissionOf, commissionParams, vendorPriceOf, STATUS, report, reportFailed, reportRetry, addImages, moveVendor,
@@ -317,6 +330,7 @@
     // phase 5.2: a category the studio just made on the site (category_create) shows at once
     addCategory: (row) => { cats.set(Number(row.id), { id: Number(row.id), name: row.name, parent_id: row.parent_id || null }); emit({ categories: true }); },
     fetchLive, save, batch, duplicate, leadDays, setLeadDays, // phase 13 decision 52
+    loadLog, log: () => prodLog, LOG_ACTIONS, // phase 13 decision 62
     trashIds: (ids, onProgress) => moveTrash(ids, false, onProgress), restore: (ids, onProgress) => moveTrash(ids, true, onProgress),
   };
 })();

@@ -368,7 +368,7 @@
       if (colHeads(t).length < 4) return;
       t.classList.add('sticky-col1'); // أول عمود بيفضل ثابت وانت بتسكرول عرضي (owner 27 Oct)
       const card = t.closest('.card, .table-card, .sec, .tbl-card') || t.parentElement;
-      if (!card || card.querySelector('[data-cols]')) return;
+      if (!card || card.querySelector('[data-cols]') || card.hasAttribute('data-no-cols')) return; // data-no-cols: a card that asked for no «أعمدة الجدول» (the makers log — the owner 11 Nov)
       withColumns(card, '', '');
     });
   }

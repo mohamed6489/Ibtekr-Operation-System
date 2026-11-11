@@ -791,12 +791,26 @@ test('decision 57: the makers page tabs — «نظرة عامة» (cards) · «�
   await expect(page.locator('#vpanel [data-vlog-row]').first()).toBeVisible();
   await expect(page.locator('#vpanel [data-vlog-row="inactive"]')).toHaveCount(1);
   await expect(page.locator('#vpanel tr', { has: page.locator('[data-vlog-row="inactive"]') })).toContainText('Antikiano');
-  // the owner 11 Nov: each chip reads «النوع · العدد» — the count was an element joined into the text («[object HTMLSpanElement]»)
-  await expect(page.locator('#vpanel [data-vlog-kind="inactive"]')).toHaveText('توقيف · 1');
-  await expect(page.locator('#vpanel [data-vlog-kind]').first()).toHaveText(/^الكل · \d+$/);
-  await expect(page.locator('#vpanel [aria-label="نوع الحركة"]')).not.toContainText('object');
-  await page.locator('#vpanel [data-vlog-kind="create"]').click();
+  // the owner 11 Nov («اظبط الفلتر يبقي اسهل» → «زرار فلتر واحد بس»): one «فلتر» (الحركة · المبتكر · بواسطة) — no kind chips, no sort,
+  // no «أعمدة الجدول»; the picks show as chips (with their counts — never «[object HTMLSpanElement]») only while a filter is on
+  const logCard = page.locator('#vpanel .table-card', { hasText: 'سجل الحركات' });
+  await expect(logCard.locator('[data-vlog-kind], [data-sm-btn], [data-cols], [data-af]')).toHaveCount(0);
+  await expect(logCard.locator('[data-fm-btn]')).toHaveCount(1);
+  await logCard.locator('[data-fm-btn="vlog"]').click();
+  const fm = page.locator('[data-fm-menu="vlog"]');
+  await expect(fm.locator('.opt-group')).toHaveText(['الحركة', 'المبتكر', 'بواسطة']);
+  await fm.locator('[data-fm="kind:create"]').click();
+  await fm.locator('[data-fm-apply]').click();
   await expect(page.locator('#vpanel [data-vlog-row="inactive"]')).toHaveCount(0);
+  await expect(logCard.locator('[data-af-chip="kind:create"]')).toBeVisible();
+  await expect(logCard.locator('[data-af]')).not.toContainText('object');
+  await logCard.locator('[data-af-clear]').click();
+  await expect(page.locator('#vpanel [data-vlog-row="inactive"]')).toHaveCount(1);
+  await logCard.locator('[data-fm-btn="vlog"]').click();
+  await fm.locator('[data-fm="maker:Antikiano"]').click();
+  await fm.locator('[data-fm-apply]').click();
+  await expect(logCard.locator('tbody tr')).toHaveCount(await logCard.locator('tbody tr', { hasText: 'Antikiano' }).count());
+  await expect(logCard.locator('[data-af-chip="maker:Antikiano"]')).toContainText('Antikiano');
   // the reports page's makers report
   await tabs.nth(4).click();
   await expect(page.locator('#vpanel [data-vrep-page]')).toBeVisible();

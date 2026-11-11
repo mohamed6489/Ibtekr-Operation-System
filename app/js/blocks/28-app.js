@@ -3003,26 +3003,37 @@
   function makersReportsTab() {
     return [h('div', { class: 'toolbar' }, DateRangeField('reports'), h('span', { class: 'grow' }), Button({ type: 'text', size: 'sm', label: 'افتح في صفحة التقارير', attrs: { 'data-vrep-page': '' }, onClick: () => { state.rtab = 'vendors'; state.vtab = 'overview'; go('reports'); } }))].concat(VendorsReportView());
   }
-  // «سجل الحركات»: add / stop / activate / delete a maker (IBVendors.loadMakersLog — the server's activity_log), a filter by kind
+  // «سجل الحركات»: add / stop / activate / delete a maker (IBVendors.loadMakersLog — the server's activity_log). The owner (11 Nov — «اظبط
+  // الفلتر يبقي اسهل»، picked «زرار فلتر واحد بس»): one «فلتر» (الحركة · المبتكر · بواسطة, several picks each) and its chips while one is
+  // on — the kind chips, the kit's sort and the columns button are gone; the newest first, as the server sends it
   const LOG_KIND = { create: 'إضافة مبتكر', remove: 'مسح', active: 'تنشيط', inactive: 'توقيف', leave: 'إجازة', site: 'اتغيرت الحالة من الموقع' };
-  let vlogAsked = false; state.vlogKind = '';
+  const VLOG_F0 = () => ({ kind: [], maker: [], by: [] });
+  let vlogAsked = false; state.vlogF = VLOG_F0();
   function makersLogTab() {
     const V = window.IBVendors;
     if (V && V.loadMakersLog && !vlogAsked) { vlogAsked = true; V.loadMakersLog().then(() => { if (state.page === 'vendors' && state.vtab === 'log') renderVendors(); }); }
     const raw = V && V.makersLog ? V.makersLog() : null;
     const kindOf = (e) => (e.kind === 'status' ? (e.action === 'vendor.sync' ? 'site' : ['active', 'inactive', 'leave'].includes(e.value) ? e.value : 'site') : e.kind);
     const nameOf = (e) => { const v = e.vendorId && vstore.get(e.vendorId); return v ? v.name : (e.kind === 'create' || e.kind === 'remove') && e.value ? e.value : '—'; };
-    const all = (raw || []).map((e) => Object.assign({}, e, { k: kindOf(e) }));
-    const rows = all.filter((e) => !state.vlogKind || e.k === state.vlogKind);
-    const chips = h('div', { class: 'chips', role: 'group', 'aria-label': 'نوع الحركة' }, [['', 'الكل'], ['create', LOG_KIND.create], ['inactive', LOG_KIND.inactive], ['active', LOG_KIND.active], ['leave', LOG_KIND.leave], ['remove', LOG_KIND.remove]].map(([k, l]) => {
-      const n = k ? all.filter((e) => e.k === k).length : all.length;
-      return h('button', { type: 'button', class: 'chip' + (state.vlogKind === k ? ' on' : ''), 'aria-pressed': String(state.vlogKind === k), 'data-vlog-kind': k, onClick: () => { state.vlogKind = k; renderVendors(); } }, l + ' · ', num(String(n))); // num() is an element — never joined into the text («[object HTMLSpanElement]», the owner 11 Nov)
-    }));
+    const byOf = (e) => (e.actor && e.actor.name) || (e.k === 'site' ? 'الموقع' : '—');
+    const all = (raw || []).map((e) => Object.assign({}, e, { k: kindOf(e) })).map((e) => Object.assign(e, { maker: nameOf(e), by: byOf(e) }));
+    const F = state.vlogF || VLOG_F0();
+    const pass = (e, f, skip) => (skip === 'kind' || !f.kind.length || f.kind.includes(e.k)) && (skip === 'maker' || !f.maker.length || f.maker.includes(e.maker)) && (skip === 'by' || !f.by.length || f.by.includes(e.by));
+    const rows = all.filter((e) => pass(e, F));
+    const uniq = (f) => [...new Set(all.map(f))].sort((a, b) => a.localeCompare(b, 'ar'));
+    const groups = [{ key: 'kind', label: 'الحركة', options: Object.keys(LOG_KIND).filter((k) => k !== 'site' || all.some((e) => e.k === 'site')).map((k) => [k, LOG_KIND[k]]) },
+      { key: 'maker', label: 'المبتكر', options: uniq((e) => e.maker).map((n) => [n, n]) }, { key: 'by', label: 'بواسطة', options: uniq((e) => e.by).map((n) => [n, n]) }];
+    const filterBtn = window.IBKit.FilterMenu({ id: 'vlog', groups, value: F, noun: 'حركة', label: 'فلتر سجل الحركات', count: (d) => all.filter((e) => pass(e, d)).length, onApply: (d) => { state.vlogF = d; renderVendors(); } });
+    const chips = window.IBKit.ActiveFilters({ id: 'vlog', noun: 'حركة', total: rows.length, onClear: () => { state.vlogF = VLOG_F0(); renderVendors(); },
+      chips: groups.flatMap((g) => (F[g.key] || []).map((v) => ({ key: g.key + ':' + v, label: (g.options.find((o) => o[0] === v) || [v, v])[1], count: all.filter((e) => pass(e, F, g.key) && (g.key === 'kind' ? e.k : e[g.key]) === v).length,
+        remove: () => { state.vlogF = Object.assign({}, F, { [g.key]: F[g.key].filter((x) => x !== v) }); renderVendors(); } }))) });
     const tone = { create: 'success', remove: 'error', active: 'success', inactive: 'neutral', leave: 'gold', site: 'neutral' };
-    const body = raw == null ? U.InlineNote({ children: 'بنحمّل سجل الحركات…' }) : rows.length ? U.Table({ cls: 'tickets-table', headers: ['التاريخ', 'المبتكر', 'الحركة', 'بواسطة'], rows: rows.map((e) => [fmtTime(e.at), (() => { const v = e.vendorId && vstore.get(e.vendorId); return v ? h('a', { href: '#makers/' + v.id, 'data-vlog-open': v.id, onClick: (ev) => { ev.preventDefault(); openVendor(v.id); } }, v.name) : nameOf(e); })(), h('span', { class: 'tg tg-' + (tone[e.k] || 'neutral'), 'data-vlog-row': e.k }, LOG_KIND[e.k] || e.k), (e.actor && e.actor.name) || '—']) })
-      : U.EmptyState(all.length ? 'مفيش حركات من النوع ده' : 'لسه مفيش حركات', 'إضافة مبتكر وتوقيفه وتنشيطه ومسحه بيتسجلوا هنا.');
-    return [TableCard({ title: 'سجل الحركات', count: raw == null ? '' : num(rows.length + ' حركة'), action: Button({ type: 'text', size: 'sm', icon: 'refresh', label: 'تحديث', attrs: { 'data-vlog-refresh': '' }, onClick: () => { vlogAsked = false; renderVendors(); } }), pre: [chips], body }),
-      h('p', { class: 'source' }, 'المصدر: سجل النشاط — إضافة مبتكر، تغيير حالته (نشط / غير نشط / في إجازة) من الفريق أو من الموقع، ومسحه من السيستم · آخر 200 حركة.')];
+    const body = raw == null ? U.InlineNote({ children: 'بنحمّل سجل الحركات…' }) : rows.length ? U.Table({ cls: 'tickets-table', headers: ['التاريخ', 'المبتكر', 'الحركة', 'بواسطة'], rows: rows.map((e) => [fmtTime(e.at), (() => { const v = e.vendorId && vstore.get(e.vendorId); return v ? h('a', { href: '#makers/' + v.id, 'data-vlog-open': v.id, onClick: (ev) => { ev.preventDefault(); openVendor(v.id); } }, v.name) : e.maker; })(), h('span', { class: 'tg tg-' + (tone[e.k] || 'neutral'), 'data-vlog-row': e.k }, LOG_KIND[e.k] || e.k), e.by]) })
+      : U.EmptyState(all.length ? 'مفيش حركات بالفلتر ده' : 'لسه مفيش حركات', all.length ? 'شيل اختيار من «فلتر» أو اضغط «مسح الكل».' : 'إضافة مبتكر وتوقيفه وتنشيطه ومسحه بيتسجلوا هنا.');
+    const card = TableCard({ title: 'سجل الحركات', cols: false, cls: 'own-filter', count: raw == null ? '' : num(rows.length + ' حركة'), pre: chips,
+      action: h('span', { class: 'acts-inline' }, filterBtn, Button({ type: 'text', size: 'sm', icon: 'refresh', label: 'تحديث', attrs: { 'data-vlog-refresh': '' }, onClick: () => { vlogAsked = false; renderVendors(); } })), body });
+    card.setAttribute('data-no-cols', ''); // one button only (the owner): the kit's sweep leaves this card without «أعمدة الجدول»
+    return [card, h('p', { class: 'source' }, 'المصدر: سجل النشاط — إضافة مبتكر، تغيير حالته (نشط / غير نشط / في إجازة) من الفريق أو من الموقع، ومسحه من السيستم · آخر 200 حركة.')];
   }
   function renderVendors(keepFocus) {
     U.closePopover(); const main = document.getElementById('vendors'); if (!main) return; const sc = window.scrollY; const had = keepFocus && document.activeElement && document.activeElement.type === 'search';

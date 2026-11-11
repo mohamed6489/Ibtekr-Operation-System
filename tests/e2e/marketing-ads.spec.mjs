@@ -209,6 +209,37 @@ test('«التقارير»: the campaigns (Meta next to Woo, the suggested decis
   await expect(modal(page, 'Lamps video')).toContainText('جرّب نسخة جديدة');
 });
 
+test('the v6 «الأعمال الفنية»: the published posts with their own numbers beside the ads; «اعمل نسخ زيه» opens a new campaign on its idea, «اطلب نسخة جديدة» a designer request for a tired ad', async ({ page }) => {
+  await start(page, { mktPosts: [
+    { name: 'دفا الشتا بإيد مصرية', kind: 'بوست', caption: 'دفا الشتا', platform: 'انستجرام', day: D(-2), time: '19:00', status: 'اتنشر', how: 'publish', src: 'system', views: 4000, likes: 300, comments: 40, shares: 20, saves: 40, stats_at: D(-1) + 'T10:00:00Z' },
+    { name: 'خصم على المخدات', kind: 'بوست', caption: 'خصم', platform: 'تيك توك', day: D(-3), time: '20:00', status: 'اتنشر', how: 'download', src: 'system', views: 1000, likes: 50, comments: 0, shares: 0, saves: 0, stats_at: D(-1) + 'T10:00:00Z' },
+    { name: 'مجدول بكرة', kind: 'بوست', platform: 'فيسبوك', day: D(1), time: '19:00', status: 'مجدول', how: 'publish', src: 'system' }] });
+  await openTab(page, ADMIN, 'التقارير');
+  const P = pg(page);
+  await P.getByRole('tab', { name: /الأعمال الفنية/ }).click();
+  const org = P.locator('.org-tbl tbody tr');
+  await expect(org).toHaveCount(2); // the scheduled one is not published yet
+  await expect(org.nth(0)).toContainText('دفا الشتا بإيد مصرية'); // the most viewed first
+  await expect(org.nth(0)).toContainText('4,000');
+  await expect(org.nth(0)).toContainText('400'); // 300 + 40 + 20 + 40
+  await expect(org.nth(0)).toContainText('10%');
+  // the header's platform: Meta = Facebook and Instagram
+  await P.locator('#mk-plat').click(); await page.getByRole('option', { name: 'المنصة: ميتا' }).click();
+  await expect(org).toHaveCount(1);
+  // the tired ad → a designer request, prefilled
+  await P.locator('.ads-cr tbody tr', { hasText: 'Lamps video' }).locator('.row-menu, [aria-haspopup=menu]').first().click();
+  await page.getByRole('menuitem', { name: 'اطلب نسخة جديدة' }).click();
+  const f = modal(page, 'طلب للديزاينر');
+  await expect(f.locator('input').first()).toHaveValue('نسخة جديدة من «Lamps video»');
+  await f.getByRole('button', { name: 'ابعت الطلب' }).click();
+  await expect.poll(() => mock.mkt.requests.some((q) => q.kind === 'designer' && q.title === 'نسخة جديدة من «Lamps video»')).toBe(true);
+  // «اعمل نسخ زيه» on a post → a new campaign with its idea
+  await org.nth(0).locator('.row-menu, [aria-haspopup=menu]').first().click();
+  await page.getByRole('menuitem', { name: 'اعمل نسخ زيه' }).click();
+  await expect(page).toHaveURL(/#marketing-campaign-1$/);
+  await expect(P.locator('textarea').first()).toHaveValue('دفا الشتا');
+});
+
 test('no accounts.view: no profit card and no share from the server; no «مزامنة دلوقتي» for a member', async ({ page }) => {
   await start(page);
   mock.profiles.find((x) => x.email === OPS).custom_perms = { 'accounts.view': 'N' };

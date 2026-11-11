@@ -66,7 +66,12 @@ test('the team: the matrix from the roles\' real permissions; a cell toggles rol
   // members: the role select of سارة → member_role_set; the directory refreshes
   await page.getByRole('tab', { name: /^الأعضاء/ }).click();
   const row = page.locator('#pg-settings table tbody tr', { hasText: 'سارة أحمد' });
-  await row.locator('button.select').click(); await page.getByRole('option', { name: 'خدمة العملاء' }).click();
+  // the permission change above reloads the settings and the directory after its write (setRolePerms: load + IBDirectory.refresh),
+  // and each reload redraws the page — one landing while the select is open closes it, so open and pick again until it takes
+  await expect(async () => {
+    await row.locator('button.select').click();
+    await page.getByRole('option', { name: 'خدمة العملاء' }).click({ timeout: 2000 });
+  }).toPass({ timeout: 15000 });
   await expect.poll(() => mock.st.writes.filter((w) => w.op === 'role').length).toBe(1);
   expect(mock.st.writes.find((w) => w.op === 'role')).toMatchObject({ id: OPS_ID, from: 'ops', to: 'cs' });
   expect(mock.profiles.find((p) => p.id === OPS_ID).role_id).toBe('cs');

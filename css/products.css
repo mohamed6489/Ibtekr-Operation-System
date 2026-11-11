@@ -99,3 +99,15 @@
 .ig-src>div{display:flex;flex-direction:column;gap:4px;align-items:flex-start}
 .ig-cost{display:flex;align-items:center;gap:8px;flex-wrap:wrap;padding:8px 12px;border-radius:var(--radius-md);background:var(--color-brand-subtle-bg);font-size:13px}
 @media (max-width:767px){.ig-row{grid-template-columns:1fr}}
+/* phase 13 decision 56: «الأقسام» — the site's category tree */
+.cat-bar{display:flex;align-items:center;gap:8px;flex-wrap:wrap;margin-bottom:12px}
+.cat-bar .input{min-width:220px;max-width:360px;flex:1}
+.cat-tree .sec-b{display:flex;flex-direction:column;gap:0;padding:0}
+.cat-row{display:flex;align-items:center;gap:8px;min-height:44px;padding:6px 12px;border-bottom:1px solid var(--color-border-subtle);flex-wrap:wrap}
+.cat-row:last-child{border-bottom:0}
+.cat-row.sub{background:var(--color-bg-base)}
+.cat-row .grow{flex:1}
+.cat-row .cat-hit{background:var(--color-brand-subtle-bg);border-radius:4px;padding:0 4px}
+.cat-tog{width:28px;height:28px;flex:none;display:grid;place-items:center;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm,6px);background:var(--color-bg-container);color:var(--color-brand-default);font-weight:700;cursor:pointer}
+.cat-tog.sp{border:0;background:transparent;cursor:default}
+.cat-tog:focus-visible{outline:2px solid var(--color-action-default);outline-offset:1px}

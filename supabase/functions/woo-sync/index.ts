@@ -66,8 +66,8 @@
 //              password the member typed (never stored nor logged), the shop URL, the row's store fields, the commission (admin
 //              / sensitive.commission = F) and the bank (admin / sensitive.vendor_bank = F); then the row is linked to the new
 //              store (woo_vendor_id, snapshot, mirrors) and his automatic brand tied to it. A taken login / e-mail links the
-//              store with that e-mail when no maker of ours has it. The admin or vendors.edit = F; never the sync secret;
-//              WOO_PUSH_ENABLED.
+//              store with that e-mail when no maker of ours has it — after an earlier failed try for this maker, or by the admin
+//              (else 409 store_unlinked). The admin or vendors.edit = F; never the sync secret; WOO_PUSH_ENABLED.
 //   'push_vendor' { vendor_id, fields[] }  (phase 3.3, decision 4 b) fields ⊆ SYNC_FIELDS of woo-core (name, phone,
 //              email, contact_name, address_parts, social, status, rate, category_rates, bank; anything else → 400). The
 //              row is read from the database (never the body); a maker without woo_vendor_id → skipped/no_store; the
@@ -792,9 +792,10 @@ async function storePhoto(run: Run, ctx: Ctx, vendorId: string, storeId: number,
 //   Dokan's «Send an email to vendor about account» (on unless asked off).
 // Then our row takes the store (only while it still has none): woo_vendor_id, the snapshot of the site's answer, the mirrors, no
 // push pending; the maker's own brand (the automatic one) is tied to the store as a synced store's is; a photo kept before the store
-// existed becomes the store's photo. The site's login or e-mail already taken → the Dokan store with that e-mail (a try that timed
-// out, or one made by hand on the site) is linked when no maker of ours has it, else 409 with the reason. A maker with a store,
-// without a login, or with no name → 409. Gated by WOO_PUSH_ENABLED; a person only (never the sync secret).
+// existed becomes the store's photo. The site's login or e-mail already taken → the Dokan store with that e-mail is linked when no
+// maker of ours has it and it is ours to link: an earlier try for this maker that failed on the way (maybe made), or the admin's
+// call (a store made by hand on the site) — anyone else → 409 store_unlinked; a maker of ours has it → 409 exists_store. A maker
+// with a store, without a login, or with no name → 409. Gated by WOO_PUSH_ENABLED; a person only (never the sync secret).
 const SHOP_URL = /^[a-z0-9](?:[a-z0-9-]{0,48}[a-z0-9])?$/;
 const shopOf = (s: string) => s.toLowerCase().replace(/[._]+/g, '-').replace(/[^a-z0-9-]/g, '').replace(/-{2,}/g, '-').replace(/^-+|-+$/g, '').slice(0, 50);
 const STORE_TOGGLES = ['notify', 'trusted', 'featured'];
@@ -825,7 +826,8 @@ async function vendorStore(run: Run, args: Json, member: ReturnType<NonNullable<
     return json(200, { action: 'vendor_store', result: 'skipped', reason: 'push_disabled' });
   }
   // what the member may send: the commission and the bank follow their own rules (as push_vendor's)
-  const may = async (key: string) => { if (!member) return false; const { data: adm } = await member.rpc('is_admin'); if (adm === true) return true; const { data, error: e } = await member.rpc('has_perm', { key }); return !e && data === 'F'; };
+  const isAdmin = member ? (await member.rpc('is_admin')).data === true : false;
+  const may = async (key: string) => { if (!member) return false; if (isAdmin) return true; const { data, error: e } = await member.rpc('has_perm', { key }); return !e && data === 'F'; };
   const withRates = await may('sensitive.commission');
   const withBank = await may('sensitive.vendor_bank');
   const ctx = await run.ctx();
@@ -850,6 +852,14 @@ async function vendorStore(run: Run, args: Json, member: ReturnType<NonNullable<
       if (found) {
         const { data: other } = await run.db.from('vendors').select('id, name').eq('woo_vendor_id', wooId(found.id)).maybeSingle();
         if (other) { await logSync(run.db, { ...entry, result: 'skipped', detail: { vendor_id: vendorId, reason: 'exists_store', store: wooId(found.id) } }); return json(409, { error: 'exists_store', name: String(other.name ?? '') }); }
+        // (security review) a store is linked by its e-mail only when it is ours — an earlier vendor_store call for this very maker that
+        // failed on the way (a 5xx, a timeout, an answer without the store: maybe made) — or by the admin (a store made by hand on the
+        // site); anyone else cannot claim one of the site's stores by typing its e-mail
+        const { data: tries } = await run.db.from('woo_sync_log').select('id').eq('entity', 'vendor').eq('entity_id', vendorId).eq('action', 'vendor_store').eq('result', 'error').limit(1);
+        if (!isAdmin && !(Array.isArray(tries) && tries.length)) {
+          await logSync(run.db, { ...entry, result: 'skipped', detail: { vendor_id: vendorId, reason: 'store_unlinked', store: wooId(found.id) } });
+          return json(409, { error: 'store_unlinked' });
+        }
         store = found; adopted = true;
       } else {
         await logSync(run.db, { ...entry, result: 'skipped', detail: { vendor_id: vendorId, reason: code } });

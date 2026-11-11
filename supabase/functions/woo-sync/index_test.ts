@@ -2095,12 +2095,23 @@ Deno.test('vendor_store: the admin\'s store carries the commission and the bank 
 
 Deno.test('vendor_store: the site\'s login / e-mail taken → the Dokan store with that e-mail is linked when no maker of ours has it (adopted, nothing written on the site), else 409; a taken shop URL → 409; a failure on the way → 502 and the maker stays without a store', async () => {
   const taken = (code: string) => ({ status: 400, body: { code, message: 'Sorry, that username already exists!', data: null } });
-  // a former try that timed out: the store exists on Dokan with his e-mail, unknown here → linked
-  const a = setup({ seed: NEW_SEED(), env: WP_ENV, routes: { 'POST dokan/v1/stores': () => taken('existing_user_login'), 'GET dokan/v1/stores': (c: any) => ({ body: c.query.search === 'new@maker.test' ? [wooStoreFull(901, { email: 'NEW@maker.test' }), wooStoreFull(902, { email: 'other@maker.test' })] : [] }) } });
+  const byEmail = { 'POST dokan/v1/stores': () => taken('existing_user_login'), 'GET dokan/v1/stores': (c: any) => ({ body: c.query.search === 'new@maker.test' ? [wooStoreFull(901, { email: 'NEW@maker.test' }), wooStoreFull(902, { email: 'other@maker.test' })] : [] }) };
+  // a former try for this maker that failed on the way (logged as an error): the store exists on Dokan with his e-mail, unknown
+  // here → linked, for vendors.edit F too
+  const failedTry = { id: 1, at: NOW, kind: 'push', direction: 'out', entity: 'vendor', entity_id: NEW_V, action: 'vendor_store', result: 'error', detail: { vendor_id: NEW_V, error: 'WooError: 504' } };
+  const a = setup({ seed: { ...NEW_SEED(), woo_sync_log: [failedTry] }, env: WP_ENV, routes: byEmail });
   const r = await call(a.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' });
   assertEquals([r.body.result, r.body.store, r.body.adopted, r.body.commission], ['ok', 901, true, false]);
   assertEquals(a.woo.calls.filter((c: any) => c.method !== 'GET').map((c: any) => c.method + ' ' + c.path), ['POST dokan/v1/stores'], 'nothing else written on the site');
   assertEquals([a.db.rows('vendors').find((v: any) => v.id === NEW_V).woo_vendor_id, a.db.rows('activity_log').map((x: any) => x.action)], [901, ['vendor.store.link']]);
+  // (security review) no earlier try of ours: a member cannot claim a store of the site by its e-mail → 409, nothing linked
+  const f = setup({ seed: NEW_SEED(), env: WP_ENV, routes: byEmail });
+  const rf = await call(f.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' });
+  assertEquals([rf.res.status, rf.body.error, f.db.rows('vendors')[0].woo_vendor_id, f.db.rows('activity_log').length], [409, 'store_unlinked', null, 0]);
+  // … the admin links it (a store made by hand on the site)
+  const g = setup({ seed: NEW_SEED(), env: WP_ENV, routes: byEmail });
+  const rg = await call(g.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-admin' });
+  assertEquals([rg.body.result, rg.body.store, rg.body.adopted, g.db.rows('vendors')[0].woo_vendor_id], ['ok', 901, true, 901]);
   // the store with that e-mail is already one of our makers → 409 with its name
   const b = setup({ seed: { ...NEW_SEED(), vendors: [{ ...NEW_ROW }, { id: vendorId(950), woo_vendor_id: 901, name: 'مبتكر قديم' }] }, env: WP_ENV, routes: { 'POST dokan/v1/stores': () => taken('existing_user_email'), 'GET dokan/v1/stores': () => ({ body: [wooStoreFull(901, { email: 'new@maker.test' })] }) } });
   const r2 = await call(b.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' });
@@ -2117,7 +2128,7 @@ Deno.test('vendor_store: the site\'s login / e-mail taken → the Dokan store wi
   const e = setup({ seed: NEW_SEED(), env: WP_ENV, routes: { 'POST dokan/v1/stores': () => ({ status: 500, text: `<html><body>Bad gateway — the request was: warsha.new ${PW}</body></html>` }) } });
   const r5 = await call(e.deps, { action: 'vendor_store', vendor_id: NEW_V, password: PW }, { jwt: 'jwt-vf' });
   assertEquals([r5.res.status, r5.body.error, e.db.rows('vendors')[0].woo_vendor_id], [502, 'woo_error', null]);
-  for (const w of [a, b, c, d, e]) assert(!writtenText(w.db).includes(PW), 'never the password in a log');
+  for (const w of [a, b, c, d, e, f, g]) assert(!writtenText(w.db).includes(PW), 'never the password in a log');
 });
 
 Deno.test('product_images_add: the member\'s own ai-images paths onto a product — each to wp/v2/media, one PUT with the current images + the new ones (first → ahead); products.edit = F, never the secret; another member\'s folder → 401; a missing object → 404 before any upload; push disabled → skipped; the log counts only', async () => {

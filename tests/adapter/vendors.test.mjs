@@ -479,7 +479,7 @@ test('the owner, 11 Nov: createStore — woo-sync vendor_store with the vendor, 
     assert.deepEqual(plain(invokes(calls)[0]), ['woo-sync', { body: { action: 'vendor_store', vendor_id: target, password: PW, shop_url: 'my-shop', notify: false, trusted: true } }], 'featured not boolean → not sent');
     assert(!JSON.stringify(logs).includes(PW), 'never logged here');
     // the refusals, in Arabic
-    for (const [status, body, reason, re] of [[409, { error: 'login_taken' }, 'login_taken', /اسم المستخدم ده عليه حساب/], [409, { error: 'exists_store', name: 'مبتكر قديم' }, 'exists_store', /مبتكر قديم/], [409, { error: 'refused', code: 'x_y' }, 'refused', /x_y/], [502, { error: 'woo_error' }, 'woo_down', /الموقع ماردش/], [400, { error: 'bad_request', field: 'password' }, 'invalid', /8 حروف/]]) {
+    for (const [status, body, reason, re] of [[409, { error: 'login_taken' }, 'login_taken', /اسم المستخدم ده عليه حساب/], [409, { error: 'exists_store', name: 'مبتكر قديم' }, 'exists_store', /مبتكر قديم/], [409, { error: 'refused', code: 'x_y' }, 'refused', /x_y/], [409, { error: 'store_unlinked' }, 'store_unlinked', /الأدمن بس يقدر يربطه/], [502, { error: 'woo_error' }, 'woo_down', /الموقع ماردش/], [400, { error: 'bad_request', field: 'password' }, 'invalid', /8 حروف/]]) {
       responses['fn:woo-sync'] = () => ({ data: null, error: { context: { status, json: async () => body } } });
       const e = await S.createStore(target, { password: PW });
       assert.equal(e.ok, false); assert.equal(e.reason, reason); assert.match(e.message, re);

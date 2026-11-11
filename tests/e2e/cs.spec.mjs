@@ -205,9 +205,15 @@ test('channels (all disconnected; WhatsApp waits for the last stage; the admin s
   await page.locator('.modal').getByRole('button', { name: 'حفظ', exact: true }).click();
   await expect(P).toContainText('12 دقيقة');
   expect(mock.settings.find((s) => s.section === 'cs').data).toMatchObject({ sla_warn: 8, sla_late: 12 });
-  await go(page, 'performance');
+  await page.evaluate(() => { location.hash = 'cs-performance'; }); // decision 63: «الأداء» is gone — its old link opens «نظرة عامة», where the performance now lives
+  await expect(P.locator('.cs-tab-overview')).toBeVisible();
   await expect(P).toContainText('أداء الفريق');
-  await expect(P.locator('.cs-tab-performance table')).toContainText('سارة أحمد');
+  await expect(P.locator('.cs-tab-overview table').last()).toContainText('سارة أحمد');
+  await expect(page.locator('#pg-cs [role=tab]')).toHaveText(['نظرة عامة', 'الرسايل', 'العملاء', 'شرايح العملاء', 'الحملات', 'القنوات', 'التقارير']);
+  await expect(P.locator('.kpi[aria-label="رسايل واردة"]')).toBeVisible();
+  await expect(P).toContainText('المحادثات حسب الحالة');
+  await expect(P).toContainText('الترافيك حسب القناة');
+  await expect(P.locator('[data-cs-days] .bar-row, [data-cs-days] > *')).toHaveCount(14);
   await go(page, 'reports');
   await expect(P.locator('.cs-tab-reports')).toContainText('فترة التقارير');
   // the bell: the waiting conversation under «رسايل»

@@ -10,12 +10,13 @@
 //   consolidations [{ id, order, customer, subs: [[sid, maker, line status, product, item id]], since, zone, by }] (open ones)
 //   count          the open count { id: 'CNT-n', dbId, zone, started, total, base, lines: [{ key, sku, name, loc, system, counted, cost, note }] } or null
 //   counts         the approved ones { id, date, zone, by, items, value, status: 'اتعتمد' }
-//   racks          [{ code, desc, kind, products, pieces }]       invSettings  DEFAULTS ∪ the settings row
+//   racks          [{ code, desc, kind, products, pieces }]       invSettings  DEFAULTS ∪ the settings row (cleanSettings)
 // Writes return a Promise of { ok, reason? } and never throw (reason 'forbidden' 42501, 'invalid' 22/23xxx, 'notfound', 'network');
 // each one the server took is logged as inventory.<x> through IBActivity (ids, names and numbers only). can(): { view, edit, approve, admin }.
-// The site quantity (decision 1 c): with the setting wooSync on, a lot or a move of a «ملك ابتكر» piece asks woo-sync inventory_push for
-// its SKU (the server reads the hub and checks the setting, the permission — the admin, or inventory.edit + products.edit — and
-// WOO_PUSH_ENABLED again); pushSite(skus) by hand.
+// B6 (the owner, 11 Nov — «إعدادات المخزن في الإعدادات العامة، أبسط»): the settings are five — the auto-pull switch (off), three alerts
+// in days (consolidation late, a photo piece too long, a return waiting too long) and one default for a return (يستنى أوردر / يرجع
+// للمبتكر); the places are three fixed ones (PLACES: تجميع · مرتجعات · تصوير); the site quantity is not synced from here any more
+// (the old wooSync key and the rest of the prototype's keys are dropped from the row at the next save).
 (function () {
   'use strict';
   const LOT_COLS = 'id, reason, status, sku, product_id, name, vendor_id, order_id, item_id, ref, loc, mode, cost, condition, condition_note, note, since, closed_at, created_by, created_at';
@@ -25,11 +26,11 @@
   const COUNT_COLS = 'id, zone, status, note, started_by, started_at, approved_by, approved_at';
   const LINE_COLS = 'count_id, lot_id, system, counted, note';
   const LOC_COLS = 'code, label, kind, note';
-  // the v2 settings tab's keys (decision 1 b / c: auto-pull and the site quantity off until the owner opens them)
-  const DEFAULTS = Object.freeze({ firstWarehouse: false, reserveAt: 'إنشاء الأوردر', deductAt: 'شحن الأوردر الفرعي', autoRelease: true, pullAlert: true, zone: 'T — منطقة التجميع',
-    consolidationAlert: 5, partial: true, photoMax: 14, photoDefault: 'يرجع للمبتكر', minQty: 2, stale: 90, lowAlert: true, inspect: true,
-    returnOwner: 'بنفس ملكية الأوردر الأصلي', vendorReturn: 'يتلغي (من غير خصم إضافي)', wooSync: false });
+  // B6: the five settings (auto-pull off until the owner opens it); the alerts in whole days, 1–90
+  const DEFAULTS = Object.freeze({ firstWarehouse: false, consolidationAlert: 5, photoMax: 14, returnWait: 7, returnDefault: 'يرجع للمبتكر' });
   const SETTING_KEYS = Object.keys(DEFAULTS);
+  const RETURN_DEFAULTS = ['يستنى أوردر', 'يرجع للمبتكر'];
+  const PLACES = Object.freeze([['T', 'تجميع'], ['R', 'مرتجعات'], ['P', 'تصوير']]);
   const LIMIT = 5000;
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
@@ -129,7 +130,12 @@
       st = 'ready'; emit(); return { ok: true };
     } catch (e) { if (g === gen) st = 'error'; emit(); return fail(e); }
   }
-  const pick = (o) => { const out = {}; SETTING_KEYS.forEach((k) => { if (o && o[k] !== undefined) out[k] = o[k]; }); return out; };
+  // the known keys with valid values only (a day count 1–90, the switch a boolean, the return default one of two)
+  const pick = (o) => { const out = {}; if (!o || typeof o !== 'object') return out;
+    if (typeof o.firstWarehouse === 'boolean') out.firstWarehouse = o.firstWarehouse;
+    ['consolidationAlert', 'photoMax', 'returnWait'].forEach((k) => { const n = Number(o[k]); if (o[k] !== undefined && o[k] !== null && o[k] !== '' && Number.isInteger(n) && n >= 1 && n <= 90) out[k] = n; });
+    if (RETURN_DEFAULTS.includes(o.returnDefault)) out.returnDefault = o.returnDefault;
+    return out; };
   function clear() { gen++; st = 'idle'; countRow = null; const S = store(); if (S) Object.assign(S, { stock: [], ledger: [], returns: [], consolidations: [], count: null, counts: [], racks: [] }); }
 
   // ---------- writes ----------
@@ -141,19 +147,6 @@
   function locCode(v) { const S = store(); const codes = ((S && S.racks) || []).map((r) => r.code); const s = String(v || '').trim(); if (!s || s === '—') return null; if (codes.includes(s)) return s; const m = /([A-Za-z])/.exec(s); return m && codes.includes(m[1].toUpperCase()) ? m[1].toUpperCase() : null; }
   const moveRow = (m) => ({ lot_id: m.key, type: m.type, qty: Math.trunc(num(m.qty)), label: m.label ? String(m.label).slice(0, 80) : null, reason: m.reason ? String(m.reason).slice(0, 80) : null, ref: m.ref && m.ref !== '—' ? String(m.ref).slice(0, 80) : null, note: m.note ? String(m.note).slice(0, 500) : null });
 
-  // the site quantity of these SKUs (woo-sync inventory_push) — { ok, result ('ok' | 'skipped'), counts }; never throws
-  async function pushSite(skus) {
-    const cl = c(); if (!cl || !cl.functions) return { ok: false, reason: 'network' };
-    if (!can().admin && !(can().edit && perm('products.edit') === 'F')) return { ok: false, reason: 'forbidden' };
-    const list = [...new Set((skus || []).map((x) => String(x || '').trim()).filter(Boolean))].slice(0, 50);
-    try { const { data: d, error } = await cl.functions.invoke('woo-sync', { body: list.length ? { action: 'inventory_push', skus: list } : { action: 'inventory_push' } });
-      if (error) return { ok: false, reason: error.context && error.context.status === 401 ? 'forbidden' : 'network' };
-      return { ok: true, result: (d && d.result) || 'ok', counts: (d && d.counts) || null }; }
-    catch (e) { return { ok: false, reason: 'network' }; }
-  }
-  // a change to an owned piece follows on the site when the setting is on (the answer is not waited for)
-  const follow = (lot) => { if (data.settings.wooSync === true && lot && modeIn(lot.mode) === 'ملك ابتكر' && lot.sku) pushSite([lot.sku]); };
-  const lotOf = (key) => { const S = store(); return S && Array.isArray(S.stock) ? S.stock.find((x) => x.key === key) || null : null; };
 
   // a new lot + its first move (one call from the page: receive / arrival)
   async function addLot(lot, move) {
@@ -163,14 +156,14 @@
     try {
       const { error } = await cl.from('inv_lots').insert(row); if (error) return fail(error);
       if (move) { const r = await addMove(Object.assign({}, move, { key: row.id }), true); if (!r.ok) return r; }
-      log('inventory.receive', row.reason + ' · ' + (row.sku || row.name) + (move ? ' × ' + move.qty : ''), row.id); follow({ mode: row.mode, sku: row.sku }); return { ok: true, key: row.id };
+      log('inventory.receive', row.reason + ' · ' + (row.sku || row.name) + (move ? ' × ' + move.qty : ''), row.id); return { ok: true, key: row.id };
     } catch (e) { return { ok: false, reason: 'network' }; }
   }
   async function addMove(m, silent) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     if (!can().edit || (m.type === 'adjust' && !can().approve)) return { ok: false, reason: 'forbidden' };
     if (!UUID.test(String(m.key))) return { ok: false, reason: 'invalid' };
-    try { const { error } = await cl.from('inv_moves').insert(moveRow(m)); if (error) return fail(error); if (!silent) { log('inventory.move', m.type + ' ' + m.qty + (m.label ? ' · ' + m.label : ''), m.key); follow(lotOf(m.key)); } return { ok: true }; }
+    try { const { error } = await cl.from('inv_moves').insert(moveRow(m)); if (error) return fail(error); if (!silent) { log('inventory.move', m.type + ' ' + m.qty + (m.label ? ' · ' + m.label : ''), m.key); } return { ok: true }; }
     catch (e) { return { ok: false, reason: 'network' }; }
   }
   const LOT_PATCH = { status: 'status', reason: 'reason', loc: 'loc', mode: 'mode', cost: 'cost', note: 'note', condition: 'condition', conditionNote: 'condition_note' };
@@ -182,7 +175,7 @@
     if (!Object.keys(row).length) return { ok: true };
     try { const { data: d, error } = await cl.from('inv_lots').update(row).eq('id', key).select('id'); if (error) return fail(error); if (!d || !d.length) return { ok: false, reason: 'forbidden' };
       log(action || 'inventory.lot', Object.keys(row).map((k) => k + ': ' + (k === 'note' || k === 'condition_note' ? '…' : row[k])).join(' · '), key);
-      if (row.reason || row.status || row.mode) { const l = lotOf(key); follow(l ? Object.assign({}, l, patch.mode ? { mode: patch.mode } : {}) : null); } return { ok: true }; }
+      return { ok: true }; }
     catch (e) { return { ok: false, reason: 'network' }; }
   }
   // a consolidation of an order's lines (block 22's «تجميع في المخزن»)
@@ -238,27 +231,28 @@
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     if (!can().approve) return { ok: false, reason: 'forbidden' };
     try { const { data: n, error } = await cl.rpc('inv_count_approve', { p_id: Number(countId) }); if (error) return fail(error); log('inventory.count.approve', 'CNT-' + countId + ' · ' + n, String(countId));
-      if (Number(n) && data.settings.wooSync === true) { const S = store(); const owned = ((S && S.stock) || []).filter((l) => modeIn(l.mode) === 'ملك ابتكر' && l.sku).map((l) => l.sku); if (owned.length) pushSite(owned); }
       return { ok: true, adjusted: Number(n) || 0 }; }
     catch (e) { return { ok: false, reason: 'network' }; }
   }
-  async function addLocation(code, label, kind) {
-    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
-    if (!can().edit) return { ok: false, reason: 'forbidden' };
-    const cd = String(code || '').trim().toUpperCase(); if (!/^[A-Z0-9-]{1,12}$/.test(cd)) return { ok: false, reason: 'invalid', field: 'code' };
-    try { const { error } = await cl.from('inv_locations').insert({ code: cd, label: String(label || '').trim().slice(0, 80) || cd, kind: kind === 'zone' ? 'zone' : 'rack' }); if (error) return fail(error); log('inventory.location', cd, cd); return { ok: true, code: cd }; }
-    catch (e) { return { ok: false, reason: 'network' }; }
+  // the settings row alone (the settings page's «المخزن» section reads it without loading the hub)
+  async function loadSettings() {
+    const cl = c(); if (!cl) return Object.assign({}, data.settings);
+    try { const { data: row } = await cl.from('settings').select('data').eq('section', 'inventory').maybeSingle();
+      data.settings = Object.assign({}, DEFAULTS, pick((row && row.data) || {})); emit(); }
+    catch (e) { /* keep what we had */ }
+    return Object.assign({}, data.settings);
   }
   async function saveSettings(patch) {
     const cl = c(); if (!cl) return { ok: false, reason: 'network' };
     if (!can().admin) return { ok: false, reason: 'forbidden' };
-    const next = Object.assign({}, data.settings, pick(patch || {}));
+    const clean = pick(patch || {}); if (!Object.keys(clean).length) return { ok: false, reason: 'invalid' };
+    const next = Object.assign({}, DEFAULTS, pick(data.settings), clean);
     try { const { error } = await cl.from('settings').upsert({ section: 'inventory', data: next }, { onConflict: 'section' }); if (error) return fail(error);
-      data.settings = next; const S = store(); if (S) S.invSettings = Object.assign({}, next); log('inventory.settings', Object.keys(pick(patch || {})).join(', '), 'inventory'); emit(); return { ok: true }; }
+      data.settings = next; const S = store(); if (S) S.invSettings = Object.assign({}, next); log('inventory.settings', Object.keys(clean).join(', '), 'inventory'); emit(); return { ok: true }; }
     catch (e) { return { ok: false, reason: 'network' }; }
   }
 
-  window.IBInventory = { load, clear, state: () => st, can, today, cairo, newKey, settings: () => Object.assign({}, data.settings), DEFAULTS,
-    addLot, addMove, updateLot, pushSite, consolidate, addToConsolidation, closeConsolidation, startCount, countLine, approveCount, addLocation, saveSettings, countId: () => (countRow ? countRow.id : null),
+  window.IBInventory = { load, clear, state: () => st, can, today, cairo, newKey, settings: () => Object.assign({}, data.settings), DEFAULTS, PLACES, RETURN_DEFAULTS, loadSettings,
+    addLot, addMove, updateLot, consolidate, addToConsolidation, closeConsolidation, startCount, countLine, approveCount, saveSettings, countId: () => (countRow ? countRow.id : null),
     _test: { toStock, toMove, toReturn, lotRow, moveRow, locCode, modeIn, modeOut } };
 })();

@@ -3,7 +3,8 @@ import { readFileSync } from 'node:fs'; import { runInNewContext } from 'node:vm
 import { stubClient, opsOf } from './stub-supabase.mjs';
 // inventory.js (phase 7) against a stub IBSupabase: the lots, moves, open consolidations with their lines, counts, places and the
 // settings row → the v2 shapes on IBKit.store; the writes (a lot + its first move, a move, a lot's patch, a consolidation and its
-// close, a count and its lines, the approval RPC, a place, the settings), the permissions and the activity rows.
+// close, a count and its lines, the approval RPC, the settings), the permissions and the activity rows. B6: the settings are five
+// (the auto-pull switch, three alerts in days, the return default), no «+ مكان», no site quantity from here.
 const src = readFileSync(new URL('../../app/js/adapter/inventory.js', import.meta.url), 'utf8');
 const plain = (v) => (v === undefined ? undefined : JSON.parse(JSON.stringify(v)));
 const eq = (a, b, msg) => assert.deepEqual(plain(a), plain(b), msg);
@@ -48,7 +49,7 @@ test('load: the lots, moves (newest first, Cairo time), returns, the open consol
   eq(S.consolidations, [{ id: C1, order: '180662', customer: 'منى', since: '2026-11-01', zone: 'T', by: 'سارة أحمد', subs: [['180700', 'HANDS', 'وصل المخزن', 'سلة كروشيه', '5001'], ['180662', 'HANDS', 'قيد التنفيذ', 'فازة', '5003']] }]);
   eq([S.count.id, S.count.dbId, S.count.lines[0].counted, S.count.lines[0].name], ['CNT-04', 4, '1', 'مكرمية']);
   eq(S.racks.map((r) => r.code), ['A', 'R', 'T']);
-  eq([S.invSettings.firstWarehouse, S.invSettings.photoMax, S.invSettings.wooSync, S.invSettings.junk], [true, 21, false, undefined]);
+  eq(S.invSettings, { firstWarehouse: true, consolidationAlert: 5, photoMax: 21, returnWait: 7, returnDefault: 'يرجع للمبتكر' }, 'the defaults ∪ the known keys of the row (junk dropped)');
   assert(events.includes('ib:inventory'));
 });
 
@@ -85,7 +86,7 @@ test('permissions: a viewer cannot write; ops cannot adjust (approve); a lot pat
   eq(opsOf(a.stub.calls).find((c) => c.op === 'rpc').args, ['inv_count_approve', { p_id: 4 }]);
 });
 
-test('a consolidation of an order\'s lines, then its close; a count with its lines (system is the server\'s); a place; the settings for the admin only', async () => {
+test('a consolidation of an order\'s lines, then its close; a count with its lines (system is the server\'s); no «+ مكان» any more', async () => {
   const { I, stub } = load({ responses: { inv_consolidations: (q) => (q.some((x) => x.op === 'update') ? ok([{ id: C1 }]) : ok([])), inv_counts: (q) => (q.some((x) => x.op === 'insert') ? ok({ id: 9 }) : ok([])) } }); await I.load();
   eq((await I.consolidate(180700, ['7001', '7002', 'x'], 'T-01')).ok, true);
   eq(inserted(stub, 'inv_consolidations')[0], { id: 'd0000000-0000-4000-8000-000000000009', order_id: 180700, zone: 'T' });
@@ -95,13 +96,24 @@ test('a consolidation of an order\'s lines, then its close; a count with its lin
   eq((await I.startCount('رف A', [L1, L2, 'bad'])).id, 9);
   eq(inserted(stub, 'inv_count_lines')[0], [{ count_id: 9, lot_id: L1, system: 0 }, { count_id: 9, lot_id: L2, system: 0 }]);
   eq((await I.countLine(9, L1, '-1')).reason, 'invalid');
-  eq((await I.addLocation('e', 'رف E')).code, 'E');
-  eq((await I.addLocation('رف', 'x')).reason, 'invalid');
-  eq((await I.saveSettings({ wooSync: true })).reason, 'forbidden');
-  const ad = load({ admin: true }); await ad.I.load();
-  eq((await ad.I.saveSettings({ wooSync: true, junk: 1 })).ok, true);
+  eq([I.addLocation, I.pushSite], [undefined, undefined]);
+  eq(I.PLACES, [['T', 'تجميع'], ['R', 'مرتجعات'], ['P', 'تصوير']]);
+});
+
+test('B6 settings: five keys only — the admin saves a clean merge (days 1–90 whole, the switch a boolean, the return default one of two); the old keys dropped; loadSettings reads the row alone', async () => {
+  const { I } = load(); await I.load();
+  eq((await I.saveSettings({ photoMax: 10 })).reason, 'forbidden', 'the admin only');
+  const ad = load({ admin: true, responses: { settings: ok({ data: { firstWarehouse: true, photoMax: 21, wooSync: true, zone: 'T — منطقة التجميع', reserveAt: 'تأكيد الأوردر' } }) } }); await ad.I.load();
+  for (const bad of [{}, { wooSync: true, junk: 1 }, { photoMax: 0 }, { returnWait: 91 }, { consolidationAlert: 2.5 }, { photoMax: 'x' }, { returnDefault: 'يتباع' }, { firstWarehouse: 'yes' }]) eq((await ad.I.saveSettings(bad)).reason, 'invalid', JSON.stringify(bad));
+  eq(opsOf(ad.stub.calls, 'settings').filter((c) => c.op === 'upsert').length, 0, 'nothing written for a refused patch');
+  eq((await ad.I.saveSettings({ photoMax: 10, returnWait: '8', returnDefault: 'يستنى أوردر', wooSync: true, junk: 1 })).ok, true);
   const up = opsOf(ad.stub.calls, 'settings').find((c) => c.op === 'upsert').args[0];
-  eq([up.section, up.data.wooSync, up.data.firstWarehouse, up.data.junk], ['inventory', true, true, undefined]);
+  eq(up, { section: 'inventory', data: { firstWarehouse: true, consolidationAlert: 5, photoMax: 10, returnWait: 8, returnDefault: 'يستنى أوردر' } }, 'the old row\'s keys (wooSync, zone, …) are gone');
+  eq([ad.S.invSettings.returnWait, ad.I.settings().returnDefault], [8, 'يستنى أوردر']);
+  eq(ad.logs.at(-1).slice(0, 2), ['inventory.settings', 'photoMax, returnWait, returnDefault']);
+  const fresh = load({ responses: { settings: ok({ data: { consolidationAlert: 3, returnWait: 500, returnDefault: 'يستنى أوردر' } }) } });
+  eq(await fresh.I.loadSettings(), { firstWarehouse: false, consolidationAlert: 3, photoMax: 14, returnWait: 7, returnDefault: 'يستنى أوردر' });
+  eq(opsOf(fresh.stub.calls, 'inv_lots').length, 0, 'the row alone, not the hub');
 });
 
 test('a lot from the orders page: item_id is the line\'s id (itemId), never the sub-order number it shows (sub)', () => {
@@ -111,24 +123,11 @@ test('a lot from the orders page: item_id is the line\'s id (itemId), never the 
   eq(I._test.lotRow({ key: 'x', reason: 'مرتجع', status: 'بانتظار الفحص', name: 'برواز', sub: '180700' }).item_id, null);
 });
 
-test('the site quantity (decision 1 c): off → no call; on → a move or a new lot of a «ملك ابتكر» piece asks inventory_push for its SKU, a maker\'s «أمانة» never', async () => {
-  const invokes = (stub) => stub.calls.filter((c) => c.op === 'invoke').map((c) => c.args[1].body);
-  const off = load({ responses: { inv_moves: ok(MOVES) } });
-  await off.I.load(); // the settings row has no wooSync
-  eq((await off.I.addMove({ key: L2, type: 'out', qty: 1 })).ok, true);
-  eq(invokes(off.stub), []);
-  const on = load({ perms: { ...BASE, 'products.edit': 'F' }, responses: { settings: ok({ data: { wooSync: true } }), 'fn:woo-sync': { data: { action: 'inventory_push', result: 'ok', counts: { pushed: 1, missing: 0, failed: 0 } }, error: null } } });
+test('no site quantity from the inventory any more (B6): a move or a new «ملك ابتكر» lot never calls woo-sync, even with the old wooSync on the row', async () => {
+  const on = load({ perms: { ...BASE, 'products.edit': 'F' }, responses: { settings: ok({ data: { wooSync: true } }) } });
   await on.I.load();
-  await on.I.addMove({ key: L2, type: 'out', qty: 1 }); // L2: مكرمية, ملك ابتكر
-  await on.I.addMove({ key: L1, type: 'move', qty: 0 }); // L1: أمانة
-  await on.I.addLot({ key: 'x', reason: 'متاح للبيع', status: 'متاح', sku: 'IBT-NEW', name: 'شنطة', vendor: 'HANDS', mode: 'ملك', loc: 'A' }, { type: 'in', qty: 2 });
-  await on.I.addLot({ key: 'y', reason: 'متاح للبيع', status: 'متاح', sku: 'IBT-AM', name: 'كوب', vendor: 'HANDS', mode: 'أمانة', loc: 'A' }, { type: 'in', qty: 1 });
+  eq((await on.I.addMove({ key: L2, type: 'out', qty: 1 })).ok, true); // L2: مكرمية, ملك ابتكر
+  eq((await on.I.addLot({ key: 'x', reason: 'متاح للبيع', status: 'متاح', sku: 'IBT-NEW', name: 'شنطة', vendor: 'HANDS', mode: 'ملك', loc: 'A' }, { type: 'in', qty: 2 })).ok, true);
   await new Promise((r) => setTimeout(r, 0));
-  eq(invokes(on.stub), [{ action: 'inventory_push', skus: ['IBT-MD'] }, { action: 'inventory_push', skus: ['IBT-NEW'] }]);
-  eq(await on.I.pushSite([' IBT-MD ', 'IBT-MD']), { ok: true, result: 'ok', counts: { pushed: 1, missing: 0, failed: 0 } });
-  eq(invokes(on.stub).at(-1), { action: 'inventory_push', skus: ['IBT-MD'] });
-  const viewer = load({ perms: { 'inventory.view': 'F' } });
-  eq(await viewer.I.pushSite(['IBT-MD']), { ok: false, reason: 'forbidden' });
-  const invOnly = load(); // inventory.edit without products.edit: the lot's SKU is the member's input — no push (the server refuses it too)
-  eq(await invOnly.I.pushSite(['IBT-MD']), { ok: false, reason: 'forbidden' });
+  eq(on.stub.calls.filter((c) => c.op === 'invoke').length, 0);
 });

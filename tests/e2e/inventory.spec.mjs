@@ -53,7 +53,7 @@ test('«المخزون» is open: the lots from inv_lots, the quantity from the 
   await expect(rowOf(page, 'فازة سيراميك')).toContainText('مستني تصوير');
 });
 
-test('receiving by hand (no order) writes the lot and its first move (the maker\'s id, the place\'s code, the quantity) and the page reloads it', async ({ page }) => {
+test('receiving by hand (no order) writes the lot and its first move (the maker\'s id, the place\'s code, the quantity) and the page reloads it; the place is one of the three fixed ones, optional (B6)', async ({ page }) => {
   await openInventory(page);
   await page.getByRole('button', { name: 'استلام في المخزن' }).click();
   await modal(page, 'استلام في المخزن').getByRole('button', { name: 'استلام يدوي (من غير أوردر)' }).click(); // decision 8: «من أوردر» is the default
@@ -63,12 +63,15 @@ test('receiving by hand (no order) writes the lot and its first move (the maker\
   await m.locator('#vendor').click(); await page.getByRole('option', { name: 'Art Craft' }).click();
   await m.locator('#qty').fill('4');
   await m.getByRole('radio', { name: /^متاح للبيع/ }).click();
-  await m.locator('#loc').fill('B-03');
+  await expect(m.locator('#loc')).toHaveText('— من غير مكان —'); // «متاح للبيع» has no place of its own
+  await m.locator('#loc').click();
+  await expect(page.getByRole('option')).toHaveText(['— من غير مكان —', 'T — تجميع', 'R — مرتجعات', 'P — تصوير']);
+  await page.getByRole('option', { name: 'P — تصوير' }).click();
   await m.getByRole('button', { name: 'استلام', exact: true }).click();
   await expect(rowOf(page, 'شنطة جلد')).toBeVisible();
   await expect.poll(() => mock.invWrites.filter((w) => w.table === 'inv_moves').length).toBe(1);
   const lot = mock.invWrites.find((w) => w.table === 'inv_lots');
-  expect(lot).toMatchObject({ op: 'insert', reason: 'متاح للبيع', status: 'متاح', sku: 'IBT-AR-1001', name: 'شنطة جلد', vendor_id: V1, loc: 'B', mode: 'أمانة' });
+  expect(lot).toMatchObject({ op: 'insert', reason: 'متاح للبيع', status: 'متاح', sku: 'IBT-AR-1001', name: 'شنطة جلد', vendor_id: V1, loc: 'P', mode: 'أمانة' });
   expect(mock.invWrites.find((w) => w.table === 'inv_moves')).toMatchObject({ lot_id: lot.id, type: 'in', qty: 4, by: '00000000-0000-4000-8000-000000000001' });
   await expect(rowOf(page, 'شنطة جلد').locator('td').nth(7)).toHaveText('4');
 });
@@ -171,9 +174,7 @@ test('«وصل المخزن» on a line inside a consolidation: the lot of that 
   await page.locator('#orders select[data-ss="5001"]').selectOption('وصل المخزن');
   const m = modal(page, 'وصل المخزن — فرعي #181669');
   await expect(m.getByRole('radio', { name: /^تجميع أوردر/ })).toHaveAttribute('aria-checked', 'true');
-  await m.getByRole('button', { name: 'تأكيد' }).click();
-  await expect(m).toContainText('اختار المكان'); // decision 10: the place is required
-  await m.locator('#loc').fill('T-01');
+  await expect(m.locator('#loc')).toHaveText('T — تجميع'); // B6: the place is optional, «تجميع أوردر» starts on T
   await m.getByRole('button', { name: 'تأكيد' }).click();
   const lotOf = (item) => mock.inv.inv_lots.find((l) => l.item_id === item);
   await expect.poll(() => lotOf(5001)).toMatchObject({ reason: 'تجميع أوردر', status: 'وصل المخزن', order_id: 181668, name: 'Cushion', loc: 'T' });
@@ -195,43 +196,61 @@ test('«مرتجع للمخزن» on a line: a «مرتجع — بانتظار �
   await expect(page.locator('#pg-inventory')).toContainText('Macrame Curtain');
 });
 
-// ---------- T6: places and settings ----------
-test('the settings tab: the admin\'s change is saved in the settings row «inventory» (auto-pull and the site quantity off by default); the places with their pieces; a new place', async ({ page }) => {
+// ---------- B6 (owner, 11 Nov): the settings live on the settings page «المخزن» ----------
+test('B6: no «إعدادات المخزن» tab — its old link opens the settings page «المخزن»; the admin saves the five settings to the row «inventory» (the old keys dropped); a day out of 1–90 is refused', async ({ page }) => {
+  mock.settings.push({ section: 'inventory', data: { firstWarehouse: false, photoMax: 14, wooSync: true, zone: 'T — منطقة التجميع' } });
   await openInventory(page);
+  await expect(page.locator('#pg-inventory [role=tab]', { hasText: 'إعدادات المخزن' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '+ مكان' })).toHaveCount(0);
   await page.evaluate(() => { location.hash = 'inventory-settings'; });
-  const first = page.getByRole('switch', { name: 'المخزن الأول' });
-  await expect(first).toHaveAttribute('aria-checked', 'false');
-  await expect(page.getByRole('switch', { name: 'تحديث كمية الموقع' })).toHaveAttribute('aria-checked', 'false');
-  await first.click();
-  await expect.poll(() => (mock.settings.find((x) => x.section === 'inventory') || {}).data).toMatchObject({ firstWarehouse: true, wooSync: false, photoMax: 14 });
-  const rack = page.locator('#pg-inventory tr', { hasText: 'رف A' });
-  await expect(rack.locator('td').nth(2)).toHaveText('1'); await expect(rack.locator('td').nth(3)).toHaveText('2');
-  await page.getByRole('button', { name: '+ مكان' }).click();
-  const m = modal(page, 'مكان تخزين جديد');
-  await m.locator('#code').fill('رف E'); await m.locator('#desc').fill('رف الشنط');
-  await m.getByRole('button', { name: 'إضافة' }).click();
-  await expect.poll(() => mock.inv.inv_locations.find((x) => x.code === 'E')).toMatchObject({ label: 'رف الشنط', kind: 'rack' });
-  await expect(page.locator('#pg-inventory tr', { hasText: 'رف الشنط' })).toBeVisible();
+  await expect(page).toHaveURL(/#settings-inventory$/);
+  const sec = page.locator('#pg-settings [data-inv-settings]');
+  await expect(sec.locator('[data-inv-place]')).toHaveText(['Tتجميع', 'Rمرتجعات', 'Pتصوير']);
+  const auto = page.getByRole('switch', { name: 'السحب التلقائي' });
+  await expect(auto).toHaveAttribute('aria-checked', 'false');
+  await expect(page.locator('#inv-consolidationAlert')).toHaveValue('5'); await expect(page.locator('#inv-photoMax')).toHaveValue('14'); await expect(page.locator('#inv-returnWait')).toHaveValue('7');
+  await expect(sec.getByRole('radio', { name: 'يرجع للمبتكر' })).toHaveAttribute('aria-checked', 'true');
+  await expect(sec).not.toContainText('كمية الموقع');
+  // a day out of 1–90: refused, nothing saved
+  await page.locator('#inv-returnWait').fill('0');
+  await page.locator('[data-set-save]').click();
+  await expect(page.locator('.toast.show')).toContainText('من 1 لـ 90');
+  expect(mock.settings.find((x) => x.section === 'inventory').data.wooSync).toBe(true);
+  await page.locator('#inv-returnWait').fill('٣');
+  await page.locator('#inv-photoMax').fill('10');
+  await auto.click();
+  await sec.getByRole('radio', { name: /^يستنى أوردر/ }).click();
+  await page.locator('[data-set-save]').click();
+  await expect.poll(() => mock.settings.find((x) => x.section === 'inventory').data).toEqual({ firstWarehouse: true, consolidationAlert: 5, photoMax: 10, returnWait: 3, returnDefault: 'يستنى أوردر' });
+  await expect(page.locator('[data-set-dirty]')).toBeHidden();
+  // the inventory page reads them: the auto-pull hint and the late returns by the new days
+  await page.evaluate(() => { location.hash = 'inventory-overview'; });
+  await expect.poll(() => page.evaluate(() => window.IBKit.store.invSettings.returnWait)).toBe(3);
 });
 
-test('the settings are the admin\'s: ops sees them read-only and can still add a place', async ({ page }) => {
-  await openInventory(page, OPS);
-  await page.evaluate(() => { location.hash = 'inventory-settings'; });
-  await expect(page.getByRole('switch', { name: 'المخزن الأول' })).toBeDisabled();
-  await expect(page.locator('#pg-inventory')).toContainText('إعدادات المخزن بيغيّرها الأدمن بس');
-  await expect(page.getByRole('button', { name: '+ مكان' })).toBeVisible();
+test('B6: the settings are the admin\'s — ops reads them on the settings page, nothing to change', async ({ page }) => {
+  await signIn(page, OPS);
+  await page.evaluate(() => { location.hash = 'settings-inventory'; });
+  const sec = page.locator('#pg-settings [data-inv-settings]');
+  await expect(sec).toContainText('للأدمن بس');
+  await expect(page.getByRole('switch', { name: 'السحب التلقائي' })).toBeDisabled();
+  await expect(page.locator('#inv-photoMax')).toBeDisabled();
+  await expect(sec.getByRole('radio')).toHaveCount(0);
+  await expect(sec.locator('[data-inv-return]')).toHaveText('يرجع للمبتكر');
   expect(mock.settings.find((x) => x.section === 'inventory')).toBeUndefined();
 });
 
 // ---------- T7: auto-pull (decision 1 b) — built, off ----------
-test('auto-pull from «متاح للبيع» is off by default; with «المخزن الأول» on it reserves the piece for the order (a reserve move) and the lot is «محجوز لأوردر»', async ({ page }) => {
+test('auto-pull from «متاح للبيع» is off by default; with «السحب التلقائي» on (the settings page) it reserves the piece for the order (a reserve move) and the lot is «محجوز لأوردر»', async ({ page }) => {
   await openInventory(page);
   const pull = () => page.evaluate(() => window.IBPages.all().inventory.api.autoPull('IBT-AR-0999', 1, '181668'));
   expect(await pull()).toBe(false);
   expect(mock.invWrites).toEqual([]);
-  await page.evaluate(() => { location.hash = 'inventory-settings'; });
-  await page.getByRole('switch', { name: 'المخزن الأول' }).click();
+  await page.evaluate(() => { location.hash = 'settings-inventory'; });
+  await page.getByRole('switch', { name: 'السحب التلقائي' }).click();
+  await page.locator('[data-set-save]').click();
   await expect.poll(() => (mock.settings.find((x) => x.section === 'inventory') || {}).data).toMatchObject({ firstWarehouse: true });
+  await expect.poll(() => page.evaluate(() => window.IBKit.store.invSettings.firstWarehouse)).toBe(true); // the saved answer reached the page
   expect(await pull()).toBe(true);
   await expect.poll(() => mock.inv.inv_moves.find((x) => x.type === 'reserve')).toMatchObject({ lot_id: L1, qty: 1, ref: 'IB-181668' });
   await expect.poll(() => mock.inv.inv_lots.find((x) => x.id === L1).status).toBe('محجوز لأوردر');
@@ -252,10 +271,9 @@ test('«استلام في المخزن» from an order: search the order, its li
   await lines.filter({ hasText: 'Cushion' }).click();
   await m.getByRole('radio', { name: /^متاح للبيع/ }).click();
   await m.getByRole('radio', { name: /^ملك ابتكر/ }).click();
-  await m.locator('#loc').fill('A-02');
   await m.getByRole('button', { name: 'استلام', exact: true }).click();
   const lot = () => mock.inv.inv_lots.find((l) => l.item_id === 5001);
-  await expect.poll(lot).toMatchObject({ reason: 'متاح للبيع', status: 'متاح', order_id: 181668, name: 'Cushion', sku: 'IBTA4040PAHC000013', mode: 'ملك ابتكر', loc: 'A', cost: 651.3 }); // decision 10: the maker's price — 1002 less the line's 35%
+  await expect.poll(lot).toMatchObject({ reason: 'متاح للبيع', status: 'متاح', order_id: 181668, name: 'Cushion', sku: 'IBTA4040PAHC000013', mode: 'ملك ابتكر', loc: null, cost: 651.3 }); // decision 10: the maker's price — 1002 less the line's 35%
   expect(mock.inv.inv_lots.find((l) => l.item_id === 5002)).toBeUndefined();
   await expect.poll(() => mock.inv.inv_moves.filter((x) => x.lot_id === lot().id)).toEqual([expect.objectContaining({ type: 'in', qty: 2 })]);
   // the line already in the hub is not offered again
@@ -286,7 +304,6 @@ test('receiving an order\'s line as «تجميع أوردر» opens the order\'s
   await m.locator('[data-rc-order="181668"]').click();
   await m.locator('[data-rc-lines] [role=checkbox]', { hasText: 'Cushion' }).click();
   await m.getByRole('radio', { name: /^تجميع أوردر/ }).click();
-  await m.locator('#loc').fill('T-01');
   await m.getByRole('button', { name: 'استلام', exact: true }).click();
   await expect.poll(() => mock.inv.inv_consolidation_items.map((x) => x.item_id).sort()).toEqual([5001, 5002]);
   expect(mock.inv.inv_consolidations).toEqual([expect.objectContaining({ order_id: 181668, zone: 'T', status: 'open' })]);
@@ -301,7 +318,6 @@ test('receiving an order\'s line as «تجميع أوردر» opens the order\'s
   await m2.locator('[data-rc-order="181668"]').click();
   await m2.locator('[data-rc-lines] [role=checkbox]', { hasText: 'Macrame Curtain' }).click();
   await m2.getByRole('radio', { name: /^تجميع أوردر/ }).click();
-  await m2.locator('#loc').fill('T-01');
   await m2.getByRole('button', { name: 'استلام', exact: true }).click();
   await expect.poll(() => mock.inv.inv_lots.filter((l) => l.order_id === 181668).length).toBe(2);
   expect(mock.inv.inv_consolidations).toHaveLength(1);
@@ -318,7 +334,6 @@ test('a gathered order saved as «قيد الشحن» on the orders page: its pi
   await m.locator('[data-rc-order="181668"]').click();
   await m.getByRole('button', { name: 'اختار الكل' }).click();
   await m.getByRole('radio', { name: /^تجميع أوردر/ }).click();
-  await m.locator('#loc').fill('T-01');
   await m.getByRole('button', { name: 'استلام', exact: true }).click();
   await expect.poll(() => mock.inv.inv_consolidations.length).toBe(1);
   await expect.poll(() => mock.inv.inv_moves.filter((x) => x.type === 'in' && mock.inv.inv_lots.some((l) => l.id === x.lot_id && l.order_id === 181668)).length).toBe(2);
@@ -369,7 +384,7 @@ test('decision 58: the inventory opens on «نظرة عامة» with the cards; 
   await signIn(page, ADMIN);
   await page.locator('.sidebar .nav-item[data-page="inventory"]').click();
   const pg = page.locator('#pg-inventory');
-  await expect(pg.locator('[role=tab]')).toHaveText(['نظرة عامة', 'سجل المخزون', 'تجميع أوردرات', 'المرتجعات', 'حركات المخزن', 'الجرد', 'التقارير', 'إعدادات المخزن']);
+  await expect(pg.locator('[role=tab]')).toHaveText(['نظرة عامة', 'سجل المخزون', 'تجميع أوردرات', 'المرتجعات', 'حركات المخزن', 'الجرد', 'التقارير']);
   await expect(page).toHaveURL(/#inventory-overview$/);
   await expect(pg.locator('.kpi[aria-label="متاح للبيع"]')).toBeVisible();
   await expect(pg).toContainText('المخزن حسب السبب');

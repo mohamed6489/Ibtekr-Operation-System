@@ -67,7 +67,9 @@ const orderAge = (placedAt: string, day: string) => daysBetween(String(placedAt)
 export async function collect(deps: Deps, ctx: Ctx): Promise<Item[]> {
   const { cairo, nowMs, now } = ctx; const today = cairo.day; const out: Item[] = [];
   const mk = ctx.settings.makers ?? {}; const riskFrom = Number(mk.risk_day) || 9; const lateFrom = Number(mk.late_day) || 12;
-  const inv = ctx.settings.inventory ?? {}; const consDays = Number(inv.consolidationAlertDays) || 5; const photoDays = Number(inv.photoMaxDays) || 14;
+  // the inventory alerts in days (the settings page «المخزن», B6 11 Nov: consolidationAlert / photoMax / returnWait — the old *Days spellings still read)
+  const inv = ctx.settings.inventory ?? {}; const invDays = (k: string, old: string, d: number) => { const n = Number(inv[k] ?? inv[old]); return Number.isInteger(n) && n >= 1 && n <= 90 ? n : d; };
+  const consDays = invDays('consolidationAlert', 'consolidationAlertDays', 5); const photoDays = invDays('photoMax', 'photoMaxDays', 14); const retDays = invDays('returnWait', 'returnWaitDays', 7);
   const slaLate = Number((ctx.settings.cs ?? {}).sla_late_min) || 60;
   // orders (open, not removed) with their lines and makers
   const [orders, vendors] = await Promise.all([
@@ -163,12 +165,12 @@ export async function collect(deps: Deps, ctx: Ctx): Promise<Item[]> {
     if (m.status === 'اتحدد ميعاد' && typeof m.day === 'string' && daysBetween(today, m.day.slice(0, 10)) > 1) continue;
     out.push({ key: 'team.meet', entityId: String(m.id), title: 'ميتنج 1:1 — ' + nameOf(m.member_id), body: String(m.reason ?? '').slice(0, 120) + (m.day ? ' · ' + String(m.day) + (m.time_text ? ' ' + String(m.time_text) : '') : ' · لسه ما اتحددش ميعاد'), entity: 'hr', own: { manager: managerOf(m.member_id), member: m.status === 'اتحدد ميعاد' && memberOf.has(String(m.member_id)) ? String(m.member_id) : null } });
   }
-  // the stock: an open consolidation past its days, a photo lot past its days, a return without an inspection
+  // the stock: an open consolidation past its days, a photo lot past its days, a return without an inspection past its days
   for (const c of rows(await deps.db.from('inv_consolidations').select('id, order_id, since, status').eq('status', 'open').limit(LIMIT))) { const d = daysBetween(String(c.since).slice(0, 10), today); if (d >= consDays) out.push({ key: 'stock.cons', entityId: String(c.id), title: 'تجميع IB-' + String(c.order_id) + ' عدّى ' + d + ' يوم', body: 'قاعد في المخزن أكتر من اللازم', entity: 'inventory' }); }
   for (const l of rows(await deps.db.from('inv_lots').select('id, reason, sku, name, since, condition').in('reason', ['تصوير', 'مرتجع']).is('closed_at', null).limit(LIMIT))) {
     const d = daysBetween(String(l.since).slice(0, 10), today);
     if (l.reason === 'تصوير' && d >= photoDays) out.push({ key: 'stock.photo', entityId: String(l.id), title: String(l.name ?? l.sku) + ' في التصوير بقاله ' + d + ' يوم', body: 'قاعدة أكتر من اللازم — يرجع للمبتكر أو يتحوّل للبيع', entity: 'inventory' });
-    if (l.reason === 'مرتجع' && !l.condition) out.push({ key: 'stock.ret', entityId: String(l.id), title: 'مرتجع ' + String(l.name ?? l.sku), body: 'بانتظار الفحص من ' + d + ' يوم', entity: 'inventory' });
+    if (l.reason === 'مرتجع' && !l.condition && d >= retDays) out.push({ key: 'stock.ret', entityId: String(l.id), title: 'مرتجع ' + String(l.name ?? l.sku), body: 'بانتظار الفحص من ' + d + ' يوم', entity: 'inventory' });
   }
   // the company papers ending within 30 days (or ended)
   for (const d of rows(await deps.db.from('company_docs').select('id, name, type, expires').lte('expires', addDays(today, 30)).limit(200))) { const left = daysBetween(today, String(d.expires).slice(0, 10)); out.push({ key: 'docs.expiring', entityId: String(d.id), title: String(d.name) + ' (' + String(d.type) + ')', body: left < 0 ? 'انتهت يوم ' + String(d.expires) : 'بتنتهي يوم ' + String(d.expires) + ' (فاضل ' + left + ' يوم)', entity: 'settings-docs' }); }

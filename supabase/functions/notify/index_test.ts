@@ -113,6 +113,35 @@ Deno.test('the quiet hours hold the external channels (logged «held»), the bel
   const failed = bad.db.rows('alert_state').flatMap((s: any) => s.channel_log).filter((l: any) => l.ch === 'whatsapp' && l.status === 'failed'); assert(failed.length > 0); assertEquals(failed[0].code, 'graph_131047');
 });
 
+Deno.test('the stock alerts by the days of the settings page «المخزن» (B6): a consolidation late, a photo piece too long, a return waiting too long; the old *Days spellings still read; the defaults 5 / 14 / 7', async () => {
+  // 8 Nov (Cairo): c1 open 4 days, c2 1 day; l1 photo 7 days; l2 return 3 days, l3 return 9 days, l4 return inspected, l5 return closed
+  const stock = (seed: any, data?: any) => {
+    seed.inv_consolidations = [{ id: 'c1', order_id: 1001, since: '2026-11-04T09:00:00Z', status: 'open' }, { id: 'c2', order_id: 1002, since: '2026-11-07T09:00:00Z', status: 'open' }, { id: 'c3', order_id: 1003, since: '2026-10-01T09:00:00Z', status: 'shipped' }];
+    seed.inv_lots = [{ id: 'l1', reason: 'تصوير', sku: 'IBTAR0999', name: 'فازة', since: '2026-11-01', condition: null, closed_at: null },
+      { id: 'l2', reason: 'مرتجع', sku: 'IBTAR1000', name: 'كرسي', since: '2026-11-05', condition: null, closed_at: null },
+      { id: 'l3', reason: 'مرتجع', sku: 'IBTAR1001', name: 'ترابيزة', since: '2026-10-30', condition: null, closed_at: null },
+      { id: 'l4', reason: 'مرتجع', sku: 'IBTAR1002', name: 'مخدة', since: '2026-10-01', condition: 'سليم', closed_at: null },
+      { id: 'l5', reason: 'مرتجع', sku: 'IBTAR1003', name: 'لمبة', since: '2026-10-01', condition: null, closed_at: '2026-10-05T10:00:00Z' }];
+    if (data) seed.settings.push({ section: 'inventory', data });
+    return seed;
+  };
+  const run = async (data?: any) => { const a = setup({ seed: stock(SEED(), data) }); const r = await cron(a.deps); return { by: r.body.by, A: a.db.rows('alerts') }; };
+  // the settings page's keys
+  const s = await run({ firstWarehouse: false, consolidationAlert: 3, photoMax: 7, returnWait: 5, returnDefault: 'يرجع للمبتكر' });
+  assertEquals([s.by['stock.cons'], s.by['stock.photo'], s.by['stock.ret']], [1, 1, 1]);
+  const ids = (A: any[], k: string) => [...new Set(A.filter((x: any) => x.source_key === k).map((x: any) => x.entity_id))];
+  assertEquals([ids(s.A, 'stock.cons'), ids(s.A, 'stock.photo'), ids(s.A, 'stock.ret')], [['c1'], ['l1'], ['l3']], 'c2 (1 day), l2 (3 days), the inspected and the closed ones: nothing');
+  const ret = s.A.find((x: any) => x.source_key === 'stock.ret'); assertEquals([ret.entity, ret.title], ['inventory', 'مرتجع ترابيزة']); assert(/9 يوم/.test(ret.body), ret.body);
+  assertEquals(s.A.filter((x: any) => x.source_key === 'stock.ret').map((x: any) => x.role_id).sort(), ['admin', 'ops'], 'the matrix of the type');
+  // the old spellings (before B6) still read
+  const o = await run({ consolidationAlertDays: 3, photoMaxDays: 7, returnWaitDays: 10 });
+  assertEquals([o.by['stock.cons'], o.by['stock.photo'], o.by['stock.ret']], [1, 1, undefined]);
+  // no row (or junk) → 5 / 14 / 7: only the return of 9 days
+  for (const d of [undefined, { consolidationAlert: 0, photoMax: 'x', returnWait: 500 }]) {
+    const n = await run(d); assertEquals([n.by['stock.cons'], n.by['stock.photo'], n.by['stock.ret']], [undefined, undefined, 1], JSON.stringify(d));
+  }
+});
+
 Deno.test('the payroll before its pay day (accAlerts.payDay / lead), unless the sheet is paid; payrollDue', async () => {
   assertEquals(payrollDue('2026-11-08', 25), { date: '2026-11-25', daysLeft: 17, month: '2026-11' });
   assertEquals(payrollDue('2026-11-26', 25), { date: '2026-12-25', daysLeft: 29, month: '2026-12' });

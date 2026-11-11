@@ -1989,5 +1989,12 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 2. ادمج على `main`.
 3. التجربة على الـ staging: تاب «الأقسام» → «قسم رئيسي جديد» باسمين وصورة → اتأكد على الموقع إن القسم وترجمته ليهم الصورة؛ «تعديل» الاسم العربي → اتأكد إن الترجمة العربي هي اللي اتغيرت (مش الإنجليزي)؛ «حذف» قسم فاضي → اتحذف هو وترجمته؛ وقسم فيه منتجات → بيترفض.
 
+#### 2.7.61 إعدادات المخزن في صفحة الإعدادات (صاحب المشروع 11 نوفمبر — B6 في `docs/superpowers/plans/2026-11-11-owner-batch.md`)
+مافيش migration. صف `settings` «inventory» بقى خمس مفاتيح بس: `firstWarehouse` (السحب التلقائي، مقفول) و`consolidationAlert` / `photoMax` / `returnWait` (أيام صحيحة 1–90، افتراضي 5 / 14 / 7) و`returnDefault` (`يستنى أوردر` | `يرجع للمبتكر`)؛ أي مفتاح تاني (`wooSync` وباقي مفاتيح الـ prototype) بيتشال مع أول حفظ من الصفحة. `notify` بقى بيقرا المفاتيح دي (كان بيقرا `consolidationAlertDays` / `photoMaxDays` ودول عمرهم ما اتكتبوا) و«المرتجع مستني» (`stock.ret`) بقى بعد `returnWait` يوم بس.
+1. انشر notify من «Deploy functions» (`function = notify`).
+2. ادمج على `main`.
+3. نضّف الصف الحي مرة واحدة (Supabase MCP `execute_sql`) — عشان `inventory_push` يقفل من غير ما حد يحفظ: `update settings set data = jsonb_build_object('firstWarehouse', coalesce((data->>'firstWarehouse')::boolean, false), 'consolidationAlert', 5, 'photoMax', 14, 'returnWait', 7, 'returnDefault', 'يرجع للمبتكر') where section = 'inventory';`
+4. التجربة: الإعدادات › «المخزن» (الأدمن) → غيّر يوم واحفظ → المخزن › «المرتجعات» بيعد المستني بالأيام الجديدة؛ و`#inventory-settings` القديم بيفتح القسم ده.
+
 #### 2.7.66 «طلب جديد» وطلب فترة راحة (المرحلة 13 قرار 66، 11 نوفمبر)
 `0077_hr_rest_period.sql` على المشروع (Supabase MCP `apply_migration` بموافقة صاحب المشروع) ثم `rls_hr_rest_period` live (workflow «RLS live»، `files = rls_hr_rest_period`) ثم الواجهة على `main`. مافيش Edge Function.

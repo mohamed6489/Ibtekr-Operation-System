@@ -1038,13 +1038,20 @@
     return U.ChartCard({ title: 'الصرف حسب المنصة', subtitle: 'المبيعات من كل منصة: ' + t.platforms.map((p) => p.label + ' ' + K.n0(p.sales)).join(' · ') + ' ج.م', footnote: t.platforms.some((p) => !p.linked) ? 'المنصة اللي مش مربوطة: أوردراتها من ووكومرس (UTM) بتتحسب، والصرف لما الأدمن يربط حسابها من «حالة الربط»' : 'الصرف من المنصات التلاتة · أوردراتها من ووكومرس (UTM)',
       body: h('div', { class: 'bars', 'data-ads-spend': '' }, t.platforms.map((p, i) => U.BarRow({ tone: p.linked ? ['brand', 'gold', 'goldlight'][i] : 'neutral', label: p.label, value: p.linked ? n2(p.spend) + ' ج.م' : 'مش مربوطة', pct: p.linked && t.spend ? p.spend / t.spend : 0 }))) });
   }
+  // the suggested decision of a platform (the v6 prototype): its media buyer's open suggestions, the weightiest first; a press opens it
+  const SG_RANK = { stop: 0, budget_down: 1, tracking: 2, creative: 3, budget_up: 4 };
+  const sgSort = (L) => L.slice().sort((a, b) => (SG_RANK[a.kind] ?? 9) - (SG_RANK[b.kind] ?? 9));
+  const sgBtn = (L, attr) => { if (!L.length) return '—'; const x = L[0];
+    return h('button', Object.assign({ type: 'button', class: 'tg tg-' + (SG_UI[x.kind] || SG_UI.tracking)[1] + ' tg-btn', onClick: () => openSugg(x) }, attr), U.num(sgShort(x)), L.length > 1 ? [' ', U.num('+' + (L.length - 1))] : null); };
   function vsCard(c) {
+    byLoad(false); const pend = byPending();
     const t = c.t; const diff = (p) => (p.linked && p.purchases ? Math.round((p.orders - p.purchases) / p.purchases * 100) + '%' : '—');
-    const rows = t.platforms.map((p) => [p.label, p.linked ? K.Num(n2(p.spend)) : h('span', { class: 't-small help' }, 'مش مربوطة'), K.Num(p.linked ? K.n0(p.purchases) : '—'), K.Num(K.n0(p.orders)), K.Num(diff(p)), K.Num(W.xr(p.roas)), K.Num(W.xr(p.mer))]);
+    const rows = t.platforms.map((p) => [p.label, p.linked ? K.Num(n2(p.spend)) : h('span', { class: 't-small help' }, 'مش مربوطة'), K.Num(p.linked ? K.n0(p.purchases) : '—'), K.Num(K.n0(p.orders)), K.Num(diff(p)), K.Num(W.xr(p.roas)), K.Num(W.xr(p.mer)),
+      sgBtn(sgSort(pend.filter((x) => (x.platform || 'meta') === p.key)), { 'data-ads-vs-sugg': p.key })]);
     return Card('المنصة بتقول × ووكومرس', 'المشتريات اللي المنصة بتحسبها قصاد الأوردرات الحقيقية من نفس المصدر (UTM) · ' + perLabel(c.rg), [
-      U.Table({ cls: 'dt ads-vs', headers: ['المنصة', 'الصرف (ج.م)', 'مشتريات المنصة', 'أوردرات ووكومرس', 'الفرق', 'عائد المنصة', 'العائد الحقيقي'], rows,
-        totalRow: ['الإجمالي', K.Num(n2(t.spend)), K.Num(K.n0(t.purchases)), K.Num(K.n0(t.orders)), '', K.Num(W.xr(t.roas)), K.Num(W.xr(t.mer))] }),
-      h('p', { class: 't-small help', style: 'margin:0' }, 'الفرق = (أوردرات ووكومرس − مشتريات المنصة) ÷ مشتريات المنصة · العائد الحقيقي = مبيعات ووكومرس من المنصة ÷ صرفها')]);
+      U.Table({ cls: 'dt ads-vs', headers: ['المنصة', 'الصرف (ج.م)', 'مشتريات المنصة', 'أوردرات ووكومرس', 'الفرق', 'عائد المنصة', 'العائد الحقيقي', 'القرار المقترح'], rows,
+        totalRow: ['الإجمالي', K.Num(n2(t.spend)), K.Num(K.n0(t.purchases)), K.Num(K.n0(t.orders)), '', K.Num(W.xr(t.roas)), K.Num(W.xr(t.mer)), ''] }),
+      h('p', { class: 't-small help', style: 'margin:0' }, 'الفرق = (أوردرات ووكومرس − مشتريات المنصة) ÷ مشتريات المنصة · العائد الحقيقي = مبيعات ووكومرس من المنصة ÷ صرفها · القرار المقترح = أهم اقتراح مستني موافقتك من الميديا باير على المنصة')]);
   }
   function asstCards() {
     byLoad(false); const pend = byPending(); const r = BY.rules; const reqs = BY.reqs || [];
@@ -1069,7 +1076,7 @@
     const tot = list.reduce((a, x) => ({ spend: a.spend + x.spend, purchases: a.purchases + x.purchases, orders: a.orders + x.orders, sales: a.sales + x.sales }), { spend: 0, purchases: 0, orders: 0, sales: 0 });
     const rows = list.map((x) => { const [sl, tone] = stOf(x.status); const S = sg[x.id] || [];
       return [h('button', { type: 'button', class: 'link-btn', 'data-ads-camp': x.id, onClick: () => campDetail(x) }, x.name), x.platform, Tag(tone, sl), K.Num(n2(x.spend)), K.Num(K.n0(x.purchases)), U.num(K.n0(x.orders) + (x.cancelled ? ' (+' + K.n0(x.cancelled) + ' اتلغى)' : '')),
-        K.Num(W.xr(x.mer)), K.Num(x.cpa == null ? '—' : K.n0(x.cpa)), S.length ? h('button', { type: 'button', class: 'tg tg-' + (SG_UI[S[0].kind] || SG_UI.tracking)[1] + ' tg-btn', 'data-mk-camp-sugg': String(S[0].id), onClick: () => openSugg(S[0]) }, U.num(sgShort(S[0])), S.length > 1 ? [' ', U.num('+' + (S.length - 1))] : null) : '—']; });
+        K.Num(W.xr(x.mer)), K.Num(x.cpa == null ? '—' : K.n0(x.cpa)), S.length ? sgBtn(S, { 'data-mk-camp-sugg': String(S[0].id) }) : '—']; });
     return Card('الحملات — ' + K.n0(list.length), 'أرقام المنصات جنب أوردرات ووكومرس الحقيقية من نفس الحملة (utm_campaign) · ' + perLabel(c.rg), [
       list.length ? U.Table({ cls: 'dt ads-camps', headers: CAMP_H, rows, totalRow: ['الإجمالي', '', '', K.Num(n2(tot.spend)), K.Num(K.n0(tot.purchases)), K.Num(K.n0(tot.orders)), K.Num(W.xr(tot.spend ? tot.sales / tot.spend : null)), K.Num(tot.orders ? K.n0(tot.spend / tot.orders) : '—'), ''] })
         : K.Empty(c.camps.length ? 'مفيش حملات بالفلاتر دي' : 'مفيش حملات في الفترة دي', c.camps.length ? 'غيّر الفلاتر أو امسحها.' : 'مفيش صرف ولا أوردرات من حملات الإعلانات ' + perLabel(c.rg) + ' — غيّر الفترة من فوق.'),
@@ -1104,12 +1111,17 @@
     const tabs = K.SubTabs({ label: 'تقارير التسويق', active: sub, onChange: (id) => { M.rsub = id; R(); }, items: [{ id: 'campaigns', label: 'الحملات', count: c ? c.camps.length : null }, { id: 'creative', label: 'الأعمال الفنية', count: c ? c.creatives.length : null }] });
     const gate = adsGate(loadRange(rg), redrawAds); if (gate) return [adsBar(s, redrawAds), tabs].concat(gate);
     if (sub === 'creative') return [adsBar(s, redrawAds), tabs, adsNote(s), crTable(c), adsSource()].filter(Boolean);
-    const f = M.cf = M.cf || { status: '', q: '' }; const q = (f.q || '').trim().toLowerCase();
+    const f = M.cf = M.cf || { status: '', q: '', decision: '' }; const q = (f.q || '').trim().toLowerCase();
     const sts = [...new Set(c.camps.map((x) => stOf(x.status)[0]))];
-    const list = c.camps.filter((x) => (!f.status || stOf(x.status)[0] === f.status) && (!q || x.name.toLowerCase().includes(q) || x.id.includes(q)));
+    // «القرار» (the v6 prototype): the kind of the campaign's open suggestions, or none
+    byLoad(false); const dec = {}; byPending().forEach((x) => { (dec[x.campaign_id] = dec[x.campaign_id] || new Set()).add((SG_UI[x.kind] || SG_UI.tracking)[2]); });
+    const DEC = [...new Set(Object.values(SG_UI).map((u) => u[2]))].concat(['من غير قرار']);
+    const decOk = (x) => !f.decision || (f.decision === 'من غير قرار' ? !dec[x.id] : !!dec[x.id] && dec[x.id].has(f.decision));
+    const list = c.camps.filter((x) => (!f.status || stOf(x.status)[0] === f.status) && decOk(x) && (!q || x.name.toLowerCase().includes(q) || x.id.includes(q)));
     const sb = h('input', { type: 'search', id: 'ads-q', placeholder: 'ابحث باسم الحملة أو رقمها', 'aria-label': 'ابحث في الحملات', value: f.q || '' });
     sb.addEventListener('input', () => { f.q = sb.value; R(); setTimeout(() => { const x = document.getElementById('ads-q'); if (x) { x.focus(); x.setSelectionRange(x.value.length, x.value.length); } }, 0); });
     const filt = h('div', { class: 'toolbar', 'data-ads-filters': '' }, U.Select({ id: 'ads-st', label: '', options: [{ value: '', label: 'الحالة: الكل' }].concat(sts.map((x) => ({ value: x, label: 'الحالة: ' + x }))), value: f.status, onChange: (v) => { f.status = v; R(); } }),
+      U.Select({ id: 'ads-dec', label: '', options: [{ value: '', label: 'القرار: الكل' }].concat(DEC.map((x) => ({ value: x, label: 'القرار: ' + x }))), value: f.decision || '', onChange: (v) => { f.decision = v; R(); } }),
       h('span', { class: 'grow' }), h('label', { class: 'search search-field' }, Icon('search', 'sm'), sb));
     return [adsBar(s, redrawAds), tabs, adsNote(s), filt, campTable(c, list), adsSource()].filter(Boolean);
   }
@@ -1148,13 +1160,13 @@
   const DECIDE_WHY = { step: 'الخطوة أكبر من 30%', cap: 'كان هيعدّي السقف اليومي', no_daily_budget: 'الحملة مالهاش ميزانية يومية', failed: 'ميتا ماردتش' };
   const sgShort = (x) => { const u = SG_UI[x.kind] || SG_UI.tracking; return x.kind === 'budget_down' || x.kind === 'budget_up' ? u[2] + ' ' + Math.abs(x.pct || 0) + '%' : u[2]; };
   const sgItem = (x, onClick) => { const u = SG_UI[x.kind] || SG_UI.tracking;
-    return h('button', { type: 'button', class: 'mk-item', 'data-mk-sugg': String(x.id), onClick }, h('span', { class: 'mk-ic tone-' + u[1] }, Icon(u[0], 'sm')), h('span', { class: 'mk-txt' }, h('b', null, x.title), h('small', null, U.num(x.sub || x.impact || ''))), h('span', { class: 't-small help mk-tag' }, 'ميتا')); };
+    return h('button', { type: 'button', class: 'mk-item', 'data-mk-sugg': String(x.id), onClick }, h('span', { class: 'mk-ic tone-' + u[1] }, Icon(u[0], 'sm')), h('span', { class: 'mk-txt' }, h('b', null, x.title), h('small', null, U.num(x.sub || x.impact || ''))), h('span', { class: 't-small help mk-tag' }, W.AD_PLATFORM[x.platform] || 'ميتا')); };
   const decidedLine = (x) => { const why = x.error ? (DECIDE_WHY[x.error] || (MK() && MK().adsWhy(x.error)) || x.error) : '';
     return [x.decidedAt ? D2(String(x.decidedAt).slice(0, 10)) : '', x.value != null ? 'بنسبة ' + Math.abs(x.value) + '%' : '', x.note || '', why, x.result && x.result.after != null ? 'الميزانية بقت ' + K.n0(x.result.after) + ' ج.م/يوم' : '', x.result && x.result.request ? 'اتبعت للديزاينر' : ''].filter(Boolean).join(' · '); };
   function openSugg(x) {
     const live = !!(BY.rules && BY.rules.live); const money = x.kind === 'stop' || x.kind === 'budget_down' || x.kind === 'budget_up'; const budget = x.kind === 'budget_down' || x.kind === 'budget_up';
     const [sl, tone] = SG_ST[x.status] || SG_ST.pending;
-    const rows = [['المنصة', 'ميتا'], ['الحملة', x.campaign_name || '#' + x.campaign_id], x.ad_id ? ['الإعلان', '#' + x.ad_id] : null, ['الأرقام', U.num(x.sub || '—')], ['السبب', U.num(x.why || '—')], ['الأثر المتوقع', U.num(x.impact || '—')],
+    const rows = [['المنصة', W.AD_PLATFORM[x.platform] || 'ميتا'], ['الحملة', x.campaign_name || '#' + x.campaign_id], x.ad_id ? ['الإعلان', '#' + x.ad_id] : null, ['الأرقام', U.num(x.sub || '—')], ['السبب', U.num(x.why || '—')], ['الأثر المتوقع', U.num(x.impact || '—')],
       ['الحالة', Tag(tone, sl)], x.status !== 'pending' ? ['القرار', U.num(decidedLine(x) || '—')] : null];
     const note = x.status !== 'pending' ? null : !isAdmin() ? U.InlineNote({ children: 'القرار للأدمن — هو اللي بيوافق أو يرفض، وكل قرار بيتسجل في سجل النشاط.' })
       : money && !live ? U.InlineNote({ kind: 'warning', children: 'مفتاح التنفيذ على ميتا مقفول: الموافقة بتتسجل من غير أي تغيير على الحملة. بتفتحه من «القواعد والحدود».' })

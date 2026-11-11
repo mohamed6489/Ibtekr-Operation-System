@@ -161,15 +161,8 @@
   const CARDS = { daily, need, weeks, health, confirm: confirmCard, followCustomers, stockToday, money: moneyCard, expByType, vendors: vendorsCard, statements, team, system, activity };
 
   // ---------- header controls ----------
-  function quickActions() {
-    const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
-    const trig = Button({ type: 'brand', label: '+ إجراء سريع', attrs: { 'aria-haspopup': 'menu', 'data-qa': '' } });
-    const D = DATA(); const run = { expense: D.addExpense, vendorMove: D.addVendorMove, vendor: D.addVendor, ticket: () => D.newTicket(), vendorReport: vendorReportPick, clock: () => { const s = shell(); if (s.state === 'in') window.IBShell.endShift(); else window.IBShell.clockIn(); setTimeout(render, 50); }, leave: () => hrApi() && hrApi().leaveRequest(K.member(K.ME)), notifs: () => { const b = document.querySelector('.notif-btn'); if (b) b.click(); } };
-    const acts = DD.quickActions(K.member(K.ME).role);
-    const pop = U.popover(wrap, trig, (close) => U.DropdownMenu({ role: 'menu', end: true, options: acts.map((a) => ({ value: a.id, label: a.label, icon: a.icon })), onSelect: (v) => { close(); setTimeout(() => run[v] && run[v]()); } }));
-    trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;
-  }
-  function vendorReportPick() { K.form({ title: 'تقرير مبتكر', values: {}, fields: (f, e, set) => [K.field.select('v', 'المبتكر', DATA().vendorNames(), f, e, set, { required: true })], validate: (f) => K.req(f, ['v']), submitLabel: 'فتح التقرير', submit: (f) => { setTimeout(() => DATA().openVendorReport(f.v)); } }); }
+  // phase 13 decision 60 (owner 11 Nov — «شيل الإجراءات السريعة الموجودة جنب تخصيص اللوحة»): the header's «+ إجراء سريع» is gone; the
+  // quick actions stay in the top bar's own menu (IBQuick, phase 11)
   function viewAsSelect() {
     const list = K.team().filter((m) => m.status === 'active' || !m.status);
     return h('div', { class: 'inline-sel dash-viewas' }, U.Select({ id: 'dash-viewas', label: '', options: [{ value: K.ME, label: 'عرض كـ: ' + K.member(K.ME).name + ' — أدمن' }].concat(list.filter((m) => m.id !== K.ME).map((m) => ({ value: m.id, label: m.name + ' — ' + m.role }))), value: st.viewAs || K.ME, onChange: (v) => setView(v === K.ME ? null : v) }));
@@ -201,7 +194,7 @@
     const min = new Date().getHours() * 60 + new Date().getMinutes();
     const head = h('div', { class: 'page-head row dash-head' }, h('div', null, h('h1', { class: 't-h3' }, 'لوحة التحكم'),
         h('p', { class: 't-small dash-hi' }, Icon('clock', 'sm'), DD.greeting(min) + ' يا ' + K.member(K.ME).name.split(' ')[0] + ' · ' + K.dayName(today()) + ' ' + K.dlabel(today()) + ' · ', h('span', { 'aria-live': 'polite' }, 'آخر تحديث ' + st.updated), ' — بيتحدّث كل 5 دقايق ', h('button', { type: 'button', class: 'dash-link', onClick: refresh, 'aria-label': 'تحديث دلوقتي' }, Icon('refresh', 'sm'), 'تحديث'))),
-      h('div', { class: 'actions' }, quickActions(), Button({ label: 'تخصيص اللوحة', icon: 'sliders', onClick: customize, disabled: !!st.viewAs, attrs: st.viewAs ? { title: 'رجّع للوحتك الأول عشان تخصصها' } : null }), h('div', { class: 'dash-period' }, D.DateRangeField()), isAdminReal() ? viewAsSelect() : null));
+      h('div', { class: 'actions' }, Button({ label: 'تخصيص اللوحة', icon: 'sliders', onClick: customize, disabled: !!st.viewAs, attrs: st.viewAs ? { title: 'رجّع للوحتك الأول عشان تخصصها' } : null }), h('div', { class: 'dash-period' }, D.DateRangeField()), isAdminReal() ? viewAsSelect() : null));
     const out = [head];
     if (st.viewAs) out.push(h('div', { class: 'dash-viewing', role: 'status' }, Icon('eye', 'sm'), h('span', null, 'بتشوف لوحة ', h('b', null, m.name), ' (' + m.role + ') — للقراءة بس، والجرس كمان بعينه'), Button({ size: 'sm', label: 'رجوع للوحتي', onClick: () => setView(null) })));
     if (st.loading) { out.push(skeleton()); return out; }

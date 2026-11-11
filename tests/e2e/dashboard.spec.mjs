@@ -167,12 +167,20 @@ test('the activity card finds her rows behind newer rows of others (newest 25 re
   await expect(act).not.toContainText('صفوت كمال');
 });
 
+test('decision 60: no «+ إجراء سريع» beside «تخصيص اللوحة»', async ({ page }) => {
+  mockOnly();
+  await signIn(page, ADMIN.id, ADMIN.pw);
+  await expect(page.getByRole('button', { name: 'تخصيص اللوحة' })).toBeVisible();
+  await expect(page.locator('[data-qa]')).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '+ إجراء سريع', exact: true })).toHaveCount(0);
+});
+
 test('a server-log update does not redraw the dashboard under an open menu', async ({ page }) => {
   mockOnly();
   await signIn(page, ADMIN.id, ADMIN.pw);
   await expect(card(page, 'activity')).toContainText('سجّل دخول');
-  await page.getByRole('button', { name: '+ إجراء سريع', exact: true }).click();
-  const menu = page.getByRole('menu');
+  await page.locator('#dash-viewas').click(); // an open dropdown («عرض كـ…» — decision 60 took «+ إجراء سريع» away)
+  const menu = page.locator('.menu:not([hidden])');
   await expect(menu).toBeVisible();
   const tag = () => card(page, 'activity').evaluate((el) => { el.dataset.probe = '1'; }); // a redraw replaces the element: the tag goes
   await tag();
@@ -285,8 +293,8 @@ test('an alert that arrives later redraws «محتاج منك دلوقتي», no
   await expect(card(page, 'need')).toContainText('فشل مزامنة WooCommerce');
   await expect(card(page, 'activity')).toContainText('سجّل دخول'); // the sign-in's own redraws are done
   mock.alerts.push({ id: 3, at: new Date().toISOString(), kind: 'orders.sync.failed', title: 'فشل سحب الأوردرات', body: null, role_id: 'admin', user_id: null, entity: 'orders', entity_id: null });
-  await page.getByRole('button', { name: '+ إجراء سريع', exact: true }).click();
-  const menu = page.getByRole('menu');
+  await page.locator('#dash-viewas').click(); // an open dropdown («عرض كـ…» — decision 60 took «+ إجراء سريع» away)
+  const menu = page.locator('.menu:not([hidden])');
   await expect(menu).toBeVisible();
   await page.evaluate(() => window.IBAlerts.load()); // dispatches ib:notify, as a Realtime insert does
   await expect(menu).toBeVisible();

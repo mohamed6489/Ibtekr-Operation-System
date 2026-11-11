@@ -48,4 +48,25 @@ for (const [label, size] of [['desktop', { width: 1280, height: 800 }], ['phone'
     await expect(dlg).toBeVisible();
     await inBand(page, dlg);
   });
+  // the owner 11 Nov («كل السايد بارز بقت ف النص خليها تيجي علي اليمين … و البوب اب تبقي في النص»): a side sheet (the kit's Drawer — the
+  // maker's file, a customer's profile …) is not a popup: it hugs the right edge at the full height, while a popup stays centred
+  test('a drawer comes in from the right at full height, a popup stays centred (' + label + ')', async ({ page }) => {
+    await page.setViewportSize(size);
+    await signIn(page);
+    await page.evaluate(() => { const U = window.IBUI; const d = U.Drawer({ label: 'درج تجربة' }); d.set(U.h('p', null, 'محتوى الدرج')); });
+    const drawer = page.locator('.drawer[role=dialog]', { hasText: 'محتوى الدرج' });
+    await expect(drawer).toBeVisible();
+    const b = await drawer.boundingBox(); const vw = size.width, vh = size.height;
+    expect(Math.abs(b.x + b.width - vw)).toBeLessThanOrEqual(1); // the right edge
+    expect(b.y).toBeLessThanOrEqual(1); expect(Math.abs(b.height - vh)).toBeLessThanOrEqual(1); // top to bottom
+    if (vw > 767) expect(b.x).toBeGreaterThan(vw / 4); else expect(b.x).toBeLessThanOrEqual(1); // 720 wide on a desktop, the whole width on a phone
+    await page.keyboard.press('Escape');
+    await expect(drawer).toHaveCount(0);
+    await page.evaluate(() => { const U = window.IBUI; U.Modal({ title: 'بوب أب قصير', body: [U.h('p', null, 'سطر')], footer: [U.Button({ label: 'إغلاق' })] }); });
+    const modal = page.locator('.modal[role=dialog]', { hasText: 'بوب أب قصير' });
+    await expect(modal).toBeVisible();
+    const m = await modal.boundingBox();
+    expect(Math.abs(m.x - (vw - m.x - m.width))).toBeLessThanOrEqual(2); // the same space on both sides
+    expect(Math.abs(m.y - (vh - m.y - m.height))).toBeLessThanOrEqual(2); // and above / below
+  });
 }

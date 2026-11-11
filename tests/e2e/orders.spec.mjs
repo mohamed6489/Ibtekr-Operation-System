@@ -134,6 +134,21 @@ test('a status change writes the order and pushes it to the site', async ({ page
   await expect(card(page, '180656').locator('.sdd')).toContainText('جاري التنفيذ');
 });
 
+// the owner 11 Nov («زي الـ automation»): Dokan recreates the sub-orders of a parent edited through the API (new numbers), so an order of
+// several makers gets the status on each of its sub-orders and the parent on the site is left as it is; «حالة الموقع» follows at once
+test('a status change on an order with sub-orders goes to each sub-order, never the parent; «حالة الموقع» follows', async ({ page }) => {
+  await openOrders(page);
+  const c = card(page, '181668');
+  await c.locator('select[data-st="181668"]').selectOption('جاهز للشحن');
+  await expect.poll(() => mock.pushes.length).toBe(1);
+  expect(mock.patches).toEqual([{ table: 'orders', id: 181668, status: 'جاهز للشحن' }]);
+  expect(mock.pushes).toEqual([{ action: 'push_status', order_id: 181668, status: 'جاهز للشحن', result: 'ok', subs: [181669, 181670] }]);
+  expect(mock.orders.find((o) => o.id === 181668).woo_status).toBe('processing'); // the site's parent untouched
+  expect(mock.subOrders.map((s) => [s.woo_order_id, s.woo_status])).toEqual([[181669, 'ready-shipping'], [181670, 'ready-shipping']]);
+  await expect(c.locator('select[data-wst="5001"]')).toHaveValue('جاهز للشحن');
+  await expect(c.locator('select[data-wst="5002"]')).toHaveValue('جاهز للشحن');
+});
+
 test('«فشل» replaces «تم RTC»: a chip and an option styled like «ملغي», saved here but never pushed to the site (from_woo)', async ({ page }) => {
   await openOrders(page);
   await expect(page.locator('#orders [data-sc="فشل"]')).toHaveCount(1);
@@ -859,7 +874,7 @@ test('decision 53: «مسح المحدد» lists the orders with their sub-order
   await expect(sr('#obulk')).toBeHidden();
 });
 
-test('decision 54: «مسح الأوردر الفرعي» lists its lines, takes one reason, trashes it on the site and drops its lines and their value from the order; the only one deletes the whole order', async ({ page }) => {
+test('decision 54: «مسح الأوردر الفرعي» lists its lines, takes one reason, trashes it on the site and drops its lines from the order here — the parent on the site keeps them and its total (the owner 11 Nov); the only one deletes the whole order', async ({ page }) => {
   await openOrders(page);
   const sr = (sel) => page.locator('#orders ' + sel); const menu = sr('#mpop'); const dlg = sr('#cdlg');
   const c = card(page, '181668');
@@ -869,11 +884,13 @@ test('decision 54: «مسح الأوردر الفرعي» lists its lines, takes
   await expect(dlg.locator('#cdt')).toHaveText('مسح الأوردر الفرعي #181670؟');
   await expect(dlg.locator('[data-sub-count]')).toContainText('1 سطر');
   await expect(dlg).toContainText('Macrame Curtain × 1 · 2,539 ج.م');
-  await expect(dlg).toContainText('إجماليه هيقل 2,539 ج.م');
+  await expect(dlg).toContainText('والأوردر الأصلي IB-181668 على الموقع هيفضل زي ما هو بمنتجاته وإجماليه');
+  await expect(dlg).not.toContainText('إجماليه هيقل');
   await dlg.locator('#creason').selectOption('تعديل من العميل');
   await dlg.locator('[data-cok]').click();
   await expect(dlg).toHaveCount(0);
-  await expect(toast(page)).toHaveText('اتمسح الأوردر الفرعي #181670 — إجمالي IB-181668 بقى 1,002 ج.م');
+  await expect(toast(page)).toHaveText('اتمسح الأوردر الفرعي #181670 — الأوردر الأصلي على الموقع زي ما هو');
+  expect(Number(mock.orders.find((o) => o.id === 181668).total)).toBe(3541); // the site's parent kept its total
   expect(mock.subTrashes).toEqual([{ order_id: 181668, sub_id: 181670, lines: [5002], reason: 'تعديل من العميل', by: ADMIN }]);
   await expect(c.locator('[data-more="s:5002"]')).toHaveCount(0);
   await expect(c.locator('[data-more="s:5001"]')).toHaveCount(1);
@@ -940,12 +957,13 @@ test('the owner 11 Nov: «حالة الموقع» of a Dokan sub-order (the site
   expect(mock.subStatuses).toEqual([{ order_id: 181668, sub_id: 181669, status: 'ready-shipping', by: ADMIN }]);
   await expect(ws(5099)).toHaveValue('جاهز للشحن'); // the whole sub-order
   await expect.poll(() => mock.activity.filter((a) => a.action === 'suborder.site_status').map((a) => a.new_value)).toEqual(['#181669 (IB-181668) · ready-shipping']);
-  // «مسح المنتج»: Pouf off sub-order 181669 and the order
+  // «مسح المنتج»: Pouf off sub-order 181669 — the order on the site keeps it (the owner 11 Nov, «زي الـ automation»)
   await c.locator('[data-more="s:5099"]').click();
   await expect(menu.locator('[data-ma="linedel"]')).toHaveText('مسح المنتج');
   await menu.locator('[data-ma="linedel"]').click();
   await expect(dlg.locator('#cdt')).toHaveText('مسح المنتج من IB-181668؟');
   await expect(dlg.locator('[data-line-del]')).toContainText('Pouf × 1 · 500 ج.م');
+  await expect(dlg).toContainText('المنتج هيتشال من الأوردر الفرعي #181669 على الموقع، والأوردر الأصلي IB-181668 على الموقع هيفضل زي ما هو بإجماليه');
   await dlg.locator('#creason').selectOption('تعديل من العميل');
   // the owner 11 Nov («يظهرلي loading … عشان اعرف انه بيتمسح مش معلق»): the site call held → the button spins, the dialog's buttons locked
   let release; const held = new Promise((r) => { release = r; });
@@ -958,7 +976,8 @@ test('the owner 11 Nov: «حالة الموقع» of a Dokan sub-order (the site
   await expect(dlg.locator('.cf [data-cc]')).toBeDisabled();
   release(); await page.unroute('**/functions/v1/woo-sync');
   await expect(dlg).toHaveCount(0);
-  await expect(toast(page)).toHaveText('اتمسح المنتج — إجمالي IB-181668 بقى 3,541 ج.م');
+  await expect(toast(page)).toHaveText('اتمسح المنتج من الأوردر الفرعي #181669 — الأوردر الأصلي على الموقع زي ما هو');
+  expect(Number(mock.orders.find((o) => o.id === 181668).total)).toBe(4041); // the site's parent kept its total
   expect(mock.lineTrashes).toEqual([{ order_id: 181668, item_id: 5099, reason: 'تعديل من العميل', by: ADMIN }]);
   await expect(c.locator('[data-more="s:5099"]')).toHaveCount(0);
   await expect.poll(() => mock.activity.filter((a) => a.action === 'order.line_delete').map((a) => a.new_value)).toEqual(['IB-181668 · سطر #5099 · تعديل من العميل']);

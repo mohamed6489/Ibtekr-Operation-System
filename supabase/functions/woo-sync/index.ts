@@ -28,6 +28,12 @@
 //              slug (outgoingWooStatus; none → skipped) → PUT
 //              wc/v3/orders/{id}; "system wins": when Woo changed the status since our last sync, the push still goes
 //              and a 'conflict' row is logged; orders.woo_status / woo_updated_at follow Woo's answer.
+//              An order with Dokan sub-orders (several makers) — the owner 11 Nov, «زي الـ automation»: its parent is never written,
+//              since Dokan deletes and recreates the sub-orders of a multi-vendor parent on any REST update of it (getdokan/dokan PR
+//              #3454 — the numbers changed at every status change): PUT wc/v3/orders/{sub} { status } on each current sub-order
+//              (currentSubOrders — the ones the order's live lines point to; trashed ones never), like the owner's n8n automation;
+//              sub_orders.woo_status from each answer; 404 / 410 = gone; any other failure → 502 after the rest; orders.woo_status
+//              stays the site's parent.
 //   'order_trash' { order_id }  (phase 5.5 decision 10, the owner 2 Nov: «لما أحذفه يتحذف من الموقع») the cancelled order and its
 //              Dokan sub-orders go to the site's trash: DELETE wc/v3/orders/{id} with no `force` (never deleted for good), the
 //              sub-orders (sub_orders.woo_order_id) first, then the parent; 404 / 410 (already trashed) count as done. The order
@@ -36,16 +42,20 @@
 //              marks the order deleted (RPC order_delete) after this answers ok / skipped.
 //   'suborder_trash' { order_id, sub_id, reason }  (phase 13 decision 54, the owner 10 Nov: «مسح الأوردر الفرعي … يتحذف من
 //              الموقع ويتشال من الأوردر الأصلي») one Dokan sub-order (sub_orders.woo_order_id) of an order that is not «مكتمل» /
-//              «استرجاع» goes to the site's trash (DELETE wc/v3/orders/{sub}, never `force`; 404 / 410 = done), then its lines leave
-//              the parent (PUT wc/v3/orders/{id} line_items [{ id, product_id: null }] — WooCommerce recalculates the total) and the
-//              answer is mirrored at once (writeOrders: the lines flagged removed, the total), the hub's reservations of those lines
-//              released (releaseLines). The order's only sub-order → 409 only_sub (the page deletes the order instead). The same
+//              «استرجاع» goes to the site's trash (DELETE wc/v3/orders/{sub}, never `force`; 404 / 410 = done; sub_orders.woo_status
+//              'trash'), and its lines leave the order here (removed + dropped_at — 0079 keeps them removed whatever the sync brings
+//              back), the hub's reservations of those lines released (releaseLines). The parent on the site is never written (the owner
+//              11 Nov, «زي الـ automation»: Dokan recreates the sub-orders of a parent updated through the API — PR #3454): it keeps
+//              those lines and its total; the answer's total is null. The order's only sub-order → 409 only_sub (the page deletes the order instead). The same
 //              two permissions as order_trash; never the sync secret; WOO_PUSH_ENABLED gates it (skipped/push_disabled — nothing
 //              changes here either: the lines would come back with the next sync).
 //   'line_trash' { order_id, item_id, reason }  (the owner 11 Nov — «امسح منتج بعينه من الاوردر») one product off an order that is not
 //              «مكتمل» / «استرجاع»: its line off the maker's Dokan sub-order (GET, the one line of the same product — else 409 sub_line,
-//              nothing written) then off the parent (product_id null both times — WooCommerce recalculates), mirrored at once, the hub's
-//              hold of that line released. Its sub-order's last line → 409 only_in_sub; the order's last line → 409 only_line. Same
+//              nothing written; product_id null — WooCommerce recalculates the sub-order), flagged here (removed + dropped_at, 0079), the
+//              hub's hold of that line released; the parent on the site is never written (the owner 11 Nov, «زي الـ automation» — PR
+//              #3454) and the answer's total is null. An order of one maker (no sub-order): the line off the order itself (PUT, mirrored,
+//              its total — no sub-order for Dokan to recreate); a line of an order with sub-orders that points to none → 409 sub_line.
+//              Its sub-order's last line → 409 only_in_sub; the order's last line → 409 only_line. Same
 //              permissions as suborder_trash; never the sync secret; WOO_PUSH_ENABLED.
 //   'suborder_status' { order_id, sub_id, status }  (the owner 11 Nov, option «أ» — this lifts «never writes a sub-order's status»
 //              for this action only) a Dokan sub-order's own status on the site: a WooCommerce slug status_map knows, PUT
@@ -369,6 +379,9 @@ async function pushStatus(run: Run, args: Json) {
   const ctx = await run.ctx();
   const slug = outgoingWooStatus(status, ctx.statusMap);
   if (!slug) return await skip('no_woo_status');
+  // An order with Dokan sub-orders: the status goes to each sub-order, never the parent (the owner 11 Nov — Dokan PR #3454).
+  const subs = await currentSubOrders(run.db, id);
+  if (subs.length) return await pushSubStatuses(run, ctx.woo, entry, status, slug, subs);
   // Conflict: WooCommerce changed the status after the version we last stored (neither ours nor the one pushed).
   const before = (await ctx.woo.get(`wc/v3/orders/${id}`)).data ?? {};
   const newer = (ms(before.date_modified_gmt) ?? 0) > (ms(order.woo_updated_at) ?? Infinity);
@@ -379,6 +392,49 @@ async function pushStatus(run: Run, args: Json) {
   if (upd.error) throw new Error(`orders: ${upd.error.message}`);
   await logSync(run.db, { ...entry, result: conflict ? 'conflict' : 'ok', detail: { status, woo_status: patch.woo_status, ...(conflict ? { woo_before: before.status ?? null } : {}) } });
   return json(200, { action: 'push_status', result: 'ok', conflict, counts: { pushed: 1 } });
+}
+
+// The owner 11 Nov («زي الـ automation»): Dokan deletes and recreates the sub-orders of a multi-vendor parent whenever that parent is
+// updated through the REST API (getdokan/dokan PR #3454), so the system never writes the parent of an order that has sub-orders.
+// currentSubOrders: the order's Dokan sub-orders on the site now — the ones its live lines point to (a re-split by Dokan leaves older
+// rows behind), else every sub-order row of the order; a trashed one never. [] = an order of one maker (no sub-order).
+type SubRef = { id: number; woo: number; status: string | null };
+async function currentSubOrders(db: Db, id: number): Promise<SubRef[]> {
+  const { data: rows, error } = await db.from('sub_orders').select('id, woo_order_id, woo_status').eq('order_id', id);
+  if (error) throw new Error(`sub_orders: ${error.message}`);
+  const all: SubRef[] = [];
+  for (const r of (rows ?? []) as Json[]) {
+    const woo = wooId(r.woo_order_id), status = typeof r.woo_status === 'string' ? r.woo_status : null;
+    if (woo !== null && woo !== id && status !== 'trash') all.push({ id: Number(r.id), woo, status });
+  }
+  if (!all.length) return [];
+  const { data: lines, error: lineErr } = await db.from('order_items').select('sub_order_id').eq('order_id', id).eq('removed', false);
+  if (lineErr) throw new Error(`order_items: ${lineErr.message}`);
+  const linked = new Set(((lines ?? []) as Json[]).map((l) => Number(l.sub_order_id)).filter((n) => Number.isInteger(n) && n > 0));
+  const live = all.filter((s) => linked.has(s.id));
+  return live.length ? live : all;
+}
+// push_status on an order with sub-orders: PUT wc/v3/orders/{sub} { status } on each, like the owner's n8n automation; the answer's
+// status kept in sub_orders.woo_status; 404 / 410 = gone (not a failure); any other refusal is counted and answered 502 after the rest.
+async function pushSubStatuses(run: Run, woo: ReturnType<typeof wooApi>, entry: Json, status: string, slug: string, subs: SubRef[]) {
+  const done: number[] = [], failed: number[] = []; let gone = 0, first: string | null = null;
+  for (const s of subs) {
+    let after: Json;
+    try { after = (await woo.put(`wc/v3/orders/${s.woo}`, { status: slug })).data ?? {}; } catch (e) {
+      if (e instanceof WooError && (e.status === 404 || e.status === 410)) { gone += 1; continue; }
+      if (!(e instanceof WooError)) throw e;
+      failed.push(s.woo); first ??= errorText(e, woo.scrub); continue;
+    }
+    const now = isObj(after) && typeof after.status === 'string' ? after.status : null;
+    if (now !== slug) { failed.push(s.woo); first ??= `kept ${now ?? '—'}`; continue; }
+    const { error } = await run.db.from('sub_orders').update({ woo_status: now }).eq('id', s.id);
+    if (error) throw new Error(`sub_orders: ${error.message}`);
+    done.push(s.woo);
+  }
+  const detail = { status, woo_status: slug, subs: done, ...(gone ? { gone } : {}), ...(failed.length ? { failed, error: first } : {}) };
+  await logSync(run.db, { ...entry, result: failed.length ? 'error' : 'ok', detail });
+  if (failed.length) return json(502, { error: 'woo_error', subs: done, failed });
+  return json(200, { action: 'push_status', result: 'ok', conflict: false, subs: done, woo_status: slug, counts: { pushed: done.length } });
 }
 
 // ---------------------------------------------------------------- order_trash (phase 5.5 decision 10)
@@ -486,26 +542,30 @@ async function suborderTrash(run: Run, args: Json) {
     if (e instanceof WooError && (e.status === 404 || e.status === 410)) already = true;
     else { await logSync(run.db, { ...entry, result: 'error', detail: { step: 'trash', sub: sid, error: errorText(e, woo.scrub) } }); if (e instanceof WooError) return json(502, { error: 'woo_error', step: 'trash' }); throw e; }
   }
-  let parent: Json;
-  try { parent = (await woo.put(`wc/v3/orders/${id}`, { line_items: mine.map((x) => ({ id: x, product_id: null })) })).data as Json; } catch (e) {
-    await logSync(run.db, { ...entry, result: 'error', detail: { step: 'lines', sub: sid, error: errorText(e, woo.scrub) } });
-    if (e instanceof WooError) return json(502, { error: 'woo_error', step: 'lines' });
-    throw e;
-  }
-  const kept = isObj(parent) && Array.isArray(parent.line_items) ? parent.line_items.map((li: Json) => wooId(li?.id)).filter((x: number | null) => x !== null && mine.includes(x)) : mine;
-  if (kept.length) { await logSync(run.db, { ...entry, result: 'error', detail: { step: 'lines', sub: sid, kept: kept.length } }); return json(502, { error: 'woo_kept_lines' }); }
+  // the owner 11 Nov («زي الـ automation»): the parent on the site is never written (Dokan would recreate its sub-orders — PR #3454);
+  // the sub-order's lines leave the order here (removed + dropped_at: 0079 keeps them removed whatever the sync brings back)
+  await dropLines(run.db, mine, run.now());
+  const { error: subErr } = await run.db.from('sub_orders').update({ woo_status: 'trash' }).eq('id', sub.id);
+  if (subErr) throw new Error(`sub_orders: ${subErr.message}`);
   const ctx = await run.ctx();
-  await writeOrders(ctx, [parent]); // mirrored now: the lines flagged removed, the total from WooCommerce
   let released = 0;
   try { released = await releaseLines(ctx, { ref: 'IB-' + (order.number ?? id), itemIds: mine, sid }); } catch (e) { await logSync(run.db, { ...entry, result: 'error', detail: { step: 'release', error: errorText(e, woo.scrub) } }); }
   await logSync(run.db, { ...entry, result: 'ok', detail: { sub: sid, lines: mine.length, already, released } });
-  return json(200, { action: 'suborder_trash', result: 'ok', lines: mine.length, already, released, total: isObj(parent) ? parent.total ?? null : null });
+  return json(200, { action: 'suborder_trash', result: 'ok', lines: mine.length, already, released, total: null });
+}
+// lines the system took off an order with sub-orders: removed + dropped_at (0079), the parent on the site untouched
+async function dropLines(db: Db, ids: number[], at: string) {
+  if (!ids.length) return;
+  const { error } = await db.from('order_items').update({ removed: true, dropped_at: at }).in('id', ids);
+  if (error) throw new Error(`order_items: ${error.message}`);
 }
 
 // ---------------------------------------------------------------- line_trash (the owner 11 Nov — «لو عايز امسح منتج بعينه من الاوردر»)
 // One product off an order: its line off the maker's Dokan sub-order (found by product + quantity + total — refused when it is not one
-// line) and off the parent (product_id null; WooCommerce recalculates both totals), mirrored at once, the hub's hold released. The last
-// line of a sub-order → 409 only_in_sub (the page deletes the sub-order); the last line of the order → 409 only_line (the order).
+// line; product_id null, WooCommerce recalculates the sub-order) and flagged here (dropped_at, 0079) — the parent on the site is never
+// written for an order with sub-orders (the owner 11 Nov, PR #3454); an order of one maker: off the order itself (PUT, mirrored). The
+// hub's hold released. The last line of a sub-order → 409 only_in_sub (the page deletes the sub-order); the last line of the order →
+// 409 only_line (the order).
 async function lineTrash(run: Run, args: Json) {
   const id = wooId(args.order_id), item = wooId(args.item_id);
   const reason = typeof args.reason === 'string' ? args.reason.trim() : '';
@@ -525,6 +585,8 @@ async function lineTrash(run: Run, args: Json) {
     const w = isObj(sub) ? wooId(sub.woo_order_id) : null; if (w !== null && w !== id) sid = w;
     if (sid !== null && all.filter((l) => Number(l.sub_order_id) === Number(line.sub_order_id)).length === 1) return json(409, { error: 'only_in_sub', sub: sid });
   }
+  // an order with sub-orders whose line points to none: its maker's sub-order is unknown, and the parent is never written (PR #3454)
+  if (sid === null && (await currentSubOrders(run.db, id)).length) return json(409, { error: 'sub_line', matches: 0 });
   const entry = { kind: 'push', direction: 'out', entity: 'order', entity_id: String(id), action: 'line_trash' };
   if (!pushEnabled(run.env)) { await logSync(run.db, { ...entry, result: 'skipped', detail: { reason: 'push_disabled', line: item } }); return json(200, { action: 'line_trash', result: 'skipped', reason: 'push_disabled' }); }
   const woo = run.woo();
@@ -544,7 +606,16 @@ async function lineTrash(run: Run, args: Json) {
     let after: Json;
     try { after = (await woo.put(`wc/v3/orders/${sid}`, { line_items: [{ id: subLine, product_id: null }] })).data as Json; } catch (e) { return await fail('sub_line', e, { sub: sid }); }
     if (isObj(after) && Array.isArray(after.line_items) && after.line_items.some((li: Json) => wooId(li?.id) === subLine)) return await fail('sub_line', null, { sub: sid, kept: 1 });
+    // the owner 11 Nov («زي الـ automation»): the parent on the site is never written (Dokan would recreate its sub-orders — PR
+    // #3454); the line leaves the order here (removed + dropped_at, 0079) and the parent keeps it and its total
+    await dropLines(run.db, [item], run.now());
+    const ctx = await run.ctx();
+    let released = 0;
+    try { released = await releaseLines(ctx, { ref: 'IB-' + (order.number ?? id), itemIds: [item], sid: null }); } catch (e) { await logSync(run.db, { ...entry, result: 'error', detail: { step: 'release', error: errorText(e, woo.scrub) } }); }
+    await logSync(run.db, { ...entry, result: 'ok', detail: { line: item, sub: sid, released } });
+    return json(200, { action: 'line_trash', result: 'ok', sub: sid, released, total: null });
   }
+  // an order of one maker (no sub-order): the line off the order itself — no sub-order for Dokan to recreate
   let parent: Json;
   try { parent = (await woo.put(`wc/v3/orders/${id}`, { line_items: [{ id: item, product_id: null }] })).data as Json; } catch (e) { return await fail('lines', e); }
   if (isObj(parent) && Array.isArray(parent.line_items) && parent.line_items.some((li: Json) => wooId(li?.id) === item)) { await logSync(run.db, { ...entry, result: 'error', detail: { step: 'lines', line: item, kept: 1 } }); return json(502, { error: 'woo_kept_lines' }); }

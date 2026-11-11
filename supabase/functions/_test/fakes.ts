@@ -43,7 +43,7 @@ const COLUMNS: Record<string, string[]> = {
     'attr_type', 'utm_source', 'utm_medium', 'utm_campaign', 'utm_content', 'ad_platform'], // 0052 (phase 9.5.3): the order's source
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'raw', 'updated_at'],
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status',
-    'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'raw', 'updated_at', 'commission_rate', 'commission_fee'],
+    'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'raw', 'updated_at', 'commission_rate', 'commission_fee', 'dropped_at'], // dropped_at: 0079
   woo_webhook_events: ['id', 'received_at', 'delivery_id', 'webhook_id', 'topic', 'resource_id', 'status', 'error', 'payload'],
   woo_sync_log: ['id', 'at', 'kind', 'direction', 'entity', 'entity_id', 'action', 'result', 'detail'],
   sync_state: ['key', 'value', 'updated_at'],

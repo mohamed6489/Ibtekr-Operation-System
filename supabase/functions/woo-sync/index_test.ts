@@ -979,6 +979,49 @@ Deno.test('push_status for an unknown order → 404; with a bad body → 400; no
   assertEquals(woo.calls.length, 0);
 });
 
+// the owner 11 Nov («زي الـ automation»): Dokan recreates the sub-orders of a multi-vendor parent updated through the API (PR #3454)
+const multiSeed = () => {
+  const b = subSeed();
+  return { ...b, orders: b.orders.map((o: any) => (o.id === 3001 ? { ...o, status: 'جاهز للشحن' } : o)),
+    sub_orders: [...b.sub_orders.map((s: any) => (s.id === 11 || s.id === 12 ? { ...s, woo_status: 'processing' } : s)),
+      { id: 14, order_id: 3001, vendor_id: null, woo_order_id: 3009, woo_status: 'processing' }, // left behind by an earlier re-split: no live line points to it
+      { id: 15, order_id: 3001, vendor_id: null, woo_order_id: 3010, woo_status: 'trash' }] };
+};
+Deno.test('push_status on an order with Dokan sub-orders → PUT {status} on each current sub-order, never the parent; sub_orders.woo_status from the answers; orders.woo_status untouched', async () => {
+  const puts: any[] = [];
+  const answer = (id: number) => (c: any) => { puts.push([id, c.body]); return { body: { id, status: c.body.status } }; };
+  const { db, woo, deps } = setup({ seed: multiSeed(), routes: { 'PUT wc/v3/orders/3002': answer(3002), 'PUT wc/v3/orders/3003': answer(3003) }, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'push_status', order_id: 3001, status: 'جاهز للشحن' }, { jwt: 'jwt-ops' });
+  assertEquals(res.status, 200);
+  assertEquals(body, { action: 'push_status', result: 'ok', conflict: false, subs: [3002, 3003], woo_status: 'ready-shipping', counts: { pushed: 2 } });
+  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['PUT', 'wc/v3/orders/3002'], ['PUT', 'wc/v3/orders/3003']], 'never the parent 3001, nor the stale 3009, nor the trashed 3010');
+  assertEquals(puts, [[3002, { status: 'ready-shipping' }], [3003, { status: 'ready-shipping' }]]);
+  const subs = new Map(db.rows('sub_orders').map((s: any) => [s.woo_order_id, s.woo_status]));
+  assertEquals([subs.get(3002), subs.get(3003), subs.get(3009), subs.get(3010)], ['ready-shipping', 'ready-shipping', 'processing', 'trash']);
+  assertEquals(db.row('orders', 3001).woo_status, 'processing', 'the site\'s parent was not written');
+  assertEquals(db.writes('orders').length, 0);
+  const log = db.rows('woo_sync_log')[0];
+  assertEquals([log.entity_id, log.result, log.detail], ['3001', 'ok', { status: 'جاهز للشحن', woo_status: 'ready-shipping', subs: [3002, 3003] }]);
+});
+
+Deno.test('push_status on sub-orders: a refusal → 502 after the rest (counted, logged); a sub-order gone from the site (404) is no failure; no live line → every sub-order row', async () => {
+  const routes = { 'PUT wc/v3/orders/3002': { status: 500, body: { code: 'x' } }, 'PUT wc/v3/orders/3003': (c: any) => ({ body: { id: 3003, status: c.body.status } }) };
+  const { db, woo, deps } = setup({ seed: multiSeed(), routes, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'push_status', order_id: 3001, status: 'جاهز للشحن' }, { jwt: 'jwt-ops' });
+  assertEquals([res.status, body], [502, { error: 'woo_error', subs: [3003], failed: [3002] }]);
+  assertEquals(woo.calls.map((c) => c.path), ['wc/v3/orders/3002', 'wc/v3/orders/3003']);
+  assertEquals(db.rows('sub_orders').find((s: any) => s.woo_order_id === 3003).woo_status, 'ready-shipping');
+  const log = db.rows('woo_sync_log')[0];
+  assertEquals([log.result, log.detail.subs, log.detail.failed], ['error', [3003], [3002]]);
+  // 404 = gone; and the lines point to no sub-order → every row of the order that is not trashed
+  const loose = { ...multiSeed(), order_items: multiSeed().order_items.map((i: any) => ({ ...i, sub_order_id: i.order_id === 3001 ? null : i.sub_order_id })) };
+  const g = setup({ seed: loose, routes: { 'PUT wc/v3/orders/3002': { status: 404, body: { code: 'woocommerce_rest_shop_order_invalid_id' } }, 'PUT wc/v3/orders/3003': (c: any) => ({ body: { id: 3003, status: c.body.status } }), 'PUT wc/v3/orders/3009': (c: any) => ({ body: { id: 3009, status: c.body.status } }) }, env: PUSH_ON });
+  const r = await call(g.deps, { action: 'push_status', order_id: 3001, status: 'جاهز للشحن' }, { jwt: 'jwt-ops' });
+  assertEquals([r.res.status, r.body.subs], [200, [3003, 3009]]);
+  assertEquals(g.woo.calls.map((c) => c.path), ['wc/v3/orders/3002', 'wc/v3/orders/3003', 'wc/v3/orders/3009']);
+  assertEquals(g.db.rows('woo_sync_log')[0].detail.gone, 1);
+});
+
 // ---------------------------------------------------------------- register_webhooks
 
 Deno.test('register_webhooks creates ours next to the n8n ones, re-activates ours, never touches a foreign webhook', async () => {
@@ -1993,40 +2036,42 @@ Deno.test('suborder_trash: orders.status = F only, never the sync secret; bad in
   assertEquals(off.db.rows('order_items').filter((i: any) => i.removed).length, 0, 'nothing changes here either');
 });
 
-Deno.test('suborder_trash: DELETE the sub-order (never force), PUT the parent without its lines (product_id null), mirror the answer (lines removed, total), release the hub reservation', async () => {
-  const puts: any[] = [];
-  const routes = { 'DELETE wc/v3/orders/3002': { body: { id: 3002, status: 'trash' } }, 'PUT wc/v3/orders/3001': (c: any) => { puts.push(c.body); return { body: parentAfter }; } };
+Deno.test('suborder_trash: DELETE the sub-order (never force) and nothing else on the site — the parent is never written (Dokan PR #3454); its lines flagged here (removed + dropped_at), the sub-order trashed, the hub reservation released', async () => {
+  const routes = { 'DELETE wc/v3/orders/3002': { body: { id: 3002, status: 'trash' } } };
   const { db, woo, deps } = setup({ seed: subSeed(), routes, env: PUSH_ON });
   const { res, body } = await call(deps, { action: 'suborder_trash', order_id: 3001, sub_id: 3002, reason: 'أوردر مكرر' }, { jwt: 'jwt-ops' });
   assertEquals(res.status, 200);
-  assertEquals([body.result, body.lines, body.already, body.released, body.total], ['ok', 2, false, 1, '150.00']);
-  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['DELETE', 'wc/v3/orders/3002'], ['PUT', 'wc/v3/orders/3001']]);
+  assertEquals([body.result, body.lines, body.already, body.released, body.total], ['ok', 2, false, 1, null]);
+  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['DELETE', 'wc/v3/orders/3002']], 'the parent 3001 is never written');
   assert(woo.calls.every((c) => !JSON.stringify(c.query ?? null).includes('force')), 'never force');
-  assertEquals(puts, [{ line_items: [{ id: 30010, product_id: null }, { id: 30011, product_id: null }] }]);
   const items = new Map(db.rows('order_items').map((i: any) => [i.id, i]));
   assertEquals([items.get(30010).removed, items.get(30011).removed, items.get(30020).removed], [true, true, false]);
+  assertEquals([items.get(30010).dropped_at, items.get(30011).dropped_at, items.get(30020).dropped_at], [NOW, NOW, null], 'dropped here: the sync cannot bring them back (0079)');
   assertEquals(items.get(30010).pulled, false);
-  assertEquals(Number(db.rows('orders').find((o: any) => o.id === 3001).total), 150);
+  assertEquals(db.rows('sub_orders').find((x: any) => x.woo_order_id === 3002).woo_status, 'trash');
+  assertEquals(Number(db.rows('orders').find((o: any) => o.id === 3001).total), 300, 'the order keeps the site\'s total');
   const rel = db.rows('inv_moves').filter((m: any) => m.type === 'release');
   assertEquals(rel.map((m: any) => [m.lot_id, m.qty, m.ref, m.note, m.by]), [['lt1', 1, 'IB-3001', 'سحب تلقائي · سطر #30010', null]]);
   assertEquals(db.rows('inv_lots')[0].status, 'متاح');
   const log = db.rows('woo_sync_log').find((x: any) => x.action === 'suborder_trash');
   assertEquals([log.result, log.detail], ['ok', { sub: 3002, lines: 2, already: false, released: 1 }]);
-  // again (a retry after a failure): the sub-order already trashed (410) is done, the lines are gone → 404
+  // again (a retry): the lines are gone → 404, nothing sent
   const again = await call(deps, { action: 'suborder_trash', order_id: 3001, sub_id: 3002, reason: 'أوردر مكرر' }, { jwt: 'jwt-ops' });
   assertEquals(again.res.status, 404);
+  assertEquals(woo.calls.length, 1);
 });
 
-Deno.test('suborder_trash: the trash fails → 502, nothing else; the site keeps the lines → 502 woo_kept_lines and nothing flagged', async () => {
+Deno.test('suborder_trash: the trash fails → 502, nothing flagged; already trashed (410) → done, the lines flagged all the same', async () => {
   const bad = setup({ seed: subSeed(), routes: { 'DELETE wc/v3/orders/3002': { status: 500, body: { code: 'x' } } }, env: PUSH_ON });
   const r = await call(bad.deps, { action: 'suborder_trash', order_id: 3001, sub_id: 3002, reason: 'x' }, { jwt: 'jwt-ops' });
   assertEquals([r.res.status, r.body], [502, { error: 'woo_error', step: 'trash' }]);
   assertEquals(bad.woo.calls.map((c) => c.method), ['DELETE']);
-  const kept = wooOrder({ ...parentAfter, line_items: [...parentAfter.line_items, { id: 30010, product_id: 9, name: 'a', quantity: 1, total: '100', meta_data: [] }] });
-  const k = setup({ seed: subSeed(), routes: { 'DELETE wc/v3/orders/3002': { status: 410, body: { code: 'woocommerce_rest_already_trashed' } }, 'PUT wc/v3/orders/3001': { body: kept } }, env: PUSH_ON });
+  assertEquals(bad.db.rows('order_items').filter((i: any) => i.removed || i.dropped_at).length, 0);
+  const k = setup({ seed: subSeed(), routes: { 'DELETE wc/v3/orders/3002': { status: 410, body: { code: 'woocommerce_rest_already_trashed' } } }, env: PUSH_ON });
   const r2 = await call(k.deps, { action: 'suborder_trash', order_id: 3001, sub_id: 3002, reason: 'x' }, { jwt: 'jwt-ops' });
-  assertEquals([r2.res.status, r2.body.error], [502, 'woo_kept_lines']);
-  assertEquals(k.db.rows('order_items').filter((i: any) => i.removed).length, 0);
+  assertEquals([r2.res.status, r2.body.result, r2.body.already], [200, 'ok', true]);
+  assertEquals(k.woo.calls.map((c) => c.method), ['DELETE']);
+  assertEquals(k.db.rows('order_items').filter((i: any) => i.removed).map((i: any) => i.id).sort(), [30010, 30011]);
 });
 
 // ---------------------------------------------------------------- line_trash / suborder_status (the owner 11 Nov)
@@ -2057,19 +2102,19 @@ Deno.test('line_trash: orders.status = F only, never the sync secret; bad input 
   assertEquals(woo.calls.length + one.woo.calls.length + off.woo.calls.length, 0);
 });
 
-Deno.test('line_trash: the line off the maker\'s sub-order (found by product), then off the parent, mirrored (removed, total), the hub hold released; an unclear sub-order line → 409 sub_line and nothing written', async () => {
+Deno.test('line_trash: the line off the maker\'s sub-order (found by product) and nothing else on the site — the parent is never written (Dokan PR #3454); flagged here (removed + dropped_at), the hub hold released; an unclear sub-order line → 409 sub_line and nothing written', async () => {
   const puts: any[] = [];
-  const routes = { 'GET wc/v3/orders/3002': { body: subOrder3002 }, 'PUT wc/v3/orders/3002': (c: any) => { puts.push(['sub', c.body]); return { body: { ...subOrder3002, line_items: [subOrder3002.line_items[1]] } }; },
-    'PUT wc/v3/orders/3001': (c: any) => { puts.push(['parent', c.body]); return { body: parentWithout30010 }; } };
+  const routes = { 'GET wc/v3/orders/3002': { body: subOrder3002 }, 'PUT wc/v3/orders/3002': (c: any) => { puts.push(['sub', c.body]); return { body: { ...subOrder3002, line_items: [subOrder3002.line_items[1]] } }; } };
   const { db, woo, deps } = setup({ seed: lineSeed(), routes, env: PUSH_ON });
   const { res, body } = await call(deps, { action: 'line_trash', order_id: 3001, item_id: 30010, reason: 'العميل لغى المنتج' }, { jwt: 'jwt-ops' });
   assertEquals(res.status, 200);
-  assertEquals([body.result, body.sub, body.released, body.total], ['ok', 3002, 1, '200.00']);
-  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['GET', 'wc/v3/orders/3002'], ['PUT', 'wc/v3/orders/3002'], ['PUT', 'wc/v3/orders/3001']]);
-  assertEquals(puts, [['sub', { line_items: [{ id: 9001, product_id: null }] }], ['parent', { line_items: [{ id: 30010, product_id: null }] }]]);
+  assertEquals([body.result, body.sub, body.released, body.total], ['ok', 3002, 1, null]);
+  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['GET', 'wc/v3/orders/3002'], ['PUT', 'wc/v3/orders/3002']], 'the parent 3001 is never written');
+  assertEquals(puts, [['sub', { line_items: [{ id: 9001, product_id: null }] }]]);
   const items = new Map(db.rows('order_items').map((i: any) => [i.id, i]));
   assertEquals([items.get(30010).removed, items.get(30011).removed, items.get(30020).removed], [true, false, false]);
-  assertEquals(Number(db.rows('orders').find((o: any) => o.id === 3001).total), 200);
+  assertEquals([items.get(30010).dropped_at, items.get(30011).dropped_at], [NOW, null]);
+  assertEquals(Number(db.rows('orders').find((o: any) => o.id === 3001).total), 300, 'the order keeps the site\'s total');
   assertEquals(db.rows('inv_moves').filter((m: any) => m.type === 'release').map((m: any) => m.note), ['سحب تلقائي · سطر #30010']);
   // two lines of the same product on the sub-order, neither matching the quantity and total → refused, nothing written
   const twin = { ...subOrder3002, line_items: [{ id: 9001, product_id: 77, quantity: 2, total: '200' }, { id: 9003, product_id: 77, quantity: 3, total: '300' }, subOrder3002.line_items[1]] };
@@ -2078,6 +2123,28 @@ Deno.test('line_trash: the line off the maker\'s sub-order (found by product), t
   assertEquals([r.res.status, r.body.error, r.body.matches], [409, 'sub_line', 0]);
   assertEquals(t.woo.calls.map((c) => c.method), ['GET']);
   assertEquals(t.db.rows('order_items').filter((i: any) => i.removed).length, 0);
+});
+
+Deno.test('line_trash: an order of one maker (no sub-order) → off the order itself (PUT, mirrored, its total); a line of an order with sub-orders that points to none → 409 sub_line, no Woo call', async () => {
+  const one = { ...lineSeed(), orders: [...lineSeed().orders, { id: 3201, number: '3201', customer_name: 'z', status: 'جاري التنفيذ', woo_status: 'processing', total: 300, placed_at: '2026-10-20T10:00:00Z', woo_updated_at: '2026-10-20T11:00:00Z' }],
+    order_items: [...lineSeed().order_items, { id: 32010, order_id: 3201, name: 'e', qty: 1, total: 100, removed: false, pulled: false, product_id: 80 }, { id: 32011, order_id: 3201, name: 'f', qty: 1, total: 200, removed: false, pulled: false, product_id: 81 }] };
+  const after = wooOrder({ id: 3201, number: '3201', status: 'processing', total: '200.00', date_modified_gmt: '2026-11-11T10:00:00', meta_data: [{ key: '_dokan_vendor_id', value: '44' }],
+    line_items: [{ id: 32011, product_id: 81, name: 'f', quantity: 1, total: '200', meta_data: [] }] });
+  const puts: any[] = [];
+  const { db, woo, deps } = setup({ seed: one, routes: { 'PUT wc/v3/orders/3201': (c: any) => { puts.push(c.body); return { body: after }; } }, env: PUSH_ON });
+  const { res, body } = await call(deps, { action: 'line_trash', order_id: 3201, item_id: 32010, reason: 'x' }, { jwt: 'jwt-ops' });
+  assertEquals([res.status, body.result, body.sub, body.total], [200, 'ok', null, '200.00']);
+  assertEquals(woo.calls.map((c) => [c.method, c.path]), [['PUT', 'wc/v3/orders/3201']]);
+  assertEquals(puts, [{ line_items: [{ id: 32010, product_id: null }] }]);
+  assertEquals(db.rows('order_items').find((i: any) => i.id === 32010).removed, true);
+  assertEquals(Number(db.rows('orders').find((o: any) => o.id === 3201).total), 200);
+  // order 3001 has sub-orders: a line that points to none cannot be taken off the site safely
+  const loose = { ...lineSeed(), order_items: lineSeed().order_items.map((i: any) => (i.id === 30011 ? { ...i, sub_order_id: null } : i)) };
+  const l = setup({ seed: loose, env: PUSH_ON });
+  const r = await call(l.deps, { action: 'line_trash', order_id: 3001, item_id: 30011, reason: 'x' }, { jwt: 'jwt-ops' });
+  assertEquals([r.res.status, r.body.error], [409, 'sub_line']);
+  assertEquals(l.woo.calls.length, 0);
+  assertEquals(l.db.rows('order_items').filter((i: any) => i.removed).length, 0);
 });
 
 Deno.test('suborder_status: the site status of a sub-order (a status_map slug), kept from WooCommerce\'s answer; unknown slug / the order itself / no sub → 400 / 404; push off → skipped; the site keeps another status → 502', async () => {

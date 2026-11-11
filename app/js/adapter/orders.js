@@ -263,10 +263,11 @@
     log('order.delete', 'IB-' + id + ' · ' + why + ' · الموقع: ' + site);
     return { ok: true, site };
   }
-  // phase 13 decision 54: «مسح الأوردر الفرعي» — woo-sync suborder_trash (the Dokan sub-order to the site's trash, its lines off the
-  // parent, mirrored at once, the hub's holds released); the answer's status → 'forbidden' (401/403) / 'only' (409 only_sub: the page
-  // deletes the order instead) / 'closed' (409) / 'missing' (404) / 'site' (502, or skipped) / 'push_disabled'; ok → the lines leave the
-  // order here too and the total is the site's. Logged as suborder.delete with the sub-order number and the reason.
+  // phase 13 decision 54: «مسح الأوردر الفرعي» — woo-sync suborder_trash (the Dokan sub-order to the site's trash, its lines flagged
+  // here, the hub's holds released — the parent on the site is never written, the owner 11 Nov); the answer's status → 'forbidden'
+  // (401/403) / 'only' (409 only_sub: the page deletes the order instead) / 'closed' (409) / 'missing' (404) / 'site' (502, or skipped)
+  // / 'push_disabled'; ok → the lines leave the order here too; total null = the site's parent kept its total. Logged as suborder.delete
+  // with the sub-order number and the reason.
   async function deleteSub(orderId, sid, reason) {
     const cl = c();
     if (!cl || !uid()) return fail('network');
@@ -295,8 +296,9 @@
       return { status: (r.error.context && r.error.context.status) || 500, code };
     } catch (e) { return { status: -1 }; }
   }
-  // «مسح المنتج» (the owner 11 Nov — «امسح منتج بعينه من الاوردر»): woo-sync line_trash — the product off its maker's sub-order and off
-  // the parent on the site, mirrored; the reasons: 'only_in_sub' (the page deletes the sub-order) / 'only_line' (the order) / 'closed' /
+  // «مسح المنتج» (the owner 11 Nov — «امسح منتج بعينه من الاوردر»): woo-sync line_trash — the product off its maker's sub-order (the
+  // parent on the site untouched, total null) or, for an order of one maker, off the order itself (its new total); the reasons:
+  // 'only_in_sub' (the page deletes the sub-order) / 'only_line' (the order) / 'closed' /
   // 'sub_line' (the sub-order's line is not clear) / 'missing' / 'site' / 'push_disabled' / 'forbidden'. Logged as order.line_delete.
   async function deleteLine(orderId, itemId, reason) {
     const why = typeof reason === 'string' ? reason.trim() : '';
@@ -332,7 +334,7 @@
       if (!r.ok) return r;
       log('order.status', 'IB-' + id + ' · ' + status);
       const p = await invoke({ action: 'push_status', order_id: Number(id), status });
-      return { ok: true, push: (p.ok && p.data.result) || 'error' };
+      return { ok: true, push: (p.ok && p.data.result) || 'error', subs: subsPushed(id, p) };
     }
     const patch = { status };
     if (extra && extra.cancel) patch.cancel = extra.cancel;
@@ -341,7 +343,17 @@
     if (!r.ok) return r;
     log('order.status', 'IB-' + id + ' · ' + status);
     const p = await invoke({ action: 'push_status', order_id: Number(id), status }); // after the row: woo-sync pushes the stored status only
-    return { ok: true, push: (p.ok && p.data.result) || 'error' };
+    return { ok: true, push: (p.ok && p.data.result) || 'error', subs: subsPushed(id, p) };
+  }
+  // the owner 11 Nov («زي الـ automation»): an order with Dokan sub-orders gets the status on each of them, never the parent (Dokan
+  // recreates the sub-orders of a parent edited through the API) — the answer names them (subs + woo_status): «حالة الموقع» follows here;
+  // → the sub-order numbers set (the page redraws only then), else []
+  function subsPushed(id, p) {
+    const d = p && p.ok ? p.data : null;
+    if (!d || !Array.isArray(d.subs) || !d.subs.length || typeof d.woo_status !== 'string') return [];
+    const o = orders ? orders.find((x) => x.id === String(id)) : null;
+    if (o) { const done = new Set(d.subs.map(String)); o.subs.forEach((s) => { if (done.has(String(s.sid))) s.raw = d.woo_status; }); notifySoon(); }
+    return d.subs.slice();
   }
   async function setConfirm(id, cf, opts) {
     const patch = {};

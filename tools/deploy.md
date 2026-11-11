@@ -1970,5 +1970,12 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 4. ادمج على `main`.
 5. التجربة على الـ staging: مبتكر بمتجر ورصيد على Dokan وعربون مسجّل «سحب» → ⋮ «تسوية دلوقتي» → «اعمل طلب السحب على Dokan» (من غير `WOO_PUSH_ENABLED = 1` = «الكتابة على Dokan مقفولة» ومافيش طلب) → الطلب «مستني الموافقة» بكل رصيد Dokan → الموافقة: `woo_sync_log` `withdraw_approve` ok بـ `settled`، صف في `acc_vendor_settlements` (consumed = الخصومات، cash = الباقي)، والصافي = رصيد Dokan الجديد − اللي لسه مفتوح.
 
+#### 2.7.58 الأوردر اللي فيه أكتر من مبتكر: السيستم مابيكتبش الأوردر الأساسي على الموقع (0079، صاحب المشروع 11 نوفمبر — «زي الـ automation»، الخطة `docs/superpowers/plans/2026-11-11-dokan-resplit.md`)
+1. طبّق `supabase/migrations/0079_order_items_dropped.sql` (Supabase MCP `apply_migration` — re-runnable): عمود `order_items.dropped_at` (للسيرفر بس) والتريجر `order_items_keep_dropped`. **قبل `woo-sync`**: الدالة الجديدة بتكتب العمود.
+2. RLS live: «RLS live tests» بـ `files = rls_order_items_dropped`.
+3. انشر `woo-sync` («Deploy functions»).
+4. ادمج على `main`.
+5. التجربة على الـ staging: أوردر جديد فيه مبتكرين اتنين → غيّر حالته من السيستم → `woo_sync_log` `status` ok بـ `subs` = أرقام الأوردرات الفرعية، وأرقامهم على الموقع **مااتغيرتش** (مافيش أوردرات فرعية جديدة)، و«حالة الموقع» بتاعتهم = الحالة الجديدة، والأوردر الأساسي على الموقع زي ما هو. و«مسح المنتج» / «مسح الأوردر الفرعي» → بيتشال من الأوردر الفرعي بس والأساسي على الموقع بإجماليه.
+
 #### 2.7.66 «طلب جديد» وطلب فترة راحة (المرحلة 13 قرار 66، 11 نوفمبر)
 `0077_hr_rest_period.sql` على المشروع (Supabase MCP `apply_migration` بموافقة صاحب المشروع) ثم `rls_hr_rest_period` live (workflow «RLS live»، `files = rls_hr_rest_period`) ثم الواجهة على `main`. مافيش Edge Function.

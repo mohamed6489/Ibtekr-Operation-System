@@ -2347,7 +2347,8 @@ export async function installSupabaseMock(page, opts = {}) {
         return json(200, { action, result: 'ok', id: o.id, number: String(o.number || o.id), url: SITE + '/checkout/order-pay/' + o.id + '/?pay_for_order=true&key=wc_order_mock' + o.id });
       }
       // phase 13 decision 54: suborder_trash — the server's own checks (closed / only_sub / push off), the sub-order trashed, its
-      // lines flagged removed, the parent's total less their sum. Recorded in subTrashes.
+      // lines flagged removed; the parent on the site is never written (the owner 11 Nov — its total stays, the answer's total null).
+      // Recorded in subTrashes.
       if (action === 'suborder_trash') {
         const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at); if (!o) return json(404, { error: 'order_not_found' });
         const reason = typeof b.reason === 'string' ? b.reason.trim() : ''; if (!reason || reason.length > 120) return json(400, { error: 'bad_request' });
@@ -2357,25 +2358,28 @@ export async function installSupabaseMock(page, opts = {}) {
         if (!mine.length) return json(404, { error: 'sub_not_found' }); if (mine.length === lines.length) return json(409, { error: 'only_sub' });
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
         if (mock.wooDown) return json(502, { error: 'woo_error', step: 'trash' });
-        so.woo_status = 'trash'; mine.forEach((i) => { i.removed = true; i.pulled = false; }); o.total = Number(o.total) - mine.reduce((a, i) => a + Number(i.total || 0), 0);
+        so.woo_status = 'trash'; mine.forEach((i) => { i.removed = true; i.dropped_at = mock.now || new Date().toISOString(); i.pulled = false; });
         (mock.subTrashes = mock.subTrashes || []).push({ order_id: o.id, sub_id: so.woo_order_id, lines: mine.map((i) => i.id), reason, by: u.email });
-        return json(200, { action, result: 'ok', lines: mine.length, already: false, released: 0, total: o.total.toFixed(2) });
+        return json(200, { action, result: 'ok', lines: mine.length, already: false, released: 0, total: null });
       }
       // the owner 11 Nov: line_trash — one product off the order (its sub-order's last → only_in_sub, the order's last → only_line), the
-      // line flagged removed, the total less it (recorded in lineTrashes); suborder_status — a status_map slug on the sub-order
+      // line flagged removed (recorded in lineTrashes): off the sub-order only for an order with sub-orders (the parent untouched, total
+      // null), off the order itself for an order of one maker (the total less it); suborder_status — a status_map slug on the sub-order
       if (action === 'line_trash') {
         const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at); if (!o) return json(404, { error: 'order_not_found' });
         const reason = typeof b.reason === 'string' ? b.reason.trim() : ''; if (!reason || reason.length > 120) return json(400, { error: 'bad_request' });
         if (['مكتمل', 'استرجاع'].includes(o.status)) return json(409, { error: 'closed', status: o.status });
         const lines = mock.orderItems.filter((i) => i.order_id === o.id && !i.removed); const it = lines.find((i) => i.id === Number(b.item_id));
         if (!it) return json(404, { error: 'line_not_found' }); if (lines.length === 1) return json(409, { error: 'only_line' });
-        const so = mock.subOrders.find((x) => x.id === it.sub_order_id);
-        if (so && so.woo_order_id !== o.id && lines.filter((i) => i.sub_order_id === so.id).length === 1) return json(409, { error: 'only_in_sub', sub: so.woo_order_id });
+        const so = mock.subOrders.find((x) => x.id === it.sub_order_id); const multi = !!so && so.woo_order_id !== o.id;
+        if (multi && lines.filter((i) => i.sub_order_id === so.id).length === 1) return json(409, { error: 'only_in_sub', sub: so.woo_order_id });
+        if (!multi && mock.subOrders.some((x) => x.order_id === o.id && x.woo_order_id !== o.id && x.woo_status !== 'trash')) return json(409, { error: 'sub_line', matches: 0 });
         if (!mock.pushEnabled) return json(200, { action, result: 'skipped', reason: 'push_disabled' });
         if (mock.wooDown) return json(502, { error: 'woo_error', step: 'lines' });
-        it.removed = true; it.pulled = false; o.total = Number(o.total) - Number(it.total || 0);
+        it.removed = true; it.pulled = false;
+        if (multi) it.dropped_at = mock.now || new Date().toISOString(); else o.total = Number(o.total) - Number(it.total || 0);
         (mock.lineTrashes = mock.lineTrashes || []).push({ order_id: o.id, item_id: it.id, reason, by: u.email });
-        return json(200, { action, result: 'ok', sub: so ? so.woo_order_id : null, released: 0, total: o.total.toFixed(2) });
+        return json(200, { action, result: 'ok', sub: multi ? so.woo_order_id : null, released: 0, total: multi ? null : o.total.toFixed(2) });
       }
       if (action === 'suborder_status') {
         const o = mock.orders.find((x) => x.id === Number(b.order_id) && !x.deleted_at); if (!o) return json(404, { error: 'order_not_found' });
@@ -2405,6 +2409,15 @@ export async function installSupabaseMock(page, opts = {}) {
         const row = mock.statusMap.find((x) => x.system_status === b.status) || {};
         const slug = row.woo_status && ['both', 'from_system'].includes(row.direction || 'both') ? row.woo_status : null;
         const reason = b.status !== o.status ? 'stale' : !slug ? 'no_woo_status' : null;
+        // the owner 11 Nov («زي الـ automation»): an order with Dokan sub-orders gets the status on each current one (the ones its live
+        // lines point to), never the parent — recorded with subs
+        const subs = reason ? [] : mock.subOrders.filter((x) => x.order_id === o.id && x.woo_order_id !== o.id && x.woo_status !== 'trash'
+          && mock.orderItems.some((i) => i.order_id === o.id && !i.removed && i.sub_order_id === x.id));
+        if (subs.length) {
+          subs.forEach((x) => { x.woo_status = slug; }); const ids = subs.map((x) => x.woo_order_id);
+          mock.pushes.push({ action, order_id: o.id, status: b.status, result: 'ok', subs: ids });
+          return json(200, { action, result: 'ok', conflict: false, subs: ids, woo_status: slug, counts: { pushed: ids.length } });
+        }
         if (!reason) o.woo_status = slug;
         mock.pushes.push({ action, order_id: o.id, status: b.status, result: reason ? 'skipped' : 'ok', ...(reason ? { reason } : {}) });
         return json(200, reason ? { action, result: 'skipped', reason, counts: { pushed: 0 } } : { action, result: 'ok', conflict: false, counts: { pushed: 1 } });

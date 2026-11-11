@@ -468,3 +468,52 @@ test('decision 52: «مدة التصنيع (يوم)» on the product page writes
   await expect.poll(() => mock.leadWrites.at(-1)).toMatchObject({ op: 'delete', product_id: '9001' });
   await expect.poll(() => mock.activity.filter((a) => a.action === 'product.lead').length).toBe(2);
 });
+
+// phase 13 decision 56: «الأقسام» — the site's category tree, the products under each, a new category / sub-category on the site
+test('decision 56: «الأقسام» shows the tree with +/−, the products in each (its own + under it), search, «افتح في السجل», and makes a sub-category / a main one on the site', async ({ page }) => {
+  await openProducts(page);
+  const pg = page.locator('#pg-products');
+  await page.getByRole('tab', { name: /^الأقسام · 4$/ }).click();
+  await expect(page).toHaveURL(/#products-cats$/);
+  const row = (id) => pg.locator(`.cat-row[data-cat="${id}"]`);
+  await expect(pg.locator('.cat-row')).toHaveCount(2); // the two main categories, closed
+  await expect(row(15)).toContainText('ديكور'); await expect(row(15)).toContainText('3 منتج (0 فيه مباشرة)'); await expect(row(15)).toContainText('1 قسم فرعي');
+  await expect(row(22)).toContainText('1 منتج');
+  await row(15).getByRole('button', { name: 'افتح ديكور' }).click();
+  await expect(row(151)).toContainText('إضاءة'); await expect(row(151)).toContainText('3 منتج');
+  await row(151).getByRole('button', { name: 'افتح إضاءة' }).click();
+  await expect(row(152)).toContainText('0 منتج');
+  await expect(row(152).locator('[data-cat-open]')).toHaveCount(0); // nothing to open in the records
+  // search opens the branches it hits
+  await pg.getByRole('button', { name: 'اقفل الكل' }).click();
+  await expect(pg.locator('.cat-row')).toHaveCount(2);
+  await pg.locator('[data-cat-q]').fill('أباج');
+  await expect(pg.locator('.cat-row')).toHaveCount(3);
+  await expect(row(152).locator('.cat-hit')).toHaveText('أباجورات');
+  await pg.locator('[data-cat-q]').fill('');
+  // a sub-category on the site, under «إضاءة»
+  await pg.getByRole('button', { name: 'افتح الكل' }).click();
+  await row(151).locator('[data-cat-sub]').click();
+  const dlg = page.getByRole('dialog', { name: 'قسم فرعي جديد على الموقع' });
+  await expect(dlg.locator('#p')).toContainText('ديكور › إضاءة');
+  await dlg.getByRole('button', { name: 'اعمل القسم' }).click();
+  await expect(dlg.getByText('اكتب الاسم من غير < > %')).toBeVisible();
+  await dlg.locator('#en').fill('Desk lamps'); await dlg.locator('#ar').fill('أباجورات مكتب');
+  await dlg.getByRole('button', { name: 'اعمل القسم' }).click();
+  await expect(dlg).toHaveCount(0);
+  await expect(page.locator('.toast.show')).toContainText('اتعمل القسم «Desk lamps» على الموقع');
+  expect(mock.categoriesCreated).toEqual([{ action: 'category_create', name_en: 'Desk lamps', name_ar: 'أباجورات مكتب', parent: 151, by: ADMIN }]);
+  await expect(pg.locator('.cat-row').filter({ hasText: 'Desk lamps' })).toHaveCount(1);
+  // a main category with a name already there → refused before any call
+  await pg.locator('[data-cat-new]').click();
+  const top = page.getByRole('dialog', { name: 'قسم رئيسي جديد على الموقع' });
+  await top.locator('#en').fill('هدايا');
+  await top.getByRole('button', { name: 'اعمل القسم' }).click();
+  await expect(top.getByText('في قسم بنفس الاسم هنا')).toBeVisible();
+  expect(mock.categoriesCreated).toHaveLength(1);
+  await top.getByRole('button', { name: 'إلغاء' }).click();
+  // «افتح في السجل»: the records filtered on that category
+  await row(151).locator('[data-cat-open]').click();
+  await expect(page).toHaveURL(/#products-records$/);
+  await expect(pg.locator('.pr-table tbody tr')).toHaveCount(3);
+});

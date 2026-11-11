@@ -1765,8 +1765,17 @@ Deno.test('category_create (phase 5.2): products.add; the English category then 
   assertEquals((await call(deps, { action: 'category_create', name_en: '<b>x</b>' }, { jwt: 'jwt-padd' })).res.status, 400);
   const { body } = await call(deps, { action: 'category_create', name_en: 'Lamps', name_ar: 'أباجورات', parent: 15 }, { jwt: 'jwt-padd' });
   assertEquals([body.result, body.id, body.ar_id], ['ok', 80, 81]);
-  assertEquals(woo.calls.map((c) => c.body), [{ name: 'Lamps', parent: 15, lang: 'en', wpml_language: 'en' }, { name: 'أباجورات', lang: 'ar', wpml_language: 'ar', translation_of: 80 }]);
+  assertEquals(woo.calls.filter((c) => c.method === 'POST').map((c) => c.body), [{ name: 'Lamps', parent: 15, lang: 'en', wpml_language: 'en' }, { name: 'أباجورات', lang: 'ar', wpml_language: 'ar', translation_of: 80 }]); // the parent says no translation: WPML places it
   assertEquals(db.rows('woo_categories').map((c) => c.id).sort(), [80, 81]);
+  // decision 56: a sub-category's Arabic translation goes under the parent's Arabic translation
+  const sub = setup({ routes: { ...routes, 'GET wc/v3/products/categories/15': { body: { id: 15, name: 'Home', parent: 0, translations: { en: 15, ar: 16 } } } }, env: PUSH_ON });
+  await call(sub.deps, { action: 'category_create', name_en: 'Lamps', name_ar: 'أباجورات', parent: 15 }, { jwt: 'jwt-padd' });
+  assertEquals(sub.woo.calls.map((c) => [c.method, c.path]), [['POST', 'wc/v3/products/categories'], ['GET', 'wc/v3/products/categories/15'], ['POST', 'wc/v3/products/categories']]);
+  assertEquals(sub.woo.calls[2].body, { name: 'أباجورات', lang: 'ar', wpml_language: 'ar', translation_of: 80, parent: 16 });
+  // a top category: no read of a parent
+  const top = setup({ routes, env: PUSH_ON });
+  await call(top.deps, { action: 'category_create', name_en: 'Gifts', name_ar: 'هدايا' }, { jwt: 'jwt-padd' });
+  assertEquals(top.woo.calls.map((c) => c.method), ['POST', 'POST']);
 });
 
 Deno.test('studio_sheet (decision 13): products.add only, never the sync secret; the CSV of a published Google Sheet through its redirect, built from the link\'s id; a link that is not a sheet → 400 before any call; a sheet that is not published → not_published; nothing written', async () => {

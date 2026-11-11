@@ -47,6 +47,7 @@
   function route(hs) {
     let m;
     if (hs === 'products-reports') { st.view = 'reports'; st.tab = 'reports'; return true; }
+    if (hs === 'products-cats') { st.view = 'cats'; st.tab = 'cats'; return true; } // phase 13 decision 56
     // phase 5.2: the studio (products-studio.js) — #products-studio-<new|batch id>[-<step 1–8 | report>]
     if ((m = /^products-studio-(new|[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12})(?:-([1-8]|report))?$/.exec(hs)) && window.IBStudioView) { st.view = 'studio'; st.tab = 'add'; window.IBStudioView.route(m[1], m[2] || '1'); return true; }
     // phase 5.3: the content tool (products-content.js) — #products-tool-content[-<product id>]
@@ -58,7 +59,7 @@
     return false;
   }
   const studioHash = () => { const S = window.IBStudioView ? window.IBStudioView.state : null; return 'products-studio-' + ((S && S.id) || 'new') + '-' + (S && S.report ? 'report' : (S && S.step) || 1); };
-  const defaultHash = () => ({ add: 'products-add', records: 'products-records', reports: 'products-reports', trash: 'products-trash', edit: 'products-edit-' + st.editId + '-' + st.etab }[st.view] || (st.view === 'studio' ? studioHash() : st.view === 'tool-content' && window.IBContentView ? window.IBContentView.hash() : st.view === 'tool-images' && window.IBImagesView ? window.IBImagesView.hash() : 'products-records'));
+  const defaultHash = () => ({ add: 'products-add', records: 'products-records', cats: 'products-cats', reports: 'products-reports', trash: 'products-trash', edit: 'products-edit-' + st.editId + '-' + st.etab }[st.view] || (st.view === 'studio' ? studioHash() : st.view === 'tool-content' && window.IBContentView ? window.IBContentView.hash() : st.view === 'tool-images' && window.IBImagesView ? window.IBImagesView.hash() : 'products-records'));
 
   // ---------------- shared pieces ----------------
   function Card(title, sub, body, acts, cls) { return K.Section(title, [].concat(body).filter(Boolean), acts, { sub, cls }); }
@@ -194,6 +195,60 @@
       h('span', { class: 'acts-inline' }, Button({ size: 'sm', label: 'السابق', disabled: st.pageN === 0, onClick: () => { st.pageN--; R(); window.scrollTo(0, 0); } }), Button({ size: 'sm', label: 'التالي', disabled: st.pageN >= pages - 1, onClick: () => { st.pageN++; R(); window.scrollTo(0, 0); } }))) : null;
     const groups = [{ key: 'brand', label: 'البراند', options: brandNames.map((x) => [x, x]) }, { key: 'vendor', label: 'المبتكر', options: vendors.map((x) => [x, x]) }, { key: 'category', label: 'القسم', options: catPaths.map((x) => [x, x]) }, { key: 'stock', label: 'المخزون', options: ['متاح', 'قليل', 'نفد', 'حسب الطلب'].map((x) => [x, x]) }, { key: 'type', label: 'النوع', options: [['Simple', 'Simple'], ['Variable', 'Variable']] }, { key: 'other', label: 'أخرى', options: [['missing', 'ناقصها بيانات']] }];
     return [statusChips(), filters, bulk, h('section', { class: 'card sec own-filter' }, h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, 'سجل المنتجات'), h('div', { class: 't-small sub' }, K.n0(list.length) + ' منتج معروض')), h('div', { class: 'acts' }, prFilterMenu(groups), prSortMenu())), h('div', { class: 'sec-b' }, prChips(list), table, pager))];
+  }
+  /* phase 13 decision 56 (owner 11 Nov — «تاب للأقسام جوه المنتجات يبان فيها كل قسم والأقسام الفرعية اللي تحتيه مع إمكانية إضافة قسم جديد أو
+     أقسام فرعية»): the site's category tree (the mirror woo_categories) with +/− per branch, the products in each (its own + under it), a
+     search that opens the branches it hits, «افتح في السجل» (the records filtered on it), and — products.add / the admin — «+ قسم رئيسي» and
+     «+ فرعي» on any row: woo-sync category_create (the English category + its Arabic translation under the parent's). */
+  st.catOpen = st.catOpen || new Set(); st.catQ = st.catQ || '';
+  function catsView() {
+    const C = can(); const L = PR().categories(); const byId = new Map(L.map((c) => [c.id, c]));
+    const kids = new Map(); L.forEach((c) => { const k = c.parentId && byId.has(c.parentId) ? c.parentId : 0; if (!kids.has(k)) kids.set(k, []); kids.get(k).push(c); });
+    kids.forEach((l) => l.sort((a, b) => a.name.localeCompare(b.name)));
+    const own = new Map(); all().forEach((p) => (p.categoryIds || []).forEach((id) => { if (!own.has(id)) own.set(id, new Set()); own.get(id).add(p.id); }));
+    const under = new Map(); const sum = (id) => { if (under.has(id)) return under.get(id); const set = new Set(own.get(id) || []); (kids.get(id) || []).forEach((k) => sum(k.id).forEach((x) => set.add(x))); under.set(id, set); return set; };
+    const q = st.catQ.trim().toLowerCase(); const hit = (c) => !q || c.name.toLowerCase().includes(q);
+    const shown = new Set(); if (q) L.forEach((c) => { if (hit(c)) { let x = c; while (x) { shown.add(x.id); x = x.parentId ? byId.get(x.parentId) : null; } } });
+    const rows = [];
+    const walk = (list, depth) => list.forEach((c) => {
+      if (q && !shown.has(c.id)) return;
+      const ch = kids.get(c.id) || []; const open = q ? true : st.catOpen.has(c.id); const n = sum(c.id).size; const mine = (own.get(c.id) || new Set()).size;
+      rows.push(h('div', { class: 'cat-row' + (depth ? ' sub' : ''), 'data-cat': String(c.id), style: 'padding-inline-start:' + (8 + depth * 22) + 'px' },
+        ch.length ? h('button', { type: 'button', class: 'cat-tog', 'aria-expanded': String(open), 'aria-label': (open ? 'اقفل ' : 'افتح ') + c.name, onClick: () => { if (st.catOpen.has(c.id)) st.catOpen.delete(c.id); else st.catOpen.add(c.id); R(); } }, open ? '−' : '+') : h('span', { class: 'cat-tog sp', 'aria-hidden': 'true' }),
+        h('b', { class: hit(c) && q ? 'cat-hit' : null }, c.name),
+        ch.length ? h('span', { class: 't-small help' }, K.n0(ch.length) + (ch.length > 2 && ch.length < 11 ? ' أقسام فرعية' : ' قسم فرعي')) : null,
+        h('span', { class: 'grow' }),
+        Tag(n ? 'brand' : 'neutral', K.n0(n) + ' منتج' + (ch.length && mine !== n ? ' (' + K.n0(mine) + ' فيه مباشرة)' : '')),
+        n ? Button({ type: 'text', size: 'sm', label: 'افتح في السجل', attrs: { 'data-cat-open': String(c.id) }, onClick: () => { st.f.category = c.path; st.status = 'all'; go('products-records'); } }) : null,
+        C.add ? Button({ size: 'sm', icon: 'plus', label: 'فرعي', attrs: { 'data-cat-sub': String(c.id), 'aria-label': 'قسم فرعي تحت ' + c.name }, onClick: () => newCat(c.id) }) : null));
+      if (open) walk(ch, depth + 1);
+    });
+    walk(kids.get(0) || [], 0);
+    const search = h('input', { type: 'search', class: 'input', placeholder: 'دوّر على قسم…', 'aria-label': 'دوّر على قسم', value: st.catQ, onInput: (e) => { st.catQ = e.target.value; R(); setTimeout(() => { const i = document.querySelector('[data-cat-q]'); if (i) { i.focus(); i.setSelectionRange(i.value.length, i.value.length); } }, 0); }, 'data-cat-q': '' });
+    const tops = (kids.get(0) || []).length;
+    return [
+      h('div', { class: 'cat-bar' }, search, h('span', { class: 'grow' }),
+        Button({ type: 'text', size: 'sm', label: 'افتح الكل', onClick: () => { L.forEach((c) => { if ((kids.get(c.id) || []).length) st.catOpen.add(c.id); }); R(); } }),
+        Button({ type: 'text', size: 'sm', label: 'اقفل الكل', onClick: () => { st.catOpen.clear(); R(); } }),
+        C.add ? Button({ type: 'primary', size: 'sm', icon: 'plus', label: 'قسم رئيسي', attrs: { 'data-cat-new': '' }, onClick: () => newCat(null) }) : null),
+      h('section', { class: 'card sec cat-tree' }, h('div', { class: 'sec-h' }, h('h2', null, 'أقسام الموقع · ' + K.n0(L.length)), h('span', { class: 't-small' }, K.n0(tops) + ' قسم رئيسي')),
+        h('div', { class: 'sec-b', role: 'list' }, rows.length ? rows : K.Empty(q ? 'مفيش قسم بالاسم ده' : 'مفيش أقسام لسه', q ? 'جرّب كلمة تانية.' : 'الأقسام بتيجي من الموقع مع المزامنة.'))),
+      C.add ? null : h('p', { class: 't-small help' }, 'إضافة الأقسام لصلاحية «إضافة منتجات».')];
+  }
+  function newCat(parentId) {
+    const L = PR().categories();
+    K.form({ title: parentId ? 'قسم فرعي جديد على الموقع' : 'قسم رئيسي جديد على الموقع', submitLabel: 'اعمل القسم', values: { en: '', ar: '', p: parentId ? String(parentId) : '' },
+      note: U.InlineNote({ kind: 'warning', children: 'القسم بيتعمل على ووكومرس نفسه (بالإنجليزي + ترجمته العربي تحت ترجمة القسم الأب).' }),
+      fields: (f, e, set) => [K.two(K.field.text('en', 'اسم القسم (EN)', f, e, set, { required: true }), K.field.text('ar', 'اسم القسم (AR)', f, e, set)),
+        K.field.select('p', 'تحت', [{ value: '', label: '— قسم رئيسي —' }].concat(L.map((c) => ({ value: String(c.id), label: c.path }))), f, e, set)],
+      validate: (f) => { const e = {}; if (!String(f.en).trim() || /[<>%]/.test(f.en)) e.en = 'اكتب الاسم من غير < > %'; if (/[<>%]/.test(f.ar)) e.ar = 'من غير < > %';
+        const dup = L.find((c) => String(c.parentId || '') === String(f.p || '') && c.name.trim().toLowerCase() === String(f.en).trim().toLowerCase()); if (dup) e.en = 'في قسم بنفس الاسم هنا'; return e; },
+      submit: (f, m) => { const S0 = window.IBStudio; if (!S0 || !S0.createCategory) { K.toast(MSG.network, 'error'); return false; }
+        m._busy = true;
+        S0.createCategory({ name_en: f.en.trim(), name_ar: f.ar.trim(), parent: f.p ? Number(f.p) : 0 }).then((r) => { m._busy = false;
+          if (r.ok) { m.close(); if (f.p) st.catOpen.add(Number(f.p)); K.toast('اتعمل القسم «' + f.en.trim() + '» على الموقع', 'success'); R(); }
+          else K.toast('القسم ماتعملش — ' + (r.reason === 'push_disabled' ? 'الكتابة على الموقع متقفلة' : r.reason === 'forbidden' ? 'الصلاحية دي مش عندك' : MSG.network), 'error'); });
+        return false; } });
   }
   function trashView() {
     const C = can(); const T = trashRows();
@@ -716,7 +771,7 @@
     if (P.state() !== 'ready') return { blocks: [U.InlineNote({ children: 'بنحمّل المنتجات…' })], ctx: null, exp: null };
     return reportBody(redraw);
   }
-  const mainTabs = () => K.MainTabs({ items: [{ id: 'add', label: 'إضافة' }, { id: 'records', label: 'السجل · ' + K.n0(all().length) }, { id: 'reports', label: 'التقارير' }], active: st.tab, onChange: (id) => go(id === 'add' ? 'products-add' : id === 'reports' ? 'products-reports' : 'products-records'), label: 'أقسام المنتجات' });
+  const mainTabs = () => K.MainTabs({ items: [{ id: 'add', label: 'إضافة' }, { id: 'records', label: 'السجل · ' + K.n0(all().length) }, { id: 'cats', label: 'الأقسام · ' + K.n0(PR() ? PR().categories().length : 0) }, { id: 'reports', label: 'التقارير' }], active: st.tab, onChange: (id) => go(id === 'add' ? 'products-add' : id === 'reports' ? 'products-reports' : id === 'cats' ? 'products-cats' : 'products-records'), label: 'أقسام المنتجات' });
   function view() {
     const P = PR(); const C = can();
     // decision 3: the page needs products.view (orders.view reads the mirror for the orders screen only)
@@ -728,12 +783,12 @@
     if (st.view === 'tool-images' && window.IBImagesView) return window.IBImagesView.view();
     // «تخصيص اللوحة» (phase 10 decision 22, as in the v5 prototype): the log, the additions and the trash; the reports tab has its own
     const custom = st.view !== 'reports'; const pkey = 'products:' + st.view;
-    const head = K.PageHead('المنتجات', 'عدّل المنتجات اللي على الموقع. البيانات والصور متخزنة على ووكومرس.', [custom && K.PanelButton ? K.PanelButton(pkey, 'المنتجات — ' + (st.view === 'add' ? 'الإضافة' : st.view === 'trash' ? 'المحذوفات' : 'السجل'), () => document.querySelector('#pg-products .panel'), R) : null, Button({ type: 'brand', label: '+ دفعة منتجات جديدة', onClick: startStudio })]);
+    const head = K.PageHead('المنتجات', 'عدّل المنتجات اللي على الموقع. البيانات والصور متخزنة على ووكومرس.', [custom && K.PanelButton ? K.PanelButton(pkey, 'المنتجات — ' + (st.view === 'add' ? 'الإضافة' : st.view === 'cats' ? 'الأقسام' : st.view === 'trash' ? 'المحذوفات' : 'السجل'), () => document.querySelector('#pg-products .panel'), R) : null, Button({ type: 'brand', label: '+ دفعة منتجات جديدة', onClick: startStudio })]);
     head.firstChild.append(fresh());
     let body;
     if (P.state() === 'error') body = [K.Empty('مقدرناش نحمّل المنتجات', 'في مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', onClick: () => P.load() }))];
     else if (P.state() !== 'ready' && st.view !== 'add') body = [U.InlineNote({ children: 'بنحمّل المنتجات…' })];
-    else body = st.view === 'add' ? addView() : st.view === 'trash' ? trashView() : st.view === 'reports' ? reportsView() : recordsView();
+    else body = st.view === 'add' ? addView() : st.view === 'trash' ? trashView() : st.view === 'reports' ? reportsView() : st.view === 'cats' ? catsView() : recordsView();
     const panel = h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...body.filter(Boolean));
     if (custom && K.applyPanelPrefs) setTimeout(() => K.applyPanelPrefs(pkey, panel), 0);
     return [head, mainTabs(), panel];

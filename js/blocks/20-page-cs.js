@@ -1266,7 +1266,8 @@
   const last30 = () => { const to = today(); const d = new Date(Date.now() - 30 * 864e5); return { from: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'), to }; };
 
   // ======================= الرد الآلي (phase 6.5 — the v6 page «autoreply» on IBCS: templates · quick replies · rules) =======================
-  const AR_TABS = [['templates', 'القوالب'], ['quick', 'الردود السريعة'], ['rules', 'قواعد الرد الآلي']];
+  // phase 13 decision 65 (owner 11 Nov — «ضيف للرد الآلي نظرة عامة بأهم المعلومات وقسم تقارير في الآخر»)
+  const AR_TABS = [['overview', 'نظرة عامة'], ['templates', 'القوالب'], ['quick', 'الردود السريعة'], ['rules', 'قواعد الرد الآلي'], ['reports', 'التقارير']];
   const VARS = ['اسم_العميل', 'رقم_الأوردر', 'الإجمالي', 'رابط_التتبع', 'ميعاد_الشحن', 'اسم_المبتكر', 'رقم_الأوردر_الفرعي', 'المنتج', 'ميعاد_التسليم', 'المبلغ', 'رابط_السلة', 'لينك_الدفع', 'كود_الخصم'];
   const CATS = { customers: ['حالة الأوردر', 'متابعة', 'شكاوى', 'تسويق'], vendors: ['أوردرات فرعية', 'تأخير', 'تحويلات', 'جودة'] };
   const STATUS_TO = ['قيد التنفيذ', 'جاهز للشحن', 'تم الشحن', 'قابل للتأخير', 'متأخر', 'مكتمل', 'ملغي'];
@@ -1395,17 +1396,62 @@
       extraFooter: (f, m) => Button({ label: 'حفظ كمسودة', attrs: { 'data-rule-draft': '' }, onClick: async () => { if (!f.name) { K.toast('اكتب اسم القاعدة', 'error'); return; } if (await save(f, false)) m.close(); } }),
       submit: (f) => save(f, true) });
   }
-  const arTab = () => (st.tpl.sub === 'quick' ? 'quick' : st.tpl.sub === 'automation' ? 'rules' : 'templates');
+  const arTab = () => (st.tpl.sub === 'quick' ? 'quick' : st.tpl.sub === 'automation' ? 'rules' : st.tpl.sub === 'ar-overview' ? 'overview' : st.tpl.sub === 'ar-reports' ? 'reports' : 'templates');
+  const arSub = (id, cur) => (id === 'quick' ? 'quick' : id === 'rules' ? 'automation' : id === 'overview' ? 'ar-overview' : id === 'reports' ? 'ar-reports' : cur === 'vendors' ? 'vendors' : 'customers');
+  // decision 65: «نظرة عامة» — the main switch, the rules on / off and how often they ran, the templates (Meta ones) and quick replies,
+  // the automatic messages of the last 30 days, the busiest rules and templates and the sending settings
+  const autoMsgs = (rg) => { const out = []; S.convs.forEach((c) => (c.msgs || []).forEach((m) => { if (m.t === 'auto' && inRange(m.at, rg)) out.push({ m, c }); })); return out; };
+  const arChan = (c) => (c.seg === 'vendors' ? 'واتساب 2 (المبتكرين)' : PL[c.platform] ? PL[c.platform][0] : c.platform || '—');
+  function ArOverview() {
+    const a = S.auto || {}; const rules = S.rules || []; const on = rules.filter((r) => r.on); const runs = rules.reduce((x, r) => x + (r.runs || 0), 0);
+    const tpls = S.templates || []; const meta = tpls.filter((t) => t.waTemplate).length; const am = autoMsgs(last30());
+    const topRules = rules.slice().sort((x, y) => (y.runs || 0) - (x.runs || 0)).slice(0, 5); const maxR = Math.max(1, ...topRules.map((r) => r.runs || 0));
+    const topT = tpls.slice().sort((x, y) => (y.used || 0) - (x.used || 0)).slice(0, 5); const maxT = Math.max(1, ...topT.map((t) => t.used || 0));
+    const hr = (x) => (x == null ? '—' : (x > 12 ? x - 12 : x || 12) + (x >= 12 ? ' م' : ' ص'));
+    return [h('div', { class: 'cards five', 'data-ar-ov': '' },
+        K.Stat('الرد الآلي', a.live ? 'شغال' : 'متوقف', '', a.live ? 'القواعد الشغالة بتبعت' : 'المفتاح الرئيسي مقفول — مفيش إرسال', a.live ? 'positive' : 'negative'),
+        K.Stat('قواعد شغالة', K.n0(on.length) + ' من ' + K.n0(rules.length), 'قاعدة', K.n0(rules.length - on.length) + ' متوقفة / مسودة', 'off'),
+        K.Stat('مرات التنفيذ', K.n0(runs), 'مرة', 'كل القواعد من أول ما اتعملت', 'off'),
+        K.Stat('رسايل آلية', K.n0(am.length), 'رسالة', 'آخر 30 يوم في المحادثات المحمّلة', 'off'),
+        K.Stat('القوالب والردود السريعة', K.n0(tpls.length) + ' · ' + K.n0((S.quick || []).length), '', K.n0(meta) + ' قالب Meta معتمد', 'off')),
+      h('div', { class: 'grid3' },
+        K.Section('أكتر القواعد تنفيذًا', topRules.length ? topRules.map((r) => U.BarRow({ tone: r.on ? 'brand' : 'neutral', label: r.name + (r.on ? '' : ' (متوقفة)'), value: K.n0(r.runs || 0) + ' مرة', pct: (r.runs || 0) / maxR })) : [h('div', { class: 't-small help' }, 'مفيش قواعد لسه')], null, { sub: 'بعدد مرات التنفيذ' }),
+        K.Section('أكتر القوالب استخدامًا', topT.length ? topT.map((t) => U.BarRow({ tone: 'brand', label: t.name, value: K.n0(t.used || 0) + ' مرة', pct: (t.used || 0) / maxT })) : [h('div', { class: 't-small help' }, 'مفيش قوالب لسه')], null, { sub: 'اتبعت كام مرة' }),
+        K.Section('إعدادات الإرسال', K.Kv([['المواعيد', hr(a.hours && a.hours.from) + ' – ' + hr(a.hours && a.hours.to) + ' (القاهرة)'], ['الفاصل بين الرسايل', (a.delayMin || 0) + '–' + (a.delayMax || 0) + ' ثانية'], ['الحد اليومي — واتساب 1', K.n0((a.daily && a.daily.wa1) || 0)], ['الحد اليومي — واتساب 2', K.n0((a.daily && a.daily.wa2) || 0)], ['السلة المتروكة بعد', K.n0((a.cart && a.cart.afterMin) || 0) + ' دقيقة']]), null, { sub: 'من تاب القواعد' })),
+      h('p', { class: 't-small src-note' }, 'المصدر: قواعد الرد الآلي وعدّاداتها على السيرفر، والقوالب، والرسايل الآلية في المحادثات المحمّلة (المفتوحة + آخر 90 يوم) — مافيش نص رسالة هنا.')];
+  }
+  // decision 65: «التقارير» — the automatic messages in the reports period: by day, by channel, by template, delivered / failed / waiting
+  function ArReports() {
+    const rr = RB() && RB().get ? RB().get() : null; const rg = rr && rr.from ? rr : last30(); const am = autoMsgs(rg);
+    const count = (key) => { const m = new Map(); am.forEach((x) => { const k = key(x); m.set(k, (m.get(k) || 0) + 1); }); return [...m.entries()].sort((a, b) => b[1] - a[1]); };
+    const byDay = count((x) => x.m.at.slice(0, 10)).sort((a, b) => (a[0] < b[0] ? -1 : 1)); const maxD = Math.max(1, ...byDay.map((r) => r[1]));
+    const byCh = count((x) => arChan(x.c)); const byTpl = count((x) => x.m.tpl || 'من غير قالب');
+    const st0 = (x) => (x.m.delivery === 'failed' ? 'فشلت' : x.m.delivery === 'read' ? 'اتقرت' : x.m.delivery === 'delivered' ? 'وصلت' : x.m.delivery === 'sent' ? 'اتبعتت' : 'مستنية'); const bySt = count(st0);
+    const n = am.length; const pct = (v) => (n ? Math.round((v / n) * 100) + '%' : '0%');
+    return [h('div', { class: 'cards five', 'data-ar-rep': '' },
+        K.Stat('رسايل آلية', K.n0(n), 'رسالة', 'في الفترة', 'off'),
+        K.Stat('وصلت أو اتقرت', K.n0(am.filter((x) => x.m.delivery === 'delivered' || x.m.delivery === 'read').length), 'رسالة', pct(am.filter((x) => x.m.delivery === 'delivered' || x.m.delivery === 'read').length) + ' من الآلي', 'off'),
+        K.Stat('فشلت', K.n0(am.filter((x) => x.m.delivery === 'failed').length), 'رسالة', 'مافيش إعادة تلقائية', am.some((x) => x.m.delivery === 'failed') ? 'negative' : 'off'),
+        K.Stat('محادثات وصلها آلي', K.n0(new Set(am.map((x) => x.c.id)).size), 'محادثة', 'في الفترة', 'off'),
+        K.Stat('قوالب اتبعتت', K.n0(byTpl.filter(([k]) => k !== 'من غير قالب').length), 'قالب', 'في الفترة', 'off')),
+      K.Section('الرسايل الآلية كل يوم', byDay.length ? byDay.map(([d, v]) => U.BarRow({ tone: 'brand', label: d.slice(8) + '/' + d.slice(5, 7), value: K.n0(v), pct: v / maxD })) : [h('div', { class: 't-small help' }, 'مفيش رسايل آلية في الفترة دي')], null, { sub: (rg.from || '') + ' → ' + (rg.to || '') }),
+      h('div', { class: 'grid3' },
+        K.Section('حسب القناة', byCh.length ? U.Table({ headers: ['القناة', 'الرسايل', 'النسبة'], rows: byCh.map(([k, v]) => [k, K.Num(String(v)), pct(v)]) }) : h('div', { class: 't-small help' }, '—'), null, {}),
+        K.Section('حسب القالب', byTpl.length ? U.Table({ headers: ['القالب', 'الرسايل', 'النسبة'], rows: byTpl.map(([k, v]) => [k, K.Num(String(v)), pct(v)]) }) : h('div', { class: 't-small help' }, '—'), null, {}),
+        K.Section('حالة الإرسال', bySt.length ? U.Table({ headers: ['الحالة', 'الرسايل', 'النسبة'], rows: bySt.map(([k, v]) => [k, K.Num(String(v)), pct(v)]) }) : h('div', { class: 't-small help' }, '—'), null, {})),
+      h('p', { class: 't-small src-note' }, 'المصدر: الرسايل الآلية (`auto`) في المحادثات المحمّلة بفترة صفحة التقارير — عدد بس، مافيش نص.')];
+  }
   function arView() {
     if (can().view === 'N') return [K.PageHead('الرد الآلي', 'قوالب الرسايل والردود السريعة وقواعد الإرسال التلقائي'), K.Empty('مش مسموح', 'صفحة الرد الآلي محتاجة صلاحية «عرض خدمة العملاء».')];
     const tab = arTab(); const manage = can().manage;
-    const actions = manage ? { templates: [Button({ type: 'brand', icon: 'plus', label: 'قالب جديد', onClick: () => editTemplate() })], quick: [Button({ type: 'brand', icon: 'plus', label: 'رد سريع جديد', onClick: () => editQuick() })], rules: [Button({ type: 'brand', icon: 'plus', label: 'قاعدة جديدة', onClick: () => editRule() })] }[tab] : [];
-    const body = tab === 'rules' ? Automation() : Templates();
+    const actions = (manage ? { templates: [Button({ type: 'brand', icon: 'plus', label: 'قالب جديد', onClick: () => editTemplate() })], quick: [Button({ type: 'brand', icon: 'plus', label: 'رد سريع جديد', onClick: () => editQuick() })], rules: [Button({ type: 'brand', icon: 'plus', label: 'قاعدة جديدة', onClick: () => editRule() })] }[tab] : []) || [];
+    const body = tab === 'rules' ? Automation() : tab === 'overview' ? ArOverview() : tab === 'reports' ? ArReports() : Templates();
+    if (tab === 'reports' && RB() && RB().range) actions.unshift(RB().range());
     return [K.PageHead('الرد الآلي', 'قوالب الرسايل والردود السريعة وقواعد الإرسال التلقائي للعملاء والمبتكرين', actions),
-      K.MainTabs({ items: AR_TABS.map(([id, label]) => ({ id, label })), active: tab, label: 'أقسام الرد الآلي', onChange: (id) => { st.tpl.sub = id === 'quick' ? 'quick' : id === 'rules' ? 'automation' : (st.tpl.sub === 'vendors' ? 'vendors' : 'customers'); try { history.replaceState(null, '', '#autoreply-' + id); } catch (e) { /* */ } R(); } }),
+      K.MainTabs({ items: AR_TABS.map(([id, label]) => ({ id, label })), active: tab, label: 'أقسام الرد الآلي', onChange: (id) => { st.tpl.sub = arSub(id, st.tpl.sub); try { history.replaceState(null, '', '#autoreply-' + id); } catch (e) { /* */ } R(); } }),
       h('div', { class: 'cs-body ar-body ar-tab-' + tab, role: 'tabpanel' }, body)];
   }
-  window.IBPages.register('autoreply', { title: 'الرد الآلي', hash: (hs) => { const m = /^autoreply(?:-(templates|quick|rules))?$/.exec(hs); if (!m) return false; const t = m[1] || 'templates'; st.tpl.sub = t === 'quick' ? 'quick' : t === 'rules' ? 'automation' : (st.tpl.sub === 'vendors' ? 'vendors' : 'customers'); return true; }, defaultHash: () => 'autoreply-' + arTab(), view: arView, api: { state: st, editTemplate, editRule, pickTemplate } });
+  window.IBPages.register('autoreply', { title: 'الرد الآلي', hash: (hs) => { const m = /^autoreply(?:-(overview|templates|quick|rules|reports))?$/.exec(hs); if (!m) return false; st.tpl.sub = arSub(m[1] || 'overview', st.tpl.sub); return true; }, defaultHash: () => 'autoreply-' + arTab(), view: arView, api: { state: st, editTemplate, editRule, pickTemplate } });
 
   // ======================= page =======================
   // phase 13 decision 63 (owner 11 Nov — «شيل الأداء وضيف نظرة عامة في أول قسم بأعداد الرسايل وحالاتها والقنوات والترافيك بتاعها وكل المفيد»)

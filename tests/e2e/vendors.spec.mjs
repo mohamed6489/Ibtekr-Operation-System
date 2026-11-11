@@ -165,8 +165,9 @@ test('decision 59: a drawer section\'s action («تعديل» …) is a small se
   await openDrawer(page, V2);
   const b = section(page, 'الهوية').locator('[data-edit="identity"]');
   await expect(b).toBeVisible();
-  const st = await b.evaluate((x) => { const c = getComputedStyle(x); return [c.backgroundColor, c.color, Math.round(x.getBoundingClientRect().height)]; });
-  expect(st[0]).toBe('rgb(0, 86, 66)'); expect(st[1]).toBe('rgb(255, 247, 239)'); expect(st[2]).toBeLessThanOrEqual(36);
+  // the drawer draws again when its activity lands: read the style until the button in the page answers (a node just replaced reads '')
+  await expect.poll(() => b.evaluate((x) => { const c = getComputedStyle(x); return [c.backgroundColor, c.color]; })).toEqual(['rgb(0, 86, 66)', 'rgb(255, 247, 239)']);
+  expect(await b.evaluate((x) => Math.round(x.getBoundingClientRect().height))).toBeLessThanOrEqual(36);
 });
 
 test('ops (vendors.edit = P) changes a phone: written, logged with the vendor as entity, shown in the timeline; a name change is refused by the server and comes back', async ({ page }) => {

@@ -57,13 +57,13 @@ test('makerLines: his lines with their order and sub-order — open while the or
   assert.equal(makerLines({ items: [{ id: 1, order_id: 5, name: 'x' }], orders: [{ id: 5, status: 'جاري التنفيذ', placed_at: '2026-11-08T10:00:00Z' }], subs: [], now: NOW })[0].open, true, 'no sub-order: open while the order runs');
 });
 
-test('makerLedger: Dokan\'s balance − deposits − transport ± the other moves (voided rows skipped); the status words', () => {
-  const l = makerLedger({ balance: 5000, moves: [
+test('makerLedger (0078): Dokan\'s balance − the open «سحب» (عربون / مواصلات / أخرى) + the «إيداع» corrections − the carry; voided and settled moves skipped; the status words', () => {
+  const l = makerLedger({ balance: 5000, carry: 120, moves: [
     { direction: 'withdraw', kind: 'عربون', amount: 1000 }, { direction: 'withdraw', kind: 'مواصلات', amount: 150.5 },
-    { direction: 'deposit', kind: 'أخرى', kind_name: 'مكافأة', amount: 200 }, { direction: 'withdraw', kind: 'أخرى', kind_name: 'غرامة', amount: 50 },
-    { direction: 'withdraw', kind: 'عربون', amount: 9999, voided_at: '2026-11-01T00:00:00Z' }, { direction: 'deposit', kind: 'عربون', amount: 100 },
+    { direction: 'deposit', kind: 'أخرى', kind_name: 'فرق مقاس', amount: 200 }, { direction: 'withdraw', kind: 'أخرى', kind_name: 'خامات', amount: 50 },
+    { direction: 'withdraw', kind: 'عربون', amount: 9999, voided_at: '2026-11-01T00:00:00Z' }, { direction: 'withdraw', kind: 'عربون', amount: 4000, settled_by: 900 },
   ] });
-  assert.deepEqual(l, { dokan: 5000, deposits: 900, transport: 150.5, other: 150, net: 4099.5, status: 'ليك' });
+  assert.deepEqual(l, { dokan: 5000, deposits: 1000, transport: 150.5, other: 150, carry: 120, net: 3879.5, status: 'ليك' });
   assert.equal(makerLedger({ balance: 0, moves: [{ direction: 'withdraw', kind: 'عربون', amount: 10 }] }).status, 'عليك');
   assert.equal(makerLedger({ balance: null, moves: [] }).status, 'متصفّي');
 });

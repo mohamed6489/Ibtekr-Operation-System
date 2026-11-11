@@ -135,11 +135,12 @@
     const WD = { pending: 'مستني', approved: 'اتحوّل', cancelled: 'اتلغى' };
     return [h('section', { class: 'card sec' }, h('div', { class: 'sec-h' }, h('h2', { class: 't-h5' }, 'حسابك معانا')), h('div', { class: 'sec-b pt-ledger' },
       !l ? U.InlineNote({ kind: 'warning', children: 'مقدرناش نقرا الحساب دلوقتي — جرّب تاني.' }) : [
-        row('رصيدك على الموقع (Dokan)', l.dokan), row('عربون مستلم مقدّم', -l.deposits), row('مواصلات اتخصمت', -l.transport), l.other ? row('حركات تانية', l.other) : null,
+        row('رصيدك على الموقع (Dokan)', l.dokan), row('عربون مستلم مقدّم', -l.deposits), row('مواصلات اتخصمت', -l.transport), l.other ? row('حركات تانية', l.other) : null, l.carry ? row('متبقي عليك من آخر تسوية', -l.carry) : null,
         row(l.net >= 0 ? 'رصيدك الحالي — ليك' : 'رصيدك الحالي — عليك', Math.abs(l.net), 'total'),
         !D.dokan ? h('p', { class: 't-small help', style: 'margin:0' }, 'رصيد الموقع لسه ما اتزامنش — الأرقام هتتحدث مع أول مزامنة.') : D.syncedAt ? h('p', { class: 't-small help', style: 'margin:0' }, 'آخر تحديث من الموقع: ' + dayName(D.syncedAt)) : null])),
       h('section', { class: 'card sec' }, h('div', { class: 'sec-h' }, h('h2', { class: 't-h5' }, 'آخر طلبات السحب')), h('div', { class: 'sec-b' },
-        D.withdrawals.length ? U.Table({ cls: 'dt pt-table', headers: ['التاريخ', 'المبلغ', 'الحالة'], rows: D.withdrawals.map((w) => [dayName(w.at), U.num(money(w.amount) + ' ج.م'), K.Tag(w.status === 'approved' ? 'success' : w.status === 'pending' ? 'gold' : 'neutral', WD[w.status] || w.status)]) }) : U.EmptyState('مفيش طلبات سحب', 'طلبات السحب بتتعمل من حسابك على الموقع.'))),
+        // 0078: an approved request shows what was transferred to the maker — the request less the deposits / transport it covered
+        D.withdrawals.length ? U.Table({ cls: 'dt pt-table', headers: ['التاريخ', 'المبلغ', 'الحالة'], rows: D.withdrawals.map((w) => [dayName(w.at), w.status === 'approved' && w.cash != null && w.cash !== w.amount ? h('span', null, U.num(money(w.cash) + ' ج.م'), h('small', { class: 't-small help' }, U.num(' · من طلب ' + money(w.amount) + ' بعد العربون والمواصلات'))) : U.num(money(w.amount) + ' ج.م'), K.Tag(w.status === 'approved' ? 'success' : w.status === 'pending' ? 'gold' : 'neutral', WD[w.status] || w.status)]) }) : U.EmptyState('مفيش طلبات سحب', 'طلبات السحب بتتعمل من حسابك على الموقع.'))),
       U.InlineNote({ children: 'التحويل بيتم على ' + (D.bank ? VD.label(VD.PAY_METHODS, D.bank.method) : 'الحساب اللي هتسجله في «بياناتي»') + '. الأرقام من حسابات إبتكر والموقع.' })];
   }
   function profileTab(D) {

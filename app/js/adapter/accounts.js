@@ -29,11 +29,19 @@
 // 'error', rows, noStore, done }, total, settled, failed, running } or null — kept for this session per range (read-only on
 // Dokan and never stored); a new loadLedger for the same range re-asks the ids it is given (a retry) and dropLedger forgets a
 // range («تحديث من Dokan»). Every answer dispatches ib:accounts-ledger.
+// 0078 (the owner, 11 Nov — the settlement): a maker move carries settledBy (the Dokan request that settled it) / settledAt, and
+// a settled one is final (the server refuses its edit / void: 'forbidden'); settlements() = acc_vendor_settlements { id,
+// withdrawId, vendorId, amount, movesNet, carryIn, consumed, carryOut, cash, moves, source, approvedBy, settledOn } (the
+// server's, read with accounts.view); carryOf() = { vendorId: the latest settlement's carryOut }. approveWithdraw(id) also returns
+// the settlement the server made ({ amount, consumed, cash, carry_out, moves } or null). createWithdraw(vendorId) asks woo-sync
+// (withdraw_create) to file a request on Dokan for the maker's whole Dokan balance, pending until it is approved → { ok, result
+// 'ok' | 'skipped' | 'refused', reason (pending_exists / push_disabled / no_balance / no_store / Dokan's code), id, amount },
+// logged as accounts.withdraw.create (the request and its amount), then load().
 (function () {
   'use strict';
   const KINDS = {
     expenses: { table: 'acc_expenses', cols: 'id, on_date, direction, category, beneficiary, beneficiary_other, amount, note, sub_name, sub_is_other, sub_ends, sub_alerts, sub_note, details, staff_kind, reason, created_by, created_at', log: 'accounts.expense' },
-    vendorMoves: { table: 'acc_vendor_moves', cols: 'id, vendor_id, on_date, direction, kind, kind_name, amount, note, created_by, created_at', log: 'accounts.vendor_move' },
+    vendorMoves: { table: 'acc_vendor_moves', cols: 'id, vendor_id, on_date, direction, kind, kind_name, amount, note, created_by, created_at, settled_by, settled_at', log: 'accounts.vendor_move' },
     accountMoves: { table: 'acc_account_moves', cols: 'id, account, on_date, direction, amount, note, created_by, created_at', log: 'accounts.account_move' },
   };
   const SUBS = 'الاشتراكات', ADS = 'الإعلانات', PAY = 'المرتبات';
@@ -44,7 +52,7 @@
   const day = (v) => (typeof v === 'string' ? v.slice(0, 10) : '');
 
   let st = 'idle';
-  const data = { expenses: [], vendorMoves: [], accountMoves: [], balances: [], withdrawals: [], lists: [] };
+  const data = { expenses: [], vendorMoves: [], accountMoves: [], balances: [], withdrawals: [], lists: [], settlements: [] };
   const salesCache = new Map(); // 'from|to' → rows | 'loading' | 'error'
   const emit = (detail) => quiet(() => document.dispatchEvent(new CustomEvent('ib:accounts', { detail: detail || {} })));
 
@@ -63,7 +71,10 @@
     platform: r.category === ADS && r.direction !== 'deposit' ? r.beneficiary || '' : '', source: r.direction === 'deposit' ? r.beneficiary || '' : '',
     createdById: r.created_by || null, createdBy: nameOf(r.created_by), createdAt: r.created_at || '' });
   const toVendorMove = (r) => ({ id: r.id, date: day(r.on_date), direction: r.direction, type: r.kind, typeName: r.kind === 'أخرى' ? (r.kind_name || '') : r.kind, vendorId: r.vendor_id, vendor: vendorName(r.vendor_id),
-    amount: num(r.amount), note: r.note || '', createdById: r.created_by || null, createdBy: nameOf(r.created_by), createdAt: r.created_at || '' });
+    amount: num(r.amount), note: r.note || '', createdById: r.created_by || null, createdBy: nameOf(r.created_by), createdAt: r.created_at || '',
+    settledBy: r.settled_by == null ? null : Number(r.settled_by), settledAt: r.settled_at || '' });
+  const toSettlement = (r) => ({ id: Number(r.id), withdrawId: Number(r.withdraw_id), vendorId: r.vendor_id, amount: num(r.amount), movesNet: num(r.moves_net), carryIn: num(r.carry_in),
+    consumed: num(r.consumed), carryOut: num(r.carry_out), cash: num(r.cash), moves: Number(r.moves) || 0, source: r.source, approvedBy: r.approved_by || null, settledOn: day(r.settled_on), createdAt: r.created_at || '' });
   const toAccountMove = (r) => ({ id: r.id, date: day(r.on_date), direction: r.direction, account: r.account, amount: num(r.amount), note: r.note || '',
     createdById: r.created_by || null, createdBy: nameOf(r.created_by), createdAt: r.created_at || '' });
   const TO = { expenses: toExpense, vendorMoves: toVendorMove, accountMoves: toAccountMove };
@@ -90,12 +101,14 @@
       reads.push(cl.from('dokan_balances').select('vendor_id, woo_vendor_id, balance, earning, sales, orders, synced_at'));
       reads.push(cl.from('dokan_withdrawals').select('id, woo_vendor_id, vendor_id, amount, charge, receivable, status, method, requested_at, synced_at').order('id', { ascending: false }).range(0, 9999));
       reads.push(cl.from('acc_list_items').select('list, name').order('id').range(0, 999));
+      reads.push(cl.from('acc_vendor_settlements').select('id, withdraw_id, vendor_id, amount, moves_net, carry_in, consumed, carry_out, cash, moves, source, approved_by, settled_on, created_at').order('id').range(0, 9999));
       const res = await Promise.all(reads);
       const bad = res.find((r) => r.error); if (bad) throw bad.error;
       Object.keys(KINDS).forEach((kind, i) => { data[kind] = (res[i].data || []).map(TO[kind]); });
       data.balances = (res[3].data || []).map((r) => ({ vendorId: r.vendor_id, store: r.woo_vendor_id, balance: numOrNull(r.balance), earning: numOrNull(r.earning), sales: numOrNull(r.sales), orders: r.orders, syncedAt: r.synced_at }));
       data.lists = (res[5].data || []).map((r) => ({ list: r.list, name: r.name }));
       data.withdrawals = (res[4].data || []).map((r) => ({ id: r.id, store: r.woo_vendor_id, vendorId: r.vendor_id, amount: num(r.amount), charge: num(r.charge), receivable: num(r.receivable), status: r.status, method: r.method || '', at: r.requested_at || '', syncedAt: r.synced_at }));
+      data.settlements = (res[6].data || []).map(toSettlement);
       salesCache.clear();
       st = 'ready';
     } catch (e) { st = 'error'; }
@@ -223,8 +236,34 @@
         if (L && L.log) quiet(() => L.log('accounts.withdraw.approve', '#' + wid + (old ? ' · ' + old.amount : ''), { entity: 'dokan_withdrawals', entity_id: String(wid) }));
       }
       load();
-      return { ok: true, result: body.result, reason: body.reason || null, status: body.status || null };
+      return { ok: true, result: body.result, reason: body.reason || null, status: body.status || null, settlement: body.settlement || null };
     } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // 0078: «اعمل طلب السحب على Dokan» — for the maker's whole Dokan balance (the server reads it live), pending until approved
+  async function createWithdraw(vendorId) {
+    const cl = c();
+    if (!cl || typeof vendorId !== 'string' || !vendorId) return { ok: false, reason: 'invalid' };
+    try {
+      const { data: body, error } = await cl.functions.invoke('woo-sync', { body: { action: 'withdraw_create', vendor_id: vendorId } });
+      if (error || !body) {
+        const status = error && error.context && error.context.status;
+        let b = null; try { b = error && error.context && typeof error.context.json === 'function' ? await error.context.json() : null; } catch (e) { b = null; }
+        if (status === 409 && b) return { ok: true, result: b.result || 'refused', reason: b.reason || b.error || 'refused' };
+        return { ok: false, reason: status === 401 ? 'forbidden' : status === 502 ? 'woo_down' : 'network' };
+      }
+      if (body.result === 'ok') {
+        const L = window.IBActivity;
+        if (L && L.log) quiet(() => L.log('accounts.withdraw.create', '#' + body.id + ' · ' + body.amount, { entity: 'dokan_withdrawals', entity_id: String(body.id) }));
+      }
+      load();
+      return { ok: true, result: body.result, reason: body.reason || null, id: body.id == null ? null : Number(body.id), amount: body.amount == null ? null : Number(body.amount) };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  // the carry the latest settlement of each maker left on him (0078)
+  function carryOf() {
+    const out = {};
+    for (const s of data.settlements) { const prev = out[s.vendorId]; if (!prev || s.id > prev.id) out[s.vendorId] = s; }
+    return Object.fromEntries(Object.entries(out).map(([k, s]) => [k, s.carryOut]));
   }
 
   let refreshingNow = false;
@@ -246,5 +285,6 @@
   function clear() { st = 'idle'; Object.keys(data).forEach((k) => { data[k] = []; }); salesCache.clear(); ledgers.clear(); } // the sign-out wipe — the statements too
 
   window.IBAccounts = { load, clear, state: () => st, rows: (kind) => data[kind].slice(), balances: () => data.balances.slice(), withdrawals: () => data.withdrawals.slice(),
-    add, update, remove, sales, salesFailed, statement, ledgerOf, loadLedger, dropLedger, lists, addListItem, approveWithdraw, refreshWithdrawals, refreshing: () => refreshingNow, can, canEdit, toExpense, toVendorMove, toAccountMove, toColumns, KINDS };
+    settlements: () => data.settlements.slice(), carryOf, createWithdraw,
+    add, update, remove, sales, salesFailed, statement, ledgerOf, loadLedger, dropLedger, lists, addListItem, approveWithdraw, refreshWithdrawals, refreshing: () => refreshingNow, can, canEdit, toExpense, toVendorMove, toAccountMove, toSettlement, toColumns, KINDS };
 })();

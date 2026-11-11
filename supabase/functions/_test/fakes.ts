@@ -55,7 +55,8 @@ const COLUMNS: Record<string, string[]> = {
   brands: ['id', 'name', 'code', 'aliases', 'store_vendor_id', 'origin_vendor_id'],
   brand_owners: ['id', 'brand_id', 'vendor_id', 'since', 'return_on', 'reason', 'set_by', 'created_at'], // 0013 (the portal reads the maker's brands)
   vendor_logins: ['vendor_id', 'username', 'email', 'pw_mode', 'status', 'must_change', 'invite_sent_at', 'password_set_at', 'secret_id', 'created_by', 'created_at', 'updated_at', 'fails', 'locked_until', 'own_password', 'last_login_at'], // 0012 + 0065
-  acc_vendor_moves: ['id', 'vendor_id', 'on_date', 'direction', 'kind', 'kind_name', 'amount', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'voided_by', 'voided_at'], // 0019
+  acc_vendor_moves: ['id', 'vendor_id', 'on_date', 'direction', 'kind', 'kind_name', 'amount', 'note', 'created_by', 'created_at', 'updated_by', 'updated_at', 'voided_by', 'voided_at', 'settled_by', 'settled_at'], // 0019 + 0078
+  acc_vendor_settlements: ['id', 'withdraw_id', 'vendor_id', 'amount', 'moves_net', 'carry_in', 'consumed', 'carry_out', 'cash', 'moves', 'source', 'approved_by', 'settled_on', 'created_at'], // 0078
   sku_colors: ['id', 'name_en', 'name_ar', 'code', 'hex'],
   studio_batches: ['id', 'title', 'brand_id', 'vendor_id', 'type', 'state', 'step', 'status', 'result', 'created_by', 'updated_at', 'archived_at'],
   // 0024 (phase 5.3): one row per AI call

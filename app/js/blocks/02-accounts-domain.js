@@ -11,6 +11,7 @@
   const PAYOUT_TYPE = 'تحويل مستحقات';
   // phase 4.1 (plan decision 1): no «تحويل مستحقات» move is recorded here — Dokan lowers the balance itself when a request is approved
   const VENDOR_TYPES = Object.freeze(['مواصلات', 'عربون', 'أخرى']);
+  const CORRECTION = 'أخرى'; // 0078: a «إيداع» is a correction: this kind, its title in typeName
   const ACCOUNTS = Object.freeze(['حساب البنك', 'حساب بوسطة', 'حساب باي موب', 'محفظة إلكترونية']);
   const OTHER = 'آخر';
   const MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
@@ -164,7 +165,9 @@
       (src.expenses || []).forEach((e) => push({ date: e.date, kind: e.direction === 'deposit' ? 'إيداع' : 'سحب', what: e.category, who: e.beneficiaryName || '—', amount: e.amount, by: e.createdBy || '—', source: 'تسجيل يدوي', ref: e.id ? '#' + e.id : '', note: e.subName ? 'اشتراك: ' + e.subName + (e.subEnds ? ' · بينتهي ' + e.subEnds : '') : '' }));
       Object.keys(src.expenseSeed || {}).forEach((mk) => { const m = src.expenseSeed[mk]; Object.keys(m).forEach((cat) => { if (!m[cat]) return; push({ date: mk + '-01', kind: 'سحب', what: cat, who: '—', amount: m[cat], by: 'شيت', source: 'شيت Monthly Performance', ref: mk, note: 'إجمالي الشهر من الشيت' }); }); });
     } else if (kind === 'vendorMoves') {
-      (src.vendorMoves || []).forEach((m) => push({ date: m.date, kind: m.direction === 'deposit' ? 'إيداع' : 'سحب', what: m.typeName || m.type, who: m.vendor, amount: m.amount, by: m.createdBy || '—', source: 'تسجيل يدوي', ref: m.id ? '#' + m.id : '', note: m.note || '' }));
+      // 0078: a «إيداع» is a balance correction; a move an approved request settled says so
+      (src.vendorMoves || []).forEach((m) => push({ date: m.date, kind: m.direction === 'deposit' ? 'إيداع' : 'سحب', what: m.direction === 'deposit' ? 'تصحيح: ' + (m.typeName || m.type) : m.typeName || m.type, who: m.vendor, amount: m.amount, by: m.createdBy || '—', source: 'تسجيل يدوي', ref: m.id ? '#' + m.id : '',
+        note: [m.note || '', m.settledBy != null ? 'اتصفّت مع طلب السحب #' + m.settledBy : ''].filter(Boolean).join(' · ') }));
       (src.vendorSeed || []).forEach((v) => { if (v.deposits) push({ date: src.seedDate || '', kind: 'إيداع', what: 'عربون', who: v.name, amount: v.deposits, by: 'شيت', source: 'شيت Balances_Payouts', ref: '', note: 'عربون مدفوع مقدمًا — الشيت مفيهوش تاريخ الحركة' }); });
       (src.transport || []).forEach((t) => push({ date: t.date, kind: 'سحب', what: 'مواصلات', who: t.vendor || '—', amount: t.amount, by: t.payer || 'شيت', source: 'شيت Logistics expenses', ref: '', note: t.note || '' }));
       (src.withdrawals || []).forEach((w) => push({ date: String(w.at || '').slice(0, 10), kind: 'طلب سحب', what: w.source === 'internal' ? 'طلب داخلي' : 'طلب من المبتكر', who: w.vendor, amount: w.amount, by: w.by || '—', source: 'طلبات السحب', ref: w.id, note: w.note || '' }));
@@ -189,19 +192,27 @@
     }
     return { errors, value: { amount, date, direction, category: input.category, beneficiaryName, beneficiaryIsOther: input.beneficiary === OTHER } };
   }
+  // 0078 (the owner, 11 Nov — «إجراء»): «سحب» = عربون / مواصلات / أخرى (deducted from the net); «إيداع» = a balance correction only —
+  // the kind «أخرى» with the transaction's title (typeName, required) and an optional description (note); the server refuses another kind
   function validateVendorMovement(input) {
     const errors = {};
     const { amount, date } = checkAmountDate(input, errors);
-    if (input.direction !== 'deposit' && input.direction !== 'withdraw') errors.direction = 'اختار إيداع أو سحب';
-    if (!VENDOR_TYPES.includes(input.type)) errors.type = 'اختار النوع من القايمة';
+    if (input.direction !== 'deposit' && input.direction !== 'withdraw') errors.direction = 'اختار سحب أو إيداع';
     const vendor = sanitizeText(input.vendor, 80);
     if (!vendor) errors.vendor = 'اختار المبتكر';
+    const note = sanitizeText(input.note, 500);
+    if (input.direction === 'deposit') {
+      const typeName = sanitizeText(input.otherName, 80);
+      if (!typeName) errors.otherName = 'اكتب عنوان المعاملة';
+      return { errors, value: { direction: 'deposit', amount, date, type: CORRECTION, typeName, vendor, note } };
+    }
+    if (!VENDOR_TYPES.includes(input.type)) errors.type = 'اختار النوع من القايمة';
     let typeName = input.type;
     if (input.type === 'أخرى') {
       typeName = sanitizeText(input.otherName, 80);
       if (!typeName) errors.otherName = 'اكتب النوع';
     }
-    return { errors, value: { direction: input.direction, amount, date, type: input.type, typeName, vendor } };
+    return { errors, value: { direction: input.direction, amount, date, type: input.type, typeName, vendor, note } };
   }
   function validateAccountMovement(input) {
     const errors = {};
@@ -231,20 +242,38 @@
     const sign = dir === 'asc' ? 1 : -1;
     return list.map((v, i) => [v, i]).sort((a, b) => sign * (a[0][key] - b[0][key]) || a[1] - b[1]).map((p) => p[0]);
   }
+  // 0078 (the owner, 11 Nov): «سحب» (withdraw) is always deducted from the net — an «عربون» into the deposits, an «أخرى» into the
+  // other deductions (a «مواصلات» into the transport: deductTransport) — even below zero; «إيداع» (deposit) is a correction added to it
   function applyVendorMovement(v, direction, amount, type) {
-    // تحويل مستحقات = صرف رصيد المبتكر له — بيقلّل الرصيد من غير ما يزوّد العرابين
+    // تحويل مستحقات = صرف رصيد المبتكر له — بيقلّل الرصيد من غير ما يزوّد العرابين (no such move is recorded: phase 4.1)
     if (type === PAYOUT_TYPE) { const s = direction === 'deposit' ? 1 : -1; return { ...v, balance: round2(v.balance - s * amount) }; }
-    const s = direction === 'deposit' ? 1 : -1; // deposit = money paid to the vendor in advance
-    return { ...v, deposits: round2(v.deposits + s * amount), balance: round2(v.balance - s * amount) };
+    if (direction === 'deposit') return { ...v, corrections: round2((v.corrections || 0) + amount), balance: round2(v.balance + amount) };
+    if (type === 'عربون') return { ...v, deposits: round2((v.deposits || 0) + amount), balance: round2(v.balance - amount) };
+    if (type === 'مواصلات') return { ...v, transport: round2((v.transport || 0) + amount), balance: round2(v.balance - amount) };
+    return { ...v, other: round2((v.other || 0) + amount), balance: round2(v.balance - amount) };
   }
   function vendorSummary(vs) {
-    let positive = 0, negative = 0, positiveCount = 0, negativeCount = 0, deposits = 0;
+    let positive = 0, negative = 0, positiveCount = 0, negativeCount = 0, deposits = 0, transport = 0, other = 0, corrections = 0, carry = 0;
     for (const v of vs) {
       if (v.balance > 0) { positive += v.balance; positiveCount++; }
       if (v.balance < 0) { negative += v.balance; negativeCount++; }
-      deposits += v.deposits;
+      deposits += v.deposits || 0; transport += v.transport || 0; other += v.other || 0; corrections += v.corrections || 0; carry += v.carry || 0;
     }
-    return { count: vs.length, positive: round2(positive), positiveCount, negative: round2(negative), negativeCount, deposits: round2(deposits), net: round2(positive + negative) };
+    return { count: vs.length, positive: round2(positive), positiveCount, negative: round2(negative), negativeCount, deposits: round2(deposits),
+      transport: round2(transport), other: round2(other), corrections: round2(corrections), carry: round2(carry), net: round2(positive + negative) };
+  }
+  // 0078: what a settlement left on the maker (his request was smaller than the deductions) — deducted like a move until the next
+  function withCarry(list, carryById) {
+    return list.map((v) => { const c = round2(Number((carryById || {})[v.id]) || 0); return { ...v, carry: c, balance: round2(v.balance - c) }; });
+  }
+  // the maker's open moves now: deductions − corrections + the carry (Dokan's balance − the net)
+  const openOf = (v) => round2((v.deposits || 0) + (v.transport || 0) + (v.other || 0) + (v.carry || 0) - (v.corrections || 0));
+  // 0078: an approved request settles the open moves — the same rule as acc_settle_withdrawal: consumed = min(request, open) when
+  // open > 0, else open (the credits are paid with it); what is left on the maker; the cash to transfer = request − consumed
+  function settlePlan(amount, open) {
+    const a = round2(Number(amount) || 0), o = round2(Number(open) || 0);
+    const consumed = round2(o > 0 ? Math.min(a, o) : o);
+    return { amount: a, open: o, consumed, carryOut: round2(o - consumed), cash: round2(a - consumed) };
   }
   function applyAccountMovement(accounts, account, direction, amount) {
     if (!ACCOUNTS.includes(account)) throw new Error('unknown account');
@@ -324,22 +353,48 @@
   }
 
   // ---- phase 5.5 decision 13 (owner 5 Nov): a maker's account over a period («كشف بالفترة») ----
-  // The opening is Dokan's own balance on the first day (the statement's opening row) less our moves dated before it, counted
-  // the way «الصافي» counts them (deriveVendors / deductTransport); in the period: what Dokan credited for orders («حقه من
-  // المكتمل»), its refunds and its withdrawals («اتحوّله») from the same statement, and our deposits / transport dated in it.
-  // closing = opening + earned − refunds − payouts − deposits − transport + other — on the last day, Dokan's balance less every
-  // move up to it. `statement`: { rows: [{ date, type, debit, credit, balance, ref }] } or null (no store: Dokan's part is 0);
-  // `moves`: the maker's moves ({ date, type, direction, amount }); `salesOf(ref)`: our lines' total for a Dokan order (null when
-  // the order is not in our mirror) — the sales and Ibtekr's share (sales − what Dokan credited) of the matched orders only.
+  // The opening is Dokan's own balance on the first day (the statement's opening row) less the maker's open moves the evening before;
+  // in the period: what Dokan credited for orders («حقه من المكتمل»), its refunds and its withdrawals from the same statement, and
+  // our moves dated in it. 0078 (the owner, 11 Nov): «سحب» deducts (عربون → deposits, مواصلات → transport, أخرى → otherMoves),
+  // «إيداع» corrects (corrections); a withdrawal Dokan made covered the moves it settled (`settlements`: { withdrawId, consumed,
+  // carryOut, settledOn }) — «اتحوّله» (payouts) is the cash, the request less what it covered (requested / consumed apart).
+  // closing = opening + earned − refunds − payouts − deposits − transport − otherMoves + corrections + other = on the last day,
+  // Dokan's balance less the open moves. `statement`: { rows: [{ date, type, debit, credit, balance, ref }] } or null (no store:
+  // Dokan's part is 0); `moves`: the maker's moves ({ date, type, direction, amount, settledBy, settledAt }); `salesOf(ref)`: our
+  // lines' total for a Dokan order (null when the order is not in our mirror) — the sales and Ibtekr's share of the matched orders.
   const LEDGER_STATUS = Object.freeze({ owed: 'مستحق', onThem: 'عليه', settled: 'متصفّي' });
   const ledgerStatus = (closing) => (closing > 0.004 ? 'owed' : closing < -0.004 ? 'onThem' : 'settled');
-  function makerLedger({ statement, moves, from, to, salesOf } = {}) {
+  const day10 = (v) => String(v || '').slice(0, 10);
+  // the open moves at the end of day t: the moves dated up to t not settled by then (a settlement's day) + the carry left then
+  function openAt(moves, settlements, t) {
+    const sets = (settlements || []).filter((x) => x && x.settledOn);
+    const dayOfSet = new Map(sets.map((x) => [String(x.withdrawId), day10(x.settledOn)]));
+    let o = 0;
+    for (const m of moves || []) {
+      const d = day10(m && m.date); if (!d || d > t) continue;
+      const sd = m.settledBy != null ? dayOfSet.get(String(m.settledBy)) || day10(m.settledAt) : '';
+      if (sd && sd <= t) continue;
+      const a = Number(m.amount) || 0; o += m.direction === 'deposit' ? -a : a;
+    }
+    const last = sets.filter((x) => day10(x.settledOn) <= t).sort((p, q) => (day10(p.settledOn) < day10(q.settledOn) ? -1 : day10(p.settledOn) > day10(q.settledOn) ? 1 : (Number(p.id) || 0) - (Number(q.id) || 0))).pop();
+    return round2(o + (last ? Number(last.carryOut) || 0 : 0));
+  }
+  function movesIn(moves, from, to) {
+    let deposits = 0, transport = 0, otherMoves = 0, corrections = 0;
+    for (const m of moves || []) {
+      const d = day10(m && m.date); if (!d || (from && d < from) || (to && d > to)) continue;
+      const a = Number(m.amount) || 0;
+      if (m.direction === 'deposit') corrections += a; else if (m.type === 'عربون') deposits += a; else if (m.type === 'مواصلات') transport += a; else otherMoves += a;
+    }
+    return { deposits: round2(deposits), transport: round2(transport), otherMoves: round2(otherMoves), corrections: round2(corrections) };
+  }
+  function makerLedger({ statement, moves, settlements, from, to, salesOf } = {}) {
     const rows = statement && Array.isArray(statement.rows) ? statement.rows.filter((r) => r && typeof r === 'object') : [];
     const num = (x) => { const n = Number(x); return isFinite(n) ? n : 0; };
     const open = rows.find((r) => r.type === 'opening_balance');
     const first = rows[0];
     const dokanOpen = open ? num(open.balance) : first && first.balance != null ? num(first.balance) - num(first.debit) + num(first.credit) : 0;
-    let earned = 0, refunds = 0, payouts = 0, other = 0, sales = 0, share = 0, lines = 0, matched = 0; const refs = new Set();
+    let earned = 0, refunds = 0, requested = 0, other = 0, sales = 0, share = 0, lines = 0, matched = 0; const refs = new Set();
     for (const r of rows) {
       if (r === open) continue;
       const dr = num(r.debit), cr = num(r.credit);
@@ -351,32 +406,44 @@
         }
         if (cr) refunds += cr;
       } else if (r.type === 'dokan_refund') refunds += cr - dr;
-      else if (r.type === 'dokan_withdraw') payouts += cr - dr;
+      else if (r.type === 'dokan_withdraw') requested += cr - dr;
       else other += dr - cr;
     }
-    // our moves: «مواصلات» taken back = transport; a payout lowers the balance like Dokan's; every other move is a deposit
-    let prior = 0, deposits = 0, transport = 0;
-    for (const m of moves || []) {
-      const d = String((m && m.date) || '').slice(0, 10); if (!d || d > to) continue;
-      const a = num(m.amount); const isTransport = m.type === 'مواصلات' && m.direction === 'withdraw';
-      const effect = isTransport || m.direction === 'deposit' ? -a : a;
-      if (d < from) prior += effect;
-      else if (isTransport) transport += a;
-      else if (m.type === PAYOUT_TYPE) payouts -= effect;
-      else deposits -= effect;
-    }
-    const out = { from, to, dokanOpening: round2(dokanOpen), opening: round2(dokanOpen + prior),
+    const consumed = round2((settlements || []).filter((x) => x && day10(x.settledOn) >= from && day10(x.settledOn) <= to).reduce((t, x) => t + num(x.consumed), 0));
+    const m = movesIn(moves, from, to);
+    const out = { from, to, dokanOpening: round2(dokanOpen), opening: round2(dokanOpen - openAt(moves, settlements, addDays(from, -1))),
       completed: { orders: refs.size, lines, earned: round2(earned), sales: round2(sales), share: round2(share), matched },
-      refunds: round2(refunds), payouts: round2(payouts), deposits: round2(deposits), transport: round2(transport), other: round2(other) };
-    out.closing = round2(out.opening + out.completed.earned - out.refunds - out.payouts - out.deposits - out.transport + out.other);
+      refunds: round2(refunds), requested: round2(requested), consumed, payouts: round2(requested - consumed),
+      deposits: m.deposits, transport: m.transport, otherMoves: m.otherMoves, corrections: m.corrections, other: round2(other) };
+    out.closing = round2(out.opening + out.completed.earned - out.refunds - out.payouts - out.deposits - out.transport - out.otherMoves + out.corrections + out.other);
+    out.status = ledgerStatus(out.closing);
+    return out;
+  }
+  // 0078 («كشف بالفترة» من غير فلتر = from the start): a maker's whole account from Dokan's own totals (stores/{id}/stats: earning =
+  // every order credited less the refunds, sales, orders) + every approved request + all our moves and settlements — no statement.
+  // closing = earned − (requested − consumed) − deductions + corrections + other = Dokan's balance − the open moves (the net now).
+  function lifetimeLedger({ dokan, withdrawals, moves, settlements } = {}) {
+    const num = (x) => { const n = Number(x); return isFinite(n) ? n : 0; };
+    const d = dokan || {}; const bal = round2(num(d.balance));
+    const requested = round2((withdrawals || []).filter((w) => w && w.status === 'approved').reduce((t, w) => t + num(w.amount), 0));
+    const earned = round2(d.earning != null ? num(d.earning) : bal + requested);
+    const sales = round2(num(d.sales)); const orders = Number(d.orders) || 0;
+    const consumed = round2((settlements || []).reduce((t, x) => t + num(x && x.consumed), 0));
+    const m = movesIn(moves, null, null);
+    const out = { from: null, to: null, dokanOpening: 0, opening: 0,
+      completed: { orders, lines: orders, earned, sales, share: sales ? round2(sales - earned) : 0, matched: orders },
+      refunds: 0, requested, consumed, payouts: round2(requested - consumed), deposits: m.deposits, transport: m.transport, otherMoves: m.otherMoves, corrections: m.corrections,
+      other: round2(bal - (earned - requested)), dokanBalance: bal };
+    out.closing = round2(out.opening + out.completed.earned - out.payouts - out.deposits - out.transport - out.otherMoves + out.corrections + out.other);
     out.status = ledgerStatus(out.closing);
     return out;
   }
   function ledgerTotals(list) {
-    const t = { opening: 0, orders: 0, lines: 0, sales: 0, share: 0, earned: 0, refunds: 0, payouts: 0, deposits: 0, transport: 0, other: 0, closing: 0, owed: 0, owedCount: 0, onThem: 0, onThemCount: 0 };
+    const t = { opening: 0, orders: 0, lines: 0, sales: 0, share: 0, earned: 0, refunds: 0, payouts: 0, requested: 0, consumed: 0, deposits: 0, transport: 0, otherMoves: 0, corrections: 0, other: 0, closing: 0, owed: 0, owedCount: 0, onThem: 0, onThemCount: 0 };
     for (const l of list || []) {
       t.opening += l.opening; t.orders += l.completed.orders; t.lines += l.completed.lines; t.sales += l.completed.sales; t.share += l.completed.share; t.earned += l.completed.earned;
-      t.refunds += l.refunds; t.payouts += l.payouts; t.deposits += l.deposits; t.transport += l.transport; t.other += l.other; t.closing += l.closing;
+      t.refunds += l.refunds; t.payouts += l.payouts; t.requested += l.requested || 0; t.consumed += l.consumed || 0; t.deposits += l.deposits; t.transport += l.transport;
+      t.otherMoves += l.otherMoves || 0; t.corrections += l.corrections || 0; t.other += l.other; t.closing += l.closing;
       if (l.status === 'owed') { t.owed += l.closing; t.owedCount += 1; } else if (l.status === 'onThem') { t.onThem += l.closing; t.onThemCount += 1; }
     }
     for (const k of Object.keys(t)) if (!/Count$|^orders$|^lines$/.test(k)) t[k] = round2(t[k]);
@@ -384,7 +451,7 @@
   }
 
   return Object.freeze({
-    LEDGER_STATUS, makerLedger, ledgerTotals,
+    LEDGER_STATUS, makerLedger, ledgerTotals, lifetimeLedger, openAt, settlePlan, withCarry, openOf, CORRECTION,
     deductTransport, PAYOUT_TYPE,
     SALES_GROUPS, liveSeed,
     CATEGORIES, VENDOR_TYPES, ACCOUNTS, OTHER, MAX_AMOUNT,

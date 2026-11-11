@@ -202,14 +202,19 @@ async function orders(deps: Deps, who: Who) {
 }
 
 async function account(deps: Deps, who: Who) {
-  const [{ data: bal }, { data: moves }, { data: wds }] = await Promise.all([
+  const [{ data: bal }, { data: moves }, { data: wds }, { data: sets }] = await Promise.all([
     deps.db.from('dokan_balances').select('vendor_id, balance, synced_at').eq('vendor_id', who.vendor).maybeSingle(),
-    deps.db.from('acc_vendor_moves').select('id, direction, kind, kind_name, amount, on_date, voided_at').eq('vendor_id', who.vendor).is('voided_at', null),
+    deps.db.from('acc_vendor_moves').select('id, direction, kind, kind_name, amount, on_date, voided_at, settled_by').eq('vendor_id', who.vendor).is('voided_at', null),
     deps.db.from('dokan_withdrawals').select('id, amount, status, method, requested_at').eq('vendor_id', who.vendor).order('requested_at', { ascending: false }).limit(3),
+    // 0078: the settlements — the latest one's carry, and what each approved request transferred (the request less the moves it covered)
+    deps.db.from('acc_vendor_settlements').select('id, withdraw_id, cash, carry_out').eq('vendor_id', who.vendor).order('id', { ascending: false }).limit(50),
   ]);
-  const ledger = makerLedger({ balance: isObj(bal) ? bal.balance : null, moves: Array.isArray(moves) ? moves : [] });
+  const st = Array.isArray(sets) ? sets : [];
+  const ledger = makerLedger({ balance: isObj(bal) ? bal.balance : null, moves: Array.isArray(moves) ? moves : [], carry: st.length ? st[0].carry_out : 0 });
+  const cashOf = new Map(st.map((x: Json) => [Number(x.withdraw_id), Number(x.cash)]));
   return json(200, { result: 'ok', ledger, synced_at: isObj(bal) ? bal.synced_at ?? null : null, dokan: isObj(bal),
-    withdrawals: (Array.isArray(wds) ? wds : []).map((w: Json) => ({ id: w.id, amount: Number(w.amount) || 0, status: String(w.status ?? ''), method: w.method ?? null, at: w.requested_at ?? null })) });
+    withdrawals: (Array.isArray(wds) ? wds : []).map((w: Json) => ({ id: w.id, amount: Number(w.amount) || 0, status: String(w.status ?? ''), method: w.method ?? null, at: w.requested_at ?? null,
+      cash: cashOf.has(Number(w.id)) && Number.isFinite(cashOf.get(Number(w.id))) ? cashOf.get(Number(w.id)) : null })) });
 }
 
 const OPEN_TICKET = ['open', 'in_progress', 'waiting'];

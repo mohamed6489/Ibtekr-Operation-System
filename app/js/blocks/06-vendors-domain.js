@@ -373,7 +373,8 @@
   // Owner (22 Oct): what was paid for the vendor inside the statement window — deposits (system «عربون» moves) and transport trips.
   function periodMoney(moves, trips, name, range) {
     const inR = (d) => d && (!range.from || d >= range.from) && (!range.to || d <= range.to); const k = norm(name);
-    const dep = (moves || []).filter((m) => norm(m.vendor) === k && m.type === 'عربون' && m.direction === 'deposit' && inR(m.date));
+    // 0078 (the owner, 11 Nov): an «عربون» paid to the maker is a «سحب» (deducted from his net) — never a «إيداع» (a correction)
+    const dep = (moves || []).filter((m) => norm(m.vendor) === k && m.type === 'عربون' && m.direction === 'withdraw' && inR(m.date));
     const tr = (trips || []).filter((t) => t.vendor && norm(t.vendor) === k && inR(t.date));
     return { deposits: r2(dep.reduce((t, m) => t + m.amount, 0)), depositCount: dep.length, transport: r2(tr.reduce((t, x) => t + x.amount, 0)), trips: tr.length };
   }

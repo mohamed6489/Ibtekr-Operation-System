@@ -8,11 +8,12 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 const ME = 'u1'; const V1 = 'a0000000-0000-4000-8000-000000000001';
 const ok = (data) => ({ data, error: null });
 const EXP = { id: 7, on_date: '2026-10-20', direction: 'withdraw', category: 'الاشتراكات', beneficiary: 'Canva', beneficiary_other: true, amount: '450.00', note: null, sub_name: 'Canva', sub_is_other: false, sub_ends: '2026-11-20', sub_alerts: ['week'], sub_note: 'سنوي', created_by: ME, created_at: '2026-10-20T08:00:00Z' };
-const MOVE = { id: 3, vendor_id: V1, on_date: '2026-10-21', direction: 'deposit', kind: 'عربون', kind_name: null, amount: 700, note: null, created_by: 'u2', created_at: '2026-10-21T08:00:00Z' };
+const MOVE = { id: 3, vendor_id: V1, on_date: '2026-10-21', direction: 'withdraw', kind: 'عربون', kind_name: null, amount: 700, note: null, created_by: 'u2', created_at: '2026-10-21T08:00:00Z', settled_by: null, settled_at: null };
+const SET = { id: 1, withdraw_id: 400, vendor_id: V1, amount: '1000', moves_net: '300', carry_in: 0, consumed: '300', carry_out: '0', cash: '700', moves: 1, source: 'dokan', approved_by: null, settled_on: '2026-10-01', created_at: 'x' };
 function load({ responses = {}, perms = { 'accounts.view': 'F', 'accounts.add': 'F', 'accounts.approve': 'N' } } = {}) {
   const stub = stubClient({ responses: { acc_expenses: ok([EXP]), acc_vendor_moves: ok([MOVE]), acc_account_moves: ok([]), dokan_balances: ok([{ vendor_id: V1, woo_vendor_id: 2376, balance: '2500.50', earning: 9000, sales: 11000, orders: 12, synced_at: 'x' }]),
     dokan_withdrawals: ok([{ id: 501, woo_vendor_id: 2376, vendor_id: V1, amount: '1200', charge: 0, receivable: 1200, status: 'pending', method: 'bank', requested_at: '2026-10-25 12:00:00', synced_at: 'x' }]),
-    acc_list_items: ok([{ list: 'subs', name: 'Notion' }, { list: 'ads', name: 'سناب شات' }]), ...responses } });
+    acc_list_items: ok([{ list: 'subs', name: 'Notion' }, { list: 'ads', name: 'سناب شات' }]), acc_vendor_settlements: ok([SET, { ...SET, id: 2, withdraw_id: 401, carry_out: '250', cash: '0' }]), ...responses } });
   const events = []; const logs = [];
   const window = { IBSupabase: { client: stub.client }, IBAuth: { session: () => ({ user: { id: ME } }) }, IBDirectory: { perm: (k) => perms[k] || 'N' },
     IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
@@ -28,7 +29,12 @@ test('load: the three ledgers without the voided rows (named columns), the Dokan
   assert.equal(A.state(), 'ready');
   assert.deepEqual(opsOf(stub.calls, 'acc_expenses').slice(0, 2), [{ op: 'select', args: ['id, on_date, direction, category, beneficiary, beneficiary_other, amount, note, sub_name, sub_is_other, sub_ends, sub_alerts, sub_note, details, staff_kind, reason, created_by, created_at'] }, { op: 'is', args: ['voided_at', null] }]);
   assert.deepEqual(plain(A.rows('expenses')), [{ id: 7, date: '2026-10-20', direction: 'withdraw', category: 'الاشتراكات', beneficiaryName: 'Canva', beneficiaryIsOther: true, amount: 450, note: '', subName: 'Canva', subIsOther: false, subEnds: '2026-11-20', subAlerts: ['week'], subNote: 'سنوي', details: '', staffKind: '', reason: '', platform: '', source: '', createdById: ME, createdBy: 'صفوت كمال', createdAt: '2026-10-20T08:00:00Z' }]);
-  assert.deepEqual(plain(A.rows('vendorMoves'))[0], { id: 3, date: '2026-10-21', direction: 'deposit', type: 'عربون', typeName: 'عربون', vendorId: V1, vendor: 'Art Craft', amount: 700, note: '', createdById: 'u2', createdBy: 'منى حسن', createdAt: '2026-10-21T08:00:00Z' });
+  assert.deepEqual(plain(A.rows('vendorMoves'))[0], { id: 3, date: '2026-10-21', direction: 'withdraw', type: 'عربون', typeName: 'عربون', vendorId: V1, vendor: 'Art Craft', amount: 700, note: '', createdById: 'u2', createdBy: 'منى حسن', createdAt: '2026-10-21T08:00:00Z', settledBy: null, settledAt: '' });
+  // 0078: the settlements (the server's) and the carry of each maker's latest one
+  assert.deepEqual(opsOf(stub.calls, 'acc_vendor_settlements')[0], { op: 'select', args: ['id, withdraw_id, vendor_id, amount, moves_net, carry_in, consumed, carry_out, cash, moves, source, approved_by, settled_on, created_at'] });
+  assert.deepEqual(plain(A.settlements()[0]), { id: 1, withdrawId: 400, vendorId: V1, amount: 1000, movesNet: 300, carryIn: 0, consumed: 300, carryOut: 0, cash: 700, moves: 1, source: 'dokan', approvedBy: null, settledOn: '2026-10-01', createdAt: 'x' });
+  assert.deepEqual(plain(A.carryOf()), { [V1]: 250 });
+  assert.deepEqual(plain(A.toVendorMove({ ...MOVE, settled_by: '900', settled_at: '2026-11-10T10:00:00Z' })).settledBy, 900);
   assert.equal(A.balances()[0].balance, 2500.5);
   assert.deepEqual(plain(A.withdrawals()[0]), { id: 501, store: 2376, vendorId: V1, amount: 1200, charge: 0, receivable: 1200, status: 'pending', method: 'bank', at: '2026-10-25 12:00:00', syncedAt: 'x' });
   assert.ok(events.includes('ib:accounts'));
@@ -66,7 +72,7 @@ test('the reasons: 42501 forbidden, 23514 invalid, a thrown request network; an 
   assert.equal((await A.add('accountMoves', { account: 'حساب البنك', date: '2026-10-22', direction: 'deposit', amount: 5 })).reason, 'invalid');
   const loaded = load({ responses: { acc_vendor_moves: (q) => (q.some((c) => c.op === 'update') ? ok([]) : ok([MOVE])) } });
   await loaded.A.load();
-  assert.deepEqual(plain(await loaded.A.update('vendorMoves', 3, { vendor: 'Art Craft', date: '2026-10-21', direction: 'deposit', type: 'عربون', amount: 800 })), { ok: false, reason: 'forbidden' });
+  assert.deepEqual(plain(await loaded.A.update('vendorMoves', 3, { vendor: 'Art Craft', date: '2026-10-21', direction: 'withdraw', type: 'عربون', amount: 800 })), { ok: false, reason: 'forbidden' });
   const v = load({ responses: { acc_vendor_moves: (q) => (q.some((c) => c.op === 'update') ? ok([{ id: 3 }]) : ok([MOVE])) } });
   await v.A.load();
   assert.equal((await v.A.remove('vendorMoves', 3)).ok, true);
@@ -122,16 +128,40 @@ test('phase 4.1: approveWithdraw → woo-sync withdraw_approve { id }; logged on
   await A.load();
   const calls = []; let answer = { data: { action: 'withdraw_approve', result: 'ok', status: 'approved' }, error: null };
   stub.client.functions = { invoke: async (name, opts) => { calls.push([name, opts.body]); return answer; } };
-  assert.deepEqual(plain(await A.approveWithdraw(501)), { ok: true, result: 'ok', reason: null, status: 'approved' });
+  assert.deepEqual(plain(await A.approveWithdraw(501)), { ok: true, result: 'ok', reason: null, status: 'approved', settlement: null });
   assert.deepEqual(plain(calls[0]), ['woo-sync', { action: 'withdraw_approve', id: 501 }]);
   assert.deepEqual(plain(logs.at(-1).slice(0, 2)), ['accounts.withdraw.approve', '#501 · 1200']);
   answer = { data: { action: 'withdraw_approve', result: 'skipped', reason: 'push_disabled', status: 'pending' }, error: null };
   const n = logs.length;
-  assert.deepEqual(plain(await A.approveWithdraw(501)), { ok: true, result: 'skipped', reason: 'push_disabled', status: 'pending' });
+  assert.deepEqual(plain(await A.approveWithdraw(501)), { ok: true, result: 'skipped', reason: 'push_disabled', status: 'pending', settlement: null });
   assert.equal(logs.length, n, 'a skip is not logged as an approval');
   answer = { data: null, error: { context: { status: 401 } } };
   assert.deepEqual(plain(await A.approveWithdraw(501)), { ok: false, reason: 'forbidden' });
   assert.equal((await A.approveWithdraw('x')).reason, 'invalid');
+  // 0078: the settlement the server made comes back
+  answer = { data: { action: 'withdraw_approve', result: 'ok', status: 'approved', settlement: { amount: 1200, consumed: 700, cash: 500, carry_out: 0, moves: 1 } }, error: null };
+  assert.deepEqual(plain((await A.approveWithdraw(501)).settlement), { amount: 1200, consumed: 700, cash: 500, carry_out: 0, moves: 1 });
+});
+
+test('0078: createWithdraw → woo-sync withdraw_create { vendor_id }; logged on ok only (the request and its amount); 409 refused / no_store; 401 forbidden', async () => {
+  const { A, stub, logs } = load();
+  await A.load();
+  const calls = []; let answer = { data: { action: 'withdraw_create', result: 'ok', id: 701, amount: 25000, status: 'pending' }, error: null };
+  stub.client.functions = { invoke: async (name, opts) => { calls.push([name, opts.body]); return answer; } };
+  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'ok', reason: null, id: 701, amount: 25000 });
+  assert.deepEqual(plain(calls[0]), ['woo-sync', { action: 'withdraw_create', vendor_id: V1 }]);
+  assert.deepEqual(plain(logs.at(-1).slice(0, 2)), ['accounts.withdraw.create', '#701 · 25000']);
+  const n = logs.length;
+  answer = { data: { action: 'withdraw_create', result: 'skipped', reason: 'pending_exists', id: 501 }, error: null };
+  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'skipped', reason: 'pending_exists', id: 501, amount: null });
+  assert.equal(logs.length, n, 'a skip is not logged');
+  answer = { data: null, error: { context: { status: 409, json: async () => ({ action: 'withdraw_create', result: 'refused', reason: 'dokan_rest_withdraw_error' }) } } };
+  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'refused', reason: 'dokan_rest_withdraw_error' });
+  answer = { data: null, error: { context: { status: 409, json: async () => ({ error: 'no_store' }) } } };
+  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: true, result: 'refused', reason: 'no_store' });
+  answer = { data: null, error: { context: { status: 401 } } };
+  assert.deepEqual(plain(await A.createWithdraw(V1)), { ok: false, reason: 'forbidden' });
+  assert.equal((await A.createWithdraw('')).reason, 'invalid');
 });
 
 test('plan 4.1 decision 12: refreshWithdrawals → woo-sync withdrawals, then load(); one at a time; 502 woo_down', async () => {

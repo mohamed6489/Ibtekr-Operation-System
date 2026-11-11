@@ -70,7 +70,8 @@ do $$ declare eid bigint; sid bigint; mid bigint; aid bigint; r record; begin
   end;
   insert into public.acc_expenses (on_date, category, amount, sub_name, sub_ends, sub_alerts)
     values ('2001-01-05', 'الاشتراكات', 100, 'Canva', '2001-02-05', array['week']) returning id into sid;
-  insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, amount) values ('00000000-0000-4000-8000-0000000019a1', '2001-01-06', 'deposit', 'عربون', 300) returning id into mid;
+  -- 0078 (the owner, 11 Nov): an «عربون» is a «سحب» from the maker's account (a deposit is a correction, «أخرى» only)
+  insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, amount) values ('00000000-0000-4000-8000-0000000019a1', '2001-01-06', 'withdraw', 'عربون', 300) returning id into mid;
   begin
     insert into public.acc_vendor_moves (vendor_id, on_date, direction, kind, amount) values ('00000000-0000-4000-8000-0000000019a1', '2001-01-06', 'withdraw', 'أخرى', 50);
     raise exception 'case «أخرى» without a name must error failed';

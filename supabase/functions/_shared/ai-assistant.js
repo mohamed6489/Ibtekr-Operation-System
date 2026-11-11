@@ -52,7 +52,7 @@ export const FORMS = {
   // سحب»): the accounts page's own «سحب / إيداع» popups; the direction is required (the assistant asks first), the amount only typed
   expense_add: ['direction', 'amount', 'category', 'beneficiary', 'details', 'note', 'source'],
   account_move: ['direction', 'amount', 'account'],
-  vendor_move: ['direction', 'amount', 'vendor', 'type'],
+  vendor_move: ['direction', 'amount', 'vendor', 'type', 'otherName', 'note'],
 };
 export const MONEY_FORMS = ['expense_add', 'account_move', 'vendor_move'];
 export const FORM_DATES = ['from', 'to', 'hire'];
@@ -132,7 +132,7 @@ CLIENT_TOOL_DEFS.push({ name: 'open_form',
     + 'order_update (تحديث أوردر: order رقمه، status من ' + AI_ORDER_STATUSES.join(' / ') + '، أو confirm من ' + CONFIRMS.join(' / ') + ') · '
     + 'expense_add (مصروف: direction withdraw (سحب) | deposit (إيداع — فلوس راجعة) مطلوب، amount، category من ' + CATEGORIES.join(' / ') + '، beneficiary المستفيد (اسم مبتكر أو اسم حر)، details، note، source مصدر المبلغ في الإيداع) · '
     + 'account_move (حركة على الحساب الفعلي: direction مطلوب، amount، account من ' + ACCOUNTS.join(' / ') + ') · '
-    + 'vendor_move (حركة مبتكر: direction مطلوب — deposit = مدفوع للمبتكر، amount، vendor اسم المبتكر، type من ' + VENDOR_TYPES.join(' / ') + ').',
+    + 'vendor_move (حركة مبتكر: direction مطلوب — withdraw = سحب بيتخصم من صافي المبتكر (عربون أو مواصلات أو أي مبلغ اتدفعله، type من ' + VENDOR_TYPES.join(' / ') + ')، deposit = إيداع لتصحيح رصيده بس (otherName عنوان المعاملة، note الوصف، من غير type)؛ amount، vendor اسم المبتكر).',
   input_schema: { type: 'object', properties: { form: S('البوب أب', { enum: Object.keys(FORMS) }), values: { type: 'object', description: 'قيم الخانات اللي المستخدم قالها بس — نص' } }, required: ['form'] } });
 export const FILTER_TOOL = {
   name: 'set_filter',
@@ -356,15 +356,19 @@ export function vendorData(p, dq, today) {
   else { const g = {}; for (const r of p.sales.filter((x) => !x.is_total && x.vendor_id === v.id)) g[r.grp] = { orders: Number(r.orders) || 0, sales: num(r.sales), ibtekrShare: r.share == null ? null : num(r.share) }; out.sales = g; }
   if (p.moves == null && p.balanceForbidden) out.account = { forbidden: true };
   else {
+    // 0078: «سحب» (عربون / مواصلات / أخرى) is deducted from the net, «إيداع» is a correction added to it; a move an approved request
+    // settled is not counted any more (Dokan lowered its balance by the whole request); the last settlement's carry is deducted
     const moves = (Array.isArray(p.moves) ? p.moves : []).filter((m) => !m.voided_at);
-    let deposits = 0, transport = 0, other = 0; const inPeriod = {};
+    let deposits = 0, transport = 0, other = 0, corrections = 0; const inPeriod = {};
     for (const m of moves) {
-      const a = num(m.amount); const s = m.direction === 'deposit' ? 1 : -1;
-      if (m.kind === 'مواصلات' && m.direction === 'withdraw') transport += a; else if (m.kind === 'عربون') deposits += s * a; else other += s * a;
-      if (m.on_date >= dq.from && m.on_date <= dq.to) inPeriod[m.kind] = num((inPeriod[m.kind] || 0) + (m.kind === 'مواصلات' && m.direction === 'withdraw' ? a : s * a));
+      const a = num(m.amount); const dep = m.direction === 'deposit';
+      if (m.on_date >= dq.from && m.on_date <= dq.to) { const k = dep ? 'تصحيح' : m.kind; inPeriod[k] = num((inPeriod[k] || 0) + a); }
+      if (m.settled_by != null) continue;
+      if (dep) corrections += a; else if (m.kind === 'عربون') deposits += a; else if (m.kind === 'مواصلات') transport += a; else other += a;
     }
+    const carry = num(Math.max(0, Number(p.carry) || 0));
     const dokan = p.balance && p.balance.balance != null && Number.isFinite(Number(p.balance.balance)) ? num(p.balance.balance) : null;
-    out.account = { dokanBalance: dokan, deposits: num(deposits), transport: num(transport), otherMoves: num(other), net: num((dokan ?? 0) - deposits - transport - other),
+    out.account = { dokanBalance: dokan, deposits: num(deposits), transport: num(transport), otherMoves: num(other), corrections: num(corrections), carry, net: num((dokan ?? 0) - deposits - transport - other + corrections - carry),
       dokanSynced: p.balance && p.balance.synced_at ? String(p.balance.synced_at).slice(0, 10) : null, movesInPeriod: inPeriod };
     if (dokan == null) out.account.note = 'مفيش رصيد Dokan للمبتكر ده — الصافي من حركاتنا بس';
     if (p.moves == null) out.account.movesForbidden = true;

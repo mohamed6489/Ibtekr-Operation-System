@@ -52,7 +52,10 @@ function setup(opts: { resend?: boolean; mailFail?: boolean } = {}) {
     order_items: [{ id: 11, order_id: 181668, sub_order_id: 1, vendor_id: V1, name: 'Cushion', qty: 2, total: 700, status: 'قيد التنفيذ', expected_at: '2026-10-15' }, { id: 12, order_id: 181668, sub_order_id: 2, vendor_id: V2, name: 'Other thing', qty: 1, total: 100, status: '' },
       { id: 13, order_id: 180686, sub_order_id: 3, vendor_id: V1, name: 'Vase', qty: 1, total: 300, status: 'تم الشحن للعميل' }, { id: 14, order_id: 150001, sub_order_id: 4, vendor_id: V1, name: 'Ancient', qty: 1, total: 50, status: 'تم الشحن للعميل' }],
     dokan_balances: [{ vendor_id: V1, woo_vendor_id: 11, balance: 5000, synced_at: NOW }],
-    acc_vendor_moves: [{ id: 1, vendor_id: V1, on_date: '2026-10-01', direction: 'withdraw', kind: 'عربون', amount: 1000 }, { id: 2, vendor_id: V1, on_date: '2026-10-02', direction: 'withdraw', kind: 'مواصلات', amount: 150 }, { id: 3, vendor_id: V2, on_date: '2026-10-02', direction: 'withdraw', kind: 'عربون', amount: 9999 }],
+    acc_vendor_moves: [{ id: 1, vendor_id: V1, on_date: '2026-10-01', direction: 'withdraw', kind: 'عربون', amount: 1000 }, { id: 2, vendor_id: V1, on_date: '2026-10-02', direction: 'withdraw', kind: 'مواصلات', amount: 150 }, { id: 3, vendor_id: V2, on_date: '2026-10-02', direction: 'withdraw', kind: 'عربون', amount: 9999 },
+      { id: 4, vendor_id: V1, on_date: '2026-09-15', direction: 'withdraw', kind: 'عربون', amount: 600, settled_by: 501 }], // 0078: settled by the approved #501 — out of the net
+    // 0078: #501 covered the 600 of moves and left 100 on the maker (carried); 1,400 was transferred
+    acc_vendor_settlements: [{ id: 1, withdraw_id: 501, vendor_id: V1, amount: 2000, moves_net: 600, carry_in: 0, consumed: 600, carry_out: 100, cash: 1400, moves: 1, source: 'dokan', settled_on: '2026-10-20' }],
     dokan_withdrawals: [{ id: 501, woo_vendor_id: 11, vendor_id: V1, amount: 2000, status: 'approved', method: 'bank', requested_at: '2026-10-20T10:00:00' }, { id: 502, woo_vendor_id: 12, vendor_id: V2, amount: 5, status: 'pending', method: 'bank', requested_at: '2026-10-21T10:00:00' }],
   }, { rpc });
   const env = { ...ENV, ...(opts.resend ? { RESEND_API_KEY: 're_test', RESEND_FROM: 'alerts@ibtekr.club', PORTAL_URL: 'https://ops.test/portal.html' } : {}) };
@@ -138,8 +141,8 @@ Deno.test('me / orders / account: the maker\'s own rows only — his brands (sto
   assertEquals(r.body.rows.map((x: any) => [x.order, x.n, x.prod, x.open, x.delivery, x.age]), [['181668', '181669', 'Cushion', true, 'late', 12], ['180686', '180687', 'Vase', false, 'ok', 24]], 'his two lines of the last 90 days (decision 52: notified 10 days ago, past the 7 making days = late); the June one is out, the other maker\'s line is out');
   assert(!JSON.stringify(r.body).includes('سلوى') && !JSON.stringify(r.body).includes('0120000') && !JSON.stringify(r.body).includes('Other thing'));
   r = await call(deps, { action: 'account' }, tokenV1);
-  assertEquals(r.body.ledger, { dokan: 5000, deposits: 1000, transport: 150, other: 0, net: 3850, status: 'ليك' });
-  assertEquals(r.body.withdrawals, [{ id: 501, amount: 2000, status: 'approved', method: 'bank', at: '2026-10-20T10:00:00' }]);
+  assertEquals(r.body.ledger, { dokan: 5000, deposits: 1000, transport: 150, other: 0, carry: 100, net: 3750, status: 'ليك' });
+  assertEquals(r.body.withdrawals, [{ id: 501, amount: 2000, status: 'approved', method: 'bank', at: '2026-10-20T10:00:00', cash: 1400 }]);
   // the other maker through his own token sees his own
   r = await call(deps, { action: 'account' }, full); assertEquals(r.body.ledger.dokan, 0); assertEquals(r.body.dokan, false); assertEquals(r.body.ledger.deposits, 9999);
   r = await call(deps, { action: 'me' }, full); assertEquals(r.body.brands, [{ name: 'Rope' }]); assertEquals(r.body.bank, null);

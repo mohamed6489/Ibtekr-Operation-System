@@ -77,20 +77,22 @@ export function makerLines({ items, orders, subs, now, leads, makerLead }) {
   return out.sort((a, b) => (a.placed < b.placed ? 1 : a.placed > b.placed ? -1 : 0));
 }
 
-/** «الصافي» of the accounts page for one maker: Dokan's balance − deposits («عربون») − transport («مواصلات») ± the other moves */
-export function makerLedger({ balance, moves }) {
+/** «الصافي» of the accounts page for one maker (0078): Dokan's balance − the moves not settled yet — a «سحب» deducts (عربون →
+ *  deposits, مواصلات → transport, أخرى → other), a «إيداع» is a correction added to other — − the carry the last settlement left.
+ *  A settled move (settled_by) was counted in an approved request: Dokan lowered its balance by the whole request already. */
+export function makerLedger({ balance, moves, carry }) {
   let deposits = 0, transport = 0, other = 0;
   for (const m of moves ?? []) {
-    if (!isObj(m) || m.voided_at) continue;
+    if (!isObj(m) || m.voided_at || m.settled_by != null) continue;
     const a = num(m.amount); if (a <= 0) continue;
-    const withdraw = m.direction === 'withdraw';
-    if (m.kind === 'عربون') deposits += withdraw ? a : -a; // a deposit paid ahead lowers what he is owed; a returned one gives it back
-    else if (m.kind === 'مواصلات') transport += withdraw ? a : -a;
-    else other += withdraw ? -a : a;
+    if (m.direction !== 'withdraw') other += a; // a correction
+    else if (m.kind === 'عربون') deposits += a;
+    else if (m.kind === 'مواصلات') transport += a;
+    else other -= a;
   }
-  const dokan = round2(num(balance));
-  const net = round2(dokan - deposits - transport + other);
-  return { dokan, deposits: round2(deposits), transport: round2(transport), other: round2(other), net, status: net > 0 ? 'ليك' : net < 0 ? 'عليك' : 'متصفّي' };
+  const dokan = round2(num(balance)); const c = round2(Math.max(0, num(carry)));
+  const net = round2(dokan - deposits - transport + other - c);
+  return { dokan, deposits: round2(deposits), transport: round2(transport), other: round2(other), carry: c, net, status: net > 0 ? 'ليك' : net < 0 ? 'عليك' : 'متصفّي' };
 }
 
 /** the last 4 of a number, the rest hidden (block 06's mask) */

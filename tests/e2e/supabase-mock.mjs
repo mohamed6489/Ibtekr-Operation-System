@@ -338,8 +338,12 @@ export async function installSupabaseMock(page, opts = {}) {
   // statements: each woo-sync `statement` call ({ vendor_id, from, to, by }); statementRows: what it answers.
   // phase 4.1 (0020): acc.acc_list_items (subs / ads, add F, unique per list without case); approvals: each woo-sync
   // withdraw_approve call ({ id, by, result, reason? }) — mock.pushEnabled is the same WOO_PUSH_ENABLED gate.
-  mock.acc = { acc_expenses: [], acc_vendor_moves: [], acc_account_moves: [], acc_list_items: [], dokan_balances: (opts.dokanBalances || []).map((x) => ({ ...x })), dokan_withdrawals: (opts.dokanWithdrawals || []).map((x) => ({ ...x })) };
-  mock.approvals = [];
+  // 0078: acc.acc_vendor_settlements (the server's, read with accounts.view); a move's settled_by / settled_at (the server's; a settled
+  // move is final: 42501); a «إيداع» is a correction (kind أخرى, else 23514); withdrawCreates: each woo-sync withdraw_create
+  // ({ vendor_id, by, result, reason?, id?, amount? }); withdraw_approve settles the maker's open moves like acc_settle_withdrawal.
+  mock.acc = { acc_expenses: [], acc_vendor_moves: [], acc_account_moves: [], acc_list_items: [], dokan_balances: (opts.dokanBalances || []).map((x) => ({ ...x })), dokan_withdrawals: (opts.dokanWithdrawals || []).map((x) => ({ ...x })),
+    acc_vendor_settlements: (opts.settlements || []).map((x) => ({ ...x })) };
+  mock.approvals = []; mock.withdrawCreates = [];
   // phase 6 (0034): the customer-service tables. cs.customers: one row per normalised phone of the seeded orders (the backfill)
   // plus a manual lead; one open customer conversation (assigned to M02, two messages) and one closed maker conversation; the
   // five channels disconnected; csWrites: each insert / update / delete a member sent as { table, op, ...columns } (never the phone).
@@ -881,7 +885,7 @@ export async function installSupabaseMock(page, opts = {}) {
       // 0019 (phase 4): the ledgers — read with accounts.view <> N (view P: no «المرتبات»), insert with accounts.add = F as oneself,
       // update one's own row with add F or any row with approve F (others: zero rows, like RLS); a voided row is final (42501); the
       // void is stamped here (voided_at / voided_by). The Dokan mirrors are read-only (42501 on a write). Filters: voided_at=is.null, id=eq.
-      const accT = /^\/rest\/v1\/(acc_expenses|acc_vendor_moves|acc_account_moves|acc_list_items|dokan_balances|dokan_withdrawals)$/.exec(path);
+      const accT = /^\/rest\/v1\/(acc_expenses|acc_vendor_moves|acc_account_moves|acc_list_items|dokan_balances|dokan_withdrawals|acc_vendor_settlements)$/.exec(path);
       if (accT) {
         if (mock.accountsDown) return json(503, { message: 'mock: accounts down' });
         const t = accT[1]; const rows = mock.acc[t]; const view = hasPerm(u, 'accounts.view');
@@ -894,7 +898,7 @@ export async function installSupabaseMock(page, opts = {}) {
           if (idEq) out = out.filter((r) => String(r.id) === idEq[1]);
           return json(200, out.map((r) => ({ ...r })));
         }
-        if (t.startsWith('dokan_')) return refuse(403, '42501', 'permission denied for table ' + t);
+        if (t.startsWith('dokan_') || t === 'acc_vendor_settlements') return refuse(403, '42501', 'permission denied for table ' + t);
         const b = body(); const now = new Date().toISOString();
         if (t === 'acc_list_items') {
           if (method !== 'POST') return refuse(403, '42501', 'permission denied for table ' + t);
@@ -912,7 +916,9 @@ export async function installSupabaseMock(page, opts = {}) {
           if (!(Number(row.amount) > 0)) return refuse(400, '23514', 'new row for relation "' + t + '" violates check constraint');
           if (t === 'acc_expenses' && row.category === 'الاشتراكات' && row.direction !== 'deposit' && !(row.sub_name && row.sub_ends && (row.sub_alerts || []).length)) return refuse(400, '23514', 'acc_expenses_subscription');
           if (t === 'acc_expenses' && row.reason != null && !['استرجاع مبلغ مدفوع', 'إلغاء اشتراك', 'خصم من مورد', 'تصحيح تسجيل غلط', 'أخرى'].includes(row.reason)) return refuse(400, '23514', 'acc_expenses_reason_check');
+          if (t === 'acc_vendor_moves' && row.direction === 'deposit' && row.kind !== 'أخرى') return refuse(400, '23514', 'new row for relation "acc_vendor_moves" violates check constraint "acc_vendor_moves_deposit_correction"');
           accSeq += 1; const rec = { ...row, id: accSeq, amount: Number(row.amount), created_by: u.id, created_at: now, updated_by: null, updated_at: null, voided_by: null, voided_at: null };
+          if (t === 'acc_vendor_moves') Object.assign(rec, { settled_by: null, settled_at: null }); // the guard: a member never settles a move
           rows.push(rec); mock.accWrites.push({ table: t, op: 'insert', ...row });
           return json(201, [{ ...rec }]);
         }
@@ -921,7 +927,8 @@ export async function installSupabaseMock(page, opts = {}) {
           const may = r && visible(r) && ((r.created_by === u.id && hasPerm(u, 'accounts.add') === 'F') || hasPerm(u, 'accounts.approve') === 'F');
           if (!may) return json(200, []);
           if (r.voided_at) return refuse(403, '42501', 'a voided row is final');
-          const { created_by, created_at, voided_by, ...patch } = b;
+          if (t === 'acc_vendor_moves' && r.settled_by != null) return refuse(403, '42501', 'a settled move is final');
+          const { created_by, created_at, voided_by, settled_by, settled_at, ...patch } = b;
           Object.assign(r, patch, { updated_at: now, updated_by: u.id }); if (patch.voided_at) Object.assign(r, { voided_at: now, voided_by: u.id });
           mock.accWrites.push({ table: t, op: 'update', id: r.id, ...patch });
           return json(200, [{ ...r }]);
@@ -2110,7 +2117,7 @@ export async function installSupabaseMock(page, opts = {}) {
         if (mock.photoSiteFails) { rec.site = 'failed'; return json(502, { error: 'woo_error', action, saved: true }); }
         rec.site = 'ok'; return json(200, { action, result: 'ok', site: 'ok', media: 900 + mock.photoCalls.length });
       }
-      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
+      if (!u || !(action === 'push_status' ? hasPerm(u, 'orders.status') === 'F' : (action === 'order_trash' || action === 'suborder_trash' || action === 'line_trash' || action === 'suborder_status') ? hasPerm(u, 'orders.status') === 'F' && hasPerm(u, 'orders.view') !== 'N' : (action === 'order_create' || action === 'order_pay_link') ? (isAdmin(u) || hasPerm(u, 'orders.status') === 'F') : action === 'push_vendor' ? mayPushVendor() : (action === 'statement' || action === 'withdrawals') ? hasPerm(u, 'accounts.view') !== 'N' : action === 'withdraw_approve' || action === 'withdraw_create' ? (isAdmin(u) || hasPerm(u, 'accounts.approve') === 'F')
         : action === 'product_get' ? hasPerm(u, 'products.view') !== 'N' : action === 'product_save' || action === 'product_images_add' ? (isAdmin(u) || hasPerm(u, 'products.edit') === 'F') : action === 'products_batch' || action === 'products_vendor' ? (isAdmin(u) || hasPerm(u, 'products.bulk') === 'F')
           : action === 'products_trash' || action === 'products_restore' ? hasPerm(u, 'products.trash') === 'F' : action === 'studio_upload' || action === 'category_create' || action === 'studio_sheet' || action === 'product_duplicate' ? (isAdmin(u) || hasPerm(u, 'products.add') === 'F') : isAdmin(u))) return json(401, { error: 'unauthorized' });
       // phase 5.2: studio_upload — the item read from the batch and checked by the server's own buildStudio; the gate; a product
@@ -2256,7 +2263,37 @@ export async function installSupabaseMock(page, opts = {}) {
         if (!mock.pushEnabled) return done('skipped', 'push_disabled');
         if (mock.wooDown) return json(502, { error: 'woo_error' });
         w.status = 'approved'; w.synced_at = new Date().toISOString();
-        return done('ok');
+        // Dokan lowers the maker's balance; 0078: the maker's open moves settle against the request (acc_settle_withdrawal's rule)
+        const balRow = mock.acc.dokan_balances.find((x) => x.vendor_id === w.vendor_id); if (balRow && balRow.balance != null) balRow.balance = Math.round((Number(balRow.balance) - Number(w.amount)) * 100) / 100;
+        const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
+        const open = mock.acc.acc_vendor_moves.filter((m) => m.vendor_id === w.vendor_id && !m.voided_at && m.settled_by == null && String(m.on_date) <= day);
+        const net = open.reduce((x, m) => x + (m.direction === 'withdraw' ? Number(m.amount) : -Number(m.amount)), 0);
+        const last = mock.acc.acc_vendor_settlements.filter((x) => x.vendor_id === w.vendor_id).sort((a, c) => a.id - c.id).pop(); const cin = last ? Number(last.carry_out) : 0;
+        const op = Math.round((net + cin) * 100) / 100; const cons = op > 0 ? Math.min(Number(w.amount), op) : op;
+        open.forEach((m) => { m.settled_by = id; m.settled_at = new Date().toISOString(); });
+        const st = { id: mock.acc.acc_vendor_settlements.length + 1, withdraw_id: id, vendor_id: w.vendor_id, amount: Number(w.amount), moves_net: Math.round(net * 100) / 100, carry_in: cin, consumed: cons,
+          carry_out: Math.round((op - cons) * 100) / 100, cash: Math.round((Number(w.amount) - cons) * 100) / 100, moves: open.length, source: 'system', approved_by: u.id, settled_on: day, created_at: new Date().toISOString() };
+        mock.acc.acc_vendor_settlements.push(st);
+        mock.approvals.push({ id, by: u.email, result: 'ok' });
+        return json(200, { action, result: 'ok', status: 'approved', settlement: { amount: st.amount, consumed: st.consumed, cash: st.cash, carry_out: st.carry_out, moves: st.moves } });
+      }
+      // 0078: «اعمل طلب السحب على Dokan» — the maker's whole Dokan balance, pending; never with a pending one; WOO_PUSH_ENABLED
+      if (action === 'withdraw_create') {
+        const vid = String(b.vendor_id || '').toLowerCase(); const v = mock.vendors.find((x) => x.id === vid);
+        const rec = { vendor_id: vid, by: u.email };
+        const done = (status, payload) => { Object.assign(rec, payload); mock.withdrawCreates.push(rec); return json(status, { action, ...payload }); };
+        if (!v) return json(404, { error: 'vendor_not_found' });
+        if (!v.woo_vendor_id) return done(409, { result: 'refused', reason: 'no_store', error: 'no_store' });
+        const open = mock.acc.dokan_withdrawals.find((x) => Number(x.woo_vendor_id) === Number(v.woo_vendor_id) && x.status === 'pending');
+        if (open) return done(200, { result: 'skipped', reason: 'pending_exists', id: open.id });
+        if (!mock.pushEnabled) return done(200, { result: 'skipped', reason: 'push_disabled' });
+        if (mock.wooDown) return json(502, { error: 'woo_error' });
+        if (mock.withdrawRefuse) return done(409, { result: 'refused', reason: mock.withdrawRefuse });
+        const balRow = mock.acc.dokan_balances.find((x) => x.vendor_id === vid); const amount = balRow && Number(balRow.balance) > 0 ? Math.floor(Number(balRow.balance) * 100) / 100 : 0;
+        if (!(amount > 0)) return done(200, { result: 'skipped', reason: 'no_balance', balance: balRow ? balRow.balance : null });
+        const nid = Math.max(700, ...mock.acc.dokan_withdrawals.map((x) => Number(x.id))) + 1;
+        mock.acc.dokan_withdrawals.push({ id: nid, woo_vendor_id: Number(v.woo_vendor_id), vendor_id: vid, amount, charge: 0, receivable: amount, status: 'pending', method: 'bank', requested_at: new Date().toISOString().replace('T', ' ').slice(0, 19), synced_at: new Date().toISOString() });
+        return done(200, { result: 'ok', id: nid, amount, status: 'pending' });
       }
       // phase 4: the maker's Dokan statement (read-only, not stored) — mock.statementRows for any range
       if (action === 'statement') {

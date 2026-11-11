@@ -357,15 +357,16 @@ async function readData(member: Db, uid: string, dq: DQ, today: string): Promise
     if (!vs) return FORBIDDEN;
     const v = pickVendor(vs, dq.q); if (!v) return vendorData({ vendors: vs }, dq, today);
     const id = v.id;
-    const [items, ords, sales, bal, moves, wd] = await Promise.all([
+    const [items, ords, sales, bal, moves, wd, sets] = await Promise.all([
       rows(member.from('order_items').select('order_id, status, total, removed').eq('vendor_id', id).limit(5000)),
       rows(member.from('orders_v').select(ORDER_COLS).gte('placed_at', dq.from + 'T00:00:00+02:00').order('placed_at', { ascending: false }).limit(2000)),
       rows(member.rpc('accounts_sales', { p_from: dq.from, p_to: dq.to })),
       rows(member.from('dokan_balances').select('vendor_id, balance, synced_at').eq('vendor_id', id).limit(1)),
-      rows(member.from('acc_vendor_moves').select('on_date, direction, kind, amount, voided_at').eq('vendor_id', id).is('voided_at', null).limit(5000)),
+      rows(member.from('acc_vendor_moves').select('on_date, direction, kind, amount, voided_at, settled_by').eq('vendor_id', id).is('voided_at', null).limit(5000)),
       rows(member.from('dokan_withdrawals').select('amount, status, requested_at').eq('vendor_id', id).order('requested_at', { ascending: false }).limit(1)),
+      rows(member.from('acc_vendor_settlements').select('id, carry_out').eq('vendor_id', id).order('id', { ascending: false }).limit(1)), // 0078: the last carry
     ]);
-    return vendorData({ vendors: vs, items, orders: ords, sales, balance: bal ? bal[0] ?? null : null, balanceForbidden: bal == null, moves, withdrawal: wd ? wd[0] ?? null : null }, dq, today);
+    return vendorData({ vendors: vs, items, orders: ords, sales, balance: bal ? bal[0] ?? null : null, balanceForbidden: bal == null, moves, carry: sets && sets[0] ? sets[0].carry_out : 0, withdrawal: wd ? wd[0] ?? null : null }, dq, today);
   };
   // decision 42: the uploaded files the member can open — company papers (RLS: admin), makers' contracts (only with the key that opens
   // them), HR documents (hr_can_see), ticket attachments (the tickets I see); paths only, signed by the page's own adapter on a click

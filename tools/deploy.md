@@ -1963,5 +1963,12 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 #### 2.7.56 تاب «الأقسام» في المنتجات (المرحلة 13 قرار 56، 11 نوفمبر)
 مافيش migration. `woo-sync` (الترجمة العربي للقسم الفرعي تحت ترجمة الأب) ثم الواجهة على `main`. التجربة: المنتجات › الأقسام › «+ فرعي» على قسم → القسم على الموقع بالإنجليزي وترجمته العربي تحت ترجمة الأب (من غير `WOO_PUSH_ENABLED = 1` = «الكتابة على الموقع متقفلة»).
 
+#### 2.7.57 تسوية حسابات المبتكرين مع طلب السحب (0078، صاحب المشروع 11 نوفمبر — الخطة `docs/superpowers/plans/2026-11-11-makers-settlement.md`)
+1. طبّق `supabase/migrations/0078_vendor_settlements.sql` (Supabase MCP `apply_migration` — re-runnable): `settled_by` / `settled_at` على `acc_vendor_moves` والحارس، check «الإيداع = تصحيح» (`kind = 'أخرى'`)، جدول `acc_vendor_settlements`، و`acc_settle_withdrawal` (service_role بس). **قبل الواجهة**: الـ adapter بيقرا الأعمدة والجدول الجداد.
+2. RLS live: «RLS live tests» بـ `files = rls_vendor_settle`.
+3. انشر `woo-sync` (`withdraw_create` + التسوية) ثم `portal` و`ai-content` («Deploy functions» واحدة واحدة).
+4. ادمج على `main`.
+5. التجربة على الـ staging: مبتكر بمتجر ورصيد على Dokan وعربون مسجّل «سحب» → ⋮ «تسوية دلوقتي» → «اعمل طلب السحب على Dokan» (من غير `WOO_PUSH_ENABLED = 1` = «الكتابة على Dokan مقفولة» ومافيش طلب) → الطلب «مستني الموافقة» بكل رصيد Dokan → الموافقة: `woo_sync_log` `withdraw_approve` ok بـ `settled`، صف في `acc_vendor_settlements` (consumed = الخصومات، cash = الباقي)، والصافي = رصيد Dokan الجديد − اللي لسه مفتوح.
+
 #### 2.7.66 «طلب جديد» وطلب فترة راحة (المرحلة 13 قرار 66، 11 نوفمبر)
 `0077_hr_rest_period.sql` على المشروع (Supabase MCP `apply_migration` بموافقة صاحب المشروع) ثم `rls_hr_rest_period` live (workflow «RLS live»، `files = rls_hr_rest_period`) ثم الواجهة على `main`. مافيش Edge Function.

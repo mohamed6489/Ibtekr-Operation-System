@@ -93,7 +93,10 @@ export function portalRoute(c) {
   if (action === 'account') {
     const bal = (mock.acc.dokan_balances || []).find((x) => x.vendor_id === me.vendor) || null; const moves = (mock.acc.acc_vendor_moves || []).filter((m) => m.vendor_id === me.vendor && !m.voided_at);
     const wds = (mock.acc.dokan_withdrawals || []).filter((w) => w.vendor_id === me.vendor).sort((a, z) => (a.requested_at < z.requested_at ? 1 : -1)).slice(0, 3);
-    return json(200, { result: 'ok', ledger: makerLedger({ balance: bal ? bal.balance : null, moves }), synced_at: bal ? bal.synced_at : null, dokan: !!bal, withdrawals: wds.map((w) => ({ id: w.id, amount: Number(w.amount) || 0, status: w.status, method: w.method || null, at: w.requested_at || null })) });
+    // 0078: the latest settlement's carry; an approved request shows what it transferred (cash)
+    const sets = (mock.acc.acc_vendor_settlements || []).filter((x) => x.vendor_id === me.vendor).sort((a, z) => z.id - a.id); const cashOf = new Map(sets.map((x) => [Number(x.withdraw_id), Number(x.cash)]));
+    return json(200, { result: 'ok', ledger: makerLedger({ balance: bal ? bal.balance : null, moves, carry: sets.length ? sets[0].carry_out : 0 }), synced_at: bal ? bal.synced_at : null, dokan: !!bal,
+      withdrawals: wds.map((w) => ({ id: w.id, amount: Number(w.amount) || 0, status: w.status, method: w.method || null, at: w.requested_at || null, cash: cashOf.has(Number(w.id)) ? cashOf.get(Number(w.id)) : null })) });
   }
   if (action === 'bank_request') {
     const live = mock.tickets.find((t) => t.vendor_id === me.vendor && t.created_by_role === 'بوابة المبتكر' && ['open', 'in_progress', 'waiting'].includes(t.status));

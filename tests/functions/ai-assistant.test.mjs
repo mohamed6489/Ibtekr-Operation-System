@@ -185,6 +185,8 @@ test('open_form: the known forms and their fields only; dates, amounts and numbe
   assert.deepEqual(cleanAction('open_form', { form: 'account_move', values: { direction: 'sideways', account: 'خزنة' } }), null);
   assert.deepEqual(cleanAction('open_form', { form: 'vendor_move', values: { direction: 'deposit', vendor: 'Art Craft', type: 'عربون' } }).input.values, { direction: 'deposit', vendor: 'Art Craft', type: 'عربون' });
   assert.deepEqual(cleanAction('open_form', { form: 'vendor_move', values: { direction: 'withdraw', type: 'customer' } }).input.values, { direction: 'withdraw' });
+  // 0078: a «إيداع» (a correction) carries its title and description
+  assert.deepEqual(cleanAction('open_form', { form: 'vendor_move', values: { direction: 'deposit', vendor: 'Art Craft', otherName: 'فرق مقاس', note: 'العميل طلب مقاس أكبر' } }).input.values, { direction: 'deposit', vendor: 'Art Craft', otherName: 'فرق مقاس', note: 'العميل طلب مقاس أكبر' });
   for (const st of ['ملغي', 'استرجاع', 'فشل']) { assert.ok(!AI_ORDER_STATUSES.includes(st)); assert.equal(cleanAction('open_form', { form: 'order_update', values: { order: '1', status: st } }), null); }
   assert.deepEqual(Object.keys(FORMS).sort(), ['account_move', 'customer_add', 'expense_add', 'hr_advance', 'hr_leave', 'hr_remote', 'member_add', 'order_update', 'task_add', 'ticket_new', 'vendor_add', 'vendor_move']);
   assert.ok(toolsOf('chat').some((t) => t.name === 'open_form')); assert.ok(!toolsOf('filter').some((t) => t.name === 'open_form'));
@@ -211,24 +213,26 @@ test('decision 42: vendorData — orders by status in the period, cancelled / la
     { id: 4, number: 5004, status: 'مكتمل', placed_at: '2026-11-03T10:00:00Z' }, // the maker's line was removed
     { id: 7, number: 5007, status: 'مكتمل', placed_at: '2026-11-03T10:00:00Z' }, // another maker's order
   ];
-  const moves = [{ on_date: '2026-11-05', direction: 'deposit', kind: 'عربون', amount: 500 }, { on_date: '2026-10-01', direction: 'withdraw', kind: 'مواصلات', amount: 60 },
-    { on_date: '2026-11-06', direction: 'withdraw', kind: 'عربون', amount: 100 }, { on_date: '2026-11-07', direction: 'deposit', kind: 'أخرى', amount: 40 }, { on_date: '2026-11-07', direction: 'deposit', kind: 'عربون', amount: 999, voided_at: '2026-11-08' }];
+  // 0078: «سحب» deducts, «إيداع» corrects, a settled move is out of the net (still in the period's moves), the carry is deducted
+  const moves = [{ on_date: '2026-11-05', direction: 'withdraw', kind: 'عربون', amount: 500 }, { on_date: '2026-10-01', direction: 'withdraw', kind: 'مواصلات', amount: 60 },
+    { on_date: '2026-11-06', direction: 'withdraw', kind: 'أخرى', amount: 100 }, { on_date: '2026-11-07', direction: 'deposit', kind: 'أخرى', amount: 40 }, { on_date: '2026-11-07', direction: 'withdraw', kind: 'عربون', amount: 999, voided_at: '2026-11-08' },
+    { on_date: '2026-11-02', direction: 'withdraw', kind: 'عربون', amount: 300, settled_by: 900 }];
   const sales = [{ vendor_id: 'v1', grp: 'مكتمل', orders: 2, sales: 1000, share: 200, is_total: false }, { vendor_id: 'v2', grp: 'مكتمل', orders: 9, sales: 9, share: 1, is_total: false }, { grp: 'مكتمل', orders: 11, sales: 1009, is_total: true }];
-  const r = vendorData({ vendors, items, orders, sales, balance: { balance: 2000, synced_at: '2026-11-10T08:00:00Z' }, moves, withdrawal: { amount: 700, status: 'pending', requested_at: '2026-11-09T12:00:00Z' } }, dq, '2026-11-11');
+  const r = vendorData({ vendors, items, orders, sales, balance: { balance: 2000, synced_at: '2026-11-10T08:00:00Z' }, moves, carry: 20, withdrawal: { amount: 700, status: 'pending', requested_at: '2026-11-09T12:00:00Z' } }, dq, '2026-11-11');
   assert.equal(r.vendor, 'خزف'); assert.deepEqual(r.otherMatches, ['خزف مصر']);
   assert.equal(r.orders.total, 2); assert.deepEqual(r.orders.byStatus, { 'ملغي': 1, 'جاري التنفيذ': 1 }); assert.equal(r.orders.cancelled, 1); assert.equal(r.orders.totalEgp, 150);
   assert.equal(r.orders.late, 0); assert.equal(r.orders.risk, 1, '9 days old on the 11th = قابل للتأخير');
   assert.deepEqual(r.sales, { 'مكتمل': { orders: 2, sales: 1000, ibtekrShare: 200 } });
-  // 2000 − عربون (500 − 100) − مواصلات 60 − أخرى 40 = 1500; the voided move is out
-  assert.deepEqual([r.account.dokanBalance, r.account.deposits, r.account.transport, r.account.otherMoves, r.account.net], [2000, 400, 60, 40, 1500]);
-  assert.deepEqual(r.account.movesInPeriod, { 'عربون': 400, 'أخرى': 40 });
+  // 2000 − عربون 500 − مواصلات 60 − أخرى 100 + تصحيح 40 − المتبقي 20 = 1360; the voided and the settled moves are out
+  assert.deepEqual([r.account.dokanBalance, r.account.deposits, r.account.transport, r.account.otherMoves, r.account.corrections, r.account.carry, r.account.net], [2000, 500, 60, 100, 40, 20, 1360]);
+  assert.deepEqual(r.account.movesInPeriod, { 'عربون': 800, 'أخرى': 100, 'تصحيح': 40 });
   assert.deepEqual(r.lastWithdrawal, { amount: 700, status: 'pending', date: '2026-11-09' });
   // a refused part is { forbidden } and the rest still answers; no maker = found false
   const f = vendorData({ vendors, items: null, orders: null, sales: null, balance: null, balanceForbidden: true, moves: null }, dq, '2026-11-10');
   assert.deepEqual([f.orders, f.sales, f.account], [{ forbidden: true }, { forbidden: true }, { forbidden: true }]);
   assert.equal(vendorData({ vendors: [] }, dq, '2026-11-10').found, false);
   const nb = vendorData({ vendors, items: [], orders: [], sales: [], balance: null, moves }, dq, '2026-11-10');
-  assert.equal(nb.account.dokanBalance, null); assert.equal(nb.account.net, -500); assert.match(nb.account.note, /Dokan/);
+  assert.equal(nb.account.dokanBalance, null); assert.equal(nb.account.net, -620); assert.match(nb.account.note, /Dokan/);
 });
 test('decision 42: filesData lists what the member may open; offer_file keeps a well-shaped ref only', () => {
   const p = {

@@ -513,8 +513,10 @@ Deno.test('assistant decision 42: a maker\'s account and a file answered in the 
     vendors: [{ id: AC, name: 'Art Craft', status: 'active', contract: { fileName: 'عقد.pdf', path: AC + '/1-c.pdf' } }],
     order_items: [{ order_id: 1, vendor_id: AC, status: 'جاهز', total: 400 }, { order_id: 3, vendor_id: AC, total: 600 }, { order_id: 2, vendor_id: 'other', total: 1500 }],
     dokan_balances: [{ vendor_id: AC, balance: 3000, synced_at: NOW }],
-    acc_vendor_moves: [{ vendor_id: AC, on_date: NOW_DAY, direction: 'deposit', kind: 'عربون', amount: 500 }, { vendor_id: AC, on_date: NOW_DAY, direction: 'withdraw', kind: 'مواصلات', amount: 50 }],
+    acc_vendor_moves: [{ vendor_id: AC, on_date: NOW_DAY, direction: 'withdraw', kind: 'عربون', amount: 500 }, { vendor_id: AC, on_date: NOW_DAY, direction: 'withdraw', kind: 'مواصلات', amount: 50 }, // 0078: an «عربون» is a «سحب»
+      { vendor_id: AC, on_date: NOW_DAY, direction: 'withdraw', kind: 'عربون', amount: 7000, settled_by: 900 }], // settled: out of the net
     dokan_withdrawals: [{ vendor_id: AC, amount: 900, status: 'pending', requested_at: NOW }],
+    acc_vendor_settlements: [{ id: 1, withdraw_id: 900, vendor_id: AC, amount: 7000, consumed: 7000, carry_out: 0, cash: 0, moves: 1, source: 'dokan', settled_on: NOW_DAY }],
     hr_documents: [], company_docs: [], ticket_events: [],
     tickets: [{ ...MEMBER_SEED.tickets[0], attachments: [{ path: FILE, name: 'صورة الكسر.jpg' }] }],
   };

@@ -318,3 +318,9 @@
 .act-bar .select, .act-bar .date-field { min-width: 160px; }
 .act-tbl code { font-size: 12px; }
 .logo-img { display: inline-block; }
+/* B6 (the owner, 11 Nov): «المخزن» in the settings — narrower than the other sections; the three fixed places as small tiles */
+.set-narrow{max-width:640px}
+.set-narrow>.sec{margin-bottom:12px}
+.inv-places{display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px}
+.inv-place{display:flex;align-items:center;gap:8px;padding:8px 12px;border:1px solid var(--color-border-subtle);border-radius:var(--radius-sm,6px);background:var(--color-bg-container)}
+.inv-place b{color:var(--color-brand-default)}

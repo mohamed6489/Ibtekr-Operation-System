@@ -9,7 +9,7 @@
   const { h, Icon, Button, IconButton } = U; const S = K.store;
   const SECTIONS = [
     ['general', 'عام', 'بيانات الشركة واللغة والعرض', 'home'], ['team', 'الفريق والصلاحيات', 'الأعضاء والأدوار والدعوات', 'users'], ['integrations', 'الربط بالمنصات', 'WooCommerce وAirtable وواتساب', 'external'], ['ai', 'تعليمات الذكاء الاصطناعي', 'الصور، الفيديو، والمحتوى بأسلوب إبتكر', 'sparkle'],
-    ['makers', 'إعدادات المبتكرين', 'قواعد التأخير والتنشيط', 'truck'], ['notifications', 'التنبيهات', 'الأنواع والتصعيد وساعات الهدوء', 'bell'], ['lists', 'القوائم والحالات', 'الحالات والأسباب والفئات', 'sliders'],
+    ['makers', 'إعدادات المبتكرين', 'قواعد التأخير والتنشيط', 'truck'], ['inventory', 'المخزن', 'الأماكن والسحب والتنبيهات والمرتجع', 'box'], ['notifications', 'التنبيهات', 'الأنواع والتصعيد وساعات الهدوء', 'bell'], ['lists', 'القوائم والحالات', 'الحالات والأسباب والفئات', 'sliders'],
     ['payments', 'الحسابات والدفع', 'الحسابات والتحويلات والفاتورة', 'wallet'], ['activity', 'سجل النشاط', 'مين عمل إيه وإمتى', 'activity'], ['security', 'الأمان', 'كلمة السر والجلسات والسياسات', 'alert'], ['docs', 'الأوراق الرسمية', 'السجل التجاري والبطاقة الضريبية والعقود', 'file'], ['brand', 'الهوية البصرية', 'ألوان الموقع واللوجو والخطوط', 'image'], ['data', 'البيانات', 'تصدير واستيراد ونسخ احتياطي', 'download'], ['quick', 'الإجراءات السريعة', 'روابط لأي صفحة بفلاترها في القايمة اللي فوق', 'zap']];
   const st = { sec: 'home', ntab: 'types', itab: 'site', teamSub: 'members', integ: null, list: 'order', open: {}, nopen: {}, aopen: {}, dirty: false, draft: null, mq: '', pending: new Set() };
   const R = () => window.IBPages.render('settings');
@@ -126,7 +126,7 @@
     return [K.Section(x.name, fields, acts, { sub: 'تعليمات «' + x.name + '» — بتتطبق مع الستايل العام والقواعد الثابتة.' })];
   }
   // الإعدادات كصفحة كروت (owner 1 Nov 22:51): مجموعات · كل قسم كارت فيه بيتحكم في إيه + رقم الحالة + «تعديل» بيفتح صفحة لوحده
-  const GROUPS = [['الشركة والفريق', ['general', 'team', 'docs', 'brand']], ['الربط والأدوات', ['integrations', 'ai', 'quick']], ['التشغيل', ['makers', 'notifications', 'lists', 'payments']], ['الأمان والبيانات', ['security', 'activity', 'data']]];
+  const GROUPS = [['الشركة والفريق', ['general', 'team', 'docs', 'brand']], ['الربط والأدوات', ['integrations', 'ai', 'quick']], ['التشغيل', ['makers', 'inventory', 'notifications', 'lists', 'payments']], ['الأمان والبيانات', ['security', 'activity', 'data']]];
   const STATS = {
     general: () => [C.general.company, 'neutral'],
     team: () => { const a = S.members.filter((m) => m.status === 'active').length, inv = S.members.filter((m) => m.status === 'invited').length; return [a + ' عضو' + (inv ? ' · ' + inv + ' دعوة معلّقة' : ''), inv ? 'gold' : 'neutral']; },
@@ -135,6 +135,7 @@
     integrations: () => { const all = C.integrations, on = all.filter((x) => x.status === 'متصل').length, err = all.filter((x) => String(x.status).startsWith('خطأ')).length; return [on + ' من ' + all.length + ' متصلة' + (err ? ' · ' + err + ' فيها خطأ' : ''), err ? 'error' : 'success']; },
     quick: () => { const n = window.IBQuick ? window.IBQuick.list().length : 0; return [n + ' إجراء سريع', 'neutral']; },
     makers: () => [C.makerRules.length + ' قاعدة تأخير خاصة', 'neutral'],
+    inventory: () => { const I = window.IBInventory; const v = st.inv || (I ? I.settings() : null); return [v && v.firstWarehouse ? 'السحب التلقائي شغّال' : 'السحب يدوي', v && v.firstWarehouse ? 'gold' : 'neutral']; },
     notifications: () => [C.notif.length + ' نوع تنبيه · ' + C.escalations.length + ' تصعيد', 'neutral'],
     activity: () => { const n = (K.store.log || []).length; return [n ? n + ' حدث متسجل' : 'مين عمل إيه وإمتى', 'neutral']; },
   };
@@ -152,7 +153,7 @@
     // زرار «حفظ» في كل صفحة (owner 2 Nov 01:34) + أي تغيير في الصفحة بيتعلّم «مش محفوظ» من غير ما الصفحة تتعاد
     const note = h('span', { class: 'set-dirty t-small', 'data-set-dirty': '', hidden: !st.dirty }, Icon('alert', 'sm'), ' تغييرات مش محفوظة');
     const save = Button({ type: 'brand', icon: 'check', label: 'حفظ', attrs: { 'data-set-save': '' }, onClick: () => { commit(); R(); } });
-    if (st.snapSec !== st.sec) { st.snap = snapTake(); st.snapSec = st.sec; }
+    if (st.snapSec !== st.sec) { st.snap = snapTake(); st.snapSec = st.sec; if (st.sec === 'inventory' && !st.dirty) { st.inv = null; st.invAsked = false; } }
     const body = h('div', { class: 'set-body set-page' }, ...section());
     const mark = () => { if (st.dirty) return; st.dirty = true; note.hidden = false; const pg = document.getElementById('pg-settings'); if (pg && !pg.querySelector('.save-bar')) pg.append(saveBar()); };
     // التحديد في الجداول والفلاتر والتابات مش «تغيير» — مش بيطلّع تذكير الحفظ
@@ -172,6 +173,7 @@
       if (S.members) restoreInto(S.members, JSON.parse(s0.m)); if (s0.a && S.aiRules) restoreInto(S.aiRules, JSON.parse(s0.a));
       LOGO_T.forEach((t, i) => { if (window.IBLogo && window.IBLogo.get(t) !== s0.logos[i]) window.IBLogo.set(t, s0.logos[i]); });
       try { applyBrand(); saveBrand(); } catch (e) { /* brand section not loaded */ } }
+    st.inv = null; // B6: the inventory draft back to the saved settings
     st.dirty = false; st.draft = null; st.pending.delete(st.sec); LOGV('settings.discard', nm); K.toast('اتلغت التغييرات ورجعت زي ما كانت');
   }
   function leave(go) {
@@ -181,7 +183,7 @@
     const here = () => { try { history.replaceState(null, '', sec === 'home' ? '#settings' : '#settings-' + sec); } catch (e) { /* */ } };
     here();
     const m = U.Modal({ title: 'لازم تحفظ التغييرات الأول', body: [h('p', { style: 'margin:0' }, 'عملت تغييرات في «' + name + '» ولسه ما اتحفظتش. احفظها عشان تقدر تخرج من الصفحة.'), h('p', { class: 't-small help', style: 'margin:8px 0 0' }, 'لو مش عايز التغييرات دي: ارجع للصفحة ودوس «تجاهل التغييرات» في الشريط اللي تحت.')],
-      footer: [Button({ label: 'ارجع للصفحة', attrs: { 'data-save-stay': '' }, onClick: () => { m.close(); here(); R(); } }), Button({ type: 'primary', icon: 'check', label: 'احفظ واخرج', attrs: { 'data-save-now': '' }, onClick: () => { commit(); m.close(); go(); } })] });
+      footer: [Button({ label: 'ارجع للصفحة', attrs: { 'data-save-stay': '' }, onClick: () => { m.close(); here(); R(); } }), Button({ type: 'primary', icon: 'check', label: 'احفظ واخرج', attrs: { 'data-save-now': '' }, onClick: () => { if (commit() === false) { m.close(); R(); return; } m.close(); go(); } })] });
   }
   function commit() { const nm = (SECTIONS.find((q) => q[0] === st.sec) || [, 'عام'])[1]; if (st.draft) Object.assign(C.general, st.draft); st.dirty = false; st.draft = null; st.pending.delete(st.sec); st.snap = snapTake(); st.snapSec = st.sec; LOGV('settings.save', nm); K.toast('اتحفظت التغييرات', 'success'); }
   function saveBar() { return h('div', { class: 'save-bar', role: 'region', 'aria-label': 'تغييرات غير محفوظة' }, h('span', null, Icon('alert', 'sm'), ' فيه تغييرات غير محفوظة في هذا القسم'), h('div', { class: 'acts-inline' }, Button({ label: 'تجاهل التغييرات', attrs: { 'data-set-discard': '' }, onClick: () => { discard(); R(); } }), Button({ type: 'primary', label: 'حفظ التغييرات', onClick: () => { commit(); R(); } }))); }
@@ -191,6 +193,35 @@
   const pick = (obj, k, id, label, opts, help) => h('div', null, U.Select({ id, label, options: opts.map((x) => ({ value: String(x), label: String(x) })), value: String(obj[k]), onChange: (v) => { obj[k] = v; LOGV('settings.change', label + ' = ' + v); K.toast('اتحفظ'); R(); } }), help ? h('div', { class: 't-small help' }, help) : null);
   const tagFor = (s) => (s === 'متصل' ? 'success' : s.startsWith('خطأ') ? 'error' : 'neutral');
 
+  // ---------- B6 (the owner, 11 Nov — «إعدادات المخزن تتنقل للإعدادات العامة، أضيق وأبسط»): «المخزن» ----------
+  // three fixed places (no shelves, no «+ مكان»; optional on receive), the pull by hand + one switch for the auto-pull (off), three
+  // alerts in days and one default for a sound return; the values are IBInventory's settings row «inventory» — a draft here (st.inv)
+  // that the page's «حفظ» sends (the admin; the others see it read-only)
+  const INV_DAYS = [['consolidationAlert', 'تأخير التجميع بعد (يوم)', 'من يوم قرار التجميع والأوردر الفرعي لسه ماوصلش'], ['photoMax', 'قطعة التصوير طوّلت بعد (يوم)', 'من يوم ما القطعة دخلت التصوير'], ['returnWait', 'المرتجع مستني بعد (يوم)', 'من يوم وصول المرتجع من غير فحص']];
+  const retLabel = (v) => (v === 'يستنى أوردر' ? 'يستنى أوردر (متاح للبيع في المخزن)' : 'يرجع للمبتكر');
+  const invDay = (v) => { const n = Number(String(v == null ? '' : v).trim().replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))); return Number.isInteger(n) && n >= 1 && n <= 90 ? n : null; };
+  function invSec() {
+    const I = window.IBInventory;
+    if (!I) return [U.InlineNote({ kind: 'warning', children: 'إعدادات المخزن مش متاحة دلوقتي — جرّب تحدّث الصفحة.' })];
+    if (!st.inv) { st.inv = I.settings(); if (!st.invAsked) { st.invAsked = true; I.loadSettings().then((v) => { if (!st.dirty) { st.inv = v; if (window.IBPages.current === 'settings' && st.sec === 'inventory') R(); } }); } }
+    const d = st.inv; const ro = !isAdminMe();
+    return [h('div', { class: 'set-narrow', 'data-inv-settings': '' },
+      K.Section('الأماكن', [h('div', { class: 'inv-places' }, (I.PLACES || []).map(([c, l]) => h('div', { class: 'inv-place', 'data-inv-place': c }, h('b', null, c), h('span', null, l)))),
+        note('تلات أماكن ثابتة — من غير أرفف. المكان اختياري في الاستلام.')]),
+      K.Section('السحب من المخزن', [note('السحب يدوي من الأوردر: «اسحب من المخزن» على المنتج اللي موجود «متاح للبيع».'),
+        K.Switch({ id: 'inv-auto', label: 'السحب التلقائي', help: 'الأوردر الجديد بيحجز القطعة «المتاحة للبيع» من المخزن لوحده — مقفول افتراضيًا', checked: !!d.firstWarehouse, disabled: ro, onChange: (v) => { d.firstWarehouse = v; R(); } })]),
+      K.Section('التنبيهات', INV_DAYS.map(([k, label, help]) => U.TextInput({ id: 'inv-' + k, label, value: String(d[k] == null ? '' : d[k]), inputmode: 'numeric', help, disabled: ro, onInput: (v) => { d[k] = v; } }))),
+      K.Section('المرتجع', [ro ? vrow('المرتجع السليم بعد الفحص (الافتراضي)', null, h('b', { 'data-inv-return': '' }, retLabel(d.returnDefault)))
+        : K.Radios({ label: 'المرتجع السليم بعد الفحص (الافتراضي)', value: d.returnDefault, onChange: (v) => { d.returnDefault = v; R(); },
+          options: (I.RETURN_DEFAULTS || []).map((v) => ({ value: v, label: retLabel(v) })) })]),
+      ro ? note('الإعدادات دي للأدمن بس — بتظهرلك قراية.') : null)];
+  }
+  const invValid = () => !st.inv || INV_DAYS.every(([k]) => invDay(st.inv[k]) != null);
+  async function persistInventory() {
+    const I = window.IBInventory; if (!I || !st.inv || !isAdminMe()) return;
+    const d = st.inv; const r = await I.saveSettings({ firstWarehouse: !!d.firstWarehouse, consolidationAlert: invDay(d.consolidationAlert), photoMax: invDay(d.photoMax), returnWait: invDay(d.returnWait), returnDefault: d.returnDefault });
+    if (!r.ok) fail(r, 'حفظ إعدادات المخزن'); else st.inv = I.settings();
+  }
   function section() {
     switch (st.sec) {
       case 'general': return general();
@@ -199,6 +230,7 @@
       case 'ai': return aiSec();
       case 'quick': return window.IBQuick ? [window.IBQuick.manage(R)] : [];
       case 'makers': return makers();
+      case 'inventory': return invSec();
       case 'notifications': return notifSec();
       case 'lists': return lists();
       case 'payments': return payments();
@@ -1198,7 +1230,8 @@
     if (S0 && S0.data.loaded && !hydrated) { hydrateAll(); loadLinks(); loadDocs(); }
     return viewV6();
   }
-  function commit() { const nm = (SECTIONS.find((q) => q[0] === st.sec) || [, 'عام'])[1]; if (st.draft) Object.assign(C.general, st.draft); st.dirty = false; st.draft = null; st.pending.delete(st.sec); st.snap = snapTake(); st.snapSec = st.sec; K.logEvent('settings.save', nm); if (ROW_OF[st.sec]) persist(st.sec); K.toast('اتحفظت التغييرات', 'success'); }
+  function commit() { if (st.sec === 'inventory' && !invValid()) { K.toast('أيام التنبيهات لازم تكون رقم صحيح من 1 لـ 90', 'error'); return false; } // B6
+    const nm = (SECTIONS.find((q) => q[0] === st.sec) || [, 'عام'])[1]; if (st.draft) Object.assign(C.general, st.draft); st.dirty = false; st.draft = null; st.pending.delete(st.sec); st.snap = snapTake(); st.snapSec = st.sec; K.logEvent('settings.save', nm); if (ROW_OF[st.sec]) persist(st.sec); if (st.sec === 'inventory') persistInventory(); K.toast('اتحفظت التغييرات', 'success'); }
 
   // ---------- the platform links (decisions 9 / 10 / 13): settings-admin + the other pages' links ----------
   const CARD_DESC = { woo: 'الأوردرات والمنتجات والعملاء من الموقع — مفاتيح REST API وباسورد التطبيق للصور', airtable: 'قاعدة البيانات المؤقتة القديمة', wa: 'أرقام واتساب العملاء والمبتكرين — الربط من خدمة العملاء › القنوات', messenger: 'رسايل الصفحة وتعليقات البوستات من خدمة العملاء', instagram: 'رسايل الـ Direct وتعليقات البوستات', tiktok: 'مفيش API رسايل عام — غير متصل', sheets: 'قراءة شيتات Google', paymob: 'تأكيد المدفوعات الإلكترونية', bosta: 'حالة الشحنات ورصيد التحصيل', n8n: 'الأتمتة الخارجية (webhook)', metaads: 'الصرف والحملات لصفحة «التسويق» — الربط من التسويق › نظرة عامة', googleads: 'حملات جوجل لصفحة «التسويق»', tiktokads: 'حملات تيك توك لصفحة «التسويق»', magnific: 'صور المنتجات والكامبينات — مفتاح الـ API هنا، وحساب الموقع (الجسر) من المنتجات › الصور', github: 'المبرمج: الريبو ولينك المعاينة', claude: 'المحتوى والمساعدين — Claude', openai: 'نصوص وصور gpt-image', gemini: 'نصوص وصور Nano Banana وفيديو Veo', elevenlabs: 'التعليق الصوتي المباشر', higgsfield: 'فيديوهات الكامبينات عبر MCP', resend: 'إيميلات التنبيهات من alerts@ibtekr.club', figma: 'ملف الديزاين سيستم' };

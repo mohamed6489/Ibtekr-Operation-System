@@ -609,6 +609,49 @@
     logEvent('vendor.photo', e.toUpperCase() + ' · ' + (size / 1048576).toFixed(1) + ' ميجا · الموقع ' + site, id);
     return { ok: true, site, reason };
   }
+  // the owner, 11 Nov («إضافة مبتكر مشتغلتش على الويب سايت»): a maker of ours without a store gets one on the site — woo-sync vendor_store
+  // (Dokan's «Add New Vendor»: his portal login, the password typed here — the portal's temporary one, sent once, never kept —, the shop
+  // URL, the row's store fields, the commission / bank by their own rights on the server, trusted / featured, the account e-mail on).
+  // → { ok, store, adopted, commission, bank, photo, shopUrl } | { ok:false, reason, message } with the reason in Arabic; the reload links
+  // the store on the screen. The server logs it (vendor.store.create / .link) — nothing more here, and never the password.
+  const STORE_MSG = {
+    push_disabled: 'الكتابة على الموقع مقفولة — المبتكر اتسجل هنا بس، ومتجره هيتعمل لما تتفتح.',
+    has_store: 'المبتكر ده ليه متجر على الموقع بالفعل.',
+    no_login: 'لازم بيانات دخول (اسم مستخدم وإيميل) الأول عشان حساب الموقع.',
+    no_name: 'اسم المبتكر ناقص.',
+    login_taken: 'اسم المستخدم ده عليه حساب على الموقع — غيّره من «بيانات الدخول» وجرّب تاني.',
+    email_taken: 'الإيميل ده عليه حساب على الموقع (مش متجر) — استخدم إيميل تاني.',
+    shop_url_taken: 'رابط المتجر ده مستخدم لمتجر تاني — اختار رابط تاني.',
+    linked_elsewhere: 'المتجر اتعمل، بس المزامنة جابته كمبتكر لوحده قبل الربط — راجع سجل المبتكرين.',
+    woo_down: 'الموقع ماردش — ممكن يكون المتجر اتعمل؛ جرّب تاني بعد دقيقة (لو اتعمل هيترابط لوحده).',
+  };
+  const canStore = () => isAdmin() || perm('vendors.edit') === 'F';
+  async function createStore(id, opts) {
+    const v = vendors.get(String(id)); if (!v) return fail('not_found');
+    if (!canStore()) return fail('forbidden');
+    if (v.wooVendorId) return { ok: false, reason: 'has_store', message: STORE_MSG.has_store };
+    const o = opts || {}; const body = { action: 'vendor_store', vendor_id: String(id), password: String(o.password || '') };
+    if (o.shopUrl) body.shop_url = String(o.shopUrl).trim().toLowerCase();
+    ['notify', 'trusted', 'featured'].forEach((k) => { if (typeof o[k] === 'boolean') body[k] = o[k]; });
+    let d = null;
+    try {
+      const res = await c().functions.invoke('woo-sync', { body }); d = res.data;
+      if (res.error) {
+        let b = null; try { b = res.error.context && typeof res.error.context.json === 'function' ? await res.error.context.json() : null; } catch (x) { b = null; }
+        const st = res.error.context && res.error.context.status;
+        const why = b && typeof b.error === 'string' ? b.error : st === 401 || st === 403 ? 'forbidden' : 'network';
+        if (why === 'exists_store') return { ok: false, reason: why, message: 'الإيميل ده بتاع متجر «' + String((b && b.name) || '').slice(0, 80) + '» عندنا بالفعل.' };
+        if (why === 'refused') return { ok: false, reason: why, message: 'الموقع رفض إنشاء المتجر' + (b && b.code ? ' (' + String(b.code).slice(0, 40) + ')' : '') + '.' };
+        if (why === 'woo_error' || st === 502) return { ok: false, reason: 'woo_down', message: STORE_MSG.woo_down };
+        if (why === 'bad_request') return { ok: false, reason: 'invalid', field: b && b.field, message: b && b.field === 'password' ? 'الباسورد لازم 8 حروف على الأقل وفيه حرف إنجليزي ورقم ومن غير مسافات.' : b && b.field === 'shop_url' ? 'رابط المتجر حروف إنجليزي صغيرة وأرقام و - بس.' : 'البيانات مش مظبوطة.' };
+        return STORE_MSG[why] ? { ok: false, reason: why, message: STORE_MSG[why] } : fail(why === 'forbidden' ? 'forbidden' : 'network');
+      }
+    } catch (x) { return fail('network'); }
+    if (!d || d.result !== 'ok') return { ok: false, reason: (d && d.reason) || 'network', message: STORE_MSG[d && d.reason] || STORE_MSG.woo_down };
+    await load();
+    emit({ id, changed: ['store'] });
+    return { ok: true, store: d.store, adopted: !!d.adopted, commission: !!d.commission, bank: !!d.bank, photo: d.photo || 'none', shopUrl: d.shop_url || null };
+  }
   // the photo for the drawer: a signed URL (10 min), kept for the session
   const photoCache = new Map();
   async function photoUrl(id) {
@@ -719,6 +762,7 @@
   async function create(input, actor) {
     if (!(isAdmin() || perm('vendors.edit') === 'F')) throw noPerm(); // vendors_insert: vendors.edit = F
     invalid(validate(input));
+    if (input.commission && typeof input.commission === 'object') flatOf(input.commission.flat); // a bad flat fee throws before any write
     const login = input.login && input.login.username ? { username: String(input.login.username).trim().toLowerCase(), email: clean(input.email, 120) || clean(input.login.email, 120) } : null;
     const pw = login ? String(input.login.password || '') : ''; // the temporary password — the only mode (owner 26 Oct); local to this call only
     if (login) {
@@ -741,9 +785,21 @@
     const cats = mainIds(input.categories); // B2 (0080): the main categories, right after the vendor (a refusal leaves the vendor, named in `missing`)
     if (cats.length) { const cr = await call((cl) => cl.rpc('vendor_main_categories_set', { p_vendor: id, p_ids: cats })); if (!cr.ok) refused('categories', cr); }
     if (canRate() && Number.isFinite(rate)) { // a refused first rate does not undo the vendor
-      const since = input.rateSince && isIso(input.rateSince) ? input.rateSince : today();
-      const rr = await call((cl) => cl.from('vendor_rates').insert({ vendor_id: id, rate, since, set_by: (actor && actor.name) || null }));
-      if (rr.ok) logs.push(logEvent('vendor.rate', rate + '% من ' + since, id)); else refused('rate', rr);
+      // the owner, 11 Nov («أحدد النسبة وأنا برفع»): the whole commission with the maker — the type, the flat fee and the categories
+      // set by hand go through vendor_commission_set (0016: today in Cairo), awaited here so a store made right after carries it
+      const cm = input.commission && typeof input.commission === 'object' ? input.commission : null;
+      const cmType = cm && cm.type === 'category_based' ? 'category_based' : 'fixed';
+      const cmFlat = cm ? flatOf(cm.flat) : null;
+      const cmCats = cm && Array.isArray(cm.categories) ? cm.categories.map((x) => ({ id: Number(latin(x && x.id)), rate: x && x.rate != null && String(x.rate).trim() !== '' ? Number(latin(x.rate)) : null, flat: x && x.rate != null && String(x.rate).trim() !== '' ? flatOf(x.flat) : null }))
+        .filter((x) => Number.isInteger(x.id) && x.id > 0 && x.rate != null && x.rate >= 0 && x.rate <= 65) : [];
+      if (cmType === 'category_based' || cmFlat != null || cmCats.length) {
+        const rr = await call((cl) => cl.rpc('vendor_commission_set', { p_vendor: id, p_type: cmType, p_rate: rate, p_flat: cmFlat, p_categories: cmType === 'category_based' ? cmCats : [] }));
+        if (rr.ok) logs.push(logEvent('vendor.rate', (cmType === 'category_based' ? 'حسب الفئة — الأساسية ' : '') + rate + '%' + (cmFlat != null ? ' + ' + cmFlat + ' ج.م' : '') + (cmCats.length && cmType === 'category_based' ? ' (' + cmCats.length + ' فئة)' : ''), id)); else refused('rate', rr);
+      } else {
+        const since = input.rateSince && isIso(input.rateSince) ? input.rateSince : today();
+        const rr = await call((cl) => cl.from('vendor_rates').insert({ vendor_id: id, rate, since, set_by: (actor && actor.name) || null }));
+        if (rr.ok) logs.push(logEvent('vendor.rate', rate + '% من ' + since, id)); else refused('rate', rr);
+      }
     }
     if (login) {
       const lr = await call((cl) => cl.from('vendor_logins').insert({ vendor_id: id, username: login.username, email: login.email, pw_mode: 'temp', created_by: (actor && actor.name) || null }));
@@ -938,6 +994,7 @@
     setCategoryRate, setCommission, categories, canPush, pushVendor, // phase 3.3
     mainCategories, mainCategoryIds, // B2 (0080)
     canSyncNow, syncing, syncNow, // plan 3.4 decision 10
-    setPhoto, photoUrl, canPhoto }; // phase 13 decision 51
+    setPhoto, photoUrl, canPhoto, // phase 13 decision 51
+    createStore, canStore, STORE_MSG }; // the owner, 11 Nov: the maker's store on the site (woo-sync vendor_store)
   window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, loadMakersLog, makersLog: () => makersLog, setContract, contractUrl, setPhoto, photoUrl, PHOTO_BUCKET, stats, toVendor, toBrand, lineShare, rateAt, rateFor, storeOwnerAt, safeName, norm, today, MESSAGES, BUCKET, SYNC_FIELDS, toEvent, categories };
 })();

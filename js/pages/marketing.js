@@ -90,14 +90,14 @@
   // 9.5.3: «نظرة عامة» and «التقارير» are on the ads numbers; 9.5.4: the assistants (the media buyer, the designer, the developer) are open
   const TABS = [['overview', 'نظرة عامة'], ['create', 'إنشاء'], ['publog', 'سجل النشر'], ['calendar', 'الخطة الإعلانية'], ['templates', 'قوالب التصميم'], ['ai', 'مساعدين الذكاء الاصطناعي'], ['reports', 'التقارير']];
   const CSTEPS = ['تفاصيل الكامبين', 'البناء', 'المراجعة', 'النشر والتحميل'];
-  const st = { tab: 'create', view: 'hub', step: 1 };
+  const st = { tab: 'overview', view: 'hub', step: 1 }; // the v6 prototype (owner 11 Nov): the page opens on «نظرة عامة»
   const blankCamp = () => ({ id: null, w: W.defaults(), pieces: [], sched: {}, rtab: 'post', tried1: false, pubSel: new Set(), busy: {}, vjobs: {}, vurl: {} });
   const camp = blankCamp();
   const M = { plq: '', tplk: 'all', tplq: '' }; // the tabs' filters
 
   function route(hs) {
     let m;
-    if ((m = /^marketing(?:-(overview|create|publog|calendar|templates|ai|reports))?$/.exec(hs))) { st.tab = m[1] || 'create'; st.view = 'hub'; return true; }
+    if ((m = /^marketing(?:-(overview|create|publog|calendar|templates|ai|reports))?$/.exec(hs))) { st.tab = m[1] || 'overview'; st.view = 'hub'; return true; }
     if ((m = /^marketing-campaign-([1-4])$/.exec(hs))) { st.tab = 'create'; st.view = 'campaign'; st.step = Number(m[1]); return true; }
     return false;
   }

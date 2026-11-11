@@ -82,28 +82,14 @@
     const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: STOCK_SORTS.map(([v, l]) => ({ value: v, label: l })), value: st.sort || 'new', onSelect: (v) => { close(); st.sort = v; R(); } }));
     btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
   }
+  // B5 (the owner, 11 Nov): the filter is a row of dropdowns (search + ticks) — السبب · الحالة · المبتكر · المكان · أخرى («قاعدة أكتر من اللازم»)
   function stockFilterMenu(all) {
-    const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const n0 = fCount();
-    const btn = h('button', { type: 'button', class: 'select sm' + (n0 ? ' has-val' : ''), 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': 'فلتر المخزن', 'data-inv-filter-btn': '' }, Icon('chevD', 'sm'), h('span', { class: 'val' }, Icon('filter', 'sm'), ' فلتر' + (n0 ? ' (' + n0 + ')' : '')));
-    const pop = U.popover(wrap, btn, (close) => {
-      const d = { reason: [...st.f.reason], status: [...st.f.status], vendor: [...st.f.vendor], loc: [...st.f.loc], late: !!st.f.late };
-      const cnt = h('span', null); const upd = () => { cnt.textContent = 'اعرض ' + all.filter((x) => matchStock(x, d, st.q.toLowerCase())).length + ' صنف'; };
-      const items = [];
-      const opt = (label, content, isOn, toggle, attr) => { const b = h('button', { type: 'button', class: 'opt multi', role: 'menuitemcheckbox', 'aria-checked': String(isOn()), 'data-if': attr }, h('span', { class: 'mchk', 'aria-hidden': 'true' }, isOn() ? Icon('check', 'sm') : null), content || label); b._on = isOn; items.push(b);
-        b.addEventListener('click', (e) => { e.stopPropagation(); toggle(); items.forEach((x) => { const on = x._on(); x.setAttribute('aria-checked', String(on)); x.querySelector('.mchk').replaceChildren(...(on ? [Icon('check', 'sm')] : [])); }); upd(); }); return b; };
-      const multi = (k, v, l, content) => opt(l || v, content, () => d[k].includes(v), () => { const a = d[k]; const i_ = a.indexOf(v); if (i_ > -1) a.splice(i_, 1); else a.push(v); }, k + ':' + v);
-      const grp = (t) => h('div', { class: 'opt-group t-small', role: 'presentation' }, t);
-      const m = h('div', { class: 'menu view-menu inv-filter-menu', role: 'menu', 'aria-label': 'فلتر المخزن', 'data-inv-filter-menu': '' },
-        grp('السبب'), O.REASONS.map((r) => multi('reason', r, r, K.Tag(REASON_TONE[r], r))),
-        grp('الحالة'), STATUSES.map((x) => multi('status', x, x, K.Tag(STATUS_TONE[x] || 'neutral', x))),
-        grp('المبتكر'), [...new Set(all.map((x) => x.vendor))].sort().map((v) => multi('vendor', v)),
-        grp('المكان'), LOCS.map(([v, l]) => multi('loc', v, l)),
-        grp('أخرى'), opt('قاعدة أكتر من اللازم', null, () => d.late, () => { d.late = !d.late; }, 'late'),
-        h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-if-clear': '' }, onClick: () => { ['reason', 'status', 'vendor', 'loc'].forEach((k) => { d[k] = []; }); d.late = false; items.forEach((x) => { x.setAttribute('aria-checked', 'false'); x.querySelector('.mchk').replaceChildren(); }); upd(); } }),
-          Button({ size: 'sm', type: 'primary', label: cnt, attrs: { 'data-if-apply': '' }, onClick: () => { st.f = d; close(); R(); } })));
-      m.addEventListener('keydown', (e) => { const i_ = items.indexOf(document.activeElement); if (e.key === 'ArrowDown') { e.preventDefault(); items[(i_ + 1) % items.length].focus(); } if (e.key === 'ArrowUp') { e.preventDefault(); items[(i_ - 1 + items.length) % items.length].focus(); } });
-      upd(); return m; });
-    btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
+    const toF = (d) => ({ reason: d.reason.slice(), status: d.status.slice(), vendor: d.vendor.slice(), loc: d.loc.slice(), late: d.late.includes('late') });
+    return K.FilterMenu({ id: 'inv', label: 'فلتر المخزن', noun: 'صنف', value: { reason: st.f.reason, status: st.f.status, vendor: st.f.vendor, loc: st.f.loc, late: st.f.late ? ['late'] : [] },
+      groups: [{ key: 'reason', label: 'السبب', options: O.REASONS.map((r) => [r, r]) }, { key: 'status', label: 'الحالة', options: STATUSES.map((x) => [x, x]) },
+        { key: 'vendor', label: 'المبتكر', options: [...new Set(all.map((x) => x.vendor))].sort().map((v) => [v, v]) }, { key: 'loc', label: 'المكان', options: LOCS.map(([v, l]) => [v, l]) },
+        { key: 'late', label: 'أخرى', options: [['late', 'قاعدة أكتر من اللازم']] }],
+      count: (d) => all.filter((x) => matchStock(x, toF(d), st.q.toLowerCase())).length, onApply: (d) => { st.f = toF(d); R(); } });
   }
   // صف النتايج: شيبس الاختيارات (✕ في الركن) + عدد الأصناف + «مسح الكل»
   function activeRow(all, list) {

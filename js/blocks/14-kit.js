@@ -544,7 +544,7 @@
   // جنب زرار الأعمدة: «فلتر» من الأعمدة اللي ليها قيم محدودة (حالة، نوع، قناة…) والأعمدة الرقمية بالإشارة، و«ترتيب» بالتاريخ أو الرقم أو النص.
   // النتيجة: شيبس (اختيار لوحده + عدده في دايرة + ✕) تحت التايتل قبل راس الجدول. الجداول اللي ليها فلتر خاص بيها (`own-filter` أو فلتر في راسها) مابتتلمسش.
   function autoFilter(card, key, t) {
-    if (!card || !t || card.classList.contains('own-filter') || card.querySelector('[data-fm-btn]:not([data-fm-btn^="auto"]), [data-af]:not([data-af="auto"])')) return;
+    if (!card || !t || card.classList.contains('own-filter') || card.querySelector('[data-fm-btn]:not([data-fm-btn^="auto"]), [data-fm-row]:not([data-fm-row^="auto"]), [data-af]:not([data-af="auto"])')) return;
     if (t.closest('.modal, .drawer, [role=dialog]')) return;
     const hd0 = card.querySelector(':scope>.table-title, :scope>.sec-h, :scope>.cons-h');
     if (hd0 && hd0.querySelector('select, .select:not([data-fm-btn^=auto]):not([data-sm-btn^=auto])')) return; // الكارت عنده فلتر خاص في راسه
@@ -559,7 +559,8 @@
       const nums = ne.map(numOf), dates = ne.map(dateOf);
       const type = nums.every((x) => x !== null) ? 'num' : dates.every(Boolean) ? 'date' : ne.every((v) => /^\d{1,2}:\d{2}/.test(v)) ? 'time' : 'text';
       const distinct = [...new Set(ne)];
-      const cat = type === 'text' && distinct.length >= 2 && distinct.length <= 12 && distinct.every((v) => v.length <= 40) && !(distinct.length === rows.length && rows.length > 5);
+      // B5: a column whose values repeat (the dropdown has a search box past 6 values, so up to 40 of them)
+      const cat = type === 'text' && distinct.length >= 2 && distinct.length <= 40 && distinct.every((v) => v.length <= 60) && !(distinct.length === rows.length && rows.length > 5);
       return { lb, i, type, cat, distinct };
     }).filter(Boolean);
     // فلتر لكل جدول (owner 1 Nov): أعمدة القيم المحدودة + الأعمدة الرقمية بالإشارة (فيه قيمة / صفر / سالب) — عشان جداول الأرقام بس يبقى ليها فلتر برضه
@@ -611,13 +612,14 @@
           td.textContent = active ? sumOf(all.filter((r) => !r.classList.contains('af-hide'))).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }) : td.dataset.aft; });
         const first = fr.cells[0]; if (first && first.dataset.aft != null && cols.some((c) => c.type === 'num')) first.textContent = active ? first.dataset.aft.trim() + ' (المعروض)' : first.dataset.aft;
       });
-      // الأزرار جنب زرار الأعمدة
+      // الترتيب جنب زرار الأعمدة، والفلتر (B5) صف دروب داونز فوق الجدول
       card.querySelectorAll('[data-auto-ctl]').forEach((x) => x.remove());
       const ctl = [];
-      if (groups.length) ctl.push(FilterMenu({ id: 'auto:' + key, label: 'فلتر ' + (card.querySelector('h2') || {}).textContent, groups, value: S.f, noun: 'صف', count: (d) => all.filter((r) => match(r, d)).length, onApply: (d) => { S.f = d; apply(); } }));
       if (SORTS.length > 1) ctl.push(SortMenu({ id: 'auto:' + key, label: 'ترتيب ' + (card.querySelector('h2') || {}).textContent, options: SORTS, value: S.sort, onChange: (v) => { S.sort = v; apply(); } }));
       ctl.forEach((c) => c.setAttribute('data-auto-ctl', ''));
       if (colsBtn && colsBtn.parentElement) ctl.forEach((c) => colsBtn.before(c)); else if (head) { const a = head.querySelector('.acts, .acts-inline') || head; ctl.forEach((c) => a.append(c)); }
+      if (groups.length) { const fr = FilterMenu({ id: 'auto:' + key, label: 'فلتر ' + (card.querySelector('h2') || {}).textContent, groups, value: S.f, noun: 'صف', count: (d) => all.filter((r) => match(r, d)).length, onApply: (d) => { S.f = d; apply(); } });
+        fr.setAttribute('data-auto-row', ''); fr.classList.add('af-picks'); anchor.before(fr); }
       // النتيجة
       const chips = []; groups.forEach((g) => (S.f[g.key] || []).forEach((v) => chips.push({ key: g.key + ':' + v, label: g.label + ': ' + (g.num || g.avg ? (g.options.find((x) => x[0] === v) || [, v])[1] : v), count: all.filter((r) => cellKey(r, g.key) === v).length,
         remove: () => { S.f[g.key] = S.f[g.key].filter((x) => x !== v); apply(); } })));
@@ -665,23 +667,21 @@
     return { head, box, bar, sel: S, has: (id) => S.has(String(id)), clear: () => S.clear() };
   }
 
-  // ---------- فلتر مقفول + ترتيب + شيبس النتيجة — مكوّن واحد لأي جدول (owner 1 Nov) ----------
+  // ---------- فلتر الجداول — مكوّن واحد لأي جدول (owner 1 Nov) ----------
   // groups: [{ key, label, options:[[value,label]] }] · value: { key:[...] } · count(draft) → عدد النتايج · onApply(newValue)
+  // B5 (صاحب المشروع 11 نوفمبر — «زرار فلتر يتبدل بصف دروب داونز فيها بحث و checkboxes زي فلتر المنتجات»): صف فيه MultiPick لكل
+  // مجموعة (العلامات بتستنى في القايمة و«اعرض N <noun>» بيطبّق، والبحث لما الاختيارات أكتر من 6)، والقيم بترجع بنوعها الأصلي.
+  // كل دروب داون عليها data-fm-key = مفتاح المجموعة، والصف data-fm-row = id.
+  const fmSlug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'f';
   function FilterMenu({ id, groups, value, count, noun, onApply, label }) {
-    const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const n0 = groups.reduce((n, g) => n + (value[g.key] || []).length, 0);
-    const btn = h('button', { type: 'button', class: 'select sm' + (n0 ? ' has-val' : ''), 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': label || 'فلتر', 'data-fm-btn': id }, Icon('chevD', 'sm'), h('span', { class: 'val' }, Icon('filter', 'sm'), ' فلتر' + (n0 ? ' (' + n0 + ')' : '')));
-    const pop = U.popover(wrap, btn, (close) => {
-      const d = {}; groups.forEach((g) => { d[g.key] = [...(value[g.key] || [])]; });
-      const cnt = h('span', null); const upd = () => { cnt.textContent = 'اعرض ' + count(d) + ' ' + noun; }; const items = [];
-      const opt = (k, v, l) => { const on = () => d[k].includes(v); const b = h('button', { type: 'button', class: 'opt multi', role: 'menuitemcheckbox', 'aria-checked': String(on()), 'data-fm': k + ':' + v }, h('span', { class: 'mchk', 'aria-hidden': 'true' }, on() ? Icon('check', 'sm') : null), l); b._on = on; items.push(b);
-        b.addEventListener('click', (e) => { e.stopPropagation(); const a = d[k]; const i = a.indexOf(v); if (i > -1) a.splice(i, 1); else a.push(v); items.forEach((x) => { x.setAttribute('aria-checked', String(x._on())); x.querySelector('.mchk').replaceChildren(...(x._on() ? [Icon('check', 'sm')] : [])); }); upd(); }); return b; };
-      const m = h('div', { class: 'menu view-menu', role: 'menu', 'aria-label': label || 'فلتر', 'data-fm-menu': id },
-        groups.map((g) => [h('div', { class: 'opt-group t-small', role: 'presentation' }, g.label), g.options.map(([v, l]) => opt(g.key, v, l))]),
-        h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-fm-clear': '' }, onClick: () => { groups.forEach((g) => { d[g.key] = []; }); items.forEach((x) => { x.setAttribute('aria-checked', 'false'); x.querySelector('.mchk').replaceChildren(); }); upd(); } }),
-          Button({ size: 'sm', type: 'primary', label: cnt, attrs: { 'data-fm-apply': '' }, onClick: () => { close(); onApply(d); } })));
-      m.addEventListener('keydown', (e) => { const i = items.indexOf(document.activeElement); if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); } if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); } });
-      upd(); return m; });
-    btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
+    const now = () => { const v = {}; groups.forEach((g) => { v[g.key] = [...((value || {})[g.key] || [])]; }); return v; };
+    return h('div', { class: 'fm-row', role: 'group', 'aria-label': label || 'فلتر', 'data-fm-row': id }, groups.map((g, i) => {
+      const orig = new Map(g.options.map(([v]) => [String(v), v])); const back = (p) => p.map((s) => (orig.has(s) ? orig.get(s) : s));
+      const withPick = (p) => Object.assign(now(), { [g.key]: back(p) });
+      const el = MultiPick({ id: 'fm-' + fmSlug(id) + '-' + i, label: g.label, options: g.options, value: ((value || {})[g.key] || []).map(String), noun,
+        count: count ? (p) => count(withPick(p)) : undefined, onApply: (p) => onApply(withPick(p)) });
+      el.setAttribute('data-fm-key', String(g.key)); return el;
+    }));
   }
   function SortMenu({ id, options, value, onChange, label }) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const cur = options.find((x) => x[0] === value) || options[0];

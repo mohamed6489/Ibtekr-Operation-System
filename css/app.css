@@ -1731,3 +1731,10 @@ tr.dragging{background:var(--color-bg-tint)}
 .mp-menu .opt.mp-sub .mp-l{color:var(--color-text-secondary)}
 .mp-empty{margin:8px 12px;color:var(--color-text-secondary)}
 .mp-field .select{width:100%}
+/* B5 (the owner, 11 Nov): a table's filter is a row of dropdowns (search + ticks), one per column whose values repeat */
+.fm-row{display:flex;flex-wrap:wrap;gap:8px;align-items:center}
+.fm-row .mp .select{min-width:120px}
+.af-picks{padding-block:12px 0}
+#vendors .table-card>.af-picks{margin-inline:24px}
+#main .table-card>.fm-row,#vendors .table-card>.fm-row{margin-inline:24px;padding-top:12px}
+.tbl-v2>.fm-row{margin-inline:20px}

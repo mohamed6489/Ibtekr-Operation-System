@@ -37,6 +37,7 @@ async function openInventory(page, email = ADMIN) {
   await signIn(page, email);
   await page.locator('.sidebar .nav-item[data-page="inventory"]').click();
   await expect(page.locator('#pg-inventory')).toBeVisible();
+  await page.locator('#pg-inventory [role=tab]', { hasText: 'سجل المخزون' }).click(); // decision 58: the page opens on «نظرة عامة»
   await expect(page.locator('#pg-inventory')).toContainText('سلة كروشيه');
 }
 const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
@@ -289,6 +290,7 @@ test('receiving an order\'s line as «تجميع أوردر» opens the order\'s
   await m.getByRole('button', { name: 'استلام', exact: true }).click();
   await expect.poll(() => mock.inv.inv_consolidation_items.map((x) => x.item_id).sort()).toEqual([5001, 5002]);
   expect(mock.inv.inv_consolidations).toEqual([expect.objectContaining({ order_id: 181668, zone: 'T', status: 'open' })]);
+  await page.locator('#pg-inventory [role=tab]', { hasText: 'نظرة عامة' }).click(); // decision 58: the cards are on «نظرة عامة»
   await expect(page.locator('#pg-inventory .kpi, #pg-inventory [data-details]', { hasText: 'بتتجمع' }).first()).toContainText('1');
   await page.evaluate(() => { location.hash = 'inventory-consolidate'; });
   await expect(page.locator('#pg-inventory')).toContainText('1 من 2');
@@ -360,4 +362,20 @@ test('a line whose SKU is «متاح للبيع» in the hub shows «في الم
   await expect.poll(() => mock.inv.inv_moves.find((x) => x.type === 'reserve' && x.lot_id === LH)).toMatchObject({ qty: 2, ref: 'IB-181668' });
   await expect.poll(() => mock.patches.find((p) => p.table === 'order_items' && p.id === 5001 && p.pulled !== undefined)).toMatchObject({ pulled: true });
   await expect(row(5001).locator('.vchip.pull').first()).toContainText('مخزن ابتكر');
+});
+
+// phase 13 decision 58: «نظرة عامة» (the five cards + by reason) then «سجل المخزون» (filters + table), then the other tabs
+test('decision 58: the inventory opens on «نظرة عامة» with the cards; «سجل المخزون» holds the filters and the table', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.locator('.sidebar .nav-item[data-page="inventory"]').click();
+  const pg = page.locator('#pg-inventory');
+  await expect(pg.locator('[role=tab]')).toHaveText(['نظرة عامة', 'سجل المخزون', 'تجميع أوردرات', 'المرتجعات', 'حركات المخزن', 'الجرد', 'التقارير', 'إعدادات المخزن']);
+  await expect(page).toHaveURL(/#inventory-overview$/);
+  await expect(pg.locator('.kpi[aria-label="متاح للبيع"]')).toBeVisible();
+  await expect(pg).toContainText('المخزن حسب السبب');
+  await expect(pg.locator('[data-inv-toolbar]')).toHaveCount(0);
+  await pg.locator('[data-inv-open-now]').click();
+  await expect(pg.locator('[data-inv-toolbar]')).toBeVisible();
+  await expect(pg.locator('.kpi')).toHaveCount(0);
+  await expect(pg).toContainText('سلة كروشيه');
 });

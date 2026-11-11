@@ -3016,7 +3016,7 @@
     const rows = all.filter((e) => !state.vlogKind || e.k === state.vlogKind);
     const chips = h('div', { class: 'chips', role: 'group', 'aria-label': 'نوع الحركة' }, [['', 'الكل'], ['create', LOG_KIND.create], ['inactive', LOG_KIND.inactive], ['active', LOG_KIND.active], ['leave', LOG_KIND.leave], ['remove', LOG_KIND.remove]].map(([k, l]) => {
       const n = k ? all.filter((e) => e.k === k).length : all.length;
-      return h('button', { type: 'button', class: 'chip' + (state.vlogKind === k ? ' on' : ''), 'aria-pressed': String(state.vlogKind === k), 'data-vlog-kind': k, onClick: () => { state.vlogKind = k; renderVendors(); } }, l + ' · ' + num(String(n)));
+      return h('button', { type: 'button', class: 'chip' + (state.vlogKind === k ? ' on' : ''), 'aria-pressed': String(state.vlogKind === k), 'data-vlog-kind': k, onClick: () => { state.vlogKind = k; renderVendors(); } }, l + ' · ', num(String(n))); // num() is an element — never joined into the text («[object HTMLSpanElement]», the owner 11 Nov)
     }));
     const tone = { create: 'success', remove: 'error', active: 'success', inactive: 'neutral', leave: 'gold', site: 'neutral' };
     const body = raw == null ? U.InlineNote({ children: 'بنحمّل سجل الحركات…' }) : rows.length ? U.Table({ cls: 'tickets-table', headers: ['التاريخ', 'المبتكر', 'الحركة', 'بواسطة'], rows: rows.map((e) => [fmtTime(e.at), (() => { const v = e.vendorId && vstore.get(e.vendorId); return v ? h('a', { href: '#makers/' + v.id, 'data-vlog-open': v.id, onClick: (ev) => { ev.preventDefault(); openVendor(v.id); } }, v.name) : nameOf(e); })(), h('span', { class: 'tg tg-' + (tone[e.k] || 'neutral'), 'data-vlog-row': e.k }, LOG_KIND[e.k] || e.k), (e.actor && e.actor.name) || '—']) })

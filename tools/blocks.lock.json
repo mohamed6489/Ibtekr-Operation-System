@@ -53,7 +53,7 @@
   },
   "14-kit.js": {
     "prototype": "2a924af8c731555a02958f802f051efe4ef180be78d65a0f3340b342a064e432",
-    "current": "d6ed2f7291b1a0132a16040a96c3b0501b1690e5cfdb583a95b120de3423a0c7"
+    "current": "96ce2624c867f3b8d518dabc3296d46ea1cca20402bc4badcb811d53ff5abe8c"
   },
   "15-page-hr.js": {
     "prototype": "ee600dbb6d1a699847ee0528e7454c3bc857f4801989b1cf85cdba72aa135d76",
@@ -85,7 +85,7 @@
   },
   "22-orders-ops.js": {
     "prototype": "840c4a2093e78030058acaac11c712410a8107419aa1d34bea7da2526ee80885",
-    "current": "4fde89b3c9a92b882c3b0072748394ecef932f494650abe1f07b72159c849ee0"
+    "current": "2c6381c7f26133d35a0db0e41d2911c579b78687b62832514cb6bfcf64522518"
   },
   "23-notif-roles-domain.js": {
     "prototype": "68697112a566dd41c2cd864e4f5540db306821930b9c3ad448e66008f688aec2",
@@ -109,7 +109,7 @@
   },
   "28-app.js": {
     "prototype": "28f47321b1a78201e81b34cffa6e20cba67b15788396c9ce0def7cd7e17243c9",
-    "current": "73d79e0a4d9f125d1a6090ce37cfec4e49781e908de3569d23c1fffe2c861e1b"
+    "current": "c09523eb418d9b75b7f97667c224e027a14893cd853555d4940f8491130c8761"
   },
   "29-orders-app.js": {
     "prototype": "2e80a15f203c79adc2931c3682297119b4e1926b9e40f10a0b906007acff23bd",

@@ -791,6 +791,10 @@ test('decision 57: the makers page tabs — «نظرة عامة» (cards) · «�
   await expect(page.locator('#vpanel [data-vlog-row]').first()).toBeVisible();
   await expect(page.locator('#vpanel [data-vlog-row="inactive"]')).toHaveCount(1);
   await expect(page.locator('#vpanel tr', { has: page.locator('[data-vlog-row="inactive"]') })).toContainText('Antikiano');
+  // the owner 11 Nov: each chip reads «النوع · العدد» — the count was an element joined into the text («[object HTMLSpanElement]»)
+  await expect(page.locator('#vpanel [data-vlog-kind="inactive"]')).toHaveText('توقيف · 1');
+  await expect(page.locator('#vpanel [data-vlog-kind]').first()).toHaveText(/^الكل · \d+$/);
+  await expect(page.locator('#vpanel [aria-label="نوع الحركة"]')).not.toContainText('object');
   await page.locator('#vpanel [data-vlog-kind="create"]').click();
   await expect(page.locator('#vpanel [data-vlog-row="inactive"]')).toHaveCount(0);
   // the reports page's makers report

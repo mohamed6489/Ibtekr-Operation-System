@@ -886,6 +886,26 @@ test('decision 54: «مسح الأوردر الفرعي» lists its lines, takes
   await expect(dlg.locator('[data-cok]')).toHaveText('إلغاء ومسح الأوردر');
 });
 
+// the owner 11 Nov («تاريخ الالغاء المفروض يبقي default اليوم اللي هلغي بيه»): the cancel popup's date starts on the real day in Cairo —
+// not the prototype's fixed demo day — and «اليوم الحالي» in its calendar picks the same day
+test('the owner 11 Nov: the cancel popup\'s date starts on today (Cairo); «اليوم الحالي» is today too; «ليس الآن» leaves the order', async ({ page }) => {
+  await openOrders(page);
+  const today = new Intl.DateTimeFormat('en-GB', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date()); // dd/mm/yyyy
+  await card(page, '181668').locator('select[data-st="181668"]').selectOption('ملغي');
+  const dlg = page.locator('.modal[role=dialog]', { hasText: 'إلغاء — IB-181668' });
+  await expect(dlg).toBeVisible();
+  await expect(dlg.locator('input#date')).toHaveValue(today);
+  await dlg.locator('input#date').fill('01/01/2026'); await dlg.locator('input#date').press('Tab');
+  await expect(dlg.locator('input#date')).toHaveValue('01/01/2026');
+  await dlg.getByRole('button', { name: 'اختيار التاريخ' }).click();
+  await page.getByRole('button', { name: 'اليوم الحالي' }).click();
+  await expect(dlg.locator('input#date')).toHaveValue(today);
+  await dlg.getByRole('button', { name: 'ليس الآن' }).click();
+  await expect(dlg).toHaveCount(0);
+  expect(mock.patches).toEqual([]);
+  await expect(card(page, '181668').locator('select[data-st="181668"]')).toHaveValue('جاري التنفيذ');
+});
+
 test('the owner 11 Nov: «حالة الموقع» of a Dokan sub-order (the site\'s own status, the whole sub-order) and «مسح المنتج» — one product off the order on the site; the last product of a sub-order goes to «مسح الأوردر الفرعي»', async ({ page }) => {
   // a second product in sub-order 181669 (the same maker)
   const base = mock.orderItems.find((i) => i.id === 5001);

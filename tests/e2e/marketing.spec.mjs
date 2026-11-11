@@ -37,17 +37,21 @@ async function signIn(page, email) {
   await page.getByRole('button', { name: 'دخول', exact: true }).click();
   await expect(page.locator('#root')).toBeVisible();
 }
-async function openMarketing(page, email = ADMIN) {
+async function openMarketing(page, email = ADMIN, open = true) {
   await signIn(page, email);
   await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
   await expect(page.locator('#pg-marketing')).toBeVisible();
+  if (open) await page.locator('#pg-marketing').getByRole('tab', { name: /إنشاء/ }).click(); // the page opens on «نظرة عامة» (the v6 prototype)
 }
 const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });
 const pg = (page) => page.locator('#pg-marketing');
 
-test('«التسويق» is open: «إنشاء» first, the assistants\' soon tab (overview and reports opened in 9.5.3 — marketing-ads.spec), «آخر الشغل» from the database with its status', async ({ page }) => {
-  await openMarketing(page);
+test('«التسويق» is open on «نظرة عامة» (the v6 prototype), «إنشاء» second with «آخر الشغل» from the database with its status; every tab open', async ({ page }) => {
+  await openMarketing(page, ADMIN, false);
   await expect(page.locator('.sidebar .nav-item[data-page="marketing"]')).not.toHaveAttribute('data-soon', '');
+  await expect(pg(page).locator('[role=tab][aria-selected=true]')).toContainText('نظرة عامة');
+  await expect(page).toHaveURL(/#marketing(-overview)?$/);
+  await pg(page).getByRole('tab', { name: /إنشاء/ }).click();
   await expect(pg(page).locator('[role=tab][aria-selected=true]')).toContainText('إنشاء');
   await expect(pg(page).locator('[data-mk-start]')).toBeVisible();
   const row = pg(page).locator('tr', { hasText: 'كولكشن الشتا القديم' });
@@ -200,7 +204,7 @@ test('the templates: a new one with an upload and «اشرحها بالـ AI»; 
 });
 
 test('permissions and the cap: a member without marketing.view gets no page; over the month\'s cap the image is refused before any call', async ({ page }) => {
-  await openMarketing(page, ACCOUNTS);
+  await openMarketing(page, ACCOUNTS, false);
   await expect(pg(page)).toContainText('مفيش صلاحية');
   await page.evaluate(() => window.IBAuth && window.IBAuth.signOut && window.IBAuth.signOut());
   mock.mkt.cap = 100; mock.mkt.used = 60; // 40 left, an image is 75

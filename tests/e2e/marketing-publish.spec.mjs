@@ -45,7 +45,7 @@ async function openMarketing(page, email = ADMIN, hash = '') {
   await expect(page.locator('#root')).toBeVisible();
   await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
   await expect(page.locator('#pg-marketing')).toBeVisible();
-  if (hash) await page.locator('#pg-marketing [role=tab]', { hasText: hash }).click();
+  await page.locator('#pg-marketing [role=tab]', { hasText: hash || 'إنشاء' }).click(); // the page opens on «نظرة عامة» (the v6 prototype)
 }
 const pg = (page) => page.locator('#pg-marketing');
 const modal = (page, text) => page.locator('.modal[role=dialog]', { hasText: text });

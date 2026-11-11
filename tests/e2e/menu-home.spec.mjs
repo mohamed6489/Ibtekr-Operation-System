@@ -36,7 +36,7 @@ const CASES = [
   ['autoreply', 'autoreply-rules', 'autoreply-overview', '#pg-autoreply'], // decision 65
   ['settings', 'settings-team', 'settings', '#pg-settings'],
   ['products', 'products-trash', 'products-overview', '#pg-products'], // decision 62
-  ['marketing', 'marketing-calendar', 'marketing-create', '#pg-marketing'],
+  ['marketing', 'marketing-calendar', 'marketing-overview', '#pg-marketing'], // the v6 prototype: «نظرة عامة» first
   ['accounts', 'sales', 'acc-overview', '#main'], // decision 61: the accounts open on «نظرة عامة»
   ['reports', 'reports-vendors', 'reports-orders', '#reports'],
 ];

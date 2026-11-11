@@ -127,7 +127,12 @@ test('decision 24: a second session that brings the day past 8 hours asks the 8-
   const ask = modal(page, 'اكتمال ساعات العمل');
   await expect(ask).toBeVisible();
   await ask.getByRole('button', { name: 'ابدأ وقت إضافي' }).click();
-  await clock(page).locator('.clock').click();
+  await expect(ask).toBeHidden();
+  // the clock re-draws once the overtime start lands — open its popover until it carries the overtime's end (a click on the old one closes it)
+  await expect(async () => {
+    if (!(await page.locator('.clock-pop').isVisible().catch(() => false))) await clock(page).locator('.clock').click();
+    await expect(page.locator('.clock-pop').getByRole('button', { name: 'إنهاء الوقت الإضافي' })).toBeVisible({ timeout: 1000 });
+  }).toPass({ timeout: 10000 });
   await page.locator('.clock-pop').getByRole('button', { name: 'إنهاء الوقت الإضافي' }).click();
   const f = modal(page, 'إنهاء الوقت الإضافي');
   await f.locator('#note').fill('تقفيل شحنة المسا');

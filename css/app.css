@@ -1632,6 +1632,10 @@ tbody tr:nth-child(even) td{background:var(--color-bg-tint)}
 .modal,.modal.wide,.modal.mid,.modal.xl{max-height:80vh;max-height:80dvh}
 .modal-b{min-height:0}
 @media (max-width:767px){.scrim{padding:0 8px;align-items:center}.modal{max-height:80vh;max-height:80dvh;border-radius:var(--radius-md)}}
+/* the owner 11 Nov («كل السايد بارز بقت ف النص خليها تيجي علي اليمين زي ما كانت في كل السيستم و البوب اب تبقي في النص»): the rule above
+   centred every .scrim, the side sheets' too — a drawer comes in from the right again at full height (any size), the popups stay centred. */
+.scrim.drawer-scrim{place-items:stretch start;align-items:stretch;padding:0}
+@media (max-width:767px){.scrim.drawer-scrim{padding:0;align-items:stretch}}
 
 /* phase 13 decision 20 (owner 10 Nov — «خلي البوب أب بتاع نتيجة البحث يبقى نفس عرض خانة البحث، وأقسام النتايج تاجز بخلفية خضرا مكتوب جواها بالبيج»):
    the results list takes the search field's width exactly (on every size), and each group heading is a green pill with beige text. */

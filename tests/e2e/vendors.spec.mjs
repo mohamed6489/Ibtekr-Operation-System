@@ -159,6 +159,15 @@ test('the drawer: identity, contact, agreement, contract and the activity log fr
   await expect(page).toHaveURL(/#makers$/);
 });
 
+test('decision 59: a drawer section\'s action («تعديل» …) is a small secondary button — green with beige text', async ({ page }) => {
+  await openVendors(page);
+  await openDrawer(page, V2);
+  const b = section(page, 'الهوية').locator('[data-edit="identity"]');
+  await expect(b).toBeVisible();
+  const st = await b.evaluate((x) => { const c = getComputedStyle(x); return [c.backgroundColor, c.color, Math.round(x.getBoundingClientRect().height)]; });
+  expect(st[0]).toBe('rgb(0, 86, 66)'); expect(st[1]).toBe('rgb(255, 247, 239)'); expect(st[2]).toBeLessThanOrEqual(36);
+});
+
 test('ops (vendors.edit = P) changes a phone: written, logged with the vendor as entity, shown in the timeline; a name change is refused by the server and comes back', async ({ page }) => {
   await openVendors(page, OPS);
   await openDrawer(page, V1);

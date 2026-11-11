@@ -2526,7 +2526,7 @@
   const offline = { ok: false, message: 'تعذّر الاتصال — جرّب تاني' };
   state.tfilter = { status: 'open_any', type: 'all', priority: 'all', role: 'all', mine: false, q: '' };
   // فلتر + ترتيب جنب زرار الأعمدة (owner 1 Nov) — اختيارات متعددة، والافتراضي «مفتوحة»
-  state.tf = { status: ['open_any'], type: [], priority: [], role: [], mine: [] }; state.tsort = 'prio'; state.tsub = 'log';
+  state.tf = { status: ['open_any'], type: [], priority: [], role: [], mine: [] }; state.tsort = 'prio'; state.tsub = 'overview'; // the owner 11 Nov: «نظرة عامة» first
   const TSORTS = [['prio', 'الأولوية ثم آخر تحديث'], ['upd', 'آخر تحديث'], ['new', 'الأحدث إنشاءً'], ['old', 'الأقدم إنشاءً'], ['follow', 'أقرب موعد متابعة']];
   const tMatch = (t, f) => (!f.status.length || f.status.some((v) => (v === 'open_any' ? TK.OPEN.has(t.status) : t.status === v))) && (!f.type.length || f.type.includes(t.type)) && (!f.priority.length || f.priority.includes(t.priority)) && (!f.role.length || f.role.includes(t.assigneeRole)) && (!f.mine.length || (TA() && TA().isMine(t)));
   const tSort = (l) => { const k = state.tsort; const c = (x, y) => (x < y ? -1 : x > y ? 1 : 0); if (k === 'upd') return l.sort((a, b) => c(b.lastUpdate, a.lastUpdate)); if (k === 'new') return l.sort((a, b) => c(b.createdAt, a.createdAt)); if (k === 'old') return l.sort((a, b) => c(a.createdAt, b.createdAt)); if (k === 'follow') return l.sort((a, b) => c(a.followUp || '9999', b.followUp || '9999')); return l; };
@@ -2604,6 +2604,42 @@
       open.length ? null : U.InlineNote({ children: 'مفيش تذاكر مفتوحة دلوقتي.' })];
   }
 
+  // ----- «نظرة عامة» (the owner 11 Nov — «اضافة النظرة العامة ف طلبات الفريق و يبقي فيها عدد الطلبات و انواع الطلبات و مين اكتر حد ف الفريق
+  // عنده شغل»): the counts, the requests by type and by status, and who carries the work — each active member with the open requests on
+  // their role (a request goes to a role, phase 8 decision 3: the members of one role share its queue) and what they solved this month
+  function TicketsOverview() {
+    const K3 = window.IBKit; const all = tstore.all(); const open = all.filter((t) => TK.OPEN.has(t.status)); const sum = TK.summary(all, TODAY);
+    const month = TODAY.slice(0, 7); const weekAgo = new Date(Date.parse(TODAY + 'T00:00:00Z') - 6 * 864e5).toISOString().slice(0, 10);
+    const solvedAt = (t) => String((t.resolution && t.resolution.at) || t.closedAt || '');
+    const newWeek = all.filter((t) => String(t.createdAt || '').slice(0, 10) >= weekAgo).length;
+    const doneMonth = all.filter((t) => (t.status === 'resolved' || t.status === 'closed') && solvedAt(t).slice(0, 7) === month).length;
+    // the kinds as «طلب جديد» names them (decision 66): the problems by type; an HR request's ticket by its title («طلب إجازة — …»,
+    // «وقت إضافي — …» — 0071 / 0077 / 0069); any other internal one is «طلب خاص»
+    const kindOf = (t) => { if (t.type === 'customer') return 'مشكلة عميل'; if (t.type === 'vendor') return 'مشكلة مبتكر';
+      const p = String(t.title || '').split(' — ')[0].trim(); return p.length <= 30 && (/^طلب \S/.test(p) || p === 'وقت إضافي') ? p : 'طلب خاص'; };
+    const kinds = new Map(); all.forEach((t) => { const k = kindOf(t); const r = kinds.get(k) || { l: k, open: 0, all: 0 }; r.all += 1; if (TK.OPEN.has(t.status)) r.open += 1; kinds.set(k, r); });
+    const types = [...kinds.values()].sort((a, b) => b.open - a.open || b.all - a.all || a.l.localeCompare(b.l, 'ar'));
+    const maxType = Math.max(1, ...types.map((x) => x.open));
+    const sts = TK.STATUSES.map(([v, l]) => ({ l, n: all.filter((t) => t.status === v).length })); const maxSt = Math.max(1, ...sts.map((x) => x.n));
+    const D = window.IBDirectory; const rolesOf = TA() && TA().rolesOf ? TA().rolesOf : () => [];
+    const people = (D && D.members ? D.members() : []).filter((m) => m && m.status === 'active' && m.roleId).map((m) => { const roles = rolesOf(m.roleId);
+      return { name: m.name, roles, open: open.filter((t) => roles.includes(t.assigneeRole)).length, done: all.filter((t) => t.resolution && t.resolution.by === m.name && solvedAt(t).slice(0, 7) === month).length }; })
+      .filter((p) => p.roles.length).sort((a, b) => b.open - a.open || b.done - a.done || String(a.name).localeCompare(String(b.name), 'ar'));
+    const maxP = Math.max(1, ...people.map((p) => p.open));
+    const none = (t) => [h('div', { class: 't-small help' }, t)];
+    return [
+      h('div', { class: 'cards five', 'data-tk-ov': '' },
+        K3.Stat('طلبات مفتوحة', String(open.length), 'طلب', 'مفتوح + جاري العمل + بانتظار الرد', 'off'),
+        K3.Stat('متأخرة عن المتابعة', String(sum.overdue), 'طلب', 'عدّت تاريخ المتابعة ولسه مفتوحة', sum.overdue ? 'negative' : 'off'),
+        K3.Stat('جديدة آخر 7 أيام', String(newWeek), 'طلب', 'اتفتحت الأسبوع ده', 'off'),
+        K3.Stat('اتحلت الشهر ده', String(doneMonth), 'طلب', 'تم الحل أو اتقفلت', 'off'),
+        K3.Stat('كل الطلبات', String(all.length), 'طلب', 'متوسط وقت الحل ' + sum.avgDays + ' يوم', 'off')),
+      h('div', { class: 'grid3' },
+        K3.Section('الطلبات حسب النوع', types.length ? types.map((x) => U.BarRow({ tone: 'brand', label: x.l, value: x.open + ' مفتوح · ' + x.all + ' الكل', pct: x.open / maxType })) : none('لسه مفيش طلبات'), null, { sub: 'المفتوح من كل نوع', cols: false }),
+        K3.Section('الطلبات حسب الحالة', sts.map((x) => U.BarRow({ tone: 'brand', label: x.l, value: String(x.n), pct: x.n / maxSt })), null, { sub: all.length + ' طلب', cols: false }),
+        K3.Section('مين عنده شغل', people.length ? people.map((p) => U.BarRow({ tone: 'brand', label: p.name, value: p.open + ' مفتوح لدوره · ' + p.done + ' حلّه الشهر ده', pct: p.open / maxP })) : none('مفيش أعضاء نشطين'), null, { sub: 'الأكتر شغل فوق — الطلب بيتوجّه للدور، واللي في نفس الدور بيشاركوا طلباته', cols: false, cls: 'tk-people' }))];
+  }
+
   function TicketsView() {
     const all = tstore.all();
     const list = tSort(TK.filterTickets(all, { q: state.tfilter.q }).filter((t) => tMatch(t, state.tf)));
@@ -2635,7 +2671,8 @@
     const tkHead = h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'طلبات الفريق'), h('p', { class: 't-small' }, 'طلبات الفريق: مشاكل العملاء، مشاكل المبتكرين، والتعليقات الداخلية — كل تحديث بيتسجل في السجل')),
       h('div', { class: 'actions' }, state.tsub === 'log' && K2.PanelButton ? K2.PanelButton('tickets', 'تذاكر الفريق', () => document.getElementById('tickets'), renderTickets) : null, window.IBDataActions.Menu(window.IBDataActions.PAGES.tickets),
         tCanManage() || hrCanFile() ? Button({ type: 'brand', icon: 'plus', label: 'فتح طلب', attrs: { 'data-req-new': '' }, onClick: () => openNewTicket() }) : null)); // decision 45
-    const tkTabs = K2.SubTabs({ items: [{ id: 'log', label: 'السجل', count: all.filter((t) => TK.OPEN.has(t.status)).length }, { id: 'reports', label: 'التقارير' }], active: state.tsub, onChange: (id) => { state.tsub = id; renderTickets(); }, label: 'أقسام التذاكر' });
+    const tkTabs = K2.SubTabs({ items: [{ id: 'overview', label: 'نظرة عامة' }, { id: 'log', label: 'السجل', count: all.filter((t) => TK.OPEN.has(t.status)).length }, { id: 'reports', label: 'التقارير' }], active: state.tsub, onChange: (id) => { state.tsub = id; renderTickets(); }, label: 'أقسام التذاكر' });
+    if (state.tsub === 'overview') return [tkHead, tkTabs].concat(TicketsOverview()); // the owner 11 Nov: the first tab
     if (state.tsub === 'reports') return [tkHead, tkTabs].concat(TicketsReport());
     const TFG = [{ key: 'status', label: 'الحالة', options: [['open_any', 'مفتوحة (كل الحالات المفتوحة)']].concat(TK.STATUSES) }, { key: 'type', label: 'النوع', options: TK.TYPES }, { key: 'priority', label: 'الأولوية', options: TK.PRIORITIES.map((x) => [x[0], x[1]]) }, { key: 'role', label: 'المسؤول', options: TK.ROLES.map((r) => [r, r]) }, { key: 'mine', label: 'تذاكري', options: [['mine', 'تذاكر دوري بس']] }];
     const tCount = (f) => TK.filterTickets(all, { q: state.tfilter.q }).filter((t) => tMatch(t, f)).length;

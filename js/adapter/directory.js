@@ -7,7 +7,7 @@
 (function () {
   'use strict';
   let meRow = null; let rolesById = {};
-  const toMember = (p, roleName, codeOf) => ({ id: p.member_code, uid: p.id, name: p.name, role: roleName[p.role_id] || '', title: p.title || '', dept: p.dept || '', manager: codeOf[p.manager_id] || '', customPerms: p.custom_perms && typeof p.custom_perms === 'object' ? p.custom_perms : {}, override: p.custom_perms && typeof p.custom_perms === 'object' && Object.keys(p.custom_perms).length ? Object.keys(p.custom_perms).length : null, phone: p.phone || '', email: p.email, status: p.status, twofa: !!p.twofa,
+  const toMember = (p, roleName, codeOf) => ({ id: p.member_code, uid: p.id, name: p.name, role: roleName[p.role_id] || '', roleId: p.role_id || '', title: p.title || '', dept: p.dept || '', manager: codeOf[p.manager_id] || '', customPerms: p.custom_perms && typeof p.custom_perms === 'object' ? p.custom_perms : {}, override: p.custom_perms && typeof p.custom_perms === 'object' && Object.keys(p.custom_perms).length ? Object.keys(p.custom_perms).length : null, phone: p.phone || '', email: p.email, status: p.status, twofa: !!p.twofa,
     salary: 0, holdback: 0, allow: 0, leave: 0, used: 0, shift: ['09:00', '17:00'] }); // the HR numbers: IBHR.member(code) (phase 10)
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
   // the members only (the first half of load(); «إضافة عضو» calls it): same array, same objects where the member is still there

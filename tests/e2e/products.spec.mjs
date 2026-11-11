@@ -26,6 +26,7 @@ async function openProducts(page, email = ADMIN) {
   await page.getByRole('button', { name: 'دخول', exact: true }).click();
   await expect(page.locator('#root')).toBeVisible();
   await page.locator('.sidebar .nav-item[data-page="products"]').click();
+  await page.locator('#pg-products [role=tab]', { hasText: 'سجل المنتجات' }).click(); // decision 62: the page opens on «نظرة عامة»
   await expect(page.locator('#pg-products')).toBeVisible();
   await expect(page.locator('#pg-products .pr-table')).toBeVisible();
 }
@@ -516,4 +517,27 @@ test('decision 56: «الأقسام» shows the tree with +/−, the products in
   await row(151).locator('[data-cat-open]').click();
   await expect(page).toHaveURL(/#products-records$/);
   await expect(pg.locator('.pr-table tbody tr')).toHaveCount(3);
+});
+
+// phase 13 decision 62: the products tabs and «نظرة عامة» / «سجل الحركة»
+test('decision 62: the tabs are نظرة عامة · إضافة · سجل المنتجات · الأقسام · سجل الحركة · التقارير; the overview shows the catalog, the best sellers and categories and the published products out of stock; the log lists the product actions', async ({ page }) => {
+  await page.goto('/');
+  await page.fill('#lg-id', ADMIN); await page.fill('#lg-pw', DEV_PW);
+  await page.getByRole('button', { name: 'دخول', exact: true }).click();
+  await page.locator('.sidebar .nav-item[data-page="products"]').click();
+  const pg = page.locator('#pg-products');
+  const tabs = pg.locator('[role=tab]');
+  await expect(tabs).toHaveText(['نظرة عامة', 'إضافة', 'سجل المنتجات', /^الأقسام · \d+$/, 'سجل الحركة', 'التقارير']);
+  await expect(page).toHaveURL(/#products-overview$/);
+  await expect(pg.locator('.kpi[aria-label="المنتجات"]')).toContainText('4');
+  await expect(pg.locator('.kpi[aria-label="خلص ستوكه ولسه منشور"]')).toBeVisible();
+  await expect(pg).toContainText('المنتجات الأكثر مبيعًا — أعلى 10');
+  await expect(pg).toContainText('الأقسام الأكثر مبيعًا — أعلى 10');
+  await expect(pg.locator('section', { hasText: 'خلص ستوكه ولسه منشور' }).last()).toBeVisible();
+  // a product action, then the log
+  mock.activityRows.push({ id: 7001, at: new Date().toISOString(), actor: mock.profiles.find((p) => p.email === ADMIN).id, action: 'product.trash', entity: 'products', entity_id: '9004', old_value: null, new_value: '#9004' });
+  await tabs.nth(4).click();
+  await expect(page).toHaveURL(/#products-log$/);
+  await expect(pg.locator('[data-plog-row="product.trash"]')).toHaveText('نقل للمهملات');
+  await expect(pg.locator('[data-plog-kind]')).toHaveCount(2); // «الكل» + the one kind seen
 });

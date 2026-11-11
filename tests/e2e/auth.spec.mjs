@@ -76,6 +76,7 @@ test('every page table is the standard table: a green header row + alternating r
   const style = (loc, prop) => loc.evaluate((el, p) => getComputedStyle(el)[p], prop);
   // a hand-built card (the products register — no K.Section) gets it from the kit on the render, not a frame later
   await page.locator('.sidebar .nav-item[data-page="products"]').click();
+  await page.locator('#pg-products [role=tab]', { hasText: 'سجل المنتجات' }).click(); // decision 62: the page opens on «نظرة عامة»
   const rec = page.locator('#pg-products section.card.sec', { hasText: 'سجل المنتجات' });
   await expect(rec).toHaveClass(/\btbl-v2\b/);
   expect(await style(rec.locator('thead th').nth(1), 'backgroundColor')).toBe('rgb(0, 86, 66)'); // --color-brand-default

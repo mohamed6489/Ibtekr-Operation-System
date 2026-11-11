@@ -21,6 +21,7 @@ async function openProducts(page, email = OPS) {
   await page.getByRole('button', { name: 'دخول', exact: true }).click();
   await expect(page.locator('#root')).toBeVisible();
   await page.locator('.sidebar .nav-item[data-page="products"]').click();
+  await page.locator('#pg-products [role=tab]', { hasText: 'سجل المنتجات' }).click(); // decision 62: the page opens on «نظرة عامة»
   await expect(page.locator('#pg-products .pr-table')).toBeVisible();
 }
 const openTool = async (page) => { await page.getByRole('tab', { name: 'إضافة' }).click(); await page.locator('[data-tool="content"]').click(); await expect(page).toHaveURL(/#products-tool-content$/); };

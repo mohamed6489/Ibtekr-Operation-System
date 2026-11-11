@@ -19,7 +19,17 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y postgresql-client
+      # psql: the runner's own, else apt's; when the Ubuntu archive is down (11 Nov 2026: «Temporary failure resolving
+      # archive.ubuntu.com») the postgres:17 image runs it (host network, the checkout mounted at the same path)
+      - name: psql
+        run: |
+          if command -v psql >/dev/null; then psql --version; exit 0; fi
+          if timeout 300 sudo apt-get update && timeout 300 sudo apt-get install -y postgresql-client; then exit 0; fi
+          docker pull -q postgres:17
+          mkdir -p "$HOME/bin"
+          printf '%s\n' '#!/usr/bin/env bash' 'exec docker run --rm --network host -e PGOPTIONS -v "$PWD:$PWD" -w "$PWD" postgres:17 psql "$@"' > "$HOME/bin/psql"
+          chmod +x "$HOME/bin/psql"
+          echo "$HOME/bin" >> "$GITHUB_PATH"
       - name: live-safe RLS tests (rolled back)
         run: bash tools/rls-live.sh $FILES
         env:

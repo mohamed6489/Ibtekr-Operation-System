@@ -37,7 +37,7 @@ const CASES = [
   ['settings', 'settings-team', 'settings', '#pg-settings'],
   ['products', 'products-trash', 'products-records', '#pg-products'],
   ['marketing', 'marketing-calendar', 'marketing-create', '#pg-marketing'],
-  ['accounts', 'sales', 'expenses', '#main'],
+  ['accounts', 'sales', 'acc-overview', '#main'], // decision 61: the accounts open on «نظرة عامة»
   ['reports', 'reports-vendors', 'reports-orders', '#reports'],
 ];
 for (const [id, inside, home, sel] of CASES) {
@@ -83,7 +83,7 @@ test('the mobile bottom nav and its «المزيد» sheet reset the page the sa
   await page.setViewportSize({ width: 390, height: 844 });
   await signIn(page);
   await at(page, 'sales'); await url(page, 'sales');
-  await page.locator('.bottom-nav .bn-item[data-page="accounts"]').click(); await url(page, 'expenses');
+  await page.locator('.bottom-nav .bn-item[data-page="accounts"]').click(); await url(page, 'acc-overview');
   await at(page, 'hr-payroll'); await url(page, 'hr-payroll');
   await page.locator('.bottom-nav .bn-more button').first().click();
   await page.locator('.bn-sheet .bn-opt[data-page="hr"]').click(); await url(page, 'hr-team');

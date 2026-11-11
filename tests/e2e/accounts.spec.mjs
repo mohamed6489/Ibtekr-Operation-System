@@ -37,6 +37,7 @@ async function openAccounts(page, email = ADMIN) {
   await signIn(page, email);
   await page.locator('.sidebar .nav-item[data-page="accounts"]').click();
   await expect(page.locator('#main')).toBeVisible();
+  await page.locator('#main [role=tab]', { hasText: 'المصروفات' }).first().click(); // decision 61: the page opens on «نظرة عامة»
 }
 const main = (page) => page.locator('#main');
 const tab = (page, label) => main(page).getByRole('tab', { name: label });
@@ -46,7 +47,7 @@ async function add(page, menu, dir) { await main(page).getByRole('button', { nam
 
 test('the page is open with its six tabs, no September seed: the numbers start at zero and the range is this month', async ({ page }) => {
   await openAccounts(page);
-  await expect(main(page).getByRole('tab')).toHaveText(['المصروفات', 'الاشتراكات', 'المبيعات', 'حسابات المبتكرين', 'الحساب الفعلي', 'سجل الحركات']); // phase 5.5: «الاشتراكات» of its own
+  await expect(main(page).getByRole('tab')).toHaveText(['نظرة عامة', 'المصروفات', 'الاشتراكات', 'المبيعات', 'حسابات المبتكرين', 'الحساب الفعلي', 'سجل الحركات', 'التقارير']); // phase 5.5: «الاشتراكات» of its own; decision 61: «نظرة عامة» / «التقارير»
   await expect(main(page)).not.toContainText('سبتمبر 2026');
   await expect(main(page)).not.toContainText('Monthly Performance');
   await expect(main(page).locator('.empty')).toContainText('لسه مفيش مصروفات');
@@ -418,4 +419,23 @@ test('5.5 decision 13: «كشف بالفترة» — the opening is Dokan\'s bal
   // «حدّث الكشف من Dokan» asks every maker again
   await main(page).locator('[data-ledger-refresh]').click();
   await expect.poll(() => mock.statements.length).toBe(7);
+});
+
+// phase 13 decision 61: «نظرة عامة» first and «التقارير» last in the accounts page
+test('decision 61: the accounts tabs start with «نظرة عامة» (the period at a glance, each tile opens its tab) and end with «التقارير»', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.locator('.sidebar .nav-item[data-page="accounts"]').click();
+  const tabs = main(page).locator('[role=tablist]').first().locator('[role=tab]');
+  await expect(tabs).toHaveText(['نظرة عامة', 'المصروفات', 'الاشتراكات', 'المبيعات', 'حسابات المبتكرين', 'الحساب الفعلي', 'سجل الحركات', 'التقارير']);
+  await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
+  await expect(page).toHaveURL(/#acc-overview$/);
+  await expect(main(page).locator('[data-acc-ov]')).toHaveCount(6);
+  await expect(main(page).locator('.kpi[aria-label="إجمالي المصروفات"]')).toBeVisible();
+  await expect(main(page)).toContainText('المصروفات حسب النوع');
+  await main(page).locator('[data-acc-ov="expenses"] button').click();
+  await expect(tab(page, 'المصروفات')).toHaveAttribute('aria-selected', 'true');
+  await tabs.last().click();
+  await expect(main(page).locator('[data-accrep-page]')).toBeVisible();
+  await main(page).locator('[data-accrep-page]').click();
+  await expect(page).toHaveURL(/#reports-accounts$/);
 });

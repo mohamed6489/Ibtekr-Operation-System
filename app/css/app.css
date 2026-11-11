@@ -1699,3 +1699,7 @@ tr.dragging{background:var(--color-bg-tint)}
 .vsection .head>.btn-text{background:var(--color-brand-default);color:var(--color-text-on-brand);height:var(--ctl-sm,32px);padding:0 12px;border-radius:var(--radius-sm,6px)}
 .vsection .head>.btn-text:hover{background:var(--color-brand-hover);color:var(--color-text-on-brand)}
 .vsection .head>.btn-text svg{color:inherit}
+/* phase 13 decision 61: the accounts «نظرة عامة» tiles open their tab */
+.acc-ov-tile{display:flex;flex-direction:column;gap:4px;min-width:0}
+.acc-ov-tile>.kpi{flex:1}
+.acc-ov-tile>.btn-text{align-self:flex-start}

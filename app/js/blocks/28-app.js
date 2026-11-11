@@ -321,7 +321,8 @@
   window.IBData = IBData;
 
   // ---------- state ----------
-  const TABS = [{ id: 'expenses', label: 'المصروفات' }, { id: 'subscriptions', label: 'الاشتراكات' }, { id: 'sales', label: 'المبيعات' }, { id: 'vendors', label: 'حسابات المبتكرين' }, { id: 'actual', label: 'الحساب الفعلي' }, { id: 'moves-log', label: 'سجل الحركات' }];
+  // phase 13 decision 61 (owner 11 Nov — «ضيف في الحسابات قسم نظرة عامة في الأول وتقارير في آخر قسم»): acc-overview first, acc-reports last
+  const TABS = [{ id: 'acc-overview', label: 'نظرة عامة' }, { id: 'expenses', label: 'المصروفات' }, { id: 'subscriptions', label: 'الاشتراكات' }, { id: 'sales', label: 'المبيعات' }, { id: 'vendors', label: 'حسابات المبتكرين' }, { id: 'actual', label: 'الحساب الفعلي' }, { id: 'moves-log', label: 'سجل الحركات' }, { id: 'acc-reports', label: 'التقارير' }];
   const PRESETS = [['today', 'اليوم'], ['yesterday', 'أمس'], ['todayYesterday', 'اليوم وأمس'], ['last7', 'آخر 7 أيام'], ['last14', 'آخر 14 يومًا'], ['last28', 'آخر 28 يومًا'], ['last30', 'آخر 30 يومًا'], ['thisWeek', 'هذا الأسبوع'], ['lastWeek', 'الأسبوع الماضي'], ['thisMonth', 'هذا الشهر'], ['lastMonth', 'الشهر الماضي'], ['max', 'أقصى فترة'], ['custom', 'مخصص']];
   const SORTS = [
     { value: 'balance:desc', label: 'الرصيد: من الأعلى للأقل', key: 'balance', dir: 'desc' }, { value: 'balance:asc', label: 'الرصيد: من الأقل للأعلى', key: 'balance', dir: 'asc' },
@@ -471,7 +472,7 @@
     const mods = window.IBPages.all(); const cur = mods[state.page];
     const proceed = () => {
       const def = mods[page];
-      if (def) def.hash(page); else if (page === 'accounts') state.tab = 'expenses'; else if (page === 'reports') state.rtab = 'orders';
+      if (def) def.hash(page); else if (page === 'accounts') state.tab = 'acc-overview'; else if (page === 'reports') state.rtab = 'orders';
       goNow(page);
     };
     if (cur && cur.canLeave) { cur.canLeave(proceed); return; }
@@ -1917,7 +1918,7 @@
   }
 
   // ---------- render ----------
-  const VIEWS = { expenses: ExpensesView, subscriptions: SubsView, sales: SalesView, vendors: VendorsTab, actual: ActualView, 'moves-log': MovesLogView };
+  const VIEWS = { 'acc-overview': AccountsOverview, 'acc-reports': () => AccountsReportView(), expenses: ExpensesView, subscriptions: SubsView, sales: SalesView, vendors: VendorsTab, actual: ActualView, 'moves-log': MovesLogView };
   let focusTab = false;
   // ---------- Reports page (Figma: التقارير — Desktop 1440 / Mobile 360) ----------
   const R = window.IbtekrReports;
@@ -2018,6 +2019,29 @@
           () => U.Table({ headers, rows: rep.actionRows.map((r) => [num(r.id), r.customer, r.status, cfText(r.confirm), U.DelayBadge(r.delivery), num(String(r.ageDays)), num(money(r.total))]) }),
           () => CardList({ headers, titleIndex: 1, rows: rep.actionRows.map((r) => [num(r.id), r.customer, r.status, cfText(r.confirm), U.DelayBadge(r.delivery), num(String(r.ageDays)), num(money(r.total))]) })) }),
       h('p', { class: 'source' }, 'المصدر: الأوردرات (الموقع، متزامنة مع السيستم) · الفترة تُحسب من تاريخ الأوردر بتوقيت القاهرة · كل الأرقام مشتقة ولا تُكتب يدويًا')];
+  }
+  // decision 61: «نظرة عامة» — the period above (the accounts' own) in one look: the sales and Ibtekr's share from our orders, the
+  // expenses by type, the net, the real accounts, the makers' balance; every tile opens its tab
+  function AccountsOverview() {
+    const r = state.range; const tot = D.categoryTotals(SEED.expenseSeed, store.expenses, r.from, r.to);
+    const byCat = {}; D.CATEGORIES.forEach((c) => { byCat[c] = tot.byCategory[c].amount; });
+    const rep = R.accountsReport({ expenses: byCat, sales: SEED.sales || [], accounts: accountsNow().balances, inProgressShare: SEED.inProgressShare || 0, deposits: (SEED.vendorTotals && SEED.vendorTotals.dep) || 0 });
+    const vs = vendorsNow(); const due = vs.reduce((a, v) => a + Math.max(0, Number(v.balance) || 0), 0);
+    const open = (tab) => () => { state.tab = tab; try { history.replaceState(null, '', '#' + tab); } catch (e) { /* sandboxed */ } render(); };
+    const tile = (label, value, note, tab, tone) => h('div', { class: 'acc-ov-tile', 'data-acc-ov': tab }, U.KpiTile({ label, value, unit: 'ج.م', compare: tone || 'off', note }), Button({ type: 'text', size: 'sm', label: 'افتح ←', attrs: { 'aria-label': 'افتح ' + label }, onClick: open(tab) }));
+    const pct = (x) => num(Math.round(x * 100) + '%');
+    return [
+      h('div', { class: 'cards five' },
+        tile('المبيعات (مكتمل)', D.formatMoney(rep.salesTotal), num(rep.orders + ' أوردر في الفترة'), 'sales'),
+        tile('حصة إبتكر', D.formatMoney(rep.share), num('من المبيعات ' + Math.round(rep.sharePct * 100) + '%'), 'sales'),
+        tile('إجمالي المصروفات', D.formatMoney(rep.expensesTotal), 'المرتبات والمصروفات والاشتراكات والإعلانات', 'expenses'),
+        tile('الصافي', D.formatMoney(rep.net), 'حصة إبتكر − المصروفات', 'acc-reports', rep.net < 0 ? 'negative' : rep.net > 0 ? 'positive' : 'off'),
+        tile('الحساب الفعلي — الآن', D.formatMoney(rep.actual), 'مجموع الحسابات', 'actual'),
+        tile('مستحقات المبتكرين — الآن', D.formatMoney(Math.round(due * 100) / 100), num(vs.filter((v) => Number(v.balance) > 0).length + ' مبتكر ليه رصيد'), 'vendors')),
+      h('div', { class: 'grid2' },
+        TableCard({ title: 'المصروفات حسب النوع', count: periodText(), body: U.Table({ cls: 'mini-table', headers: ['النوع', 'المبلغ', 'النسبة'], rows: rep.expenseRows.map(([k, v, p]) => [k, num(money(v)), pct(p)]) }) }),
+        TableCard({ title: 'الحسابات الفعلية', count: 'الآن', body: rep.accountRows.length ? U.Table({ cls: 'mini-table', headers: ['الحساب', 'الرصيد', 'النسبة'], rows: rep.accountRows.map(([k, v, p]) => [k, num(money(v)), pct(p)]) }) : U.EmptyState('مفيش حسابات لسه', 'الحسابات بتتسجل من «الحساب الفعلي».') })),
+      h('p', { class: 'source' }, 'المصدر: المبيعات وحصة إبتكر من أوردراتنا (accounts_sales) في الفترة، المصروفات من دفتر المصروفات، الحساب الفعلي من حركاته، ومستحقات المبتكرين من أرصدة Dokan.')];
   }
   function AccountsReportView() {
     // phase 5.5 decision 4 (owner 31 Oct 16:42): the report follows the period picked above (expenses + sales + net) instead of a fixed month; (owner 1 Nov): a month-by-month summary
@@ -2297,6 +2321,7 @@
   const reportSheets = () => window.IBDataActions.PAGES.reports.filter((id) => !RSHEET_PERM[id] || rperm(RSHEET_PERM[id]) !== 'N');
   function renderReports() {
     if (state.page === 'vendors' && state.vtab === 'reports') { renderVendors(); return; } // phase 13 decision 57: the makers report inside the makers page
+    if (state.page === 'accounts' && state.tab === 'acc-reports') { render(); return; } // phase 13 decision 61: the accounts report inside the accounts page
     U.closePopover();
     const main = document.getElementById('reports'); if (!main) return; const sc = window.scrollY;
     const note = state.rnote; state.rnote = null;
@@ -3601,9 +3626,9 @@
     const noteEl = note ? U.InlineNote({ kind: note.kind, children: note.text, action: note.undo ? Button({ type: 'text', size: 'sm', label: 'تراجع', onClick: note.undo })
       : note.action ? Button({ type: 'text', size: 'sm', label: note.action.label, attrs: { 'data-note-act': '' }, onClick: note.action.run }) : IconButton({ icon: 'close', label: 'إخفاء', onClick: () => { noteEl.remove(); } }) }) : null;
     main.replaceChildren(...[
-      h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'المصروفات · المبيعات · حسابات المبتكرين · الحساب الفعلي · سجل الحركات')), h('div', { class: 'actions' }, state.tab === 'moves-log' ? null : window.IBKit.PanelButton('accounts:' + state.tab, 'الحسابات — ' + (TABS.find((t) => t.id === state.tab) || {}).label, () => document.getElementById('panel'), render), window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
+      h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'الحسابات'), h('p', { class: 't-small' }, 'نظرة عامة · المصروفات · المبيعات · حسابات المبتكرين · الحساب الفعلي · سجل الحركات · التقارير')), h('div', { class: 'actions' }, state.tab === 'moves-log' ? null : window.IBKit.PanelButton('accounts:' + state.tab, 'الحسابات — ' + (TABS.find((t) => t.id === state.tab) || {}).label, () => document.getElementById('panel'), render), window.IBDataActions.Menu(window.IBDataActions.PAGES.accounts, () => ({ vendors: 'vendorMoves', actual: 'accountMoves' }[state.tab] || 'expenses')))),
       tabs,
-      state.tab === 'moves-log' ? null : h('div', { class: 'toolbar' }, DateRangeField(), state.tab === 'vendors' ? SortDropdown() : null, state.tab === 'vendors' && state.vsub !== 'ledger' ? WdFilterDropdown() : null, h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'subscriptions' ? Button({ type: 'brand', icon: 'plus', label: 'إضافة اشتراك', attrs: { 'data-add-sub': '' }, onClick: () => openForm('expenses', 'withdraw', null, false, { category: SUBS_CAT }) }) : state.tab === 'vendors' ? AddMenu('إضافة مبلغ', 'vendorMoves') : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
+      state.tab === 'moves-log' ? null : state.tab === 'acc-reports' ? h('div', { class: 'toolbar' }, DateRangeField('reports'), h('span', { class: 'grow' }), Button({ type: 'text', size: 'sm', label: 'افتح في صفحة التقارير', attrs: { 'data-accrep-page': '' }, onClick: () => { state.rtab = 'accounts'; go('reports'); } })) : h('div', { class: 'toolbar' }, DateRangeField(), state.tab === 'vendors' ? SortDropdown() : null, state.tab === 'vendors' && state.vsub !== 'ledger' ? WdFilterDropdown() : null, h('span', { class: 'grow' }), !canAdd() ? null : state.tab === 'expenses' ? AddMenu('إضافة مصروفات', 'expenses') : state.tab === 'subscriptions' ? Button({ type: 'brand', icon: 'plus', label: 'إضافة اشتراك', attrs: { 'data-add-sub': '' }, onClick: () => openForm('expenses', 'withdraw', null, false, { category: SUBS_CAT }) }) : state.tab === 'vendors' ? AddMenu('إضافة مبلغ', 'vendorMoves') : state.tab === 'actual' ? AddMenu('إضافة مبلغ', 'accountMoves') : null),
       noteEl,
       h('div', { id: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.tab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, VIEWS[state.tab]())].filter(Boolean));
     // «تخصيص اللوحة» (phase 10 decision 22, as in the v5 prototype): every tab but the moves log

@@ -334,7 +334,7 @@
       if (!r.ok) return r;
       log('order.status', 'IB-' + id + ' · ' + status);
       const p = await invoke({ action: 'push_status', order_id: Number(id), status });
-      return { ok: true, push: (p.ok && p.data.result) || 'error', subs: subsPushed(id, p) };
+      return pushAnswer(id, p);
     }
     const patch = { status };
     if (extra && extra.cancel) patch.cancel = extra.cancel;
@@ -343,7 +343,12 @@
     if (!r.ok) return r;
     log('order.status', 'IB-' + id + ' · ' + status);
     const p = await invoke({ action: 'push_status', order_id: Number(id), status }); // after the row: woo-sync pushes the stored status only
-    return { ok: true, push: (p.ok && p.data.result) || 'error', subs: subsPushed(id, p) };
+    return pushAnswer(id, p);
+  }
+  // { ok, push } — and subs (the sub-order numbers the status went to) when the order has sub-orders
+  function pushAnswer(id, p) {
+    const subs = subsPushed(id, p);
+    return Object.assign({ ok: true, push: (p.ok && p.data.result) || 'error' }, subs.length ? { subs } : {});
   }
   // the owner 11 Nov («زي الـ automation»): an order with Dokan sub-orders gets the status on each of them, never the parent (Dokan
   // recreates the sub-orders of a parent edited through the API) — the answer names them (subs + woo_status): «حالة الموقع» follows here;

@@ -267,6 +267,18 @@ test('setOrderStatus updates orders (status only, no .select()) then pushes it t
   assert.deepEqual(logs, [['order.status', 'IB-181668 · قيد الشحن']]);
 });
 
+test('the owner 11 Nov: an order with sub-orders — the push names them (subs + woo_status): the answer carries subs and their «حالة الموقع» follows at once', async () => {
+  const { O, responses } = load();
+  await O.load();
+  responses['fn:woo-sync'] = ok({ action: 'push_status', result: 'ok', conflict: false, subs: [181669, 181670], woo_status: 'ready-shipping', counts: { pushed: 2 } });
+  assert.deepEqual(plain(await O.setOrderStatus('181668', 'جاهز للشحن', {})), { ok: true, push: 'ok', subs: [181669, 181670] });
+  const o = O.data().orders.find((x) => x.id === '181668');
+  assert.deepEqual(plain(o.subs.map((s) => [String(s.sid), s.raw])).sort(), [['181669', 'ready-shipping'], ['181670', 'ready-shipping']], 'both sub-orders (they were processing / on-hold)');
+  // an answer without subs (one maker, a skip, a failure) → the plain shape
+  responses['fn:woo-sync'] = ok({ action: 'push_status', result: 'ok', conflict: false, counts: { pushed: 1 } });
+  assert.deepEqual(plain(await O.setOrderStatus('181668', 'قيد الشحن', {})), { ok: true, push: 'ok' });
+});
+
 test('setOrderStatus carries cancel / ret when given; the push result is answered, a push failure never fails the write', async () => {
   const { O, calls, responses } = load();
   await O.load(); calls.length = 0;

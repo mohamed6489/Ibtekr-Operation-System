@@ -89,6 +89,37 @@
     if (!toastEl) { toastEl = h('div', { class: 'toast', role: 'status', 'aria-live': 'polite' }); document.body.append(toastEl); }
     toastEl.className = 'toast show ' + (kind || ''); toastEl.textContent = msg; clearTimeout(toastT); toastT = setTimeout(() => { toastEl.className = 'toast'; }, 3200);
   }
+  // ---------- «بيحصل إيه دلوقتي» (the owner, 11 Nov — «اي اكشن بيتعمله تحميل او بيقولي استني … يظهرلي popup notification يعرفني
+  // اي اللي بيحصل … تحت خالص ف النص»): a pill per running action at the bottom centre, just above the toast — a spinner and what
+  // is happening. done(text, kind) turns it into the result for a moment (✓ / !), close() takes it away; several stack. A pill
+  // shown is kept at least MIN_SHOWN so a quick answer never flashes; a running one closes itself after 6 minutes without news
+  // (set() is news — a long batch keeps it). The stack is aria-live (polite) without a status role, so the toast keeps the page's
+  // own [role=status].
+  let busyEl = null, busyOpen = 0;
+  const BUSY_MIN_SHOWN = 700, BUSY_MAX = 360000;
+  function busy(text) {
+    if (!busyEl || !busyEl.isConnected) { busyEl = h('div', { class: 'busy-stack', 'aria-live': 'polite' }); document.body.append(busyEl); }
+    const txt = h('span', { class: 'busy-txt' }, String(text || 'جاري التنفيذ…'));
+    const el = h('div', { class: 'busy-pill run', 'data-busy': 'run' }, h('span', { class: 'busy-ico', 'aria-hidden': 'true' }), txt);
+    busyEl.append(el); busyOpen += 1;
+    const shownAt = Date.now(); let t = 0, closed = false, ended = false;
+    requestAnimationFrame(() => { if (!closed) el.classList.add('show'); });
+    const close = () => {
+      if (closed) return; closed = true; clearTimeout(t); if (!ended) busyOpen = Math.max(0, busyOpen - 1);
+      const wait = Math.max(0, BUSY_MIN_SHOWN - (Date.now() - shownAt));
+      setTimeout(() => { el.classList.remove('show'); setTimeout(() => el.remove(), 250); }, wait);
+    };
+    const end = (msg, kind) => {
+      if (closed) return; if (!ended) { ended = true; busyOpen = Math.max(0, busyOpen - 1); }
+      const k = kind === 'error' ? 'err' : kind === 'warning' ? 'warn' : 'ok';
+      el.className = 'busy-pill show ' + k; el.dataset.busy = k; if (msg) txt.textContent = String(msg);
+      clearTimeout(t); t = setTimeout(close, k === 'ok' ? 4000 : 7000);
+    };
+    t = setTimeout(close, BUSY_MAX);
+    const set = (m) => { if (closed || ended) return; txt.textContent = String(m); clearTimeout(t); t = setTimeout(close, BUSY_MAX); };
+    return { set, done: (m, kind) => end(m, kind || 'success'), fail: (m) => end(m, 'error'), close };
+  }
+  const busyCount = () => busyOpen; // running pills (the adapters' automatic pill waits while a page shows its own)
 
   // ---------- form modal: keeps values on error, validates inline, focuses first error ----------
   function form({ title, values, fields, validate, submit, submitLabel = 'حفظ', submitType = 'primary', cancelLabel = 'إلغاء', wide, extraFooter, note, onClose }) {
@@ -686,7 +717,7 @@
   const chanList = (m) => (m && Array.isArray(m.chans) ? m.chans : []);
   const canChan = (m, id) => chanAll(m) || chanList(m).indexOf(id) > -1;
   const chanMembers = (id) => store.members.filter((m) => m.status !== 'invited' && canChan(m, id) && !chanAll(m));
-  window.IBKit = { chanAll, chanList, canChan, chanMembers, Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, xlsxExport, saveFile, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, PanelButton, applyPanelPrefs, customizePanel, panelItems, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, TableSection, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
+  window.IBKit = { chanAll, chanList, canChan, chanMembers, Bulk, FilterMenu, SortMenu, ActiveFilters, autoFilter, xlsxExport, saveFile, sortableRows, Grip, sweepColumns, applyColumnPrefs, customizeColumns, withColumns, PanelButton, applyPanelPrefs, customizePanel, panelItems, StarPicker, TODAY, NOW_MIN, ME, setMe, money, n0, dlabel, dshort, dayName, hm, hrs, daysBetween, AR_MON, Tag, PageHead, SubTabs, MainTabs, Section, TableSection, Switch, Checkbox, Radios, Accordion, RowMenu, Kv, Stat, Empty, Num, toast, busy, busyCount, form, confirm, field, two, req, store, member, team, stockNow, logEvent, notify, clockNow };
 })();
 
 /* Quick actions (owner 27 Oct; phase 11 decision 23, from the v6 block 14): «إجراءات سريعة» = a named link to any page of the system,

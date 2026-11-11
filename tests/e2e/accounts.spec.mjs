@@ -307,7 +307,11 @@ test('«تحديث من Dokan» brings a new request now; the withdraw filter sh
   const table = main(page).locator('table.vendors-table');
   await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('لا يوجد');
   mock.dokanNewRequests = [{ id: 601, woo_vendor_id: 44, vendor_id: V2, amount: 450, charge: 0, receivable: 450, status: 'pending', method: 'bank', requested_at: '2026-10-28 09:00:00', synced_at: '2026-10-28T09:00:00Z' }];
+  // the owner (11 Nov): any call the member starts shows the busy pill with what is happening (busy.js; the mock answers at once,
+  // so the pill's delay is 0 here)
+  await page.evaluate(() => window.IBBusy.setDelay(0));
   await main(page).locator('[data-dokan-refresh]').click();
+  await expect(page.locator('.busy-stack .busy-pill', { hasText: 'بنحدّث طلبات السحب من Dokan…' })).toBeVisible();
   await expect(main(page)).toContainText('اتحدّثت طلبات السحب من Dokan — 2 طلب مستني الموافقة.');
   expect(mock.refreshes).toBe(1);
   await expect(table.locator('tbody tr', { hasText: 'Antikiano' }).locator('[data-wd]')).toHaveText('مستني الموافقة · 450.00');
@@ -515,6 +519,8 @@ test('0078: «تسوية دلوقتي» files a request on Dokan for the whole D
   await settle.getByRole('button', { name: /اعمل طلب السحب على Dokan/ }).click();
   await page.locator('.modal[role=dialog]', { hasText: 'طلب سحب على Dokan — Antikiano' }).getByRole('button', { name: 'اعمل الطلب على Dokan' }).click();
   await expect(main(page)).toContainText('بمبلغ 25,000.00 ج.م على Dokan — مستني موافقتك.');
+  // the owner (11 Nov — «خلي يبقي زي popup notification»): the call ran under the busy pill at the bottom centre, which ends with the result
+  await expect(page.locator('.busy-stack .busy-pill[data-busy="ok"]')).toContainText('بمبلغ 25,000.00 ج.م على Dokan — مستني موافقتك.');
   expect(mock.withdrawCreates.at(-1)).toMatchObject({ vendor_id: V2, by: ADMIN, result: 'ok', amount: 25000, status: 'pending' });
   await expect.poll(() => mock.activity.filter((a) => a.action === 'accounts.withdraw.create').length).toBe(1);
   await expect(anti.locator('[data-wd]')).toHaveText('مستني الموافقة · 25,000.00');

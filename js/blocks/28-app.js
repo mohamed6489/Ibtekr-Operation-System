@@ -1710,18 +1710,21 @@
       text: 'هتتوافق على الطلب على Dokan نفسه بمبلغ ' + amount + ' ج.م. Dokan بيخصمه من رصيد المبتكر على طول.' + planText + ' التحويل نفسه بيفضل عليك زي ما هو.',
       okLabel: 'وافق على Dokan',
       onOk: () => {
-        setNote({ kind: 'info', text: 'بنوافق على طلب السحب ' + req.id + ' على Dokan…' }); render();
+        const note = busyNote(K.busy ? K.busy('بنوافق على طلب السحب ' + req.id + ' على Dokan…') : null);
         AC().approveWithdraw(req.wid).then((r) => {
           const st = r.settlement;
-          if (r.ok && r.result === 'ok' && st) setNote({ kind: 'success', text: 'اتوافق على طلب السحب ' + req.id + ' لـ ' + name + ' بمبلغ ' + amount + ' ج.م على Dokan' + (st.moves ? '، واتصفّى منه ' + fmt(st.consumed) + ' ج.م خصومات (' + st.moves + ' حركة)' : '')
+          if (r.ok && r.result === 'ok' && st) note({ kind: 'success', text: 'اتوافق على طلب السحب ' + req.id + ' لـ ' + name + ' بمبلغ ' + amount + ' ج.م على Dokan' + (st.moves ? '، واتصفّى منه ' + fmt(st.consumed) + ' ج.م خصومات (' + st.moves + ' حركة)' : '')
             + ' — حوّل للمبتكر ' + fmt(st.cash) + ' ج.م' + (st.carry_out > 0 ? '، وفاضل عليه ' + fmt(st.carry_out) + ' ج.م لحد التسوية الجاية' : '') + '.' });
-          else if (r.ok && r.result === 'ok') setNote({ kind: 'success', text: 'اتوافق على طلب السحب ' + req.id + ' لـ ' + name + ' بمبلغ ' + amount + ' ج.م على Dokan، واتخصم من رصيده هناك.' });
-          else if (r.ok) setNote({ kind: 'warning', text: WD_SKIP[r.reason] || 'الطلب ما اتوافقش عليه.' });
-          else setNote({ kind: 'error', text: r.reason === 'forbidden' ? 'مش مسموحلك توافق على طلبات السحب.' : 'مقدرناش نوافق على الطلب على Dokan دلوقتي — جرّب تاني.' });
+          else if (r.ok && r.result === 'ok') note({ kind: 'success', text: 'اتوافق على طلب السحب ' + req.id + ' لـ ' + name + ' بمبلغ ' + amount + ' ج.م على Dokan، واتخصم من رصيده هناك.' });
+          else if (r.ok) note({ kind: 'warning', text: WD_SKIP[r.reason] || 'الطلب ما اتوافقش عليه.' });
+          else note({ kind: 'error', text: r.reason === 'forbidden' ? 'مش مسموحلك توافق على طلبات السحب.' : 'مقدرناش نوافق على الطلب على Dokan دلوقتي — جرّب تاني.' });
           render();
         });
       } });
   }
+  // the owner (11 Nov — «ال loading مش باين … خلي يبقي زي popup notification»): a Dokan call runs under the kit's busy pill (bottom
+  // centre), which then shows the result for a moment; the result stays on the page as its note too
+  const busyNote = (pill) => (n) => { setNote(n); if (pill) pill.done(n.text, n.kind); };
   // 0078 (the owner, 11 Nov — «تسوية دلوقتي / تقفيل حساب»): the maker's account up to today — the open deductions, the net, the orders —
   // and the request the system files on Dokan for his whole Dokan balance (= the net + the deductions Dokan does not count), pending
   // until it is approved like any other («يعمله ويستنى موافقتك»). Never with a pending request; the amount is Dokan's own, read then.
@@ -1751,12 +1754,12 @@
       text: 'هيتعمل طلب سحب على Dokan بكل رصيد المبتكر دلوقتي (حوالي ' + D.formatMoney(dokan) + ' ج.م — Dokan بيقرا الرصيد وقت الطلب) بالتحويل البنكي، ويفضل مستني موافقتك.',
       okLabel: 'اعمل الطلب على Dokan',
       onOk: () => {
-        setNote({ kind: 'info', text: 'بنعمل طلب السحب على Dokan لـ ' + name + '…' }); render();
+        const note = busyNote(K.busy ? K.busy('بنعمل طلب السحب على Dokan لـ ' + name + '…') : null);
         AC().createWithdraw(vendorId).then((r) => {
-          if (r.ok && r.result === 'ok') setNote({ kind: 'success', text: 'اتعمل طلب سحب #' + r.id + ' لـ ' + name + ' بمبلغ ' + D.formatMoney(r.amount) + ' ج.م على Dokan — مستني موافقتك.' });
-          else if (r.ok && r.result === 'skipped') setNote({ kind: 'warning', text: WC_SKIP[r.reason] || 'الطلب ما اتعملش.' });
-          else if (r.ok) setNote({ kind: 'error', text: r.reason === 'no_store' ? WC_SKIP.no_store : 'Dokan رفض الطلب (' + r.reason + ') — راجع حدود السحب على Dokan.' });
-          else setNote({ kind: 'error', text: r.reason === 'forbidden' ? 'مش من صلاحياتك تعمل طلب سحب.' : r.reason === 'woo_down' ? 'Dokan مش بيرد دلوقتي — جرّب كمان شوية.' : 'مقدرناش نعمل الطلب على Dokan دلوقتي — جرّب تاني.' });
+          if (r.ok && r.result === 'ok') note({ kind: 'success', text: 'اتعمل طلب سحب #' + r.id + ' لـ ' + name + ' بمبلغ ' + D.formatMoney(r.amount) + ' ج.م على Dokan — مستني موافقتك.' });
+          else if (r.ok && r.result === 'skipped') note({ kind: 'warning', text: WC_SKIP[r.reason] || 'الطلب ما اتعملش.' });
+          else if (r.ok) note({ kind: 'error', text: r.reason === 'no_store' ? WC_SKIP.no_store : 'Dokan رفض الطلب (' + r.reason + ') — راجع حدود السحب على Dokan.' });
+          else note({ kind: 'error', text: r.reason === 'forbidden' ? 'مش من صلاحياتك تعمل طلب سحب.' : r.reason === 'woo_down' ? 'Dokan مش بيرد دلوقتي — جرّب كمان شوية.' : 'مقدرناش نعمل الطلب على Dokan دلوقتي — جرّب تاني.' });
           render();
         });
       } });
@@ -1779,10 +1782,10 @@
   const STATEMENT_TYPES = { opening_balance: 'رصيد افتتاحي', dokan_orders: 'أوردر', dokan_withdraw: 'سحب', dokan_refund: 'مرتجع' };
   function openStatement(name, vendorId) {
     const from = state.range.from, to = state.range.to; const fmt = (n) => D.formatMoney(n);
-    setNote({ kind: 'info', text: 'بنجيب كشف حساب ' + name + ' من Dokan…' }); render();
+    const K = window.IBKit; const pill = K && K.busy ? K.busy('بنجيب كشف حساب ' + name + ' من Dokan…') : null;
     AC().statement(vendorId, from, to).then((r) => {
-      setNote(null); render();
-      if (!r.ok) { setNote({ kind: 'error', text: 'مقدرناش نجيب كشف الحساب من Dokan دلوقتي — جرّب تاني.' }); render(); return; }
+      if (!r.ok) { busyNote(pill)({ kind: 'error', text: 'مقدرناش نجيب كشف الحساب من Dokan دلوقتي — جرّب تاني.' }); render(); return; }
+      if (pill) pill.close();
       const rows = r.rows.map((x) => [num(x.date ? D.formatDateNumeric(String(x.date).slice(0, 10)) : '—'), STATEMENT_TYPES[x.type] || x.type || '—', x.title || '—', num(fmt(x.debit)), num(fmt(x.credit)), x.balance == null ? '—' : num(fmt(x.balance))]);
       const debit = r.rows.reduce((t, x) => t + (Number(x.debit) || 0), 0), credit = r.rows.reduce((t, x) => t + (Number(x.credit) || 0), 0);
       const last = r.rows.length ? r.rows[r.rows.length - 1].balance : null;

@@ -1230,6 +1230,39 @@
       K.Section('أداء الفريق', P.team.length ? U.Table({ headers: ['الموظف', 'محادثات', 'اتحلت', 'مفتوحة', 'أول رد', 'متأخرة عن الرد', ''], rows: P.team.map((t) => [t.name, K.Num(String(t.all)), K.Num(String(t.resolved)), K.Num(String(t.open)), K.Num(fmtMin(t.avgFirst)), K.Num(String(t.late)), agentMenu(t)]) }) : K.Empty('مفيش محادثات في الفترة', 'الأداء بيتحسب من المحادثات اللي اتعملت أو اتقفلت في الفترة.'), null, { sub: label }),
       h('p', { class: 't-small src-note' }, 'المصدر: سجل المحادثات في السيستم (المفتوحة + آخر 90 يوم) · رضا العملاء من استبيان بعد قفل المحادثة لما القنوات تتربط')];
   }
+  // decision 63: «نظرة عامة» — the messages of the period (in / out / automatic), the conversations by status now, the traffic per channel
+  // and per day, the channels' connection, then the old «الأداء» (first reply, solving time, outcomes, the team) — from the loaded
+  // conversations (the open ones + the last 90 days), never a message's text
+  const CONV_STATUSES = ['جديدة', 'مستنية ردنا', 'مستنية العميل', 'مؤجلة', 'اتحلت'];
+  function Overview(rg) {
+    const chOf = (c) => (c.seg === 'comments' ? 'تعليقات' : c.seg === 'vendors' ? 'واتساب 2 (المبتكرين)' : PL[c.platform] ? PL[c.platform][0] : c.platform || '—');
+    const msgs = []; S.convs.forEach((c) => (c.msgs || []).forEach((m) => { if (['in', 'out', 'auto'].includes(m.t) && inRange(m.at, rg)) msgs.push({ t: m.t, at: m.at, c }); }));
+    const n = (t) => msgs.filter((x) => x.t === t).length;
+    const open = S.convs.filter((c) => c.status !== 'اتحلت'); const waiting = S.convs.filter((c) => c.status === 'مستنية ردنا' || c.status === 'جديدة');
+    const late = S.convs.filter((c) => CS.slaLevel(c.status, c.waiting) !== 'none').length;
+    const byCh = new Map(); msgs.forEach((x) => { const k = chOf(x.c); const r = byCh.get(k) || { in: 0, out: 0, auto: 0, convs: new Set() }; r[x.t] += 1; r.convs.add(x.c.id); byCh.set(k, r); });
+    const chRows = [...byCh.entries()].sort((a, b) => (b[1].in + b[1].out + b[1].auto) - (a[1].in + a[1].out + a[1].auto));
+    const maxCh = chRows.length ? chRows[0][1].in + chRows[0][1].out + chRows[0][1].auto : 1;
+    const days = []; { const end = new Date((rg.to || today()) + 'T12:00:00'); for (let i = 13; i >= 0; i -= 1) { const d = new Date(end.getTime() - i * 864e5); days.push(d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0')); } }
+    const perDay = days.map((d) => [d, msgs.filter((x) => x.at.slice(0, 10) === d && x.t === 'in').length, msgs.filter((x) => x.at.slice(0, 10) === d && x.t !== 'in').length]);
+    const maxDay = Math.max(1, ...perDay.map((r) => r[1] + r[2]));
+    const stN = (k) => S.convs.filter((c) => c.status === k).length; const maxSt = Math.max(1, ...CONV_STATUSES.map(stN));
+    const chans = Object.entries(S.channels || {});
+    const CH_ST = { connected: ['success', 'متصلة'], error: ['error', 'فيها مشكلة'], disconnected: ['neutral', 'مش متصلة'] };
+    return [
+      h('div', { class: 'cards five', 'data-cs-ov': '' },
+        K.Stat('رسايل واردة', K.n0(n('in')), 'رسالة', 'من العملاء والمبتكرين في الفترة', 'off'),
+        K.Stat('رسايل صادرة', K.n0(n('out')), 'رسالة', 'ردود الفريق في الفترة', 'off'),
+        K.Stat('ردود آلية', K.n0(n('auto')), 'رسالة', 'من قواعد الرد الآلي', 'off'),
+        K.Stat('محادثات مفتوحة', K.n0(open.length), 'محادثة', K.n0(waiting.length) + ' مستنية ردنا دلوقتي', 'off'),
+        K.Stat('متأخرة عن الرد', K.n0(late), 'محادثة', 'عدّت الـ SLA (' + settings().slaLate + ' دقيقة)', late ? 'negative' : 'off')),
+      h('div', { class: 'grid3' },
+        K.Section('المحادثات حسب الحالة', CONV_STATUSES.map((k) => U.BarRow({ tone: 'brand', label: k, value: K.n0(stN(k)), pct: stN(k) / maxSt })), null, { sub: 'دلوقتي · ' + K.n0(S.convs.length) + ' محادثة' }),
+        K.Section('الترافيك حسب القناة', chRows.length ? chRows.map(([k, r]) => U.BarRow({ tone: 'brand', label: k, value: K.n0(r.in + r.out + r.auto) + ' رسالة · ' + K.n0(r.convs.size) + ' محادثة', pct: (r.in + r.out + r.auto) / maxCh })) : [h('div', { class: 't-small help' }, 'مفيش رسايل في الفترة دي')], null, { sub: 'آخر 30 يوم' }),
+        K.Section('القنوات', chans.length ? K.Kv(chans.map(([, c]) => [c.name || '—', K.Tag((CH_ST[c.status] || CH_ST.disconnected)[0], (CH_ST[c.status] || CH_ST.disconnected)[1])])) : h('div', { class: 't-small help' }, 'مفيش قنوات'), null, { sub: 'حالة الربط' })),
+      K.Section('الترافيك اليومي — آخر 14 يوم', h('div', { class: 'cs-days', 'data-cs-days': '' }, perDay.map(([d, i, o]) => U.BarRow({ tone: 'brand', label: d.slice(8) + '/' + d.slice(5, 7), value: K.n0(i) + ' وارد · ' + K.n0(o) + ' صادر', pct: (i + o) / maxDay }))), null, { sub: 'الوارد والصادر (الفريق + الآلي) كل يوم' }),
+      K.Section('الرسايل حسب القناة', chRows.length ? U.Table({ headers: ['القناة', 'محادثات', 'وارد', 'صادر', 'آلي'], rows: chRows.map(([k, r]) => [k, K.Num(String(r.convs.size)), K.Num(String(r.in)), K.Num(String(r.out)), K.Num(String(r.auto))]) }) : K.Empty('مفيش رسايل', 'مفيش رسايل في الفترة دي.'), null, { sub: 'آخر 30 يوم' })].concat(Performance(rg));
+  }
   const last30 = () => { const to = today(); const d = new Date(Date.now() - 30 * 864e5); return { from: d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0'), to }; };
 
   // ======================= الرد الآلي (phase 6.5 — the v6 page «autoreply» on IBCS: templates · quick replies · rules) =======================
@@ -1375,18 +1408,19 @@
   window.IBPages.register('autoreply', { title: 'الرد الآلي', hash: (hs) => { const m = /^autoreply(?:-(templates|quick|rules))?$/.exec(hs); if (!m) return false; const t = m[1] || 'templates'; st.tpl.sub = t === 'quick' ? 'quick' : t === 'rules' ? 'automation' : (st.tpl.sub === 'vendors' ? 'vendors' : 'customers'); return true; }, defaultHash: () => 'autoreply-' + arTab(), view: arView, api: { state: st, editTemplate, editRule, pickTemplate } });
 
   // ======================= page =======================
-  const TABS = [['inbox', 'الرسايل'], ['customers', 'العملاء'], ['segments', 'شرايح العملاء'], ['campaigns', 'الحملات'], ['channels', 'القنوات'], ['performance', 'الأداء'], ['reports', 'التقارير']];
+  // phase 13 decision 63 (owner 11 Nov — «شيل الأداء وضيف نظرة عامة في أول قسم بأعداد الرسايل وحالاتها والقنوات والترافيك بتاعها وكل المفيد»)
+  const TABS = [['overview', 'نظرة عامة'], ['inbox', 'الرسايل'], ['customers', 'العملاء'], ['segments', 'شرايح العملاء'], ['campaigns', 'الحملات'], ['channels', 'القنوات'], ['reports', 'التقارير']];
   function view() {
     if (can().view === 'N') return [K.PageHead('خدمة العملاء', 'كل محادثات العملاء والمبتكرين في مكان واحد'), K.Empty('مش مسموح', 'صفحة خدمة العملاء محتاجة صلاحية «عرض خدمة العملاء».')];
     const manage = can().manage; const reply = can().reply;
     const actions = { inbox: reply ? [Button({ type: 'brand', icon: 'plus', label: 'رسالة جديدة', onClick: () => newMessage() })] : [], customers: manage ? [Button({ type: 'brand', icon: 'plus', label: 'إضافة عميل', onClick: addCustomer })] : [], segments: [], channels: [],
       campaigns: st.wiz ? [Button({ label: 'حفظ كمسودة', attrs: { 'data-wz-draft': '' }, onClick: async () => { const w = st.wiz; if (!w.name.trim()) { w.errs = { name: 'اسم الحملة مطلوب' }; R(); return; } const r = await persistCampaign(w, 'مسودة'); if (!done(r, 'اتحفظت كمسودة')) return; st.wiz = null; R(); } })] : st.campaign ? [] : manage ? [Button({ type: 'brand', icon: 'plus', label: 'حملة جديدة', onClick: () => startWizard() })] : [],
-      performance: [h('span', { class: 'chip' }, Icon('cal', 'sm'), 'آخر 30 يوم')], reports: RB() && RB().range ? [RB().range()] : [] }[st.tab] || [];
+      overview: [h('span', { class: 'chip' }, Icon('cal', 'sm'), 'آخر 30 يوم')], reports: RB() && RB().range ? [RB().range()] : [] }[st.tab] || [];
     const k = st.tab === 'campaigns' && st.campaign ? S.campaigns.find((x) => x.id === st.campaign) : null;
     const title = st.tab === 'campaigns' && st.wiz ? (st.wiz.id ? 'تعديل الحملة' : 'حملة جديدة') : k ? k.name : 'خدمة العملاء';
     const sub = st.tab === 'campaigns' && st.wiz ? st.wiz.name : k ? (k.from || '—') + ' · ' + (k.seg || 'من غير شريحة') + ' (' + K.n0(k.size) + ') · ' + k.sub : 'كل محادثات العملاء والمبتكرين من واتساب وماسنجر وإنستجرام وتيك توك في مكان واحد';
     const rr = RB() && RB().get ? RB().get() : null;
-    const body = st.tab === 'inbox' ? [Inbox()] : st.tab === 'customers' ? Customers() : st.tab === 'segments' ? Segments() : st.tab === 'campaigns' ? Campaigns() : st.tab === 'channels' ? Channels() : st.tab === 'reports' ? Performance(rr || last30(), rr ? 'فترة التقارير: ' + rr.from + ' – ' + rr.to : 'آخر 30 يوم') : Performance(last30(), 'آخر 30 يوم');
+    const body = st.tab === 'overview' ? Overview(last30()) : st.tab === 'inbox' ? [Inbox()] : st.tab === 'customers' ? Customers() : st.tab === 'segments' ? Segments() : st.tab === 'campaigns' ? Campaigns() : st.tab === 'channels' ? Channels() : st.tab === 'reports' ? Performance(rr || last30(), rr ? 'فترة التقارير: ' + rr.from + ' – ' + rr.to : 'آخر 30 يوم') : Performance(last30(), 'آخر 30 يوم');
     const panel = h('div', { class: 'cs-body cs-tab-' + st.tab, role: 'tabpanel' }, body);
     // «تخصيص اللوحة» (phase 10 decision 22, as in the v5 prototype): every tab but the inbox and the reports — and not inside the
     // campaign wizard or an open campaign (their steps are not blocks to hide)
@@ -1429,6 +1463,6 @@
     if (pos) { const n = document.getElementById('cs-ta'); if (n) { n.focus(); try { n.setSelectionRange(pos[0], pos[1]); } catch (e) { /* not a text field */ } } }
     if (notify) try { document.dispatchEvent(new CustomEvent('ib:notify')); } catch (e) { /* the bell's badge counts «رسايل» */ } }
   document.addEventListener('ib:directory', () => R());
-  window.IBPages.register('cs', { title: 'خدمة العملاء', hash: (hs) => { const m = /^cs(?:-(inbox|customers|segments|campaigns|channels|performance|reports))?$/.exec(hs); if (!m) return false; st.tab = m[1] || 'inbox'; return true; }, defaultHash: () => 'cs-' + st.tab, view,
+  window.IBPages.register('cs', { title: 'خدمة العملاء', hash: (hs) => { const m = /^cs(?:-(overview|inbox|customers|segments|campaigns|channels|performance|reports))?$/.exec(hs); if (!m) return false; st.tab = !m[1] || m[1] === 'performance' ? 'overview' : m[1]; return true; }, defaultHash: () => 'cs-' + st.tab, view,
     api: { notifSection, state: st, data: S, addCustomer: (pre) => { if (!can().manage) return false; addCustomer(pre); return true; }, openCustomer: (id) => { const cu = C(id); if (!cu) return; st.tab = 'customers'; location.hash = 'cs-customers'; setTimeout(() => profile(cu), 120); }, peekCustomer: (id) => { const cu = C(id); if (!cu) return false; profile(cu); return true; }, /* phase 13 decision 18: the header search opens the profile over the current page */ openConversation: (id) => { const c = S.convs.find((x) => x.id === id); if (!c) return; st.tab = 'inbox'; st.seg = c.seg; st.plat = 'all'; st.view = 'all'; st.sel[c.seg] = c.id; st.mobileChat = true; location.hash = 'cs-inbox'; R(); } } });
 })();

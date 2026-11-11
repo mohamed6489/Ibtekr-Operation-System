@@ -61,6 +61,8 @@ const inert = async (page) => {
   expect(await page.evaluate(() => document.querySelectorAll('img[src="x"]').length)).toBe(0);
   expect(await page.evaluate(() => window.__xss)).toBeUndefined();
 };
+// B2 (0080): «الفئة الأساسية» is a multi-select of the site's main categories
+async function pickCats(page, id, labels) { await modal(page).locator('#' + id).click(); for (const l of labels) await page.locator('[data-mp-menu] [role=menuitemcheckbox]', { hasText: l }).click(); await page.locator('[data-mp-menu] [data-mp-done]').click(); }
 async function pickOption(page, selectId, label) { await modal(page).locator('#' + selectId).click(); await page.locator('[role=listbox] [role=option]', { hasText: label }).click(); }
 async function openAdd(page) { await page.getByRole('button', { name: 'إضافة مبتكر' }).click(); await expect(modal(page)).toBeVisible(); return modal(page); }
 // what the page copies (the clipboard is not readable in the test browser)
@@ -83,7 +85,7 @@ test('the admin adds a complete maker (basics + login with its temporary passwor
   await expect(m).toContainText('بيانات الدخول'); await expect(m).toContainText('الحساب البنكي');
   await m.locator('#v-name').fill('Wood & Rope');
   await expect(m.locator('#v-login-user')).toHaveValue('wood.rope'); // suggested from the name
-  await pickOption(page, 'v-cat', 'ديكور منزلي');
+  await pickCats(page, 'v-cat', ['ديكور']);
   await m.locator('#v-phone').fill('01000000009');
   await m.locator('#v-login-email').fill('wood.dev@ibtekr.local');
   await expect(m.locator('[data-pwmode]')).toHaveCount(0); // no «ابعتله لينك يعمل الباسورد بنفسه» (owner, 26 Oct): the temporary password is the only way
@@ -103,7 +105,8 @@ test('the admin adds a complete maker (basics + login with its temporary passwor
   await expect(drawer(page).locator('[data-missing]')).toHaveCount(0);
   const ins = writes().filter((w) => w.op === 'insert');
   expect(ins.map((w) => w.table)).toEqual(['vendors', 'vendor_rates', 'vendor_logins', 'vendor_bank']);
-  expect(ins[0]).toEqual({ table: 'vendors', op: 'insert', name: 'Wood & Rope', category: 'ديكور منزلي', phone: '01000000009', email: 'wood.dev@ibtekr.local', status: 'active', lead_days: 7, aliases: [], joined_at: ins[0].joined_at });
+  expect(mock.vendorWrites.filter((w) => w.table === 'vendor_main_categories')).toEqual([{ table: 'vendor_main_categories', vendor_id: NEW1, ids: [15], category: 'ديكور', by: ADMIN }]);
+  expect(ins[0]).toEqual({ table: 'vendors', op: 'insert', name: 'Wood & Rope', phone: '01000000009', email: 'wood.dev@ibtekr.local', status: 'active', lead_days: 7, aliases: [], joined_at: ins[0].joined_at });
   expect(ins[2]).toEqual({ table: 'vendor_logins', op: 'insert', vendor_id: NEW1, username: 'wood.rope', email: 'wood.dev@ibtekr.local', pw_mode: 'temp', created_by: 'صفوت كمال' }); // created_by: the member's name, like set_by / updated_by
   expect(ins[3]).toEqual({ table: 'vendor_bank', op: 'insert', vendor_id: NEW1, method: 'bank', bank_name: 'بنك مصر', holder: 'Wood & Rope', iban: 'EG380003000100000000000004821', wallet: null, account_number: null, account_type: null, bank_address: null, routing_number: null, swift: null, updated_by: 'صفوت كمال' }); // the IBAN upper-cased, no spaces
   expect(mock.rpcs).toEqual([{ fn: 'vendor_login_set_password', vendor_id: NEW1, by: ADMIN, result: 'ok' }]); // right after the login insert
@@ -131,7 +134,7 @@ test('phase 13 decision 51: the bank is optional, the photo and the contract are
   const m = await openAdd(page);
   await expect(m.locator('#v-bank-method')).not.toHaveAttribute('aria-required', 'true');
   await m.locator('#v-name').fill('Clay Home');
-  await pickOption(page, 'v-cat', 'ديكور منزلي');
+  await pickCats(page, 'v-cat', ['ديكور']);
   await m.locator('#v-phone').fill('01000000019');
   await m.locator('#v-login-email').fill('clay.dev@ibtekr.local');
   await m.locator('[data-genpw]').click();
@@ -167,7 +170,7 @@ test('phase 13 decision 51: a photo of the wrong type is refused in the popup be
 test('a temporary password from the generator passes the rules and reaches the RPC alone: in no write, no client log, nowhere on the page after; the server logs vendor.login.password; the note says it is ready to send', async ({ page }) => {
   await openVendors(page);
   const m = await openAdd(page);
-  await m.locator('#v-name').fill('Zaan'); await pickOption(page, 'v-cat', 'هدايا'); await m.locator('#v-phone').fill('01000000008'); await m.locator('#v-login-email').fill('zaan.dev@ibtekr.local');
+  await m.locator('#v-name').fill('Zaan'); await pickCats(page, 'v-cat', ['هدايا']); await m.locator('#v-phone').fill('01000000008'); await m.locator('#v-login-email').fill('zaan.dev@ibtekr.local');
   await expect(m.locator('#v-login-pw')).toHaveAttribute('type', 'password'); // there from the start: the only mode
   await m.locator('#v-login-pw').fill('short');
   await expect(m.locator('.pw-rules li.ok')).toHaveCount(2); // a letter, no spaces; not 8 chars, no digit
@@ -205,7 +208,7 @@ test('the username: suggested from the name until typed, a taken one refused loc
   await m.locator('#v-name').fill('Antik'); await expect(m.locator('#v-login-user')).toHaveValue('antik');
   await m.locator('#v-login-user').fill('Antikiano');
   await m.locator('#v-name').fill('Antik Store'); await expect(m.locator('#v-login-user')).toHaveValue('Antikiano'); // typed once: the name no longer drives it
-  await pickOption(page, 'v-cat', 'هدايا'); await m.locator('#v-phone').fill('01000000008'); await m.locator('#v-login-email').fill('antik.dev@ibtekr.local');
+  await pickCats(page, 'v-cat', ['هدايا']); await m.locator('#v-phone').fill('01000000008'); await m.locator('#v-login-email').fill('antik.dev@ibtekr.local');
   await pickOption(page, 'v-bank-method', 'نقدي عند التسليم'); await m.locator('[data-genpw]').click();
   await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
   await expect(m.locator('#v-login-user-err')).toHaveText('اسم المستخدم ده مستخدم قبل كده — جرّب antikiano2'); // lower-cased: Antikiano's
@@ -227,7 +230,7 @@ test('a maker already in the registry (by name or alias, normalised) is refused 
   await openVendors(page);
   const m = await openAdd(page);
   await m.locator('#v-name').fill('antikiano  store'); // Antikiano's alias «Antikiano store»
-  await pickOption(page, 'v-cat', 'هدايا'); await m.locator('#v-phone').fill('01000000008'); await m.locator('#v-login-email').fill('x.dev@ibtekr.local');
+  await pickCats(page, 'v-cat', ['هدايا']); await m.locator('#v-phone').fill('01000000008'); await m.locator('#v-login-email').fill('x.dev@ibtekr.local');
   await pickOption(page, 'v-bank-method', 'نقدي عند التسليم');
   await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
   await expect(m.locator('#v-name-err')).toContainText('المبتكر ده موجود (');
@@ -238,7 +241,7 @@ test('a maker already in the registry (by name or alias, normalised) is refused 
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   const m2 = await openAdd(page);
   await m2.locator('#v-name').fill('ART-CRAFT'); await m2.locator('#v-aliases').fill('Bian'); // the name of one, the alias of another: refused on the name first
-  await pickOption(page, 'v-cat', 'هدايا'); await m2.locator('#v-phone').fill('01000000008'); await m2.locator('#v-login-email').fill('x.dev@ibtekr.local');
+  await pickCats(page, 'v-cat', ['هدايا']); await m2.locator('#v-phone').fill('01000000008'); await m2.locator('#v-login-email').fill('x.dev@ibtekr.local');
   await pickOption(page, 'v-bank-method', 'نقدي عند التسليم');
   await m2.getByRole('button', { name: 'إضافة المبتكر' }).click();
   await expect(m2.locator('#v-name-err')).toContainText('المبتكر ده موجود (');
@@ -468,4 +471,47 @@ test('a username and an e-mail with html (seeded past the checks) render as text
   await expect(modal(page).locator('#l-login-email')).toHaveValue(EVIL + '@x.y');
   await modal(page).getByRole('button', { name: 'إلغاء' }).click();
   await inert(page);
+});
+
+// B2 (0080, the owner 11 Nov — «في اضافة مبتكر الاقسام الاساسية اللي هي ال MAIN CATEGRIES اختار منهم مع امكانية اختيار متعدد و دي
+// هتبقي علي السيستم مش هتسمع في الويب سايت»)
+test('B2: «الفئة الأساسية» = the site\'s main categories, several; required; saved here only (vendor_main_categories_set), shown in the drawer, edited from «بيانات الهوية»; the filter «الفئة» picks by it', async ({ page }) => {
+  await openVendors(page);
+  const m = await openAdd(page);
+  await m.locator('#v-name').fill('Clay Home');
+  await m.locator('#v-phone').fill('01000000006'); await m.locator('#v-login-email').fill('clay.dev@ibtekr.local'); await m.locator('[data-genpw]').click();
+  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await expect(m.locator('#v-cat-err')).toHaveText('اختار قسم رئيسي واحد على الأقل');
+  expect(writes()).toEqual([]);
+  await m.locator('#v-cat').click();
+  const menu = page.locator('[data-mp-menu="v-cat"]');
+  await expect(menu.locator('[role=menuitemcheckbox]')).toHaveText(['ديكور', 'هدايا']); // the main ones only: no «إضاءة» / «أباجورات»
+  await menu.locator('[role=menuitemcheckbox]', { hasText: 'هدايا' }).click();
+  await menu.locator('[role=menuitemcheckbox]', { hasText: 'ديكور' }).click();
+  await expect(menu.locator('[aria-checked=true]')).toHaveCount(2);
+  await menu.locator('[data-mp-done]').click();
+  await expect(m.locator('#v-cat .val')).toHaveText('هدايا، ديكور');
+  await m.getByRole('button', { name: 'إضافة المبتكر' }).click();
+  await expect(drawer(page)).toBeVisible();
+  expect(mock.vendorWrites.filter((w) => w.table === 'vendor_main_categories')).toEqual([{ table: 'vendor_main_categories', vendor_id: NEW1, ids: [22, 15], category: 'هدايا، ديكور', by: ADMIN }]);
+  expect(mock.vendorPushes.filter((p) => p.vendor_id === NEW1)).toEqual([]); // nothing to the site
+  await expect(info(section(page, 'الهوية'), page, 'الفئة الأساسية')).toHaveText('هدايا، ديكور');
+  // «بيانات الهوية»: one off → the RPC again, the drawer follows
+  await section(page, 'الهوية').getByRole('button', { name: 'تعديل بيانات الهوية' }).click();
+  await modal(page).locator('#g-cat').click();
+  await expect(page.locator('[data-mp-menu="g-cat"] [aria-checked=true]')).toHaveCount(2);
+  await page.locator('[data-mp-menu="g-cat"] [role=menuitemcheckbox]', { hasText: 'هدايا' }).click();
+  await page.locator('[data-mp-menu="g-cat"] [data-mp-done]').click();
+  await modal(page).getByRole('button', { name: 'حفظ' }).click();
+  await expect(info(section(page, 'الهوية'), page, 'الفئة الأساسية')).toHaveText('ديكور');
+  await expect.poll(() => mock.vendorWrites.filter((w) => w.table === 'vendor_main_categories').map((w) => w.ids)).toEqual([[22, 15], [15]]);
+  await expect.poll(() => acts('vendor.update')).toContainEqual({ action: 'vendor.update', entity: 'vendor', entity_id: NEW1, new_value: 'categories' });
+  // the makers filter «الفئة»: the main categories, by id — Art Craft and Clay Home are «ديكور»
+  await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
+  await page.locator('[data-fm-btn="vendors"]').click();
+  await expect(page.locator('[data-fm-menu="vendors"] [data-fm^="category:"]')).toHaveText(['ديكور', 'هدايا']);
+  await page.locator('[data-fm="category:15"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').click();
+  await expect(rows(page)).toHaveCount(2);
+  await expect(page.locator('#vendors .af-row')).toContainText('الفئة: ديكور');
 });

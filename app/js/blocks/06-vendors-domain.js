@@ -67,10 +67,13 @@
     return e;
   }
 
+  // ids of the site's main categories (woo_categories without a parent): positive integers, a repeat kept once, in the order picked
+  const cleanCategoryIds = (a) => [...new Set((Array.isArray(a) ? a : []).map((x) => Number(latin(x))).filter((x) => Number.isInteger(x) && x > 0))];
   function validateVendor(input) {
     const e = {};
     if (!clean(input.name, 80)) e.name = 'اكتب اسم المبتكر';
-    if (!CATEGORIES.includes(input.category)) e.category = 'اختار الفئة';
+    // the owner, 11 Nov (B2, 0080): «الفئة الأساسية» = one or more of the site's main categories (their ids), kept in the system only
+    const cats = cleanCategoryIds(input.categories); if (!cats.length) e.categories = 'اختار قسم رئيسي واحد على الأقل'; else if (cats.length > 20) e.categories = 'لحد 20 قسم';
     if (!phoneOk(input.phone)) e.phone = 'اكتب رقم موبايل مصري صحيح (11 رقم يبدأ بـ 01)';
     const rate = Number(latin(input.rate)); if (!Number.isFinite(rate) || rate < 0 || rate > 65) e.rate = 'النسبة من 0% إلى 65%';
     const lead = Number(latin(input.leadDays)); if (!Number.isInteger(lead) || lead < 1 || lead > 60) e.leadDays = 'مدة التجهيز من 1 إلى 60 يوم';
@@ -156,7 +159,7 @@
   // Drawer edit groups — each section of «ملف المبتكر» has its own «تعديل» popup with only its fields (rate has its own dated flow inside «الاتفاق التجاري»).
   // Phase 3.3: the contact group carries the store owner's name, the address parts and the social links (instagram = social.instagram since then).
   const EDIT_GROUPS = Object.freeze({
-    identity: Object.freeze({ title: 'بيانات الهوية', fields: Object.freeze(['name', 'legalName', 'category', 'aliases', 'status']) }),
+    identity: Object.freeze({ title: 'بيانات الهوية', fields: Object.freeze(['name', 'legalName', 'categories', 'aliases', 'status']) }), // B2: the main categories (ids)
     contact: Object.freeze({ title: 'بيانات الاتصال', fields: Object.freeze(['phone', 'altPhone', 'email', 'contactName', 'addressParts', 'social', 'storeUrl']) }),
     terms: Object.freeze({ title: 'بيانات الاتفاق التجاري', fields: Object.freeze(['leadDays', 'depositPolicy', 'notes']) }) });
   const group = (g) => { const x = EDIT_GROUPS[g]; if (!x) throw new Error('unknown edit group: ' + g); return x; };
@@ -218,7 +221,7 @@
     function create(input, actor) {
       const errs = validateVendor(input); const bad = Object.keys(errs); if (bad.length) throw new Error('invalid vendor: ' + bad.join(','));
       seq += 1; const id = 'VND-' + String(seq).padStart(4, '0'); const at = clock(); const rate = Number(latin(input.rate));
-      const v = { id, name: clean(input.name, 80), legalName: clean(input.legalName, 120) || null, category: input.category, aliases: parseAliases(input.aliases), status: input.status,
+      const v = { id, name: clean(input.name, 80), legalName: clean(input.legalName, 120) || null, categories: cleanCategoryIds(input.categories), category: clean(input.category, 300) || null, aliases: parseAliases(input.aliases), status: input.status,
         phone: latin(input.phone).replace(/[\s-]/g, ''), altPhone: input.altPhone ? latin(input.altPhone).replace(/[\s-]/g, '') : null, email: clean(input.email, 120) || null, address: clean(input.address, 200) || null, instagram: clean(input.instagram, 80) || null, storeUrl: clean(input.storeUrl, 200) || null,
         rate, rateSince: input.rateSince || at.slice(0, 10), rateHistory: [{ rate, since: input.rateSince || at.slice(0, 10), by: actor.name }], leadDays: Number(latin(input.leadDays)), depositPolicy: clean(input.depositPolicy, 120) || null, notes: clean(input.notes, 500) || null,
         logoLetter: clean(input.name, 80).charAt(0), joinedAt: input.joinedAt || at.slice(0, 10), contract: null, bank: null, createdBy: { name: actor.name, role: actor.role }, createdAt: at, lastUpdate: at };
@@ -228,10 +231,10 @@
     }
     function update(id, patch, actor) {
       const v = must(id); if (!canEdit(actor)) throw noPerm();
-      const allowed = ['name', 'legalName', 'category', 'aliases', 'status', 'phone', 'altPhone', 'email', 'address', 'instagram', 'storeUrl', 'leadDays', 'depositPolicy', 'notes', 'logoLetter'];
+      const allowed = ['name', 'legalName', 'categories', 'aliases', 'status', 'phone', 'altPhone', 'email', 'address', 'instagram', 'storeUrl', 'leadDays', 'depositPolicy', 'notes', 'logoLetter'];
       const errs = validateVendor(Object.assign({}, v, { aliases: v.aliases.join('،') }, patch)); const bad = Object.keys(errs).filter((k) => patch[k] !== undefined); if (bad.length) throw new Error('invalid vendor: ' + bad.join(','));
       const changed = [];
-      for (const k of allowed) { if (patch[k] === undefined) continue; let nv = patch[k]; if (k === 'aliases') nv = Array.isArray(nv) ? nv : parseAliases(nv); if (k === 'leadDays') nv = Number(latin(nv)); if (k === 'phone' || k === 'altPhone') nv = nv ? latin(nv).replace(/[\s-]/g, '') : null; if (typeof nv === 'string') nv = clean(nv, 500) || null; if (JSON.stringify(nv) !== JSON.stringify(v[k])) { changed.push(k); v[k] = nv; } }
+      for (const k of allowed) { if (patch[k] === undefined) continue; let nv = patch[k]; if (k === 'categories') nv = cleanCategoryIds(nv); if (k === 'aliases') nv = Array.isArray(nv) ? nv : parseAliases(nv); if (k === 'leadDays') nv = Number(latin(nv)); if (k === 'phone' || k === 'altPhone') nv = nv ? latin(nv).replace(/[\s-]/g, '') : null; if (typeof nv === 'string') nv = clean(nv, 500) || null; if (JSON.stringify(nv) !== JSON.stringify(v[k])) { changed.push(k); v[k] = nv; } }
       if (changed.length) event(id, actor.name + ' عدّل بيانات المبتكر (' + changed.join('، ') + ')', actor, { fields: changed });
       return get(id);
     }
@@ -293,7 +296,7 @@
       if (f.contract && f.contract !== 'all' && contractStatus(v, day) !== f.contract) return false;
       if (f.tickets && !(tk(v) > 0)) return false;
       if ((f.status || 'active') !== 'all' && v.status !== (f.status || 'active')) return false;
-      if (f.category && f.category !== 'all' && v.category !== f.category) return false;
+      if (f.category && f.category !== 'all' && !((v.categories || []).map(String).includes(String(f.category)) || v.category === f.category)) return false; // B2: a main category's id (or an old text)
       if (f.late && !(st(v).late > 0)) return false;
       if (f.negative && !(st(v).balance < 0)) return false;
       if (f.due && !(st(v).balance > 0)) return false;
@@ -471,6 +474,6 @@
     return e;
   }
 
-  return Object.freeze({ WD_STATUS, wdLabel, accountBrief, openRequest, BANK_ACCOUNT_TYPES, ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, categoryTree, categoryFigures, categoryPath, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
+  return Object.freeze({ WD_STATUS, wdLabel, accountBrief, openRequest, BANK_ACCOUNT_TYPES, ADDRESS_KEYS, ADDRESS_LABELS, SOCIAL_KEYS, SYNC_FIELD_LABELS, cleanAddressParts, cleanSocial, addressText, validateAddressParts, validateSocial, validateCategoryRate, categoryTree, categoryFigures, categoryPath, validateBrand, brandCode, ownerAt, effectiveRate, validateTransfer, LOGIN_STATUS, passwordIssues, genPassword, suggestUsername, validateLogin, validateBank, dailyVendorReport, dailyVendorText, weeklyVendorReport, weeklyVendorText, vendorReport, vendorReportText, biweeklyPeriod, periodStatement, periodStatementText, periodMoney, ADMIN, ACCOUNTS, VENDOR_FOLLOW, CATEGORIES, cleanCategoryIds, STATUSES, PAY_METHODS, CONTRACT_TYPES, CONTRACT_MAX, EXPIRY_WARN_DAYS, label, validateVendor, EDIT_GROUPS, groupPatch, validateGroup, orderCounts, performance, ledger, ORDER_KINDS, ordersByKind, delayCounts, shareText, waPhone, createStore, isAdmin, canEdit, canSeeBank, mask, rateAt, contractStatus, summary, summaryDetails, filterVendors, activeFilterCount, VENDOR_SORTS, sortVendors, parseAliases, norm });
 });
 

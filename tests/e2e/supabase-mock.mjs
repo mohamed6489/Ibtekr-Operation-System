@@ -76,7 +76,7 @@ const COLUMNS = { // supabase/migrations/0001_identity.sql, 0002_system.sql (act
   orders_v: ['id', 'number', 'customer_name', 'customer_phone', 'customer_state', 'customer_city', 'customer_address', 'payment_method', 'payment_title', 'status', 'woo_status', 'confirm', 'confirm_at', 'confirm_note', 'deposit', 'total', 'currency', 'note', 'customer_note', 'placed_at', 'woo_updated_at', 'cancel', 'ret', 'synced_at', 'created_at', 'updated_at'],
   order_items: ['id', 'order_id', 'sub_order_id', 'product_id', 'sku', 'name', 'qty', 'total', 'vendor_id', 'status', 'expected_at', 'comment', 'ready_at', 'waybill', 'pulled', 'ret', 'store', 'removed', 'updated_at', 'commission_rate', 'commission_fee'],
   sub_orders: ['id', 'order_id', 'vendor_id', 'woo_order_id', 'woo_status', 'total', 'dokan_earning', 'commission', 'updated_at'],
-  vendors: ['id', 'woo_vendor_id', 'site_removed_at', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at', 'legal_name', 'category', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance',
+  vendors: ['id', 'woo_vendor_id', 'site_removed_at', 'name', 'aliases', 'phone', 'email', 'status', 'commission_pct', 'raw', 'created_at', 'updated_at', 'legal_name', 'category', 'main_categories', 'alt_phone', 'address', 'instagram', 'store_url', 'lead_days', 'deposit_policy', 'notes', 'joined_at', 'contract', 'opening_balance',
     'contact_name', 'address_parts', 'social', 'logo_url', 'banner_url', 'woo_payment_methods', 'woo_snapshot', 'push_pending', 'woo_synced_at', 'photo_path'], // 0075 photo_path; 0014 (phase 3.3): woo_snapshot is service_role only (a select naming it → 42501, like commission_pct)
   vendor_rates: ['id', 'vendor_id', 'rate', 'flat', 'since', 'set_by', 'created_at', 'commission_type'], // 0014: flat; 0016: commission_type
   vendor_category_rates: ['id', 'vendor_id', 'woo_category_id', 'rate', 'flat', 'since', 'set_by', 'created_at'], // 0014: sensitive.commission, add-only
@@ -181,7 +181,7 @@ const ITEM_STATUSES = ['', 'غير مؤكد', 'مؤكد', 'قيد التنفيذ
 function ordersSeed(opts = {}) {
   const ago = (d) => { const t = new Date(Date.now() - d * 864e5); t.setUTCHours(10, 0, 0, 0); return t.toISOString(); };
   const vendor = (n, woo, name, status = 'active', more = {}) => ({ id: VND(n), woo_vendor_id: woo, name, aliases: [], phone: null, email: null, status, commission_pct: null, raw: { id: woo, shop_url: SITE + '/store/' + name.toLowerCase().replace(/\s+/g, '-') + '/' }, created_at: T0, updated_at: T0,
-    legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: '2026-03-01', contract: null, opening_balance: 0,
+    legal_name: null, category: null, main_categories: [], alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: '2026-03-01', contract: null, opening_balance: 0,
     contact_name: null, address_parts: null, social: null, logo_url: null, banner_url: null, woo_payment_methods: null, woo_snapshot: null, push_pending: null, woo_synced_at: null, photo_path: null, ...more }); // 0014 (phase 3.3)
   // 0021 (phase 5): the mirror columns — English rows (lang en) by default; extra: a translation, a trash row, another status
   const product = (id, sku, name, image_url, v, slug, extra = {}) => ({ id, sku, name, image_url, permalink: SITE + '/product/' + slug + '/', vendor_id: VND(v), price: null, status: 'publish', raw: { id }, updated_at: T0,
@@ -195,7 +195,7 @@ function ordersSeed(opts = {}) {
     // 0011: Art Craft and Antikiano with a rate (Antikiano's raised in October), Antikiano with a stored contract, Bian eg (inactive, no order) with a bank row
     // 0014 (phase 3.3): Art Craft carries the synced store data (the owner's name, the address parts, two social links, the site's logo,
     // the payout methods, a last sync); Antikiano has a phone waiting for the site (push_pending); Bian eg is inactive with a store there
-    vendors: [vendor(1, 2376, 'Art Craft', 'active', { aliases: ['ArtCraft'], phone: '01000000003', category: 'فنون ولوحات', store_url: SITE + '/store/art-craft/', notes: 'الشحن على المبتكر داخل القاهرة', commission_pct: 35,
+    vendors: [vendor(1, 2376, 'Art Craft', 'active', { aliases: ['ArtCraft'], phone: '01000000003', category: 'ديكور', main_categories: [15] /* 0080: the site's «ديكور»; Antikiano keeps an old text */, store_url: SITE + '/store/art-craft/', notes: 'الشحن على المبتكر داخل القاهرة', commission_pct: 35,
       contact_name: 'منى عادل', address: ART_ADDRESS, address_parts: ART_PARTS, social: ART_SOCIAL, instagram: ART_SOCIAL.instagram, logo_url: ART_LOGO, banner_url: SITE + '/wp-content/uploads/artcraft-banner.png', woo_payment_methods: ['bank'], woo_snapshot: { name: 'Art Craft', phone: '01000000003' }, woo_synced_at: T0 }),
       vendor(2, 44, 'Antikiano', 'active', { aliases: ['Antikiano store'], phone: '01000000001', category: 'إكسسوارات ومجوهرات', commission_pct: 45, contract: { path: CONTRACT_PATH, file_name: 'antikiano.pdf', size: CONTRACT_BYTES.length, expires: CONTRACT_EXPIRES, uploaded_by: 'منى حسن', uploaded_at: T0 }, push_pending: ['phone'], woo_synced_at: T0 }),
       vendor(3, 2047, 'Bian eg', 'inactive', { aliases: ['Bian'], phone: '01000000000', category: 'ديكور منزلي' })],
@@ -286,8 +286,7 @@ const SYNC_FIELDS = ['name', 'phone', 'email', 'contact_name', 'address_parts', 
 const VT_UPDATE = { vendors: VT_INSERT.vendors.concat(['contract']), vendor_bank: VT_INSERT.vendor_bank.filter((c) => c !== 'vendor_id'), vendor_logins: ['username', 'email', 'pw_mode', 'status'] }; // 0012: must_change / invite_sent_at / password_set_at / secret_id are the server's
 const USERNAME_RE = /^[a-z0-9][a-z0-9._]{2,29}$/; const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 const canLogin = (u) => isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F'; // 0012: vendor_logins insert / update and the two RPCs
-const VENDOR_CATEGORIES = ['ديكور منزلي', 'إكسسوارات ومجوهرات', 'ملابس ومنسوجات', 'فنون ولوحات', 'هدايا', 'مستلزمات حرف', 'أطعمة وحلويات'];
-const VENDOR_DEFAULTS = () => ({ woo_vendor_id: null, site_removed_at: null, aliases: [], phone: null, email: null, status: 'active', commission_pct: null, raw: null, legal_name: null, category: null, alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: null, contract: null, opening_balance: 0,
+const VENDOR_DEFAULTS = () => ({ woo_vendor_id: null, site_removed_at: null, aliases: [], phone: null, email: null, status: 'active', commission_pct: null, raw: null, legal_name: null, category: null, main_categories: [], alt_phone: null, address: null, instagram: null, store_url: null, lead_days: 7, deposit_policy: null, notes: null, joined_at: null, contract: null, opening_balance: 0,
   contact_name: null, address_parts: null, social: null, logo_url: null, banner_url: null, woo_payment_methods: null, woo_snapshot: null, push_pending: null, woo_synced_at: null, photo_path: null });
 const b64url = (o) => Buffer.from(JSON.stringify(o)).toString('base64url');
 const authUser = (u, factors) => ({ id: u.id, aud: 'authenticated', role: 'authenticated', email: u.email, phone: '', app_metadata: { provider: 'email', providers: ['email'] }, user_metadata: {}, identities: [], factors, created_at: T0 });
@@ -1132,6 +1131,20 @@ export async function installSupabaseMock(page, opts = {}) {
         mock.deletes.push({ order_id: o.id, reason, by: u.email });
         return json(200, o.id);
       }
+      // 0080 (the owner, 11 Nov — B2): vendor_main_categories_set — the admin or vendors.edit = F; a newly picked id is a main category of
+      // the site (no parent), 20 at most, a repeat kept once; writes main_categories and their names in category (none = null)
+      if (method === 'POST' && path === '/rest/v1/rpc/vendor_main_categories_set') {
+        const b = body(); const vid = String(b.p_vendor || '').toLowerCase();
+        const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
+        if (!(isAdmin(u) || hasPerm(u, 'vendors.edit') === 'F')) return refuse(403, '42501', "vendors.edit = F is required to change a maker's main categories");
+        const v = mock.vendors.find((x) => x.id === vid); if (!v) return refuse(400, 'P0002', 'maker not found');
+        const ids = [...new Set((Array.isArray(b.p_ids) ? b.p_ids : []).map(Number).filter((x) => Number.isInteger(x)))]; const cur = Array.isArray(v.main_categories) ? v.main_categories : [];
+        if (ids.length > 20 || ids.some((x) => !cur.includes(x) && !mock.wooCategories.some((c) => Number(c.id) === x && !Number(c.parent_id)))) return refuse(400, '22023', 'invalid: main_categories');
+        const names = ids.map((x) => (mock.wooCategories.find((c) => Number(c.id) === x) || {}).name).filter(Boolean).join('، ').slice(0, 300) || null;
+        Object.assign(v, { main_categories: ids, category: names, updated_at: new Date().toISOString() });
+        mock.vendorWrites.push({ table: 'vendor_main_categories', vendor_id: vid, ids, category: names, by: u.email });
+        return json(200, { main_categories: ids, category: names });
+      }
       if (method === 'POST' && path === '/rest/v1/rpc/vendor_commission_set') {
         const b = body(); const vid = String(b.p_vendor || '').toLowerCase();
         const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
@@ -1289,7 +1302,7 @@ export async function installSupabaseMock(page, opts = {}) {
         const F = t === 'vendor_logins' ? canLogin(u) : t === 'woo_categories' ? false : hasPerm(u, t === 'vendor_rates' || t === 'vendor_category_rates' ? 'sensitive.commission' : 'sensitive.vendor_bank') === 'F';
         const rows = () => (t === 'vendors' ? mock.vendors : t === 'vendor_rates' ? mock.vendorRates : t === 'vendor_bank' ? mock.vendorBank : t === 'vendor_category_rates' ? mock.vendorCategoryRates : t === 'woo_categories' ? mock.wooCategories : mock.vendorLogins);
         // the check constraints of 0011 (category, lead_days, status — leave since 0012; rate; method) and 0012 (username, email, pw_mode, status)
-        const bad = (r) => (t === 'vendors' ? (r.category != null && !VENDOR_CATEGORIES.includes(r.category) ? 'vendors_category_check' : r.lead_days != null && !(Number.isInteger(Number(r.lead_days)) && r.lead_days >= 1 && r.lead_days <= 60) ? 'vendors_lead_days_check' : r.status != null && !['active', 'leave', 'inactive'].includes(r.status) ? 'vendors_status_check' : null)
+        const bad = (r) => (t === 'vendors' ? (r.category != null && String(r.category).length > 300 ? 'vendors_category_len' : r.lead_days != null && !(Number.isInteger(Number(r.lead_days)) && r.lead_days >= 1 && r.lead_days <= 60) ? 'vendors_lead_days_check' : r.status != null && !['active', 'leave', 'inactive'].includes(r.status) ? 'vendors_status_check' : null)
           : t === 'vendor_rates' ? (!(Number(r.rate) >= 0 && Number(r.rate) <= 65) ? 'vendor_rates_rate_check' : r.flat != null && !(Number(r.flat) >= 0) ? 'vendor_rates_flat_check' : null)
           : t === 'vendor_category_rates' ? (!(Number.isInteger(Number(r.woo_category_id)) && Number(r.woo_category_id) > 0) ? 'vendor_category_rates_woo_category_id_check' : r.rate != null && !(Number(r.rate) >= 0 && Number(r.rate) <= 65) ? 'vendor_category_rates_rate_check' : r.flat != null && !(Number(r.flat) >= 0) ? 'vendor_category_rates_flat_check' : null)
           : t === 'vendor_logins' ? (!USERNAME_RE.test(String(r.username ?? '')) ? 'vendor_logins_username_check' : r.email != null && !EMAIL_RE.test(String(r.email)) ? 'vendor_logins_email_check' : r.pw_mode != null && !['link', 'temp'].includes(r.pw_mode) ? 'vendor_logins_pw_mode_check' : r.status != null && !['invited', 'active', 'disabled'].includes(r.status) ? 'vendor_logins_status_check' : null)

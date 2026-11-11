@@ -137,7 +137,7 @@
         presets: { accountant: ['oid', 'date', 'status', 'vendor', 'total'], vendor: ['oid', 'sid', 'date', 'product', 'sku', 'qty', 'total', 'subStatus'] },
         rows: () => { const A = OA(); if (!A || !A.query) return []; return A.query({}, 10000).rows.map((r) => A.get(r.id)).filter(Boolean).flatMap((o) => o.subs.map((x) => ({ oid: o.id, sid: x.sid, date: o.date, customer: o.name, phone: o.phone, status: o.st, confirm: o.cf, vendor: x.vendor, product: x.prod, sku: x.sku, qty: x.qty, total: x.tot, subStatus: x.ss || '' }))); } },
       { id: 'vendors', label: 'المبتكرين والنسب', key: 'name', modes: ['add', 'update'], filter: { key: 'status', label: 'الحالة', options: () => VST.map((x) => x[1]) },
-        fields: () => [{ key: 'name', label: 'اسم المبتكر', en: 'Vendor name', required: true }, { key: 'legalName', label: 'الاسم التجاري', en: 'Legal name' }, { key: 'category', label: 'الفئة', en: 'Category', type: 'enum', options: VD.CATEGORIES.slice(), required: true }, { key: 'status', label: 'الحالة', en: 'Status', type: 'enum', options: VST.map((x) => x[1]), required: true },
+        fields: () => [{ key: 'name', label: 'اسم المبتكر', en: 'Vendor name', required: true }, { key: 'legalName', label: 'الاسم التجاري', en: 'Legal name' }, { key: 'category', label: 'الفئة', en: 'Category', type: 'enum', options: (vstore.mainCategories ? vstore.mainCategories() : []).map((c) => c.name), required: true } /* B2 (0080): one of the site's main categories by name */, { key: 'status', label: 'الحالة', en: 'Status', type: 'enum', options: VST.map((x) => x[1]), required: true },
           { key: 'phone', label: 'الموبايل (واتساب)', en: 'Phone', type: 'phone', required: true, sensitive: true }, { key: 'email', label: 'الإيميل', en: 'Email', type: 'email' }, { key: 'rate', label: 'نسبة إبتكر %', en: 'Ibtekr %', type: 'number', required: true, noUpdate: true }, { key: 'leadDays', label: 'مدة التجهيز (يوم)', en: 'Lead days', type: 'number', required: true }, { key: 'address', label: 'العنوان', en: 'Address' },
           { key: 'balance', label: 'الرصيد', en: 'Balance', type: 'number', readOnly: true }, { key: 'transport', label: 'المواصلات', en: 'Transport', type: 'number', readOnly: true }, { key: 'deposits', label: 'العرابين', en: 'Deposits', type: 'number', readOnly: true }],
         presets: { accountant: ['name', 'rate', 'balance', 'transport', 'deposits'], vendor: ['name', 'category', 'leadDays'] },
@@ -145,9 +145,9 @@
         existing: () => vstore.all().map((v) => v.name),
         apply: (rows, onMatch) => { const done = { created: [], updated: [] };
           for (const r of rows) { const d = r.data; const ex = vstore.findByName(d.name);
-            const input = { name: d.name, legalName: d.legalName, category: d.category, status: vcode(d.status), phone: d.phone, email: d.email, rate: d.rate, leadDays: d.leadDays, address: d.address };
+            const input = { name: d.name, legalName: d.legalName, categories: vstore.mainCategoryIds ? vstore.mainCategoryIds(d.category) : [], status: vcode(d.status), phone: d.phone, email: d.email, rate: d.rate, leadDays: d.leadDays, address: d.address };
             if (ex && onMatch === 'تخطّي') continue;
-            if (ex && onMatch !== 'إنشاء نسخة') { const patch = {}; ['legalName', 'category', 'status', 'phone', 'email', 'leadDays', 'address'].forEach((k) => { if (input[k] !== undefined && input[k] !== '') patch[k] = input[k]; }); const old = {}; Object.keys(patch).forEach((k) => { old[k] = ex[k]; }); vstore.update(ex.id, patch, vstore.actor()); done.updated.push({ id: ex.id, old }); }
+            if (ex && onMatch !== 'إنشاء نسخة') { const patch = {}; ['legalName', 'categories', 'status', 'phone', 'email', 'leadDays', 'address'].forEach((k) => { if (input[k] !== undefined && input[k] !== '' && !(Array.isArray(input[k]) && !input[k].length)) patch[k] = input[k]; }); const old = {}; Object.keys(patch).forEach((k) => { old[k] = ex[k]; }); vstore.update(ex.id, patch, vstore.actor()); done.updated.push({ id: ex.id, old }); }
             else { const v = vstore.create(Object.assign({}, input, ex ? { name: d.name + ' (نسخة)' } : {}), vstore.actor()); done.created.push(v && v.id); } }
           return { done, undo: () => { done.created.forEach((id) => { try { if (id) vstore.remove(id, vstore.actor()); } catch (e) { /* already gone */ } }); done.updated.forEach((u) => { try { vstore.update(u.id, u.old, vstore.actor()); } catch (e) { /* skip */ } }); } }; } },
       { id: 'expenses', label: 'الحسابات (المصروفات)', modes: ['add'], dateKey: 'date', filter: { key: 'category', label: 'النوع', options: () => D.CATEGORIES.slice() },
@@ -2962,7 +2962,10 @@
 
   // ---------- Vendors / المبتكرين (Figma: المبتكرين — Desktop 1440; Modal / Add vendor; Drawer / Vendor Tab=Info/Orders) ----------
   const VD = window.IbtekrVendors;
-  const CATS = VD.CATEGORIES;
+  // «الفئة الأساسية» (the owner, 11 Nov — B2, 0080): the site's main categories, several, kept in the system only
+  const mainCats = () => (vstore.mainCategories ? vstore.mainCategories() : []);
+  const catPick = (fid, f, errs, help) => window.IBKit.MultiPick({ id: fid, field: true, required: true, label: 'الفئة الأساسية', options: mainCats().map((c) => [c.id, c.name]), value: f.categories, error: errs.categories,
+    placeholder: mainCats().length ? 'اختار قسم أو أكتر' : 'أقسام الموقع لسه ماتزامنتش', help: help || 'الأقسام الرئيسية بتاعة الموقع — بتتحفظ في السيستم بس', onChange: (ids) => { f.categories = ids.map(Number); } });
   // Phase 3 (decision 1): the registry is IBVendors.store — the sync's vendors table completed by the team, write-through — and
   // the prototype's seed is gone. Without the adapter (a bare prototype page) an empty in-memory store keeps the page alive.
   const vstore = window.IBVendors ? window.IBVendors.store : VD.createStore();
@@ -3075,7 +3078,7 @@
     const check = (key, label) => h('label', { class: 'check', style: 'display:flex;align-items:center;gap:8px;cursor:pointer' }, (() => { const c = h('input', { type: 'checkbox', checked: state.vfilter[key] }); c.addEventListener('change', () => setF(key, c.checked)); return c; })(), label);
     // «فلتر» + «ترتيب» (phase 5.5 decision 3, owner 1 Nov): the kit's closed multi-value filter and sort next to the columns button, the picks as chips with their counts
     const VF = { status: [['active', 'نشط'], ['leave', 'في إجازة'], ['inactive', 'غير نشط']], balance: [['due', 'ليه رصيد'], ['negative', 'عليه (عربون / مواصلات)'], ['zero', 'متصفّي']], contract: [['uploaded', 'مرفوع وساري'], ['expiring', 'بينتهي خلال 30 يوم'], ['expired', 'منتهي'], ['missing', 'غير مرفوع']] };
-    const VG = () => [{ key: 'status', label: 'الحالة', options: VF.status }, { key: 'category', label: 'الفئة', options: CATS.map((c) => [c, c]) }, { key: 'balance', label: 'الرصيد', options: VF.balance }, { key: 'contract', label: 'العقد', options: VF.contract }, { key: 'other', label: 'المتابعة', options: [['late', 'عنده تأخير'], ['tickets', 'عليه تذاكر']] }];
+    const VG = () => [{ key: 'status', label: 'الحالة', options: VF.status }, { key: 'category', label: 'الفئة', options: mainCats().map((c) => [String(c.id), c.name]) }, { key: 'balance', label: 'الرصيد', options: VF.balance }, { key: 'contract', label: 'العقد', options: VF.contract }, { key: 'other', label: 'المتابعة', options: [['late', 'عنده تأخير'], ['tickets', 'عليه تذاكر']] }];
     function vFilterBtn() {
       return window.IBKit.FilterMenu({ id: 'vendors', label: 'فلتر المبتكرين', noun: 'مبتكر', groups: VG(), value: state.vf, count: (d) => base0.filter(vPass(d)).length, onApply: (d) => { state.vf = d; state.vpage = 1; renderVendors(); } });
     }
@@ -3227,9 +3230,10 @@
   // The edit popup of an existing maker (openAddVendor(existing)) is unchanged. A name or alias already in the registry is refused
   // (decision 2: every Dokan store is already here) and the file is one click away.
   function openAddVendor(existing, pre) { // pre (phase 13 decision 36): the AI assistant's values for a new maker — the member reviews and saves
-    const f = existing ? { name: existing.name, legalName: existing.legalName || '', category: existing.category, phone: existing.phone, altPhone: existing.altPhone || '', email: existing.email || '', address: existing.address || '', instagram: existing.instagram || '', storeUrl: existing.storeUrl || '', rate: String(existing.rate), leadDays: String(existing.leadDays), status: existing.status, aliases: existing.aliases.join('، '), depositPolicy: existing.depositPolicy || '', notes: existing.notes || '' }
-      : { name: '', legalName: '', category: '', phone: '', altPhone: '', email: '', address: '', instagram: '', storeUrl: '', rate: '40', leadDays: '7', status: 'active', aliases: '', depositPolicy: '', notes: '', username: '', pwMode: 'temp', password: '', method: '', bankName: '', holder: '', iban: '', wallet: '', accountNumber: '', accountType: '', bankAddress: '', routingNumber: '', swift: '' };
-    if (!existing && pre && typeof pre === 'object') ['name', 'legalName', 'category', 'phone', 'altPhone', 'email', 'address', 'instagram', 'storeUrl', 'notes'].forEach((k) => { if (pre[k] != null && String(pre[k]).trim()) f[k] = String(pre[k]).trim().slice(0, 300); });
+    const f = existing ? { name: existing.name, legalName: existing.legalName || '', categories: (existing.categories || []).slice(), phone: existing.phone, altPhone: existing.altPhone || '', email: existing.email || '', address: existing.address || '', instagram: existing.instagram || '', storeUrl: existing.storeUrl || '', rate: String(existing.rate), leadDays: String(existing.leadDays), status: existing.status, aliases: existing.aliases.join('، '), depositPolicy: existing.depositPolicy || '', notes: existing.notes || '' }
+      : { name: '', legalName: '', categories: [], phone: '', altPhone: '', email: '', address: '', instagram: '', storeUrl: '', rate: '40', leadDays: '7', status: 'active', aliases: '', depositPolicy: '', notes: '', username: '', pwMode: 'temp', password: '', method: '', bankName: '', holder: '', iban: '', wallet: '', accountNumber: '', accountType: '', bankAddress: '', routingNumber: '', swift: '' };
+    if (!existing && pre && typeof pre === 'object') ['name', 'legalName', 'phone', 'altPhone', 'email', 'address', 'instagram', 'storeUrl', 'notes'].forEach((k) => { if (pre[k] != null && String(pre[k]).trim()) f[k] = String(pre[k]).trim().slice(0, 300); });
+    if (!existing && pre && pre.category && vstore.mainCategoryIds) f.categories = vstore.mainCategoryIds(pre.category); // the assistant's words → the main categories that match by name
     const canBank = vstore.canBank(); const bankReq = false; // phase 13 decision 51 (owner 10 Nov — «خلي الحساب البنكي إختياري»): validated only when a method is chosen
     // the photo (decision 51 — «System + Dokan store») and the contract (canBank, like the drawer's) picked here; uploaded after the save
     const canPhoto = !!(vstore.setPhoto && vstore.canPhoto && vstore.canPhoto()); let photo = null; let photoPrev = null; let contract = null; let cExp = '';
@@ -3267,7 +3271,7 @@
     const statusOpts = VD.STATUSES.map(([value, label]) => ({ value, label }));
     function draw() {
       const fields = [
-        h('div', { class: 'row cols2' }, h('div', { style: 'flex:1;display:flex;flex-direction:column;gap:16px;min-width:0' }, txt('v-name', 'اسم المبتكر (المعروض)', 'name', { required: true, maxlength: 80, onInput: (v) => { f.name = v; if (!existing && !f.userTouched) { f.username = VD.suggestUsername(v, (u) => vstore.usernameTaken(u)); const el = document.getElementById('v-login-user'); if (el) el.value = f.username; } } }), U.Select({ id: 'v-cat', label: 'الفئة الأساسية', required: true, options: CATS.map((c) => ({ value: c, label: c })), value: f.category, error: errs.category, placeholder: 'اختار الفئة', onChange: (v) => { f.category = v; draw(); } })),
+        h('div', { class: 'row cols2' }, h('div', { style: 'flex:1;display:flex;flex-direction:column;gap:16px;min-width:0' }, txt('v-name', 'اسم المبتكر (المعروض)', 'name', { required: true, maxlength: 80, onInput: (v) => { f.name = v; if (!existing && !f.userTouched) { f.username = VD.suggestUsername(v, (u) => vstore.usernameTaken(u)); const el = document.getElementById('v-login-user'); if (el) el.value = f.username; } } }), catPick('v-cat', f, errs)),
           photoBox()), // phase 3.3 (decision 1): the logo was the site's gravatar only; phase 13 decision 51: a photo uploaded here becomes it
         two(txt('v-phone', 'الهاتف (واتساب)', 'phone', { required: true, inputmode: 'tel', placeholder: '01xxxxxxxxx' }), existing ? txt('v-alt', 'هاتف بديل', 'altPhone', { inputmode: 'tel' }) : txt('v-rate', 'نسبة إبتكر', 'rate', { required: true, inputmode: 'decimal', suffix: '%', help: 'تنطبق على الأوردرات الجديدة من تاريخ الإضافة' })),
         two(txt('v-lead', 'مدة التجهيز (أيام)', 'leadDays', { required: true, inputmode: 'numeric', help: 'بتغذي قاعدة التأخير بدل الرقم الثابت' }), U.Select({ id: 'v-status', label: 'الحالة', required: true, options: statusOpts, value: f.status, error: errs.status, onChange: (v) => { f.status = v; draw(); } })),
@@ -3294,9 +3298,9 @@
       if (existing) { try { vstore.update(existing.id, f, vstore.actor()); log.append({ action: 'vendor.update', actor: ME.name, newValue: existing.id }); modal.close(); vnotify('success', 'اتحفظت بيانات ' + f.name + '.'); if (vdrawer) openVendor(existing.id); afterSave(existing.id).then((did) => { if (did && vredraw) vredraw(); }); } catch (e) { errs._form = e.message; draw(); } return; }
       // decision 10: the store's create runs the sequence (vendor → rate → login → password → bank); a step refused after the vendor's
       // insert leaves the vendor and is named here — the password travels inside `login` only and is dropped once the call is done
-      const input = { name: f.name, legalName: f.legalName, category: f.category, phone: f.phone, altPhone: f.altPhone, email: f.email, address: f.address, instagram: f.instagram, storeUrl: f.storeUrl, rate: f.rate, leadDays: f.leadDays, status: f.status, aliases: f.aliases, depositPolicy: f.depositPolicy, notes: f.notes,
+      const input = { name: f.name, legalName: f.legalName, categories: f.categories, phone: f.phone, altPhone: f.altPhone, email: f.email, address: f.address, instagram: f.instagram, storeUrl: f.storeUrl, rate: f.rate, leadDays: f.leadDays, status: f.status, aliases: f.aliases, depositPolicy: f.depositPolicy, notes: f.notes,
         login: { username: f.username, password: f.password }, bank: canBank && f.method ? { method: f.method, bankName: f.bankName, holder: f.holder, iban: f.iban, wallet: f.wallet, accountNumber: f.accountNumber, accountType: f.accountType, bankAddress: f.bankAddress, routingNumber: f.routingNumber, swift: f.swift } : null };
-      const STEP = { rate: 'النسبة', login: 'بيانات الدخول', password: 'الباسورد المؤقت', bank: 'الحساب البنكي' };
+      const STEP = { categories: 'الفئة الأساسية', rate: 'النسبة', login: 'بيانات الدخول', password: 'الباسورد المؤقت', bank: 'الحساب البنكي' };
       Promise.resolve().then(() => vstore.create(input, vstore.actor())).then((res) => {
         const v = res.vendor; const miss = (res.missing || []).map((k) => STEP[k] + (res.reasons && VMSG[res.reasons[k]] ? ' (' + VMSG[res.reasons[k]] + ')' : ''));
         input.login.password = ''; f.password = '';
@@ -3343,7 +3347,7 @@
     // (instagram is social.instagram) — the synced fields go to the site right after the save; the terms popup takes the flat fee next to
     // the rate (shown with it, pushed as the maker's commission on the site).
     function editGroup(v, g) {
-      const G = VD.EDIT_GROUPS[g]; const f = { name: v.name, legalName: v.legalName || '', category: v.category, aliases: v.aliases.join('، '), status: v.status, phone: v.phone, altPhone: v.altPhone || '', email: v.email || '', contactName: v.contactName || '', addressParts: VD.cleanAddressParts(v.addressParts), social: Object.assign({}, VD.cleanSocial(v.social)), storeUrl: v.storeUrl || '', leadDays: String(v.leadDays), depositPolicy: v.depositPolicy || '', notes: v.notes || '', rate: v.rate == null ? '' : String(v.rate), flat: v.rateFlat == null ? '' : String(v.rateFlat), since: VTODAY(),
+      const G = VD.EDIT_GROUPS[g]; const f = { name: v.name, legalName: v.legalName || '', categories: (v.categories || []).slice(), aliases: v.aliases.join('، '), status: v.status, phone: v.phone, altPhone: v.altPhone || '', email: v.email || '', contactName: v.contactName || '', addressParts: VD.cleanAddressParts(v.addressParts), social: Object.assign({}, VD.cleanSocial(v.social)), storeUrl: v.storeUrl || '', leadDays: String(v.leadDays), depositPolicy: v.depositPolicy || '', notes: v.notes || '', rate: v.rate == null ? '' : String(v.rate), flat: v.rateFlat == null ? '' : String(v.rateFlat), since: VTODAY(),
         // plan 3.4: the commission type and the figures set by hand per category ({ id: { rate, flat } } as typed)
         ctype: v.commissionType === 'category_based' ? 'category_based' : 'fixed', cat: Object.fromEntries((v.categoryRates || []).map((c) => [c.wooCategoryId, { rate: String(c.rate), flat: c.flat == null ? '' : String(c.flat) }])) };
       const catOrig = JSON.parse(JSON.stringify(f.cat)); const openCats = new Set();
@@ -3390,7 +3394,7 @@
       }
       const groups = {
         identity: () => [two(txt('g-name', 'اسم المبتكر (المعروض)', 'name', { required: true, maxlength: 80 }), txt('g-legal', 'الاسم التجاري / القانوني', 'legalName')),
-          two(U.Select({ id: 'g-cat', label: 'الفئة الأساسية', required: true, options: CATS.map((c) => ({ value: c, label: c })), value: f.category, error: errs.category, onChange: (x) => { f.category = x; m.setBody(...body()); } }), U.Select({ id: 'g-status', label: 'الحالة', required: true, options: VD.STATUSES.map(([value, label]) => ({ value, label })), value: f.status, error: errs.status, onChange: (x) => { f.status = x; m.setBody(...body()); } })),
+          two(catPick('g-cat', f, errs), U.Select({ id: 'g-status', label: 'الحالة', required: true, options: VD.STATUSES.map(([value, label]) => ({ value, label })), value: f.status, error: errs.status, onChange: (x) => { f.status = x; m.setBody(...body()); } })),
           txt('g-aliases', 'أسماء بديلة', 'aliases', { placeholder: 'W&R، WOOD & ROPE', help: 'لتوحيد الأسماء من الأوردرات والشيت — افصل بفاصلة' }),
           synced ? U.InlineNote({ children: 'الاسم والحالة بيتبعتوا لمتجره على الموقع مع الحفظ.' }) : null],
         contact: () => [two(txt('g-phone', 'الهاتف (واتساب)', 'phone', { required: true, inputmode: 'tel', placeholder: '01xxxxxxxxx' }), txt('g-alt', 'هاتف بديل', 'altPhone', { inputmode: 'tel', placeholder: '01xxxxxxxxx' })),

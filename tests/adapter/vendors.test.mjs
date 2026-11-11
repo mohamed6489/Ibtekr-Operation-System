@@ -42,7 +42,7 @@ const ownerRow = (id, brand_id, vendor_id, since, more = {}) => ({ id, brand_id,
 const OWNERS = [ownerRow(1, B1, V1, '2026-03-01'), ownerRow(2, B2, V2, '2026-03-01'), ownerRow(3, B3, V3, '2026-03-01'), ownerRow(4, B4, V1, '2026-09-01', { set_by: 'صفوت كمال' })];
 // Antikiano's brand with Bian eg from 18 October, temporarily (back on 20 November)
 const TRANSFER = ownerRow(5, B2, V3, '2026-10-18', { return_on: '2026-11-20', reason: 'إجازة', set_by: 'صفوت كمال' });
-const BASE = { name: 'zaan', category: 'هدايا', phone: '01000000009', rate: '40', leadDays: '7', status: 'active', aliases: '', email: 'zaan.dev@ibtekr.local' };
+const BASE = { name: 'zaan', categories: [22], phone: '01000000009', rate: '40', leadDays: '7', status: 'active', aliases: '', email: 'zaan.dev@ibtekr.local' };
 const TEST_PW = 'Test1234'; // the fake test password
 const ok = (data) => ({ data, error: null });
 const denied = () => ({ data: null, error: { code: '42501', message: 'permission denied' } });
@@ -92,8 +92,9 @@ test('load names every column (no *, no commission_pct), reads the rates and the
   for (const t of ['vendors', 'vendor_rates', 'vendor_bank', 'vendor_logins']) for (const s of selectOf(calls, t)) { assert.doesNotMatch(s, /\*/, t); assert.doesNotMatch(s, /commission_pct/, t); assert.doesNotMatch(s, /secret_id/, t); }
   assert.match(selectOf(calls, 'vendor_logins')[0], /^vendor_id, username, email, pw_mode, status, must_change, invite_sent_at, password_set_at, created_by, created_at, updated_at, own_password, last_login_at, locked_until$/); // + the 0065 columns (phase 13 T4)
   assert.match(selectOf(calls, 'vendors')[0], /\bcontract\b.*\bopening_balance\b/);
+  assert.match(selectOf(calls, 'vendors')[0], /\bcategory, main_categories, alt_phone\b/); // 0080
   assert.deepEqual(opsOf(calls, 'vendors').filter((c) => c.op === 'range'), [{ op: 'range', args: [0, 999] }]);
-  assert.deepEqual(plain(S.get(V1)), { id: V1, siteRemovedAt: null, name: 'Art Craft', legalName: null, category: 'فنون ولوحات', aliases: ['ArtCraft', 'آرت كرافت'], status: 'active', phone: '01000000003', altPhone: null, email: null, address: null, instagram: null, storeUrl: null,
+  assert.deepEqual(plain(S.get(V1)), { id: V1, siteRemovedAt: null, name: 'Art Craft', legalName: null, categories: [], category: 'فنون ولوحات', aliases: ['ArtCraft', 'آرت كرافت'], status: 'active', phone: '01000000003', altPhone: null, email: null, address: null, instagram: null, storeUrl: null,
     contactName: null, addressParts: EMPTY_PARTS, social: EMPTY_SOCIAL, logoUrl: null, photoPath: null, bannerUrl: null, wooPaymentMethods: [], wooSyncedAt: null, pushPending: [], categoryRates: [], rateFlat: null, // phase 3.3: no synced data on this row
     rate: 35, rateSince: '2026-03-01', rateHistory: [{ rate: 35, flat: null, since: '2026-03-01', by: 'صفوت كمال', type: 'fixed' }], ratesVisible: true, commissionType: 'fixed', leadDays: 7, depositPolicy: null, notes: 'الشحن على المبتكر', logoLetter: 'A', joinedAt: '2026-03-01',
     contract: null, bank: null, login: null, openingBalance: 0, wooVendorId: 2376, shopUrl: 'https://ibtekr.club/store/art-craft/', createdAt: T0, lastUpdate: T0, brands: [B1_SHAPE, B4_SHAPE], brandsEver: [] });
@@ -239,7 +240,7 @@ test('update validates like the prototype (the patched fields only) and throws b
   const { V, S, calls, logs } = load();
   await V.load(); calls.length = 0;
   assert.throws(() => S.update(V1, { phone: '123' }, S.actor()), /invalid vendor: phone/);
-  assert.throws(() => S.update(V1, { category: 'غير موجودة' }, S.actor()), /invalid vendor: category/);
+  assert.throws(() => S.update(V1, { categories: [] }, S.actor()), /invalid vendor: categories/); // B2 (0080): one main category at least
   assert.throws(() => S.update(V1, { joinedAt: '2026-13-01' }, S.actor()), /joinedAt/);
   assert.deepEqual(writesOf(calls, 'vendors'), []);
   S.update(V3, { status: 'active', phone: '01000000005' }, S.actor()); // Bian eg has no phone / category: only the patched fields are checked
@@ -251,6 +252,25 @@ test('update validates like the prototype (the patched fields only) and throws b
   await settle();
   assert.ok(logs.some((l) => l[0] === 'orders.load'), 'IBOrders.load after a rename (the orders carry vendors.name)');
   assert.deepEqual(writesOf(calls, 'vendors').find((c) => c.op === 'update').args[0], { name: 'Art Craft Studio', aliases: ['ArtCraft', 'Art Craft'] });
+  // B2 (0080): the main categories through vendor_main_categories_set (their names in `category`); no row update for them alone
+  calls.length = 0; logs.length = 0;
+  S.update(V1, { categories: ['22', 15, 22] }, S.actor());
+  assert.deepEqual(plain([S.get(V1).categories, S.get(V1).category]), [[22, 15], 'هدايا، ديكور']);
+  await settle();
+  assert.deepEqual(plain(rpcCalls(calls, 'vendor_main_categories_set')), [{ p_vendor: V1, p_ids: [22, 15] }]);
+  assert.deepEqual(writesOf(calls, 'vendors').filter((c) => c.op === 'update'), []);
+  assert.deepEqual(logs.filter((l) => l[0] === 'vendor.update'), [['vendor.update', 'categories', { entity: 'vendor', entity_id: V1 }]]);
+});
+
+test('B2 (0080): the main categories — the site\'s categories without a parent, by name; names typed elsewhere → their ids; the row\'s ids → their names, else the old text', async () => {
+  const { V, S } = load({ responses: Object.assign(seed(), { vendors: ok(VENDORS.map((r) => (r.id === V1 ? Object.assign({}, r, { main_categories: [22, 99, 15] }) : r))), woo_categories: ok(CATEGORIES.concat([{ id: 151, name: 'إضاءة', slug: 'lighting', parent_id: 15, updated_at: T0 }, { id: 9, name: 'Uncategorized', slug: 'uncategorized', parent_id: 0, updated_at: T0 }])) }) });
+  await V.load();
+  assert.deepEqual(plain(S.mainCategories()), [{ id: 15, name: 'ديكور' }, { id: 22, name: 'هدايا' }]); // no sub-category, never «Uncategorized»
+  assert.deepEqual(plain(S.mainCategoryIds('هدايا، ديكور')), [22, 15]);
+  assert.deepEqual(plain(S.mainCategoryIds(' ديكور , غير موجود, ديكور ')), [15]);
+  assert.deepEqual(plain(S.mainCategoryIds('')), []);
+  assert.deepEqual(plain([S.get(V1).categories, S.get(V1).category]), [[22, 99, 15], 'هدايا، ديكور']); // an id the site no longer has: kept, no name
+  assert.deepEqual(plain([S.get(V2).categories, S.get(V2).category]), [[], 'إكسسوارات ومجوهرات']); // an old maker's text, as it was
 });
 
 test('canEdit / canBank / canToggle / canRate follow IBDirectory.perm; a write without the permission throws before anything is sent', async () => {
@@ -401,14 +421,15 @@ test('create: one insert of the granted columns with .select(\'id\'), the first 
   await V.load(); calls.length = 0;
   const NEW = 'a0000000-0000-4000-8000-000000000009';
   responses.vendors = (ops) => (ops.some((c) => c.op === 'insert') ? ok({ id: NEW }) : ok(VENDORS.concat([row({ id: NEW, name: 'zaan', category: 'هدايا', phone: '01000000009' })])));
-  const input = { name: ' zaan ', category: 'هدايا', phone: '01000000009', rate: '40', leadDays: '7', status: 'active', aliases: 'zana، Zaan', legalName: '', email: '', address: '', instagram: '', storeUrl: '', depositPolicy: '', notes: '' };
+  const input = { name: ' zaan ', categories: [22], phone: '01000000009', rate: '40', leadDays: '7', status: 'active', aliases: 'zana، Zaan', legalName: '', email: '', address: '', instagram: '', storeUrl: '', depositPolicy: '', notes: '' };
   await assert.rejects(() => S.create({ ...input, phone: 'x' }, S.actor()), /invalid vendor: phone/);
   assert.deepEqual(writesOf(calls, 'vendors'), []);
   const { vendor: v, missing } = await S.create(input, S.actor());
   assert.deepEqual(plain([v.id, v.name, S.get(NEW).name, missing]), [NEW, 'zaan', 'zaan', []]);
   assert.deepEqual(opsOf(calls, 'vendor_logins').filter((c) => c.op === 'insert'), []); // no login asked: none written
   const ins = writesOf(calls, 'vendors');
-  assert.deepEqual(ins[0], { op: 'insert', args: [{ name: 'zaan', category: 'هدايا', phone: '01000000009', status: 'active', lead_days: 7, aliases: ['zana', 'Zaan'], joined_at: '2026-10-25' }] });
+  assert.deepEqual(ins[0], { op: 'insert', args: [{ name: 'zaan', phone: '01000000009', status: 'active', lead_days: 7, aliases: ['zana', 'Zaan'], joined_at: '2026-10-25' }] }); // B2 (0080): no category text
+  assert.deepEqual(plain(rpcCalls(calls, 'vendor_main_categories_set')), [{ p_vendor: NEW, p_ids: [22] }]); // the main categories right after the insert
   assert.deepEqual(ins[1], { op: 'select', args: ['id'] });
   assert.deepEqual(opsOf(calls, 'vendor_rates').filter((c) => c.op === 'insert').map((c) => c.args[0]), [{ vendor_id: NEW, rate: 40, since: '2026-10-25', set_by: 'صفوت كمال' }]);
   assert.deepEqual(logs, [['vendor.create', 'zaan', { entity: 'vendor', entity_id: NEW }], ['vendor.rate', '40% من 2026-10-25', { entity: 'vendor', entity_id: NEW }]]);
@@ -470,7 +491,7 @@ test('create with a login and a bank: vendors → vendor_rates → vendor_logins
   responses['rpc:vendor_login_set_password'] = ok(T0);
   const out = await S.create({ ...BASE, login: { username: ' Zaan ', password: TEST_PW }, bank: { method: 'bank', holder: 'Zaan', bankName: 'بنك مصر', iban: 'eg38 0003 0001 0000 0000 0000 0482 1', wallet: '' } }, S.actor());
   assert.deepEqual(plain([out.vendor.id, out.missing, out.reasons]), [NEW, [], {}]);
-  assert.deepEqual(calls.filter((c) => ['insert', 'rpc'].includes(c.op)).map((c) => c.table || c.op), ['vendors', 'vendor_rates', 'vendor_logins', 'rpc', 'vendor_bank']);
+  assert.deepEqual(calls.filter((c) => ['insert', 'rpc'].includes(c.op)).map((c) => c.table || c.op), ['vendors', 'rpc', 'vendor_rates', 'vendor_logins', 'rpc', 'vendor_bank']); // B2 (0080): the main categories right after the vendor
   assert.deepEqual(opsOf(calls, 'vendor_logins').find((c) => c.op === 'insert').args[0], { vendor_id: NEW, username: 'zaan', email: 'zaan.dev@ibtekr.local', pw_mode: 'temp', created_by: 'صفوت كمال' }); // created_by: the member's name (review A); pw_mode temp always (26 Oct)
   const b = opsOf(calls, 'vendor_bank').find((c) => c.op === 'insert').args[0];
   assert.deepEqual({ ...b, updated_at: 'x' }, { vendor_id: NEW, method: 'bank', bank_name: 'بنك مصر', holder: 'Zaan', iban: 'EG380003000100000000000004821', wallet: null, account_number: null, account_type: null, bank_address: null, routing_number: null, swift: null, updated_by: 'صفوت كمال', updated_at: 'x' }); // the IBAN upper-cased
@@ -500,7 +521,7 @@ test('create with a temporary password: the rpc right after the login insert; th
   assert.deepEqual(calls.filter((c) => c.op !== 'from'), []);
   const out = await S.create({ ...BASE, login: { username: 'zaan', pwMode: 'temp', password: TEST_PW } }, S.actor());
   assert.deepEqual(plain([out.vendor.id, out.missing]), [NEW, []]);
-  assert.deepEqual(calls.filter((c) => c.op === 'rpc'), [{ op: 'rpc', args: ['vendor_login_set_password', { p_vendor: NEW, p_password: TEST_PW }] }]);
+  assert.deepEqual(calls.filter((c) => c.op === 'rpc' && c.args[0] !== 'vendor_main_categories_set'), [{ op: 'rpc', args: ['vendor_login_set_password', { p_vendor: NEW, p_password: TEST_PW }] }]);
   assert.equal(opsOf(calls, 'vendor_logins').find((c) => c.op === 'insert').args[0].pw_mode, 'temp');
   assert.doesNotMatch(JSON.stringify(calls.filter((c) => c.op !== 'rpc')), new RegExp(TEST_PW));
   assert.doesNotMatch(JSON.stringify(logs), new RegExp(TEST_PW));
@@ -519,7 +540,7 @@ test('create: a refused rate / login (23505 → duplicate_username) / password (
   responses.vendor_bank = (ops) => (ops.some((c) => c.op === 'insert') ? denied() : ok(BANK));
   const out = await S.create({ ...BASE, login: { username: 'zaan', pwMode: 'temp', password: TEST_PW }, bank: { method: 'cash' } }, S.actor());
   assert.deepEqual(plain([out.vendor.id, out.missing, out.reasons]), [NEW, ['login', 'bank'], { login: 'duplicate_username', bank: 'forbidden' }]);
-  assert.deepEqual(calls.filter((c) => c.op === 'rpc'), []); // no password without a login row
+  assert.deepEqual(calls.filter((c) => c.op === 'rpc' && c.args[0] !== 'vendor_main_categories_set'), []); // no password without a login row
   assert.deepEqual(logs.map((l) => l[0]), ['vendor.create', 'vendor.rate']);
   // the password step alone refused (no Vault on that server): the login row stays, the password is what is missing
   calls.length = 0; logs.length = 0; responses.vendor_logins = ok(LOGINS); responses.vendor_bank = ok(BANK);

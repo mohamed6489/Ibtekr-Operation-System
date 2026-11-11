@@ -527,8 +527,8 @@ test('«إضافة مبتكر» (phase 3.1: basics + login + bank) creates the m
   await openVendors(page);
   await page.getByRole('button', { name: 'إضافة مبتكر' }).click();
   await modal(page).locator('#v-name').fill(' zaan ');
-  await modal(page).locator('#v-cat').click();
-  await page.locator('[role=listbox] [role=option]', { hasText: 'هدايا' }).click();
+  await modal(page).locator('#v-cat').click(); // B2 (0080): «الفئة الأساسية» = the site's main categories, several
+  await page.locator('[data-mp-menu] [role=menuitemcheckbox]', { hasText: 'هدايا' }).click(); await page.locator('[data-mp-menu] [data-mp-done]').click();
   await modal(page).locator('#v-phone').fill('01000000009');
   await modal(page).locator('#v-aliases').fill('zana، Zaan');
   await expect(modal(page).locator('#v-login-user')).toHaveValue('zaan');
@@ -543,7 +543,8 @@ test('«إضافة مبتكر» (phase 3.1: basics + login + bank) creates the m
   await expect(page).toHaveURL(/#makers\/b0000000-0000-4000-8000-000000000001$/);
   const ins = writes().filter((w) => w.op === 'insert');
   expect(ins.map((w) => w.table)).toEqual(['vendors', 'vendor_rates', 'vendor_logins', 'vendor_bank']);
-  expect(ins[0]).toEqual({ table: 'vendors', op: 'insert', name: 'zaan', category: 'هدايا', phone: '01000000009', email: 'zaan.dev@ibtekr.local', status: 'active', lead_days: 7, aliases: ['zana', 'Zaan'], joined_at: ins[0].joined_at });
+  expect(mock.vendorWrites.filter((w) => w.table === 'vendor_main_categories')).toEqual([{ table: 'vendor_main_categories', vendor_id: 'b0000000-0000-4000-8000-000000000001', ids: [22], category: 'هدايا', by: ADMIN }]); // right after the insert, kept here only
+  expect(ins[0]).toEqual({ table: 'vendors', op: 'insert', name: 'zaan', phone: '01000000009', email: 'zaan.dev@ibtekr.local', status: 'active', lead_days: 7, aliases: ['zana', 'Zaan'], joined_at: ins[0].joined_at });
   expect(ins[0].joined_at).toMatch(/^\d{4}-\d{2}-\d{2}$/);
   expect(ins[1]).toEqual({ table: 'vendor_rates', op: 'insert', vendor_id: 'b0000000-0000-4000-8000-000000000001', rate: 40, since: ins[1].since, set_by: 'صفوت كمال' });
   expect(ins[2]).toEqual({ table: 'vendor_logins', op: 'insert', vendor_id: 'b0000000-0000-4000-8000-000000000001', username: 'zaan', email: 'zaan.dev@ibtekr.local', pw_mode: 'temp', created_by: 'صفوت كمال' }); // created_by: the member's name
@@ -554,8 +555,8 @@ test('«إضافة مبتكر» (phase 3.1: basics + login + bank) creates the m
   await openVendors(page, OPS, 3);
   await page.getByRole('button', { name: 'إضافة مبتكر' }).click();
   await modal(page).locator('#v-name').fill('nope');
-  await modal(page).locator('#v-cat').click();
-  await page.locator('[role=listbox] [role=option]', { hasText: 'هدايا' }).click();
+  await modal(page).locator('#v-cat').click(); // B2 (0080): «الفئة الأساسية» = the site's main categories, several
+  await page.locator('[data-mp-menu] [role=menuitemcheckbox]', { hasText: 'هدايا' }).click(); await page.locator('[data-mp-menu] [data-mp-done]').click();
   await modal(page).locator('#v-phone').fill('01000000007');
   await modal(page).locator('#v-login-email').fill('nope.dev@ibtekr.local'); await modal(page).locator('[data-genpw]').click();
   await expect(modal(page).locator('#v-bank-method')).toHaveCount(0); // no sensitive.vendor_bank: the bank section says accounts completes it

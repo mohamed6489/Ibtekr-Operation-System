@@ -164,10 +164,10 @@ do $$ begin
           and not has_table_privilege('authenticated', 'public.vendors', 'SELECT')) then
     raise exception 'case authenticated selects vendors by column list, never commission_pct failed';
   end if;
-  -- 22 of 0011 + the 8 of 0014 + site_removed_at of 0031 + photo_path of 0075 (never woo_snapshot, never commission_pct)
+  -- 22 of 0011 + the 8 of 0014 + site_removed_at of 0031 + photo_path of 0075 + main_categories of 0080 (never woo_snapshot, never commission_pct)
   if not ((select count(*) from information_schema.column_privileges
-           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'vendors' and privilege_type = 'SELECT') = 32) then
-    raise exception 'case authenticated selects exactly 32 vendors columns (22 of 0011 + 8 of 0014 + 1 of 0031 + 1 of 0075) failed';
+           where grantee = 'authenticated' and table_schema = 'public' and table_name = 'vendors' and privilege_type = 'SELECT') = 33) then
+    raise exception 'case authenticated selects exactly 33 vendors columns (22 of 0011 + 8 of 0014 + 1 of 0031 + 1 of 0075 + 1 of 0080) failed';
   end if;
   if not (has_column_privilege('authenticated', 'public.vendors', 'name', 'INSERT')
           and has_column_privilege('authenticated', 'public.vendors', 'joined_at', 'INSERT')
@@ -275,7 +275,7 @@ do $$
 declare stmt text; code text;
 begin
   for stmt, code in select * from (values
-    ('update public.vendors set category = ''فئة غريبة'' where woo_vendor_id = 442', '23514'),
+    ('update public.vendors set category = repeat(''x'', 301) where woo_vendor_id = 442', '23514'), -- 0080: free text (the picked main categories' names), ≤ 300
     ('update public.vendors set lead_days = 0 where woo_vendor_id = 442', '23514'),
     ('update public.vendors set lead_days = 61 where woo_vendor_id = 442', '23514'),
     ('insert into public.vendor_rates (vendor_id, rate, since) values (''00000000-0000-4000-8000-0000000000b2'', 66, current_date)', '23514'),

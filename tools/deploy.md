@@ -1977,5 +1977,11 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 4. ادمج على `main`.
 5. التجربة على الـ staging: أوردر جديد فيه مبتكرين اتنين → غيّر حالته من السيستم → `woo_sync_log` `status` ok بـ `subs` = أرقام الأوردرات الفرعية، وأرقامهم على الموقع **مااتغيرتش** (مافيش أوردرات فرعية جديدة)، و«حالة الموقع» بتاعتهم = الحالة الجديدة، والأوردر الأساسي على الموقع زي ما هو. و«مسح المنتج» / «مسح الأوردر الفرعي» → بيتشال من الأوردر الفرعي بس والأساسي على الموقع بإجماليه.
 
+#### 2.7.59 «الفئة الأساسية» للمبتكر = أقسام الموقع الرئيسية (0080، صاحب المشروع 11 نوفمبر — B2 في `docs/superpowers/plans/2026-11-11-owner-batch.md`)
+1. طبّق `supabase/migrations/0080_vendor_main_categories.sql` (Supabase MCP `apply_migration` — re-runnable): `vendors.main_categories` (قراية للأعضاء)، RPC `vendor_main_categories_set` (الأدمن أو `vendors.edit = F`)، شيل check الأسامي السبعة من `vendors.category` (بقى طوله ≤ 300)، وربط النصوص القديمة اللي اسمها اسم قسم رئيسي. **قبل الواجهة**: الواجهة الجديدة بتقرا العمود وبتنادي الـ RPC؛ والواجهة القديمة شغالة معاه عادي.
+2. RLS live: «RLS live tests» بـ `files = rls_vendor_main_categories rls_vendors`.
+3. ادمج على `main`.
+4. التجربة: «إضافة مبتكر» → «الفئة الأساسية» فيها أقسام الموقع الرئيسية بس (من غير «Uncategorized»)، اختار اتنين → في ملفه «الفئة الأساسية» بالاسمين، ومافيش أي حاجة اتبعتت للموقع؛ «تعديل بيانات الهوية» بيغيّرها؛ وفلتر «الفئة» في سجل المبتكرين بيفلتر بيها.
+
 #### 2.7.66 «طلب جديد» وطلب فترة راحة (المرحلة 13 قرار 66، 11 نوفمبر)
 `0077_hr_rest_period.sql` على المشروع (Supabase MCP `apply_migration` بموافقة صاحب المشروع) ثم `rls_hr_rest_period` live (workflow «RLS live»، `files = rls_hr_rest_period`) ثم الواجهة على `main`. مافيش Edge Function.

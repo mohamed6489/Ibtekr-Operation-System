@@ -3,7 +3,7 @@ import { loadUmd } from '../helpers/load-umd.mjs';
 // Block 06 after phase 3.1 (decision 7): the functions ported from the owner's «إضافة مبتكر» prototype — the status «في إجازة»,
 // the login rules (username / email / temporary password), the password generator, the username suggestion, the payout rules.
 const V = loadUmd(new URL('../../app/js/blocks/06-vendors-domain.js', import.meta.url));
-const ok = (n) => ({ name: 'Zaan', category: V.CATEGORIES[0], phone: '01000000009', rate: 40, leadDays: 7, status: 'active', ...n });
+const ok = (n) => ({ name: 'Zaan', categories: [15], phone: '01000000009', rate: 40, leadDays: 7, status: 'active', ...n });
 const seq = (...vals) => { let i = 0; return () => vals[i++ % vals.length]; };
 
 test('STATUSES carries «في إجازة» between active and inactive; validateVendor takes it, nothing else', () => {
@@ -11,6 +11,24 @@ test('STATUSES carries «في إجازة» between active and inactive; validate
   assert.equal(V.label(V.STATUSES, 'leave'), 'في إجازة');
   assert.deepEqual(V.validateVendor(ok({ status: 'leave' })), {});
   assert.deepEqual(V.validateVendor(ok({ status: 'vacation' })), { status: 'اختار الحالة' });
+});
+// B2 (0080, the owner 11 Nov): «الفئة الأساسية» = one or more of the site's main categories (their ids), kept in the system only
+test('validateVendor: at least one main category, 20 at most; cleanCategoryIds keeps positive ids once, in the order picked (Arabic digits read)', () => {
+  assert.deepEqual(V.validateVendor(ok({ categories: [] })), { categories: 'اختار قسم رئيسي واحد على الأقل' });
+  assert.deepEqual(V.validateVendor(ok({ categories: undefined, category: 'ديكور منزلي' })), { categories: 'اختار قسم رئيسي واحد على الأقل' }); // the old text is not a pick
+  assert.deepEqual(V.validateVendor(ok({ categories: Array.from({ length: 21 }, (_, i) => i + 1) })), { categories: 'لحد 20 قسم' });
+  assert.deepEqual(V.validateVendor(ok({ categories: ['22', 15] })), {});
+  assert.deepEqual(V.cleanCategoryIds([22, '15', '٢٢', 0, -3, 'x', null, 1.5, 7]), [22, 15, 7]);
+  assert.deepEqual(V.cleanCategoryIds(null), []);
+  assert.deepEqual(V.EDIT_GROUPS.identity.fields, ['name', 'legalName', 'categories', 'aliases', 'status']);
+});
+test('filterVendors by category: a main category\'s id (any of the maker\'s), or an old maker\'s text', () => {
+  const list = [{ id: 'a', name: 'A', aliases: [], status: 'active', categories: [15, 22], category: 'ديكور، هدايا' }, { id: 'b', name: 'B', aliases: [], status: 'active', categories: [], category: 'ديكور منزلي' }, { id: 'c', name: 'C', aliases: [], status: 'active', categories: [7], category: 'X' }];
+  const ids = (f) => V.filterVendors(list, {}, Object.assign({ status: 'all' }, f), '2026-11-11').map((v) => v.id);
+  assert.deepEqual(ids({ category: '22' }), ['a']);
+  assert.deepEqual(ids({ category: 15 }), ['a']);
+  assert.deepEqual(ids({ category: 'ديكور منزلي' }), ['b']);
+  assert.deepEqual(ids({ category: 'all' }), ['a', 'b', 'c']);
 });
 test('LOGIN_STATUS: none / invited / active / disabled, in the prototype\'s words', () => {
   assert.deepEqual(V.LOGIN_STATUS, [['none', 'مفيش حساب دخول'], ['invited', 'مستني التفعيل'], ['active', 'مفعّل'], ['disabled', 'موقوف']]);

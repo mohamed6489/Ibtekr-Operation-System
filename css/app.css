@@ -1208,7 +1208,7 @@ b.pos{color:var(--color-success-text)}
 .cards.four{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
 @media (max-width:1023px){.cards.four{grid-template-columns:repeat(2,minmax(0,1fr))}}
 @media (max-width:599px){.cards.four{grid-template-columns:1fr}}
-.wd-cell{border:1px solid transparent;cursor:pointer;font:inherit}
+.wd-cell{border:1px solid transparent;cursor:pointer;font:inherit;white-space:nowrap} /* 0078: the status and its amount on one line */
 .wd-cell:hover{filter:brightness(.97)}
 .wd-cell:focus-visible{outline:2px solid var(--color-border-focus);outline-offset:2px}
 .subs-wrap .subs-tbl td,.mlog-table td{vertical-align:middle}

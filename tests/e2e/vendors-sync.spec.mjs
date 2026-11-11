@@ -40,6 +40,7 @@ const row = (page, id) => page.locator(`#vendors tr[data-id="${id}"]`);
 async function openVendors(page, email = ADMIN, n = 2) {
   await signIn(page, email);
   await page.locator('.sidebar .nav-item[data-page="vendors"]').click();
+  await page.locator('#vendors [role=tab]', { hasText: 'سجل المبتكرين' }).click(); // decision 57: the page opens on «نظرة عامة»
   await expect(page.locator('#vendors')).toBeVisible();
   await expect(rows(page)).toHaveCount(n);
 }

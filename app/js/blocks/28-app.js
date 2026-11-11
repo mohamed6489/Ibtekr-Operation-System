@@ -23,7 +23,7 @@
   function settle(p) { p.then((r) => { syncStore(); if (r && !r.ok) setNote({ kind: 'error', text: WRITE_ERR[r.reason] || WRITE_ERR.network }); rerender(); }); }
   // a redraw for the server's answer keeps the note on screen (its «تراجع» included); a user's action clears it as before
   let shownNote = null;
-  function rerender() { if (state.page !== 'accounts') return; if (!state.note && shownNote) state.note = shownNote; render(); }
+  function rerender() { if (state.page === 'vendors' && state.vtab === 'accounts') { renderVendors(); return; } if (state.page !== 'accounts') return; if (!state.note && shownNote) state.note = shownNote; render(); }
   const canAdd = () => { const A = ACC(); return !A || A.can().add; };
   const canEditRec = (rec) => { const A = ACC(); return !A || A.canEdit(rec); };
   function refreshSeed() {
@@ -2296,6 +2296,7 @@
   const RSHEET_PERM = { orders: 'orders.view', vendors: 'vendors.view', expenses: 'accounts.view', transport: 'accounts.view' };
   const reportSheets = () => window.IBDataActions.PAGES.reports.filter((id) => !RSHEET_PERM[id] || rperm(RSHEET_PERM[id]) !== 'N');
   function renderReports() {
+    if (state.page === 'vendors' && state.vtab === 'reports') { renderVendors(); return; } // phase 13 decision 57: the makers report inside the makers page
     U.closePopover();
     const main = document.getElementById('reports'); if (!main) return; const sc = window.scrollY;
     const note = state.rnote; state.rnote = null;
@@ -2758,7 +2759,7 @@
   document.addEventListener('ib:notify', () => { if (state.page === 'vendors' && !document.querySelector('.pop-anchor .menu, .pop-anchor [role=dialog]')) renderVendors(true); if (vredraw) vredraw(); });
   state.vfilter = { status: 'active', category: 'all', balance: 'all', contract: 'all', late: false, tickets: false, q: '' }; state.vsort = 'open'; state.vpage = 1; const VPAGE = 9;
   // phase 5.5 decision 3 (owner 1 Nov): the closed filter picks several values per group; «نشط» ticked by default. decision 3 (owner 31 Oct): the selection for the bulk actions
-  const VF0 = () => ({ status: ['active'], category: [], balance: [], contract: [], other: [] }); state.vf = VF0(); state.vsel = new Set();
+  const VF0 = () => ({ status: ['active'], category: [], balance: [], contract: [], other: [] }); state.vf = VF0(); state.vsel = new Set(); state.vtab = 'overview'; // phase 13 decision 57
   const PAPI = () => ((window.IBPages && window.IBPages.all().products) || {}).api || null;
   const prodCount = (ids) => { const a = PAPI(); return a ? a.makerItems(ids).length : 0; };
   // the actions on one or more makers (decision 3): their products through the products page's own popups; the rate through the store (vendor_rate_set + push)
@@ -2882,24 +2883,70 @@
     const cards = h('div', { class: 'kv-list' }, slice.map((v) => { const cs = cells(v); const c = h('div', { class: 'card list-card', tabindex: '0', role: 'button' }, h('div', { class: 'title vcard-title' }, selBox(v), cs[0], h('span', { class: 'grow' }), rowMenu(v)), headers.slice(1).map((k, i) => h('div', { class: 'kv' }, h('span', { class: 't-small' }, k), h('span', { class: 't-body' }, cs[i + 1])))); c.addEventListener('click', () => openVendor(v.id)); c.addEventListener('keydown', (e) => { if (e.key === 'Enter') openVendor(v.id); }); return c; }));
     const pager = h('div', { class: 'pager' }, h('div', { class: 'pages' }, Button({ type: 'text', size: 'sm', label: 'السابق', disabled: state.vpage <= 1, onClick: () => { state.vpage--; renderVendors(); } }), Array.from({ length: pages }, (_, i) => Button({ type: i + 1 === state.vpage ? 'primary' : 'text', size: 'sm', label: String(i + 1), onClick: () => { state.vpage = i + 1; renderVendors(); } })), Button({ type: 'text', size: 'sm', label: 'التالي', disabled: state.vpage >= pages, onClick: () => { state.vpage++; renderVendors(); } })),
       h('span', { class: 't-small' }, num(list.length ? 'عرض ' + ((state.vpage - 1) * VPAGE + 1) + '–' + Math.min(list.length, state.vpage * VPAGE) + ' من ' + list.length : '')));
-    return [
+    // phase 13 decision 57 (owner 11 Nov — «قسّم صفحة المبتكرين تابس: نظرة عامة، سجل المبتكرين، حسابات المبتكرين، سجل الحركات، التقارير»):
+    // the cards on «نظرة عامة», the table (search, filter, bulk) on «سجل المبتكرين», the accounts page's own «حسابات المبتكرين» (it stays
+    // there too), the makers' add / stop / activate / delete log, and the reports page's makers report — the tabs a member may see only
+    const noteEl = () => (vnote ? (() => { const n = vnote; vnote = null; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); return el; })() : null);
+    const vt = makerTabs(); if (!vt.some((t) => t.id === state.vtab)) state.vtab = vt[0].id;
+    const tabsEl = U.Tabs({ items: vt, active: state.vtab, onChange: (id) => { state.vtab = id; renderVendors(); } }); tabsEl.setAttribute('aria-label', 'أقسام المبتكرين');
+    const headEl =
       h('div', { class: 'page-head row' }, h('div', { class: 'title-block' }, h('h1', { class: 't-h3' }, 'المبتكرين'), h('p', { class: 't-small' }, 'ملف كل مبتكر: البيانات والعقد والحساب البنكي، وأوردراته ورصيده — المبتكر هو المرجع الأساسي للأوردرات والنسب')),
-        h('div', { class: 'actions' }, window.IBKit.PanelButton('makers', 'المبتكرين', () => document.getElementById('vendors'), renderVendors), window.IBDataActions.Menu(window.IBDataActions.PAGES.vendors), syncNowBtn(), Button({ type: 'brand', icon: 'plus', label: 'إضافة مبتكر', disabled: !vstore.canEdit(), onClick: () => openAddVendor() }))),
-      h('div', { class: 'toolbar vtoolbar' }, search, h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(list.length + ' مبتكر · ' + (VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label))),
-      vnote ? (() => { const n = vnote; vnote = null; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); return el; })() : null,
+        h('div', { class: 'actions' }, (vpKey() ? window.IBKit.PanelButton(vpKey(), 'المبتكرين — ' + (MAKER_TABS.find((t) => t.id === state.vtab) || MAKER_TABS[0]).label, () => document.getElementById('vpanel'), renderVendors) : null), window.IBDataActions.Menu(window.IBDataActions.PAGES.vendors), syncNowBtn(), Button({ type: 'brand', icon: 'plus', label: 'إضافة مبتكر', disabled: !vstore.canEdit(), onClick: () => openAddVendor() })));
+    const body = state.vtab === 'overview' ? [noteEl(),
       h('div', { class: 'cards five' },
         U.KpiTile({ label: 'مبتكرين نشطين', value: String(sum.active), unit: 'مبتكر', compare: 'off', note: 'من ' + sum.total + ' مبتكر مسجّل', details: () => vdet('active') }),
         U.KpiTile({ label: 'عندهم أوردرات قابلة للتأخير — الآن', value: String(sum.withDelay), unit: 'مبتكرين', compare: sum.withDelay ? 'negative' : 'off', delta: { text: 'متابعة', caption: 'نفس مصدر إشعار «مبتكرين متأخرين»' }, note: 'قاعدة 9 / 11 يوم على الأوردرات المفتوحة', details: () => vdet('delay') }),
         U.KpiTile({ label: 'إجمالي مستحقات المبتكرين — الآن', value: D.formatMoney(sum.due), unit: 'ج.م', compare: 'off', note: 'من الأوردرات المكتملة من 1 أكتوبر · الافتتاحي والعرابين من مرحلة 4', details: () => vdet('due') }),
         U.KpiTile({ label: 'عندهم رصيد سالب (عرابين) — الآن', value: String(sum.negative), unit: 'مبتكرين', compare: 'off', note: 'العرابين والمواصلات بيتسجلوا من مرحلة الحسابات', details: () => vdet('negative') }),
         U.KpiTile({ label: 'مواصلات المبتكرين', value: '—', compare: 'off', note: 'بتتسجل من مرحلة الحسابات (4)' })),
+      h('p', { class: 'source' }, 'المصدر: جدول المبتكرين (متاجر الموقع من المزامنة + اللي الفريق بيكمّله) — الأسماء البديلة لتوحيد الأوردرات والشيت · المستحقات من الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر · الأوردرات والتأخير لايف من الأوردرات')]
+      : state.vtab === 'records' ? [
+      h('div', { class: 'toolbar vtoolbar' }, search, h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(list.length + ' مبتكر · ' + (VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label))),
+      noteEl(),
       TableCard({ title: 'المبتكرين', cls: 'own-filter', count: list.length + ' مبتكر · ' + ((VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label || ''), action: h('span', { class: 'acts-inline' }, vFilterBtn(), vSortBtn()), pre: [vChips(), bulk],
-        body: list.length === 0 ? U.EmptyState(state.vfilter.q ? 'مفيش مبتكر بالاسم ده' : 'مفيش مبتكر بالفلتر ده', 'جرّب اسم بديل أو رقم الهاتف، أو شيل اختيار من الفلتر، أو اضغط «إضافة مبتكر» لو جديد.') : [tableOrList(() => table, () => cards), pager] }),
-      h('p', { class: 'source' }, 'المصدر: جدول المبتكرين (متاجر الموقع من المزامنة + اللي الفريق بيكمّله) — الأسماء البديلة لتوحيد الأوردرات والشيت · المستحقات من الأوردرات المكتملة من 1 أكتوبر بنسبة الموقع على كل سطر · الأوردرات والتأخير لايف من الأوردرات')];
+        body: list.length === 0 ? U.EmptyState(state.vfilter.q ? 'مفيش مبتكر بالاسم ده' : 'مفيش مبتكر بالفلتر ده', 'جرّب اسم بديل أو رقم الهاتف، أو شيل اختيار من الفلتر، أو اضغط «إضافة مبتكر» لو جديد.') : [tableOrList(() => table, () => cards), pager] })]
+      : state.vtab === 'accounts' ? makersAccountsTab() : state.vtab === 'log' ? makersLogTab() : makersReportsTab();
+    return [headEl, tabsEl, h('div', { id: 'vpanel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.vtab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, ...body.filter(Boolean))];
+  }
+  // phase 13 decision 57: the makers page's tabs — «حسابات المبتكرين» with accounts.view ≠ N, «التقارير» with the reports page's own
+  // makers-tab rule (reports.view ≠ N and vendors.view ≠ N)
+  const MAKER_TABS = [{ id: 'overview', label: 'نظرة عامة' }, { id: 'records', label: 'سجل المبتكرين' }, { id: 'accounts', label: 'حسابات المبتكرين' }, { id: 'log', label: 'سجل الحركات' }, { id: 'reports', label: 'التقارير' }];
+  // «تخصيص اللوحة» per tab (decision 57): the cards keep the old key «makers», the register its own, the accounts tab the accounts page's
+  const vpKey = () => ({ overview: 'makers', records: 'makers:records', accounts: 'accounts:vendors' }[state.vtab] || null);
+  const makerTabs = () => MAKER_TABS.filter((t) => (t.id === 'accounts' ? rperm('accounts.view') !== 'N' : t.id === 'reports' ? reportTabs().some((x) => x.id === 'vendors') : true));
+  function makersAccountsTab() {
+    refreshSeed(); state.tab = 'vendors';
+    const note = state.note; state.note = null; shownNote = note;
+    const noteEl = note ? U.InlineNote({ kind: note.kind, children: note.text, action: note.undo ? Button({ type: 'text', size: 'sm', label: 'تراجع', onClick: note.undo }) : IconButton({ icon: 'close', label: 'إخفاء', onClick: () => { noteEl.remove(); } }) }) : null;
+    return [h('div', { class: 'toolbar' }, DateRangeField(), SortDropdown(), state.vsub !== 'ledger' ? WdFilterDropdown() : null, h('span', { class: 'grow' }), canAdd() ? AddMenu('إضافة مبلغ', 'vendorMoves') : null), noteEl].concat(VendorsTab());
+  }
+  function makersReportsTab() {
+    return [h('div', { class: 'toolbar' }, DateRangeField('reports'), h('span', { class: 'grow' }), Button({ type: 'text', size: 'sm', label: 'افتح في صفحة التقارير', attrs: { 'data-vrep-page': '' }, onClick: () => { state.rtab = 'vendors'; state.vtab = 'overview'; go('reports'); } }))].concat(VendorsReportView());
+  }
+  // «سجل الحركات»: add / stop / activate / delete a maker (IBVendors.loadMakersLog — the server's activity_log), a filter by kind
+  const LOG_KIND = { create: 'إضافة مبتكر', remove: 'مسح', active: 'تنشيط', inactive: 'توقيف', leave: 'إجازة', site: 'اتغيرت الحالة من الموقع' };
+  let vlogAsked = false; state.vlogKind = '';
+  function makersLogTab() {
+    const V = window.IBVendors;
+    if (V && V.loadMakersLog && !vlogAsked) { vlogAsked = true; V.loadMakersLog().then(() => { if (state.page === 'vendors' && state.vtab === 'log') renderVendors(); }); }
+    const raw = V && V.makersLog ? V.makersLog() : null;
+    const kindOf = (e) => (e.kind === 'status' ? (e.action === 'vendor.sync' ? 'site' : ['active', 'inactive', 'leave'].includes(e.value) ? e.value : 'site') : e.kind);
+    const nameOf = (e) => { const v = e.vendorId && vstore.get(e.vendorId); return v ? v.name : (e.kind === 'create' || e.kind === 'remove') && e.value ? e.value : '—'; };
+    const all = (raw || []).map((e) => Object.assign({}, e, { k: kindOf(e) }));
+    const rows = all.filter((e) => !state.vlogKind || e.k === state.vlogKind);
+    const chips = h('div', { class: 'chips', role: 'group', 'aria-label': 'نوع الحركة' }, [['', 'الكل'], ['create', LOG_KIND.create], ['inactive', LOG_KIND.inactive], ['active', LOG_KIND.active], ['leave', LOG_KIND.leave], ['remove', LOG_KIND.remove]].map(([k, l]) => {
+      const n = k ? all.filter((e) => e.k === k).length : all.length;
+      return h('button', { type: 'button', class: 'chip' + (state.vlogKind === k ? ' on' : ''), 'aria-pressed': String(state.vlogKind === k), 'data-vlog-kind': k, onClick: () => { state.vlogKind = k; renderVendors(); } }, l + ' · ' + num(String(n)));
+    }));
+    const tone = { create: 'success', remove: 'error', active: 'success', inactive: 'neutral', leave: 'gold', site: 'neutral' };
+    const body = raw == null ? U.InlineNote({ children: 'بنحمّل سجل الحركات…' }) : rows.length ? U.Table({ cls: 'tickets-table', headers: ['التاريخ', 'المبتكر', 'الحركة', 'بواسطة'], rows: rows.map((e) => [fmtTime(e.at), (() => { const v = e.vendorId && vstore.get(e.vendorId); return v ? h('a', { href: '#makers/' + v.id, 'data-vlog-open': v.id, onClick: (ev) => { ev.preventDefault(); openVendor(v.id); } }, v.name) : nameOf(e); })(), h('span', { class: 'tg tg-' + (tone[e.k] || 'neutral'), 'data-vlog-row': e.k }, LOG_KIND[e.k] || e.k), (e.actor && e.actor.name) || '—']) })
+      : U.EmptyState(all.length ? 'مفيش حركات من النوع ده' : 'لسه مفيش حركات', 'إضافة مبتكر وتوقيفه وتنشيطه ومسحه بيتسجلوا هنا.');
+    return [TableCard({ title: 'سجل الحركات', count: raw == null ? '' : num(rows.length + ' حركة'), action: Button({ type: 'text', size: 'sm', icon: 'refresh', label: 'تحديث', attrs: { 'data-vlog-refresh': '' }, onClick: () => { vlogAsked = false; renderVendors(); } }), pre: [chips], body }),
+      h('p', { class: 'source' }, 'المصدر: سجل النشاط — إضافة مبتكر، تغيير حالته (نشط / غير نشط / في إجازة) من الفريق أو من الموقع، ومسحه من السيستم · آخر 200 حركة.')];
   }
   function renderVendors(keepFocus) {
     U.closePopover(); const main = document.getElementById('vendors'); if (!main) return; const sc = window.scrollY; const had = keepFocus && document.activeElement && document.activeElement.type === 'search';
-    main.replaceChildren(...VendorsPageView().filter(Boolean)); window.IBKit.applyPanelPrefs('makers', main); window.IBKit.sweepColumns(main); window.scrollTo(0, sc); if (had) { const s = main.querySelector('input[type=search]'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
+    main.replaceChildren(...VendorsPageView().filter(Boolean)); if (vpKey()) window.IBKit.applyPanelPrefs(vpKey(), main.querySelector('#vpanel')); window.IBKit.sweepColumns(main); window.scrollTo(0, sc); if (had) { const s = main.querySelector('input[type=search]'); if (s) { s.focus(); s.setSelectionRange(s.value.length, s.value.length); } }
   }
 
   // ----- login + payout fields (owner 26 Oct, phase 3.1 decision 9): shared by «إضافة مبتكر» and the drawer's «بيانات الدخول» popup -----
@@ -3546,6 +3593,7 @@
   }
 
   function render() {
+    if (state.page === 'vendors' && state.vtab === 'accounts') { renderVendors(); return; } // phase 13 decision 57: the makers page shows this tab too
     U.closePopover(); refreshSeed();
     const main = document.getElementById('main'); const sc = window.scrollY;
     const note = state.note; state.note = null; shownNote = note;

@@ -39,6 +39,7 @@ const row = (page, id) => page.locator(`#vendors tr[data-id="${id}"]`);
 async function openVendors(page, email = ADMIN, n = 2) {
   await signIn(page, email);
   await page.locator('.sidebar .nav-item[data-page="vendors"]').click();
+  await page.locator('#vendors [role=tab]', { hasText: 'سجل المبتكرين' }).click(); // decision 57: the page opens on «نظرة عامة»
   await expect(page.locator('#vendors')).toBeVisible();
   await expect(page).toHaveURL(/#makers$/);
   await expect(rows(page)).toHaveCount(n);
@@ -566,7 +567,9 @@ test('«إضافة مبتكر» (phase 3.1: basics + login + bank) creates the m
 
 test('«في إجازة» (phase 3.1): a status like the others — from «المزيد», in the tag, the filter, the KPI and the edit popups; the maker leaves the active list', async ({ page }) => {
   await openVendors(page);
+  await page.locator('#vendors [role=tab]', { hasText: 'نظرة عامة' }).click(); // decision 57: the cards are on «نظرة عامة»
   await expect(page.locator('#vendors .kpi[aria-label="مبتكرين نشطين"] .t-h3')).toHaveText('2');
+  await page.locator('#vendors [role=tab]', { hasText: 'سجل المبتكرين' }).click();
   await openDrawer(page, V2);
   await drawer(page).getByRole('button', { name: 'المزيد' }).click();
   await expect(page.locator('[role=menu] [role=menuitem]')).toHaveText(['تحويل لـ «في إجازة»', 'تحويل لغير نشط', 'تغيير النسبة (الأوردرات الجديدة فقط)', 'نسخ رابط الملف', 'إنشاء تذكرة على المبتكر']);
@@ -581,7 +584,9 @@ test('«في إجازة» (phase 3.1): a status like the others — from «ال�
   await page.keyboard.press('Escape');
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
   await expect(rows(page)).toHaveCount(1); // not active any more
+  await page.locator('#vendors [role=tab]', { hasText: 'نظرة عامة' }).click();
   await expect(page.locator('#vendors .kpi[aria-label="مبتكرين نشطين"] .t-h3')).toHaveText('1');
+  await page.locator('#vendors [role=tab]', { hasText: 'سجل المبتكرين' }).click();
   expect(await page.evaluate(() => window.IbtekrVendors.summary(window.IBVendors.store.all(), {}).active)).toBe(1); // leave counts as inactive everywhere (tasks, KPI)
   await statusFilter(page, 'في إجازة');
   await expect(rows(page)).toHaveCount(1);
@@ -758,4 +763,45 @@ test('5.5 (decision 14): the top search lists the customers too, like the v5 —
   await q.fill('01200007052');
   await expect(res.locator('[data-gq-group="عملاء"]')).toContainText('سلوى زيتوني');
   await expect(res.locator('[data-gq-group="أوردرات"]').first()).toContainText('IB-181668');
+});
+
+// phase 13 decision 57: the makers page in five tabs
+test('decision 57: the makers page tabs — «نظرة عامة» (cards) · «سجل المبتكرين» (table) · «حسابات المبتكرين» (the accounts tab) · «سجل الحركات» (add / stop / activate / delete) · «التقارير»', async ({ page }) => {
+  await signIn(page, ADMIN);
+  await page.locator('.sidebar .nav-item[data-page="vendors"]').click();
+  const tabs = page.locator('#vendors [role=tablist][aria-label="أقسام المبتكرين"] [role=tab]');
+  await expect(tabs).toHaveText(['نظرة عامة', 'سجل المبتكرين', 'حسابات المبتكرين', 'سجل الحركات', 'التقارير']);
+  await expect(tabs.first()).toHaveAttribute('aria-selected', 'true');
+  await expect(page.locator('#vpanel .kpi[aria-label="مبتكرين نشطين"]')).toBeVisible();
+  await expect(rows(page)).toHaveCount(0); // the table is on its own tab
+  await tabs.nth(1).click();
+  await expect(rows(page)).toHaveCount(2);
+  await expect(page.locator('#vpanel .kpi')).toHaveCount(0);
+  // the accounts page's own «حسابات المبتكرين», inside the makers page
+  await tabs.nth(2).click();
+  await expect(page.locator('#vpanel [role=tablist]').first()).toContainText('الرصيد دلوقتي');
+  await expect(page.locator('#vpanel')).toContainText('Antikiano');
+  // stop a maker → the log shows it with who did it
+  await tabs.nth(1).click();
+  await openDrawer(page, V2);
+  await drawer(page).getByRole('button', { name: 'المزيد' }).click();
+  await page.locator('[role=menu] [role=menuitem]', { hasText: 'تحويل لغير نشط' }).click();
+  await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
+  await tabs.nth(3).click();
+  await expect(page.locator('#vpanel [data-vlog-row]').first()).toBeVisible();
+  await expect(page.locator('#vpanel [data-vlog-row="inactive"]')).toHaveCount(1);
+  await expect(page.locator('#vpanel tr', { has: page.locator('[data-vlog-row="inactive"]') })).toContainText('Antikiano');
+  await page.locator('#vpanel [data-vlog-kind="create"]').click();
+  await expect(page.locator('#vpanel [data-vlog-row="inactive"]')).toHaveCount(0);
+  // the reports page's makers report
+  await tabs.nth(4).click();
+  await expect(page.locator('#vpanel [data-vrep-page]')).toBeVisible();
+  await expect(page.locator('#vpanel')).toContainText('Antikiano');
+});
+
+test('decision 57: a member without accounts.view has no «حسابات المبتكرين» tab', async ({ page }) => {
+  mock.profiles.find((x) => x.member_code === 'M99').status = 'active';
+  await signIn(page, VIEWER);
+  await page.locator('.sidebar .nav-item[data-page="vendors"]').click();
+  await expect(page.locator('#vendors [role=tablist][aria-label="أقسام المبتكرين"] [role=tab]', { hasText: 'حسابات المبتكرين' })).toHaveCount(0);
 });

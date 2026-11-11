@@ -120,7 +120,7 @@ function readSelect(table, select) {
 const NOT_FILTERS = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'columns']);
 // the in.(…) filters the app sends: alerts.js asks the marks of the loaded alert ids; orders.js the lines / sub-orders of the
 // loaded orders, the images / permalinks of their skus and (Realtime) the names of makers it does not know yet
-const IN_FILTERS = { alert_reads: ['alert_id'], orders_v: ['id'], order_items: ['order_id', 'id'], sub_orders: ['order_id', 'id'], products: ['sku', 'id', 'permalink'], vendors: ['id'], image_imports: ['status'] }; // image_imports: the sets still to import (0026)
+const IN_FILTERS = { alert_reads: ['alert_id'], orders_v: ['id'], order_items: ['order_id', 'id'], sub_orders: ['order_id', 'id'], products: ['sku', 'id', 'permalink'], vendors: ['id'], image_imports: ['status'], activity_log: ['action'] }; // image_imports: the sets still to import (0026)
 // products.js (phase 5): the records are the rows that are not Arabic — or=(lang.is.null,lang.neq.ar) is the one `or` it sends
 const OR_FILTERS = { products: { '(lang.is.null,lang.neq.ar)': (r) => r.lang == null || r.lang !== 'ar' } };
 // products.js: product_commissions with a rate only (rate=not.is.null)

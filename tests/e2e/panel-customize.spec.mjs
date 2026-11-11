@@ -78,16 +78,14 @@ test('at least one block stays visible: hiding them all is refused and nothing i
 });
 
 test('my saved choice from the server applies on sign-in, per page and tab: makers, customer service, accounts', async ({ page }) => {
-  mock.prefs.push({ user_id: ADMIN_ID, key: 'panel.prefs', data: { makers: { order: ['المبتكرين'], hidden: ['مواصلات المبتكرين'] }, 'cs:customers': { order: [], hidden: ['عملاء متكررين'] }, 'accounts:expenses': { order: [], hidden: ['الإعلانات'] } } });
+  mock.prefs.push({ user_id: ADMIN_ID, key: 'panel.prefs', data: { makers: { order: [], hidden: ['مواصلات المبتكرين'] }, 'cs:customers': { order: [], hidden: ['عملاء متكررين'] }, 'accounts:expenses': { order: [], hidden: ['الإعلانات'] } } });
   await open(page, ADMIN, 'makers');
   const V = page.locator('#vendors');
   await expect(kpi(V, 'مواصلات المبتكرين')).toBeHidden();
   await expect(kpi(V, 'مبتكرين نشطين')).toBeVisible();
-  // the table first: its card comes before the number cards
-  expect(await page.evaluate(() => { const kids = [...document.getElementById('vendors').children]; return kids.findIndex((c) => c.classList.contains('table-card')) < kids.findIndex((c) => c.classList.contains('cards')); })).toBe(true);
+  // decision 57: the cards live on «نظرة عامة» (key «makers»), the register on its own tab
   await page.locator('[data-pn-custom="makers"]').click();
   await expect(row(page, 'مواصلات المبتكرين').getByRole('switch')).not.toBeChecked();
-  await expect(modal(page).locator('[data-pn-item]').first()).toHaveAttribute('data-pn-item', 'المبتكرين');
   await modal(page).getByRole('button', { name: 'إلغاء' }).click();
   await go(page, 'cs-customers');
   await expect(kpi(page.locator('#pg-cs .cs-body'), 'عملاء متكررين')).toBeHidden();

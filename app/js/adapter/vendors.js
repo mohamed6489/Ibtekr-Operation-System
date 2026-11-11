@@ -323,7 +323,7 @@
       setState('ready');
     } catch (e) { if (g === gen) setState('error'); /* offline or refused: the screen keeps what it had; cleared: 'idle' */ }
   }
-  function clear() { gen += 1; vendors = new Map(); brands = new Map(); catRates = new Map(); categoriesMap = new Map(); timeline.clear(); revealed.clear(); ratesOk = false; brandRatesOk = false; catRatesOk = false; setState('idle'); }
+  function clear() { gen += 1; makersLog = null; vendors = new Map(); brands = new Map(); catRates = new Map(); categoriesMap = new Map(); timeline.clear(); revealed.clear(); ratesOk = false; brandRatesOk = false; catRatesOk = false; setState('idle'); }
   // phase 3.3: the site's product categories for the pickers, by name
   const categories = () => [...categoriesMap.values()].sort((a, b) => a.name.localeCompare(b.name, 'ar')).map((c) => Object.assign({}, c));
   const data = () => (st === 'ready' ? { vendors: all(), ratesVisible: ratesOk && canRate(), brands: allBrands() } : null);
@@ -848,6 +848,18 @@
     if (r.ok) timeline.set(k, (r.data || []).slice().reverse().map(toEvent)); else if (!timeline.has(k)) timeline.set(k, []);
     return events(k);
   }
+  // phase 13 decision 57 (owner 11 Nov — «سجل الحركات … توقيف المبتكر أو تنشيطه، إضافة مبتكر جديد أو مسحه»): the makers page's log —
+  // the activity_log rows of every maker for an add, a status change (stopped / active / on leave) or a removal, and the site's sync rows
+  // that changed a status, newest first (200); each as the drawer's event plus the maker's id and kind ('create' | 'status' | 'remove')
+  const LOG_ACTIONS = ['vendor.create', 'vendor.status', 'vendor.remove', 'vendor.sync'];
+  let makersLog = null;
+  async function loadMakersLog() {
+    const r = await call((cl) => cl.from('activity_log').select(COLS.event + ', entity_id').eq('entity', 'vendor').in('action', LOG_ACTIONS).order('at', { ascending: false }).limit(200));
+    if (!r.ok) return makersLog || null;
+    makersLog = (r.data || []).filter((x) => x.action !== 'vendor.sync' || /(^|, )status(,|$)/.test(String(x.new_value || '')))
+      .map((x) => Object.assign(toEvent(x), { vendorId: x.entity_id ? String(x.entity_id) : null, kind: x.action === 'vendor.create' ? 'create' : x.action === 'vendor.remove' ? 'remove' : 'status', value: typeof x.new_value === 'string' ? x.new_value : '' }));
+    return makersLog;
+  }
   // the drawer opening on a vendor: its events, and a fresh reveal log (the refresh after a write keeps it)
   function loadEvents(id) { revealed.delete(String(id)); return fetchEvents(id); }
 
@@ -909,5 +921,5 @@
     setCategoryRate, setCommission, categories, canPush, pushVendor, // phase 3.3
     canSyncNow, syncing, syncNow, // plan 3.4 decision 10
     setPhoto, photoUrl, canPhoto }; // phase 13 decision 51
-  window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, setContract, contractUrl, setPhoto, photoUrl, PHOTO_BUCKET, stats, toVendor, toBrand, lineShare, rateAt, rateFor, storeOwnerAt, safeName, norm, today, MESSAGES, BUCKET, SYNC_FIELDS, toEvent, categories };
+  window.IBVendors = { load, state: () => st, data, clear, store, loadEvents, events, loadMakersLog, makersLog: () => makersLog, setContract, contractUrl, setPhoto, photoUrl, PHOTO_BUCKET, stats, toVendor, toBrand, lineShare, rateAt, rateFor, storeOwnerAt, safeName, norm, today, MESSAGES, BUCKET, SYNC_FIELDS, toEvent, categories };
 })();

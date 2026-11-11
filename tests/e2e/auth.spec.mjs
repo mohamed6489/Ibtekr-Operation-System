@@ -85,6 +85,7 @@ test('every page table is the standard table: a green header row + alternating r
   expect(await style(rows.nth(1).locator('td').nth(2), 'backgroundColor')).toBe('rgb(240, 229, 207)'); // even row: --color-bg-tint
   // a TableCard (the makers' register) too
   await page.locator('.sidebar .nav-item[data-page="vendors"]').click();
+  await page.locator('#vendors [role=tab]', { hasText: 'سجل المبتكرين' }).click(); // decision 57: the page opens on «نظرة عامة»
   const reg = page.locator('#vendors section.table-card').first();
   await expect(reg).toHaveClass(/\btbl-v2\b/);
   expect(await style(reg.locator('thead th').nth(1), 'backgroundColor')).toBe('rgb(0, 86, 66)');

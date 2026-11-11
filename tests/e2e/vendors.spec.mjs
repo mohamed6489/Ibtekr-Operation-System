@@ -695,7 +695,8 @@ test('5.5: the drawer\'s «المنتجات» tab lists his products from the mi
   await expect(drawer(page).locator('[data-vprod="9003"]')).not.toContainText('مسودة'); // the mirror row came back published
   await drawer(page).locator('[data-vgo="products"]').click();
   await expect(page.locator('#pg-products')).toBeVisible();
-  expect(await page.evaluate(() => window.IBPages.all().products.api.st.f.vendor)).toBe('Antikiano');
+  expect(await page.evaluate(() => window.IBPages.all().products.api.st.f.vendor)).toEqual(['Antikiano']); // B3: the filters hold several picks
+  await expect(page.locator('#pf-vendor .val')).toHaveText('المبتكر (1)');
   await expect(page.locator('#pg-products .pr-table tbody tr')).toHaveCount(2);
 });
 

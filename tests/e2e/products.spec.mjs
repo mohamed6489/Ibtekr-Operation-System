@@ -52,19 +52,42 @@ test('records: the English rows with their Arabic name, brand, maker, category p
   await expect(page.locator('[data-pstatus="pending"]')).toHaveText('قيد المراجعة 1');
 });
 
-test('filters and sort: status chips, brand, «ناقصها بيانات», search by SKU, sort by sales', async ({ page }) => {
+// B3 (the owner, 11 Nov): a multi-select per filter with the values alone (no «البراند:» before them), «اعرض N منتج» applies;
+// the categories main then sub with «-» / «--»; no «نفد» tab, no «ناقصها بيانات» chip, no closed «فلتر» on the records card
+test('filters and sort: status chips, brand / category multi-selects, search by SKU, sort by sales', async ({ page }) => {
   await openProducts(page);
   const rows = page.locator('#pg-products .pr-table tbody tr');
+  await expect(page.locator('[data-pstatus]')).toHaveText([/^الكل/, /^منشور/, /^مسودة/, /^قيد المراجعة/, /^المهملات/]); // no «نفد»
+  await expect(page.locator('#pg-products [data-missing]')).toHaveCount(0);
+  await expect(page.locator('#pg-products [data-fm-btn="products"]')).toHaveCount(0);
   await page.locator('[data-pstatus="draft"]').click();
   await expect(rows).toHaveCount(1);
   await page.locator('[data-pstatus="all"]').click();
-  await page.locator('#pf-brand').click(); await page.getByRole('option', { name: 'البراند: Antikiano' }).click();
+  await expect(page.locator('#pf-brand .val')).toHaveText('البراند');
+  await page.locator('#pf-brand').click();
+  const bm = page.locator('[data-mp-menu="pf-brand"]');
+  await expect(bm.locator('[role=menuitemcheckbox]').first()).not.toContainText(':'); // the values alone
+  await bm.locator('[data-mp-opt="Antikiano"]').click();
+  await expect(bm.locator('[data-mp-apply]')).toHaveText('اعرض 2 منتج');
+  await bm.locator('[data-mp-apply]').click();
   await expect(rows).toHaveCount(2);
+  await expect(page.locator('#pf-brand .val')).toHaveText('البراند (1)');
+  await expect(page.locator('#pg-products .af-chip .af-t')).toHaveText(['البراند: Antikiano']);
   await page.getByRole('button', { name: 'مسح الفلاتر' }).click();
-  await page.locator('[data-missing]').click();
-  await expect(rows).toHaveCount(3); // every product but Cushion lacks its Arabic name (no translation in the seed)
-  await expect(rowOf(page, 'Cushion')).toHaveCount(0);
-  await page.locator('[data-missing]').click();
+  await expect(rows).toHaveCount(4);
+  // the categories: main then sub with dashes; a main one takes what is under it, two picks are either
+  await page.locator('#pf-category').click();
+  const cm = page.locator('[data-mp-menu="pf-category"]');
+  await expect(cm.locator('[role=menuitemcheckbox]')).toHaveText(['ديكور', '- إضاءة', '-- أباجورات', 'هدايا']);
+  await cm.locator('[role=menuitemcheckbox]', { hasText: '- إضاءة' }).click();
+  await cm.locator('[data-mp-apply]').click();
+  const lit = await rows.count();
+  await page.locator('#pf-category').click();
+  await page.locator('[data-mp-menu="pf-category"] [role=menuitemcheckbox]', { hasText: 'هدايا' }).click();
+  await page.locator('[data-mp-menu="pf-category"] [data-mp-apply]').click();
+  expect(await rows.count()).toBeGreaterThanOrEqual(lit);
+  await expect(page.locator('#pf-category .val')).toHaveText('القسم (2)');
+  await page.getByRole('button', { name: 'مسح الفلاتر' }).click();
   await page.fill('#pg-products input[type=search]', 'ibtk20035');
   await expect(rows).toHaveCount(1);
   await page.fill('#pg-products input[type=search]', '');
@@ -395,17 +418,17 @@ test('products.bulk: a member with products.edit but not products.bulk sees no b
 });
 
 // ---- phase 5.5 (the owner's prototype v2, plan decision 5) ----
-test('5.5: the records card header has the closed filter, the sort menu and the picks as chips; «تخصيص التقارير» picks up to 8 cards saved per member', async ({ page }) => {
+test('5.5 / B3: the type is a multi-select above the records (the card keeps the sort menu, the picks show as chips); «تخصيص التقارير» picks up to 8 cards saved per member', async ({ page }) => {
   await openProducts(page);
   const rows = page.locator('#pg-products .pr-table tbody tr');
-  await page.locator('#pg-products [data-fm-btn="products"]').click();
-  await page.locator('[data-fm-menu="products"] [data-fm="type:Variable"]').click();
-  await expect(page.locator('[data-fm-menu="products"] [data-fm-apply]')).toHaveText('اعرض 1 منتج');
-  await page.locator('[data-fm-menu="products"] [data-fm-apply]').dispatchEvent('click');
+  await page.locator('#pf-type').click(); // B3: the type is a multi-select too (the closed «فلتر» of the card is gone)
+  await page.locator('[data-mp-menu="pf-type"] [data-mp-opt="Variable"]').click();
+  await expect(page.locator('[data-mp-menu="pf-type"] [data-mp-apply]')).toHaveText('اعرض 1 منتج');
+  await page.locator('[data-mp-menu="pf-type"] [data-mp-apply]').click();
   await expect(rows).toHaveCount(1);
   await expect(page.locator('#pg-products .af-row .af-chip')).toHaveCount(1);
   await expect(page.locator('#pg-products .af-chip .af-t')).toHaveText('النوع: Variable');
-  await expect(page.locator('#pf-type .val')).toContainText('Variable'); // the select above follows the same filter
+  await expect(page.locator('#pf-type .val')).toHaveText('النوع (1)');
   await page.locator('#pg-products [data-af-chip="type:Variable"]').click();
   await expect(rows).toHaveCount(4);
   await page.locator('#pg-products [data-sm-btn="products"]').click();
@@ -520,7 +543,7 @@ test('decision 56: «الأقسام» shows the tree with +/−, the products in
 });
 
 // phase 13 decision 62: the products tabs and «نظرة عامة» / «سجل الحركة»
-test('decision 62: the tabs are نظرة عامة · إضافة · سجل المنتجات · الأقسام · سجل الحركة · التقارير; the overview shows the catalog, the best sellers and categories and the published products out of stock; the log lists the product actions', async ({ page }) => {
+test('decision 62: the tabs are نظرة عامة · إضافة · سجل المنتجات · الأقسام · سجل الحركة · التقارير; the overview shows the catalog and the best sellers and categories side by side (B3: no out-of-stock tile or table); the log card has its count and its dropdowns', async ({ page }) => {
   await page.goto('/');
   await page.fill('#lg-id', ADMIN); await page.fill('#lg-pw', DEV_PW);
   await page.getByRole('button', { name: 'دخول', exact: true }).click();
@@ -530,14 +553,26 @@ test('decision 62: the tabs are نظرة عامة · إضافة · سجل الم
   await expect(tabs).toHaveText(['نظرة عامة', 'إضافة', 'سجل المنتجات', /^الأقسام · \d+$/, 'سجل الحركة', 'التقارير']);
   await expect(page).toHaveURL(/#products-overview$/);
   await expect(pg.locator('.kpi[aria-label="المنتجات"]')).toContainText('4');
-  await expect(pg.locator('.kpi[aria-label="خلص ستوكه ولسه منشور"]')).toBeVisible();
-  await expect(pg).toContainText('المنتجات الأكثر مبيعًا — أعلى 10');
-  await expect(pg).toContainText('الأقسام الأكثر مبيعًا — أعلى 10');
-  await expect(pg.locator('section', { hasText: 'خلص ستوكه ولسه منشور' }).last()).toBeVisible();
+  await expect(pg.locator('.kpi[aria-label="خلص ستوكه ولسه منشور"]')).toHaveCount(0); // B3: the stock tile and table are gone
+  await expect(pg.locator('section', { hasText: 'خلص ستوكه ولسه منشور' })).toHaveCount(0);
+  await expect(pg.locator('[data-ov-two] > section')).toHaveCount(2); // the two tables side by side
+  await expect(pg.locator('[data-ov-two] [data-cols], [data-ov-two] [data-fm-btn], [data-ov-two] [data-sm-btn]')).toHaveCount(0); // top-10 lists: no columns / filter / sort buttons
+  await expect(pg.locator('[data-ov-two]')).toContainText('المنتجات الأكثر مبيعًا — أعلى 10');
+  await expect(pg.locator('[data-ov-two]')).toContainText('الأقسام الأكثر مبيعًا — أعلى 10');
   // a product action, then the log
   mock.activityRows.push({ id: 7001, at: new Date().toISOString(), actor: mock.profiles.find((p) => p.email === ADMIN).id, action: 'product.trash', entity: 'products', entity_id: '9004', old_value: null, new_value: '#9004' });
   await tabs.nth(4).click();
   await expect(page).toHaveURL(/#products-log$/);
   await expect(pg.locator('[data-plog-row="product.trash"]')).toHaveText('نقل للمهملات');
-  await expect(pg.locator('[data-plog-kind]')).toHaveCount(2); // «الكل» + the one kind seen
+  // B3: the log card like the other tables — its count, a dropdown per filter (the move · by whom) and «تحديث» in the header
+  const card = pg.locator('.plog-card');
+  await expect(card.locator('.sec-h')).toContainText('1 من 1 حركة');
+  await expect(card.locator('[data-plog-kind]')).toHaveCount(0);
+  await card.locator('#plog-kind').click();
+  await expect(page.locator('[data-mp-menu="plog-kind"] [role=menuitemcheckbox]')).toHaveText(['نقل للمهملات']);
+  await page.keyboard.press('Escape');
+  await card.locator('#plog-by').click();
+  await expect(page.locator('[data-mp-menu="plog-by"] [role=menuitemcheckbox]')).toHaveCount(1);
+  await page.keyboard.press('Escape');
+  await expect(card.locator('[data-plog-refresh]')).toBeVisible();
 });

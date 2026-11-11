@@ -334,3 +334,13 @@ test('slotPrompt (phase 5.4 decision 11): the page\'s prompt a slot is the serve
   assert.ok(PD.slotPrompt(it, 3, { brand: 'Art Craft' }).includes('(50×50, 60×60)') && !PD.slotPrompt(it, 3).includes('<b>'));
   assert.ok(PD.slotPrompt(it, { color: 'BE' }, { colorName: 'Beige' }).includes('Kilim Pouf x, in Beige, made of Cotton, Boho style'));
 });
+
+// B3 (the owner, 11 Nov — «الاقسام اختار منها … الرئيسي … - و -- و ---»): the categories filter lists the tree in order, a main category
+// then its subs, each with its depth; a category whose parent is not in the list stands as a main one; a loop does not hang
+test('catOptions (B3): the site\'s category tree in order — main, then its subs by name with their depth; the value is the path the records filter on', () => {
+  const cats = [{ id: 20, name: 'Lighting', parentId: 10, path: 'Decor › Lighting' }, { id: 10, name: 'Decor', parentId: null, path: 'Decor' }, { id: 30, name: 'Lamps', parentId: 20, path: 'Decor › Lighting › Lamps' },
+    { id: 11, name: 'Accessories', parentId: 10, path: 'Decor › Accessories' }, { id: 40, name: 'Kids', parentId: 0, path: 'Kids' }, { id: 50, name: 'Orphan', parentId: 999, path: 'Orphan' }];
+  assert.deepEqual(plain(PD.catOptions(cats)), [['Decor', 'Decor', 0], ['Decor › Accessories', 'Accessories', 1], ['Decor › Lighting', 'Lighting', 1], ['Decor › Lighting › Lamps', 'Lamps', 2], ['Kids', 'Kids', 0], ['Orphan', 'Orphan', 0]]);
+  assert.deepEqual(plain(PD.catOptions([{ id: 1, name: 'A', parentId: 2, path: 'B › A' }, { id: 2, name: 'B', parentId: 1, path: 'A › B' }])).length, 2); // a loop: each once
+  assert.deepEqual(plain(PD.catOptions(null)), []);
+});

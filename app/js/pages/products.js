@@ -30,7 +30,7 @@
   };
 
   // ---------------- state ----------------
-  const st = { tab: 'records', view: 'records', status: 'all', q: '', f: { vendor: '', brand: '', category: '', stock: '', type: '' }, missingOnly: false, sort: '', sel: new Set(), pageN: 0,
+  const st = { tab: 'records', view: 'records', status: 'all', q: '', f: { vendor: [], brand: [], category: [], stock: [], type: [] }, sort: '', sel: new Set(), pageN: 0,
     editId: null, etab: 'data', live: null, draft: null, liveFor: null, loadingLive: false, liveErr: '', saving: false, imgSel: null, busy: false };
   const can = () => (PR() ? PR().can() : { view: false, edit: false, trash: false, commission: false });
   // the owner (1 Nov): Shift + click selects a range — the first ticked row to the one clicked (in the order shown), ticking or
@@ -96,6 +96,7 @@
   }
 
   // ---------------- «السجل» ----------------
+  const catHit = (c) => st.f.category.some((f) => c === f || c.startsWith(f + ' › '));
   function filtered() {
     const q = st.q.trim().toLowerCase();
     return all().filter((p) => {
@@ -104,12 +105,12 @@
       if (st.status === 'pending' && p.wooStatus !== 'pending') return false;
       if (st.status === 'out' && stockStateOf(p) !== 'نفد') return false;
       if (q && !(p.nameEn.toLowerCase().includes(q) || p.nameAr.includes(q) || p.sku.toLowerCase().includes(q))) return false;
-      if (st.f.vendor && p.vendor !== st.f.vendor) return false;
-      if (st.f.brand && !p.brands.includes(st.f.brand)) return false;
-      if (st.f.category && !p.cats.some((c) => c === st.f.category || c.startsWith(st.f.category + ' › '))) return false;
-      if (st.f.stock && stockStateOf(p) !== st.f.stock) return false;
-      if (st.f.type && p.type !== st.f.type) return false;
-      if (st.missingOnly && !complete(p).missing.length) return false;
+      // B3 (the owner, 11 Nov): several picks per filter — a product passes on any of them (a category = itself or anything under it)
+      if (st.f.vendor.length && !st.f.vendor.includes(p.vendor)) return false;
+      if (st.f.brand.length && !p.brands.some((b) => st.f.brand.includes(b))) return false;
+      if (st.f.category.length && !p.cats.some((c) => catHit(c))) return false;
+      if (st.f.stock.length && !st.f.stock.includes(stockStateOf(p))) return false;
+      if (st.f.type.length && !st.f.type.includes(p.type)) return false;
       return true;
     });
   }
@@ -119,16 +120,19 @@
       out: L.filter((p) => stockStateOf(p) === 'نفد').length, trash: trashRows().length };
   }
   function statusChips() {
-    const c = counts(); const it = [['all', 'الكل'], ['published', 'منشور'], ['draft', 'مسودة'], ['pending', 'قيد المراجعة'], ['out', 'نفد'], ['trash', 'المهملات']];
+    const c = counts(); const it = [['all', 'الكل'], ['published', 'منشور'], ['draft', 'مسودة'], ['pending', 'قيد المراجعة'], ['trash', 'المهملات']]; // B3: no «نفد» tab (the «المخزون» filter has it)
     return h('div', { class: 'chips', role: 'group', 'aria-label': 'الحالة' }, it.map(([id, l]) => chipBtn(l + ' ' + K.n0(c[id]), st.status === id, () => { st.status = id; st.sel.clear(); st.pageN = 0; go(id === 'trash' ? 'products-trash' : 'products-records'); }, { 'data-pstatus': id })));
   }
-  const fsel = (key, label, opts) => U.Select({ id: 'pf-' + key, label: '', options: [{ value: '', label: label + ': الكل' }].concat(opts.map((o) => ({ value: o, label: label + ': ' + o }))), value: st.f[key], onChange: (v) => { st.f[key] = v; st.pageN = 0; R(); } });
+  // B3 (the owner, 11 Nov — «اشيل منه اسم الفلتر … سيرش … check box»): a multi-select per filter — the values alone, a search when they
+  // are many, «اعرض N منتج» applies; the count is the records with that pick and the other filters as they are
+  const countWith = (key, v) => { const was = st.f[key]; st.f[key] = v; const n = filtered().length; st.f[key] = was; return n; };
+  const fpick = (key, label, opts) => K.MultiPick({ id: 'pf-' + key, label, options: opts, value: st.f[key], noun: 'منتج', count: (v) => countWith(key, v), onApply: (v) => { st.f[key] = v; st.sel.clear(); st.pageN = 0; R(); } });
   function searchBox() {
     const q = h('input', { type: 'search', placeholder: 'دوّر بالاسم أو الـ SKU', 'aria-label': 'بحث في المنتجات', value: st.q });
     q.addEventListener('input', () => { st.q = q.value; st.pageN = 0; const p = q.selectionStart; R(); const n = document.querySelector('#pg-products input[type=search]'); if (n) { n.focus(); n.setSelectionRange(p, p); } });
     return h('label', { class: 'search-field' }, Icon('search', 'sm'), q);
   }
-  const clearFilters = () => { st.f = { vendor: '', brand: '', category: '', stock: '', type: '' }; st.q = ''; st.missingOnly = false; st.pageN = 0; };
+  const clearFilters = () => { st.f = { vendor: [], brand: [], category: [], stock: [], type: [] }; st.q = ''; st.pageN = 0; };
   // phase 5.5 decision 5 (owner 1 Nov): the kit's closed filter + sort + chips in the records card header, next to the columns button — the same look as every table
   const PR_SORTS = [['new', 'الإضافة: الأحدث للأقدم'], ['old', 'الإضافة: الأقدم للأحدث'], ['sales-desc', 'مرات البيع: الأكتر للأقل'], ['sales-asc', 'مرات البيع: الأقل للأكتر'], ['price-desc', 'السعر: الأعلى للأقل'], ['price-asc', 'السعر: الأقل للأعلى'], ['stock-asc', 'المخزون: الأقل الأول (للتزويد)'], ['stock-desc', 'المخزون: الأكتر الأول'], ['missing', 'ناقصها بيانات الأول'], ['name', 'الاسم: A → Z']];
   const sellPrice = (p) => Number(p.type === 'Variable' ? p.price : p.sale) || 0;
@@ -138,32 +142,28 @@
     return by ? l.sort(by) : l;
   }
   const FLBL = { brand: 'البراند', vendor: 'المبتكر', category: 'القسم', stock: 'المخزون', type: 'النوع' };
-  function prFilterMenu(groups) {
-    const val = {}; Object.keys(st.f).forEach((k) => { val[k] = st.f[k] ? [st.f[k]] : []; }); val.other = st.missingOnly ? ['missing'] : [];
-    const count = (d) => { const sv = { f: st.f, missingOnly: st.missingOnly }; st.f = Object.fromEntries(Object.keys(st.f).map((k) => [k, (d[k] || [])[0] || ''])); st.missingOnly = (d.other || []).includes('missing'); const n = filtered().length; st.f = sv.f; st.missingOnly = sv.missingOnly; return n; };
-    return K.FilterMenu({ id: 'products', label: 'فلتر المنتجات', noun: 'منتج', groups, value: val, count, onApply: (d) => { Object.keys(st.f).forEach((k) => { st.f[k] = (d[k] || [])[0] || ''; }); st.missingOnly = (d.other || []).includes('missing'); st.sel.clear(); st.pageN = 0; R(); } });
-  }
   function prSortMenu() { return K.SortMenu({ id: 'products', label: 'ترتيب المنتجات', options: PR_SORTS, value: st.sort && PR_SORTS.some((x) => x[0] === st.sort) ? st.sort : 'new', onChange: (v) => { st.sort = v; st.pageN = 0; R(); } }); }
   // the picks as chips with their counts (each on its own), before the table
   function prChips(list) {
     const chips = []; const STL = { published: 'منشور', draft: 'مسودة', pending: 'قيد المراجعة', out: 'نفد' };
-    const cnt = (patch) => { const sv = { status: st.status, f: st.f, missingOnly: st.missingOnly, q: st.q }; st.status = patch.status || 'all'; st.f = Object.assign({ vendor: '', brand: '', category: '', stock: '', type: '' }, patch.f || {}); st.missingOnly = !!patch.missing; st.q = patch.q || ''; const n = filtered().length; Object.assign(st, sv); return n; };
+    const cnt = (patch) => { const sv = { status: st.status, f: st.f, q: st.q }; st.status = patch.status || 'all'; st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [] }, patch.f || {}); st.q = patch.q || ''; const n = filtered().length; Object.assign(st, sv); return n; };
     const ch = (key, label, patch, reset) => chips.push({ key, label, count: cnt(patch), remove: () => { reset(); st.sel.clear(); st.pageN = 0; R(); } });
     if (st.q) ch('q', 'بحث: ' + st.q, { q: st.q }, () => { st.q = ''; });
     if (STL[st.status]) ch('status', 'الحالة: ' + STL[st.status], { status: st.status }, () => { st.status = 'all'; });
-    Object.keys(FLBL).forEach((k) => { if (st.f[k]) ch(k + ':' + st.f[k], FLBL[k] + ': ' + st.f[k], { f: { [k]: st.f[k] } }, () => { st.f[k] = ''; }); });
-    if (st.missingOnly) ch('missing', 'ناقصها بيانات', { missing: true }, () => { st.missingOnly = false; });
+    Object.keys(FLBL).forEach((k) => st.f[k].forEach((v) => ch(k + ':' + v, FLBL[k] + ': ' + v, { f: { [k]: [v] } }, () => { st.f[k] = st.f[k].filter((x) => x !== v); }))); // B3: a chip per pick
     return K.ActiveFilters({ id: 'products', chips, total: list.length, noun: 'منتج', onClear: () => { clearFilters(); st.status = 'all'; st.sel.clear(); R(); } });
   }
   function recordsView() {
     // the owner (1 Nov): the records newest first by default (the site's ids grow with creation — the mirror has no creation date)
     const list = sortProducts(filtered().slice());
-    const any = Object.values(st.f).some(Boolean) || st.q || st.missingOnly; const C = can();
+    const any = Object.values(st.f).some((a) => a.length) || st.q; const C = can();
     const L = all(); const vendors = [...new Set(L.map((p) => p.vendor).filter(Boolean))].sort((a, b) => a.localeCompare(b));
     const brandNames = (PR() ? PR().brands() : []).map((b) => b.name).sort((a, b) => a.localeCompare(b));
-    const catPaths = (PR() ? PR().categories() : []).map((c) => c.path);
-    const filters = h('div', { class: 'toolbar pr-filters' }, searchBox(), fsel('brand', 'البراند', brandNames), fsel('vendor', 'المبتكر', vendors), fsel('category', 'القسم', catPaths), fsel('stock', 'المخزون', ['متاح', 'قليل', 'نفد', 'حسب الطلب']), fsel('type', 'النوع', ['Simple', 'Variable']),
-      chipBtn('ناقصها بيانات (' + K.n0(L.filter((p) => complete(p).missing.length).length) + ')', st.missingOnly, () => { st.missingOnly = !st.missingOnly; st.pageN = 0; R(); }, { 'data-missing': '' }), any ? Button({ type: 'text', size: 'sm', label: 'مسح الفلاتر', onClick: () => { clearFilters(); R(); } }) : null);
+    const catOpts = PD.catOptions(PR() ? PR().categories() : []); // B3: main, then its subs with «-» / «--» / «---»
+    // B3 (the owner, 11 Nov): no «ناقصها بيانات» chip; each filter a multi-select with the values alone
+    const filters = h('div', { class: 'toolbar pr-filters' }, searchBox(), fpick('brand', 'البراند', brandNames.map((x) => [x, x])), fpick('vendor', 'المبتكر', vendors.map((x) => [x, x])), fpick('category', 'القسم', catOpts),
+      fpick('stock', 'المخزون', ['متاح', 'قليل', 'نفد', 'حسب الطلب'].map((x) => [x, x])), fpick('type', 'النوع', [['Simple', 'Simple'], ['Variable', 'Variable']]),
+      any ? Button({ type: 'text', size: 'sm', label: 'مسح الفلاتر', onClick: () => { clearFilters(); R(); } }) : null);
     const sel = [...st.sel].map(byId).filter(Boolean);
     const bulk = sel.length && (C.bulk || C.trash) ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد' }, h('b', null, 'محدد ' + K.n0(sel.length)), h('span', { class: 'grow' }),
       C.bulk ? Button({ size: 'sm', label: 'تعديل السعر', onClick: () => bulkPrice(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تعديل المخزون', onClick: () => bulkStock(sel) }) : null,
@@ -177,7 +177,7 @@
       return [K.Checkbox({ label: '', checked: st.sel.has(p.id), onChange: (v) => pickRange(shown.map((x) => x.id), p.id, v) }),
         h('button', { type: 'button', class: 'prod link', 'data-pedit': String(p.id), onClick: () => go('products-edit-' + p.id) }, Thumb(p.img), h('span', null, h('b', null, nameOf(p)))), // the owner, 28 Oct: the English name alone (no Arabic name, no «ناقص: …» under it; the «ناقصها بيانات» filter stays)
         h('span', { dir: 'ltr', class: 't-small' }, p.sku || '—'), h('span', { class: 'brand-cell' }, h('span', null, brandOf(p)), h('small', { class: 't-small help' }, p.vendor || '—')),
-        h('span', { class: 'cat-list t-small' }, p.cats.length ? p.cats.map((c) => h('span', { class: st.f.category && c.startsWith(st.f.category) ? 'cat-hit' : null }, c)) : '—'), h('span', { class: 't-small' }, p.type),
+        h('span', { class: 'cat-list t-small' }, p.cats.length ? p.cats.map((c) => h('span', { class: catHit(c) ? 'cat-hit' : null }, c)) : '—'), h('span', { class: 't-small' }, p.type),
         p.type === 'Variable' && p.price != null ? h('span', null, 'من ', money(p.price)) : money(p.type === 'Variable' ? null : p.sale),
         h('span', { class: 'stk' }, ss === 'حسب الطلب' || p.stock == null ? null : K.Num(String(p.stock)), ss !== 'متاح' ? Tag(STOCK_TONE[ss], ss) : null),
         h('span', { class: 'sales-cell', 'data-sales': String(p.sales), title: 'اتباع ' + p.sales + ' مرة' }, p.sales ? K.Num(K.n0(p.sales)) : h('span', { class: 'help' }, '—')),
@@ -195,8 +195,7 @@
     if (list.length) table.querySelectorAll('td[data-l^="[object"]').forEach((td) => { const th = table.querySelectorAll('thead th')[td.cellIndex]; td.dataset.l = th ? th.textContent.replace(/[↓↑↕]/g, '').trim() : ''; });
     const pager = list.length ? h('div', { class: 'pager t-small' }, h('span', { 'data-pager': '' }, K.n0(st.pageN * PAGE + 1) + '–' + K.n0(st.pageN * PAGE + shown.length) + ' من ' + K.n0(list.length)),
       h('span', { class: 'acts-inline' }, Button({ size: 'sm', label: 'السابق', disabled: st.pageN === 0, onClick: () => { st.pageN--; R(); window.scrollTo(0, 0); } }), Button({ size: 'sm', label: 'التالي', disabled: st.pageN >= pages - 1, onClick: () => { st.pageN++; R(); window.scrollTo(0, 0); } }))) : null;
-    const groups = [{ key: 'brand', label: 'البراند', options: brandNames.map((x) => [x, x]) }, { key: 'vendor', label: 'المبتكر', options: vendors.map((x) => [x, x]) }, { key: 'category', label: 'القسم', options: catPaths.map((x) => [x, x]) }, { key: 'stock', label: 'المخزون', options: ['متاح', 'قليل', 'نفد', 'حسب الطلب'].map((x) => [x, x]) }, { key: 'type', label: 'النوع', options: [['Simple', 'Simple'], ['Variable', 'Variable']] }, { key: 'other', label: 'أخرى', options: [['missing', 'ناقصها بيانات']] }];
-    return [statusChips(), filters, bulk, h('section', { class: 'card sec own-filter' }, h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, 'سجل المنتجات'), h('div', { class: 't-small sub' }, K.n0(list.length) + ' منتج معروض')), h('div', { class: 'acts' }, prFilterMenu(groups), prSortMenu())), h('div', { class: 'sec-b' }, prChips(list), table, pager))];
+    return [statusChips(), filters, bulk, h('section', { class: 'card sec own-filter' }, h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, 'سجل المنتجات'), h('div', { class: 't-small sub' }, K.n0(list.length) + ' منتج معروض')), h('div', { class: 'acts' }, prSortMenu())), h('div', { class: 'sec-b' }, prChips(list), table, pager))];
   }
   /* phase 13 decision 56 (owner 11 Nov — «تاب للأقسام جوه المنتجات يبان فيها كل قسم والأقسام الفرعية اللي تحتيه مع إمكانية إضافة قسم جديد أو
      أقسام فرعية»): the site's category tree (the mirror woo_categories) with +/− per branch, the products in each (its own + under it), a
@@ -221,7 +220,7 @@
         ch.length ? h('span', { class: 't-small help' }, K.n0(ch.length) + (ch.length > 2 && ch.length < 11 ? ' أقسام فرعية' : ' قسم فرعي')) : null,
         h('span', { class: 'grow' }),
         Tag(n ? 'brand' : 'neutral', K.n0(n) + ' منتج' + (ch.length && mine !== n ? ' (' + K.n0(mine) + ' فيه مباشرة)' : '')),
-        n ? Button({ type: 'text', size: 'sm', label: 'افتح في السجل', attrs: { 'data-cat-open': String(c.id) }, onClick: () => { st.f.category = c.path; st.status = 'all'; go('products-records'); } }) : null,
+        n ? Button({ type: 'text', size: 'sm', label: 'افتح في السجل', attrs: { 'data-cat-open': String(c.id) }, onClick: () => { clearFilters(); st.f.category = [c.path]; st.status = 'all'; go('products-records'); } }) : null,
         C.add ? Button({ size: 'sm', icon: 'plus', label: 'فرعي', attrs: { 'data-cat-sub': String(c.id), 'aria-label': 'قسم فرعي تحت ' + c.name }, onClick: () => newCat(c.id) }) : null));
       if (open) walk(ch, depth + 1);
     });
@@ -382,7 +381,7 @@
   // the records filtered on one maker (his name, as the «المبتكر» select filters)
   function openRecords(filter) {
     if (PR()) PR().ensure();
-    st.status = 'all'; st.q = ''; st.missingOnly = false; st.sel.clear(); st.f = { vendor: (filter && filter.vendor) || '', brand: '', category: '', stock: '', type: '' };
+    st.status = 'all'; st.q = ''; st.sel.clear(); st.f = { vendor: filter && filter.vendor ? [filter.vendor] : [], brand: [], category: [], stock: [], type: [] };
     go('products-records');
   }
   const makerMove = (ids, after) => { const l = makerItems(ids); if (!l.length) { K.toast((ids.length === 1 ? 'المبتكر ده ملوش' : 'المبتكرين دول ملهمش') + ' منتجات على الموقع', 'error'); return; } moveVendor(l, { exclude: ids, after }); };
@@ -764,41 +763,48 @@
   function overviewView() {
     const P = PR(); const L = all(); const RB = window.IBReportBlocks; const rg = RB ? RB.get() : null;
     const AR = { publish: 'منشور', draft: 'مسودة', pending: 'قيد المراجعة' }; const by = (k) => L.filter((p) => p.status === AR[k]).length;
-    const outPub = PD.outOfStock(L).filter((p) => p.status === AR.publish);
     const rep = rg && rg.from ? P.report(rg.from, rg.to) : null;
     const failed = rg && rg.from && !rep && P.reportFailed(rg.from, rg.to);
     const openRec = (id, label) => (id ? h('button', { type: 'button', class: 'link-btn', onClick: () => go('products-edit-' + id + '-data') }, label) : label);
-    const sku = (x) => h('span', { dir: 'ltr', class: 't-small' }, x || '—');
-    const wait = failed ? K.Empty('مقدرناش نحسب المبيعات', 'في مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', onClick: () => { P.reportRetry(rg.from, rg.to); R(); } })) : U.InlineNote({ children: 'بنحسب المبيعات…' });
+    const wait = () => (failed ? K.Empty('مقدرناش نحسب المبيعات', 'في مشكلة في الاتصال.', Button({ size: 'sm', label: 'جرّب تاني', onClick: () => { P.reportRetry(rg.from, rg.to); R(); } })) : U.InlineNote({ children: 'بنحسب المبيعات…' })); // one per card
     const cats = rep ? PD.categoriesRank(rep.cats).slice(0, 10) : [];
+    // a top-10 list: no automatic filter / sort / columns button in its header (the kit leaves an own-filter / data-no-cols card alone)
+    const small = (el) => { el.classList.add('own-filter'); el.setAttribute('data-no-cols', ''); return el; };
     return [
       h('div', { class: 'toolbar pr-rep-bar' }, RB ? RB.range() : null, h('span', { class: 't-small help' }, 'الفترة للأكثر مبيعًا — زي صفحة التقارير')),
       h('div', { class: 'cards', 'data-prod-ov': '' },
         U.KpiTile({ label: 'المنتجات', value: K.n0(L.length), unit: 'منتج', compare: 'off', note: 'في السجل (من غير المهملات)' }),
         U.KpiTile({ label: 'منشور', value: K.n0(by('publish')), unit: 'منتج', compare: 'off', note: 'ظاهر على الموقع' }),
         U.KpiTile({ label: 'مسودة / قيد المراجعة', value: K.n0(by('draft') + by('pending')), unit: 'منتج', compare: 'off', note: 'مش ظاهر لسه' }),
-        U.KpiTile({ label: 'خلص ستوكه ولسه منشور', value: K.n0(outPub.length), unit: 'منتج', compare: outPub.length ? 'negative' : 'off', note: 'العميل بيشوفه ومش هيعرف يشتريه' })),
-      Card('المنتجات الأكثر مبيعًا — أعلى 10', rep ? K.n0(Math.min(10, rep.top.length)) + ' منتج' : '', !rep ? wait : rep.top.length ? U.Table({ cls: 'dt ov-top', headers: ['#', 'المنتج', 'SKU', 'المبتكر', 'القطع', 'الإيراد'], rows: rep.top.slice(0, 10).map((x, i) => [K.n0(i + 1), openRec(x.id, x.name), sku(x.sku), x.vendor, K.n0(x.qty), money(x.revenue)]) }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.')),
-      Card('الأقسام الأكثر مبيعًا — أعلى 10', rep ? K.n0(cats.length) + ' قسم' : '', !rep ? wait : cats.length ? U.Table({ cls: 'dt ov-cats', headers: ['#', 'القسم', 'القطع المباعة', 'الإيراد', 'الأوردرات'], rows: cats.map((c) => [K.n0(c.rank), c.name, K.n0(c.sold), money(c.revenue), K.n0(c.orders)]) }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.')),
-      Card('خلص ستوكه ولسه منشور', K.n0(outPub.length) + ' منتج', outPub.length ? U.Table({ cls: 'dt ov-out', headers: ['المنتج', 'SKU', 'المبتكر', 'مرات الشراء', ''], rows: outPub.map((p) => [openRec(p.id, nameOf(p)), sku(p.sku), p.vendor || '—', K.n0(p.sales), can().edit ? Button({ type: 'text', size: 'sm', label: 'افتح', onClick: () => go('products-edit-' + p.id + '-price') }) : '']) }) : K.Empty('كله تمام', 'مفيش منتج منشور ومخلص ستوكه.')),
-      h('p', { class: 'source t-small help' }, 'المصدر: مرآة كتالوج ووكومرس للحالة والمخزون («حسب الطلب» مش بيتحسب خلصان) · أوردراتنا في الفترة للأكثر مبيعًا.')];
+        null), // B3 (the owner, 11 Nov — «… ستوكه … ملوش لازمة»): no out-of-stock tile or table here
+      // B3 (the owner, 11 Nov — «صغر ال width … جدولين جمب بعض»): the two tables side by side on a wide screen, narrower (no SKU)
+      h('div', { class: 'pr-ov-two', 'data-ov-two': '' },
+        small(Card('المنتجات الأكثر مبيعًا — أعلى 10', rep ? K.n0(Math.min(10, rep.top.length)) + ' منتج' : '', !rep ? wait() : rep.top.length ? U.Table({ cls: 'dt ov-top', headers: ['#', 'المنتج', 'المبتكر', 'القطع', 'الإيراد'], rows: rep.top.slice(0, 10).map((x, i) => [K.n0(i + 1), openRec(x.id, x.name), x.vendor, K.n0(x.qty), money(x.revenue)]) }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.'))),
+        small(Card('الأقسام الأكثر مبيعًا — أعلى 10', rep ? K.n0(cats.length) + ' قسم' : '', !rep ? wait() : cats.length ? U.Table({ cls: 'dt ov-cats', headers: ['#', 'القسم', 'القطع المباعة', 'الإيراد', 'الأوردرات'], rows: cats.map((c) => [K.n0(c.rank), c.name, K.n0(c.sold), money(c.revenue), K.n0(c.orders)]) }) : K.Empty('مفيش مبيعات في الفترة دي', 'غيّر الفترة من فوق.')))),
+      h('p', { class: 'source t-small help' }, 'المصدر: مرآة كتالوج ووكومرس للحالة · أوردراتنا في الفترة للأكثر مبيعًا.')];
   }
   // decision 62: «سجل الحركة» — who changed which product: edits, bulk edits, trash / restore, duplicates, new products from the studio,
   // images, making days, new categories (IBProducts.loadLog — activity_log under its RLS)
   const LOG_LABEL = { 'product.save': 'تعديل منتج', 'product.bulk': 'تعديل جماعي', 'product.trash': 'نقل للمهملات', 'product.restore': 'رجوع من المهملات', 'product.duplicate': 'تكرار كمنتج جديد', 'product.create': 'منتج جديد (الاستوديو)', 'product.images.add': 'إضافة صور', 'product.lead': 'مدة التصنيع', 'product.category.create': 'قسم جديد' };
-  let logAsked = false; st.logKind = st.logKind || '';
+  // B3 (the owner, 11 Nov — «سجل الحركة … ال ui مش مظبوط»): the card like the other tables — its title and count, a dropdown per filter
+  // (the move · by whom, several picks each, «اعرض N حركة») and «تحديث» in its header, the table under it
+  let logAsked = false; st.logF = st.logF || { kind: [], by: [] };
   function logView() {
     const P = PR();
     if (!logAsked && P.loadLog) { logAsked = true; P.loadLog().then(() => { if (window.IBPages.current === 'products' && st.view === 'log') R(); }); }
     const raw = P.log ? P.log() : null; const all0 = raw || [];
-    const rows = all0.filter((e) => !st.logKind || e.action === st.logKind);
-    const kinds = Object.keys(LOG_LABEL).filter((k) => all0.some((e) => e.action === k));
-    const chips = h('div', { class: 'chips', role: 'group', 'aria-label': 'نوع الحركة' }, [['', 'الكل · ' + K.n0(all0.length)]].concat(kinds.map((k) => [k, LOG_LABEL[k] + ' · ' + K.n0(all0.filter((e) => e.action === k).length)])).map(([k, l]) =>
-      h('button', { type: 'button', class: 'chip' + (st.logKind === k ? ' on' : ''), 'aria-pressed': String(st.logKind === k), 'data-plog-kind': k, onClick: () => { st.logKind = k; R(); } }, l)));
+    const who = (e) => e.actor || '—';
+    const pass = (f) => (e) => (!f.kind.length || f.kind.includes(e.action)) && (!f.by.length || f.by.includes(who(e)));
+    const rows = all0.filter(pass(st.logF));
+    const kinds = Object.keys(LOG_LABEL).filter((k) => all0.some((e) => e.action === k)).map((k) => [k, LOG_LABEL[k]]);
+    const people = [...new Set(all0.map(who))].sort((a, b) => a.localeCompare(b, 'ar')).map((x) => [x, x]);
+    const pick = (key, label, opts) => K.MultiPick({ id: 'plog-' + key, label, options: opts, value: st.logF[key], noun: 'حركة', count: (v) => all0.filter(pass(Object.assign({}, st.logF, { [key]: v }))).length, onApply: (v) => { st.logF[key] = v; R(); } });
     const when = (iso) => { try { return new Date(iso).toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (e) { return String(iso || '').slice(0, 16); } };
-    const body = raw == null ? U.InlineNote({ children: 'بنحمّل سجل الحركة…' }) : rows.length ? U.Table({ cls: 'dt plog', headers: ['الوقت', 'الحركة', 'المنتجات / التفاصيل', 'بواسطة'], rows: rows.map((e) => [when(e.at), h('span', { 'data-plog-row': e.action }, LOG_LABEL[e.action] || e.action), e.productId ? h('button', { type: 'button', class: 'link-btn', onClick: () => go('products-edit-' + e.productId + '-data') }, e.text || '#' + e.productId) : e.text || '—', e.actor]) })
-      : K.Empty(all0.length ? 'مفيش حركات من النوع ده' : 'لسه مفيش حركات', 'التعديل والمهملات والتكرار والصور ومدة التصنيع بيتسجلوا هنا.');
-    return [h('section', { class: 'card sec' }, h('div', { class: 'sec-h' }, h('h2', null, 'سجل الحركة'), Button({ type: 'text', size: 'sm', icon: 'refresh', label: 'تحديث', attrs: { 'data-plog-refresh': '' }, onClick: () => { logAsked = false; R(); } })), h('div', { class: 'sec-b' }, chips, body)),
+    const body = raw == null ? U.InlineNote({ children: 'بنحمّل سجل الحركة…' }) : rows.length ? U.Table({ cls: 'dt plog', headers: ['الوقت', 'الحركة', 'المنتجات / التفاصيل', 'بواسطة'], rows: rows.map((e) => [when(e.at), h('span', { 'data-plog-row': e.action }, LOG_LABEL[e.action] || e.action), e.productId ? h('button', { type: 'button', class: 'link-btn', onClick: () => go('products-edit-' + e.productId + '-data') }, e.text || '#' + e.productId) : e.text || '—', who(e)]) })
+      : K.Empty(all0.length ? 'مفيش حركات بالفلاتر دي' : 'لسه مفيش حركات', all0.length ? 'غيّر الفلاتر من فوق.' : 'التعديل والمهملات والتكرار والصور ومدة التصنيع بيتسجلوا هنا.');
+    const actions = h('span', { class: 'acts-inline' }, pick('kind', 'الحركة', kinds), pick('by', 'بواسطة', people),
+      Button({ type: 'text', size: 'sm', icon: 'refresh', label: 'تحديث', attrs: { 'data-plog-refresh': '' }, onClick: () => { logAsked = false; R(); } }));
+    return [K.TableSection({ title: 'سجل الحركة', sub: raw == null ? '' : K.n0(rows.length) + ' من ' + K.n0(all0.length) + ' حركة', actions, body, cls: 'own-filter plog-card' }),
       h('p', { class: 'source t-small help' }, 'المصدر: سجل النشاط — أرقام المنتجات وأسماء الحقول بس · آخر 200 حركة (الأدمن بيشوف الكل، والباقي حركاتهم).')];
   }
   function reportsView() {

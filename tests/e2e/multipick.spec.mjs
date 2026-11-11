@@ -71,3 +71,27 @@ test('the filter form: «<label> (N)» on a small button, no search for six opti
   await page.keyboard.press('Escape');
   await expect(page.locator('[data-mp-menu="mp-f"]')).toHaveCount(0);
 });
+
+test('the filter mode (onApply): the ticks wait in the menu with «اعرض N <noun>» counting them; applying sets them, closing otherwise drops them', async ({ page }) => {
+  await page.evaluate(() => {
+    window.__applied = [];
+    const host = document.createElement('div'); host.id = 'mp-host'; host.style.cssText = 'position:fixed;top:80px;left:40px;width:360px;z-index:50;background:#fff;padding:8px';
+    document.body.append(host);
+    host.append(window.IBKit.MultiPick({ id: 'mp-d', label: 'المبتكر', options: [['a', 'Zaan'], ['b', 'Hands'], ['c', 'Clay']], value: [], noun: 'منتج', count: (v) => v.length * 10, onApply: (v) => window.__applied.push(v) }));
+  });
+  await page.locator('#mp-d').click();
+  const menu = page.locator('[data-mp-menu="mp-d"]');
+  await expect(menu.locator('[data-mp-apply]')).toHaveText('اعرض 0 منتج');
+  await menu.locator('[data-mp-opt="a"]').click(); await menu.locator('[data-mp-opt="c"]').click();
+  await expect(menu.locator('[data-mp-apply]')).toHaveText('اعرض 20 منتج');
+  await expect(page.locator('#mp-d .val')).toHaveText('المبتكر'); // nothing applied yet
+  expect(await page.evaluate(() => window.__applied)).toEqual([]);
+  await page.keyboard.press('Escape'); // closed without applying: dropped
+  await page.locator('#mp-d').click();
+  await expect(page.locator('[data-mp-menu="mp-d"] [aria-checked=true]')).toHaveCount(0);
+  await page.locator('[data-mp-menu="mp-d"] [data-mp-opt="b"]').click();
+  await page.locator('[data-mp-menu="mp-d"] [data-mp-apply]').click();
+  await expect(page.locator('[data-mp-menu="mp-d"]')).toHaveCount(0);
+  await expect(page.locator('#mp-d .val')).toHaveText('المبتكر (1)');
+  expect(await page.evaluate(() => window.__applied)).toEqual([['b']]);
+});

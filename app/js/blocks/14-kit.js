@@ -399,7 +399,7 @@
       if (colHeads(t).length < 4) return;
       t.classList.add('sticky-col1'); // أول عمود بيفضل ثابت وانت بتسكرول عرضي (owner 27 Oct)
       const card = t.closest('.card, .table-card, .sec, .tbl-card') || t.parentElement;
-      if (!card || card.querySelector('[data-cols]') || card.hasAttribute('data-no-cols')) return; // data-no-cols: a card that asked for no «أعمدة الجدول» (the makers log — the owner 11 Nov)
+      if (!card || card.querySelector('[data-cols]') || card.closest('[data-no-cols]')) return; // data-no-cols: a card that asked for no «أعمدة الجدول» (the makers log; the products overview's top-10 lists — B3), on the table's box or any card above it
       withColumns(card, '', '');
     });
   }
@@ -632,7 +632,7 @@
   function withColumns(card, key0, label0, done) {
     if (!card || !card.querySelector) return card;
     setTimeout(() => {
-      const t = card.querySelector('table'); if (!t) return;
+      const t = card.querySelector('table'); if (!t || card.closest('[data-no-cols]')) return; // a card that asked for no «أعمدة الجدول» (B3)
       const heads = colHeads(t); if (heads.length < 4) return;
       // من غير عنوان بنولّد مفتاح ثابت من أسماء الأعمدة
       const key = key0 && !/:$/.test(key0) ? key0 : 'cols:' + heads.filter(Boolean).slice(0, 4).join('|');
@@ -703,7 +703,8 @@
   // field: true → خانة فورم (العنوان فوق، الأسامي المختارة في الزرار، الخطأ تحت) · وإلا زرار فلتر صغير «<label> (N)»
   // depth: الفرعي بـ «-» و«--» و«---» قبل اسمه · البحث بيظهر لو الاختيارات أكتر من 6 (أو search: true)
   const foldAr = (s) => String(s == null ? '' : s).toLowerCase().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ').trim();
-  function MultiPick({ id, label, options, value, onChange, field, required, error, help, placeholder, search }) {
+  // onApply(values) (+ count(values), noun): a filter — the ticks wait in the menu, «اعرض N <noun>» applies them (closing otherwise drops them)
+  function MultiPick({ id, label, options, value, onChange, onApply, count, noun, field, required, error, help, placeholder, search }) {
     const opts = (options || []).map((o) => (Array.isArray(o) ? { value: String(o[0]), label: String(o[1]), depth: Number(o[2]) || 0 } : { value: String(o.value), label: String(o.label), depth: Number(o.depth) || 0 }));
     const known = new Set(opts.map((o) => o.value)); let sel = (value || []).map(String).filter((v) => known.has(v));
     const nameOf = (v) => (opts.find((o) => o.value === v) || {}).label || v;
@@ -714,21 +715,25 @@
     const sync = () => { val.textContent = txt(); val.classList.toggle('ph', !!field && !sel.length); if (!field) btn.classList.toggle('has-val', sel.length > 0); named(); };
     const wrap = h('div', { class: 'pop-anchor mp', 'data-popover-root': '', 'data-mp': id, style: field ? 'display:block' : null });
     const pop = U.popover(wrap, btn, (close) => {
-      let q = ''; const items = [];
+      const draft = typeof onApply === 'function'; const cur = draft ? sel.slice() : sel; let q = ''; const items = [];
+      const cnt = h('span', null); const upd = () => { cnt.textContent = count ? 'اعرض ' + count(cur.slice()) + (noun ? ' ' + noun : '') : 'تطبيق'; };
+      const tick = () => { if (draft) upd(); else { sync(); if (onChange) onChange(cur.slice()); } };
       const list = h('div', { class: 'mp-list', role: 'group', 'aria-label': label });
       const mark = (b, on) => { b.setAttribute('aria-checked', String(on)); b.querySelector('.mchk').replaceChildren(...(on ? [Icon('check', 'sm')] : [])); };
       const draw = () => { const nq = foldAr(q); items.length = 0; const shown = opts.filter((o) => !nq || foldAr(o.label).includes(nq));
-        list.replaceChildren(...(shown.length ? shown.map((o) => { const on = sel.includes(o.value);
+        list.replaceChildren(...(shown.length ? shown.map((o) => { const on = cur.includes(o.value);
           const b = h('button', { type: 'button', class: 'opt multi' + (o.depth ? ' mp-sub' : ''), role: 'menuitemcheckbox', 'aria-checked': String(on), 'data-mp-opt': o.value },
             h('span', { class: 'mchk', 'aria-hidden': 'true' }, on ? Icon('check', 'sm') : null), h('span', { class: 'mp-l', dir: 'auto' }, (o.depth ? '-'.repeat(o.depth) + ' ' : '') + o.label));
-          b.addEventListener('click', (e) => { e.stopPropagation(); const i = sel.indexOf(o.value); if (i > -1) sel.splice(i, 1); else sel.push(o.value); mark(b, sel.includes(o.value)); sync(); onChange(sel.slice()); });
+          b.addEventListener('click', (e) => { e.stopPropagation(); const i = cur.indexOf(o.value); if (i > -1) cur.splice(i, 1); else cur.push(o.value); mark(b, cur.includes(o.value)); tick(); });
           items.push(b); return b; }) : [h('p', { class: 't-small mp-empty' }, 'مفيش نتايج')])); };
       const s = search === true || (search !== false && opts.length > 6) ? h('input', { type: 'search', class: 'input mp-q', placeholder: 'دوّر…', 'aria-label': 'دوّر في ' + label, 'data-mp-q': id, autocomplete: 'off' }) : null;
       if (s) { s.addEventListener('input', () => { q = s.value; draw(); }); s.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown' && items[0]) { e.preventDefault(); items[0].focus(); } }); }
       draw();
       const m = h('div', { class: 'menu view-menu mp-menu', role: 'menu', 'aria-label': label, 'data-mp-menu': id, 'data-focus': 'no' }, s ? h('div', { class: 'mp-qw' }, s) : null, list,
-        h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-mp-clear': '' }, onClick: () => { sel = []; draw(); sync(); onChange([]); } }),
-          Button({ size: 'sm', type: 'primary', label: 'تم', attrs: { 'data-mp-done': '' }, onClick: () => close() })));
+        h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-mp-clear': '' }, onClick: () => { cur.splice(0, cur.length); draw(); tick(); } }),
+          draft ? Button({ size: 'sm', type: 'primary', label: cnt, attrs: { 'data-mp-apply': '' }, onClick: () => { sel = cur.slice(); sync(); close(); onApply(sel.slice()); } })
+            : Button({ size: 'sm', type: 'primary', label: 'تم', attrs: { 'data-mp-done': '' }, onClick: () => close() })));
+      if (draft) upd();
       m.addEventListener('keydown', (e) => { const i = items.indexOf(document.activeElement); if (i < 0) return;
         if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
         if (e.key === 'ArrowUp') { e.preventDefault(); if (i === 0 && s) s.focus(); else items[(i - 1 + items.length) % items.length].focus(); } });

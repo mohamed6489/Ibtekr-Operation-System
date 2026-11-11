@@ -31,11 +31,11 @@ const url = (page, hash) => expect(page).toHaveURL(new RegExp('#' + hash + '$'))
 // a page remembered somewhere inside → the menu opens its main view (hash + the visible main block)
 const CASES = [
   ['hr', 'hr-payroll', 'hr-team', '#pg-hr'],
-  ['inventory', 'inventory-moves', 'inventory-now', '#pg-inventory'],
-  ['cs', 'cs-customers', 'cs-inbox', '#pg-cs'],
-  ['autoreply', 'autoreply-rules', 'autoreply-templates', '#pg-autoreply'],
+  ['inventory', 'inventory-moves', 'inventory-overview', '#pg-inventory'], // decision 58
+  ['cs', 'cs-customers', 'cs-overview', '#pg-cs'], // decision 63
+  ['autoreply', 'autoreply-rules', 'autoreply-overview', '#pg-autoreply'], // decision 65
   ['settings', 'settings-team', 'settings', '#pg-settings'],
-  ['products', 'products-trash', 'products-records', '#pg-products'],
+  ['products', 'products-trash', 'products-overview', '#pg-products'], // decision 62
   ['marketing', 'marketing-calendar', 'marketing-create', '#pg-marketing'],
   ['accounts', 'sales', 'acc-overview', '#main'], // decision 61: the accounts open on «نظرة عامة»
   ['reports', 'reports-vendors', 'reports-orders', '#reports'],
@@ -63,7 +63,7 @@ test('a direct link still opens its exact spot (the menu is the only reset)', as
 
 test('the product editor with unsaved changes asks before the menu leaves it; «ارجع للتعديل» stays, «اخرج من غير حفظ» opens the records', async ({ page }) => {
   await signIn(page);
-  await menu(page, 'products').click(); await url(page, 'products-records');
+  await menu(page, 'products').click(); await url(page, 'products-overview'); // decision 62
   await page.waitForFunction(() => window.IBPages.all().products.api.ready());
   await at(page, 'products-edit-9001'); await url(page, 'products-edit-9001');
   await page.getByRole('tab', { name: 'السعر والمخزون' }).click();
@@ -76,7 +76,7 @@ test('the product editor with unsaved changes asks before the menu leaves it; «
   await expect(m).toBeHidden(); await url(page, 'products-edit-9001-price');
   await menu(page, 'products').click();
   await m.getByRole('button', { name: 'اخرج من غير حفظ' }).click();
-  await url(page, 'products-records');
+  await url(page, 'products-overview');
 });
 
 test('the mobile bottom nav and its «المزيد» sheet reset the page the same way', async ({ page }) => {

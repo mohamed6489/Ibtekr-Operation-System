@@ -6,6 +6,7 @@
   const U = window.IBUI, D = window.IbtekrDomain, O = window.IbtekrOps;
   const { h, Icon, Button, IconButton } = U;
   const TODAY = '2026-10-21';
+  const cairoDay = () => new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
   const NOW_MIN = 14 * 60 + 14; // fixed demo clock for other members' live status (14:14 — Figma 363:42343)
   let ME = 'M01'; // signed-in member (صفوت كمال, admin); IBDirectory.load() sets the real one via setMe
   const setMe = (code) => { ME = code; window.IBKit.ME = code; };
@@ -117,7 +118,8 @@
     text: (id, label, f, errs, set, o = {}) => U.TextInput(Object.assign({ id, label, value: f[id], error: errs[id], onInput: (v) => set(id, v) }, o)),
     area: (id, label, f, errs, set, o = {}) => U.Textarea(Object.assign({ id, label, value: f[id], error: errs[id], onInput: (v) => set(id, v) }, o)),
     select: (id, label, opts, f, errs, set, o = {}) => U.Select(Object.assign({ id, label, options: opts.map((x) => (typeof x === 'string' ? { value: x, label: x } : x)), value: f[id], error: errs[id], onChange: (v) => set(id, v, true) }, o)),
-    date: (id, label, f, errs, set, o = {}) => U.DateField(Object.assign({ id, label, value: f[id], error: errs[id], today: TODAY, onChange: (v) => set(id, v, true) }, o)),
+    // the owner 11 Nov: «اليوم الحالي» and the calendar's today mark are the real day in Cairo, not the prototype's fixed TODAY
+    date: (id, label, f, errs, set, o = {}) => U.DateField(Object.assign({ id, label, value: f[id], error: errs[id], today: cairoDay(), onChange: (v) => set(id, v, true) }, o)),
     file: (id, label, f, errs, set, o = {}) => {
       const inp = h('input', { type: 'file', id, class: 'sr-file', accept: o.accept || '.pdf,.jpg,.png', onChange: () => set(id, inp.files[0] ? inp.files[0].name : '', true) });
       return U.FieldShell({ id, label, required: o.required, error: errs[id], help: o.help || 'PDF أو صورة — حد أقصى 10 ميجا' }, h('label', { class: 'upload' + (errs[id] ? ' err' : ''), for: id }, Icon('attach', 'sm'), h('span', null, f[id] || 'اختار ملف أو اسحبه هنا'), inp));

@@ -20,9 +20,10 @@
     ] : []);
   }
   // normal pages: a Button + popover menu. first = the sheet that fits the current tab
+  // the owner 12 Nov: the button reads «الملفات» (was «الإجراءات») on every page — the menu itself is the same
   function Menu(ids, first) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
-    const trig = Button({ label: 'الإجراءات', iconEnd: 'chevD', attrs: { 'aria-haspopup': 'menu', 'data-actions': ids.join(',') } });
+    const trig = Button({ label: 'الملفات', iconEnd: 'chevD', attrs: { 'aria-haspopup': 'menu', 'data-actions': ids.join(',') } });
     const pop = U.popover(wrap, trig, (close) => { const list = items(ids, typeof first === 'function' ? first() : first);
       return U.DropdownMenu({ role: 'menu', end: true, options: list.map((x) => ({ value: x.value, label: x.label, icon: x.icon })), onSelect: (v) => { close(); const it = list.find((x) => x.value === v); setTimeout(() => it && it.run()); } }); });
     trig.addEventListener('click', pop.toggle); wrap.append(trig); return wrap;

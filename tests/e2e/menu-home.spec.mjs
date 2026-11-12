@@ -68,6 +68,26 @@ for (const [id, tablist, other] of [['vendors', 'أقسام المبتكرين',
   });
 }
 
+// the owner 12 Nov («بيفضل زي ما هو»): a filter applied on a page stays on when you leave it and come back — by the menu or a link;
+// the menu resets the tab only (a reload clears it, the filters live in memory)
+test('a filter applied on a page stays on after leaving it and coming back by the menu or a link', async ({ page }) => {
+  await signIn(page);
+  const tabs = page.getByRole('tablist', { name: 'أقسام المبتكرين' });
+  await menu(page, 'vendors').click();
+  await tabs.getByRole('tab', { name: 'سجل المبتكرين' }).click();
+  await page.locator('[data-fm-row="vendors"] [data-fm-key="status"] [data-mp-btn]').click();
+  await page.locator('[data-mp-menu] [data-mp-opt="leave"]').click();
+  await page.locator('[data-mp-menu] [data-mp-apply]').dispatchEvent('click');
+  const chips = page.locator('.af-row .af-chip:visible');
+  await expect(chips).toHaveCount(2);
+  await menu(page, 'dashboard').click(); await url(page, 'dashboard');
+  await menu(page, 'vendors').click();
+  await tabs.getByRole('tab', { name: 'سجل المبتكرين' }).click();
+  await expect(chips).toHaveCount(2);
+  await at(page, 'orders'); await at(page, 'makers');
+  await expect(chips).toHaveCount(2);
+});
+
 test('a direct link still opens its exact spot (the menu is the only reset)', async ({ page }) => {
   await signIn(page);
   await at(page, 'hr-payroll'); await url(page, 'hr-payroll');

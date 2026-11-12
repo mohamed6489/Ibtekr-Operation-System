@@ -392,7 +392,18 @@
   }
   // a table card that shows its empty state (the search left no rows) still holds the page's search in its row
   const emptyCards = (root) => root.querySelectorAll('.table-card, .tbl-v2, .own-filter').forEach((c) => { if (!c.querySelector('table') && !c.closest('.modal, .drawer, [role=dialog]')) tableSearch(c, null); });
-  function stdTables(root) { if (root && root.querySelectorAll) { root.querySelectorAll('table').forEach((t) => { const c = stdCard(t); if (c) tableSearch(c, t); }); emptyCards(root); } }
+  // the owner 12 Nov — «خلي دايمًا الصورة على اليمين والاسم جنبها… بمحاذاة اليمين… ولو أكبر من عرض الكولم … ‹عبد القادر ع…›، والكلام ده في الجداول
+  // كلها»: a column of people / products (a picture + a name: .mlink, .prod, .who-cell) starts at the right with its header; the CSS cuts a long
+  // name with «…» at the column's width, and the whole name shows on hover
+  const PERSON = ':scope > :is(.mlink, .prod, .who-cell)';
+  function personCols(t) {
+    const rows = t.tBodies && t.tBodies[0] ? [...t.tBodies[0].rows] : []; if (!rows.length) return;
+    const cols = new Set(); rows.slice(0, 5).forEach((r) => [...r.cells].forEach((c, i) => { if (c.querySelector(PERSON)) cols.add(i); }));
+    if (!cols.size) return; const head = t.tHead && t.tHead.rows[0];
+    cols.forEach((i) => { if (head && head.cells[i]) head.cells[i].classList.add('c-person'); });
+    rows.forEach((r) => cols.forEach((i) => { const c = r.cells[i]; const p = c && c.querySelector(PERSON); if (!p) return; p.querySelectorAll('b, small').forEach((x) => { if (!x.title) x.title = x.textContent.trim(); }); }));
+  }
+  function stdTables(root) { if (root && root.querySelectorAll) { root.querySelectorAll('table').forEach((t) => { personCols(t); const c = stdCard(t); if (c) tableSearch(c, t); }); emptyCards(root); } }
   // the owner 12 Nov — first («خانة بحث صغيرة جمب تايتل الجدول») a small box next to the title; then the standard look for every table
   // (his mockup, «ده شكل مبدئي لكل الجداول في السيستم»): the card header holds «بحث» next to «فلتر» / «ترتيب» / the columns icon; «بحث»
   // opens a full-width search row under the header with «إغلاق» next to it (the button green while it is open, like its neighbours when
@@ -461,6 +472,7 @@
     if (!root || !root.querySelectorAll) return;
     emptyCards(root);
     root.querySelectorAll('table').forEach((t) => {
+      personCols(t);
       if (t.closest('.modal, .drawer, [role=dialog]')) return;
       tableSearch(stdCard(t), t);
       if (colHeads(t).length < 4) return;

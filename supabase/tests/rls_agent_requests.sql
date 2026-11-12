@@ -60,6 +60,7 @@ begin
   if (select assignee_role from public.tickets where id = t2) <> 'مدير النظام' or (select kind from public.tickets where id = t2) <> 'dev' then
     raise exception 'case a picked role is kept failed';
   end if;
+  perform set_config('ar.t2', t2::text, true);
   begin perform public.ticket_request_create('logo', null, '{"title":"x","description":"x","priority":"normal"}'); raise exception 'case an unknown kind failed';
   exception when invalid_parameter_value then null; end;
   begin perform public.ticket_request_create('design', null, '{"title":"x","description":"x","priority":"normal","assigneeRole":"فلان"}'); raise exception 'case an unknown role failed';
@@ -72,7 +73,9 @@ reset role;
 -- the designer (tickets.view P, manage F) sees their role's request and works it
 select pg_temp.as_member('00000000-0000-4000-8000-0000000082a2');
 do $$ begin
-  if (select count(*) from public.tickets where kind is not null) <> 1 then raise exception 'case the designer sees the design request only failed'; end if;
+  -- live-safe: the live project has requests of its own (0082 moved the old ones), so by id and by role
+  if not exists (select 1 from public.tickets where id = current_setting('ar.t1')::bigint) or exists (select 1 from public.tickets where id = current_setting('ar.t2')::bigint)
+     or exists (select 1 from public.tickets where kind is not null and assignee_role <> 'ديزاينر') then raise exception 'case the designer sees the design request only failed'; end if;
   perform public.ticket_act(current_setting('ar.t1')::bigint, 'set_status', '{"status":"in_progress"}');
   if (select status from public.tickets where id = current_setting('ar.t1')::bigint) <> 'in_progress' then raise exception 'case the designer works it failed'; end if;
 end $$;

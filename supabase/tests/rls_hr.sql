@@ -164,11 +164,16 @@ insert into public.hr_overtime (member_id, day, start_at, end_at, minutes, kind,
 select '00000000-0000-4000-8000-0000000046a3', d, public.hr_at(d, '10:00'), public.hr_at(d, '14:00'), 240, 'rest_day', 'شغل يوم راحة / عطلة'
 from (select date_trunc('month', (select v::date from hr_ids where k = 'day'))::date + ((5 - extract(isodow from date_trunc('month', (select v::date from hr_ids where k = 'day')))::int + 7) % 7) as d) x;
 insert into hr_ids select 'rest', max(id)::text from public.hr_overtime where kind = 'rest_day';
+-- live-safe: the sheet this test approves and pays = the first one from the worked day's month not approved / paid yet (where the
+-- overtime and the advance land — the live sheet of the current month may be paid already)
+insert into hr_ids select 'pm', min(g.m)::date::text from generate_series(date_trunc('month', (select v::date from hr_ids where k = 'day')), date_trunc('month', (select v::date from hr_ids where k = 'day')) + interval '24 months', interval '1 month') g(m)
+  where not exists (select 1 from public.hr_payroll p where p.month = g.m::date and p.status in ('معتمد', 'مدفوع'));
 set local role authenticated;
 
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a1","role":"authenticated"}', true);
 do $$
 declare k1 bigint; k2 bigint; sc numeric; v_month date := date_trunc('month', (select v::date from hr_ids where k = 'day'))::date; v_line public.hr_payroll_lines; v_exp int; v_net numeric;
+  v_pm date := (select v::date from hr_ids where k = 'pm');
   v_fri date;
 begin
   -- a Friday worked this month, still waiting for its approval: not on the sheet (the security review: no self-service ×2)
@@ -186,31 +191,31 @@ begin
 
   -- the advance (approved by the admin this month → all of it off this month's salary — 0083, the owner 12 Nov)
   perform public.hr_request_decide((select v::bigint from hr_ids where k = 'adv'), 'موافق');
-  insert into public.hr_adjustments (member_id, month, amount, label) values ('00000000-0000-4000-8000-0000000046a3', v_month, -150, 'خصم تأخير');
+  insert into public.hr_adjustments (member_id, month, amount, label) values ('00000000-0000-4000-8000-0000000046a3', v_pm, -150, 'خصم تأخير');
 
-  perform public.hr_payroll_open(v_month);
-  begin perform public.hr_payroll_step(v_month, 'معتمد'); raise exception 'case the sheet goes through review first failed'; exception when invalid_parameter_value then null; end;
-  perform public.hr_payroll_step(v_month, 'مراجعة');
-  perform public.hr_payroll_step(v_month, 'معتمد');
-  select * into v_line from public.hr_payroll_lines where month = v_month and member_id = '00000000-0000-4000-8000-0000000046a3';
+  perform public.hr_payroll_open(v_pm);
+  begin perform public.hr_payroll_step(v_pm, 'معتمد'); raise exception 'case the sheet goes through review first failed'; exception when invalid_parameter_value then null; end;
+  perform public.hr_payroll_step(v_pm, 'مراجعة');
+  perform public.hr_payroll_step(v_pm, 'معتمد');
+  select * into v_line from public.hr_payroll_lines where month = v_pm and member_id = '00000000-0000-4000-8000-0000000046a3';
   -- 9600 − 1000 = 8600 · overtime 45 min at 9600/24/8 = 50/h → 37.50 · allowances 200 · deduction 150 · the advance 6,000 whole this month
   if v_line.paid <> 8600 or v_line.ot_minutes <> 45 or v_line.ot_pay <> 37.5 or v_line.allowances <> 200 or v_line.deductions <> 150 or v_line.advance <> 6000 or v_line.rest_days <> 0 then
     raise exception 'case the payslip line failed (%)', row_to_json(v_line);
   end if;
   v_net := v_line.net;
-  begin insert into public.hr_adjustments (member_id, month, amount, label) values ('00000000-0000-4000-8000-0000000046a3', v_month, 50, 'بدل'); raise exception 'case an approved sheet is locked failed';
+  begin insert into public.hr_adjustments (member_id, month, amount, label) values ('00000000-0000-4000-8000-0000000046a3', v_pm, 50, 'بدل'); raise exception 'case an approved sheet is locked failed';
   exception when invalid_parameter_value then null; end;
-  begin perform public.hr_payroll_pay(v_month, 'حساب وهمي'); raise exception 'case the account is one of the four failed'; exception when invalid_parameter_value then null; end;
+  begin perform public.hr_payroll_pay(v_pm, 'حساب وهمي'); raise exception 'case the account is one of the four failed'; exception when invalid_parameter_value then null; end;
   -- the total is the month's lines (live-safe: the staging may have other members on this month's sheet)
-  if public.hr_payroll_pay(v_month, 'حساب البنك') <> (select coalesce(sum(net), 0) from public.hr_payroll_lines where month = v_month and net > 0) then raise exception 'case the payroll total paid failed'; end if;
+  if public.hr_payroll_pay(v_pm, 'حساب البنك') <> (select coalesce(sum(net), 0) from public.hr_payroll_lines where month = v_pm and net > 0) then raise exception 'case the payroll total paid failed'; end if;
   select count(*) into v_exp from public.acc_expenses where category = 'المرتبات' and beneficiary = 'عضو تحت المدير' and amount = v_net and note like 'مرتب %';
   if v_exp <> 1 then raise exception 'case «مدفوع» writes the member''s «المرتبات» expense failed'; end if;
   if not exists (select 1 from public.acc_account_moves where account = 'حساب البنك' and direction = 'withdraw' and note like 'مرتبات %'
-      and amount = (select coalesce(sum(net), 0) from public.hr_payroll_lines where month = v_month and net > 0)) then
+      and amount = (select coalesce(sum(net), 0) from public.hr_payroll_lines where month = v_pm and net > 0)) then
     raise exception 'case «مدفوع» writes one withdrawal from the account picked failed';
   end if;
-  if (select status from public.hr_payroll where month = v_month) <> 'مدفوع' then raise exception 'case the sheet is paid failed'; end if;
-  begin perform public.hr_payroll_step(v_month, 'مراجعة'); raise exception 'case a paid sheet stays paid failed'; exception when invalid_parameter_value then null; end;
+  if (select status from public.hr_payroll where month = v_pm) <> 'مدفوع' then raise exception 'case the sheet is paid failed'; end if;
+  begin perform public.hr_payroll_step(v_pm, 'مراجعة'); raise exception 'case a paid sheet stays paid failed'; exception when invalid_parameter_value then null; end;
 end $$;
 
 -- the member reads their own payslip line; the manager does not
@@ -244,11 +249,11 @@ begin
   if public.hr_overtime_decide((select v::bigint from hr_ids where k = 'rest'), 'add', 5) <> 'اتضاف' then raise exception 'case the admin approves the rest day failed'; end if;
   -- approved after its month's sheet was paid: it rides the next sheet still open (decision 16), whole (the 5 minutes ignored):
   -- one day ×2 = 9600 ÷ 24 × 2
-  select * into c from public.hr_payroll_calc((date_trunc('month', (select v::date from hr_ids where k = 'fri')) + interval '1 month')::date) where member_id = '00000000-0000-4000-8000-0000000046a3';
+  select * into c from public.hr_payroll_calc(((select v::date from hr_ids where k = 'pm') + interval '1 month')::date) where member_id = '00000000-0000-4000-8000-0000000046a3';
   if c.rest_days <> 1 or c.rest_pay <> 800 then raise exception 'case an approved rest day counts ×2 on the next open sheet failed (%)', row_to_json(c); end if;
-  select * into c from public.hr_payroll_calc((select v::date from hr_ids where k = 'fri')) where member_id = '00000000-0000-4000-8000-0000000046a3';
+  select * into c from public.hr_payroll_calc((select v::date from hr_ids where k = 'pm')) where member_id = '00000000-0000-4000-8000-0000000046a3';
   if c.rest_days <> 0 then raise exception 'case the paid sheet''s month keeps its lines failed (%)', row_to_json(c); end if;
-  if (select pay_month from public.hr_overtime where id = (select v::bigint from hr_ids where k = 'rest')) <> (date_trunc('month', (select v::date from hr_ids where k = 'fri')) + interval '1 month')::date then
+  if (select pay_month from public.hr_overtime where id = (select v::bigint from hr_ids where k = 'rest')) <> ((select v::date from hr_ids where k = 'pm') + interval '1 month')::date then
     raise exception 'case a late approval is paid with the next open sheet failed';
   end if;
 end $$;
@@ -299,7 +304,7 @@ end $$;
 
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000046a1","role":"authenticated"}', true);
 do $$
-declare v_next date := (date_trunc('month', public.hr_today()) + interval '1 month')::date;
+declare v_next date := ((select v::date from hr_ids where k = 'pm') + interval '1 month')::date; -- after the sheet paid above
 begin
   insert into public.hr_documents (member_id, kind, path, name, start_on, end_on)
   values ('00000000-0000-4000-8000-0000000046a3', 'عقد عمل', '00000000-0000-4000-8000-0000000046a3/contract.pdf', 'contract.pdf', '2026-01-01', '2026-12-31');

@@ -27,7 +27,7 @@ begin
   select type, from_day, to_day, at_time, hours, amount, ticket_id into r from public.hr_requests_v where id = v;
   if r.type <> 'فترة راحة' or r.from_day <> '2026-12-05' or r.to_day <> '2026-12-05' or r.at_time <> '13:00' or r.hours <> 1.5 then raise exception 'case one day, the time and the hours failed'; end if;
   select * into t from public.tickets where id = r.ticket_id;
-  if t.title not like 'طلب فترة راحة — عضو الراحة%' or t.title like '%13%' or t.description like '%دكتور%' then raise exception 'case the ticket says the family only failed'; end if;
+  if t.title not like 'طلب فترة راحة — عضو الراحة%' or t.title like '%13:00%' or t.description like '%دكتور%' then raise exception 'case the ticket says the family only failed'; end if;
   begin perform public.hr_request_create(jsonb_build_object('type', 'فترة راحة', 'from', '2026-12-05', 'hours', 2)); raise exception 'case no start time failed';
   exception when invalid_parameter_value then null; end;
   begin perform public.hr_request_create(jsonb_build_object('type', 'فترة راحة', 'from', '2026-12-05', 'time', '10:00', 'hours', 13)); raise exception 'case over 12 hours failed';

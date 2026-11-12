@@ -109,9 +109,11 @@ reset role;
 insert into public.hr_requests (member_id, type, from_day, to_day, amount, months, status, created_by)
 values ('00000000-0000-4000-8000-0000000083b3', 'سُلفة', public.hr_today(), public.hr_today(), 300, 3, 'جديد', '00000000-0000-4000-8000-0000000083b3');
 insert into hrr values ('adv1', currval(pg_get_serial_sequence('public.hr_requests', 'id'))::text);
+-- live-safe: «this month» = the first month whose sheet is not paid yet (the live current one may be paid already)
+insert into hrr values ('am', public.hr_open_month_for('00000000-0000-4000-8000-0000000083b3', public.hr_today())::text);
 select pg_temp.as_member('00000000-0000-4000-8000-0000000083b1');
 do $$
-declare v_month date := date_trunc('month', public.hr_today())::date; v_id bigint; v_exp int; v_mov int;
+declare v_month date := (select v::date from hrr where k = 'am'); v_id bigint; v_exp int; v_mov int;
 begin
   perform public.hr_request_decide((select v from hrr where k = 'adv1')::bigint, 'موافق');
   if (select advance from public.hr_payroll_calc(v_month) x where x.member_id = '00000000-0000-4000-8000-0000000083b3') <> 300 then raise exception 'case the advance comes off whole failed'; end if;
@@ -124,7 +126,7 @@ begin
 end $$;
 reset role;
 do $$ begin
-  if (select pay_from from public.hr_requests where id = (select v from hrr where k = 'adv1')::bigint) <> date_trunc('month', public.hr_today())::date then raise exception 'case the approved advance has its month failed'; end if;
+  if (select pay_from from public.hr_requests where id = (select v from hrr where k = 'adv1')::bigint) <> (select v::date from hrr where k = 'am') then raise exception 'case the approved advance has its month failed'; end if;
   if (select count(*) from public.hr_requests where member_id = '00000000-0000-4000-8000-0000000083b3' and type = 'سُلفة' and status = 'موافق' and pay_from is not null) <> 2 then raise exception 'case a given advance is an approved request failed'; end if;
 end $$;
 

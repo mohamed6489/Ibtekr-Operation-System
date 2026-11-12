@@ -13,6 +13,7 @@
   --space-xs:4px;--space-sm:12px;--space-md:16px;--space-lg:24px;--space-xs2:8px;
   --radius-sm:4px;--radius-md:8px;
   --shadow-popover:0 8px 24px rgba(46,42,27,.2);
+  --shadow-card:0 0 6px 0 rgba(0,0,0,.25); /* the owner 12 Nov: every section lifted off the background — X 0 · Y 0 · blur 6 · spread 0 · #000 25% */
   --font:'Cairo',system-ui,-apple-system,'Segoe UI',Tahoma,sans-serif;
 }
 *{box-sizing:border-box}
@@ -110,7 +111,7 @@ button{cursor:pointer}
 .input .icb{border:0;background:transparent;padding:0;display:grid;place-items:center;color:var(--color-text-secondary)}
 
 /* Cards */
-.card{background:var(--color-bg-base);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md)}
+.card{background:var(--color-bg-base);border:1px solid var(--color-border-subtle);border-radius:var(--radius-md);box-shadow:var(--shadow-card)}
 .cards{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:16px}
 .cards.five{grid-template-columns:repeat(5,minmax(0,1fr))}
 .cat-card{padding:16px;display:flex;flex-direction:column;gap:12px;min-width:0}
@@ -1012,7 +1013,7 @@ b.pos{color:var(--color-success-text)}
 .modal.xl{width:960px}
 
 /* inbox — 3 columns, RTL: list (right) · chat · panel (left) */
-.cs-inbox{display:grid;grid-template-columns:360px minmax(0,1fr) 300px;height:calc(100vh - 220px);min-height:560px;background:var(--color-bg-base);border:1px solid var(--color-border-default);border-radius:var(--radius-md);overflow:hidden}
+.cs-inbox{display:grid;grid-template-columns:360px minmax(0,1fr) 300px;height:calc(100vh - 220px);min-height:560px;background:var(--color-bg-base);border:1px solid var(--color-border-default);border-radius:var(--radius-md);overflow:hidden;box-shadow:var(--shadow-card)}
 .cs-list{display:flex;flex-direction:column;min-width:0;min-height:0;border-inline-end:1px solid var(--color-border-default)}
 .cs-lh{display:flex;flex-direction:column;gap:8px;padding:12px;border-bottom:1px solid var(--color-border-subtle)}
 .cs-lh .search{width:auto;max-width:none;margin:0;height:36px;background:var(--color-bg-base);border-color:var(--color-border-default)}

@@ -2004,3 +2004,12 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 
 #### 2.7.66 «طلب جديد» وطلب فترة راحة (المرحلة 13 قرار 66، 11 نوفمبر)
 `0077_hr_rest_period.sql` على المشروع (Supabase MCP `apply_migration` بموافقة صاحب المشروع) ثم `rls_hr_rest_period` live (workflow «RLS live»، `files = rls_hr_rest_period`) ثم الواجهة على `main`. مافيش Edge Function.
+
+#### 2.7.67 إعادة بناء «الموارد البشرية» (صاحب المشروع 12 نوفمبر — `docs/superpowers/plans/2026-11-12-hr-rebuild.md`)
+**بعد** `0081` و`0082` (الأدوار وطلبات المساعدين) بالترتيب:
+1. `0083_hr_rebuild.sql` على المشروع (Supabase MCP `apply_migration` بموافقة صاحب المشروع، أو SQL Editor): `hr_evaluations` + `hr_evaluate` / `hr_evaluations_list` / `hr_att_score`، `hr_payroll_paid` + `hr_pay_member` / `hr_payroll_transfer` / `hr_advance_give`، `hr_ot_adjust` + `hr_ot_adjust_add`، `hr_requests.pay_from`، رصيد الإجازات المترحّل (`hr_members.leave_carry`)، و`hr_payroll_calc` / `hr_my_slips` من جديد بعمودَي `leave_days_paid` / `leave_pay`؛ وآخره بيعدّل نصوص التذاكر اللي كانت بتقول «الموارد البشرية › الطلبات».
+2. `rls_hr_rebuild` + `rls_hr` live (workflow «RLS live»، `files = rls_hr_rebuild,rls_hr`).
+3. انشر `ai-content` من «Deploy functions» (`function = ai-content`) — نموذج `hr_advance` بتاع المساعد من غير أقساط.
+4. الواجهة على `main`. الإعدادات الجديدة (`payDay` 28، `bonusMin` 3، `leaveYearEnd` `pay`) افتراضية لحد ما الأدمن يغيّرها من «الإعدادات › الموارد البشرية».
+5. التجربة: «المرتبات» → «تحويل مرتب» لعضو قبل يوم الصرف (لازم سبب) ثم «تحويل المرتبات» للباقي → مصروف «المرتبات» لكل عضو وسحب لكل تحويل في «الحسابات»؛ «التقييمات» → «قيّم» شهر لعضو تحت مدير.
+

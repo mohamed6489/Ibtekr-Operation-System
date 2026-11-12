@@ -123,10 +123,11 @@
     const c = counts(); const it = [['all', 'الكل'], ['published', 'منشور'], ['draft', 'مسودة'], ['pending', 'قيد المراجعة'], ['trash', 'المهملات']]; // B3: no «نفد» tab (the «المخزون» filter has it)
     return h('div', { class: 'chips', role: 'group', 'aria-label': 'الحالة' }, it.map(([id, l]) => chipBtn(l + ' ' + K.n0(c[id]), st.status === id, () => { st.status = id; st.sel.clear(); st.pageN = 0; go(id === 'trash' ? 'products-trash' : 'products-records'); }, { 'data-pstatus': id })));
   }
-  // B3 (the owner, 11 Nov — «اشيل منه اسم الفلتر … سيرش … check box»): a multi-select per filter — the values alone, a search when they
-  // are many, «اعرض N منتج» applies; the count is the records with that pick and the other filters as they are
-  const countWith = (key, v) => { const was = st.f[key]; st.f[key] = v; const n = filtered().length; st.f[key] = was; return n; };
-  const fpick = (key, label, opts) => K.MultiPick({ id: 'pf-' + key, label, options: opts, value: st.f[key], noun: 'منتج', count: (v) => countWith(key, v), onApply: (v) => { st.f[key] = v; st.sel.clear(); st.pageN = 0; R(); } });
+  // the owner 12 Nov («دخل الفلتر … جوه زرار الفلتر وحطوا جمب الترتيب … في كل الجداول»): the five filters live in one «فلتر» button next
+  // to the sort — each group with its ticks (a search box past six values; the categories main, then their subs with «-»)
+  const countAll = (d) => { const was = st.f; st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [] }, d); const n = filtered().length; st.f = was; return n; };
+  const prFilterMenu = (groups) => K.FilterMenu({ id: 'products', label: 'فلتر المنتجات', noun: 'منتج', value: st.f, groups, count: countAll,
+    onApply: (d) => { st.f = Object.assign({ vendor: [], brand: [], category: [], stock: [], type: [] }, d); st.sel.clear(); st.pageN = 0; R(); } });
   function searchBox() {
     const q = h('input', { type: 'search', placeholder: 'دوّر بالاسم أو الـ SKU', 'aria-label': 'بحث في المنتجات', value: st.q });
     q.addEventListener('input', () => { st.q = q.value; st.pageN = 0; const p = q.selectionStart; R(); const n = document.querySelector('#pg-products input[type=search]'); if (n) { n.focus(); n.setSelectionRange(p, p); } });
@@ -161,8 +162,10 @@
     const brandNames = (PR() ? PR().brands() : []).map((b) => b.name).sort((a, b) => a.localeCompare(b));
     const catOpts = PD.catOptions(PR() ? PR().categories() : []); // B3: main, then its subs with «-» / «--» / «---»
     // B3 (the owner, 11 Nov): no «ناقصها بيانات» chip; each filter a multi-select with the values alone
-    const filters = h('div', { class: 'toolbar pr-filters' }, searchBox(), fpick('brand', 'البراند', brandNames.map((x) => [x, x])), fpick('vendor', 'المبتكر', vendors.map((x) => [x, x])), fpick('category', 'القسم', catOpts),
-      fpick('stock', 'المخزون', ['متاح', 'قليل', 'نفد', 'حسب الطلب'].map((x) => [x, x])), fpick('type', 'النوع', [['Simple', 'Simple'], ['Variable', 'Variable']]),
+    const prFilter = prFilterMenu([{ key: 'brand', label: 'البراند', options: brandNames.map((x) => [x, x]) }, { key: 'vendor', label: 'المبتكر', options: vendors.map((x) => [x, x]) },
+      { key: 'category', label: 'القسم', options: catOpts }, { key: 'stock', label: 'المخزون', options: ['متاح', 'قليل', 'نفد', 'حسب الطلب'].map((x) => [x, x]) },
+      { key: 'type', label: 'النوع', options: [['Simple', 'Simple'], ['Variable', 'Variable']] }]);
+    const filters = h('div', { class: 'toolbar pr-filters' }, searchBox(),
       any ? Button({ type: 'text', size: 'sm', label: 'مسح الفلاتر', onClick: () => { clearFilters(); R(); } }) : null);
     const sel = [...st.sel].map(byId).filter(Boolean);
     const bulk = sel.length && (C.bulk || C.trash) ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد' }, h('b', null, 'محدد ' + K.n0(sel.length)), h('span', { class: 'grow' }),
@@ -195,7 +198,7 @@
     if (list.length) table.querySelectorAll('td[data-l^="[object"]').forEach((td) => { const th = table.querySelectorAll('thead th')[td.cellIndex]; td.dataset.l = th ? th.textContent.replace(/[↓↑↕]/g, '').trim() : ''; });
     const pager = list.length ? h('div', { class: 'pager t-small' }, h('span', { 'data-pager': '' }, K.n0(st.pageN * PAGE + 1) + '–' + K.n0(st.pageN * PAGE + shown.length) + ' من ' + K.n0(list.length)),
       h('span', { class: 'acts-inline' }, Button({ size: 'sm', label: 'السابق', disabled: st.pageN === 0, onClick: () => { st.pageN--; R(); window.scrollTo(0, 0); } }), Button({ size: 'sm', label: 'التالي', disabled: st.pageN >= pages - 1, onClick: () => { st.pageN++; R(); window.scrollTo(0, 0); } }))) : null;
-    return [statusChips(), filters, bulk, h('section', { class: 'card sec own-filter' }, h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, 'سجل المنتجات'), h('div', { class: 't-small sub' }, K.n0(list.length) + ' منتج معروض')), h('div', { class: 'acts' }, prSortMenu())), h('div', { class: 'sec-b' }, prChips(list), table, pager))];
+    return [statusChips(), filters, bulk, h('section', { class: 'card sec own-filter' }, h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, 'سجل المنتجات'), h('div', { class: 't-small sub' }, K.n0(list.length) + ' منتج معروض')), h('div', { class: 'acts' }, prFilter, prSortMenu())), h('div', { class: 'sec-b' }, prChips(list), table, pager))];
   }
   /* phase 13 decision 56 (owner 11 Nov — «تاب للأقسام جوه المنتجات يبان فيها كل قسم والأقسام الفرعية اللي تحتيه مع إمكانية إضافة قسم جديد أو
      أقسام فرعية»), its look by B4 (the owner, 11 Nov): the site's tree (the mirror woo_categories) — a main category is a green card
@@ -948,11 +951,12 @@
     const rows = all0.filter(pass(st.logF));
     const kinds = Object.keys(LOG_LABEL).filter((k) => all0.some((e) => e.action === k)).map((k) => [k, LOG_LABEL[k]]);
     const people = [...new Set(all0.map(who))].sort((a, b) => a.localeCompare(b, 'ar')).map((x) => [x, x]);
-    const pick = (key, label, opts) => K.MultiPick({ id: 'plog-' + key, label, options: opts, value: st.logF[key], noun: 'حركة', count: (v) => all0.filter(pass(Object.assign({}, st.logF, { [key]: v }))).length, onApply: (v) => { st.logF[key] = v; R(); } });
+    const logFilter = K.FilterMenu({ id: 'plog', label: 'فلتر سجل الحركة', noun: 'حركة', value: st.logF, groups: [{ key: 'kind', label: 'الحركة', options: kinds }, { key: 'by', label: 'بواسطة', options: people }],
+      count: (d) => all0.filter(pass(Object.assign({ kind: [], by: [] }, d))).length, onApply: (d) => { st.logF = Object.assign({ kind: [], by: [] }, d); R(); } }); // the owner 12 Nov: one «فلتر»
     const when = (iso) => { try { return new Date(iso).toLocaleString('ar-EG', { timeZone: 'Africa/Cairo', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }); } catch (e) { return String(iso || '').slice(0, 16); } };
     const body = raw == null ? U.InlineNote({ children: 'بنحمّل سجل الحركة…' }) : rows.length ? U.Table({ cls: 'dt plog', headers: ['الوقت', 'الحركة', 'المنتجات / التفاصيل', 'بواسطة'], rows: rows.map((e) => [when(e.at), h('span', { 'data-plog-row': e.action }, LOG_LABEL[e.action] || e.action), e.productId ? h('button', { type: 'button', class: 'link-btn', onClick: () => go('products-edit-' + e.productId + '-data') }, e.text || '#' + e.productId) : e.text || '—', who(e)]) })
       : K.Empty(all0.length ? 'مفيش حركات بالفلاتر دي' : 'لسه مفيش حركات', all0.length ? 'غيّر الفلاتر من فوق.' : 'التعديل والمهملات والتكرار والصور ومدة التصنيع بيتسجلوا هنا.');
-    const actions = h('span', { class: 'acts-inline' }, pick('kind', 'الحركة', kinds), pick('by', 'بواسطة', people),
+    const actions = h('span', { class: 'acts-inline' }, logFilter,
       Button({ type: 'text', size: 'sm', icon: 'refresh', label: 'تحديث', attrs: { 'data-plog-refresh': '' }, onClick: () => { logAsked = false; R(); } }));
     return [K.TableSection({ title: 'سجل الحركة', sub: raw == null ? '' : K.n0(rows.length) + ' من ' + K.n0(all0.length) + ' حركة', actions, body, cls: 'own-filter plog-card' }),
       h('p', { class: 'source t-small help' }, 'المصدر: سجل النشاط — أرقام المنتجات وأسماء الحقول بس · آخر 200 حركة (الأدمن بيشوف الكل، والباقي حركاتهم).')];

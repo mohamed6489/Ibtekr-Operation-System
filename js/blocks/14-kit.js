@@ -612,14 +612,13 @@
           td.textContent = active ? sumOf(all.filter((r) => !r.classList.contains('af-hide'))).toLocaleString('en-US', { minimumFractionDigits: dec, maximumFractionDigits: dec }) : td.dataset.aft; });
         const first = fr.cells[0]; if (first && first.dataset.aft != null && cols.some((c) => c.type === 'num')) first.textContent = active ? first.dataset.aft.trim() + ' (المعروض)' : first.dataset.aft;
       });
-      // الترتيب جنب زرار الأعمدة، والفلتر (B5) صف دروب داونز فوق الجدول
+      // the owner 12 Nov («دخل الفلتر اللي بره جوه زرار الفلتر وحطوا جمب الترتيب»): «فلتر» and the sort next to the columns button
       card.querySelectorAll('[data-auto-ctl]').forEach((x) => x.remove());
       const ctl = [];
+      if (groups.length) ctl.push(FilterMenu({ id: 'auto:' + key, label: 'فلتر ' + (card.querySelector('h2') || {}).textContent, groups, value: S.f, noun: 'صف', count: (d) => all.filter((r) => match(r, d)).length, onApply: (d) => { S.f = d; apply(); } }));
       if (SORTS.length > 1) ctl.push(SortMenu({ id: 'auto:' + key, label: 'ترتيب ' + (card.querySelector('h2') || {}).textContent, options: SORTS, value: S.sort, onChange: (v) => { S.sort = v; apply(); } }));
       ctl.forEach((c) => c.setAttribute('data-auto-ctl', ''));
       if (colsBtn && colsBtn.parentElement) ctl.forEach((c) => colsBtn.before(c)); else if (head) { const a = head.querySelector('.acts, .acts-inline') || head; ctl.forEach((c) => a.append(c)); }
-      if (groups.length) { const fr = FilterMenu({ id: 'auto:' + key, label: 'فلتر ' + (card.querySelector('h2') || {}).textContent, groups, value: S.f, noun: 'صف', count: (d) => all.filter((r) => match(r, d)).length, onApply: (d) => { S.f = d; apply(); } });
-        fr.setAttribute('data-auto-row', ''); fr.classList.add('af-picks'); anchor.before(fr); }
       // النتيجة
       const chips = []; groups.forEach((g) => (S.f[g.key] || []).forEach((v) => chips.push({ key: g.key + ':' + v, label: g.label + ': ' + (g.num || g.avg ? (g.options.find((x) => x[0] === v) || [, v])[1] : v), count: all.filter((r) => cellKey(r, g.key) === v).length,
         remove: () => { S.f[g.key] = S.f[g.key].filter((x) => x !== v); apply(); } })));
@@ -668,20 +667,40 @@
   }
 
   // ---------- فلتر الجداول — مكوّن واحد لأي جدول (owner 1 Nov) ----------
-  // groups: [{ key, label, options:[[value,label]] }] · value: { key:[...] } · count(draft) → عدد النتايج · onApply(newValue)
-  // B5 (صاحب المشروع 11 نوفمبر — «زرار فلتر يتبدل بصف دروب داونز فيها بحث و checkboxes زي فلتر المنتجات»): صف فيه MultiPick لكل
-  // مجموعة (العلامات بتستنى في القايمة و«اعرض N <noun>» بيطبّق، والبحث لما الاختيارات أكتر من 6)، والقيم بترجع بنوعها الأصلي.
-  // كل دروب داون عليها data-fm-key = مفتاح المجموعة، والصف data-fm-row = id.
-  const fmSlug = (s) => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'f';
+  // groups: [{ key, label, options:[[value, label, depth?]] }] · value: { key:[...] } · count(draft) → عدد النتايج · onApply(newValue)
+  // B5 (11 نوفمبر) كان صف دروب داونز؛ صاحب المشروع 12 نوفمبر رجّعه زرار «فلتر» جنب الترتيب وجواه المجموعات بالبحث والعلامات
+  // (data-fm-btn = id، القايمة data-fm-menu، كل مجموعة data-fm-key، كل اختيار data-fm = «مفتاح:قيمة»، data-fm-apply / data-fm-clear).
   function FilterMenu({ id, groups, value, count, noun, onApply, label }) {
-    const now = () => { const v = {}; groups.forEach((g) => { v[g.key] = [...((value || {})[g.key] || [])]; }); return v; };
-    return h('div', { class: 'fm-row', role: 'group', 'aria-label': label || 'فلتر', 'data-fm-row': id }, groups.map((g, i) => {
-      const orig = new Map(g.options.map(([v]) => [String(v), v])); const back = (p) => p.map((s) => (orig.has(s) ? orig.get(s) : s));
-      const withPick = (p) => Object.assign(now(), { [g.key]: back(p) });
-      const el = MultiPick({ id: 'fm-' + fmSlug(id) + '-' + i, label: g.label, options: g.options, value: ((value || {})[g.key] || []).map(String), noun,
-        count: count ? (p) => count(withPick(p)) : undefined, onApply: (p) => onApply(withPick(p)) });
-      el.setAttribute('data-fm-key', String(g.key)); return el;
-    }));
+    // the owner 12 Nov — the row of dropdowns (B5) goes back inside one «فلتر» button next to the sort, on every table: the panel
+    // holds each group with its ticks (a search box in a group past six values, «-» before a sub-level), «مسح» and «اعرض N <noun>»
+    const v0 = value || {}; const n0 = groups.reduce((n, g) => n + (v0[g.key] || []).length, 0);
+    const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
+    const btn = h('button', { type: 'button', class: 'select sm' + (n0 ? ' has-val' : ''), 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': (label || 'فلتر') + (n0 ? ' — ' + n0 + ' مختار' : ''), 'data-fm-btn': id }, Icon('chevD', 'sm'), h('span', { class: 'val' }, Icon('filter', 'sm'), ' فلتر' + (n0 ? ' (' + n0 + ')' : '')));
+    const pop = U.popover(wrap, btn, (close) => {
+      const d = {}; groups.forEach((g) => { d[g.key] = [...(v0[g.key] || [])]; });
+      const has = (k, v) => d[k].some((x) => String(x) === String(v));
+      const cnt = h('span', null); const upd = () => { cnt.textContent = count ? 'اعرض ' + count(d) + (noun ? ' ' + noun : '') : 'تطبيق'; };
+      const items = [];
+      const mark = (b) => { const on = has(b._k, b._v); b.setAttribute('aria-checked', String(on)); b.querySelector('.mchk').replaceChildren(...(on ? [Icon('check', 'sm')] : [])); };
+      const opt = (g, o) => { const [v, l, depth] = o; const on = has(g.key, v);
+        const b = h('button', { type: 'button', class: 'opt multi' + (depth ? ' mp-sub' : ''), role: 'menuitemcheckbox', 'aria-checked': String(on), 'data-fm': g.key + ':' + v },
+          h('span', { class: 'mchk', 'aria-hidden': 'true' }, on ? Icon('check', 'sm') : null), h('span', { class: 'mp-l', dir: 'auto' }, (depth ? '-'.repeat(depth) + ' ' : '') + l));
+        b._k = g.key; b._v = v; items.push(b);
+        b.addEventListener('click', (e) => { e.stopPropagation(); const a = d[g.key]; const i = a.findIndex((x) => String(x) === String(v)); if (i > -1) a.splice(i, 1); else a.push(v); mark(b); upd(); });
+        return b; };
+      const sections = groups.map((g) => {
+        const list = h('div', { class: 'fm-list', role: 'group', 'aria-label': g.label }, g.options.map((o) => opt(g, o)));
+        const q = g.options.length > 6 ? h('input', { type: 'search', class: 'input fm-q', placeholder: 'دوّر في ' + g.label + '…', 'aria-label': 'دوّر في ' + g.label, 'data-fm-q': g.key, autocomplete: 'off' }) : null;
+        if (q) q.addEventListener('input', () => { const k = foldAr(q.value); [...list.children].forEach((b) => { b.hidden = !!k && !foldAr(b.textContent).includes(k); }); });
+        return h('div', { class: 'fm-sec', 'data-fm-key': String(g.key) }, h('div', { class: 'opt-group t-small', role: 'presentation' }, g.label), q, list);
+      });
+      const m = h('div', { class: 'menu view-menu fm-menu', role: 'menu', 'aria-label': label || 'فلتر', 'data-fm-menu': id }, sections,
+        h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-fm-clear': '' }, onClick: () => { groups.forEach((g) => { d[g.key] = []; }); items.forEach(mark); upd(); } }),
+          Button({ size: 'sm', type: 'primary', label: cnt, attrs: { 'data-fm-apply': '' }, onClick: () => { close(); onApply(d); } })));
+      m.addEventListener('keydown', (e) => { if (e.target && e.target.matches && e.target.matches('input')) return; const vis = items.filter((x) => !x.hidden); const i = vis.indexOf(document.activeElement); if (!vis.length) return;
+        if (e.key === 'ArrowDown') { e.preventDefault(); vis[(i + 1) % vis.length].focus(); } if (e.key === 'ArrowUp') { e.preventDefault(); vis[(i - 1 + vis.length) % vis.length].focus(); } });
+      upd(); return m; });
+    btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
   }
   function SortMenu({ id, options, value, onChange, label }) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' }); const cur = options.find((x) => x[0] === value) || options[0];

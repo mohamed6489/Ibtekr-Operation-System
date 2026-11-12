@@ -518,3 +518,19 @@ language sql stable security definer set search_path = public as $$
 $$;
 revoke execute on function public.hr_my_slips() from public, anon;
 grant execute on function public.hr_my_slips() to authenticated, service_role;
+
+-- ---------------------------------------------------------------- the texts that pointed at the requests tab (gone — decision 1)
+-- 0069 / 0070 / 0071 / 0073 / 0074 write ticket events and descriptions that sent the reader to «الموارد البشرية › الطلبات»; each function
+-- still carrying it is re-created from its own definition with the text pointing at the request card / «نظرة عامة» (grants kept: create or replace)
+do $$
+declare f regprocedure; d text;
+begin
+  for f in select p.oid::regprocedure from pg_proc p join pg_namespace n on n.oid = p.pronamespace
+           where n.nspname = 'public' and p.prokind = 'f' and p.prosrc like '%«الموارد البشرية › الطلبات»%' loop
+    d := pg_get_functiondef(f);
+    d := replace(d, ' (السبب في «الموارد البشرية › الطلبات»)', '');
+    d := replace(d, '(التفاصيل في «الموارد البشرية › الطلبات»)', '(التفاصيل في كارت الطلب هنا)');
+    d := replace(d, '«الموارد البشرية › الطلبات»', '«الموارد البشرية › نظرة عامة»');
+    execute d;
+  end loop;
+end $$;

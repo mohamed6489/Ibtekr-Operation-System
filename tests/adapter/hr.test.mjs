@@ -219,7 +219,7 @@ test('the payroll: the lines (live / snapshotted), the steps, «مدفوع» fro
   const { H, stub, logs } = load({ responses: { 'rpc:hr_payroll_calc': ok([LINE]), hr_payroll_lines: ok([{ ...LINE, month: '2026-10-01' }]), 'rpc:hr_payroll_step': ok('معتمد'), 'rpc:hr_payroll_pay': ok(9487.5) }, accounts: { load: () => { reloaded += 1; return Promise.resolve(); } } });
   await H.load();
   const live = await H.sheetLines('2026-11');
-  eq(live.lines[0], { member: 'M03', memberUid: C, name: 'محمد علي', salary: 9600, holdback: 1000, paid: 8600, otMin: 45, otPay: 37.5, rest: 1, restPay: 800, unpaidDays: 0, unpaidCut: 0, allow: 200, ded: 150, advance: 0, quarterBonus: 0, net: 9487.5, missingScores: 0 });
+  eq(live.lines[0], { member: 'M03', memberUid: C, name: 'محمد علي', salary: 9600, holdback: 1000, paid: 8600, otMin: 45, otPay: 37.5, rest: 1, restPay: 800, unpaidDays: 0, unpaidCut: 0, allow: 200, ded: 150, advance: 0, quarterBonus: 0, net: 9487.5, missingScores: 0, leaveDays: 0, leavePay: 0, transfer: null });
   assert(rpcs(stub).some((x) => x[0] === 'hr_payroll_calc' && x[1].p_month === '2026-11-01'), 'a sheet under review is live');
   await H.sheetLines('2026-10');
   assert(opsOf(stub.calls, 'hr_payroll_lines').some((c) => c.op === 'eq' && c.args[1] === '2026-10-01'), 'a paid sheet reads its snapshot');
@@ -321,7 +321,7 @@ test('live: the private channel «hr» → one load; clear() forgets the rows an
   const ch = stub.calls.find((c) => c.op === 'channel'); eq(ch.args, ['hr', { config: { private: true } }]);
   const before = opsOf(stub.calls, 'hr_members').filter((c) => c.op === 'select').length;
   await stub.emitBroadcast('changed', { at: 'x' }); await new Promise((r) => setTimeout(r, 300));
-  eq(opsOf(stub.calls, 'hr_members').filter((c) => c.op === 'select').length, before + 1);
+  eq(opsOf(stub.calls, 'hr_members').filter((c) => c.op === 'select').length, before * 2, 'one more load (two reads of hr_members a load: the rows and the leave carried — 0083)');
   H.clear();
   eq([H.data.requests, H.data.attendance, H.data.today, H.data.kpis, H.data.sheet.status, H.state()], [[], [], {}, {}, 'مسودة', 'idle']);
   assert(stub.calls.some((c) => c.op === 'removeChannel'));
@@ -510,4 +510,76 @@ test('the owner 12 Nov — loadLog: the HR rows of the activity log (action like
   await H.loadLog(); eq(stub.calls.filter((c) => c.table === 'activity_log' && c.op === 'from').length, 1, 'cached a minute');
   await H.loadLog(true); eq(stub.calls.filter((c) => c.table === 'activity_log' && c.op === 'from').length, 2, 'forced');
   H.clear(); eq(H.logNow(), null);
+});
+
+test('the HR rebuild (0083): «تحويل المرتبات» / one member\'s pay (early = a reason) / an advance / the overtime fix — the RPCs, the accounts reloaded, nothing logged from here', async () => {
+  let reloaded = 0;
+  const LINE = { member_id: C, name: 'محمد علي', salary: 9600, holdback: 1000, paid: 8600, ot_minutes: 0, ot_pay: 0, rest_days: 0, rest_pay: 0, unpaid_days: 0, unpaid_cut: 0, allowances: 0, deductions: 0, advance: 0, quarter_bonus: 0, net: 8600, missing_scores: 0, leave_days_paid: 0, leave_pay: 0 };
+  const LINE_B = { ...LINE, member_id: B, name: 'سارة أحمد', salary: 12000, holdback: 1500, paid: 10500, net: 10500, advance: 500 };
+  const { H, stub, logs } = load({ responses: {
+    'rpc:hr_payroll_calc': ok([LINE, LINE_B]), hr_payroll_lines: ok([{ ...LINE, month: '2026-11-01', net: 8000 }]), hr_payroll_paid: ok([{ month: '2026-11-01', member_id: C, amount: 8000, account: 'حساب البنك', early_reason: 'ظرف', paid_at: '2026-11-04T10:00:00Z' }]),
+    'rpc:hr_payroll_transfer': ok(10500), 'rpc:hr_pay_member': ok(10500), 'rpc:hr_advance_give': ok(77), 'rpc:hr_ot_adjust_add': ok(5) }, accounts: { load: () => { reloaded += 1; return Promise.resolve(); } } });
+  await H.load();
+  eq(H.data.paid['2026-11'].M03, { amount: 8000, account: 'حساب البنك', early: 'ظرف', at: '2026-11-04T10:00:00Z' });
+  // the member paid early keeps the line they were paid on; the other is live
+  const r = await H.sheetLines('2026-11');
+  eq(r.lines.map((l) => [l.member, l.net, !!l.transfer]), [['M03', 8000, true], ['M02', 10500, false]]);
+  eq(H.sheetTotals(r.lines), { members: 2, salaries: 19100, bonus: 0, overtime: 0, extras: 0, cuts: 500, net: 18500, paidAlready: 8000, toTransfer: 10500, left: 1 });
+  // the pay day 28 (the default): the 5th is early → a reason is a must, checked before any call
+  eq(H.payDayOf('2026-11'), '2026-11-28'); eq(H.payDayOf('2026-02'), '2026-02-28');
+  eq(await H.payMember('2026-11', 'M02', 'حساب البنك', '  '), { ok: false, reason: 'invalid', field: 'reason', message: 'اكتب السبب' });
+  eq(await H.payMember('2026-11', 'M02', 'خزنة', 'ظرف'), { ok: false, reason: 'invalid', field: 'account', message: 'اختار الحساب' });
+  eq(await H.payMember('2026-11', 'M02', 'حساب البنك', 'ظرف <b>طارئ</b>'), { ok: true, net: 10500 });
+  eq(rpcs(stub).find((x) => x[0] === 'hr_pay_member'), ['hr_pay_member', { p_month: '2026-11-01', p_member: B, p_account: 'حساب البنك', p_reason: 'ظرف b طارئ /b' }]);
+  eq(await H.transfer('2026-11', 'حساب البنك'), { ok: true, total: 10500 });
+  eq(rpcs(stub).find((x) => x[0] === 'hr_payroll_transfer'), ['hr_payroll_transfer', { p_month: '2026-11-01', p_account: 'حساب البنك' }]);
+  eq(await H.advanceGive('M03', 0, 'x', 'حساب البنك'), { ok: false, reason: 'invalid', field: 'amount', message: 'اكتب المبلغ' });
+  eq(await H.advanceGive('M03', 1500, '', 'حساب البنك'), { ok: false, reason: 'invalid', field: 'reason', message: 'اكتب السبب' });
+  eq(await H.advanceGive('M03', 1500, 'مصاريف علاج', 'حساب بوسطة'), { ok: true, id: 'HR-0077' });
+  eq(rpcs(stub).find((x) => x[0] === 'hr_advance_give'), ['hr_advance_give', { p_member: C, p_amount: 1500, p_reason: 'مصاريف علاج', p_account: 'حساب بوسطة' }]);
+  eq(await H.otAdjust('M03', '2026-11', 0, 'x'), { ok: false, reason: 'invalid', field: 'minutes', message: 'راجع عدد الدقايق' });
+  eq(await H.otAdjust('M03', '2026-11', -30, 'اتسجل غلط'), { ok: true });
+  eq(rpcs(stub).find((x) => x[0] === 'hr_ot_adjust_add'), ['hr_ot_adjust_add', { p_member: C, p_month: '2026-11-01', p_minutes: -30, p_reason: 'اتسجل غلط' }]);
+  eq(reloaded, 3, 'the money ones reload the accounts (the expenses and the withdrawals are theirs)');
+  eq(logs.length, 0, 'the server logs these (months and codes only)');
+  // the server's refusal in Arabic
+  const paid = load({ responses: { 'rpc:hr_pay_member': { data: null, error: { code: '22023', message: 'invalid: paid' } } } });
+  await paid.H.load();
+  eq(await paid.H.payMember('2026-10', 'M02', 'حساب البنك', 'x'), { ok: false, reason: 'invalid', field: 'paid', message: 'المرتب ده اتحوّل قبل كده' });
+});
+
+test('the HR rebuild (0083): the evaluations by month from hr_evaluations_list, «قيّم» through hr_evaluate (1–5), the quarter from its rated months, the month\'s tasks', async () => {
+  const EV = [
+    { member_id: C, month: '2026-07-01', attendance: 5, performance: 4, communication: 5, total: 4.7, note: 'كويس', rated_by: A, rated_at: '2026-08-01T08:00:00Z' },
+    { member_id: C, month: '2026-08-01', attendance: 3.5, performance: 2, communication: 3, total: 2.8, note: null, rated_by: A, rated_at: '2026-09-01T08:00:00Z' },
+    { member_id: C, month: '2026-09-01', attendance: 4, performance: null, communication: null, total: null, note: null, rated_by: null, rated_at: null },
+    { member_id: C, month: '2026-11-01', attendance: null, performance: null, communication: null, total: null, note: null, rated_by: null, rated_at: null },
+  ];
+  const { H, stub } = load({ responses: { 'rpc:hr_evaluations_list': ok(EV), 'rpc:hr_evaluate': ok(4.3) } });
+  await H.load();
+  eq(rpcs(stub).find((x) => x[0] === 'hr_evaluations_list'), ['hr_evaluations_list', { p_from: '2025-01-01', p_to: '2026-11-05' }]);
+  eq(H.data.evals.M03['2026-07'], { att: 5, perf: 4, comm: 5, total: 4.7, note: 'كويس', by: 'صفوت كمال', at: '2026-08-01T08:00:00Z' });
+  eq(H.data.evals.M03['2026-09'].total, null);
+  eq(H.quarterEval('M03', '2026-Q3'), { quarter: '2026-Q3', months: ['2026-07', '2026-08', '2026-09'], att: 4.2, perf: 3, comm: 4, total: 3.8, rated: 2, missing: 1 });
+  eq(H.quarterEval('M03', 'x'), null);
+  eq([H.evalTotal(4, 4, 5), H.evalTotal(null, 4, 5), H.evalTotal(3, null, 5)], [4.3, 4.5, null]);
+  eq(await H.evaluate('M03', '2026-11', 0, 4), { ok: false, reason: 'invalid', field: 'performance', message: 'اختار تقييم الأداء (من 1 لـ 5)' });
+  eq(await H.evaluate('M03', '2026-11', 4, 6), { ok: false, reason: 'invalid', field: 'communication', message: 'اختار تقييم التواصل (من 1 لـ 5)' });
+  eq(await H.evaluate('M03', '2026-11', 4, 5, 'سلس مع الفريق'), { ok: true, total: 4.3 });
+  eq(rpcs(stub).find((x) => x[0] === 'hr_evaluate'), ['hr_evaluate', { p_member: C, p_month: '2026-11-01', p_perf: 4, p_comm: 5, p_note: 'سلس مع الفريق' }]);
+  // the tasks the evaluator sees: done in the month / still open
+  H.data.tasks = [{ id: 1, member: 'M03', title: 'تصوير', status: 'خلصت', day: '2026-11-02', doneDay: '2026-11-03' }, { id: 2, member: 'M03', title: 'جرد', status: 'جاري', day: '2026-11-04' },
+    { id: 3, member: 'M03', title: 'قديمة', status: 'خلصت', day: '2026-10-02', doneDay: '2026-10-05' }, { id: 4, member: 'M02', title: 'غيره', status: 'لسه', day: '2026-11-01' }];
+  const t = H.monthTasks('M03', '2026-11');
+  eq([t.done.map((x) => x.id), t.open.map((x) => x.id)], [[1], [2]]);
+});
+
+test('the HR rebuild (0083): the leave carried into this year counts in the balance left; the new settings have their defaults', async () => {
+  const { H } = load({ responses: { hr_members: ok([{ member_id: B, shift_start: '09:00:00', shift_end: '17:00:00', hire_date: '2025-05-12', leave_days: 21, leave_carry: 4, leave_carry_year: 2026 },
+    { member_id: C, shift_start: '10:00:00', shift_end: '18:00:00', hire_date: null, leave_days: 21, leave_carry: 3, leave_carry_year: 2025 }]) } });
+  await H.load();
+  const b = H.member('M02'); const c = H.member('M03');
+  eq([b.leave, b.carry, b.used, b.leaveLeft], [21, 4, 3, 22], 'this year\'s carry counts (21 + 4 − 3 used)');
+  eq([c.carry, c.leaveLeft], [0, 21], 'last year\'s carry does not');
+  eq([H.settings().payDay, H.settings().bonusMin, H.settings().leaveYearEnd], [28, 3, 'pay']);
 });

@@ -37,7 +37,10 @@
   const ACCOUNTS = ['حساب البنك', 'حساب بوسطة', 'حساب باي موب', 'محفظة إلكترونية'];
   const DOC_KINDS = ['عقد عمل', 'ملحق عقد', 'بطاقة رقم قومي', 'شهادة تخرج', 'أخرى'];
   const DEFAULTS = { shiftEnd: true, presence: true, presenceEvery: 120, confirmBy: 'المدير المباشر', escalate: 24, countOT: true,
-    autoMissing: true, probation: 3, salaryViewers: 'المالك بس', hideAmounts: true, holdbackDefault: 1000, bonusFloor: 70 };
+    autoMissing: true, probation: 3, salaryViewers: 'المالك بس', hideAmounts: true, holdbackDefault: 1000, bonusFloor: 70,
+    // the HR rebuild (0083, the owner 12 Nov): the pay day (an earlier transfer asks why), the bonus bar (a month's evaluation ≥ it = its
+    // held-back part whole), the annual leave left at the year's end ('pay' with December's salary · 'carry' to the next year)
+    payDay: 28, bonusMin: 3, leaveYearEnd: 'pay' };
   const c = () => (window.IBSupabase && window.IBSupabase.client) || null;
   const quiet = (fn) => { try { return fn(); } catch (e) { return undefined; } };
   const K = () => window.IBKit;
@@ -52,11 +55,12 @@
   const fieldOf = (err) => { const m = /invalid: (\w+)/.exec(String((err && err.message) || '')); return m ? m[1] : null; };
   const MESSAGES = { forbidden: 'مفيش صلاحية للإجراء ده', notfound: 'مش موجود أو مش متاح ليك', network: 'تعذّر الاتصال — جرّب تاني', invalid: 'راجع البيانات', exists: 'موجود بالفعل' };
   const FIELD_MESSAGES = { at: 'راجع وقت الانصراف', shift: 'مفيش دوام مفتوح', day: 'اليوم ده مش متاح', time: 'اكتب الوقت',
-    amount: 'اكتب المبلغ وعدد الأقساط', to: 'راجع التاريخ', type: 'النوع ده مش موجود', reason: 'اكتب السبب', minutes: 'راجع عدد الدقايق', weights: 'مجموع الأوزان لازم 100%',
+    amount: 'اكتب المبلغ', to: 'راجع التاريخ', type: 'النوع ده مش موجود', reason: 'اكتب السبب', minutes: 'راجع عدد الدقايق', weights: 'مجموع الأوزان لازم 100%',
     actual: 'اكتب الفعلي لكل مؤشر', month: 'الشهر ده لسه مجاش', status: 'الحالة دي مش متاحة', step: 'الخطوة دي مش متاحة للكشف دلوقتي', account: 'اختار الحساب',
     doc: 'ارفع المرفق المطلوب', note: 'الملاحظة طويلة', decision: 'القرار مش صحيح', email: 'الإيميل ده مستخدم', phone: 'رقم الموبايل ده مستخدم',
     meeting: 'الوقت الإضافي اللي اترفض بيرجع بنتيجة الميتنج بتاعه بس', title: 'اكتب المهمة (لحد 200 حرف)', reviewer: 'اختار مين هيراجع (غير صاحب المهمة)',
     until: 'اختار يوم من النهارده أو بعده', count: 'فيه 300 مهمة مفتوحة — خلّص أو امسح شوية الأول',
+    paid: 'المرتب ده اتحوّل قبل كده', performance: 'اختار تقييم الأداء (من 1 لـ 5)', communication: 'اختار تقييم التواصل (من 1 لـ 5)', range: 'الفترة طويلة',
     bank: 'اكتب اسم البنك', holder: 'اكتب اسم صاحب الحساب', number: 'رقم الحساب أرقام بس (من 6 لـ 30 رقم)', iban: 'الـ IBAN مش صحيح (زي EG38…)' };
   const fail = (err) => { const reason = reasonOf(err); const field = reason === 'invalid' ? fieldOf(err) : null; return { ok: false, reason, field, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] }; };
   const no = (reason, field) => ({ ok: false, reason, field: field || null, message: (field && FIELD_MESSAGES[field]) || MESSAGES[reason] });
@@ -110,7 +114,8 @@
 
   // ---------- the loaded rows ----------
   let st = 'idle'; let gen = 0;
-  const raw = { team: [], members: [], pay: [], att: [], ot: [], req: [], hol: [], lt: [], br: [], otp: [], kpis: [], scores: [], extras: [], meet: [], adj: [], payroll: [], docs: [], settings: {}, tasks: [], people: [] };
+  const raw = { team: [], members: [], pay: [], att: [], ot: [], req: [], hol: [], lt: [], br: [], otp: [], kpis: [], scores: [], extras: [], meet: [], adj: [], payroll: [], docs: [], settings: {}, tasks: [], people: [],
+    paidRows: [], otAdj: [], evals: [], carry: [] }; // 0083: the members paid per month, the overtime fixes, the evaluations, the leave carried
   const ids = { req: 'HR-', ot: 'OT-', meet: 'MT-' };
   const pad = (n, w) => String(n).padStart(w, '0');
   const reqId = (n) => ids.req + pad(n, 4); const otId = (n) => ids.ot + pad(n, 4); const mtId = (n) => ids.meet + pad(n, 2);
@@ -130,6 +135,7 @@
     const t = today(); const nm = nowMin(); const mk = monthKey(t); const hol = holidayDates(); const set = settings();
     const hm = new Map(raw.members.map((r) => [r.member_id, r])); const pay = new Map(raw.pay.map((r) => [r.member_id, r]));
     const notesOf = new Map((raw.notes || []).map((r) => [r.member_id, r.notes]));
+    const carryOf = new Map((raw.carry || []).map((r) => [r.member_id, Number(r.leave_carry_year) === Number(t.slice(0, 4)) ? Number(r.leave_carry) || 0 : 0]));
     const docsOf = new Map(); raw.docs.forEach((d) => { if (!docsOf.has(d.member_id)) docsOf.set(d.member_id, []); docsOf.get(d.member_id).push({ id: Number(d.id), kind: d.kind, path: d.path, name: d.name, start: d.start_on, end: d.end_on, at: d.created_at }); });
     // the requests
     s.requests = raw.req.map((r) => ({ id: reqId(r.id), dbId: Number(r.id), type: r.type, member: codeOf(r.member_id), memberUid: r.member_id, from: r.from_day, to: r.to_day,
@@ -186,12 +192,14 @@
       m.payKnown = !!p;
       m.shift = [String(r.shift_start || '09:00').slice(0, 5), String(r.shift_end || '17:00').slice(0, 5)];
       m.leave = r.leave_days == null ? 21 : Number(r.leave_days); m.hire = r.hire_date || m.hire || ''; m.hrNotes = notesOf.get(m.uid) || '';
+      m.carry = carryOf.get(m.uid) || 0; // 0083: last year's balance left when the setting carries it («يترحّل»)
       m.used = s.requests.filter((q) => q.member === m.id && q.status === 'موافق' && (leaveType(q.type) || {}).deducts && q.from.slice(0, 4) === year)
         .reduce((n, q) => n + leaveDays(q.from < year + '-01-01' ? year + '-01-01' : q.from, q.to > year + '-12-31' ? year + '-12-31' : q.to, hol), 0);
       const work = s.attendance.filter((a) => a.member === m.id && a.date.startsWith(mk) && a.in != null);
       m.monthMin = work.reduce((n, a) => n + Math.max(0, (a.out == null ? (a.date === t ? nm : a.in) : a.out) - a.in), 0);
       m.otMonth = otRows.filter((o) => o.member === m.id && o.kind === 'hours' && o.status === 'اتضاف' && o.date.startsWith(mk)).reduce((n, o) => n + o.paid, 0);
       m.restDays = s.restWork.filter((x) => x.member === m.id && x.date.startsWith(mk)).length;
+      m.leaveLeft = Math.max(0, m.leave + m.carry - m.used); // the annual balance left this year (an approved leave that deducts comes off it)
       m.docs = docs;
       const contract = docs.filter((d) => d.kind === 'عقد عمل').sort((a, b) => (a.at < b.at ? 1 : -1))[0];
       m.contract = !contract ? 'missing' : contract.end && contract.end < addDays(t, 30) ? 'expiring' : 'uploaded';
@@ -214,6 +222,14 @@
     // the money (what RLS lets the member read)
     const sheets = {}; raw.payroll.forEach((p) => { sheets[monthKey(p.month)] = { status: p.status, total: p.total == null ? null : Number(p.total), paidAccount: p.paid_account || null }; });
     s.sheets = sheets; s.sheet = { month: mk, status: (sheets[mk] || {}).status || 'مسودة', exists: !!sheets[mk] };
+    // 0083: who was paid for a month (one by one or with «تحويل المرتبات») — { 'YYYY-MM': { code: { amount, account, early, at } } }
+    const paid = {}; (raw.paidRows || []).forEach((x) => { const code = codeOf(x.member_id); if (!code) return; const k = monthKey(x.month); (paid[k] = paid[k] || {})[code] = { amount: Number(x.amount) || 0, account: x.account, early: x.early_reason || null, at: x.paid_at }; });
+    s.paid = paid;
+    s.otAdjust = (raw.otAdj || []).map((x) => ({ id: Number(x.id), member: codeOf(x.member_id), month: monthKey(x.month), minutes: Number(x.minutes), reason: x.reason, by: nameOf(x.by_id), at: x.at })).filter((x) => x.member);
+    // the evaluations (decision 2): { code: { 'YYYY-MM': { att, perf, comm, total, note, by, at } } } — att is the server's (the days attended)
+    const ev = {}; (raw.evals || []).forEach((x) => { const code = codeOf(x.member_id); if (!code) return; const n = (v) => (v == null ? null : Number(v));
+      (ev[code] = ev[code] || {})[monthKey(x.month)] = { att: n(x.attendance), perf: n(x.performance), comm: n(x.communication), total: n(x.total), note: x.note || '', by: x.rated_by ? nameOf(x.rated_by) : null, at: x.rated_at || null }; });
+    s.evals = ev;
     s.adjustments = raw.adj.filter((a) => !a.voided_at).map((a) => ({ id: Number(a.id), member: codeOf(a.member_id), month: monthKey(a.month), label: a.label, amount: Number(a.amount), kind: a.kind, note: a.note || '' })).filter((a) => a.member);
     s.achievements = s.adjustments.filter((a) => a.kind === 'achievement').map((a) => ({ id: a.id, member: a.member, title: a.label, amount: a.amount, month: a.month, date: a.month + '-01',
       status: (sheets[a.month] || {}).status === 'مدفوع' ? 'اتصرفت' : 'هتتصرف مع المرتب' }));
@@ -231,7 +247,8 @@
     const g = ++gen; st = 'loading';
     try {
       const t = today(); const since = addDays(t, -DAYS_BACK); const reqSince = addDays(t, -REQ_DAYS); const scoreSince = addDays(t.slice(0, 8) + '01', -730);
-      const [team, hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, set, notes, tasks] = await Promise.all([
+      const evFrom = String(Number(t.slice(0, 4)) - 1) + '-01-01'; // the evaluations: last year and this one (the quarters of both)
+      const [team, hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, set, notes, tasks, paidRows, otAdj, evals, carry] = await Promise.all([
         cl.rpc('hr_team').then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []),
         rows(cl.from('hr_members').select('member_id, shift_start, shift_end, hire_date, leave_days')), // the notes column is closed (hr_member_notes)
         maybe(cl.from('hr_pay').select('member_id, salary, holdback, allowances')),
@@ -253,15 +270,21 @@
         // the internal notes (security review 5 Nov): hr.edit F only, never my own — the server decides again
         can().edit ? cl.rpc('hr_member_notes').then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []) : Promise.resolve([]),
         taskRows(cl, t), // decision 25 (0048) — empty before the migration, the rest of HR still loads
+        // the HR rebuild (0083) — each one empty before the migration (the rest still loads): the members paid per month (sensitive.salaries
+        // or my own), the overtime fixes, the monthly evaluations of the members I see, the leave carried into this year
+        maybe(cl.from('hr_payroll_paid').select('month, member_id, amount, account, early_reason, paid_at').gte('month', addDays(t.slice(0, 8) + '01', -400))),
+        maybe(cl.from('hr_ot_adjust').select('id, member_id, month, minutes, reason, by_id, at').gte('month', addDays(t.slice(0, 8) + '01', -400)).order('at', { ascending: false })),
+        cl.rpc('hr_evaluations_list', { p_from: evFrom, p_to: t }).then((r) => (r && !r.error && Array.isArray(r.data) ? r.data : []), () => []),
+        maybe(cl.from('hr_members').select('member_id, leave_carry, leave_carry_year')),
       ]);
       if (g !== gen) return { ok: false, reason: 'stale' };
-      Object.assign(raw, { team, members: hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, settings: set, notes, tasks: tasks.rows, people: tasks.people });
+      Object.assign(raw, { team, members: hm, pay, att, ot, req, hol, lt, br, otp, kpis, scores, extras, meet, adj, payroll, docs, settings: set, notes, tasks: tasks.rows, people: tasks.people, paidRows, otAdj, evals, carry });
       tgen += 1; buildRoster(team); shape(); shapeTasks(); st = 'ready'; emit(); subscribe(); return { ok: true };
     } catch (e) { if (g === gen) st = 'error'; emit(); return fail(e); }
   }
   function empty() {
-    ['team', 'attendance', 'requests', 'overtime', 'restWork', 'adjustments', 'achievements', 'extras', 'meetings', 'otPeriods', 'bonusRules', 'holidays', 'leaveTypes', 'departments', 'tasks', 'people'].forEach((k) => { data[k] = []; });
-    Object.assign(data, { today: {}, kpis: {}, scores: {}, scoreRows: {}, sheets: {}, sheet: { month: monthKey(today()), status: 'مسودة', exists: false }, hrSettings: Object.assign({}, DEFAULTS) });
+    ['team', 'attendance', 'requests', 'overtime', 'restWork', 'adjustments', 'achievements', 'extras', 'meetings', 'otPeriods', 'bonusRules', 'holidays', 'leaveTypes', 'departments', 'tasks', 'people', 'otAdjust'].forEach((k) => { data[k] = []; });
+    Object.assign(data, { today: {}, kpis: {}, scores: {}, scoreRows: {}, sheets: {}, paid: {}, evals: {}, sheet: { month: monthKey(today()), status: 'مسودة', exists: false }, hrSettings: Object.assign({}, DEFAULTS) });
   }
   empty();
   function clear() { gen += 1; tgen += 1; unsubscribe(); Object.keys(raw).forEach((k) => { raw[k] = k === 'settings' ? {} : []; }); roster = []; pendingAdds.clear(); logRows = null; logAt = 0; logGen += 1; st = 'idle'; empty(); }
@@ -399,17 +422,34 @@
     const { data, error } = await rpc('hr_payroll_calc', { p_month: monthArg(month) }); if (error) return fail(error);
     return { ok: true, lines: (data || []).map(line) };
   }
-  const LINE_COLS = 'month, member_id, name, salary, holdback, paid, ot_minutes, ot_pay, rest_days, rest_pay, unpaid_days, unpaid_cut, allowances, deductions, advance, quarter_bonus, net';
+  const LINE_COLS = 'month, member_id, name, salary, holdback, paid, ot_minutes, ot_pay, rest_days, rest_pay, unpaid_days, unpaid_cut, allowances, deductions, advance, quarter_bonus, net, leave_days_paid, leave_pay';
   async function payrollLines(month) {
     const cl = c(); if (!cl) return no('network');
     try { const list = await rows(cl.from('hr_payroll_lines').select(LINE_COLS).eq('month', monthArg(month)));
       return { ok: true, lines: list.map(line) }; } catch (e) { return fail(e); }
   }
-  // the month's lines as the sheet reads them: snapshotted once approved, live from hr_payroll_calc before
-  async function sheetLines(month) { const k = monthKey(month || today()); const sh = data.sheets[k]; return sh && (sh.status === 'معتمد' || sh.status === 'مدفوع') ? payrollLines(k) : payrollCalc(k); }
+  // the month's lines as the sheet reads them: snapshotted once paid (or approved — 0046's steps), live from hr_payroll_calc before; 0083:
+  // a member paid already this month (early or one by one) keeps the line they were paid on, with `transfer` { amount, account, early, at }
+  async function sheetLines(month) {
+    const k = monthKey(month || today()); const sh = data.sheets[k]; const paidNow = data.paid[k] || {};
+    const mark = (l) => Object.assign(l, { transfer: paidNow[l.member] || null });
+    if (sh && (sh.status === 'معتمد' || sh.status === 'مدفوع')) { const r = await payrollLines(k); if (r.ok) r.lines.forEach(mark); return r; }
+    const live = await payrollCalc(k); if (!live.ok || !Object.keys(paidNow).length) { if (live.ok) live.lines.forEach(mark); return live; }
+    const snap = await payrollLines(k); const kept = new Map(((snap.ok && snap.lines) || []).filter((l) => paidNow[l.member]).map((l) => [l.member, l]));
+    return { ok: true, lines: live.lines.map((l) => mark(kept.get(l.member) || l)) };
+  }
+  // the totals of the lines «تحويل المرتبات» shows under its table — what is left to transfer counts the members not paid yet only
+  function sheetTotals(lines) {
+    const sum = (f, l) => Math.round(l.reduce((n, x) => n + (Number(f(x)) || 0), 0) * 100) / 100;
+    const all = lines || []; const left = all.filter((l) => !l.transfer);
+    return { members: all.length, salaries: sum((x) => x.paid, all), bonus: sum((x) => x.quarterBonus, all), overtime: sum((x) => x.otPay + x.restPay, all),
+      extras: sum((x) => x.allow + x.leavePay, all), cuts: sum((x) => x.ded + x.advance + x.unpaidCut, all), net: sum((x) => Math.max(0, x.net), all),
+      paidAlready: sum((x) => (x.transfer ? x.transfer.amount : 0), all), toTransfer: sum((x) => Math.max(0, x.net), left), left: left.length };
+  }
   const line = (r) => ({ member: codeOf(r.member_id) || r.member_id, memberUid: r.member_id, name: r.name, salary: Number(r.salary), holdback: Number(r.holdback), paid: Number(r.paid), otMin: Number(r.ot_minutes) || 0,
     otPay: Number(r.ot_pay) || 0, rest: Number(r.rest_days) || 0, restPay: Number(r.rest_pay) || 0, unpaidDays: Number(r.unpaid_days) || 0, unpaidCut: Number(r.unpaid_cut) || 0, allow: Number(r.allowances) || 0,
-    ded: Number(r.deductions) || 0, advance: Number(r.advance) || 0, quarterBonus: Number(r.quarter_bonus) || 0, net: Number(r.net) || 0, missingScores: r.missing_scores == null ? 0 : Number(r.missing_scores) });
+    ded: Number(r.deductions) || 0, advance: Number(r.advance) || 0, quarterBonus: Number(r.quarter_bonus) || 0, net: Number(r.net) || 0, missingScores: r.missing_scores == null ? 0 : Number(r.missing_scores),
+    leaveDays: Number(r.leave_days_paid) || 0, leavePay: Number(r.leave_pay) || 0 });
   // «ملفي › مرتبي» (T7): a member's payslips — mine through hr_my_slips (the approved / paid months with the sheet's status, never
   // its total); another member's (sensitive.salaries) from hr_payroll_lines with the statuses of the sheets I read
   async function slips(member) {
@@ -420,7 +460,9 @@
     }
     try {
       const list = await rows(cl.from('hr_payroll_lines').select(LINE_COLS).eq('member_id', uid).order('month', { ascending: false }).limit(36));
-      return { ok: true, list: list.map((r) => Object.assign(line(r), { month: monthKey(r.month), status: (data.sheets[monthKey(r.month)] || {}).status || 'معتمد', paidAt: null })) };
+      const code = codeOf(uid);
+      return { ok: true, list: list.map((r) => { const k = monthKey(r.month); const x = (data.paid[k] || {})[code];
+        return Object.assign(line(r), { month: k, status: x ? 'مدفوع' : (data.sheets[k] || {}).status || 'معتمد', paidAt: x ? x.at : null }); }) };
     } catch (e) { return fail(e); }
   }
   // «ملفي › بيانات الحساب» (phase 13 decision 39, 0072): the bank account — the member types their own; it comes back masked
@@ -441,6 +483,57 @@
     const uid = member ? uidOf(member) : myUid(); if (!uid) return no('network');
     const { data: d, error } = await rpc('hr_bank_reveal', { p_member: uid }); if (error) return bankFail(error);
     return { ok: true, bank: { bankName: d.bank_name || '', holder: d.holder || '', number: d.account_number || '', iban: d.iban || '' } };
+  }
+  // ---------- the HR rebuild (0083): «تحويل المرتبات», one member's pay, an advance, the overtime fix, the evaluation ----------
+  // the server logs each one (hr.payroll.paid / hr.payroll.member / hr.advance.give / hr.overtime.adjust / hr.evaluate — months and codes only)
+  const accountsChanged = () => { const A = window.IBAccounts; if (A && A.load) quiet(() => A.load()); }; // the expenses and the withdrawals are the accounts' rows
+  const payDayOf = (month) => { const k = monthKey(month || today()); const last = new Date(Date.UTC(Number(k.slice(0, 4)), Number(k.slice(5, 7)), 0)).getUTCDate();
+    const d = Math.min(Math.max(1, Math.round(Number(settings().payDay) || 28)), last); return k + '-' + String(d).padStart(2, '0'); };
+  const early = (month) => today() < payDayOf(month); // before the month's pay day = an early transfer (its reason is a must)
+  async function transfer(month, account) {
+    if (!ACCOUNTS.includes(account)) return no('invalid', 'account');
+    const { data: d, error } = await rpc('hr_payroll_transfer', { p_month: monthArg(month), p_account: account }); if (error) return fail(error);
+    accountsChanged(); await load(); return { ok: true, total: Number(d) || 0 };
+  }
+  async function payMember(month, member, account, reason) {
+    const uid = uidOf(member); if (!uid) return no('invalid'); if (!ACCOUNTS.includes(account)) return no('invalid', 'account');
+    const why = clean(reason, 300); if (early(month) && !why) return no('invalid', 'reason');
+    const { data: d, error } = await rpc('hr_pay_member', { p_month: monthArg(month), p_member: uid, p_account: account, p_reason: why || null }); if (error) return fail(error);
+    accountsChanged(); await load(); return { ok: true, net: Number(d) || 0 };
+  }
+  async function advanceGive(member, amount, reason, account) {
+    const uid = uidOf(member); if (!uid) return no('invalid'); const a = Math.round(Number(amount) * 100) / 100;
+    if (!(a > 0) || a > 1000000) return no('invalid', 'amount'); const why = clean(reason, 300); if (!why) return no('invalid', 'reason'); if (!ACCOUNTS.includes(account)) return no('invalid', 'account');
+    const { data: d, error } = await rpc('hr_advance_give', { p_member: uid, p_amount: a, p_reason: why, p_account: account }); if (error) return fail(error);
+    accountsChanged(); await load(); return { ok: true, id: reqId(d) };
+  }
+  async function otAdjust(member, month, minutes, reason) {
+    const uid = uidOf(member); if (!uid) return no('invalid'); const m = Math.round(Number(minutes));
+    if (!m || Math.abs(m) > 6000) return no('invalid', 'minutes'); const why = clean(reason, 300); if (!why) return no('invalid', 'reason');
+    const { error } = await rpc('hr_ot_adjust_add', { p_member: uid, p_month: monthArg(month), p_minutes: m, p_reason: why }); if (error) return fail(error);
+    await load(); return { ok: true };
+  }
+  // the month's total out of 5 (the server's hr_eval_total): the average of the three, of the two when no working day was asked
+  const evalTotal = (att, perf, comm) => (perf == null || comm == null ? null : Math.round((att == null ? (perf + comm) / 2 : (att + perf + comm) / 3) * 10) / 10);
+  async function evaluate(member, month, perf, comm, note) {
+    const uid = uidOf(member); if (!uid) return no('invalid'); const p = Math.round(Number(perf)); const q = Math.round(Number(comm));
+    if (!(p >= 1 && p <= 5)) return no('invalid', 'performance'); if (!(q >= 1 && q <= 5)) return no('invalid', 'communication');
+    const { data: d, error } = await rpc('hr_evaluate', { p_member: uid, p_month: monthArg(month), p_perf: p, p_comm: q, p_note: note ? clean(note, 500) : null }); if (error) return fail(error);
+    await load(); return { ok: true, total: d == null ? null : Number(d) };
+  }
+  // a quarter (YYYY-Q1…4) from its months: each part the average of the months that have it, the total the average of the rated months'
+  function quarterEval(code, q) {
+    const m = /^(\d{4})-Q([1-4])$/.exec(String(q || '')); if (!m) return null;
+    const months = [1, 2, 3].map((i) => m[1] + '-' + String((Number(m[2]) - 1) * 3 + i).padStart(2, '0')); const ev = data.evals[code] || {};
+    const avg = (l) => (l.length ? Math.round(l.reduce((n, x) => n + x, 0) / l.length * 10) / 10 : null);
+    const rows = months.map((k) => ev[k]).filter(Boolean); const rated = rows.filter((x) => x.total != null);
+    return { quarter: q, months, att: avg(rows.map((x) => x.att).filter((x) => x != null)), perf: avg(rated.map((x) => x.perf)), comm: avg(rated.map((x) => x.comm)),
+      total: avg(rated.map((x) => x.total)), rated: rated.length, missing: months.filter((k) => k <= monthKey(today()) && !(ev[k] && ev[k].total != null)).length };
+  }
+  // the member's tasks of a month for the evaluator (decision 2): the ones done in it and the ones still open
+  function monthTasks(code, month) {
+    const k = monthKey(month || today()); const end = k + '-31'; const mine = (data.tasks || []).filter((x) => x.member === code);
+    return { done: mine.filter((x) => x.status === 'خلصت' && String(x.doneDay || x.day || '').startsWith(k)), open: mine.filter((x) => x.status !== 'خلصت' && String(x.day || '') <= end) };
   }
   async function payrollOpen(month) { const { error } = await rpc('hr_payroll_open', { p_month: monthArg(month) }); if (error) return fail(error); await load(); return { ok: true }; }
   async function payrollStep(month, step) { const { error } = await rpc('hr_payroll_step', { p_month: monthArg(month), p_step: step }); if (error) return fail(error); return after(step === 'معتمد' ? 'hr.payroll.approve' : 'hr.payroll.review', monthKey(month) + ' → ' + step); }
@@ -743,9 +836,9 @@
     'hr.request.create': ['قدّم طلب', 'الطلبات'], 'hr.request.approve': ['وافق على طلب', 'الطلبات'], 'hr.request.reject': ['رفض طلب', 'الطلبات'], 'hr.request.review': ['راجع طلب', 'الطلبات'], 'hr.request.cancel': ['لغى طلب', 'الطلبات'],
     'hr.member.create': ['ضاف عضو', 'الأعضاء'], 'hr.member.update': ['عدّل بيانات عضو', 'الأعضاء'], 'hr.member.delete': ['حذف عضو', 'الأعضاء'], 'hr.member.invite': ['بعت إيميل الباسورد', 'الأعضاء'], 'hr.member.password': ['باسورد مؤقت جديد', 'الأعضاء'],
     'hr.contract.upload': ['رفع عقد / مستند', 'الأعضاء'], 'hr.contract.void': ['شال مستند', 'الأعضاء'], 'hr.bank.set': ['عدّل الحساب البنكي', 'الأعضاء'], 'hr.bank.reveal': ['كشف رقم الحساب البنكي', 'الأعضاء'],
-    'hr.payroll.review': ['راجع كشف المرتبات', 'المرتبات'], 'hr.payroll.approve': ['اعتمد كشف المرتبات', 'المرتبات'], 'hr.payroll.paid': ['صرف المرتبات', 'المرتبات'], 'hr.payroll.adjust': ['تسوية على الكشف', 'المرتبات'], 'hr.payroll.adjust.void': ['لغى تسوية', 'المرتبات'], 'hr.pay.update': ['عدّل المرتب', 'المرتبات'],
+    'hr.payroll.review': ['راجع كشف المرتبات', 'المرتبات'], 'hr.payroll.approve': ['اعتمد كشف المرتبات', 'المرتبات'], 'hr.payroll.paid': ['حوّل المرتبات', 'المرتبات'], 'hr.payroll.member': ['حوّل مرتب عضو', 'المرتبات'], 'hr.advance.give': ['حوّل سلفة', 'المرتبات'], 'hr.overtime.adjust': ['صحّح الأوفر تايم', 'المرتبات'], 'hr.payroll.adjust': ['تسوية على الكشف', 'المرتبات'], 'hr.payroll.adjust.void': ['لغى تسوية', 'المرتبات'], 'hr.pay.update': ['عدّل المرتب', 'المرتبات'],
     'hr.extra.create': ['مكافأة / خصم', 'المرتبات'], 'hr.extra.decision': ['قرار مكافأة / خصم', 'المرتبات'],
-    'hr.kpi.rate': ['قيّم الشهر', 'التقييم'], 'hr.kpi.define': ['عدّل مؤشرات الأداء', 'التقييم'], 'hr.meeting.create': ['حدد ميتنج', 'التقييم'], 'hr.meeting.update': ['عدّل ميتنج', 'التقييم'], 'hr.achievement': ['إنجاز', 'التقييم'],
+    'hr.evaluate': ['قيّم الشهر', 'التقييم'], 'hr.kpi.rate': ['قيّم الشهر (المؤشرات القديمة)', 'التقييم'], 'hr.kpi.define': ['عدّل مؤشرات الأداء', 'التقييم'], 'hr.meeting.create': ['حدد ميتنج', 'التقييم'], 'hr.meeting.update': ['عدّل ميتنج', 'التقييم'], 'hr.achievement': ['إنجاز', 'التقييم'],
     'hr.task.add': ['ضاف مهمة', 'المهام'], 'hr.task.status': ['غيّر حالة مهمة', 'المهام'], 'hr.task.delete': ['حذف مهمة', 'المهام'], 'hr.task.review': ['راجع مهمة', 'المهام'],
     'hr.holiday.create': ['ضاف عطلة رسمية', 'الإعدادات'], 'hr.holiday.confirm': ['أكّد عطلة رسمية', 'الإعدادات'], 'hr.holiday.delete': ['شال عطلة رسمية', 'الإعدادات'], 'hr.settings': ['عدّل إعدادات الموارد البشرية', 'الإعدادات'] };
   const logLabel = (action) => LOG_LABELS[action] || [String(action || '').replace(/^hr\./, ''), 'أخرى'];
@@ -769,7 +862,7 @@
 
   window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, decidesOt, settings, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
     shiftNow, myShift, clockIn, clockOut, overtimeBegin, overtimeRequest, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
-    payrollCalc, payrollLines, sheetLines, slips, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
+    payrollCalc, payrollLines, sheetLines, sheetTotals, slips, transfer, payMember, advanceGive, otAdjust, payDayOf, evaluate, evalTotal, quarterEval, monthTasks, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,
     memberCreate, memberPassword, memberInvite, memberDelete, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
     tasksOf, reviewsFor, canTask, canDeleteTask, taskAdd, taskSet, taskDelete, taskReview, loadTasks, people: () => data.people.slice(), TASK_STATUSES, loadLog, logNow, logLabel,

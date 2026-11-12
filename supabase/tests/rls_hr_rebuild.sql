@@ -41,6 +41,14 @@ do $$ begin
   end if;
 end $$;
 
+-- ================================================================ the requests tab is gone: no function sends the reader there
+do $$ begin
+  if exists (select 1 from pg_proc p join pg_namespace n on n.oid = p.pronamespace where n.nspname = 'public' and p.prosrc like '%«الموارد البشرية › الطلبات»%') then
+    raise exception 'case no text points at the removed requests tab failed';
+  end if;
+  if not exists (select 1 from pg_proc where proname = 'hr_overtime_decide' and prosrc like '%''اترفض الوقت الإضافي''%') then raise exception 'case the rejection event stays failed'; end if;
+end $$;
+
 -- ================================================================ the attendance score (by the days) — February 2026, no leave
 do $$
 declare req int; v numeric;

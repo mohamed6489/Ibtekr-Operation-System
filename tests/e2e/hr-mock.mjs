@@ -23,7 +23,7 @@ const restDay = (st, d) => { const w = new Date(d + 'T00:00:00Z').getUTCDay(); r
 // the column grants of 0046 (security review 5 Nov): no member reads or writes hr_members.notes — hr_member_notes / hr_member_note_set
 const CLOSED = { hr_members: ['notes'] };
 const COLS = {
-  hr_members: ['member_id', 'shift_start', 'shift_end', 'hire_date', 'leave_days', 'notes', 'updated_by', 'updated_at'],
+  hr_members: ['member_id', 'shift_start', 'shift_end', 'hire_date', 'leave_days', 'notes', 'updated_by', 'updated_at', 'leave_carry', 'leave_carry_year'],
   hr_pay: ['member_id', 'salary', 'holdback', 'allowances', 'updated_by', 'updated_at'],
   hr_attendance: ['id', 'member_id', 'day', 'in_at', 'out_at', 'remote', 'source', 'note', 'by_id', 'updated_at', 'ot_from', 'ot_ticket'],
   hr_overtime: ['id', 'member_id', 'day', 'start_at', 'end_at', 'minutes', 'kind', 'note', 'status', 'paid_minutes', 'pay_month', 'decided_by', 'decided_at', 'reason', 'created_at', 'ticket_id'],
@@ -38,23 +38,26 @@ const COLS = {
   hr_meetings: ['id', 'member_id', 'reason', 'status', 'day', 'time_text', 'place', 'outcome', 'plan', 'goals', 'support', 'review_on', 'progress', 'notes', 'ref', 'created_by', 'created_at', 'updated_at'],
   hr_adjustments: ['id', 'member_id', 'month', 'amount', 'label', 'note', 'kind', 'created_by', 'created_at', 'voided_by', 'voided_at'],
   hr_payroll: ['month', 'status', 'opened_at', 'reviewed_by', 'reviewed_at', 'approved_by', 'approved_at', 'paid_by', 'paid_at', 'paid_account', 'total'],
-  hr_payroll_lines: ['month', 'member_id', 'name', 'salary', 'holdback', 'paid', 'ot_minutes', 'ot_pay', 'rest_days', 'rest_pay', 'unpaid_days', 'unpaid_cut', 'allowances', 'deductions', 'advance', 'quarter_bonus', 'net'],
+  hr_payroll_lines: ['month', 'member_id', 'name', 'salary', 'holdback', 'paid', 'ot_minutes', 'ot_pay', 'rest_days', 'rest_pay', 'unpaid_days', 'unpaid_cut', 'allowances', 'deductions', 'advance', 'quarter_bonus', 'net', 'leave_days_paid', 'leave_pay'],
+  // the HR rebuild (0083): who was paid per month, the overtime fixes (no direct write — the RPCs below)
+  hr_payroll_paid: ['month', 'member_id', 'amount', 'account', 'early_reason', 'paid_by', 'paid_at'],
+  hr_ot_adjust: ['id', 'member_id', 'month', 'minutes', 'reason', 'by_id', 'at'],
   hr_documents: ['id', 'member_id', 'kind', 'path', 'name', 'start_on', 'end_on', 'created_by', 'created_at', 'voided_by', 'voided_at'],
   hr_tasks: ['id', 'member_id', 'title', 'status', 'day', 'reason', 'reviewer_id', 'until', 'review_note', 'done_at', 'created_by', 'created_at', 'updated_by', 'updated_at', 'deleted_at', 'deleted_by'],
 };
 const KEY = { hr_attendance: 'attendance', hr_overtime: 'overtime', hr_requests_v: 'requests', hr_holidays: 'holidays', hr_leave_types: 'leave_types', hr_bonus_rules: 'bonus_rules', hr_ot_periods: 'ot_periods',
-  hr_kpis: 'kpis', hr_scores: 'scores', hr_extras: 'extras', hr_meetings: 'meetings', hr_adjustments: 'adjustments', hr_payroll: 'payroll', hr_payroll_lines: 'payroll_lines', hr_documents: 'documents', hr_members: 'members', hr_pay: 'pay', hr_tasks: 'tasks' };
+  hr_kpis: 'kpis', hr_scores: 'scores', hr_extras: 'extras', hr_meetings: 'meetings', hr_adjustments: 'adjustments', hr_payroll: 'payroll', hr_payroll_lines: 'payroll_lines', hr_documents: 'documents', hr_members: 'members', hr_pay: 'pay', hr_tasks: 'tasks', hr_payroll_paid: 'payroll_paid', hr_ot_adjust: 'ot_adjust' };
 
 export function hrState(opts = {}) {
   const T = '2026-11-01T08:00:00Z'; const copy = (l) => (l || []).map((x) => JSON.parse(JSON.stringify(x)));
   return {
     resend: opts.hrResend !== undefined ? opts.hrResend : true, mails: [], // decision 14: team-admin mails the set-your-password link when Resend is set (the default here); hrResend: false = the password
-    members: copy(opts.hrMembers).map((x) => ({ shift_start: '09:00', shift_end: '17:00', hire_date: null, leave_days: 21, notes: null, ...x })),
+    members: copy(opts.hrMembers).map((x) => ({ shift_start: '09:00', shift_end: '17:00', hire_date: null, leave_days: 21, notes: null, leave_carry: 0, leave_carry_year: null, ...x })),
     pay: copy(opts.hrPay).map((x) => ({ holdback: 0, allowances: 0, ...x })),
     attendance: copy(opts.hrAttendance).map((x, i) => ({ id: i + 1, out_at: null, remote: false, source: 'clock', note: null, by_id: x.member_id, ...x })),
     overtime: copy(opts.hrOvertime).map((x, i) => ({ id: i + 1, kind: 'hours', status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: T, ...x }))
       .map((x) => ({ ...x, pay_month: x.pay_month !== undefined ? x.pay_month : x.status === 'اتضاف' ? monthOf(x.day) : null })),
-    requests: copy(opts.hrRequests).map((x, i) => ({ id: i + 1, at_time: null, hours: null, amount: null, months: null, note: null, status: 'جديد', decided_by: null, decided_at: null, reason: null, created_by: x.member_id, created_at: T, doc_path: null, ...x })),
+    requests: copy(opts.hrRequests).map((x, i) => ({ id: i + 1, at_time: null, hours: null, amount: null, months: null, note: null, status: 'جديد', decided_by: null, decided_at: null, reason: null, created_by: x.member_id, created_at: T, doc_path: null, pay_from: null, ...x })),
     holidays: copy(opts.hrHolidays).map((x, i) => ({ id: i + 1, days: 1, kind: 'رسمية', status: 'مؤكد', created_by: null, created_at: T, ...x })),
     leave_types: [['إجازة سنوية', '21 يوم', 'نعم', '—', 'لحد 5 أيام', 'المدير المباشر', true, false, 1], ['إجازة عارضة', '6 أيام (من السنوية)', 'نعم', '—', '—', 'المدير المباشر', true, false, 2],
       ['إجازة مرضية', 'حسب التقرير', 'نعم', 'تقرير طبي إلزامي', '—', 'الأدمن', false, false, 3], ['إجازة بدون أجر', '—', 'لا (يوم = ÷ 24)', '—', '—', 'المالك', false, true, 4]]
@@ -67,7 +70,11 @@ export function hrState(opts = {}) {
     meetings: copy(opts.hrMeetings).map((x, i) => ({ id: i + 1, status: 'مطلوب', day: null, time_text: null, place: null, outcome: null, plan: null, goals: [], support: null, review_on: null, progress: null, notes: null, ref: null, created_by: null, created_at: T, updated_at: T, ...x })),
     adjustments: copy(opts.hrAdjustments).map((x, i) => ({ id: i + 1, note: null, kind: 'adjust', created_by: null, created_at: T, voided_by: null, voided_at: null, ...x })),
     payroll: copy(opts.hrPayroll).map((x) => ({ status: 'مسودة', opened_at: T, reviewed_by: null, reviewed_at: null, approved_by: null, approved_at: null, paid_by: null, paid_at: null, paid_account: null, total: null, ...x })),
-    payroll_lines: copy(opts.hrPayrollLines), documents: copy(opts.hrDocuments).map((x, i) => ({ id: i + 1, start_on: null, end_on: null, created_by: null, created_at: T, voided_by: null, voided_at: null, ...x })),
+    payroll_lines: copy(opts.hrPayrollLines).map((x) => ({ leave_days_paid: 0, leave_pay: 0, ...x })),
+    // the HR rebuild (0083)
+    payroll_paid: copy(opts.hrPayrollPaid).map((x) => ({ early_reason: null, paid_by: null, paid_at: T, ...x })),
+    ot_adjust: copy(opts.hrOtAdjust).map((x, i) => ({ id: i + 1, by_id: null, at: T, ...x })),
+    evaluations: copy(opts.hrEvaluations).map((x) => ({ note: null, rated_by: null, rated_at: T, ...x })), documents: copy(opts.hrDocuments).map((x, i) => ({ id: i + 1, start_on: null, end_on: null, created_by: null, created_at: T, voided_by: null, voided_at: null, ...x })),
     // «ملفي › مهامي» (decision 25, 0048): no direct write — hr_task_add / set / delete / review below
     tasks: copy(opts.hrTasks).map((x, i) => ({ id: i + 1, status: 'لسه', day: hrToday(), reason: null, reviewer_id: null, until: null, review_note: null, done_at: null, created_by: x.member_id, created_at: T, updated_by: null, updated_at: T, deleted_at: null, deleted_by: null, ...x })),
     bank: copy(opts.hrBank), // decision 39 (0072): closed — hr_bank_get / set / reveal below
@@ -230,7 +237,7 @@ export function hrRoute(c) {
       if (H.overtime.some((o) => o.member_id === u.id && Date.parse(o.start_at) < Date.parse(en) && Date.parse(o.end_at) > Date.parse(st)) || (rest && H.overtime.some((o) => o.member_id === u.id && o.day === d && o.kind === 'rest_day'))) return bad('overlap');
       const tid = otTicket(u.id, d, rest); const id = nextId();
       H.overtime.push({ id, member_id: u.id, day: d, start_at: st, end_at: en, minutes: min, kind: rest ? 'rest_day' : 'hours', note, status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now, ticket_id: tid });
-      otEvent(tid, 'طلب وقت إضافي: ' + min + ' دقيقة — مستني الموافقة (التفاصيل في «الموارد البشرية › الطلبات»)');
+      otEvent(tid, 'طلب وقت إضافي: ' + min + ' دقيقة — مستني الموافقة (التفاصيل في كارت الطلب هنا)');
       return json(200, { id, ticket: tid, minutes: min, rest_day: rest });
     }
     if (f === 'hr_overtime_begin') {
@@ -256,7 +263,7 @@ export function hrRoute(c) {
       const since = a.ot_from ? Math.max(0, minutes(Date.parse(a.ot_from) > Date.parse(a.in_at) ? a.ot_from : a.in_at, out)) : 0;
       const part = Math.min(worked, Math.max(total - 480, 0, since)); let tid = null;
       let otId = null; if (note && part > 0) { otId = nextId(); tid = a.ot_ticket || otTicket(u.id, a.day, false); H.overtime.push({ id: otId, member_id: u.id, day: a.day, start_at: new Date(Date.parse(out) - part * 60000).toISOString(), end_at: out, minutes: part, kind: 'hours', note, status: 'مستني', paid_minutes: 0, decided_by: null, decided_at: null, reason: null, created_at: now, ticket_id: tid });
-        otEvent(tid, 'الوقت الإضافي: ' + part + ' دقيقة — مستني موافقة المدير المباشر (التفاصيل في «الموارد البشرية › الطلبات»)'); }
+        otEvent(tid, 'الوقت الإضافي: ' + part + ' دقيقة — مستني موافقة المدير المباشر (التفاصيل في كارت الطلب هنا)'); }
       else if (a.ot_ticket) { otEvent(a.ot_ticket, 'الدوام خلص من غير وقت إضافي يتسجل'); otClose(a.ot_ticket, 'مش مشكلة', 'مافيش وقت إضافي اتسجل'); }
       return json(200, { worked, day_total: total, overtime_id: otId, overtime: otId ? part : 0, ticket: tid });
     }
@@ -304,8 +311,9 @@ export function hrRoute(c) {
       const r = H.requests.find((x) => x.id === Number(b.p_id)); if (!r || !sees(r.member_id)) return nf(); if (!decides(r.member_id)) return no();
       if (!['جديد', 'قيد المراجعة'].includes(r.status)) return bad('status'); if (!['موافق', 'مرفوض', 'قيد المراجعة'].includes(b.p_decision)) return bad('decision');
       const reason = String(b.p_reason || '').trim() || null; if (b.p_decision === 'مرفوض' && !reason) return bad('reason');
-      Object.assign(r, { status: b.p_decision, reason, decided_by: b.p_decision === 'قيد المراجعة' ? null : u.id, decided_at: b.p_decision === 'قيد المراجعة' ? null : now });
-      if (r.ticket_id) { if (b.p_decision === 'قيد المراجعة') otEvent(r.ticket_id, 'الطلب قيد المراجعة'); else { otEvent(r.ticket_id, b.p_decision === 'موافق' ? 'اتوافق على الطلب' : 'اترفض الطلب (السبب في «الموارد البشرية › الطلبات»)'); otClose(r.ticket_id, b.p_decision === 'موافق' ? 'اتحلت المشكلة' : 'مش مشكلة', b.p_decision === 'موافق' ? 'اتوافق' : 'اترفض'); } } // 0071
+      Object.assign(r, { status: b.p_decision, reason, decided_by: b.p_decision === 'قيد المراجعة' ? null : u.id, decided_at: b.p_decision === 'قيد المراجعة' ? null : now,
+        pay_from: b.p_decision === 'موافق' && r.type === 'سُلفة' ? openMonthFor(H, r.member_id, today) : null }); // 0083: the advance comes off that month whole
+      if (r.ticket_id) { if (b.p_decision === 'قيد المراجعة') otEvent(r.ticket_id, 'الطلب قيد المراجعة'); else { otEvent(r.ticket_id, b.p_decision === 'موافق' ? 'اتوافق على الطلب' : 'اترفض الطلب'); otClose(r.ticket_id, b.p_decision === 'موافق' ? 'اتحلت المشكلة' : 'مش مشكلة', b.p_decision === 'موافق' ? 'اتوافق' : 'اترفض'); } } // 0071
       if (b.p_decision === 'موافق' && r.type === 'تصحيح انصراف') { const a = H.attendance.filter((x) => x.member_id === r.member_id && x.day === r.from_day).sort((x, y) => ((y.out_at == null) - (x.out_at == null)) || (x.in_at < y.in_at ? 1 : -1))[0]; if (a) /* 0068: the open session, else the latest */ Object.assign(a, { out_at: hrAt(r.from_day, r.at_time), source: 'fix', updated_at: now }); }
       return json(200, b.p_decision);
     }
@@ -322,7 +330,7 @@ export function hrRoute(c) {
         return json(200, 'اتضاف'); }
       if (b.p_decision === 'reject') { if (!reason) return bad('reason'); Object.assign(o, { status: 'اترفض', paid_minutes: 0, pay_month: null, decided_by: u.id, decided_at: now, reason });
         H.meetings.push({ id: nextId(), member_id: o.member_id, reason: 'وقت إضافي اترفض — نعرف كان بيعمل إيه', status: 'مطلوب', day: null, time_text: null, place: null, outcome: null, plan: null, goals: [], support: null, review_on: null, progress: null, notes: null, ref: 'OT-' + o.id, created_by: u.id, created_at: now, updated_at: now });
-        if (o.ticket_id) { otEvent(o.ticket_id, 'اترفض الوقت الإضافي (السبب في «الموارد البشرية › الطلبات»)'); otClose(o.ticket_id, 'مش مشكلة', 'اترفض'); }
+        if (o.ticket_id) { otEvent(o.ticket_id, 'اترفض الوقت الإضافي'); otClose(o.ticket_id, 'مش مشكلة', 'اترفض'); }
         return json(200, 'اترفض'); }
       return bad('decision');
     }
@@ -336,6 +344,60 @@ export function hrRoute(c) {
       return json(200, score);
     }
     if (f === 'hr_payroll_calc') { if (!salaries) return no(); return json(200, calc(H, mock, monthOf(b.p_month))); }
+    // ---------- the HR rebuild (0083): the evaluation, «تحويل المرتبات», one member's pay, an advance, the overtime fix ----------
+    if (f === 'hr_evaluations_list') {
+      if (!active) return no(); const from = monthOf(b.p_from); const to = [monthOf(b.p_to), monthOf(today)].sort()[0]; if (!b.p_from || !b.p_to || from > to) return bad('range');
+      const out = []; mock.profiles.filter((p) => p.status === 'active' && sees(p.id)).sort((x, y) => (x.name < y.name ? -1 : 1)).forEach((p) => {
+        for (let m = from; m <= to; m = nextMonth(m)) { const e = H.evaluations.find((x) => x.member_id === p.id && x.month === m) || null; const att = attScore(H, p.id, m);
+          out.push({ member_id: p.id, month: m, attendance: att, performance: e ? e.performance : null, communication: e ? e.communication : null, total: e ? evalTotal(att, e.performance, e.communication) : null,
+            note: e ? e.note : null, rated_by: e ? e.rated_by : null, rated_at: e ? e.rated_at : null }); } });
+      return json(200, out);
+    }
+    if (f === 'hr_evaluate') {
+      if (!active) return no(); const p = prof(b.p_member); if (!p) return nf();
+      if (!(isAdmin(u) || (b.p_member !== u.id && (editor || manages(b.p_member))))) return no();
+      const m = monthOf(b.p_month); if (m > monthOf(today)) return bad('month');
+      if (!(Number.isInteger(b.p_perf) && b.p_perf >= 1 && b.p_perf <= 5)) return bad('performance'); if (!(Number.isInteger(b.p_comm) && b.p_comm >= 1 && b.p_comm <= 5)) return bad('communication');
+      const note = String(b.p_note || '').trim() || null; if (note && note.length > 500) return bad('note');
+      const row = { member_id: b.p_member, month: m, performance: b.p_perf, communication: b.p_comm, note, rated_by: u.id, rated_at: now };
+      const ex = H.evaluations.find((x) => x.member_id === b.p_member && x.month === m); if (ex) Object.assign(ex, row); else H.evaluations.push(row);
+      mock.activity.push({ action: 'hr.evaluate', entity: 'hr', entity_id: b.p_member, actor: u.id, new_value: m.slice(0, 7) });
+      return json(200, evalTotal(attScore(H, b.p_member, m), b.p_perf, b.p_comm));
+    }
+    const paidSheet = (m) => H.payroll.some((p) => p.month === m && p.status === 'مدفوع'); const paidMember = (m, id) => H.payroll_paid.some((x) => x.month === m && x.member_id === id);
+    const sheetRow = (m) => { let p = H.payroll.find((x) => x.month === m); if (!p) { p = { month: m, status: 'مسودة', opened_at: now, reviewed_by: null, reviewed_at: null, approved_by: null, approved_at: null, paid_by: null, paid_at: null, paid_account: null, total: null }; H.payroll.push(p); } return p; };
+    const expense = (name, amount, note) => mock.acc.acc_expenses.push({ id: nextId(), on_date: today, direction: 'withdraw', category: 'المرتبات', beneficiary: String(name).slice(0, 80), beneficiary_other: false, amount, note, created_by: u.id, created_at: now, updated_by: null, updated_at: null, voided_by: null, voided_at: null });
+    const withdraw = (account, amount, note) => mock.acc.acc_account_moves.push({ id: nextId(), account, on_date: today, direction: 'withdraw', amount, note, created_by: u.id, created_at: now, updated_by: null, updated_at: null, voided_by: null, voided_at: null });
+    const payLine = (m, id, account, reason) => { const c0 = calc(H, mock, m).find((x) => x.member_id === id); if (!c0) return null; const { missing_scores, ...l } = c0;
+      H.payroll_lines = H.payroll_lines.filter((x) => !(x.month === m && x.member_id === id)); H.payroll_lines.push({ month: m, ...l });
+      if (l.net > 0) expense(l.name, l.net, 'مرتب ' + m.slice(0, 7)); H.payroll_paid.push({ month: m, member_id: id, amount: Math.max(l.net, 0), account, early_reason: reason, paid_by: u.id, paid_at: now }); return Math.max(l.net, 0); };
+    const payDay = (m) => { const last = new Date(Date.UTC(Number(m.slice(0, 4)), Number(m.slice(5, 7)), 0)).getUTCDate(); const set = (mock.settings.find((x) => x.section === 'hr') || {}).data || {};
+      return m.slice(0, 8) + String(Math.min(Math.max(1, Number(set.payDay) || 28), last)).padStart(2, '0'); };
+    if (f === 'hr_pay_member') {
+      if (!salaries) return no(); if (!ACCOUNTS.includes(b.p_account)) return bad('account'); const m = monthOf(b.p_month || today); const reason = String(b.p_reason || '').trim() || null;
+      sheetRow(m); if (paidSheet(m) || paidMember(m, b.p_member)) return bad('paid'); const isEarly = today < payDay(m); if (isEarly && !reason) return bad('reason');
+      const net = payLine(m, b.p_member, b.p_account, isEarly ? reason : null); if (net == null) return nf(); if (net > 0) withdraw(b.p_account, net, 'مرتب ' + m.slice(0, 7));
+      mock.activity.push({ action: 'hr.payroll.member', entity: 'hr', entity_id: b.p_member, actor: u.id }); return json(200, net);
+    }
+    if (f === 'hr_payroll_transfer') {
+      if (!salaries) return no(); if (!ACCOUNTS.includes(b.p_account)) return bad('account'); const m = monthOf(b.p_month || today); const p = sheetRow(m); if (paidSheet(m)) return bad('paid');
+      let total = 0; calc(H, mock, m).filter((l) => !paidMember(m, l.member_id)).forEach((l) => { total += payLine(m, l.member_id, b.p_account, null) || 0; });
+      total = Math.round(total * 100) / 100; if (total > 0) withdraw(b.p_account, total, 'مرتبات ' + m.slice(0, 7));
+      Object.assign(p, { status: 'مدفوع', paid_by: u.id, paid_at: now, paid_account: b.p_account, total: H.payroll_lines.filter((l) => l.month === m).reduce((n, l) => n + l.net, 0) });
+      mock.activity.push({ action: 'hr.payroll.paid', entity: 'hr', entity_id: m.slice(0, 7), actor: u.id }); return json(200, total);
+    }
+    if (f === 'hr_advance_give') {
+      if (!salaries) return no(); const p = prof(b.p_member); if (!p || p.status !== 'active') return nf(); const a = Number(b.p_amount); const reason = String(b.p_reason || '').trim();
+      if (!(a > 0) || a > 1000000) return bad('amount'); if (!reason || reason.length > 300) return bad('reason'); if (!ACCOUNTS.includes(b.p_account)) return bad('account');
+      const id = nextId(); const code = 'سلفة HR-' + String(id).padStart(4, '0');
+      H.requests.push({ id, member_id: b.p_member, type: 'سُلفة', from_day: today, to_day: today, at_time: null, hours: null, amount: a, months: 1, note: reason, status: 'موافق', decided_by: u.id, decided_at: now, reason: null, created_by: u.id, created_at: now, doc_path: null, ticket_id: null, pay_from: openMonthFor(H, b.p_member, today) });
+      expense(p.name, a, code); withdraw(b.p_account, a, code); mock.activity.push({ action: 'hr.advance.give', entity: 'hr', entity_id: b.p_member, actor: u.id }); return json(200, id);
+    }
+    if (f === 'hr_ot_adjust_add') {
+      if (!salaries) return no(); if (!prof(b.p_member)) return nf(); const m = monthOf(b.p_month || today); const min = Number(b.p_minutes); const reason = String(b.p_reason || '').trim();
+      if (!Number.isInteger(min) || !min || Math.abs(min) > 6000) return bad('minutes'); if (!reason || reason.length > 300) return bad('reason'); if (paidSheet(m) || paidMember(m, b.p_member)) return bad('paid');
+      const id = nextId(); H.ot_adjust.push({ id, member_id: b.p_member, month: m, minutes: min, reason, by_id: u.id, at: now }); mock.activity.push({ action: 'hr.overtime.adjust', entity: 'hr', entity_id: b.p_member, actor: u.id }); return json(200, id);
+    }
     // «ملفي › بيانات الحساب» (decision 39, 0072): my bank account, masked; an admin / sensitive.salaries reads anyone's; every reveal logged (no number)
     if (/^hr_bank_(get|set|reveal)$/.test(f)) {
       if (!active) return no();
@@ -359,8 +421,9 @@ export function hrRoute(c) {
     if (f === 'hr_my_slips') { // «ملفي › مرتبي» (T7): my approved / paid lines with the sheet's status, never its total
       if (!active) return json(200, []);
       const st = (m) => H.payroll.find((p) => p.month === m);
-      return json(200, H.payroll_lines.filter((l) => l.member_id === u.id && st(l.month) && ['معتمد', 'مدفوع'].includes(st(l.month).status)).sort((a, b) => (a.month < b.month ? 1 : -1))
-        .map(({ member_id, ...l }) => ({ ...l, status: st(l.month).status, paid_at: st(l.month).paid_at })));
+      const mine = (m) => H.payroll_paid.find((x) => x.month === m && x.member_id === u.id); // 0083: a month I was paid early counts
+      return json(200, H.payroll_lines.filter((l) => l.member_id === u.id && st(l.month) && (['معتمد', 'مدفوع'].includes(st(l.month).status) || mine(l.month))).sort((a, b) => (a.month < b.month ? 1 : -1))
+        .map(({ member_id, ...l }) => ({ ...l, status: mine(l.month) ? 'مدفوع' : st(l.month).status, paid_at: mine(l.month) ? mine(l.month).paid_at : st(l.month).paid_at })));
     }
     if (f === 'hr_payroll_open') { if (!salaries) return no(); const m = monthOf(b.p_month || today); if (!H.payroll.some((p) => p.month === m)) H.payroll.push({ month: m, status: 'مسودة', opened_at: now, reviewed_by: null, reviewed_at: null, approved_by: null, approved_at: null, paid_by: null, paid_at: null, paid_account: null, total: null }); return json(200, m); }
     if (f === 'hr_payroll_step') {
@@ -430,7 +493,7 @@ export function hrRoute(c) {
     if (miss) return refuse(400, '42703', 'column ' + t + '.' + miss + ' does not exist');
     if ((CLOSED[t] || []).some((x) => sel.includes(x) || sel.includes('*'))) return refuse(403, '42501', 'permission denied for table ' + t);
     if (!active) return json(200, []);
-    const visible = t === 'hr_pay' || t === 'hr_extras' || t === 'hr_payroll_lines' ? (r) => salaries || own(r) : t === 'hr_adjustments' ? (r) => salaries || (own(r) && !r.voided_at)
+    const visible = t === 'hr_pay' || t === 'hr_extras' || t === 'hr_payroll_lines' || t === 'hr_payroll_paid' ? (r) => salaries || own(r) : t === 'hr_adjustments' ? (r) => salaries || (own(r) && !r.voided_at)
       : t === 'hr_payroll' ? () => salaries : t === 'hr_documents' ? (r) => editor || own(r) : ['hr_holidays', 'hr_leave_types', 'hr_bonus_rules', 'hr_ot_periods'].includes(t) ? () => true
       : t === 'hr_tasks' ? (r) => !r.deleted_at && (sees(r.member_id) || (r.reviewer_id === u.id && r.status === 'جاهزة للمراجعة')) : (r) => sees(r.member_id);
     let list = H[key].map((r) => (t === 'hr_requests_v' ? { ...r, code: 'HR-' + String(r.id).padStart(4, '0'), amount: salaries || r.member_id === u.id ? r.amount : null } : r)).filter(visible).filter(match);
@@ -482,7 +545,31 @@ export function hrRoute(c) {
   return refuse(405, '42501', 'method not allowed');
 }
 
-// hr_payroll_calc (0046): the month's lines from the live rows
+// ---------- the HR rebuild (0083), the SQL's rules ----------
+const holDays = (H) => H.holidays.filter((h) => h.status === 'مؤكد').flatMap((h) => Array.from({ length: h.days || 1 }, (_, i) => addDays(h.day, i)));
+const workDay = (H, d) => { const w = new Date(d + 'T00:00:00Z').getUTCDay(); return w !== 5 && w !== 6 && !holDays(H).includes(d); };
+// hr_att_score: the days attended ÷ the working days asked (Sunday–Thursday, not a holiday, not an approved leave, from the hire date, up to
+// today) out of 5 to the half; null when none was asked
+function attScore(H, id, m0) {
+  const end = [addDays(nextMonth(m0), -1), hrToday()].sort()[0]; const hire = (H.members.find((x) => x.member_id === id) || {}).hire_date || m0;
+  const leave = (d) => H.requests.some((r) => r.member_id === id && r.status === 'موافق' && H.leave_types.some((t) => t.name === r.type) && r.from_day <= d && r.to_day >= d);
+  const req = []; for (let d = m0; d <= end; d = addDays(d, 1)) if (workDay(H, d) && !leave(d) && d >= hire) req.push(d);
+  if (!req.length) return null; const att = new Set(H.attendance.filter((a) => a.member_id === id && req.includes(a.day)).map((a) => a.day)).size;
+  return Math.round(Math.min(1, att / req.length) * 10) / 2;
+}
+// hr_eval_total: the average of the three (of the two when no day was asked), to one decimal
+const evalTotal = (att, perf, comm) => (perf == null || comm == null ? null : Math.round((att == null ? (perf + comm) / 2 : (att + perf + comm) / 3) * 10) / 10);
+// hr_open_month_for: the first month from a day whose sheet is not paid and where the member was not paid yet
+function openMonthFor(H, id, day) { let m = monthOf(day); while (H.payroll.some((p) => p.month === m && p.status === 'مدفوع') || H.payroll_paid.some((x) => x.month === m && x.member_id === id)) m = nextMonth(m); return m; }
+// hr_leave_left: the year's days + the days carried into it − the approved leave days that deduct
+function leaveLeft(H, id, year) {
+  const r0 = H.members.find((x) => x.member_id === id) || {}; const days = r0.leave_days == null ? 21 : Number(r0.leave_days); const carry = Number(r0.leave_carry_year) === year ? Number(r0.leave_carry) || 0 : 0;
+  let used = 0; H.requests.filter((r) => r.member_id === id && r.status === 'موافق' && (H.leave_types.find((t) => t.name === r.type) || {}).deducts).forEach((r) => {
+    for (let d = r.from_day > year + '-01-01' ? r.from_day : year + '-01-01'; d <= r.to_day && d <= year + '-12-31'; d = addDays(d, 1)) if (workDay(H, d)) used += 1; });
+  return Math.max(0, days + carry - used);
+}
+
+// hr_payroll_calc (0046 + 0083): the month's lines from the live rows
 function calc(H, mock, m0) {
   const m1 = nextMonth(m0); const mo = Number(m0.slice(5, 7)); const qEnd = mo % 3 === 0; const q0 = m0.slice(0, 5) + String(mo - ((mo - 1) % 3)).padStart(2, '0') + '-01';
   const qRef = m0.slice(0, 4) + '-Q' + Math.ceil(mo / 3); const r2 = (n) => Math.round((n + Number.EPSILON) * 100) / 100;
@@ -495,13 +582,19 @@ function calc(H, mock, m0) {
       for (let d = r.from_day > m0 ? r.from_day : m0; d <= r.to_day && d < m1; d = addDays(d, 1)) { const w = new Date(d + 'T00:00:00Z').getUTCDay(); if (w !== 5 && w !== 6 && !hol.includes(d)) ud += 1; } });
     const adj = H.adjustments.filter((j) => j.member_id === id && j.month === m0 && !j.voided_at);
     const plus = adj.reduce((n, j) => n + Math.max(Number(j.amount), 0), 0); const minus = adj.reduce((n, j) => n + Math.max(-Number(j.amount), 0), 0);
-    const adv = H.requests.filter((r) => r.member_id === id && r.type === 'سُلفة' && r.status === 'موافق' && r.decided_at).filter((r) => { const dm = monthOf(new Date(r.decided_at).toISOString().slice(0, 10)); return m0 >= nextMonth(dm) && m0 < nextMonth(dm, 1 + r.months); })
-      .reduce((n, r) => n + r2(Number(r.amount) / r.months), 0);
-    const sc = H.scores.filter((x) => x.member_id === id && x.month >= q0 && x.month < nextMonth(q0, 3)).map((x) => Number(x.score));
+    // 0083 decision 4: an advance with its month (pay_from) comes off it whole; the old ones by installments from the month after the decision
+    const adv = H.requests.filter((r) => r.member_id === id && r.type === 'سُلفة' && r.status === 'موافق' && r.decided_at).reduce((n, r) => {
+      if (r.pay_from) return n + (r.pay_from === m0 ? Number(r.amount) : 0);
+      const dm = monthOf(new Date(r.decided_at).toISOString().slice(0, 10)); return n + (m0 >= nextMonth(dm) && m0 < nextMonth(dm, 1 + r.months) ? r2(Number(r.amount) / r.months) : 0); }, 0);
+    const set = (mock.settings.find((x) => x.section === 'hr') || {}).data || {}; const bar = Number(set.bonusMin) || 3;
+    // decision 3: the quarter's months, each rated month ≥ the bar = its holdback whole
+    const ev = [0, 1, 2].map((i) => nextMonth(q0, i)).map((m) => { const e = H.evaluations.find((x) => x.member_id === id && x.month === m); return e ? evalTotal(attScore(H, id, m), e.performance, e.communication) : null; });
     const ex = H.extras.filter((e) => e.member_id === id && e.quarter === qRef && e.status === 'معتمدة').reduce((n, e) => n + Number(e.amount), 0);
-    const qb = qEnd ? r2(sc.reduce((n, x) => n + (x < 70 ? 0 : hb * Math.min(x, 100) / 100), 0) + ex) : 0;
-    const paid = r2(s - hb); const otp = r2(s / 24 / 8 * otm / 60); const rp = r2(s / 24 * 2 * rd); const uc = r2(s / 24 * ud); const al2 = r2(al + plus); const ded = r2(minus);
-    return { member_id: id, name: prof.name, salary: s, holdback: hb, paid, ot_minutes: otm, ot_pay: otp, rest_days: rd, rest_pay: rp, unpaid_days: ud, unpaid_cut: uc, allowances: al2, deductions: ded, advance: r2(adv),
-      quarter_bonus: qb, net: r2(paid + otp + rp + al2 - ded - adv - uc + qb), missing_scores: qEnd ? 3 - sc.length : 0 };
+    const qb = qEnd ? r2(ev.reduce((n, x) => n + (x != null && x >= bar ? hb : 0), 0) + ex) : 0;
+    const ota = (H.ot_adjust || []).filter((a) => a.member_id === id && a.month === m0).reduce((n, a) => n + Number(a.minutes), 0); const otAll = Math.max(0, otm + ota);
+    const ld = mo === 12 && (set.leaveYearEnd || 'pay') === 'pay' ? leaveLeft(H, id, Number(m0.slice(0, 4))) : 0; const lp = r2(s / 24 * ld);
+    const paid = r2(s - hb); const otp = r2(s / 24 / 8 * otAll / 60); const rp = r2(s / 24 * 2 * rd); const uc = r2(s / 24 * ud); const al2 = r2(al + plus); const ded = r2(minus);
+    return { member_id: id, name: prof.name, salary: s, holdback: hb, paid, ot_minutes: otAll, ot_pay: otp, rest_days: rd, rest_pay: rp, unpaid_days: ud, unpaid_cut: uc, allowances: al2, deductions: ded, advance: r2(adv),
+      quarter_bonus: qb, net: r2(paid + otp + rp + al2 - ded - adv - uc + qb + lp), missing_scores: qEnd ? ev.filter((x) => x == null).length : 0, leave_days_paid: ld, leave_pay: lp };
   }).sort((a, b) => (a.name < b.name ? -1 : 1));
 }

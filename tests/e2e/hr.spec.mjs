@@ -62,6 +62,12 @@ test('«الموارد البشرية» is open: the team from the server (the t
   const offToday = dow(T) === 5 || dow(T) === 6; const after17 = cairoMin() > 17 * 60; // no day of hers today: absent once her shift is over
   await expect(table.locator('tbody tr', { hasText: 'منى حسن' })).toContainText(offToday ? 'راحة أسبوعية' : after17 ? 'غائب' : 'انصراف ناقص أمس');
   await expect(table.locator('tbody tr', { hasText: 'هدى سمير' })).toContainText('10:00–18:00');
+  // the owner 12 Nov (every table): the picture at the right with the name next to it, aligned to the start; a long name cut with «…»
+  await expect(table.locator('thead th.c-person')).toHaveCount(1);
+  expect(await table.locator('tbody tr td:has(> .mlink)').first().evaluate((td) => getComputedStyle(td).textAlign)).toBe('start');
+  const cut = await table.locator('tbody tr .mlink b').first().evaluate((b) => { b.textContent = 'عبد القادر علي عبد القادر محمد الشرقاوي الكبير المصري'; return [getComputedStyle(b).textOverflow, b.scrollWidth > b.clientWidth]; });
+  expect(cut).toEqual(['ellipsis', true]);
+  await expect(table.locator('tbody tr .mlink b').nth(1)).toHaveAttribute('title', /\S/);
   await expect(page.getByRole('tab', { name: /الطلبات \(2\)/ })).toBeVisible(); // the leave + the overtime
   // the owner 12 Nov: the day's cards moved to «نظرة عامة» (the team tab keeps its table)
   await expect(P(page).locator('[data-hr-today]')).toHaveCount(0);

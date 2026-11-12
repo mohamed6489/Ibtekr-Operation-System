@@ -159,12 +159,17 @@ test('8h idle signs out of Supabase and shows the expired view', async ({ page }
   await page.clock.install();
   await signIn(page, ADMIN.id, ADMIN.pw);
   await expect(page.locator('#root')).toBeVisible();
+  // fastForward fires every due timer in one burst, with a real task between them: a read the signed-in page starts in it (the
+  // dashboard's 5-minute refresh, its getSession waiting on the auth lock the logout holds) can still land after the logout,
+  // until signOut's location.reload() takes that page away. What counts is everything once the reloaded page is up.
+  const inFlight = page.waitForEvent('load').then(() => mock.afterLogout.length);
   await page.clock.fastForward('08:00:30');
   await expect(page.locator('#lg-title')).toHaveText('الجلسة خلصت');
   await expect(page.locator('#root')).toBeHidden();
   await expect.poll(() => mock.logoutScopes).toEqual(['local']);
-  await page.clock.runFor('02:00'); // timers keep running: nothing reaches Supabase after the logout
-  expect(mock.afterLogout).toBe(0);
+  const settled = await inFlight;
+  await page.clock.runFor('02:00'); // timers keep running: nothing reaches Supabase after the sign-out
+  expect(mock.afterLogout.slice(settled)).toEqual([]);
 });
 
 test('idle counts activity in any tab: an active second tab keeps the first one signed in', async ({ page, context }) => {

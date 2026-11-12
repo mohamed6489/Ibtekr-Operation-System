@@ -125,6 +125,7 @@ function readSelect(table, select) {
 const NOT_FILTERS = new Set(['select', 'order', 'limit', 'offset', 'on_conflict', 'columns']);
 // the in.(…) filters the app sends: alerts.js asks the marks of the loaded alert ids; orders.js the lines / sub-orders of the
 // loaded orders, the images / permalinks of their skus and (Realtime) the names of makers it does not know yet
+const LIKE_FILTERS = { activity_log: ['action'] }; // the HR page's «سجل الحركات»: action=like.hr.% (PostgREST's like, % or * as the wildcard)
 const IN_FILTERS = { alert_reads: ['alert_id'], orders_v: ['id'], order_items: ['order_id', 'id'], sub_orders: ['order_id', 'id'], products: ['sku', 'id', 'permalink'], vendors: ['id'], image_imports: ['status'], activity_log: ['action'] }; // image_imports: the sets still to import (0026)
 // products.js (phase 5): the records are the rows that are not Arabic — or=(lang.is.null,lang.neq.ar) is the one `or` it sends
 const OR_FILTERS = { products: { '(lang.is.null,lang.neq.ar)': (r) => r.lang == null || r.lang !== 'ar' } };
@@ -134,12 +135,13 @@ const GTE_FILTERS = { orders_v: ['placed_at'] }; // orders.js: the last 12 month
 // the horizontal filters of a PostgREST request (eq. everywhere; in.(a,b) on IN_FILTERS, gte. on GTE_FILTERS only) → { match(row) } | { bad: 'param=value' }
 function readFilters(params, table) {
   const f = [...params].filter(([k]) => !NOT_FILTERS.has(k));
-  const bad = f.find(([k, v]) => !(k === 'or' && (OR_FILTERS[table] || {})[v]) && !((NOT_NULL[table] || []).includes(k) && v === 'not.is.null') && !v.startsWith('eq.') && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)) && !((GTE_FILTERS[table] || []).includes(k) && v.startsWith('gte.')));
+  const bad = f.find(([k, v]) => !(k === 'or' && (OR_FILTERS[table] || {})[v]) && !((NOT_NULL[table] || []).includes(k) && v === 'not.is.null') && !v.startsWith('eq.') && !((IN_FILTERS[table] || []).includes(k) && /^in\.\(.*\)$/.test(v)) && !((GTE_FILTERS[table] || []).includes(k) && v.startsWith('gte.')) && !((LIKE_FILTERS[table] || []).includes(k) && v.startsWith('like.')));
   const one = ([k, v]) => {
     if (k === 'or') return OR_FILTERS[table][v];
     if (v === 'not.is.null') return (r) => r[k] != null;
     if (v.startsWith('eq.')) return (r) => String(r[k]) === v.slice(3);
     if (v.startsWith('gte.')) { const t = Date.parse(v.slice(4)); return (r) => Date.parse(r[k]) >= t; }
+    if (v.startsWith('like.')) { const re = new RegExp('^' + v.slice(5).replace(/[.+?^${}()|[\]\\]/g, '\\$&').replace(/[%*]/g, '.*') + '$', 's'); return (r) => re.test(String(r[k] ?? '')); }
     const set = v.slice(4, -1).split(',').map((x) => x.replace(/^"(.*)"$/, '$1')); return (r) => set.includes(String(r[k]));
   };
   return bad ? { bad: bad.join('=') } : { match: (r) => f.every((p) => one(p)(r)) };

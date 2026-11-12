@@ -264,7 +264,7 @@
     Object.assign(data, { today: {}, kpis: {}, scores: {}, scoreRows: {}, sheets: {}, sheet: { month: monthKey(today()), status: 'مسودة', exists: false }, hrSettings: Object.assign({}, DEFAULTS) });
   }
   empty();
-  function clear() { gen += 1; tgen += 1; unsubscribe(); Object.keys(raw).forEach((k) => { raw[k] = k === 'settings' ? {} : []; }); roster = []; pendingAdds.clear(); st = 'idle'; empty(); }
+  function clear() { gen += 1; tgen += 1; unsubscribe(); Object.keys(raw).forEach((k) => { raw[k] = k === 'settings' ? {} : []; }); roster = []; pendingAdds.clear(); logRows = null; logAt = 0; logGen += 1; st = 'idle'; empty(); }
   const member = (code) => data.team.find((m) => m.id === code) || null;
   // the team the HR page lists: active, the ones hr.view lets me see (F all · P me + the members I manage · N me), without an admin
   // who has no pay row (the owner is not on the sheet)
@@ -733,11 +733,45 @@
     if (lv && c()) { try { Promise.resolve(c().removeChannel(lv)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
 
+  // ---------- «سجل الحركات» (the owner 12 Nov — «نضيف تاب سجل الحركات» in the HR page) ----------
+  // the activity_log rows of HR (hr.*: the attendance, the requests, the overtime, the members, the payroll, the tasks, the
+  // settings…), newest 300 — RLS decides (0046: the HR rows are their actor's and hr.view F's); each as { id, at, action, label,
+  // group, by, on, detail } with no text the row does not already carry (codes, months, minutes — never a name of a request's type)
+  const LOG_LABELS = {
+    'hr.shift.start': ['بدأ الدوام', 'الحضور'], 'hr.shift.end': ['أنهى الدوام', 'الحضور'], 'hr.attendance.manual': ['تسجيل حضور يدوي', 'الحضور'], 'hr.attendance.close': ['إنهاء دوام عضو / تصحيح انصراف', 'الحضور'],
+    'hr.overtime.begin': ['بدأ وقت إضافي', 'الوقت الإضافي'], 'hr.overtime.request': ['طلب وقت إضافي', 'الوقت الإضافي'], 'hr.overtime.add': ['وافق على وقت إضافي', 'الوقت الإضافي'], 'hr.overtime.reject': ['رفض وقت إضافي', 'الوقت الإضافي'],
+    'hr.request.create': ['قدّم طلب', 'الطلبات'], 'hr.request.approve': ['وافق على طلب', 'الطلبات'], 'hr.request.reject': ['رفض طلب', 'الطلبات'], 'hr.request.review': ['راجع طلب', 'الطلبات'], 'hr.request.cancel': ['لغى طلب', 'الطلبات'],
+    'hr.member.create': ['ضاف عضو', 'الأعضاء'], 'hr.member.update': ['عدّل بيانات عضو', 'الأعضاء'], 'hr.member.delete': ['حذف عضو', 'الأعضاء'], 'hr.member.invite': ['بعت إيميل الباسورد', 'الأعضاء'], 'hr.member.password': ['باسورد مؤقت جديد', 'الأعضاء'],
+    'hr.contract.upload': ['رفع عقد / مستند', 'الأعضاء'], 'hr.contract.void': ['شال مستند', 'الأعضاء'], 'hr.bank.set': ['عدّل الحساب البنكي', 'الأعضاء'], 'hr.bank.reveal': ['كشف رقم الحساب البنكي', 'الأعضاء'],
+    'hr.payroll.review': ['راجع كشف المرتبات', 'المرتبات'], 'hr.payroll.approve': ['اعتمد كشف المرتبات', 'المرتبات'], 'hr.payroll.paid': ['صرف المرتبات', 'المرتبات'], 'hr.payroll.adjust': ['تسوية على الكشف', 'المرتبات'], 'hr.payroll.adjust.void': ['لغى تسوية', 'المرتبات'], 'hr.pay.update': ['عدّل المرتب', 'المرتبات'],
+    'hr.extra.create': ['مكافأة / خصم', 'المرتبات'], 'hr.extra.decision': ['قرار مكافأة / خصم', 'المرتبات'],
+    'hr.kpi.rate': ['قيّم الشهر', 'التقييم'], 'hr.kpi.define': ['عدّل مؤشرات الأداء', 'التقييم'], 'hr.meeting.create': ['حدد ميتنج', 'التقييم'], 'hr.meeting.update': ['عدّل ميتنج', 'التقييم'], 'hr.achievement': ['إنجاز', 'التقييم'],
+    'hr.task.add': ['ضاف مهمة', 'المهام'], 'hr.task.status': ['غيّر حالة مهمة', 'المهام'], 'hr.task.delete': ['حذف مهمة', 'المهام'], 'hr.task.review': ['راجع مهمة', 'المهام'],
+    'hr.holiday.create': ['ضاف عطلة رسمية', 'الإعدادات'], 'hr.holiday.confirm': ['أكّد عطلة رسمية', 'الإعدادات'], 'hr.holiday.delete': ['شال عطلة رسمية', 'الإعدادات'], 'hr.settings': ['عدّل إعدادات الموارد البشرية', 'الإعدادات'] };
+  const logLabel = (action) => LOG_LABELS[action] || [String(action || '').replace(/^hr\./, ''), 'أخرى'];
+  const TASK_WORD = { ok: 'اتقبلت', back: 'رجعت' }; // a review's word (the status itself is already Arabic)
+  let logRows = null; let logAt = 0; let logGen = 0;
+  async function loadLog(force) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network' };
+    if (!force && logRows && Date.now() - logAt < 60000) return { ok: true, items: logRows };
+    const g = ++logGen;
+    try {
+      const { data: d, error } = await cl.from('activity_log').select('id, at, actor, action, entity, entity_id, new_value').like('action', 'hr.%').order('at', { ascending: false }).limit(300);
+      if (error) return fail(error);
+      if (g !== logGen) return { ok: false, reason: 'stale' };
+      logRows = (Array.isArray(d) ? d : []).map((x) => { const [label, group] = logLabel(x.action); const on = x.entity_id && byUid(String(x.entity_id)) ? nameOf(String(x.entity_id)) : (x.entity_id ? String(x.entity_id) : '');
+        const v = typeof x.new_value === 'string' ? x.new_value : x.new_value == null ? '' : JSON.stringify(x.new_value);
+        return { id: Number(x.id), at: x.at, action: x.action, label, group, by: nameOf(x.actor), byUid: x.actor || null, on, detail: x.action === 'hr.task.review' ? (TASK_WORD[v] || v) : v }; });
+      logAt = Date.now(); return { ok: true, items: logRows };
+    } catch (e) { return { ok: false, reason: 'network' }; }
+  }
+  const logNow = () => logRows;
+
   window.IBHR = { load, clear, subscribe, unsubscribe, check, state: () => st, data, member, team, everyone, can, decidesOt, settings, today, nowMin, addDays, quarterOf, quarterMonths, monthKey, holidayDates, leaveDays, isLeave,
     shiftNow, myShift, clockIn, clockOut, overtimeBegin, overtimeRequest, setAttendance, endShiftFor, fixOut, request, decide, cancel, overtimeDecide, rateMonth, saveKpis,
     payrollCalc, payrollLines, sheetLines, slips, bank, bankSet, bankReveal, payrollOpen, payrollStep, payrollPay, addAdjustment, voidAdjustment, addExtra, decideExtra, meetingCreate, meetingUpdate,
     holidayAdd, holidayConfirm, holidayDelete, leaveTypeAdd, bonusRuleAdd, bonusRuleToggle, otPeriodAdd, otPeriodDelete, saveSettings, addDepartment,
     memberCreate, memberPassword, memberInvite, memberDelete, memberUpdate, payUpdate, upload, addDocument, voidDocument, fileUrl, checkFile, ACCOUNTS, DOC_KINDS, DEFAULTS, MIME, MAX_BYTES,
-    tasksOf, reviewsFor, canTask, canDeleteTask, taskAdd, taskSet, taskDelete, taskReview, loadTasks, people: () => data.people.slice(), TASK_STATUSES,
+    tasksOf, reviewsFor, canTask, canDeleteTask, taskAdd, taskSet, taskDelete, taskReview, loadTasks, people: () => data.people.slice(), TASK_STATUSES, loadLog, logNow, logLabel,
     _test: { parts, minOf, atLabel, meetingLabel, shape, shapeTasks, raw, safeName, fail, uidOf } };
 })();

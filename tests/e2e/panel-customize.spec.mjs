@@ -27,40 +27,42 @@ const row = (page, id) => modal(page).locator('[data-pn-item="' + id + '"]');
 const panelPref = () => { const p = mock.prefs.find((x) => x.key === 'panel.prefs'); return p ? p.data : null; };
 const kpi = (scope, label) => scope.locator('.kpi[aria-label="' + label + '"]');
 
-test('HR «الفريق والحضور»: hide a card and move «الفريق» to the top by the keyboard — saved for me in user_prefs, kept across tabs, «رجوع للافتراضي» drops it', async ({ page }) => {
-  await open(page, ADMIN, 'hr-team');
+test('HR «نظرة عامة» (the owner 12 Nov — the day\'s cards moved here from «الفريق والحضور»): hide a card and move «الإجازات الجاية» to the top by the keyboard — saved for me in user_prefs, kept across tabs, «رجوع للافتراضي» drops it', async ({ page }) => {
+  await open(page, ADMIN, 'hr-overview');
   const P = page.locator('#pg-hr .panel');
   await expect(kpi(P, 'أنهوا الدوام')).toBeVisible();
-  await page.locator('[data-pn-custom="hr:team"]').click();
-  await expect(modal(page)).toContainText('تخصيص اللوحة — الموارد البشرية — الفريق والحضور');
-  await expect(modal(page).locator('[data-pn-item]')).toHaveText([/حاضرين دلوقتي/, /أنهوا الدوام/, /إجازة \/ غياب/, /طلبات مستنية/, /الفريق/]);
+  await page.locator('[data-pn-custom="hr:overview"]').click();
+  await expect(modal(page)).toContainText('تخصيص اللوحة — الموارد البشرية — نظرة عامة');
+  const ITEMS = ['حاضرين دلوقتي', 'أنهوا الدوام', 'إجازة / غياب', 'طلبات مستنية', 'ساعات الشهر', 'وقت إضافي الشهر', 'طلبات الشهر', 'أيام إجازة الشهر', 'مين في الدوام دلوقتي (#)', 'مستني قرار (#)', 'الإجازات الجاية (#)'];
+  await expect(modal(page).locator('[data-pn-item]')).toHaveCount(ITEMS.length);
+  expect(await modal(page).locator('[data-pn-item]').evaluateAll((l) => l.map((x) => x.getAttribute('data-pn-item')))).toEqual(ITEMS);
   await row(page, 'أنهوا الدوام').getByRole('switch').click();
-  for (let i = 0; i < 4; i += 1) {
-    await row(page, 'الفريق').locator('[data-grip]').focus();
+  for (let i = 0; i < ITEMS.length - 1; i += 1) {
+    await row(page, 'الإجازات الجاية (#)').locator('[data-grip]').focus();
     await page.keyboard.press('ArrowUp');
-    await expect(modal(page).locator('[data-pn-item]').nth(3 - i)).toHaveAttribute('data-pn-item', 'الفريق');
+    await expect(modal(page).locator('[data-pn-item]').nth(ITEMS.length - 2 - i)).toHaveAttribute('data-pn-item', 'الإجازات الجاية (#)');
   }
   await modal(page).getByRole('button', { name: 'حفظ' }).click();
   await expect(modal(page)).toHaveCount(0);
   await expect(kpi(P, 'أنهوا الدوام')).toBeHidden();
   await expect(kpi(P, 'حاضرين دلوقتي')).toBeVisible();
-  // «الفريق»'s section comes before the number cards (the blocks as the kit reads them)
-  const firstIsTeam = () => page.evaluate(() => { const root = document.querySelector('#pg-hr .panel'); const items = window.IBKit.panelItems(root); const kids = [...root.children];
-    const at = (id) => kids.indexOf((items.find((x) => x.id === id) || {}).blk); return at('الفريق') >= 0 && at('الفريق') < at('حاضرين دلوقتي'); });
-  await expect.poll(firstIsTeam).toBe(true);
+  // «الإجازات الجاية»'s section comes before the number cards (the blocks as the kit reads them)
+  const firstIsLeaves = () => page.evaluate(() => { const root = document.querySelector('#pg-hr .panel'); const items = window.IBKit.panelItems(root); const kids = [...root.children];
+    const at = (id) => kids.indexOf((items.find((x) => x.id === id) || {}).blk); return at('الإجازات الجاية (#)') >= 0 && at('الإجازات الجاية (#)') < at('حاضرين دلوقتي'); });
+  await expect.poll(firstIsLeaves).toBe(true);
   await expect.poll(() => mock.prefs.filter((x) => x.key === 'panel.prefs').map((x) => x.user_id)).toEqual([ADMIN_ID]);
-  expect(panelPref()).toEqual({ 'hr:team': { order: ['الفريق', 'حاضرين دلوقتي', 'أنهوا الدوام', 'إجازة / غياب', 'طلبات مستنية'], hidden: ['أنهوا الدوام'] } });
+  expect(panelPref()).toEqual({ 'hr:overview': { order: ['الإجازات الجاية (#)'].concat(ITEMS.slice(0, -1)), hidden: ['أنهوا الدوام'] } });
   // another tab has its own choice; coming back keeps mine
   await go(page, 'hr-settings');
   await expect(page.locator('[data-pn-custom="hr:settings"]')).toBeVisible();
-  await go(page, 'hr-team');
+  await go(page, 'hr-overview');
   await expect(kpi(P, 'أنهوا الدوام')).toBeHidden();
-  await expect.poll(firstIsTeam).toBe(true);
+  await expect.poll(firstIsLeaves).toBe(true);
   // «رجوع للافتراضي»: everything back where it was, the key gone
-  await page.locator('[data-pn-custom="hr:team"]').click();
+  await page.locator('[data-pn-custom="hr:overview"]').click();
   await modal(page).locator('[data-pn-reset]').click();
   await expect(kpi(P, 'أنهوا الدوام')).toBeVisible();
-  await expect.poll(firstIsTeam).toBe(false);
+  await expect.poll(firstIsLeaves).toBe(false);
   await expect.poll(panelPref).toEqual({});
 });
 

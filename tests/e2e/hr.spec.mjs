@@ -39,7 +39,7 @@ test.afterEach(() => {
   expect(pageErrors).toEqual([]);
   expect(mock.unhandled).toEqual([]);
 });
-async function openHr(page, email = ADMIN, hash = 'hr') {
+async function openHr(page, email = ADMIN, hash = 'hr-team') { // the owner 12 Nov: «#hr» opens «نظرة عامة»; most cases start on the team
   await page.goto('/');
   await page.fill('#lg-id', email); await page.fill('#lg-pw', DEV_PW);
   await page.getByRole('button', { name: 'دخول', exact: true }).click();
@@ -59,12 +59,54 @@ test('«الموارد البشرية» is open: the team from the server (the t
   await expect(table.locator('tbody tr')).toHaveCount(6); // decision 15: everyone the admin sees — the salary-less admin and the suspended viewer too; the tiles stay on the staff (4)
   for (const n of ['سارة أحمد', 'محمد علي', 'منى حسن', 'هدى سمير', 'صفوت كمال', 'مشاهد تجريبي']) await expect(table).toContainText(n);
   await expect(table.locator('tbody tr', { hasText: 'مشاهد تجريبي' })).toContainText('موقوف');
-  await expect(P(page).locator('.cards')).toContainText('من 4');
   const offToday = dow(T) === 5 || dow(T) === 6; const after17 = cairoMin() > 17 * 60; // no day of hers today: absent once her shift is over
   await expect(table.locator('tbody tr', { hasText: 'منى حسن' })).toContainText(offToday ? 'راحة أسبوعية' : after17 ? 'غائب' : 'انصراف ناقص أمس');
   await expect(table.locator('tbody tr', { hasText: 'هدى سمير' })).toContainText('10:00–18:00');
   await expect(page.getByRole('tab', { name: /الطلبات \(2\)/ })).toBeVisible(); // the leave + the overtime
-  await expect(P(page).locator('.cards')).toContainText('طلبات مستنية');
+  // the owner 12 Nov: the day's cards moved to «نظرة عامة» (the team tab keeps its table)
+  await expect(P(page).locator('[data-hr-today]')).toHaveCount(0);
+  await P(page).getByRole('tab', { name: 'نظرة عامة' }).click();
+  await expect(P(page).locator('[data-hr-today]')).toContainText('من 4');
+  await expect(P(page).locator('[data-hr-today]')).toContainText('طلبات مستنية');
+});
+
+test('the owner 12 Nov — «نظرة عامة» first: the day\'s cards, the month (hours, overtime, requests, leave days), who is in, what waits for a decision, the leaves coming; «سجل الحركات» lists the HR rows of the activity log with who did them (hr.view F; ops never has the tab)', async ({ page }) => {
+  await openHr(page, ADMIN, 'hr');
+  await expect(page).toHaveURL(/#hr$|#hr-overview$/);
+  await expect(P(page).locator('[role=tab][aria-selected=true]')).toContainText('نظرة عامة');
+  const names = await P(page).locator('[role=tab]').allInnerTexts();
+  expect(names.map((x) => x.replace(/\s*\(\d+\)$/, '').trim()).slice(0, 7)).toEqual(['نظرة عامة', 'الفريق والحضور', 'الطلبات', 'المرتبات والمكافآت', 'سجل الحركات', 'التقارير', 'إعدادات الموارد البشرية']);
+  await expect(P(page).locator('[data-hr-today]')).toContainText('حاضرين دلوقتي');
+  await expect(P(page).locator('[data-hr-month]')).toContainText('ساعات الشهر');
+  await expect(P(page).locator('[data-hr-month]')).toContainText('أيام إجازة الشهر');
+  await expect(P(page)).toContainText('مين في الدوام دلوقتي');
+  const wait = P(page).locator('.card', { hasText: 'مستني قرار' });
+  await expect(wait).toContainText('إجازة سنوية'); await expect(wait).toContainText('وقت إضافي');
+  await expect(P(page)).toContainText('الإجازات الجاية');
+  // a decision from the overview: the leave opens its details
+  await wait.locator('tbody tr', { hasText: 'إجازة سنوية' }).click();
+  await expect(modal(page, 'إجازة سنوية')).toBeVisible();
+  await page.keyboard.press('Escape');
+  // «سجل الحركات»: the HR rows (a manual attendance and a request) with the label, the kind and who did them; not the others
+  mock.activityRows.push({ id: 9001, at: new Date(Date.now() - 3600e3).toISOString(), actor: ACC_ID, action: 'hr.request.create', entity: 'hr', entity_id: 'HR-0001', old_value: null, new_value: 'HR-0001' },
+    { id: 9002, at: new Date().toISOString(), actor: '00000000-0000-4000-8000-000000000001', action: 'hr.attendance.manual', entity: 'hr', entity_id: OPS_ID, old_value: null, new_value: 'M02 ' + T },
+    { id: 9003, at: new Date().toISOString(), actor: '00000000-0000-4000-8000-000000000001', action: 'vendor.create', entity: 'vendor', entity_id: 'x', old_value: null, new_value: 'مبتكر' });
+  await P(page).getByRole('tab', { name: 'سجل الحركات' }).click();
+  await expect(page).toHaveURL(/#hr-log$/);
+  const log = P(page).locator('table.hr-log');
+  await expect(log.locator('tbody tr')).toHaveCount(2);
+  await expect(log.locator('tbody tr').first()).toContainText('تسجيل حضور يدوي');
+  await expect(log.locator('tbody tr').first()).toContainText('الحضور');
+  await expect(log.locator('tbody tr').first()).toContainText('سارة أحمد'); // «على» = the member
+  await expect(log.locator('tbody tr').nth(1)).toContainText('قدّم طلب');
+  await expect(log.locator('tbody tr').nth(1)).toContainText('منى حسن'); // «بواسطة»
+  await expect(log).not.toContainText('مبتكر');
+});
+
+test('the owner 12 Nov — ops (hr.view P) has no «سجل الحركات» tab and «#hr-log» falls back to «نظرة عامة»', async ({ page }) => {
+  await openHr(page, OPS, 'hr-log');
+  await expect(P(page).locator('[role=tab]', { hasText: 'سجل الحركات' })).toHaveCount(0);
+  await expect(P(page).locator('[role=tab][aria-selected=true]')).toContainText('نظرة عامة');
 });
 
 test('the attendance log: the month day by day, a missing end fixed by hand on that session (hr_attendance_close — decision 24) and the day closed', async ({ page }) => {

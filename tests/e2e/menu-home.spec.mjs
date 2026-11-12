@@ -30,7 +30,7 @@ const url = (page, hash) => expect(page).toHaveURL(new RegExp('#' + hash + '$'))
 
 // a page remembered somewhere inside → the menu opens its main view (hash + the visible main block)
 const CASES = [
-  ['hr', 'hr-payroll', 'hr-team', '#pg-hr'],
+  ['hr', 'hr-payroll', 'hr-overview', '#pg-hr'], // the owner 12 Nov: «نظرة عامة» first
   ['inventory', 'inventory-moves', 'inventory-overview', '#pg-inventory'], // decision 58
   ['cs', 'cs-customers', 'cs-overview', '#pg-cs'], // decision 63
   ['autoreply', 'autoreply-rules', 'autoreply-overview', '#pg-autoreply'], // decision 65
@@ -122,7 +122,7 @@ test('the mobile bottom nav and its «المزيد» sheet reset the page the sa
   await page.locator('.bottom-nav .bn-item[data-page="accounts"]').click(); await url(page, 'acc-overview');
   await at(page, 'hr-payroll'); await url(page, 'hr-payroll');
   await page.locator('.bottom-nav .bn-more button').first().click();
-  await page.locator('.bn-sheet .bn-opt[data-page="hr"]').click(); await url(page, 'hr-team');
+  await page.locator('.bn-sheet .bn-opt[data-page="hr"]').click(); await url(page, 'hr-overview');
 });
 
 test('decision 21: «ملفي» in the account menu always opens «نظرة عامة», from any tab and from another page', async ({ page }) => {

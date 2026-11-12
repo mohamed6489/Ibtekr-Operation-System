@@ -493,3 +493,21 @@ test('overtime by ticket: overtimeBegin calls hr_overtime_begin with nothing, re
   const bad = load({ responses: { 'rpc:hr_overtime_begin': { data: null, error: { code: '22023', message: 'invalid: shift' } } } });
   eq((await bad.H.overtimeBegin()).message, 'مفيش دوام مفتوح');
 });
+
+test('the owner 12 Nov — loadLog: the HR rows of the activity log (action like hr.%, newest 300) with the label and the kind, who did it and on whom by the roster; cached a minute; cleared on sign-out', async () => {
+  const LOG = [
+    { id: 2, at: '2026-11-05T10:00:00Z', actor: A, action: 'hr.attendance.manual', entity: 'hr', entity_id: B, new_value: 'M02 2026-11-05' },
+    { id: 1, at: '2026-11-05T09:00:00Z', actor: B, action: 'hr.task.review', entity: 'hr', entity_id: '7', new_value: 'back' },
+    { id: 0, at: '2026-11-05T08:00:00Z', actor: B, action: 'hr.something.new', entity: 'hr', entity_id: null, new_value: null },
+  ];
+  const { H, stub } = load({ responses: { activity_log: ok(LOG) } });
+  await H.load();
+  const r = await H.loadLog();
+  eq(r.items.map((x) => [x.label, x.group, x.by, x.on, x.detail]), [['تسجيل حضور يدوي', 'الحضور', 'صفوت كمال', H.member('M02').name, 'M02 2026-11-05'], ['راجع مهمة', 'المهام', H.member('M02').name, '7', 'رجعت'], ['something.new', 'أخرى', H.member('M02').name, '', '']]);
+  const q = stub.calls.filter((c) => c.table === 'activity_log');
+  assert(q.some((c) => c.op === 'like' && c.args[0] === 'action' && c.args[1] === 'hr.%'));
+  assert(q.some((c) => c.op === 'limit' && c.args[0] === 300));
+  await H.loadLog(); eq(stub.calls.filter((c) => c.table === 'activity_log' && c.op === 'from').length, 1, 'cached a minute');
+  await H.loadLog(true); eq(stub.calls.filter((c) => c.table === 'activity_log' && c.op === 'from').length, 2, 'forced');
+  H.clear(); eq(H.logNow(), null);
+});

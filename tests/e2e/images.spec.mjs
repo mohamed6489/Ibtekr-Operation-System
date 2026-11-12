@@ -75,8 +75,9 @@ test('words → images: the card opens the tool; the shape, the count and the mo
 test('a product\'s photo → images (source image + product_id), an edit of the product\'s photo (upscale → one image), a refusal shown, the product page button opens the tool on the product', async ({ page }) => {
   await openProducts(page);
   await openTool(page);
-  await page.fill('#ig-sku', SKU);
-  await expect(page.locator('.field:has(#ig-sku) .help')).toContainText('Cushion'); // the SKU found in the mirror first: a run before it is refused on the page (CI, 5 Nov)
+  // the SKU found in the mirror first: a run before it is refused on the page (CI, 5 Nov); typed again while the tool's first renders
+  // settle (CI, 12 Nov: a render right after the tool opened left the field empty once)
+  await expect(async () => { await page.fill('#ig-sku', SKU); await expect(page.locator('.field:has(#ig-sku) .help')).toContainText('Cushion', { timeout: 1500 }); }).toPass({ timeout: 10000 });
   await page.locator('[data-igshape="detail"]').click();
   await page.locator('[data-igrun]').click();
   await expect(page.locator('.ig-it')).toHaveCount(1);

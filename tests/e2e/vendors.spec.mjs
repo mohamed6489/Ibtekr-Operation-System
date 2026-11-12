@@ -69,12 +69,12 @@ const inert = async (page) => {
   expect(await page.evaluate(() => document.querySelectorAll('img[src="x"]').length)).toBe(0);
   expect(await page.evaluate(() => window.__xss)).toBeUndefined();
 };
-// the status filter of the page (B5: the «الحالة» dropdown of the filter row) — clear the ticked statuses, tick the wanted one, apply
+// the status filter of the page (the owner 12 Nov: «فلتر» next to the sort, the groups inside) — clear, tick the wanted status, apply
 async function statusFilter(page, label) {
-  await page.locator('#vendors [data-fm-row="vendors"] [data-fm-key="status"] [data-mp-btn]').click();
-  await page.locator('[data-mp-menu] [data-mp-clear]').click();
-  if (label !== 'الكل') await page.locator('[data-mp-menu] [data-mp-opt]', { hasText: label }).click(); // «الكل» = no status ticked
-  await page.locator('[data-mp-menu] [data-mp-apply]').dispatchEvent('click'); // the menu's foot may sit below the viewport
+  await page.locator('#vendors [data-fm-btn="vendors"]').click(); // the owner 12 Nov: «فلتر» next to the sort, the groups inside
+  await page.locator('[data-fm-menu="vendors"] [data-fm-clear]').click();
+  if (label !== 'الكل') await page.locator('[data-fm-menu="vendors"] [data-fm-key="status"] [data-fm]', { hasText: label }).click(); // «الكل» = no status ticked
+  await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click'); // the menu's foot may sit below the viewport
 }
 
 test('the vendors page lists the sync\'s makers with the team columns and no seed; the reads name their columns', async ({ page }) => {
@@ -614,17 +614,18 @@ test('sign-out leaves no maker on the page', async ({ page }) => {
 });
 
 // ---- phase 5.5 (the owner's prototype v2, plan decision 3): the closed multi-value filter, the bulk bar, the row menu, the drawer's products tab ----
-test('5.5 / B5: the filter row — a dropdown per group (search + ticks) picks several values, the picks show as chips with their counts, the sort menu sits in the card header', async ({ page }) => {
+test('5.5 / the owner 12 Nov: «فلتر» next to the sort in the card header holds every group (ticks, a search in a long group); the picks show as chips with their counts', async ({ page }) => {
   await openVendors(page);
-  await expect(page.locator('#vendors .page-head [data-fm-row], #vendors .table-title [data-fm-row]')).toHaveCount(0); // B5: under the title, not in the header
-  await expect(page.locator('#vendors [data-fm-row="vendors"] [data-fm-key]')).toHaveCount(5);
-  await expect(page.locator('#vendors [data-fm-row="vendors"] [data-fm-key="status"] .val')).toHaveText('الحالة (1)');
-  const menu = page.locator('[data-mp-menu]');
-  await page.locator('#vendors [data-fm-row="vendors"] [data-fm-key="status"] [data-mp-btn]').click();
-  await expect(menu.locator('[data-mp-opt="active"]')).toHaveAttribute('aria-checked', 'true'); // «نشط» by default
-  await menu.locator('[data-mp-opt="inactive"]').click();
-  await expect(menu.locator('[data-mp-apply]')).toHaveText('اعرض 3 مبتكر');
-  await menu.locator('[data-mp-apply]').dispatchEvent('click');
+  await expect(page.locator('#vendors [data-fm-row]')).toHaveCount(0); // no row of dropdowns (B5) any more
+  await expect(page.locator('#vendors .acts-inline:has([data-sm-btn="vendors"]) [data-fm-btn="vendors"]')).toHaveCount(1); // next to the sort
+  await expect(page.locator('#vendors [data-fm-btn="vendors"] .val')).toHaveText('فلتر (1)');
+  const menu = page.locator('[data-fm-menu="vendors"]');
+  await page.locator('#vendors [data-fm-btn="vendors"]').click();
+  await expect(menu.locator('[data-fm-key]')).toHaveCount(5);
+  await expect(menu.locator('[data-fm="status:active"]')).toHaveAttribute('aria-checked', 'true'); // «نشط» by default
+  await menu.locator('[data-fm="status:inactive"]').click();
+  await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 3 مبتكر');
+  await menu.locator('[data-fm-apply]').dispatchEvent('click');
   await expect(rows(page)).toHaveCount(3);
   await expect(page.locator('#vendors .af-row .af-chip')).toHaveCount(2);
   await expect(page.locator('#vendors [data-af-chip="status:active"] .af-c')).toHaveText('2');
@@ -697,7 +698,7 @@ test('5.5: the drawer\'s «المنتجات» tab lists his products from the mi
   await drawer(page).locator('[data-vgo="products"]').click();
   await expect(page.locator('#pg-products')).toBeVisible();
   expect(await page.evaluate(() => window.IBPages.all().products.api.st.f.vendor)).toEqual(['Antikiano']); // B3: the filters hold several picks
-  await expect(page.locator('#pf-vendor .val')).toHaveText('المبتكر (1)');
+  await expect(page.locator('[data-fm-btn="products"] .val')).toHaveText('فلتر (1)'); // the owner 12 Nov: one «فلتر» next to the sort
   await expect(page.locator('#pg-products .pr-table tbody tr')).toHaveCount(2);
 });
 
@@ -799,19 +800,19 @@ test('decision 57: the makers page tabs — «نظرة عامة» (cards) · «�
   // no «أعمدة الجدول»; the picks show as chips (with their counts — never «[object HTMLSpanElement]») only while a filter is on
   const logCard = page.locator('#vpanel .table-card', { hasText: 'سجل الحركات' });
   await expect(logCard.locator('[data-vlog-kind], [data-sm-btn], [data-cols], [data-af]')).toHaveCount(0);
-  await expect(logCard.locator('[data-fm-row="vlog"] [data-fm-key] .val')).toHaveText(['الحركة', 'المبتكر', 'بواسطة']); // B5: a dropdown per group
-  await logCard.locator('[data-fm-key="kind"] [data-mp-btn]').click();
-  const fm = page.locator('[data-mp-menu]');
-  await fm.locator('[data-mp-opt="create"]').click();
-  await fm.locator('[data-mp-apply]').click();
+  await logCard.locator('[data-fm-btn="vlog"]').click(); // the owner 12 Nov: one «فلتر» in the header, the groups inside
+  const fm = page.locator('[data-fm-menu="vlog"]');
+  await expect(fm.locator('[data-fm-key] .opt-group')).toHaveText(['الحركة', 'المبتكر', 'بواسطة']);
+  await fm.locator('[data-fm="kind:create"]').click();
+  await fm.locator('[data-fm-apply]').dispatchEvent('click');
   await expect(page.locator('#vpanel [data-vlog-row="inactive"]')).toHaveCount(0);
   await expect(logCard.locator('[data-af-chip="kind:create"]')).toBeVisible();
   await expect(logCard.locator('[data-af]')).not.toContainText('object');
   await logCard.locator('[data-af-clear]').click();
   await expect(page.locator('#vpanel [data-vlog-row="inactive"]')).toHaveCount(1);
-  await logCard.locator('[data-fm-key="maker"] [data-mp-btn]').click();
-  await fm.locator('[data-mp-opt="Antikiano"]').click();
-  await fm.locator('[data-mp-apply]').click();
+  await logCard.locator('[data-fm-btn="vlog"]').click();
+  await fm.locator('[data-fm="maker:Antikiano"]').click();
+  await fm.locator('[data-fm-apply]').dispatchEvent('click');
   await expect(logCard.locator('tbody tr')).toHaveCount(await logCard.locator('tbody tr', { hasText: 'Antikiano' }).count());
   await expect(logCard.locator('[data-af-chip="maker:Antikiano"]')).toContainText('Antikiano');
   // the reports page's makers report

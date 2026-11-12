@@ -96,32 +96,39 @@ test('the filter mode (onApply): the ticks wait in the menu with «اعرض N <n
   expect(await page.evaluate(() => window.__applied)).toEqual([['b']]);
 });
 
-// B5 (the owner, 11 Nov — «زرار فلتر يتبدل بصف دروب داونز»): IBKit.FilterMenu is a row with a filter-mode MultiPick per group; each
-// applies its own group (the others kept) and the values come back in their own type
-test('B5: FilterMenu = a row of dropdowns, one per group; a pick applies its group alone, the others kept, the values in their own type', async ({ page }) => {
+// the owner 12 Nov («دخل الفلتر اللي بره جوه زرار الفلتر وحطوا جمب الترتيب … في كل الجداول»): IBKit.FilterMenu is one «فلتر (N)»
+// button; its panel holds every group with its ticks (a search box in a group past six values, «-» before a sub-level), «مسح» and
+// «اعرض N»; the values come back in their own type (B5's row of dropdowns is gone)
+test('FilterMenu = one «فلتر» button: the panel holds every group, a long group has a search box, «اعرض N» applies all, the values in their own type', async ({ page }) => {
   await page.evaluate(() => {
     window.__fm = [];
     const host = document.createElement('div'); host.id = 'mp-host'; host.style.cssText = 'position:fixed;top:80px;left:40px;width:600px;z-index:50;background:#fff;padding:8px';
     document.body.append(host);
     const rows = [{ s: 'active', c: 15 }, { s: 'active', c: 22 }, { s: 'inactive', c: 15 }];
     const pass = (d) => (r) => (!d.s.length || d.s.includes(r.s)) && (!d.c.length || d.c.includes(r.c));
-    host.append(window.IBKit.FilterMenu({ id: 'demo', label: 'فلتر', noun: 'صف', value: { s: ['active'], c: [] },
-      groups: [{ key: 's', label: 'الحالة', options: [['active', 'نشط'], ['inactive', 'موقوف']] }, { key: 'c', label: 'الفئة', options: [[15, 'ديكور'], [22, 'هدايا']] }],
+    const many = ['أسوان', 'الأقصر', 'القاهرة', 'الجيزة', 'إسكندرية', 'طنطا', 'بنها'].map((x) => [x, x]);
+    host.append(window.IBKit.FilterMenu({ id: 'demo', label: 'فلتر', noun: 'صف', value: { s: ['active'], c: [], p: [] },
+      groups: [{ key: 's', label: 'الحالة', options: [['active', 'نشط'], ['inactive', 'موقوف']] }, { key: 'c', label: 'الفئة', options: [[15, 'ديكور'], [22, 'هدايا', 1]] }, { key: 'p', label: 'المحافظة', options: many }],
       count: (d) => rows.filter(pass(d)).length, onApply: (d) => window.__fm.push(d) }));
   });
-  const row = page.locator('[data-fm-row="demo"]');
-  await expect(row.locator('[data-fm-key]')).toHaveCount(2);
-  await expect(row.locator('[data-fm-key="s"] .val')).toHaveText('الحالة (1)');
-  await row.locator('[data-fm-key="c"] [data-mp-btn]').click();
-  const menu = page.locator('[data-mp-menu]');
-  await expect(menu.locator('[data-mp-apply]')).toHaveText('اعرض 2 صف'); // «نشط» already on
-  await menu.locator('[data-mp-opt="15"]').click();
-  await expect(menu.locator('[data-mp-apply]')).toHaveText('اعرض 1 صف');
-  await menu.locator('[data-mp-apply]').click();
-  expect(await page.evaluate(() => window.__fm)).toEqual([{ s: ['active'], c: [15] }]); // the status kept, the category a number
+  await expect(page.locator('#mp-host [data-fm-row]')).toHaveCount(0);
+  const btn = page.locator('#mp-host [data-fm-btn="demo"]');
+  await expect(btn.locator('.val')).toHaveText('فلتر (1)');
+  await btn.click();
+  const menu = page.locator('[data-fm-menu="demo"]');
+  await expect(menu.locator('[data-fm-key] .opt-group')).toHaveText(['الحالة', 'الفئة', 'المحافظة']);
+  await expect(menu.locator('[data-fm-key="c"] [role=menuitemcheckbox]')).toHaveText(['ديكور', '- هدايا']); // a sub-level with «-»
+  await expect(menu.locator('[data-fm-q]')).toHaveCount(1); // the search only in the long group
+  await menu.locator('[data-fm-q="p"]').fill('الاقصر'); // أ folded
+  await expect(menu.locator('[data-fm-key="p"] [role=menuitemcheckbox]:visible')).toHaveText(['الأقصر']);
+  await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 2 صف'); // «نشط» already on
+  await menu.locator('[data-fm="c:15"]').click();
+  await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 1 صف');
+  await menu.locator('[data-fm-apply]').click();
+  expect(await page.evaluate(() => window.__fm)).toEqual([{ s: ['active'], c: [15], p: [] }]); // the status kept, the category a number
 });
 
-test('B5: a details table without its own filter gets the row of dropdowns above it (columns whose values repeat), the sort stays in the header', async ({ page }) => {
+test('a details table without its own filter gets «فلتر» next to the sort in its header (columns whose values repeat)', async ({ page }) => {
   await page.evaluate(() => {
     const K = window.IBKit; const h = (t, a, ...c) => { const e = document.createElement(t); Object.entries(a || {}).forEach(([k, v]) => e.setAttribute(k, v)); e.append(...c); return e; };
     const card = h('section', { class: 'card sec', id: 'af-card', style: 'position:fixed;top:80px;left:20px;width:900px;z-index:50;background:#fff' }, h('div', { class: 'sec-h' }, h('h2', null, 'حركات تجربة'), h('div', { class: 'acts' })));
@@ -131,17 +138,16 @@ test('B5: a details table without its own filter gets the row of dropdowns above
     K.withColumns(card, 'af-demo', 'حركات تجربة');
   });
   const card = page.locator('#af-card');
-  const row = card.locator('[data-fm-row^="auto"]');
-  await expect(row).toBeVisible();
-  await expect(row.locator('[data-fm-key] .val')).toContainText(['الحالة', 'المدينة']);
-  await expect(card.locator('.sec-h [data-fm-row]')).toHaveCount(0); // not in the header
-  await expect(card.locator('.sec-h [data-sm-btn^="auto"]')).toHaveCount(1); // the sort is
-  expect(await card.evaluate((c) => { const r = c.querySelector('[data-fm-row]'); const t = c.querySelector('table'); return !!(r.compareDocumentPosition(t) & Node.DOCUMENT_POSITION_FOLLOWING); })).toBe(true);
-  await row.locator('[data-fm-key="الحالة"] [data-mp-btn]').click();
-  await page.locator('[data-mp-menu] [data-mp-opt="ملغي"]').click();
-  await expect(page.locator('[data-mp-menu] [data-mp-apply]')).toHaveText('اعرض 2 صف');
-  await page.locator('[data-mp-menu] [data-mp-apply]').click();
+  await expect(card.locator('[data-fm-row]')).toHaveCount(0);
+  await expect(card.locator('.sec-h [data-fm-btn^="auto"]')).toHaveCount(1); // in the header
+  await expect(card.locator('.sec-h [data-sm-btn^="auto"]')).toHaveCount(1); // next to the sort
+  await card.locator('[data-fm-btn^="auto"]').click();
+  const menu = page.locator('[data-fm-menu^="auto"]');
+  await expect(menu.locator('[data-fm-key] .opt-group')).toContainText(['الحالة', 'المدينة']);
+  await menu.locator('[data-fm="الحالة:ملغي"]').click();
+  await expect(menu.locator('[data-fm-apply]')).toHaveText('اعرض 2 صف');
+  await menu.locator('[data-fm-apply]').click();
   await expect(card.locator('tbody tr:not(.af-hide)')).toHaveCount(2);
   await expect(card.locator('[data-af-chip]')).toHaveCount(1);
-  await expect(card.locator('[data-fm-row^="auto"] [data-fm-key="الحالة"] .val')).toHaveText('الحالة (1)'); // the row drawn again with the pick
+  await expect(card.locator('[data-fm-btn^="auto"] .val')).toHaveText('فلتر (1)'); // the button drawn again with the pick
 });

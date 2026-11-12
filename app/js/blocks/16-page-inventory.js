@@ -89,7 +89,7 @@
     const pop = U.popover(wrap, btn, (close) => U.DropdownMenu({ options: STOCK_SORTS.map(([v, l]) => ({ value: v, label: l })), value: st.sort || 'new', onSelect: (v) => { close(); st.sort = v; R(); } }));
     btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
   }
-  // B5 (the owner, 11 Nov): the filter is a row of dropdowns (search + ticks) — السبب · الحالة · المبتكر · المكان · أخرى («قاعدة أكتر من اللازم»)
+  // the kit's «فلتر» button (the owner 12 Nov — back from B5's row): السبب · الحالة · المبتكر · المكان · أخرى («قاعدة أكتر من اللازم»)
   function stockFilterMenu(all) {
     const toF = (d) => ({ reason: d.reason.slice(), status: d.status.slice(), vendor: d.vendor.slice(), loc: d.loc.slice(), late: d.late.includes('late') });
     return K.FilterMenu({ id: 'inv', label: 'فلتر المخزن', noun: 'صنف', value: { reason: st.f.reason, status: st.f.status, vendor: st.f.vendor, loc: st.f.loc, late: st.f.late ? ['late'] : [] },

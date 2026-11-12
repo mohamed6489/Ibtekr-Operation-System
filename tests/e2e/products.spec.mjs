@@ -59,34 +59,35 @@ test('filters and sort: status chips, brand / category multi-selects, search by 
   const rows = page.locator('#pg-products .pr-table tbody tr');
   await expect(page.locator('[data-pstatus]')).toHaveText([/^الكل/, /^منشور/, /^مسودة/, /^قيد المراجعة/, /^المهملات/]); // no «نفد»
   await expect(page.locator('#pg-products [data-missing]')).toHaveCount(0);
-  await expect(page.locator('#pg-products [data-fm-btn="products"]')).toHaveCount(0);
+  await expect(page.locator('#pg-products .acts:has([data-sm-btn="products"]) [data-fm-btn="products"]')).toHaveCount(1); // the owner 12 Nov: «فلتر» next to the sort
   await page.locator('[data-pstatus="draft"]').click();
   await expect(rows).toHaveCount(1);
   await page.locator('[data-pstatus="all"]').click();
-  await expect(page.locator('#pf-brand .val')).toHaveText('البراند');
-  await page.locator('#pf-brand').click();
-  const bm = page.locator('[data-mp-menu="pf-brand"]');
-  await expect(bm.locator('[role=menuitemcheckbox]').first()).not.toContainText(':'); // the values alone
-  await bm.locator('[data-mp-opt="Antikiano"]').click();
-  await expect(bm.locator('[data-mp-apply]')).toHaveText('اعرض 2 منتج');
-  await bm.locator('[data-mp-apply]').click();
+  const fbtn = page.locator('#pg-products [data-fm-btn="products"]'); const fm = page.locator('[data-fm-menu="products"]');
+  await expect(fbtn.locator('.val')).toHaveText('فلتر');
+  await fbtn.click();
+  await expect(fm.locator('[data-fm-key] .opt-group')).toHaveText(['البراند', 'المبتكر', 'القسم', 'المخزون', 'النوع']);
+  await expect(fm.locator('[data-fm-key="brand"] [role=menuitemcheckbox]').first()).not.toContainText(':'); // the values alone
+  await fm.locator('[data-fm="brand:Antikiano"]').click();
+  await expect(fm.locator('[data-fm-apply]')).toHaveText('اعرض 2 منتج');
+  await fm.locator('[data-fm-apply]').dispatchEvent('click');
   await expect(rows).toHaveCount(2);
-  await expect(page.locator('#pf-brand .val')).toHaveText('البراند (1)');
+  await expect(fbtn.locator('.val')).toHaveText('فلتر (1)');
   await expect(page.locator('#pg-products .af-chip .af-t')).toHaveText(['البراند: Antikiano']);
   await page.getByRole('button', { name: 'مسح الفلاتر' }).click();
   await expect(rows).toHaveCount(4);
   // the categories: main then sub with dashes; a main one takes what is under it, two picks are either
-  await page.locator('#pf-category').click();
-  const cm = page.locator('[data-mp-menu="pf-category"]');
+  await fbtn.click();
+  const cm = fm.locator('[data-fm-key="category"]');
   await expect(cm.locator('[role=menuitemcheckbox]')).toHaveText(['ديكور', '- إضاءة', '-- أباجورات', 'هدايا']);
   await cm.locator('[role=menuitemcheckbox]', { hasText: '- إضاءة' }).click();
-  await cm.locator('[data-mp-apply]').click();
+  await fm.locator('[data-fm-apply]').dispatchEvent('click');
   const lit = await rows.count();
-  await page.locator('#pf-category').click();
-  await page.locator('[data-mp-menu="pf-category"] [role=menuitemcheckbox]', { hasText: 'هدايا' }).click();
-  await page.locator('[data-mp-menu="pf-category"] [data-mp-apply]').click();
+  await fbtn.click();
+  await cm.locator('[role=menuitemcheckbox]', { hasText: 'هدايا' }).click();
+  await fm.locator('[data-fm-apply]').dispatchEvent('click');
   expect(await rows.count()).toBeGreaterThanOrEqual(lit);
-  await expect(page.locator('#pf-category .val')).toHaveText('القسم (2)');
+  await expect(fbtn.locator('.val')).toHaveText('فلتر (2)');
   await page.getByRole('button', { name: 'مسح الفلاتر' }).click();
   await page.fill('#pg-products input[type=search]', 'ibtk20035');
   await expect(rows).toHaveCount(1);
@@ -419,17 +420,17 @@ test('products.bulk: a member with products.edit but not products.bulk sees no b
 });
 
 // ---- phase 5.5 (the owner's prototype v2, plan decision 5) ----
-test('5.5 / B3: the type is a multi-select above the records (the card keeps the sort menu, the picks show as chips); «تخصيص التقارير» picks up to 8 cards saved per member', async ({ page }) => {
+test('5.5 / B3: the type is a group of the «فلتر» next to the sort (the picks show as chips); «تخصيص التقارير» picks up to 8 cards saved per member', async ({ page }) => {
   await openProducts(page);
   const rows = page.locator('#pg-products .pr-table tbody tr');
-  await page.locator('#pf-type').click(); // B3: the type is a multi-select too (the closed «فلتر» of the card is gone)
-  await page.locator('[data-mp-menu="pf-type"] [data-mp-opt="Variable"]').click();
-  await expect(page.locator('[data-mp-menu="pf-type"] [data-mp-apply]')).toHaveText('اعرض 1 منتج');
-  await page.locator('[data-mp-menu="pf-type"] [data-mp-apply]').click();
+  await page.locator('#pg-products [data-fm-btn="products"]').click(); // the owner 12 Nov: the groups inside one «فلتر»
+  await page.locator('[data-fm-menu="products"] [data-fm="type:Variable"]').click();
+  await expect(page.locator('[data-fm-menu="products"] [data-fm-apply]')).toHaveText('اعرض 1 منتج');
+  await page.locator('[data-fm-menu="products"] [data-fm-apply]').dispatchEvent('click');
   await expect(rows).toHaveCount(1);
   await expect(page.locator('#pg-products .af-row .af-chip')).toHaveCount(1);
   await expect(page.locator('#pg-products .af-chip .af-t')).toHaveText('النوع: Variable');
-  await expect(page.locator('#pf-type .val')).toHaveText('النوع (1)');
+  await expect(page.locator('#pg-products [data-fm-btn="products"] .val')).toHaveText('فلتر (1)');
   await page.locator('#pg-products [data-af-chip="type:Variable"]').click();
   await expect(rows).toHaveCount(4);
   await page.locator('#pg-products [data-sm-btn="products"]').click();
@@ -633,15 +634,13 @@ test('decision 62: the tabs are نظرة عامة · إضافة · سجل الم
   await tabs.nth(4).click();
   await expect(page).toHaveURL(/#products-log$/);
   await expect(pg.locator('[data-plog-row="product.trash"]')).toHaveText('نقل للمهملات');
-  // B3: the log card like the other tables — its count, a dropdown per filter (the move · by whom) and «تحديث» in the header
+  // the log card like the other tables — its count, one «فلتر» (the move · by whom — the owner 12 Nov) and «تحديث» in the header
   const card = pg.locator('.plog-card');
   await expect(card.locator('.sec-h')).toContainText('1 من 1 حركة');
   await expect(card.locator('[data-plog-kind]')).toHaveCount(0);
-  await card.locator('#plog-kind').click();
-  await expect(page.locator('[data-mp-menu="plog-kind"] [role=menuitemcheckbox]')).toHaveText(['نقل للمهملات']);
-  await page.keyboard.press('Escape');
-  await card.locator('#plog-by').click();
-  await expect(page.locator('[data-mp-menu="plog-by"] [role=menuitemcheckbox]')).toHaveCount(1);
+  await card.locator('[data-fm-btn="plog"]').click();
+  await expect(page.locator('[data-fm-menu="plog"] [data-fm-key="kind"] [role=menuitemcheckbox]')).toHaveText(['نقل للمهملات']);
+  await expect(page.locator('[data-fm-menu="plog"] [data-fm-key="by"] [role=menuitemcheckbox]')).toHaveCount(1);
   await page.keyboard.press('Escape');
   await expect(card.locator('[data-plog-refresh]')).toBeVisible();
 });

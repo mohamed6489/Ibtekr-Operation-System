@@ -1583,11 +1583,11 @@
     if (sort === 'amt-desc') list = list.slice().sort((p, q) => q.amt - p.amt); else if (sort === 'amt-asc') list = list.slice().sort((p, q) => p.amt - q.amt); else if (sort === 'name') list = list.slice().sort((p, q) => p.c.localeCompare(q.c, 'ar'));
     const sum = list.reduce((n, x) => n + x.amt, 0);
     const chips = (f.cat || []).map((v) => ({ key: 'cat:' + v, label: 'البند: ' + v, count: all.filter((x) => x.c === v).length, remove: () => { f.cat = f.cat.filter((x) => x !== v); render(); } }));
-    // B5 (the owner, 11 Nov): the filter is a row of dropdowns under the title; the sort stays in the header
+    // the owner 12 Nov: «فلتر» back next to the sort in the header (B5 had it as a row under the title)
     const filters = KK.FilterMenu({ id: 'exp', label: 'فلتر تفاصيل المصروفات', noun: 'بند', value: f, groups: [{ key: 'cat', label: 'البند', options: D.CATEGORIES.map((c) => [c, c]) }], count: (d) => all.filter((x) => ok(x, d)).length, onApply: (d) => { state.expF = d; render(); } });
-    const actions = h('span', { class: 'acts-inline' }, KK.SortMenu({ id: 'exp', label: 'ترتيب تفاصيل المصروفات', options: EXP_SORTS, value: sort, onChange: (v) => { state.expSort = v; render(); } }));
+    const actions = h('span', { class: 'acts-inline' }, filters, KK.SortMenu({ id: 'exp', label: 'ترتيب تفاصيل المصروفات', options: EXP_SORTS, value: sort, onChange: (v) => { state.expSort = v; render(); } }));
     return TableCard({ title: 'تفاصيل المصروفات', cls: 'own-filter', count: chips.length ? list.length + ' من ' + all.length + ' بند' : '', action: actions,
-      pre: [filters, KK.ActiveFilters({ id: 'exp', chips, total: list.length, noun: 'بند', onClear: () => { state.expF = { cat: [] }; render(); } })],
+      pre: KK.ActiveFilters({ id: 'exp', chips, total: list.length, noun: 'بند', onClear: () => { state.expF = { cat: [] }; render(); } }),
       body: list.length ? U.Table({ headers: ['البند', 'القيمة (ج.م)', 'النسبة', 'المصدر'], rows: list.map((x) => [x.c, num(D.formatMoney(x.amt)), num(D.formatPct(x.share)), srcFor(x.c, x.i)]),
         totalRow: chips.length ? ['إجمالي البنود المعروضة', num(D.formatMoney(sum)), num(D.formatPct(tot.total ? sum / tot.total : 0)), list.length + ' من ' + all.length + ' بند'] : ['إجمالي الأربع فئات', num(D.formatMoney(tot.total)), num(tot.total === 0 ? '0.0%' : '100.0%'), 'إجمالي المصروفات'] })
         : U.EmptyState('مفيش بنود بالفلتر ده', 'غيّر الفلتر أو امسحه.') });
@@ -2689,7 +2689,7 @@
       tkHead, tkTabs,
       h('div', { class: 'toolbar' }, search),
       tnote ? (() => { const n = tnote; tnote = null; const el = U.InlineNote({ kind: n.kind, children: n.text, action: IconButton({ icon: 'close', label: 'إخفاء', onClick: () => el.remove() }) }); return el; })() : null,
-      TableCard({ title: 'التذاكر', cls: 'own-filter', count: list.length + ' تذكرة · مرتبة حسب ' + (TSORTS.find((x) => x[0] === state.tsort) || TSORTS[0])[1], action: h('div', { class: 'acts-inline tk-acts' }, tSM), pre: [tFM, tAF], // B5: the filter row under the title
+      TableCard({ title: 'التذاكر', cls: 'own-filter', count: list.length + ' تذكرة · مرتبة حسب ' + (TSORTS.find((x) => x[0] === state.tsort) || TSORTS[0])[1], action: h('div', { class: 'acts-inline tk-acts' }, tFM, tSM), pre: tAF, // the owner 12 Nov: «فلتر» next to the sort
         body: loading ? U.EmptyState('بنجيب التذاكر…', 'لحظة.') : list.length === 0 ? U.EmptyState('مفيش تذاكر مطابقة', tCanManage() ? 'غيّر الفلاتر، أو اضغط «إنشاء تذكرة» لو ظهرت مشكلة مع عميل أو مبتكر.' : 'غيّر الفلاتر.') : [TB.bar(), tableOrList(() => table, () => cards), pager] }),
       h('p', { class: 'source' }, 'المصدر: جدول التذاكر في السيستم · الأوردر والعميل بيتجابوا من الأوردرات · كل تغيير حالة أو رد بيتسجل في الخط الزمني وسجل النشاط')];
   }
@@ -3134,7 +3134,7 @@
       : state.vtab === 'records' ? [
       h('div', { class: 'toolbar vtoolbar' }, search, h('span', { class: 'grow' }), h('span', { class: 't-small', style: 'color:var(--color-text-secondary)' }, num(list.length + ' مبتكر · ' + (VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label))),
       noteEl(),
-      TableCard({ title: 'المبتكرين', cls: 'own-filter', count: list.length + ' مبتكر · ' + ((VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label || ''), action: h('span', { class: 'acts-inline' }, vSortBtn()), pre: [vFilterBtn(), vChips(), bulk], // B5: the filter row under the title
+      TableCard({ title: 'المبتكرين', cls: 'own-filter', count: list.length + ' مبتكر · ' + ((VD.VENDOR_SORTS.find((x) => x.value === state.vsort) || {}).label || ''), action: h('span', { class: 'acts-inline' }, vFilterBtn(), vSortBtn()), pre: [vChips(), bulk], // the owner 12 Nov: «فلتر» next to the sort
         body: list.length === 0 ? U.EmptyState(state.vfilter.q ? 'مفيش مبتكر بالاسم ده' : 'مفيش مبتكر بالفلتر ده', 'جرّب اسم بديل أو رقم الهاتف، أو شيل اختيار من الفلتر، أو اضغط «إضافة مبتكر» لو جديد.') : [tableOrList(() => table, () => cards), pager] })]
       : state.vtab === 'accounts' ? makersAccountsTab() : state.vtab === 'log' ? makersLogTab() : makersReportsTab();
     return [headEl, tabsEl, h('div', { id: 'vpanel', role: 'tabpanel', 'aria-labelledby': 'tab-' + state.vtab, style: 'display:flex;flex-direction:column;gap:24px;min-width:0' }, ...body.filter(Boolean))];
@@ -3187,8 +3187,8 @@
     const tone = { create: 'success', remove: 'error', active: 'success', inactive: 'neutral', leave: 'gold', site: 'neutral' };
     const body = raw == null ? U.InlineNote({ children: 'بنحمّل سجل الحركات…' }) : rows.length ? U.Table({ cls: 'tickets-table', headers: ['التاريخ', 'المبتكر', 'الحركة', 'بواسطة'], rows: rows.map((e) => [fmtTime(e.at), (() => { const v = e.vendorId && vstore.get(e.vendorId); return v ? h('a', { href: '#makers/' + v.id, 'data-vlog-open': v.id, onClick: (ev) => { ev.preventDefault(); openVendor(v.id); } }, v.name) : e.maker; })(), h('span', { class: 'tg tg-' + (tone[e.k] || 'neutral'), 'data-vlog-row': e.k }, LOG_KIND[e.k] || e.k), e.by]) })
       : U.EmptyState(all.length ? 'مفيش حركات بالفلتر ده' : 'لسه مفيش حركات', all.length ? 'شيل اختيار من «فلتر» أو اضغط «مسح الكل».' : 'إضافة مبتكر وتوقيفه وتنشيطه ومسحه بيتسجلوا هنا.');
-    const card = TableCard({ title: 'سجل الحركات', cols: false, cls: 'own-filter', count: raw == null ? '' : num(rows.length + ' حركة'), pre: [filterBtn, chips], // B5: the filter row under the title
-      action: h('span', { class: 'acts-inline' }, Button({ type: 'text', size: 'sm', icon: 'refresh', label: 'تحديث', attrs: { 'data-vlog-refresh': '' }, onClick: () => { vlogAsked = false; renderVendors(); } })), body });
+    const card = TableCard({ title: 'سجل الحركات', cols: false, cls: 'own-filter', count: raw == null ? '' : num(rows.length + ' حركة'), pre: chips, // the owner 12 Nov: «فلتر» back in the header
+      action: h('span', { class: 'acts-inline' }, filterBtn, Button({ type: 'text', size: 'sm', icon: 'refresh', label: 'تحديث', attrs: { 'data-vlog-refresh': '' }, onClick: () => { vlogAsked = false; renderVendors(); } })), body });
     card.setAttribute('data-no-cols', ''); // one button only (the owner): the kit's sweep leaves this card without «أعمدة الجدول»
     return [card, h('p', { class: 'source' }, 'المصدر: سجل النشاط — إضافة مبتكر، تغيير حالته (نشط / غير نشط / في إجازة) من الفريق أو من الموقع، ومسحه من السيستم · آخر 200 حركة.')];
   }

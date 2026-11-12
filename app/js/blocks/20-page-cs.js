@@ -658,7 +658,7 @@
     if (f.problems) ch('problems', 'عندهم مشكلة', { problems: true }, () => { f.problems = false; });
     return K.ActiveFilters({ id: 'customers', chips, total: rows.length, noun: 'عميل', onClear: () => { Object.assign(f, { q: '', stage: '', tag: '', rating: '', prov: '', chan: '', problems: false, moods: [], provs: [], chans: [] }); f.page = 1; R(); } });
   }
-  // B5 (the owner, 11 Nov): the filter is a row of dropdowns (search + ticks) — الحالة · التقييم · المحافظة · القناة · أخرى; the rating keeps
+  // the kit's «فلتر» button (the owner 12 Nov — back from B5's row): الحالة · التقييم · المحافظة · القناة · أخرى; the rating keeps
   // one threshold (two ticked = the lower), «عندهم مشكلة بس» a single tick
   function custFilterMenu(f, onApply) {
     const toF = (d) => ({ moods: d.moods.slice(), rating: d.rating.length ? String(Math.min(...d.rating.map(Number))) : '', provs: d.provs.slice(), chans: d.chans.slice(), problems: d.problems.length > 0 });

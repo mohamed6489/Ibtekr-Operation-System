@@ -610,10 +610,10 @@ test('B2: «الفئة الأساسية» = the site\'s main categories, several
   await expect.poll(() => acts('vendor.update')).toContainEqual({ action: 'vendor.update', entity: 'vendor', entity_id: NEW1, new_value: 'categories' });
   // the makers filter «الفئة»: the main categories, by id — Art Craft and Clay Home are «ديكور»
   await drawer(page).getByRole('button', { name: 'إغلاق' }).first().click();
-  await page.locator('[data-fm-row="vendors"] [data-fm-key="category"] [data-mp-btn]').click(); // B5: the «الفئة» dropdown of the filter row
-  await expect(page.locator('[data-mp-menu] [data-mp-opt]')).toHaveText(['ديكور', 'هدايا']);
-  await page.locator('[data-mp-menu] [data-mp-opt="15"]').click();
-  await page.locator('[data-mp-menu] [data-mp-apply]').click();
+  await page.locator('#vendors [data-fm-btn="vendors"]').click(); // the owner 12 Nov: «فلتر» next to the sort, the groups inside
+  await expect(page.locator('[data-fm-menu="vendors"] [data-fm-key="category"] [data-fm]')).toHaveText(['ديكور', 'هدايا']);
+  await page.locator('[data-fm-menu="vendors"] [data-fm="category:15"]').click();
+  await page.locator('[data-fm-menu="vendors"] [data-fm-apply]').dispatchEvent('click');
   await expect(rows(page)).toHaveCount(2);
   await expect(page.locator('#vendors .af-row')).toContainText('الفئة: ديكور');
 });

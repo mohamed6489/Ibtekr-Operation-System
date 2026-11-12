@@ -688,11 +688,14 @@
 
   // ---------- فلتر الجداول — مكوّن واحد لأي جدول (owner 1 Nov) ----------
   // groups: [{ key, label, options:[[value, label, depth?]] }] · value: { key:[...] } · count(draft) → عدد النتايج · onApply(newValue)
-  // B5 (11 نوفمبر) كان صف دروب داونز؛ صاحب المشروع 12 نوفمبر رجّعه زرار «فلتر» جنب الترتيب وجواه المجموعات بالبحث والعلامات
-  // (data-fm-btn = id، القايمة data-fm-menu، كل مجموعة data-fm-key، كل اختيار data-fm = «مفتاح:قيمة»، data-fm-apply / data-fm-clear).
+  // B5 (11 نوفمبر) كان صف دروب داونز؛ صاحب المشروع 12 نوفمبر رجّعه زرار «فلتر» جنب الترتيب، وجواه المجموعات تابات في شريط بيتسحب
+  // (data-fm-btn = id، القايمة data-fm-menu، التاب data-fm-tab، تحته data-fm-key بالبحث data-fm-q والاختيارات data-fm = «مفتاح:قيمة»،
+  // data-fm-apply / data-fm-clear).
+  const fmTab = {}; // the group last opened in each filter (this session)
   function FilterMenu({ id, groups, value, count, noun, onApply, label }) {
-    // the owner 12 Nov — the row of dropdowns (B5) goes back inside one «فلتر» button next to the sort, on every table: the panel
-    // holds each group with its ticks (a search box in a group past six values, «-» before a sub-level), «مسح» and «اعرض N <noun>»
+    // the owner 12 Nov — one «فلتر» button next to the sort; inside it (the owner, the same day: «الأقسام في تابس جوه كاروسيل ولما أدوس
+    // على أي واحدة يفتح تحتيها الاختيارات بتاعتها وخانة بحث») the groups are tabs in a strip that scrolls sideways (the count picked on
+    // each), and under the tab picked its search box and its ticks; «مسح» and one «اعرض N <noun>» for all the groups
     const v0 = value || {}; const n0 = groups.reduce((n, g) => n + (v0[g.key] || []).length, 0);
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '' });
     const btn = h('button', { type: 'button', class: 'select sm' + (n0 ? ' has-val' : ''), 'aria-haspopup': 'dialog', 'aria-expanded': 'false', 'aria-label': (label || 'فلتر') + (n0 ? ' — ' + n0 + ' مختار' : ''), 'data-fm-btn': id }, Icon('chevD', 'sm'), h('span', { class: 'val' }, Icon('filter', 'sm'), ' فلتر' + (n0 ? ' (' + n0 + ')' : '')));
@@ -700,26 +703,41 @@
       const d = {}; groups.forEach((g) => { d[g.key] = [...(v0[g.key] || [])]; });
       const has = (k, v) => d[k].some((x) => String(x) === String(v));
       const cnt = h('span', null); const upd = () => { cnt.textContent = count ? 'اعرض ' + count(d) + (noun ? ' ' + noun : '') : 'تطبيق'; };
-      const items = [];
+      const items = []; const tabs = {}; const secs = {};
+      let cur = groups.some((g) => String(g.key) === fmTab[id]) ? fmTab[id] : String((groups[0] || {}).key);
+      // the tab = the kit's chip (the label + the count picked in its badge); the one open is green with beige text (Ibtekr's rules)
+      const tabText = (g) => [h('span', { class: 'fm-tl' }, g.label), ...(d[g.key].length ? [h('span', { class: 'cnt', 'data-fm-n': '' }, String(d[g.key].length))] : [])];
       const mark = (b) => { const on = has(b._k, b._v); b.setAttribute('aria-checked', String(on)); b.querySelector('.mchk').replaceChildren(...(on ? [Icon('check', 'sm')] : [])); };
       const opt = (g, o) => { const [v, l, depth] = o; const on = has(g.key, v);
         const b = h('button', { type: 'button', class: 'opt multi' + (depth ? ' mp-sub' : ''), role: 'menuitemcheckbox', 'aria-checked': String(on), 'data-fm': g.key + ':' + v },
           h('span', { class: 'mchk', 'aria-hidden': 'true' }, on ? Icon('check', 'sm') : null), h('span', { class: 'mp-l', dir: 'auto' }, (depth ? '-'.repeat(depth) + ' ' : '') + l));
         b._k = g.key; b._v = v; items.push(b);
-        b.addEventListener('click', (e) => { e.stopPropagation(); const a = d[g.key]; const i = a.findIndex((x) => String(x) === String(v)); if (i > -1) a.splice(i, 1); else a.push(v); mark(b); upd(); });
+        b.addEventListener('click', (e) => { e.stopPropagation(); const a = d[g.key]; const i = a.findIndex((x) => String(x) === String(v)); if (i > -1) a.splice(i, 1); else a.push(v); mark(b); tabs[String(g.key)].replaceChildren(...tabText(g)); upd(); });
         return b; };
-      const sections = groups.map((g) => {
+      const show = (k, focus) => { cur = String(k); fmTab[id] = cur;
+        Object.keys(tabs).forEach((x) => { tabs[x].setAttribute('aria-selected', String(x === cur)); tabs[x].tabIndex = x === cur ? 0 : -1; });
+        Object.keys(secs).forEach((x) => { secs[x].hidden = x !== cur; });
+        const t = tabs[cur]; if (t && t.scrollIntoView) t.scrollIntoView({ block: 'nearest', inline: 'nearest' });
+        const q = secs[cur] && secs[cur].querySelector('[data-fm-q]'); if (focus && q) setTimeout(() => q.focus()); };
+      const strip = h('div', { class: 'fm-tabs', role: 'tablist', 'aria-label': (label || 'فلتر') + ' — الأقسام' }, groups.map((g) => {
+        const t = h('button', { type: 'button', role: 'tab', class: 'chip fm-tab', 'data-fm-tab': String(g.key), 'aria-selected': String(String(g.key) === cur) }, ...tabText(g));
+        t.addEventListener('click', (e) => { e.stopPropagation(); show(g.key, true); }); tabs[String(g.key)] = t; return t; }));
+      strip.addEventListener('keydown', (e) => { if (e.key !== 'ArrowLeft' && e.key !== 'ArrowRight') return; e.preventDefault(); const keys = groups.map((g) => String(g.key)); const i = keys.indexOf(cur);
+        const n = keys[(i + (e.key === 'ArrowLeft' ? 1 : -1) + keys.length) % keys.length]; show(n); tabs[n].focus(); });
+      groups.forEach((g) => {
         const list = h('div', { class: 'fm-list', role: 'group', 'aria-label': g.label }, g.options.map((o) => opt(g, o)));
-        const q = g.options.length > 6 ? h('input', { type: 'search', class: 'input fm-q', placeholder: 'دوّر في ' + g.label + '…', 'aria-label': 'دوّر في ' + g.label, 'data-fm-q': g.key, autocomplete: 'off' }) : null;
-        if (q) q.addEventListener('input', () => { const k = foldAr(q.value); [...list.children].forEach((b) => { b.hidden = !!k && !foldAr(b.textContent).includes(k); }); });
-        return h('div', { class: 'fm-sec', 'data-fm-key': String(g.key) }, h('div', { class: 'opt-group t-small', role: 'presentation' }, g.label), q, list);
+        const q = h('input', { type: 'search', placeholder: 'دوّر في ' + g.label + '…', 'aria-label': 'دوّر في ' + g.label, 'data-fm-q': String(g.key), autocomplete: 'off' });
+        const none = h('p', { class: 't-small help fm-none', hidden: '' }, 'مفيش نتايج');
+        q.addEventListener('input', () => { const k = foldAr(q.value); let n = 0; [...list.children].forEach((b) => { b.hidden = !!k && !foldAr(b.textContent).includes(k); if (!b.hidden) n++; }); none.hidden = n > 0; });
+        q.addEventListener('keydown', (e) => { if (e.key === 'ArrowDown') { const f = [...list.children].find((b) => !b.hidden); if (f) { e.preventDefault(); f.focus(); } } });
+        secs[String(g.key)] = h('div', { class: 'fm-sec', role: 'tabpanel', 'data-fm-key': String(g.key), hidden: String(g.key) === cur ? false : '' }, h('label', { class: 'input fm-q' }, Icon('search', 'sm'), q), list, none);
       });
-      const m = h('div', { class: 'menu view-menu fm-menu', role: 'menu', 'aria-label': label || 'فلتر', 'data-fm-menu': id }, sections,
-        h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-fm-clear': '' }, onClick: () => { groups.forEach((g) => { d[g.key] = []; }); items.forEach(mark); upd(); } }),
+      const m = h('div', { class: 'menu view-menu fm-menu', role: 'menu', 'aria-label': label || 'فلتر', 'data-fm-menu': id, 'data-focus': 'no' }, strip, groups.map((g) => secs[String(g.key)]),
+        h('div', { class: 'view-foot' }, Button({ size: 'sm', type: 'text', label: 'مسح', attrs: { 'data-fm-clear': '' }, onClick: () => { groups.forEach((g) => { d[g.key] = []; tabs[String(g.key)].replaceChildren(...tabText(g)); }); items.forEach(mark); upd(); } }),
           Button({ size: 'sm', type: 'primary', label: cnt, attrs: { 'data-fm-apply': '' }, onClick: () => { close(); onApply(d); } })));
-      m.addEventListener('keydown', (e) => { if (e.target && e.target.matches && e.target.matches('input')) return; const vis = items.filter((x) => !x.hidden); const i = vis.indexOf(document.activeElement); if (!vis.length) return;
+      m.addEventListener('keydown', (e) => { if (e.target && e.target.matches && e.target.matches('input, [role=tab]')) return; const vis = items.filter((x) => !x.hidden && !x.closest('.fm-sec').hidden); const i = vis.indexOf(document.activeElement); if (!vis.length) return;
         if (e.key === 'ArrowDown') { e.preventDefault(); vis[(i + 1) % vis.length].focus(); } if (e.key === 'ArrowUp') { e.preventDefault(); vis[(i - 1 + vis.length) % vis.length].focus(); } });
-      upd(); return m; });
+      upd(); setTimeout(() => { if (!m.contains(document.activeElement) && tabs[cur]) tabs[cur].focus(); const t = tabs[cur]; if (t && t.scrollIntoView) t.scrollIntoView({ block: 'nearest', inline: 'nearest' }); }); return m; });
     btn.addEventListener('click', pop.toggle); wrap.append(btn); return wrap;
   }
   function SortMenu({ id, options, value, onChange, label }) {

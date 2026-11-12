@@ -31,10 +31,11 @@ const settingsRow = (section) => mock.settings.find((r) => r.section === section
 // another member signs in: the session is forgotten (the mock keeps its tokens), the app starts from the login screen
 async function relogin(page) { await page.evaluate(() => { try { localStorage.clear(); sessionStorage.clear(); } catch (e) { /* */ } }); await page.goto('/'); await expect(page.locator('#login')).toBeVisible(); }
 
-test('the hub: 15 cards in 4 groups for the admin (B6: «المخزن» in «التشغيل»); a member without settings.view sees the notice; the page is out of «soon»', async ({ page }) => {
+test('the hub: 16 cards in 4 groups for the admin (B6: «المخزن» in «التشغيل»; the HR rebuild: «الموارد البشرية» in «الشركة والفريق»); a member without settings.view sees the notice; the page is out of «soon»', async ({ page }) => {
   await signIn(page, ADMIN);
   await openSettings(page);
-  await expect(page.locator('[data-set-card]')).toHaveCount(15);
+  await expect(page.locator('[data-set-card]')).toHaveCount(16);
+  await expect(page.locator('[data-set-group="الشركة والفريق"] [data-set-card="hr"]')).toHaveCount(1);
   await expect(page.locator('[data-set-group="التشغيل"] [data-set-card]')).toHaveCount(5);
   await expect(page.locator('[data-set-group]')).toHaveCount(4);
   await expect(page.locator('.sidebar [data-page="settings"]')).not.toHaveAttribute('data-soon', '');

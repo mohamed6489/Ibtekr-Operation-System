@@ -9,7 +9,7 @@
   const { h, Icon, Button, IconButton } = U; const S = K.store;
   const SECTIONS = [
     ['general', 'عام', 'بيانات الشركة واللغة والعرض', 'home'], ['team', 'الفريق والصلاحيات', 'الأعضاء والأدوار والدعوات', 'users'], ['integrations', 'الربط بالمنصات', 'WooCommerce وAirtable وواتساب', 'external'], ['ai', 'تعليمات الذكاء الاصطناعي', 'الصور، الفيديو، والمحتوى بأسلوب إبتكر', 'sparkle'],
-    ['makers', 'إعدادات المبتكرين', 'قواعد التأخير والتنشيط', 'truck'], ['inventory', 'المخزن', 'الأماكن والسحب والتنبيهات والمرتجع', 'box'], ['notifications', 'التنبيهات', 'الأنواع والتصعيد وساعات الهدوء', 'bell'], ['lists', 'القوائم والحالات', 'الحالات والأسباب والفئات', 'sliders'],
+    ['hr', 'الموارد البشرية', 'الدوام والأوفر تايم والمرتبات والإجازات والعطلات', 'briefcase'], ['makers', 'إعدادات المبتكرين', 'قواعد التأخير والتنشيط', 'truck'], ['inventory', 'المخزن', 'الأماكن والسحب والتنبيهات والمرتجع', 'box'], ['notifications', 'التنبيهات', 'الأنواع والتصعيد وساعات الهدوء', 'bell'], ['lists', 'القوائم والحالات', 'الحالات والأسباب والفئات', 'sliders'],
     ['payments', 'الحسابات والدفع', 'الحسابات والتحويلات والفاتورة', 'wallet'], ['activity', 'سجل النشاط', 'مين عمل إيه وإمتى', 'activity'], ['security', 'الأمان', 'كلمة السر والجلسات والسياسات', 'alert'], ['docs', 'الأوراق الرسمية', 'السجل التجاري والبطاقة الضريبية والعقود', 'file'], ['brand', 'الهوية البصرية', 'ألوان الموقع واللوجو والخطوط', 'image'], ['data', 'البيانات', 'تصدير واستيراد ونسخ احتياطي', 'download'], ['quick', 'الإجراءات السريعة', 'روابط لأي صفحة بفلاترها في القايمة اللي فوق', 'zap']];
   const st = { sec: 'home', ntab: 'types', itab: 'site', teamSub: 'members', integ: null, list: 'order', open: {}, nopen: {}, aopen: {}, dirty: false, draft: null, mq: '', pending: new Set() };
   const R = () => window.IBPages.render('settings');
@@ -126,7 +126,7 @@
     return [K.Section(x.name, fields, acts, { sub: 'تعليمات «' + x.name + '» — بتتطبق مع الستايل العام والقواعد الثابتة.' })];
   }
   // الإعدادات كصفحة كروت (owner 1 Nov 22:51): مجموعات · كل قسم كارت فيه بيتحكم في إيه + رقم الحالة + «تعديل» بيفتح صفحة لوحده
-  const GROUPS = [['الشركة والفريق', ['general', 'team', 'docs', 'brand']], ['الربط والأدوات', ['integrations', 'ai', 'quick']], ['التشغيل', ['makers', 'inventory', 'notifications', 'lists', 'payments']], ['الأمان والبيانات', ['security', 'activity', 'data']]];
+  const GROUPS = [['الشركة والفريق', ['general', 'team', 'hr', 'docs', 'brand']], ['الربط والأدوات', ['integrations', 'ai', 'quick']], ['التشغيل', ['makers', 'inventory', 'notifications', 'lists', 'payments']], ['الأمان والبيانات', ['security', 'activity', 'data']]];
   const STATS = {
     general: () => [C.general.company, 'neutral'],
     team: () => { const a = S.members.filter((m) => m.status === 'active').length, inv = S.members.filter((m) => m.status === 'invited').length; return [a + ' عضو' + (inv ? ' · ' + inv + ' دعوة معلّقة' : ''), inv ? 'gold' : 'neutral']; },
@@ -135,6 +135,7 @@
     integrations: () => { const all = C.integrations, on = all.filter((x) => x.status === 'متصل').length, err = all.filter((x) => String(x.status).startsWith('خطأ')).length; return [on + ' من ' + all.length + ' متصلة' + (err ? ' · ' + err + ' فيها خطأ' : ''), err ? 'error' : 'success']; },
     quick: () => { const n = window.IBQuick ? window.IBQuick.list().length : 0; return [n + ' إجراء سريع', 'neutral']; },
     makers: () => [C.makerRules.length + ' قاعدة تأخير خاصة', 'neutral'],
+    hr: () => { const v = st.hr || (window.IBHR ? window.IBHR.settings() : {}); return ['يوم الصرف ' + (v.payDay || 28) + ' · البونص من ' + (v.bonusMin || 3) + ' من 5', 'neutral']; },
     inventory: () => { const I = window.IBInventory; const v = st.inv || (I ? I.settings() : null); return [v && v.firstWarehouse ? 'السحب التلقائي شغّال' : 'السحب يدوي', v && v.firstWarehouse ? 'gold' : 'neutral']; },
     notifications: () => [C.notif.length + ' نوع تنبيه · ' + C.escalations.length + ' تصعيد', 'neutral'],
     activity: () => { const n = (K.store.log || []).length; return [n ? n + ' حدث متسجل' : 'مين عمل إيه وإمتى', 'neutral']; },
@@ -153,7 +154,7 @@
     // زرار «حفظ» في كل صفحة (owner 2 Nov 01:34) + أي تغيير في الصفحة بيتعلّم «مش محفوظ» من غير ما الصفحة تتعاد
     const note = h('span', { class: 'set-dirty t-small', 'data-set-dirty': '', hidden: !st.dirty }, Icon('alert', 'sm'), ' تغييرات مش محفوظة');
     const save = Button({ type: 'brand', icon: 'check', label: 'حفظ', attrs: { 'data-set-save': '' }, onClick: () => { commit(); R(); } });
-    if (st.snapSec !== st.sec) { st.snap = snapTake(); st.snapSec = st.sec; if (st.sec === 'inventory' && !st.dirty) { st.inv = null; st.invAsked = false; } }
+    if (st.snapSec !== st.sec) { st.snap = snapTake(); st.snapSec = st.sec; if (st.sec === 'inventory' && !st.dirty) { st.inv = null; st.invAsked = false; } if (st.sec === 'hr' && !st.dirty) st.hr = null; }
     const body = h('div', { class: 'set-body set-page' }, ...section());
     const mark = () => { if (st.dirty) return; st.dirty = true; note.hidden = false; const pg = document.getElementById('pg-settings'); if (pg && !pg.querySelector('.save-bar')) pg.append(saveBar()); };
     // التحديد في الجداول والفلاتر والتابات مش «تغيير» — مش بيطلّع تذكير الحفظ
@@ -174,6 +175,7 @@
       LOGO_T.forEach((t, i) => { if (window.IBLogo && window.IBLogo.get(t) !== s0.logos[i]) window.IBLogo.set(t, s0.logos[i]); });
       try { applyBrand(); saveBrand(); } catch (e) { /* brand section not loaded */ } }
     st.inv = null; // B6: the inventory draft back to the saved settings
+    st.hr = null; // the HR rebuild: the HR draft too
     st.dirty = false; st.draft = null; st.pending.delete(st.sec); LOGV('settings.discard', nm); K.toast('اتلغت التغييرات ورجعت زي ما كانت');
   }
   function leave(go) {
@@ -222,6 +224,57 @@
     const d = st.inv; const r = await I.saveSettings({ firstWarehouse: !!d.firstWarehouse, consolidationAlert: invDay(d.consolidationAlert), photoMax: invDay(d.photoMax), returnWait: invDay(d.returnWait), returnDefault: d.returnDefault });
     if (!r.ok) fail(r, 'حفظ إعدادات المخزن'); else st.inv = I.settings();
   }
+  // ---------- the HR rebuild (the owner 12 Nov — «اعدادات الموارد البشرية تتنقل للاعدادات العامة … ابسط … المهم بس»): «الموارد البشرية» ----------
+  // the day (shown), the missing end, the overtime (counted, «لسه شغال؟», who confirms), the pay day and the bonus bar, the leave types and
+  // the year's end (paid with December / carried), the holidays, the departments. The values are IBHR's settings row «hr» — a draft here
+  // (st.hr) that the page's «حفظ» sends; the lists are written at once from their popups (the admin)
+  const HR_KEYS = ['autoMissing', 'countOT', 'presence', 'presenceEvery', 'confirmBy', 'payDay', 'bonusMin', 'leaveYearEnd'];
+  const hrDay = (v) => { const n = Number(String(v == null ? '' : v).trim().replace(/[٠-٩]/g, (d) => '٠١٢٣٤٥٦٧٨٩'.indexOf(d))); return Number.isInteger(n) && n >= 1 && n <= 31 ? n : null; };
+  const hrValid = () => !st.hr || hrDay(st.hr.payDay) != null;
+  async function persistHr() {
+    const HR = window.IBHR; if (!HR || !st.hr || !isAdminMe()) return;
+    const d = st.hr; const patch = {}; HR_KEYS.forEach((k) => { patch[k] = d[k]; }); patch.payDay = hrDay(d.payDay); patch.bonusMin = Number(d.bonusMin) || 3; patch.presenceEvery = Number(d.presenceEvery) || 120;
+    const r = await HR.saveSettings(patch); if (!r.ok) fail(r, 'حفظ إعدادات الموارد البشرية'); else st.hr = null;
+  }
+  function hrSec() {
+    const HR = window.IBHR; if (!HR) return [U.InlineNote({ kind: 'warning', children: 'إعدادات الموارد البشرية مش متاحة دلوقتي — جرّب تحدّث الصفحة.' })];
+    if (!st.hr) { const v = HR.settings(); st.hr = {}; HR_KEYS.forEach((k) => { st.hr[k] = v[k]; }); }
+    const d = st.hr; const D = HR.data; const ro = !isAdminMe(); const done = (r, ok) => { if (r && r.ok) K.toast(ok, 'success'); else fail(r); R(); };
+    const sw = (k, label, help) => K.Switch({ id: 'hs-' + k, label, help, checked: !!d[k], disabled: ro, onChange: (v) => { d[k] = v; R(); } });
+    const holidays = D.holidays || []; const types = D.leaveTypes || []; const depts = D.departments || [];
+    return [h('div', { class: 'set-narrow', 'data-hr-settings': '' },
+      K.Section('الدوام', [vrow('أيام الشغل', 'الجمعة والسبت راحة — الشغل فيهم أو في عطلة باليوم بيومين', h('b', null, 'الأحد – الخميس')), vrow('ساعات اليوم', 'الدوام مرن: أكتر من جلسة في اليوم والساعات بتتجمع، ومفيش تأخير', h('b', null, '8 ساعات')),
+        vrow('سعر اليوم', 'المرتب ÷ 24 يوم · سعر الساعة = سعر اليوم ÷ 8', h('b', null, '÷ 24')), sw('autoMissing', 'انصراف ناقص تلقائي', 'الجلسة اللي ما اتقفلتش لحد آخر اليوم بتتعلّم «انصراف ناقص»')]),
+      K.Section('الأوفر تايم', [sw('countOT', 'احتساب الأوفر تايم', 'لما يتقفل الساعات بتتسجل بس ومابتدخلش المرتب'), sw('presence', 'تأكيد التواجد في الأوفر تايم', 'سؤال «لسه شغال؟» — مفيش رد خلال دقيقة = الدوام بيتقفل على وقت السؤال'),
+        d.presence ? U.Select({ id: 'hs-every', label: 'كل قد إيه', disabled: ro, options: [60, 120, 180, 240].map((x) => ({ value: String(x), label: x === 60 ? 'كل ساعة' : x === 120 ? 'كل ساعتين' : 'كل ' + x / 60 + ' ساعات' })), value: String(d.presenceEvery || 120), onChange: (v) => { d.presenceEvery = Number(v); } }) : null,
+        U.Select({ id: 'hs-who', label: 'مين بيأكد الأوفر تايم', disabled: ro, options: [{ value: 'المدير المباشر', label: 'المدير المباشر ← الأدمن بعد 24 ساعة' }, { value: 'الأدمن', label: 'الأدمن على طول' }], value: d.confirmBy || 'المدير المباشر', onChange: (v) => { d.confirmBy = v; } })]),
+      K.Section('المرتبات', [U.TextInput({ id: 'hs-payday', label: 'يوم الصرف', value: String(d.payDay == null ? '' : d.payDay), inputmode: 'numeric', disabled: ro, help: 'تحويل المرتب قبل اليوم ده = «تحويل مبكر» لازم له سبب (الشهر القصير = آخر يوم فيه)', onInput: (v) => { d.payDay = v; } }),
+        U.Select({ id: 'hs-bonus', label: 'البونص بيتصرف لو تقييم الشهر', disabled: ro, options: ['2', '2.5', '3', '3.5', '4', '4.5'].map((x) => ({ value: x, label: x + ' من 5 أو أكتر' })), value: String(d.bonusMin || 3), onChange: (v) => { d.bonusMin = Number(v); } }),
+        note('البونص = الجزء المحجوز من المرتب كل شهر، بيتصرف مع آخر شهر في الربع: الشهر اللي تقييمه وصل الحد ده محجوزه كامل، واللي أقل = صفر (مش نسبة).')]),
+      K.Section('الإجازات', [types.length ? U.Table({ cls: 'mini-table', headers: ['النوع', 'الرصيد السنوي', 'بأجر', 'بتخصم من الرصيد', 'الموافقة'], rows: types.map((x) => [x.name, x.days, x.paid, x.deducts ? 'أيوه' : 'لأ', x.approval]) }) : null,
+        ro ? vrow('رصيد الإجازات الباقي آخر السنة', null, h('b', null, d.leaveYearEnd === 'carry' ? 'يترحّل للسنة الجديدة' : 'يتصرف مع مرتب ديسمبر'))
+          : K.Radios({ label: 'رصيد الإجازات الباقي آخر السنة', value: d.leaveYearEnd || 'pay', onChange: (v) => { d.leaveYearEnd = v; R(); }, options: [{ value: 'pay', label: 'يتصرف مع مرتب ديسمبر — كل يوم باقي بسعر اليوم (مقترح)' }, { value: 'carry', label: 'يترحّل ويتضاف لرصيد السنة الجديدة' }] }),
+        note('الإجازة لما تتوافق في «طلبات الفريق» بتتخصم من رصيد العضو لوحدها.')], ro ? null : [Button({ size: 'sm', label: '+ نوع إجازة', attrs: { 'data-hs-leave': '' }, onClick: () => hrLeaveType(done) })]),
+      K.Section('العطلات الرسمية', holidays.length ? U.Table({ cls: 'mini-table', headers: ['العطلة', 'التاريخ', 'الأيام', 'الحالة', ''], rows: holidays.map((x) => [x.name, K.dlabel(x.date), String(x.days), K.Tag(x.status === 'مؤكد' ? 'success' : 'orange', x.status === 'مؤكد' ? 'مؤكد' : 'متوقع'),
+        ro ? '' : x.status !== 'مؤكد' ? Button({ type: 'text', size: 'sm', label: 'أكّده', onClick: () => HR.holidayConfirm(x.dbId).then((r) => done(r, 'اتأكدت العطلة')) }) : K.RowMenu([{ label: 'حذف', icon: 'close', danger: true, run: () => K.confirm({ title: 'حذف العطلة', text: 'هتتشال «' + x.name + '» من التقويم وحساب الإجازات.', okType: 'danger', okLabel: 'حذف', onOk: () => HR.holidayDelete(x.dbId).then((r) => done(r, 'اتحذفت العطلة')) }) }], 'إجراءات ' + x.name)]) })
+        : K.Empty('مفيش عطلات', 'ضيف العطلات الرسمية عشان متتحسبش غياب.'), ro ? null : [Button({ size: 'sm', label: '+ عطلة', attrs: { 'data-hs-holiday': '' }, onClick: () => hrHoliday(done) })]),
+      K.Section('الأقسام', [h('div', { class: 'chips' }, depts.map((x) => h('span', { class: 'list-chip' }, x)))], ro ? null : [Button({ size: 'sm', label: '+ قسم', onClick: () => hrDept(done) })]),
+      ro ? note('الإعدادات دي للأدمن بس — بتظهرلك قراية.') : null)];
+  }
+  function hrHoliday(done) {
+    K.form({ title: 'إضافة عطلة', values: { days: '1', kind: 'هجري' }, fields: (f, e, set) => [K.field.text('name', 'اسم العطلة', f, e, set, { required: true }), K.two(K.field.date('date', 'أول يوم', f, e, set, { required: true }), K.field.select('days', 'عدد الأيام', ['1', '2', '3', '4', '5'], f, e, set)), K.field.select('kind', 'النوع', ['هجري', 'ميلادي · سنوي', 'استثنائية'], f, e, set)],
+      validate: (f) => K.req(f, ['name', 'date']), submitLabel: 'إضافة', submit: (f, md) => { window.IBHR.holidayAdd({ name: f.name, date: f.date, days: Number(f.days), kind: f.kind, status: f.kind === 'هجري' ? 'متوقع' : 'مؤكد' }).then((r) => { if (r.ok) md.close(); done(r, 'اتضافت العطلة'); }); return false; } });
+  }
+  function hrLeaveType(done) {
+    K.form({ title: 'نوع إجازة', values: { paid: 'نعم', approval: 'المدير المباشر', deducts: 'no' }, fields: (f, e, set) => [K.two(K.field.text('name', 'الاسم', f, e, set, { required: true }), K.field.text('days', 'الرصيد السنوي', f, e, set, { required: true, placeholder: 'مثلاً: 3 أيام' })),
+      K.Radios({ label: 'بأجر؟', value: f.paid, onChange: (v) => set('paid', v, true), options: [{ value: 'نعم', label: 'نعم' }, { value: 'لا', label: 'لا (اليوم ÷ 24 من المرتب)' }] }), K.Radios({ label: 'بتخصم من رصيد الإجازات السنوي؟', value: f.deducts, onChange: (v) => set('deducts', v, true), options: [{ value: 'yes', label: 'أيوه' }, { value: 'no', label: 'لأ' }] }),
+      K.field.select('approval', 'الموافقة', ['المدير المباشر', 'الأدمن'], f, e, set)],
+      validate: (f) => K.req(f, ['name', 'days']), submitLabel: 'إضافة', submit: (f, md) => { window.IBHR.leaveTypeAdd({ name: f.name, days: f.days, paid: f.paid, approval: f.approval, deducts: f.deducts === 'yes' }).then((r) => { if (r.ok) md.close(); done(r, 'اتضاف نوع الإجازة'); }); return false; } });
+  }
+  function hrDept(done) {
+    K.form({ title: 'قسم جديد', values: {}, fields: (f, e, set) => [K.field.text('name', 'اسم القسم', f, e, set, { required: true })], validate: (f) => { const e = K.req(f, ['name']); if ((window.IBHR.data.departments || []).includes(String(f.name).trim())) e.name = 'موجود بالفعل'; return e; },
+      submitLabel: 'إضافة', submit: (f, md) => { window.IBHR.addDepartment(f.name).then((r) => { if (r.ok) md.close(); done(r, 'اتضاف القسم'); }); return false; } });
+  }
   function section() {
     switch (st.sec) {
       case 'general': return general();
@@ -231,6 +284,7 @@
       case 'quick': return window.IBQuick ? [window.IBQuick.manage(R)] : [];
       case 'makers': return makers();
       case 'inventory': return invSec();
+      case 'hr': return hrSec();
       case 'notifications': return notifSec();
       case 'lists': return lists();
       case 'payments': return payments();
@@ -1249,7 +1303,8 @@
     return viewV6();
   }
   function commit() { if (st.sec === 'inventory' && !invValid()) { K.toast('أيام التنبيهات لازم تكون رقم صحيح من 1 لـ 90', 'error'); return false; } // B6
-    const nm = (SECTIONS.find((q) => q[0] === st.sec) || [, 'عام'])[1]; if (st.draft) Object.assign(C.general, st.draft); st.dirty = false; st.draft = null; st.pending.delete(st.sec); st.snap = snapTake(); st.snapSec = st.sec; K.logEvent('settings.save', nm); if (ROW_OF[st.sec]) persist(st.sec); if (st.sec === 'inventory') persistInventory(); K.toast('اتحفظت التغييرات', 'success'); }
+    if (st.sec === 'hr' && !hrValid()) { K.toast('يوم الصرف لازم يكون رقم من 1 لـ 31', 'error'); return false; } // the HR rebuild
+    const nm = (SECTIONS.find((q) => q[0] === st.sec) || [, 'عام'])[1]; if (st.draft) Object.assign(C.general, st.draft); st.dirty = false; st.draft = null; st.pending.delete(st.sec); st.snap = snapTake(); st.snapSec = st.sec; K.logEvent('settings.save', nm); if (ROW_OF[st.sec]) persist(st.sec); if (st.sec === 'inventory') persistInventory(); if (st.sec === 'hr') persistHr(); K.toast('اتحفظت التغييرات', 'success'); }
 
   // ---------- the platform links (decisions 9 / 10 / 13): settings-admin + the other pages' links ----------
   const CARD_DESC = { woo: 'الأوردرات والمنتجات والعملاء من الموقع — مفاتيح REST API وباسورد التطبيق للصور', airtable: 'قاعدة البيانات المؤقتة القديمة', wa: 'أرقام واتساب العملاء والمبتكرين — الربط من خدمة العملاء › القنوات', messenger: 'رسايل الصفحة وتعليقات البوستات من خدمة العملاء', instagram: 'رسايل الـ Direct وتعليقات البوستات', tiktok: 'مفيش API رسايل عام — غير متصل', sheets: 'قراءة شيتات Google', paymob: 'تأكيد المدفوعات الإلكترونية', bosta: 'حالة الشحنات ورصيد التحصيل', n8n: 'الأتمتة الخارجية (webhook)', metaads: 'الصرف والحملات لصفحة «التسويق» — الربط من التسويق › نظرة عامة', googleads: 'حملات جوجل لصفحة «التسويق»', tiktokads: 'حملات تيك توك لصفحة «التسويق»', magnific: 'صور المنتجات والكامبينات — مفتاح الـ API هنا، وحساب الموقع (الجسر) من المنتجات › الصور', github: 'المبرمج: الريبو ولينك المعاينة', claude: 'المحتوى والمساعدين — Claude', openai: 'نصوص وصور gpt-image', gemini: 'نصوص وصور Nano Banana وفيديو Veo', elevenlabs: 'التعليق الصوتي المباشر', higgsfield: 'فيديوهات الكامبينات عبر MCP', resend: 'إيميلات التنبيهات من alerts@ibtekr.club', figma: 'ملف الديزاين سيستم' };

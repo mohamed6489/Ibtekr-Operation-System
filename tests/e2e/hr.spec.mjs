@@ -329,21 +329,28 @@ test('«إضافة عضو» without Resend: the temporary password shows once (n
   await expect(P(page).locator('.hr-table')).toContainText('كريم سامي');
 });
 
-test('the settings row «hr» (the admin): the presence interval saved, no late grace (decision 24 — flexible hours); a holiday added', async ({ page }) => {
-  await openHr(page, ADMIN, 'hr-settings');
-  await expect(P(page).locator('#hs-grace')).toHaveCount(0);
-  await expect(P(page)).toContainText('مرنة');
-  await pick(page, P(page), 'hs-every', 'كل ساعة');
-  await expect.poll(() => ((mock.settings.find((s) => s.section === 'hr') || {}).data || {}).presenceEvery).toBe(60);
-  await P(page).getByRole('button', { name: '+ عطلة' }).click();
+test('the rebuild — the HR settings live in «الإعدادات › الموارد البشرية» (#hr-settings lands there): the pay day, the bonus bar and the year\'s end saved with «حفظ»; a holiday added at once', async ({ page }) => {
+  await openHr(page, ADMIN, 'hr');
+  await page.evaluate(() => { location.hash = 'hr-settings'; });
+  await expect(page).toHaveURL(/#settings-hr$/);
+  const S = page.locator('[data-hr-settings]');
+  await expect(S).toContainText('الأحد – الخميس');
+  await S.locator('#hs-payday').fill('25');
+  await pick(page, S, 'hs-bonus', '3.5 من 5 أو أكتر');
+  await S.getByRole('radio', { name: /يترحّل/ }).click();
+  await page.locator('[data-set-save]').first().click();
+  await expect.poll(() => ((mock.settings.find((x) => x.section === 'hr') || {}).data || {})).toMatchObject({ payDay: 25, bonusMin: 3.5, leaveYearEnd: 'carry' });
+  await S.locator('[data-hs-holiday]').click();
   const f = modal(page, 'إضافة عطلة');
   await f.locator('#name').fill('عيد تجريبي'); await date(f, 'date', NEXT);
   await f.getByRole('button', { name: 'إضافة' }).click();
   await expect(f).toBeHidden();
   expect(mock.hr.holidays.map((x) => [x.name, x.day, x.status])).toEqual([['عيد تجريبي', NEXT, 'متوقع']]);
-  await expect(P(page)).toContainText('عيد تجريبي');
+  await expect(S).toContainText('عيد تجريبي');
+  // the card on the settings hub
+  await page.locator('[data-set-back]').click();
+  await expect(page.locator('[data-set-card="hr"]')).toContainText('يوم الصرف 25');
 });
-
 test('ops (hr.view P, no team of her own, no salaries): herself only, no «المرتبات» tab and no admin buttons; «التقييمات» lists her without «قيّم» (never her own month)', async ({ page }) => {
   await openHr(page, OPS);
   await expect(P(page).locator('.hr-table tbody tr')).toHaveCount(1);

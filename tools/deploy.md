@@ -2013,3 +2013,9 @@ update public.vendor_logins set locked_until = null, fails = 0 where username = 
 4. الواجهة على `main`. الإعدادات الجديدة (`payDay` 28، `bonusMin` 3، `leaveYearEnd` `pay`) افتراضية لحد ما الأدمن يغيّرها من «الإعدادات › الموارد البشرية».
 5. التجربة: «المرتبات» → «تحويل مرتب» لعضو قبل يوم الصرف (لازم سبب) ثم «تحويل المرتبات» للباقي → مصروف «المرتبات» لكل عضو وسحب لكل تحويل في «الحسابات»؛ «التقييمات» → «قيّم» شهر لعضو تحت مدير.
 
+#### 2.7.68 شات المساعدين زي Claude وصور الديزاينر (صاحب المشروع 12 نوفمبر — `docs/superpowers/plans/2026-11-12-marketing-agents.md` القراران 5 و6)
+**بعد** `0083`:
+1. `0084_agent_chats.sql` على المشروع (Supabase MCP `apply_migration` بموافقة صاحب المشروع، أو SQL Editor): `mkt_agent_chats` + `mkt_agent_messages` (كل عضو شاتاته بس، والرسايل من السيرفر)، `mkt_agent_chat_delete`، `mkt_agent_settings` / `mkt_agent_settings_set` (الأدمن)، `ai_runs.source` = `agent`، وسياسة قراية bucket `marketing` اتعدّلت عشان `agents/<العضو>/…` يبقى لصاحبه بس.
+2. `rls_agent_chats` live (workflow «RLS live»، `files = rls_agent_chats`).
+3. انشر `ai-content` (`agent`) و`ai-images` (`agent_image`) من «Deploy functions».
+4. الواجهة على `main`. التجربة: «التسويق › مساعدين الذكاء الاصطناعي» → «شات جديد» مع الديزاينر → اطلب صورة → «ولّد الصورة» (من كريدت الصور)؛ ⚙️ الإعدادات للأدمن.

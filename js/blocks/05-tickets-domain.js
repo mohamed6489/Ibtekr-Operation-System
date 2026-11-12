@@ -10,8 +10,10 @@
   const TYPES = Object.freeze([['customer', 'مشكلة عميل'], ['vendor', 'مشكلة مبتكر'], ['internal', 'تعليق داخلي']]);
   const STATUSES = Object.freeze([['open', 'مفتوح'], ['in_progress', 'جاري العمل'], ['waiting', 'بانتظار الرد'], ['resolved', 'تم الحل'], ['closed', 'مغلق']]);
   const PRIORITIES = Object.freeze([['urgent', 'عاجل'], ['high', 'عالي'], ['normal', 'عادي'], ['low', 'منخفض']]);
-  const ROLES = Object.freeze(['مدير النظام', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'اللوجستيك والشحن', 'المحتوى والتصوير']);
-  const ADMIN_ROLE = ROLES[0];
+  // the six roles of the v2; the owner 12 Nov (0081): a request goes to any role of the team — setRoles() adds the others (ticket_roles())
+  const BASE_ROLES = Object.freeze(['مدير النظام', 'خدمة العملاء', 'متابعة المبتكرين', 'الحسابات', 'اللوجستيك والشحن', 'المحتوى والتصوير']);
+  let ROLES = BASE_ROLES;
+  const ADMIN_ROLE = BASE_ROLES[0];
   const CUSTOMER_REASONS = Object.freeze(['تأخير في التسليم', 'منتج تالف', 'منتج مختلف عن الطلب', 'مشكلة دفع أو استرجاع', 'العميل مش بيرد', 'أخرى']);
   const VENDOR_REASONS = Object.freeze(['تأخير تسليم', 'جودة', 'خامة ناقصة', 'خلاف على الحساب أو العمولة', 'مش بيرد', 'أخرى']);
   const OUTCOMES = Object.freeze(['اتحلت المشكلة', 'مش مشكلة', 'مكرر', 'العميل / المبتكر ما ردش']);
@@ -136,6 +138,10 @@
     }).sort((a, b) => PRIO_RANK[a.priority] - PRIO_RANK[b.priority] || (b.lastUpdate < a.lastUpdate ? -1 : b.lastUpdate > a.lastUpdate ? 1 : 0));
   }
 
-  return Object.freeze({ TYPES, STATUSES, PRIORITIES, ROLES, ADMIN_ROLE, CUSTOMER_REASONS, VENDOR_REASONS, OUTCOMES, OPEN, WORK_STATUSES, TITLE_MAX, label, validateTicket, createStore, canWork, canClose, canReopen, isAdmin, summary, summaryDetails, filterTickets });
+  function setRoles(list) {
+    const extra = (Array.isArray(list) ? list : []).map((x) => clean(x, 60)).filter(Boolean);
+    ROLES = Object.freeze([...new Set(BASE_ROLES.concat(extra))]); return ROLES;
+  }
+  return Object.freeze({ TYPES, STATUSES, PRIORITIES, get ROLES() { return ROLES; }, BASE_ROLES, setRoles, ADMIN_ROLE, CUSTOMER_REASONS, VENDOR_REASONS, OUTCOMES, OPEN, WORK_STATUSES, TITLE_MAX, label, validateTicket, createStore, canWork, canClose, canReopen, isAdmin, summary, summaryDetails, filterTickets });
 });
 

@@ -1114,10 +1114,28 @@
     }
     if (touched) { hydrateRoles(); if (window.IBPages.current === 'settings') R(); }
   }
+  // 0081 (the owner 12 Nov — «دور أساسي + أدوار إضافية»): beside the main role, the member's extra roles; their permissions add up
+  // (the highest wins) and the team requests of every role reach them
+  function extraRolesBtn(m) {
+    const main = roleIdOf(m.role); if (!uidOf(m) || m.id === 'M01' || main === 'admin') return null;
+    const names = Array.isArray(m.extraRoleNames) ? m.extraRoleNames : [];
+    return Button({ size: 'sm', type: 'text', label: names.length ? '+ ' + names.join('، ') : '+ أدوار إضافية', attrs: { 'data-extra-roles': m.id, 'aria-label': 'الأدوار الإضافية — ' + m.name }, onClick: () => editExtraRoles(m) });
+  }
+  function editExtraRoles(m) {
+    const main = roleIdOf(m.role); const D = window.IBDirectory; const all = (D && D.roles ? D.roles() : []).filter((r) => !r.hidden && r.id !== 'admin' && r.id !== main).sort((a, b) => (a.sort || 0) - (b.sort || 0));
+    K.form({ title: 'الأدوار الإضافية — ' + m.name, values: { roles: (Array.isArray(m.extraRoles) ? m.extraRoles : []).filter((x) => all.some((r) => r.id === x)) },
+      note: U.InlineNote({ children: 'الدور الأساسي «' + m.role + '». العضو بياخد صلاحيات كل أدواره (الأعلى فيهم)، وبتوصله طلبات الفريق بتاعة كل دور.' }),
+      fields: (f, e, set) => [window.IBKit.MultiPick({ id: 'xr-pick', label: 'الأدوار الإضافية', field: true, options: all.map((r) => [r.id, r.name]), value: f.roles, onChange: (v) => set('roles', v), error: e.roles, help: 'لحد 6 أدوار', placeholder: 'من غير أدوار إضافية' })],
+      validate: (f) => (f.roles.length > 6 ? { roles: 'لحد 6 أدوار' } : {}), submitLabel: 'احفظ الأدوار',
+      submit: async (f, md) => { const r = await SETT().setMemberRoles(uidOf(m), f.roles); if (!r.ok) return fail(r, 'حفظ الأدوار');
+        m.extraRoles = f.roles.slice(); m.extraRoleNames = all.filter((x) => f.roles.includes(x.id)).map((x) => x.name);
+        K.logEvent('settings.member.roles', m.name + ': ' + (m.extraRoleNames.join('، ') || '—')); if (md && md.close) md.close(); K.toast('اتحفظت أدوار ' + m.name, 'success'); R(); } });
+  }
   function roleSelect(m) {
-    return h('div', { class: 'inline-sel' }, U.Select({ id: 'role-' + m.id, label: '', options: liveNames().map((r) => ({ value: r, label: r })), value: m.role, onChange: async (v) => {
+    return h('div', { class: 'inline-sel role-cell' }, U.Select({ id: 'role-' + m.id, label: '', options: liveNames().map((r) => ({ value: r, label: r })), value: m.role, onChange: async (v) => {
       const id = roleIdOf(v); if (!id || !uidOf(m)) return; const old = m.role; const r = await SETT().setMemberRole(uidOf(m), id);
-      if (!r.ok) { fail(r, 'تغيير الدور'); R(); return; } m.role = v; K.logEvent('settings.member.role', m.name + ': ' + old + ' ← ' + v); K.toast('دور ' + m.name + ' بقى ' + v); R(); } }));
+      if (!r.ok) { fail(r, 'تغيير الدور'); R(); return; } m.role = v; if (Array.isArray(m.extraRoles)) { m.extraRoles = m.extraRoles.filter((x) => x !== id); m.extraRoleNames = (m.extraRoleNames || []).filter((x) => x !== v); }
+      K.logEvent('settings.member.role', m.name + ': ' + old + ' ← ' + v); K.toast('دور ' + m.name + ' بقى ' + v); R(); } }), extraRolesBtn(m));
   }
   // phase 13 decision 15 (the owner: «الحذف من الإعدادات كمان»): for good, through IBHR → team-admin member_delete — a trace anywhere refuses it
   function deleteMember(m) {

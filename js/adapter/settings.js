@@ -135,6 +135,15 @@
     const r = await rpc('member_role_set', { p_member: uid, p_role: String(role) }); if (!r.ok) return r;
     if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
   }
+  // 0081 (the owner 12 Nov): a member's extra roles — the whole list, [] = none; the server checks each (existing, not hidden, never
+  // «أدمن», never the main role, 6 at most)
+  async function setMemberRoles(uid, ids) {
+    if (!can().admin) return no('forbidden'); if (!UUID.test(String(uid))) return no('invalid');
+    const list = [...new Set((Array.isArray(ids) ? ids : []).map(String).filter((x) => /^[a-z][a-z0-9_]{1,30}$/.test(x)))];
+    if (list.length > 6) return no('invalid', 'roles');
+    const r = await rpc('member_roles_set', { p_member: uid, p_roles: list }); if (!r.ok) return r;
+    if (window.IBDirectory && window.IBDirectory.refresh) quiet(() => window.IBDirectory.refresh()); return { ok: true };
+  }
   async function setMemberPerms(uid, perms) {
     if (!can().admin) return no('forbidden'); if (!UUID.test(String(uid))) return no('invalid');
     const r = await rpc('member_perms_set', { p_member: uid, p_perms: permsClean(perms) }); if (!r.ok) return r;
@@ -312,6 +321,6 @@
   }
 
   window.IBSettings = { load, ensure, loadPublic, clear, data, section, sections: () => Object.assign({}, data.sections), roles, liveRoles, public: () => data.public, can, PERMS, PERM_KEYS, lists, saveLists,
-    save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
+    save, setRolePerms, createRole, updateRole, deleteRole, setMemberRole, setMemberRoles, setMemberPerms, setMemberStatus, sessions, revokeSession, deviceOf,
     links, setSecret, wooSet, testSecret, unlink, connections, notifyStatus, notifyTick, activity, pageOf, docs, addDoc, updateDoc, removeDoc, docUrl, uploadLogo, logoUrl, LOGO_SLOTS };
 })();

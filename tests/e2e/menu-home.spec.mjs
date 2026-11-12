@@ -53,6 +53,21 @@ for (const [id, inside, home, sel] of CASES) {
   });
 }
 
+// the makers page (decision 57) and the team requests (B1) got «نظرة عامة» after decision 17: their tab lives in the app state, not the hash
+for (const [id, tablist, other] of [['vendors', 'أقسام المبتكرين', 'سجل الحركات'], ['tickets', 'أقسام التذاكر', 'السجل']]) {
+  test('the menu opens «' + id + '» on «نظرة عامة» after another tab (from another page, and from the page itself)', async ({ page }) => {
+    await signIn(page);
+    const tabs = page.getByRole('tablist', { name: tablist });
+    const on = (name) => expect(tabs.getByRole('tab', { name, exact: false }).first()).toHaveAttribute('aria-selected', 'true');
+    await menu(page, id).click(); await on('نظرة عامة');
+    await tabs.getByRole('tab', { name: other }).first().click(); await on(other);
+    await menu(page, 'dashboard').click(); await url(page, 'dashboard');
+    await menu(page, id).click(); await on('نظرة عامة');
+    await tabs.getByRole('tab', { name: other }).first().click(); await on(other);
+    await menu(page, id).click(); await on('نظرة عامة');
+  });
+}
+
 test('a direct link still opens its exact spot (the menu is the only reset)', async ({ page }) => {
   await signIn(page);
   await at(page, 'hr-payroll'); await url(page, 'hr-payroll');

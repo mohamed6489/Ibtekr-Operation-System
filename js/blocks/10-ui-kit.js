@@ -133,7 +133,8 @@
   }
   function menuKeys(menu) {
     menu.addEventListener('keydown', (e) => {
-      const items = [...menu.querySelectorAll('[role=option],[role=menuitem]')]; const i = items.indexOf(document.activeElement);
+      const items = [...menu.querySelectorAll('[role=option],[role=menuitem]')].filter((x) => !x.hidden); const i = items.indexOf(document.activeElement);
+      if (!items.length) return;
       if (e.key === 'ArrowDown') { e.preventDefault(); items[(i + 1) % items.length].focus(); }
       if (e.key === 'ArrowUp') { e.preventDefault(); items[(i - 1 + items.length) % items.length].focus(); }
     });
@@ -151,13 +152,53 @@
   }
 
   // ---- Select (form) ----
+  // the owner 12 Nov («خلي في كل الدروب داونز بتاعة المبتكرين إمكانية البحث بالاسم»): a long list (the makers — SEARCH_MIN options
+  // or more) opens with a search box on top; the first letters typed keep the names that start with them (أ/إ/آ = ا, a leading
+  // «@» or symbol ignored), and from 2 letters the names that hold them follow; a letter typed on the closed select opens it
+  // with that letter; ↓ goes to the list, Enter picks the first shown
+  const SEARCH_MIN = 9;
+  const normName = (s) => String(s == null ? '' : s).toLowerCase().replace(/[أإآٱ]/g, 'ا').replace(/ى/g, 'ي').replace(/ة/g, 'ه').replace(/^[^\p{L}\p{N}]+/u, '').trim();
+  function rankOptions(options, q) {
+    const k = normName(q); if (!k) return options.map((o, i) => i);
+    const starts = []; const holds = [];
+    options.forEach((o, i) => { const n = normName(o.label); if (n.startsWith(k)) starts.push(i); else if (k.length >= 2 && n.includes(k)) holds.push(i); });
+    return starts.concat(holds);
+  }
+  function SearchMenu({ options, value, onSelect }) {
+    const menu = DropdownMenu({ options, value, onSelect });
+    menu.classList.add('has-search'); menu.dataset.focus = 'no';
+    const opts = [...menu.querySelectorAll('.opt')];
+    const empty = h('div', { class: 'menu-empty', hidden: '' }, 'مفيش اسم بالحروف دي');
+    const inp = h('input', { type: 'search', class: 'menu-search', placeholder: 'اكتب أول حروف الاسم…', 'aria-label': 'بحث بالاسم', autocomplete: 'off', 'data-select-search': '' });
+    const apply = () => {
+      const keep = rankOptions(options, inp.value); const shown = new Set(keep);
+      opts.forEach((b, i) => { b.hidden = !shown.has(i); });
+      keep.forEach((i) => menu.append(opts[i])); menu.append(empty); empty.hidden = keep.length > 0;
+    };
+    inp.addEventListener('input', apply);
+    inp.addEventListener('keydown', (e) => {
+      const first = [...menu.querySelectorAll('.opt')].find((x) => !x.hidden);
+      if (e.key === 'ArrowDown') { e.preventDefault(); if (first) first.focus(); }
+      if (e.key === 'Enter') { e.preventDefault(); if (first) first.click(); }
+    });
+    menu.prepend(inp); menu.append(empty);
+    setTimeout(() => inp.focus());
+    return menu;
+  }
   function Select({ id, label, required, options, value, placeholder = 'اختار', error, onChange, help, disabled }) {
     const wrap = h('div', { class: 'pop-anchor', 'data-popover-root': '', style: 'display:block' });
     const cur = options.find((o) => o.value === value);
+    const searchable = options.length >= SEARCH_MIN;
     const btn = h('button', { type: 'button', id, class: 'select' + (error ? ' err' : ''), 'aria-haspopup': 'listbox', 'aria-expanded': 'false', 'aria-invalid': error ? 'true' : false, 'aria-describedby': error ? id + '-err' : false, disabled: disabled ? '' : false },
       Icon('chevD', 'sm'), h('span', { class: 'val' + (cur ? '' : ' ph') }, cur ? cur.label : placeholder));
-    const pop = popover(wrap, btn, (close) => DropdownMenu({ options, value, onSelect: (v) => { close(); onChange(v); } }));
+    const pick = (close) => (v) => { close(); onChange(v); };
+    const pop = popover(wrap, btn, (close) => (searchable ? SearchMenu({ options, value, onSelect: pick(close) }) : DropdownMenu({ options, value, onSelect: pick(close) })));
     btn.addEventListener('click', pop.toggle);
+    if (searchable) btn.addEventListener('keydown', (e) => {
+      if (e.key.length !== 1 || e.key === ' ' || e.ctrlKey || e.metaKey || e.altKey) return;
+      e.preventDefault(); if (btn.getAttribute('aria-expanded') !== 'true') pop.open();
+      const inp = wrap.querySelector('[data-select-search]'); if (inp) { inp.value += e.key; inp.dispatchEvent(new Event('input')); inp.focus(); }
+    });
     wrap.append(btn);
     return FieldShell({ id, label, required, error, help }, wrap);
   }

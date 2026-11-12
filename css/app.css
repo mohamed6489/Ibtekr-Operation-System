@@ -1738,3 +1738,10 @@ tr.dragging{background:var(--color-bg-tint)}
 #vendors .table-card>.af-picks{margin-inline:24px}
 #main .table-card>.fm-row,#vendors .table-card>.fm-row{margin-inline:24px;padding-top:12px}
 .tbl-v2>.fm-row{margin-inline:20px}
+
+/* the owner 12 Nov: a long select (the makers) opens with a search box on top — the kit's Select (block 10) */
+.menu.has-search{padding-top:0}
+.menu.has-search .menu-search{position:sticky;top:0;z-index:1;display:block;width:100%;box-sizing:border-box;height:36px;margin:0 0 4px;padding:0 12px;border:0;border-bottom:1px solid var(--color-border-subtle);border-radius:0;background:var(--color-bg-elevated);color:var(--color-text-primary);font:inherit}
+.menu.has-search .menu-search:focus{outline:none;border-bottom-color:var(--color-brand-default)}
+.menu.has-search .menu-empty{padding:10px 12px;color:var(--color-text-secondary)}
+.menu .opt[hidden]{display:none}

@@ -1017,6 +1017,7 @@ test('decision 10: the in-page search and the four dropdowns are hidden; the top
   await expect(sr('.sq')).toBeHidden(); await expect(sr('.legacy-sel')).toBeHidden();
   for (const id of ['fv', 'fc', 'fd', 'fn']) await expect(sr('#' + id)).toBeHidden();
   await expect(sr('#fbtn')).toBeVisible(); await expect(sr('#clr')).toBeHidden(); // decision 34: no filters, no «مسح الفلاتر»
+  await expect(sr('#actbtn')).toHaveText('الملفات'); // the owner 12 Nov: «الملفات» instead of «الإجراءات»
   expect((await sr('#fv option').allTextContents()).some((t) => t.includes('Antikiano'))).toBe(true); // the hidden dropdowns keep their options: the filter state lives there
   const q = page.locator('#gq');
   await q.fill('181668'); await q.press('Enter');

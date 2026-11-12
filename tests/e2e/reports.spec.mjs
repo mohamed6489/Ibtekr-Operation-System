@@ -75,6 +75,7 @@ test('«التقارير» is open: the nine v2 tabs (none «قريبًا» — 
   // the admin: CSV, «الإجراءات», compare, the customization
   await expect(R(page).locator('[data-rp-csv]')).toBeEnabled();
   await expect(R(page).locator('[data-actions]')).toHaveCount(1);
+  await expect(R(page).locator('[data-actions]')).toHaveText('الملفات'); // the owner 12 Nov: «الملفات» instead of «الإجراءات»
   await expect(R(page).getByRole('button', { name: 'مقارنة بالفترة السابقة' })).toBeVisible();
   // «الحملات الإعلانية» (phase 9.5.3 decision 47): the marketing page's blocks with the range, CSV and the customization (marketing-ads.spec has the numbers)
   await tab(page, 'campaigns').click();

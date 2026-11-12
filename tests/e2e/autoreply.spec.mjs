@@ -114,6 +114,8 @@ test('decision 65: the tabs are نظرة عامة · القوالب · الرد�
   await expect(P(page).locator('[role=tab]')).toHaveText(['نظرة عامة', 'القوالب', 'الردود السريعة', 'قواعد الرد الآلي', 'التقارير']);
   await expect(P(page).locator('[role=tab]').first()).toHaveAttribute('aria-selected', 'true');
   await expect(P(page).locator('.kpi[aria-label="الرد الآلي"]')).toContainText('متوقف'); // live off by default
+  // the owner 12 Nov: the same 16px between the page's parts as the rest of the system (the cards row and the three sections below)
+  expect(await P(page).locator('.ar-body').evaluate((b) => { const k = [...b.children].filter((x) => x.offsetHeight); return Math.round(k[1].getBoundingClientRect().top - k[0].getBoundingClientRect().bottom); })).toBe(16);
   await expect(P(page).locator('.kpi[aria-label="القوالب والردود السريعة"]')).toContainText('1 قالب Meta معتمد');
   await expect(P(page)).toContainText('أكتر القواعد تنفيذًا');
   await expect(P(page)).toContainText('إعدادات الإرسال');

@@ -124,7 +124,6 @@
   }
   function startCampaign() { Object.assign(camp, blankCamp()); go('marketing-campaign-1'); }
   // 9.5.5 decision 62: the video tool is a campaign with one video and nothing else
-  function startVideo() { Object.assign(camp, blankCamp()); camp.w.mediaTab = 'video'; camp.w.media.video.count = 1; camp.w.media.post.count = 0; camp.w.media.carousel.count = 0; go('marketing-campaign-1'); }
   async function openCampaign(id) {
     const r = await MK().open(id); if (!r.ok) { K.toast(r.message, 'error'); return; }
     const s = r.campaign.state || {};
@@ -179,9 +178,18 @@
         tplKind ? Button({ size: 'sm', type: 'text', label: 'من قوالب التصميم', attrs: { 'data-tpl-from': id }, onClick: () => pickTpl(tplKind, arr) }) : null),
       arr.length ? h('div', { class: 'cw-chips' }, arr.map((f, i) => h('span', { class: 'cw-f' }, Icon(fileIcon(f), 'sm'), h('span', { class: 'cw-fn', dir: 'auto' }, f.name), off ? null : U.IconButton({ icon: 'close', label: 'شيل ' + f.name, onClick: () => { arr.splice(i, 1); persist(); R(); } })))) : null));
   }
-  const num = (id, label, val, max, set, min, disabled) => { const inp = h('input', { type: 'text', inputmode: 'numeric', id, class: 'cnt-in', value: String(val), 'aria-label': label, disabled: disabled || null });
-    inp.addEventListener('change', () => { set(W.clamp(String(inp.value).replace(/[٠-٩]/g, (c) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(c))), min || 0, max)); persist(); R(); });
-    const b = (s, d) => Button({ size: 'sm', label: s, attrs: { 'aria-label': (d > 0 ? 'زوّد ' : 'قلّل ') + label, 'data-num': id + (d > 0 ? '+' : '-') }, disabled: disabled || (d > 0 ? val >= max : val <= (min || 0)), onClick: () => { set(W.clamp(val + d, min || 0, max)); persist(); R(); } });
+  // the count: typed by hand (Arabic digits too, committed on Enter / leaving the box / the arrows) or the + and −; the number in the
+  // middle of its box (the owner 12 Nov — «الأرقام في البوكس مرحلة يمين… خليها في النص وأقدر أكتب الرقم بإيدي أو أدوس على + و −»)
+  const num = (id, label, val, max, set, min, disabled) => {
+    const lo = min || 0; const digits = (v) => String(v == null ? '' : v).replace(/[٠-٩]/g, (c) => String('٠١٢٣٤٥٦٧٨٩'.indexOf(c))).replace(/\D/g, '');
+    // once per box: the redraw removes the focused box, and its blur «change» must not commit (and redraw) a second time
+    let done = false;
+    const put = (v) => { if (done) return; const n = W.clamp(v, lo, max); if (n !== val) { done = true; set(n); persist(); R(); } else inp.value = String(val); };
+    const inp = h('input', { type: 'text', inputmode: 'numeric', id, class: 'cnt-in', dir: 'ltr', autocomplete: 'off', value: String(val), 'aria-label': label, disabled: disabled || null });
+    inp.addEventListener('input', () => { const d = digits(inp.value).slice(0, 3); if (inp.value !== d) inp.value = d; });
+    inp.addEventListener('change', () => { const d = digits(inp.value); put(d === '' ? val : Number(d)); });
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); const d = digits(inp.value); put(d === '' ? val : Number(d)); } else if (e.key === 'ArrowUp' || e.key === 'ArrowDown') { e.preventDefault(); put(val + (e.key === 'ArrowUp' ? 1 : -1)); } });
+    const b = (s, d) => Button({ size: 'sm', type: d > 0 ? 'primary' : 'default', label: s, attrs: { 'aria-label': (d > 0 ? 'زوّد ' : 'قلّل ') + label, 'data-num': id + (d > 0 ? '+' : '-') }, disabled: disabled || (d > 0 ? val >= max : val <= lo), onClick: () => put(val + d) });
     return h('div', { class: 'counter' }, h('label', { class: 't-label', for: id }, label), h('div', { class: 'cnt-ctl' }, b('+', 1), inp, b('−', -1))); };
   const modelSel = (id, val, set) => U.Select({ id, label: 'الموديل', value: val, onChange: (v) => { set(v); persist(); R(); },
     options: IMGM().map((x) => ({ value: x.id, label: x.name + ' · ' + K.n0(x.credits) + ' كريديت/صورة' })), help: (IMGM().find((x) => x.id === val) || {}).note || '' });
@@ -223,9 +231,8 @@
       return [h('span', { class: 'prod' }, h('span', null, h('b', null, c.name), h('small', null, c.goal || 'كامبين'))), K.Num(D2(String(c.updatedAt || '').slice(0, 10))), Tag(tone, label),
         h('div', { class: 'acts-inline' }, C.create ? Button({ size: 'sm', label: 'افتح', attrs: { 'data-mk-open': c.id }, onClick: () => openCampaign(c.id) }) : null,
           C.create ? K.RowMenu([{ label: 'احذف الكامبين', icon: 'trash', danger: true, run: () => K.confirm({ title: 'تحذف «' + c.name + '»؟', text: 'الكامبين هتختفي من «آخر الشغل». البوستات اللي اتجدولت منها بتفضل في سجل النشر.', okLabel: 'احذف', okType: 'danger', onOk: async () => { const r = await MK().archive(c.id); K.toast(r.ok ? 'اتحذفت الكامبين' : r.message, r.ok ? 'success' : 'error'); if (r.ok && camp.id === c.id) Object.assign(camp, blankCamp()); R(); } }) }]) : null)]; });
-    const vtool = h('button', { type: 'button', class: 'card tool-card', 'data-mk-video': '', disabled: !C.create || null, onClick: startVideo, 'aria-label': 'فيديو — اعمل فيديو' }, h('span', { class: 'tool-ic' }, Icon('video')), h('span', { class: 't-h5 tc-t' }, 'فيديو'),
-      h('span', { class: 't-small tc-b' }, 'ريل من المشاهد: الصور بالـ AI، المقاطع والصوت والموسيقى على Magnific، والنشر.'), h('span', { class: 'tc-cta' }, 'اعمل فيديو', Icon('chevL', 'sm')));
-    return [h('div', { class: 'tools-grid c2' }, tool, vtool),
+    // the owner 12 Nov: «شيل زر الفيديو خالص وسيب بس زر إنشاء كامبين جديدة» — the video is a piece inside the campaign
+    return [h('div', { class: 'tools-grid c2' }, tool),
       Card('آخر الشغل', 'الكامبينات اللي اتعملت — بتتحفظ أول بأول وتقدر تكمّلها من مكان ما وقفت.', list.length ? U.Table({ cls: 'dt', headers: ['الكامبين', 'آخر تعديل', 'الحالة', ''], rows })
         : K.Empty('لسه مفيش كامبينات', 'ابدأ كامبين من الكارت اللي فوق.'))];
   }
@@ -235,7 +242,8 @@
     const body = ({ 1: w1, 2: w2, 3: w3, 4: c5 })[st.step]();
     const ph = K.PageHead('كامبين جديدة', null, [Wallet(), GenAll(), Button({ type: 'text', label: 'اخرج', onClick: () => go('marketing-create') }),
       Button({ label: 'احفظ كمسودة', attrs: { 'data-mk-draft': '' }, disabled: !can().create, onClick: async () => { if (!(await ensureCampaign())) return; persist(0); await MK().flush(camp.id); K.toast('اتحفظت كمسودة', 'success'); go('marketing-create'); } })]);
-    return [ph, Stepper(CSTEPS, st.step, 'marketing-campaign-'), h('div', { class: 'cw cw-s' + st.step }, ...body)];
+    // the owner 12 Nov — «شكل الـ fields واسع أوي… خليه يبقى width بتاعه موزون ومنطقي» (Meta's editor): one centered column
+    return [h('div', { class: 'wiz-col', 'data-wiz-col': 'campaign' }, ph, Stepper(CSTEPS, st.step, 'marketing-campaign-'), h('div', { class: 'cw cw-s' + st.step }, ...body))];
   }
 
   // ===== ١. تفاصيل الكامبين =====
@@ -883,8 +891,8 @@
   const n2 = (v) => Number(v || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
   const adRange = () => { const r = RB().rangeOf ? RB().rangeOf('reports') : null; return r && r.from && r.to ? r : { from: W.addD(TODAY(), -29), to: TODAY() }; };
   const perLabel = (rg) => 'من ' + D2(rg.from) + ' لحد ' + D2(rg.to);
-  // the v6 header (owner 11 Nov): a quick period on the reports' period (today / this week from Saturday / this month) compared with the
-  // period before it of the same length, and the ad platform (all / Meta / TikTok / Google) — the overview and the reports
+  // the v6 header (owner 11 Nov): the reports' period (the calendar picker since 12 Nov) compared with the period before it of the same
+  // length — named «أمس» / «الأسبوع اللي فات» / «الشهر اللي فات» for today / this week / this month — and the ad platform (all / Meta / TikTok / Google)
   const PERIODS = [['today', 'اليوم · مقارنة بأمس', 'today', 'أمس'], ['week', 'الأسبوع ده · مقارنة باللي فات', 'thisWeek', 'نفس الأيام من الأسبوع اللي فات'], ['month', 'الشهر ده · مقارنة باللي فات', 'thisMonth', 'نفس الأيام من الشهر اللي فات']];
   const periodRange = (k, t) => (k === 'today' ? { from: t, to: t } : k === 'week' ? { from: W.wkStart(t), to: t } : { from: t.slice(0, 8) + '01', to: t });
   const periodOf = (rg) => { const t = TODAY(); const p = PERIODS.find(([k]) => { const r = periodRange(k, t); return r.from === rg.from && r.to === rg.to; }); return p ? p[0] : 'custom'; };
@@ -892,11 +900,6 @@
   const prevOf = (rg) => { const n = spanOf(rg); return { from: W.addD(rg.from, -n), to: W.addD(rg.from, -1) }; };
   const COMPARE_MAX = 92; // a period up to 3 months is compared with the one before it (its days load with it)
   const loadRange = (rg) => (spanOf(rg) <= COMPARE_MAX ? { from: prevOf(rg).from, to: rg.to } : rg);
-  function setPeriod(k) {
-    const cur = RB().rangeOf ? RB().rangeOf('reports') : null; const p = PERIODS.find((x) => x[0] === k); if (!cur || !p) return;
-    Object.assign(cur, periodRange(k, TODAY()), { preset: p[2] }); // the reports page's own period object — its picker shows the same preset
-    R();
-  }
   const PLATS = [['all', 'الكل'], ['meta', 'ميتا'], ['tiktok', 'تيك توك'], ['google', 'جوجل']];
   // the rows of the chosen platform only (the stats, the ads and campaigns, the Woo ad orders)
   function byPlat(r, k) {
@@ -966,7 +969,8 @@
     AD.at = 0; adsLoad(loadRange(adRange()), redraw, true); if (redraw) redraw();
   }
   function adsBar(s, redraw) {
-    return h('div', { class: 'toolbar ads-bar' }, RB().rangeField ? RB().rangeField('reports') : null, U.FreshnessNote(syncLine(s)), h('span', { class: 'grow' }),
+    // the period picker is in the header (one date filter for the page — the owner 12 Nov)
+    return h('div', { class: 'toolbar ads-bar' }, U.FreshnessNote(syncLine(s)), h('span', { class: 'grow' }),
       isAdmin() ? Button({ size: 'sm', label: AD.syncing ? 'بيزامن…' : 'مزامنة دلوقتي', disabled: AD.syncing || !!(s && !s.configured), attrs: { 'data-ads-sync': '' }, onClick: () => adsSyncNow(redraw) }) : null);
   }
   function adKpis(c) {
@@ -1358,8 +1362,9 @@
   function headActs() {
     const tab = TABS.find(([id]) => id === st.tab) || [];
     const ads = st.tab === 'overview' || st.tab === 'reports';
-    const per = st.tab === 'overview' ? U.Select({ id: 'mk-period', label: '', value: periodOf(adRange()),
-      options: PERIODS.map(([k, l]) => ({ value: k, label: 'الفترة: ' + l })).concat(periodOf(adRange()) === 'custom' ? [{ value: 'custom', label: 'الفترة: ' + perLabel(adRange()) }] : []), onChange: (v) => { if (v !== 'custom') setPeriod(v); } }) : null;
+    // the owner 12 Nov — «خلي شكل فلتر التاريخ واحد في السيستم كله، اللي فيه الـ calendar»: the reports' period picker itself (its presets
+    // today / this week / this month and the calendar), once in the header; the cards still compare with the period before it
+    const per = ads && RB().rangeField ? h('span', { 'data-mk-range': '' }, RB().rangeField('reports')) : null;
     const plat = ads ? U.Select({ id: 'mk-plat', label: '', value: M.plat, options: PLATS.map(([k, l]) => ({ value: k, label: 'المنصة: ' + l })), onChange: (v) => { M.plat = v; R(); } }) : null;
     return [st.tab === 'reports' ? null : K.PanelButton('marketing:' + st.tab, 'التسويق — ' + tab[1], () => document.querySelector('#pg-marketing .panel'), R), per, plat].filter(Boolean);
   }

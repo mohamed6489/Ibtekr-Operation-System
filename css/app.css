@@ -1780,3 +1780,16 @@ tr.dragging{background:var(--color-bg-tint)}
 .tbl-v2>.sec-h,.tbl-v2>.table-title{align-items:center}
 @media (max-width:767px){.tq-btn{min-height:44px}.tq-row{flex-wrap:nowrap}}
 tr.tq-hide{display:none}
+/* the owner 12 Nov — «شكل الـ fields واسع أوي… خليه يبقى width بتاعه موزون ومنطقي زي الاسكرينات التانية، وزر الحفظ أو المتابعة العرض بتاعه
+   منطقي… ونفس الكلام في فلو المنتجات الجديدة وأي فلو فيه التالي التالي» (Meta's editor): a multi-step flow sits in one centered column
+   (the campaign, the studio — its wide steps a little wider), and the footer's buttons keep their own width (full width on a phone) */
+.wiz-col{width:100%;max-width:var(--wiz-w,880px);margin-inline:auto;display:flex;flex-direction:column;gap:16px;min-width:0}
+.wiz-col.wiz-studio{--wiz-w:1040px}
+.wiz-col>.page-head{margin-bottom:0}
+.wiz-foot .btn{flex:0 0 auto;min-width:140px}
+@media (max-width:599px){.wiz-foot .btn{flex:1;min-width:0}}
+/* the count: + / the number in the middle / − (the owner 12 Nov) */
+.cnt-ctl input.cnt-in:not([type=checkbox]):not([type=radio]){width:64px;height:36px;padding:0 4px;text-align:center;direction:ltr;unicode-bidi:normal;font-size:16px;font-weight:600;font-variant-numeric:tabular-nums;color:var(--color-text-primary)}
+.cnt-ctl input.cnt-in:focus{outline:2px solid var(--color-focus-ring, var(--color-brand-default));outline-offset:1px}
+.cnt-ctl .btn{min-width:36px;height:36px;padding:0;justify-content:center;font-size:18px}
+

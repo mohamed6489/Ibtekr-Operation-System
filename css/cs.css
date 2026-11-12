@@ -44,8 +44,6 @@
 .ar-lib .seg-b[aria-pressed=true]{background:var(--color-bg-base);color:var(--color-brand-default);font-weight:700}
 .qr-dots{display:grid;grid-template-columns:repeat(9,12px);grid-auto-rows:12px}
 .qr-dots i.on{background:var(--color-text-primary)}
-.wiz-foot .help{display:none}
-.wiz-foot .btn{flex:1}
 .cs-ch .who{flex:1 1 180px}
 .cs-ch .acts{flex:1 1 auto;justify-content:flex-end;flex-wrap:wrap}
 .cs-ch .sub{flex-wrap:nowrap;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}

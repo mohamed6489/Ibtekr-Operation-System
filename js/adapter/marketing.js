@@ -640,59 +640,32 @@
     rulesCache = toRules(r.body && r.body.rules); rulesAt = Date.now(); emit();
     return { ok: true, rules: rulesCache };
   }
-  // the designer's and the developer's requests (marketing.create adds; the admin changes the status; the author edits a new one)
-  const REQ_COLS = 'id, kind, title, details, project, status, created_by, created_at, updated_by, updated_at, done_at';
-  const REQ_STATUS = ['جديد', 'بيتعمل', 'جاهز للمراجعة', 'خلص']; let reqs = null; let reqsAt = 0;
-  const nameOf = (uid) => { const D = window.IBDirectory; if (!uid || !D || !D.members) return null; const m = quiet(() => (D.members() || []).find((x) => x.id === uid)); return m && m.name ? m.name : null; };
-  const toRequest = (r) => ({ id: Number(r.id), kind: r.kind === 'dev' ? 'dev' : 'designer', title: r.title || '', details: r.details || '', project: r.project || '', status: REQ_STATUS.includes(r.status) ? r.status : 'جديد',
-    createdBy: r.created_by || null, by: nameOf(r.created_by), createdAt: r.created_at || null, updatedAt: r.updated_at || null, doneAt: r.done_at || null, mine: !!r.created_by && r.created_by === myUid() });
+  // 0082 (the owner 12 Nov — «تقديم طلب» beside each assistant): a request to the human designer / developer / media buyer is a team
+  // request (a ticket of a kind) — one source with «طلبات الفريق», where its role works it (status, replies, timeline); mkt_requests
+  // keeps its history only (moved over once). The page lists them by the assistant: designer ← design, dev ← dev, buyer ← media.
+  const TK = () => window.IBTickets;
+  const KIND_OF = { designer: 'design', dev: 'dev', buyer: 'media' }; const AGENT_OF = { design: 'designer', dev: 'dev', media: 'buyer' };
+  const REQ_ST = { open: 'جديد', in_progress: 'بيتعمل', waiting: 'مستني رد', resolved: 'خلص', closed: 'اتقفل' };
+  const toRequest = (t) => ({ id: t.id, ticket: t.id, kind: AGENT_OF[t.kind] || 'designer', title: t.title || '', details: t.description || '', project: t.project || '', status: t.status, statusLabel: REQ_ST[t.status] || t.status,
+    open: ['open', 'in_progress', 'waiting'].includes(t.status), priority: t.priority, assigneeRole: t.assigneeRole, by: (t.createdBy && t.createdBy.name) || null, byRole: (t.createdBy && t.createdBy.role) || null,
+    createdAt: t.createdAt || null, updatedAt: t.lastUpdate || null, doneAt: (t.resolution && t.resolution.at) || t.closedAt || null, attachments: t.attachments || [], mine: !!(t.createdBy && t.createdBy.uid) && t.createdBy.uid === myUid() });
+  const reqsNow = () => { const T = TK(); return T && T.requests ? T.requests().map(toRequest) : []; };
   async function requests(force) {
-    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    const T = TK(); if (!T || !T.requests) return { ok: false, reason: 'network', message: MESSAGES.network };
     if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
-    if (!force && reqs && Date.now() - reqsAt < SUGG_MS) return { ok: true, items: reqs };
-    try {
-      const { data: r, error } = await cl.from('mkt_requests').select(REQ_COLS).order('created_at', { ascending: false }).limit(500); if (error) return fail(error);
-      reqs = (Array.isArray(r) ? r : []).map(toRequest); reqsAt = Date.now(); return { ok: true, items: reqs };
-    } catch (e) { return fail(e); }
+    if (force || T.state() !== 'ready') { const r = await T.load(); if (r && !r.ok && r.reason !== 'stale' && T.state() !== 'ready') return { ok: false, reason: r.reason || 'network', message: MESSAGES.network }; }
+    return { ok: true, items: reqsNow() };
   }
-  const reqsNow = () => reqs || [];
-  const reqRow = (f) => { const o = {}; const x = f || {};
-    if (x.title !== undefined) o.title = clean(x.title, 160);
-    if (x.details !== undefined) o.details = String(x.details == null ? '' : x.details).replace(/\r\n?/g, '\n').trim().slice(0, 2000) || null;
-    if (x.project !== undefined) o.project = clean(x.project, 60) || null;
-    return o; };
+  // the popup's fields → ticket_request_create (tickets.manage F — the server's rule); the kind's role unless another was picked
   async function addRequest(f) {
-    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
-    if (!can().create) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
-    const x = f || {}; const row = Object.assign({ kind: x.kind === 'dev' ? 'dev' : 'designer' }, reqRow(x));
-    if (!row.title) return { ok: false, reason: 'invalid', field: 'title', message: 'اكتب عنوان الطلب' };
-    try {
-      const { data: r, error } = await cl.from('mkt_requests').insert(row).select(REQ_COLS).single(); if (error || !r) return fail(error);
-      const q = toRequest(r); reqs = [q].concat(reqsNow().filter((y) => y.id !== q.id)); reqsAt = Date.now(); emit();
-      log('request.add', q.kind, q.id); return { ok: true, request: q };
-    } catch (e) { return fail(e); }
-  }
-  async function editRequest(id, f) {
-    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
-    if (!can().create && !isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
-    const row = reqRow(f); if (row.title === '') return { ok: false, reason: 'invalid', field: 'title', message: 'اكتب عنوان الطلب' };
-    try {
-      const { data: r, error } = await cl.from('mkt_requests').update(row).eq('id', id).select(REQ_COLS); if (error) return fail(error);
-      if (!Array.isArray(r) || !r.length) return { ok: false, reason: 'notfound', message: MESSAGES.notfound };
-      const q = toRequest(r[0]); reqs = reqsNow().map((y) => (y.id === q.id ? q : y)); emit();
-      log('request.edit', q.kind, id); return { ok: true, request: q };
-    } catch (e) { return fail(e); }
-  }
-  async function setRequestStatus(id, status) {
-    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
-    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
-    if (!REQ_STATUS.includes(status)) return { ok: false, reason: 'invalid', field: 'status', message: MESSAGES.invalid };
-    try {
-      const { data: r, error } = await cl.from('mkt_requests').update({ status }).eq('id', id).select(REQ_COLS); if (error) return fail(error);
-      if (!Array.isArray(r) || !r.length) return { ok: false, reason: 'notfound', message: MESSAGES.notfound };
-      const q = toRequest(r[0]); reqs = reqsNow().map((y) => (y.id === q.id ? q : y)); emit();
-      log('request.status', q.kind + ' · ' + status, id); return { ok: true, request: q };
-    } catch (e) { return fail(e); }
+    const T = TK(); const x = f || {}; if (!T || !T.createRequest) return { ok: false, reason: 'network', message: MESSAGES.network };
+    const kind = KIND_OF[x.kind]; if (!kind) return { ok: false, reason: 'invalid', field: 'kind', message: MESSAGES.invalid };
+    const title = clean(x.title, 80); if (!title) return { ok: false, reason: 'invalid', field: 'title', message: 'اكتب عنوان الطلب' };
+    const description = String(x.details == null ? '' : x.details).replace(/\r\n?/g, '\n').trim().slice(0, 5000) || title;
+    const r = await T.createRequest(kind, { title, description, project: clean(x.project, 60), priority: x.priority || 'normal', followUp: x.followUp || null, attachments: x.attachments || [], assigneeRole: x.assigneeRole || null });
+    if (!r.ok) return r;
+    log('request.add', kind, r.id); emit();
+    const t = T.get(r.id); return { ok: true, id: r.id, request: t ? toRequest(t) : null };
   }
   // the buyer's chat: the question + the last turns → text; the server reads the numbers itself; nothing is executed here
   async function buyerChat(question, history) {
@@ -784,14 +757,14 @@
     if (lv && c()) { try { Promise.resolve(c().removeChannel(lv)).catch(() => {}); } catch (e) { /* already closed */ } }
   }
   // the sign-out wipe
-  function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; conn = null; connAt = 0; ads = null; adsAt = 0; adsCache.clear(); sugg = null; suggAt = 0; rulesCache = null; rulesAt = 0; reqs = null; reqsAt = 0; st = 'idle'; }
+  function clear() { gen += 1; unsubscribe(); pend.forEach((p) => { if (p.timer) clearTimeout(p.timer); }); pend.clear(); chains.clear(); urls.clear(); data.campaigns = []; data.posts = []; data.templates = []; data.credits = null; conn = null; connAt = 0; ads = null; adsAt = 0; adsCache.clear(); sugg = null; suggAt = 0; rulesCache = null; rulesAt = 0; st = 'idle'; }
 
   window.IBMarketing = { load, ensure, clear, state: () => st, can, campaigns, posts, templates, getPost, wallet, credits, open, create, save, saveSoon, flush, archive,
     upload, uploadTemplate, url, cachedUrl, blob, product, checkFile, generate, edit, write, schedule, move, caption, published, remove,
     videoClip, videoVoice, videoMusic, videoAssemble, videoPoll, videoUpload, videoScenes,
     connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,
-    suggestions, suggNow, decide, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, editRequest, setRequestStatus, buyerChat,
+    suggestions, suggNow, decide, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
     _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules } };
 })();

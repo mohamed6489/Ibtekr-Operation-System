@@ -9,8 +9,12 @@
   const { h, Icon, Button } = U;
   const H = () => window.IBHR;
   const S = (window.IBHR && window.IBHR.data) || K.store; // IBHR.data is one object for the session; its rows change with each load
-  const TABS = [{ id: 'team', label: 'الفريق والحضور' }, { id: 'requests', label: 'الطلبات' }, { id: 'payroll', label: 'المرتبات والمكافآت' }, { id: 'reports', label: 'التقارير' }, { id: 'settings', label: 'إعدادات الموارد البشرية' }];
-  const st = { tab: 'team', teamSub: 'team', paySub: 'sheet', reqSub: 'all', q: '', dept: '', logMember: '', logMonth: '', kpiMember: '', calStart: '', quarter: '', sheetMonth: '', lines: {} };
+  // the owner 12 Nov — «نضيف تاب نظرة عامة ونضيف تاب سجل الحركات»: «نظرة عامة» first (the day's cards, the month, who is in, what waits,
+  // the leaves coming) and «سجل الحركات» (the HR rows of the activity log) before the reports — the log for hr.view F
+  const TABS_ALL = [{ id: 'overview', label: 'نظرة عامة' }, { id: 'team', label: 'الفريق والحضور' }, { id: 'requests', label: 'الطلبات' }, { id: 'payroll', label: 'المرتبات والمكافآت' }, { id: 'log', label: 'سجل الحركات' }, { id: 'reports', label: 'التقارير' }, { id: 'settings', label: 'إعدادات الموارد البشرية' }];
+  const tabs = () => TABS_ALL.filter((t) => t.id !== 'log' || can().view === 'F' || can().admin);
+  const TABS = TABS_ALL;
+  const st = { tab: 'overview', teamSub: 'team', paySub: 'sheet', reqSub: 'all', q: '', dept: '', logMember: '', logMonth: '', kpiMember: '', calStart: '', quarter: '', sheetMonth: '', lines: {} };
   const R = () => window.IBPages.render('hr');
   const can = () => (H() ? H().can() : { view: 'N', edit: false, approve: false, salaries: false, admin: false });
   const today = () => H().today(); const nowMin = () => H().nowMin(); const thisMonth = () => H().monthKey(today());
@@ -86,21 +90,20 @@
   const pnl = (...kids) => { const el = h('div', { class: 'panel', role: 'tabpanel', 'aria-labelledby': 'tab-' + st.tab }, ...kids); if (st.tab !== 'reports') setTimeout(() => K.applyPanelPrefs('hr:' + st.tab, el), 0); return el; };
   function view() {
     if (!H()) return [K.Empty('الموارد البشرية مش متاحة', 'جرّب تفتح الصفحة تاني.')];
-    const c = can();
+    const c = can(); if (!tabs().some((t) => t.id === st.tab)) st.tab = 'overview';
     return [K.PageHead('الموارد البشرية', 'الفريق · الحضور والانصراف · الطلبات · المرتبات والمكافآت', [st.tab === 'reports' ? null : K.PanelButton('hr:' + st.tab, 'الموارد البشرية — ' + (TABS.find((t) => t.id === st.tab) || {}).label, () => document.querySelector('#pg-hr .panel'), R), c.edit ? Button({ label: 'تسجيل حضور يدوي', icon: 'clock', onClick: () => manualAtt() }) : null, c.admin ? Button({ type: 'brand', label: 'إضافة عضو', icon: 'plus', onClick: () => addMember() }) : null]),
       H().state() === 'error' ? U.InlineNote({ kind: 'error', children: 'تعذّر تحميل بيانات الموارد البشرية — جرّب تاني بعد شوية.' }) : null,
-      K.MainTabs({ items: TABS.map((t) => (t.id === 'requests' ? Object.assign({}, t, { label: t.label + ' (' + pendingCount() + ')' }) : t)), active: st.tab, onChange: (id) => { st.tab = id; try { history.replaceState(null, '', '#hr-' + id); } catch (e) { /* */ } R(); }, label: 'أقسام الموارد البشرية' }),
-      pnl(...(st.tab === 'team' ? teamTab() : st.tab === 'requests' ? requestsTab() : st.tab === 'payroll' ? payrollTab() : st.tab === 'reports' ? reportsTab() : settingsTab()))];
+      K.MainTabs({ items: tabs().map((t) => (t.id === 'requests' ? Object.assign({}, t, { label: t.label + ' (' + pendingCount() + ')' }) : t)), active: st.tab, onChange: (id) => { st.tab = id; try { history.replaceState(null, '', '#hr-' + id); } catch (e) { /* */ } R(); }, label: 'أقسام الموارد البشرية' }),
+      pnl(...(st.tab === 'overview' ? overviewTab() : st.tab === 'team' ? teamTab() : st.tab === 'requests' ? requestsTab() : st.tab === 'payroll' ? payrollTab() : st.tab === 'log' ? logTab() : st.tab === 'reports' ? reportsTab() : settingsTab()))];
   }
   // تاب «التقارير»: تقارير الموظفين بتتفتح مع تاب «الموظفين» في صفحة التقارير (T8)
   // «التقارير» (T8, decision 20): the reports page's «تقارير الموظفين» (IBReportBlocks.staff — one source) with its range
   const reportsTab = () => { const RB = window.IBReportBlocks; if (!RB || !RB.staff) return [K.Section('تقارير الموظفين', K.Empty('التقارير مش متاحة', 'افتح «التقارير › تقارير الموظفين» من القائمة.'))]; return [RB.range ? h('div', { class: 'toolbar pr-rep-bar' }, RB.range()) : null].concat(RB.staff()); };
 
   // ================= الفريق والحضور =================
-  function teamTab() {
-    const subs = [{ id: 'team', label: 'الفريق' }, { id: 'log', label: 'سجل الحضور' }, { id: 'cal', label: 'تقويم الفريق' }];
+  // the day's four cards (owner 12 Nov: on «نظرة عامة» — the team tab keeps its table, its log and its calendar)
+  function todayCards() {
     const tm = team(); const counts = (f) => tm.filter((m) => f(status(m)[0])).length;
-    const out = [K.SubTabs({ items: subs, active: st.teamSub, onChange: (id) => { st.teamSub = id; R(); }, label: 'الفريق والحضور' })];
     const who = (f) => tm.filter((m) => f(status(m)[0]));
     const day = K.dayName(today()) + ' ' + K.dshort(today());
     const dPresent = () => { const l = tm.filter(present); return { title: 'حاضرين دلوقتي — ' + l.length + ' من ' + tm.length, sub: 'النهارده ' + day + ' · اضغط على أي عضو يفتح ملفه', summary: [{ label: 'حاضرين', value: String(l.length) }, { label: 'عن بُعد', value: String(l.filter((m) => (S.today[m.id] || {}).remote).length) }, { label: 'مش حاضرين', value: String(tm.length - l.length) }], headers: ['العضو', 'القسم', 'الدوام', 'الحضور', 'ساعات اليوم', 'الحالة'], rows: l.map((m) => { const t = S.today[m.id] || {}; const tmn = todayMin(m); return [m.name, m.dept, m.shift.join('–'), hhmm(t.in), tmn == null ? '—' : K.hm(tmn), status(m)[0]]; }), onRow: toMember(l), source: 'تسجيل الحضور النهارده' }; };
@@ -108,9 +111,53 @@
     const dEnded = () => { const l = who((s) => s === 'أنهى الدوام'); return { title: 'أنهوا الدوام لحد دلوقتي — ' + l.length, sub: 'الدوام مرن: ممكن يبدأوا تاني النهارده والساعات بتتجمع', summary: [{ label: 'أعضاء', value: String(l.length) }, { label: 'ساعاتهم', value: K.hm(l.reduce((x, m) => x + (todayMin(m) || 0), 0)) }], headers: ['العضو', 'أول حضور', 'آخر انصراف', 'الجلسات', 'ساعات اليوم'], rows: l.map((m) => { const t = S.today[m.id] || {}; return [m.name, hhmm(t.in), hhmm(t.out), String(t.sessions || 1), K.hm(todayMin(m) || 0)]; }), onRow: toMember(l), empty: 'محدش أنهى الدوام لسه.', source: 'تسجيل الحضور النهارده' }; };
     const dAway = () => { const l = who((s) => s.startsWith('إجازة') || s === 'غائب'); return { title: 'إجازة / غياب النهارده — ' + l.length, sub: day, summary: [{ label: 'إجازة', value: String(l.filter((m) => status(m)[0].startsWith('إجازة')).length) }, { label: 'غياب من غير تسجيل', value: String(l.filter((m) => status(m)[0] === 'غائب').length) }], headers: ['العضو', 'القسم', 'الحالة', 'الطلب', 'رصيد الإجازات'], rows: l.map((m) => { const r = S.requests.find((x) => x.member === m.id && isLeave(x) && x.from <= today() && x.to >= today() && x.status !== 'مرفوض' && x.status !== 'اتلغى'); return [m.name, m.dept, status(m)[0], r ? r.id + ' · ' + r.type + ' (' + r.status + ')' : 'مفيش طلب', leaveLeft(m) + ' يوم']; }), onRow: toMember(l), note: 'الغياب من غير طلب بيتسجل يوم غياب، ولو اتقدّم طلب «إجازة بدون أجر» واتوافق عليه اليوم بيتخصم من المرتب.', source: 'الحضور + طلبات الإجازات' }; };
     const dPending = () => { const rq = S.requests.filter(isPending), ot = S.overtime.filter((o) => o.status === 'مستني'); return { title: 'طلبات مستنية — ' + (rq.length + ot.length), sub: 'محتاجة موافقة أو تأكيد من المسؤول', summary: [{ label: 'طلبات', value: String(rq.length) }, { label: 'وقت إضافي للتأكيد', value: String(ot.length) }], headers: ['الرقم', 'العضو', 'النوع', 'الفترة / التفاصيل', 'الحالة'], rows: rq.map((r) => [r.id, M(r.member).name, r.type, reqPeriod(r), r.status]).concat(ot.map((o) => [o.id, M(o.member).name, o.kind === 'rest_day' ? 'شغل يوم راحة' : 'وقت إضافي', K.dshort(o.date) + ' · ' + o.start + '–' + o.end + ' (' + K.hm(o.minutes) + ')', o.status + ' · ' + o.waitedHours + ' ساعة'])), onRow: (i) => { if (i < rq.length) reqDetails(rq[i]); else { st.tab = 'requests'; try { history.replaceState(null, '', '#hr-requests'); } catch (e) { /* */ } R(); } }, source: 'الطلبات + الوقت الإضافي' }; };
-    if (st.teamSub === 'team') out.push(h('div', { class: 'cards' }, K.Stat('حاضرين دلوقتي', tm.filter(present).length, 'من ' + tm.length, tm.filter((m) => present(m) && (S.today[m.id] || {}).remote).length + ' عن بُعد', undefined, dPresent), K.Stat('أنهوا الدوام', counts((s) => s === 'أنهى الدوام'), 'عضو', 'الدوام مرن — مفيش تأخير', undefined, dEnded), K.Stat('إجازة / غياب', counts((s) => s.startsWith('إجازة') || s === 'غائب'), 'عضو', counts((s) => s === 'غائب') + ' غياب من غير تسجيل', undefined, dAway), K.Stat('طلبات مستنية', pendingCount(), 'طلب', S.overtime.filter((o) => o.status === 'مستني').length + ' وقت إضافي للتأكيد', undefined, dPending)), teamTable(tm));
+    return h('div', { class: 'cards', 'data-hr-today': '' }, K.Stat('حاضرين دلوقتي', tm.filter(present).length, 'من ' + tm.length, tm.filter((m) => present(m) && (S.today[m.id] || {}).remote).length + ' عن بُعد', undefined, dPresent), K.Stat('أنهوا الدوام', counts((s) => s === 'أنهى الدوام'), 'عضو', 'الدوام مرن — مفيش تأخير', undefined, dEnded), K.Stat('إجازة / غياب', counts((s) => s.startsWith('إجازة') || s === 'غائب'), 'عضو', counts((s) => s === 'غائب') + ' غياب من غير تسجيل', undefined, dAway), K.Stat('طلبات مستنية', pendingCount(), 'طلب', S.overtime.filter((o) => o.status === 'مستني').length + ' وقت إضافي للتأكيد', undefined, dPending));
+  }
+  function teamTab() {
+    const subs = [{ id: 'team', label: 'الفريق' }, { id: 'log', label: 'سجل الحضور' }, { id: 'cal', label: 'تقويم الفريق' }];
+    const out = [K.SubTabs({ items: subs, active: st.teamSub, onChange: (id) => { st.teamSub = id; R(); }, label: 'الفريق والحضور' })];
+    if (st.teamSub === 'team') out.push(teamTable(team()));
     else if (st.teamSub === 'log') out.push(...attLog()); else out.push(...teamCal());
     return out;
+  }
+
+  // ================= نظرة عامة (owner 12 Nov) =================
+  // a table whose rows open something (U.Table has no row handler; the details popup does)
+  const clickRows = (tbl, fn) => { tbl.querySelectorAll('tbody tr').forEach((tr, i) => { tr.classList.add('dt-click'); tr.tabIndex = 0; tr.setAttribute('role', 'button'); tr.addEventListener('click', () => fn(i)); tr.addEventListener('keydown', (e) => { if (e.key === 'Enter') fn(i); }); }); return tbl; };
+  function overviewTab() {
+    const tm = team(); const t0 = today(); const mk = thisMonth(); const in14 = H().addDays(t0, 14); const goTab = (id) => { st.tab = id; try { history.replaceState(null, '', '#hr-' + id); } catch (e) { /* */ } R(); };
+    const hours = tm.reduce((x, m) => x + (Number(m.monthMin) || 0), 0); const ot = tm.reduce((x, m) => x + (Number(m.otMonth) || 0), 0);
+    const monthReq = S.requests.filter((r) => String(r.atIso || '').slice(0, 7) === mk);
+    const leavesNext = S.requests.filter((r) => isLeave(r) && r.status === 'موافق' && r.to >= t0 && r.from <= in14).sort((a, b) => (a.from < b.from ? -1 : a.from > b.from ? 1 : 0));
+    const leaveDaysMonth = S.requests.filter((r) => isLeave(r) && r.status === 'موافق' && String(r.from).slice(0, 7) <= mk && String(r.to).slice(0, 7) >= mk).reduce((x, r) => x + daysOf({ from: r.from < mk + '-01' ? mk + '-01' : r.from, to: r.to.slice(0, 7) > mk ? addMonths(mk, 1) + '-01' : r.to }), 0);
+    const dHours = () => ({ title: 'ساعات الشهر — ' + monLabel(mk), sub: 'مجموع ساعات الفريق من أول الشهر لحد النهارده', summary: [{ label: 'الساعات', value: K.hm(hours) }, { label: 'الوقت الإضافي', value: K.hm(ot) }], headers: ['العضو', 'القسم', 'ساعات الشهر', 'وقت إضافي'], rows: tm.slice().sort((a, b) => (b.monthMin || 0) - (a.monthMin || 0)).map((m) => [m.name, m.dept, K.hm(m.monthMin || 0), m.otMonth ? K.hm(m.otMonth) : '—']), onRow: (i) => { const l = tm.slice().sort((a, b) => (b.monthMin || 0) - (a.monthMin || 0)); toMember(l)(i); }, source: 'الحضور والوقت الإضافي المتوافق عليه' });
+    const dReq = () => ({ title: 'طلبات الشهر — ' + monthReq.length, sub: monLabel(mk), summary: [{ label: 'اتوافق', value: String(monthReq.filter((r) => r.status === 'موافق').length) }, { label: 'مستنية', value: String(monthReq.filter(isPending).length) }, { label: 'اترفض', value: String(monthReq.filter((r) => r.status === 'مرفوض').length) }], headers: ['الرقم', 'العضو', 'النوع', 'الفترة', 'الحالة'], rows: monthReq.map((r) => [r.id, M(r.member).name, r.type, reqPeriod(r), r.status]), onRow: (i) => reqDetails(monthReq[i]), source: 'طلبات الموارد البشرية' });
+    const kpis = h('div', { class: 'cards', 'data-hr-month': '' }, K.Stat('ساعات الشهر', K.hm(hours), 'للفريق', monLabel(mk), undefined, dHours), K.Stat('وقت إضافي الشهر', K.hm(ot), 'متوافق عليه', S.overtime.filter((o) => o.status === 'مستني').length + ' مستني تأكيد', undefined, dHours),
+      K.Stat('طلبات الشهر', monthReq.length, 'طلب', monthReq.filter(isPending).length + ' مستنية', undefined, dReq), K.Stat('أيام إجازة الشهر', leaveDaysMonth, 'يوم', leavesNext.length + ' إجازة في الأسبوعين الجايين', undefined));
+    // who is in now
+    const inNow = tm.filter(present);
+    const inCard = K.Section('مين في الدوام دلوقتي (' + inNow.length + ')', inNow.length ? h('div', { class: 'hr-in-list', 'data-hr-in': String(inNow.length) }, inNow.map((m) => { const t = S.today[m.id] || {}; return h('a', { class: 'mlink hr-in', href: '#member-' + m.id }, U.Avatar(m.name), h('span', null, h('b', null, m.name), h('small', null, (m.title || m.dept || '') + ' · من ' + hhmm(t.openIn != null ? t.openIn : t.in) + (t.remote ? ' · عن بُعد' : ''))), K.Tag(status(m)[1], status(m)[0])); })) : K.Empty('محدش في الدوام دلوقتي', 'أول ما حد يبدأ الدوام هيظهر هنا.'), null, { sub: K.dayName(t0) + ' ' + K.dshort(t0) });
+    // what waits for a decision
+    const pend = S.requests.filter(isPending).slice(0, 6); const otp = S.overtime.filter((o) => o.status === 'مستني').slice(0, 6);
+    const waitCard = K.Section('مستني قرار (' + (S.requests.filter(isPending).length + S.overtime.filter((o) => o.status === 'مستني').length) + ')', (pend.length || otp.length) ? clickRows(U.Table({ headers: ['الرقم', 'العضو', 'النوع', 'التفاصيل', 'الحالة'], rows: pend.map((r) => [r.id, M(r.member).name, r.type, reqPeriod(r), K.Tag('orange', r.status)]).concat(otp.map((o) => [o.id, M(o.member).name, o.kind === 'rest_day' ? 'شغل يوم راحة' : 'وقت إضافي', K.dshort(o.date) + ' · ' + K.hm(o.minutes), K.Tag('orange', o.status)])) }), (i) => { if (i < pend.length) reqDetails(pend[i]); else goTab('requests'); }) : K.Empty('مفيش حاجة مستنية', 'الطلبات والوقت الإضافي اللي محتاجين موافقة بيظهروا هنا.'), [Button({ size: 'sm', label: 'كل الطلبات', onClick: () => goTab('requests') })]);
+    // the leaves coming (14 days)
+    const leaveCard = K.Section('الإجازات الجاية (' + leavesNext.length + ')', leavesNext.length ? clickRows(U.Table({ headers: ['العضو', 'النوع', 'من', 'لحد', 'الأيام'], rows: leavesNext.map((r) => [M(r.member).name, r.type, K.Num(K.dshort(r.from)), K.Num(K.dshort(r.to)), K.Num(String(daysOf(r)))]) }), (i) => reqDetails(leavesNext[i])) : K.Empty('مفيش إجازات في الأسبوعين الجايين', ''), null, { sub: 'المتوافق عليها من النهارده لحد ' + K.dshort(in14) });
+    return [todayCards(), kpis, inCard, waitCard, leaveCard]; // each block on its own (the panel customizes them one by one)
+  }
+
+  // ================= سجل الحركات (owner 12 Nov) =================
+  // the HR rows of the activity log (IBHR.loadLog — RLS: hr.view F reads the team's, everyone else their own), newest first
+  const LG = { rows: null, busy: false, at: 0 };
+  function logLoad(force) {
+    if (LG.busy || (!force && LG.rows && Date.now() - LG.at < 60000)) return; LG.busy = true;
+    H().loadLog(force).then((r) => { LG.busy = false; if (r && r.ok) { LG.rows = r.items; LG.at = Date.now(); } else if (!LG.rows) LG.rows = []; if (window.IBPages.current === 'hr' && st.tab === 'log' && !document.querySelector('.scrim')) R(); });
+  }
+  function logTab() {
+    logLoad(false);
+    const L = LG.rows; const stamp = (iso) => { const d = new Date(iso); if (isNaN(d)) return '—'; const day = new Intl.DateTimeFormat('en-CA', { timeZone: 'Africa/Cairo', year: 'numeric', month: '2-digit', day: '2-digit' }).format(d); return K.dshort(day) + ' ' + d.toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit', hour12: false, timeZone: 'Africa/Cairo' }); }; // Cairo's day and time
+    const body = L == null ? K.Empty('بيحمّل…', 'لحظة واحدة') : !L.length ? K.Empty('لسه مفيش حركات', 'أي حضور أو طلب أو قرار أو تعديل في الموارد البشرية بيتسجل هنا.')
+      : U.Table({ cls: 'hr-log', headers: ['الوقت', 'الحركة', 'النوع', 'على', 'بواسطة', 'التفاصيل'], rows: L.map((x) => [K.Num(stamp(x.at)), x.label, x.group, x.on || '—', x.by, x.detail ? K.Num(x.detail) : '—']) });
+    return [K.Section('سجل الحركات', [body, note('الحضور والانصراف، الطلبات وقراراتها، الوقت الإضافي، الأعضاء، المرتبات، التقييم، المهام والإعدادات — آخر 300 حركة. التفاصيل أكواد وشهور وأرقام بس (من غير مبالغ ولا نصوص).')], [Button({ size: 'sm', label: LG.busy ? 'بيحدّث…' : 'تحديث', icon: 'refresh', disabled: LG.busy, attrs: { 'data-hr-log-refresh': '' }, onClick: () => logLoad(true) })], { sub: L ? K.n0(L.length) + ' حركة' : '' })];
   }
   function teamTable(tm) {
     const everyone = H() && H().everyone ? H().everyone() : tm; // decision 15: the table lists everyone I may see (the suspended and the salary-less admins too); the tiles stay on the staff
@@ -601,6 +648,6 @@
   document.addEventListener('ib:hr', () => { if (window.IBPages.current === 'hr') R(); });
   // the old prototype's api for the blocks not on IBHR yet (the profile — T7; the bell / dashboard read these helpers)
   const slipOf = (m) => { const L = st.lines[thisMonth()]; const p = L && L.lines ? slipFor(L.lines, m) : null; return p || O.payslip({ salary: m.salary || 0, holdback: m.holdback || 0, bonus: m.allow || 0 }); };
-  window.IBPages.register('hr', { title: 'الموارد البشرية', hash: (hs) => { const m = /^hr(?:-(team|requests|payroll|reports|settings))?$/.exec(hs); if (!m) return false; st.tab = m[1] || 'team'; return true; }, defaultHash: () => 'hr-' + st.tab, view,
+  window.IBPages.register('hr', { title: 'الموارد البشرية', hash: (hs) => { const m = /^hr(?:-(overview|team|requests|payroll|log|reports|settings))?$/.exec(hs); if (!m) return false; st.tab = m[1] || 'overview'; return true; }, defaultHash: () => 'hr-' + st.tab, view,
     api: { addMember, decide: (r, s, reason) => decide(r, s, reason), rejectReq, reqDetails, otAdd, otReject, leaveRequest, advanceRequest, remoteRequest, newPassword, slipModal: (p, mk, status) => payslipModal(p, mk, status), payslipModal: (m) => { const L = linesOf(thisMonth()); const p = slipFor(L.lines, m); if (p) payslipModal(p, thisMonth()); else K.toast('القسيمة لسه بتتحسب — جرّب كمان شوية'); }, slipOf, manualAtt, uploadContract, scheduleMeeting, status, pendingCount, isPending, reqPeriod, qScore: (id) => qScore(id), cancelReq, present } });
 })();

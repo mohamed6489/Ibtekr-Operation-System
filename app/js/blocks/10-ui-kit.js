@@ -182,7 +182,7 @@
       if (e.key === 'Enter') { e.preventDefault(); if (first) first.click(); }
     });
     menu.prepend(inp); menu.append(empty);
-    setTimeout(() => inp.focus());
+    setTimeout(() => { if (!menu.contains(document.activeElement)) inp.focus(); }); // never pulls focus back from the list (a fast ↓ after a letter)
     return menu;
   }
   function Select({ id, label, required, options, value, placeholder = 'اختار', error, onChange, help, disabled }) {

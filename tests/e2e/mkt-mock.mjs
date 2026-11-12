@@ -35,7 +35,7 @@ const COLS = {
 const KEY = { mkt_campaigns: 'campaigns', mkt_posts: 'posts', mkt_templates: 'templates', mkt_ad_objects: 'adObjects', mkt_ad_stats: 'adStats', mkt_suggestions: 'suggestions', mkt_requests: 'requests', mkt_video_jobs: 'videoJobs' };
 const GRANT = { mkt_campaigns: { insert: ['name', 'goal', 'step', 'state'], update: ['name', 'goal', 'step', 'state', 'archived_at'] },
   mkt_templates: { insert: ['name', 'kind', 'image', 'descr'], update: ['name', 'kind', 'image', 'descr', 'deleted_at'] },
-  mkt_requests: { insert: ['kind', 'title', 'details', 'project'], update: ['title', 'details', 'project', 'status'] } };
+  mkt_requests: { insert: [], update: [] } }; // 0082: nothing writes it from a member any more (the requests are team requests)
 const REQ_STATUS = ['جديد', 'بيتعمل', 'جاهز للمراجعة', 'خلص'];
 const GOALS = ['منتج جديد', 'مجموعة جديدة', 'وعي بخدمة', 'عرض / خصم'];
 const KINDS = ['بوست', 'كاروسيل', 'ريل', 'ستوري'];
@@ -488,9 +488,16 @@ function mktDecide(c, b) {
   const done = (patch, body) => { Object.assign(s, base, patch); H.writes.push({ table: 'mkt_suggestions', op: 'decide', id: s.id, decision: b.decision, status: s.status }); return json(200, { result: 'ok', status: s.status, ...body }); };
   if (b.decision === 'reject') return done({ status: 'rejected' }, {});
   if (s.kind === 'creative') {
-    const id = H.requests.reduce((m, x) => Math.max(m, x.id), 0) + 1;
-    H.requests.push({ id, kind: 'designer', title: 'نسخة جديدة لإعلان «' + String(s.title || '').replace(/^إعلان «|» الناس زهقت منه$/g, '') + '»', details: 'الميديا باير: ' + (s.title || '') + (note ? ' — ' + note : ''), project: s.campaign_name, status: 'جديد', created_by: u.id, created_at: now, updated_by: u.id, updated_at: now, done_at: null });
-    return done({ status: 'done', result: { request: true } }, { request: true });
+    // 0082: ticket_request_server — a design team request as the deciding member, to «ديزاينر» (the old mkt_requests row is gone)
+    const T = mock.tickets; const id = T.reduce((m, x) => Math.max(m, x.id), 0) + 1; const ad = String(s.title || '').replace(/^إعلان «|» الناس زهقت منه$/g, '');
+    const by = (mock.profiles || []).find((p) => p.id === u.id) || {}; const desc = 'الميديا باير: ' + (s.title || '') + (note ? ' — ' + note : '');
+    T.push({ id, type: 'internal', kind: 'design', project: s.campaign_name || null, title: 'نسخة جديدة لإعلان «' + ad + '»', description: desc, priority: 'normal', assignee_role: 'ديزاينر', order_number: null, order_id: null, customer: null,
+      cs_customer_id: null, cs_conversation_id: null, vendor_id: null, vendor: null, reason: null, follow_up: null, attachments: [], status: 'open', created_by: u.id, created_by_name: by.name || u.name || 'عضو', created_by_role: 'مدير النظام',
+      created_at: now, last_update: now, reopen_count: 0, resolution_outcome: null, resolution_note: null, resolved_by: null, resolved_by_name: null, resolved_at: null, closed_by: null, closed_by_name: null, closed_at: null });
+    const evId = () => mock.ticketEvents.reduce((m, e) => Math.max(m, e.id), 0) + 1;
+    mock.ticketEvents.push({ id: evId(), ticket_id: id, kind: 'event', at: now, actor: u.id, actor_name: by.name || 'عضو', actor_role: 'مدير النظام', text: (by.name || 'عضو') + ' وافق على اقتراح الميديا باير وفتح طلب لدور «ديزاينر»', old_value: null, new_value: null, attachments: [] });
+    mock.ticketEvents.push({ id: evId(), ticket_id: id, kind: 'message', at: now, actor: u.id, actor_name: by.name || 'عضو', actor_role: 'مدير النظام', text: desc, old_value: null, new_value: null, attachments: [] });
+    return done({ status: 'done', result: { request: true, ticket: id } }, { request: true, ticket: id });
   }
   if (s.kind === 'tracking') return done({ status: 'done', result: { reviewed: true } }, {});
   let pct = s.pct;

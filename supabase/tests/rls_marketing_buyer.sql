@@ -34,6 +34,10 @@ do $$ begin
   insert into public.mkt_suggestions (kind, campaign_id, title) values ('tracking', '120252323303340228', 'تاني');
 end $$;
 
+-- 0082: the requests are team requests now — mkt_requests is history the members read; its rows come from the server
+insert into public.mkt_requests (kind, title, details, project, created_by) values
+  ('designer', 'فيديو للمخدة', '15 ثانية 9:16', null, '00000000-0000-4000-8000-0000000053a2'),
+  ('dev', 'صفحة هبوط', null, null, '00000000-0000-4000-8000-0000000053a2');
 set local role authenticated;
 -- the rules (marketing.view): the defaults, then the admin's settings row over them
 select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000053a2","role":"authenticated"}', true);
@@ -62,14 +66,11 @@ begin
   exception when insufficient_privilege then null; end;
   begin update public.mkt_suggestions set status = 'approved' where kind = 'stop'; raise exception 'case a member decides on a suggestion failed';
   exception when insufficient_privilege then null; end;
-  insert into public.mkt_requests (kind, title, details, project) values ('designer', 'فيديو للمخدة', '15 ثانية 9:16', null) returning id into rid;
-  if (select (created_by, status) from public.mkt_requests where id = rid) is distinct from ('00000000-0000-4000-8000-0000000053a2'::uuid, 'جديد'::text) then raise exception 'case the request''s author and status are the server''s failed'; end if;
-  update public.mkt_requests set title = 'فيديو للمخدة — 9:16' where id = rid;
-  if (select title from public.mkt_requests where id = rid) <> 'فيديو للمخدة — 9:16' then raise exception 'case the author edits a new request failed'; end if;
-  begin update public.mkt_requests set status = 'خلص' where id = rid; raise exception 'case a member changes a request status failed';
+  begin insert into public.mkt_requests (kind, title) values ('designer', 'x'); raise exception 'case 0082: a member never adds an old request failed';
+  exception when insufficient_privilege then null; end;
+  begin update public.mkt_requests set title = 'x'; raise exception 'case 0082: a member never edits an old request failed';
   exception when insufficient_privilege then null; end;
   if (select public.mkt_buyer_rules() ->> 'dailyCap') <> '8000' then raise exception 'case a member reads the rules failed'; end if;
-  insert into public.mkt_requests (kind, title) values ('dev', 'صفحة هبوط');
 end $$;
 
 -- the admin: changes a status (done_at set, then cleared), edits any text
@@ -77,13 +78,7 @@ select set_config('request.jwt.claims', '{"sub":"00000000-0000-4000-8000-0000000
 do $$
 declare rid bigint;
 begin
-  select id into rid from public.mkt_requests where kind = 'dev';
-  update public.mkt_requests set status = 'بيتعمل' where id = rid;
-  update public.mkt_requests set status = 'خلص' where id = rid;
-  if (select done_at from public.mkt_requests where id = rid) is null then raise exception 'case done_at on خلص failed'; end if;
-  update public.mkt_requests set status = 'جاهز للمراجعة', title = 'صفحة هبوط — رمضان' where id = rid;
-  if (select (done_at, title, updated_by) from public.mkt_requests where id = rid) is distinct from (null::timestamptz, 'صفحة هبوط — رمضان'::text, '00000000-0000-4000-8000-0000000053a1'::uuid) then raise exception 'case the admin edits a request failed'; end if;
-  begin update public.mkt_requests set created_by = '00000000-0000-4000-8000-0000000053a1' where id = rid; raise exception 'case the author never changes failed';
+  begin update public.mkt_requests set status = 'خلص' where kind = 'dev'; raise exception 'case 0082: even the admin never writes an old request failed';
   exception when insufficient_privilege then null; end;
 end $$;
 
@@ -93,8 +88,8 @@ do $$ begin
   if (select count(*) from public.mkt_requests) <> 2 then raise exception 'case view-only reads the requests failed'; end if;
   begin insert into public.mkt_requests (kind, title) values ('dev', 'x'); raise exception 'case view-only adds a request failed';
   exception when insufficient_privilege then null; end;
-  update public.mkt_requests set title = 'y' where kind = 'designer';
-  if (select count(*) from public.mkt_requests where title = 'y') <> 0 then raise exception 'case view-only edits another''s request failed'; end if;
+  begin update public.mkt_requests set title = 'y' where kind = 'designer'; raise exception 'case view-only edits a request failed';
+  exception when insufficient_privilege then null; end;
 end $$;
 
 -- cs (marketing N): nothing

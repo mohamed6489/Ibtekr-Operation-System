@@ -42,13 +42,15 @@ const OK_ROUTES: Record<string, Route> = {
 type Opts = { routes?: Record<string, Route>; env?: Record<string, string>; objects?: any[]; stats?: any[]; vault?: Record<string, string> };
 function setup({ routes = OK_ROUTES, env = ADS_ENV, objects = [], stats = [], vault = {} }: Opts = {}) {
   const secrets: Record<string, string> = { ...vault };
+  const requests: any[] = [];
   const rpc = { sync_secret_matches: ({ candidate }: any) => candidate === 'sync-secret-ok',
+    ticket_request_server: (a: any) => { requests.push(a); return 7001; },
     mkt_secret_get: ({ p_name }: any) => secrets[p_name] ?? null, mkt_secret_set: ({ p_name, p_value }: any) => { if (p_value == null) delete secrets[p_name]; else secrets[p_name] = p_value; return null; } };
   const db = fakeDb({ mkt_ad_objects: objects, mkt_ad_stats: stats, activity_log: [] }, { rpc });
   const userDb = (jwt: string) => { const m = MEMBERS[jwt]; return fakeDb({}, { rpc: m ? { has_perm: ({ key }: any) => (key === 'marketing.view' ? m.view ?? 'N' : 'N'), is_admin: () => !!m.admin } : {} }); };
   const g = fakeGraph(routes);
   const deps = { env, db, now: () => NOW, userDb, userId: async (jwt: string) => MEMBERS[jwt]?.uid ?? null, fetch: g.fetch };
-  return { deps, db, calls: g.calls, secrets };
+  return { deps, db, calls: g.calls, secrets, requests };
 }
 const req = (body: unknown, headers: Record<string, string>) => new Request('http://local/mkt-ads', { method: 'POST', headers: { 'content-type': 'application/json', ...headers }, body: JSON.stringify(body) });
 const cron = async (deps: any, secret = 'sync-secret-ok') => { const res = await handler(req({ action: 'sync' }, { 'x-sync-secret': secret }), deps); return { res, body: await res.json() }; };
@@ -257,13 +259,14 @@ Deno.test('decide a budget: the campaign\'s own daily budget (CBO) by the step, 
   assertEquals(noCbo.calls.filter((x) => x.method === 'POST').map((x) => x.path), ['700']);
 });
 
-Deno.test('decide creative → a designer request and done; tracking → reviewed; Meta refusing a write → failed with our code', async () => {
-  const { deps, db } = setup({ routes: { ...OK_ROUTES, ['POST ' + C1]: { status: 400, body: { error: { code: 190, message: 'expired' } } } } });
+Deno.test('decide creative → a design team request and done; tracking → reviewed; Meta refusing a write → failed with our code', async () => {
+  const { deps, db, requests } = setup({ routes: { ...OK_ROUTES, ['POST ' + C1]: { status: 400, body: { error: { code: 190, message: 'expired' } } } } });
   await seedBuyer(db, { settings: ON, suggestions: [SUGG(1, 'creative', { ad_id: '1206' }), SUGG(2, 'tracking', { id: 2, title: 'فرق كبير في أرقام «Macrame»' }), SUGG(3, 'stop', { id: 3 })] });
   const c = await call(deps, { action: 'decide', id: 1, decision: 'approve', note: 'فيديو قصير' });
-  assertEquals([c.body.status, c.body.request], ['done', true]);
-  const rq = db.rows('mkt_requests')[0];
-  assertEquals([rq.kind, rq.title, rq.project, rq.status, rq.created_by], ['designer', 'نسخة جديدة لإعلان «carousel»', 'Macrame', 'جديد', U.admin]);
+  assertEquals([c.body.status, c.body.request, c.body.ticket], ['done', true, 7001]);
+  // 0082: a design team request (ticket) as the deciding admin — no mkt_requests row any more
+  assertEquals(requests, [{ p_kind: 'design', p_project: 'Macrame', p_title: 'نسخة جديدة لإعلان «carousel»', p_desc: 'الميديا باير: إعلان «carousel» الناس زهقت منه — فيديو قصير', p_by: U.admin }]);
+  assertEquals(db.rows('mkt_requests').length, 0);
   assertEquals((await call(deps, { action: 'decide', id: 2, decision: 'approve' })).body.status, 'done');
   const f = await call(deps, { action: 'decide', id: 3, decision: 'approve' });
   assertEquals([f.res.status, f.body.error, db.rows('mkt_suggestions')[2].status, db.rows('mkt_suggestions')[2].error], [502, 'token', 'failed', 'token']);

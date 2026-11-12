@@ -23,12 +23,18 @@ const SUGG = [
   { kind: 'tracking', campaign_id: CB, campaign_name: 'Lamps — Broad', title: 'فرق كبير في أرقام «Lamps — Broad»', sub: 'ميتا بتقول 10 مشتريات · ووكومرس 0 أوردر', why: 'ممكن البكسل بيعد مرتين.', impact: 'راجع التتبع' },
   { kind: 'budget_down', campaign_id: CA, campaign_name: 'Macrame — Retargeting', title: 'قلّل ميزانية «Macrame — Retargeting» 30%', sub: 'تكلفة الأوردر 600 ج.م', pct: -30, data: { daily_budget: 300 }, status: 'rejected', decided_at: D(-3) + 'T10:00:00Z', note: 'لسه جديدة' },
 ];
-const REQS = [{ kind: 'designer', title: 'فيديو Macrame', details: '9:16 · 15 ثانية', project: 'الشتا', status: 'جاهز للمراجعة', created_by: '00000000-0000-4000-8000-000000000002' }, { kind: 'dev', title: 'صفحة هبوط رمضان', project: 'موقع', status: 'بيتعمل', created_by: '00000000-0000-4000-8000-000000000001' }];
+// 0082: the requests to the human designer / developer are team requests (tickets of a kind) — the page reads them from «طلبات الفريق»
+const OPS_ID = '00000000-0000-4000-8000-000000000002';
+const TICKETS = [
+  { id: 1, type: 'internal', kind: 'design', project: 'الشتا', title: 'فيديو Macrame', description: '9:16 · 15 ثانية', priority: 'normal', assignee_role: 'ديزاينر', status: 'waiting', created_by: OPS_ID, created_by_name: 'سارة أحمد', created_by_role: 'اللوجستيك والشحن' },
+  { id: 2, type: 'internal', kind: 'dev', project: 'موقع', title: 'صفحة هبوط رمضان', description: 'لعروض رمضان', priority: 'high', assignee_role: 'مبرمج', status: 'in_progress' },
+  { id: 3, type: 'internal', kind: null, project: null, title: 'طلب خاص عادي', description: 'مش من التسويق', priority: 'normal', assignee_role: 'مدير النظام', status: 'open' },
+];
 let mock = null; let pageErrors = [];
 async function start(page, extra = {}) {
   test.skip(LIVE, 'asserts on the mocked Supabase (its seed and the calls it recorded)');
   pageErrors = []; page.on('pageerror', (e) => pageErrors.push(e.message));
-  mock = await installSupabaseMock(page, { mktAdObjects: OBJECTS, mktAdStats: STATS, mktSuggestions: SUGG, mktRequests: REQS, ...extra });
+  mock = await installSupabaseMock(page, { mktAdObjects: OBJECTS, mktAdStats: STATS, mktSuggestions: SUGG, tickets: TICKETS, ...extra });
 }
 test.afterEach(() => { if (LIVE) return; expect(pageErrors).toEqual([]); expect(mock.unhandled).toEqual([]); });
 async function signIn(page, email) {
@@ -153,7 +159,8 @@ test('the switch on (the admin, confirmed): a stop pauses the campaign on Meta; 
   await expect(toast(page)).toContainText('اتبعت للديزاينر');
   await pg(page).getByRole('tab', { name: /الديزاينر/ }).click();
   await expect(pg(page).locator('[data-mk-reqs="designer"]')).toContainText('نسخة جديدة لإعلان «Lamps video»');
-  expect(mock.mkt.requests.find((q) => q.title.includes('Lamps video'))).toMatchObject({ kind: 'designer', status: 'جديد', project: 'Lamps — Broad' });
+  // 0082: a design team request to «ديزاينر», as the deciding admin
+  expect(mock.tickets.find((t) => t.title.includes('Lamps video'))).toMatchObject({ type: 'internal', kind: 'design', status: 'open', project: 'Lamps — Broad', assignee_role: 'ديزاينر' });
 });
 
 test('the v6 «+ قاعدة جديدة»: the admin writes a rule in words (kept on the server with the rules — guidance only), edits it, deletes it; a member sees them without buttons', async ({ page }) => {
@@ -216,49 +223,59 @@ test('the chat: the question and the answer in the thread (ai-content buyer with
   await expect(pg(page)).toContainText('مفيش صلاحية');
 });
 
-test('the designer and the developer: the requests with their state, a new request (ops), the author edits a new one, the admin moves the status; the overview\'s cards', async ({ page }) => {
+test('0082 «تقديم طلب»: the requests are team requests — the list with who asked, a new request (ops) in the team-request popup to the kind\'s role, opened in «طلبات الفريق»; the overview\'s cards', async ({ page }) => {
   await start(page);
   await openAi(page, OPS, 'المبرمج');
   const P = pg(page);
   await expect(P.locator('[data-mk-reqs="dev"]')).toContainText('صفحة هبوط رمضان');
-  await P.locator('[data-mk-req-add="dev"]').click();
-  const f = modal(page, 'طلب للمبرمج');
-  await f.getByRole('button', { name: 'ابعت الطلب' }).click();
-  await expect(f).toContainText('الحقل ده مطلوب');
-  await f.locator('input').first().fill('تحسين سرعة صفحة المنتج');
-  await f.locator('textarea').fill('الصور كبيرة');
-  await f.getByRole('button', { name: 'ابعت الطلب' }).click();
-  await expect(toast(page)).toContainText('الطلب اتبعت للمبرمج');
+  await expect(P.locator('[data-mk-reqs="dev"] [data-mk-req]')).toHaveCount(1); // the plain team request is not the developer's
+  await P.locator('[data-mk-req-add="dev"]').first().click();
+  const f = page.locator('.modal[data-mk-req-form="dev"]');
+  await expect(f).toContainText('تقديم طلب للمبرمج');
+  await expect(f.locator('#mk-rq-role')).toContainText('مبرمج'); // the kind's role by default
+  await f.locator('[data-mk-req-send]').click();
+  await expect(f).toContainText('اكتب عنوان الطلب');
+  await f.locator('#mk-rq-title').fill('تحسين سرعة صفحة المنتج');
+  await f.locator('#mk-rq-desc').fill('الصور كبيرة');
+  await f.locator('[data-mk-req-file]').setInputFiles({ name: 'shot.png', mimeType: 'image/png', buffer: Buffer.from([0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0]) });
+  await expect(f.locator('[data-mk-req-chip]')).toHaveCount(1);
+  await f.locator('[data-mk-req-send]').click();
+  await expect(toast(page)).toContainText('لدور «مبرمج»');
+  await expect.poll(() => mock.ticketWrites.filter((w) => w.fn === 'ticket_request_create').length).toBe(1);
+  const w = mock.ticketWrites.find((x) => x.fn === 'ticket_request_create');
+  expect([w.kind, w.project, w.type, w.title, w.assigneeRole, w.attachments.length]).toEqual(['dev', 'موقع', 'internal', 'تحسين سرعة صفحة المنتج', 'مبرمج', 1]);
+  const made = mock.tickets.find((t) => t.title === 'تحسين سرعة صفحة المنتج');
+  expect(made).toMatchObject({ kind: 'dev', project: 'موقع', status: 'open', created_by: OPS_ID, assignee_role: 'مبرمج' });
   await expect(P.locator('[data-mk-reqs="dev"] [data-mk-req]')).toHaveCount(2);
-  const made = mock.mkt.requests.find((q) => q.title === 'تحسين سرعة صفحة المنتج');
-  expect(made).toMatchObject({ kind: 'dev', project: 'موقع', status: 'جديد', created_by: '00000000-0000-4000-8000-000000000002' });
-  // the author edits while new; the status is the admin's
-  await P.locator('[data-mk-req="' + made.id + '"]').click();
-  const d = page.locator('.modal[data-mk-req="' + made.id + '"]');
-  await expect(d.locator('#mk-req-st')).toHaveCount(0);
-  await d.locator('[data-mk-req-edit]').click();
-  const e = modal(page, 'تعديل:');
-  await e.locator('input').first().fill('تحسين سرعة صفحة المنتج (الصور)');
-  await e.getByRole('button', { name: 'احفظ' }).click();
-  await expect(toast(page)).toContainText('اتحفظ');
-  await expect(P.locator('[data-mk-reqs="dev"]')).toContainText('(الصور)');
-  await expect.poll(() => mock.activityRows.filter((l) => String(l.action).startsWith('mkt.request.')).map((l) => l.new_value)).toEqual(['dev', 'dev']);
+  await expect(P.locator('[data-mk-reqs="dev"]')).toContainText('طلبها');
+  await expect.poll(() => mock.activityRows.filter((l) => l.action === 'mkt.request.add').map((l) => l.new_value)).toEqual(['dev']);
   expect(JSON.stringify(mock.activityRows)).not.toContain('الصور كبيرة');
-  // the admin: the status select on the request
+  expect(mock.mkt.writes.filter((x) => x.table === 'mkt_requests')).toEqual([]); // nothing writes the old table
+  // the request opens «طلبات الفريق» on its ticket
+  const tid = 'TKT-' + String(made.id).padStart(4, '0');
+  await P.locator('[data-mk-req="' + tid + '"]').click();
+  const d = page.locator('.modal[data-mk-req="' + tid + '"]');
+  await expect(d).toContainText('طلبها');
+  await d.locator('[data-mk-req-open]').click();
+  await expect(page.locator('#tickets')).toBeVisible();
+  await expect(page.locator('.drawer')).toContainText('تحسين سرعة صفحة المنتج');
+  await page.keyboard.press('Escape');
+  // the designer's tab and the buyer's: their own lists and «تقديم طلب»
+  await page.locator('.sidebar .nav-item[data-page="marketing"]').click();
+  await pg(page).getByRole('tab', { name: /مساعدين الذكاء الاصطناعي/ }).click();
+  await pg(page).getByRole('tab', { name: /الديزاينر/ }).click();
+  await expect(pg(page).locator('[data-mk-reqs="designer"]')).toContainText('فيديو Macrame');
+  await expect(pg(page).locator('[data-mk-reqs="designer"]')).toContainText('سارة أحمد');
+  await pg(page).getByRole('tab', { name: /الميديا باير/ }).click();
+  await expect(pg(page).locator('[data-mk-req-add="buyer"]').first()).toBeVisible();
   await signOut(page);
   await openAi(page, ADMIN, 'الديزاينر');
-  await pg(page).locator('[data-mk-req="1"]').click();
-  const a = page.locator('.modal[data-mk-req="1"]');
-  await a.locator('#mk-req-st').click(); await page.getByRole('option', { name: 'الحالة: خلص' }).click();
-  await expect(toast(page)).toContainText('اتغيّرت الحالة');
-  expect(mock.mkt.requests.find((q) => q.id === 1)).toMatchObject({ status: 'خلص' });
-  await expect(pg(page).locator('.mk-done summary')).toContainText('اللي خلص (1)');
   // the overview's assistant cards
   await pg(page).getByRole('tab', { name: /نظرة عامة/ }).click();
   const cards = pg(page).locator('[data-ads-assistants="live"]');
   await expect(cards).toContainText('4 اقتراح مستني موافقتك');
   await expect(cards).toContainText('1 وقّف · 1 زوّد · 1 نسخة جديدة · 1 راجع التتبع');
-  await expect(cards).toContainText('تحسين سرعة صفحة المنتج (الصور)');
+  await expect(cards).toContainText('تحسين سرعة صفحة المنتج');
   await cards.getByRole('button', { name: 'افتح الميديا باير' }).click();
   await expect(pg(page).locator('[data-mk-chat]')).toBeVisible();
 });

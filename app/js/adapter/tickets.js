@@ -14,7 +14,7 @@
 // signed link. Live (decision 9): the private broadcast «tickets» / «changed» → one load() a moment later, plus a check every 30 s.
 (function () {
   'use strict';
-  const COLS = 'id, type, title, description, priority, assignee_role, order_number, order_id, customer, cs_customer_id, cs_conversation_id, vendor_id, vendor, reason, follow_up, attachments, status, created_by, created_by_name, created_by_role, created_at, last_update, reopen_count, resolution_outcome, resolution_note, resolved_by_name, resolved_at, closed_by_name, closed_at';
+  const COLS = 'id, type, kind, project, title, description, priority, assignee_role, order_number, order_id, customer, cs_customer_id, cs_conversation_id, vendor_id, vendor, reason, follow_up, attachments, status, created_by, created_by_name, created_by_role, created_at, last_update, reopen_count, resolution_outcome, resolution_note, resolved_by_name, resolved_at, closed_by_name, closed_at';
   const EV_COLS = 'id, ticket_id, kind, at, actor, actor_name, actor_role, text, old_value, new_value, attachments';
   const LIMIT = 2000; const EV_LIMIT = 5000; const EV_DAYS = 30;
   const BUCKET = 'tickets'; const MAX_FILES = 10; const MAX_BYTES = 10 * 1024 * 1024;
@@ -49,7 +49,7 @@
   const tid = (n) => 'TKT-' + String(n).padStart(4, '0');
   const dbIdOf = (id) => { const s = String(id == null ? '' : id); const m = /^TKT-(\d+)$/.exec(s); return m ? Number(m[1]) : /^\d+$/.test(s) ? Number(s) : null; };
   const files = (a) => (Array.isArray(a) ? a.filter((f) => f && typeof f.path === 'string').map((f) => ({ path: f.path, name: f.name || f.path.replace(/^.*\//, ''), type: f.type || '', size: Number(f.size) || 0 })) : []);
-  const toTicket = (r) => ({ id: tid(r.id), dbId: Number(r.id), type: r.type, title: r.title, description: r.description, priority: r.priority, assigneeRole: r.assignee_role,
+  const toTicket = (r) => ({ id: tid(r.id), dbId: Number(r.id), type: r.type, kind: r.kind || null, project: r.project || null, title: r.title, description: r.description, priority: r.priority, assigneeRole: r.assignee_role,
     orderId: r.order_number || null, orderDbId: r.order_id != null ? Number(r.order_id) : null, customer: r.customer || null, csCustomerId: r.cs_customer_id || null, csConversationId: r.cs_conversation_id || null,
     vendor: r.vendor || null, vendorId: r.vendor_id || null, reason: r.reason || null, followUp: r.follow_up || null, attachments: files(r.attachments), status: r.status,
     createdBy: { name: r.created_by_name, role: r.created_by_role, uid: r.created_by || null }, createdAt: r.created_at, lastUpdate: r.last_update, reopenCount: Number(r.reopen_count) || 0,
@@ -182,6 +182,22 @@
       await refresh(k); return { ok: true, id: tid(k) };
     } catch (e) { return { ok: false, reason: 'network', message: MESSAGES.network }; }
   }
+  // 0082 (the owner 12 Nov — «تقديم طلب» beside each assistant in التسويق): a request to the human designer / developer / media buyer =
+  // a team request of that kind, to the kind's role unless another was picked; «طلبات الفريق» works it, التسويق lists it
+  const REQ_KINDS = ['design', 'dev', 'media'];
+  async function createRequest(kind, f) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    if (!REQ_KINDS.includes(kind)) return { ok: false, reason: 'invalid', message: MESSAGES.invalid };
+    if (!can().manage) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const input = { title: f.title, description: f.description, priority: f.priority || 'normal', followUp: f.followUp || null, attachments: files(f.attachments).slice(0, MAX_FILES) };
+    if (f.assigneeRole) input.assigneeRole = f.assigneeRole;
+    try {
+      const { data: n, error } = await cl.rpc('ticket_request_create', { p_kind: kind, p_project: clean(f.project, 60) || null, p_input: input }); if (error) return fail(error);
+      const k = Number(n); log('ticket.create', tid(k) + ' · ' + kind + (f.assigneeRole ? ' · ' + f.assigneeRole : '') + (input.attachments.length ? ' · ' + input.attachments.length + ' مرفق' : ''), tid(k));
+      await refresh(k); return { ok: true, id: tid(k) };
+    } catch (e) { return { ok: false, reason: 'network', message: MESSAGES.network }; }
+  }
+  const requests = (kind) => data.tickets.filter((t) => t.kind && (!kind || t.kind === kind));
   async function act(id, action, args, detail) {
     const cl = c(); const k = dbIdOf(id); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
     if (k == null) return { ok: false, reason: 'invalid', message: MESSAGES.invalid };
@@ -264,6 +280,6 @@
   // the ticket roles of a member's role (the owner 11 Nov — «مين اكتر حد عنده شغل» on the overview)
   const rolesOf = (roleId) => labelsOf(roleId);
   window.IBTickets = { load, clear, loadEvents, subscribe, unsubscribe, check, state: () => st, can, myRoles, rolesOf, actor, canWork, canClose, canReopen: canClose, isMine,
-    all, get, events, bell, markSeen, forOrder, forVendor, forCustomer, forConversation, create, setStatus, resolve, close, reopen, update, reply, upload, fileUrl, checkFile,
+    all, get, events, bell, markSeen, forOrder, forVendor, forCustomer, forConversation, create, createRequest, requests, REQ_KINDS, setStatus, resolve, close, reopen, update, reply, upload, fileUrl, checkFile,
     MAX_FILES, MAX_BYTES, MIME, tid, dbIdOf, _test: { toTicket, toEvent, safeName, files, fail } };
 })();

@@ -84,6 +84,23 @@ test('create: ticket_create with the v2 form (the maker by name → its id), the
   assert(T.get('TKT-0007'));
 });
 
+test('0082 createRequest: ticket_request_create with the kind and the project (internal, the kind\'s role unless picked by the server), the kind and project read back; an unknown kind refused before any call; requests() = the tickets of a kind', async () => {
+  const { T, stub, logs } = load({ responses: { 'rpc:ticket_request_create': ok(8) } });
+  await T.load();
+  const more = TICKETS.concat([row({ id: 8, type: 'internal', kind: 'design', project: 'الشتا', title: 'بوستات', assignee_role: 'ديزاينر', order_number: null, order_id: null, customer: null, cs_customer_id: null, cs_conversation_id: null })]);
+  stub.responses.tickets = (q) => { const f = q.find((c) => c.op === 'eq' && c.args[0] === 'id'); return ok(f ? more.filter((t) => t.id === f.args[1]) : more); };
+  eq((await T.createRequest('logo', { title: 'x', description: 'x' })).reason, 'invalid');
+  const r = await T.createRequest('design', { title: 'بوستات', description: 'سر الوصف', project: '  الشتا ', priority: 'high', followUp: '2026-11-20', attachments: [{ path: ME + '/a.png', name: 'a.png', type: 'image/png', size: 3 }] });
+  eq(r, { ok: true, id: 'TKT-0008' });
+  eq(rpcs(stub).at(-1), ['ticket_request_create', { p_kind: 'design', p_project: 'الشتا', p_input: { title: 'بوستات', description: 'سر الوصف', priority: 'high', followUp: '2026-11-20', attachments: [{ path: ME + '/a.png', name: 'a.png', type: 'image/png', size: 3 }] } }]);
+  eq(logs.at(-1), ['ticket.create', 'TKT-0008 · design · 1 مرفق', { entity: 'ticket', entity_id: 'TKT-0008' }]);
+  assert(!JSON.stringify(logs).includes('سر الوصف'));
+  eq([T.get('TKT-0008').kind, T.get('TKT-0008').project, T.get('TKT-0001').kind], ['design', 'الشتا', null]);
+  eq(T.requests().map((t) => t.id), ['TKT-0008']); eq(T.requests('dev'), []);
+  assert.match(stub.calls.find((c) => c.table === 'tickets' && c.op === 'select').args[0], /\bkind, project\b/);
+  const ro = load({ perms: { 'tickets.view': 'F', 'tickets.manage': 'N' } }); eq((await ro.T.createRequest('dev', { title: 'x', description: 'x' })).reason, 'forbidden');
+});
+
 test('the actions go to ticket_act by number; the server\'s refusals come back in Arabic, the reply text never in the log', async () => {
   const { T, stub, logs } = load({ responses: { 'rpc:ticket_act': (a) => (a.p_action === 'reply' && a.p_id === 2 ? { data: null, error: { code: '22023', message: 'invalid: closed' } } : a.p_action === 'close' ? { data: null, error: { code: '42501', message: 'not the opener' } } : ok(null)) } });
   await T.load();

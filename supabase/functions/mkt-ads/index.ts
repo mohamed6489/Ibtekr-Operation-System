@@ -386,11 +386,13 @@ async function decide(deps: Deps, who: Who, args: Json): Promise<Response> {
   const status = decision === 'edit' ? 'edited' : 'approved';
   // the ones with no money: a designer request / reviewed
   if (s.kind === 'creative') {
-    const { error } = await deps.db.from('mkt_requests').insert({ kind: 'designer', title: 'نسخة جديدة لإعلان «' + (s.title ?? '').replace(/^إعلان «|» الناس زهقت منه$/g, '') + '»', details: 'الميديا باير: ' + (s.title ?? '') + (note ? ' — ' + note : ''), project: s.campaign_name ?? null, status: 'جديد', created_by: who.uid, created_at: at, updated_by: who.uid, updated_at: at });
+    // 0082 (the owner 12 Nov): the request is a team request (ticket) to the designer's role — «طلبات الفريق» works it, التسويق lists it
+    const ad = (s.title ?? '').replace(/^إعلان «|» الناس زهقت منه$/g, '');
+    const { data: ticket, error } = await deps.db.rpc('ticket_request_server', { p_kind: 'design', p_project: s.campaign_name ?? null, p_title: 'نسخة جديدة لإعلان «' + ad + '»', p_desc: 'الميديا باير: ' + (s.title ?? '') + (note ? ' — ' + note : ''), p_by: who.uid });
     if (error) return json(500, { error: 'failed' });
-    await deps.db.from('mkt_suggestions').update({ ...base, status: 'done', result: { request: true } }).eq('id', id);
+    await deps.db.from('mkt_suggestions').update({ ...base, status: 'done', result: { request: true, ticket: ticket ?? null } }).eq('id', id);
     await log(deps, who.uid, 'mkt.buyer.decide', String(id), 'creative · approve · ' + s.campaign_id + ' · request');
-    return json(200, { result: 'ok', status: 'done', request: true });
+    return json(200, { result: 'ok', status: 'done', request: true, ticket: ticket ?? null });
   }
   if (s.kind === 'tracking') {
     await deps.db.from('mkt_suggestions').update({ ...base, status: 'done', result: { reviewed: true } }).eq('id', id);

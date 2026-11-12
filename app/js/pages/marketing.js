@@ -1054,15 +1054,15 @@
       h('p', { class: 't-small help', style: 'margin:0' }, 'الفرق = (أوردرات ووكومرس − مشتريات المنصة) ÷ مشتريات المنصة · العائد الحقيقي = مبيعات ووكومرس من المنصة ÷ صرفها · القرار المقترح = أهم اقتراح مستني موافقتك من الميديا باير على المنصة')]);
   }
   function asstCards() {
-    byLoad(false); const pend = byPending(); const r = BY.rules; const reqs = BY.reqs || [];
+    byLoad(false); const pend = byPending(); const r = BY.rules;
     const kinds = (L) => { const c = {}; L.forEach((x) => { c[x.kind] = (c[x.kind] || 0) + 1; }); return Object.entries(c).map(([k, n]) => K.n0(n) + ' ' + (SG_UI[k] || SG_UI.tracking)[2]).join(' · ') || 'مفيش حاجة مستنية'; };
-    const reqRows = (kind) => { const L = reqs.filter((q) => q.kind === kind && q.status !== 'خلص'); return L.length ? L.slice(0, 3).map((q) => [q.title, q.status + (q.project ? ' · ' + q.project : ''), 'طلب', REQ_ST[q.status] || 'neutral']) : [['مفيش طلبات مفتوحة', kind === 'designer' ? 'اطلب بوست أو فيديو' : 'اطلب صفحة أو تعديل', 'طلب', 'neutral']]; };
+    const reqRows = (kind) => { const L = (reqsOf(kind) || []).filter((q) => q.open); return L.length ? L.slice(0, 3).map((q) => [q.title, q.statusLabel + ' · ' + (q.by || '—') + (q.project ? ' · ' + q.project : ''), 'طلب', REQ_TONE[q.status] || 'neutral']) : [['مفيش طلبات مفتوحة', kind === 'designer' ? 'اطلب بوست أو فيديو' : 'اطلب صفحة أو تعديل', 'طلب', 'neutral']]; };
     const asst = (title, sub, items, label, onClick) => Card(title, sub, [h('div', { class: 'mk-list' }, items.map(([t, x, tag, tone]) => h('div', { class: 'mk-item' }, h('span', { class: 'mk-ic tone-' + tone }, Icon(tone === 'success' ? 'users' : 'clock', 'sm')), h('span', { class: 'mk-txt' }, h('b', null, t), h('small', null, U.num(x))), h('span', { class: 't-small help mk-tag' }, tag))))], Button({ type: 'text', size: 'sm', label, onClick }));
     return h('div', { class: 'grid3', 'data-ads-assistants': BY.sugg ? 'live' : 'loading' },
       asst('الميديا باير', 'تقرير يومي · اقتراحات بموافقتك · حدود صرف', [[K.n0(pend.length) + ' اقتراح مستني موافقتك', kinds(pend), 'اقتراحات', pend.length ? 'orange' : 'success'], ['حد الصرف اليومي: ' + (r ? K.n0(r.dailyCap) + ' ج.م' : '…'), 'أي زيادة فوقه بتترفض', 'قاعدة', 'success'],
         ['التنفيذ على ميتا: ' + (r ? (r.live ? 'شغّال' : 'متوقف') : '…'), r && r.live ? 'الموافقة بتتنفّذ فورًا' : 'الموافقة بتتسجل من غير تغيير', 'مفتاح', r && r.live ? 'success' : 'neutral']], 'افتح الميديا باير', () => { BY.aiTab = 'buyer'; go('marketing-ai'); }),
-      asst('الديزاينر', 'بوستات وفيديوهات بالبراند · Magnific', reqRows('designer'), can().create ? '+ طلب للديزاينر' : 'افتح الديزاينر', () => { if (can().create) reqForm('designer'); else { BY.aiTab = 'designer'; go('marketing-ai'); } }),
-      asst('المبرمج', 'صفحات الموقع وتطوير مشاريع إبتكر · Staging الأول', reqRows('dev'), can().create ? '+ طلب للمبرمج' : 'افتح المبرمج', () => { if (can().create) reqForm('dev'); else { BY.aiTab = 'dev'; go('marketing-ai'); } }));
+      asst('الديزاينر', 'بوستات وفيديوهات بالبراند · Magnific', reqRows('designer'), canAsk() ? 'تقديم طلب للديزاينر' : 'افتح الديزاينر', () => { if (canAsk()) reqForm('designer'); else { BY.aiTab = 'designer'; go('marketing-ai'); } }),
+      asst('المبرمج', 'صفحات الموقع وتطوير مشاريع إبتكر · Staging الأول', reqRows('dev'), canAsk() ? 'تقديم طلب للمبرمج' : 'افتح المبرمج', () => { if (canAsk()) reqForm('dev'); else { BY.aiTab = 'dev'; go('marketing-ai'); } }));
   }
   function campDetail(x) {
     U.DetailsModal({ title: x.name + ' — ' + x.platform, sub: 'الحالة: ' + stOf(x.status)[0] + ' · ' + K.n0(x.days.length) + ' يوم فيه صرف أو أوردرات' + (srcText(x.sources) ? ' · الأوردرات: ' + srcText(x.sources) : ''),
@@ -1091,7 +1091,7 @@
   const crTip = () => U.InlineNote({ children: 'العائد الحقيقي لكل إعلان (من ووكومرس) محتاج utm_content={{ad.id}} في لينكات الإعلانات على ميتا — لحد كده العائد هنا بتاع ميتا، والعائد الحقيقي في «الحملات».' }); // inside the card: a loose note floats to the top of the reports page
   // the v6 prototype's «اعمل نسخ زيه» (a new campaign on the same idea) / «اطلب نسخة جديدة» (a request to the designer — the tired ones)
   function likeIt(idea) { if (!can().create) return; Object.assign(camp, blankCamp()); camp.w.idea = String(idea || '').slice(0, 500); go('marketing-campaign-1'); }
-  const crActs = (name, tired) => (can().create ? [{ label: 'اعمل نسخ زيه', icon: 'sparkle', run: () => likeIt(name) }, tired ? { label: 'اطلب نسخة جديدة', icon: 'plus', run: () => reqForm('designer', null, { t: 'نسخة جديدة من «' + name + '»', d: 'الناس شافوا الإعلان كتير — نفس الفكرة بشكل جديد' }) } : null].filter(Boolean) : []);
+  const crActs = (name, tired) => (can().create ? [{ label: 'اعمل نسخ زيه', icon: 'sparkle', run: () => likeIt(name) }, tired && canAsk() ? { label: 'اطلب نسخة جديدة', icon: 'plus', run: () => reqForm('designer', { title: 'نسخة جديدة من «' + name + '»', details: 'الناس شافوا الإعلان كتير — نفس الفكرة بشكل جديد' }) } : null].filter(Boolean) : []);
   // the published posts of the period with their own numbers (the v6 prototype's organic columns): views, engagement, likes, the rate
   const PL_OF = { meta: ['فيسبوك', 'انستجرام'], tiktok: ['تيك توك'], google: [] };
   function organicCard(rg, plat) {
@@ -1255,40 +1255,88 @@
     const inp = h('input', { type: 'text', class: 'input grow', id: 'mk-ask', placeholder: 'اسأل الميديا باير عن أرقامك…', 'aria-label': 'رسالة للميديا باير', maxlength: '1000', onKeydown: (e) => { if (e.key === 'Enter') send(inp.value); } });
     return Card('الميديا باير', 'بيقرا أرقام ميتا + أوردرات ووكومرس · بيقترح وانت توافق — مابينفّذش حاجة من الشات', [msgs,
       h('div', { class: 'mk-ask' }, inp, Button({ type: 'primary', label: 'اسأل', attrs: { 'data-mk-ask': '' }, disabled: BY.asking, onClick: () => send(inp.value) })),
-      h('div', { class: 'chips' }, h('span', { class: 't-small help' }, 'اقتراحات سريعة:'), ['حلل آخر 7 أيام', 'إيه أحسن حملة؟', 'قارن ميتا بووكومرس', 'اعمل حملة لمنتج'].map((x) => h('button', { type: 'button', class: 'chip', onClick: () => (x === 'اعمل حملة لمنتج' ? go('marketing-campaign-1') : send(x)) }, x)))], null, 'mk-wide');
+      h('div', { class: 'chips' }, h('span', { class: 't-small help' }, 'اقتراحات سريعة:'), ['حلل آخر 7 أيام', 'إيه أحسن حملة؟', 'قارن ميتا بووكومرس', 'اعمل حملة لمنتج'].map((x) => h('button', { type: 'button', class: 'chip', onClick: () => (x === 'اعمل حملة لمنتج' ? go('marketing-campaign-1') : send(x)) }, x)))], askBtn('buyer'), 'mk-wide');
   }
-  // the designer's and the developer's requests
-  const REQ_ST = { 'جديد': 'orange', 'بيتعمل': 'gold', 'جاهز للمراجعة': 'success', 'خلص': 'neutral' };
-  const reqItem = (q) => h('button', { type: 'button', class: 'mk-item', 'data-mk-req': String(q.id), onClick: () => openReq(q) }, h('span', { class: 'mk-ic tone-' + (REQ_ST[q.status] || 'neutral') }, Icon(q.status === 'جاهز للمراجعة' ? 'users' : 'clock', 'sm')),
-    h('span', { class: 'mk-txt' }, h('b', null, q.title), h('small', null, U.num([q.project, q.by, q.createdAt ? D2(String(q.createdAt).slice(0, 10)) : ''].filter(Boolean).join(' · ')))), Tag(REQ_ST[q.status] || 'neutral', q.status));
+  // 0082 (the owner 12 Nov — «زرار تقديم طلب… بوب أب فيه تقديم طلب جديد للديزاينر البشري أو للميديا باير البشري… بنفس طريقة بوب أب
+  // طلبات الفريق… ولما يتعمل يتسجل هنا في صفحة الديزاينر أو المبرمج ونقول مين مقدم الطلب… ويبقى مربوط بصفحة طلبات الفريق»): a request
+  // = a team request of a kind (IBTickets.createRequest → ticket_request_create) to the kind's role; listed here under its assistant
+  // with who asked, worked (status, replies) in «طلبات الفريق»
+  const AGENTS = { buyer: { name: 'الميديا باير', role: 'ميديا باير', to: 'للميديا باير' }, designer: { name: 'الديزاينر', role: 'ديزاينر', to: 'للديزاينر' }, dev: { name: 'المبرمج', role: 'مبرمج', to: 'للمبرمج' } };
+  const TKA = () => window.IBTickets; const TKD = () => window.IbtekrTickets;
+  const canAsk = () => !!(TKA() && TKA().can().manage);
+  const REQ_TONE = { open: 'orange', in_progress: 'gold', waiting: 'gold', resolved: 'success', closed: 'neutral' };
+  const reqsOf = (kind) => (BY.reqs ? (MK().reqsNow() || []).filter((q) => q.kind === kind) : null);
+  const reqItem = (q) => h('button', { type: 'button', class: 'mk-item', 'data-mk-req': q.id, onClick: () => openReq(q) }, h('span', { class: 'mk-ic tone-' + (REQ_TONE[q.status] || 'neutral') }, Icon(q.open ? 'clock' : 'users', 'sm')),
+    h('span', { class: 'mk-txt' }, h('b', null, q.title), h('small', null, U.num([q.id, q.project, 'طلبها ' + (q.by || '—') + (q.byRole ? ' (' + q.byRole + ')' : ''), q.createdAt ? D2(String(q.createdAt).slice(0, 10)) : ''].filter(Boolean).join(' · ')))), Tag(REQ_TONE[q.status] || 'neutral', q.statusLabel));
+  const openInTeam = (id) => { if (window.IbtekrApp && window.IbtekrApp.openTicket) window.IbtekrApp.openTicket(id); else location.hash = 'tickets-' + id; };
   function openReq(q) {
-    const canEdit = isAdmin() || (q.mine && q.status === 'جديد' && can().create);
-    const m = U.Modal({ title: q.title, body: [K.Kv([['النوع', q.kind === 'dev' ? 'المبرمج' : 'الديزاينر'], ['المشروع', q.project || '—'], ['التفاصيل', q.details ? h('span', { style: 'white-space:pre-wrap' }, q.details) : '—'], ['الحالة', Tag(REQ_ST[q.status] || 'neutral', q.status)],
-      ['طلبها', (q.by || '—') + (q.createdAt ? ' · ' + D2(String(q.createdAt).slice(0, 10)) : '')], q.doneAt ? ['خلصت', D2(String(q.doneAt).slice(0, 10))] : null])], footer: [] }); m.el.dataset.mkReq = String(q.id);
-    const foot = [Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() })];
-    if (isAdmin()) foot.unshift(U.Select({ id: 'mk-req-st', label: '', options: Object.keys(REQ_ST).map((x) => ({ value: x, label: 'الحالة: ' + x })), value: q.status, onChange: async (v) => { if (v === q.status) return; const r = await MK().setRequestStatus(q.id, v); K.toast(r.ok ? 'اتغيّرت الحالة' : r.message, r.ok ? 'success' : 'error'); m.close(); byLoad(true); R(); } }));
-    if (canEdit) foot.unshift(Button({ label: 'عدّل', attrs: { 'data-mk-req-edit': '' }, onClick: () => { m.close(); reqForm(q.kind, q); } }));
-    m.setFooter(...foot); return m;
+    const pr = ((TKD() && TKD().PRIORITIES) || []).find(([v]) => v === q.priority);
+    const m = U.Modal({ title: q.title, body: [K.Kv([['الرقم', q.id], ['لـ', q.assigneeRole || '—'], ['المشروع / الكامبين', q.project || '—'], ['التفاصيل', q.details ? h('span', { style: 'white-space:pre-wrap' }, q.details) : '—'],
+      ['الأولوية', pr ? pr[1] : (q.priority || '—')], ['الحالة', Tag(REQ_TONE[q.status] || 'neutral', q.statusLabel)], ['طلبها', (q.by || '—') + (q.byRole ? ' · ' + q.byRole : '') + (q.createdAt ? ' · ' + D2(String(q.createdAt).slice(0, 10)) : '')],
+      q.attachments.length ? ['المرفقات', K.n0(q.attachments.length) + ' ملف — في الطلب نفسه'] : null, q.doneAt ? ['خلص', D2(String(q.doneAt).slice(0, 10))] : null]),
+      U.InlineNote({ children: 'الشغل على الطلب (الحالة، الردود، المرفقات) من «طلبات الفريق» — الطلب نفسه هناك.' })], footer: [] }); m.el.dataset.mkReq = q.id;
+    m.setFooter(Button({ type: 'primary', label: 'افتح في طلبات الفريق', attrs: { 'data-mk-req-open': q.id }, onClick: () => { m.close(); openInTeam(q.id); } }), Button({ type: 'text', label: 'إغلاق', onClick: () => m.close() }));
+    return m;
   }
-  function reqForm(kind, q, pre) {
-    const isD = kind === 'designer';
-    K.form({ title: q ? 'تعديل: ' + q.title : isD ? 'طلب للديزاينر' : 'طلب للمبرمج', values: { t: q ? q.title : (pre && pre.t) || '', p: q ? q.project : (isD ? '' : 'موقع'), d: q ? q.details : (pre && pre.d) || '' }, validate: (f) => K.req(f, ['t']), submitLabel: q ? 'احفظ' : 'ابعت الطلب',
-      fields: (f, e, set) => [K.field.text('t', 'الطلب', f, e, set, { required: true, placeholder: isD ? 'مثال: 3 بوستات لعروض الشتا 1080×1350' : 'مثال: صفحة هبوط لعروض الشتا' }),
-        isD ? K.field.text('p', 'الكامبين / المشروع', f, e, set, { placeholder: 'اختياري' }) : K.field.select('p', 'المشروع', ['موقع', 'إبتكر سيستم'], f, e, set),
-        K.field.area('d', 'التفاصيل', f, e, set, { placeholder: isD ? 'المقاس · المدة · المنتجات · الستايل' : 'إيه المطلوب بالظبط' })],
-      submit: (f) => { (q ? MK().editRequest(q.id, { title: f.t, project: f.p, details: f.d }) : MK().addRequest({ kind, title: f.t, project: f.p, details: f.d })).then((r) => { K.toast(r.ok ? (q ? 'اتحفظ' : isD ? 'الطلب اتبعت للديزاينر' : 'الطلب اتبعت للمبرمج') : r.message, r.ok ? 'success' : 'error'); byLoad(true); R(); }); } });
+  // the popup — «طلب جديد» of «طلبات الفريق» for this request only: the title, the campaign / project, the details, the priority, the
+  // role (the kind's by default), the follow-up date and the files (the tickets bucket, the member's folder)
+  function reqForm(kind, pre) {
+    const T = TKA(); const D = TKD(); const A = AGENTS[kind] || AGENTS.designer;
+    if (!canAsk()) { K.toast('مفيش صلاحية تفتح طلبات — محتاج «طلبات الفريق: فتح ورد»', 'error'); return; }
+    const roles = (D && D.ROLES) || []; const role0 = roles.includes(A.role) ? A.role : 'مدير النظام';
+    const f = Object.assign({ title: '', project: kind === 'dev' ? 'موقع' : '', details: '', priority: 'normal', role: role0, followUp: '', files: [] }, pre || {});
+    let errs = {}; let sending = false; let msg = ''; let m = null;
+    const fileIn = h('input', { type: 'file', multiple: true, hidden: true, accept: ((T && T.MIME) || []).join(','), 'data-mk-req-file': '' });
+    fileIn.addEventListener('change', async () => {
+      const list = [...(fileIn.files || [])]; fileIn.value = ''; if (!list.length) return;
+      const room = (T.MAX_FILES || 10) - f.files.length; const bad = []; msg = 'بيترفع…'; draw();
+      for (const file of list.slice(0, Math.max(0, room))) { const r = await T.upload(file); if (r.ok) f.files.push(r.file); else bad.push(file.name + ': ' + r.message); }
+      if (list.length > room) bad.push('أقصى عدد ' + (T.MAX_FILES || 10) + ' ملفات');
+      msg = bad.join(' · '); draw();
+    });
+    function draw() {
+      const chips = f.files.length ? h('div', { class: 'chips' }, f.files.map((x, i) => h('span', { class: 'chip', 'data-mk-req-chip': String(i) }, x.name, h('button', { type: 'button', class: 'chip-x', 'aria-label': 'شيل ' + x.name, onClick: () => { f.files.splice(i, 1); draw(); } }, '×')))) : null;
+      m.setBody(
+        h('div', { class: 'row cols2' }, U.TextInput({ id: 'mk-rq-title', label: 'العنوان', required: true, value: f.title, error: errs.title, maxlength: 80, placeholder: kind === 'designer' ? 'مثال: 3 بوستات لعروض الشتا 1080×1350' : kind === 'dev' ? 'مثال: صفحة هبوط لعروض الشتا' : 'مثال: حملة لمنتجات الماكرامية', onInput: (v) => { f.title = v; } }),
+          U.TextInput({ id: 'mk-rq-project', label: kind === 'dev' ? 'المشروع' : 'الكامبين / المشروع', value: f.project, maxlength: 60, placeholder: 'اختياري', onInput: (v) => { f.project = v; } })),
+        U.Textarea({ id: 'mk-rq-desc', label: 'التفاصيل', value: f.details, placeholder: kind === 'designer' ? 'المقاس · المدة · المنتجات · الستايل' : kind === 'dev' ? 'إيه المطلوب بالظبط' : 'الهدف · الميزانية · المنتجات · المدة', onInput: (v) => { f.details = v; } }),
+        h('div', { class: 'row cols2' }, U.Select({ id: 'mk-rq-prio', label: 'الأولوية', required: true, options: ((D && D.PRIORITIES) || [['normal', 'عادي']]).map(([v, l]) => ({ value: v, label: l })), value: f.priority, onChange: (v) => { f.priority = v; draw(); } }),
+          U.Select({ id: 'mk-rq-role', label: 'المسؤول (الدور)', required: true, options: roles.map((r) => ({ value: r, label: r })), value: f.role, error: errs.role, onChange: (v) => { f.role = v; draw(); } })),
+        h('div', { class: 'row cols2' }, U.DateField({ id: 'mk-rq-follow', label: 'تاريخ المتابعة', value: f.followUp || null, error: errs.followUp, today: TODAY(), onChange: (iso, e) => { if (!e) f.followUp = iso || ''; errs.followUp = e || undefined; draw(); } }),
+          U.FieldShell({ id: 'mk-rq-att', label: 'مرفقات (صور أو PDF — لحد 10 ملفات، 10 ميجا للملف)' }, h('div', { class: 'tk-attach' }, Button({ label: 'إضافة صورة أو ملف', icon: 'attach', disabled: f.files.length >= ((T && T.MAX_FILES) || 10), onClick: () => fileIn.click() }), fileIn, chips, h('span', { class: 't-small', 'aria-live': 'polite' }, msg)))),
+        errs._form ? U.InlineNote({ kind: 'error', children: errs._form }) : U.InlineNote({ children: 'هيتسجل باسمك وتاريخ النهارده، ويظهر هنا تحت ' + A.name + ' وفي «طلبات الفريق» لدور «' + f.role + '» — والشغل عليه من هناك.' }));
+      m.setFooter(Button({ type: 'primary', label: sending ? 'بيتبعت…' : 'ابعت الطلب', disabled: sending, attrs: { 'data-mk-req-send': '' }, onClick: submit }), Button({ label: 'إلغاء', onClick: () => m.close() }));
+    }
+    async function submit() {
+      if (sending) return;
+      errs = {}; if (!String(f.title).trim()) errs.title = 'اكتب عنوان الطلب'; else if (String(f.title).trim().length > 80) errs.title = 'العنوان أقصاه 80 حرف'; if (!f.role) errs.role = 'اختار الدور';
+      if (Object.keys(errs).length) { errs._form = 'راجع الحقول المعلّمة بالأحمر'; draw(); return; }
+      sending = true; draw();
+      const r = await MK().addRequest({ kind, title: f.title, project: f.project, details: f.details, priority: f.priority, followUp: f.followUp, attachments: f.files, assigneeRole: f.role }).catch(() => ({ ok: false, message: 'مافيش اتصال — جرّب تاني' }));
+      sending = false;
+      if (!r.ok) { if (r.field && ['title', 'followUp'].includes(r.field)) errs[r.field] = r.message; if (r.field === 'assigneeRole') errs.role = r.message; errs._form = r.message || 'تعذّر إرسال الطلب'; draw(); return; }
+      m.close(); K.toast('اتبعت الطلب ' + r.id + ' لدور «' + f.role + '» — وموجود في «طلبات الفريق»', 'success'); byLoad(true); R();
+    }
+    m = U.Modal({ title: 'تقديم طلب ' + A.to, body: [], footer: [] }); m.el.dataset.mkReqForm = kind; draw();
+    const first = m.el.querySelector('#mk-rq-title'); if (first) first.focus();
+  }
+  const askBtn = (kind) => (canAsk() ? Button({ size: 'sm', type: 'primary', icon: 'plus', label: 'تقديم طلب', attrs: { 'data-mk-req-add': kind }, onClick: () => reqForm(kind) }) : null);
+  // the requests to this assistant's human, open first — «اللي خلص» folded
+  function reqsCard(kind) {
+    const A = AGENTS[kind]; const L = reqsOf(kind); const open = (L || []).filter((q) => q.open); const done = (L || []).filter((q) => !q.open).slice(0, 10);
+    return Card('طلبات ' + A.name + ' (' + K.n0(open.length) + ')', 'مين طلب وإمتى · الشغل والردود من «طلبات الفريق»',
+      [L ? (open.length ? h('div', { class: 'mk-list', 'data-mk-reqs': kind }, open.map(reqItem)) : K.Empty('مفيش طلبات مفتوحة', kind === 'designer' ? 'اطلب بوست أو فيديو أو نسخة جديدة لإعلان.' : kind === 'dev' ? 'اطلب صفحة أو تعديل على الموقع أو السيستم.' : 'اطلب حملة أو مراجعة لحملة شغالة.')) : K.Empty('بيحمّل…', ''),
+        done.length ? h('details', { class: 'mk-done' }, h('summary', { class: 't-small help' }, 'اللي خلص (' + K.n0(done.length) + ')'), h('div', { class: 'mk-list' }, done.map(reqItem))) : null,
+        kind === 'designer' ? U.InlineNote({ children: 'اقتراح «نسخة جديدة» من الميديا باير لما يتوافق عليه بيتحط هنا طلب لوحده.' }) : kind === 'dev' ? U.InlineNote({ children: 'المبرمج مايقدرش ينشر على الموقع اللايف من غير موافقتك.' }) : null],
+      askBtn(kind));
   }
   function asstList(kind) {
-    const isD = kind === 'designer'; const L = (BY.reqs || []).filter((q) => q.kind === kind); const open = L.filter((q) => q.status !== 'خلص'); const done = L.filter((q) => q.status === 'خلص').slice(0, 10);
-    return [Card(isD ? 'الديزاينر' : 'المبرمج', isD ? 'بوستات وفيديوهات بالبراند عن طريق Magnific · الطلبات هنا والشغل من «إنشاء»' : 'صفحات الموقع وتطوير مشاريع إبتكر · بيشتغل على Staging الأول وانت توافق',
-      [BY.reqs ? (open.length ? h('div', { class: 'mk-list', 'data-mk-reqs': kind }, open.map(reqItem)) : K.Empty('مفيش طلبات مفتوحة', isD ? 'اطلب بوست أو فيديو أو نسخة جديدة لإعلان.' : 'اطلب صفحة أو تعديل على الموقع أو السيستم.')) : K.Empty('بيحمّل…', ''),
-        done.length ? h('details', { class: 'mk-done' }, h('summary', { class: 't-small help' }, 'اللي خلص (' + K.n0(done.length) + ')'), h('div', { class: 'mk-list' }, done.map(reqItem))) : null,
-        U.InlineNote({ children: isD ? 'اقتراح «نسخة جديدة» من الميديا باير لما يتوافق بيتحط هنا طلب لوحده.' : 'المبرمج مايقدرش ينشر على الموقع اللايف من غير موافقتك.' })],
-      can().create ? Button({ type: 'primary', size: 'sm', label: isD ? '+ طلب للديزاينر' : '+ طلب للمبرمج', attrs: { 'data-mk-req-add': kind }, onClick: () => reqForm(kind) }) : null)];
+    const isD = kind === 'designer';
+    return [Card(isD ? 'الديزاينر' : 'المبرمج', isD ? 'بوستات وفيديوهات بالبراند عن طريق Magnific · الطلبات هنا والشغل من «إنشاء»' : 'صفحات الموقع وتطوير مشاريع إبتكر · بيشتغل على Staging الأول وانت توافق', [], askBtn(kind)), reqsCard(kind)];
   }
   function aiTab() {
     byLoad(false);
-    const cnt = (kind) => (BY.reqs || []).filter((q) => q.kind === kind && q.status !== 'خلص').length || null;
+    const cnt = (kind) => (reqsOf(kind) || []).filter((q) => q.open).length || null;
     const sub = K.SubTabs({ items: [{ id: 'buyer', label: 'الميديا باير', count: byPending().length || null }, { id: 'designer', label: 'الديزاينر', count: cnt('designer') }, { id: 'dev', label: 'المبرمج', count: cnt('dev') }], active: BY.aiTab, onChange: (id) => { BY.aiTab = id; R(); }, label: 'المساعدين' });
     if (BY.aiTab !== 'buyer') return [sub].concat(asstList(BY.aiTab));
     const pend = byPending(); const past = (BY.sugg || []).filter((x) => x.status !== 'pending').slice(0, 8);
@@ -1296,7 +1344,7 @@
       Card('مستني موافقتك (' + K.n0(pend.length) + ')', 'وافق أو ارفض · كل إجراء بيتسجل في سجل النشاط', [BY.sugg ? (pend.length ? h('div', { class: 'mk-list', 'data-mk-pending': String(pend.length) }, pend.map((x) => sgItem(x, () => openSugg(x)))) : K.Empty('مفيش حاجة مستنية', 'الاقتراحات بتتجدد مع كل مزامنة لأرقام ميتا.')) : K.Empty('بيحمّل…', ''),
         h('p', { class: 't-small help', style: 'margin:0' }, 'الضغط على اقتراح بيفتحه: الأرقام · السبب · «وافق» / «ارفض» / «عدّل»')]),
       past.length ? Card('آخر القرارات', 'آخر 30 يوم', [h('div', { class: 'mk-list', 'data-mk-past': String(past.length) }, past.map((x) => h('button', { type: 'button', class: 'mk-item', 'data-mk-sugg': String(x.id), onClick: () => openSugg(x) }, h('span', { class: 'mk-txt' }, h('b', null, x.title), h('small', null, U.num(decidedLine(x)))), Tag((SG_ST[x.status] || SG_ST.pending)[1], (SG_ST[x.status] || SG_ST.pending)[0]))))]) : null,
-      rulesCard());
+      reqsCard('buyer'), rulesCard());
     return [sub, h('div', { class: 'mk-row' }, buyerChat(), side)];
   }
   // the overview's card (the v5): the open suggestions, the whole list from the assistants' tab
@@ -1328,6 +1376,7 @@
     return [K.PageHead('التسويق', null, headActs()), tabs, panel];
   }
   // a change from elsewhere (the live line) redraws the tabs — never the open wizard or an open popup
+  document.addEventListener('ib:tickets', () => { if (window.IBPages.current !== 'marketing' || st.view !== 'hub' || !BY.reqs) return; if (document.querySelector('.scrim')) return; R(); }); // 0082: the requests are team requests
   document.addEventListener('ib:marketing', () => { if (window.IBPages.current !== 'marketing' || st.view !== 'hub') return; if (document.querySelector('.scrim')) return; R(); });
 
   window.IBPages.register('marketing', { title: 'التسويق', hash: (hs) => route(hs), defaultHash, view, api: { st, camp, go, openCampaign, reportBlocks } });

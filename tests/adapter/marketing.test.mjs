@@ -20,13 +20,13 @@ const POSTS = [
     time: '19:00', how: 'download', status: 'مجدول', was_live: false, post_url: null, published_at: null, published_by: null, deleted_at: null, created_at: '2026-11-01T08:00:00Z', updated_at: '2026-11-01T08:00:00Z' },
 ];
 const TPLS = [{ id: 't1', name: 'منتج على كريمي', kind: 'post', image: 'templates/a.png', descr: 'المنتج في النص', used: 3, created_at: '2026-10-20T08:00:00Z', updated_at: '2026-10-20T08:00:00Z', deleted_at: null }];
-function load({ responses = {}, perms = { 'marketing.view': 'F', 'marketing.create': 'F', 'marketing.publish': 'F' }, realtime = false, role = 'ops' } = {}) {
+function load({ responses = {}, perms = { 'marketing.view': 'F', 'marketing.create': 'F', 'marketing.publish': 'F' }, realtime = false, role = 'ops', tickets = null } = {}) {
   const stub = stubClient({ responses: { mkt_campaigns: ok(CAMPS), mkt_posts: ok(POSTS), mkt_templates: ok(TPLS), 'rpc:mkt_credits': ok({ cap: 5000, used: 1200 }), ...responses } });
   const events = []; const logs = []; const timers = [];
   const window = { IBSupabase: { client: stub.client }, IB_CONFIG: { realtime },
     IBDirectory: { perm: (k) => perms[k] || 'N', me: () => ({ id: 'u1', name: 'منى', role_id: role, status: 'active' }) },
     IBActivity: { log: (action, detail, meta) => { logs.push([action, detail, meta]); return Promise.resolve(); } },
-    crypto: { randomUUID: () => 'abcdef12-3456-4000-8000-000000000000' } };
+    crypto: { randomUUID: () => 'abcdef12-3456-4000-8000-000000000000' }, ...(tickets ? { IBTickets: tickets } : {}) };
   const ctx = { window, document: { dispatchEvent(e) { events.push(e.type); }, visibilityState: 'visible' }, CustomEvent: class { constructor(t) { this.type = t; } },
     Promise, Date, Number, String, Array, Object, JSON, Map, Set, Math, Error, Intl, isNaN, URL,
     setTimeout: (fn, ms) => { timers.push({ fn, ms }); return timers.length; }, clearTimeout: (n) => { if (timers[n - 1]) timers[n - 1].fn = null; }, setInterval: () => 1, clearInterval: () => {} };
@@ -307,14 +307,21 @@ const SUGG = [
   { id: 2, platform: 'meta', kind: 'budget_up', campaign_id: '120252323303340228', campaign_name: 'Macrame', ad_id: null, title: 'زوّد «Macrame» 20%', sub: '', why: '', impact: '', pct: '20', data: { daily_budget: 300 }, status: 'done', created_at: '2026-11-05T10:00:00Z', checked_at: '2026-11-05T10:00:00Z', decided_by: 'u1', decided_at: '2026-11-05T11:00:00Z', value: 10, note: 'شوية', result: { before: 300, after: 330 }, error: null },
   { id: 3, platform: 'meta', kind: 'weird', campaign_id: '1', campaign_name: null, ad_id: '1206', title: 'x', pct: null, data: null, status: 'nope', created_at: '2026-11-04T10:00:00Z' },
 ];
-const REQS = [
-  { id: 1, kind: 'designer', title: 'فيديو للمخدة', details: '15 ثانية', project: 'الشتا', status: 'جديد', created_by: 'u1', created_at: '2026-11-06T09:00:00Z', updated_by: 'u1', updated_at: '2026-11-06T09:00:00Z', done_at: null },
-  { id: 2, kind: 'dev', title: 'صفحة هبوط', details: null, project: null, status: 'خلص', created_by: 'u2', created_at: '2026-11-05T09:00:00Z', updated_by: 'u1', updated_at: '2026-11-06T09:00:00Z', done_at: '2026-11-06T09:00:00Z' },
+// 0082: the requests are team requests — IBTickets' tickets of a kind (its shape), the plain ones left out
+const TKS = [
+  { id: 'TKT-0001', kind: 'design', project: 'الشتا', title: 'فيديو للمخدة', description: '15 ثانية', priority: 'normal', assigneeRole: 'ديزاينر', status: 'open', attachments: [], createdBy: { name: 'منى', role: 'اللوجستيك والشحن', uid: 'u1' }, createdAt: '2026-11-06T09:00:00Z', lastUpdate: '2026-11-06T09:00:00Z', resolution: null, closedAt: null },
+  { id: 'TKT-0002', kind: 'dev', project: null, title: 'صفحة هبوط', description: 'x', priority: 'high', assigneeRole: 'مبرمج', status: 'resolved', attachments: [], createdBy: { name: 'سارة', role: 'مدير النظام', uid: 'u2' }, createdAt: '2026-11-05T09:00:00Z', lastUpdate: '2026-11-06T09:00:00Z', resolution: { at: '2026-11-06T09:00:00Z' }, closedAt: null },
+  { id: 'TKT-0003', kind: 'media', project: null, title: 'حملة الشتا', description: 'x', priority: 'normal', assigneeRole: 'ميديا باير', status: 'in_progress', attachments: [], createdBy: { name: 'منى', role: 'x', uid: 'u1' }, createdAt: '2026-11-04T09:00:00Z', lastUpdate: null, resolution: null, closedAt: null },
 ];
+function tkStub(list = TKS, over = {}) {
+  const calls = []; let st = 'idle'; const rows = list.slice();
+  return { calls, rows, state: () => st, load: async () => { calls.push(['load']); st = 'ready'; return { ok: true }; }, requests: () => rows.filter((t) => t.kind), get: (id) => rows.find((t) => t.id === id) || null,
+    createRequest: async (kind, f) => { calls.push(['createRequest', kind, JSON.parse(JSON.stringify(f))]); const t = { id: 'TKT-0009', kind, project: f.project || null, title: f.title, description: f.description, priority: f.priority, assigneeRole: f.assigneeRole || 'ديزاينر', status: 'open', attachments: f.attachments, createdBy: { name: 'منى', role: 'x', uid: 'u1' }, createdAt: '2026-11-12T09:00:00Z', lastUpdate: null, resolution: null, closedAt: null }; rows.push(t); return { ok: true, id: t.id }; }, ...over };
+}
 const RULES = { dailyCap: 5000, maxCpa: 450, autoStop: 1500, autoStopMode: 'suggest', reportHour: 9, live: false, notes: [] }; // notes: the admin's written rules (the v6 prototype)
 
 test('9.5.4 suggestions: the open + the last 30 days in the page\'s shape (unknown kinds and statuses tamed), cached a minute; rules through the RPC; requests with the author\'s name', async () => {
-  const { M, stub } = load({ responses: { mkt_suggestions: ok(SUGG), 'rpc:mkt_buyer_rules': ok({ ...RULES, dailyCap: 8000, live: true }), mkt_requests: ok(REQS) } });
+  const T = tkStub(); const { M, stub } = load({ tickets: T, responses: { mkt_suggestions: ok(SUGG), 'rpc:mkt_buyer_rules': ok({ ...RULES, dailyCap: 8000, live: true }) } });
   const r = await M.suggestions();
   eq(r.items.map((s) => [s.id, s.kind, s.status, s.pct, s.value]), [[1, 'stop', 'pending', null, null], [2, 'budget_up', 'done', 20, 10], [3, 'tracking', 'pending', null, null]]);
   eq([r.items[1].result.after, r.items[1].note, r.items[2].data, r.items[2].ad_id], [330, 'شوية', {}, '1206']);
@@ -325,8 +332,11 @@ test('9.5.4 suggestions: the open + the last 30 days in the page\'s shape (unkno
   // a stored written rule comes through; a malformed one is dropped
   { const L2 = load({ responses: { 'rpc:mkt_buyer_rules': ok({ ...RULES, notes: [{ title: 'CTR', details: 'أقل من 0.8%', kind: 'قاعدة' }, { title: 3 }] }) } }); eq((await L2.M.rules()).rules.notes, [{ title: 'CTR', details: 'أقل من 0.8%', kind: 'قاعدة' }]); }
   await M.rules(); eq(rpcs(stub).filter((x) => x[0] === 'mkt_buyer_rules').length, 1);
-  const q = await M.requests(); eq(q.items.map((x) => [x.id, x.kind, x.status, x.mine, x.doneAt]), [[1, 'designer', 'جديد', true, null], [2, 'dev', 'خلص', false, '2026-11-06T09:00:00Z']]);
-  const none = load({ perms: {} }); eq((await none.M.suggestions()).reason, 'forbidden'); eq((await none.M.rules()).reason, 'forbidden'); eq((await none.M.requests()).reason, 'forbidden');
+  // 0082: the requests = the team requests of a kind, by the assistant (design → designer, dev → dev, media → buyer), with who asked
+  const q = await M.requests(); eq(q.items.map((x) => [x.id, x.kind, x.statusLabel, x.open, x.mine, x.by, x.doneAt]), [['TKT-0001', 'designer', 'جديد', true, true, 'منى', null], ['TKT-0002', 'dev', 'خلص', false, false, 'سارة', '2026-11-06T09:00:00Z'], ['TKT-0003', 'buyer', 'بيتعمل', true, true, 'منى', null]]);
+  eq(T.calls, [['load']]); await M.requests(); eq(T.calls, [['load']]); await M.requests(true); eq(T.calls, [['load'], ['load']]); // loaded once, again when forced
+  eq(stub.calls.filter((c) => c.table === 'mkt_requests').length, 0); // the old table is never read
+  const none = load({ perms: {}, tickets: tkStub() }); eq((await none.M.suggestions()).reason, 'forbidden'); eq((await none.M.rules()).reason, 'forbidden'); eq((await none.M.requests()).reason, 'forbidden');
 });
 
 test('9.5.4 decide: the admin only; reject / approve / edit through mkt-ads with the value and the note; the switch off = recorded; the refusals in words; the log carries the decision and the status only', async () => {
@@ -367,22 +377,21 @@ test('9.5.4 rulesSet / setLive: the admin only; the numbers and the modes go, ne
   const ops = load(); eq((await ops.M.rulesSet({ dailyCap: 1 })).reason, 'forbidden'); eq((await ops.M.setLive(true)).reason, 'forbidden');
 });
 
-test('9.5.4 requests: add (marketing.create, the title required, the kind designer / dev), edit the text, the admin\'s status; logged with the kind and the status only', async () => {
-  const row = (x) => ({ id: 9, kind: 'designer', title: 'فيديو', details: null, project: null, status: 'جديد', created_by: 'u1', created_at: '2026-11-06T09:00:00Z', updated_by: 'u1', updated_at: '2026-11-06T09:00:00Z', done_at: null, ...x });
-  const { M, stub, logs } = load({ role: 'admin', responses: { mkt_requests: (calls) => { const ins = calls.find((c) => c.op === 'insert'); return ins ? ok(row({ kind: ins.args[0].kind, title: ins.args[0].title, details: ins.args[0].details, project: ins.args[0].project })) : ok([row({ title: 'فيديو 9:16', status: 'خلص', done_at: '2026-11-07T09:00:00Z' })]); } } });
+test('0082 requests: «تقديم طلب» = IBTickets.createRequest with the kind (designer → design, dev → dev, buyer → media), the title required, the fields cleaned; logged with the kind only; no edit / status here', async () => {
+  const T = tkStub(); const { M, stub, logs } = load({ tickets: T });
   eq((await M.addRequest({ kind: 'dev', title: '  ' })).field, 'title');
-  const a = await M.addRequest({ kind: 'video', title: ' فيديو ', details: 'الوصف سري\r\n9:16', project: 'الشتا' });
-  eq([a.ok, a.request.kind, a.request.title, a.request.details, a.request.project, a.request.mine], [true, 'designer', 'فيديو', 'الوصف سري\n9:16', 'الشتا', true]);
-  eq(stub.calls.find((c) => c.op === 'insert').args[0], { kind: 'designer', title: 'فيديو', details: 'الوصف سري\n9:16', project: 'الشتا' });
-  const e = await M.editRequest(9, { title: 'فيديو 9:16' }); eq(e.request.title, 'فيديو 9:16');
-  eq((await M.editRequest(9, { title: '' })).field, 'title');
-  const s = await M.setRequestStatus(9, 'خلص'); eq([s.request.status, s.request.doneAt], ['خلص', '2026-11-07T09:00:00Z']);
-  eq((await M.setRequestStatus(9, 'done')).reason, 'invalid');
-  eq(M.reqsNow().length, 1);
-  eq(logs.map((l) => l[0] + ' ' + l[1]), ['mkt.request.add designer', 'mkt.request.edit designer', 'mkt.request.status designer · خلص']);
+  eq((await M.addRequest({ kind: 'video', title: 'x' })).field, 'kind');
+  const a = await M.addRequest({ kind: 'buyer', title: ' حملة   الشتا ', details: 'الوصف سري\r\n9:16', project: ' الشتا ', priority: 'high', followUp: '2026-11-20', attachments: [{ path: 'u1/a.png', name: 'a.png', type: 'image/png', size: 3 }], assigneeRole: 'ميديا باير' });
+  eq([a.ok, a.id, a.request.kind, a.request.title, a.request.project, a.request.mine], [true, 'TKT-0009', 'buyer', 'حملة الشتا', 'الشتا', true]);
+  eq(T.calls.at(-1), ['createRequest', 'media', { title: 'حملة الشتا', description: 'الوصف سري\n9:16', project: 'الشتا', priority: 'high', followUp: '2026-11-20', attachments: [{ path: 'u1/a.png', name: 'a.png', type: 'image/png', size: 3 }], assigneeRole: 'ميديا باير' }]);
+  await M.addRequest({ kind: 'designer', title: 'بوست' }); eq(T.calls.at(-1)[1], 'design'); eq(T.calls.at(-1)[2].description, 'بوست'); // no details → the title
+  eq(logs.map((l) => l[0] + ' ' + l[1]), ['mkt.request.add media', 'mkt.request.add design']);
   assert.ok(!JSON.stringify(logs).includes('سري'));
-  const ops = load(); eq((await ops.M.setRequestStatus(9, 'خلص')).reason, 'forbidden');
-  const none = load({ perms: { 'marketing.view': 'F' } }); eq((await none.M.addRequest({ kind: 'dev', title: 'x' })).reason, 'forbidden');
+  eq([typeof M.editRequest, typeof M.setRequestStatus], ['undefined', 'undefined']); // the work is in «طلبات الفريق»
+  eq(stub.calls.filter((c) => c.table === 'mkt_requests').length, 0);
+  const refused = load({ tickets: tkStub(TKS, { createRequest: async () => ({ ok: false, reason: 'forbidden', message: 'مفيش صلاحية للإجراء ده' }) }) });
+  eq((await refused.M.addRequest({ kind: 'dev', title: 'x' })).reason, 'forbidden');
+  eq((await load().M.addRequest({ kind: 'dev', title: 'x' })).reason, 'network'); // no IBTickets
 });
 
 test('9.5.4 buyerChat: marketing.view; the question (≤ 1000) and the last 6 turns go to ai-content buyer; text back; the refusals in words; the log carries no text', async () => {

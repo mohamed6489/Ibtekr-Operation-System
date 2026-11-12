@@ -632,7 +632,7 @@ export async function installSupabaseMock(page, opts = {}) {
         return json(200, list.map((r) => JSON.parse(JSON.stringify(r))));
       }
       if (method === 'POST' && path === '/rest/v1/rpc/ticket_roles') return u ? json(200, tkRolesOf(mock)) : json(401, { code: '42501', message: 'permission denied' });
-      if (method === 'POST' && (path === '/rest/v1/rpc/ticket_create' || path === '/rest/v1/rpc/ticket_act')) {
+      if (method === 'POST' && (path === '/rest/v1/rpc/ticket_create' || path === '/rest/v1/rpc/ticket_act' || path === '/rest/v1/rpc/ticket_request_create')) {
         const refuse = (status, code, message) => json(status, { code, details: null, hint: null, message });
         const bad = (f) => refuse(400, '22023', 'invalid: ' + f); const deny = (m) => refuse(403, '42501', m);
         if (!u || hasPerm(u, 'tickets.manage') !== 'F') return deny('tickets.manage required');
@@ -646,8 +646,15 @@ export async function installSupabaseMock(page, opts = {}) {
             const obj = mock.ticketObjects.get(f.path); const type = obj ? obj.type : f.type; const size = obj ? obj.size : Number(f.size);
             if (!TK_MIME.includes(type) || !(size >= 0 && size <= 10485760)) return undefined; out.push({ path: f.path, name: tkClean(f.name, 120) || f.path.replace(/^.*\//, ''), type, size }); }
           return out; };
-        if (path.endsWith('ticket_create')) {
-          const i = b.p_input || {}; mock.ticketWrites.push({ fn: 'ticket_create', ...JSON.parse(JSON.stringify(i)) });
+        // 0082: ticket_request_create(kind, project, input) = ticket_create as an internal request of a kind, to the kind's role unless picked
+        const reqKind = path.endsWith('ticket_request_create') ? b.p_kind : null;
+        if (path.endsWith('ticket_request_create')) {
+          if (!['design', 'dev', 'media'].includes(reqKind)) return bad('kind');
+          const KR = { design: 'ديزاينر', dev: 'مبرمج', media: 'ميديا باير' }; const i0 = b.p_input || {};
+          b.p_input = Object.assign({}, i0, { type: 'internal' }, i0.assigneeRole ? {} : { assigneeRole: tkRoleOk(mock, KR[reqKind]) ? KR[reqKind] : 'مدير النظام' });
+        }
+        if (path.endsWith('ticket_create') || reqKind) {
+          const i = b.p_input || {}; mock.ticketWrites.push({ fn: reqKind ? 'ticket_request_create' : 'ticket_create', ...(reqKind ? { kind: reqKind, project: b.p_project || null } : {}), ...JSON.parse(JSON.stringify(i)) });
           if (!['customer', 'vendor', 'internal'].includes(i.type)) return bad('type');
           const title = tkClean(i.title, 1000); if (!title || title.length > 80) return bad('title');
           const description = tkClean(i.description, 5000); if (!description) return bad('description');
@@ -668,6 +675,7 @@ export async function installSupabaseMock(page, opts = {}) {
           } else if (i.type === 'vendor') {
             const v = mock.vendors.find((x) => x.id === i.vendorId); if (!v) return bad('vendor'); if (!TK_VENDOR.includes(i.reason)) return bad('reason'); rec.vendor_id = v.id; rec.vendor = String(v.name).slice(0, 80); rec.reason = i.reason;
           }
+          rec.kind = reqKind || null; rec.project = reqKind ? (tkClean(b.p_project, 60) || null) : null;
           mock.tickets.push(rec); ev(rec, 'event', who.name + ' أنشأ التذكرة وعيّنها لدور «' + rec.assignee_role + '»'); ev(rec, 'message', description);
           return json(200, rec.id);
         }

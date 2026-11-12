@@ -229,10 +229,10 @@ test('the v6 «الأعمال الفنية»: the published posts with their own
   // the tired ad → a designer request, prefilled
   await P.locator('.ads-cr tbody tr', { hasText: 'Lamps video' }).locator('.row-menu, [aria-haspopup=menu]').first().click();
   await page.getByRole('menuitem', { name: 'اطلب نسخة جديدة' }).click();
-  const f = modal(page, 'طلب للديزاينر');
-  await expect(f.locator('input').first()).toHaveValue('نسخة جديدة من «Lamps video»');
-  await f.getByRole('button', { name: 'ابعت الطلب' }).click();
-  await expect.poll(() => mock.mkt.requests.some((q) => q.kind === 'designer' && q.title === 'نسخة جديدة من «Lamps video»')).toBe(true);
+  const f = page.locator('.modal[data-mk-req-form="designer"]'); // 0082: «تقديم طلب للديزاينر» = a design team request
+  await expect(f.locator('#mk-rq-title')).toHaveValue('نسخة جديدة من «Lamps video»');
+  await f.locator('[data-mk-req-send]').click();
+  await expect.poll(() => mock.tickets.some((t) => t.kind === 'design' && t.title === 'نسخة جديدة من «Lamps video»' && t.assignee_role === 'ديزاينر')).toBe(true);
   // «اعمل نسخ زيه» on a post → a new campaign with its idea
   await org.nth(0).locator('.row-menu, [aria-haspopup=menu]').first().click();
   await page.getByRole('menuitem', { name: 'اعمل نسخ زيه' }).click();

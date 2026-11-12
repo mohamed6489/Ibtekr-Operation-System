@@ -680,6 +680,98 @@
     return { ok: true, text: typeof b.text === 'string' ? b.text : '' };
   }
 
+  // ---------- 0084: the assistants' chats like Claude's (the owner 12 Nov — decisions 5 and 6) ----------
+  // the member's own chats only (RLS); the server writes the turns (ai-content agent) and the designer's picture (ai-images
+  // agent_image); the member renames and deletes; the assistants' settings (intro, instructions, quick suggestions) are the admin's.
+  // The log carries the assistant and the chat's id only — never a question, an answer, a title or a prompt.
+  const AGENT_KEYS = ['buyer', 'designer', 'dev'];
+  const CHAT_COLS = 'id, agent, title, created_at, updated_at';
+  const TURN_COLS = 'id, role, text, images, created_at';
+  const toChat = (r) => ({ id: r.id, agent: r.agent, title: clean(r.title, 80) || 'شات جديد', createdAt: r.created_at || null, updatedAt: r.updated_at || r.created_at || null });
+  const toTurn = (r) => ({ id: Number(r.id), role: r.role === 'user' ? 'user' : 'assistant', text: typeof r.text === 'string' ? r.text : '',
+    images: (Array.isArray(r.images) ? r.images : []).filter((x) => typeof x === 'string' && /^agents\/[0-9a-f-]{36}\/[0-9a-f-]{36}\/[A-Za-z0-9._-]{1,80}\.(png|jpe?g|webp)$/.test(x)), at: r.created_at || null });
+  async function agentChats(agent) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!AGENT_KEYS.includes(agent)) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try { const { data: d, error } = await cl.from('mkt_agent_chats').select(CHAT_COLS).eq('agent', agent).order('updated_at', { ascending: false }).limit(50);
+      if (error) return fail(error); return { ok: true, items: (d || []).map(toChat) }; }
+    catch (e) { return fail(null); }
+  }
+  async function agentTurns(chatId) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try { const { data: d, error } = await cl.from('mkt_agent_messages').select(TURN_COLS).eq('chat_id', chatId).order('id', { ascending: true }).limit(300);
+      if (error) return fail(error); return { ok: true, items: (d || []).map(toTurn) }; }
+    catch (e) { return fail(null); }
+  }
+  // a question → the server's answer, written in the chat (made on the first message, named by it)
+  async function agentAsk(agent, chatId, question) {
+    if (!can().view) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!AGENT_KEYS.includes(agent)) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
+    const q = String(question == null ? '' : question).trim().slice(0, 1000); if (!q) return { ok: false, reason: 'invalid', field: 'question', message: 'اكتب رسالتك الأول' };
+    const r = await invoke('ai-content', { action: 'agent', agent, chat_id: chatId || null, question: q });
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'notfound' ? 'الشات ده اتمسح أو مش بتاعك — افتح شات جديد' : r.reason === 'invalid' ? 'اكتب رسالتك الأول' : aiMessage(r, 'text') });
+    const b = r.body || {};
+    if (b.result === 'refused') return { ok: false, reason: 'refused', message: aiMessage({ reason: 'refused' }, 'text') };
+    const chat = b.chat && b.chat.id ? toChat(b.chat) : null;
+    log('agent.chat', agent, chat ? chat.id : null);
+    return { ok: true, text: typeof b.text === 'string' ? b.text : '', imagePrompt: typeof b.imagePrompt === 'string' ? b.imagePrompt : '', chat, turns: (Array.isArray(b.turns) ? b.turns : []).map(toTurn) };
+  }
+  // the designer's picture from the prompt of its answer (the image credits) — the turn comes back with the image's path
+  async function agentImage(chatId, prompt) {
+    if (!can().create) return { ok: false, reason: 'forbidden', message: 'توليد الصور محتاج «التسويق: إنشاء»' };
+    const p = String(prompt == null ? '' : prompt).trim().slice(0, 1000); if (!p || !chatId) return { ok: false, reason: 'invalid', field: 'prompt', message: MESSAGES.invalid };
+    const r = await invoke('ai-images', { action: 'agent_image', chat_id: chatId, prompt: p });
+    if (!r.ok) return Object.assign(r, { message: r.reason === 'notfound' ? 'الشات ده اتمسح أو مش بتاعك' : aiMessage(r, 'image') });
+    const b = r.body || {};
+    if (b.result === 'refused') return { ok: false, reason: 'refused', message: aiMessage({ reason: 'refused' }, 'image') };
+    log('agent.image', 'designer · ' + (Number(b.credits) || 0), chatId);
+    emit();
+    return { ok: true, turn: b.turn ? toTurn(b.turn) : null, credits: Number(b.credits) || 0 };
+  }
+  async function agentRename(id, title) {
+    const t = clean(title, 80); if (!t) return { ok: false, reason: 'invalid', field: 'title', message: 'اكتب اسم للشات' };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try { const { data: d, error } = await cl.from('mkt_agent_chats').update({ title: t }).eq('id', id).select(CHAT_COLS).maybeSingle();
+      if (error) return fail(error); if (!d) return { ok: false, reason: 'notfound', message: MESSAGES.notfound };
+      log('agent.rename', d.agent, id); return { ok: true, chat: toChat(d) }; }
+    catch (e) { return fail(null); }
+  }
+  async function agentDelete(id) {
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try { const { error } = await cl.rpc('mkt_agent_chat_delete', { p_id: id }); if (error) return fail(error); log('agent.delete', '', id); return { ok: true }; }
+    catch (e) { return fail(null); }
+  }
+  let agentCfg = null; let agentCfgAt = 0;
+  const cfgOf = (x) => { const o = x && typeof x === 'object' ? x : {}; return { intro: typeof o.intro === 'string' ? o.intro : '', instructions: typeof o.instructions === 'string' ? o.instructions : '',
+    suggestions: Array.isArray(o.suggestions) ? o.suggestions.filter((v) => typeof v === 'string' && v.trim()).slice(0, 8) : null }; };
+  async function agentSettings(force) {
+    if (!can().view && !isAdmin()) return { ok: false, reason: 'forbidden', message: MESSAGES.forbidden };
+    if (!force && agentCfg && Date.now() - agentCfgAt < 60000) return { ok: true, agents: agentCfg };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try { const { data: d, error } = await cl.rpc('mkt_agent_settings'); if (error) return fail(error);
+      const o = d && typeof d === 'object' ? d : {}; agentCfg = { buyer: cfgOf(o.buyer), designer: cfgOf(o.designer), dev: cfgOf(o.dev) }; agentCfgAt = Date.now();
+      return { ok: true, agents: agentCfg }; }
+    catch (e) { return fail(null); }
+  }
+  const agentSettingsNow = () => agentCfg;
+  async function agentSettingsSet(agent, cfg) {
+    if (!isAdmin()) return { ok: false, reason: 'forbidden', message: 'إعدادات المساعدين للأدمن بس' };
+    if (!AGENT_KEYS.includes(agent)) return { ok: false, reason: 'invalid', field: 'agent', message: MESSAGES.invalid };
+    const x = cfg && typeof cfg === 'object' ? cfg : {}; const body = {};
+    if (x.intro !== undefined) body.intro = String(x.intro || '').trim();
+    if (x.instructions !== undefined) body.instructions = String(x.instructions || '').replace(/\r\n?/g, '\n').trim();
+    if (x.suggestions !== undefined) body.suggestions = (Array.isArray(x.suggestions) ? x.suggestions : []).map((v) => clean(v, 80)).filter(Boolean);
+    const bad = body.intro && body.intro.length > 600 ? 'intro' : body.instructions && body.instructions.length > 4000 ? 'instructions' : body.suggestions && body.suggestions.length > 8 ? 'suggestions'
+      : /[<>]/.test([body.intro, body.instructions].concat(body.suggestions || []).join(' ')) ? 'text' : null;
+    if (bad) return { ok: false, reason: 'invalid', field: bad, message: { intro: 'التعريف لحد 600 حرف', instructions: 'التعليمات لحد 4000 حرف', suggestions: 'لحد 8 اقتراحات', text: 'من غير < أو >' }[bad] };
+    const cl = c(); if (!cl) return { ok: false, reason: 'network', message: MESSAGES.network };
+    try { const { data: d, error } = await cl.rpc('mkt_agent_settings_set', { p_agent: agent, p_cfg: body }); if (error) return fail(error);
+      if (agentCfg) agentCfg[agent] = cfgOf(d); log('agent.settings', agent + ' · ' + Object.keys(body).join(', '), null); return { ok: true, cfg: cfgOf(d) }; }
+    catch (e) { return fail(null); }
+  }
+
   // ---------- the templates (decision 17) ----------
   const tplRow = (f) => { const o = {}; const x = f || {};
     if (x.name !== undefined) o.name = clean(x.name, 80);
@@ -765,6 +857,7 @@
     connection, connNow, setAutopublish, publishNow, deleteLive, preparePublish,
     adsStatus, adsNow, adsSync, adsData, adsLinkSet, adsLinkStart, adsLinkPick, adsUnlink, adsWhy,
     suggestions, suggNow, decide, rules, rulesNow, rulesSet, setLive, requests, reqsNow, addRequest, REQ_KIND: KIND_OF, buyerChat,
+    agentChats, agentTurns, agentAsk, agentImage, agentRename, agentDelete, agentSettings, agentSettingsNow, agentSettingsSet, AGENT_KEYS,
     addTemplate, editTemplate, removeTemplate, templateUsed, subscribe, unsubscribe, check, MAX_BYTES, MIME, BUCKET,
-    _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules } };
+    _test: { toCampaign, toPost, toTemplate, fail, aiMessage, fieldsOf, tplRow, pubMessage, toSuggestion, toRequest, toRules, toChat, toTurn } };
 })();

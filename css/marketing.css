@@ -388,3 +388,35 @@ body.cal-dragging,body.cal-dragging * { cursor:grabbing !important;user-select:n
 .vid-big.tall { width:min(100%,300px);aspect-ratio:9/16 }.vid-big.wide { width:100%;aspect-ratio:16/9 }.vid-big.sq { width:min(100%,380px);aspect-ratio:1 }
 @media (max-width:1023px) { .cw-av { grid-template-columns:1fr } }
 @media (max-width:767px) { .cw-scene .cw-grid { grid-template-columns:1fr } .cw-method { width:100% } .cw-method .cw-rd { height:44px;width:100% } .cw-gen .btn { min-height:44px } }
+
+/* 0084 (the owner 12 Nov): the assistants' chats like Claude's — the history on the side, the chat beside it, ⚙️ / «تقديم طلب» /
+   the expand button in the chat's head (the same button shrinks it back); under 768px the history sits above the chat */
+#pg-marketing .mk-agent { display:grid;grid-template-columns:240px minmax(0,1fr);gap:0;padding:0;overflow:hidden;margin-bottom:16px }
+#pg-marketing .mk-agent-side { display:flex;flex-direction:column;gap:10px;padding:12px;border-inline-end:1px solid var(--color-border-default);background:var(--color-bg-subtle, var(--color-bg-base));min-height:0;max-height:640px;overflow:auto }
+#pg-marketing .mk-agent-list { display:flex;flex-direction:column;gap:2px }
+#pg-marketing .mk-agent-row { display:flex;align-items:center;gap:4px;border-radius:var(--radius-sm) }
+#pg-marketing .mk-agent-row.on { background:var(--color-success-bg) }
+#pg-marketing .mk-agent-open { flex:1;min-width:0;display:flex;flex-direction:column;align-items:flex-start;gap:2px;padding:8px 10px;border:0;background:none;font:inherit;text-align:start;cursor:pointer;border-radius:var(--radius-sm);color:inherit }
+#pg-marketing .mk-agent-open:hover { background:var(--color-bg-hover, rgba(0,0,0,.04)) }
+#pg-marketing .mk-agent-open b { display:block;max-width:100%;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-weight:600 }
+#pg-marketing .mk-agent-main { display:flex;flex-direction:column;gap:12px;padding:14px 16px;min-width:0 }
+#pg-marketing .mk-agent-head { display:flex;align-items:center;justify-content:space-between;gap:12px;flex-wrap:wrap }
+#pg-marketing .mk-agent-title { display:flex;flex-direction:column;gap:2px;min-width:0 }
+#pg-marketing .mk-agent-tools { display:flex;gap:8px;flex-wrap:wrap;align-items:center }
+#pg-marketing .mk-agent .mk-chat { min-height:280px }
+#pg-marketing .mk-agent-chips { margin:0 }
+#pg-marketing .mk-msg-imgs { display:flex;gap:8px;flex-wrap:wrap;margin:4px 0 }
+#pg-marketing .mk-msg-imgs .thumb { width:220px;height:auto;aspect-ratio:4/5;border-radius:var(--radius-sm);overflow:hidden }
+#pg-marketing .mk-msg-imgs img { width:100%;height:100%;object-fit:cover;display:block }
+#pg-marketing .mk-msg-gen { display:flex;flex-direction:column;gap:6px;align-items:flex-start;margin:6px 0 2px }
+#pg-marketing .mk-agent-under { margin-top:0 }
+#pg-marketing .mk-agent-full { position:fixed;inset:12px;z-index:60;margin:0;box-shadow:var(--shadow-card, 0 0 6px rgba(0,0,0,.25)) }
+#pg-marketing .mk-agent-full .mk-agent-side { max-height:none }
+#pg-marketing .mk-agent-full .mk-chat { max-height:none;flex:1 }
+#pg-marketing .mk-agent-full .mk-agent-main { min-height:0 }
+@media (max-width:767px) {
+  #pg-marketing .mk-agent { grid-template-columns:1fr }
+  #pg-marketing .mk-agent-side { border-inline-end:0;border-bottom:1px solid var(--color-border-default);max-height:220px }
+  #pg-marketing .mk-msg-imgs .thumb { width:100% }
+  #pg-marketing .mk-agent-full { inset:0 }
+}

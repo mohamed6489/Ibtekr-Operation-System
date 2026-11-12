@@ -98,7 +98,7 @@
 
 /* phase 6.5 — the auto-reply page (v6) and the composer's «/» suggestions */
 .ar-wrap{display:flex;flex-direction:column;gap:16px}
-.ar-body{display:block}
+/* the owner 12 Nov: the auto-reply page keeps the page body's rule (a column, 16px between its parts) like the rest of the system */
 .rule-info{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px}
 .tp-trig .trig-opts{display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:8px 16px;margin:4px 0}
 .cond .select,.cond .field{margin:0}

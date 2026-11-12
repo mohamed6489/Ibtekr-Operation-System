@@ -390,29 +390,76 @@
     if (card && (card.classList.contains('table-card') || card.classList.contains('sec') || card.classList.contains('card'))) card.classList.add('tbl-v2');
     return card;
   }
-  function stdTables(root) { if (root && root.querySelectorAll) root.querySelectorAll('table').forEach(stdCard); }
-  // the owner 12 Nov («خانة بحث صغيرة جمب تايتل الجدول بحيث تساعد المستخدم يدور بشكل اسرع على المعلومة جوة الجدول»): a small search next to
-  // the title of every table card (3 columns or more); it hides the rows without the words (Arabic letters folded) and keeps what was
-  // typed while the table redraws. A table whose page already has its own search (one that reads every page — the products, the
-  // makers, the tickets, the customers…) keeps that one only; data-no-tq on a card or above it opts out.
-  const tqMem = {};
+  // a table card that shows its empty state (the search left no rows) still holds the page's search in its row
+  const emptyCards = (root) => root.querySelectorAll('.table-card, .tbl-v2, .own-filter').forEach((c) => { if (!c.querySelector('table') && !c.closest('.modal, .drawer, [role=dialog]')) tableSearch(c, null); });
+  function stdTables(root) { if (root && root.querySelectorAll) { root.querySelectorAll('table').forEach((t) => { const c = stdCard(t); if (c) tableSearch(c, t); }); emptyCards(root); } }
+  // the owner 12 Nov — first («خانة بحث صغيرة جمب تايتل الجدول») a small box next to the title; then the standard look for every table
+  // (his mockup, «ده شكل مبدئي لكل الجداول في السيستم»): the card header holds «بحث» next to «فلتر» / «ترتيب» / the columns icon; «بحث»
+  // opens a full-width search row under the header with «إغلاق» next to it (the button green while it is open, like its neighbours when
+  // closed); the filter chips sit under the search, and the search looks only through the rows the filters left. A page's own search (it
+  // reads the whole list, every page of it — the products, the makers, the tickets, the customers…) moves into that row as it is;
+  // a page search farther away keeps the table without one; data-no-tq on a card or above it opts out.
+  const tqMem = {}; // key → { q, open } for this session
+  const tqOk = (x) => x && !x.closest('.menu, .modal, .drawer, [role=dialog], [data-tq-row]');
+  function ownSearch(card) {
+    const inCard = [...card.querySelectorAll('input[type=search]')].find(tqOk); if (inCard) return inCard;
+    let s = card.previousElementSibling;
+    for (let k = 0; s && k < 3; k++, s = s.previousElementSibling) { if (s.querySelector('table')) break; const x = s.matches('input[type=search]') ? s : [...s.querySelectorAll('input[type=search]')].find(tqOk); if (x) return x; }
+    return null;
+  }
   function tableSearch(card, t) {
-    if (!card || !t || card.querySelector('[data-tq]') || card.closest('[data-no-tq]')) return;
-    const near = card.parentElement; if (near && [...near.querySelectorAll('input[type=search]')].some((x) => !x.closest('.menu, .modal, .drawer, [data-tq]'))) return;
+    if (!card || card.querySelector('[data-tq-btn]') || card.closest('[data-no-tq]')) return;
     const head = card.querySelector(':scope>.table-title, :scope>.sec-h, :scope>.cons-h'); if (!head) return;
-    const title = head.querySelector('h2, h3'); if (!title || !t.tBodies.length) return;
-    const name = (title.textContent || '').trim(); const key = name + '|' + colHeads(t).slice(0, 3).join('|');
-    const inp = h('input', { type: 'search', placeholder: 'دوّر في الجدول…', 'aria-label': 'دوّر في ' + (name || 'الجدول'), autocomplete: 'off', value: tqMem[key] || '' });
-    const run = () => { tqMem[key] = inp.value; const q = foldAr(inp.value); const tb = card.querySelector('table'); if (!tb) return; let n = 0;
-      [...tb.tBodies].forEach((b) => [...b.rows].forEach((r) => { if (r.classList.contains('tq-none')) return; const hit = !q || foldAr(r.textContent).includes(q); r.classList.toggle('tq-hide', !hit); if (hit) n++; }));
-      let none = tb.querySelector('tr.tq-none'); if (q && !n) { if (!none) { none = h('tr', { class: 'tq-none' }, h('td', { colspan: String(colHeads(tb).length || 1), class: 't-small help' }, 'مفيش صفوف فيها «' + inp.value + '»')); tb.tBodies[0].append(none); } else none.querySelector('td').textContent = 'مفيش صفوف فيها «' + inp.value + '»'; } else if (none) none.remove(); };
-    inp.addEventListener('input', run);
-    const box = h('label', { class: 'tq', 'data-tq': key }, Icon('search', 'sm'), inp);
-    const line = h('div', { class: 'tq-line' }); title.replaceWith(line); line.append(title, box);
-    if (inp.value) run();
+    const title = head.querySelector('h2, h3'); if (!title) return;
+    const own = ownSearch(card);
+    if (!own && (!t || !t.tBodies.length)) return; // a table card showing its empty state (no rows for the search) keeps its own search in place
+    const near = card.parentElement; if (!own && near && [...near.querySelectorAll('input[type=search]')].some((x) => tqOk(x) && !card.contains(x))) return;
+    const name = (title.textContent || '').trim();
+    const key = own ? 'own:' + (own.getAttribute('aria-label') || own.getAttribute('placeholder') || name) : name.replace(/[\d٠-٩,.]+/g, '#') + '|' + colHeads(t).slice(0, 3).join('|');
+    const mem = (tqMem[key] = tqMem[key] || { q: '', open: false });
+    let inp;
+    if (own) {
+      // the page's own search moves in as it is (its listeners and its id stay; a focused box keeps the focus and the caret)
+      inp = own; const had = document.activeElement === own; const a = own.selectionStart, b = own.selectionEnd;
+      const wrap = own.closest('label.search-field, .search-field, label.search, label.tq'); const bar = (wrap || own).parentElement;
+      own.classList.remove('input'); own.style.width = ''; own.style.maxWidth = '';
+      own.remove(); if (wrap && !wrap.querySelector('input, select, button, textarea')) wrap.remove();
+      if (bar && bar !== head && !bar.contains(t) && bar.classList.contains('toolbar') && !bar.children.length) bar.hidden = true;
+      inp._tqHad = had ? [a, b] : null;
+      if (own.value) mem.open = true;
+    } else {
+      inp = h('input', { type: 'search', autocomplete: 'off', value: mem.q });
+    }
+    inp.setAttribute('placeholder', own ? (own.getAttribute('placeholder') || 'ابحث عن…') : 'ابحث عن…');
+    if (!inp.getAttribute('aria-label')) inp.setAttribute('aria-label', 'بحث في ' + (name || 'الجدول'));
+    inp.setAttribute('data-tq', key);
+    const run = () => { if (own) return; mem.q = inp.value; const q = foldAr(inp.value); const tb = card.querySelector('table'); if (!tb) return; let n = 0;
+      [...tb.tBodies].forEach((bd) => [...bd.rows].forEach((r) => { if (r.classList.contains('tq-none')) return; const hit = !q || foldAr(r.textContent).includes(q); r.classList.toggle('tq-hide', !hit); if (hit && !r.classList.contains('af-hide')) n++; }));
+      let none = tb.querySelector('tr.tq-none'); const msg = 'مفيش صفوف فيها «' + inp.value + '»';
+      if (q && !n) { if (!none) { none = h('tr', { class: 'tq-none' }, h('td', { colspan: String(colHeads(tb).length || 1), class: 't-small help' }, msg)); tb.tBodies[0].append(none); } else none.querySelector('td').textContent = msg; } else if (none) none.remove(); };
+    if (!own) inp.addEventListener('input', run);
+    const btn = h('button', { type: 'button', class: 'tq-btn', 'aria-expanded': String(mem.open), 'aria-label': 'بحث في ' + (name || 'الجدول'), 'data-tq-btn': key }, Icon('search', 'sm'), h('span', null, 'بحث'));
+    const row = h('div', { class: 'tq-row', 'data-tq-row': key });
+    const setOpen = (v, focus) => { mem.open = v; row.hidden = !v; btn.setAttribute('aria-expanded', String(v));
+      if (v) { if (focus) inp.focus(); return; }
+      if (!inp.value) return; inp.value = ''; if (!own) { run(); return; }
+      inp.dispatchEvent(new Event('input', { bubbles: true })); inp.dispatchEvent(new Event('change', { bubbles: true })); };
+    btn.addEventListener('click', () => setOpen(!mem.open, true));
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Escape') { e.preventDefault(); e.stopPropagation(); setOpen(false); btn.focus(); } });
+    row.append(h('label', { class: 'input tq-field' }, Icon('search', 'sm'), inp), Button({ type: 'text', size: 'sm', label: 'إغلاق', attrs: { 'data-tq-close': '' }, onClick: () => { setOpen(false); btn.focus(); } }));
+    row.hidden = !mem.open;
+    // «بحث» first among the table's controls: before the filter / the sort / the columns icon (they come after it), else at the end
+    let acts = head.querySelector('.acts, .acts-inline'); if (!acts) { acts = h('div', { class: 'acts' }); head.append(acts); }
+    const ctlOf = (sel) => { const x = acts.querySelector(sel); return x ? (x.closest('.pop-anchor') && acts.contains(x.closest('.pop-anchor')) ? x.closest('.pop-anchor') : x) : null; };
+    const first = ctlOf('[data-fm-btn]') || ctlOf('[data-sm-btn]') || ctlOf('[data-cols]');
+    if (first && first.parentElement) first.before(btn); else acts.append(btn);
+    head.after(row);
+    if (inp._tqHad) { const [a, b] = inp._tqHad; inp._tqHad = null; inp.focus(); try { inp.setSelectionRange(a, b); } catch (e) { /* a search box without a caret */ } }
+    if (!own && inp.value) run();
   }
   function sweepColumns(root) {
     if (!root || !root.querySelectorAll) return;
+    emptyCards(root);
     root.querySelectorAll('table').forEach((t) => {
       if (t.closest('.modal, .drawer, [role=dialog]')) return;
       tableSearch(stdCard(t), t);

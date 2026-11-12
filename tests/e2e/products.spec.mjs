@@ -62,7 +62,7 @@ test('filters and sort: status chips, brand / category multi-selects, search by 
   await expect(page.locator('#pg-products .acts:has([data-sm-btn="products"]) [data-fm-btn="products"]')).toHaveCount(1); // the owner 12 Nov: «فلتر» next to the sort
   // the owner 12 Nov (a try on the products first): the search sits in the records card's header, right before «فلتر», and the header's
   // buttons are centred on the title block
-  expect(await page.locator('#pg-products .pr-rec > .sec-h .acts').evaluate((a) => [...a.children].slice(0, 2).map((x) => x.matches('.search-field') ? 'search' : x.querySelector('[data-fm-btn]') ? 'filter' : '?'))).toEqual(['search', 'filter']);
+  expect(await page.locator('#pg-products .pr-rec > .sec-h .acts').evaluate((a) => [...a.children].slice(0, 2).map((x) => x.matches('[data-tq-btn]') ? 'search' : x.querySelector('[data-fm-btn]') ? 'filter' : '?'))).toEqual(['search', 'filter']); // the owner 12 Nov: «بحث» then «فلتر»
   await expect(page.locator('#pg-products .pr-rec > .sec-h')).toHaveCSS('align-items', 'center');
   await page.locator('[data-pstatus="draft"]').click();
   await expect(rows).toHaveCount(1);
@@ -96,6 +96,7 @@ test('filters and sort: status chips, brand / category multi-selects, search by 
   expect(await rows.count()).toBeGreaterThanOrEqual(lit);
   await expect(fbtn.locator('.val')).toHaveText('فلتر (2)');
   await page.getByRole('button', { name: 'مسح الفلاتر' }).click();
+  await page.locator('#pg-products [data-tq-btn]').click(); // the owner 12 Nov: «بحث» opens the search row under the header
   await page.fill('#pg-products input[type=search]', 'ibtk20035');
   await expect(rows).toHaveCount(1);
   await page.fill('#pg-products input[type=search]', '');

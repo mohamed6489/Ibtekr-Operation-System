@@ -124,6 +124,7 @@ test('0031 (the owner, 2 Nov): a maker whose store is gone from the site is mark
 
 test('search finds a maker by an alias', async ({ page }) => {
   await openVendors(page);
+  await page.locator('#vendors [data-tq-btn]').click(); // «بحث» opens the search row (the owner 12 Nov)
   const search = page.locator('#vendors input[type=search]');
   await search.fill('artcraft');
   await expect(rows(page)).toHaveCount(1);
@@ -464,6 +465,7 @@ test('a maker name and a note with html render as text in the list, the search a
   const v = mock.vendors.find((x) => x.id === V1); v.name = XSS_NAME; v.notes = EVIL; v.aliases = [EVIL];
   await openVendors(page);
   await expect(row(page, V1)).toContainText(XSS_NAME);
+  await page.locator('#vendors [data-tq-btn]').click();
   await page.locator('#vendors input[type=search]').fill('<img');
   await expect(rows(page)).toHaveCount(1);
   await openDrawer(page, V1);

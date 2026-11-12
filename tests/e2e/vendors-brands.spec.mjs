@@ -105,6 +105,7 @@ test('the admin: the automatic brand in «البراندات» (code, aliases, �
   // the search: the hand-added brand of Art Craft by its name and by its alias; the grey line under his name
   await expect(row(page, V1).locator('[data-brands]')).toHaveText('Wood & Rope');
   await expect(row(page, V2).locator('[data-brands]')).toHaveCount(0); // the automatic brand carries his own name
+  await page.locator('#vendors [data-tq-btn]').click(); // «بحث» opens the search row (the owner 12 Nov)
   const search = page.locator('#vendors input[type=search]');
   await search.fill('wood');
   await expect(rows(page)).toHaveCount(1);

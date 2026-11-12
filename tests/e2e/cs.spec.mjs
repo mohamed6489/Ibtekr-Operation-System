@@ -86,6 +86,7 @@ test('customers: the list from the orders + the manual lead, KPIs, a new lead, t
   expect(mock.csWrites.find((w) => w.table === 'cs_customers' && w.op === 'insert')).toMatchObject({ name: 'رحاب محمود', city: 'القاهرة', created_from: 'manual' });
   expect(JSON.stringify(mock.csWrites)).not.toContain('01011122233');
   // search then the profile
+  await P.getByRole('button', { name: 'بحث في عملاء إبتكر' }).click(); // the owner 12 Nov: «بحث» opens the page's search in a row under the header
   await P.locator('#cust-q').fill('سلوى');
   await expect(P.locator('.cs-cust tbody tr')).toHaveCount(1);
   await P.locator('.cs-cust .who-cell').first().click();

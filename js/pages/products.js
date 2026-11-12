@@ -165,8 +165,9 @@
     const prFilter = prFilterMenu([{ key: 'brand', label: 'البراند', options: brandNames.map((x) => [x, x]) }, { key: 'vendor', label: 'المبتكر', options: vendors.map((x) => [x, x]) },
       { key: 'category', label: 'القسم', options: catOpts }, { key: 'stock', label: 'المخزون', options: ['متاح', 'قليل', 'نفد', 'حسب الطلب'].map((x) => [x, x]) },
       { key: 'type', label: 'النوع', options: [['Simple', 'Simple'], ['Variable', 'Variable']] }]);
-    const filters = h('div', { class: 'toolbar pr-filters' }, searchBox(),
-      any ? Button({ type: 'text', size: 'sm', label: 'مسح الفلاتر', onClick: () => { clearFilters(); R(); } }) : null);
+    // the owner 12 Nov («إنقل خانة البحث جمب ايقونة الفلتر وخلي الزراير سنتر … مع التايتل … طبقوا بس على المنتجات»): the search sits in the
+    // records card's header next to «فلتر», the header's buttons centred on the title block
+    const filters = any ? h('div', { class: 'toolbar pr-filters' }, Button({ type: 'text', size: 'sm', label: 'مسح الفلاتر', onClick: () => { clearFilters(); R(); } })) : null;
     const sel = [...st.sel].map(byId).filter(Boolean);
     const bulk = sel.length && (C.bulk || C.trash) ? h('div', { class: 'bulk-bar', role: 'region', 'aria-label': 'إجراءات على المحدد' }, h('b', null, 'محدد ' + K.n0(sel.length)), h('span', { class: 'grow' }),
       C.bulk ? Button({ size: 'sm', label: 'تعديل السعر', onClick: () => bulkPrice(sel) }) : null, C.bulk ? Button({ size: 'sm', label: 'تعديل المخزون', onClick: () => bulkStock(sel) }) : null,
@@ -198,7 +199,7 @@
     if (list.length) table.querySelectorAll('td[data-l^="[object"]').forEach((td) => { const th = table.querySelectorAll('thead th')[td.cellIndex]; td.dataset.l = th ? th.textContent.replace(/[↓↑↕]/g, '').trim() : ''; });
     const pager = list.length ? h('div', { class: 'pager t-small' }, h('span', { 'data-pager': '' }, K.n0(st.pageN * PAGE + 1) + '–' + K.n0(st.pageN * PAGE + shown.length) + ' من ' + K.n0(list.length)),
       h('span', { class: 'acts-inline' }, Button({ size: 'sm', label: 'السابق', disabled: st.pageN === 0, onClick: () => { st.pageN--; R(); window.scrollTo(0, 0); } }), Button({ size: 'sm', label: 'التالي', disabled: st.pageN >= pages - 1, onClick: () => { st.pageN++; R(); window.scrollTo(0, 0); } }))) : null;
-    return [statusChips(), filters, bulk, h('section', { class: 'card sec own-filter' }, h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, 'سجل المنتجات'), h('div', { class: 't-small sub' }, K.n0(list.length) + ' منتج معروض')), h('div', { class: 'acts' }, prFilter, prSortMenu())), h('div', { class: 'sec-b' }, prChips(list), table, pager))];
+    return [statusChips(), filters, bulk, h('section', { class: 'card sec own-filter pr-rec' }, h('div', { class: 'sec-h' }, h('div', null, h('h2', { class: 't-h5' }, 'سجل المنتجات'), h('div', { class: 't-small sub' }, K.n0(list.length) + ' منتج معروض')), h('div', { class: 'acts' }, searchBox(), prFilter, prSortMenu())), h('div', { class: 'sec-b' }, prChips(list), table, pager))];
   }
   /* phase 13 decision 56 (owner 11 Nov — «تاب للأقسام جوه المنتجات يبان فيها كل قسم والأقسام الفرعية اللي تحتيه مع إمكانية إضافة قسم جديد أو
      أقسام فرعية»), its look by B4 (the owner, 11 Nov): the site's tree (the mirror woo_categories) — a main category is a green card

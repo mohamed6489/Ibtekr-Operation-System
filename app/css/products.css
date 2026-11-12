@@ -149,3 +149,11 @@
 /* the ⋮ is brand green everywhere (app.css .ic-more): beige on the green header, and a light hover there */
 .cat-main-h .ic.ic-more,.cat-main-h button .ic.ic-more,.cat-main-h button:hover .ic.ic-more{color:var(--color-text-on-brand);stroke:var(--color-text-on-brand)}
 .cat-main-h .icon-btn:hover{background:rgba(255,247,239,.16)}
+
+/* the owner 12 Nov — the records card (a try on the products before the other tables): the search in the header next to «فلتر»,
+   the header's buttons centred on the title block */
+#pg-products .pr-rec.tbl-v2>.sec-h,#pg-products .pr-rec>.sec-h{align-items:center}
+#pg-products .pr-rec>.sec-h .acts .search-field{height:32px;min-width:220px;flex:0 1 260px;background:var(--color-bg-base)}
+@media (max-width:767px){#pg-products .pr-rec>.sec-h .acts .search-field{min-width:0;flex:1 1 100%}}
+@media (min-width:768px){#pg-products .pr-rec>.sec-h .acts{flex-wrap:nowrap}}
+@media (max-width:767px){#pg-products .pr-rec>.sec-h .acts{flex-wrap:wrap}#pg-products .pr-rec>.sec-h .acts>*{flex:0 0 auto}#pg-products .pr-rec>.sec-h .acts>.search-field{flex:1 1 100%}}

@@ -60,6 +60,10 @@ test('filters and sort: status chips, brand / category multi-selects, search by 
   await expect(page.locator('[data-pstatus]')).toHaveText([/^الكل/, /^منشور/, /^مسودة/, /^قيد المراجعة/, /^المهملات/]); // no «نفد»
   await expect(page.locator('#pg-products [data-missing]')).toHaveCount(0);
   await expect(page.locator('#pg-products .acts:has([data-sm-btn="products"]) [data-fm-btn="products"]')).toHaveCount(1); // the owner 12 Nov: «فلتر» next to the sort
+  // the owner 12 Nov (a try on the products first): the search sits in the records card's header, right before «فلتر», and the header's
+  // buttons are centred on the title block
+  expect(await page.locator('#pg-products .pr-rec > .sec-h .acts').evaluate((a) => [...a.children].slice(0, 2).map((x) => x.matches('.search-field') ? 'search' : x.querySelector('[data-fm-btn]') ? 'filter' : '?'))).toEqual(['search', 'filter']);
+  await expect(page.locator('#pg-products .pr-rec > .sec-h')).toHaveCSS('align-items', 'center');
   await page.locator('[data-pstatus="draft"]').click();
   await expect(rows).toHaveCount(1);
   await page.locator('[data-pstatus="all"]').click();

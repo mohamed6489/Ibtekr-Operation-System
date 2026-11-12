@@ -533,18 +533,12 @@
       validate: (f) => K.req(f, ['why'].concat(can().edit ? ['date', 'time'] : [])), submitType: 'danger', submitLabel: can().edit ? 'متضيفهوش وحدد الميتنج' : 'متضيفهوش',
       submit: (f, md) => busy(md, H().overtimeDecide(o.id, 'reject', null, f.why).then((r) => { if (!r.ok || !can().edit) return r; const mt = S.meetings.find((x) => x.ref === 'OT-' + o.dbId && x.dbStatus === 'مطلوب'); /* the server's ref: OT-<id>, not padded */ return mt ? H().meetingUpdate(mt.id, { status: 'اتحدد ميعاد', date: f.date, time: f.time, place: f.place }).then(() => r) : r; }), () => K.toast('اترفض واتعمل ميتنج فردي')) });
   }
-  // the old KPI / extras / meetings popups and the settings lists went with the rebuild (0083): «ملفي» keeps scheduleMeeting for now
-  function scheduleMeeting(m, existing) {
-    K.form({ title: 'تحديد ميتنج', values: { member: m ? m.id : '', date: H().addDays(today(), 2), time: '12:00', place: 'المكتب', reason: '' }, note: existing ? U.InlineNote({ children: existing.reason }) : null,
-      fields: (f, e, set) => [existing ? null : K.field.select('member', 'العضو', members(), f, e, set, { required: true }), K.two(K.field.date('date', 'اليوم', f, e, set, { required: true }), K.field.select('time', 'الساعة', ['10:00', '11:00', '12:00', '13:00', '14:00', '15:00', '16:00'], f, e, set, { required: true })), K.field.select('place', 'المكان', ['المكتب', 'أونلاين'], f, e, set), existing ? null : K.field.select('reason', 'السبب', ['ربع سيئ', 'إنذار في الشهر', 'متابعة خطة تحسين', 'أخرى'], f, e, set, { required: true })],
-      validate: (f) => K.req(f, ['date', 'time'].concat(existing ? [] : ['member', 'reason'])), submitLabel: 'تحديد الميتنج',
-      submit: (f, md) => busy(md, existing ? H().meetingUpdate(existing.id, { status: 'اتحدد ميعاد', date: f.date, time: f.time, place: f.place }) : H().meetingCreate({ member: f.member, reason: f.reason, status: 'اتحدد ميعاد', date: f.date, time: f.time, place: f.place }), () => K.toast('اتحدد الميتنج', 'success')) });
-  }
+  // the old KPI / extras / meetings popups and the settings lists went with the rebuild (0083 — decision 1)
 
   // the HR rows changed (a write, the live line, a reload): draw again when the page is open
   document.addEventListener('ib:hr', () => { if (window.IBPages.current === 'hr') R(); });
   // the old prototype's api for the blocks not on IBHR yet (the profile — T7; the bell / dashboard read these helpers)
   const slipOf = (m) => { const L = st.lines[thisMonth()]; const p = L && L.lines ? slipFor(L.lines, m) : null; return p || O.payslip({ salary: m.salary || 0, holdback: m.holdback || 0, bonus: m.allow || 0 }); };
   window.IBPages.register('hr', { title: 'الموارد البشرية', hash: (hs) => { const m = /^hr(?:-(overview|team|requests|payroll|evals|log|reports|settings))?$/.exec(hs); if (!m) return false; if (m[1] === 'settings') { setTimeout(() => { location.hash = 'settings-hr'; }, 0); return true; } st.tab = !m[1] || m[1] === 'requests' ? 'overview' : m[1]; return true; }, defaultHash: () => 'hr-' + st.tab, view,
-    api: { addMember, decide: (r, s, reason) => decide(r, s, reason), rejectReq, reqDetails, otAdd, otReject, leaveRequest, advanceRequest, remoteRequest, newPassword, slipModal: (p, mk, status) => payslipModal(p, mk, status), payslipModal: (m) => { const L = linesOf(thisMonth()); const p = slipFor(L.lines, m); if (p) payslipModal(p, thisMonth()); else K.toast('القسيمة لسه بتتحسب — جرّب كمان شوية'); }, slipOf, manualAtt, uploadContract, scheduleMeeting, status, pendingCount, isPending, reqPeriod, qScore: (id) => qScore(id), cancelReq, present } });
+    api: { addMember, decide: (r, s, reason) => decide(r, s, reason), rejectReq, reqDetails, otAdd, otReject, leaveRequest, advanceRequest, remoteRequest, newPassword, slipModal: (p, mk, status) => payslipModal(p, mk, status), payslipModal: (m) => { const L = linesOf(thisMonth()); const p = slipFor(L.lines, m); if (p) payslipModal(p, thisMonth()); else K.toast('القسيمة لسه بتتحسب — جرّب كمان شوية'); }, slipOf, manualAtt, uploadContract, status, pendingCount, isPending, reqPeriod, qScore: (id) => qScore(id), cancelReq, present } });
 })();

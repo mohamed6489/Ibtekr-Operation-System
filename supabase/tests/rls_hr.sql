@@ -184,7 +184,7 @@ begin
   exception when invalid_parameter_value then null; end;
   update public.hr_kpis set weight = 40 where id = k2;
 
-  -- the advance (approved by the admin this month → the installments start next month)
+  -- the advance (approved by the admin this month → all of it off this month's salary — 0083, the owner 12 Nov)
   perform public.hr_request_decide((select v::bigint from hr_ids where k = 'adv'), 'موافق');
   insert into public.hr_adjustments (member_id, month, amount, label) values ('00000000-0000-4000-8000-0000000046a3', v_month, -150, 'خصم تأخير');
 
@@ -193,8 +193,8 @@ begin
   perform public.hr_payroll_step(v_month, 'مراجعة');
   perform public.hr_payroll_step(v_month, 'معتمد');
   select * into v_line from public.hr_payroll_lines where month = v_month and member_id = '00000000-0000-4000-8000-0000000046a3';
-  -- 9600 − 1000 = 8600 · overtime 45 min at 9600/24/8 = 50/h → 37.50 · allowances 200 · deduction 150 · advance from next month only
-  if v_line.paid <> 8600 or v_line.ot_minutes <> 45 or v_line.ot_pay <> 37.5 or v_line.allowances <> 200 or v_line.deductions <> 150 or v_line.advance <> 0 or v_line.rest_days <> 0 then
+  -- 9600 − 1000 = 8600 · overtime 45 min at 9600/24/8 = 50/h → 37.50 · allowances 200 · deduction 150 · the advance 6,000 whole this month
+  if v_line.paid <> 8600 or v_line.ot_minutes <> 45 or v_line.ot_pay <> 37.5 or v_line.allowances <> 200 or v_line.deductions <> 150 or v_line.advance <> 6000 or v_line.rest_days <> 0 then
     raise exception 'case the payslip line failed (%)', row_to_json(v_line);
   end if;
   v_net := v_line.net;
